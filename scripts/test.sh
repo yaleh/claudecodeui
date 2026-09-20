@@ -135,7 +135,11 @@ classify_failure_kind() {
       fi
       ;;
     client)
-      case "${failed:-0}" in ''|*[!0-9]*) failed=0 ;; esac
+      # Normalise the tally BEFORE the arithmetic test. The subject must be the raw value: a
+      # `:-0` default here would make an empty tally subject the string "0", which matches neither
+      # branch, so the assignment would silently not happen and `[ "" -gt 0 ]` would both error on
+      # stderr and skip the assertion tally it exists to read.
+      case "$failed" in ''|*[!0-9]*) failed=0 ;; esac
       if [ "$failed" -gt 0 ]; then echo assert; return 0; fi
       ;;
     stage) : ;;                      # no framework tally to read: the envelope below decides

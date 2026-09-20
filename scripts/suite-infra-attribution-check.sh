@@ -12,6 +12,8 @@
 #
 # It does NOT feed synthetic strings to the parser: every scenario really runs scripts/test.sh
 # (scoped to one fixture, so no typecheck/lint and no full suite) and reads the report it printed.
+# Each scenario additionally asserts the report carries no bash diagnostic (a broken normaliser in
+# the instrumentation shows up there first, e.g. `[: : integer expression expected`).
 #
 # SCENARIOS
 #   1 infra/spawn-timeout  a fixture that never returns, under a 4s per-file bound => timeout(1)
@@ -136,6 +138,16 @@ assert_legacy_shape() {
   pass "legacy line shapes intact for $label (__PERFILE__ still matches quay's anchored regex, 'not ok -' line present)"
 }
 
+# assert_no_shell_diagnostics <report> — a report is read by a machine and by whoever is on call;
+# a bash diagnostic inside it means the instrumentation itself is broken (e.g. an arithmetic test on
+# an unnormalised value), and it is exactly the kind of noise that makes a red unattributable.
+assert_no_shell_diagnostics() {
+  local out="$1" hit
+  hit="$(grep -nE 'integer expression expected|unbound variable' "$out" | head -1)"
+  [ -z "$hit" ] || fail "scripts/test.sh wrote a shell diagnostic into its own report: $hit"
+  pass "report carries no shell diagnostics"
+}
+
 # ---------------------------------------------------------------------------------------------
 SCENARIO="infra/spawn-timeout"
 mk_fixture server/.suite-check/hang-forever.fixture.ts <<'FIXTURE'
@@ -152,6 +164,7 @@ run_suite hang "$INFRA_TIMEOUT" - server/.suite-check/hang-forever.fixture.ts
 [ "$LAST_RC" -ne 0 ] || fail "scripts/test.sh exited 0 on a file that never returns — the infra shape was not reproduced"
 assert_kind "$OUT" server/.suite-check/hang-forever.fixture.ts infra
 assert_legacy_shape "$OUT" server/.suite-check/hang-forever.fixture.ts
+assert_no_shell_diagnostics "$OUT"
 
 # ---------------------------------------------------------------------------------------------
 SCENARIO="infra/worker-death"
@@ -171,6 +184,7 @@ run_suite worker-death 600 QUAY_SUITE_INFRA_FIXTURE=kill-worker src/.suite-check
 [ "$LAST_RC" -ne 0 ] || fail "scripts/test.sh exited 0 on a vitest worker death — the infra shape was not reproduced"
 assert_all_failed_kinds "$OUT" infra
 assert_legacy_shape "$OUT" client-vitest
+assert_no_shell_diagnostics "$OUT"
 
 # ---------------------------------------------------------------------------------------------
 SCENARIO="assert/real-failure"
@@ -189,6 +203,7 @@ run_suite real-assertion 600 - server/.suite-check/real-assertion.fixture.ts
 [ "$LAST_RC" -ne 0 ] || fail "scripts/test.sh exited 0 on a failing assertion — the scenario did not reproduce"
 assert_kind "$OUT" server/.suite-check/real-assertion.fixture.ts assert
 assert_legacy_shape "$OUT" server/.suite-check/real-assertion.fixture.ts
+assert_no_shell_diagnostics "$OUT"
 
 # ---------------------------------------------------------------------------------------------
 if [ "$NESTED" -eq 0 ]; then
@@ -243,5 +258,5 @@ fi
 
 # ---------------------------------------------------------------------------------------------
 SCENARIO="summary"
-echo "CHECK PASS scripts/test.sh attributes cut-off/worker-death failures to kind=infra and genuine assertion failures to kind=assert, keeps the legacy __PERFILE__ / 'not ok -' line shapes, and never reports a failure without a classification field."
+echo "CHECK PASS scripts/test.sh attributes cut-off/worker-death failures to kind=infra and genuine assertion failures to kind=assert, keeps the legacy __PERFILE__ / 'not ok -' line shapes, never reports a failure without a classification field, and keeps its own shell diagnostics out of the report."
 exit 0
