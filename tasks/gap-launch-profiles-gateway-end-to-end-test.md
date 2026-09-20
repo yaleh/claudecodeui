@@ -2,7 +2,7 @@
 id: gap-launch-profiles-gateway-end-to-end-test
 title: launch-profiles：gateway profile 的 chat.send 真实落到 mock Anthropic 服务器且
   Authorization 来自环境变量（AC-002）
-status: ready
+status: done
 labels:
   - gap
 parent: null
