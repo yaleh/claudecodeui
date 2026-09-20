@@ -2,7 +2,7 @@
 id: gap-launch-profiles-session-profile-lock-test
 title: launch-profiles：已锁定会话传入不同 launchProfileId 时以已存值为准并回带
   profileLocked，不报错不中断（AC-007）
-status: ready
+status: done
 needs_human_cause: human-adjudication
 labels:
   - gap
