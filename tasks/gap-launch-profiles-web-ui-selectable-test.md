@@ -25,10 +25,10 @@ GOAL-001 的 AC-010 要求：Settings 的 Profiles 页能列出并编辑 profile
 
 ## AC
 
-- [ ] `npx vitest run src/modules/settings/tests/launchProfileSettings.test.tsx src/modules/chat/tests/launchProfileSessionEntry.test.tsx` 退出码 0（AC-010 的判据命令）。
-- [ ] settings 测试断言列表渲染出 mock 的全部 profile 名称，且编辑保存后 PUT `/api/launch-profiles/:id` 的请求体含修改后的字段。
-- [ ] chat 测试断言选中 profile 后发出的 `chat.send` 消息 `launchProfileId` 等于所选 id；未选时 `'launchProfileId' in message` 为 false。
-- [ ] `test -f src/modules/settings/tabs/launch-profiles-settings/LaunchProfilesSettingsTab.tsx` 且 `grep -n "launchProfileId" src/modules/chat/hooks/useChatComposerState.ts` 有命中；`npm run typecheck` 与 `npm run test:client` 退出码 0（既有前端测试不回归）。
+- [x] `npx vitest run src/modules/settings/tests/launchProfileSettings.test.tsx src/modules/chat/tests/launchProfileSessionEntry.test.tsx` 退出码 0（AC-010 的判据命令）。
+- [x] settings 测试断言列表渲染出 mock 的全部 profile 名称，且编辑保存后 PUT `/api/launch-profiles/:id` 的请求体含修改后的字段。
+- [x] chat 测试断言选中 profile 后发出的 `chat.send` 消息 `launchProfileId` 等于所选 id；未选时 `'launchProfileId' in message` 为 false。
+- [x] `test -f src/modules/settings/tabs/launch-profiles-settings/LaunchProfilesSettingsTab.tsx` 且 `grep -n "launchProfileId" src/modules/chat/hooks/useChatComposerState.ts` 有命中；`npm run typecheck` 与 `npm run test:client` 退出码 0（既有前端测试不回归）。
 
 ## DoD
 
