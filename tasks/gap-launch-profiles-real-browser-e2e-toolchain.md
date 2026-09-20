@@ -17,12 +17,12 @@ GOAL-001 AC-012 要求真实浏览器驱动真实服务，组件级 vitest 不�
 
 ## AC
 
-- [ ] `grep -q '"test:e2e"' package.json && grep -q '@playwright/test' package.json && test -f playwright.config.ts && grep -q webServer playwright.config.ts` 退出码 0
-- [ ] `npm run test:e2e` 退出码 0，且输出显示 e2e/launch-profiles.spec.ts 的用例全部 passed（真实 Chromium + 真实启动的服务，非 jsdom/vitest）
-- [ ] 断言 (a)：spec 中有用例遍历 Profiles 页与会话创建入口的可见文本，断言不含形如 mainTabs.profiles 的未翻译 i18n key 字面量，且用例通过
-- [ ] 断言 (b)：spec 中有用例在 UI 上填写 baseUrl、认证方式、上下文窗口并保存，重新打开后值回显，且用例通过
-- [ ] 断言 (c)：spec 中有用例在会话创建入口选中新建的 profile 并发送，断言实际发出的请求/帧携带该 profile 标识，且用例通过
-- [ ] `grep -rn "page.route\|vi.mock" e2e/ | grep -v "^$" ` 不出现对 profile 相关后端接口的 mock（服务必须是真实的）
+- [x] `grep -q '"test:e2e"' package.json && grep -q '@playwright/test' package.json && test -f playwright.config.ts && grep -q webServer playwright.config.ts` 退出码 0
+- [x] `npm run test:e2e` 退出码 0，且输出显示 e2e/launch-profiles.spec.ts 的用例全部 passed（真实 Chromium + 真实启动的服务，非 jsdom/vitest）
+- [x] 断言 (a)：spec 中有用例遍历 Profiles 页与会话创建入口的可见文本，断言不含形如 mainTabs.profiles 的未翻译 i18n key 字面量，且用例通过
+- [x] 断言 (b)：spec 中有用例在 UI 上填写 baseUrl、认证方式、上下文窗口并保存，重新打开后值回显，且用例通过
+- [x] 断言 (c)：spec 中有用例在会话创建入口选中新建的 profile 并发送，断言实际发出的请求/帧携带该 profile 标识，且用例通过
+- [x] `grep -rn "page.route\|vi.mock" e2e/ | grep -v "^$" ` 不出现对 profile 相关后端接口的 mock（服务必须是真实的）
 
 ## DoD
 
