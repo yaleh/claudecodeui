@@ -2,7 +2,7 @@
 id: gap-quay-tests-page-perfile-wrapper
 title: scripts/test.sh：把 server node:test + client vitest + typecheck + lint 接入
   quay tests 页（文件粒度）
-status: ready
+status: needs-human
 needs_human_cause: unclassified
 labels:
   - gap
@@ -42,3 +42,13 @@ extra:
 - .quay/config.yml
 - server/shared/tests/quay-test-script.test.ts
 - tasks/gap-quay-tests-page-perfile-wrapper.md
+
+## Needs-Human
+
+**执行 2026-09-20T03:13:00.257Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 3 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：unclassified
+- 失败步/判词：AC 未全勾（checked 6/7，剩余未勾 1）——续做只需验证并勾选 AC
+- run_id：wk-prod-anchor
+- session_id：31b0aeee-bc7a-4b37-939b-90741ea0207d
