@@ -1,7 +1,7 @@
 ---
 id: gap-launch-profiles-passthrough-env-parity-test
 title: launch-profiles：落地 resolveLaunchSpec 的 passthrough 路径与 env 逐字一致性测试（AC-001）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
