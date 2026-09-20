@@ -34,10 +34,10 @@ goal_ac: AC-103
 
 ## AC
 
-- [ ] `bash scripts/suite-scope-check.sh` 退出码 0：非 `done`/`superseded` 任务中，凡 Touches 含 `*.test.*` 者都不用全量 `bash scripts/test.sh` 作自测；不含测试文件者不以全量套件充当自测。
+- [ ] `bash scripts/suite-scope-check.sh` 退出码 0：非 `done`/`superseded` 任务中，凡 Touches 含 `*.test.*` 者其 AC 的自测命令均带 `--for-task <自身 id>`（不出现缺省 `--for-task` 的全量 `scripts/test.sh` 调用）；不含测试文件者不以全量套件充当自测。
 - [ ] 取假（确定性，**两个方向都要**）：①临时把一个**含测试文件**的活跃任务 AC 改回全量 → 守卫非零退出并打印其 id；②临时让一个**不含测试文件**的任务 AC 改回全量 → 同样被列出。两次改回后均转绿。
 - [ ] ⛔ 守卫**不得**把「不含测试文件的任务」判成「应该改用 `--for-task`」——必须区分「scoped 语义成立」与「scoped 会掏空成假绿」两种情况（用一个不含测试文件的样本断言它给出 (b) 类判词而非 (a) 类）。
-- [ ] `bash scripts/test.sh` 退出码 0，且该守卫已在其前置被调用，既有 `__PERFILE__` 行格式未变。
+- [ ] `bash scripts/suite-scope-check.sh` 退出码 0；该守卫已在 `scripts/test.sh` 前置被调用（守卫自带接线判据：删掉该调用行即非零退出）；既有 `__PERFILE__` 行格式未变（`--for-task gap-model-env-kind-explanations` 的 scoped 实跑退出 0，且其 `__PERFILE__` 行仍匹配 quay 锚定正则、真正执行了 ≥1 个测试文件）。
 
 ## DoD
 
