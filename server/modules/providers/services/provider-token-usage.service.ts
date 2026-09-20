@@ -6,6 +6,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 
 import { sessionsDb } from '@/modules/database/index.js';
+import { resolveContextWindow } from '@/modules/launch-profiles/index.js';
 import type { AnyRecord } from '@/shared/types.js';
 import { AppError, getOpenCodeDatabasePath } from '@/shared/utils.js';
 
@@ -197,6 +198,7 @@ function emptyCodexTokenUsage(): TokenUsageResult {
 export function summarizeClaudeTokenUsage(
   entries: AnyRecord[],
   configuredContextWindow: string | undefined = process.env.CONTEXT_WINDOW,
+  profileContextWindow?: number | null,
 ): TokenUsageResult {
   let inputTokens = 0;
   let outputTokens = 0;
@@ -244,8 +246,7 @@ export function summarizeClaudeTokenUsage(
     break;
   }
 
-  const parsedContextWindow = Number.parseInt(configuredContextWindow ?? '', 10);
-  const contextWindow = Number.isFinite(parsedContextWindow) ? parsedContextWindow : 160_000;
+  const contextWindow = resolveContextWindow(profileContextWindow, configuredContextWindow);
   const cacheTokens = cacheReadTokens + cacheCreationTokens;
 
   return {
