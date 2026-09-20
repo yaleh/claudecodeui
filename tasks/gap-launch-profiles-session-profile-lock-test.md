@@ -2,7 +2,7 @@
 id: gap-launch-profiles-session-profile-lock-test
 title: launch-profiles：已锁定会话传入不同 launchProfileId 时以已存值为准并回带
   profileLocked，不报错不中断（AC-007）
-status: ready
+status: needs-human
 needs_human_cause: human-adjudication
 labels:
   - gap
@@ -55,4 +55,16 @@ GOAL-001 的 AC-007 要求：已锁定会话传入不同 `launchProfileId` 时�
 - 失败步/判词：step=anti-drift: ANTI-DRIFT HARD FAIL: task gap-launch-profiles-session-profile-lock-test — 3 violation(s)
 - run_id：wk-prod-anchor
 - session_id：1753df93-1c0d-4053-9404-4c5b6685c080
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-launch-profiles-session-profile-lock-test-wk-prod-anchor.log
+
+## Needs-Human
+
+**执行 2026-09-20T05:54:36.288Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=7104 lint passed=false end_ms=1789883644084
+- run_id：wk-prod-anchor
+- session_id：addceda4-14e4-4556-88e5-20c5e39c931e
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-launch-profiles-session-profile-lock-test~wk-prod-anchor~1789883620689-4b84d8.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-launch-profiles-session-profile-lock-test-wk-prod-anchor.log
