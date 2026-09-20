@@ -23,9 +23,9 @@ depends_on:
 
 ## AC
 
-- [ ] `npx vitest run src/modules/sidebar/tests/deriveSimilarNamePattern.test.ts` 退出码 0：`claudecodeui-task-worker`、含数字后缀的名字、含 8 位以上哈希的名字各自推导出的正则能命中原名与同类名，且不命中明显无关的名字；所有推导结果 `new RegExp(x)` 不抛错且长度 ≤200；普通中文句子标题推导出锚定的完整转义名。
-- [ ] `npx vitest run src/modules/sidebar/tests/sessionOptionsHideSimilar.test.tsx` 退出码 0：点「隐藏同类」后规则面板打开且文本框新增一行推导出的正则、不触发保存请求；规则已含同一行时不重复追加。
-- [ ] `npm run test:client` 与 `npm run typecheck` 退出码 0（既有前端测试不回归）。
+- [x] `npx vitest run src/modules/sidebar/tests/deriveSimilarNamePattern.test.ts` 退出码 0：`claudecodeui-task-worker`、含数字后缀的名字、含 8 位以上哈希的名字各自推导出的正则能命中原名与同类名，且不命中明显无关的名字；所有推导结果 `new RegExp(x)` 不抛错且长度 ≤200；普通中文句子标题推导出锚定的完整转义名。
+- [x] `npx vitest run src/modules/sidebar/tests/sessionOptionsHideSimilar.test.tsx` 退出码 0：点「隐藏同类」后规则面板打开且文本框新增一行推导出的正则、不触发保存请求；规则已含同一行时不重复追加。
+- [x] `npm run test:client` 与 `npm run typecheck` 退出码 0（既有前端测试不回归）。
 
 ## DoD
 
@@ -36,6 +36,14 @@ depends_on:
 - src/modules/sidebar/utils/deriveSimilarNamePattern.ts (new)
 - src/modules/sidebar/SessionOptions.tsx
 - src/modules/sidebar/SessionFilterEditor.tsx
+- src/modules/sidebar/SidebarSessionItem.tsx
+- src/modules/sidebar/SidebarProjectSessions.tsx
+- src/modules/sidebar/SidebarProjectItem.tsx
+- src/modules/sidebar/Sidebar.tsx
+- src/modules/sidebar/SidebarModals.tsx
+- src/shared/types.ts
+- src/modules/i18n/locales/en/sidebar.json
+- src/modules/i18n/locales/zh-CN/sidebar.json
 - src/modules/sidebar/tests/deriveSimilarNamePattern.test.ts (new)
 - src/modules/sidebar/tests/sessionOptionsHideSimilar.test.tsx (new)
 - tasks/gap-project-session-name-filter-hide-similar.md
