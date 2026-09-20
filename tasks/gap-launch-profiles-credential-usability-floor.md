@@ -26,11 +26,11 @@ GOAL-001 的 AC-021（凭据可用性下限）三件事合取，今天均缺失�
 
 ## AC
 
-- [ ] `node --experimental-strip-types --test server/modules/launch-profiles/tests/credential-status.test.ts` 退出码 0：端点对已设置/未设置变量分别返回 set=true/false，响应 JSON 序列化中不含变量的值（以哨兵值断言）。
-- [ ] `node --experimental-strip-types --test server/modules/launch-profiles/tests/gateway-unset-inherited-keys.test.ts` 退出码 0：宿主 env 含 ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN，网关 profile 的 SDK sdkOptions.env 与 shell pty env 均不含二者；profile 自带该键时保留；passthrough 与 inherit 认证的 profile 仍含宿主值。
-- [ ] `npx vitest run src/modules/settings/tests/launchProfileCredentialStatus.test.tsx src/modules/chat/tests/launchProfileLockedEcho.test.tsx` 退出码 0：Settings 显示说明、“服务端已设置/未设置”与 warning；会话锁定后下拉 disabled 且回显该会话 profile，重开会话仍回显。
-- [ ] 取假验证：分别移除 unsetEnv 在 SDK 路径、shell 路径的应用，以及 UI 对 profileLocked 的消费，上述对应用例均转红（记录在 DoD 证据中）。
-- [ ] `npx tsc --noEmit -p server/tsconfig.json` 与前端 `npm run typecheck` 退出码 0。
+- [x] `node --experimental-strip-types --test server/modules/launch-profiles/tests/credential-status.test.ts` 退出码 0：端点对已设置/未设置变量分别返回 set=true/false，响应 JSON 序列化中不含变量的值（以哨兵值断言）。
+- [x] `node --experimental-strip-types --test server/modules/launch-profiles/tests/gateway-unset-inherited-keys.test.ts` 退出码 0：宿主 env 含 ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN，网关 profile 的 SDK sdkOptions.env 与 shell pty env 均不含二者；profile 自带该键时保留；passthrough 与 inherit 认证的 profile 仍含宿主值。
+- [x] `npx vitest run src/modules/settings/tests/launchProfileCredentialStatus.test.tsx src/modules/chat/tests/launchProfileLockedEcho.test.tsx` 退出码 0：Settings 显示说明、“服务端已设置/未设置”与 warning；会话锁定后下拉 disabled 且回显该会话 profile，重开会话仍回显。
+- [x] 取假验证：分别移除 unsetEnv 在 SDK 路径、shell 路径的应用，以及 UI 对 profileLocked 的消费，上述对应用例均转红（记录在 DoD 证据中）。
+- [x] `npx tsc --noEmit -p server/tsconfig.json` 与前端 `npm run typecheck` 退出码 0。
 
 ## DoD
 
