@@ -1,7 +1,7 @@
 ---
 id: AC-024
 title: a model entry compiles to the real spawn env, including unset
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-001
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -20,6 +20,12 @@ expect: 按 (provider, model_id) 查到自定义模型后，resolveLaunchSpec �
 origin: ADR-002（配置挂在 Model library 上，取代独立 launch profile
   实体）；docs/proposals/launch-profiles.md 待随之修订
 activatedAt: 2026-09-20T09:16:11.900Z
+statusLog:
+  - at: 2026-09-20T09:45:31.537Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 supersedes:
   - AC-017
 ---

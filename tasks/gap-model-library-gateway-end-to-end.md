@@ -1,7 +1,7 @@
 ---
 id: gap-model-library-gateway-end-to-end
 title: model-library：网关请求带着模型条目里的凭据真实落地（AC-025）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
