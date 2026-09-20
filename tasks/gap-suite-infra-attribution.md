@@ -1,7 +1,7 @@
 ---
 id: gap-suite-infra-attribution
 title: 套件输出分不清基建失败与真失败：给 scripts/test.sh 的失败行加机器可读分类，并附可复跑检查器
-status: todo
+status: ready
 labels:
   - gap
   - defect
