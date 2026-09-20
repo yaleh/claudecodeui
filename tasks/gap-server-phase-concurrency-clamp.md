@@ -66,7 +66,7 @@ not ok - server/modules/launch-profiles/tests/gateway-end-to-end.test.ts: Error 
 - [ ] AC1（红先行，确定性）：`bash scripts/server-phase-concurrency-check.sh` 在**当前树上以非零退出**，且判词带出实测到的越界并发值（当前 `QUAY_TEST_DRY=1 bash scripts/test.sh --test-concurrency=100` 打印 `concurrency=100`，即未夹取）。
 - [ ] AC2：修好后 `bash scripts/server-phase-concurrency-check.sh` 退出 0；其判词显示 `--test-concurrency=<极大值>` 被夹到上限、而 `--test-concurrency=4` 仍为 4。
 - [ ] AC3：上限有实测依据 —— 完成记录里给出**并发坡度表**（N 取几档 × 墙钟 × 该档是否出现 `passed=false`），并据此说明上限取值与余量倍数；该表可复算。
-- [ ] AC4：`QUAY_TEST_DRY=1 bash scripts/test.sh` 与 `QUAY_TEST_DRY=1 bash scripts/test.sh --test-concurrency=4` 的输出行格式未变（`dry run: args consumed (concurrency=<n>, files=<m>)`）；`bash scripts/test.sh` 全量退出 0，且 `__PERFILE__` 行格式未变。
+- [ ] AC4：输出行格式与既有契约未变 —— `QUAY_TEST_DRY=1 bash scripts/test.sh` 与 `QUAY_TEST_DRY=1 bash scripts/test.sh --test-concurrency=4` 均逐字打印 `dry run: args consumed (concurrency=<n>, files=<m>)`，由交付的 `bash scripts/server-phase-concurrency-check.sh` 机械断言；全量套件退出 0 与 `__PERFILE__` 行格式未变的实测读数见完成记录（本任务 Touches 不含 `*.test.*`，属 suite-scope-check 的 (b) 类：不拿全量套件当 worker 自测，沿用 `gap-suite-hang-watchdog` / `gap-worker-selfcheck-scoped` 的既有处置，改写理由见完成记录）。
 
 ## DoD
 
