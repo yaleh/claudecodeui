@@ -78,3 +78,4 @@ Test Files 1 passed (1) | Tests 6 passed (6) | Duration 4.76s
 - `src/modules/settings/tests/settingsControllerCodeEditor.test.ts`
 - `src/shared/tests/authenticatedFetch.test.ts`
 - `tasks/gap-resetmodules-cold-compile-timeout.md`（本任务自身）
+- 该轴仍暗，理由：本任务的判据是用例**耗时余量**（T_max 与 testTimeout 预算之比），产出的是时间读数，不产生 L_D（描述长度）或 L_G（生成对齐）读数；本仓从未跑过 archguard 暗轴探针。ADR-007 per-milestone 谓词在本仓尚未生效（全部 43 条任务均 MISSING），此处按 ADR 原文认可的显式声明形式登记该轴仍暗。
