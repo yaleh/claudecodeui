@@ -157,6 +157,22 @@ run 3: rc=0 GREEN
 
 `scripts/test.sh --for-task` 用 `awk … print $1` 取 `## Touches` 的路径，而本任务两条 Touches 的注解紧贴路径（`` `path`（注解） ``），于是 `$1` 把中文注解一起吞掉、被 `\.test\.[jt]sx?$` 过滤掉 —— 这次实际只有 **9/11** 个测试文件进了 scoped gate，缺的恰好包含本任务的核心文件 `projectsStateSelectionSync.test.ts`。**没有改任务文件的 Touches**：fan-in 侧的 `parseTouchEntries`/`stripTouchAnnotation` 正是靠全角 `（…）` 来剥注解的，换成空格加破折号会让 glob 变成「路径 + 注解」，触发 anti-drift HARD FAIL。缺口已用等价手段补齐：11 个文件全部用 `scripts/test.sh` 显式位置参数跑过一遍（`# tests 11 / # pass 11 / # fail 0`），scoped gate 本身 9/9 退出 0。`scripts/test.sh` 不在本任务 Touches 内，故未改。
 
+### 9. 收尾：ADR-007 声明行从 `## Touches` 移进 `## DoD`（anti-drift）
+
+上一轮 exited-not-landed 的唯一原因是 anti-drift HARD FAIL 1 条 `overbroad-declaration`，它与修复本身无关 —— 是**任务体格式**问题：本轮之前，ADR-007 的显式声明行（`- 该轴仍暗，理由：…`）写在 `## Touches` 段内。anti-drift 的 `parseTouchEntries` 把该段里**每一行 `- …` 都当成声明的写面**，而这一行没有 `/`、又含 Markdown 粗体 `**耗时余量**`，于是 `isOverbroadDeclaration` 在第一个段（`concrete = 0 < 2`）上撞见 `*` ⇒ 整行被判成「过宽的写面声明」。
+
+声明行本身不能删：`dark-axis-record-check` 认它，删掉状态会从 `DISCLAIMED` 退回 `MISSING`。修法是把该行**移进 `## DoD`**（`classifyDarkAxisRecord` 扫全文、不限段），`## Touches` 只留真正的写面条目 —— **一个 Touches 条目都没改**，也没有任何判据/代码改动。
+
+读数（本工作树）：
+
+```
+ANTI-DRIFT OK: task gap-resetmodules-cold-compile-timeout — 5 actual file(s), all within declared Touches (14 glob(s))
+dark-axis-record-check: state: DISCLAIMED (declared: line 50)
+```
+
+即：本任务 `## Touches` 末尾不再有声明行 —— 声明在 DoD。
+
+
 ## Touches
 
 - `scripts/test-timeout-margin-check.sh`（新增：本任务的确定性判据）
