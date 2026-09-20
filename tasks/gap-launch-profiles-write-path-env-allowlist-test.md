@@ -2,7 +2,7 @@
 id: gap-launch-profiles-write-path-env-allowlist-test
 title: launch-profiles：POST /api/launch-profiles 的 config.env 白名单在写入路径拒绝
   LD_PRELOAD/PATH/NODE_OPTIONS 且不落库（AC-011）
-status: ready
+status: done
 labels:
   - gap
   - defect
