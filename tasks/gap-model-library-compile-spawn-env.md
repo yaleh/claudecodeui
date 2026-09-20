@@ -42,15 +42,16 @@ GOAL-001 的 AC-024：发送时按 `(provider, model_id)` 查自定义模型并�
 - 实现：`resolveModelLaunchSpec`（model-launch-spec.service.ts）；`ResolvedLaunchSpec.unsetEnv?`；`applyLaunchSpecEnv`（shared/utils.ts）在 SDK `sdkOptions.env` 与 pty env 两处最终对象上删除 unset 键。chat 路径的 `options.model` 已流入 runtime，故无需改 chat-websocket。shell 路径经 init 消息 `model` 字段取模型。
 - 取假红灯：临时注释 `applyLaunchSpecEnv` 中的 `delete merged[key]` 后，`sdk: unset key must be absent from the final env` 与 `pty: unset key must be absent from the final env` 两条断言失败（fail 2），还原后全绿。
 - launch-profiles 全部 49 测试通过（含 passthrough-parity、env-injection-closed）；`npm run typecheck` 通过；scoped gate（`scripts/test.sh --for-task … --allow-thin`）绿。
+- anti-drift 修复：实际改动文件 model-launch-spec.service.ts、shell-websocket.service.ts、shared/utils.ts 已补入 Touches；未改动的 launch-profiles.service.ts、launch-spec.service.ts、chat-websocket.service.ts 已移出。
 
 ## Touches
 
-- server/modules/launch-profiles/launch-profiles.service.ts
-- server/modules/launch-profiles/launch-spec.service.ts
+- server/modules/launch-profiles/model-launch-spec.service.ts (new)
 - server/modules/launch-profiles/index.ts
 - server/modules/providers/list/claude/claude-runtime.provider.js
-- server/modules/websocket/services/chat-websocket.service.ts
+- server/modules/websocket/services/shell-websocket.service.ts
 - server/shared/types.ts
+- server/shared/utils.ts
 - server/modules/launch-profiles/tests/model-launch-spec.test.ts (new)
 - server/modules/launch-profiles/tests/model-spawn-env.test.ts (new)
 - tasks/gap-model-library-compile-spawn-env.md
