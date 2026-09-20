@@ -1,7 +1,7 @@
 ---
 id: gap-suite-hang-watchdog
 title: 套件挂死无人终结：给 scripts/test.sh 加 max-runtime 与 silence 两条看门狗，阈值由实测推出
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -47,12 +47,13 @@ goal_ac: AC-105
 
 真实落地判据：不是「多了两个变量」。要求在**同一台机器上真的造出一次挂死**并把看门狗终结它的输出（触发哪条守卫、阈值、静默时长、退出码）与随后一次**正常套件不被误杀**的判词一并记入完成记录 —— **记入的是检查器吐出的紧凑判词行，不是套件原始输出**；随后 AC-105 的 gate 由 `exit 127`（判据文件不存在）变为 `exit 0`。⛔ 仅加变量而从未实跑挂死场景、或阈值无实测依据，不算完成；⛔ 也不接受「worker 在自己上下文里跑套件、把冗长输出贴进完成记录」这种举证方式 —— 它已被实测证明会杀死 worker（见 Proposal 的修订单）。
 
+- 该轴仍暗，理由：本任务的判据是套件**活性**（整次调用墙钟上限与静默时长），产出的是挂死判定与阈值，不产生 L_D（描述长度）或 L_G（生成对齐）读数；本仓也从未跑过 archguard 暗轴探针。ADR-007 per-milestone 谓词在本仓尚未生效（全部 43 条任务均 MISSING），此处按 ADR 原文认可的显式声明形式登记该轴仍暗。
+
 ## Touches
 
 - scripts/test.sh
 - scripts/suite-hang-watchdog-check.sh
 - tasks/gap-suite-hang-watchdog.md
-- 该轴仍暗，理由：本任务的判据是套件**活性**（整次调用墙钟上限与静默时长），产出的是挂死判定与阈值，不产生 L_D（描述长度）或 L_G（生成对齐）读数；本仓也从未跑过 archguard 暗轴探针。ADR-007 per-milestone 谓词在本仓尚未生效（全部 43 条任务均 MISSING），此处按 ADR 原文认可的显式声明形式登记该轴仍暗。
 
 ## 完成记录（2026-09-20，worker，分支 task/gap-suite-hang-watchdog）
 
