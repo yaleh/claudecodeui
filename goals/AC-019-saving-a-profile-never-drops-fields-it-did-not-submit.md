@@ -1,7 +1,7 @@
 ---
 id: AC-019
 title: saving a profile never drops fields it did not submit
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-001
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -16,4 +16,10 @@ origin: docs/proposals/launch-profiles.md + ADR-001；补立于 2026-09-20：用
   Settings-Profiles 实机使用中提出三个问题（变量在哪设 / 是否要为原生 claude 建 profile /
   能否设缺省），playwright + 代码复核后发现的可用性缺口
 activatedAt: 2026-09-20T08:49:25.975Z
+statusLog:
+  - at: 2026-09-20T09:08:55.882Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 ---
