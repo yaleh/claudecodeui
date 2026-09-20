@@ -50,6 +50,19 @@
     "resetToDefaults": "기본값으로 초기화",
     "cancelChanges": "변경 취소"
   },
+  "launchProfiles": {
+    "title": "Launch profiles",
+    "description": "Named launch configurations that a new session can be started under.",
+    "loading": "Loading profiles…",
+    "empty": "No profiles yet.",
+    "loadFailed": "Failed to load profiles.",
+    "name": "Name",
+    "model": "Model",
+    "credentialRef": "Credential reference",
+    "save": "Save",
+    "saving": "Saving…",
+    "saveFailed": "Failed to save profile."
+  },
   "voiceSettings": {
     "title": "음성",
     "description": "OpenAI 호환 오디오 백엔드를 통한 음성-텍스트 입력 및 소리 내어 읽기 기능입니다.",
@@ -62,6 +75,7 @@
     "sttModel": "음성-텍스트 변환 모델",
     "ttsModel": "텍스트-음성 변환 모델",
     "voice": "음성",
+    "profiles": "Profiles",
     "format": "오디오 형식",
     "note": "사용자 지정 기본 URL은 브라우저에서 직접 호출되므로 브라우저 CORS 요청을 허용해야 합니다. 비워두면 서버에 설정된 백엔드를 사용합니다."
   },

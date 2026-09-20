@@ -14,6 +14,7 @@ import BrowserUseSettingsTab from '@/modules/settings/tabs/browser-use-settings/
 import NotificationsSettingsTab from '@/modules/settings/tabs/NotificationsSettingsTab';
 import TasksSettingsTab from '@/modules/settings/tabs/tasks-settings/TasksSettingsTab';
 import { PluginSettingsTab } from '@/modules/plugins';
+import LaunchProfilesSettingsTab from '@/modules/settings/tabs/launch-profiles-settings/LaunchProfilesSettingsTab';
 import AboutTab from '@/modules/settings/tabs/AboutTab';
 import { useSettingsController } from '@/modules/settings/hooks/useSettingsController';
 import { useWebPush } from '@/modules/settings/hooks/useWebPush';
@@ -267,6 +268,8 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
               {activeTab === 'voice' && <VoiceSettingsTab />}
 
               {activeTab === 'plugins' && <PluginSettingsTab />}
+
+              {activeTab === 'profiles' && <LaunchProfilesSettingsTab />}
 
               {activeTab === 'about' && <AboutTab />}
             </div>

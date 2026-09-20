@@ -50,6 +50,19 @@
     "resetToDefaults": "重置为默认值",
     "cancelChanges": "取消更改"
   },
+  "launchProfiles": {
+    "title": "Launch profiles",
+    "description": "Named launch configurations that a new session can be started under.",
+    "loading": "Loading profiles…",
+    "empty": "No profiles yet.",
+    "loadFailed": "Failed to load profiles.",
+    "name": "Name",
+    "model": "Model",
+    "credentialRef": "Credential reference",
+    "save": "Save",
+    "saving": "Saving…",
+    "saveFailed": "Failed to save profile."
+  },
   "voiceSettings": {
     "title": "语音",
     "description": "通过兼容 OpenAI 的音频后端实现语音转文字输入和朗读功能。",
@@ -62,6 +75,7 @@
     "sttModel": "语音转文字模型",
     "ttsModel": "文字转语音模型",
     "voice": "语音",
+    "profiles": "配置档",
     "format": "音频格式",
     "note": "自定义基础 URL 由您的浏览器直接调用，必须允许浏览器 CORS 请求。留空以使用服务器配置的后端。"
   },

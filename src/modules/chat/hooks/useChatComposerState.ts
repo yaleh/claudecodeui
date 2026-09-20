@@ -207,6 +207,9 @@ export function useChatComposerState({
    * transcript refreshes underneath the composer.
    */
   const [editingAnchorId, setEditingAnchorId] = useState<string | null>(null);
+  // Launch profile picked for this composer; null means "not chosen", so chat.send omits the field
+  // and the server resolves a profile through its default chain.
+  const [launchProfileId, setLaunchProfileId] = useState<string | null>(null);
 
   const [inputState, setInputState] = useState<{ scope: string | null; value: string }>(() => {
     if (typeof window === 'undefined') {
@@ -890,6 +893,7 @@ export function useChatComposerState({
         sessionId: targetSessionId,
         ...(editingAnchorId ? { anchorId: editingAnchorId } : {}),
         content: messageContent,
+        ...(launchProfileId ? { launchProfileId } : {}),
         options: {
           ...(queuedSubmission?.options ?? buildSendOptions(messageContent)),
           attachments: uploadedAttachments,
@@ -925,6 +929,7 @@ export function useChatComposerState({
       editingAnchorId,
       executeCommand,
       isLoading,
+      launchProfileId,
       onSessionProcessing,
       onSessionEstablished,
       provider,
@@ -1264,6 +1269,8 @@ export function useChatComposerState({
     input,
     setInput,
     editingAnchorId,
+    launchProfileId,
+    setLaunchProfileId,
     beginEditMessage,
     cancelEditMessage,
     textareaRef,

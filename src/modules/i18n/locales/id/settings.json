@@ -50,6 +50,19 @@
     "resetToDefaults": "Reset ke Default",
     "cancelChanges": "Batalkan Perubahan"
   },
+  "launchProfiles": {
+    "title": "Launch profiles",
+    "description": "Named launch configurations that a new session can be started under.",
+    "loading": "Loading profiles…",
+    "empty": "No profiles yet.",
+    "loadFailed": "Failed to load profiles.",
+    "name": "Name",
+    "model": "Model",
+    "credentialRef": "Credential reference",
+    "save": "Save",
+    "saving": "Saving…",
+    "saveFailed": "Failed to save profile."
+  },
   "voiceSettings": {
     "title": "Suara",
     "description": "Input speech-to-text dan fitur bacakan melalui backend audio yang kompatibel dengan OpenAI.",
@@ -62,6 +75,7 @@
     "sttModel": "Model speech-to-text",
     "ttsModel": "Model text-to-speech",
     "voice": "Suara",
+    "profiles": "Profiles",
     "format": "Format audio",
     "note": "URL dasar kustom dipanggil langsung oleh browser dan harus mengizinkan permintaan CORS browser. Kosongkan untuk menggunakan backend yang dikonfigurasi di server."
   },

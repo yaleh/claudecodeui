@@ -50,6 +50,19 @@
     "resetToDefaults": "Reset to Defaults",
     "cancelChanges": "Cancel Changes"
   },
+  "launchProfiles": {
+    "title": "Launch profiles",
+    "description": "Named launch configurations that a new session can be started under.",
+    "loading": "Loading profiles…",
+    "empty": "No profiles yet.",
+    "loadFailed": "Failed to load profiles.",
+    "name": "Name",
+    "model": "Model",
+    "credentialRef": "Credential reference",
+    "save": "Save",
+    "saving": "Saving…",
+    "saveFailed": "Failed to save profile."
+  },
   "voiceSettings": {
     "title": "Voice",
     "description": "Speech-to-text input and read-aloud, via an OpenAI-compatible audio backend.",
@@ -62,6 +75,7 @@
     "sttModel": "Speech-to-text model",
     "ttsModel": "Text-to-speech model",
     "voice": "Voice",
+    "profiles": "Profiles",
     "format": "Audio format",
     "note": "A custom base URL is called directly by your browser and must allow browser CORS requests. Leave it blank to use the server-configured backend."
   },
