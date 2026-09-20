@@ -25,11 +25,11 @@ GOAL-001 的 AC-013 要求：profile.config.env 中通过白名单的键（如 C
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/config-env-compiled.test.ts` 退出码 0（AC-013 的判据命令）。
-- [ ] 测试断言 profile.config.env 含 CLAUDE_CODE_DISABLE_MOUSE 与 CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN 时，`resolveLaunchSpec(...).env` 逐键包含它们且值相等（`assert.equal(spec.env.CLAUDE_CODE_DISABLE_MOUSE, '1')` 一类）。
-- [ ] 测试断言直接落库的 LD_PRELOAD 不在 spec.env 中，且 `spec.warnings` 含提及 LD_PRELOAD 的 dropped 警告。
-- [ ] 取假用例：撤销 compileGatewayEnv 对 config.env 的读取，或注入宽松 guards，同一断言函数判红。
-- [ ] `npm run typecheck` 与 `npm test` 退出码 0（AC-001/004/011 等既有 launch-profiles 测试不回归）。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/config-env-compiled.test.ts` 退出码 0（AC-013 的判据命令）。
+- [x] 测试断言 profile.config.env 含 CLAUDE_CODE_DISABLE_MOUSE 与 CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN 时，`resolveLaunchSpec(...).env` 逐键包含它们且值相等（`assert.equal(spec.env.CLAUDE_CODE_DISABLE_MOUSE, '1')` 一类）。
+- [x] 测试断言直接落库的 LD_PRELOAD 不在 spec.env 中，且 `spec.warnings` 含提及 LD_PRELOAD 的 dropped 警告。
+- [x] 取假用例：撤销 compileGatewayEnv 对 config.env 的读取，或注入宽松 guards，同一断言函数判红。
+- [x] `npm run typecheck` 与 `npm test` 退出码 0（AC-001/004/011 等既有 launch-profiles 测试不回归）。
 
 ## DoD
 
