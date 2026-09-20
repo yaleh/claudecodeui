@@ -28,13 +28,20 @@ GOAL-001 的 AC-026：把 Model library 从聊天弹窗提升为 Settings → Ag
 
 ## AC
 
-- [ ] `npx vitest run src/modules/settings/tests/modelLibrarySettings.test.tsx src/modules/settings/tests/modelLibrarySave.test.tsx` 退出码 0（AC-026 的判据命令）。
-- [ ] 测试证明：models 分类存在；内置只读/自定义分区；四种行类型；secret 掩码且不回显；envref 状态与说明；warning 可见；网关模板预填内容；保存请求体不含未编辑的 secret 值。
-- [ ] 取假变体（去掉 models 分类或回显 secret）使该测试判红，红灯输出记录在任务证据中；`npm run typecheck`、`npm run lint` 通过。
+- [x] `npx vitest run src/modules/settings/tests/modelLibrarySettings.test.tsx src/modules/settings/tests/modelLibrarySave.test.tsx` 退出码 0（AC-026 的判据命令）。
+- [x] 测试证明：models 分类存在；内置只读/自定义分区；四种行类型；secret 掩码且不回显；envref 状态与说明；warning 可见；网关模板预填内容；保存请求体不含未编辑的 secret 值。
+- [x] 取假变体（去掉 models 分类或回显 secret）使该测试判红，红灯输出记录在任务证据中；`npm run typecheck`、`npm run lint` 通过。
 
 ## DoD
 
 真实落地判据：不是仅有测试文件存在。要求 Settings 页面里真的能看到并操作 Models 分类。AC-026 判据命令在 quay fan-in 中由红转绿，且下一轮 driver 通过 `goal_ac: AC-026` 能独立核验；浏览器级验收由 AC-027 单独承担。
+
+## Evidence
+
+- 假变体 1（secret 回显：保留的 secret 行被替换成带值行）→ `modelLibrarySave.test.tsx > editing another row keeps the stored secret without a value...` FAIL（AssertionError: Expected values to be strictly deep-equal），Tests 1 failed | 5 passed。
+- 假变体 2（去掉 models 分类 tab 标签）→ `modelLibrarySettings.test.tsx > the models category exists as a tab` FAIL，Tests 1 failed | 5 passed。
+- 还原后 6 tests 全绿；`npm run typecheck` 通过；`npm run lint` 退出码 0（仅既有 warning）；scoped 门 `--for-task ... --allow-thin` 绿。
+- 已知缺口：后端尚无 env 状态接口，前端调用 `GET /api/providers/model-env-status?names=A,B`（期望 `{data:{status:{NAME:boolean}}}`），接口缺失时 envref 状态徽标与 warning 不显示（静默降级）。其余非 en/zh 语言的 modelLibrary 文案暂用英文。
 
 ## Touches
 
