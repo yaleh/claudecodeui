@@ -39,41 +39,61 @@ export const toEditorRows = (config: ProviderModelPublicConfig | null | undefine
 );
 
 /**
- * Builds the request rows. A stored secret left blank is sent without `value`
- * (the server keeps it); a blank new secret or blank value/envref row is
- * dropped so an unedited field never overwrites stored data.
+ * Maps one editor row to its request row, or returns null when the row is left
+ * out of the request: a blank new secret or a blank value/envref row would
+ * otherwise overwrite stored data with an empty string. A stored secret left
+ * blank is sent without `value` (the server keeps it), so it is never `null`.
  */
-export const toRequestRows = (rows: ModelEnvEditorRow[]): ProviderModelEnvRowInput[] => {
-  const request: ProviderModelEnvRowInput[] = [];
-  for (const row of rows) {
-    const key = row.key.trim();
-    if (!key) {
-      continue;
-    }
-    if (row.kind === 'unset') {
-      request.push({ key, kind: 'unset' });
-    } else if (row.kind === 'secret') {
-      if (row.value) {
-        request.push({ key, kind: 'secret', value: row.value });
-      } else if (row.secretStored) {
-        request.push({ key, kind: 'secret' });
-      }
-    } else if (row.value.trim()) {
-      request.push({ key, kind: row.kind, value: row.value.trim() });
-    }
+const toRequestRow = (row: ModelEnvEditorRow): ProviderModelEnvRowInput | null => {
+  const key = row.key.trim();
+  if (!key) {
+    return null;
   }
-  return request;
+  if (row.kind === 'unset') {
+    return { key, kind: 'unset' };
+  }
+  if (row.kind === 'secret') {
+    if (row.value) {
+      return { key, kind: 'secret', value: row.value };
+    }
+    return row.secretStored ? { key, kind: 'secret' } : null;
+  }
+  return row.value.trim() ? { key, kind: row.kind, value: row.value.trim() } : null;
 };
+
+/** Builds the request rows; see `toRequestRow` for what a save leaves out. */
+export const toRequestRows = (rows: ModelEnvEditorRow[]): ProviderModelEnvRowInput[] => (
+  rows.map(toRequestRow).filter((row) => row !== null)
+);
+
+/**
+ * The rows a save will leave out because their value is empty — derived from the
+ * same function that builds the request, so the two can never disagree. The user
+ * has to see these before submitting: a named variable that silently never
+ * reaches the server is the defect this exists to prevent.
+ *
+ * Keyless rows are unfinished form state rather than a variable the user named,
+ * so they are not reported.
+ */
+export const getUnsavedEnvRows = (rows: ModelEnvEditorRow[]): ModelEnvEditorRow[] => (
+  rows.filter((row) => row.key.trim() !== '' && toRequestRow(row) === null)
+);
 
 type ModelEnvEditorProps = {
   rows: ModelEnvEditorRow[];
   envStatus: ModelEnvStatus;
   showGatewayTemplate: boolean;
+  /**
+   * True while the form is about to send these rows as the model's config.
+   * Only then is "this row will not be saved" a true statement — an untouched
+   * form sends no config at all and drops nothing.
+   */
+  reportUnsavedRows: boolean;
   onChange: (rows: ModelEnvEditorRow[]) => void;
 };
 
 /** Used by ModelLibraryPanel to edit a custom model's env rows (value/secret/envref/unset) with masked secrets and live envref status. */
-export default function ModelEnvEditor({ rows, envStatus, showGatewayTemplate, onChange }: ModelEnvEditorProps) {
+export default function ModelEnvEditor({ rows, envStatus, showGatewayTemplate, reportUnsavedRows, onChange }: ModelEnvEditorProps) {
   const { t } = useTranslation('settings');
 
   // Stable per-instance prefix so each row's kind explanation can be referenced by id without collisions.
@@ -114,6 +134,10 @@ export default function ModelEnvEditor({ rows, envStatus, showGatewayTemplate, o
   const warnings = rows
     .filter((row) => row.kind === 'envref' && row.value.trim() && envStatus[row.value.trim()] === false)
     .map((row) => t('modelLibrary.env.warningEnvrefUnset', { name: row.value.trim() }));
+
+  // Rows a save would leave out; marked per row so the empty field the user is
+  // looking at is the one that carries the explanation.
+  const unsaved = new Set(reportUnsavedRows ? getUnsavedEnvRows(rows) : []);
 
   return (
     <div className="mt-4" data-testid="model-env-editor">
@@ -223,6 +247,16 @@ export default function ModelEnvEditor({ rows, envStatus, showGatewayTemplate, o
                   spellCheck={false}
                   className="mt-2 h-8 rounded-lg font-mono text-xs"
                 />
+              )}
+
+              {unsaved.has(row) && (
+                <p
+                  role="status"
+                  data-testid="model-env-row-unsaved"
+                  className="mt-1.5 text-[11px] leading-4 text-amber-700 dark:text-amber-300"
+                >
+                  {t('modelLibrary.env.unsavedRow')}
+                </p>
               )}
 
               {row.kind === 'envref' && (

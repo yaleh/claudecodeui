@@ -13,6 +13,7 @@ import {
 
 import { Badge, Button, Input, LLMProviderLogo } from '@/shared/ui';
 import ModelEnvEditor, {
+  getUnsavedEnvRows,
   toEditorRows,
   toRequestRows,
   type ModelEnvEditorRow,
@@ -61,6 +62,7 @@ export default function ModelLibraryPanel({
   hideProviderTabs = false,
 }: ModelLibraryPanelProps) {
   const { t } = useTranslation();
+  const { t: tSettings } = useTranslation('settings');
   const [selectedProvider, setSelectedProvider] = useState(initialProvider);
   const [editing, setEditing] = useState<ProviderModelOption | null>(null);
   const [model, setModel] = useState('');
@@ -135,6 +137,13 @@ export default function ModelLibraryPanel({
     setError(null);
   };
 
+  // Whether this submit carries `config.env` at all: the same predicate that
+  // builds it below. When it is false no row is dropped, so nothing is reported.
+  const sendsEnvConfig = envDirty || (!editing && envRows.length > 0);
+  // Rows the request will leave out for an empty value — the user must see them
+  // before submitting, or a named variable silently never reaches the server.
+  const unsavedEnvKeys = sendsEnvConfig ? getUnsavedEnvRows(envRows).map((row) => row.key.trim()) : [];
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const normalizedModel = model.trim();
@@ -151,7 +160,7 @@ export default function ModelLibraryPanel({
     setSaving(true);
     setError(null);
     setNotice(null);
-    const configInput = envDirty || (!editing && envRows.length > 0)
+    const configInput = sendsEnvConfig
       ? { config: { env: toRequestRows(envRows) } }
       : {};
     try {
@@ -316,8 +325,26 @@ export default function ModelLibraryPanel({
               rows={envRows}
               envStatus={envStatus}
               showGatewayTemplate={selectedProvider === 'claude'}
+              reportUnsavedRows={sendsEnvConfig}
               onChange={(rows) => { setEnvRows(rows); setEnvDirty(true); }}
             />
+          )}
+
+          {unsavedEnvKeys.length > 0 && (
+            <div
+              role="status"
+              data-testid="model-env-unsaved-summary"
+              className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300"
+            >
+              <p>{tSettings('modelLibrary.env.unsavedSummary')}</p>
+              <ul className="mt-1 flex flex-wrap gap-1.5">
+                {unsavedEnvKeys.map((key, index) => (
+                  <li key={`${index}:${key}`} className="rounded-full bg-amber-500/15 px-2 py-0.5 font-mono text-[11px]">
+                    {key}
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
 
           {error && (

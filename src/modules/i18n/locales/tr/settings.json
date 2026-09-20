@@ -520,7 +520,9 @@
       "envrefSet": "Set on server",
       "envrefUnset": "Not set on server",
       "envrefHelp": "Reads this variable from the CloudCLI server process environment; restart the server after changing it.",
-      "warningEnvrefUnset": "Environment variable {{name}} is not set on the server; this row will send nothing."
+      "warningEnvrefUnset": "Environment variable {{name}} is not set on the server; this row will send nothing.",
+      "unsavedRow": "Kaydedilmez — değer boş.",
+      "unsavedSummary": "Değerleri boş olduğu için bu satırlar kaydedilmez:"
     }
   }
 }

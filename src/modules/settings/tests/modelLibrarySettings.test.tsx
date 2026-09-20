@@ -236,3 +236,30 @@ test('every kind renders its own explanation and switching the kind swaps it', a
   assert.equal(kindHelpTexts(view)[0], 'modelLibrary.env.kindsHelp.secret');
   assert.equal(kindHelpTexts(view)[3], 'modelLibrary.env.kindsHelp.unset');
 });
+
+test('the gateway template reports the empty rows a save would leave out, and only those', async () => {
+  const view = await openGatewayEditorWithBaseUrl('https://my-real-gateway.example');
+  fireEvent.click(view.getByText('modelLibrary.env.gatewayTemplate'));
+
+  await waitFor(() => assert.ok(view.getByTestId('model-env-unsaved-summary')));
+  const summary = view.getByTestId('model-env-unsaved-summary');
+  for (const key of ['ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_HAIKU_MODEL']) {
+    assert.ok(summary.textContent.includes(key), `${key} must be listed as not saved`);
+  }
+  // Filled rows are sent, and a blank stored secret means "keep it" — neither is reported.
+  assert.equal(summary.textContent.includes('ANTHROPIC_BASE_URL'), false);
+  assert.equal(summary.textContent.includes('ANTHROPIC_AUTH_TOKEN'), false);
+
+  const flagged = view.getAllByTestId('model-env-row-unsaved');
+  assert.equal(flagged.length, 3);
+  // Each flagged row carries the marker next to the empty field it belongs to.
+  const opusRow = view.getAllByTestId('model-env-row')
+    .find((row) => (row.querySelector('input') as HTMLInputElement).value === 'ANTHROPIC_DEFAULT_OPUS_MODEL');
+  assert.ok(opusRow);
+  assert.ok(opusRow.querySelector('[data-testid="model-env-row-unsaved"]'));
+
+  const secretRow = view.getAllByTestId('model-env-row')
+    .find((row) => (row.querySelector('input') as HTMLInputElement).value === 'ANTHROPIC_AUTH_TOKEN');
+  assert.ok(secretRow);
+  assert.equal(secretRow.querySelector('[data-testid="model-env-row-unsaved"]'), null);
+});

@@ -519,7 +519,9 @@
       "envrefSet": "Set on server",
       "envrefUnset": "Not set on server",
       "envrefHelp": "Reads this variable from the CloudCLI server process environment; restart the server after changing it.",
-      "warningEnvrefUnset": "Environment variable {{name}} is not set on the server; this row will send nothing."
+      "warningEnvrefUnset": "Environment variable {{name}} is not set on the server; this row will send nothing.",
+      "unsavedRow": "Non verrà salvato: il valore è vuoto.",
+      "unsavedSummary": "Queste righe non verranno salvate perché il loro valore è vuoto:"
     }
   }
 }

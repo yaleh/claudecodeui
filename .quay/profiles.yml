@@ -11,10 +11,23 @@ promptSuggestions: false
 
 profiles:
   worker-default:
-    launcher: claude
-    model: null
+    # 2026-09-20 按本机栈编辑。原值是出厂默认（launcher=claude / model=null，见本文件头部「消费者按自己
+    # 的栈编辑」）；本机把网关收口在 ~/.local/bin/claude-fjdac 里（该 wrapper 自己 export
+    # ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN + 三个 DEFAULT_*_MODEL=v4.1flash，再 exec claude）。
+    # 不改这里 ⇒ worker 拿到裸 claude、没有任何网关 env ⇒ 走公网 api.anthropic.com 请求 v4.1flash
+    # ⇒ 404 model_not_found，首次调用即死（worker「连续 3 次 <60000ms 快速死亡」，任务被 park）。
+    # ⛔ 网关/env 的落点是【这里或 launcher】，⛔ 不是 launch.settings.json——按本仓库约定后者只留
+    #   Claude Code 键，且把凭据抄进去会造成第二个会漂移的副本。
+    launcher: claude-fjdac
+    model: v4.1flash       # 须与 wrapper export 的 DEFAULT_*_MODEL 一致
     bare: false
-    auth: key              # 原生 claude 读 ANTHROPIC_API_KEY
+    auth: token            # claude-fjdac 只提供 ANTHROPIC_AUTH_TOKEN，不置 ANTHROPIC_API_KEY
+    # ⛔ 此处刻意【不】声明 env.ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL（2026-09-20 清理）：
+    #   实测 settings.env 会【覆盖】wrapper 的进程环境 ⇒ 两处都写时 wrapper 那三行对「驱动派发的
+    #   worker」静默不生效，且两份值可各自漂移（本仓库反复出现的形状）。既然 launcher 已经是那个
+    #   wrapper，模型映射就由 wrapper 单一承载：本文件只留「换哪套网关/哪个模型」这一层。
+    #   ⚠️ 若把 launcher 换成【不 export 这三者】的启动器（如 quay 自己的 claude-deepseek 那类），
+    #   必须在此把 env.ANTHROPIC_DEFAULT_*_MODEL 补回来，否则 worker 会拿到网关不认识的默认模型名。
   manager-local:
     launcher: claude
     model: null

@@ -624,7 +624,9 @@
       "envrefSet": "服务端已设置",
       "envrefUnset": "服务端未设置",
       "envrefHelp": "读取的是 CloudCLI 服务进程的环境变量，修改后需重启服务。",
-      "warningEnvrefUnset": "服务端未设置环境变量 {{name}}，此行不会发送任何内容。"
+      "warningEnvrefUnset": "服务端未设置环境变量 {{name}}，此行不会发送任何内容。",
+      "unsavedRow": "不会保存——值为空。",
+      "unsavedSummary": "以下变量因为值为空，不会保存："
     }
   }
 }
