@@ -10,6 +10,10 @@ import type { ServerEvent,
   ProjectSession,IsSessionProcessing } from '@/shared/types';
 import { mergeProjectSelectionMetadata } from '@/modules/project-workspace/utils/projectSelectionMetadata';
 import { readSelectedProvider } from '@/shared/selectedProvider';
+import {
+  isSessionHiddenByProjectFilter,
+  useProjectSessionFilter,
+} from '@/modules/project-workspace/hooks/useProjectSessionFilter';
 
 type UseProjectsStateArgs = {
   sessionId?: string;
@@ -18,6 +22,8 @@ type UseProjectsStateArgs = {
   subscribe: (listener: (event: ServerEvent) => void) => () => void;
   isMobile: boolean;
   isSessionProcessing: IsSessionProcessing;
+  /** Running session ids; they are sent as keepSessionIds so a name filter never hides them. */
+  runningSessionIds?: ReadonlySet<string>;
 };
 
 /**
@@ -370,6 +376,7 @@ export function useProjectsState({
   subscribe,
   isMobile,
   isSessionProcessing,
+  runningSessionIds,
 }: UseProjectsStateArgs) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
@@ -438,6 +445,12 @@ export function useProjectsState({
   selectedProjectRef.current = selectedProject;
   const projectsRef = useRef(projects);
   projectsRef.current = projects;
+  const attentionSessionIdsRef = useRef(attentionSessionIds);
+  attentionSessionIdsRef.current = attentionSessionIds;
+  const runningSessionIdsRef = useRef(runningSessionIds);
+  runningSessionIdsRef.current = runningSessionIds;
+  /** Pushed sessions already counted into a project's hiddenCount, so a repeated delta does not count twice. */
+  const countedHiddenSessionIdsRef = useRef<Set<string>>(new Set());
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
   /** URL session id whose backend lookup already ran (or is in flight) — one attempt per id. */
@@ -493,6 +506,33 @@ export function useProjectsState({
     });
   }, []);
 
+  // Running, attention and selected sessions always stay visible under a project's name filter.
+  const getKeepSessionIds = useCallback((): string[] => {
+    const keep = new Set<string>([
+      ...(runningSessionIdsRef.current ?? []),
+      ...attentionSessionIdsRef.current,
+    ]);
+    const selectedId = selectedSessionRef.current?.id;
+    if (selectedId) {
+      keep.add(selectedId);
+    }
+    return [...keep];
+  }, []);
+
+  const {
+    showHiddenProjectIds,
+    showHiddenRef,
+    getSessionRequestOptions,
+    toggleShowHidden,
+    handleSessionFilterSaved,
+    reloadShownHiddenProjects,
+  } = useProjectSessionFilter({ projects, setProjects, getKeepSessionIds });
+
+  const handleProjectSessionFilterSaved = useCallback(async (projectId: string, hide: string[]) => {
+    countedHiddenSessionIdsRef.current.clear();
+    await handleSessionFilterSaved(projectId, hide);
+  }, [handleSessionFilterSaved]);
+
   const fetchProjects = useCallback(async ({ showLoadingState = true }: FetchProjectsOptions = {}) => {
     // Claimed before the request starts and read again in `finally`, so the
     // loading flag is only ever cleared by the response that actually wrote
@@ -503,7 +543,7 @@ export function useProjectsState({
       if (showLoadingState) {
         setIsLoadingProjects(true);
       }
-      const response = await api.projects();
+      const response = await api.projects({ keepSessionIds: getKeepSessionIds() });
       const projectData = (await response.json()) as Project[];
 
       if (projectsRequestIdRef.current !== requestId) {
@@ -542,6 +582,8 @@ export function useProjectsState({
           ? mergeProjectSelectionMetadata(previousProject, refreshedProject)
           : previousProject;
       });
+
+      reloadShownHiddenProjects(projectData);
     } catch (error) {
       console.error('Error fetching projects:', error);
     } finally {
@@ -559,7 +601,7 @@ export function useProjectsState({
         setIsLoadingProjects(false);
       }
     }
-  }, []);
+  }, [getKeepSessionIds, reloadShownHiddenProjects]);
 
   const refreshProjectsSilently = useCallback(async () => {
     // Keep chat view stable while still syncing sidebar/session metadata in background.
@@ -764,6 +806,61 @@ export function useProjectsState({
         return;
       }
 
+      // A brand-new session whose name matches the project's filter stays out of
+      // the visible list; it only bumps hiddenCount (once per session id).
+      const upsertProject = projectsRef.current.find((project) => (
+        upsert.project?.projectId
+          ? project.projectId === upsert.project.projectId
+          : getProjectSessions(project).some((session) => session.id === upsert.sessionId)
+      ));
+      const aliasIds = getSessionAliasIds(upsert);
+      const isKnownSession = upsertProject
+        ? getProjectSessions(upsertProject).some((session) => aliasIds.has(String(session.id)))
+        : false;
+      const keepIds = new Set(getKeepSessionIds());
+      const isHiddenNewSession = Boolean(
+        upsertProject
+        && !isKnownSession
+        && isSessionHiddenByProjectFilter(
+          upsertProject,
+          upsert.session as ProjectSession,
+          keepIds,
+          showHiddenRef.current.has(upsertProject.projectId),
+        ),
+      );
+      if (upsertProject && isHiddenNewSession) {
+        if (!countedHiddenSessionIdsRef.current.has(upsert.sessionId)) {
+          countedHiddenSessionIdsRef.current.add(upsert.sessionId);
+          setProjects((previousProjects) => previousProjects.map((project) => (
+            project.projectId === upsertProject.projectId
+              ? {
+                ...project,
+                sessionMeta: {
+                  ...project.sessionMeta,
+                  hiddenCount: Number(project.sessionMeta?.hiddenCount ?? 0) + 1,
+                },
+              }
+              : project
+          )));
+        }
+        return;
+      }
+      // A session that was counted as hidden but is now kept visible (it started running) leaves the hidden count.
+      const wasCountedHidden = countedHiddenSessionIdsRef.current.delete(upsert.sessionId);
+      if (wasCountedHidden && upsertProject) {
+        setProjects((previousProjects) => previousProjects.map((project) => (
+          project.projectId === upsertProject.projectId
+            ? {
+              ...project,
+              sessionMeta: {
+                ...project.sessionMeta,
+                hiddenCount: Math.max(0, Number(project.sessionMeta?.hiddenCount ?? 0) - 1),
+              },
+            }
+            : project
+        )));
+      }
+
       // The transcript of the currently viewed session changed on disk while
       // no run is active here (e.g. edited from another client or the CLI):
       // signal the chat view to reload its messages.
@@ -859,7 +956,7 @@ export function useProjectsState({
     };
 
     return subscribe(handleEvent);
-  }, [isSessionProcessing, markSessionAttention, navigate, refreshProjectsSilently, sessionId, subscribe]);
+  }, [getKeepSessionIds, isSessionProcessing, markSessionAttention, navigate, refreshProjectsSilently, sessionId, showHiddenRef, subscribe]);
 
   useEffect(() => {
     return () => {
@@ -1077,7 +1174,7 @@ export function useProjectsState({
 
   const handleSidebarRefresh = useCallback(async () => {
     try {
-      const response = await api.projects();
+      const response = await api.projects({ keepSessionIds: getKeepSessionIds() });
       const freshProjects = (await response.json()) as Project[];
       const projectsWithTaskMaster = mergeTaskMasterCache(freshProjects, projects);
       const mergedProjects = mergeExpandedSessionPages(projects, projectsWithTaskMaster);
@@ -1123,7 +1220,7 @@ export function useProjectsState({
     } catch (error) {
       console.error('Error refreshing sidebar:', error);
     }
-  }, [projects, selectedProject, selectedSession]);
+  }, [getKeepSessionIds, projects, selectedProject, selectedSession]);
 
   const loadMoreProjectSessions = useCallback(async (projectId: string) => {
     const project = projects.find((candidate) => candidate.projectId === projectId);
@@ -1140,6 +1237,7 @@ export function useProjectsState({
     const response = await api.projectSessions(projectId, {
       limit: 20,
       offset: loadedCount,
+      ...getSessionRequestOptions(projectId),
     });
 
     if (!response.ok) {
@@ -1165,7 +1263,7 @@ export function useProjectsState({
         return mergeProjectSessionPage(candidate, sessionsPage);
       }),
     );
-  }, [projects]);
+  }, [getSessionRequestOptions, projects]);
 
   // `projectId` is the DB identifier passed from the sidebar's delete flow
   // after the migration away from folder-derived project names.
@@ -1193,6 +1291,9 @@ export function useProjectsState({
       onNewSession: handleNewSession,
       onSessionDelete: handleSessionDelete,
       onLoadMoreSessions: loadMoreProjectSessions,
+      showHiddenProjectIds,
+      onToggleShowHidden: toggleShowHidden,
+      onSessionFilterSaved: handleProjectSessionFilterSaved,
       onProjectDelete: handleProjectDelete,
       isLoading: isLoadingProjects,
       loadingProgress,
@@ -1212,6 +1313,9 @@ export function useProjectsState({
       loadMoreProjectSessions,
       handleSessionSelect,
       handleSidebarRefresh,
+      handleProjectSessionFilterSaved,
+      showHiddenProjectIds,
+      toggleShowHidden,
       isLoadingProjects,
       isMobile,
       loadingProgress,

@@ -157,5 +157,24 @@
     "deleteAllData": "Delete all data permanently",
     "allConversationsDeleted": "The project will be removed from the sidebar. Your files, memories, and session data will be preserved.",
     "cannotUndo": "You can re-add the project later."
+  },
+  "sessionFilter": {
+    "menuItem": "Session filter…",
+    "hidden": "{{count}} hidden",
+    "show": "Show",
+    "hideAgain": "Hide",
+    "editRules": "Edit rules",
+    "filteredBadge": "Filtered",
+    "editorTitle": "Session filter",
+    "editorDescription": "One regular expression per line. Sessions whose name matches any line are hidden from this project (case-insensitive, not anchored).",
+    "editorPlaceholder": "-(task-worker|selector)$",
+    "matched": "Hidden: {{count}}",
+    "unmatched": "Visible: {{count}}",
+    "previewing": "Previewing…",
+    "lineError": "Line {{line}} is invalid",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "saveFailed": "Failed to save the rules"
   }
 }

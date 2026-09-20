@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef } from 'react';
-import { Check, ChevronDown, ChevronRight, Edit3, Star, Trash2, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Edit3, ListFilter, Star, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Button } from '@/shared/ui';
@@ -44,6 +44,10 @@ type SidebarProjectItemProps = {
   activeSessions: ReadonlySet<string>;
   attentionSessionIds: ReadonlySet<string>;
   onNewSession: (project: Project) => void;
+  /** Resolved for this row so toggling one project's flag leaves other rows' memo boundary intact. */
+  isShowingHiddenSessions: boolean;
+  onToggleShowHidden?: (projectId: string) => void;
+  onEditSessionFilter?: (project: Project) => void;
   onStartEditingSession: (projectId: string, sessionId: string, initialName: string) => void;
   onCancelEditingSession: () => void;
   onSaveEditingSession: (projectName: string, sessionId: string, summary: string, provider: LLMProvider) => void;
@@ -88,6 +92,9 @@ function SidebarProjectItem({
   activeSessions,
   attentionSessionIds,
   onNewSession,
+  isShowingHiddenSessions,
+  onToggleShowHidden,
+  onEditSessionFilter,
   onStartEditingSession,
   onCancelEditingSession,
   onSaveEditingSession,
@@ -260,6 +267,19 @@ function SidebarProjectItem({
                       <Trash2 className="h-4 w-4 text-red-600 dark:text-red-400" />
                     </button>
 
+                    {onEditSessionFilter && (
+                      <button
+                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-muted/30 active:scale-90"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onEditSessionFilter(project);
+                        }}
+                        title={t('sessionFilter.menuItem')}
+                      >
+                        <ListFilter className="h-4 w-4 text-muted-foreground" />
+                      </button>
+                    )}
+
                     <button
                       className="flex h-8 w-8 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 active:scale-90 dark:border-primary/30 dark:bg-primary/20"
                       onClick={(event) => {
@@ -390,6 +410,18 @@ function SidebarProjectItem({
               </>
             ) : (
               <>
+                {onEditSessionFilter && (
+                  <div
+                    className="touch:opacity-100 flex h-6 w-6 cursor-pointer items-center justify-center rounded opacity-0 transition-all duration-200 hover:bg-accent group-hover:opacity-100"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onEditSessionFilter(project);
+                    }}
+                    title={t('sessionFilter.menuItem')}
+                  >
+                    <ListFilter className="h-3 w-3" />
+                  </div>
+                )}
                 <div
                   className="touch:opacity-100 flex h-6 w-6 cursor-pointer items-center justify-center rounded opacity-0 transition-all duration-200 hover:bg-accent group-hover:opacity-100"
                   onClick={(event) => {
@@ -445,6 +477,9 @@ function SidebarProjectItem({
         onForkSession={onForkSession}
         onLoadMoreSessions={onLoadMoreSessions}
         onNewSession={onNewSession}
+        isShowingHiddenSessions={isShowingHiddenSessions}
+        onToggleShowHidden={onToggleShowHidden}
+        onEditSessionFilter={onEditSessionFilter}
         t={t}
       />
     </div>

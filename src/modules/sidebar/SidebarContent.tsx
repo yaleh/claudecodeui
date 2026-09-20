@@ -267,6 +267,11 @@ export default function SidebarContent({
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-[13px] font-normal leading-4 text-foreground">
                             {session.sessionTitle}
+                            {session.filtered && (
+                              <span className="ml-1.5 rounded bg-muted px-1 py-0.5 align-middle text-[9px] font-medium text-muted-foreground">
+                                {t('sessionFilter.filteredBadge')}
+                              </span>
+                            )}
                           </span>
                           <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] leading-3 text-muted-foreground">
                             <span className="truncate">{session.projectDisplayName}</span>

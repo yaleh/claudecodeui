@@ -149,5 +149,24 @@
     "deleteAllData": "永久删除所有数据",
     "allConversationsDeleted": "项目将从侧边栏中移除。您的文件、记忆和会话数据将会保留。",
     "cannotUndo": "您可以稍后重新添加此项目。"
+  },
+  "sessionFilter": {
+    "menuItem": "会话过滤…",
+    "hidden": "已隐藏 {{count}} 个",
+    "show": "显示",
+    "hideAgain": "收起",
+    "editRules": "编辑规则",
+    "filteredBadge": "已过滤",
+    "editorTitle": "会话过滤",
+    "editorDescription": "每行一条正则。会话名命中任意一行即从该项目的列表中隐藏（忽略大小写，不锚定）。",
+    "editorPlaceholder": "-(task-worker|selector)$",
+    "matched": "命中 {{count}} 个",
+    "unmatched": "未命中 {{count}} 个",
+    "previewing": "预览中…",
+    "lineError": "第 {{line}} 行无效",
+    "save": "保存",
+    "saving": "保存中…",
+    "cancel": "取消",
+    "saveFailed": "保存规则失败"
   }
 }

@@ -5,6 +5,7 @@ import { PaletteOpsProvider } from '@/modules/command-palette';
 import { ProjectsStateProvider } from '@/modules/project-workspace/context/ProjectsStateContext';
 import {
   SessionProtectionProvider,
+  useBusySessionIdSet,
   useSessionProtectionActions,
 } from '@/shared/context/SessionProtectionContext';
 import { useWebSocket } from '@/shared/context/WebSocketContext';
@@ -31,6 +32,7 @@ function ProjectWorkspaceRouteContent() {
   const { isMobile } = useDeviceSettings({ trackPWA: false });
   const { ws, sendMessage, subscribe } = useWebSocket();
   const { isSessionProcessing } = useSessionProtectionActions();
+  const runningSessionIds = useBusySessionIdSet();
 
   useVisualViewportKeyboardOffset();
 
@@ -41,6 +43,7 @@ function ProjectWorkspaceRouteContent() {
       subscribe={subscribe}
       isMobile={isMobile}
       isSessionProcessing={isSessionProcessing}
+      runningSessionIds={runningSessionIds}
     >
       <ProjectWorkspaceShell
         isMobile={isMobile}

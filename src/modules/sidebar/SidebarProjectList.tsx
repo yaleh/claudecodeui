@@ -43,6 +43,9 @@ export default function SidebarProjectList({
   onStartEditingSession,
   onCancelEditingSession,
   onSaveEditingSession,
+  showHiddenProjectIds,
+  onToggleShowHidden,
+  onEditSessionFilter,
   t,
 }: SidebarProjectListProps) {
   const pageTitle = getPageTitle(selectedProject, selectedSession);
@@ -115,6 +118,9 @@ export default function SidebarProjectList({
                 activeSessions={activeSessions}
                 attentionSessionIds={attentionSessionIds}
                 onNewSession={onNewSession}
+                isShowingHiddenSessions={showHiddenProjectIds?.has(project.projectId) ?? false}
+                onToggleShowHidden={onToggleShowHidden}
+                onEditSessionFilter={onEditSessionFilter}
                 onStartEditingSession={onStartEditingSession}
                 onCancelEditingSession={onCancelEditingSession}
                 onSaveEditingSession={onSaveEditingSession}
