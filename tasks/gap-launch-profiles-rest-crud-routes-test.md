@@ -24,10 +24,10 @@ GOAL-001 的 AC-008 要求：经 REST 路由层建出一个 launch profile 并�
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/profile-rest-api.test.ts` 退出码 0（AC-008 的判据命令）。
-- [ ] 测试经真实 HTTP POST 创建 profile 后，GET /:id 与 GET / 读回的 name/provider/config 经 `assert.deepStrictEqual` 与提交内容一致；含内联凭据的 POST 断言返回 400。
-- [ ] `test -f server/modules/launch-profiles/launch-profiles.routes.ts` 且 `grep -n "api/launch-profiles" server/index.ts` 有命中；取假用例（未挂载路由 → 404）在同一测试内通过。
-- [ ] `npm run typecheck` 与 `npm test` 退出码 0（既有 server 测试不回归）。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/profile-rest-api.test.ts` 退出码 0（AC-008 的判据命令）。
+- [x] 测试经真实 HTTP POST 创建 profile 后，GET /:id 与 GET / 读回的 name/provider/config 经 `assert.deepStrictEqual` 与提交内容一致；含内联凭据的 POST 断言返回 400。
+- [x] `test -f server/modules/launch-profiles/launch-profiles.routes.ts` 且 `grep -n "api/launch-profiles" server/index.ts` 有命中；取假用例（未挂载路由 → 404）在同一测试内通过。
+- [x] `npm run typecheck` 与 `npm test` 退出码 0（既有 server 测试不回归）。
 
 ## DoD
 
