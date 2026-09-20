@@ -1,7 +1,8 @@
 ---
 id: gap-model-library-context-window-follows-model
 title: model-library：上下文窗口的单一事实来源是模型条目的 CLAUDE_CODE_MAX_CONTEXT_TOKENS 行（AC-028）
-status: ready
+status: needs-human
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -49,3 +50,15 @@ GOAL-001 的 AC-028：模型条目里的 `CLAUDE_CODE_MAX_CONTEXT_TOKENS` 行是
 - server/modules/providers/services/provider-token-usage.service.ts
 - server/modules/launch-profiles/tests/model-context-window.test.ts (new)
 - tasks/gap-model-library-context-window-follows-model.md
+
+## Needs-Human
+
+**执行 2026-09-20T09:59:43.111Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：worker-driver 连续 3 次 exited-not-landed 未落地（重试上限）
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=7355 lint passed=false end_ms=1789898274189
+- run_id：wk-prod-anchor
+- session_id：1cb0f6b8-a36d-4a05-b13e-1b0444411ee8
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-model-library-context-window-follows-model~wk-prod-anchor~1789898249119-df7197.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-model-library-context-window-follows-model-wk-prod-anchor.log
