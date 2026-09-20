@@ -1,7 +1,7 @@
 ---
 id: gap-suite-hang-watchdog
 title: 套件挂死无人终结：给 scripts/test.sh 加 max-runtime 与 silence 两条看门狗，阈值由实测推出
-status: ready
+status: done
 labels:
   - gap
 parent: null
