@@ -9,7 +9,7 @@ import test from 'node:test';
 
 import { closeConnection, getConnection, initializeDatabase, sessionsDb, userDb } from '@/modules/database/index.js';
 import { launchProfilesService } from '@/modules/launch-profiles/index.js';
-import { createProviderRuntimeService } from '@/modules/providers/services/provider-runtime.service.js';
+import { createProviderRuntimeService } from '@/modules/providers/index.js';
 import { handleChatConnection } from '@/modules/websocket/services/chat-websocket.service.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { connectedClients } from '@/modules/websocket/services/websocket-state.service.js';
