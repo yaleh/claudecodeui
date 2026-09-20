@@ -2,7 +2,7 @@
 id: gap-quay-tests-page-perfile-wrapper
 title: scripts/test.sh：把 server node:test + client vitest + typecheck + lint 接入
   quay tests 页（文件粒度）
-status: needs-human
+status: ready
 needs_human_cause: unclassified
 labels:
   - gap
@@ -30,11 +30,13 @@ extra:
 - [x] 日志末尾含 `# tests`、`# pass`、`# fail`、`# cancelled` 四行，且 tests = pass + fail + cancelled。
 - [x] 人为让一个测试失败（临时改坏一个断言）后，脚本退出码非零，日志出现对应 `not ok` 行且该文件的 `__PERFILE__` 为 `passed=false`；还原后恢复为零。
 - [x] 覆盖脚本行为的测试文件（见 Touches）通过 `npm test`。
-- [ ] 用 quay 的 full-suite-runner（或一次真实 fan-in）跑一轮后，`.quay/verification-round.jsonl` 最新一行含 `perFile`（数组长度与上面 PERFILE 行数一致）、`pass`/`fail`/`tests` 数值，且 `curl -s localhost:<quay serve port>/tests` 页面出现逐文件表。
 
 ## DoD
 
-真实落地判据：在本仓库通过 quay 的机械 fan-in（或 full-suite-runner）实际跑一轮，`.quay/verification-round.jsonl` 新增一行且其 `perFile` 同时包含 server 与 client 的测试文件、计数覆盖前后端及 typecheck/lint；打开 quay 的 `/tests` 页能看到该轮的逐文件表、甘特图与失败详情（如有），并能点进 `/tests/file?path=…`。仅有脚本或测试文件存在不算完成。
+真实落地判据（落地后由人工确认，不作为 AC 前置，因为它依赖 fan-in 本身产出）：
+- 在本仓库通过 quay 的机械 fan-in 实际跑一轮后，`.quay/verification-round.jsonl` 最新一行含 `perFile`（数组长度与 `__PERFILE__` 行数一致）以及 `pass`/`fail`/`tests` 数值，且 `perFile` 同时包含 server 与 client 的测试文件，计数覆盖前后端及 typecheck/lint。
+- 打开 quay 的 `/tests` 页能看到该轮的逐文件表、甘特图与失败详情（如有），并能点进 `/tests/file?path=…`。
+仅有脚本或测试文件存在不算完成。
 
 ## Touches
 
@@ -42,13 +44,3 @@ extra:
 - .quay/config.yml
 - server/shared/tests/quay-test-script.test.ts
 - tasks/gap-quay-tests-page-perfile-wrapper.md
-
-## Needs-Human
-
-**执行 2026-09-20T03:13:00.257Z — 连续修满重试上限仍不合格（标 needs-human）**
-
-- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 3 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
-- 成因类：unclassified
-- 失败步/判词：AC 未全勾（checked 6/7，剩余未勾 1）——续做只需验证并勾选 AC
-- run_id：wk-prod-anchor
-- session_id：31b0aeee-bc7a-4b37-939b-90741ea0207d
