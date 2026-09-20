@@ -40,7 +40,7 @@ GOAL-001 的 AC-023：自定义模型条目可携带 `config.env` 行，POST/PAT
 - server/modules/database/schema.ts
 - server/modules/database/migrations.ts
 - server/modules/database/repositories/provider-models.ts
-- server/modules/database/repositories/tests/provider-models.db.integration.test.ts
+- server/modules/database/tests/provider-models.db.integration.test.ts
 - server/modules/providers/services/provider-models.service.ts
 - server/modules/providers/tests/provider-models.service.test.ts
 - server/modules/providers/provider.routes.ts
