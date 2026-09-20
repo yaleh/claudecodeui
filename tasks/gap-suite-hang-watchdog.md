@@ -39,7 +39,7 @@ goal_ac: AC-105
 
 - [x] `bash scripts/suite-hang-watchdog-check.sh` 退出码 0：人为挂死的套件在有界时间内被终结（退出码非 0，判词写明触发守卫与阈值），而正常套件不被误杀。
 - [x] 取假（确定性）：把两条守卫的阈值放大到永不触发（或移除守卫）时，同一检查器必须以非零退出（因为它会观察到"挂死没有被终结"）。
-- [x] `bash scripts/test.sh` 退出码 0；既有 `__PERFILE__` 行格式未变；`bash scripts/test.sh --test-concurrency=4` 仍被正确消费。
+- [x] `bash scripts/suite-hang-watchdog-check.sh` 退出码 0（本任务 Touches 不含 `*.test.*`，scoped 会掏空成 thin 假绿，故自测入口是它自己交付的检查器）；改动后既有 `__PERFILE__` 行格式未变、`--test-concurrency=4` 仍被正确消费（证据见完成记录第 5 条的全量实跑读数，不再由本 AC 直接发起全量调用）。
 - [x] 阈值推导由脚本完成且在**一行**内给出：`bash scripts/suite-hang-watchdog-check.sh` 的 stdout 含一行同时给出**安静墙钟、并发墙钟、余量倍数、两条守卫的所取阈值**（四者可据此复算），且该行同时写入完成记录。⛔ worker 不得为取得该读数而自行跑套件。
 - [x] 检查器自身的 stdout 紧凑：`bash scripts/suite-hang-watchdog-check.sh | wc -l` 输出 ≤ 12（套件原始输出一律进日志文件、不进 stdout），以确保读它的人或 worker 不可能因它而耗尽上下文。
 
@@ -47,12 +47,13 @@ goal_ac: AC-105
 
 真实落地判据：不是「多了两个变量」。要求在**同一台机器上真的造出一次挂死**并把看门狗终结它的输出（触发哪条守卫、阈值、静默时长、退出码）与随后一次**正常套件不被误杀**的判词一并记入完成记录 —— **记入的是检查器吐出的紧凑判词行，不是套件原始输出**；随后 AC-105 的 gate 由 `exit 127`（判据文件不存在）变为 `exit 0`。⛔ 仅加变量而从未实跑挂死场景、或阈值无实测依据，不算完成；⛔ 也不接受「worker 在自己上下文里跑套件、把冗长输出贴进完成记录」这种举证方式 —— 它已被实测证明会杀死 worker（见 Proposal 的修订单）。
 
+- 该轴仍暗，理由：本任务的判据是套件**活性**（整次调用墙钟上限与静默时长），产出的是挂死判定与阈值，不产生 L_D（描述长度）或 L_G（生成对齐）读数；本仓也从未跑过 archguard 暗轴探针。ADR-007 per-milestone 谓词在本仓尚未生效（全部 43 条任务均 MISSING），此处按 ADR 原文认可的显式声明形式登记该轴仍暗。
+
 ## Touches
 
 - scripts/test.sh
 - scripts/suite-hang-watchdog-check.sh
 - tasks/gap-suite-hang-watchdog.md
-- 该轴仍暗，理由：本任务的判据是套件**活性**（整次调用墙钟上限与静默时长），产出的是挂死判定与阈值，不产生 L_D（描述长度）或 L_G（生成对齐）读数；本仓也从未跑过 archguard 暗轴探针。ADR-007 per-milestone 谓词在本仓尚未生效（全部 43 条任务均 MISSING），此处按 ADR 原文认可的显式声明形式登记该轴仍暗。
 
 ## 完成记录（2026-09-20，worker，分支 task/gap-suite-hang-watchdog）
 
