@@ -1,7 +1,7 @@
 ---
 id: gap-model-library-secret-write-only
 title: model-library：secret 行只写、读接口不回传、auth.db 收紧为 0600（AC-022）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
