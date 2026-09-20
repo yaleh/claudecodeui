@@ -39,12 +39,17 @@ extra:
 
 - server/modules/database/schema.ts
 - server/modules/database/migrations.ts
+- server/modules/database/index.ts
 - server/modules/database/repositories/projects.db.ts
+- server/modules/database/repositories/sessions.db.ts
 - server/modules/database/tests/projects.db.integration.test.ts
+- server/modules/projects/index.ts
 - server/modules/projects/services/session-name-filter.service.ts (new)
 - server/modules/projects/services/projects-with-sessions-fetch.service.ts
 - server/modules/projects/projects.routes.ts
 - server/modules/providers/services/session-conversations-search.service.ts
+- server/modules/providers/services/sessions.service.ts
+- server/shared/types.ts
 - server/modules/projects/tests/session-name-filter.service.test.ts (new)
 - server/modules/projects/tests/projects-session-filter.integration.test.ts (new)
 - tasks/gap-project-session-name-filter-backend.md
