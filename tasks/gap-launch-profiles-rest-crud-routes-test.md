@@ -19,7 +19,7 @@ GOAL-001 的 AC-008 要求：经 REST 路由层建出一个 launch profile 并�
 
 方案（最小切片，遵循 backend-module-standards：router 工厂 + 依赖注入，跨模块只走 index）：
 1. 新增 `server/modules/launch-profiles/launch-profiles.routes.ts`，导出 `createLaunchProfilesRouter(service)`：`POST /`（创建，入参含 provider/name/config，复用 service 的内联凭据拒绝，违规返回 400）、`GET /`（列表）、`GET /:id`（读回，不存在 404）、`PUT /:id`、`DELETE /:id`。如 service/repository 缺 list/get/update/delete，则在 `launch-profiles.service.ts` 与 `server/modules/database/repositories/launch-profiles.db.ts` 中补齐。
-2. 经 `server/modules/launch-profiles/index.ts` 导出 `launchProfilesRoutes`，并在 `server/index.ts` 以 `app.use('/api/launch-profiles', authenticateToken, launchProfilesRoutes)` 挂载（与 settings 路由同式）。
+2. 经 `server/modules/launch-profiles/index.ts` 导出 `launchProfilesRoutes`（模块装配在 `launch-profiles.module.ts`），并在 `server/index.ts` 以 `app.use('/api/launch-profiles', authenticateToken, launchProfilesRoutes)` 挂载（与 settings 路由同式）。
 3. 新增 `server/modules/launch-profiles/tests/profile-rest-api.test.ts`：用临时 sqlite 库与真实 router 挂到内存 Express 应用（真实 HTTP 请求），POST 创建 profile、GET 列表与 GET /:id 读回并断言字段一致；再断言携带内联凭据的 POST 返回 400 且库中无该行；取假用例：未挂载路由时同一请求返回 404，证明测试非恒绿。
 
 ## AC
@@ -37,6 +37,7 @@ GOAL-001 的 AC-008 要求：经 REST 路由层建出一个 launch profile 并�
 
 - server/modules/launch-profiles/launch-profiles.routes.ts (new)
 - server/modules/launch-profiles/launch-profiles.service.ts
+- server/modules/launch-profiles/launch-profiles.module.ts
 - server/modules/launch-profiles/index.ts
 - server/modules/database/repositories/launch-profiles.db.ts
 - server/index.ts
