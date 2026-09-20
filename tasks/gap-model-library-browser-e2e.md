@@ -1,7 +1,7 @@
 ---
 id: gap-model-library-browser-e2e
 title: model-library：真实浏览器端到端——建模型、选中、发送、mock 收到（AC-027）
-status: ready
+status: done
 labels:
   - gap
 parent: null
