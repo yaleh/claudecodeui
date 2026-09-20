@@ -1,7 +1,7 @@
 ---
 id: gap-goal-001-exit-conditions-section
 title: GOAL-001 缺 `## 退出条件` 节：提议把行内退出条件提升为独立小节并显式标注范围内 UI 项的覆盖
-status: todo
+status: ready
 labels:
   - gap
 parent: null
