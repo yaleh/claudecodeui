@@ -31,10 +31,14 @@ extra:
 
 2026-09-20 人（yale）裁定：选 (a)——范围内 UI 项（Settings 管理页、会话创建入口选择）明示不入退出条件，由 AC-001..AC-007 的后端契约间接保证，不另立 AC。据此已修订 goals/GOAL-001-cloudcli-launch-profiles.md：新增 `## 退出条件` 小节并删除行内「退出条件：…」句。剩余待观察：下一轮 goal-sufficiency round log 中该 goal 的最新 verdict 由语义 judge 给出（第 3 条 AC）。
 
+## Evidence
+
+- 2026-09-20：`.quay/goal-round.jsonl` round 125（ts 2026-09-20T03:44:03Z）中 GOAL-001 `sufficiency: {"goal":"GOAL-001","verdict":"covered"}`，reason「sufficiency=covered（在域 AC 7 条）」；`.quay/goal-sufficiency-cache.json` 记录语义 judge verdict=covered（03:38:25Z）。不再是机械 insufficient。
+
 ## AC
 - [x] `grep -c '^## 退出条件' goals/GOAL-001-cloudcli-launch-profiles.md` 输出 1，且该小节非空白字符数 ≥ 40。
 - [x] 人（yale）已在本任务下裁定 UI 项处理方式（明示不入退出条件，或另立 AC 的任务 id）；裁定记录在本任务 Resolution 中。
-- [ ] 修订后下一轮 goal-sufficiency 判定不再因「无退出条件小节」产生机械 insufficient（读 round log 该 goal 的最新 verdict）。
+- [x] 修订后下一轮 goal-sufficiency 判定不再因「无退出条件小节」产生机械 insufficient（读 round log 该 goal 的最新 verdict）。
 
 ## DoD
 人工授权后，真实修改 GOAL-001 目标文件（经授权的 goal 写入路径，而非本 agent），并在下一轮实际 round log 中观察到判定结果由机械 insufficient 变为由语义 judge 给出；仅有文本改动而无后续 verdict 观察不算完成。本任务由跟进 agent 只提议，不改 goals/*.md，不改任何 GOAL/AC 状态。
