@@ -34,7 +34,7 @@ statusLog:
     reason: playwright 实机验证发现写入路径白名单缺失、i18n key 外泄、Profiles 编辑器仅
       name+model、会话创建入口无选择；补 AC-011/AC-012（均实测为红）后退回 active
 ---
-让单个 CloudCLI 实例能同时对接 Anthropic 官方服务与第三方供应商（LLM Gateway / Bedrock / Vertex），方式是引入具名的启动配置档：一份 profile 编译成一组注入环境与少量类型化覆盖项，由 Agent SDK 路径与内置终端路径共用同一个 resolveLaunchSpec 契约。范围内：profile 存储与编译层、两条启动路径接入、Settings 管理页、会话创建入口的选择与锁定、按 profile 的上下文窗口，以及【能复现用户历史上的 claude code 启动方式】。非目标：Claude Code 账号级切换（OAuth 多账号）、codex/cursor/opencode 的 profile、toolsSettings 纳入 profile。
+让单个 CloudCLI 实例能同时对接 Anthropic 官方服务与第三方供应商（LLM Gateway / Bedrock / Vertex），方式是引入具名的启动配置档：一份 profile 编译成一组注入环境与少量类型化覆盖项，由 Agent SDK 路径与内置终端路径共用同一个 resolveLaunchSpec 契约。范围内：profile 存储与编译层、两条启动路径接入、Settings 管理页、会话创建入口的选择与锁定、按 profile 的上下文窗口，以及【能复现用户历史上的 claude code 启动方式】，并且【一个没读过代码的人能在界面里用对它】（缺省 profile、凭据来源与状态、内置选项的含义）。非目标：Claude Code 账号级切换（OAuth 多账号）、codex/cursor/opencode 的 profile、toolsSettings 纳入 profile。
 
 ## 参照启动方式（本目标的验收基准）
 
@@ -48,6 +48,9 @@ statusLog:
 - AC-013 至 AC-016：config.env 真正进入 spawn 环境；类型化上下文字段导出真实 CLI 变量；终端会话使用所选 profile；permissionMode 与 promptSuggestions 由 profile 驱动。
 - AC-017：参照 fjdac profile 与历史启动命令逐键等价（对 AC-013..016 的合取验收）。
 - AC-018：参照 profile 能完全经 UI 录入并原样回显（对编辑器完整度的实机验收）。
+- AC-019：保存不丢字段（PUT 只更新提交的字段；用 API 设的默认标记经 UI 保存后仍在）。这是数据丢失缺陷，优先级最高。
+- AC-020：缺省 profile 真正生效（不带 id 的会话使用 is_default；UI 能设置/取消；内置选项明确标为“继承服务器环境”）。
+- AC-021：可用性底线（凭据变量的说明与“已设置/未设置”实时状态、warning 界面可见；网关类 profile 默认清除继承来的 ANTHROPIC_API_KEY；会话锁定后下拉禁用并回显实际 profile）。
 
 ## 已知不等价点（如实登记，不据此放宽判据）
 
@@ -56,3 +59,7 @@ wrapper 同时导出 ANTHROPIC_AUTH_TOKEN 与 ANTHROPIC_API_KEY，而 profile �
 ## 修订记录
 
 2026-09-20：此前的版本写「范围内 UI 项不单列退出条件」。实机验证证明这一条放过了 i18n key 外泄、编辑器仅 name+model、会话入口缺失三处缺陷，现予撤回，UI 由 AC-012 与 AC-018 单列。
+
+2026-09-20（二）：用户在 Settings-Profiles 里实际使用时提出三个问题——凭据变量名“在哪儿设”、是否要为原生 claude 另建 profile、能否设缺省——playwright 与代码复核证实它们都是界面缺口，并牵出更多：保存一次即清掉 isDefault/description/sortOrder；is_default 在服务端解析中无任何消费点；网关 profile 不清除继承来的 ANTHROPIC_API_KEY；会话锁定后下拉仍可改且重开不回显。此前 18 条 AC 全部只验证“机制存在”，没有一条验证“不读代码的人能用对”，故补 AC-019/020/021。
+
+依据（如实登记）：用户现有的 FJD profile 填的是 FJDAC_API_KEY_FILE（wrapper 里存放 key 文件路径的变量），而服务进程环境里只有 FJDAC_API_KEY，界面对此无任何提示；服务进程还继承了 ANTHROPIC_API_KEY 与 917k 上下文变量，因为它是在一个 Claude Code 会话里启动的。所谓“原生”行为继承的是服务进程环境，而不是干净环境。
