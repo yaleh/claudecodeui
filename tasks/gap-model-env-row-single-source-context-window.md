@@ -1,7 +1,7 @@
 ---
 id: gap-model-env-row-single-source-context-window
 title: 模型条目的 CLAUDE_CODE_MAX_CONTEXT_TOKENS 行是上下文窗口唯一来源：spawn 导出与用量 total 同值（AC-028）
-status: ready
+status: needs-human
 needs_human_cause: human-adjudication
 labels:
   - gap
@@ -63,3 +63,15 @@ GOAL-001 的 AC-028 要求：模型条目（Model library 自定义模型）env 
 - 归因：**Touches 声明写错，不是越界实现**。`launch-spec.service.ts` 的 `resolveContextWindow` 已实现 行 → `CONTEXT_WINDOW` → 160000 的解析顺序（非正整数落下一级），无需改动；本任务新增的能力是 `model-launch-spec.service.ts` 中的 `resolveModelContextWindowRow`（该文件负责模型条目编译），经 `launch-profiles/index.ts` 导出，由 `claude-runtime.provider.js`（第 760 行解析、991-992 行喂入真实 SDK token 构造路径）与 `provider-token-usage.service.ts`（第 98 行）消费。原 Touches 第 1 行抄自 Proposal 中的计划细节，与实现落点不符。
 - 处置：Touches 由 `launch-spec.service.ts` 改为 `model-launch-spec.service.ts`；移除声明了但实际未改动的 `server/modules/providers/index.ts`（该 helper 经 launch-profiles barrel 导出，providers barrel 不参与）。
 - 佐证：AC-028 判据命令在本分支实测 **3/3 通过、退出码 0**（含取假用例）；anti-drift 在 suite 之前中止，故此前重试均看不到这一绿。
+
+## Needs-Human
+
+**执行 2026-09-20T10:06:30.490Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=8170 lint passed=false end_ms=1789898748016
+- run_id：wk-prod-anchor
+- session_id：916dfebb-9bf5-4034-9181-5c23342b2030
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-model-env-row-single-source-context-window~wk-prod-anchor~1789898719986-2acd7b.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-model-env-row-single-source-context-window-wk-prod-anchor.log
