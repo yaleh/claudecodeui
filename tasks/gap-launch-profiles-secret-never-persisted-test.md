@@ -37,8 +37,8 @@ GOAL-001 的 AC-003 要求：写入带凭据的 profile payload 后，在 sqlite
 
 - server/modules/database/schema.ts
 - server/modules/database/migrations.ts
-- server/modules/database/repositories/launch-profiles.db.ts
-- server/modules/launch-profiles/index.ts
-- server/modules/launch-profiles/launch-profiles.service.ts
-- server/modules/launch-profiles/tests/secret-never-persisted.test.ts
+- server/modules/database/repositories/launch-profiles.db.ts (new)
+- server/modules/launch-profiles/index.ts (new)
+- server/modules/launch-profiles/launch-profiles.service.ts (new)
+- server/modules/launch-profiles/tests/secret-never-persisted.test.ts (new)
 - tasks/gap-launch-profiles-secret-never-persisted-test.md
