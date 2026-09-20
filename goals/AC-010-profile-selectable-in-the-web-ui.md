@@ -1,7 +1,7 @@
 ---
 id: AC-010
 title: profile selectable in the web UI
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-001
 criterion: npx vitest run
@@ -13,4 +13,10 @@ expect: Settings 的 Profiles 页能列出并编辑 profile；会话创建入口
 origin: docs/proposals/launch-profiles.md (commit 7da6f45c) + ADR-001；补立于
   GOAL-001 首次 achieved 后的范围复核
 activatedAt: 2026-09-20T06:35:03.251Z
+statusLog:
+  - at: 2026-09-20T06:54:19.006Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 ---
