@@ -136,6 +136,23 @@ function assertConfigAllowed(config: Record<string, unknown>, guards: LaunchProf
       { code: 'LAUNCH_PROFILE_INLINE_CREDENTIAL', statusCode: 400 },
     );
   }
+  const env = config.env;
+  if (env !== undefined && env !== null) {
+    if (typeof env !== 'object' || Array.isArray(env)) {
+      throw new AppError('Launch profile config.env must be an object', {
+        code: 'LAUNCH_PROFILE_ENV_KEY_DENIED',
+        statusCode: 400,
+      });
+    }
+    for (const key of Object.keys(env)) {
+      if (!guards.isAllowedKey(key)) {
+        throw new AppError(`Environment variable ${key} is not allowed in a launch profile`, {
+          code: 'LAUNCH_PROFILE_ENV_KEY_DENIED',
+          statusCode: 400,
+        });
+      }
+    }
+  }
   const target = config.authEnvVarTarget;
   if (typeof target === 'string' && target && !guards.isAllowedKey(target)) {
     throw new AppError(`Environment variable ${target} is not allowed in a launch profile`, {
