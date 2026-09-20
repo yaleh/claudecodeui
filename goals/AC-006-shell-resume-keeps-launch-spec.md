@@ -1,7 +1,7 @@
 ---
 id: AC-006
 title: shell resume keeps launch spec
-status: achieved
+status: superseded
 kind: criterion
 goal: GOAL-001
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -15,4 +15,10 @@ statusLog:
     to: achieved
     actor: goal-driver
     reason: "I2: criterion pass"
+  - at: 2026-09-20T09:38:12.045Z
+    from: achieved
+    to: superseded
+    actor: yale
+    reason: ADR-002 复核：终端路径接入延期（AC-015 已 superseded）；该判据守的是终端 resume
+      复用启动参数，而生产上终端始终走无配置路径，属休眠的回归闸，不属第一版退出条件。重启终端路径时须重新立判据
 ---

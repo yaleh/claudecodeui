@@ -1,7 +1,7 @@
 ---
 id: AC-022
 title: model secrets are write-only and the db file is private
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-001
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -15,6 +15,12 @@ expect: ADR-002 决策 2：secret 行的值允许存于 provider_models.config_j
 origin: ADR-002（配置挂在 Model library 上，取代独立 launch profile
   实体）；docs/proposals/launch-profiles.md 待随之修订
 activatedAt: 2026-09-20T09:16:11.882Z
+statusLog:
+  - at: 2026-09-20T09:35:57.486Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 supersedes:
   - AC-003
 ---
