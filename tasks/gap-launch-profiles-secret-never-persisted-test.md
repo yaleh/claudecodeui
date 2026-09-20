@@ -24,10 +24,10 @@ GOAL-001 的 AC-003 要求：写入带凭据的 profile payload 后，在 sqlite
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/secret-never-persisted.test.ts` 退出码 0（AC-003 的判据命令）。
-- [ ] 测试写入含哨兵凭据的 profile payload 后，遍历全库所有表所有列及数据库文件原始字节的检索命中数经 `assert.strictEqual(hits, 0)` 断言为 0。
-- [ ] 取假用例通过：把哨兵值分别写进 `name`、`description`、`config_json` 任一列后，同一检索函数命中数均大于 0（`assert.ok(hits > 0)`），证明判据会变红。
-- [ ] `grep -n "launch_profiles" server/modules/database/schema.ts` 有命中且 `grep -rn "launch_profile_secrets" server` 无命中；`npm run typecheck` 与 `npm test` 退出码 0（既有 server 测试不回归）。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/secret-never-persisted.test.ts` 退出码 0（AC-003 的判据命令）。
+- [x] 测试写入含哨兵凭据的 profile payload 后，遍历全库所有表所有列及数据库文件原始字节的检索命中数经 `assert.strictEqual(hits, 0)` 断言为 0。
+- [x] 取假用例通过：把哨兵值分别写进 `name`、`description`、`config_json` 任一列后，同一检索函数命中数均大于 0（`assert.ok(hits > 0)`），证明判据会变红。
+- [x] `grep -n "launch_profiles" server/modules/database/schema.ts` 有命中且 `grep -rn "launch_profile_secrets" server` 无命中；`npm run typecheck` 与 `npm test` 退出码 0（既有 server 测试不回归）。
 
 ## DoD
 
