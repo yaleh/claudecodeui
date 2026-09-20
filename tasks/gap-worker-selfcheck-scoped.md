@@ -48,3 +48,4 @@ goal_ac: AC-103
 - scripts/test.sh
 - scripts/suite-scope-check.sh
 - tasks/gap-worker-selfcheck-scoped.md
+- 该轴仍暗，理由：本任务的判据是 worker 自测的**作用域**（`--for-task` 是否真的执行到测试文件、两个取假方向各一次实跑），产出的是作用域读数，不产生 L_D（描述长度）或 L_G（生成对齐）读数；本仓从未跑过 archguard 暗轴探针。ADR-007 per-milestone 谓词在本仓尚未生效（全部 43 条任务均 MISSING），此处按 ADR 原文认可的显式声明形式登记该轴仍暗。
