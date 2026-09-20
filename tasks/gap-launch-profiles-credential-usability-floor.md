@@ -2,7 +2,8 @@
 id: gap-launch-profiles-credential-usability-floor
 title: launch-profiles：凭据可用性下限——变量状态可见、网关 profile 清除继承的 Anthropic key、会话锁定后回显
   profile（AC-021）
-status: ready
+status: needs-human
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -57,3 +58,14 @@ GOAL-001 的 AC-021（凭据可用性下限）三件事合取，今天均缺失�
 - src/modules/settings/tests/launchProfileCredentialStatus.test.tsx
 - src/modules/chat/tests/launchProfileLockedEcho.test.tsx
 - tasks/gap-launch-profiles-credential-usability-floor.md
+
+## Needs-Human
+
+**执行 2026-09-20T09:02:55.661Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：worker-driver 连续 3 次 exited-not-landed 未落地（重试上限）
+- 成因类：human-adjudication
+- 失败步/判词：step=anti-drift: ANTI-DRIFT HARD FAIL: task gap-launch-profiles-credential-usability-floor — 8 violation(s)
+- run_id：wk-prod-anchor
+- session_id：8350def1-c891-4be9-a10f-c4091ce1f9b5
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-launch-profiles-credential-usability-floor-wk-prod-anchor.log
