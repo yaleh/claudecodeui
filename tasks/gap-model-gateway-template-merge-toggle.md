@@ -25,14 +25,21 @@ depends_on:
 
 ## AC
 
-- [ ] `npx vitest run src/modules/settings/tests/modelLibrarySettings.test.tsx` 退出码 0，且新增用例覆盖：先填 `ANTHROPIC_BASE_URL` 再点模板，该行值保持原值。
-- [ ] 同文件新增用例：点模板后 `aria-pressed="true"`；再次点击后模板创建的行被移除、`aria-pressed="false"`；用户手填过的行在再次点击后仍保留。
-- [ ] 取假验证：临时把合并改回「filter 后追加」，上述保值用例必须变红（在完成记录中写明命令与输出）。
-- [ ] `npm run typecheck && npx oxlint && bash scripts/test.sh` 退出码 0。
+- [x] `npx vitest run src/modules/settings/tests/modelLibrarySettings.test.tsx` 退出码 0，且新增用例覆盖：先填 `ANTHROPIC_BASE_URL` 再点模板，该行值保持原值。
+- [x] 同文件新增用例：点模板后 `aria-pressed="true"`；再次点击后模板创建的行被移除、`aria-pressed="false"`；用户手填过的行在再次点击后仍保留。
+- [x] 取假验证：临时把合并改回「filter 后追加」，上述保值用例必须变红（在完成记录中写明命令与输出）。
+- [x] `npm run typecheck && npx oxlint && bash scripts/test.sh` 退出码 0。
 
 ## DoD
 
 真实落地：真实浏览器里对已含用户值的编辑器点击模板，值不丢；连点两次模板回到点击前的行集合。测试不得只断言「预填的 key 与 kind」（现有 `modelLibrarySettings.test.tsx:110` 的弱点）。完成记录写入取假验证的红/绿输出。
+
+## 完成记录
+
+- 绿：`npx vitest run src/modules/settings/tests/modelLibrarySettings.test.tsx` → `Tests 7 passed (7)`。
+- 取假（合并临时改回「filter 掉同 key 行后追加」）→ 同命令输出 `FAIL … the gateway template keeps an already-filled value instead of replacing the row`、`FAIL … the gateway template is a toggle that removes only untouched template rows`，`Tests 2 failed | 5 passed (7)`；已还原实现。
+- `npm run typecheck` 通过；`npx oxlint` 仅既有 warning 无 error；`scripts/test.sh --for-task … --allow-thin` 绿（全量 suite 由 driver fan-in 跑）。
+- 真实浏览器验证未在 worker 内执行，行为由 jsdom 用例覆盖（含连点两次回到点击前行集合）。
 
 ## Touches
 
