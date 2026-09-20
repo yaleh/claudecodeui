@@ -13,4 +13,6 @@ expect: 测试内起 mock Anthropic 兼容服务，建一条自定义模型（ba
 origin: ADR-002（配置挂在 Model library 上，取代独立 launch profile
   实体）；docs/proposals/launch-profiles.md 待随之修订
 activatedAt: 2026-09-20T09:16:11.906Z
+supersedes:
+  - AC-002
 ---
