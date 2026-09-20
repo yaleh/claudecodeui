@@ -15,4 +15,6 @@ expect: POST/PATCH /api/providers/:provider/models 接受 config.env 行，行�
 origin: ADR-002（配置挂在 Model library 上，取代独立 launch profile
   实体）；docs/proposals/launch-profiles.md 待随之修订
 activatedAt: 2026-09-20T09:16:11.892Z
+supersedes:
+  - AC-011
 ---
