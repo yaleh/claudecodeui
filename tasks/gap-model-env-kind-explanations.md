@@ -2,7 +2,7 @@
 id: gap-model-env-kind-explanations
 title: Models env 行：四种 kind（value/envref/secret/unset）各配一句说明，尤其 unset 是「从 spawn
   环境删除该变量」
-status: ready
+status: needs-human
 needs_human_cause: human-adjudication
 labels:
   - gap
@@ -75,4 +75,16 @@ depends_on: []
 - run_id：wk-prod-anchor
 - session_id：e7defad8-f634-4321-bbba-f5e96980f217
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-model-env-kind-explanations~wk-prod-anchor~1789912141404-17ec5b.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-model-env-kind-explanations-wk-prod-anchor.log
+
+## Needs-Human
+
+**执行 2026-09-20T14:29:45.229Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 3 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=44372 server/modules/cli/tests/cli-environment-bootstrap.test.ts passed=false end_ms=1789914559206
+- run_id：wk-prod-anchor
+- session_id：2bf6a6a1-8b38-4cc5-8d4a-7c54876996bc
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-model-env-kind-explanations~wk-prod-anchor~1789914489349-fefa12.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-model-env-kind-explanations-wk-prod-anchor.log
