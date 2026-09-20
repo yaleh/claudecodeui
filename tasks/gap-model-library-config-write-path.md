@@ -38,9 +38,13 @@ GOAL-001 的 AC-023：自定义模型条目可携带 `config.env` 行，POST/PAT
 ## Touches
 
 - server/modules/database/schema.ts
+- server/modules/database/migrations.ts
 - server/modules/database/repositories/provider-models.ts
+- server/modules/database/tests/provider-models.db.integration.test.ts
 - server/modules/providers/services/provider-models.service.ts
+- server/modules/providers/tests/provider-models.service.test.ts
 - server/modules/providers/provider.routes.ts
+- server/modules/launch-profiles/index.ts
 - server/shared/types.ts
 - server/modules/providers/tests/model-config-write-path.test.ts (new)
 - tasks/gap-model-library-config-write-path.md
