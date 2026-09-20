@@ -1,7 +1,7 @@
 ---
 id: gap-model-env-editor-full-width-layout
 title: Models 设置页：env 编辑器占满整行宽度，≥1024px 不再溢出/遮挡「Add variable」，标题行可换行
-status: ready
+status: done
 labels:
   - gap
   - defect
