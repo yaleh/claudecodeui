@@ -1,7 +1,7 @@
 ---
 id: gap-model-library-context-window-follows-model
 title: model-library：上下文窗口的单一事实来源是模型条目的 CLAUDE_CODE_MAX_CONTEXT_TOKENS 行（AC-028）
-status: needs-human
+status: superseded
 needs_human_cause: human-adjudication
 labels:
   - gap
@@ -9,6 +9,13 @@ parent: null
 children: []
 extra:
   schema: execution
+  superseded_by: gap-model-env-row-single-source-context-window
+  superseded_reason: 同一判据 AC-028 的重复任务。AC-028
+    只有一条判据命令（server/modules/launch-profiles/tests/model-context-window.test.ts）；两条分支都【新增】该同一路径且内容不同，物理上不可能同时落地，后到者必冲突。env-row
+    已于 2026-09-20 10:22Z 落地（flip-done → ff 进 develop）；本任务独有语义（会话无 model 时的降级）已被
+    env-row 的 session.model || findNewestClaudeModelId(entries) 覆盖（后者还能从最新主线程
+    assistant 回合的 message.model 兜回）。两任务此前被同一 lint 规则 boundaries/dependencies
+    卡住（本任务未修）。人工裁定 2026-09-20。
 depends_on:
   - gap-model-library-compile-spawn-env
 goal_ac: AC-028
