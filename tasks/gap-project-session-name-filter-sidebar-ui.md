@@ -25,10 +25,10 @@ depends_on:
 
 ## AC
 
-- [ ] `npx vitest run src/modules/sidebar/tests/sessionFilterBar.test.tsx` 退出码 0：`hiddenCount=0` 时不渲染底部条；`hiddenCount=114` 时渲染「已隐藏 114 个」；点「显示」后以 `includeHidden=true` 重新请求并写入本地偏好，刷新后保持，再点收回。
-- [ ] `npx vitest run src/modules/sidebar/tests/sessionFilterEditor.test.tsx` 退出码 0：输入规则后防抖调用 preview 并渲染命中数与会话名；服务端返回非法行号时该行带错误标记；保存非法时面板保持打开并显示错误；保存成功后触发该项目会话重新加载。
-- [ ] 同一测试组断言：请求会话时 `keepSessionIds` 含运行中、需关注、当前选中的会话 id；增量推送到达的会话名命中规则时不进入可见列表且 `hiddenCount` 加一；搜索结果 `filtered: true` 的条目带「已过滤」标记。
-- [ ] `npm run test:client` 与 `npm run typecheck` 退出码 0（既有前端测试不回归，含 `sidebarRowProps.test.tsx` 的 memo 边界断言）。
+- [x] `npx vitest run src/modules/sidebar/tests/sessionFilterBar.test.tsx` 退出码 0：`hiddenCount=0` 时不渲染底部条；`hiddenCount=114` 时渲染「已隐藏 114 个」；点「显示」后以 `includeHidden=true` 重新请求并写入本地偏好，刷新后保持，再点收回。
+- [x] `npx vitest run src/modules/sidebar/tests/sessionFilterEditor.test.tsx` 退出码 0：输入规则后防抖调用 preview 并渲染命中数与会话名；服务端返回非法行号时该行带错误标记；保存非法时面板保持打开并显示错误；保存成功后触发该项目会话重新加载。
+- [x] 同一测试组断言：请求会话时 `keepSessionIds` 含运行中、需关注、当前选中的会话 id；增量推送到达的会话名命中规则时不进入可见列表且 `hiddenCount` 加一；搜索结果 `filtered: true` 的条目带「已过滤」标记。
+- [x] `npm run test:client` 与 `npm run typecheck` 退出码 0（既有前端测试不回归，含 `sidebarRowProps.test.tsx` 的 memo 边界断言）。
 
 ## DoD
 
