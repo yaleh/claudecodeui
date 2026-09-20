@@ -45,7 +45,16 @@ GOAL-001 的 AC-003 要求：写入带凭据的 profile payload 后，在 sqlite
 - server/modules/launch-profiles/tests/secret-never-persisted.test.ts (new)
 - tasks/gap-launch-profiles-secret-never-persisted-test.md
 
-## Needs-Human
+## Adjudication 2026-09-20（人 yale 授权：needs-human → todo → ready）
+
+下方 `## Needs-Human` 块已失效，仅作历史记录保留；再次派发的 worker 不应把它读作现行阻塞。
+
+- 裁定：死因是环境性的，不是任务质量问题。worker-driver 连续 3 次 exited-not-landed 撞满重试上限，是机械翻转。
+- 根因：下方判词已逐字记下——fan-in-ff-merge 因 `suite_head..tip` delta NOT-EVALUATED 而拒绝 ff，classifier 在每个探测根下都 exit=2「registry file (runner-static-gate.ts) not found」。那个硬编码的 repo 相对路径（select-static-checks-for-touches.ts 中的 TEST_SH_REL）在已安装插件布局与本项目下都解析不到，证书闸只能按未知 delta fail-closed，每次尝试烧掉一整次 suite 运行，直至重试耗尽。
+- 修复：已在 develop 落地，commit **f7604c68**（本项目自行提供 plugin/scripts/runner-static-gate.ts）。已在真实任务分支上验证 `--classify-delta` 现在 exit 0，且仅含 tasks/<id>.md 的 delta 判为惰性，证书闸通过、ff 首次尝试即可推进。该重试耗尽路径已不可达。
+- 使用的 ABI 动词：lifecycle_adjudicate（只读审计）→ lifecycle_retreat（needs-human → todo，理由记入 GateEvent）→ 状态随后到达 ready。
+
+## Needs-Human（已失效，历史记录）
 
 **执行 2026-09-20T03:50:46.529Z — 连续修满重试上限仍不合格（标 needs-human）**
 
