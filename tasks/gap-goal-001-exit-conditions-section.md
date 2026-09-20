@@ -1,0 +1,40 @@
+---
+id: gap-goal-001-exit-conditions-section
+title: GOAL-001 缺 `## 退出条件` 节：提议把行内退出条件提升为独立小节并显式标注范围内 UI 项的覆盖
+status: todo
+labels:
+  - gap
+parent: null
+children: []
+extra:
+  schema: execution
+---
+## Proposal
+
+选型 (b)：修订 GOAL-001 的退出条件文本（不新增 AC，不改任何状态）。
+
+**未被覆盖的部分（逐字引用）**：目标正文以行内句子给出退出条件，而非 `## 退出条件` 小节：「退出条件：AC-001 至 AC-007 全部为真，即向后兼容不破、网关请求真实落地、密钥不入库、env 注入面封闭、上下文窗口随 profile、终端 resume 保真、会话 profile 锁定生效。」
+
+**为何现有 AC 集判为 insufficient**：机械层要求目标正文含非空的 `## 退出条件` 小节；goals/GOAL-001-cloudcli-launch-profiles.md 没有该标题（退出条件埋在单段正文里），所以机械层判 insufficient，语义 judge 从未被咨询。AC-001..AC-007 与该行内句子逐条一一对应，内容上并无缺口，缺的只是结构。
+
+**附带观察（供人裁定，不在本任务范围）**：范围内列了「Settings 管理页」「会话创建入口的选择」，7 条 AC 均未直接覆盖 UI 层；若人认为它们属退出条件，应另立 AC；否则应在文本中明示「UI 由后端 AC 间接保证/不作为退出条件」。
+
+**建议的修订文本**：在 goals/GOAL-001-cloudcli-launch-profiles.md 正文末尾新增
+
+## 退出条件
+- AC-001 至 AC-007 全部为真：向后兼容不破、网关请求真实落地、密钥不入库、env 注入面封闭、上下文窗口随 profile、终端 resume 保真、会话 profile 锁定生效。
+- 范围内 UI 项（Settings 管理页、会话创建入口选择）不单列退出条件，其正确性由上述 AC 的后端契约保证（若人裁定需要，另立 AC）。
+
+并把原行内「退出条件：…」句删除以免重复。此修订使机械层可解析出非空退出条件，语义 judge 才会被咨询。
+
+## AC
+- [ ] `grep -c '^## 退出条件' goals/GOAL-001-cloudcli-launch-profiles.md` 输出 1，且该小节非空白字符数 ≥ 40。
+- [ ] 人（yale）已在本任务下裁定 UI 项处理方式（明示不入退出条件，或另立 AC 的任务 id）；裁定记录在本任务 Resolution 中。
+- [ ] 修订后下一轮 goal-sufficiency 判定不再因「无退出条件小节」产生机械 insufficient（读 round log 该 goal 的最新 verdict）。
+
+## DoD
+人工授权后，真实修改 GOAL-001 目标文件（经授权的 goal 写入路径，而非本 agent），并在下一轮实际 round log 中观察到判定结果由机械 insufficient 变为由语义 judge 给出；仅有文本改动而无后续 verdict 观察不算完成。本任务由跟进 agent 只提议，不改 goals/*.md，不改任何 GOAL/AC 状态。
+
+## Touches
+- goals/GOAL-001-cloudcli-launch-profiles.md
+- tasks/gap-goal-001-exit-conditions-section.md
