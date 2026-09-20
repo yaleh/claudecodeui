@@ -14,9 +14,7 @@ import {
   resolveLaunchSpec,
   type LaunchSpecGuards,
 } from '@/modules/launch-profiles/launch-spec.service.js';
-import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
-import { handleChatConnection } from '@/modules/websocket/services/chat-websocket.service.js';
-import { connectedClients } from '@/modules/websocket/services/websocket-state.service.js';
+import { chatRunRegistry, connectedClients, handleChatConnection } from '@/modules/websocket/index.js';
 
 const DENIED_KEYS = [
   'PATH', 'NODE_OPTIONS', 'NODE_PATH', 'LD_PRELOAD', 'LD_LIBRARY_PATH', 'DYLD_INSERT_LIBRARIES',

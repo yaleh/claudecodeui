@@ -9,3 +9,6 @@ export { broadcastSessionUpserted, broadcastSessionUpsertedBatch } from './servi
 // from a timer, with no socket to stream to or report errors on.
 export { runDetachedChatTurn } from './services/chat-websocket.service.js';
 export type { ProviderRuntimeGateway } from './services/chat-websocket.service.js';
+// handleChatConnection: driven by the launch-profiles tests to prove a forged
+// client options.env never reaches the runtime.
+export { handleChatConnection } from './services/chat-websocket.service.js';
