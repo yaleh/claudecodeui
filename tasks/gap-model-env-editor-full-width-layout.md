@@ -23,10 +23,10 @@ extra:
 
 ## AC
 
-- [ ] `npx vitest run src/modules/settings/tests/modelLibrarySettings.test.tsx` 退出码 0（含按新文案 "Gateway template" / "+ Add" 定位按钮的断言）。
-- [ ] `grep -n "md:max-w-4xl" src/modules/chat/modals/ModelLibraryPanel.tsx` 无输出，且 `grep -nE "flex-wrap" src/modules/chat/modals/ModelEnvEditor.tsx` 至少命中标题行一处。
-- [ ] `grep -n "LLM gateway template" e2e/model-library.spec.ts src/modules/chat/modals/ModelEnvEditor.tsx` 无输出（旧文案已同步）。
-- [ ] `npm run typecheck && npx oxlint && bash scripts/test.sh` 退出码 0。
+- [x] `npx vitest run src/modules/settings/tests/modelLibrarySettings.test.tsx` 退出码 0（含按新文案 "Gateway template" / "+ Add" 定位按钮的断言）。
+- [x] `grep -n "md:max-w-4xl" src/modules/chat/modals/ModelLibraryPanel.tsx` 无输出，且 `grep -nE "flex-wrap" src/modules/chat/modals/ModelEnvEditor.tsx` 至少命中标题行一处。
+- [x] `grep -n "LLM gateway template" e2e/model-library.spec.ts src/modules/chat/modals/ModelEnvEditor.tsx` 无输出（旧文案已同步）。
+- [x] `npm run typecheck && npx oxlint && bash scripts/test.sh` 退出码 0。
 
 ## DoD
 
