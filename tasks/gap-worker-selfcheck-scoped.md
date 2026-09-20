@@ -43,12 +43,13 @@ goal_ac: AC-103
 
 真实落地判据：不是「守卫脚本存在」。要求：①守卫被 `scripts/test.sh` 前置调用（改动后的 test.sh 实跑一次、退出 0）；②**真的把一个含测试文件的活跃任务改成 scoped 并跑通**（`bash scripts/test.sh --for-task <id>` 实跑退出 0，且**不是 thin 空跑**——输出须显示它确实执行了至少一个测试文件）；③两个取假方向各有一次实跑输出。三段输出记入完成记录。⛔ 仅新增守卫脚本、或交付一个只会四处 `--for-task` 的实现，不算完成。
 
+- 该轴仍暗，理由：本任务的判据是 worker 自测的**作用域**（`--for-task` 是否真的执行到测试文件、两个取假方向各一次实跑），产出的是作用域读数，不产生 L_D（描述长度）或 L_G（生成对齐）读数；本仓从未跑过 archguard 暗轴探针。ADR-007 per-milestone 谓词在本仓尚未生效（全部 43 条任务均 MISSING），此处按 ADR 原文认可的显式声明形式登记该轴仍暗。
+
 ## Touches
 
 - scripts/test.sh
 - scripts/suite-scope-check.sh
 - tasks/gap-worker-selfcheck-scoped.md
-- 该轴仍暗，理由：本任务的判据是 worker 自测的**作用域**（`--for-task` 是否真的执行到测试文件、两个取假方向各一次实跑），产出的是作用域读数，不产生 L_D（描述长度）或 L_G（生成对齐）读数；本仓从未跑过 archguard 暗轴探针。ADR-007 per-milestone 谓词在本仓尚未生效（全部 43 条任务均 MISSING），此处按 ADR 原文认可的显式声明形式登记该轴仍暗。
 
 ## 完成记录
 

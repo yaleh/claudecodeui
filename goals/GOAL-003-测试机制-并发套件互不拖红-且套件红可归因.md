@@ -1,7 +1,7 @@
 ---
 id: GOAL-003
 title: 测试机制：并发套件互不拖红，且套件红可归因
-status: active
+status: achieved
 kind: goal
 origin: 落地复核 2026-09-20：两条任务的 worker 均 exit 0 跑满 5-7 分钟，却连续在 fan-in 的 suite
   步判红，而判红用的是每次都不相同的失败文件集合——任务级 AC 与 DoD 全绿，属性却仍然是假的。与 GOAL-002
@@ -14,6 +14,11 @@ statusLog:
     actor: yale
     reason: 两条 AC 已立并全部实测为红（红先行）：AC-103 gate exit 127（checker 不存在），AC-104 gate exit
       127（checker 不存在）；并发劣化为实测而非推断（安静 0.7s → 并发 41.3s，26 倍）。人已授权激活。
+  - at: 2026-09-20T16:16:05.645Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: all ACs achieved + sufficiency covered"
 ---
 ## 背景
 
