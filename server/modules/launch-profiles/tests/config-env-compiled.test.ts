@@ -80,3 +80,11 @@ test('typed fields win over a same-named config.env key', async () => {
     assert.ok(spec.warnings.some((w) => w.includes('ANTHROPIC_BASE_URL')));
   });
 });
+
+test('fake case: a lax compile-path guard lets the denied key through (the filter is load-bearing)', async () => {
+  await withDatabase(async () => {
+    insertProfile('lax', { LD_PRELOAD: '/tmp/evil.so' });
+    const spec = resolveLaunchSpec('lax', 'claude', { isAllowedKey: () => true });
+    assert.equal(spec.env.LD_PRELOAD, '/tmp/evil.so');
+  });
+});
