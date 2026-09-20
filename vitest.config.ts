@@ -45,6 +45,19 @@ export default defineConfig({
     setupFiles: ['./vitest.setup.ts'],
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     restoreMocks: true,
+    // Both budgets are declared here rather than left to vitest's defaults (5000 /
+    // 10000). They are not raised — the values are the defaults, written down — but
+    // an unwritten budget is one nobody can measure against. `vi.resetModules()`
+    // plus an in-case dynamic `import()` makes one case pay a whole module graph's
+    // cold compile (measured 2.7–3.0s for the useProjectsState graph), and against
+    // an implicit 5000ms that is 60% of the budget spent before the test does
+    // anything: enough for CPU contention to push it over, which is how AC-103's
+    // condition ① went red 1–2 times in 15 runs while its signature counters stayed
+    // at 0. The family now warms that graph in `beforeAll` (charged to hookTimeout,
+    // a separate budget) and scripts/test-timeout-margin-check.sh reads these two
+    // numbers back to assert every file keeps T_max <= testTimeout / K.
+    testTimeout: 5000,
+    hookTimeout: 10000,
     maxWorkers,
   },
 });
