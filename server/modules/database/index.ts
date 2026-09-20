@@ -4,12 +4,16 @@ export { apiKeysDb } from '@/modules/database/repositories/api-keys.js';
 export { appConfigDb } from '@/modules/database/repositories/app-config.js';
 export { credentialsDb } from '@/modules/database/repositories/credentials.js';
 export { githubTokensDb } from '@/modules/database/repositories/github-tokens.js';
-// launchProfilesDb: used by Launch Profiles to persist server-owned launch profile rows.
-export { launchProfilesDb } from '@/modules/database/repositories/launch-profiles.db.js';
 export { notificationChannelEndpointsDb } from '@/modules/database/repositories/notification-channel-endpoints.js';
 export { notificationPreferencesDb } from '@/modules/database/repositories/notification-preferences.js';
 // providerModelsDb: used by Providers to persist user-managed custom model rows.
 export { providerModelsDb } from '@/modules/database/repositories/provider-models.js';
+// launchProfilesDb: used by Launch Profiles to persist non-secret profile rows.
+export { launchProfilesDb } from '@/modules/database/repositories/launch-profiles.db.js';
+export type {
+  LaunchProfileInput,
+  LaunchProfileRecord,
+} from '@/modules/database/repositories/launch-profiles.db.js';
 // projectsDb: used by Projects, Worktrees, Git, WebSocket, and notification modules to persist and resolve project records.
 export { projectsDb } from '@/modules/database/repositories/projects.db.js';
 export { pushSubscriptionsDb } from '@/modules/database/repositories/push-subscriptions.js';

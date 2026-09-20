@@ -189,21 +189,6 @@ CREATE TABLE IF NOT EXISTS provider_models (
 `;
 
 /**
- * Server-owned launch profiles. `config_json` holds the profile's `env` map,
- * which is re-validated against the env allowlist every time a launch spec is
- * compiled, so rows written around the service never reach a spawned process.
- */
-export const LAUNCH_PROFILES_TABLE_SCHEMA_SQL = `
-CREATE TABLE IF NOT EXISTS launch_profiles (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    config_json TEXT NOT NULL DEFAULT '{}',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-`;
-
-/**
  * Per-user application preferences that used to live in browser localStorage.
  *
  * One row per (user, key); `preference_value` is always a JSON document so a
@@ -265,6 +250,30 @@ CREATE TABLE IF NOT EXISTS superseded_provider_sessions (
 );
 `;
 
+/**
+ * Named launch profiles (provider runtime configuration presets).
+ *
+ * `config_json` holds only non-secret settings. Credentials are referenced by
+ * environment variable name (`authEnvVarName`) and are never stored: there is
+ * deliberately no secrets table (docs/proposals/launch-profiles.md, ADR-001).
+ */
+export const LAUNCH_PROFILES_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS launch_profiles (
+    id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    deployment TEXT NOT NULL DEFAULT 'gateway',
+    is_default BOOLEAN NOT NULL DEFAULT 0,
+    config_json TEXT NOT NULL DEFAULT '{}',
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE (provider, name)
+);
+`;
+
 export const INIT_SCHEMA_SQL = `
 -- Initialize authentication database
 PRAGMA foreign_keys = ON;
@@ -310,7 +319,6 @@ ${LAST_SCANNED_AT_SQL}
 ${APP_CONFIG_TABLE_SCHEMA_SQL}
 
 ${PROVIDER_MODELS_TABLE_SCHEMA_SQL}
-${LAUNCH_PROFILES_TABLE_SCHEMA_SQL}
 CREATE INDEX IF NOT EXISTS idx_provider_models_provider_order
 ON provider_models(provider, sort_order, id);
 
@@ -319,4 +327,6 @@ ${USER_PREFERENCES_TABLE_SCHEMA_SQL}
 ${SESSION_DRAFTS_TABLE_SCHEMA_SQL}
 
 ${SUPERSEDED_PROVIDER_SESSIONS_TABLE_SCHEMA_SQL}
+
+${LAUNCH_PROFILES_TABLE_SCHEMA_SQL}
 `;

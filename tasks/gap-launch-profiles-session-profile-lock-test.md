@@ -41,6 +41,9 @@ GOAL-001 的 AC-007 要求：已锁定会话传入不同 `launchProfileId` 时�
 - server/modules/launch-profiles/index.ts (new)
 - server/modules/websocket/services/chat-websocket.service.ts
 - server/modules/launch-profiles/tests/session-profile-lock.test.ts (new)
+- server/modules/database/migrations.ts
+- server/modules/database/schema.ts
+- server/modules/database/repositories/sessions.db.ts
 - tasks/gap-launch-profiles-session-profile-lock-test.md
 
 ## Needs-Human

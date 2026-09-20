@@ -5,16 +5,33 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { closeConnection, getConnection, initializeDatabase, launchProfilesDb, sessionsDb } from '@/modules/database/index.js';
+import { closeConnection, initializeDatabase, launchProfilesDb, sessionsDb } from '@/modules/database/index.js';
 import {
-  createLaunchProfilesService,
-  type LaunchProfilesGuards,
-} from '@/modules/launch-profiles/launch-profiles.service.js';
-import {
+  launchProfilesService,
   resolveLaunchSpec,
+  type LaunchProfilesGuards,
   type LaunchSpecGuards,
-} from '@/modules/launch-profiles/launch-spec.service.js';
+} from '@/modules/launch-profiles/launch-profiles.service.js';
 import { chatRunRegistry, connectedClients, handleChatConnection } from '@/modules/websocket/index.js';
+
+const CREDENTIAL_VAR = 'ENV_INJECTION_TEST_CREDENTIAL';
+
+function profileInput(id: string, target: string) {
+  return {
+    id,
+    provider: 'claude',
+    name: id,
+    description: null,
+    deployment: 'gateway',
+    isDefault: false,
+    config: {
+      baseUrl: 'https://example.test',
+      authMode: 'envVar',
+      authEnvVarName: CREDENTIAL_VAR,
+      authEnvVarTarget: target,
+    },
+  };
+}
 
 const DENIED_KEYS = [
   'PATH', 'NODE_OPTIONS', 'NODE_PATH', 'LD_PRELOAD', 'LD_LIBRARY_PATH', 'DYLD_INSERT_LIBRARIES',
@@ -23,6 +40,7 @@ const DENIED_KEYS = [
 const SESSION_ID = 'env-injection-session';
 
 async function withDatabase(run: (directory: string) => Promise<void>): Promise<void> {
+  process.env[CREDENTIAL_VAR] = 'secret-from-host';
   const previous = process.env.DATABASE_PATH;
   const directory = await mkdtemp(path.join(os.tmpdir(), 'env-injection-'));
   closeConnection();
@@ -31,6 +49,7 @@ async function withDatabase(run: (directory: string) => Promise<void>): Promise<
   try {
     await run(directory);
   } finally {
+    delete process.env[CREDENTIAL_VAR];
     connectedClients.clear();
     chatRunRegistry.clearAll();
     closeConnection();
@@ -45,10 +64,9 @@ async function withDatabase(run: (directory: string) => Promise<void>): Promise<
 
 /** Write path: every denied key must be refused by the profile service. Returns the keys that slipped through. */
 function writePathLeaks(guards?: LaunchProfilesGuards): string[] {
-  const service = createLaunchProfilesService(guards);
   return DENIED_KEYS.filter((key, index) => {
     try {
-      service.create({ id: `write-${index}`, name: key, env: { [key]: 'x' } });
+      launchProfilesService.createProfile(profileInput(`write-${index}`, key), guards);
       return true;
     } catch {
       return false;
@@ -60,10 +78,8 @@ function writePathLeaks(guards?: LaunchProfilesGuards): string[] {
 function compilePathLeaks(guards?: LaunchSpecGuards): string[] {
   return DENIED_KEYS.filter((key, index) => {
     const id = `compile-${index}`;
-    getConnection()
-      .prepare('INSERT INTO launch_profiles (id, name, config_json) VALUES (?, ?, ?)')
-      .run(id, key, JSON.stringify({ env: { [key]: 'x', ANTHROPIC_BASE_URL: 'https://example.test' } }));
-    const spec = resolveLaunchSpec(launchProfilesDb.get(id)!, guards);
+    launchProfilesDb.create(profileInput(id, key));
+    const spec = resolveLaunchSpec(id, 'claude', guards);
     assert.equal(spec.env.ANTHROPIC_BASE_URL, 'https://example.test');
     return key in spec.env;
   });
@@ -111,12 +127,9 @@ test('write path rejects every denied env key', async () => {
 
 test('write path accepts allowlisted keys', async () => {
   await withDatabase(async () => {
-    createLaunchProfilesService().create({
-      id: 'ok',
-      name: 'ok',
-      env: { ANTHROPIC_BASE_URL: 'u', CLAUDE_CODE_X: '1', HTTPS_PROXY: 'p', DISABLE_TELEMETRY: '1' },
-    });
+    launchProfilesService.createProfile(profileInput('ok', 'ANTHROPIC_API_KEY'));
     assert.ok(launchProfilesDb.get('ok'));
+    assert.equal(resolveLaunchSpec('ok', 'claude').env.ANTHROPIC_API_KEY, 'secret-from-host');
   });
 });
 
@@ -132,11 +145,11 @@ test('forged options.env never reaches the runtime through dispatchRun', async (
 
 test('negative controls: relaxing any single path turns the same assertions red', async () => {
   await withDatabase(async () => {
-    assert.notDeepEqual(writePathLeaks({ assertEnv: () => {} }), [], 'lax write path must be caught');
+    assert.notDeepEqual(writePathLeaks({ isAllowedKey: () => true }), [], 'lax write path must be caught');
   });
   await withDatabase(async () => {
     assert.notDeepEqual(
-      compilePathLeaks({ filterEnv: (env) => env as Record<string, string> }),
+      compilePathLeaks({ isAllowedKey: () => true }),
       [],
       'lax compile path must be caught',
     );

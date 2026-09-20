@@ -7,8 +7,8 @@ export { chatRunRegistry } from './services/chat-run-registry.service.js';
 export { broadcastSessionUpserted, broadcastSessionUpsertedBatch } from './services/session-upsert-broadcast.service.js';
 // runDetachedChatTurn: used by the scheduled-messages module to run a turn
 // from a timer, with no socket to stream to or report errors on.
-export { runDetachedChatTurn } from './services/chat-websocket.service.js';
+export { runDetachedChatTurn, handleChatConnection } from './services/chat-websocket.service.js';
 export type { ProviderRuntimeGateway } from './services/chat-websocket.service.js';
-// handleChatConnection: driven by the launch-profiles tests to prove a forged
-// client options.env never reaches the runtime.
-export { handleChatConnection } from './services/chat-websocket.service.js';
+// handleShellConnection: driven by the launch-profiles tests to prove the pty
+// env stays byte-identical when no profile is configured.
+export { handleShellConnection } from './services/shell-websocket.service.js';

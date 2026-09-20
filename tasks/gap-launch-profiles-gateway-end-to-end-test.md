@@ -2,7 +2,7 @@
 id: gap-launch-profiles-gateway-end-to-end-test
 title: launch-profiles：gateway profile 的 chat.send 真实落到 mock Anthropic 服务器且
   Authorization 来自环境变量（AC-002）
-status: todo
+status: done
 labels:
   - gap
 parent: null
@@ -27,10 +27,10 @@ GOAL-001 的 AC-002 要求：以 gateway profile 跑一轮真实 `chat.send`，�
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/gateway-end-to-end.test.ts` 退出码 0（AC-002 的判据命令）。
-- [ ] 测试断言 mock 服务器至少收到 1 个请求，且请求的认证头值严格等于被引用环境变量的值；改变环境变量值后重跑，头值随之改变（`assert.strictEqual`）。
-- [ ] 取假用例通过：无 profile / profile 未生效时 mock 收到请求数为 0，测试内以断言证明此时判据会变红。
-- [ ] `grep -n "resolveLaunchSpec" server/modules/providers/list/claude/claude-runtime.provider.js` 有命中；`npm run typecheck` 与 `npm test` 退出码 0（既有 server 测试不回归）。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/gateway-end-to-end.test.ts` 退出码 0（AC-002 的判据命令）。
+- [x] 测试断言 mock 服务器至少收到 1 个请求，且请求的认证头值严格等于被引用环境变量的值；改变环境变量值后重跑，头值随之改变（`assert.strictEqual`）。
+- [x] 取假用例通过：无 profile / profile 未生效时 mock 收到请求数为 0，测试内以断言证明此时判据会变红。
+- [x] `grep -n "resolveLaunchSpec" server/modules/providers/list/claude/claude-runtime.provider.js` 有命中；`npm run typecheck` 与 `npm test` 退出码 0（既有 server 测试不回归）。
 
 ## DoD
 
@@ -43,4 +43,6 @@ GOAL-001 的 AC-002 要求：以 gateway profile 跑一轮真实 `chat.send`，�
 - server/modules/launch-profiles/tests/gateway-end-to-end.test.ts
 - server/shared/types.ts
 - server/modules/providers/list/claude/claude-runtime.provider.js
+- server/modules/providers/index.ts
+- server/modules/websocket/index.ts
 - tasks/gap-launch-profiles-gateway-end-to-end-test.md
