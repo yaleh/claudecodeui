@@ -2,7 +2,7 @@
 id: gap-model-env-kind-explanations
 title: Models env 行：四种 kind（value/envref/secret/unset）各配一句说明，尤其 unset 是「从 spawn
   环境删除该变量」
-status: needs-human
+status: todo
 needs_human_cause: human-adjudication
 labels:
   - gap
