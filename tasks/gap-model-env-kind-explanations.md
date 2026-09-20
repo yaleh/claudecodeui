@@ -22,10 +22,10 @@ depends_on: []
 
 ## AC
 
-- [ ] `npx vitest run src/modules/settings/tests/modelLibrarySettings.test.tsx` 退出码 0，新增用例：选择 kind=unset 时渲染包含「删除/移除该变量」语义的说明节点，且该说明与输入框通过 `aria-describedby` 关联。
-- [ ] 新增用例：其余三种 kind 各自渲染对应说明，切换 kind 时说明随之改变。
-- [ ] `grep -rn "unset" src/modules/i18n/locales/en/settings.json` 命中新增文案键，且 de 等已有 locale 同键存在（`npm run typecheck && npx oxlint` 退出码 0）。
-- [ ] `bash scripts/test.sh` 退出码 0。
+- [x] `npx vitest run src/modules/settings/tests/modelLibrarySettings.test.tsx` 退出码 0，新增用例：选择 kind=unset 时渲染包含「删除/移除该变量」语义的说明节点，且该说明与输入框通过 `aria-describedby` 关联。
+- [x] 新增用例：其余三种 kind 各自渲染对应说明，切换 kind 时说明随之改变。
+- [x] `grep -rn "unset" src/modules/i18n/locales/en/settings.json` 命中新增文案键，且 de 等已有 locale 同键存在（`npm run typecheck && npx oxlint` 退出码 0）。
+- [x] `bash scripts/test.sh` 退出码 0。
 
 ## DoD
 
