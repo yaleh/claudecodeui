@@ -17,8 +17,8 @@ beforeEach(() => {
   authenticatedFetch.mockReset();
   authenticatedFetch.mockImplementation((_url: string, options?: { method?: string }) =>
     options?.method === 'PUT'
-      ? ok({})
-      : ok({ profiles: [{ id: 'p-1', name: 'Alpha', model: 'm1', credentialRef: 'cred-a' }, { id: 'p-2', name: 'Beta', model: 'm2' }] }));
+      ? ok({ id: 'p-2', name: 'Beta renamed', provider: 'claude', config: { defaultModel: 'm2' } })
+      : ok({ profiles: [{ id: 'p-1', name: 'Alpha', provider: 'claude', credentialRef: 'cred-a', config: { defaultModel: 'm1' } }, { id: 'p-2', name: 'Beta', provider: 'claude', config: { defaultModel: 'm2', baseUrl: 'https://gw.test', contextWindow: 5000 } }] }));
 });
 
 test('lists every profile and PUTs the edited fields', async () => {
@@ -32,13 +32,18 @@ test('lists every profile and PUTs the edited fields', async () => {
   assert.ok(view.getByText('cred-a'));
 
   fireEvent.change(view.getByDisplayValue('Beta'), { target: { value: 'Beta renamed' } });
-  const saveButtons = view.getAllByRole('button');
+  const saveButtons = view.getAllByRole('button', { name: 'launchProfiles.save' });
   await act(async () => { fireEvent.click(saveButtons[1]); });
 
   await waitFor(() => {
     const put = authenticatedFetch.mock.calls.find(([, options]) => options?.method === 'PUT');
     assert.ok(put);
     assert.equal(put[0], '/api/launch-profiles/p-2');
-    assert.deepEqual(JSON.parse(put[1].body), { name: 'Beta renamed', model: 'm2' });
+    assert.deepEqual(JSON.parse(put[1].body), {
+      provider: 'claude',
+      name: 'Beta renamed',
+      deployment: 'gateway',
+      config: { defaultModel: 'm2', baseUrl: 'https://gw.test', contextWindow: 5000 },
+    });
   });
 });

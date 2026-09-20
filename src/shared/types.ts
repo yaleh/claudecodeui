@@ -1606,6 +1606,8 @@ type TaskPriority = 'high' | 'medium' | 'low' | string;
 export type LaunchProfile = {
   id: string;
   name: string;
+  provider?: string;
   model?: string;
   credentialRef?: string;
+  config?: Record<string, unknown>;
 };
