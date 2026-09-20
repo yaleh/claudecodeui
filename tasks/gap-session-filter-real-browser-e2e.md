@@ -1,7 +1,7 @@
 ---
 id: gap-session-filter-real-browser-e2e
 title: 会话列表过滤真实浏览器端到端（e2e）：经界面设规则使列表真的收敛、临时显示刷新后保持、搜索「已过滤」、隐藏同类预填
-status: needs-human
+status: todo
 needs_human_cause: human-adjudication
 labels:
   - gap
