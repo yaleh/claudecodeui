@@ -2,6 +2,8 @@
 id: ADR-002
 title: 配置挂在 Model library 上，取代独立 launch profile 实体
 status: accepted
+supersedes:
+  - ADR-001
 ---
 ## 背景
 
