@@ -1,7 +1,7 @@
 ---
 id: gap-session-filter-realdata-criterion
 title: 会话列表过滤真实数据判据：真实库副本上 292→隐藏 262/可见 30，三条读取路径一致且不多不少，写入跨重启仍在
-status: todo
+status: ready
 labels:
   - gap
 parent: null
