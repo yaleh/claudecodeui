@@ -61,6 +61,7 @@ Test Files 1 passed (1) | Tests 6 passed (6) | Duration 4.76s
 - 至少一次**真实并发**实测：修复后的树上跑完 `scripts/suite-concurrency-check.sh`，其 `concurrent-suite-*.out` 里 `projectsStateSelectionSync.test.ts` 的逐用例耗时**不再出现 5000ms 上限截断**（不再是 `5005ms → Test timed out`），该文件 6/6 通过。
 - AC1 的红先行证据保留：修复前的非零退出与读数字样粘贴在本任务下。
 - 若最终走第 3 条路径（抬 `testTimeout`），必须另附「故意挂死的用例仍能在预算内被探到」的读数 —— 否则等于用放宽超时掩盖了挂死探测。
+- 该轴仍暗，理由：本任务的判据是用例**耗时余量**（T_max 与 testTimeout 预算之比），产出的是时间读数，不产生 L_D（描述长度）或 L_G（生成对齐）读数；本仓从未跑过 archguard 暗轴探针。ADR-007 per-milestone 谓词在本仓尚未生效（全部 43 条任务均 MISSING），此处按 ADR 原文认可的显式声明形式登记该轴仍暗。
 
 ## 完成记录
 
@@ -172,4 +173,4 @@ run 3: rc=0 GREEN
 - `src/modules/settings/tests/settingsControllerCodeEditor.test.ts`
 - `src/shared/tests/authenticatedFetch.test.ts`
 - `tasks/gap-resetmodules-cold-compile-timeout.md`（本任务自身）
-- 该轴仍暗，理由：本任务的判据是用例**耗时余量**（T_max 与 testTimeout 预算之比），产出的是时间读数，不产生 L_D（描述长度）或 L_G（生成对齐）读数；本仓从未跑过 archguard 暗轴探针。ADR-007 per-milestone 谓词在本仓尚未生效（全部 43 条任务均 MISSING），此处按 ADR 原文认可的显式声明形式登记该轴仍暗。
+
