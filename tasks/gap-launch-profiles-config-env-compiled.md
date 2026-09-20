@@ -25,10 +25,10 @@ GOAL-001 的 AC-013 要求：profile.config.env 中通过白名单的键必须�
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/config-env-compiled.test.ts` 退出码 0（AC-013 的判据命令）。
-- [ ] 测试经真实 `resolveLaunchSpec` 与真实（临时）sqlite 证明合法 env 键到达 spec.env；越权键（绕过写入路径直写库）被编译路径丢弃且产出 warning。
-- [ ] 取假变体（不并入 config.env）使该测试判红，红灯输出记录在任务证据中。
-- [ ] `env-injection-closed.test.ts`、`env-allowlist-write-path.test.ts`、`passthrough-parity.test.ts` 仍退出码 0；`npm run typecheck` 通过。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/config-env-compiled.test.ts` 退出码 0（AC-013 的判据命令）。
+- [x] 测试经真实 `resolveLaunchSpec` 与真实（临时）sqlite 证明合法 env 键到达 spec.env；越权键（绕过写入路径直写库）被编译路径丢弃且产出 warning。
+- [x] 取假变体（不并入 config.env）使该测试判红，红灯输出记录在任务证据中。（证据：还原 service 改动后 4 个用例全部 ✖：allowlisted config.env keys reach spec.env / denied config.env key … dropped with a warning / non-string … dropped / typed fields win）
+- [x] `env-injection-closed.test.ts`、`env-allowlist-write-path.test.ts`、`passthrough-parity.test.ts` 仍退出码 0；`npm run typecheck` 通过。
 
 ## DoD
 
