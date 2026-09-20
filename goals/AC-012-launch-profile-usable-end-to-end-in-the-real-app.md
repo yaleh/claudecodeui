@@ -1,7 +1,7 @@
 ---
 id: AC-012
 title: launch profile usable end-to-end in the real app
-status: active
+status: superseded
 kind: criterion
 goal: GOAL-001
 criterion: npm run test:e2e -- e2e/launch-profiles.spec.ts
@@ -14,4 +14,12 @@ expect: 真实浏览器驱动真实服务：登录 → 打开 Settings 的 Profi
 origin: docs/proposals/launch-profiles.md (commit 7da6f45c) + ADR-001；补立于
   2026-09-20 的 playwright 实机验证
 activatedAt: 2026-09-20T07:43:31.593Z
+statusLog:
+  - at: 2026-09-20T09:17:08.748Z
+    from: active
+    to: superseded
+    actor: yale
+    reason: ADR-002 重排：由 AC-027 取代
+superseded-by:
+  - AC-027
 ---
