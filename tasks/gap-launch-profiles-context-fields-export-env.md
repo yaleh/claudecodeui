@@ -30,10 +30,10 @@ GOAL-001 的 AC-014 要求：类型化上下文字段设置时，spec.env 必须
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/context-window-env-export.test.ts` 退出码 0（AC-014 的判据命令）。
-- [ ] 测试证明三个类型化字段导出正确的变量名与字符串值；未设置字段导出为零；非法值被丢弃且有 warning；同键冲突类型化字段胜出。
-- [ ] 取假变体（只保留 resolveContextWindow、不导出）使该测试判红，红灯输出记录在任务证据中。
-- [ ] `context-window-per-profile.test.ts` 与 `passthrough-parity.test.ts` 仍退出码 0（passthrough 不得多出任何键）；`npm run typecheck` 通过。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/context-window-env-export.test.ts` 退出码 0（AC-014 的判据命令）。
+- [x] 测试证明三个类型化字段导出正确的变量名与字符串值；未设置字段导出为零；非法值被丢弃且有 warning；同键冲突类型化字段胜出。
+- [x] 取假变体（只保留 resolveContextWindow、不导出）使该测试判红，红灯输出记录在任务证据中。（证据：注释掉 compileContextEnv 调用后 pass 1 / fail 3 —— 三字段导出、非法值、冲突胜出三个用例判红）
+- [x] `context-window-per-profile.test.ts` 与 `passthrough-parity.test.ts` 仍退出码 0（passthrough 不得多出任何键）；`npm run typecheck` 通过。
 
 ## DoD
 
