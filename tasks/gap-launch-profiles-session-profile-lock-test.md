@@ -2,7 +2,8 @@
 id: gap-launch-profiles-session-profile-lock-test
 title: launch-profiles：已锁定会话传入不同 launchProfileId 时以已存值为准并回带
   profileLocked，不报错不中断（AC-007）
-status: ready
+status: needs-human
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -40,4 +41,18 @@ GOAL-001 的 AC-007 要求：已锁定会话传入不同 `launchProfileId` 时�
 - server/modules/launch-profiles/index.ts (new)
 - server/modules/websocket/services/chat-websocket.service.ts
 - server/modules/launch-profiles/tests/session-profile-lock.test.ts (new)
+- server/modules/database/migrations.ts
+- server/modules/database/schema.ts
+- server/modules/database/repositories/sessions.db.ts
 - tasks/gap-launch-profiles-session-profile-lock-test.md
+
+## Needs-Human
+
+**执行 2026-09-20T03:54:52.111Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：worker-driver 连续 3 次 exited-not-landed 未落地（重试上限）
+- 成因类：human-adjudication
+- 失败步/判词：step=anti-drift: ANTI-DRIFT HARD FAIL: task gap-launch-profiles-session-profile-lock-test — 3 violation(s)
+- run_id：wk-prod-anchor
+- session_id：1753df93-1c0d-4053-9404-4c5b6685c080
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-launch-profiles-session-profile-lock-test-wk-prod-anchor.log

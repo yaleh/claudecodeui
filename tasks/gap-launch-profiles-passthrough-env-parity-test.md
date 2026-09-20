@@ -2,6 +2,7 @@
 id: gap-launch-profiles-passthrough-env-parity-test
 title: launch-profiles：落地 resolveLaunchSpec 的 passthrough 路径与 env 逐字一致性测试（AC-001）
 status: ready
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -39,4 +40,18 @@ GOAL-001 的 AC-001 要求：未配置任何 profile 时，`resolveLaunchSpec` �
 - server/shared/types.ts
 - server/modules/providers/list/claude/claude-runtime.provider.js
 - server/modules/websocket/services/shell-websocket.service.ts
+- server/modules/providers/index.ts
+- server/modules/websocket/index.ts
 - tasks/gap-launch-profiles-passthrough-env-parity-test.md
+
+## Needs-Human
+
+**执行 2026-09-20T03:54:02.823Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=7556 lint passed=false end_ms=1789876414282
+- run_id：wk-prod-anchor
+- session_id：197484b0-d2a6-4446-b867-dca1500c816c
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-launch-profiles-passthrough-env-parity-test~wk-prod-anchor~1789876390070-4671f0.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-launch-profiles-passthrough-env-parity-test-wk-prod-anchor.log

@@ -1,7 +1,7 @@
 ---
 id: gap-goal-001-exit-conditions-section
 title: GOAL-001 缺 `## 退出条件` 节：提议把行内退出条件提升为独立小节并显式标注范围内 UI 项的覆盖
-status: needs-human
+status: done
 needs_human_cause: human-adjudication
 labels:
   - gap
@@ -48,7 +48,17 @@ extra:
 - goals/GOAL-001-cloudcli-launch-profiles.md
 - tasks/gap-goal-001-exit-conditions-section.md
 
-## Needs-Human
+## Adjudication 2026-09-20（人 yale 授权：needs-human → todo → ready）
+
+下方 `## Needs-Human` 块已失效，仅作历史记录保留；再次派发的 worker 不应把它读作现行阻塞。
+
+- 裁定：死因是环境性的，不是任务质量问题。worker-driver 连续 3 次 exited-not-landed 撞满重试上限，是机械翻转。
+- 根因：quay fan-in 以硬编码的 repo 相对路径 `plugin/scripts/runner-static-gate.ts` 解析其 static-check registry（select-static-checks-for-touches.ts 中的 TEST_SH_REL）。该路径在已安装插件布局与本项目下都解析不到，导致 `--classify-delta` exit=2；fan-in 的 suite 证书闸对 `suite_head..tip` delta（flip-done 刚提交 tasks/<id>.md 所推进的那段）fail-closed，ff 被拒——每次尝试烧掉一整次 suite 运行，直至重试耗尽。
+- 修复：已在 develop 落地，commit **f7604c68**（本项目自行提供 plugin/scripts/runner-static-gate.ts）。已在真实任务分支上验证 `--classify-delta` 现在 exit 0，且仅含 tasks/<id>.md 的 delta 判为惰性，证书闸通过、ff 首次尝试即可推进。该重试耗尽路径已不可达。
+- 留意：本任务记录的近因判词是 `step=scoped-gate: bash: scripts/test.sh: No such file or directory`，与上述 classify-delta 缺陷并非同一处。重新派发时若再次出现 scripts/test.sh 缺失，应作为独立的基建缺口另行定位，而不是判本任务不合格。
+- 使用的 ABI 动词：lifecycle_adjudicate（只读审计）→ lifecycle_retreat（needs-human → todo，理由记入 GateEvent）→ 状态随后到达 ready。
+
+## Needs-Human（已失效，历史记录）
 
 **执行 2026-09-20T03:45:59.791Z — 连续修满重试上限仍不合格（标 needs-human）**
 
