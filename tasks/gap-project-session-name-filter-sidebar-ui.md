@@ -1,7 +1,7 @@
 ---
 id: gap-project-session-name-filter-sidebar-ui
 title: 项目级会话名过滤（侧边栏 UI）：隐藏计数条、临时显示开关、规则编辑面板（带实时预览）、搜索结果标记「已过滤」
-status: todo
+status: ready
 needs_human_cause: human-adjudication
 labels:
   - gap
