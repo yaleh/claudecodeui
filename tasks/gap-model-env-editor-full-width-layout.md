@@ -17,7 +17,7 @@ extra:
 修复（P0 结构 + P1 标题行）：
 1. 表单区改为：上方 Model name / Model ID 横排；env 编辑器 `col-span-2` 独占整宽；内置模型列表另起一区，不再与 env 表并列挤压。弹窗 `md:max-w-4xl` 提升到 `md:max-w-6xl`。
 2. 行内布局：第一行 `[变量名 flex-1 min-w-[16rem]] [类型] [删除]`，第二行 `[值]` 占满整行，使 `ANTHROPIC_DEFAULT_SONNET_MODEL` 在 1920px 下完整可见。
-3. 标题行加 `flex-wrap`，标签 `shrink-0`；文案缩短（"LLM gateway template" → "Gateway template"，"Add variable" → "+ Add"），同步既有测试与 e2e 里按旧文案定位按钮的选择器（`e2e/model-library.spec.ts` 用 `getByRole('button', { name: 'LLM gateway template' })`）。
+3. 标题行加 `flex-wrap`，标签 `shrink-0`；文案缩短（"LLM gateway template" → "Gateway template"，"Add variable" → "+ Add"，文案位于 12 个 locale 的 settings.json），同步既有测试与 e2e 里按旧文案定位按钮的选择器（`e2e/model-library.spec.ts` 用 `getByRole('button', { name: 'LLM gateway template' })`）。
 
 <!-- dedup-ref -->相关但机制不同：`gap-model-library-settings-ui`（已 done）首次交付该页面与网关模板，本任务修其布局缺陷；`gap-model-library-browser-e2e`（已 done）的选择器需随文案同步。布局断言测试另立 `gap-model-settings-layout-overflow-assertions`。
 
@@ -38,4 +38,16 @@ extra:
 - src/modules/chat/modals/ModelEnvEditor.tsx
 - src/modules/settings/tests/modelLibrarySettings.test.tsx
 - e2e/model-library.spec.ts
+- src/modules/i18n/locales/de/settings.json
+- src/modules/i18n/locales/en/settings.json
+- src/modules/i18n/locales/es/settings.json
+- src/modules/i18n/locales/fr/settings.json
+- src/modules/i18n/locales/id/settings.json
+- src/modules/i18n/locales/it/settings.json
+- src/modules/i18n/locales/ja/settings.json
+- src/modules/i18n/locales/ko/settings.json
+- src/modules/i18n/locales/ru/settings.json
+- src/modules/i18n/locales/tr/settings.json
+- src/modules/i18n/locales/zh-CN/settings.json
+- src/modules/i18n/locales/zh-TW/settings.json
 - tasks/gap-model-env-editor-full-width-layout.md
