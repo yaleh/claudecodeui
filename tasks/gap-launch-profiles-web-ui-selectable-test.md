@@ -2,7 +2,8 @@
 id: gap-launch-profiles-web-ui-selectable-test
 title: launch-profiles：Settings 增加 Profiles 页 + 会话创建入口选 profile 并随 chat.send 发出
   launchProfileId（AC-010）
-status: ready
+status: needs-human
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -45,3 +46,14 @@ GOAL-001 的 AC-010 要求：Settings 的 Profiles 页能列出并编辑 profile
 - src/modules/settings/tests/launchProfileSettings.test.tsx (new)
 - src/modules/chat/tests/launchProfileSessionEntry.test.tsx (new)
 - tasks/gap-launch-profiles-web-ui-selectable-test.md
+
+## Needs-Human
+
+**执行 2026-09-20T06:43:41.424Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：worker-driver 连续 3 次 exited-not-landed 未落地（重试上限）
+- 成因类：human-adjudication
+- 失败步/判词：step=anti-drift: ANTI-DRIFT HARD FAIL: task gap-launch-profiles-web-ui-selectable-test — 9 violation(s)
+- run_id：wk-prod-anchor
+- session_id：f0529a41-6cf1-4fab-a1fe-bb2ad5d9232c
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-launch-profiles-web-ui-selectable-test-wk-prod-anchor.log
