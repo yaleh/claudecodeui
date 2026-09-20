@@ -24,12 +24,12 @@ extra:
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/projects/tests/session-name-filter.service.test.ts` 退出码 0：覆盖合法/非法正则（含非法行号、超长、超条数）、多条合并、忽略大小写、不锚定、空规则不过滤。
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/projects/tests/projects-session-filter.integration.test.ts` 退出码 0：用真实临时 sqlite 建 30 个会话（其中 20 个名字命中 `-task-worker$`），设 `limit=5` 逐页翻完，断言可见总数 10、`hasMore` 与 `total` 一致、`hiddenCount=20`；`includeHidden=true` 时返回 30。
-- [ ] 同一测试断言 `keepSessionIds` 中的命中会话仍出现在结果里，且 PUT 保存非法正则返回 400 并含行号，preview 不改变库内 `session_filter`。
-- [ ] 同一测试断言标题搜索命中被隐藏的会话时返回项带 `filtered: true`，最近会话聚合列表按项目规则排除命中的会话。
-- [ ] 迁移幂等：对已有 `projects` 表（无该列）连续跑两次迁移，第一次加列、第二次无操作，既有行 `session_filter` 为 NULL（`server/modules/database/tests/projects.db.integration.test.ts` 内新增断言，退出码 0）。
-- [ ] `npm run typecheck` 与 `npm test` 退出码 0（既有 server 测试不回归）。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/projects/tests/session-name-filter.service.test.ts` 退出码 0：覆盖合法/非法正则（含非法行号、超长、超条数）、多条合并、忽略大小写、不锚定、空规则不过滤。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/projects/tests/projects-session-filter.integration.test.ts` 退出码 0：用真实临时 sqlite 建 30 个会话（其中 20 个名字命中 `-task-worker$`），设 `limit=5` 逐页翻完，断言可见总数 10、`hasMore` 与 `total` 一致、`hiddenCount=20`；`includeHidden=true` 时返回 30。
+- [x] 同一测试断言 `keepSessionIds` 中的命中会话仍出现在结果里，且 PUT 保存非法正则返回 400 并含行号，preview 不改变库内 `session_filter`。
+- [x] 同一测试断言标题搜索命中被隐藏的会话时返回项带 `filtered: true`，最近会话聚合列表按项目规则排除命中的会话。
+- [x] 迁移幂等：对已有 `projects` 表（无该列）连续跑两次迁移，第一次加列、第二次无操作，既有行 `session_filter` 为 NULL（`server/modules/database/tests/projects.db.integration.test.ts` 内新增断言，退出码 0）。
+- [x] `npm run typecheck` 与 `npm test` 退出码 0（既有 server 测试不回归）。
 
 ## DoD
 
