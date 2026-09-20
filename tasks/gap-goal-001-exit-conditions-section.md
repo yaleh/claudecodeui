@@ -2,6 +2,7 @@
 id: gap-goal-001-exit-conditions-section
 title: GOAL-001 缺 `## 退出条件` 节：提议把行内退出条件提升为独立小节并显式标注范围内 UI 项的覆盖
 status: ready
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -46,3 +47,14 @@ extra:
 ## Touches
 - goals/GOAL-001-cloudcli-launch-profiles.md
 - tasks/gap-goal-001-exit-conditions-section.md
+
+## Needs-Human
+
+**执行 2026-09-20T03:45:59.791Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：worker-driver 连续 3 次 exited-not-landed 未落地（重试上限）
+- 成因类：human-adjudication
+- 失败步/判词：step=scoped-gate: bash: scripts/test.sh: No such file or directory
+- run_id：wk-prod-anchor
+- session_id：2d0336a6-f021-467b-b687-52f588c26e0c
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-goal-001-exit-conditions-section-wk-prod-anchor.log
