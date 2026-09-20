@@ -45,7 +45,10 @@ test.describe.serial('launch profiles in a real browser', () => {
     await page.getByPlaceholder('john@example.com').fill('e2e@example.com');
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByRole('button', { name: 'Complete Setup' }).click();
-    await expect(page.getByText('Choose Your Project')).toBeVisible();
+    // "Signed in" means the real app shell is up, not that no project exists: playwright.config.ts seeds the
+    // session-filter transcripts before boot and the boot scan auto-registers their project, so the
+    // "Choose Your Project" empty state does not render here (see the seeding comment in that file).
+    await expect(page.getByRole('button', { name: 'Settings' }).first()).toBeVisible({ timeout: 15_000 });
   });
 
   test.afterAll(async () => {
@@ -55,9 +58,12 @@ test.describe.serial('launch profiles in a real browser', () => {
   test('(b) editor takes baseUrl, auth mode and context window and shows them again after reopening', async () => {
     await openProfilesTab();
     // No profile exists yet, so the create form is the only editor on the page and its labels are unique.
+    // The profile editor is one form among the app shell's controls: getByLabel matches substrings, and the
+    // composer's model selector is labelled "Select model and reasoning effort", so "Model" needs exact:true
+    // once a project is selected (the shell's composer only exists in that view).
     const form = page;
     await form.getByLabel('Name').fill(PROFILE.name);
-    await form.getByLabel('Model').fill(PROFILE.model);
+    await form.getByLabel('Model', { exact: true }).fill(PROFILE.model);
     await form.getByLabel('Base URL').fill(PROFILE.baseUrl);
     await form.getByLabel('Authentication').selectOption('envVar');
     await form.getByLabel('Environment variable name').fill(PROFILE.authEnvVarName);
@@ -77,7 +83,7 @@ test.describe.serial('launch profiles in a real browser', () => {
     await page.reload();
     await openProfilesTab();
     await expect(page.getByLabel('Name').first()).toHaveValue(PROFILE.name);
-    await expect(page.getByLabel('Model').first()).toHaveValue(PROFILE.model);
+    await expect(page.getByLabel('Model', { exact: true }).first()).toHaveValue(PROFILE.model);
     await expect(page.getByLabel('Base URL').first()).toHaveValue(PROFILE.baseUrl);
     await expect(page.getByLabel('Authentication').first()).toHaveValue('envVar');
     await expect(page.getByLabel('Environment variable name').first()).toHaveValue(PROFILE.authEnvVarName);
