@@ -8,7 +8,7 @@ parent: null
 children: []
 extra:
   schema: execution
-  goal_ac: AC-020
+goal_ac: AC-020
 ---
 ## Proposal
 
