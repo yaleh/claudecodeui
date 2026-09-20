@@ -76,6 +76,6 @@ statusLog:
 
 依据（如实登记）：用户现有的 FJD profile 填的是 FJDAC_API_KEY_FILE（wrapper 里存放 key 文件路径的变量），而服务进程环境里只有 FJDAC_API_KEY，界面对此无任何提示；服务进程还继承了 ANTHROPIC_API_KEY 与 917k 上下文变量，因为它是在一个 Claude Code 会话里启动的。所谓“原生”行为继承的是服务进程环境，而不是干净环境。
 
-2026-09-20（三）：用户提出改为基于 Model library 扩展、不再单独开发 profile，并裁定：先实现 B；密钥保留在 config_json（可用性优先）；Model library 提到 Settings 作为一等公民；unset 作为显式行类型；同 model id 不能跨端点并存，第一版接受；第一版含 LLM 网关模板；撤回旧任务。ADR-002 取代 ADR-001。旧 AC 中 12 条被取代、3 条延期，新增 AC-022 至 AC-027。driver 上对应旧实体的任务 default-profile-honored、credential-usability-floor、reference-profile-ui-e2e 已置 superseded（worktree 与分支当时保留，已于 2026-09-20（四）删除）；partial-update-preserves-fields 已完成，其防线由 AC-026 重述。
+2026-09-20（三）：用户提出改为基于 Model library 扩展、不再单独开发 profile，并裁定：先实现 B；密钥保留在 config_json（可用性优先）；Model library 提到 Settings 作为一等公民；unset 作为显式行类型；同 model id 不能跨端点并存，第一版接受；第一版含 LLM 网关模板；撤回旧任务。ADR-002 取代 ADR-001。旧 AC 中 12 条被取代、3 条延期，新增 AC-022 至 AC-027（其后 (四) 又取代 4 条、延期 1 条，新增 AC-028）。driver 上对应旧实体的任务 default-profile-honored、credential-usability-floor、reference-profile-ui-e2e 已置 superseded（worktree 与分支当时保留，已于 2026-09-20（四）删除）；partial-update-preserves-fields 已完成，其防线由 AC-026 重述。
 
 2026-09-20（四）：复核 GOAL 与全部 AC 是否符合 ADR-002 的方向。原保留的六条既有 AC 中，除 AC-001 外均以旧 profile 实体或类型化字段为对象：AC-004、AC-013 改由 AC-024/025 接管（把它们独有的半边——编译路径重校验、WebSocket 伪造 env 被忽略——补进 AC-024/025 的 expect，避免覆盖丢失）；AC-005、AC-014 由新增的 AC-028 取代（B 方案没有类型化字段，上下文窗口就是一行 env）；AC-006 属终端路径，随延期置为 superseded。AC-001 判据保留，措辞由“未配置任何 profile”改为“未选带配置的模型”。GOAL 标题由“CloudCLI launch profiles”改为反映当前形状。driver 上重复任务与四个旧任务的 worktree 与分支已删除。
