@@ -7,9 +7,7 @@ import test from 'node:test';
 
 import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
 import { resolveSessionProfileLock } from '@/modules/launch-profiles/index.js';
-import { handleChatConnection } from '@/modules/websocket/services/chat-websocket.service.js';
-import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
-import { connectedClients } from '@/modules/websocket/services/websocket-state.service.js';
+import { chatRunRegistry, connectedClients, handleChatConnection } from '@/modules/websocket/index.js';
 
 const SESSION_ID = 'profile-lock-session';
 
