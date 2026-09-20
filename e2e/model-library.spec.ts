@@ -85,7 +85,7 @@ test.describe.serial('model library in a real browser', () => {
     }
   });
 
-  test('creates a model from the LLM gateway template through the Models page', async () => {
+  test('creates a model from the gateway template through the Models page', async () => {
     await openModelsPage();
     expect(await page.locator('body').innerText()).not.toMatch(UNTRANSLATED_KEY);
 
