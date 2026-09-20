@@ -2,7 +2,7 @@
 id: gap-margin-check-family-blind-spot
 title: 冷编译判据的「族」是机制代理而非它自己断言的不变量：sessionFilterEditor 用例体内 await import() 让首用例付
   1.9–2.9s 冷编译（预算 0.53–0.57），判据却绿着 —— AC-103 因此于 2026-09-21T06:22Z 再次判红
-status: ready
+status: done
 labels:
   - gap
   - defect
