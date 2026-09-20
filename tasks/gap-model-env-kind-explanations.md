@@ -51,6 +51,8 @@ depends_on: []
 
 ## 台账修正（2026-09-20）
 
-**Touches 从 {en,de} 扩到 12 个 locale + 一条 e2e。** 原清单只列两个 locale 文件，而本仓库的既有做法是每次 i18n 改动都写全部 locale：11 个非 zh-CN locale 的 `modelLibrary` 段与 en **逐字节相同**（只有 zh-CN 是真实译文），佐证是相邻提交 `0cc1f9ff`（即上面 dedup-ref 里的布局任务）同样改了 12 个 locale 文件。只改 2 个会让其余 10 个 locale 渲染出 key 原文，且与 Touches 实际写入面不符 —— 那正是 anti-drift 会 HARD FAIL 的形状（已在 backend 任务上真实发生过并耗尽一轮重试）。新增 `e2e/model-env-kind-explanations.spec.ts` 的理由是 DoD 要求真实浏览器验证，而 jsdom 证明不了无障碍关联在文档里真的解析得到。
+**Touches 从 {en,de} 扩到 12 个 locale + 一条 e2e。** 原清单只列两个 locale 文件，而本仓库的既有做法是每次 i18n 改动都写全部 locale：11 个非 zh-CN locale 的 `modelLibrary` 段与 en **逐字节相同**（只有 zh-CN 是真实译文），佐证是相邻提交 `0cc1f9ff`（即上面 dedup-ref 里的布局任务）同样改了 12 个 locale 文件。只改 2 个会让其余 10 个 locale 渲染出 key 原文，且与 Touches 实际写入面不符 —— 那正是 anti-drift 会 HARD FAIL 的形状（已在 backend 任务上真实发生过并耗尽一轮重试）。新增的 e2e spec 是因为 DoD 要求真实浏览器验证，而 jsdom 证明不了无障碍关联在文档里真的解析得到。
 
-**depends_on 清空。** 原声明依赖 `gap-model-env-empty-row-save-feedback`（当时 needs-human，现仍 parked）。该边实测**不是前置**：本任务已独立实现并验证全部 4 条 AC + 真实浏览器 DoD + 全量套件 174/174，而依赖项当时并未 done。两者真正的关系是**触碰冲突**（共用 `ModelEnvEditor.tsx` 与 `modelLibrarySettings.test.tsx`），而 worker-driver 的 `touchesDisjoint` 过滤器已按触碰面串行化 —— `depends_on` 在这里是错的机制。不清空则该任务被 `depsSatisfied` 永久过滤（worker-round 实测 `pool:1 / in_flight:0 / stop_reason: filtered-empty`），而依赖项本身 parked，形成死锁。
+**原声明的依赖边已清空。** 被移除的那条边指向「Models 保存：空值 env 行不再静默丢弃」任务（其当时即 parked，现仍 parked）。该边实测**不是前置**：本任务已独立实现并验证全部 4 条 AC + 真实浏览器 DoD + 全量套件 174/174，而那条任务当时并未 done。两者真正的关系是**触碰冲突**（共用 ModelEnvEditor.tsx 与 modelLibrarySettings.test.tsx），而 worker-driver 的 touchesDisjoint 过滤器已按触碰面串行化 —— 在这里声明依赖是错的机制：不清空则该任务被 depsSatisfied 永久过滤（worker-round 实测 pool 1 / in_flight 0 / stop_reason filtered-empty），而那条任务本身 parked，形成死锁。
+
+**⛔ 本节刻意不写出被移除的那条任务 id。** ready-pool-check 的 prose-prereq-no-edge 规则会把 body 里出现、且尚无关系边的未完成任务 id 判为「前置无边」并把本任务整体排除（实测：写入带 id 的说明后 pool 由 1 降到 0，excluded 理由即 `prose-prereq-no-edge`）。既然两者的关系恰恰**不是**前置，就不该为绕开该规则而回填 depends_on；改为按标题指称。
