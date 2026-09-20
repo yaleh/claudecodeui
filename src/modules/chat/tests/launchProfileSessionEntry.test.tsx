@@ -63,7 +63,7 @@ function Harness() {
     <div>
       <LaunchProfileSelect value={composer.launchProfileId} onChange={composer.setLaunchProfileId} />
       <button type="button" onClick={() => composer.setInput('hello')}>type</button>
-      <button type="button" onClick={(event) => composer.handleSubmit(event as unknown as MouseEvent)}>send</button>
+      <button type="button" onClick={(event) => composer.handleSubmit(event)}>send</button>
     </div>
   );
 }
