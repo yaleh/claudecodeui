@@ -1,7 +1,7 @@
 ---
 id: gap-launch-profiles-partial-update-preserves-fields
 title: launch-profiles：PUT 只更新请求里出现的字段，UI 保存不再抹掉 isDefault/deployment 等（AC-019）
-status: ready
+status: done
 labels:
   - gap
   - defect
