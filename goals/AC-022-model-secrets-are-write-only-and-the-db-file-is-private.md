@@ -15,4 +15,6 @@ expect: ADR-002 决策 2：secret 行的值允许存于 provider_models.config_j
 origin: ADR-002（配置挂在 Model library 上，取代独立 launch profile
   实体）；docs/proposals/launch-profiles.md 待随之修订
 activatedAt: 2026-09-20T09:16:11.882Z
+supersedes:
+  - AC-003
 ---
