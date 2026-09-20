@@ -45,6 +45,15 @@ GOAL-001 的 AC-010 要求：Settings 的 Profiles 页能列出并编辑 profile
 - src/modules/chat/hooks/useChatComposerState.ts
 - src/modules/settings/tests/launchProfileSettings.test.tsx (new)
 - src/modules/chat/tests/launchProfileSessionEntry.test.tsx (new)
+- src/modules/chat/ChatInterface.tsx
+- src/modules/chat/composer/ChatComposer.tsx
+- src/modules/i18n/locales/en/settings.json
+- src/modules/i18n/locales/es/settings.json
+- src/modules/i18n/locales/id/settings.json
+- src/modules/i18n/locales/ko/settings.json
+- src/modules/i18n/locales/zh-CN/settings.json
+- src/modules/settings/hooks/useSettingsController.ts
+- src/shared/types.ts
 - tasks/gap-launch-profiles-web-ui-selectable-test.md
 
 ## Needs-Human
