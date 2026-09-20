@@ -246,7 +246,7 @@ type LaunchProfileConfig = {
   modelAliases?: {                  // 官方建议的第三方部署钉模型
     fable?: string; opus?: string; sonnet?: string; haiku?: string;
   };
-  exposedModels?: string[];         // 该 profile 下模型选择器显示的子集
+  exposedModels?: string[];         // 模型选择器显示的子集；留空或省略 = 显示全部
   supportsEffort?: boolean;         // 第三方模型通常不支持 reasoning effort
 
   // —— 会话默认 ——
@@ -259,7 +259,7 @@ type LaunchProfileConfig = {
 
   // —— 高级 ——
   settingSources?: ('user' | 'project' | 'local')[];
-  configDir?: string;               // CLAUDE_CONFIG_DIR，作为类型化字段并做路径校验
+  configDir?: string;               // CLAUDE_CONFIG_DIR，类型化字段，见「路径字段的校验」
   cliPath?: string;                 // 每 profile 覆盖 CLAUDE_CLI_PATH
   env?: Record<string, string>;     // 逃生口，受白名单约束
   settings?: Record<string, unknown>; // 原生 Claude Code settings 对象透传
@@ -353,7 +353,14 @@ managed settings
 
 前端无需改动：经查证 `src/` 下不存在 `contextWindow` 或 `VITE_CONTEXT_WINDOW`
 的消费点，用量百分比完全由后端 `total` 字段驱动。
-`.env.example` 中的 `VITE_CONTEXT_WINDOW` 应标注为已废弃。
+
+因此 `.env.example` 的处置是：
+
+- **`CONTEXT_WINDOW` 保留**，作为 passthrough profile 与未设 `contextWindow`
+  的 profile 的回退值。
+- **`VITE_CONTEXT_WINDOW` 本期直接移除**，不做废弃标注。它已无任何消费点，
+  是一个调了不生效的死配置；保留一个不起作用的配置项比删除它更有害，
+  而「标注废弃」只适用于仍在生效的东西。
 
 ## 安全设计
 
@@ -421,6 +428,26 @@ profile 沿用同一原则。
 「绑定 host user 的本地部署中的配置便利」。
 若 CloudCLI 将来面向多租户开放，profile 的写权限必须单独收归管理员。
 
+### 6. 路径字段的校验
+
+`configDir` 与 `cliPath` 是白名单之外仅有的两个可指向任意路径的字段。
+校验规则**不限制基目录** —— 限制在某个基目录下会挡掉
+「指向已有的 `~/.claude-work`」这类合理用法，
+而它提供的安全增益接近于零（能配置 profile 的人本就能设 `cliPath`）。
+
+`configDir` 的规则：
+
+1. 必须是绝对路径。
+2. 目标存在时必须是目录且可写；不存在时其父目录必须存在且可写。
+3. **禁止指向任一 git 工作区内部。**
+
+第 3 条不是理论风险：Claude Code 会把会话历史与凭据写进该目录，
+落在仓库里就可能被误提交。校验实现为向上查找 `.git`，
+命中则拒绝并给出明确报错。
+
+`cliPath` 沿用既有的 `resolveClaudeCodeExecutablePath`
+（`server/shared/claude-cli-path.ts:139`）解析逻辑，额外要求解析结果存在且可执行。
+
 ## Settings 页交互
 
 ### 位置
@@ -459,9 +486,16 @@ profile 沿用同一原则。
 
 **底部动作**
 
-- **测试连接**：服务端以该 profile 的 env 执行 `claude --version` 与一次极小探测，
-  复用 `claude-auth.provider.ts:88-105` 的认证判定逻辑，
-  回报解析出的认证方式、端点可达性与 `warnings`
+- **测试连接**（主按钮，**不产生计费**）：服务端以该 profile 的 env 执行
+  `claude --version` 验证可执行文件、对 `baseUrl` 做一次 HTTP 可达性探测、
+  检查 `authEnvVarName` 引用的变量在宿主环境是否存在，
+  并复用 `claude-auth.provider.ts:88-105` 判定最终生效的认证方式。
+  回报认证方式、端点可达性与 `warnings`
+- **深度测试**（次级按钮，文案明确标注「会产生一次真实 API 调用」）：
+  发起一次最小的 `-p` 调用，验证模型 id 真实可用。
+  这是主按钮唯一覆盖不到的失败形态 —— 第三方网关上
+  `unrecognized_model` 是高频错误，没有这个能力会让调试非常困难；
+  但为这一个场景默认计费并不划算，因此拆成两段
 - **复制为新 profile**
 - **删除**（被会话引用时提示影响范围，采用置空而非级联删除）
 
@@ -512,6 +546,11 @@ sessions.launch_profile_id                      （会话已锁定）
 它保证升级后现有安装行为零变化，也不强迫任何人先配 profile 才能使用。
 在 UI 中显示为「继承服务器环境」并标注为内置。
 
+**不提供「固化为真实记录」。** 把当前服务器环境另存为具名 profile
+需要读出环境中的 token 值并写入某处，与「密钥不入库」的决策直接冲突。
+「照着填一个新 profile」的需求由预置模板（gateway / Bedrock / Vertex）覆盖，
+这也让 passthrough 的语义保持单一：它就是「不覆盖任何东西」。
+
 ### 持久化位置
 
 沿用既有约定：
@@ -561,7 +600,8 @@ fork 会话（`supportsSessionForking`）时复制源会话的 `launch_profile_i
 | PATCH | `/api/launch-profiles/:id` | 更新 |
 | DELETE | `/api/launch-profiles/:id` | 删除 |
 | POST | `/api/launch-profiles/:id/default` | 设为该 provider 默认 |
-| POST | `/api/launch-profiles/:id/test` | 测试连接 |
+| POST | `/api/launch-profiles/:id/test` | 测试连接（不计费） |
+| POST | `/api/launch-profiles/:id/test-deep` | 深度测试（一次真实 API 调用） |
 | GET | `/api/launch-profiles/:id/preview` | 生效预览，密钥掩码 |
 
 能力位（`provider-capabilities.service.ts:11-37`）新增：
@@ -657,6 +697,10 @@ src/modules/settings/tabs/agents-settings/sections/content/profiles/
   - `modelAliases` 映射到四个 `ANTHROPIC_DEFAULT_*_MODEL`
   - contextWindow 解析顺序：profile → env → 160000
   - profileId 为 null → passthrough，env 与今日行为逐字一致
+  - `exposedModels` 为空或省略 → 返回全部模型
+- 路径字段校验
+  - `configDir` 为相对路径 / 父目录不存在 / 位于 git 工作区内 → 拒绝
+  - `cliPath` 解析结果不存在或不可执行 → 拒绝
 - env 白名单
   - `PATH`、`NODE_OPTIONS`、`LD_PRELOAD`、`BASH_ENV` 等被拒
   - `CLAUDE_CLI_PATH`、`CLAUDE_CONFIG_DIR` 从裸 env 传入时被拒
@@ -679,7 +723,8 @@ src/modules/settings/tabs/agents-settings/sections/content/profiles/
 
 ### 浏览器验收
 
-1. 新建 gateway profile，认证选环境变量名，测试连接通过
+1. 新建 gateway profile，认证选环境变量名，「测试连接」通过且无 token 消耗；
+   「深度测试」能识别出不存在的模型 id
 2. 空状态中选择该 profile 与其自定义模型，发送一轮对话成功
 3. 会话内 profile 段置灰，提示锁定
 4. 用量百分比按 profile 的 contextWindow 计算，而非 160000
@@ -705,28 +750,43 @@ codex / cursor / opencode。三者环境形状各异，
 `opencode-runtime.provider.js:40-46` 已在自行合成 `OPENCODE_PERMISSION`，
 需要各自的 config 形状，不应强行套用 Claude 的字段集。
 
-## 待确认问题
+## 评审中已决议的细节
 
-1. **passthrough profile 是否应可「固化」为一条真实记录？**
-   用户可能希望把当前服务器环境另存为一个具名 profile 再微调。
-   实现成本低，但需要处理密钥字段的读取边界（服务端环境中的 token 不应回显到 UI）。
+以下六项在评审中提出并已定案，记录决策与理由：
 
-2. **`configDir` 的路径校验策略。**
-   限制在某个基目录下，还是仅校验可写性？
-   前者更安全但会挡掉「指向已有 `~/.claude-work`」这类合理用法。
+1. **passthrough profile 不提供「固化」为真实记录。**
+   固化需要读出服务端环境中的 token 并落盘，与「密钥不入库」冲突；
+   该需求由预置模板覆盖。详见「缺省解析链」。
 
-3. **测试连接的探测形式。**
-   `claude --version` 只验证可执行文件，不验证端点与凭据；
-   一次极小的 `-p` 调用会产生真实计费。建议二段式：
-   默认只做 `--version` 加端点 TCP 可达性，「深度测试」按钮才发真实请求。
+2. **`configDir` 不限制基目录，但禁止指向 git 工作区内部。**
+   基目录限制会挡掉合理用法而安全增益接近于零；
+   工作区限制则防止会话历史与凭据被误提交。详见「路径字段的校验」。
 
-4. **`exposedModels` 为空时的语义。**
-   是「显示全部」还是「不显示任何」？建议前者，但需在 UI 文案中写明。
+3. **测试连接拆成两段，主按钮不计费。**
+   `--version` + 端点可达性 + 变量存在性能覆盖绝大多数配置错误；
+   唯一覆盖不到的「模型 id 不存在」交给显式标注计费的「深度测试」。
+   详见「Settings 页交互 / 底部动作」。
 
-5. **同一 provider 下多个 profile 的 `provider_models` 归属。**
-   自定义模型表按 provider 唯一（`UNIQUE(provider, model_id)`），
-   不区分 profile。若两个网关暴露同名但不同含义的模型 id，当前模型无法区分。
-   本期接受该限制，记录在案。
+4. **`exposedModels` 留空表示显示全部。**
+   空数组与「未配置」在 JSON 中难以区分，而「显示全部」是更安全的失败方向；
+   「不显示任何」会让用户面对空下拉框且无从判断原因。UI 文案需写明。
 
-6. **`.env.example` 中 `CONTEXT_WINDOW` 与 `VITE_CONTEXT_WINDOW` 的处置。**
-   前者保留为回退值，后者经查证已无消费点，建议标注废弃并在后续版本移除。
+5. **同名 model id 冲突本期不解决，约束前移到 UI。**
+   `provider_models` 为 `UNIQUE(provider, model_id)`，不含 profile 维度。
+   改表会波及 `provider-models.service.ts:88-91` 的合并逻辑与整套
+   `/models` CRUD 端点，成本远超收益。
+   实际缓解手段是 `exposedModels` 本就是 profile 级子集声明，
+   UI 只显示本 profile 暴露的模型，用户不会同时看到两个同名项。
+   数据层冲突仍然存在，作为已知限制记录在案，
+   并在自定义模型命名上建议带供应商前缀。
+
+6. **`CONTEXT_WINDOW` 保留为回退值，`VITE_CONTEXT_WINDOW` 本期移除。**
+   详见「上下文窗口的修正」。
+
+## 遗留的已知限制
+
+- 自定义模型 id 在同一 provider 下全局唯一，跨 profile 不可重名（上文第 5 条）。
+- profile 不是权限边界；`configDir` 与 `cliPath` 使得能配置 profile 的人
+  仍可影响被启动的进程（见「安全设计 / 白名单的边界必须诚实说明」）。
+- Claude Code 账号级切换（OAuth 多账号）不在本方案范围内，
+  需要 `CLAUDE_CONFIG_DIR` 的完整隔离，单列后续任务。
