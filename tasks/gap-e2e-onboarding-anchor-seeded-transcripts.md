@@ -52,11 +52,11 @@ Error: expect(locator).toBeVisible() failed
 
 ## AC
 
-- [ ] `npm run test:e2e -- e2e/model-library.spec.ts` 退出码 0（AC-027 的判据命令），且在真实 Chromium + 真实后端上一连跑两次均退出码 0——绿不是竞态撞上的。
-- [ ] 同一 spec 的真实断言一条不少且为真：仅经 Settings > Agents > Claude > Models 用「LLM 网关」模板录入建模型（⛔ 无 API 直建）；重载后 secret 仅为「已设置」且其值不出现在页面文本与任何 API 响应 body；在 composer 现有模型选择器中选中它并发送后，mock 网关收到 `Authorization: Bearer <token>`（或 `x-api-key`）且 body 含该 model id；页面无未翻译 i18n 字面量。
-- [ ] 抗假变体真跑并留输出：把 `e2e/model-library.spec.ts` 的登录后置锚点换成必然不存在的哨兵（如 `getByText('__no_such_anchor__')`）后，该判据命令必须变红——证明锚点确实承载「必须已进入真实 app」这一步、绿不是靠删断言换来的；同时 `git diff` 证明三条真实断言与 mock 断言一行未删。变体须还原。⚠️ 不要把「改回等 `Choose Your Project`」当作抗假变体：那是竞态，可能偶然仍绿，不可靠。
-- [ ] `e2e/launch-profiles.spec.ts:48`、`e2e/model-library-layout.spec.ts:27` 与 `:32` 的同类锚点一并改为不依赖空态；`npm run test:e2e -- e2e/launch-profiles.spec.ts e2e/model-library-layout.spec.ts` 退出码 0（若仍有失败，须证明红因与本机制无关，并把红灯原文如实登记在证据里）。
-- [ ] `npm run typecheck` 退出码 0。
+- [x] `npm run test:e2e -- e2e/model-library.spec.ts` 退出码 0（AC-027 的判据命令），且在真实 Chromium + 真实后端上一连跑两次均退出码 0——绿不是竞态撞上的。
+- [x] 同一 spec 的真实断言一条不少且为真：仅经 Settings > Agents > Claude > Models 用「LLM 网关」模板录入建模型（⛔ 无 API 直建）；重载后 secret 仅为「已设置」且其值不出现在页面文本与任何 API 响应 body；在 composer 现有模型选择器中选中它并发送后，mock 网关收到 `Authorization: Bearer <token>`（或 `x-api-key`）且 body 含该 model id；页面无未翻译 i18n 字面量。
+- [x] 抗假变体真跑并留输出：把 `e2e/model-library.spec.ts` 的登录后置锚点换成必然不存在的哨兵（如 `getByText('__no_such_anchor__')`）后，该判据命令必须变红——证明锚点确实承载「必须已进入真实 app」这一步、绿不是靠删断言换来的；同时 `git diff` 证明三条真实断言与 mock 断言一行未删。变体须还原。⚠️ 不要把「改回等 `Choose Your Project`」当作抗假变体：那是竞态，可能偶然仍绿，不可靠。
+- [x] `e2e/launch-profiles.spec.ts:48`、`e2e/model-library-layout.spec.ts:27` 与 `:32` 的同类锚点一并改为不依赖空态；`npm run test:e2e -- e2e/launch-profiles.spec.ts e2e/model-library-layout.spec.ts` 退出码 0（若仍有失败，须证明红因与本机制无关，并把红灯原文如实登记在证据里）。
+- [x] `npm run typecheck` 退出码 0。
 
 ## DoD
 
