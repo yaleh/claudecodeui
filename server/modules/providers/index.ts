@@ -15,3 +15,7 @@ export { closeSessionsWatcher } from './services/sessions-watcher.service.js';
 // mapCliOptionsToSDK: driven by the launch-profiles tests to prove the SDK env
 // stays byte-identical when no profile is configured.
 export { mapCliOptionsToSDK } from './list/claude/claude-runtime.provider.js';
+// Token-budget helpers: driven by the launch-profiles tests to prove the context
+// window follows the resolved profile.
+export { extractCumulativeTokenBudget, extractTokenBudget } from './list/claude/claude-runtime.provider.js';
+export { summarizeClaudeTokenUsage } from './services/provider-token-usage.service.js';
