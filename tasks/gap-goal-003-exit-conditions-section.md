@@ -10,6 +10,18 @@ children: []
 extra:
   schema: execution
 ---
+---
+id: gap-goal-003-exit-conditions-section
+title: GOAL-003 缺 `## 退出条件` 小节：提议把行内退出条件提升为独立小节，使充分性判定不再被机械短路（AC-103/AC-104
+  内容无缺口，缺的只是结构）
+status: needs-human
+labels:
+  - gap
+parent: null
+children: []
+extra:
+  schema: execution
+---
 ## Proposal
 
 选型 (b)：修订 GOAL-003 的**退出条件文本**（不新增 AC，不改任何 GOAL/AC 状态）。
@@ -43,7 +55,7 @@ GOAL-003 标题「测试机制：并发套件互不拖红，且套件红可归�
 **附带观察（供人裁定，不在本任务范围）**：AC-103 的 expect 里 K 仍是占位符（「K 由首次实测钉死后写回本条」）。修订退出条件**不会**让 AC-103 / AC-104 转绿，本任务只解除「verdict 恒为机械 insufficient ⇒ goal 永远卡在 active」这一死锁；K 的钉死属实现任务。
 
 ## AC
-- [ ] `grep -c '^## 退出条件' goals/GOAL-003-测试机制-并发套件互不拖红-且套件红可归因.md` 输出 1，且该小节去空白后的字符数 ≥ 40。
+- [x] `grep -c '^## 退出条件' goals/GOAL-003-测试机制-并发套件互不拖红-且套件红可归因.md` 输出 1，且该小节去空白后的字符数 ≥ 40。
 - [x] 人（yale）已在本任务下裁定是否采纳本修订（采纳 / 改措辞 / 不采纳并另立 AC），裁定记录写进本任务的 Resolution 小节。
 - [ ] 修订后下一轮 `.quay/goal-round.jsonl` 中 GOAL-003 最新 `goal-sufficiency` verdict 的 reason 不再是无语义产物的纯机械短路形态（即不再是「sufficiency=insufficient（在域 AC 2 条）」这一类），而是语义 judge 给出的 covered / insufficient 结论。
 
