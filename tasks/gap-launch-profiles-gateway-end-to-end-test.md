@@ -43,4 +43,6 @@ GOAL-001 的 AC-002 要求：以 gateway profile 跑一轮真实 `chat.send`，�
 - server/modules/launch-profiles/tests/gateway-end-to-end.test.ts
 - server/shared/types.ts
 - server/modules/providers/list/claude/claude-runtime.provider.js
+- server/modules/providers/index.ts
+- server/modules/websocket/index.ts
 - tasks/gap-launch-profiles-gateway-end-to-end-test.md
