@@ -10,6 +10,8 @@ import { sessionConversationsSearchService } from '@/modules/providers/services/
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
 import type {
   CustomProviderModelInput,
+  ProviderModelConfig,
+  ProviderModelEnvRow,
   LLMProvider,
   McpScope,
   McpTransport,
@@ -465,6 +467,35 @@ const parseModelRecordId = (value: unknown): number => {
   return recordId;
 };
 
+/** Structural parse of `config`; allowlist and duplicate rules live in the service. */
+const parseModelConfigPayload = (raw: unknown): ProviderModelConfig | null | undefined => {
+  if (raw === undefined || raw === null) {
+    return raw;
+  }
+  const env = (raw as { env?: unknown }).env;
+  if (typeof raw !== 'object' || !Array.isArray(env)) {
+    throw new AppError('config.env must be an array.', { code: 'INVALID_MODEL_CONFIG', statusCode: 400 });
+  }
+  const rows = env.map((entry): ProviderModelEnvRow => {
+    const row = (entry ?? {}) as Record<string, unknown>;
+    const kinds = ['value', 'secret', 'envref', 'unset'];
+    if (
+      typeof row.key !== 'string' || !row.key
+      || typeof row.kind !== 'string' || !kinds.includes(row.kind)
+      || (row.value !== undefined && typeof row.value !== 'string')
+    ) {
+      throw new AppError('config.env rows must be {key, kind, value?}.', {
+        code: 'INVALID_MODEL_CONFIG',
+        statusCode: 400,
+      });
+    }
+    return row.value === undefined
+      ? { key: row.key, kind: row.kind as ProviderModelEnvRow['kind'] }
+      : { key: row.key, kind: row.kind as ProviderModelEnvRow['kind'], value: row.value };
+  });
+  return { env: rows };
+};
+
 const parseCustomProviderModelPayload = (payload: unknown): CustomProviderModelInput => {
   if (!payload || typeof payload !== 'object') {
     throw new AppError('Request body must be an object.', {
@@ -501,7 +532,8 @@ const parseCustomProviderModelPayload = (payload: unknown): CustomProviderModelI
     });
   }
 
-  return { model, id };
+  const config = parseModelConfigPayload(body.config);
+  return config === undefined ? { model, id } : { model, id, config };
 };
 
 router.get(

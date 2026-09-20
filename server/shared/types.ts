@@ -110,6 +110,7 @@ export type CustomProviderModelRecord = {
   modelId: string;
   model: string;
   sortOrder: number;
+  config: ProviderModelConfig | null;
 };
 
 /**
@@ -122,6 +123,28 @@ export type CustomProviderModelRecord = {
 export type CustomProviderModelInput = {
   id: string;
   model: string;
+  /** `undefined` leaves stored config untouched (update) or none (create); `null` clears it. */
+  config?: ProviderModelConfig | null;
+};
+
+/**
+ * One env row of a custom model's config. `kind` selects the semantics:
+ * `value` sets a literal, `secret` sets a write-only literal, `envref` reads
+ * the host variable named in `value`, and `unset` removes the variable (no
+ * `value`). `key` must pass the launch env allowlist.
+ */
+export type ProviderModelEnvRow = {
+  key: string;
+  kind: 'value' | 'secret' | 'envref' | 'unset';
+  value?: string;
+};
+
+/**
+ * Per-model config stored in `provider_models.config_json`. `env` is ordered
+ * and each key may appear at most once.
+ */
+export type ProviderModelConfig = {
+  env: ProviderModelEnvRow[];
 };
 
 // ---------------------------

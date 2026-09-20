@@ -1,4 +1,5 @@
 import { providerModelsDb, sessionsDb } from '@/modules/database/index.js';
+import { isAllowedLaunchEnvKey } from '@/modules/launch-profiles/index.js';
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
 import type { IProvider } from '@/shared/interfaces.js';
 import type {
@@ -6,6 +7,7 @@ import type {
   CustomProviderModelRecord,
   LLMProvider,
   ProviderCurrentActiveModel,
+  ProviderModelConfig,
   ProviderModelOption,
   ProviderModelsDefinition,
   ProviderSessionModel,
@@ -58,9 +60,39 @@ const mergeProviderModels = (
   };
 };
 
+const invalidConfig = (message: string): AppError => new AppError(message, {
+  code: 'INVALID_MODEL_CONFIG',
+  statusCode: 400,
+});
+
+/**
+ * Semantic validation of a model's env rows: allowlisted keys (the same
+ * function launch profiles use), one row per key, and `value` present exactly
+ * when the kind carries one. Rejected config is never persisted.
+ */
+const validateModelConfig = (config: ProviderModelConfig): ProviderModelConfig => {
+  const seen = new Set<string>();
+  for (const row of config.env) {
+    if (!isAllowedLaunchEnvKey(row.key)) {
+      throw invalidConfig(`Environment variable ${row.key} is not allowed.`);
+    }
+    if (seen.has(row.key)) {
+      throw invalidConfig(`Environment variable ${row.key} appears more than once.`);
+    }
+    seen.add(row.key);
+    if (row.kind === 'unset' ? row.value !== undefined : !row.value) {
+      throw invalidConfig(`Environment variable ${row.key} has an invalid value for kind ${row.kind}.`);
+    }
+  }
+  return config;
+};
+
 const normalizeCustomModelInput = (input: CustomProviderModelInput): CustomProviderModelInput => ({
   id: input.id.trim(),
   model: input.model.trim(),
+  ...(input.config === undefined
+    ? {}
+    : { config: input.config === null ? null : validateModelConfig(input.config) }),
 });
 
 const isUniqueConstraintError = (error: unknown): boolean => (
