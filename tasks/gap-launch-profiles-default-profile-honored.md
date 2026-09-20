@@ -1,7 +1,7 @@
 ---
 id: gap-launch-profiles-default-profile-honored
 title: launch-profiles：默认 profile 必须被服务端解析消费，UI 可设/取消默认，内置项标为“继承服务器环境”（AC-020）
-status: needs-human
+status: superseded
 needs_human_cause: human-adjudication
 labels:
   - gap
@@ -67,3 +67,6 @@ GOAL-001 的 AC-020 要求：不带 launchProfileId 的会话使用该 provider 
 - run_id：wk-prod-anchor
 - session_id：5144dcff-b578-4037-8973-964d9d7a1aea
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-launch-profiles-default-profile-honored-wk-prod-anchor.log
+
+
+2026-09-20 撤回：改为 Model library 承载（ADR-002，B 方案），缺省 profile / profile 凭据可用性底线随 profile 独立实体一并被取代。该任务的 worktree 与分支保留未删，仅状态改为 superseded。
