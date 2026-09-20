@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { extractCumulativeTokenBudget, extractTokenBudget } from '@/modules/providers/list/claude/claude-runtime.provider.js';
-import { summarizeClaudeTokenUsage } from '@/modules/providers/services/provider-token-usage.service.js';
+import { extractCumulativeTokenBudget, extractTokenBudget, summarizeClaudeTokenUsage } from '@/modules/providers/index.js';
 
 const assistant = { type: 'assistant', message: { usage: { input_tokens: 10, output_tokens: 5 } } };
 const result = { type: 'result', usage: { input_tokens: 10, output_tokens: 5 } };

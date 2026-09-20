@@ -46,6 +46,7 @@ GOAL-001 的 AC-004 要求：env 键名白名单在写入路径与编译路径�
 - server/modules/database/repositories/launch-profiles.db.ts (new)
 - server/modules/websocket/services/chat-websocket.service.ts
 - server/modules/launch-profiles/tests/env-injection-closed.test.ts (new)
+- server/modules/websocket/index.ts
 - tasks/gap-launch-profiles-env-injection-closed-test.md
 
 ## Needs-Human

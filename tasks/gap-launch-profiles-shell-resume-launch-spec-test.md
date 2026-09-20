@@ -1,7 +1,7 @@
 ---
 id: gap-launch-profiles-shell-resume-launch-spec-test
 title: launch-profiles：内置终端 --resume 分支沿用首次启动的 argv 与 env，并落地回归测试（AC-006）
-status: todo
+status: ready
 labels:
   - gap
   - defect

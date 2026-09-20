@@ -1369,3 +1369,22 @@ export type CliApplication = {
 export type SandboxCommandService = {
   execute(argumentsList: string[]): Promise<number>;
 };
+
+// ---------------------------
+//----------------- LAUNCH PROFILES ------------
+
+/**
+ * Compiled launch configuration returned by the launch-profiles module.
+ *
+ * Consumed by the Claude SDK runtime and the shell websocket service, which
+ * merge `env` over the host environment when spawning a provider process.
+ * With no profile selected (passthrough) `env` is `{}` and `argv` is `[]`, so
+ * callers' env assembly stays byte-identical to the pre-profile behavior.
+ * `env` must only hold overrides, never a copy of `process.env`.
+ */
+export type ResolvedLaunchSpec = {
+  env: Record<string, string>;
+  argv: string[];
+  contextWindow: number;
+  warnings: string[];
+};
