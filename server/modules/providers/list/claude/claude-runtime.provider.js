@@ -429,7 +429,7 @@ function readNumber(value) {
  * `input_tokens + cache_read + cache_creation` is one request's whole prompt,
  * which is exactly what the context window holds at that moment.
  * @param {Object} messageUsage - Anthropic usage payload
- * @param {number} [profileContextWindow] - Selected model entry's CLAUDE_CODE_MAX_CONTEXT_TOKENS row
+ * @param {number|string} [profileContextWindow] - Selected model entry's CLAUDE_CODE_MAX_CONTEXT_TOKENS row
  * @returns {TokenBudget} Token budget object
  */
 function buildTokenBudget(messageUsage, profileContextWindow) {
@@ -463,7 +463,7 @@ function buildTokenBudget(messageUsage, profileContextWindow) {
  * prompt its own request carried. The turn-ending `result` is deliberately not
  * a source here — see `extractCumulativeTokenBudget`.
  * @param {Object} sdkMessage - SDK stream message
- * @param {number} [profileContextWindow] - Selected model entry's CLAUDE_CODE_MAX_CONTEXT_TOKENS row
+ * @param {number|string} [profileContextWindow] - Selected model entry's CLAUDE_CODE_MAX_CONTEXT_TOKENS row
  * @returns {TokenBudget|null} Token budget object or null
  */
 function extractTokenBudget(sdkMessage, profileContextWindow) {
@@ -508,7 +508,7 @@ function extractTokenBudget(sdkMessage, profileContextWindow) {
  * message ever emits, so it stays available for the caller to use when a turn
  * produced no assistant budget at all.
  * @param {Object} sdkMessage - SDK stream message
- * @param {number} [profileContextWindow] - Selected model entry's CLAUDE_CODE_MAX_CONTEXT_TOKENS row
+ * @param {number|string} [profileContextWindow] - Selected model entry's CLAUDE_CODE_MAX_CONTEXT_TOKENS row
  * @returns {TokenBudget|null} Token budget object or null
  */
 function extractCumulativeTokenBudget(sdkMessage, profileContextWindow) {
@@ -567,7 +567,7 @@ const DEFERRED_WORK_TOOLS = new Set(['Monitor', 'ScheduleWakeup', 'CronCreate', 
  * and the cost of getting this wrong is silently killed background work.
  *
  * @param {Object} sdkMessage - SDK stream message
- * @param {number} [profileContextWindow] - Selected model entry's CLAUDE_CODE_MAX_CONTEXT_TOKENS row
+ * @param {number|string} [profileContextWindow] - Selected model entry's CLAUDE_CODE_MAX_CONTEXT_TOKENS row
  * @returns {boolean} True when the message launches work that outlives the turn
  */
 export function startsBackgroundWork(sdkMessage) {
