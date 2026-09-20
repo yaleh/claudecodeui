@@ -2,7 +2,7 @@
 id: gap-launch-profiles-context-window-per-profile-test
 title: launch-profiles：token 用量 total 取 profile.contextWindow，未设回退
   CONTEXT_WINDOW 再回退 160000（AC-005）
-status: needs-human
+status: todo
 needs_human_cause: human-adjudication
 labels:
   - gap
