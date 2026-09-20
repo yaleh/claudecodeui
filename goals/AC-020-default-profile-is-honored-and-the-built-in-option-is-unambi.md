@@ -1,7 +1,7 @@
 ---
 id: AC-020
 title: default profile is honored and the built-in option is unambiguous
-status: active
+status: superseded
 kind: criterion
 goal: GOAL-001
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -18,4 +18,12 @@ origin: docs/proposals/launch-profiles.md + ADR-001；补立于 2026-09-20：用
   Settings-Profiles 实机使用中提出三个问题（变量在哪设 / 是否要为原生 claude 建 profile /
   能否设缺省），playwright + 代码复核后发现的可用性缺口
 activatedAt: 2026-09-20T08:49:25.985Z
+statusLog:
+  - at: 2026-09-20T09:17:08.011Z
+    from: active
+    to: superseded
+    actor: yale
+    reason: ADR-002 重排：由 AC-026 取代
+superseded-by:
+  - AC-026
 ---
