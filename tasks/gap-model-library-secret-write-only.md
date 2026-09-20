@@ -45,6 +45,7 @@ GOAL-001 的 AC-022：ADR-002 决策 2 允许 secret 值存于 config_json，但
 - 取假变体（service 出口把 secret value 回传）红灯：`✖ list and create responses expose only isSet for secret rows` (AssertionError: create response must not echo the secret)、`✖ PATCH: ...`、`✖ error responses never echo...`，pass 0 / fail 3；还原后 5/5 绿，`npm run typecheck` 通过。
 - 旧 `launch-profiles/tests/secret-never-persisted.test.ts` 仅覆盖 launch-profile 凭据（env 变量名引用），与 ADR-002 的 model-library secret 不冲突；已在文件头注明作用域，无矛盾判据。
 - 未核实项：全局日志中间件与 express.json 解析错误（body-parser 的 JSON 语法错误消息可能含请求体片段）未审计；本任务的错误响应测试只覆盖 AppError 路径。
+- anti-drift 修复：实现为 secret 行新增了 `server/shared/types.ts` 中的类型（isSet 读形态），该文件此前未列入 Touches，现补入。
 
 ## Touches
 
@@ -55,4 +56,5 @@ GOAL-001 的 AC-022：ADR-002 决策 2 允许 secret 值存于 config_json，但
 - server/modules/providers/tests/model-secret-write-only.test.ts (new)
 - server/modules/database/tests/db-file-permissions.test.ts (new)
 - server/modules/launch-profiles/tests/secret-never-persisted.test.ts
+- server/shared/types.ts
 - tasks/gap-model-library-secret-write-only.md
