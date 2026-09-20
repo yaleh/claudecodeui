@@ -5,9 +5,13 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { closeConnection, initializeDatabase, providerModelsDb } from '@/modules/database/index.js';
-import { extractCumulativeTokenBudget, extractTokenBudget, mapCliOptionsToSDK } from '@/modules/providers/index.js';
+import {
+  createProviderTokenUsageService,
+  extractCumulativeTokenBudget,
+  extractTokenBudget,
+  mapCliOptionsToSDK,
+} from '@/modules/providers/index.js';
 import { resolveModelContextWindowRow } from '@/modules/launch-profiles/index.js';
-import { createProviderTokenUsageService } from '@/modules/providers/services/provider-token-usage.service.js';
 
 const assistant = { type: 'assistant', message: { usage: { input_tokens: 10, output_tokens: 5 } } };
 const result = { type: 'result', usage: { input_tokens: 10, output_tokens: 5 } };
