@@ -11,6 +11,10 @@ const ensureSignedIn = async (page: Page) => {
   const createAccount = page.getByRole('button', { name: 'Create Account' });
   const settings = page.getByRole('button', { name: 'Settings' }).first();
   await expect(createAccount.or(settings).or(page.locator('#username')).first()).toBeVisible();
+  // Onboarding ends on the main UI, not on the "Choose Your Project" empty state: playwright.config.ts seeds a
+  // transcript workspace, and indexing a session auto-registers its project, so a project already exists and
+  // that empty state never renders. Wait for the control this spec actually uses next instead.
+  const mainUi = page.getByRole('button', { name: 'Settings', exact: true }).first();
   if (await createAccount.count()) {
     await page.locator('#username').fill('e2euser');
     await page.locator('input[type=password]').nth(0).fill('e2epassword');
@@ -20,12 +24,12 @@ const ensureSignedIn = async (page: Page) => {
     await page.getByPlaceholder('john@example.com').fill('e2e@example.com');
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByRole('button', { name: 'Complete Setup' }).click();
-    await expect(page.getByText('Choose Your Project')).toBeVisible();
+    await expect(mainUi).toBeVisible({ timeout: 30_000 });
   } else if (await page.locator('#username').count()) {
     await page.locator('#username').fill('e2euser');
     await page.locator('input[type=password]').first().fill('e2epassword');
     await page.locator('form button[type=submit]').click();
-    await expect(page.getByText('Choose Your Project')).toBeVisible();
+    await expect(mainUi).toBeVisible({ timeout: 30_000 });
   }
 };
 
