@@ -49,6 +49,52 @@ function compileGatewayEnv(config: Record<string, unknown>, warnings: string[]):
     }
   }
 
+  Object.assign(env, compileContextEnv(config, warnings));
+
+  // Precedence: typed fields above (baseUrl, auth target, modelAliases, context fields) win over a same-named
+  // config.env key. Allowlist filtering of the merged env happens in resolveLaunchSpec.
+  const extra = config.env;
+  if (extra && typeof extra === 'object' && !Array.isArray(extra)) {
+    for (const [key, value] of Object.entries(extra as Record<string, unknown>)) {
+      if (typeof value !== 'string') {
+        warnings.push(`Environment variable ${key} in config.env must be a string and was dropped`);
+      } else if (key in env) {
+        warnings.push(`Environment variable ${key} in config.env is overridden by a typed profile field`);
+      } else {
+        env[key] = value;
+      }
+    }
+  }
+
+  return env;
+}
+
+/**
+ * Typed context fields export the real CLI variables so the CLI behaves like the displayed window.
+ * Best-effort: CLAUDE_CODE_MAX_CONTEXT_TOKENS and CLAUDE_CODE_AUTO_COMPACT_WINDOW are not in the
+ * official env-vars docs (only CLAUDE_AUTOCOMPACT_PCT_OVERRIDE is); they work but are unpublished.
+ * Unset fields export nothing; invalid values are dropped with a warning.
+ */
+const CONTEXT_ENV_FIELDS: Array<{ field: string; envName: string; max: number }> = [
+  { field: 'contextWindow', envName: 'CLAUDE_CODE_MAX_CONTEXT_TOKENS', max: Number.MAX_SAFE_INTEGER },
+  { field: 'autoCompactWindow', envName: 'CLAUDE_CODE_AUTO_COMPACT_WINDOW', max: Number.MAX_SAFE_INTEGER },
+  { field: 'autoCompactPct', envName: 'CLAUDE_AUTOCOMPACT_PCT_OVERRIDE', max: 100 },
+];
+
+function compileContextEnv(config: Record<string, unknown>, warnings: string[]): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const { field, envName, max } of CONTEXT_ENV_FIELDS) {
+    const raw = config[field];
+    if (raw === undefined || raw === null || raw === '') {
+      continue;
+    }
+    const value = typeof raw === 'number' ? raw : typeof raw === 'string' && /^\d+$/.test(raw.trim()) ? Number(raw) : NaN;
+    if (Number.isSafeInteger(value) && value > 0 && value <= max) {
+      env[envName] = String(value);
+    } else {
+      warnings.push(`Profile field ${field} must be an integer between 1 and ${max} and was not exported`);
+    }
+  }
   return env;
 }
 

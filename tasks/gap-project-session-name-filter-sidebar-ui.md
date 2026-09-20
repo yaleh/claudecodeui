@@ -2,6 +2,7 @@
 id: gap-project-session-name-filter-sidebar-ui
 title: 项目级会话名过滤（侧边栏 UI）：隐藏计数条、临时显示开关、规则编辑面板（带实时预览）、搜索结果标记「已过滤」
 status: ready
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -52,6 +53,7 @@ depends_on:
 - src/modules/sidebar/utils/sidebarStoredPreferences.ts
 - src/modules/project-workspace/ProjectWorkspaceRoute.tsx
 - src/modules/project-workspace/context/ProjectsStateContext.tsx
+- src/modules/project-workspace/index.ts
 - src/modules/project-workspace/hooks/useProjectSessionFilter.ts
 - src/modules/project-workspace/hooks/useProjectsState.ts
 - src/modules/i18n/locales/en/sidebar.json
@@ -59,3 +61,15 @@ depends_on:
 - src/modules/sidebar/tests/sessionFilterBar.test.tsx (new)
 - src/modules/sidebar/tests/sessionFilterEditor.test.tsx (new)
 - tasks/gap-project-session-name-filter-sidebar-ui.md
+
+## Needs-Human
+
+**执行 2026-09-20T08:09:18.856Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：worker-driver 连续 3 次 exited-not-landed 未落地（重试上限）
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=7583 lint passed=false end_ms=1789891711950
+- run_id：wk-prod-anchor
+- session_id：f48dcccc-3a4d-4801-a5ee-500f58f7f157
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-project-session-name-filter-sidebar-ui~wk-prod-anchor~1789891687394-171e4c.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-project-session-name-filter-sidebar-ui-wk-prod-anchor.log
