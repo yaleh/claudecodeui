@@ -2,7 +2,7 @@
 id: gap-vitest-worker-pool-unbounded
 title: vitest client worker 池无上限：loop 并发跑多个套件时 worker 成批死亡，致 fan-in 判红、任务
   exited-not-landed
-status: ready
+status: done
 labels:
   - gap
   - defect
