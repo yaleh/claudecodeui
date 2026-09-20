@@ -2,7 +2,7 @@
 id: gap-project-session-name-filter-backend
 title: 项目级会话名过滤（后端）：projects.session_filter 存一组隐藏正则，会话分页在 SQL 层过滤并返回
   hiddenCount，includeHidden 可绕过
-status: todo
+status: ready
 labels:
   - gap
 parent: null
