@@ -1,7 +1,8 @@
 ---
 id: gap-session-filter-realdata-criterion
 title: 会话列表过滤真实数据判据：真实库副本上 292→隐藏 262/可见 30，三条读取路径一致且不多不少，写入跨重启仍在
-status: ready
+status: needs-human
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -42,3 +43,10 @@ goal_ac: AC-102
 - server/modules/database/index.ts
 - server/modules/projects/index.ts
 - tasks/gap-session-filter-realdata-criterion.md
+
+## Needs-Human
+
+**执行 2026-09-20T12:32:48.692Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：worker-driver 连续 3 次 <60000ms 快速死亡（退避上限）；成因类：ordinary（快速死亡成因分类器取值，⛔ 非 human-adjudication 模板）
+- 成因类：human-adjudication
