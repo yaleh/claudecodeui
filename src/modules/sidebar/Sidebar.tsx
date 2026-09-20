@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useDeviceSettings } from '@/shared/hooks/useDeviceSettings';
@@ -23,6 +23,11 @@ type SidebarProps = {
   onNewSession: (project: Project) => void;
   onSessionDelete?: (sessionId: string) => void;
   onLoadMoreSessions?: (projectId: string) => Promise<void> | void;
+  /** Projects whose name-filtered sessions are temporarily shown in this browser. */
+  showHiddenProjectIds?: ReadonlySet<string>;
+  onToggleShowHidden?: (projectId: string) => void;
+  /** Reloads a project's sessions after its name-filter rules were saved. */
+  onSessionFilterSaved?: (projectId: string, hide: string[]) => Promise<void> | void;
   // `projectId` is the DB identifier; the sidebar hands it back to the parent
   // when the delete flow completes.
   onProjectDelete?: (projectId: string) => void;
@@ -52,6 +57,9 @@ function Sidebar({
   onNewSession,
   onSessionDelete,
   onLoadMoreSessions,
+  showHiddenProjectIds,
+  onToggleShowHidden,
+  onSessionFilterSaved,
   onProjectDelete,
   isLoading,
   loadingProgress,
@@ -71,6 +79,8 @@ function Sidebar({
   const preferences = useUiPreferences();
   const setPreference = useSetUiPreference();
   const { sidebarVisible } = preferences;
+  // Project whose session-filter editor is open; one editor at a time.
+  const [sessionFilterProject, setSessionFilterProject] = useState<Project | null>(null);
   const { setCurrentProject, mcpServerStatus } = useTaskMaster() as TaskMasterSidebarContext;
   const { tasksEnabled } = useTasksSettings();
   const paletteOps = usePaletteOps();
@@ -177,6 +187,13 @@ function Sidebar({
     void saveProjectName(projectId, nextName);
   }, [saveProjectName]);
 
+  const handleSessionFilterSaved = useCallback(
+    async (projectId: string, hide: string[]) => {
+      await onSessionFilterSaved?.(projectId, hide);
+    },
+    [onSessionFilterSaved],
+  );
+
   const handleSaveSessionName = useCallback(
     (projectName: string, sessionId: string, summary: string, provider: LLMProvider) => {
       void updateSessionSummary(projectName, sessionId, summary, provider);
@@ -216,6 +233,9 @@ function Sidebar({
     onForkSession: forkSession,
     onLoadMoreSessions: loadMoreSessionsForProject,
     onNewSession,
+    showHiddenProjectIds,
+    onToggleShowHidden,
+    onEditSessionFilter: setSessionFilterProject,
     onStartEditingSession: startEditingSession,
     onCancelEditingSession: cancelRename,
     onSaveEditingSession: handleSaveSessionName,
@@ -236,6 +256,9 @@ function Sidebar({
         onCancelDeletion={() => setPendingDeletion(null)}
         onConfirmDeleteProject={confirmDeleteProject}
         onConfirmDeleteSession={confirmDeleteSession}
+        sessionFilterProject={sessionFilterProject}
+        onCloseSessionFilter={() => setSessionFilterProject(null)}
+        onSessionFilterSaved={handleSessionFilterSaved}
         showVersionModal={showVersionModal}
         onCloseVersionModal={() => setShowVersionModal(false)}
         releaseInfo={releaseInfo}

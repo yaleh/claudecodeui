@@ -178,17 +178,34 @@ export const api = {
   // config endpoint removed - no longer needed (frontend uses window.location)
   // After the projectName → projectId migration the path/query identifier is
   // the DB-assigned `projectId`; parameter names reflect that for clarity.
-  projects: () => get('/api/projects'),
+  // `keepSessionIds` (running / attention / selected) stay visible even when they match a project's name filter.
+  projects: ({ keepSessionIds }: { keepSessionIds?: string[] } = {}) =>
+    get(`/api/projects${query({ keepSessionIds: keepSessionIds?.join(',') })}`),
   archivedProjects: () => get('/api/projects/archived'),
   projectSessions: (
     projectId: string,
-    { limit = 20, offset = 0 }: { limit?: number; offset?: number } = {},
+    {
+      limit = 20,
+      offset = 0,
+      includeHidden,
+      keepSessionIds,
+    }: { limit?: number; offset?: number; includeHidden?: boolean; keepSessionIds?: string[] } = {},
     options: ApiRequestOptions = {},
   ) =>
     get(
-      `/api/projects/${encodeURIComponent(projectId)}/sessions${query({ limit, offset })}`,
+      `/api/projects/${encodeURIComponent(projectId)}/sessions${query({
+        limit,
+        offset,
+        includeHidden,
+        keepSessionIds: keepSessionIds?.join(','),
+      })}`,
       options,
     ),
+  // Project-level session-name filter: one regex per entry in `hide`; preview never persists.
+  previewProjectSessionFilter: (projectId: string, hide: string[]) =>
+    post(`/api/projects/${encodeURIComponent(projectId)}/session-filter/preview`, { hide }),
+  saveProjectSessionFilter: (projectId: string, hide: string[]) =>
+    put(`/api/projects/${encodeURIComponent(projectId)}/session-filter`, { hide }),
   projectTaskmaster: (projectId: string) =>
     get(`/api/projects/${encodeURIComponent(projectId)}/taskmaster`),
   renameProject: (projectId: string, displayName: string) =>

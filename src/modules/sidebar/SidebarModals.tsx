@@ -9,6 +9,7 @@ import { VersionUpgradeModal } from '@/modules/version-upgrade';
 import type { InstallMode, PendingSidebarDeletion, Project, ReleaseInfo, SettingsProject } from '@/shared/types';
 import { normalizeProjectForSettings } from '@/modules/sidebar/utils/sidebarProjectFormatting';
 import { ProjectCreationWizard } from '@/modules/project-creation-wizard';
+import SessionFilterEditor from '@/modules/sidebar/SessionFilterEditor';
 
 type SidebarModalsProps = {
   projects: Project[];
@@ -22,6 +23,10 @@ type SidebarModalsProps = {
   onCancelDeletion: () => void;
   onConfirmDeleteProject: (deleteData?: boolean) => void;
   onConfirmDeleteSession: (hardDelete?: boolean) => void;
+  /** Project whose session-name filter editor is open, if any. */
+  sessionFilterProject: Project | null;
+  onCloseSessionFilter: () => void;
+  onSessionFilterSaved: (projectId: string, hide: string[]) => Promise<void> | void;
   showVersionModal: boolean;
   onCloseVersionModal: () => void;
   releaseInfo: ReleaseInfo | null;
@@ -57,6 +62,9 @@ export default function SidebarModals({
   onCancelDeletion,
   onConfirmDeleteProject,
   onConfirmDeleteSession,
+  sessionFilterProject,
+  onCloseSessionFilter,
+  onSessionFilterSaved,
   showVersionModal,
   onCloseVersionModal,
   releaseInfo,
@@ -73,6 +81,15 @@ export default function SidebarModals({
 
   return (
     <>
+      {sessionFilterProject && (
+        <SessionFilterEditor
+          key={sessionFilterProject.projectId}
+          project={sessionFilterProject}
+          onClose={onCloseSessionFilter}
+          onSaved={onSessionFilterSaved}
+          t={t}
+        />
+      )}
       {showNewProject &&
         ReactDOM.createPortal(
           <ProjectCreationWizard

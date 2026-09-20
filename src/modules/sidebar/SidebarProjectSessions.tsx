@@ -4,6 +4,7 @@ import type { TFunction } from 'i18next';
 import { Button } from '@/shared/ui';
 import type { LLMProvider, Project, ProjectSession, SessionWithProvider } from '@/shared/types';
 import SidebarSessionItem from '@/modules/sidebar/SidebarSessionItem';
+import SessionFilterBar from '@/modules/sidebar/SessionFilterBar';
 import { useCompactSidebar } from '@/modules/sidebar/hooks/useCompactSidebar';
 
 type SidebarProjectSessionsProps = {
@@ -30,6 +31,9 @@ type SidebarProjectSessionsProps = {
   onForkSession?: (session: SessionWithProvider) => void;
   onLoadMoreSessions: (projectId: string) => void;
   onNewSession: (project: Project) => void;
+  isShowingHiddenSessions?: boolean;
+  onToggleShowHidden?: (projectId: string) => void;
+  onEditSessionFilter?: (project: Project) => void;
   t: TFunction;
 };
 
@@ -75,6 +79,9 @@ export default function SidebarProjectSessions({
   onForkSession,
   onLoadMoreSessions,
   onNewSession,
+  isShowingHiddenSessions = false,
+  onToggleShowHidden,
+  onEditSessionFilter,
   t,
 }: SidebarProjectSessionsProps) {
   const isCompact = useCompactSidebar();
@@ -84,6 +91,16 @@ export default function SidebarProjectSessions({
   }
 
   const hasSessions = sessions.length > 0;
+  const hiddenCount = Number(project.sessionMeta?.hiddenCount ?? 0);
+  const filterBar = hiddenCount > 0 && onToggleShowHidden && onEditSessionFilter ? (
+    <SessionFilterBar
+      hiddenCount={hiddenCount}
+      isShowingHidden={isShowingHiddenSessions}
+      onToggleShowHidden={() => onToggleShowHidden(project.projectId)}
+      onEditRules={() => onEditSessionFilter(project)}
+      t={t}
+    />
+  ) : null;
 
   return (
     <div className="ml-3 space-y-1 border-l border-border pl-3">
@@ -115,9 +132,12 @@ export default function SidebarProjectSessions({
       {!initialSessionsLoaded ? (
         <SessionListSkeleton />
       ) : !hasSessions ? (
-        <div className="px-3 py-2 text-left">
-          <p className="text-xs text-muted-foreground">{t('sessions.noSessions')}</p>
-        </div>
+        <>
+          <div className="px-3 py-2 text-left">
+            <p className="text-xs text-muted-foreground">{t('sessions.noSessions')}</p>
+          </div>
+          {filterBar}
+        </>
       ) : (
         <>
           {sessions.map((session) => (
@@ -154,6 +174,8 @@ export default function SidebarProjectSessions({
               {isLoadingMoreSessions ? t('sessions.loadingSessions') : 'Load more sessions'}
             </Button>
           )}
+
+          {filterBar}
         </>
       )}
     </div>

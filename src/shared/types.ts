@@ -90,6 +90,8 @@ export type ProjectSession = {
 type ProjectSessionMeta = {
   total?: number;
   hasMore?: boolean;
+  /** Sessions hidden by the project's name filter; the sidebar's "hidden N" bar renders only when this is above zero. */
+  hiddenCount?: number;
   [key: string]: unknown;
 };
 
@@ -114,6 +116,8 @@ export type Project = {
   isStarred?: boolean;
   sessions?: ProjectSession[];
   sessionMeta?: ProjectSessionMeta;
+  /** Per-project rules (regex sources, case-insensitive, unanchored) that hide sessions by name; null/absent means none. */
+  sessionFilter?: { hide: string[] } | null;
   taskmaster?: ProjectTaskmasterInfo;
   [key: string]: unknown;
 };
@@ -1316,6 +1320,10 @@ export type SidebarProjectListProps = SessionRowActions & {
   onDeleteProject: (project: Project) => void;
   onSessionSelect: (session: SessionWithProvider, projectName: string) => void;
   onNewSession: (project: Project) => void;
+  /** Projects whose name-filtered sessions are temporarily shown in this browser. */
+  showHiddenProjectIds?: ReadonlySet<string>;
+  onToggleShowHidden?: (projectId: string) => void;
+  onEditSessionFilter?: (project: Project) => void;
   t: TFunction;
 };
 
@@ -1419,6 +1427,8 @@ export type SessionTitleSearchResult = {
   projectDisplayName: string;
   sessionTitle: string;
   lastActivity: string | null;
+  /** True when the owning project's name filter hides this session from the normal list. */
+  filtered?: boolean;
 };
 
 /** All conversation matches found inside a single project during a search, grouped so the results can be rendered under one project heading. */
