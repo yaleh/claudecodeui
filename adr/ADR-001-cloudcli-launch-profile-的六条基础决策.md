@@ -1,7 +1,9 @@
 ---
 id: ADR-001
 title: CloudCLI Launch Profile 的六条基础决策
-status: accepted
+status: superseded
+superseded-by:
+  - ADR-002
 ---
 ## 背景
 
