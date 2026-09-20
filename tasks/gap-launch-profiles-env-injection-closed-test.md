@@ -2,7 +2,8 @@
 id: gap-launch-profiles-env-injection-closed-test
 title: launch-profiles：env 白名单在写入路径与编译路径各自拒绝 PATH/NODE_OPTIONS/LD_PRELOAD 等键，且
   WebSocket 伪造的 options.env 被后端完全忽略（AC-004）
-status: ready
+status: needs-human
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -46,3 +47,15 @@ GOAL-001 的 AC-004 要求：env 键名白名单在写入路径与编译路径�
 - server/modules/websocket/services/chat-websocket.service.ts
 - server/modules/launch-profiles/tests/env-injection-closed.test.ts (new)
 - tasks/gap-launch-profiles-env-injection-closed-test.md
+
+## Needs-Human
+
+**执行 2026-09-20T03:59:03.240Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：worker-driver 连续 3 次 exited-not-landed 未落地（重试上限）
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=7345 lint passed=false end_ms=1789876702999
+- run_id：wk-prod-anchor
+- session_id：54f7e36d-616a-4277-8e43-39726cb764c5
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-launch-profiles-env-injection-closed-test~wk-prod-anchor~1789876678964-5e36a8.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-launch-profiles-env-injection-closed-test-wk-prod-anchor.log
