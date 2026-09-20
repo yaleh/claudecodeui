@@ -1,7 +1,8 @@
 ---
 id: gap-session-filter-real-browser-e2e
 title: 会话列表过滤真实浏览器端到端（e2e）：经界面设规则使列表真的收敛、临时显示刷新后保持、搜索「已过滤」、隐藏同类预填
-status: ready
+status: needs-human
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -46,3 +47,10 @@ goal_ac: AC-101
 - src/modules/sidebar/SidebarProjectSessions.tsx
 - src/modules/sidebar/SessionOptions.tsx
 - tasks/gap-session-filter-real-browser-e2e.md
+
+## Needs-Human
+
+**执行 2026-09-20T12:32:53.398Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：worker-driver 连续 3 次 <60000ms 快速死亡（退避上限）；成因类：ordinary（快速死亡成因分类器取值，⛔ 非 human-adjudication 模板）
+- 成因类：human-adjudication
