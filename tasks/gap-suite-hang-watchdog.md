@@ -52,3 +52,4 @@ goal_ac: AC-105
 - scripts/test.sh
 - scripts/suite-hang-watchdog-check.sh
 - tasks/gap-suite-hang-watchdog.md
+- 该轴仍暗，理由：本任务的判据是套件**活性**（整次调用墙钟上限与静默时长），产出的是挂死判定与阈值，不产生 L_D（描述长度）或 L_G（生成对齐）读数；本仓也从未跑过 archguard 暗轴探针。ADR-007 per-milestone 谓词在本仓尚未生效（全部 43 条任务均 MISSING），此处按 ADR 原文认可的显式声明形式登记该轴仍暗。
