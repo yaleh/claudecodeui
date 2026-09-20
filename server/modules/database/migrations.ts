@@ -425,6 +425,12 @@ const addSupersededTranscriptPathColumn = (db: Database): void => {
   addColumnToTableIfNotExists(db, 'superseded_provider_sessions', columnNames, 'jsonl_path', 'TEXT');
 };
 
+/** Adds `launch_profile_id`, the launch profile a session was started with (NULL = none). */
+const addSessionLaunchProfileIdColumn = (db: Database): void => {
+  const columnNames = getTableInfo(db, 'sessions').map((column) => column.name);
+  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'launch_profile_id', 'TEXT');
+};
+
 const addForkedFromSessionIdColumn = (db: Database): void => {
   const columnNames = getTableInfo(db, 'sessions').map((column) => column.name);
   addColumnToTableIfNotExists(db, 'sessions', columnNames, 'forked_from_session_id', 'TEXT');
@@ -530,6 +536,7 @@ export const runMigrations = (db: Database) => {
     addSessionEffortColumn(db);
     addSessionLaunchProfileColumn(db);
     addForkedFromSessionIdColumn(db);
+    addSessionLaunchProfileIdColumn(db);
     ensureProjectsForSessionPaths(db);
     db.exec(SCHEDULED_MESSAGES_TABLE_SCHEMA_SQL);
 

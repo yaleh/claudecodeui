@@ -1,7 +1,7 @@
 ---
 id: gap-launch-profiles-passthrough-env-parity-test
 title: launch-profiles：落地 resolveLaunchSpec 的 passthrough 路径与 env 逐字一致性测试（AC-001）
-status: needs-human
+status: done
 needs_human_cause: human-adjudication
 labels:
   - gap
@@ -40,6 +40,8 @@ GOAL-001 的 AC-001 要求：未配置任何 profile 时，`resolveLaunchSpec` �
 - server/shared/types.ts
 - server/modules/providers/list/claude/claude-runtime.provider.js
 - server/modules/websocket/services/shell-websocket.service.ts
+- server/modules/providers/index.ts
+- server/modules/websocket/index.ts
 - tasks/gap-launch-profiles-passthrough-env-parity-test.md
 
 ## Needs-Human

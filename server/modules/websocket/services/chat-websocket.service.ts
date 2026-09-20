@@ -81,7 +81,15 @@ export type ProviderRuntimeGateway = {
 type ChatWebSocketDependencies = {
   /** Central dispatcher for every provider SDK/CLI runtime. */
   runtime: ProviderRuntimeGateway;
+  /** Test seam: replaces the default that discards a client-supplied `options.env`. */
+  dropClientEnv?: (options: AnyRecord) => AnyRecord;
 };
+
+/** The wire protocol carries only `launchProfileId`; a client-supplied `options.env` is discarded. */
+function withoutClientEnv(options: AnyRecord): AnyRecord {
+  const { env: _ignoredClientEnv, ...rest } = options;
+  return rest;
+}
 
 /**
  * Extracts the authenticated request user id in the formats currently produced
@@ -238,7 +246,8 @@ async function dispatchRun(
     return { started: false, error: 'A run is already in progress for this session.' };
   }
 
-  const clientOptions = (data.options ?? {}) as AnyRecord;
+  const rawClientOptions = (data.options ?? {}) as AnyRecord;
+  const clientOptions = (dependencies.dropClientEnv ?? withoutClientEnv)(rawClientOptions);
   const command = typeof data.content === 'string' ? data.content : '';
 
   // Record what this turn runs with so reopening the session later restores the
