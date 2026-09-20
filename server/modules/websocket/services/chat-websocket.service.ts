@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { WebSocket } from 'ws';
 
 import { sessionsDb } from '@/modules/database/index.js';
+import { resolveLaunchSpecById } from '@/modules/launch-profiles/index.js';
 import { providerModelsService, sessionsService } from '@/modules/providers/index.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
@@ -80,7 +81,18 @@ export type ProviderRuntimeGateway = {
 type ChatWebSocketDependencies = {
   /** Central dispatcher for every provider SDK/CLI runtime. */
   runtime: ProviderRuntimeGateway;
+  /** Test seam: replaces the default that discards a client-supplied `options.env`. */
+  dropClientEnv?: (options: AnyRecord) => AnyRecord;
 };
+
+/**
+ * The wire protocol carries only `launchProfileId`; env is resolved server-side.
+ * Anything a client puts in `options.env` is discarded.
+ */
+function withoutClientEnv(options: AnyRecord): AnyRecord {
+  const { env: _ignoredClientEnv, ...rest } = options;
+  return rest;
+}
 
 /**
  * Extracts the authenticated request user id in the formats currently produced
@@ -237,7 +249,8 @@ async function dispatchRun(
     return { started: false, error: 'A run is already in progress for this session.' };
   }
 
-  const clientOptions = (data.options ?? {}) as AnyRecord;
+  const rawClientOptions = (data.options ?? {}) as AnyRecord;
+  const clientOptions = (dependencies.dropClientEnv ?? withoutClientEnv)(rawClientOptions);
   const command = typeof data.content === 'string' ? data.content : '';
 
   // Record what this turn runs with so reopening the session later restores the
@@ -286,6 +299,9 @@ async function dispatchRun(
     // be taken back. Inside the try so a rewind that throws still releases the
     // run instead of leaving the session processing forever.
     await beforeRun?.(run);
+    if (typeof clientOptions.launchProfileId === 'string' && clientOptions.launchProfileId) {
+      runtimeOptions.env = resolveLaunchSpecById(clientOptions.launchProfileId).env;
+    }
     await dependencies.runtime.run(provider, command, runtimeOptions, run.writer);
   } catch (error) {
     failure = error instanceof Error ? error.message : String(error);

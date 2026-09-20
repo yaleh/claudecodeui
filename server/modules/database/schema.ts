@@ -189,6 +189,21 @@ CREATE TABLE IF NOT EXISTS provider_models (
 `;
 
 /**
+ * Server-owned launch profiles. `config_json` holds the profile's `env` map,
+ * which is re-validated against the env allowlist every time a launch spec is
+ * compiled, so rows written around the service never reach a spawned process.
+ */
+export const LAUNCH_PROFILES_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS launch_profiles (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    config_json TEXT NOT NULL DEFAULT '{}',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+`;
+
+/**
  * Per-user application preferences that used to live in browser localStorage.
  *
  * One row per (user, key); `preference_value` is always a JSON document so a
@@ -295,6 +310,7 @@ ${LAST_SCANNED_AT_SQL}
 ${APP_CONFIG_TABLE_SCHEMA_SQL}
 
 ${PROVIDER_MODELS_TABLE_SCHEMA_SQL}
+${LAUNCH_PROFILES_TABLE_SCHEMA_SQL}
 CREATE INDEX IF NOT EXISTS idx_provider_models_provider_order
 ON provider_models(provider, sort_order, id);
 
