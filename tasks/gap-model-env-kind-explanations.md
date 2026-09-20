@@ -2,7 +2,8 @@
 id: gap-model-env-kind-explanations
 title: Models env 行：四种 kind（value/envref/secret/unset）各配一句说明，尤其 unset 是「从 spawn
   环境删除该变量」
-status: ready
+status: needs-human
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -56,3 +57,10 @@ depends_on: []
 **原声明的依赖边已清空。** 被移除的那条边指向「Models 保存：空值 env 行不再静默丢弃」任务（其当时即 parked，现仍 parked）。该边实测**不是前置**：本任务已独立实现并验证全部 4 条 AC + 真实浏览器 DoD + 全量套件 174/174，而那条任务当时并未 done。两者真正的关系是**触碰冲突**（共用 ModelEnvEditor.tsx 与 modelLibrarySettings.test.tsx），而 worker-driver 的 touchesDisjoint 过滤器已按触碰面串行化 —— 在这里声明依赖是错的机制：不清空则该任务被 depsSatisfied 永久过滤（worker-round 实测 pool 1 / in_flight 0 / stop_reason filtered-empty），而那条任务本身 parked，形成死锁。
 
 **⛔ 本节刻意不写出被移除的那条任务 id。** ready-pool-check 的 prose-prereq-no-edge 规则会把 body 里出现、且尚无关系边的未完成任务 id 判为「前置无边」并把本任务整体排除（实测：写入带 id 的说明后 pool 由 1 降到 0，excluded 理由即 `prose-prereq-no-edge`）。既然两者的关系恰恰**不是**前置，就不该为绕开该规则而回填 depends_on；改为按标题指称。
+
+## Needs-Human
+
+**执行 2026-09-20T13:30:23.582Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：worker-driver 连续 3 次 <60000ms 快速死亡（退避上限）；成因类：ordinary（快速死亡成因分类器取值，⛔ 非 human-adjudication 模板）
+- 成因类：human-adjudication
