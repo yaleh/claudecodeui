@@ -49,6 +49,7 @@ type ProjectsStateProviderProps = {
   subscribe: (listener: (event: ServerEvent) => void) => () => void;
   isMobile: boolean;
   isSessionProcessing: IsSessionProcessing;
+  runningSessionIds?: ReadonlySet<string>;
 };
 
 const ProjectSidebarContext = createContext<ProjectSidebarState | null>(null);
@@ -65,6 +66,7 @@ export function ProjectsStateProvider({
   subscribe,
   isMobile,
   isSessionProcessing,
+  runningSessionIds,
 }: ProjectsStateProviderProps) {
   const state = useProjectsState({
     sessionId,
@@ -72,6 +74,7 @@ export function ProjectsStateProvider({
     subscribe,
     isMobile,
     isSessionProcessing,
+    runningSessionIds,
   });
 
   const sidebarState = useMemo<ProjectSidebarState>(

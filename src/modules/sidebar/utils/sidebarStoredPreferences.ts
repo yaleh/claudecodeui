@@ -40,3 +40,34 @@ export const clearLegacyStarredProjectIds = () => {
     // Keep UI responsive even if storage is unavailable.
   }
 };
+
+const SHOWN_HIDDEN_PROJECTS_STORAGE_KEY = 'sidebarShownHiddenSessionProjects';
+
+/**
+ * Reads the ids of projects whose name-filtered sessions this browser shows temporarily.
+ * Browser-local on purpose: it never changes the project's stored rules.
+ */
+export const readShownHiddenProjectIds = (): string[] => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SHOWN_HIDDEN_PROJECTS_STORAGE_KEY) ?? '[]') as unknown;
+    return Array.isArray(parsed)
+      ? parsed.map((value) => String(value).trim()).filter((value) => value.length > 0)
+      : [];
+  } catch {
+    return [];
+  }
+};
+
+/** Persists the temporary "show hidden sessions" project ids; an empty list removes the key. */
+export const writeShownHiddenProjectIds = (projectIds: Iterable<string>) => {
+  try {
+    const ids = [...projectIds];
+    if (ids.length === 0) {
+      localStorage.removeItem(SHOWN_HIDDEN_PROJECTS_STORAGE_KEY);
+      return;
+    }
+    localStorage.setItem(SHOWN_HIDDEN_PROJECTS_STORAGE_KEY, JSON.stringify(ids));
+  } catch {
+    // Keep UI responsive even if storage is unavailable.
+  }
+};

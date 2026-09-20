@@ -30,9 +30,9 @@ GOAL-001 的 AC-027：整条链路的实机验收。此前 AC-010 是组件级 v
 
 ## AC
 
-- [ ] `npm run test:e2e -- e2e/model-library.spec.ts` 退出码 0（AC-027 的判据命令）。
-- [ ] 测试仅经 UI 建模型；刷新后 secret 为“已设置”且值不出现在页面文本与网络响应；选中并发送后 mock 收到带该 token 的请求；页面无未翻译字面量。
-- [ ] 取假变体使该 e2e 判红，红灯输出记录在任务证据中；`npm run typecheck` 通过。
+- [x] `npm run test:e2e -- e2e/model-library.spec.ts` 退出码 0（AC-027 的判据命令）。
+- [x] 测试仅经 UI 建模型；刷新后 secret 为“已设置”且值不出现在页面文本与网络响应；选中并发送后 mock 收到带该 token 的请求；页面无未翻译字面量。
+- [x] 取假变体使该 e2e 判红，红灯输出记录在任务证据中；`npm run typecheck` 通过。
 
 ## DoD
 
@@ -42,3 +42,10 @@ GOAL-001 的 AC-027：整条链路的实机验收。此前 AC-010 是组件级 v
 
 - e2e/model-library.spec.ts (new)
 - tasks/gap-model-library-browser-e2e.md
+
+## Evidence
+
+- 绿灯：`npm run test:e2e -- e2e/model-library.spec.ts` → 3 passed（建模型 / 刷新后 secret 仅“Set” / 选中并发送，mock 网关收到 `Bearer <token>` 且 body 含 model id）。`npm run typecheck` exit 0。
+- 环境步骤（非功能缺口）：主 checkout node_modules 未装 `@playwright/test`，本 worker 用 `npm install --no-save @playwright/test` 补装；主 checkout 上跑该判据需先 `npm install`。
+- 取假变体 A（ModelLibraryPanel 的 `showGatewayTemplate={false}`）→ 用例 1 红：`waiting for getByRole('button', { name: 'LLM gateway template' })` 超时，exit=1。
+- 取假变体 B（ModelEnvEditor `toEditorRows` 令 `secretStored:false`，即去掉 secret 掩码/已设置徽标）→ 用例 2 红：`getByTestId('secret-set-badge')` element(s) not found。两处变体均已还原，未入提交。
