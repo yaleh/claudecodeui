@@ -2,7 +2,7 @@
 id: gap-launch-profiles-real-profile-compiles-spec-test
 title: launch-profiles：真实落库 profile 驱动 resolveLaunchSpec 产出非空 argv 且
   contextWindow 取 profile 值（AC-009）
-status: ready
+status: done
 labels:
   - gap
 parent: null
