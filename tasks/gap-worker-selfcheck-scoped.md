@@ -137,3 +137,61 @@ rc=1
 ### 诚实备注
 
 本任务自身 Touches 不含 `*.test.*`，属 (b) 类，故 `bash scripts/test.sh --for-task gap-worker-selfcheck-scoped --allow-thin` 走 thin 路径（打印 `no scoped test files for gap-worker-selfcheck-scoped (thin)`，exit 0）。**那不是本任务的证据**——一个取不了假的绿不算测量。本任务的证据是上面 ①②③ 四段实跑输出。
+
+### ⑩ 收尾：ADR-007 声明行从 `## Touches` 移进 `## DoD`（anti-drift）
+
+上一轮 exited-not-landed 的**唯一**原因是 anti-drift HARD FAIL 1 条 `overbroad-declaration`，它与守卫实现本身无关 —— 是**任务体格式**问题：本轮之前，ADR-007 的显式声明行（`- 该轴仍暗，理由：…`）写在 `## Touches` 段内。anti-drift 的 `parseTouchEntries` 把该段里**每一行 `- …` 都当成声明的写面**，而这一行没有 `/`、又含 Markdown 粗体 `**作用域**`，于是 `isOverbroadDeclaration` 在第一个段（`concrete = 0 < 2`）上撞见 `*` ⇒ 整行被判成「过宽的写面声明」。判词逐字：
+
+```
+ANTI-DRIFT HARD FAIL: task gap-worker-selfcheck-scoped — 1 violation(s)
+  overbroad-declaration: task declares "该轴仍暗，理由：…" (too broad to validate stray writes against)
+```
+
+声明行本身**不能删**：`dark-axis-record-check` 认它，删掉状态会从 `DISCLAIMED` 退回 `MISSING`。修法是把该行**移进 `## DoD`**（`classifyDarkAxisRecord` 扫全文、不限段），`## Touches` 只留真正的写面条目 —— 一个 Touches 条目都没改，也没有任何判据/代码改动：本轮对任务体的 diff **只有这一行的位置变化**（`git diff` 为 2 增 1 删）。这与本仓此前 `gap-resetmodules-cold-compile-timeout` 的收尾是**同一次失败的第二次出现**，修法逐字相同。
+
+改后读数（本工作树，develop 已并入）：
+
+```
+ANTI-DRIFT OK: task gap-worker-selfcheck-scoped — 2 actual file(s), all within declared Touches (3 glob(s))
+dark-axis-record-check: gap-worker-selfcheck-scoped  state: DISCLAIMED (declared: line 34)
+```
+
+### ⑪ 第二轮复核：develop 并入后的四条 AC 全部重跑
+
+develop 在此期间并入 **14 个提交**（`scripts/test.sh` 被别处改动 +302 行），故四条 AC 在**合并后的树**上逐条重跑，读数如下（守卫代码与接线位置未变）：
+
+**AC1 / AC4 前半**：`bash scripts/suite-scope-check.sh` rc=0（`active=2 with-tests=1 no-tests=1`；原先的 `active=4` 是 develop 并入前两条任务尚未翻 done 时的读数，非判据变化）：
+
+```
+suite-scope-check: scan tasks=52 skipped(done/superseded)=50 active=2 with-tests=1 no-tests=1 tasks_dir=<worktree>/tasks
+suite-scope-check: PASS — 2 active task(s) scanned: every active task whose ## Touches lists *.test.* carries --for-task in its ## AC self-test, and no active task without *.test.* touches uses the full suite as its self-test; this guard is wired into <worktree>/scripts/test.sh's prelude (line 53 < stage line 432)
+rc=0
+```
+
+**AC2 / AC3**（取假两方向 + 接线方向，夹具目录与上轮同构，只有被测任务的一行文本/一行调用不同；每组后附回绿对照）：三组全部 rc=1 且判词形态可区分 —— (a) 点名 `gap-model-env-kind-explanations` 并给出「改成 `--for-task <自身 id>`」，(b) 点名本任务并给出「改跑自己交付的 `scripts/*.sh` 检查器」（**不是** (a) 类判词，这正是 AC3 的判据），(wiring) 判 `test-stripped.sh` 从不调用守卫。回绿对照 `fx-green` rc=0、判词为 `PASS`。
+
+**AC4 后半**：`bash scripts/test.sh --for-task gap-model-env-kind-explanations` rc=0（wall 4.22s），**非 thin** ——
+
+```
+__PERFILE__ duration_ms=376 src/modules/settings/tests/modelLibrarySettings.test.tsx passed=true end_ms=1789921061172
+
+# tests 1
+# pass 1
+# fail 0
+```
+
+`__PERFILE__` 行按 quay 锚定正则 `^__PERFILE__ duration_ms=([0-9.]+) (\S+) passed=(true|false)( end_ms=([0-9]+))?$` 机械复核：**1/1 匹配**，非匹配 0 条；输出无 `no scoped test files for … (thin)`，故既有行格式未变且真的执行了 ≥1 个测试文件。
+
+**驱动侧 scoped 门**：`bash scripts/test.sh --for-task gap-worker-selfcheck-scoped --allow-thin` rc=0（本任务 Touches 无 `*.test.*`，走 thin 分支 —— 照旧**不构成证据**，只是驱动门本身）。
+
+**DoD ① 的全量实跑**（合并后的 `scripts/test.sh`，含新增前置）：
+
+```
+suite-scope-check: PASS — 2 active task(s) scanned: …
+__PERFILE__ duration_ms=10386 typecheck passed=true end_ms=1789921079613
+__PERFILE__ duration_ms=7259 lint passed=true end_ms=1789921086876
+…
+FULL_RC=0  wall=55.98s
+```
+
+`FULL_RC=0`，`grep -c '^__PERFILE__'` = 176，按锚定正则复核 176/176 匹配。
