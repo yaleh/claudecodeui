@@ -49,6 +49,21 @@ function compileGatewayEnv(config: Record<string, unknown>, warnings: string[]):
     }
   }
 
+  // Precedence: typed fields above (baseUrl, auth target, modelAliases) win over a same-named
+  // config.env key. Allowlist filtering of the merged env happens in resolveLaunchSpec.
+  const extra = config.env;
+  if (extra && typeof extra === 'object' && !Array.isArray(extra)) {
+    for (const [key, value] of Object.entries(extra as Record<string, unknown>)) {
+      if (typeof value !== 'string') {
+        warnings.push(`Environment variable ${key} in config.env must be a string and was dropped`);
+      } else if (key in env) {
+        warnings.push(`Environment variable ${key} in config.env is overridden by a typed profile field`);
+      } else {
+        env[key] = value;
+      }
+    }
+  }
+
   return env;
 }
 
