@@ -223,7 +223,7 @@ function mapCliOptionsToSDK(options = {}) {
 
   // Forward all host env vars (e.g. ANTHROPIC_BASE_URL) to the subprocess.
   // Since SDK 0.2.113, options.env replaces process.env instead of overlaying it.
-  const launchSpec = resolveLaunchSpec(null, 'claude');
+  const launchSpec = resolveLaunchSpec(options.launchProfileId ?? null, 'claude');
   sdkOptions.env = { ...process.env, ...launchSpec.env, CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: String(BG_WAIT_CEILING_MS) };
 
   // Resolve the executable eagerly on Windows because the SDK uses raw child_process.spawn,

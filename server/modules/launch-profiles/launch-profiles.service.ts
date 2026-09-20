@@ -4,21 +4,68 @@ import type { LLMProvider, ResolvedLaunchSpec } from '@/shared/types.js';
 
 const DEFAULT_CONTEXT_WINDOW = 160000;
 
+const MODEL_ALIAS_ENV: Record<string, string> = {
+  opus: 'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  sonnet: 'ANTHROPIC_DEFAULT_SONNET_MODEL',
+  haiku: 'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+};
+
+const DEFAULT_AUTH_TARGET = 'ANTHROPIC_AUTH_TOKEN';
+
+function compileGatewayEnv(config: Record<string, unknown>, warnings: string[]): Record<string, string> {
+  const env: Record<string, string> = {};
+
+  if (typeof config.baseUrl === 'string' && config.baseUrl) {
+    env.ANTHROPIC_BASE_URL = config.baseUrl;
+  }
+
+  if (config.authMode === 'envVar' && typeof config.authEnvVarName === 'string' && config.authEnvVarName) {
+    const value = process.env[config.authEnvVarName];
+    const target = typeof config.authEnvVarTarget === 'string' && config.authEnvVarTarget
+      ? config.authEnvVarTarget
+      : DEFAULT_AUTH_TARGET;
+    if (value) {
+      env[target] = value;
+    } else {
+      warnings.push(`Environment variable ${config.authEnvVarName} is not set; the gateway credential is missing`);
+    }
+  }
+
+  const aliases = config.modelAliases;
+  if (aliases && typeof aliases === 'object') {
+    for (const [alias, envName] of Object.entries(MODEL_ALIAS_ENV)) {
+      const model = (aliases as Record<string, unknown>)[alias];
+      if (typeof model === 'string' && model) {
+        env[envName] = model;
+      }
+    }
+  }
+
+  return env;
+}
+
 /**
  * Resolves the launch spec for a provider run.
  * Consumed by the Claude SDK runtime and the shell websocket service so both
- * launch points share one env compilation step. Only the passthrough path
- * (no profile) exists so far: it yields empty env/argv overrides.
+ * launch points share one env compilation step. Without a profile (passthrough)
+ * env/argv overrides are empty; a gateway profile compiles to the endpoint,
+ * the credential read from the host env var it names, and model aliases.
  */
 export function resolveLaunchSpec(
-  _profileId: string | null,
+  profileId: string | null,
   _provider: LLMProvider,
 ): ResolvedLaunchSpec {
+  const warnings: string[] = [];
+  const profile = profileId ? launchProfilesDb.get(profileId) : null;
+  if (profileId && !profile) {
+    warnings.push(`Launch profile "${profileId}" was not found; running without a profile`);
+  }
+
   return {
-    env: {},
+    env: profile ? compileGatewayEnv(profile.config, warnings) : {},
     argv: [],
     contextWindow: parseInt(process.env.CONTEXT_WINDOW ?? '', 10) || DEFAULT_CONTEXT_WINDOW,
-    warnings: [],
+    warnings,
   };
 }
 
