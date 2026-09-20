@@ -1420,9 +1420,14 @@ export type SandboxCommandService = {
  * With no profile selected (passthrough) `env` is `{}` and `argv` is `[]`, so
  * callers' env assembly stays byte-identical to the pre-profile behavior.
  * `env` must only hold overrides, never a copy of `process.env`.
+ * `unsetEnv` lists keys that must be REMOVED from the final spawn environment
+ * (a model-library `unset` row); callers must apply it with
+ * `applyLaunchSpecEnv` so the removal lands on the object handed to the
+ * spawn, not merely on the spec. Absent for passthrough and profile specs.
  */
 export type ResolvedLaunchSpec = {
   env: Record<string, string>;
+  unsetEnv?: string[];
   argv: string[];
   contextWindow: number;
   warnings: string[];

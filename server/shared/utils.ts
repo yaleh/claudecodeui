@@ -1228,3 +1228,21 @@ export function findApplicationRoot(startDirectory: string): string {
     ? path.dirname(parentDirectory)
     : parentDirectory;
 }
+
+/**
+ * Overlays a compiled launch spec onto a spawn environment and returns a new
+ * object: `spec.env` is merged over `base`, then every `spec.unsetEnv` key is
+ * deleted. Used by the Claude SDK runtime (sdkOptions.env, which replaces the
+ * child env) and the shell pty spawn so `unset` rows take effect on the final
+ * env object in both paths. Never mutates `base`.
+ */
+export function applyLaunchSpecEnv<TBase extends Record<string, string | undefined>>(
+  base: TBase,
+  spec: { env: Record<string, string | undefined>; unsetEnv?: string[] },
+): Record<string, string | undefined> {
+  const merged: Record<string, string | undefined> = { ...base, ...spec.env };
+  for (const key of spec.unsetEnv ?? []) {
+    delete merged[key];
+  }
+  return merged;
+}

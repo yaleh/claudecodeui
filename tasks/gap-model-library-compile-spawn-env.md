@@ -1,7 +1,7 @@
 ---
 id: gap-model-library-compile-spawn-env
 title: model-library：按模型编译真实 spawn 环境，unset 在最终环境对象上生效（AC-024）
-status: ready
+status: done
 labels:
   - gap
 parent: null
