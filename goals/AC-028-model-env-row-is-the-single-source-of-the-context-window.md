@@ -1,7 +1,7 @@
 ---
 id: AC-028
 title: model env row is the single source of the context window
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-001
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -16,4 +16,10 @@ expect: 模型条目里的 CLAUDE_CODE_MAX_CONTEXT_TOKENS 行是上下文窗口�
   process.env.CONTEXT_WINDOW，模型条目的行不影响 total，必红。
 origin: ADR-002 决策 6；2026-09-20 复核：AC-005/AC-014 以 profile 与类型化字段为对象，不符合当前方向
 activatedAt: 2026-09-20T09:37:54.887Z
+statusLog:
+  - at: 2026-09-20T10:24:22.044Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 ---
