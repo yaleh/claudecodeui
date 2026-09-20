@@ -44,6 +44,7 @@ GOAL-001 的 AC-005 要求：token 用量的 `total` 等于 `profile.contextWind
 - server/modules/providers/list/claude/claude-runtime.provider.js
 - server/modules/providers/services/provider-token-usage.service.ts
 - server/modules/launch-profiles/tests/context-window-per-profile.test.ts (new)
+- server/modules/providers/index.ts
 - tasks/gap-launch-profiles-context-window-per-profile-test.md
 
 ## Needs-Human
