@@ -36,7 +36,7 @@ import {
   notifyRunStopped,
   notifyUserIfEnabled
 } from '@/modules/notifications/index.js';
-import { resolveContextWindow, resolveLaunchSpec, resolveModelLaunchSpec } from '@/modules/launch-profiles/index.js';
+import { resolveContextWindow, resolveLaunchSpec, resolveModelContextWindowRow, resolveModelLaunchSpec } from '@/modules/launch-profiles/index.js';
 import { applyLaunchSpecEnv, createCompleteMessage, createNormalizedMessage } from '@/shared/utils.js';
 
 const activeSessions = new Map();
@@ -429,7 +429,7 @@ function readNumber(value) {
  * `input_tokens + cache_read + cache_creation` is one request's whole prompt,
  * which is exactly what the context window holds at that moment.
  * @param {Object} messageUsage - Anthropic usage payload
- * @param {number} [profileContextWindow] - Active launch profile contextWindow
+ * @param {number} [profileContextWindow] - Selected model entry's CLAUDE_CODE_MAX_CONTEXT_TOKENS row
  * @returns {TokenBudget} Token budget object
  */
 function buildTokenBudget(messageUsage, profileContextWindow) {
@@ -463,7 +463,7 @@ function buildTokenBudget(messageUsage, profileContextWindow) {
  * prompt its own request carried. The turn-ending `result` is deliberately not
  * a source here — see `extractCumulativeTokenBudget`.
  * @param {Object} sdkMessage - SDK stream message
- * @param {number} [profileContextWindow] - Active launch profile contextWindow
+ * @param {number} [profileContextWindow] - Selected model entry's CLAUDE_CODE_MAX_CONTEXT_TOKENS row
  * @returns {TokenBudget|null} Token budget object or null
  */
 function extractTokenBudget(sdkMessage, profileContextWindow) {
@@ -508,7 +508,7 @@ function extractTokenBudget(sdkMessage, profileContextWindow) {
  * message ever emits, so it stays available for the caller to use when a turn
  * produced no assistant budget at all.
  * @param {Object} sdkMessage - SDK stream message
- * @param {number} [profileContextWindow] - Active launch profile contextWindow
+ * @param {number} [profileContextWindow] - Selected model entry's CLAUDE_CODE_MAX_CONTEXT_TOKENS row
  * @returns {TokenBudget|null} Token budget object or null
  */
 function extractCumulativeTokenBudget(sdkMessage, profileContextWindow) {
@@ -567,7 +567,7 @@ const DEFERRED_WORK_TOOLS = new Set(['Monitor', 'ScheduleWakeup', 'CronCreate', 
  * and the cost of getting this wrong is silently killed background work.
  *
  * @param {Object} sdkMessage - SDK stream message
- * @param {number} [profileContextWindow] - Active launch profile contextWindow
+ * @param {number} [profileContextWindow] - Selected model entry's CLAUDE_CODE_MAX_CONTEXT_TOKENS row
  * @returns {boolean} True when the message launches work that outlives the turn
  */
 export function startsBackgroundWork(sdkMessage) {
@@ -757,6 +757,7 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
   // Set once a turn publishes a budget read from an assistant message, so the
   // turn-ending `result` is only mined for usage when nothing better arrived.
   let assistantBudgetSent = false;
+  const modelContextWindow = resolveModelContextWindowRow('claude', options.model);
 
   // A new turn supersedes any earlier one still holding this session's process
   // open, so held runs cannot stack up across a conversation.
@@ -986,8 +987,9 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
       // Extract and send token budget updates from assistant usage payloads,
       // falling back to the turn's cumulative bill only for SDK builds that
       // report no per-assistant usage at all.
-      const tokenBudgetData = extractTokenBudget(message, options.profile?.contextWindow)
-        || (assistantBudgetSent ? null : extractCumulativeTokenBudget(message, options.profile?.contextWindow));
+      // The selected model entry's CLAUDE_CODE_MAX_CONTEXT_TOKENS row is the only per-model window source.
+      const tokenBudgetData = extractTokenBudget(message, modelContextWindow)
+        || (assistantBudgetSent ? null : extractCumulativeTokenBudget(message, modelContextWindow));
       if (tokenBudgetData) {
         if (message.type === 'assistant') {
           assistantBudgetSent = true;

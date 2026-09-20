@@ -6,7 +6,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 
 import { sessionsDb } from '@/modules/database/index.js';
-import { resolveContextWindow } from '@/modules/launch-profiles/index.js';
+import { resolveContextWindow, resolveModelContextWindowRow } from '@/modules/launch-profiles/index.js';
 import type { AnyRecord } from '@/shared/types.js';
 import { AppError, getOpenCodeDatabasePath } from '@/shared/utils.js';
 
@@ -27,6 +27,8 @@ type ProviderTokenUsageServiceDependencies = {
   readTextFile: (filePath: string) => Promise<string>;
   readTextFileTail: (filePath: string, maxBytes: number) => Promise<FileTail>;
   getClaudeContextWindow: () => string | undefined;
+  /** The model entry's CLAUDE_CODE_MAX_CONTEXT_TOKENS row for a Claude model id, if any. */
+  getClaudeModelContextWindow?: (modelId: string) => string | undefined;
   isProviderSessionSuperseded: (providerSessionId: string, provider: string) => boolean;
 };
 
@@ -93,6 +95,7 @@ const defaultDependencies: ProviderTokenUsageServiceDependencies = {
     }
   },
   getClaudeContextWindow: () => process.env.CONTEXT_WINDOW,
+  getClaudeModelContextWindow: (modelId) => resolveModelContextWindowRow('claude', modelId),
   isProviderSessionSuperseded: (providerSessionId, provider) =>
     sessionsDb.isProviderSessionSuperseded(providerSessionId, provider),
 };
@@ -182,6 +185,17 @@ function emptyCodexTokenUsage(): TokenUsageResult {
   };
 }
 
+// Model id of the newest main-thread assistant turn; its library entry's env row supplies the window.
+function findNewestClaudeModelId(entries: AnyRecord[]): string | null {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (entry?.isSidechain !== true && entry?.type === 'assistant' && typeof entry.message?.model === 'string') {
+      return entry.message.model;
+    }
+  }
+  return null;
+}
+
 /**
  * Latest context-window usage from a Claude transcript's already-parsed rows.
  *
@@ -198,7 +212,7 @@ function emptyCodexTokenUsage(): TokenUsageResult {
 export function summarizeClaudeTokenUsage(
   entries: AnyRecord[],
   configuredContextWindow: string | undefined = process.env.CONTEXT_WINDOW,
-  profileContextWindow?: number | null,
+  modelContextWindow?: number | string | null,
 ): TokenUsageResult {
   let inputTokens = 0;
   let outputTokens = 0;
@@ -246,7 +260,7 @@ export function summarizeClaudeTokenUsage(
     break;
   }
 
-  const contextWindow = resolveContextWindow(profileContextWindow, configuredContextWindow);
+  const contextWindow = resolveContextWindow(modelContextWindow, configuredContextWindow);
   const cacheTokens = cacheReadTokens + cacheCreationTokens;
 
   return {
@@ -474,7 +488,9 @@ export function createProviderTokenUsageService(
       if (!claudeEntriesHaveUsage(entries) && !tail.isComplete) {
         entries = parseClaudeUsageEntries(await dependencies.readTextFile(sessionFilePath));
       }
-      return summarizeClaudeTokenUsage(entries, dependencies.getClaudeContextWindow());
+      const modelId = session.model || findNewestClaudeModelId(entries);
+      const modelRow = modelId ? dependencies.getClaudeModelContextWindow?.(modelId) : undefined;
+      return summarizeClaudeTokenUsage(entries, dependencies.getClaudeContextWindow(), modelRow);
     },
   };
 }
