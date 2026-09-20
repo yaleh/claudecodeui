@@ -2,7 +2,7 @@
 id: gap-launch-profiles-web-ui-selectable-test
 title: launch-profiles：Settings 增加 Profiles 页 + 会话创建入口选 profile 并随 chat.send 发出
   launchProfileId（AC-010）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
