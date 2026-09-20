@@ -1,7 +1,7 @@
 ---
 id: gap-goal-001-exit-conditions-section
 title: GOAL-001 缺 `## 退出条件` 节：提议把行内退出条件提升为独立小节并显式标注范围内 UI 项的覆盖
-status: needs-human
+status: ready
 labels:
   - gap
 parent: null
@@ -27,9 +27,13 @@ extra:
 
 并把原行内「退出条件：…」句删除以免重复。此修订使机械层可解析出非空退出条件，语义 judge 才会被咨询。
 
+## Resolution
+
+2026-09-20 人（yale）裁定：选 (a)——范围内 UI 项（Settings 管理页、会话创建入口选择）明示不入退出条件，由 AC-001..AC-007 的后端契约间接保证，不另立 AC。据此已修订 goals/GOAL-001-cloudcli-launch-profiles.md：新增 `## 退出条件` 小节并删除行内「退出条件：…」句。剩余待观察：下一轮 goal-sufficiency round log 中该 goal 的最新 verdict 由语义 judge 给出（第 3 条 AC）。
+
 ## AC
-- [ ] `grep -c '^## 退出条件' goals/GOAL-001-cloudcli-launch-profiles.md` 输出 1，且该小节非空白字符数 ≥ 40。
-- [ ] 人（yale）已在本任务下裁定 UI 项处理方式（明示不入退出条件，或另立 AC 的任务 id）；裁定记录在本任务 Resolution 中。
+- [x] `grep -c '^## 退出条件' goals/GOAL-001-cloudcli-launch-profiles.md` 输出 1，且该小节非空白字符数 ≥ 40。
+- [x] 人（yale）已在本任务下裁定 UI 项处理方式（明示不入退出条件，或另立 AC 的任务 id）；裁定记录在本任务 Resolution 中。
 - [ ] 修订后下一轮 goal-sufficiency 判定不再因「无退出条件小节」产生机械 insufficient（读 round log 该 goal 的最新 verdict）。
 
 ## DoD
