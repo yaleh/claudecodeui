@@ -38,7 +38,20 @@ depends_on:
 - src/modules/chat/modals/ModelLibraryPanel.tsx
 - src/modules/settings/tests/modelLibrarySave.test.tsx
 - src/modules/settings/tests/modelLibrarySettings.test.tsx
+- src/modules/i18n/locales/de/settings.json
+- src/modules/i18n/locales/en/settings.json
+- src/modules/i18n/locales/es/settings.json
+- src/modules/i18n/locales/fr/settings.json
+- src/modules/i18n/locales/id/settings.json
+- src/modules/i18n/locales/it/settings.json
+- src/modules/i18n/locales/ja/settings.json
+- src/modules/i18n/locales/ko/settings.json
+- src/modules/i18n/locales/ru/settings.json
+- src/modules/i18n/locales/tr/settings.json
+- src/modules/i18n/locales/zh-CN/settings.json
+- src/modules/i18n/locales/zh-TW/settings.json
 - tasks/gap-model-env-empty-row-save-feedback.md
+
 ## Needs-Human
 
 **执行 2026-09-20T11:29:12.075Z — 连续修满重试上限仍不合格（标 needs-human）**
