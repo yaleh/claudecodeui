@@ -1,7 +1,7 @@
 ---
 id: gap-model-settings-layout-overflow-assertions
 title: Models 设置页布局回归断言：≥1024px 编辑器不溢出、按钮不被遮挡（e2e，补 AC-026 只验证「机制存在」的缺口）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
