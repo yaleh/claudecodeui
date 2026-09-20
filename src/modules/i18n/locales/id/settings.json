@@ -5,7 +5,8 @@
     "permissions": "Izin",
     "mcpServers": "Server MCP",
     "skills": "Skills",
-    "appearance": "Tampilan"
+    "appearance": "Tampilan",
+    "models": "Models"
   },
   "account": {
     "title": "Akun",
@@ -795,5 +796,33 @@
     "teamManagementDescription": "Banyak pengguna, akses berbasis peran, dan proyek bersama untuk tim.",
     "licensed": "Dilisensikan di bawah AGPL-3.0",
     "proCta": "Tersedia dengan CloudCLI Pro"
+  },
+  "modelLibrary": {
+    "loadFailed": "Could not load models: {{message}}",
+    "env": {
+      "title": "Environment variables",
+      "addRow": "Add variable",
+      "gatewayTemplate": "LLM gateway template",
+      "empty": "No environment variables. This model uses the provider's defaults.",
+      "key": "Variable name",
+      "kind": "Row type",
+      "value": "Value",
+      "removeRow": "Remove variable",
+      "kinds": {
+        "value": "Value",
+        "secret": "Secret",
+        "envref": "Env reference",
+        "unset": "Unset"
+      },
+      "secretSet": "Set",
+      "secretValue": "Secret value",
+      "secretReplace": "Type to replace the stored secret",
+      "secretEnter": "Enter secret",
+      "envrefName": "Server environment variable name",
+      "envrefSet": "Set on server",
+      "envrefUnset": "Not set on server",
+      "envrefHelp": "Reads this variable from the CloudCLI server process environment; restart the server after changing it.",
+      "warningEnvrefUnset": "Environment variable {{name}} is not set on the server; this row will send nothing."
+    }
   }
 }
