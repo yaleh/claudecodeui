@@ -1,7 +1,7 @@
 ---
 id: AC-015
 title: terminal session uses the selected profile
-status: active
+status: superseded
 kind: criterion
 goal: GOAL-001
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -17,4 +17,10 @@ origin: docs/proposals/launch-profiles.md + ADR-001；补立于
   2026-09-20：对照用户历史启动命令（claude-fjdac + 917k 上下文三件套 + --permission-mode
   bypassPermissions + --prompt-suggestions false）复核 profile 机制所得缺口
 activatedAt: 2026-09-20T08:17:01.362Z
+statusLog:
+  - at: 2026-09-20T09:17:09.472Z
+    from: active
+    to: superseded
+    actor: yale
+    reason: 终端路径接入：ADR-002 第一版不做，终端会话仍继承服务进程环境
 ---
