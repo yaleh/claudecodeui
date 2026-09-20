@@ -28,11 +28,13 @@ GOAL-001 的 AC-028：模型条目里的 `CLAUDE_CODE_MAX_CONTEXT_TOKENS` 行是
 
 依据：ADR-002 决策 6（上下文窗口由模型条目解析并取代全局配置）。
 
+实现记录：编译入口 `resolveModelLaunchSpec` 已产出 `spec.contextWindow`；新增 `resolveSendContextWindow`（模型行 → launch profile → CONTEXT_WINDOW → 160000）供 SDK 调用点使用；token-usage 服务用 `sessions.model`（不读 JSONL）取模型行，session 无 model 或无该行时降级到 CONTEXT_WINDOW → 160000（测试已登记）。取假红灯：token-usage 忽略模型行、SDK total 忽略模型行，两种变体同一测试均 fail 1。
+
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/model-context-window.test.ts` 退出码 0（AC-028 的判据命令）。
-- [ ] 测试证明：模型的 CLAUDE_CODE_MAX_CONTEXT_TOKENS 行同时出现在 spawn 环境与两处 total 中；回退顺序与非法值处理正确。
-- [ ] 取假变体（显示与导出脱节）使该测试判红，红灯输出记录在任务证据中；`passthrough-parity.test.ts` 仍退出码 0；`npm run typecheck` 通过。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/model-context-window.test.ts` 退出码 0（AC-028 的判据命令）。
+- [x] 测试证明：模型的 CLAUDE_CODE_MAX_CONTEXT_TOKENS 行同时出现在 spawn 环境与两处 total 中；回退顺序与非法值处理正确。
+- [x] 取假变体（显示与导出脱节）使该测试判红，红灯输出记录在任务证据中；`passthrough-parity.test.ts` 仍退出码 0；`npm run typecheck` 通过。
 
 ## DoD
 
