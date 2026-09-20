@@ -1,7 +1,7 @@
 ---
 id: gap-worker-selfcheck-scoped
 title: worker 自测改跑 scoped：任务 AC 从全量套件改为 --for-task &lt;自身 id&gt;，并在 test.sh 前置加机械守卫
-status: todo
+status: ready
 labels:
   - gap
 parent: null
