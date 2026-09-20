@@ -2,7 +2,7 @@
 id: gap-launch-profiles-rest-crud-routes-test
 title: launch-profiles：经 REST 路由层建出 profile 并读回（新增 launch-profiles.routes.ts +
   挂载，AC-008）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
