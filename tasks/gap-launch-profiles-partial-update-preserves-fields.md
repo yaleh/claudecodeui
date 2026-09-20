@@ -24,10 +24,10 @@ GOAL-001 的 AC-019 要求：保存 profile 绝不丢弃请求未提交的字段
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/profile-partial-update.test.ts` 退出码 0，且经真实 HTTP PUT 仅提交 `{name}` 后 GET 读回的 isDefault/description/sortOrder/deployment 与 config 经 `assert.deepStrictEqual` 与之前一致。
-- [ ] `npx vitest run src/modules/settings/tests/launchProfileSavePreserves.test.tsx` 退出码 0，且以 fetch 桩断言 PUT 请求体 `JSON.parse` 后不含 `isDefault`、`deployment`、`description`、`sortOrder` 键，config 中未编辑的键仍存在。
-- [ ] 取假形态：在改动前的实现上两条命令均为红（isDefault 经一次保存即变 false）；`grep -n "deployment: 'gateway'" src/modules/settings/tabs/launch-profiles-settings/useLaunchProfiles.ts` 在更新（PUT）路径上无命中。
-- [ ] `npm run typecheck` 与 `npm test` 退出码 0，既有 profile-rest-api 等测试不回归。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/profile-partial-update.test.ts` 退出码 0，且经真实 HTTP PUT 仅提交 `{name}` 后 GET 读回的 isDefault/description/sortOrder/deployment 与 config 经 `assert.deepStrictEqual` 与之前一致。
+- [x] `npx vitest run src/modules/settings/tests/launchProfileSavePreserves.test.tsx` 退出码 0，且以 fetch 桩断言 PUT 请求体 `JSON.parse` 后不含 `isDefault`、`deployment`、`description`、`sortOrder` 键，config 中未编辑的键仍存在。
+- [x] 取假形态：在改动前的实现上两条命令均为红（isDefault 经一次保存即变 false）；`grep -n "deployment: 'gateway'" src/modules/settings/tabs/launch-profiles-settings/useLaunchProfiles.ts` 在更新（PUT）路径上无命中。
+- [x] `npm run typecheck` 与 `npm test` 退出码 0，既有 profile-rest-api 等测试不回归。
 
 ## DoD
 
