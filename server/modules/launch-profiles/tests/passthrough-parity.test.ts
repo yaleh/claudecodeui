@@ -6,8 +6,8 @@ import test from 'node:test';
 import { WebSocket } from 'ws';
 
 import { resolveLaunchSpec } from '@/modules/launch-profiles/index.js';
-import { mapCliOptionsToSDK } from '@/modules/providers/list/claude/claude-runtime.provider.js';
-import { handleShellConnection } from '@/modules/websocket/services/shell-websocket.service.js';
+import { mapCliOptionsToSDK } from '@/modules/providers/index.js';
+import { handleShellConnection } from '@/modules/websocket/index.js';
 
 type Env = Record<string, string | undefined>;
 

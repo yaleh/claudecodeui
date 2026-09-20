@@ -12,3 +12,6 @@ export { sessionsService } from './services/sessions.service.js';
 
 export { initializeSessionsWatcher } from './services/sessions-watcher.service.js';
 export { closeSessionsWatcher } from './services/sessions-watcher.service.js';
+// mapCliOptionsToSDK: driven by the launch-profiles tests to prove the SDK env
+// stays byte-identical when no profile is configured.
+export { mapCliOptionsToSDK } from './list/claude/claude-runtime.provider.js';
