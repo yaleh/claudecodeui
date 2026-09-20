@@ -6,6 +6,7 @@ import pty, { type IPty } from 'node-pty';
 import { WebSocket, type RawData } from 'ws';
 
 import { resolveLaunchSpec } from '@/modules/launch-profiles/index.js';
+import type { ResolvedLaunchSpec } from '@/shared/types.js';
 import { parseIncomingJsonObject, stripAnsiSequences } from '@/shared/utils.js';
 
 type ShellIncomingMessage = {
@@ -103,6 +104,8 @@ type ShellWebSocketDependencies = {
     provider: string,
   ) => string | null | undefined;
   spawnPty?: typeof pty.spawn;
+  /** Test seam: overrides the launch-spec compiler (defaults to the launch-profiles module). */
+  resolveLaunchSpec?: typeof resolveLaunchSpec;
 };
 
 /**
@@ -170,11 +173,20 @@ function resolveResumeSessionId(
 }
 
 /**
+ * Single-quotes one argv element for bash or PowerShell so profile-supplied
+ * values cannot be re-interpreted by the shell.
+ */
+function quoteShellArg(arg: string): string {
+  return `'${arg.replace(/'/g, os.platform() === 'win32' ? "''" : `'\\''`)}'`;
+}
+
+/**
  * Resolves provider command line for plain shell and agent-backed shell modes.
  */
 function buildShellCommand(
   message: ShellIncomingMessage,
-  dependencies: ShellWebSocketDependencies
+  dependencies: ShellWebSocketDependencies,
+  launchSpec: ResolvedLaunchSpec
 ): string {
   const hasSession = readBoolean(message.hasSession);
   const initialCommand = readString(message.initialCommand);
@@ -219,12 +231,18 @@ function buildShellCommand(
   const bypassFlag = readBoolean(message.bypassPermissions)
     ? ' --dangerously-skip-permissions'
     : '';
-  const command = initialCommand || `claude${bypassFlag}`;
+  // The same compiled profile argv rides on the first launch, the --resume
+  // attempt and the fallback launch so a resumed terminal matches the original.
+  const argvSuffix = launchSpec.argv
+    .map((arg) => ` ${quoteShellArg(arg)}`)
+    .join('');
+  const claudeFlags = `${bypassFlag}${argvSuffix}`;
+  const command = initialCommand || `claude${claudeFlags}`;
   if (resumeSessionId) {
     if (os.platform() === 'win32') {
-      return `claude --resume "${resumeSessionId}"${bypassFlag}; if ($LASTEXITCODE -ne 0) { claude${bypassFlag} }`;
+      return `claude --resume "${resumeSessionId}"${claudeFlags}; if ($LASTEXITCODE -ne 0) { claude${claudeFlags} }`;
     }
-    return `claude --resume "${resumeSessionId}"${bypassFlag} || claude${bypassFlag}`;
+    return `claude --resume "${resumeSessionId}"${claudeFlags} || claude${claudeFlags}`;
   }
   return command;
 }
@@ -393,7 +411,9 @@ export function handleShellConnection(
           return;
         }
 
-        const shellCommand = buildShellCommand(data, dependencies);
+        // One spec per launch: command argv and pty env must come from the same compilation.
+        const launchSpec = (dependencies.resolveLaunchSpec ?? resolveLaunchSpec)(null, 'claude');
+        const shellCommand = buildShellCommand(data, dependencies, launchSpec);
         const resumeSessionId = resolveResumeSessionId(data, dependencies);
         const shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
         const shellArgs =
@@ -401,7 +421,6 @@ export function handleShellConnection(
         const termCols = readNumber(data.cols, 80);
         const termRows = readNumber(data.rows, 24);
         const prioritizedPath = prioritizeUserNpmGlobalBin(process.env);
-        const launchSpec = resolveLaunchSpec(null, 'claude');
 
         shellProcess = (dependencies.spawnPty ?? pty.spawn)(shell, shellArgs, {
           name: 'xterm-256color',
