@@ -41,9 +41,10 @@ GOAL-001 的 AC-028 要求：模型条目（Model library 自定义模型）env 
 
 - server/modules/launch-profiles/index.ts
 - server/modules/launch-profiles/model-launch-spec.service.ts
+- server/modules/launch-profiles/tests/model-context-window.test.ts (new)
+- server/modules/providers/index.ts
 - server/modules/providers/list/claude/claude-runtime.provider.js
 - server/modules/providers/services/provider-token-usage.service.ts
-- server/modules/launch-profiles/tests/model-context-window.test.ts (new)
 - tasks/gap-model-env-row-single-source-context-window.md
 
 ## Needs-Human
@@ -75,3 +76,12 @@ GOAL-001 的 AC-028 要求：模型条目（Model library 自定义模型）env 
 - session_id：916dfebb-9bf5-4034-9181-5c23342b2030
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-model-env-row-single-source-context-window~wk-prod-anchor~1789898719986-2acd7b.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-model-env-row-single-source-context-window-wk-prod-anchor.log
+
+**裁定 2026-09-20（二）— 第二次 park：suite 的 lint 卡点，非基建；撤回上一条的「移除 providers/index.ts」**
+
+- 本次判词 `step=suite: __PERFILE__ ... lint passed=false`，driver 归因「suite 红但归因不出任何失败测试文件（基建/契约疑似）」。**该归因错误**：suite 日志明确指名
+  `not ok - lint: server/modules/launch-profiles/tests/model-context-window.test.ts:10:49: error boundaries(dependencies): Cross-module imports must go through that module's barrel file`。
+  该启发式只扫 `__PERFILE__` 行，故把 lint 类失败读成「无可归因」。
+- 真实缺陷（可实现）：测试深导入 `@/modules/providers/services/provider-token-usage.service.js`。providers barrel 已从**同一文件**再导出 `summarizeClaudeTokenUsage`，但未导出 `createProviderTokenUsageService`，故当时不存在合规导入路径。
+- 处置：`server/modules/providers/index.ts` 补出 `createProviderTokenUsageService`；测试改为从 `@/modules/providers/index.js` 导入。**故 `server/modules/providers/index.ts` 归回 Touches** —— 撤回上一条裁定中「移除」的判断：该文件确实必须改动，原始 Touches 在这一点上是对的。
+- 实测：`bash scripts/test.sh`（`.quay/config.yml` 的 `loop.test_command`，即 fan-in 真正跑的那条）**170/170 通过、退出码 0**（修复前 169 pass / 1 fail）；AC-028 判据 3/3；`npm run typecheck` 退出码 0。修复提交 `59832bf1`。
