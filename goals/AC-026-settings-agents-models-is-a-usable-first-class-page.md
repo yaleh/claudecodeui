@@ -1,7 +1,7 @@
 ---
 id: AC-026
 title: Settings > Agents > Models is a usable first-class page
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-001
 criterion: npx vitest run
@@ -17,6 +17,12 @@ expect: Agents 页各 provider 下出现第五个分类 models：内置模型（
 origin: ADR-002（配置挂在 Model library 上，取代独立 launch profile
   实体）；docs/proposals/launch-profiles.md 待随之修订
 activatedAt: 2026-09-20T09:16:11.912Z
+statusLog:
+  - at: 2026-09-20T09:47:01.968Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 supersedes:
   - AC-021
 ---

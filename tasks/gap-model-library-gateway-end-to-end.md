@@ -27,9 +27,11 @@ GOAL-001 的 AC-025：服务端级端到端。编译单测证明 env 对，但�
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/model-gateway-end-to-end.test.ts` 退出码 0（AC-025 的判据命令）。
-- [ ] 四个用例全过，其中 (b) 明确证明宿主 Anthropic key 不外泄到网关。
-- [ ] 取假变体使 (b) 判红，红灯输出记录在任务证据中；`npm run typecheck` 通过。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/model-gateway-end-to-end.test.ts` 退出码 0（AC-025 的判据命令）。
+- [x] 四个用例全过，其中 (b) 明确证明宿主 Anthropic key 不外泄到网关。
+- [x] 取假变体使 (b) 判红，红灯输出记录在任务证据中；`npm run typecheck` 通过。
+
+证据：5 个测试全过（a/b/b-fake/c/d）；(b-fake) 去掉 unset 行后宿主哨兵 key 出现在 mock 收到的头里，防泄漏断言 `assert.throws` 判红（即 (b) 的断言在无 unset 时为红）；`npm run typecheck` 通过。
 
 ## DoD
 
