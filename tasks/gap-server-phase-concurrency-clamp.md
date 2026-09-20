@@ -78,8 +78,10 @@ not ok - server/modules/launch-profiles/tests/gateway-end-to-end.test.ts: Error 
 - `gap-model-env-kind-explanations` 若能在本任务落地后成功 land（其 AC 已全勾、只卡在 suite 步），把该次 `completed` 的 `worker-outcome.jsonl` 行记入本任务 —— 这是端到端的因果闭合。
 - ⛔ 仅改 `CONCURRENCY` 默认值而无坡度表，或未经复现越界就宣称修好，不算完成。
 
+- 该轴仍暗，理由：本任务的判据是服务端阶段的**并发上限与墙钟坡度**（并发值 × 墙钟 × 失败文件集合），产出的是并发/时间读数，不产生 L_D（描述长度）或 L_G（生成对齐）读数；本仓从未跑过 archguard 暗轴探针。ADR-007 per-milestone 谓词在本仓尚未生效（全部任务均 MISSING），此处按 ADR 原文认可的显式声明形式登记该轴仍暗。
+
 ## Touches
 
-- `scripts/test.sh`（`CONCURRENCY` 取值段与夹取）
-- `scripts/server-phase-concurrency-check.sh`（新增：本任务的确定性判据）
-- `tasks/gap-server-phase-concurrency-clamp.md`（本任务自身）
+- scripts/test.sh
+- scripts/server-phase-concurrency-check.sh
+- tasks/gap-server-phase-concurrency-clamp.md
