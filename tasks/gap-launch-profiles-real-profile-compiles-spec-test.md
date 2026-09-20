@@ -26,11 +26,11 @@ GOAL-001 的 AC-009 要求：由一条真实落库（launchProfilesDb / launchPr
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/launch-spec-real-profile.test.ts` 退出码 0（AC-009 的判据命令）。
-- [ ] 测试经真实落库 profile 调用真实 `resolveLaunchSpec`（grep 该测试文件不含 `dependencies.resolveLaunchSpec` 或任何对 resolveLaunchSpec 的替身/注入），断言 `spec.argv.length > 0` 且包含 `--model` 及其 defaultModel 值。
-- [ ] 测试断言 profile.config.contextWindow=917000 且 `process.env.CONTEXT_WINDOW` 设为不同值时 `spec.contextWindow === 917000`；profile 未设 contextWindow 时回退 CONTEXT_WINDOW，再回退 160000。
-- [ ] 取假用例通过：实现改回恒 `argv: []` 或只读 env 的 contextWindow 时，对应断言判红（在任务证据中给出改回后红的输出）。
-- [ ] `npm run typecheck` 与 `npm test` 退出码 0（passthrough-parity、shell-resume-launch-spec、context-window-per-profile 不回归）。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/launch-spec-real-profile.test.ts` 退出码 0（AC-009 的判据命令）。
+- [x] 测试经真实落库 profile 调用真实 `resolveLaunchSpec`（grep 该测试文件不含 `dependencies.resolveLaunchSpec` 或任何对 resolveLaunchSpec 的替身/注入），断言 `spec.argv.length > 0` 且包含 `--model` 及其 defaultModel 值。
+- [x] 测试断言 profile.config.contextWindow=917000 且 `process.env.CONTEXT_WINDOW` 设为不同值时 `spec.contextWindow === 917000`；profile 未设 contextWindow 时回退 CONTEXT_WINDOW，再回退 160000。
+- [x] 取假用例通过：实现改回恒 `argv: []` 或只读 env 的 contextWindow 时，对应断言判红（在任务证据中给出改回后红的输出）。
+- [x] `npm run typecheck` 与 `npm test` 退出码 0（passthrough-parity、shell-resume-launch-spec、context-window-per-profile 不回归）。
 
 ## DoD
 
