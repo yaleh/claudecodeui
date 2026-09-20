@@ -1,7 +1,7 @@
 ---
 id: gap-launch-profiles-permission-mode-and-suggestions
 title: launch-profiles：permissionMode 与 promptSuggestions 由 profile 驱动（AC-016）
-status: todo
+status: superseded
 labels:
   - gap
 parent: null
@@ -44,3 +44,6 @@ GOAL-001 的 AC-016 要求：config.permissionMode 与 config.promptSuggestions 
 - server/modules/websocket/services/shell-websocket.service.ts
 - server/modules/launch-profiles/tests/profile-session-flags.test.ts (new)
 - tasks/gap-launch-profiles-permission-mode-and-suggestions.md
+
+
+2026-09-20 撤回：对应 AC-016 已置 superseded（ADR-002 第一版不做类型化 permissionMode/promptSuggestions；permission mode 仍由 composer 权限菜单承担）。

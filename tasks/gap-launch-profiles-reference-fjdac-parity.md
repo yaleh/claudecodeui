@@ -1,7 +1,7 @@
 ---
 id: gap-launch-profiles-reference-fjdac-parity
 title: launch-profiles：参照 fjdac profile 与历史启动命令逐键等价（AC-017）
-status: todo
+status: superseded
 labels:
   - gap
 parent: null
@@ -46,3 +46,6 @@ GOAL-001 的 AC-017 是对 AC-013/014/015/016 的合取验收：以用户历史�
 - server/modules/launch-profiles/tests/reference-fjdac-profile.test.ts (new)
 - docs/proposals/launch-profiles.md
 - tasks/gap-launch-profiles-reference-fjdac-parity.md
+
+
+2026-09-20 撤回：对应 AC-017 已被 AC-024 取代（参照 fjdac fixture 改为按模型条目编译）。

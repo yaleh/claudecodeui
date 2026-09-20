@@ -2,7 +2,7 @@
 id: gap-model-secrets-write-only-and-db-file-0600-test
 title: model-library：secret 行值只写（列表/单个/错误响应只回 isSet）、PATCH 缺省保留/空串清除、auth.db
   打开时收紧 0600（AC-022）
-status: ready
+status: superseded
 labels:
   - gap
 parent: null
@@ -46,3 +46,6 @@ GOAL-001 的 AC-022（取代 AC-003）依据 ADR-002 决策 2：secret 行的值
 - server/modules/providers/tests/model-secret-write-only.test.ts
 - server/modules/database/tests/db-file-permissions.test.ts
 - tasks/gap-model-secrets-write-only-and-db-file-0600-test.md
+
+
+2026-09-20 撤回：与 gap-model-library-secret-write-only 重复（同绑 AC-022）。driver 的 outer 循环在已有任务存在时仍补建，去重未生效。保留后者，因其额外处理了旧的 secret-never-persisted 测试（与 ADR-002 冲突的判据）。本任务 worktree 与分支保留未删，其实现（含 connection.ts 的 0600 收紧）可供后者对照。
