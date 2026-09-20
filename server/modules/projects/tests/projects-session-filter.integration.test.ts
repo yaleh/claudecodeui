@@ -8,11 +8,8 @@ import test from 'node:test';
 
 import express from 'express';
 
-import { closeConnection } from '@/modules/database/connection.js';
-import { initializeDatabase } from '@/modules/database/init-db.js';
-import { projectsDb, sessionsDb } from '@/modules/database/index.js';
-import { sessionsService } from '@/modules/providers/index.js';
-import { searchConversations } from '@/modules/providers/services/session-conversations-search.service.js';
+import { closeConnection, initializeDatabase, projectsDb, sessionsDb } from '@/modules/database/index.js';
+import { searchConversations, sessionsService } from '@/modules/providers/index.js';
 import projectsRoutes from '@/modules/projects/projects.routes.js';
 
 const PROJECT_PATH = '/workspace/filter-project';
