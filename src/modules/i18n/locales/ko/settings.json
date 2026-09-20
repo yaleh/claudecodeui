@@ -609,7 +609,9 @@
       "envrefSet": "Set on server",
       "envrefUnset": "Not set on server",
       "envrefHelp": "Reads this variable from the CloudCLI server process environment; restart the server after changing it.",
-      "warningEnvrefUnset": "Environment variable {{name}} is not set on the server; this row will send nothing."
+      "warningEnvrefUnset": "Environment variable {{name}} is not set on the server; this row will send nothing.",
+      "unsavedRow": "저장되지 않습니다 — 값이 비어 있습니다.",
+      "unsavedSummary": "값이 비어 있어 다음 행은 저장되지 않습니다:"
     }
   }
 }
