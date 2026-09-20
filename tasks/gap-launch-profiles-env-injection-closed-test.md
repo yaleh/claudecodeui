@@ -25,11 +25,11 @@ GOAL-001 的 AC-004 要求：env 键名白名单在写入路径与编译路径�
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/env-injection-closed.test.ts` 退出码 0（AC-004 的判据命令）。
-- [ ] 测试对 PATH、NODE_OPTIONS、NODE_PATH、LD_PRELOAD、LD_LIBRARY_PATH、DYLD_*、BASH_ENV、ENV、SHELL、IFS、PYTHONPATH、CLAUDE_CLI_PATH、CLAUDE_CONFIG_DIR 逐键断言：写入路径抛出校验错误，且直接落库后 `resolveLaunchSpec` 产出的 env 不含该键。
-- [ ] 测试经 `dispatchRun` 传入伪造的 `options.env`（含 `NODE_OPTIONS`、`LD_PRELOAD`），断言后端最终 `runtimeOptions`/spawn env 中不含这些值（`assert.ok(!('NODE_OPTIONS' in env))` 一类）。
-- [ ] 取假用例通过：分别仅放宽写入路径校验、仅放宽编译路径校验、让客户端 env 被采纳三种变体，同一断言函数均判红，证明任一路径漏判都会被捕获。
-- [ ] `npm run typecheck` 与 `npm test` 退出码 0（既有 server 测试不回归）。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/env-injection-closed.test.ts` 退出码 0（AC-004 的判据命令）。
+- [x] 测试对 PATH、NODE_OPTIONS、NODE_PATH、LD_PRELOAD、LD_LIBRARY_PATH、DYLD_*、BASH_ENV、ENV、SHELL、IFS、PYTHONPATH、CLAUDE_CLI_PATH、CLAUDE_CONFIG_DIR 逐键断言：写入路径抛出校验错误，且直接落库后 `resolveLaunchSpec` 产出的 env 不含该键。
+- [x] 测试经 `dispatchRun` 传入伪造的 `options.env`（含 `NODE_OPTIONS`、`LD_PRELOAD`），断言后端最终 `runtimeOptions`/spawn env 中不含这些值（`assert.ok(!('NODE_OPTIONS' in env))` 一类）。
+- [x] 取假用例通过：分别仅放宽写入路径校验、仅放宽编译路径校验、让客户端 env 被采纳三种变体，同一断言函数均判红，证明任一路径漏判都会被捕获。
+- [x] `npm run typecheck` 与 `npm test` 退出码 0（既有 server 测试不回归）。
 
 ## DoD
 
