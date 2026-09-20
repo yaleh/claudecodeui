@@ -26,10 +26,10 @@ GOAL-001 的 AC-022（取代 AC-003）依据 ADR-002 决策 2：secret 行的值
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/model-secret-write-only.test.ts server/modules/database/tests/db-file-permissions.test.ts` 退出码 0（AC-022 的判据命令）。
-- [ ] 测试对模型列表、单个模型、校验失败与 404 响应的序列化文本用 `assert.strictEqual(hits, 0)` 断言检索不到哨兵 secret 值，且 secret 行返回 `isSet: true`。
-- [ ] PATCH 语义测试：secret 行不带 value 后再读库内值不变；带空串后 `isSet` 为 false；取假用例（哨兵被塞入响应）命中数大于 0 证明检索会变红。
-- [ ] 权限测试：预建 0644 的 auth.db 经真实打开路径后 `mode & 0o777` 等于 `0o600`；`grep -n "config_json" server/modules/database/schema.ts` 有命中；`npm run typecheck` 与 `npm test` 退出码 0。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/model-secret-write-only.test.ts server/modules/database/tests/db-file-permissions.test.ts` 退出码 0（AC-022 的判据命令）。
+- [x] 测试对模型列表、单个模型、校验失败与 404 响应的序列化文本用 `assert.strictEqual(hits, 0)` 断言检索不到哨兵 secret 值，且 secret 行返回 `isSet: true`。
+- [x] PATCH 语义测试：secret 行不带 value 后再读库内值不变；带空串后 `isSet` 为 false；取假用例（哨兵被塞入响应）命中数大于 0 证明检索会变红。
+- [x] 权限测试：预建 0644 的 auth.db 经真实打开路径后 `mode & 0o777` 等于 `0o600`；`grep -n "config_json" server/modules/database/schema.ts` 有命中；`npm run typecheck` 与 `npm test` 退出码 0。
 
 ## DoD
 
