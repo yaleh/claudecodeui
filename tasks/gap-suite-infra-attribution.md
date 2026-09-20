@@ -33,10 +33,10 @@ AC-104 现在是一条**纯红**判据：`criterion: bash scripts/suite-infra-at
 
 ## AC
 
-- [ ] `bash scripts/suite-infra-attribution-check.sh` 退出码 0：基建形状失败被标 `kind=infra`，且仅断言失败的场景被标 `kind=assert`。
-- [ ] 取假（确定性）：把分类逻辑退化为「一律 `kind=assert`」（即当前行为）时，同一检查器必须以非零退出并打印出它实际观察到的分类值。
-- [ ] `bash scripts/test.sh` 退出码 0；且既有 `__PERFILE__` / `not ok - <file>` 行格式未变（下游解析器不回归）。
-- [ ] `bash scripts/test.sh` 的失败行在**分类字段缺失时**不得静默通过——即该字段是显式存在的，不是可选装饰。
+- [x] `bash scripts/suite-infra-attribution-check.sh` 退出码 0：基建形状失败被标 `kind=infra`，且仅断言失败的场景被标 `kind=assert`。
+- [x] 取假（确定性）：把分类逻辑退化为「一律 `kind=assert`」（即当前行为）时，同一检查器必须以非零退出并打印出它实际观察到的分类值。
+- [x] `bash scripts/test.sh` 退出码 0；且既有 `__PERFILE__` / `not ok - <file>` 行格式未变（下游解析器不回归）。
+- [x] `bash scripts/test.sh` 的失败行在**分类字段缺失时**不得静默通过——即该字段是显式存在的，不是可选装饰。
 
 ## DoD
 
@@ -47,3 +47,32 @@ AC-104 现在是一条**纯红**判据：`criterion: bash scripts/suite-infra-at
 - scripts/test.sh
 - scripts/suite-infra-attribution-check.sh
 - tasks/gap-suite-infra-attribution.md
+
+## 完成记录（2026-09-20，worker，分支 task/gap-suite-infra-attribution）
+
+真实落地：同一台机器实跑，非合成字符串；fixture 为测试期临时文件，用完即删，工作树保持干净（`git status --porcelain` 空）。
+
+1) 基建形状失败——`server/.suite-check/hang-forever.fixture.ts`（永不返回）在 `QUAY_TEST_FILE_TIMEOUT=4` 下被 timeout(1) 切断（rc=124），`bash scripts/test.sh server/.suite-check/hang-forever.fixture.ts` 输出原文：
+__PERFILE__ duration_ms=4009 server/.suite-check/hang-forever.fixture.ts passed=false end_ms=1789916540486
+__PERFILE_KIND__ file=server/.suite-check/hang-forever.fixture.ts kind=infra
+not ok - server/.suite-check/hang-forever.fixture.ts: see log
+
+2) 真断言失败——`server/.suite-check/real-assertion.fixture.ts`（`assert.equal(1, 2)`），同一条命令输出原文：
+__PERFILE__ duration_ms=457 server/.suite-check/real-assertion.fixture.ts passed=false end_ms=1789916540959
+__PERFILE_KIND__ file=server/.suite-check/real-assertion.fixture.ts kind=assert
+not ok - server/.suite-check/real-assertion.fixture.ts:   AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+3) vitest worker 异常死亡（fixture 里 `process.kill(process.pid,'SIGKILL')`，无任何 per-file 断言输出，报告只剩 `Error: Channel closed`）：
+__PERFILE__ duration_ms=1 client-vitest passed=false end_ms=1789916541784
+__PERFILE_KIND__ file=client-vitest kind=infra
+
+AC-104 的 gate：修前是 `criterion: bash scripts/suite-infra-attribution-check.sh` → exit 127（No such file or directory）；现在 `bash scripts/suite-infra-attribution-check.sh` 退出码 **0**，判词原文：
+CHECK PASS scripts/test.sh attributes cut-off/worker-death failures to kind=infra and genuine assertion failures to kind=assert, keeps the legacy __PERFILE__ / 'not ok -' line shapes, never reports a failure without a classification field, and keeps its own shell diagnostics out of the report.
+
+检查器 12 条断言全绿，含两条确定性取假：把分类逻辑退化为「一律 assert」→ 子检查器 exit 1，判词 `expected kind=infra but observed kind=assert`；删掉 `__PERFILE_KIND__` 发射行 → 子检查器 exit 1，判词 `was reported as failed with NO classification record … (observed kind=<absent>)`。
+
+AC3 证据：`bash scripts/test.sh`（全量 176 个文件）退出码 0，# tests 176 / # pass 176 / # fail 0；176 条 `__PERFILE__` 行**全部**仍匹配 quay full-suite-runner 的锚定正则，`not ok - <file>: <原因>` 行形状未变。分类刻意做成**额外一行** `__PERFILE_KIND__`，正因为那条正则带 `$` 锚定：在 `__PERFILE__` 上加一个 key=value 会让 /tests 的每一行被静默丢弃。
+
+判定只看结构性事实（退出码封套 129..192 / 124、node 报告器的 `fail N` 计数、vitest JSON 的 `assertionResults[].status`），不 grep 日志关键词；方向不对称——只要报告器数出了失败断言就一律 `assert`，`infra` 只在**没有任何断言可归因**时才给出（infra 会豁免一条红且不可逆）。
+
+实现期自证时发现并修掉一个自己的缺陷（commit be80f1ee）：client 泳道的数值归一化写成 `case "${failed:-0}"`，空 tally 时 case 主语是字符串 "0"，两个分支都不匹配，于是归一化没发生、`[ "" -gt 0 ]` 既往报告里写 bash 诊断、又跳过了它本该读的断言计数（worker-death 场景只是靠泳道兜底才碰巧判对）。检查器因此新增「报告里不得出现 bash 诊断」断言，重新引入该默认值即变红。
