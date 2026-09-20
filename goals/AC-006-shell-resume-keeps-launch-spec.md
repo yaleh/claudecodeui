@@ -1,0 +1,12 @@
+---
+id: AC-006
+title: shell resume keeps launch spec
+status: active
+kind: criterion
+goal: GOAL-001
+criterion: npx tsx --tsconfig server/tsconfig.json --test
+  server/modules/websocket/tests/shell-resume-launch-spec.test.ts
+expect: 内置终端的 --resume 分支与首次启动携带同一套 argv 与 env；取假形态：现状（resume 丢弃启动参数）下该测试为红，是本缺陷的回归闸。
+origin: docs/proposals/launch-profiles.md (commit 7da6f45c) + ADR-001
+activatedAt: 2026-09-20T03:23:41.312Z
+---
