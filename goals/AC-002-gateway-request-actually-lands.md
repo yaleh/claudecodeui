@@ -1,0 +1,13 @@
+---
+id: AC-002
+title: gateway request actually lands
+status: active
+kind: criterion
+goal: GOAL-001
+criterion: npx tsx --tsconfig server/tsconfig.json --test
+  server/modules/launch-profiles/tests/gateway-end-to-end.test.ts
+expect: 以 gateway profile 跑一轮真实 chat.send，测试内 mock 的 Anthropic 兼容服务器确实收到该请求，且
+  Authorization 头来自 profile 引用的环境变量；取假形态：profile 未生效时请求打到默认端点，mock 收不到即红。
+origin: docs/proposals/launch-profiles.md (commit 7da6f45c) + ADR-001
+activatedAt: 2026-09-20T03:23:41.309Z
+---
