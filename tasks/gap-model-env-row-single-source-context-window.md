@@ -26,11 +26,11 @@ GOAL-001 的 AC-028 要求：模型条目（Model library 自定义模型）env 
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/model-context-window.test.ts` 退出码 0（AC-028 判据命令）。
-- [ ] 测试断言：模型条目行 CLAUDE_CODE_MAX_CONTEXT_TOKENS=917000（宿主 CONTEXT_WINDOW 设为不同值）时，spawn 环境导出值、SDK 路径 extractTokenBudget/extractCumulativeTokenBudget 的 total、token-usage 汇总接口的 total 三者严格相等且为 917000。
-- [ ] 测试断言解析顺序：无该行时 total 等于宿主 CONTEXT_WINDOW，二者皆无时为 160000；该行为 0、负数、非数字时落到下一级；无配置模型与内置模型的 total 与改动前一致。
-- [ ] 取假用例通过：把实现换回读 `options.profile?.contextWindow` 或仅读 `process.env.CONTEXT_WINDOW` 的变体时，模型行用例判红。
-- [ ] `npm run typecheck` 与 `npm test` 退出码 0（既有 claude-token-budget、passthrough-parity 等测试不回归）。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/model-context-window.test.ts` 退出码 0（AC-028 判据命令）。
+- [x] 测试断言：模型条目行 CLAUDE_CODE_MAX_CONTEXT_TOKENS=917000（宿主 CONTEXT_WINDOW 设为不同值）时，spawn 环境导出值、SDK 路径 extractTokenBudget/extractCumulativeTokenBudget 的 total、token-usage 汇总接口的 total 三者严格相等且为 917000。
+- [x] 测试断言解析顺序：无该行时 total 等于宿主 CONTEXT_WINDOW，二者皆无时为 160000；该行为 0、负数、非数字时落到下一级；无配置模型与内置模型的 total 与改动前一致。
+- [x] 取假用例通过：把实现换回读 `options.profile?.contextWindow` 或仅读 `process.env.CONTEXT_WINDOW` 的变体时，模型行用例判红。
+- [x] `npm run typecheck` 与 `npm test` 退出码 0（既有 claude-token-budget、passthrough-parity 等测试不回归）。
 
 ## DoD
 
