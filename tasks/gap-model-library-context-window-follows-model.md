@@ -28,7 +28,7 @@ GOAL-001 的 AC-028：模型条目里的 `CLAUDE_CODE_MAX_CONTEXT_TOKENS` 行是
 
 依据：ADR-002 决策 6（上下文窗口由模型条目解析并取代全局配置）。
 
-实现记录：编译入口 `resolveModelLaunchSpec` 已产出 `spec.contextWindow`；新增 `resolveSendContextWindow`（模型行 → launch profile → CONTEXT_WINDOW → 160000）供 SDK 调用点使用；token-usage 服务用 `sessions.model`（不读 JSONL）取模型行，session 无 model 或无该行时降级到 CONTEXT_WINDOW → 160000（测试已登记）。取假红灯：token-usage 忽略模型行、SDK total 忽略模型行，两种变体同一测试均 fail 1。
+实现记录：编译入口 `resolveModelLaunchSpec` 已产出 `spec.contextWindow`；新增 `resolveSendContextWindow`（模型行 → launch profile → CONTEXT_WINDOW → 160000）供 SDK 调用点使用，并经 `server/modules/providers/index.ts` 桶文件导出给测试；token-usage 服务用 `sessions.model`（不读 JSONL）取模型行，session 无 model 或无该行时降级到 CONTEXT_WINDOW → 160000（测试已登记）。取假红灯：token-usage 忽略模型行、SDK total 忽略模型行，两种变体同一测试均 fail 1。
 
 ## AC
 
@@ -44,6 +44,7 @@ GOAL-001 的 AC-028：模型条目里的 `CLAUDE_CODE_MAX_CONTEXT_TOKENS` 行是
 
 - server/modules/launch-profiles/launch-profiles.service.ts
 - server/modules/launch-profiles/launch-spec.service.ts
+- server/modules/providers/index.ts
 - server/modules/providers/list/claude/claude-runtime.provider.js
 - server/modules/providers/services/provider-token-usage.service.ts
 - server/modules/launch-profiles/tests/model-context-window.test.ts (new)
