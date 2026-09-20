@@ -1,7 +1,7 @@
 ---
 id: gap-launch-profiles-secret-never-persisted-test
 title: launch-profiles：带凭据的 profile payload 写入后 sqlite 全库检索不到凭据值，且写进任一列会变红（AC-003）
-status: needs-human
+status: todo
 needs_human_cause: blocked-outside-task
 labels:
   - gap
