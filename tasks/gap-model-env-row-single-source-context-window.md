@@ -1,7 +1,8 @@
 ---
 id: gap-model-env-row-single-source-context-window
 title: 模型条目的 CLAUDE_CODE_MAX_CONTEXT_TOKENS 行是上下文窗口唯一来源：spawn 导出与用量 total 同值（AC-028）
-status: ready
+status: needs-human
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -45,3 +46,14 @@ GOAL-001 的 AC-028 要求：模型条目（Model library 自定义模型）env 
 - server/modules/providers/index.ts
 - server/modules/launch-profiles/tests/model-context-window.test.ts (new)
 - tasks/gap-model-env-row-single-source-context-window.md
+
+## Needs-Human
+
+**执行 2026-09-20T09:51:53.857Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：worker-driver 连续 3 次 exited-not-landed 未落地（重试上限）
+- 成因类：human-adjudication
+- 失败步/判词：step=anti-drift: ANTI-DRIFT HARD FAIL: task gap-model-env-row-single-source-context-window — 1 violation(s)
+- run_id：wk-prod-anchor
+- session_id：ddf343a0-f4dc-44e4-8a37-2054f1d91f65
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-model-env-row-single-source-context-window-wk-prod-anchor.log
