@@ -41,4 +41,5 @@ GOAL-001 的 AC-019 要求：保存 profile 绝不丢弃请求未提交的字段
 - server/modules/launch-profiles/tests/profile-partial-update.test.ts (new)
 - src/modules/settings/tabs/launch-profiles-settings/useLaunchProfiles.ts
 - src/modules/settings/tests/launchProfileSavePreserves.test.tsx (new)
+- src/modules/settings/tests/launchProfileSettings.test.tsx
 - tasks/gap-launch-profiles-partial-update-preserves-fields.md
