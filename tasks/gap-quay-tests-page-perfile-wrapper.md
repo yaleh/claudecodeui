@@ -2,7 +2,7 @@
 id: gap-quay-tests-page-perfile-wrapper
 title: scripts/test.sh：把 server node:test + client vitest + typecheck + lint 接入
   quay tests 页（文件粒度）
-status: ready
+status: done
 needs_human_cause: human-adjudication
 labels:
   - gap
