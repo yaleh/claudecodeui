@@ -18,7 +18,7 @@ GOAL-001 的 AC-003 要求：写入带凭据的 profile payload 后，在 sqlite
 
 方案（最小切片）：
 1. 在 `server/modules/database/schema.ts` 新增 `launch_profiles` 建表 SQL（id/provider/name/description/deployment/is_default/config_json/sort_order/时间戳，UNIQUE(provider,name)）及 `sessions.launch_profile_id` 列迁移（`migrations.ts`）；不建任何 secrets 表。
-2. 新增 `server/modules/database/repositories/launch-profiles.db.ts`（create/get/list/update/delete），并在 `server/modules/launch-profiles/` 的 service 写入路径上对 payload 做密钥防护：payload 中只允许凭据的环境变量名引用（`authEnvVarName`），拒绝或剥离内联凭据值字段（如 `apiKey`/`authToken`/`token`），使值无法进入 `config_json`。
+2. 新增 `server/modules/database/repositories/launch-profiles.db.ts`（create/get/list/update/delete），经 `server/modules/database/index.ts` 桶文件导出（模块边界规范要求跨模块只走 index），并在 `server/modules/launch-profiles/` 的 service 写入路径上对 payload 做密钥防护：payload 中只允许凭据的环境变量名引用（`authEnvVarName`），拒绝或剥离内联凭据值字段（如 `apiKey`/`authToken`/`token`），使值无法进入 `config_json`。
 3. 新增 `server/modules/launch-profiles/tests/secret-never-persisted.test.ts`：使用隔离的临时 sqlite 库，写入携带独特哨兵凭据（如 `sk-test-SENTINEL-<random>`）的 gateway profile payload；随后对全库做检索——遍历 `sqlite_master` 中每张表的每一列，`SELECT ... WHERE CAST(col AS TEXT) LIKE '%SENTINEL%'`，并对数据库文件原始字节做子串检索（含 WAL 文件），断言命中数为 0。
 4. 取假用例：同一测试内直接用原始 SQL 把哨兵值写进 `launch_profiles` 的任一列（`name`、`description`、`config_json` 各一次），断言同一检索函数命中数大于 0，证明该检索在值被写入任一列时会变红（而非恒绿）。
 
@@ -37,6 +37,7 @@ GOAL-001 的 AC-003 要求：写入带凭据的 profile payload 后，在 sqlite
 
 - server/modules/database/schema.ts
 - server/modules/database/migrations.ts
+- server/modules/database/index.ts
 - server/modules/database/repositories/launch-profiles.db.ts (new)
 - server/modules/launch-profiles/index.ts (new)
 - server/modules/launch-profiles/launch-profiles.service.ts (new)
