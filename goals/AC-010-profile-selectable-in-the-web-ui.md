@@ -1,7 +1,7 @@
 ---
 id: AC-010
 title: profile selectable in the web UI
-status: achieved
+status: superseded
 kind: criterion
 goal: GOAL-001
 criterion: npx vitest run
@@ -19,4 +19,11 @@ statusLog:
     to: achieved
     actor: goal-driver
     reason: "I2: criterion pass"
+  - at: 2026-09-20T09:17:06.941Z
+    from: achieved
+    to: superseded
+    actor: yale
+    reason: ADR-002 重排：由 AC-026 取代
+superseded-by:
+  - AC-026
 ---
