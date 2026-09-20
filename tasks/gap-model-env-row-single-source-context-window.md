@@ -1,7 +1,7 @@
 ---
 id: gap-model-env-row-single-source-context-window
 title: 模型条目的 CLAUDE_CODE_MAX_CONTEXT_TOKENS 行是上下文窗口唯一来源：spawn 导出与用量 total 同值（AC-028）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
