@@ -2,7 +2,7 @@
 id: gap-project-session-name-filter-backend
 title: 项目级会话名过滤（后端）：projects.session_filter 存一组隐藏正则，会话分页在 SQL 层过滤并返回
   hiddenCount，includeHidden 可绕过
-status: needs-human
+status: ready
 needs_human_cause: human-adjudication
 labels:
   - gap
@@ -48,6 +48,7 @@ extra:
 - server/modules/projects/services/session-name-filter.service.ts (new)
 - server/modules/projects/services/projects-with-sessions-fetch.service.ts
 - server/modules/projects/projects.routes.ts
+- server/modules/providers/index.ts
 - server/modules/providers/services/session-conversations-search.service.ts
 - server/modules/providers/services/sessions.service.ts
 - server/shared/types.ts
