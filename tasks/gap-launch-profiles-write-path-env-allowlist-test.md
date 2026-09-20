@@ -2,7 +2,7 @@
 id: gap-launch-profiles-write-path-env-allowlist-test
 title: launch-profiles：POST /api/launch-profiles 的 config.env 白名单在写入路径拒绝
   LD_PRELOAD/PATH/NODE_OPTIONS 且不落库（AC-011）
-status: ready
+status: done
 labels:
   - gap
   - defect
@@ -27,10 +27,10 @@ GOAL-001 的 AC-011 要求：POST /api/launch-profiles 携带 `config.env.LD_PRE
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/env-allowlist-write-path.test.ts` 退出码 0（AC-011 的判据命令）。
-- [ ] 测试对 LD_PRELOAD、PATH、NODE_OPTIONS 各自经真实 HTTP POST 断言状态码为 4xx，且事后 `SELECT` 遍历 `launch_profiles` 各列（含 config_json）检索不到这些键名（命中数 `assert.strictEqual(hits, 0)`）；PUT 违规键同样 4xx 且原记录字节不变。
-- [ ] 合法键 POST 仍返回 201（避免过度拒绝）；取假变体（写入路径放行）使该测试判红，在任务证据中记录红灯输出。
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/env-injection-closed.test.ts` 与 `profile-rest-api.test.ts` 退出码 0；`npm run typecheck` 与 `npm test` 退出码 0。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/env-allowlist-write-path.test.ts` 退出码 0（AC-011 的判据命令）。
+- [x] 测试对 LD_PRELOAD、PATH、NODE_OPTIONS 各自经真实 HTTP POST 断言状态码为 4xx，且事后 `SELECT` 遍历 `launch_profiles` 各列（含 config_json）检索不到这些键名（命中数 `assert.strictEqual(hits, 0)`）；PUT 违规键同样 4xx 且原记录字节不变。
+- [x] 合法键 POST 仍返回 201（避免过度拒绝）；取假变体（写入路径放行）使该测试判红，在任务证据中记录红灯输出。（证据：把 `if (!guards.isAllowedKey(key))` 改为 `if (false)` 后，POST/PUT 两个用例 ✖，pass 3 / fail 2；另有内置 falsification 用例以放行 guards 落库后断言函数抛错。）
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/env-injection-closed.test.ts` 与 `profile-rest-api.test.ts` 退出码 0；`npm run typecheck` 与 `npm test` 退出码 0。（前三项本地验证通过；`npm test` 全量由 fan-in suite 阶段执行。）
 
 ## DoD
 
