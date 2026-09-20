@@ -1,7 +1,7 @@
 ---
 id: AC-014
 title: typed context fields export the real CLI env
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-001
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -15,4 +15,10 @@ origin: docs/proposals/launch-profiles.md + ADR-001；补立于
   2026-09-20：对照用户历史启动命令（claude-fjdac + 917k 上下文三件套 + --permission-mode
   bypassPermissions + --prompt-suggestions false）复核 profile 机制所得缺口
 activatedAt: 2026-09-20T08:17:01.357Z
+statusLog:
+  - at: 2026-09-20T08:29:42.059Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 ---
