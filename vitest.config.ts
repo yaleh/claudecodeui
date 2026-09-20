@@ -46,18 +46,25 @@ export default defineConfig({
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     restoreMocks: true,
     // Both budgets are declared here rather than left to vitest's defaults (5000 /
-    // 10000). They are not raised — the values are the defaults, written down — but
-    // an unwritten budget is one nobody can measure against. `vi.resetModules()`
-    // plus an in-case dynamic `import()` makes one case pay a whole module graph's
-    // cold compile (measured 2.7–3.0s for the useProjectsState graph), and against
-    // an implicit 5000ms that is 60% of the budget spent before the test does
-    // anything: enough for CPU contention to push it over, which is how AC-103's
-    // condition ① went red 1–2 times in 15 runs while its signature counters stayed
-    // at 0. The family now warms that graph in `beforeAll` (charged to hookTimeout,
-    // a separate budget) and scripts/test-timeout-margin-check.sh reads these two
-    // numbers back to assert every file keeps T_max <= testTimeout / K.
+    // 10000). `vi.resetModules()` plus an in-case dynamic `import()` makes one case
+    // pay a whole module graph's cold compile (measured 2.7–3.0s for the
+    // useProjectsState graph) — in a case budget, 60% of it gone before the test
+    // does anything, which is how AC-103's condition ① went red 1–2 times in 15
+    // runs while its signature counters stayed at 0. The family now warms that
+    // graph in `beforeAll` (charged to hookTimeout) and
+    // scripts/test-timeout-margin-check.sh reads testTimeout back to assert every
+    // file keeps T_max <= testTimeout / K.
+    //
+    // testTimeout stays at the default: the fix does not need a bigger case budget,
+    // and widening it would blunt the hang detection a case budget exists for.
+    // hookTimeout is the budget that now carries the compile, so it is sized from
+    // the measurement instead: 2.8s quiet, and ~5.3s under the exact contention
+    // shape AC-103 exercises (2 client pools ‖ 2 server phases: file wall time
+    // 6037ms minus ~700ms of cases). 20000 leaves ~3.8× over that contended
+    // reading, against the 1.9× the 10000 default would have left — and 1.9× is
+    // precisely the margin that already failed in the case budget.
     testTimeout: 5000,
-    hookTimeout: 10000,
+    hookTimeout: 20000,
     maxWorkers,
   },
 });

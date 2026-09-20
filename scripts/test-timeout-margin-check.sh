@@ -48,12 +48,14 @@ DEFAULT_TEST_TIMEOUT_MS=5000   # vitest 未声明 testTimeout 时的官方默认
 set -u
 
 # 上限倍数 K：要求 T_max ≤ B / K。
-# 实测分布（2026-09-20，本机，安静，逐文件单独跑，B = 5000ms，13 个族内文件）：
-#   两个互不重叠的簇 —— 付冷编译的 3 个文件 T_max = 2842 / 2823 / 2781ms（比值 0.556–0.568）；
-#   其余 10 个文件 T_max = 153 / 78 / 72 / 53 / 48 / 48 / 45 / 43 / 29 / 17ms（比值 ≤ 0.031）。
-#   修好之后 3 个重文件的 T_max 落到各自的第二慢用例量级（130–165ms，比值 ≤ 0.033）。
-# 取 K=4 ⇒ 阈值 1250ms：落在两簇之间（上簇 2781ms 的 45%、下簇 165ms 的 7.6×），
-# 对故障态仍有 2.2× 判别余量，对正常态有 7.6× 余量。与姊妹脚本
+# 实测分布（2026-09-20，本机，安静，逐文件单独跑，**改前**树，B = 5000ms，13 个族内文件）：
+# 两个互不重叠的簇 ——
+#   付冷编译的 3 个文件（projectsInitialFetch / projectsStateSelectionSync /
+#   projectsStateSessionAlias）T_max = 2717–2955ms，比值 0.543–0.603；
+#   其余 10 个文件 T_max ≤ 155ms，比值 ≤ 0.031。
+# 修好之后那 3 个文件落到与其余文件同簇（141–276ms，比值 0.028–0.055）。
+# 取 K=4 ⇒ 阈值 1250ms：落在两簇之间的空档里（上簇 2781ms 的 45%、下簇 276ms 的 4.5×），
+# 对故障态留 2.2× 判别余量，对正常态留 4.5× 余量。与姊妹脚本
 # scripts/suite-concurrency-check.sh 的 K_RATIO=4 同值（同一条纪律：分布数据出来之前不设阈值）。
 K_DEFAULT="${TFMC_K:-4}"
 
@@ -131,6 +133,19 @@ if [ "$LIST_ONLY" != "1" ] && [ -z "$BUDGET" ]; then
   exit 1
 fi
 
+# hookTimeout 只**报告**，不参与判定：它是 beforeAll 预热那笔冷编译所在的预算（见
+# vitest.config.ts 的注释）。把它打出来是为了让「预热那笔账」可见 —— 本判据量的是**用例**
+# 余量（确定性），而 file_ms 与 hookTimeout 的关系是负载敏感的，不能拿来做阈值。
+read_hook_timeout() {
+  local cfg="$ROOT_DIR/vitest.config.ts" v
+  [ -f "$cfg" ] || return 0
+  v="$(grep -E '^[[:space:]]*hookTimeout[[:space:]]*:' "$cfg" 2>/dev/null \
+    | sed -E 's/.*hookTimeout[[:space:]]*:[[:space:]]*([0-9]+).*/\1/' \
+    | grep -E '^[0-9]+$' | sort -u | head -1)"
+  printf '%s' "${v:-未声明}"
+}
+HOOK_TIMEOUT="$(read_hook_timeout)"
+
 # ── 族：resetModules 与用例内动态 import 同时出现 ────────────────────────────
 FAMILY=()
 while IFS= read -r f; do
@@ -161,6 +176,7 @@ threshold="$(awk -v k="$K_RATIO" 'BEGIN { printf "%.3f", 1 / k }')"
 
 echo "test-timeout-margin-check: root=$ROOT_DIR"
 echo "test-timeout-margin-check: family=${#FAMILY[@]} files ｜ B=${BUDGET}ms（来源：${budget_src}）｜ K=$K_RATIO ⇒ 阈值 1/K=$threshold ｜ 串行逐个跑 ｜ logs=$RUN_DIR"
+echo "test-timeout-margin-check: hookTimeout=${HOOK_TIMEOUT}ms（仅报告：预热那笔冷编译的预算，见下 file_ms；本判据只判用例余量）"
 echo "test-timeout-margin-check: host cores=$(nproc 2>/dev/null || echo '?') load=$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || echo '?')"
 
 # worst_* 记「比值最大的那个文件」——红蓝两条分支都用它出判词。
@@ -208,10 +224,8 @@ for f in "${FAMILY[@]}"; do
     n_bad=$(( n_bad + 1 ))
     bad_rows="$bad_rows
 test-timeout-margin-check: file=$f status=UNREADABLE rc=$rc T_max=n/a（JSON 报告缺失 ⇒ 无从判余量；日志 $log）"
-    # 不可读也算进 worst 的候选：用 rc 之外的无穷大比值表示，保证判词点得出问题文件。
-    if [ -z "$worst_note" ]; then
-      worst_file="$f"; worst_tmax="n/a"; worst_ratio="n/a"; worst_note="UNREADABLE(rc=$rc)"
-    fi
+    # 「量不到」比「量到超标」更坏：判词必须指向它而不是某个有数字的文件。
+    worst_file="$f"; worst_tmax="n/a"; worst_ratio="n/a"; worst_note="UNREADABLE(rc=$rc)"
     continue
   fi
 
@@ -227,9 +241,11 @@ test-timeout-margin-check: file=$f status=UNREADABLE rc=$rc T_max=n/a（JSON 报
   echo "test-timeout-margin-check: file=$f T_max=${tmax}ms(${title}) B=${BUDGET}ms 比值=$ratio 1/K=$threshold tests=$ntests file_ms=$fl_ms status=$status"
   echo "$f	$tmax	$ratio	$title	$ntests	$status" >>"$RUN_DIR/rows.tsv"
 
-  # worst 判定：先比数值比值，n/a 视为最坏。
-  if [ -z "$worst_file" ] || [ "$worst_ratio" = "n/a" ]; then
+  # worst 判定：数字大的赢，但 UNREADABLE（比值 n/a）永远不被数字覆盖。
+  if [ -z "$worst_file" ]; then
     worst_file="$f"; worst_tmax="$tmax"; worst_ratio="$ratio"; worst_note="$title"
+  elif [ "$worst_ratio" = "n/a" ]; then
+    : # 已经指向一个「量不到」的文件，不覆盖
   elif awk -v a="$ratio" -v b="$worst_ratio" 'BEGIN { exit !(a > b) }'; then
     worst_file="$f"; worst_tmax="$tmax"; worst_ratio="$ratio"; worst_note="$title"
   fi
