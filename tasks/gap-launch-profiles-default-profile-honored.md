@@ -1,7 +1,7 @@
 ---
 id: gap-launch-profiles-default-profile-honored
 title: launch-profiles：默认 profile 必须被服务端解析消费，UI 可设/取消默认，内置项标为“继承服务器环境”（AC-020）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
