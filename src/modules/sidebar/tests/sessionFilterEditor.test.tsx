@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { act, fireEvent, render, renderHook, waitFor } from '@testing-library/react';
 import i18next from 'i18next';
 import React from 'react';
-import { beforeEach, test, vi } from 'vitest';
+import { beforeAll, beforeEach, test, vi } from 'vitest';
 
 import zhSidebar from '@/modules/i18n/locales/zh-CN/sidebar.json';
 import type { ConversationSearchResults, Project } from '@/shared/types';
@@ -76,6 +76,23 @@ beforeEach(() => {
   projectsMock.mockReset();
   projectSessionsMock.mockReset();
   previewMock.mockImplementation(() => okJson({ data: { preview: PREVIEW } }));
+});
+
+// Warms the module graph that `renderProjectsState` imports below, so its cold compile is
+// charged to hookTimeout rather than to the first case that reaches it.
+//
+// The dynamic `import()` is *in the case body* (the helper runs inside the case), and Vite
+// caches the compiled output for the whole file — so whichever case imports it first pays the
+// entire `@/modules/project-workspace` graph's compile: measured 2.0s in a full-suite run
+// (2.6–2.9s run file-by-file) against a 5000ms case budget, while every other case in this
+// file runs in 10–370ms. That is the same shape as the `resetModules` files, minus one half:
+// this file never resets the registry, which only decides whether the compile is re-paid *per
+// case* — it is still the *first* case that pays it. Under CPU contention the case overshoots
+// and dies at 5003ms (`Test timed out in 5000ms`), which is how AC-103's condition ① went red.
+// Warming here moves the compile out of every case's budget without changing what any case
+// checks.
+beforeAll(async () => {
+  await import('@/modules/project-workspace');
 });
 
 const renderEditor = () => {
