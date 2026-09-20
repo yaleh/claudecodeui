@@ -1,7 +1,7 @@
 ---
 id: gap-launch-profiles-config-env-compiled
 title: launch-profiles：config.env 中通过白名单的键必须进入 spec.env（AC-013）
-status: ready
+status: done
 labels:
   - gap
 parent: null
