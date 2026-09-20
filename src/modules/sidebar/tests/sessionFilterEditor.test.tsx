@@ -166,7 +166,7 @@ const upsert = (sessionId: string, summary: string) => ({
 });
 
 const renderProjectsState = async () => {
-  const { useProjectsState } = await import('@/modules/project-workspace/hooks/useProjectsState');
+  const { useProjectsState } = await import('@/modules/project-workspace');
   return renderHook(() => useProjectsState({
     sessionId: undefined,
     navigate: vi.fn(),
