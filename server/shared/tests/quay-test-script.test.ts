@@ -34,3 +34,13 @@ test('an existing positional test file is accepted', () => {
   assert.equal(result.status, 0);
   assert.match(result.stdout, /files=1/);
 });
+
+test('quay scoped-gate flags: --for-task consumes the task id instead of treating it as a file', () => {
+  const result = runScript(['--for-task', 'gap-quay-tests-page-perfile-wrapper', '--allow-thin']);
+  assert.equal(result.status, 0);
+  assert.doesNotMatch(result.stderr, /test file not found/);
+});
+
+test('--static-checks-doc exits 0 without running tests', () => {
+  assert.equal(runScript(['--static-checks-doc']).status, 0);
+});

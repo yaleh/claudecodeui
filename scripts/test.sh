@@ -10,8 +10,12 @@ cd "$ROOT_DIR" || exit 2
 
 CONCURRENCY=4
 FILES=()
+FOR_TASK=""
 while [ $# -gt 0 ]; do
   case "$1" in
+    --for-task) FOR_TASK="${2:-}"; shift 2 ;;
+    --static-checks-doc) echo "no doc checks in this repo"; exit 0 ;;
+    --allow-thin) shift ;;
     --buckets|--root|--state-dir|--runner|--log-file|--run-id) shift 2 ;;
     --test-concurrency=*)
       CONCURRENCY="${1#*=}"
@@ -21,6 +25,18 @@ while [ $# -gt 0 ]; do
     *) FILES+=("$1"); shift ;;
   esac
 done
+
+# --for-task <id>: scoped run = the existing test files listed in tasks/<id>.md Touches (thin is allowed)
+if [ -n "$FOR_TASK" ]; then
+  TASK_FILE="tasks/$FOR_TASK.md"
+  [ -f "$TASK_FILE" ] || { echo "task file not found: $TASK_FILE" >&2; exit 2; }
+  while IFS= read -r f; do
+    [ -f "$f" ] && FILES+=("$f")
+  done < <(awk '/^## Touches/{t=1;next} /^## /{t=0} t && /^- /{sub(/^- +/,"");gsub(/`/,"");print $1}' "$TASK_FILE" | grep -E '\.test\.[jt]sx?$')
+  if [ ${#FILES[@]} -eq 0 ]; then
+    echo "no scoped test files for $FOR_TASK (thin)"; exit 0
+  fi
+fi
 
 for f in "${FILES[@]+"${FILES[@]}"}"; do
   if [ ! -f "$f" ]; then
