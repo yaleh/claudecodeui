@@ -1,5 +1,14 @@
 # Launch Profile（启动配置档）Proposal
 
+> **⚠️ 2026-09-20：本文档描述的“独立 launch profile 实体”方案已被 ADR-002 部分取代。**
+> 配置改为挂在 Model library 的模型条目上（选模型即选端点），Settings → Agents → 各 provider 下新增 Models 分类。
+> 被取代的部分：独立的 `launch_profiles` 实体与 REST、Settings 的 Profiles tab、composer 的 profile 下拉、
+> 缺省 profile、会话级 profile 锁定，以及“密钥不入库”（现允许存于 config_json，但只写、读接口不回传、auth.db 0600）。
+> 仍然有效的部分：env 键名白名单与两路校验、wire 协议只传模型不传 env、上下文窗口取代全局 CONTEXT_WINDOW、
+> toolsSettings 不纳入配置、编译层 `resolveLaunchSpec` 的设计。
+> 权威记录：`adr/ADR-002-*.md` 与 `goals/GOAL-001-*.md`；下文保留为历史设计依据，未逐段改写。
+
+
 状态：Proposal / 待评审
 
 ## 摘要
