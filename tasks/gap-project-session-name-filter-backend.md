@@ -2,7 +2,8 @@
 id: gap-project-session-name-filter-backend
 title: 项目级会话名过滤（后端）：projects.session_filter 存一组隐藏正则，会话分页在 SQL 层过滤并返回
   hiddenCount，includeHidden 可绕过
-status: ready
+status: needs-human
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -53,3 +54,14 @@ extra:
 - server/modules/projects/tests/session-name-filter.service.test.ts (new)
 - server/modules/projects/tests/projects-session-filter.integration.test.ts (new)
 - tasks/gap-project-session-name-filter-backend.md
+
+## Needs-Human
+
+**执行 2026-09-20T07:40:23.207Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：worker-driver 连续 3 次 exited-not-landed 未落地（重试上限）
+- 成因类：human-adjudication
+- 失败步/判词：step=anti-drift: ANTI-DRIFT HARD FAIL: task gap-project-session-name-filter-backend — 1 violation(s)
+- run_id：wk-prod-anchor
+- session_id：f3828eb2-fe58-4be9-ac4c-3062521c5911
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-project-session-name-filter-backend-wk-prod-anchor.log
