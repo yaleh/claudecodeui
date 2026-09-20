@@ -10,18 +10,6 @@ children: []
 extra:
   schema: execution
 ---
----
-id: gap-goal-003-exit-conditions-section
-title: GOAL-003 缺 `## 退出条件` 小节：提议把行内退出条件提升为独立小节，使充分性判定不再被机械短路（AC-103/AC-104
-  内容无缺口，缺的只是结构）
-status: needs-human
-labels:
-  - gap
-parent: null
-children: []
-extra:
-  schema: execution
----
 ## Proposal
 
 选型 (b)：修订 GOAL-003 的**退出条件文本**（不新增 AC，不改任何 GOAL/AC 状态）。
