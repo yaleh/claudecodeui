@@ -1,7 +1,7 @@
 ---
 id: gap-launch-profiles-shell-resume-launch-spec-test
 title: launch-profiles：内置终端 --resume 分支沿用首次启动的 argv 与 env，并落地回归测试（AC-006）
-status: ready
+status: done
 labels:
   - gap
   - defect
@@ -25,10 +25,10 @@ GOAL-001 的 AC-006 要求：内置终端（`server/modules/websocket/services/s
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/shell-resume-launch-spec.test.ts` 退出码 0（AC-006 判据命令）。
-- [ ] 测试断言首次启动与 resume 两次 spawn 的 profile argv 片段相同且 pty env 逐键相等（`assert.deepStrictEqual`），覆盖 claude 的 POSIX 与 win32 两种命令形态。
-- [ ] 取假验证：将 resume 分支临时改回丢弃 argv/env 的现状实现，上述测试退出码非 0（在任务证据中记录该红灯输出），恢复后为绿。
-- [ ] `grep -n "resolveLaunchSpec" server/modules/websocket/services/shell-websocket.service.ts` 有命中；`npm run typecheck` 与 `npm test` 退出码 0（既有 shell-websocket 测试不回归）。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/shell-resume-launch-spec.test.ts` 退出码 0（AC-006 判据命令）。
+- [x] 测试断言首次启动与 resume 两次 spawn 的 profile argv 片段相同且 pty env 逐键相等（`assert.deepStrictEqual`），覆盖 claude 的 POSIX 与 win32 两种命令形态。
+- [x] 取假验证：将 resume 分支临时改回丢弃 argv/env 的现状实现，上述测试退出码非 0（在任务证据中记录该红灯输出），恢复后为绿。
+- [x] `grep -n "resolveLaunchSpec" server/modules/websocket/services/shell-websocket.service.ts` 有命中；`npm run typecheck` 与 `npm test` 退出码 0（既有 shell-websocket 测试不回归）。
 
 ## DoD
 
