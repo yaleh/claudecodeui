@@ -28,14 +28,20 @@ GOAL-001 的 AC-024：发送时按 `(provider, model_id)` 查自定义模型并�
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/model-launch-spec.test.ts server/modules/launch-profiles/tests/model-spawn-env.test.ts` 退出码 0（AC-024 的判据命令）。
-- [ ] 测试以真实落库的模型记录驱动真实编译入口，在 SDK 路径 sdkOptions.env 与 pty env 两个最终对象上断言 unset 的键不存在、value/secret 行存在、envref 缺失时有 warning。
-- [ ] 内置模型与无配置自定义模型的编译结果与今日 passthrough 逐字一致；`passthrough-parity.test.ts`、`env-injection-closed.test.ts` 仍退出码 0。
-- [ ] 取假变体使该测试判红，红灯输出记录在任务证据中；`npm run typecheck` 通过。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/model-launch-spec.test.ts server/modules/launch-profiles/tests/model-spawn-env.test.ts` 退出码 0（AC-024 的判据命令）。
+- [x] 测试以真实落库的模型记录驱动真实编译入口，在 SDK 路径 sdkOptions.env 与 pty env 两个最终对象上断言 unset 的键不存在、value/secret 行存在、envref 缺失时有 warning。
+- [x] 内置模型与无配置自定义模型的编译结果与今日 passthrough 逐字一致；`passthrough-parity.test.ts`、`env-injection-closed.test.ts` 仍退出码 0。
+- [x] 取假变体使该测试判红，红灯输出记录在任务证据中；`npm run typecheck` 通过。
 
 ## DoD
 
 真实落地判据：不是仅有测试文件存在。要求聊天路径的真实 spawn 环境由所选模型的条目决定。AC-024 判据命令在 quay fan-in 中由红转绿，且下一轮 driver 通过 `goal_ac: AC-024` 能独立核验。
+
+## Evidence
+
+- 实现：`resolveModelLaunchSpec`（model-launch-spec.service.ts）；`ResolvedLaunchSpec.unsetEnv?`；`applyLaunchSpecEnv`（shared/utils.ts）在 SDK `sdkOptions.env` 与 pty env 两处最终对象上删除 unset 键。chat 路径的 `options.model` 已流入 runtime，故无需改 chat-websocket。shell 路径经 init 消息 `model` 字段取模型。
+- 取假红灯：临时注释 `applyLaunchSpecEnv` 中的 `delete merged[key]` 后，`sdk: unset key must be absent from the final env` 与 `pty: unset key must be absent from the final env` 两条断言失败（fail 2），还原后全绿。
+- launch-profiles 全部 49 测试通过（含 passthrough-parity、env-injection-closed）；`npm run typecheck` 通过；scoped gate（`scripts/test.sh --for-task … --allow-thin`）绿。
 
 ## Touches
 
