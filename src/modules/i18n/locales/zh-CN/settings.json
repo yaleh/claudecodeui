@@ -597,8 +597,8 @@
     "loadFailed": "无法加载模型：{{message}}",
     "env": {
       "title": "环境变量",
-      "addRow": "添加变量",
-      "gatewayTemplate": "LLM 网关模板",
+      "addRow": "+ 添加",
+      "gatewayTemplate": "网关模板",
       "empty": "没有环境变量，此模型使用提供方默认设置。",
       "key": "变量名",
       "kind": "行类型",

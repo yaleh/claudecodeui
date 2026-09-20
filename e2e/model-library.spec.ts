@@ -91,7 +91,7 @@ test.describe.serial('model library in a real browser', () => {
 
     await page.getByLabel('Model name').fill(MODEL.name);
     await page.getByLabel('Model ID').fill(MODEL.id);
-    await page.getByRole('button', { name: 'LLM gateway template' }).click();
+    await page.getByRole('button', { name: 'Gateway template' }).click();
 
     const rows = page.getByTestId('model-env-row');
     await expect(rows).toHaveCount(6);

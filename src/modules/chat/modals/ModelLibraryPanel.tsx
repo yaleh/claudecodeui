@@ -248,7 +248,7 @@ export default function ModelLibraryPanel({
       </div>
       )}
 
-      <div className="scrollbar-thin grid min-h-0 flex-1 items-start gap-4 overflow-y-auto pr-1 lg:grid-cols-[minmax(16rem,0.8fr)_minmax(20rem,1.2fr)]">
+      <div className="scrollbar-thin grid min-h-0 flex-1 grid-cols-1 items-start gap-4 overflow-y-auto pr-1">
         <form
           onSubmit={handleSubmit}
           className="h-fit rounded-2xl border border-border/70 bg-muted/20 p-4 shadow-sm"
@@ -276,7 +276,9 @@ export default function ModelLibraryPanel({
             )}
           </div>
 
-          <label className="mt-4 block text-xs font-semibold text-foreground" htmlFor="custom-model-name">
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div>
+          <label className="block text-xs font-semibold text-foreground" htmlFor="custom-model-name">
             Model name
           </label>
           <Input
@@ -288,8 +290,9 @@ export default function ModelLibraryPanel({
             autoComplete="off"
             className="mt-1.5 h-10 rounded-xl bg-background"
           />
-
-          <label className="mt-4 block text-xs font-semibold text-foreground" htmlFor="custom-model-id">
+            </div>
+            <div>
+          <label className="block text-xs font-semibold text-foreground" htmlFor="custom-model-id">
             Model ID
           </label>
           <Input
@@ -305,6 +308,8 @@ export default function ModelLibraryPanel({
           <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">
             Use the exact identifier accepted by the provider CLI. IDs cannot contain spaces.
           </p>
+            </div>
+          </div>
 
           {selectedProvider !== 'opencode' && (
             <ModelEnvEditor

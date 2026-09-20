@@ -86,9 +86,9 @@ export default function ModelEnvEditor({ rows, envStatus, showGatewayTemplate, o
 
   return (
     <div className="mt-4" data-testid="model-env-editor">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-semibold text-foreground">{t('modelLibrary.env.title')}</p>
-        <div className="flex items-center gap-1">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="shrink-0 text-xs font-semibold text-foreground">{t('modelLibrary.env.title')}</p>
+        <div className="flex flex-wrap items-center gap-1">
           {showGatewayTemplate && (
             <Button
               type="button"
@@ -129,7 +129,7 @@ export default function ModelEnvEditor({ rows, envStatus, showGatewayTemplate, o
                   aria-label={t('modelLibrary.env.key')}
                   placeholder="ANTHROPIC_BASE_URL"
                   spellCheck={false}
-                  className="h-8 min-w-0 flex-1 rounded-lg font-mono text-xs"
+                  className="h-8 min-w-[16rem] flex-1 rounded-lg font-mono text-xs"
                 />
                 <select
                   value={row.kind}

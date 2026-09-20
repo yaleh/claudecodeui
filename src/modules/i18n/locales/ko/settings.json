@@ -588,8 +588,8 @@
     "loadFailed": "Could not load models: {{message}}",
     "env": {
       "title": "Environment variables",
-      "addRow": "Add variable",
-      "gatewayTemplate": "LLM gateway template",
+      "addRow": "+ Add",
+      "gatewayTemplate": "Gateway template",
       "empty": "No environment variables. This model uses the provider's defaults.",
       "key": "Variable name",
       "kind": "Row type",
