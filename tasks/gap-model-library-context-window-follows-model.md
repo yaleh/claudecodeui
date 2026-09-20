@@ -1,7 +1,7 @@
 ---
 id: gap-model-library-context-window-follows-model
 title: model-library：上下文窗口的单一事实来源是模型条目的 CLAUDE_CODE_MAX_CONTEXT_TOKENS 行（AC-028）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
