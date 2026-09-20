@@ -1,7 +1,7 @@
 ---
 id: gap-launch-profiles-shell-uses-selected-profile
 title: launch-profiles：内置终端启动必须使用所选 profile，而非写死 null（AC-015）
-status: todo
+status: ready
 labels:
   - gap
 parent: null

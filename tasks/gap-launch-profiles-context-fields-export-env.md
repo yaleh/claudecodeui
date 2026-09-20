@@ -2,7 +2,7 @@
 id: gap-launch-profiles-context-fields-export-env
 title: launch-profiles：contextWindow / autoCompactWindow / autoCompactPct 导出真实
   CLI 环境变量（AC-014）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
