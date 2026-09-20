@@ -42,6 +42,7 @@ GOAL-001 的 AC-026：把 Model library 从聊天弹窗提升为 Settings → Ag
 - 假变体 2（去掉 models 分类 tab 标签）→ `modelLibrarySettings.test.tsx > the models category exists as a tab` FAIL，Tests 1 failed | 5 passed。
 - 还原后 6 tests 全绿；`npm run typecheck` 通过；`npm run lint` 退出码 0（仅既有 warning）；scoped 门 `--for-task ... --allow-thin` 绿。
 - 已知缺口：后端尚无 env 状态接口，前端调用 `GET /api/providers/model-env-status?names=A,B`（期望 `{data:{status:{NAME:boolean}}}`），接口缺失时 envref 状态徽标与 warning 不显示（静默降级）。其余非 en/zh 语言的 modelLibrary 文案暂用英文。
+- Touches 扩展：实现拆出 `ModelEnvEditor.tsx`、`ModelsContent.tsx`、`chat/index.ts` 导出，并为全部已有 settings 语言补文案（方案第 5 点），据此把这些文件补入 Touches（anti-drift out-of-declared 14 项）。
 
 ## Touches
 
@@ -50,8 +51,22 @@ GOAL-001 的 AC-026：把 Model library 从聊天弹窗提升为 Settings → Ag
 - src/modules/settings/tabs/agents-settings/AgentsSettingsTab.tsx
 - src/modules/settings/tabs/agents-settings/sections/AgentCategoryTabsSection.tsx
 - src/modules/settings/tabs/agents-settings/sections/AgentCategoryContentSection.tsx
+- src/modules/settings/tabs/agents-settings/sections/content/ModelsContent.tsx
+- src/modules/chat/index.ts
 - src/modules/chat/modals/ModelLibraryPanel.tsx
+- src/modules/chat/modals/ModelEnvEditor.tsx
 - src/modules/i18n/locales/en/settings.json
+- src/modules/i18n/locales/de/settings.json
+- src/modules/i18n/locales/es/settings.json
+- src/modules/i18n/locales/fr/settings.json
+- src/modules/i18n/locales/id/settings.json
+- src/modules/i18n/locales/it/settings.json
+- src/modules/i18n/locales/ja/settings.json
+- src/modules/i18n/locales/ko/settings.json
+- src/modules/i18n/locales/ru/settings.json
+- src/modules/i18n/locales/tr/settings.json
+- src/modules/i18n/locales/zh-CN/settings.json
+- src/modules/i18n/locales/zh-TW/settings.json
 - src/modules/settings/tests/modelLibrarySettings.test.tsx (new)
 - src/modules/settings/tests/modelLibrarySave.test.tsx (new)
 - tasks/gap-model-library-settings-ui.md
