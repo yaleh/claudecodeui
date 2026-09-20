@@ -3,6 +3,7 @@
 # with one `__PERFILE__` line per test file so quay's /tests page gets file-level detail.
 # Every stage runs even if an earlier one failed; the exit code is non-zero if any failed.
 # Env: QUAY_TEST_DRY=1 consumes args, validates positional files, then exits 0 without running.
+#      QUAY_TEST_CONCURRENCY_CEILING=<n> server-phase concurrency ceiling (default 16; see below).
 #      QUAY_TEST_FILE_TIMEOUT=<secs> per-process wall-clock bound (default 600).
 #      QUAY_SUITE_MAX_RUNTIME_MS=<ms> whole-invocation bound (see the liveness watchdogs below).
 #      QUAY_SUITE_SILENCE_MS=<ms> no-progress bound (see the liveness watchdogs below).
@@ -25,6 +26,31 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR" || exit 2
 
 CONCURRENCY=4
+# ── 服务端阶段的并发【上限夹取】(gap-server-phase-concurrency-clamp) ──────────
+# 本脚本原先对 `--test-concurrency` **照单全收**（只挡空值/非数字/0），于是调用方给多大就
+# 并发多大。fan-in 的 runner 会按 nproc 推一个值 splice 进来（本机 128 核 ⇒ 请求 128），
+# 而本仓服务端有 101 个逐文件进程：2026-09-20 16:23Z 那轮 fan-in 的 log 里，把 101 条
+# `__PERFILE__` 行的 `[end_ms - duration_ms, end_ms]` 当区间做最大重叠扫描得
+# **server_max_concurrent=101**（全部同时在跑），逐文件耗时**中位 46,758ms**；对照本机
+# 安静态 N=100 的中位 1,399ms —— **中位涨 33×，几乎每个文件都被垫到 ~47s 的地板**。
+# 判红因此落在「每次不同的文件」上（gap-model-env-kind-explanations 连红三次：7.3s /
+# 44.4s / 56.3s 三个不同文件，失败文件还走各自的内部截止路径），而「每次不同」正是
+# 机制指纹 —— 不是那些测试各自的缺陷。
+#
+# 上限 = 16，**由实测推出**（读数与复算命令见 scripts/server-phase-concurrency-check.sh
+# 的 SLOPE_TABLE 与完成记录的坡度表）：
+#   · 吞吐膝点：N=4 墙钟 30.0s → N=16 14.2s（−53%）；N=16 → N=100 只从 14.2s 走到 14.4s
+#     （+1.4%，落在噪声内）。16 以上加并发只加压力、不换吞吐。
+#   · 同时起步数：夹在 16 ⇒ 服务端阶段同时在跑的进程从 101 降到 16，而**实测零吞吐代价**；
+#     那正是上面那条 ~47s 地板赖以形成的量。
+#   · 不取更低（例如 4）：N=4 要多付约 16s 墙钟/轮，夹取不该比膝点更狠。
+#
+# ⛔ 夹取只在【超过上限】时发生：调用方调**低**（例如 4）必须原样生效 —— 既有契约，
+# server/shared/tests/quay-test-script.test.ts 与 gap-suite-hang-watchdog 的 AC 都在断言它。
+# 上限可用 QUAY_TEST_CONCURRENCY_CEILING 覆盖以便再调；改它就要同时补一档实测读数，
+# scripts/server-phase-concurrency-check.sh 会拒绝一个没有实测依据的上限值。
+CONCURRENCY_CEILING="${QUAY_TEST_CONCURRENCY_CEILING:-16}"
+case "$CONCURRENCY_CEILING" in ''|*[!0-9]*|0) CONCURRENCY_CEILING=16 ;; esac
 FILES=()
 FOR_TASK=""
 while [ $# -gt 0 ]; do
@@ -41,6 +67,14 @@ while [ $# -gt 0 ]; do
     *) FILES+=("$1"); shift ;;
   esac
 done
+
+# 夹取（只在上限之上）。判词走 stderr：stdout 是 `__PERFILE__` 与 dry-run 行的既有契约面，
+# 不掺别的东西 —— quay 的 per-file 解析器用**锚定**正则，多一行都可能正是它丢行的原因。
+if [ "$CONCURRENCY" -gt "$CONCURRENCY_CEILING" ]; then
+  printf 'test.sh: --test-concurrency=%s exceeds the server-phase ceiling %s -> clamped to %s (basis: scripts/server-phase-concurrency-check.sh; override with QUAY_TEST_CONCURRENCY_CEILING)\n' \
+    "$CONCURRENCY" "$CONCURRENCY_CEILING" "$CONCURRENCY_CEILING" >&2
+  CONCURRENCY="$CONCURRENCY_CEILING"
+fi
 
 # ── prelude guard: the SCOPE of every worker's self-test (gap-worker-selfcheck-scoped) ───────
 # Runs before any stage or file collection, so "nobody runs it" is impossible: a task's self-test
