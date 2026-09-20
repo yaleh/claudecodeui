@@ -1,7 +1,7 @@
 ---
 id: gap-quay-suite-attribution-regex-zero-coverage
 title: quay driver 的 suite 失败归因正则对本项目零覆盖：可一行修的真缺陷被误判「归因不出」park 成 needs-human
-status: ready
+status: done
 labels:
   - gap
   - defect
