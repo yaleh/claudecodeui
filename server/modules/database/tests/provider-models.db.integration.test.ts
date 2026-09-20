@@ -33,6 +33,7 @@ test('provider model repository stores custom rows only and maintains session re
       'model_id',
       'model_name',
       'sort_order',
+      'config_json',
       'created_at',
       'updated_at',
     ]);

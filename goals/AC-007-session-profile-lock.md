@@ -1,7 +1,7 @@
 ---
 id: AC-007
 title: session profile lock
-status: achieved
+status: superseded
 kind: criterion
 goal: GOAL-001
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -16,4 +16,9 @@ statusLog:
     to: achieved
     actor: goal-driver
     reason: "I2: criterion pass"
+  - at: 2026-09-20T09:17:09.106Z
+    from: achieved
+    to: superseded
+    actor: yale
+    reason: 会话级 profile 锁定：ADR-002 第一版不做，已知风险已登记（跨供应商 resume 可能出错，未实测）
 ---

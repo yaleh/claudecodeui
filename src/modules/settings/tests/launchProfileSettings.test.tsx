@@ -42,7 +42,6 @@ test('lists every profile and PUTs the edited fields', async () => {
     assert.deepEqual(JSON.parse(put[1].body), {
       provider: 'claude',
       name: 'Beta renamed',
-      deployment: 'gateway',
       config: { defaultModel: 'm2', baseUrl: 'https://gw.test', contextWindow: 5000 },
     });
   });

@@ -228,14 +228,24 @@ export const launchProfilesService = {
     return profile;
   },
 
-  /** Replaces a profile's fields with the same credential/env-key validation as create. */
+  /** Merges the submitted fields over the stored profile (absent fields are preserved) with the same validation as create. */
   updateProfile(
     id: string,
-    input: Omit<LaunchProfileInput, 'id'>,
+    patch: Partial<Omit<LaunchProfileInput, 'id'>>,
     guards: LaunchProfilesGuards = DEFAULT_GUARDS,
   ): void {
-    assertConfigAllowed(input.config, guards);
-    if (!launchProfilesDb.update(id, input)) {
+    const existing = launchProfilesService.getProfile(id);
+    if (patch.config !== undefined) {
+      assertConfigAllowed(patch.config, guards);
+    }
+    const { id: _id, ...current } = existing;
+    const merged = { ...current };
+    for (const [key, value] of Object.entries(patch)) {
+      if (value !== undefined) {
+        (merged as Record<string, unknown>)[key] = value;
+      }
+    }
+    if (!launchProfilesDb.update(id, merged)) {
       throw new AppError(`Launch profile "${id}" not found`, { code: 'LAUNCH_PROFILE_NOT_FOUND', statusCode: 404 });
     }
   },

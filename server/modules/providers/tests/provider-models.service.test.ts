@@ -68,6 +68,7 @@ const createCatalogStore = () => {
         provider,
         modelId: input.id,
         model: input.model,
+        config: input.config ?? null,
         sortOrder: readRows(provider).length,
       };
       rows.set(provider, [...readRows(provider), record]);

@@ -381,6 +381,10 @@ export const api = {
     deleteModel: (provider: string, recordId: string | number) =>
       del(`/api/providers/${provider}/models/${recordId}`),
 
+    // Booleans only: which of the named variables are set in the server process env.
+    modelEnvStatus: (names: string[]) =>
+      get(`/api/providers/model-env-status?names=${encodeURIComponent(names.join(','))}`),
+
     createSession: (payload: {
       provider: string;
       projectPath: string;

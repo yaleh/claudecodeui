@@ -1,3 +1,7 @@
+// Scope: launch-profile credentials only (env-var-name references, never values).
+// Model-library secrets are governed by ADR-002 (stored write-only in
+// provider_models.config_json) and covered by
+// providers/tests/model-secret-write-only.test.ts; the two rules do not overlap.
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { mkdtemp, readFile, rm, readdir } from 'node:fs/promises';

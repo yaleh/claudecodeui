@@ -1,7 +1,7 @@
 ---
 id: gap-launch-profiles-reference-profile-ui-e2e
 title: launch-profiles：参照 profile 能完全经 UI 录入并原样回显（AC-018）
-status: todo
+status: superseded
 labels:
   - gap
 parent: null
@@ -48,3 +48,6 @@ GOAL-001 的 AC-018 要求：AC-017 的参照 profile 能只经 Settings 的 Pro
 - src/modules/i18n/locales/en/settings.json
 - e2e/launch-profiles-reference.spec.ts (new)
 - tasks/gap-launch-profiles-reference-profile-ui-e2e.md
+
+
+2026-09-20 撤回：改为 Model library 承载（ADR-002，B 方案），profile 独立实体被取代；本任务对象（Profiles 页编辑器）不再存在。

@@ -12,8 +12,14 @@ import {
 } from 'lucide-react';
 
 import { Badge, Button, Input, LLMProviderLogo } from '@/shared/ui';
+import ModelEnvEditor, {
+  toEditorRows,
+  toRequestRows,
+  type ModelEnvEditorRow,
+} from '@/modules/chat/modals/ModelEnvEditor';
 import type {
   LLMProvider,
+  ModelEnvStatus,
   ProviderModelActions,
   ProviderModelOption,
   ProviderModelsDefinition,
@@ -31,11 +37,16 @@ type ModelLibraryPanelProps = {
   providerModelCatalog: Partial<Record<LLMProvider, ProviderModelsDefinition>>;
   actions: ProviderModelActions;
   onDone?: () => void;
+  /** Resolves which server env variables are set; when absent, envref rows show no live status. */
+  loadEnvStatus?: (names: string[]) => Promise<ModelEnvStatus>;
+  /** Hides the provider switcher when the host already fixes the provider (Settings > Agents). */
+  hideProviderTabs?: boolean;
 };
 
 /**
- * Rendered by chat's ProviderSelectionEmptyState and CommandResultModal so the
- * user can browse each provider's model catalog and add or remove custom models.
+ * Rendered by chat's ProviderSelectionEmptyState and CommandResultModal, and by
+ * settings' Agents > Models category, so the user can browse each provider's
+ * model catalog and add, edit (including env config) or remove custom models.
  *
  * It is dialog body rather than a dialog — it opens no overlay of its own, and
  * each consumer supplies the Dialog around it. That is why it sits in modals/
@@ -46,6 +57,8 @@ export default function ModelLibraryPanel({
   providerModelCatalog,
   actions,
   onDone,
+  loadEnvStatus,
+  hideProviderTabs = false,
 }: ModelLibraryPanelProps) {
   const { t } = useTranslation();
   const [selectedProvider, setSelectedProvider] = useState(initialProvider);
@@ -57,6 +70,26 @@ export default function ModelLibraryPanel({
   const [confirmDeleteRecordId, setConfirmDeleteRecordId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Env rows of the model being added/edited; `envDirty` is set only by a user edit,
+  // so an untouched form never sends `config` and cannot overwrite stored values.
+  const [envRows, setEnvRows] = useState<ModelEnvEditorRow[]>([]);
+  const [envDirty, setEnvDirty] = useState(false);
+  const [envStatus, setEnvStatus] = useState<ModelEnvStatus>({});
+
+  const envrefNames = envRows
+    .filter((row) => row.kind === 'envref' && row.value.trim())
+    .map((row) => row.value.trim())
+    .join(',');
+  useEffect(() => {
+    if (!loadEnvStatus || !envrefNames) {
+      return undefined;
+    }
+    let cancelled = false;
+    loadEnvStatus(envrefNames.split(','))
+      .then((status) => { if (!cancelled) setEnvStatus(status); })
+      .catch(() => { if (!cancelled) setEnvStatus({}); });
+    return () => { cancelled = true; };
+  }, [envrefNames, loadEnvStatus]);
 
   useEffect(() => {
     setSelectedProvider(initialProvider);
@@ -79,6 +112,8 @@ export default function ModelLibraryPanel({
     setEditing(null);
     setModel('');
     setModelId('');
+    setEnvRows([]);
+    setEnvDirty(false);
     setError(null);
   };
 
@@ -93,6 +128,8 @@ export default function ModelLibraryPanel({
     setEditing(option);
     setModel(option.label);
     setModelId(option.value);
+    setEnvRows(toEditorRows(option.config));
+    setEnvDirty(false);
     setConfirmDeleteRecordId(null);
     setNotice(null);
     setError(null);
@@ -114,17 +151,22 @@ export default function ModelLibraryPanel({
     setSaving(true);
     setError(null);
     setNotice(null);
+    const configInput = envDirty || (!editing && envRows.length > 0)
+      ? { config: { env: toRequestRows(envRows) } }
+      : {};
     try {
       if (editing) {
         await actions.update(selectedProvider, editing, {
           model: normalizedModel,
           id: normalizedId,
+          ...configInput,
         });
         setNotice(`${normalizedModel} was updated.`);
       } else {
         await actions.create(selectedProvider, {
           model: normalizedModel,
           id: normalizedId,
+          ...configInput,
         });
         setNotice(`${normalizedModel} was added.`);
       }
@@ -182,6 +224,7 @@ export default function ModelLibraryPanel({
         )}
       </div>
 
+      {!hideProviderTabs && (
       <div className="scrollbar-thin flex shrink-0 gap-1 overflow-x-auto rounded-xl border border-border/70 bg-muted/25 p-1">
         {PROVIDERS.map((provider) => {
           const selected = provider.id === selectedProvider;
@@ -203,6 +246,7 @@ export default function ModelLibraryPanel({
           );
         })}
       </div>
+      )}
 
       <div className="scrollbar-thin grid min-h-0 flex-1 items-start gap-4 overflow-y-auto pr-1 lg:grid-cols-[minmax(16rem,0.8fr)_minmax(20rem,1.2fr)]">
         <form
@@ -261,6 +305,15 @@ export default function ModelLibraryPanel({
           <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">
             Use the exact identifier accepted by the provider CLI. IDs cannot contain spaces.
           </p>
+
+          {selectedProvider !== 'opencode' && (
+            <ModelEnvEditor
+              rows={envRows}
+              envStatus={envStatus}
+              showGatewayTemplate={selectedProvider === 'claude'}
+              onChange={(rows) => { setEnvRows(rows); setEnvDirty(true); }}
+            />
+          )}
 
           {error && (
             <div role="alert" className="mt-3 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">

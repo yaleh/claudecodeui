@@ -73,3 +73,15 @@ depends_on:
 - session_id：f48dcccc-3a4d-4801-a5ee-500f58f7f157
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-project-session-name-filter-sidebar-ui~wk-prod-anchor~1789891687394-171e4c.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-project-session-name-filter-sidebar-ui-wk-prod-anchor.log
+
+## Needs-Human
+
+**执行 2026-09-20T08:44:54.158Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=7132 lint passed=false end_ms=1789893835672
+- run_id：wk-prod-anchor
+- session_id：fcf2d8f1-a906-426b-afb8-30fb031ec0fa
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-project-session-name-filter-sidebar-ui~wk-prod-anchor~1789893809635-020a5f.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-project-session-name-filter-sidebar-ui-wk-prod-anchor.log

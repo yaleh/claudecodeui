@@ -479,6 +479,16 @@ const addSessionLaunchProfileColumn = (db: Database): void => {
   addColumnToTableIfNotExists(db, 'sessions', columnNames, 'launch_profile_id', 'TEXT');
 };
 
+/**
+ * Adds `config_json` to `provider_models`: the JSON-serialised per-model
+ * config (`{ env: [...] }`); NULL means no override. Databases created before
+ * the column existed get it here, new databases get it from the table schema.
+ */
+const addProviderModelConfigColumn = (db: Database): void => {
+  const columnNames = getTableInfo(db, 'provider_models').map((column) => column.name);
+  addColumnToTableIfNotExists(db, 'provider_models', columnNames, 'config_json', 'TEXT');
+};
+
 const ensureProjectsForSessionPaths = (db: Database): void => {
   if (!tableExists(db, 'sessions')) {
     return;
@@ -522,6 +532,7 @@ export const runMigrations = (db: Database) => {
     db.exec('CREATE INDEX IF NOT EXISTS idx_notification_channel_endpoints_user_channel ON notification_channel_endpoints(user_id, channel)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_notification_channel_endpoints_enabled ON notification_channel_endpoints(enabled)');
     db.exec(PROVIDER_MODELS_TABLE_SCHEMA_SQL);
+    addProviderModelConfigColumn(db);
     db.exec(`
       CREATE INDEX IF NOT EXISTS idx_provider_models_provider_order
       ON provider_models(provider, sort_order, id)

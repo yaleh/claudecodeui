@@ -1,7 +1,7 @@
 ---
 id: AC-002
 title: gateway request actually lands
-status: achieved
+status: superseded
 kind: criterion
 goal: GOAL-001
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -16,4 +16,11 @@ statusLog:
     to: achieved
     actor: goal-driver
     reason: "I2: criterion pass"
+  - at: 2026-09-20T09:17:06.569Z
+    from: achieved
+    to: superseded
+    actor: yale
+    reason: ADR-002 重排：由 AC-025 取代
+superseded-by:
+  - AC-025
 ---

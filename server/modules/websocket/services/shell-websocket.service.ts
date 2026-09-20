@@ -5,9 +5,9 @@ import path from 'node:path';
 import pty, { type IPty } from 'node-pty';
 import { WebSocket, type RawData } from 'ws';
 
-import { resolveLaunchSpec } from '@/modules/launch-profiles/index.js';
+import { resolveLaunchSpec, resolveModelLaunchSpec } from '@/modules/launch-profiles/index.js';
 import type { ResolvedLaunchSpec } from '@/shared/types.js';
-import { parseIncomingJsonObject, stripAnsiSequences } from '@/shared/utils.js';
+import { applyLaunchSpecEnv, parseIncomingJsonObject, readOptionalString, stripAnsiSequences } from '@/shared/utils.js';
 
 type ShellIncomingMessage = {
   type?: string;
@@ -22,6 +22,7 @@ type ShellIncomingMessage = {
   isPlainShell?: boolean;
   forceRestart?: boolean;
   bypassPermissions?: boolean;
+  model?: string;
 };
 
 type PtySessionEntry = {
@@ -106,6 +107,7 @@ type ShellWebSocketDependencies = {
   spawnPty?: typeof pty.spawn;
   /** Test seam: overrides the launch-spec compiler (defaults to the launch-profiles module). */
   resolveLaunchSpec?: typeof resolveLaunchSpec;
+  resolveModelLaunchSpec?: typeof resolveModelLaunchSpec;
 };
 
 /**
@@ -413,6 +415,8 @@ export function handleShellConnection(
 
         // One spec per launch: command argv and pty env must come from the same compilation.
         const launchSpec = (dependencies.resolveLaunchSpec ?? resolveLaunchSpec)(null, 'claude');
+        // The selected custom model's entry overlays the spec; its `unset` rows delete keys from the pty env.
+        const modelSpec = (dependencies.resolveModelLaunchSpec ?? resolveModelLaunchSpec)('claude', readOptionalString(data.model));
         const shellCommand = buildShellCommand(data, dependencies, launchSpec);
         const resumeSessionId = resolveResumeSessionId(data, dependencies);
         const shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
@@ -427,14 +431,17 @@ export function handleShellConnection(
           cols: termCols,
           rows: termRows,
           cwd: resolvedProjectPath,
-          env: {
-            ...process.env,
-            ...launchSpec.env,
-            [prioritizedPath.key]: prioritizedPath.value,
-            TERM: 'xterm-256color',
-            COLORTERM: 'truecolor',
-            FORCE_COLOR: '3',
-          },
+          env: applyLaunchSpecEnv(
+            applyLaunchSpecEnv(applyLaunchSpecEnv({ ...process.env }, launchSpec), modelSpec),
+            {
+              env: {
+                [prioritizedPath.key]: prioritizedPath.value,
+                TERM: 'xterm-256color',
+                COLORTERM: 'truecolor',
+                FORCE_COLOR: '3',
+              },
+            },
+          ) as NodeJS.ProcessEnv,
         });
 
         ptySessionsMap.set(ptySessionKey, {

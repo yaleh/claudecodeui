@@ -79,6 +79,8 @@ export type ProviderModelOption = {
   recordId?: number;
   /** True for user-created rows; false for immutable CloudCLI defaults. */
   isCustom?: boolean;
+  /** Custom-model env config as returned to clients; secret values are never included. */
+  config?: ProviderModelPublicConfig | null;
   effort?: {
     default?: string;
     values: {
@@ -110,6 +112,7 @@ export type CustomProviderModelRecord = {
   modelId: string;
   model: string;
   sortOrder: number;
+  config: ProviderModelConfig | null;
 };
 
 /**
@@ -122,6 +125,41 @@ export type CustomProviderModelRecord = {
 export type CustomProviderModelInput = {
   id: string;
   model: string;
+  /** `undefined` leaves stored config untouched (update) or none (create); `null` clears it. */
+  config?: ProviderModelConfig | null;
+};
+
+/**
+ * One env row of a custom model's config. `kind` selects the semantics:
+ * `value` sets a literal, `secret` sets a write-only literal, `envref` reads
+ * the host variable named in `value`, and `unset` removes the variable (no
+ * `value`). `key` must pass the launch env allowlist.
+ */
+export type ProviderModelEnvRow = {
+  key: string;
+  kind: 'value' | 'secret' | 'envref' | 'unset';
+  value?: string;
+};
+
+/**
+ * Client-facing env row: identical to the stored row except that a secret
+ * carries only `isSet` and never its value.
+ */
+export type ProviderModelPublicEnvRow =
+  | { key: string; kind: 'value' | 'envref'; value?: string }
+  | { key: string; kind: 'unset' }
+  | { key: string; kind: 'secret'; isSet: true };
+
+export type ProviderModelPublicConfig = {
+  env: ProviderModelPublicEnvRow[];
+};
+
+/**
+ * Per-model config stored in `provider_models.config_json`. `env` is ordered
+ * and each key may appear at most once.
+ */
+export type ProviderModelConfig = {
+  env: ProviderModelEnvRow[];
 };
 
 // ---------------------------
@@ -1382,9 +1420,14 @@ export type SandboxCommandService = {
  * With no profile selected (passthrough) `env` is `{}` and `argv` is `[]`, so
  * callers' env assembly stays byte-identical to the pre-profile behavior.
  * `env` must only hold overrides, never a copy of `process.env`.
+ * `unsetEnv` lists keys that must be REMOVED from the final spawn environment
+ * (a model-library `unset` row); callers must apply it with
+ * `applyLaunchSpecEnv` so the removal lands on the object handed to the
+ * spawn, not merely on the spec. Absent for passthrough and profile specs.
  */
 export type ResolvedLaunchSpec = {
   env: Record<string, string>;
+  unsetEnv?: string[];
   argv: string[];
   contextWindow: number;
   warnings: string[];

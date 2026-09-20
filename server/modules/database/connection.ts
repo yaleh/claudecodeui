@@ -89,6 +89,25 @@ function migrateLegacyDatabase(targetPath: string): void {
 }
 
 
+/**
+ * Tightens the database file (and WAL/SHM siblings) to 0600 when wider.
+ * POSIX only: Windows has no meaningful chmod mode bits, so it is skipped.
+ */
+function restrictDatabaseFilePermissions(dbPath: string): void {
+  if (process.platform === 'win32') return;
+  for (const file of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+    try {
+      if (fs.statSync(file).mode & 0o077) {
+        fs.chmodSync(file, 0o600);
+      }
+    } catch (err: any) {
+      if (err.code !== 'ENOENT') {
+        console.error('Could not restrict database file permissions', { file, error: err.message });
+      }
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Singleton connection
 // ---------------------------------------------------------------------------
@@ -114,7 +133,13 @@ export function getConnection(): Database.Database {
   ensureDatabaseDirectory(dbPath);
   migrateLegacyDatabase(dbPath);
 
+  // Create the file 0600 up front so it is never briefly world-readable, then
+  // tighten a pre-existing wider file (secrets live in provider_models).
+  if (!fs.existsSync(dbPath) && process.platform !== 'win32') {
+    fs.closeSync(fs.openSync(dbPath, 'a', 0o600));
+  }
   instance = new Database(dbPath);
+  restrictDatabaseFilePermissions(dbPath);
 
   // app_config must exist immediately — the auth middleware reads
   // the JWT secret at module-load time, before initializeDatabase() runs.
