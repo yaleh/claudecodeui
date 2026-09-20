@@ -2,7 +2,7 @@
 id: gap-launch-profiles-config-env-reaches-spawn-test
 title: launch-profiles：compileGatewayEnv 读取
   config.env，白名单内的键（CLAUDE_CODE_DISABLE_MOUSE 等）进入 spec.env，越权键仍丢弃并告警（AC-013）
-status: todo
+status: ready
 labels:
   - gap
   - defect
