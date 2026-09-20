@@ -2,7 +2,7 @@
 id: gap-resetmodules-cold-compile-timeout
 title: vi.resetModules()+用例内动态 import 让整张模块图的冷编译挤进 vitest 默认 5s
   用例预算：并发下被拖红，AC-103 约 7 次红 1 次
-status: todo
+status: ready
 labels:
   - gap
   - defect
