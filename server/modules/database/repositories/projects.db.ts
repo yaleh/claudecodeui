@@ -27,7 +27,7 @@ export const projectsDb = {
             ON CONFLICT(project_path) DO UPDATE SET
             isArchived = 0
             WHERE projects.isArchived = 1
-            RETURNING project_id, project_path, custom_project_name, isStarred, isArchived
+            RETURNING project_id, project_path, custom_project_name, isStarred, isArchived, session_filter
         `).get(attemptedId, normalizedProjectPath, normalizedProjectName) as ProjectRepositoryRow | undefined;
 
         if (row) {
@@ -48,7 +48,7 @@ export const projectsDb = {
         const db = getConnection();
         const normalizedProjectPath = normalizeProjectPath(projectPath);
         const row = db.prepare(`
-            SELECT project_id, project_path, custom_project_name, isStarred, isArchived
+            SELECT project_id, project_path, custom_project_name, isStarred, isArchived, session_filter
             FROM projects
             WHERE project_path = ?
         `).get(normalizedProjectPath) as ProjectRepositoryRow | undefined;
@@ -59,7 +59,7 @@ export const projectsDb = {
     getProjectById(projectId: string): ProjectRepositoryRow | null {
         const db = getConnection();
         const row = db.prepare(`
-            SELECT project_id, project_path, custom_project_name, isStarred, isArchived
+            SELECT project_id, project_path, custom_project_name, isStarred, isArchived, session_filter
             FROM projects
             WHERE project_id = ?
         `).get(projectId) as ProjectRepositoryRow | undefined;
@@ -89,7 +89,7 @@ export const projectsDb = {
     getProjectPaths(): ProjectRepositoryRow[] {
         const db = getConnection();
         return db.prepare(`
-            SELECT project_id, project_path, custom_project_name, isStarred, isArchived
+            SELECT project_id, project_path, custom_project_name, isStarred, isArchived, session_filter
             FROM projects
             WHERE isArchived = 0
         `).all() as ProjectRepositoryRow[];
@@ -102,7 +102,7 @@ export const projectsDb = {
     getArchivedProjectPaths(): ProjectRepositoryRow[] {
         const db = getConnection();
         return db.prepare(`
-            SELECT project_id, project_path, custom_project_name, isStarred, isArchived
+            SELECT project_id, project_path, custom_project_name, isStarred, isArchived, session_filter
             FROM projects
             WHERE isArchived = 1
         `).all() as ProjectRepositoryRow[];
@@ -175,6 +175,27 @@ export const projectsDb = {
             SET isArchived = ?
             WHERE project_id = ?
         `).run(isArchived ? 1 : 0, projectId);
+    },
+
+    /** Raw `session_filter` JSON for a project (NULL = no rules); consumed by the projects module. */
+    getProjectSessionFilterById(projectId: string): string | null {
+        const db = getConnection();
+        const row = db.prepare(`
+            SELECT session_filter
+            FROM projects
+            WHERE project_id = ?
+        `).get(projectId) as Pick<ProjectRepositoryRow, 'session_filter'> | undefined;
+
+        return row?.session_filter ?? null;
+    },
+
+    updateProjectSessionFilterById(projectId: string, sessionFilterJson: string | null): void {
+        const db = getConnection();
+        db.prepare(`
+            UPDATE projects
+            SET session_filter = ?
+            WHERE project_id = ?
+        `).run(sessionFilterJson, projectId);
     },
 
     deleteProjectPath(projectPath: string): void {

@@ -70,3 +70,27 @@ test('projectsDb.createProjectPath returns active_conflict for active duplicates
     assert.equal(conflict.project?.isArchived, 0);
   });
 });
+
+test('session_filter migration adds the column once and leaves existing rows NULL', async () => {
+  const { getConnection } = await import('@/modules/database/connection.js');
+  const { runMigrations } = await import('@/modules/database/migrations.js');
+  await withIsolatedDatabase(() => {
+    const db = getConnection();
+    projectsDb.createProjectPath('/workspace/legacy');
+    // Simulate a pre-feature database: projects table without the column.
+    db.exec('ALTER TABLE projects DROP COLUMN session_filter');
+
+    const columnCount = () =>
+      (db.prepare('PRAGMA table_info(projects)').all() as { name: string }[])
+        .filter((column) => column.name === 'session_filter').length;
+    assert.equal(columnCount(), 0);
+
+    runMigrations(db);
+    assert.equal(columnCount(), 1);
+    runMigrations(db);
+    assert.equal(columnCount(), 1);
+
+    const row = db.prepare('SELECT session_filter FROM projects WHERE project_path = ?').get('/workspace/legacy') as { session_filter: string | null };
+    assert.equal(row.session_filter, null);
+  });
+});

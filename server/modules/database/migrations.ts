@@ -425,6 +425,12 @@ const addSupersededTranscriptPathColumn = (db: Database): void => {
   addColumnToTableIfNotExists(db, 'superseded_provider_sessions', columnNames, 'jsonl_path', 'TEXT');
 };
 
+/** Adds `session_filter`, the per-project JSON `{"hide": string[]}` of hidden session-name regexes (NULL = none). */
+const addProjectSessionFilterColumn = (db: Database): void => {
+  const columnNames = getTableInfo(db, 'projects').map((column) => column.name);
+  addColumnToTableIfNotExists(db, 'projects', columnNames, 'session_filter', 'TEXT DEFAULT NULL');
+};
+
 /** Adds `launch_profile_id`, the launch profile a session was started with (NULL = none). */
 const addSessionLaunchProfileIdColumn = (db: Database): void => {
   const columnNames = getTableInfo(db, 'sessions').map((column) => column.name);
@@ -527,6 +533,7 @@ export const runMigrations = (db: Database) => {
 
     db.exec(PROJECTS_TABLE_SCHEMA_SQL);
     rebuildProjectsTableWithPrimaryKeySchema(db);
+    addProjectSessionFilterColumn(db);
 
     migrateLegacyWorkspaceTableIntoProjects(db);
     rebuildSessionsTableWithProjectSchema(db);

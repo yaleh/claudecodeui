@@ -25,6 +25,44 @@ type RecentSessionsPage = {
   total: number;
 };
 
+/**
+ * Name-based visibility rule for a project's session list. `isHidden` is the
+ * compiled matcher from the projects module; sessions listed in
+ * `keepSessionIds` (running / attention / selected) are never excluded.
+ */
+export type SessionNameVisibility = {
+  isHidden: (sessionName: string) => boolean;
+  keepSessionIds: string[];
+};
+
+/** Per-project matcher for aggregate lists: receives the session name and the project's raw filter JSON. */
+export type SessionNameHiddenByFilterJson = (sessionName: string, filterJson: string) => boolean;
+
+/**
+ * Builds the SQL fragment + params that exclude name-filtered sessions, and
+ * registers the `session_name_hidden` SQL function backing it. better-sqlite3
+ * is synchronous, so re-registering per call cannot race with other queries.
+ */
+function buildNameVisibilityClause(
+  db: ReturnType<typeof getConnection>,
+  visibility: SessionNameVisibility | undefined,
+  invert = false,
+): { clause: string; params: string[] } {
+  if (!visibility) {
+    return { clause: invert ? 'AND 0' : '', params: [] };
+  }
+
+  db.function('session_name_hidden', { deterministic: true }, (name: unknown) =>
+    visibility.isHidden(typeof name === 'string' ? name : '') ? 1 : 0,
+  );
+  const hiddenExpression = `(session_name_hidden(COALESCE(custom_name, '')) = 1
+      AND session_id NOT IN (SELECT value FROM json_each(?)))`;
+  return {
+    clause: invert ? `AND ${hiddenExpression}` : `AND NOT ${hiddenExpression}`,
+    params: [JSON.stringify(visibility.keepSessionIds)],
+  };
+}
+
 const SESSION_ROW_COLUMNS =
   'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, model, effort, forked_from_session_id, isArchived, created_at, updated_at';
 
@@ -558,11 +596,24 @@ export const sessionsDb = {
    * and correctly ordered across projects instead of flattening only the
    * per-project slices already loaded by the client.
    */
-  getRecentSessionsPage(limit: number, offset: number): RecentSessionsPage {
+  getRecentSessionsPage(
+    limit: number,
+    offset: number,
+    isHiddenByProjectFilter?: SessionNameHiddenByFilterJson,
+  ): RecentSessionsPage {
     const db = getConnection();
+    if (isHiddenByProjectFilter) {
+      db.function('session_hidden_by_project_filter', { deterministic: true }, (name: unknown, filterJson: unknown) =>
+        typeof filterJson === 'string' && isHiddenByProjectFilter(typeof name === 'string' ? name : '', filterJson) ? 1 : 0,
+      );
+    }
+    // Sessions matching their own project's hide rules are excluded, so total stays consistent with the page.
     const visibilityClause = `
       sessions.isArchived = 0
       AND (projects.isArchived IS NULL OR projects.isArchived = 0)
+      ${isHiddenByProjectFilter
+        ? "AND session_hidden_by_project_filter(COALESCE(sessions.custom_name, ''), projects.session_filter) = 0"
+        : ''}
     `;
     const rows = db
       .prepare(
@@ -641,34 +692,61 @@ export const sessionsDb = {
     return normalizeSessionRows(rows);
   },
 
-  getSessionsByProjectPathPage(projectPath: string, limit: number, offset: number): SessionRow[] {
+  getSessionsByProjectPathPage(
+    projectPath: string,
+    limit: number,
+    offset: number,
+    visibility?: SessionNameVisibility,
+  ): SessionRow[] {
     const db = getConnection();
     const normalizedProjectPath = normalizeProjectPath(projectPath);
+    const nameClause = buildNameVisibilityClause(db, visibility);
     const rows = db
       .prepare(
         `SELECT ${SESSION_ROW_COLUMNS}
          FROM sessions
          WHERE project_path = ?
            AND isArchived = 0
+           ${nameClause.clause}
          ORDER BY datetime(COALESCE(updated_at, created_at)) DESC, session_id DESC
          LIMIT ? OFFSET ?`
       )
-      .all(normalizedProjectPath, limit, offset) as SessionRow[];
+      .all(normalizedProjectPath, ...nameClause.params, limit, offset) as SessionRow[];
 
     return normalizeSessionRows(rows);
   },
 
-  countSessionsByProjectPath(projectPath: string): number {
+  countSessionsByProjectPath(projectPath: string, visibility?: SessionNameVisibility): number {
     const db = getConnection();
     const normalizedProjectPath = normalizeProjectPath(projectPath);
+    const nameClause = buildNameVisibilityClause(db, visibility);
     const row = db
       .prepare(
         `SELECT COUNT(*) AS count
          FROM sessions
          WHERE project_path = ?
-           AND isArchived = 0`
+           AND isArchived = 0
+           ${nameClause.clause}`
       )
-      .get(normalizedProjectPath) as { count: number } | undefined;
+      .get(normalizedProjectPath, ...nameClause.params) as { count: number } | undefined;
+
+    return Number(row?.count ?? 0);
+  },
+
+  /** Counts the non-archived sessions the given visibility rule actually excludes (matched and not kept). */
+  countHiddenSessionsByProjectPath(projectPath: string, visibility: SessionNameVisibility): number {
+    const db = getConnection();
+    const normalizedProjectPath = normalizeProjectPath(projectPath);
+    const nameClause = buildNameVisibilityClause(db, visibility, true);
+    const row = db
+      .prepare(
+        `SELECT COUNT(*) AS count
+         FROM sessions
+         WHERE project_path = ?
+           AND isArchived = 0
+           ${nameClause.clause}`
+      )
+      .get(normalizedProjectPath, ...nameClause.params) as { count: number } | undefined;
 
     return Number(row?.count ?? 0);
   },

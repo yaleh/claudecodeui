@@ -9,3 +9,5 @@ export { createProject } from './services/project-management.service.js';
 export { deleteOrArchiveProject, deleteSessionJsonlFilesForProjectPath } from './services/project-delete.service.js';
 // restoreArchivedProject: used by the worktrees module to re-activate an archived project when its worktree is reopened.
 export { restoreArchivedProject } from './services/project-delete.service.js';
+// compileStoredSessionFilter: used by the providers module to apply each project's session-name hide rules to recent-session and search results.
+export { compileStoredSessionFilter } from './services/session-name-filter.service.js';

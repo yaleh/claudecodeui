@@ -7,6 +7,7 @@ import { rgPath } from '@vscode/ripgrep';
 
 import { stripAnsiSequences } from '@/shared/utils.js';
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
+import { compileStoredSessionFilter } from '@/modules/projects/index.js';
 
 type AnyRecord = Record<string, any>;
 type SearchableProvider = 'claude' | 'codex';
@@ -46,6 +47,8 @@ type SessionTitleSearchResult = {
   projectDisplayName: string;
   sessionTitle: string;
   lastActivity: string | null;
+  /** True when the session's project hides it via a session-name filter; search ignores the filter and flags it instead. */
+  filtered: boolean;
 };
 
 export type SessionConversationSearchProgressUpdate = {
@@ -214,6 +217,7 @@ function findSessionTitleResults(
           : 'Unknown Project',
         sessionTitle,
         lastActivity: session.updated_at || session.created_at || null,
+        filtered: compileStoredSessionFilter(project?.session_filter)(session.custom_name ?? ''),
         matchIndex,
       }];
     })

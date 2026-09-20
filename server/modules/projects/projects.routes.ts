@@ -4,7 +4,7 @@ import { createProject, updateProjectDisplayName } from '@/modules/projects/serv
 import { startCloneProject } from '@/modules/projects/services/project-clone.service.js';
 import { getProjectTaskMaster } from '@/modules/projects/services/projects-has-taskmaster.service.js';
 import { AppError, asyncHandler, createApiSuccessResponse } from '@/shared/utils.js';
-import { getArchivedProjectsWithSessions, getProjectSessionsPage, getProjectsWithSessions } from '@/modules/projects/services/projects-with-sessions-fetch.service.js';
+import { getArchivedProjectsWithSessions, getProjectSessionsPage, getProjectsWithSessions, previewProjectSessionFilter, saveProjectSessionFilter } from '@/modules/projects/services/projects-with-sessions-fetch.service.js';
 import { deleteOrArchiveProject, restoreArchivedProject } from '@/modules/projects/services/project-delete.service.js';
 import { applyLegacyStarredProjectIds, toggleProjectStar } from '@/modules/projects/services/project-star.service.js';
 
@@ -53,6 +53,19 @@ function parseNonNegativeIntQuery(value: unknown, name: string, fallback: number
   return parsedValue;
 }
 
+function readKeepSessionIds(value: unknown): string[] {
+  const rawValues = Array.isArray(value) ? value : [value];
+  return rawValues
+    .filter((entry): entry is string => typeof entry === 'string')
+    .flatMap((entry) => entry.split(','))
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+function readIncludeHidden(value: unknown): boolean {
+  return readQueryStringValue(value).trim() === 'true';
+}
+
 function resolveRouteErrorMessage(error: unknown): string {
   if (error instanceof AppError) {
     return error.message;
@@ -77,6 +90,8 @@ router.get(
       skipSynchronization,
       sessionsLimit,
       sessionsOffset,
+      includeHidden: readIncludeHidden(req.query.includeHidden),
+      keepSessionIds: readKeepSessionIds(req.query.keepSessionIds),
     });
     res.json(projects);
   }),
@@ -96,8 +111,33 @@ router.get(
     const projectId = typeof req.params.projectId === 'string' ? req.params.projectId : '';
     const limit = parseNonNegativeIntQuery(req.query.limit, 'limit', 20);
     const offset = parseNonNegativeIntQuery(req.query.offset, 'offset', 0);
-    const sessionsPage = await getProjectSessionsPage(projectId, { limit, offset });
+    const sessionsPage = await getProjectSessionsPage(projectId, {
+      limit,
+      offset,
+      includeHidden: readIncludeHidden(req.query.includeHidden),
+      keepSessionIds: readKeepSessionIds(req.query.keepSessionIds),
+    });
     res.json(sessionsPage);
+  }),
+);
+
+router.put(
+  '/:projectId/session-filter',
+  asyncHandler(async (req, res) => {
+    const projectId = typeof req.params.projectId === 'string' ? req.params.projectId : '';
+    const requestBody = (req.body ?? {}) as Record<string, unknown>;
+    const sessionFilter = saveProjectSessionFilter(projectId, requestBody.hide);
+    res.json(createApiSuccessResponse({ sessionFilter }));
+  }),
+);
+
+router.post(
+  '/:projectId/session-filter/preview',
+  asyncHandler(async (req, res) => {
+    const projectId = typeof req.params.projectId === 'string' ? req.params.projectId : '';
+    const requestBody = (req.body ?? {}) as Record<string, unknown>;
+    const preview = previewProjectSessionFilter(projectId, requestBody.hide);
+    res.json(createApiSuccessResponse({ preview }));
   }),
 );
 

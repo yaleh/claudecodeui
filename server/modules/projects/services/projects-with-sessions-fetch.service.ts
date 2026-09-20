@@ -6,6 +6,13 @@ import { sessionSynchronizerService } from '@/modules/providers/index.js';
 import { WS_OPEN_STATE, connectedClients } from '@/modules/websocket/index.js';
 import type { RealtimeClientConnection } from '@/shared/types.js';
 import { AppError } from '@/shared/utils.js';
+import {
+  compileSessionFilter,
+  compileStoredSessionFilter,
+  parseStoredSessionFilter,
+  validateSessionFilter,
+} from '@/modules/projects/services/session-name-filter.service.js';
+import type { SessionNameVisibility } from '@/modules/database/index.js';
 
 type SessionSummary = {
   id: string;
@@ -33,7 +40,9 @@ export type ProjectListItem = {
   sessionMeta: {
     hasMore: boolean;
     total: number;
+    hiddenCount: number;
   };
+  sessionFilter: { hide: string[] } | null;
 };
 
 export type ArchivedProjectListItem = ProjectListItem & {
@@ -51,17 +60,24 @@ type GetProjectsWithSessionsOptions = {
   skipSynchronization?: boolean;
   sessionsLimit?: number;
   sessionsOffset?: number;
+  includeHidden?: boolean;
+  keepSessionIds?: string[];
 };
 
 type SessionPaginationOptions = {
   limit?: number;
   offset?: number;
+  /** Skip the project's name filter and return every session. */
+  includeHidden?: boolean;
+  /** Sessions that stay visible even when they match the filter (running / attention / selected). */
+  keepSessionIds?: string[];
 };
 
 type ProjectSessionsPageResult = {
   sessions: SessionSummary[];
   total: number;
   hasMore: boolean;
+  hiddenCount: number;
 };
 
 export type ProjectSessionsPageApiView = {
@@ -70,8 +86,19 @@ export type ProjectSessionsPageApiView = {
   sessionMeta: {
     hasMore: boolean;
     total: number;
+    hiddenCount: number;
   };
+  hiddenCount: number;
 };
+
+export type SessionFilterPreview = {
+  matchedCount: number;
+  unmatchedCount: number;
+  matchedSessionNames: string[];
+  unmatchedSessionNames: string[];
+};
+
+const SESSION_FILTER_PREVIEW_SAMPLE_SIZE = 5;
 
 const DEFAULT_PROJECT_SESSIONS_PAGE_SIZE = 20;
 const MAX_PROJECT_SESSIONS_PAGE_SIZE = 200;
@@ -134,6 +161,21 @@ function readProjectSessionsIncludingArchived(projectPath: string): ProjectSessi
     sessions: rows.map(mapSessionRowToSummary),
     total: rows.length,
     hasMore: false,
+    hiddenCount: 0,
+  };
+}
+
+/** Builds the SQL visibility rule for a project, or undefined when nothing should be hidden. */
+function buildSessionVisibility(
+  storedFilterJson: string | null,
+  options: SessionPaginationOptions,
+): SessionNameVisibility | undefined {
+  if (options.includeHidden || parseStoredSessionFilter(storedFilterJson).length === 0) {
+    return undefined;
+  }
+  return {
+    isHidden: compileStoredSessionFilter(storedFilterJson),
+    keepSessionIds: options.keepSessionIds ?? [],
   };
 }
 
@@ -142,20 +184,25 @@ function readProjectSessionsIncludingArchived(projectPath: string): ProjectSessi
  */
 function readProjectSessionsPageByPath(
   projectPath: string,
+  storedFilterJson: string | null,
   options: SessionPaginationOptions = {},
 ): ProjectSessionsPageResult {
   const pagination = normalizeSessionPagination(options);
+  const visibility = buildSessionVisibility(storedFilterJson, options);
   const rows = sessionsDb.getSessionsByProjectPathPage(
     projectPath,
     pagination.limit,
     pagination.offset,
+    visibility,
   ) as SessionRepositoryRow[];
-  const total = sessionsDb.countSessionsByProjectPath(projectPath);
+  const total = sessionsDb.countSessionsByProjectPath(projectPath, visibility);
+  const hiddenCount = visibility ? sessionsDb.countHiddenSessionsByProjectPath(projectPath, visibility) : 0;
 
   return {
     sessions: rows.map(mapSessionRowToSummary),
     total,
     hasMore: pagination.offset + rows.length < total,
+    hiddenCount,
   };
 }
 
@@ -189,6 +236,7 @@ export async function getProjectsWithSessions(
     project_path: string;
     custom_project_name?: string | null;
     isStarred?: number;
+    session_filter?: string | null;
   }>;
   const totalProjects = projectRows.length;
   const projects: ProjectListItem[] = [];
@@ -212,9 +260,13 @@ export async function getProjectsWithSessions(
         ? row.custom_project_name
         : await generateDisplayName(path.basename(projectPath) || projectPath, projectPath);
 
-    const sessionsPage = readProjectSessionsPageByPath(projectPath, {
+    const storedFilter = row.session_filter ?? null;
+    const filterRules = parseStoredSessionFilter(storedFilter);
+    const sessionsPage = readProjectSessionsPageByPath(projectPath, storedFilter, {
       limit: options.sessionsLimit,
       offset: options.sessionsOffset,
+      includeHidden: options.includeHidden,
+      keepSessionIds: options.keepSessionIds,
     });
 
     projects.push({
@@ -227,7 +279,9 @@ export async function getProjectsWithSessions(
       sessionMeta: {
         hasMore: sessionsPage.hasMore,
         total: sessionsPage.total,
+        hiddenCount: sessionsPage.hiddenCount,
       },
+      sessionFilter: filterRules.length > 0 ? { hide: filterRules } : null,
     });
   }
 
@@ -280,7 +334,9 @@ export async function getArchivedProjectsWithSessions(
       sessionMeta: {
         hasMore: sessionsPage.hasMore,
         total: sessionsPage.total,
+        hiddenCount: 0,
       },
+      sessionFilter: null,
     });
   }
 
@@ -302,13 +358,75 @@ export async function getProjectSessionsPage(
     });
   }
 
-  const sessionsPage = readProjectSessionsPageByPath(projectRow.project_path, options);
+  const sessionsPage = readProjectSessionsPageByPath(projectRow.project_path, projectRow.session_filter ?? null, options);
   return {
     projectId: projectRow.project_id,
     sessions: sessionsPage.sessions,
     sessionMeta: {
       hasMore: sessionsPage.hasMore,
       total: sessionsPage.total,
+      hiddenCount: sessionsPage.hiddenCount,
     },
+    hiddenCount: sessionsPage.hiddenCount,
+  };
+}
+
+function requireProjectRow(projectId: string) {
+  const projectRow = projectsDb.getProjectById(projectId);
+  if (!projectRow) {
+    throw new AppError(`Project "${projectId}" was not found.`, {
+      code: 'PROJECT_NOT_FOUND',
+      statusCode: 404,
+    });
+  }
+  return projectRow;
+}
+
+function requireValidSessionFilter(hide: unknown): string[] {
+  const validation = validateSessionFilter(hide);
+  if (!validation.ok) {
+    throw new AppError(validation.error, {
+      code: 'INVALID_SESSION_FILTER',
+      statusCode: 400,
+      details: { line: validation.line },
+    });
+  }
+  return validation.hide;
+}
+
+/** Validates and persists a project's hide rules; an empty list clears them (NULL). */
+export function saveProjectSessionFilter(projectId: string, hide: unknown): { hide: string[] } {
+  requireProjectRow(projectId);
+  const rules = requireValidSessionFilter(hide);
+  projectsDb.updateProjectSessionFilterById(projectId, rules.length > 0 ? JSON.stringify({ hide: rules }) : null);
+  return { hide: rules };
+}
+
+/** Evaluates draft rules against a project's sessions without touching the database row. */
+export function previewProjectSessionFilter(projectId: string, hide: unknown): SessionFilterPreview {
+  const projectRow = requireProjectRow(projectId);
+  const matcher = compileSessionFilter(requireValidSessionFilter(hide));
+  const allCount = sessionsDb.countSessionsByProjectPath(projectRow.project_path);
+  const rows = sessionsDb.getSessionsByProjectPathPage(projectRow.project_path, Math.max(allCount, 1), 0) as SessionRepositoryRow[];
+
+  const matched: string[] = [];
+  const unmatched: string[] = [];
+  let matchedCount = 0;
+  // Rows arrive newest first, so the first few names per bucket are the latest.
+  for (const row of rows) {
+    const name = row.custom_name || '';
+    if (matcher(name)) {
+      matchedCount += 1;
+      if (matched.length < SESSION_FILTER_PREVIEW_SAMPLE_SIZE) matched.push(name || row.session_id);
+    } else if (unmatched.length < SESSION_FILTER_PREVIEW_SAMPLE_SIZE) {
+      unmatched.push(name || row.session_id);
+    }
+  }
+
+  return {
+    matchedCount,
+    unmatchedCount: rows.length - matchedCount,
+    matchedSessionNames: matched,
+    unmatchedSessionNames: unmatched,
   };
 }
