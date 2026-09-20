@@ -1,7 +1,7 @@
 ---
 id: AC-009
 title: real profile compiles to non-empty spec
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-001
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -13,4 +13,10 @@ expect: 由一条真实落库的 profile 记录驱动 resolveLaunchSpec，断言
 origin: docs/proposals/launch-profiles.md (commit 7da6f45c) + ADR-001；补立于
   GOAL-001 首次 achieved 后的范围复核
 activatedAt: 2026-09-20T06:35:03.247Z
+statusLog:
+  - at: 2026-09-20T06:45:58.951Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 ---
