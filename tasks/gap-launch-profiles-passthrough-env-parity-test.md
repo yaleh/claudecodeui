@@ -40,6 +40,8 @@ GOAL-001 的 AC-001 要求：未配置任何 profile 时，`resolveLaunchSpec` �
 - server/shared/types.ts
 - server/modules/providers/list/claude/claude-runtime.provider.js
 - server/modules/websocket/services/shell-websocket.service.ts
+- server/modules/providers/index.ts
+- server/modules/websocket/index.ts
 - tasks/gap-launch-profiles-passthrough-env-parity-test.md
 
 ## Needs-Human
