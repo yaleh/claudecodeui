@@ -4,7 +4,8 @@
     "account": "Account",
     "permissions": "Permessi",
     "mcpServers": "Server MCP",
-    "appearance": "Aspetto"
+    "appearance": "Aspetto",
+    "models": "Models"
   },
   "account": {
     "title": "Account",
@@ -486,5 +487,33 @@
     "installAriaLabel": "URL repository git del plugin",
     "tab": "scheda",
     "runningStatus": "in esecuzione"
+  },
+  "modelLibrary": {
+    "loadFailed": "Could not load models: {{message}}",
+    "env": {
+      "title": "Environment variables",
+      "addRow": "Add variable",
+      "gatewayTemplate": "LLM gateway template",
+      "empty": "No environment variables. This model uses the provider's defaults.",
+      "key": "Variable name",
+      "kind": "Row type",
+      "value": "Value",
+      "removeRow": "Remove variable",
+      "kinds": {
+        "value": "Value",
+        "secret": "Secret",
+        "envref": "Env reference",
+        "unset": "Unset"
+      },
+      "secretSet": "Set",
+      "secretValue": "Secret value",
+      "secretReplace": "Type to replace the stored secret",
+      "secretEnter": "Enter secret",
+      "envrefName": "Server environment variable name",
+      "envrefSet": "Set on server",
+      "envrefUnset": "Not set on server",
+      "envrefHelp": "Reads this variable from the CloudCLI server process environment; restart the server after changing it.",
+      "warningEnvrefUnset": "Environment variable {{name}} is not set on the server; this row will send nothing."
+    }
   }
 }

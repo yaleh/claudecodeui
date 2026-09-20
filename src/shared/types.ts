@@ -14,6 +14,8 @@ export type ProviderModelOption = {
   description?: string;
   recordId?: number;
   isCustom?: boolean;
+  /** Env config of a custom model as the server returns it; secret rows carry only `isSet`, never a value. */
+  config?: ProviderModelPublicConfig | null;
   effort?: {
     default?: string;
     values: {
@@ -29,10 +31,32 @@ export type ProviderModelsDefinition = {
   DEFAULT: string;
 };
 
-/** User-supplied fields for creating or editing a custom provider model entry. */
+/** One env row a client submits for a custom model: `value` a literal, `secret` a write-only literal (omit `value` to keep the stored one), `envref` the name of a server env variable in `value`, `unset` removes the variable. */
+export type ProviderModelEnvRowInput = {
+  key: string;
+  kind: 'value' | 'secret' | 'envref' | 'unset';
+  value?: string;
+};
+
+/** One env row of a custom model as read back from the server; a secret row has `isSet` and never a value. */
+export type ProviderModelPublicEnvRow =
+  | { key: string; kind: 'value' | 'envref'; value?: string }
+  | { key: string; kind: 'secret'; isSet: true }
+  | { key: string; kind: 'unset' };
+
+/** The env config of a custom model as read back from the server, listing its rows in order. */
+export type ProviderModelPublicConfig = {
+  env: ProviderModelPublicEnvRow[];
+};
+
+/** Which server-process env variables are set, keyed by variable name; carries booleans only so the UI can show envref rows as set or unset. */
+export type ModelEnvStatus = Record<string, boolean>;
+
+/** User-supplied fields for creating or editing a custom provider model entry; omit `config` to leave the stored env config untouched. */
 export type CustomProviderModelInput = {
   model: string;
   id: string;
+  config?: { env: ProviderModelEnvRowInput[] } | null;
 };
 
 /** Mutation callbacks a model menu calls to persist custom provider models. */
@@ -1169,8 +1193,8 @@ export type SettingsMainTab = 'agents' | 'appearance' | 'git' | 'api' | 'voice' 
 /** The coding-agent CLI a settings screen is configuring, aliasing LLMProvider so agent-scoped settings read as being about an agent rather than a chat model. */
 export type AgentProvider = LLMProvider;
 
-/** One category of per-agent configuration in the agents settings tab (account, permissions, MCP servers or skills); use it to key which panel the tab renders. */
-export type AgentCategory = 'account' | 'permissions' | 'mcp' | 'skills';
+/** One category of per-agent configuration in the agents settings tab (account, permissions, MCP servers, skills or the model library); use it to key which panel the tab renders. */
+export type AgentCategory = 'account' | 'permissions' | 'mcp' | 'skills' | 'models';
 
 /** How much Codex may do without asking, from prompting on every edit to bypassing permission checks entirely; persisted as the Codex agent's permission setting. */
 export type CodexPermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions';
