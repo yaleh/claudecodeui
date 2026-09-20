@@ -1,7 +1,8 @@
 ---
 id: gap-launch-profiles-default-profile-honored
 title: launch-profiles：默认 profile 必须被服务端解析消费，UI 可设/取消默认，内置项标为“继承服务器环境”（AC-020）
-status: ready
+status: needs-human
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -55,3 +56,14 @@ GOAL-001 的 AC-020 要求：不带 launchProfileId 的会话使用该 provider 
 - src/modules/i18n/locales/en/settings.json
 - src/modules/i18n/locales/zh-CN/settings.json
 - tasks/gap-launch-profiles-default-profile-honored.md
+
+## Needs-Human
+
+**执行 2026-09-20T09:09:35.535Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：worker-driver 连续 3 次 exited-not-landed 未落地（重试上限）
+- 成因类：human-adjudication
+- 失败步/判词：step=anti-drift: ANTI-DRIFT HARD FAIL: task gap-launch-profiles-default-profile-honored — 2 violation(s)
+- run_id：wk-prod-anchor
+- session_id：5144dcff-b578-4037-8973-964d9d7a1aea
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-launch-profiles-default-profile-honored-wk-prod-anchor.log
