@@ -1,7 +1,8 @@
 ---
 id: gap-model-env-empty-row-save-feedback
 title: Models 保存：空值 env 行不再静默丢弃——行内标出「不会保存」或阻断保存并列出被跳过的行
-status: ready
+status: needs-human
+needs_human_cause: human-adjudication
 labels:
   - gap
   - defect
@@ -38,3 +39,9 @@ depends_on:
 - src/modules/settings/tests/modelLibrarySave.test.tsx
 - src/modules/settings/tests/modelLibrarySettings.test.tsx
 - tasks/gap-model-env-empty-row-save-feedback.md
+## Needs-Human
+
+**执行 2026-09-20T11:29:12.075Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：worker-driver 连续 3 次 <60000ms 快速死亡（退避上限）；成因类：ordinary（快速死亡成因分类器取值，⛔ 非 human-adjudication 模板）
+- 成因类：human-adjudication
