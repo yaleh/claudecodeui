@@ -1,7 +1,7 @@
 ---
 id: GOAL-002
 title: 会话列表过滤在真实应用中可用
-status: active
+status: achieved
 kind: goal
 origin: 落地复核 2026-09-20：三个 gap-project-session-name-filter-* 任务 status=done、AC
   全绿，但真实库 session_filter 全为 NULL 且三处 DoD 真实操作验证被跳过；GOAL-001
@@ -14,6 +14,11 @@ statusLog:
     actor: yale
     reason: "两条 AC 已立并全部实测为红（红先行）：AC-101 gate exit 127 'playwright: not
       found'，AC-102 gate exit 1 判据测试文件不存在。目标进入 active。"
+  - at: 2026-09-20T14:04:25.763Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: all ACs achieved + sufficiency covered"
 ---
 让 quay 驱动的自动会话不再淹没侧边栏：项目级「会话名正则过滤」在真实运行的 cloudcli 里真的可用、真的被启用，并在真实数据与真实浏览器两个层面留下可复核的证据。
 
