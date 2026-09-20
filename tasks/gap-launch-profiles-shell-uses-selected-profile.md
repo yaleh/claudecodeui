@@ -1,7 +1,7 @@
 ---
 id: gap-launch-profiles-shell-uses-selected-profile
 title: launch-profiles：内置终端启动必须使用所选 profile，而非写死 null（AC-015）
-status: needs-human
+status: superseded
 needs_human_cause: human-adjudication
 labels:
   - gap
@@ -64,3 +64,6 @@ GOAL-001 的 AC-015 要求：内置终端启动使用所选 profile。现状：`
 - run_id：wk-prod-anchor
 - session_id：cf7f03a8-a121-420b-a2e0-c7cf181a07e2
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-launch-profiles-shell-uses-selected-profile-wk-prod-anchor.log
+
+
+2026-09-20 撤回：对应 AC-015 已置 superseded（ADR-002 第一版不做终端路径接入）。worktree claudecodeui-wt-shell-profile 与分支保留未删。
