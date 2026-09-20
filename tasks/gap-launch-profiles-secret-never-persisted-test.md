@@ -1,7 +1,8 @@
 ---
 id: gap-launch-profiles-secret-never-persisted-test
 title: launch-profiles：带凭据的 profile payload 写入后 sqlite 全库检索不到凭据值，且写进任一列会变红（AC-003）
-status: done
+status: ready
+needs_human_cause: blocked-outside-task
 labels:
   - gap
 parent: null
@@ -43,3 +44,14 @@ GOAL-001 的 AC-003 要求：写入带凭据的 profile payload 后，在 sqlite
 - server/modules/launch-profiles/launch-profiles.service.ts (new)
 - server/modules/launch-profiles/tests/secret-never-persisted.test.ts (new)
 - tasks/gap-launch-profiles-secret-never-persisted-test.md
+
+## Needs-Human
+
+**执行 2026-09-20T03:50:46.529Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：worker-driver 连续 3 次 exited-not-landed 未落地（重试上限）
+- 成因类：blocked-outside-task
+- 失败步/判词：step=ff: fan-in-ff-merge: 本任务 gap-launch-profiles-secret-never-persisted-test 的 suite 证书未满足 — suite_head..tip delta NOT-EVALUATED — classifier produced no verdict — root=/data/home/yale/work/claudecodeui exit=2 (select-static-checks-for-touches: registry file (runner-static-gate.ts) not found at /data/home/yale/work/claudecodeui/plugin/scripts/runner-static-gate.ts); root=/data/home/yale/.claude/plugins/cache/quay/quay/0.10.0 exit=2 (select-static-checks-for-touches: registry file (runner-static-gate.ts) not found at /data/home/yale/.claude/plugins/cache/quay/quay/0.10.0/plugin/scripts/runner-static-gate.ts); root=/data/home/yale/.claude/plugins/cache/quay/quay exit=2 (select-static-checks-for-touches: registry file (runner-static-gate.ts) not found at /data/home/yale/.claude/plugins/cache/quay/quay/plugin/scripts/runner-static-gate.ts); root=/data/home/yale/.claude/plugins/cache/quay/quay/0.10.0/scripts exit=2 (select-static-checks-for-touches: registry file (runner-static-gate.ts) not found at /data/home/yale/.claude/plugins/cache/quay/quay/0.10.0/scripts/plugin/scripts/runner-static-gate.ts); 证书闸按未知 delta fail-closed（⛔ 这不是判决：既非惰性、也非被 @static-object 覆盖）; 证书要求 suite_head 是待 ff tip 的祖先、且 suite_head..tip 的 delta 经 --classify-delta 判惰性（无 change/full 检查器 @static-object 覆盖 + 落 doc 面）；塞入 @static-object 覆盖路径 ⇒ 拒（可取假）。NOT acquiring the merge lock
+- run_id：wk-prod-anchor
+- session_id：96a2d57f-a257-424a-b7ef-128dde79be85
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-launch-profiles-secret-never-persisted-test-wk-prod-anchor.log

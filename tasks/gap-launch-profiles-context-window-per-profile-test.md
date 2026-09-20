@@ -26,11 +26,11 @@ GOAL-001 的 AC-005 要求：token 用量的 `total` 等于 `profile.contextWind
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/context-window-per-profile.test.ts` 退出码 0（AC-005 的判据命令）。
-- [ ] 测试断言 profile.contextWindow=12345（且环境 CONTEXT_WINDOW 设为不同值）时，经真实 token 用量产出路径得到的 `total` 严格等于 12345，而不是 160000 或环境变量值。
-- [ ] 测试断言 profile 未设 contextWindow 时 total 等于 `CONTEXT_WINDOW` 环境变量值；环境变量也未设（或非法）时 total 等于 160000。
-- [ ] 取假用例通过：把实现换成沿用硬读（忽略 profile）的变体时，profile 用例的断言判红，证明测试对该回归敏感。
-- [ ] `npm run typecheck` 与 `npm test` 退出码 0（既有 claude-token-budget 等测试不回归）。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/context-window-per-profile.test.ts` 退出码 0（AC-005 的判据命令）。
+- [x] 测试断言 profile.contextWindow=12345（且环境 CONTEXT_WINDOW 设为不同值）时，经真实 token 用量产出路径得到的 `total` 严格等于 12345，而不是 160000 或环境变量值。
+- [x] 测试断言 profile 未设 contextWindow 时 total 等于 `CONTEXT_WINDOW` 环境变量值；环境变量也未设（或非法）时 total 等于 160000。
+- [x] 取假用例通过：把实现换成沿用硬读（忽略 profile）的变体时，profile 用例的断言判红，证明测试对该回归敏感。
+- [x] `npm run typecheck` 与 `npm test` 退出码 0（既有 claude-token-budget 等测试不回归）。
 
 ## DoD
 
