@@ -29,10 +29,10 @@ GOAL-001 的 AC-015 要求：内置终端启动使用所选 profile。现状：`
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/shell-profile-selection.test.ts && npx vitest run src/modules/shell/tests/shellLaunchProfile.test.ts` 退出码 0（AC-015 的判据命令，两段缺一不可）。
-- [ ] 服务端测试不经 `dependencies.resolveLaunchSpec` 注入假 spec，而是以真实落库的 profile 驱动，断言 pty env 含 spec.env 的键、命令含 `--model`；`--resume` 与回退分支同样携带。
-- [ ] 未选 profile 时 pty env 与命令与今日逐字一致（passthrough 不回归）；不存在的 id 回退并有 warning；客户端伪造的 env 被忽略。
-- [ ] 取假变体（写死 null）使服务端测试判红，红灯输出记录在任务证据中；`shell-resume-launch-spec.test.ts` 仍退出码 0；`npm run typecheck` 通过。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/shell-profile-selection.test.ts && npx vitest run src/modules/shell/tests/shellLaunchProfile.test.ts` 退出码 0（AC-015 的判据命令，两段缺一不可）。
+- [x] 服务端测试不经 `dependencies.resolveLaunchSpec` 注入假 spec，而是以真实落库的 profile 驱动，断言 pty env 含 spec.env 的键、命令含 `--model`；`--resume` 与回退分支同样携带。
+- [x] 未选 profile 时 pty env 与命令与今日逐字一致（passthrough 不回归）；不存在的 id 回退并有 warning；客户端伪造的 env 被忽略。
+- [x] 取假变体（写死 null）使服务端测试判红，红灯输出记录在任务证据中；`shell-resume-launch-spec.test.ts` 仍退出码 0；`npm run typecheck` 通过。
 
 ## DoD
 
@@ -46,3 +46,9 @@ GOAL-001 的 AC-015 要求：内置终端启动使用所选 profile。现状：`
 - src/modules/shell/hooks/useShellRuntime.ts
 - src/modules/shell/tests/shellLaunchProfile.test.ts (new)
 - tasks/gap-launch-profiles-shell-uses-selected-profile.md
+
+## Evidence
+
+- 红灯（写死 null）：`✖ shell launch uses the selected launch profile` — `AssertionError: claude`（命令不含 `--model`），fail 1。
+- 前端红灯（移除 launchProfileId 展开）：shellLaunchProfile.test.ts 1 failed | 1 passed。
+- 恢复后：两段判据命令、shell-resume-launch-spec.test.ts、`npm run typecheck` 均通过；scoped gate 绿。
