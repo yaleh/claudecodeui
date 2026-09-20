@@ -2,7 +2,7 @@
 id: gap-launch-profiles-real-browser-e2e-toolchain
 title: "Launch profiles: real-browser e2e (Playwright toolchain + profile
   create→select→send spec)"
-status: ready
+status: done
 labels:
   - gap
 parent: null
