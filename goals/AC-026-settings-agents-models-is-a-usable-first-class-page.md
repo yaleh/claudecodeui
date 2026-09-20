@@ -17,4 +17,6 @@ expect: Agents 页各 provider 下出现第五个分类 models：内置模型（
 origin: ADR-002（配置挂在 Model library 上，取代独立 launch profile
   实体）；docs/proposals/launch-profiles.md 待随之修订
 activatedAt: 2026-09-20T09:16:11.912Z
+supersedes:
+  - AC-021
 ---
