@@ -13,4 +13,6 @@ expect: 真实浏览器驱动真实服务：登录 → Settings > Agents > Claud
 origin: ADR-002（配置挂在 Model library 上，取代独立 launch profile
   实体）；docs/proposals/launch-profiles.md 待随之修订
 activatedAt: 2026-09-20T09:16:11.918Z
+supersedes:
+  - AC-012
 ---
