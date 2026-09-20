@@ -1,7 +1,7 @@
 ---
 id: gap-model-library-settings-ui
 title: model-library：Settings > Agents > Models 一等分类，含掩码、状态、网关模板（AC-026）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
