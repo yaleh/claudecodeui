@@ -1,7 +1,7 @@
 ---
 id: gap-suite-concurrency-checker
 title: 并发判据读数：新增 scripts/suite-concurrency-check.sh，让 AC-103 从「缺文件」变成可复跑的并发检查
-status: ready
+status: done
 labels:
   - gap
 parent: null
