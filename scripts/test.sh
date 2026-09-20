@@ -37,6 +37,19 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# ── prelude guard: the SCOPE of every worker's self-test (gap-worker-selfcheck-scoped) ───────
+# Runs before any stage or file collection, so "nobody runs it" is impossible: a task's self-test
+# AC must not make the FULL suite the worker's gate — that is fan-in's merge gate. The guard reads
+# this tree's own tasks/, and it distinguishes the two cases instead of demanding --for-task
+# everywhere: a task WITH *.test.* in Touches must use `--for-task <its own id>`, while a task
+# WITHOUT one must run its own delivered checker (scripts/*.sh) — for that task --for-task would
+# resolve to 0 files and exit 0 on the thin path, i.e. a green that cannot go red. `done` /
+# `superseded` history is out of scope. Exit 1 (not 2): a red here is a verdict, not a usage error.
+if ! bash "$ROOT_DIR/scripts/suite-scope-check.sh"; then
+  echo "test.sh: aborting before any stage — the active tasks' self-test scope is not compliant (verdict above)" >&2
+  exit 1
+fi
+
 # Per-process wall-clock bound. Two reasons it exists: (1) one hung test file must not hang the
 # whole suite (the caller's watchdog then kills everything and NOTHING is attributed); (2) it makes
 # "this file's process was cut off" a STRUCTURAL fact — GNU timeout(1) exits 124 — rather than
