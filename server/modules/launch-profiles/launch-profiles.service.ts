@@ -1,7 +1,8 @@
 import { launchProfilesDb } from '@/modules/database/index.js';
-import type { LaunchProfileInput } from '@/modules/database/index.js';
+import type { LaunchProfileInput, LaunchProfileRecord } from '@/modules/database/index.js';
 import { isAllowedLaunchEnvKey } from '@/modules/launch-profiles/launch-spec.service.js';
 import type { LLMProvider, ResolvedLaunchSpec } from '@/shared/types.js';
+import { AppError } from '@/shared/utils.js';
 
 const DEFAULT_CONTEXT_WINDOW = 160000;
 
@@ -117,20 +118,58 @@ function findInlineSecretKey(value: unknown): string | null {
   return null;
 }
 
+function assertConfigAllowed(config: Record<string, unknown>, guards: LaunchProfilesGuards): void {
+  const offending = findInlineSecretKey(config);
+  if (offending) {
+    throw new AppError(
+      `Launch profile config must not contain inline credential "${offending}"; reference an environment variable via authEnvVarName instead`,
+      { code: 'LAUNCH_PROFILE_INLINE_CREDENTIAL', statusCode: 400 },
+    );
+  }
+  const target = config.authEnvVarTarget;
+  if (typeof target === 'string' && target && !guards.isAllowedKey(target)) {
+    throw new AppError(`Environment variable ${target} is not allowed in a launch profile`, {
+      code: 'LAUNCH_PROFILE_ENV_KEY_DENIED',
+      statusCode: 400,
+    });
+  }
+}
+
 // launchProfilesService: consumed by launch-profiles routes and tests; credentials are referenced only via `authEnvVarName`.
 export const launchProfilesService = {
   /** Persists a profile, rejecting any payload that carries an inline credential value. */
   createProfile(input: LaunchProfileInput, guards: LaunchProfilesGuards = DEFAULT_GUARDS): void {
-    const offending = findInlineSecretKey(input.config);
-    if (offending) {
-      throw new Error(
-        `Launch profile config must not contain inline credential "${offending}"; reference an environment variable via authEnvVarName instead`,
-      );
-    }
-    const target = input.config.authEnvVarTarget;
-    if (typeof target === 'string' && target && !guards.isAllowedKey(target)) {
-      throw new Error(`Environment variable ${target} is not allowed in a launch profile`);
-    }
+    assertConfigAllowed(input.config, guards);
     launchProfilesDb.create(input);
+  },
+
+  listProfiles(provider?: string): LaunchProfileRecord[] {
+    return launchProfilesDb.list(provider);
+  },
+
+  getProfile(id: string): LaunchProfileRecord {
+    const profile = launchProfilesDb.get(id);
+    if (!profile) {
+      throw new AppError(`Launch profile "${id}" not found`, { code: 'LAUNCH_PROFILE_NOT_FOUND', statusCode: 404 });
+    }
+    return profile;
+  },
+
+  /** Replaces a profile's fields with the same credential/env-key validation as create. */
+  updateProfile(
+    id: string,
+    input: Omit<LaunchProfileInput, 'id'>,
+    guards: LaunchProfilesGuards = DEFAULT_GUARDS,
+  ): void {
+    assertConfigAllowed(input.config, guards);
+    if (!launchProfilesDb.update(id, input)) {
+      throw new AppError(`Launch profile "${id}" not found`, { code: 'LAUNCH_PROFILE_NOT_FOUND', statusCode: 404 });
+    }
+  },
+
+  deleteProfile(id: string): void {
+    if (!launchProfilesDb.delete(id)) {
+      throw new AppError(`Launch profile "${id}" not found`, { code: 'LAUNCH_PROFILE_NOT_FOUND', statusCode: 404 });
+    }
   },
 };

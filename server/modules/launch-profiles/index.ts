@@ -6,3 +6,5 @@ export type { SessionProfileLockDecision } from './session-profile-lock.js';
 export { resolveLaunchSpec } from './launch-profiles.service.js';
 export { launchProfilesService } from '@/modules/launch-profiles/launch-profiles.service.js';
 export { resolveContextWindow } from '@/modules/launch-profiles/launch-spec.service.js';
+// Consumed by the server entrypoint to mount the protected launch-profiles CRUD endpoints.
+export { launchProfilesRoutes } from './launch-profiles.module.js';
