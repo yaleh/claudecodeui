@@ -1,7 +1,7 @@
 ---
 id: gap-model-env-empty-row-save-feedback
 title: Models 保存：空值 env 行不再静默丢弃——行内标出「不会保存」或阻断保存并列出被跳过的行
-status: needs-human
+status: todo
 needs_human_cause: human-adjudication
 labels:
   - gap
