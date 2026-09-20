@@ -25,9 +25,11 @@ GOAL-001 的 AC-023：自定义模型条目可携带 `config.env` 行，POST/PAT
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/model-config-write-path.test.ts` 退出码 0（AC-023 的判据命令）。
-- [ ] 测试证明 LD_PRELOAD/PATH/NODE_OPTIONS 各自 4xx 且全库检索不到该键名；unset ANTHROPIC_API_KEY 合法；重复键 400；重复 (provider, model_id) 409；旧库经迁移获得 config_json。
-- [ ] 取假变体使该测试判红，红灯输出记录在任务证据中；`provider-models.db.integration.test.ts` 与既有 provider 测试仍退出码 0；`npm run typecheck` 通过。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/model-config-write-path.test.ts` 退出码 0（AC-023 的判据命令）。
+- [x] 测试证明 LD_PRELOAD/PATH/NODE_OPTIONS 各自 4xx 且全库检索不到该键名；unset ANTHROPIC_API_KEY 合法；重复键 400；重复 (provider, model_id) 409；旧库经迁移获得 config_json。
+- [x] 取假变体使该测试判红，红灯输出记录在任务证据中；`provider-models.db.integration.test.ts` 与既有 provider 测试仍退出码 0；`npm run typecheck` 通过。
+
+证据：把 `isAllowedLaunchEnvKey` 校验替换为放行变体后，`model-config-write-path.test.ts` 5 例中 2 例失败（"disallowed env keys are rejected 400 and never persisted"、"PATCH validates config..."），还原后 5/5 通过；typecheck 通过；provider-models 相关测试 23/23 通过（db.integration 与 service 测试因新增 config/config_json 列做了同步更新）。
 
 ## DoD
 
