@@ -2,7 +2,7 @@
 id: gap-launch-profiles-credential-usability-floor
 title: launch-profiles：凭据可用性下限——变量状态可见、网关 profile 清除继承的 Anthropic key、会话锁定后回显
   profile（AC-021）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
