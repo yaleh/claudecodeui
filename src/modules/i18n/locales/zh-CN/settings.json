@@ -61,7 +61,15 @@
     "credentialRef": "Credential reference",
     "save": "Save",
     "saving": "Saving…",
-    "saveFailed": "Failed to save profile."
+    "saveFailed": "Failed to save profile.",
+    "baseUrl": "Base URL",
+    "authMode": "认证方式",
+    "authNone": "无",
+    "authEnvVar": "来自环境变量的 API Key",
+    "authEnvVarName": "环境变量名",
+    "contextWindow": "上下文窗口（tokens）",
+    "create": "创建配置",
+    "newTitle": "新建配置"
   },
   "voiceSettings": {
     "title": "语音",
@@ -126,7 +134,8 @@
     "browser": "浏览器",
     "notifications": "通知",
     "plugins": "插件",
-    "about": "关于"
+    "about": "关于",
+    "profiles": "配置"
   },
   "notifications": {
     "title": "通知",

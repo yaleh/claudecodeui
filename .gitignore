@@ -160,3 +160,7 @@ orchestration/dispatch-record.jsonl
 orchestration/semantic-face-dispatch-record.jsonl
 orchestration/manager-pending.md
 **/.quay-parse-cache.json
+
+# Playwright
+test-results/
+playwright-report/

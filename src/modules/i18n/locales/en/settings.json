@@ -61,7 +61,15 @@
     "credentialRef": "Credential reference",
     "save": "Save",
     "saving": "Saving…",
-    "saveFailed": "Failed to save profile."
+    "saveFailed": "Failed to save profile.",
+    "baseUrl": "Base URL",
+    "authMode": "Authentication",
+    "authNone": "None",
+    "authEnvVar": "API key from environment variable",
+    "authEnvVarName": "Environment variable name",
+    "contextWindow": "Context window (tokens)",
+    "create": "Create profile",
+    "newTitle": "New profile"
   },
   "voiceSettings": {
     "title": "Voice",
@@ -126,7 +134,8 @@
     "browser": "Browser",
     "notifications": "Notifications",
     "plugins": "Plugins",
-    "about": "About"
+    "about": "About",
+    "profiles": "Profiles"
   },
   "notifications": {
     "title": "Notifications",
