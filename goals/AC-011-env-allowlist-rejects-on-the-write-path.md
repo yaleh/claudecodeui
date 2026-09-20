@@ -1,7 +1,7 @@
 ---
 id: AC-011
 title: env allowlist rejects on the write path
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-001
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -13,4 +13,10 @@ expect: POST /api/launch-profiles 携带 config.env.LD_PRELOAD（或 PATH /
 origin: docs/proposals/launch-profiles.md (commit 7da6f45c) + ADR-001；补立于
   2026-09-20 的 playwright 实机验证
 activatedAt: 2026-09-20T07:43:31.583Z
+statusLog:
+  - at: 2026-09-20T07:51:48.340Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 ---
