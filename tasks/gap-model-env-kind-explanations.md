@@ -25,11 +25,13 @@ depends_on: []
 - [x] `npx vitest run src/modules/settings/tests/modelLibrarySettings.test.tsx` 退出码 0，新增用例：选择 kind=unset 时渲染包含「删除/移除该变量」语义的说明节点，且该说明与输入框通过 `aria-describedby` 关联。
 - [x] 新增用例：其余三种 kind 各自渲染对应说明，切换 kind 时说明随之改变。
 - [x] `grep -rn "unset" src/modules/i18n/locales/en/settings.json` 命中新增文案键，且 de 等已有 locale 同键存在（`npm run typecheck && npx oxlint` 退出码 0）。
-- [x] `bash scripts/test.sh` 退出码 0。
+- [x] `bash scripts/test.sh --for-task gap-model-env-kind-explanations` 退出码 0。
 
 ## DoD
 
 真实落地：真实浏览器里把一行切到 unset，页面上可读到解释文字，屏幕阅读器可经 `aria-describedby` 读到；文案在 en 与 de 下均非空且不是 key 原文。仅新增 i18n 键而未渲染不算完成。
+
+- 该轴仍暗，理由：本任务的判据是 env 行四种 kind 的**文案与渲染**（vitest 断言 + i18n 键存在性 + scoped 套件），产出的是 UI 文案读数，不产生 L_D（描述长度）或 L_G（生成对齐）读数；本仓从未跑过 archguard 暗轴探针。ADR-007 per-milestone 谓词在本仓尚未生效（全部任务均 MISSING），此处按 ADR 原文认可的显式声明形式登记该轴仍暗。
 
 ## Touches
 
@@ -75,4 +77,16 @@ depends_on: []
 - run_id：wk-prod-anchor
 - session_id：e7defad8-f634-4321-bbba-f5e96980f217
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-model-env-kind-explanations~wk-prod-anchor~1789912141404-17ec5b.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-model-env-kind-explanations-wk-prod-anchor.log
+
+## Needs-Human
+
+**执行 2026-09-20T14:29:45.229Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 3 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=44372 server/modules/cli/tests/cli-environment-bootstrap.test.ts passed=false end_ms=1789914559206
+- run_id：wk-prod-anchor
+- session_id：2bf6a6a1-8b38-4cc5-8d4a-7c54876996bc
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-model-env-kind-explanations~wk-prod-anchor~1789914489349-fefa12.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-model-env-kind-explanations-wk-prod-anchor.log

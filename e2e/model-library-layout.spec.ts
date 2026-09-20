@@ -24,12 +24,15 @@ const ensureSignedIn = async (page: Page) => {
     await page.getByPlaceholder('john@example.com').fill('e2e@example.com');
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByRole('button', { name: 'Complete Setup' }).click();
-    await expect(page.getByText('Choose Your Project')).toBeVisible();
+    // The app shell being up is what "signed in" means here — NOT the "Choose Your Project" empty state.
+    // playwright.config.ts seeds the session-filter transcripts before boot and the boot scan auto-registers
+    // their project, so that empty state does not render; waiting for it is a race (see that file's comment).
+    await expect(settings).toBeVisible({ timeout: 15_000 });
   } else if (await page.locator('#username').count()) {
     await page.locator('#username').fill('e2euser');
     await page.locator('input[type=password]').first().fill('e2epassword');
     await page.locator('form button[type=submit]').click();
-    await expect(page.getByText('Choose Your Project')).toBeVisible();
+    await expect(settings).toBeVisible({ timeout: 15_000 });
   }
 };
 

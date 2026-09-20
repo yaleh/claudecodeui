@@ -65,7 +65,10 @@ test.describe.serial('model library in a real browser', () => {
     await page.getByPlaceholder('john@example.com').fill('e2e@example.com');
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByRole('button', { name: 'Complete Setup' }).click();
-    await expect(page.getByText('Choose Your Project')).toBeVisible();
+    // "Signed in" means the real app shell is up, not that no project exists. playwright.config.ts seeds the
+    // session-filter transcripts before the server boots, and the boot scan that indexes them auto-registers
+    // their project, so the "Choose Your Project" empty state never renders here — anchoring on it is a race.
+    await expect(page.getByRole('button', { name: 'Settings' }).first()).toBeVisible({ timeout: 15_000 });
   });
 
   test.afterAll(async () => {
@@ -154,8 +157,11 @@ test.describe.serial('model library in a real browser', () => {
         timeout: 45_000,
       })
       .toBe(true);
-    const hit = gatewayHits.find((entry) => entry.url.includes('/v1/messages'));
-    expect(hit).toBeTruthy();
-    expect(hit!.body).toContain(MODEL.id);
+    // The Agent SDK names the session through this same gateway as well, with its own cheap model rather than
+    // the selected one, so the first /v1/messages hit is not necessarily the message: pick the request that
+    // carries this model's id, and still assert it landed on the messages endpoint.
+    const hit = gatewayHits.find((entry) => entry.body.includes(MODEL.id));
+    expect(hit, `no gateway request carried ${MODEL.id}; urls seen: ${JSON.stringify(gatewayHits.map((entry) => entry.url))}`).toBeTruthy();
+    expect(hit!.url).toContain('/v1/messages');
   });
 });
