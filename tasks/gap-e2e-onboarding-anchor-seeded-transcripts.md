@@ -1,7 +1,7 @@
 ---
 id: gap-e2e-onboarding-anchor-seeded-transcripts
 title: e2e 登录后置锚点不得依赖空态：播种夹具使 Choose Your Project 不渲染，AC-027 判据复红（回归）
-status: ready
+status: done
 labels:
   - gap
   - defect
