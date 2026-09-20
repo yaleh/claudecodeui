@@ -22,10 +22,10 @@ GOAL-001 的 AC-001 要求：未配置任何 profile 时，`resolveLaunchSpec` �
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/passthrough-parity.test.ts` 退出码 0（AC-001 的判据命令）。
-- [ ] 该测试对 SDK 路径与 pty 路径各断言：无 profile 时最终 env 的键集合与每个键的值和基线逐字相等（`assert.deepStrictEqual`）。
-- [ ] 取假用例通过：对 spec.env 新增一个键、缺失一个键、改一个值三种变异，一致性比较均判不等（测试内以 `assert.notDeepStrictEqual` 或 throws 断言，证明测试会变红）。
-- [ ] `grep -n "resolveLaunchSpec" server/modules/providers/list/claude/claude-runtime.provider.js server/modules/websocket/services/shell-websocket.service.ts` 两个文件均有命中；`npm run typecheck` 与 `npm test` 退出码 0（既有 server 测试不回归）。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/passthrough-parity.test.ts` 退出码 0（AC-001 的判据命令）。
+- [x] 该测试对 SDK 路径与 pty 路径各断言：无 profile 时最终 env 的键集合与每个键的值和基线逐字相等（`assert.deepStrictEqual`）。
+- [x] 取假用例通过：对 spec.env 新增一个键、缺失一个键、改一个值三种变异，一致性比较均判不等（测试内以 `assert.notDeepStrictEqual` 或 throws 断言，证明测试会变红）。
+- [x] `grep -n "resolveLaunchSpec" server/modules/providers/list/claude/claude-runtime.provider.js server/modules/websocket/services/shell-websocket.service.ts` 两个文件均有命中；`npm run typecheck` 与 `npm test` 退出码 0（既有 server 测试不回归）。
 
 ## DoD
 
