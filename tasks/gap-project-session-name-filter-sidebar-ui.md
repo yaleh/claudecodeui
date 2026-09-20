@@ -43,9 +43,19 @@ depends_on:
 - src/modules/sidebar/SidebarRecentConversations.tsx
 - src/modules/sidebar/SessionFilterBar.tsx (new)
 - src/modules/sidebar/SessionFilterEditor.tsx (new)
+- src/modules/sidebar/Sidebar.tsx
+- src/modules/sidebar/SidebarContent.tsx
+- src/modules/sidebar/SidebarModals.tsx
+- src/modules/sidebar/SidebarProjectList.tsx
+- src/modules/sidebar/index.ts
 - src/modules/sidebar/hooks/useSidebarController.ts
 - src/modules/sidebar/utils/sidebarStoredPreferences.ts
+- src/modules/project-workspace/ProjectWorkspaceRoute.tsx
+- src/modules/project-workspace/context/ProjectsStateContext.tsx
+- src/modules/project-workspace/hooks/useProjectSessionFilter.ts
 - src/modules/project-workspace/hooks/useProjectsState.ts
+- src/modules/i18n/locales/en/sidebar.json
+- src/modules/i18n/locales/zh-CN/sidebar.json
 - src/modules/sidebar/tests/sessionFilterBar.test.tsx (new)
 - src/modules/sidebar/tests/sessionFilterEditor.test.tsx (new)
 - tasks/gap-project-session-name-filter-sidebar-ui.md
