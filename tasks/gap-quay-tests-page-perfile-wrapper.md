@@ -2,8 +2,8 @@
 id: gap-quay-tests-page-perfile-wrapper
 title: scripts/test.sh：把 server node:test + client vitest + typecheck + lint 接入
   quay tests 页（文件粒度）
-status: done
-needs_human_cause: unclassified
+status: ready
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -44,3 +44,14 @@ extra:
 - .quay/config.yml
 - server/shared/tests/quay-test-script.test.ts
 - tasks/gap-quay-tests-page-perfile-wrapper.md
+
+## Needs-Human
+
+**执行 2026-09-20T03:31:33.779Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：worker-driver 连续 3 次 exited-not-landed 未落地（重试上限）
+- 成因类：human-adjudication
+- 失败步/判词：step=scoped-gate: test file not found: gap-quay-tests-page-perfile-wrapper
+- run_id：wk-prod-anchor
+- session_id：7b33a4ac-0c94-481f-a54a-87f3db021239
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-quay-tests-page-perfile-wrapper-wk-prod-anchor.log
