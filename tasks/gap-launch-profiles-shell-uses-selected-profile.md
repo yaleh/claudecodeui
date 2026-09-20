@@ -1,7 +1,8 @@
 ---
 id: gap-launch-profiles-shell-uses-selected-profile
 title: launch-profiles：内置终端启动必须使用所选 profile，而非写死 null（AC-015）
-status: ready
+status: needs-human
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -52,3 +53,14 @@ GOAL-001 的 AC-015 要求：内置终端启动使用所选 profile。现状：`
 - 红灯（写死 null）：`✖ shell launch uses the selected launch profile` — `AssertionError: claude`（命令不含 `--model`），fail 1。
 - 前端红灯（移除 launchProfileId 展开）：shellLaunchProfile.test.ts 1 failed | 1 passed。
 - 恢复后：两段判据命令、shell-resume-launch-spec.test.ts、`npm run typecheck` 均通过；scoped gate 绿。
+
+## Needs-Human
+
+**执行 2026-09-20T08:28:45.413Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：worker-driver 连续 3 次 exited-not-landed 未落地（重试上限）
+- 成因类：human-adjudication
+- 失败步/判词：step=anti-drift: ANTI-DRIFT HARD FAIL: task gap-launch-profiles-shell-uses-selected-profile — 2 violation(s)
+- run_id：wk-prod-anchor
+- session_id：cf7f03a8-a121-420b-a2e0-c7cf181a07e2
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-launch-profiles-shell-uses-selected-profile-wk-prod-anchor.log
