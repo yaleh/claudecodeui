@@ -55,3 +55,16 @@ export function resolveModelLaunchSpec(
   spec.contextWindow = resolveContextWindow(spec.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS);
   return spec;
 }
+
+/**
+ * Returns the compiled CLAUDE_CODE_MAX_CONTEXT_TOKENS row of one model entry (the single source of that
+ * model's context window), or undefined when the entry has no such row. Read from the same compile as the
+ * spawn env, so the exported value and the usage `total` cannot diverge.
+ * Consumed by the providers module (Claude SDK runtime and token-usage service).
+ */
+export function resolveModelContextWindowRow(
+  provider: LLMProvider,
+  modelId: string | null | undefined,
+): string | undefined {
+  return resolveModelLaunchSpec(provider, modelId).env.CLAUDE_CODE_MAX_CONTEXT_TOKENS;
+}

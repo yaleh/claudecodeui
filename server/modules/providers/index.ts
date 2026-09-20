@@ -19,4 +19,4 @@ export { mapCliOptionsToSDK } from './list/claude/claude-runtime.provider.js';
 // Token-budget helpers: driven by the launch-profiles tests to prove the context
 // window follows the resolved profile.
 export { extractCumulativeTokenBudget, extractTokenBudget } from './list/claude/claude-runtime.provider.js';
-export { summarizeClaudeTokenUsage } from './services/provider-token-usage.service.js';
+export { createProviderTokenUsageService, summarizeClaudeTokenUsage } from './services/provider-token-usage.service.js';
