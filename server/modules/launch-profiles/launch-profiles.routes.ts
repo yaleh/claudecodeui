@@ -34,6 +34,34 @@ function parseProfileBody(body: unknown): Omit<LaunchProfileInput, 'id'> {
   };
 }
 
+/** Converts a PUT body to a partial update: only present, well-typed fields are collected; malformed ones give 400. */
+function parseProfilePatch(body: unknown): Partial<Omit<LaunchProfileInput, 'id'>> {
+  const raw = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+  const invalid = (field: string, expected: string) =>
+    new AppError(`${field} must be ${expected}`, { code: 'LAUNCH_PROFILE_INVALID', statusCode: 400 });
+  const patch: Partial<Omit<LaunchProfileInput, 'id'>> = {};
+  if ('provider' in raw) patch.provider = requireString(raw.provider, 'provider');
+  if ('name' in raw) patch.name = requireString(raw.name, 'name');
+  if ('description' in raw) {
+    if (raw.description !== null && typeof raw.description !== 'string') throw invalid('description', 'a string or null');
+    patch.description = raw.description;
+  }
+  if ('deployment' in raw) patch.deployment = requireString(raw.deployment, 'deployment');
+  if ('isDefault' in raw) {
+    if (typeof raw.isDefault !== 'boolean') throw invalid('isDefault', 'a boolean');
+    patch.isDefault = raw.isDefault;
+  }
+  if ('sortOrder' in raw) {
+    if (typeof raw.sortOrder !== 'number' || !Number.isFinite(raw.sortOrder)) throw invalid('sortOrder', 'a number');
+    patch.sortOrder = raw.sortOrder;
+  }
+  if ('config' in raw) {
+    if (!raw.config || typeof raw.config !== 'object' || Array.isArray(raw.config)) throw invalid('config', 'an object');
+    patch.config = raw.config as Record<string, unknown>;
+  }
+  return patch;
+}
+
 /** Creates thin launch-profile transport handlers around the application service. */
 export function createLaunchProfilesRouter(service: LaunchProfilesService): express.Router {
   const router = express.Router();
@@ -55,7 +83,7 @@ export function createLaunchProfilesRouter(service: LaunchProfilesService): expr
   router.get('/:id', respond((req, res) => { res.json(service.getProfile(String(req.params.id))); }));
   router.put('/:id', respond((req, res) => {
     const id = String(req.params.id);
-    service.updateProfile(id, parseProfileBody(req.body));
+    service.updateProfile(id, parseProfilePatch(req.body));
     res.json(service.getProfile(id));
   }));
   router.delete('/:id', respond((req, res) => {

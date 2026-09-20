@@ -49,12 +49,9 @@ function toRequestBody(draft: LaunchProfileDraft, existing?: LaunchProfile) {
   assign('authEnvVarName', draft.authMode === 'envVar' ? draft.authEnvVarName.trim() : '');
   const windowSize = Number(draft.contextWindow);
   assign('contextWindow', draft.contextWindow.trim() && Number.isFinite(windowSize) ? windowSize : '');
-  return {
-    provider: existing?.provider ?? 'claude',
-    name: draft.name.trim(),
-    deployment: 'gateway',
-    config,
-  };
+  const body = { provider: existing?.provider ?? 'claude', name: draft.name.trim(), config };
+  // A PUT carries only edited fields so the server keeps isDefault/description/sortOrder/deployment.
+  return existing ? body : { ...body, deployment: 'gateway' };
 }
 
 /** Loads launch profiles from the REST API and creates or updates one; used by LaunchProfilesSettingsTab. */
