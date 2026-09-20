@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus, Trash2 } from 'lucide-react';
 
@@ -75,6 +76,33 @@ type ModelEnvEditorProps = {
 export default function ModelEnvEditor({ rows, envStatus, showGatewayTemplate, onChange }: ModelEnvEditorProps) {
   const { t } = useTranslation('settings');
 
+  // Keys of rows the gateway template appended; lets a second click undo exactly those rows.
+  const [templateKeys, setTemplateKeys] = useState<string[]>([]);
+  const templateActive = templateKeys.some((key) => rows.some((row) => row.key === key));
+
+  const toggleGatewayTemplate = () => {
+    if (templateActive) {
+      // Remove only template-created rows the user has not filled in; edited rows stay.
+      onChange(rows.filter((row) => !(templateKeys.includes(row.key) && !row.value)));
+      setTemplateKeys([]);
+      return;
+    }
+    // Merge: fill missing keys and empty same-key rows; never touch a row that already has a value.
+    const created: string[] = [];
+    const merged = rows.map((row) => {
+      const entry = LLM_GATEWAY_TEMPLATE.find((item) => item.key === row.key);
+      return entry && !row.value && !row.secretStored ? { ...row, kind: entry.kind } : row;
+    });
+    for (const entry of LLM_GATEWAY_TEMPLATE) {
+      if (!merged.some((row) => row.key === entry.key)) {
+        merged.push({ ...entry });
+        created.push(entry.key);
+      }
+    }
+    setTemplateKeys(created);
+    onChange(merged);
+  };
+
   const updateRow = (index: number, patch: Partial<ModelEnvEditorRow>) => {
     onChange(rows.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row)));
   };
@@ -95,7 +123,8 @@ export default function ModelEnvEditor({ rows, envStatus, showGatewayTemplate, o
               variant="outline"
               size="sm"
               className="h-7 rounded-lg text-[11px]"
-              onClick={() => onChange([...rows.filter((row) => !LLM_GATEWAY_TEMPLATE.some((entry) => entry.key === row.key)), ...LLM_GATEWAY_TEMPLATE])}
+              aria-pressed={templateActive}
+              onClick={toggleGatewayTemplate}
             >
               {t('modelLibrary.env.gatewayTemplate')}
             </Button>

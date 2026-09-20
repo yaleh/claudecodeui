@@ -121,3 +121,63 @@ test('the LLM gateway template pre-fills the gateway rows', async () => {
   const kinds = view.getAllByLabelText('modelLibrary.env.kind').map((el) => (el as HTMLSelectElement).value);
   assert.deepStrictEqual(kinds, ['value', 'secret', 'value', 'value', 'value', 'unset']);
 });
+
+const openGatewayEditorWithBaseUrl = async (url: string) => {
+  const view = renderModels();
+  await waitFor(() => assert.ok(view.getByText('Gateway Model')));
+  fireEvent.click(view.getByLabelText('Edit Gateway Model'));
+  fireEvent.click(view.getByText('modelLibrary.env.addRow'));
+  const keyInputs = view.getAllByLabelText('modelLibrary.env.key');
+  fireEvent.change(keyInputs[keyInputs.length - 1], { target: { value: 'ANTHROPIC_BASE_URL' } });
+  const valueInputs = view.getAllByLabelText('modelLibrary.env.value');
+  fireEvent.change(valueInputs[valueInputs.length - 1], { target: { value: url } });
+  return view;
+};
+
+const rowSnapshot = (view: ReturnType<typeof renderModels>) => view.getAllByLabelText('modelLibrary.env.key')
+  .map((el) => (el as HTMLInputElement).value);
+
+test('the gateway template keeps an already-filled value instead of replacing the row', async () => {
+  const view = await openGatewayEditorWithBaseUrl('https://my-real-gateway.example');
+  fireEvent.click(view.getByText('modelLibrary.env.gatewayTemplate'));
+
+  const rows = view.getAllByTestId('model-env-row');
+  const baseRow = rows.find((row) => (row.querySelector('input') as HTMLInputElement).value === 'ANTHROPIC_BASE_URL');
+  assert.ok(baseRow);
+  const valueInput = baseRow.querySelectorAll('input')[1] as HTMLInputElement;
+  assert.equal(valueInput.value, 'https://my-real-gateway.example');
+  assert.equal(rowSnapshot(view).filter((key) => key === 'ANTHROPIC_BASE_URL').length, 1);
+});
+
+test('the gateway template is a toggle that removes only untouched template rows', async () => {
+  const view = await openGatewayEditorWithBaseUrl('https://my-real-gateway.example');
+  const before = rowSnapshot(view);
+  const button = view.getByText('modelLibrary.env.gatewayTemplate');
+  assert.equal(button.getAttribute('aria-pressed'), 'false');
+
+  fireEvent.click(button);
+  assert.equal(button.getAttribute('aria-pressed'), 'true');
+  assert.ok(rowSnapshot(view).includes('ANTHROPIC_AUTH_TOKEN'));
+
+  fireEvent.click(button);
+  assert.equal(button.getAttribute('aria-pressed'), 'false');
+  assert.deepStrictEqual(rowSnapshot(view), before);
+  const kept = view.getAllByLabelText('modelLibrary.env.value').map((el) => (el as HTMLInputElement).value);
+  assert.ok(kept.includes('https://my-real-gateway.example'));
+});
+
+test('a template row the user filled in survives turning the template off', async () => {
+  const view = renderModels();
+  await waitFor(() => assert.ok(view.getByText('Gateway Model')));
+  fireEvent.click(view.getByLabelText('Edit Gateway Model'));
+  const button = view.getByText('modelLibrary.env.gatewayTemplate');
+  fireEvent.click(button);
+  const opusRow = view.getAllByTestId('model-env-row')
+    .find((row) => (row.querySelector('input') as HTMLInputElement).value === 'ANTHROPIC_DEFAULT_OPUS_MODEL');
+  assert.ok(opusRow);
+  fireEvent.change(opusRow.querySelectorAll('input')[1], { target: { value: 'my-opus' } });
+
+  fireEvent.click(button);
+  assert.ok(rowSnapshot(view).includes('ANTHROPIC_DEFAULT_OPUS_MODEL'));
+  assert.ok(!rowSnapshot(view).includes('ANTHROPIC_DEFAULT_SONNET_MODEL'));
+});
