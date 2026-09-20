@@ -2,7 +2,8 @@
 id: gap-launch-profiles-session-profile-lock-test
 title: launch-profiles：已锁定会话传入不同 launchProfileId 时以已存值为准并回带
   profileLocked，不报错不中断（AC-007）
-status: ready
+status: needs-human
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -25,10 +26,10 @@ GOAL-001 的 AC-007 要求：已锁定会话传入不同 `launchProfileId` 时�
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/session-profile-lock.test.ts` 退出码 0（AC-007 的判据命令）。
-- [ ] 测试断言：已锁定会话以不同 `launchProfileId` 发送时，注入 runtime 收到的 `runtimeOptions.launchProfileId` 等于已存值，且回带消息含 `profileLocked: true`（`assert.strictEqual`）。
-- [ ] 测试断言该次请求不报错不中断：`dispatchRun` 返回 `started: true`、`error: null`，没有 `sendProtocolError` 调用，run 正常收到 `complete`。
-- [ ] 取假变体通过：采纳客户端值的变体与拒绝请求的变体各自使测试变红；`npm run typecheck` 与 `npm test` 退出码 0（既有 server 测试不回归）。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/session-profile-lock.test.ts` 退出码 0（AC-007 的判据命令）。
+- [x] 测试断言：已锁定会话以不同 `launchProfileId` 发送时，注入 runtime 收到的 `runtimeOptions.launchProfileId` 等于已存值，且回带消息含 `profileLocked: true`（`assert.strictEqual`）。
+- [x] 测试断言该次请求不报错不中断：`dispatchRun` 返回 `started: true`、`error: null`，没有 `sendProtocolError` 调用，run 正常收到 `complete`。
+- [x] 取假变体通过：采纳客户端值的变体与拒绝请求的变体各自使测试变红；`npm run typecheck` 与 `npm test` 退出码 0（既有 server 测试不回归）。
 
 ## DoD
 
@@ -41,3 +42,14 @@ GOAL-001 的 AC-007 要求：已锁定会话传入不同 `launchProfileId` 时�
 - server/modules/websocket/services/chat-websocket.service.ts
 - server/modules/launch-profiles/tests/session-profile-lock.test.ts (new)
 - tasks/gap-launch-profiles-session-profile-lock-test.md
+
+## Needs-Human
+
+**执行 2026-09-20T03:54:52.111Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：worker-driver 连续 3 次 exited-not-landed 未落地（重试上限）
+- 成因类：human-adjudication
+- 失败步/判词：step=anti-drift: ANTI-DRIFT HARD FAIL: task gap-launch-profiles-session-profile-lock-test — 3 violation(s)
+- run_id：wk-prod-anchor
+- session_id：1753df93-1c0d-4053-9404-4c5b6685c080
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-launch-profiles-session-profile-lock-test-wk-prod-anchor.log

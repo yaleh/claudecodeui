@@ -1,7 +1,8 @@
 ---
 id: gap-launch-profiles-secret-never-persisted-test
 title: launch-profiles：带凭据的 profile payload 写入后 sqlite 全库检索不到凭据值，且写进任一列会变红（AC-003）
-status: ready
+status: needs-human
+needs_human_cause: blocked-outside-task
 labels:
   - gap
 parent: null
@@ -18,7 +19,7 @@ GOAL-001 的 AC-003 要求：写入带凭据的 profile payload 后，在 sqlite
 
 方案（最小切片）：
 1. 在 `server/modules/database/schema.ts` 新增 `launch_profiles` 建表 SQL（id/provider/name/description/deployment/is_default/config_json/sort_order/时间戳，UNIQUE(provider,name)）及 `sessions.launch_profile_id` 列迁移（`migrations.ts`）；不建任何 secrets 表。
-2. 新增 `server/modules/database/repositories/launch-profiles.db.ts`（create/get/list/update/delete），并在 `server/modules/launch-profiles/` 的 service 写入路径上对 payload 做密钥防护：payload 中只允许凭据的环境变量名引用（`authEnvVarName`），拒绝或剥离内联凭据值字段（如 `apiKey`/`authToken`/`token`），使值无法进入 `config_json`。
+2. 新增 `server/modules/database/repositories/launch-profiles.db.ts`（create/get/list/update/delete），经 `server/modules/database/index.ts` 桶文件导出（模块边界规范要求跨模块只走 index），并在 `server/modules/launch-profiles/` 的 service 写入路径上对 payload 做密钥防护：payload 中只允许凭据的环境变量名引用（`authEnvVarName`），拒绝或剥离内联凭据值字段（如 `apiKey`/`authToken`/`token`），使值无法进入 `config_json`。
 3. 新增 `server/modules/launch-profiles/tests/secret-never-persisted.test.ts`：使用隔离的临时 sqlite 库，写入携带独特哨兵凭据（如 `sk-test-SENTINEL-<random>`）的 gateway profile payload；随后对全库做检索——遍历 `sqlite_master` 中每张表的每一列，`SELECT ... WHERE CAST(col AS TEXT) LIKE '%SENTINEL%'`，并对数据库文件原始字节做子串检索（含 WAL 文件），断言命中数为 0。
 4. 取假用例：同一测试内直接用原始 SQL 把哨兵值写进 `launch_profiles` 的任一列（`name`、`description`、`config_json` 各一次），断言同一检索函数命中数大于 0，证明该检索在值被写入任一列时会变红（而非恒绿）。
 
@@ -37,8 +38,20 @@ GOAL-001 的 AC-003 要求：写入带凭据的 profile payload 后，在 sqlite
 
 - server/modules/database/schema.ts
 - server/modules/database/migrations.ts
+- server/modules/database/index.ts
 - server/modules/database/repositories/launch-profiles.db.ts (new)
 - server/modules/launch-profiles/index.ts (new)
 - server/modules/launch-profiles/launch-profiles.service.ts (new)
 - server/modules/launch-profiles/tests/secret-never-persisted.test.ts (new)
 - tasks/gap-launch-profiles-secret-never-persisted-test.md
+
+## Needs-Human
+
+**执行 2026-09-20T03:50:46.529Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：worker-driver 连续 3 次 exited-not-landed 未落地（重试上限）
+- 成因类：blocked-outside-task
+- 失败步/判词：step=ff: fan-in-ff-merge: 本任务 gap-launch-profiles-secret-never-persisted-test 的 suite 证书未满足 — suite_head..tip delta NOT-EVALUATED — classifier produced no verdict — root=/data/home/yale/work/claudecodeui exit=2 (select-static-checks-for-touches: registry file (runner-static-gate.ts) not found at /data/home/yale/work/claudecodeui/plugin/scripts/runner-static-gate.ts); root=/data/home/yale/.claude/plugins/cache/quay/quay/0.10.0 exit=2 (select-static-checks-for-touches: registry file (runner-static-gate.ts) not found at /data/home/yale/.claude/plugins/cache/quay/quay/0.10.0/plugin/scripts/runner-static-gate.ts); root=/data/home/yale/.claude/plugins/cache/quay/quay exit=2 (select-static-checks-for-touches: registry file (runner-static-gate.ts) not found at /data/home/yale/.claude/plugins/cache/quay/quay/plugin/scripts/runner-static-gate.ts); root=/data/home/yale/.claude/plugins/cache/quay/quay/0.10.0/scripts exit=2 (select-static-checks-for-touches: registry file (runner-static-gate.ts) not found at /data/home/yale/.claude/plugins/cache/quay/quay/0.10.0/scripts/plugin/scripts/runner-static-gate.ts); 证书闸按未知 delta fail-closed（⛔ 这不是判决：既非惰性、也非被 @static-object 覆盖）; 证书要求 suite_head 是待 ff tip 的祖先、且 suite_head..tip 的 delta 经 --classify-delta 判惰性（无 change/full 检查器 @static-object 覆盖 + 落 doc 面）；塞入 @static-object 覆盖路径 ⇒ 拒（可取假）。NOT acquiring the merge lock
+- run_id：wk-prod-anchor
+- session_id：96a2d57f-a257-424a-b7ef-128dde79be85
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-launch-profiles-secret-never-persisted-test-wk-prod-anchor.log
