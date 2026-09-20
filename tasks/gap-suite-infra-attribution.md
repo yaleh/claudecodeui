@@ -76,3 +76,5 @@ AC3 证据：`bash scripts/test.sh`（全量 176 个文件）退出码 0，# tes
 判定只看结构性事实（退出码封套 129..192 / 124、node 报告器的 `fail N` 计数、vitest JSON 的 `assertionResults[].status`），不 grep 日志关键词；方向不对称——只要报告器数出了失败断言就一律 `assert`，`infra` 只在**没有任何断言可归因**时才给出（infra 会豁免一条红且不可逆）。
 
 实现期自证时发现并修掉一个自己的缺陷（commit be80f1ee）：client 泳道的数值归一化写成 `case "${failed:-0}"`，空 tally 时 case 主语是字符串 "0"，两个分支都不匹配，于是归一化没发生、`[ "" -gt 0 ]` 既往报告里写 bash 诊断、又跳过了它本该读的断言计数（worker-death 场景只是靠泳道兜底才碰巧判对）。检查器因此新增「报告里不得出现 bash 诊断」断言，重新引入该默认值即变红。
+
+诚实披露（供后续读 fan-in 红日志的人参考）：合入 develop 后的首次全量跑曾红一次——`server/modules/commands/tests/commands.test.ts`（175/176，`TypeError: fetch failed`；该文件在自己的 server 上 `fetch('http://127.0.0.1:<port>/api/commands/execute')`），它单独跑 5/5 过、紧接着重跑全量 176/176 过，且不在本任务 Touches 内，即本任务开头描述的那类负载假红。它现在的分类是 `kind=assert`（node 报告器数到了失败测试），这符合本任务的方向不对称约束：只要有断言可归因就不给豁免，宁可漏豁免不可误豁免。
