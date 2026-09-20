@@ -2,7 +2,7 @@
 id: gap-model-secrets-write-only-and-db-file-0600-test
 title: model-library：secret 行值只写（列表/单个/错误响应只回 isSet）、PATCH 缺省保留/空串清除、auth.db
   打开时收紧 0600（AC-022）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
