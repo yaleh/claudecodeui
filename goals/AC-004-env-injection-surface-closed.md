@@ -1,7 +1,7 @@
 ---
 id: AC-004
 title: env injection surface closed
-status: achieved
+status: superseded
 kind: criterion
 goal: GOAL-001
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -16,4 +16,12 @@ statusLog:
     to: achieved
     actor: goal-driver
     reason: "I2: criterion pass"
+  - at: 2026-09-20T09:38:10.590Z
+    from: achieved
+    to: superseded
+    actor: yale
+    reason: ADR-002 复核：写入路径半边由 AC-023、编译路径半边由 AC-024、WebSocket 伪造 env 半边由 AC-025
+      接过；原测试以旧 profile 服务为对象
+superseded-by:
+  - AC-024
 ---

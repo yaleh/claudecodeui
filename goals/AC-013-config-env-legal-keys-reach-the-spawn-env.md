@@ -1,7 +1,7 @@
 ---
 id: AC-013
 title: config.env legal keys reach the spawn env
-status: achieved
+status: superseded
 kind: criterion
 goal: GOAL-001
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -22,4 +22,11 @@ statusLog:
     to: achieved
     actor: goal-driver
     reason: "I2: criterion pass"
+  - at: 2026-09-20T09:38:10.949Z
+    from: achieved
+    to: superseded
+    actor: yale
+    reason: ADR-002 复核：对象是 profile.config.env（Record），B 方案下改为有序 env 行，由 AC-024 覆盖
+superseded-by:
+  - AC-024
 ---

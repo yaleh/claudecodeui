@@ -1,7 +1,7 @@
 ---
 id: AC-014
 title: typed context fields export the real CLI env
-status: achieved
+status: superseded
 kind: criterion
 goal: GOAL-001
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -21,4 +21,12 @@ statusLog:
     to: achieved
     actor: goal-driver
     reason: "I2: criterion pass"
+  - at: 2026-09-20T09:38:11.668Z
+    from: achieved
+    to: superseded
+    actor: yale
+    reason: ADR-002 复核：类型化 contextWindow/autoCompactWindow/autoCompactPct 字段在 B
+      方案下不存在（第一版不做类型化字段），值即 env 行，由 AC-028 覆盖
+superseded-by:
+  - AC-028
 ---
