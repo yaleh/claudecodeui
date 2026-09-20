@@ -1,7 +1,7 @@
 ---
 id: AC-027
 title: "end to end in the real browser: create a model, pick it, send"
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-001
 criterion: npm run test:e2e -- e2e/model-library.spec.ts
@@ -13,6 +13,12 @@ expect: 真实浏览器驱动真实服务：登录 → Settings > Agents > Claud
 origin: ADR-002（配置挂在 Model library 上，取代独立 launch profile
   实体）；docs/proposals/launch-profiles.md 待随之修订
 activatedAt: 2026-09-20T09:16:11.918Z
+statusLog:
+  - at: 2026-09-20T13:43:19.315Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 supersedes:
   - AC-012
 ---

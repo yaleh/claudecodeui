@@ -1,7 +1,7 @@
 ---
 id: GOAL-001
 title: CloudCLI Model library 多端点配置
-status: active
+status: achieved
 kind: goal
 origin: ADR-002（取代 ADR-001）；docs/proposals/launch-profiles.md 仅作历史设计依据
 activatedAt: 2026-09-20T03:23:55.627Z
@@ -33,6 +33,11 @@ statusLog:
     actor: yale
     reason: playwright 实机验证发现写入路径白名单缺失、i18n key 外泄、Profiles 编辑器仅
       name+model、会话创建入口无选择；补 AC-011/AC-012（均实测为红）后退回 active
+  - at: 2026-09-20T13:43:24.453Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: all ACs achieved + sufficiency covered"
 ---
 让单个 CloudCLI 实例能同时对接 Anthropic 官方服务与第三方供应商（LLM Gateway / Bedrock / Vertex）。方式是：在 Model library 的自定义模型条目上挂一张环境变量表，选模型即选端点；不存在独立的 launch profile 实体（ADR-002 取代 ADR-001）。范围内：模型条目的配置存储与编译（SDK 路径）、Settings → Agents → 各 provider 下的 Models 一等分类、按模型的上下文窗口，以及【能复现用户历史上的 claude code 启动方式】，并且【一个没读过代码的人能在界面里用对它】。
 
