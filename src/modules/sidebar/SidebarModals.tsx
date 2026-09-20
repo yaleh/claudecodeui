@@ -25,6 +25,7 @@ type SidebarModalsProps = {
   onConfirmDeleteSession: (hardDelete?: boolean) => void;
   /** Project whose session-name filter editor is open, if any. */
   sessionFilterProject: Project | null;
+  sessionFilterSeedName: string | null;
   onCloseSessionFilter: () => void;
   onSessionFilterSaved: (projectId: string, hide: string[]) => Promise<void> | void;
   showVersionModal: boolean;
@@ -63,6 +64,7 @@ export default function SidebarModals({
   onConfirmDeleteProject,
   onConfirmDeleteSession,
   sessionFilterProject,
+  sessionFilterSeedName,
   onCloseSessionFilter,
   onSessionFilterSaved,
   showVersionModal,
@@ -85,6 +87,7 @@ export default function SidebarModals({
         <SessionFilterEditor
           key={sessionFilterProject.projectId}
           project={sessionFilterProject}
+          seedSessionName={sessionFilterSeedName}
           onClose={onCloseSessionFilter}
           onSaved={onSessionFilterSaved}
           t={t}

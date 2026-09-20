@@ -175,6 +175,9 @@
     "save": "Save",
     "saving": "Saving…",
     "cancel": "Cancel",
-    "saveFailed": "Failed to save the rules"
+    "saveFailed": "Failed to save the rules",
+    "hideSimilar": "Hide similar",
+    "hideSimilarHint": "Opens the filter with a rule for sessions like this",
+    "ruleAlreadyExists": "This rule already exists"
   }
 }

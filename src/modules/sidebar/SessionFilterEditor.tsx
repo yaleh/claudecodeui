@@ -5,6 +5,7 @@ import { api } from '@/shared/api';
 import { Button, Dialog, DialogContent, DialogTitle } from '@/shared/ui';
 import { cn } from '@/shared/utils';
 import type { Project } from '@/shared/types';
+import { deriveSimilarNamePattern } from '@/modules/sidebar/utils/deriveSimilarNamePattern';
 
 const PREVIEW_DEBOUNCE_MS = 300;
 
@@ -45,18 +46,29 @@ const readApiError = async (response: Response, fallback: string, rules: RuleLin
  */
 export default function SessionFilterEditor({
   project,
+  seedSessionName = null,
   onClose,
   onSaved,
   t,
 }: {
   project: Project;
+  /** "Hide similar": a session name whose derived rule is appended to the draft for the user to confirm. */
+  seedSessionName?: string | null;
   onClose: () => void;
   /** Called after the rules were persisted; the owner reloads the project's sessions. */
   onSaved: (projectId: string, hide: string[]) => Promise<void> | void;
   t: TFunction;
 }) {
   // The rules text being edited; seeded once from the project's stored rules.
-  const [draft, setDraft] = useState(() => (project.sessionFilter?.hide ?? []).join('\n'));
+  const [seed] = useState(() => {
+    const stored = project.sessionFilter?.hide ?? [];
+    const pattern = seedSessionName ? deriveSimilarNamePattern(seedSessionName) : '';
+    if (!pattern) return { draft: stored.join('\n'), alreadyExists: false };
+    if (stored.includes(pattern)) return { draft: stored.join('\n'), alreadyExists: true };
+    return { draft: [...stored, pattern].join('\n'), alreadyExists: false };
+  });
+  const [draft, setDraft] = useState(seed.draft);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Latest preview answer for the draft, shown as counts and sample names.
   const [preview, setPreview] = useState<SessionFilterPreview | null>(null);
   // Textarea line the server rejected (from preview or save); drives the red line marker.
@@ -70,6 +82,16 @@ export default function SessionFilterEditor({
   const tRef = useRef(t);
   tRef.current = t;
   const rules = useMemo(() => toRuleLines(draft), [draft]);
+
+  // A seeded rule is what the user came to confirm, so put the caret after it.
+  useEffect(() => {
+    if (!seedSessionName) return;
+    const textarea = textareaRef.current;
+    textarea?.focus();
+    textarea?.setSelectionRange(textarea.value.length, textarea.value.length);
+    // Mount-only: later edits must not steal focus back.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const seq = (requestSeqRef.current += 1);
@@ -127,6 +149,7 @@ export default function SessionFilterEditor({
         <p className="mt-1 text-xs text-muted-foreground">{t('sessionFilter.editorDescription')}</p>
 
         <textarea
+          ref={textareaRef}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           rows={6}
@@ -136,6 +159,10 @@ export default function SessionFilterEditor({
           placeholder={t('sessionFilter.editorPlaceholder')}
           className="mt-3 w-full rounded-md border border-border bg-background p-2 font-mono text-xs text-foreground focus:ring-2 focus:ring-primary/20"
         />
+
+        {seed.alreadyExists && (
+          <p role="status" className="mt-2 text-xs text-muted-foreground">{t('sessionFilter.ruleAlreadyExists')}</p>
+        )}
 
         {invalidLine !== null && (
           <ol className="mt-1 space-y-0.5 font-mono text-[11px]" data-testid="session-filter-lines">

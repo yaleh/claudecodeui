@@ -81,6 +81,8 @@ function Sidebar({
   const { sidebarVisible } = preferences;
   // Project whose session-filter editor is open; one editor at a time.
   const [sessionFilterProject, setSessionFilterProject] = useState<Project | null>(null);
+  // Session name the editor derives its first new rule from ("hide similar"); null when opened plainly.
+  const [sessionFilterSeedName, setSessionFilterSeedName] = useState<string | null>(null);
   const { setCurrentProject, mcpServerStatus } = useTaskMaster() as TaskMasterSidebarContext;
   const { tasksEnabled } = useTasksSettings();
   const paletteOps = usePaletteOps();
@@ -235,7 +237,10 @@ function Sidebar({
     onNewSession,
     showHiddenProjectIds,
     onToggleShowHidden,
-    onEditSessionFilter: setSessionFilterProject,
+    onEditSessionFilter: (project: Project, seedSessionName?: string) => {
+      setSessionFilterSeedName(seedSessionName ?? null);
+      setSessionFilterProject(project);
+    },
     onStartEditingSession: startEditingSession,
     onCancelEditingSession: cancelRename,
     onSaveEditingSession: handleSaveSessionName,
@@ -257,6 +262,7 @@ function Sidebar({
         onConfirmDeleteProject={confirmDeleteProject}
         onConfirmDeleteSession={confirmDeleteSession}
         sessionFilterProject={sessionFilterProject}
+        sessionFilterSeedName={sessionFilterSeedName}
         onCloseSessionFilter={() => setSessionFilterProject(null)}
         onSessionFilterSaved={handleSessionFilterSaved}
         showVersionModal={showVersionModal}

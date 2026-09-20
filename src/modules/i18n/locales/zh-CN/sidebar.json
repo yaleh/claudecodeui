@@ -167,6 +167,9 @@
     "save": "保存",
     "saving": "保存中…",
     "cancel": "取消",
-    "saveFailed": "保存规则失败"
+    "saveFailed": "保存规则失败",
+    "hideSimilar": "隐藏同类",
+    "hideSimilarHint": "打开过滤规则，预填一条同类会话的规则",
+    "ruleAlreadyExists": "该规则已存在"
   }
 }
