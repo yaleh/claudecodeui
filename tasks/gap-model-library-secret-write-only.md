@@ -32,13 +32,19 @@ GOAL-001 的 AC-022：ADR-002 决策 2 允许 secret 值存于 config_json，但
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/model-secret-write-only.test.ts server/modules/database/tests/db-file-permissions.test.ts` 退出码 0（AC-022 的判据命令）。
-- [ ] 测试证明：列表、单条、错误响应中检索不到 secret 值（只有 isSet）；PATCH 缺 value 保持、空串清除；auth.db 打开后权限为 0600。
-- [ ] 取假变体（读接口回传值）使该测试判红，红灯输出记录在任务证据中；旧的 secret-never-persisted 测试已被处理且无矛盾判据残留；`npm run typecheck` 通过。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/model-secret-write-only.test.ts server/modules/database/tests/db-file-permissions.test.ts` 退出码 0（AC-022 的判据命令）。
+- [x] 测试证明：列表、单条、错误响应中检索不到 secret 值（只有 isSet）；PATCH 缺 value 保持、空串清除；auth.db 打开后权限为 0600。
+- [x] 取假变体（读接口回传值）使该测试判红，红灯输出记录在任务证据中；旧的 secret-never-persisted 测试已被处理且无矛盾判据残留；`npm run typecheck` 通过。
 
 ## DoD
 
 真实落地判据：不是仅有测试文件存在。要求真实的读路径不回传 secret、真实的数据库打开路径收紧权限。AC-022 判据命令在 quay fan-in 中由红转绿，且下一轮 driver 通过 `goal_ac: AC-022` 能独立核验。
+
+## Evidence
+
+- 取假变体（service 出口把 secret value 回传）红灯：`✖ list and create responses expose only isSet for secret rows` (AssertionError: create response must not echo the secret)、`✖ PATCH: ...`、`✖ error responses never echo...`，pass 0 / fail 3；还原后 5/5 绿，`npm run typecheck` 通过。
+- 旧 `launch-profiles/tests/secret-never-persisted.test.ts` 仅覆盖 launch-profile 凭据（env 变量名引用），与 ADR-002 的 model-library secret 不冲突；已在文件头注明作用域，无矛盾判据。
+- 未核实项：全局日志中间件与 express.json 解析错误（body-parser 的 JSON 语法错误消息可能含请求体片段）未审计；本任务的错误响应测试只覆盖 AppError 路径。
 
 ## Touches
 
