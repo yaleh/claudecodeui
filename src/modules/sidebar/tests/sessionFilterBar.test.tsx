@@ -30,7 +30,7 @@ vi.mock('@/modules/sidebar/SidebarSessionItem', () => ({
 }));
 
 const { default: SidebarProjectSessions } = await import('@/modules/sidebar/SidebarProjectSessions');
-const { useProjectSessionFilter } = await import('@/modules/project-workspace/hooks/useProjectSessionFilter');
+const { useProjectSessionFilter } = await import('@/modules/project-workspace');
 
 const i18n = i18next.createInstance();
 await i18n.init({
