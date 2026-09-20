@@ -36,6 +36,10 @@ GOAL-001 AC-012 要求真实浏览器驱动真实服务，组件级 vitest 不�
 - e2e/launch-profiles.spec.ts
 - .gitignore
 - src/modules/settings/tabs/launch-profiles-settings/LaunchProfilesSettingsTab.tsx
+- src/modules/settings/tabs/launch-profiles-settings/useLaunchProfiles.ts
+- src/modules/settings/tests/launchProfileSettings.test.tsx
+- src/shared/types.ts
 - src/modules/chat/composer/LaunchProfileSelect.tsx
 - src/modules/i18n/locales/en/settings.json
+- src/modules/i18n/locales/zh-CN/settings.json
 - tasks/gap-launch-profiles-real-browser-e2e-toolchain.md
