@@ -2,7 +2,7 @@
 id: gap-goal-003-exit-conditions-section
 title: GOAL-003 缺 `## 退出条件` 小节：提议把行内退出条件提升为独立小节，使充分性判定不再被机械短路（AC-103/AC-104
   内容无缺口，缺的只是结构）
-status: needs-human
+status: todo
 labels:
   - gap
 parent: null
