@@ -1,10 +1,8 @@
 import { launchProfilesDb } from '@/modules/database/index.js';
 import type { LaunchProfileInput, LaunchProfileRecord } from '@/modules/database/index.js';
-import { isAllowedLaunchEnvKey } from '@/modules/launch-profiles/launch-spec.service.js';
+import { isAllowedLaunchEnvKey, resolveContextWindow } from '@/modules/launch-profiles/launch-spec.service.js';
 import type { LLMProvider, ResolvedLaunchSpec } from '@/shared/types.js';
 import { AppError } from '@/shared/utils.js';
-
-const DEFAULT_CONTEXT_WINDOW = 160000;
 
 const MODEL_ALIAS_ENV: Record<string, string> = {
   opus: 'ANTHROPIC_DEFAULT_OPUS_MODEL',
@@ -54,6 +52,18 @@ function compileGatewayEnv(config: Record<string, unknown>, warnings: string[]):
   return env;
 }
 
+/** Shell-path CLI flags from the profile's model settings; credentials never appear in argv. */
+function compileArgv(config: Record<string, unknown>): string[] {
+  const argv: string[] = [];
+  if (typeof config.defaultModel === 'string' && config.defaultModel) {
+    argv.push('--model', config.defaultModel);
+  }
+  if (typeof config.fallbackModel === 'string' && config.fallbackModel) {
+    argv.push('--fallback-model', config.fallbackModel);
+  }
+  return argv;
+}
+
 /**
  * Resolves the launch spec for a provider run.
  * Consumed by the Claude SDK runtime and the shell websocket service so both
@@ -84,8 +94,8 @@ export function resolveLaunchSpec(
 
   return {
     env,
-    argv: [],
-    contextWindow: parseInt(process.env.CONTEXT_WINDOW ?? '', 10) || DEFAULT_CONTEXT_WINDOW,
+    argv: profile ? compileArgv(profile.config) : [],
+    contextWindow: resolveContextWindow(profile?.config.contextWindow as number | string | undefined),
     warnings,
   };
 }
