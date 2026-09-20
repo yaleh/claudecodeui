@@ -814,6 +814,12 @@
         "envref": "Env reference",
         "unset": "Unset"
       },
+      "kindsHelp": {
+        "value": "Stored as a literal value and passed to the spawned process unchanged.",
+        "secret": "Write-only: once saved, only whether it is set is shown.",
+        "envref": "Uses a variable already present in the CloudCLI server environment instead of a value saved with this model.",
+        "unset": "Removes this variable from the spawned process environment."
+      },
       "secretSet": "Set",
       "secretValue": "Secret value",
       "secretReplace": "Type to replace the stored secret",

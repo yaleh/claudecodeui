@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus, Trash2 } from 'lucide-react';
 
@@ -76,6 +76,9 @@ type ModelEnvEditorProps = {
 export default function ModelEnvEditor({ rows, envStatus, showGatewayTemplate, onChange }: ModelEnvEditorProps) {
   const { t } = useTranslation('settings');
 
+  // Stable per-instance prefix so each row's kind explanation can be referenced by id without collisions.
+  const kindHelpIdBase = useId().replace(/[^a-zA-Z0-9]/g, '');
+
   // Keys of rows the gateway template appended; lets a second click undo exactly those rows.
   const [templateKeys, setTemplateKeys] = useState<string[]>([]);
   const templateActive = templateKeys.some((key) => rows.some((row) => row.key === key));
@@ -149,6 +152,9 @@ export default function ModelEnvEditor({ rows, envStatus, showGatewayTemplate, o
       <div className="mt-2 space-y-2">
         {rows.map((row, index) => {
           const refName = row.value.trim();
+          // Both the name field and the kind select point at this row's explanation, so the meaning of
+          // the selected kind (notably `unset`, which deletes the variable) is reachable from either control.
+          const kindHelpId = `${kindHelpIdBase}-${index}`;
           return (
             <div key={index} className="rounded-xl border border-border/60 bg-background/60 p-2" data-testid="model-env-row">
               <div className="flex flex-wrap items-center gap-2">
@@ -156,6 +162,7 @@ export default function ModelEnvEditor({ rows, envStatus, showGatewayTemplate, o
                   value={row.key}
                   onChange={(event) => updateRow(index, { key: event.target.value })}
                   aria-label={t('modelLibrary.env.key')}
+                  aria-describedby={kindHelpId}
                   placeholder="ANTHROPIC_BASE_URL"
                   spellCheck={false}
                   className="h-8 min-w-[16rem] flex-1 rounded-lg font-mono text-xs"
@@ -168,6 +175,7 @@ export default function ModelEnvEditor({ rows, envStatus, showGatewayTemplate, o
                     secretStored: false,
                   })}
                   aria-label={t('modelLibrary.env.kind')}
+                  aria-describedby={kindHelpId}
                   className="h-8 rounded-lg border border-input bg-background px-2 text-xs"
                 >
                   {ROW_KINDS.map((kind) => (
@@ -231,6 +239,15 @@ export default function ModelEnvEditor({ rows, envStatus, showGatewayTemplate, o
                   <p className="text-[11px] leading-4 text-muted-foreground">{t('modelLibrary.env.envrefHelp')}</p>
                 </div>
               )}
+
+              {/* Explains what the selected kind does; `unset` in particular deletes the variable. */}
+              <p
+                id={kindHelpId}
+                data-testid="model-env-kind-help"
+                className="mt-1.5 text-[11px] leading-4 text-muted-foreground"
+              >
+                {t(`modelLibrary.env.kindsHelp.${row.kind}`)}
+              </p>
             </div>
           );
         })}

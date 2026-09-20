@@ -610,6 +610,12 @@
         "envref": "环境变量引用",
         "unset": "取消设置"
       },
+      "kindsHelp": {
+        "value": "以字面值保存，原样传给启动的进程。",
+        "secret": "只写不读：保存后仅显示是否已设置。",
+        "envref": "使用 CloudCLI 服务环境中已有的变量，而不是随该模型保存的字面值。",
+        "unset": "从启动进程的环境中删除该变量。"
+      },
       "secretSet": "已设置",
       "secretValue": "密钥值",
       "secretReplace": "输入以替换已存储的密钥",
