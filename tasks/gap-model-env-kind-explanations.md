@@ -31,6 +31,8 @@ depends_on: []
 
 真实落地：真实浏览器里把一行切到 unset，页面上可读到解释文字，屏幕阅读器可经 `aria-describedby` 读到；文案在 en 与 de 下均非空且不是 key 原文。仅新增 i18n 键而未渲染不算完成。
 
+- 该轴仍暗，理由：本任务的判据是 env 行四种 kind 的**文案与渲染**（vitest 断言 + i18n 键存在性 + scoped 套件），产出的是 UI 文案读数，不产生 L_D（描述长度）或 L_G（生成对齐）读数；本仓从未跑过 archguard 暗轴探针。ADR-007 per-milestone 谓词在本仓尚未生效（全部任务均 MISSING），此处按 ADR 原文认可的显式声明形式登记该轴仍暗。
+
 ## Touches
 
 - src/modules/chat/modals/ModelEnvEditor.tsx
