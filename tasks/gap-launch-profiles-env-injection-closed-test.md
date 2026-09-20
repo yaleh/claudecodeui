@@ -2,7 +2,7 @@
 id: gap-launch-profiles-env-injection-closed-test
 title: launch-profiles：env 白名单在写入路径与编译路径各自拒绝 PATH/NODE_OPTIONS/LD_PRELOAD 等键，且
   WebSocket 伪造的 options.env 被后端完全忽略（AC-004）
-status: ready
+status: done
 needs_human_cause: human-adjudication
 labels:
   - gap
