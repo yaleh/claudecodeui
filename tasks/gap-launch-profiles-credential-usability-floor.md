@@ -2,7 +2,7 @@
 id: gap-launch-profiles-credential-usability-floor
 title: launch-profiles：凭据可用性下限——变量状态可见、网关 profile 清除继承的 Anthropic key、会话锁定后回显
   profile（AC-021）
-status: needs-human
+status: superseded
 needs_human_cause: human-adjudication
 labels:
   - gap
@@ -69,3 +69,6 @@ GOAL-001 的 AC-021（凭据可用性下限）三件事合取，今天均缺失�
 - run_id：wk-prod-anchor
 - session_id：8350def1-c891-4be9-a10f-c4091ce1f9b5
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-launch-profiles-credential-usability-floor-wk-prod-anchor.log
+
+
+2026-09-20 撤回：改为 Model library 承载（ADR-002，B 方案），缺省 profile / profile 凭据可用性底线随 profile 独立实体一并被取代。该任务的 worktree 与分支保留未删，仅状态改为 superseded。
