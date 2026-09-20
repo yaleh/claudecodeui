@@ -27,14 +27,19 @@ GOAL-001 的 AC-020 要求：不带 launchProfileId 的会话使用该 provider 
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/default-profile-resolution.test.ts && npx vitest run src/modules/settings/tests/launchProfileDefault.test.tsx src/modules/chat/tests/launchProfileDefaultOption.test.tsx` 退出码 0（AC-020 判据命令，两段缺一不可）。
-- [ ] 服务端测试以真实落库的 profile 驱动：无 launchProfileId 的首次 send 写入默认 profile id 并锁定；之后改默认，已有会话不变；无默认走 passthrough；设新默认后同 provider 仅一条 is_default；删除默认后回退 passthrough 且不报错。
-- [ ] 前端测试断言 Settings 能设置与取消默认；composer 内置选项文案为“继承服务器环境”，不再出现 “Default profile”，且默认 profile 有明确标记。
-- [ ] 取假变体（去掉默认消费点）使服务端测试判红，红灯输出记录在任务证据中；`npm run typecheck` 通过；既有 session-profile-lock 与 launch-profiles 测试仍退出码 0。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/default-profile-resolution.test.ts && npx vitest run src/modules/settings/tests/launchProfileDefault.test.tsx src/modules/chat/tests/launchProfileDefaultOption.test.tsx` 退出码 0（AC-020 判据命令，两段缺一不可）。
+- [x] 服务端测试以真实落库的 profile 驱动：无 launchProfileId 的首次 send 写入默认 profile id 并锁定；之后改默认，已有会话不变；无默认走 passthrough；设新默认后同 provider 仅一条 is_default；删除默认后回退 passthrough 且不报错。
+- [x] 前端测试断言 Settings 能设置与取消默认；composer 内置选项文案为“继承服务器环境”，不再出现 “Default profile”，且默认 profile 有明确标记。
+- [x] 取假变体（去掉默认消费点）使服务端测试判红，红灯输出记录在任务证据中；`npm run typecheck` 通过；既有 session-profile-lock 与 launch-profiles 测试仍退出码 0。
 
 ## DoD
 
 真实落地判据：不是仅有测试文件存在。要求真实的 chat 发送路径在客户端不带 id 时读取库中默认 profile 并写入会话锁，UI 控件确实调用 REST 更新 isDefault。AC-020 判据命令在 quay fan-in 中由红转绿，且下一轮 driver 通过 `goal_ac: AC-020` 能独立核验。
+
+## Evidence
+
+- 取假变体（dispatchRun 不再传入 resolveDefaultProfileId 结果）：`✖ first send without an id locks the default profile; a later default change does not affect it`，fail 1 / pass 5；还原后 6/6 绿。
+- `npm run typecheck` 通过；launch-profiles/tests 全部 45 项通过；scripts/test.sh --for-task ... --allow-thin 3/3 通过。
 
 ## Touches
 
