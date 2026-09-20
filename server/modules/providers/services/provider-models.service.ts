@@ -8,6 +8,7 @@ import type {
   LLMProvider,
   ProviderCurrentActiveModel,
   ProviderModelConfig,
+  ProviderModelPublicConfig,
   ProviderModelOption,
   ProviderModelsDefinition,
   ProviderSessionModel,
@@ -38,6 +39,26 @@ type ProviderModelsServiceDependencies = {
   sessions?: ProviderModelsSessionStore;
 };
 
+/**
+ * Strips secret values at the service exit so no caller (route, command,
+ * client) can receive one; secret rows become `{key, kind, isSet}`.
+ */
+const toPublicConfig = (config: ProviderModelConfig | null): ProviderModelPublicConfig | null => (
+  config === null
+    ? null
+    : {
+      env: config.env.map((row) => {
+        if (row.kind === 'secret') {
+          return { key: row.key, kind: 'secret' as const, isSet: true as const };
+        }
+        if (row.kind === 'unset') {
+          return { key: row.key, kind: 'unset' as const };
+        }
+        return { key: row.key, kind: row.kind, ...(row.value === undefined ? {} : { value: row.value }) };
+      }),
+    }
+);
+
 const toCustomProviderModelOption = (
   record: CustomProviderModelRecord,
 ): ProviderModelOption => ({
@@ -45,6 +66,7 @@ const toCustomProviderModelOption = (
   label: record.model,
   recordId: record.recordId,
   isCustom: true,
+  config: toPublicConfig(record.config),
 });
 
 const mergeProviderModels = (
@@ -64,6 +86,37 @@ const invalidConfig = (message: string): AppError => new AppError(message, {
   code: 'INVALID_MODEL_CONFIG',
   statusCode: 400,
 });
+
+/**
+ * Applies write-only secret semantics against the stored config: a secret row
+ * without `value` keeps the stored value, an empty string clears the row, and
+ * a non-empty value replaces it. Error messages carry keys only, never values.
+ */
+const resolveSecretRows = (
+  config: ProviderModelConfig,
+  stored: ProviderModelConfig | null,
+): ProviderModelConfig => {
+  const env: ProviderModelConfig['env'] = [];
+  for (const row of config.env) {
+    if (row.kind !== 'secret') {
+      env.push(row);
+      continue;
+    }
+    if (row.value === '') {
+      continue;
+    }
+    if (row.value !== undefined) {
+      env.push(row);
+      continue;
+    }
+    const kept = stored?.env.find((entry) => entry.key === row.key && entry.kind === 'secret');
+    if (!kept?.value) {
+      throw invalidConfig(`Environment variable ${row.key} has no stored secret to keep.`);
+    }
+    env.push({ key: row.key, kind: 'secret', value: kept.value });
+  }
+  return { env };
+};
 
 /**
  * Semantic validation of a model's env rows: allowlisted keys (the same
@@ -87,12 +140,19 @@ const validateModelConfig = (config: ProviderModelConfig): ProviderModelConfig =
   return config;
 };
 
-const normalizeCustomModelInput = (input: CustomProviderModelInput): CustomProviderModelInput => ({
+const normalizeCustomModelInput = (
+  input: CustomProviderModelInput,
+  stored: ProviderModelConfig | null = null,
+): CustomProviderModelInput => ({
   id: input.id.trim(),
   model: input.model.trim(),
   ...(input.config === undefined
     ? {}
-    : { config: input.config === null ? null : validateModelConfig(input.config) }),
+    : {
+      config: input.config === null
+        ? null
+        : validateModelConfig(resolveSecretRows(input.config, stored)),
+    }),
 });
 
 const isUniqueConstraintError = (error: unknown): boolean => (
@@ -195,8 +255,8 @@ export const createProviderModelsService = (dependencies: ProviderModelsServiceD
     input: CustomProviderModelInput,
   ): Promise<{ model: ProviderModelOption; models: ProviderModelsDefinition }> => {
     const predefined = await resolveProvider(provider).models.getSupportedModels();
-    readCustomModel(provider, recordId);
-    const normalized = normalizeCustomModelInput(input);
+    const existing = readCustomModel(provider, recordId);
+    const normalized = normalizeCustomModelInput(input, existing.config);
     assertModelIdAvailable(provider, predefined, normalized.id, recordId);
 
     try {
@@ -417,8 +477,19 @@ export const createProviderModelsService = (dependencies: ProviderModelsServiceD
     return recordedModel || normalizedRequestedModel || undefined;
   };
 
+  /**
+   * SERVER-INTERNAL ONLY: returns the stored config including secret values
+   * for the launch compiler. Never mount this on a route or return its result
+   * to a client; every client-facing read goes through `getProviderModels`.
+   */
+  const getCustomModelConfigForRuntime = (
+    provider: LLMProvider,
+    modelId: string,
+  ): ProviderModelConfig | null => catalog.findCustomProviderModelByModelId(provider, modelId)?.config ?? null;
+
   return {
     getProviderModels,
+    getCustomModelConfigForRuntime,
     createCustomModel,
     updateCustomModel,
     deleteCustomModel,

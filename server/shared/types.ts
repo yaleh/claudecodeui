@@ -79,6 +79,8 @@ export type ProviderModelOption = {
   recordId?: number;
   /** True for user-created rows; false for immutable CloudCLI defaults. */
   isCustom?: boolean;
+  /** Custom-model env config as returned to clients; secret values are never included. */
+  config?: ProviderModelPublicConfig | null;
   effort?: {
     default?: string;
     values: {
@@ -137,6 +139,19 @@ export type ProviderModelEnvRow = {
   key: string;
   kind: 'value' | 'secret' | 'envref' | 'unset';
   value?: string;
+};
+
+/**
+ * Client-facing env row: identical to the stored row except that a secret
+ * carries only `isSet` and never its value.
+ */
+export type ProviderModelPublicEnvRow =
+  | { key: string; kind: 'value' | 'envref'; value?: string }
+  | { key: string; kind: 'unset' }
+  | { key: string; kind: 'secret'; isSet: true };
+
+export type ProviderModelPublicConfig = {
+  env: ProviderModelPublicEnvRow[];
 };
 
 /**
