@@ -47,7 +47,7 @@ type SidebarProjectItemProps = {
   /** Resolved for this row so toggling one project's flag leaves other rows' memo boundary intact. */
   isShowingHiddenSessions: boolean;
   onToggleShowHidden?: (projectId: string) => void;
-  onEditSessionFilter?: (project: Project) => void;
+  onEditSessionFilter?: (project: Project, seedSessionName?: string) => void;
   onStartEditingSession: (projectId: string, sessionId: string, initialName: string) => void;
   onCancelEditingSession: () => void;
   onSaveEditingSession: (projectName: string, sessionId: string, summary: string, provider: LLMProvider) => void;

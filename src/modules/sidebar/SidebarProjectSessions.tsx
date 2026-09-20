@@ -33,7 +33,7 @@ type SidebarProjectSessionsProps = {
   onNewSession: (project: Project) => void;
   isShowingHiddenSessions?: boolean;
   onToggleShowHidden?: (projectId: string) => void;
-  onEditSessionFilter?: (project: Project) => void;
+  onEditSessionFilter?: (project: Project, seedSessionName?: string) => void;
   t: TFunction;
 };
 
@@ -159,6 +159,9 @@ export default function SidebarProjectSessions({
               onSessionSelect={onSessionSelect}
               onDeleteSession={onDeleteSession}
               onForkSession={onForkSession}
+              onHideSimilar={onEditSessionFilter
+                ? (sessionName) => onEditSessionFilter(project, sessionName)
+                : undefined}
               t={t}
             />
           ))}

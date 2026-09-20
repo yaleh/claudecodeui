@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Check, Edit2, GitBranch, MoreHorizontal, Trash2, X } from 'lucide-react';
+import { Check, Edit2, EyeOff, GitBranch, MoreHorizontal, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { ActionMenu } from '@/shared/ui';
@@ -29,6 +29,8 @@ type SessionOptionsProps = {
   onDeleteSession: (sessionId: string, sessionTitle: string) => void;
   /** Bound by the caller, which owns the session object the fork needs. */
   onFork?: () => void;
+  /** Opens the project's session filter seeded from this name; withheld where the row cannot reach that editor. */
+  onHideSimilar?: (sessionName: string) => void;
   /** Withheld where the row has nowhere to send a delete. */
   canDelete?: boolean;
   className?: string;
@@ -58,6 +60,7 @@ export default function SessionOptions({
   onSaveEditingSession,
   onDeleteSession,
   onFork,
+  onHideSimilar,
   canDelete = true,
   className,
   t,
@@ -181,6 +184,13 @@ export default function SessionOptions({
               description: 'Continue from a copy, leaving this one untouched.',
               icon: GitBranch,
               onSelect: onFork,
+            }] : []),
+            ...(onHideSimilar ? [{
+              key: 'hide-similar',
+              label: t('sessionFilter.hideSimilar'),
+              description: t('sessionFilter.hideSimilarHint'),
+              icon: EyeOff,
+              onSelect: () => onHideSimilar(sessionName),
             }] : []),
             ...(canDelete && !isProcessing ? [{
               key: 'delete',

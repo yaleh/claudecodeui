@@ -29,6 +29,8 @@ type SidebarSessionItemProps = {
   onDeleteSession: (sessionId: string, sessionTitle: string) => void;
   /** Branches this session into an independent one; absent when its provider cannot. */
   onForkSession?: (session: SessionWithProvider) => void;
+  /** Opens the project's filter editor seeded from this session's name. */
+  onHideSimilar?: (sessionName: string) => void;
   t: TFunction;
 };
 
@@ -50,6 +52,7 @@ function SidebarSessionItem({
   onSessionSelect,
   onDeleteSession,
   onForkSession,
+  onHideSimilar,
   t,
 }: SidebarSessionItemProps) {
   const isCompact = useCompactSidebar();
@@ -408,6 +411,7 @@ function SidebarSessionItem({
           onSaveEditingSession={onSaveEditingSession}
           onDeleteSession={onDeleteSession}
           onFork={onForkSession ? () => onForkSession(session) : undefined}
+          onHideSimilar={onHideSimilar}
           t={t}
         />
       </div>

@@ -1347,7 +1347,8 @@ export type SidebarProjectListProps = SessionRowActions & {
   /** Projects whose name-filtered sessions are temporarily shown in this browser. */
   showHiddenProjectIds?: ReadonlySet<string>;
   onToggleShowHidden?: (projectId: string) => void;
-  onEditSessionFilter?: (project: Project) => void;
+  /** With a session name, the editor opens seeded with a rule derived from it ("hide similar"). */
+  onEditSessionFilter?: (project: Project, seedSessionName?: string) => void;
   t: TFunction;
 };
 

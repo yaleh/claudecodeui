@@ -1,7 +1,7 @@
 ---
 id: gap-project-session-name-filter-hide-similar
 title: 项目级会话名过滤（第二步）：会话行菜单「隐藏同类」，把会话名归一化转义后预填为一条规则并请人确认
-status: ready
+status: done
 labels:
   - gap
 parent: null
