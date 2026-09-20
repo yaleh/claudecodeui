@@ -1,7 +1,7 @@
 ---
 id: gap-model-gateway-template-merge-toggle
 title: Models 网关模板：按行合并而非替换（不抹掉已填值），且可逆（aria-pressed 开关）
-status: todo
+status: ready
 labels:
   - gap
   - defect
