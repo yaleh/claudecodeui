@@ -41,14 +41,18 @@ not ok - lint: server/modules/launch-profiles/tests/model-context-window.test.ts
 
 ## AC
 
-- [ ] `node scripts/quay-attribution-probe.mjs --log scripts/__fixtures__/fan-in-suite-lint-failure.log` 在**未修**的插件上退出码非零，并打印「日志指名失败文件数 ≥1、解析器提取数 0」的差值（复现上游缺陷）。
-- [ ] `node --test scripts/quay-attribution-probe.test.mjs` 退出码 0：fixture 驱动，断言探针计数逻辑能区分「指名了文件的失败」与「未指名」，且不把无路径的 `lint` 伪文件行计为测试文件。
-- [ ] 真实日志实测：`node scripts/quay-attribution-probe.mjs`（默认取最新 `.quay/fan-in-suite-*.log`）对一份含失败的日志同样给出非零退出码与差值；所用命令与实测输出写入完成记录。
-- [ ] `bash scripts/test.sh` 退出码 0：探针未并入 suite，本仓库既有测试不回归。
+- [x] `node scripts/quay-attribution-probe.mjs --log scripts/__fixtures__/fan-in-suite-lint-failure.log` 在**未修**的插件上退出码非零，并打印「日志指名失败文件数 ≥1、解析器提取数 0」的差值（复现上游缺陷）。
+- [x] `node --test scripts/quay-attribution-probe.test.mjs` 退出码 0：fixture 驱动，断言探针计数逻辑能区分「指名了文件的失败」与「未指名」，且不把无路径的 `lint` 伪文件行计为测试文件。
+- [x] 真实日志实测：`node scripts/quay-attribution-probe.mjs`（默认取最新 `.quay/fan-in-suite-*.log`）对一份含失败的日志同样给出非零退出码与差值；所用命令与实测输出写入完成记录。
+- [x] `bash scripts/test.sh` 退出码 0：探针未并入 suite，本仓库既有测试不回归。
 
 ## DoD
 
 真实落地判据：不是仅有一个脚本文件存在。要求探针在**真实**（非合成）fan-in 日志上实际跑通并给出差值结论，结论可重复、由退出码承载（不依赖人工读日志）；fixture 自测覆盖其计数逻辑，且两者在同一次运行中给出一致判定。上游把该正则改为覆盖本仓库布局（或改为同时解析 `not ok -` 行使指名文件可归因）之后，同一探针命令退出码转 0 —— 即本任务的完成状态由探针机械核验，而非由人声称；届时探针可转为常驻回归断言。
+
+## 完成记录
+
+实测命令：`node scripts/quay-attribution-probe.mjs`（默认取最新 `.quay/fan-in-suite-*.log`）→ 输出 `named failing files (not ok -): 1 [server/modules/launch-profiles/tests/model-context-window.test.ts]` / `parser-extracted files (passed=false): 0` / `unattributed: 1`，退出码 1。fixture 同命令加 `--log` 结果一致；`node --test scripts/quay-attribution-probe.test.mjs` 4/4 通过；`bash scripts/test.sh` 退出码 0（174 pass / 0 fail）。
 
 ## Touches
 
