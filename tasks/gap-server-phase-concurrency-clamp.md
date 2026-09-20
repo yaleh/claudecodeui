@@ -1,7 +1,7 @@
 ---
 id: gap-server-phase-concurrency-clamp
 title: 服务端阶段并发照单全收：fan-in 塞入远大于 4 的并发 ⇒ 一批 50s+ 重 e2e 互踩、每次红在不同文件，任务反复被 park
-status: ready
+status: done
 labels:
   - gap
   - defect
