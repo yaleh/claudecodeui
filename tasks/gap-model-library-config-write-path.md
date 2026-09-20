@@ -1,7 +1,7 @@
 ---
 id: gap-model-library-config-write-path
 title: model-library：provider_models 增加 config_json，写入路径校验 env 行（AC-023）
-status: ready
+status: done
 labels:
   - gap
 parent: null
