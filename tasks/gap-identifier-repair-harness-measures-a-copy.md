@@ -1,7 +1,7 @@
 ---
 id: gap-identifier-repair-harness-measures-a-copy
 title: 判据必须量出货模块：收敛 identifierRepair 的两份实现，并修掉点号段正则与中文分词两处语义差异
-status: ready
+status: done
 labels:
   - gap
 parent: null
