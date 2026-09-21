@@ -1,7 +1,7 @@
 ---
 id: gap-voice-file-upload-input
 title: 开关控制的音频文件上传入口，走同一条转写链路
-status: todo
+status: ready
 labels:
   - gap
 parent: null
