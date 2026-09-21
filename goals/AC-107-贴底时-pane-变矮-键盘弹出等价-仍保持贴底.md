@@ -1,7 +1,7 @@
 ---
 id: AC-107
 title: 贴底时 pane 变矮（键盘弹出等价）仍保持贴底
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-004
 criterion: npx playwright test e2e/transcript-follow.spec.ts -g "AC-107"
@@ -16,4 +16,10 @@ origin: 2026-09-21 实测（真实实例 :3001、真实 bundle，1440×900 与 3
   的自动跟随只在 chatMessages.length 变化时触发（useChatSessionState.ts 的 follow
   effect），流式文本就地增长、markdown 重渲染、pane 变矮都不跟随；docs 里「流式期间浏览器把 pane 钉在底部」被实测证伪。
 activatedAt: 2026-09-21T07:18:39.740Z
+statusLog:
+  - at: 2026-09-21T09:33:29.443Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 ---
