@@ -50,14 +50,14 @@ extra:
 
 ## AC
 
-- [ ] 钩子单测：新增 `src/modules/chat/tests/voiceClipPlayback.test.tsx`，`npx vitest run src/modules/chat/tests/voiceClipPlayback.test.tsx` 退出码 0，覆盖：录音结束后产生 clip；blob `<800` 字节时不产生 clip；**转写失败仍产生 clip**；第二次录音覆盖第一个并对旧 object URL 调 `revokeObjectURL`；`start()` 会停掉正在播放的 clip；组件卸载时 revoke。
-- [ ] 生命周期不变式：同一测试文件覆盖：`scope` 变化清空 clip；`isActive=false` 只停播、clip **保留**；`isActive` 恢复为 true 后该 clip 仍可重播。
-- [ ] 与朗读互斥：同一测试文件覆盖：播放 clip 会调用 `voicePlayer.stop()`（`vi.spyOn` 该单例）；`voicePlayer` 进入 loading/playing 时正在播的 clip 被暂停。
-- [ ] 失败路径：同一测试文件覆盖：`play()` reject 后 clip 状态回到 `idle`（不得停在 loading），且 `onError` 恰好被调用一次。
-- [ ] 时长读数：同一测试文件用 fake timers 推进挂钟后断言 `meta.durationMs` 落在录音时长的 ±20% 内；断言失败信息须**打印实测值**，不得只给一句断言失败。
-- [ ] 渲染面：同一测试文件覆盖：无 clip 时不渲染回放控件；有 clip 时渲染，且其可访问名称在播放/停止两态间切换。
-- [ ] i18n：`node -e "const fs=require('fs');const ls=['en','es','id','ko','zh-CN'];const bad=ls.filter(l=>{const v=(JSON.parse(fs.readFileSync('src/modules/i18n/locales/'+l+'/chat.json','utf8')).voice)||{};return !v.playRecording||!v.stopPlayback;});if(bad.length){console.error('missing voice keys in:',bad);process.exit(1)}console.log('ok')"` 退出码 0（失败时打印缺失的 locale）。
-- [ ] 静态门：`npm run lint` 与 `npx tsc --noEmit -p tsconfig.json` 均退出码 0。
+- [x] 钩子单测：新增 `src/modules/chat/tests/voiceClipPlayback.test.tsx`，`npx vitest run src/modules/chat/tests/voiceClipPlayback.test.tsx` 退出码 0，覆盖：录音结束后产生 clip；blob `<800` 字节时不产生 clip；**转写失败仍产生 clip**；第二次录音覆盖第一个并对旧 object URL 调 `revokeObjectURL`；`start()` 会停掉正在播放的 clip；组件卸载时 revoke。
+- [x] 生命周期不变式：同一测试文件覆盖：`scope` 变化清空 clip；`isActive=false` 只停播、clip **保留**；`isActive` 恢复为 true 后该 clip 仍可重播。
+- [x] 与朗读互斥：同一测试文件覆盖：播放 clip 会调用 `voicePlayer.stop()`（`vi.spyOn` 该单例）；`voicePlayer` 进入 loading/playing 时正在播的 clip 被暂停。
+- [x] 失败路径：同一测试文件覆盖：`play()` reject 后 clip 状态回到 `idle`（不得停在 loading），且 `onError` 恰好被调用一次。
+- [x] 时长读数：同一测试文件用 fake timers 推进挂钟后断言 `meta.durationMs` 落在录音时长的 ±20% 内；断言失败信息须**打印实测值**，不得只给一句断言失败。
+- [x] 渲染面：同一测试文件覆盖：无 clip 时不渲染回放控件；有 clip 时渲染，且其可访问名称在播放/停止两态间切换。
+- [x] i18n：`node -e "const fs=require('fs');const ls=['en','es','id','ko','zh-CN'];const bad=ls.filter(l=>{const v=(JSON.parse(fs.readFileSync('src/modules/i18n/locales/'+l+'/chat.json','utf8')).voice)||{};return !v.playRecording||!v.stopPlayback;});if(bad.length){console.error('missing voice keys in:',bad);process.exit(1)}console.log('ok')"` 退出码 0（失败时打印缺失的 locale）。
+- [x] 静态门：`npm run lint` 与 `npx tsc --noEmit -p tsconfig.json` 均退出码 0。
 
 ## DoD
 
@@ -69,6 +69,24 @@ extra:
 
 L_D 该轴仍暗，理由：本任务是 composer 的交互补全，不新增领域能力，也没有可读出的领域读数。
 L_G 该轴仍暗，理由：同上；本任务的验证读数是 DoD 里的时长、播放点位与控件的出现/消失。
+
+## 浏览器实测读数（DoD a–g）
+
+环境：Playwright Chromium（headless shell 1243）驱动真实 Express 后端 + Vite 前端，`e2e/playwright.config.ts` 每轮分配独立端口与独立 `QUAY_E2E_DATA_DIR`；模型走真实网关（`v4.1flash`）。**音频输入用的是 Chromium 自带的合成采集设备（`--use-fake-device-for-media-stream` / `--use-fake-ui-for-media-stream`），本 host 无音频设备，真麦克风未测**；STT 后端是本地 mock HTTP 服务（只用来让录音真的发出去，不参与音频本身）。
+
+- (a) 录 4s → composer 出现回放控件，读数 `0:04 56 KB`；录音确实离开客户端：`POST /v1/audio/transcriptions`，57389 字节；服务端语音配置 `{"baseUrl":"http://127.0.0.1:<port>/v1","sttModel":"whisper-1"}`。
+- (b) 播放/暂停往返：播放期间 `currentTime` 采样 0.142 → 0.342 → … → 1.342（每 200ms 一次），暂停事件落在 **1.511657**——停在停的地方，既不是 0 也不是结尾。
+- (c) 切到另一个会话（`human-alpha`）后回放控件数 **0**。这条不靠卸载生效（`ChatInterface` 无 `key`、始终挂载），是 `scope` 效应单独做到的。
+- (d) 播放中切到 **Source Control** tab：暂停事件 `currentTime` = **1.218152**；切回 Chat 后控件仍在、时长不变、可重播。
+- (e) 播放中触发**真实** AskUserQuestion 面板（新项目里的新会话发一条让模型调用该工具的消息，无插桩）：模型在发送后 **1894ms** 调用了该工具；15s 的 clip（`0:15 229 KB`）停在 **currentTime 2.938341**、即播放开始后 **2998ms**（远早于 clip 结束的 13.5s 上限，是"被面板停掉"而不是"自己放完"）；面板在位期间回放控件数 **0**；面板撤去后控件回来并重新播放（play 事件 `currentTime` 0）。
+- (f) 375×720：带控件时工具行 x=21 宽 **231**、右簇 x=152 宽 **202**、`scrollWidth == clientWidth == 357`（**不横向溢出**）；把该控件临时 `display:none` 作对照，同项读数为工具行宽 **164**（即本控件占 67px）、右簇 x=152 宽 202 **不变**。**换行在带与不带两种状态下都是 true**，即 375px 下右簇本来就换行，与本控件无关。截图 `/tmp/voice-clip-375.png`。
+- (g) 操作记录：以上每一步都由探针脚本打印一行 `[dod] …`，本文读数逐字取自这些行。探针脚本是临时物、已在提交前删除，不在 Touches 内。
+
+探针会话说明：种子 transcript 的会话 id 是 `e2e-transcript-follow` 这类夹具名，CLI 拒绝 `--resume`（`--resume requires a valid session ID or session title`），所以 (e) 另建了一个项目、由 app 自己分配会话 id 来跑真实模型轮次。
+
+AC 复读（本轮实测）：`npx vitest run src/modules/chat/tests/voiceClipPlayback.test.tsx` → 13 passed，退出码 0；AC7 的 `node -e` 检查 → `ok`，退出码 0（另核实：全仓只有 en/es/id/ko/zh-CN 五个 locale 带 `voice` 组，不存在漏翻）；`npm run lint` → 退出码 0（146 条 warning 行，其中 `useVoiceInput.ts` 2 条，均为 Proposal 已登记的 `react(set-state-in-effect)`）；`npx tsc --noEmit -p tsconfig.json` → 退出码 0。
+
+如实登记的取舍（与 DoD 一致）：(1) 真麦克风采集、iOS 的手势与 `play()` 语义、Firefox/Safari 的 duration 分支均**未验证**；(2) 录音不持久化、刷新即丢，是本任务的**范围**而非缺陷，以上读数不得被解读为"历史消息可回放"；(3) 会话切换即清空 clip——在 A 会话录完、切到 B 再切回来就听不到，这是"单槽"的必然代价。
 
 ## Touches
 
