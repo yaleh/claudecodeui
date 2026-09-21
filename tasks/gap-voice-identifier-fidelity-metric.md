@@ -1,7 +1,7 @@
 ---
 id: gap-voice-identifier-fidelity-metric
 title: 标识符逐字存活率指标并接入语音链路读数
-status: ready
+status: done
 labels:
   - gap
 parent: null
