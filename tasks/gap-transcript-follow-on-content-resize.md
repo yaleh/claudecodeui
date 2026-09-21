@@ -41,11 +41,11 @@ goal_ac: AC-106
 
 ## AC
 
-- [ ] `npx playwright test e2e/transcript-follow.spec.ts -g "AC-106"` 退出码 0（真实 Chromium 打 playwright webServer 起的真实后端 + 真实 Vite，隔离数据目录；不得 stub 后端、不得用 evaluate 直接设 scrollTop 冒充用户手势）。
-- [ ] 同一 spec 断言贴底半：(a) 让最后一行 assistant 就地长高 N≥400px、(b) 替换最后一行的最后一段内容使其变高，每次采样 gap ≤ 1px；采样点在布局与 ResizeObserver 回调之后（后注册 ResizeObserver 或 rAF 内 setTimeout 0），⛔ 不得用 rAF 内直接读 scrollHeight 当绘制态。
-- [ ] 同一 spec 断言对照半：先用手势离开底部（gap > 阈值）后做同样的增长，scrollTop 不变（±1）且 gap 恰好增加 N（±1）。
-- [ ] 抗假变体真跑并留输出后还原：React 信号版（最后一行文本长度）与「每次 store flush 无条件 pin」版各使 (a)(b) 变红；「离开底部后仍被 pin」版使对照半变红；`git diff` 证明 spec 的真实断言一条未删、未经 stub/skip。
-- [ ] `npm run test:client` 与 `npm run typecheck` 退出码 0（既有前端测试不回归，含 src/modules/chat/tests/transcriptScrollOwnership.test.tsx）。
+- [x] `npx playwright test e2e/transcript-follow.spec.ts -g "AC-106"` 退出码 0（真实 Chromium 打 playwright webServer 起的真实后端 + 真实 Vite，隔离数据目录；不得 stub 后端、不得用 evaluate 直接设 scrollTop 冒充用户手势）。
+- [x] 同一 spec 断言贴底半：(a) 让最后一行 assistant 就地长高 N≥400px、(b) 替换最后一行的最后一段内容使其变高，每次采样 gap ≤ 1px；采样点在布局与 ResizeObserver 回调之后（后注册 ResizeObserver 或 rAF 内 setTimeout 0），⛔ 不得用 rAF 内直接读 scrollHeight 当绘制态。
+- [x] 同一 spec 断言对照半：先用手势离开底部（gap > 阈值）后做同样的增长，scrollTop 不变（±1）且 gap 恰好增加 N（±1）。
+- [x] 抗假变体真跑并留输出后还原：React 信号版（最后一行文本长度）与「每次 store flush 无条件 pin」版各使 (a)(b) 变红；「离开底部后仍被 pin」版使对照半变红；`git diff` 证明 spec 的真实断言一条未删、未经 stub/skip。
+- [x] `npm run test:client` 与 `npm run typecheck` 退出码 0（既有前端测试不回归，含 src/modules/chat/tests/transcriptScrollOwnership.test.tsx）。
 
 ## DoD
 
@@ -68,3 +68,40 @@ L_G 该轴仍暗，理由：同上；本任务的读数是浏览器里的像素�
 - src/modules/chat/ChatInterface.tsx
 - src/modules/chat/tests/transcriptScrollOwnership.test.tsx
 - tasks/gap-transcript-follow-on-content-resize.md
+
+## Completion
+
+**执行 2026-09-21（task/gap-transcript-follow-on-content-resize，commit 793a5ce9，merge develop 330410fd）**
+
+判据命令 `npx playwright test e2e/transcript-follow.spec.ts -g "AC-106"` 退出码 0，1/1 pass。连续 4 轮全绿（每轮 2.1s；总 10.9s / 11.3s / 12.3s / 11.0s，无抖动）：前 3 轮为连续复跑，第 4 轮为三个抗假变体全部还原后的复跑。
+
+```
+  ✓  1 e2e/transcript-follow.spec.ts:259:3 › transcript follow in a real browser › AC-106 a row that grows in place stays pinned at the bottom, and a scrolled-away transcript is left alone (2.1s)
+  1 passed (11.0s)
+```
+
+真实链路：真实 Chromium 打 playwright.config.ts 的 webServer（真后端 `npx tsx server/index.ts`:47101 + 真 Vite:47173，隔离数据目录 `QUAY_E2E_DATA_DIR`）。夹具是真实 Claude transcript JSONL（24 条交替 user/assistant，末条 assistant，带 custom-title），在服务器启动前由 playwright.config.ts 且仅在 `isDataDirOwner` 进程里种进本 spec 专属 workspace，交后端 boot scan 索引。会话经侧边栏会话行打开，进/出底部全部用 `page.mouse.wheel` 真实手势。无任何请求 stub，无 `evaluate` 直接设 scrollTop，无 store 直接操纵，无注入 CSS/脚本模拟跟随。
+
+采样点在布局与 ResizeObserver 回调之后：页面内先 `requestAnimationFrame` 再 `setTimeout 0` 读几何；并且用 `waitForSettledPane` 要求三次连续稳定读数（80ms 间隔，|ΔscrollTop|<0.5 且 |Δgap|<0.5）才取读数。理由：跟随允许晚一帧落地，浏览器又把 wheel 滚动做成动画，单次读数会读到中途态；未用 rAF 内直接读 scrollHeight 当绘制态。
+
+三条断言实测：
+- 贴底半 (a)：向最后一个 `.chat-message.assistant` 注入 480px（≥400）spacer（不经 store、不改行数）→ gap 0，≤1px。
+- 贴底半 (b)：把最后一个 assistant 行体内最后一个 markdown 块替换成 480px 的块 → gap 0，≤1px。
+- 对照半：先用手势离开底部（gap > 400），同样注入 480px → scrollTop 4784 → 4784（±1），gap 恰好 +480（±1）。
+
+抗假变体（真跑、留输出于 `/tmp/ac106-antifake/*.log`、每个跑完即 `git checkout --` 还原）：
+- v1-react-signal.log：React 信号版（最后一行文本长度）——不观察内容层，改由 `useEffect([chatMessages])` 读最后一行 `content.length` 触发。⇒ exit 1，(a) 红，`Received: 480`（注入的高度一分没跟随）。这正是 (a)(b) 不经 store 的意义：任何 React 信号实现都睡过去。
+- v2-store-flush-pin.log：「每次 store flush 无条件 pin」版——不 observe 任何节点，`useEffect([chatMessages])` 里直接写 scrollTop。⇒ exit 1，(a) 红，`Received: 480`。
+- v3-always-pin.log：「离开底部后仍被 pin」版——删掉按上一次布局判定贴底的容差分支，任何 resize 都 pin。⇒ exit 1，对照半红：`scrollTop 4784 → 5964`（被拉回底部），`Received: 1180`。注意该变体下 (a)(b) 是绿的（它跑到了对照半），即这条变体精确地只打对照半。
+
+还原证据：三次 `git checkout -- src/modules/chat/hooks/useChatSessionState.ts` 之后 `git status --short` 与 `git diff HEAD --stat` 均为空；`git diff HEAD -- e2e/transcript-follow.spec.ts` 无输出，`git show HEAD:e2e/transcript-follow.spec.ts | grep -c "expect("` = 19（一条未删），`grep -E "test\.(skip|only|fixme)"` 无命中；还原后复跑仍绿。最终 diff 只含 Touches 里声明的 6 个文件（外加本任务文件）。
+
+非显然事实（留给后来者）：
+1. `<Markdown>` 把 react-markdown 的 `p` 覆写成 `<div class="mb-2">`（`src/modules/chat/transcript/Markdown.tsx:227`），transcript 里根本没有 `<p>` 元素；按 `p`/`li` 选「最后一段」必空（本轮首次运行即因它红在 (b)）。改取 `.prose` 容器内最后一个 `.mb-2`。
+2. 跟随的判底容差必须是 1px，不能复用 `isNearBottom` 的 50px：1–50px 正是小幅手势造成的漂移，跟随它就是把用户拉回去（AC-109 的读数）。
+3. `LazyMessageRow` 的 IntersectionObserver viewport margin 是 1200px（`src/modules/chat/hooks/useLazyRowObserver.ts:5`）：离开底部的手势步长必须远小于它，否则最后一行被卸载成占位符，DOM 注入就落在没有真实内容的节点上。spec 的步长取 700px。
+4. jsdom 没有 ResizeObserver：不做 `typeof ResizeObserver === 'undefined'` 守卫，每个渲染 ChatInterface 的既有测试都会在 render 期崩。
+
+静态门：`npm run test:client` 退出码 0（73 files / 498 tests passed）；`npm run typecheck` 退出码 0（tsconfig.json + server/tsconfig.json）；`npm run lint` 退出码 0（仅既有 warning）。注：`tsconfig.json` 的 `include` 不含 `e2e/`，故 e2e spec 不进 `npm run typecheck`，另行以 `npx tsc --noEmit --skipLibCheck --strict --module esnext --moduleResolution bundler --target es2022 e2e/transcript-follow.spec.ts` 单跑，退出码 0。
+
+scoped gate：`bash scripts/test.sh --for-task gap-transcript-follow-on-content-resize --allow-thin` 退出码 0（scoped 命中的唯一测试文件 `src/modules/chat/tests/transcriptScrollOwnership.test.tsx` 1/1 pass；suite-scope-check PASS，6 active tasks）；已写 scoped-gate-cache（develop-sha 330410fda4d3ceb8b9d7e130945f42bd73719bd6）。
