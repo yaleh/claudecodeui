@@ -1,7 +1,7 @@
 ---
 id: gap-voice-identifier-browser-e2e
 title: 真实浏览器里经语音按钮的修复端到端判据
-status: todo
+status: ready
 labels:
   - gap
 parent: null
