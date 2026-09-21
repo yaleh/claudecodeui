@@ -1,7 +1,7 @@
 ---
 id: gap-launch-profiles-teardown-entity
 title: 拆除旧 launch profile 实体（表/路由/Settings tab/composer 下拉/旧编译入口），AC-001 黄金基准移植到新入口
-status: todo
+status: ready
 labels:
   - gap
 parent: null
