@@ -993,9 +993,9 @@ type RowMutationEntry = {
  * both the gap and the row height below are read from.
  *
  * Which frame the follow writes in is deliberately not assumed here. `followTranscriptGrowth`
- * writes from the resize callback that received the growth, but a sampler that only measured a
- * write whose timing it already knew would be measuring its own model of the follow instead of
- * the pane, so nothing below depends on that.
+ * answers a growth either in the commit task that landed it or one frame after the observer
+ * delivered it, and a sampler that only measured a write whose timing it already knew would be
+ * measuring its own model of the follow instead of the pane, so nothing below depends on that.
  */
 const startFollowSampler = (page: Page) =>
   page.evaluate(() => {
@@ -2208,9 +2208,12 @@ test.describe('transcript follow in a real browser', () => {
     //
     // Both are fixed at the source rather than worked around: the live row is minted one id per
     // turn and keeps it across the settle (`liveRowIdentity.ts`, `useSessionStore`), the
-    // transcript carries it onto the rendered message (`useChatMessages`), and the follow writes
-    // its offset in the resize callback that received the growth rather than in a frame after it
-    // (`useChatSessionState`). The readings above are the evidence that the cause is gone —
+    // transcript carries it onto the rendered message (`useChatMessages`), and the follow is
+    // asked again in the commit task that landed the growth — a layout effect in
+    // `useChatSessionState` writes the new offset in the same task as the DOM change it followed,
+    // so the growth frame is painted already pinned — while the resize observer keeps its own
+    // path deferred by one frame, so a gesture landing inside that frame still wins over the
+    // pin. The readings above are the evidence that the cause is gone —
     // `nodeRuns` of length 1 with `stampChanges` at one per delta, and `firstCollapse` at -1,
     // where before the fix it fired on the settling frame with the pane sitting at exactly its
     // own height and the last row measured at 240px.
