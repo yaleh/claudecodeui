@@ -1262,6 +1262,7 @@ export function useChatComposerState({
   return {
     input,
     setInput,
+    draftScope,
     editingAnchorId,
     beginEditMessage,
     cancelEditMessage,

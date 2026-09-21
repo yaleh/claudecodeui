@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { voicePlayer } from '@/modules/chat/utils/voicePlayer';
 import { transcribeVoice } from '@/shared/api';
-import type { VoiceInputState } from '@/shared/types';
+import type { VoiceClip, VoiceInputState, VoicePlayState } from '@/shared/types';
 
 // Mobile-safe recording: iOS Safari 18.4+ supports webm/opus; older iOS needs mp4.
 const MIME_CANDIDATES = [
@@ -23,17 +24,42 @@ function pickMime(): string {
   return '';
 }
 
+type UseVoiceInputOptions = {
+  /**
+   * Draft scope of the composer this hook renders in (the open session, or the project
+   * before a chat has a session). A change means a different chat, and the clip belongs
+   * to the conversation it was recorded in, so it is dropped rather than carried over.
+   */
+  scope?: string | null;
+  /**
+   * Whether the composer is on screen. `false` covers the other workspace tabs and the
+   * AskUserQuestion panel replacing the footer; both hide the replay pill, so a playing
+   * clip would have no visible control to stop it.
+   */
+  isActive?: boolean;
+};
+
 
 /**
  * Push-to-talk dictation. Records the mic, uploads to /api/voice/transcribe
  * (an OpenAI-compatible speech-to-text backend via the Express proxy), and
  * returns the transcript through onTranscript.
+ *
+ * It also keeps the last recording as a single slot (`voiceClip`) so the composer
+ * can replay what was just said. The clip is captured before the upload, so a
+ * failed or timed-out transcription still leaves something to listen back to.
  */
 export function useVoiceInput(
   onTranscript: (text: string, send?: boolean) => void,
   onError?: (msg: string) => void,
+  options: UseVoiceInputOptions = {},
 ) {
+  const { scope = null, isActive = true } = options;
   const [state, setState] = useState<VoiceInputState>('idle');
+  // The last recording. State rather than a ref because the pill renders only while a
+  // clip exists, and a ref would not re-render on the write.
+  const [voiceClip, setVoiceClip] = useState<VoiceClip | null>(null);
+  const [clipState, setClipState] = useState<VoicePlayState>('idle');
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
@@ -41,11 +67,75 @@ export function useVoiceInput(
   const startingRef = useRef(false);
   // Whether the in-progress stop should auto-send the transcript (vs just fill the box).
   const sendRef = useRef(false);
+  // Mirrors the clip slot for callbacks that must not be re-created on every clip
+  // change, and owns the object URL that still has to be revoked.
+  const clipRef = useRef<VoiceClip | null>(null);
+  // The clip's own element. Deliberately not `voicePlayer`'s: that one is a TTS player
+  // whose cache key is a synthesis content key, which a recording has no analogue of.
+  const clipAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Wall clock at `rec.start()`. The recorder's container usually does carry a finite
+  // duration, but reading it means waiting for the element to load metadata, and the
+  // pill only shows M:SS — under a second of difference is invisible either way.
+  const clipStartedAtRef = useRef(0);
 
   const stopTracks = () => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
   };
+
+  const ensureClipAudio = () => {
+    if (!clipAudioRef.current) {
+      const audio = new Audio();
+      audio.addEventListener('ended', () => setClipState('idle'));
+      clipAudioRef.current = audio;
+    }
+    return clipAudioRef.current;
+  };
+
+  // Stop the sound and leave the slot alone: the pill stays for a retry.
+  const pauseClip = () => {
+    clipAudioRef.current?.pause();
+    setClipState('idle');
+  };
+
+  // Drop the clip entirely. The revoke lives here rather than inside the setState
+  // updater because updaters have to stay pure — StrictMode calls them twice, and the
+  // second call would revoke a URL the first had already handed to the audio element.
+  const discardClip = () => {
+    pauseClip();
+    const previous = clipRef.current;
+    clipRef.current = null;
+    setVoiceClip(null);
+    if (previous) URL.revokeObjectURL(previous.url);
+  };
+
+  // Single slot: adopting a new recording evicts the previous one, URL and all.
+  const adoptClip = (clip: VoiceClip) => {
+    const previous = clipRef.current;
+    clipRef.current = clip;
+    setVoiceClip(clip);
+    if (previous) URL.revokeObjectURL(previous.url);
+  };
+
+  // A different scope is a different chat. The composer is never unmounted on a session
+  // switch (WorkspaceMain passes the session as a prop, with no `key`), so nothing else
+  // would keep one session's recording out of another's composer.
+  useEffect(() => {
+    discardClip();
+  }, [scope]);
+
+  // Off screen — another workspace tab, or the question panel covering the footer —
+  // nothing visible can stop the audio, so stop it. The clip is kept: the user is
+  // coming back to this same chat and should still be able to replay it.
+  useEffect(() => {
+    if (!isActive) pauseClip();
+  }, [isActive]);
+
+  // Read-aloud and a clip must not sound at once. Read-aloud wins because it was asked
+  // for from a message, but the clip is only paused, so the pill survives the collision.
+  useEffect(() => voicePlayer.subscribe(() => {
+    if (voicePlayer.isBusy()) pauseClip();
+  }), []);
 
   // Stop the mic if the component unmounts mid-recording.
   useEffect(() => {
@@ -56,11 +146,18 @@ export function useVoiceInput(
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
       recorderRef.current = null;
+      clipAudioRef.current?.pause();
+      clipAudioRef.current = null;
+      const clip = clipRef.current;
+      clipRef.current = null;
+      if (clip) URL.revokeObjectURL(clip.url);
     };
   }, []);
 
   const start = useCallback(async () => {
     if (startingRef.current || (recorderRef.current && recorderRef.current.state !== 'inactive')) return;
+    // A new recording is about to replace the slot; stop the old one from sounding.
+    pauseClip();
     startingRef.current = true;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -93,6 +190,12 @@ export function useVoiceInput(
           onError?.('Recording too short');
           return;
         }
+        // Before the upload, not after: a transcription that fails or times out is
+        // exactly when the user most needs to hear what they actually said.
+        adoptClip({
+          url: URL.createObjectURL(blob),
+          meta: { bytes: blob.size, mimeType: type, durationMs: Date.now() - clipStartedAtRef.current },
+        });
         setState('transcribing');
         try {
           const ext = type.includes('mp4') ? 'm4a' : type.includes('ogg') ? 'ogg' : 'webm';
@@ -112,6 +215,7 @@ export function useVoiceInput(
         }
       };
 
+      clipStartedAtRef.current = Date.now();
       rec.start();
       setState('recording');
     } catch (e) {
@@ -145,5 +249,39 @@ export function useVoiceInput(
     else if (state === 'idle') start();
   }, [state, start, stop]);
 
-  return { state, toggle, stop };
+  const toggleClipPlayback = useCallback(() => {
+    const clip = clipRef.current;
+    if (!clip) return;
+    const audio = ensureClipAudio();
+    if (clipState !== 'idle') {
+      audio.pause();
+      setClipState('idle');
+      return;
+    }
+    // Yield the speakers to the clip; `voicePlayer` would keep synthesizing otherwise.
+    voicePlayer.stop();
+    audio.src = clip.url;
+    setClipState('loading');
+    // Not awaited: iOS only grants playback to a `play()` issued inside the gesture's
+    // stack, and awaiting would move it out of that stack. Handling the rejection
+    // instead is what keeps the control from sitting in `loading` forever.
+    const started: Promise<void> | undefined = audio.play();
+    if (started && typeof started.then === 'function') {
+      started.then(
+        () => {
+          if (clipRef.current === clip) setClipState('playing');
+        },
+        (e: unknown) => {
+          if (clipRef.current !== clip) return;
+          setClipState('idle');
+          // A DOMException is not an `Error`; the template has to cover both shapes.
+          onError?.(`Playback failed: ${e instanceof Error ? e.message : String(e)}`);
+        },
+      );
+    } else {
+      setClipState('playing');
+    }
+  }, [clipState, onError]);
+
+  return { state, toggle, stop, voiceClip, clipState, toggleClipPlayback };
 }

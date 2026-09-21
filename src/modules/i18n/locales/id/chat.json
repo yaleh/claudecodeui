@@ -109,7 +109,9 @@
     "transcribing": "Mentranskripsikan…",
     "speak": "Bacakan",
     "stopSpeaking": "Hentikan",
-    "loading": "Memuat…"
+    "loading": "Memuat…",
+    "playRecording": "Putar rekaman",
+    "stopPlayback": "Hentikan pemutaran"
   },
   "input": {
     "placeholder": "Ketik / untuk perintah, @ untuk file, atau tanyakan apa saja kepada {{provider}}...",

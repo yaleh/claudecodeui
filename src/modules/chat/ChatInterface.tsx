@@ -232,6 +232,7 @@ function ChatInterface({
     editingAnchorId,
     beginEditMessage,
     cancelEditMessage,
+    draftScope,
   } = useChatComposerState({
     selectedProject,
     selectedSession,
@@ -556,6 +557,8 @@ function ChatInterface({
           textareaRef={textareaRef}
           input={input}
           onVoiceTranscript={handleVoiceTranscript}
+          scope={draftScope}
+          isActive={isActive}
           onInputChange={handleInputChange}
           onTextareaClick={handleTextareaClick}
           onTextareaKeyDown={handleKeyDown}

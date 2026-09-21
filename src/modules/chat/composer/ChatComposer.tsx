@@ -29,6 +29,7 @@ import CommandMenu from '@/modules/chat/composer/CommandMenu';
 import ActivityIndicator from '@/modules/chat/composer/ActivityIndicator';
 import ComposerAttachment from '@/modules/chat/composer/ComposerAttachment';
 import VoiceInputButton from '@/modules/chat/composer/VoiceInputButton';
+import VoiceClipButton from '@/modules/chat/composer/VoiceClipButton';
 import PermissionRequestsBanner from '@/modules/chat/composer/PermissionRequestsBanner';
 import TokenUsageSummary from '@/modules/chat/composer/TokenUsageSummary';
 import QueuedMessageCard from '@/modules/chat/composer/QueuedMessageCard';
@@ -102,6 +103,10 @@ type ChatComposerProps = {
   textareaRef: RefObject<HTMLTextAreaElement>;
   input: string;
   onVoiceTranscript?: (text: string, send?: boolean) => void;
+  /** Draft scope of the open chat; a change drops the recorded clip, which belongs to the chat it was recorded in. */
+  scope: string | null;
+  /** False while the composer is off screen (another workspace tab): it then stops audio it can no longer offer a control for. */
+  isActive: boolean;
   onInputChange: (event: ChangeEvent<HTMLTextAreaElement>) => void;
   onTextareaClick: (event: MouseEvent<HTMLTextAreaElement>) => void;
   onTextareaKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
@@ -175,6 +180,8 @@ export default function ChatComposer({
   textareaRef,
   input,
   onVoiceTranscript,
+  scope,
+  isActive,
   onInputChange,
   onTextareaClick,
   onTextareaKeyDown,
@@ -221,6 +228,11 @@ export default function ChatComposer({
     }
   }, [selectedFileIndex, showFileDropdown]);
 
+  // Detect if the AskUserQuestion interactive panel is active
+  const hasQuestionPanel = pendingPermissionRequests.some(
+    (r) => r.toolName === 'AskUserQuestion'
+  );
+
   // Voice state is hosted here (not in the mic button) so the main Send button can stop
   // recording and send the transcript in one tap, the way the mic button drops it in the box.
   const voiceAvailable = useVoiceAvailable();
@@ -235,17 +247,23 @@ export default function ChatComposer({
     if (voiceErrorTimer.current) clearTimeout(voiceErrorTimer.current);
   }, []);
   const noopTranscript = useCallback(() => {}, []);
-  const { state: voiceState, toggle: voiceToggle, stop: voiceStop } = useVoiceInput(
+  // The question panel replaces the whole footer, so a clip playing behind it would have
+  // no visible control to stop it; folding it into `isActive` reuses the same stop path
+  // rather than adding a second effect for the same rule.
+  const {
+    state: voiceState,
+    toggle: voiceToggle,
+    stop: voiceStop,
+    voiceClip,
+    clipState,
+    toggleClipPlayback,
+  } = useVoiceInput(
     onVoiceTranscript ?? noopTranscript,
     handleVoiceError,
+    { scope, isActive: isActive && !hasQuestionPanel },
   );
   const isRecording = voiceState === 'recording';
   const isTranscribing = voiceState === 'transcribing';
-
-  // Detect if the AskUserQuestion interactive panel is active
-  const hasQuestionPanel = pendingPermissionRequests.some(
-    (r) => r.toolName === 'AskUserQuestion'
-  );
 
   // Hide the thinking/status bar while any permission request is pending
   const hasPendingPermissions = pendingPermissionRequests.length > 0;
@@ -441,6 +459,11 @@ export default function ChatComposer({
 
             {onVoiceTranscript && voiceAvailable && (
               <VoiceInputButton state={voiceState} onToggle={voiceToggle} errorMsg={voiceError} />
+            )}
+
+            {/* Right of the mic: a clip only exists because the mic produced it. */}
+            {voiceClip && (
+              <VoiceClipButton clip={voiceClip} state={clipState} onToggle={toggleClipPlayback} />
             )}
 
             <TokenUsageSummary usage={tokenBudget} onClick={onShowTokenUsage} />

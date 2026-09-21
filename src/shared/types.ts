@@ -674,8 +674,29 @@ export type VoiceInputState = 'idle' | 'recording' | 'transcribing';
 /** Immutable snapshot of the app-level text-to-speech player for one utterance — its play state plus any error message — read by components so read-aloud state survives re-renders and chat switches. */
 export type VoiceSnapshot = { state: VoicePlayState; error: string | null };
 
-/** Playback state of a text-to-speech utterance: 'idle', 'loading' or 'playing'. */
+/** Playback state of one audio source owned by the voice layer (a read-aloud utterance or a recorded clip): 'idle', 'loading' or 'playing'. */
 export type VoicePlayState = 'idle' | 'loading' | 'playing';
+
+/**
+ * What the composer knows about a recording without reading the blob back: its size,
+ * the container the recorder produced, and how long the user held the mic. Computed
+ * once when the clip is captured, because the single slot only ever needs to display it.
+ */
+export type VoiceClipMeta = {
+  bytes: number;
+  mimeType: string;
+  durationMs: number;
+};
+
+/**
+ * The composer's single-slot recording: an object URL that keeps the blob alive plus
+ * the meta the replay pill renders. Held by `useVoiceInput` and passed to `VoiceClipButton`;
+ * a new recording replaces it, and it is never persisted beyond the open chat.
+ */
+export type VoiceClip = {
+  url: string;
+  meta: VoiceClipMeta;
+};
 
 // ---------------------------
 

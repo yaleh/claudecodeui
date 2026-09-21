@@ -102,7 +102,9 @@
     "transcribing": "Transcribiendo…",
     "speak": "Leer en voz alta",
     "stopSpeaking": "Detener",
-    "loading": "Cargando…"
+    "loading": "Cargando…",
+    "playRecording": "Reproducir grabación",
+    "stopPlayback": "Detener reproducción"
   },
   "input": {
     "placeholder": "Escribe / para comandos, @ para archivos, o pregúntale lo que quieras a {{provider}}...",

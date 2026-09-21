@@ -51,6 +51,15 @@ class VoicePlayer {
     return { state, error };
   }
 
+  /**
+   * Whether any read-aloud is loading or playing. Callers that own another audio
+   * source (the composer's recording clip) use this to yield the speakers: the
+   * per-utterance `getSnapshot` cannot answer it, because they do not know the id.
+   */
+  isBusy(): boolean {
+    return this.state === 'loading' || this.state === 'playing';
+  }
+
   private ensureAudio(): HTMLAudioElement {
     if (!this.audio) {
       const audio = new Audio();
