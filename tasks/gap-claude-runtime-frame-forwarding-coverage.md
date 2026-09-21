@@ -57,7 +57,7 @@ for await (const message of queryInstance) {
 
 ## Touches
 
-- `server/modules/providers/list/claude/claude-runtime.provider.js` — 提取转发函数并改为调用它
-- `server/modules/providers/index.ts` — barrel 导出该函数（新测试的导入路径）
-- `server/modules/providers/tests/claude-runtime-frame-forwarding.test.ts` — 新增（该函数的唯一消费者）
-- `tasks/gap-claude-runtime-frame-forwarding-coverage.md` — self-touch
+- server/modules/providers/list/claude/claude-runtime.provider.js
+- server/modules/providers/index.ts
+- server/modules/providers/tests/claude-runtime-frame-forwarding.test.ts (new)
+- tasks/gap-claude-runtime-frame-forwarding-coverage.md
