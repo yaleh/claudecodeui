@@ -14,6 +14,8 @@ const CANDIDATES = [
   'index.ts',
   'package.json',
   'useVoiceInput',
+  'voice.routes.ts',
+  'voice.service.ts',
   'voiceConfig.ts',
   'voiceIdentifierRepair.ts',
 ];
@@ -85,6 +87,65 @@ test('a name already spelled correctly is kept, in its own spelling', () => {
   );
 });
 
+test('a name whose middle segment is long is still a name', () => {
+  // The observed shape this module exists for: whisper returns `voice.seluis.ts`
+  // for `voice.service.ts`. It is four edits — a hard repair, and the reason the
+  // pass pays more than two — but the segment that got mangled is six
+  // characters, so a rule that reads every `.segment` as a one-to-five letter
+  // extension never even looks at the token.
+  assert.equal(
+    repairIdentifiers('open voice.seluis.ts and check', CANDIDATES),
+    'open voice.service.ts and check',
+  );
+});
+
+test('an identifier written against Chinese with no space is still found', () => {
+  // Chinese is written without spaces, so a whitespace tokeniser sees one token
+  // here and the identifier inside it is never a candidate for anything. The
+  // same token in English prose is repaired; it must be repaired in Chinese too.
+  assert.equal(
+    repairIdentifiers('改一下。voice.roue.ts', CANDIDATES),
+    '改一下。voice.routes.ts',
+  );
+});
+
+test('the extension is misheard by one edit, and by one edit only', () => {
+  // The two sides of the guard that keeps a widened budget from rewriting one
+  // file name into another. `.js` for `.ts` is a mishearing and the whole point
+  // is to fix it; `.io` for `.ts` is a different name, and repairing it is the
+  // failure mode — an agent sent to edit a file that was never mentioned. Both
+  // are inside the edit budget; only the first is inside the extension's.
+  assert.equal(
+    repairIdentifiers('deploy voice.service.js now', CANDIDATES),
+    'deploy voice.service.ts now',
+  );
+  const other = 'deploy voice.service.io now';
+
+  assert.equal(repairIdentifiers(other, CANDIDATES), other);
+});
+
+test('a name is not shortened by dropping one of its dotted words', () => {
+  // The other thing a widened budget reaches on real prose. `README.jp.md` is
+  // three edits from `README.md` at a similarity of exactly 0.75 with the
+  // extension intact, so the opening, the budget and the extension guard all
+  // pass it — and the repair writes a file the text never mentioned. A
+  // recogniser garbles characters inside a name; it does not delete a whole
+  // dot-separated word, which is the only way the two differ.
+  const prose = 'the README.jp.md translation is missing';
+
+  assert.equal(repairIdentifiers(prose, CANDIDATES), prose);
+});
+
+test('a single ordinary word is not a split symbol', () => {
+  // The candidate list carries bare stems, so one word can equal one. It is not
+  // a split: nobody says `README` and produces `readme`. Without this the module
+  // rewrites ordinary prose — "the readme file is old" becomes "the README file
+  // is old" — which is the failure the split pass is written to avoid.
+  const prose = 'the readme file is old';
+
+  assert.equal(repairIdentifiers(prose, CANDIDATES), prose);
+});
+
 test('the answer does not depend on the order the candidates arrive in', () => {
   const text = 'open voiceConfg.ts';
 
@@ -122,4 +183,31 @@ test('the module is a pure string function sitting beside voiceConfig.ts', () =>
       `the module must not touch ${global}`,
     );
   }
+});
+
+test('the harness holds no second copy of the repair algorithm', () => {
+  // Two copies of one algorithm drift, and these two did: measured on the
+  // AC-113 recovery corpus with this repository's own file list as candidates,
+  // they agreed on 10 of 16 entries and disagreed on 6 — every one of the six a
+  // case the copy repaired and the shipped module did not. A criterion pointed
+  // at the copy was reporting a survival rate the app could never produce.
+  //
+  // So the algorithm is the module's alone. This is AC-3's grep, in the place
+  // that runs on every commit rather than once by hand.
+  const harness = readFileSync(
+    resolve(process.cwd(), 'experiments', 'voice-identifiers', 'identifierRepair.mjs'),
+    'utf8',
+  );
+
+  for (const name of ['editDistance', 'splitIndex', 'nearestDottedCandidate', 'longestSplitMatch']) {
+    assert.equal(
+      new RegExp(`function\\s+${name}\\b`).test(harness),
+      false,
+      `the harness must not define ${name} again`,
+    );
+  }
+
+  // The absence above is only worth asserting together with the presence: a
+  // harness that re-exported nothing would pass it and measure nothing.
+  assert.match(harness, /from '\.\.\/\.\.\/src\/shared\/identifierRepair\.ts'/);
 });
