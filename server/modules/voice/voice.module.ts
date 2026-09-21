@@ -1,7 +1,9 @@
 import multer from 'multer';
 
+import { voiceSettingsDb } from '@/modules/database/index.js';
+
 import { createVoiceRouter } from './voice.routes.js';
-import { createVoiceService } from './voice.service.js';
+import { createVoiceService, createVoiceSettingsService } from './voice.service.js';
 
 const DEFAULT_VOICE_TIMEOUT_MS = 300_000;
 const parsedTimeoutMs = Number(process.env.VOICE_TIMEOUT_MS);
@@ -40,8 +42,13 @@ const audioUpload = multer({
   limits: { fileSize: 25 * 1024 * 1024 },
 });
 
+// The settings the user saved, read and written through the Voice settings
+// routes. Stored per user so a key no longer lives only in one browser profile.
+const voiceSettingsService = createVoiceSettingsService(voiceSettingsDb);
+
 /** Voice router assembled for the server entrypoint. */
 export const voiceRoutes = createVoiceRouter({
   voiceService,
+  voiceSettingsService,
   parseAudioUpload: audioUpload.single('audio'),
 });

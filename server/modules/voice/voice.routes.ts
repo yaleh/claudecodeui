@@ -2,13 +2,33 @@ import { Readable } from 'node:stream';
 
 import express from 'express';
 
-import type { VoiceRequestOverrides, VoiceService, VoiceServiceResult } from '@/shared/types.js';
+import type {
+  VoiceRequestOverrides,
+  VoiceService,
+  VoiceServiceResult,
+  VoiceSettingsService,
+} from '@/shared/types.js';
 import { asyncHandler } from '@/shared/utils.js';
 
 type VoiceRouterDependencies = {
   voiceService: VoiceService;
+  voiceSettingsService: VoiceSettingsService;
   parseAudioUpload: express.RequestHandler;
 };
+
+type AuthenticatedRequest = express.Request & { user?: { id?: number | string } };
+
+/**
+ * Reads the authenticated user id the auth middleware attached.
+ *
+ * The whole `/api/voice` router is mounted behind `authenticateToken`, so a
+ * request that reaches a handler always has one; `Number(undefined)` would be
+ * `NaN` and match no row, which fails closed rather than serving another user's
+ * settings.
+ */
+function readUserId(request: express.Request): number {
+  return Number((request as AuthenticatedRequest).user?.id);
+}
 
 function readHeaderValue(value: string | string[] | undefined): string | undefined {
   const normalizedValue = Array.isArray(value) ? value[0] : value;
@@ -48,6 +68,24 @@ export function createVoiceRouter(dependencies: VoiceRouterDependencies): expres
 
   router.get('/health', (_request, response) => {
     response.json(dependencies.voiceService.getHealth());
+  });
+
+  // The user's own backend settings. Reading them back is what lets a second
+  // device (or the same device on another origin) pick up a configuration the
+  // user saved somewhere else, instead of starting from nothing.
+  router.get('/config', (request, response) => {
+    response.json(dependencies.voiceSettingsService.getSettings(readUserId(request)));
+  });
+
+  // A whole-document PUT rather than a patch: the settings tab always has all
+  // six fields on screen, and an empty string is the explicit "clear this".
+  router.put('/config', (request, response) => {
+    const result = dependencies.voiceSettingsService.saveSettings(readUserId(request), request.body);
+    if (sendFailure(response, result)) {
+      return;
+    }
+
+    response.json(result.value);
   });
 
   router.post('/transcribe', (request, response, next) => {

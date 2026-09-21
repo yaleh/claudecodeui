@@ -230,6 +230,31 @@ CREATE TABLE IF NOT EXISTS session_drafts (
 `;
 
 /**
+ * Per-user Voice backend settings, which used to live in browser localStorage.
+ *
+ * Kept out of `user_preferences` on purpose: that table is downloaded to the
+ * client wholesale on start-up, so a secret stored there would be rebroadcast on
+ * every page load and would also be readable by any code path that merely wants
+ * the theme. One row per user, holding the same six fields the settings tab
+ * edits — `settings_json` rather than six columns because they are always read
+ * and written as one document (the same reason `user_notification_preferences`
+ * is shaped this way), so adding a field later needs no migration.
+ *
+ * The API key is stored in plaintext, exactly as `user_credentials` and
+ * `api_keys` already store their credentials. Introducing encryption for this
+ * one column would protect nothing while the neighbouring stores stayed
+ * readable; that is a separate, repo-wide job.
+ */
+export const USER_VOICE_SETTINGS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS user_voice_settings (
+    user_id INTEGER PRIMARY KEY,
+    settings_json TEXT NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+`;
+
+/**
  * Provider sessions an app session has moved off, and must never move back to.
  *
  * Editing a message on a provider that cannot resume a transcript partway
@@ -306,4 +331,6 @@ ${USER_PREFERENCES_TABLE_SCHEMA_SQL}
 ${SESSION_DRAFTS_TABLE_SCHEMA_SQL}
 
 ${SUPERSEDED_PROVIDER_SESSIONS_TABLE_SCHEMA_SQL}
+
+${USER_VOICE_SETTINGS_TABLE_SCHEMA_SQL}
 `;
