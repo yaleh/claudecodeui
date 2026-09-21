@@ -236,9 +236,150 @@ const seedTranscriptFollowTranscript = () => {
   );
 };
 
+/** Workspace e2e/voice-identifier-repair.spec.ts records into; its own directory so no other spec picks this session up. */
+const VOICE_IDENTIFIER_WORKSPACE = path.join(dataDir, 'voice-identifier-workspace');
+/** Session id that spec opens the composer in, and the display name it looks its sidebar row up by. */
+const VOICE_IDENTIFIER_SESSION_ID = 'e2e-voice-identifier';
+const VOICE_IDENTIFIER_SESSION_NAME = 'voice-identifier';
+/**
+ * The project file the utterance names, written into the seeded workspace.
+ *
+ * The spec does not carry this name as a literal: it lists the workspace and takes the name it finds there, so
+ * the identifier it asserts on is one the project really has. A `## Touches`-level constant on both sides
+ * would agree with itself whether or not the file exists.
+ */
+const VOICE_IDENTIFIER_FILE = 'voice.service.ts';
+/** What the fake microphone is saying. The recogniser stand-in the spec points the voice settings at answers with this same string. */
+const VOICE_UTTERANCE = `please open ${VOICE_IDENTIFIER_FILE} and fix the proxy`;
+/**
+ * Where the fake microphone reads its samples from, published so the spec's launch args can name the file.
+ * Written below, in the config, because Chromium opens it at browser launch — a spec that wrote it in
+ * `beforeAll` would be writing it after the browser that is meant to play it already exists.
+ */
+const VOICE_AUDIO_FILE = path.join(dataDir, 'voice-utterance.wav');
+process.env.QUAY_E2E_VOICE_UTTERANCE = VOICE_UTTERANCE;
+process.env.QUAY_E2E_VOICE_AUDIO = VOICE_AUDIO_FILE;
+
+/**
+ * Writes the audio the fake microphone plays as a 16-bit PCM WAV.
+ *
+ * There is no offline speech-to-text in this checkout, so the utterance cannot be a recording of a person
+ * saying the identifier; what can be real is the *path*. Chromium decodes this file and hands the samples to
+ * `getUserMedia`, the app's own `MediaRecorder` encodes what it hears, and the browser uploads those bytes —
+ * so the recording the recogniser stand-in receives is produced by the real capture chain, not by the test.
+ *
+ * The waveform is derived character by character from the text it stands for, so the spoken fixture and the
+ * answer the stand-in gives are two encodings of one utterance rather than two unrelated constants. It is
+ * deliberately not a single tone: `MediaRecorder` has to produce a container whose bytes are worth uploading,
+ * and a file whose audio is one unbroken sine is the one signal a broken capture chain also produces.
+ */
+const writeVoiceUtterance = (filePath: string, text: string): void => {
+  const sampleRate = 48_000;
+  const samples: number[] = [];
+
+  const silence = (ms: number) => {
+    samples.push(...new Array<number>(Math.round((ms / 1000) * sampleRate)).fill(0));
+  };
+  const burst = (frequency: number, ms: number) => {
+    const count = Math.round((ms / 1000) * sampleRate);
+    for (let index = 0; index < count; index += 1) {
+      // A raised-sine envelope at both ends: a burst that starts and stops at full amplitude clicks, and a
+      // click is broadband noise the encoder has to spend bytes on.
+      const envelope = Math.sin((Math.PI * index) / count);
+      samples.push(Math.round(0.4 * envelope * Math.sin((2 * Math.PI * frequency * index) / sampleRate) * 32767));
+    }
+  };
+
+  for (const character of text) {
+    if (character === ' ') {
+      silence(70);
+      continue;
+    }
+    // A per-character pitch, so the file's spectrum really depends on the utterance it stands for.
+    burst(200 + ((character.codePointAt(0) ?? 0) % 18) * 24, 55);
+    silence(6);
+  }
+  silence(200);
+
+  const dataBytes = samples.length * 2;
+  const buffer = Buffer.alloc(44 + dataBytes);
+  buffer.write('RIFF', 0);
+  buffer.writeUInt32LE(36 + dataBytes, 4);
+  buffer.write('WAVE', 8);
+  buffer.write('fmt ', 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20); // PCM
+  buffer.writeUInt16LE(1, 22); // mono
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * 2, 28); // byte rate
+  buffer.writeUInt16LE(2, 32); // block align
+  buffer.writeUInt16LE(16, 34); // bits per sample
+  buffer.write('data', 36);
+  buffer.writeUInt32LE(dataBytes, 40);
+  for (let index = 0; index < samples.length; index += 1) {
+    buffer.writeInt16LE(samples[index], 44 + index * 2);
+  }
+
+  fs.writeFileSync(filePath, buffer);
+};
+
+/**
+ * Seeds the workspace e2e/voice-identifier-repair.spec.ts records in.
+ *
+ * Same reason as the two above: the backend scans ~/.claude/projects at boot and only then starts its file
+ * watcher with `ignoreInitial`, so a transcript written while the test runs is picked up by the watcher and
+ * broadcast as a session_upserted instead — which the sidebar correctly reads as "needs attention".
+ *
+ * It also writes the file the utterance names. That is what makes "the project's real file name" checkable:
+ * the spec reads the name back off the disk rather than restating it, so a fixture that stopped writing this
+ * file would fail the criterion instead of quietly agreeing with it.
+ *
+ * The WAV is written here too, and for the same class of reason: it has to exist before the browser that
+ * plays it is launched, and this function runs once, in the process that owns the data directory, before
+ * `webServer` starts anything.
+ */
+const seedVoiceIdentifierWorkspace = () => {
+  fs.mkdirSync(VOICE_IDENTIFIER_WORKSPACE, { recursive: true });
+  fs.writeFileSync(
+    path.join(VOICE_IDENTIFIER_WORKSPACE, VOICE_IDENTIFIER_FILE),
+    '// Seeded by playwright.config.ts so the voice spec has a real project file to assert against.\n',
+    'utf8',
+  );
+  writeVoiceUtterance(VOICE_AUDIO_FILE, VOICE_UTTERANCE);
+
+  const transcriptDir = path.join(dataDir, '.claude', 'projects', 'voice-identifier-workspace');
+  fs.mkdirSync(transcriptDir, { recursive: true });
+  const timestamp = new Date().toISOString();
+  // The synchronizer reads the session id and cwd from the first record it can parse, so one transcript has to
+  // carry both a turn and a title.
+  const records = [
+    {
+      type: 'user',
+      sessionId: VOICE_IDENTIFIER_SESSION_ID,
+      cwd: VOICE_IDENTIFIER_WORKSPACE,
+      timestamp,
+      message: { role: 'user', content: [{ type: 'text', text: 'open the composer for the voice check' }] },
+    },
+    {
+      type: 'custom-title',
+      sessionId: VOICE_IDENTIFIER_SESSION_ID,
+      cwd: VOICE_IDENTIFIER_WORKSPACE,
+      timestamp,
+      customTitle: VOICE_IDENTIFIER_SESSION_NAME,
+    },
+  ];
+
+  fs.writeFileSync(
+    path.join(transcriptDir, `${VOICE_IDENTIFIER_SESSION_ID}.jsonl`),
+    `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
+    'utf8',
+  );
+};
+
 if (isDataDirOwner) {
   seedSessionFilterTranscripts();
   seedTranscriptFollowTranscript();
+  seedVoiceIdentifierWorkspace();
 }
 
 export default defineConfig({
