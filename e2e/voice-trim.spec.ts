@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 
 import { expect, test } from '@playwright/test';
-import type { BrowserContext, Page } from '@playwright/test';
+import type { BrowserContext, Locator, Page } from '@playwright/test';
 
 // Real Chromium against the real backend + Vite client started by playwright.config.ts (isolated data dir),
 // recording through the app's own voice button. The recorder is the browser's own: Chromium is launched with a
@@ -80,6 +80,18 @@ const MIN_SAVING_SEC = 0.3;
 const UTTERANCES = [
   'please repeat the whole sentence back to me',
   'and now read the second line out loud',
+];
+
+/**
+ * The sentences `useVoiceInput` reports its own failures with, looked for in the page when a transcript never
+ * lands. Each one names a link in the chain the composer cannot show: a recording the app refused to send, a
+ * recogniser call that came back unusable, a call that returned nothing to say.
+ */
+const VOICE_ERRORS = [
+  'Recording too short',
+  'Transcription failed',
+  'No speech detected',
+  'Microphone access denied',
 ];
 
 /**
@@ -278,6 +290,18 @@ const uploadedFile = (body: Buffer, contentType: string | undefined): Buffer => 
   throw new Error('the upload carried no file part');
 };
 
+/**
+ * Whether `locator` showed up within `timeoutMs`.
+ *
+ * The boolean rather than a thrown timeout, because the caller's decision is what to do about its absence and a
+ * caught assertion error reads as a failure that has already been reported.
+ */
+const appears = async (locator: Locator, timeoutMs: number): Promise<boolean> =>
+  locator.waitFor({ state: 'visible', timeout: timeoutMs }).then(
+    () => true,
+    () => false,
+  );
+
 test.describe.configure({ mode: 'serial' });
 
 test.describe('AC-119 the trim holds end to end through the voice button', () => {
@@ -286,6 +310,16 @@ test.describe('AC-119 the trim holds end to end through the voice button', () =>
   let recognizer: http.Server;
   let recognizerUrl = '';
   const requests: RecognizerRequest[] = [];
+  /**
+   * What the page said about the voice call, for a red that explains itself.
+   *
+   * The step this spec waits on — "the transcript reached the composer" — is the far end of a chain that can
+   * break in several places, and every one of them looks identical from the composer: empty. `RecognizerRequest`
+   * only covers the case where a request got all the way out; a recorder that produced nothing, a proxy that
+   * answered 500, and a decode that threw all leave it empty while the composer stays empty too. So the page's
+   * own traffic is collected here and reported by `expectTranscript` when the wait fails.
+   */
+  const voiceTraffic: string[] = [];
 
   /**
    * The OpenAI-compatible speech endpoint the voice settings point at.
@@ -382,6 +416,34 @@ test.describe('AC-119 the trim holds end to end through the voice button', () =>
   };
 
   /**
+   * Waits for `expected` to land in the composer, and reports the voice call's traffic when it never does.
+   *
+   * A bare `toHaveValue` timeout costs its whole budget and answers nothing beyond "the box is empty" — and an
+   * empty box is what a recorder that captured nothing, a decode that threw, and a proxy that answered 500 all
+   * look like. The traffic collected by the page listeners is what tells them apart, so it is attached to the
+   * failure instead of being left in a log the gate's excerpt does not print.
+   */
+  const expectTranscript = async (expected: string, leg: string) => {
+    try {
+      await expect(composer()).toHaveValue(expected, { timeout: 10_000 });
+    } catch {
+      const value = await composer().inputValue().catch(() => '<unreadable>');
+      // The hook reports every failure it knows about through `onError`, and the composer shows those as text
+      // rather than as a status code — so the sentence, not the socket, is where "the recording was too short"
+      // and "the transcription failed" are told apart.
+      const shown = await page.locator('body').innerText().catch(() => '');
+      const reported = VOICE_ERRORS.filter((message) => shown.includes(message));
+      throw new Error(
+        `${leg}: the composer never took the transcript.\n`
+          + `  composer=${JSON.stringify(value)}\n`
+          + `  recogniser requests=${requests.length}\n`
+          + `  app reported=${reported.length > 0 ? reported.join(' | ') : '<none>'}\n`
+          + `  page traffic=${voiceTraffic.length > 0 ? voiceTraffic.join(' | ') : '<none>'}`,
+      );
+    }
+  };
+
+  /**
    * Records one pass of the fixture through the app's voice button.
    *
    * There is no event to wait on for "the recorder has captured enough" — the upload does not exist until the
@@ -401,8 +463,10 @@ test.describe('AC-119 the trim holds end to end through the voice button', () =>
   };
 
   test.beforeAll(async ({ browser }) => {
-    // Onboarding plus the first project load outlasts the default per-test budget.
-    test.setTimeout(120_000);
+    // Onboarding plus the first project load outlasts the default per-test budget, but only as far as the
+    // criterion's own ceiling allows: a hook that runs longer than that is killed from outside and reports
+    // nothing, so the budget stops short of it and lets the failure above be the thing that is read.
+    test.setTimeout(40_000);
 
     recognizer = await startRecognizer();
     recognizerUrl = `http://127.0.0.1:${(recognizer.address() as AddressInfo).port}`;
@@ -441,8 +505,39 @@ test.describe('AC-119 the trim holds end to end through the voice button', () =>
 
     page = await context.newPage();
 
+    // The page's side of the voice call, so a red can say which link broke. `requestfailed` is the one that
+    // catches a call the app made and the network refused; the console listener catches the app's own
+    // `onError` path when it reports a failure the composer never shows.
+    page.on('response', (response) => {
+      if (!response.url().includes('/api/voice/transcribe')) return;
+      void response.text().then(
+        (body) => voiceTraffic.push(`transcribe -> ${response.status()} ${body.slice(0, 160)}`),
+        () => voiceTraffic.push(`transcribe -> ${response.status()} <body unreadable>`),
+      );
+    });
+    page.on('requestfailed', (request) => {
+      voiceTraffic.push(`requestfailed ${request.url()} ${request.failure()?.errorText ?? ''}`);
+    });
+    page.on('console', (message) => {
+      if (message.type() === 'error') voiceTraffic.push(`console.error ${message.text().slice(0, 200)}`);
+    });
+
     // First run on a fresh database: create the single account, then finish onboarding.
     await page.goto('/');
+    // The account form is the app's first rendered screen, which also makes it the first thing a cold Vite dev
+    // server can fail to produce: the transform graph is built on demand for the browser's first request, and a
+    // module that fails under load leaves a blank page with no failure the run can see — the navigation succeeded,
+    // so nothing throws until the wait for the form runs out. A blank page is what a reload is known to clear, so
+    // it is retried once. Bounded, because this preamble is not what the criterion tests and must not eat its
+    // budget: the waits below add up to less than the hook's own ceiling, so a real failure reports here rather
+    // than being killed from outside with nothing to say.
+    if (!(await appears(page.locator('#username'), 8_000))) {
+      await page.reload();
+      if (!(await appears(page.locator('#username'), 10_000))) {
+        const shown = await page.locator('body').innerText().catch(() => '<unreadable>');
+        throw new Error(`the account form never rendered; the page shows: ${JSON.stringify(shown.slice(0, 300))}`);
+      }
+    }
     await page.locator('#username').fill('e2euser');
     await page.locator('input[type=password]').nth(0).fill('e2epassword');
     await page.locator('input[type=password]').nth(1).fill('e2epassword');
@@ -454,7 +549,7 @@ test.describe('AC-119 the trim holds end to end through the voice button', () =>
 
     // Indexing a session auto-registers its project, so the seeded workspace is already a project here; the
     // sidebar is the proof that the fixture really reached the backend.
-    await expect(projectRow()).toBeVisible({ timeout: 30_000 });
+    await expect(projectRow()).toBeVisible({ timeout: 12_000 });
   });
 
   test.afterAll(async () => {
@@ -463,9 +558,10 @@ test.describe('AC-119 the trim holds end to end through the voice button', () =>
   });
 
   test('AC-119 the trimmed upload is shorter than the same recording uploaded untrimmed', async () => {
-    // The whole criterion has to fit inside the goal gate's 60s, and this test performs two full record/upload
-    // legs; the budget is raised only as far as that needs.
-    test.setTimeout(120_000);
+    // The whole criterion has to fit inside the goal gate's 60s, and a run killed at that ceiling reports nothing
+    // about why. This body takes ~8s, so the budget is a few times that rather than the default minute: a runaway
+    // leg fails here, with its own message, while the command is still this run's to explain.
+    test.setTimeout(35_000);
     expect(FIXTURE_SEC).toBeGreaterThan(1);
 
     // The audio the fake device was pointed at, checked as audio. A path that does not resolve to a WAV is not
@@ -484,14 +580,14 @@ test.describe('AC-119 the trim holds end to end through the voice button', () =>
     await recordOnce();
     // The transcript travelled the whole path back into the composer. The ceiling is deliberately short: a
     // regression here has to surface as this assertion rather than as an unattributable timeout.
-    await expect(composer()).toHaveValue(UTTERANCES[0], { timeout: 15_000 });
+    await expectTranscript(UTTERANCES[0], 'trimmed leg');
     // One upload so far, which is what makes the second leg's answer the second sentence rather than a repeat.
     expect(requests).toHaveLength(1);
 
     // Leg 2 — the switch named in the URL. Read at load, before the router rewrites the query string.
     await openComposer('/?voiceTrim=off');
     await recordOnce();
-    await expect(composer()).toHaveValue(UTTERANCES[1], { timeout: 15_000 });
+    await expectTranscript(UTTERANCES[1], 'untrimmed leg');
     expect(requests).toHaveLength(2);
 
     // Both uploads were the app's own call, made from the seeded settings, and carried real audio.
@@ -507,25 +603,35 @@ test.describe('AC-119 the trim holds end to end through the voice button', () =>
 
     const trimmedUpload = uploadedFile(requests[0].body, requests[0].contentType);
     const plainUpload = uploadedFile(requests[1].body, requests[1].contentType);
-    // The two legs carry the two containers the pipeline produces: the trimmed one the WAV this repo encoded,
-    // the untrimmed one the recorder's own stream. Asserted rather than assumed, because it is what makes the
-    // durations below comparable at all — and it is also how a trim that quietly fell back to the recording
-    // would show up as something other than a duration.
-    expect(trimmedUpload.subarray(0, 4).toString('ascii')).toBe('RIFF');
-    expect(plainUpload.subarray(0, 4).toString('hex')).toBe('1a45dfa3');
 
+    // Both durations come out of the container the upload is really in, never out of its byte count. A byte count
+    // cannot stand in for this: the trimmed leg is PCM WAV and the untrimmed one webm/opus, so the shorter upload
+    // is the larger one, and a comparison of sizes would read the encoding difference as the trim.
     const trimmedSec = containerDurationSec(trimmedUpload);
     const plainSec = containerDurationSec(plainUpload);
+    // The pair is this criterion's reading, so it is printed rather than only asserted: a green run should say
+    // what it measured, not just what it refused. Printed before the assertions so it is on the log either way.
+    console.log(
+      `[voice-trim] uploads: trimmed=${trimmedSec.toFixed(3)}s untrimmed=${plainSec.toFixed(3)}s fixture=${FIXTURE_SEC.toFixed(3)}s`,
+    );
 
-    // (1) The pair, from this one run: trimming removed audio. Both numbers come out of a container the browser
-    // really produced, so no encoding difference can stand in for a duration difference.
-    expect(plainSec - trimmedSec, `trimmed ${trimmedSec}s vs untrimmed ${plainSec}s`).toBeGreaterThan(MIN_SAVING_SEC);
-    // (3) "Off" is really off: the untrimmed upload is the whole capture, not a trim that failed to a shorter
-    // value of its own — which is the reading that separates a working switch from two failures agreeing.
+    // (1) The premise, asserted before the transition it is a premise for: "off" is really off. The untrimmed
+    // upload is the whole capture, not a trim that failed to a shorter value of its own — which is what
+    // separates a working switch from two failures that happen to agree.
     expect(
       Math.abs(plainSec - FIXTURE_SEC),
       `untrimmed upload was ${plainSec}s, the fixture is ${FIXTURE_SEC}s`,
     ).toBeLessThan(CAPTURE_TOLERANCE_SEC);
+
+    // (2) The pair, from this one run: trimming removed audio. Checked against the capture the line above just
+    // established, so it reads as the trim's own effect and not as a difference between two unrelated numbers.
+    expect(plainSec - trimmedSec, `trimmed ${trimmedSec}s vs untrimmed ${plainSec}s`).toBeGreaterThan(MIN_SAVING_SEC);
+
+    // (3) What the two uploads are, now that their durations have been read: the trimmed one is the WAV this repo
+    // encoded, the untrimmed one the recorder's own stream. This is the reading that would name a trim which
+    // quietly fell back to the recording — both legs would be in the same container.
+    expect(trimmedUpload.subarray(0, 4).toString('ascii')).toBe('RIFF');
+    expect(plainUpload.subarray(0, 4).toString('hex')).toBe('1a45dfa3');
     // ...and the trimmed one is not the fixture either, so it is not the untrimmed bytes under a WAV header.
     expect(trimmedSec).toBeLessThan(FIXTURE_SEC - MIN_SAVING_SEC);
   });
