@@ -88,6 +88,9 @@ K_RATIO="${SCC_K_RATIO:-4}"
 # 记的 59× 劣化那一轮的 server_max_concurrent=101、中位 46,758ms），远在 2 之上 ——
 # 所以「差集 > 上界」时跳过确认步直接判红，确认步不可能把成批死亡洗成一个个「偶发」。
 DIFF_MAX="${SCC_DIFF_MAX:-2}"
+# 上界的取值依据，随读数一起打进判词 —— 「不得凭感觉写」要求依据与值同行可见，
+# 而不是只写在脚本的注释里（注释读者是维护者，判词读者是看这次判据为什么红/绿的人）。
+DIFF_MAX_BASIS="${SCC_DIFF_MAX_BASIS:-102 次实跑两组红名单最大规模=1，上界=2×}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR" || exit 2
@@ -189,7 +192,7 @@ diff_list_of() {
 # verdict_lists — 判词里那串读数。AC 要求【同一行】带出：并发红名单、安静红名单、
 # 差集、确认步后幸存的红文件、签名计数、劣化比、判据自身墙钟（另有上界与它的取值依据）。
 verdict_lists() {
-  printf '并发红名单=[%s] 安静红名单=[%s]（安静 rc=%s）差集=[%s] 确认步=%s 幸存红=[%s] 偶发=[%s] 签名 STACK_TRACE_ERROR=%s Timeout_fetch=%s 服务端逐文件中位耗时 安静=%sms(n=%s) 并发=%sms(n=%s) 劣化比=%s K=%s 上界=%s 墙钟=%sms/60000ms' \
+  printf '并发红名单=[%s] 安静红名单=[%s]（安静 rc=%s）差集=[%s] 确认步=%s 幸存红=[%s] 偶发=[%s] 签名 STACK_TRACE_ERROR=%s Timeout_fetch=%s 服务端逐文件中位耗时 安静=%sms(n=%s) 并发=%sms(n=%s) 劣化比=%s K=%s 上界=%s(依据:%s) 墙钟=%sms/60000ms' \
     "$(join_commas "${R_CONC_RED:-}")" \
     "$(join_commas "${R_QUIET_RED:-}")" \
     "${R_QUIET_RC:-n/a}" \
@@ -200,7 +203,7 @@ verdict_lists() {
     "${R_SIG_STE:-0}" "${R_SIG_FETCH:-0}" \
     "${R_MEDIAN_QUIET:-n/a}" "${R_N_QUIET:-0}" \
     "${R_MEDIAN_CONC:-n/a}" "${R_N_CONC:-0}" \
-    "${R_RATIO:-n/a}" "${R_K:-4}" "${R_DIFF_MAX:-2}" "${R_WALL_MS:-n/a}"
+    "${R_RATIO:-n/a}" "${R_K:-4}" "${R_DIFF_MAX:-2}" "${DIFF_MAX_BASIS}" "${R_WALL_MS:-n/a}"
 }
 
 # confirm_outcome <label> — 打印 red | green。这是【确认步】的唯一入口。
@@ -346,7 +349,7 @@ run_self_test() {
   local i
   for i in 1 2 3 4 5 6; do CONFIRM_SYNTH["server/batch$i.test.ts"]=green; done
   readings '' $'server/batch1.test.ts\nserver/batch2.test.ts\nserver/batch3.test.ts\nserver/batch4.test.ts\nserver/batch5.test.ts\nserver/batch6.test.ts' 0 0 1.50 4 2 '' 0
-  self_control "C4 取假：并发红成批(>上界) ⇒ 红且复跑绿洗不白" red '确认步=跳过' '上界 2'
+  self_control "C4 取假：并发红成批(>上界) ⇒ 红且复跑绿洗不白" red '差集规模 6 > 上界 2' '上界=2(依据:'
 
   # ⑤ 2026-09-20T15:49:15Z 那次读数形状：安静 1 红、并发全绿 ⇒ 绿，且判词带出那个安静红文件
   #    （安静基线自己的红只报告，不再单独致判据红 —— 这就是本任务修掉的那个误判）
