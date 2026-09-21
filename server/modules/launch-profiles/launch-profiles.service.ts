@@ -1,6 +1,10 @@
 import { launchProfilesDb } from '@/modules/database/index.js';
 import type { LaunchProfileInput, LaunchProfileRecord } from '@/modules/database/index.js';
-import { isAllowedLaunchEnvKey, resolveContextWindow } from '@/modules/launch-profiles/launch-spec.service.js';
+// Transitional cross-module imports: the compile layer shared by the model library and this
+// profile service now lives in the providers module. The launch-profiles teardown deletes this
+// service, and these imports with it.
+import { isAllowedLaunchEnvKey, resolveContextWindow } from '@/modules/providers/index.js';
+import type { LaunchSpecGuards } from '@/modules/providers/index.js';
 import type { LLMProvider, ResolvedLaunchSpec } from '@/shared/types.js';
 import { AppError } from '@/shared/utils.js';
 
@@ -12,8 +16,9 @@ const MODEL_ALIAS_ENV: Record<string, string> = {
 
 const DEFAULT_AUTH_TARGET = 'ANTHROPIC_AUTH_TOKEN';
 
-/** Seam for the compile-path key filter; tests substitute a lax one to prove the guard is load-bearing. */
-export type LaunchSpecGuards = { isAllowedKey: (key: string) => boolean };
+// Re-exported for this module's tests (env-injection-closed.test.ts) so the type's move to the
+// providers module does not ripple into them; transitional, removed with this service.
+export type { LaunchSpecGuards };
 
 /** Seam for the write-path key check; tests substitute a lax one to prove the guard is load-bearing. */
 export type LaunchProfilesGuards = { isAllowedKey: (key: string) => boolean };

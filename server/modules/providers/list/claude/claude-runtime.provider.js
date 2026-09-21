@@ -36,7 +36,9 @@ import {
   notifyRunStopped,
   notifyUserIfEnabled
 } from '@/modules/notifications/index.js';
-import { resolveContextWindow, resolveLaunchSpec, resolveModelContextWindowRow, resolveModelLaunchSpec } from '@/modules/launch-profiles/index.js';
+import { resolveLaunchSpec } from '@/modules/launch-profiles/index.js';
+import { resolveModelContextWindowRow, resolveModelLaunchSpec } from '@/modules/providers/services/model-launch-spec.service.js';
+import { resolveContextWindow } from '@/modules/providers/services/launch-spec.service.js';
 import { applyLaunchSpecEnv, createCompleteMessage, createNormalizedMessage } from '@/shared/utils.js';
 
 const activeSessions = new Map();

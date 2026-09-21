@@ -5,7 +5,8 @@ import path from 'node:path';
 import pty, { type IPty } from 'node-pty';
 import { WebSocket, type RawData } from 'ws';
 
-import { resolveLaunchSpec, resolveModelLaunchSpec } from '@/modules/launch-profiles/index.js';
+import { resolveLaunchSpec } from '@/modules/launch-profiles/index.js';
+import { resolveModelLaunchSpec } from '@/modules/providers/index.js';
 import type { ResolvedLaunchSpec } from '@/shared/types.js';
 import { applyLaunchSpecEnv, parseIncomingJsonObject, readOptionalString, stripAnsiSequences } from '@/shared/utils.js';
 

@@ -1,5 +1,5 @@
 import { providerModelsDb, sessionsDb } from '@/modules/database/index.js';
-import { isAllowedLaunchEnvKey } from '@/modules/launch-profiles/index.js';
+import { isAllowedLaunchEnvKey } from '@/modules/providers/services/launch-spec.service.js';
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
 import type { IProvider } from '@/shared/interfaces.js';
 import type {

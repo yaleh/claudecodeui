@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { closeConnection, initializeDatabase, providerModelsDb } from '@/modules/database/index.js';
-import { resolveModelLaunchSpec } from '@/modules/launch-profiles/index.js';
+import { resolveModelLaunchSpec } from '@/modules/providers/index.js';
 import type { ProviderModelEnvRow } from '@/shared/types.js';
 
 async function withDb(run: () => void | Promise<void>): Promise<void> {

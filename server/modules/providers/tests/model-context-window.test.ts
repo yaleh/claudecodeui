@@ -10,8 +10,8 @@ import {
   extractCumulativeTokenBudget,
   extractTokenBudget,
   mapCliOptionsToSDK,
+  resolveModelContextWindowRow,
 } from '@/modules/providers/index.js';
-import { resolveModelContextWindowRow } from '@/modules/launch-profiles/index.js';
 
 const assistant = { type: 'assistant', message: { usage: { input_tokens: 10, output_tokens: 5 } } };
 const result = { type: 'result', usage: { input_tokens: 10, output_tokens: 5 } };

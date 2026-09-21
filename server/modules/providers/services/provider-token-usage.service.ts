@@ -6,7 +6,8 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 
 import { sessionsDb } from '@/modules/database/index.js';
-import { resolveContextWindow, resolveModelContextWindowRow } from '@/modules/launch-profiles/index.js';
+import { resolveContextWindow } from '@/modules/providers/services/launch-spec.service.js';
+import { resolveModelContextWindowRow } from '@/modules/providers/services/model-launch-spec.service.js';
 import type { AnyRecord } from '@/shared/types.js';
 import { AppError, getOpenCodeDatabasePath } from '@/shared/utils.js';
 

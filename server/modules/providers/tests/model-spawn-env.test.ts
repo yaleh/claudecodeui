@@ -8,8 +8,7 @@ import test from 'node:test';
 import { WebSocket } from 'ws';
 
 import { closeConnection, initializeDatabase, providerModelsDb } from '@/modules/database/index.js';
-import { resolveModelLaunchSpec } from '@/modules/launch-profiles/index.js';
-import { mapCliOptionsToSDK } from '@/modules/providers/index.js';
+import { mapCliOptionsToSDK, resolveModelLaunchSpec } from '@/modules/providers/index.js';
 import { handleShellConnection } from '@/modules/websocket/index.js';
 import type { ProviderModelEnvRow } from '@/shared/types.js';
 

@@ -13,6 +13,15 @@ export { searchConversations } from './services/session-conversations-search.ser
 
 export { initializeSessionsWatcher } from './services/sessions-watcher.service.js';
 export { closeSessionsWatcher } from './services/sessions-watcher.service.js';
+// resolveModelLaunchSpec: consumed by the websocket module's shell pty to compile the
+// spawn env for the selected custom model.
+export { resolveModelLaunchSpec, resolveModelContextWindowRow } from './services/model-launch-spec.service.js';
+// LaunchSpecGuards: the compile-path key-filter seam, consumed by the outgoing launch-profile
+// service and its tests. Transitional — removed with the launch-profiles teardown.
+export type { LaunchSpecGuards } from './services/model-launch-spec.service.js';
+// isAllowedLaunchEnvKey / resolveContextWindow: transitional re-exports for the outgoing
+// launch-profile service, which loses them when the launch-profiles module is torn down.
+export { isAllowedLaunchEnvKey, resolveContextWindow } from './services/launch-spec.service.js';
 // mapCliOptionsToSDK: driven by the launch-profiles tests to prove the SDK env
 // stays byte-identical when no profile is configured.
 export { mapCliOptionsToSDK } from './list/claude/claude-runtime.provider.js';
