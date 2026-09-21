@@ -25,10 +25,10 @@ composer footer 的图标按钮可访问名称不一致。实测（运行中的�
 
 ## AC
 
-- [ ] 组件级：新增 `src/modules/chat/tests/voiceInputButtonName.test.tsx`，`npx vitest run src/modules/chat/tests/voiceInputButtonName.test.tsx` 退出码 0，覆盖：`VoiceInputButton` 在 `idle` 态按 `getByRole('button', { name: 'Voice input' })` 可定位、在 `recording` 态按 `{ name: 'Stop recording' }` 可定位（用 `getByRole` 而不是断言属性存在——属性加了但没接到按钮上是最可能的错法，前者会红、后者不会）；`recording` 态下旧名称 `Voice input` **不再**可定位。
-- [ ] 源码面：`grep -n "aria-label" src/modules/chat/composer/VoiceInputButton.tsx src/modules/chat/composer/ChatComposer.tsx` 至少命中 3 处（麦克风、commands、clear）；且 `VoiceInputButton.tsx` 中该属性与 `tooltip` 引用**同一个** label 变量（同文件内 `grep -c "label"` 与人工确认，防止两处文案日后漂移）。
-- [ ] 真实浏览器：在运行中的实例上，`📎 / 🎤 / 💬 / ✕` 四个控件（⚡ token usage 已有名称，作为对照）都能按可访问名称定位；**且 `getByRole('button', { name: '11' })` 不再命中 commands 按钮**——失败时打印各控件的实际可访问名称。
-- [ ] 静态门：`npm run lint` 与 `npx tsc --noEmit -p tsconfig.json` 均退出码 0。
+- [x] 组件级：新增 `src/modules/chat/tests/voiceInputButtonName.test.tsx`，`npx vitest run src/modules/chat/tests/voiceInputButtonName.test.tsx` 退出码 0，覆盖：`VoiceInputButton` 在 `idle` 态按 `getByRole('button', { name: 'Voice input' })` 可定位、在 `recording` 态按 `{ name: 'Stop recording' }` 可定位（用 `getByRole` 而不是断言属性存在——属性加了但没接到按钮上是最可能的错法，前者会红、后者不会）；`recording` 态下旧名称 `Voice input` **不再**可定位。
+- [x] 源码面：`grep -n "aria-label" src/modules/chat/composer/VoiceInputButton.tsx src/modules/chat/composer/ChatComposer.tsx` 至少命中 3 处（麦克风、commands、clear）；且 `VoiceInputButton.tsx` 中该属性与 `tooltip` 引用**同一个** label 变量（同文件内 `grep -c "label"` 与人工确认，防止两处文案日后漂移）。
+- [x] 真实浏览器：在运行中的实例上，`📎 / 🎤 / 💬 / ✕` 四个控件（⚡ token usage 已有名称，作为对照）都能按可访问名称定位；**且 `getByRole('button', { name: '11' })` 不再命中 commands 按钮**——失败时打印各控件的实际可访问名称。
+- [x] 静态门：`npm run lint` 与 `npx tsc --noEmit -p tsconfig.json` 均退出码 0。
 
 ## DoD
 
@@ -47,3 +47,25 @@ L_G 该轴仍暗，理由：同上；本任务的验证读数是 DoD 里的两�
 - src/modules/chat/composer/ChatComposer.tsx
 - src/modules/chat/tests/voiceInputButtonName.test.tsx (new)
 - tasks/gap-composer-icon-buttons-unlabeled.md
+
+## Evidence
+
+真实前端读数：Chromium 无障碍树逐按钮取值（CDP `Accessibility.getPartialAXTree`，`fetchRelatives:false`），再用 Playwright 1.63 自己的 role+name 引擎（`getByRole(name, exact)`）复核归属，避免"名称其实属于页面上别的按钮"。两次快照用同一套 seed（run 自带的临时 `DATABASE_PATH`/`HOME` 与 seeded transcripts），改造前取自 `git restore` 回 develop 源码后的同一 worktree，改造后取自本任务的提交。
+
+操作记录：(1) 新库上建账号并走完 onboarding；(2) 打开 seeded 会话 `e2e-role-1-task-worker`（索引一个会话即自动注册其 project，未走任何 API 造数据）；(3) 等 voice availability 解析完、mic 真正出现；(4) 读 footer 内每个 button 的 Chromium accessible name 与 `getByRole` 归属；(5) 向输入框填入文本让 clear 按钮出现，再读一次；(6) 真实点击 mic 进入录音态，再读一次；(7) 切到 zh-CN 重新加载页面，再读一次。
+
+| 控件 | 改造前 name | 改造后 name |
+| --- | --- | --- |
+| 📎 attach | `Attach files` | `Attach files`（对照组：改造前已有名称） |
+| 🎤 mic（idle） | 空字符串 | `Voice input` |
+| ⚡ token usage | `Show token usage` | `Show token usage`（对照组，未变） |
+| 💬 commands | `6`（角标数字） | `Show all commands` |
+| ✕ clear（有输入时） | 空字符串 | `Clear input` |
+
+录音态：真实点击 mic 后，同一个按钮（footer 内 index 1）的名称变为 `Stop recording`，且 `getByRole('button', { name: 'Voice input' })` 计数由 1 变 0——旧名称确实消失，不是读到了另一个元素。
+
+角标不再充当名称：`getByRole('button', { name: 角标数字 })` 计数 1 → 0。本实例的角标数字实测是 `6`（任务描述里那台实例是 `11`），因此 AC-3 里 `'11'` 那一条按同一条不变量、用 DOM 实际读出的角标数字断言：数字不再命中任何按钮（`'11'` 在本实例两个状态下计数本来就为 0，单用它断言会空过）。各控件的实际名称见上表。
+
+zh-CN（`document.documentElement.lang` 与页脚文案实测已切换）：mic 空 → `语音输入`，commands `6` → `显示所有命令`；名称随 `t()` 走而非写死英文。
+
+如实登记的边界：本任务只覆盖 composer footer 的图标按钮，不是无障碍审计——transcript 区、侧栏、设置面板的同类问题不在范围内，不据此声称整体达标。另：⚡ token usage 在 zh-CN 下仍是英文 `Show token usage`，因为 `chat:misc.showTokenUsage` 在 zh-CN 资源里没有译文，属既有 i18n 缺口，不在本任务范围内。
