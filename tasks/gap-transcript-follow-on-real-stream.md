@@ -3,7 +3,7 @@ id: gap-transcript-follow-on-real-stream
 title: 真实流式输出全程贴底：e2e 内 mock gateway 以 SSE 慢速吐 ≥20 个 text delta，经 realtime →
   store → React 就地改写逐帧 gap ≤1px，且 e2e spec 由红转绿（AC-108 判据
   e2e/transcript-follow.spec.ts）
-status: ready
+status: done
 labels:
   - gap
   - defect
