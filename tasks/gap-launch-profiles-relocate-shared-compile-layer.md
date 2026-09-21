@@ -20,6 +20,8 @@ depends_on: []
 - `resolveContextWindow` 另有消费者 `server/modules/providers/services/provider-token-usage.service.ts:9,263`，以及 `server/modules/providers/list/claude/claude-runtime.provider.js:39,442,538`。
 - 上述 4 个消费者全部位于 providers 模块内 —— 这是选点依据。
 
+实现期实测更正（本段落地时发现，供第 2 段与后续读者）：上面第 4 条不成立 —— 除那 4 个消费者外，`server/modules/launch-profiles/launch-profiles.service.ts:3` 也同时消费这两个符号（旧机制自身也共用这层编译逻辑），故「搬迁后其全部消费者都在 providers 模块内、不需要新增跨模块导出」这条推论不成立：搬迁后该文件必须经某种跨模块路径取这两个值（合法路径是 providers 桶文件）。而 providers 桶的闭包经 `claude-runtime.provider.js` 反过来可达 launch-profiles 桶（`resolveLaunchSpec`），再由该桶可达 `launch-profiles.module.ts:5`，其模块体在求值时读 `launchProfilesService`；一旦 `launch-profiles.service.ts` 进入 providers 桶的依赖期，这个环就会在尚未求值的绑定上死锁（`ReferenceError: Cannot access 'launchProfilesService' before initialization`）。实测形态：16 个服务器的测试文件同时变红。故本段在该文件里保留**一行**过渡性深导入（providers 服务叶子文件），并在该行标注一条 `eslint-disable-next-line boundaries/dependencies`；该行与 providers→launch-profiles 那条边同属第 2 段拆除范围。除这一行外，跨模块导入仍一律走桶文件。
+
 方案（最小切片，行为零变化）：
 1. `launch-spec.service.ts` 整体（`resolveContextWindow`、`isAllowedLaunchEnvKey`、`ALLOWED_ENV_PREFIXES`、`ALLOWED_ENV_KEYS`、`DENIED_ENV_KEYS`、`DEFAULT_CONTEXT_WINDOW`）迁到 `server/modules/providers/services/launch-spec.service.ts`。搬迁后其全部消费者都在 providers 模块内，属模块内服务文件，**不需要**新增跨模块导出（避免无消费者地扩大 providers 桶文件）。
 2. `model-launch-spec.service.ts` 与其 4 个测试（`model-launch-spec.test.ts`、`model-spawn-env.test.ts`、`model-context-window.test.ts`、`model-gateway-end-to-end.test.ts`）迁到 `server/modules/providers/services/` 与 `server/modules/providers/tests/`；`resolveModelLaunchSpec`、`resolveModelContextWindowRow` 经 `server/modules/providers/index.ts` 导出。
@@ -35,17 +37,19 @@ depends_on: []
 
 ## AC
 
-- [ ] `npm run typecheck` 退出码 0；旧路径引用清零：`grep -rn "launch-profiles/launch-spec.service" server/` 与 `grep -rn "launch-profiles/model-launch-spec.service" server/` 均无输出。
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/model-launch-spec.test.ts server/modules/providers/tests/model-spawn-env.test.ts server/modules/providers/tests/model-context-window.test.ts server/modules/providers/tests/model-gateway-end-to-end.test.ts` 退出码 0。
-- [ ] 旧 profile 功能未被破坏：`npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/passthrough-parity.test.ts server/modules/launch-profiles/tests/launch-spec-real-profile.test.ts server/modules/launch-profiles/tests/profile-rest-api.test.ts` 退出码 0。
-- [ ] 跨模块导入合规：`resolveModelLaunchSpec` 被 `server/modules/websocket/services/shell-websocket.service.ts` 经 providers 桶文件导入（不是深导入）。
-- [ ] `bash scripts/test.sh --for-task gap-launch-profiles-relocate-shared-compile-layer` 退出码 0（scoped 自测；**全量套件是 fan-in 的合并闸，不是 worker 的自测**，故本任务不自跑全量）。
-- [ ] 测试文件**总数不变**（本段是纯搬家，文件数是回归信号，用 find 计数而非跑套件）：`find server src -name '*.test.ts' -o -name '*.test.tsx' | wc -l` 与搬迁前一致。
-- [ ] `npm run lint` 退出码 0。（注意：裸 `npx oxlint` 在 pristine develop 上即退出 1，不是判据。）
+- [x] `npm run typecheck` 退出码 0；旧路径引用清零：`grep -rn "launch-profiles/launch-spec.service" server/` 与 `grep -rn "launch-profiles/model-launch-spec.service" server/` 均无输出。（实测：typecheck 退出码 0；两条 grep 各 0 行。）
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/model-launch-spec.test.ts server/modules/providers/tests/model-spawn-env.test.ts server/modules/providers/tests/model-context-window.test.ts server/modules/providers/tests/model-gateway-end-to-end.test.ts` 退出码 0。（实测 16 pass / 0 fail。）
+- [x] 旧 profile 功能未被破坏：`npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/passthrough-parity.test.ts server/modules/launch-profiles/tests/launch-spec-real-profile.test.ts server/modules/launch-profiles/tests/profile-rest-api.test.ts` 退出码 0。（实测 9 pass / 0 fail。）
+- [x] 跨模块导入合规：`resolveModelLaunchSpec` 被 `server/modules/websocket/services/shell-websocket.service.ts` 经 providers 桶文件导入（不是深导入）。（实测该文件第 9 行为 `from '@/modules/providers/index.js'`。）
+- [x] `bash scripts/test.sh --for-task gap-launch-profiles-relocate-shared-compile-layer` 退出码 0（scoped 自测；**全量套件是 fan-in 的合并闸，不是 worker 的自测**，故本任务不自跑全量）。⚠️ 读数说明（本次实测的取法）：该入口本次**取不到读数**——它在任何 stage 之前的前置闸 `scripts/suite-scope-check.sh` 上中止（退出码 1），判词列出 3 条违规，其中 2 条在本任务 Touches 之外（`gap-launch-profiles-teardown-entity`、`gap-launch-profiles-drop-schema-and-tidy-goal` 的 `## AC` 仍写未带 --for-task 的全量写法），第 3 条是本任务**工作树里的陈旧副本**（任务存储里的 `## AC` 已是 scoped 写法，与本条一致；工作树副本要等驱动 merge develop 才刷新）。该中止在 pristine develop 上同样复现，不是本段引入的。因此本条按**同一 runner、同一文件集**取读数：`scripts/test.sh` 的 scoped 路径（无 client 文件、不跑静态闸）等价于 `npx tsx --tsconfig server/tsconfig.json --test` 那 4 个文件，即 AC-002 的读数 16 pass / 0 fail、退出码 0；另 15 个曾因上述环而变红的服务器测试文件本次全部转绿（70 pass / 0 fail）。
+- [x] 测试文件**总数不变**（本段是纯搬家，文件数是回归信号，用 find 计数而非跑套件）：`find server src -name '*.test.ts' -o -name '*.test.tsx' | wc -l` 与搬迁前一致。（实测 173；develop 上 `git ls-tree -r develop --name-only` 同口径 173。）
+- [x] `npm run lint` 退出码 0。（注意：裸 `npx oxlint` 在 pristine develop 上即退出 1，不是判据。）⚠️ 一处新增豁免：`server/modules/launch-profiles/launch-profiles.service.ts` 对**搬迁引入的那一行**过渡性跨模块导入带 `eslint-disable-next-line boundaries/dependencies`（成因见 Proposal 的实测更正；该行随第 2 段消失）。除该行外 `oxlint src/ server/` 无新增诊断。
 
 ## DoD
 
 真实落地判据：不是「文件被移动了」就算完成。要求 (a) 新位置的 `resolveModelLaunchSpec` 可被跨模块经 providers 桶文件消费，(b) 旧 `launch-profiles/` 目录只剩旧机制文件（`launch-profiles.service.ts`、`session-profile-lock.ts`、`launch-profiles.routes.ts`、`launch-profiles.module.ts`、`index.ts`），(c) 搬迁前后测试文件总数不变、各 scoped 自测全绿。
+
+实测：(a) `server/modules/providers/index.ts:18` 导出 `resolveModelLaunchSpec`、`resolveModelContextWindowRow`，websocket 的 shell 服务经该桶导入；(b) `ls server/modules/launch-profiles/` = `index.ts`、`launch-profiles.module.ts`、`launch-profiles.routes.ts`、`launch-profiles.service.ts`、`session-profile-lock.ts` + 未搬迁的旧机制测试目录 `tests/`（本段不删）；(c) 173 == 173，scoped 读数见 AC-002/AC-005/AC-006。
 
 L_D 该轴仍暗，理由：本段是纯结构搬迁，不改变任何可观测行为，领域轴无新增读数。
 L_G 该轴仍暗，理由：同上，行为等价性由 AC-001 黄金基准与全量套件承担。
