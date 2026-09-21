@@ -1,7 +1,7 @@
 ---
 id: gap-chat-stream-row-requires-live-identity
 title: 渲染端的前置条件显式化：stream_delta 行当且仅当带 live id 才落行（今天不可达的保险，把静默污染降级为退化）
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -25,11 +25,11 @@ extra:
 
 ## AC
 
-- [ ] AC1 渲染端前置条件显式化：`useChatMessages.ts` 的 `case 'stream_delta'` 在 push 之前检查 `isLiveRowId(msg.id)` —— `grep -c "isLiveRowId(msg.id)" src/modules/chat/hooks/useChatMessages.ts` 输出 **2**（既有 `:309` 一处 + 新增一处；实测修复前为 1）；`npm run typecheck` 退出码 0。
-- [ ] AC2 scoped gate 选中并全绿：`bash scripts/test.sh --for-task gap-chat-stream-row-requires-live-identity --allow-thin` 退出码 0，输出中含 `src/modules/chat/tests/useChatMessages.test.ts` 的逐文件判决 `passed=true`（证明它被 `## Touches` 选中并真跑，而非被 thin 跳过）；完成记录贴出直接运行该文件的命令、退出码与用例条数。⚠️ scoped gate 的 `# tests N` 计的是**文件数**，用例数以 vitest 自身输出为准，两者不要混。
-- [ ] AC3 双向对照各自独立可反红：(a) 一条 id **非 live** 的 `stream_delta` 经 `normalizedToChatMessages` ⇒ **不产出**该行；(b) 一条 id 带 `live:` 的 `stream_delta` ⇒ **照样产出**流式行，且 content 变化时仍在原地更新（不新增行）。两条是各自独立的断言，可分别反红。
-- [ ] AC4 抗假变体：把 AC1 那行守卫去掉 ⇒ AC3 的 (a) 红而 (b) 仍绿（证明两条对照可分，不是同一处红掩盖）；还原后 `git diff -- src/modules/chat` 为空。
-- [ ] AC5 迁移后的既有用例仍绿：`useChatMessages.test.ts` 的 4 条既有用例（含 `:40` 那条在 fixture 迁成 live 形状后仍断言该行被渲染）全部通过；`npm run lint`（= `oxlint src/ server/`）退出码 0。
+- [x] AC1 渲染端前置条件显式化：`useChatMessages.ts` 的 `case 'stream_delta'` 在 push 之前检查 `isLiveRowId(msg.id)` —— `grep -c "isLiveRowId(msg.id)" src/modules/chat/hooks/useChatMessages.ts` 输出 **2**（既有 `:309` 一处 + 新增一处；实测修复前为 1）；`npm run typecheck` 退出码 0。
+- [x] AC2 scoped gate 选中并全绿：`bash scripts/test.sh --for-task gap-chat-stream-row-requires-live-identity --allow-thin` 退出码 0，输出中含 `src/modules/chat/tests/useChatMessages.test.ts` 的逐文件判决 `passed=true`（证明它被 `## Touches` 选中并真跑，而非被 thin 跳过）；完成记录贴出直接运行该文件的命令、退出码与用例条数。⚠️ scoped gate 的 `# tests N` 计的是**文件数**，用例数以 vitest 自身输出为准，两者不要混。
+- [x] AC3 双向对照各自独立可反红：(a) 一条 id **非 live** 的 `stream_delta` 经 `normalizedToChatMessages` ⇒ **不产出**该行；(b) 一条 id 带 `live:` 的 `stream_delta` ⇒ **照样产出**流式行，且 content 变化时仍在原地更新（不新增行）。两条是各自独立的断言，可分别反红。
+- [x] AC4 抗假变体：把 AC1 那行守卫去掉 ⇒ AC3 的 (a) 红而 (b) 仍绿（证明两条对照可分，不是同一处红掩盖）；还原后 `git diff -- src/modules/chat` 为空。
+- [x] AC5 迁移后的既有用例仍绿：`useChatMessages.test.ts` 的 4 条既有用例（含 `:40` 那条在 fixture 迁成 live 形状后仍断言该行被渲染）全部通过；`npm run lint`（= `oxlint src/ server/`）退出码 0。
 
 ## DoD
 
@@ -42,3 +42,29 @@ L_D 该轴仍暗，理由：本条只把客户端流式行的渲染前置条件�
 - src/modules/chat/hooks/useChatMessages.ts
 - src/modules/chat/tests/useChatMessages.test.ts
 - tasks/gap-chat-stream-row-requires-live-identity.md
+
+## 完成记录
+
+**改动面**：`src/modules/chat/hooks/useChatMessages.ts` +8 行（含注释）、`src/modules/chat/tests/useChatMessages.test.ts` +48/-3 行。单个提交 `13e3e8e7`。
+
+**AC1** 守卫落在 `case 'stream_delta'` 的**首位**，即 `if (msg.content)` 之前：`if (!isLiveRowId(msg.id)) break;`。`grep -c "isLiveRowId(msg.id)" src/modules/chat/hooks/useChatMessages.ts` = **2**（`SharedMetadata` 处既有 1 处 + 新增 1 处；修复前实测 1）。`npm run typecheck` 退出码 **0**。`isLiveRowId` 早已在 `:8` 导入，未新增任何 import。
+
+**AC2** `bash scripts/test.sh --for-task gap-chat-stream-row-requires-live-identity --allow-thin` 退出码 **0**；输出中的逐文件判决为 `__PERFILE__ duration_ms=3 src/modules/chat/tests/useChatMessages.test.ts passed=true` —— 该文件确实被 `## Touches` 选中并真跑，不是被 thin 跳过。直接运行：
+
+```
+npx vitest run src/modules/chat/tests/useChatMessages.test.ts
+```
+
+退出码 **0**，`Test Files 1 passed (1)`，`Tests 6 passed (6)`（= 4 条既有用例 + 2 条新增双向对照）。注意 scoped gate 的 `# tests 1` 计的是**文件数**，与这里的 6 条用例不是一个量，未混用。
+
+**AC3** 两条对照写成文件里两个**各自独立**的用例，因此可以分别反红：
+- (a) `draws no row for a stream_delta this client did not mint`：id 取 `server-shaped-id`，断言 `assert.deepEqual(converted, [])`。
+- (b) `still draws — and updates in place — a stream_delta carrying a live row id`：id 取 `live:session-1:3`，断言产出 1 行、`type === 'assistant'`、`isStreaming === true`、`id` 透传、content 正确；换 content（并换 timestamp）后仍为 1 行 —— 不新增 —— 且内容就地更新、id 不变。
+
+**AC4** 在**已提交**的状态上删掉那行守卫后运行该文件：`Tests 1 failed | 5 passed (6)`，失败者恰为 (a)（报错点 `useChatMessages.test.ts:62`），(b) 与其余 4 条仍绿 —— 两条对照可分，不是同一处红掩盖。用 Edit 还原后 `git diff -- src/modules/chat` 为**空**，`git status --porcelain` 亦为空；还原后的 `sha256sum` 与实验前完全一致（`9ea1056a251f1720deca4b9480ed766534824835070cd84971b2bb63f84f8503`），可核。
+
+**AC5** 4 条既有用例全部通过；其中 `:40` 的断言 `assert.equal(updated[2]?.content, 'Part one and two')` **一字未改**。`npm run lint`（= `oxlint src/ server/`）退出码 **0**（输出仅既存 warning，无新增）。
+
+**fixture 迁移的理由（契约变更，不是放宽断言）。** 两处 `stream_delta` fixture 原 id 为 `'stream'`，是**生产不可达**的形状：`updateStreaming` 是 `stream_delta` 的唯一产出者，其 id 取 `existing?.id ?? createLiveRowId(sessionId)`，必然带 `live:` 前缀。所以这一步是把 fixture 从不真实的形状**修正到生产形状**，而非为迁就守卫而削弱断言 —— 被断言的性质（该行被渲染；内容变化时在同一位置更新）没有任何放宽：既有的断言一条没删、没松，`updated[2]?.content` 仍照原样钉住渲染结果，同时新增的 (a) 用例是比原先更强的断言（原先根本没有反向用例）。
+
+**行为改变量。** 生产路径为零：`stream_delta` 行今天必然带 live id，守卫对其恒真。它改变的是**未来**同类 bug 的失败模式，从静默污染降级为可见退化。
