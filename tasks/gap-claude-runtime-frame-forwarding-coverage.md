@@ -2,7 +2,7 @@
 id: gap-claude-runtime-frame-forwarding-coverage
 title: claude runtime 每帧转发的覆盖：归一化出来的每一帧（含 stream_delta）真的交给 writer —— 提取可导出纯函数 +
   假 writer 用例，补上归一化器与广播器之间那个无人守的连接点
-status: ready
+status: done
 labels:
   - gap
 parent: null
