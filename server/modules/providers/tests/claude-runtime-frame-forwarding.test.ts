@@ -30,10 +30,13 @@ const SESSION_ID = 'claude-frame-forwarding-1';
 
 test('every normalized frame is handed to the writer, in order', () => {
   const writer = recordingWriter();
+  // Kinds the other cases do not use, so a defect local to one of them (a
+  // dropped `stream_delta`, a missed echo filter, a lost parentToolUseId) reds
+  // its own case instead of this one.
   const frames = [
-    { kind: 'stream_delta', content: 'first' },
-    { kind: 'stream_delta', content: 'second' },
-    { kind: 'text', content: 'third' },
+    { kind: 'text', content: 'first' },
+    { kind: 'tool_use', content: 'second' },
+    { kind: 'thinking', content: 'third' },
   ];
 
   forwardNormalizedFrames({
