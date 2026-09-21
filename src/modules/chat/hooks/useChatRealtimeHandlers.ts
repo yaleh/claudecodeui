@@ -14,6 +14,16 @@ const hasActionablePermissionRequests = (requests: Array<{ toolName?: unknown }>
   return Array.isArray(requests) && requests.some((request) => isActionablePermissionRequest(request));
 };
 
+/**
+ * How long a session's deltas are coalesced before its row is refreshed.
+ *
+ * A render budget, not a correctness knob. A reply arrives as hundreds of
+ * one-token frames and the store keeps exactly one row per turn, so this
+ * decides how often that row is rewritten — every flush redraws the transcript
+ * around it, markdown pipeline included.
+ */
+const STREAM_FLUSH_INTERVAL_MS = 100;
+
 type UseChatRealtimeHandlersArgs = {
   isActive: boolean;
   subscribe: (listener: (event: ServerEvent) => void) => () => void;
@@ -82,6 +92,25 @@ export function useChatRealtimeHandlers({
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
 
+  /**
+   * The text each session's reply has streamed so far, and that session's
+   * pending flush timer.
+   *
+   * Keyed by session and never shared. One socket carries the deltas of every
+   * running session interleaved, so a single buffer holds two replies' text at
+   * once and whichever row is flushed from it receives both; a bucket per
+   * session is what makes one session's deltas unable to reach another
+   * session's row.
+   *
+   * Every session accumulates here, not only the one on screen. A reply nobody
+   * is watching still has to fold into a single row — the deltas of a turn are
+   * one message, and the row is what that turn *is* — and the bucket is also
+   * what carries its text across a view change in either direction: the reader
+   * may switch into a reply mid-flight, or away from one.
+   */
+  const streamBuffersRef = useRef(new Map<string, string>());
+  const streamFlushTimersRef = useRef(new Map<string, number>());
+
   // Keep the latest pending-permission snapshot available to the websocket
   // listener so back-to-back permission events can dedupe and re-arm the
   // notification sound before React finishes a rerender.
@@ -92,6 +121,92 @@ export function useChatRealtimeHandlers({
   }, [pendingPermissionRequests]);
 
   useEffect(() => {
+    /**
+     * Write a session's accumulated text into the row that session is
+     * streaming into, and drop its pending flush.
+     *
+     * `updateStreaming` is handed the text of the turn *so far* and selects the
+     * row by session and kind, so a flush reuses the row the previous flush
+     * made rather than adding one. That reuse is the whole fix: a background
+     * session's reply is one row at any moment, no matter how many frames it
+     * arrived in.
+     */
+    const flushStreamBuffer = (sessionId: string) => {
+      const timer = streamFlushTimersRef.current.get(sessionId);
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        streamFlushTimersRef.current.delete(sessionId);
+      }
+      // Read the text here rather than closing over it, so a flush that fires
+      // after the turn settled — its pending timer outliving it — finds an
+      // empty bucket and is a no-op instead of writing a stale body.
+      const accumulated = streamBuffersRef.current.get(sessionId);
+      if (!accumulated) {
+        return;
+      }
+      if (sessionId === activeViewSessionIdRef.current) {
+        accumulatedStreamRef.current = accumulated;
+      }
+      sessionStore.updateStreaming(sessionId, accumulated, provider);
+    };
+
+    /**
+     * Coalesce a session's next flush.
+     *
+     * The viewed session keeps flushing on the parent's timer ref, because that
+     * is the handle the parent clears when the view moves on; every other
+     * session is out of the parent's sight and gets a timer of its own. Both
+     * callbacks read the session's bucket, so a timer that outlives its turn
+     * cannot write anything stale.
+     */
+    const scheduleStreamFlush = (sessionId: string) => {
+      if (sessionId === activeViewSessionIdRef.current) {
+        if (streamTimerRef.current !== null) {
+          return;
+        }
+        streamTimerRef.current = window.setTimeout(() => {
+          streamTimerRef.current = null;
+          flushStreamBuffer(sessionId);
+        }, STREAM_FLUSH_INTERVAL_MS);
+        return;
+      }
+      if (streamFlushTimersRef.current.has(sessionId)) {
+        return;
+      }
+      streamFlushTimersRef.current.set(sessionId, window.setTimeout(() => {
+        flushStreamBuffer(sessionId);
+      }, STREAM_FLUSH_INTERVAL_MS));
+    };
+
+    const accumulateStreamDelta = (sessionId: string, text: string) => {
+      const accumulated = (streamBuffersRef.current.get(sessionId) ?? '') + text;
+      streamBuffersRef.current.set(sessionId, accumulated);
+      if (sessionId === activeViewSessionIdRef.current) {
+        // Mirror of the viewed session's turn, kept for the parent that reads
+        // and clears it when the view moves on.
+        accumulatedStreamRef.current = accumulated;
+      }
+      scheduleStreamFlush(sessionId);
+    };
+
+    /**
+     * The turn is over. Write its last text into the row, settle the row in
+     * place — the id it settles with is the id the transcript keys it by, so
+     * this must not mint a new one — and forget the bucket.
+     */
+    const settleStream = (sessionId: string) => {
+      flushStreamBuffer(sessionId);
+      streamBuffersRef.current.delete(sessionId);
+      if (sessionId === activeViewSessionIdRef.current) {
+        accumulatedStreamRef.current = '';
+        if (streamTimerRef.current !== null) {
+          clearTimeout(streamTimerRef.current);
+          streamTimerRef.current = null;
+        }
+      }
+      sessionStore.finalizeStreaming(sessionId);
+    };
+
     const handleEvent = (msg: ServerEvent) => {
       if (!msg.kind) {
         return;
@@ -185,38 +300,18 @@ export function useChatRealtimeHandlers({
       /*  Provider NormalizedMessage handling                            */
       /* -------------------------------------------------------------- */
 
-      // --- Streaming: buffer for performance ---
+      // --- Streaming: accumulate per session, one row per turn ---
       if (msg.kind === 'stream_delta') {
         const text = (msg.content as string) || '';
-        if (!text) return;
-        accumulatedStreamRef.current += text;
-        if (!streamTimerRef.current) {
-          streamTimerRef.current = window.setTimeout(() => {
-            streamTimerRef.current = null;
-            if (sid) {
-              sessionStore.updateStreaming(sid, accumulatedStreamRef.current, provider);
-            }
-          }, 100);
-        }
-        // Also route to store for non-active sessions
-        if (sid && sid !== activeViewSessionId) {
-          sessionStore.appendRealtime(sid, msg as unknown as NormalizedMessage);
-        }
+        if (!text || !sid) return;
+        accumulateStreamDelta(sid, text);
         return;
       }
 
       if (msg.kind === 'stream_end') {
-        if (streamTimerRef.current) {
-          clearTimeout(streamTimerRef.current);
-          streamTimerRef.current = null;
-        }
         if (sid) {
-          if (accumulatedStreamRef.current) {
-            sessionStore.updateStreaming(sid, accumulatedStreamRef.current, provider);
-          }
-          sessionStore.finalizeStreaming(sid);
+          settleStream(sid);
         }
-        accumulatedStreamRef.current = '';
         return;
       }
 
@@ -235,16 +330,12 @@ export function useChatRealtimeHandlers({
       // --- UI side effects for specific kinds ---
       switch (msg.kind) {
         case 'complete': {
-          // Flush any remaining streaming state
-          if (streamTimerRef.current) {
-            clearTimeout(streamTimerRef.current);
-            streamTimerRef.current = null;
+          // Flush any remaining streaming state — this session's own, read
+          // from its bucket: a run that ends while the reader is elsewhere
+          // must not be settled with the viewed session's text.
+          if (sid) {
+            settleStream(sid);
           }
-          if (sid && accumulatedStreamRef.current) {
-            sessionStore.updateStreaming(sid, accumulatedStreamRef.current, provider);
-            sessionStore.finalizeStreaming(sid);
-          }
-          accumulatedStreamRef.current = '';
 
           // `complete` is the unified terminal event — every provider run ends
           // with exactly one, regardless of success, failure, or abort. The
