@@ -73,9 +73,10 @@ const MIN_SAVING_SEC = 0.3;
  * would leave the second composer assertion satisfiable by the first leg's text, which is exactly the state a
  * leg that never transcribed anything would be in.
  *
- * Both are ordinary lowercase sentences with nothing an identifier could be: this criterion is about duration,
- * and a name the repair might rewrite would put a second, unrelated transformation between the recogniser and
- * the assertion.
+ * Both are ordinary lowercase sentences with nothing an identifier could be: the criterion they were written
+ * for is about duration, and a name the repair might rewrite would put a second, unrelated transformation
+ * between the recogniser and the assertion. The leg that needs a name to be present names its own answer
+ * instead of taking one of these (see `nextAnswer`).
  */
 const UTTERANCES = [
   'please repeat the whole sentence back to me',
@@ -345,6 +346,34 @@ test.describe('the voice path end to end', () => {
    * `jsonValue()` hands back the object the app actually logged.
    */
   const readings: Record<string, unknown>[] = [];
+  /**
+   * How many `[voice:trim]` messages the page has printed, counted apart from `readings`.
+   *
+   * A count is not the same claim as a parse: a message whose argument arrived as something other than an
+   * object would leave `readings` empty while the page had still printed it, and the criterion that has to
+   * hold is about the printing. It is also what makes "0 of them" assertable at all — an empty `readings`
+   * is equally what a listener that never fired looks like.
+   */
+  let trimMessages = 0;
+  /**
+   * How many `[voice] identifier fidelity` messages the page has printed.
+   *
+   * Counted here because that reading is deliberately NOT behind the switch (GOAL-005 / AC-114): its
+   * arrival is the proof that a capture travelled the chain to the point where the readings are taken,
+   * which is what a count of `[voice:trim]` messages has to be read against. Its presence is also its own
+   * criterion — an absence of trim readings is only interesting if the unconditional one still fires.
+   */
+  let fidelityMessages = 0;
+  /**
+   * The sentence the stand-in answers the next upload with, when a leg needs one of its own.
+   *
+   * `UTTERANCES` is indexed by request order, which is a property of the run rather than of any one
+   * criterion: a leg that ran earlier in the same file has already consumed its entries, so an index is
+   * not a stable way to say "this leg is answered with this sentence". A leg that asserts something about
+   * a particular sentence — rather than about the chain in general — names it here, and the override is
+   * consumed by the request it was set for.
+   */
+  let nextAnswer: string | null = null;
 
   /**
    * The OpenAI-compatible speech endpoint the voice settings point at.
@@ -370,8 +399,10 @@ test.describe('the voice path end to end', () => {
       request.on('end', () => {
         // The Nth upload is the Nth leg, so each leg can only be satisfied by its own transcription. The last
         // sentence is the answer for every upload after the last leg, so a leg that uploaded twice fails on the
-        // request count rather than on a missing utterance.
-        const answer = UTTERANCES[Math.min(requests.length, UTTERANCES.length - 1)];
+        // request count rather than on a missing utterance. A leg that named its own answer takes precedence,
+        // and the name is spent on this one request.
+        const answer = nextAnswer ?? UTTERANCES[Math.min(requests.length, UTTERANCES.length - 1)];
+        nextAnswer = null;
         requests.push({
           url: request.url ?? '',
           method: request.method ?? '',
@@ -467,6 +498,24 @@ test.describe('the voice path end to end', () => {
           + `  page traffic=${voiceTraffic.length > 0 ? voiceTraffic.join(' | ') : '<none>'}`,
       );
     }
+  };
+
+  /**
+   * Records one pass of the fixture and returns the sentence the recogniser answered this capture with.
+   *
+   * The answer is read off the run's own request rather than named from `UTTERANCES`: which entry the
+   * stand-in picks is a property of how many legs ran before this one, so a leg that restated an index
+   * would be asserting about its own position in the file rather than about the chain. The recogniser is
+   * the one stand-in here, and what it answered is the input the rest of the chain is judged on.
+   */
+  const recordCapture = async (leg: string): Promise<string> => {
+    const before = requests.length;
+    await recordOnce();
+    await expect.poll(
+      () => requests.length,
+      { timeout: 15_000, message: `${leg}: the recording never reached the recogniser` },
+    ).toBe(before + 1);
+    return requests[before].answer;
   };
 
   /**
@@ -600,8 +649,14 @@ test.describe('the voice path end to end', () => {
     // The chain's own readings, collected whether or not a criterion is currently asking for them: what
     // the switch does is decide whether they are printed at all, and that is what the assertions read.
     page.on('console', (message) => {
+      const text = message.text();
+      // The unconditional reading (GOAL-005 / AC-114), counted separately from the one behind the switch:
+      // `[voice:trim]` is not a substring of `[voice] identifier fidelity`, so the two filters below
+      // cannot see each other's messages.
+      if (text.includes('[voice] identifier fidelity')) fidelityMessages += 1;
       // By substring, not by prefix: a string argument arrives with the console's own quoting.
-      if (!message.text().includes('[voice:trim]')) return;
+      if (!text.includes('[voice:trim]')) return;
+      trimMessages += 1;
       const [, reading] = message.args();
       if (!reading) return;
       void reading.jsonValue().then(
@@ -833,5 +888,176 @@ test.describe('the voice path end to end', () => {
 
     // Two legs, two uploads: no leg uploaded twice, and the third sent nothing at all.
     expect(requests.length).toBe(requestsBefore + 2);
+  });
+
+  /**
+   * The reading of the trim, and the switch that decides whether anyone hears about it.
+   *
+   * The pair is the criterion. "Off prints nothing" alone is satisfied by a chain that never prints, and "on
+   * prints a complete reading" alone is satisfied by a reading that is always printed — so a leg of each, in
+   * one run, against the same fixture, is the only arrangement in which either claim means anything. The
+   * unconditional `[voice] identifier fidelity` reading is what separates them: it is not behind the switch
+   * (GOAL-005 / AC-114), so its arrival is the proof that a capture travelled to the point where readings are
+   * taken — which is what a count of zero has to be read against.
+   *
+   * Three legs, because the switch has two halves. The first turns it off and records; the second turns it on
+   * by URL and records; the third names it nowhere and uploads, which is the only way to see that the URL
+   * half was *written back* — a page load re-evaluates the module, so a switch that only ever lived in the
+   * previous page's memory cannot be in force here.
+   *
+   * ⚠️ Every leg names both switches in its URL. They are remembered across loads, so a leg that left one to
+   * its default would be reading whichever value the leg before it wrote — which is the same leg under `-g`
+   * and a different one in the full file.
+   */
+  test('AC-121 the trim reading is silent by default and complete when the switch is on', async () => {
+    // The goal gate kills this command at 60s, so the budget is under the file's default: a runaway leg has
+    // to fail here, with its own message, while the command is still this run's to explain.
+    test.setTimeout(45_000);
+
+    // The one file the seeded workspace holds, and the name the identifier half of the reading is measured
+    // against. Read off the disk rather than restated, so a config that stopped seeding it would red this
+    // criterion instead of quietly agreeing with the spec.
+    const workspaceFiles = fs.readdirSync(WORKSPACE);
+    const workspaceFile = workspaceFiles.find((name) => name.endsWith('.md'));
+    expect(workspaceFile, `the seeded workspace holds no .md file: ${workspaceFiles.join(', ')}`).toBeTruthy();
+    /** How the recogniser hears that name: the same name with one character dropped — one edit, the opening
+     *  shared, the extension intact, which is the shape the repair's budget exists for. */
+    const spokenFile = workspaceFile!.replace(
+      /^(.*)\.([^.]+)$/,
+      (_match, stem: string, extension: string) => `${stem.slice(0, -1)}.${extension}`,
+    );
+    expect(spokenFile, 'the fixture name has no character to drop').not.toBe(workspaceFile);
+    const spokenSentence = `please open ${spokenFile} and read the notes`;
+    const repairedSentence = `please open ${workspaceFile} and read the notes`;
+
+    // ── Leg 1 — the switch off, on a real recording ────────────────────────────────────────────────────
+    // Named rather than defaulted: off is the default, but the switches are remembered, so "the default"
+    // here would be whatever the previous test left behind.
+    await openComposer('/?voiceDebug=off&voiceTrim=on');
+    const silentTrim = trimMessages;
+    const silentFidelity = fidelityMessages;
+    await expectTranscript(await recordCapture('switch-off leg'), 'switch-off leg');
+
+    // The capture reached the end of the chain before the zero below is read. Without this the criterion
+    // would be satisfied by a chain that never ran at all — a blank page, a refused recording, a dead
+    // endpoint — which is the same state as a switch that works, seen from the console.
+    await expect.poll(
+      () => fidelityMessages,
+      { timeout: 10_000, message: 'the switch-off leg never printed the unconditional fidelity reading, so it never reached the end of the chain' },
+    ).toBeGreaterThan(silentFidelity);
+    expect(trimMessages, 'the switch was off and the chain printed a trim reading anyway').toBe(silentTrim);
+
+    // ── Leg 2 — the switch on, named in the URL ────────────────────────────────────────────────────────
+    await openComposer('/?voiceDebug=1&voiceTrim=on');
+    // The URL is how a switch is set; storage is where it lives. That this load left something naming the
+    // switch behind is asserted here — what the app does with it is leg 3, which names it nowhere.
+    const writtenBack = await page.evaluate(() => {
+      const found: string[] = [];
+      for (let index = 0; index < window.localStorage.length; index += 1) {
+        const key = window.localStorage.key(index) ?? '';
+        const value = window.localStorage.getItem(key) ?? '';
+        if (key.toLowerCase().includes('voicedebug') || value.toLowerCase().includes('voicedebug')) {
+          found.push(`${key}=${value}`);
+        }
+      }
+      return found;
+    });
+    expect(writtenBack.length, 'the URL-named switch was never written back to localStorage').toBeGreaterThan(0);
+
+    const loudTrim = trimMessages;
+    const loudReadings = readings.length;
+    // This leg is answered with a name the workspace really has, mis-heard by one character, so the
+    // identifier half of the reading has something to measure. What lands in the composer is the repaired
+    // sentence: the criterion is about the reading, but a reading of a chain that did not repair would be a
+    // reading of a different chain.
+    nextAnswer = spokenSentence;
+    // The name really is spent on this leg's request — the stand-in is the one thing here that could answer
+    // something else, and if it did, everything read off the composer below would be about that instead.
+    expect(await recordCapture('switch-on leg'), 'the stand-in did not answer with this leg\'s sentence').toBe(spokenSentence);
+    await expectTranscript(repairedSentence, 'switch-on leg');
+
+    const reading = await nextReading(loudReadings);
+    expect(trimMessages, 'the switch-on capture printed more than one trim reading').toBe(loudTrim + 1);
+
+    // The field list, checked as paths rather than as a count of keys: a reading that renamed one of them or
+    // nested it elsewhere is not the reading the criterion names. Each of these is a way to red this: there is
+    // no ordering here that a partial reading satisfies.
+    const FIELDS = [
+      'source',
+      'inputSec',
+      'outputSec',
+      'savedSec',
+      'savedRatio',
+      'vadSegments',
+      'speechKeptRatio',
+      'fallback',
+      'identifiers.before.rate',
+      'identifiers.after.rate',
+      'repairHits',
+    ];
+    for (const field of FIELDS) {
+      expect(reading, `the reading carries no ${field}: ${JSON.stringify(reading)}`).toHaveProperty(field);
+    }
+
+    // ...and the values are this capture's own, not placeholders that satisfy the paths above. The input
+    // length is the fixture's, the saving is the difference between the two lengths, and the ratio is that
+    // difference over the input — a reading of audio the chain really measured.
+    const identifiers = reading.identifiers as
+      | { before: { rate: number | null }; after: { rate: number | null } }
+      | undefined;
+    expect(reading.source).toBe('mic');
+    expect(reading.fallback).toBe(false);
+    expect(
+      Math.abs((reading.inputSec as number) - FIXTURE_SEC),
+      `the chain measured ${String(reading.inputSec)}s of a ${FIXTURE_SEC}s capture`,
+    ).toBeLessThan(CAPTURE_TOLERANCE_SEC);
+    expect(reading.outputSec).toBeGreaterThan(0);
+    expect(reading.savedSec).toBeCloseTo((reading.inputSec as number) - (reading.outputSec as number), 3);
+    expect(reading.savedRatio).toBeCloseTo(1 - (reading.outputSec as number) / (reading.inputSec as number), 3);
+    expect(reading.vadSegments).toBeGreaterThanOrEqual(1);
+    expect(reading.speechKeptRatio).toBeGreaterThan(0);
+    expect(reading.speechKeptRatio).toBeLessThanOrEqual(1);
+
+    // The identifier half, on the sentence this leg was answered with. `before` is the recogniser's answer
+    // scored against itself — 1, because nothing had touched it yet — and `after` is that same answer scored
+    // against the repaired text, 0, because the name the recogniser said is the one the repair replaced. Only
+    // a repair that really fired produces that pair, and `repairHits` is the same event counted the other way:
+    // one identifier span the repaired text carries that the chain's own text did not.
+    expect(identifiers?.before.rate).toBe(1);
+    expect(identifiers?.after.rate).toBe(0);
+    expect(reading.repairHits).toBe(1);
+
+    // ── Leg 3 — the switch remembered, and the other entry into the chain ──────────────────────────────
+    // A full page load with the switch named nowhere: the document is new, the module is evaluated again, and
+    // nothing that only ever lived in the previous page's memory is readable here. A reading on this leg is
+    // the switch having been written to storage by leg 2 and read back by this load. `voiceTrim` IS named —
+    // it is the other half of the same storage, and leg 2 is not the only leg that ever set it.
+    const rememberedTrim = trimMessages;
+    const rememberedReadings = readings.length;
+    await openComposer('/?voiceTrim=on');
+    const uploaded = await uploadFixture('remembered-switch leg');
+
+    const uploadedReading = await nextReading(rememberedReadings);
+    expect(trimMessages, 'the remembered-switch capture printed more than one trim reading').toBe(rememberedTrim + 1);
+    expect(uploadedReading.source).toBe('file');
+    expect(uploadedReading.fallback).toBe(false);
+    expect(uploadedReading.inputSec).toBeCloseTo(FIXTURE_SEC, 1);
+    // The output length is the bytes that really reached the recogniser, read out of the container they are
+    // in. A reading that reported a number of its own would have to agree with this upload by accident.
+    expect(uploadedReading.outputSec).toBeCloseTo(
+      containerDurationSec(uploadedFile(uploaded.body, uploaded.contentType)),
+      2,
+    );
+    // ...and the switch reaches the file's half of the identifier reading too: this sentence carries no name,
+    // so the metric's own "nothing to measure" is what it reports, and nothing was repaired. Read beside the
+    // leg above, where the same three fields carry 1 / 0 / 1, this is the control that makes them a reading
+    // rather than a constant.
+    expect(uploadedReading.identifiers).toHaveProperty('before.rate', null);
+    expect(uploadedReading.identifiers).toHaveProperty('after.rate', null);
+    expect(uploadedReading.repairHits).toBe(0);
+
+    // The tally over the whole run, taken last so a stray extra print has nowhere left to arrive after it:
+    // the capture with the switch off printed nothing, and the two with it on printed one reading each.
+    expect(trimMessages).toBe(silentTrim + 2);
   });
 });

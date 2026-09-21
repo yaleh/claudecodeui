@@ -44,17 +44,17 @@ function extensionFor(mimeType: string): string {
 export type VoiceSource = 'mic' | 'file';
 
 /**
- * What the chain did with one capture, as a reading.
+ * The half of a capture's reading that is about the audio, taken where the audio is still in hand.
  *
  * The two entries share one chain, so the only thing that tells their readings apart is `source`;
- * everything else is a measurement of the audio itself, taken where the audio is still in hand.
+ * everything else here is a measurement of the bytes the chain was handed.
  *
  * `fallback` is the one field that is not a measurement: true means the bytes uploaded were the input
  * untouched — the trim is off, the browser could not decode the container, or one of the trim's own
  * guards fired. A duration the chain never measured is `null` rather than 0, so "nothing was measured"
  * cannot be read as "nothing was there".
  */
-export type VoiceCaptureReading = {
+type AudioReading = {
   source: VoiceSource;
   inputSec: number | null;
   outputSec: number | null;
@@ -65,8 +65,37 @@ export type VoiceCaptureReading = {
   fallback: boolean;
 };
 
+/**
+ * The half of a capture's reading that is about the text, measured on the three texts the chain holds:
+ * `raw` is what the recogniser answered, `text` what the chain kept of that answer, and `repaired` what
+ * the deterministic repair made of it.
+ *
+ * The two rates are the identifier metric's own reading (`src/shared/identifierFidelity.ts`) on each
+ * side of the repair, which is what makes them a pair rather than two measurements: `before` is what
+ * the chain alone kept, `after` is what it keeps once the repair has run, and the gap between them is
+ * the repair's own effect. `null` is the metric's reading for "this text carried no identifier at all",
+ * so it is also what a capture that produced no text reports.
+ *
+ * `repairHits` counts the identifier spans `repaired` carries that `text` did not — what the repair put
+ * back, read through the same metric rather than through a counter the repair would have to maintain.
+ * Zero and "no text at all" agree here on purpose: neither is a repair.
+ */
+type IdentifierReading = {
+  identifiers: {
+    before: { rate: number | null };
+    after: { rate: number | null };
+  };
+  repairHits: number;
+};
+
+/**
+ * What the chain did with one capture, as a reading: one object, so a caller reads the audio's half and
+ * the text's half together and cannot be handed one without the other.
+ */
+export type VoiceCaptureReading = AudioReading & IdentifierReading;
+
 /** The reading for a capture whose audio was never measured: the input was uploaded as it arrived. */
-const unmeasured = (source: VoiceSource): VoiceCaptureReading => ({
+const unmeasured = (source: VoiceSource): AudioReading => ({
   source,
   inputSec: null,
   outputSec: null,
@@ -76,6 +105,45 @@ const unmeasured = (source: VoiceSource): VoiceCaptureReading => ({
   speechKeptRatio: null,
   fallback: true,
 });
+
+/**
+ * The identifier half of a reading, from the recogniser's answer and the repair's output.
+ *
+ * `text` is derived here rather than passed in because it is the chain's own only transformation of
+ * `raw` — `raw.trim()`, one line below in `submitCapture` — and a second caller computing it
+ * separately is a second chance to disagree about what the chain kept.
+ *
+ * Both empty strings is the capture that never got an answer. It is asked of the metric rather than
+ * special-cased beside it: `identifierFidelity` reports a `null` rate for a reference that carried no
+ * identifier, so "nothing was said" reads the same way here as it does anywhere else.
+ */
+const readIdentifiers = (raw: string, repaired: string): IdentifierReading => {
+  const text = raw.trim();
+  const before = identifierFidelity(raw, text);
+  const after = identifierFidelity(raw, repaired);
+  return {
+    identifiers: { before: { rate: before.rate }, after: { rate: after.rate } },
+    repairHits: identifierFidelity(repaired, text).missing.length,
+  };
+};
+
+/**
+ * Prints one capture's reading, under its own prefix.
+ *
+ * `[voice:trim]` and not `[voice]`: the identifier-fidelity reading below is deliberately
+ * unconditional — it is the evidence chain of GOAL-005 / AC-114, and a reading that only exists on a
+ * debug branch is not a reading the real path can be judged by — so the two must be separable by
+ * prefix. Everything about this one is behind the switch.
+ *
+ * The switch is read here, at the moment of printing, rather than by the caller: the whole reading is
+ * one object assembled at one site, and a call site that decided for itself whether to build it is a
+ * second place for the field list to drift.
+ */
+function reportCapture(measured: AudioReading, raw: string, repaired: string): void {
+  if (!isVoiceDebugEnabled()) return;
+  const reading: VoiceCaptureReading = { ...measured, ...readIdentifiers(raw, repaired) };
+  console.debug('[voice:trim]', reading);
+}
 
 /**
  * The bytes to upload for a capture, which is the capture itself unless the trim applies.
@@ -90,13 +158,14 @@ const unmeasured = (source: VoiceSource): VoiceCaptureReading => ({
  * fallback is the original bytes rather than a round-tripped copy of them.
  *
  * The reading is returned rather than printed: this function is where the audio is measured, and the
- * caller is where the decision to print belongs.
+ * caller is where the decision to print belongs. What it returns is the audio's half of the reading —
+ * the text's half is not knowable until the recogniser has answered.
  */
 async function prepareUpload(
   blob: Blob,
   source: VoiceSource,
   baseName: string,
-): Promise<{ body: Blob; filename: string; reading: VoiceCaptureReading }> {
+): Promise<{ body: Blob; filename: string; reading: AudioReading }> {
   const asRecorded = { filename: `${baseName}.${extensionFor(blob.type)}` };
   const recorded = { ...asRecorded, body: blob, reading: unmeasured(source) };
   if (!isVoiceTrimEnabled()) return recorded;
@@ -105,7 +174,7 @@ async function prepareUpload(
   if (!decoded) return recorded;
 
   const { samples, stats } = trimVoiceAudio(decoded.samples, decoded.sampleRate);
-  const reading: VoiceCaptureReading = {
+  const reading: AudioReading = {
     source,
     inputSec: stats.inputSec,
     outputSec: stats.outputSec,
@@ -307,23 +376,30 @@ export function useVoiceInput(
       });
     }
     setState('transcribing');
+    // The audio's half of this capture's reading, filled in as soon as the chain has measured it and
+    // null while it has not. Held out here so the one reading below can be printed on every way out
+    // of this block — including the ways that never get an answer, which is exactly when a reading of
+    // what was sent is worth having.
+    let measured: AudioReading | null = null;
+    // The recogniser's answer and what the repair made of it. Empty when there was neither, which is
+    // the reading's own way of saying so rather than a case handled beside it.
+    let raw = '';
+    let repaired = '';
     try {
-      const { body, filename, reading } = await prepareUpload(blob, source, baseName);
-      // Printed before the upload rather than after it: this is the reading of what was sent, and it
-      // has to exist even when the recogniser never answers.
-      if (isVoiceDebugEnabled()) console.debug('[voice:trim]', reading);
-      const res = await transcribeVoice(body, filename);
+      const prepared = await prepareUpload(blob, source, baseName);
+      measured = prepared.reading;
+      const res = await transcribeVoice(prepared.body, prepared.filename);
       if (!res.ok) throw new Error(`transcribe ${res.status}`);
       const data = await res.json();
       if (cancelledRef.current) return;
-      const raw = String(data?.text || '');
+      raw = String(data?.text || '');
       const text = raw.trim();
       if (text) {
         // The one point between the recogniser and the composer where the transcript is
         // still ours to change: `raw -> text` is the trim, `text -> repaired` is the
         // deterministic repair against the project's own names. Nothing else in the
         // chain touches the text, so this is where both readings belong.
-        const repaired = repairIdentifiers(text, candidates);
+        repaired = repairIdentifiers(text, candidates);
         // The voice link's own telemetry (GOAL-005 / AC-114): how much of what the
         // recogniser returned survives — punctuation and case intact — into the text
         // handed back to the composer, read on both sides of the repair. The pair is
@@ -346,6 +422,16 @@ export function useVoiceInput(
         onError?.(`Transcription failed: ${e instanceof Error ? e.message : String(e)}`);
       }
     } finally {
+      // One reading per capture that reached the chain, from one site, so it cannot be printed twice
+      // or forgotten on any of the exits above. The half that needs the recogniser is filled in only
+      // if there was one; a capture that failed still gets the half that was measured.
+      //
+      // Printed after `onTranscript`, which hands the composer its text through a React update: that
+      // update is committed in a later task than this call, so by the time a caller can see the
+      // transcript this reading is already on the console. That ordering is what lets "the switch is
+      // off" be asserted as an absence — a leg waits for the text and then counts readings, and a
+      // reading printed any later would arrive after the count.
+      if (measured !== null && !cancelledRef.current) reportCapture(measured, raw, repaired);
       if (!cancelledRef.current) setState('idle');
     }
   }, [onTranscript, onError, candidates]);
