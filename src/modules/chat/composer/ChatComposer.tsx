@@ -34,7 +34,6 @@ import TokenUsageSummary from '@/modules/chat/composer/TokenUsageSummary';
 import QueuedMessageCard from '@/modules/chat/composer/QueuedMessageCard';
 import { ScheduleMessagePopover } from '@/modules/chat/composer/ScheduleMessagePopover';
 import { ScheduledMessageList } from '@/modules/chat/composer/ScheduledMessageList';
-import LaunchProfileSelect from '@/modules/chat/composer/LaunchProfileSelect';
 import ComposerModelMenu from '@/modules/chat/composer/ComposerModelMenu';
 import ComposerPermissionMenu from '@/modules/chat/composer/ComposerPermissionMenu';
 
@@ -57,8 +56,6 @@ type ChatComposerProps = {
   availablePermissionModes: PermissionMode[];
   onSelectPermissionMode: (mode: PermissionMode) => void;
   providerLabel: string;
-  launchProfileId: string | null;
-  onSelectLaunchProfile: (launchProfileId: string | null) => void;
   effort: string;
   availableEffortOptions: NonNullable<ProviderModelOption['effort']>['values'];
   onSelectEffort: (effort: string) => void;
@@ -134,8 +131,6 @@ export default function ChatComposer({
   availablePermissionModes,
   onSelectPermissionMode,
   providerLabel,
-  launchProfileId,
-  onSelectLaunchProfile,
   effort,
   availableEffortOptions,
   onSelectEffort,
@@ -482,8 +477,6 @@ export default function ChatComposer({
               disabled={!input.trim()}
               onSchedule={onScheduleMessage}
             />
-
-            <LaunchProfileSelect value={launchProfileId} onChange={onSelectLaunchProfile} />
 
             <ComposerModelMenu
               effort={effort}

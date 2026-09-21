@@ -27,7 +27,7 @@ const ALL_SESSIONS = [...MATCHING, ...UNMATCHED];
 const DERIVED_FROM_HUMAN_ALPHA = 'human-alpha';
 
 // Namespaced i18n keys leak into the UI as literals like "sidebar.sessionFilter" when a translation is missing.
-const UNTRANSLATED_KEY = /\b(?:mainTabs|launchProfiles|launchProfile|settings|chat|common|sidebar)\.[a-z][A-Za-z]+\b/;
+const UNTRANSLATED_KEY = /\b(?:mainTabs|settings|chat|common|sidebar)\.[a-z][A-Za-z]+\b/;
 
 const sessionIdOf = (name: string) => `e2e-${name}`;
 

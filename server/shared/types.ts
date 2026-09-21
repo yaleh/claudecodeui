@@ -1410,20 +1410,20 @@ export type SandboxCommandService = {
 };
 
 // ---------------------------
-//----------------- LAUNCH PROFILES ------------
+//----------------- LAUNCH SPEC ------------
 
 /**
- * Compiled launch configuration returned by the launch-profiles module.
+ * Compiled launch configuration returned by the model-launch-spec compiler.
  *
  * Consumed by the Claude SDK runtime and the shell websocket service, which
  * merge `env` over the host environment when spawning a provider process.
- * With no profile selected (passthrough) `env` is `{}` and `argv` is `[]`, so
- * callers' env assembly stays byte-identical to the pre-profile behavior.
- * `env` must only hold overrides, never a copy of `process.env`.
+ * With no configured model selected (passthrough) `env` is `{}` and `argv` is
+ * `[]`, so callers' env assembly stays byte-identical to the pre-model-library
+ * behavior. `env` must only hold overrides, never a copy of `process.env`.
  * `unsetEnv` lists keys that must be REMOVED from the final spawn environment
  * (a model-library `unset` row); callers must apply it with
  * `applyLaunchSpecEnv` so the removal lands on the object handed to the
- * spawn, not merely on the spec. Absent for passthrough and profile specs.
+ * spawn, not merely on the spec. Absent for passthrough specs.
  */
 export type ResolvedLaunchSpec = {
   env: Record<string, string>;

@@ -5,8 +5,7 @@ import test from 'node:test';
 
 import { WebSocket } from 'ws';
 
-import { resolveLaunchSpec } from '@/modules/launch-profiles/index.js';
-import { mapCliOptionsToSDK } from '@/modules/providers/index.js';
+import { mapCliOptionsToSDK, resolveModelLaunchSpec } from '@/modules/providers/index.js';
 import { handleShellConnection } from '@/modules/websocket/index.js';
 
 type Env = Record<string, string | undefined>;
@@ -75,10 +74,11 @@ function createFakePty() {
   };
 }
 
-test('passthrough spec has empty env/argv, env-derived context window and no warnings', async () => {
+test('passthrough model spec has empty env/argv, env-derived context window and no warnings', async () => {
   await withFixtureEnv(() => {
-    assert.deepStrictEqual(resolveLaunchSpec(null, 'claude'), {
+    assert.deepStrictEqual(resolveModelLaunchSpec('claude', null), {
       env: {},
+      unsetEnv: [],
       argv: [],
       contextWindow: 200000,
       warnings: [],
@@ -86,7 +86,7 @@ test('passthrough spec has empty env/argv, env-derived context window and no war
   });
 });
 
-test('SDK path: env with no profile equals the pre-change assembly', async () => {
+test('SDK path: env with no configured model equals the pre-change assembly', async () => {
   await withFixtureEnv(() => {
     const sdkOptions = mapCliOptionsToSDK({});
     const bg = (sdkOptions.env as Env).CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS as string;
@@ -95,7 +95,7 @@ test('SDK path: env with no profile equals the pre-change assembly', async () =>
   });
 });
 
-test('pty path: env with no profile equals the pre-change assembly', async () => {
+test('pty path: env with no configured model equals the pre-change assembly', async () => {
   await withFixtureEnv(() => {
     let captured: Env | null = null;
     const fakePty = createFakePty();
@@ -136,7 +136,6 @@ test('parity comparison goes red on an added, missing or changed key', () => {
     assert.throws(() => assertEnvParity(mutated, base));
   }
   // Same probe against a real spec.env mutation.
-  const spec = resolveLaunchSpec(null, 'claude');
+  const spec = resolveModelLaunchSpec('claude', null);
   assert.throws(() => assertEnvParity({ ...base, ...{ ...spec.env, EXTRA: '1' } }, base));
 });
-

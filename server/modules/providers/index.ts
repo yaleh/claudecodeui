@@ -16,13 +16,12 @@ export { closeSessionsWatcher } from './services/sessions-watcher.service.js';
 // resolveModelLaunchSpec: consumed by the websocket module's shell pty to compile the
 // spawn env for the selected custom model.
 export { resolveModelLaunchSpec, resolveModelContextWindowRow } from './services/model-launch-spec.service.js';
-// LaunchSpecGuards: the compile-path key-filter seam, consumed by the outgoing launch-profile
-// service and its tests. Transitional — removed with the launch-profiles teardown.
+// LaunchSpecGuards: the compile-path key-filter seam, consumed by the model compile tests.
 export type { LaunchSpecGuards } from './services/model-launch-spec.service.js';
-// mapCliOptionsToSDK: driven by the launch-profiles tests to prove the SDK env
-// stays byte-identical when no profile is configured.
+// mapCliOptionsToSDK: driven by the passthrough-parity test to prove the SDK env
+// stays byte-identical when no configured model is selected.
 export { mapCliOptionsToSDK } from './list/claude/claude-runtime.provider.js';
-// Token-budget helpers: driven by the launch-profiles tests to prove the context
-// window follows the resolved profile.
+// Token-budget helpers: driven by the token-budget tests to prove the context
+// window follows the resolved model entry.
 export { extractCumulativeTokenBudget, extractTokenBudget } from './list/claude/claude-runtime.provider.js';
 export { createProviderTokenUsageService, summarizeClaudeTokenUsage } from './services/provider-token-usage.service.js';

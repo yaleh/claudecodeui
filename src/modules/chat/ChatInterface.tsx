@@ -229,8 +229,6 @@ function ChatInterface({
     closeCommandModal,
     showCostModal,
     editingAnchorId,
-    launchProfileId,
-    setLaunchProfileId,
     beginEditMessage,
     cancelEditMessage,
   } = useChatComposerState({
@@ -508,8 +506,6 @@ function ChatInterface({
           availablePermissionModes={availablePermissionModes}
           onSelectPermissionMode={selectPermissionMode}
           providerLabel={selectedProviderLabel}
-          launchProfileId={launchProfileId}
-          onSelectLaunchProfile={setLaunchProfileId}
           effort={currentProviderEffort}
           availableEffortOptions={currentProviderEffortOptions}
           onSelectEffort={handleSelectComposerEffort}

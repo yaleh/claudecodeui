@@ -140,9 +140,6 @@ CREATE TABLE IF NOT EXISTS sessions (
     -- restores its exact runtime configuration instead of provider defaults.
     model TEXT,
     effort TEXT,
-    -- Launch profile the session was first sent with; once set it is locked
-    -- and later sends with a different profile keep this value.
-    launch_profile_id TEXT,
     -- The app session this one was branched from, NULL for sessions created
     -- normally. Informational only: a fork is a fully independent provider
     -- session, and deleting the source does not affect it.
@@ -256,30 +253,6 @@ CREATE TABLE IF NOT EXISTS superseded_provider_sessions (
 );
 `;
 
-/**
- * Named launch profiles (provider runtime configuration presets).
- *
- * `config_json` holds only non-secret settings. Credentials are referenced by
- * environment variable name (`authEnvVarName`) and are never stored: there is
- * deliberately no secrets table (docs/proposals/launch-profiles.md, ADR-001).
- */
-export const LAUNCH_PROFILES_TABLE_SCHEMA_SQL = `
-CREATE TABLE IF NOT EXISTS launch_profiles (
-    id TEXT NOT NULL,
-    provider TEXT NOT NULL,
-    name TEXT NOT NULL,
-    description TEXT,
-    deployment TEXT NOT NULL DEFAULT 'gateway',
-    is_default BOOLEAN NOT NULL DEFAULT 0,
-    config_json TEXT NOT NULL DEFAULT '{}',
-    sort_order INTEGER NOT NULL DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    UNIQUE (provider, name)
-);
-`;
-
 export const INIT_SCHEMA_SQL = `
 -- Initialize authentication database
 PRAGMA foreign_keys = ON;
@@ -333,6 +306,4 @@ ${USER_PREFERENCES_TABLE_SCHEMA_SQL}
 ${SESSION_DRAFTS_TABLE_SCHEMA_SQL}
 
 ${SUPERSEDED_PROVIDER_SESSIONS_TABLE_SCHEMA_SQL}
-
-${LAUNCH_PROFILES_TABLE_SCHEMA_SQL}
 `;

@@ -9,6 +9,6 @@ export { broadcastSessionUpserted, broadcastSessionUpsertedBatch } from './servi
 // from a timer, with no socket to stream to or report errors on.
 export { runDetachedChatTurn, handleChatConnection } from './services/chat-websocket.service.js';
 export type { ProviderRuntimeGateway } from './services/chat-websocket.service.js';
-// handleShellConnection: driven by the launch-profiles tests to prove the pty
-// env stays byte-identical when no profile is configured.
+// handleShellConnection: driven by the passthrough-parity test to prove the pty
+// env stays byte-identical when no configured model is selected.
 export { handleShellConnection } from './services/shell-websocket.service.js';

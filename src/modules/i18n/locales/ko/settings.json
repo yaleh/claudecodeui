@@ -51,19 +51,6 @@
     "resetToDefaults": "기본값으로 초기화",
     "cancelChanges": "변경 취소"
   },
-  "launchProfiles": {
-    "title": "Launch profiles",
-    "description": "Named launch configurations that a new session can be started under.",
-    "loading": "Loading profiles…",
-    "empty": "No profiles yet.",
-    "loadFailed": "Failed to load profiles.",
-    "name": "Name",
-    "model": "Model",
-    "credentialRef": "Credential reference",
-    "save": "Save",
-    "saving": "Saving…",
-    "saveFailed": "Failed to save profile."
-  },
   "voiceSettings": {
     "title": "음성",
     "description": "OpenAI 호환 오디오 백엔드를 통한 음성-텍스트 입력 및 소리 내어 읽기 기능입니다.",

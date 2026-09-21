@@ -4,9 +4,7 @@ import type { LLMProvider, ResolvedLaunchSpec } from '@/shared/types.js';
 
 /**
  * Seam for the compile-path key filter; tests substitute a lax one to prove the guard is load-bearing.
- * Moved here with the model-launch-spec compile layer (the launch-profile teardown deletes the old
- * profile service that used to define it); re-exported through the providers barrel for the outgoing
- * launch-profiles.service.ts until then.
+ * Re-exported through the providers barrel for those tests, which live in this module's tests/.
  */
 export type LaunchSpecGuards = { isAllowedKey: (key: string) => boolean };
 

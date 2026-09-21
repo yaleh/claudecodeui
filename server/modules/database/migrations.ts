@@ -431,12 +431,6 @@ const addProjectSessionFilterColumn = (db: Database): void => {
   addColumnToTableIfNotExists(db, 'projects', columnNames, 'session_filter', 'TEXT DEFAULT NULL');
 };
 
-/** Adds `launch_profile_id`, the launch profile a session was started with (NULL = none). */
-const addSessionLaunchProfileIdColumn = (db: Database): void => {
-  const columnNames = getTableInfo(db, 'sessions').map((column) => column.name);
-  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'launch_profile_id', 'TEXT');
-};
-
 const addForkedFromSessionIdColumn = (db: Database): void => {
   const columnNames = getTableInfo(db, 'sessions').map((column) => column.name);
   addColumnToTableIfNotExists(db, 'sessions', columnNames, 'forked_from_session_id', 'TEXT');
@@ -467,16 +461,6 @@ const addSessionEffortColumn = (db: Database): void => {
   const columnNames = sessionsTableInfo.map((column) => column.name);
 
   addColumnToTableIfNotExists(db, 'sessions', columnNames, 'effort', 'TEXT');
-};
-
-/**
- * Adds the `launch_profile_id` column recording the launch profile a session
- * was first sent with. Existing rows stay NULL (unlocked).
- */
-const addSessionLaunchProfileColumn = (db: Database): void => {
-  const columnNames = getTableInfo(db, 'sessions').map((column) => column.name);
-
-  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'launch_profile_id', 'TEXT');
 };
 
 /**
@@ -552,9 +536,7 @@ export const runMigrations = (db: Database) => {
     addProviderSessionIdMapping(db);
     addSessionModelColumn(db);
     addSessionEffortColumn(db);
-    addSessionLaunchProfileColumn(db);
     addForkedFromSessionIdColumn(db);
-    addSessionLaunchProfileIdColumn(db);
     ensureProjectsForSessionPaths(db);
     db.exec(SCHEDULED_MESSAGES_TABLE_SCHEMA_SQL);
 

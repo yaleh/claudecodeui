@@ -66,7 +66,7 @@ SLOPE_TABLE="$(cat <<'TABLE'
 128	66	23239	0	-	本轮实测 +64 竞争进程
 128	93	15928	0	-	本轮实测 +64 竞争进程（二跑）
 128	129	24312	0	-	本轮实测 +256 竞争进程
-128	87-135	-	1	server/modules/launch-profiles/tests/gateway-end-to-end.test.ts	fan-in 真身 2026-09-20T16:23Z（本仓 log；中位文件耗时 46758ms）
+128	87-135	-	1	server/modules/launch-profiles/tests/gateway-end-to-end.test.ts	fan-in 真身 2026-09-20T16:23Z（本仓 log；中位文件耗时 46758ms）ⓘ 该文件已于 2026-09-21 随旧实体拆除删除，本行是不可复算的历史读数，判据③ 只读第一列
 TABLE
 )"
 

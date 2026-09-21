@@ -51,27 +51,6 @@
     "resetToDefaults": "Reset to Defaults",
     "cancelChanges": "Cancel Changes"
   },
-  "launchProfiles": {
-    "title": "Launch profiles",
-    "description": "Named launch configurations that a new session can be started under.",
-    "loading": "Loading profiles…",
-    "empty": "No profiles yet.",
-    "loadFailed": "Failed to load profiles.",
-    "name": "Name",
-    "model": "Model",
-    "credentialRef": "Credential reference",
-    "save": "Save",
-    "saving": "Saving…",
-    "saveFailed": "Failed to save profile.",
-    "baseUrl": "Base URL",
-    "authMode": "Authentication",
-    "authNone": "None",
-    "authEnvVar": "API key from environment variable",
-    "authEnvVarName": "Environment variable name",
-    "contextWindow": "Context window (tokens)",
-    "create": "Create profile",
-    "newTitle": "New profile"
-  },
   "voiceSettings": {
     "title": "Voice",
     "description": "Speech-to-text input and read-aloud, via an OpenAI-compatible audio backend.",
@@ -135,8 +114,7 @@
     "browser": "Browser",
     "notifications": "Notifications",
     "plugins": "Plugins",
-    "about": "About",
-    "profiles": "Profiles"
+    "about": "About"
   },
   "notifications": {
     "title": "Notifications",

@@ -9,8 +9,10 @@ import { handleShellConnection } from '@/modules/websocket/services/shell-websoc
 
 type Spawn = { command: string; env: Record<string, string | undefined> };
 
-const PROFILE_SPEC = {
-  env: { QUAY_PROFILE_KEY: 'profile-value', ANTHROPIC_BASE_URL: 'http://gw.local' },
+/** Stands in for the compilation of a configured model entry. */
+const MODEL_SPEC = {
+  env: { QUAY_MODEL_KEY: 'model-value', ANTHROPIC_BASE_URL: 'http://gw.local' },
+  unsetEnv: [],
   argv: ['--model', 'opus 4'],
   contextWindow: 200000,
   warnings: [],
@@ -41,7 +43,7 @@ function launch(hasSession: boolean, platform: 'linux' | 'win32'): Spawn {
     const socket = createFakeSocket();
     handleShellConnection(socket as never, {
       resolveProviderSessionId: (sessionId: string) => sessionId,
-      resolveLaunchSpec: () => PROFILE_SPEC,
+      resolveModelLaunchSpec: () => MODEL_SPEC,
       spawnPty: ((_shell: string, args: string | string[], options: { env: Record<string, string> }) => {
         spawned.push({ command: Array.isArray(args) ? args[args.length - 1] : args, env: options.env });
         return createFakePty() as never;
@@ -64,13 +66,13 @@ function launch(hasSession: boolean, platform: 'linux' | 'win32'): Spawn {
   return spawned[0];
 }
 
-/** Profile-owned env keys only; the rest of the pty env is process-wide. */
-function profileEnv(spawn: Spawn) {
-  return Object.fromEntries(Object.keys(PROFILE_SPEC.env).map((key) => [key, spawn.env[key]]));
+/** Model-owned env keys only; the rest of the pty env is process-wide. */
+function modelEnv(spawn: Spawn) {
+  return Object.fromEntries(Object.keys(MODEL_SPEC.env).map((key) => [key, spawn.env[key]]));
 }
 
 for (const platform of ['linux', 'win32'] as const) {
-  test(`resume launch reuses the first-launch profile argv and env (${platform})`, () => {
+  test(`resume launch reuses the first-launch model argv and env (${platform})`, () => {
     const first = launch(false, platform);
     const resumed = launch(true, platform);
     const quotedArgv = "'--model' 'opus 4'";
@@ -78,7 +80,7 @@ for (const platform of ['linux', 'win32'] as const) {
     assert.ok(first.command.includes(quotedArgv), first.command);
     // Resume attempt and its `|| claude` fallback both carry the argv.
     assert.equal(resumed.command.split(quotedArgv).length - 1, 2, resumed.command);
-    assert.deepStrictEqual(profileEnv(resumed), profileEnv(first));
-    assert.deepStrictEqual(profileEnv(first), PROFILE_SPEC.env);
+    assert.deepStrictEqual(modelEnv(resumed), modelEnv(first));
+    assert.deepStrictEqual(modelEnv(first), MODEL_SPEC.env);
   });
 }

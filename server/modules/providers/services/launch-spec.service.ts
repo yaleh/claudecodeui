@@ -7,13 +7,11 @@ function toPositiveInteger(value: unknown): number | null {
 }
 
 /**
- * Context window of a launch: the caller's explicit value (model entry or launch profile),
+ * Context window of a launch: the caller's explicit value (the selected model entry),
  * then the CONTEXT_WINDOW env value, then DEFAULT_CONTEXT_WINDOW. Invalid (non-positive /
  * non-numeric) values fall through to the next tier.
  * Consumed inside this module by model-launch-spec.service.ts, claude-runtime.provider.js and
- * provider-token-usage.service.ts so the token usage `total` follows the selected model; also
- * re-exported through the providers barrel for the outgoing launch-profile service
- * (server/modules/launch-profiles/launch-profiles.service.ts) until the profile teardown deletes it.
+ * provider-token-usage.service.ts so the token usage `total` follows the selected model.
  */
 export function resolveContextWindow(
   profileContextWindow?: number | string | null,
@@ -33,9 +31,7 @@ const DENIED_ENV_KEYS = new Set([
 /**
  * The single env key allowlist for every spawn-env compile path.
  * Consumed inside this module by model-launch-spec.service.ts and provider-models.service.ts (model
- * config write path); also re-exported through the providers barrel for the outgoing launch-profile
- * service (server/modules/launch-profiles/launch-profiles.service.ts) until the profile teardown
- * deletes it.
+ * config write path), which is the only write path that admits env rows.
  */
 export function isAllowedLaunchEnvKey(key: string): boolean {
   if (DENIED_ENV_KEYS.has(key) || key.startsWith('DYLD_')) {

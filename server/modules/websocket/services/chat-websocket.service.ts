@@ -3,7 +3,6 @@ import path from 'node:path';
 import type { WebSocket } from 'ws';
 
 import { sessionsDb } from '@/modules/database/index.js';
-import { resolveSessionProfileLock } from '@/modules/launch-profiles/index.js';
 import { providerModelsService, sessionsService } from '@/modules/providers/index.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
@@ -85,7 +84,7 @@ type ChatWebSocketDependencies = {
   dropClientEnv?: (options: AnyRecord) => AnyRecord;
 };
 
-/** The wire protocol carries only `launchProfileId`; a client-supplied `options.env` is discarded. */
+/** The wire protocol carries the model selection; a client-supplied `options.env` is discarded. */
 function withoutClientEnv(options: AnyRecord): AnyRecord {
   const { env: _ignoredClientEnv, ...rest } = options;
   return rest;
@@ -276,30 +275,9 @@ async function dispatchRun(
   // Brand-new sessions have no provider id yet, so the runtime starts fresh
   // and announces one, which the gateway writer captures and maps back to the
   // app session id.
-  // A session is locked to the launch profile of its first send: later sends
-  // run with the stored value, and a conflicting client value is reported back
-  // (not rejected) so the run carries on.
-  const profileLock = resolveSessionProfileLock(
-    sessionsDb.getSessionLaunchProfileId(sessionId),
-    clientOptions.launchProfileId,
-  );
-  if (profileLock.shouldPersist && profileLock.effectiveId) {
-    sessionsDb.setSessionLaunchProfileId(sessionId, profileLock.effectiveId);
-  }
-  if (profileLock.profileLocked) {
-    run.writer.send({
-      kind: 'profile_locked',
-      provider,
-      sessionId,
-      launchProfileId: profileLock.effectiveId,
-      profileLocked: true,
-    });
-  }
-
   const runtimeOptions: AnyRecord = {
     ...clientOptions,
     ...extraRuntimeOptions,
-    ...(profileLock.effectiveId ? { launchProfileId: profileLock.effectiveId } : {}),
     // Attachments are re-validated server-side: only direct children of the
     // global upload store may reach provider runtimes or their file tools.
     attachments: uniqueAttachments,

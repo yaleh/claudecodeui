@@ -477,21 +477,6 @@ export const sessionsDb = {
     ).run(effort, sessionId);
   },
 
-  /** Launch profile a session is locked to; NULL until its first send records one. */
-  getSessionLaunchProfileId(sessionId: string): string | null {
-    const row = getConnection()
-      .prepare('SELECT launch_profile_id FROM sessions WHERE session_id = ?')
-      .get(sessionId) as { launch_profile_id: string | null } | undefined;
-    return row?.launch_profile_id ?? null;
-  },
-
-  /** Locks a session to a launch profile. */
-  setSessionLaunchProfileId(sessionId: string, launchProfileId: string): void {
-    getConnection()
-      .prepare('UPDATE sessions SET launch_profile_id = ? WHERE session_id = ?')
-      .run(launchProfileId, sessionId);
-  },
-
   updateSessionCustomName(sessionId: string, customName: string): void {
     const db = getConnection();
     db.prepare(
