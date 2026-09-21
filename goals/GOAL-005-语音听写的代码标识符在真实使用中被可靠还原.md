@@ -1,12 +1,18 @@
 ---
 id: GOAL-005
 title: 语音听写的代码标识符在真实使用中被可靠还原
-status: active
+status: achieved
 kind: goal
 origin: docs/proposals/voice-identifier-repair-and-temporal-compression.md（commit
   57b957f7）；证据基础 /data/home/yale/work/tc-verify/FINDINGS.md（仓库外验证工装，22 工具 / 14
   日志）
 activatedAt: 2026-09-21T12:38:50.386Z
+statusLog:
+  - at: 2026-09-21T13:25:05.422Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: all ACs achieved + sufficiency covered"
 ---
 ## 背景
 
