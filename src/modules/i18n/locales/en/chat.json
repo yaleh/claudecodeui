@@ -110,8 +110,10 @@
     "speak": "Read aloud",
     "stopSpeaking": "Stop",
     "loading": "Loading…",
-    "playRecording": "Play recording",
-    "stopPlayback": "Stop playback"
+    "replayOriginal": "Replay original",
+    "replayTrimmed": "Replay trimmed",
+    "stopReplayOriginal": "Stop original playback",
+    "stopReplayTrimmed": "Stop trimmed playback"
   },
   "input": {
     "placeholder": "Type / for commands, @ for files, or ask {{provider}} anything...",

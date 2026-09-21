@@ -5,7 +5,12 @@ import { voicePlayer } from '@/modules/chat/utils/voicePlayer';
 import { transcribeVoice } from '@/shared/api';
 import { identifierFidelity } from '@/shared/identifierFidelity';
 import { repairIdentifiers } from '@/shared/identifierRepair';
-import type { VoiceClip, VoiceInputState, VoicePlayState } from '@/shared/types';
+import type {
+  VoiceClipPlayState,
+  VoiceClipSlot,
+  VoiceClipTrack,
+  VoiceInputState,
+} from '@/shared/types';
 import { isVoiceDebugEnabled, isVoiceTrimEnabled } from '@/shared/voiceDebug';
 import { trimVoiceAudio } from '@/shared/voiceTrim';
 
@@ -146,6 +151,20 @@ function reportCapture(measured: AudioReading, raw: string, repaired: string): v
 }
 
 /**
+ * What the chain will upload for one capture, and the second replay track that comes with it.
+ *
+ * `trimmed` is non-null exactly when the body is not the recording: it carries the re-encoded bytes
+ * and the length they measured at, which is what the control beside the recording's own shows. Null
+ * on every fallback, so the caller has one thing to test rather than the reading's several fields.
+ */
+type PreparedUpload = {
+  body: Blob;
+  filename: string;
+  reading: AudioReading;
+  trimmed: { blob: Blob; durationSec: number } | null;
+};
+
+/**
  * The bytes to upload for a capture, which is the capture itself unless the trim applies.
  *
  * A dictation clip is mostly silence — the wait for the mic, the breaths between sentences, the
@@ -165,9 +184,9 @@ async function prepareUpload(
   blob: Blob,
   source: VoiceSource,
   baseName: string,
-): Promise<{ body: Blob; filename: string; reading: AudioReading }> {
+): Promise<PreparedUpload> {
   const asRecorded = { filename: `${baseName}.${extensionFor(blob.type)}` };
-  const recorded = { ...asRecorded, body: blob, reading: unmeasured(source) };
+  const recorded = { ...asRecorded, body: blob, reading: unmeasured(source), trimmed: null };
   if (!isVoiceTrimEnabled()) return recorded;
 
   const decoded = await decodeVoiceBlob(blob);
@@ -186,9 +205,15 @@ async function prepareUpload(
   };
   // A guard that fired still leaves a reading worth having: the audio was measured, and what it says
   // about the capture is what tells a trim that found nothing to do from one that never ran.
-  if (stats.fallback) return { ...asRecorded, body: blob, reading };
+  if (stats.fallback) return { ...asRecorded, body: blob, reading, trimmed: null };
 
-  return { body: encodeWavBlob(samples, decoded.sampleRate), filename: `${baseName}.wav`, reading };
+  const trimmedBody = encodeWavBlob(samples, decoded.sampleRate);
+  return {
+    body: trimmedBody,
+    filename: `${baseName}.wav`,
+    reading,
+    trimmed: { blob: trimmedBody, durationSec: stats.outputSec },
+  };
 }
 
 /** A file's name without its extension: the upload derives one from the container it really sends. */
@@ -199,6 +224,23 @@ function withoutExtension(name: string): string {
 
 /** How the mic's uploads are named; a file's uploads keep the name the file arrived with. */
 const RECORDING_BASE_NAME = 'recording';
+
+/** The slot's two replays, in the order the composer renders them. */
+const CLIP_TRACKS: readonly VoiceClipTrack[] = ['original', 'trimmed'];
+
+/** Both tracks silent. Written once, so "nothing is playing" has a single value to compare against. */
+const NOTHING_PLAYING: VoiceClipPlayState = { original: 'idle', trimmed: 'idle' };
+
+/**
+ * The state that starts `track`: that one loads, and the other is stopped by the same write.
+ *
+ * Every start goes through here, which is what makes "at most one track sounds" a property of the
+ * shape rather than of the caller remembering to clear the other entry.
+ */
+const startingPlay = (track: VoiceClipTrack): VoiceClipPlayState => ({
+  original: track === 'original' ? 'loading' : 'idle',
+  trimmed: track === 'trimmed' ? 'loading' : 'idle',
+});
 
 type UseVoiceInputOptions = {
   /**
@@ -234,9 +276,10 @@ const NO_CANDIDATES: readonly string[] = [];
  * (an OpenAI-compatible speech-to-text backend via the Express proxy), and
  * returns the transcript through onTranscript.
  *
- * It also keeps the last recording as a single slot (`voiceClip`) so the composer
- * can replay what was just said. The clip is captured before the upload, so a
- * failed or timed-out transcription still leaves something to listen back to.
+ * It also keeps the last recording as a single slot (`clipSlot`) so the composer can
+ * replay what was just said — and, once the trim has run, replay what was actually sent
+ * beside it. The recording is taken before the upload, so a failed or timed-out
+ * transcription still leaves something to listen back to.
  */
 export function useVoiceInput(
   onTranscript: (text: string, send?: boolean) => void,
@@ -245,10 +288,12 @@ export function useVoiceInput(
 ) {
   const { scope = null, isActive = true, candidates = NO_CANDIDATES } = options;
   const [state, setState] = useState<VoiceInputState>('idle');
-  // The last recording. State rather than a ref because the pill renders only while a
-  // clip exists, and a ref would not re-render on the write.
-  const [voiceClip, setVoiceClip] = useState<VoiceClip | null>(null);
-  const [clipState, setClipState] = useState<VoicePlayState>('idle');
+  // The last recording, and the upload derived from it. State rather than a ref because the
+  // controls render only while a clip exists, and a ref would not re-render on the write.
+  const [clipSlot, setClipSlot] = useState<VoiceClipSlot | null>(null);
+  // Which of the slot's two tracks is sounding. One object rather than two pieces of state, so
+  // "the other one stops" is decided and written in the same update as "this one starts".
+  const [clipPlayState, setClipPlayState] = useState<VoiceClipPlayState>(NOTHING_PLAYING);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
@@ -257,11 +302,18 @@ export function useVoiceInput(
   // Whether the in-progress stop should auto-send the transcript (vs just fill the box).
   const sendRef = useRef(false);
   // Mirrors the clip slot for callbacks that must not be re-created on every clip
-  // change, and owns the object URL that still has to be revoked.
-  const clipRef = useRef<VoiceClip | null>(null);
-  // The clip's own element. Deliberately not `voicePlayer`'s: that one is a TTS player
-  // whose cache key is a synthesis content key, which a recording has no analogue of.
-  const clipAudioRef = useRef<HTMLAudioElement | null>(null);
+  // change, and owns the object URLs that still have to be revoked.
+  const clipSlotRef = useRef<VoiceClipSlot | null>(null);
+  // The clip's own elements, one per track. Deliberately not `voicePlayer`'s: that one is a TTS
+  // player whose cache key is a synthesis content key, which a recording has no analogue of.
+  const clipAudioRef = useRef<Record<VoiceClipTrack, HTMLAudioElement | null>>({
+    original: null,
+    trimmed: null,
+  });
+  // Which track's `play()` has not settled yet. A start the user has since replaced — by pressing
+  // the other control — leaves a promise that rejects with the pause that stopped it, and that
+  // rejection is this hook's own doing rather than a playback failure to report.
+  const clipStartingRef = useRef<VoiceClipTrack | null>(null);
   // Wall clock at `rec.start()`. The recorder's container usually does carry a finite
   // duration, but reading it means waiting for the element to load metadata, and the
   // pill only shows M:SS — under a second of difference is invisible either way.
@@ -272,19 +324,28 @@ export function useVoiceInput(
     streamRef.current = null;
   };
 
-  const ensureClipAudio = () => {
-    if (!clipAudioRef.current) {
-      const audio = new Audio();
-      audio.addEventListener('ended', () => setClipState('idle'));
-      clipAudioRef.current = audio;
-    }
-    return clipAudioRef.current;
+  const ensureClipAudio = (track: VoiceClipTrack) => {
+    const existing = clipAudioRef.current[track];
+    if (existing) return existing;
+    const audio = new Audio();
+    audio.addEventListener('ended', () => {
+      setClipPlayState((previous) => ({ ...previous, [track]: 'idle' }));
+    });
+    clipAudioRef.current[track] = audio;
+    return audio;
   };
 
-  // Stop the sound and leave the slot alone: the pill stays for a retry.
+  // Stop the sound and leave the slot alone: the controls stay for a retry.
   const pauseClip = () => {
-    clipAudioRef.current?.pause();
-    setClipState('idle');
+    for (const track of CLIP_TRACKS) clipAudioRef.current[track]?.pause();
+    clipStartingRef.current = null;
+    setClipPlayState(NOTHING_PLAYING);
+  };
+
+  /** Frees every object URL a slot holds — one per track, and the second only when there is one. */
+  const revokeSlot = (slot: VoiceClipSlot) => {
+    URL.revokeObjectURL(slot.original.url);
+    if (slot.trimmed) URL.revokeObjectURL(slot.trimmed.url);
   };
 
   // Drop the clip entirely. The revoke lives here rather than inside the setState
@@ -292,18 +353,45 @@ export function useVoiceInput(
   // second call would revoke a URL the first had already handed to the audio element.
   const discardClip = () => {
     pauseClip();
-    const previous = clipRef.current;
-    clipRef.current = null;
-    setVoiceClip(null);
-    if (previous) URL.revokeObjectURL(previous.url);
+    const previous = clipSlotRef.current;
+    clipSlotRef.current = null;
+    setClipSlot(null);
+    if (previous) revokeSlot(previous);
   };
 
-  // Single slot: adopting a new recording evicts the previous one, URL and all.
-  const adoptClip = (clip: VoiceClip) => {
-    const previous = clipRef.current;
-    clipRef.current = clip;
-    setVoiceClip(clip);
-    if (previous) URL.revokeObjectURL(previous.url);
+  // Single slot: adopting a new recording evicts the previous one, URLs and all. The slot is
+  // returned because the capture that just opened it is the only caller that may add to it.
+  const adoptClip = (slot: VoiceClipSlot): VoiceClipSlot => {
+    const previous = clipSlotRef.current;
+    clipSlotRef.current = slot;
+    setClipSlot(slot);
+    if (previous) revokeSlot(previous);
+    return slot;
+  };
+
+  /**
+   * Hangs the upload's own bytes on the slot the capture opened, as the second track.
+   *
+   * A new slot object rather than a mutation in place: `clipSlotRef` is what every async callback
+   * compares against, and an object edited under it would leave "the slot this capture opened" and
+   * "the slot that is current" indistinguishable to a caller holding only the first.
+   */
+  const adoptTrimmedClip = (slot: VoiceClipSlot, trimmed: { blob: Blob; durationSec: number }) => {
+    const next: VoiceClipSlot = {
+      ...slot,
+      trimmed: {
+        url: URL.createObjectURL(trimmed.blob),
+        meta: {
+          bytes: trimmed.blob.size,
+          mimeType: trimmed.blob.type,
+          // The trimmed audio's own length, which the trim measured — the wall clock of the press
+          // is the recording's duration, and after a trim the two are no longer the same clip.
+          durationMs: Math.round(trimmed.durationSec * 1000),
+        },
+      },
+    };
+    clipSlotRef.current = next;
+    setClipSlot(next);
   };
 
   // A different scope is a different chat. The composer is never unmounted on a session
@@ -335,11 +423,13 @@ export function useVoiceInput(
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
       recorderRef.current = null;
-      clipAudioRef.current?.pause();
-      clipAudioRef.current = null;
-      const clip = clipRef.current;
-      clipRef.current = null;
-      if (clip) URL.revokeObjectURL(clip.url);
+      for (const track of CLIP_TRACKS) {
+        clipAudioRef.current[track]?.pause();
+        clipAudioRef.current[track] = null;
+      }
+      const slot = clipSlotRef.current;
+      clipSlotRef.current = null;
+      if (slot) revokeSlot(slot);
     };
   }, []);
 
@@ -356,6 +446,11 @@ export function useVoiceInput(
    * The clip slot is the one place the two are told apart. It exists so the user can hear back the
    * thing they just said, and a file they chose is already theirs to play; capturing it there would
    * also put an upload in the way of the recording the slot is holding.
+   *
+   * The recording's own bytes open the slot before the upload, because the slot's first track is
+   * what survives a transcription that never answers. The second track is added later, and only by
+   * the capture that opened the slot: the identity check below is what keeps a slow trim from
+   * hanging this chat's audio on the control of whichever chat is open when it finishes.
    */
   const submitCapture = useCallback(async (
     blob: Blob,
@@ -369,12 +464,15 @@ export function useVoiceInput(
     }
     // Before the upload, not after: a transcription that fails or times out is
     // exactly when the user most needs to hear what they actually said.
-    if (source === 'mic') {
-      adoptClip({
-        url: URL.createObjectURL(blob),
-        meta: { bytes: blob.size, mimeType: blob.type, durationMs: Date.now() - clipStartedAtRef.current },
-      });
-    }
+    const adopted = source === 'mic'
+      ? adoptClip({
+        original: {
+          url: URL.createObjectURL(blob),
+          meta: { bytes: blob.size, mimeType: blob.type, durationMs: Date.now() - clipStartedAtRef.current },
+        },
+        trimmed: null,
+      })
+      : null;
     setState('transcribing');
     // The audio's half of this capture's reading, filled in as soon as the chain has measured it and
     // null while it has not. Held out here so the one reading below can be printed on every way out
@@ -388,6 +486,14 @@ export function useVoiceInput(
     try {
       const prepared = await prepareUpload(blob, source, baseName);
       measured = prepared.reading;
+      // The slot gains its second track here, where the chain has just decided that what it uploads
+      // is not the recording. Held off the reading rather than off `source === 'mic'` so the one
+      // thing that says a trim happened is the trim's own output: a `fallback` leaves `trimmed`
+      // null and the composer renders a single control, which is the honest face of a capture that
+      // was uploaded as it was recorded.
+      if (adopted && prepared.trimmed && clipSlotRef.current === adopted) {
+        adoptTrimmedClip(adopted, prepared.trimmed);
+      }
       const res = await transcribeVoice(prepared.body, prepared.filename);
       if (!res.ok) throw new Error(`transcribe ${res.status}`);
       const data = await res.json();
@@ -519,19 +625,31 @@ export function useVoiceInput(
     else if (state === 'idle') start();
   }, [state, start, stop]);
 
-  const toggleClipPlayback = useCallback(() => {
-    const clip = clipRef.current;
+  /**
+   * Plays one of the slot's tracks, or stops it when it is the one already sounding.
+   *
+   * Starting a track stops the other: the two are the same speaker said twice, and hearing them
+   * together is the one thing the pair cannot be compared by. The stop is written with the start
+   * (see `startingPlay`) rather than after it, so there is no window in which both read as playing.
+   */
+  const toggleClipPlayback = useCallback((track: VoiceClipTrack) => {
+    const clip = clipSlotRef.current?.[track];
     if (!clip) return;
-    const audio = ensureClipAudio();
-    if (clipState !== 'idle') {
+    const audio = ensureClipAudio(track);
+    if (clipPlayState[track] !== 'idle') {
       audio.pause();
-      setClipState('idle');
+      clipStartingRef.current = null;
+      setClipPlayState((previous) => ({ ...previous, [track]: 'idle' }));
       return;
+    }
+    for (const other of CLIP_TRACKS) {
+      if (other !== track) clipAudioRef.current[other]?.pause();
     }
     // Yield the speakers to the clip; `voicePlayer` would keep synthesizing otherwise.
     voicePlayer.stop();
     audio.src = clip.url;
-    setClipState('loading');
+    clipStartingRef.current = track;
+    setClipPlayState(startingPlay(track));
     // Not awaited: iOS only grants playback to a `play()` issued inside the gesture's
     // stack, and awaiting would move it out of that stack. Handling the rejection
     // instead is what keeps the control from sitting in `loading` forever.
@@ -539,19 +657,27 @@ export function useVoiceInput(
     if (started && typeof started.then === 'function') {
       started.then(
         () => {
-          if (clipRef.current === clip) setClipState('playing');
+          if (clipStartingRef.current !== track) return;
+          clipStartingRef.current = null;
+          if (clipSlotRef.current?.[track] !== clip) return;
+          setClipPlayState((previous) => ({ ...previous, [track]: 'playing' }));
         },
         (e: unknown) => {
-          if (clipRef.current !== clip) return;
-          setClipState('idle');
+          // The other track's control took the speakers, so this `play()` was stopped by this hook
+          // and not by anything the user needs to hear about.
+          if (clipStartingRef.current !== track) return;
+          clipStartingRef.current = null;
+          if (clipSlotRef.current?.[track] !== clip) return;
+          setClipPlayState((previous) => ({ ...previous, [track]: 'idle' }));
           // A DOMException is not an `Error`; the template has to cover both shapes.
           onError?.(`Playback failed: ${e instanceof Error ? e.message : String(e)}`);
         },
       );
     } else {
-      setClipState('playing');
+      clipStartingRef.current = null;
+      setClipPlayState((previous) => ({ ...previous, [track]: 'playing' }));
     }
-  }, [clipState, onError]);
+  }, [clipPlayState, onError]);
 
-  return { state, toggle, stop, transcribeFile, voiceClip, clipState, toggleClipPlayback };
+  return { state, toggle, stop, transcribeFile, clipSlot, clipPlayState, toggleClipPlayback };
 }

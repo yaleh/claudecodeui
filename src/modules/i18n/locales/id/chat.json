@@ -110,8 +110,10 @@
     "speak": "Bacakan",
     "stopSpeaking": "Hentikan",
     "loading": "Memuat…",
-    "playRecording": "Putar rekaman",
-    "stopPlayback": "Hentikan pemutaran"
+    "replayOriginal": "Putar asli",
+    "replayTrimmed": "Putar hasil potong",
+    "stopReplayOriginal": "Hentikan pemutaran asli",
+    "stopReplayTrimmed": "Hentikan pemutaran hasil potong"
   },
   "input": {
     "placeholder": "Ketik / untuk perintah, @ untuk file, atau tanyakan apa saja kepada {{provider}}...",

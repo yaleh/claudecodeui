@@ -1,7 +1,7 @@
 ---
 id: gap-voice-clip-dual-playback
 title: 录音槽两条回放：原始与裁剪后并存
-status: ready
+status: done
 labels:
   - gap
 parent: null

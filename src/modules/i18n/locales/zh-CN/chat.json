@@ -103,8 +103,10 @@
     "speak": "朗读",
     "stopSpeaking": "停止",
     "loading": "加载中…",
-    "playRecording": "播放录音",
-    "stopPlayback": "停止播放"
+    "replayOriginal": "播放原始录音",
+    "replayTrimmed": "播放裁剪后音频",
+    "stopReplayOriginal": "停止播放原始录音",
+    "stopReplayTrimmed": "停止播放裁剪后音频"
   },
   "input": {
     "placeholder": "输入 / 调用命令，@ 选择文件，或向 {{provider}} 提问...",
