@@ -50,15 +50,40 @@ goal_ac: AC-024
 
 **边界（不做）**：不改白名单集合本身；不改编译语义；不改写入路径校验（AC-023 的对象）；不重建 `server/modules/launch-profiles/`。
 
+## 落地证据
+
+### 判据修正（AC 记录）
+
+修正前 `quay goal gate AC-024 --root /data/home/yale/work/claudecodeui` 退出 1，reason 逐字为 `Could not find 'server/modules/launch-profiles/tests/model-launch-spec.test.ts, server/modules/launch-profiles/tests/model-spawn-env.test.ts'`。`quay goal write`（先 `--dry-run` 确认不落盘）按 Plan 的命令形态重写 `criterion`；修正后同一条 gate 命令退出 0、verdict `pass`、reason `acceptance passed (exit 0)`。`--origin` 保留了原 `origin` 的存量信息（ADR-002、`docs/proposals/launch-profiles.md` 待随之修订）并追加本次修正原因，可追溯。写入落在主检出（`67757285`、`10a8ce99`），按仓库惯例 cherry-pick 进本任务分支（`7bbf86f4`、`6ac72b64`），验收面不留分支外。读完复查：`criterion` 含两个 providers 路径、全文不含 `server/modules/launch-profiles/`、`status: achieved`、`supersedes: [AC-017]` 均在。
+
+### 承重性：lax 变体下判红（逐条用例名）
+
+把 `server/modules/providers/services/model-launch-spec.service.ts` 的 `DEFAULT_GUARDS` 临时改成 `{ isAllowedKey: () => true }`（仅此一处，其余不动），对判据命令覆盖的两个文件 → 退出 1，`pass 9 / fail 3`，失败用例名逐条为：
+
+- `value/secret/envref/unset rows compile with the documented semantics` —— `AssertionError: denied key never compiled`（既有用例：`PATH` 行不再被丢）
+- `rows written around the write path are re-filtered on every compile: denied keys never compile, each named by a warning` —— `AssertionError: real: denied row PATH must not compile into spec.env`
+- `denied rows written straight to the library never reach either final env, and the compile names every one of them` —— `AssertionError: compile: denied row PATH must not compile`
+
+两个文件各有一处判红，且本轮新增的断言本身就在判红名单里（不是"只有旧用例兜底"）。还原 `DEFAULT_GUARDS` 后同一命令退出 0、`tests 12 / pass 12 / fail 0`，`git diff` 对该 service 文件为空。
+
+留在仓库里的永久承重证明是两个 `fake variant` 负对照：它们在把 `LaunchSpecGuards` 注入 `{ isAllowedKey: () => true }` 后用 `assert.throws` 要求同一组断言判红，因此将来即使生产默认值被改宽，这两个用例仍会红而不是假绿；`index.ts:19` 的注释也因这两个真实消费者重新为真。
+
+### 其余读数
+
+- 判据命令（搬迁后路径）：`tests 12 / pass 12 / fail 0`（本轮新增 4 条：每文件 1 条覆盖 + 1 条负对照）。
+- 回归：`passthrough-parity.test.ts` 与 `model-config-write-path.test.ts` → 退出 0、`tests 9 / pass 9 / fail 0`。
+- `grep -rn "LaunchSpecGuards" server/ --include=*.ts` 现在含真实测试消费者（两个测试文件各 import 该类型并各有一处 `LAX_GUARD`）。
+- pty 路径的 `PATH` 会被 `prioritizeUserNpmGlobalBin` 按宿主自身条目重排，因此最终 env 的断言写的是"没有任何非宿主条目"，而不是"与 `process.env.PATH` 逐字相等"——这条边界连同"宿主已导出的 denied 键必须保留继承值、不能断言整键缺失"一起写进了测试注释。
+
 ## AC
 
-- [ ] `bash /data/home/yale/.claude/plugins/cache/quay/quay/0.10.0/bin/quay goal gate AC-024 --root /data/home/yale/work/claudecodeui` 退出 0（AC-024 的判据在真实 gate 里转绿）。
-- [ ] 该 root 下 `goals/AC-024-a-model-entry-compiles-to-the-real-spawn-env-including-unset.md` 的 `criterion` 逐字包含 `server/modules/providers/tests/model-launch-spec.test.ts` 与 `server/modules/providers/tests/model-spawn-env.test.ts`，且全文不含 `server/modules/launch-profiles/`；`status` 仍为 `achieved`。
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/model-launch-spec.test.ts server/modules/providers/tests/model-spawn-env.test.ts` 退出码 0。
-- [ ] 新增断言真实存在且承重：把 `LaunchSpecGuards` 注入 `{ isAllowedKey: () => true }` 的变体下，上述两个文件里对应断言判红（失败用例名逐条记录进任务证据），还原后全绿。
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/passthrough-parity.test.ts server/modules/providers/tests/model-config-write-path.test.ts` 退出码 0（AC-001 黄金基准与 AC-023 写入路径未被带动）。
-- [ ] `grep -rn "LaunchSpecGuards" server/ --include=*.ts` 的输出里出现真实测试消费者（`server/modules/providers/tests/` 下的测试文件 import 它），不再只有类型定义与 barrel 导出。
-- [ ] `npm run typecheck`、`npm run lint` 退出码 0；`bash scripts/test.sh --for-task gap-ac-024-criterion-repoint-and-compile-allowlist-coverage --allow-thin` 退出码 0（scoped 自测；全量套件是 fan-in 的合并闸，不是 worker 的自测）。
+- [x] `bash /data/home/yale/.claude/plugins/cache/quay/quay/0.10.0/bin/quay goal gate AC-024 --root /data/home/yale/work/claudecodeui` 退出 0（AC-024 的判据在真实 gate 里转绿）。
+- [x] 该 root 下 `goals/AC-024-a-model-entry-compiles-to-the-real-spawn-env-including-unset.md` 的 `criterion` 逐字包含 `server/modules/providers/tests/model-launch-spec.test.ts` 与 `server/modules/providers/tests/model-spawn-env.test.ts`，且全文不含 `server/modules/launch-profiles/`；`status` 仍为 `achieved`。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/model-launch-spec.test.ts server/modules/providers/tests/model-spawn-env.test.ts` 退出码 0。
+- [x] 新增断言真实存在且承重：把 `LaunchSpecGuards` 注入 `{ isAllowedKey: () => true }` 的变体下，上述两个文件里对应断言判红（失败用例名逐条记录进任务证据），还原后全绿。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/passthrough-parity.test.ts server/modules/providers/tests/model-config-write-path.test.ts` 退出码 0（AC-001 黄金基准与 AC-023 写入路径未被带动）。
+- [x] `grep -rn "LaunchSpecGuards" server/ --include=*.ts` 的输出里出现真实测试消费者（`server/modules/providers/tests/` 下的测试文件 import 它），不再只有类型定义与 barrel 导出。
+- [x] `npm run typecheck`、`npm run lint` 退出码 0；`bash scripts/test.sh --for-task gap-ac-024-criterion-repoint-and-compile-allowlist-coverage --allow-thin` 退出码 0（scoped 自测；全量套件是 fan-in 的合并闸，不是 worker 的自测）。
 
 ## DoD
 
