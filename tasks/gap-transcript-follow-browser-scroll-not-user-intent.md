@@ -2,7 +2,7 @@
 id: gap-transcript-follow-browser-scroll-not-user-intent
 title: 非用户输入引起的 scroll（浏览器 anchoring/clamp）不得改变跟随意图：视口上方一行变矮 M≥200px 后就地长高
   N≥400px 仍 gap ≤1px 且按钮始终不出现（AC-111 判据 e2e/transcript-follow.spec.ts 由红转绿）
-status: todo
+status: ready
 labels:
   - gap
   - defect
