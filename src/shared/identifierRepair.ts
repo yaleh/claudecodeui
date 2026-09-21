@@ -24,16 +24,31 @@
  * The most edits the dotted pass will pay for. It is also the pruning bound
  * handed to `editDistance`: two names whose lengths differ by more than this
  * cannot be each other's typo, whatever edit script connects them.
+ *
+ * Four, not two. The cap is a ceiling, not the working budget — `MIN_SIMILARITY`
+ * is what scales with the name, and for anything shorter than sixteen
+ * characters the similarity floor binds first. Four is the observed shape: the
+ * recogniser really does return `voice.seluis.ts` for `voice.service.ts`, four
+ * edits in a fifteen-character name, and that is the failure this module exists
+ * for. A flat cap of two made the budget unreachable for every name long enough
+ * to be worth repairing, which is how the dotted half came to be dead code on
+ * exactly the shapes the recogniser produces.
  */
-const MAX_EDIT_DISTANCE = 2;
+const MAX_EDIT_DISTANCE = 4;
 
 /**
  * How much of the longer name has to survive the edit. A raw distance is not
- * enough on its own — two edits are a typo in a 20-character name and a
- * different name entirely in a 4-character one — so the edit is scaled by the
+ * enough on its own — four edits are a typo in a 20-character name and a
+ * different name entirely in a 6-character one — so the edit is scaled by the
  * length it happened in.
+ *
+ * 0.75 is set by the same observation as the cap: `voice.seluis.ts` against
+ * `voice.service.ts` is exactly 0.75, and it is a repair, not a coincidence —
+ * the two share their opening, their extension and their whole shape. Below
+ * this line the pairs stop being names that resemble each other and start being
+ * names that merely have the same length.
  */
-const MIN_SIMILARITY = 0.8;
+const MIN_SIMILARITY = 0.75;
 
 /**
  * A mistyped name keeps its opening. Without this, short names slide into each
@@ -42,20 +57,59 @@ const MIN_SIMILARITY = 0.8;
 const SHARED_PREFIX_LENGTH = 3;
 
 /**
- * A token only enters the dotted pass if it is shaped like a file name: a stem,
- * then one or more `.ext` segments of one to five characters each, each
- * starting with a letter. This is also what keeps the pass off ordinary prose —
- * `ends.` has an empty extension, `3.14` starts its extension with a digit, so
- * neither is ever compared against a candidate and a sentence that merely ends
- * in a full stop cannot be rewritten.
+ * A final segment at most this long is read as an extension. It is the same
+ * bound the token shape used to impose on every segment, kept only where it
+ * describes something true: `.ts`, `.tsx`, `.json`, `.md`.
  */
-const DOTTED_TOKEN = /^[-A-Za-z0-9_$]+(?:\.[A-Za-z][A-Za-z0-9]{0,4})+$/;
+const EXTENSION_LENGTH = 5;
+
+/**
+ * How far an extension may be from the candidate's own before the pair stops
+ * being a mishearing of one name. The extension is the shortest, most
+ * stereotyped part of a file name, so it survives recognition far better than
+ * the stem does: `.js` for `.ts` is one edit and happens; `.io` for `.ts` is
+ * two and does not.
+ */
+const EXTENSION_EDIT_BUDGET = 1;
+
+/**
+ * A dotted name anywhere in the text: a stem, then one or more `.segment`s, each
+ * starting with a letter. Two things follow from matching the *shape* rather
+ * than the whitespace-delimited token:
+ *
+ *  - a name is not required to stand alone. Chinese is written without spaces,
+ *    so `改一下。voice.roue.ts` is one token to a whitespace tokeniser and the
+ *    identifier inside it was never considered at all. Scanning finds it.
+ *  - the segments after the stem are unbounded, because real ones are: the
+ *    intermediate segment of `voice.service.ts` is `service`, seven characters,
+ *    and a one-to-five rule made every such name invisible to this pass.
+ *
+ * What the shape still excludes is what keeps the pass off ordinary prose:
+ * `ends.` has an empty extension and `3.14` starts its extension with a digit,
+ * so neither is ever compared against a candidate and a sentence that merely
+ * ends in a full stop cannot be rewritten.
+ */
+const DOTTED_TOKEN = /[-A-Za-z0-9_$]+(?:\.[A-Za-z][A-Za-z0-9_$]*)+/g;
 
 /**
  * What a split symbol may have been broken across. A newline is a real line
  * break, not a recogniser's idea of a word boundary, so a run never spans one.
  */
 const INLINE_SEPARATOR = /^[ \t]+$/;
+
+/**
+ * How many words a split has to be broken into before the split pass will look
+ * at it.
+ *
+ * Two, because one word is not a split. The candidate list contains bare stems
+ * as well as file names, so a single token can equal one — and then ordinary
+ * prose becomes a repair target: "The readme md file is out of date" comes back
+ * as "The README md file is out of date", a lowercase English word rewritten
+ * into an identifier, which is precisely the failure the split pass exists to
+ * avoid. A recogniser that splits a symbol produces at least two words for it;
+ * nothing shorter is evidence of anything.
+ */
+const MIN_SPLIT_TOKENS = 2;
 
 /** One whitespace-delimited run of the input, with where it sits. */
 type Token = {
@@ -108,8 +162,12 @@ function tokenize(text: string): Token[] {
  * distance becomes an upper bound on the similarity, and a threshold tested
  * against an upper bound is a false positive waiting for a long enough name.
  * `Infinity` is the honest reading of "these two cannot be within the cap".
+ *
+ * Exported because the harness that measures this module has to state its
+ * claims in the module's own terms; a runner verifying "one edit away" with a
+ * private normaliser of its own would be asserting about a different function.
  */
-function editDistance(a: string, b: string, maxDistance: number): number {
+export function editDistance(a: string, b: string, maxDistance = Infinity): number {
   if (Math.abs(a.length - b.length) > maxDistance) return Infinity;
 
   const width = b.length + 1;
@@ -137,16 +195,64 @@ function similarity(distance: number, a: string, b: string): number {
 }
 
 /**
+ * The module's one normaliser for a name spoken as separate words: case folded
+ * and whitespace removed, nothing else. `use voice input` and `useVoiceInput`
+ * both become `usevoiceinput`, which is the equality the split pass tests.
+ *
+ * Exported for the same reason as `editDistance`: a fixture that claims a phrase
+ * is one edit from a symbol has to be measured with the normaliser the matcher
+ * itself uses, or it is measuring a different module.
+ */
+export function normalizeSymbol(name: string): string {
+  return name.replace(/\s+/g, '').toLowerCase();
+}
+
+/** The text after the last dot — the extension, or the whole name if there is none. */
+function finalSegment(name: string): string {
+  const dot = name.lastIndexOf('.');
+  return dot === -1 ? name : name.slice(dot + 1);
+}
+
+/**
+ * Whether the two names end the same way, when that ending is short enough to
+ * be an extension.
+ *
+ * This is the guard that keeps a widened edit budget from rewriting one file
+ * name into another. Once the dotted pass pays four edits at a similarity of
+ * 0.75, a candidate with the same length and the same opening is reachable from
+ * a great deal of prose — `socket.io` is two edits from `socket.ts`, and
+ * `voicePlayer.stop` is three from `voicePlayer.ts`, both inside the budget.
+ * What separates those from a real repair is that the recogniser kept the
+ * extension: `voice.module.t` for `voice.module.ts` is truncation, `.js` for
+ * `.ts` is one edit, and `.io` for `.ts` is neither — it is a different name.
+ *
+ * A final segment too long to be an extension (the stem tail of a two-segment
+ * name) is not judged here; those pairs are left to the distance and similarity
+ * guards like any other part of the name.
+ */
+function extensionSurvives(a: string, b: string): boolean {
+  const left = finalSegment(a).toLowerCase();
+  const right = finalSegment(b).toLowerCase();
+  if (left.length > EXTENSION_LENGTH && right.length > EXTENSION_LENGTH) return true;
+  if (left === right) return true;
+  if (left.startsWith(right) || right.startsWith(left)) return true;
+
+  return editDistance(left, right, EXTENSION_EDIT_BUDGET) <= EXTENSION_EDIT_BUDGET;
+}
+
+/**
  * The dotted candidate closest to `token`, or null if none is close enough.
  *
- * Three guards run, and all three are load-bearing:
+ * Four guards run, and all four are load-bearing:
  *
  *  1. only dotted candidates are considered — the caller passes exactly those,
  *     so a token spelled without its extension can never reach a name that has
  *     one (and the reverse is true by construction of the other pass);
  *  2. the two must open with the same three characters;
  *  3. the edit must leave enough of the name standing, which is what the
- *     distance-to-similarity step measures.
+ *     distance-to-similarity step measures;
+ *  4. the ending must be one the recogniser could plausibly have produced, which
+ *     is what `extensionSurvives` decides.
  *
  * Comparison is case-folded because recognisers do not preserve case, and the
  * winner is returned with the candidate's own spelling. Ties break on the name
@@ -165,6 +271,7 @@ function nearestDottedCandidate(token: string, candidates: readonly string[]): s
     const distance = editDistance(needle, haystack, MAX_EDIT_DISTANCE);
     if (!Number.isFinite(distance)) continue;
     if (similarity(distance, needle, haystack) < MIN_SIMILARITY) continue;
+    if (!extensionSurvives(needle, haystack)) continue;
 
     if (distance < bestDistance || (distance === bestDistance && best !== null && candidate < best)) {
       best = candidate;
@@ -184,7 +291,7 @@ function splitIndex(candidates: readonly string[]): { keys: Map<string, string>;
   let longest = 0;
 
   for (const candidate of candidates) {
-    const key = candidate.replace(/\s+/g, '').toLowerCase();
+    const key = normalizeSymbol(candidate);
     if (key.length === 0) continue;
     if (!keys.has(key)) keys.set(key, candidate);
     if (key.length > longest) longest = key.length;
@@ -220,6 +327,7 @@ function longestSplitMatch(
 
     compact += token.text.toLowerCase();
     if (compact.length > longest) break;
+    if (length < MIN_SPLIT_TOKENS) continue;
 
     const candidate = keys.get(compact);
     if (candidate !== undefined) match = { end: start + length - 1, text: candidate };
@@ -250,12 +358,16 @@ export function repairIdentifiers(text: string, candidates: readonly string[]): 
   const tokens = tokenize(text);
   const replacements: Replacement[] = [];
 
-  // Pass one: dotted names, one token at a time.
-  for (const token of tokens) {
-    if (!DOTTED_TOKEN.test(token.text)) continue;
-    const repaired = nearestDottedCandidate(token.text, dotted);
-    if (repaired !== null && repaired !== token.text) {
-      replacements.push({ start: token.start, end: token.end, text: repaired });
+  // Pass one: dotted names, one scanned span at a time. The scan is what lets a
+  // name be found inside a token rather than requiring the whole token to be
+  // one, which is the difference between `change voice.roue.ts now` and
+  // `改一下。voice.roue.ts`.
+  for (const match of text.matchAll(DOTTED_TOKEN)) {
+    const token = match[0];
+    const repaired = nearestDottedCandidate(token, dotted);
+    if (repaired !== null && repaired !== token) {
+      const start = match.index ?? 0;
+      replacements.push({ start, end: start + token.length, text: repaired });
     }
   }
 
@@ -281,8 +393,10 @@ export function repairIdentifiers(text: string, candidates: readonly string[]): 
 
   if (replacements.length === 0) return text;
 
-  // The two passes walk the same tokens, so their finds can arrive out of
-  // order; they can never overlap (a dotless key has no dot to match).
+  // The two passes find disjoint spans: a dotted span contains a dot, and every
+  // token of a split match is dot-free — a dot anywhere in the run would break
+  // the equality against a dotless key. The dotted pass scans the text while the
+  // split pass walks tokens, so their finds can still arrive out of order.
   replacements.sort((left, right) => left.start - right.start);
 
   let repaired = '';
