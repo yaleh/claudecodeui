@@ -2,7 +2,7 @@
 id: gap-session-telemetry-show-ai-title
 title: Session telemetry（/cost 弹窗）的 meta info 显示 Claude 生成的 ai-title 原文：服务端按会话读
   transcript，手工改名后也照常显示
-status: todo
+status: ready
 labels:
   - gap
 parent: null
