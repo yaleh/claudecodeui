@@ -34,12 +34,12 @@ goal_ac: AC-114
 
 ## AC
 
-- [ ] `npx vitest run src/shared/tests/identifierFidelity.test.ts` 退出码 0
-- [ ] 断言 (1)：对 `('voice.service.ts', 'voice service ts')` 该指标判存活率 0
-- [ ] 断言 (2)：同一对文本经既有 CER 口径归一化后相同（证明 CER 对本失效失明，本条同时是对该论断的回归保护）
-- [ ] 断言 (3)：经修复后同一对文本存活率回升到 1
-- [ ] `src/modules/chat/hooks/useVoiceInput.ts` 的转写回填处只输出该读数、不改交互
-- [ ] `npm run lint` 与 `npm run typecheck` 退出码 0
+- [x] `npx vitest run src/shared/tests/identifierFidelity.test.ts` 退出码 0
+- [x] 断言 (1)：对 `('voice.service.ts', 'voice service ts')` 该指标判存活率 0
+- [x] 断言 (2)：同一对文本经既有 CER 口径归一化后相同（证明 CER 对本失效失明，本条同时是对该论断的回归保护）
+- [x] 断言 (3)：经修复后同一对文本存活率回升到 1
+- [x] `src/modules/chat/hooks/useVoiceInput.ts` 的转写回填处只输出该读数、不改交互
+- [x] `npm run lint` 与 `npm run typecheck` 退出码 0
 
 ## DoD
 
@@ -49,9 +49,35 @@ L_D 该轴仍暗，理由：本任务只落地一个读数指标与其接入，�
 
 L_G 该轴仍暗，理由：同上；本任务的读数是指标函数在固定文本对上的取值，不是生成质量轴读数。
 
+### 完成记录（2026-09-21）
+
+落地三件：`src/shared/identifierFidelity.ts`（纯函数，无 React/DOM；导出 `findIdentifiers`、`identifierFidelity` 与类型 `IdentifierFidelityReading`）、`src/shared/tests/identifierFidelity.test.ts`（8 例）、`src/modules/chat/hooks/useVoiceInput.ts`（回填处输出读数）。口径：逐字 = 保留标点与大小写、忽略空白。
+
+与仓库内 harness 端口 `experiments/voice-identifiers/identifierFidelity.mjs` 刻意不同，理由写进模块头注释：该端口两侧皆小写，实测对 `Use voice input` → `useVoiceInput` 读作 1/1（失明），本模块读 0 → 1。
+
+命令逐条实录：
+
+- `npx vitest run src/shared/tests/identifierFidelity.test.ts` → 8 passed / exit 0。
+- 断言 (1)：`identifierFidelity('voice.service.ts', 'voice service ts')` → `{total:1, survived:0, rate:0, missing:['voice.service.ts']}`。
+- 断言 (2)：同一对文本 `cerNormalForm` 相等且 `cer(...) === 0`，而本指标 `rate === 0`——同一份数据上满分与零分的反向判决就是失明本身。该 CER 口径逐字抄自 `/data/home/yale/work/tc-verify/tools/metrics.mjs` 的 `normalize()` / `chars()` / `cer()`，刻意留在测试内、不进生产模块（生产侧多一个无人使用的相似度口径会让这条论断自证）。
+- 断言 (3)：`identifierFidelity('voice.service.ts', 'voice.service.ts')` → `rate: 1, missing: []`。
+- 负对照（承重性）：把 `identifierFidelity` 换成 CER 口径（`rate = 1 - cer(ref, hyp)`）后重跑，断言 (1) 与 (2) 均红（`expected 1 to be +0`），8 例中 5 红；`sha256sum -c` 证回字节一致（还原前后同为 `8cc2d4dded203d087ca46f43358702feba0e27c5a3d1a65f2a552a1c49cb97bd`），还原后 8/8 绿。
+- 真实回填路径（临时探针驱动真实 `useVoiceInput`，`vi.mock('@/shared/api')` 掉 `transcribeVoice`，跑完即删，未留在提交里）：转写 `Look at how the Use voice input hook handles recording.` → 读数 `{total:0,survived:0,rate:null}`、`onTranscript` 收到 `'Look at how the Use voice input hook handles recording.'`；转写 `…useVoiceInput…` → `{total:1,survived:1,rate:1}`；命名对 `voice service ts` → `{total:0,…}`。即读数确实由真实回填路径产出，且 `onTranscript` 的实参与调用条件在改动前后一致。
+- 指标确实区分得开修复前后（在 harness fixture en-e03 上，候选集 1962 个）：`experiments/voice-identifiers/identifierRepair.mjs` 对 `Use voice input` 给出 `{from:'Use voice input', to:'useVoiceInput', score:1, exact:true}`；以 `intended` 为参考，本指标对该对文本 before `rate 0 / missing ['useVoiceInput']` → after `rate 1`。
+- `npm run lint` → exit 0；`npm run typecheck` → exit 0。
+
+关于 Touches 里新增的 `.oxlintrc.json`：`useVoiceInput.ts` 属 `frontend-module`，import 新的 `src/shared/identifierFidelity.ts` 时 oxlint 的 `boundaries/no-unknown` 判其「Dependencies to unknown elements are not allowed」，因为该文件不在 `boundaries/elements` 的 `frontend-shared-file` 显式名单内。按同层既有文件 `src/shared/voiceConfig.ts` 的做法把它加入名单；不加入则 `npm run lint` 退出码 1，即 AC 直接失败。这是 AC 强制要求的写入面，故一并声明。
+
+`git diff develop -- src/modules/chat/hooks/useVoiceInput.ts` 只有两类改动：一行 import，以及把 `const text = String(data?.text || '').trim()` 拆成 `raw` / `text` 两句并在 `if (text)` 分支内加一行 `console.debug`。`onTranscript(text, shouldSend)` 的实参、调用条件与 `else onError?.('No speech detected')` 的原有行为均未变，交互与请求流程零改动。
+
+### 自评：本读数当前是 handoff 基线，不是质量读数
+
+参考文本取的是识别器自己返回的 `raw`，因此只要转写里出现了标识符 `rate` 就是 1——它量的是「识别器给的文本有没有被后续环节改写」，而不是「识别器有没有听对」。这是链路当前的真实状态（回填处此刻没有任何东西夹在两个文本之间），所以它是基线读数；它的价值在于给确定性标识符修复钉一个可测的边界：修复一旦接入，`missing` 非空就意味着修复改写了转写从未携带的名字。读数经 `console.debug` 输出是刻意的：只存在于调试分支上的读数，不足以让真实路径被评判。
+
 ## Touches
 
-- src/shared/identifierFidelity.ts
-- src/shared/tests/identifierFidelity.test.ts
+- src/shared/identifierFidelity.ts (new)
+- src/shared/tests/identifierFidelity.test.ts (new)
 - src/modules/chat/hooks/useVoiceInput.ts
+- .oxlintrc.json
 - tasks/gap-voice-identifier-fidelity-metric.md
