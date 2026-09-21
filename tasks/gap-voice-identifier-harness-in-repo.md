@@ -55,10 +55,10 @@ L_G 该轴仍暗，理由：同上；本任务是验证工装的入库与判据�
 
 ## Touches
 
-- experiments/voice-identifiers/identifierRepair.mjs
-- experiments/voice-identifiers/identifierFidelity.mjs
-- experiments/voice-identifiers/run-false-positive.mjs
-- experiments/voice-identifiers/run-recovery.mjs
-- experiments/voice-identifiers/fixtures/negative.json
-- experiments/voice-identifiers/fixtures/recovery.json
+- experiments/voice-identifiers/identifierRepair.mjs (new)
+- experiments/voice-identifiers/identifierFidelity.mjs (new)
+- experiments/voice-identifiers/run-false-positive.mjs (new)
+- experiments/voice-identifiers/run-recovery.mjs (new)
+- experiments/voice-identifiers/fixtures/negative.json (new)
+- experiments/voice-identifiers/fixtures/recovery.json (new)
 - tasks/gap-voice-identifier-harness-in-repo.md
