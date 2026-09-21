@@ -41,7 +41,7 @@ depends_on:
 - [ ] `grep -rn "launch_profile\|LAUNCH_PROFILES" server/` 无输出（迁移与 schema 引用清零）。
 - [ ] `grep -c "addSessionLaunchProfile" server/modules/database/migrations.ts` 输出 0（两条重复迁移均已清）。
 - [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/database/tests/launch-profiles-drop-migration.test.ts server/modules/database/tests/sessions.db.integration.test.ts` 退出码 0。
-- [ ] `bash scripts/test.sh` 全量通过；`npm run typecheck`、`npm run lint` 退出码 0。
+- [ ] `bash scripts/test.sh --for-task gap-launch-profiles-drop-schema-and-tidy-goal` 退出码 0（scoped 自测；**全量套件是 fan-in 的合并闸，不是 worker 的自测**）；`npm run typecheck`、`npm run lint` 退出码 0。
 - [ ] `goals/GOAL-001-*.md` 的文件名与 `title` 一致；且 `grep -n "superseded" goals/GOAL-001-*.md` 仍能查到 AC-007 且其定性为「延期、无替代」。
 - [ ] `ls goals/AC-007-session-profile-lock.md` 仍存在，`grep -m1 '^status:' goals/AC-007-session-profile-lock.md` 仍为 `superseded`（按裁定保留）。
 
