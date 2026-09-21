@@ -1,7 +1,7 @@
 ---
 id: gap-ac-001-criterion-repoint-to-migrated-test
 title: AC-001：判据指回搬迁后的真实测试路径（passthrough-parity 黄金基准），并在测试侧固化溯源注释
-status: ready
+status: done
 labels:
   - gap
   - defect
