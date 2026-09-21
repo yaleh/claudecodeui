@@ -33,17 +33,19 @@ goal_ac: AC-120
 
 ## AC
 
-- [ ] `npx playwright test e2e/voice-trim.spec.ts -g "AC-120"` 退出码 0
-- [ ] 开关打开时上传入口可见；开关关闭时**不可见**（默认交互不变）
-- [ ] `setInputFiles` 提交 WAV 后，落到识别器端点的请求体来自该文件（容器魔力 + 字节量级）
-- [ ] composer 最终持有识别器返回的文本
-- [ ] 读数里 `source === "file"`
-- [ ] 入口未旁路 `transcribeVoice`（代码路径可核对，spec 断言上传体非空且非固定体）
-- [ ] `npm run lint` 与 `npm run typecheck` 退出码 0
+- [x] `npx playwright test e2e/voice-trim.spec.ts -g "AC-120"` 退出码 0
+- [x] 开关打开时上传入口可见；开关关闭时**不可见**（默认交互不变）
+- [x] `setInputFiles` 提交 WAV 后，落到识别器端点的请求体来自该文件（容器魔力 + 字节量级）
+- [x] composer 最终持有识别器返回的文本
+- [x] 读数里 `source === "file"`
+- [x] 入口未旁路 `transcribeVoice`（代码路径可核对，spec 断言上传体非空且非固定体）
+- [x] `npm run lint` 与 `npm run typecheck` 退出码 0
 
 ## DoD
 
-真实落地判据：不是按钮存在，而是**同一段已知音频经真实浏览器上传后，真的走了与麦克风同一条转写链路**。承重性由取假形态证明：入口直接调用 `onTranscript('固定文本')` 必须使「请求体来自该文件」红；把入口做成始终可见必须使「关闭时不可见」红。上传的音频必须与麦克风路径共用裁剪（否则两条路会漂移，且 AC-119 的配对结论不能迁移到上传路径）。
+真实落地判据：不是按钮存在，而是**同一段已知音频经真实浏览器上传后，真的走了与麦克风同一条转写链路**。承重性由取假形态证明：入口直接调用 `onTranscript('固定文本')` 必须使「请求体来自该文件」红；把入口做成始终可见必须使「关闭时不可见」红。上传的音频必须与麦克风路径共用裁剪（否则两条路会漂移，且 AC-119 的配对结论不能迁移到上传路径）。入口的可见性开关 `isVoiceDebugEnabled` 与既有的裁剪开关同处 `src/shared/voiceDebug.ts`，所以该文件也在 Touches 内：它是本任务新增开关的落点，不是一个顺带改到的文件。
+
+两条取假形态都在本任务内实测过（改完即跑 `-g "AC-120"`，跑完还原）：旁路形态红在 `the chosen file never reached the recogniser`（Expected 1 / Received 0），常显形态红在 leg 3 的 `toHaveCount(0)`（Expected 0 / Received 1）。
 
 L_D 该轴仍暗，理由：本任务只新增一个验证用入口并复用既有转写链路，不新增领域数据能力，无可读的数据轴读数。
 
@@ -55,6 +57,7 @@ L_G 该轴仍暗，理由：同上；本任务的读数是入口可见性与上�
 - src/modules/chat/composer/ChatComposer.tsx
 - src/modules/chat/hooks/useVoiceInput.ts
 - src/modules/chat/utils/audioDecode.ts
+- src/shared/voiceDebug.ts
 - e2e/voice-trim.spec.ts
 - playwright.config.ts
 - tasks/gap-voice-file-upload-input.md
