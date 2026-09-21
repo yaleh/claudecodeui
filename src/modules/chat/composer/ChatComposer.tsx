@@ -449,6 +449,7 @@ export default function ChatComposer({
               tooltip={{ content: t('input.showAllCommands') }}
               onClick={onToggleCommandMenu}
               className="relative"
+              aria-label={t('input.showAllCommands')}
             >
               <MessageSquareIcon />
               {slashCommandsCount > 0 && (
@@ -465,6 +466,7 @@ export default function ChatComposer({
                 tooltip={{ content: t('input.clearInput', { defaultValue: 'Clear input' }) }}
                 onClick={onClearInput}
                 className="hidden sm:flex"
+                aria-label={t('input.clearInput', { defaultValue: 'Clear input' })}
               >
                 <XIcon />
               </PromptInputButton>
