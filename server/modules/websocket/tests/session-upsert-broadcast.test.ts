@@ -1,15 +1,19 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os, { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
+import { ClaudeSessionSynchronizer, sessionsService } from '@/modules/providers/index.js';
 import {
   broadcastSessionUpserted,
   broadcastSessionUpsertedBatch,
-} from '@/modules/websocket/services/session-upsert-broadcast.service.js';
-import { connectedClients } from '@/modules/websocket/services/websocket-state.service.js';
+  connectedClients,
+} from '@/modules/websocket/index.js';
+
+/** The session id the watcher fixture's transcript carries. */
+const SESSION_ID = 'watched-session-1';
 
 class FakeConnection {
   readyState = 1; // WS_OPEN_STATE
@@ -118,6 +122,84 @@ test('a batch delivers every resolvable session and skips the rest', async () =>
       ['app-4', 'app-5'],
     );
   });
+});
+
+test('a rename made through the service reaches other clients as one upsert', async () => {
+  await withIsolatedDatabase(async () => {
+    sessionsDb.createSession('cli-1', 'claude', '/workspace/demo', 'first prompt');
+
+    const connection = new FakeConnection();
+    connectedClients.add(connection as never);
+
+    await sessionsService.renameSessionById('cli-1', 'Renamed By The User');
+
+    assert.equal(connection.frames.length, 1, 'one rename must announce exactly one session');
+    assert.equal(connection.frames[0].kind, 'session_upserted');
+    assert.equal(connection.frames[0].sessionId, 'cli-1');
+    assert.equal(
+      (connection.frames[0].session as { summary: string }).summary,
+      'Renamed By The User',
+    );
+  });
+});
+
+test('an ai-title the watcher picks up reaches other clients carrying the new name', async () => {
+  const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'session-upsert-home-'));
+  const workspacePath = path.join(temporaryRoot, 'workspace');
+  await mkdir(workspacePath, { recursive: true });
+  const claudeHome = path.join(temporaryRoot, '.claude');
+  await mkdir(claudeHome, { recursive: true });
+  await writeFile(path.join(claudeHome, 'history.jsonl'), '', 'utf8');
+  const transcriptPath = path.join(workspacePath, `${SESSION_ID}.jsonl`);
+  const line = (event: Record<string, unknown>) =>
+    JSON.stringify({ sessionId: SESSION_ID, cwd: workspacePath, ...event });
+  await writeFile(
+    transcriptPath,
+    [
+      line({ type: 'mode', mode: 'normal' }),
+      line({ type: 'user', message: { role: 'user', content: 'first prompt' }, uuid: 'msg-1' }),
+      line({ type: 'last-prompt', lastPrompt: 'the first thing I typed' }),
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const originalHomeDir = os.homedir;
+  (os as any).homedir = () => temporaryRoot;
+
+  try {
+    await withIsolatedDatabase(async () => {
+      const synchronizer = new ClaudeSessionSynchronizer();
+
+      // Indexed first under the name inferred from the transcript's fallback.
+      await synchronizer.synchronizeFile(transcriptPath);
+      assert.equal(sessionsDb.getSessionById(SESSION_ID)?.custom_name, 'the first thing I typed');
+
+      const connection = new FakeConnection();
+      connectedClients.add(connection as never);
+
+      // Claude names the session; the watcher re-indexes the file and flushes
+      // the batch below, which is all the socket ever sees.
+      await appendFile(
+        transcriptPath,
+        line({ type: 'ai-title', aiTitle: 'Generated From The Chat' }) + '\n',
+        'utf8',
+      );
+      await synchronizer.synchronizeFile(transcriptPath);
+      await broadcastSessionUpsertedBatch([SESSION_ID]);
+
+      assert.equal(connection.frames.length, 1, 'one re-index must announce exactly one session');
+      assert.equal(connection.frames[0].kind, 'session_upserted');
+      assert.equal(connection.frames[0].sessionId, SESSION_ID);
+      assert.equal(
+        (connection.frames[0].session as { summary: string }).summary,
+        'Generated From The Chat',
+      );
+    });
+  } finally {
+    (os as any).homedir = originalHomeDir;
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
 });
 
 test('a closed socket is skipped', async () => {

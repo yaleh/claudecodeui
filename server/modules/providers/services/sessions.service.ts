@@ -657,8 +657,16 @@ export const sessionsService = {
 
   /**
    * Renames one session by id without requiring the caller to pass provider.
+   *
+   * The new name is announced like any other session change: a rename made on
+   * one client has to appear on the others without them refetching, and the
+   * `session_upserted` delta is the same one the on-disk watcher sends when a
+   * transcript renames a session by itself.
    */
-  renameSessionById(sessionId: string, summary: string): { sessionId: string; summary: string } {
+  async renameSessionById(
+    sessionId: string,
+    summary: string,
+  ): Promise<{ sessionId: string; summary: string }> {
     const session = sessionsDb.getSessionById(sessionId);
     if (!session) {
       throw new AppError(`Session "${sessionId}" was not found.`, {
@@ -668,6 +676,7 @@ export const sessionsService = {
     }
 
     sessionsDb.updateSessionCustomName(sessionId, summary);
+    await broadcastSessionUpserted(sessionId);
     return { sessionId, summary };
   },
 };

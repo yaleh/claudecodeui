@@ -2,6 +2,20 @@ import { getConnection } from '@/modules/database/connection.js';
 import { projectsDb } from '@/modules/database/repositories/projects.db.js';
 import { normalizeProjectPath } from '@/shared/utils.js';
 
+/**
+ * Where a session's `custom_name` came from, ordered lowest to highest.
+ *
+ * `derived` is a name the app or an indexer inferred — the first visible
+ * message of an app-created session, a transcript's `last-prompt`, or the
+ * history lookup; `ai` is the title Claude itself wrote into the transcript;
+ * `manual` is the user's own word, either a rename through this app or a CLI
+ * `/rename` recorded as the transcript's `custom-title`.
+ *
+ * The order *is* the precedence every upsert respects (see `createSession`):
+ * a name never moves down it, so nothing a provider rescans can undo a rename.
+ */
+export type SessionNameSource = 'derived' | 'ai' | 'manual';
+
 type SessionRow = {
   session_id: string;
   provider: string;
@@ -9,6 +23,8 @@ type SessionRow = {
   project_path: string | null;
   jsonl_path: string | null;
   custom_name: string | null;
+  /** Where `custom_name` came from; see `SessionNameSource`. */
+  name_source: string | null;
   /** Model this session runs with; NULL until the app records one for it. */
   model: string | null;
   /** Reasoning effort this session runs with; NULL until the app records one. */
@@ -70,7 +86,55 @@ function buildNameVisibilityClause(
 }
 
 const SESSION_ROW_COLUMNS =
-  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, model, effort, permission_mode, forked_from_session_id, isArchived, created_at, updated_at';
+  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, name_source, model, effort, permission_mode, forked_from_session_id, isArchived, created_at, updated_at';
+
+/**
+ * SQL expression ranking one name-source expression, for the precedence CASE.
+ *
+ * Anything unrecognized — including the NULL a row can still carry — ranks as
+ * `derived`: a name with no recorded provenance has no better claim than one an
+ * indexer inferred.
+ */
+function nameSourceRankSql(sourceSql: string): string {
+  return `(CASE ${sourceSql} WHEN 'manual' THEN 2 WHEN 'ai' THEN 1 ELSE 0 END)`;
+}
+
+/**
+ * SQL predicate: the incoming name wins over the name already on the row.
+ *
+ * This is the one place the precedence `manual` > `ai` > `derived` is written
+ * down; both upsert branches of `createSession` splice it into their
+ * `custom_name` *and* `name_source` assignments, so a row can never take one
+ * without the other (the name and its provenance are only meaningful together).
+ * It is emitted as an expression rather than as a CASE returning the name
+ * because the caller needs to know *that* the incoming name won, not just what
+ * it is.
+ *
+ * Ties go to the incoming name — a later `ai` title or a later rename replaces
+ * an earlier one — with a single exception: two `derived` names on an
+ * app-created row keep the name the app derived from the first visible
+ * message. The indexer's re-derivation (a `last-prompt`, or the history
+ * fallback) is never a better name for an app session than the message the
+ * user actually typed, and that is what the sidebar has always shown.
+ */
+function incomingNameWinsSql(parts: {
+  existingNameSql: string;
+  existingSourceSql: string;
+  incomingNameSql: string;
+  incomingSourceSql: string;
+  /** `1` when the row's id was minted by the app rather than by the provider. */
+  appOwnedRowSql: string;
+}): string {
+  const sameRank = `${nameSourceRankSql(parts.incomingSourceSql)} = ${nameSourceRankSql(parts.existingSourceSql)}`;
+  return `(
+    ${parts.incomingNameSql} IS NOT NULL
+    AND (
+      ${parts.existingNameSql} IS NULL
+      OR ${nameSourceRankSql(parts.incomingSourceSql)} > ${nameSourceRankSql(parts.existingSourceSql)}
+      OR (${sameRank} AND NOT (${parts.incomingSourceSql} = 'derived' AND ${parts.appOwnedRowSql}))
+    )
+  )`;
+}
 
 const SQLITE_UTC_TIMESTAMP_REGEX = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 
@@ -120,9 +184,14 @@ export const sessionsDb = {
    * The given id is the provider-native session id. Rows are keyed by
    * `provider_session_id` so a session that was first created by the app
    * (with an app-allocated `session_id`) is updated in place once its
-   * transcript shows up on disk, instead of producing a duplicate row. An
-   * app-created row keeps its existing name; synchronizer names only update
-   * rows that were themselves created by indexing provider storage.
+   * transcript shows up on disk, instead of producing a duplicate row.
+   *
+   * A name only ever moves *up* the `SessionNameSource` order here: the
+   * incoming name replaces the stored one when its source outranks it (or
+   * ties, outside the app-session case below), and a `manual` name is never
+   * replaced by an `ai` or `derived` one. So an indexer can upgrade a session
+   * from the first message to the transcript's own `ai-title`, while a name
+   * the user chose survives every later rescan.
    */
   createSession(
     providerSessionId: string,
@@ -131,7 +200,8 @@ export const sessionsDb = {
     customName?: string,
     createdAt?: string,
     updatedAt?: string,
-    jsonlPath?: string | null
+    jsonlPath?: string | null,
+    nameSource: SessionNameSource = 'derived'
   ): string {
     const db = getConnection();
     const createdAtValue = normalizeTimestamp(createdAt);
@@ -151,28 +221,36 @@ export const sessionsDb = {
       .get(providerSessionId, provider) as { session_id: string } | undefined;
 
     if (existing) {
+      // `session_id <> provider_session_id` is NULL for a row whose provider
+      // id is not recorded yet; COALESCE keeps that meaning "not app-owned",
+      // which is how this branch has always read it.
+      const nameWins = incomingNameWinsSql({
+        existingNameSql: 'custom_name',
+        existingSourceSql: 'name_source',
+        incomingNameSql: '@incomingName',
+        incomingSourceSql: '@incomingSource',
+        appOwnedRowSql: 'COALESCE(session_id <> provider_session_id, 0)',
+      });
+
       db.prepare(
         `UPDATE sessions SET
-           provider = ?,
-           updated_at = COALESCE(?, CURRENT_TIMESTAMP),
-           project_path = ?,
-           jsonl_path = ?,
-           isArchived = CASE WHEN ? IS NULL OR julianday(?) > julianday(updated_at) THEN 0 ELSE isArchived END,
-           custom_name = CASE
-             WHEN session_id <> provider_session_id AND custom_name IS NOT NULL THEN custom_name
-             ELSE COALESCE(?, custom_name)
-           END
-         WHERE session_id = ?`
-      ).run(
+           provider = @provider,
+           updated_at = COALESCE(@updatedAt, CURRENT_TIMESTAMP),
+           project_path = @projectPath,
+           jsonl_path = @jsonlPath,
+           isArchived = CASE WHEN @updatedAt IS NULL OR julianday(@updatedAt) > julianday(updated_at) THEN 0 ELSE isArchived END,
+           custom_name = CASE WHEN ${nameWins} THEN @incomingName ELSE custom_name END,
+           name_source = CASE WHEN ${nameWins} THEN @incomingSource ELSE name_source END
+         WHERE session_id = @sessionId`
+      ).run({
         provider,
-        updatedAtValue,
-        normalizedProjectPath,
-        jsonlPath ?? null,
-        updatedAtValue,
-        updatedAtValue,
-        customName ?? null,
-        existing.session_id
-      );
+        updatedAt: updatedAtValue,
+        projectPath: normalizedProjectPath,
+        jsonlPath: jsonlPath ?? null,
+        incomingName: customName ?? null,
+        incomingSource: nameSource,
+        sessionId: existing.session_id,
+      });
 
       return existing.session_id;
     }
@@ -180,32 +258,37 @@ export const sessionsDb = {
     // Sessions created outside the app (directly via the provider CLI) are
     // keyed by the provider-native id for both columns. The ON CONFLICT path
     // covers legacy rows that predate the provider_session_id mapping.
+    const conflictNameWins = incomingNameWinsSql({
+      existingNameSql: 'sessions.custom_name',
+      existingSourceSql: 'sessions.name_source',
+      incomingNameSql: 'excluded.custom_name',
+      incomingSourceSql: 'excluded.name_source',
+      appOwnedRowSql: 'COALESCE(sessions.session_id <> sessions.provider_session_id, 0)',
+    });
+
     db.prepare(
-      `INSERT INTO sessions (session_id, provider, provider_session_id, custom_name, project_path, jsonl_path, isArchived, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 0, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP))
+      `INSERT INTO sessions (session_id, provider, provider_session_id, custom_name, name_source, project_path, jsonl_path, isArchived, created_at, updated_at)
+       VALUES (@sessionId, @provider, @providerSessionId, @incomingName, @incomingSource, @projectPath, @jsonlPath, 0, COALESCE(@createdAt, CURRENT_TIMESTAMP), COALESCE(@updatedAt, CURRENT_TIMESTAMP))
        ON CONFLICT(session_id) DO UPDATE SET
          provider = excluded.provider,
          provider_session_id = excluded.provider_session_id,
          updated_at = excluded.updated_at,
          project_path = excluded.project_path,
          jsonl_path = excluded.jsonl_path,
-         isArchived = CASE WHEN ? IS NULL OR julianday(excluded.updated_at) > julianday(sessions.updated_at) THEN 0 ELSE sessions.isArchived END,
-         custom_name = CASE
-           WHEN sessions.session_id <> sessions.provider_session_id AND sessions.custom_name IS NOT NULL
-             THEN sessions.custom_name
-           ELSE COALESCE(excluded.custom_name, sessions.custom_name)
-         END`
-    ).run(
-      providerSessionId,
+         isArchived = CASE WHEN @updatedAt IS NULL OR julianday(excluded.updated_at) > julianday(sessions.updated_at) THEN 0 ELSE sessions.isArchived END,
+         custom_name = CASE WHEN ${conflictNameWins} THEN excluded.custom_name ELSE sessions.custom_name END,
+         name_source = CASE WHEN ${conflictNameWins} THEN excluded.name_source ELSE sessions.name_source END`
+    ).run({
+      sessionId: providerSessionId,
       provider,
       providerSessionId,
-      customName ?? null,
-      normalizedProjectPath,
-      jsonlPath ?? null,
-      createdAtValue,
-      updatedAtValue,
-      updatedAtValue
-    );
+      incomingName: customName ?? null,
+      incomingSource: nameSource,
+      projectPath: normalizedProjectPath,
+      jsonlPath: jsonlPath ?? null,
+      createdAt: createdAtValue,
+      updatedAt: updatedAtValue,
+    });
 
     return providerSessionId;
   },
@@ -322,12 +405,25 @@ export const sessionsDb = {
         db.prepare('DELETE FROM sessions WHERE session_id = ?').run(duplicate.session_id);
         db.prepare(
           `UPDATE sessions SET
-             provider_session_id = ?,
-             jsonl_path = COALESCE(jsonl_path, ?),
-             custom_name = COALESCE(custom_name, ?),
+             provider_session_id = @providerSessionId,
+             jsonl_path = COALESCE(jsonl_path, @jsonlPath),
+             custom_name = COALESCE(custom_name, @customName),
+             name_source = CASE
+               WHEN custom_name IS NULL AND @customName IS NOT NULL THEN @nameSource
+               ELSE name_source
+             END,
              updated_at = CURRENT_TIMESTAMP
-           WHERE session_id = ?`
-        ).run(providerSessionId, duplicate.jsonl_path, duplicate.custom_name, sessionId);
+           WHERE session_id = @sessionId`
+        ).run({
+          providerSessionId,
+          jsonlPath: duplicate.jsonl_path,
+          customName: duplicate.custom_name,
+          // A name and its provenance move together: adopting the duplicate's
+          // name without its source would let the next provider scan overwrite
+          // a name the user had chosen on the other row.
+          nameSource: duplicate.name_source ?? 'derived',
+          sessionId,
+        });
         return;
       }
 
@@ -512,11 +608,19 @@ export const sessionsDb = {
     ).run(permissionMode, sessionId).changes > 0;
   },
 
+  /**
+   * Records a name the user typed for one session.
+   *
+   * The row is marked `manual` in the same statement: that is what tells every
+   * later provider rescan the name is not its to replace, so the two writes
+   * must stay together — a name without its source is a name that can be
+   * silently re-derived away.
+   */
   updateSessionCustomName(sessionId: string, customName: string): void {
     const db = getConnection();
     db.prepare(
       `UPDATE sessions
-       SET custom_name = ?
+       SET custom_name = ?, name_source = 'manual'
        WHERE session_id = ?`
     ).run(customName, sessionId);
   },
