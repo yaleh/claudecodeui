@@ -39,12 +39,13 @@ depends_on: []
 - [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/model-launch-spec.test.ts server/modules/providers/tests/model-spawn-env.test.ts server/modules/providers/tests/model-context-window.test.ts server/modules/providers/tests/model-gateway-end-to-end.test.ts` 退出码 0。
 - [ ] 旧 profile 功能未被破坏：`npx tsx --tsconfig server/tsconfig.json --test server/modules/launch-profiles/tests/passthrough-parity.test.ts server/modules/launch-profiles/tests/launch-spec-real-profile.test.ts server/modules/launch-profiles/tests/profile-rest-api.test.ts` 退出码 0。
 - [ ] 跨模块导入合规：`resolveModelLaunchSpec` 被 `server/modules/websocket/services/shell-websocket.service.ts` 经 providers 桶文件导入（不是深导入）。
-- [ ] `bash scripts/test.sh` 全量通过；且测试文件**总数不变**（本段是纯搬家，通过数是回归信号）：`find server src -name '*.test.ts' -o -name '*.test.tsx' | wc -l` 与搬迁前一致。
+- [ ] `bash scripts/test.sh --for-task gap-launch-profiles-relocate-shared-compile-layer` 退出码 0（scoped 自测；**全量套件是 fan-in 的合并闸，不是 worker 的自测**，故本任务不自跑全量）。
+- [ ] 测试文件**总数不变**（本段是纯搬家，文件数是回归信号，用 find 计数而非跑套件）：`find server src -name '*.test.ts' -o -name '*.test.tsx' | wc -l` 与搬迁前一致。
 - [ ] `npm run lint` 退出码 0。（注意：裸 `npx oxlint` 在 pristine develop 上即退出 1，不是判据。）
 
 ## DoD
 
-真实落地判据：不是「文件被移动了」就算完成。要求 (a) 新位置的 `resolveModelLaunchSpec` 可被跨模块经 providers 桶文件消费，(b) 旧 `launch-profiles/` 目录只剩旧机制文件（`launch-profiles.service.ts`、`session-profile-lock.ts`、`launch-profiles.routes.ts`、`launch-profiles.module.ts`、`index.ts`），(c) 全量套件与搬迁前同绿、测试文件总数不变。
+真实落地判据：不是「文件被移动了」就算完成。要求 (a) 新位置的 `resolveModelLaunchSpec` 可被跨模块经 providers 桶文件消费，(b) 旧 `launch-profiles/` 目录只剩旧机制文件（`launch-profiles.service.ts`、`session-profile-lock.ts`、`launch-profiles.routes.ts`、`launch-profiles.module.ts`、`index.ts`），(c) 搬迁前后测试文件总数不变、各 scoped 自测全绿。
 
 L_D 该轴仍暗，理由：本段是纯结构搬迁，不改变任何可观测行为，领域轴无新增读数。
 L_G 该轴仍暗，理由：同上，行为等价性由 AC-001 黄金基准与全量套件承担。
