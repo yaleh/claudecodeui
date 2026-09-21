@@ -297,6 +297,32 @@ export function useChatSessionState({
   const userScrollGestureRef = useRef(false);
   /** Closes the gesture window once the scrolling it caused has stopped. */
   const userScrollGestureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * How many `scroll` reports the app's own scrollTop writes still owe.
+   *
+   * A write and a gesture raise the same event, and the restore a prepend ends
+   * with lands on the bottom — exactly where a user who scrolled there sits — so
+   * the event cannot be told apart by where it landed. It can by knowing the app
+   * just wrote one: every programmatic write adds to this, every `scroll` takes
+   * one off instead of being read as intent, and every real input clears it, so a
+   * wheel that arrives right after a write is still read normally. The browser
+   * coalesces the reports a burst of writes raises, so the count can only ever be
+   * too large — and the reports it swallows are ones the app caused anyway.
+   */
+  const programmaticScrollEchoesRef = useRef(0);
+  /**
+   * Places the viewport on the app's behalf, and takes responsibility for the
+   * `scroll` that follows.
+   *
+   * Every scrollTop the app writes goes through here, so the echo count above
+   * stays true to what the pane reported: the restore that follows a prepend, a
+   * pin, the scroll-to-bottom writes and the initial settle are one mechanism
+   * from the intent listener's point of view.
+   */
+  const writeScrollTop = useCallback((container: HTMLElement, next: number) => {
+    programmaticScrollEchoesRef.current += 1;
+    container.scrollTop = next;
+  }, []);
   const isLoadingMoreRef = useRef(false);
   const allMessagesLoadedRef = useRef(false);
   const topLoadLockRef = useRef(false);
@@ -565,9 +591,9 @@ export function useChatSessionState({
       // viewport back — re-pinning over it is the bug, so it is checked here at
       // write time rather than assumed from the resize.
       if (current.scrollTop < observedTop - TRANSCRIPT_FOLLOW_TOLERANCE_PX) return;
-      current.scrollTop = current.scrollHeight - current.clientHeight;
+      writeScrollTop(current, current.scrollHeight - current.clientHeight);
     });
-  }, []);
+  }, [writeScrollTop]);
 
   /**
    * Starts watching the transcript's geometry.
@@ -619,8 +645,8 @@ export function useChatSessionState({
     // write raises carries no gesture with it, and is deliberately not read as
     // one — a programmatic write is not evidence either way.
     setIsUserScrolledUp(false);
-    container.scrollTop = container.scrollHeight;
-  }, []);
+    writeScrollTop(container, container.scrollHeight);
+  }, [writeScrollTop]);
 
   const scrollToBottomAndReset = useCallback(() => {
     scrollToBottom();
@@ -672,9 +698,24 @@ export function useChatSessionState({
     const isPaneScroll = (event: Event) => (
       Boolean(scrollContainerRef.current) && event.target === scrollContainerRef.current
     );
+    /** The listeners are on the window, so only a wheel aimed at the pane counts. */
+    const isOverPane = (event: Event) => {
+      const container = scrollContainerRef.current;
+      const target = event.target;
+      return container !== null && target instanceof Node && container.contains(target);
+    };
 
     const onScroll = (event: Event) => {
       if (!isPaneScroll(event)) return;
+      // A report the app's own write owes is the app placing the viewport, not
+      // the user. The restore a prepend ends with is the case this exists for:
+      // it lands on the bottom — where a user who scrolled there sits — while
+      // the gesture that asked for the prepend is still the newest input, so
+      // reading it would hand the viewport straight back to the follow.
+      if (programmaticScrollEchoesRef.current > 0) {
+        programmaticScrollEchoesRef.current -= 1;
+        return;
+      }
       // A scroll inside the window is the gesture still moving the viewport —
       // smooth scrolling reports itself over many frames — so it extends the
       // window until the viewport really stops, and the intent it records is the
@@ -683,14 +724,36 @@ export function useChatSessionState({
       noteUserScrollInput();
       setIsUserScrolledUp(!isNearBottom());
     };
-    const onWheel = () => noteUserScrollInput();
-    const onTouch = () => noteUserScrollInput();
+    /**
+     * Real input: whatever the app wrote before this is no longer the newest
+     * thing to have happened to the viewport, so the reports it owed stop being
+     * owed. The wheel is the one handler that also carries a direction.
+     */
+    const noteInput = () => {
+      programmaticScrollEchoesRef.current = 0;
+      noteUserScrollInput();
+    };
+    const onWheel = (event: WheelEvent) => {
+      noteInput();
+      // A wheel up over the transcript is the user reaching for older messages.
+      // On a first screen with nothing to scroll — the shape this exists for —
+      // the pane reports no scroll at all: the offset never moves, so neither
+      // the scroll-driven reading of intent nor any comparison of offsets can
+      // see the gesture. The wheel is the whole evidence, and waiting for a
+      // scroll that a pane with no scrollbar will never raise would leave the
+      // intent on "follow" across the prepend and across the restore that
+      // follows it.
+      if (event.deltaY < 0 && isOverPane(event) && hasMoreMessages && !allMessagesLoadedRef.current) {
+        setIsUserScrolledUp(true);
+      }
+    };
+    const onTouch = () => noteInput();
     // A scrollbar drag is a gesture with no wheel and no key behind it: the
     // pointer press is the only evidence there is, and the scroll events that
     // follow it are what carry the intent.
-    const onPointerDown = () => noteUserScrollInput();
+    const onPointerDown = () => noteInput();
     const onKeyDown = (event: KeyboardEvent) => {
-      if (SCROLL_INTENT_KEYS.has(event.key)) noteUserScrollInput();
+      if (SCROLL_INTENT_KEYS.has(event.key)) noteInput();
     };
 
     window.addEventListener('scroll', onScroll, true);
@@ -712,7 +775,7 @@ export function useChatSessionState({
       }
       userScrollGestureRef.current = false;
     };
-  }, [isNearBottom, noteUserScrollInput]);
+  }, [hasMoreMessages, isNearBottom, noteUserScrollInput]);
 
   const loadOlderMessages = useCallback(
     async (container: HTMLDivElement) => {
@@ -833,14 +896,19 @@ export function useChatSessionState({
     const container = scrollContainerRef.current;
     if (pendingScrollRestoreRef.current) {
       const { height, top, anchor, anchorOffset } = pendingScrollRestoreRef.current;
+      // A restore is the app placing the viewport, and where it lands says
+      // nothing about who wants it there: the pane it was captured from was not
+      // scrollable, so the clamp above puts the offset on the bottom — the same
+      // place a user who scrolled there sits. `writeScrollTop` keeps the echo
+      // this raises from being read as that user.
       if (anchor?.isConnected && anchorOffset !== null) {
         const nextAnchorOffset = (
           anchor.getBoundingClientRect().top
           - container.getBoundingClientRect().top
         );
-        container.scrollTop += nextAnchorOffset - anchorOffset;
+        writeScrollTop(container, container.scrollTop + (nextAnchorOffset - anchorOffset));
       } else {
-        container.scrollTop = top + Math.max(container.scrollHeight - height, 0);
+        writeScrollTop(container, top + Math.max(container.scrollHeight - height, 0));
       }
       pendingScrollRestoreRef.current = null;
       return;
@@ -851,7 +919,7 @@ export function useChatSessionState({
         ? scrollPositionRef.current.top
         : container.scrollHeight;
     }
-  }, [chatMessages.length, isActive, isUserScrolledUp]);
+  }, [chatMessages.length, isActive, isUserScrolledUp, writeScrollTop]);
 
   // Reset scroll/pagination state on session change
   useEffect(() => {
@@ -904,7 +972,7 @@ export function useChatSessionState({
 
     const tick = () => {
       if (!pendingInitialScrollRef.current || !scrollContainerRef.current) return;
-      container.scrollTop = container.scrollHeight;
+      writeScrollTop(container, container.scrollHeight);
       if (container.scrollHeight === lastHeight) {
         stableCount++;
       } else {
@@ -922,7 +990,7 @@ export function useChatSessionState({
     return () => {
       if (rafId) cancelAnimationFrame(rafId);
     };
-  }, [chatMessages.length, isActive, isLoadingSessionMessages, scrollToBottom]);
+  }, [chatMessages.length, isActive, isLoadingSessionMessages, scrollToBottom, writeScrollTop]);
 
   // Session replay/subscription remains active regardless of which main tab is
   // visible. Only persisted-history HTTP traffic is visibility-gated below.

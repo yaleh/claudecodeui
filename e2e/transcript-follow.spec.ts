@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 
 import { expect, test } from '@playwright/test';
@@ -350,6 +351,181 @@ const replaceLastAssistantSegment = (page: Page, height: number) =>
 
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+/**
+ * AC-110's viewport: wide enough to lay the transcript out as a desktop chat, and
+ * tall enough that the seeded transcript's first page has no scrollbar at all.
+ *
+ * The height is the fixture, not a convenience. The pane counts `scrollTop < 100`
+ * as "the user is at the top", and on this transcript `scrollTop` starts at 0 and
+ * cannot move: the content is shorter than the pane, so no wheel can raise a
+ * scroll. The gesture is therefore invisible to anything that reads offsets, and
+ * the only evidence it happened is the wheel itself.
+ */
+const AC110_VIEWPORT = { width: 1440, height: 6000 };
+/** Rows the first page holds; SESSION_MESSAGES_PAGE_SIZE's own value. */
+const AC110_FIRST_PAGE_ROWS = 20;
+/** How long the window under test stays open, in milliseconds. */
+const AC110_SAMPLE_WINDOW_MS = 2_000;
+/** How long the sample waits for a resize that never comes before reading anyway. */
+const AC110_SAMPLE_FALLBACK_MS = 120;
+/** The anchored row's offset may move by at most this, in CSS pixels. */
+const AC110_DRIFT_PX = 2;
+/** The content column: the pane's last child, the box whose growth the follow watches. */
+const CONTENT_COLUMN = `${PANE} > div:last-child`;
+
+/**
+ * When the seeded transcript's own turns stop, in epoch milliseconds.
+ *
+ * playwright.config.ts stamps the seeded turns forward from the run's boot, one a
+ * minute, so a message the app stamps with `Date.now()` while this case runs would
+ * sort *into* the middle of the transcript — computeMerged interleaves server and
+ * realtime messages by timestamp. The growth this case measures has to land below
+ * the row the restore anchored to: a row inserted above it moves that row through
+ * the browser's own scroll anchoring, which is a different mechanism from the one
+ * being discriminated. Read from the seeded file rather than assumed, so the clock
+ * and the fixture cannot drift apart.
+ */
+const seededTranscriptEndsAt = () => {
+  const file = path.join(
+    process.env.QUAY_E2E_DATA_DIR!,
+    '.claude',
+    'projects',
+    'transcript-follow-workspace',
+    `${SESSION_ID}.jsonl`,
+  );
+  const records = fs.readFileSync(file, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+  return Math.max(...records.map((record) => Date.parse(record.timestamp)).filter(Number.isFinite));
+};
+
+type PaneFixture = {
+  scrollHeight: number;
+  clientHeight: number;
+  scrollTop: number;
+  gap: number;
+  /** How many message rows are on screen. */
+  rows: number;
+  /** The first row's own timestamp, which is how the row is found again later. */
+  firstStamp: string | null;
+  /** True while the pane still offers an older page. */
+  hasMore: boolean;
+};
+
+/**
+ * Reads the pane's fixture state: geometry, row count, the first row's identity,
+ * and whether the transcript has an older page left.
+ *
+ * The rows are the outermost elements carrying a timestamp — the lazy row wrapper —
+ * so a row is one element here whether or not its content is mounted. The pagination
+ * banner is matched on the string the app renders rather than on a class, and it is
+ * the same string the criterion's precondition names.
+ */
+const readFixture = (page: Page) =>
+  page.evaluate(() => {
+    const pane = document.querySelector('.chat-messages-pane') as HTMLElement;
+    const rows = (Array.from(pane.querySelectorAll('[data-message-timestamp]')) as HTMLElement[])
+      .filter((row) => !row.parentElement?.closest('[data-message-timestamp]'));
+    return {
+      scrollHeight: pane.scrollHeight,
+      clientHeight: pane.clientHeight,
+      scrollTop: pane.scrollTop,
+      gap: pane.scrollHeight - pane.scrollTop - pane.clientHeight,
+      rows: pane.querySelectorAll('.chat-message').length,
+      firstStamp: rows[0]?.getAttribute('data-message-timestamp') ?? null,
+      hasMore: (pane.textContent ?? '').includes('Scroll up to load more'),
+    };
+  });
+
+/** Wheels up over the pane until the transcript has prepended an older page. */
+const wheelUntilPrepended = async (page: Page, originalFirst: string, previousRows: number) => {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    await page.mouse.wheel(0, -WHEEL_STEP_PX);
+    await waitForSettledPane(page);
+    const fixture = await readFixture(page);
+    if (fixture.rows > previousRows && fixture.firstStamp !== originalFirst) {
+      return fixture;
+    }
+  }
+  throw new Error('the wheel over the pane never made the transcript prepend an older page');
+};
+
+/** The offset of a row's top from the pane's top, in CSS pixels — the row's place in the viewport. */
+const readRowOffset = (page: Page, stamp: string) =>
+  page.evaluate((target) => {
+    const pane = document.querySelector('.chat-messages-pane') as HTMLElement;
+    const row = (Array.from(pane.querySelectorAll('[data-message-timestamp]')) as HTMLElement[])
+      .find((node) => node.getAttribute('data-message-timestamp') === target);
+    return row ? row.getBoundingClientRect().top - pane.getBoundingClientRect().top : null;
+  }, stamp);
+
+type AnchorSample = { offset: number | null; scrollTop: number; gap: number };
+
+/**
+ * Samples the anchored row's offset, the offset and the gap on the far side of
+ * layout and of the ResizeObserver callbacks a growth raises.
+ *
+ * The observer is created here and observes the content column, so it is called
+ * after the app's own and the follow has already written by the time this one is
+ * notified; the frame and the timeout after it put the read after that frame's
+ * rendering steps. Reading scrollHeight in the same evaluation that grew the box
+ * would report a layout nobody ever saw. A fallback keeps a quiet window — the
+ * samples after the growth, when nothing resizes — from reading as a hang.
+ */
+const sampleAnchor = (page: Page, stamp: string) =>
+  page.evaluate(
+    ({ target, fallbackMs }) => new Promise<AnchorSample>((resolve) => {
+      const pane = document.querySelector('.chat-messages-pane') as HTMLElement;
+      const content = document.querySelector('.chat-messages-pane > div:last-child');
+      let settled = false;
+      const read = () => {
+        if (settled) return;
+        settled = true;
+        const row = (Array.from(pane.querySelectorAll('[data-message-timestamp]')) as HTMLElement[])
+          .find((node) => node.getAttribute('data-message-timestamp') === target);
+        resolve({
+          offset: row ? row.getBoundingClientRect().top - pane.getBoundingClientRect().top : null,
+          scrollTop: pane.scrollTop,
+          gap: pane.scrollHeight - pane.scrollTop - pane.clientHeight,
+        });
+      };
+      const afterLayout = () => requestAnimationFrame(() => setTimeout(read, 0));
+      const observer = new ResizeObserver(() => {
+        observer.disconnect();
+        afterLayout();
+      });
+      if (content) observer.observe(content);
+      setTimeout(() => {
+        observer.disconnect();
+        afterLayout();
+      }, fallbackMs);
+    }),
+    { target: stamp, fallbackMs: AC110_SAMPLE_FALLBACK_MS },
+  );
+
+/**
+ * Adds a message row the way a user does — through the composer, as the app really
+ * sends one — and reports whether the transcript grew.
+ *
+ * The row arrives as an ordinary React re-render of a real store change: no store
+ * write from the spec, no DOM edit of ours, no style of ours. The suggestion menu
+ * swallows Enter, so it is dismissed first; that is the composer's own behaviour,
+ * not something this case is about.
+ */
+const appendRowThroughComposer = async (page: Page) => {
+  const before = await page.locator(`${PANE} .chat-message`).count();
+  const composer = page.locator('textarea').first();
+  await composer.click();
+  await composer.fill('/memory');
+  await composer.press('Escape');
+  await composer.press('Enter');
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    if ((await page.locator(`${PANE} .chat-message`).count()) > before) {
+      return true;
+    }
+    await page.waitForTimeout(100);
+  }
+  return false;
+};
+
 test.describe.configure({ mode: 'serial', timeout: 180_000 });
 
 test.describe('transcript follow in a real browser', () => {
@@ -582,5 +758,162 @@ test.describe('transcript follow in a real browser', () => {
       gapAfterGrowthPx: afterGrowth.gap,
       gapAfterShrinkPx: afterShrink.gap,
     })}`);
+  });
+
+  // AC-110: a prepend the user's wheel asked for must not be handed back to the follow by the restore
+  // that prepend itself ends with.
+  //
+  // The state this case is built on is a first screen with nothing to scroll. The restore a prepend runs
+  // is `scrollTop += nextAnchorOffset - anchorOffset`, and a pane that had no scrollable height cannot
+  // keep the anchor's offset: the browser clamps the write to the bottom — exactly where a user who
+  // scrolled there sits. So where the restore *lands* says nothing about who wants the viewport there, and
+  // anything that reads the offset (or the `scroll` report the write raises) reads the app's own write as
+  // the user's intent. The only thing that can still tell the two apart is what the next growth does: a
+  // follow moves the viewport for it, a transcript the user took over does not.
+  //
+  // (The clamp is not the defect and is not what this case asserts against — the restore is necessarily at
+  // the bottom here. What is asserted is that a gesture the pane could not report still leaves the
+  // viewport the user's.)
+  test('AC-110 a prepend the wheel asked for stays the user\'s across the restore that lands at the bottom', async () => {
+    // ── the fixture: the seeded transcript's first page, at a viewport tall enough to leave nothing to scroll ──
+    await page.setViewportSize(AC110_VIEWPORT);
+    // The app's clock is moved past the transcript's last turn so a row it adds now sorts *after* the
+    // seeded ones. It is still running — this fixes the wall clock, not the timers the app waits on.
+    await page.clock.setFixedTime(new Date(seededTranscriptEndsAt() + 3_600_000));
+    await page.goto('/');
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      if (await sessionLink().isVisible().catch(() => false)) {
+        break;
+      }
+      await projectRow().click();
+      try {
+        await expect(sessionLink()).toBeVisible({ timeout: 10_000 });
+        break;
+      } catch {
+        // Collapsed again (or the click missed); the loop clicks once more.
+      }
+    }
+    await sessionLink().click();
+    await expect(page).toHaveURL(new RegExp(`/session/${SESSION_ID}$`));
+    await expect(page.locator(`${PANE} .chat-message`).first()).toBeVisible({ timeout: 30_000 });
+    await waitForSettledPane(page);
+    await pointAtPane();
+
+    const fixture = await readFixture(page);
+    expect(
+      fixture.scrollHeight,
+      `the first screen has to leave nothing to scroll, or the gesture would be reported by the pane itself (${fixture.scrollHeight} > ${fixture.clientHeight})`,
+    ).toBeLessThanOrEqual(fixture.clientHeight);
+    expect(
+      fixture.rows,
+      'the seeded transcript must open on exactly one page of rows, so the wheel has an older page to ask for',
+    ).toBe(AC110_FIRST_PAGE_ROWS);
+    expect(fixture.hasMore, 'the first page must not be the whole transcript').toBe(true);
+    const originalFirst = fixture.firstStamp;
+    expect(originalFirst, 'the first row must carry a timestamp to be found again by').not.toBeNull();
+
+    // ── the prepend, from a real gesture over the pane and from nothing else ──
+    await clearInstruments(page);
+    const prepended = await wheelUntilPrepended(page, originalFirst!, fixture.rows);
+    expect(
+      prepended.rows,
+      `the older page has to arrive as rows (${fixture.rows} → ${prepended.rows})`,
+    ).toBeGreaterThan(fixture.rows);
+    expect(
+      Date.parse(prepended.firstStamp!),
+      'the rows that arrived must be older than the ones that were there',
+    ).toBeLessThan(Date.parse(originalFirst!));
+    const gestureReadings = await readInstruments(page);
+    expect(
+      gestureReadings.__scrollInputs.some((event) => event.type === 'wheel'),
+      'the prepend must be the wheel\'s doing — the criterion forbids reaching the pagination any other way',
+    ).toBe(true);
+
+    // The restore is a single write, and the settle is what says it has landed;
+    // the offset below is read after it, because it is the offset the window under
+    // test starts from.
+    const restored = await waitForSettledPane(page);
+    const offset0 = await readRowOffset(page, originalFirst!);
+    expect(
+      offset0,
+      'the original first row has to be on screen for the window below to measure its place',
+    ).not.toBeNull();
+    const before = await readGeometry(page);
+    await clearInstruments(page);
+
+    // ── the growth: one real re-render adds a row below the anchored one ──
+    await armLayoutProbe(page, CONTENT_COLUMN);
+    expect(
+      await appendRowThroughComposer(page),
+      'the composer has to be able to add a row, or the window below measures nothing',
+    ).toBe(true);
+    // The probe resolves on the layout the growth caused; the race only keeps a
+    // growth the app refused to render from hanging the case.
+    await Promise.race([awaitLayoutProbe(page), page.waitForTimeout(5_000)]);
+
+    // ── the window: ~2s of samples, each after layout and the observers' callbacks ──
+    const samples: AnchorSample[] = [await sampleAnchor(page, originalFirst!)];
+    const deadline = Date.now() + AC110_SAMPLE_WINDOW_MS;
+    while (Date.now() < deadline) {
+      await page.waitForTimeout(160);
+      samples.push(await sampleAnchor(page, originalFirst!));
+    }
+
+    const offsets = samples.map((sample) => sample.offset);
+    expect(
+      offsets.every((offset) => offset !== null),
+      'the anchored row has to stay in the transcript for the window to be measurable',
+    ).toBe(true);
+    const drift = Math.max(...offsets.map((offset) => Math.abs(offset! - offset0!)));
+    const highest = Math.max(...samples.map((sample) => sample.scrollTop));
+    const smallestGap = Math.min(...samples.map((sample) => sample.gap));
+
+    // The mechanism, read back: the app's own writes are the only thing that could
+    // have moved the offset, and none of them went down.
+    const readings = await readInstruments(page);
+    const downwardWrites = readings.__scrollWrites.filter((write) => write.value > before.scrollTop + 1);
+
+    // The readings, printed before the assertions so a run that fails still
+    // carries the numbers that say which writer moved the viewport, and so the
+    // green run's output is evidence rather than a bare check mark.
+    console.log(`AC-110 readings ${JSON.stringify({
+      viewport: AC110_VIEWPORT,
+      rowsBeforePrepend: fixture.rows,
+      rowsAfterPrepend: prepended.rows,
+      scrollHeightBefore: Math.round(fixture.scrollHeight),
+      scrollHeightAfterPrepend: Math.round(prepended.scrollHeight),
+      paneClientHeight: Math.round(fixture.clientHeight),
+      restoreWrite: gestureReadings.__scrollWrites.map((write) => Math.round(write.value)),
+      gapAfterRestorePx: Math.round(restored.gap),
+      scrollTopAfterRestore: Math.round(restored.scrollTop),
+      offset0Px: Math.round(offset0!),
+      samples: samples.length,
+      offsets,
+      scrollTops: samples.map((sample) => Math.round(sample.scrollTop)),
+      gaps: samples.map((sample) => Math.round(sample.gap)),
+      driftPx: Math.round(drift * 100) / 100,
+      scrollTopRisePx: Math.round((highest - before.scrollTop) * 100) / 100,
+      smallestGapPx: Math.round(smallestGap),
+      scrollWritesInWindow: readings.__scrollWrites.map((write) => Math.round(write.value)),
+      downwardWritesInWindow: downwardWrites.length,
+    })}`);
+
+    expect(
+      drift,
+      `a prepend the user asked for must leave the row where it was: the offset moved ${drift}px over the window (${JSON.stringify(offsets)})`,
+    ).toBeLessThanOrEqual(AC110_DRIFT_PX);
+    expect(
+      highest - before.scrollTop,
+      `the viewport must not be pulled back down by the growth (scrollTop ${before.scrollTop} → ${highest})`,
+    ).toBeLessThanOrEqual(1);
+    expect(
+      smallestGap,
+      `the transcript must stay off the bottom, where the restore left it on its own (smallest gap ${smallestGap}px)`,
+    ).toBeGreaterThan(2);
+
+    expect(
+      downwardWrites,
+      `nothing may write the offset towards the bottom in the window (${JSON.stringify(downwardWrites)})`,
+    ).toEqual([]);
   });
 });
