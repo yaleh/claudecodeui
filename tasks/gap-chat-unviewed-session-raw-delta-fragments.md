@@ -42,11 +42,11 @@ extra:
 
 ## AC
 
-- [ ] AC1 `stream_delta` 分支不再以原始帧入库：`awk "/if \(msg\.kind === 'stream_delta'\)/,/if \(msg\.kind === 'stream_end'\)/" src/modules/chat/hooks/useChatRealtimeHandlers.ts | grep -c "appendRealtime"` 输出 **0**（实测修复前为 1，即缺陷本身）；且 `npm run typecheck` 退出码 0。
-- [ ] AC2 新增单测被 scoped gate 选中且全绿：`bash scripts/test.sh --for-task gap-chat-unviewed-session-raw-delta-fragments --allow-thin` 退出码 0，输出中含新测试文件名（证明它被发现并被真跑，而不是被 thin 跳过）；完成记录贴出直接运行该文件的命令、退出码与断言条数。
-- [ ] AC3 用例覆盖三件事，每件一个独立断言且可分别反红：(a) 两个会话同时流式时，**非当前**会话的 N 个增量在 store 里只产生**一个**流式行；(b) 该行的文本等于各增量按序拼接；(c) 后到的第二个会话的增量不会污染第一个会话的行（按 sessionId 分桶的不变量，而非"调用了哪个函数"）。
-- [ ] AC4 抗假变体：把非当前会话的路径改回"每条增量各 append 一次" ⇒ AC2 的用例必红；还原后 `git diff -- src/modules/chat` 为空。
-- [ ] AC5 `npm run lint`（= `oxlint src/ server/`）退出码 0（新测试经模块 barrel 导入，boundaries / unused 规则不红）。
+- [x] AC1 `stream_delta` 分支不再以原始帧入库：`awk "/if \(msg\.kind === 'stream_delta'\)/,/if \(msg\.kind === 'stream_end'\)/" src/modules/chat/hooks/useChatRealtimeHandlers.ts | grep -c "appendRealtime"` 输出 **0**（实测修复前为 1，即缺陷本身）；且 `npm run typecheck` 退出码 0。
+- [x] AC2 新增单测被 scoped gate 选中且全绿：`bash scripts/test.sh --for-task gap-chat-unviewed-session-raw-delta-fragments --allow-thin` 退出码 0，输出中含新测试文件名（证明它被发现并被真跑，而不是被 thin 跳过）；完成记录贴出直接运行该文件的命令、退出码与断言条数。
+- [x] AC3 用例覆盖三件事，每件一个独立断言且可分别反红：(a) 两个会话同时流式时，**非当前**会话的 N 个增量在 store 里只产生**一个**流式行；(b) 该行的文本等于各增量按序拼接；(c) 后到的第二个会话的增量不会污染第一个会话的行（按 sessionId 分桶的不变量，而非"调用了哪个函数"）。
+- [x] AC4 抗假变体：把非当前会话的路径改回"每条增量各 append 一次" ⇒ AC2 的用例必红；还原后 `git diff -- src/modules/chat` 为空。
+- [x] AC5 `npm run lint`（= `oxlint src/ server/`）退出码 0（新测试经模块 barrel 导入，boundaries / unused 规则不红）。
 
 ## DoD
 
@@ -61,3 +61,26 @@ L_D 该轴仍暗，理由：本条修的是客户端 realtime 行的累积与身
 - src/modules/chat/hooks/useChatMessages.ts
 - src/modules/chat/tests/unviewedSessionStreamAccumulation.test.tsx (new)
 - tasks/gap-chat-unviewed-session-raw-delta-fragments.md
+
+<!-- evidence -->
+**证据（全部真跑；读数取自本任务 worktree `/data/home/yale/work/claudecodeui/.claude/worktrees/gap-chat-unviewed-session-raw-delta-fragments`；实现提交 `411d903e`，merge develop 后 `1e580068`）。**
+
+**AC1。** `awk "/if \(msg\.kind === 'stream_delta'\)/,/if \(msg\.kind === 'stream_end'\)/" src/modules/chat/hooks/useChatRealtimeHandlers.ts | grep -c "appendRealtime"` → **0**（修复前 1，即缺陷本身）。该 awk 区间现在 8 行，全部是累积路径：`const text = (msg.content as string) || '';` / `if (!text || !sid) return;` / `accumulateStreamDelta(sid, text);` / `return;` + `stream_end` → `settleStream(sid)`。`npm run typecheck` EXIT=0（merge develop 之后复跑，见 AC5 段）。
+
+**AC2。** scoped gate 直接跑：`bash scripts/test.sh --for-task gap-chat-unviewed-session-raw-delta-fragments --allow-thin` → **EXIT=0**；输出含新测试文件名与逐文件判决 `__PERFILE__ duration_ms=13 src/modules/chat/tests/unviewedSessionStreamAccumulation.test.tsx passed=true`（即它被 `## Touches` 选中并真跑，而非被 thin 跳过），并 `# tests 1 / # pass 1 / # fail 0 / # cancelled 0`、`suite-scope-check: PASS`。直接跑该文件：`npx vitest run src/modules/chat/tests/unviewedSessionStreamAccumulation.test.tsx` → **EXIT=0 / `Test Files 1 passed (1)` / `Tests 3 passed (3)`**；文件内断言条数 **12**（`grep -c "assert\." ` = 12，3 个用例分摊）。
+
+**AC3。** 三个用例各自独立可反红，用三种互不相同的假实现分别验过（每次先 `cp /tmp/quay-gap-chat-unviewed-212116/hook.bak` 还原再打下一个变体）：(a) 把非当前会话的路径改回「每条增量各 `appendRealtime` 一次」⇒ 三个用例全红（行数断言先红）；(b) 把累积写成 `accumulated = text`（只留最后一帧）⇒ **只有**「行文本 = 各增量按序拼接」那类断言红，行数断言仍过；(c) 把按 sessionId 分桶换成单个共享缓冲 ⇒ **只有**第三个用例（两会话同时流式）红，前两个仍过。即 (b) 与 (c) 各自被一条不同的断言独立抓住，而不是被同一处红掩盖。
+
+**AC4。** 变体跑完后 `git checkout --` / `cp` 还原，`git diff -- src/modules/chat` **无输出**，同一用例随即复绿（`Tests 3 passed (3)`，EXIT=0）。
+
+**AC5。** `npm run lint`（= `oxlint src/ server/`）**EXIT=0**；诊断全部是 pre-existing warning（`react(set-state-in-effect)` 等，行号在本文件里从 81/83 平移到 91/93），0 error，新测试文件 0 诊断。前端标准的其余验证项：`npm run typecheck` EXIT=0、`npm run build:client` EXIT=0、`npm run test:client` **82 files / 566 tests passed**（EXIT=0）。
+
+**DoD（真实浏览器，一次复现 + 变体对照）。** 探针为一次性 `e2e/tmp-unviewed-fragments.spec.ts`，用与 `e2e/transcript-follow.spec.ts` 同一套 in-page WebSocket 替身把 25 个 `stream_delta` + 1 个 `stream_end` 交给应用自己的 socket；页面停在应用自建的空会话 A，整个投递与导航期间**不刷新页面**（窗口上的存活标记 `__probeAlive` 在两处读数里都仍是 `'kept'`，读数后 `page.goto` 整页 reload 才变 false）——刷新会重建 store 把缺陷洗掉，故切回 B 走的是侧栏链接（`a[href^="/session/"]`）这一客户端侧导航。B = 播种的 `e2e-transcript-follow`（24 条服务端消息，pane 真的分页）。播种 transcript 的时间戳是从启动往前每分钟一条（24 条 ⇒ 最后一条在启动 +23min），而 live 行的时间戳由 store 现取，会被排进这段 transcript 中部（那里 LazyMessageRow 不挂载、pane 的窗口也够不到），因此浏览器时钟先 `page.clock.setFixedTime(+60min)` —— 只冻结 `Date`，应用的定时器（含 100ms 合流）照常跑，两种实现都因此把 live 行排到会话末尾，读数才可比。
+
+修好的版本，切回 B 后（`survivedWithoutReload=true`）：**碎片行数 0**、**该段占用的行数 1**（挂载行里最后一行文本以 `Δ00 The transcript pane keeps the newest…` 开头，25 个 token 在同一行内）、**header 文本 `Showing 21 of 24 messages Scroll up to load more`**（21 = 20 条服务端 + 这 1 行 live 行；**未出现 shown > total**）。整页 reload 后同一组：碎片行数 0、该段占用 0 行（这段文字只活在客户端内存、从未落盘，故 reload 后自然不在）、header `Showing 20 of 24 messages` —— **缺陷签名（碎片行 > 0、shown > total）两侧都不存在**，即 reload 之前的那个状态本身就已经是干净状态，不是靠刷新兜底。
+
+变体对照（把非当前会话的路径改回「每条增量各 `appendRealtime` 一次」，其余不动，同一探针同一夹具）：`fragmentRows: 25`、`passageRows: 25`（`rowTexts` 逐行 `Δ16/Δ17/…/Δ24` 各一行）、header **`Showing 45 of 24 messages`** —— shown(45) > total(24)，与本任务 Proposal 记录的线上形态（`Showing 400 of 132 messages`、13 行逐 token 碎片）同形。变体随即还原（`git diff -- src/modules/chat` 无输出），同一次读数再跑一遍复绿。探针本身已删除，`e2e/tmp-unviewed-fragments.spec.ts` 不在 diff 里（最终 `git status --porcelain` 为空）。
+
+**收尾（本工作流要求的机械步骤）。** `git merge --no-edit develop` 无冲突（merge `1e580068`，parents `411d903e` / `0c543a48`）；merge 之后重跑 scoped gate 仍 EXIT=0（上引读数即 merge 后那一轮）；`worker-driver.js --write-scoped-gate-cache --task gap-chat-unviewed-session-raw-delta-fragments --develop-sha 0c543a48eb06557cb02ba4df1c07045e072d86eb --root /data/home/yale/work/claudecodeui` 回报 `{"event":"scoped-gate-cache-written", … "cacheFile":"/data/home/yale/work/claudecodeui/.quay/scoped-gate-cache.json"}`。
+
+**未关闭（如实登记）。** 本任务只修「非当前查看会话的原始增量帧被逐 token 落行」这一环；`useChatMessages.ts` 的 `case 'stream_delta'` 仍然会把任意 `stream_delta` 画成一行，即渲染端对「非本客户端铸造的 live 行」没有防线（本任务选择的方案是堵源头，未采纳该文件的兜底改法，故 `useChatMessages.ts` 与 `useSessionStore.ts` 虽在 `## Touches` 内却零改动）。另外，两次 DoD 读数都依赖 `page.clock.setFixedTime` 这一测量夹具，而非被测代码。
