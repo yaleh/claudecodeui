@@ -1,7 +1,7 @@
 ---
 id: gap-voice-trim-module
 title: 纯 DSP 静音裁剪模块（src/shared/voiceTrim.ts）
-status: ready
+status: done
 labels:
   - gap
 parent: null
