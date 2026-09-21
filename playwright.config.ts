@@ -66,6 +66,56 @@ if (chosePorts) {
   console.log(`[e2e] server=${serverPort} client=${clientPort}`);
 }
 
+/**
+ * Reports which of `ports` cannot be bound right now. Runs in a child process for the same reason
+ * `freePortPair` does: `listen` is asynchronous and this file is evaluated synchronously.
+ */
+const findTakenPorts = (ports: number[]): number[] => {
+  const stdout = execFileSync(
+    process.execPath,
+    [
+      '-e',
+      `const net = require('node:net');
+const probe = (port) => new Promise((resolve) => {
+  const server = net.createServer();
+  server.once('error', () => resolve(port));
+  server.listen(port, '127.0.0.1', () => server.close(() => resolve(0)));
+});
+(async () => {
+  const taken = (await Promise.all([${ports.join(', ')}].map(probe))).filter(Boolean);
+  process.stdout.write(taken.join(' '));
+})().catch((error) => { console.error(error.message); process.exit(1); });`,
+    ],
+    { encoding: 'utf8' },
+  );
+  return stdout.trim().split(/\s+/).filter(Boolean).map(Number);
+};
+
+/**
+ * Refuses to hand Playwright ports this run cannot bind, before it is given them.
+ *
+ * Playwright asks each webServer URL whether something is already serving it *before* it spawns the command,
+ * and that probe has no deadline and no timeout of its own: a listener that accepts the connection but never
+ * answers makes the check wait forever. The run then never reaches `webServer.timeout` below, never exits, and
+ * a watchdog that caps the criterion at 60s kills it as an unattributable timeout — leaving the servers it did
+ * start holding their ports into the next run. Binding each port once here turns the same condition into an
+ * immediate failure that names the port, which is what a red run has to say to be actionable.
+ *
+ * Only the process that is about to start the servers probes. Workers re-evaluate this file long after both
+ * are listening, so a probe there would report the run's own servers as the conflict; the flag rides the same
+ * environment channel as `dataDir` and the port pair, which workers are already known to inherit.
+ */
+if (process.env.QUAY_E2E_PORTS_VERIFIED === undefined) {
+  const taken = findTakenPorts([serverPort, clientPort]);
+  if (taken.length > 0) {
+    throw new Error(
+      `e2e port(s) ${taken.join(', ')} are already in use by another process, so this run's servers cannot bind them. `
+        + 'Failing now, naming the port, rather than waiting on a health check that has no deadline.',
+    );
+  }
+  process.env.QUAY_E2E_PORTS_VERIFIED = '1';
+}
+
 /** Workspace e2e/session-filter.spec.ts creates its project in; its own directory so no other spec picks these sessions up. */
 const SESSION_FILTER_WORKSPACE = path.join(dataDir, 'session-filter-workspace');
 /** Names the filter spec's rule is written against — it re-declares them, and failing to see all of them is how a drift shows up. */
@@ -205,12 +255,16 @@ export default defineConfig({
     browserName: 'chromium',
     trace: 'retain-on-failure',
   },
+  // Both ceilings are deliberately under the 60s a criterion may take: the goal gate that runs this command
+  // kills it at 60s, and a run killed from outside reports nothing about why. A server that is spawned but
+  // never answers therefore has to be given up on here, where the failure is still this run's to explain.
+  // Boot costs ~8s on a loaded machine, so 30s is ~3x the observed worst case rather than a tight fit.
   webServer: [
     {
       command: 'npx tsx --tsconfig server/tsconfig.json server/index.ts',
       url: `http://127.0.0.1:${serverPort}/health`,
       reuseExistingServer: false,
-      timeout: 120_000,
+      timeout: 30_000,
       env: {
         SERVER_PORT: String(serverPort),
         HOST: '127.0.0.1',
@@ -219,10 +273,13 @@ export default defineConfig({
       },
     },
     {
-      command: 'npx vite --host 127.0.0.1',
+      // `--strictPort`: without it vite treats a taken port as a hint and silently serves on the next free one,
+      // so the url checked below — the port the browser is sent to — would never answer and the run would sit
+      // here until the ceiling instead of reporting the port. Strict, it fails at once and says which port.
+      command: 'npx vite --host 127.0.0.1 --strictPort',
       url: `http://127.0.0.1:${clientPort}`,
       reuseExistingServer: false,
-      timeout: 120_000,
+      timeout: 30_000,
       env: {
         SERVER_PORT: String(serverPort),
         VITE_PORT: String(clientPort),
