@@ -32,13 +32,13 @@ goal_ac: AC-121
 
 ## AC
 
-- [ ] `npx playwright test e2e/voice-trim.spec.ts -g "AC-121"` 退出码 0
-- [ ] 开关关闭：一次完整录音→转写→填回全程 0 条 `[voice:trim]` 消息
-- [ ] 开关打开：每次录音或上传恰好一条 `[voice:trim]` 消息
-- [ ] 打开时字段齐备：source / inputSec / outputSec / savedSec / savedRatio / vadSegments / speechKeptRatio / fallback / identifiers.before.rate / identifiers.after.rate / repairHits
-- [ ] URL 参数命中后写回 localStorage（刷新或 SPA 切换后仍开）有断言
-- [ ] 既有 `[voice] identifier fidelity` 读数仍无条件打印
-- [ ] `npm run lint` 与 `npm run typecheck` 退出码 0
+- [x] `npx playwright test e2e/voice-trim.spec.ts -g "AC-121"` 退出码 0
+- [x] 开关关闭：一次完整录音→转写→填回全程 0 条 `[voice:trim]` 消息
+- [x] 开关打开：每次录音或上传恰好一条 `[voice:trim]` 消息
+- [x] 打开时字段齐备：source / inputSec / outputSec / savedSec / savedRatio / vadSegments / speechKeptRatio / fallback / identifiers.before.rate / identifiers.after.rate / repairHits
+- [x] URL 参数命中后写回 localStorage（刷新或 SPA 切换后仍开）有断言
+- [x] 既有 `[voice] identifier fidelity` 读数仍无条件打印
+- [x] `npm run lint` 与 `npm run typecheck` 退出码 0
 
 ## DoD
 
