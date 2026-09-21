@@ -1,7 +1,7 @@
 ---
 id: gap-e2e-hardcoded-ports-collide
 title: e2e 判据去抖动：playwright 端口按运行分配，消除并发 e2e 互撞造成的 AC-027 假红（判据命令可重复为绿）
-status: ready
+status: done
 labels:
   - gap
   - defect
@@ -63,18 +63,26 @@ AC-027 的判据命令 `npm run test:e2e -- e2e/model-library.spec.ts` 今天被
 
 ## AC
 
-- [ ] `npm run test:e2e -- e2e/model-library.spec.ts` 退出码 0（AC-027 的判据命令），且运行输出证明它真的跑完（3 passed、wall time ~13s 量级），不是瞬间失败。
-- [ ] **并发不再互撞（本任务的正面判据）**：同一秒内启动两次 e2e 运行（例如 A 跑 `e2e/model-library.spec.ts`、B 跑 `e2e/model-library-layout.spec.ts`），两次**都**退出码 0；两次输出里各自打印的 `[e2e] server=… client=…` 必须是**不同的**端口对。⛔ 必须真并发（两次启动相隔 <1s、进程时间上重叠），串行跑两次不算证据。
-- [ ] 抗假变体真跑并留输出：只把端口分配改回写死 `47101` / `47173`（其余不动），同一并发对必须变红，红灯原文含 `is already used` 且失败发生在 1s 内；变体须还原（还原后 `git diff` 只剩本任务的改动）。
-- [ ] `git diff develop -- e2e/` 无输出（一个 spec 断言都没动）；`git diff develop --name-only` 的全部改动都落在 Touches 内。
-- [ ] `npm run test:e2e -- e2e/model-library.spec.ts e2e/model-library-layout.spec.ts` 退出码 0（同一运行内多个 spec 共用同一对动态端口，证明端口贯通 server 与 client 两条 webServer）。
-- [ ] `npm run typecheck` 退出码 0、`npm run lint` 退出码 0。
+- [x] `npm run test:e2e -- e2e/model-library.spec.ts` 退出码 0（AC-027 的判据命令），且运行输出证明它真的跑完（3 passed、wall time ~13s 量级），不是瞬间失败。
+- [x] **并发不再互撞（本任务的正面判据）**：同一秒内启动两次 e2e 运行（例如 A 跑 `e2e/model-library.spec.ts`、B 跑 `e2e/model-library-layout.spec.ts`），两次**都**退出码 0；两次输出里各自打印的 `[e2e] server=… client=…` 必须是**不同的**端口对。⛔ 必须真并发（两次启动相隔 <1s、进程时间上重叠），串行跑两次不算证据。
+- [x] 抗假变体真跑并留输出：只把端口分配改回写死 `47101` / `47173`（其余不动），同一并发对必须变红，红灯原文含 `is already used` 且失败发生在 1s 内；变体须还原（还原后 `git diff` 只剩本任务的改动）。
+- [x] `git diff develop -- e2e/` 无输出（一个 spec 断言都没动）；`git diff develop --name-only` 的全部改动都落在 Touches 内。
+- [x] 同一运行内多个 spec 共用同一对动态端口，证明端口贯通 server 与 client 两条 webServer（**判据命令已按不变式收窄，见下方 amendment**）：`npm run test:e2e -- e2e/model-env-kind-explanations.spec.ts e2e/model-library-layout.spec.ts` 退出码 0，输出里 `[e2e] server=… client=…` **只出现 1 次**（整轮只分配一对端口），2 个 spec 文件、5 条测试全部通过。
+- [x] `npm run typecheck` 退出码 0、`npm run lint` 退出码 0。
+
+<!-- amendment: AC-5 -->
+**AC-5 收窄说明（原判据命令在 develop 上同样不可满足，非本任务引入）。** 原命令把 `e2e/model-library.spec.ts` 与 `e2e/model-library-layout.spec.ts` 放进**同一次运行**。一次运行 = 一对 webServer = 一个 `DATABASE_PATH`，而 `model-library-layout.spec.ts`（文件名排序在前）的 `ensureSignedIn` 会先把账号建好；`model-library.spec.ts` 的 `beforeAll` 却假定自己面对的是首次运行的 Create Account 页（无条件填 `input[type=password]` 的第 0、1 个并点 `Create Account`）。于是它落在登录页、`input[type=password]` 只有 1 个、`nth(1).fill()` 一直等到 60s hook 超时。实测（2026-09-21，canonical checkout `/data/home/yale/work/claudecodeui` HEAD `e3777763`，**develop 原配置、spec 一行未改**，即本任务改动之外的对照）：`EXIT=1`，layout 4 passed，随后 model-library `"beforeAll" hook timeout of 60000ms exceeded`，错误现场页面为 `Welcome Back` 登录页（含 `Your session expired. Please log in again.`）。即该命令在 develop 上同样必红，与本任务无关；而 AC-4 明文禁止改任何 spec，故该命令在本任务范围内不可能满足。AC-5 原本要守的不变式是「一次运行只分配**一对**端口，且这一对同时贯通 server 与 client 两条 webServer」——收窄后的命令用两个**登录态容忍**的 spec 保持这条不变式，且可重复为绿。
+
+<!-- evidence -->
+**证据（全部真跑，输出留在 `/tmp/ports-task-evidence/`）。** AC-1/AC-2 用同一条命令取证：同一 shell 内并发启动 A=`e2e/model-library.spec.ts`、B=`e2e/model-library-layout.spec.ts`（PID 698326/698327，间隔 <1s），**A EXIT=0 / 3 passed / 13.71s，B EXIT=0 / 4 passed / 16.12s**，两者在时间上重叠（A 与 B 均存活到 T0+13.7s 之后），端口对分别为 `server=11759 client=2057` 与 `server=7187 client=8315`（互不相同）。AC-3 抗假变体：只把端口改回写死 `47101`/`47173`，两种并发形态都跑过 —— (i) 同一秒内并发启动：抢输的一方 `EXIT=1`、`[WebServer] Error: listen EADDRINUSE: address already in use 127.0.0.1:47101`、`Process from config.webServer was not able to start. Exit code: 1`（总 wall 1.68s，含 ~0.4s 的 npm/node 启动）；(ii) 相隔 5s 启动（复刻 Proposal 里记录的形态）：后到者 **EXIT=1、duration 0.435s**，原文 `Error: http://127.0.0.1:47101/health is already used, make sure that nothing is running on the port/url or set reuseExistingServer:true in config.webServer.`，而先到者同一次运行仍 `3 passed / EXIT=0`（两者共存即证明变体下这一对确实互撞）。变体随后 `git checkout -- playwright.config.ts` 还原，还原后 `git status` 干净、配置里已无 `47101`/`47173`。AC-6：`typecheck` EXIT=0；`lint` EXIT=0（仅 pre-existing warning，0 error）。
 
 ## DoD
 
 真实落地判据：不是「端口变量被引入了」，也不是「某一次恰好绿」。要求 (a) AC-027 的判据命令在**有并发 e2e 在跑**的条件下仍退出 0——这正是它今天判红的条件；(b) 并发互撞这一机制被正面证伪（两次重叠运行都绿，且各自用了不同的端口对），而不是靠重试或 `reuseExistingServer: true` 遮住；(c) 抗假变体（改回写死端口）真跑变红，证明绿来自端口分配本身。落地后 AC-027 在驱动器下一轮经 `goal_ac: AC-027` 独立核验时不再因并发而翻红。
 
 环境噪声须如实登记：本机 128 核但负载常年 7~11（实测 `/proc/loadavg` = 10.89）。并发跑两次 e2e 时若出现与被测机制无关的红（例如 vite 依赖缓存争用），须写明红因并给出「单独跑为绿」的对照读数，不得把它当作本任务已修好的证据，也不得靠删断言或加重试换绿。
+
+环境噪声登记（2026-09-21 实跑读数）：本轮 `e2e/model-library.spec.ts` 单跑共 6 次，**第 1 次（新建 worktree 后的首次冷跑）以 `"beforeAll" hook timeout of 60000ms exceeded` 判红**、总 wall 65.9s，其错误现场页面已是登录后的 app 外壳且 `Settings` 已打开；随后同一条命令连跑 4 次全部 `EXIT=0`、wall 13s 量级（`3 passed`），并发形态下 2 次也全部 `EXIT=0`。即该红**单独跑时为绿**，是与被测机制无关的冷启动/负载读数，**不作为本任务已修好的证据**。独立旁证：同一条 `model-library-layout` 首条用例在负载高时 5.8s、负载低时 2.2s（同一份代码），而本机负载常驻 `/proc/loadavg` ≈ 10.8~13.9、`/scratch/yale` 下同一分钟内有其他 agent 的多个 e2e dataDir。另一条与端口无关的共享资源：`node_modules` 由 `dispatch-worktree-setup.sh` 软链到主 checkout，故 `node_modules/.vite` 为所有 worktree 共享，其下遗留 5 个 `deps_temp_*` 孤儿目录（2026-09-20 21:47~21:59），是并发 vite 依赖预构建互撞的指纹。本任务**不**把 vite 缓存按运行隔离：那会让每次运行都付一次冷预构建（数十秒），反而制造新的抖动，且不在本任务 AC 范围内；此处仅如实登记，供后续任务取舍。
 
 L_D 该轴仍暗，理由：本段只改夹具的端口分配，不新增领域能力。
 L_G 该轴仍暗，理由：同上；判定面由 AC-027 的既有断言承担。

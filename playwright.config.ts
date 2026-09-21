@@ -1,6 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 
 import { defineConfig } from '@playwright/test';
 
@@ -10,8 +11,60 @@ const dataDir = process.env.QUAY_E2E_DATA_DIR ?? fs.mkdtempSync(path.join(os.tmp
 /** True only in the process that created the directory: workers re-evaluate this file with it already set. */
 const isDataDirOwner = !process.env.QUAY_E2E_DATA_DIR;
 process.env.QUAY_E2E_DATA_DIR = dataDir;
-const serverPort = 47101;
-const clientPort = 47173;
+
+/**
+ * Asks the kernel for two free TCP ports, held at the same time so it cannot hand back the same one twice,
+ * and releases them on the way out.
+ *
+ * The ports cannot be literals. A port is a machine-wide resource, not a checkout-wide one: with two fixed
+ * numbers, any second e2e run — another spec in a sibling worktree, another agent, the fleet's own re-runs —
+ * races this one for the same pair, and the loser dies during server boot with "is already used" instead of
+ * reporting anything about the code under test. One kernel-assigned pair per run gives each run its own.
+ *
+ * `listen(0)` is asynchronous and Playwright evaluates this file synchronously, so the lookup runs in a
+ * short-lived child process. Closing before the webServer binds leaves a window that is small and, without
+ * handing Playwright a listening socket it cannot accept, unavoidable.
+ */
+const freePortPair = (): [number, number] => {
+  const stdout = execFileSync(
+    process.execPath,
+    [
+      '-e',
+      `const net = require('node:net');
+const listen = () => new Promise((resolve, reject) => {
+  const server = net.createServer();
+  server.once('error', reject);
+  server.listen(0, '127.0.0.1', () => resolve(server));
+});
+(async () => {
+  const first = await listen();
+  const second = await listen();
+  process.stdout.write([first.address().port, second.address().port].join(' '));
+  await Promise.all([first, second].map((server) => new Promise((done) => server.close(done))));
+})().catch((error) => { console.error(error.message); process.exit(1); });`,
+    ],
+    { encoding: 'utf8' },
+  );
+  const [serverPort, clientPort] = stdout.trim().split(/\s+/).map(Number);
+  return [serverPort, clientPort];
+};
+
+/**
+ * Workers re-evaluate this file, and `baseURL` is read there — so the pair has to travel through the
+ * environment like `dataDir` does, or a worker would address a server nobody started. Only the process that
+ * allocated publishes it, and only that process announces it.
+ */
+const chosePorts = process.env.QUAY_E2E_SERVER_PORT === undefined;
+const [serverPort, clientPort] = chosePorts
+  ? freePortPair()
+  : [Number(process.env.QUAY_E2E_SERVER_PORT), Number(process.env.QUAY_E2E_CLIENT_PORT)];
+process.env.QUAY_E2E_SERVER_PORT = String(serverPort);
+process.env.QUAY_E2E_CLIENT_PORT = String(clientPort);
+if (chosePorts) {
+  // On stdout rather than in a log file: it lands in the run's own captured output, so a red recorded from
+  // this run can be read back as "which pair did it hold", which the stderr-head excerpt cannot answer.
+  console.log(`[e2e] server=${serverPort} client=${clientPort}`);
+}
 
 /** Workspace e2e/session-filter.spec.ts creates its project in; its own directory so no other spec picks these sessions up. */
 const SESSION_FILTER_WORKSPACE = path.join(dataDir, 'session-filter-workspace');
@@ -143,6 +196,10 @@ export default defineConfig({
   timeout: 60_000,
   workers: 1,
   reporter: 'list',
+  // Traces and failure contexts are written here. Under this run's own throwaway directory rather than the
+  // shared `test-results/`, so two runs in one checkout stop overwriting each other's evidence (the loser of
+  // that race used to fail at teardown on a directory the winner had already replaced).
+  outputDir: path.join(dataDir, 'test-results'),
   use: {
     baseURL: `http://127.0.0.1:${clientPort}`,
     browserName: 'chromium',
