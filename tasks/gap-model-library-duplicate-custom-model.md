@@ -1,7 +1,7 @@
 ---
 id: gap-model-library-duplicate-custom-model
 title: model-library：复制 custom model —— 表单预填 + 服务端从源行补齐 secret（Scope A）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
