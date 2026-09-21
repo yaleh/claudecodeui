@@ -37,13 +37,13 @@ goal_ac: AC-112
 
 ## AC
 
-- [ ] `node experiments/voice-identifiers/run-false-positive.mjs` 退出码 0，输出 `falsePositives=0`
-- [ ] `node experiments/voice-identifiers/run-recovery.mjs` 退出码 0，输出 `misRepairs=0` 且 `survivalAfter > survivalBefore`
-- [ ] `experiments/voice-identifiers/fixtures/negative.json` 含 ≥40 条负样本，其中 ≥12 条为与真实文件名仅差一个编辑距离的近似词
-- [ ] `experiments/voice-identifiers/fixtures/recovery.json` 含 ≥12 条实测形态转写
-- [ ] 工装无仓库外绝对路径依赖（`git grep -n "/data/home/yale/work/tc-verify" experiments/voice-identifiers/` 输出为空），候选由 `git ls-files` 现取且 ≥1000 条
-- [ ] 语料未入库（可再生成）
-- [ ] `npm run lint` 与 `npm run typecheck` 退出码 0
+- [x] `node experiments/voice-identifiers/run-false-positive.mjs` 退出码 0，输出 `falsePositives=0`
+- [x] `node experiments/voice-identifiers/run-recovery.mjs` 退出码 0，输出 `misRepairs=0` 且 `survivalAfter > survivalBefore`
+- [x] `experiments/voice-identifiers/fixtures/negative.json` 含 ≥40 条负样本，其中 ≥12 条为与真实文件名仅差一个编辑距离的近似词
+- [x] `experiments/voice-identifiers/fixtures/recovery.json` 含 ≥12 条实测形态转写
+- [x] 工装无仓库外绝对路径依赖（`git grep -n "/data/home/yale/work/tc-verify" experiments/voice-identifiers/` 输出为空），候选由 `git ls-files` 现取且 ≥1000 条
+- [x] 语料未入库（可再生成）
+- [x] `npm run lint` 与 `npm run typecheck` 退出码 0
 
 ## DoD
 
@@ -62,3 +62,26 @@ L_G 该轴仍暗，理由：同上；本任务是验证工装的入库与判据�
 - experiments/voice-identifiers/fixtures/negative.json (new)
 - experiments/voice-identifiers/fixtures/recovery.json (new)
 - tasks/gap-voice-identifier-harness-in-repo.md
+
+## 完成记录
+
+实现提交 ff72fb7f（分支 task/gap-voice-identifier-harness-in-repo）。判据命令均在真实仓库上跑，候选由 `git ls-files` 现取；提交后候选数 1962，已包含本任务新入库的 6 个文件名。
+
+- `node experiments/voice-identifiers/run-false-positive.mjs` → 退出码 0
+  `candidates=1962 negatives=44 falsePositives=0`，附 `nearWords=21 minNearWords=12`（21 条近似词的编辑距离由运行器用模块自身的归一化逐个重算为 1，并核对锚点仍是活候选，故该声明不会静默腐烂）
+- `node experiments/voice-identifiers/run-recovery.mjs` → 退出码 0
+  `survivalBefore=0.4000 survivalAfter=0.7500 misRepairs=0`，附 `entries=16 repairs=15 survivalBeforeDetail=8/20 survivalAfterDetail=15/20`
+
+取假形态（各跑一次，输出摘录如下，跑完即还原；两段对照脚本只落在 worktree 临时目录，未入库）：
+
+- 只用相似度阈值而无护栏的实现：`candidates=1962 negatives=44 falsePositives=11`，退出码 1（判据红）。
+  典型改写：`Show a desktop notification when the build finishes.` → `… desktop SKILL.md …`；`The readme md file is out of date.` → `The README md file is out of date.`。
+  与 FINDINGS 记录的 `Recording.G` → `tests` 同族：提前退出返回 `cap+1` 是真实距离的下界，转成相似度即上界，用上界做阈值必然误报。
+- 恒等函数（不修复）：`survivalBefore=0.4000 survivalAfter=0.4000 misRepairs=0`，退出码 1（判据红）。
+
+覆盖面与已知限制（实测，未隐藏）：
+
+- 44 条负样本零改写，但跨词那一遍的判别器只有词表本身，因此由常见英文词拼成的符号名会与日常英文相撞。
+  实测：在本仓库文件表下 `Task sorting is handled in the panel.` 会被改写成 `taskSorting is handled in the panel.`（40 条与本仓库功能相关的自然英文句里 23 条相撞）。
+  说话人念 `taskSorting` 与说 "task sorting" 在声学与词形上不可区分，本地规则分不开，故负样本按判据要求取「近似词」（与真实文件名相差一个编辑距离）而非精确相撞形态；
+  该限制写在 `identifierRepair.mjs` 的 `repairSpacedSymbols` 注释里，未被判据掩盖。
