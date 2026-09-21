@@ -377,6 +377,8 @@ export const api = {
     models: (provider: string) => get(`/api/providers/${provider}/models`),
     createModel: (provider: string, input: unknown) =>
       post(`/api/providers/${provider}/models`, input),
+    duplicateModel: (provider: string, recordId: string | number, input: unknown) =>
+      post(`/api/providers/${provider}/models/${recordId}/duplicate`, input),
     updateModel: (provider: string, recordId: string | number, input: unknown) =>
       patch(`/api/providers/${provider}/models/${recordId}`, input),
     deleteModel: (provider: string, recordId: string | number) =>

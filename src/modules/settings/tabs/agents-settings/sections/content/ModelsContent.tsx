@@ -65,6 +65,10 @@ export default function ModelsContent({ agent }: ModelsContentProps) {
     create: async (provider: LLMProvider, input: CustomProviderModelInput) => {
       apply(provider, await readCatalogResponse(await api.providers.createModel(provider, input)));
     },
+    duplicate: async (provider: LLMProvider, existing: ProviderModelOption, input: CustomProviderModelInput) => {
+      if (!existing.recordId) throw new Error('This model cannot be duplicated.');
+      apply(provider, await readCatalogResponse(await api.providers.duplicateModel(provider, existing.recordId, input)));
+    },
     update: async (provider: LLMProvider, existing: ProviderModelOption, input: CustomProviderModelInput) => {
       if (!existing.recordId) throw new Error('This model cannot be edited.');
       apply(provider, await readCatalogResponse(await api.providers.updateModel(provider, existing.recordId, input)));

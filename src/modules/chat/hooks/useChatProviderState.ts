@@ -804,6 +804,20 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     applyProviderCatalog(targetProvider, result.models);
   }, [applyProviderCatalog, readModelMutationResponse]);
 
+  const duplicateCustomModel = useCallback(async (
+    targetProvider: LLMProvider,
+    existing: ProviderModelOption,
+    input: CustomProviderModelInput,
+  ) => {
+    if (!existing.recordId) {
+      throw new Error('This model cannot be duplicated.');
+    }
+
+    const response = await api.providers.duplicateModel(targetProvider, existing.recordId, input);
+    const result = await readModelMutationResponse(response);
+    applyProviderCatalog(targetProvider, result.models);
+  }, [applyProviderCatalog, readModelMutationResponse]);
+
   const updateCustomModel = useCallback(async (
     targetProvider: LLMProvider,
     existing: ProviderModelOption,
@@ -867,9 +881,10 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
 
   const providerModelActions = useMemo<ProviderModelActions>(() => ({
     create: createCustomModel,
+    duplicate: duplicateCustomModel,
     update: updateCustomModel,
     remove: removeCustomModel,
-  }), [createCustomModel, removeCustomModel, updateCustomModel]);
+  }), [createCustomModel, duplicateCustomModel, removeCustomModel, updateCustomModel]);
 
   return {
     provider,

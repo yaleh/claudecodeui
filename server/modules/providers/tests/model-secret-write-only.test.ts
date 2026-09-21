@@ -100,6 +100,55 @@ test('PATCH: secret row without value keeps, empty string clears, non-empty repl
   });
 });
 
+test('a duplicate really copies the secret and never echoes it', async () => {
+  await withServer(async (base) => {
+    const recordId = await createModel(base);
+
+    // Both halves have to hold at once: an implementation that dropped the
+    // secret would still pass the "no leak" assertions, and one that leaked it
+    // would still pass the "really copied" one.
+    const blankSecretRow = await send(`${base}${models}/${recordId}/duplicate`, 'POST', {
+      id: 'gw-1-copy',
+      model: 'gw-1-copy',
+      config: { env: [
+        { key: 'ANTHROPIC_BASE_URL', kind: 'value', value: 'https://gw.example' },
+        { key: KEY, kind: 'secret' },
+      ] },
+    });
+    assert.equal(blankSecretRow.status, 201);
+    const blankSecretText = await blankSecretRow.text();
+    assert.ok(!blankSecretText.includes(SECRET), 'duplicate response must not echo the secret');
+    // The launch compiler's own read is what "the copy carries the value" means.
+    assert.equal(
+      providerModelsService.getCustomModelConfigForRuntime('claude', 'gw-1-copy')?.env[1]?.value,
+      SECRET,
+    );
+
+    // No config at all: the whole source config is copied, secret included.
+    const wholeConfig = await send(`${base}${models}/${recordId}/duplicate`, 'POST', {
+      id: 'gw-1-copy-2',
+      model: 'gw-1-copy-2',
+    });
+    assert.equal(wholeConfig.status, 201);
+    const wholeConfigText = await wholeConfig.text();
+    assert.ok(!wholeConfigText.includes(SECRET), 'duplicate response must not echo the secret');
+    assert.equal(
+      providerModelsService.getCustomModelConfigForRuntime('claude', 'gw-1-copy-2')?.env[1]?.value,
+      SECRET,
+    );
+
+    const listText = await (await send(`${base}${models}`, 'GET')).text();
+    assert.ok(!listText.includes(SECRET), 'list must not contain the secret value');
+    for (const id of ['gw-1-copy', 'gw-1-copy-2']) {
+      const option = JSON.parse(listText).data.models.OPTIONS.find((o: { value: string }) => o.value === id);
+      assert.deepEqual(option.config.env, [
+        { key: 'ANTHROPIC_BASE_URL', kind: 'value', value: 'https://gw.example' },
+        { key: KEY, kind: 'secret', isSet: true },
+      ]);
+    }
+  });
+});
+
 test('error responses never echo a submitted secret value', async () => {
   await withServer(async (base) => {
     const recordId = await createModel(base);

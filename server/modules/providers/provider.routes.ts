@@ -564,6 +564,25 @@ router.post(
   }),
 );
 
+/**
+ * Copies a stored custom model into a new one. The body has the same shape as
+ * create (`{id, model, config?}`) and the answer is the same envelope, because
+ * the copy IS a create — only the stored config it inherits from differs, and
+ * that is what the service reads the source row for. Omitting `config` copies
+ * the source config whole; supplying it copies only the rows the form sends,
+ * with blank secret rows taking the source's values.
+ */
+router.post(
+  '/:provider/models/:recordId/duplicate',
+  asyncHandler(async (req: Request, res: Response) => {
+    const provider = parseProvider(req.params.provider);
+    const recordId = parseModelRecordId(req.params.recordId);
+    const input = parseCustomProviderModelPayload(req.body);
+    const result = await providerModelsService.duplicateCustomModel(provider, recordId, input);
+    res.status(201).json(createApiSuccessResponse({ provider, ...result }));
+  }),
+);
+
 router.patch(
   '/:provider/models/:recordId',
   asyncHandler(async (req: Request, res: Response) => {

@@ -160,6 +160,29 @@ const normalizeCustomModelInput = (
     }),
 });
 
+/**
+ * Builds the input a duplicate request persists from the caller's form rows and
+ * the source record's config.
+ *
+ * An omitted `config` means "copy the whole config": the source rows are handed
+ * to `resolveSecretRows` with their secret values still in place, so they take
+ * its non-empty branch and are stored verbatim. Copying the row objects rather
+ * than aliasing them keeps the two records independent.
+ *
+ * A supplied `config` is the form's rows, unchanged: only its blank secret rows
+ * fall back to the source (through the `stored` argument of the create path),
+ * a row typed with a new value keeps that value, and a row the form omits is
+ * not copied at all.
+ */
+const withSourceConfig = (
+  input: CustomProviderModelInput,
+  sourceConfig: ProviderModelConfig | null,
+): CustomProviderModelInput => (
+  input.config === undefined && sourceConfig !== null
+    ? { ...input, config: { env: sourceConfig.env.map((row) => ({ ...row })) } }
+    : input
+);
+
 const isUniqueConstraintError = (error: unknown): boolean => (
   error !== null
   && error !== undefined
@@ -229,12 +252,21 @@ export const createProviderModelsService = (dependencies: ProviderModelsServiceD
     }
   };
 
+  /**
+   * Creates a custom model row.
+   *
+   * `stored` is the config a blank secret row in `input` keeps its value from.
+   * It is null for a plain create (there is nothing stored yet, so such a row is
+   * an error) and the source record's config for a duplicate; it is deliberately
+   * not on the route contract.
+   */
   const createCustomModel = async (
     provider: LLMProvider,
     input: CustomProviderModelInput,
+    stored: ProviderModelConfig | null = null,
   ): Promise<{ model: ProviderModelOption; models: ProviderModelsDefinition }> => {
     const predefined = await resolveProvider(provider).models.getSupportedModels();
-    const normalized = normalizeCustomModelInput(input);
+    const normalized = normalizeCustomModelInput(input, stored);
     assertModelIdAvailable(provider, predefined, normalized.id);
 
     try {
@@ -252,6 +284,29 @@ export const createProviderModelsService = (dependencies: ProviderModelsServiceD
       }
       throw error;
     }
+  };
+
+  /**
+   * Copies a custom model into a new one, then returns the create envelope.
+   *
+   * Reading the source row is the entire mechanism, not bookkeeping: ADR-002
+   * decision 2 keeps secret values out of every client-facing read, so the
+   * client can only ever send back "keep the stored secret" — which has nothing
+   * to keep on a row that does not exist yet. Handing the service the SOURCE
+   * config as `stored` is what makes the copy carry the secret; passing the
+   * target's (nonexistent) config, the way `updateCustomModel` does, would
+   * answer 400 `has no stored secret to keep` and copy nothing at all.
+   *
+   * A built-in id has no row in `provider_models`, so it 404s like any unknown
+   * id rather than being duplicated.
+   */
+  const duplicateCustomModel = async (
+    provider: LLMProvider,
+    recordId: number,
+    input: CustomProviderModelInput,
+  ): Promise<{ model: ProviderModelOption; models: ProviderModelsDefinition }> => {
+    const source = readCustomModel(provider, recordId);
+    return createCustomModel(provider, withSourceConfig(input, source.config), source.config);
   };
 
   const updateCustomModel = async (
@@ -550,6 +605,7 @@ export const createProviderModelsService = (dependencies: ProviderModelsServiceD
     getProviderModels,
     getCustomModelConfigForRuntime,
     createCustomModel,
+    duplicateCustomModel,
     updateCustomModel,
     deleteCustomModel,
     setSessionModel,

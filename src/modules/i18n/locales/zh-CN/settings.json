@@ -573,6 +573,16 @@
   },
   "modelLibrary": {
     "loadFailed": "无法加载模型：{{message}}",
+    "duplicate": {
+      "name": "{{source}}（副本）",
+      "title": "复制自定义模型",
+      "description": "复制 {{source}} 的 base URL、密钥与 unset 行。模型 ID 与端点别名不会自动调整。",
+      "idHint": "此 ID 仅为建议值，并非可用的模型 ID：请改成网关接受的标识符，并同步修改端点别名行，否则副本会在启动时失败。",
+      "submit": "创建副本",
+      "notice": "已将 {{source}} 复制为 {{name}}。",
+      "idTaken": "已存在 ID 为 {{id}} 的模型，请换一个 ID。",
+      "actionLabel": "复制 {{name}}"
+    },
     "env": {
       "title": "环境变量",
       "addRow": "+ 添加",

@@ -484,6 +484,16 @@
   },
   "modelLibrary": {
     "loadFailed": "Could not load models: {{message}}",
+    "duplicate": {
+      "name": "{{source}} (copy)",
+      "title": "Copy custom model",
+      "description": "Copies the base URL, secret and unset rows of {{source}}. The model ID and endpoint aliases are not adjusted.",
+      "idHint": "Suggested ID only — replace it with the identifier your gateway accepts and update the endpoint alias rows to match, or the copy will fail at launch.",
+      "submit": "Create copy",
+      "notice": "{{source}} was copied to {{name}}.",
+      "idTaken": "A model with the ID {{id}} already exists. Choose another ID.",
+      "actionLabel": "Duplicate {{name}}"
+    },
     "env": {
       "title": "Environment variables",
       "addRow": "+ Add",

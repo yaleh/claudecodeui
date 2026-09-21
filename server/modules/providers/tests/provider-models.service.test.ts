@@ -201,6 +201,150 @@ test('duplicate model ids are rejected within one provider', async () => {
   );
 });
 
+test('a duplicate keeps the SOURCE secret, even with a sibling holding the same key', async () => {
+  const { service } = createTestService();
+  const source = await service.createCustomModel('claude', {
+    model: 'Source',
+    id: 'source-1',
+    config: {
+      env: [
+        { key: 'ANTHROPIC_BASE_URL', kind: 'value', value: 'https://source.example' },
+        { key: 'ANTHROPIC_AUTH_TOKEN', kind: 'secret', value: 'sk-source-secret' },
+      ],
+    },
+  });
+  // Same secret key, different value: an implementation that resolved the blank
+  // row against anything but this source (a lookup by key, a sibling row, the
+  // target's own — nonexistent — config) would answer with this one, or 400.
+  await service.createCustomModel('claude', {
+    model: 'Sibling',
+    id: 'sibling-1',
+    config: { env: [{ key: 'ANTHROPIC_AUTH_TOKEN', kind: 'secret', value: 'sk-sibling-secret' }] },
+  });
+
+  await service.duplicateCustomModel('claude', source.model.recordId as number, {
+    model: 'Source copy',
+    id: 'source-1-copy',
+    // A blank secret row means "keep the stored one" — and the only row that can
+    // supply it is the one being copied.
+    config: { env: [{ key: 'ANTHROPIC_AUTH_TOKEN', kind: 'secret' }] },
+  });
+
+  assert.deepEqual(service.getCustomModelConfigForRuntime('claude', 'source-1-copy')?.env, [
+    { key: 'ANTHROPIC_AUTH_TOKEN', kind: 'secret', value: 'sk-source-secret' },
+  ]);
+});
+
+test('a duplicate copies the whole config when the request sends none', async () => {
+  const { service } = createTestService();
+  const source = await service.createCustomModel('claude', {
+    model: 'Source',
+    id: 'source-2',
+    config: {
+      env: [
+        { key: 'ANTHROPIC_BASE_URL', kind: 'value', value: 'https://source.example' },
+        { key: 'ANTHROPIC_AUTH_TOKEN', kind: 'secret', value: 'sk-source-two' },
+        { key: 'ANTHROPIC_API_KEY', kind: 'unset' },
+      ],
+    },
+  });
+
+  const duplicated = await service.duplicateCustomModel('claude', source.model.recordId as number, {
+    model: 'Source two',
+    id: 'source-2-copy',
+  });
+
+  assert.equal(duplicated.model.isCustom, true);
+  assert.equal(duplicated.model.value, 'source-2-copy');
+  assert.deepEqual(service.getCustomModelConfigForRuntime('claude', 'source-2-copy')?.env, [
+    { key: 'ANTHROPIC_BASE_URL', kind: 'value', value: 'https://source.example' },
+    { key: 'ANTHROPIC_AUTH_TOKEN', kind: 'secret', value: 'sk-source-two' },
+    { key: 'ANTHROPIC_API_KEY', kind: 'unset' },
+  ]);
+  // The new row owns its own values: rewriting the copy must not reach the source.
+  const sourceRows = service.getCustomModelConfigForRuntime('claude', 'source-2');
+  const copiedRows = service.getCustomModelConfigForRuntime('claude', 'source-2-copy')?.env;
+  assert.notStrictEqual(copiedRows, sourceRows?.env);
+  assert.notStrictEqual(copiedRows?.[0], sourceRows?.env[0]);
+});
+
+test('a duplicate copies only the rows the request sends', async () => {
+  const { service } = createTestService();
+  const source = await service.createCustomModel('claude', {
+    model: 'Source',
+    id: 'source-3',
+    config: {
+      env: [
+        { key: 'ANTHROPIC_BASE_URL', kind: 'value', value: 'https://source.example' },
+        { key: 'ANTHROPIC_DEFAULT_OPUS_MODEL', kind: 'value', value: 'upstream-opus' },
+        { key: 'ANTHROPIC_AUTH_TOKEN', kind: 'secret', value: 'sk-source-three' },
+      ],
+    },
+  });
+
+  await service.duplicateCustomModel('claude', source.model.recordId as number, {
+    model: 'Source three',
+    id: 'source-3-copy',
+    // Only the row the user kept, retargeted; the other two are absent, so they
+    // are not copied at all — including the secret.
+    config: { env: [{ key: 'ANTHROPIC_BASE_URL', kind: 'value', value: 'https://other.example' }] },
+  });
+
+  assert.deepEqual(service.getCustomModelConfigForRuntime('claude', 'source-3-copy')?.env, [
+    { key: 'ANTHROPIC_BASE_URL', kind: 'value', value: 'https://other.example' },
+  ]);
+});
+
+test('duplicating an unknown or built-in record reports it as not found', async () => {
+  const { service } = createTestService();
+  const source = await service.createCustomModel('claude', { model: 'Source', id: 'source-4' });
+
+  // Built-in models live in source control, not in `provider_models`, so they
+  // have no row to read a config from and cannot be duplicated.
+  const models = await service.getProviderModels('claude');
+  const builtIn = models.OPTIONS.find((option) => !option.isCustom);
+  assert.ok(builtIn);
+  assert.equal(builtIn.recordId, undefined);
+
+  for (const recordId of [9999, 0]) {
+    await assert.rejects(
+      () => service.duplicateCustomModel('claude', recordId, { model: 'Copy', id: 'copy-1' }),
+      (error) => error instanceof AppError
+        && error.code === 'MODEL_NOT_FOUND'
+        && error.statusCode === 404,
+    );
+  }
+
+  const catalog = await service.getProviderModels('claude');
+  assert.equal(catalog.OPTIONS.some((option) => option.value === 'copy-1'), false);
+  assert.equal(catalog.OPTIONS.some((option) => option.recordId === source.model.recordId), true);
+});
+
+test('a duplicate onto a taken id is rejected, built-in ids included', async () => {
+  const { service } = createTestService();
+  await service.createCustomModel('cursor', { model: 'First', id: 'taken-id' });
+  const source = await service.createCustomModel('cursor', { model: 'Source', id: 'source-5' });
+  const recordId = source.model.recordId as number;
+
+  await assert.rejects(
+    () => service.duplicateCustomModel('cursor', recordId, { model: 'Copy', id: 'taken-id' }),
+    (error) => error instanceof AppError
+      && error.code === 'MODEL_ID_ALREADY_EXISTS'
+      && error.statusCode === 409,
+  );
+  await assert.rejects(
+    () => service.duplicateCustomModel('cursor', recordId, {
+      model: 'Copy of a built-in',
+      id: 'cursor-default',
+    }),
+    (error) => error instanceof AppError
+      && error.code === 'MODEL_ID_ALREADY_EXISTS'
+      && error.statusCode === 409,
+  );
+  // The source row is untouched by a rejected copy.
+  assert.equal(service.getCustomModelConfigForRuntime('cursor', 'source-5'), null);
+});
+
 test('predefined models have no database record or mutation target', async () => {
   const { service, catalog } = createTestService();
   const models = await service.getProviderModels('opencode');

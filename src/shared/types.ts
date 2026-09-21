@@ -62,6 +62,15 @@ export type CustomProviderModelInput = {
 /** Mutation callbacks a model menu calls to persist custom provider models. */
 export type ProviderModelActions = {
   create(provider: LLMProvider, input: CustomProviderModelInput): Promise<void>;
+  /**
+   * Copies `existing` into a new model. The copy is server-side on purpose: a
+   * secret value never leaves the server, so only the stored row can hand it on.
+   */
+  duplicate(
+    provider: LLMProvider,
+    existing: ProviderModelOption,
+    input: CustomProviderModelInput,
+  ): Promise<void>;
   update(
     provider: LLMProvider,
     existing: ProviderModelOption,

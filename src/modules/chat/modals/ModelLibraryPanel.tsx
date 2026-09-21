@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft,
   Check,
+  Copy,
   Loader2,
   LockKeyhole,
   Pencil,
@@ -32,6 +33,28 @@ const PROVIDERS: Array<{ id: LLMProvider; label: string }> = [
   { id: 'cursor', label: 'Cursor' },
   { id: 'opencode', label: 'OpenCode' },
 ];
+
+/** Both limits the server enforces on a custom model (`provider.routes.ts`); the inputs and the copy suggestion must not exceed them. */
+const MODEL_NAME_MAX_LENGTH = 80;
+const MODEL_ID_MAX_LENGTH = 200;
+
+/**
+ * Suggests the model id a copy of `base` should take: `-copy`, then `-copy-2`,
+ * `-copy-3`… for the first candidate nothing already uses.
+ *
+ * `taken` has to hold built-in and custom ids alike, because the server answers
+ * 409 for a built-in collision too. The base is truncated so the suffixed result
+ * stays within the id limit even when `base` is already at it.
+ */
+const suggestCopyId = (base: string, taken: ReadonlySet<string>): string => {
+  for (let attempt = 1; ; attempt += 1) {
+    const suffix = attempt === 1 ? '-copy' : `-copy-${attempt}`;
+    const candidate = `${base.slice(0, Math.max(MODEL_ID_MAX_LENGTH - suffix.length, 0))}${suffix}`;
+    if (!taken.has(candidate)) {
+      return candidate;
+    }
+  }
+};
 
 type ModelLibraryPanelProps = {
   initialProvider: LLMProvider;
@@ -65,6 +88,10 @@ export default function ModelLibraryPanel({
   const { t: tSettings } = useTranslation('settings');
   const [selectedProvider, setSelectedProvider] = useState(initialProvider);
   const [editing, setEditing] = useState<ProviderModelOption | null>(null);
+  // The custom model the form is copying, or null. `editing` stays null while it
+  // is set, so the form keeps create semantics; only the labels, the prefill and
+  // which action `handleSubmit` calls change.
+  const [duplicatingFrom, setDuplicatingFrom] = useState<ProviderModelOption | null>(null);
   const [model, setModel] = useState('');
   const [modelId, setModelId] = useState('');
   const [saving, setSaving] = useState(false);
@@ -109,9 +136,16 @@ export default function ModelLibraryPanel({
     () => options.filter((option) => !option.isCustom),
     [options],
   );
+  // Every id the provider already answers 409 for, built-in ones included; used
+  // to pre-check a submit and to pick a free id for a copy.
+  const takenModelIds = useMemo(
+    () => new Set(options.map((option) => option.value)),
+    [options],
+  );
 
   const resetForm = () => {
     setEditing(null);
+    setDuplicatingFrom(null);
     setModel('');
     setModelId('');
     setEnvRows([]);
@@ -128,8 +162,28 @@ export default function ModelLibraryPanel({
 
   const startEditing = (option: ProviderModelOption) => {
     setEditing(option);
+    setDuplicatingFrom(null);
     setModel(option.label);
     setModelId(option.value);
+    setEnvRows(toEditorRows(option.config));
+    setEnvDirty(false);
+    setConfirmDeleteRecordId(null);
+    setNotice(null);
+    setError(null);
+  };
+
+  /**
+   * Enters the copy state for `option`: the same rows the server will copy, with
+   * `(copy)` naming and a free id suggestion. No secret value is available here
+   * — a stored secret reads back as an empty, `secretStored` row — so the rows
+   * pre-filled this way say "keep the source's secret", and the server is the
+   * one that actually carries the value over.
+   */
+  const startDuplicating = (option: ProviderModelOption) => {
+    setEditing(null);
+    setDuplicatingFrom(option);
+    setModel(tSettings('modelLibrary.duplicate.name', { source: option.label }).slice(0, MODEL_NAME_MAX_LENGTH));
+    setModelId(suggestCopyId(option.value, takenModelIds));
     setEnvRows(toEditorRows(option.config));
     setEnvDirty(false);
     setConfirmDeleteRecordId(null);
@@ -156,6 +210,12 @@ export default function ModelLibraryPanel({
       setError('Model IDs cannot contain spaces.');
       return;
     }
+    // Both providers' catalogs are in hand, so a colliding id is worth answering
+    // here: it names the id, where the server's 409 arrives after a round trip.
+    if (!editing && takenModelIds.has(normalizedId)) {
+      setError(tSettings('modelLibrary.duplicate.idTaken', { id: normalizedId }));
+      return;
+    }
 
     setSaving(true);
     setError(null);
@@ -171,6 +231,16 @@ export default function ModelLibraryPanel({
           ...configInput,
         });
         setNotice(`${normalizedModel} was updated.`);
+      } else if (duplicatingFrom) {
+        await actions.duplicate(selectedProvider, duplicatingFrom, {
+          model: normalizedModel,
+          id: normalizedId,
+          ...configInput,
+        });
+        setNotice(tSettings('modelLibrary.duplicate.notice', {
+          source: duplicatingFrom.label,
+          name: normalizedModel,
+        }));
       } else {
         await actions.create(selectedProvider, {
           model: normalizedModel,
@@ -265,13 +335,17 @@ export default function ModelLibraryPanel({
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-foreground">
-                {editing ? 'Edit custom model' : 'Add a custom model'}
+                {editing
+                  ? 'Edit custom model'
+                  : duplicatingFrom ? tSettings('modelLibrary.duplicate.title') : 'Add a custom model'}
               </p>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                The ID is sent to {PROVIDERS.find((entry) => entry.id === selectedProvider)?.label} exactly as written.
+                {duplicatingFrom
+                  ? tSettings('modelLibrary.duplicate.description', { source: duplicatingFrom.label })
+                  : `The ID is sent to ${PROVIDERS.find((entry) => entry.id === selectedProvider)?.label} exactly as written.`}
               </p>
             </div>
-            {editing && (
+            {(editing || duplicatingFrom) && (
               <Button
                 type="button"
                 variant="ghost"
@@ -294,7 +368,7 @@ export default function ModelLibraryPanel({
             id="custom-model-name"
             value={model}
             onChange={(event) => setModel(event.target.value)}
-            maxLength={80}
+            maxLength={MODEL_NAME_MAX_LENGTH}
             placeholder="e.g. GPT-5.5 Pro"
             autoComplete="off"
             className="mt-1.5 h-10 rounded-xl bg-background"
@@ -308,14 +382,16 @@ export default function ModelLibraryPanel({
             id="custom-model-id"
             value={modelId}
             onChange={(event) => setModelId(event.target.value)}
-            maxLength={200}
+            maxLength={MODEL_ID_MAX_LENGTH}
             placeholder="e.g. gpt-5.5-pro"
             autoComplete="off"
             spellCheck={false}
             className="mt-1.5 h-10 rounded-xl bg-background font-mono"
           />
           <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">
-            Use the exact identifier accepted by the provider CLI. IDs cannot contain spaces.
+            {duplicatingFrom
+              ? tSettings('modelLibrary.duplicate.idHint')
+              : 'Use the exact identifier accepted by the provider CLI. IDs cannot contain spaces.'}
           </p>
             </div>
           </div>
@@ -360,8 +436,12 @@ export default function ModelLibraryPanel({
           )}
 
           <Button type="submit" disabled={saving} className="mt-4 w-full rounded-xl">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : editing ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-            {saving ? 'Saving…' : editing ? 'Save changes' : 'Add model'}
+            {saving
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : editing ? <Check className="h-4 w-4" /> : duplicatingFrom ? <Copy className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+            {saving
+              ? 'Saving…'
+              : editing ? 'Save changes' : duplicatingFrom ? tSettings('modelLibrary.duplicate.submit') : 'Add model'}
           </Button>
         </form>
 
@@ -406,6 +486,16 @@ export default function ModelLibraryPanel({
                               aria-label={`Edit ${option.label}`}
                             >
                               <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => startDuplicating(option)}
+                              className="h-8 w-8 rounded-lg"
+                              aria-label={tSettings('modelLibrary.duplicate.actionLabel', { name: option.label })}
+                            >
+                              <Copy className="h-3.5 w-3.5" />
                             </Button>
                             <Button
                               type="button"

@@ -204,6 +204,105 @@ test('the active-model answer carries the recorded permission mode, and null bef
   });
 });
 
+test('the duplicate route answers the create envelope and its error codes', async () => {
+  await withProviderServer(async (baseUrl) => {
+    const createResponse = await fetch(`${baseUrl}/api/providers/claude/models`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'Gateway Origin',
+        id: 'gw-origin',
+        config: { env: [
+          { key: 'ANTHROPIC_BASE_URL', kind: 'value', value: 'https://gw.example' },
+          { key: 'ANTHROPIC_AUTH_TOKEN', kind: 'secret', value: 'sk-origin-secret' },
+        ] },
+      }),
+    });
+    const createPayload = await createResponse.json() as { data: { model: { recordId: number } } };
+    assert.equal(createResponse.status, 201);
+    const sourceRecordId = createPayload.data.model.recordId;
+
+    const duplicateResponse = await fetch(
+      `${baseUrl}/api/providers/claude/models/${sourceRecordId}/duplicate`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'Gateway Copy',
+          id: 'gw-origin-copy',
+          config: { env: [
+            { key: 'ANTHROPIC_BASE_URL', kind: 'value', value: 'https://gw.example' },
+            { key: 'ANTHROPIC_AUTH_TOKEN', kind: 'secret' },
+          ] },
+        }),
+      },
+    );
+    const duplicatePayload = await duplicateResponse.json() as {
+      success: boolean;
+      data: {
+        provider: string;
+        model: { value: string; label: string; recordId: number; isCustom: boolean };
+        models: { OPTIONS: Array<{ value: string }> };
+      };
+    };
+    assert.equal(duplicateResponse.status, 201);
+    assert.equal(duplicatePayload.success, true);
+    // The client reads the copy through the same envelope as a create, so the
+    // key set is part of the contract, not an implementation detail.
+    assert.deepEqual(Object.keys(duplicatePayload.data).sort(), ['model', 'models', 'provider']);
+    assert.equal(duplicatePayload.data.provider, 'claude');
+    assert.equal(duplicatePayload.data.model.value, 'gw-origin-copy');
+    assert.equal(duplicatePayload.data.model.label, 'Gateway Copy');
+    assert.equal(duplicatePayload.data.model.isCustom, true);
+    assert.equal(
+      duplicatePayload.data.models.OPTIONS.some((option) => option.value === 'gw-origin-copy'),
+      true,
+    );
+
+    const badRecordId = await fetch(
+      `${baseUrl}/api/providers/claude/models/not-a-number/duplicate`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model: 'Copy', id: 'copy-x' }),
+      },
+    );
+    assert.equal(badRecordId.status, 400);
+    assert.equal(
+      ((await badRecordId.json()) as { error: { code: string } }).error.code,
+      'INVALID_MODEL_RECORD_ID',
+    );
+
+    const unknownSource = await fetch(
+      `${baseUrl}/api/providers/claude/models/999999/duplicate`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model: 'Copy', id: 'copy-x' }),
+      },
+    );
+    assert.equal(unknownSource.status, 404);
+    assert.equal(
+      ((await unknownSource.json()) as { error: { code: string } }).error.code,
+      'MODEL_NOT_FOUND',
+    );
+
+    const takenId = await fetch(
+      `${baseUrl}/api/providers/claude/models/${sourceRecordId}/duplicate`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model: 'Copy', id: 'gw-origin-copy' }),
+      },
+    );
+    assert.equal(takenId.status, 409);
+    assert.equal(
+      ((await takenId.json()) as { error: { code: string } }).error.code,
+      'MODEL_ID_ALREADY_EXISTS',
+    );
+  });
+});
+
 test('model routes expose immutable defaults and full custom model CRUD', async () => {
   await withProviderServer(async (baseUrl) => {
     const initialResponse = await fetch(`${baseUrl}/api/providers/codex/models`);
