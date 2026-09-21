@@ -2,7 +2,7 @@
 id: gap-ac101-criterion-concurrency-determinism
 title: AC-101 判据在舰队并发下不再可靠为绿：并发 e2e 撞死共享写死端口，会话过滤判据 2.4s 假红 / 单次运行 123s 被 goal
   gate 的 60s 上限击杀并遗留占端口孤儿
-status: ready
+status: done
 labels:
   - gap
   - defect
