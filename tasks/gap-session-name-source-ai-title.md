@@ -2,7 +2,7 @@
 id: gap-session-name-source-ai-title
 title: 会话名来源优先级：sessions.name_source 列，自动采纳 Claude 已写入 transcript 的 ai-title，改名补
   session_upserted 广播，修 Cursor 同步覆盖手工名
-status: todo
+status: ready
 labels:
   - gap
 parent: null
