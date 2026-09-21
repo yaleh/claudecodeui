@@ -68,6 +68,60 @@ type RecognizerRequest = {
   body: Buffer;
 };
 
+/**
+ * The uploaded file's bytes, taken out of the multipart body that carried them.
+ *
+ * The client posts a `FormData`, so the audio is one part among a few and the part boundaries are the only
+ * thing that says where it starts and ends. Reading it here rather than trusting a length in a header keeps
+ * the assertion about the bytes the app really put on the socket.
+ */
+const uploadedFile = (body: Buffer, contentType: string | undefined): Buffer => {
+  const boundary = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(contentType ?? '');
+  if (!boundary) throw new Error(`no boundary in upload content type: ${contentType}`);
+
+  const delimiter = Buffer.from(`--${boundary[1] ?? boundary[2]}`);
+  let at = body.indexOf(delimiter);
+  while (at >= 0) {
+    const start = at + delimiter.length;
+    if (body.subarray(start, start + 2).toString() === '--') break; // the closing delimiter
+    const next = body.indexOf(delimiter, start);
+    const part = body.subarray(start, next >= 0 ? next : body.length);
+    const headerEnd = part.indexOf('\r\n\r\n');
+    if (headerEnd < 0) throw new Error('malformed multipart part: no header terminator');
+    if (/name="file"/.test(part.subarray(0, headerEnd).toString('ascii'))) {
+      return part.subarray(headerEnd + 4, part.length - 2); // the trailing CRLF before the next boundary
+    }
+    at = next;
+  }
+  throw new Error('the upload carried no file part');
+};
+
+/** The duration of a 16-bit PCM WAV, in seconds, from its own `fmt `/`data` chunks. */
+const wavDurationSec = (bytes: Buffer): number => {
+  let sampleRate = 0;
+  let channels = 0;
+  let bits = 0;
+  let dataBytes = 0;
+
+  let at = 12;
+  while (at + 8 <= bytes.length) {
+    const id = bytes.toString('ascii', at, at + 4);
+    const size = bytes.readUInt32LE(at + 4);
+    if (id === 'fmt ') {
+      channels = bytes.readUInt16LE(at + 10);
+      sampleRate = bytes.readUInt32LE(at + 12);
+      bits = bytes.readUInt16LE(at + 22);
+    } else if (id === 'data') {
+      dataBytes = size;
+    }
+    at += 8 + size + (size % 2);
+  }
+
+  const bytesPerSecond = sampleRate * channels * (bits / 8);
+  if (!bytesPerSecond || !dataBytes) throw new Error('not a PCM WAV with a readable data chunk');
+  return dataBytes / bytesPerSecond;
+};
+
 test.describe.configure({ mode: 'serial' });
 
 test.describe('AC-115 the repair holds end to end through the voice button', () => {
@@ -290,8 +344,46 @@ test.describe('AC-115 the repair holds end to end through the voice button', () 
     expect(upload.contentType).toContain('multipart/form-data');
     // A real recording: the browser encoded audio, and it cleared the hook's own floor before uploading.
     expect(upload.body.length).toBeGreaterThan(MIN_UPLOAD_BYTES);
-    // ...encoded by `MediaRecorder` from the microphone stream, not a payload the test assembled.
-    expect(upload.body.includes(Buffer.from('audio/webm'))).toBe(true);
+    // ...and the bytes on the socket are real audio, produced by the app from what the fake microphone was
+    // playing, rather than a payload this test assembled. Two readings say that, both taken off the uploaded
+    // audio itself: the container it is really in, and the length that container's own header describes.
+    //
+    // The container is this repo's, not the browser's. The trim is the shipped default, so `prepareUpload`
+    // decodes the capture and re-encodes it as PCM WAV before uploading; a capture that never went through
+    // that path arrives in the recorder's own webm. Reading the container is therefore reading whether the
+    // shipped chain ran at all — and it is the reading that stopped being written down here: this guard used
+    // to assert the *browser's* webm, which was true before the trim was wired into the upload path and false
+    // from the moment it was. The mechanism changed under the guard; the invariant below did not.
+    const audioPart = uploadedFile(upload.body, upload.contentType);
+    expect(audioPart.subarray(0, 4).toString('ascii')).toBe('RIFF');
+    expect(audioPart.subarray(8, 12).toString('ascii')).toBe('WAVE');
+    // The other half of "this is that audio": how long it is, out of the WAV's own `fmt `/`data` chunks —
+    // never out of the part's byte count, which says nothing about duration. The reference is the fixture,
+    // the same bytes the fake device was pointed at, read here rather than restated as a literal, so a
+    // fixture that stopped being written would red this criterion instead of quietly agreeing with it.
+    const fixtureSec = wavDurationSec(audio);
+    const uploadSec = wavDurationSec(audioPart);
+    // Printed before the assertions so a green run says what the guard measured, not only what it refused:
+    // the next change to this chain should be readable against these numbers rather than re-derived.
+    console.log(
+      `[voice-identifier] upload: container=${audioPart.subarray(0, 4).toString('ascii')}`
+        + ` fixture=${fixtureSec.toFixed(3)}s uploaded=${uploadSec.toFixed(3)}s`,
+    );
+    // The upload is one pass of the fixture and nothing else, so its length is bounded by the fixture's on
+    // both sides — and the two bounds fail in opposite directions, which is why both are written.
+    //
+    // Over it: the capture window is shorter than the fixture, and the trim only ever takes silence out of
+    // the capture it is handed, so an upload at or past the fixture's full length is one the trim never
+    // met. Watch the headroom — the trim adds its own lead-in/lead-out padding, and at the shipped capture
+    // window the upload lands close under the fixture (see the reading printed above), so this is the
+    // tighter of the two.
+    //
+    // Well under half of it: the audio is still there. A trim whose detector called the whole capture
+    // silence returns a near-empty WAV, which passes the container reading above and every other assertion
+    // in this test — the recogniser stand-in answers the same sentence either way — so this is the only
+    // reading that refuses it.
+    expect(uploadSec, `the upload was ${uploadSec}s of a ${fixtureSec}s fixture`).toBeLessThan(fixtureSec);
+    expect(uploadSec, `the upload was ${uploadSec}s of a ${fixtureSec}s fixture`).toBeGreaterThan(fixtureSec / 2);
     expect(upload.body.includes(Buffer.from(`name="model"`))).toBe(true);
     expect(upload.body.includes(Buffer.from(STT_MODEL))).toBe(true);
   });
