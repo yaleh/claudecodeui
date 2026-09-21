@@ -414,6 +414,42 @@ export function isSubagentPromptEcho(message) {
   return Boolean(message?.parentToolUseId) && message.role === 'user' && message.kind === 'text';
 }
 
+/**
+ * Hands every normalized frame of one SDK message to the run writer, in order.
+ *
+ * This is the seam the partial-stream path rests on: the normalizer decides what
+ * an SDK frame becomes and the writer decides where it goes, and nothing else
+ * connects the two. The loop lives here — with the normalizer and the writer both
+ * passed in — so a test can drive it with a fake writer and prove the frames
+ * really leave. `stream_delta` is the frame that matters most: it carries the
+ * in-place transcript growth the client renders, and a dropped `writer.send`
+ * forward would leave the normalizer's own tests green.
+ *
+ * `parentToolUseId` is copied from the SDK wrapper onto frames that lack one so
+ * subagent traffic stays grouped under the tool card that spawned it, and the
+ * subagent's own prompt echo is dropped rather than stacked as a second user
+ * bubble (see {@link isSubagentPromptEcho}).
+ *
+ * @param {Object} params
+ * @param {Object} params.transformedMessage - SDK message, after transformMessage
+ * @param {string|null} params.sessionId - Session the frames belong to
+ * @param {Function} params.normalizeMessage - Provider normalizer, `(raw, sessionId) => NormalizedMessage[]`
+ * @param {Object} params.writer - Run writer (the socket connection); only its `send(message)` is used
+ */
+export function forwardNormalizedFrames({ transformedMessage, sessionId, normalizeMessage, writer }) {
+  const normalized = normalizeMessage(transformedMessage, sessionId);
+  for (const msg of normalized) {
+    // Preserve parentToolUseId from SDK wrapper for subagent tool grouping
+    if (transformedMessage.parentToolUseId && !msg.parentToolUseId) {
+      msg.parentToolUseId = transformedMessage.parentToolUseId;
+    }
+    if (isSubagentPromptEcho(msg)) {
+      continue;
+    }
+    writer.send(msg);
+  }
+}
+
 function readNumber(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -979,18 +1015,14 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
       const transformedMessage = transformMessage(message);
       const sid = capturedSessionId || sessionId || null;
 
-      // Use adapter to normalize SDK events into NormalizedMessage[]
-      const normalized = context.normalizeMessage(transformedMessage, sid);
-      for (const msg of normalized) {
-        // Preserve parentToolUseId from SDK wrapper for subagent tool grouping
-        if (transformedMessage.parentToolUseId && !msg.parentToolUseId) {
-          msg.parentToolUseId = transformedMessage.parentToolUseId;
-        }
-        if (isSubagentPromptEcho(msg)) {
-          continue;
-        }
-        ws.send(msg);
-      }
+      // Normalize this SDK event and hand each resulting frame to the writer.
+      // The loop is extracted so the seam itself is covered by a fake-writer test.
+      forwardNormalizedFrames({
+        transformedMessage,
+        sessionId: sid,
+        normalizeMessage: context.normalizeMessage,
+        writer: ws
+      });
 
       // Extract and send token budget updates from assistant usage payloads,
       // falling back to the turn's cumulative bill only for SDK builds that
