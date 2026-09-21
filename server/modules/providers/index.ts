@@ -11,6 +11,11 @@ export { providerModelsService } from './services/provider-models.service.js';
 export { sessionsService } from './services/sessions.service.js';
 export { searchConversations } from './services/session-conversations-search.service.js';
 
+// readSessionAiTitle: used by the commands module's `/cost` handler to show the
+// title Claude generated for a session. Only the providers module knows a
+// transcript's shape, and only it owns the row that points at one.
+export { readSessionAiTitle } from './services/session-ai-title.service.js';
+
 export { initializeSessionsWatcher } from './services/sessions-watcher.service.js';
 export { closeSessionsWatcher } from './services/sessions-watcher.service.js';
 // resolveModelLaunchSpec: consumed by the websocket module's shell pty to compile the

@@ -423,6 +423,10 @@ function CostContent({ data }: { data: CostCommandData }) {
   const total = Number(data.tokenUsage?.total ?? 0);
   const model = data.model || 'Unknown';
   const provider = getProviderLabel(data.provider, data.provider || 'Unknown');
+  // A blank title is as absent as a missing one: the server only omits the
+  // field when the transcript carries none, and an empty string in it would
+  // otherwise render a labelled row saying nothing.
+  const aiTitle = typeof data.aiTitle === 'string' ? data.aiTitle.trim() : '';
   const hasBreakdown =
     typeof data.tokenBreakdown?.input === 'number' ||
     typeof data.tokenBreakdown?.output === 'number';
@@ -490,6 +494,17 @@ function CostContent({ data }: { data: CostCommandData }) {
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Model</p>
             <p className="mt-1 break-all font-mono text-sm text-foreground">{model}</p>
           </div>
+          {/* Under the pair it describes, and across both columns: this is a
+              sentence Claude wrote, not a short identifier, so it wraps rather
+              than truncates. Sessions without one — every non-Claude provider,
+              and any Claude session whose transcript has no generated title —
+              render nothing here instead of a placeholder. */}
+          {aiTitle && (
+            <div className="sm:col-span-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">AI title</p>
+              <p className="mt-1 break-words text-sm font-semibold text-foreground">{aiTitle}</p>
+            </div>
+          )}
         </div>
       </div>
     </div>

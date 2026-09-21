@@ -38,10 +38,18 @@ function createModelsService(sessionModels: Record<string, string> = {}) {
   };
 }
 
+/**
+ * Stands in for the providers module's transcript reader. Defaults to "no
+ * generated title", which is what every session that is not a Claude one with
+ * a titled transcript answers.
+ */
+const noAiTitle = async () => null;
+
 async function executeCommand(
   commandName: string,
   context: Record<string, unknown>,
   sessionModels: Record<string, string> = {},
+  aiTitles: (sessionId: string) => Promise<string | null> = noAiTitle,
 ): Promise<Record<string, unknown>> {
   const router = createCommandsRouter({
     fileSystem: {
@@ -50,6 +58,7 @@ async function executeCommand(
     homeDirectory: () => '/home/test',
     appRoot: '/app',
     models: createModelsService(sessionModels) as never,
+    aiTitles: aiTitles as never,
     runtime: {
       uptime: () => 0,
       memoryUsage: () => ({ rss: 0, heapTotal: 0, heapUsed: 0, external: 0, arrayBuffers: 0 }),
@@ -111,4 +120,68 @@ test('cost and status commands report the same resolved model as /models', async
 
   assert.equal((cost.data as { model: string }).model, 'haiku');
   assert.equal((status.data as { model: string }).model, 'haiku');
+});
+
+test('cost command reports the ai-title read for the session', async () => {
+  const seen: string[] = [];
+  const result = await executeCommand(
+    '/cost',
+    { provider: 'claude', sessionId: 'session-1' },
+    {},
+    async (sessionId) => {
+      seen.push(sessionId);
+      return 'Generated From The Chat';
+    },
+  );
+
+  assert.deepEqual(seen, ['session-1'], 'the reader must be asked about this session');
+  assert.equal((result.data as { aiTitle?: string }).aiTitle, 'Generated From The Chat');
+});
+
+test('cost command omits aiTitle when the session has none', async () => {
+  const result = await executeCommand(
+    '/cost',
+    { provider: 'claude', sessionId: 'session-1' },
+    {},
+    async () => null,
+  );
+
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(result.data, 'aiTitle'),
+    false,
+    'an absent title must be an absent field, not a null the modal has to interpret',
+  );
+});
+
+test('cost command does not ask for an ai-title without a session', async () => {
+  const seen: string[] = [];
+  const result = await executeCommand(
+    '/cost',
+    { provider: 'claude' },
+    {},
+    async (sessionId) => {
+      seen.push(sessionId);
+      return 'Generated From The Chat';
+    },
+  );
+
+  assert.deepEqual(seen, [], 'a chat with no session row has no transcript to read');
+  assert.equal(Object.prototype.hasOwnProperty.call(result.data, 'aiTitle'), false);
+});
+
+test('cost command still reports usage when the ai-title reader throws', async () => {
+  const result = await executeCommand(
+    '/cost',
+    { provider: 'claude', sessionId: 'session-1', tokenUsage: { used: 120, total: 200 } },
+    {},
+    async () => {
+      throw new Error('transcript unreadable');
+    },
+  );
+
+  const data = result.data as { tokenUsage: { used: number; total: number }; model: string; aiTitle?: string };
+  assert.equal(data.tokenUsage.used, 120);
+  assert.equal(data.tokenUsage.total, 200);
+  assert.equal(data.model, 'default');
+  assert.equal(Object.prototype.hasOwnProperty.call(data, 'aiTitle'), false);
 });

@@ -10,6 +10,12 @@ type CommandsRouterDependencies = {
   homeDirectory(): string;
   appRoot: string;
   models: typeof import('../providers/index.js').providerModelsService;
+  /**
+   * Reads a session's Claude-generated `ai-title` from its transcript, or null
+   * when there is none to read. Supplied by the providers module; the commands
+   * module never reaches into a transcript itself.
+   */
+  aiTitles: typeof import('../providers/index.js').readSessionAiTitle;
   runtime: {
     uptime(): number;
     memoryUsage(): NodeJS.MemoryUsage;
@@ -25,6 +31,7 @@ const fs = dependencies.fileSystem;
 const os = { homedir: dependencies.homeDirectory };
 const APP_ROOT = dependencies.appRoot;
 const providerModelsService = dependencies.models;
+const readSessionAiTitle = dependencies.aiTitles;
 const process = dependencies.runtime;
 const router = express.Router();
 
@@ -59,6 +66,30 @@ const resolveCommandModel = async (modelsService, provider, context) => {
     requestedModel: context?.model,
   });
   return resolved.model;
+};
+
+/**
+ * Reads the session's generated title without letting a transcript problem fail
+ * the command.
+ *
+ * The title is an addition to a token-usage report, and the reader already
+ * treats "no title" as an ordinary answer rather than an error. This guards the
+ * seam itself: no session id yet, or a reader that throws on something the
+ * providers module did not anticipate, still leaves `/cost` reporting the usage
+ * the user asked for.
+ */
+const readCommandAiTitle = async (titlesReader, context) => {
+  const sessionId = context?.sessionId;
+  if (typeof sessionId !== "string" || !sessionId) {
+    return null;
+  }
+
+  try {
+    return (await titlesReader(sessionId)) || null;
+  } catch (error) {
+    console.error("Error reading the session ai-title:", error);
+    return null;
+  }
 };
 
 const executeModelsCommand = async (args, context, modelsService) => {
@@ -264,6 +295,7 @@ Custom commands can be created in:
     const tokenUsage = context?.tokenUsage || {};
     const provider = readModelProvider(context?.provider);
     const model = await resolveCommandModel(providerModelsService, provider, context);
+    const aiTitle = await readCommandAiTitle(readSessionAiTitle, context);
 
     const reportedUsed =
       Number(
@@ -336,6 +368,10 @@ Custom commands can be created in:
           : {}),
         provider,
         model,
+        // Only when the transcript actually carries one: the modal renders
+        // nothing for a session with no generated title, and an explicit null
+        // would be a field the client then has to decide to ignore.
+        ...(aiTitle ? { aiTitle } : {}),
       },
     };
   },

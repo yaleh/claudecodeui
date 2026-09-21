@@ -12,6 +12,7 @@ import {
   readFileTimestamps,
 } from '@/shared/utils.js';
 import type { IProviderSessionSynchronizer } from '@/shared/interfaces.js';
+import { readAiTitleEntry } from '@/modules/providers/services/session-ai-title.service.js';
 
 type ParsedSession = {
   sessionId: string;
@@ -259,8 +260,10 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
               foundCustomTitle = title;
             }
           } else if (eventType === 'ai-title') {
-            const title = typeof data.aiTitle === 'string' ? data.aiTitle : undefined;
-            if (!title?.trim()) {
+            // The same rule the `/cost` reader applies, so the title a session
+            // row stores and the one the command modal shows cannot drift.
+            const title = readAiTitleEntry(data, sessionId);
+            if (!title) {
               continue;
             }
 

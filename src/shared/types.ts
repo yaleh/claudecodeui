@@ -600,6 +600,14 @@ export type CostCommandData = {
   };
   provider?: string;
   model?: string;
+  /**
+   * The title Claude generated for this session, read from its transcript when
+   * the command ran — not the name the session is listed under, which a rename
+   * or a first-message fallback can have replaced. The server omits the field
+   * whenever the transcript has no generated title, so absence and emptiness
+   * both mean "render nothing"; it is never an "Unknown" placeholder.
+   */
+  aiTitle?: string;
 };
 
 /** Result payload of the chat `/status` slash command, carrying server version, uptime, provider/model and process telemetry for the command modal's status view. */
