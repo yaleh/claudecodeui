@@ -1,7 +1,7 @@
 ---
 id: gap-voice-trim-harness-quality
 title: 裁剪后的质量读数：标识符不降、CER 与句读在容差内（离线 fixture）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
