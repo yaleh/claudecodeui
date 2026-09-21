@@ -1,7 +1,7 @@
 ---
 id: gap-voice-settings-server-storage
 title: Voice 设置存服务端（按用户），浏览器不再以 localStorage 持久化 API key
-status: todo
+status: ready
 labels:
   - gap
 parent: null
