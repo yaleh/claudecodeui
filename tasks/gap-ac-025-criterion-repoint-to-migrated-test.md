@@ -1,7 +1,7 @@
 ---
 id: gap-ac-025-criterion-repoint-to-migrated-test
 title: AC-025：判据指回搬迁后的真实测试路径（model-library 网关端到端），并在测试侧固化溯源注释
-status: todo
+status: ready
 labels:
   - gap
   - defect
