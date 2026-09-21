@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { voicePlayer } from '@/modules/chat/utils/voicePlayer';
 import { transcribeVoice } from '@/shared/api';
+import { identifierFidelity } from '@/shared/identifierFidelity';
 import type { VoiceClip, VoiceInputState, VoicePlayState } from '@/shared/types';
 
 // Mobile-safe recording: iOS Safari 18.4+ supports webm/opus; older iOS needs mp4.
@@ -203,9 +204,21 @@ export function useVoiceInput(
           if (!res.ok) throw new Error(`transcribe ${res.status}`);
           const data = await res.json();
           if (cancelledRef.current) return;
-          const text = String(data?.text || '').trim();
-          if (text) onTranscript(text, shouldSend);
-          else onError?.('No speech detected');
+          const raw = String(data?.text || '');
+          const text = raw.trim();
+          if (text) {
+            // S0 reading for the voice link (GOAL-005 / AC-114): how much of what the
+            // recogniser returned survives — punctuation and case intact — into the text
+            // handed back to the composer. Nothing sits between those two texts yet, so this
+            // is the baseline reading, taken over the recogniser's identifiers and the
+            // composer's; it is also the exact boundary the deterministic identifier repair
+            // will be measured at, where a non-empty `missing` is a repair that rewrote a
+            // name the transcript never carried. Console-only by design: it changes no
+            // interaction and no request flow, and a reading that only exists on a debug
+            // branch is not a reading the real path can be judged by.
+            console.debug('[voice] identifier fidelity', identifierFidelity(raw, text));
+            onTranscript(text, shouldSend);
+          } else onError?.('No speech detected');
         } catch (e) {
           if (!cancelledRef.current) {
             onError?.(`Transcription failed: ${e instanceof Error ? e.message : String(e)}`);
