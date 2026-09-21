@@ -24,6 +24,11 @@ export { mapCliOptionsToSDK } from './list/claude/claude-runtime.provider.js';
 // Token-budget helpers: driven by the token-budget tests to prove the context
 // window follows the resolved model entry.
 export { extractCumulativeTokenBudget, extractTokenBudget } from './list/claude/claude-runtime.provider.js';
+// forwardNormalizedFrames: the normalizer→writer seam, driven by the frame-forwarding
+// test with a fake writer to prove every normalized frame (stream_delta included) is
+// actually handed over — the half neither the normalizer's tests nor the broadcaster's
+// tests can see.
+export { forwardNormalizedFrames } from './list/claude/claude-runtime.provider.js';
 export { createProviderTokenUsageService, summarizeClaudeTokenUsage } from './services/provider-token-usage.service.js';
 // ClaudeSessionsProvider: driven by the stream-event unwrap test, which needs the
 // normalizer's own class to prove a partial SDK frame reaches the wire as a
