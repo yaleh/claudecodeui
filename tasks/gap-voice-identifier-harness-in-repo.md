@@ -1,7 +1,7 @@
 ---
 id: gap-voice-identifier-harness-in-repo
 title: 把标识符修复的验证工装移入仓库并使 AC-112/AC-113 由红转绿
-status: ready
+status: done
 labels:
   - gap
 parent: null
