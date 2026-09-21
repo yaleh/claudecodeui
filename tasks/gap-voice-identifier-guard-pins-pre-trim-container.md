@@ -1,7 +1,7 @@
 ---
 id: gap-voice-identifier-guard-pins-pre-trim-container
 title: 重述 AC-115 判据的上传体护栏：它写死的 webm 容器已被出货的裁剪链改成 WAV
-status: todo
+status: ready
 labels:
   - gap
 parent: null
