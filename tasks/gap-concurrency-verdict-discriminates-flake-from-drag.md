@@ -2,7 +2,7 @@
 id: gap-concurrency-verdict-discriminates-flake-from-drag
 title: 并发判据把「与并发无关的逐文件偶发」记成「两个套件互拖红」：suite-concurrency-check 的退出码同时压住两个命题，致
   AC-103 间歇判红（99 次里 11 次）
-status: ready
+status: done
 labels:
   - gap
   - defect
