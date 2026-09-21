@@ -273,7 +273,7 @@ export function useChatSessionState({
    * there is no earlier layout to be "at the bottom" of.
    */
   const transcriptGeometryRef = useRef<TranscriptGeometry | null>(null);
-  /** The frame the follow writes its scroll offset in, so a burst of growths coalesces. */
+  /** The frame the observer-driven follow writes its scroll offset in, so a burst of growths coalesces. */
   const followFrameRef = useRef<number | null>(null);
   const wasNearTopRef = useRef(false);
   // The sidebar-search hit this transcript still owes the user a scroll to.
@@ -541,12 +541,13 @@ export function useChatSessionState({
   }, [isUserScrolledUp]);
 
   /**
-   * Answers a transcript resize by keeping a viewport that was at the bottom at
-   * the bottom.
+   * Judges a transcript resize: is this a growth the viewport was pinned across,
+   * and if so, where does the viewport belong now?
    *
-   * The trigger is geometry, not a React signal: nothing here reads the message
-   * count, the last row's text, or a store flush, so an implementation that
-   * waited for any of those would sleep through every growth this exists for.
+   * What this reads is geometry, and deliberately so: no branch below reads the
+   * message count, the last row's text, or a store flush, because a judgement
+   * made against those would be a judgement about the render rather than about
+   * the box the user is looking at.
    *
    * The judgement is made against the layout *before* the resize, and against
    * the user's intent rather than the current geometry. By the time this runs the
@@ -557,22 +558,28 @@ export function useChatSessionState({
    * pinned and is followed, anything above means a gesture created that drift and
    * keeps it — the growth then simply opens the gap the user was holding. A
    * viewport the user has left is not followed at all, whatever the offset says.
+   *
+   * What the caller does with the answer is the caller's business: the two
+   * triggers below want different things from the same judgement — one defers the
+   * write to the frame, the other cannot defer it — so this returns the offset
+   * rather than writing it. `null` is the answer for every resize that must be
+   * left alone, including the one that is already at the bottom.
    */
-  const followTranscriptGrowth = useCallback(() => {
+  const judgeTranscriptGrowth = useCallback((): { container: HTMLDivElement; bottom: number } | null => {
     const container = scrollContainerRef.current;
-    if (!container || !isActiveRef.current) return;
+    if (!container || !isActiveRef.current) return null;
     // A restore or a search jump owns the viewport until it has placed it. A pin
     // written first would land the transcript where the user did not ask to be,
     // and the restore would then read that offset as the position to keep.
-    if (pendingScrollRestoreRef.current || searchScrollActiveRef.current) return;
-    if (isLoadingMoreRef.current) return;
+    if (pendingScrollRestoreRef.current || searchScrollActiveRef.current) return null;
+    if (isLoadingMoreRef.current) return null;
 
     const previous = transcriptGeometryRef.current;
     transcriptGeometryRef.current = {
       scrollHeight: container.scrollHeight,
       clientHeight: container.clientHeight,
     };
-    if (!previous) return;
+    if (!previous) return null;
 
     // Whether the user is following is a question about intent, answered by the
     // input-source listener, and never re-derived from the geometry this call is
@@ -581,13 +588,33 @@ export function useChatSessionState({
     // viewport still at the bottom?" would answer no for every resize the follow
     // exists to answer yes to. The offset comparison below is a separate, second
     // guard for a viewport a gesture moved since the last layout.
-    if (isUserScrolledUpRef.current) return;
+    if (isUserScrolledUpRef.current) return null;
 
     const previousBottom = Math.max(previous.scrollHeight - previous.clientHeight, 0);
-    if (Math.abs(container.scrollTop - previousBottom) > TRANSCRIPT_FOLLOW_TOLERANCE_PX) return;
+    if (Math.abs(container.scrollTop - previousBottom) > TRANSCRIPT_FOLLOW_TOLERANCE_PX) return null;
+
+    const bottom = container.scrollHeight - container.clientHeight;
+    if (Math.abs(container.scrollTop - bottom) <= TRANSCRIPT_FOLLOW_TOLERANCE_PX) return null;
+    return { container, bottom };
+  }, []);
+
+  /**
+   * Answers a resize the observer delivered, one frame after it was delivered.
+   *
+   * The deferral is the whole reason this trigger keeps its own copy of the
+   * decision: the notification arrives with the frame's layout, and the frame is
+   * where a gesture can still land, so the pane's offset is re-read at write time
+   * and a viewport taken back in between is left where the gesture put it. The
+   * cost is that the growth is painted once before the write lands — which is why
+   * the growth this component committed itself is answered by the layout effect
+   * below instead, in the commit, where there is no frame to lose it in.
+   */
+  const followTranscriptGrowth = useCallback(() => {
+    const plan = judgeTranscriptGrowth();
+    if (!plan) return;
 
     if (followFrameRef.current !== null) return;
-    const observedTop = container.scrollTop;
+    const observedTop = plan.container.scrollTop;
     followFrameRef.current = requestAnimationFrame(() => {
       followFrameRef.current = null;
       const current = scrollContainerRef.current;
@@ -599,7 +626,7 @@ export function useChatSessionState({
       if (current.scrollTop < observedTop - TRANSCRIPT_FOLLOW_TOLERANCE_PX) return;
       writeScrollTop(current, current.scrollHeight - current.clientHeight);
     });
-  }, [writeScrollTop]);
+  }, [judgeTranscriptGrowth, writeScrollTop]);
 
   /**
    * Starts watching the transcript's geometry.
@@ -661,6 +688,36 @@ export function useChatSessionState({
     }
     observer.observe(container);
   });
+
+  /**
+   * Follows the growth this component itself just committed.
+   *
+   * A row that streams grows inside the commit that re-rendered it, and the
+   * observer's report of that growth arrives with a later frame's layout — a
+   * frame in which a reader sampling the pane from its own callback (how the
+   * transcript's pinning is measured, and how anything else watching a stream
+   * would read it) can still catch the box grown out from under a viewport that
+   * was on the bottom. React runs this effect in the same task as the DOM change
+   * it followed, before the browser gets the frame, so the offset is already at
+   * the bottom by the time any other task reads the pane; the observer's own
+   * callback then finds the pane already there and schedules nothing.
+   *
+   * Written immediately rather than deferred, and that is not a lost guard: a
+   * gesture cannot run inside this task, so there is no window for one to land
+   * in. A gesture made before the commit has already moved the offset, which is
+   * what the judgement above reads as the user holding the gap.
+   *
+   * Depends on the transcript this render was handed rather than on the layout:
+   * the growth of a streaming row *is* a change to that list, so the flush that
+   * grew it is exactly the render this runs in, and the renders that cannot have
+   * moved anything re-run it into an early return. Growth this component did not
+   * commit — an image finishing, the composer changing height — is still the
+   * observer's to answer.
+   */
+  useLayoutEffect(() => {
+    const plan = judgeTranscriptGrowth();
+    if (plan) writeScrollTop(plan.container, plan.bottom);
+  }, [judgeTranscriptGrowth, chatMessages]);
 
   const scrollToBottom = useCallback(() => {
     const container = scrollContainerRef.current;

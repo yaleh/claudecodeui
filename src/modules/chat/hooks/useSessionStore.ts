@@ -11,6 +11,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 
 import { api } from '@/shared/api';
 import type { LLMProvider, NormalizedMessage } from '@/shared/types';
+import { createLiveRowId, isLiveRowId } from '@/modules/chat/utils/liveRowIdentity';
 import { removeOptimisticUserEchoes } from '@/modules/chat/utils/sessionMessageReconciliation';
 import {
   hasReachedCachedTailTimeBoundary,
@@ -251,35 +252,59 @@ function isAssistantTextEchoedInSameTurnOnServer(
 }
 
 /**
- * After `finalizeStreaming`, the client holds a synthetic assistant `text` row
- * while the sessions API soon returns the same reply with a different id.
- * Those sit back-to-back in merged order and look like duplicate bubbles until
- * A persisted-tail refresh reconciles realtime. Collapse same-text assistant rows and
- * stream_placeholder → text when content matches.
+ * After `finalizeStreaming`, the client holds its own assistant `text` row while
+ * the sessions API soon returns the same reply with a different id. Those sit
+ * back-to-back in merged order and look like duplicate bubbles until a
+ * persisted-tail refresh reconciles realtime. Collapse same-text assistant rows
+ * and stream_placeholder → text when content matches.
+ *
+ * The collapse keeps the client's row of the pair, which is the whole point of
+ * doing it here rather than letting the echo replace it — see the comment on the
+ * survivor below.
  */
 function dedupeAdjacentAssistantEchoes(merged: NormalizedMessage[]): NormalizedMessage[] {
   const out: NormalizedMessage[] = [];
   for (const m of merged) {
     const prev = out[out.length - 1];
     if (prev) {
-      if (prev.kind === 'stream_delta' && m.kind === 'text' && m.role === 'assistant') {
+      const streamsIntoEcho = prev.kind === 'stream_delta' && m.kind === 'text' && m.role === 'assistant';
+      const echoesSettled = prev.kind === 'text'
+        && m.kind === 'text'
+        && prev.role === 'assistant'
+        && m.role === 'assistant';
+      const sameReply = (() => {
         const ps = (prev.content || '').trim();
-        const ms = (m.content || '').trim();
-        if (ps.length > 0 && ps === ms) {
+        return ps.length > 0 && ps === (m.content || '').trim();
+      })();
+
+      if ((streamsIntoEcho || echoesSettled) && sameReply) {
+        // One reply drawn twice: the row this client streamed the turn into,
+        // and the server's persisted echo of it. Which of the two survives is
+        // not a detail — the transcript keys a row by the store id it carries
+        // (`getIntrinsicMessageKey`), so dropping the client's row re-keys that
+        // turn, and a re-key is an unmount. The frame the two meet on is the one
+        // the turn settles on, where the pane is pinned to the bottom and the
+        // freshly inserted row is measured at its `content-visibility` intrinsic
+        // height for that frame: the pane's content collapses under the viewport,
+        // the browser clamps the offset, and the reader sees the transcript jump.
+        // The client's row is therefore the survivor — the echo still supplies
+        // its fields, being the persisted record, but not its identity.
+        if (isLiveRowId(prev.id)) {
+          // A row still streaming is not settled by the echo; its own
+          // `stream_end` settles it, and settling it here would leave
+          // `updateStreaming` with no row to find and a second one to mint.
+          out[out.length - 1] = streamsIntoEcho ? prev : { ...m, id: prev.id };
+          continue;
+        }
+        if (isLiveRowId(m.id)) {
           out[out.length - 1] = m;
           continue;
         }
-      }
-      if (
-        prev.kind === 'text'
-        && m.kind === 'text'
-        && prev.role === 'assistant'
-        && m.role === 'assistant'
-      ) {
-        const ms = (m.content || '').trim();
-        if (ms.length > 0 && ms === (prev.content || '').trim()) {
+        if (streamsIntoEcho) {
+          out[out.length - 1] = m;
           continue;
         }
+        continue;
       }
     }
     out.push(m);
@@ -309,7 +334,16 @@ function pruneRealtimeSupersededByServer(
       return false;
     }
 
-    if (message.kind === 'stream_delta' || message.id === `__streaming_${message.sessionId}`) {
+    if (isLiveRowId(message.id)) {
+      // The row this client streamed the turn into. It is what the transcript
+      // keys that turn by, and the server's echo of the same reply does not
+      // supersede it — the two are collapsed into one row, the client's, by
+      // `dedupeAdjacentAssistantEchoes`. Pruning it here would take the turn's
+      // identity with it and re-key the row on the refresh.
+      return true;
+    }
+
+    if (message.kind === 'stream_delta') {
       if (isAssistantTextEchoedInSameTurnOnServer(message, serverMessages, realtimeMessages)) {
         return false;
       }
@@ -804,24 +838,31 @@ export function useSessionStore() {
   }, []);
 
   /**
-   * Update or create a streaming message (accumulated text so far).
-   * Uses a well-known ID so subsequent calls replace the same message.
+   * Update or create the message the session is streaming into (accumulated text
+   * so far).
+   *
+   * The row is selected by what it *is* — the one turn in flight — rather than by
+   * a per-session constant, because the id it is created with is the id it keeps
+   * for the rest of its life: `finalizeStreaming` settles the row instead of
+   * re-minting it, so a second turn must not find the first one's row here and
+   * write over the reply it just finished.
    */
   const updateStreaming = useCallback((sessionId: string, accumulatedText: string, msgProvider: LLMProvider) => {
     const slot = getSlot(sessionId);
-    const streamId = `__streaming_${sessionId}`;
+    const existingIndex = slot.realtimeMessages.findIndex(m => m.kind === 'stream_delta' && isLiveRowId(m.id));
+    const existing = existingIndex >= 0 ? slot.realtimeMessages[existingIndex] : null;
     const msg: NormalizedMessage = {
-      id: streamId,
+      ...existing,
+      id: existing?.id ?? createLiveRowId(sessionId),
       sessionId,
       timestamp: new Date().toISOString(),
       provider: msgProvider,
       kind: 'stream_delta',
       content: accumulatedText,
     };
-    const idx = slot.realtimeMessages.findIndex(m => m.id === streamId);
-    if (idx >= 0) {
+    if (existingIndex >= 0) {
       slot.realtimeMessages = [...slot.realtimeMessages];
-      slot.realtimeMessages[idx] = msg;
+      slot.realtimeMessages[existingIndex] = msg;
     } else {
       slot.realtimeMessages = [...slot.realtimeMessages, msg];
     }
@@ -831,19 +872,24 @@ export function useSessionStore() {
 
   /**
    * Finalize streaming: convert the streaming message to a regular text message.
-   * The well-known streaming ID is replaced with a unique text message ID.
+   *
+   * The row's own id is kept. It is the transcript's React key, and a key that
+   * changes here is an unmount followed by a mount on the very frame the turn
+   * settles: the freshly inserted row is laid out at its `content-visibility`
+   * intrinsic height for that frame, the pane's content collapses under a
+   * viewport that is still on the bottom, and the browser clamps the offset to
+   * the top — a jump the user sees and nothing reports. Settling the row in
+   * place is what keeps the node it is drawn into.
    */
   const finalizeStreaming = useCallback((sessionId: string) => {
     const slot = storeRef.current.get(sessionId);
     if (!slot) return;
-    const streamId = `__streaming_${sessionId}`;
-    const idx = slot.realtimeMessages.findIndex(m => m.id === streamId);
+    const idx = slot.realtimeMessages.findIndex(m => m.kind === 'stream_delta' && isLiveRowId(m.id));
     if (idx >= 0) {
       const stream = slot.realtimeMessages[idx];
       slot.realtimeMessages = [...slot.realtimeMessages];
       slot.realtimeMessages[idx] = {
         ...stream,
-        id: `text_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         kind: 'text',
         role: 'assistant',
       };

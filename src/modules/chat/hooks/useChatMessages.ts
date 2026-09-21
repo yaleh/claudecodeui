@@ -5,6 +5,7 @@
 
 import type { ChatMessage,NormalizedMessage,SubagentActivity } from '@/shared/types';
 import { formatUsageLimitText } from '@/modules/chat/utils/chatFormatting';
+import { isLiveRowId } from '@/modules/chat/utils/liveRowIdentity';
 
 function formatToolResultContent(content: unknown): string {
   const text = typeof content === 'string' ? content : JSON.stringify(content);
@@ -298,6 +299,14 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
 
     const convertedStart = converted.length;
     const sharedMetadata = {
+      // The store row's identity, for the rows this client streams itself. A
+      // streaming row is re-projected on every delta with fresh text and a fresh
+      // timestamp, so this is the only field of it that does not change under
+      // the transcript — and the only one it can key the row by. Server rows are
+      // left without one deliberately: several providers mint their row ids
+      // afresh on every read, which would make the key *less* stable than the
+      // content-derived one below, not more.
+      ...(isLiveRowId(msg.id) ? { id: msg.id } : {}),
       displayText: msg.displayText,
       commandName: msg.commandName,
       commandMessage: msg.commandMessage,

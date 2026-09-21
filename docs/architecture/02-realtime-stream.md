@@ -37,11 +37,15 @@ it.
    kinds are control events that are deliberately *not* stored, and everything else —
    `text`, `tool_use`, `tool_result`, `thinking`, `error`, `task_notification` — just
    becomes a row.
-3. **A streaming reply is one row, not many.** `updateStreaming` writes a row with the id
-   `__streaming_<sessionId>` and replaces it in place on every flush. The transcript's
-   row count stays flat while the text grows. `finalizeStreaming` rewrites that same array
-   slot — new id, `kind: 'text'`, `role: 'assistant'` — so React reconciles instead of
-   remounting.
+3. **A streaming reply is one row, not many.** `updateStreaming` mints the row an id
+   (`live:<sessionId>:<n>`, one per turn, in
+   `src/modules/chat/utils/liveRowIdentity.ts`) and replaces the row in place on every
+   flush. The transcript's row count stays flat while the text grows. `finalizeStreaming`
+   rewrites that same array slot — `kind: 'text'`, `role: 'assistant'` — and keeps the id,
+   so React reconciles instead of remounting. That id is also carried onto the rendered
+   row (`useChatMessages`), which is what makes it the transcript's React key: a reply
+   whose key changes under it is unmounted and mounted, and a freshly mounted
+   `content-visibility: auto` row is laid out at its intrinsic height for that frame.
 4. **Whether you see deltas at all depends on the provider.** Cursor and OpenCode stream;
    Claude and Codex do not. Claude's live prose arrives as complete `text` rows, one per
    assistant message. Code that assumes "assistant reply implies `stream_delta`" is wrong
@@ -264,13 +268,14 @@ stateDiagram-v2
     Reconciled --> [*]
 ```
 
-`Finalized` and `Reconciled` are different rows in the same array position at different
-times. Finalising swaps the synthetic `__streaming_` id for a unique
-`text_<timestamp>_<random>` one and flips `kind` to `text`; the persisted reply that
-arrives moments later has yet another id. The store collapses the pair —
-`pruneRealtimeSupersededByServer` drops the live row when the same assistant text is
-already in the persisted turn, and `dedupeAdjacentAssistantEchoes` catches whatever slips
-past into `merged`. Without both, every completed reply would briefly appear twice.
+`Finalized` and `Reconciled` are different *states* of one row, and it is the same row.
+Finalising flips `kind` to `text` and keeps the id it was streamed under; the persisted
+reply that arrives moments later carries a different id of its own. The store collapses
+that pair — `pruneRealtimeSupersededByServer` keeps the live row when the same assistant
+text is already in the persisted turn, and `dedupeAdjacentAssistantEchoes` folds the
+echo's fields into it rather than letting the echo replace it, which is what keeps the
+row's id (and so its React key) fixed across the handover. Without both, every completed
+reply would briefly appear twice, or change identity at the frame it settles on.
 
 ## Incremental markdown rendering
 
@@ -434,28 +439,34 @@ question rendered twice in another.
   `message-unification.ts` exports exactly one function, `prepareTranscriptMessages`, and
   it runs on REST history reads for Claude and Codex only. No live frame passes through
   it.
-- **`__streaming_<sessionId>` is a real id that appears in the store.** It is matched by
-  name in `pruneRealtimeSupersededByServer`. Code that assumes every row id came from a
-  provider will trip over it.
-- **`finalizeStreaming` mutates the array slot in place.** It does not remove and append.
-  The id changes underneath the same position, on purpose, so the next turn's
-  `__streaming_<sessionId>` cannot overwrite the reply just settled. The id is also what
-  React keys the row by, so the swap is an unmount and a mount rather than a reconcile, and
-  a text selection does not survive it. Measured in `e2e/transcript-follow.spec.ts`
-  (AC-108): the remount happens while the row's box is momentarily `LazyMessageRow`'s
-  placeholder, the pane's `scrollHeight` collapses with it, and the browser clamps
-  `scrollTop` to what the collapsed box allows.
+- **`live:<sessionId>:<n>` is a real id that appears in the store.** It is minted by
+  `updateStreaming`, recognised by `isLiveRowId`, and matched in
+  `pruneRealtimeSupersededByServer`. Code that assumes every row id came from a provider
+  will trip over it.
+- **`finalizeStreaming` mutates the array slot in place and keeps the id.** It does not
+  remove and append, and it does not re-mint: the row is selected by `kind: 'stream_delta'`
+  *and* `isLiveRowId`, so the next turn cannot find the reply just settled and write over
+  it, and that reply keeps the id — and so the React key — it was streamed under. A key
+  that changed here would be an unmount and a mount at the frame the turn settles on, where
+  the freshly mounted row's `content-visibility: auto` box is laid out at its intrinsic
+  height for that frame: the pane's `scrollHeight` collapses under a viewport still on the
+  bottom, the browser clamps `scrollTop` to what the collapsed box allows, and a text
+  selection does not survive it. Measured frame by frame in `e2e/transcript-follow.spec.ts`
+  (AC-108) as one DOM node with the row's stamp moving, and pinned at the data level in
+  `src/modules/chat/tests/liveRowIdentity.test.tsx`.
 - **A streaming reply does not re-trigger the auto-scroll *effect*.** The follow effect
   depends on `chatMessages.length`, and an in-place rewrite does not change it. The pane is
   still held on the bottom while the reply streams, but by geometry rather than by that
   effect: every flush of the 100 ms buffer changes the row's box, and the `ResizeObserver`
   in `useChatSessionState.ts` follows a box that changed under a viewport that was already
-  at the bottom. It writes in a `requestAnimationFrame`, so the frame that receives a
-  growth is the single frame painted with the gap open and the next frame pins it — which
-  is what "follow" means here, and what AC-108 asserts frame by frame. A flush that hands
-  the row its *placeholder* instead collapses the box, and a collapse is a clamp rather
-  than a growth: the follow repairs it on the next frame, and the finalize above is the
-  case where nothing reports the restore. See [scrolling](./05-scrolling.md).
+  at the bottom. The growth a flush commits is answered in that commit — a layout effect in
+  `useChatSessionState.ts` writes the new offset in the same task as the DOM change it
+  followed, so every frame of the reply is drawn with the pane already at the bottom, which
+  is what AC-108 asserts frame by frame. The resize observer covers the growths no render
+  produced (an image finishing, the composer resizing), and that path still defers its write
+  one frame so that a gesture landing inside the frame wins over the pin. Deferring the
+  *committed* growth the same way leaves the growth frame painted with the gap open and pins
+  it one frame later: a visible jump per delta. See [scrolling](./05-scrolling.md).
 - **The 100 ms flush publishes the whole reply, not the delta.** Anyone optimising this
   into an incremental append has to also handle the case where a flush is skipped, which
   is exactly what the current design makes impossible to get wrong.
@@ -487,7 +498,9 @@ question rendered twice in another.
   block.** Extend `CONTEXT_SENSITIVE_LINE`; do not relax it. The equivalence property is
   the only thing making the two-half render legal.
 - **`stream_end` from a background session is close to a no-op.** `finalizeStreaming`
-  looks for `__streaming_<sid>` in that session's slot, and nothing put one there.
+  looks for the session's own live row — `kind: 'stream_delta'` with a `live:` id — and a
+  background session's deltas went to `appendRealtime` instead, so there is nothing to
+  settle.
 - **Frames without `kind` are dropped before anything else happens.** If events are
   clearly arriving and nothing renders, check that first.
 
@@ -496,8 +509,8 @@ question rendered twice in another.
 | If you touch | Also check |
 | --- | --- |
 | The 100 ms flush interval or the timer arming | `StreamingMarkdown`'s whole reason for existing is that interval. Slower means fewer re-parses but visibly chunkier text; faster means the split has to earn more. |
-| `updateStreaming` or the `__streaming_` id | `pruneRealtimeSupersededByServer` matches that id by name, and `dedupeAdjacentAssistantEchoes` special-cases a `stream_delta` row followed by an identical assistant `text` row. |
-| `finalizeStreaming` | It must keep the array position and must not append. `messageStreamEnd.test.tsx` covers the DOM-identity half; the duplicate-bubble half is covered by the store's dedupe. |
+| `updateStreaming` or the `live:` id | `isLiveRowId` is how the store, the projection and `pruneRealtimeSupersededByServer` recognise the client's own row, and `dedupeAdjacentAssistantEchoes` collapses the server's echo of it into it rather than over it. Anything that re-mints the id mid-turn re-keys the row, and a re-key at the settle is an unmount. |
+| `finalizeStreaming` | It must keep the array position, must not append, and must keep the id. `messageStreamEnd.test.tsx` covers the DOM-identity half; the duplicate-bubble half and the identity half are covered by the store's dedupe and by `liveRowIdentity.test.tsx`. |
 | The `shouldPersist` filter | Adding a kind to it makes that kind renderable, which means `normalizedToChatMessages` needs a case for it or it silently disappears. |
 | Anything in `splitStreamingMarkdown` | `streamingMarkdown.test.ts` for the boundary rules and `streamingMarkdownRenderEquivalence.test.tsx` for split-equals-unsplit on every prefix. Both must pass on the fenced and list fixtures. |
 | A provider's `normalizeMessage` | The kind table above. Adding `stream_delta` to a provider that had none makes the shared buffer and the missing `stream_end` suddenly matter for it. |

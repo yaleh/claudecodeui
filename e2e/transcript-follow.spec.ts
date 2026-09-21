@@ -912,24 +912,90 @@ type FollowSample = {
    * loses its height was re-laid out, one that loses its text was unmounted. */
   lastRowText: number;
   paneText: number;
+  /**
+   * The identity of the last assistant row's own DOM node, numbered as each node is first seen.
+   *
+   * A React key change is an unmount followed by a mount, so the node the row is drawn with is
+   * replaced rather than reconciled — and the replacement is invisible in every other field here,
+   * because the new node carries the same text and, a frame later, the same height. The number is
+   * what makes the replacement itself readable: the same number means the row kept its node.
+   */
+  lastRowNode: number;
+  /**
+   * The lazy wrapper's inline height while it is standing in for the row's content, in CSS pixels,
+   * and `null` while the content itself is mounted.
+   *
+   * `LazyMessageRow` writes `height: measuredHeight ?? 100` on the wrapper exactly when it is NOT
+   * rendering `children`, so a non-null reading is the placeholder state and the value is the box
+   * the pane's geometry was computed against.
+   */
+  lastRowPlaceholder: number | null;
+  /**
+   * The last assistant row's own `data-message-timestamp`, which is the row's identity as the
+   * app re-projects it: the store re-mints the live row's timestamp on every flush and again
+   * when the turn settles, and the wrapper carries whatever the current one is.
+   *
+   * Read next to `lastRowNode` it is what separates "the row was re-rendered" from "the row was
+   * replaced": a stamp that changes while the node does not is one row re-projected in place,
+   * which is the pair every delta used to produce as a re-key. A run in which the stamp never
+   * changes never re-projected the row at all, so it cannot say anything about the remount.
+   */
+  lastRowStamp: string | null;
+  /** The content column's own laid-out height — what the rows add up to, independent of the pane. */
+  contentHeight: number;
 };
 
 /** One sample as a single line, for the readings that have to fit in a gate's excerpt. */
 const describeSample = (sample: FollowSample, index: number, marked = false) =>
   `${index}${marked ? '*' : ''}@t${sample.t}:top${Math.round(sample.scrollTop)}/h${Math.round(sample.scrollHeight)}-c${Math.round(sample.clientHeight)}`
   + `=gap${Math.round(sample.gap)},row${Math.round(sample.lastRowHeight)},n${sample.rows},pane${sample.pane}/${sample.panes}`
-  + `,text${sample.lastRowText}/${sample.paneText}`;
+  + `,text${sample.lastRowText}/${sample.paneText}`
+  + `,col${Math.round(sample.contentHeight)},node${sample.lastRowNode}`
+  + `,stamp${sample.lastRowStamp === null ? '-' : sample.lastRowStamp.slice(11, 23)}`
+  + (sample.lastRowPlaceholder === null ? '' : `,ph${sample.lastRowPlaceholder}`);
+
+/**
+ * One layout the content column went through, as the probe's own observer saw it.
+ *
+ * The app's follow is driven by exactly this signal, so this is the same evidence the follow had.
+ * It is a *trace* rather than a per-frame sample because the excursion being pinned here can
+ * begin and end inside one frame, where a once-a-frame read would never see it.
+ */
+type ContentHeightEntry = {
+  /** Milliseconds since the page's time origin, as the observer delivered it. */
+  t: number;
+  /** The content column's border-box height, in CSS pixels. */
+  height: number;
+};
+
+/**
+ * One row added to or removed from the transcript, as the probe's own observer saw it.
+ *
+ * This is the only place a React unmount/mount is directly visible: the DOM node itself is
+ * created or destroyed, which no per-frame geometry read can distinguish from a re-render.
+ */
+type RowMutationEntry = {
+  t: number;
+  kind: 'added' | 'removed';
+  /** The row's own `data-message-timestamp`, present on the lazy wrapper for both kinds. */
+  stamp: string | null;
+};
 
 /**
  * Starts sampling the pane once a frame, each reading taken after the frame's rendering
  * steps and after every ResizeObserver callback they ran.
  *
- * The frame-then-task placement is the whole instrument. The follow defers its write by one
- * frame — `followTranscriptGrowth` schedules the `scrollTop` write in a
- * `requestAnimationFrame` — so a read taken inside a frame callback, which is what the
- * criterion forbids, reports the geometry the browser has not laid out yet and would say
- * "pinned" no matter what the follow did. A read one frame later sees a laid-out box, and
- * that is what both the gap and the row height below are read from.
+ * The frame-then-task placement is the whole instrument. A read taken inside a frame callback,
+ * which is what the criterion forbids, reports a box the browser has not laid out yet — layout is
+ * what a frame's own rendering steps end with, so a read before them measures the geometry the
+ * previous frame left — and would say "pinned" no matter what the follow did. A read one frame
+ * later sees the box that frame's rendering steps produced and the paint showed, and that is what
+ * both the gap and the row height below are read from.
+ *
+ * Which frame the follow writes in is deliberately not assumed here. `followTranscriptGrowth`
+ * writes from the resize callback that received the growth, but a sampler that only measured a
+ * write whose timing it already knew would be measuring its own model of the follow instead of
+ * the pane, so nothing below depends on that.
  */
 const startFollowSampler = (page: Page) =>
   page.evaluate(() => {
@@ -945,11 +1011,82 @@ const startFollowSampler = (page: Page) =>
       panes: number;
       lastRowText: number;
       paneText: number;
+      lastRowNode: number;
+      lastRowStamp: string | null;
+      lastRowPlaceholder: number | null;
+      contentHeight: number;
     };
+    type HeightEntry = { t: number; height: number };
+    type MutationEntry = { t: number; kind: 'added' | 'removed'; stamp: string | null };
+
+    // A DOM node's identity, numbered on first sight. Weak, so it annotates the tree without
+    // keeping any of it alive — including the nodes a remount throws away, whose numbers are
+    // never reused.
+    const nodeIds = new WeakMap<Element, number>();
+    let nextNodeId = 0;
+    const nodeId = (element: Element) => {
+      let id = nodeIds.get(element);
+      if (id === undefined) {
+        id = (nextNodeId += 1);
+        nodeIds.set(element, id);
+      }
+      return id;
+    };
+
     const panes: Element[] = [];
+    const contentHeightTrace: HeightEntry[] = [];
+    const rowMutations: MutationEntry[] = [];
+    let watchedContent: Element | null = null;
+    let contentObserver: ResizeObserver | null = null;
+    let mutationObserver: MutationObserver | null = null;
+
+    /** The content column the rows live in: the pane's last child, as the follow's own observer is pointed. */
+    const contentColumnOf = (pane: HTMLElement) =>
+      (pane.querySelector(':scope > div:last-child') as HTMLElement | null);
+
+    /**
+     * Points both probes at whatever content column is current.
+     *
+     * Re-aimed on every read rather than installed once, because the pane and its column are
+     * ordinary React output: a remount that replaced either would otherwise leave the probes
+     * watching a detached node and quietly recording nothing.
+     */
+    const aimProbes = (pane: HTMLElement) => {
+      const content = contentColumnOf(pane);
+      if (!content || content === watchedContent) return;
+      contentObserver?.disconnect();
+      contentObserver = new ResizeObserver(() => {
+        contentHeightTrace.push({ t: Math.round(performance.now()), height: Math.round(content.getBoundingClientRect().height) });
+      });
+      contentObserver.observe(content);
+
+      // `subtree` because the wrappers are re-created inside the column, and the row's own node
+      // is what is being watched: React removes the old one and inserts the new one, so both
+      // halves of a remount are recorded rather than only the arrival.
+      mutationObserver?.disconnect();
+      mutationObserver = new MutationObserver((records) => {
+        for (const record of records) {
+          for (const node of Array.from(record.addedNodes)) {
+            if (node instanceof Element && node.matches('[data-message-timestamp]')) {
+              rowMutations.push({ t: Math.round(performance.now()), kind: 'added', stamp: node.getAttribute('data-message-timestamp') });
+            }
+          }
+          for (const node of Array.from(record.removedNodes)) {
+            if (node instanceof Element && node.matches('[data-message-timestamp]')) {
+              rowMutations.push({ t: Math.round(performance.now()), kind: 'removed', stamp: node.getAttribute('data-message-timestamp') });
+            }
+          }
+        }
+      });
+      mutationObserver.observe(content, { childList: true, subtree: true });
+      watchedContent = content;
+      contentHeightTrace.push({ t: Math.round(performance.now()), height: Math.round(content.getBoundingClientRect().height) });
+    };
+
     const read = (): Sample | null => {
       const pane = document.querySelector('.chat-messages-pane') as HTMLElement | null;
       if (!pane) return null;
+      aimProbes(pane);
       const paneIndex = panes.indexOf(pane);
       if (paneIndex === -1) {
         panes.push(pane);
@@ -961,6 +1098,12 @@ const startFollowSampler = (page: Page) =>
         .filter((row) => !row.parentElement?.closest('[data-message-timestamp]'));
       const assistants = Array.from(pane.querySelectorAll('.chat-message.assistant')) as HTMLElement[];
       const last = assistants[assistants.length - 1];
+      // The wrapper the row's content is drawn inside. Its inline height exists only while the
+      // wrapper is standing in for that content, so reading it is how the placeholder state is
+      // told from the mounted one.
+      const wrapper = last?.closest('[data-message-timestamp]') as HTMLElement | null;
+      const placeholder = wrapper && wrapper.style.height ? parseFloat(wrapper.style.height) : null;
+      const content = contentColumnOf(pane);
       return {
         t: Math.round(performance.now()),
         gap: pane.scrollHeight - pane.scrollTop - pane.clientHeight,
@@ -973,9 +1116,18 @@ const startFollowSampler = (page: Page) =>
         panes: document.querySelectorAll('.chat-messages-pane').length,
         lastRowText: last ? (last.textContent ?? '').length : 0,
         paneText: (pane.textContent ?? '').length,
+        lastRowNode: last ? nodeId(last) : 0,
+        lastRowStamp: wrapper?.getAttribute('data-message-timestamp') ?? null,
+        lastRowPlaceholder: placeholder,
+        contentHeight: content ? Math.round(content.getBoundingClientRect().height) : 0,
       };
     };
-    const state = { samples: [] as Sample[], running: true };
+    const state = {
+      samples: [] as Sample[],
+      contentHeightTrace,
+      rowMutations,
+      running: true,
+    };
     (window as unknown as { __ac108: typeof state }).__ac108 = state;
     const tick = () => {
       if (!state.running) return;
@@ -990,12 +1142,30 @@ const startFollowSampler = (page: Page) =>
     tick();
   });
 
-/** Stops the sampler and returns everything it read. */
+/**
+ * Stops the sampler and returns everything it read.
+ *
+ * The two traces ride along with the per-frame samples because they are the same evidence at a
+ * finer grain: the growth the rows produce is what the frame samples count, and the column's own
+ * height, recorded the moment the browser re-laid it out, is what says whether a frame's reading
+ * was taken against the real content or against a box that had briefly been something else.
+ */
 const stopFollowSampler = (page: Page) =>
   page.evaluate(() => {
-    const state = (window as unknown as { __ac108: { running: boolean; samples: FollowSample[] } }).__ac108;
+    const state = (window as unknown as {
+      __ac108: {
+        running: boolean;
+        samples: FollowSample[];
+        contentHeightTrace: ContentHeightEntry[];
+        rowMutations: RowMutationEntry[];
+      };
+    }).__ac108;
     state.running = false;
-    return state.samples;
+    return {
+      samples: state.samples,
+      contentHeightTrace: state.contentHeightTrace,
+      rowMutations: state.rowMutations,
+    };
   });
 
 test.describe.configure({ mode: 'serial', timeout: 180_000 });
@@ -1523,6 +1693,23 @@ test.describe('transcript follow in a real browser', () => {
       downwardWrites,
       `nothing may write the offset towards the bottom in the window (${JSON.stringify(downwardWrites)})`,
     ).toEqual([]);
+
+    // The clock this case fixed belongs to the context, not to the case: `setFixedTime` installs
+    // the emulation for every page that follows in this file, and it changes what the cases after
+    // this one can read. Two ways, both of them AC-108's instrument rather than its subject:
+    //
+    //   * a fixed wall clock never moves, so a row the app re-stamps on every flush carries one
+    //     timestamp for the whole turn — and AC-108 reads the row's identity out of exactly that
+    //     attribute, so a fixed clock makes "the row was re-projected once per delta"
+    //     unobservable rather than false;
+    //   * the emulated `requestAnimationFrame` fires from the clock's own timer queue instead of
+    //     from a rendering update, so a reader sampling the pane from its own frame callback can
+    //     land between a commit and the resize observer that answers it — a window a real frame
+    //     callback cannot enter, and one that reads as a follow that arrived a frame late.
+    //
+    // Handing it back running from the real time is this case's teardown: nothing after it asks
+    // for a fixed clock, and the emulation's frame clock is what AC-108 samples through.
+    await page.clock.setSystemTime(new Date());
   });
 
   test('AC-108 a reply that streams in keeps the pane pinned while one row grows in place', async () => {
@@ -1606,7 +1793,7 @@ test.describe('transcript follow in a real browser', () => {
     // Long enough that the samples cover the turn finalizing as well as the reply arriving:
     // the pane has to be back at the bottom once there is nothing left to arrive.
     await page.waitForTimeout(900);
-    const samples = await stopFollowSampler(page);
+    const { samples, contentHeightTrace, rowMutations } = await stopFollowSampler(page);
     // Every assignment to `scrollTop` the page made while the reply was arriving, as the
     // instrument installed before the app's first script recorded them.
     const scrollWrites = await page.evaluate(() =>
@@ -1637,59 +1824,67 @@ test.describe('transcript follow in a real browser', () => {
     const growthOrigin = Math.max(firstGrowth, 0);
 
     // The span the criterion names — "流式全程" — is the reply's arrival, and the arrival is the
-    // transport's: it ends with the last delta the gateway sent, however long the turn then
-    // takes to settle. Two signatures say where the geometry stops being the reply's, and the
-    // window ends at whichever comes first:
-    //
-    //   * the clock — the last delta is painted a flush plus a frame after the frame that
-    //     carried it, so its own growth legitimately lands up to `AC108_STREAM_SETTLE_MS` late;
-    //   * the pane shrinking — text arriving only ever *adds* height, so the first frame that
-    //     takes height away is not the reply growing.
-    //
-    // The shrink is what the turn finalizing looks like. The streaming row is re-keyed when the
-    // turn ends, the remount replaces it with the lazy row's shorter placeholder for a frame,
-    // and the pane's scrollHeight collapses with it — which is also what makes the browser
-    // clamp the offset. That is a different event on a different frame, so it is measured in
-    // its own right below (`postArrival*`) instead of being folded into the reply's span. Left
-    // in, the restore that follows the collapse reads as one more growth of the last row, and
-    // the window would swallow the very excursion it must not be asked about.
+    // transport's: it ends with the last growth the last delta the gateway sent produced,
+    // however long the turn then takes to settle. The clock is what says where that is: a
+    // delta is painted a flush plus a frame after the frame that carried it, so its own growth
+    // legitimately lands up to `AC108_STREAM_SETTLE_MS` late.
     const deltaTimes = streamFrames
       .filter((frame) => frame.kind === 'stream_delta')
       .map((frame) => frame.t);
     const lastDeltaAt = deltaTimes.length ? deltaTimes[deltaTimes.length - 1] : 0;
+    // The first frame the reply's row lost its content on, read as the shape that failure has:
+    // the pane stopped having anything to scroll, i.e. `scrollHeight` fell back to the pane's
+    // own height on a frame the row had been taller than the pane. Text arriving only ever
+    // *adds* height, so the only ways there are for that to happen are the row being re-created
+    // under a new React key and measured at its `content-visibility` intrinsic height (which is
+    // what this task fixed), or the row being dropped outright.
+    //
+    // A pane that merely loses height is not this: the turn settling drops the activity
+    // indicator's padding, the pane's own content height follows it down, and the follow
+    // re-pins in the same frame. That frame is a reading of the geometry working, not of the
+    // reply collapsing, so it is deliberately not counted here.
     const firstCollapse = samples.findIndex((sample, index) => (
-      index > growthOrigin && samples[index - 1].scrollHeight - sample.scrollHeight > AC108_GAP_PX
+      index > growthOrigin
+      && samples[index - 1].scrollHeight - sample.scrollHeight > AC108_GAP_PX
+      && sample.scrollHeight <= sample.clientHeight + AC108_GAP_PX
     ));
     const lastStreamGrowth = samples.reduce((last, sample, index) => (
       growth[index] && sample.t <= lastDeltaAt + AC108_STREAM_SETTLE_MS ? index : last
     ), growthOrigin);
-    const streamEnd = Math.max(
-      growthOrigin,
-      Math.min(
-        lastStreamGrowth + 1,
-        firstCollapse === -1 ? samples.length - 1 : firstCollapse - 1,
-      ),
-    );
+    const streamEnd = Math.max(growthOrigin, lastStreamGrowth + 1);
     const inStream = (index: number) => index >= firstGrowth && index <= streamEnd;
     const streamWindow = samples
       .map((sample, index) => ({ sample, index }))
       .filter(({ index }) => inStream(index));
     const growthStepsInStream = growth.slice(growthOrigin, streamEnd + 1).filter(Boolean).length;
 
+    // The turn's own end, told apart from the reply's: the client's terminal frames, and the
+    // first sample taken after them. It is the frame the row stops being a stream and becomes a
+    // settled message, which is the one that used to re-key it.
+    const finalizeAt = streamFrames
+      .filter((frame) => frame.kind === 'stream_end' || frame.kind === 'complete')
+      .reduce((first: number, frame) => (first < 0 || frame.t < first ? frame.t : first), -1);
+    const settleFrame = finalizeAt < 0 ? -1 : samples.findIndex((sample) => sample.t >= finalizeAt);
+
     // The rows the transcript held while the reply was arriving. One entry per message,
     // mounted or not, so this is the DOM's reading of `chatMessages.length`.
     const rowsDuringStream = samples.slice(growthOrigin, streamEnd + 1).map((sample) => sample.rows);
     const rowCountsSeen = Array.from(new Set(rowsDuringStream));
 
-    // Every frame that is not the one a growth landed on must be at the bottom. The frame a
-    // growth lands on is the only exception, and it is an exception by construction:
-    // `followTranscriptGrowth` schedules its `scrollTop` write in a `requestAnimationFrame`,
-    // so the frame that receives the growth is painted with it and the next frame is the
-    // first that can be pinned again.
+    // Every frame of the reply's span, with no exception carved out for the frame a growth
+    // landed on: the criterion is "流式全程逐帧 gap ≤1px", and the two collapses that used to
+    // make that unachievable — the row re-created under a new React key on every flush, and
+    // again when the turn settled — are what this task fixed. Bounded on both sides, since a
+    // pane placed *past* the bottom is as far from pinned as one left above it.
+    const unpinned = samples
+      .map((sample, index) => ({ sample, index }))
+      .filter(({ index }) => index >= firstGrowth)
+      .filter(({ sample }) => Math.abs(sample.gap) > AC108_GAP_PX);
+    // The same reading kept as its two halves, so a red run still says which shape the failure
+    // had: frames with no growth on them that were left above the bottom (drift), and growth
+    // frames the next frame did not repair (a lag rather than a jump).
     const offBottom = streamWindow
       .filter(({ sample, index }) => !growth[index] && Math.abs(sample.gap) > AC108_GAP_PX);
-    // ...and each of those frames has to be repaired by the very next one, or the pane is
-    // drifting rather than following.
     const unrepaired = streamWindow
       .filter(({ sample, index }) => growth[index] && Math.abs(sample.gap) > AC108_GAP_PX)
       .filter(({ index }) => index + 1 >= samples.length || Math.abs(samples[index + 1].gap) > AC108_GAP_PX)
@@ -1698,22 +1893,40 @@ test.describe('transcript follow in a real browser', () => {
         gap: Math.round(samples[index].gap),
         nextGap: index + 1 < samples.length ? Math.round(samples[index + 1].gap) : null,
       }));
+    // The mechanism, from the DOM's side: how many distinct nodes the last assistant row was
+    // drawn into between the reply's first growth and the end of the sample, and in how many
+    // frames the row's own identity changed under it. One node with the stamp moving is one row
+    // re-projected in place, which is what a key that does not change buys; more than one node
+    // is the unmount/mount that used to clamp the pane, and a stamp that never moves is a run
+    // that never re-projected the row at all — and so cannot say the remount was survived.
+    const nodeRuns = samples.slice(growthOrigin).reduce<number[]>((runs, sample) => {
+      if (runs[runs.length - 1] !== sample.lastRowNode) runs.push(sample.lastRowNode);
+      return runs;
+    }, []);
+    const stampChanges = samples
+      .slice(growthOrigin)
+      .reduce((changes, sample, index) => {
+        const previous = index === 0 ? null : samples[growthOrigin + index - 1];
+        return previous && previous.lastRowStamp !== sample.lastRowStamp ? changes + 1 : changes;
+      }, 0);
     // How far the pane sits below the bottom at any frame — a follow that overshot would show
     // it, and an overshoot is the one excursion a deferral cannot explain. Its sign is the
     // whole assertion: the sampled gap is `scrollHeight - scrollTop - clientHeight`, so a
     // negative reading is an offset past the end, which no growth can produce.
     const minGap = Math.min(...streamWindow.map(({ sample }) => sample.gap));
-    // How far it sits above it at a frame a growth landed on. Measured, and bounded by the
-    // frame before it rather than by the growth itself: what the offset reads at that frame is
-    // the pane's own offset mid-rewrite, not a deferral of one step. See the note below.
+    // How far it sits above it at a frame a growth landed on — the frames the criterion used to
+    // have to exempt. Kept per-frame because they are what a regression would bring back, and
+    // because their `top` is the reading that told the two failures apart: an offset left at the
+    // previous bottom is a write that arrived a frame late, while an offset of 0 on a frame the
+    // pane had 1671px of content is the browser's own clamp after the row was re-created.
     const growthFrameGaps = streamWindow
       .filter(({ index }) => growth[index])
       .map(({ sample, index }) => ({ t: sample.t, gap: Math.round(sample.gap), top: Math.round(sample.scrollTop) }));
     const maxGrowthFrameGap = growthFrameGaps.length ? Math.max(...growthFrameGaps.map((entry) => entry.gap)) : 0;
     const maxLastRowHeight = Math.max(...samples.map((sample) => sample.lastRowHeight));
 
-    // What the pane does once the reply has fully arrived. Measured and printed: see the note
-    // at the assertions for why it is recorded rather than asserted.
+    // What the pane does once the reply has fully arrived. It is inside the asserted span, so
+    // this reading is what says how much of the settle the run actually covered.
     const postArrival = samples
       .map((sample, index) => ({ sample, index }))
       .filter(({ sample, index }) => index > streamEnd && Math.abs(sample.gap) > AC108_GAP_PX);
@@ -1767,7 +1980,22 @@ test.describe('transcript follow in a real browser', () => {
       lastDeltaAt,
       lastStreamGrowth,
       firstCollapse,
+      finalizeAt,
+      settleFrame,
       streamSpanFrames: streamWindow.length,
+      // ── the criterion itself: every frame from the reply's first growth on. ────────────────
+      unpinnedFrames: unpinned.map(({ sample, index }) => ({
+        index,
+        t: sample.t,
+        gap: Math.round(sample.gap),
+        top: Math.round(sample.scrollTop),
+        height: Math.round(sample.scrollHeight),
+        grew: growth[index] === true,
+      })),
+      // One node and a stamp that moved: the row was re-projected in place rather than
+      // replaced, over the frames where the old key would have replaced it once per flush.
+      nodeRuns,
+      stampChanges,
       offBottomFrames: offBottom.length,
       offBottomGaps: offBottom.map(({ sample }) => Math.round(sample.gap)),
       unrepairedFrames: unrepaired,
@@ -1814,6 +2042,38 @@ test.describe('transcript follow in a real browser', () => {
         .map((write) => `${sample.t}<-t${write.t}:${write.value}`)),
       zeroWrites: scrollWrites.filter((write) => write.value === 0).length,
       paneSwaps: Array.from(new Set(samples.map((sample) => `${sample.pane}/${sample.panes}`))),
+      // ── the mechanism probe ────────────────────────────────────────────────────────────────
+      // The last assistant row's DOM node, as numbered on first sight: a run of one number is a
+      // row that kept its node, a new number is the unmount+mount a React key change produces.
+      // Paired with the placeholder column, this separates the two ways the row can lose height —
+      // a fresh node carrying the same content (re-keyed) from a wrapper standing in for it
+      // (lazy placeholder) — which the geometry alone cannot tell apart.
+      lastRowNodeRun: samples.reduce<{ node: number; from: number; to: number }[]>((runs, sample, index) => {
+        const last = runs[runs.length - 1];
+        if (last && last.node === sample.lastRowNode) {
+          last.to = index;
+        } else {
+          runs.push({ node: sample.lastRowNode, from: index, to: index });
+        }
+        return runs;
+      }, []).map((run) => `${run.node}:${run.from}-${run.to}`),
+      // Every frame the row sat in the lazy placeholder rather than on its content.
+      placeholderFrames: samples
+        .map((sample, index) => ({ sample, index }))
+        .filter(({ sample }) => sample.lastRowPlaceholder !== null)
+        .map(({ sample, index }) => `${index}@t${sample.t}:h${sample.lastRowPlaceholder}`),
+      // Every layout the content column went through, as the observer the follow itself is driven
+      // by saw it. Printed as a delta from the previous entry so a dip that begins and ends inside
+      // one frame is visible as an excursion rather than buried in an absolute list — and bounded
+      // to the entries that actually moved, because the column re-lays out on every flush.
+      contentHeightMoves: contentHeightTrace
+        .map((entry, index) => ({ entry, index, previous: index > 0 ? contentHeightTrace[index - 1] : null }))
+        .filter(({ entry, previous }) => !previous || previous.height !== entry.height)
+        .map(({ entry, previous }) => `${entry.t}:${previous ? previous.height : 0}->${entry.height}`),
+      // Every row added to or removed from the transcript, which is the DOM's own account of a
+      // mount: nothing else in this file can see the node being created or destroyed.
+      rowMutationCount: rowMutations.length,
+      rowMutationTrace: rowMutations.map((entry) => `${entry.t}:${entry.kind}:${entry.stamp ?? '-'}`),
       // What the client was handed, and when, over the sampled window: the transport's own
       // account of the reply, next to the geometry it produced.
       frameKinds: streamFrames.reduce<Record<string, number>>((counts, frame) => {
@@ -1863,13 +2123,18 @@ test.describe('transcript follow in a real browser', () => {
       `the reply must be one row rewritten in place, not rows appended; the row count moved through ${JSON.stringify(rowCountsSeen)} while it streamed`,
     ).toHaveLength(1);
 
-    // The follow itself, over the span the criterion names — every frame of the reply's
-    // arrival: pinned at every frame that is not a growth, and back at the bottom by the very
-    // next frame after one that is. That pair is what this criterion holds the implementation
-    // to, and it is the strictest form the reading supports: a growth frame is exempt from the
-    // 1px bound because the offset there is measured at 0 rather than at `bottom - step` (see
-    // the note below), which is states away from a one-frame deferral — but it is not exempt
-    // from being repaired, so drift cannot hide behind the exemption.
+    // The follow itself, in the form the criterion is written in now that the two collapses
+    // are fixed: from the frame the reply's row first grew on until the sample ends, every
+    // frame is at the bottom, with no exemption for the frame a growth landed on. The turn
+    // settling is inside that span too — it no longer re-keys the row, so it no longer opens a
+    // gap the span would have to exclude.
+    expect(
+      unpinned.map(({ index, t, gap, top, grew }) => ({ index, t, gap, top, grew })),
+      `the pane must be at the bottom at every frame of the reply (${samples.length} frames sampled, ${unpinned.length} off it)`,
+    ).toEqual([]);
+    // The same reading as its two halves. Kept because they fail differently and a red run
+    // should say which: `offBottom` is drift on frames nothing grew on, `unrepaired` is a
+    // growth frame the next frame did not pin again.
     expect(
       offBottom.map(({ sample, index }) => ({ t: sample.t, index, gap: Math.round(sample.gap) })),
       'the pane must be at the bottom at every frame of the stream the last row did not just grow on',
@@ -1878,6 +2143,38 @@ test.describe('transcript follow in a real browser', () => {
       unrepaired,
       'a frame that received a growth must be pinned again by the next frame',
     ).toEqual([]);
+
+    // ...and the mechanism behind that, asserted rather than left to the geometry, because the
+    // geometry alone cannot tell a row that was re-projected from one that never was: a run in
+    // which the reply arrived in a single settled render would show every frame pinned while
+    // proving nothing about the remount.
+    //
+    // Two readings, and the pair is the point. The reply's row has to have been re-projected
+    // over and over — its `data-message-timestamp` moves on every flush, and the transcript's
+    // key used to be derived from exactly that plus the row's text, which is what re-keyed it
+    // per delta — *while* the node it is drawn into stays the same one. A new node is the
+    // unmount/mount whose fresh `content-visibility` box is laid out at its intrinsic height,
+    // measured, for the frame the pane then has to survive.
+    expect(
+      stampChanges,
+      `the reply's row must be re-projected once per delta (${stampChanges} identity changes over ${samples.length - growthOrigin} frames; ${AC108_DELTA_COUNT} deltas were sent)`,
+    ).toBeGreaterThanOrEqual(AC108_DELTA_COUNT - 1);
+    expect(
+      nodeRuns,
+      `the reply's row must keep the node it is drawn into while it is re-projected (node identities seen: ${JSON.stringify(nodeRuns)})`,
+    ).toHaveLength(1);
+
+    // The turn's own end has to be inside the sample, or "pinned from the settle on" is a
+    // statement about a window in which nothing settled — the liveness half of the assertion
+    // that the row stopped being a stream without being replaced.
+    expect(
+      finalizeAt,
+      'the turn must settle inside the sampled window; the client reported no terminal frame',
+    ).toBeGreaterThan(0);
+    expect(
+      settleFrame,
+      `the sample must cover the frame the turn settled on (settled at t${finalizeAt}, last sample at t${samples[samples.length - 1].t})`,
+    ).toBeGreaterThan(streamEnd);
 
     // And the one thing a deferral cannot explain: an offset *past* the end. The gap is
     // `scrollHeight - scrollTop - clientHeight`, so a negative reading means the pane was
@@ -1889,58 +2186,47 @@ test.describe('transcript follow in a real browser', () => {
       `the pane may never be placed past the bottom (${Math.round(minGap)}px at the worst frame)`,
     ).toBeGreaterThanOrEqual(-AC108_GAP_PX);
 
-    // How large the excursion on a growth frame is — recorded, not asserted, and the reason is
-    // the measurement rather than a wish to avoid it. `maxGrowthFrameGapPx` and the
-    // `growthFrameGaps` trace in the readings above carry it: the offset at such a frame
-    // reads 0, not `bottom - step`, so what the sample catches there is the pane's offset
-    // *mid-rewrite* and not a one-step deferral. Asserting that the excursion is bounded by
-    // the growth encodes the deferral model and would fail on a reading that is true of the
-    // implementation; asserting nothing would let a real drift hide. So the bounds that do
-    // hold are asserted above — pinned everywhere else, repaired next frame, never past the
-    // end — and the magnitude is printed. The note below says what produces the offset and
-    // why it is out of scope here.
-
-    // What the turn does after the reply has arrived is recorded, not asserted, and this is
-    // the reason stated rather than a hole left open.
+    // What the two collapses were, and why the offsets they produced are no longer exempt
+    // from the bound asserted above.
     //
-    // Two readings need it, and they are not the same reading.
+    // Both had the same cause, and it is the row's React key rather than either observer. A
+    // key change is an unmount followed by a mount, and the freshly inserted `.chat-message`
+    // carries `content-visibility: auto` with `contain-intrinsic-size: auto 240px`, so for the
+    // frame it is laid out in it is a 240px box standing where a 1671px row was: the pane's
+    // content collapses under a viewport that is still on the bottom, the browser clamps the
+    // offset to the top, and the row is back at its real height before anything can report it.
+    // The follow then reads the clamped offset as a viewport the user moved and declines to
+    // pin it, which is why the excursions were offsets of 0 rather than `bottom - step`.
     //
-    // The growth-frame excursion above (offset 0, not `bottom - step`) is a *measured* clamp:
-    // the pane's offset reads 0 at the frame a delta lands on and is back at the bottom on the
-    // next one, at every delta of the stream, while the frames between are pinned. Something
-    // inside that frame takes the offset to 0 and the follow puts it back, and the probe here
-    // reads the state after both — which is the sanctioned sample point, so this is a real
-    // one-frame excursion and not a read of a half-finished write. What takes it to 0 is not
-    // proved by this run. `LazyMessageRow` is the standing suspect — it renders `children` only
-    // while a row is near the viewport and otherwise swaps them for a wrapper carrying an
-    // inline `height: measuredHeight ?? 100`, and `measuredHeight` is only ever set as a row
-    // *leaves*, so a re-parented row falls back to the 100px estimate and the pane's
-    // scrollHeight falls with it — but the observer runs at a 1200px `rootMargin` against a
-    // 1671px row, which reads as intersecting, so the suspicion is not yet the answer. The
-    // follow-up task owns finding it; the readings above (`growthFrameGaps`, `top: 0` at all
-    // 22 of them) are the evidence it starts from.
+    // The key came from the row's own identity, which changed twice over:
     //
-    // What the turn does once the reply has arrived is the second reading, and *there* the
-    // collapse is directly observed: `firstCollapse` catches the pane's scrollHeight falling to
-    // its own clientHeight with the last row's box down at 240px, which is the estimate plus
-    // the row's own chrome. It is a real unmount and mount:
-    // `finalizeStreaming` re-keys the row (`__streaming_<sid>` becomes a fresh `text_…` id so
-    // the next turn cannot overwrite the reply it just settled), React keys the transcript by
-    // that id, so the re-key is an unmount followed by a mount rather than a reconcile — and
-    // the replacement puts the pane's
-    // height back exactly where it was, so the ResizeObserver sees no change and never asks
-    // the follow whether the pane still belongs at the bottom. Nothing then reports the offset.
+    //   * on every flush — `updateStreaming` re-mints the live row's timestamp and its text, and
+    //     `getIntrinsicMessageKey` falls back to exactly that pair, so each delta re-keyed the
+    //     row it was streaming into;
+    //   * when the turn settled — `finalizeStreaming` re-keyed the row to a fresh id so the next
+    //     turn could not overwrite the reply it had just settled.
     //
-    // That is the offset half of AC-111's semantics — a scroll the user did not make must not
-    // move the transcript — and this task's scope excludes it twice over: 非目标 leaves
-    // "非用户输入滚动不改意图" to AC-111, and §A.3 of the Plan forbids changing the store's
-    // existing semantics (`realtimeMessages` identity included), which is where the re-key
-    // lives. Measured over runs it is intermittent, which is itself the evidence that it is a
-    // race between the remount and the observer's delivery: three frames off the bottom in one
-    // run, still off it 738ms later in another. Asserting it here would make this criterion
-    // flaky about a defect it does not own; dropping it silently would let a real one hide. So
-    // it is printed in the readings above as `postArrival*`/`lastSampleGap`/`firstCollapse`,
-    // and filed as its own task.
+    // Both are fixed at the source rather than worked around: the live row is minted one id per
+    // turn and keeps it across the settle (`liveRowIdentity.ts`, `useSessionStore`), the
+    // transcript carries it onto the rendered message (`useChatMessages`), and the follow writes
+    // its offset in the resize callback that received the growth rather than in a frame after it
+    // (`useChatSessionState`). The readings above are the evidence that the cause is gone —
+    // `nodeRuns` of length 1 with `stampChanges` at one per delta, and `firstCollapse` at -1,
+    // where before the fix it fired on the settling frame with the pane sitting at exactly its
+    // own height and the last row measured at 240px.
+    //
+    // There is a third identity change the first two hid, and it only became visible once the
+    // row's key stopped being derived from its content: the transcript holds the reply twice —
+    // the row this client streamed it into and the server's persisted echo of it, which the
+    // reconciliation collapses into one. Which of the pair survives that collapse decides the
+    // row's key, and it used to be whichever sorted first, so the row changed hands as the echo
+    // arrived and again on the refresh `complete` triggers. `useSessionStore` now keeps the
+    // client's row and folds the echo's fields into it
+    // (`dedupeAdjacentAssistantEchoes`, `pruneRealtimeSupersededByServer`).
+    //
+    // `growthFrameGaps` and `postArrival*` are kept as readings: they are the shape the run had
+    // when this criterion could not be written this way, and they are what a regression would
+    // bring back. They are no longer exempt from anything.
 
     // The selection rule: exactly one request carried the prompt, and it is the one the
     // gateway streamed. The rest — the SDK's own naming call — are recorded above.

@@ -334,6 +334,15 @@ export type ChatMessage = {
   content?: string;
   displayText?: string;
   timestamp: string | number | Date;
+  /**
+   * The session store's identity for the row behind this message, when the
+   * message is one this client streamed. Unlike the rest of a streaming message
+   * — its text and its timestamp are re-minted on every delta — this is stable
+   * for the turn's whole life, including the finalize that settles it, so it is
+   * what the transcript derives its React key from. A message without one has no
+   * store row of its own and is keyed by its content instead.
+   */
+  id?: string;
   images?: ChatImage[];
   files?: ChatAttachment[];
   reasoning?: string;

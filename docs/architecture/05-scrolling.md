@@ -521,15 +521,21 @@ a scroll event.
 ## Gotchas and why the code looks like this
 
 - **Streaming text re-follows through geometry, not through the message list.** `updateStreaming`
-  in `useSessionStore.ts` writes a row with the well-known id `__streaming_<sessionId>`. The
+  in `useSessionStore.ts` writes the turn's row, one id per turn (`live:<sessionId>:<n>`). The
   first flush appends it, so `chatMessages.length` changes once and the follow effect runs.
   Every flush after that replaces the same array slot, so the length is unchanged and *that*
   effect stays quiet — but the row is still getting taller, which resizes the content column,
   which the observer sees. A pinned pane is therefore held on the bottom by the same
   previous-layout comparison that covers a growing row, not by the browser and not by a
-  length-keyed effect.
+  length-keyed effect. The follow is asked twice per growth, and the pair is the point: the
+  flush that grows the row is a commit this component ran, and a layout effect in that
+  commit writes the new offset in the same task as the DOM change — before the browser gets
+  the frame — so the frame the growth lands on is painted already pinned. The observer's
+  callback covers the growth this component did *not* commit (an image finishing, the
+  composer resizing); it judges in the callback and defers the write one frame, re-reading
+  the offset at write time, because a gesture can still land in that frame and must win.
 - **`stream_end` does not re-run the effect, and usually has nothing to follow.** `finalizeStreaming`
-  rewrites the same slot in place, changing only the id, `kind` and `role`; both `stream_delta`
+  rewrites the same slot in place, changing only `kind` and `role`; both `stream_delta`
   and an assistant `text` map to exactly one row in `normalizedToChatMessages`. The length
   never moves. If the rewrite changes the row's height the observer follows it like any other
   resize; if it does not, the gap never opened and there is nothing to re-pin. Do not add a
