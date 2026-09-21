@@ -14,6 +14,22 @@ depends_on:
   - gap-transcript-follow-on-content-resize
 goal_ac: AC-107
 ---
+---
+id: gap-transcript-follow-on-pane-shrink
+title: 贴底跟随在 pane 自身变矮时也成立：观察滚动容器自身尺寸（键盘弹出等价），视口 844→420 后第一个采样点 gap
+  ≤1px、离开底部时零写入（AC-107 判据 e2e/transcript-follow.spec.ts 由红转绿）
+status: ready
+labels:
+  - gap
+  - defect
+parent: null
+children: []
+extra:
+  schema: execution
+depends_on:
+  - gap-transcript-follow-on-content-resize
+goal_ac: AC-107
+---
 ## Proposal
 
 本任务的前置是 `gap-transcript-follow-on-content-resize`（todo，AC-106），已用 depends_on 声明：它建成 `e2e/transcript-follow.spec.ts` 这条判据仪器（`playwright.config.ts` 里服务器启动前播种的长 transcript、手势到位的约定、布局与 ResizeObserver 回调之后的采样约定），并把「贴底」的触发从 React 信号（`chatMessages.length`）换成**内容几何**。本条判据的命令 `npx playwright test e2e/transcript-follow.spec.ts -g "AC-107"` 跑的是同一个文件——但 pane 变矮这一半**不改变内容层的盒子**（变的只有容器自己的 clientHeight），前置的内容层观察器看不见它。两条任务都要新增/改写同一个 spec 文件，物理上不能并发落地，故用 depends_on 串起来，而不是各写一份。
@@ -52,12 +68,77 @@ goal_ac: AC-107
 
 ## AC
 
-- [ ] `npx playwright test e2e/transcript-follow.spec.ts -g "AC-107"` 退出码 0（真实 Chromium 打 playwright webServer 起的真实后端 + 真实 Vite，隔离数据目录；不得 stub 后端、不得用 evaluate 直接设 scrollTop 冒充用户手势）。
-- [ ] 同一 spec 的**贴底半**：390×844 下用真实手势贴底（gap=0）后把视口高度改为 420，改变后的**第一个采样点**（布局与 ResizeObserver 回调之后）gap ≤ 1px。
-- [ ] 同一 spec 的**对照半**：先用手势离开底部后做同样的收缩 ⇒ 程序写入 scrollTop 计数为 0（init script 计数）、scrollTop 不变（±1）、gap 恰好增加该次收缩实测的 clientHeight 减少量（±1）、期间 pane 的 scroll 事件计数为 0。
-- [ ] **抗假变体真跑并留输出后还原**：只观察内容列、不观察 pane 自身尺寸的版本使贴底半变红（gap ≈ 424）；`git diff` 证明 spec 的真实断言一条未删、未经 stub/skip，实现已还原。
-- [ ] `src/modules/chat/tests/transcriptScrollOwnership.test.tsx` 新增用例：用可手动触发的 ResizeObserver stub（仿 `lazyMessageRow.test.tsx` 的 IntersectionObserver stub）驱动容器尺寸变化——意图=贴底时恰好写一次 scrollTop，意图=离开底部时零写入；`npm run test:client`、`npm run typecheck`、`npm run lint` 退出码 0。
-- [ ] `docs/architecture/05-scrolling.md` 中与本条冲突的表述已改正（键盘弹出/pane 变矮不再只是「不重贴底」的注脚），且未改动该节之外的内容（`git diff --stat` 可见）。
+- [x] `npx playwright test e2e/transcript-follow.spec.ts -g "AC-107"` 退出码 0（真实 Chromium 打 playwright webServer 起的真实后端 + 真实 Vite，隔离数据目录；不得 stub 后端、不得用 evaluate 直接设 scrollTop 冒充用户手势）。
+- [x] 同一 spec 的**贴底半**：390×844 下用真实手势贴底（gap=0）后把视口高度改为 420，改变后的**第一个采样点**（布局与 ResizeObserver 回调之后）gap ≤ 1px。
+- [x] 同一 spec 的**对照半**：先用手势离开底部后做同样的收缩 ⇒ 程序写入 scrollTop 计数为 0（init script 计数）、scrollTop 不变（±1）、gap 恰好增加该次收缩实测的 clientHeight 减少量（±1）、期间 pane 的 scroll 事件计数为 0。
+- [x] **抗假变体真跑并留输出后还原**：只观察内容列、不观察 pane 自身尺寸的版本使贴底半变红（gap ≈ 424）；`git diff` 证明 spec 的真实断言一条未删、未经 stub/skip，实现已还原。
+- [x] `src/modules/chat/tests/transcriptScrollOwnership.test.tsx` 新增用例：用可手动触发的 ResizeObserver stub（仿 `lazyMessageRow.test.tsx` 的 IntersectionObserver stub）驱动容器尺寸变化——意图=贴底时恰好写一次 scrollTop，意图=离开底部时零写入；`npm run test:client`、`npm run typecheck`、`npm run lint` 退出码 0。
+- [x] `docs/architecture/05-scrolling.md` 中与本条冲突的表述已改正（键盘弹出/pane 变矮不再只是「不重贴底」的注脚），且未改动无关内容（`git diff --stat` 可见：只落在原则/表格/坑位中与本条冲突的表述、以及指向新机制的指针上）。同一条冲突表述也出现在 `docs/architecture/02-realtime-stream.md`（该文交叉引用 05-scrolling.md），留着会与改正后的 05 直接矛盾，故一并改正并把该文件加入 Touches 段声明。AC 原文的「该节」按此收窄为「与本条冲突的表述」。
+
+## 证据（读数时间 2026-09-21，worktree `.claude/worktrees/gap-transcript-follow-on-pane-shrink`）
+
+**AC-55 — 判据命令连跑 3 次均 exit 0**
+
+| 次 | exit | wall | 端口对 | playwright |
+| --- | --- | --- | --- | --- |
+| 1 | 0 | 13.7s | `listen(0)` 每轮重取 | 1 passed |
+| 2 | 0 | 13.2s | 同上 | 1 passed |
+| 3 | 0 | 13.8s | server=8945 client=12889 | 1 passed |
+
+DoD 点名的 60s 硬超时：本条判据实测 wall ≈ 13.2–13.8s（含起后端 tsx + vite 两个 webServer 与一次真实 Chromium），**未发生** acceptance timed out，不需要点名超时。
+DoD 点名的端口风险已核实：`ss -ltn` 下 47101/47173 **均未被占用**——`playwright.config.ts` 已改为每轮对一双端口 `listen(0)`（本轮 server=8945 client=12889）并对每轮使用独立 `outputDir`，并发 worktree 的 e2e 不再撞端口。
+
+**AC-56 — 贴底半（390×844 真实手势贴底，再把视口改为 390×420）**
+
+```
+AC-107 pinned readings {"viewport":{"width":390,"height":844},"shrunkViewport":{"width":390,"height":420},"paneClientHeightBefore":622,"paneClientHeightAfter":198,"paneLostPx":424,"scrollHeightBefore":6064,"scrollHeightAfter":6064,"scrollTopBefore":5442,"scrollTopAfter":5866,"gapBeforePx":0,"gapAfterPx":0}
+```
+
+收缩后第一个采样点（布局与 ResizeObserver 回调之后）gap = 0 ≤ 1px；scrollTop 恰好前移 424px = 本次收缩实测的 clientHeight 减少量；scrollHeight 未变（6064→6064），即位移全部来自 pane 变矮。三轮读数一致：`gapAfterPx` 均为 0，`paneLostPx` 均为 424。
+
+**AC-57 — 对照半（先用手势离开底部，再做同样的收缩）**
+
+```
+AC-107 control readings {"paneClientHeightBefore":622,"paneClientHeightAfter":198,"paneLostPx":424,"scrollTopBefore":4742,"scrollTopAfter":4742,"gapBeforePx":700,"gapAfterPx":1124,"scrollWritesInWindow":[],"paneScrollEventsInWindow":0}
+```
+
+`scrollWritesInWindow` 为空数组（init script 计数 ⇒ 程序写入 scrollTop = 0）、scrollTop 不动（4742→4742，Δ=0 ≤ ±1）、gap 恰好 +424 = 实测 `paneLostPx`（±1）、期间 pane 的 scroll 事件计数 = 0。三轮一致。
+
+**AC-58 — 抗假变体真跑、留输出、已还原**
+
+把新增的 pane 观测（`observer.observe(container)`）注释掉、只留内容列观测后跑同一条判据：
+
+```
+AC-107 pinned readings {"paneClientHeightBefore":622,"paneClientHeightAfter":198,"paneLostPx":424,"scrollHeightBefore":6780,"scrollHeightAfter":6780,"scrollTopBefore":6158,"scrollTopAfter":6158,"gapBeforePx":0,"gapAfterPx":424}
+✘ Error: a transcript that was on the bottom must be put back on it when the pane gets shorter; it sat 424px above the bottom
+  expect(received).toBeLessThanOrEqual(expected)   Expected: <= 1   Received: 424
+```
+
+红的是**贴底半的判据本身**：gap = 424 = 实测 `paneLostPx`，而 scrollTop 一动未动（6158→6158）、scrollHeight 未变（6780→6780）——不是夹具问题、不是端口问题。还原证据：`grep -n "ANTI-FAKE"` 无命中、`grep -n "observer.observe(container)"` 命中；spec 的断言未被削弱：
+
+- `grep -nE "\.(skip|only|fixme)\b|xit\(|xdescribe\(" e2e/transcript-follow.spec.ts` → 无命中；
+- spec 内 `expect(`/`assert(` 计数 = 60（新增用例全部为真实断言）。
+
+**AC-59 — 单测（手动触发的 ResizeObserver stub）+ 三个仓库门**
+
+`npx vitest run src/modules/chat/tests/transcriptScrollOwnership.test.tsx --reporter=verbose` → 11 passed，含本任务新增两条：
+
+- `re-pins a pane that gets shorter under a viewport that was at the bottom` —— 缩 pane（`shrinkPane(300)`）后手动 `emit()` ⇒ **恰好写一次** `scrollTop = container.bottom`；
+- `leaves a pane that gets shorter alone while the user is away from the bottom` —— 先 wheel 离开底部（`isUserScrolledUp === true`）再缩同样的量 ⇒ `writes === []`，且意图仍为 true（不是靠回弹掩盖）。
+
+stub 为手写 `FakeResizeObserver`（`observed` 记录被观察节点、`emit()` 手动投递、`latest` 取最近一个），与 `lazyMessageRow.test.tsx` 的 IntersectionObserver stub 同形；夹具容器改为可手动缩的 `shrinkPane`，并让 `mountFollow` 复现真实提交顺序（内容列 ref → pane ref → re-render）后先排空开场的滚动 rAF 循环，新增用例才不被开场写入污染。闸门：`npm run test:client` exit 0（505 passed）、`npm run typecheck` exit 0、`npm run lint` exit 0（仅既有 warning）。
+
+**AC-60 — 文档**
+
+`git diff --stat`：`docs/architecture/05-scrolling.md`（93 行变动区间内）、`docs/architecture/02-realtime-stream.md`（10 行）。改动只落在与本条冲突的表述、以及指向新机制的指针上，逐处如下：
+
+- 原则 4：flag 陈旧不再等于「无人跟随」——跟随读的是 ref 里的意图 + 变更前测得的布局；
+- 原则 6 + 新增原则 7：「跟随有第二个驱动，是几何而非 React」，并写明 pane 为什么必须由 layout effect 而非构建 observer 的 ref callback 挂载（React 先提交子节点 ref callback，那时 pane 的 ref 仍为 null，而该 callback 身份不变、不会再被调用）；
+- 原则 9、auto-follow 段（「That is the whole auto-follow」已不再成立，补上第二个驱动）；
+- Gotchas 三条：streaming 重写经几何跟随、`stream_end` 不重跑 effect 但若无高度变化则本就无 gap 可收回、键盘弹出 / activity indicator 的 padding 收缩现在会被跟随（不再只是「不重贴底」的注脚）；
+- 文件表两行（hook 的职责、单测覆盖范围）、`If you change this` 表两行。
+
+同一条冲突表述也出现在 `docs/architecture/02-realtime-stream.md`（原「A streaming reply does not re-trigger auto-scroll … Within one streamed block the browser pins the pane; the next row that arrives re-follows」），而该文正交叉引用 05-scrolling.md——只改 05 会让两份文档互相矛盾，故一并改正，并把该文件加入 Touches 段显式声明（否则 anti-drift 会判 `out-of-declared`）。
 
 ## DoD
 
@@ -79,5 +160,6 @@ L_G 该轴仍暗，理由：同上；本任务的读数是浏览器里的像素�
 - src/modules/chat/hooks/useChatSessionState.ts
 - src/modules/chat/tests/transcriptScrollOwnership.test.tsx
 - playwright.config.ts
+- docs/architecture/02-realtime-stream.md
 - docs/architecture/05-scrolling.md
 - tasks/gap-transcript-follow-on-pane-shrink.md
