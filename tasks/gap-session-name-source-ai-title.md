@@ -35,7 +35,7 @@ extra:
 - [ ] 同一测试文件断言流式读取：夹具为一个「`ai-title` 在第 5 行、其后还有超过 20MB 内容」的 transcript，同步在读完该行后即停止（以读取字节数或读取行数的上界证明，且不得是整文件读取）；并附反例夹具（无 `ai-title`）证明仍能落到 `last-prompt` 兜底。
 - [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/cursor-session-name-preserve.test.ts` 退出码 0：磁盘上发现的 Cursor 会话先同步得到首行名，再经 `renameSessionById` 手工改名，随后重新同步（文件 mtime 变化），库里名字仍是手工名、`name_source` 为 `manual`；移除 `manual` 保护后该用例必须变红（在测试内用一个不带优先级判断的对照实现证明该用例能区分两者）。
 - [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/session-upsert-broadcast.test.ts` 退出码 0（在既有用例之外新增）：经真实 `renameSessionById`，订阅者收到恰好一条对应该会话、`summary` 为新名的 `session_upserted`；`ai-title` 升级经 watcher 刷新路径同样产生一条携带新名的 `session_upserted`。
-- [ ] 经真实路由：`PUT /api/providers/sessions/:sessionId`（真实 express 应用 + 临时 sqlite）返回 200，库里 `name_source` 为 `manual`，随后 GET 会话列表读到新名；对不存在的会话仍返回 404 且不广播（断言 `provider.routes` 现有校验行为不回归）。
+- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/session-rename-route.test.ts` 退出码 0：经真实路由 `PUT /api/providers/sessions/:sessionId`（真实 express 应用 + 临时 sqlite）返回 200，库里 `name_source` 为 `manual`，随后会话列表接口读到新名；对不存在的会话返回 404 且不广播；空名与超过 500 字符仍返回 400（既有校验不回归）。
 - [ ] `npm run typecheck` 与 `npm run lint` 退出码均为 0（含 boundaries 规则：新增测试只经模块 barrel 导入）。
 
 ## DoD
@@ -55,5 +55,6 @@ extra:
 - server/modules/providers/services/sessions.service.ts
 - server/modules/providers/tests/claude-session-title-source.test.ts (new)
 - server/modules/providers/tests/cursor-session-name-preserve.test.ts (new)
+- server/modules/providers/tests/session-rename-route.test.ts (new)
 - server/modules/websocket/tests/session-upsert-broadcast.test.ts
 - tasks/gap-session-name-source-ai-title.md
