@@ -48,7 +48,6 @@ import { PAUSE_CAPS, trimVoiceAudio } from '../../src/shared/voiceTrim.ts';
 const HERE = new URL('./', import.meta.url);
 const FIXTURE_DIR = new URL('fixtures/', HERE);
 const MODULE_URL = new URL('../../src/shared/voiceTrim.ts', HERE);
-const SELF_PATH = fileURLToPath(import.meta.url);
 
 /** The aggregate the AC pins; see `## AC` in the task. */
 const MIN_AGGREGATE_SAVED_RATIO = 0.15;
@@ -379,10 +378,21 @@ function measure(implementation, clips) {
 //            algorithm carries it
 //
 // Scope, stated so a green line is not read as more than it is: this proves the
-// harness neither imports nor declares a second detector. It cannot prove the
-// absence of an arbitrarily rewritten one, and it does not try. The canary below
-// is what keeps the checks honest — it runs each check over a source that
-// violates it, and the run fails if the check does not fire.
+// harness neither imports nor declares a second detector. "The harness" is the
+// directory, not this file — a copy is no less a copy for living in the file
+// next door, and a scan that only reads itself reports a clean harness while
+// having measured one file. It cannot prove the absence of an arbitrarily
+// rewritten one, and it does not try. The canary below is what keeps the checks
+// honest — it runs each check over a source that violates it, and the run fails
+// if the check does not fire.
+//
+// `declaredNames` anchors at the line start, so it reads the first word of a
+// line and not a name quoted inside a string. That precision is deliberate and
+// it is not the only reader of these files: the suite greps the same directory
+// for a declaration of the module's names without anchoring, and therefore also
+// reports a declaration-shaped literal. Both readers have to come back clean,
+// which is why the canary takes its name from the module rather than writing
+// one down here.
 // ---------------------------------------------------------------------------
 
 /** Top-level bindings the shipping module declares. */
@@ -447,12 +457,30 @@ function uniquenessViolations(src, shippingNames) {
   return violations;
 }
 
-/** Sources that violate one check each, run through the same scanner. */
-const UNIQUENESS_CANARY = [
-  { check: 'imports', src: "import { speechSegments } from './vad.mjs';\n" },
-  { check: 'names', src: 'function frameEnergies(samples, frame) {\n  return samples.length + frame;\n}\n' },
-  { check: 'table', src: `const caps = [${[...pauseTableValues()].join(', ')}];\n` },
-];
+/**
+ * Sources that violate one check each, run through the same scanner — so that a
+ * clean reading of this file is a reading from a scanner that has been shown to
+ * fire, rather than one that simply matched nothing.
+ *
+ * The `names` case declares one of the shipping module's own top-level names,
+ * and reads that name *from the module* instead of spelling one out in this
+ * file. Derived for the same reason the three checks are: a name written down
+ * here is a name that has to be rewritten here whenever the module renames it.
+ * It also keeps the canary legible to the source-text greps that read this file
+ * from elsewhere in the suite — those search for a declaration of one of the
+ * module's names and anchor on nothing, so a declaration-shaped string literal
+ * in this file is reported as a copy of the algorithm. This scanner anchors at
+ * the line start and can tell the two apart; a looser grep cannot, and the
+ * harness should not have to be the thing that teaches it the difference.
+ */
+function uniquenessCanaries(shippingNames) {
+  const [aShippingName] = shippingNames;
+  return [
+    { check: 'imports', src: "import { speechSegments } from './vad.mjs';\n" },
+    { check: 'names', src: `const ${aShippingName} = 0;\n` },
+    { check: 'table', src: `const caps = [${[...pauseTableValues()].join(', ')}];\n` },
+  ];
+}
 
 // ---------------------------------------------------------------------------
 // Reporting.
@@ -558,7 +586,6 @@ function main() {
   const failures = [];
   const clips = loadFixtures();
   const moduleSrc = readFileSync(fileURLToPath(MODULE_URL), 'utf8');
-  const selfSrc = readFileSync(SELF_PATH, 'utf8');
   const shippingNames = shippingTopLevelNames(moduleSrc);
 
   console.log('voice-trim savings — measured on src/shared/voiceTrim.ts');
@@ -608,22 +635,42 @@ function main() {
   // 4. Uniqueness. The canary first: if the scanner cannot fire, its silence on
   //    the harness means nothing.
   console.log('\nuniqueness (the harness must measure the module, not a second copy of it):');
-  const canariesFired = UNIQUENESS_CANARY.filter((c) => uniquenessViolations(c.src, shippingNames).length);
+  const canaries = uniquenessCanaries(shippingNames);
+  const canariesFired = canaries.filter((c) => uniquenessViolations(c.src, shippingNames).length);
   console.log(
-    `  canary=${canariesFired.length === UNIQUENESS_CANARY.length ? 'RED' : 'GREEN'} ` +
-      `${canariesFired.length}/${UNIQUENESS_CANARY.length} injected copies detected`,
+    `  canary=${canariesFired.length === canaries.length ? 'RED' : 'GREEN'} ` +
+      `${canariesFired.length}/${canaries.length} injected copies detected`,
   );
-  if (canariesFired.length !== UNIQUENESS_CANARY.length) {
+  if (canariesFired.length !== canaries.length) {
     failures.push(
-      `[uniqueness] canary not detected (${canariesFired.length}/${UNIQUENESS_CANARY.length}) — ` +
+      `[uniqueness] canary not detected (${canariesFired.length}/${canaries.length}) — ` +
         'the scanner is blind, so a clean harness reading is worthless',
     );
   }
 
-  const violations = uniquenessViolations(selfSrc, shippingNames);
+  // Every file the harness ships, this one included. The `fixtures/` subtree is
+  // not walked — it is audio, and both this scanner and the suite's grep stop at
+  // the same edge, so neither can be read as covering more than the other.
+  const harnessDir = fileURLToPath(HERE);
+  const harnessFiles = readdirSync(harnessDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .sort();
+
+  const violations = [];
+  let imports = 0;
+  let declarations = 0;
+  for (const file of harnessFiles) {
+    const src = readFileSync(`${harnessDir}${file}`, 'utf8');
+    imports += importedFrom(src).length;
+    declarations += declaredNames(src).size;
+    for (const violation of uniquenessViolations(src, shippingNames)) {
+      violations.push(`${file}: ${violation}`);
+    }
+  }
   console.log(
     `  harness=${violations.length ? 'RED' : 'GREEN'} checked: ` +
-      `${importedFrom(selfSrc).length} import(s), ${declaredNames(selfSrc).size} declaration(s), ` +
+      `${harnessFiles.length} file(s), ${imports} import(s), ${declarations} declaration(s), ` +
       `${shippingNames.size} module name(s), ${pauseTableValues().size} pause-table value(s)`,
   );
   for (const violation of violations) {
