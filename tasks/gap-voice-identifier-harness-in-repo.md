@@ -65,7 +65,7 @@ L_G 该轴仍暗，理由：同上；本任务是验证工装的入库与判据�
 
 ## 完成记录
 
-实现提交 ff72fb7f（分支 task/gap-voice-identifier-harness-in-repo）。判据命令均在真实仓库上跑，候选由 `git ls-files` 现取；提交后候选数 1962，已包含本任务新入库的 6 个文件名。
+实现提交 ff72fb7f + 3ae3ee35（分支 task/gap-voice-identifier-harness-in-repo；后者把 recovery 判据从自定义余量收紧到 AC 的不变量「严格递增」）。判据命令均在真实仓库上跑，候选由 `git ls-files` 现取；提交后候选数 1962，已包含本任务新入库的 6 个文件名。
 
 - `node experiments/voice-identifiers/run-false-positive.mjs` → 退出码 0
   `candidates=1962 negatives=44 falsePositives=0`，附 `nearWords=21 minNearWords=12`（21 条近似词的编辑距离由运行器用模块自身的归一化逐个重算为 1，并核对锚点仍是活候选，故该声明不会静默腐烂）
