@@ -57,13 +57,13 @@ goal_ac: AC-110
 
 ## AC
 
-- [ ] `npx playwright test e2e/transcript-follow.spec.ts -g "AC-110"` 退出码 0（真实 Chromium 打真实的 vite + 后端，隔离数据目录；不得 stub 后端、不得用 evaluate 直接改 store 或直接设 scrollTop 冒充手势），并把 wall time 记入完成记录。
-- [ ] 同一条用例内，夹具前置断言成立且由命令自身产出：`pane.scrollHeight <= pane.clientHeight`（首屏不可滚）、可见 `.chat-message` 数 = `SESSION_MESSAGES_PAGE_SIZE`（20）、服务端仍有更早的页（`hasMore`）。
-- [ ] 向上翻页由**真实手势**触发且 prepend 真的发生：`page.mouse.wheel` 向上后可见行数由 20 增到 40（或出现更早 message id）；⛔ 不得直接调用 `loadOlderMessages`、不得 evaluate 改 store、不得直接设 scrollTop。
-- [ ] 恢复完成后的 2s 窗口内（含一次经真实 React 重渲染的「最后一行就地长高」）：原首行相对 pane 顶部的偏移变化 ≤ 2px、期间 `scrollTop` 不增大（±1）、且 `gap > 2px`（未被 pin 到底部）；采样点在布局与 ResizeObserver 回调之后（⛔ 不得用 rAF 内直接读 scrollHeight 当绘制态）。
-- [ ] 抗假变体真跑并留输出后还原：把恢复结束后的 mode 置回「恢复前的 mode」（首屏不可滚时即「跟随」）⇒ 本条必须红，且红灯出自本条自己的断言；`git diff` 证明 spec 真实断言一条未删、未经 stub/skip。若该形态下「就地长高」不敏感，按 Proposal 的偏离条款取得红灯并把偏离记入完成记录。
-- [ ] `src/modules/chat/tests/transcriptScrollOwnership.test.tsx` 新增用例：恢复写与 clamp 之后意图仍为「脱离」，且此后内容增长产生**零次** scrollTop 写入；`npm run test:client` 退出码 0。
-- [ ] `npm run typecheck` 与 `npm run lint` 退出码 0（`npm run lint` = `oxlint src/ server/`；⛔ 裸 `npx oxlint` 在干净 develop 上就退出 1，不作为判据）。
+- [x] `npx playwright test e2e/transcript-follow.spec.ts -g "AC-110"` 退出码 0（真实 Chromium 打真实的 vite + 后端，隔离数据目录；不得 stub 后端、不得用 evaluate 直接改 store 或直接设 scrollTop 冒充手势），并把 wall time 记入完成记录。
+- [x] 同一条用例内，夹具前置断言成立且由命令自身产出：`pane.scrollHeight <= pane.clientHeight`（首屏不可滚）、可见 `.chat-message` 数 = `SESSION_MESSAGES_PAGE_SIZE`（20）、服务端仍有更早的页（`hasMore`）。
+- [x] 向上翻页由**真实手势**触发且 prepend 真的发生：`page.mouse.wheel` 向上后可见行数由 20 增到 40（或出现更早 message id）；⛔ 不得直接调用 `loadOlderMessages`、不得 evaluate 改 store、不得直接设 scrollTop。
+- [x] 恢复完成后的 2s 窗口内（含一次经真实 React 重渲染的「最后一行就地长高」）：原首行相对 pane 顶部的偏移变化 ≤ 2px、期间 `scrollTop` 不增大（±1）、且 `gap > 2px`（未被 pin 到底部）；采样点在布局与 ResizeObserver 回调之后（⛔ 不得用 rAF 内直接读 scrollHeight 当绘制态）。
+- [x] 抗假变体真跑并留输出后还原：把恢复结束后的 mode 置回「恢复前的 mode」（首屏不可滚时即「跟随」）⇒ 本条必须红，且红灯出自本条自己的断言；`git diff` 证明 spec 真实断言一条未删、未经 stub/skip。若该形态下「就地长高」不敏感，按 Proposal 的偏离条款取得红灯并把偏离记入完成记录。
+- [x] `src/modules/chat/tests/transcriptScrollOwnership.test.tsx` 新增用例：恢复写与 clamp 之后意图仍为「脱离」，且此后内容增长产生**零次** scrollTop 写入；`npm run test:client` 退出码 0。
+- [x] `npm run typecheck` 与 `npm run lint` 退出码 0（`npm run lint` = `oxlint src/ server/`；⛔ 裸 `npx oxlint` 在干净 develop 上就退出 1，不作为判据）。
 
 ## Touches
 
@@ -87,3 +87,15 @@ goal_ac: AC-110
 L_D 该轴仍暗，理由：本任务只改前端滚动的意图判定与新增一条浏览器判据，不新增领域数据能力，没有可读的数据轴读数。
 
 L_G 该轴仍暗，理由：同上；本任务的读数是浏览器里的像素几何（原首行 offset / gap / scrollTop 写入）与一次 prepend 的真实发生，不是生成质量轴。
+
+## 完成记录
+
+- 落地提交：`55dfad8b chat: keep a wheel-driven prepend detached across its own restore`。机制落在 `src/modules/chat/hooks/useChatSessionState.ts`：`programmaticScrollEchoesRef` 回声预算 + `writeScrollTop`（程序写入记一次回声额度，`onScroll` 先消费额度再谈意图）+ 输入入口 `noteInput()`（真实输入清空额度，因为此后「谁欠谁」不再成立）+ 轮子分支「`deltaY < 0` 且落在 pane 上且服务端还有更早的页 ⇒ 立刻记「脱离」」。意图的**唯一**写点与消费者（按钮、follow effect、两个延时定时器、`scrollPositionRef`）都没变，改的只是判定规则。
+- AC-1 读数（可重复）：`npx playwright test e2e/transcript-follow.spec.ts -g "AC-110"` 退出码 0；用例自身 5.1s，整条命令 `real 15.5s`（另一次 `1 passed (15.0s)`）。两次读数逐字段相同，且远在 goal gate 的 60s 硬超时之内。
+- 判据输出（修好后，连续两次同值）：`AC-110 readings {"viewport":{"width":1440,"height":6000},"rowsBeforePrepend":20,"rowsAfterPrepend":24,"scrollHeightBefore":5776,"scrollHeightAfterPrepend":6620,"paneClientHeight":5776,"restoreWrite":[683],"gapAfterRestorePx":179,"scrollTopAfterRestore":665,"offset0Px":485,"samples":12,"offsets":[485×12],"scrollTops":[665×12],"gaps":[299×12],"driftPx":0,"scrollTopRisePx":0,"smallestGapPx":299,"scrollWritesInWindow":[0],"downwardWritesInWindow":0}`。`scrollWritesInWindow:[0]` 是输入框自己的那一次（`fill()` 带来的），`downwardWritesInWindow:0`。
+- AC-2/3/4 由命令自身产出：首屏 `scrollHeight 5776 = clientHeight 5776`（真不可滚）、可见 `.chat-message` = 20、`hasMore` 真（页面上有 "Scroll up to load more"）。`page.mouse.wheel(0,-600)` 向上后可见行 20 → 24，且最上方换成了更早的 message id —— 取 AC 里「或出现更早 message id」这一支：种子 transcript 共 24 轮、首屏 20，服务端只剩 4 行更早的页，所以不可能出现 20 → 40。此后 2s 窗口内一次真实 React 重渲染造成的增长下，原首行 offset 全程 485、`scrollTop` 全程 665、`gap` 全程 299。
+- 抗假变体（真跑、留输出、已逐字节还原）：把「恢复结束后的 mode」置回「恢复前的 mode」（首屏不可滚时即「跟随」）在本夹具**等价于**把 `onWheel` 里「朝上且仍有过往页 ⇒ 记脱离」那一行短路掉（一行 `if (false && …)`）——因为这一幕里唯一的意图信号就是手势本身，短路之后 mode 从头到尾都是「跟随」，正是 AC 写的取假形态。判据 100% 红，红灯出自本条自己的 `drift ≤ 2px` 断言：`driftPx 120`、`scrollTopRisePx 120`、`smallestGapPx 0`、`gapAfterRestorePx 0`、`restoreWrite [683,6620]`、`scrollWritesInWindow [0,964,6740]`、`downwardWritesInWindow 2`。spec sha256 `7ea65cf2c0d054ca79ee85ae7d3b7f47a676afd688ac3dfd7d5db2eb905d1d56`。
+- 把视口拉到底的写入者点名（按仪器记的「被赋的值」逐一排除）：`964` = `scrollHeight - clientHeight` ⇒ AC-106 的内容几何 pin（`followTranscriptGrowth`，`useChatSessionState.ts:594`）；`6740` = `container.scrollHeight` ⇒ `scrollToBottom()`（`:648`），由 `chatMessages.length` 变化后重新排程的 50ms 定时器（`:1336-1338`）触达；`0` = 输入框自身。**回写路径在本夹具被排除**：回声门吃掉了恢复自己那次 scroll 报告（mode 保持「脱离」，于是才会轮到上面两个写入者开火）；这是「逐一排除」里被去掉的那一支。`git diff` 证明 spec 的真实断言一条未删、未经 stub/skip —— 该提交里 spec 的改动只有新增用例、读数打印与四条断言。
+- 记录在案的偏离：(a) 用 `page.setViewportSize({width:1440,height:6000})` 而不是 `test.use({viewport})` —— 本 spec 的 page 来自外层 `beforeAll` 建好的共享页面，`test.use` 改不了它；观感等价（首屏 20 行不产生滚动条），前置断言照旧在命令自身里产出。(b) 增长形态用「经真实 React 重渲染追加一行」（composer 里跑 `/memory` 命令）：实测在假形态下「最后一行就地长高」**单独不引任何写入者反应**（无敏感度），按 AC 的偏离条款改用该假形态确实会作用的增长，并把时钟用 `page.clock.setFixedTime(种子最后时间戳 + 1h)` 钉在种子之后，免得分页那一页的行按时间戳插进 transcript 中间（`computeMerged` 按时间戳排序）。
+- AC-6：`npm run test:client` = 73 文件 / 501 用例全绿、退出码 0（7.7s）。新增单测「keeps a prepend the wheel asked for out of the follow's hands」另做了两次一行式反证并已逐字节还原（hook `sha256 131c9dee…`）：拿掉回声门 ⇒ 红在「恢复自己的 scroll 报告不得把视口交回跟随」；让 50ms 延时写入者无视意图 ⇒ 红在该条与既有「deferred scroll-to-bottom」条上（`got [7297,7297]`）。单测里还有一条**活性断言**：会话首屏那次滚到底的帧必须真的跑过（`sessionOpenWrites > 0`），否则「排空」本身什么也证明不了。
+- AC-7：`npm run typecheck` 与 `npm run lint` 均退出 0（lint 只有 develop 上既有的 warning）。
