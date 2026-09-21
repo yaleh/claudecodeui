@@ -1,3 +1,20 @@
+/**
+ * AC-001 golden baseline — "an existing install upgrades with zero behaviour change".
+ *
+ * This file IS the fixture the AC-001 criterion (goal GOAL-001) points at. With no configured
+ * model selected, the compiled launch spec and both spawn-env assemblies must stay byte-identical
+ * to the pre-change baselines frozen below. It is driven through the live entry point
+ * `resolveModelLaunchSpec`, so any drift in the spec shape or in either env assembly surfaces
+ * here first — the fourth case below is the falsifier (an added, missing or changed key goes red).
+ *
+ * Provenance: first landed as `server/modules/launch-profiles/tests/passthrough-parity.test.ts`
+ * (commit 380922af), then ported verbatim by commit b34a662e
+ * (`refactor(launch-profiles): 拆除旧实体，AC-001 黄金基准移植到新入口`) when the launch-profiles
+ * entity was torn down under GOAL-001 — the file moved, not its assertions.
+ *
+ * Porting this file again to a new entry point is allowed. Deleting it, dropping a case, or
+ * loosening an expectation is not: the four cases below are the golden baseline's entire surface.
+ */
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
