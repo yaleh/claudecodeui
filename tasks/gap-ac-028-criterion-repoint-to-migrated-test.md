@@ -71,19 +71,29 @@ goal_ac: AC-028
 
 ## AC
 
-- [ ] `<QUAY> goal gate AC-028 --root <QT>` 退出 0（改前实测 `verdict: fail`，reason 含 `Could not find 'server/modules/launch-profiles/tests/model-context-window.test.ts'`；改后必须转绿为 `verdict: pass`）。
-- [ ] `<QT>/goals/AC-028-model-env-row-is-the-single-source-of-the-context-window.md` 的 `criterion` 逐字包含 `server/modules/providers/tests/model-context-window.test.ts`，且全文不含 `server/modules/launch-profiles/`；`status` 仍为 `achieved`、`goal` 仍为 `GOAL-001`、`origin` 含本次修正原因（搬迁）。
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/model-context-window.test.ts` 退出码 0 且输出 `pass 3` / `fail 0`。
-- [ ] `server/modules/providers/tests/model-context-window.test.ts` 顶部注释逐字含 `AC-028`、`1d76cac6` 两个串；且 `grep -c "launch-profiles" server/modules/providers/tests/model-context-window.test.ts` 输出 0（不得把已拆除的旧目录名写回 server/）。
-- [ ] 溯源注释是注释-only：`git diff -U0 develop...HEAD -- server/modules/providers/tests/model-context-window.test.ts | grep -E '^\+' | grep -v '^+++' | grep -vE '^\+\s*(//|\*|/\*)'` 输出为空。
-- [ ] `git diff --name-only develop...HEAD -- server/modules/launch-profiles/` 输出为空（旧目录未被重建）。
-- [ ] `<QUAY> goal show AC-024 --root <QT>` 与 `<QUAY> goal show AC-025 --root <QT>` 的 `criterion` 仍分别指向 `server/modules/providers/tests/model-launch-spec.test.ts`+`model-spawn-env.test.ts` 与 `server/modules/providers/tests/model-gateway-end-to-end.test.ts`（并发写未互相踩踏；若与本任务无关地已被改写，记录实际读数即可）。
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/passthrough-parity.test.ts server/modules/providers/tests/model-launch-spec.test.ts server/modules/providers/tests/model-spawn-env.test.ts` 退出码 0（AC-001 / AC-024 的判据文件未被带动）。
-- [ ] `npm run typecheck`、`npm run lint` 退出码 0；`bash scripts/test.sh --for-task gap-ac-028-criterion-repoint-to-migrated-test --allow-thin` 退出码 0（scoped 自测；全量套件是 fan-in 的合并闸，不是 worker 的自测）。
+- [x] `<QUAY> goal gate AC-028 --root <QT>` 退出 0（改前实测 `verdict: fail`，reason 含 `Could not find 'server/modules/launch-profiles/tests/model-context-window.test.ts'`；改后必须转绿为 `verdict: pass`）。
+- [x] `<QT>/goals/AC-028-model-env-row-is-the-single-source-of-the-context-window.md` 的 `criterion` 逐字包含 `server/modules/providers/tests/model-context-window.test.ts`，且全文不含 `server/modules/launch-profiles/`；`status` 仍为 `achieved`、`goal` 仍为 `GOAL-001`、`origin` 含本次修正原因（搬迁）。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/model-context-window.test.ts` 退出码 0 且输出 `pass 3` / `fail 0`。
+- [x] `server/modules/providers/tests/model-context-window.test.ts` 顶部注释逐字含 `AC-028`、`1d76cac6` 两个串；且 `grep -c "launch-profiles" server/modules/providers/tests/model-context-window.test.ts` 输出 0（不得把已拆除的旧目录名写回 server/）。
+- [x] 溯源注释是注释-only：`git diff -U0 develop...HEAD -- server/modules/providers/tests/model-context-window.test.ts | grep -E '^\+' | grep -v '^+++' | grep -vE '^\+\s*(//|\*|/\*)'` 输出为空。
+- [x] `git diff --name-only develop...HEAD -- server/modules/launch-profiles/` 输出为空（旧目录未被重建）。
+- [x] `<QUAY> goal show AC-024 --root <QT>` 与 `<QUAY> goal show AC-025 --root <QT>` 的 `criterion` 仍分别指向 `server/modules/providers/tests/model-launch-spec.test.ts`+`model-spawn-env.test.ts` 与 `server/modules/providers/tests/model-gateway-end-to-end.test.ts`（并发写未互相踩踏；若与本任务无关地已被改写，记录实际读数即可）。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/passthrough-parity.test.ts server/modules/providers/tests/model-launch-spec.test.ts server/modules/providers/tests/model-spawn-env.test.ts` 退出码 0（AC-001 / AC-024 的判据文件未被带动）。
+- [x] `npm run typecheck`、`npm run lint` 退出码 0；`bash scripts/test.sh --for-task gap-ac-028-criterion-repoint-to-migrated-test --allow-thin` 退出码 0（scoped 自测；全量套件是 fan-in 的合并闸，不是 worker 的自测）。
 
 ## DoD
 
 真实落地判据：**gate 转绿必须由真实 gate 证明，不是「我改了记录」**。`quay goal gate AC-028` 是唯一权威读数 —— 必须现场由 `fail`（reason 含 `Could not find`）变为退出 0；同一 root 下复读 `goals/AC-028-*.md`，`criterion` 逐字正确且不含死路径、`status` 仍 `achieved`、`goal` 仍 `GOAL-001`。测试侧的溯源注释必须在 `git diff develop...HEAD` 里可见且**零代码行改动**（注释-only 由上面那条 grep 证明），加注释后该测试仍 `pass 3 / fail 0`。下一轮 driver 通过 `goal_ac: AC-028` 独立复跑时，会真的执行那三条用例而不是撞 `Could not find` —— 即本判据断言的性质（模型条目的行同时决定 spawn 导出与三条 total 路径）在真实入口上活着，且判据本身指得到它。判据修正前必须先以 `--dry-run` 验证不落盘，且写出的记录若落在 worktree 之外须 cherry-pick 回任务分支，别把验收面留在分支外。
+
+### 落地证据（本 worker 实测）
+
+- 改前 `<QUAY> goal gate AC-028 --root <QT>` = `verdict: fail`，reason 含 `Could not find 'server/modules/launch-profiles/tests/model-context-window.test.ts'`（2026-09-21T04:06:59.647Z，本 worktree root）；改后同一命令 = `verdict: pass` / `acceptance passed (exit 0)`。
+- `goal write AC-028 --criterion … --origin …` 的 `--dry-run` 先跑一次：输出 `status: achieved` / `goal: GOAL-001` / `criterion` 逐字为新路径，`git status` 无变化（不落盘）。
+- 正式写落在 worktree 之外的主检出（该 CLI 的 goal store 以主检出为准，写成了 `77023f37`），已按仓库惯例 `git cherry-pick` 回任务分支（`36e755ab`）；验收面留在任务分支内。
+- 溯源注释加后 `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/model-context-window.test.ts` = 退出 0，`tests 3 / pass 3 / fail 0`。
+- `grep -c 'AC-028'` = 4、`grep -c '1d76cac6'` = 1、`grep -c 'launch-profiles'` = 0（该测试文件）。
+- 注释-only 与旧目录未重建两条 grep 均输出为空；AC-024 / AC-025 的 `criterion` 复读分别仍为 `model-launch-spec.test.ts`+`model-spawn-env.test.ts` 与 `model-gateway-end-to-end.test.ts`。
+- `npm run typecheck` / `npm run lint` / `bash scripts/test.sh --for-task … --allow-thin` 退出码均为 0（scoped 自测 `__PERFILE__ … model-context-window.test.ts passed=true`）。
 
 L_D 该轴仍暗，理由：本任务只修一条 AC 记录的判据指针与一段溯源注释，不新增领域能力，也没有可读的两轴读数。
 L_G 该轴仍暗，理由：同上。
