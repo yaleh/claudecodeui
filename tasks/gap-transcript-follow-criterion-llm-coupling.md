@@ -45,6 +45,7 @@ AC-108（真实流式输出全程贴底）与 AC-109（流式期间向上的小�
 
 - 播种会话可直接用：`--resume` 要求 UUID 这件事只对 CLI 成立，夹具没有这个约束。AC-106 已在默认 viewport（1280×720，即 `AC108_VIEWPORT`）上滚动同一个种子会话，故**无需**改 `playwright.config.ts`。
 - **不要用 `page.clock` 冻结时钟**：`updateStreaming` 每次 flush 重铸 `timestamp`，冻结后 `stampChanges` 恒为 0，机制断言变成不可观测（AC-108 现有注释已记此事）。改用真实时钟 + 250ms 投递间隔。
+- goals 的改动落在**主 checkout**（`QUAY_NATIVE_GOAL_DIR` 是绝对路径），worktree 里那份会保持旧文本：写完把 `goals:` 提交 cherry-pick 到任务分支，否则 fan-in 的 ac-gate 读到的是旧 expect。
 - ⛔ 不投 `complete` 帧：它会让 app 去服务端刷新一个夹具里不存在的回合。
 
 <!-- dedup-ref -->同机制关联（记给出处，不是本任务的前提）：本任务要替换的夹具由 [[gap-transcript-follow-on-real-stream]]（done）建立；AC-108 的收窄与其豁免形态出自 [[gap-transcript-follow-finalize-remount-loses-bottom]]（done，已把豁免改回字面量）；手势与翻页语义分别由 [[gap-transcript-follow-small-gesture-detaches]]、[[gap-transcript-follow-prepend-restore-not-reattaching]] 承载（均 done）；几何仪器由 [[gap-transcript-follow-on-content-resize]]、[[gap-transcript-follow-on-pane-shrink]]、[[gap-transcript-follow-browser-scroll-not-user-intent]] 建立。它们与本条 Touches 重叠，由池的 disjointness 门自动串行，本任务不重复申领它们的语义。
