@@ -1,7 +1,7 @@
 ---
 id: gap-canonical-checkout-node-modules-missing-compression
 title: 主 checkout 的已安装依赖树缺 compression（已声明并入库）→ 后端起不来 → AC-101 真实浏览器判据整片转红
-status: ready
+status: done
 labels:
   - gap
   - defect
