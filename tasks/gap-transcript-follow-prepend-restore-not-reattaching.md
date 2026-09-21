@@ -2,7 +2,7 @@
 id: gap-transcript-follow-prepend-restore-not-reattaching
 title: 首屏不可滚时向上翻页（prepend）的恢复不得把跟随意图导回「跟随」：原首行偏移在后续增长下稳定 ≤2px 且不被 pin 到底（AC-110
   判据 e2e/transcript-follow.spec.ts 由红转绿）
-status: todo
+status: ready
 labels:
   - gap
   - defect
