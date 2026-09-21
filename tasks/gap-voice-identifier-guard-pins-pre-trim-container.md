@@ -40,13 +40,13 @@ AC-115 的判据 `npx playwright test e2e/voice-identifier-repair.spec.ts -g "AC
 
 ## AC
 
-- [ ] `npx playwright test e2e/voice-identifier-repair.spec.ts -g "AC-115"` 退出码 0
-- [ ] 重述后的护栏本身可失败：把断言期望的容器读法改成不可能的值后，同一命令在该护栏处红（临时探针，提交前还原）
-- [ ] 判据的实质半边仍可失败：把 `repairIdentifiers` 从 `useVoiceInput.ts` 的 `raw → text` 边界拿掉后，同一命令在 composer 断言处红（临时探针，提交前还原）
-- [ ] fixture 时长在 spec 中由 fixture 现算而非字面量：`grep -c "QUAY_E2E_VOICE_AUDIO" e2e/voice-identifier-repair.spec.ts` 输出 ≥ 2
-- [ ] 实质断言未被删弱：`grep -cE "toHaveValue\(expected\)|toContain\(identifier\)|not\.toContain\(SPOKEN\)" e2e/voice-identifier-repair.spec.ts` 输出 ≥ 3
-- [ ] `npm run lint` 退出码 0
-- [ ] `npm run typecheck` 退出码 0
+- [x] `npx playwright test e2e/voice-identifier-repair.spec.ts -g "AC-115"` 退出码 0
+- [x] 重述后的护栏本身可失败：把断言期望的容器读法改成不可能的值后，同一命令在该护栏处红（临时探针，提交前还原）
+- [x] 判据的实质半边仍可失败：把 `repairIdentifiers` 从 `useVoiceInput.ts` 的 `raw → text` 边界拿掉后，同一命令在 composer 断言处红（临时探针，提交前还原）
+- [x] fixture 时长在 spec 中由 fixture 现算而非字面量：`grep -c "QUAY_E2E_VOICE_AUDIO" e2e/voice-identifier-repair.spec.ts` 输出 ≥ 2
+- [x] 实质断言未被删弱：`grep -cE "toHaveValue\(expected\)|toContain\(identifier\)|not\.toContain\(SPOKEN\)" e2e/voice-identifier-repair.spec.ts` 输出 ≥ 3
+- [x] `npm run lint` 退出码 0
+- [x] `npm run typecheck` 退出码 0
 
 ## DoD
 
@@ -57,6 +57,31 @@ AC-115 的判据 `npx playwright test e2e/voice-identifier-repair.spec.ts -g "AC
 L_D 该轴仍暗，理由：本任务只重述一条浏览器判据的护栏读法，不新增领域数据能力，无可读的数据轴读数。
 
 L_G 该轴仍暗，理由：同上；本任务的读数是容器魔数与时长派生关系，不是生成质量轴读数。
+
+## 实测读数（2026-09-22 落地）
+
+命令：`npx playwright test e2e/voice-identifier-repair.spec.ts -g "AC-115"`
+
+- 落地前：退出码 1，红在 `e2e/voice-identifier-repair.spec.ts:294` 的 `expect(upload.body.includes(Buffer.from('audio/webm'))).toBe(true)`，`Received: false`。
+- 落地后：退出码 0，playwright 自报 `1 passed (12.5s)`（含 `npx` 启动的整条命令墙钟 ~13.1s，在 goal 判据门 60s 硬上限内）；spec 内用例自身墙钟 2.9s。
+- 上传体音频部件的容器魔数：`RIFF` / `WAVE`，该部件 275564 字节；同一次运行里 fixture 282092 字节（48kHz 单声道 16-bit）。
+- fixture 时长：**2.938s**，由 spec 现算（`fs.readFileSync(process.env.QUAY_E2E_VOICE_AUDIO)` 的 `fmt `/`data` 读出），非字面量。
+- 上传体时长：**2.870s**，同一读法，从 multipart 里 `name="file"` 那个部件读出。
+- 两条边界的余量：距上界（fixture 2.938s）0.068s；距下界（fixture/2 = 1.469s）1.401s。**上界是紧的那一侧**：裁剪会补 lead-in 0.15s / lead-out 0.2s，而本 spec 的采集窗（`waitForTimeout(2500)`）短于 fixture，两者相抵后上传体只落在 fixture 略下方。护栏注释已写明这一点；下次改采集窗或裁剪参数时应先读这两个数，而不是先改断言。
+- 确定性：三次连跑的读数字节级相同（部件均 275564 字节），即该护栏在能跑到时是确定的 —— 那 0.068s 是常数，不是抖动。
+- 合并 develop（merge `2bba6d84`）后重跑同一命令：仍退出码 0，读数不变。
+
+### 可失败性实测（临时探针，提交前已还原）
+
+- 护栏本身：(a) 把断言期望的容器读法改成 `PROBE-IMPOSSIBLE` → 同一命令退出码 1，红在该护栏（当时 spec:358），`Expected: "PROBE-IMPOSSIBLE" Received: "RIFF"`。以备份文件还原。
+- 判据实质半边：(b) 把 `useVoiceInput.ts` 里 `raw → text` 边界上的 `repaired = repairIdentifiers(text, candidates)` 换成 `repaired = text` → 同一命令退出码 1，红在 composer 断言（当时 spec:324），`Expected: "please open voice.routes.ts and fix the proxy" Received: "please open voice.rouse.ts and fix the proxy"`。以 `git checkout --` 还原。
+
+### 其余 AC 读数
+
+- `grep -c "QUAY_E2E_VOICE_AUDIO" e2e/voice-identifier-repair.spec.ts` → **2**（launch args + `fs.readFileSync`），即 2 ≥ 2。
+- `grep -cE "toHaveValue\(expected\)|toContain\(identifier\)|not\.toContain\(SPOKEN\)" e2e/voice-identifier-repair.spec.ts` → **3**，即 3 ≥ 3：实质断言逐条保留，未删弱。
+- `npm run lint` → 退出码 0；`npm run typecheck` → 退出码 0。
+- 测量噪声（如实记录）：本轮约 12 次有效运行中有 1 次在 `beforeAll` 就红 —— 该次日志里根本没有护栏那行读数，即它没跑到该护栏，属本仓既有的 fresh-DB / 项目加载 flake 类，与本护栏无关。
 
 ## Touches
 
