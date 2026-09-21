@@ -37,30 +37,52 @@ written from five places coordinated by refs and timers rather than by one owner
 4. **The flag is only recomputed from an input event.** `handleScroll` runs on `scroll`,
    `wheel` and `touchmove`, and applies one test — `scrollHeight - scrollTop - clientHeight
    < 50`. Content that grows *below* the fold does not move `scrollTop`, emits no event, and
-   therefore leaves the flag stale.
+   therefore leaves the flag stale. That staleness is harmless to the automatic follow: the
+   flag records where the user last *put* the viewport, which only an input event can change,
+   and the geometry follow (7) reads it as intent while deciding from the layout it measured
+   before the change. Do not "fix" the staleness by recomputing the flag from a height change
+   — the gap a resize has already opened would then read as the user having scrolled away.
 5. **A deferred scroll must re-read intent at fire time.** `isUserScrolledUpRef` mirrors
    the state so a timer armed 50 ms or 200 ms ago can ask whether the user has scrolled
    away since. Adding a timed scroll without that check reintroduces the bug
    `transcriptScrollOwnership.test.tsx` exists to catch.
 6. **The follow effect re-runs on three things, not one.** Its deps are
    `chatMessages.length`, `isUserScrolledUp` and `isLoadingMoreMessages`. So a new *row*
-   re-follows; a streamed rewrite of an existing row does not; and the flag flipping back
-   to `false` also arms a scroll, which is what snaps you the last few pixels when you
-   scroll back down.
-7. **A claim ref suppresses the other writers.** `pendingInitialScrollRef`,
+   re-follows; a streamed rewrite of an existing row does not re-run *this effect* (7 says how
+   it is followed anyway); and the flag flipping back to `false` also arms a scroll, which is
+   what snaps you the last few pixels when you scroll back down.
+7. **The follow has a second driver, and it is geometry rather than React.** A
+   `ResizeObserver` watches both the content column and the pane it scrolls in
+   (`attachScrollContent` and the `useLayoutEffect` in `useChatSessionState.ts`), because the
+   two ways the gap opens are opposite: content grows in place, or the box it is read through
+   gets shorter. Neither is a React signal — an in-place rewrite leaves `chatMessages.length`
+   alone, and a shorter pane needs no clamp, so the browser raises no `scroll` for it and every
+   listener the intent machinery owns is behind one. Every callback therefore compares the
+   viewport's offset with the bottom of the *previously* measured layout: equal means the
+   change happened under a viewport that was pinned and is followed, anything above means a
+   gesture created that drift and keeps it. Asking the current geometry instead would answer
+   "not at the bottom" for every resize this exists to follow.
+   The pane is wired from a layout effect rather than the ref callback that builds the
+   observer: the content column is the pane's own child, React commits a child's ref callback
+   before its parent's, so the pane's ref is still `null` there — and that callback's identity
+   never changes, so it is never called again to pick the pane up later.
+8. **A claim ref suppresses the other writers.** `pendingInitialScrollRef`,
    `pendingScrollRestoreRef`, `searchScrollActiveRef`, plus two latches at the top of the
    list, `topLoadLockRef` and `wasNearTopRef`. A session change clears or re-arms all five
    in one effect.
-8. **Row geometry does not change behind the user's back.** Lazy rows keep their measured
+9. **Row geometry does not change behind the user's back.** Lazy rows keep their measured
    height when their content unmounts, React keys are derived from intrinsic message fields
    rather than object identity, and `contain-intrinsic-size: auto` lets the browser
-   remember each row's last rendered size.
+   remember each row's last rendered size. When a row's box *does* change size in place, the
+   content column's observer (7) sees it and the follow judges it against the previous
+   layout, so a growing row stays pinned and a viewport the user moved away from is left
+   where it is.
 
 ## The pieces
 
 | File | Role |
 | --- | --- |
-| `src/modules/chat/hooks/useChatSessionState.ts` | Owns the scroll position. All five writers, `isNearBottom`, `handleScroll`, every claim ref, the search jump. |
+| `src/modules/chat/hooks/useChatSessionState.ts` | Owns the scroll position. All five writers, `isNearBottom`, `handleScroll`, every claim ref, the search jump, and the `ResizeObserver` that follows a resize of either the content column or the pane. |
 | `src/modules/chat/transcript/ChatMessagesPane.tsx` | Renders the one scrolling element, binds the ref and the wheel/touch handlers it is handed, mounts the newest `INITIAL_MOUNTED_TAIL_ROWS` rows eagerly. |
 | `src/modules/chat/ChatInterface.tsx` | Wires the hook to the pane, passes `handleScroll` as `onWheel`/`onTouchMove`, renders the jump-to-bottom button. |
 | `src/modules/chat/hooks/useChatComposerState.ts` | `handleSubmit` clears `isUserScrolledUp` and scrolls to the bottom at +100 ms. |
@@ -72,7 +94,7 @@ written from five places coordinated by refs and timers rather than by one owner
 | `src/index.css` | `.chat-messages-pane` / `.chat-message` containment, mobile `touch-action`, document-level overscroll containment, `.search-highlight-flash`. |
 | `src/modules/project-workspace/hooks/useVisualViewportKeyboardOffset.ts` | Publishes `--keyboard-height` so the shell shrinks above the iOS keyboard. |
 | `src/shared/ui/ScrollArea.tsx` | **Not used by chat.** `FileTree.tsx` and `SidebarContent.tsx` only. |
-| `src/modules/chat/tests/transcriptScrollOwnership.test.tsx` | Pins the two ownership bugs — the deferred scroll and the cross-session search jump. |
+| `src/modules/chat/tests/transcriptScrollOwnership.test.tsx` | Pins the two ownership bugs — the deferred scroll and the cross-session search jump — plus the geometry follow: a growing row and a shrinking pane are re-pinned under a viewport that was at the bottom, and both are left alone once the user has taken the viewport over. |
 | `src/modules/chat/tests/lazyMessageRow.test.tsx` | Pins placeholder height and the hidden-tab zero-rect case. |
 | `src/modules/chat/tests/searchTargetLocator.test.ts` | Pins snippet-first resolution, the timestamp fallback and the window size. |
 
@@ -159,10 +181,13 @@ flowchart TD
   H -->|"yes"| I["Set scrollTop to scrollHeight"]
 ```
 
-That is the whole auto-follow. Note what re-runs it. A new **row** re-follows; the 100 ms
-streaming flushes that rewrite an existing row in place do not (see the gotchas). And
-because `isUserScrolledUp` is a dependency, dropping back inside the 50 px band arms one
-more scroll that finishes the trip to the bottom.
+That is the whole auto-follow *effect*, and it is not the whole auto-follow: a
+`ResizeObserver` covers the resizes this effect cannot see, described under principle 7 and in
+the gotchas below. Note what re-runs the effect. A new **row** re-follows; the 100 ms
+streaming flushes that rewrite an existing row in place do not re-run it — they are followed
+by the observer instead, because the rewritten row's box is still growing. And because
+`isUserScrolledUp` is a dependency, dropping back inside the 50 px band arms one more scroll
+that finishes the trip to the bottom.
 
 ### Follow and detached
 
@@ -495,22 +520,30 @@ a scroll event.
 
 ## Gotchas and why the code looks like this
 
-- **Streaming text does not re-follow, but the first flush does.** `updateStreaming` in
-  `useSessionStore.ts` writes a row with the well-known id `__streaming_<sessionId>`. The
+- **Streaming text re-follows through geometry, not through the message list.** `updateStreaming`
+  in `useSessionStore.ts` writes a row with the well-known id `__streaming_<sessionId>`. The
   first flush appends it, so `chatMessages.length` changes once and the follow effect runs.
-  Every flush after that replaces the same array slot, so the length is unchanged and the
-  effect stays quiet. Within one streamed block the pane is held by the browser, not by this
-  code.
-- **`stream_end` does not re-follow either.** `finalizeStreaming` rewrites the same slot in
-  place, changing only the id, `kind` and `role`; both `stream_delta` and an assistant
-  `text` map to exactly one row in `normalizedToChatMessages`. The length never moves, so
-  the effect does not re-run. What re-follows is the *next* row — a tool call, or the next
-  streamed block, which allocates a fresh `__streaming_` id.
-- **`isUserScrolledUp` can be stale.** It is only recomputed from `scroll`, `wheel` and
-  `touchmove`. Content growing below the fold does not move `scrollTop`, so no event fires,
-  the flag stays `false`, and the jump-to-bottom button stays hidden even though the newest
-  content is off screen. Same for the keyboard opening and for the activity indicator's
-  padding toggle.
+  Every flush after that replaces the same array slot, so the length is unchanged and *that*
+  effect stays quiet — but the row is still getting taller, which resizes the content column,
+  which the observer sees. A pinned pane is therefore held on the bottom by the same
+  previous-layout comparison that covers a growing row, not by the browser and not by a
+  length-keyed effect.
+- **`stream_end` does not re-run the effect, and usually has nothing to follow.** `finalizeStreaming`
+  rewrites the same slot in place, changing only the id, `kind` and `role`; both `stream_delta`
+  and an assistant `text` map to exactly one row in `normalizedToChatMessages`. The length
+  never moves. If the rewrite changes the row's height the observer follows it like any other
+  resize; if it does not, the gap never opened and there is nothing to re-pin. Do not add a
+  length- or `stream_end`-keyed re-follow to "fix" this: `transcriptScrollOwnership.test.tsx`
+  exists to catch a re-follow that re-pins over a viewport the user moved.
+- **`isUserScrolledUp` can be stale, and that is now only a UI symptom.** It is recomputed from
+  `scroll`, `wheel` and `touchmove` alone, so content growing below the fold leaves the flag
+  `false` and the jump-to-bottom button hidden even though the newest content is off screen.
+  The automatic follow does not read that staleness — it reads intent from the ref and decides
+  from the previous layout (see principle 7) — so the keyboard opening and the activity
+  indicator's padding toggle, which shorten the pane without emitting any `scroll`, are
+  *followed* when the user was pinned and left alone when they were not. Recomputing the flag
+  from a height change would break that: the gap the shrink just opened would read as the user
+  having scrolled away.
 - **A programmatic scroll emits a `scroll` event.** Every `scrollTop` write feeds back
   through `handleScroll` and rewrites the flag. That is why the deferred writers guard
   themselves — an unguarded write both moves the user *and* erases the evidence that they
@@ -560,14 +593,14 @@ a scroll event.
 | --- | --- |
 | The 50 px threshold in `isNearBottom` | The follow effect, the tab-reactivation branch and the jump-to-bottom button all read the same flag. |
 | The `< 100` top zone or the `> 20` lock release | `topLoadLockRef` must still need an explicit move away from the top, or paging runs away. |
-| `chatMessages` shape or identity | The follow effect and the restore/reactivation `useLayoutEffect` are both keyed on `chatMessages.length`; in-place row rewrites are invisible to both. |
+| `chatMessages` shape or identity | The follow effect and the restore/reactivation `useLayoutEffect` are both keyed on `chatMessages.length`, so in-place row rewrites are invisible to both. The geometry follow still sees a rewrite that changes a row's height — that is deliberate, so do not delete the observer as dead weight. |
 | Anything that adds a deferred scroll | It must re-read `isUserScrolledUpRef` at fire time, or `transcriptScrollOwnership.test.tsx` should fail. |
 | `getIntrinsicMessageKey` or the key map in `ChatMessagesPane` | The prepend restore needs the anchor element to survive; unstable keys remount rows and drop it to the height-delta fallback. |
 | `LazyMessageRow` placeholder height, the `.chat-message` class placement, or the 1200 px observer margin | Prepend anchor scan, search-jump row lookup, and `lazyMessageRow.test.tsx`. |
 | `SEARCH_SCROLL_RETRIES`, the retry delay, or `findRenderedMessageElement` | The cross-session cancellation test and `searchTargetLocator.test.ts`; `allowNearest` must stay on the final attempt only. |
 | `.chat-message` containment or `content-visibility` | The export override in `buildTranscriptHtml.tsx` mirrors these declarations. |
 | Session load or pagination in `useChatSessionState.ts` | `pendingScrollRestoreRef`, `pendingInitialScrollRef`, `searchScrollActiveRef`, `topLoadLockRef` and `wasNearTopRef` are all handled by the session-change effect — see [the message store](./04-message-store-and-lazy-loading.md). |
-| Composer send or the activity indicator | `handleSubmit` forces `isUserScrolledUp` false and scrolls unconditionally at +100 ms; the indicator changes the pane's padding without a scroll event. |
+| Composer send or the activity indicator | `handleSubmit` forces `isUserScrolledUp` false and scrolls unconditionally at +100 ms; the indicator changes the pane's padding without a scroll event, which is exactly the shrink the geometry follow exists for. |
 | Tool card expand/collapse | Nothing scrolls today — see [tool views](./06-tool-view.md). Adding a `scrollIntoView` there adds a sixth writer with no claim ref. |
 
 Related: [the realtime stream](./02-realtime-stream.md) for how rows arrive.

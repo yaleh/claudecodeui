@@ -280,12 +280,29 @@ const waitForSettledPane = async (page: Page): Promise<Geometry> => {
 };
 
 /**
+ * Puts the pointer over the middle of the pane, so the wheel gestures land on the transcript.
+ *
+ * A wheel is aimed at whatever is under the pointer, and where that is depends on the viewport: the
+ * sidebar is beside the pane on a desktop and over it on a phone, so a coordinate that reached the
+ * transcript at one width can land on the sidebar at another. Every gesture below therefore aims
+ * before it scrolls rather than inheriting a position from somewhere else in the run.
+ */
+const pointAtPane = async (page: Page) => {
+  const box = await page.locator(PANE).boundingBox();
+  if (!box) {
+    throw new Error('the transcript pane has no box to aim a gesture at');
+  }
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+};
+
+/**
  * Scrolls the pane with real wheel gestures until `reached` holds.
  *
  * Chromium animates wheel scrolling, so each tick is followed by a wait for the pane to settle; the loop
  * exists because one tick's travel is the browser's to decide, not the spec's.
  */
 const wheelUntil = async (page: Page, deltaY: number, reached: (geometry: Geometry) => boolean) => {
+  await pointAtPane(page);
   for (let attempt = 0; attempt < 30; attempt += 1) {
     await page.mouse.wheel(0, deltaY);
     const geometry = await waitForSettledPane(page);
@@ -350,6 +367,19 @@ const replaceLastAssistantSegment = (page: Page, height: number) =>
   }, height);
 
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * AC-107's viewports: a phone-sized pane, and the same pane after a software
+ * keyboard would have taken half of it.
+ *
+ * The two differ in height only, and that is the point of the case: what shrinks
+ * is the scroll container's own box, while the content column inside it keeps
+ * exactly the box it had. The keyboard is not simulated — the shell is `fixed
+ * inset-0` and the pane is `flex-1` inside it, so moving the viewport moves the
+ * pane by the same amount through the layout the app already has.
+ */
+const AC107_VIEWPORT = { width: 390, height: 844 };
+const AC107_SHRUNK_VIEWPORT = { width: 390, height: 420 };
 
 /**
  * AC-110's viewport: wide enough to lay the transcript out as a desktop chat, and
@@ -537,15 +567,6 @@ test.describe('transcript follow in a real browser', () => {
   const projectRow = () =>
     page.getByRole('button', { name: new RegExp(`^${escapeRegExp(path.basename(workspace))}`) }).first();
 
-  /** Puts the pointer over the middle of the pane, so the wheel gestures land on the transcript. */
-  const pointAtPane = async () => {
-    const box = await page.locator(PANE).boundingBox();
-    if (!box) {
-      throw new Error('the transcript pane has no box to aim a gesture at');
-    }
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  };
-
   test.beforeAll(async ({ browser }) => {
     test.setTimeout(180_000);
     const dataDir = process.env.QUAY_E2E_DATA_DIR!;
@@ -609,7 +630,7 @@ test.describe('transcript follow in a real browser', () => {
       initial.scrollHeight - initial.clientHeight,
       'the seeded transcript must be taller than the pane for this spec to measure anything',
     ).toBeGreaterThan(AWAY_PX * 2);
-    await pointAtPane();
+    await pointAtPane(page);
   });
 
   test.afterAll(async () => {
@@ -664,6 +685,124 @@ test.describe('transcript follow in a real browser', () => {
       Math.abs((after.gap - before.gap) - growth),
       `the gap must open by exactly the growth and nothing else (${before.gap} → ${after.gap}, growth ${growth})`,
     ).toBeLessThanOrEqual(1);
+  });
+
+  // AC-107: the pane the transcript scrolls in getting *shorter* is the other half of "the transcript
+  // grew and the viewport followed". Nothing about the content changes here — the content column keeps the
+  // box it had — so an implementation that watches only the content's geometry cannot see it at all. And
+  // the shrink raises no `scroll` either: the scrollable range only gets longer, so scrollTop is never
+  // clamped and the pane reports nothing. The only thing left to go on is the container's own box, and the
+  // only thing that can say whether the viewport should follow is the user's intent — by the time any
+  // observer runs, the gap the shrink opened is already there, so asking the geometry "are we at the
+  // bottom?" answers no for exactly the case this exists for.
+  test('AC-107 a pane that gets shorter is followed by a pinned transcript and left alone by one the user took over', async () => {
+    // A phone-sized viewport, so the pane is a large fraction of the screen and the shrink below moves it by
+    // hundreds of pixels rather than a few. The wheel gestures need the pointer over the pane at this size.
+    await page.setViewportSize(AC107_VIEWPORT);
+    await pointAtPane(page);
+
+    // Arrive at the bottom by gesture rather than by assertion: leave it first, so the wheel below is what
+    // really puts the viewport there.
+    await wheelUntil(page, -WHEEL_STEP_PX, (geometry) => geometry.gap > AWAY_PX);
+    const reachedBottom = await wheelUntil(page, WHEEL_STEP_PX, (geometry) => geometry.gap <= AT_BOTTOM_PX);
+    expect(
+      reachedBottom.gap,
+      `a wheel gesture must be able to reach the bottom; stopped ${reachedBottom.gap}px above it`,
+    ).toBeLessThanOrEqual(AT_BOTTOM_PX);
+    await waitForSettledPane(page);
+
+    // ── (a) the pinned half: the pane itself gets shorter ─────────────────────────────────────────────
+    await clearInstruments(page);
+    const beforeShrink = await readGeometry(page);
+    // Armed before the change: the probe's observer is created after the app's, so it is notified after the
+    // follow has decided, and it resolves on the far side of the frame the follow deferred its write to.
+    await armLayoutProbe(page, PANE);
+    await page.setViewportSize(AC107_SHRUNK_VIEWPORT);
+    await awaitLayoutProbe(page);
+    const afterShrink = await readGeometry(page);
+    const paneLost = beforeShrink.clientHeight - afterShrink.clientHeight;
+
+    expect(
+      paneLost,
+      `the shrink has to really shorten the pane, or this case measures nothing (clientHeight ${beforeShrink.clientHeight} → ${afterShrink.clientHeight})`,
+    ).toBeGreaterThan(AWAY_PX);
+    expect(
+      afterShrink.scrollHeight,
+      'the content itself must not have changed height — this half is about the container, not the column',
+    ).toBe(beforeShrink.scrollHeight);
+
+    // The readings first, so a failing run carries the numbers instead of only the verdict.
+    console.log(`AC-107 pinned readings ${JSON.stringify({
+      viewport: AC107_VIEWPORT,
+      shrunkViewport: AC107_SHRUNK_VIEWPORT,
+      paneClientHeightBefore: Math.round(beforeShrink.clientHeight),
+      paneClientHeightAfter: Math.round(afterShrink.clientHeight),
+      paneLostPx: Math.round(paneLost),
+      scrollHeightBefore: Math.round(beforeShrink.scrollHeight),
+      scrollHeightAfter: Math.round(afterShrink.scrollHeight),
+      scrollTopBefore: Math.round(beforeShrink.scrollTop),
+      scrollTopAfter: Math.round(afterShrink.scrollTop),
+      gapBeforePx: Math.round(beforeShrink.gap),
+      gapAfterPx: Math.round(afterShrink.gap),
+    })}`);
+
+    expect(
+      afterShrink.gap,
+      `a transcript that was on the bottom must be put back on it when the pane gets shorter; it sat ${afterShrink.gap}px above the bottom`,
+    ).toBeLessThanOrEqual(AT_BOTTOM_PX);
+
+    // ── (b) the control half: the user has taken the viewport over, and the same shrink leaves it alone ──
+    // Back to the tall pane first: the same shrink is what the control half has to be measured against.
+    await page.setViewportSize(AC107_VIEWPORT);
+    await waitForSettledPane(page);
+    await pointAtPane(page);
+    const away = await wheelUntil(page, -WHEEL_STEP_PX, (geometry) => geometry.gap > AWAY_PX);
+    expect(away.gap).toBeGreaterThan(AWAY_PX);
+    await waitForSettledPane(page);
+
+    await clearInstruments(page);
+    const beforeControl = await readGeometry(page);
+    await armLayoutProbe(page, PANE);
+    await page.setViewportSize(AC107_SHRUNK_VIEWPORT);
+    await awaitLayoutProbe(page);
+    const afterControl = await readGeometry(page);
+    const controlReadings = await readInstruments(page);
+    const controlLost = beforeControl.clientHeight - afterControl.clientHeight;
+    const paneScrolls = controlReadings.__scrollEvents
+      .filter((event) => event.target.includes('chat-messages-pane'));
+
+    console.log(`AC-107 control readings ${JSON.stringify({
+      paneClientHeightBefore: Math.round(beforeControl.clientHeight),
+      paneClientHeightAfter: Math.round(afterControl.clientHeight),
+      paneLostPx: Math.round(controlLost),
+      scrollTopBefore: Math.round(beforeControl.scrollTop),
+      scrollTopAfter: Math.round(afterControl.scrollTop),
+      gapBeforePx: Math.round(beforeControl.gap),
+      gapAfterPx: Math.round(afterControl.gap),
+      scrollWritesInWindow: controlReadings.__scrollWrites.map((write) => Math.round(write.value)),
+      paneScrollEventsInWindow: paneScrolls.length,
+    })}`);
+
+    expect(
+      controlLost,
+      `the control half has to shrink the pane by the same amount as the pinned half (${controlLost}px)`,
+    ).toBeGreaterThan(AWAY_PX);
+    expect(
+      controlReadings.__scrollWrites.length,
+      `a shrink under a viewport the user moved must not be written to at all (${JSON.stringify(controlReadings.__scrollWrites)})`,
+    ).toBe(0);
+    expect(
+      Math.abs(afterControl.scrollTop - beforeControl.scrollTop),
+      `the shrink must not scroll a transcript the user took over (scrollTop ${beforeControl.scrollTop} → ${afterControl.scrollTop})`,
+    ).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs((afterControl.gap - beforeControl.gap) - controlLost),
+      `the gap must open by exactly what the pane lost and nothing else (${beforeControl.gap} → ${afterControl.gap}, lost ${controlLost})`,
+    ).toBeLessThanOrEqual(1);
+    expect(
+      paneScrolls.length,
+      `a shrink the browser never had to clamp must not be reported as a scroll (${JSON.stringify(paneScrolls)})`,
+    ).toBe(0);
   });
 
   test('AC-111 a scroll the browser made on its own does not detach a pinned transcript', async () => {
@@ -797,7 +936,7 @@ test.describe('transcript follow in a real browser', () => {
     await expect(page).toHaveURL(new RegExp(`/session/${SESSION_ID}$`));
     await expect(page.locator(`${PANE} .chat-message`).first()).toBeVisible({ timeout: 30_000 });
     await waitForSettledPane(page);
-    await pointAtPane();
+    await pointAtPane(page);
 
     const fixture = await readFixture(page);
     expect(
