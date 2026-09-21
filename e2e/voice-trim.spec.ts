@@ -1060,4 +1060,131 @@ test.describe('the voice path end to end', () => {
     // the capture with the switch off printed nothing, and the two with it on printed one reading each.
     expect(trimMessages).toBe(silentTrim + 2);
   });
+
+  /**
+   * The recording slot's two replays: the audio as it was recorded, and the audio as it was uploaded.
+   *
+   * What the criterion is about is that the slot offers *both*. One replay of the upload would leave "what
+   * did the trim cut?" unanswerable from the UI, which is the whole reason the pair exists — and the pair is
+   * told apart by what is behind the two controls, not by what they are called. The object URL a control
+   * carries proves nothing on its own: two `createObjectURL` calls over the same bytes are two URLs. So the
+   * bytes each control would play are fetched back out of the page and measured as containers, which is the
+   * same reading `AC-119` takes of the two uploads, one layer further out.
+   *
+   * ⚠️ One clause of the criterion as it was written cannot hold, and this leg does not pretend otherwise:
+   * "the trimmed one's byte count is strictly smaller than the recording's". The trimmed replay is the WAV
+   * this repo encodes — 48 kHz mono 16-bit PCM, 96 kB/s — and the recording is the recorder's own webm/opus
+   * at roughly a tenth of that, so the *shorter* audio is the *larger* body. The measured pair is printed
+   * below and the sizes are asserted to be different rather than ordered; what is asserted about the trimmed
+   * one is the invariant the size was standing in for — it is a different audio object, in the container the
+   * trim produced, and strictly shorter — which is falsified by the same fake form (two controls over one
+   * source carry one duration).
+   */
+  test('AC-122 the recording is replayable beside the trimmed upload, one at a time', async () => {
+    // The goal gate kills the command at 60s, so the budget is under the file's default: a runaway leg has
+    // to fail here, with its own message, while the command is still this run's to explain. One leg, so the
+    // same budget the single-leg criterion above uses.
+    test.setTimeout(35_000);
+    expect(FIXTURE_SEC).toBeGreaterThan(1);
+
+    // ⚠️ Both switches are named. They are remembered across loads, so a leg that left one to its default
+    // would be reading whatever value the criterion above wrote — the same leg under `-g` and a different
+    // one in the full file. The trim has to be on for the slot to gain a second track at all.
+    await openComposer('/?voiceTrim=on&voiceDebug=off');
+    const recorded = await recordCapture('two-replay leg');
+    await expectTranscript(recorded, 'two-replay leg');
+
+    // (1) Two controls, named apart, both in the composer's tool row. The second is the one that only
+    // exists because the chain decided what it uploaded is not the recording. The wait is generous: the
+    // transcript lands as soon as the recogniser answers, while the trim's own output is attached on the
+    // way in and the pair is rendered from one state update.
+    const originalControl = page.getByRole('button', { name: 'Replay original' });
+    const trimmedControl = page.getByRole('button', { name: 'Replay trimmed' });
+    await expect(originalControl).toBeVisible({ timeout: 10_000 });
+    await expect(
+      trimmedControl,
+      'the recording slot offers no replay of the trimmed upload: the trim happened and cannot be heard',
+    ).toBeVisible({ timeout: 10_000 });
+
+    // (2) Two sources. The URL is where the bytes are read from, so it is taken first and fetched second.
+    const originalUrl = await originalControl.getAttribute('data-clip-url');
+    const trimmedUrl = await trimmedControl.getAttribute('data-clip-url');
+    expect(originalUrl, 'the original replay carries no source to read').toBeTruthy();
+    expect(trimmedUrl, 'the trimmed replay carries no source to read').toBeTruthy();
+    expect(trimmedUrl).not.toBe(originalUrl);
+
+    /** The bytes behind one of the two object URLs, as the page itself would hand them to its audio element. */
+    const readBack = (url: string) =>
+      page.evaluate(async (source) => {
+        const bytes = new Uint8Array(await (await fetch(source)).arrayBuffer());
+        const chunks: string[] = [];
+        for (let at = 0; at < bytes.length; at += 8192) {
+          chunks.push(String.fromCharCode(...bytes.subarray(at, at + 8192)));
+        }
+        return btoa(chunks.join(''));
+      }, url);
+
+    const originalBytes = Buffer.from(await readBack(originalUrl!), 'base64');
+    const trimmedBytes = Buffer.from(await readBack(trimmedUrl!), 'base64');
+    const originalSec = containerDurationSec(originalBytes);
+    const trimmedSec = containerDurationSec(trimmedBytes);
+    // The pair, printed rather than only asserted: a green run should say what it measured. The size note
+    // is the amendment above, written where the numbers are — the sizes are the reason it was made.
+    console.log(
+      `[voice-replay] original=${originalSec.toFixed(3)}s/${originalBytes.length}B`
+        + ` trimmed=${trimmedSec.toFixed(3)}s/${trimmedBytes.length}B`
+        + ' (the trimmed replay is the larger body: PCM WAV against the recorder\'s opus)',
+    );
+
+    // (3) The first control replays the recording. The container is the recorder's own stream and its length
+    // is the whole capture — the premise the second line is a comparison against. Without it the pair could
+    // be two takes of a trim and still satisfy everything below.
+    expect(originalBytes.subarray(0, 4).toString('hex'), 'the original replay is not the recorder\'s stream').toBe('1a45dfa3');
+    expect(
+      Math.abs(originalSec - FIXTURE_SEC),
+      `the original replay is ${originalSec}s, the capture was ${FIXTURE_SEC}s`,
+    ).toBeLessThan(CAPTURE_TOLERANCE_SEC);
+
+    // ...and the second replays what was uploaded, not the recording under a second name: a WAV this repo
+    // encoded, carrying different bytes, shorter by the pause the trim removes.
+    expect(trimmedBytes.subarray(0, 4).toString('ascii'), 'the trimmed replay is not the encoded WAV').toBe('RIFF');
+    expect(originalBytes.equals(trimmedBytes), 'the two replays are the same bytes').toBe(false);
+    expect(
+      originalSec - trimmedSec,
+      `the trimmed replay is ${trimmedSec}s of a ${originalSec}s recording`,
+    ).toBeGreaterThan(MIN_SAVING_SEC);
+    // ...and it is not the whole fixture either, so it is not the recording's audio in a WAV header.
+    expect(trimmedSec).toBeLessThan(FIXTURE_SEC - MIN_SAVING_SEC);
+
+    // (4) Replay leaves the composer alone. Read before the controls are pressed and after: the box holds
+    // this capture's own transcript, so "unchanged" is a transition rather than an empty box agreeing with
+    // an empty box.
+    expect(await composer().inputValue()).toBe(recorded);
+
+    // (5) One at a time. A control renames itself for as long as its track is sounding, which is what makes
+    // "the other one stopped" readable from outside the page.
+    await originalControl.click();
+    await expect(
+      page.getByRole('button', { name: 'Stop original playback' }),
+      'the recording never started sounding',
+    ).toBeVisible({ timeout: 10_000 });
+    // The premise for the pair of assertions below: the trimmed control is still there and still offering to
+    // play, so what the next click shows is the recording being stopped by the trimmed track starting — not
+    // a control that vanished.
+    await expect(trimmedControl).toBeVisible();
+
+    await page.getByRole('button', { name: 'Replay trimmed' }).click();
+    await expect(
+      page.getByRole('button', { name: 'Stop trimmed playback' }),
+      'the trimmed audio never started sounding',
+    ).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page.getByRole('button', { name: 'Stop original playback' }),
+      'the recording was still sounding while the trimmed audio played',
+    ).toHaveCount(0);
+
+    // The pair is still a pair afterwards, and neither press touched the box.
+    await expect(page.getByRole('button', { name: 'Replay original' })).toBeVisible();
+    expect(await composer().inputValue()).toBe(recorded);
+  });
 });

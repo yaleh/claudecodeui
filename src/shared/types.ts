@@ -698,13 +698,42 @@ export type VoiceClipMeta = {
 };
 
 /**
- * The composer's single-slot recording: an object URL that keeps the blob alive plus
- * the meta the replay pill renders. Held by `useVoiceInput` and passed to `VoiceClipButton`;
- * a new recording replaces it, and it is never persisted beyond the open chat.
+ * The composer's recording: an object URL that keeps a blob alive plus the meta its replay
+ * control renders. Held by `useVoiceInput` and passed to `VoiceClipButton`; a new recording
+ * replaces it, and it is never persisted beyond the open chat.
  */
 export type VoiceClip = {
   url: string;
   meta: VoiceClipMeta;
+};
+
+/** Which of the slot's two replays a control or a play state belongs to. */
+export type VoiceClipTrack = 'original' | 'trimmed';
+
+/**
+ * The composer's recording slot: what was recorded, and — when the trim applied — what was sent.
+ *
+ * Two tracks rather than one because the upload is no longer the recording. The trimmed body is a
+ * re-encode, so a replay of it alone cannot answer the question the trim raises — whether it cut
+ * something it should have kept — and the same audio heard twice cannot be told apart from a trim
+ * that did nothing.
+ *
+ * `trimmed` is null exactly when the chain uploaded the recording untouched (the trim's own
+ * `fallback`). The composer then renders one control: a second one over the same bytes would be a
+ * claim about a trim the run never made.
+ */
+export type VoiceClipSlot = {
+  original: VoiceClip;
+  trimmed: VoiceClip | null;
+};
+
+/**
+ * The slot's replay state, one entry per track. At most one entry is ever non-idle: the two tracks
+ * are the same speaker, and starting either is what stops the other.
+ */
+export type VoiceClipPlayState = {
+  original: VoicePlayState;
+  trimmed: VoicePlayState;
 };
 
 // ---------------------------

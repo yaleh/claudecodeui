@@ -279,8 +279,8 @@ export default function ChatComposer({
     toggle: voiceToggle,
     stop: voiceStop,
     transcribeFile,
-    voiceClip,
-    clipState,
+    clipSlot,
+    clipPlayState,
     toggleClipPlayback,
   } = useVoiceInput(
     onVoiceTranscript ?? noopTranscript,
@@ -496,8 +496,8 @@ export default function ChatComposer({
             )}
 
             {/* Right of the mic: a clip only exists because the mic produced it. */}
-            {voiceClip && (
-              <VoiceClipButton clip={voiceClip} state={clipState} onToggle={toggleClipPlayback} />
+            {clipSlot && (
+              <VoiceClipButton clips={clipSlot} state={clipPlayState} onToggle={toggleClipPlayback} />
             )}
 
             <TokenUsageSummary usage={tokenBudget} onClick={onShowTokenUsage} />
