@@ -2,7 +2,7 @@
 id: gap-transcript-follow-small-gesture-detaches
 title: 流式期间向上的小幅手势（<50px 阈值）与键盘 PageUp 立即脱离跟随且不被拉回，按钮可回到跟随（AC-109 判据
   e2e/transcript-follow.spec.ts 由红转绿）
-status: ready
+status: done
 labels:
   - gap
   - defect
