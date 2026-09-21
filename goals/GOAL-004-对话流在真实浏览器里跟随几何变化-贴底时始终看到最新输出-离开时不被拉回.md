@@ -39,8 +39,8 @@ transcript 只有一个滚动容器 div.chat-messages-pane，今天有五处代�
 
 - AC-106 贴底时最后一行就地长高（不经 store、不改行数）后 gap ≤ 1px；离开底部时同样的增长不移动视图。
 - AC-107 贴底时 pane 变矮（390×844 → 420，键盘弹出等价）后第一个采样点 gap ≤ 1px；离开底部时零写入。
-- AC-108 经 mock gateway 的真实慢速流式输出全程 gap ≤ 1px（走 realtime → store → React 就地改写的真实路径）。
-- AC-109 流式期间向上 30px 的滚轮手势、以及 PageUp，都立即脱离跟随且此后不被拉回；按「Scroll to bottom」后恢复贴底。
+- AC-108 由页内 wire double 夹具（不含任何模型/CLI/外部服务：无 mock gateway、无 SSE、无 claude 子进程、无 ANTHROPIC_* 环境变量）投递的慢速流式输出全程 gap ≤ 1px（走 realtime → store → React 就地改写的真实路径）。
+- AC-109 同一夹具下，流式期间向上 30px 的滚轮手势、以及 PageUp，都立即脱离跟随且此后不被拉回；按「Scroll to bottom」后恢复贴底。
 - AC-110 首屏不可滚时在顶部向上翻页，恢复后的位置不被后续增长抢回到底部。
 - AC-111 视口上方的行变矮（无输入事件、由浏览器改变 scrollTop）不会让贴底状态脱离。
 
