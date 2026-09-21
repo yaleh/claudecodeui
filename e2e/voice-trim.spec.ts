@@ -525,18 +525,30 @@ test.describe('AC-119 the trim holds end to end through the voice button', () =>
     // First run on a fresh database: create the single account, then finish onboarding.
     await page.goto('/');
     // The account form is the app's first rendered screen, which also makes it the first thing a cold Vite dev
-    // server can fail to produce: the transform graph is built on demand for the browser's first request, and a
-    // module that fails under load leaves a blank page with no failure the run can see — the navigation succeeded,
-    // so nothing throws until the wait for the form runs out. A blank page is what a reload is known to clear, so
-    // it is retried once. Bounded, because this preamble is not what the criterion tests and must not eat its
-    // budget: the waits below add up to less than the hook's own ceiling, so a real failure reports here rather
-    // than being killed from outside with nothing to say.
-    if (!(await appears(page.locator('#username'), 8_000))) {
+    // server can fail to produce. Two different blanks arrive here: a transform graph built on demand under load,
+    // and — the one this run actually met — `504 Outdated Optimize Dep` on the pre-bundled dependencies, which is
+    // what a dev server answers for a moment once its dependency cache has been re-optimized underneath it. That
+    // cache is reached through this checkout's `node_modules` symlink, so a sibling run starting its own server is
+    // enough to invalidate this one's hashes; the trace of a red run shows the entry chunk failing this way and no
+    // page error at all. Neither blank throws on its own: the navigation succeeded, so nothing surfaces until the
+    // wait for the form runs out. A reload clears both — it is what Vite's own client does after re-optimizing — so
+    // it is retried, bounded, because this preamble is not what the criterion tests and must not eat the hook's
+    // budget. The attempts below add up to less than the hook's own ceiling, so a real failure reports here, with
+    // the page's text, rather than being killed from outside with nothing to say.
+    let onboarded = await appears(page.locator('#username'), 8_000);
+    for (let attempt = 0; !onboarded && attempt < 3; attempt += 1) {
       await page.reload();
-      if (!(await appears(page.locator('#username'), 10_000))) {
-        const shown = await page.locator('body').innerText().catch(() => '<unreadable>');
-        throw new Error(`the account form never rendered; the page shows: ${JSON.stringify(shown.slice(0, 300))}`);
-      }
+      onboarded = await appears(page.locator('#username'), 4_000);
+    }
+    if (!onboarded) {
+      const shown = await page.locator('body').innerText().catch(() => '<unreadable>');
+      // The console errors are what name the cause: a blank page is a blank page, but "504 Outdated Optimize
+      // Dep" and "Failed to fetch dynamically imported module" are two different run environments.
+      const errors = voiceTraffic.filter((line) => line.startsWith('console.error'));
+      throw new Error(
+        `the account form never rendered; the page shows: ${JSON.stringify(shown.slice(0, 300))}`
+          + `\n  console errors: ${errors.length > 0 ? errors.slice(0, 3).join(' | ') : '<none>'}`,
+      );
     }
     await page.locator('#username').fill('e2euser');
     await page.locator('input[type=password]').nth(0).fill('e2epassword');
