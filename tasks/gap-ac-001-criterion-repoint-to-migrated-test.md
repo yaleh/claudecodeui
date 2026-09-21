@@ -52,15 +52,34 @@ goal_ac: AC-001
 
 **边界（不做）**：不重建 `server/modules/launch-profiles/`；不改 `resolveModelLaunchSpec` 的任何语义；不新增/删除/放宽任何断言；不改 AC-024 的记录内容。
 
+## 落地证据
+
+### 判据修正（记录侧）
+
+修正前同一条 gate 实测 `verdict: fail`，reason 逐字含 `Could not find 'server/modules/launch-profiles/tests/passthrough-parity.test.ts'`。`quay goal write AC-001 --criterion … --origin …`（先 `--dry-run` 观测一次，`git status` 不变，确认不落盘）把 `criterion` 指回搬迁后的路径，`--origin` 保留原 ADR-002 引证并追加本次修正原因（b34a662e 把该测试移植到新入口）。写入落在主检出（`9f4c6840`，分支 `author`），按仓库惯例 cherry-pick 进本任务分支（`2e8529cd`），验收面不留分支外。修正后 `quay goal gate AC-001 --root /data/home/yale/work/claudecodeui` 退出 0、`reason: acceptance passed (exit 0)`；复读该记录：`criterion` 逐字含 `server/modules/providers/tests/passthrough-parity.test.ts`，全文 `grep -c 'server/modules/launch-profiles/'` 为 0，`status: achieved`、`goal: GOAL-001` 均在。
+
+### 测试侧溯源注释（注释-only）
+
+`server/modules/providers/tests/passthrough-parity.test.ts` 顶部加了一段 banner，逐字点名 `AC-001`、`b34a662e`、`server/modules/launch-profiles/tests/passthrough-parity.test.ts`（三者 `grep -c` 分别为 3 / 1 / 1），并写明这是「已有安装升级后行为零变化」的黄金基准、由 `resolveModelLaunchSpec` 驱动、随新入口再移植是允许的而删除或放宽不是。
+
+注释-only 由判据 5 的那条 grep 机械证明：`git diff -U0 develop...HEAD -- <该测试>` 的 `+` 行过滤掉注释前缀后输出为空（`grep` 退出 1），`--stat` 为 `17 insertions(+), 0 deletions(-)`。加注释后同一命令 `tests 4 / pass 4 / fail 0`。
+
+### 其余读数
+
+- 判据命令（搬迁后的 providers 路径）：退出 0，`tests 4 / pass 4 / fail 0`。
+- 回归：`model-launch-spec.test.ts` + `model-spawn-env.test.ts`（AC-024 的两条判据文件）退出 0，`tests 12 / pass 12 / fail 0`。
+- 并发写未互相踩踏：`quay goal show AC-024` 的 `criterion` 仍逐字指向上述两个 providers 路径，`quay goal gate AC-024` 退出 0。
+- 边界守住：本轮不新增/删除/放宽任何断言，不重建 `server/modules/launch-profiles/`，不改 `resolveModelLaunchSpec` 语义，不改 AC-024 的记录内容。
+
 ## AC
 
-- [ ] `bash /data/home/yale/.claude/plugins/cache/quay/quay/0.10.0/bin/quay goal gate AC-001 --root /data/home/yale/work/claudecodeui` 退出 0（改前实测为 `verdict: fail`，reason 含 `Could not find 'server/modules/launch-profiles/tests/passthrough-parity.test.ts'`；改后必须转绿）。
-- [ ] `/data/home/yale/work/claudecodeui/goals/AC-001-passthrough-env-parity.md` 的 `criterion` 逐字包含 `server/modules/providers/tests/passthrough-parity.test.ts`，且全文不含 `server/modules/launch-profiles/`；`status` 仍为 `achieved`、`goal` 仍为 `GOAL-001`、`origin` 含本次修正原因（搬迁）。
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/passthrough-parity.test.ts` 退出码 0 且输出 `pass 4` / `fail 0`。
-- [ ] `server/modules/providers/tests/passthrough-parity.test.ts` 顶部注释逐字含 `AC-001`、`b34a662e`、`server/modules/launch-profiles/tests/passthrough-parity.test.ts` 三个串（`grep -c` 各 ≥1）。
-- [ ] 溯源注释是注释-only：`git diff -U0 develop...HEAD -- server/modules/providers/tests/passthrough-parity.test.ts` 中所有 `+` 行（除去 `+++` 头）都匹配注释前缀——`git diff -U0 develop...HEAD -- server/modules/providers/tests/passthrough-parity.test.ts | grep -E '^\+' | grep -v '^+++' | grep -vE '^\+\s*(//|\*|/\*)'` 输出为空。
-- [ ] `bash /data/home/yale/.claude/plugins/cache/quay/quay/0.10.0/bin/quay goal show AC-024 --root /data/home/yale/work/claudecodeui` 的 `criterion` 仍指向 `server/modules/providers/tests/model-launch-spec.test.ts` 与 `model-spawn-env.test.ts`（并发写未互相踩踏）。
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/model-launch-spec.test.ts server/modules/providers/tests/model-spawn-env.test.ts` 退出码 0（AC-024 两条判据文件未被带动）。
+- [x] `bash /data/home/yale/.claude/plugins/cache/quay/quay/0.10.0/bin/quay goal gate AC-001 --root /data/home/yale/work/claudecodeui` 退出 0（改前实测为 `verdict: fail`，reason 含 `Could not find 'server/modules/launch-profiles/tests/passthrough-parity.test.ts'`；改后必须转绿）。
+- [x] `/data/home/yale/work/claudecodeui/goals/AC-001-passthrough-env-parity.md` 的 `criterion` 逐字包含 `server/modules/providers/tests/passthrough-parity.test.ts`，且全文不含 `server/modules/launch-profiles/`；`status` 仍为 `achieved`、`goal` 仍为 `GOAL-001`、`origin` 含本次修正原因（搬迁）。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/passthrough-parity.test.ts` 退出码 0 且输出 `pass 4` / `fail 0`。
+- [x] `server/modules/providers/tests/passthrough-parity.test.ts` 顶部注释逐字含 `AC-001`、`b34a662e`、`server/modules/launch-profiles/tests/passthrough-parity.test.ts` 三个串（`grep -c` 各 ≥1）。
+- [x] 溯源注释是注释-only：`git diff -U0 develop...HEAD -- server/modules/providers/tests/passthrough-parity.test.ts` 中所有 `+` 行（除去 `+++` 头）都匹配注释前缀——`git diff -U0 develop...HEAD -- server/modules/providers/tests/passthrough-parity.test.ts | grep -E '^\+' | grep -v '^+++' | grep -vE '^\+\s*(//|\*|/\*)'` 输出为空。
+- [x] `bash /data/home/yale/.claude/plugins/cache/quay/quay/0.10.0/bin/quay goal show AC-024 --root /data/home/yale/work/claudecodeui` 的 `criterion` 仍指向 `server/modules/providers/tests/model-launch-spec.test.ts` 与 `model-spawn-env.test.ts`（并发写未互相踩踏）。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/model-launch-spec.test.ts server/modules/providers/tests/model-spawn-env.test.ts` 退出码 0（AC-024 两条判据文件未被带动）。
 
 ## DoD
 
