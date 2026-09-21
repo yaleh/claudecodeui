@@ -1,7 +1,7 @@
 ---
 id: gap-launch-profiles-relocate-shared-compile-layer
 title: 把 model library 与旧 profile 共用的编译层搬出 launch-profiles 模块（行为零变化）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
