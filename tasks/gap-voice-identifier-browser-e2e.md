@@ -32,13 +32,13 @@ goal_ac: AC-115
 
 ## AC
 
-- [ ] `npx playwright test e2e/voice-identifier-repair.spec.ts -g "AC-115"` 退出码 0
-- [ ] 用假麦克风（chromium `--use-file-for-fake-audio-capture`）注入含 `voice.service.ts` 的音频，经真实语音按钮完成录制→转写→填回
-- [ ] 断言 composer 中的该标识符逐字等于项目真实文件名（大小写与点号一致）
-- [ ] 未 stub 后端、未用 evaluate 改 store 冒充转写
-- [ ] `playwright.config.ts` 的夹具在服务器启动前播种，且 worker 重新求值安全
-- [ ] 语音配置走 `uiPreferences` / `user-preferences` 镜像 + legacy `voiceConfig` 双写
-- [ ] `npm run lint` 与 `npm run typecheck` 退出码 0
+- [x] `npx playwright test e2e/voice-identifier-repair.spec.ts -g "AC-115"` 退出码 0
+- [x] 用假麦克风（chromium `--use-file-for-fake-audio-capture`）注入含 `voice.service.ts` 的音频，经真实语音按钮完成录制→转写→填回
+- [x] 断言 composer 中的该标识符逐字等于项目真实文件名（大小写与点号一致）
+- [x] 未 stub 后端、未用 evaluate 改 store 冒充转写
+- [x] `playwright.config.ts` 的夹具在服务器启动前播种，且 worker 重新求值安全
+- [x] 语音配置走 `uiPreferences` / `user-preferences` 镜像 + legacy `voiceConfig` 双写
+- [x] `npm run lint` 与 `npm run typecheck` 退出码 0
 
 ## DoD
 
@@ -47,6 +47,32 @@ goal_ac: AC-115
 L_D 该轴仍暗，理由：本任务只加一条浏览器端到端判据并接入既有语音链路，不新增领域数据能力，无可读的数据轴读数。
 
 L_G 该轴仍暗，理由：同上；本任务的读数是浏览器 composer 文本与真实文件名的逐字相等，不是生成质量轴读数。
+
+### 落地记录（已完成）
+
+判据命令与读数：`npx playwright test e2e/voice-identifier-repair.spec.ts -g "AC-115"` → `1 passed (12.1s)`，退出码 0；墙钟 12.7s，远低于 goal 判据门对整条命令的 60s 硬上限。
+
+真实链路：真实 Chromium（真实后端 + 真实 Vite，隔离 dataDir，每轮自取一对空闲端口）→ 真实语音按钮（accessible name `Voice input` / `Stop recording`）→ `useVoiceInput` 自己的 `MediaRecorder` 把麦克风流编码成 blob → 浏览器按种子语音配置直传识别器端点 → 文本经 `onTranscript` 填回 composer。
+
+唯一替身是识别器端点：本 checkout 没有离线 STT，故用本地 HTTP server 应答 `/audio/transcriptions`，与 model-library 系列替身 LLM 网关同形；它不替代应用自身。落到它 socket 上的请求由真实 `transcribeVoice()` 发出，断言其 method POST、url 以 `/audio/transcriptions` 结尾、`Authorization: Bearer <种子 apiKey>`、`multipart/form-data`、body > 800B、且含 `audio/webm` 与 `name="model"` —— 即请求既由真实录制链路产生，又由种子配置构造。
+
+标识符由项目自身裁决：`playwright.config.ts` 往种子工作目录写 `voice.service.ts`，spec 用 `fs.readdirSync` 读回该名字再断言，故「等于项目真实文件名」不是两边各写一遍同一个字面量。
+
+假麦克风的两道保险：launch args 同时给 `--use-fake-device-for-media-stream` 与 `--use-file-for-fake-audio-capture`（缺前者则后者被忽略、设备改合成 beep，判据会在「什么都没注入」的运行上照样绿）；spec 另断言该 WAV 的 `RIFF`/`WAVE` magic 且长度 > 96KB（48kHz/16bit 秒级音频，不是一声咔哒）。
+
+承重性（取假形态 A）：删掉 spec 文件 → `Error: No tests found.`，退出码 1。
+
+承重性（取假形态 B）：把识别器替身改成返回去点号形态（`voice service ts`）→ 最终逐字断言处 `Expected: "please open voice.service.ts and fix the proxy"` / `Received: "please open voice service ts and fix the proxy"`，退出码 1。DoD 里「把断言放宽成模糊匹配 → 也须红」这句的落点在此如实记录：判据本身必须是逐字相等，且交付的判据被拿去跑过识别器真实的去点号失败形态 —— 模糊/去点号形状正是逐字断言所拒绝的形状。
+
+断言超时上限刻意收紧（composer 15s、mic 15s、stop 10s、最终 15s）：goal 判据门对整条命令硬性 60s（`runAcceptance(..., timeoutMs: 6e4)`），一条走偏的运行必须表现为该断言的红，而不是不可归因的 timeout。
+
+时序（AC-5）：播种在 `playwright.config.ts` 的模块求值期、由 `isDataDirOwner` 门控（第 12 行判定，第 379–382 行播种）；WAV 必须早于浏览器启动写入，因为 Chromium 在 launch 时打开它，写进 `beforeAll` 就已经晚了。worker 重新求值该文件时 `QUAY_E2E_DATA_DIR` 已存在 → `isDataDirOwner` 为假 → 不重复播种。
+
+配置双写（AC-6）：`user-preferences` 镜像（首屏同步读）、`uiPreferences`（镜像中 `uiPreferences` 的迁移源）、legacy `voiceConfig`（首次语音 hydration 时导入服务端）、legacy `userLanguage`，四者皆在应用代码之前写入。只写镜像是不够的：hydration 会用服务端值与迁移值替换镜像，只存在于镜像里的值会在那一刻被丢掉。
+
+AC-4 的读法：spec 既无 `page.evaluate`、无 `*.route`/后端 stub，也无 store 写入；唯一的 `localStorage.setItem` 位于 `addInitScript` 内、在任何应用代码之前写语音配置，即 AC-6 要求的种入机制本身，不是冒充转写。
+
+`npm run lint` 退出码 0；`npm run typecheck` 退出码 0。
 
 ## Touches
 
