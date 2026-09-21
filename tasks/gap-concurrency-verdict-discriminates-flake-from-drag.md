@@ -36,6 +36,8 @@ suite-concurrency-check: FAIL — 安静基线自己就非零退出（rc=1，与
 
 (B) 不是并发属性：它在**单进程**安静基线里同样发生（上例），却在 24 路并发单文件压测里复现不出来（24/24 绿）。它是机器负载下的逐文件偶发，与「两个套件互拖」无关。
 
+**同一机制已被兄弟任务独立登记过**：`gap-server-phase-concurrency-clamp` 的完成记录第 5 节，跑①红在 `file-tree.routes` 629ms 的 `TypeError: fetch failed`，同文件单独跑 3/3 通过，它写作「本仓已知的负载假红、与本次改动无关」。本条与之同源，但观测面不同：那条看的是**单份套件的服务端阶段**，本条看的是**判据把这次偶发记成了「互拖」并因此判红**。
+
 **另外两条与并发无关的红**（同一份记录）：`acceptance timed out after 60000ms (killed)`（2026-09-20T22:23Z —— 判据墙钟在负载下超过 goal gate 的 60s 硬上限，判词退化成「超时」、读数丢失）；`line 148: … Killed`（22:28Z —— 并发读数进程被 SIGKILL，rc=137）。
 
 **要做的事**：把判词收回到它命名的不变量上，**不放松任何一条**。
@@ -69,6 +71,6 @@ L_D 该轴仍暗，理由：本任务只改判据脚本的判词与差分逻辑�
 
 ## Touches
 
-- `scripts/suite-concurrency-check.sh`
-- `goals/AC-103-同时运行的两个全量套件互不拖红.md`
-- `tasks/gap-concurrency-verdict-discriminates-flake-from-drag.md` (new)
+- scripts/suite-concurrency-check.sh
+- goals/AC-103-同时运行的两个全量套件互不拖红.md
+- tasks/gap-concurrency-verdict-discriminates-flake-from-drag.md
