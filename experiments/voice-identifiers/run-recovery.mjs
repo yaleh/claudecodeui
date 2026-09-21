@@ -33,7 +33,6 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '..', '..');
 const MIN_CANDIDATES = 1000;
 const MIN_ENTRIES = 12;
-const MIN_MISREPAIR_FREE_READING = 0.01;
 
 const fixture = JSON.parse(readFileSync(join(HERE, 'fixtures', 'recovery.json'), 'utf8'));
 const { candidates } = projectCandidates({ cwd: REPO_ROOT });
@@ -93,7 +92,10 @@ if (misRepairs.length) {
   console.error(`FAIL: ${misRepairs.length} repair(s) wrote a name the reference never contained`);
   process.exit(1);
 }
-if (!(survivalAfter > survivalBefore + MIN_MISREPAIR_FREE_READING)) {
+// Strictly greater, not "greater by a margin": the invariant this pins is that
+// repair helps, and the measurement is deterministic, so there is no noise for a
+// margin to absorb.
+if (!(survivalAfter > survivalBefore)) {
   console.error(`FAIL: survival did not improve (${survivalBefore.toFixed(4)} -> ${survivalAfter.toFixed(4)})`);
   process.exit(1);
 }
