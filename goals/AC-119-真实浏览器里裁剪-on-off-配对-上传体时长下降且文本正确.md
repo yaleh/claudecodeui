@@ -1,7 +1,7 @@
 ---
 id: AC-119
 title: 真实浏览器里裁剪 on/off 配对：上传体时长下降且文本正确
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-006
 criterion: npx playwright test e2e/voice-trim.spec.ts -g "AC-119"
@@ -17,4 +17,10 @@ expect: 真实 Chromium 打真实后端 + Vite（playwright.config.ts 起，隔�
   只证明运输与时长，不证明识别质量 —— 假麦克风的音频是合成音，识别器是替身。
 origin: 2026-09-21：本仓库「真实对象经机制实际运转」的落地要求；骨架复用 e2e/voice-identifier-repair.spec.ts。
 activatedAt: 2026-09-21T15:17:59.998Z
+statusLog:
+  - at: 2026-09-21T16:11:25.773Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 ---
