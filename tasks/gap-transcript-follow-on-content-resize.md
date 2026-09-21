@@ -2,7 +2,7 @@
 id: gap-transcript-follow-on-content-resize
 title: transcript 贴底跟随改由内容几何驱动：最后一行就地长高仍贴底 ≤1px，离开底部后不被移动（AC-106 判据
   e2e/transcript-follow.spec.ts 由红转绿）
-status: ready
+status: done
 labels:
   - gap
   - defect
