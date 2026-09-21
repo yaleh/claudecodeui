@@ -1,7 +1,7 @@
 ---
 id: AC-118
 title: 裁剪后标识符逐字存活率不降，CER 与句读在声明容差内
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-006
 criterion: node experiments/voice-trim/run-quality.mjs
@@ -16,4 +16,10 @@ expect: 在入库 fixture 转写对（真实识别器产出，与音频 fixture 
   改错文件」这一类失效，故判据只能取逐字口径。当前必红：experiments/voice-trim/run-quality.mjs 不存在。
 origin: 2026-09-21 实测：cap 阶段 CER 是升的而标识符中性，所以本条不能写成「CER 不升」，否则一开始就是红的；容差与句读下限即由此而来。
 activatedAt: 2026-09-21T15:17:59.983Z
+statusLog:
+  - at: 2026-09-21T15:59:32.989Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 ---
