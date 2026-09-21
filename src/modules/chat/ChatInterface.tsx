@@ -152,6 +152,7 @@ function ChatInterface({
     showLoadAllOverlay,
     createDiff,
     scrollContainerRef,
+    scrollContentRef,
     scrollToBottom,
     scrollToBottomAndReset,
     handleScroll,
@@ -427,6 +428,7 @@ function ChatInterface({
         <MarkdownWorkspaceContext.Provider value={markdownWorkspaceValue}>
           <ChatMessagesPane
             scrollContainerRef={scrollContainerRef}
+            scrollContentRef={scrollContentRef}
             // Not redundant with the `scroll` listener. A first page is 20 rows,
             // tool results fold into their calls, and the "load earlier" link is
             // hidden while more pages exist — so a short transcript is often not

@@ -26,6 +26,24 @@ const SEARCH_SCROLL_RETRIES = 20;
 const SEARCH_SCROLL_RETRY_DELAY_MS = 150;
 
 /**
+ * How far above the bottom the viewport may sit and still count as being at the
+ * bottom for the content-growth follow below.
+ *
+ * Deliberately far tighter than `isNearBottom`'s 50px. That threshold decides
+ * whether a *new row* may pull the view down; this one decides whether content
+ * that grew in place is followed, and the 1–50px band is exactly the drift a
+ * wheel gesture creates — following it there is the "it dragged me back"
+ * failure. A viewport sitting on the bottom measures 0.
+ */
+const TRANSCRIPT_FOLLOW_TOLERANCE_PX = 1;
+
+/** The scroll container's laid-out geometry, as of one resize. */
+type TranscriptGeometry = {
+  scrollHeight: number;
+  clientHeight: number;
+};
+
+/**
  * Finds the rendered row for a resolved search target.
  *
  * Only an exact timestamp match counts while retries remain: the widened window
@@ -207,6 +225,22 @@ export function useChatSessionState({
   const [showLoadAllOverlay, setShowLoadAllOverlay] = useState(false);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  /**
+   * Watches the transcript's geometry for growth that adds no row — a streaming
+   * answer extending the row already on screen, a markdown re-render replacing
+   * it with a taller one, an image loading into it. The row-count effects below
+   * never see any of those, so they are the one path that keeps a pinned
+   * transcript pinned. Torn down with the content column it is attached to.
+   */
+  const transcriptObserverRef = useRef<ResizeObserver | null>(null);
+  /**
+   * The geometry of the last layout the follow judged against. `null` until
+   * something has been measured, which is what tells the first callback that
+   * there is no earlier layout to be "at the bottom" of.
+   */
+  const transcriptGeometryRef = useRef<TranscriptGeometry | null>(null);
+  /** The frame the follow writes its scroll offset in, so a burst of growths coalesces. */
+  const followFrameRef = useRef<number | null>(null);
   const wasNearTopRef = useRef(false);
   // The sidebar-search hit this transcript still owes the user a scroll to.
   // State rather than a ref because resolving it widens the render window,
@@ -436,6 +470,98 @@ export function useChatSessionState({
     isUserScrolledUpRef.current = isUserScrolledUp;
   }, [isUserScrolledUp]);
 
+  /**
+   * Answers a transcript resize by keeping a viewport that was at the bottom at
+   * the bottom.
+   *
+   * The trigger is geometry, not a React signal: nothing here reads the message
+   * count, the last row's text, or a store flush, so an implementation that
+   * waited for any of those would sleep through every growth this exists for.
+   *
+   * The judgement is made against the layout *before* the resize. By the time
+   * this runs the box has already grown, so asking the current geometry "is the
+   * viewport at the bottom?" would answer about the gap the growth itself just
+   * opened. Instead the viewport's offset is compared with the bottom of the
+   * previously measured layout: equal means the growth happened under a pinned
+   * viewport and is followed, anything above means the user created that drift
+   * and keeps it — the growth then simply opens the gap they were holding.
+   */
+  const followTranscriptGrowth = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container || !isActiveRef.current) return;
+    // A restore or a search jump owns the viewport until it has placed it. A pin
+    // written first would land the transcript where the user did not ask to be,
+    // and the restore would then read that offset as the position to keep.
+    if (pendingScrollRestoreRef.current || searchScrollActiveRef.current) return;
+    if (isLoadingMoreRef.current) return;
+
+    const previous = transcriptGeometryRef.current;
+    transcriptGeometryRef.current = {
+      scrollHeight: container.scrollHeight,
+      clientHeight: container.clientHeight,
+    };
+    if (!previous) return;
+
+    const previousBottom = Math.max(previous.scrollHeight - previous.clientHeight, 0);
+    if (Math.abs(container.scrollTop - previousBottom) > TRANSCRIPT_FOLLOW_TOLERANCE_PX) return;
+
+    if (followFrameRef.current !== null) return;
+    const observedTop = container.scrollTop;
+    followFrameRef.current = requestAnimationFrame(() => {
+      followFrameRef.current = null;
+      const current = scrollContainerRef.current;
+      if (!current) return;
+      // Content growth never moves scrollTop; only a gesture does. Anything
+      // above where it sat when the resize was observed is the user taking the
+      // viewport back — re-pinning over it is the bug, so it is checked here at
+      // write time rather than assumed from the resize.
+      if (current.scrollTop < observedTop - TRANSCRIPT_FOLLOW_TOLERANCE_PX) return;
+      current.scrollTop = current.scrollHeight - current.clientHeight;
+    });
+  }, []);
+
+  /**
+   * Starts watching the transcript's geometry.
+   *
+   * Handed to React as the content column's ref, so it is called with the node
+   * when that column enters the tree and with null when it leaves — the whole
+   * teardown, since the observer holds no reference to either node.
+   */
+  const attachScrollContent = useCallback((node: HTMLDivElement | null) => {
+    if (followFrameRef.current !== null) {
+      cancelAnimationFrame(followFrameRef.current);
+      followFrameRef.current = null;
+    }
+    transcriptObserverRef.current?.disconnect();
+    transcriptObserverRef.current = null;
+    transcriptGeometryRef.current = null;
+
+    // jsdom ships no ResizeObserver; the follow is simply unavailable there
+    // rather than a render-time crash for every test that mounts the pane.
+    if (!node || typeof ResizeObserver === 'undefined') return;
+
+    const container = scrollContainerRef.current;
+    if (container) {
+      // Seeded rather than left to the observer's first callback, so a resize
+      // delivered in the same batch as that callback cannot be mistaken for the
+      // baseline.
+      transcriptGeometryRef.current = {
+        scrollHeight: container.scrollHeight,
+        clientHeight: container.clientHeight,
+      };
+    }
+
+    const observer = new ResizeObserver(followTranscriptGrowth);
+    observer.observe(node);
+    // The pane is watched as well: a box that gets shorter (a growing composer,
+    // a software keyboard) opens the same gap from the other side, while the
+    // content column's own height never changes.
+    if (container) {
+      observer.observe(container);
+    }
+    transcriptObserverRef.current = observer;
+  }, [followTranscriptGrowth]);
+
   const scrollToBottom = useCallback(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
@@ -528,6 +654,14 @@ export function useChatSessionState({
     scrollPositionRef.current = {
       height: container.scrollHeight,
       top: container.scrollTop,
+    };
+    // Re-baseline the content-growth follow. A scroll is the user (or a writer
+    // above) choosing an offset, and the next growth must be judged against the
+    // layout this offset was chosen in — otherwise a deliberate scroll between
+    // two resizes would be read as drift the follow is free to correct.
+    transcriptGeometryRef.current = {
+      scrollHeight: container.scrollHeight,
+      clientHeight: container.clientHeight,
     };
 
     const scrolledNearTop = container.scrollTop < 100;
@@ -1125,6 +1259,7 @@ export function useChatSessionState({
     showLoadAllOverlay,
     createDiff,
     scrollContainerRef,
+    scrollContentRef: attachScrollContent,
     scrollToBottom,
     scrollToBottomAndReset,
     handleScroll,

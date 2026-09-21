@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { memo, useCallback, useMemo } from 'react';
-import type { Dispatch, RefObject, SetStateAction } from 'react';
+import type { Dispatch, Ref, RefObject, SetStateAction } from 'react';
 
 import type { ChatMessage,
   Project,
@@ -27,6 +27,11 @@ const INITIAL_MOUNTED_TAIL_ROWS = 30;
 
 type ChatMessagesPaneProps = {
   scrollContainerRef: RefObject<HTMLDivElement>;
+  /**
+   * Attaches the content column — the box that grows when the last row gets
+   * taller without a new row arriving — to chat's content-growth follow.
+   */
+  scrollContentRef: Ref<HTMLDivElement>;
   onWheel: () => void;
   onTouchMove: () => void;
   isLoadingSessionMessages: boolean;
@@ -83,6 +88,7 @@ type ChatMessagesPaneProps = {
  */
 function ChatMessagesPane({
   scrollContainerRef,
+  scrollContentRef,
   onWheel,
   onTouchMove,
   isLoadingSessionMessages,
@@ -188,7 +194,12 @@ function ChatMessagesPane({
           </div>
         </div>
       )}
-      <div className="mx-auto w-full max-w-[54.25rem] space-y-3 px-4 sm:space-y-4">
+      {/* Always rendered, so the follow's observer is attached for the empty and
+          loading states too and never has to be re-attached mid-session. */}
+      <div
+        ref={scrollContentRef}
+        className="mx-auto w-full max-w-[54.25rem] space-y-3 px-4 sm:space-y-4"
+      >
       {(isLoadingSessionMessages || isProcessing) && chatMessages.length === 0 ? (
         <div className="mt-8 text-center text-gray-500 dark:text-gray-400">
           <div className="flex items-center justify-center space-x-2">
