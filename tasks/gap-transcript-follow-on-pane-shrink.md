@@ -2,7 +2,7 @@
 id: gap-transcript-follow-on-pane-shrink
 title: 贴底跟随在 pane 自身变矮时也成立：观察滚动容器自身尺寸（键盘弹出等价），视口 844→420 后第一个采样点 gap
   ≤1px、离开底部时零写入（AC-107 判据 e2e/transcript-follow.spec.ts 由红转绿）
-status: todo
+status: ready
 labels:
   - gap
   - defect
