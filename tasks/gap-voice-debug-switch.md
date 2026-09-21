@@ -1,7 +1,7 @@
 ---
 id: gap-voice-debug-switch
 title: 裁剪链路的 console 读数开关（关=零输出、开=字段齐备）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
