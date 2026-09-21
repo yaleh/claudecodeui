@@ -105,6 +105,12 @@ type SessionSelectionApiResponse = {
     model?: string | null;
     effort?: string | null;
     /**
+     * The permission mode the session last sent a message with, or null when
+     * no message has carried one yet. Unlike the model there is no client-side
+     * fallback: a null here means "provider default", not "the user's pick".
+     */
+    permissionMode?: string | null;
+    /**
      * `session` and `provider` are real answers for this session; `default`
      * means the backend had nothing recorded and returned the catalog default,
      * which the composer replaces with the user's per-provider selection.
@@ -118,7 +124,13 @@ type SessionProviderSelection = {
   sessionId: string;
   model: string | null;
   effort: string | null;
+  permissionMode: PermissionMode | null;
 };
+
+/** Reads a recorded mode out of an API answer, rejecting anything unusable. */
+const readRecordedPermissionMode = (value: unknown): PermissionMode | null => (
+  typeof value === 'string' && value.trim() ? value.trim() as PermissionMode : null
+);
 
 const getSessionSelectionKey = (provider: LLMProvider, sessionId: string): string => (
   `${provider}:${sessionId}`
@@ -406,21 +418,13 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     }
   }, [providerEfforts, providerModels, reconcileStoredEffort]);
 
+  // The permission mode used to live in two localStorage keys. Nothing is
+  // migrated out of them — the session row is the only source now, and a
+  // leftover local value would be a second, unaccountable answer — but they are
+  // removed, so a stale mode cannot mislead the next person reading a profile.
   useEffect(() => {
-    const validModes = getPermissionModesForProvider(provider);
-    const sessionSavedMode = selectedSession?.id
-      ? (localStorage.getItem(`permissionMode-${selectedSession.id}`) as PermissionMode | null)
-      : null;
-    // Fall back to the last mode picked for this provider: a brand-new chat
-    // only receives its session id after the first send, so without this the
-    // mode chosen beforehand would snap back to the default as soon as the
-    // session id appears.
-    const providerSavedMode = localStorage.getItem(`permissionMode-last-${provider}`) as PermissionMode | null;
-    const savedMode = [sessionSavedMode, providerSavedMode].find(
-      (mode): mode is PermissionMode => Boolean(mode && validModes.includes(mode)),
-    );
-    setPermissionMode(savedMode ?? getDefaultPermissionModeForProvider(provider));
-  }, [selectedSession?.id, provider, getDefaultPermissionModeForProvider, getPermissionModesForProvider]);
+    Object.keys(localStorage).filter((key) => key.startsWith('permissionMode-')).forEach((key) => localStorage.removeItem(key));
+  }, []);
 
   useEffect(() => {
     if (!selectedSession?.__provider || selectedSession.__provider === provider) {
@@ -439,17 +443,17 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     );
   }, [selectedSession?.id]);
 
+  /**
+   * Applies a mode choice to the composer, and nothing else.
+   *
+   * Switching mode is not a write: it sends no request and stores nothing. The
+   * mode becomes a session attribute only when a message carries it to the
+   * server (see the send path), which is also what a reload or another device
+   * reads back.
+   */
   const selectPermissionMode = useCallback((nextMode: PermissionMode) => {
     setPermissionMode(nextMode);
-
-    // Persist per provider as well as per session: a brand-new chat has no
-    // session id yet, and the per-provider key keeps the choice sticky when
-    // the real id arrives (and for future sessions of this provider).
-    localStorage.setItem(`permissionMode-last-${provider}`, nextMode);
-    if (selectedSession?.id) {
-      localStorage.setItem(`permissionMode-${selectedSession.id}`, nextMode);
-    }
-  }, [provider, selectedSession?.id]);
+  }, []);
 
   const cyclePermissionMode = useCallback(() => {
     const modes = getPermissionModesForProvider(provider);
@@ -532,6 +536,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
           sessionId: selectedSessionId,
           model: body.success && resolvedModel && body.data?.source !== 'default' ? resolvedModel : null,
           effort: body.success ? resolvedEffort : null,
+          permissionMode: body.success ? readRecordedPermissionMode(body.data?.permissionMode) : null,
         });
       } catch (error) {
         if (
@@ -545,6 +550,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
             sessionId: selectedSessionId,
             model: null,
             effort: null,
+            permissionMode: null,
           });
         }
       }
@@ -555,6 +561,54 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       cancelled = true;
     };
   }, [selectedSessionId, selectedSessionProvider]);
+
+  const recordedPermissionMode = activeSessionSelection?.permissionMode ?? null;
+  const hasSessionSelection = Boolean(activeSessionSelection);
+  // The session id of the previous render, so the one transition where keeping
+  // the in-memory mode is the *correct* answer — a brand-new chat receiving its
+  // id, which is also what carried the mode to the server a moment ago — can be
+  // told apart from an ordinary session switch.
+  const previousSelectedSessionIdRef = useRef<string | null>(selectedSessionId);
+
+  /**
+   * Chooses the mode the composer shows.
+   *
+   * The answer is the session's recorded mode, or the provider default when the
+   * session has never sent one. Only the server knows it, so a session whose
+   * answer is still in flight keeps the current mode instead of flickering
+   * through the default — except when the user has just switched to a different
+   * session, where showing (and sending) the previous session's mode would be
+   * wrong.
+   *
+   * This effect deliberately does not depend on the chosen mode: picking a mode
+   * is not a write, so the pick has to survive here until a send carries it.
+   */
+  useEffect(() => {
+    const previousSessionId = previousSelectedSessionIdRef.current;
+    previousSelectedSessionIdRef.current = selectedSessionId;
+
+    const validModes = getPermissionModesForProvider(provider);
+    if (recordedPermissionMode && validModes.includes(recordedPermissionMode)) {
+      setPermissionMode(recordedPermissionMode);
+      return;
+    }
+
+    // No recorded mode: either the session never sent one (provider default),
+    // or its answer has not arrived yet. The latter is answered with the mode
+    // already in memory only for the session this composer just created.
+    if (selectedSessionId && !hasSessionSelection && previousSessionId === null) {
+      return;
+    }
+
+    setPermissionMode(getDefaultPermissionModeForProvider(provider));
+  }, [
+    getDefaultPermissionModeForProvider,
+    getPermissionModesForProvider,
+    hasSessionSelection,
+    provider,
+    recordedPermissionMode,
+    selectedSessionId,
+  ]);
 
   /**
    * Applies a model choice.
@@ -605,6 +659,11 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
         effort: current?.provider === targetProvider && current.sessionId === normalizedSessionId
           ? current.effort
           : body.data?.effort?.trim() || null,
+        // Changing the model is not an occasion to change the mode, so the
+        // recorded one is carried over rather than re-read.
+        permissionMode: current?.provider === targetProvider && current.sessionId === normalizedSessionId
+          ? current.permissionMode
+          : readRecordedPermissionMode(body.data?.permissionMode),
       }));
     }
     return { scope: 'session' as const, model: storedModel };
@@ -641,6 +700,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       sessionId: normalizedSessionId,
       model: previousSelection?.model ?? null,
       effort,
+      permissionMode: previousSelection?.permissionMode ?? null,
     });
 
     try {
@@ -666,6 +726,10 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
             ? current.model
             : previousSelection?.model ?? null,
           effort: storedEffort,
+          permissionMode: current?.provider === targetProvider
+            && current.sessionId === normalizedSessionId
+            ? current.permissionMode
+            : previousSelection?.permissionMode ?? null,
         }));
       }
 

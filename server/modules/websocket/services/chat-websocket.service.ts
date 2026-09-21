@@ -258,6 +258,14 @@ async function dispatchRun(
   if (typeof clientOptions.effort === 'string' && clientOptions.effort.trim()) {
     providerModelsService.setSessionEffort(provider, sessionId, clientOptions.effort);
   }
+  // The permission mode is a session attribute the client no longer persists
+  // anywhere, so this send is the only place it can be recorded. Only a mode
+  // the provider's capability matrix lists is stored; an unsupported one is
+  // ignored rather than rejected, because the run still has to go out and the
+  // client would otherwise be told its message failed over a display detail.
+  if (typeof clientOptions.permissionMode === 'string' && clientOptions.permissionMode.trim()) {
+    providerModelsService.setSessionPermissionMode(provider, sessionId, clientOptions.permissionMode);
+  }
 
   const attachmentCandidates = [
     ...normalizeAttachmentDescriptors(clientOptions.images),

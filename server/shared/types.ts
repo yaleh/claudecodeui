@@ -192,8 +192,9 @@ export type ProviderCurrentActiveModel = {
 export type ProviderSessionModelSource = 'session' | 'provider' | 'default';
 
 /**
- * The model one session runs with, its persisted reasoning effort when one has
- * been recorded, and where the model answer came from.
+ * The model one session runs with, its persisted reasoning effort and
+ * permission mode when they have been recorded, and where the model answer
+ * came from.
  *
  * Returned by `providerModelsService.resolveSessionModel` and used by the
  * `/models`, `/cost` and `/status` commands, the active-model route, and the
@@ -205,6 +206,12 @@ export type ProviderSessionModel = {
   model: string;
   /** NULL means this session has not recorded an effort choice yet. */
   effort: string | null;
+  /**
+   * Permission mode the session last sent a message with. NULL means no
+   * message has carried one yet, which the client reads as "use the provider
+   * default" rather than as a mode of its own.
+   */
+  permissionMode: string | null;
   source: ProviderSessionModelSource;
 };
 

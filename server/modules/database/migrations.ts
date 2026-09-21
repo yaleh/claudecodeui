@@ -464,6 +464,22 @@ const addSessionEffortColumn = (db: Database): void => {
 };
 
 /**
+ * Adds the `permission_mode` column that records the mode a session last sent
+ * a message with.
+ *
+ * Existing rows stay NULL: NULL means "no message has recorded a mode yet",
+ * which is a real answer the client acts on (fall back to the provider
+ * default). Backfilling a guess would make an old session claim a mode the
+ * user never sent with.
+ */
+const addSessionPermissionModeColumn = (db: Database): void => {
+  const sessionsTableInfo = getTableInfo(db, 'sessions');
+  const columnNames = sessionsTableInfo.map((column) => column.name);
+
+  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'permission_mode', 'TEXT');
+};
+
+/**
  * Drops the two structures the removed launch-profile feature left in the
  * database: the `launch_profiles` table and the `sessions.launch_profile_id`
  * column.
@@ -508,6 +524,7 @@ const dropLaunchProfileStructures = (db: Database): void => {
         jsonl_path TEXT,
         model TEXT,
         effort TEXT,
+        permission_mode TEXT,
         forked_from_session_id TEXT,
         isArchived BOOLEAN DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -528,6 +545,7 @@ const dropLaunchProfileStructures = (db: Database): void => {
         jsonl_path,
         model,
         effort,
+        permission_mode,
         forked_from_session_id,
         isArchived,
         created_at,
@@ -542,6 +560,7 @@ const dropLaunchProfileStructures = (db: Database): void => {
         jsonl_path,
         model,
         effort,
+        permission_mode,
         forked_from_session_id,
         COALESCE(isArchived, 0),
         COALESCE(created_at, CURRENT_TIMESTAMP),
@@ -633,6 +652,7 @@ export const runMigrations = (db: Database) => {
     addProviderSessionIdMapping(db);
     addSessionModelColumn(db);
     addSessionEffortColumn(db);
+    addSessionPermissionModeColumn(db);
     addForkedFromSessionIdColumn(db);
     // Last of the sessions-shape migrations: it rebuilds the table, so every
     // column the copy reads has to exist by now.

@@ -140,6 +140,13 @@ CREATE TABLE IF NOT EXISTS sessions (
     -- restores its exact runtime configuration instead of provider defaults.
     model TEXT,
     effort TEXT,
+    -- Permission mode this session last sent a message with (one of the
+    -- modes the provider's capabilities declare: default, auto, acceptEdits,
+    -- bypassPermissions, plan). Unlike model and effort there is no picker
+    -- route that writes it: only an actual send records it, so NULL (never
+    -- sent with one) is what makes every client fall back to the provider
+    -- default instead of inventing a choice the user never made.
+    permission_mode TEXT,
     -- The app session this one was branched from, NULL for sessions created
     -- normally. Informational only: a fork is a fully independent provider
     -- session, and deleting the source does not affect it.

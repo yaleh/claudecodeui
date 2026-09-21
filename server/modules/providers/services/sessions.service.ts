@@ -228,6 +228,10 @@ export const sessionsService = {
       });
     }
 
+    // The id is minted here, and the row is written before this call returns:
+    // no client can name the session before its row exists, which is what keeps
+    // a first message's permission mode from ever arriving ahead of the row it
+    // belongs to (see the send path's `resolveSendTarget`).
     const sessionId = randomUUID();
     const sessionName = buildCloudCliSessionName(initialMessage);
     sessionsDb.createAppSession(sessionId, provider, normalizedProjectPath, sessionName);
@@ -301,6 +305,9 @@ export const sessionsService = {
       // differently from the conversation it was branched from.
       model: source.model,
       effort: source.effort,
+      // Same reasoning for the permission mode: a fork inherits how the
+      // conversation it branches from was actually being run.
+      permissionMode: source.permission_mode,
     });
 
     await broadcastSessionUpserted(forkSessionId);

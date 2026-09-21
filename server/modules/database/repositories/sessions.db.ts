@@ -13,6 +13,12 @@ type SessionRow = {
   model: string | null;
   /** Reasoning effort this session runs with; NULL until the app records one. */
   effort: string | null;
+  /**
+   * Permission mode the session last sent a message with; NULL until a send
+   * records one. NULL is a real answer, not "unknown": it means no message has
+   * carried a mode for this session yet.
+   */
+  permission_mode: string | null;
   /** The app session this one was branched from; NULL unless it is a fork. */
   forked_from_session_id: string | null;
   isArchived: number;
@@ -64,7 +70,7 @@ function buildNameVisibilityClause(
 }
 
 const SESSION_ROW_COLUMNS =
-  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, model, effort, forked_from_session_id, isArchived, created_at, updated_at';
+  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, model, effort, permission_mode, forked_from_session_id, isArchived, created_at, updated_at';
 
 const SQLITE_UTC_TIMESTAMP_REGEX = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 
@@ -212,6 +218,10 @@ export const sessionsDb = {
    * stays NULL until the provider runtime announces its own id and
    * `assignProviderSessionId` records the mapping. `customName` is derived
    * from the first visible CloudCLI message by the sessions service.
+   *
+   * The new row carries no permission mode: no message has been sent under it
+   * yet, so `NULL` here means "use the provider default" rather than "unknown".
+   * A send that follows writes it (see `setSessionPermissionMode`).
    */
   createAppSession(
     sessionId: string,
@@ -224,9 +234,12 @@ export const sessionsDb = {
 
     projectsDb.createProjectPath(normalizedProjectPath);
 
+    // The permission mode starts NULL: a brand-new session has never sent a
+    // message, so it has no mode to report and every reader falls back to the
+    // provider default.
     db.prepare(
-      `INSERT INTO sessions (session_id, provider, provider_session_id, custom_name, project_path, jsonl_path, isArchived, created_at, updated_at)
-       VALUES (?, ?, NULL, ?, ?, NULL, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+      `INSERT INTO sessions (session_id, provider, provider_session_id, custom_name, project_path, jsonl_path, permission_mode, isArchived, created_at, updated_at)
+       VALUES (?, ?, NULL, ?, ?, NULL, NULL, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
     ).run(sessionId, provider, customName ?? null, normalizedProjectPath);
 
     return sessionId;
@@ -250,6 +263,7 @@ export const sessionsDb = {
     forkedFromSessionId: string;
     model: string | null;
     effort: string | null;
+    permissionMode: string | null;
   }): string {
     const db = getConnection();
     const normalizedProjectPath = normalizeProjectPathForProvider(input.provider, input.projectPath);
@@ -263,8 +277,8 @@ export const sessionsDb = {
       db.prepare('DELETE FROM sessions WHERE session_id = ? AND session_id <> ?')
         .run(input.providerSessionId, input.sessionId);
       db.prepare(
-        `INSERT INTO sessions (session_id, provider, provider_session_id, custom_name, project_path, jsonl_path, model, effort, forked_from_session_id, isArchived, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+        `INSERT INTO sessions (session_id, provider, provider_session_id, custom_name, project_path, jsonl_path, model, effort, permission_mode, forked_from_session_id, isArchived, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
       ).run(
         input.sessionId,
         input.provider,
@@ -274,6 +288,7 @@ export const sessionsDb = {
         input.jsonlPath,
         input.model,
         input.effort,
+        input.permissionMode,
         input.forkedFromSessionId,
       );
     })();
@@ -475,6 +490,26 @@ export const sessionsDb = {
        SET effort = ?
        WHERE session_id = ?`
     ).run(effort, sessionId);
+  },
+
+  /**
+   * Records the permission mode one session last sent a message with.
+   *
+   * Only a send calls this — unlike model and effort there is no picker route
+   * that persists a mode on click, so an UPDATE is the whole write.
+   *
+   * Returns whether a row was actually updated. The send path resolves the
+   * session row before it writes, so `false` means the row is not there
+   * (yet), which the caller has to handle rather than lose the mode to a
+   * silent no-op UPDATE.
+   */
+  setSessionPermissionMode(sessionId: string, permissionMode: string): boolean {
+    const db = getConnection();
+    return db.prepare(
+      `UPDATE sessions
+       SET permission_mode = ?
+       WHERE session_id = ?`
+    ).run(permissionMode, sessionId).changes > 0;
   },
 
   updateSessionCustomName(sessionId: string, customName: string): void {

@@ -9,6 +9,7 @@ import test from 'node:test';
 import express, { type NextFunction, type Request, type Response } from 'express';
 
 import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
+import { providerModelsService } from '@/modules/providers/index.js';
 import providerRouter from '@/modules/providers/provider.routes.js';
 import { AppError } from '@/shared/utils.js';
 
@@ -169,6 +170,37 @@ test('reasoning effort is persisted and returned with the active session model',
     assert.equal(readResponse.status, 200);
     assert.equal(readPayload.data.sessionId, 'effort-session');
     assert.equal(readPayload.data.effort, 'ultra');
+  });
+});
+
+test('the active-model answer carries the recorded permission mode, and null before one is sent', async () => {
+  await withProviderServer(async (baseUrl, workspacePath) => {
+    sessionsDb.createAppSession('mode-session', 'claude', workspacePath);
+
+    const unrecordedResponse = await fetch(
+      `${baseUrl}/api/providers/claude/sessions/mode-session/active-model`,
+    );
+    const unrecordedPayload = await unrecordedResponse.json() as {
+      data: { permissionMode: string | null };
+    };
+    assert.equal(unrecordedResponse.status, 200);
+    // NULL is the answer for "no message has carried a mode yet": the client
+    // reads it as "use the provider default", not as a mode of its own.
+    assert.equal(unrecordedPayload.data.permissionMode, null);
+
+    // Recorded the way a send records it, then read back over HTTP.
+    const stored = providerModelsService.setSessionPermissionMode('claude', 'mode-session', 'acceptEdits');
+    assert.equal(stored?.permissionMode, 'acceptEdits');
+
+    const recordedResponse = await fetch(
+      `${baseUrl}/api/providers/claude/sessions/mode-session/active-model`,
+    );
+    const recordedPayload = await recordedResponse.json() as {
+      data: { permissionMode: string | null; sessionId: string };
+    };
+    assert.equal(recordedResponse.status, 200);
+    assert.equal(recordedPayload.data.sessionId, 'mode-session');
+    assert.equal(recordedPayload.data.permissionMode, 'acceptEdits');
   });
 });
 

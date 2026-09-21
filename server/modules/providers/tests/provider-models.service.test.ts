@@ -22,10 +22,15 @@ const createCurrentActiveModel = (model: string): ProviderCurrentActiveModel => 
 const createSessionStore = (
   rows: Record<string, string | null> = {},
   efforts: Record<string, string | null> = {},
+  permissionModes: Record<string, string | null> = {},
 ) => {
   const sessions = new Map(Object.entries(rows).map(([sessionId, model]) => [
     sessionId,
-    { model, effort: efforts[sessionId] ?? null },
+    {
+      model,
+      effort: efforts[sessionId] ?? null,
+      permission_mode: permissionModes[sessionId] ?? null,
+    },
   ]));
   return {
     sessions,
@@ -42,6 +47,14 @@ const createSessionStore = (
       if (session) {
         session.effort = effort;
       }
+    },
+    setSessionPermissionMode: (sessionId: string, permissionMode: string) => {
+      const session = sessions.get(sessionId);
+      if (!session) {
+        return false;
+      }
+      session.permission_mode = permissionMode;
+      return true;
     },
   };
 };
@@ -228,6 +241,7 @@ test('setSessionModel records the model on the session row', () => {
     sessionId: 'session-1',
     model: 'opus',
     effort: null,
+    permissionMode: null,
     source: 'session',
   });
   assert.equal(sessions.sessions.get('session-1')?.model, 'opus');
@@ -262,6 +276,70 @@ test('setSessionEffort ignores sessions that have no row yet', () => {
 
   assert.equal(service.setSessionEffort('codex', 'missing-session', 'high'), null);
   assert.equal(sessions.sessions.size, 0);
+});
+
+test('setSessionPermissionMode records a mode the provider supports', () => {
+  const sessions = createSessionStore({ 'mode-session-1': null });
+  const { service } = createTestService({ sessions });
+
+  const stored = service.setSessionPermissionMode('claude', 'mode-session-1', 'plan');
+
+  assert.deepEqual(stored, {
+    provider: 'claude',
+    sessionId: 'mode-session-1',
+    permissionMode: 'plan',
+    source: 'session',
+  });
+  assert.equal(sessions.sessions.get('mode-session-1')?.permission_mode, 'plan');
+});
+
+test('setSessionPermissionMode ignores a mode outside the provider capability matrix', () => {
+  const sessions = createSessionStore({ 'mode-session-2': null, 'mode-session-3': null });
+  const { service } = createTestService({ sessions });
+
+  // Unknown to every provider, and real but not offered by this one.
+  assert.equal(service.setSessionPermissionMode('claude', 'mode-session-2', 'yolo'), null);
+  assert.equal(service.setSessionPermissionMode('codex', 'mode-session-3', 'plan'), null);
+
+  assert.equal(sessions.sessions.get('mode-session-2')?.permission_mode, null);
+  assert.equal(sessions.sessions.get('mode-session-3')?.permission_mode, null);
+});
+
+test('setSessionPermissionMode ignores sessions that have no row yet', () => {
+  const sessions = createSessionStore();
+  const { service } = createTestService({ sessions });
+
+  // Unreachable from a send: the gateway refuses a frame naming a session
+  // whose row is missing, and the id it would name is minted by the call that
+  // writes the row. Answered here so the writer has one rule, not two.
+  assert.equal(service.setSessionPermissionMode('claude', 'mode-session-4', 'acceptEdits'), null);
+  assert.equal(sessions.sessions.size, 0);
+});
+
+test('resolveSessionModel surfaces the recorded permission mode, null when unrecorded', async () => {
+  const { service } = createTestService({
+    sessions: createSessionStore(
+      { 'mode-session-6': 'haiku', 'mode-session-7': 'haiku' },
+      {},
+      { 'mode-session-6': 'bypassPermissions' },
+    ),
+  });
+
+  const recorded = await service.resolveSessionModel('claude', { sessionId: 'mode-session-6' });
+  assert.equal(recorded.permissionMode, 'bypassPermissions');
+
+  const unrecorded = await service.resolveSessionModel('claude', { sessionId: 'mode-session-7' });
+  assert.equal(unrecorded.permissionMode, null);
+});
+
+test('setSessionModel leaves the recorded permission mode untouched', () => {
+  const sessions = createSessionStore({ 'mode-session-8': 'haiku' }, {}, { 'mode-session-8': 'plan' });
+  const { service } = createTestService({ sessions });
+
+  const stored = service.setSessionModel('claude', 'mode-session-8', 'opus');
+
+  assert.equal(stored?.permissionMode, 'plan');
+  assert.equal(sessions.sessions.get('mode-session-8')?.permission_mode, 'plan');
 });
 
 test('resolveSessionModel prefers the recorded session model', async () => {
