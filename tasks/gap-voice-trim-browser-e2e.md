@@ -1,7 +1,7 @@
 ---
 id: gap-voice-trim-browser-e2e
 title: 真浏览器里裁剪 on/off 配对：上传体时长真的变短
-status: ready
+status: done
 labels:
   - gap
 parent: null
