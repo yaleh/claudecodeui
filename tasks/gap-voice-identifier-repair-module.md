@@ -48,6 +48,6 @@ L_G 该轴仍暗，理由：同上；本任务是确定性字符串算法的落�
 
 ## Touches
 
-- src/shared/identifierRepair.ts
-- src/shared/tests/identifierRepair.test.ts
+- src/shared/identifierRepair.ts (new)
+- src/shared/tests/identifierRepair.test.ts (new)
 - tasks/gap-voice-identifier-repair-module.md
