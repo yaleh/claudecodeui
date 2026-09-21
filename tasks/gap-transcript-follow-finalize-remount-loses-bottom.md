@@ -2,7 +2,7 @@
 id: gap-transcript-follow-finalize-remount-loses-bottom
 title: turn 收尾换 key 导致重挂载：pane 塌陷后可能停在底部之外；增长帧的 offset 亦被浏览器 clamp 到 0 ——
   钉死机制并修到 AC-108 能改回字面量「全程逐帧 gap ≤1px」
-status: ready
+status: done
 labels:
   - gap
   - defect
