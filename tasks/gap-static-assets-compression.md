@@ -1,7 +1,7 @@
 ---
 id: gap-static-assets-compression
 title: 生产形态静态资源与 SPA 入口开启 gzip 压缩（仅限 dist 静态资源，不动 API 与 WebSocket）
-status: ready
+status: done
 labels:
   - gap
 parent: null
