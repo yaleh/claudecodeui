@@ -19,9 +19,6 @@ export { resolveModelLaunchSpec, resolveModelContextWindowRow } from './services
 // LaunchSpecGuards: the compile-path key-filter seam, consumed by the outgoing launch-profile
 // service and its tests. Transitional — removed with the launch-profiles teardown.
 export type { LaunchSpecGuards } from './services/model-launch-spec.service.js';
-// isAllowedLaunchEnvKey / resolveContextWindow: transitional re-exports for the outgoing
-// launch-profile service, which loses them when the launch-profiles module is torn down.
-export { isAllowedLaunchEnvKey, resolveContextWindow } from './services/launch-spec.service.js';
 // mapCliOptionsToSDK: driven by the launch-profiles tests to prove the SDK env
 // stays byte-identical when no profile is configured.
 export { mapCliOptionsToSDK } from './list/claude/claude-runtime.provider.js';

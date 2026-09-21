@@ -3,7 +3,24 @@ import type { LaunchProfileInput, LaunchProfileRecord } from '@/modules/database
 // Transitional cross-module imports: the compile layer shared by the model library and this
 // profile service now lives in the providers module. The launch-profiles teardown deletes this
 // service, and these imports with it.
-import { isAllowedLaunchEnvKey, resolveContextWindow } from '@/modules/providers/index.js';
+//
+// The two values name the providers service file instead of the providers barrel on purpose. The
+// barrel transitively reaches this module's own launch-profiles.module.js (the Claude runtime
+// imports `resolveLaunchSpec` from the launch-profiles barrel, and the barrel re-exports
+// launchProfilesRoutes from that module), whose body reads `launchProfilesService` while this file
+// is still evaluating. Entering the barrel from here would close that cycle and deadlock on the
+// binding (`ReferenceError: Cannot access 'launchProfilesService' before initialization`).
+// launch-spec.service.js is a dependency leaf, so naming it re-enters nothing.
+//
+// The boundaries rule is knowingly waived for this one line. Its barrel form is unavailable for as
+// long as the providers module still reaches this module (the Claude runtime imports
+// `resolveLaunchSpec` from the launch-profiles barrel), and both halves of that edge — this import
+// and that one — are removed by the launch-profiles teardown. Waived here rather than there because
+// the illegal edge is inbound-to-providers: keeping it inside the file that dies leaves the
+// providers barrel and runtime free of exceptions.
+// eslint-disable-next-line boundaries/dependencies
+import { isAllowedLaunchEnvKey, resolveContextWindow } from '@/modules/providers/services/launch-spec.service.js';
+// The guard seam is a type: erased at compile time, so it can come from the barrel.
 import type { LaunchSpecGuards } from '@/modules/providers/index.js';
 import type { LLMProvider, ResolvedLaunchSpec } from '@/shared/types.js';
 import { AppError } from '@/shared/utils.js';
