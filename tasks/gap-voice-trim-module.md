@@ -31,12 +31,12 @@ goal_ac: AC-116
 
 ## AC
 
-- [ ] `npx vitest run src/shared/tests/voiceTrim.test.ts` 退出码 0
-- [ ] 断言(1)：输出中每个被 VAD 判为语音的区间都能在输入里找到对应区间且逐样本相等（只允许 pre/post-roll 边界差）
-- [ ] 断言(2)：每个 fixture 的输出时长 < 输入时长
-- [ ] 断言(3)：空输入 / 全静音 / 帧数异常 / 采样率不符 → 原样返回且 `stats.fallback === true`，不抛异常、不返回空音频
-- [ ] 断言(4)：模块不 import React/DOM；`experiments/voice-trim/` 下不存在第二份算法实现
-- [ ] `npm run lint` 与 `npm run typecheck` 退出码 0
+- [x] `npx vitest run src/shared/tests/voiceTrim.test.ts` 退出码 0
+- [x] 断言(1)：输出中每个被 VAD 判为语音的区间都能在输入里找到对应区间且逐样本相等（只允许 pre/post-roll 边界差）
+- [x] 断言(2)：每个 fixture 的输出时长 < 输入时长
+- [x] 断言(3)：空输入 / 全静音 / 帧数异常 / 采样率不符 → 原样返回且 `stats.fallback === true`，不抛异常、不返回空音频
+- [x] 断言(4)：模块不 import React/DOM；`experiments/voice-trim/` 下不存在第二份算法实现
+- [x] `npm run lint` 与 `npm run typecheck` 退出码 0
 
 ## DoD
 
