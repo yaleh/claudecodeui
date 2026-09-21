@@ -1,7 +1,7 @@
 ---
 id: gap-e2e-hardcoded-ports-collide
 title: e2e 判据去抖动：playwright 端口按运行分配，消除并发 e2e 互撞造成的 AC-027 假红（判据命令可重复为绿）
-status: todo
+status: ready
 labels:
   - gap
   - defect
