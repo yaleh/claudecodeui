@@ -1,7 +1,7 @@
 ---
 id: GOAL-005
 title: 语音听写的代码标识符在真实使用中被可靠还原
-status: achieved
+status: active
 kind: goal
 origin: docs/proposals/voice-identifier-repair-and-temporal-compression.md（commit
   57b957f7）；证据基础 /data/home/yale/work/tc-verify/FINDINGS.md（仓库外验证工装，22 工具 / 14
@@ -13,6 +13,12 @@ statusLog:
     to: achieved
     actor: goal-driver
     reason: "I2: all ACs achieved + sufficiency covered"
+  - at: 2026-09-21T13:56:14.865Z
+    from: achieved
+    to: active
+    actor: yale
+    reason: 退出条件 4（AC-115 端到端生效）未真正满足：修复未接进客户端，且该判据原不可失败；另实测 AC-113 的判据量的是 harness
+      副本而非出货模块，两者 6/16 不一致。重启后按新判据重新收敛。
 ---
 ## 背景
 
