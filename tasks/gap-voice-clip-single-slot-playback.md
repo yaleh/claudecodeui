@@ -1,7 +1,7 @@
 ---
 id: gap-voice-clip-single-slot-playback
 title: composer 单槽保留最后一条录音并提供回放（麦克风右侧 pill，含时长元信息）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
