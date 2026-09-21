@@ -52,6 +52,7 @@ import { assetsRoutes } from './modules/assets/index.js';
 import { fileTreeRoutes } from './modules/file-tree/index.js';
 import { worktreesRoutes } from './modules/worktrees/index.js';
 import browserUseMcpRoutes from './modules/browser-use/browser-use-mcp.routes.js';
+import { createStaticAssetsMiddleware } from './modules/static-assets/index.js';
 import { browserUseService } from './modules/browser-use/browser-use.service.js';
 import { initializeDatabase, sessionsDb } from './modules/database/index.js';
 import { configureWebPush } from './modules/notifications/index.js';
@@ -199,56 +200,25 @@ app.use('/api/agent', agentRoutes);
 
 app.use('/api/voice', authenticateToken, voiceRoutes);
 
-// Serve public files (like api-docs.html)
-app.use(express.static(path.join(APP_ROOT, 'public')));
-
-// Static files served after API routes
-// Add cache control: HTML files should not be cached, but assets can be cached
-app.use(express.static(path.join(APP_ROOT, 'dist'), {
-    setHeaders: (res, filePath) => {
-        if (filePath.endsWith('.html')) {
-            // Prevent HTML caching to avoid service worker issues after builds
-            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-            res.setHeader('Pragma', 'no-cache');
-            res.setHeader('Expires', '0');
-        } else if (filePath.match(/\.(js|css|woff2?|ttf|eot|svg|png|jpg|jpeg|gif|ico)$/)) {
-            // Cache static assets for 1 year (they have hashed names)
-            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-        }
-    }
-}));
-
+// Static assets and the SPA entry, mounted after every API route so response
+// compression only ever applies to the bundle and HTML above (see the module
+// for why mounting it earlier would capture streaming API responses).
+//
 // API Routes (protected)
 // /api/config endpoint removed - no longer needed
 // Frontend now uses window.location for WebSocket URLs
 
 // Chat uploads live under /api/assets (server/modules/assets), which stores
 // images and general files in the global ~/.cloudcli/assets folder.
-
-// Serve React app for all other routes (excluding static files)
-app.get('*', (req, res) => {
-    // Skip requests for static assets (files with extensions)
-    if (path.extname(req.path)) {
-        return res.status(404).send('Not found');
-    }
-
-    // Only serve index.html for HTML routes, not for static assets
-    // Static assets should already be handled by express.static middleware above
-    const indexPath = path.join(APP_ROOT, 'dist', 'index.html');
-
-    // Check if dist/index.html exists (production build available)
-    if (fs.existsSync(indexPath)) {
-        // Set no-cache headers for HTML to prevent service worker issues
-        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-        res.setHeader('Pragma', 'no-cache');
-        res.setHeader('Expires', '0');
-        res.sendFile(indexPath);
-    } else {
+app.use(createStaticAssetsMiddleware({
+    distDir: path.join(APP_ROOT, 'dist'),
+    publicDir: path.join(APP_ROOT, 'public'),
+    onMissingIndex: (req, res) => {
         // In development, redirect to Vite dev server only if dist doesn't exist
         const redirectHost = getConnectableHost(req.hostname);
         res.redirect(`${req.protocol}://${redirectHost}:${VITE_PORT}`);
-    }
-});
+    },
+}));
 
 // global error middleware must be last
 app.use((err: unknown, req: Request, res: Response, next: NextFunction) => {
