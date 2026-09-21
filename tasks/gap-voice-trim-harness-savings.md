@@ -1,7 +1,7 @@
 ---
 id: gap-voice-trim-harness-savings
 title: 裁剪省时长的仓库内读数（量出货模块，含正对照）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
