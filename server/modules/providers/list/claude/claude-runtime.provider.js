@@ -36,7 +36,8 @@ import {
   notifyRunStopped,
   notifyUserIfEnabled
 } from '@/modules/notifications/index.js';
-import { resolveContextWindow, resolveLaunchSpec, resolveModelContextWindowRow, resolveModelLaunchSpec } from '@/modules/launch-profiles/index.js';
+import { resolveModelContextWindowRow, resolveModelLaunchSpec } from '@/modules/providers/services/model-launch-spec.service.js';
+import { resolveContextWindow } from '@/modules/providers/services/launch-spec.service.js';
 import { applyLaunchSpecEnv, createCompleteMessage, createNormalizedMessage } from '@/shared/utils.js';
 
 const activeSessions = new Map();
@@ -223,11 +224,10 @@ function mapCliOptionsToSDK(options = {}) {
 
   // Forward all host env vars (e.g. ANTHROPIC_BASE_URL) to the subprocess.
   // Since SDK 0.2.113, options.env replaces process.env instead of overlaying it.
-  const launchSpec = resolveLaunchSpec(options.launchProfileId ?? null, 'claude');
-  // The selected custom model's entry overlays the profile; its `unset` rows delete keys from the final object.
   const modelSpec = resolveModelLaunchSpec('claude', options.model);
+  // The selected custom model's entry overlays the host env; its `unset` rows delete keys from the final object.
   sdkOptions.env = applyLaunchSpecEnv(
-    applyLaunchSpecEnv(applyLaunchSpecEnv({ ...process.env }, launchSpec), modelSpec),
+    applyLaunchSpecEnv({ ...process.env }, modelSpec),
     { env: { CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: String(BG_WAIT_CEILING_MS) } },
   );
 
@@ -1243,6 +1243,6 @@ export {
   reconnectSessionWriter,
   extractTokenBudget,
   extractCumulativeTokenBudget,
-  // Consumed by the launch-profiles passthrough parity test to capture sdkOptions.env.
+  // Consumed by the passthrough-parity test to capture sdkOptions.env.
   mapCliOptionsToSDK
 };

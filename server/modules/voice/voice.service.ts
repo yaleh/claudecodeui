@@ -3,6 +3,9 @@ import type {
   VoiceRequestOverrides,
   VoiceService,
   VoiceServiceResult,
+  VoiceSettings,
+  VoiceSettingsService,
+  VoiceSettingsStore,
   VoiceSpeechPayload,
 } from '@/shared/types.js';
 
@@ -187,6 +190,125 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
       } catch (error) {
         return unreachableBackendFailure(error, dependencies.timeoutMs);
       }
+    },
+  };
+}
+
+/** Every field of a settings document, so validation cannot miss one by accident. */
+const VOICE_SETTINGS_FIELDS: readonly (keyof VoiceSettings)[] = [
+  'baseUrl',
+  'apiKey',
+  'sttModel',
+  'ttsModel',
+  'ttsVoice',
+  'ttsFormat',
+];
+
+/**
+ * The longest value each field accepts. Generous for any real endpoint, key or
+ * model name, and small enough that one request cannot park megabytes in the
+ * settings row and have every later read pay for it.
+ */
+const VOICE_SETTINGS_MAX_LENGTHS: Record<keyof VoiceSettings, number> = {
+  baseUrl: 2048,
+  apiKey: 4096,
+  sttModel: 256,
+  ttsModel: 256,
+  ttsVoice: 256,
+  ttsFormat: 64,
+};
+
+/**
+ * Reads one settings field from an untrusted body.
+ *
+ * Surrounding whitespace is stripped from every field including the key: a key
+ * pasted with a trailing newline would otherwise be stored verbatim and fail
+ * authentication later, with nothing on screen to explain why. A missing or
+ * explicitly null field reads as the empty string, which is what the client
+ * sends to clear a field.
+ */
+function readSettingsField(
+  source: Record<string, unknown>,
+  field: keyof VoiceSettings,
+): VoiceServiceResult<string> {
+  const raw = source[field];
+  if (raw === undefined || raw === null) {
+    return { ok: true, value: '' };
+  }
+
+  if (typeof raw !== 'string') {
+    return { ok: false, status: 400, error: `${field} must be a string.` };
+  }
+
+  const value = raw.trim();
+  if (value.length > VOICE_SETTINGS_MAX_LENGTHS[field]) {
+    return {
+      ok: false,
+      status: 400,
+      error: `${field} is too long (max ${VOICE_SETTINGS_MAX_LENGTHS[field]} characters).`,
+    };
+  }
+
+  return { ok: true, value };
+}
+
+/**
+ * Validates a whole settings document and converts it to the stored shape.
+ *
+ * The base URL is checked with the same predicate the proxy path uses, so a
+ * value that could never have been called is rejected at the door rather than
+ * stored and discovered broken on the next recording. Note that the server
+ * never issues a request to this URL — the browser calls it directly — so this
+ * is a usability check, not an SSRF boundary.
+ */
+function parseVoiceSettingsInput(input: unknown): VoiceServiceResult<VoiceSettings> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { ok: false, status: 400, error: 'Voice settings must be an object.' };
+  }
+
+  const source = input as Record<string, unknown>;
+  const settings: VoiceSettings = {
+    baseUrl: '',
+    apiKey: '',
+    sttModel: '',
+    ttsModel: '',
+    ttsVoice: '',
+    ttsFormat: '',
+  };
+
+  for (const field of VOICE_SETTINGS_FIELDS) {
+    const read = readSettingsField(source, field);
+    if (!read.ok) {
+      return read;
+    }
+    settings[field] = read.value;
+  }
+
+  if (settings.baseUrl && !validateBackendBaseUrl(settings.baseUrl)) {
+    return { ok: false, status: 400, error: 'Invalid voice backend URL.' };
+  }
+
+  return { ok: true, value: settings };
+}
+
+/**
+ * Creates the Voice settings service used by the Voice composition root and its
+ * unit tests. Storage is injected as a narrow port so the validation rules can
+ * be exercised without a database, and so the Voice module reaches the database
+ * only through its public barrel.
+ */
+export function createVoiceSettingsService(store: VoiceSettingsStore): VoiceSettingsService {
+  return {
+    getSettings: (userId) => store.getSettings(userId),
+
+    saveSettings(userId, input) {
+      const parsed = parseVoiceSettingsInput(input);
+      if (!parsed.ok) {
+        return parsed;
+      }
+
+      store.saveSettings(userId, parsed.value);
+      return { ok: true, value: parsed.value };
     },
   };
 }

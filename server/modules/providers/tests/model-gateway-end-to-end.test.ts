@@ -1,3 +1,17 @@
+// ⛔ 溯源（勿删）：本文件是 model-library 的**网关端到端判据**（AC-025）—— 测试内起 mock Anthropic
+// 兼容端点，经真实 chat.send（options.model = 模型条目 id、⛔ 不携带任何 env）跑一轮，断言请求真的打到
+// mock、认证头来自模型条目的 secret 行、且宿主 ANTHROPIC_API_KEY 不出现。它钉住的是一条真实链路，
+// 不是 mock 自证。权威记录：goals/AC-025-gateway-request-lands-with-the-credential-from-a-model-entry.md
+// （criterion 即本文件）。
+//
+// 本文件原居 server/modules/launch-profiles/tests/model-gateway-end-to-end.test.ts，由 1d76cac6
+// （gap-launch-profiles-relocate-shared-compile-layer，搬迁共享编译层）整体迁到 providers，内容逐字
+// 未改（新旧路径 git diff 为空，五个用例一个不减）；随后 b34a662e（拆除 launch-profiles 实体）删掉了
+// 整个旧目录，旧路径已不复存在。
+//
+// 因此：随共享编译层**再次搬迁是允许的**，但搬迁必须同步修正 AC-025 记录的 criterion 路径（见
+// gap-ac-025-criterion-repoint-to-migrated-test）。**删除本文件、或放宽其中任一断言不是允许的** ——
+// 那会让 AC-025 失去它唯一钉住的属性。
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import http from 'node:http';

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { closeConnection } from '@/modules/database/connection.js';
+import { closeConnection, getConnection } from '@/modules/database/connection.js';
 import { initializeDatabase } from '@/modules/database/init-db.js';
 import { projectsDb } from '@/modules/database/repositories/projects.db.js';
 import { sessionsDb } from '@/modules/database/repositories/sessions.db.js';
@@ -30,6 +30,112 @@ async function withIsolatedDatabase(runTest: () => void | Promise<void>): Promis
     await rm(tempDirectory, { recursive: true, force: true });
   }
 }
+
+/** Column names of the sessions table, as SQLite reports them. */
+const sessionColumnNames = (): string[] =>
+  (
+    getConnection().prepare('PRAGMA table_info(sessions)').all() as { name: string }[]
+  ).map((row) => row.name);
+
+/** Row count per application table, so "the upgrade did not lose a row" is checkable. */
+const rowCounts = (): Record<string, number> =>
+  Object.fromEntries(
+    (
+      getConnection()
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .all() as { name: string }[]
+    )
+      .map((row) => row.name)
+      .filter((name) => !name.startsWith('sqlite_'))
+      .map((name) => [
+        name,
+        (
+          getConnection().prepare(`SELECT COUNT(*) AS count FROM "${name}"`).get() as { count: number }
+        ).count,
+      ])
+  );
+
+/** Every session row, ordered, ignoring the column under test. */
+const sessionRowsWithoutPermissionMode = (): unknown[] =>
+  getConnection()
+    .prepare(
+      `SELECT session_id, provider, provider_session_id, project_path, jsonl_path,
+              custom_name, model, effort, forked_from_session_id, isArchived,
+              created_at, updated_at
+       FROM sessions
+       ORDER BY session_id`
+    )
+    .all();
+
+test('a fresh database carries the session permission_mode column, unset', async () => {
+  await withIsolatedDatabase(() => {
+    assert.ok(
+      sessionColumnNames().includes('permission_mode'),
+      'a fresh sessions table must carry the permission_mode column'
+    );
+
+    sessionsDb.createAppSession('session-mode-fresh', 'claude', '/workspace/demo-project');
+
+    // NULL is the honest answer for a session no message has carried a mode
+    // with; the reader turns it into "use the provider default".
+    assert.equal(sessionsDb.getSessionById('session-mode-fresh')?.permission_mode, null);
+  });
+});
+
+test('opening a database from before the permission-mode column adds it and keeps every row', async () => {
+  await withIsolatedDatabase(async () => {
+    sessionsDb.createAppSession('session-mode-upgrade', 'claude', '/workspace/demo-project', 'Upgrade Session');
+    sessionsDb.createSession(
+      'session-mode-indexed',
+      'codex',
+      '/workspace/demo-project',
+      'Indexed Session',
+      '2026-07-18T09:00:00.000Z',
+      '2026-07-18T10:00:00.000Z',
+      '/transcripts/session-mode-indexed.jsonl'
+    );
+
+    // Settle everything the other startup migrations do before taking the
+    // baseline, so the counts below move only if this migration moves them.
+    closeConnection();
+    await initializeDatabase();
+
+    // The shape the previous release left behind: same table, one column fewer.
+    getConnection().exec('ALTER TABLE sessions DROP COLUMN permission_mode');
+    assert.ok(
+      !sessionColumnNames().includes('permission_mode'),
+      'the fixture must really start without the column'
+    );
+
+    const countsBefore = rowCounts();
+    const rowsBefore = sessionRowsWithoutPermissionMode();
+
+    // The app starts again against that file; migrations run on open.
+    closeConnection();
+    await initializeDatabase();
+
+    assert.ok(
+      sessionColumnNames().includes('permission_mode'),
+      'the upgrade must add the permission_mode column'
+    );
+    assert.deepEqual(rowCounts(), countsBefore, 'no table may gain or lose a row across the upgrade');
+    assert.deepEqual(
+      sessionRowsWithoutPermissionMode(),
+      rowsBefore,
+      'the upgrade must leave every existing session row as it was'
+    );
+    assert.equal(
+      sessionsDb.getSessionById('session-mode-upgrade')?.permission_mode,
+      null,
+      'an upgraded row must read "never sent one" rather than an invented mode'
+    );
+
+    // The added column is the real one: writes land on the same rows.
+    assert.equal(sessionsDb.setSessionPermissionMode('session-mode-upgrade', 'plan'), true);
+    assert.equal(sessionsDb.getSessionById('session-mode-upgrade')?.permission_mode, 'plan');
+    assert.equal(sessionsDb.setSessionPermissionMode('session-not-there', 'plan'), false);
+  });
+});
 
 test('session archive queries hide archived rows from active project views', async () => {
   await withIsolatedDatabase(() => {

@@ -52,7 +52,7 @@ statusLog:
 ## 退出条件
 
 全部退出条件都以“模型条目”为对象（无 profile 概念）：
-- AC-001 升级零变化的黄金基准：未选带配置的模型时，spawn 环境与本变更前逐字一致。（既有判据，唯一保留；拆除旧实体时须移植到新入口，不得删除或放宽。）
+- AC-001 升级零变化的黄金基准：未选带配置的模型时，spawn 环境与本变更前逐字一致。（既有判据，唯一保留；拆除旧实体时已移植到新入口。）
 - AC-022 secret 只写、auth.db 权限 0600。
 - AC-023 模型配置写入路径：四种行类型、白名单、重复 id 409、内置模型不可挂配置。
 - AC-024 模型条目编译为真实 spawn 环境：value/secret/envref/unset 行，unset 在最终环境对象上真的生效；编译路径对每行重新校验白名单；以 fjdac 为参照 fixture。
@@ -61,19 +61,31 @@ statusLog:
 - AC-027 真实浏览器端到端：建模型 → 刷新后 secret 仍为“已设置” → 在现有选择器选中 → 发送 → mock 收到请求。
 - AC-028 上下文窗口的单一事实来源是模型条目的 CLAUDE_CODE_MAX_CONTEXT_TOKENS 行：同一个值既导出给 CLI，也决定用量 total。
 
-已废弃的判据（对象是旧 profile 实体，或属延期范围；不再是退出条件）：
+## 历史沿革（下面列的不是现行判据，是已结清的历史）
+
+本目标由「独立的 launch profile 实体」改题为「Model library 多端点配置」（ADR-002 取代 ADR-001），旧记录因此长期混着两代判据。以下两段是历史，读者不必把它们当作现行约束。
+
+**旧判据的去向（2026-09-20 起）**——对象是旧 profile 实体，或属延期范围，不再是退出条件：
 - 被取代：AC-002→025，AC-003→022，AC-004→024/025，AC-005→028，AC-008→023，AC-009→024，AC-010→026，AC-011→023，AC-012→027，AC-013→024，AC-014→028，AC-017→024，AC-018/019/020/021→026。
-- 延期、无替代：AC-006（终端 resume 复用启动参数）、AC-007（会话级锁定）、AC-015（终端路径接入）、AC-016（类型化 permissionMode/promptSuggestions）。
+- 延期、无替代：AC-006（终端 resume 复用启动参数）、AC-007（会话级锁定）、AC-015（终端路径接入）、AC-016（类型化 permissionMode/promptSuggestions）。这四条是「这里欠一次重新决策」的欠条，不是可抹掉的历史噪声，故其 superseded 记录按要求原样保留：AC-007 尤其如此——跨供应商 resume 可能出错的风险已登记但未实测。
+- AC-002 至 AC-021 共 28 条旧 AC 中，18 条 superseded，其余被上表取代；活的判据只有上面的「退出条件」八条。
+
+**旧实体拆除（2026-09-21，已完成）**——原先以命令式写下的「拆除契约」已执行完毕，故在此记为既成事实，不再是待执行的约束：
+- 拆除范围：`launch_profiles` 表与 `sessions.launch_profile_id` 列、`/api/launch-profiles` 路由、Settings 的 Profiles tab、composer 的 profile 下拉、旧编译入口 `resolveLaunchSpec`。
+- 唯一例外按本目标要求移植而非移除：AC-001 的「升级零变化黄金基准」改由新入口 `resolveModelLaunchSpec` 驱动（`server/modules/providers/tests/passthrough-parity.test.ts`）；`shell-resume-launch-spec.test.ts` 亦因属性仍活着而改注入新缝隙保留。
+- 其余旧测试随实体一并移除（session-profile-lock、launch-spec-real-profile、profile-rest-api、config-env-compiled、context-window-* 等），其对应 AC 均已 superseded。
+- 拆除后 AC-028 的旧入口参数（`options.profile?.contextWindow`）随之消失，上下文窗口的取值路径只剩模型条目。
+- 数据库侧残留（`launch_profiles` 表、`sessions.launch_profile_id` 列）由随后的 drop 迁移清除：升级既有安装与全新安装得到的结构一致，两处 profile 结构都不再存在。
 
 ## 已知不等价点与限制（如实登记）
 
 - 旧记录：wrapper 同时导出 ANTHROPIC_AUTH_TOKEN 与 ANTHROPIC_API_KEY，而旧 profile 只有单一目标。B 方案下 env 行可自由设置任意白名单键，此点不再是限制；但“LLM 网关”模板预置的是 unset ANTHROPIC_API_KEY。
 - UNIQUE(provider, model_id)：同一 model id 无法在两个端点并存（ADR-002 决策 5）。
-- 目标存储把 supersedes 建模为单值：一条新 AC 取代多条旧 AC 时，新侧只记录其中一条；完整的取代关系以旧侧 supersededBy 为准，并汇总在上面的“已废弃的判据”。
-- 拆除旧实体（launch_profiles 表、/api/launch-profiles、Profiles tab、composer 的 profile 下拉、旧编译入口）须在 AC-027 由红转绿之后进行，不提前。拆除时旧测试（session-profile-lock、launch-spec-real-profile、profile-rest-api、config-env-compiled、context-window-* 等）将变红或失去对象：对应 AC 均已 superseded，应一并移除；唯独 AC-001 的测试必须移植而不是移除。
-- 拆除后 AC-028 的旧入口参数（options.profile?.contextWindow）随之消失，须改由模型条目提供。
+- 目标存储把 supersedes 建模为单值：一条新 AC 取代多条旧 AC 时，新侧只记录其中一条；完整的取代关系以旧侧 supersededBy 为准，并汇总在「历史沿革」里。
 
 ## 修订记录
+
+2026-09-21：收拾这份记录本身（用户已裁定「要收拾」）。文件名由 `GOAL-001-cloudcli-launch-profiles.md` 改为与 `title` 一致（id 保持 GOAL-001）；把「已废弃的判据」与正文里的「拆除契约」两节收敛为一条「历史沿革」小节——拆除已完成，拆除契约从待执行的约束变成已执行的记录，继续以命令式措辞留在正文会误导下一个读者。AC-006/007/015/016 的 superseded 记录（含 AC-007 的「延期、无替代」定性）原样保留。
 
 2026-09-20：此前的版本写「范围内 UI 项不单列退出条件」。实机验证证明这一条放过了 i18n key 外泄、编辑器仅 name+model、会话入口缺失三处缺陷，现予撤回，UI 由 AC-012 与 AC-018 单列（二者已于 2026-09-20（三）被 AC-026/AC-027 取代）。
 

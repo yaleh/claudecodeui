@@ -1,3 +1,20 @@
+/**
+ * AC-001 golden baseline — "an existing install upgrades with zero behaviour change".
+ *
+ * This file IS the fixture the AC-001 criterion (goal GOAL-001) points at. With no configured
+ * model selected, the compiled launch spec and both spawn-env assemblies must stay byte-identical
+ * to the pre-change baselines frozen below. It is driven through the live entry point
+ * `resolveModelLaunchSpec`, so any drift in the spec shape or in either env assembly surfaces
+ * here first — the fourth case below is the falsifier (an added, missing or changed key goes red).
+ *
+ * Provenance: first landed as `server/modules/launch-profiles/tests/passthrough-parity.test.ts`
+ * (commit 380922af), then ported verbatim by commit b34a662e
+ * (`refactor(launch-profiles): 拆除旧实体，AC-001 黄金基准移植到新入口`) when the launch-profiles
+ * entity was torn down under GOAL-001 — the file moved, not its assertions.
+ *
+ * Porting this file again to a new entry point is allowed. Deleting it, dropping a case, or
+ * loosening an expectation is not: the four cases below are the golden baseline's entire surface.
+ */
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
@@ -5,8 +22,7 @@ import test from 'node:test';
 
 import { WebSocket } from 'ws';
 
-import { resolveLaunchSpec } from '@/modules/launch-profiles/index.js';
-import { mapCliOptionsToSDK } from '@/modules/providers/index.js';
+import { mapCliOptionsToSDK, resolveModelLaunchSpec } from '@/modules/providers/index.js';
 import { handleShellConnection } from '@/modules/websocket/index.js';
 
 type Env = Record<string, string | undefined>;
@@ -75,10 +91,11 @@ function createFakePty() {
   };
 }
 
-test('passthrough spec has empty env/argv, env-derived context window and no warnings', async () => {
+test('passthrough model spec has empty env/argv, env-derived context window and no warnings', async () => {
   await withFixtureEnv(() => {
-    assert.deepStrictEqual(resolveLaunchSpec(null, 'claude'), {
+    assert.deepStrictEqual(resolveModelLaunchSpec('claude', null), {
       env: {},
+      unsetEnv: [],
       argv: [],
       contextWindow: 200000,
       warnings: [],
@@ -86,7 +103,7 @@ test('passthrough spec has empty env/argv, env-derived context window and no war
   });
 });
 
-test('SDK path: env with no profile equals the pre-change assembly', async () => {
+test('SDK path: env with no configured model equals the pre-change assembly', async () => {
   await withFixtureEnv(() => {
     const sdkOptions = mapCliOptionsToSDK({});
     const bg = (sdkOptions.env as Env).CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS as string;
@@ -95,7 +112,7 @@ test('SDK path: env with no profile equals the pre-change assembly', async () =>
   });
 });
 
-test('pty path: env with no profile equals the pre-change assembly', async () => {
+test('pty path: env with no configured model equals the pre-change assembly', async () => {
   await withFixtureEnv(() => {
     let captured: Env | null = null;
     const fakePty = createFakePty();
@@ -136,7 +153,6 @@ test('parity comparison goes red on an added, missing or changed key', () => {
     assert.throws(() => assertEnvParity(mutated, base));
   }
   // Same probe against a real spec.env mutation.
-  const spec = resolveLaunchSpec(null, 'claude');
+  const spec = resolveModelLaunchSpec('claude', null);
   assert.throws(() => assertEnvParity({ ...base, ...{ ...spec.env, EXTRA: '1' } }, base));
 });
-

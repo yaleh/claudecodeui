@@ -7,6 +7,12 @@
 > 仍然有效的部分：env 键名白名单与两路校验、wire 协议只传模型不传 env、上下文窗口取代全局 CONTEXT_WINDOW、
 > toolsSettings 不纳入配置、编译层 `resolveLaunchSpec` 的设计。
 > 权威记录：`adr/ADR-002-*.md` 与 `goals/GOAL-001-*.md`；下文保留为历史设计依据，未逐段改写。
+>
+> **⚠️ 2026-09-21：独立实体已拆除完毕。** `launch_profiles` 表与列、`/api/launch-profiles` 路由、
+> Settings 的 Profiles tab、composer 的 profile 下拉、旧编译入口 `resolveLaunchSpec` 均已从仓库删除；
+> 唯一保留的等价性验收面是 AC-001 的黄金基准，它已移植到新入口
+> （`server/modules/providers/tests/passthrough-parity.test.ts`：未选带配置的模型时 spawn 环境与本变更前逐字一致）。
+> 本文以下内容仅作历史设计依据。
 
 
 状态：Proposal / 待评审

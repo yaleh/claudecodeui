@@ -140,9 +140,13 @@ CREATE TABLE IF NOT EXISTS sessions (
     -- restores its exact runtime configuration instead of provider defaults.
     model TEXT,
     effort TEXT,
-    -- Launch profile the session was first sent with; once set it is locked
-    -- and later sends with a different profile keep this value.
-    launch_profile_id TEXT,
+    -- Permission mode this session last sent a message with (one of the
+    -- modes the provider's capabilities declare: default, auto, acceptEdits,
+    -- bypassPermissions, plan). Unlike model and effort there is no picker
+    -- route that writes it: only an actual send records it, so NULL (never
+    -- sent with one) is what makes every client fall back to the provider
+    -- default instead of inventing a choice the user never made.
+    permission_mode TEXT,
     -- The app session this one was branched from, NULL for sessions created
     -- normally. Informational only: a fork is a fully independent provider
     -- session, and deleting the source does not affect it.
@@ -233,6 +237,31 @@ CREATE TABLE IF NOT EXISTS session_drafts (
 `;
 
 /**
+ * Per-user Voice backend settings, which used to live in browser localStorage.
+ *
+ * Kept out of `user_preferences` on purpose: that table is downloaded to the
+ * client wholesale on start-up, so a secret stored there would be rebroadcast on
+ * every page load and would also be readable by any code path that merely wants
+ * the theme. One row per user, holding the same six fields the settings tab
+ * edits — `settings_json` rather than six columns because they are always read
+ * and written as one document (the same reason `user_notification_preferences`
+ * is shaped this way), so adding a field later needs no migration.
+ *
+ * The API key is stored in plaintext, exactly as `user_credentials` and
+ * `api_keys` already store their credentials. Introducing encryption for this
+ * one column would protect nothing while the neighbouring stores stayed
+ * readable; that is a separate, repo-wide job.
+ */
+export const USER_VOICE_SETTINGS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS user_voice_settings (
+    user_id INTEGER PRIMARY KEY,
+    settings_json TEXT NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+`;
+
+/**
  * Provider sessions an app session has moved off, and must never move back to.
  *
  * Editing a message on a provider that cannot resume a transcript partway
@@ -253,30 +282,6 @@ CREATE TABLE IF NOT EXISTS superseded_provider_sessions (
     jsonl_path TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (provider_session_id, provider)
-);
-`;
-
-/**
- * Named launch profiles (provider runtime configuration presets).
- *
- * `config_json` holds only non-secret settings. Credentials are referenced by
- * environment variable name (`authEnvVarName`) and are never stored: there is
- * deliberately no secrets table (docs/proposals/launch-profiles.md, ADR-001).
- */
-export const LAUNCH_PROFILES_TABLE_SCHEMA_SQL = `
-CREATE TABLE IF NOT EXISTS launch_profiles (
-    id TEXT NOT NULL,
-    provider TEXT NOT NULL,
-    name TEXT NOT NULL,
-    description TEXT,
-    deployment TEXT NOT NULL DEFAULT 'gateway',
-    is_default BOOLEAN NOT NULL DEFAULT 0,
-    config_json TEXT NOT NULL DEFAULT '{}',
-    sort_order INTEGER NOT NULL DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    UNIQUE (provider, name)
 );
 `;
 
@@ -334,5 +339,5 @@ ${SESSION_DRAFTS_TABLE_SCHEMA_SQL}
 
 ${SUPERSEDED_PROVIDER_SESSIONS_TABLE_SCHEMA_SQL}
 
-${LAUNCH_PROFILES_TABLE_SCHEMA_SQL}
+${USER_VOICE_SETTINGS_TABLE_SCHEMA_SQL}
 `;

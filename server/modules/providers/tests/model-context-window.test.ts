@@ -1,3 +1,14 @@
+// AC-028 criterion file — the goal record `goals/AC-028-model-env-row-is-the-single-source-of-the-context-window.md`
+// runs exactly this path as its criterion command, so this file IS the acceptance surface of AC-028 and
+// must stay reachable under the path the record names.
+// Load-bearing subject: `resolveModelContextWindowRow` decides the context window for a model entry, and
+// that one value feeds the spawn env (`mapCliOptionsToSDK(...).env.CLAUDE_CODE_MAX_CONTEXT_TOKENS`) and all
+// three total paths (the SDK `extractTokenBudget` / `extractCumulativeTokenBudget` and the token-usage
+// service summary) — the single-source-of-truth contract AC-028 asserts.
+// Provenance: this file was relocated by 1d76cac6 (the commit that moved the shared launch-spec compile
+// layer and its tests into server/modules/providers/); `git log --follow` recovers the earlier path.
+// A future relocation that moves the subject again is allowed, but it must carry this header and re-point
+// the AC-028 criterion; deleting this file, or dropping or loosening any assertion below, is not.
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -10,8 +21,8 @@ import {
   extractCumulativeTokenBudget,
   extractTokenBudget,
   mapCliOptionsToSDK,
+  resolveModelContextWindowRow,
 } from '@/modules/providers/index.js';
-import { resolveModelContextWindowRow } from '@/modules/launch-profiles/index.js';
 
 const assistant = { type: 'assistant', message: { usage: { input_tokens: 10, output_tokens: 5 } } };
 const result = { type: 'result', usage: { input_tokens: 10, output_tokens: 5 } };

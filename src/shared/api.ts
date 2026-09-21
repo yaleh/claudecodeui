@@ -4,7 +4,8 @@ import {
   storeAuthToken,
 } from '@/shared/authToken';
 import { IS_PLATFORM } from '@/shared/utils';
-import { readVoiceConfig, voiceConfigHeaders } from '@/shared/voiceConfig';
+import type { VoiceConfig } from '@/shared/voiceConfig';
+import { readVoiceConfig, voiceConfigHeaders, whenVoiceConfigReady } from '@/shared/voiceConfig';
 
 // Headers are a plain record rather than the full `HeadersInit` union so the
 // defaults below can be merged with a caller's headers by spreading.
@@ -560,6 +561,10 @@ export const api = {
         body: formData,
       }),
     tts: (text: string, options: ApiRequestOptions = {}) => post('/api/voice/tts', { text }, options),
+    // The user's own backend settings, stored per user so they follow the
+    // account rather than the browser profile they were typed in.
+    config: () => get('/api/voice/config'),
+    saveConfig: (settings: VoiceConfig) => put('/api/voice/config', settings),
   },
 
   system: {
@@ -591,7 +596,12 @@ export function voiceConfigSignature(): string {
  * Transcribes recorded audio, posting directly to the user's configured OpenAI-compatible
  * endpoint when one is set and otherwise going through the CloudCLI voice proxy.
  */
-export function transcribeVoice(blob: Blob, filename: string): Promise<Response> {
+export async function transcribeVoice(blob: Blob, filename: string): Promise<Response> {
+  // The settings are fetched from the server now, so the first call of a session
+  // has to wait for them. Reading an un-hydrated copy would look exactly like
+  // "no backend configured" and route the recording through the proxy instead of
+  // the endpoint the user set up.
+  await whenVoiceConfigReady();
   const config = readVoiceConfig();
   const body = new FormData();
 
@@ -613,7 +623,10 @@ export function transcribeVoice(blob: Blob, filename: string): Promise<Response>
  * Synthesizes speech for the given text, using the user's configured OpenAI-compatible
  * endpoint when one is set and otherwise the CloudCLI voice proxy.
  */
-export function synthesizeVoice(text: string, signal: AbortSignal): Promise<Response> {
+export async function synthesizeVoice(text: string, signal: AbortSignal): Promise<Response> {
+  // Same reason as transcribeVoice: choose the direct endpoint only from a copy
+  // that has actually been loaded.
+  await whenVoiceConfigReady();
   const config = readVoiceConfig();
 
   if (config.baseUrl.trim()) {

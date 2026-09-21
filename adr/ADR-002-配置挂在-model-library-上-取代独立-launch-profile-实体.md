@@ -85,5 +85,10 @@ spec 必须能表达"移除某键"，并在 SDK 路径与终端路径的最终 s
 
 - 现有 `launch_profiles` 表、`/api/launch-profiles` 路由、Settings 的 Profiles tab、
   composer 的 profile 下拉，在新机制经真实链路验证之后拆除，不提前拆。
-- 编译层（`resolveLaunchSpec`、白名单、上下文变量导出、`config.env` 并入）复用。
+  **✅ 2026-09-21 已拆除**（AC-027 经真实浏览器转绿之后）：表与 `launch_profile_id` 列、路由、
+  Profiles tab、composer 下拉、会话级 profile 锁定与 `profile_locked` 帧、旧编译入口
+  `resolveLaunchSpec` 均已删除，旧测试随对应 AC superseded 一并移除。
+  唯一例外是 AC-001 的升级零变化黄金基准 —— 它被**移植**而非删除，现由新入口
+  `resolveModelLaunchSpec` 驱动（`server/modules/providers/tests/passthrough-parity.test.ts`）。
+- 编译层（白名单、上下文变量导出、`config.env` 并入）复用；旧入口 `resolveLaunchSpec` 已随拆除消失。
 - 用户现有的 FJD profile 迁移为一个模型条目，空的 Claude profile 删除。

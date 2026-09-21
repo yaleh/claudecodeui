@@ -101,17 +101,32 @@ test('a fork becomes an independent session that points back at its source', asy
   });
 });
 
-test('a fork inherits the model and effort of the conversation it branched from', async () => {
+test('a fork inherits the model, effort, and permission mode of the conversation it branched from', async () => {
   await withForkableClaude(async ({ directory }) => {
     seedSource(directory);
     sessionsDb.setSessionModel(SOURCE_ID, 'claude-opus-5');
     sessionsDb.setSessionEffort(SOURCE_ID, 'xhigh');
+    sessionsDb.setSessionPermissionMode(SOURCE_ID, 'plan');
 
     const result = await sessionsService.forkSessionById(SOURCE_ID);
 
     const forked = sessionsDb.getSessionById(result.sessionId);
     assert.equal(forked?.model, 'claude-opus-5');
     assert.equal(forked?.effort, 'xhigh');
+    // The branch continues the same conversation, so it continues with the
+    // mode that conversation was running in rather than snapping back to the
+    // provider default.
+    assert.equal(forked?.permission_mode, 'plan');
+  });
+});
+
+test('a fork of a session that never sent a mode records none either', async () => {
+  await withForkableClaude(async ({ directory }) => {
+    seedSource(directory);
+
+    const result = await sessionsService.forkSessionById(SOURCE_ID);
+
+    assert.equal(sessionsDb.getSessionById(result.sessionId)?.permission_mode, null);
   });
 });
 

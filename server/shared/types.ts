@@ -192,8 +192,9 @@ export type ProviderCurrentActiveModel = {
 export type ProviderSessionModelSource = 'session' | 'provider' | 'default';
 
 /**
- * The model one session runs with, its persisted reasoning effort when one has
- * been recorded, and where the model answer came from.
+ * The model one session runs with, its persisted reasoning effort and
+ * permission mode when they have been recorded, and where the model answer
+ * came from.
  *
  * Returned by `providerModelsService.resolveSessionModel` and used by the
  * `/models`, `/cost` and `/status` commands, the active-model route, and the
@@ -205,6 +206,12 @@ export type ProviderSessionModel = {
   model: string;
   /** NULL means this session has not recorded an effort choice yet. */
   effort: string | null;
+  /**
+   * Permission mode the session last sent a message with. NULL means no
+   * message has carried one yet, which the client reads as "use the provider
+   * default" rather than as a mode of its own.
+   */
+  permissionMode: string | null;
   source: ProviderSessionModelSource;
 };
 
@@ -1310,6 +1317,28 @@ export type VoiceSpeechPayload = {
 };
 
 /**
+ * One user's Voice backend settings as they are stored server-side.
+ *
+ * The six fields are the ones the settings tab edits; the empty string is the
+ * "unset" value for every one of them, which is what a user who has never saved
+ * anything reads back as. Declared here rather than in the Voice module because
+ * both the database repository (which persists a row) and the Voice service
+ * (which validates and returns it) speak this shape.
+ *
+ * `baseUrl` is only stored, never fetched by the server: a client-configured
+ * backend is called directly from the browser, so this value never becomes SSRF
+ * input on this side.
+ */
+export type VoiceSettings = {
+  baseUrl: string;
+  apiKey: string;
+  sttModel: string;
+  ttsModel: string;
+  ttsVoice: string;
+  ttsFormat: string;
+};
+
+/**
  * Explicit service result used by Voice routes instead of transport-aware
  * exceptions.
  *
@@ -1338,6 +1367,42 @@ export type VoiceService = {
     text: string;
     overrides: VoiceRequestOverrides;
   }): Promise<VoiceServiceResult<VoiceSpeechPayload>>;
+};
+
+/**
+ * The persistence contract the Voice settings service writes through.
+ *
+ * Declared as a narrow port rather than imported from the database module so the
+ * service can be unit-tested with an in-memory fake, and so the Voice module
+ * keeps talking to the database through its public barrel only. The database
+ * module's `voiceSettingsDb` is the production implementation.
+ */
+export type VoiceSettingsStore = {
+  getSettings(userId: number): VoiceSettings;
+  saveSettings(userId: number, settings: VoiceSettings): void;
+};
+
+/**
+ * Application-service surface consumed by the Voice settings routes.
+ *
+ * Kept separate from `VoiceService` because it is a different concern with a
+ * different dependency (a settings store rather than an outbound HTTP adapter),
+ * and because the transcription service is constructed once at start-up with
+ * environment defaults while this one only ever acts on a named user.
+ */
+export type VoiceSettingsService = {
+  /**
+   * Reads the authenticated user's stored settings, or the all-empty set when
+   * they have never saved any. Synchronous because the store is a local SQLite
+   * read on the request path, not a network call.
+   */
+  getSettings(userId: number): VoiceSettings;
+  /**
+   * Validates and stores a complete settings document, replacing what was
+   * there. Returns `ok: false, status: 400` when a field is the wrong type, too
+   * long, or names a backend URL the browser could not call directly.
+   */
+  saveSettings(userId: number, input: unknown): VoiceServiceResult<VoiceSettings>;
 };
 
 // ---------------------------
@@ -1410,20 +1475,20 @@ export type SandboxCommandService = {
 };
 
 // ---------------------------
-//----------------- LAUNCH PROFILES ------------
+//----------------- LAUNCH SPEC ------------
 
 /**
- * Compiled launch configuration returned by the launch-profiles module.
+ * Compiled launch configuration returned by the model-launch-spec compiler.
  *
  * Consumed by the Claude SDK runtime and the shell websocket service, which
  * merge `env` over the host environment when spawning a provider process.
- * With no profile selected (passthrough) `env` is `{}` and `argv` is `[]`, so
- * callers' env assembly stays byte-identical to the pre-profile behavior.
- * `env` must only hold overrides, never a copy of `process.env`.
+ * With no configured model selected (passthrough) `env` is `{}` and `argv` is
+ * `[]`, so callers' env assembly stays byte-identical to the pre-model-library
+ * behavior. `env` must only hold overrides, never a copy of `process.env`.
  * `unsetEnv` lists keys that must be REMOVED from the final spawn environment
  * (a model-library `unset` row); callers must apply it with
  * `applyLaunchSpecEnv` so the removal lands on the object handed to the
- * spawn, not merely on the spec. Absent for passthrough and profile specs.
+ * spawn, not merely on the spec. Absent for passthrough specs.
  */
 export type ResolvedLaunchSpec = {
   env: Record<string, string>;

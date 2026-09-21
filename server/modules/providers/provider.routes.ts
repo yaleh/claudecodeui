@@ -586,9 +586,12 @@ router.delete(
 );
 
 /**
- * Reports which model one session is using. `requestedModel` lets the client
- * pass the default it would otherwise send, so a session that has not been
- * sent on yet resolves to that instead of the catalog default.
+ * Reports which model one session is using, plus the reasoning effort and
+ * permission mode recorded for it. `requestedModel` lets the client pass the
+ * default it would otherwise send, so a session that has not been sent on yet
+ * resolves to that instead of the catalog default. `permissionMode` has no
+ * such fallback: it is the recorded mode or null, because the client does not
+ * persist one and must not invent one.
  */
 router.get(
   '/:provider/sessions/:sessionId/active-model',
@@ -613,8 +616,10 @@ router.post(
     const stored = providerModelsService.setSessionModel(provider, sessionId, model);
     // A session row only exists once the gateway has allocated one. Report the
     // selection back either way so the client can hold it until the first send.
+    // A session with no row has no recorded permission mode either, so that
+    // answer is null rather than a mode the session never sent with.
     res.json(createApiSuccessResponse(
-      stored ?? { provider, sessionId, model, effort: null, source: 'session' as const },
+      stored ?? { provider, sessionId, model, effort: null, permissionMode: null, source: 'session' as const },
     ));
   }),
 );

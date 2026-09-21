@@ -1192,7 +1192,7 @@ export type AgentContext = {
 };
 
 /** Identifier of a top-level section in the settings dialog; use it whenever a tab is stored, compared or requested so deep links, the sidebar and the command palette all agree on the same set of names. */
-export type SettingsMainTab = 'agents' | 'appearance' | 'git' | 'api' | 'voice' | 'tasks' | 'browser' | 'notifications' | 'plugins' | 'profiles' | 'about';
+export type SettingsMainTab = 'agents' | 'appearance' | 'git' | 'api' | 'voice' | 'tasks' | 'browser' | 'notifications' | 'plugins' | 'about';
 
 /** The coding-agent CLI a settings screen is configuring, aliasing LLMProvider so agent-scoped settings read as being about an agent rather than a chat model. */
 export type AgentProvider = LLMProvider;
@@ -1632,17 +1632,3 @@ type TaskStatus =
 
 /** A TaskMaster task's priority; high, medium and low are the known values and the string fallback tolerates anything else TaskMaster emits. */
 type TaskPriority = 'high' | 'medium' | 'low' | string;
-
-/**
- * A launch profile as returned by `/api/launch-profiles`. The settings Profiles tab edits it and the
- * chat composer lists it so a session can be started under it. Credentials appear only as a reference
- * name (`credentialRef`), never as plaintext.
- */
-export type LaunchProfile = {
-  id: string;
-  name: string;
-  provider?: string;
-  model?: string;
-  credentialRef?: string;
-  config?: Record<string, unknown>;
-};

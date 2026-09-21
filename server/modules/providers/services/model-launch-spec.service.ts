@@ -1,7 +1,12 @@
 import { providerModelsDb } from '@/modules/database/index.js';
-import { isAllowedLaunchEnvKey, resolveContextWindow } from '@/modules/launch-profiles/launch-spec.service.js';
-import type { LaunchSpecGuards } from '@/modules/launch-profiles/launch-profiles.service.js';
+import { isAllowedLaunchEnvKey, resolveContextWindow } from '@/modules/providers/services/launch-spec.service.js';
 import type { LLMProvider, ResolvedLaunchSpec } from '@/shared/types.js';
+
+/**
+ * Seam for the compile-path key filter; tests substitute a lax one to prove the guard is load-bearing.
+ * Re-exported through the providers barrel for those tests, which live in this module's tests/.
+ */
+export type LaunchSpecGuards = { isAllowedKey: (key: string) => boolean };
 
 const DEFAULT_GUARDS: LaunchSpecGuards = { isAllowedKey: isAllowedLaunchEnvKey };
 

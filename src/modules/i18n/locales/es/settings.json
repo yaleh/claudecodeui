@@ -51,19 +51,6 @@
     "resetToDefaults": "Restablecer valores por defecto",
     "cancelChanges": "Cancelar cambios"
   },
-  "launchProfiles": {
-    "title": "Launch profiles",
-    "description": "Named launch configurations that a new session can be started under.",
-    "loading": "Loading profiles…",
-    "empty": "No profiles yet.",
-    "loadFailed": "Failed to load profiles.",
-    "name": "Name",
-    "model": "Model",
-    "credentialRef": "Credential reference",
-    "save": "Save",
-    "saving": "Saving…",
-    "saveFailed": "Failed to save profile."
-  },
   "voiceSettings": {
     "title": "Voz",
     "description": "Entrada de voz a texto y lectura en voz alta, mediante un backend de audio compatible con OpenAI.",

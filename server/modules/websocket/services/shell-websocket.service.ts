@@ -5,7 +5,7 @@ import path from 'node:path';
 import pty, { type IPty } from 'node-pty';
 import { WebSocket, type RawData } from 'ws';
 
-import { resolveLaunchSpec, resolveModelLaunchSpec } from '@/modules/launch-profiles/index.js';
+import { resolveModelLaunchSpec } from '@/modules/providers/index.js';
 import type { ResolvedLaunchSpec } from '@/shared/types.js';
 import { applyLaunchSpecEnv, parseIncomingJsonObject, readOptionalString, stripAnsiSequences } from '@/shared/utils.js';
 
@@ -105,8 +105,7 @@ type ShellWebSocketDependencies = {
     provider: string,
   ) => string | null | undefined;
   spawnPty?: typeof pty.spawn;
-  /** Test seam: overrides the launch-spec compiler (defaults to the launch-profiles module). */
-  resolveLaunchSpec?: typeof resolveLaunchSpec;
+  /** Test seam: overrides the model launch-spec compiler (defaults to the providers module). */
   resolveModelLaunchSpec?: typeof resolveModelLaunchSpec;
 };
 
@@ -188,7 +187,7 @@ function quoteShellArg(arg: string): string {
 function buildShellCommand(
   message: ShellIncomingMessage,
   dependencies: ShellWebSocketDependencies,
-  launchSpec: ResolvedLaunchSpec
+  modelSpec: ResolvedLaunchSpec
 ): string {
   const hasSession = readBoolean(message.hasSession);
   const initialCommand = readString(message.initialCommand);
@@ -233,9 +232,9 @@ function buildShellCommand(
   const bypassFlag = readBoolean(message.bypassPermissions)
     ? ' --dangerously-skip-permissions'
     : '';
-  // The same compiled profile argv rides on the first launch, the --resume
+  // The same compiled model argv rides on the first launch, the --resume
   // attempt and the fallback launch so a resumed terminal matches the original.
-  const argvSuffix = launchSpec.argv
+  const argvSuffix = modelSpec.argv
     .map((arg) => ` ${quoteShellArg(arg)}`)
     .join('');
   const claudeFlags = `${bypassFlag}${argvSuffix}`;
@@ -414,10 +413,9 @@ export function handleShellConnection(
         }
 
         // One spec per launch: command argv and pty env must come from the same compilation.
-        const launchSpec = (dependencies.resolveLaunchSpec ?? resolveLaunchSpec)(null, 'claude');
-        // The selected custom model's entry overlays the spec; its `unset` rows delete keys from the pty env.
+        // The selected custom model's entry compiles the spec; its `unset` rows delete keys from the pty env.
         const modelSpec = (dependencies.resolveModelLaunchSpec ?? resolveModelLaunchSpec)('claude', readOptionalString(data.model));
-        const shellCommand = buildShellCommand(data, dependencies, launchSpec);
+        const shellCommand = buildShellCommand(data, dependencies, modelSpec);
         const resumeSessionId = resolveResumeSessionId(data, dependencies);
         const shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
         const shellArgs =
@@ -432,7 +430,7 @@ export function handleShellConnection(
           rows: termRows,
           cwd: resolvedProjectPath,
           env: applyLaunchSpecEnv(
-            applyLaunchSpecEnv(applyLaunchSpecEnv({ ...process.env }, launchSpec), modelSpec),
+            applyLaunchSpecEnv({ ...process.env }, modelSpec),
             {
               env: {
                 [prioritizedPath.key]: prioritizedPath.value,

@@ -51,27 +51,6 @@
     "resetToDefaults": "重置为默认值",
     "cancelChanges": "取消更改"
   },
-  "launchProfiles": {
-    "title": "Launch profiles",
-    "description": "Named launch configurations that a new session can be started under.",
-    "loading": "Loading profiles…",
-    "empty": "No profiles yet.",
-    "loadFailed": "Failed to load profiles.",
-    "name": "Name",
-    "model": "Model",
-    "credentialRef": "Credential reference",
-    "save": "Save",
-    "saving": "Saving…",
-    "saveFailed": "Failed to save profile.",
-    "baseUrl": "Base URL",
-    "authMode": "认证方式",
-    "authNone": "无",
-    "authEnvVar": "来自环境变量的 API Key",
-    "authEnvVarName": "环境变量名",
-    "contextWindow": "上下文窗口（tokens）",
-    "create": "创建配置",
-    "newTitle": "新建配置"
-  },
   "voiceSettings": {
     "title": "语音",
     "description": "通过兼容 OpenAI 的音频后端实现语音转文字输入和朗读功能。",
@@ -135,8 +114,7 @@
     "browser": "浏览器",
     "notifications": "通知",
     "plugins": "插件",
-    "about": "关于",
-    "profiles": "配置"
+    "about": "关于"
   },
   "notifications": {
     "title": "通知",
