@@ -47,13 +47,13 @@ goal_ac: AC-102
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/projects/tests/session-filter-realdata.test.ts` 退出码 0；且同一条命令**连跑 30 次**（不间断、同一棵树）30 次全部退出码 0、每次 `fail 0`，完成记录里写明连跑次数与至少 3 次的完整读数行。
-- [ ] 快照是一致点而非活文件拷贝：`grep -c 'copyFile' server/modules/projects/tests/session-filter-realdata.test.ts` 为 0，且文件里对真实库是只读打开（`mode=ro` 或等价）后取快照；真实库的 `projects.session_filter` 在判据跑完后仍与跑前一致（原库未被写入）。
-- [ ] 没有任何断言的成立依赖活库的 `updated_at` 近因窗：把副本改成「前 5 行全是真人会话」的形态（用副本外的前置构造）后判据仍退出码 0；改动前同形态必红（两条输出都记进完成记录）。
-- [ ] 失败可归因：`HOME=/tmp/empty-home npx tsx --tsconfig server/tsconfig.json --test <判据文件>` 退出码非 0，且它的**第一条非 node 警告的 stderr 行**是 `__REALDATA_FAIL__` 开头的一行、点名未满足的前置（`real store unavailable …`）；输出记进完成记录。断言失败路径同样要先打这一行。
-- [ ] 抗假形态仍然为红（两条都真跑并留输出、跑完 revert、`git status` 干净）：(a) 把过滤搬到客户端（分页后再过滤）⇒ total/hasMore 断言红；(b) 去掉 `keepSessionIds` ⇒ 运行中会话可见性断言红。
-- [ ] 断言未被删弱：完成记录里逐条点名分页 / 最近会话聚合 / 标题搜索 / `includeHidden` / `keepSessionIds` / 重开连接持久 / 可见集「不多不少」七条仍在，且能指出各自在文件中的断言位置。
-- [ ] `npx oxlint server/` 与 `npm run typecheck` 退出码 0。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/projects/tests/session-filter-realdata.test.ts` 退出码 0；且同一条命令**连跑 30 次**（不间断、同一棵树）30 次全部退出码 0、每次 `fail 0`，完成记录里写明连跑次数与至少 3 次的完整读数行。
+- [x] 快照是一致点而非活文件拷贝：`grep -c 'copyFile' server/modules/projects/tests/session-filter-realdata.test.ts` 为 0，且文件里对真实库是只读打开（`mode=ro` 或等价）后取快照；真实库的 `projects.session_filter` 在判据跑完后仍与跑前一致（原库未被写入）。
+- [x] 没有任何断言的成立依赖活库的 `updated_at` 近因窗：把副本改成「前 5 行全是真人会话」的形态（用副本外的前置构造）后判据仍退出码 0；改动前同形态必红（两条输出都记进完成记录）。
+- [x] 失败可归因：`HOME=/tmp/empty-home npx tsx --tsconfig server/tsconfig.json --test <判据文件>` 退出码非 0，且它的**第一条非 node 警告的 stderr 行**是 `__REALDATA_FAIL__` 开头的一行、点名未满足的前置（`real store unavailable …`）；输出记进完成记录。断言失败路径同样要先打这一行。
+- [x] 抗假形态仍然为红（两条都真跑并留输出、跑完 revert、`git status` 干净）：(a) 把过滤搬到客户端（分页后再过滤）⇒ total/hasMore 断言红；(b) 去掉 `keepSessionIds` ⇒ 运行中会话可见性断言红。
+- [x] 断言未被删弱：完成记录里逐条点名分页 / 最近会话聚合 / 标题搜索 / `includeHidden` / `keepSessionIds` / 重开连接持久 / 可见集「不多不少」七条仍在，且能指出各自在文件中的断言位置。
+- [x] `npx oxlint server/` 与 `npm run typecheck` 退出码 0。
 
 ## DoD
 
