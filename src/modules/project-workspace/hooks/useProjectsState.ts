@@ -924,6 +924,36 @@ export function useProjectsState({
         return mergeProjectSelectionMetadata(previousProject, upsert.project);
       });
 
+      // `selectedSession` is a denormalized copy of one sidebar row, so the
+      // `setProjects` upsert above only moves the sidebar: the workspace header
+      // (`WorkspaceTitle`), the document title (`getPageTitle`), the export
+      // filename and the composer's session label all read the copy and would
+      // keep showing the old name. That is exactly what an adopted provider
+      // title looks like — a session created here is selected under the id the
+      // event carries (so it never enters the alias branch below), and the
+      // `ai-title` line that names it arrives later as one more
+      // `session_upserted`.
+      //
+      // Only the summary is merged, and only when it really changed: every
+      // other field of the row on screen is already current (the alias branch
+      // owns the id rewrite), and returning the same object for a no-op keeps
+      // an unrelated background upsert from re-rendering the main content tree.
+      setSelectedSession((previousSession) => {
+        if (!previousSession || !aliasIds.has(String(previousSession.id))) {
+          return previousSession;
+        }
+
+        const nextSummary = upsert.session.summary;
+        // Same rule as `upsertSessionIntoProject`: a delta carrying a blank
+        // summary must never blank out a title we already have. Fresh sessions
+        // momentarily broadcast an empty `custom_name` before the title lands.
+        if (typeof nextSummary !== 'string' || !nextSummary.trim() || nextSummary === previousSession.summary) {
+          return previousSession;
+        }
+
+        return { ...previousSession, summary: nextSummary };
+      });
+
       const aliasedSelectedSessionId =
         typeof upsert.providerSessionId === 'string' && upsert.providerSessionId !== upsert.sessionId
           ? upsert.providerSessionId
