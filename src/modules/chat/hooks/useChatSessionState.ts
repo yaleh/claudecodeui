@@ -262,6 +262,12 @@ export function useChatSessionState({
    */
   const transcriptObserverRef = useRef<ResizeObserver | null>(null);
   /**
+   * The pane the current observer has been pointed at, so the layout effect below
+   * wires it exactly once and the baseline the follow judges against survives the
+   * re-renders that follow.
+   */
+  const observedContainerRef = useRef<HTMLElement | null>(null);
+  /**
    * The geometry of the last layout the follow judged against. `null` until
    * something has been measured, which is what tells the first callback that
    * there is no earlier layout to be "at the bottom" of.
@@ -610,13 +616,41 @@ export function useChatSessionState({
     transcriptObserverRef.current?.disconnect();
     transcriptObserverRef.current = null;
     transcriptGeometryRef.current = null;
+    observedContainerRef.current = null;
 
     // jsdom ships no ResizeObserver; the follow is simply unavailable there
     // rather than a render-time crash for every test that mounts the pane.
     if (!node || typeof ResizeObserver === 'undefined') return;
 
+    const observer = new ResizeObserver(followTranscriptGrowth);
+    observer.observe(node);
+    transcriptObserverRef.current = observer;
+  }, [followTranscriptGrowth]);
+
+  /**
+   * Points the follow's observer at the pane the transcript scrolls in.
+   *
+   * The pane is watched as well as the content column: a box that gets shorter —
+   * a growing composer, the activity indicator's padding, a software keyboard —
+   * opens the same gap from the other side, while the content column's own height
+   * never changes. Nothing else can see it either: a pane that got shorter needs
+   * no clamp, so the browser raises no `scroll` for it, and every listener the
+   * intent machinery has is behind one.
+   *
+   * Not done from the ref callback that builds the observer: the content column is
+   * the pane's own child, and React commits a child's ref callback before its
+   * parent's, so the pane's ref is still null there — and that callback's identity
+   * never changes, so it is never called again to pick the pane up later. A layout
+   * effect runs once the whole commit has landed, when both nodes are attached.
+   */
+  useLayoutEffect(() => {
+    const observer = transcriptObserverRef.current;
     const container = scrollContainerRef.current;
-    if (container) {
+    // Once per observer and pane: re-seeding the baseline on every render would
+    // erase the layout the follow judges a resize against.
+    if (!observer || !container || observedContainerRef.current === container) return;
+    observedContainerRef.current = container;
+    if (!transcriptGeometryRef.current) {
       // Seeded rather than left to the observer's first callback, so a resize
       // delivered in the same batch as that callback cannot be mistaken for the
       // baseline.
@@ -625,17 +659,8 @@ export function useChatSessionState({
         clientHeight: container.clientHeight,
       };
     }
-
-    const observer = new ResizeObserver(followTranscriptGrowth);
-    observer.observe(node);
-    // The pane is watched as well: a box that gets shorter (a growing composer,
-    // a software keyboard) opens the same gap from the other side, while the
-    // content column's own height never changes.
-    if (container) {
-      observer.observe(container);
-    }
-    transcriptObserverRef.current = observer;
-  }, [followTranscriptGrowth]);
+    observer.observe(container);
+  });
 
   const scrollToBottom = useCallback(() => {
     const container = scrollContainerRef.current;

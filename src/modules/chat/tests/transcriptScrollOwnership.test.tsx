@@ -72,10 +72,11 @@ function createResizableContainer(scrollHeight: number, clientHeight: number) {
   const element = document.createElement('div');
   const writes: number[] = [];
   let height = scrollHeight;
+  let viewport = clientHeight;
   let top = scrollHeight - clientHeight;
 
   Object.defineProperty(element, 'scrollHeight', { get: () => height });
-  Object.defineProperty(element, 'clientHeight', { get: () => clientHeight });
+  Object.defineProperty(element, 'clientHeight', { get: () => viewport });
   Object.defineProperty(element, 'scrollTop', {
     get: () => top,
     set: (next: number) => {
@@ -89,7 +90,7 @@ function createResizableContainer(scrollHeight: number, clientHeight: number) {
     writes,
     /** The offset a pinned viewport sits at. */
     get bottom() {
-      return height - clientHeight;
+      return height - viewport;
     },
     get scrollTop() {
       return top;
@@ -105,6 +106,14 @@ function createResizableContainer(scrollHeight: number, clientHeight: number) {
      */
     shrink: (delta: number) => {
       height -= delta;
+    },
+    /**
+     * Shrinks the pane itself — a software keyboard, a growing composer. Only the
+     * container's box moves: the content keeps the height it had, and a pane that
+     * got shorter needs no clamp, so the browser raises no `scroll` for it either.
+     */
+    shrinkPane: (delta: number) => {
+      viewport -= delta;
     },
     /** Moves the viewport the way a gesture does. */
     scrollTo: (next: number) => {
@@ -327,18 +336,23 @@ describe('content-growth follow', () => {
    * follow reads is the one the fixture declares.
    */
   async function mountFollow(scrollHeight = 5000, clientHeight = 500) {
+    const session = { id: SESSION_A } as ProjectSession;
     const store = createStore(new Map([[SESSION_A, [buildMessage(0, '2026-01-01T00:00:00.000Z')]]]));
-    const { result } = await renderChatSessionState({
-      session: { id: SESSION_A } as ProjectSession,
-      store,
-    });
+    const { result, rerender } = await renderChatSessionState({ session, store });
 
     const container = createResizableContainer(scrollHeight, clientHeight);
-    (result.current.scrollContainerRef as { current: HTMLDivElement | null }).current = container.element;
-
     const content = document.createElement('div');
+    // The order React really commits in, which is the one the wiring has to
+    // survive: the content column is the pane's child, so its ref callback runs
+    // while the pane's ref is still null — and that callback's identity never
+    // changes, so it is never called a second time to pick the pane up. The
+    // render below is what runs the layout effect that points the observer at it.
     act(() => {
       attachContentRef(result.current.scrollContentRef, content);
+    });
+    (result.current.scrollContainerRef as { current: HTMLDivElement | null }).current = container.element;
+    act(() => {
+      rerender({ session });
     });
 
     const observer = FakeResizeObserver.latest;
@@ -347,6 +361,29 @@ describe('content-growth follow', () => {
       observer.observed,
       [content, container.element],
       'the content column and the pane it scrolls in are both watched',
+    );
+
+    // The session-open scroll is a writer of its own, and the render above is what
+    // lets it start over a pane that is by now attached: it re-scrolls every
+    // animation frame until the height stops changing, then stops. Drained here,
+    // because its writes would otherwise land in the windows below and be read as
+    // the follow reacting to growth.
+    for (let frame = 0; frame < 8; frame += 1) {
+      act(() => {
+        runFrames();
+      });
+    }
+    // A pane with nowhere to scroll is held at one offset whatever a writer asks
+    // for. The fixture assigns rather than clamps, so the clamp is applied here.
+    container.scrollTo(Math.min(container.scrollTop, container.bottom));
+    container.writes.length = 0;
+    act(() => {
+      runFrames();
+    });
+    assert.deepEqual(
+      container.writes,
+      [],
+      'the session-open scroll must be finished before the window below opens',
     );
 
     // The baseline: the follow judges a resize against the layout before it, so
@@ -515,6 +552,79 @@ describe('content-growth follow', () => {
         result.current.isUserScrolledUp,
         true,
         'a wheel that carries the viewport away from the bottom is the user leaving it',
+      );
+    } finally {
+      container.element.remove();
+    }
+  });
+
+  /**
+   * The pane's own box getting shorter — a software keyboard, a growing composer,
+   * the activity indicator's padding toggle — is the other side of the same
+   * question. Nothing about the content changes, so the content column's own
+   * observer has nothing to report; and a pane that got shorter needs no clamp,
+   * so the browser raises no `scroll` for it either. The only evidence is the
+   * container's box, and the only thing that can say whether to follow is the
+   * user's intent: by the time any observer runs, the gap the shrink opened is
+   * already there, and judging "is the viewport at the bottom?" against it would
+   * answer no for exactly the case this exists for.
+   */
+  it('re-pins a pane that gets shorter under a viewport that was at the bottom', async () => {
+    const { container, observer } = await mountFollow();
+
+    // The content keeps the box it had; only the container moves.
+    container.shrinkPane(300);
+    act(() => {
+      observer.emit();
+    });
+    act(() => {
+      runFrames();
+    });
+
+    assert.deepEqual(
+      container.writes,
+      [container.bottom],
+      `a pinned viewport must land back on the bottom of a pane that got shorter; got ${JSON.stringify(container.writes)}`,
+    );
+  });
+
+  it('leaves a pane that gets shorter alone while the user is away from the bottom', async () => {
+    const { result, container, observer } = await mountFollow();
+    document.body.appendChild(container.element);
+    try {
+      // The user wheels away, and the pane reports it: the intent the shrink
+      // below has to be judged against.
+      act(() => {
+        container.element.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, bubbles: true }));
+      });
+      container.scrollTo(container.bottom - 300);
+      act(() => {
+        dispatchScroll(container.element);
+      });
+      assert.equal(
+        result.current.isUserScrolledUp,
+        true,
+        'a wheel that carries the viewport away from the bottom is the user leaving it',
+      );
+      container.writes.length = 0;
+
+      container.shrinkPane(300);
+      act(() => {
+        observer.emit();
+      });
+      act(() => {
+        runFrames();
+      });
+
+      assert.deepEqual(
+        container.writes,
+        [],
+        `a shrink must open the gap the user is holding, not close it; got ${JSON.stringify(container.writes)}`,
+      );
+      assert.equal(
+        result.current.isUserScrolledUp,
+        true,
+        'and must not re-attach the follow behind the user\'s back',
       );
     } finally {
       container.element.remove();
