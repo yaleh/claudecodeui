@@ -1,7 +1,5 @@
 import fs from 'node:fs';
-import http from 'node:http';
 import path from 'node:path';
-import type { AddressInfo } from 'node:net';
 
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
@@ -113,21 +111,39 @@ const instrumentScrollSources = () => {
 };
 
 /**
- * Records every frame the app's websocket receives, before the app's first script runs.
+ * The app's transport, doubled: it records every frame the app's websocket receives and it
+ * is the way a reply is produced at all. Installed before the app's first script runs.
  *
- * The streaming kinds are the transport's own vocabulary — `stream_delta` for one piece of
- * the reply, `stream_end` for the end of a content block — and how many of each the client
- * was handed is not visible from the DOM. Wrapping the constructor is the only way to see
- * them without touching the app.
+ * Recording. The streaming kinds are the transport's own vocabulary — `stream_delta` for one
+ * piece of a reply, `stream_end` for the end of a content block — and how many of each the
+ * client was handed is not visible from the DOM. Wrapping the constructor is the only way to
+ * see them without touching the app.
+ *
+ * Producing. The app's only frame producer is a provider run, and a run needs a model client;
+ * this file must not depend on one. So the frames are handed to the app here instead, through
+ * the transport it made for itself: a real `MessageEvent` dispatched at a real socket, which
+ * the app's own `onmessage` receives. What is doubled is the wire, never the consumer —
+ * nothing below reaches a store, a component or the DOM, and a frame the app does not act on
+ * is a frame it did not receive.
+ *
+ * Only the chat socket is addressed. The shell keeps a socket of its own, and a chat frame
+ * delivered there would be recorded as received without the pane ever seeing it.
  */
-const instrumentStreamFrames = () => {
-  const page = window as unknown as { __streamFrames: { kind: string; t: number }[] };
+const installWireDouble = () => {
+  const page = window as unknown as {
+    __streamFrames: { kind: string; t: number }[];
+    __wireSockets: { url: string; socket: WebSocket }[];
+    __injectStreamFrame: (frame: unknown) => number;
+  };
   page.__streamFrames = [];
+  page.__wireSockets = [];
   const Native = window.WebSocket;
   window.WebSocket = class extends Native {
     constructor(...args: ConstructorParameters<typeof WebSocket>) {
       super(...args);
-      this.addEventListener('message', (event) => {
+      const socket = this as WebSocket;
+      page.__wireSockets.push({ url: String(args[0]), socket });
+      socket.addEventListener('message', (event) => {
         try {
           const frame = JSON.parse(String((event as MessageEvent).data)) as { kind?: string };
           if (frame?.kind) {
@@ -139,6 +155,85 @@ const instrumentStreamFrames = () => {
       });
     }
   } as unknown as typeof WebSocket;
+
+  /**
+   * Delivers one frame to every open chat socket and reports how many took it. The return
+   * value is the liveness signal for the cases below: a reply that was never delivered looks
+   * exactly like a reply the app ignored.
+   */
+  page.__injectStreamFrame = (frame: unknown) => {
+    const data = JSON.stringify(frame);
+    let delivered = 0;
+    for (const entry of page.__wireSockets) {
+      if (!entry.url.includes('/ws')) continue;
+      if (entry.socket.readyState !== 1) continue;
+      entry.socket.dispatchEvent(new MessageEvent('message', { data }));
+      delivered += 1;
+    }
+    return delivered;
+  };
+};
+
+/** One frame of the reply, shaped the way the server shapes one. */
+type WireFrame = {
+  kind: 'stream_delta' | 'stream_end';
+  sessionId: string;
+  content?: string;
+};
+
+/** Hands the app one frame of a reply on its own chat socket. Returns the delivery count. */
+const injectStreamFrame = (page: Page, frame: WireFrame) =>
+  page.evaluate(
+    (payload) =>
+      (window as unknown as { __injectStreamFrame: (frame: unknown) => number }).__injectStreamFrame({
+        ...payload,
+        // The same fields a live frame carries. No `seq`: no provider run is in flight, so
+        // there is no sequence for the client to have missed, and claiming one would make the
+        // app's reconnect bookkeeping try to resume a run that does not exist.
+        id: `e2e-wire-${payload.kind}`,
+        timestamp: new Date().toISOString(),
+        provider: 'claude',
+        role: 'assistant',
+      }),
+    frame,
+  );
+
+/**
+ * A reply being delivered through the app's own socket, one delta at a time, in the
+ * background while the case does its work.
+ *
+ * `delivered` and `finished` are the pump's own counters rather than readings off the page:
+ * a case that must observe the pane *mid-reply* has to know the reply really is mid-flight,
+ * and the alternatives — a frame count, a DOM marker — only say that something arrived.
+ */
+type WireStream = {
+  /** How many deltas have been handed to the app so far. */
+  delivered: () => number;
+  /** True once the last delta is on the wire and only `stream_end` remains. */
+  finished: () => boolean;
+  /** Resolves once the whole reply, `stream_end` included, has been delivered. */
+  done: Promise<void>;
+};
+
+/** Starts delivering `deltas` at `intervalMs`, then ends the content block. */
+const startWireStream = (
+  page: Page,
+  sessionId: string,
+  deltas: string[],
+  intervalMs: number,
+): WireStream => {
+  let delivered = 0;
+  let finished = false;
+  const done = (async () => {
+    for (const content of deltas) {
+      await injectStreamFrame(page, { kind: 'stream_delta', sessionId, content });
+      delivered += 1;
+      finished = delivered === deltas.length;
+      await page.waitForTimeout(intervalMs);
+    }
+    await injectStreamFrame(page, { kind: 'stream_end', sessionId });
+  })();
+  return { delivered: () => delivered, finished: () => finished, done };
 };
 
 type ScrollInstruments = {
@@ -446,58 +541,15 @@ const CONTENT_COLUMN = `${PANE} > div:last-child`;
  * being discriminated. Read from the seeded file rather than assumed, so the clock
  * and the fixture cannot drift apart.
  */
-/**
- * The seeded session's own transcript file, as the backend reads it — the same path
- * playwright.config.ts seeded it at.
- */
-const sessionTranscriptFile = () => path.join(
-  process.env.QUAY_E2E_DATA_DIR!,
-  '.claude',
-  'projects',
-  'transcript-follow-workspace',
-  `${SESSION_ID}.jsonl`,
-);
-
-/** One transcript file under the run's isolated HOME, with the lines it holds. */
-type TranscriptFile = { file: string; mtimeMs: number; lines: string[] };
-
-/**
- * Every transcript file the run's isolated HOME holds, newest first.
- *
- * AC-108's conversation is not the seeded one: it is created by the app on send and owned by
- * the CLI, so its transcript has no path the spec can name in advance — the CLI writes under
- * the cwd it was spawned in, and that path is the CLI's to choose. What is knowable is that
- * the file is a `.jsonl` under this run's HOME and is not the seeded conversation, so the
- * scan is how the case names it without guessing where the CLI put it.
- */
-const transcriptsUnderHome = (): TranscriptFile[] => {
-  const root = path.join(process.env.QUAY_E2E_DATA_DIR!, '.claude', 'projects');
-  const files: TranscriptFile[] = [];
-  const walk = (dir: string) => {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        walk(full);
-        continue;
-      }
-      if (!entry.name.endsWith('.jsonl')) {
-        continue;
-      }
-      files.push({
-        file: full,
-        mtimeMs: fs.statSync(full).mtimeMs,
-        lines: fs.readFileSync(full, 'utf8').trim().split('\n').filter(Boolean),
-      });
-    }
-  };
-  if (fs.existsSync(root)) {
-    walk(root);
-  }
-  return files.sort((left, right) => right.mtimeMs - left.mtimeMs);
-};
-
 const seededTranscriptEndsAt = () => {
-  const records = fs.readFileSync(sessionTranscriptFile(), 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+  const seeded = path.join(
+    process.env.QUAY_E2E_DATA_DIR!,
+    '.claude',
+    'projects',
+    'transcript-follow-workspace',
+    `${SESSION_ID}.jsonl`,
+  );
+  const records = fs.readFileSync(seeded, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
   return Math.max(...records.map((record) => Date.parse(record.timestamp)).filter(Number.isFinite));
 };
 
@@ -538,6 +590,47 @@ const readFixture = (page: Page) =>
       hasMore: (pane.textContent ?? '').includes('Scroll up to load more'),
     };
   });
+
+/**
+ * A conversation the app creates and then opens, over the app's own REST route.
+ *
+ * Both streaming cases deliver frames addressed to a session, so there has to be one. This is
+ * the same `POST /api/providers/sessions` the New Session button makes — the app allocates the
+ * id, writes the row and registers the workspace — issued from inside the page so it carries
+ * the session the UI just created (the app keeps its token in storage rather than in a cookie,
+ * so the same request from the test process would be anonymous). Nothing here is the subject:
+ * the case is about what the pane does once frames arrive.
+ *
+ * The session is created empty and stays empty. An empty conversation is what lets the
+ * readings below treat "the last row" and "the reply" as the same thing, and it means the
+ * reply has no neighbours to be confused with — no prompt row above it, no seeded history
+ * below it, and no request to any provider at any point.
+ */
+const openAppSession = async (page: Page, projectPath: string) => {
+  const created = await page.evaluate(async (workspacePath) => {
+    const response = await fetch('/api/providers/sessions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${window.localStorage.getItem('auth-token') ?? ''}`,
+      },
+      body: JSON.stringify({ provider: 'claude', projectPath: workspacePath, initialMessage: '' }),
+    });
+    return { status: response.status, body: await response.text() };
+  }, projectPath);
+  expect(created.status, `the app did not create a session: ${created.body}`).toBe(201);
+  const sessionId = (JSON.parse(created.body) as { data?: { sessionId?: string } }).data?.sessionId ?? '';
+  expect(sessionId, `the app created a session without an id: ${created.body}`).not.toBe('');
+
+  await page.goto(`/session/${sessionId}`);
+  await expect(page).toHaveURL(new RegExp(`/session/${sessionId}$`));
+  await expect(page.locator(PANE)).toBeVisible({ timeout: 30_000 });
+  // The app registers the workspace while it boots, so the sidebar settles too. Waiting for
+  // rest keeps the first sampled frame from landing on a pane the app is still laying out.
+  await waitForSettledPane(page);
+  await pointAtPane(page);
+  return sessionId;
+};
 
 /** Wheels up over the pane until the transcript has prepended an older page. */
 const wheelUntilPrepended = async (page: Page, originalFirst: string, previousRows: number) => {
@@ -642,7 +735,7 @@ const appendRowThroughComposer = async (page: Page) => {
 const AC108_VIEWPORT = { width: 1280, height: 720 };
 
 /**
- * How many text deltas the gateway streams, and how far apart.
+ * How many text deltas the reply arrives in, and how far apart.
  *
  * 22 × 250 ms ≈ 5.5s — the criterion's own floor (≥20 deltas over ≥5s) with a delta of
  * margin, which costs less than a longer test. The spacing is what makes the steps
@@ -651,20 +744,6 @@ const AC108_VIEWPORT = { width: 1280, height: 720 };
  */
 const AC108_DELTA_COUNT = 22;
 const AC108_DELTA_INTERVAL_MS = 250;
-
-/**
- * How long the gateway thinks before its first token, in milliseconds.
- *
- * A real reply is not the only thing on the wire: the prompt reaches the pane as a row of its
- * own before the answer starts, and the sampler has to be watching the reply's row rather than
- * the prompt's. This is the gap that lets the case wait for the prompt's row to land and settle
- * without eating into the stream it is measuring — the same shape a gateway has anyway, since
- * nothing answers a prompt in the same millisecond it arrives.
- */
-const AC108_STREAM_LEAD_MS = 1_500;
-
-/** The whole stream must outlast this, in milliseconds — the criterion's own floor. */
-const AC108_MIN_STREAM_MS = 5_000;
 
 /** The gap the pane may show at a frame where no growth just landed, in CSS pixels. */
 const AC108_GAP_PX = 1;
@@ -678,233 +757,28 @@ const AC108_GAP_PX = 1;
  */
 const AC108_STREAM_SETTLE_MS = 250;
 
-/**
- * The prompt the case types, and the whole of the gateway's selection rule.
- *
- * The Agent SDK names the session through this same base URL with its own cheap model, so a
- * URL test would pick the wrong request; what the user typed is the only thing that
- * separates the request carrying the reply from that one.
- */
-const AC108_PROMPT_MARKER = 'AC108STREAMPROMPT';
 /** Carried by the last delta, so the case can wait for the reply to have fully arrived. */
 const AC108_COMPLETION_MARKER = 'AC108STREAMDONE';
-/** The prompt itself. Prose, so nothing in it is read as a composer command. */
-const AC108_PROMPT = `${AC108_PROMPT_MARKER} describe what this pane does while a reply is still arriving`;
 
 /**
- * The custom model the gateway is wired into. Its env rows are the only thing pointing the
- * CLI at the spec's socket, which is why the reply can be timed at all.
- */
-const AC108_MODEL = { name: 'E2E Streaming Gateway', id: 'e2e-streaming-gateway' };
-const AC108_TOKEN = 'sk-e2e-streaming-gateway-2b7d41';
-
-/**
- * The text the gateway streams, one string per delta.
+ * The reply, as the text each of its frames carries.
  *
- * Plain prose on purpose: the reply goes through the app's markdown renderer, and a
- * construct whose layout can jump backwards — a table, a fence that opens before it closes,
- * a list that renumbers — would make "the last row grew" a claim about the renderer rather
- * than about the follow. Four sentences is comfortably more than a line, so every flush is
- * a visible step rather than a sub-pixel nudge.
+ * One frame carries one piece of the reply rather than the whole of it: the app appends every
+ * piece to the text it is already showing, which is what makes each delivery a growth of the
+ * row that is already there instead of a new row. The last piece carries the completion
+ * marker, so "the whole reply has arrived" stays a fact about the pane rather than a fact
+ * about the pump that fed it.
+ *
+ * Plain prose on purpose: the reply goes through the app's markdown renderer, and a construct
+ * whose layout can jump backwards — a table, a fence that opens before it closes, a list that
+ * renumbers — would make "the last row grew" a claim about the renderer rather than about the
+ * follow. Four sentences is comfortably more than a line, so every delivery is a visible step
+ * rather than a sub-pixel nudge.
  */
 const AC108_DELTAS = Array.from({ length: AC108_DELTA_COUNT }, (_, index) => {
   const body = `Delta ${index}. ${'The transcript pane keeps the newest line in view while a reply arrives one piece at a time. '.repeat(4)}`;
   return index === AC108_DELTA_COUNT - 1 ? `${body} ${AC108_COMPLETION_MARKER}` : body;
 });
-
-/** One request the mock gateway saw, kept so the selection rule can be checked afterwards. */
-type GatewayHit = {
-  url: string;
-  body: string;
-  /** True for the requests answered with the slow delta stream. */
-  streamed: boolean;
-  /** When the request arrived, in epoch milliseconds; 0 until it does. */
-  requestedAt: number;
-  /** When its last delta went out; 0 until then. */
-  endedAt: number;
-};
-
-/** Writes one Anthropic SSE frame. */
-const sseFrame = (event: string, data: unknown) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-
-/**
- * Reads and answers one request.
- *
- * The request body is what selects the reply — the SDK's own session-naming call reaches
- * this gateway too, and it must not be the one that gets streamed. Every body is kept, with
- * the moment it arrived and the moment its last delta went out, so "the right request was
- * picked" and "the stream was still running while the case measured" are both checkable from
- * the recording rather than asserted from the spec's belief about it.
- */
-const answerGatewayRequest = (
-  hits: GatewayHit[],
-  request: http.IncomingMessage,
-  response: http.ServerResponse,
-  onStreamStart: () => void,
-  onStreamEnd: () => void,
-) => {
-  const chunks: Buffer[] = [];
-  request.on('data', (chunk: Buffer) => chunks.push(chunk));
-  request.on('end', () => {
-    const body = Buffer.concat(chunks).toString('utf8');
-    let asked: { model?: string } = {};
-    try {
-      asked = JSON.parse(body) as { model?: string };
-    } catch {
-      // Not a JSON body; nothing below can select it.
-    }
-    // Both selectors matter. The SDK names the session through this same base URL and puts
-    // the prompt in that request's own body, so the text alone picks two requests; the model
-    // is what separates them, because the naming call runs on the SDK's own cheap model and
-    // only the turn runs on the model the case selected. Which *case's* turn it is comes from
-    // the prompt marker, so several measured turns can share this gateway in one run.
-    const reply = streamReplyFor(body, asked.model);
-    const hit: GatewayHit = {
-      url: request.url ?? '',
-      body,
-      streamed: reply !== null,
-      requestedAt: Date.now(),
-      endedAt: 0,
-    };
-    hits.push(hit);
-    if (reply) {
-      onStreamStart();
-      respondWithSseStream(response, reply.deltas, reply.intervalMs, reply.leadMs, () => {
-        hit.endedAt = Date.now();
-        onStreamEnd();
-      });
-      return;
-    }
-    // Not the measured request: answered at once, because the CLI waits on it and a
-    // refusal would end the turn the case is watching arrive.
-    respondImmediately(response, body.includes('"stream":true'), 'e2e');
-  });
-  request.on('error', () => response.destroy());
-};
-
-/**
- * Answers one request with a whole Anthropic message stream, one delta per `intervalMs`.
- *
- * The frames around the deltas matter as much as the deltas: the CLI ends the turn on
- * `message_stop`, so a stream that stopped after the last `content_block_delta` would leave
- * the case waiting for a reply that is, as far as the app can tell, still arriving. `onEnd`
- * fires when the last delta is on the wire, which is the span the criterion times.
- */
-const respondWithSseStream = (
-  response: http.ServerResponse,
-  texts: string[],
-  intervalMs: number,
-  leadMs: number,
-  onEnd: () => void,
-) => {
-  let stopped = false;
-  response.on('close', () => { stopped = true; });
-  response.writeHead(200, {
-    'content-type': 'text/event-stream',
-    'cache-control': 'no-cache',
-    connection: 'keep-alive',
-  });
-  response.write(sseFrame('message_start', {
-    type: 'message_start',
-    message: {
-      id: 'msg_e2e_stream',
-      type: 'message',
-      role: 'assistant',
-      model: 'claude-e2e-stream',
-      content: [],
-      stop_reason: null,
-      stop_sequence: null,
-      usage: { input_tokens: 64, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 1 },
-    },
-  }));
-  response.write(sseFrame('content_block_start', {
-    type: 'content_block_start',
-    index: 0,
-    content_block: { type: 'text', text: '' },
-  }));
-
-  let next = 0;
-  const writeNext = () => {
-    if (stopped) return;
-    if (next < texts.length) {
-      response.write(sseFrame('content_block_delta', {
-        type: 'content_block_delta',
-        index: 0,
-        delta: { type: 'text_delta', text: texts[next] },
-      }));
-      next += 1;
-      if (next === texts.length) onEnd();
-      setTimeout(writeNext, intervalMs);
-      return;
-    }
-    response.write(sseFrame('content_block_stop', { type: 'content_block_stop', index: 0 }));
-    response.write(sseFrame('message_delta', {
-      type: 'message_delta',
-      delta: { stop_reason: 'end_turn', stop_sequence: null },
-      usage: { output_tokens: 512 },
-    }));
-    response.write(sseFrame('message_stop', { type: 'message_stop' }));
-    response.end();
-  };
-  setTimeout(writeNext, leadMs);
-};
-
-/** Answers a request the case is not measuring, in whatever shape it asked for. */
-const respondImmediately = (response: http.ServerResponse, wantsStream: boolean, text: string) => {
-  const message = {
-    id: 'msg_e2e_instant',
-    type: 'message',
-    role: 'assistant',
-    model: 'claude-e2e-instant',
-    content: [{ type: 'text', text }],
-    stop_reason: 'end_turn',
-    stop_sequence: null,
-    usage: { input_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 1 },
-  };
-  if (!wantsStream) {
-    response.writeHead(200, { 'content-type': 'application/json' });
-    response.end(JSON.stringify(message));
-    return;
-  }
-  response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
-  response.write(sseFrame('message_start', { type: 'message_start', message: { ...message, content: [] } }));
-  response.write(sseFrame('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }));
-  response.write(sseFrame('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } }));
-  response.write(sseFrame('content_block_stop', { type: 'content_block_stop', index: 0 }));
-  response.write(sseFrame('message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 1 } }));
-  response.write(sseFrame('message_stop', { type: 'message_stop' }));
-  response.end();
-};
-
-/**
- * Creates the gateway model through the app's own REST route, as a fixture.
- *
- * The catalog entry is setup, not subject: the case is about what happens after a message
- * is sent, and this is the same POST the Models page makes. It is issued from inside the
- * page so it carries the session the UI just created — the app keeps its token in storage
- * rather than in a cookie, so the same request from the test process would be anonymous.
- */
-const createGatewayModel = (page: Page, gatewayUrl: string) =>
-  page.evaluate(async (input) => {
-    const response = await fetch('/api/providers/claude/models', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${window.localStorage.getItem('auth-token') ?? ''}`,
-      },
-      body: JSON.stringify({
-        id: input.id,
-        model: input.name,
-        config: {
-          env: [
-            { key: 'ANTHROPIC_BASE_URL', kind: 'value', value: input.url },
-            { key: 'ANTHROPIC_AUTH_TOKEN', kind: 'secret', value: input.token },
-          ],
-        },
-      }),
-    });
-    return { status: response.status, body: await response.text() };
-  }, { id: AC108_MODEL.id, name: AC108_MODEL.name, url: gatewayUrl, token: AC108_TOKEN });
 
 /** One frame's reading of the pane while a reply streams. */
 type FollowSample = {
@@ -1187,33 +1061,28 @@ const stopFollowSampler = (page: Page) =>
 /* ────────────────────── AC-109: a small gesture is still a gesture ────────────────────── */
 
 /**
- * The two prompts this case sends, and the marker that selects each one's reply at the gateway.
+ * The two replies this case delivers, one per window, and the marker that ends each.
  *
  * Two windows rather than one, because the case measures two gestures — a wheel and a keyboard
  * scroll — and each has to start from a pane the follow is holding at the bottom. A second
- * prompt in the same conversation gives the second window a reply of its own to grow into, while
- * the app's own control walks the pane back to the bottom from the first.
+ * reply in the same conversation gives the second window something of its own to grow into,
+ * while the app's own control walks the pane back to the bottom from the first. A marker per
+ * reply is what makes "this window's reply has fully arrived" checkable from the pane.
  */
-const AC109_WHEEL_PROMPT_MARKER = 'AC109WHEELPROMPT';
-const AC109_KEY_PROMPT_MARKER = 'AC109KEYPROMPT';
-/** Carried by each stream's last delta, so the case can wait for that reply to have arrived. */
 const AC109_WHEEL_COMPLETION_MARKER = 'AC109WHEELDONE';
 const AC109_KEY_COMPLETION_MARKER = 'AC109KEYDONE';
-const AC109_WHEEL_PROMPT = `${AC109_WHEEL_PROMPT_MARKER} keep the newest line in view while this arrives`;
-const AC109_KEY_PROMPT = `${AC109_KEY_PROMPT_MARKER} keep the newest line in view while this arrives`;
 
 /**
- * The stream behind each prompt: 24 deltas 250 ms apart, so the transport spans 5.75 s.
+ * The reply behind each window: 24 deltas 250 ms apart, so the transport spans 5.75 s.
  *
  * The criterion's floor is twenty deltas over five seconds, and this case spends part of that
- * span on its own gesture: the detach window below has to sit inside the stream, so the reply
- * must still be arriving when the window ends. The deltas are fatter than AC-108's because a
- * wheel only moves a pane that has something to scroll, and the window cannot start until the
+ * span on its own gesture: the detach window below has to sit inside the reply, so it must
+ * still be arriving when the window ends. The deltas are fatter than AC-108's because a wheel
+ * only moves a pane that has something to scroll, and the window cannot start until the
  * reply's own row has already filled more than a screen.
  */
 const AC109_DELTA_COUNT = 24;
 const AC109_DELTA_INTERVAL_MS = 250;
-const AC109_STREAM_LEAD_MS = 800;
 
 /** How far the pane has to be scrollable before the gesture is sent — see above. */
 const AC109_SCROLLABLE_MIN_PX = 300;
@@ -1227,7 +1096,7 @@ const AC109_WHEEL_PX = 30;
  * Long enough for the browser to finish the movement the gesture started — a wheel is animated —
  * and for the reply to grow the pane under it several times, which is what gives an
  * implementation that re-pins on the next growth the chance to. The window is closed by its own
- * liveness assertion rather than by this number: the stream must still be running when it ends.
+ * liveness assertion rather than by this number: the reply must still be arriving when it ends.
  */
 const AC109_DETACH_WINDOW_MS = 1_200;
 
@@ -1238,11 +1107,11 @@ const AC109_PINNED_TAIL_MS = 400;
 const AC109_GAP_PX = 1;
 
 /**
- * The text each stream carries, one string per delta.
+ * The text each reply carries, one string per delta.
  *
  * Six sentences rather than AC-108's four: the reply has to make the pane scrollable by more
  * than `AC109_SCROLLABLE_MIN_PX` before the gesture is sent, and doing that in fewer, fatter
- * deltas is what keeps the window inside the stream.
+ * deltas is what keeps the window inside the reply.
  */
 const ac109Deltas = (completionMarker: string) =>
   Array.from({ length: AC109_DELTA_COUNT }, (_, index) => {
@@ -1252,51 +1121,6 @@ const ac109Deltas = (completionMarker: string) =>
 
 const AC109_WHEEL_DELTAS = ac109Deltas(AC109_WHEEL_COMPLETION_MARKER);
 const AC109_KEY_DELTAS = ac109Deltas(AC109_KEY_COMPLETION_MARKER);
-
-/**
- * Every measured reply this file streams, and the prompt that selects it.
- *
- * A table rather than one answer, because three measured turns — AC-108's and this case's two —
- * reach the same mock gateway in one run, and each case waits for the reply to *its* prompt.
- */
-const MEASURED_STREAM_REPLIES = [
-  { marker: AC108_PROMPT_MARKER, deltas: AC108_DELTAS, intervalMs: AC108_DELTA_INTERVAL_MS, leadMs: AC108_STREAM_LEAD_MS },
-  { marker: AC109_WHEEL_PROMPT_MARKER, deltas: AC109_WHEEL_DELTAS, intervalMs: AC109_DELTA_INTERVAL_MS, leadMs: AC109_STREAM_LEAD_MS },
-  { marker: AC109_KEY_PROMPT_MARKER, deltas: AC109_KEY_DELTAS, intervalMs: AC109_DELTA_INTERVAL_MS, leadMs: AC109_STREAM_LEAD_MS },
-];
-
-/**
- * The gateway's whole selection rule: which measured reply, if any, a request gets.
- *
- * Both selectors are load-bearing. The model separates the turn from the SDK's own session-naming
- * call, which reaches this gateway too and runs on the SDK's own cheap model rather than the one
- * the case selected; the prompt marker separates one measured turn from another's — and it is the
- * *last* marker in the body that selects, because a turn carried on from an earlier one sends the
- * earlier turn's prompt with it. Declared below the gateway that calls it because the table it
- * reads is built from this case's own constants — the call happens per request, long after the
- * module has been evaluated.
- */
-function streamReplyFor(body: string, modelId: string | undefined) {
-  if (modelId !== AC108_MODEL.id) return null;
-  // The *last* prompt mentioned wins, rather than the first one the table happens to list.
-  // A resumed conversation carries every earlier turn, so AC-109's second window sends a body
-  // that contains the first window's prompt as well as its own — measured, not assumed: the
-  // keyboard turn's body holds `AC109WHEELPROMPT` at offset 704 and `AC109KEYPROMPT` at 22240.
-  // A front-to-back `find` answers that turn with the wheel's reply, and the case then waits on
-  // a completion marker no reply will ever carry: the keyboard half is unsatisfiable, and the
-  // anti-fake variant that has to redden it would redden it for the wrong reason. The newest
-  // turn is the last one written, so the selection follows the body's order.
-  let picked: (typeof MEASURED_STREAM_REPLIES)[number] | null = null;
-  let pickedAt = -1;
-  for (const reply of MEASURED_STREAM_REPLIES) {
-    const at = body.lastIndexOf(reply.marker);
-    if (at > pickedAt) {
-      picked = reply;
-      pickedAt = at;
-    }
-  }
-  return picked;
-}
 
 /** The pane's geometry at one sampled frame of either AC-109 window. */
 type Ac109Sample = {
@@ -1480,21 +1304,17 @@ type Ac109WindowReading = {
  */
 const runAc109Window = async (page: Page, options: {
   label: string;
-  prompt: string;
-  promptMarker: string;
+  sessionId: string;
+  deltas: string[];
   completionMarker: string;
-  hits: GatewayHit[];
   gesture: () => Promise<void>;
 }): Promise<Ac109WindowReading> => {
-  const { label, prompt, promptMarker, completionMarker, hits, gesture } = options;
+  const { label, sessionId, deltas, completionMarker, gesture } = options;
 
-  // Sent through the composer, as a user sends one: no store write from the spec and no stub of
-  // the backend.
-  await page.getByPlaceholder(/Type \/ for commands/).fill(prompt);
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
-
-  // The prompt is a row of its own, and it lands before the reply can.
-  await expect(page.locator(PANE)).toContainText(promptMarker, { timeout: 30_000 });
+  // The window's transport: the reply starts arriving on the app's own socket, one delta at a
+  // time, for as long as the window needs it. Nothing is sent, no provider is asked for a run
+  // and no model is involved — the frame source is doubled, the consumer is not.
+  const stream = startWireStream(page, sessionId, deltas, AC109_DELTA_INTERVAL_MS);
 
   // A wheel only moves a pane that has something to scroll, and this window is about a pane the
   // user took while a reply was still growing it: waiting for the reply to have filled more than
@@ -1548,7 +1368,6 @@ const runAc109Window = async (page: Page, options: {
   const growthsInWindow = detachSamples.filter((sample, index) => (
     index > 0 && sample.scrollHeight > detachSamples[index - 1].scrollHeight + AC109_GAP_PX
   )).length;
-  const hit = hits.filter((candidate) => candidate.body.includes(promptMarker)).pop();
 
   expect(
     detachSamples.length,
@@ -1581,13 +1400,13 @@ const runAc109Window = async (page: Page, options: {
     `${label}: the reply had already fully arrived when the window ended, so the window measured a settled pane`,
   ).toBe(false);
   expect(
-    hit?.requestedAt ?? 0,
-    `${label}: the gateway never saw a request carrying this prompt`,
+    stream.delivered(),
+    `${label}: the reply was never handed to the app, so the window measured a pane nothing was growing`,
   ).toBeGreaterThan(0);
   expect(
-    hit?.endedAt,
-    `${label}: the gateway must still have been streaming this prompt's reply when the window ended`,
-  ).toBe(0);
+    stream.finished(),
+    `${label}: the reply must still have been arriving when the window ended, or the window measured a settled pane`,
+  ).toBe(false);
   expect(
     growthsInWindow,
     `${label}: the reply has to have grown the pane while the window was open`,
@@ -1611,6 +1430,10 @@ const runAc109Window = async (page: Page, options: {
 
   await startAc109Sampler(page);
   await expect(page.locator(PANE)).toContainText(completionMarker, { timeout: 30_000 });
+  // The content block's own end, delivered after the last delta. The sampler is left running
+  // across it on purpose: the frame that finalizes the row is part of the reply's span, and a
+  // follow that only holds the pane until the text stops arriving is not what the criterion says.
+  await stream.done;
   await page.waitForTimeout(AC109_PINNED_TAIL_MS);
   const pinnedSamples = await stopAc109Sampler(page);
   const settled = await readGeometry(page);
@@ -1675,12 +1498,6 @@ test.describe.configure({ mode: 'serial', timeout: 180_000 });
 test.describe('transcript follow in a real browser', () => {
   let page: Page;
   let workspace = '';
-  /** The mock Anthropic gateway AC-108 points a custom model at. Idle for the other cases. */
-  let gateway: http.Server;
-  const gatewayHits: GatewayHit[] = [];
-  /** When the streamed request's first and last deltas went out; 0 until then. */
-  let streamStartedAt = 0;
-  let streamFinishedAt = 0;
 
   const sessionLink = () => page.locator('a[href^="/session/"]').filter({ hasText: SESSION_NAME });
   /** The project row is a toggle whose accessible name starts with the workspace's display name. */
@@ -1693,25 +1510,12 @@ test.describe('transcript follow in a real browser', () => {
     // Seeded (with its transcript) by playwright.config.ts before the server booted.
     workspace = path.join(dataDir, 'transcript-follow-workspace');
 
-    // Up before the account exists, because the model AC-108 sends through has to point at
-    // it and be in the catalog before the app reads that catalog.
-    gateway = http.createServer((request, response) => {
-      answerGatewayRequest(
-        gatewayHits,
-        request,
-        response,
-        () => { streamStartedAt = Date.now(); },
-        () => { streamFinishedAt = Date.now(); },
-      );
-    });
-    await new Promise<void>((resolve) => gateway.listen(0, '127.0.0.1', resolve));
-
     page = await browser.newPage();
     // Before the first script runs, so AC-111 counts every input and every
     // offset write the spec's own setup performs, not just the ones after it
     // remembered to start watching.
     await page.addInitScript(instrumentScrollSources);
-    await page.addInitScript(instrumentStreamFrames);
+    await page.addInitScript(installWireDouble);
     // A tab that loses focus pauses the scroll animation the gestures rely on.
     await page.bringToFront();
 
@@ -1733,15 +1537,6 @@ test.describe('transcript follow in a real browser', () => {
     // Signed in means the app shell is up. The "Choose Your Project" empty state never renders here (the
     // project above exists), so anchoring on that is a race; Settings is not.
     await expect(page.getByRole('button', { name: 'Settings' }).first()).toBeVisible({ timeout: 30_000 });
-
-    // The streaming case's model, before the app reads the catalog it will be selected
-    // from. Created here rather than in that case because a custom model only reaches the
-    // composer from the catalog the page loads with.
-    const created = await createGatewayModel(page, `http://127.0.0.1:${(gateway.address() as AddressInfo).port}`);
-    expect(created.status, `creating the gateway model failed: ${created.body}`).toBeLessThan(300);
-
-    // Loading the app re-reads /api/projects, which synchronizes sessions before it answers.
-    await page.reload();
 
     // The row is a toggle, so a click that lands while the sidebar is still re-rendering would leave it
     // collapsed — retry until the rows are really on screen.
@@ -1775,7 +1570,6 @@ test.describe('transcript follow in a real browser', () => {
 
   test.afterAll(async () => {
     await page.close();
-    await new Promise<void>((resolve) => gateway.close(() => resolve()));
   });
 
   test('AC-106 a row that grows in place stays pinned at the bottom, and a scrolled-away transcript is left alone', async () => {
@@ -2215,70 +2009,31 @@ test.describe('transcript follow in a real browser', () => {
   });
 
   test('AC-108 a reply that streams in keeps the pane pinned while one row grows in place', async () => {
-    // A conversation the CLI can actually run, opened the way a user opens one.
-    //
-    // The seeded conversation cannot be sent to: its id is not a UUID, and the CLI refuses
-    // `--resume` for anything that is not, so a prompt typed into it never leaves the process
-    // and nothing streams. The new conversation is allocated by the app on send and run by the
-    // CLI under that id — which is also why the transcript asserted on at the end has no path
-    // the spec can name in advance.
+    // A conversation the app creates and opens — and one nothing is ever asked of. The reply
+    // this case measures is delivered below on the app's own socket, so no provider run, no CLI
+    // and no model is involved at any point here: what is doubled is the frame source, never the
+    // consumer.
     await page.setViewportSize(AC108_VIEWPORT);
-    const newSessionButton = page.getByRole('button', { name: 'New Session' }).first();
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      if (await newSessionButton.isVisible().catch(() => false)) {
-        break;
-      }
-      await projectRow().click();
-      await page.waitForTimeout(500);
-    }
-    await newSessionButton.click();
-    // The composer is now composing a conversation that does not exist yet — which is the
-    // state the send below is supposed to create one from, so it is asserted rather than
-    // assumed. Without it the case would send into whatever session was still selected.
-    await expect
-      .poll(() => new URL(page.url()).pathname, { message: 'the sidebar never opened a new session' })
-      .toBe('/');
+    const sessionId = await openAppSession(page, workspace);
 
-    // The model the gateway is behind, picked through the composer's own menu — the same
-    // two clicks a user makes, so the request carries the model's env rather than a stub.
-    await page.getByRole('button', { name: 'Select model and reasoning effort' }).click();
-    await page.getByRole('menuitem').first().click();
-    await page.getByRole('menuitemradio', { name: AC108_MODEL.name }).click();
-    await expect(
-      page.getByRole('button', { name: 'Select model and reasoning effort' }),
-    ).toContainText(AC108_MODEL.name);
-
-    // The clock and the recording start here, before the request can reach the gateway:
-    // resetting them once the send is in flight would wipe a timestamp the gateway had
-    // already written, and leave the span measuring from epoch zero.
-    const hitsBefore = gatewayHits.length;
-    streamStartedAt = 0;
-    streamFinishedAt = 0;
-
-    // Sent through the composer, as a user sends one: no store write from the spec, no stub
-    // of the backend, and nothing in the prompt that the composer would read as a command.
-    await page.getByPlaceholder(/Type \/ for commands/).fill(AC108_PROMPT);
-    await page.getByRole('button', { name: 'Send', exact: true }).click();
-
-    // The prompt is a row of its own, and it lands before the reply can: the reply has no row
-    // until the gateway's first token. Waiting for the prompt's row here is what makes every
-    // sample below a reading of the reply rather than of the prompt arriving — and the
-    // gateway's own lead time is what leaves room to wait without eating into the stream.
-    await expect(page.locator(PANE)).toContainText(AC108_PROMPT_MARKER, { timeout: 30_000 });
+    // An empty conversation, asserted rather than assumed: every reading below treats "the last
+    // row" and "the reply" as the same thing, which is only true while the reply is the only row
+    // there is.
+    expect(
+      await page.locator(`${PANE} .chat-message`).count(),
+      'the streaming case has to start from an empty conversation',
+    ).toBe(0);
     // The case measures a follow, so the pane has to be at the bottom before the reply starts:
-    // the follow holds a viewport that is already there and deliberately leaves one that is
-    // not. A new conversation opens at the bottom, and the prompt's own row does not move it.
+    // the follow holds a viewport that is already there and deliberately leaves one that is not.
     const start = await waitForSettledPane(page);
     expect(
       start.gap,
       `the streaming case must begin at the bottom; the pane settled ${start.gap}px above it`,
     ).toBeLessThanOrEqual(AT_BOTTOM_PX);
-    // Non-vacuity of the window: the reply must not have started growing before the sampler
-    // was watching. The lead time above is four times the wait for the prompt's row, so a
-    // reply already on screen here means the fixture's timing, not the follow, is what failed.
-    const assistantsAtStart = await page.locator(`${PANE} .chat-message.assistant`).count();
+    // Non-vacuity of the window: the reply must not have started growing before the sampler was
+    // watching, or every sample below is a reading of a reply that was already on screen.
     expect(
-      assistantsAtStart,
+      await page.locator(`${PANE} .chat-message.assistant`).count(),
       'the sampler must be watching before the reply starts; the reply was already on screen',
     ).toBe(0);
 
@@ -2286,14 +2041,22 @@ test.describe('transcript follow in a real browser', () => {
 
     await startFollowSampler(page);
 
-    // Liveness of the fixture: the gateway really finished streaming the request that
-    // carried the prompt before anything below is read.
-    await expect
-      .poll(() => streamFinishedAt, { timeout: 60_000, message: 'the gateway never streamed the reply' })
-      .toBeGreaterThan(0);
+    // The reply, delivered through the app's own socket: one piece every 250ms, then the end of
+    // the content block. Nothing is sent and nothing is asked for anywhere in this case — the
+    // frames arrive the way a real reply's frames do, as a `message` event at the socket the app
+    // made for itself, and the app's own consumer is what turns them into the row below.
+    const stream = startWireStream(page, sessionId, AC108_DELTAS, AC108_DELTA_INTERVAL_MS);
+
     await expect(page.locator(PANE)).toContainText(AC108_COMPLETION_MARKER, { timeout: 30_000 });
-    // Long enough that the samples cover the turn finalizing as well as the reply arriving:
-    // the pane has to be back at the bottom once there is nothing left to arrive.
+    await stream.done;
+    // Liveness of the fixture, and the reading that makes the geometry below mean anything: a
+    // reply that was never handed over looks exactly like one the app ignored.
+    expect(
+      stream.delivered(),
+      `every delta has to reach the app (${stream.delivered()} of ${AC108_DELTA_COUNT} were delivered)`,
+    ).toBe(AC108_DELTA_COUNT);
+    // Long enough that the samples cover the content block ending as well as the reply
+    // arriving: the pane has to be back at the bottom once there is nothing left to arrive.
     await page.waitForTimeout(900);
     const { samples, contentHeightTrace, rowMutations } = await stopFollowSampler(page);
     // Every assignment to `scrollTop` the page made while the reply was arriving, as the
@@ -2304,7 +2067,6 @@ test.describe('transcript follow in a real browser', () => {
     const streamFrames = await page.evaluate(() =>
       (window as unknown as { __streamFrames?: { kind: string; t: number }[] }).__streamFrames ?? []);
 
-    const streamMs = streamFinishedAt - streamStartedAt;
     const paneHeight = start.clientHeight;
 
     // A growth step is the last row getting taller — or appearing taller than nothing when
@@ -2434,39 +2196,19 @@ test.describe('transcript follow in a real browser', () => {
       .filter(({ sample, index }) => index > streamEnd && Math.abs(sample.gap) > AC108_GAP_PX);
     const recoveredAt = samples.findIndex((sample, index) => index > streamEnd && Math.abs(sample.gap) <= AC108_GAP_PX);
 
-    // The request the gateway streamed, and everything else it saw: the selection is by
-    // request body, because the SDK's own session-naming call lands on this same socket.
-    const streamedHits = gatewayHits.filter((hit) => hit.streamed);
-    const otherHits = gatewayHits.slice(hitsBefore).filter((hit) => !hit.streamed);
-
-    // The conversation's transcript on disk, as the CLI wrote it. The file names itself: the
-    // CLI chose where to put it, and the reply's own text is what says which file is this
-    // turn's rather than some other conversation's.
-    const findOwnTranscript = () => transcriptsUnderHome().find(
-      (entry) => entry.file !== sessionTranscriptFile()
-        && entry.lines.some((line) => line.includes(AC108_COMPLETION_MARKER)),
-    ) ?? null;
-    await expect
-      .poll(
-        () => findOwnTranscript()?.lines.length ?? 0,
-        { timeout: 30_000, message: 'the streamed turn never reached a transcript on disk' },
-      )
-      .toBeGreaterThan(0);
-    const ownTranscript = findOwnTranscript();
-    expect(ownTranscript, 'the streamed turn never reached a transcript on disk').not.toBeNull();
-    // The partial frames are transport, and a settled record is still the only thing a turn may
-    // leave behind.
-    const transcriptLines = ownTranscript!.lines;
-    const polluted = transcriptLines.filter((line) => /stream_event|stream_delta|stream_end|content_block_delta/.test(line));
+    // What the recorder saw arrive at the app, counted by kind: the transport's own account of
+    // the reply, and the reading that says the frames were delivered exactly once — a frame
+    // handed to two open chat sockets would be counted twice here.
+    const frameCount = (kind: string) => streamFrames.filter((frame) => frame.kind === kind).length;
 
     // Printed before the assertions, so a red run still carries the readings that say which
     // one failed, and a green run's output is evidence rather than a check mark.
     console.log(`AC-108 readings ${JSON.stringify({
       viewport: AC108_VIEWPORT,
       paneClientHeight: Math.round(paneHeight),
-      streamMs,
-      deltasSent: AC108_DELTA_COUNT,
+      deltasDelivered: stream.delivered(),
       deltaIntervalMs: AC108_DELTA_INTERVAL_MS,
+      sessionId,
       samples: samples.length,
       sampledSpanMs: samples.length ? samples[samples.length - 1].t - samples[0].t : 0,
       growthSteps,
@@ -2586,32 +2328,33 @@ test.describe('transcript follow in a real browser', () => {
       finalizeFrames: streamFrames
         .filter((frame) => ['stream_end', 'complete', 'session_created', 'assistant'].includes(frame.kind))
         .map((frame) => `${frame.t}:${frame.kind}`),
-      gatewayRequests: gatewayHits.map((hit) => ({
-        url: hit.url,
-        carriedPrompt: hit.body.includes(AC108_PROMPT_MARKER),
-        streamed: hit.streamed,
-        bytes: hit.body.length,
-      })),
-      transcriptFile: path.relative(process.env.QUAY_E2E_DATA_DIR!, ownTranscript!.file),
-      transcriptLines: transcriptLines.length,
-      pollutedLines: polluted.length,
     })}`);
 
-    // The stream really took the time it was supposed to: a gateway that answered at once
-    // would make every geometry reading below a measurement of a still pane.
+    // Every delta reached the app exactly once, and the content block ended exactly once. The
+    // app's own recorder is what says so: a reply the pump thought it had delivered but the
+    // socket never carried would be missing here, and a frame handed to two open chat sockets
+    // would be counted twice.
     expect(
-      streamMs,
-      `the gateway must take at least ${AC108_MIN_STREAM_MS}ms to send its deltas; it took ${streamMs}ms`,
-    ).toBeGreaterThanOrEqual(AC108_MIN_STREAM_MS);
+      frameCount('stream_delta'),
+      `every delta has to arrive at the app once (${frameCount('stream_delta')} of ${AC108_DELTA_COUNT} were received)`,
+    ).toBe(AC108_DELTA_COUNT);
+    expect(
+      frameCount('stream_end'),
+      'the content block has to end exactly once',
+    ).toBe(1);
 
     // Non-vacuity: the reply arrived in one row that grew in place, in as many steps as the
-    // gateway sent deltas. Without this a single settled render would pass every gap
+    // reply had pieces. Without this a single settled render would pass every gap
     // assertion below by never changing anything. Counted over the reply's own span, so the
     // growth the turn's finalize contributes cannot stand in for a delta that never arrived.
     expect(
       growthStepsInStream,
       `the last row must grow once per delta (${AC108_DELTA_COUNT} deltas, ${growthStepsInStream} growth steps inside the reply's span of ${streamWindow.length} frames; ${growthSteps} in the whole sample)`,
     ).toBeGreaterThanOrEqual(AC108_DELTA_COUNT - 1);
+    expect(
+      stream.finished(),
+      'the whole reply has to have been delivered, or the span below ends at nothing in particular',
+    ).toBe(true);
     expect(
       lastGrowth,
       'the sampler must have watched the reply grow; it saw no growth at all',
@@ -2733,98 +2476,27 @@ test.describe('transcript follow in a real browser', () => {
     // when this criterion could not be written this way, and they are what a regression would
     // bring back. They are no longer exempt from anything.
 
-    // The selection rule: exactly one request carried the prompt, and it is the one the
-    // gateway streamed. The rest — the SDK's own naming call — are recorded above.
-    expect(
-      streamedHits,
-      `exactly one request may be streamed; the gateway saw ${JSON.stringify(gatewayHits.map((hit) => hit.url))}`,
-    ).toHaveLength(1);
-    expect(streamedHits[0].body).toContain(AC108_PROMPT_MARKER);
-    expect(streamedHits[0].url).toContain('/v1/messages');
-    expect(
-      otherHits.length >= 0,
-      'the requests the gateway did not stream are kept in the readings above',
-    ).toBe(true);
-
-    // The turn really landed, so the check below is not a check of an untouched file...
-    expect(
-      transcriptLines.join('\n'),
-      'the streamed turn has to reach the transcript, or the pollution check below proves nothing',
-    ).toContain(AC108_COMPLETION_MARKER);
-    // ...and it left no partial frame behind.
-    expect(
-      polluted,
-      'the partial frames are transport only; the settled record is what lands on disk',
-    ).toEqual([]);
-
-    // The same two questions of the REST history, which is the other place a partial frame could
-    // have leaked into — the endpoint serialises whatever the providers module normalized, so a
-    // `stream_delta` row that survived into the store would surface here and nowhere else the
-    // case has looked. Asked of the page rather than of a request context, so it carries the
-    // session's own cookie and lands on the same origin the assertions above were made against.
-    const sessionPath = new URL(page.url()).pathname;
-    expect(
-      sessionPath,
-      'the new conversation has to be the one the pane is showing, or the history read below is of something else',
-    ).toMatch(/^\/session\/.+/);
-    const history = await page.evaluate(async (path: string) => {
-      const res = await fetch(
-        `/api/providers/sessions/${encodeURIComponent(path.replace('/session/', ''))}/messages`,
-        // The same bearer header `authenticatedFetch` attaches: the endpoint is behind the
-        // app's own auth, and the browser session is established by the signed-in page rather
-        // than by a cookie, so a plain same-origin fetch would answer 401.
-        { headers: { Authorization: `Bearer ${localStorage.getItem('auth-token') ?? ''}` } },
-      );
-      return { ok: res.ok, status: res.status, body: res.ok ? await res.text() : '' };
-    }, sessionPath);
-    expect(history.ok, `the persisted history must be readable (HTTP ${history.status})`).toBe(true);
-    expect(
-      history.body,
-      'the streamed turn has to reach the REST history, or the pollution check below proves nothing',
-    ).toContain(AC108_COMPLETION_MARKER);
-    expect(
-      /stream_event|"stream_delta"|"stream_end"|content_block_delta/.test(history.body),
-      'the partial frames are transport only; the persisted history is what a reload reads',
-    ).toBe(false);
+    // The conversation the pane is showing is the one the frames were addressed to, or the
+    // readings above are of some other session's row.
+    expect(new URL(page.url()).pathname).toBe(`/session/${sessionId}`);
   });
 
   test('AC-109 a small gesture still detaches, and the control comes back for the rest of the reply', async () => {
     await page.setViewportSize(AC108_VIEWPORT);
 
-    // A conversation the CLI can run, opened the way a user opens one — the same reason as
-    // AC-108's: the seeded session's id is not a UUID, so a prompt typed into it never leaves
-    // the process. The new conversation is allocated by the app on send.
-    const newSessionButton = page.getByRole('button', { name: 'New Session' }).first();
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      if (await newSessionButton.isVisible().catch(() => false)) {
-        break;
-      }
-      await projectRow().click();
-      await page.waitForTimeout(500);
-    }
-    await newSessionButton.click();
-    await expect
-      .poll(() => new URL(page.url()).pathname, { message: 'the sidebar never opened a new session' })
-      .toBe('/');
-
-    // The gateway model, through the composer's own menu: the same two clicks a user makes, so
-    // the request carries the model's env rather than a stub.
-    await page.getByRole('button', { name: 'Select model and reasoning effort' }).click();
-    await page.getByRole('menuitem').first().click();
-    await page.getByRole('menuitemradio', { name: AC108_MODEL.name }).click();
-    await expect(
-      page.getByRole('button', { name: 'Select model and reasoning effort' }),
-    ).toContainText(AC108_MODEL.name);
+    // A conversation the app creates and opens — and one nothing is ever asked of, for the same
+    // reason as AC-108's: each window's reply is delivered on the app's own socket, so no
+    // provider run, no CLI and no model is involved at any point in this case.
+    const sessionId = await openAppSession(page, workspace);
 
     const readings: Ac109WindowReading[] = [];
 
     // The wheel half: thirty pixels up, from a pane the follow is holding at the bottom.
     readings.push(await runAc109Window(page, {
       label: 'wheel',
-      prompt: AC109_WHEEL_PROMPT,
-      promptMarker: AC109_WHEEL_PROMPT_MARKER,
+      sessionId,
+      deltas: AC109_WHEEL_DELTAS,
       completionMarker: AC109_WHEEL_COMPLETION_MARKER,
-      hits: gatewayHits,
       gesture: async () => {
         await pointAtPane(page);
         await page.mouse.wheel(0, -AC109_WHEEL_PX);
@@ -2837,10 +2509,9 @@ test.describe('transcript follow in a real browser', () => {
     // page's instruments are what say so: the window contains a `keydown` and no `wheel`.
     readings.push(await runAc109Window(page, {
       label: 'keyboard',
-      prompt: AC109_KEY_PROMPT,
-      promptMarker: AC109_KEY_PROMPT_MARKER,
+      sessionId,
+      deltas: AC109_KEY_DELTAS,
       completionMarker: AC109_KEY_COMPLETION_MARKER,
-      hits: gatewayHits,
       gesture: async () => {
         await page.locator(PANE).focus();
         await page.keyboard.press('PageUp');
