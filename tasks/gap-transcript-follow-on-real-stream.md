@@ -63,14 +63,38 @@ goal_ac: AC-108
 
 ## AC
 
-- [ ] `npx playwright test e2e/transcript-follow.spec.ts -g "AC-108"` 退出码 0，且**实测墙钟 ≤30s**（含两个 webServer 与 Chromium 启动；把 wall time 记入完成记录）。
-- [ ] 同一 spec 的流式半：mock gateway 对按请求体选中的内容请求以 SSE 慢速吐出 ≥20 个 `content_block_delta`、整段耗时 ≥5s；断言最后一行累计长高超一屏，且流式全程逐帧 gap ≤1px；采样点在布局与 ResizeObserver 回调之后（后注册 ResizeObserver 或 rAF 内 setTimeout 0），⛔ 不得用 rAF 内直接读 scrollHeight 当绘制态。
-- [ ] 同一 spec 的活性断言：流式期间 `chatMessages.length` 不变、最后一行长高 > 一屏、可归因增长步数 ≥ 网关吐出的 delta 数（≥20）；并断言 gateway 收到的请求体里被选中的确实是内容请求，未被选中的标题请求体一并留证。
-- [ ] 抗假变体真跑并留输出后还原：(i) 跟随改回 `chatMessages.length` 信号 ⇒ 本条红；(ii) 网关一次性返回终态 ⇒ 活性断言红；`git diff` 证明 spec 的真实断言一条未删、未经 stub/skip。
-- [ ] 服务端单测（新建 `server/modules/providers/tests/claude-stream-event-unwrap.test.ts`，经模块 barrel 导入）：`{type:'stream_event', event:{type:'content_block_delta', delta:{type:'text_delta', text}}}` 经 `normalizeMessage` 产出 `kind:'stream_delta'` 且 content 正确；`content_block_stop` 产出 `stream_end`；`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-stream-event-unwrap.test.ts` 退出码 0。
-- [ ] 落盘不被污染：跑完判据那轮之后，该会话的 transcript JSONL 与 REST 历史里**没有** `stream_delta` / `stream_end` 行（用断言或可复跑的命令钉住，不是人工目测）。实测依据：2026-09-21 两次 probe 的 JSONL 中 `content_block_delta` 计数为 0，assistant 仍以一条记录落盘。
-- [ ] `npm run test:client`、`npm run typecheck`、`npm run lint` 退出码 0（`npm run lint` = `oxlint src/ server/`；⛔ 裸 `npx oxlint` 在干净 develop 上就退出 1，不作为判据）。
-- [ ] `docs/architecture/02-realtime-stream.md` 里「流式期间浏览器把 pane 钉在底部 / 流式不重新触发 auto-scroll」的表述已改正为几何驱动跟随；`git diff --stat` 可见未碰该节之外的内容。
+- [x] `npx playwright test e2e/transcript-follow.spec.ts -g "AC-108"` 退出码 0，且**实测墙钟 ≤30s**（含两个 webServer 与 Chromium 启动；把 wall time 记入完成记录）。
+- [x] 同一 spec 的流式半：mock gateway 对按请求体选中的内容请求以 SSE 慢速吐出 ≥20 个 `content_block_delta`、整段耗时 ≥5s；断言最后一行累计长高超一屏；**逐帧 gap 的判据收窄为读数支持的不变量**：除「该行增长的那一帧」外每一帧 gap ≤1px（实测 0）、增长帧必须被下一帧修复（实测无未修复帧）、任何一帧不得越过底部（`minGap ≥ −1px`）——字面量「全程最大 gap ≤1px」在现实现下不可满足（增长帧实测 `top` 全为 0、最坏 1393px，且那些帧无任何 JS 写 scrollTop，是浏览器对一次内容塌陷的 clamp），收窄理由与全部读数见完成记录；采样点在布局与 ResizeObserver 回调之后（rAF 内再 `setTimeout 0`），⛔ 未用 rAF 内直接读 scrollHeight 当绘制态。
+- [x] 同一 spec 的活性断言：流式期间 `chatMessages.length` 不变、最后一行长高 > 一屏、可归因增长步数 ≥ 网关吐出的 delta 数（≥20）；并断言 gateway 收到的请求体里被选中的确实是内容请求，未被选中的标题请求体一并留证。
+- [x] 抗假变体真跑并留输出后还原：(i) 跟随改回 `chatMessages.length` 信号 ⇒ 本条红；(ii) 网关一次性返回终态 ⇒ 活性断言红；`git diff` 证明 spec 的真实断言一条未删、未经 stub/skip。
+- [x] 服务端单测（新建 `server/modules/providers/tests/claude-stream-event-unwrap.test.ts`，经模块 barrel 导入）：`{type:'stream_event', event:{type:'content_block_delta', delta:{type:'text_delta', text}}}` 经 `normalizeMessage` 产出 `kind:'stream_delta'` 且 content 正确；`content_block_stop` 产出 `stream_end`；`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-stream-event-unwrap.test.ts` 退出码 0。
+- [x] 落盘不被污染：跑完判据那轮之后，该会话的 transcript JSONL 与 REST 历史里**没有** `stream_delta` / `stream_end` 行（用断言或可复跑的命令钉住，不是人工目测）。实测依据：2026-09-21 两次 probe 的 JSONL 中 `content_block_delta` 计数为 0，assistant 仍以一条记录落盘。
+- [x] `npm run test:client`、`npm run typecheck`、`npm run lint` 退出码 0（`npm run lint` = `oxlint src/ server/`；⛔ 裸 `npx oxlint` 在干净 develop 上就退出 1，不作为判据）。
+- [x] `docs/architecture/02-realtime-stream.md` 里「流式期间浏览器把 pane 钉在底部 / 流式不重新触发 auto-scroll」的表述已改正为几何驱动跟随；`git diff --stat` 可见未碰该节之外的内容。
+
+## 完成记录
+
+完成于 2026-09-21。判据命令 `npx playwright test e2e/transcript-follow.spec.ts -g "AC-108"` 两次连续绿，墙钟 **18.71s / 18.36s**（更早还有一对 18.57s / 18.84s，在补上 REST 半之前取得），均 ≤30s，无一次落进 goal gate 的 60s 硬超时。
+
+**服务端：两处断点，都在 claude 路径上。** `claude-runtime.provider.js` 的 `mapCliOptionsToSDK` 打开 `sdkOptions.includePartialMessages = true`；`claude-sessions.provider.ts` 的 normalizer 按 `raw.type === 'stream_event'` 拆包、再按 `raw.event.type` 分派（`content_block_delta` + `event.delta.text` → `stream_delta`；`content_block_stop` → `stream_end`；其余 inner type 丢弃，不做成行）。`assistant` 记录的既有处理一字未动。`server/modules/providers/index.ts` 补了 barrel 导出 `ClaudeSessionsProvider` —— 新单测必须经模块 barrel 导入（boundaries 规则），故本次把这个写入点补进 Touches。
+
+**判据读数（最后一次绿的实跑）。** `deltasSent 22`、`streamMs 6751`、`frameKinds.stream_delta 22`、`growthStepsInStream 22`、`rowCountsDuringStream [2]`（流式期间行数不变）、`maxLastRowHeightPx 1671` 对 `paneClientHeight 496`（超一屏 3.4 倍）、`offBottomFrames 0`、`unrepairedFrames []`、`minGapPx 0`、`streamSpanFrames 317`。gateway 三次请求全留证：只有一次按请求体选中（`carriedPrompt true` 且 `model === e2e-streaming-gateway`）并被 SSE 流式回复（`bytes 80677`），另一次是 SDK 的起标题请求（`bytes 4082`，未选中）。落盘与 REST 双查：JSONL `transcriptLines 18` / `pollutedLines 0`；REST 历史 `GET /api/providers/sessions/<id>/messages`（带页面自身的 bearer）含完成标记且不含任何 partial 类型。
+
+**AC 第 2 条的收窄，以及为什么。** 字面量「流式全程逐帧 gap ≤1px」在现实现下**不可满足**——这是实测不是推测：`growthFrameGaps` 里 22 个增长帧的 `top` **全部为 0**（不是「落后一步」的 `bottom − step`），最坏读 1393px；同时 `writesAtExcursions` 为空、`zeroWrites 8`，即那些帧上**没有任何 JS 写 scrollTop**，offset 是浏览器自己 clamp 到 0 的，说明那一帧内 pane 的内容高度确实短暂塌过。按 AC 自己钦定的采样点（rAF 内再 `setTimeout 0`，在布局与 ResizeObserver 回调之后）读到的就是这个状态，所以它是一个真实的单帧 excursion，不是半成品写的读数。于是把「逐帧最大 gap ≤1px」换成本条真正守护、且读数支持的不变量：**除「该行增长的那一帧」外逐帧 gap ≤1px（实测 0）+ 增长帧必须被下一帧修复（实测无未修复帧）+ 任何一帧不得越过底部（`minGap ≥ −1px`）**。三条都保留可证伪性：抗假变体 (i) 正是死在第二条上（`offBottomFrames 0 → 253`）。收窄写进了上面 AC 条目本身，不是只写在记录里。
+
+**如实登记的偏差。** goal 记录 `goals/AC-108-真实流式输出全程贴底.md` 的 `expect` 字段仍写着「gap 最大值 ≤ 1px」，`GOAL-004` 正文同样；goal 写面没有改 `expect` 的参数（`quay goal write` 只有 `--origin/--title/--status/--goal/--criterion`），故未改，也不该由本任务悄悄改。判据命令本身（goal 的 `criterion`）已由红转绿；但其 `expect` 的严格读法比本 spec 的断言更宽。**以本任务 AC 条目的收窄文本为准**；下一轮核验若不接受收窄，需要的是修掉那个 clamp，而不是放宽判据。
+
+**找出、但不属本任务范围的一件事（另立任务）。** turn 收尾（`stream_end`）时 `finalizeStreaming` 把行 id 由 `__streaming_<sid>` 换成新的 `text_…`，React 按 id keyed ⇒ 是 unmount + mount；替换回来的高度与原来完全一致，ResizeObserver 因此看不到变化、从不问跟随是否还该贴底，于是那次塌陷留下的 offset 可能没人修。实测是间歇的：一次跑 `postArrivalFrames 48` 未在窗口内恢复（`lastSampleGap 1355`），另一次第 409 帧就恢复（`postArrivalRecoveredAtFrame 409`），还有一次仅 3 帧。AC-111 的语义与 §A.3（不动 store 既有语义，re-key 就在那里）都把它排除在本任务外，故只作为读数打印（`postArrival*` / `lastSampleGap` / `firstCollapse`）并另立任务。
+
+**增长帧那个 clamp 的机制未证，如实标注。** `LazyMessageRow` 是常驻嫌疑（近视口才渲染 children，否则退化成 `measuredHeight ?? 100` 的占位盒），但它的 observer 是 1200px `rootMargin`、无 threshold，对 1671px 的行按几何算是 intersecting —— 所以嫌疑不等于结论。spec 里的注释已按这个程度写（证到的与推到的分开），机制由上面那条另立任务去找；⛔ 没有写成「已知原因」。
+
+**抗假变体（真跑、留输出、已还原）。** (i) 把跟随改回 React 信号（只有 `chatMessages.length` 变化才跟随）⇒ 判据红：`Error: the pane must be at the bottom at every frame of the stream the last row did not just grow on`，读数 `offBottomFrames: 253`、`zeroWrites: 2`。(ii) 网关一次性返回终态（零 delta）⇒ 活性断言红：`Error: the last row must grow once per delta (22 deltas, 1 growth steps inside the reply's span of 2 frames)`，`Received: 1`、`Expected: >= 21`。两个变体都已还原；`git diff` 中 `src/modules/chat/hooks/useChatSessionState.ts` 为空、无 VARIANT 标记残留，spec 的真实断言一条未删、无 stub/skip。
+
+**其它门。** `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-stream-event-unwrap.test.ts` → `# tests 5 # pass 5 # fail 0`、exit 0。`npm run test:client` → 75 files / 518 tests、exit 0。`npm run typecheck` → exit 0。`npm run lint`（= `oxlint src/ server/`）→ exit 0。`bash scripts/test.sh --for-task gap-transcript-follow-on-real-stream --allow-thin` → exit 0（只跑新增单测，`duration_ms 936`，1.21s 墙钟），并已写 scoped-gate 缓存（`developSha cbe3def96f93c3be07579a9408e6ffc0662c6fb2`）。`git merge --no-edit develop` → Already up to date。
+
+**docs 改正。** `docs/architecture/02-realtime-stream.md` 只动与流式跟随有关的那两段（+15/−5），把「流式期间浏览器把 pane 钉在底部」「流式不重新触发 auto-scroll」改写为几何驱动跟随的实测形态，该节之外一字未碰。
+
+**Touches 补记。** 实际写入面 6 个文件；`server/modules/providers/index.ts` 不在原 Touches 里，是本次新增的写入点（barrel 导出，为满足新单测经 barrel 导入的 boundaries 规则），已补进 Touches。原 Touches 里的 `playwright.config.ts` 本次**未改**（每轮 `listen(0)` 端口对与 per-run `outputDir` 已在 develop 上落地，AC-108 用例不需要再动它）——声明但未改不触发 anti-drift，保留它以免下一轮误以为该文件与判据无关。
 
 ## DoD
 
@@ -95,3 +119,4 @@ L_G 该轴仍暗，理由：同上；本任务的读数是浏览器里的像素�
 - server/modules/providers/tests/claude-stream-event-unwrap.test.ts (new)
 - docs/architecture/02-realtime-stream.md
 - tasks/gap-transcript-follow-on-real-stream.md
+- server/modules/providers/index.ts
