@@ -1,7 +1,7 @@
 ---
 id: gap-voice-identifier-repair-module
 title: 生产用确定性标识符修复模块（src/shared）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
