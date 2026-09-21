@@ -124,6 +124,18 @@ test('the extension is misheard by one edit, and by one edit only', () => {
   assert.equal(repairIdentifiers(other, CANDIDATES), other);
 });
 
+test('a name is not shortened by dropping one of its dotted words', () => {
+  // The other thing a widened budget reaches on real prose. `README.jp.md` is
+  // three edits from `README.md` at a similarity of exactly 0.75 with the
+  // extension intact, so the opening, the budget and the extension guard all
+  // pass it — and the repair writes a file the text never mentioned. A
+  // recogniser garbles characters inside a name; it does not delete a whole
+  // dot-separated word, which is the only way the two differ.
+  const prose = 'the README.jp.md translation is missing';
+
+  assert.equal(repairIdentifiers(prose, CANDIDATES), prose);
+});
+
 test('a single ordinary word is not a split symbol', () => {
   // The candidate list carries bare stems, so one word can equal one. It is not
   // a split: nobody says `README` and produces `readme`. Without this the module

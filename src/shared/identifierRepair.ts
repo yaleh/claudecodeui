@@ -207,6 +207,13 @@ export function normalizeSymbol(name: string): string {
   return name.replace(/\s+/g, '').toLowerCase();
 }
 
+/** How many dot-separated segments a name is written in; a name with no dot is one. */
+function segmentCount(name: string): number {
+  let count = 1;
+  for (const character of name) if (character === '.') count += 1;
+  return count;
+}
+
 /** The text after the last dot — the extension, or the whole name if there is none. */
 function finalSegment(name: string): string {
   const dot = name.lastIndexOf('.');
@@ -243,15 +250,18 @@ function extensionSurvives(a: string, b: string): boolean {
 /**
  * The dotted candidate closest to `token`, or null if none is close enough.
  *
- * Four guards run, and all four are load-bearing:
+ * Five guards run, and all five are load-bearing:
  *
  *  1. only dotted candidates are considered — the caller passes exactly those,
  *     so a token spelled without its extension can never reach a name that has
  *     one (and the reverse is true by construction of the other pass);
  *  2. the two must open with the same three characters;
- *  3. the edit must leave enough of the name standing, which is what the
+ *  3. the spoken form may not be written in more segments than the candidate,
+ *     because a recogniser garbles characters inside a name — it does not drop
+ *     one of its dot-separated words;
+ *  4. the edit must leave enough of the name standing, which is what the
  *     distance-to-similarity step measures;
- *  4. the ending must be one the recogniser could plausibly have produced, which
+ *  5. the ending must be one the recogniser could plausibly have produced, which
  *     is what `extensionSurvives` decides.
  *
  * Comparison is case-folded because recognisers do not preserve case, and the
@@ -267,6 +277,14 @@ function nearestDottedCandidate(token: string, candidates: readonly string[]): s
   for (const candidate of candidates) {
     const haystack = candidate.toLowerCase();
     if (haystack.slice(0, SHARED_PREFIX_LENGTH) !== opening) continue;
+
+    // Written in more segments than the name it is being compared to: the
+    // difference is a whole dotted word, not a misheard character. This is the
+    // shape a widened budget finds on real prose — `README.jp.md` against
+    // `README.md` is three edits at a similarity of exactly 0.75 with the
+    // extension untouched, so every other guard passes it, and the answer is a
+    // name the text never mentioned.
+    if (segmentCount(needle) > segmentCount(haystack)) continue;
 
     const distance = editDistance(needle, haystack, MAX_EDIT_DISTANCE);
     if (!Number.isFinite(distance)) continue;
