@@ -33,13 +33,13 @@ goal_ac: AC-119
 
 ## AC
 
-- [ ] `npx playwright test e2e/voice-trim.spec.ts -g "AC-119"` 退出码 0
-- [ ] 假麦克风注入音频并经真实语音按钮完成录制→裁剪→转写→填回
-- [ ] 裁剪 on/off 配对：on 的上传体音频时长严格小于 off
-- [ ] 不裁那次的上传体时长 ≈ fixture 时长（证明「关」真的是不裁，不是两次都失败成同一个值）
-- [ ] 两次 composer 都持有识别器返回的文本
-- [ ] 未 stub 后端、未用 evaluate 改 store 冒充转写；语音配置走既有种入约定
-- [ ] `npm run lint` 与 `npm run typecheck` 退出码 0
+- [x] `npx playwright test e2e/voice-trim.spec.ts -g "AC-119"` 退出码 0
+- [x] 假麦克风注入音频并经真实语音按钮完成录制→裁剪→转写→填回
+- [x] 裁剪 on/off 配对：on 的上传体音频时长严格小于 off
+- [x] 不裁那次的上传体时长 ≈ fixture 时长（证明「关」真的是不裁，不是两次都失败成同一个值）
+- [x] 两次 composer 都持有识别器返回的文本
+- [x] 未 stub 后端、未用 evaluate 改 store 冒充转写；语音配置走既有种入约定
+- [x] `npm run lint` 与 `npm run typecheck` 退出码 0
 
 ## DoD
 
