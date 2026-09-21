@@ -459,6 +459,14 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
         break;
 
       case 'stream_delta':
+        // A `stream_delta` is drawn only when it carries a live row id — the
+        // identity this client minted for the reply it is streaming. Rendering
+        // any other one would splice a fragment into the transcript that
+        // nothing can ever supersede: both pruning passes match on full-text
+        // equality, and a fragment never equals the finished reply, so it would
+        // sit there until a reload. Refusing it here degrades such a delta to
+        // "this session does not animate" instead of poisoning the transcript.
+        if (!isLiveRowId(msg.id)) break;
         if (msg.content) {
           converted.push({
             type: 'assistant',

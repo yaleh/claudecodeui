@@ -24,7 +24,12 @@ function message(
 test('preserves historical UI message identity when only the stream record changes', () => {
   const first = message('first', { content: 'First answer' });
   const second = message('second', { content: 'Second answer' });
-  const firstStream = message('stream', {
+  // A live shape, because that is the only shape the store ever mints for a
+  // `stream_delta` row (`useSessionStore.updateStreaming`). The id is the one
+  // field of the row that survives a delta re-mint, so it is what the row is
+  // keyed by; a server-shaped id here would be a fixture the product cannot
+  // produce.
+  const firstStream = message('live:session-1:1', {
     kind: 'stream_delta',
     content: 'Part one',
   });
@@ -38,6 +43,50 @@ test('preserves historical UI message identity when only the stream record chang
   assert.strictEqual(updated[1], initial[1]);
   assert.notStrictEqual(updated[2], initial[2]);
   assert.equal(updated[2]?.content, 'Part one and two');
+});
+
+test('draws no row for a stream_delta this client did not mint', () => {
+  // The negative half of the pair below. The only producer of a `stream_delta`
+  // row is this client's own streaming update, which always stamps a live id,
+  // so a row carrying any other id is one this client cannot key as its own.
+  // Drawing it would leave a fragment in the transcript that nothing can
+  // supersede — both pruning passes compare full text, and a fragment never
+  // equals the finished reply — so it is refused here instead.
+  const foreign = message('server-shaped-id', {
+    kind: 'stream_delta',
+    content: 'a fragment nobody can retire',
+  });
+
+  const converted = normalizedToChatMessages([foreign]);
+
+  assert.deepEqual(converted, []);
+});
+
+test('still draws — and updates in place — a stream_delta carrying a live row id', () => {
+  // The positive half. The guard narrows the `stream_delta` case, it does not
+  // disable it: delete the `isLiveRowId` check and the test above goes red while
+  // this one stays green, which is what makes the pair a control rather than a
+  // tautology.
+  const live = message('live:session-1:3', {
+    kind: 'stream_delta',
+    content: 'Part one',
+  });
+
+  const initial = normalizedToChatMessages([live]);
+  assert.equal(initial.length, 1);
+  assert.equal(initial[0]?.type, 'assistant');
+  assert.equal(initial[0]?.isStreaming, true);
+  assert.equal(initial[0]?.id, 'live:session-1:3');
+  assert.equal(initial[0]?.content, 'Part one');
+
+  // A delta re-mints the row with fresh text and a fresh timestamp but keeps the
+  // id, so the row is rebuilt rather than appended to.
+  const updated = normalizedToChatMessages([
+    { ...live, content: 'Part one and two', timestamp: '2026-08-19T12:00:01.000Z' },
+  ]);
+  assert.equal(updated.length, 1);
+  assert.equal(updated[0]?.id, 'live:session-1:3');
+  assert.equal(updated[0]?.content, 'Part one and two');
 });
 
 test('rebuilds a tool-use UI message when its separately received result changes', () => {
@@ -66,7 +115,7 @@ test('rebuilds a tool-use UI message when its separately received result changes
     toolUseResult: undefined,
   });
 
-  const unrelatedStream = message('stream', {
+  const unrelatedStream = message('live:session-1:2', {
     kind: 'stream_delta',
     content: 'Still working',
   });
