@@ -1,12 +1,18 @@
 ---
 id: GOAL-004
 title: 对话流在真实浏览器里跟随几何变化：贴底时始终看到最新输出，离开时不被拉回
-status: active
+status: achieved
 kind: goal
 origin: 2026-09-21 真实实例实测：transcript 的自动跟随以行数为触发信号，流式就地增长（gap 最大 252px、注入
   1608px）与 pane 变矮（424px）都不跟随；docs 中「浏览器在流式期间钉底」被证伪。与 GOAL-001/002/003 同形：jsdom
   单元测试证伪不了几何行为，只有真实浏览器里的目标级判据能抓住（人 yale 授权立此目标）。
 activatedAt: 2026-09-21T07:19:38.943Z
+statusLog:
+  - at: 2026-09-21T14:27:11.353Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: all ACs achieved + sufficiency covered"
 ---
 ## 背景
 
