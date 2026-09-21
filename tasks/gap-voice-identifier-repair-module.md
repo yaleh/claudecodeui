@@ -1,7 +1,7 @@
 ---
 id: gap-voice-identifier-repair-module
 title: 生产用确定性标识符修复模块（src/shared）
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -31,12 +31,12 @@ goal_ac: AC-113
 
 ## AC
 
-- [ ] `npx vitest run src/shared/tests/identifierRepair.test.ts` 退出码 0
-- [ ] 模块为纯函数、无 React/DOM 依赖，落 `src/shared/` 且与 `voiceConfig.ts` 同层
-- [ ] 跨词符号走去空格去大小写精确相等，⛔ 不用相似度；`look at how` 这类文本不得被改写
-- [ ] 四重护栏齐备：长度差提前退出返回 `Infinity`、带点/不带点互斥、共享首三字符、跨词精确相等
-- [ ] 新测试经模块 barrel 导入
-- [ ] `npm run lint` 与 `npm run typecheck` 退出码 0
+- [x] `npx vitest run src/shared/tests/identifierRepair.test.ts` 退出码 0
+- [x] 模块为纯函数、无 React/DOM 依赖，落 `src/shared/` 且与 `voiceConfig.ts` 同层
+- [x] 跨词符号走去空格去大小写精确相等，⛔ 不用相似度；`look at how` 这类文本不得被改写
+- [x] 四重护栏齐备：长度差提前退出返回 `Infinity`、带点/不带点互斥、共享首三字符、跨词精确相等
+- [x] 新测试经模块 barrel 导入
+- [x] `npm run lint` 与 `npm run typecheck` 退出码 0
 
 ## DoD
 
@@ -45,6 +45,13 @@ goal_ac: AC-113
 L_D 该轴仍暗，理由：本任务只落地 `src/shared/` 的纯字符串修复函数，不新增领域数据能力，无可读的数据轴读数。
 
 L_G 该轴仍暗，理由：同上；本任务是确定性字符串算法的落地与单测，不产出生成质量轴读数。
+
+承重性实录（两个负对照各跑一次，跑完即还原，模块文件经 `diff` 证回字节一致）：
+
+- 变体 A（把长度差护栏的 `Infinity` 换成 `cap+1`）：只有「a name too short to be a typo of a candidate is not stretched into it」红。实测 `repairIdentifiers('the voiceIdentifier.ts file', CANDIDATES)` 返回 `the voiceConfig.ts file`——7 个字符的长度差被当成 3 的编辑距离（下界），转成相似度 0.833 后越过 0.8 阈值，正是 `Infinity` 挡掉的那类误报。
+- 变体 B（把跨词半边的精确相等换成形状相似度阈值 0.5）：7 个断言红，含 DoD 点名的那个。实测 `repairIdentifiers('look at how it behaves', CANDIDATES)` 返回 `useVoiceInput useVoiceInput`。旁证：先量过字符级相似度——`lookathow` 对 `usevoiceinput` 的 Levenshtein 相似度只有 0.077，任何人会写的阈值（≥0.6）都会拒绝它，所以「任何接受后者的模糊规则都会接受前者」对编辑距离相似度不成立；成立的是形状/长度相似度（0.692 ≥ 0.5），变体 B 实现的正是后者。
+
+还原后 `npx vitest run src/shared/tests/identifierRepair.test.ts` 10/10 绿。
 
 ## Touches
 
