@@ -1,7 +1,7 @@
 ---
 id: gap-chat-stream-row-requires-live-identity
 title: 渲染端的前置条件显式化：stream_delta 行当且仅当带 live id 才落行（今天不可达的保险，把静默污染降级为退化）
-status: ready
+status: done
 labels:
   - gap
 parent: null
