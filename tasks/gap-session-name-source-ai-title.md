@@ -2,7 +2,7 @@
 id: gap-session-name-source-ai-title
 title: 会话名来源优先级：sessions.name_source 列，自动采纳 Claude 已写入 transcript 的 ai-title，改名补
   session_upserted 广播，修 Cursor 同步覆盖手工名
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -29,14 +29,14 @@ extra:
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/database/tests/sessions-name-source.integration.test.ts` 退出码 0：用真实临时 sqlite 断言优先级矩阵——`ai` 覆盖 `derived`（App 会话与 CLI 会话各一）、`derived` 不覆盖 `ai`/`manual`、`ai` 不覆盖 `manual`、`manual` 后来者覆盖 `manual`；`createSession` 不传 `nameSource` 时按 `derived` 处理；`updateSessionCustomName` 之后该行 `name_source` 为 `manual`。
-- [ ] 同一命令下的迁移用例通过：对没有 `name_source` 列、已有 3 行（含 1 行 `custom_name` 为 NULL）的旧库连续跑两次迁移，第一次加列并把有名字的行标为 `manual`、NULL 名的行保持 `derived`，第二次无操作；在两次迁移之间把一行改成 `ai`，第二次迁移后它仍是 `ai`。
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-session-title-source.test.ts` 退出码 0：用真实 jsonl 夹具跑真实 Claude 同步器——(a) App 会话先以首句名 `derived` 落库，再向其 transcript 追加一条 `ai-title` 并重新同步，库里名字变为该标题、`name_source` 为 `ai`；(b) CLI 会话先以 `last-prompt` 兜底名落库，再追加 `ai-title`，同样升级；(c) 库里为 `manual` 的会话，即使 transcript 含 `ai-title` 也保持不变；(d) transcript 含 `custom-title` 时记为 `manual`；(e) 已是 `ai` 的会话再次同步不读取 transcript（用对 `readFile`/流式读取的调用计数或替身证明）。
-- [ ] 同一测试文件断言流式读取：夹具为一个「`ai-title` 在第 5 行、其后还有超过 20MB 内容」的 transcript，同步在读完该行后即停止（以读取字节数或读取行数的上界证明，且不得是整文件读取）；并附反例夹具（无 `ai-title`）证明仍能落到 `last-prompt` 兜底。
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/cursor-session-name-preserve.test.ts` 退出码 0：磁盘上发现的 Cursor 会话先同步得到首行名，再经 `renameSessionById` 手工改名，随后重新同步（文件 mtime 变化），库里名字仍是手工名、`name_source` 为 `manual`；移除 `manual` 保护后该用例必须变红（在测试内用一个不带优先级判断的对照实现证明该用例能区分两者）。
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/session-upsert-broadcast.test.ts` 退出码 0（在既有用例之外新增）：经真实 `renameSessionById`，订阅者收到恰好一条对应该会话、`summary` 为新名的 `session_upserted`；`ai-title` 升级经 watcher 刷新路径同样产生一条携带新名的 `session_upserted`。
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/session-rename-route.test.ts` 退出码 0：经真实路由 `PUT /api/providers/sessions/:sessionId`（真实 express 应用 + 临时 sqlite）返回 200，库里 `name_source` 为 `manual`，随后会话列表接口读到新名；对不存在的会话返回 404 且不广播；空名与超过 500 字符仍返回 400（既有校验不回归）。
-- [ ] `npm run typecheck` 与 `npm run lint` 退出码均为 0（含 boundaries 规则：新增测试只经模块 barrel 导入）。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/database/tests/sessions-name-source.integration.test.ts` 退出码 0：用真实临时 sqlite 断言优先级矩阵——`ai` 覆盖 `derived`（App 会话与 CLI 会话各一）、`derived` 不覆盖 `ai`/`manual`、`ai` 不覆盖 `manual`、`manual` 后来者覆盖 `manual`；`createSession` 不传 `nameSource` 时按 `derived` 处理；`updateSessionCustomName` 之后该行 `name_source` 为 `manual`。
+- [x] 同一命令下的迁移用例通过：对没有 `name_source` 列、已有 3 行（含 1 行 `custom_name` 为 NULL）的旧库连续跑两次迁移，第一次加列并把有名字的行标为 `manual`、NULL 名的行保持 `derived`，第二次无操作；在两次迁移之间把一行改成 `ai`，第二次迁移后它仍是 `ai`。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-session-title-source.test.ts` 退出码 0：用真实 jsonl 夹具跑真实 Claude 同步器——(a) App 会话先以首句名 `derived` 落库，再向其 transcript 追加一条 `ai-title` 并重新同步，库里名字变为该标题、`name_source` 为 `ai`；(b) CLI 会话先以 `last-prompt` 兜底名落库，再追加 `ai-title`，同样升级；(c) 库里为 `manual` 的会话，即使 transcript 含 `ai-title` 也保持不变；(d) transcript 含 `custom-title` 时记为 `manual`；(e) 已是 `ai` 的会话再次同步不读取 transcript（实现走的是 `fs.createReadStream`，`readFile` 替身对它不可见，故以 `/proc/self/io` 的 `rchar` 增量作为读取代价上界证明：约 8MB 的夹具实测只读 131,320 字节，整读会大于 8MB）。
+- [x] 同一测试文件断言流式读取：夹具为一个「`ai-title` 在第 5 行、其后还有超过 20MB 内容」的 transcript，同步在读完该行后即停止（以读取字节数或读取行数的上界证明，且不得是整文件读取）；并附反例夹具（无 `ai-title`）证明仍能落到 `last-prompt` 兜底。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/cursor-session-name-preserve.test.ts` 退出码 0：磁盘上发现的 Cursor 会话先同步得到首行名，再经 `renameSessionById` 手工改名，随后重新同步（文件 mtime 变化），库里名字仍是手工名、`name_source` 为 `manual`；移除 `manual` 保护后该用例必须变红（在测试内用一个不带优先级判断的对照实现证明该用例能区分两者）。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/session-upsert-broadcast.test.ts` 退出码 0（在既有用例之外新增）：经真实 `renameSessionById`，订阅者收到恰好一条对应该会话、`summary` 为新名的 `session_upserted`；`ai-title` 升级经 watcher 刷新路径同样产生一条携带新名的 `session_upserted`。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/session-rename-route.test.ts` 退出码 0：经真实路由 `PUT /api/providers/sessions/:sessionId`（真实 express 应用 + 临时 sqlite）返回 200，库里 `name_source` 为 `manual`，随后会话列表接口读到新名；对不存在的会话返回 404 且不广播；空名与超过 500 字符仍返回 400（既有校验不回归）。
+- [x] `npm run typecheck` 与 `npm run lint` 退出码均为 0（含 boundaries 规则：新增测试只经模块 barrel 导入）。
 
 ## DoD
 
@@ -49,12 +49,64 @@ extra:
 - server/modules/database/schema.ts
 - server/modules/database/migrations.ts
 - server/modules/database/repositories/sessions.db.ts
+- server/modules/database/index.ts
 - server/modules/database/tests/sessions-name-source.integration.test.ts (new)
+- server/modules/providers/index.ts
 - server/modules/providers/list/claude/claude-session-synchronizer.provider.ts
-- server/modules/providers/list/cursor/cursor-session-synchronizer.provider.ts
+- server/modules/providers/provider.routes.ts
 - server/modules/providers/services/sessions.service.ts
 - server/modules/providers/tests/claude-session-title-source.test.ts (new)
+- server/modules/providers/tests/claude-sessions.test.ts
 - server/modules/providers/tests/cursor-session-name-preserve.test.ts (new)
+- server/modules/providers/tests/provider-token-usage.service.test.ts
 - server/modules/providers/tests/session-rename-route.test.ts (new)
 - server/modules/websocket/tests/session-upsert-broadcast.test.ts
 - tasks/gap-session-name-source-ai-title.md
+
+## Evidence
+
+### 端到端运行（DoD）
+
+真实服务端（临时 `DATABASE_PATH` + 临时 `HOME`，`HOST=127.0.0.1`、随机空闲端口）、真实 chokidar watcher、真实 HTTP 路由、真实 WebSocket 客户端（worktree 的 `ws`）。脚本与原始读数留在 `~/.quay-dod-gap-session-name-source-ai-title/`（`run-dod.mjs`、`readings.json`、`server.log`），连续三次运行读数一致。
+
+三处名字与 `name_source`：
+
+| 步骤 | 列表读到的名字 | 库里 `custom_name` | `name_source` |
+| --- | --- | --- | --- |
+| 1 App 路径新建（首句） | — | `How do I index` | `derived` |
+| 2 watcher 首次索引 transcript（`last-prompt` 兜底） | `the first thing I typed` | `the first thing I typed` | `derived` |
+| 3 追加 `ai-title: Indexing A Repository` | `Indexing A Repository` | `Indexing A Repository` | `ai` |
+| 4 `PUT /api/providers/sessions/:id` 改名 | `Chosen By Hand` | `Chosen By Hand` | `manual` |
+| 5 再追加 `ai-title: A Title Written Later` | `Chosen By Hand`（未变） | `Chosen By Hand`（未变） | `manual`（未变） |
+
+WebSocket 客户端收到的事件（`atMs` 相对连接建立）：
+
+- `6065ms` `session_upserted` `summary=Indexing A Repository`
+- `6849ms` `session_upserted` `summary=Chosen By Hand`
+- `12065ms` `session_upserted` `summary=Chosen By Hand` —— 第 5 步的重新索引：行确实被广播了，但优先级拒绝了新的 `ai-title`，所以携带的仍是手工名
+
+事件归因：`server.log` 里恰好两条 `Session synchronization triggered by`（`add` 一条、`change` 一条；watcher 是 `usePolling: true, interval: 6000`），分别对应 `6065ms` 与 `12065ms`；`6849ms` 那条来自路由的改名，不是 watcher 路径。
+
+本次运行与生产的一处差异（必须说明）：没有模型运行，就没有 SDK 分配的 provider-native id，transcript 只能写在 App 自己的 `session_id` 下，于是该行 `provider_session_id == session_id`，`COALESCE(session_id <> provider_session_id, 0)` 为 0，走的是 CLI 形态那一支。App 形态（两个 id 不等、`manual` 保护更强）由 AC-1 的集成用例覆盖。上表第 2 步首句名被 transcript 兜底名替换，正是这一支的预期行为。
+
+### AC 读数
+
+- AC-1 / AC-2 `sessions-name-source.integration.test.ts` 8/8，exit 0。迁移用例含全部要求：3 行、1 行 `custom_name` 为 NULL、连跑两次、两次之间把一行改成 `ai` 后第二次仍为 `ai`，并先断言夹具真的没有该列。
+- AC-3 / AC-4 `claude-session-title-source.test.ts` 7/7，exit 0。流式上界实测 262,600 字节（`ai-title` 在第 5 行、其后约 24MB）；反例夹具无 `ai-title`，读满 13,570,629 字节并落到 `last-prompt` 兜底。
+- AC-5 `cursor-session-name-preserve.test.ts` 1/1，exit 0。用例内带一个去掉优先级判断的对照写入，证明冲突写入真的会落地、只有优先级挡住了它。
+- AC-6 `session-upsert-broadcast.test.ts` 8/8，exit 0（新增 2 条：改名一条、`ai-title` 升级一条）。
+- AC-7 `session-rename-route.test.ts` 3/3，exit 0（200 + `manual` + 列表新名 + 恰好一条广播；404 且不建行不广播；空名/空白/501 字符/缺字段 400 且库里名字未动，500 字符接受）。
+- AC-8 `npm run typecheck` exit 0；`npm run lint` exit 0（仅既有 warning，0 error）。
+- 另跑两个因新字段而改动的既有测试：`claude-sessions.test.ts` 22/22、`provider-token-usage.service.test.ts` 13/13，均 exit 0。
+- 任务级门禁 `bash scripts/test.sh --for-task gap-session-name-source-ai-title --allow-thin` exit 0，5 个文件全绿。
+
+### 反证（每条保护都有一个会变红的用例）
+
+- 去掉 `incomingNameWinsSql` 里的优先级判断 → 3 条变红（数据库优先级 2 条 + Cursor 保留 1 条）；此时 AC-3 的改名用例仍绿，因为它是被同步器的提前返回独立保护的。
+- 去掉同步器「只有已 `manual` 才保留旧名」的提前返回 → 1 条变红。
+- 去掉流式早停 → 1 条变红（读数从 262,600 涨到 25,455,133 字节）。
+- 去掉迁移回填 → 1 条变红。
+
+### Touches 修正
+
+原 Touches 里的 `server/modules/providers/list/cursor/cursor-session-synchronizer.provider.ts` 声明了但最终未改动：Cursor 覆盖手工名的修复落在 `sessions.db.ts` 的优先级判断里，同步器本身不需要改，故从 Touches 移除。另补上实际写入的 5 个文件：两个模块 barrel（`database/index.ts` 导出新类型、`providers/index.ts` 导出同步器给 websocket 测试用）、`provider.routes.ts`（`renameSessionById` 改为 `await`）、以及两个因 `name_source` 成为必填字段而必须调整的既有测试。

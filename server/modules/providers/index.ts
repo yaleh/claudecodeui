@@ -34,3 +34,7 @@ export { createProviderTokenUsageService, summarizeClaudeTokenUsage } from './se
 // normalizer's own class to prove a partial SDK frame reaches the wire as a
 // `stream_delta` without a live CLI in the loop.
 export { ClaudeSessionsProvider } from './list/claude/claude-sessions.provider.js';
+// ClaudeSessionSynchronizer: driven by the websocket module's session-upsert
+// broadcast test, which needs the real indexer to put an ai-title on a row
+// before asserting the delta that carries it.
+export { ClaudeSessionSynchronizer } from './list/claude/claude-session-synchronizer.provider.js';

@@ -1,8 +1,9 @@
 import os from 'node:os';
 import path from 'node:path';
-import { readFile } from 'node:fs/promises';
+import fs from 'node:fs';
+import readline from 'node:readline';
 
-import { sessionsDb } from '@/modules/database/index.js';
+import { sessionsDb, type SessionNameSource } from '@/modules/database/index.js';
 import {
   buildLookupMap,
   extractFirstValidJsonlData,
@@ -16,7 +17,18 @@ type ParsedSession = {
   sessionId: string;
   projectPath: string;
   sessionName?: string;
+  /** Where `sessionName` came from; travels with it into the session row. */
+  nameSource: SessionNameSource;
 };
+
+/** What a transcript says the session is called, and how authoritative that is. */
+type TranscriptTitle = {
+  name: string;
+  source: SessionNameSource;
+};
+
+/** The name a Claude session carries before anything has named it. */
+const UNTITLED_CLAUDE_SESSION = 'Untitled Claude Session';
 
 /**
  * Session indexer for Claude transcript artifacts.
@@ -72,7 +84,8 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
         parsed.sessionName,
         timestamps.createdAt,
         timestamps.updatedAt,
-        filePath
+        filePath,
+        parsed.nameSource
       );
       processed += 1;
     }
@@ -105,7 +118,8 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
       parsed.sessionName,
       timestamps.createdAt,
       timestamps.updatedAt,
-      filePath
+      filePath,
+      parsed.nameSource
     );
   }
 
@@ -140,90 +154,140 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
     const existingSession = sessionsDb.getSessionByProviderSessionId(parsed.sessionId)
       ?? sessionsDb.getSessionById(parsed.sessionId);
     const existingSessionName = existingSession?.custom_name;
-    if (existingSessionName && existingSessionName !== 'Untitled Claude Session') {
+    const existingNameSource = (existingSession?.name_source ?? 'derived') as SessionNameSource;
+
+    // A name the user chose (`manual`) or one Claude itself wrote (`ai`) is
+    // already the best name this file has to offer, and re-reading a transcript
+    // that can run to hundreds of megabytes would only re-derive the same
+    // answer. Only a name that was inferred — by the app from the first
+    // message, or by an earlier scan from a `last-prompt` — is re-extracted,
+    // which is what lets a later `ai-title` take over from it.
+    if (existingSessionName && existingNameSource !== 'derived') {
       return {
         ...parsed,
-        sessionName: normalizeSessionName(existingSessionName, 'Untitled Claude Session'),
+        sessionName: normalizeSessionName(existingSessionName, UNTITLED_CLAUDE_SESSION),
+        nameSource: existingNameSource,
       };
     }
 
-    let sessionName = await this.extractSessionTitle(filePath, parsed.sessionId);
-    if (!sessionName) {
-      sessionName = nameMap.get(parsed.sessionId);
+    const transcriptTitle = await this.extractSessionTitle(filePath, parsed.sessionId);
+    if (transcriptTitle) {
+      return {
+        ...parsed,
+        sessionName: normalizeSessionName(transcriptTitle.name, UNTITLED_CLAUDE_SESSION),
+        nameSource: transcriptTitle.source,
+      };
+    }
+
+    const historyName = nameMap.get(parsed.sessionId);
+    if (historyName) {
+      return {
+        ...parsed,
+        sessionName: normalizeSessionName(historyName, UNTITLED_CLAUDE_SESSION),
+        nameSource: 'derived',
+      };
+    }
+
+    // Nothing on disk names this session. A row that already has a name keeps
+    // it: `normalizeSessionName` would otherwise hand back the placeholder and
+    // the upsert would replace a real name with it.
+    if (existingSessionName) {
+      return {
+        ...parsed,
+        sessionName: normalizeSessionName(existingSessionName, UNTITLED_CLAUDE_SESSION),
+        nameSource: existingNameSource,
+      };
     }
 
     return {
       ...parsed,
-      sessionName: normalizeSessionName(sessionName, 'Untitled Claude Session'),
+      sessionName: UNTITLED_CLAUDE_SESSION,
+      nameSource: 'derived',
     };
   }
 
   /**
-   * Returns the best available title for one session from its transcript.
+   * Returns the best title one session's transcript carries, and its source.
    *
-   * Scans forward keeping the last match of each event type, then prefers
-   * `custom-title` (a manual `/rename`) over `ai-title` over `last-prompt`.
-   * Claude writes `custom-title` immediately before `ai-title`, so a reverse
-   * scan that returns its first hit would always lose the manual rename.
+   * Streams the file line by line and returns as soon as the answer cannot
+   * improve, rather than reading a whole transcript into memory: these files
+   * reach hundreds of megabytes, and a session's title is decided by a handful
+   * of short entries. The `ai-title` entry ends the scan — Claude writes the
+   * `custom-title` of a rename immediately *before* the matching `ai-title`,
+   * so by the time one is reached every entry that could outrank it has
+   * already been seen. A transcript with no title entry at all is the only
+   * case that reads to the end, and it falls back to the last `last-prompt`.
    *
    * Returns undefined on a missing or unreadable file so sync can continue.
    */
   private async extractSessionTitle(
     filePath: string,
     sessionId: string
-  ): Promise<string | undefined> {
+  ): Promise<TranscriptTitle | undefined> {
+    let foundCustomTitle: string | undefined;
+    let foundLastPrompt: string | undefined;
+
     try {
-      const content = await readFile(filePath, 'utf8');
-      const lines = content.split(/\r?\n/);
+      const fileStream = fs.createReadStream(filePath, { encoding: 'utf8' });
+      const lineReader = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
 
-      let foundCustomTitle: string | undefined;
-      let foundAiTitle: string | undefined;
-      let foundLastPrompt: string | undefined;
-
-      for (let index = 0; index < lines.length; index += 1) {
-        const line = lines[index]?.trim();
-        if (!line) {
-          continue;
-        }
-
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(line);
-        } catch {
-          continue;
-        }
-
-        const data = parsed as Record<string, unknown>;
-        const eventType = typeof data.type === 'string' ? data.type : undefined;
-        const eventSessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined;
-
-        if (eventSessionId !== sessionId) {
-          continue;
-        }
-
-        if (eventType === 'custom-title') {
-          const title = typeof data.customTitle === 'string' ? data.customTitle : undefined;
-          if (title?.trim()) {
-            foundCustomTitle = title;
+      try {
+        for await (const line of lineReader) {
+          const trimmed = line.trim();
+          if (!trimmed) {
+            continue;
           }
-        } else if (eventType === 'ai-title') {
-          const title = typeof data.aiTitle === 'string' ? data.aiTitle : undefined;
-          if (title?.trim()) {
-            foundAiTitle = title;
+
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(trimmed);
+          } catch {
+            continue;
           }
-        } else if (eventType === 'last-prompt') {
-          const prompt = typeof data.lastPrompt === 'string' ? data.lastPrompt : undefined;
-          if (prompt?.trim()) {
-            foundLastPrompt = prompt;
+
+          const data = parsed as Record<string, unknown>;
+          const eventType = typeof data.type === 'string' ? data.type : undefined;
+          const eventSessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined;
+
+          if (eventSessionId !== sessionId) {
+            continue;
+          }
+
+          if (eventType === 'custom-title') {
+            const title = typeof data.customTitle === 'string' ? data.customTitle : undefined;
+            if (title?.trim()) {
+              foundCustomTitle = title;
+            }
+          } else if (eventType === 'ai-title') {
+            const title = typeof data.aiTitle === 'string' ? data.aiTitle : undefined;
+            if (!title?.trim()) {
+              continue;
+            }
+
+            // `/rename` outranks the generated title, and it is already behind
+            // us: stop here instead of reading the rest of the file.
+            lineReader.close();
+            fileStream.close();
+            return { name: foundCustomTitle ?? title, source: foundCustomTitle ? 'manual' : 'ai' };
+          } else if (eventType === 'last-prompt') {
+            const prompt = typeof data.lastPrompt === 'string' ? data.lastPrompt : undefined;
+            if (prompt?.trim()) {
+              foundLastPrompt = prompt;
+            }
           }
         }
+      } finally {
+        lineReader.close();
+        fileStream.close();
       }
-
-      return foundCustomTitle || foundAiTitle || foundLastPrompt;
     } catch {
       // Ignore missing/unreadable files so sync can continue.
     }
 
-    return undefined;
+    if (foundCustomTitle) {
+      return { name: foundCustomTitle, source: 'manual' };
+    }
+
+    return foundLastPrompt ? { name: foundLastPrompt, source: 'derived' } : undefined;
   }
 }

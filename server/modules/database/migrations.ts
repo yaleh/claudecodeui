@@ -437,6 +437,32 @@ const addForkedFromSessionIdColumn = (db: Database): void => {
 };
 
 /**
+ * Adds `name_source` — where each session's name came from — and backfills it
+ * exactly once, on the upgrade that adds the column.
+ *
+ * The backfill is deliberately conservative. Until this column existed nothing
+ * recorded who chose a name, so every row that already carries one is marked
+ * `manual`: a name the user typed and a name an indexer inferred are
+ * indistinguishable in an old database, and guessing `derived` for a name
+ * someone chose would hand it straight back to the next provider scan. Rows
+ * with no name keep the column default, `derived`.
+ *
+ * Re-running must change nothing: by then an `ai` name may legitimately sit on
+ * a row (an indexer upgraded it), and re-marking that `manual` would freeze a
+ * title the transcript still owns. Hence the `includes` guard — the UPDATE is
+ * tied to the ALTER, not repeated on every startup.
+ */
+const addSessionNameSourceColumn = (db: Database): void => {
+  const columnNames = getTableInfo(db, 'sessions').map((column) => column.name);
+  if (columnNames.includes('name_source')) {
+    return;
+  }
+
+  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'name_source', "TEXT DEFAULT 'derived'");
+  db.exec(`UPDATE sessions SET name_source = 'manual' WHERE custom_name IS NOT NULL`);
+};
+
+/**
  * Adds the `model` column that records which model each session runs with.
  *
  * Left NULL for pre-existing rows on purpose: the model resolver falls back to
@@ -657,6 +683,10 @@ export const runMigrations = (db: Database) => {
     // Last of the sessions-shape migrations: it rebuilds the table, so every
     // column the copy reads has to exist by now.
     dropLaunchProfileStructures(db);
+    // After that rebuild, never before it: the rebuild copies an explicit
+    // column list, so a name_source added earlier would be dropped with the
+    // old table and its backfill lost.
+    addSessionNameSourceColumn(db);
     ensureProjectsForSessionPaths(db);
     db.exec(SCHEDULED_MESSAGES_TABLE_SCHEMA_SQL);
 

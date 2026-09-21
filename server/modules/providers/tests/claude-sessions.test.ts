@@ -847,10 +847,10 @@ test('synchronizeFile falls back to Untitled Claude Session when all sources are
 });
 
 // ---------------------------------------------------------------------------
-// Priority: DB custom_name > JSONL title > history.jsonl
+// Priority: manual rename > JSONL title > inferred name > history.jsonl
 // ---------------------------------------------------------------------------
 
-test('synchronizeFile preserves existing DB custom_name regardless of JSONL and history.jsonl', { concurrency: false }, async () => {
+test('synchronizeFile preserves a renamed session over JSONL and history.jsonl', { concurrency: false }, async () => {
   const tmp = await mkdtemp(path.join(os.tmpdir(), 'claude-sync-dbwins-'));
   const workspacePath = path.join(tmp, 'workspace');
   await mkdir(workspacePath, { recursive: true });
@@ -872,13 +872,15 @@ test('synchronizeFile preserves existing DB custom_name regardless of JSONL and 
     ]);
 
     await withIsolatedDatabase(async () => {
-      // Pre-seed the DB with a custom_name set via CloudCLI sidebar rename.
+      // Pre-seed the DB, then rename through the same path the sidebar uses —
+      // that rename is a user decision, which is what the name has to record.
       sessionsDb.createSession(
         'test-session-1',
         'claude',
         workspacePath,
-        'Sidebar custom name',
+        'first prompt',
       );
+      sessionsDb.updateSessionCustomName('test-session-1', 'Sidebar custom name');
 
       const synchronizer = new ClaudeSessionSynchronizer();
       const result = await synchronizer.synchronizeFile(
@@ -887,8 +889,9 @@ test('synchronizeFile preserves existing DB custom_name regardless of JSONL and 
 
       assert.ok(result);
       const session = sessionsDb.getSessionById(result!);
-      // DB custom_name must win over JSONL ai-title AND history.jsonl display.
+      // A rename outranks JSONL ai-title AND history.jsonl display.
       assert.equal(session?.custom_name, 'Sidebar custom name');
+      assert.equal(session?.name_source, 'manual');
     });
   } finally {
     restoreHomeDir();

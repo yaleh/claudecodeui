@@ -133,6 +133,13 @@ CREATE TABLE IF NOT EXISTS sessions (
     -- id mid-run, or equals \`session_id\` for sessions discovered on disk.
     provider_session_id TEXT,
     custom_name TEXT,
+    -- Where \`custom_name\` came from: 'derived' (the first visible message, a
+    -- transcript's \`last-prompt\`, or the history fallback), 'ai' (the title
+    -- Claude writes into the transcript itself) or 'manual' (a rename through
+    -- the app, or a CLI \`/rename\` recorded as the transcript's
+    -- \`custom-title\`). Upserts only ever move a name up that order, so the
+    -- column is what keeps a provider rescan from undoing a rename.
+    name_source TEXT DEFAULT 'derived',
     project_path TEXT,
     jsonl_path TEXT,
     -- Model and reasoning effort this session runs with. Written when the user
