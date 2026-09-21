@@ -1,7 +1,7 @@
 ---
 id: gap-ac-024-criterion-repoint-and-compile-allowlist-coverage
 title: AC-024：判据指回搬迁后的真实测试路径，并补回被拆除任务丢掉的编译期白名单半边（LD_PRELOAD 直写库也不得进最终 spawn 环境）
-status: ready
+status: done
 labels:
   - gap
   - defect
