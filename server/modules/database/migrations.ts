@@ -464,6 +464,103 @@ const addSessionEffortColumn = (db: Database): void => {
 };
 
 /**
+ * Drops the two structures the removed launch-profile feature left in the
+ * database: the `launch_profiles` table and the `sessions.launch_profile_id`
+ * column.
+ *
+ * Named launch profiles were replaced by per-model config entries (ADR-002), so
+ * a database created while the feature existed keeps both forever unless they
+ * are dropped here — an upgraded install has to end up with the structure a
+ * freshly created one has, and `schema.ts` no longer declares either.
+ *
+ * The column is removed by the same create/copy/rename rebuild the other
+ * sessions migrations use; SQLite's own DROP COLUMN support is too limited to
+ * rely on here. The rows are the user's sessions and are copied across
+ * unchanged — only the profile id itself goes, because the feature it referred
+ * to no longer exists (the delete path for sessions is untouched).
+ */
+const dropLaunchProfileStructures = (db: Database): void => {
+  if (tableExists(db, 'launch_profiles')) {
+    console.log('Running migration: Dropping the legacy launch_profiles table');
+    db.exec('DROP TABLE launch_profiles');
+  }
+
+  const sessionsTableInfo = getTableInfo(db, 'sessions');
+  const columnNames = sessionsTableInfo.map((column) => column.name);
+
+  if (!columnNames.includes('launch_profile_id')) {
+    return;
+  }
+
+  console.log('Running migration: Dropping the legacy launch_profile_id column from sessions');
+
+  db.exec('PRAGMA foreign_keys = OFF');
+  try {
+    db.exec('BEGIN TRANSACTION');
+    db.exec('DROP TABLE IF EXISTS sessions__new');
+    db.exec(`
+      CREATE TABLE sessions__new (
+        session_id TEXT NOT NULL,
+        provider TEXT NOT NULL DEFAULT 'claude',
+        provider_session_id TEXT,
+        custom_name TEXT,
+        project_path TEXT,
+        jsonl_path TEXT,
+        model TEXT,
+        effort TEXT,
+        forked_from_session_id TEXT,
+        isArchived BOOLEAN DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (session_id),
+        FOREIGN KEY (project_path) REFERENCES projects(project_path)
+        ON DELETE SET NULL
+        ON UPDATE CASCADE
+      )
+    `);
+    db.exec(`
+      INSERT INTO sessions__new (
+        session_id,
+        provider,
+        provider_session_id,
+        custom_name,
+        project_path,
+        jsonl_path,
+        model,
+        effort,
+        forked_from_session_id,
+        isArchived,
+        created_at,
+        updated_at
+      )
+      SELECT
+        session_id,
+        COALESCE(provider, 'claude'),
+        provider_session_id,
+        custom_name,
+        project_path,
+        jsonl_path,
+        model,
+        effort,
+        forked_from_session_id,
+        COALESCE(isArchived, 0),
+        COALESCE(created_at, CURRENT_TIMESTAMP),
+        COALESCE(updated_at, CURRENT_TIMESTAMP)
+      FROM sessions
+      WHERE session_id IS NOT NULL AND trim(session_id) <> ''
+    `);
+    db.exec('DROP TABLE sessions');
+    db.exec('ALTER TABLE sessions__new RENAME TO sessions');
+    db.exec('COMMIT');
+  } catch (migrationError) {
+    db.exec('ROLLBACK');
+    throw migrationError;
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+};
+
+/**
  * Adds `config_json` to `provider_models`: the JSON-serialised per-model
  * config (`{ env: [...] }`); NULL means no override. Databases created before
  * the column existed get it here, new databases get it from the table schema.
@@ -537,6 +634,9 @@ export const runMigrations = (db: Database) => {
     addSessionModelColumn(db);
     addSessionEffortColumn(db);
     addForkedFromSessionIdColumn(db);
+    // Last of the sessions-shape migrations: it rebuilds the table, so every
+    // column the copy reads has to exist by now.
+    dropLaunchProfileStructures(db);
     ensureProjectsForSessionPaths(db);
     db.exec(SCHEDULED_MESSAGES_TABLE_SCHEMA_SQL);
 
