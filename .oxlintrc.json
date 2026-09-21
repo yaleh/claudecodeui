@@ -103,6 +103,7 @@
           "src/shared/userSettings.ts",
           "src/shared/chatDrafts.ts",
           "src/shared/syntaxHighlighter.ts",
+          "src/shared/voiceDebug.ts",
           "src/shared/voiceTrim.ts"
         ],
         "mode": "file"

@@ -388,10 +388,163 @@ const seedVoiceIdentifierWorkspace = () => {
   );
 };
 
+/** Workspace e2e/voice-trim.spec.ts records into; its own directory so no other spec picks this session up. */
+const VOICE_TRIM_WORKSPACE = path.join(dataDir, 'voice-trim-workspace');
+/** Session id that spec opens the composer in, and the display name it looks its sidebar row up by. */
+const VOICE_TRIM_SESSION_ID = 'e2e-voice-trim';
+const VOICE_TRIM_SESSION_NAME = 'voice-trim';
+/** The rate the fixture is written at; the capture device plays it whether or not the browser runs at this rate. */
+const VOICE_TRIM_SAMPLE_RATE = 48_000;
+
+/**
+ * The fixture's timeline: a wait for the mic, one phrase, the pause while the talker thinks, a
+ * second phrase.
+ *
+ * The 1.6 s pause is the fixture's whole point. The shipped pause table keeps 0.18 s of a gap that
+ * long, so a recording of this file has roughly 40 % of its duration removed by the trim — a
+ * saving far too large for the spec's "the trimmed upload is shorter" assertion to be met by
+ * jitter. The phrases are pitched differently so the two are distinguishable in the waveform, not
+ * that anything here depends on it.
+ */
+const VOICE_TRIM_TIMELINE: readonly { readonly silenceMs: number; readonly phraseMs: number; readonly baseHz: number }[] = [
+  { silenceMs: 300, phraseMs: 300, baseHz: 180 },
+  { silenceMs: 1600, phraseMs: 300, baseHz: 240 },
+];
+/** Silence after the last phrase, before the file loops. */
+const VOICE_TRIM_TAIL_MS = 100;
+
+/**
+ * The samples of that timeline, as a 48 kHz mono waveform.
+ *
+ * Each phrase is a stack of harmonics under a raised-sine envelope rather than one sine: a single
+ * unbroken tone is the signal a broken capture chain also produces, and the energy detector the
+ * trim runs needs something with a loudness envelope to measure.
+ */
+const voiceTrimFixture = (): Float32Array => {
+  const samples: number[] = [];
+  const pushSilence = (ms: number) => {
+    samples.push(...new Array<number>(Math.round((ms / 1000) * VOICE_TRIM_SAMPLE_RATE)).fill(0));
+  };
+  const pushPhrase = (ms: number, baseHz: number) => {
+    const count = Math.round((ms / 1000) * VOICE_TRIM_SAMPLE_RATE);
+    for (let index = 0; index < count; index += 1) {
+      const envelope = Math.sin((Math.PI * index) / count);
+      const wave =
+        0.5 * Math.sin((2 * Math.PI * baseHz * index) / VOICE_TRIM_SAMPLE_RATE)
+        + 0.3 * Math.sin((2 * Math.PI * baseHz * 2.7 * index) / VOICE_TRIM_SAMPLE_RATE)
+        + 0.2 * Math.sin((2 * Math.PI * baseHz * 5.1 * index) / VOICE_TRIM_SAMPLE_RATE);
+      samples.push(0.4 * envelope * wave);
+    }
+  };
+
+  for (const segment of VOICE_TRIM_TIMELINE) {
+    pushSilence(segment.silenceMs);
+    pushPhrase(segment.phraseMs, segment.baseHz);
+  }
+  pushSilence(VOICE_TRIM_TAIL_MS);
+  return Float32Array.from(samples);
+};
+
+/** The fixture itself, built here because its length IS the duration the spec compares against. */
+const VOICE_TRIM_SAMPLES = voiceTrimFixture();
+/**
+ * How long a recording of that fixture is when it is played once.
+ *
+ * Derived from the samples rather than declared beside them: the spec records for exactly this long
+ * and then asserts the untrimmed upload is this long, so a number written down twice is a number
+ * that can disagree with the audio it is supposed to describe.
+ */
+const VOICE_TRIM_FIXTURE_SEC = VOICE_TRIM_SAMPLES.length / VOICE_TRIM_SAMPLE_RATE;
+/**
+ * Where the fake microphone reads its samples from, published so the spec's launch args can name it.
+ * Written below, before `webServer` starts, because Chromium opens it at browser launch.
+ */
+const VOICE_TRIM_AUDIO_FILE = path.join(dataDir, 'voice-trim-utterance.wav');
+process.env.QUAY_E2E_VOICE_TRIM_AUDIO = VOICE_TRIM_AUDIO_FILE;
+process.env.QUAY_E2E_VOICE_TRIM_FIXTURE_SEC = String(VOICE_TRIM_FIXTURE_SEC);
+
+/** Writes `samples` as a 16-bit PCM WAV. Same header the fixture generator in the voice identifier spec writes. */
+const writeVoiceTrimFixture = (filePath: string, samples: Float32Array): void => {
+  const dataBytes = samples.length * 2;
+  const buffer = Buffer.alloc(44 + dataBytes);
+  buffer.write('RIFF', 0);
+  buffer.writeUInt32LE(36 + dataBytes, 4);
+  buffer.write('WAVE', 8);
+  buffer.write('fmt ', 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20); // PCM
+  buffer.writeUInt16LE(1, 22); // mono
+  buffer.writeUInt32LE(VOICE_TRIM_SAMPLE_RATE, 24);
+  buffer.writeUInt32LE(VOICE_TRIM_SAMPLE_RATE * 2, 28); // byte rate
+  buffer.writeUInt16LE(2, 32); // block align
+  buffer.writeUInt16LE(16, 34); // bits per sample
+  buffer.write('data', 36);
+  buffer.writeUInt32LE(dataBytes, 40);
+  for (let index = 0; index < samples.length; index += 1) {
+    buffer.writeInt16LE(Math.round(samples[index] * 32767), 44 + index * 2);
+  }
+  fs.writeFileSync(filePath, buffer);
+};
+
+/** The project file the seeded workspace holds, so the project is a directory the app has really seen. */
+const VOICE_TRIM_FILE = 'dictation.notes.md';
+
+/**
+ * Seeds the workspace e2e/voice-trim.spec.ts records in.
+ *
+ * Same reason as the three above: the backend scans ~/.claude/projects at boot and only then starts
+ * its file watcher with `ignoreInitial`, so a transcript written while the test runs would be
+ * picked up by the watcher and broadcast as a session_upserted — which the sidebar correctly reads
+ * as "needs attention".
+ *
+ * The workspace holds one plain-prose file and nothing else. The spec's utterances are ordinary
+ * sentences with no identifier in them, so the repair has nothing to rewrite them against; leaving
+ * the workspace empty would also do, but a project the app has never seen a file in is not the
+ * shape a real one has.
+ */
+const seedVoiceTrimWorkspace = () => {
+  fs.mkdirSync(VOICE_TRIM_WORKSPACE, { recursive: true });
+  fs.writeFileSync(
+    path.join(VOICE_TRIM_WORKSPACE, VOICE_TRIM_FILE),
+    'Notes kept in the workspace the voice trim spec records in.\nNothing here is named by the spoken fixture.\n',
+    'utf8',
+  );
+  writeVoiceTrimFixture(VOICE_TRIM_AUDIO_FILE, VOICE_TRIM_SAMPLES);
+
+  const transcriptDir = path.join(dataDir, '.claude', 'projects', 'voice-trim-workspace');
+  fs.mkdirSync(transcriptDir, { recursive: true });
+  const timestamp = new Date().toISOString();
+  // The synchronizer reads the session id and cwd from the first record it can parse, so one
+  // transcript has to carry both a turn and a title.
+  const records = [
+    {
+      type: 'user',
+      sessionId: VOICE_TRIM_SESSION_ID,
+      cwd: VOICE_TRIM_WORKSPACE,
+      timestamp,
+      message: { role: 'user', content: [{ type: 'text', text: 'open the composer for the trim check' }] },
+    },
+    {
+      type: 'custom-title',
+      sessionId: VOICE_TRIM_SESSION_ID,
+      cwd: VOICE_TRIM_WORKSPACE,
+      timestamp,
+      customTitle: VOICE_TRIM_SESSION_NAME,
+    },
+  ];
+
+  fs.writeFileSync(
+    path.join(transcriptDir, `${VOICE_TRIM_SESSION_ID}.jsonl`),
+    `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
+    'utf8',
+  );
+};
+
 if (isDataDirOwner) {
   seedSessionFilterTranscripts();
   seedTranscriptFollowTranscript();
   seedVoiceIdentifierWorkspace();
+  seedVoiceTrimWorkspace();
 }
 
 export default defineConfig({

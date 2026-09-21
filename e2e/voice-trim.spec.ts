@@ -1,0 +1,532 @@
+import fs from 'node:fs';
+import http from 'node:http';
+import path from 'node:path';
+import type { AddressInfo } from 'node:net';
+
+import { expect, test } from '@playwright/test';
+import type { BrowserContext, Page } from '@playwright/test';
+
+// Real Chromium against the real backend + Vite client started by playwright.config.ts (isolated data dir),
+// recording through the app's own voice button. The recorder is the browser's own: Chromium is launched with a
+// fake audio device whose samples come from the WAV playwright.config.ts wrote before the servers booted, so
+// `getUserMedia` hands `MediaRecorder` a real stream and the app's own hook encodes what it hears.
+//
+// What this file adds over e2e/voice-identifier-repair.spec.ts is a *pair*. The same fixture is recorded twice —
+// once with trimming on (the default) and once with `?voiceTrim=off` — and the two uploads that arrive at the
+// recogniser stand-in are read back as audio and compared. That is the only way to see the trim from outside:
+// the app is free to trim, and the assertion has to be about what it actually sent.
+//
+// The one stand-in is the recogniser, exactly as in the identifier spec: no offline speech-to-text exists in
+// this checkout, so the endpoint the voice settings name is a local server answering `/audio/transcriptions`.
+// Nothing here stubs the app — the request that arrives on that socket was made by the running client through
+// the real `transcribeVoice()` path, carrying the seeded credential and model.
+//
+// Both uploads are measured by parsing the container they are in, never by their byte count. A byte count would
+// be worse than useless here: the trimmed leg is re-encoded as PCM WAV and the untrimmed leg is the recorder's
+// own webm/opus, so the *shorter* upload is the *larger* one. Only the container says how long the audio is.
+
+const DATA_DIR = process.env.QUAY_E2E_DATA_DIR!;
+const CLIENT_URL = `http://127.0.0.1:${process.env.QUAY_E2E_CLIENT_PORT}`;
+const WORKSPACE = path.join(DATA_DIR, 'voice-trim-workspace');
+const SESSION_ID = 'e2e-voice-trim';
+const SESSION_NAME = 'voice-trim';
+/** Where the fake microphone reads its samples from; the config wrote it before the browser was launched. */
+const AUDIO_FILE = process.env.QUAY_E2E_VOICE_TRIM_AUDIO!;
+/** The fixture's own duration, derived by the config from the samples it wrote. */
+const FIXTURE_SEC = Number(process.env.QUAY_E2E_VOICE_TRIM_FIXTURE_SEC);
+/** What the seeded voice settings name as the recogniser endpoint's credential, so the arriving request can be traced back to them. */
+const API_KEY = 'sk-e2e-voice-trim-7c2f5a13';
+const STT_MODEL = 'whisper-large-v3-turbo';
+
+/**
+ * How long each leg holds the recorder open: one pass of the fixture, so the untrimmed upload is the fixture.
+ *
+ * `useVoiceInput` refuses to upload a blob under 800 bytes ("Recording too short"), which this clears by three
+ * orders of magnitude, and the pause the trim is meant to remove has to be *inside* the window for the trim to
+ * have anything to do — hence a whole pass rather than a fraction of one.
+ */
+const CAPTURE_MS = Math.round(FIXTURE_SEC * 1000);
+
+/**
+ * How far the untrimmed upload may differ from the fixture and still count as "the whole capture".
+ *
+ * The gap is the recorder's own start/stop overhead, measured at ~40 ms on a 2.5 s take, so a third of a second
+ * is several times the observed error. It is not slack for a trim: nothing the pipeline can do to the audio
+ * shortens it by less than the fixture's 1.6 s pause, which is what the trim exists to remove.
+ */
+const CAPTURE_TOLERANCE_SEC = 0.3;
+
+/**
+ * How much shorter the trimmed upload has to be.
+ *
+ * The fixture's two phrases are separated by 1.6 s of silence and the file's seam adds another 0.4 s, both of
+ * which the shipped pause table caps at 0.18 s; whichever point of the loop the capture starts at, at least
+ * ~0.9 s of the window is a pause the trim removes. A third of a second is well inside that, and far outside
+ * anything jitter could produce.
+ */
+const MIN_SAVING_SEC = 0.3;
+
+/**
+ * What the recogniser stand-in answers, one entry per upload.
+ *
+ * Leg-specific on purpose: each leg then has to end up holding *its own* sentence. A single utterance for both
+ * would leave the second composer assertion satisfiable by the first leg's text, which is exactly the state a
+ * leg that never transcribed anything would be in.
+ *
+ * Both are ordinary lowercase sentences with nothing an identifier could be: this criterion is about duration,
+ * and a name the repair might rewrite would put a second, unrelated transformation between the recogniser and
+ * the assertion.
+ */
+const UTTERANCES = [
+  'please repeat the whole sentence back to me',
+  'and now read the second line out loud',
+];
+
+/**
+ * Chromium's fake audio device, fed from the WAV playwright.config.ts wrote before the servers booted.
+ *
+ * `--use-fake-device-for-media-stream` is what makes `--use-file-for-fake-audio-capture` take effect at all:
+ * without it the file is ignored and the device synthesises a beep, which would still record and still
+ * transcribe — the run would go green while testing no fixture.
+ */
+test.use({
+  launchOptions: {
+    args: [
+      '--use-fake-device-for-media-stream',
+      '--use-fake-ui-for-media-stream',
+      `--use-file-for-fake-audio-capture=${AUDIO_FILE}`,
+      '--autoplay-policy=no-user-gesture-required',
+    ],
+  },
+});
+
+/** One request the recogniser stand-in saw, kept so the assertions can be about the real socket. */
+type RecognizerRequest = {
+  url: string;
+  method: string;
+  authorization: string | undefined;
+  contentType: string | undefined;
+  body: Buffer;
+};
+
+/** A variable-length integer as EBML writes it. `keepMarker` keeps the length-marker bit, which is what an element id needs. */
+const readVint = (bytes: Buffer, at: number, keepMarker: boolean): { value: number; length: number; allOnes: boolean } | null => {
+  if (at >= bytes.length) return null;
+  const first = bytes[at];
+  if (first === 0) return null;
+  let length = 1;
+  while ((first & (0x80 >> (length - 1))) === 0) {
+    length += 1;
+    if (length > 8) return null;
+  }
+  // For a one-byte vint the mask is the seven low bits; for an eight-byte one the first byte is all marker.
+  const mask = 0xff >> length;
+  let value = keepMarker ? first : first & mask;
+  let allOnes = (first & mask) === mask;
+  for (let index = 1; index < length; index += 1) {
+    value = value * 256 + bytes[at + index];
+    if (bytes[at + index] !== 0xff) allOnes = false;
+  }
+  return { value, length, allOnes };
+};
+
+/** An EBML element body read as a big-endian unsigned integer. */
+const readUint = (bytes: Buffer, from: number, to: number): number => {
+  let value = 0;
+  for (let at = from; at < to; at += 1) value = value * 256 + bytes[at];
+  return value;
+};
+
+const EBML_HEAD = 0x1a45dfa3;
+const SEGMENT = 0x18538067;
+const INFO = 0x1549a966;
+const TIMESTAMP_SCALE = 0x2ad7b1;
+const CLUSTER = 0x1f43b675;
+const CLUSTER_TIMESTAMP = 0xe7;
+const SIMPLE_BLOCK = 0xa3;
+
+/**
+ * The duration of an EBML/WebM recording, in seconds, read from the container's own structure.
+ *
+ * `MediaRecorder` writes no `Duration` element — the file is a live stream and its length is not known until it
+ * ends — so the length has to be reconstructed from the blocks. Each cluster carries a timestamp and each block
+ * a timecode relative to it, which gives the position of every frame; the last one plus one frame is the end.
+ * The frame size is itself read from the stream, as the gap between two consecutive blocks, rather than assumed
+ * from what this checkout's Chromium happens to choose.
+ *
+ * Returns null when there are no blocks to measure, which is the caller's cue that this is not a recording it
+ * can reason about.
+ */
+const ebmlDurationSec = (bytes: Buffer): number | null => {
+  let timestampScaleNs = 1_000_000; // EBML's default: one tick is a millisecond.
+  const ticks: number[] = [];
+
+  /** Visits the element children laid out between `from` and `to`. */
+  const forEachElement = (
+    from: number,
+    to: number,
+    visit: (id: number, bodyAt: number, bodyEnd: number) => void,
+  ): void => {
+    let at = from;
+    while (at < to) {
+      const id = readVint(bytes, at, true);
+      const size = id ? readVint(bytes, at + id.length, false) : null;
+      if (!id || !size) return;
+      const bodyAt = at + id.length + size.length;
+      // An unknown size means "until the parent ends" — how a live stream leaves its Segment open.
+      const bodyEnd = size.allOnes ? to : Math.min(to, bodyAt + size.value);
+      visit(id.value, bodyAt, bodyEnd);
+      at = bodyEnd;
+    }
+  };
+
+  forEachElement(0, bytes.length, (topLevel, topAt, topEnd) => {
+    if (topLevel !== EBML_HEAD && topLevel !== SEGMENT) return;
+    forEachElement(topAt, topEnd, (element, bodyAt, bodyEnd) => {
+      if (element === INFO) {
+        forEachElement(bodyAt, bodyEnd, (leaf, leafAt, leafEnd) => {
+          if (leaf === TIMESTAMP_SCALE) timestampScaleNs = readUint(bytes, leafAt, leafEnd);
+        });
+      }
+      if (element !== CLUSTER) return;
+      let clusterTick = 0;
+      forEachElement(bodyAt, bodyEnd, (leaf, leafAt, leafEnd) => {
+        if (leaf === CLUSTER_TIMESTAMP) clusterTick = readUint(bytes, leafAt, leafEnd);
+        if (leaf !== SIMPLE_BLOCK) return;
+        const track = readVint(bytes, leafAt, false);
+        // The block's payload: track number, then a signed 16-bit timecode relative to the cluster.
+        if (track) ticks.push(clusterTick + bytes.readInt16BE(leafAt + track.length));
+      });
+    });
+  });
+
+  if (ticks.length === 0) return null;
+
+  let last = ticks[0];
+  for (const tick of ticks) if (tick > last) last = tick;
+  const deltas: number[] = [];
+  for (let index = 1; index < ticks.length; index += 1) deltas.push(ticks[index] - ticks[index - 1]);
+  deltas.sort((a, b) => a - b);
+  const frameTicks = deltas.length > 0 ? deltas[Math.floor(deltas.length / 2)] : 0;
+
+  return ((last + frameTicks) * timestampScaleNs) / 1e9;
+};
+
+/** The duration of a 16-bit PCM WAV, in seconds, from its own `fmt `/`data` chunks. */
+const wavDurationSec = (bytes: Buffer): number => {
+  let sampleRate = 0;
+  let channels = 0;
+  let bits = 0;
+  let dataBytes = 0;
+
+  let at = 12;
+  while (at + 8 <= bytes.length) {
+    const id = bytes.toString('ascii', at, at + 4);
+    const size = bytes.readUInt32LE(at + 4);
+    if (id === 'fmt ') {
+      channels = bytes.readUInt16LE(at + 10);
+      sampleRate = bytes.readUInt32LE(at + 12);
+      bits = bytes.readUInt16LE(at + 22);
+    } else if (id === 'data') {
+      dataBytes = size;
+    }
+    at += 8 + size + (size % 2);
+  }
+
+  const bytesPerSecond = sampleRate * channels * (bits / 8);
+  if (!bytesPerSecond || !dataBytes) throw new Error('not a PCM WAV with a readable data chunk');
+  return dataBytes / bytesPerSecond;
+};
+
+/** The duration of an upload in seconds, decided by the container it is really in rather than by its name. */
+const containerDurationSec = (bytes: Buffer): number => {
+  const magic = bytes.subarray(0, 4).toString('hex');
+  if (magic === '52494646') return wavDurationSec(bytes); // 'RIFF'
+  if (magic === '1a45dfa3') {
+    const seconds = ebmlDurationSec(bytes);
+    if (seconds === null) throw new Error('EBML upload carried no block to measure');
+    return seconds;
+  }
+  throw new Error(`unrecognised audio container: ${magic}`);
+};
+
+/**
+ * The uploaded file's bytes, taken out of the multipart body that carried them.
+ *
+ * The client posts a `FormData`, so the audio is one part among a few and the part boundaries are the only
+ * thing that says where it starts and ends. Reading it here rather than trusting a length in a header keeps the
+ * assertion about the bytes the app really put on the socket.
+ */
+const uploadedFile = (body: Buffer, contentType: string | undefined): Buffer => {
+  const boundary = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(contentType ?? '');
+  if (!boundary) throw new Error(`no boundary in upload content type: ${contentType}`);
+
+  const delimiter = Buffer.from(`--${boundary[1] ?? boundary[2]}`);
+  let at = body.indexOf(delimiter);
+  while (at >= 0) {
+    const start = at + delimiter.length;
+    if (body.subarray(start, start + 2).toString() === '--') break; // the closing delimiter
+    const next = body.indexOf(delimiter, start);
+    const part = body.subarray(start, next >= 0 ? next : body.length);
+    const headerEnd = part.indexOf('\r\n\r\n');
+    if (headerEnd < 0) throw new Error('malformed multipart part: no header terminator');
+    if (/name="file"/.test(part.subarray(0, headerEnd).toString('ascii'))) {
+      return part.subarray(headerEnd + 4, part.length - 2); // the trailing CRLF before the next boundary
+    }
+    at = next;
+  }
+  throw new Error('the upload carried no file part');
+};
+
+test.describe.configure({ mode: 'serial' });
+
+test.describe('AC-119 the trim holds end to end through the voice button', () => {
+  let context: BrowserContext;
+  let page: Page;
+  let recognizer: http.Server;
+  let recognizerUrl = '';
+  const requests: RecognizerRequest[] = [];
+
+  /**
+   * The OpenAI-compatible speech endpoint the voice settings point at.
+   *
+   * A cross-origin multipart POST carrying `Authorization` is not a simple request, so the browser sends a
+   * preflight first and would block the call without an answer to it — the preflight is handled here for the
+   * same reason a real provider handles it, not as a convenience.
+   */
+  const startRecognizer = async (): Promise<http.Server> => {
+    const server = http.createServer((request, response) => {
+      response.setHeader('Access-Control-Allow-Origin', '*');
+      response.setHeader('Access-Control-Allow-Headers', 'authorization,content-type');
+      response.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
+
+      if (request.method === 'OPTIONS') {
+        response.statusCode = 204;
+        response.end();
+        return;
+      }
+
+      const chunks: Buffer[] = [];
+      request.on('data', (chunk: Buffer) => chunks.push(chunk));
+      request.on('end', () => {
+        requests.push({
+          url: request.url ?? '',
+          method: request.method ?? '',
+          authorization: request.headers.authorization,
+          contentType: request.headers['content-type'],
+          body: Buffer.concat(chunks),
+        });
+
+        if (!(request.url ?? '').endsWith('/audio/transcriptions')) {
+          response.statusCode = 404;
+          response.end(JSON.stringify({ error: 'unexpected path' }));
+          return;
+        }
+
+        // The Nth upload is the Nth leg, so each leg can only be satisfied by its own transcription. The last
+        // sentence is the answer for every upload after the last leg, so a leg that uploaded twice fails on the
+        // request count rather than on a missing utterance.
+        const answer = UTTERANCES[Math.min(requests.length - 1, UTTERANCES.length - 1)];
+        response.setHeader('Content-Type', 'application/json');
+        response.end(JSON.stringify({ text: answer }));
+      });
+    });
+
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    return server;
+  };
+
+  /** The composer's textarea, the one place the transcript from a recording lands. */
+  const composer = () => page.locator('[data-slot="prompt-input-textarea"]');
+
+  /** The project row is a toggle whose accessible name starts with the workspace's display name. */
+  const projectRow = () =>
+    page.getByRole('button', { name: new RegExp(`^${path.basename(WORKSPACE)}`) }).first();
+
+  const sessionLink = () => page.locator('a[href^="/session/"]').filter({ hasText: SESSION_NAME });
+
+  /**
+   * Expands the project's session list. The row is a toggle, so a click that lands while the sidebar is still
+   * re-rendering (right after a reload) would leave it collapsed — retry until the row is really on screen.
+   */
+  const expandProject = async () => {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      if (await sessionLink().isVisible().catch(() => false)) {
+        return;
+      }
+      await projectRow().click();
+      try {
+        await expect(sessionLink()).toBeVisible({ timeout: 10_000 });
+        return;
+      } catch {
+        // Collapsed again (or the click missed); the loop clicks once more.
+      }
+    }
+    await expect(sessionLink()).toBeVisible({ timeout: 15_000 });
+  };
+
+  /**
+   * Loads `url` (which is how a leg switches the trim), opens the seeded session's composer, and empties it.
+   *
+   * Emptying is what makes the assertion after a recording a transition rather than a state: the composer keeps
+   * a draft per session, so the previous leg's sentence would otherwise already be sitting there.
+   */
+  const openComposer = async (url: string) => {
+    await page.goto(url);
+    await expandProject();
+    await sessionLink().click();
+    await expect(page).toHaveURL(new RegExp(`/session/${SESSION_ID}$`));
+    await expect(composer()).toBeVisible({ timeout: 15_000 });
+    await composer().fill('');
+    await expect(composer()).toHaveValue('');
+  };
+
+  /**
+   * Records one pass of the fixture through the app's voice button.
+   *
+   * There is no event to wait on for "the recorder has captured enough" — the upload does not exist until the
+   * stop — so the wait is the capture duration itself, which is also what makes the untrimmed upload's length
+   * the fixture's length.
+   */
+  const recordOnce = async () => {
+    const record = page.getByRole('button', { name: 'Voice input' });
+    await expect(record).toBeVisible({ timeout: 15_000 });
+    await record.click();
+
+    // Recording really started: the button renames itself for as long as the recorder is running.
+    const stop = page.getByRole('button', { name: 'Stop recording' });
+    await expect(stop).toBeVisible({ timeout: 10_000 });
+    await page.waitForTimeout(CAPTURE_MS);
+    await stop.click();
+  };
+
+  test.beforeAll(async ({ browser }) => {
+    // Onboarding plus the first project load outlasts the default per-test budget.
+    test.setTimeout(120_000);
+
+    recognizer = await startRecognizer();
+    recognizerUrl = `http://127.0.0.1:${(recognizer.address() as AddressInfo).port}`;
+
+    context = await browser.newContext({
+      baseURL: CLIENT_URL,
+      permissions: ['microphone'],
+    });
+
+    // The two places an install that predates the server-side move really keeps these values, written before
+    // the app runs so the app's own readers are what consume them:
+    //   - `user-preferences`, the mirror the first paint reads synchronously;
+    //   - `uiPreferences`, the legacy key that mirror's `uiPreferences` entry is migrated from on hydrate;
+    //   - `voiceConfig`, the legacy voice settings, imported to the server on the first voice hydration.
+    // Seeding both the mirror and the legacy keys is the point: the built-in this exercises is the migration,
+    // and a value that only ever existed in the mirror would be dropped the moment hydration replaced it.
+    await context.addInitScript(
+      ({ voiceConfig, preferences }: { voiceConfig: unknown; preferences: unknown }) => {
+        window.localStorage.setItem('voiceConfig', JSON.stringify(voiceConfig));
+        window.localStorage.setItem('uiPreferences', JSON.stringify(preferences));
+        window.localStorage.setItem('user-preferences', JSON.stringify({ uiPreferences: preferences, userLanguage: 'en' }));
+        window.localStorage.setItem('userLanguage', 'en');
+      },
+      {
+        voiceConfig: {
+          baseUrl: recognizerUrl,
+          apiKey: API_KEY,
+          sttModel: STT_MODEL,
+          ttsModel: '',
+          ttsVoice: '',
+          ttsFormat: '',
+        },
+        preferences: { voiceEnabled: true },
+      },
+    );
+
+    page = await context.newPage();
+
+    // First run on a fresh database: create the single account, then finish onboarding.
+    await page.goto('/');
+    await page.locator('#username').fill('e2euser');
+    await page.locator('input[type=password]').nth(0).fill('e2epassword');
+    await page.locator('input[type=password]').nth(1).fill('e2epassword');
+    await page.getByRole('button', { name: 'Create Account' }).click();
+    await page.getByPlaceholder('John Doe').fill('E2E User');
+    await page.getByPlaceholder('john@example.com').fill('e2e@example.com');
+    await page.getByRole('button', { name: 'Next' }).click();
+    await page.getByRole('button', { name: 'Complete Setup' }).click();
+
+    // Indexing a session auto-registers its project, so the seeded workspace is already a project here; the
+    // sidebar is the proof that the fixture really reached the backend.
+    await expect(projectRow()).toBeVisible({ timeout: 30_000 });
+  });
+
+  test.afterAll(async () => {
+    await context?.close();
+    await new Promise<void>((resolve) => recognizer?.close(() => resolve()));
+  });
+
+  test('AC-119 the trimmed upload is shorter than the same recording uploaded untrimmed', async () => {
+    // The whole criterion has to fit inside the goal gate's 60s, and this test performs two full record/upload
+    // legs; the budget is raised only as far as that needs.
+    test.setTimeout(120_000);
+    expect(FIXTURE_SEC).toBeGreaterThan(1);
+
+    // The audio the fake device was pointed at, checked as audio. A path that does not resolve to a WAV is not
+    // an error Chromium reports: it quietly plays its own fallback tone instead, which records and transcribes
+    // exactly like the fixture — so a criterion that only looked at the composer could go green on a run where
+    // nothing was injected at all. Its length is the reference the untrimmed upload is measured against, so it
+    // is read out of the file rather than taken from the config that wrote it.
+    const audio = fs.readFileSync(AUDIO_FILE);
+    expect(audio.subarray(0, 4).toString('ascii')).toBe('RIFF');
+    expect(audio.subarray(8, 12).toString('ascii')).toBe('WAVE');
+    expect(wavDurationSec(audio)).toBeCloseTo(FIXTURE_SEC, 3);
+    expect(audio.length).toBeGreaterThan(96_000); // 48kHz mono 16-bit: a second is 96kB, so this is seconds not a click
+
+    // Leg 1 — the default. Trimming is on unless something turned it off.
+    await openComposer('/');
+    await recordOnce();
+    // The transcript travelled the whole path back into the composer. The ceiling is deliberately short: a
+    // regression here has to surface as this assertion rather than as an unattributable timeout.
+    await expect(composer()).toHaveValue(UTTERANCES[0], { timeout: 15_000 });
+    // One upload so far, which is what makes the second leg's answer the second sentence rather than a repeat.
+    expect(requests).toHaveLength(1);
+
+    // Leg 2 — the switch named in the URL. Read at load, before the router rewrites the query string.
+    await openComposer('/?voiceTrim=off');
+    await recordOnce();
+    await expect(composer()).toHaveValue(UTTERANCES[1], { timeout: 15_000 });
+    expect(requests).toHaveLength(2);
+
+    // Both uploads were the app's own call, made from the seeded settings, and carried real audio.
+    for (const upload of requests) {
+      expect(upload.method).toBe('POST');
+      expect(upload.url.endsWith('/audio/transcriptions')).toBe(true);
+      // The credential proves the request was built from the settings that were seeded, not from a default.
+      expect(upload.authorization).toBe(`Bearer ${API_KEY}`);
+      expect(upload.contentType).toContain('multipart/form-data');
+      expect(upload.body.includes(Buffer.from(`name="model"`))).toBe(true);
+      expect(upload.body.includes(Buffer.from(STT_MODEL))).toBe(true);
+    }
+
+    const trimmedUpload = uploadedFile(requests[0].body, requests[0].contentType);
+    const plainUpload = uploadedFile(requests[1].body, requests[1].contentType);
+    // The two legs carry the two containers the pipeline produces: the trimmed one the WAV this repo encoded,
+    // the untrimmed one the recorder's own stream. Asserted rather than assumed, because it is what makes the
+    // durations below comparable at all — and it is also how a trim that quietly fell back to the recording
+    // would show up as something other than a duration.
+    expect(trimmedUpload.subarray(0, 4).toString('ascii')).toBe('RIFF');
+    expect(plainUpload.subarray(0, 4).toString('hex')).toBe('1a45dfa3');
+
+    const trimmedSec = containerDurationSec(trimmedUpload);
+    const plainSec = containerDurationSec(plainUpload);
+
+    // (1) The pair, from this one run: trimming removed audio. Both numbers come out of a container the browser
+    // really produced, so no encoding difference can stand in for a duration difference.
+    expect(plainSec - trimmedSec, `trimmed ${trimmedSec}s vs untrimmed ${plainSec}s`).toBeGreaterThan(MIN_SAVING_SEC);
+    // (3) "Off" is really off: the untrimmed upload is the whole capture, not a trim that failed to a shorter
+    // value of its own — which is the reading that separates a working switch from two failures agreeing.
+    expect(
+      Math.abs(plainSec - FIXTURE_SEC),
+      `untrimmed upload was ${plainSec}s, the fixture is ${FIXTURE_SEC}s`,
+    ).toBeLessThan(CAPTURE_TOLERANCE_SEC);
+    // ...and the trimmed one is not the fixture either, so it is not the untrimmed bytes under a WAV header.
+    expect(trimmedSec).toBeLessThan(FIXTURE_SEC - MIN_SAVING_SEC);
+  });
+});

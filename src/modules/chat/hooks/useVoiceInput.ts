@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { decodeVoiceBlob, encodeWavBlob } from '@/modules/chat/utils/audioDecode';
 import { voicePlayer } from '@/modules/chat/utils/voicePlayer';
 import { transcribeVoice } from '@/shared/api';
 import { identifierFidelity } from '@/shared/identifierFidelity';
 import { repairIdentifiers } from '@/shared/identifierRepair';
 import type { VoiceClip, VoiceInputState, VoicePlayState } from '@/shared/types';
+import { isVoiceTrimEnabled } from '@/shared/voiceDebug';
+import { trimVoiceAudio } from '@/shared/voiceTrim';
 
 // Mobile-safe recording: iOS Safari 18.4+ supports webm/opus; older iOS needs mp4.
 const MIME_CANDIDATES = [
@@ -24,6 +27,38 @@ function pickMime(): string {
     }
   }
   return '';
+}
+
+/** The extension the recogniser is told the recording has, derived from the container it really has. */
+function extensionFor(mimeType: string): string {
+  if (mimeType.includes('mp4')) return 'm4a';
+  if (mimeType.includes('ogg')) return 'ogg';
+  return 'webm';
+}
+
+/**
+ * The bytes to upload for a recording, which is the recording itself unless the trim applies.
+ *
+ * A dictation clip is mostly silence — the wait for the mic, the breaths between sentences, the
+ * pause before the button is released — and all of it is paid for twice, in upload bytes and in
+ * recognition latency. So the recording is decoded, its silence removed, and the result re-encoded.
+ *
+ * Every path that does not trim returns the recording untouched: the switch is off, the browser
+ * cannot decode the container, or `trimVoiceAudio` reported one of its guards. Re-encoding a clip
+ * that did not get shorter would spend a generation of quality on nothing, which is why the
+ * fallback is the original bytes rather than a round-tripped copy of them.
+ */
+async function prepareUpload(blob: Blob): Promise<{ body: Blob; filename: string }> {
+  const recorded = { body: blob, filename: `recording.${extensionFor(blob.type)}` };
+  if (!isVoiceTrimEnabled()) return recorded;
+
+  const decoded = await decodeVoiceBlob(blob);
+  if (!decoded) return recorded;
+
+  const { samples, stats } = trimVoiceAudio(decoded.samples, decoded.sampleRate);
+  if (stats.fallback) return recorded;
+
+  return { body: encodeWavBlob(samples, decoded.sampleRate), filename: 'recording.wav' };
 }
 
 type UseVoiceInputOptions = {
@@ -213,8 +248,8 @@ export function useVoiceInput(
         });
         setState('transcribing');
         try {
-          const ext = type.includes('mp4') ? 'm4a' : type.includes('ogg') ? 'ogg' : 'webm';
-          const res = await transcribeVoice(blob, `recording.${ext}`);
+          const upload = await prepareUpload(blob);
+          const res = await transcribeVoice(upload.body, upload.filename);
           if (!res.ok) throw new Error(`transcribe ${res.status}`);
           const data = await res.json();
           if (cancelledRef.current) return;
