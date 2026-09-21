@@ -1,7 +1,7 @@
 ---
 id: gap-ac-025-criterion-repoint-to-migrated-test
 title: AC-025：判据指回搬迁后的真实测试路径（model-library 网关端到端），并在测试侧固化溯源注释
-status: ready
+status: done
 labels:
   - gap
   - defect
@@ -65,15 +65,15 @@ goal_ac: AC-025
 
 ## AC
 
-- [ ] `bash /data/home/yale/.claude/plugins/cache/quay/quay/0.10.0/bin/quay goal gate AC-025 --root /data/home/yale/work/claudecodeui` 退出 0（改前实测为 `"verdict": "fail"`，reason 含 `Could not find 'server/modules/launch-profiles/tests/model-gateway-end-to-end.test.ts'`；改后必须转绿）。
-- [ ] `/data/home/yale/work/claudecodeui/goals/AC-025-gateway-request-lands-with-the-credential-from-a-model-entry.md` 的 `criterion` 逐字包含 `server/modules/providers/tests/model-gateway-end-to-end.test.ts`，且全文不含 `server/modules/launch-profiles/`；`status` 仍为 `achieved`、`goal` 仍为 `GOAL-001`、`supersedes` 仍含 `AC-002`、`origin` 含本次修正原因（搬迁）。
-- [ ] `git diff --stat -- goals/` 显示恰好一个记录文件被修改（本次写未波及其他 AC 记录）。
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/model-gateway-end-to-end.test.ts` 退出码 0 且输出 `pass 5` / `fail 0`。
-- [ ] `server/modules/providers/tests/model-gateway-end-to-end.test.ts` 顶部注释逐字含 `AC-025`、`1d76cac6`、`server/modules/launch-profiles/tests/model-gateway-end-to-end.test.ts` 三个串（`grep -c` 各 ≥1）。
-- [ ] 溯源注释是注释-only：`git diff -U0 develop...HEAD -- server/modules/providers/tests/model-gateway-end-to-end.test.ts | grep -E '^\+' | grep -v '^+++' | grep -vE '^\+\s*(//|\*|/\*)'` 输出为空。
-- [ ] `bash /data/home/yale/.claude/plugins/cache/quay/quay/0.10.0/bin/quay goal show AC-001 --root /data/home/yale/work/claudecodeui` 的 `criterion` 仍指向 `server/modules/providers/tests/passthrough-parity.test.ts`，`... goal show AC-024 --root ...` 的 `criterion` 仍指向 `server/modules/providers/tests/model-launch-spec.test.ts` 与 `server/modules/providers/tests/model-spawn-env.test.ts`（并发写未互相踩踏）。
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/passthrough-parity.test.ts server/modules/providers/tests/model-launch-spec.test.ts server/modules/providers/tests/model-spawn-env.test.ts` 退出码 0（AC-001 / AC-024 判据文件未被带动）。
-- [ ] `npm run typecheck`、`npm run lint` 退出码 0。
+- [x] `bash /data/home/yale/.claude/plugins/cache/quay/quay/0.10.0/bin/quay goal gate AC-025 --root /data/home/yale/work/claudecodeui` 退出 0（改前实测为 `"verdict": "fail"`，reason 含 `Could not find 'server/modules/launch-profiles/tests/model-gateway-end-to-end.test.ts'`；改后必须转绿）。
+- [x] `/data/home/yale/work/claudecodeui/goals/AC-025-gateway-request-lands-with-the-credential-from-a-model-entry.md` 的 `criterion` 逐字包含 `server/modules/providers/tests/model-gateway-end-to-end.test.ts`，且全文不含 `server/modules/launch-profiles/`；`status` 仍为 `achieved`、`goal` 仍为 `GOAL-001`、`supersedes` 仍含 `AC-002`、`origin` 含本次修正原因（搬迁）。
+- [x] `git diff --stat -- goals/` 显示恰好一个记录文件被修改（本次写未波及其他 AC 记录）。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/model-gateway-end-to-end.test.ts` 退出码 0 且输出 `pass 5` / `fail 0`。
+- [x] `server/modules/providers/tests/model-gateway-end-to-end.test.ts` 顶部注释逐字含 `AC-025`、`1d76cac6`、`server/modules/launch-profiles/tests/model-gateway-end-to-end.test.ts` 三个串（`grep -c` 各 ≥1）。
+- [x] 溯源注释是注释-only：`git diff -U0 develop...HEAD -- server/modules/providers/tests/model-gateway-end-to-end.test.ts | grep -E '^\+' | grep -v '^+++' | grep -vE '^\+\s*(//|\*|/\*)'` 输出为空。
+- [x] `bash /data/home/yale/.claude/plugins/cache/quay/quay/0.10.0/bin/quay goal show AC-001 --root /data/home/yale/work/claudecodeui` 的 `criterion` 仍指向 `server/modules/providers/tests/passthrough-parity.test.ts`，`... goal show AC-024 --root ...` 的 `criterion` 仍指向 `server/modules/providers/tests/model-launch-spec.test.ts` 与 `server/modules/providers/tests/model-spawn-env.test.ts`（并发写未互相踩踏）。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/passthrough-parity.test.ts server/modules/providers/tests/model-launch-spec.test.ts server/modules/providers/tests/model-spawn-env.test.ts` 退出码 0（AC-001 / AC-024 判据文件未被带动）。
+- [x] `npm run typecheck`、`npm run lint` 退出码 0。
 
 ## DoD
 
