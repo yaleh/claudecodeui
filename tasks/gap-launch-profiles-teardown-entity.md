@@ -44,12 +44,12 @@ i18n —— 删 `mainTabs.profiles`（en/zh-CN）与 `launchProfiles.*` 块（en
 - [ ] `grep -rni "launchProfile\|launch_profile\|launch-profiles" server/ src/ e2e/` 无输出（旧实体引用清零）。
 - [ ] `grep -n "voiceSettings" src/modules/i18n/locales/en/settings.json` 仍有输出（确认未误删同名不同物的语音预设）。
 - [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/model-gateway-end-to-end.test.ts server/modules/providers/tests/model-spawn-env.test.ts` 退出码 0（新机制在拆除后仍工作）。
-- [ ] `bash scripts/test.sh` 全量通过；`npm run typecheck`、`npm run lint` 退出码 0。
+- [ ] `bash scripts/test.sh --for-task gap-launch-profiles-teardown-entity` 退出码 0（scoped 自测；**全量套件是 fan-in 的合并闸，不是 worker 的自测**）；`npm run typecheck`、`npm run lint` 退出码 0。
 - [ ] 每个被删的测试文件都在完成记录里逐个登记，并注明其对应 AC 已 superseded；`shell-resume-launch-spec` 的处置（移植或删除）附理由。未登记即视为漏项。
 
 ## DoD
 
-真实落地判据：不是「文件被删了」就算完成。要求 (a) AC-001 黄金基准在**新入口**上真实跑通 —— 这是拆除唯一的等价性证明；(b) 旧 profile 入口、REST、Settings tab、composer 下拉在仓库里引用清零；(c) 新机制（model library）在拆除后全量套件仍绿；(d) 每一个被删测试都有归属说明，且 `shell-resume-launch-spec` 的处置附理由。
+真实落地判据：不是「文件被删了」就算完成。要求 (a) AC-001 黄金基准在**新入口**上真实跑通 —— 这是拆除唯一的等价性证明；(b) 旧 profile 入口、REST、Settings tab、composer 下拉在仓库里引用清零；(c) 新机制（model library）在拆除后 scoped 自测全绿；(d) 每一个被删测试都有归属说明，且 `shell-resume-launch-spec` 的处置附理由。
 
 L_D 该轴仍暗，理由：本段是删除与移植，不新增领域能力；等价性读数由 AC-001 提供。
 L_G 该轴仍暗，理由：同上。
