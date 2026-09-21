@@ -26,6 +26,11 @@ export default function VoiceInputButton({ state, onToggle, errorMsg }: Props) {
       <Mic />
     );
 
+  // One label, read by both the tooltip and the accessible name. The tooltip is a
+  // self-drawn layer: it is not announced, so the button needs `aria-label` too, and
+  // two separate expressions would let the announced name drift from the visible one.
+  const label = state === 'recording' ? t('voice.stopRecording') : t('voice.input');
+
   return (
     <span className="relative inline-flex">
       {errorMsg && (
@@ -34,7 +39,8 @@ export default function VoiceInputButton({ state, onToggle, errorMsg }: Props) {
         </span>
       )}
       <PromptInputButton
-        tooltip={{ content: state === 'recording' ? t('voice.stopRecording') : t('voice.input') }}
+        tooltip={{ content: label }}
+        aria-label={label}
         onClick={(e: { preventDefault: () => void }) => {
           e.preventDefault();
           onToggle();
