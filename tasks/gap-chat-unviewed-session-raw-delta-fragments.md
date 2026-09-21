@@ -1,7 +1,7 @@
 ---
 id: gap-chat-unviewed-session-raw-delta-fragments
 title: 非当前查看会话的 stream_delta 原始帧被逐 token 落成行：切回该会话即见碎片历史（实测 400 行 / 132 消息），刷新即消失
-status: ready
+status: done
 labels:
   - gap
   - defect
