@@ -1,7 +1,7 @@
 ---
 id: gap-voice-trim-harness-savings
 title: 裁剪省时长的仓库内读数（量出货模块，含正对照）
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -36,14 +36,14 @@ goal_ac: AC-117
 
 ## AC
 
-- [ ] `node experiments/voice-trim/run-savings.mjs` 退出码 0
-- [ ] 每个入库 clip 裁剪后时长 < 输入时长
-- [ ] 单调性：aggregate savedRatio(o45) > savedRatio(o65) > savedRatio(o85)
-- [ ] aggregate savedRatio ≥ 0.15
-- [ ] speechKeptRatio == 1.0（VAD 判为语音的样本一个不丢）
-- [ ] 同一 runner 内打印恒等实现的正对照行（savedRatio = 0）
-- [ ] 被测实现是 `src/shared/voiceTrim.ts`；harness 无第二份算法实现
-- [ ] `npm run lint` 与 `npm run typecheck` 退出码 0
+- [x] `node experiments/voice-trim/run-savings.mjs` 退出码 0
+- [x] 每个入库 clip 裁剪后时长 < 输入时长
+- [x] 单调性：aggregate savedRatio(o45) > savedRatio(o65) > savedRatio(o85)
+- [x] aggregate savedRatio ≥ 0.15
+- [x] speechKeptRatio == 1.0（VAD 判为语音的样本一个不丢）
+- [x] 同一 runner 内打印恒等实现的正对照行（savedRatio = 0）
+- [x] 被测实现是 `src/shared/voiceTrim.ts`；harness 无第二份算法实现
+- [x] `npm run lint` 与 `npm run typecheck` 退出码 0
 
 ## DoD
 
