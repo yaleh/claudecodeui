@@ -97,6 +97,8 @@
           "src/shared/authToken.ts",
           "src/shared/voiceConfig.ts",
           "src/shared/identifierFidelity.ts",
+          "src/shared/identifierRepair.ts",
+          "src/shared/projectIdentifiers.ts",
           "src/shared/codeEditorSettings.ts",
           "src/shared/userSettings.ts",
           "src/shared/chatDrafts.ts",

@@ -1,7 +1,7 @@
 ---
 id: gap-voice-identifier-repair-unwired
 title: 把标识符修复接进语音转写路径：候选取自项目文件树，AC-115 由红转绿
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -26,11 +26,11 @@ extra:
 
 ## AC
 
-- [ ] `npx playwright test e2e/voice-identifier-repair.spec.ts -g "AC-115"` 退出码 0（即 AC-115 由红转绿）
-- [ ] 候选源单测：`npx vitest run src/shared/tests/projectIdentifiers.test.ts` 退出码 0，覆盖两种形态摊平、同 projectId 只发一次请求、请求失败返回空数组、空候选不改写
-- [ ] 真实路径零改写：`npx vitest run src/modules/chat/tests/voiceTranscriptRepair.test.tsx` 退出码 0，含一句不含任何标识符的普通中英文经同一链路后逐字不变，且失败信息须打印实测的前后文本
-- [ ] 取假形态：把 `repairIdentifiers` 临时换成恒等函数（`return text`）后，AC-1 判据必须红（记录原始终端读数与 composer 实际持有值），随后还原并确认工作树干净
-- [ ] `npm run lint` 与 `npx tsc --noEmit -p tsconfig.json` 退出码 0
+- [x] `npx playwright test e2e/voice-identifier-repair.spec.ts -g "AC-115"` 退出码 0（即 AC-115 由红转绿）
+- [x] 候选源单测：`npx vitest run src/shared/tests/projectIdentifiers.test.ts` 退出码 0，覆盖两种形态摊平、同 projectId 只发一次请求、请求失败返回空数组、空候选不改写
+- [x] 真实路径零改写：`npx vitest run src/modules/chat/tests/voiceTranscriptRepair.test.tsx` 退出码 0，含一句不含任何标识符的普通中英文经同一链路后逐字不变，且失败信息须打印实测的前后文本
+- [x] 取假形态：把 `repairIdentifiers` 临时换成恒等函数（`return text`）后，AC-1 判据必须红（记录原始终端读数与 composer 实际持有值），随后还原并确认工作树干净
+- [x] `npm run lint` 与 `npx tsc --noEmit -p tsconfig.json` 退出码 0
 
 ## DoD
 
@@ -38,6 +38,20 @@ extra:
 
 L_D 该轴仍暗，理由：本任务是把既有确定性模块接进既有链路，不新增领域能力。
 L_G 该轴仍暗，理由：同上；本任务的读数是 composer 的 before/after 文本、请求次数与零改写读数。
+
+**实测读数（2026-09-21，worktree `gap-voice-identifier-repair-unwired`）**
+
+- **(a) 修复读数为真** —— `npx playwright test e2e/voice-identifier-repair.spec.ts -g "AC-115"` → 退出码 0，`1 passed (12.5s)`。识别器返回侧：`please open voice.rouse.ts and fix the proxy`；composer 持有侧：`please open voice.routes.ts and fix the proxy`。断言不止于「含有真名」：判据把 `UTTERANCE` 里的播报形态就地换成从工作区目录**读回**的文件名（`e2e/voice-identifier-repair.spec.ts:221` 用 `fs.readdirSync(WORKSPACE)` 取，而非在测试里写死），再要求 `toHaveValue(expected)` 逐字相等，并要求 composer 的值 **不含** 播报形态（`voice.rouse.ts`）也不含「点号被摊成空格」的形态。大小写与点号由 `toContain(identifier)` 逐字钉住。夹具可修复性实测：编辑距离 2，相似度 `1 − 2/15 ≈ 0.867 ≥ 0.8`，共享前缀 `voi`。
+- **(b) 取假形态（AC-4）** —— 把 `repairIdentifiers` 临时替换为恒等函数后重跑 AC-1，退出码 1，原始终端读数：`Expected: "please open voice.routes.ts and fix the proxy"` / `Received: "please open voice.rouse.ts and fix the proxy"`，调用日志第 33 次重试时 composer 的实际值即 `please open voice.rouse.ts and fix the proxy`（日志 `/tmp/ac115-antifake.log`）。已 `git checkout --` 还原，随后 `git status --short` 为空、`grep "TEMP AC-4"` 退出码 1；还原后 AC-1 重跑再次退出码 0。
+- **(c) 零改写的真实路径读数** —— 在真实前端上经语音按钮走一遍，识别器先后答中文与中英混合各一句（皆不含任何项目标识符）：
+  - `[probe] candidate-source-failed zh: before="请把这段说明改得更清楚一点再发布" after="请把这段说明改得更清楚一点再发布"`
+  - `[probe] candidate-source-failed en: before="请把这段说明改得更清楚一点再发布 please make the wording clearer before we ship it" after="…逐字相同…"`
+  - `[probe] page errors=[]`
+  同一读数在单测侧被固定为 `src/modules/chat/tests/voiceTranscriptRepair.test.tsx` 的第二条，失败信息按要求打印实测前后文本（`recogniser=… composer=…`）。
+- **(d) 候选源的真实接口读数** —— 用 CDP `Network.requestWillBeSent` 的 `initiator.stack.callFrames` 归因，而非按 URL 计数：一次会话里 `/api/file-tree/…/files` 共 3 次，其中**恰好 1 次**由候选源发起（`…/src/shared/projectIdentifiers.ts <- …/src/modules/chat/composer/ChatComposer.tsx`），另 2 次是既有的 `src/modules/chat/hooks/useFileMentions.tsx` 消费者，与本任务无关。候选源的「一次会话一次请求」另由 `projectIdentifiers.test.ts` 的并发+后续调用断言（`getFiles.mock.calls.length === 1`）钉住。**降级**：把该端点 abort 后重跑同一路径，退出码 0，`[probe] candidate-source-failed …` 两侧逐字相同、`page errors=[]` —— 转写照常完成，不因候选源失败而丢字。
+- **(e) 其他** —— `npm run test:client` 80 文件 / 548 测试全绿；`npm run lint` 退出码 0（0 条 error）；`npm run typecheck` 退出码 0；`npm run build:client` 退出码 0；作用域门 `scripts/test.sh --for-task gap-voice-identifier-repair-unwired --allow-thin` 退出码 0（`suite-scope-check: PASS`，2 个作用域内测试文件全绿）。
+
+**已知残余（如实登记，不在本任务范围内修）**：候选集来自项目自身的文件名，在真实项目里文件 stem 可能与普通英文词同形，从而把一句恰好含有该词的普通句子改写掉。(c) 的读数是针对**当前夹具**成立的护栏，不是普适保证；是否收紧匹配属于后续任务，本任务按计划要求与训练语料形态保持一致。
 
 ## Touches
 
