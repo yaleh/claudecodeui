@@ -37,6 +37,34 @@ const SEARCH_SCROLL_RETRY_DELAY_MS = 150;
  */
 const TRANSCRIPT_FOLLOW_TOLERANCE_PX = 1;
 
+/**
+ * How long a real input event keeps the transcript's `scroll` events attributable
+ * to the user.
+ *
+ * Input does not move the viewport; the browser moves it and reports the move as
+ * a `scroll` event, which can trail the wheel or key press by the length of a
+ * smooth-scroll animation. Every scroll inside the window re-arms it, so it
+ * closes on the frame the gesture really stopped — and a scroll that arrives
+ * outside it is one the browser made on its own.
+ */
+const USER_SCROLL_GESTURE_QUIET_MS = 200;
+
+/**
+ * The keys a browser scrolls a scroller with. Counted as intent because pressing
+ * one is the user asking to move the viewport, even though the movement itself
+ * is the browser's — the same reason a wheel counts and a bare `scroll` does not.
+ */
+const SCROLL_INTENT_KEYS = new Set([
+  'ArrowUp',
+  'ArrowDown',
+  'PageUp',
+  'PageDown',
+  'Home',
+  'End',
+  ' ',
+  'Spacebar',
+]);
+
 /** The scroll container's laid-out geometry, as of one resize. */
 type TranscriptGeometry = {
   scrollHeight: number;
@@ -259,6 +287,16 @@ export function useChatSessionState({
    * time, a scroll-up inside that window is silently undone.
    */
   const isUserScrolledUpRef = useRef(false);
+  /**
+   * True while a real input gesture is moving the transcript. Only the input
+   * handlers and the scroll events that follow them open it; a `scroll` the
+   * browser raised for its own scroll anchoring or clamping does not, which is
+   * what keeps a row shrinking above the viewport from reading as the user
+   * leaving the bottom.
+   */
+  const userScrollGestureRef = useRef(false);
+  /** Closes the gesture window once the scrolling it caused has stopped. */
+  const userScrollGestureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLoadingMoreRef = useRef(false);
   const allMessagesLoadedRef = useRef(false);
   const topLoadLockRef = useRef(false);
@@ -478,13 +516,15 @@ export function useChatSessionState({
    * count, the last row's text, or a store flush, so an implementation that
    * waited for any of those would sleep through every growth this exists for.
    *
-   * The judgement is made against the layout *before* the resize. By the time
-   * this runs the box has already grown, so asking the current geometry "is the
-   * viewport at the bottom?" would answer about the gap the growth itself just
-   * opened. Instead the viewport's offset is compared with the bottom of the
-   * previously measured layout: equal means the growth happened under a pinned
-   * viewport and is followed, anything above means the user created that drift
-   * and keeps it — the growth then simply opens the gap they were holding.
+   * The judgement is made against the layout *before* the resize, and against
+   * the user's intent rather than the current geometry. By the time this runs the
+   * box has already changed, so asking the current geometry "is the viewport at
+   * the bottom?" would answer about the gap the resize itself just opened.
+   * Instead the viewport's offset is compared with the bottom of the previously
+   * measured layout: equal means the resize happened under a viewport that was
+   * pinned and is followed, anything above means a gesture created that drift and
+   * keeps it — the growth then simply opens the gap the user was holding. A
+   * viewport the user has left is not followed at all, whatever the offset says.
    */
   const followTranscriptGrowth = useCallback(() => {
     const container = scrollContainerRef.current;
@@ -501,6 +541,15 @@ export function useChatSessionState({
       clientHeight: container.clientHeight,
     };
     if (!previous) return;
+
+    // Whether the user is following is a question about intent, answered by the
+    // input-source listener, and never re-derived from the geometry this call is
+    // looking at: by the time it runs the box has already changed, so the gap it
+    // measures is the one the change itself opened, and asking it "is the
+    // viewport still at the bottom?" would answer no for every resize the follow
+    // exists to answer yes to. The offset comparison below is a separate, second
+    // guard for a viewport a gesture moved since the last layout.
+    if (isUserScrolledUpRef.current) return;
 
     const previousBottom = Math.max(previous.scrollHeight - previous.clientHeight, 0);
     if (Math.abs(container.scrollTop - previousBottom) > TRANSCRIPT_FOLLOW_TOLERANCE_PX) return;
@@ -565,6 +614,11 @@ export function useChatSessionState({
   const scrollToBottom = useCallback(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
+    // The app putting the viewport on the bottom is the user asking to be there
+    // (a send, the button), so it settles the intent itself. The scroll this
+    // write raises carries no gesture with it, and is deliberately not read as
+    // one — a programmatic write is not evidence either way.
+    setIsUserScrolledUp(false);
     container.scrollTop = container.scrollHeight;
   }, []);
 
@@ -583,6 +637,82 @@ export function useChatSessionState({
     const { scrollTop, scrollHeight, clientHeight } = container;
     return scrollHeight - scrollTop - clientHeight < 50;
   }, []);
+
+  /**
+   * Opens — and keeps open — the window in which the transcript's scroll events
+   * count as the user's.
+   */
+  const noteUserScrollInput = useCallback(() => {
+    userScrollGestureRef.current = true;
+    if (userScrollGestureTimerRef.current) clearTimeout(userScrollGestureTimerRef.current);
+    userScrollGestureTimerRef.current = setTimeout(() => {
+      userScrollGestureTimerRef.current = null;
+      userScrollGestureRef.current = false;
+    }, USER_SCROLL_GESTURE_QUIET_MS);
+  }, []);
+
+  /**
+   * Records the user's scroll intent from the events that can carry it.
+   *
+   * Which events those are is the whole judgement: a wheel, a touch drag or a
+   * scroll key is the user asking to move the viewport, while a bare `scroll` is
+   * only a report that it moved. The browser raises that report for its own work
+   * too — scroll anchoring and clamping move the offset with nobody touching the
+   * page — so a transcript that read every `scroll` as intent detaches when a row
+   * above the viewport shrinks, and stops following the row that then grows.
+   * Discriminating on the *source* rather than on the size or direction of the
+   * change is therefore the point: the browser's scroll decreases scrollTop here,
+   * exactly like a wheel-up would.
+   *
+   * The listener is on the window so it also sees the input that starts a
+   * gesture outside the pane, and so a scroll of the pane is attributed no matter
+   * which of the pane's own listeners is attached.
+   */
+  useEffect(() => {
+    const isPaneScroll = (event: Event) => (
+      Boolean(scrollContainerRef.current) && event.target === scrollContainerRef.current
+    );
+
+    const onScroll = (event: Event) => {
+      if (!isPaneScroll(event)) return;
+      // A scroll inside the window is the gesture still moving the viewport —
+      // smooth scrolling reports itself over many frames — so it extends the
+      // window until the viewport really stops, and the intent it records is the
+      // one the gesture ended on.
+      if (!userScrollGestureRef.current) return;
+      noteUserScrollInput();
+      setIsUserScrolledUp(!isNearBottom());
+    };
+    const onWheel = () => noteUserScrollInput();
+    const onTouch = () => noteUserScrollInput();
+    // A scrollbar drag is a gesture with no wheel and no key behind it: the
+    // pointer press is the only evidence there is, and the scroll events that
+    // follow it are what carry the intent.
+    const onPointerDown = () => noteUserScrollInput();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (SCROLL_INTENT_KEYS.has(event.key)) noteUserScrollInput();
+    };
+
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('wheel', onWheel, { capture: true, passive: true });
+    window.addEventListener('touchstart', onTouch, { capture: true, passive: true });
+    window.addEventListener('touchmove', onTouch, { capture: true, passive: true });
+    window.addEventListener('mousedown', onPointerDown, true);
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('wheel', onWheel, true);
+      window.removeEventListener('touchstart', onTouch, true);
+      window.removeEventListener('touchmove', onTouch, true);
+      window.removeEventListener('mousedown', onPointerDown, true);
+      window.removeEventListener('keydown', onKeyDown, true);
+      if (userScrollGestureTimerRef.current) {
+        clearTimeout(userScrollGestureTimerRef.current);
+        userScrollGestureTimerRef.current = null;
+      }
+      userScrollGestureRef.current = false;
+    };
+  }, [isNearBottom, noteUserScrollInput]);
 
   const loadOlderMessages = useCallback(
     async (container: HTMLDivElement) => {
@@ -649,8 +779,9 @@ export function useChatSessionState({
     const container = scrollContainerRef.current;
     if (!container) return;
 
-    const nearBottom = isNearBottom();
-    setIsUserScrolledUp(!nearBottom);
+    // Intent is deliberately not read here. This handler runs for every scroll
+    // the pane reports, including the ones the browser made on its own, so the
+    // attribution lives in the input-source listener above instead.
     scrollPositionRef.current = {
       height: container.scrollHeight,
       top: container.scrollTop,
@@ -1055,6 +1186,13 @@ export function useChatSessionState({
 
         if (targetElement) {
           targetElement.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          // The jump deliberately places the viewport somewhere that is not the
+          // bottom, on the user's behalf, so it settles the intent itself: the
+          // smooth scroll it starts reports itself over the next few hundred
+          // milliseconds with no gesture behind it, and left to the input-source
+          // listener those reports would count as nobody's — leaving the next
+          // arriving row free to pull the user off the hit they jumped to.
+          setIsUserScrolledUp(true);
           targetElement.classList.add('search-highlight-flash');
           setTimeout(() => targetElement.classList.remove('search-highlight-flash'), 4000);
           searchScrollTimerRef.current = null;

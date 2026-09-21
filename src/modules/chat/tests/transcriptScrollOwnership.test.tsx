@@ -98,6 +98,14 @@ function createResizableContainer(scrollHeight: number, clientHeight: number) {
     grow: (delta: number) => {
       height += delta;
     },
+    /**
+     * Shrinks the content the way a row above the viewport collapsing does. The
+     * browser answers that by moving the offset itself, which is why the caller
+     * follows it with `scrollTo` rather than letting the fixture do it.
+     */
+    shrink: (delta: number) => {
+      height -= delta;
+    },
     /** Moves the viewport the way a gesture does. */
     scrollTo: (next: number) => {
       top = next;
@@ -416,6 +424,94 @@ describe('content-growth follow', () => {
       [],
       `a scroll-up inside the deferred window must survive; got ${JSON.stringify(container.writes)}`,
     );
+  });
+
+  /** The shape of the browser's own scroll: the offset moves, nothing was touched. */
+  const dispatchScroll = (container: HTMLElement) => {
+    container.dispatchEvent(new Event('scroll'));
+  };
+
+  it('does not read a scroll with no input behind it as leaving the bottom', async () => {
+    const { result, container, observer } = await mountFollow();
+    // The listeners that attribute a scroll are on the window, so the pane has to
+    // be a node the event can reach them through.
+    document.body.appendChild(container.element);
+    try {
+      // The transcript has a scroll history behind it by now (the gestures that
+      // brought the viewport to the bottom), so the offset the shrink is about to
+      // change is one an implementation could already have recorded. Without this
+      // the case below could only tell a source-based reading apart from one that
+      // compares against a baseline it has never seen — and the difference this
+      // test exists for is the source.
+      act(() => {
+        dispatchScroll(container.element);
+      });
+      // A row above the viewport collapses. The browser holds the visible content
+      // still by moving the offset up by the same amount — the offset decreases,
+      // exactly as it does under a wheel-up, with nobody touching the page.
+      container.shrink(300);
+      container.scrollTo(container.bottom);
+      act(() => {
+        observer.emit();
+      });
+      act(() => {
+        runFrames();
+      });
+      const intentReadings: boolean[] = [];
+      act(() => {
+        dispatchScroll(container.element);
+      });
+      intentReadings.push(result.current.isUserScrolledUp);
+
+      // The row that then grows in place must still be followed: the viewport
+      // never left the bottom, so there is no gap for the growth to open.
+      container.writes.length = 0;
+      container.grow(480);
+      act(() => {
+        observer.emit();
+      });
+      act(() => {
+        runFrames();
+      });
+      intentReadings.push(result.current.isUserScrolledUp);
+
+      assert.deepEqual(
+        intentReadings,
+        [false, false],
+        'a scroll the page received no input for must never raise the scroll-to-bottom state',
+      );
+      assert.deepEqual(
+        container.writes,
+        [container.bottom],
+        `the growth after the browser's own scroll must still be followed; got ${JSON.stringify(container.writes)}`,
+      );
+    } finally {
+      container.element.remove();
+    }
+  });
+
+  it('still reads a wheel as the user leaving the bottom', async () => {
+    const { result, container } = await mountFollow();
+    document.body.appendChild(container.element);
+    try {
+      // The same offset change as above, and the same event — the input in front
+      // of it is the only difference between them.
+      act(() => {
+        container.element.dispatchEvent(new Event('wheel'));
+      });
+      container.scrollTo(container.bottom - 300);
+      act(() => {
+        dispatchScroll(container.element);
+      });
+
+      assert.equal(
+        result.current.isUserScrolledUp,
+        true,
+        'a wheel that carries the viewport away from the bottom is the user leaving it',
+      );
+    } finally {
+      container.element.remove();
+    }
   });
 });
 
