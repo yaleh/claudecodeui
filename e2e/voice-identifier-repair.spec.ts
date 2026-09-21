@@ -24,8 +24,10 @@ import type { BrowserContext, Page } from '@playwright/test';
 // seeded project's workspace, and the identifier asserted on is read back off that directory — so the claim
 // "the composer holds the project's real file name" is decided by the project's own content.
 
-/** The sentence the fake microphone is saying; the recogniser stand-in answers with it, and the composer must end up holding it. */
+/** The sentence the fake microphone is saying; the recogniser stand-in answers with it, and the composer must end up holding it repaired. */
 const UTTERANCE = process.env.QUAY_E2E_VOICE_UTTERANCE!;
+/** The identifier as the recogniser heard it — the fixture's pre-repair state, which the composer must not still hold. */
+const SPOKEN = process.env.QUAY_E2E_VOICE_SPOKEN_IDENTIFIER!;
 const DATA_DIR = process.env.QUAY_E2E_DATA_DIR!;
 const CLIENT_URL = `http://127.0.0.1:${process.env.QUAY_E2E_CLIENT_PORT}`;
 const WORKSPACE = path.join(DATA_DIR, 'voice-identifier-workspace');
@@ -217,7 +219,14 @@ test.describe('AC-115 the repair holds end to end through the voice button', () 
     const fileNames = fs.readdirSync(WORKSPACE).filter((name) => name.endsWith('.ts'));
     expect(fileNames, 'the seeded workspace must hold the file the utterance names').toHaveLength(1);
     const [identifier] = fileNames;
-    expect(UTTERANCE).toContain(identifier);
+    // The fixture must arrive BEFORE the repair. An utterance that already carried the real name would satisfy
+    // every assertion below whether or not anything repairs it — green in exactly the world this criterion
+    // exists to catch. Asserting the spoken form is present and the real name is absent is what keeps it able
+    // to fail, so this premise failing is a criterion defect, not a product one.
+    expect(UTTERANCE).toContain(SPOKEN);
+    expect(UTTERANCE).not.toContain(identifier);
+    /** What the composer has to hold: the recogniser's sentence with the name it got wrong put back. */
+    const expected = UTTERANCE.split(SPOKEN).join(identifier);
 
     // The audio the fake device was pointed at, checked as audio. A path that does not resolve to a WAV is not
     // an error Chromium reports: it quietly plays its own fallback tone instead, which records and transcribes
@@ -255,7 +264,7 @@ test.describe('AC-115 the repair holds end to end through the voice button', () 
     // character for character — the app is free to trim, but nothing in the chain may re-spell it.
     // The ceiling is deliberately short: a regression here has to surface as this assertion rather than as an
     // unattributable timeout, because the gate that runs this file caps the whole command at 60s.
-    await expect(composer).toHaveValue(UTTERANCE, { timeout: 15_000 });
+    await expect(composer).toHaveValue(expected, { timeout: 15_000 });
     const value = await composer.inputValue();
 
     // The identifier survives with its own case and its own dots, character for character...

@@ -248,9 +248,20 @@ const VOICE_IDENTIFIER_SESSION_NAME = 'voice-identifier';
  * the identifier it asserts on is one the project really has. A `## Touches`-level constant on both sides
  * would agree with itself whether or not the file exists.
  */
-const VOICE_IDENTIFIER_FILE = 'voice.service.ts';
+const VOICE_IDENTIFIER_FILE = 'voice.routes.ts';
+/**
+ * How the recogniser hears that name.
+ *
+ * The fixture has to arrive before the repair, not after it. With the file name spelled correctly here, the
+ * claim "the composer holds the project's real file name" is true whether or not anything repairs it — the
+ * criterion is then green in the world where no repair exists, which is the world it is meant to catch.
+ *
+ * `voice.rouse.ts` is an observed shape, not an invented one: AC-113's recovery corpus records the recogniser
+ * answering `voice.rouse.ts` for `voice.routes.ts` (zh-d02).
+ */
+const VOICE_SPOKEN_IDENTIFIER = 'voice.rouse.ts';
 /** What the fake microphone is saying. The recogniser stand-in the spec points the voice settings at answers with this same string. */
-const VOICE_UTTERANCE = `please open ${VOICE_IDENTIFIER_FILE} and fix the proxy`;
+const VOICE_UTTERANCE = `please open ${VOICE_SPOKEN_IDENTIFIER} and fix the proxy`;
 /**
  * Where the fake microphone reads its samples from, published so the spec's launch args can name the file.
  * Written below, in the config, because Chromium opens it at browser launch — a spec that wrote it in
@@ -258,6 +269,7 @@ const VOICE_UTTERANCE = `please open ${VOICE_IDENTIFIER_FILE} and fix the proxy`
  */
 const VOICE_AUDIO_FILE = path.join(dataDir, 'voice-utterance.wav');
 process.env.QUAY_E2E_VOICE_UTTERANCE = VOICE_UTTERANCE;
+process.env.QUAY_E2E_VOICE_SPOKEN_IDENTIFIER = VOICE_SPOKEN_IDENTIFIER;
 process.env.QUAY_E2E_VOICE_AUDIO = VOICE_AUDIO_FILE;
 
 /**
