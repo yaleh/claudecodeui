@@ -6,7 +6,7 @@ import { transcribeVoice } from '@/shared/api';
 import { identifierFidelity } from '@/shared/identifierFidelity';
 import { repairIdentifiers } from '@/shared/identifierRepair';
 import type { VoiceClip, VoiceInputState, VoicePlayState } from '@/shared/types';
-import { isVoiceTrimEnabled } from '@/shared/voiceDebug';
+import { isVoiceDebugEnabled, isVoiceTrimEnabled } from '@/shared/voiceDebug';
 import { trimVoiceAudio } from '@/shared/voiceTrim';
 
 // Mobile-safe recording: iOS Safari 18.4+ supports webm/opus; older iOS needs mp4.
@@ -17,6 +17,9 @@ const MIME_CANDIDATES = [
   'audio/ogg;codecs=opus',
   'audio/ogg',
 ];
+
+/** Below this, the bytes are a container with nothing in it. */
+const MIN_CAPTURE_BYTES = 800;
 
 function pickMime(): string {
   for (const t of MIME_CANDIDATES) {
@@ -29,37 +32,104 @@ function pickMime(): string {
   return '';
 }
 
-/** The extension the recogniser is told the recording has, derived from the container it really has. */
+/** The extension the recogniser is told the audio has, derived from the container it really has. */
 function extensionFor(mimeType: string): string {
+  if (mimeType.includes('wav')) return 'wav';
   if (mimeType.includes('mp4')) return 'm4a';
   if (mimeType.includes('ogg')) return 'ogg';
   return 'webm';
 }
 
+/** Which entry the audio came in through. */
+export type VoiceSource = 'mic' | 'file';
+
 /**
- * The bytes to upload for a recording, which is the recording itself unless the trim applies.
+ * What the chain did with one capture, as a reading.
+ *
+ * The two entries share one chain, so the only thing that tells their readings apart is `source`;
+ * everything else is a measurement of the audio itself, taken where the audio is still in hand.
+ *
+ * `fallback` is the one field that is not a measurement: true means the bytes uploaded were the input
+ * untouched — the trim is off, the browser could not decode the container, or one of the trim's own
+ * guards fired. A duration the chain never measured is `null` rather than 0, so "nothing was measured"
+ * cannot be read as "nothing was there".
+ */
+export type VoiceCaptureReading = {
+  source: VoiceSource;
+  inputSec: number | null;
+  outputSec: number | null;
+  savedSec: number | null;
+  savedRatio: number | null;
+  vadSegments: number | null;
+  speechKeptRatio: number | null;
+  fallback: boolean;
+};
+
+/** The reading for a capture whose audio was never measured: the input was uploaded as it arrived. */
+const unmeasured = (source: VoiceSource): VoiceCaptureReading => ({
+  source,
+  inputSec: null,
+  outputSec: null,
+  savedSec: null,
+  savedRatio: null,
+  vadSegments: null,
+  speechKeptRatio: null,
+  fallback: true,
+});
+
+/**
+ * The bytes to upload for a capture, which is the capture itself unless the trim applies.
  *
  * A dictation clip is mostly silence — the wait for the mic, the breaths between sentences, the
  * pause before the button is released — and all of it is paid for twice, in upload bytes and in
- * recognition latency. So the recording is decoded, its silence removed, and the result re-encoded.
+ * recognition latency. So the audio is decoded, its silence removed, and the result re-encoded.
  *
- * Every path that does not trim returns the recording untouched: the switch is off, the browser
+ * Every path that does not trim returns the audio untouched: the switch is off, the browser
  * cannot decode the container, or `trimVoiceAudio` reported one of its guards. Re-encoding a clip
  * that did not get shorter would spend a generation of quality on nothing, which is why the
  * fallback is the original bytes rather than a round-tripped copy of them.
+ *
+ * The reading is returned rather than printed: this function is where the audio is measured, and the
+ * caller is where the decision to print belongs.
  */
-async function prepareUpload(blob: Blob): Promise<{ body: Blob; filename: string }> {
-  const recorded = { body: blob, filename: `recording.${extensionFor(blob.type)}` };
+async function prepareUpload(
+  blob: Blob,
+  source: VoiceSource,
+  baseName: string,
+): Promise<{ body: Blob; filename: string; reading: VoiceCaptureReading }> {
+  const asRecorded = { filename: `${baseName}.${extensionFor(blob.type)}` };
+  const recorded = { ...asRecorded, body: blob, reading: unmeasured(source) };
   if (!isVoiceTrimEnabled()) return recorded;
 
   const decoded = await decodeVoiceBlob(blob);
   if (!decoded) return recorded;
 
   const { samples, stats } = trimVoiceAudio(decoded.samples, decoded.sampleRate);
-  if (stats.fallback) return recorded;
+  const reading: VoiceCaptureReading = {
+    source,
+    inputSec: stats.inputSec,
+    outputSec: stats.outputSec,
+    savedSec: stats.inputSec - stats.outputSec,
+    savedRatio: stats.savedRatio,
+    vadSegments: stats.vadSegments.length,
+    speechKeptRatio: stats.speechKeptRatio,
+    fallback: stats.fallback,
+  };
+  // A guard that fired still leaves a reading worth having: the audio was measured, and what it says
+  // about the capture is what tells a trim that found nothing to do from one that never ran.
+  if (stats.fallback) return { ...asRecorded, body: blob, reading };
 
-  return { body: encodeWavBlob(samples, decoded.sampleRate), filename: 'recording.wav' };
+  return { body: encodeWavBlob(samples, decoded.sampleRate), filename: `${baseName}.wav`, reading };
 }
+
+/** A file's name without its extension: the upload derives one from the container it really sends. */
+function withoutExtension(name: string): string {
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? name.slice(0, dot) : name;
+}
+
+/** How the mic's uploads are named; a file's uploads keep the name the file arrived with. */
+const RECORDING_BASE_NAME = 'recording';
 
 type UseVoiceInputOptions = {
   /**
@@ -204,6 +274,82 @@ export function useVoiceInput(
     };
   }, []);
 
+  /**
+   * One capture's whole journey: bytes, decoded and trimmed, uploaded to the recogniser, repaired
+   * against the open project's names, and handed to the composer.
+   *
+   * Both entries into the voice path meet here — the microphone and the upload button — and that is
+   * deliberate rather than convenient. Everything that can be got wrong about this chain (the trim,
+   * the container, the endpoint, the repair) is only true of the path a recording takes if the path an
+   * uploaded file takes is the same one; a second chain beside it would be free to drift, and the
+   * readings taken on one would stop meaning anything about the other.
+   *
+   * The clip slot is the one place the two are told apart. It exists so the user can hear back the
+   * thing they just said, and a file they chose is already theirs to play; capturing it there would
+   * also put an upload in the way of the recording the slot is holding.
+   */
+  const submitCapture = useCallback(async (
+    blob: Blob,
+    source: VoiceSource,
+    { send, baseName }: { send: boolean; baseName: string },
+  ) => {
+    if (blob.size < MIN_CAPTURE_BYTES) {
+      setState('idle');
+      onError?.(source === 'mic' ? 'Recording too short' : 'Audio file too small');
+      return;
+    }
+    // Before the upload, not after: a transcription that fails or times out is
+    // exactly when the user most needs to hear what they actually said.
+    if (source === 'mic') {
+      adoptClip({
+        url: URL.createObjectURL(blob),
+        meta: { bytes: blob.size, mimeType: blob.type, durationMs: Date.now() - clipStartedAtRef.current },
+      });
+    }
+    setState('transcribing');
+    try {
+      const { body, filename, reading } = await prepareUpload(blob, source, baseName);
+      // Printed before the upload rather than after it: this is the reading of what was sent, and it
+      // has to exist even when the recogniser never answers.
+      if (isVoiceDebugEnabled()) console.debug('[voice:trim]', reading);
+      const res = await transcribeVoice(body, filename);
+      if (!res.ok) throw new Error(`transcribe ${res.status}`);
+      const data = await res.json();
+      if (cancelledRef.current) return;
+      const raw = String(data?.text || '');
+      const text = raw.trim();
+      if (text) {
+        // The one point between the recogniser and the composer where the transcript is
+        // still ours to change: `raw -> text` is the trim, `text -> repaired` is the
+        // deterministic repair against the project's own names. Nothing else in the
+        // chain touches the text, so this is where both readings belong.
+        const repaired = repairIdentifiers(text, candidates);
+        // The voice link's own telemetry (GOAL-005 / AC-114): how much of what the
+        // recogniser returned survives — punctuation and case intact — into the text
+        // handed back to the composer, read on both sides of the repair. The pair is
+        // what makes it the repair's reading rather than a bystander's: `before` is
+        // what the chain alone kept, `after` is what it keeps once the repair has run,
+        // and the names the second one reports missing are exactly the names the repair
+        // rewrote. A repair that fires on a name the transcript never carried therefore
+        // shows up here as a drop, which is the failure AC-113 measures as misRepairs.
+        // Console-only by design: it changes no interaction and no request flow, and a
+        // reading that only exists on a debug branch is not a reading the real path can
+        // be judged by.
+        console.debug('[voice] identifier fidelity', {
+          before: identifierFidelity(raw, text),
+          after: identifierFidelity(raw, repaired),
+        });
+        onTranscript(repaired, send);
+      } else onError?.('No speech detected');
+    } catch (e) {
+      if (!cancelledRef.current) {
+        onError?.(`Transcription failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    } finally {
+      if (!cancelledRef.current) setState('idle');
+    }
+  }, [onTranscript, onError, candidates]);
+
   const start = useCallback(async () => {
     if (startingRef.current || (recorderRef.current && recorderRef.current.state !== 'inactive')) return;
     // A new recording is about to replace the slot; stop the old one from sounding.
@@ -234,57 +380,11 @@ export function useVoiceInput(
         const shouldSend = sendRef.current;
         sendRef.current = false;
         const type = rec.mimeType || 'audio/webm';
-        const blob = new Blob(chunksRef.current, { type });
-        if (blob.size < 800) {
-          setState('idle');
-          onError?.('Recording too short');
-          return;
-        }
-        // Before the upload, not after: a transcription that fails or times out is
-        // exactly when the user most needs to hear what they actually said.
-        adoptClip({
-          url: URL.createObjectURL(blob),
-          meta: { bytes: blob.size, mimeType: type, durationMs: Date.now() - clipStartedAtRef.current },
-        });
-        setState('transcribing');
-        try {
-          const upload = await prepareUpload(blob);
-          const res = await transcribeVoice(upload.body, upload.filename);
-          if (!res.ok) throw new Error(`transcribe ${res.status}`);
-          const data = await res.json();
-          if (cancelledRef.current) return;
-          const raw = String(data?.text || '');
-          const text = raw.trim();
-          if (text) {
-            // The one point between the recogniser and the composer where the transcript is
-            // still ours to change: `raw -> text` is the trim, `text -> repaired` is the
-            // deterministic repair against the project's own names. Nothing else in the
-            // chain touches the text, so this is where both readings belong.
-            const repaired = repairIdentifiers(text, candidates);
-            // The voice link's own telemetry (GOAL-005 / AC-114): how much of what the
-            // recogniser returned survives — punctuation and case intact — into the text
-            // handed back to the composer, read on both sides of the repair. The pair is
-            // what makes it the repair's reading rather than a bystander's: `before` is
-            // what the chain alone kept, `after` is what it keeps once the repair has run,
-            // and the names the second one reports missing are exactly the names the repair
-            // rewrote. A repair that fires on a name the transcript never carried therefore
-            // shows up here as a drop, which is the failure AC-113 measures as misRepairs.
-            // Console-only by design: it changes no interaction and no request flow, and a
-            // reading that only exists on a debug branch is not a reading the real path can
-            // be judged by.
-            console.debug('[voice] identifier fidelity', {
-              before: identifierFidelity(raw, text),
-              after: identifierFidelity(raw, repaired),
-            });
-            onTranscript(repaired, shouldSend);
-          } else onError?.('No speech detected');
-        } catch (e) {
-          if (!cancelledRef.current) {
-            onError?.(`Transcription failed: ${e instanceof Error ? e.message : String(e)}`);
-          }
-        } finally {
-          if (!cancelledRef.current) setState('idle');
-        }
+        await submitCapture(
+          new Blob(chunksRef.current, { type }),
+          'mic',
+          { send: shouldSend, baseName: RECORDING_BASE_NAME },
+        );
       };
 
       clipStartedAtRef.current = Date.now();
@@ -303,7 +403,19 @@ export function useVoiceInput(
     } finally {
       startingRef.current = false;
     }
-  }, [onTranscript, onError, candidates]);
+  }, [submitCapture, onError]);
+
+  /**
+   * Feeds a chosen audio file through the chain a recording travels.
+   *
+   * The other half of `submitCapture`, and deliberately nothing more than a call into it: an uploaded
+   * file is not a second kind of audio, it is the same audio arriving by a different door. What it is
+   * not is a send — a file is chosen to see the chain work, and a turn nobody asked to spend is not
+   * what choosing one means.
+   */
+  const transcribeFile = useCallback((file: File) => {
+    void submitCapture(file, 'file', { send: false, baseName: withoutExtension(file.name) });
+  }, [submitCapture]);
 
   // Stop recording. Pass { send: true } to auto-send the transcript once it's ready.
   // Guard on the recorder's own state (not React state) so a double tap, or the mic
@@ -355,5 +467,5 @@ export function useVoiceInput(
     }
   }, [clipState, onError]);
 
-  return { state, toggle, stop, voiceClip, clipState, toggleClipPlayback };
+  return { state, toggle, stop, transcribeFile, voiceClip, clipState, toggleClipPlayback };
 }

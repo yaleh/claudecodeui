@@ -15,6 +15,7 @@ import { PaperclipIcon, MessageSquareIcon, XIcon, Loader2, ArrowUpIcon, PencilIc
 import { useVoiceInput } from '@/modules/chat/hooks/useVoiceInput';
 import { useVoiceAvailable } from '@/modules/chat/hooks/useVoiceAvailable';
 import { loadProjectIdentifiers } from '@/shared/projectIdentifiers';
+import { isVoiceDebugEnabled } from '@/shared/voiceDebug';
 import type { QueuedDraft, ScheduledMessage, SlashCommand,SessionActivity,PendingPermissionRequest,PermissionMode,ProviderModelOption } from '@/shared/types';
 import {
   PromptInput,
@@ -30,6 +31,7 @@ import CommandMenu from '@/modules/chat/composer/CommandMenu';
 import ActivityIndicator from '@/modules/chat/composer/ActivityIndicator';
 import ComposerAttachment from '@/modules/chat/composer/ComposerAttachment';
 import VoiceInputButton from '@/modules/chat/composer/VoiceInputButton';
+import VoiceUploadButton from '@/modules/chat/composer/VoiceUploadButton';
 import VoiceClipButton from '@/modules/chat/composer/VoiceClipButton';
 import PermissionRequestsBanner from '@/modules/chat/composer/PermissionRequestsBanner';
 import TokenUsageSummary from '@/modules/chat/composer/TokenUsageSummary';
@@ -276,6 +278,7 @@ export default function ChatComposer({
     state: voiceState,
     toggle: voiceToggle,
     stop: voiceStop,
+    transcribeFile,
     voiceClip,
     clipState,
     toggleClipPlayback,
@@ -481,6 +484,15 @@ export default function ChatComposer({
 
             {onVoiceTranscript && voiceAvailable && (
               <VoiceInputButton state={voiceState} onToggle={voiceToggle} errorMsg={voiceError} />
+            )}
+
+            {/*
+              The voice path's other entry, and only while the debug switch asks for it: an install
+              that never sets `?voiceDebug=1` renders the same composer it always has. Beside the mic
+              because it is the same chain — the file goes where the recording goes.
+            */}
+            {onVoiceTranscript && voiceAvailable && isVoiceDebugEnabled() && (
+              <VoiceUploadButton state={voiceState} onSelectFile={transcribeFile} />
             )}
 
             {/* Right of the mic: a clip only exists because the mic produced it. */}

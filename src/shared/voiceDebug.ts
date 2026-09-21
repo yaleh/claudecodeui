@@ -107,3 +107,20 @@ export function isVoiceTrimEnabled(): boolean {
   const value = readFlag('voiceTrim');
   return value === undefined || !OFF_VALUES.includes(value.trim().toLowerCase());
 }
+
+/**
+ * Whether the voice path's own affordances are on show: the audio-file upload entry beside the
+ * microphone, and the readings the chain prints about what it did with the audio.
+ *
+ * Off unless something turned it on, which is the opposite default to the trim's and for the same
+ * reason: the trim is the shipped behaviour and this is the instrumentation for it. A switch that has
+ * to be set for the normal path is a switch that can be forgotten; an extra entry in everyone's
+ * composer and a reading in everyone's console is not something to make the normal path carry.
+ *
+ * The value is the one the flags above resolved, so `?voiceDebug=1` turns it on for this load and
+ * remembers it — which is what lets an end-to-end run name the switch in the URL and then navigate.
+ */
+export function isVoiceDebugEnabled(): boolean {
+  const value = readFlag('voiceDebug');
+  return value !== undefined && !OFF_VALUES.includes(value.trim().toLowerCase());
+}

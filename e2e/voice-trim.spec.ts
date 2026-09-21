@@ -89,6 +89,7 @@ const UTTERANCES = [
  */
 const VOICE_ERRORS = [
   'Recording too short',
+  'Audio file too small',
   'Transcription failed',
   'No speech detected',
   'Microphone access denied',
@@ -119,6 +120,14 @@ type RecognizerRequest = {
   authorization: string | undefined;
   contentType: string | undefined;
   body: Buffer;
+  /**
+   * What the stand-in answered this request with.
+   *
+   * Kept beside the bytes it was asked about rather than restated by the test: the sentence a leg has
+   * to end up holding is the one the recogniser really returned, which is a property of the run's own
+   * request order and not of a constant the test could get wrong on its own.
+   */
+  answer: string;
 };
 
 /** A variable-length integer as EBML writes it. `keepMarker` keeps the length-marker bit, which is what an element id needs. */
@@ -304,7 +313,15 @@ const appears = async (locator: Locator, timeoutMs: number): Promise<boolean> =>
 
 test.describe.configure({ mode: 'serial' });
 
-test.describe('AC-119 the trim holds end to end through the voice button', () => {
+/**
+ * The voice path end to end, one test per criterion.
+ *
+ * The criteria land in one file because they share the expensive half: a real browser, a real client
+ * and backend, an account created on a fresh database, and a recogniser stand-in to point the voice
+ * settings at. Each criterion names itself in its own title — which is what `-g` selects on — so a
+ * criterion can be run alone without this file's other legs paying for it.
+ */
+test.describe('the voice path end to end', () => {
   let context: BrowserContext;
   let page: Page;
   let recognizer: http.Server;
@@ -320,6 +337,14 @@ test.describe('AC-119 the trim holds end to end through the voice button', () =>
    * own traffic is collected here and reported by `expectTranscript` when the wait fails.
    */
   const voiceTraffic: string[] = [];
+  /**
+   * The `[voice:trim]` readings the page printed, in the order it printed them.
+   *
+   * Taken off the console argument rather than out of its text: Chromium formats an object argument for
+   * a human to read, and a reading parsed back out of that preview would be a reading of the formatter.
+   * `jsonValue()` hands back the object the app actually logged.
+   */
+  const readings: Record<string, unknown>[] = [];
 
   /**
    * The OpenAI-compatible speech endpoint the voice settings point at.
@@ -343,12 +368,17 @@ test.describe('AC-119 the trim holds end to end through the voice button', () =>
       const chunks: Buffer[] = [];
       request.on('data', (chunk: Buffer) => chunks.push(chunk));
       request.on('end', () => {
+        // The Nth upload is the Nth leg, so each leg can only be satisfied by its own transcription. The last
+        // sentence is the answer for every upload after the last leg, so a leg that uploaded twice fails on the
+        // request count rather than on a missing utterance.
+        const answer = UTTERANCES[Math.min(requests.length, UTTERANCES.length - 1)];
         requests.push({
           url: request.url ?? '',
           method: request.method ?? '',
           authorization: request.headers.authorization,
           contentType: request.headers['content-type'],
           body: Buffer.concat(chunks),
+          answer,
         });
 
         if (!(request.url ?? '').endsWith('/audio/transcriptions')) {
@@ -357,10 +387,6 @@ test.describe('AC-119 the trim holds end to end through the voice button', () =>
           return;
         }
 
-        // The Nth upload is the Nth leg, so each leg can only be satisfied by its own transcription. The last
-        // sentence is the answer for every upload after the last leg, so a leg that uploaded twice fails on the
-        // request count rather than on a missing utterance.
-        const answer = UTTERANCES[Math.min(requests.length - 1, UTTERANCES.length - 1)];
         response.setHeader('Content-Type', 'application/json');
         response.end(JSON.stringify({ text: answer }));
       });
@@ -462,6 +488,56 @@ test.describe('AC-119 the trim holds end to end through the voice button', () =>
     await stop.click();
   };
 
+  /**
+   * The hidden `<input type="file">` the upload entry owns.
+   *
+   * Located by what it accepts rather than by position: the composer's attachment picker is a file
+   * input too, so `input[type=file]` alone would be ambiguous. It is hidden — the button beside the
+   * microphone is the control — which is not something `setInputFiles` minds.
+   */
+  const uploadInput = () => page.locator('input[type="file"][accept="audio/*"]');
+
+  /** The button that opens the file dialog, named the way `VoiceUploadButton` names it. */
+  const uploadEntry = () => page.getByRole('button', { name: 'Upload audio file' });
+
+  /**
+   * Waits for the page to print a reading past `before`, and returns the first new one.
+   *
+   * The reading is logged as the chain decides what to upload, so it is already there by the time the
+   * request the caller is waiting for arrives; polling rather than reading `readings[before]` keeps the
+   * assertion from depending on which of the two the browser happened to deliver first.
+   */
+  const nextReading = async (before: number): Promise<Record<string, unknown>> => {
+    await expect.poll(
+      () => readings.length,
+      { timeout: 10_000, message: 'the chain printed no [voice:trim] reading for this capture' },
+    ).toBeGreaterThan(before);
+    return readings[before];
+  };
+
+  /**
+   * Submits the fixture through the upload entry, and waits for the request it produced.
+   *
+   * The wait is on the recogniser rather than on a timer, which is the difference between an upload and
+   * a recording: a recording is uploaded when the user lets go, an upload when the file is chosen, and
+   * the request is the first thing that says it happened. A red here also names what the recogniser
+   * would have been asked, since the request is where the chain's own body can be read.
+   */
+  const uploadFixture = async (leg: string): Promise<RecognizerRequest> => {
+    const before = requests.length;
+    await expect(uploadEntry()).toBeVisible({ timeout: 10_000 });
+    await uploadInput().setInputFiles(AUDIO_FILE);
+
+    await expect.poll(
+      () => requests.length,
+      { timeout: 15_000, message: `${leg}: the chosen file never reached the recogniser` },
+    ).toBe(before + 1);
+
+    const request = requests[before];
+    await expectTranscript(request.answer, leg);
+    return request;
+  };
+
   test.beforeAll(async ({ browser }) => {
     // Onboarding plus the first project load outlasts the default per-test budget, but only as far as the
     // criterion's own ceiling allows: a hook that runs longer than that is killed from outside and reports
@@ -520,6 +596,20 @@ test.describe('AC-119 the trim holds end to end through the voice button', () =>
     });
     page.on('console', (message) => {
       if (message.type() === 'error') voiceTraffic.push(`console.error ${message.text().slice(0, 200)}`);
+    });
+    // The chain's own readings, collected whether or not a criterion is currently asking for them: what
+    // the switch does is decide whether they are printed at all, and that is what the assertions read.
+    page.on('console', (message) => {
+      // By substring, not by prefix: a string argument arrives with the console's own quoting.
+      if (!message.text().includes('[voice:trim]')) return;
+      const [, reading] = message.args();
+      if (!reading) return;
+      void reading.jsonValue().then(
+        (value) => {
+          if (value && typeof value === 'object') readings.push(value as Record<string, unknown>);
+        },
+        () => undefined,
+      );
     });
 
     // First run on a fresh database: create the single account, then finish onboarding.
@@ -646,5 +736,102 @@ test.describe('AC-119 the trim holds end to end through the voice button', () =>
     expect(plainUpload.subarray(0, 4).toString('hex')).toBe('1a45dfa3');
     // ...and the trimmed one is not the fixture either, so it is not the untrimmed bytes under a WAV header.
     expect(trimmedSec).toBeLessThan(FIXTURE_SEC - MIN_SAVING_SEC);
+  });
+
+  /**
+   * The voice path's other entry: a known piece of audio, chosen as a file.
+   *
+   * The fixture is the one the fake microphone already plays, and that is what makes these legs
+   * readable. As a file it is decoded exactly rather than captured through a device, so the chain's own
+   * reading of its length is the fixture's length — a number only these bytes can produce, which is
+   * what makes "the request came from that file" an assertion about the audio and not about a filename.
+   *
+   * What the legs then show is that the upload is the same chain rather than a second one beside it.
+   * With the trim at its default the bytes that reach the recogniser are shorter than the file by the
+   * silence the trim exists to remove, read out of the container the upload really is in; with the trim
+   * switched off they are the file itself, byte for byte. A third leg is the default install's: the
+   * switch is off, so there is no entry at all — which is what makes "an extra control in everyone's
+   * composer" a thing this avoided rather than a thing it intended.
+   */
+  test('AC-120 an uploaded audio file travels the same transcription chain', async () => {
+    // Same budget as the criterion above and for the same reason: the goal gate kills the command at
+    // 60s, and a run killed from outside says nothing about what it was doing.
+    test.setTimeout(35_000);
+
+    // The fixture, read as audio. A file the browser cannot decode is not a failure it reports: the
+    // chain falls back to uploading what it was handed, so a criterion about the trim would be met by a
+    // fixture that never reached the trim at all.
+    const audio = fs.readFileSync(AUDIO_FILE);
+    expect(audio.subarray(0, 4).toString('ascii')).toBe('RIFF');
+    expect(audio.subarray(8, 12).toString('ascii')).toBe('WAVE');
+    expect(wavDurationSec(audio)).toBeCloseTo(FIXTURE_SEC, 3);
+    const requestsBefore = requests.length;
+
+    // Leg 1 — the switch on, the trim at its default.
+    const trimmedReadings = readings.length;
+    // `voiceTrim=on` is named rather than left to the default: the switches are remembered across loads,
+    // so a leg of the criterion above that turned the trim off is still in force here. A leg that states
+    // both switches reads the same alone as it does after the others, which is what `-g` runs it as.
+    await openComposer('/?voiceDebug=1&voiceTrim=on');
+    const trimmedRequest = await uploadFixture('uploaded leg, trimmed');
+
+    // The chain says which entry the audio came in through, and the reading's input length is the
+    // fixture's own duration — a number that only decoding these bytes can produce.
+    const trimmedReading = await nextReading(trimmedReadings);
+    expect(trimmedReading.source).toBe('file');
+    expect(
+      trimmedReading.inputSec,
+      `the chain measured no length for this upload: ${JSON.stringify(trimmedReading)}`,
+    ).toBeCloseTo(FIXTURE_SEC, 1);
+    expect(trimmedReading.fallback).toBe(false);
+
+    // The uploaded bytes went through the trim the microphone's audio goes through: a WAV this repo
+    // encoded, shorter than the file by the pause the trim removes, and as long as the reading says.
+    const trimmedUpload = uploadedFile(trimmedRequest.body, trimmedRequest.contentType);
+    expect(trimmedUpload.subarray(0, 4).toString('ascii')).toBe('RIFF');
+    const trimmedSec = containerDurationSec(trimmedUpload);
+    expect(
+      FIXTURE_SEC - trimmedSec,
+      `the upload was ${trimmedSec}s of a ${FIXTURE_SEC}s file`,
+    ).toBeGreaterThan(MIN_SAVING_SEC);
+    expect(trimmedReading.outputSec).toBeCloseTo(trimmedSec, 2);
+    // Printed before the assertions above so a green run says what it measured rather than only what it
+    // refused. The composer's half — the recogniser's own sentence landing in the box — is waited on by
+    // `uploadFixture`, so it is proven by the leg having got this far.
+    console.log(
+      `[voice-upload] trimmed: file=${FIXTURE_SEC.toFixed(3)}s uploaded=${trimmedSec.toFixed(3)}s source=${String(trimmedReading.source)}`,
+    );
+
+    // Leg 2 — the trim off. The upload is then the file itself, which is the reading that ties the
+    // request to the bytes: a body built by the test, or a fixed one, cannot be this file.
+    const plainReadings = readings.length;
+    await openComposer('/?voiceTrim=off&voiceDebug=1');
+    const plainRequest = await uploadFixture('uploaded leg, untrimmed');
+
+    const plainReading = await nextReading(plainReadings);
+    expect(plainReading.source).toBe('file');
+    // Nothing was measured on this leg — the switch that trims is what decodes — which is the state the
+    // byte comparison below needs: what arrived is the file, not a re-encode that agrees with it.
+    expect(plainReading.fallback).toBe(true);
+
+    const plainUpload = uploadedFile(plainRequest.body, plainRequest.contentType);
+    expect(plainUpload.subarray(0, 4).toString('ascii')).toBe('RIFF');
+    expect(wavDurationSec(plainUpload)).toBeCloseTo(FIXTURE_SEC, 2);
+    expect(plainUpload.equals(audio)).toBe(true);
+
+    // Leg 3 — the default install. The switch is off, so the entry is not rendered; the microphone,
+    // which was there before this task, still is.
+    const requestsAtDefault = requests.length;
+    await openComposer('/?voiceDebug=off');
+    // The premise first: the footer really is rendered and its mic is there, so the absence below is the
+    // switch's doing rather than a composer that has not painted yet. A zero count is satisfied by a blank
+    // page, and a blank page is what a broken build answers with.
+    await expect(page.getByRole('button', { name: 'Voice input' })).toBeVisible();
+    await expect(uploadEntry()).toHaveCount(0);
+    await expect(uploadInput()).toHaveCount(0);
+    expect(requests).toHaveLength(requestsAtDefault);
+
+    // Two legs, two uploads: no leg uploaded twice, and the third sent nothing at all.
+    expect(requests.length).toBe(requestsBefore + 2);
   });
 });
