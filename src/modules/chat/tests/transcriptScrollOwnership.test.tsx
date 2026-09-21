@@ -315,6 +315,76 @@ describe('deferred scroll-to-bottom', () => {
 
     expect(container.writes).toContain(container.scrollHeight);
   });
+
+  /**
+   * The deferred half of the same bug, and the one the intent state cannot see.
+   *
+   * A scroll key moves the pane as its default action and the browser reports
+   * the `scroll` a frame or more later, so a placement armed a moment earlier —
+   * the composer's post-send pin is the one this exists for — still reads "the
+   * user is following" at fire time, over a pane the user has already taken.
+   * That write is the pull-back the criterion forbids, and it lands inside the
+   * window a small gesture is asserting itself in. The offset the app itself
+   * placed last is what survives the gap.
+   */
+  it('refuses a deferred placement once the pane has moved up, before any report says so', async () => {
+    const messages = new Map<string, NormalizedMessage[]>([
+      [SESSION_A, [buildMessage(0, '2026-01-01T00:00:00.000Z')]],
+    ]);
+    const store = createStore(messages);
+    const { result } = await renderChatSessionState({
+      session: { id: SESSION_A } as ProjectSession,
+      store,
+    });
+
+    const container = createContainer(5000, 500);
+    (result.current.scrollContainerRef as { current: HTMLDivElement | null }).current = container.element;
+
+    // The app puts the pane on the bottom and takes note of where that landed.
+    act(() => {
+      result.current.scrollToBottom();
+    });
+    assert.deepEqual(
+      container.writes,
+      [container.scrollHeight],
+      'premise: the placement lands on the bottom',
+    );
+
+    // And it still fires while the pane is where it was left — the guard is not
+    // a blanket refusal, which is what a send on an untouched pane relies on.
+    container.writes.length = 0;
+    act(() => {
+      result.current.scrollToBottom();
+    });
+    assert.deepEqual(
+      container.writes,
+      [container.scrollHeight],
+      'an untouched pane is still placed on the bottom',
+    );
+
+    // Now the pane moves up — as a key's default action does — and no `scroll`
+    // has been delivered for it yet, so the mirrored intent still reads
+    // "following" over a viewport that is no longer where the app put it. The
+    // fixture has one counter for both, so the window opens after the movement:
+    // in the browser this is the pane's own, and no JS write at all.
+    container.element.scrollTop = container.scrollHeight - 30;
+    assert.equal(
+      result.current.isUserScrolledUp,
+      false,
+      'premise: the movement has not been reported yet, so the intent has not moved',
+    );
+    container.writes.length = 0;
+
+    act(() => {
+      result.current.scrollToBottom();
+    });
+
+    assert.deepEqual(
+      container.writes,
+      [],
+      `a placement must not fire over a pane that has moved up since the app placed it; got ${JSON.stringify(container.writes)}`,
+    );
+  });
 });
 
 describe('content-growth follow', () => {
@@ -552,6 +622,87 @@ describe('content-growth follow', () => {
         result.current.isUserScrolledUp,
         true,
         'a wheel that carries the viewport away from the bottom is the user leaving it',
+      );
+    } finally {
+      container.element.remove();
+    }
+  });
+
+  /**
+   * The distinction the criterion turns on: intent is a *direction*, not a distance.
+   *
+   * A wheel of thirty pixels leaves the viewport inside the 50px band the pane's
+   * "is it at the bottom?" question answers yes to, so an implementation that
+   * decided by distance would keep following — and the next growth would then be
+   * pinned over the user, which is the pull-back this case exists for. What the
+   * report still carries on its own is the way the offset moved.
+   */
+  it('reads a small upward wheel as the user leaving, however near the bottom it lands', async () => {
+    const { result, container, observer } = await mountFollow();
+    document.body.appendChild(container.element);
+    try {
+      act(() => {
+        container.element.dispatchEvent(new Event('wheel'));
+      });
+      container.scrollTo(container.bottom - 30);
+      act(() => {
+        dispatchScroll(container.element);
+      });
+
+      // The premise, stated so a run cannot pass without meeting it: the viewport
+      // really did stay inside the band a distance rule reads as "at the bottom".
+      assert.ok(
+        container.bottom - container.scrollTop < 50,
+        'the fixture must leave the viewport inside the band a distance rule calls pinned',
+      );
+      assert.equal(
+        result.current.isUserScrolledUp,
+        true,
+        'a gesture that moved the viewport up must detach it however small the movement',
+      );
+
+      // And the consequence the criterion is about: the growth that follows opens
+      // the gap the user is holding instead of closing it.
+      container.writes.length = 0;
+      container.grow(480);
+      act(() => {
+        observer.emit();
+      });
+      act(() => {
+        runFrames();
+      });
+      assert.deepEqual(
+        container.writes,
+        [],
+        `growth must open the gap the user is holding, not close it; got ${JSON.stringify(container.writes)}`,
+      );
+    } finally {
+      container.element.remove();
+    }
+  });
+
+  /**
+   * The other way the same viewport is moved, and the one input a wheel-and-touch
+   * rule cannot see: the browser scrolls the focused pane itself and reports a
+   * `scroll` with no wheel and no touch anywhere on the page, so only the key in
+   * front of the report says whose movement it was.
+   */
+  it('reads a keyboard scroll as the user leaving, with no wheel or touch behind it', async () => {
+    const { result, container } = await mountFollow();
+    document.body.appendChild(container.element);
+    try {
+      act(() => {
+        container.element.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true }));
+      });
+      container.scrollTo(container.bottom - 400);
+      act(() => {
+        dispatchScroll(container.element);
+      });
+
+      assert.equal(
+        result.current.isUserScrolledUp,
+        true,
+        'a scroll key that moved the pane is the user leaving the bottom, exactly as a wheel is',
       );
     } finally {
       container.element.remove();

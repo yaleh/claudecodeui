@@ -34,6 +34,9 @@ const SEARCH_SCROLL_RETRY_DELAY_MS = 150;
  * that grew in place is followed, and the 1–50px band is exactly the drift a
  * wheel gesture creates — following it there is the "it dragged me back"
  * failure. A viewport sitting on the bottom measures 0.
+ *
+ * The same bound is what a gesture's *direction* is read with: a report that
+ * moved the offset up by less than this is not a movement at all.
  */
 const TRANSCRIPT_FOLLOW_TOLERANCE_PX = 1;
 
@@ -317,6 +320,40 @@ export function useChatSessionState({
    */
   const programmaticScrollEchoesRef = useRef(0);
   /**
+   * The offset the pane last reported, which a gesture's *direction* is read
+   * against.
+   *
+   * A scroll report says the viewport moved, not where the user meant to put it:
+   * a wheel of thirty pixels leaves the pane inside the band a distance
+   * threshold still calls "at the bottom", and the size of the movement is
+   * exactly what must not decide. Direction is the one thing the report still
+   * carries on its own, so it is read here — against the offset the previous
+   * report left, not against a distance to the bottom.
+   *
+   * Seeded with the pane's own offset when it is attached, so the first gesture
+   * after a session opens is not compared against an offset the pane never had.
+   */
+  const observedScrollTopRef = useRef(0);
+  /**
+   * The offset the app last put the viewport at.
+   *
+   * A deferred placement is armed while the app is at the bottom and fires tens
+   * to hundreds of milliseconds later, and the movement that took the viewport
+   * away in that window is not always readable from the intent state yet: the
+   * browser moves the offset as a key's default action and reports the `scroll`
+   * with a later frame, so at fire time a keyboard gesture the app has already
+   * seen still looks like "nobody touched the pane". Comparing the pane's offset
+   * against the one the app itself placed last is what tells those two apart —
+   * and it never consults the distance to the bottom, which is the band a small
+   * gesture lands inside.
+   *
+   * Written after the assignment, so the value is the offset the browser
+   * clamped to rather than the one that was asked for, and re-seated whenever
+   * the follow is claimed (`isUserScrolledUp` turning off) or the session
+   * changes, so a placement is judged against this transcript and this moment.
+   */
+  const lastPlacedTopRef = useRef(0);
+  /**
    * Places the viewport on the app's behalf, and takes responsibility for the
    * `scroll` that follows.
    *
@@ -328,6 +365,7 @@ export function useChatSessionState({
   const writeScrollTop = useCallback((container: HTMLElement, next: number) => {
     programmaticScrollEchoesRef.current += 1;
     container.scrollTop = next;
+    lastPlacedTopRef.current = container.scrollTop;
   }, []);
   const isLoadingMoreRef = useRef(false);
   const allMessagesLoadedRef = useRef(false);
@@ -537,7 +575,18 @@ export function useChatSessionState({
   // `setIsUserScrolledUp` call, because the setter is also returned from this
   // hook and driven from the composer.
   useEffect(() => {
+    const wasDetached = isUserScrolledUpRef.current;
     isUserScrolledUpRef.current = isUserScrolledUp;
+    // Following again — the user arriving back at the bottom, a send, the
+    // button, a search jump being superseded — re-seats what "where the app
+    // last put it" means. The placements armed from this point are judged
+    // against where the pane stands now, so a send made from part-way up still
+    // lands on the bottom, and only a movement up *after* the claim counts as
+    // the user leaving.
+    if (wasDetached && !isUserScrolledUp) {
+      const container = scrollContainerRef.current;
+      if (container) lastPlacedTopRef.current = container.scrollTop;
+    }
   }, [isUserScrolledUp]);
 
   /**
@@ -677,6 +726,11 @@ export function useChatSessionState({
     // erase the layout the follow judges a resize against.
     if (!observer || !container || observedContainerRef.current === container) return;
     observedContainerRef.current = container;
+    // The direction a gesture is read with is relative to where the pane already
+    // is, so the baseline is seeded from the pane here rather than left at zero:
+    // a session that opens part-way up would otherwise read its first wheel as a
+    // move towards the bottom.
+    observedScrollTopRef.current = container.scrollTop;
     if (!transcriptGeometryRef.current) {
       // Seeded rather than left to the observer's first callback, so a resize
       // delivered in the same batch as that callback cannot be mistaken for the
@@ -719,25 +773,55 @@ export function useChatSessionState({
     if (plan) writeScrollTop(plan.container, plan.bottom);
   }, [judgeTranscriptGrowth, chatMessages]);
 
-  const scrollToBottom = useCallback(() => {
+  /**
+   * Puts the viewport on the bottom and settles the intent itself.
+   *
+   * The app placing the viewport on the bottom is the app asserting that the
+   * user is following: the scroll this write raises carries no gesture with it
+   * and is deliberately not read as one, because a programmatic write is not
+   * evidence either way.
+   */
+  const placeTranscriptAtBottom = useCallback(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
-    // The app putting the viewport on the bottom is the user asking to be there
-    // (a send, the button), so it settles the intent itself. The scroll this
-    // write raises carries no gesture with it, and is deliberately not read as
-    // one — a programmatic write is not evidence either way.
     setIsUserScrolledUp(false);
     writeScrollTop(container, container.scrollHeight);
   }, [writeScrollTop]);
 
+  /**
+   * The placement the app defers: armed while the user was following — a send's
+   * new row, an arriving row, an external refresh's tail — and fired a moment
+   * later, by which time the pane may no longer belong to the follow.
+   *
+   * Both guards are needed, and neither is a distance to the bottom. The state
+   * is what the app knows the intent to be; the offset is what the pane has done
+   * since the app last placed it, and that is the half which catches a gesture
+   * the app has *seen* but not yet been *told* about — a key moves the offset as
+   * its default action while the `scroll` it raises waits for the next frame, so
+   * at fire time the intent still reads "following" over a pane the user has
+   * already taken. Firing there is exactly the bug this refuses: the deferred
+   * write lands on top of a gesture the user just made, inside the window a
+   * small gesture is asserting itself in.
+   */
+  const scrollToBottom = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    if (isUserScrolledUpRef.current) return;
+    if (container.scrollTop < lastPlacedTopRef.current - TRANSCRIPT_FOLLOW_TOLERANCE_PX) return;
+    placeTranscriptAtBottom();
+  }, [placeTranscriptAtBottom]);
+
   const scrollToBottomAndReset = useCallback(() => {
-    scrollToBottom();
+    // Unguarded, unlike the deferred placement above: this is the control the
+    // user pressed, and a control that says "to the bottom" is the user asking
+    // to be there from wherever they are — the very state the guards refuse.
+    placeTranscriptAtBottom();
     if (allMessagesLoaded) {
       setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
       setAllMessagesLoaded(false);
       allMessagesLoadedRef.current = false;
     }
-  }, [allMessagesLoaded, scrollToBottom]);
+  }, [allMessagesLoaded, placeTranscriptAtBottom]);
 
   const isNearBottom = useCallback(() => {
     const container = scrollContainerRef.current;
@@ -768,9 +852,12 @@ export function useChatSessionState({
    * too — scroll anchoring and clamping move the offset with nobody touching the
    * page — so a transcript that read every `scroll` as intent detaches when a row
    * above the viewport shrinks, and stops following the row that then grows.
-   * Discriminating on the *source* rather than on the size or direction of the
-   * change is therefore the point: the browser's scroll decreases scrollTop here,
-   * exactly like a wheel-up would.
+   * Discriminating on the *source* rather than on the offset a report landed at
+   * is therefore the point: the browser's scroll decreases scrollTop here,
+   * exactly like a wheel-up would, so only the input in front of it says whose
+   * movement it was. Which *way* it moved is the other half, and it is read from
+   * the offset the report carries rather than from the distance to the bottom —
+   * a gesture of a few pixels is a gesture.
    *
    * The listener is on the window so it also sees the input that starts a
    * gesture outside the pane, and so a scroll of the pane is attributed no matter
@@ -789,6 +876,13 @@ export function useChatSessionState({
 
     const onScroll = (event: Event) => {
       if (!isPaneScroll(event)) return;
+      const container = scrollContainerRef.current;
+      if (!container) return;
+      // Every report moves the baseline the next direction is read against, and
+      // that includes the reports the app's own writes owe: the offset they
+      // carried is the one the user's next gesture starts from.
+      const previousTop = observedScrollTopRef.current;
+      observedScrollTopRef.current = container.scrollTop;
       // A report the app's own write owes is the app placing the viewport, not
       // the user. The restore a prepend ends with is the case this exists for:
       // it lands on the bottom — where a user who scrolled there sits — while
@@ -804,7 +898,20 @@ export function useChatSessionState({
       // one the gesture ended on.
       if (!userScrollGestureRef.current) return;
       noteUserScrollInput();
-      setIsUserScrolledUp(!isNearBottom());
+      // The judgement is the direction of the movement, never the distance that
+      // is left to the bottom. A wheel of a few pixels leaves the pane inside
+      // the band a distance threshold still reads as "at the bottom", and
+      // answering that with "still following" hands the viewport straight back
+      // to the next growth: the user asked to be away from the bottom, however
+      // slightly, and staying away until they come back is the whole contract.
+      if (container.scrollTop < previousTop - TRANSCRIPT_FOLLOW_TOLERANCE_PX) {
+        setIsUserScrolledUp(true);
+        return;
+      }
+      // Coming back down is the user returning, and only an arrival counts: a
+      // wheel down that stops short of the bottom leaves the intent where it
+      // was, so the gap it did not close is not closed by the follow either.
+      if (isNearBottom()) setIsUserScrolledUp(false);
     };
     /**
      * Real input: whatever the app wrote before this is no longer the newest
@@ -829,11 +936,22 @@ export function useChatSessionState({
         setIsUserScrolledUp(true);
       }
     };
-    const onTouch = () => noteInput();
+    const onTouch = (event: Event) => {
+      if (isOverPane(event)) noteInput();
+    };
     // A scrollbar drag is a gesture with no wheel and no key behind it: the
     // pointer press is the only evidence there is, and the scroll events that
     // follow it are what carry the intent.
-    const onPointerDown = () => noteInput();
+    //
+    // The press has to land on the pane for that to hold. A press anywhere else
+    // — the composer's send button, a toolbar, the sidebar — is not evidence
+    // about the transcript, and the window it opened would let the browser's own
+    // scrolling be read as the user's: a row above the viewport collapsing while
+    // the reply streams moves the offset up with nobody touching the page, and
+    // the transcript then stops following the reply the user just sent.
+    const onPointerDown = (event: Event) => {
+      if (isOverPane(event)) noteInput();
+    };
     const onKeyDown = (event: KeyboardEvent) => {
       if (SCROLL_INTENT_KEYS.has(event.key)) noteInput();
     };
@@ -1027,6 +1145,13 @@ export function useChatSessionState({
     topLoadLockRef.current = false;
     pendingScrollRestoreRef.current = null;
     wasNearTopRef.current = false;
+    // A doubled baseline would outlive its transcript: this hook keeps its pane
+    // across a session change, so the offset the previous transcript was placed
+    // at is far below anything the new one can reach, and every deferred
+    // placement in the session that just opened would read as "the user has
+    // taken the pane" and be refused. The initial settle re-seats it here anyway
+    // — this only makes sure nothing fires against the stale value first.
+    lastPlacedTopRef.current = 0;
     setIsUserScrolledUp(false);
   }, [selectedProject?.projectId, selectedSession?.id]);
 

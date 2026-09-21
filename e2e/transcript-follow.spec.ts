@@ -716,8 +716,12 @@ const AC108_DELTAS = Array.from({ length: AC108_DELTA_COUNT }, (_, index) => {
 type GatewayHit = {
   url: string;
   body: string;
-  /** True for the one request answered with the slow delta stream. */
+  /** True for the requests answered with the slow delta stream. */
   streamed: boolean;
+  /** When the request arrived, in epoch milliseconds; 0 until it does. */
+  requestedAt: number;
+  /** When its last delta went out; 0 until then. */
+  endedAt: number;
 };
 
 /** Writes one Anthropic SSE frame. */
@@ -727,9 +731,10 @@ const sseFrame = (event: string, data: unknown) => `event: ${event}\ndata: ${JSO
  * Reads and answers one request.
  *
  * The request body is what selects the reply — the SDK's own session-naming call reaches
- * this gateway too, and it must not be the one that gets streamed. Every body is kept, so
- * "the right request was picked" is checkable from the recording rather than asserted from
- * the spec's belief about it.
+ * this gateway too, and it must not be the one that gets streamed. Every body is kept, with
+ * the moment it arrived and the moment its last delta went out, so "the right request was
+ * picked" and "the stream was still running while the case measured" are both checkable from
+ * the recording rather than asserted from the spec's belief about it.
  */
 const answerGatewayRequest = (
   hits: GatewayHit[],
@@ -751,12 +756,23 @@ const answerGatewayRequest = (
     // Both selectors matter. The SDK names the session through this same base URL and puts
     // the prompt in that request's own body, so the text alone picks two requests; the model
     // is what separates them, because the naming call runs on the SDK's own cheap model and
-    // only the turn runs on the model the case selected.
-    const isContentRequest = body.includes(AC108_PROMPT_MARKER) && asked.model === AC108_MODEL.id;
-    hits.push({ url: request.url ?? '', body, streamed: isContentRequest });
-    if (isContentRequest) {
+    // only the turn runs on the model the case selected. Which *case's* turn it is comes from
+    // the prompt marker, so several measured turns can share this gateway in one run.
+    const reply = streamReplyFor(body, asked.model);
+    const hit: GatewayHit = {
+      url: request.url ?? '',
+      body,
+      streamed: reply !== null,
+      requestedAt: Date.now(),
+      endedAt: 0,
+    };
+    hits.push(hit);
+    if (reply) {
       onStreamStart();
-      respondWithSseStream(response, AC108_DELTAS, AC108_DELTA_INTERVAL_MS, AC108_STREAM_LEAD_MS, onStreamEnd);
+      respondWithSseStream(response, reply.deltas, reply.intervalMs, reply.leadMs, () => {
+        hit.endedAt = Date.now();
+        onStreamEnd();
+      });
       return;
     }
     // Not the measured request: answered at once, because the CLI waits on it and a
@@ -1167,6 +1183,492 @@ const stopFollowSampler = (page: Page) =>
       rowMutations: state.rowMutations,
     };
   });
+
+/* ────────────────────── AC-109: a small gesture is still a gesture ────────────────────── */
+
+/**
+ * The two prompts this case sends, and the marker that selects each one's reply at the gateway.
+ *
+ * Two windows rather than one, because the case measures two gestures — a wheel and a keyboard
+ * scroll — and each has to start from a pane the follow is holding at the bottom. A second
+ * prompt in the same conversation gives the second window a reply of its own to grow into, while
+ * the app's own control walks the pane back to the bottom from the first.
+ */
+const AC109_WHEEL_PROMPT_MARKER = 'AC109WHEELPROMPT';
+const AC109_KEY_PROMPT_MARKER = 'AC109KEYPROMPT';
+/** Carried by each stream's last delta, so the case can wait for that reply to have arrived. */
+const AC109_WHEEL_COMPLETION_MARKER = 'AC109WHEELDONE';
+const AC109_KEY_COMPLETION_MARKER = 'AC109KEYDONE';
+const AC109_WHEEL_PROMPT = `${AC109_WHEEL_PROMPT_MARKER} keep the newest line in view while this arrives`;
+const AC109_KEY_PROMPT = `${AC109_KEY_PROMPT_MARKER} keep the newest line in view while this arrives`;
+
+/**
+ * The stream behind each prompt: 24 deltas 250 ms apart, so the transport spans 5.75 s.
+ *
+ * The criterion's floor is twenty deltas over five seconds, and this case spends part of that
+ * span on its own gesture: the detach window below has to sit inside the stream, so the reply
+ * must still be arriving when the window ends. The deltas are fatter than AC-108's because a
+ * wheel only moves a pane that has something to scroll, and the window cannot start until the
+ * reply's own row has already filled more than a screen.
+ */
+const AC109_DELTA_COUNT = 24;
+const AC109_DELTA_INTERVAL_MS = 250;
+const AC109_STREAM_LEAD_MS = 800;
+
+/** How far the pane has to be scrollable before the gesture is sent — see above. */
+const AC109_SCROLLABLE_MIN_PX = 300;
+
+/** The wheel this case sends: thirty pixels, inside the 50px band a distance rule calls "at the bottom". */
+const AC109_WHEEL_PX = 30;
+
+/**
+ * How long the viewport is left alone after the gesture, in milliseconds.
+ *
+ * Long enough for the browser to finish the movement the gesture started — a wheel is animated —
+ * and for the reply to grow the pane under it several times, which is what gives an
+ * implementation that re-pins on the next growth the chance to. The window is closed by its own
+ * liveness assertion rather than by this number: the stream must still be running when it ends.
+ */
+const AC109_DETACH_WINDOW_MS = 1_200;
+
+/** How long the pane is sampled after the reply has fully arrived, in milliseconds. */
+const AC109_PINNED_TAIL_MS = 400;
+
+/** The gap the pane may show at a frame, in CSS pixels — the criterion's own bound. */
+const AC109_GAP_PX = 1;
+
+/**
+ * The text each stream carries, one string per delta.
+ *
+ * Six sentences rather than AC-108's four: the reply has to make the pane scrollable by more
+ * than `AC109_SCROLLABLE_MIN_PX` before the gesture is sent, and doing that in fewer, fatter
+ * deltas is what keeps the window inside the stream.
+ */
+const ac109Deltas = (completionMarker: string) =>
+  Array.from({ length: AC109_DELTA_COUNT }, (_, index) => {
+    const body = `Delta ${index}. ${'The transcript pane keeps the newest line in view while a reply arrives one piece at a time. '.repeat(6)}`;
+    return index === AC109_DELTA_COUNT - 1 ? `${body} ${completionMarker}` : body;
+  });
+
+const AC109_WHEEL_DELTAS = ac109Deltas(AC109_WHEEL_COMPLETION_MARKER);
+const AC109_KEY_DELTAS = ac109Deltas(AC109_KEY_COMPLETION_MARKER);
+
+/**
+ * Every measured reply this file streams, and the prompt that selects it.
+ *
+ * A table rather than one answer, because three measured turns — AC-108's and this case's two —
+ * reach the same mock gateway in one run, and each case waits for the reply to *its* prompt.
+ */
+const MEASURED_STREAM_REPLIES = [
+  { marker: AC108_PROMPT_MARKER, deltas: AC108_DELTAS, intervalMs: AC108_DELTA_INTERVAL_MS, leadMs: AC108_STREAM_LEAD_MS },
+  { marker: AC109_WHEEL_PROMPT_MARKER, deltas: AC109_WHEEL_DELTAS, intervalMs: AC109_DELTA_INTERVAL_MS, leadMs: AC109_STREAM_LEAD_MS },
+  { marker: AC109_KEY_PROMPT_MARKER, deltas: AC109_KEY_DELTAS, intervalMs: AC109_DELTA_INTERVAL_MS, leadMs: AC109_STREAM_LEAD_MS },
+];
+
+/**
+ * The gateway's whole selection rule: which measured reply, if any, a request gets.
+ *
+ * Both selectors are load-bearing. The model separates the turn from the SDK's own session-naming
+ * call, which reaches this gateway too and runs on the SDK's own cheap model rather than the one
+ * the case selected; the prompt marker separates one measured turn from another's — and it is the
+ * *last* marker in the body that selects, because a turn carried on from an earlier one sends the
+ * earlier turn's prompt with it. Declared below the gateway that calls it because the table it
+ * reads is built from this case's own constants — the call happens per request, long after the
+ * module has been evaluated.
+ */
+function streamReplyFor(body: string, modelId: string | undefined) {
+  if (modelId !== AC108_MODEL.id) return null;
+  // The *last* prompt mentioned wins, rather than the first one the table happens to list.
+  // A resumed conversation carries every earlier turn, so AC-109's second window sends a body
+  // that contains the first window's prompt as well as its own — measured, not assumed: the
+  // keyboard turn's body holds `AC109WHEELPROMPT` at offset 704 and `AC109KEYPROMPT` at 22240.
+  // A front-to-back `find` answers that turn with the wheel's reply, and the case then waits on
+  // a completion marker no reply will ever carry: the keyboard half is unsatisfiable, and the
+  // anti-fake variant that has to redden it would redden it for the wrong reason. The newest
+  // turn is the last one written, so the selection follows the body's order.
+  let picked: (typeof MEASURED_STREAM_REPLIES)[number] | null = null;
+  let pickedAt = -1;
+  for (const reply of MEASURED_STREAM_REPLIES) {
+    const at = body.lastIndexOf(reply.marker);
+    if (at > pickedAt) {
+      picked = reply;
+      pickedAt = at;
+    }
+  }
+  return picked;
+}
+
+/** The pane's geometry at one sampled frame of either AC-109 window. */
+type Ac109Sample = {
+  /** Milliseconds since the page's time origin. */
+  t: number;
+  /** `scrollHeight − scrollTop − clientHeight`: 0 means the last line is on screen. */
+  gap: number;
+  scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
+};
+
+/**
+ * Starts sampling the pane once a frame's rendering steps have run, and keeps sampling until told
+ * to stop.
+ *
+ * The read is taken from inside `requestAnimationFrame` plus a `setTimeout(0)`, which is after
+ * the frame's layout and after the callbacks a `ResizeObserver` delivery queued for that frame.
+ * That ordering is the point: a growth and the write that answers it land in the same frame, and
+ * a sampler that read between them would report the un-repaired state as a gap the follow left.
+ */
+const startAc109Sampler = (page: Page) =>
+  page.evaluate(() => {
+    const state = { running: true, samples: [] as Ac109Sample[] };
+    (window as unknown as { __ac109?: typeof state }).__ac109 = state;
+    const tick = () => {
+      if (!state.running) return;
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          const pane = document.querySelector('.chat-messages-pane') as HTMLElement | null;
+          if (pane) {
+            state.samples.push({
+              t: performance.now(),
+              gap: pane.scrollHeight - pane.scrollTop - pane.clientHeight,
+              scrollTop: pane.scrollTop,
+              scrollHeight: pane.scrollHeight,
+              clientHeight: pane.clientHeight,
+            });
+          }
+          tick();
+        }, 0);
+      });
+    };
+    tick();
+  });
+
+/** Stops the sampler and returns every frame it saw since it was started. */
+const stopAc109Sampler = (page: Page) =>
+  page.evaluate(() => {
+    const state = (window as unknown as { __ac109?: { running: boolean; samples: Ac109Sample[] } }).__ac109;
+    if (!state) return [] as Ac109Sample[];
+    state.running = false;
+    return state.samples;
+  });
+
+/**
+ * Counts the writes to *this pane's* offset, on the pane instance itself.
+ *
+ * The window-level instrument counts every element's assignments; what the criterion is about is
+ * whether anything placed this pane's viewport while the user was holding it, so the count is
+ * taken at the element. The descriptor forwards to the prototype's own — the one
+ * `instrumentScrollSources` installed, so the write is counted there too and the native setter
+ * still runs. A wheel, a key and the browser's own clamp never go through a JS setter, which is
+ * what makes a non-empty record a record of the *app* writing the offset rather than of the
+ * gesture.
+ */
+const installAc109PaneWriteCounter = (page: Page) =>
+  page.evaluate(() => {
+    const pane = document.querySelector('.chat-messages-pane') as HTMLElement;
+    const state = { writes: [] as { value: number; t: number; frames: string[] }[] };
+    (window as unknown as { __ac109PaneWrites?: typeof state }).__ac109PaneWrites = state;
+    const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop')!;
+    Object.defineProperty(pane, 'scrollTop', {
+      configurable: true,
+      enumerable: descriptor.enumerable,
+      get(this: Element) {
+        return descriptor.get!.call(this);
+      },
+      set(this: Element, value: number) {
+        // The caller's whole chain is kept with the value — the setter, the writer, and whatever
+        // armed it — so a run that finds a write names what made it instead of only reporting that
+        // something did. The frames are the dev server's own module lines, which the transform
+        // renumbers; the writer is identified by mapping them back through the same transform.
+        state.writes.push({
+          value,
+          t: performance.now(),
+          frames: (new Error().stack ?? '').split('\n').slice(1, 10).map((line) => line.trim()),
+        });
+        descriptor.set!.call(this, value);
+      },
+    });
+  });
+
+/** The writes the pane itself received since its counter was installed. */
+const readAc109PaneWrites = (page: Page) =>
+  page.evaluate(() =>
+    (window as unknown as { __ac109PaneWrites?: { writes: { value: number; t: number; frames: string[] }[] } })
+      .__ac109PaneWrites?.writes ?? []);
+
+/**
+ * The offsets a window sampled, and the moment the gesture was dispatched in between them.
+ *
+ * Kept as the reading a red run needs: "a write landed" is only actionable once it is known
+ * whether it landed before the gesture took effect or after it, and the frame times are what
+ * say which.
+ */
+const describeAc109Window = (
+  samples: Ac109Sample[],
+  writes: { value: number; t: number; frames: string[] }[],
+  gesture: { startedAt: number; endedAt: number },
+  trace?: ScrollInstruments,
+) => JSON.stringify({
+  // The four geometry fields rather than the offset alone: a write whose value is past the pane's
+  // own maximum is clamped by the browser, so "the offset never moved" and "nothing wrote it" are
+  // different readings and only the max says which one happened.
+  sampled: samples.map((sample) => [
+    Math.round(sample.t),
+    Math.round(sample.scrollTop),
+    Math.round(sample.scrollHeight),
+    Math.round(sample.clientHeight),
+  ]),
+  writes: writes.map((write) => ({ value: Math.round(write.value), t: Math.round(write.t), frames: write.frames })),
+  gesture: { startedAt: Math.round(gesture.startedAt), endedAt: Math.round(gesture.endedAt) },
+  // What the page saw the user do and what it reported back. The write above is only attributable
+  // once it is placed against these: an input the app had seen and not yet acted on, a report that
+  // arrived after the write, or a button that mounted before it are three different defects.
+  inputs: trace?.__scrollInputs.map((input) => [Math.round(input.t), input.type]) ?? [],
+  scrolls: trace?.__scrollEvents
+    .filter((event) => event.target.includes('chat-messages-pane'))
+    .map((event) => Math.round(event.t)) ?? [],
+  scrollButtons: trace?.__scrollButtonAppearances.map((appearance) => Math.round(appearance.t)) ?? [],
+});
+
+/** One of AC-109's two detach windows, as it was measured. */
+type Ac109WindowReading = {
+  label: string;
+  /** How far the gesture moved the viewport up, in CSS pixels. */
+  movedUpBy: number;
+  /** The highest offset any frame in the window showed, relative to where the gesture started. */
+  highestOffsetDelta: number;
+  /** Frames sampled between the gesture and the button. */
+  detachFrames: number;
+  /** Growths the stream delivered while the window was open. */
+  growthsInWindow: number;
+  /** Everything the pane's own offset was written with in the window. */
+  paneWrites: { value: number; t: number; frames: string[] }[];
+  /** Everything any element's offset was written with in the window. */
+  pageWrites: { value: number; t: number }[];
+  /** Whether the app's way back was on screen when the window ended. */
+  buttonVisible: boolean;
+  /** Mounts of that control inside the window — this gesture's detach, counted. */
+  buttonAppearancesInWindow: number;
+  /** Whether the reply had already fully arrived when the window ended. */
+  completionPresent: boolean;
+  /** Frames sampled from the click to the end of the reply. */
+  pinnedFrames: number;
+  /** Growths the remaining stream delivered in that second window. */
+  pinnedGrowths: number;
+  /** Frames left off the bottom that the following frame did not repair. */
+  unpinned: { t: number; gap: number; grew: boolean; nextGap: number | null }[];
+  /** The gap the pane showed once the reply had arrived. */
+  settledGap: number;
+};
+
+/**
+ * Measures one detach window: gesture, hold, and the app's own way back.
+ *
+ * The criterion's three claims are asserted here, in the order they happen:
+ *
+ *   1. the gesture detaches — a small upward wheel and a keyboard scroll are the same thing to
+ *      the pane, so both go through this one path; the pane is asserted to be following *before*
+ *      the gesture, and the control to have mounted *after* it, so the claim is about this
+ *      gesture rather than about a pane that was already detached when the window opened;
+ *   2. nothing places the viewport while the reply is still growing it — not the follow, not a
+ *      deferred pin, not the frame a growth landed on;
+ *   3. the control the app offers is what brings it back, and from the click to the end of the
+ *      reply every frame is pinned.
+ *
+ * A headless browser cannot be asked what the user meant, so each claim is measured on what the
+ * page did: offsets, writes, and the frames between them.
+ */
+const runAc109Window = async (page: Page, options: {
+  label: string;
+  prompt: string;
+  promptMarker: string;
+  completionMarker: string;
+  hits: GatewayHit[];
+  gesture: () => Promise<void>;
+}): Promise<Ac109WindowReading> => {
+  const { label, prompt, promptMarker, completionMarker, hits, gesture } = options;
+
+  // Sent through the composer, as a user sends one: no store write from the spec and no stub of
+  // the backend.
+  await page.getByPlaceholder(/Type \/ for commands/).fill(prompt);
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+
+  // The prompt is a row of its own, and it lands before the reply can.
+  await expect(page.locator(PANE)).toContainText(promptMarker, { timeout: 30_000 });
+
+  // A wheel only moves a pane that has something to scroll, and this window is about a pane the
+  // user took while a reply was still growing it: waiting for the reply to have filled more than
+  // a screen — with the follow keeping the pane at the bottom — is what makes the gesture below a
+  // real one rather than a no-op that a pane which never moved would pass for free.
+  await expect
+    .poll(async () => {
+      const geometry = await readGeometry(page);
+      return geometry.scrollHeight - geometry.clientHeight >= AC109_SCROLLABLE_MIN_PX
+        && geometry.gap <= AC109_GAP_PX;
+    }, { timeout: 30_000, message: `${label}: the reply never filled the pane while the follow kept it at the bottom` })
+    .toBe(true);
+
+  // The baseline and the counters are taken here rather than earlier: what the window measures is
+  // the window, and a write the app made while the reply was filling the pane says nothing about
+  // whether the gesture was respected.
+  const before = await readGeometry(page);
+  await installAc109PaneWriteCounter(page);
+  // The window's premise, and the reason it is asserted before the gesture rather than trusted:
+  // the claims below say "this gesture took the pane and nothing gave it back", which is only a
+  // statement about this gesture if the pane arrived under the follow's control. A pane that was
+  // already detached when the window opened passes every one of them — the hold, the absence of
+  // writes, the control on screen — while the gesture it is supposed to be about was never the
+  // thing that detached it.
+  const buttonAtOpen = await page.locator(SCROLL_BUTTON).count();
+  expect(
+    buttonAtOpen,
+    `${label}: the pane has to be following when the window opens, or the detach inside it is some other input's doing`,
+  ).toBe(0);
+  await clearInstruments(page);
+  await startAc109Sampler(page);
+
+  const gestureStartedAt = await page.evaluate(() => performance.now());
+  await gesture();
+  const gestureEndedAt = await page.evaluate(() => performance.now());
+  await page.waitForTimeout(AC109_DETACH_WINDOW_MS);
+
+  const detachSamples = await stopAc109Sampler(page);
+  const paneWrites = await readAc109PaneWrites(page);
+  const detachTrace = await readInstruments(page);
+  const pageWrites = detachTrace.__scrollWrites;
+  const buttonVisible = await page.locator(SCROLL_BUTTON).isVisible().catch(() => false);
+  // The mounts seen *inside* the window: the control is rendered from the intent the pane reports,
+  // so one appearing here is this gesture's detach and not a state the window inherited.
+  const buttonAppearancesInWindow = detachTrace.__scrollButtonAppearances.length;
+  const completionPresent = ((await page.locator(PANE).textContent()) ?? '').includes(completionMarker);
+
+  const offsets = detachSamples.map((sample) => sample.scrollTop);
+  const movedUpBy = offsets.length ? before.scrollTop - Math.min(...offsets) : 0;
+  const highestOffsetDelta = offsets.length ? Math.max(...offsets) - before.scrollTop : 0;
+  const growthsInWindow = detachSamples.filter((sample, index) => (
+    index > 0 && sample.scrollHeight > detachSamples[index - 1].scrollHeight + AC109_GAP_PX
+  )).length;
+  const hit = hits.filter((candidate) => candidate.body.includes(promptMarker)).pop();
+
+  expect(
+    detachSamples.length,
+    `${label}: the sampler has to have watched the window (it saw no frame at all)`,
+  ).toBeGreaterThan(0);
+  expect(
+    movedUpBy,
+    `${label}: the gesture has to have moved the viewport up, or "nothing wrote it back" is a statement about a pane the user never moved`,
+  ).toBeGreaterThan(0);
+  // The criterion's own reading. Thirty pixels and a PageUp both leave the pane inside the 50px
+  // band a distance rule reads as "at the bottom", so an implementation that decided by distance
+  // would re-pin on the next growth: it shows up here as a higher offset, or — if it wrote
+  // without the offset moving — as a write.
+  expect(
+    highestOffsetDelta,
+    `${label}: the pane must never be moved back down while the user is holding it, against a baseline of ${Math.round(before.scrollTop)} (${describeAc109Window(detachSamples, paneWrites, { startedAt: gestureStartedAt, endedAt: gestureEndedAt }, detachTrace)})`,
+  ).toBeLessThanOrEqual(AC109_GAP_PX);
+  expect(
+    paneWrites,
+    `${label}: the pane's own offset must not be written at all while the user holds it (${describeAc109Window(detachSamples, paneWrites, { startedAt: gestureStartedAt, endedAt: gestureEndedAt }, detachTrace)})`,
+  ).toEqual([]);
+  expect(
+    pageWrites,
+    `${label}: no element's offset may be written while the user holds the pane`,
+  ).toEqual([]);
+  // The window's liveness, from the stream's side: the reply was still arriving, and it really
+  // did grow the pane under the held viewport.
+  expect(
+    completionPresent,
+    `${label}: the reply had already fully arrived when the window ended, so the window measured a settled pane`,
+  ).toBe(false);
+  expect(
+    hit?.requestedAt ?? 0,
+    `${label}: the gateway never saw a request carrying this prompt`,
+  ).toBeGreaterThan(0);
+  expect(
+    hit?.endedAt,
+    `${label}: the gateway must still have been streaming this prompt's reply when the window ended`,
+  ).toBe(0);
+  expect(
+    growthsInWindow,
+    `${label}: the reply has to have grown the pane while the window was open`,
+  ).toBeGreaterThan(0);
+  expect(
+    buttonAppearancesInWindow,
+    `${label}: the control has to mount inside the window — a gesture is what takes the pane, so the control coming back is this gesture's reading and a control that was already mounted belongs to whatever happened before it`,
+  ).toBeGreaterThan(0);
+  expect(buttonVisible, `${label}: the scroll-to-bottom control has to be on screen`).toBe(true);
+
+  // The app's own way back, clicked as a user clicks it. The pane is pinned again before the
+  // second window starts, so every frame of it is a reading of the follow rather than of the
+  // click still travelling.
+  await page.locator(SCROLL_BUTTON).click();
+  await expect
+    .poll(async () => Math.abs((await readGeometry(page)).gap), {
+      timeout: 10_000,
+      message: `${label}: the control never brought the pane back to the bottom`,
+    })
+    .toBeLessThanOrEqual(AC109_GAP_PX);
+
+  await startAc109Sampler(page);
+  await expect(page.locator(PANE)).toContainText(completionMarker, { timeout: 30_000 });
+  await page.waitForTimeout(AC109_PINNED_TAIL_MS);
+  const pinnedSamples = await stopAc109Sampler(page);
+  const settled = await readGeometry(page);
+
+  // Every frame from the click to the end of the reply, with the one exception a follow cannot
+  // avoid: the frame a growth lands on may be painted before the write that answers it, and the
+  // criterion's shape is that the *next* frame is already pinned — the same reading AC-108 keeps.
+  // A frame with no growth on it is held to the bound with no exception at all, and both sides of
+  // it: a pane placed past the bottom is as far from pinned as one left above it.
+  const grew = (index: number) => index > 0
+    && pinnedSamples[index].scrollHeight > pinnedSamples[index - 1].scrollHeight + AC109_GAP_PX;
+  const unpinned = pinnedSamples
+    .map((sample, index) => ({ sample, index }))
+    .filter(({ sample }) => Math.abs(sample.gap) > AC109_GAP_PX)
+    .filter(({ index }) => (
+      !grew(index)
+      || index + 1 >= pinnedSamples.length
+      || Math.abs(pinnedSamples[index + 1].gap) > AC109_GAP_PX
+    ))
+    .map(({ sample, index }) => ({
+      t: Math.round(sample.t),
+      gap: Math.round(sample.gap),
+      grew: grew(index),
+      nextGap: index + 1 < pinnedSamples.length ? Math.round(pinnedSamples[index + 1].gap) : null,
+    }));
+  const pinnedGrowths = pinnedSamples.filter((_, index) => grew(index)).length;
+
+  expect(pinnedSamples.length, `${label}: the pinned window has to have been sampled`).toBeGreaterThan(0);
+  expect(
+    pinnedGrowths,
+    `${label}: the reply has to keep growing the pane after the click, or "pinned to the end" is a statement about a stalled stream`,
+  ).toBeGreaterThan(0);
+  expect(
+    unpinned,
+    `${label}: after the control is clicked the pane has to stay pinned at the bottom for the rest of the reply`,
+  ).toEqual([]);
+  expect(
+    Math.abs(settled.gap),
+    `${label}: the pane has to settle at the bottom`,
+  ).toBeLessThanOrEqual(AC109_GAP_PX);
+
+  return {
+    label,
+    movedUpBy: Math.round(movedUpBy),
+    highestOffsetDelta: Math.round(highestOffsetDelta),
+    detachFrames: detachSamples.length,
+    growthsInWindow,
+    paneWrites,
+    pageWrites,
+    buttonVisible,
+    buttonAppearancesInWindow,
+    completionPresent,
+    pinnedFrames: pinnedSamples.length,
+    pinnedGrowths,
+    unpinned,
+    settledGap: Math.round(settled.gap),
+  };
+};
 
 test.describe.configure({ mode: 'serial', timeout: 180_000 });
 
@@ -2284,5 +2786,71 @@ test.describe('transcript follow in a real browser', () => {
       /stream_event|"stream_delta"|"stream_end"|content_block_delta/.test(history.body),
       'the partial frames are transport only; the persisted history is what a reload reads',
     ).toBe(false);
+  });
+
+  test('AC-109 a small gesture still detaches, and the control comes back for the rest of the reply', async () => {
+    await page.setViewportSize(AC108_VIEWPORT);
+
+    // A conversation the CLI can run, opened the way a user opens one — the same reason as
+    // AC-108's: the seeded session's id is not a UUID, so a prompt typed into it never leaves
+    // the process. The new conversation is allocated by the app on send.
+    const newSessionButton = page.getByRole('button', { name: 'New Session' }).first();
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      if (await newSessionButton.isVisible().catch(() => false)) {
+        break;
+      }
+      await projectRow().click();
+      await page.waitForTimeout(500);
+    }
+    await newSessionButton.click();
+    await expect
+      .poll(() => new URL(page.url()).pathname, { message: 'the sidebar never opened a new session' })
+      .toBe('/');
+
+    // The gateway model, through the composer's own menu: the same two clicks a user makes, so
+    // the request carries the model's env rather than a stub.
+    await page.getByRole('button', { name: 'Select model and reasoning effort' }).click();
+    await page.getByRole('menuitem').first().click();
+    await page.getByRole('menuitemradio', { name: AC108_MODEL.name }).click();
+    await expect(
+      page.getByRole('button', { name: 'Select model and reasoning effort' }),
+    ).toContainText(AC108_MODEL.name);
+
+    const readings: Ac109WindowReading[] = [];
+
+    // The wheel half: thirty pixels up, from a pane the follow is holding at the bottom.
+    readings.push(await runAc109Window(page, {
+      label: 'wheel',
+      prompt: AC109_WHEEL_PROMPT,
+      promptMarker: AC109_WHEEL_PROMPT_MARKER,
+      completionMarker: AC109_WHEEL_COMPLETION_MARKER,
+      hits: gatewayHits,
+      gesture: async () => {
+        await pointAtPane(page);
+        await page.mouse.wheel(0, -AC109_WHEEL_PX);
+      },
+    }));
+
+    // The keyboard half: the same pane, the same stream, and the one input a wheel-based rule
+    // cannot see. The pane takes focus and the key is pressed through the browser's own input
+    // path — no synthetic wheel or touch event is dispatched anywhere in this case, and the
+    // page's instruments are what say so: the window contains a `keydown` and no `wheel`.
+    readings.push(await runAc109Window(page, {
+      label: 'keyboard',
+      prompt: AC109_KEY_PROMPT,
+      promptMarker: AC109_KEY_PROMPT_MARKER,
+      completionMarker: AC109_KEY_COMPLETION_MARKER,
+      hits: gatewayHits,
+      gesture: async () => {
+        await page.locator(PANE).focus();
+        await page.keyboard.press('PageUp');
+      },
+    }));
+
+    // Both windows ran, in the order they are written, so neither reading below stands in for
+    // the other one.
+    expect(readings.map((reading) => reading.label)).toEqual(['wheel', 'keyboard']);
+    // The readings, kept in the run's output: a red run should still show what each window saw.
+    console.log(`AC-109 readings: ${JSON.stringify(readings)}`);
   });
 });

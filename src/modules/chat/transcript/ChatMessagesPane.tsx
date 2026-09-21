@@ -174,6 +174,14 @@ function ChatMessagesPane({
   return (
     <div
       ref={scrollContainerRef}
+      // Focusable so the pane itself can be scrolled from the keyboard. A wheel
+      // and a touch drag are delivered to whatever is under the pointer, but
+      // PageUp and the arrow keys act on the element that has focus — without
+      // this the browser scrolls the document instead, the pane reports no
+      // `scroll` at all, and a keyboard gesture is invisible to the intent
+      // machinery that keeps a transcript the user took over where they put it.
+      // -1 rather than 0: the pane joins no tab order, it is only focusable.
+      tabIndex={-1}
       onWheel={onWheel}
       onTouchMove={onTouchMove}
       className={`chat-messages-pane relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden pt-3 sm:pt-4 ${
