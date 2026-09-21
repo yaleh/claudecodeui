@@ -558,6 +558,7 @@ function ChatInterface({
           input={input}
           onVoiceTranscript={handleVoiceTranscript}
           scope={draftScope}
+          projectId={selectedProject?.projectId ?? null}
           isActive={isActive}
           onInputChange={handleInputChange}
           onTextareaClick={handleTextareaClick}

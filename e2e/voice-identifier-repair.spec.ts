@@ -20,9 +20,11 @@ import type { BrowserContext, Page } from '@playwright/test';
 // `transcribeVoice()` path, carrying the seeded credential and model, and every assertion below is about what
 // the app itself did with the answer.
 //
-// The identifier is not a literal on this side either. playwright.config.ts writes `voice.service.ts` into the
+// The identifier is not a literal on this side either. playwright.config.ts writes `voice.routes.ts` into the
 // seeded project's workspace, and the identifier asserted on is read back off that directory — so the claim
-// "the composer holds the project's real file name" is decided by the project's own content.
+// "the composer holds the project's real file name" is decided by the project's own content. The recogniser
+// hears it as `voice.rouse.ts`, so the composer holding the real name is a repair that happened, not a
+// transcription that was already right.
 
 /** The sentence the fake microphone is saying; the recogniser stand-in answers with it, and the composer must end up holding it repaired. */
 const UTTERANCE = process.env.QUAY_E2E_VOICE_UTTERANCE!;
@@ -260,8 +262,9 @@ test.describe('AC-115 the repair holds end to end through the voice button', () 
     await page.waitForTimeout(2500);
     await stop.click();
 
-    // The transcript travelled the whole path back into the composer, and it is the recogniser's text
-    // character for character — the app is free to trim, but nothing in the chain may re-spell it.
+    // The transcript travelled the whole path back into the composer, and it is the recogniser's text with the
+    // one name it got wrong put back — the app is free to trim, but the only thing allowed to re-spell it is the
+    // repair, and only against a name the project really has.
     // The ceiling is deliberately short: a regression here has to surface as this assertion rather than as an
     // unattributable timeout, because the gate that runs this file caps the whole command at 60s.
     await expect(composer).toHaveValue(expected, { timeout: 15_000 });
@@ -272,6 +275,10 @@ test.describe('AC-115 the repair holds end to end through the voice button', () 
     // ...and what landed is not the shape a recogniser produces when it drops the dot — which is the failure
     // this criterion exists to catch, and which any dots-blind comparison would accept.
     expect(value).not.toContain(identifier.replace(/\./g, ' '));
+    // ...and it is not the name the recogniser actually said either. This is the reading that separates a
+    // repair from a fixture that was already spelled right: the composer must hold the project's name and no
+    // longer the wrong one, so the criterion fails if the repair stops running.
+    expect(value).not.toContain(SPOKEN);
 
     // The transcription was the app's own call, made from the seeded settings, and it carried real audio.
     expect(requests).toHaveLength(1);

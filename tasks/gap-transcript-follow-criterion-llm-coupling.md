@@ -2,7 +2,7 @@
 id: gap-transcript-follow-criterion-llm-coupling
 title: AC-108/AC-109 的帧来源改由页内 wire double 夹具驱动：判据不再依赖 LLM 客户端（删掉 ANTHROPIC_*
   仍绿），两条 expect 与 GOAL-004 退出条件同批重写，AC-109 退回 active
-status: ready
+status: done
 labels:
   - gap
   - defect

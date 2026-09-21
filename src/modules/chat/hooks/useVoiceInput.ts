@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { voicePlayer } from '@/modules/chat/utils/voicePlayer';
 import { transcribeVoice } from '@/shared/api';
 import { identifierFidelity } from '@/shared/identifierFidelity';
+import { repairIdentifiers } from '@/shared/identifierRepair';
 import type { VoiceClip, VoiceInputState, VoicePlayState } from '@/shared/types';
 
 // Mobile-safe recording: iOS Safari 18.4+ supports webm/opus; older iOS needs mp4.
@@ -38,7 +39,20 @@ type UseVoiceInputOptions = {
    * clip would have no visible control to stop it.
    */
   isActive?: boolean;
+  /**
+   * Names the open project really has, for the deterministic repair of the transcript
+   * (see `src/shared/projectIdentifiers.ts`). Passed in rather than resolved here: the
+   * hook does not know which project it is in, and a candidate list it fetched itself
+   * could not be driven by a test.
+   *
+   * An empty list is the "nothing to repair with" case and the hook keeps its previous
+   * behaviour exactly — `repairIdentifiers` returns its input untouched for it.
+   */
+  candidates?: readonly string[];
 };
+
+/** Stable identity for the absent-candidate case, so the default does not re-create the callback each render. */
+const NO_CANDIDATES: readonly string[] = [];
 
 
 /**
@@ -55,7 +69,7 @@ export function useVoiceInput(
   onError?: (msg: string) => void,
   options: UseVoiceInputOptions = {},
 ) {
-  const { scope = null, isActive = true } = options;
+  const { scope = null, isActive = true, candidates = NO_CANDIDATES } = options;
   const [state, setState] = useState<VoiceInputState>('idle');
   // The last recording. State rather than a ref because the pill renders only while a
   // clip exists, and a ref would not re-render on the write.
@@ -207,17 +221,27 @@ export function useVoiceInput(
           const raw = String(data?.text || '');
           const text = raw.trim();
           if (text) {
-            // S0 reading for the voice link (GOAL-005 / AC-114): how much of what the
+            // The one point between the recogniser and the composer where the transcript is
+            // still ours to change: `raw -> text` is the trim, `text -> repaired` is the
+            // deterministic repair against the project's own names. Nothing else in the
+            // chain touches the text, so this is where both readings belong.
+            const repaired = repairIdentifiers(text, candidates);
+            // The voice link's own telemetry (GOAL-005 / AC-114): how much of what the
             // recogniser returned survives — punctuation and case intact — into the text
-            // handed back to the composer. Nothing sits between those two texts yet, so this
-            // is the baseline reading, taken over the recogniser's identifiers and the
-            // composer's; it is also the exact boundary the deterministic identifier repair
-            // will be measured at, where a non-empty `missing` is a repair that rewrote a
-            // name the transcript never carried. Console-only by design: it changes no
-            // interaction and no request flow, and a reading that only exists on a debug
-            // branch is not a reading the real path can be judged by.
-            console.debug('[voice] identifier fidelity', identifierFidelity(raw, text));
-            onTranscript(text, shouldSend);
+            // handed back to the composer, read on both sides of the repair. The pair is
+            // what makes it the repair's reading rather than a bystander's: `before` is
+            // what the chain alone kept, `after` is what it keeps once the repair has run,
+            // and the names the second one reports missing are exactly the names the repair
+            // rewrote. A repair that fires on a name the transcript never carried therefore
+            // shows up here as a drop, which is the failure AC-113 measures as misRepairs.
+            // Console-only by design: it changes no interaction and no request flow, and a
+            // reading that only exists on a debug branch is not a reading the real path can
+            // be judged by.
+            console.debug('[voice] identifier fidelity', {
+              before: identifierFidelity(raw, text),
+              after: identifierFidelity(raw, repaired),
+            });
+            onTranscript(repaired, shouldSend);
           } else onError?.('No speech detected');
         } catch (e) {
           if (!cancelledRef.current) {
@@ -244,7 +268,7 @@ export function useVoiceInput(
     } finally {
       startingRef.current = false;
     }
-  }, [onTranscript, onError]);
+  }, [onTranscript, onError, candidates]);
 
   // Stop recording. Pass { send: true } to auto-send the transcript once it's ready.
   // Guard on the recorder's own state (not React state) so a double tap, or the mic

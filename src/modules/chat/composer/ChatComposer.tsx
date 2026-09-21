@@ -14,6 +14,7 @@ import { PaperclipIcon, MessageSquareIcon, XIcon, Loader2, ArrowUpIcon, PencilIc
 
 import { useVoiceInput } from '@/modules/chat/hooks/useVoiceInput';
 import { useVoiceAvailable } from '@/modules/chat/hooks/useVoiceAvailable';
+import { loadProjectIdentifiers } from '@/shared/projectIdentifiers';
 import type { QueuedDraft, ScheduledMessage, SlashCommand,SessionActivity,PendingPermissionRequest,PermissionMode,ProviderModelOption } from '@/shared/types';
 import {
   PromptInput,
@@ -105,6 +106,12 @@ type ChatComposerProps = {
   onVoiceTranscript?: (text: string, send?: boolean) => void;
   /** Draft scope of the open chat; a change drops the recorded clip, which belongs to the chat it was recorded in. */
   scope: string | null;
+  /**
+   * The open project, whose file tree supplies the names a transcript gets repaired against.
+   * Required rather than optional so a caller that forgets it is a type error instead of a
+   * silently repair-less composer; `null` is the honest "no project open" value.
+   */
+  projectId: string | null;
   /** False while the composer is off screen (another workspace tab): it then stops audio it can no longer offer a control for. */
   isActive: boolean;
   onInputChange: (event: ChangeEvent<HTMLTextAreaElement>) => void;
@@ -181,6 +188,7 @@ export default function ChatComposer({
   input,
   onVoiceTranscript,
   scope,
+  projectId,
   isActive,
   onInputChange,
   onTextareaClick,
@@ -247,6 +255,20 @@ export default function ChatComposer({
     if (voiceErrorTimer.current) clearTimeout(voiceErrorTimer.current);
   }, []);
   const noopTranscript = useCallback(() => {}, []);
+  // The names the transcript is repaired against. Fetched once per project (the module
+  // memoises the request) and held as state so the repair sees the list on the next
+  // dictation rather than on the next render. A project whose tree cannot be listed
+  // resolves to `[]`, which the hook treats as "repair nothing".
+  const [identifierCandidates, setIdentifierCandidates] = useState<readonly string[]>([]);
+  useEffect(() => {
+    let current = true;
+    void loadProjectIdentifiers(projectId).then((names) => {
+      if (current) setIdentifierCandidates(names);
+    });
+    return () => {
+      current = false;
+    };
+  }, [projectId]);
   // The question panel replaces the whole footer, so a clip playing behind it would have
   // no visible control to stop it; folding it into `isActive` reuses the same stop path
   // rather than adding a second effect for the same rule.
@@ -260,7 +282,7 @@ export default function ChatComposer({
   } = useVoiceInput(
     onVoiceTranscript ?? noopTranscript,
     handleVoiceError,
-    { scope, isActive: isActive && !hasQuestionPanel },
+    { scope, isActive: isActive && !hasQuestionPanel, candidates: identifierCandidates },
   );
   const isRecording = voiceState === 'recording';
   const isTranscribing = voiceState === 'transcribing';

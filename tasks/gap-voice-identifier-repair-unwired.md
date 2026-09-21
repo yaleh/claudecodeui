@@ -1,7 +1,7 @@
 ---
 id: gap-voice-identifier-repair-unwired
 title: 把标识符修复接进语音转写路径：候选取自项目文件树，AC-115 由红转绿
-status: ready
+status: done
 labels:
   - gap
 parent: null

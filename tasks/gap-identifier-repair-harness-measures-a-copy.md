@@ -1,7 +1,7 @@
 ---
 id: gap-identifier-repair-harness-measures-a-copy
 title: 判据必须量出货模块：收敛 identifierRepair 的两份实现，并修掉点号段正则与中文分词两处语义差异
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -30,12 +30,12 @@ extra:
 
 ## AC
 
-- [ ] `npx tsx experiments/voice-identifiers/run-shipped-recovery.mjs` 退出码 0（即 AC-113 的判据转绿）
-- [ ] `npx tsx experiments/voice-identifiers/run-shipped-false-positive.mjs` 退出码 0（出货模块在 AC-112 负样本语料上零改写；放宽点号规则后的反向读数）
-- [ ] 单一实现：`grep -nE "function +(editDistance|splitIndex|nearestDottedCandidate|longestSplitMatch)" experiments/voice-identifiers/identifierRepair.mjs` 无输出（grep 退出码 1）—— 副本不得再持有独立算法
-- [ ] 出货模块单测：`npx vitest run src/shared/tests/identifierRepair.test.ts` 退出码 0，新增用例覆盖本轮两个成因：长段错拼（`voice.seluis.ts` → `voice.service.ts`）与中文无空格邻接（`改一下。voice.roue.ts` → `改一下。voice.routes.ts`）
-- [ ] 取假形态：把 `repairIdentifiers` 临时换成 `return text` 后，两条 `npx tsx …run-shipped-*.mjs` 必须双双变红（记录原始终端读数）
-- [ ] `npm run lint` 与 `npx tsc --noEmit -p tsconfig.json` 退出码 0
+- [x] `npx tsx experiments/voice-identifiers/run-shipped-recovery.mjs` 退出码 0（即 AC-113 的判据转绿）
+- [x] `npx tsx experiments/voice-identifiers/run-shipped-false-positive.mjs` 退出码 0（出货模块在 AC-112 负样本语料上零改写；放宽点号规则后的反向读数）
+- [x] 单一实现：`grep -nE "function +(editDistance|splitIndex|nearestDottedCandidate|longestSplitMatch)" experiments/voice-identifiers/identifierRepair.mjs` 无输出（grep 退出码 1）—— 副本不得再持有独立算法
+- [x] 出货模块单测：`npx vitest run src/shared/tests/identifierRepair.test.ts` 退出码 0，新增用例覆盖本轮两个成因：长段错拼（`voice.seluis.ts` → `voice.service.ts`）与中文无空格邻接（`改一下。voice.roue.ts` → `改一下。voice.routes.ts`）
+- [x] 取假形态：把 `repairIdentifiers` 临时换成 `return text` 后，两条 `npx tsx …run-shipped-*.mjs` 必须双双变红（记录原始终端读数）
+- [x] `npm run lint` 与 `npx tsc --noEmit -p tsconfig.json` 退出码 0
 
 ## DoD
 
@@ -54,3 +54,91 @@ L_G 该轴仍暗，理由：同上；本任务的读数是语料存活率、误�
 - experiments/voice-identifiers/run-shipped-recovery.mjs (new)
 - experiments/voice-identifiers/run-shipped-false-positive.mjs (new)
 - tasks/gap-identifier-repair-harness-measures-a-copy.md
+
+## Evidence
+
+落地读数：分支 `task/gap-identifier-repair-harness-measures-a-copy`，worktree `.claude/worktrees/gap-identifier-repair-harness-measures-a-copy`，提交 `ca10cf95`（其父 `c9d4fd95`）。以下读数均在 `ca10cf95` 上重跑；被 `.gitignore` 排除、不进入仓库的探针脚本放在 `/tmp/gir-readings-AhtKHi/`。
+
+### (a) 判据命令的实测退出码与尾行
+
+- `npx tsx experiments/voice-identifiers/run-shipped-recovery.mjs` → 退出码 **0**
+  - `survivalBefore=0.4000 survivalAfter=0.7500 misRepairs=0`
+  - `candidates=1984 entries=16 identifiers=20`
+  - `survivalBeforeDetail=8/20 survivalAfterDetail=15/20`
+  - `OK: shipped identifier survival 40.0% -> 75.0% with zero mis-repairs`
+  - 逐条：**6 条 FIXED**（`en-e04` / `zh-d01` / `zh-d02` / `frag-truncated` / `frag-garbled-dot` / `frag-garbled-route`）、10 条 flat、**0 条 BROKE**
+- `npx tsx experiments/voice-identifiers/run-shipped-false-positive.mjs` → 退出码 **0**
+  - `candidates=1984 negatives=44 falsePositives=0`
+  - `nearWords=21 minNearWords=12 minCandidates=1000 controls=3/3`
+  - `OK: 44 identifier-free sentences unchanged over 1984 real candidates`
+- `node experiments/voice-identifiers/run-false-positive.mjs` → 退出码 **0**，上述读数逐字相同
+  - 这是 AC-112 记录在案的 criterion 路径（AC-112 的 `criterion: node experiments/voice-identifiers/run-false-positive.mjs`）。node ≥22.18 的类型剥离使 plain `node` 能直接 import `.ts`，所以该路径不必改写就转为量出货模块 —— 一个判据路径能原样保留却换了被测对象，是本任务收敛方案的一部分。
+- `grep -nE "function +(editDistance|splitIndex|nearestDottedCandidate|longestSplitMatch)" experiments/voice-identifiers/identifierRepair.mjs` → 无输出，退出码 **1**
+- `npx vitest run src/shared/tests/identifierRepair.test.ts` → 退出码 **0**，`Tests 16 passed (16)`
+- `npm run lint` → 退出码 **0**（输出仅既有 warning）；`npx tsc --noEmit -p tsconfig.json` → 退出码 **0**（无输出）
+
+### (b) 取假形态（AC-5）：恒等函数下的原始终端读数，以及随后还原
+
+把 `repairIdentifiers` 的首句换成 `return text;`（标记注释 `AC-5 FALSIFICATION PROBE`）后：
+
+- `run-shipped-recovery.mjs` → **EXIT_A=1**
+  - `survivalBefore=0.4000 survivalAfter=0.4000 misRepairs=0`
+  - `survivalBeforeDetail=8/20 survivalAfterDetail=8/20`
+  - `FAIL: survival did not improve (0.4000 -> 0.4000)`
+- `run-shipped-false-positive.mjs` → **EXIT_B=1**
+  - `candidates=1984 negatives=44 falsePositives=0`
+  - `nearWords=21 minNearWords=12 minCandidates=1000 controls=0/3`
+  - 三条 control 原文（逐字登记，正是它们的 FAIL 让「零改写」不再可能是 stub 的零）：
+    `CONTROL "Change the timeout in voice.seluis.ts to thirty seconds" -> "Change the timeout in voice.seluis.ts to thirty seconds", expected "Change the timeout in voice.service.ts to thirty seconds"`
+    `CONTROL "改一下。voice.roue.ts" -> "改一下。voice.roue.ts", expected "改一下。voice.routes.ts"`
+    `CONTROL "check use voice input before the change" -> "check use voice input before the change", expected "check useVoiceInput before the change"`
+  - `FAIL: 3 of 3 sentences that must be repaired were not — the zero below is a stub's zero`
+- `node experiments/voice-identifiers/run-false-positive.mjs` → **EXIT_B2=1**，同上
+
+还原：`git checkout -- src/shared/identifierRepair.ts` 后 `git status --porcelain` 为空；`grep -rn "FALSIFICATION PROBE" src/ experiments/` 无输出（退出码 1）；随后重跑 A / B / B2 均退出码 0，AC-4 回到 `Tests 16 passed (16)`。
+
+如实登记一处判据空洞（本次实测暴露并补掉）：**这三条 control 是本次补上的**。补之前，恒等函数下 `run-shipped-false-positive.mjs` 是**绿**的 —— 44 条「不得改写」对一个什么都不做的模块天然成立，即那个 0 是 stub 也会得到的 0，判据不可取假。这正是把判据从副本转向出货模块时暴露出来的洞：判据一旦开始量真模块，就必须同时证明它量得出真模块的**做功**。
+
+### (c) 两条成因用例的改动前后逐字对照
+
+「改动前」取 `git show HEAD~1:src/shared/identifierRepair.ts`（本任务动手前的出货模块），「改动后」取本分支；两者用同一张候选表，即 AC-4 单测里的 `CANDIDATES`：
+
+```text
+CASE "open voice.seluis.ts and check"
+  before: "open voice.seluis.ts and check"
+  after : "open voice.service.ts and check"
+  changed=true
+CASE "改一下。voice.roue.ts"
+  before: "改一下。voice.roue.ts"
+  after : "改一下。voice.routes.ts"
+  changed=true
+CASE "change voice.roue.ts now"
+  before: "change voice.routes.ts now"
+  after : "change voice.routes.ts now"
+  changed=false
+CASE "the readme file is old"
+  before: "the readme file is old"
+  after : "the readme file is old"
+  changed=false
+```
+
+后两条是对照，说明改动是定点而非普遍放宽：同一段文本，改动前后都不动（成因 1 只影响点号段长，成因 2 只影响无空格邻接）。
+
+### (d) 两处语义差异各自的修法，以及放宽后的误报面读数
+
+**成因 1 —— 点号段长度正则。** `DOTTED_TOKEN` 由「每个 `.段` 为 1–5 字符」改为「首字符为字母、其余不再限长」：`/[-A-Za-z0-9_$]+(?:\.[A-Za-z][A-Za-z0-9_$]*)+/g`；同时 pass 由「整个空白 token 必须就是这个名字」改为在文本里扫描该形状、按 span 替换（`text.matchAll(DOTTED_TOKEN)`）。两者都必须给，缺一不可：只放宽段长不解决中文（`改一下。voice.roue.ts` 整句是一个空白 token，不与任何候选相等），只改扫描不解决 `voice.seluis.ts`（段 `seluis` 6 字符，旧规则根本不让它进点号通道）。
+
+**成因 2 —— 分词。** split pass 保持按空白切分不动：它必须如此，因为「一个符号被拆成几个词」这件事本身由空白定义，改成别的切法就没有「拆」可谈。出货模块改为由点号扫描覆盖中文无空格邻接，而不是重写分词。
+
+**为承载 AC-4 点名的用例必须放宽的量。** `voice.seluis.ts` → `voice.service.ts` 是 4 编辑、相似度恰好 0.75，于是 `MAX_EDIT_DISTANCE` 2→4、`MIN_SIMILARITY` 0.8→0.75。放宽后的误报面必须同时给读数，否则放宽是单侧的：
+
+- 负样本语料（AC-112 的 44 条）：`candidates=1984 negatives=44 falsePositives=0`，零改写，见 (a)。
+- 本仓库真实散文：167 个受版本控制的 markdown、992 个不同点号 span，逐 span 跑「改动前 / 改动后」两个模块：
+  - `filesRewrittenBefore=10 filesRewrittenAfter=1 newlyRewrittenSpans=0`
+  - 即放宽后**没有新增任何改写**；被改写的 markdown 反而由 10 个降到 1 个。仅存的 1 处是 `CHANGELOG.md` 第 464 行 `Readme.md` → `README.md`，本就在改动前的 10 个里，且是真实文件的大小写更正。
+
+**如实登记第二处护栏 —— 不是 Proposal 点名的两处成因，而是上面这条读数逼出来的。** 预算放宽到 4 编辑 / 0.75 相似度之后，真实散文上一度出现 6 个新增改写，全部同一个形状：`README.jp.md` / `README.ru.md` / `README.de.md` / `README.ko.md` / `README.ja.md` / `README.tr.md` → `README.md`（这些文件在本仓库并不存在，只有 `README.md`）。成因很清楚：距 `README.md` 3 编辑、相似度恰好 0.75、扩展名 `md` 完全一致，于是开前缀、编辑预算、扩展名三道护栏全过 —— 而被写下的正是「文本从未提到的文件名」，恰是本模块存在的理由的反面。故新增第五道护栏：口语形态的点号段数不得多于候选（`segmentCount(needle) > segmentCount(haystack)` 即跳过），理由是识别器会在名字内部写错字符、不会整个删掉一个点号段。加护栏后 `newlyRewrittenSpans` 由 6 降为 0，而 (a) 的 6 条 FIXED 全部段数相等（`voice.seluis.ts` 3→3、`voice.module.t` 3→3），存活率不变。
+
+该护栏本身可取假：去掉它，AC-4 新用例 `a name is not shortened by dropping one of its dotted words` 变红（`Tests 1 failed | 15 passed (16)`，退出码 1），散文读数回到 `newlyRewrittenSpans=6`；加回后 `git status --porcelain` 为空，即逐字还原。
+
+**另补一条既有误报的修复。** 候选表含裸 stem，故单个英文单词能等于一个候选：改动前的出货模块把「The readme md file is out of date」改写成「The README md file is out of date」。这是**改动前就存在**的误报（不是本次放宽引入；副本要求至少两个词，这是两份实现的又一处未命名差异），因 AC-112 的负样本读数归零时暴露，一并加上 `MIN_SPLIT_TOKENS = 2` 修掉并登记在此。
