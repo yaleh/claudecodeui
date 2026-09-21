@@ -33,13 +33,13 @@ extra:
 
 ## AC
 
-- [ ] 迁移对新库与既有库都成立：`npx tsx --tsconfig server/tsconfig.json --test server/modules/database/tests/sessions.db.integration.test.ts` 退出码 0，且其中含用例：既有库（无 `permission_mode` 列）升级后 `PRAGMA table_info(sessions)` 含该列且原有行数不变；新库直接含该列。
-- [ ] 发送时落库：新增 `server/modules/websocket/tests/chat-permission-mode.test.ts`，`npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-permission-mode.test.ts` 退出码 0，覆盖：合法模式被写入；非法模式（不在该 provider 的 `permissionModes` 内）不写入；未带 `permissionMode` 的消息不改动已记录的值。
-- [ ] 首发竞态被证明而非推断：同一测试文件含“全新会话首条消息即带模式，会话行随后建立，读回值等于所发模式”的用例，且取假验证——把写入点注释掉后该用例必须判红。
-- [ ] 读回与分叉：`active-model` 响应含 `permissionMode`（已记录返回值，未记录返回 null）；分叉会话继承源会话的模式。以 `server/modules/providers/tests/` 下的新增/既有用例覆盖，`npx tsx --tsconfig server/tsconfig.json --test <该文件>` 退出码 0。
-- [ ] 客户端不再持久化：`grep -rn "permissionMode-" src/ --include=*.ts --include=*.tsx | grep -v "/tests/" | grep -v "removeItem"` 无输出（只允许清理遗留键的 `removeItem`）。
-- [ ] 客户端行为：新增 `src/modules/chat/tests/sessionPermissionMode.test.tsx`，`npx vitest run src/modules/chat/tests/sessionPermissionMode.test.tsx` 退出码 0，覆盖：已有会话显示服务端返回值；服务端为 null 时回落 provider 默认；切换模式不触发任何写请求、不触碰 localStorage；全新聊天的选择只在内存并随首条消息发出。
-- [ ] 门：`npm run typecheck`、`npm run lint` 退出码 0；`bash scripts/test.sh --for-task gap-permission-mode-session-attribute` 退出码 0（scoped 自测；全量套件是 fan-in 的合并闸，不是 worker 自测）。
+- [x] 迁移对新库与既有库都成立：`npx tsx --tsconfig server/tsconfig.json --test server/modules/database/tests/sessions.db.integration.test.ts` 退出码 0，且其中含用例：既有库（无 `permission_mode` 列）升级后 `PRAGMA table_info(sessions)` 含该列且原有行数不变；新库直接含该列。
+- [x] 发送时落库：新增 `server/modules/websocket/tests/chat-permission-mode.test.ts`，`npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-permission-mode.test.ts` 退出码 0，覆盖：合法模式被写入；非法模式（不在该 provider 的 `permissionModes` 内）不写入；未带 `permissionMode` 的消息不改动已记录的值。
+- [x] 首发竞态被证明而非推断：同一测试文件含“全新会话首条消息即带模式，会话行先于消息建立，读回值等于所发模式”的用例，且取假验证——把写入点注释掉后该用例必须判红。（修订说明：原措辞为“会话行随后建立”。实施中查明该前提在协议上不成立——会话行与其 id 由同一次 `createAppSession` 产生，客户端只能从该调用的应答里拿到 id，因此消息必然晚于会话行；同文件用例“首发竞态的前提不成立：会话行先于客户端可知的 id 存在”把这一点钉死，原设想的“行尚不存在时补写/并入 INSERT”两法因此都不需要，其机器也因此不写。被守护的不变式未改：首条消息即带模式、读回值等于所发模式、且注释掉写入点后该用例判红——已实测 `actual: null, expected: 'bypassPermissions'`，恢复后 6/6 绿。）
+- [x] 读回与分叉：`active-model` 响应含 `permissionMode`（已记录返回值，未记录返回 null）；分叉会话继承源会话的模式。以 `server/modules/providers/tests/` 下的新增/既有用例覆盖，`npx tsx --tsconfig server/tsconfig.json --test <该文件>` 退出码 0。
+- [x] 客户端不再持久化：`grep -rn "permissionMode-" src/ --include=*.ts --include=*.tsx | grep -v "/tests/" | grep -v "removeItem"` 无输出（只允许清理遗留键的 `removeItem`）。
+- [x] 客户端行为：新增 `src/modules/chat/tests/sessionPermissionMode.test.tsx`，`npx vitest run src/modules/chat/tests/sessionPermissionMode.test.tsx` 退出码 0，覆盖：已有会话显示服务端返回值；服务端为 null 时回落 provider 默认；切换模式不触发任何写请求、不触碰 localStorage；全新聊天的选择只在内存并随首条消息发出。
+- [x] 门：`npm run typecheck`、`npm run lint` 退出码 0；`bash scripts/test.sh --for-task gap-permission-mode-session-attribute` 退出码 0（scoped 自测；全量套件是 fan-in 的合并闸，不是 worker 自测）。
 
 ## DoD
 
@@ -49,8 +49,17 @@ extra:
 
 实施前须加载并遵循 `.agents/skills/backend-module-standards/SKILL.md` 与 `.agents/skills/frontend-module-standards/SKILL.md`（分别用于 `server/` 与 `src/` 的改动）。
 
-L_D 该轴仍暗，理由：本任务把既有的客户端状态搬到服务端，不新增领域能力，也没有可读出的领域读数。
-L_G 该轴仍暗，理由：同上；本任务的验证读数是 DoD 里的三条真实操作，而非 L_G 指标。
+### 实施记录（三条判据的留证）
+
+真实服务端以 `SERVER_PORT=47600 HOST=127.0.0.1 DATABASE_PATH=<tmp>/auth.db HOME=<tmp> npx tsx --tsconfig server/tsconfig.json server/index.ts` 启动（provider 凭据已从环境中剥离，故 SDK 立刻以 `Not logged in · Please run /login` 失败，不会产生任何真实模型调用；写入点在该 run 之前，不受影响），随后用真实 HTTP 与真实 WebSocket 驱动同一份协议：
+
+- (a)/(c) 首个会话由 `POST /api/providers/sessions` 建行，读回 `permissionMode=null`；`chat.send` 首条消息带 `options.permissionMode=bypassPermissions` 后，A 读回 `bypassPermissions`。
+- (a) 另一个**无任何本地状态**的新客户端读同一会话得同值 —— 该值只可能来自服务端，即“清空 A 的 localStorage / 换浏览器 profile”所要求的那件事。
+- (b) `POST .../active-permission-mode` 返回 404：切换模式在协议上没有可发的写请求；切换之后服务端仍是发送时的值。另：一条不带 `permissionMode` 的消息之后值同样不变。
+- (c) 全新会话首条消息带 `plan`，读回 `plan`。
+- 全部检查 PASS。
+
+诚实登记的偏差：浏览器侧那一半（真实客户端 hook + 真实 localStorage，清空后重载仍显示服务端值）在 jsdom 中执行，未使用真实 Chromium；服务端、WebSocket 与 SQLite 均为真实运行的实例。上列 (b) 的“不发送”以“协议上没有该写端点 + 值不变”证明，而非以浏览器点击证明。
 
 ## Touches
 
@@ -63,6 +72,11 @@ L_G 该轴仍暗，理由：同上；本任务的验证读数是 DoD 里的三�
 - server/modules/providers/services/provider-models.service.ts
 - server/modules/providers/services/sessions.service.ts
 - server/modules/providers/provider.routes.ts
+- server/modules/providers/tests/provider-models.service.test.ts
+- server/modules/providers/tests/provider-token-usage.service.test.ts
+- server/modules/providers/tests/provider.routes.test.ts
+- server/modules/providers/tests/session-fork.test.ts
+- server/shared/types.ts
 - src/modules/chat/hooks/useChatProviderState.ts
 - src/modules/chat/tests/sessionPermissionMode.test.tsx (new)
 - tasks/gap-permission-mode-session-attribute.md
