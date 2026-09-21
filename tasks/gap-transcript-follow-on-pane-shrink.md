@@ -14,22 +14,6 @@ depends_on:
   - gap-transcript-follow-on-content-resize
 goal_ac: AC-107
 ---
----
-id: gap-transcript-follow-on-pane-shrink
-title: 贴底跟随在 pane 自身变矮时也成立：观察滚动容器自身尺寸（键盘弹出等价），视口 844→420 后第一个采样点 gap
-  ≤1px、离开底部时零写入（AC-107 判据 e2e/transcript-follow.spec.ts 由红转绿）
-status: ready
-labels:
-  - gap
-  - defect
-parent: null
-children: []
-extra:
-  schema: execution
-depends_on:
-  - gap-transcript-follow-on-content-resize
-goal_ac: AC-107
----
 ## Proposal
 
 本任务的前置是 `gap-transcript-follow-on-content-resize`（todo，AC-106），已用 depends_on 声明：它建成 `e2e/transcript-follow.spec.ts` 这条判据仪器（`playwright.config.ts` 里服务器启动前播种的长 transcript、手势到位的约定、布局与 ResizeObserver 回调之后的采样约定），并把「贴底」的触发从 React 信号（`chatMessages.length`）换成**内容几何**。本条判据的命令 `npx playwright test e2e/transcript-follow.spec.ts -g "AC-107"` 跑的是同一个文件——但 pane 变矮这一半**不改变内容层的盒子**（变的只有容器自己的 clientHeight），前置的内容层观察器看不见它。两条任务都要新增/改写同一个 spec 文件，物理上不能并发落地，故用 depends_on 串起来，而不是各写一份。
