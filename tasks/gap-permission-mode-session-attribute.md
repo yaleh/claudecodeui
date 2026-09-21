@@ -1,7 +1,7 @@
 ---
 id: gap-permission-mode-session-attribute
 title: 权限模式作为服务端会话属性：随消息发送落库，客户端不再持久化
-status: ready
+status: done
 labels:
   - gap
 parent: null
