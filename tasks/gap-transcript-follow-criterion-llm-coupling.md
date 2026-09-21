@@ -66,8 +66,8 @@ AC-108（真实流式输出全程贴底）与 AC-109（流式期间向上的小�
 
 ## Touches
 
-- `e2e/transcript-follow.spec.ts` — wire double（观察型改可注入型）、AC-108 用例重写、AC-109 用例换夹具、删除 mock gateway / 模型注册 / transcript 落盘与 REST history 断言
-- `goals/AC-108-真实流式输出全程贴底.md` — expect 重写
-- `goals/AC-109-流式期间向上的小幅手势立即脱离跟随且不被拉回-按钮可回到跟随.md` — status 退回 active + expect 重写
-- `goals/GOAL-004-对话流在真实浏览器里跟随几何变化-贴底时始终看到最新输出-离开时不被拉回.md` — 退出条件两行同步
-- `tasks/gap-transcript-follow-criterion-llm-coupling.md` — self-touch
+- e2e/transcript-follow.spec.ts
+- goals/AC-108-真实流式输出全程贴底.md
+- goals/AC-109-流式期间向上的小幅手势立即脱离跟随且不被拉回-按钮可回到跟随.md
+- goals/GOAL-004-对话流在真实浏览器里跟随几何变化-贴底时始终看到最新输出-离开时不被拉回.md
+- tasks/gap-transcript-follow-criterion-llm-coupling.md
