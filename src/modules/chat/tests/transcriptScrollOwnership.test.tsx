@@ -437,6 +437,15 @@ describe('content-growth follow', () => {
     // be a node the event can reach them through.
     document.body.appendChild(container.element);
     try {
+      // The transcript has a scroll history behind it by now (the gestures that
+      // brought the viewport to the bottom), so the offset the shrink is about to
+      // change is one an implementation could already have recorded. Without this
+      // the case below could only tell a source-based reading apart from one that
+      // compares against a baseline it has never seen — and the difference this
+      // test exists for is the source.
+      act(() => {
+        dispatchScroll(container.element);
+      });
       // A row above the viewport collapses. The browser holds the visible content
       // still by moving the offset up by the same amount — the offset decreases,
       // exactly as it does under a wheel-up, with nobody touching the page.

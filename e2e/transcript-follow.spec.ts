@@ -51,13 +51,21 @@ const SCROLL_BUTTON = '[aria-label="Scroll to bottom"], [title="Scroll to bottom
  * browser's own scroll anchoring or clamping.
  */
 const instrumentScrollSources = () => {
-  const state = {
-    scrollEvents: [] as { target: string; t: number }[],
-    scrollWrites: [] as { value: number; t: number }[],
-    inputEvents: [] as { type: string; t: number }[],
-    buttonAppearances: 0,
-  };
-  (window as unknown as { __transcriptScroll: typeof state }).__transcriptScroll = state;
+  interface Instruments {
+    /** Every `scroll` the page saw, capture phase, with the element it came from. */
+    __scrollEvents: { target: string; t: number }[];
+    /** Every assignment to `scrollTop`, recorded without altering it. */
+    __scrollWrites: { value: number; t: number }[];
+    /** Every input event that could have moved a viewport. */
+    __scrollInputs: { type: string; t: number }[];
+    /** Every mount of the scroll-to-bottom control, which lives for less than a sample. */
+    __scrollButtonAppearances: { t: number }[];
+  }
+  const page = window as unknown as Instruments;
+  page.__scrollEvents = [];
+  page.__scrollWrites = [];
+  page.__scrollInputs = [];
+  page.__scrollButtonAppearances = [];
 
   const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
   if (descriptor?.get && descriptor?.set) {
@@ -66,7 +74,7 @@ const instrumentScrollSources = () => {
       enumerable: descriptor.enumerable,
       get: descriptor.get,
       set(this: Element, value: number) {
-        state.scrollWrites.push({ value, t: performance.now() });
+        page.__scrollWrites.push({ value, t: performance.now() });
         descriptor.set!.call(this, value);
       },
     });
@@ -74,7 +82,7 @@ const instrumentScrollSources = () => {
 
   window.addEventListener('scroll', (event) => {
     const target = event.target;
-    state.scrollEvents.push({
+    page.__scrollEvents.push({
       target: target instanceof Element ? target.className : '',
       t: performance.now(),
     });
@@ -82,7 +90,7 @@ const instrumentScrollSources = () => {
 
   for (const type of ['wheel', 'touchstart', 'touchmove', 'keydown', 'mousedown']) {
     window.addEventListener(type, () => {
-      state.inputEvents.push({ type, t: performance.now() });
+      page.__scrollInputs.push({ type, t: performance.now() });
     }, true);
   }
 
@@ -94,7 +102,7 @@ const instrumentScrollSources = () => {
       for (const node of Array.from(record.addedNodes)) {
         if (!(node instanceof Element)) continue;
         if (node.matches(selector) || node.querySelector(selector)) {
-          state.buttonAppearances += 1;
+          page.__scrollButtonAppearances.push({ t: performance.now() });
         }
       }
     }
@@ -102,28 +110,37 @@ const instrumentScrollSources = () => {
 };
 
 type ScrollInstruments = {
-  scrollEvents: { target: string; t: number }[];
-  scrollWrites: { value: number; t: number }[];
-  inputEvents: { type: string; t: number }[];
-  buttonAppearances: number;
+  __scrollEvents: { target: string; t: number }[];
+  __scrollWrites: { value: number; t: number }[];
+  __scrollInputs: { type: string; t: number }[];
+  __scrollButtonAppearances: { t: number }[];
 };
 
 /** Whatever the instruments have recorded since they were last cleared. */
 const readInstruments = (page: Page) =>
-  page.evaluate(
-    () => JSON.parse(
-      JSON.stringify((window as unknown as { __transcriptScroll: ScrollInstruments }).__transcriptScroll),
-    ) as ScrollInstruments,
-  );
+  page.evaluate(() => {
+    const read = window as unknown as ScrollInstruments;
+    return JSON.parse(JSON.stringify({
+      __scrollEvents: read.__scrollEvents,
+      __scrollWrites: read.__scrollWrites,
+      __scrollInputs: read.__scrollInputs,
+      __scrollButtonAppearances: read.__scrollButtonAppearances,
+    })) as ScrollInstruments;
+  });
 
 /** Clears the counters, so the window that follows is measured on its own. */
 const clearInstruments = (page: Page) =>
   page.evaluate(() => {
-    const state = (window as unknown as { __transcriptScroll: ScrollInstruments }).__transcriptScroll;
-    state.scrollEvents.length = 0;
-    state.scrollWrites.length = 0;
-    state.inputEvents.length = 0;
-    state.buttonAppearances = 0;
+    const read = window as unknown as {
+      __scrollEvents: unknown[];
+      __scrollWrites: unknown[];
+      __scrollInputs: unknown[];
+      __scrollButtonAppearances: unknown[];
+    };
+    read.__scrollEvents.length = 0;
+    read.__scrollWrites.length = 0;
+    read.__scrollInputs.length = 0;
+    read.__scrollButtonAppearances.length = 0;
   });
 
 /**
@@ -513,17 +530,18 @@ test.describe('transcript follow in a real browser', () => {
     ).toBeGreaterThanOrEqual(SHRINK_PX - 1);
 
     const shrinkReadings = await readInstruments(page);
-    const paneScrolls = shrinkReadings.scrollEvents.filter((event) => event.target.includes('chat-messages-pane'));
+    const paneScrolls = shrinkReadings.__scrollEvents
+      .filter((event) => event.target.includes('chat-messages-pane'));
     expect(
       paneScrolls.length,
       'the browser really did scroll the pane, or this scenario is empty and proves nothing',
     ).toBeGreaterThanOrEqual(1);
     expect(
-      shrinkReadings.scrollWrites.length,
-      `that movement must not be the app writing the offset (${JSON.stringify(shrinkReadings.scrollWrites)})`,
+      shrinkReadings.__scrollWrites.length,
+      `that movement must not be the app writing the offset (${JSON.stringify(shrinkReadings.__scrollWrites)})`,
     ).toBe(0);
     expect(
-      shrinkReadings.buttonAppearances,
+      shrinkReadings.__scrollButtonAppearances.length,
       'the scroll button must not appear for a scroll nobody asked for',
     ).toBe(0);
     expect(await button(), 'and must not be on screen when the shrink half is sampled').toBe(0);
@@ -543,13 +561,13 @@ test.describe('transcript follow in a real browser', () => {
 
     const finalReadings = await readInstruments(page);
     expect(
-      finalReadings.buttonAppearances,
+      finalReadings.__scrollButtonAppearances.length,
       'the scroll button must not appear anywhere in the window the criterion covers',
     ).toBe(0);
     expect(await button(), 'and must not be on screen at the end of it').toBe(0);
     expect(
-      finalReadings.inputEvents,
-      `the window must contain no input at all (${JSON.stringify(finalReadings.inputEvents)})`,
+      finalReadings.__scrollInputs,
+      `the window must contain no input at all (${JSON.stringify(finalReadings.__scrollInputs)})`,
     ).toEqual([]);
   });
 });
