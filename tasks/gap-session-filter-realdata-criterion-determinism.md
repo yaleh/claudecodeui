@@ -1,7 +1,7 @@
 ---
 id: gap-session-filter-realdata-criterion-determinism
 title: 会话过滤真实数据判据去随机化：快照取一致点、断言不读活库近因窗、失败首行可归因（30 连绿）
-status: ready
+status: done
 labels:
   - gap
 parent: null
