@@ -17,7 +17,6 @@ goal_ac: AC-111
 ## Proposal
 
 <!-- dedup-ref -->同机制关联（记给出处，不是本任务的前提；本任务 frontmatter 里显式声明的唯一前驱是 `gap-transcript-follow-on-content-resize`（AC-106））：本条的判据仪器——`e2e/transcript-follow.spec.ts` 这个文件、`playwright.config.ts` 里服务器**启动前**播种的长 transcript、「手势到位」与「布局与 ResizeObserver 回调之后再采样」的约定、以及把「贴底」的触发从 React 信号（`chatMessages.length`）换成**内容几何**的那个观察器——由 [[gap-transcript-follow-on-content-resize]]（AC-106）建立。同族四条 [[gap-transcript-follow-on-pane-shrink]]（AC-107）、[[gap-transcript-follow-on-real-stream]]（AC-108）、[[gap-transcript-follow-small-gesture-detaches]]（AC-109）、[[gap-transcript-follow-prepend-restore-not-reattaching]]（AC-110）与本条 Touches 重叠，由池的 disjointness 门自动串行，不需要人工再串一条链。
-
 语义分工：AC-109 承载「用户滚动输入（wheel / touchmove / 键盘滚动键）⇒ 立即脱离」的那半边；本条承载它的**逆命题与泛化**——只有真实用户输入才算意图证据，浏览器自己产生的 scroll（scroll anchoring / clamp）**不得**改变跟随意图。AC-110 已在自己的 dedup-ref 里把这条泛化语义让给本条（「不得写成它不可能成立」）。
 
 ### 现象（2026-09-21 源码核对 + AC 记录里的实测）
@@ -50,12 +49,12 @@ goal_ac: AC-111
 
 ## AC
 
-- [ ] `npx playwright test e2e/transcript-follow.spec.ts -g "AC-111"` 退出码 0（真实 Chromium 打 playwright webServer 起的真实后端 + 真实 Vite，隔离数据目录；不得 stub 后端、不得用 evaluate 直接设 scrollTop 冒充用户手势）。
-- [ ] 同一 spec 断言**变矮半**：视口上方一行变矮 M≥200px 后，页面内捕获阶段 scroll 计数增量 ≥1（浏览器自己确实改了 scrollTop 并派发 scroll），且同区间 `window.__scrollWrites` 增量为 0（这段 scrollTop 变化不是程序写的）。
-- [ ] 同一 spec 断言**贴底半**：随后让最后一行就地长高 N≥400px，在布局与 ResizeObserver 回调之后的采样点 gap ≤ 1px。
-- [ ] 同一 spec 断言**按钮半**：整段窗口（变矮前 / 后、长高后）`Scroll to bottom` 按钮计数恒为 0；且事件序列里不含任何 wheel / touch / 键盘输入（`page.mouse.wheel` 只在贴底那一次使用，之后到断言结束为零）。
-- [ ] **抗假变体真跑并留输出后还原**：「非程序 scroll + scrollTop 变小 ⇒ 脱离」的版本使本条变红（gap ≈ N 与 / 或按钮出现）；`git diff` 证明 spec 的真实断言一条未删、未经 stub/skip，实现已还原。
-- [ ] `src/modules/chat/tests/transcriptScrollOwnership.test.tsx` 新增用例：合成一次 `scroll` 事件（先让 scrollTop 变小再 dispatch）**不得**改变跟随意图（零脱离、按钮态零次），而合成的 `wheel` 向上**必须**脱离——证明判别依据是输入来源而不是 scrollTop 差值；`npm run test:client`、`npm run typecheck`、`npm run lint` 退出码 0。
+- [x] `npx playwright test e2e/transcript-follow.spec.ts -g "AC-111"` 退出码 0（真实 Chromium 打 playwright webServer 起的真实后端 + 真实 Vite，隔离数据目录；不得 stub 后端、不得用 evaluate 直接设 scrollTop 冒充用户手势）。
+- [x] 同一 spec 断言**变矮半**：视口上方一行变矮 M≥200px 后，页面内捕获阶段 scroll 计数增量 ≥1（浏览器自己确实改了 scrollTop 并派发 scroll），且同区间 `window.__scrollWrites` 增量为 0（这段 scrollTop 变化不是程序写的）。
+- [x] 同一 spec 断言**贴底半**：随后让最后一行就地长高 N≥400px，在布局与 ResizeObserver 回调之后的采样点 gap ≤ 1px。
+- [x] 同一 spec 断言**按钮半**：整段窗口（变矮前 / 后、长高后）`Scroll to bottom` 按钮计数恒为 0；且事件序列里不含任何 wheel / touch / 键盘输入（`page.mouse.wheel` 只在贴底那一次使用，之后到断言结束为零）。
+- [x] **抗假变体真跑并留输出后还原**：「非程序 scroll + scrollTop 变小 ⇒ 脱离」的版本使本条变红（gap ≈ N 与 / 或按钮出现）；`git diff` 证明 spec 的真实断言一条未删、未经 stub/skip，实现已还原。
+- [x] `src/modules/chat/tests/transcriptScrollOwnership.test.tsx` 新增用例：合成一次 `scroll` 事件（先让 scrollTop 变小再 dispatch）**不得**改变跟随意图（零脱离、按钮态零次），而合成的 `wheel` 向上**必须**脱离——证明判别依据是输入来源而不是 scrollTop 差值；`npm run test:client`、`npm run typecheck`、`npm run lint` 退出码 0。
 
 ## DoD
 
