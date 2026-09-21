@@ -2,7 +2,7 @@
 id: gap-selected-session-title-live-update
 title: 当前查看会话的顶部标题不随 session_upserted 更新：selectedSession
   是独立副本，只有别名分支会同步，ai-title 到达后侧栏已变而 header 需刷新
-status: ready
+status: done
 labels:
   - gap
   - defect
