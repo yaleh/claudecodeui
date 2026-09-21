@@ -438,14 +438,24 @@ question rendered twice in another.
   name in `pruneRealtimeSupersededByServer`. Code that assumes every row id came from a
   provider will trip over it.
 - **`finalizeStreaming` mutates the array slot in place.** It does not remove and append.
-  The id changes underneath the same position, on purpose, so React reconciles the
-  existing DOM and a text selection survives the end of the reply.
+  The id changes underneath the same position, on purpose, so the next turn's
+  `__streaming_<sessionId>` cannot overwrite the reply just settled. The id is also what
+  React keys the row by, so the swap is an unmount and a mount rather than a reconcile, and
+  a text selection does not survive it. Measured in `e2e/transcript-follow.spec.ts`
+  (AC-108): the remount happens while the row's box is momentarily `LazyMessageRow`'s
+  placeholder, the pane's `scrollHeight` collapses with it, and the browser clamps
+  `scrollTop` to what the collapsed box allows.
 - **A streaming reply does not re-trigger the auto-scroll *effect*.** The follow effect
   depends on `chatMessages.length`, and an in-place rewrite does not change it. The pane is
   still held on the bottom while the reply streams, but by geometry rather than by that
-  effect: `finalizeStreaming`'s in-place rewrite changes the row's box, and the
-  `ResizeObserver` in `useChatSessionState.ts` follows a resize under a viewport that was
-  already at the bottom. See [scrolling](./05-scrolling.md).
+  effect: every flush of the 100 ms buffer changes the row's box, and the `ResizeObserver`
+  in `useChatSessionState.ts` follows a box that changed under a viewport that was already
+  at the bottom. It writes in a `requestAnimationFrame`, so the frame that receives a
+  growth is the single frame painted with the gap open and the next frame pins it — which
+  is what "follow" means here, and what AC-108 asserts frame by frame. A flush that hands
+  the row its *placeholder* instead collapses the box, and a collapse is a clamp rather
+  than a growth: the follow repairs it on the next frame, and the finalize above is the
+  case where nothing reports the restore. See [scrolling](./05-scrolling.md).
 - **The 100 ms flush publishes the whole reply, not the delta.** Anyone optimising this
   into an incremental append has to also handle the case where a flush is skipped, which
   is exactly what the current design makes impossible to get wrong.

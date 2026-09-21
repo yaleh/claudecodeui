@@ -25,3 +25,7 @@ export { mapCliOptionsToSDK } from './list/claude/claude-runtime.provider.js';
 // window follows the resolved model entry.
 export { extractCumulativeTokenBudget, extractTokenBudget } from './list/claude/claude-runtime.provider.js';
 export { createProviderTokenUsageService, summarizeClaudeTokenUsage } from './services/provider-token-usage.service.js';
+// ClaudeSessionsProvider: driven by the stream-event unwrap test, which needs the
+// normalizer's own class to prove a partial SDK frame reaches the wire as a
+// `stream_delta` without a live CLI in the loop.
+export { ClaudeSessionsProvider } from './list/claude/claude-sessions.provider.js';

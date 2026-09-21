@@ -293,6 +293,14 @@ function mapCliOptionsToSDK(options = {}) {
 
   sdkOptions.settingSources = ['project', 'user', 'local'];
 
+  // Anthropic's raw streaming events are opt-in: without this the SDK hands the
+  // host only settled messages, so a reply reaches the client as one finished
+  // block and nothing downstream can see it arrive. The frames are transient —
+  // the normalizer turns them into `stream_delta`/`stream_end` for the wire and
+  // drops everything else, and the CLI does not write them to the transcript,
+  // which still lands the whole `assistant` record as its authority.
+  sdkOptions.includePartialMessages = true;
+
   // The SDK resumes with the provider-native session id, never the app id.
   // `resumeFromScratch` is set when the very first prompt of a conversation was
   // edited: there is nothing before it to resume through, so the turn has to
