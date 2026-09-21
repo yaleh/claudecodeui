@@ -1,7 +1,7 @@
 ---
 id: gap-composer-icon-buttons-unlabeled
 title: composer footer 三个图标按钮无可访问名称（commands 的名称是角标数字 "11"）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
