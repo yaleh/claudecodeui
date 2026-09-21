@@ -1079,6 +1079,10 @@ test.describe('the voice path end to end', () => {
    * one is the invariant the size was standing in for — it is a different audio object, in the container the
    * trim produced, and strictly shorter — which is falsified by the same fake form (two controls over one
    * source carry one duration).
+   *
+   * The mutex is read off the audio elements rather than off the controls, because a control's name only says
+   * what the app believes: two elements sounding at once with the labels left consistent is a state a build
+   * can reach, and it is the state the clause is about.
    */
   test('AC-122 the recording is replayable beside the trimmed upload, one at a time', async () => {
     // The goal gate kills the command at 60s, so the budget is under the file's default: a runaway leg has
@@ -1090,6 +1094,24 @@ test.describe('the voice path end to end', () => {
     // ⚠️ Both switches are named. They are remembered across loads, so a leg that left one to its default
     // would be reading whatever value the criterion above wrote — the same leg under `-g` and a different
     // one in the full file. The trim has to be on for the slot to gain a second track at all.
+    // Before the page that records: the clip elements are made with `new Audio()` and never attached to the
+    // document, so nothing in the DOM shows what is really sounding — a control's label says only what the
+    // app believes. Wrapping the constructor here, before the app's own scripts run, is what makes the
+    // mutex readable as audio rather than as a pair of labels that agree with each other.
+    await context.addInitScript(() => {
+      const registry: HTMLAudioElement[] = [];
+      const NativeAudio = window.Audio;
+      function WrappedAudio(...args: unknown[]) {
+        const element = new NativeAudio(...(args as []));
+        registry.push(element);
+        return element;
+      }
+      WrappedAudio.prototype = NativeAudio.prototype;
+      window.Audio = WrappedAudio as unknown as typeof Audio;
+      (window as unknown as { clipAudio?: () => { src: string; paused: boolean }[] }).clipAudio = () =>
+        registry.map((element) => ({ src: element.src, paused: element.paused }));
+    });
+
     await openComposer('/?voiceTrim=on&voiceDebug=off');
     const recorded = await recordCapture('two-replay leg');
     await expectTranscript(recorded, 'two-replay leg');
@@ -1161,13 +1183,27 @@ test.describe('the voice path end to end', () => {
     // an empty box.
     expect(await composer().inputValue()).toBe(recorded);
 
-    // (5) One at a time. A control renames itself for as long as its track is sounding, which is what makes
-    // "the other one stopped" readable from outside the page.
+    // (5) One at a time. Read twice over, because the two readings answer different questions: a control
+    // renames itself for as long as its track is *said* to be sounding, and the registry from the page says
+    // which element really is. A build that stopped its own audio but left the pair's state consistent would
+    // satisfy the labels alone; a build that started the second track without stopping the first satisfies
+    // the labels too, which is exactly why the audio is what the last assertion is about.
+    /** The sources of the slot's elements that are really sounding right now. */
+    const sounding = () =>
+      page.evaluate(() =>
+        ((window as unknown as { clipAudio?: () => { src: string; paused: boolean }[] }).clipAudio?.() ?? [])
+          .filter((element) => !element.paused)
+          .map((element) => element.src),
+      );
+
     await originalControl.click();
     await expect(
       page.getByRole('button', { name: 'Stop original playback' }),
       'the recording never started sounding',
     ).toBeVisible({ timeout: 10_000 });
+    await expect
+      .poll(sounding, { message: 'the recording is announced as sounding but no element is playing it' })
+      .toEqual([originalUrl]);
     // The premise for the pair of assertions below: the trimmed control is still there and still offering to
     // play, so what the next click shows is the recording being stopped by the trimmed track starting — not
     // a control that vanished.
@@ -1178,13 +1214,40 @@ test.describe('the voice path end to end', () => {
       page.getByRole('button', { name: 'Stop trimmed playback' }),
       'the trimmed audio never started sounding',
     ).toBeVisible({ timeout: 10_000 });
+    await expect
+      .poll(sounding, {
+        message: 'the recording and the trimmed audio were sounding at once',
+        timeout: 10_000,
+      })
+      .toEqual([trimmedUrl]);
     await expect(
       page.getByRole('button', { name: 'Stop original playback' }),
-      'the recording was still sounding while the trimmed audio played',
+      'the recording was still announced as sounding while the trimmed audio played',
     ).toHaveCount(0);
 
     // The pair is still a pair afterwards, and neither press touched the box.
     await expect(page.getByRole('button', { name: 'Replay original' })).toBeVisible();
     expect(await composer().inputValue()).toBe(recorded);
+
+    // (6) ...and a capture the chain did *not* trim gets no second control at all. This is the one thing a
+    // fabricated pair would do: a control named "trimmed" over the recording's own bytes, claiming a trim
+    // that never ran. The trim is switched off rather than defaulted, and the premise is asserted on the
+    // upload — the body really is the recorder's container — so the absence below cannot be a trim that ran
+    // and happened to remove nothing.
+    const beforeFallback = requests.length;
+    await openComposer('/?voiceTrim=off&voiceDebug=off');
+    const untrimmed = await recordCapture('untrimmed leg');
+    await expectTranscript(untrimmed, 'untrimmed leg');
+    expect(
+      uploadedFile(requests[beforeFallback].body, requests[beforeFallback].contentType)
+        .subarray(0, 4)
+        .toString('hex'),
+      'the untrimmed leg did not upload the recording, so its slot is not the case this asserts about',
+    ).toBe('1a45dfa3');
+    await expect(page.getByRole('button', { name: 'Replay original' })).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page.getByRole('button', { name: 'Replay trimmed' }),
+      'the capture was uploaded as it was recorded, and the slot offers a trimmed replay of it anyway',
+    ).toHaveCount(0);
   });
 });
