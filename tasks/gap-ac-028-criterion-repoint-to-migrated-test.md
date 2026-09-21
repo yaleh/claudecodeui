@@ -1,7 +1,7 @@
 ---
 id: gap-ac-028-criterion-repoint-to-migrated-test
 title: AC-028：判据指回搬迁后的真实测试路径（model-context-window 现居 providers），并在测试侧固化溯源注释
-status: ready
+status: done
 labels:
   - gap
   - defect
