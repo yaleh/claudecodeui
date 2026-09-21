@@ -46,13 +46,54 @@ extra:
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/provider-models.service.test.ts` 退出码 0，新增用例覆盖：①复制出的行真的带上源行 secret——用服务端内部读 `getCustomModelConfigForRuntime(provider, 新id)` 断言；用例必须能区分"取自源行"与"取自目标行"：造两个同 key 不同 secret 值的模型（S1/S2），断言复制出来的是 S1；②源有 A/B 两行、提交只含 A ⇒ 新行只有 A；③源 recordId 不存在 ⇒ 404 `MODEL_NOT_FOUND`；④目标 id 与内置或既有自定义 id 相同 ⇒ 409 `MODEL_ID_ALREADY_EXISTS`。
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/model-secret-write-only.test.ts` 退出码 0，新增用例：duplicate 的响应体与随后的模型列表里 `JSON.stringify(...).includes(SENTINEL)` 为假，**同时**该模型经服务端内部编译确实含该 sentinel——"真复制"与"不泄漏"两条断言同时成立，缺一即判据不完整。
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/provider.routes.test.ts` 退出码 0，新增用例：`POST /api/providers/claude/models/:recordId/duplicate` 返回 201 且信封为 `{provider, model, models}`；坏 recordId 400 `INVALID_MODEL_RECORD_ID`；未知 source 404；重复 id 409。
-- [ ] `npx vitest run src/modules/settings/tests/modelLibraryDuplicate.test.tsx` 退出码 0（新文件），新增用例：①点 Duplicate 后表单被预填——name 为 `<源名> (copy)`、id 为 `-copy` 变体、env 行数与源一致且 secret 行呈"已设置"态；②提交的请求体只含表单里存在的行，且留空的已存 secret 行不带 value；③点 X 取消后复制态与预填全部清空，回到普通"新增"表单；④`-copy` 已被占用时预填为 `-copy-2`，且预填 id 长度始终 ≤200。
-- [ ] `npm run test:e2e -- e2e/model-library-duplicate.spec.ts` 退出码 0（新 spec，真实 Chromium + 真实后端，复用既有 e2e 夹具与 mock 网关）：经 UI 建一个带 secret 的模型 → 复制 → 只改 id 与名称 → 创建 → 刷新后新条目在列表且 secret 显示"已设置"、其值不出现在页面文本与任何网络响应 → 新模型可在 composer 选中并发送，mock 网关收到带该 token 的请求。
-- [ ] 取假变体使判据转红（至少一条），红灯原始输出记入证据。可取假例：把 `duplicateCustomModel` 传给 create 的 `stored` 改成 `null`（预期留空 secret 行 400）；或让预填不带 env 行（预期 e2e 的"已设置"断言红）。
-- [ ] `npm run typecheck`、`npm run lint` 退出码 0；`bash scripts/test.sh --for-task gap-model-library-duplicate-custom-model` 退出码 0（scoped 自测；**全量套件是 fan-in 的合并闸，不是 worker 的自测**）。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/provider-models.service.test.ts` 退出码 0，新增用例覆盖：①复制出的行真的带上源行 secret——用服务端内部读 `getCustomModelConfigForRuntime(provider, 新id)` 断言；用例必须能区分"取自源行"与"取自目标行"：造两个同 key 不同 secret 值的模型（S1/S2），断言复制出来的是 S1；②源有 A/B 两行、提交只含 A ⇒ 新行只有 A；③源 recordId 不存在 ⇒ 404 `MODEL_NOT_FOUND`；④目标 id 与内置或既有自定义 id 相同 ⇒ 409 `MODEL_ID_ALREADY_EXISTS`。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/model-secret-write-only.test.ts` 退出码 0，新增用例：duplicate 的响应体与随后的模型列表里 `JSON.stringify(...).includes(SENTINEL)` 为假，**同时**该模型经服务端内部编译确实含该 sentinel——"真复制"与"不泄漏"两条断言同时成立，缺一即判据不完整。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/provider.routes.test.ts` 退出码 0，新增用例：`POST /api/providers/claude/models/:recordId/duplicate` 返回 201 且信封为 `{provider, model, models}`；坏 recordId 400 `INVALID_MODEL_RECORD_ID`；未知 source 404；重复 id 409。
+- [x] `npx vitest run src/modules/settings/tests/modelLibraryDuplicate.test.tsx` 退出码 0（新文件），新增用例：①点 Duplicate 后表单被预填——name 为 `<源名> (copy)`、id 为 `-copy` 变体、env 行数与源一致且 secret 行呈"已设置"态；②提交的请求体只含表单里存在的行，且留空的已存 secret 行不带 value；③点 X 取消后复制态与预填全部清空，回到普通"新增"表单；④`-copy` 已被占用时预填为 `-copy-2`，且预填 id 长度始终 ≤200。
+- [x] `npm run test:e2e -- e2e/model-library-duplicate.spec.ts` 退出码 0（新 spec，真实 Chromium + 真实后端，复用既有 e2e 夹具与 mock 网关）：经 UI 建一个带 secret 的模型 → 复制 → 只改 id 与名称 → 创建 → 刷新后新条目在列表且 secret 显示"已设置"、其值不出现在页面文本与任何网络响应 → 新模型可在 composer 选中并发送，mock 网关收到带该 token 的请求。
+- [x] 取假变体使判据转红（至少一条），红灯原始输出记入证据。可取假例：把 `duplicateCustomModel` 传给 create 的 `stored` 改成 `null`（预期留空 secret 行 400）；或让预填不带 env 行（预期 e2e 的"已设置"断言红）。
+- [x] `npm run typecheck`、`npm run lint` 退出码 0；`bash scripts/test.sh --for-task gap-model-library-duplicate-custom-model` 退出码 0（scoped 自测；**全量套件是 fan-in 的合并闸，不是 worker 的自测**）。
+
+### 判据读数（2026-09-21，worktree `model-library-duplicate-custom-model`）
+
+| 判据 | 命令 | 读数 |
+| --- | --- | --- |
+| AC1 | `npx tsx --tsconfig server/tsconfig.json --test .../provider-models.service.test.ts` | exit 0，`tests 26 / pass 26 / fail 0` |
+| AC2 | 同上 `model-secret-write-only.test.ts` | exit 0，`tests 4 / pass 4 / fail 0` |
+| AC3 | 同上 `provider.routes.test.ts` | exit 0，`tests 6 / pass 6 / fail 0` |
+| AC4 | `npx vitest run src/modules/settings/tests/modelLibraryDuplicate.test.tsx` | exit 0，`Tests 5 passed (5)` |
+| AC5 | `npm run test:e2e -- e2e/model-library-duplicate.spec.ts` | exit 0，`5 passed (12.8s)` |
+| AC7 | `npm run typecheck` / `npm run lint` / `bash scripts/test.sh --for-task …` | 全部 exit 0 |
+
+**AC6 假变体原始红灯（`duplicateCustomModel` 的 `stored` 由 `source.config` 改成 `null`，即 Proposal 第 1 条标注的 ⛔ 关键点）**：
+
+```
+$ npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/provider-models.service.test.ts
+exit=1
+✖ a duplicate keeps the SOURCE secret, even with a sibling holding the same key (0.465059ms)
+ℹ tests 26
+ℹ pass 25
+ℹ fail 1
+
+✖ a duplicate keeps the SOURCE secret, even with a sibling holding the same key (0.465059ms)
+  Error [AppError]: Environment variable ANTHROPIC_AUTH_TOKEN has no stored secret to keep.
+      at invalidConfig (…/services/provider-models.service.ts:90:54)
+      at resolveSecretRows (…/services/provider-models.service.ts:119:13)
+```
+
+同一变体在 AC2 上也转红，且只红"真复制"那一半：
+
+```
+$ npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/model-secret-write-only.test.ts
+exit=1
+✔ list and create responses expose only isSet for secret rows
+✔ PATCH: secret row without value keeps, empty string clears, non-empty replaces
+✖ a duplicate really copies the secret and never echoes it
+✔ error responses never echo a submitted secret value
+ℹ tests 4 / pass 3 / fail 1
+```
+
+失败模式与预注册完全一致：留空 secret 行在 `resolveSecretRows` 抛 400，而不是静默抄不到值。变体已用 `cp` 还原并 `sha256sum -c` 校验（`provider-models.service.ts: OK`），红灯读数取自还原前的运行。
 
 ## DoD
 
