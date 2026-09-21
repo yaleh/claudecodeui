@@ -1,7 +1,7 @@
 ---
 id: gap-launch-profiles-drop-schema-and-tidy-goal
 title: drop launch_profiles 表与 sessions.launch_profile_id 列、清重复迁移，并收拾 GOAL-001 记录
-status: ready
+status: done
 labels:
   - gap
 parent: null
