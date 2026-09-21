@@ -569,5 +569,18 @@ test.describe('transcript follow in a real browser', () => {
       finalReadings.__scrollInputs,
       `the window must contain no input at all (${JSON.stringify(finalReadings.__scrollInputs)})`,
     ).toEqual([]);
+
+    // The readings themselves, so the run's own output carries them instead of
+    // leaving them inferable only from a green check.
+    console.log(`AC-111 readings ${JSON.stringify({
+      shrinkLostPx: shrunk?.lost ?? 0,
+      pannedPx: Math.round(panned),
+      paneScrollEventsInShrinkWindow: paneScrolls.length,
+      programmaticWritesInShrinkWindow: shrinkReadings.__scrollWrites.length,
+      buttonAppearancesInWindow: finalReadings.__scrollButtonAppearances.length,
+      inputEventsInWindow: finalReadings.__scrollInputs.length,
+      gapAfterGrowthPx: afterGrowth.gap,
+      gapAfterShrinkPx: afterShrink.gap,
+    })}`);
   });
 });
