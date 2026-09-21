@@ -17,8 +17,10 @@ expect: 按 (provider, model_id) 查到自定义模型后，resolveLaunchSpec �
   的已知不等价点。编译路径对每一行重新校验白名单：绕过写入路径直写库的越权键（LD_PRELOAD 等）也不得进入最终 spawn 环境，并产出
   warning——这是纵深防御，写入路径校验（AC-023）不能替代它（接过 AC-004 的编译路径半边）。取代
   AC-004（编译路径半边）、AC-009、AC-013、AC-017。取假形态：今天不存在按模型编译的入口，必红。
-origin: ADR-002；criterion 路径随 gap-launch-profiles-teardown-entity
-  的搬迁修正：launch-profiles 目录已按 GOAL-001 拆除，测试现居 providers
+origin: ADR-002（配置挂在 Model library 上，取代独立 launch profile
+  实体）；docs/proposals/launch-profiles.md 待随之修订；criterion 路径随
+  gap-launch-profiles-teardown-entity 的搬迁修正：launch-profiles 目录已按 GOAL-001
+  拆除，测试现居 providers，断言对象一个不减
 activatedAt: 2026-09-20T09:16:11.900Z
 statusLog:
   - at: 2026-09-20T09:45:31.537Z
