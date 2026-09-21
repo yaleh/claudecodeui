@@ -1,7 +1,7 @@
 ---
 id: AC-116
 title: 裁剪模块只删静音：语音逐样本存活、异常必兜底、harness 无第二份实现
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-006
 criterion: npx vitest run src/shared/tests/voiceTrim.test.ts
@@ -19,4 +19,10 @@ origin: 2026-09-21 现测（仓库外工装 tools/vad.mjs + tools/compress.mjs�
   clips 1229s→915s、en 32 clips 373s→323s，VAD 段数 p50 3–4，句读 2.06→1.00。cap 表与
   lead-in/out 取自工装默认值，人 yale 决定不再调参。
 activatedAt: 2026-09-21T15:17:59.938Z
+statusLog:
+  - at: 2026-09-21T15:29:25.879Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 ---
