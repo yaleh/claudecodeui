@@ -1,7 +1,7 @@
 ---
 id: gap-session-rename-writeback
 title: App 改名写回 Claude Code：经 SDK renameSession 追加 custom-title，DB 先写、磁盘 best-effort
-status: ready
+status: done
 labels:
   - gap
 parent: null
