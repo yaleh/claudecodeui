@@ -100,7 +100,7 @@ Error: Failed to resolve import "@shared/asr/transcriptionWire" from "src/shared
 
 vitest 优先读 `vitest.config.ts`，不从 `vite.config.js` 继承任何东西 —— 「bundle 能解析」与「单测能解析」是两件独立的事。补上第四处后同一条命令绿（`Test Files 2 passed (2)` / `Tests 25 passed (25)`）。`tsconfig.json` 与 `vite.config.js` 里「三处」的注释已同步改成四处；探针的 `--landing` 现在逐条打印并逐条断言这四处（缺一条即红）。这是 AC8 那条纪律的延伸：登记点少一处不会「被判红」，只会静默不工作。
 
-**取假形态的原始判词**（工装根在测试运行时于临时目录用**出货文件**构造，不往仓库里放固定 fixture；`node --test scripts/asr-single-implementation-check.test.mjs` → 4/4 pass，且该文件在 `npm run test:scripts` 的执行集合内 —— `test:scripts` 17/17 pass）：
+**取假形态的原始判词**（工装根在测试运行时于临时目录用**出货文件**构造，不往仓库里放固定 fixture；`node --test scripts/asr-single-implementation-check.test.mjs` → 4/4 pass）：
 
 - AC3（前端与服务端各写一份并各自指向自己的副本）
   `FAIL paths differ: the consumers resolve to 3 different files: …/transcriptionWire.ts …/transcriptionWireFrontend.ts …/transcriptionWireServer.ts`
@@ -117,6 +117,8 @@ vitest 优先读 `vitest.config.ts`，不从 `vite.config.js` 继承任何东西
 
 AC4-2 / AC4-3 是本探针的承重点：只认 endpoint 字面量（或只认响应解析）的检查器在这两条上会保持绿。三条变体各自单独加入、单独判红、随后移除并复核恢复为绿 —— 免得一条用例的绿掩盖另一条的红。每条取假用例都先断言未变异的工装根为绿，故「红」不可能是恒红。
 
+**判据的机械承重点落在哪条 lane（runner 实测，非推断）**：AC3/AC4/AC5 的控制**不在** `scripts/test.sh` 的两条 lane 里。scoped 门对本任务读薄 —— `scripts/test.sh:112` 用 `grep -E '\.test\.[jt]sx?$'` 从 Touches 取测试文件，`.test.mjs` 的 `m` 不在 `[jt]` 内，故取到 0 个文件并走 `scripts/test.sh:114` 的薄路径；读数是 `no scoped test files for gap-asr-wire-single-implementation-boundary-probe (thin)` / `EXIT=0` / 260ms（`--allow-thin` 正是为此存在，见该文件 106 行的注释）。全量 suite 也不跑这条 lane：它的文件集是 `find server -name '*.test.ts' -o -name '*.test.js'`（`scripts/test.sh:482`）加一次 vitest（`CLIENT_FILES=__all__`，include 为 `src/**/*.test.ts(x)`）。`scripts/**/*.test.mjs` 由 `npm run test:scripts`（`node scripts/list-script-tests.mjs && node --test "scripts/**/*.test.mjs"`）执行：探针文件自身 4/4 pass，该 lane 全体 17/17 pass。**登记这条不是抱怨，是披露**：假形态控制是 AC3/4/5 的全部机械承重，读者应当知道它跑在哪条 lane，而不是从「scoped 门是绿的」推出「控制跑过了」。把 `.mjs` 接进 scoped 门的正则、或把 scripts lane 接进 suite，都超出本任务的写入面，故只登记不改。
+
 **AC6 判据命令的一处收窄（口径，非不变式）。** 原文命令去重后是 **3** 个文件，不是 1；多出的两个是**测试**：`server/modules/voice/tests/voice.service.test.ts:49`、`src/shared/tests/voiceConfigHydration.test.ts:152,162`，各自独立钉住 `…/v1/audio/transcriptions` 这个字面量。这两个字面量正是 AC9「既有读数不变」的**独立性**来源：若改成从实现派生（拼 `TRANSCRIPTION_PATH`），实现换了 URL 它们会跟着换，AC9 就变成空的。故按 AC6 自己的标题「唯一性（生产源）」把命令收窄为 `--exclude=*.test.ts`：生产源去重后 = 1（`shared/asr/transcriptionWire.ts:28`），且仍可红（把逻辑抄回 `src/shared/api.ts` 即 2，与 AC3 同形）。收窄的是取数口径，不是不变式。
 
 **纯重构的逐字核对**（回应 DoD 的「不改线上行为」）：
@@ -126,6 +128,8 @@ AC4-2 / AC4-3 是本探针的承重点：只认 endpoint 字面量（或只认�
 - 直连响应：旧 `String(data?.text || '')`（`data = await res.json()`，非 JSON 抛），新 `parseTranscriptionResponse(res.text(), 'strict')` = `String(JSON.parse(text)?.text || '')` —— 表达式逐字相同，容忍度相同。
 - 代理响应：旧 `try { JSON.parse; typeof parsed.text === 'string' ? parsed.text : '' } catch { responseText }`，新的 lenient 分支逐字相同（含 `JSON.parse('null')` 时读 `.text` 抛 TypeError 而落回原文这一历史行为）。
 - multipart：字段名 `file` / `model`、Blob 容器、Authorization 头均未变。`server/modules/voice/voice.service.ts` 里留给 TTS 的本地 `authorizationHeader` 与本模块内的同名私有函数并存 —— TTS 不在 AC-129 的词内（ADR-004 决策 2 只覆盖转写线），刻意不动。
+
+**合并后的复核读数（本任务交付时的最终树）**：`git merge develop` 后 HEAD = `8b5b2f2d`（develop = `6d9c3dd3`，且 `git merge-base --is-ancestor develop HEAD` 成立）。十条 AC 在合并后的树上逐条重跑，读数与本文件所记逐条相同：AC1 / AC2 / AC3-5 / AC7 / AC8 / AC9a / AC9b 退出码 0（AC9b 报 `Test Files 2 passed (2)` / `Tests 25 passed (25)`），AC10 退出码 2 并打出用法行，AC6 生产源去重命中 1 行（`shared/asr/transcriptionWire.ts:28`）。随后 scoped 门重跑仍是薄/绿（260ms），键在 `develop=6d9c3dd3` 上的 scoped-gate 缓存已写入。
 
 **接线之外的写入面**：新增 `vitest.config.ts` 一处别名登记（AC9 需要，见上）；落点判定后 Touches 里未落的那一支 `src/shared/asr/transcriptionWire.ts` 已移除 —— 写入面声明应当只声明真实写入面，未落的后备落点记在这里而不是留在声明里。
 
