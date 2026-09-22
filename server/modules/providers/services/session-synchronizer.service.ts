@@ -96,7 +96,16 @@ async function runSessionSynchronization(): Promise<SessionSynchronizeResult> {
 
   for (const result of results) {
     if (result.status === 'fulfilled') {
-      processedByProvider[result.value.provider] = result.value.processed;
+      // Counted only when the id is already a key of this tally. This literal is
+      // the shape the projects routes return, and `listProviders()` is no longer
+      // the product's four: with the debug agent's gate open it also holds a
+      // provider whose id is deliberately not in `LLMProvider`, and assigning
+      // before checking would grow the response into an id the product has never
+      // heard of. The scan itself still ran — the rows it indexed are real rows —
+      // it simply has no column here.
+      if (Object.hasOwn(processedByProvider, result.value.provider)) {
+        processedByProvider[result.value.provider] = result.value.processed;
+      }
       continue;
     }
 
