@@ -122,9 +122,9 @@ GOAL-007 的正文**没有 `## 退出条件` 小节**，退出条件从未写下
 
 AC3 原措辞只要求「reason **不再是**纯机械短路形态，**而是**语义 judge 给出的 `covered` / `insufficient` 结论」。这个措辞有一个可被环境失败冒充的洞：语义路径**不可用**时驱动产出 `sufficiency=not-evaluated（cause=judge-unavailable）（在域 AC 6 条）`——它同样**不是**机械短路形态，于是一次 spawn 失败（判官根本没跑起来）即可让 AC3 看起来达标。已改为三条合取：(a) verdict ∈ {`covered`, `insufficient`}；(b) reason 不含 `cause=`；(c) **正面控制**——`sufficiencyCacheKey` 算出的键存在于 `.quay/goal-sufficiency-cache.json`（只有真跑过判官才会写缓存；本任务立案时 GOAL-007 的键**不在**那 19 条缓存里，这正是「判官从未被咨询」的独立证据）。AC3 正文已按此改写。
 
-### 如实登记：AC-136 暂无派工任务
+### AC-136 的派工任务：由 G9 缺口环立案（已实测发生）
 
-本任务**不**为 AC-136 立派工任务。依据：一条新立的 active AC 零任务牵引，正是 G9 缺口环的输入（「AC 零任务牵引」），按设计由该环立案。下一轮核验该环是否立案；若未立案，另行处理而非在此假装已安排。
+本任务**不**为 AC-136 立派工任务。依据：一条新立的 active AC 零任务牵引正是 G9 缺口环的输入，按设计由该环立案。**该预测已兑现**：`tasks/gap-debug-agent-display-identity.md`（`goal_ac: AC-136`）已由该环立案（commit `45afebcc`，`cli:2686942`），并已被 promotion-driver 机械晋升 `todo→ready`（commit `a8cf6b1d`），无需人工介入。
 
 ## Evidence
 
@@ -137,6 +137,7 @@ AC3 原措辞只要求「reason **不再是**纯机械短路形态，**而是**�
   1. **轮日志**：`.quay/goal-round.jsonl` 中 GOAL-007 的 `goal-sufficiency` 由 **round 3418**（`15:43:58Z`）的 `{"verdict":"insufficient"}` / reason `sufficiency=insufficient（在域 AC 6 条）` 变为 **round 3419**（`15:48:34Z`）的 `{"verdict":"covered"}` / reason `sufficiency=covered（在域 AC 7 条）`，**round 3420**（`15:49:33Z`）复现同一读数（稳定，非单轮抖动）。(a) verdict=`covered`——机械层 `goalSufficiencyVerdict()` 只可能返回 `insufficient` / `not-evaluated`，**`covered` 在语义路径之外不可达**；(b) reason 中**无** `cause=`（不是 `not-evaluated（cause=judge-unavailable）` 那类环境失败）；(c) 在域 AC 由 **6 条变 7 条**——新立的 AC-136 被计入，证明驱动读到的是**修订后**的记录集。
   2. **正面控制——缓存键**：`.quay/goal-sufficiency-cache.json` 由 **19 条增至 20 条**，新增项 `key=87a8dd74650fc97ca14f7b0c7c149d54b2df057c77ccfed7e36126391efee6c6`、`verdict="covered"`、`ts=2026-09-22T15:45:01.710Z`；而立案时 `.quay/goal-sufficiency-followup.json` 记下的 stall 实例键 `b3bd256d260b1b6bf191aeabe1c09351d8bb8dbb5965dfbd782251202595eb47` **已不在**缓存中。该键的定义（`goal-driver.ts:1140` 的 `sufficiencyCacheKey`）逐字含 `exit: exitConditionsText(body)`，故键变 ⟺ 退出条件节文本（或标题/范围节/AC 集合）变——正是本次修订。只有真跑过判官才会写这张缓存。
   3. **时间线**：body 写入 commit **`9c62a3e6`**（`2026-09-22T15:44:17Z`）→ 判官裁决写入缓存 **`15:45:01Z`**（+44s）→ 轮记录 **3419 / `15:48:34Z`**。该轮耗时明显长于前几轮（约 50s 一节），与「本轮真的 spawn 了一次语义判官」相符。
+- **AC-136 的派工任务（实测）**：`tasks/gap-debug-agent-display-identity.md` 由 G9 缺口环自动立案（`goal_ac: AC-136`，commit `45afebcc`「task_write by cli:2686942」），并经 promotion-driver 机械晋升 `todo→ready`（commit `a8cf6b1d`）——「新立的 active AC 会自动获得任务牵引」这条预测已兑现，无需人工立案。
 - **未做的一项（如实登记）**：提案与 GOAL-003 的证据都把缓存键**用驱动导出的 `sufficiencyCacheKey()` 原样复算**了一次。本次**未能复算**——本仓的 tsx 无法在插件 vendored bundle 之外加载 `plugin/scripts/goal-driver.ts`（先缺 `yaml` 解析，绕过后又在 module 图上抛 `TransformError`）。上述第 2 条因此是**基于键定义 + 键的消失/新生 + 在域 AC 数 6→7** 的推定，不是「复算出逐字节相同的键」那一种正面读数。**这一条弱于 GOAL-003 的证据强度，如实标注。**
 - **AC4**：本次三个提交（`4a59f0de` / `9c62a3e6` / `a8b5a9c7`）触及的文件逐一为 `goals/AC-136-…md`（new）、`goals/GOAL-007-…md`、`tasks/gap-goal-007-exit-conditions-section.md`——**全部在 Touches 内**。⚠️ 判据原命令 `git diff --name-only "$(git merge-base develop HEAD)"` 在本仓**读数为空（退化）**：`author` 已被同步到与 `develop` 同一提交，merge-base == HEAD ⇒ 空集恒过，且会把并发他人的提交（同区间内 `tasks/gap-asr-paired-quality-experiment-record.md` 由另一进程写入）一并算进来。改用「逐提交列文件 + `git merge-base --is-ancestor` 确认三个提交都已进 develop」得到上面的有意义读数；三个提交均已确认是 develop 的祖先。
 - **AC4（Touches 补记）**：Touches 已加入 `goals/AC-136-…md (new)`。它是本次裁定「另立 AC」实际写入的新文件，属本任务真实写入面，故必须登记——否则 AC4 会把它判为 Touches 之外的文件而红。
