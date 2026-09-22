@@ -92,3 +92,4 @@ L_G 该轴仍暗，理由：同上；本任务的读数是渲染可区分性与�
 - src/modules/i18n/locales/tr/sidebar.json
 - src/modules/i18n/locales/zh-CN/sidebar.json
 - src/modules/i18n/locales/zh-TW/sidebar.json
+- tasks/gap-session-fork-lineage-list.md
