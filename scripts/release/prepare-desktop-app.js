@@ -46,13 +46,6 @@ async function copyRequired(relativePath) {
   await fs.cp(from, to, { recursive: true });
 }
 
-async function copyIfExists(relativePath) {
-  const from = path.join(rootDir, relativePath);
-  if (!(await pathExists(from))) return false;
-  await fs.cp(from, path.join(stageDir, relativePath), { recursive: true });
-  return true;
-}
-
 async function copyNodeModule(packageName) {
   const parts = packageName.split('/');
   const source = path.join(rootDir, 'node_modules', ...parts);

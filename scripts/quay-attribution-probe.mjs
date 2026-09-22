@@ -10,7 +10,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PATH_RE = /((?:[\w@.-]+\/)+[\w@.-]+\.[cm]?[jt]sx?)(?=[:\s]|$)/;
 
+/**
+ * Files named by `not ok - <path>: …` lines. The `lint`/`typecheck` pseudo-files (`not ok - lint: …`)
+ * carry no path and are deliberately not counted as test files.
+ * @param {unknown} logText
+ * @returns {string[]}
+ */
 export function namedFailingFiles(logText) {
+  /** @type {Set<string>} */
   const out = new Set();
   for (const raw of String(logText ?? '').split('\n')) {
     const line = raw.trim();
@@ -21,7 +28,14 @@ export function namedFailingFiles(logText) {
   return [...out];
 }
 
+/**
+ * Files a candidate regex extracts from `… passed=false` lines.
+ * @param {unknown} logText
+ * @param {RegExp} regex
+ * @returns {string[]}
+ */
 export function extractedFailingFiles(logText, regex) {
+  /** @type {string[]} */
   const out = [];
   for (const raw of String(logText ?? '').split('\n')) {
     const line = raw.trim();
@@ -32,6 +46,11 @@ export function extractedFailingFiles(logText, regex) {
   return out;
 }
 
+/**
+ * The regex `failingTestFilesFromSuiteLog` actually uses, read out of the plugin's dist.
+ * @param {string} providerPath
+ * @returns {RegExp}
+ */
 export function pluginRegex(providerPath) {
   const pluginRoot = path.resolve(providerPath, '..', '..');
   const dist = path.join(pluginRoot, 'scripts', 'dist', 'worker-driver.js');

@@ -41,6 +41,11 @@ Thumbs.db
 # Logs
 *.log
 logs/
+# …except captured log EXCERPTS that are test fixtures. Without this negation a fixture named
+# *.log is written, the self-test passes locally against it, and `git add` silently leaves it
+# behind — which is exactly how scripts/__fixtures__/fan-in-suite-lint-failure.log went missing
+# while tasks/gap-quay-suite-attribution-regex-zero-coverage.md declared it as delivered.
+!scripts/__fixtures__/*.log
 
 # Runtime data
 pids
