@@ -68,6 +68,26 @@ const SCROLL_INTENT_KEYS = new Set([
   'Spacebar',
 ]);
 
+/**
+ * The half of the set above that asks for *older* content — the keys a browser
+ * moves a scroller's viewport up with.
+ *
+ * A key press is not a movement, and the two halves are not symmetrical in when
+ * the movement it causes becomes readable: a key towards the bottom ends at the
+ * bottom, which is where the follow wants the viewport anyway and where the
+ * `scroll` that reports it is read as the user returning; a key towards the top
+ * takes the viewport somewhere no later signal will confirm. So only these
+ * detach at the press — see `onKeyDown`.
+ *
+ * `Home` belongs here and `End` does not: the pair move to opposite ends of the
+ * scroller, and the transcript's follow is a claim about one of them.
+ */
+const SCROLL_UP_INTENT_KEYS = new Set([
+  'ArrowUp',
+  'PageUp',
+  'Home',
+]);
+
 /** The scroll container's laid-out geometry, as of one resize. */
 type TranscriptGeometry = {
   scrollHeight: number;
@@ -952,8 +972,41 @@ export function useChatSessionState({
     const onPointerDown = (event: Event) => {
       if (isOverPane(event)) noteInput();
     };
+    /**
+     * Records the user's intent from a scroll key, and takes the *up* half of it
+     * at the key rather than at the report.
+     *
+     * The `scroll` a key raises is the one report that cannot be waited for. A
+     * key moves the viewport as its *default action*, and the browser animates
+     * that movement, so the report trails the press by a frame or more — and
+     * over that frame the pane still sits wherever the app last placed it while
+     * the app has already seen the input. A commit landing in the window passes
+     * both of the follow's gates and pins the viewport back down over the key
+     * the user is holding: the offset has not moved yet, so the comparison that
+     * would read the drift has nothing to read, and the intent still says
+     * "following", which is only true until the report arrives.
+     *
+     * So an up key over the pane detaches here, in the task the input landed in.
+     * The ref is written beside the state because the two are read at different
+     * points in a commit and the gap between them is exactly this window: the
+     * pin is judged in a layout effect, while the ref is mirrored from the state
+     * by a passive effect that React runs after it, so a state-only write would
+     * still leave the very commit this exists for reading the old value.
+     *
+     * Only an up key, and only over the pane. A key towards the bottom is the
+     * user returning, and the `scroll` it raises is read as that arrival exactly
+     * as before — detaching on one would strand the follow until some later
+     * input undid it. And an `ArrowUp` belongs to the composer's caret, or to
+     * any other control on the page, unless it was aimed at the transcript.
+     */
     const onKeyDown = (event: KeyboardEvent) => {
-      if (SCROLL_INTENT_KEYS.has(event.key)) noteInput();
+      if (!SCROLL_INTENT_KEYS.has(event.key)) return;
+      noteInput();
+      // `isOverPane` is true for the pane itself as well as its descendants,
+      // which is what a focused scroller reports as the key's target.
+      if (!SCROLL_UP_INTENT_KEYS.has(event.key) || !isOverPane(event)) return;
+      setIsUserScrolledUp(true);
+      isUserScrolledUpRef.current = true;
     };
 
     window.addEventListener('scroll', onScroll, true);

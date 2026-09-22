@@ -407,7 +407,8 @@ describe('content-growth follow', () => {
    */
   async function mountFollow(scrollHeight = 5000, clientHeight = 500) {
     const session = { id: SESSION_A } as ProjectSession;
-    const store = createStore(new Map([[SESSION_A, [buildMessage(0, '2026-01-01T00:00:00.000Z')]]]));
+    const messages = new Map([[SESSION_A, [buildMessage(0, '2026-01-01T00:00:00.000Z')]]]);
+    const store = createStore(messages);
     const { result, rerender } = await renderChatSessionState({ session, store });
 
     const container = createResizableContainer(scrollHeight, clientHeight);
@@ -466,7 +467,31 @@ describe('content-growth follow', () => {
     });
     container.writes.length = 0;
 
-    return { result, container, observer };
+    /**
+     * Commits a render in which the transcript grew, the way a streaming row
+     * does.
+     *
+     * A row is appended to the store, so the list the hook derives takes a new
+     * identity — which is the *only* thing that re-runs the layout effect that
+     * answers growth this component committed itself. That identity is the whole
+     * point of doing it through the store: `getMessages` hands the hook whatever
+     * array the map holds, so re-reading the same array back would leave
+     * `chatMessages` the same value, the effect would never run, and a case
+     * written that way would pass without ever reaching the code it means to
+     * test.
+     */
+    const commitGrownRow = () => {
+      const existing = messages.get(SESSION_A)!;
+      messages.set(SESSION_A, [
+        ...existing,
+        buildMessage(existing.length, '2026-01-01T00:00:01.000Z'),
+      ]);
+      act(() => {
+        rerender({ session });
+      });
+    };
+
+    return { result, rerender, store, messages, container, observer, session, commitGrownRow };
   }
 
   it('stays pinned when the last row grows without a new one arriving', async () => {
@@ -703,6 +728,104 @@ describe('content-growth follow', () => {
         result.current.isUserScrolledUp,
         true,
         'a scroll key that moved the pane is the user leaving the bottom, exactly as a wheel is',
+      );
+    } finally {
+      container.element.remove();
+    }
+  });
+
+  /**
+   * The frame a scroll key spends before the browser reports it.
+   *
+   * A key moves a pane as its *default action*, and that movement is animated,
+   * so the `scroll` carrying it arrives a frame or more after the press. Over
+   * that frame the app has seen the input while the pane's offset still reads as
+   * "nobody touched it" — which is precisely the window a commit landing in it
+   * can pin over. Dispatching the key is that window exactly: jsdom moves no
+   * offset and raises no `scroll`, so the case holds the app at the instant the
+   * report is owed rather than at the instant it arrives.
+   */
+  const pressScrollKey = (container: HTMLElement, key: string) => {
+    container.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+  };
+
+  it('does not pin a growth over a scroll key the browser has not reported yet', async () => {
+    const { result, container, commitGrownRow } = await mountFollow();
+    // The listeners that attribute a scroll — and the key handler this turns on
+    // — are on the window, so the pane has to be a node the event can reach
+    // them through.
+    document.body.appendChild(container.element);
+    try {
+      // The row grew in the commit that is about to land, and the user pressed
+      // PageUp in the frame before it.
+      container.grow(400);
+      act(() => {
+        pressScrollKey(container.element, 'PageUp');
+      });
+
+      // The premise, read before the commit so it cannot be the commit that
+      // produced it: the intent is taken at the input, not at the report.
+      const intentAtInput = result.current.isUserScrolledUp;
+
+      container.writes.length = 0;
+      commitGrownRow();
+      const writes = [...container.writes];
+
+      // Both readings in one assertion, so a red run reports the whole frame —
+      // the intent still on "follow" *and* the offset the pin put back over the
+      // key — rather than stopping at whichever half it happens to name first.
+      assert.deepEqual(
+        { intentAtInput, writes },
+        { intentAtInput: true, writes: [] },
+        `an up key must detach the pane in the task it landed in, and the growth that commits before the browser reports the scroll must open the gap it is holding; got ${JSON.stringify({ intentAtInput, writes })}`,
+      );
+    } finally {
+      container.element.remove();
+    }
+  });
+
+  /**
+   * The control for the case above, and the reason it cannot be satisfied by an
+   * inert implementation: with no key pressed the very same commit has to reach
+   * the pin and land on the bottom. Without this, "no writes" would be equally
+   * true of a follow that had simply stopped working.
+   */
+  it('pins the same growth when no scroll key was pressed', async () => {
+    const { container, commitGrownRow } = await mountFollow();
+
+    container.grow(400);
+    container.writes.length = 0;
+    commitGrownRow();
+
+    assert.deepEqual(
+      container.writes,
+      [container.bottom],
+      `the commit above has to reach the pin, or the case it controls proves nothing; got ${JSON.stringify(container.writes)}`,
+    );
+  });
+
+  /**
+   * The other half of the rule: only a key that asks for *older* content
+   * detaches. A key that asks for the bottom is the user returning to it, and
+   * detaching on one would leave the follow dead until some later input came
+   * back to undo it.
+   */
+  it('does not detach on a scroll key that asks for the bottom', async () => {
+    const { result, container } = await mountFollow();
+    document.body.appendChild(container.element);
+    try {
+      const readings: boolean[] = [];
+      for (const key of ['ArrowDown', 'PageDown', 'End']) {
+        act(() => {
+          pressScrollKey(container.element, key);
+        });
+        readings.push(result.current.isUserScrolledUp);
+      }
+
+      assert.deepEqual(
+        readings,
+        [false, false, false],
+        `ArrowDown, PageDown and End ask for the bottom and must leave the follow alone; got ${JSON.stringify(readings)}`,
       );
     } finally {
       container.element.remove();
