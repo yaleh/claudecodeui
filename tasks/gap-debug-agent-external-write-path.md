@@ -1,7 +1,7 @@
 ---
 id: gap-debug-agent-external-write-path
 title: 调试 Agent 的外部写入路径：文件观察者 → session_upserted → REST 重取，判据自带排空与正面控制
-status: todo
+status: ready
 labels:
   - gap
 parent: null
