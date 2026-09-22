@@ -20,6 +20,10 @@ const voiceService = createVoiceService({
     sttModel: process.env.VOICE_STT_MODEL || 'whisper-1',
     ttsModel: process.env.VOICE_TTS_MODEL || 'tts-1',
     ttsVoice: process.env.VOICE_TTS_VOICE || 'alloy',
+    // The deployment's preferred recogniser. Empty — the usual case — means the registry's
+    // first entry, so a deployment that never sets this variable keeps working across a
+    // provider being renamed. An id no adapter claims is refused, not replaced.
+    providerId: (process.env.VOICE_PROVIDER_ID || '').trim(),
   },
   timeoutMs: voiceTimeoutMs,
   fetchBackend: async (url, options) => {

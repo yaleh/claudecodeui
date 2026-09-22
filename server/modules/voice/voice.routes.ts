@@ -43,6 +43,7 @@ function parseVoiceOverrides(request: express.Request): VoiceRequestOverrides {
     ttsModel: readHeaderValue(request.headers['x-voice-tts-model']),
     ttsVoice: readHeaderValue(request.headers['x-voice-tts-voice']),
     ttsFormat: readHeaderValue(request.headers['x-voice-tts-format']),
+    providerId: readHeaderValue(request.headers['x-voice-provider']),
   };
 }
 
@@ -66,8 +67,18 @@ function sendFailure<TValue>(
 export function createVoiceRouter(dependencies: VoiceRouterDependencies): express.Router {
   const router = express.Router();
 
-  router.get('/health', (_request, response) => {
-    response.json(dependencies.voiceService.getHealth());
+  // The health reading is per user: it answers with the configuration the caller's own stored
+  // settings produce, not with the server process's environment. The route's only job is to
+  // fetch that user's settings and hand them over — what "configured" means is the service's.
+  router.get('/health', (request, response) => {
+    const result = dependencies.voiceService.getHealth({
+      settings: dependencies.voiceSettingsService.getSettings(readUserId(request)),
+    });
+    if (sendFailure(response, result)) {
+      return;
+    }
+
+    response.json(result.value);
   });
 
   // The user's own backend settings. Reading them back is what lets a second

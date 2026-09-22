@@ -12,6 +12,10 @@ import {
   createTranscriptionRequest,
   parseTranscriptionResponse as readTranscriptionResponse,
 } from '@shared/asr/transcriptionWire';
+// The provider address book, the same table the server's health reading republishes. The
+// browser asks it whether an id exists rather than keeping its own list of the ids it knows.
+import type { AsrCapabilities } from '@shared/asr/asrRegistry';
+import { tryResolve } from '@shared/asr/asrRegistry';
 
 // Headers are a plain record rather than the full `HeadersInit` union so the
 // defaults below can be merged with a caller's headers by spreading.
@@ -604,7 +608,55 @@ export function voiceConfigSignature(): string {
  * Transcribes recorded audio, posting directly to the user's configured OpenAI-compatible
  * endpoint when one is set and otherwise going through the CloudCLI voice proxy.
  */
+/**
+ * The provider the last health reading named, held here because this is where the direct path
+ * decides which endpoint a recording takes.
+ *
+ * It is a mirror of what `GET /api/voice/health` answered, never an independent opinion: the
+ * capabilities in it are the registry's own declaration as the server republished them, so the
+ * client has no second table to fall out of step with. The module keeps no copy of that
+ * declaration of its own, which is what makes the health reading the only source.
+ */
+let voiceProviderProfile: { id: string; capabilities: AsrCapabilities } | null = null;
+
+/**
+ * Publishes the provider the health reading named. Called by the chat module's
+ * `useVoiceAvailable` hook, which is the one place the payload is already parsed; nothing else
+ * writes it.
+ */
+export function setVoiceProviderProfile(profile: { id: string; capabilities: AsrCapabilities } | null): void {
+  voiceProviderProfile = profile;
+}
+
+/**
+ * The refusal the direct path owes an id this build does not register, or `null` when there is
+ * nothing to refuse.
+ *
+ * Checked before the settings are awaited, because the answer does not depend on them: no
+ * stored backend can make an unregistered id serveable. Falling through instead would send the
+ * recording to an endpoint chosen for a provider the user is not using — the silent fallback
+ * whose worst case is a user who believes the new service answered.
+ */
+function unregisteredProviderRefusal(): Response | null {
+  const profile = voiceProviderProfile;
+  if (!profile || tryResolve(profile.id) !== null) {
+    return null;
+  }
+
+  return new Response(
+    JSON.stringify({
+      error: `Unknown voice provider id '${profile.id}': no ASR adapter is registered for it.`,
+    }),
+    { status: 400, headers: { 'Content-Type': 'application/json' } },
+  );
+}
+
 export async function transcribeVoice(blob: Blob, filename: string): Promise<Response> {
+  const refusal = unregisteredProviderRefusal();
+  if (refusal) {
+    return refusal;
+  }
+
   // The settings are fetched from the server now, so the first call of a session
   // has to wait for them. Reading an un-hydrated copy would look exactly like
   // "no backend configured" and route the recording through the proxy instead of

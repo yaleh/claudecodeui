@@ -1,6 +1,12 @@
 import type { IncomingMessage } from 'node:http';
 import type { Readable } from 'node:stream';
 
+// The capability declaration the health payload republishes. Imported as a type from the
+// repository-root shared tree rather than restated here: the whole point of the payload is
+// that it carries the registry's own declaration, so a restatement could drift from it
+// silently. `import type` only — the backend never calls an adapter from this file.
+import type { AsrCapabilities } from '../../shared/asr/asrRegistry.js';
+
 //----------------- HTTP RESPONSE SHAPES ------------
 /**
  * Canonical success envelope used by backend APIs that return a structured payload.
@@ -1291,6 +1297,16 @@ export type VoiceRequestOverrides = {
   ttsModel?: string;
   ttsVoice?: string;
   ttsFormat?: string;
+  /**
+   * The recogniser this request must use, as it is spelled in user-level configuration.
+   *
+   * It is an override rather than a stored setting because it selects among the registered
+   * adapters and changes with them, not with the user's backend. An id no adapter claims is
+   * refused with an explicit error; it is never replaced by the default provider, because a
+   * silent fallback's worst case is a user who believes they are transcribing with the service
+   * they chose while the previous one answers.
+   */
+  providerId?: string;
 };
 
 /**
@@ -1351,6 +1367,49 @@ export type VoiceServiceResult<TValue> =
   | { ok: false; status: number; error: string };
 
 /**
+ * One recogniser as the health payload publishes it.
+ *
+ * `capabilities` is the registry's own declaration for this id, republished unchanged: the
+ * client reads the container, the inline budget and the hint switches from here instead of
+ * keeping its own table, which is what stops the two from disagreeing after a provider changes.
+ *
+ * `configured` answers "if this provider were the effective one, would the current
+ * configuration let a request through". Every registered provider reads the same user-level
+ * backend in this version, so the entries agree today; the field is per-entry so a provider
+ * that later needs its own credential does not force every consumer to special-case it.
+ */
+export type VoiceProviderSummary = {
+  id: string;
+  /**
+   * The name to show a user. The first version has no separate display names, so the id is
+   * its own label; the field exists so the UI never has to grow a translation table.
+   */
+  label: string;
+  capabilities: AsrCapabilities;
+  configured: boolean;
+};
+
+/**
+ * The answer `GET /api/voice/health` gives: the user's *effective* configuration, not the
+ * server's environment.
+ *
+ * `configured` keeps the position and the meaning its only consumer already reads (
+ * `useVoiceAvailable`): whether a recording would reach a recogniser right now. What changed is
+ * whose configuration counts — a user who saved their own backend is configured even when the
+ * server process has no environment variables set, which is the answer this endpoint gave
+ * wrongly before.
+ *
+ * `provider` is the effective provider id, and `providers` is the whole registered list with
+ * each one's capabilities. The list is the registry's, not a copy.
+ */
+export type VoiceHealth = {
+  configured: boolean;
+  /** The effective provider id, or the empty string when the registry is empty. */
+  provider: string;
+  providers: VoiceProviderSummary[];
+};
+
+/**
  * Complete application-service surface consumed by the Voice HTTP router.
  *
  * The composition root supplies a concrete implementation with environment
@@ -1358,7 +1417,20 @@ export type VoiceServiceResult<TValue> =
  * contract with handwritten fetch fakes and never patch global state.
  */
 export type VoiceService = {
-  getHealth(): { configured: boolean };
+  /**
+   * Reads the health of the Voice link for one user's stored settings.
+   *
+   * The settings are an argument rather than something the service fetches, so the route owns
+   * the storage lookup and the service stays free of the database. A user whose stored backend
+   * is complete is `configured` even when the server has no environment configuration at all.
+   *
+   * Returns `ok: false` with `UNKNOWN_PROVIDER` when the effective provider id is not one the
+   * registry knows: the link is unavailable and naming the id is the only useful answer, since
+   * falling back would transcribe with a service the user did not choose.
+   */
+  getHealth(input: {
+    settings: VoiceSettings;
+  }): VoiceServiceResult<VoiceHealth>;
   transcribe(input: {
     audio: VoiceAudioUpload;
     overrides: VoiceRequestOverrides;
