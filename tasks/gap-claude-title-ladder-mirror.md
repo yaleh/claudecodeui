@@ -2,7 +2,7 @@
 id: gap-claude-title-ladder-mirror
 title: 会话标题读取器镜像 CLI 的 wze 阶梯（四类条目各取最后一条、补 agent-name 档、derived 改
   firstPrompt），并把转录侧名与显式覆盖拆成两列
-status: todo
+status: ready
 labels:
   - gap
   - defect
