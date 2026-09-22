@@ -1,7 +1,7 @@
 ---
 id: AC-131
 title: 命令行可离线验证：--dry-run 零网络且脱敏，--offline 回放一致
-status: draft
+status: active
 kind: criterion
 goal: GOAL-008
 criterion: node scripts/asr-cli-offline-check.mjs
@@ -10,4 +10,15 @@ expect: 断言 --dry-run 在禁止联网的 fetch 替身下不发生任何调用
   必须红；(2) 脱敏只脱密钥不脱音频 ⇒ 必须红；(3) --offline 实际联网 ⇒ 必须红。
 origin: ADR-004 决策 2 约束 2（实测：.js 说明符在裸 node 下 ERR_MODULE_NOT_FOUND，npx tsx
   通过）与决策 8（联网「真跑」不判据化）。
+activatedAt: 2026-09-22T15:01:52.206Z
+statusLog:
+  - at: 2026-09-22T15:01:52.206Z
+    from: draft
+    to: active
+    actor: goal-cli
+    reason: ""
+fidelity:
+  verdict: not-evaluated
+  reason: no judge configured
+  at: 2026-09-22T15:01:52.205Z
 ---
