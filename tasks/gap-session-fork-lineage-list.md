@@ -61,6 +61,7 @@ Conversations（最近会话）列表更糟：它更宽，会把**完整的同�
 - 把 `groupSessionsByLineage` 直接 `return sessions`（不分组）⇒「fork 行缩进于源行且两者相邻」必须红；
 - 把徽标移进截断盒内（改成名字后缀）⇒「徽标在截断盒之外」必须红；
 - 把整组锚点改回源行 ⇒「最新成员是分支时该组上浮」必须红。
+- 把 recents 映射里的 `forkedFromSessionId` 去掉 ⇒「recent sessions carry the source id for a branched conversation」必须红（该字段只会是 `undefined`，不再是源 id）；
 
 实测读数（沙箱、真实库副本）：可见 20 行中碰撞组 **5 → 4**（消失的那组正是这对 fork）；分支行名字框 145 → 91px（缩进 21px + 徽标 28px），序号徽标 `1` / `2`。**代价必须写进结论**：分支行可见字数由约 9 字降到约 5 字，这是把身份从名字挪到结构的代价，不是缺陷。
 
@@ -74,6 +75,7 @@ L_G 该轴仍暗，理由：同上；本任务的读数是渲染可区分性与�
 - server/modules/providers/services/sessions.service.ts
 - server/modules/providers/services/session-conversations-search.service.ts
 - server/modules/providers/tests/session-fork.test.ts
+- server/modules/providers/tests/sessions.service.test.ts
 - src/shared/types.ts
 - src/modules/sidebar/utils/groupSessionsByLineage.ts (new)
 - src/modules/sidebar/utils/sidebarProjectFormatting.ts
@@ -94,3 +96,28 @@ L_G 该轴仍暗，理由：同上；本任务的读数是渲染可区分性与�
 - src/modules/i18n/locales/zh-CN/sidebar.json
 - src/modules/i18n/locales/zh-TW/sidebar.json
 - tasks/gap-session-fork-lineage-list.md
+
+## Evidence
+
+上一轮 fan-in 的 suite 红：`server/modules/providers/tests/sessions.service.test.ts`，
+`AssertionError: Expected values to be strictly deep-equal`（scoped 门为绿）。
+
+**真因**：本分支给 `listRecentSessions` 的载荷加了 `forkedFromSessionId`
+（`sessions.service.ts` 的 `RecentSessionListItem`），而该文件的既有用例用
+`assert.deepEqual`（`node:assert/strict`，即严格深比较）逐字段钉住整页载荷，期望对象里没有这个新字段。
+实际多出的键就是它。这不是并发抖动：文件在 worktree 里**独立运行同样必红**（7 例 1 红）。
+
+**为什么 scoped 门当时是绿的**：`scripts/test.sh --for-task` 只跑
+Touches 里匹配 `*.test.*` 的文件；本任务当时只声明了 `session-fork.test.ts`，
+于是这个受影响的既有文件根本没被 scoped 门覆盖。修法因此有两半：改用例，**并把该文件补进 Touches**——
+后半是结构性的，它让同一回归下次会被 scoped 门而不是整套 suite 抓到。
+
+**改动**：① 既有用例的期望对象补上 `forkedFromSessionId: null`（仍在严格深比较内，
+所以载荷若悄悄丢字段会红而不是绿）；② 新增用例
+`recent sessions carry the source id for a branched conversation`：造 source + fork 一对，
+断言分支行取到源 id、源行取 null，并断言两行的 `sessionTitle` 相同（这一对的同名是刻意的，
+可区分性由血缘而非名字提供）。② 取假形态可证：去掉映射里的字段，分支行读到 `undefined`，必红。
+
+**读数**：`sessions.service.test.ts` 独立 `--test` 8 例 8 过（修前 7 例 1 红）；
+`npx vitest run src/modules/sidebar` 7 文件 43 例全过、退出码 0；
+`session-fork.test.ts` 7 例全过；`npm run lint` 与 `npm run typecheck` 退出码 0。
