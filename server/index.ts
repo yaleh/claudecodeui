@@ -13,6 +13,7 @@ import { AppError, findApplicationRoot, getModuleDirectory, IS_PLATFORM, termina
 import {
     closeSessionsWatcher,
     initializeSessionsWatcher,
+    providerRegistry,
     providerRuntimeService,
 } from '@/modules/providers/index.js';
 import { createWebSocketServer } from '@/modules/websocket/index.js';
@@ -55,8 +56,10 @@ import browserUseMcpRoutes from './modules/browser-use/browser-use-mcp.routes.js
 import { createStaticAssetsMiddleware } from './modules/static-assets/index.js';
 import {
     DEBUG_AGENT_CONTROL_PLANE_PATH,
+    DEBUG_AGENT_PROVIDER_ID,
     getDebugAgentGateReason,
     mountDebugAgentControlPlane,
+    registerDebugAgentControlPlaneRoutes,
 } from './modules/debug-agent/index.js';
 import { browserUseService } from './modules/browser-use/browser-use.service.js';
 import { initializeDatabase, sessionsDb } from './modules/database/index.js';
@@ -213,6 +216,23 @@ app.use('/api/voice', authenticateToken, voiceRoutes);
 // answers `200 text/html`, which is why the face's criterion is not a status
 // code (see `debug-agent.gate.ts` for the reading behind that).
 if (mountDebugAgentControlPlane(app, authenticateToken)) {
+    // The endpoints are registered in the SAME branch that attached them, so a
+    // closed gate registers nothing as well as mounting nothing. The seams are
+    // built here — and resolved lazily, inside a request — because this is the
+    // only module that imports both sides of the cycle the debug agent's routes
+    // module would otherwise close (see `debug-agent.routes.ts`).
+    registerDebugAgentControlPlaneRoutes({
+        driveScenario: ({ sessionId, cwd, projectPath, writer }) => {
+            const provider = providerRegistry.resolveProvider(DEBUG_AGENT_PROVIDER_ID);
+            return providerRuntimeService.run(
+                provider.id,
+                'debug agent control plane',
+                { sessionId, cwd, projectPath },
+                writer,
+            );
+        },
+        resolveProvider: () => providerRegistry.resolveProvider(DEBUG_AGENT_PROVIDER_ID),
+    });
     console.log(
         `[DEBUG-AGENT] control plane mounted at ${DEBUG_AGENT_CONTROL_PLANE_PATH} (${getDebugAgentGateReason()})`,
     );
