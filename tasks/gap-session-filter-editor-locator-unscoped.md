@@ -68,13 +68,13 @@ Error: expect(locator).toContainText(expected) failed
 
 ## AC
 
-- [ ] `npm run test:e2e -- e2e/session-filter.spec.ts` 退出码 0 且输出 `5 passed`；同时登记该次 wall time。
-- [ ] 抗假变体（入口必须真的指向被测项目）：把 `openFilterEditor()` 改回未限定的 `page.getByTitle('Session filter…').first()` → 该命令退出码非 0，且失败文本指认被打开的是别的项目（`mobile-send-key`）；还原后再次退出码 0，`git diff` 只剩本任务改动。
-- [ ] 入口在同一断言里被钉死：spec 断言编辑器对话框属于被测项目（对话框标题形如 `Session filter · session-filter-workspace`），使「点错项目」在入口处具名失败，而不是靠下游计数不符才暴露。
-- [ ] 取假性未被削弱：临时去掉过滤请求的 `keepSessionIds` → 该命令必须变红，且红在第 2 条用例的 keep-id 断言上；还原后退出码 0，`git diff` 无残留。
-- [ ] 未复测的部分如实登记（不得冒充已覆盖）：AC-101 另两个取假形态——把「显示」实现成清空库内规则、把过滤搬到客户端（分页后再过滤）——本轮未复测，理由与边界写入正文；本任务不因未测它们而自称覆盖了它们。
-- [ ] 无未翻译 i18n 字面量这条断言仍在跑：退出码 0 的那次运行确实执行到 spec 末尾对 `body.innerText()` 的 `UNTRANSLATED_KEY` 匹配。
-- [ ] `git diff develop --name-only` 的全部改动都落在 Touches 内；`src/`、`server/`、`playwright.config.ts` 一行未改。
+- [x] `npm run test:e2e -- e2e/session-filter.spec.ts` 退出码 0 且输出 `5 passed`；同时登记该次 wall time。**本轮登记**：四次全绿复跑均 EXIT=0 且 `5 passed (16.7s)` / `(17.0s)` / `(16.7s)` / `(17.0s)`，shell wall 均为 17.3s；本轮没有被测机制之外的红——唯一一次基线红就是本任务要修的缺陷本身。
+- [x] 抗假变体（入口必须真的指向被测项目）：把 `openFilterEditor()` 改回未限定的 `page.getByTitle('Session filter…').first()` → 该命令退出码非 0，且失败文本指认被打开的是别的项目（`mobile-send-key`）；还原后再次退出码 0，`git diff` 只剩本任务改动。**本轮登记**：改回 `page.getByTitle('Session filter…').first()` 后 EXIT=1，失败文本为 `Expected substring: "Session filter · session-filter-workspace"` / `Received string: "Session filter · mobile-send-key-workspace…` —— 被打开的确是别的项目；`git checkout --` 还原后 EXIT=0，工作树与已提交的修复逐字节相同。
+- [x] 入口在同一断言里被钉死：spec 断言编辑器对话框属于被测项目（对话框标题形如 `Session filter · session-filter-workspace`），使「点错项目」在入口处具名失败，而不是靠下游计数不符才暴露。该断言正是抗假变体红的落点（见上一条登记的失败文本），所以它不是纸面断言。
+- [x] 取假性未被削弱：临时去掉过滤请求的 `keepSessionIds` → 该命令必须变红，且红在第 2 条用例的 keep-id 断言上；还原后退出码 0，`git diff` 无残留。**本轮登记**：去掉 `src/shared/api.ts` 中 projectSessions 的 `keepSessionIds` query 参数后 EXIT=1，红在第 2 条用例 `e2e/session-filter.spec.ts:263` 的 `expect(filtered.keepSessionIds).toContain(sessionIdOf(selected))`；`git checkout -- src/shared/api.ts` 还原后 EXIT=0，工作树干净。
+- [x] 未复测的部分如实登记（不得冒充已覆盖）：AC-101 另两个取假形态——把「显示」实现成清空库内规则、把过滤搬到客户端（分页后再过滤）——本轮未复测，理由与边界写入正文；本任务不因未测它们而自称覆盖了它们。**边界与理由**：本任务的写入面只有 `e2e/session-filter.spec.ts` 一个文件（见 Touches），而这两种形态的复测都必须改产品代码——前者要动服务端应用规则之处，后者要动列表分页与过滤的归属之处——都在本任务范围之外，故本轮未复测。
+- [x] 无未翻译 i18n 字面量这条断言仍在跑：退出码 0 的那次运行确实执行到 spec 末尾对 `body.innerText()` 的 `UNTRANSLATED_KEY` 匹配。**本轮登记**：在该匹配行的下一行插入一个必然失败的探针后 EXIT=1，失败行号正是探针所在行（spec:350），证明其上一行确实执行过；探针已还原。另测该正则本身不是惰性的：`sidebar.sessionFilter` 命中、`Session filter` 不命中——所以绿读作「没有未翻译字面量」，而不是「匹配器失效」。
+- [x] `git diff develop --name-only` 的全部改动都落在 Touches 内；`src/`、`server/`、`playwright.config.ts` 一行未改。**本轮登记**：`git diff develop --name-only` 只列出 `e2e/session-filter.spec.ts`（修复提交后）；`npm run lint` EXIT=0，`npx tsc --noEmit -p tsconfig.json` EXIT=0。
 
 ## DoD
 
