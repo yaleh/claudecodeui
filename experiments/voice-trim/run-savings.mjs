@@ -372,7 +372,9 @@ function measure(implementation, clips) {
 // the thing that goes stale. Three checks, each of which a copy trips:
 //
 //   imports  a second algorithm needs a module to live in (the out-of-tree
-//            layout that drifted was a vad module plus a compress module)
+//            layout that drifted was a vad module plus a compress module).
+//            Importing the *shipping* tree is not that — it is the thing this
+//            check exists to require — so the rule is written as the tree.
 //   names    a copy keeps the names, unless someone renames every one
 //   table    the frozen pause table is the module's decision, and a copy of the
 //            algorithm carries it
@@ -412,6 +414,36 @@ function importedFrom(src) {
   return [...src.matchAll(/^[ \t]*import\b[^;]*?\bfrom\s*['"]([^'"]+)['"]/gm)].map((m) => m[1]);
 }
 
+/**
+ * Does this specifier name a file in the shipping source tree?
+ *
+ * A harness is *supposed* to import shipping code — "measures the module, not a
+ * copy of it" means the shipped file is the thing under test — so this rule is
+ * written as the tree (`src/`, and the `@/` alias the frontend maps to it, both
+ * spelled with the explicit `.ts` that these harnesses need under plain `node`)
+ * rather than as a list of file names. An extensionless specifier is not one
+ * these harnesses could load, so it is not read as shipping either.
+ *
+ * The list was the bug. It named one shipping file, so a sibling harness that
+ * imported a *different* shipping module — `run-quality.mjs` importing
+ * `src/shared/identifierFidelity.ts`, which is precisely the behaviour this
+ * check wants — read as "imports a second implementation" and held AC-117 red
+ * from 2026-09-21T15:59Z until this function replaced it. Anything that stays
+ * outside the shipping tree (`./vad.mjs`, a vendored detector, a module the
+ * harness brought with it) is still a violation, and the `imports` canary below
+ * is exactly such a specifier — so the check is still shown to fire.
+ *
+ * `src/shared/tests/` is not shipping: a test carries fixtures and copies, which
+ * is the thing being looked for.
+ */
+function isShippingSource(specifier) {
+  // Both spellings of the shipping tree, both spellings of the tests inside it:
+  // relative paths through `src/`, and the `@` alias the frontend maps there.
+  const shipping = /(^|\/)src\//.test(specifier) || specifier.startsWith('@/');
+  const isTest = /(^|\/)(src|@)\/shared\/tests\//.test(specifier);
+  return shipping && !isTest && specifier.endsWith('.ts');
+}
+
 /** Every run of numbers a source writes inside square brackets. */
 function bracketedNumbers(src) {
   const out = [];
@@ -442,7 +474,7 @@ function pauseTableValues() {
 function uniquenessViolations(src, shippingNames) {
   const violations = [];
 
-  const stray = importedFrom(src).filter((s) => !s.startsWith('node:') && !s.endsWith('src/shared/voiceTrim.ts'));
+  const stray = importedFrom(src).filter((s) => !s.startsWith('node:') && !isShippingSource(s));
   if (stray.length) violations.push(`imports a second implementation from: ${stray.join(', ')}`);
 
   const collisions = [...declaredNames(src)].filter((n) => shippingNames.has(n));
