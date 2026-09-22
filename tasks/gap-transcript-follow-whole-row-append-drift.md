@@ -1,7 +1,7 @@
 ---
 id: gap-transcript-follow-whole-row-append-drift
 title: 贴底跟随在「整行到达」时累积漂移：外部写入的会话每来一条新消息就比底部多留一截且不再自行修复（首帧 240px 占位盒 + 1px 偏移闸误读为手势）
-status: ready
+status: done
 labels:
   - gap
   - defect

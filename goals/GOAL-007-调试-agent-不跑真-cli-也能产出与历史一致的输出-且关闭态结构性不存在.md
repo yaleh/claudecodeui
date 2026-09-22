@@ -7,14 +7,15 @@ origin: ADR-003 评审通过（人 yale，2026-09-22，见 adr/ADR-003-*.md 的 
   A–E）。立此目标前已在 worktree 分支 proto/debug-agent-spike 上做过一次热修改实测：845 行模块 + 5 个既有
   文件 89 行改动，两条摄入路径均跑通，全程无真 CLI 进程；该分支是验证工装，不作为实现基础。与
   GOAL-001/002/003/004 同形：单元测试证伪不了"产出是否经由真实链路"，只有目标级判据能抓住。
-activatedAt: 2026-09-22T14:45:00.000Z
+activatedAt: 2026-09-22T15:00:09.559Z
 statusLog:
-  - at: 2026-09-22T14:45:00.000Z
+  - at: 2026-09-22T15:00:09.559Z
     from: draft
     to: active
     actor: yale
-    reason: ADR-003 评审通过并指示据此立目标（"通过。然后，根据该文档创建 quay goal"）。六条 AC 已立；
-      全部为红先行——判据引用的 checker 与模块今天都不存在。
+    reason: 人 yale 指示激活（"激活该 goal"）。此前已按 ADR-003 评审通过（见该 ADR 的 Adjudication
+      小节，裁决 A–E）立此目标，六条 AC-123…128 与六条对应派工任务已立。激活时现场复测六条判据的
+      criterion，全部 exit=1（红先行成立）——它们引用的 checker 与模块今天都不存在。
 ---
 ## 背景
 

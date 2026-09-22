@@ -514,6 +514,47 @@ describe('content-growth follow', () => {
     );
   });
 
+  it('follows a whole row past the box its first layout used', async () => {
+    const { container, observer, commitGrownRow } = await mountFollow();
+
+    // A whole row arrives, and its first layout is not its own height: a message
+    // the pane has not drawn yet is laid out at the intrinsic-size box the
+    // stylesheet gives it, so what the column measures in the commit the row
+    // appears in is that box. The commit answers the box — a row that has not been
+    // measured cannot be followed to — which places the viewport on a bottom the
+    // row is about to grow out of.
+    container.grow(240);
+    commitGrownRow();
+    act(() => {
+      runFrames();
+    });
+    assert.strictEqual(
+      container.writes[container.writes.length - 1],
+      container.bottom,
+      `the commit has to place the viewport on the bottom the row's own box leaves; got ${JSON.stringify(container.writes)}`,
+    );
+
+    // The browser then lays the row out for real, with no new row to announce it:
+    // the row is already in the list, so the only thing that reports the growth is
+    // the column's own resize. A follow driven by rows appearing stops here, a
+    // whole row short — the reader is left looking at a box rather than at the
+    // line that arrived.
+    container.grow(900);
+    act(() => {
+      observer.emit();
+    });
+    act(() => {
+      runFrames();
+    });
+
+    assert.strictEqual(
+      container.scrollTop,
+      container.bottom,
+      `a whole row's real height is growth the follow has to answer; the pane sat `
+      + `${container.bottom - container.scrollTop}px above the bottom (writes ${JSON.stringify(container.writes)})`,
+    );
+  });
+
   it('leaves the viewport where a gesture put it', async () => {
     const { container, observer } = await mountFollow();
 
