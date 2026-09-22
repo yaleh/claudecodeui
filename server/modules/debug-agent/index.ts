@@ -5,13 +5,15 @@
 // side effect of an import. Cross-module consumers must come through here
 // (backend module standards / `boundaries/dependencies`):
 //
-//  - `server/index.ts` — mounts the control plane only when the gate is open;
+//  - `server/index.ts` — mounts the control plane only when the gate is open,
+//    registering the endpoints onto the gate's router in the same branch and
+//    building the seams the routes reach the providers module through;
 //  - `server/modules/providers/provider.registry.ts` — the runtime provider id,
 //    and the provider factory it registers under it;
 //  - `server/modules/providers/services/sessions-watcher.service.ts` — the fixture root.
 //
 // The engine, the scenario document and the arming step are reachable from here
-// by value for the module's own tests and for the control plane that will drive
+// by value for the module's own tests and for the control plane that drives
 // them; they cost an importer nothing until it calls one, because the gate is
 // read inside the call and not at import time.
 export {
@@ -72,3 +74,10 @@ export type {
   DebugAgentProviderDependencies,
   DebugAgentSynchronizerOptions,
 } from './debug-agent.provider.js';
+
+// registerDebugAgentControlPlaneRoutes: the control plane's HTTP face, registered
+// by `server/index.ts` onto the router the gate module owns. The seams are injected
+// rather than imported because this module may not reach the providers module (see
+// the routes module): the entrypoint is the one place both sides are in scope.
+export { registerDebugAgentControlPlaneRoutes } from './debug-agent.routes.js';
+export type { DebugAgentControlPlaneSeams } from './debug-agent.routes.js';
