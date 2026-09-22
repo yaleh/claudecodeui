@@ -2,7 +2,7 @@
 id: gap-composer-send-key-touch-scoped
 title: 移动端软键盘 Enter 直接发送且无法换行：发送键须按设备判定（触摸设备固定 Enter 换行 + 按钮发送），sendByCtrlEnter
   作用域限定桌面
-status: todo
+status: ready
 labels:
   - gap
   - defect
