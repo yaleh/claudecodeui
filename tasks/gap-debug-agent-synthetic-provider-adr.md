@@ -37,14 +37,14 @@ extra:
 
 ## AC
 
-- [ ] `adr/ADR-003-*.md` 存在，且 frontmatter 的 `id: ADR-003`、`status: proposed` 可按行读出。命令：`ls adr/ADR-003-*.md && head -6 adr/ADR-003-*.md`；失败时输出 `missing ADR-003 file` 或逐行打印实际 frontmatter。
-- [ ] 七条决策各成一个 `### 决策 N：…` 小节。命令：`grep -c '^### 决策 ' adr/ADR-003-*.md` 必须等于 7，且命令打印实际计数（不足时打印命中的标题逐条）。
-- [ ] 每条决策都写明代价与被否决的替代。命令：`awk '/^### 决策 /{n++} /代价/{c++} /被否决|替代方案/{a++} END{printf "decisions=%d cost=%d alt=%d\n",n,c,a; if(n!=7||c<7||a<7) exit 1}' adr/ADR-003-*.md`，退出码 0。
-- [ ] 文档内引用一律用符号名，不出现 `文件:行号` 形式。命令：`grep -nE '[A-Za-z0-9_/.-]+\.(ts|tsx|js|mjs):[0-9]+' adr/ADR-003-*.md` 无输出（退出码 1）；命中时逐行打印。
-- [ ] 后续任务草案为 8 条，且每条都带判据与取假变体。命令：`grep -c '取假变体' adr/ADR-003-*.md` ≥ 8，并打印实际计数。
-- [ ] 场景 schema 有可跑示例 ≥2 个，其中至少一个断言「整行追加」（`op: "row"`）与一个断言「就地增长」（`op: "grow"`）。命令：`grep -c '"op": "row"' …` ≥1 且 `grep -c '"op": "grow"' …` ≥1，打印两个计数。
-- [ ] 本任务未产生任何代码或对既有文档的改动。命令：`git diff --name-only develop -- . ':!adr/ADR-003-*.md' ':!tasks/gap-debug-agent-synthetic-provider-adr.md'` 无输出。
-- [ ] 文档不写本机绝对路径（`/data/home/…`、`/data/scratch/…`）。命令：`grep -nE '/data/(home|scratch)/' adr/ADR-003-*.md` 无输出；命中时逐行打印。
+- [x] `adr/ADR-003-*.md` 存在，且 frontmatter 的 `id: ADR-003`、`status: proposed` 可按行读出。命令：`ls adr/ADR-003-*.md && head -6 adr/ADR-003-*.md`；失败时输出 `missing ADR-003 file` 或逐行打印实际 frontmatter。
+- [x] 七条决策各成一个 `### 决策 N：…` 小节。命令：`grep -c '^### 决策 ' adr/ADR-003-*.md` 必须等于 7，且命令打印实际计数（不足时打印命中的标题逐条）。
+- [x] 每条决策都写明代价与被否决的替代。命令：`awk '/^### 决策 /{n++} /代价/{c++} /被否决|替代方案/{a++} END{printf "decisions=%d cost=%d alt=%d\n",n,c,a; if(n!=7||c<7||a<7) exit 1}' adr/ADR-003-*.md`，退出码 0。
+- [x] 文档内引用一律用符号名，不出现 `文件:行号` 形式。命令：`grep -nE '[A-Za-z0-9_/.-]+\.(ts|tsx|js|mjs):[0-9]+' adr/ADR-003-*.md` 无输出（退出码 1）；命中时逐行打印。
+- [x] 后续任务草案为 8 条，且每条都带判据与取假变体。命令：`grep -c '取假变体' adr/ADR-003-*.md` ≥ 8，并打印实际计数。
+- [x] 场景 schema 有可跑示例 ≥2 个，其中至少一个断言「整行追加」（`op: "row"`）与一个断言「就地增长」（`op: "grow"`）。命令：`grep -c '"op": "row"' …` ≥1 且 `grep -c '"op": "grow"' …` ≥1，打印两个计数。
+- [x] 本任务未产生任何代码或对既有文档的改动。命令：`git diff --name-only develop -- . ':!adr/ADR-003-*.md' ':!tasks/gap-debug-agent-synthetic-provider-adr.md'` 无输出。
+- [x] 文档不写本机绝对路径（`/data/home/…`、`/data/scratch/…`）。命令：`grep -nE '/data/(home|scratch)/' adr/ADR-003-*.md` 无输出；命中时逐行打印。
 
 ## DoD
 
