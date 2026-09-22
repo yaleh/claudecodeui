@@ -82,9 +82,9 @@ GOAL-007 的正文**没有 `## 退出条件` 小节**，退出条件从未写下
 
 ## AC
 
-- [ ] **AC1 退出条件小节落地**：`grep -c '^## 退出条件' goals/GOAL-007-调试-agent-不跑真-cli-也能产出与历史一致的输出-且关闭态结构性不存在.md` 输出 **1**，且按 `goal-driver.ts` 的**同一条正则** `##[ \t]+(退出条件[ \t]*)\r?\n([\s\S]*?)(?=\r?\n##[ \t]|$)` 取出节体、去空白后字符数 **≥ 40**。命令逐行打印实际计数与字符数；不足时打印实际取到的节体，并以非 0 退出。
-- [ ] **AC2 人（yale）已裁定并被记录**：本任务的 `## Resolution` 小节写明 (i) 是否采纳本修订（采纳 / 改措辞 / 不采纳并另立 AC），以及 (ii) 两处无在域 AC 覆盖的范围项（「不跑真 CLI」否命题、裁决 A 的 UI 显示身份）各自的处理方式——**明示不作退出条件**，或**另立 AC 并给出任务 id**。二者缺一即本 AC 不满足。
-- [ ] **AC3 机械短路不再触发**：修订后下一轮 `.quay/goal-round.jsonl` 中 GOAL-007 最新 `goal-sufficiency` verdict 的 reason **不再是纯机械短路形态**（即不再是 `sufficiency=insufficient（在域 AC 6 条）` 这一类、reason 里没有任何语义 judge 产物的读数），而是语义 judge 给出的 `covered` / `insufficient` 结论。命令打印该 goal 的 `goal-sufficiency` 序列**最后两条**。
+- [x] **AC1 退出条件小节落地**：`grep -c '^## 退出条件' goals/GOAL-007-调试-agent-不跑真-cli-也能产出与历史一致的输出-且关闭态结构性不存在.md` 输出 **1**，且按 `goal-driver.ts` 的**同一条正则** `##[ \t]+(退出条件[ \t]*)\r?\n([\s\S]*?)(?=\r?\n##[ \t]|$)` 取出节体、去空白后字符数 **≥ 40**。命令逐行打印实际计数与字符数；不足时打印实际取到的节体，并以非 0 退出。
+- [x] **AC2 人（yale）已裁定并被记录**：本任务的 `## Resolution` 小节写明 (i) 是否采纳本修订（采纳 / 改措辞 / 不采纳并另立 AC），以及 (ii) 两处无在域 AC 覆盖的范围项（「不跑真 CLI」否命题、裁决 A 的 UI 显示身份）各自的处理方式——**明示不作退出条件**，或**另立 AC 并给出任务 id**。二者缺一即本 AC 不满足。
+- [ ] **AC3 机械短路不再触发，且语义判官确被咨询**（2026-09-22 人裁定加固）：修订后`.quay/goal-round.jsonl` 中 GOAL-007 最新 `goal-sufficiency` 的 reason 必须**同时**满足三条——(a) verdict ∈ {`covered`, `insufficient`}（机械层 `goalSufficiencyVerdict()` 只可能返回 `insufficient` / `not-evaluated`，故 `covered` 只可能来自语义路径）；(b) reason 中**不含** `cause=`（语义判官不可用 / 超时 / 读不懂时产出 `sufficiency=not-evaluated（cause=judge-unavailable）…`，它同样『不是机械短路形态』，原措辞可被一次 spawn 失败冒充达标）；(c) **正面控制**——`sufficiencyCacheKey(goal, inScopeAcs)` 算出的键在 `.quay/goal-sufficiency-cache.json` 的 `entries` 中**存在**（只有真跑过判官才会写缓存；本任务立案时 GOAL-007 的键不在其中，19 条缓存无一属于它）。命令打印该 goal 的 `goal-sufficiency` 序列**最后两条**、上面三条的逐条读数，以及缓存键的命中与否。
 - [ ] **AC4 本任务未触及 Touches 之外的文件**：命令 `git diff --name-only "$(git merge-base develop HEAD)"` 的每一行都必须能对应到 Touches 内的一条；命中 Touches 之外时逐行打印并以非 0 退出。用 merge-base 而非裸 develop——develop 会随他人 fan-in 前进。
 
 ## DoD
@@ -101,7 +101,42 @@ GOAL-007 的正文**没有 `## 退出条件` 小节**，退出条件从未写下
 
 本任务由跟进 agent 只提议：不改 `goals/*.md`，不改任何 GOAL/AC 状态，不把任何 AC 标 achieved / active / draft / retired。
 
+## Resolution
+
+**人（yale）2026-09-22 裁定：采纳本修订，并加固 AC3；两处欠账按「CLI 明示不作 + UI 另立 AC」处理。**
+
+### (i) 是否采纳本修订：**采纳**
+
+退出条件小节按提案文本落地，并另立一条目标级判据 AC-136（见下）。落地经**被授权的 goal 写入路径**完成，非本 agent 手改文件。
+
+### (ii) 两处无在域 AC 覆盖的范围项，各自的处理方式
+
+- **「不跑真 CLI」否命题 —— 明示不作独立退出条件。**
+  依据：标题原文是「不跑真 CLI **也能**产出与历史一致的输出」，「也能」是**能力**断言而非禁令。该能力已由 AC-124 **正面**承载——判据要求逐条落盘**场景指定的确定性内容**并按 `expect.rows.delta` 核对行数，真 CLI 结构上产不出这些确定值；AC-126 再补上「调试模块不持有帧词表、帧只来自真实归一化」的静态半。若另立「本次运行未拉起任何 CLI 子进程」的判据，读的是**进程表**（机制），而不是「产出可复现」这一不变式——那是测机制而非测不变式。
+- **范围段第 2 条按裁决 A 的「UI 显示身份不得落穿为 Claude」—— 另立目标级 AC。**
+  任务 id：**`goals/AC-136-调试-agent-在-ui-上有明确显示身份-不落穿为-claude.md`**（无独立派工任务 id，见下）。
+  判据：`npx vitest run src/shared/tests/debug-agent-display-identity.test.ts`，**红先行实测 exit=1**。
+  理由：该承诺此前只作为**任务级**判据存在于 `gap-debug-agent-engine-and-scenario-ops` 的 AC4，会随该任务关闭而离开复验域（AC-216 记录的正是这一形态）；且其失败形态是**静默错标**——`LLMProviderLogo` 对未知 id 落穿到 claude 分支，客户端功能全绿，只有一个错误的 "Claude" 标签，没有判据就没人会看见。
+
+### AC3 加固（本次裁定的附加项，非提案原文）
+
+AC3 原措辞只要求「reason **不再是**纯机械短路形态，**而是**语义 judge 给出的 `covered` / `insufficient` 结论」。这个措辞有一个可被环境失败冒充的洞：语义路径**不可用**时驱动产出 `sufficiency=not-evaluated（cause=judge-unavailable）（在域 AC 6 条）`——它同样**不是**机械短路形态，于是一次 spawn 失败（判官根本没跑起来）即可让 AC3 看起来达标。已改为三条合取：(a) verdict ∈ {`covered`, `insufficient`}；(b) reason 不含 `cause=`；(c) **正面控制**——`sufficiencyCacheKey` 算出的键存在于 `.quay/goal-sufficiency-cache.json`（只有真跑过判官才会写缓存；本任务立案时 GOAL-007 的键**不在**那 19 条缓存里，这正是「判官从未被咨询」的独立证据）。AC3 正文已按此改写。
+
+### 如实登记：AC-136 暂无派工任务
+
+本任务**不**为 AC-136 立派工任务。依据：一条新立的 active AC 零任务牵引，正是 G9 缺口环的输入（「AC 零任务牵引」），按设计由该环立案。下一轮核验该环是否立案；若未立案，另行处理而非在此假装已安排。
+
+## Evidence
+
+**2026-09-22（主 checkout，分支 `author`）——落地读数**
+
+- **落地路径（非手改）**：`quay goal write GOAL-007 --body <新正文>`，自提交 commit **`9c62a3e6`**「goals: GOAL-007 field:body by cli:2610190」。本 agent **未**编辑 `goals/*.md` 任何字节（`goals/` 下有活的写入者，手改会在数秒内被回滚）——全程走 CLI 的 goal 写入路径。
+- **AC1**：`grep -c '^## 退出条件' goals/GOAL-007-…md` = **1**；用 goal-driver `extractSections(body,"退出条件")` 的**同一条正则**（`allowHeadingSuffix` 不开）取出节体、去空白后 **2136** 字符（判据要求 ≥ 40）。全文 `^## ` 标题 **4** 个（背景 / 范围 / 不做 / 退出条件），`## ` 出现次数 = 4 ⇒ 无行内小节名被解析器吃掉。
+- **AC-136 创建**：commit **`4a59f0de`**「goals: AC-136 create by cli:2575475」，`status=active`（在域），`goal=GOAL-007`。红先行实测：`npx vitest run src/shared/tests/debug-agent-display-identity.test.ts` → **exit=1**（该测试文件不存在）。
+- **AC4（Touches 补记）**：Touches 已加入 `goals/AC-136-…md (new)`。它是本次裁定「另立 AC」实际写入的新文件，属本任务真实写入面，故必须登记——否则 AC4 会把它判为 Touches 之外的文件而红。
+
 ## Touches
 
 - goals/GOAL-007-调试-agent-不跑真-cli-也能产出与历史一致的输出-且关闭态结构性不存在.md
+- goals/AC-136-调试-agent-在-ui-上有明确显示身份-不落穿为-claude.md (new)
 - tasks/gap-goal-007-exit-conditions-section.md

@@ -32,6 +32,7 @@
 | 日期 | 主题 | 文件 |
 |---|---|---|
 | 2026-09-22 | 标点：prompt 偏置与停顿上限 | [2026-09-22-voice-punctuation.md](./2026-09-22-voice-punctuation.md) |
+| 2026-09-22 | 风格化：双向负对照（标识符逐字保留 ×「确实发生了」） | [2026-09-22-voice-style-negative-control.md](./2026-09-22-voice-style-negative-control.md) |
 
 ## 工装
 
@@ -59,3 +60,22 @@ LANG_TARGET=en LEVELS=all CONDS=raw,trimFrozen,trimMild node tools/test10-punct-
 | `tools/test11-summary.mjs` | 从缓存重算全部配对表 |
 
 **未采纳的实验**：`LANG_TARGET` / `language` 参数。真实使用是混合语种，错误的语言判定比不判定更糟 —— 这是产品决定，不是测量结论。
+
+### 仓库内工装（例外，逐条登记）
+
+惯例是工装在仓库外（同上，针对的是**音频语料不入库**）。下面这一条**在仓库内**，理由逐条登记，不作为惯例的松动：
+
+| 文件 | 作用 | 为什么在仓库内 |
+|---|---|---|
+| `experiments/voice-style-negative-control/run.mjs` | 风格化（`style: written`）的双向负对照：离线控制、反假变体、真实服务读数（见 [2026-09-22-voice-style-negative-control.md](./2026-09-22-voice-style-negative-control.md)） | 协议第 3 条要求被测实现是**出货模块**，仓库外的工装 `import` 不到 `src/shared/identifierFidelity.ts`；且该任务由 `## Touches` 指定了这个路径。它没有音频语料，真实读数落在被 git 忽略的 `out/` |
+
+```bash
+# 离线负对照 + 正面控制（无网络，确定性）
+node experiments/voice-style-negative-control/run.mjs
+
+# 真实服务读数（联网 + 凭据，串行，写 out/style-cache.json）
+node experiments/voice-style-negative-control/run.mjs --live
+
+# 只读缓存重算（无网络）
+node experiments/voice-style-negative-control/run.mjs --replay
+```
