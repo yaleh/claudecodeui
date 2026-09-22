@@ -463,6 +463,53 @@ const addSessionNameSourceColumn = (db: Database): void => {
 };
 
 /**
+ * Adds `transcript_name` / `transcript_name_source` — the name a session's
+ * transcript gives it, held apart from the name the user chose — and splits the
+ * rows an earlier version stored in `custom_name` alone.
+ *
+ * Before this, one column held whichever name won the precedence order, so a
+ * session that Claude had titled and the user had not touched carried that
+ * title in `custom_name`. From now on `custom_name` is the user's own word and
+ * `transcript_name` is the reading, so those rows have to move: every
+ * non-`manual` row hands its name and its provenance to `transcript_name` and
+ * leaves `custom_name` empty. A `manual` row keeps its name exactly where it
+ * is — that is the user's override, and it is the one thing the new writer must
+ * never touch.
+ *
+ * The move is deliberately NOT re-run. It is tied to the ALTER, so the guard on
+ * `transcript_name` both makes a second startup a no-op and protects whatever
+ * the synchronizer has since written: a row whose transcript name is now
+ * `agent` (or `ai`) would otherwise be dragged back to the name it held on the
+ * upgrade, and `custom_name` would be re-emptied under a rename the user made
+ * in between.
+ *
+ * Deliberately last of the sessions-shape migrations, after every one that
+ * rebuilds the table: those copy an explicit column list, so a column added
+ * before one of them would be dropped with the old table and this backfill
+ * would be written into a table that no longer exists.
+ */
+const splitSessionTranscriptNameColumns = (db: Database): void => {
+  const columnNames = getTableInfo(db, 'sessions').map((column) => column.name);
+  if (columnNames.includes('transcript_name')) {
+    return;
+  }
+
+  console.log('Running migration: Splitting session names into override and transcript reading');
+  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'transcript_name', 'TEXT');
+  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'transcript_name_source', 'TEXT');
+
+  db.exec(`
+    UPDATE sessions
+       SET transcript_name = custom_name,
+           transcript_name_source = COALESCE(name_source, 'derived'),
+           custom_name = NULL,
+           name_source = NULL
+     WHERE custom_name IS NOT NULL
+       AND (name_source IS NULL OR name_source <> 'manual')
+  `);
+};
+
+/**
  * Adds the `model` column that records which model each session runs with.
  *
  * Left NULL for pre-existing rows on purpose: the model resolver falls back to
@@ -687,6 +734,8 @@ export const runMigrations = (db: Database) => {
     // column list, so a name_source added earlier would be dropped with the
     // old table and its backfill lost.
     addSessionNameSourceColumn(db);
+    // Likewise after the rebuild, and after the name_source column it reads.
+    splitSessionTranscriptNameColumns(db);
     ensureProjectsForSessionPaths(db);
     db.exec(SCHEDULED_MESSAGES_TABLE_SCHEMA_SQL);
 

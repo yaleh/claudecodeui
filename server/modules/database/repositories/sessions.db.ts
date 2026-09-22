@@ -3,18 +3,25 @@ import { projectsDb } from '@/modules/database/repositories/projects.db.js';
 import { normalizeProjectPath } from '@/shared/utils.js';
 
 /**
- * Where a session's `custom_name` came from, ordered lowest to highest.
+ * Where a session's name came from, ordered lowest to highest.
  *
  * `derived` is a name the app or an indexer inferred — the first visible
- * message of an app-created session, a transcript's `last-prompt`, or the
+ * message of an app-created session, a transcript's first prompt, or the
  * history lookup; `ai` is the title Claude itself wrote into the transcript;
- * `manual` is the user's own word, either a rename through this app or a CLI
- * `/rename` recorded as the transcript's `custom-title`.
+ * `manual` is the user's own word — a rename through this app, or a CLI
+ * `/rename` recorded as the transcript's `custom-title`; `agent` is the
+ * `agent-name` entry a Claude session carries for the agent that owns it, the
+ * head of the CLI's own title ladder, which outranks even the user's rename
+ * because that is the order the CLI itself displays.
  *
  * The order *is* the precedence every upsert respects (see `createSession`):
  * a name never moves down it, so nothing a provider rescans can undo a rename.
+ * It orders the two kinds of name the same way: the `transcript_name_source`
+ * of a reading and the `name_source` of an override are drawn from this same
+ * scale, so `agent` on a reading outranks `ai` on another reading, and a
+ * reading never displaces an override — see `writeTranscriptName`.
  */
-export type SessionNameSource = 'derived' | 'ai' | 'manual';
+export type SessionNameSource = 'derived' | 'ai' | 'manual' | 'agent';
 
 type SessionRow = {
   session_id: string;
@@ -22,9 +29,25 @@ type SessionRow = {
   provider_session_id: string | null;
   project_path: string | null;
   jsonl_path: string | null;
+  /**
+   * The name this session is displayed under: the user's override when there
+   * is one, the transcript's reading otherwise. Every reader gets the same
+   * answer because {@link SESSION_ROW_COLUMNS} projects it, so no consumer has
+   * to know the two live in separate columns.
+   */
   custom_name: string | null;
   /** Where `custom_name` came from; see `SessionNameSource`. */
   name_source: string | null;
+  /**
+   * The name the session's own transcript gives it, or NULL if it has none.
+   *
+   * Optional only because a caller may hand-build a row — a test stub or a
+   * lookup that answers from memory — and such a row predates the split. Every
+   * row read out of the database carries both fields.
+   */
+  transcript_name?: string | null;
+  /** Which rung of the provider's title ladder `transcript_name` came from. */
+  transcript_name_source?: string | null;
   /** Model this session runs with; NULL until the app records one for it. */
   model: string | null;
   /** Reasoning effort this session runs with; NULL until the app records one. */
@@ -77,7 +100,7 @@ function buildNameVisibilityClause(
   db.function('session_name_hidden', { deterministic: true }, (name: unknown) =>
     visibility.isHidden(typeof name === 'string' ? name : '') ? 1 : 0,
   );
-  const hiddenExpression = `(session_name_hidden(COALESCE(custom_name, '')) = 1
+  const hiddenExpression = `(session_name_hidden(COALESCE(custom_name, transcript_name, '')) = 1
       AND session_id NOT IN (SELECT value FROM json_each(?)))`;
   return {
     clause: invert ? `AND ${hiddenExpression}` : `AND NOT ${hiddenExpression}`,
@@ -85,8 +108,67 @@ function buildNameVisibilityClause(
   };
 }
 
-const SESSION_ROW_COLUMNS =
-  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, name_source, model, effort, permission_mode, forked_from_session_id, isArchived, created_at, updated_at';
+/**
+ * The columns of one session row, with `custom_name` and `name_source`
+ * projected to the session's *displayed* name and that name's provenance.
+ *
+ * A session's name lives in two columns — `custom_name` is the user's override
+ * and `transcript_name` the transcript's reading — and every consumer wants
+ * "what is this session called", not "which of the two is set". Projecting the
+ * answer here rather than in each of them keeps the two-column split invisible:
+ * a reader that asked for `custom_name` before the split still gets the name it
+ * would have got, whichever column now holds it.
+ */
+/**
+ * SQL expression for the name a session is shown under: the user's override if
+ * they made one, the transcript's reading otherwise.
+ *
+ * The precedence that decides which *claim* wins (see `incomingNameWinsSql`) has
+ * to compare against the same expression, or it compares against a column that
+ * is empty on every row that has no override and hands the row to an incoming
+ * name it should have kept.
+ */
+function displayNameSql(prefix = ''): string {
+  return `COALESCE(${prefix}custom_name, ${prefix}transcript_name)`;
+}
+
+/**
+ * SQL expression for where the displayed name came from.
+ *
+ * An override carries its own provenance, a reading carries its own, and a row
+ * from before the split may have nothing but the single old column — hence the
+ * last fallback.
+ */
+function displayNameSourceSql(prefix = ''): string {
+  return `COALESCE(
+    CASE WHEN ${prefix}custom_name IS NOT NULL THEN ${prefix}name_source END,
+    ${prefix}transcript_name_source,
+    ${prefix}name_source
+  )`;
+}
+
+function sessionRowColumns(prefix = ''): string {
+  return `
+  ${prefix}session_id, ${prefix}provider, ${prefix}provider_session_id, ${prefix}project_path, ${prefix}jsonl_path,
+  ${displayNameSql(prefix)} AS custom_name,
+  ${displayNameSourceSql(prefix)} AS name_source,
+  ${prefix}transcript_name, ${prefix}transcript_name_source,
+  ${prefix}model, ${prefix}effort, ${prefix}permission_mode, ${prefix}forked_from_session_id, ${prefix}isArchived, ${prefix}created_at, ${prefix}updated_at`;
+}
+
+const SESSION_ROW_COLUMNS = sessionRowColumns();
+/** The same projection over a `sessions` alias, for queries that join. */
+const SESSION_ROW_COLUMNS_QUALIFIED = sessionRowColumns('sessions.');
+
+/**
+ * The same columns *without* the display projection.
+ *
+ * Needed by the one caller that merges two rows into one: it has to move the
+ * columns as they are stored, and a projected name would be adopted as an
+ * override, freezing the other row's reading into `custom_name`.
+ */
+const SESSION_ROW_RAW_COLUMNS =
+  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, name_source, transcript_name, transcript_name_source, model, effort, permission_mode, forked_from_session_id, isArchived, created_at, updated_at';
 
 /**
  * SQL expression ranking one name-source expression, for the precedence CASE.
@@ -96,7 +178,7 @@ const SESSION_ROW_COLUMNS =
  * indexer inferred.
  */
 function nameSourceRankSql(sourceSql: string): string {
-  return `(CASE ${sourceSql} WHEN 'manual' THEN 2 WHEN 'ai' THEN 1 ELSE 0 END)`;
+  return `(CASE ${sourceSql} WHEN 'agent' THEN 3 WHEN 'manual' THEN 2 WHEN 'ai' THEN 1 ELSE 0 END)`;
 }
 
 /**
@@ -225,8 +307,8 @@ export const sessionsDb = {
       // id is not recorded yet; COALESCE keeps that meaning "not app-owned",
       // which is how this branch has always read it.
       const nameWins = incomingNameWinsSql({
-        existingNameSql: 'custom_name',
-        existingSourceSql: 'name_source',
+        existingNameSql: displayNameSql(),
+        existingSourceSql: displayNameSourceSql(),
         incomingNameSql: '@incomingName',
         incomingSourceSql: '@incomingSource',
         appOwnedRowSql: 'COALESCE(session_id <> provider_session_id, 0)',
@@ -259,8 +341,8 @@ export const sessionsDb = {
     // keyed by the provider-native id for both columns. The ON CONFLICT path
     // covers legacy rows that predate the provider_session_id mapping.
     const conflictNameWins = incomingNameWinsSql({
-      existingNameSql: 'sessions.custom_name',
-      existingSourceSql: 'sessions.name_source',
+      existingNameSql: displayNameSql('sessions.'),
+      existingSourceSql: displayNameSourceSql('sessions.'),
       incomingNameSql: 'excluded.custom_name',
       incomingSourceSql: 'excluded.name_source',
       appOwnedRowSql: 'COALESCE(sessions.session_id <> sessions.provider_session_id, 0)',
@@ -305,6 +387,13 @@ export const sessionsDb = {
    * The new row carries no permission mode: no message has been sent under it
    * yet, so `NULL` here means "use the provider default" rather than "unknown".
    * A send that follows writes it (see `setSessionPermissionMode`).
+   *
+   * `customName` — the first message the user typed — is recorded as a
+   * *reading*, not as an override: it is the app's guess at what the session is
+   * about, so the transcript's own title has to be able to replace it as soon
+   * as the session has one. Written into `custom_name` it could not: from here
+   * on that column means the user typed the name, and a sync would have to
+   * treat it as a rename and leave the first message in place forever.
    */
   createAppSession(
     sessionId: string,
@@ -321,8 +410,8 @@ export const sessionsDb = {
     // message, so it has no mode to report and every reader falls back to the
     // provider default.
     db.prepare(
-      `INSERT INTO sessions (session_id, provider, provider_session_id, custom_name, project_path, jsonl_path, permission_mode, isArchived, created_at, updated_at)
-       VALUES (?, ?, NULL, ?, ?, NULL, NULL, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+      `INSERT INTO sessions (session_id, provider, provider_session_id, transcript_name, transcript_name_source, project_path, jsonl_path, permission_mode, isArchived, created_at, updated_at)
+       VALUES (?, ?, NULL, ?, 'derived', ?, NULL, NULL, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
     ).run(sessionId, provider, customName ?? null, normalizedProjectPath);
 
     return sessionId;
@@ -392,9 +481,13 @@ export const sessionsDb = {
     const db = getConnection();
 
     const merge = db.transaction(() => {
+      // Read raw rather than through the display projection: what is adopted
+      // below is the duplicate's stored columns, and a projected name would be
+      // written back as an override, freezing its transcript reading into
+      // `custom_name` where nothing could ever revise it again.
       const duplicate = db
         .prepare(
-          `SELECT ${SESSION_ROW_COLUMNS} FROM sessions
+          `SELECT ${SESSION_ROW_RAW_COLUMNS} FROM sessions
            WHERE (session_id = ? OR provider_session_id = ?)
              AND session_id <> ?
            LIMIT 1`
@@ -412,6 +505,11 @@ export const sessionsDb = {
                WHEN custom_name IS NULL AND @customName IS NOT NULL THEN @nameSource
                ELSE name_source
              END,
+             transcript_name = COALESCE(transcript_name, @transcriptName),
+             transcript_name_source = CASE
+               WHEN transcript_name IS NULL AND @transcriptName IS NOT NULL THEN @transcriptNameSource
+               ELSE transcript_name_source
+             END,
              updated_at = CURRENT_TIMESTAMP
            WHERE session_id = @sessionId`
         ).run({
@@ -422,6 +520,8 @@ export const sessionsDb = {
           // name without its source would let the next provider scan overwrite
           // a name the user had chosen on the other row.
           nameSource: duplicate.name_source ?? 'derived',
+          transcriptName: duplicate.transcript_name,
+          transcriptNameSource: duplicate.transcript_name_source ?? 'derived',
           sessionId,
         });
         return;
@@ -625,6 +725,64 @@ export const sessionsDb = {
     ).run(customName, sessionId);
   },
 
+  /**
+   * Records the name a session's transcript gives it, and which rung of the
+   * provider's title ladder that name came from.
+   *
+   * Rewritten on every sync rather than guarded by precedence, because a
+   * reading is not a claim to defend but an observation: Claude revises the
+   * `ai-title` as a conversation goes on and appends a `custom-title` when the
+   * user renames in the CLI, so the newest reading is the only correct one —
+   * even when it sits *lower* on the ladder than the one already stored. An
+   * `ai-title` replaced by a `custom-title` is exactly that case, and keeping
+   * the earlier, higher-ranked name would ignore the rename.
+   *
+   * The user's override is never touched: `custom_name` is their word, taken in
+   * this app, and no transcript can revise it. A row that has one also keeps its
+   * own `name_source`, so "what the user called it" and "where that came from"
+   * stay a pair. The pair is written together in the other direction too: where
+   * this statement clears a non-override `custom_name` it clears `name_source`
+   * with it, so a provenance is never left describing a name that is no longer
+   * on the row. The reading's own provenance is `transcript_name_source`, and
+   * that is where the displayed name's source comes from when there is no
+   * override to read.
+   *
+   * A name in `custom_name` whose provenance is *not* `manual` is not an
+   * override, and it is cleared rather than left to shadow the reading. Such a
+   * name is one an indexer wrote — the placeholder an early scan fell back to,
+   * or a name written before the two columns were split — and it sits in the
+   * override column only because that is where indexer-supplied names used to
+   * go. Leaving it there would freeze it: the projection reads the override
+   * first, so a session discovered before it had a title would show the
+   * placeholder for as long as it existed, with the transcript's own name
+   * sitting unread beside it. Clearing it here is not a loss — the reading
+   * taking its place is the newer name for the same thing, and the row's own
+   * provenance column records where that one came from.
+   *
+   * Returns whether a row was there to write. The caller has already created or
+   * updated it, so `false` means it was removed underneath the scan.
+   */
+  writeTranscriptName(sessionId: string, transcriptName: string, source: SessionNameSource): boolean {
+    const db = getConnection();
+    // Both CASEs read the row as it was before this statement: SQLite evaluates
+    // every assignment against the pre-update values, so `custom_name` below is
+    // the one the previous scan left, not the one this statement is writing.
+    return db.prepare(
+      `UPDATE sessions SET
+         transcript_name = @transcriptName,
+         transcript_name_source = @source,
+         custom_name = CASE
+           WHEN custom_name IS NOT NULL AND COALESCE(name_source, 'derived') <> 'manual' THEN NULL
+           ELSE custom_name
+         END,
+         name_source = CASE
+           WHEN custom_name IS NOT NULL AND COALESCE(name_source, 'derived') = 'manual' THEN name_source
+           ELSE NULL
+         END
+       WHERE session_id = @sessionId`
+    ).run({ transcriptName, source, sessionId }).changes > 0;
+  },
+
   getSessionById(sessionId: string): SessionRow | null {
     const db = getConnection();
     const row = db
@@ -736,12 +894,12 @@ export const sessionsDb = {
       sessions.isArchived = 0
       AND (projects.isArchived IS NULL OR projects.isArchived = 0)
       ${isHiddenByProjectFilter
-        ? "AND session_hidden_by_project_filter(COALESCE(sessions.custom_name, ''), projects.session_filter) = 0"
+        ? "AND session_hidden_by_project_filter(COALESCE(sessions.custom_name, sessions.transcript_name, ''), projects.session_filter) = 0"
         : ''}
     `;
     const rows = db
       .prepare(
-        `SELECT sessions.*
+        `SELECT ${SESSION_ROW_COLUMNS_QUALIFIED}
          FROM sessions
          LEFT JOIN projects ON projects.project_path = sessions.project_path
          WHERE ${visibilityClause}

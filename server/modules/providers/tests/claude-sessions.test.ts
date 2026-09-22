@@ -52,26 +52,46 @@ const patchHomeDir = (nextHomeDir: string) => {
 /**
  * Writes a minimal valid Claude JSONL session file with enough fields for
  * `extractFirstValidJsonlData` to parse `sessionId` and `cwd`.
+ *
+ * `firstPrompt: null` puts the CLI's own bookkeeping entry where the user's
+ * first message would be. The head still parses — both `sessionId` and `cwd`
+ * ride on that entry — but nothing in the file names the session, which is the
+ * shape a transcript has when the indexer has to fall through to the names
+ * below the transcript: the history file, or the placeholder.
  */
 async function writeSessionJsonl(
   dirPath: string,
   fileName: string,
   lines: string[],
+  options: { firstPrompt?: string | null } = {},
 ): Promise<string> {
   const filePath = path.join(dirPath, fileName);
+  const firstPrompt = options.firstPrompt === undefined ? 'first prompt' : options.firstPrompt;
   const head = [
     JSON.stringify({ type: 'mode', mode: 'normal', sessionId: 'test-session-1' }),
     JSON.stringify({ type: 'permission-mode', permissionMode: 'default', sessionId: 'test-session-1' }),
-    JSON.stringify({
-      parentUuid: null,
-      isSidechain: false,
-      type: 'user',
-      message: { role: 'user', content: 'first prompt' },
-      uuid: 'msg-1',
-      timestamp: '2026-07-10T00:00:00.000Z',
-      cwd: '/workspace/demo',
-      sessionId: 'test-session-1',
-    }),
+    firstPrompt === null
+      ? JSON.stringify({
+          parentUuid: null,
+          isSidechain: false,
+          isMeta: true,
+          type: 'user',
+          message: { role: 'user', content: '<system-reminder>Session context loaded</system-reminder>' },
+          uuid: 'msg-1',
+          timestamp: '2026-07-10T00:00:00.000Z',
+          cwd: '/workspace/demo',
+          sessionId: 'test-session-1',
+        })
+      : JSON.stringify({
+          parentUuid: null,
+          isSidechain: false,
+          type: 'user',
+          message: { role: 'user', content: firstPrompt },
+          uuid: 'msg-1',
+          timestamp: '2026-07-10T00:00:00.000Z',
+          cwd: '/workspace/demo',
+          sessionId: 'test-session-1',
+        }),
   ];
   const content = [...head, ...lines, ''].join('\n');
   await writeFile(filePath, content, 'utf8');
@@ -792,7 +812,9 @@ test('synchronizeFile falls back to history.jsonl display when JSONL has no titl
       'utf8',
     );
 
-    // Session JSONL with NO ai-title, custom-title, or last-prompt.
+    // Session JSONL with NO ai-title, custom-title, or last-prompt — and no
+    // first prompt either, so the transcript offers the indexer no name at all
+    // and the fallback chain below it is what the assertion is about.
     await writeSessionJsonl(workspacePath, 'test-session-1.jsonl', [
       JSON.stringify({
         parentUuid: 'msg-1',
@@ -801,7 +823,7 @@ test('synchronizeFile falls back to history.jsonl display when JSONL has no titl
         type: 'assistant',
         uuid: 'msg-2',
       }),
-    ]);
+    ], { firstPrompt: null });
 
     await withIsolatedDatabase(async () => {
       const synchronizer = new ClaudeSessionSynchronizer();
@@ -830,7 +852,8 @@ test('synchronizeFile falls back to Untitled Claude Session when all sources are
     await mkdir(claudeHome, { recursive: true });
     await writeFile(path.join(claudeHome, 'history.jsonl'), '', 'utf8');
 
-    // Session JSONL with NO title events at all.
+    // Session JSONL with NO title events at all, and nothing to derive one
+    // from: with the history file empty as well, every naming source is empty.
     await writeSessionJsonl(workspacePath, 'test-session-1.jsonl', [
       JSON.stringify({
         parentUuid: 'msg-1',
@@ -839,7 +862,7 @@ test('synchronizeFile falls back to Untitled Claude Session when all sources are
         type: 'assistant',
         uuid: 'msg-2',
       }),
-    ]);
+    ], { firstPrompt: null });
 
     await withIsolatedDatabase(async () => {
       const synchronizer = new ClaudeSessionSynchronizer();
