@@ -445,6 +445,39 @@ async function indexTranscript(filePath: string): Promise<string | null> {
 }
 
 /**
+ * AC3's false form: the same observation with a window far too small to hold the
+ * worst case. Each trial appends a row and then waits only `SHORT_WINDOW_MS` for
+ * an upsert. If this came back green every time, the criterion would be measuring
+ * a fixture whose phase is fixed rather than the observer.
+ *
+ * The trials are armed the moment the external write is on disk and run *beside*
+ * the arm's own terminal wait, not behind it. They are three sub-second windows
+ * against a six-second polling clock, so the wait they would otherwise queue
+ * behind (`OBSERVATION_WINDOW_MS`, or the delivery it is waiting for) is longer
+ * than all three of them together: overlapping them costs neither a reading nor
+ * an assertion — every trial still appends, still waits out `SHORT_WINDOW_MS`,
+ * and the criterion still has to come back not-delivered at least once.
+ */
+async function runShortWindowTrials(
+  armed: ArmedDebugAgentScenario,
+  upserts: UpsertReading[],
+): Promise<Array<{ delivered: boolean; elapsedMs: number }>> {
+  const trials: Array<{ delivered: boolean; elapsedMs: number }> = [];
+  for (let trial = 0; trial < SHORT_WINDOW_TRIALS; trial += 1) {
+    appendExternally(armed.transcriptPath, {
+      sessionId: armed.providerSessionId,
+      cwd: armed.projectPath,
+      text: `${APPENDED_TEXT} (short-window trial ${trial + 1})`,
+    });
+
+    const sinceTrial = upserts.length;
+    const outcome = await waitForUpsertAfter(upserts, sinceTrial, SHORT_WINDOW_MS);
+    trials.push({ delivered: outcome.arrived, elapsedMs: outcome.elapsedMs });
+  }
+  return trials;
+}
+
+/**
  * Takes one arm's reading.
  *
  * The two modes share every step up to and including the drain, and differ in
@@ -504,6 +537,13 @@ async function readExternalWrite(mode: ChildMode): Promise<ExternalWriteReading>
 
   const windowMs = OBSERVATION_WINDOW_MS;
   const sinceAppend = connection.upserts.length;
+
+  // AC3's false form is armed here, before the terminal wait rather than after
+  // it: three `SHORT_WINDOW_MS` waits fit inside the window they would otherwise
+  // queue behind. In `bypass` the observer has already been closed above, so
+  // these appends cannot be announced — which is what that arm asserts.
+  const trialResults = runShortWindowTrials(armed, connection.upserts);
+
   await waitForUpsertAfter(connection.upserts, sinceAppend, windowMs);
 
   const upsertsSinceAppend = connection.upserts.slice(sinceAppend);
@@ -525,26 +565,13 @@ async function readExternalWrite(mode: ChildMode): Promise<ExternalWriteReading>
     .map((message) => (typeof message.content === 'string' ? message.content : ''))
     .join('\n');
 
-  // ---- AC3's false form ----
-  // The same observation with a window far too small to hold the worst case:
-  // each trial appends and then waits only SHORT_WINDOW_MS for an upsert. If this
-  // came back green every time, the criterion would be measuring a fixture whose
-  // phase is fixed rather than the observer.
+  // ---- AC3's false form, joined above ----
+  // Every trial has appended and waited out its own `SHORT_WINDOW_MS` by now;
+  // the arm joins them here instead of waiting them out end to end.
   const windowFalsification = {
     windowMs: SHORT_WINDOW_MS,
-    trials: [] as Array<{ delivered: boolean; elapsedMs: number }>,
+    trials: await trialResults,
   };
-  for (let trial = 0; trial < SHORT_WINDOW_TRIALS; trial += 1) {
-    appendExternally(armed.transcriptPath, {
-      sessionId: armed.providerSessionId,
-      cwd: armed.projectPath,
-      text: `${APPENDED_TEXT} (short-window trial ${trial + 1})`,
-    });
-
-    const sinceTrial = connection.upserts.length;
-    const outcome = await waitForUpsertAfter(connection.upserts, sinceTrial, SHORT_WINDOW_MS);
-    windowFalsification.trials.push({ delivered: outcome.arrived, elapsedMs: outcome.elapsedMs });
-  }
 
   await closeSessionsWatcher();
   connectedClients.delete(connection as never);
