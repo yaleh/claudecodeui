@@ -406,20 +406,28 @@ budget_preflight() {
 }
 
 # estimate_phase_ms — 对「接下来这一相」的保守估计，一行两字段：`<估计ms> <来源>`。
-#   有历史实跑读数（上一次的相窗口）就用它 × 安全系数，来源写进第二个字段；
-#   没有（第一次）就用 COLD_PHASE_ESTIMATE_MS。⛔ 估计值只决定「要不要开工」，
-#   不参与判红/判绿 —— 判定语义与它无关。⛔ 来源必须【随值返回】而不是写全局：
-#   调用点把它放进命令替换，子壳里的赋值出了子壳就不存在。
+#   读 estimate 段的顺序是【并发相窗口 → 安静相窗口 → 冷地板】。第一格为空或 0 时必须真的
+#   落到第二格：⛔ 0 是「这一相还没被量过」的占位，不是读数 —— 把它当成有效读数会让预检
+#   在每一次冷路径上都短接到地板（旧实现里 `[ -n "$v" ]` 对字符串 "0" 为真，第二格永远够
+#   不到），而安静窗口是【已经跑过并且落盘】的真读数，它正是「下一相大概多贵」的最近证据。
+#   两格都空才用 COLD_PHASE_ESTIMATE_MS。⛔ 估计值只决定「要不要开工」，不参与判红/判绿 ——
+#   判定语义与它无关。⛔ 来源必须【随值返回】而不是写全局：调用点把它放进命令替换，子壳里的
+#   赋值出了子壳就不存在。
+#   phase_window_or_empty <dotted.path> — 读一格 estimate 相窗口；缺失/非数/0 ⇒ 空。
+phase_window_or_empty() {
+  local v
+  v="$(json_get "$BASELINE_JSON" "$1")"
+  case "$v" in ''|*[!0-9]*) printf ''; return 0 ;; esac
+  [ "$v" = "0" ] && { printf ''; return 0; }
+  printf '%s' "$v"
+}
+
 estimate_phase_ms() {
   local v="" src=""
   if [ -f "$BASELINE_JSON" ]; then
-    v="$(json_get "$BASELINE_JSON" estimate.concurrent_window_ms)"
-    [ -n "$v" ] || v="$(json_get "$BASELINE_JSON" estimate.quiet_window_ms)"
+    v="$(phase_window_or_empty estimate.concurrent_window_ms)"
+    [ -n "$v" ] || v="$(phase_window_or_empty estimate.quiet_window_ms)"
   fi
-  # 0 与缺失同义（「还没跑过这一相」）：⛔ 不能把 0 当成一个有效的历史读数 —— 那会让预检
-  # 恒放行，预算闸形同虚设。
-  case "$v" in ''|*[!0-9]*) v="" ;; esac
-  [ "$v" = "0" ] && v=""
   if [ -n "$v" ]; then
     src="历史相窗口 ${v}ms × ${ESTIMATE_SAFETY_NUM}/${ESTIMATE_SAFETY_DEN}"
   else

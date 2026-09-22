@@ -22,6 +22,8 @@
  *   T5 阶段被剩余预算夹断（开工了但跑不完）⇒ 同样 exit 3，而不是假红。
  *   T6 冷启动的活读数【完整】落盘：在「安静相跑完就落盘」与「结尾再落盘」之间退出的路径
  *      （fail-closed / 预算闸）上，只有前一次写生效 —— 它必须带上真的 median/n。
+ *   T7 estimate 段的 `0` 是【没量过】的占位而不是读数：并发相窗口为 0 时，估计必须落到
+ *      安静相窗口那格真读数，⛔ 不许短接到冷地板 45000（判词点名的来源就是这件事的读数）。
  */
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -262,5 +264,47 @@ test('T6 冷启动的活读数会被完整落盘（median/n 不是 0），复用
     warm.verdict,
     new RegExp(`中位=${saved.quiet.median_ms}ms n=${saved.quiet.n} provenance=`),
     warm.context('复用命中时判词不该把中位/n 写成 0'),
+  );
+});
+
+test('T7 estimate 的 `0` 是「没量过」不是读数：必须回退到安静相窗口，不许短接到冷地板', (t) => {
+  const fx = fixture(t);
+  // 先真跑一次，让判据自己写出一份【键与读数日志都对得上】的记录 —— 下面只动 estimate 段。
+  const warm = runCriterion(fx, ['--test-concurrency=8']);
+  assert.equal(warm.status, 0, warm.context('预热运行应为绿'));
+
+  const statePath = path.join(fx.cache, 'quiet-baseline.json');
+  const saved = JSON.parse(readFileSync(statePath, 'utf8'));
+
+  // 默认路径跑完一次后，并发相【真的被量过】⇒ 那一格是真读数，不是占位。
+  assert.ok(
+    Number(saved.estimate.concurrent_window_ms) > 0,
+    warm.context(`跑完一次默认路径后并发相窗口应 > 0（实得 ${saved.estimate.concurrent_window_ms}）`),
+  );
+
+  // 冷路径落盘的形状：并发相还没被量过 ⇒ concurrent_window_ms = 0，而安静相窗口是真读数。
+  // ⛔ 只改这两格：键/日志 sha/覆盖面三样再校验都在 cache_load 里，动别处就变 miss 了。
+  const quietWindowMs = 90000;
+  saved.estimate.concurrent_window_ms = 0;
+  saved.estimate.quiet_window_ms = quietWindowMs;
+  writeFileSync(statePath, JSON.stringify(saved));
+
+  // 预算落在这两格之间：quiet 窗口 × 5/4 = 112500 > 100000 ⇒ 预检必然在并发相开工前
+  // not-evaluated，而它的判词里带着「这个估计是从哪来的」。若回退够不到 quiet 那格，
+  // 估计就退回冷地板 45000（×5/4 = 56250 < 100000），预检放行、判据转而跑完变绿。
+  const r = runCriterion(fx, ['--test-concurrency=8', '--budget-ms', '100000']);
+
+  assert.equal(r.status, 3, r.context('预检应判 not-evaluated（estimate 段必须被当成读数用）'));
+  assert.match(r.verdict, /NOT-EVALUATED — 超出自身预算/, r.context('判词应自报未评估'));
+  assert.match(r.verdict, /预算=100000ms/, r.context('判词应点名预算'));
+  assert.match(
+    r.verdict,
+    new RegExp(`历史相窗口 ${quietWindowMs}ms × 5/4`),
+    r.context('0 必须回退到安静相窗口那格真读数'),
+  );
+  assert.doesNotMatch(
+    r.verdict,
+    /无历史读数，保守地板/,
+    r.context('quiet 窗口还在时不许短接到冷地板（0 不是读数）'),
   );
 });

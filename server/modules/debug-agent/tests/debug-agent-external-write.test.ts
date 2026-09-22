@@ -9,6 +9,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 import util from 'node:util';
 import { fileURLToPath } from 'node:url';
 
+import chokidar from 'chokidar';
+
 import { initializeDatabase } from '@/modules/database/index.js';
 import {
   closeSessionsWatcher,
@@ -92,6 +94,8 @@ const SELF = fileURLToPath(import.meta.url);
  * sitting on a poll that has not happened yet.
  */
 const POLL_INTERVAL_MS = 6_000;
+/** How deep the observer's walk goes, copied from the same `chokidar.watch` call. */
+const WATCH_DEPTH = 6;
 /** The drain's silence requirement — strictly more than one polling period. */
 const DRAIN_SILENCE_MS = 6_500;
 /**
@@ -338,6 +342,49 @@ function sawObserverEvent(lines: CapturedLine[], filePath: string, eventType: st
 }
 
 /**
+ * Returns once the observer's first walk of every watch root has finished.
+ *
+ * `initializeSessionsWatcher()` returns before that walk is over: `chokidar.watch()`
+ * returns as soon as it has been called, and the walk it starts runs on afterwards.
+ * A fixture armed inside that window is initial state as far as the observer is
+ * concerned — the walk reaches it, `ignoreInitial` suppresses its `add`, and the
+ * file ends up indexed, REST-addressable and completely unannounced. The service
+ * publishes no readiness signal of its own, and waiting a guessed number of
+ * milliseconds would be exactly the kind of sleep this file refuses everywhere
+ * else, so this reads the walk instead of predicting it.
+ *
+ * A watcher of our own over the SAME roots, created strictly after the observer's
+ * and started with the observer's own options except that it drops `ignored`: ours
+ * therefore has strictly more tree to walk and cannot report `ready` first.
+ */
+async function waitForObserverWalk(): Promise<void> {
+  const probes = resolveProviderWatchPaths().map(({ rootPath }) =>
+    chokidar.watch(rootPath, {
+      persistent: false,
+      ignoreInitial: true,
+      followSymlinks: false,
+      depth: WATCH_DEPTH,
+      usePolling: true,
+      interval: POLL_INTERVAL_MS,
+      binaryInterval: POLL_INTERVAL_MS,
+    }),
+  );
+
+  try {
+    await Promise.all(
+      probes.map(
+        (probe) =>
+          new Promise<void>((resolve) => {
+            probe.once('ready', () => resolve());
+          }),
+      ),
+    );
+  } finally {
+    await Promise.all(probes.map((probe) => probe.close()));
+  }
+}
+
+/**
  * Produces the load event, and returns only once the observer has logged its own
  * `add` line for it.
  *
@@ -352,9 +399,13 @@ function sawObserverEvent(lines: CapturedLine[], filePath: string, eventType: st
  * So the observer's own `add` line IS the readiness signal, and it is read rather
  * than predicted. An attempt the observer does not report within one polling
  * period is not waited on further: a fresh session is armed instead, which the
- * now-finished walk can only report as an `add`. Nothing here guesses how long the
- * walk takes — the first attempt is usually the one that exposes it, and the
- * attempt count is printed either way.
+ * now-finished walk can only report as an `add`, and the attempt count is printed
+ * either way.
+ *
+ * `waitForObserverWalk()` is what keeps the first attempt from being a casualty of
+ * the window above: with the walk over before the fixture is armed, the new file
+ * can only be reported, and the retry below stays the bound it is documented to be
+ * rather than the normal path.
  */
 async function armObservedFixture(): Promise<{ armed: ArmedDebugAgentScenario; attempts: LoadAttempt[] }> {
   const attempts: LoadAttempt[] = [];
@@ -423,6 +474,7 @@ async function readExternalWrite(mode: ChildMode): Promise<ExternalWriteReading>
     );
 
   await initializeSessionsWatcher();
+  await waitForObserverWalk();
 
   // The fixture is armed AFTER the observer is up, which is what makes the load
   // event a real one: a file that appears under a running observer is an `add`,
