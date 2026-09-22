@@ -9,7 +9,7 @@ children: []
 extra:
   schema: execution
 depends_on: []
-goal_ac: "null"
+goal_ac: '""'
 ---
 ## Proposal
 
