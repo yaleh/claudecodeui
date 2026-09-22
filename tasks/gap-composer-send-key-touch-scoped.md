@@ -65,14 +65,14 @@ extra:
 
 ## AC
 
-- [ ] `npx vitest run src/modules/chat/tests/sendOnEnter.test.tsx` 退出码 0，且四格判定各自独立可反红并在失败信息里打印实际四格读数：触摸×偏好关 → `{sendOnEnter:false,touchOnly:true}`；触摸×偏好开 → `{sendOnEnter:false,touchOnly:true}`；非触摸×偏好关 → `{sendOnEnter:true,touchOnly:false}`；非触摸×偏好开 → `{sendOnEnter:false,touchOnly:false}`。jsdom 不实现 `matchMedia`，测试须自带媒体查询替身；因此该文件只能证明**策略**，媒体查询字符串本身由 e2e 证。
-- [ ] 同一文件断言"设备判定不污染偏好"：触摸 leg 下对偏好写入（`writeUserPreference` / `api.user.savePreferences`）的 spy 调用次数为 0，且 `readStoredUiPreferences()` 的 `sendByCtrlEnter` 在该 leg 前后相同。断言的是这两个读数，不是单纯的"没报错"。
-- [ ] 提示同源且三分支不回归：`npx vitest run src/modules/chat/tests/<新增或既有的 composer 提示用例>` 退出码 0——`touchOnly` 为真时提示文案不含 `Shift` 与 `Ctrl`，且其容器类名不含 `hidden`/`lg:block`；`touchOnly` 为假时 `input.hintText.enter` / `input.hintText.ctrlEnter` / 排队两条的取值与改动前逐字符相同。
-- [ ] i18n 完整性（12 个 locale × 2 个 key）：一条 `node -e` 或等价脚本校验 `src/modules/i18n/locales/*/chat.json` 全部存在非空 `input.hintText.touch`，且 `src/modules/i18n/locales/*/settings.json` 的 `quickSettings.sendByCtrlEnterDescription` 已说明该设置只在有键盘的设备上生效；任一缺失或为空即以非 0 退出并打印缺哪个文件哪个 key。同时校验 12 个 `chat.json` 与 12 个 `settings.json` 仍是可解析 JSON。
-- [ ] e2e 触摸 leg：`npx playwright test e2e/mobile-composer-send-key.spec.ts` 退出码 0。该 leg 以 `test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } })` 运行，并**在断言行为之前先断言前提**：页内 `matchMedia('(pointer: coarse) and (hover: none)').matches` 必须为 true，否则以该读数直接 fail（没有这一条，spec 在桌面配置下会静默通过，等于没测）。随后断言三件事：空输入按 Enter 后 textarea 值 === `"\n"`；输入文本后按 Enter，值恰好多出一个 `\n` 且 `location.pathname` 不变；点 `button[aria-label="Send"]` 后 `location.pathname` 变为 `/session/<id>`。
-- [ ] e2e 桌面 leg（同一 spec 文件内的另一个 describe 块，共用一次运行与同一个 `DATABASE_PATH`；不要拆成第二个 spec 文件，那会踩"一次运行一个库"的鉴权坑）：默认配置下 Enter 提交（`location.pathname` 变化），Shift+Enter 只让值增加 `\n` 而不提交。该 leg 同时是空输入死键的回归读数：空输入按 Enter 后值仍为 `""`、`location.pathname` 不变。
-- [ ] 抗假变体：把 `sendOnEnter` 恒置为 `!sendByCtrlEnter`（等价于删掉触摸判定）后重跑该 spec，触摸 leg 必须在"输入文本后按 Enter 未提交"那条变红；还原后全绿，`git diff` 只剩本任务声明的写点。`npx vitest run src/modules/chat/tests/sendOnEnter.test.tsx` 在变体下同样应变红。
-- [ ] `npm run typecheck` 与 `npm run lint` 退出码均为 0（`npm run lint` 是 `oxlint src/ server/`；裸 `npx oxlint` 在本仓库预先就有 146 条诊断并非 0，不作为判据）。
+- [x] `npx vitest run src/modules/chat/tests/sendOnEnter.test.tsx` 退出码 0，且四格判定各自独立可反红并在失败信息里打印实际四格读数：触摸×偏好关 → `{sendOnEnter:false,touchOnly:true}`；触摸×偏好开 → `{sendOnEnter:false,touchOnly:true}`；非触摸×偏好关 → `{sendOnEnter:true,touchOnly:false}`；非触摸×偏好开 → `{sendOnEnter:false,touchOnly:false}`。jsdom 不实现 `matchMedia`，测试须自带媒体查询替身；因此该文件只能证明**策略**，媒体查询字符串本身由 e2e 证。
+- [x] 同一文件断言"设备判定不污染偏好"：触摸 leg 下对偏好写入（`writeUserPreference` / `api.user.savePreferences`）的 spy 调用次数为 0，且 `readStoredUiPreferences()` 的 `sendByCtrlEnter` 在该 leg 前后相同。断言的是这两个读数，不是单纯的"没报错"。
+- [x] 提示同源且三分支不回归：`npx vitest run src/modules/chat/tests/<新增或既有的 composer 提示用例>` 退出码 0——`touchOnly` 为真时提示文案不含 `Shift` 与 `Ctrl`，且其容器类名不含 `hidden`/`lg:block`；`touchOnly` 为假时 `input.hintText.enter` / `input.hintText.ctrlEnter` / 排队两条的取值与改动前逐字符相同。
+- [x] i18n 完整性（12 个 locale × 2 个 key）：一条 `node -e` 或等价脚本校验 `src/modules/i18n/locales/*/chat.json` 全部存在非空 `input.hintText.touch`，且 `src/modules/i18n/locales/*/settings.json` 的 `quickSettings.sendByCtrlEnterDescription` 已说明该设置只在有键盘的设备上生效；任一缺失或为空即以非 0 退出并打印缺哪个文件哪个 key。同时校验 12 个 `chat.json` 与 12 个 `settings.json` 仍是可解析 JSON。
+- [x] e2e 触摸 leg：`npx playwright test e2e/mobile-composer-send-key.spec.ts` 退出码 0。该 leg 以 `test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } })` 运行，并**在断言行为之前先断言前提**：页内 `matchMedia('(pointer: coarse) and (hover: none)').matches` 必须为 true，否则以该读数直接 fail（没有这一条，spec 在桌面配置下会静默通过，等于没测）。随后断言三件事：空输入按 Enter 后 textarea 值 === `"\n"`；输入文本后按 Enter，值恰好多出一个 `\n` 且 `location.pathname` 不变；点 `button[aria-label="Send"]` 后 `location.pathname` 变为 `/session/<id>`。
+- [x] e2e 桌面 leg（同一 spec 文件内的另一个 describe 块，共用一次运行与同一个 `DATABASE_PATH`；不要拆成第二个 spec 文件，那会踩"一次运行一个库"的鉴权坑）：默认配置下 Enter 提交（`location.pathname` 变化），Shift+Enter 只让值增加 `\n` 而不提交。该 leg 同时是空输入死键的回归读数：空输入按 Enter 后值仍为 `""`、`location.pathname` 不变。
+- [x] 抗假变体：把 `sendOnEnter` 恒置为 `!sendByCtrlEnter`（等价于删掉触摸判定）后重跑该 spec，触摸 leg 必须在"输入文本后按 Enter 未提交"那条变红；还原后全绿，`git diff` 只剩本任务声明的写点。`npx vitest run src/modules/chat/tests/sendOnEnter.test.tsx` 在变体下同样应变红。
+- [x] `npm run typecheck` 与 `npm run lint` 退出码均为 0（`npm run lint` 是 `oxlint src/ server/`；裸 `npx oxlint` 在本仓库预先就有 146 条诊断并非 0，不作为判据）。
 
 ## DoD
 
@@ -92,6 +92,63 @@ extra:
 L_D 该轴仍暗，理由：本任务修的是输入键的行为契约，不产出领域数据或文档语义读数；12 个 locale 的文案完整性由上面那条 i18n 判据单独机械钉住，除此之外该轴没有可分离的度量。
 
 L_G 该轴仍暗，理由：同上；本任务的验证读数就是 DoD 里真浏览器 2×2 矩阵的四格读数与两条正向对照读数。
+
+## Evidence
+
+### 1. 真实浏览器 2×2 矩阵读数
+
+一次 Playwright 运行内四格各起独立 browser context，同一账号、同一次服务启动；读数原样如下（`npx playwright test`，脚本为一次性探针，不入库）：
+
+```
+{"label":"touch×pref-off","touchOnly":true,"storedSendByCtrlEnter":false,"enterDefaultPrevented":false,"textareaValue":"\"hello\\n\"","pathnameBefore":"/","pathnameAfter":"/","hintText":"Tap ➤ to send • Return adds a line","hintDisplay":"block"}
+{"label":"touch×pref-on","touchOnly":true,"storedSendByCtrlEnter":true,"enterDefaultPrevented":false,"textareaValue":"\"hello\\n\"","pathnameBefore":"/","pathnameAfter":"/","hintText":"Tap ➤ to send • Return adds a line","hintDisplay":"block"}
+{"label":"desktop×pref-off","touchOnly":false,"storedSendByCtrlEnter":false,"enterDefaultPrevented":true,"textareaValue":"\"\"","pathnameBefore":"/","pathnameAfter":"/session/3cb8e266-3ec1-492a-bb73-9ea461bfa7cd","hintText":"Enter to send • Shift+Enter for new line • Tab to change modes • / for slash commands","hintDisplay":"block"}
+{"label":"desktop×pref-on","touchOnly":false,"storedSendByCtrlEnter":true,"enterDefaultPrevented":false,"textareaValue":"\"hello\\n\"","pathnameBefore":"/","pathnameAfter":"/","hintText":"Ctrl+Enter to send • Shift+Enter for new line • Tab to change modes • / for slash commands","hintDisplay":"block"}
+```
+
+读法（这正是修复要立的契约）：
+
+- **触摸列与偏好无关**：偏好关/开两格的四个读数逐字段相同——`prevented=false`、值恰好多一个 `\n`、`pathname` 停在 `/`、提示同为触摸文案。设备判定优先于账号偏好，且偏好开时也不会把 Enter 变回发送键。
+- **桌面行按偏好分裂**：偏好关 `prevented=true` 且值被清空、`pathname` 跳到 `/session/<uuid>`（已发送，空值只是提交后清空的结果）；偏好开 `prevented=false`、值 `"hello\n"`、不发送。与改动前逐字符一致。
+- 桌面两格的提示容器 `display:block` 是因为该窗口宽 1280px（≥`lg`）；触摸格在 390px 下同样是 `block`，即 `hidden lg:block` 已按设备摘掉。
+
+### 2. 正向对照一：判定没有写回账号偏好
+
+触摸 leg 内，页内自带 Bearer token 直连 `GET /api/user/preferences`，发送消息并等待写防抖（900ms）前后各读一次：
+
+```
+PREFERENCE before {"enabled":false}
+PREFERENCE readings {"before":{"enabled":false},"after":{"enabled":false}}
+```
+
+两次相同，且该页自己发出的每一次 `GET /api/user/preferences` 都报 `false`。这不是"没写就等于没污染"：对照的是同一个键的两次独立读数。
+
+### 3. 正向对照二：媒体查询是活的 `change` 监听，不是首帧读一次
+
+触摸 leg 内用 CDP（`Emulation.setTouchEmulationEnabled` + `setDeviceMetricsOverride` **成对**下发，避免原型踩过的"只翻一半"）在不刷新页面的前提下双向切换，每次都轮询提示文案：
+
+```
+HINT after touch→keyboard flip {"text":"Enter to send • Shift+Enter for new line • Tab to change modes • / for slash commands","display":"none","opacity":"1"}
+HINT after keyboard→touch flip {"text":"Tap ➤ to send • Return adds a line","display":"block","opacity":"1"}
+```
+
+两个方向都跟着变；且键盘态 `display:none`、触摸态 `display:block`——后者是证据而非"把类名删光"的产物，因为同一容器在键盘态仍保留 `hidden lg:block`（单测里有该正向对照）。这对应"平板插上键盘"的真实场景。
+
+### 4. 边界（如实标注）
+
+- 触摸来自 **Chromium 的 touch emulation**，翻转的是真实 Blink 媒体特性（页内实测 `pointer:coarse` 与 `hover:none` 均为 true，且 `'ontouchstart' in window` 为 false——后者不能用作嗅探，已在单测与 e2e 注释中钉住）。**不是真机软键盘**。
+- 软键盘键帽长什么样、Android/iOS 的 Enter 如何投递（composition / `keyCode 229`）**仍未实测**。采纳 B+D 后键帽问题自然消失，故本任务**未加** `enterKeyHint`；若将来要加，触摸下其值应为 `enter`。
+- 桌面 leg 的 `beforeAll` 走新库 onboarding，沿用既有 e2e 已知坑（负载下约 1/7 概率红在 `#username`）：按墙钟归因，未加重试。本次两次运行分别为 **20.6s** 与 **20.6s**（含两条 leg），远低于判据的 60s 上限。
+
+### 5. 判据逐条读数
+
+- AC-1/2/3 `npx vitest run src/modules/chat/tests/sendOnEnter.test.tsx` → 退出 0，`Test Files 1 passed (1)`、`Tests 9 passed (9)`。四格断言各自独立：抗假变体下**只有** `touch×pref-off` 一格与"平板插键盘"用例变红，键盘两格仍绿——即四格不是一条共享断言。失败信息打印实际四格，例如变体下：`touch×pref-off is wrong; the four cells read {"touch×pref-off":{"sendOnEnter":true,"touchOnly":true},"touch×pref-on":{"sendOnEnter":false,"touchOnly":true},"keyboard×pref-off":{"sendOnEnter":true,"touchOnly":false},"keyboard×pref-on":{"sendOnEnter":false,"touchOnly":false}}`。
+- 偏好污染断言：两轮（存储值 false/true 各一轮）中 `writeUserPreference` 与 `api.user.savePreferences` 的 spy 调用次数均为 **0**，且 `readStoredUiPreferences().sendByCtrlEnter` 在 leg 前后与播种值相同。
+- 提示三分支：`touchOnly` 真时文案 === `input.hintText.touch`（不含 `Shift`/`Ctrl`，容器类名不含 `hidden`/`lg:block`）；排队态 === `touchQueue` 且 ≠ `touch`；`touchOnly` 假时 `enter`/`ctrlEnter`/`queue`/`updateQueued` 四例逐字符相同，且键盘态容器**仍带** `hidden lg:block`（正向对照）。
+- AC-4 i18n → `locales=12 chat.json=12 settings.json=12 violations=0`。三个 chat 键（`touch`/`touchQueue`/`touchUpdateQueued`）12 个 locale 全部非空；12 个 `settings.json` 的 `quickSettings.sendByCtrlEnterDescription` 均**相对于 develop 有实际增长**且在原文之后追加，各 locale 增量与追加内容已逐条打印（zh-CN +34、zh-TW +41、ja +56、ko +65、en +123、id +133、es +134、ru +136、it +138、tr +138、de +141、fr +144 字符）——该判据不依赖任何多语言词表，只依赖"每个 locale 都真的被改过且原句仍在"。
+- AC-5/6 `npx playwright test e2e/mobile-composer-send-key.spec.ts` → 退出 0，`2 passed (20.6s)`。触摸 leg 在断言行为前先断言 `(pointer: coarse) and (hover: none)` 为 true（连同两半分别断言），并先断言账号偏好确为关——否则该 leg 在桌面配置下会静默通过。
+- AC-7 抗假变体：把 `useSendOnEnter` 改成 `sendOnEnter: !sendByCtrlEnter`（等价删掉触摸判定）后，单测 `Tests 2 failed | 7 passed (9)` 退出 1；e2e 触摸 leg 在**"输入文本后按 Enter 未提交"**那条变红——`expect(locator).toHaveValue(expected) failed / Expected: "hello\n" / Received: ""`（即消息被发出、输入被清空，正是缺陷现场）。还原后 `git diff` 为空（经 `git checkout` 从提交还原，非手工回写），全绿。
+- AC-8 `npm run typecheck` 退出 0；`npm run lint`（`oxlint src/ server/`）退出 0。
 
 ## Touches
 
