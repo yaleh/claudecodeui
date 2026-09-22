@@ -1,7 +1,7 @@
 ---
 id: gap-debug-agent-display-identity
 title: 调试 Agent 的 UI 显示身份：侧栏提供商文字位非 Claude、LLMProviderLogo 不落穿（AC-136 的 checker）
-status: ready
+status: done
 labels:
   - gap
 parent: null
