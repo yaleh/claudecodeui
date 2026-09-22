@@ -8,6 +8,8 @@ import { afterEach, beforeEach, test, vi } from 'vitest';
 
 import ChatComposer from '@/modules/chat/composer/ChatComposer';
 import enChat from '@/modules/i18n/locales/en/chat.json';
+// Type-only, so it is erased before vi.mock's hoisted factory runs.
+import type * as SharedApi from '@/shared/api';
 
 /**
  * The transcript's last step, on the path the app really runs it on.
@@ -32,7 +34,7 @@ const { transcribeVoice, getFiles } = vi.hoisted(() => ({
 }));
 
 vi.mock('@/shared/api', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/shared/api')>();
+  const actual = await importOriginal<typeof SharedApi>();
   return {
     api: { getFiles },
     transcribeVoice,

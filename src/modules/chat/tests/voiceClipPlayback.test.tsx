@@ -10,6 +10,8 @@ import ChatComposer from '@/modules/chat/composer/ChatComposer';
 import { useVoiceInput } from '@/modules/chat/hooks/useVoiceInput';
 import { voicePlayer } from '@/modules/chat/utils/voicePlayer';
 import enChat from '@/modules/i18n/locales/en/chat.json';
+// Type-only, so it is erased before vi.mock's hoisted factory runs.
+import type * as SharedApi from '@/shared/api';
 
 /**
  * The composer keeps the last recording as a single slot so it can be replayed — and, once the
@@ -30,7 +32,7 @@ import enChat from '@/modules/i18n/locales/en/chat.json';
 const { transcribeVoice } = vi.hoisted(() => ({ transcribeVoice: vi.fn() }));
 
 vi.mock('@/shared/api', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/shared/api')>();
+  const actual = await importOriginal<typeof SharedApi>();
   return {
     transcribeVoice,
     synthesizeVoice: vi.fn(),
