@@ -76,12 +76,12 @@ goal_ac: AC-103
 
 ## AC
 
-- [ ] AC1 — **真实并发下判据绿，且自身墙钟 ≤ 45000ms**（60000 硬上限的 0.75 倍，留余量）。连跑 3 次 `bash scripts/suite-concurrency-check.sh`，每次 rc=0，且判词行里 `墙钟=<X>ms/60000ms` 的 X **每次都 ≤ 45000**。判据不满足时必须在判词里**带出 X 与预算**（否则「读数留在判词里」这条自身就不成立）；运行记录落在 `.quay/suite-concurrency-check/<ts>/`。
-- [ ] AC2 — **不缩覆盖面（抗假）**。AC1 那 3 次运行里，`quiet-readout-*` 与 `concurrent-readout-*` 的 `__PERFILE__` 行数**各 ≥ 109**，且 `server/modules/debug-agent/tests/debug-agent-external-write.test.ts` 在**两组里都出现且 `passed=true`**；`git diff develop --name-status` 里没有删除任何 `*.test.*`，也没有新增 `skip` / `todo`。失败时打印实际行数与缺失的文件名。
-- [ ] AC3 — **不变量未被削弱**。`bash scripts/suite-concurrency-check.sh --self-test` rc=0，8 条控制按标签打印且 **C1/C3/C5 绿、C2/C4/C6/C7/C8 红**；`--drop-pool-cap`、`--concurrency 1`、`--k 1` 三条取假形态**各自非零退出**，`--drop-pool-cap` 的实测劣化比 **> K**，且三条都把实测读数打进判词。失败时指明是哪一条控制/哪一条取假形态、实测读数是多少。
-- [ ] AC3b — **超预算不再伪装成拖红**。`bash scripts/suite-concurrency-check.sh --budget-ms 1000` 的 rc=**3**（not-evaluated），判词点名**预算与实测墙钟**；同一次运行**不得**打印拖红判词，**不得**被 SIGKILL（rc=137 / 判词缺失 / 无判词行都算不达标）。失败时打印实际 rc 与完整判词行。
-- [ ] AC3c — **预算可声明、可读、不改变判定语义**。不带 `--budget-ms` 时判词行打印的预算字面量是 `/60000ms`，`--budget-ms 45000` 时是 `/45000ms`；`--help` 列出该开关；`--self-test` 在任意 `--budget-ms` 下 8 条控制的结果**逐条不变**。失败时打印实际字面量。
-- [ ] AC4 — **预算闸有体外测试**。新增 `scripts/suite-concurrency-check.test.mjs`，用 `node --test scripts/suite-concurrency-check.test.mjs` rc=0 覆盖：默认预算字面量、`--budget-ms` 覆盖、超预算 ⇒ exit 3 且判词点名预算、（正面控制）预算充裕 ⇒ 不因预算红。并 `npm run test:scripts` rc=0（该 runner 的 glob 是 `scripts/**/*.test.mjs`，新文件自动被发现，无需注册）。失败时打印实际 rc 与 `# fail` 计数。
+- [x] AC1 — **真实并发下判据绿，且自身墙钟 ≤ 45000ms**（60000 硬上限的 0.75 倍，留余量）。连跑 3 次 `bash scripts/suite-concurrency-check.sh`，每次 rc=0，且判词行里 `墙钟=<X>ms/60000ms` 的 X **每次都 ≤ 45000**。判据不满足时必须在判词里**带出 X 与预算**（否则「读数留在判词里」这条自身就不成立）；运行记录落在 `.quay/suite-concurrency-check/<ts>/`。
+- [x] AC2 — **不缩覆盖面（抗假）**。AC1 那 3 次运行里，`quiet-readout-*` 与 `concurrent-readout-*` 的 `__PERFILE__` 行数**各 ≥ 109**，且 `server/modules/debug-agent/tests/debug-agent-external-write.test.ts` 在**两组里都出现且 `passed=true`**；`git diff develop --name-status` 里没有删除任何 `*.test.*`，也没有新增 `skip` / `todo`。失败时打印实际行数与缺失的文件名。
+- [x] AC3 — **不变量未被削弱**。`bash scripts/suite-concurrency-check.sh --self-test` rc=0，8 条控制按标签打印且 **C1/C3/C5 绿、C2/C4/C6/C7/C8 红**；`--drop-pool-cap`、`--concurrency 1`、`--k 1` 三条取假形态**各自非零退出**，`--drop-pool-cap` 的实测劣化比 **> K**，且三条都把实测读数打进判词。失败时指明是哪一条控制/哪一条取假形态、实测读数是多少。
+- [x] AC3b — **超预算不再伪装成拖红**。`bash scripts/suite-concurrency-check.sh --budget-ms 1000` 的 rc=**3**（not-evaluated），判词点名**预算与实测墙钟**；同一次运行**不得**打印拖红判词，**不得**被 SIGKILL（rc=137 / 判词缺失 / 无判词行都算不达标）。失败时打印实际 rc 与完整判词行。
+- [x] AC3c — **预算可声明、可读、不改变判定语义**。不带 `--budget-ms` 时判词行打印的预算字面量是 `/60000ms`，`--budget-ms 45000` 时是 `/45000ms`；`--help` 列出该开关；`--self-test` 在任意 `--budget-ms` 下 8 条控制的结果**逐条不变**。失败时打印实际字面量。
+- [x] AC4 — **预算闸有体外测试**。新增 `scripts/suite-concurrency-check.test.mjs`，用 `node --test scripts/suite-concurrency-check.test.mjs` rc=0 覆盖：默认预算字面量、`--budget-ms` 覆盖、超预算 ⇒ exit 3 且判词点名预算、（正面控制）预算充裕 ⇒ 不因预算红。并 `npm run test:scripts` rc=0（该 runner 的 glob 是 `scripts/**/*.test.mjs`，新文件自动被发现，无需注册）。失败时打印实际 rc 与 `# fail` 计数。
 
 ## DoD
 
@@ -98,6 +98,16 @@ goal_ac: AC-103
 **必须写进 `goals/AC-103-*.md` 的 `expect` 的诚实契约。** 现在的 `expect` 仍声称「判据自身墙钟实测打印（实测 32.9–38.5s < goal gate 硬上限 60000ms）」—— 这句已假，且它是把 AC5 当瞬时读数验收的同一处病根。改成诚实的契约：**判据在判定语义上对负载不变（差分 + K），但它必须在 gate 的 60000ms 上限内跑完；跑不完时自报 `not-evaluated`（exit 3），不是红。** 并把「上一条修复为何没兜住」的一段（见 Proposal）留在任务体里供审计。
 
 **形状纪律。** 若本次改动触及 `server/**`，按 `AGENTS.md` 先加载 `$backend-module-standards` 并只对后端代码施用；若触及 `src/**`，加载 `$frontend-module-standards` 并只对前端施用。改完跑 **`npm run lint`**（`oxlint src/ server/ scripts/`）——裸 `npx oxlint` 退出 1 是本仓既有现象，不是本次引入的红。
+
+## 完成记录
+
+判据改了两件事，判定语义（差分语义 + K）一个字没动：①**默认路径复用「带再校验的持久安静基线」**——键 = 判据 sha256 + 读数 argv + 服务端文件集指纹 + 相关环境；命中前再验三样（键相等、日志 sha256 一致、日志标签逐个覆盖本次文件集），缺一即重量。于是两遍最重服务端文件压成一遍。②**预算闸**——`--budget-ms`（默认 60000，告警阈值 45000），预检 / 后检 / 每相剩余预算夹取三层；装不下就 exit 3 `not-evaluated`，判词点名预算与实测墙钟，⛔ 不是红。预算只决定「要不要开工」，不参与判红/判绿。冷启动那一次是 not-evaluated（自报预算与实测墙钟），下一次起复用基线转绿——这条契约已写进 `goals/AC-103-*.md` 的 `expect`。
+
+实测（本机，develop 最新形状，服务端 111 文件/相）。AC1：连跑 3 次 rc=0，判词 `墙钟=` 35387 / 34590 / 34592 ms，均 ≤ 45000；冷缓存那次 exit 3，判词点名预算 60000ms 与实测墙钟 33818ms。AC2：三跑每相各 111 条 `__PERFILE__`（≥ 109），最重的 `server/modules/debug-agent/tests/debug-agent-external-write.test.ts` 在安静与并发两组都 `passed=true`；`git diff develop --name-status` 只有本任务声明的三个文件，无删除的 `*.test.*`、无新增 `skip`/`todo`。AC3：`--self-test` rc=0，8 条控制按标签打印，C1/C3/C5 绿、C2/C4/C6/C7/C8 红；`--drop-pool-cap` rc=1 且劣化比 4.71× > K=4，`--concurrency 1` rc=1，`--k 1` rc=1（1.11× > K=1），三条都把实测读数打进判词。AC3b：`--budget-ms 1000` rc=3，判词点名预算=1000ms 与实测墙钟=427ms，同一次运行无拖红判词、未被 SIGKILL（墙钟 469ms）。AC3c：默认判词为 `/60000ms`、`--budget-ms 45000` 得 `/45000ms`，`--help` 列出该开关，`--self-test --budget-ms 1` 的 8 条控制逐条不变。AC4：新增 `scripts/suite-concurrency-check.test.mjs`（6 例），`node --test` rc=0，`npm run test:scripts` rc=0（72 例 0 失败）。判定语义有一条现场旁证：其中一跑的并发组出现 1 个红文件，隔离复跑绿 ⇒ 判词记为「偶发」并照常 PASS，而不是判红——差分语义在真跑里确实在起作用。
+
+运行记录落在 `.quay/suite-concurrency-check/<ts>/`（`.gitignore` 的 `.quay/*`）。
+
+实现期发现并修掉的一处自身缺陷（判据自己说假读数）：冷启动那一次会在【并发相预检】处 exit 3，走不到结尾的 `write_state`，而「安静相一跑完就落盘」的那次写发生在 median/n 赋值之前——记录里会永久留下 `median_ms=0 / n=0`，此后每次复用命中都把它原样抄进判词（判词自称基线量到 0 个文件，其实量到 111 个）。已把 median/n 挪到该相结束处计算（与收集段同式，重算幂等），并由 `scripts/suite-concurrency-check.test.mjs` 的 T6 反证：去掉修复即红（`实得 n=0`）。
 
 ## Touches
 
