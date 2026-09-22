@@ -181,6 +181,12 @@ $ echo $?
 - 本任务不证明某个 provider 的 `pauseCues` 取值是对的；AC7 只要求「取值非 `destructive` 时必须指得到自己的配对实验记录」。
 - AC2 的取假变体是在真实树上真实跑出来的（见上），不是推理。
 
+### 合并 develop 后的观察（指出面，不在本任务写入面内）
+
+合并 `develop`（`ecf5c41e`）后，AC-132 的适配器缝进入本分支，树上出现**第二处** `pauseCues` 声明面：`shared/asr/asrRegistry.ts:61` 的 `AsrCapabilities.pauseCues: 'destructive' | 'neutral' | 'useful'`，以及 `shared/asr/list/multimodal/multimodal.asr-provider.ts:69` 的 `pauseCues: 'useful'` —— 后者**没有**指向任何配对实验（`grep -rn multimodal docs/` 无命中；`docs/experiments/` 下唯一的相关记录是 `2026-09-22-voice-provider-paired-quality.md`，讲的是 `turbo`/`v3` 两个 openai-compatible provider）。
+
+本任务**没有**覆盖它：探针的声明面读数只读**裁剪决策**的声明表（`src/shared/voiceTrim.ts` 的 `PAUSE_CUES_DECLARATIONS`），而浏览器裁剪路径的识别器是 `OPENAI_COMPATIBLE_PROVIDER` —— `shared/asr/*` 是服务端/CLI 编译的注册表，`useVoiceInput` 不读它。所以 AC7 的「某 provider 取值为 `useful` 必须指到实验」目前只在**能到达裁剪路径**的声明上成立（该表只有一行 `destructive`，这条臂在出货树上为空真）。把两条缝并成一条（让浏览器侧读 `AsrCapabilities`、并让 multimodal 那行 `useful` 指到它自己的配对实验）需要改 `shared/asr/*`，而那是 AC-132 的写入面、不在本任务 Touches 内（anti-drift 会硬失败），故按边界如实记录而不越界修改。合并后探针仍绿（`scan: 622 production sources`，六条检查全 ok）。
+
 ## AC
 
 - [x] AC1 `pauseCues: destructive` 走裁剪：断言裁剪决策读到的取值与走裁剪一致。（`check decision: ok trimDecisionFor takes the trim path for openai-compatible and declines it for useful`）
@@ -189,7 +195,7 @@ $ echo $?
 - [x] AC4 两条取假形态各为 `scripts/asr-trim-capability-check.test.mjs` 内一条独立可红用例；`node --test scripts/asr-trim-capability-check.test.mjs` 退出码 0，且每条先证未变异为绿、再证变异为红。（`tests 9 / pass 9 / fail 0`，退出 0）
 - [x] AC5 空读数不是绿：裁剪决策的读数条数为 0、或唯一读取点解析为空 ⇒ 探针非零退出。（置空声明表 ⇒ `declaration: FAIL … a table with 0 rows is a zero-row reading`，退出 1；掏空读取点 ⇒ `read-point: FAIL`）
 - [x] AC6 既有语音读数不变：`npx vitest run src/modules/chat/tests/voiceTrimCapabilityWiring.test.tsx` 退出码 0；`npm run typecheck` 与 `npm run lint` 退出码 0。（三者退出码均为 0；vitest `3 passed`）
-- [x] AC7 纪律可核（不改默认）：探针打印 `pauseCues` 的当前取值与其对应的 provider；若某 provider 取值为 `useful`，必须能指到该 provider 自己的配对实验记录路径，否则红。（`declared provider=openai-compatible pauseCues=destructive evidence=docs/experiments/…`；取假变体 `discipline: FAIL … with no paired experiment to point at`，退出 1）
+- [x] AC7 纪律可核（不改默认）：探针打印 `pauseCues` 的当前取值与其对应的 provider；若某 provider 取值为 `useful`，必须能指到该 provider 自己的配对实验记录路径，否则红。（`declared provider=openai-compatible pauseCues=destructive evidence=docs/experiments/…`；取假变体 `discipline: FAIL … with no paired experiment to point at`，退出 1。覆盖范围见「合并 develop 后的观察」）
 
 ## DoD
 
