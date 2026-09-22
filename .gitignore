@@ -169,3 +169,4 @@ orchestration/manager-pending.md
 # Playwright
 test-results/
 playwright-report/
+.playwright-mcp/
