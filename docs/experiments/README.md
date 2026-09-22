@@ -33,6 +33,7 @@
 |---|---|---|
 | 2026-09-22 | 标点：prompt 偏置与停顿上限 | [2026-09-22-voice-punctuation.md](./2026-09-22-voice-punctuation.md) |
 | 2026-09-22 | 风格化：双向负对照（标识符逐字保留 ×「确实发生了」） | [2026-09-22-voice-style-negative-control.md](./2026-09-22-voice-style-negative-control.md) |
+| 2026-09-22 | 配对质量：provider × 裁剪 × 上下文（n=8，含能红的负对照） | [2026-09-22-voice-provider-paired-quality.md](./2026-09-22-voice-provider-paired-quality.md) |
 
 ## 工装
 
@@ -68,6 +69,7 @@ LANG_TARGET=en LEVELS=all CONDS=raw,trimFrozen,trimMild node tools/test10-punct-
 | 文件 | 作用 | 为什么在仓库内 |
 |---|---|---|
 | `experiments/voice-style-negative-control/run.mjs` | 风格化（`style: written`）的双向负对照：离线控制、反假变体、真实服务读数（见 [2026-09-22-voice-style-negative-control.md](./2026-09-22-voice-style-negative-control.md)） | 协议第 3 条要求被测实现是**出货模块**，仓库外的工装 `import` 不到 `src/shared/identifierFidelity.ts`；且该任务由 `## Touches` 指定了这个路径。它没有音频语料，真实读数落在被 git 忽略的 `out/` |
+| `experiments/voice-provider-paired-quality/run.mjs` | provider × 裁剪 × 上下文的配对质量读数：离线重算配对表与负对照方向、七条自检变异、真实服务读数（见 [2026-09-22-voice-provider-paired-quality.md](./2026-09-22-voice-provider-paired-quality.md)） | 同上：协议第 3 条要求被测实现是**出货模块**（`src/shared/voiceTrim.ts`、`src/shared/identifierFidelity.ts`），且该任务由 `## Touches` 指定了这个路径 |
 
 ```bash
 # 离线负对照 + 正面控制（无网络，确定性）
@@ -78,4 +80,18 @@ node experiments/voice-style-negative-control/run.mjs --live
 
 # 只读缓存重算（无网络）
 node experiments/voice-style-negative-control/run.mjs --replay
+
+# 配对质量：离线从冻结快照重算全部读数 + 负对照方向 + 七条自检变异（不联网）
+node experiments/voice-provider-paired-quality/run.mjs
 ```
+
+### 仓库内**音频**（例外，逐条登记）
+
+音频语料不入库是常态（`experiments/voice-trim/fixtures/*.wav` 是本项目里唯一既有的例外）。第二条例外登记在这里，理由与第一条同形：
+
+| 文件 | 作用 | 为什么在仓库内 |
+|---|---|---|
+| `experiments/voice-provider-paired-quality/fixtures/d01..d08-o65.wav`（8 条，3.9 MB） | 配对质量实验的固定片段 | 冻结快照 `fixtures/paired.json` 里的**每个数字**（句读、CER、标识符、`savedRatio`、音频哈希）都要能在这个仓库里离线重算，而重算必须**重新解码原始音频**（对应关系检查还会用出货模块重新编码并比对 sha256）。语料全集（o65 档 16 条 × 多档）仍在仓库外，只有这 8 条固定片段进来 |
+
+`fixtures/paired.json` 是**读数原文**不是缓存（缓存 `out/` 被 git 忽略）—— 记录里的表格全部由它离线重算，`--live` 取新读数才需要凭据。
+
