@@ -1,7 +1,7 @@
 ---
 id: ADR-004
 title: 语音识别 Provider 缝 —— 环境中立的适配器契约与能力声明，验证先于接线
-status: proposed
+status: accepted
 supersedes: []
 ---
 ## 背景
