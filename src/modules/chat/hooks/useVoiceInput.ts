@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { decodeVoiceBlob, encodeWavBlob } from '@/modules/chat/utils/audioDecode';
 import { voicePlayer } from '@/modules/chat/utils/voicePlayer';
-import { transcribeVoice } from '@/shared/api';
+import { parseTranscriptionResponse, transcribeVoice } from '@/shared/api';
 import { identifierFidelity } from '@/shared/identifierFidelity';
 import { repairIdentifiers } from '@/shared/identifierRepair';
 import type {
@@ -496,9 +496,11 @@ export function useVoiceInput(
       }
       const res = await transcribeVoice(prepared.body, prepared.filename);
       if (!res.ok) throw new Error(`transcribe ${res.status}`);
-      const data = await res.json();
+      // Parsed before the cancellation check, exactly as the inline `res.json()` was: a body that
+      // is not JSON still has to reach the catch below even when this capture was cancelled.
+      const parsed = await parseTranscriptionResponse(res);
       if (cancelledRef.current) return;
-      raw = String(data?.text || '');
+      raw = parsed;
       const text = raw.trim();
       if (text) {
         // The one point between the recogniser and the composer where the transcript is

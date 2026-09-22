@@ -622,6 +622,27 @@ export async function transcribeVoice(blob: Blob, filename: string): Promise<Res
 }
 
 /**
+ * Reads the recogniser's answer out of a transcription response.
+ *
+ * Named and exported rather than left inline where the direct path is called: the
+ * tolerance of this parse is half of what the voice chain promises, and the other
+ * half lives on the server, so a reader has to be able to drive *this* parse on
+ * the same response shapes the server-side one is driven on. An inline expression
+ * could only be measured by a second implementation of it, which would be a
+ * reading of the reader rather than of the app. `scripts/asr-extraction-parity-check.mjs`
+ * drives this symbol; the proxy path reads its (tolerant) counterpart in
+ * `server/modules/voice/voice.service.ts`.
+ *
+ * Behaviour is deliberately the direct path's strict one: a body that is not JSON
+ * is an error, not text. The proxy's tolerance is applied where the proxy applies
+ * it, not here.
+ */
+export async function parseTranscriptionResponse(response: Response): Promise<string> {
+  const data: { text?: unknown } | null = await response.json();
+  return String(data?.text || '');
+}
+
+/**
  * Synthesizes speech for the given text, using the user's configured OpenAI-compatible
  * endpoint when one is set and otherwise the CloudCLI voice proxy.
  */
