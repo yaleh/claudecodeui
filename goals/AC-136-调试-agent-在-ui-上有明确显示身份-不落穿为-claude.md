@@ -1,7 +1,7 @@
 ---
 id: AC-136
 title: 调试 Agent 在 UI 上有明确显示身份，不落穿为 Claude
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-007
 criterion: npx vitest run src/shared/tests/debug-agent-display-identity.test.ts
@@ -15,4 +15,10 @@ expect: 裁决 A（ADR-003 决策 2）：运行期 provider id **刻意不进 `L
 origin: ADR-003 评审裁决 A 与决策 2；人 yale 2026-09-22
   裁定另立（gap-goal-007-exit-conditions-section 的 Resolution）。
 activatedAt: 2026-09-22T15:43:51.544Z
+statusLog:
+  - at: 2026-09-22T16:01:49.928Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 ---

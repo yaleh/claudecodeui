@@ -1,7 +1,7 @@
 ---
 id: gap-asr-extraction-parity-baseline
 title: 抽取实现后线上字节零变化：两跳 × 两条路径四组读数逐字节等于抽取前录制的基线（AC-130）
-status: needs-human
+status: ready
 needs_human_cause: human-adjudication
 labels:
   - gap
