@@ -2,7 +2,7 @@
 id: gap-transcript-follow-key-detach-vs-commit-pin
 title: 流式期间 PageUp 的向上意图必须在按键处即生效：键已按下、浏览器尚未报告 scroll 的那一帧里 commit-time 增长 pin
   不得覆盖它（AC-109 判据 e2e/transcript-follow.spec.ts 键盘半间歇红）
-status: todo
+status: ready
 labels:
   - gap
   - defect
