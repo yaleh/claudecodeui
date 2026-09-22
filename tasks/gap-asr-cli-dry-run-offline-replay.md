@@ -1,7 +1,7 @@
 ---
 id: gap-asr-cli-dry-run-offline-replay
 title: 命令行 --dry-run 零网络且打印脱敏请求、--offline 回放录制响应与录制一致；"真跑"按决策 8 不判据化（AC-131）
-status: todo
+status: superseded
 labels:
   - gap
 parent: null
@@ -64,3 +64,12 @@ L_G 该轴仍暗，理由：同上 —— 目标层判据（换识别服务不�
 - scripts/asr-cli-dry-run-check.mjs (new)
 - scripts/asr-cli-dry-run-check.test.mjs (new)
 - tasks/gap-asr-cli-dry-run-offline-replay.md
+
+## 撤回
+
+2026-09-22 撤回：与 `gap-asr-cli-offline-verification` 重复（同绑 AC-131）。两个 gap-filer 并发立案，机制去重未生效（本任务 23:15:50 立案，晚于后者 23:15:34，双方在各自立案前都查过「无任务声明 AC-131」）。保留后者，理由有二：
+
+1. **判据命令必须与 AC 记录同名。** AC-131 记录里的 `criterion:` 是 `node scripts/asr-cli-offline-check.mjs`；后者落的正是这个名字（`scripts/asr-cli-offline-check.mjs`），本任务落的 `scripts/asr-cli-dry-run-check.mjs` 与记录不符 —— 即便本任务落地，driver 对 AC-131 的独立核验仍会因「判据命令不存在」而红，AC-131 的缺口不会被真正关上。同族先例一致：AC-129 记录写 `scripts/asr-single-implementation-check.mjs`、AC-130 记录写 `scripts/asr-extraction-parity-check.mjs`，两条任务都按记录取名。
+2. **「以 tsx 启动」要由启动方式判，不能复述 AC-129 的读数。** AC-131 的 expect 写的是「断言 CLI 以 tsx 启动（**从启动方式判定**）」；本任务的 AC4 复述的是 AC-129 任务 AC10 的同一条读数（无参数打印用法并非零退出），判的是用法与退出码，不是启动方式。后者用「`npx tsx` 臂 / 裸 `node` 臂」两条启动读数判它（裸 node 对 `.js` 说明符报 `ERR_MODULE_NOT_FOUND`，已实测），并带一条取假臂：把说明符由 `.js` 改成 `.ts` 让裸 node 也能跑 ⇒ 必须红。
+
+本任务的两条可取之处已被后者吸收，不随之丢失：`dryRun.ts` / `offlineReplay.ts` 的模块切分（入口只做参数解析）与「真跑不判据化（ADR-004 决策 8）」的显式登记。本任务未产出任何代码与 worktree，撤回无残留。
