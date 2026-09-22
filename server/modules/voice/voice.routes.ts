@@ -55,8 +55,34 @@ function sendFailure<TValue>(
     return false;
   }
 
-  response.status(result.status).json({ error: result.error });
+  // The semantic code rides beside the message when the refusal has one. It is dropped rather than
+  // defaulted for the failures that do not: a placeholder code would read as a classification, and
+  // a client branching on it would treat "the backend did not answer" as a kind of bad upload.
+  response
+    .status(result.status)
+    .json(result.code === undefined ? { error: result.error } : { error: result.error, code: result.code });
   return true;
+}
+
+/**
+ * The status an upload-parser failure owes.
+ *
+ * Multer reports "the upload is larger than the configured ceiling" as a `MulterError` whose
+ * `code` is `LIMIT_FILE_SIZE`. That used to reach the client as `400`, which reads as "the request
+ * was malformed" — and a client cannot tell a container problem from a size problem from a
+ * malformed body, so the remedy it shows is wrong for two of the three. A size refusal is `413`,
+ * which is the same answer the provider-level gate gives, so the two layers of the one limit agree
+ * on how to say no.
+ *
+ * Read off the error's own `code` property rather than by importing multer here: this router is
+ * deliberately transport-only and hands the parser in, so it knows the parser's vocabulary and not
+ * its implementation.
+ */
+const UPLOAD_TOO_LARGE = 'LIMIT_FILE_SIZE';
+
+function readUploadFailure(error: unknown): { status: number; code?: string } {
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === UPLOAD_TOO_LARGE ? { status: 413, code: 'OVERSIZE' } : { status: 400 };
 }
 
 /**
@@ -103,7 +129,10 @@ export function createVoiceRouter(dependencies: VoiceRouterDependencies): expres
     dependencies.parseAudioUpload(request, response, (uploadError?: unknown) => {
       if (uploadError) {
         const message = uploadError instanceof Error ? uploadError.message : String(uploadError);
-        response.status(400).json({ error: message });
+        const failure = readUploadFailure(uploadError);
+        response
+          .status(failure.status)
+          .json(failure.code === undefined ? { error: message } : { error: message, code: failure.code });
         return;
       }
 
