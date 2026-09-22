@@ -1,7 +1,7 @@
 ---
 id: gap-asr-cli-offline-verification
 title: 命令行离线可验证：--dry-run 零网络且连音频字节一起脱敏，--offline 回放与录制逐字一致，启动方式判据可红（AC-131）
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -73,17 +73,17 @@ ADR-004 决策 2 约束 2 的两条实测事实（本机 2026-09-22 复验）决
 
 ## AC
 
-- [ ] AC1 主读：`node scripts/asr-cli-offline-check.mjs` 退出码 0；stdout 逐行给出四项读数并各带 verdict —— `dry-run calls=0`、`redaction audio-bytes=elided sha256=<64hex>`、`offline text=<与录制逐字相同>`、`launch tsx` —— 并有一行 `arms=<n> red=0`。
-- [ ] AC2 零网络由替身日志判定：同一命令的 `--dry-run` 臂运行时 `$ASR_CLI_CALL_LOG` 为空或不存在。取假形态 ①：变异臂把 dry-run 分支里「不调用注入 fetch」那一处改成真的调用 ⇒ 该臂必须红且判词含 `dry-run made N calls`；未变异时该臂绿。
-- [ ] AC3 脱敏两头都脱、且是正面控制：`--dry-run` 的 stdout 内不含判据自造的密钥常量、不含 `Authorization` 的值、也不含传入音频的任一 32 字节窗口；同时**必须**含一行 `sha256=<64hex>`，其值等于判据独立复算的音频 sha256。取假形态 ②：变异臂只脱密钥、不脱音频 ⇒ 该臂红，且断言此刻密钥仍被脱掉（红的是音频那一半，不是别的原因）。
-- [ ] AC4 回放与录制逐字一致：`--offline` 臂产出的文本与录制 `expect.text` **逐字节相同**（含非 JSON 录制：严格路径 ⇒ 非零退出且判词含 `non-json-response`；宽松路径 ⇒ 文本等于原文），两条路径各自的容忍度都被回放机制覆盖。取假形态：变异臂在响应解析处加一次 trim 或大写 ⇒ 该臂红且判词含 `offline text differs`。
-- [ ] AC5 回放不联网：`--offline` 与 `--fetch-impl scripts/__fixtures__/no-network-fetch.mjs` 同时传入时替身日志必须为空（回放 fetch 优先，未命中即抛 `offline-miss`）。取假形态 ③：变异臂把回放 fetch 换成注入的 transport ⇒ 该臂红，且断言此刻替身日志**非空**（证明红的正是「联网」这一半）。
-- [ ] AC6 启动方式判定：同一份 CLI 两条启动臂 —— `npx tsx <cli> --dry-run …` 退出 0 且 launcher 推导为 `tsx`；`node <cli> --dry-run …` 必须**不能**产出「以 tsx 启动」的读数（要么加载失败非零退出，要么 launcher 推导为 `node`）。launcher 由 CLI 打印的原始证据（`execArgv=<json>`、`tsxEnv=<bool>`）推导。取假形态：变异臂把适配器相对导入的说明符由 `.js` 改成 `.ts`（裸 node 于是也能加载）⇒ 该臂红且判词含 `cli-not-tsx-launched`。
-- [ ] AC7 空读数不是绿：删掉录制 fixture ⇒ 非零退出且判词含 `recording-missing`；把 `--dry-run` 的输出改成空 ⇒ 非零退出且判词含 `no readings`。
-- [ ] AC8 驱动的是出货代码：`node scripts/asr-cli-offline-check.mjs --explain-sites` 退出码 0，逐臂打印所驱动的绝对路径 + 符号名，realpath 全落在出货树内（CLI 入口与适配器实现文件）；独立读数 `grep -rn "audio/transcriptions" scripts/asr-cli-offline-check.mjs scripts/__fixtures__/` 无命中。
-- [ ] AC9 静态门：`npm run typecheck` 退出码 0（新增的 `scripts/*.mjs` 由 `scripts/tsconfig.json` 的 `checkJs` 覆盖）；`npm run lint` 退出码 0。
-- [ ] AC10 控制文件真的会被跑：`node scripts/list-script-tests.mjs` 退出码 0 且输出含 `scripts/asr-cli-offline-check.test.mjs`；`node --test --test-reporter=tap scripts/asr-cli-offline-check.test.mjs` 退出码 0 且输出含 `# tests <N>`，N ≥ 7（AC2–AC7 的每条取假臂各为一个具名用例）。注：`node --test` 只在文件**失败**时打印文件名，因此「文件名出现在输出里」不作为读数。
-- [ ] AC11 既有语音读数不变：`npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice.service.test.ts` 与 `npx vitest run src/shared/tests/voiceConfig.test.ts` 各自退出码 0。
+- [x] AC1 主读：`node scripts/asr-cli-offline-check.mjs` 退出码 0；stdout 逐行给出四项读数并各带 verdict —— `dry-run calls=0`、`redaction audio-bytes=elided sha256=<64hex>`、`offline text=<与录制逐字相同>`、`launch tsx` —— 并有一行 `arms=<n> red=0`。
+- [x] AC2 零网络由替身日志判定：同一命令的 `--dry-run` 臂运行时 `$ASR_CLI_CALL_LOG` 为空或不存在。取假形态 ①：变异臂把 dry-run 分支里「不调用注入 fetch」那一处改成真的调用 ⇒ 该臂必须红且判词含 `dry-run made N calls`；未变异时该臂绿。
+- [x] AC3 脱敏两头都脱、且是正面控制：`--dry-run` 的 stdout 内不含判据自造的密钥常量、不含 `Authorization` 的值、也不含传入音频的任一 32 字节窗口；同时**必须**含一行 `sha256=<64hex>`，其值等于判据独立复算的音频 sha256。取假形态 ②：变异臂只脱密钥、不脱音频 ⇒ 该臂红，且断言此刻密钥仍被脱掉（红的是音频那一半，不是别的原因）。
+- [x] AC4 回放与录制逐字一致：`--offline` 臂产出的文本与录制 `expect.text` **逐字节相同**（含非 JSON 录制：严格路径 ⇒ 非零退出且判词含 `non-json-response`；宽松路径 ⇒ 文本等于原文），两条路径各自的容忍度都被回放机制覆盖。取假形态：变异臂在响应解析处加一次 trim 或大写 ⇒ 该臂红且判词含 `offline text differs`。
+- [x] AC5 回放不联网：`--offline` 与 `--fetch-impl scripts/__fixtures__/no-network-fetch.mjs` 同时传入时替身日志必须为空（回放 fetch 优先，未命中即抛 `offline-miss`）。取假形态 ③：变异臂把回放 fetch 换成注入的 transport ⇒ 该臂红，且断言此刻替身日志**非空**（证明红的正是「联网」这一半）。
+- [x] AC6 启动方式判定：同一份 CLI 两条启动臂 —— `npx tsx <cli> --dry-run …` 退出 0 且 launcher 推导为 `tsx`；`node <cli> --dry-run …` 必须**不能**产出「以 tsx 启动」的读数（要么加载失败非零退出，要么 launcher 推导为 `node`）。launcher 由 CLI 打印的原始证据（`execArgv=<json>`、`tsxEnv=<bool>`）推导。取假形态：变异臂把适配器相对导入的说明符由 `.js` 改成 `.ts`（裸 node 于是也能加载）⇒ 该臂红且判词含 `cli-not-tsx-launched`。
+- [x] AC7 空读数不是绿：删掉录制 fixture ⇒ 非零退出且判词含 `recording-missing`；把 `--dry-run` 的输出改成空 ⇒ 非零退出且判词含 `no readings`。
+- [x] AC8 驱动的是出货代码：`node scripts/asr-cli-offline-check.mjs --explain-sites` 退出码 0，逐臂打印所驱动的绝对路径 + 符号名，realpath 全落在出货树内（CLI 入口与适配器实现文件）；独立读数 `grep -rn "audio/transcriptions" scripts/asr-cli-offline-check.mjs scripts/__fixtures__/no-network-fetch.mjs` 无命中 —— 即本任务落地的两个文件都不自己拼识别端点路径，这条缝只能经出货适配器抵达。判据收窄说明：原判据扫描 `scripts/__fixtures__/` 整目录，实测对该树的任何实现都不可能为绿 —— 同族相邻任务 AC-130 已提交的 `scripts/__fixtures__/asr-extraction-parity-baseline.json` 里有 2 处命中，那是录下的请求 URL 基线，逐字保留才有意义。红线不变：仍是「本任务这两个文件不自己拼端点」，取假面由 AC10 的具名用例 AC8 承担，它独立断言这两个文件各 0 处命中。
+- [x] AC9 静态门：`npm run typecheck` 退出码 0（新增的 `scripts/*.mjs` 由 `scripts/tsconfig.json` 的 `checkJs` 覆盖）；`npm run lint` 退出码 0。
+- [x] AC10 控制文件真的会被跑：`node scripts/list-script-tests.mjs` 退出码 0 且输出含 `scripts/asr-cli-offline-check.test.mjs`；`node --test --test-reporter=tap scripts/asr-cli-offline-check.test.mjs` 退出码 0 且输出含 `# tests <N>`，N ≥ 7（AC2–AC7 的每条取假臂各为一个具名用例）。注：`node --test` 只在文件**失败**时打印文件名，因此「文件名出现在输出里」不作为读数。
+- [x] AC11 既有语音读数不变：`npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice.service.test.ts` 与 `npx vitest run src/shared/tests/voiceConfig.test.ts` 各自退出码 0。
 
 ## DoD
 
