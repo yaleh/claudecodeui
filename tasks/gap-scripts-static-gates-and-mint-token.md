@@ -67,17 +67,17 @@ runner:`scripts/quay-attribution-probe.test.mjs` **从写出来就没执行过**
 
 ## AC
 
-- [ ] 新增 `scripts/tsconfig.json`(`allowJs + checkJs + strict`,`include: ["**/*.mjs"]`),且 `npm run typecheck` 退出码 0。
-- [ ] 抗假变体真跑:`scripts/quay-attribution-probe.mjs` 里注入一个类型错误 → `npm run typecheck` 必须退出码非 0 且错误指向该文件该行;还原后再次退出码 0,`git diff` 只剩本任务改动。
-- [ ] `npm run lint` 覆盖面含 scripts/(命令为 `oxlint src/ server/ scripts/`)退出码 0;抗假变体:在 scripts/ 下任一 `.mjs` 加一个未使用变量 → 退出码非 0 且指名该文件,还原后为 0。
-- [ ] `scripts/release/prepare-desktop-app.js:49` 的死函数已移除,`npx oxlint scripts/` 退出码 0。
-- [ ] runner 真正接上:`npm run test:scripts`(=`node --test "scripts/**/*.test.mjs"`)退出码 0,且输出里**同时**出现 `scripts/mint-token.test.mjs` 与 `scripts/quay-attribution-probe.test.mjs` —— 后者的出现即证明接线生效(它此前无任何 runner 执行),而非只改了声明。
-- [ ] `npm test` 仍退出码 0,且其输出包含 `scripts/*.test.mjs` 的用例,证明 `test` 确实链上 `test:scripts` 而不是新增了一个没人调用的脚本。实测并登记该命令 wall time;若 ≥50s,在正文注明它不得作为 goal criterion(60s 硬顶)。
-- [ ] `node --test scripts/mint-token.test.mjs` 退出码 0,且 6 条不变量各有一条具名用例(拒绝为已存在 user id 签发 / TTL 上限 / token 不落 stdout / `JWT_SECRET` 存在时拒跑 / revoke 后验证 401 / 无 server·src 引用)。
-- [ ] 抗假变体:去掉"永远新建主体"这条不变量(改成允许传入已有 user id)→ "拒绝为已存在 user id 签发"那条用例必须变红;还原后全绿。
-- [ ] 真实落地取证(真跑,输出留在本任务自己的 scratch 目录):对一份 `auth.db` 副本 + 独立端口实例 —— mint 出的 token 打 `/api/auth/user` 得 200;经 `/api/auth/refresh` 换得 168 小时且 `userId` 不变;`revoke` 后两张 token 都得 401。
-- [ ] `grep -rn "mint-token" server/ src/` 无输出(工具不接入服务进程)。
-- [ ] `git diff develop --name-only` 的全部改动都落在 Touches 内;`scripts/test.sh` 一行未改。
+- [x] 新增 `scripts/tsconfig.json`(`allowJs + checkJs + strict`,`include: ["**/*.mjs"]`),且 `npm run typecheck` 退出码 0。 实测:`npm run typecheck` 退出码 0(11.5s)。该命令现为三环(根 / server/ / scripts/),`scripts/tsconfig.json` 是新增的第三环。
+- [x] 抗假变体真跑:`scripts/quay-attribution-probe.mjs` 里注入一个类型错误 → `npm run typecheck` 必须退出码非 0 且错误指向该文件该行;还原后再次退出码 0,`git diff` 只剩本任务改动。 实测:追加 `pluginRegex(42);` 后退出码 2,报 `scripts/quay-attribution-probe.mjs(113,13): error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'`;`git checkout --` 还原后退出码 0 且 `git status` 干净。读数为 scratch 的 ac2-mutated.log / ac2-after.log。
+- [x] `npm run lint` 覆盖面含 scripts/(命令为 `oxlint src/ server/ scripts/`)退出码 0;抗假变体:在 scripts/ 下任一 `.mjs` 加一个未使用变量 → 退出码非 0 且指名该文件,还原后为 0。 实测:`npm run lint` 退出码 0(15s);注入 `const unusedByDesign = 1;` 后退出码 1,报 `scripts/mint-token.mjs:493:7: error eslint(no-unused-vars)`;还原后为 0。
+- [x] `scripts/release/prepare-desktop-app.js:49` 的死函数已移除,`npx oxlint scripts/` 退出码 0。 实测:死函数 `copyIfExists` 已删;`npx oxlint scripts/` 退出码 0,零诊断输出。
+- [x] runner 真正接上:`npm run test:scripts`(=`node --test "scripts/**/*.test.mjs"`)退出码 0,且输出里**同时**出现 `scripts/mint-token.test.mjs` 与 `scripts/quay-attribution-probe.test.mjs` —— 后者的出现即证明接线生效(它此前无任何 runner 执行),而非只改了声明。 实现注记:该 npm script 现为 `node scripts/list-script-tests.mjs && node --test "scripts/**/*.test.mjs"` —— runner 仍是本 AC 那条命令,前置一步只把「将被执行的文件集」打印出来。依据是两个实测事实:`node --test` 只在文件**失败**时才打印文件名,且 glob 匹配为空时退出码是 **0** —— 于是「glob 静默失效」与「全绿」在输出上不可区分。前置步在匹配为空时抛错(实测:同一个空 glob 下裸 runner 退出 0、加了前置步退出 1),所以它既提供本 AC 的读数,也是那个 glob 的失效保护。实测:`npm run test:scripts` 退出码 0,13 tests / 13 pass / 0 fail(658ms),输出同时含两个文件名。
+- [x] `npm test` 仍退出码 0,且其输出包含 `scripts/*.test.mjs` 的用例,证明 `test` 确实链上 `test:scripts` 而不是新增了一个没人调用的脚本。实测并登记该命令 wall time;若 ≥50s,在正文注明它不得作为 goal criterion(60s 硬顶)。 实测:退出码 0,wall time **15.78s**(当轮 load 17~22),输出先 `ℹ tests 604`(server 段)后 `ℹ tests 13`(scripts 段,含具名用例)。15.78s < 50s,故本命令**可以**作为 goal criterion(60s 硬顶内),无需附禁用注记。
+- [x] `node --test scripts/mint-token.test.mjs` 退出码 0,且 6 条不变量各有一条具名用例(拒绝为已存在 user id 签发 / TTL 上限 / token 不落 stdout / `JWT_SECRET` 存在时拒跑 / revoke 后验证 401 / 无 server·src 引用)。 实测:退出码 0,9 tests / 9 pass。六条不变量各一条具名用例,用例名均以 `invariant:` 开头。
+- [x] 抗假变体:去掉"永远新建主体"这条不变量(改成允许传入已有 user id)→ "拒绝为已存在 user id 签发"那条用例必须变红;还原后全绿。 实测:删掉 `mint-token.mjs` 中 `assertFreshSubject(options.requestedUserId ?? null);` 一行后,具名用例 `invariant: a fresh subject is created for every mint — minting for an existing user id is refused` 变红(AssertionError: Missing expected exception;expected /refusing to mint for user id/),8 pass / 1 fail / 退出码 1;还原后 9/9 全绿、git 干净。
+- [x] 真实落地取证(真跑,输出留在本任务自己的 scratch 目录):对一份 `auth.db` 副本 + 独立端口实例 —— mint 出的 token 打 `/api/auth/user` 得 200;经 `/api/auth/refresh` 换得 168 小时且 `userId` 不变;`revoke` 后两张 token 都得 401。 实测(逐字读数见 scratch/ac9-transcript.txt,驱动脚本 ac9-real-landing.sh):用 better-sqlite3 的 backup API 从只读句柄取 `~/.cloudcli/auth.db` 的一致副本;独立端口 3401、HOST=127.0.0.1、独立进程组实例。mint 得 token(user id 2)→ `GET /api/auth/user` **200**;→ `POST /api/auth/refresh` **200**,TTL **168h** 且 userId 不变(2 → 2);`revoke` 退出码 0 并自证「行已删 且 该 token 现在 401」;随后**原 token 与那张 168h token** 打 `/api/auth/user` 与 `/api/auth/refresh` **四条读数全部 401**;副本中 observer-* 行归 0。live 库全程只读(事后核对:observer-* 行 0、用户仍只有 id=1 `yale`),实例已按进程组回收、端口已释放。
+- [x] `grep -rn "mint-token" server/ src/` 无输出(工具不接入服务进程)。 实测:退出码 1(无匹配)、零输出。
+- [x] `git diff develop --name-only` 的全部改动都落在 Touches 内;`scripts/test.sh` 一行未改。 实测:merge develop 后 `git diff develop --name-only` 为 9 个文件,全部落在 Touches 内。其中三条为本轮补登,Touches 原文只列了 7 条:`.gitignore`(其否定规则正是让该 fixture 能被 commit 的原因)、`scripts/__fixtures__/fan-in-suite-lint-failure.log`(AC-5 要求 probe 测试真的可跑,而它一直因 `.gitignore` 的 `*.log` 从未被提交)、`scripts/list-script-tests.mjs`(AC-5 的读数机制)。`git diff develop --name-only -- scripts/test.sh` 为空:一行未改。
 
 ## DoD
 
@@ -93,6 +93,10 @@ runner:`scripts/quay-attribution-probe.test.mjs` **从写出来就没执行过**
 
 环境噪声须如实登记:本机 128 核但负载常驻 7~11。若 `npm test` 或其子步骤出现与被测机制无关的红(如既有的 hook-timeout 类抖动),须写明红因并给出"单独跑为绿"的对照读数,不得当作本任务已完成的证据,也不得靠删断言或加重试换绿。
 
+判据对应读数:(a) → AC-2 的注入变体(退出码 2 且错误指向 `文件(行,列)`)与 AC-3 的注入变体;(b) → AC-5 的 13 tests 输出里确实出现 `scripts/quay-attribution-probe.test.mjs`,且 AC-8 的变体正面证明该文件里的用例会随实现变红 —— 即它被执行,而不是被 runner 忽略;(c) → AC-9 的四条 401 读数;(d) → AC-10 的空 grep。
+
+环境噪声如实登记:本轮 `npm test` 退出码 0,未出现与被测机制无关的红,因此不涉及「单独跑为绿」的对照。另登记(不影响任何判据):测量期间本机还有另一个任务的 e2e 实例在跑(`DATABASE_PATH=/data/scratch/yale/quay-e2e-*/auth.db`,端口 18901),与本任务不共享端口与数据库;AC-9 用的是本任务自选的空闲端口。
+
 L_D 该轴仍暗,理由:本段只把 scripts/ 纳入既有静态门禁,并新增一个操作者侧的取证工具,不新增产品领域能力。
 L_G 该轴仍暗,理由:同上;判定面由本任务自己的 AC 承担,不新增 goal 判据。
 
@@ -105,3 +109,6 @@ L_G 该轴仍暗,理由:同上;判定面由本任务自己的 AC 承担,不新�
 - scripts/quay-attribution-probe.mjs
 - scripts/release/prepare-desktop-app.js
 - tasks/gap-scripts-static-gates-and-mint-token.md
+- .gitignore
+- scripts/list-script-tests.mjs (new)
+- scripts/__fixtures__/fan-in-suite-lint-failure.log (new)
