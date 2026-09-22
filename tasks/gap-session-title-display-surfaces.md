@@ -1,7 +1,7 @@
 ---
 id: gap-session-title-display-surfaces
 title: 标题显示面收口：PluginTabContent 字段对齐 getSessionTitle，命令面板/Conversations/归档列表在改名后不刷新
-status: ready
+status: done
 labels:
   - gap
   - defect
