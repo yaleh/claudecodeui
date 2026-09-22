@@ -45,7 +45,7 @@ export declare function renameSession(sessionId, title, options?): Promise<void>
 - [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/session-rename-writeback.test.ts` 退出码 0：用真实临时 `HOME`（含真实形状 transcript）+ 真实临时 sqlite + 真实路由 `PUT /api/providers/sessions/:sessionId`，断言三条互相独立——(a) transcript 末尾出现一条 `custom-title`，`customTitle` 等于新名（**正控**：改名前后各读一次该文件，行数与末尾条目必须真的变化，证明写入确实发生，而不是断言了一个本来就成立的状态）；(b) 库 `custom_name` 为新名、`name_source='manual'`；(c) 该行 `transcript_name` **不变**（证明写回不污染转录侧列）。
 - [ ] 同一命令下的跳过路径：对一条 `jsonl_path` 为空、或指向不存在文件的会话改名，HTTP 仍 200、库仍更新、且**没有发生任何文件写入**（对临时 HOME 做整目录快照比对，不是只检查目标文件不存在）。
 - [ ] 同文件断言幂等：对同一会话连续两次 PUT 同一名字，第二次之后库里状态与第一次后完全一致，且 transcript 里该名字的 `custom-title` 条数不增加（若实现确实每次都追加，则把该读数如实打印出来并在 Evidence 里记录为已知形态，不得静默放过）。
-- [ ] 抗假变体（两条，各自只许红指定的项）：(i) 把写盘调用整段注释掉后重跑同一命令，必须**只有 (a) 与跳过路径的快照项之外的部分保持绿**，(b)(c) 保持绿——即红的只能是 (a)；还原后转绿。(ii) 把写盘改成无条件执行（去掉 `provider`/`jsonl_path` 条件）后，跳过路径用例必须变红；还原后转绿。
+- [ ] 抗假变体（两条，各自只许红指定的项）：(i) 把写盘调用整段注释掉后重跑同一命令，红的必须**只有 (a)**；(b)(c) 与跳过路径用例保持绿——它们断言的正是「DB 侧不受写盘影响」。还原后转绿。(ii) 把写盘改成无条件执行（去掉 `provider`/`jsonl_path` 条件）后，跳过路径用例必须变红；还原后转绿。
 - [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/session-rename-route.test.ts` 退出码 0（既有路由用例不回归：200 / 404 / 400 / 广播条数）。
 - [ ] `npm run typecheck` 与 `npm run lint` 退出码均为 0。
 
