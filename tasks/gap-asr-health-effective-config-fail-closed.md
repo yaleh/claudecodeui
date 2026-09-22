@@ -1,7 +1,7 @@
 ---
 id: gap-asr-health-effective-config-fail-closed
 title: 缺口三（有条件）：健康检查反映用户有效配置且未注册 provider id fail-closed（三面各一条，不静默回落）（AC-134）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
