@@ -36,15 +36,15 @@ extra:
 
 ## AC
 
-- [ ] AC-1 尾部扫描助手的行为：`npx tsx --tsconfig server/tsconfig.json --test server/shared/tests/transcript-last-activity.test.ts` 退出码 0，覆盖 (a) 尾部是无 timestamp 的记录（`last-prompt` / `cost-state`）时跳过并取到更早的带 timestamp 记录；(b) 最后一行是半截 JSON 时不抛异常且取到上一条；(c) 全文件无 timestamp 记录时返回 null；(d) 返回值等于记录里的时间戳字符串本身。
+- [x] AC-1 尾部扫描助手的行为：`npx tsx --tsconfig server/tsconfig.json --test server/shared/tests/transcript-last-activity.test.ts` 退出码 0，覆盖 (a) 尾部是无 timestamp 的记录（`last-prompt` / `cost-state`）时跳过并取到更早的带 timestamp 记录；(b) 最后一行是半截 JSON 时不抛异常且取到上一条；(c) 全文件无 timestamp 记录时返回 null；(d) 返回值等于记录里的时间戳字符串本身。
 
-- [ ] AC-2 反假对照（同一 fixture 会话目录，两半读数都打印）：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-sessions.test.ts` 退出码 0，且输出含 `touch: before=… after=…` 与 `append: before=… after=…` 两行——(a) 只把 transcript 的 mtime 推到当前、内容一字不改后重新同步，`sessions.updated_at` 不变；(b) 追加一条带新 timestamp 的记录后重新同步，`sessions.updated_at` 前进到该 timestamp。把实现换回 mtime 版本时 (a) 半段必须变红——这正是该判据能区分两种实现的证明。
+- [x] AC-2 反假对照（同一 fixture 会话目录，两半读数都打印）：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-sessions.test.ts` 退出码 0，且输出含 `touch: before=… after=…` 与 `append: before=… after=…` 两行——(a) 只把 transcript 的 mtime 推到当前、内容一字不改后重新同步，`sessions.updated_at` 不变；(b) 追加一条带新 timestamp 的记录后重新同步，`sessions.updated_at` 前进到该 timestamp。把实现换回 mtime 版本时 (a) 半段必须变红——这正是该判据能区分两种实现的证明。
 
-- [ ] AC-3 真实语料读数（必须带正对照）：一段脚本对 `~/.claude/projects` 下每个 transcript 比较「库中 `updated_at`」与「内容里最后一条带 timestamp 的记录」（跳过 transcript 已不存在的行），打印 `rows=<n> controls=<m> mismatched=<k>`；要求 `controls >= 1` 且 `mismatched == 0`。正对照必须包含 mtime 明显晚于内容时间的真实样本（立案样本 e6065ac3：mtime 比最后消息晚 46.2 h，若该行已被清理则换用同类样本并写明）。`controls == 0` 时必须判失败——否则一个什么都不做的实现也能拿到 `mismatched == 0`。
+- [x] AC-3 真实语料读数（必须带正对照）：一段脚本对 `~/.claude/projects` 下每个 transcript 比较「库中 `updated_at`」与「内容里最后一条带 timestamp 的记录」（跳过 transcript 已不存在的行），打印 `rows=<n> controls=<m> mismatched=<k>`；要求 `controls >= 1` 且 `mismatched == 0`。正对照必须包含 mtime 明显晚于内容时间的真实样本（立案样本 e6065ac3：mtime 比最后消息晚 46.2 h，若该行已被清理则换用同类样本并写明）。`controls == 0` 时必须判失败——否则一个什么都不做的实现也能拿到 `mismatched == 0`。
 
-- [ ] AC-4 内容读取没有进目录遍历（无需注入缝的机械判据）：一个测试在 fixture 目录建好若干 transcript 并跑一次 `synchronize()` 建立游标；随后把这些 transcript `chmod 000`（保留 birthtime 与目录可执行位），再跑一次热扫描，要求不抛异常且处理文件数为 0。若实现把内容读取放进了遍历，第二次扫描会以 EACCES 失败——这正是要钉住的失败。命令：`npx tsx --tsconfig server/tsconfig.json --test <承载该断言的测试文件>` 退出码 0。
+- [x] AC-4 内容读取没有进目录遍历（无需注入缝的机械判据）：一个测试在 fixture 目录建好若干 transcript 并跑一次 `synchronize()` 建立游标；随后把这些 transcript `chmod 000`（保留 birthtime 与目录可执行位），再跑一次热扫描，要求不抛异常且处理文件数为 0。若实现把内容读取放进了遍历，第二次扫描会以 EACCES 失败——这正是要钉住的失败。命令：`npx tsx --tsconfig server/tsconfig.json --test <承载该断言的测试文件>` 退出码 0。
 
-- [ ] AC-5 门禁：`npm run lint` 退出码 0；`npm run typecheck` 退出码 0（两者在立案时均为绿）。
+- [x] AC-5 门禁：`npm run lint` 退出码 0；`npm run typecheck` 退出码 0（两者在立案时均为绿）。
 
 ## DoD
 
@@ -68,7 +68,58 @@ L_G 该轴仍暗，理由：本任务不新增 goal 判据，只让会话列表�
 ## Touches
 
 - server/shared/utils.ts
+- server/modules/database/repositories/sessions.db.ts
 - server/modules/providers/list/claude/claude-session-synchronizer.provider.ts
 - server/shared/tests/transcript-last-activity.test.ts (new)
 - server/modules/providers/tests/claude-sessions.test.ts
 - tasks/gap-session-lastactivity-from-file-mtime.md
+
+## Completion
+
+**判据（commits e7534bcc，merge develop 后重跑于 500ee9f9）**
+
+| AC | 命令 | 结果 |
+| --- | --- | --- |
+| AC-1 | `npx tsx --tsconfig server/tsconfig.json --test server/shared/tests/transcript-last-activity.test.ts` | 退出码 0（8 tests / 0 fail） |
+| AC-2 | `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-sessions.test.ts` | 退出码 0（26 tests / 26 pass / 0 fail），含 `touch: before=2026-01-05T00:00:00.000Z after=2026-01-05T00:00:00.000Z` 与 `append: before=2026-01-05T00:00:00.000Z after=2026-01-06T12:00:00.000Z` |
+| AC-4 | 同上（三个游标断言与 atime 探针同文件） | 退出码 0 |
+| AC-5 | `npm run lint` / `npm run typecheck` | 均退出码 0（lint 余留 warning 全在 `src/` 既有文件，本次改动面 0 条） |
+| AC-3 | `ac3.mts probe <db>` 见下 | `rows=1183 controls=32 mismatched=0`，退出码 0 |
+
+**AC-2 (a) 半段的抗假对照（DoD(a)）** —— 三个变体均以「临时改实现 → 跑 → `git checkout --` 还原」取得，还原后工作树即已提交状态：
+
+1. `resolveLastActivity` 换回 mtime（AC-2/AC-4 承载文件）：红。因首个控制断言先失败，为使 (a) 半段本身被判定，单独把该前置断言降级为打印后再跑一次，得 `indexed: updated_at=2026-09-22T07:03:53.661Z`、`touch: before=2026-01-05T00:00:00.000Z after=2026-09-22T07:03:53.793Z`、`AssertionError: a touch that changes no content must not move last activity`——(a) 半段确实变红。
+2. 窗口首行判定恒为「半截」(`startsMidLine` → `return true`)：红，`✖ reads a complete record that starts exactly at the window boundary`，`AssertionError: Expected values to be strictly equal`（1 MiB 上限处返回 null，调用方回落 mtime）。
+3. 把内容读取放进遍历（`synchronize()` 内对全量 transcript 无条件读一遍）：红，`AssertionError: open-a.jsonl was opened by a scan that should have skipped it`——AC-4 的 atime 断言正是钉住这一层的判据。
+
+**AC-3 真实语料（DoD(b)）** —— 对**真实语料 + 真实行**（`~/.claude/projects` 1218 个 transcript / 896.6 MB，现库 1183 条 claude 行）跑，用库文件的一份拷贝（**未改动 `/data/home/yale/.cloudcli/auth.db` 本体**；拷贝与本体同内容，读数不受影响）：
+
+- 修复前：`rows=1183 controls=32 mismatched=88`（L_D 的「修复前 > 0」）
+- 重新推导一次后：`rows=1183 controls=32 mismatched=0`，退出码 0
+- 正对照 32 条，含立案样本 `e6065ac3`：内容 `2026-09-20T07:32:16.501Z`、mtime `2026-09-22T06:45:36.045Z`（滞后 47.2 h）；同批最大滞后 117.8 h（`7a5d362c`）。`controls == 0` 会判失败。
+- 单条真实行前后读数（DoD(b)/DoD(d)）：`e6065ac3` 修复前 `updated_at = 2026-09-22T06:45:36.045Z`（= 文件 mtime），修复后 `= 2026-09-20T07:32:16.501Z`（= 内容最后 timestamp）。
+
+**历史行如何被纠正（DoD(d)）** —— 已索引的行不会被扫描或 watcher 碰到（游标按 `birthtime > lastScanAt` 过滤、watcher 只在变化时触发），因此新增一次性推导：`ClaudeSessionSynchronizer.synchronize()` 开头调用 `backfillLastActivity()`，从**库**里取 `jsonl_path` 非空的 claude 行（不是走 `~/.claude/projects`——遍历正是每次列表请求都要付的那一笔）逐行读内容并 `updateSessionUpdatedAt`，完成后在 `app_config` 记 `claude_last_activity_backfill_v1`。验证：一次调用即修正 1183 行（日志 `Re-derived last activity from transcript content for 1183 Claude session row(s).`）；fixture 测试另证该 pass 是**一次性**的——同一条旧行被重新置为陈旧后，第二次 `synchronize()` 不再改写它。transcript 已删除、或内容里没有任何 timestamp 的行保持原样（`pruneOrphanedSessions` 才是删除方）。
+
+**热路径（DoD(c)）** —— 量的是 `/api/projects` 每次都会调到的 `synchronize()` 入口本身（真实语料，同机同时刻），不是 HTTP 往返，故读数不含套接字/序列化噪声：
+
+| 读数 | 值 |
+| --- | --- |
+| `findFilesRecursivelyCreatedAfter` 遍历（游标为空，最坏） | median 4.4–5.2 ms |
+| `synchronize()` 稳态（backfill 标记已置）修复**后** | 16.92 / 13.62 / 17.22 ms |
+| `synchronize()` 稳态修复**前**（临时去掉 backfill 调用） | 15.36 / 16.50 / 14.25 ms |
+| 单请求新增的工作量 | 6.1 µs（一次 `app_config` 索引读） |
+| 反事实：遍历 + 每个 transcript 读一次内容 | 183–205 ms |
+| 一次性推导（1183 行） | 23–24 ms，只发生一次 |
+
+两侧区间（13.6–17.2 与 14.3–16.5）重叠，且各自 run-to-run 散布（约 3.6 ms）大于两侧中位数之差（约 1.5 ms）——增量落在噪声内。稳态 `synchronize()` 的绝对值里约 15 ms 是 `buildLookupMap(~/.claude/history.jsonl)`，修复前后都在。若把内容读取放错层，同一语料要付 183–205 ms（约 10 倍于整个 `synchronize()`），即 AC-4/变体 3 钉住的那一层。
+
+**边界（DoD(e)）** —— codex / cursor 同步器语义未改（仍用 `readFileTimestamps`），改动只在 claude 路径接线；`readTranscriptLastActivity` 落在 `server/shared/utils.ts` 的既有 SESSION SYNCHRONIZER FILESYSTEM HELPERS 组内。**改动面确实比 Proposal 设想的大一处**：历史行推导需要「按 provider 列行」与「只改 `updated_at`」两个新查询，落在 `server/modules/database/repositories/sessions.db.ts`（`getSessionsWithTranscriptPath`、`updateSessionUpdatedAt`），已列入 Touches。选择放在同步器内、用 `app_config` 标记而不是沿用启动迁移，是为了不扩宽 `IProviderSessionSynchronizer` 接口与 synchronizer service。
+
+**环境噪声如实登记**
+
+- AC-3 首次读数曾出现 2–3 条「库值落后内容约 20 s」的行，且两次运行之间条数会变（2 → 3）：那是**正在被追加的活跃会话**（含本会话 `8938bc94`），库读数与随后的内容读之间天然存在竞态，不是陈旧读数。脚本因此增加「静止判定」：以推导 pass 结束时刻为界，`mtime` 晚于该时刻的行报为 `live=` 并从比较中排除。上述 `mismatched=0` 是该口径下的读数（当时 `live=0`）。
+- AC-3 脚本对 `updated_at` 的解析最初把已是 ISO 的值再补一个 `Z`，导致不可解析而被计为 mismatch（1183）。修正为「已带时区则原样解析，否则按 SQLite `CURRENT_TIMESTAMP` 视作 UTC」后才得到上表读数。
+- 本机 `~/.claude/projects` 语料在本次工作期间由 1213 个 / 826.6 MB 增长到 1218 个 / 896.6 MB（fleet 并发在跑），上述所有读数均出自同一时刻的同一份语料快照。
+- AC-4 的字面 `chmod 000` 探针本身不足以区分实现：遍历里的 `try/catch` 会吞掉 EACCES，且游标本来就排除这些文件，于是「什么都不做」也拿到 `processed === 0`。因此该 AC 由三条断言共同承载——字面 chmod 探针、atime 探针（每个被排除的 transcript 的 atime 保持在被设为的旧值，并带正对照证明探针确实看得见读取）、以及变体 3 的红。这一点如实登记，不把单条 chmod 断言当成充分证明。
+- 本次未跑 fan-in 全量 suite（按调度约定由 driver 接管）。
