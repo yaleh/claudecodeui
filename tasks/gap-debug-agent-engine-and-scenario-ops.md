@@ -2,7 +2,7 @@
 id: gap-debug-agent-engine-and-scenario-ops
 title: 调试 Agent 的产出引擎与 provider：写真实形态 transcript，帧只来自真实归一化（运行期 provider id，不进
   LLMProvider 联合）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
