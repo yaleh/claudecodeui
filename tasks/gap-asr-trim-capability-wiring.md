@@ -1,7 +1,7 @@
 ---
 id: gap-asr-trim-capability-wiring
 title: 裁剪 × 识别器能力的接线：pauseCues 驱动裁剪且默认不变，capabilities 成为裁剪决策唯一来源（AC-135）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
