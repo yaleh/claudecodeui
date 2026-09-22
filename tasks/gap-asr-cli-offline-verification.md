@@ -14,7 +14,7 @@ goal_ac: AC-131
 ---
 ## Proposal
 
-<!-- dedup-ref --> 同机制去重结论：`grep -rn "^goal_ac:" tasks/` 里没有任何任务声明 AC-131；`grep -rln "dry-run\|--offline" tasks/` 的命中中只有 `gap-asr-wire-single-implementation-boundary-probe.md`（AC-129）与 `gap-asr-extraction-parity-baseline.md`（AC-130）在讲这条缝，而两条都白纸黑字把这一半让了出来（前者原文：「`--dry-run` / `--offline` 属 AC-131 的任务」；后者原文：「不做 `--dry-run` / `--offline`（AC-131）」）。本任务与 `gap-asr-wire-single-implementation-boundary-probe.md` 是**真前置关系**并由 `depends_on` 显式声明：那条任务创建 `experiments/voice-asr-cli/transcribe.ts` 这个真实消费者、并落定适配器落点，本条在它之上加三条离线语义与判据。与 `gap-asr-extraction-parity-baseline.md` 只是同族相邻、机械地不同：那条录线上字节基线（抽取前后逐字节），本条判离线回放与脱敏，二者不互为前置。
+<!-- dedup-ref --> 同机制去重结论：`grep -rn "^goal_ac:" tasks/` 里没有任何任务声明 AC-131；`grep -rln "dry-run\|--offline" tasks/` 的命中中只有 `gap-asr-wire-single-implementation-boundary-probe.md`（AC-129）与 `gap-asr-extraction-parity-baseline.md`（AC-130）在讲这条缝，而两条都白纸黑字把这一半让了出来（前者原文：「`--dry-run` / `--offline` 属 AC-131 的任务」；后者原文：「不做 `--dry-run` / `--offline`（AC-131）」）。本任务与 `gap-asr-wire-single-implementation-boundary-probe.md` 是**真前置关系**并由 `depends_on` 显式声明：那条任务创建 `experiments/voice-asr-cli/transcribe.ts` 这个真实消费者、并落定适配器落点，本条在它之上加三条离线语义与判据。与 `gap-asr-extraction-parity-baseline.md` 只是同族相邻、机械地不同：那条录线上字节基线（抽取前后逐字节），本条判离线回放与脱敏，二者不互为前置。并发立案的同绑任务 `gap-asr-cli-dry-run-offline-replay`（同一 AC-131，晚 16 秒）已置 `superseded`，其在 `## 撤回` 里登记了理由：本条的判据脚本名与 AC-131 记录里的 `criterion:` 同名，且「以 tsx 启动」需由启动方式判而非复述 AC-129 的读数；它的两条可取之处（通路各自成模块、真跑不判据化的显式登记）已被本条吸收。
 
 ### 现场：判据文件、离线语义与录制 fixture 今天都不存在
 
@@ -58,14 +58,15 @@ ADR-004 决策 2 约束 2 的两条实测事实（本机 2026-09-22 复验）决
 
 - 不做适配器抽取与线协议唯一化（AC-129 的任务）；不录线上字节基线（AC-130 的任务）。
 - 不做能力声明、第二个 provider、MIME 白名单、健康检查、裁剪决策（AC-132/133/134/135）。
-- 不把 CLI 提升为 `cloudcli` 子命令；不做「真跑」（ADR-004 决策 8：联网真跑归实验记录，不判据化）。
+- 不把 CLI 提升为 `cloudcli` 子命令。
+- **不判据化「真跑」（ADR-004 决策 8）**：联网 + 带凭据的「在真实音频上取回非空文本」归实验记录，本任务的 `## AC` 不含任何真跑读数，也不以任何命令断言它 —— 单独登记一条，避免后来者把它补成判据。
 - 不改出货链路（`src/shared/api.ts`、`src/modules/chat/hooks/useVoiceInput.ts`、`server/modules/voice/voice.service.ts`）的任何行为 —— 本任务只新增一条命令行验证面。
 
 ## Plan
 
-- **S0 注入面**：`experiments/voice-asr-cli/transcribe.ts` 增 `--fetch-impl` / `--base-url` / `--api-key-env` 与 launcher 证据行（打印**原始** `execArgv=<json>` 与 `tsxEnv=<bool>`，launcher 由判据从原始证据推导，不由标签行决定）。
-- **S1 `--dry-run`**：适配器构造请求 + 具名脱敏函数（凭据侧与载荷侧各一处），退出 0，注入的 fetch 零调用。
-- **S2 `--offline` / `--record`**：回放 fetch（未命中抛 `offline-miss`）+ 录制 fixture 落 `experiments/voice-asr-cli/fixtures/recorded-transcriptions.json`，含两条容忍度各自的一条录制。
+- **S0 入口与注入面**：`experiments/voice-asr-cli/transcribe.ts` 只做参数解析与分派，增 `--fetch-impl` / `--base-url` / `--api-key-env` 与 launcher 证据行（打印**原始** `execArgv=<json>` 与 `tsxEnv=<bool>`，launcher 由判据从原始证据推导，不由标签行决定）；两条通路各自成模块：`experiments/voice-asr-cli/dryRun.ts` 与 `experiments/voice-asr-cli/offlineReplay.ts`。
+- **S1 `--dry-run`（`dryRun.ts`）**：适配器构造请求 + 具名脱敏函数（凭据侧与载荷侧各一处），退出 0，注入的 fetch 零调用。
+- **S2 `--offline` / `--record`（`offlineReplay.ts`）**：回放 fetch（未命中抛 `offline-miss`）+ 录制 fixture 落 `experiments/voice-asr-cli/fixtures/recorded-transcriptions.json`，含两条容忍度各自的一条录制。
 - **S3 判据**：`scripts/asr-cli-offline-check.mjs` + 禁网替身 `scripts/__fixtures__/no-network-fetch.mjs`（被调用即记一行并返回假响应，于是「调用发生」可读）。
 - **S4 取假面**：`scripts/asr-cli-offline-check.test.mjs` 的变异表与七条具名臂，逐臂先绿后红。
 - **S5 读数**：逐条跑 AC，stdout 落进 Evidence。
@@ -106,6 +107,8 @@ L_G 该轴仍暗，理由：同上 —— 目标层判据（换识别服务不�
 ## Touches
 
 - experiments/voice-asr-cli/transcribe.ts
+- experiments/voice-asr-cli/dryRun.ts (new)
+- experiments/voice-asr-cli/offlineReplay.ts (new)
 - experiments/voice-asr-cli/fixtures/recorded-transcriptions.json (new)
 - scripts/asr-cli-offline-check.mjs (new)
 - scripts/asr-cli-offline-check.test.mjs (new)
