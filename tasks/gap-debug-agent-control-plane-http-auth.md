@@ -1,7 +1,7 @@
 ---
 id: gap-debug-agent-control-plane-http-auth
 title: 调试 Agent 的 dev-only 控制面：HTTP + 既有 authenticateToken，门控而非鉴权才是安全边界
-status: todo
+status: ready
 labels:
   - gap
 parent: null
