@@ -5,7 +5,7 @@ import type { Readable } from 'node:stream';
 // repository-root shared tree rather than restated here: the whole point of the payload is
 // that it carries the registry's own declaration, so a restatement could drift from it
 // silently. `import type` only — the backend never calls an adapter from this file.
-import type { AsrCapabilities } from '../../shared/asr/asrRegistry.js';
+import type { AsrCapabilities, AsrErrorCode } from '../../shared/asr/asrRegistry.js';
 
 //----------------- HTTP RESPONSE SHAPES ------------
 /**
@@ -1364,7 +1364,24 @@ export type VoiceSettings = {
  */
 export type VoiceServiceResult<TValue> =
   | { ok: true; value: TValue }
-  | { ok: false; status: number; error: string };
+  | {
+    ok: false;
+    status: number;
+    error: string;
+    /**
+     * The semantic code for a refusal the caller is meant to act on differently from a generic
+     * failure, taken from the recogniser seam's own vocabulary (`AsrErrorCode`). Absent for the
+     * failures whose meaning a caller does not branch on — an unreachable backend, a rejected
+     * key, a bad URL.
+     *
+     * The route republishes it verbatim beside the message, because the two status codes this
+     * carries today (`UNSUPPORTED_MIME`, `OVERSIZE`) are both *pre-upstream* refusals that a
+     * client distinguishes by reason rather than by status: "this container is not accepted" and
+     * "this recording is too big" are different user remedies, and a status number alone cannot
+     * carry which one it was across the two paths that both produce them.
+     */
+    code?: AsrErrorCode;
+  };
 
 /**
  * One recogniser as the health payload publishes it.

@@ -2,9 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TFunction } from 'i18next';
 
 import { api } from '@/shared/api';
+import { useWebSocket } from '@/shared/context/WebSocketContext';
 import { subscribeToUserPreferences } from '@/shared/userSettings';
+import { getSessionTitle } from '@/shared/utils';
 import { usePaletteOps } from '@/modules/command-palette';
-import type { ArchivedProjectListItem, ArchivedSessionListItem, ConversationProjectResult, ConversationSearchResults, LLMProvider, Project, ProjectSession, ProjectSortOrder, RecentConversationListItem, SearchProgress, ActiveSidebarRename, PendingSidebarDeletion, SessionTitleSearchResult, SessionWithProvider, SidebarSearchMode } from '@/shared/types';
+import type { ArchivedProjectListItem, ArchivedSessionListItem, ConversationProjectResult, ConversationSearchResults, LLMProvider, Project, ProjectSession, ProjectSortOrder, RecentConversationListItem, SearchProgress, ServerEvent, ActiveSidebarRename, PendingSidebarDeletion, SessionTitleSearchResult, SessionWithProvider, SidebarSearchMode } from '@/shared/types';
 import {
   filterProjects,
   getAllSessions,
@@ -38,6 +40,20 @@ type RecentConversationsApiPayload = {
     total?: number;
     hasMore?: boolean;
   };
+};
+
+/**
+ * The `kind: session_upserted` delta as the Conversations list needs it: which
+ * session changed and what row the server now reports for it.
+ *
+ * Built on the wire by
+ * `server/modules/websocket/services/session-upsert-broadcast.service.ts`,
+ * which emits nothing at all for an archived row.
+ */
+type SessionUpsertedEvent = ServerEvent & {
+  sessionId?: string;
+  provider?: LLMProvider;
+  session?: ProjectSession;
 };
 
 type UseSidebarControllerArgs = {
@@ -79,6 +95,9 @@ export function useSidebarController({
   sidebarVisible,
 }: UseSidebarControllerArgs) {
   const paletteOps = usePaletteOps();
+  // The app-wide event stream, read here so a rename made anywhere reaches the
+  // Conversations list. Same subscription the project-workspace module takes.
+  const { subscribe } = useWebSocket();
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   // Running groups start expanded and remember manual collapses independently of Projects.
   const [collapsedRunningProjects, setCollapsedRunningProjects] = useState<Set<string>>(new Set());
@@ -313,6 +332,47 @@ export function useSidebarController({
   useEffect(() => {
     void fetchArchivedSessions();
   }, [fetchArchivedSessions]);
+
+  // A session renamed anywhere — this client, another browser, the CLI — arrives
+  // as a `session_upserted`. The Conversations list holds its own copy of every
+  // row's title, so without this it kept showing the name a session had when the
+  // page was last listed. Patching in place (rather than reloading the feed)
+  // also preserves the pages loaded past the first.
+  //
+  // Archived rows are deliberately not covered: the server's upsert builder
+  // returns null for an archived row, so no event for one ever reaches a client.
+  // A rename made here is patched locally by `updateSessionSummary` instead; a
+  // rename made from another client is out of scope (see the task Evidence).
+  useEffect(() => subscribe((event) => {
+    if (event.kind !== 'session_upserted') {
+      return;
+    }
+
+    const upsert = event as SessionUpsertedEvent;
+    if (!upsert.sessionId || !upsert.session) {
+      return;
+    }
+
+    // The same authority the workspace header uses. The delta carries no
+    // `__provider`, so stamp the event's provider on before asking it.
+    const title = getSessionTitle({ ...upsert.session, __provider: upsert.provider });
+
+    setRecentConversations((previous) => {
+      const index = previous.findIndex(
+        (conversation) => conversation.sessionId === upsert.sessionId,
+      );
+      // A session the Conversations list is not showing leaves it untouched
+      // (the event never inserts a row), and an unchanged title must keep the
+      // previous array so an unrelated background upsert does not re-render.
+      if (index < 0 || previous[index].sessionTitle === title) {
+        return previous;
+      }
+
+      const next = [...previous];
+      next[index] = { ...next[index], sessionTitle: title };
+      return next;
+    });
+  }), [subscribe]);
 
   useEffect(() => {
     if (searchMode !== 'conversations' || debouncedSearchQuery.length >= 2) {
@@ -1008,6 +1068,15 @@ export function useSidebarController({
             conversation.sessionId === sessionId
               ? { ...conversation, sessionTitle: trimmed }
               : conversation
+          )));
+          // The archived list holds its own copy of the title too, and the
+          // rename produced no event it could follow: the server's upsert
+          // builder emits nothing for an archived row. Patch it here, or a
+          // session renamed while archived keeps its old name in that list.
+          setArchivedSessions((previous) => previous.map((session) => (
+            session.sessionId === sessionId
+              ? { ...session, sessionTitle: trimmed }
+              : session
           )));
           await onRefresh();
         } else {

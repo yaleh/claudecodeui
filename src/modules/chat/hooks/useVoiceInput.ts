@@ -53,6 +53,30 @@ function extensionFor(mimeType: string): string {
   return 'webm';
 }
 
+/**
+ * The recogniser seam's semantic code out of a refused transcription answer, or `null`.
+ *
+ * Read out of the answer's body rather than derived from its status, because the status alone
+ * cannot say which of the two refusals this was. `415` and `413` are the two the seam publishes —
+ * a container the provider does not read, and an upload past its budget — and both arrive on the
+ * direct path and on the proxy path alike, carrying `UNSUPPORTED_MIME` or `OVERSIZE` beside the
+ * message. Deriving a code from the number here would be a second opinion about a classification
+ * the two paths already agree on, and it would be wrong for every other 4xx the backend can send.
+ *
+ * The body is read from a clone, so the original answer is not left spent for the caller that
+ * still wants it. A body that is not JSON, or one carrying no code, reads as `null`: the message
+ * is then whatever the transport said, which is all there is to say.
+ */
+async function refusalCode(response: Response): Promise<string | null> {
+  try {
+    const body: unknown = await response.clone().json();
+    const code = (body as { code?: unknown } | null)?.code;
+    return typeof code === 'string' && code ? code : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Which entry the audio came in through. */
 export type VoiceSource = 'mic' | 'file';
 
@@ -510,7 +534,13 @@ export function useVoiceInput(
         adoptTrimmedClip(adopted, prepared.trimmed);
       }
       const res = await transcribeVoice(prepared.body, prepared.filename);
-      if (!res.ok) throw new Error(`transcribe ${res.status}`);
+      if (!res.ok) {
+        // The refusal's own classification travels with it, on both paths, so the user is told
+        // which of the two things to change — the recording's container or its length — instead of
+        // being handed a number they would have to know the seam to read.
+        const code = await refusalCode(res);
+        throw new Error(code ? `transcribe ${res.status} (${code})` : `transcribe ${res.status}`);
+      }
       // Parsed before the cancellation check, exactly as the inline `res.json()` was: a body that
       // is not JSON still has to reach the catch below even when this capture was cancelled.
       // `strict` is this path's own tolerance, named at the call site rather than implied by

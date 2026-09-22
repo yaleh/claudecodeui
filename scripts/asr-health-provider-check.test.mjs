@@ -133,17 +133,24 @@ test('AC3/AC8: an unregistered provider id that silently falls back is reported'
   // The fake form: the guard that refuses an id nothing claims is replaced by nothing at all,
   // so the request goes out with the configuration the default provider would have used. The
   // user believes they are transcribing with the provider they named; the previous one answers.
+  // The guard now binds the adapter it checked, because the gates of AC-133 read their
+  // declaration from that same adapter. The fake is unchanged and is still the same one: the
+  // refusal goes away and the first registered provider quietly answers instead.
   patchFixtureFile(
     root,
     SERVICE_MODULE,
     [
-      '      if (tryResolve(providerId) === null) {',
+      '      const adapter = tryResolve(providerId);',
+      '      if (adapter === null) {',
       '        // Refused before the configuration is even resolved and before any request is built:',
       '        // nothing about the user\'s backend can make an unregistered id serveable.',
       '        return unknownProviderFailure(providerId, requestedProviderId ? 400 : 503);',
       '      }',
     ].join('\n'),
-    '      // The fake form: an unregistered id becomes the default provider without a word.',
+    [
+      '      // The fake form: an unregistered id becomes the default provider without a word.',
+      '      const adapter = listProviders()[0];',
+    ].join('\n'),
   );
 
   const result = runProbe(root);
