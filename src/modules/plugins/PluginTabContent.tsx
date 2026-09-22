@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useTheme } from '@/shared/context/ThemeContext';
 import { api } from '@/shared/api';
+import { getSessionTitle } from '@/shared/utils';
 import { usePlugins } from '@/modules/plugins/context/PluginsContext';
 import type { Project, ProjectSession } from '@/shared/types';
 
@@ -37,7 +38,11 @@ function buildContext(
     session: selectedSession
       ? {
         id: selectedSession.id,
-        title: selectedSession.title || selectedSession.name || selectedSession.id,
+        // The same authority the workspace header and the document title use,
+        // so a tab can never label the selected session differently from the
+        // app around it. Reading `title || name || id` here made the plugin
+        // show a stale name or the raw id while the header was already correct.
+        title: getSessionTitle(selectedSession),
       }
       : null,
   };
