@@ -1,7 +1,7 @@
 ---
 id: gap-asr-wire-single-implementation-boundary-probe
 title: 语音识别线协议只有一份实现：前端/服务端/命令行三处解析到同一路径，边界探针可红可绿（AC-129）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
