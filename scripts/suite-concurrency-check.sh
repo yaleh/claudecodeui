@@ -866,6 +866,16 @@ else
     BASE_MODE="live"; BASE_CREATED_AT="$(now_iso)"; BASE_PROVENANCE="$RUN_DIR"
     BASE_WINDOW_MS=$(( QUIET_END - QUIET_START ))
     EST_QUIET_MS="$BASE_WINDOW_MS"
+    # ⛔ median/n 必须在【这里】算出来再落盘，不能等下面「收集读数」段：那一段在并发相之后，
+    # 而冷启动那一次会在【并发相预检】处 exit 3，永远走不到结尾的 write_state。只写
+    # window_ms 的话记录里会永久留下 median=0 / n=0，此后每次复用命中都把它原样抄进判词
+    #（基线其实量到了 110 个文件），判词就会自己说出一条假读数。与下面同式，重算幂等。
+    quiet_logs=("$RUN_DIR/quiet-suite-0.out")
+    for ((i = 0; i < READOUTS; i++)); do quiet_logs+=("$RUN_DIR/quiet-readout-$i.out"); done
+    quiet_dur="$(server_durations "${quiet_logs[@]}")"
+    median_quiet="$(printf '%s\n' "$quiet_dur" | median_of)"
+    n_quiet="$(printf '%s\n' "$quiet_dur" | grep -c . || true)"
+    BASE_N="$n_quiet"; BASE_MEDIAN_MS="${median_quiet:-0}"
     # 安静相一跑完就落盘：即使下一相装不进预算而 exit 3，这一次的读数也没白跑。
     write_state
   fi

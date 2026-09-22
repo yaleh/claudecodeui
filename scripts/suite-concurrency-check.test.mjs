@@ -20,10 +20,12 @@
  *   T3 `--budget-ms` 覆盖判词里的字面量（45000），且判定结论不变。
  *   T4 超预算 ⇒ exit 3，判词点名预算与实测墙钟，且【不打印任何红/绿判词】。
  *   T5 阶段被剩余预算夹断（开工了但跑不完）⇒ 同样 exit 3，而不是假红。
+ *   T6 冷启动的活读数【完整】落盘：在「安静相跑完就落盘」与「结尾再落盘」之间退出的路径
+ *      （fail-closed / 预算闸）上，只有前一次写生效 —— 它必须带上真的 median/n。
  */
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -193,4 +195,31 @@ test('T5 阶段被剩余预算夹断（开工了但跑不完）⇒ exit 3，而�
     cut.context('判词应点名是「没跑完」而不是「跑红了」'),
   );
   assert.doesNotMatch(cut.stdout, /^suite-concurrency-check: FAIL — /m, cut.context('夹断不是判红'));
+});
+
+test('T6 冷启动的活读数会被完整落盘（median/n 不是 0），复用命中时才抄不出假读数', (t) => {
+  const fx = fixture(t);
+  // `--concurrency 1` 让判据在【安静相已跑、结尾 write_state 还没到】之间就 fail-closed 退出，
+  // 于是「安静相一跑完就落盘」的那次写是本次唯一的写。若它只写 window_ms、把 median/n 留成
+  // 默认的 0，记录里就永久是 0，此后每次复用命中都会把这组 0 原样抄进判词 —— 判词会自己
+  // 说出一条假读数（基线其实量到了上百个文件）。
+  const r = runCriterion(fx, ['--test-concurrency=8', '--concurrency', '1']);
+  assert.equal(r.status, 1, r.context('并发数 1 应 fail-closed 退出'));
+  assert.match(r.verdict, /FAIL — 并发数 1 < 2/, r.context('应为 fail-closed 判词'));
+
+  const saved = JSON.parse(readFileSync(path.join(fx.cache, 'quiet-baseline.json'), 'utf8'));
+  assert.ok(saved.quiet.n >= 100, r.context(`落盘的安静条数应是真的（实得 n=${saved.quiet.n}）`));
+  assert.ok(
+    saved.quiet.median_ms > 0,
+    r.context(`落盘的安静中位耗时应是真的（实得 ${saved.quiet.median_ms}ms）`),
+  );
+
+  // 复用这一份：判词点名的中位/n 必须与落盘的一致，而不是 0。
+  const warm = runCriterion(fx, ['--test-concurrency=8']);
+  assert.equal(warm.status, 0, warm.context('复用基线后应为绿'));
+  assert.match(
+    warm.verdict,
+    new RegExp(`中位=${saved.quiet.median_ms}ms n=${saved.quiet.n} provenance=`),
+    warm.context('复用命中时判词不该把中位/n 写成 0'),
+  );
 });
