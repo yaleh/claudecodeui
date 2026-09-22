@@ -67,8 +67,8 @@ L_G 该轴仍暗，理由：本任务不新增 goal 判据，只让会话列表�
 
 ## Touches
 
-server/shared/utils.ts
-server/modules/providers/list/claude/claude-session-synchronizer.provider.ts
-server/shared/tests/transcript-last-activity.test.ts (new)
-server/modules/providers/tests/claude-sessions.test.ts
-tasks/gap-session-lastactivity-from-file-mtime.md
+- server/shared/utils.ts
+- server/modules/providers/list/claude/claude-session-synchronizer.provider.ts
+- server/shared/tests/transcript-last-activity.test.ts (new)
+- server/modules/providers/tests/claude-sessions.test.ts
+- tasks/gap-session-lastactivity-from-file-mtime.md
