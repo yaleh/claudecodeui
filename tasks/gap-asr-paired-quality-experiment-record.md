@@ -1,7 +1,7 @@
 ---
 id: gap-asr-paired-quality-experiment-record
 title: 配对质量实验记录（不判据化）：同一批语料上的配对比较、报 n、带能红的负对照并报告其是否按预测方向移动（无 goal_ac）
-status: ready
+status: done
 labels:
   - gap
 parent: null

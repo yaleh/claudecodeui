@@ -43,11 +43,11 @@ goal_ac: AC-124
 
 ## AC
 
-- [ ] AC1 引擎与 provider 的判据——`npx tsx --tsconfig server/tsconfig.json --test server/modules/debug-agent/tests/debug-agent-frames.test.ts` 退出码 0。该用例即 `goals/AC-124`：装载含 `row` 与 `grow` 两种 op 的场景，断言 (a) transcript 确实落盘且行数与 `expect.rows.delta` 相符、文件内含 `expect.content.mustContain` 每一条；(b) `grow` 使行数不变、末行字节数增加、且归一化为**同一**消息 id 的内容变化；(c) socket 收到的帧 id 集合与 REST 重取（`/api/providers/sessions/:id/messages`）历史的 id 集合之交集，**覆盖本次产出的每一条消息**；(d) 帧上的 `seq` 由 run registry 分配且严格递增。打印四项实际读数。
-- [ ] AC2 抗假变体（**真跑并留输出**）：**frames-only** —— 让引擎只发帧、不写 transcript（帧仍由真实 helper 产出，客户端看不出区别）。`AC1` 的命令必须因此**退出码非 0**，且红因是「磁盘零行 / 历史缺消息」而非别的。跑完用 `git checkout --` 还原，`git status` 干净，并贴两次输出。
-- [ ] AC3 provider 以**运行期 id** 注册且不进联合：门控开启时按该 id 解析成功、`listProviders()` 的 id 集合包含它；门控关闭时解析失败，且失败与**拼错一个 id 逐字相同**（同 code、同 message 形态）。命令打印两侧实际读数。取假形态：把它加进 `LLMProvider` 联合会让本判据的「不进联合」半失效——故本判据同时断言 `server/shared/types.ts` 的联合定义行未改动。
-- [ ] AC4 显示身份（评审**裁决 A**）：侧栏会话行视图的提供商文字位**非空且不是 "Claude"**；`LLMProviderLogo` 对该 id 不落穿到末尾的 claude 分支。命令对一处构造出的会话视图断言并打印实际标签。取假形态：不给它显示身份（保持落穿）时本判据必须红。
-- [ ] AC5 本任务未触及 Touches 之外的文件。命令：`git diff --name-only "$(git merge-base develop HEAD)"` 的每一行都必须能对应到本任务 Touches 内的一条；命中 Touches 之外时逐行打印并以非 0 退出。用 merge-base 而非裸 develop——develop 会随他人 fan-in 前进。
+- [x] AC1 引擎与 provider 的判据——`npx tsx --tsconfig server/tsconfig.json --test server/modules/debug-agent/tests/debug-agent-frames.test.ts` 退出码 0。该用例即 `goals/AC-124`：装载含 `row` 与 `grow` 两种 op 的场景，断言 (a) transcript 确实落盘且行数与 `expect.rows.delta` 相符、文件内含 `expect.content.mustContain` 每一条；(b) `grow` 使行数不变、末行字节数增加、且归一化为**同一**消息 id 的内容变化；(c) socket 收到的帧 id 集合与 REST 重取（`/api/providers/sessions/:id/messages`）历史的 id 集合之交集，**覆盖本次产出的每一条消息**；(d) 帧上的 `seq` 由 run registry 分配且严格递增。打印四项实际读数。
+- [x] AC2 抗假变体（**真跑并留输出**）：**frames-only** —— 让引擎只发帧、不写 transcript（帧仍由真实 helper 产出，客户端看不出区别）。`AC1` 的命令必须因此**退出码非 0**，且红因是「磁盘零行 / 历史缺消息」而非别的。跑完用 `git checkout --` 还原，`git status` 干净，并贴两次输出。
+- [x] AC3 provider 以**运行期 id** 注册且不进联合：门控开启时按该 id 解析成功、`listProviders()` 的 id 集合包含它；门控关闭时解析失败，且失败与**拼错一个 id 逐字相同**（同 code、同 message 形态）。命令打印两侧实际读数。取假形态：把它加进 `LLMProvider` 联合会让本判据的「不进联合」半失效——故本判据同时断言 `server/shared/types.ts` 的联合定义行未改动。
+- [x] AC4 显示身份（评审**裁决 A**）：侧栏会话行视图的提供商文字位**非空且不是 "Claude"**；`LLMProviderLogo` 对该 id 不落穿到末尾的 claude 分支。命令对一处构造出的会话视图断言并打印实际标签。取假形态：不给它显示身份（保持落穿）时本判据必须红。
+- [x] AC5 本任务未触及 Touches 之外的文件。命令：`git diff --name-only "$(git merge-base develop HEAD)"` 的每一行都必须能对应到本任务 Touches 内的一条；命中 Touches 之外时逐行打印并以非 0 退出。用 merge-base 而非裸 develop——develop 会随他人 fan-in 前进。
 
 ## DoD
 
@@ -76,4 +76,106 @@ L_G 本目标的判据是 `goals/AC-124`（产出写真实 transcript 且实时�
 - server/modules/providers/services/session-synchronizer.service.ts
 - src/modules/sidebar/utils/sidebarProjectFormatting.ts
 - src/shared/ui/LLMProviderLogo.tsx
+- src/modules/sidebar/tests/debugAgentIdentity.test.tsx (new)
 - tasks/gap-debug-agent-engine-and-scenario-ops.md
+
+## Evidence
+
+AC1 —— 判据命令在最终树（commit c05f4fd4）上的读数，退出码 0：
+
+```
+$ npx tsx --tsconfig server/tsconfig.json --test server/modules/debug-agent/tests/debug-agent-frames.test.ts
+[AC1(a) rows] file 2 -> 4 rows, delta 2 (expected 2); missing content []
+[AC1(b) grow] 1 grow(s); steps[1] rows 3->3, last row 390->436 bytes, id "a60b818b-1efe-49f0-a3dc-cf8d1e3037e7_0"->"a60b818b-1efe-49f0-a3dc-cf8d1e3037e7_0", content changed=true; lastRowGrew=true
+[AC1(c) ids] produced ["a60b818b-1efe-49f0-a3dc-cf8d1e3037e7_0","74cf786b-6f64-44e7-a7da-f156dac7fa3e_text_0"] from 2 written row(s); frames carrying a message ["a60b818b-1efe-49f0-a3dc-cf8d1e3037e7_0","74cf786b-6f64-44e7-a7da-f156dac7fa3e_text_0"] (+1 end marker frame(s) carrying none); history ["5514f5ce-92f5-4523-bd33-4df63e902edc_text_0","a60b818b-1efe-49f0-a3dc-cf8d1e3037e7_0","74cf786b-6f64-44e7-a7da-f156dac7fa3e_text_0"] (3 message(s), total 3); intersection ["a60b818b-1efe-49f0-a3dc-cf8d1e3037e7_0","74cf786b-6f64-44e7-a7da-f156dac7fa3e_text_0"]; missing from frames []; missing from history []; frames not in history []; seed ids missing from history []
+[AC1(d) seq] [1,2,3,4]; first non-increasing: none
+ℹ tests 2
+ℹ pass 2
+ℹ fail 0
+```
+
+读法：本行产出的 2 条消息（行 3 的 assistant 行、行 4 的 user 行）在 socket 帧、磁盘 transcript、REST 重取历史三处逐 id 相同；`grow` 那一步行数 3→3、末行 390→436 字节、消息 id 不变而内容变了 —— (a)(b) 的分界在同一次运行里同时成立。种子行（`..._text_0` 那条 user 行）只出现在历史里，是让三方集合不会「因全空而一致」的对照。
+
+AC2 —— frames-only 变体（引擎只 `forward(row)`、删掉 `appendTranscriptRow`；`grow` 改为只读末行不重写）。同一命令：
+
+```
+$ npx tsx --tsconfig server/tsconfig.json --test server/modules/debug-agent/tests/debug-agent-frames.test.ts
+[AC1(a) rows] file 2 -> 2 rows, delta 0 (expected 2); missing content ["the third one is still being written out","what about the migration guide?"]
+[AC1(c) ids] produced [] from 0 written row(s); frames carrying a message [...3 ids...]; history ["b1be7eb5-7c2a-476e-aa02-2f909401ea28_text_0"] (1 message(s), total 1); frames not in history ["8a89912e-1612-4b66-be52-b22d42cd79b8_0","58aa58f7-35e3-4b85-8df7-446e036b0fb8_text_0"]
+[AC1(d) seq] [1,2,3,4]; first non-increasing: none
+ℹ pass 1
+ℹ fail 1
+  AssertionError [ERR_ASSERTION]: 磁盘零行: the run wrote 0 row(s) (2 -> 2 on disk); the scenario expects 2
+--- 退出码 1
+```
+
+AC2 —— 第二个变体（落盘正确，但同一条消息又以一个新 uuid 多转发一次：socket 上出现历史永远不会有的消息）。同一命令：
+
+```
+$ npx tsx --tsconfig server/tsconfig.json --test server/modules/debug-agent/tests/debug-agent-frames.test.ts
+[AC1(c) ids] produced ["5e0b31fd-b99d-4351-8b95-54ea7ca7ee50_0","33c8e7aa-365f-4edc-9582-54be4028ecc3_text_0"] from 2 written row(s); frames carrying a message [...4 ids...]; history ["faf755f0-8f09-4eec-aa80-1afb6f697b93_text_0","5e0b31fd-b99d-4351-8b95-54ea7ca7ee50_0","33c8e7aa-365f-4edc-9582-54be4028ecc3_text_0"] (3 message(s), total 3); missing from frames []; missing from history []; frames not in history ["bfce8480-1f54-4c03-ac4a-a27f1fab8c62_0","bc23e86d-151c-402f-ab60-9db87e5ec3be_text_0"]
+ℹ pass 1
+ℹ fail 1
+  AssertionError [ERR_ASSERTION]: 历史缺消息: a frame reached the socket that the REST read does not contain (["bfce8480-1f54-4c03-ac4a-a27f1fab8c62_0","bc23e86d-151c-402f-ab60-9db87e5ec3be_text_0"])
+--- 退出码 1
+```
+
+两次变体各走一次「两半」：只发帧挡在 `磁盘零行`，写了但多发了历史里没有的消息挡在 `历史缺消息`。还原与树状态（`git checkout -- server/modules/debug-agent/debug-agent.engine.ts` 之后）：
+
+```
+$ git checkout -- server/modules/debug-agent/debug-agent.engine.ts
+$ git status --porcelain
+（无输出）
+```
+
+AC3 —— 门控两侧的实际读数（同一 `frames` 用例的子进程模式打印）：
+
+```
+--- gate open ---
+[gate] OPEN (DEBUG_AGENT="on" with DEBUG_AGENT_HOME=".../fixture")
+[ids] ["claude","codex","cursor","opencode","debug"]
+[resolve('debug')] resolved -> debug
+[resolve('claud')] AppError/UNSUPPORTED_PROVIDER/400
+--- gate closed ---
+[gate] CLOSED (DEBUG_AGENT is unset); home=<none>
+[ids] ["claude","codex","cursor","opencode"]
+[resolve('debug')] AppError/UNSUPPORTED_PROVIDER/400
+[resolve('claud')] AppError/UNSUPPORTED_PROVIDER/400
+[normalized] debug="Unsupported provider \"<id>\"." typo="Unsupported provider \"<id>\"."
+[union] server/shared/types.ts: export type LLMProvider = 'claude' | 'codex' | 'cursor' | 'opencode';
+```
+
+关闭态的 debug 与拼错 id 在把请求的 id 抹掉之后逐字相同（同 error class、同 code、同 statusCode）；联合定义行按本判据断言未改动。
+
+AC4 —— 显示身份（`npx vitest run src/modules/sidebar/tests/debugAgentIdentity.test.tsx`，3 tests passed）：
+
+```
+[AC4] session row provider text slot for provider="debug": rendered "Debug Agent session", label "Debug Agent"
+[AC4] control — provider="claud" renders the slot as " session"
+[AC4] LLMProviderLogo mark for provider="debug": aria-label "Debug Agent", 475 chars (claude's: 2381, unrecognised provider's: 2381)
+```
+
+对照即取假形态：没有词条时该文字位渲染成空串、未识别 id 仍然落穿成 claude 的图（2381 chars == claude 的 2381 chars），所以「不落穿」这句是被证明的而不是被假设的。
+
+AC5 —— 每个改动文件都在 Touches 内（`git diff --name-only "$(git merge-base develop HEAD)"`，base=13149f4f；本任务新增了 `src/modules/sidebar/tests/debugAgentIdentity.test.tsx` 一条 Touches 后才转绿）：
+
+```
+OK   server/modules/debug-agent/debug-agent.engine.ts
+OK   server/modules/debug-agent/debug-agent.provider.ts
+OK   server/modules/debug-agent/debug-agent.runtime.ts
+OK   server/modules/debug-agent/debug-agent.scenario.ts
+OK   server/modules/debug-agent/index.ts
+OK   server/modules/debug-agent/tests/debug-agent-frames.test.ts
+OK   server/modules/providers/list/claude/claude-session-synchronizer.provider.ts
+OK   server/modules/providers/provider.registry.ts
+OK   server/modules/providers/services/session-synchronizer.service.ts
+OK   src/modules/sidebar/tests/debugAgentIdentity.test.tsx
+OK   src/modules/sidebar/utils/sidebarProjectFormatting.ts
+OK   src/shared/ui/LLMProviderLogo.tsx
+--- verdict ---
+PASS: every changed file is declared in ## Touches
+```
+
+未加该条 Touches 前，同一检查对 `src/modules/sidebar/tests/debugAgentIdentity.test.tsx` 打印 `MISS` 并以 1 退出 —— 检查本身是会红的，不是恒真。
+
+另：`npm run lint` 在改动文件上零告警零错误；`tsc --noEmit` 对 `tsconfig.json` 与 `server/tsconfig.json` 均退出 0。
