@@ -1,7 +1,7 @@
 ---
 id: gap-debug-agent-no-second-vocabulary-guard
 title: 调试 Agent 的禁止第二套词表静态守卫：源码内无帧/事件字面量且确 import 归一化入口，守卫须可判真伪
-status: todo
+status: ready
 labels:
   - gap
 parent: null
