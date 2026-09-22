@@ -1258,7 +1258,12 @@ export function useChatSessionState({
     // Returning from another tab must not reset pagination or scroll. Refresh
     // a stale hydrated session through the bounded tail path instead.
     if (isCurrentHydratedSession) {
-      if (sessionStore.isStale(selectedSessionId)) {
+      // Skip store refresh during active streaming — the same guard the
+      // external-update path below carries, and the reason switching back to a
+      // session that is still running used to be the way to see the reply
+      // twice: a refresh that lands mid-turn brings the persisted echo of the
+      // segment being streamed in beside the live row still writing it.
+      if (!isProcessing && sessionStore.isStale(selectedSessionId)) {
         void requestLatestMessages(selectedSessionId);
       }
       return;
@@ -1334,7 +1339,13 @@ export function useChatSessionState({
       return;
     }
 
-    void refreshCoordinatorRef.current?.flushPending(activeSessionId);
+    // Skip store refresh during active streaming: a refresh landed on the
+    // activation of a session that is still running is the same mid-turn
+    // refresh the switch-back path above refuses, and it is the turn's own
+    // `complete` that reconciles the persisted tail either way.
+    if (!isProcessing) {
+      void refreshCoordinatorRef.current?.flushPending(activeSessionId);
+    }
   }, [activeSessionId, isActive, sessionStore]);
 
   // External message update (e.g. WebSocket reconnect, background refresh)

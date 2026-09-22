@@ -88,6 +88,14 @@ function ChatInterface({
   // on every sequenced frame, read whenever a `chat.subscribe` is sent so the
   // server replays only the events this client actually missed.
   const lastSeqRef = useRef(new Map<string, number>());
+  // The processing map as of the last commit, for the callbacks below that are
+  // subscribed once and must not be resubscribed when a turn starts or ends.
+  // Synced in an effect rather than during render: a render-time write to a ref
+  // is exactly the pattern React's own lint rejects in a component body.
+  const processingSessionsRef = useRef(processingSessions);
+  useEffect(() => {
+    processingSessionsRef.current = processingSessions;
+  });
 
   const resetStreamingState = useCallback(() => {
     if (streamTimerRef.current) {
@@ -265,7 +273,13 @@ function ChatInterface({
   // missed live events, and re-attaches a still-running stream to this socket.
   const handleWebSocketReconnect = useCallback(async () => {
     if (!selectedProject || !selectedSession) return;
-    await requestLatestMessages(selectedSession.id, isActive);
+    // Skip store refresh during active streaming — the same guard the
+    // session-state hook's refresh paths carry. The re-subscribe below still
+    // runs: it is what replays the events missed while the socket was down,
+    // and the turn's own `complete` is what reconciles the persisted tail.
+    if (!processingSessionsRef.current?.get(selectedSession.id)) {
+      await requestLatestMessages(selectedSession.id, isActive);
+    }
     statusCheckSentAtRef.current.set(selectedSession.id, Date.now());
     sendMessage({
       type: 'chat.subscribe',

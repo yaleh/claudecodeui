@@ -268,6 +268,20 @@ function dedupeAdjacentAssistantEchoes(merged: NormalizedMessage[]): NormalizedM
     const prev = out[out.length - 1];
     if (prev) {
       const streamsIntoEcho = prev.kind === 'stream_delta' && m.kind === 'text' && m.role === 'assistant';
+      // The same pair with the sides swapped: a persisted echo that already
+      // landed, followed by the row still streaming the very segment it echoes.
+      // This is the direction merged order actually produces — see the sort in
+      // `computeMerged`, where the live row carries the newest flush time and so
+      // can only ever come second. Both sides are pinned to the shape that means
+      // one reply drawn twice: `m` is a live row (`updateStreaming` is the only
+      // minter of `stream_delta`), and `prev` is not, because a live id on the
+      // left is a previous turn that settled in place — a different reply that
+      // merely reads the same, which must stay a row of its own.
+      const echoesIntoStream = prev.kind === 'text'
+        && prev.role === 'assistant'
+        && m.kind === 'stream_delta'
+        && isLiveRowId(m.id)
+        && !isLiveRowId(prev.id);
       const echoesSettled = prev.kind === 'text'
         && m.kind === 'text'
         && prev.role === 'assistant'
@@ -277,7 +291,7 @@ function dedupeAdjacentAssistantEchoes(merged: NormalizedMessage[]): NormalizedM
         return ps.length > 0 && ps === (m.content || '').trim();
       })();
 
-      if ((streamsIntoEcho || echoesSettled) && sameReply) {
+      if ((streamsIntoEcho || echoesIntoStream || echoesSettled) && sameReply) {
         // One reply drawn twice: the row this client streamed the turn into,
         // and the server's persisted echo of it. Which of the two survives is
         // not a detail — the transcript keys a row by the store id it carries
