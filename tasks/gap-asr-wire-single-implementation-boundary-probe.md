@@ -68,12 +68,12 @@ AC-129 自己的判据命令是 `node scripts/asr-single-implementation-check.mj
 $ node scripts/asr-single-implementation-check.mjs --landing --explain-scan ; echo $?
 asr-single-implementation-check root=…/gap-asr-wire-single-implementation-boundary-probe
 scan-globs=src/**/*.ts src/**/*.tsx server/**/*.ts server/**/*.js shared/**/*.ts
-scan-files=619
+scan-files=620
 scan-hit shared/asr/transcriptionWire.ts markers=endpoint-literal,multipart-file-field,multipart-model-field,parsed-text-field
 implementation path=…/shared/asr/transcriptionWire.ts realpath=…/shared/asr/transcriptionWire.ts markers=…
 consumer=frontend path=…/shared/asr/transcriptionWire.ts realpath=… imports=2
   site=src/modules/chat/hooks/useVoiceInput.ts:18 specifier=@shared/asr/transcriptionWire -> …
-  site=src/shared/api.ts:11 specifier=@shared/asr/transcriptionWire -> …
+  site=src/shared/api.ts:14 specifier=@shared/asr/transcriptionWire -> …
 consumer=server path=…/shared/asr/transcriptionWire.ts realpath=… imports=1
   site=server/modules/voice/voice.service.ts:14 specifier=../../../shared/asr/transcriptionWire.js -> …
 consumer=cli path=…/shared/asr/transcriptionWire.ts realpath=… imports=1
@@ -117,25 +117,46 @@ vitest 优先读 `vitest.config.ts`，不从 `vite.config.js` 继承任何东西
 
 AC4-2 / AC4-3 是本探针的承重点：只认 endpoint 字面量（或只认响应解析）的检查器在这两条上会保持绿。三条变体各自单独加入、单独判红、随后移除并复核恢复为绿 —— 免得一条用例的绿掩盖另一条的红。每条取假用例都先断言未变异的工装根为绿，故「红」不可能是恒红。
 
-**判据的机械承重点落在哪条 lane（runner 实测，非推断）**：AC3/AC4/AC5 的控制**不在** `scripts/test.sh` 的两条 lane 里。scoped 门对本任务读薄 —— `scripts/test.sh:112` 用 `grep -E '\.test\.[jt]sx?$'` 从 Touches 取测试文件，`.test.mjs` 的 `m` 不在 `[jt]` 内，故取到 0 个文件并走 `scripts/test.sh:114` 的薄路径；读数是 `no scoped test files for gap-asr-wire-single-implementation-boundary-probe (thin)` / `EXIT=0` / 260ms（`--allow-thin` 正是为此存在，见该文件 106 行的注释）。全量 suite 也不跑这条 lane：它的文件集是 `find server -name '*.test.ts' -o -name '*.test.js'`（`scripts/test.sh:482`）加一次 vitest（`CLIENT_FILES=__all__`，include 为 `src/**/*.test.ts(x)`）。`scripts/**/*.test.mjs` 由 `npm run test:scripts`（`node scripts/list-script-tests.mjs && node --test "scripts/**/*.test.mjs"`）执行：探针文件自身 4/4 pass，该 lane 全体 17/17 pass。**登记这条不是抱怨，是披露**：假形态控制是 AC3/4/5 的全部机械承重，读者应当知道它跑在哪条 lane，而不是从「scoped 门是绿的」推出「控制跑过了」。把 `.mjs` 接进 scoped 门的正则、或把 scripts lane 接进 suite，都超出本任务的写入面，故只登记不改。
+**判据的机械承重点落在哪条 lane（runner 实测，非推断）**：AC3/AC4/AC5 的控制**不在** `scripts/test.sh` 的两条 lane 里。scoped 门对本任务读薄 —— `scripts/test.sh:112` 用 `grep -E '\\.test\\.[jt]sx?$'` 从 Touches 取测试文件，`.test.mjs` 的 `m` 不在 `[jt]` 内，故取到 0 个文件并走 `scripts/test.sh:114` 的薄路径；读数是 `no scoped test files for gap-asr-wire-single-implementation-boundary-probe (thin)` / `EXIT=0`。全量 suite 也不跑这条 lane：它的文件集是 `find server -name '*.test.ts' -o -name '*.test.js'`（`scripts/test.sh:482`）加一次 vitest（`CLIENT_FILES=__all__`，include 为 `src/**/*.test.ts(x)`）。`scripts/**/*.test.mjs` 由 `npm run test:scripts`（`node scripts/list-script-tests.mjs && node --test "scripts/**/*.test.mjs"`）执行：探针文件自身 4/4 pass，该 lane 全体 26/26 pass。**登记这条不是抱怨，是披露**：假形态控制是 AC3/4/5 的全部机械承重，读者应当知道它跑在哪条 lane，而不是从「scoped 门是绿的」推出「控制跑过了」。把 `.mjs` 接进 scoped 门的正则、或把 scripts lane 接进 suite，都超出本任务的写入面，故只登记不改。
 
 **AC6 判据命令的一处收窄（口径，非不变式）。** 原文命令去重后是 **3** 个文件，不是 1；多出的两个是**测试**：`server/modules/voice/tests/voice.service.test.ts:49`、`src/shared/tests/voiceConfigHydration.test.ts:152,162`，各自独立钉住 `…/v1/audio/transcriptions` 这个字面量。这两个字面量正是 AC9「既有读数不变」的**独立性**来源：若改成从实现派生（拼 `TRANSCRIPTION_PATH`），实现换了 URL 它们会跟着换，AC9 就变成空的。故按 AC6 自己的标题「唯一性（生产源）」把命令收窄为 `--exclude=*.test.ts`：生产源去重后 = 1（`shared/asr/transcriptionWire.ts:28`），且仍可红（把逻辑抄回 `src/shared/api.ts` 即 2，与 AC3 同形）。收窄的是取数口径，不是不变式。
+
+**第二轮：一次 suite 红的根因，与合并 develop 时的语义并集**（本任务交付时的最终树 = HEAD `a19a1e2d`，develop = `92a72b64`，`git merge-base --is-ancestor develop HEAD` 成立）。
+
+第一次 fan-in 的 suite 红在两个文件上：`src/modules/chat/tests/voiceClipPlayback.test.tsx`（17 条里 2 条红）与 `src/modules/chat/tests/voiceTranscriptRepair.test.tsx`（2 条全红），判词都指向「composer 没收到转写文本」。根因不是这两条测试，是**这次重构改掉了直连路径读取响应体的方式**。本分支早先的形态是 `parseTranscriptionResponse(await res.text(), 'strict')`，而这两条测试的 `transcribeVoice` 桩只实现了 `.json()`：`{ ok: true, json: async () => ({ text: … }) }`。`.text()` 不是函数 ⇒ 抛 ⇒ 落进 hook 自己的 catch ⇒ 转写永远到不了 composer。
+
+这个形态之所以看起来无害，是因为它对**真** `Response` 逐字等价 —— 一行 `await res.text()` 加 `JSON.parse` 与 `await res.json()` 对真实响应给出同一结果。判据来自 develop 上并发落地的 `a87ba539`（AC-130 的前置）：它把直连路径的解析**具名**成 `src/shared/api.ts` 的 `parseTranscriptionResponse(response: Response)`，其体就是原本的内联表达式，且两处测试以 `parseTranscriptionResponse: actual.parseTranscriptionResponse` **真跑**它（注释原文："a second copy of the parse here would be a second copy of the thing under test"）。两条路径**原始**的读取方式本来就不一样：直连走 `json()`，代理走 `text()`（服务端先要把 `responseText` 交给自己的失败分支）。
+
+故修法是把**读取方式也一并参数化进唯一实现**：`parseTranscriptionResponse(response: Response, tolerance)` —— `strict` 走 `await response.json()`，`lenient` 走 `await response.text()` 再 `JSON.parse`。两条路径各自停在它一直用的那个调用上，谁都没有被「统一」成另一个的写法；这不是把 `res.text()` 换个写法，而是让这次重构**真的**不动线上行为。`src/shared/api.ts` 保留 develop 那个具名导出（AC-130 的 `experiments/voice-asr-parity/read-client.ts` 按名字驱动它，`scripts/asr-extraction-parity-check.mjs` 按 `export async function parseTranscriptionResponse` 定位 seam），体改为一行委派给唯一实现 —— 这就是与 develop 的**语义并集**：develop 的「给直连路径的解析一个名字」与本任务的「实现只有一份」同时成立，而不是二选一。合并冲突只有 hook 一处（import 段被 git 自动并成两行同名 import，也是错的，一并收成一行）。
+
+一处只有这一轮才会暴露的实测：`Response.json()` 在根 tsconfig 的 DOM lib 下是 `any`，在 `@types/node` 下是 `unknown`，故 `const data: { … } | null = await response.json()` 在 `server/tsconfig.json` 下报 `TS2322`。改成对结果做断言（`as { text?: unknown } | null`）后两套配置同时编译 —— AC7 的「同一份实现被两套配置同时编译」不只是登记，是真的会咬人。
 
 **纯重构的逐字核对**（回应 DoD 的「不改线上行为」）：
 
 - 直连 URL 拼接：旧 `voiceDirectUrl(baseUrl, '/audio/transcriptions')` = `` `${baseUrl.replace(/\/$/, '')}${path}` ``，新的 `transcriptionEndpoint` 逐字相同（`voiceDirectUrl` 保留给同文件的 TTS 路径，不在本任务边界内）。
 - 代理 URL 拼接：旧为 `` `${config.baseUrl}/audio/transcriptions` ``（不裁尾斜杠），新为 `transcriptionEndpoint`。可达状态下逐字相同：`config.baseUrl` 只能来自 `voice.module.ts` 的 `(process.env.VOICE_API_BASE_URL || '').replace(/\/$/, '')`，且 `resolveVoiceConfig` 不允许请求覆盖 baseUrl。
-- 直连响应：旧 `String(data?.text || '')`（`data = await res.json()`，非 JSON 抛），新 `parseTranscriptionResponse(res.text(), 'strict')` = `String(JSON.parse(text)?.text || '')` —— 表达式逐字相同，容忍度相同。
-- 代理响应：旧 `try { JSON.parse; typeof parsed.text === 'string' ? parsed.text : '' } catch { responseText }`，新的 lenient 分支逐字相同（含 `JSON.parse('null')` 时读 `.text` 抛 TypeError 而落回原文这一历史行为）。
+- 直连响应：旧 `const data = await res.json(); String(data?.text || '')`，新的 strict 分支逐字相同（含 `data` 为 `null` 时走 `?.` 这一历史行为）。
+- 代理响应：旧 `const responseText = await response.text();` 加 `try { JSON.parse; typeof parsed.text === 'string' ? parsed.text : '' } catch { responseText }`，新的 lenient 分支逐字相同（含 `JSON.parse('null')` 时读 `.text` 抛 TypeError 而落回原文这一历史行为）。服务端把 `response.text()` 移进了失败分支，两边都只读一次体。
 - multipart：字段名 `file` / `model`、Blob 容器、Authorization 头均未变。`server/modules/voice/voice.service.ts` 里留给 TTS 的本地 `authorizationHeader` 与本模块内的同名私有函数并存 —— TTS 不在 AC-129 的词内（ADR-004 决策 2 只覆盖转写线），刻意不动。
 
-**合并后的复核读数（本任务交付时的最终树）**：`git merge develop` 后 HEAD = `8b5b2f2d`（develop = `6d9c3dd3`，且 `git merge-base --is-ancestor develop HEAD` 成立）。十条 AC 在合并后的树上逐条重跑，读数与本文件所记逐条相同：AC1 / AC2 / AC3-5 / AC7 / AC8 / AC9a / AC9b 退出码 0（AC9b 报 `Test Files 2 passed (2)` / `Tests 25 passed (25)`），AC10 退出码 2 并打出用法行，AC6 生产源去重命中 1 行（`shared/asr/transcriptionWire.ts:28`）。随后 scoped 门重跑仍是薄/绿（260ms），键在 `develop=6d9c3dd3` 上的 scoped-gate 缓存已写入。
+**独立复核：AC-130 的逐字节基线**（不是本任务的判据，是一条顺手可跑的独立读数）。`node scripts/asr-extraction-parity-check.mjs` 用 `experiments/voice-asr-parity/` 的两个 reader 驱动**出货符号**（`transcribeVoice` / `parseTranscriptionResponse` / `createVoiceService`），与 develop 上记下的基线逐组比对：
 
-**接线之外的写入面**：新增 `vitest.config.ts` 一处别名登记（AC9 需要，见上）；落点判定后 Touches 里未落的那一支 `src/shared/asr/transcriptionWire.ts` 已移除 —— 写入面声明应当只声明真实写入面，未落的后备落点记在这里而不是留在声明里。
+```
+group inbound equal sha256=dc18ceac9e46f623c0eb7d4fe5616ead48864f4185eea6f8159335ca5016c871
+group direct-outbound equal sha256=6985b92a09881c3ff249aa14a35ccd06a71925ea1f5937691f223e344d834c87
+group proxy-outbound equal sha256=93899fb6cc81f87b52aa0e4d2ff6389ed1723974196c7c7b5ae3ecb43423c8fd
+group response-tolerance equal sha256=aa0189610da7bdd63ed65f6c436ee725426dc69d20c440943606584aa11026c2
+observed sha256=81f24ac8852349d3cefead3eb3d40dd461e6773d73778f8cbb48465afc7730a6
+verdict PASS
+```
+
+四组全部 `equal`，整体 `observed sha256` 与基线 sha256 逐字相同。这是「纯重构」最硬的一处外部证据：转写链两跳的请求字节、以及两条路径各自的响应容忍度，在被本任务改过之后与改之前**逐字节相同**。它同时也否证了本轮修法的一个可能误读 —— 把 strict 改成 `.json()` 并没有动直连路径的线上读数。
+
+**接线之外的写入面**：新增 `vitest.config.ts` 一处别名登记（AC9 需要，见上）；落点判定后 Touches 里未落的那一支 `src/shared/asr/transcriptionWire.ts` 已移除 —— 写入面声明应当只声明真实写入面，未落的后备落点记在这里而不是留在声明里。`src/shared/api.ts` 保留 develop 那个具名导出属于**合并并集**，不是新增写入面（该文件本来就已在 Touches 内）。
 
 **未覆盖项（如实登记，不在本任务词内）**：`experiments/` 与根级配置文件（`vite.config.js` / `vitest.config.ts` / `tsconfig.json` / `.oxlintrc.json`）都不在 `npm run lint` 的路径列表内，所以命令行入口与这几处别名登记本身没有任何 lint 读数；`experiments/voice-asr-cli/transcribe.ts` 还不在任何一条 tsconfig 的 `include` 内（由 `npx tsx` 直接执行），因此它也没有 typecheck 读数 —— AC10 给的是「真能加载」的运行读数。这是本仓库既有形态，扩 lint 路径列表 / tsconfig include 超出 AC-129 的词与写入面，故只登记不改。
 
-**后端/前端模块规范的适用说明**（AGENTS.md 要求）：本任务改动了 `server/` 与 `src/` 下的代码，两份 SKILL 均已加载。`server/modules/voice/voice.service.ts` 仍是「路由薄、服务承重」的既有形态，跨模块导入仍走 `@/shared/types.js` 桶，删除的是模块内私有 helper（无导出、只有一个消费者），未新建模块局部 `types.ts`/`utils.ts`。前端的「API 端点集中在 `src/shared/api.ts`」一条与 ADR-004 决策 2 相抵：端点必须被三套配置同时编译，而 `server/tsconfig.json` 明确 `exclude` 了 `../src`，所以这一份不能落在 `src/shared/api.ts`。解法是 AC-129 本身的词：`src/shared/api.ts` 仍是前端 API helper 的家（`transcribeVoice` 留在原处、只把线协议构造委派出去），端点定义收敛到唯一一份而不是散落 —— 与该条的意图同向。`useVoiceInput.ts` 只导入响应解析，不重定义任何端点细节。
+**后端/前端模块规范的适用说明**（AGENTS.md 要求）：本任务改动了 `server/` 与 `src/` 下的代码，两份 SKILL 均已加载。`server/modules/voice/voice.service.ts` 仍是「路由薄、服务承重」的既有形态，跨模块导入仍走 `@/shared/types.js` 桶，删除的是模块内私有 helper（无导出、只有一个消费者），未新建模块局部 `types.ts`/`utils.ts`。前端的「API 端点集中在 `src/shared/api.ts`」一条与 ADR-004 决策 2 相抵：端点必须被三套配置同时编译，而 `server/tsconfig.json` 明确 `exclude` 了 `../src`，所以这一份不能落在 `src/shared/api.ts`。解法是 AC-129 本身的词：`src/shared/api.ts` 仍是前端 API helper 的家（`transcribeVoice` 留在原处、只把线协议构造委派出去；`parseTranscriptionResponse` 也留在原处、只把解析委派出去），端点定义收敛到唯一一份而不是散落 —— 与该条的意图同向。`useVoiceInput.ts` 只导入响应解析，不重定义任何端点细节。
 
 ## DoD
 
@@ -145,7 +166,7 @@ AC4-2 / AC4-3 是本探针的承重点：只认 endpoint 字面量（或只认�
 (b) **唯一性扫描不是空读数** —— 对「工装里复制一份算法」必红（AC4），对「什么都没有」的工装根同样必红（AC5）；空 glob 退出 0 是本仓库已经付过代价的形态，不允许在这里复发；
 (c) **纯重构** —— typecheck / lint / 既有语音测试全绿（AC7/AC8/AC9），两条路径各自的字段名与容忍度差异都与改前一致。
 
-本任务**不证明**线上字节逐字节不变 —— 那要录两跳的基线，属 AC-130 的任务；本任务只保证重构不改变行为语义与容忍度分叉。若落 (b)，须如实登记「服务端能否消费该落点」的实测结论，以及它对 GOAL-008 缺口一／三（AC-133／AC-134）的后果。
+本任务**不证明**线上字节逐字节不变 —— 那要录两跳的基线，属 AC-130 的任务；本任务只保证重构不改变行为语义与容忍度分叉（AC-130 的基线在本次交付的树上独立跑为 `verdict PASS`，见 Evidence，但那是顺手复核而非本任务的判据）。若落 (b)，须如实登记「服务端能否消费该落点」的实测结论，以及它对 GOAL-008 缺口一／三（AC-133／AC-134）的后果。
 
 **若两条落点都无法让三处消费者解析到同一路径**：不得自行放宽判据（例如把消费者从三处改成两处、或把命令行从三处里去掉），必须停在 needs-human 并给出两次尝试的原始判词。
 
