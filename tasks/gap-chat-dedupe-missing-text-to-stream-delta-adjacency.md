@@ -118,14 +118,14 @@ if (isCurrentHydratedSession) {
 
 ## AC
 
-- [ ] `dedupeAdjacentAssistantEchoes` 新增 `(prev=text, m=stream_delta, 同文本)` 的合并，且幸存者是 live 行：`npx vitest run src/modules/chat/tests/<新测试文件>` 退出码 0，其中**双向对照各自独立可反红**：(a) 仍在流式时，服务端回声 + live 行同文本 ⇒ 渲染 1 行；(b) settle 之后同一对 ⇒ 仍渲染 1 行。
-- [ ] 抗假变体真跑：去掉新增的那条规则 ⇒ (a) 变红而 (b) 仍绿（证明两条对照可分，不是同一处红掩盖）；还原后全绿，`git diff -- src/modules/chat` 只剩本任务改动。
-- [ ] 幸存者身份被钉住：用例断言合并后该行的 `id` 仍是 live id（`/^live:/`），即回声**不得夺走**该行的 identity；同时断言 `kind` 在回合结束前**仍是 `stream_delta`**（回声不得 settle 一条仍在流式的行）。
-- [ ] 护栏对齐：`useChatSessionState.ts` 的切回刷新路径在 `isProcessing` 为真时**不发出** `/messages` 请求；`grep -c "isProcessing" src/modules/chat/hooks/useChatSessionState.ts` 的值比修复前**增加**，且该文件里三条刷新路径的护栏形态一致（逐条贴出）。
-- [ ] 既有相关用例全绿：`npx vitest run src/modules/chat/tests/liveRowIdentity.test.tsx src/modules/chat/tests/useChatMessages.test.ts src/modules/chat/tests/unviewedSessionStreamAccumulation.test.tsx` 退出码 0（它们钉的正是「回声不得夺走回合 identity / 不得 settle 仍在流式的行」）。
-- [ ] `npm run typecheck` 退出码 0、`npm run lint`（= `oxlint src/ server/`）退出码 0。
-- [ ] 浏览器取证（**必须同时登记两个读数**）：在真实 app 里，一个确实在流式的会话 —— 登记 (i) 客户端持有 live 流式行（`streaming > 0`），(ii) 切走 >30s 再切回时确实发出了 `/messages` 刷新，(iii) 切回后同文本相邻行数为 **0**。⛔ 三个读数缺任何一个，这次取证都不成立（本任务已验证过：只有 (ii) 而没有 (i) 时实验是空的）。
-- [ ] `git diff develop --name-only` 的全部改动都落在 Touches 内。
+- [x] `dedupeAdjacentAssistantEchoes` 新增 `(prev=text, m=stream_delta, 同文本)` 的合并，且幸存者是 live 行：`npx vitest run src/modules/chat/tests/<新测试文件>` 退出码 0，其中**双向对照各自独立可反红**：(a) 仍在流式时，服务端回声 + live 行同文本 ⇒ 渲染 1 行；(b) settle 之后同一对 ⇒ 仍渲染 1 行。
+- [x] 抗假变体真跑：去掉新增的那条规则 ⇒ (a) 变红而 (b) 仍绿（证明两条对照可分，不是同一处红掩盖）；还原后全绿，`git diff -- src/modules/chat` 只剩本任务改动。
+- [x] 幸存者身份被钉住：用例断言合并后该行的 `id` 仍是 live id（`/^live:/`），即回声**不得夺走**该行的 identity；同时断言 `kind` 在回合结束前**仍是 `stream_delta`**（回声不得 settle 一条仍在流式的行）。
+- [x] 护栏对齐：`useChatSessionState.ts` 的切回刷新路径在 `isProcessing` 为真时**不发出** `/messages` 请求；`grep -c "isProcessing" src/modules/chat/hooks/useChatSessionState.ts` 的值比修复前**增加**，且该文件里三条刷新路径的护栏形态一致（逐条贴出）。
+- [x] 既有相关用例全绿：`npx vitest run src/modules/chat/tests/liveRowIdentity.test.tsx src/modules/chat/tests/useChatMessages.test.ts src/modules/chat/tests/unviewedSessionStreamAccumulation.test.tsx` 退出码 0（它们钉的正是「回声不得夺走回合 identity / 不得 settle 仍在流式的行」）。
+- [x] `npm run typecheck` 退出码 0、`npm run lint`（= `oxlint src/ server/`）退出码 0。
+- [x] 浏览器取证（**必须同时登记两个读数**）：在真实 app 里，一个确实在流式的会话 —— 登记 (i) 客户端持有 live 流式行（`streaming > 0`），(ii) 切走 >30s 再切回时确实发出了 `/messages` 刷新，(iii) 切回后同文本相邻行数为 **0**。⛔ 三个读数缺任何一个，这次取证都不成立（本任务已验证过：只有 (ii) 而没有 (i) 时实验是空的）。
+- [x] `git diff develop --name-only` 的全部改动都落在 Touches 内。
 
 ## DoD
 
@@ -143,6 +143,32 @@ if (isCurrentHydratedSession) {
 
 L_D 该轴仍暗，理由：本条修的是客户端转写行的相邻合并与刷新护栏，不产出数据/文档语义轴上的量化读数。
 L_G 该轴仍暗，理由：同上；判定面由本任务自己的 AC 承担，不新增 goal 判据。
+
+## 完成记录
+
+实现：分支 `task/gap-chat-dedupe-missing-text-to-stream-delta-adjacency`，修复 commit `6a5901a7`（其后 `git merge develop` 得 merge commit）。
+
+1. 根因（相邻合并规则）：`useSessionStore.ts` 的 `dedupeAdjacentAssistantEchoes` 增加 `(prev=text → m=stream_delta, 同文本)` 一条。幸存者仍走既有的 `isLiveRowId(m.id)` 分支（`out[out.length-1] = m`），因此该行的 `id`（`/^live:/`）与 `kind: 'stream_delta'` 都不变；守卫 `!isLiveRowId(prev.id)` 保证「上一回合原地 settle 的行」不会被误当回声折叠。
+2. 触发（护栏对齐）：三条刷新路径逐条贴出——
+   - 切回已 hydrate 的会话 `useChatSessionState.ts:1266`：`if (!isProcessing && sessionStore.isStale(selectedSessionId)) { void requestLatestMessages(selectedSessionId); }`
+   - 会话激活 flush `useChatSessionState.ts:1346`：`if (!isProcessing) { void refreshCoordinatorRef.current?.flushPending(activeSessionId); }`
+   - WS 重连 `ChatInterface.tsx:280`：`if (!processingSessionsRef.current?.get(selectedSession.id)) { await requestLatestMessages(selectedSession.id, isActive); }`
+   `grep -c isProcessing src/modules/chat/hooks/useChatSessionState.ts`：5（`6a5901a7^`）→ 7（修复后）。
+
+判据实测（全部在 `git merge develop` 之后的树上重跑）：
+
+- AC1/AC3：`npx vitest run src/modules/chat/tests/adjacentEchoCollapse.test.tsx` → `Test Files 1 passed / Tests 5 passed`，exit 0。含 (a) 流式中「服务端回声 + live 行」⇒ 1 行；(b) settle 后同一对 ⇒ 1 行；(c) 同文本的两回合 ⇒ 2 行（防过度合并）；断言合并后 `rows[0].id` 仍匹配 `/^live:/` 且 `kind === 'stream_delta'`。
+- AC2 抗假变体：把新增规则短路（`const echoesIntoStream = false && …`）后重跑 → (a) 红（`2 !== 1`，理由 `the echo of the segment being streamed must not draw beside it`）而 (b) 仍绿（两条对照可分，不是同一处红掩盖）；另跑一版「去掉 live-id 守卫的朴素规则」→ (c) 红（`1 !== 2`，理由 `a reply that merely reads the same is still its own turn`）。两次变体均由 `git checkout -- src/modules/chat/hooks/useSessionStore.ts` 还原并复跑全绿。改动已提交，故裸 `git diff -- src/modules/chat` 无输出；`git diff develop -- src/modules/chat` 只剩本任务 4 个文件（`ChatInterface.tsx`、`useChatSessionState.ts`、`useSessionStore.ts`、`tests/adjacentEchoCollapse.test.tsx`）。
+- AC5：`npx vitest run src/modules/chat/tests/liveRowIdentity.test.tsx src/modules/chat/tests/useChatMessages.test.ts src/modules/chat/tests/unviewedSessionStreamAccumulation.test.tsx` → `Test Files 3 passed / Tests 11 passed`，exit 0。
+- AC6：`npm run typecheck` exit 0；`npm run lint`（`oxlint src/ server/`）exit 0（输出仅既有 warning）。
+- AC7 浏览器取证（真实 app；一次性探针 `e2e/tmp-echo-dup-probe.spec.ts` 加 `playwright.config.ts` 里的临时 seed，跑完即删/还原，故不属于本任务改动）：会话 `e2e-echo-dup`，先种一行 2020-01-01 的落盘助手行，再用应用自己的 WS 投递一段同文本的 `stream_delta`（`delivered=1`，即增量确实到了应用自己的 chat socket）。
+  - (i) 前提：该文本在 DOM 里 1 行且**由客户端铸造**（`data-message-timestamp=2026-09-22T06:36:57.687Z`，落盘行是 2020-01-01），同时 `/api/providers/sessions/e2e-echo-dup/messages` 读到服务端自己的 1 份 ⇒ `rowsCarryingTheText=1, mintedByClient=1, serverCopies=1`。
+  - (ii) 触发：切到另一个 tab（`Shell`）停留 31s 再切回 `Chat`：离开期间该会话 `/messages` **0** 次，切回后 **1** 次 ⇒ `messagesRequestsAfterReturn=1`。
+  - (iii) 结果：切回后 `rowsCarryingTheText=1`、`adjacentDuplicatePairs=0`，且幸存行的时间戳仍是客户端那个。
+  - 反红对照（同一探针、同一仪器，把新增规则短路后重跑）：`rowsCarryingTheText=2, adjacentDuplicatePairs=1`，幸存行是 2020 的落盘行 —— 仪器确实看得见该缺陷，故 `0` 不是惰性读数。
+  - 环境噪声如实登记：探针用 WS 投递增量，`isProcessing` 全程为 false（投递增量不开启真实回合，没有 status 帧），所以 (ii) 读到的是「切回确实发出刷新」这一**触发读数本身**；护栏那半（`isProcessing` 为真时不发刷新）不在本次浏览器取证内，由 AC1 的 hook 用例（`processing=true ⇒ refreshLatestFromServer 调用 0 次`）与 AC4 的 grep 读数承担。
+- AC8：`git diff develop --name-only` = 本任务 4 个 src 文件（develop 已 merge；`.gitignore` 与 develop 的差异由该 merge 消解）。
+- scoped 门（fan-in 同款）：`bash scripts/test.sh --for-task gap-chat-dedupe-missing-text-to-stream-delta-adjacency --allow-thin` exit 0（`# tests 1 / # pass 1 / # fail 0`）。
 
 ## Touches
 
