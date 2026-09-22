@@ -57,6 +57,7 @@
     "lint:server": "oxlint server/",
     "lint:client": "oxlint src/",
     "lint:scripts": "oxlint scripts/",
+    "check:asr-second-adapter": "node scripts/asr-second-adapter-check.mjs",
     "lint:fix": "oxlint src/ server/ scripts/ shared/ --fix",
     "start": "npm run build && npm run server",
     "release": "./release.sh",

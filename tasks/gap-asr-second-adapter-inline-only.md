@@ -2,7 +2,7 @@
 id: gap-asr-second-adapter-inline-only
 title: 第二个适配器（多模态服务，仅内联）：超限返回 OVERSIZE 且零请求、预算按整个请求计、honors.prompt=false
   时不发提示字段（AC-132）
-status: ready
+status: done
 labels:
   - gap
 parent: null
