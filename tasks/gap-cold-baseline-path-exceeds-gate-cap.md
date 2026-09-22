@@ -2,7 +2,7 @@
 id: gap-cold-baseline-path-exceeds-gate-cap
 title: AC-103 判据的冷路径装不进 gate 的 60000ms 上限：无基线可复用时必 exit 3，而 gate 把 exit 3 记成
   verdict=fail ⇒ 判据/测试文件每变一次就翻红一次
-status: todo
+status: ready
 labels:
   - gap
   - defect
