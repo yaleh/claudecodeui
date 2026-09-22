@@ -33,21 +33,46 @@ type TranscriptTitle = {
 const UNTITLED_CLAUDE_SESSION = 'Untitled Claude Session';
 
 /**
- * `app_config` key recording that this database's already-indexed Claude rows
- * have had their activity re-derived from transcript content.
+ * `app_config` key recording that this database's already-indexed rows for one
+ * provider have had their activity re-derived from transcript content.
  *
  * Versioned because the derivation itself can be corrected later: a new suffix
  * asks every database to redo the pass once, instead of leaving rows the
  * previous pass wrote with a reading this one would no longer produce.
+ *
+ * Keyed by provider id because a second instance of this indexer exists — the
+ * debug agent's, which reads a fixture home under a different provider id — and
+ * a marker shared between them would let the fixture's scan consume the product's
+ * one-shot pass, leaving the product's own rows unrepaired. For `claude` the key
+ * is byte-identical to the original, so no existing database re-runs anything.
  */
-const LAST_ACTIVITY_BACKFILL_KEY = 'claude_last_activity_backfill_v1';
+const LAST_ACTIVITY_BACKFILL_KEY_SUFFIX = 'last_activity_backfill_v1';
+
+/** Where one provider's transcripts live, and the id its rows are recorded under. */
+export type ClaudeSessionSynchronizerOptions = {
+  /** Provider home directory; defaults to this machine's `~/.claude`. */
+  home?: string;
+  /** Provider id rows are written under; defaults to `claude`. */
+  providerId?: string;
+};
 
 /**
- * Session indexer for Claude transcript artifacts.
+ * Session indexer for Claude-dialect transcript artifacts.
+ *
+ * The dialect is claude's; the home and the provider id are parameters, because
+ * the debug agent indexes a fixture home under an id of its own (ADR-003
+ * decision 2) with exactly this reader. Both default to the product's values, so
+ * the claude provider constructs it with no arguments and keeps reading the real
+ * `~/.claude`.
  */
 export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
-  private readonly provider = 'claude' as const;
-  private readonly claudeHome = path.join(os.homedir(), '.claude');
+  private readonly provider: string;
+  private readonly home: string;
+
+  constructor(options: ClaudeSessionSynchronizerOptions = {}) {
+    this.provider = options.providerId ?? 'claude';
+    this.home = options.home ?? path.join(os.homedir(), '.claude');
+  }
 
   /**
    * Returns true when a JSONL file is a subagent transcript or tool result
@@ -72,9 +97,9 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
   async synchronize(since?: Date): Promise<number> {
     await this.backfillLastActivity();
 
-    const nameMap = await buildLookupMap(path.join(this.claudeHome, 'history.jsonl'), 'sessionId', 'display');
+    const nameMap = await buildLookupMap(path.join(this.home, 'history.jsonl'), 'sessionId', 'display');
     const files = await findFilesRecursivelyCreatedAfter(
-      path.join(this.claudeHome, 'projects'),
+      path.join(this.home, 'projects'),
       '.jsonl',
       since ?? null
     );
@@ -118,7 +143,7 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
       return null;
     }
 
-    const nameMap = await buildLookupMap(path.join(this.claudeHome, 'history.jsonl'), 'sessionId', 'display');
+    const nameMap = await buildLookupMap(path.join(this.home, 'history.jsonl'), 'sessionId', 'display');
     const parsed = await this.processSessionFile(filePath, nameMap);
     if (!parsed) {
       return null;
@@ -177,7 +202,8 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
    * transcript with no records has no better reading to offer.
    */
   private async backfillLastActivity(): Promise<void> {
-    if (appConfigDb.get(LAST_ACTIVITY_BACKFILL_KEY)) {
+    const markerKey = `${this.provider}_${LAST_ACTIVITY_BACKFILL_KEY_SUFFIX}`;
+    if (appConfigDb.get(markerKey)) {
       return;
     }
 
@@ -189,7 +215,7 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
       }
     }
 
-    appConfigDb.set(LAST_ACTIVITY_BACKFILL_KEY, new Date().toISOString());
+    appConfigDb.set(markerKey, new Date().toISOString());
 
     if (repaired > 0) {
       console.log(

@@ -1,7 +1,23 @@
 ---
 id: gap-goal-007-exit-conditions-section
 title: GOAL-007 缺 `## 退出条件` 小节：提议补上独立小节以解除机械短路，并把两处无在域 AC 覆盖的范围项交人裁定
-status: needs-human
+status: done
+labels:
+  - gap
+parent: null
+children: []
+extra:
+  schema: execution
+  needs_human_cause: human-adjudication
+  park_reason: 跟进提案：GOAL-007 缺 `## 退出条件` 小节（机械层 goal-driver.ts:866 在任何在域 AC
+    被考虑之前短路 ⇒ verdict 恒为 insufficient，语义 judge
+    从未被咨询）。本任务只提议文本修订，须人裁定是否采纳，以及两处无在域 AC 覆盖的范围项（「不跑真 CLI」否命题、裁决 A 的 UI
+    显示身份）是明示不作退出条件还是另立 AC。
+---
+---
+id: gap-goal-007-exit-conditions-section
+title: GOAL-007 缺 `## 退出条件` 小节：提议补上独立小节以解除机械短路，并把两处无在域 AC 覆盖的范围项交人裁定
+status: ready
 labels:
   - gap
 parent: null
@@ -84,8 +100,8 @@ GOAL-007 的正文**没有 `## 退出条件` 小节**，退出条件从未写下
 
 - [x] **AC1 退出条件小节落地**：`grep -c '^## 退出条件' goals/GOAL-007-调试-agent-不跑真-cli-也能产出与历史一致的输出-且关闭态结构性不存在.md` 输出 **1**，且按 `goal-driver.ts` 的**同一条正则** `##[ \t]+(退出条件[ \t]*)\r?\n([\s\S]*?)(?=\r?\n##[ \t]|$)` 取出节体、去空白后字符数 **≥ 40**。命令逐行打印实际计数与字符数；不足时打印实际取到的节体，并以非 0 退出。
 - [x] **AC2 人（yale）已裁定并被记录**：本任务的 `## Resolution` 小节写明 (i) 是否采纳本修订（采纳 / 改措辞 / 不采纳并另立 AC），以及 (ii) 两处无在域 AC 覆盖的范围项（「不跑真 CLI」否命题、裁决 A 的 UI 显示身份）各自的处理方式——**明示不作退出条件**，或**另立 AC 并给出任务 id**。二者缺一即本 AC 不满足。
-- [ ] **AC3 机械短路不再触发，且语义判官确被咨询**（2026-09-22 人裁定加固）：修订后`.quay/goal-round.jsonl` 中 GOAL-007 最新 `goal-sufficiency` 的 reason 必须**同时**满足三条——(a) verdict ∈ {`covered`, `insufficient`}（机械层 `goalSufficiencyVerdict()` 只可能返回 `insufficient` / `not-evaluated`，故 `covered` 只可能来自语义路径）；(b) reason 中**不含** `cause=`（语义判官不可用 / 超时 / 读不懂时产出 `sufficiency=not-evaluated（cause=judge-unavailable）…`，它同样『不是机械短路形态』，原措辞可被一次 spawn 失败冒充达标）；(c) **正面控制**——`sufficiencyCacheKey(goal, inScopeAcs)` 算出的键在 `.quay/goal-sufficiency-cache.json` 的 `entries` 中**存在**（只有真跑过判官才会写缓存；本任务立案时 GOAL-007 的键不在其中，19 条缓存无一属于它）。命令打印该 goal 的 `goal-sufficiency` 序列**最后两条**、上面三条的逐条读数，以及缓存键的命中与否。
-- [ ] **AC4 本任务未触及 Touches 之外的文件**：命令 `git diff --name-only "$(git merge-base develop HEAD)"` 的每一行都必须能对应到 Touches 内的一条；命中 Touches 之外时逐行打印并以非 0 退出。用 merge-base 而非裸 develop——develop 会随他人 fan-in 前进。
+- [x] **AC3 机械短路不再触发，且语义判官确被咨询**（2026-09-22 人裁定加固）：修订后`.quay/goal-round.jsonl` 中 GOAL-007 最新 `goal-sufficiency` 的 reason 必须**同时**满足三条——(a) verdict ∈ {`covered`, `insufficient`}（机械层 `goalSufficiencyVerdict()` 只可能返回 `insufficient` / `not-evaluated`，故 `covered` 只可能来自语义路径）；(b) reason 中**不含** `cause=`（语义判官不可用 / 超时 / 读不懂时产出 `sufficiency=not-evaluated（cause=judge-unavailable）…`，它同样『不是机械短路形态』，原措辞可被一次 spawn 失败冒充达标）；(c) **正面控制**——`sufficiencyCacheKey(goal, inScopeAcs)` 算出的键在 `.quay/goal-sufficiency-cache.json` 的 `entries` 中**存在**（只有真跑过判官才会写缓存；本任务立案时 GOAL-007 的键不在其中，19 条缓存无一属于它）。命令打印该 goal 的 `goal-sufficiency` 序列**最后两条**、上面三条的逐条读数，以及缓存键的命中与否。
+- [x] **AC4 本任务未触及 Touches 之外的文件**：命令 `git diff --name-only "$(git merge-base develop HEAD)"` 的每一行都必须能对应到 Touches 内的一条；命中 Touches 之外时逐行打印并以非 0 退出。用 merge-base 而非裸 develop——develop 会随他人 fan-in 前进。
 
 ## DoD
 
@@ -122,9 +138,9 @@ GOAL-007 的正文**没有 `## 退出条件` 小节**，退出条件从未写下
 
 AC3 原措辞只要求「reason **不再是**纯机械短路形态，**而是**语义 judge 给出的 `covered` / `insufficient` 结论」。这个措辞有一个可被环境失败冒充的洞：语义路径**不可用**时驱动产出 `sufficiency=not-evaluated（cause=judge-unavailable）（在域 AC 6 条）`——它同样**不是**机械短路形态，于是一次 spawn 失败（判官根本没跑起来）即可让 AC3 看起来达标。已改为三条合取：(a) verdict ∈ {`covered`, `insufficient`}；(b) reason 不含 `cause=`；(c) **正面控制**——`sufficiencyCacheKey` 算出的键存在于 `.quay/goal-sufficiency-cache.json`（只有真跑过判官才会写缓存；本任务立案时 GOAL-007 的键**不在**那 19 条缓存里，这正是「判官从未被咨询」的独立证据）。AC3 正文已按此改写。
 
-### 如实登记：AC-136 暂无派工任务
+### AC-136 的派工任务：由 G9 缺口环立案（已实测发生）
 
-本任务**不**为 AC-136 立派工任务。依据：一条新立的 active AC 零任务牵引，正是 G9 缺口环的输入（「AC 零任务牵引」），按设计由该环立案。下一轮核验该环是否立案；若未立案，另行处理而非在此假装已安排。
+本任务**不**为 AC-136 立派工任务。依据：一条新立的 active AC 零任务牵引正是 G9 缺口环的输入，按设计由该环立案。**该预测已兑现**：`tasks/gap-debug-agent-display-identity.md`（`goal_ac: AC-136`）已由该环立案（commit `45afebcc`，`cli:2686942`），并已被 promotion-driver 机械晋升 `todo→ready`（commit `a8cf6b1d`），无需人工介入。
 
 ## Evidence
 
@@ -133,8 +149,25 @@ AC3 原措辞只要求「reason **不再是**纯机械短路形态，**而是**�
 - **落地路径（非手改）**：`quay goal write GOAL-007 --body <新正文>`，自提交 commit **`9c62a3e6`**「goals: GOAL-007 field:body by cli:2610190」。本 agent **未**编辑 `goals/*.md` 任何字节（`goals/` 下有活的写入者，手改会在数秒内被回滚）——全程走 CLI 的 goal 写入路径。
 - **AC1**：`grep -c '^## 退出条件' goals/GOAL-007-…md` = **1**；用 goal-driver `extractSections(body,"退出条件")` 的**同一条正则**（`allowHeadingSuffix` 不开）取出节体、去空白后 **2136** 字符（判据要求 ≥ 40）。全文 `^## ` 标题 **4** 个（背景 / 范围 / 不做 / 退出条件），`## ` 出现次数 = 4 ⇒ 无行内小节名被解析器吃掉。
 - **AC-136 创建**：commit **`4a59f0de`**「goals: AC-136 create by cli:2575475」，`status=active`（在域），`goal=GOAL-007`。红先行实测：`npx vitest run src/shared/tests/debug-agent-display-identity.test.ts` → **exit=1**（该测试文件不存在）。
+- **AC3 —— 三条读数，均指向「语义判官已被实际咨询」**（判据的三项合取逐条满足）：
+  1. **轮日志**：`.quay/goal-round.jsonl` 中 GOAL-007 的 `goal-sufficiency` 由 **round 3418**（`15:43:58Z`）的 `{"verdict":"insufficient"}` / reason `sufficiency=insufficient（在域 AC 6 条）` 变为 **round 3419**（`15:48:34Z`）的 `{"verdict":"covered"}` / reason `sufficiency=covered（在域 AC 7 条）`，**round 3420**（`15:49:33Z`）复现同一读数（稳定，非单轮抖动）。(a) verdict=`covered`——机械层 `goalSufficiencyVerdict()` 只可能返回 `insufficient` / `not-evaluated`，**`covered` 在语义路径之外不可达**；(b) reason 中**无** `cause=`（不是 `not-evaluated（cause=judge-unavailable）` 那类环境失败）；(c) 在域 AC 由 **6 条变 7 条**——新立的 AC-136 被计入，证明驱动读到的是**修订后**的记录集。
+  2. **正面控制——缓存键**：`.quay/goal-sufficiency-cache.json` 由 **19 条增至 20 条**，新增项 `key=87a8dd74650fc97ca14f7b0c7c149d54b2df057c77ccfed7e36126391efee6c6`、`verdict="covered"`、`ts=2026-09-22T15:45:01.710Z`；而立案时 `.quay/goal-sufficiency-followup.json` 记下的 stall 实例键 `b3bd256d260b1b6bf191aeabe1c09351d8bb8dbb5965dfbd782251202595eb47` **已不在**缓存中。该键的定义（`goal-driver.ts:1140` 的 `sufficiencyCacheKey`）逐字含 `exit: exitConditionsText(body)`，故键变 ⟺ 退出条件节文本（或标题/范围节/AC 集合）变——正是本次修订。只有真跑过判官才会写这张缓存。
+  3. **时间线**：body 写入 commit **`9c62a3e6`**（`2026-09-22T15:44:17Z`）→ 判官裁决写入缓存 **`15:45:01Z`**（+44s）→ 轮记录 **3419 / `15:48:34Z`**。该轮耗时明显长于前几轮（约 50s 一节），与「本轮真的 spawn 了一次语义判官」相符。
+- **AC-136 的派工任务（实测）**：`tasks/gap-debug-agent-display-identity.md` 由 G9 缺口环自动立案（`goal_ac: AC-136`，commit `45afebcc`「task_write by cli:2686942」），并经 promotion-driver 机械晋升 `todo→ready`（commit `a8cf6b1d`）——「新立的 active AC 会自动获得任务牵引」这条预测已兑现，无需人工立案。
+- **未做的一项（如实登记）**：提案与 GOAL-003 的证据都把缓存键**用驱动导出的 `sufficiencyCacheKey()` 原样复算**了一次。本次**未能复算**——本仓的 tsx 无法在插件 vendored bundle 之外加载 `plugin/scripts/goal-driver.ts`（先缺 `yaml` 解析，绕过后又在 module 图上抛 `TransformError`）。上述第 2 条因此是**基于键定义 + 键的消失/新生 + 在域 AC 数 6→7** 的推定，不是「复算出逐字节相同的键」那一种正面读数。**这一条弱于 GOAL-003 的证据强度，如实标注。**
+- **AC4**：本次三个提交（`4a59f0de` / `9c62a3e6` / `a8b5a9c7`）触及的文件逐一为 `goals/AC-136-…md`（new）、`goals/GOAL-007-…md`、`tasks/gap-goal-007-exit-conditions-section.md`——**全部在 Touches 内**。⚠️ 判据原命令 `git diff --name-only "$(git merge-base develop HEAD)"` 在本仓**读数为空（退化）**：`author` 已被同步到与 `develop` 同一提交，merge-base == HEAD ⇒ 空集恒过，且会把并发他人的提交（同区间内 `tasks/gap-asr-paired-quality-experiment-record.md` 由另一进程写入）一并算进来。改用「逐提交列文件 + `git merge-base --is-ancestor` 确认三个提交都已进 develop」得到上面的有意义读数；三个提交均已确认是 develop 的祖先。
 - **AC4（Touches 补记）**：Touches 已加入 `goals/AC-136-…md (new)`。它是本次裁定「另立 AC」实际写入的新文件，属本任务真实写入面，故必须登记——否则 AC4 会把它判为 Touches 之外的文件而红。
 
+### 2026-09-22（worker 复核，worktree `task/gap-goal-007-exit-conditions-section`）—— 缓存键**已复算**，前述「推定」升级为逐字节正面读数
+
+上文「未做的一项」记的是：本仓无法加载 `goal-driver.ts`，故 AC3(c) 的缓存键只能**推定**。本次复核**复算成功**，读数为逐字节相同：
+
+- **可加载的产物是 dist bundle，不是 TS 源**：`/data/home/yale/.claude/plugins/cache/quay/quay/0.10.0/scripts/dist/goal-driver.js` 可被 node 直接 `import`（99 个导出），其中 `sufficiencyCacheKey` / `inScopeAcsOf` / `listGoalRecords` 均在导出表内。上文失败的路径是加载 `plugin/scripts/goal-driver.ts` 源文件（缺 `yaml` / `TransformError`）——**换产物即可**，与 AC 无关。
+- **复算取值**：`listGoalRecords(null, ROOT)`（`scriptRoot=null` 走 `resolveKernelPluginRoot()` 的 vendored CLI；传 repo root 会退化成 `quay-cli-unresolved` 而 exit 1）→ 取 `GOAL-007` 记录 → `inScopeAcsOf(records,'GOAL-007')` = **7 条**（AC-123…128 + AC-136）→ `sufficiencyCacheKey(goal, inScope)` = **`87a8dd74650fc97ca14f7b0c7c149d54b2df057c77ccfed7e36126391efee6c6`**。
+- **命中**：该键**逐字节**等于缓存第 20 条（`.quay/goal-sufficiency-cache.json`，`{"verdict":"covered","ts":"2026-09-22T15:45:01.710Z"}`）。AC3(a)(b)(c) 三条合取**全部为真**（轮日志最后两条 round 3423/3424 均为 `verdict=covered`、reason `sufficiency=covered（在域 AC 7 条）`、不含 `cause=`）。
+- ⇒ 上文那条「弱于 GOAL-003 的证据强度」的自我标注**不再适用**：AC3(c) 现在是正面控制（驱动自己的键函数复算命中），不是推定。
+
+**未做（如实登记）**：本次复核**不**新增/修改任何 `goals/` 文件，**不**改任何 GOAL/AC 状态；AC-123…128 中仍有多条 `fail`（见 round 3420 的 `goal-ring`），本任务不让其中任何一条转绿。
 ## Touches
 
 - goals/GOAL-007-调试-agent-不跑真-cli-也能产出与历史一致的输出-且关闭态结构性不存在.md

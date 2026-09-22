@@ -214,10 +214,23 @@ export const normalizeProjectForSettings = (project: Project): SettingsProject =
   };
 };
 
-/** Display names for the providers a session row can belong to. */
-export const PROVIDER_LABELS: Record<LLMProvider, string> = {
+/**
+ * Display names for the providers a session row can belong to.
+ *
+ * The four product ids stay *required*, so renaming or adding one is still a
+ * compile error here, while the index signature admits an id the product's
+ * union deliberately does not carry (`LLMProvider` is what settings, model menus
+ * and compile-time exhaustive maps are written against). A session from such a
+ * provider must still render a real name: the row's provider slot is the only
+ * place a reader learns whose session they are looking at, and a missing entry
+ * would leave that slot showing a raw id.
+ */
+export type ProviderLabels = Record<LLMProvider, string> & Record<string, string>;
+
+export const PROVIDER_LABELS: ProviderLabels = {
   claude: 'Claude',
   codex: 'Codex',
   cursor: 'Cursor',
   opencode: 'OpenCode',
+  debug: 'Debug Agent',
 };

@@ -1,5 +1,7 @@
-import { DEBUG_AGENT_PROVIDER_ID, isDebugAgentEnabled } from '@/modules/debug-agent/index.js';
+import { createDebugAgentProvider, DEBUG_AGENT_PROVIDER_ID, isDebugAgentEnabled } from '@/modules/debug-agent/index.js';
 import { ClaudeProvider } from '@/modules/providers/list/claude/claude.provider.js';
+import { forwardNormalizedFrames } from '@/modules/providers/list/claude/claude-runtime.provider.js';
+import { ClaudeSessionSynchronizer } from '@/modules/providers/list/claude/claude-session-synchronizer.provider.js';
 import { CodexProvider } from '@/modules/providers/list/codex/codex.provider.js';
 import { CursorProvider } from '@/modules/providers/list/cursor/cursor.provider.js';
 import { OpenCodeProvider } from '@/modules/providers/list/opencode/opencode.provider.js';
@@ -57,11 +59,10 @@ export const providerRegistry = {
    * existed and was rejected on lookup would be distinguishable, and would put
    * the debug agent on a code path every user's request already traverses.
    *
-   * Callers must invoke this after module evaluation (from `server/index.ts` or
-   * from a construction site reached through it) rather than at the top level of
-   * a module this registry itself imports: the debug agent's provider file is
-   * reached through `@/modules/debug-agent/index.js`, so registering it from
-   * that file's module scope would close a cycle.
+   * Invoked from this file's own construction site, below. It cannot be invoked
+   * from the debug agent's module: this registry imports that module (for the id
+   * and the gate seam), so a registration written there would run while this file
+   * is still evaluating and would read a half-initialised registry.
    *
    * @returns whether the key is registered after the call.
    */
@@ -74,3 +75,30 @@ export const providerRegistry = {
     return true;
   },
 };
+
+/**
+ * The debug agent's provider, built once and registered under its runtime id.
+ *
+ * Registered here, at the registry's own construction site, and not from the
+ * debug agent's module: the import edge runs this way round (this file imports
+ * that module for the id and the gate seam), so a self-registration would close
+ * a cycle and read a half-evaluated binding.
+ *
+ * The gate decides whether anything exists. While it is closed the factory
+ * returns null and the key is never written, so `resolveProvider('debug')` fails
+ * exactly as a typo does — and nothing at all was constructed, rather than a
+ * provider with a plausible-looking fixture home that a later bug could reach.
+ *
+ * What is injected is the point of the shape: the product's own normalizer
+ * (`sessions`), its own frame forwarder, and an indexer pointed at the fixture
+ * home instead of the user's real transcripts.
+ */
+const debugAgentProvider = createDebugAgentProvider({
+  base: providers.claude,
+  forwardFrames: forwardNormalizedFrames,
+  createSessionSynchronizer: (options) => new ClaudeSessionSynchronizer(options),
+});
+
+if (debugAgentProvider) {
+  providerRegistry.registerDebugAgentProvider(debugAgentProvider);
+}

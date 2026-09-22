@@ -2,6 +2,7 @@
 id: gap-asr-extraction-parity-baseline
 title: 抽取实现后线上字节零变化：两跳 × 两条路径四组读数逐字节等于抽取前录制的基线（AC-130）
 status: ready
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -94,3 +95,15 @@ L_G 该轴仍暗，理由：本任务量的是「抽取前后字节相等」这�
 - scripts/asr-extraction-parity-check.test.mjs (new)
 - scripts/__fixtures__/asr-extraction-parity-baseline.json (new)
 - tasks/gap-asr-extraction-parity-baseline.md
+
+## Needs-Human
+
+**执行 2026-09-22T15:50:43.573Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=5540 server/modules/debug-agent/tests/debug-agent-gate.test.ts passed=false end_ms=1790092215314
+- run_id：wk-prod-anchor
+- session_id：a688f7bb-06e5-4f78-8e74-75f8d35bdefc
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-asr-extraction-parity-baseline~wk-prod-anchor~1790092126525-f66c65.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-asr-extraction-parity-baseline-wk-prod-anchor.log
