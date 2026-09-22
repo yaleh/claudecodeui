@@ -1036,14 +1036,17 @@ export async function readFileTimestamps(
  * A transcript ends with a run of bookkeeping records — `last-prompt`,
  * `cost-state`, `mode`, `permission-mode`, `atis-latch` — that carry no
  * `timestamp`, so the newest real activity can sit well behind the end of the
- * file. Measured over one machine's corpus (1184 transcripts): a 64 KiB window
- * answered 1129 of them, growing to 256 KiB answered 41 more, and 1 MiB left
- * only two ~700-byte files that record no activity at all. Starting small keeps
- * the common case to one 64 KiB read; the ceiling stops a pathological file
- * from turning a sidebar refresh into a whole-file read.
+ * file. Measured over one machine's corpus (1189 transcripts): a 64 KiB window
+ * answered 1144 of them, 256 KiB answered 37 more, and 512 KiB answered the
+ * last 6. The two that no window answers are ~700-byte files that record no
+ * activity at all, so nothing on that corpus asked to look further back than
+ * the ceiling. Starting small keeps the common case to one 64 KiB read; the
+ * ceiling stops a pathological file from turning a sidebar refresh into a
+ * whole-file read, and keeps one synchronizer pass over a large transcript
+ * inside the byte budget its callers are held to.
  */
 const TRANSCRIPT_ACTIVITY_INITIAL_WINDOW_BYTES = 64 * 1024;
-const TRANSCRIPT_ACTIVITY_MAX_WINDOW_BYTES = 1024 * 1024;
+const TRANSCRIPT_ACTIVITY_MAX_WINDOW_BYTES = 512 * 1024;
 
 /**
  * Reads the newest activity time a transcript's own content records.
@@ -1080,15 +1083,13 @@ export async function readTranscriptLastActivity(filePath: string): Promise<stri
       return null;
     }
 
-    let windowBytes = TRANSCRIPT_ACTIVITY_INITIAL_WINDOW_BYTES;
-    for (;;) {
-      const windowStart = Math.max(0, size - windowBytes);
-      const windowLength = size - windowStart;
-      const buffer = Buffer.allocUnsafe(windowLength);
-      const { bytesRead } = await handle.read(buffer, 0, windowLength, windowStart);
+    let windowBytes = Math.min(TRANSCRIPT_ACTIVITY_INITIAL_WINDOW_BYTES, size);
+    let windowStart = size - windowBytes;
+    let window = await readFileRange(handle, windowStart, windowBytes);
 
+    for (;;) {
       const timestamp = findLastRecordedTimestamp(
-        buffer.subarray(0, bytesRead).toString('utf8'),
+        window.toString('utf8'),
         await startsMidLine(handle, windowStart)
       );
       if (timestamp) {
@@ -1101,7 +1102,22 @@ export async function readTranscriptLastActivity(filePath: string): Promise<stri
         return null;
       }
 
-      windowBytes = Math.min(windowBytes * 4, TRANSCRIPT_ACTIVITY_MAX_WINDOW_BYTES);
+      // Widening reads only the bytes the window does not already hold: the
+      // newest activity usually sits in the first window, and a transcript that
+      // needs the ceiling should cost one read of the ceiling rather than the
+      // sum of every window on the way there.
+      const widenedBytes = Math.min(windowBytes * 4, TRANSCRIPT_ACTIVITY_MAX_WINDOW_BYTES, size);
+      const widenedStart = size - widenedBytes;
+      const prefix = await readFileRange(handle, widenedStart, windowStart - widenedStart);
+      if (prefix.length === 0) {
+        // The file shrank under the scan, so there is nothing older to read
+        // and the window that was already searched is all this file has.
+        return null;
+      }
+
+      window = Buffer.concat([prefix, window]);
+      windowStart -= prefix.length;
+      windowBytes = window.length;
     }
   } catch {
     return null;
@@ -1112,6 +1128,30 @@ export async function readTranscriptLastActivity(filePath: string): Promise<stri
       // A close failure cannot change the answer this helper already produced.
     }
   }
+}
+
+/**
+ * Reads up to `length` bytes at `offset`, returning fewer when the file ends.
+ *
+ * One `FileHandle.read` is allowed to return a short count — and does when
+ * another process rewrites or truncates a transcript mid-scan — so a caller
+ * cannot treat a single read as the whole range it asked for. Callers therefore
+ * advance their cursors by `buffer.length`, which keeps the buffer's start
+ * offset honest even when the read came up short.
+ */
+async function readFileRange(handle: FileHandle, offset: number, length: number): Promise<Buffer> {
+  const buffer = Buffer.allocUnsafe(length);
+  let filled = 0;
+
+  while (filled < length) {
+    const { bytesRead } = await handle.read(buffer, filled, length - filled, offset + filled);
+    if (bytesRead === 0) {
+      break;
+    }
+    filled += bytesRead;
+  }
+
+  return filled === length ? buffer : buffer.subarray(0, filled);
 }
 
 /**

@@ -143,11 +143,12 @@ test('reads a complete record that starts exactly at the window boundary', async
   // At the ceiling the window cannot widen any further, so a reader that drops
   // the window's first line whenever the read did not start at offset zero
   // answers null here — and sends the caller back to the file's mtime. The two
-  // records are sized so the file's last megabyte opens exactly on the line
-  // carrying the timestamp.
-  const windowCeiling = 1024 * 1024;
+  // records are sized so the file's last window opens exactly on the line
+  // carrying the timestamp, and the trailing run is long enough that the
+  // windows below the ceiling all open inside it.
+  const windowCeiling = 512 * 1024;
   const trailingLine = record({ type: 'cost-state', sessionId: 's', padding: 'z'.repeat(1200) });
-  const trailingCopies = 700;
+  const trailingCopies = 320;
   const trailingBytes = trailingCopies * (trailingLine.length + 1);
   const boundaryLine = padRecordToLength(
     { type: 'assistant', sessionId: 's', timestamp: '2026-09-01T00:00:00.000Z' },
