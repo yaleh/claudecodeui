@@ -43,16 +43,16 @@ Conversations（最近会话）列表更糟：它更宽，会把**完整的同�
 
 ## AC
 
-- [ ] `npx vitest run src/modules/sidebar` 退出码 0，且 `groupSessionsByLineage.test.ts` 覆盖：整组按最新成员定位（含反例：最新成员比邻居旧时整组下沉）、源不在列表时保持原样、成环不丢行、自引用视为无分支、二级分支 depth=2、单分支 count=1
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/session-fork.test.ts` 退出码 0，且断言 fork 的 `custom_name` 等于源名（不再等于 `源名 (fork)`）
-- [ ] `GET /api/projects` 的每条 session 带 `forkedFromSessionId`（fork 行为源 id，非 fork 行为 null）
-- [ ] 侧边栏中 fork 行渲染出分支徽标，且徽标在名字截断盒之外（`aria-label` 为 `Branched from another session` 或 `Branch N of M`）
-- [ ] 源有 ≥2 个分支时徽标显示序号（可见文本为序号数字），单分支时为 GitBranch 图标
-- [ ] fork 行缩进于源行且两者相邻（`left` 差 ≥ 12px）
-- [ ] 整组位于其最新成员的槽位：最新成员是分支时该组上浮，最新成员比邻居旧时该组下沉
-- [ ] Conversations 列表同样出现分支徽标
-- [ ] 12 个 locale 的 `sidebar.json` 均含 `tooltips.branchedSession` 与 `tooltips.branchedSessionOrdinal`
-- [ ] `npm run lint` 与 `npm run typecheck` 退出码 0
+- [x] `npx vitest run src/modules/sidebar` 退出码 0，且 `groupSessionsByLineage.test.ts` 覆盖：整组按最新成员定位（含反例：最新成员比邻居旧时整组下沉）、源不在列表时保持原样、成环不丢行、自引用视为无分支、二级分支 depth=2、单分支 count=1
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/session-fork.test.ts` 退出码 0，且断言 fork 的 `custom_name` 等于源名（不再等于 `源名 (fork)`）
+- [x] `GET /api/projects` 的每条 session 带 `forkedFromSessionId`（fork 行为源 id，非 fork 行为 null）
+- [x] 侧边栏中 fork 行渲染出分支徽标，且徽标在名字截断盒之外（`aria-label` 为 `Branched from another session` 或 `Branch N of M`）
+- [x] 源有 ≥2 个分支时徽标显示序号（可见文本为序号数字），单分支时为 GitBranch 图标
+- [x] fork 行缩进于源行且两者相邻（`left` 差 ≥ 12px）
+- [x] 整组位于其最新成员的槽位：最新成员是分支时该组上浮，最新成员比邻居旧时该组下沉
+- [x] Conversations 列表同样出现分支徽标
+- [x] 12 个 locale 的 `sidebar.json` 均含 `tooltips.branchedSession` 与 `tooltips.branchedSessionOrdinal`
+- [x] `npm run lint` 与 `npm run typecheck` 退出码 0
 
 ## DoD
 
@@ -77,6 +77,7 @@ L_G 该轴仍暗，理由：同上；本任务的读数是渲染可区分性与�
 - src/shared/types.ts
 - src/modules/sidebar/utils/groupSessionsByLineage.ts (new)
 - src/modules/sidebar/utils/sidebarProjectFormatting.ts
+- src/modules/sidebar/SessionBranchBadge.tsx (new)
 - src/modules/sidebar/SidebarSessionItem.tsx
 - src/modules/sidebar/SidebarRecentConversations.tsx
 - src/modules/sidebar/tests/groupSessionsByLineage.test.ts (new)
