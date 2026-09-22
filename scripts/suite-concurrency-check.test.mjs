@@ -43,9 +43,33 @@ const REAL_BASH = execFileSync('bash', ['-c', 'command -v bash'], { encoding: 'u
 const VERDICT_RE = /^suite-concurrency-check: (PASS|FAIL|NOT-EVALUATED) /m;
 
 /**
+ * 夹具的根与三条被 stub 接管的路径（`bin` 前置进 PATH，`logs`/`cache` 由环境变量指进来）。
+ *
+ * @typedef {object} Fixture
+ * @property {string} root
+ * @property {string} bin
+ * @property {string} logs
+ * @property {string} cache
+ */
+
+/**
+ * 一次判据运行的读数。`verdict` 只收判词行（PASS/FAIL/NOT-EVALUATED），`context` 把
+ * stdout/stderr/exit 一并摊给断言，失败时不必再回捞日志。
+ *
+ * @typedef {object} CriterionRun
+ * @property {number | null} status
+ * @property {string} stdout
+ * @property {string} stderr
+ * @property {string} verdict
+ * @property {(s: string) => string} context
+ */
+
+/**
  * 夹具：stub 掉被观测的两条命令，把每相从 ~32s 压到 ~0.3s。
  * stub 只拦 `bash scripts/test.sh …`；其余 bash 调用回落真 bash。stub 从环境里读
  * SCC_TEST_STUB_SLEEP / SCC_TEST_STUB_DURATION，于是同一个夹具可以扮演「快相」与「慢相」。
+ *
+ * @returns {Fixture}
  */
 function buildFixture() {
   const root = mkdtempSync(path.join(os.tmpdir(), 'scc-budget-'));
@@ -84,6 +108,16 @@ exec sleep "\${SCC_TEST_STUB_SLEEP:-0.3}"
   return { root, bin, logs: path.join(root, 'logs'), cache: path.join(root, 'cache') };
 }
 
+/**
+ * 跑一次判据：真 bash + 夹具的 PATH 前置（stub 只拦 `bash scripts/test.sh …`）。
+ * 读数装进普通字面量对象返回 —— 直接往 spawnSync 的结果上挂属性在 `checkJs` 下过不了
+ * typecheck（TS2339），而这份文件应当说得清自己带了什么。
+ *
+ * @param {Fixture} fx
+ * @param {string[]} args
+ * @param {Record<string, string>} [extraEnv]
+ * @returns {CriterionRun}
+ */
 function runCriterion(fx, args, extraEnv = {}) {
   const r = spawnSync(REAL_BASH, [CRITERION, ...args], {
     cwd: REPO_ROOT,
@@ -97,14 +131,21 @@ function runCriterion(fx, args, extraEnv = {}) {
       ...extraEnv,
     },
   });
-  r.verdict = (r.stdout || '')
-    .split('\n')
-    .filter((l) => VERDICT_RE.test(`${l}\n`))
-    .join('\n');
-  r.context = (s) => `${s}\n--- exit=${r.status}\n${r.stdout}\n${r.stderr}`;
-  return r;
+  const stdout = String(r.stdout ?? '');
+  const stderr = String(r.stderr ?? '');
+  return {
+    status: r.status,
+    stdout,
+    stderr,
+    verdict: stdout
+      .split('\n')
+      .filter((l) => VERDICT_RE.test(`${l}\n`))
+      .join('\n'),
+    context: (s) => `${s}\n--- exit=${r.status}\n${stdout}\n${stderr}`,
+  };
 }
 
+/** @param {import('node:test').TestContext} t @returns {Fixture} */
 function fixture(t) {
   const fx = buildFixture();
   t.after(() => rmSync(fx.root, { recursive: true, force: true }));
