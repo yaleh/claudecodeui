@@ -12,7 +12,12 @@ import type {
   VoiceInputState,
 } from '@/shared/types';
 import { isVoiceDebugEnabled, isVoiceTrimEnabled } from '@/shared/voiceDebug';
-import { trimVoiceAudio } from '@/shared/voiceTrim';
+import {
+  OPENAI_COMPATIBLE_PROVIDER,
+  pauseCuesFor,
+  trimDecisionFor,
+  trimVoiceAudio,
+} from '@/shared/voiceTrim';
 // The recogniser's answer is read by the same module that built the request — the
 // repository-root shared tree the server and the CLI compile.
 import { parseTranscriptionResponse } from '@shared/asr/transcriptionWire';
@@ -174,10 +179,11 @@ type PreparedUpload = {
  * pause before the button is released — and all of it is paid for twice, in upload bytes and in
  * recognition latency. So the audio is decoded, its silence removed, and the result re-encoded.
  *
- * Every path that does not trim returns the audio untouched: the switch is off, the browser
- * cannot decode the container, or `trimVoiceAudio` reported one of its guards. Re-encoding a clip
- * that did not get shorter would spend a generation of quality on nothing, which is why the
- * fallback is the original bytes rather than a round-tripped copy of them.
+ * Every path that does not trim returns the audio untouched: the recogniser's own declaration says
+ * its pauses are worth keeping, the switch is off, the browser cannot decode the container, or
+ * `trimVoiceAudio` reported one of its guards. Re-encoding a clip that did not get shorter would
+ * spend a generation of quality on nothing, which is why the fallback is the original bytes rather
+ * than a round-tripped copy of them.
  *
  * The reading is returned rather than printed: this function is where the audio is measured, and the
  * caller is where the decision to print belongs. What it returns is the audio's half of the reading —
@@ -190,7 +196,13 @@ async function prepareUpload(
 ): Promise<PreparedUpload> {
   const asRecorded = { filename: `${baseName}.${extensionFor(blob.type)}` };
   const recorded = { ...asRecorded, body: blob, reading: unmeasured(source), trimmed: null };
-  if (!isVoiceTrimEnabled()) return recorded;
+  // Whether this recogniser's silence is worth removing is the recogniser's own declaration
+  // (ADR-004 decision 1), read at its one read point; the switch is the user's and only ever turns
+  // a trim off. Both have to say yes. That is what makes "裁不裁" a property of the service rather
+  // than of this hook — and it is also why the shipped default is unchanged: the recogniser this
+  // build talks to declares its pauses destructive.
+  const recogniser = pauseCuesFor(OPENAI_COMPATIBLE_PROVIDER);
+  if (!isVoiceTrimEnabled() || !trimDecisionFor(recogniser.pauseCues).trim) return recorded;
 
   const decoded = await decodeVoiceBlob(blob);
   if (!decoded) return recorded;

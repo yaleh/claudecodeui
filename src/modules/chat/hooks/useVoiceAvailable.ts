@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 
-import { api } from '@/shared/api';
+import type { AsrCapabilities } from '@shared/asr/asrRegistry';
+
+import { api, setVoiceProviderProfile } from '@/shared/api';
 import { useUiPreferences } from '@/shared/context/UiPreferencesContext';
 import { readVoiceConfig, VOICE_CONFIG_SYNC_EVENT, whenVoiceConfigReady } from '@/shared/voiceConfig';
 
@@ -8,12 +10,34 @@ import { readVoiceConfig, VOICE_CONFIG_SYNC_EVENT, whenVoiceConfigReady } from '
 // the Settings modal) and a configured voice backend.
 let healthRequest: Promise<boolean> | null = null;
 
+/**
+ * Hands the health reading's effective provider to the shared API module, which is where the
+ * direct path decides which endpoint a recording takes.
+ *
+ * The payload is read leniently and never throws: a response from an older server, or one
+ * whose provider list is missing, must leave the previous profile in place cleared rather than
+ * break a hook whose job is only to answer whether the microphone is available.
+ */
+function publishEffectiveProvider(payload: unknown): void {
+  const health = (payload ?? {}) as { provider?: unknown; providers?: unknown };
+  const providerId = typeof health.provider === 'string' ? health.provider : '';
+  const providers = Array.isArray(health.providers) ? health.providers : [];
+  const entry = providers.find(
+    (candidate) => providerId !== '' && (candidate as { id?: unknown } | null)?.id === providerId,
+  ) as { capabilities?: AsrCapabilities } | undefined;
+
+  setVoiceProviderProfile(
+    entry?.capabilities ? { id: providerId, capabilities: entry.capabilities } : null,
+  );
+}
+
 function checkVoiceHealth(): Promise<boolean> {
   if (healthRequest) return healthRequest;
   const request = api.voice.health()
     .then(async (response) => {
       if (!response.ok) throw new Error(`Voice health check failed (${response.status})`);
       const data = await response.json();
+      publishEffectiveProvider(data);
       return data?.configured === true;
     })
     .finally(() => {

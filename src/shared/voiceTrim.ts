@@ -315,6 +315,110 @@ function identity(
 }
 
 /**
+ * What the pauses in a dictation are worth to the recogniser that hears them.
+ *
+ * A trim deletes silence, and silence is not nothing: a recogniser may read a pause as the
+ * sentence boundary it cannot otherwise hear. Whether a given recogniser does is a *measured*
+ * property of that recogniser. ADR-004's background carries both ends of the range:
+ *
+ *   · `destructive` — the pauses are discarded either way, so removing them costs accuracy
+ *     nothing and saves the bill. Measured on the Whisper family: Chinese pause cues −89% for
+ *     +0.52 pp of CER, against 25.5% (Chinese) / 13.3% (English) of the bill saved. The CER half
+ *     is the interesting one — a character error rate is largely blind to punctuation, so that
+ *     reading says "no *character* cost", not "no difference at all".
+ *   · `useful` — the recogniser reads the pauses as punctuation, so a trim destroys a cue that
+ *     only the audio carried.
+ *   · `neutral` — neither: the pauses carry no cue and cost nothing.
+ *
+ * Which value a recogniser gets is therefore not a preference to be tuned here; it is the
+ * conclusion of that recogniser's own paired experiment (see `PauseCuesDeclaration.evidence`).
+ */
+export type PauseCues = 'destructive' | 'neutral' | 'useful';
+
+/**
+ * One recogniser's declaration of that property.
+ *
+ * `evidence` is the path of the paired experiment the declared value rests on. It is what makes
+ * a declaration other than the default a *claim* rather than an edit: `destructive` is the
+ * shipped value and the value every existing reading was taken under, so declaring it changes
+ * nothing, while declaring anything else changes what gets uploaded — and ADR-004 decision 1
+ * forbids making that change as a one-line edit. The check that reads this field lives in
+ * `scripts/asr-trim-capability-check.mjs`; this module stays a declaration and does no I/O.
+ */
+export type PauseCuesDeclaration = {
+  provider: string;
+  pauseCues: PauseCues;
+  evidence?: string;
+};
+
+/**
+ * The recogniser every transcription path in this repository currently speaks to: the one whose
+ * wire is `shared/asr/transcriptionWire.ts`. A second adapter declares its own id here.
+ */
+export const OPENAI_COMPATIBLE_PROVIDER = 'openai-compatible';
+
+/**
+ * The row an id this table does not declare falls back to.
+ *
+ * ADR-004 decision 1 fixes the direction of the fallback: an undeclared recogniser keeps the
+ * shipped behaviour, so adding a recogniser can never silently change what is uploaded — the
+ * change has to be a declaration, with the experiment behind it.
+ */
+export const DEFAULT_PAUSE_CUES_PROVIDER = OPENAI_COMPATIBLE_PROVIDER;
+
+/**
+ * The declarations, and the only place in this repository where a pause capability is written down.
+ *
+ * Keyed by recogniser rather than held beside each caller, because whether a pause is worth
+ * keeping is a property of the thing doing the transcribing; the same answer kept in two places
+ * is the shape in which two answers disagree.
+ */
+export const PAUSE_CUES_DECLARATIONS: readonly PauseCuesDeclaration[] = [
+  {
+    provider: OPENAI_COMPATIBLE_PROVIDER,
+    pauseCues: 'destructive',
+    evidence: 'docs/experiments/2026-09-22-voice-provider-paired-quality.md',
+  },
+];
+
+/** What the trim should do about the silence in a recording, for one declared capability. */
+export type TrimDecision = {
+  /** The capability this decision was read from. */
+  pauseCues: PauseCues;
+  /** True when this recogniser's silence is removed before the audio is uploaded. */
+  trim: boolean;
+};
+
+/**
+ * The declaration a recogniser id names; an id the table does not declare reads the default row.
+ *
+ * A declaration rather than a bare `PauseCues`, so a caller cannot lose the identity of the
+ * recogniser whose capability it is holding — which is what AC-135's discipline check reads.
+ */
+export function pauseCuesFor(provider: string): PauseCuesDeclaration {
+  return (
+    PAUSE_CUES_DECLARATIONS.find((row) => row.provider === provider)
+    ?? PAUSE_CUES_DECLARATIONS.find((row) => row.provider === DEFAULT_PAUSE_CUES_PROVIDER)
+    ?? { provider: DEFAULT_PAUSE_CUES_PROVIDER, pauseCues: 'destructive' }
+  );
+}
+
+/**
+ * ⭐ THE read point: a recogniser's own declaration decides whether *its* silence is trimmed.
+ *
+ * This is the single place where "裁不裁" is answered from a capability, and the answer is the
+ * whole of `trim`: `destructive` says the pauses are worth nothing to this recogniser, so the
+ * trim runs; any other value says they may be carrying the punctuation, so it does not. Nothing
+ * else about a recogniser is consulted, and a caller that compares the capability to
+ * `'destructive'` for itself is the second answer this function exists to prevent —
+ * `scripts/asr-trim-capability-check.mjs` reads the tree for exactly that comparison, and for
+ * the reachability of this symbol, on every run.
+ */
+export function trimDecisionFor(pauseCues: PauseCues): TrimDecision {
+  return { pauseCues, trim: pauseCues === 'destructive' };
+}
+
+/**
  * Trim the silence out of `samples`, keeping every speech sample.
  *
  * Returns `{ samples, stats }`. On any guard the input is returned unchanged,
