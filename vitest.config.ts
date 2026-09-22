@@ -28,6 +28,14 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
+      // The repository-root shared tree (ADR-004 decision 2). Registered here because this
+      // file's `resolve.alias` is its own — vitest prefers vitest.config.ts over
+      // vite.config.js, so it inherits nothing from that one, and a frontend module importing
+      // `@shared/...` fails to transform with "Failed to resolve import". Four registrations
+      // are needed in total and none of them covers another: tsconfig.json (typecheck),
+      // vite.config.js (the bundle), this file (the unit-test transform) and .oxlintrc.json
+      // (the lint resolver + boundaries).
+      '@shared': fileURLToPath(new URL('./shared', import.meta.url)),
     },
   },
   define: {
