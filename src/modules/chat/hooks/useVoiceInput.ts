@@ -13,6 +13,9 @@ import type {
 } from '@/shared/types';
 import { isVoiceDebugEnabled, isVoiceTrimEnabled } from '@/shared/voiceDebug';
 import { trimVoiceAudio } from '@/shared/voiceTrim';
+// The recogniser's answer is read by the same module that built the request — the
+// repository-root shared tree the server and the CLI compile.
+import { parseTranscriptionResponse } from '@shared/asr/transcriptionWire';
 
 // Mobile-safe recording: iOS Safari 18.4+ supports webm/opus; older iOS needs mp4.
 const MIME_CANDIDATES = [
@@ -496,9 +499,11 @@ export function useVoiceInput(
       }
       const res = await transcribeVoice(prepared.body, prepared.filename);
       if (!res.ok) throw new Error(`transcribe ${res.status}`);
-      const data = await res.json();
+      // `strict` is this path's own tolerance, named at the call site rather than implied
+      // by living in this file: a body that is not JSON throws, and the catch below reports
+      // a failed transcription. The proxy path reads the same answer leniently.
+      raw = parseTranscriptionResponse(await res.text(), 'strict');
       if (cancelledRef.current) return;
-      raw = String(data?.text || '');
       const text = raw.trim();
       if (text) {
         // The one point between the recogniser and the composer where the transcript is

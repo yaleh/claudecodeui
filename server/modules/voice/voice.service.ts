@@ -1,5 +1,4 @@
 import type {
-  VoiceAudioUpload,
   VoiceRequestOverrides,
   VoiceService,
   VoiceServiceResult,
@@ -8,6 +7,11 @@ import type {
   VoiceSettingsStore,
   VoiceSpeechPayload,
 } from '@/shared/types.js';
+
+// The proxy path's request construction and response parsing live in the repository-root
+// shared tree, the same module the browser and the CLI compile — see
+// shared/asr/transcriptionWire.ts. A second copy here is what this import exists to prevent.
+import { createTranscriptionRequest, parseTranscriptionResponse } from '../../../shared/asr/transcriptionWire.js';
 
 type VoiceServiceDependencies = {
   defaults: {
@@ -104,13 +108,6 @@ function validateConfiguredBackend(config: ResolvedVoiceConfig): VoiceServiceRes
   return null;
 }
 
-function createTranscriptionFormData(audio: VoiceAudioUpload, sttModel: string): FormData {
-  const formData = new FormData();
-  formData.append('file', new Blob([audio.bytes], { type: audio.mimeType }), audio.fileName);
-  formData.append('model', sttModel);
-  return formData;
-}
-
 /**
  * Creates the Voice application service used by the Voice composition root and
  * its unit tests. The outbound request function and server configuration are
@@ -128,28 +125,28 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
       }
 
       try {
-        const response = await dependencies.fetchBackend(
-          `${config.baseUrl}/audio/transcriptions`,
+        // The bytes arrive as a Buffer; the wire takes a Blob, so the container and the
+        // bytes are handed over together, exactly as the browser hands over its recording.
+        const request = createTranscriptionRequest(
+          { baseUrl: config.baseUrl, apiKey: config.apiKey, model: config.sttModel },
           {
-            method: 'POST',
-            headers: authorizationHeader(config.apiKey),
-            body: createTranscriptionFormData(input.audio, config.sttModel),
+            audio: new Blob([input.audio.bytes], { type: input.audio.mimeType }),
+            fileName: input.audio.fileName,
           },
         );
+        const response = await dependencies.fetchBackend(request.url, request.init);
         const responseText = await response.text();
         if (!response.ok) {
           return backendFailure(response.status, responseText);
         }
 
-        try {
-          const parsed = JSON.parse(responseText) as { text?: unknown };
-          return {
-            ok: true,
-            value: { text: typeof parsed.text === 'string' ? parsed.text : '' },
-          };
-        } catch {
-          return { ok: true, value: { text: responseText } };
-        }
+        // Lenient on purpose, and named here rather than implied by living in this file:
+        // the proxy path hands an unparseable body back as the transcript instead of
+        // failing, which is the tolerance it had before this module existed.
+        return {
+          ok: true,
+          value: { text: parseTranscriptionResponse(responseText, 'lenient') },
+        };
       } catch (error) {
         return unreachableBackendFailure(error, dependencies.timeoutMs);
       }

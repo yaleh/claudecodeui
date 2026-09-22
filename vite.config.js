@@ -31,7 +31,13 @@ export default defineConfig(({ mode }) => {
     },
     resolve: {
       alias: {
-        '@': fileURLToPath(new URL('./src', import.meta.url))
+        '@': fileURLToPath(new URL('./src', import.meta.url)),
+        // The repository-root shared tree, the same modules the server compiles from
+        // ../shared/... . It needs its own alias because the frontend lint override forbids
+        // the relative imports that would otherwise be the only way to reach it. This alias
+        // is the bundle's copy; vitest.config.ts carries its own, because vitest does not
+        // read this file, and tsconfig.json and .oxlintrc.json carry theirs.
+        '@shared': fileURLToPath(new URL('./shared', import.meta.url))
       }
     },
     server: {

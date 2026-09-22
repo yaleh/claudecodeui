@@ -6,6 +6,9 @@ import {
 import { IS_PLATFORM } from '@/shared/utils';
 import type { VoiceConfig } from '@/shared/voiceConfig';
 import { readVoiceConfig, voiceConfigHeaders, whenVoiceConfigReady } from '@/shared/voiceConfig';
+// The direct path's request construction lives in the repository-root shared tree, the same
+// module the server and the CLI compile — see shared/asr/transcriptionWire.ts.
+import { createTranscriptionRequest } from '@shared/asr/transcriptionWire';
 
 // Headers are a plain record rather than the full `HeadersInit` union so the
 // defaults below can be merged with a caller's headers by spreading.
@@ -605,18 +608,25 @@ export async function transcribeVoice(blob: Blob, filename: string): Promise<Res
   // the endpoint the user set up.
   await whenVoiceConfigReady();
   const config = readVoiceConfig();
-  const body = new FormData();
 
   if (config.baseUrl.trim()) {
-    body.append('file', blob, filename);
-    body.append('model', config.sttModel || 'whisper-1');
-    return fetch(voiceDirectUrl(config.baseUrl.trim(), '/audio/transcriptions'), {
-      method: 'POST',
-      headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {},
-      body,
-    });
+    // The outbound request is built by the one module that owns this protocol. What stays
+    // here is what is genuinely local to the browser: which of the two endpoints this
+    // recording takes, and the settings it takes its credentials and model from.
+    const request = createTranscriptionRequest(
+      {
+        baseUrl: config.baseUrl.trim(),
+        apiKey: config.apiKey,
+        model: config.sttModel || 'whisper-1',
+      },
+      { audio: blob, fileName: filename },
+    );
+    return fetch(request.url, request.init);
   }
 
+  // The proxy hop is a different protocol from the one above: this is the client talking to
+  // CloudCLI (field `audio`, model and key in headers), not to the recogniser's endpoint.
+  const body = new FormData();
   body.append('audio', blob, filename);
   return api.voice.transcribe(body, voiceConfigHeaders());
 }
