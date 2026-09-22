@@ -18,6 +18,17 @@ export { readSessionAiTitle } from './services/session-ai-title.service.js';
 
 export { initializeSessionsWatcher } from './services/sessions-watcher.service.js';
 export { closeSessionsWatcher } from './services/sessions-watcher.service.js';
+// resolveProviderWatchPaths / ensureProviderWatchRoots: the observation set's own
+// seam, driven by the debug-agent gate criterion (`debug-agent-gate.test.ts`), which
+// reads the set on both sides of the gate and then confirms the fixture root was
+// neither listed nor created. `providerRegistry` is exported for the same criterion:
+// the registry face is about whether a key exists, which is only readable from here.
+export {
+  resolveProviderWatchPaths,
+  ensureProviderWatchRoots,
+} from './services/sessions-watcher.service.js';
+export type { ProviderWatchPath } from './services/sessions-watcher.service.js';
+export { providerRegistry } from './provider.registry.js';
 // resolveModelLaunchSpec: consumed by the websocket module's shell pty to compile the
 // spawn env for the selected custom model.
 export { resolveModelLaunchSpec, resolveModelContextWindowRow } from './services/model-launch-spec.service.js';

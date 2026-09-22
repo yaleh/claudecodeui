@@ -4,13 +4,17 @@ import { promises as fsPromises } from 'node:fs';
 
 import chokidar, { type FSWatcher } from 'chokidar';
 
+import { DEBUG_AGENT_PROVIDER_ID, getDebugAgentProjectsRoot } from '@/modules/debug-agent/index.js';
 import { sessionSynchronizerService } from '@/modules/providers/services/session-synchronizer.service.js';
 import { broadcastSessionUpsertedBatch } from '@/modules/websocket/index.js';
 import type { LLMProvider } from '@/shared/types.js';
 
 type WatcherEventType = 'add' | 'change';
 
-const PROVIDER_WATCH_PATHS: Array<{ provider: LLMProvider; rootPath: string }> = [
+/** Where a provider's session artifacts live. Exported for the gate criterion. */
+export type ProviderWatchPath = { provider: LLMProvider; rootPath: string };
+
+const PROVIDER_WATCH_PATHS: ProviderWatchPath[] = [
   {
     provider: 'claude',
     rootPath: path.join(os.homedir(), '.claude', 'projects'),
@@ -28,6 +32,71 @@ const PROVIDER_WATCH_PATHS: Array<{ provider: LLMProvider; rootPath: string }> =
     rootPath: path.join(os.homedir(), '.local', 'share', 'opencode'),
   },
 ];
+
+/**
+ * The roots actually observed in this process, product roots plus the debug
+ * agent's fixture root when the gate is open.
+ *
+ * ADR-003 decision 3, face 2 — "watcher 没有根". A closed gate yields no path at
+ * all, so the fixture root is neither observed nor `mkdir`ed by the watcher, and
+ * no `session_upserted` can be broadcast because a scenario advanced. Rootless
+ * is the point: an observed-but-ignored root would still create the directory
+ * and would still be a root.
+ *
+ * Duplicates are collapsed by resolved path. Two watchers on one directory
+ * deliver every event twice, and the debug agent's fixture root is a directory a
+ * caller may legitimately have pointed at an existing root.
+ *
+ * Exported for the gate criterion (`tests/debug-agent-gate.test.ts`), which
+ * reads this set on both sides of the gate.
+ */
+export function resolveProviderWatchPaths(): ProviderWatchPath[] {
+  const roots: ProviderWatchPath[] = [...PROVIDER_WATCH_PATHS];
+
+  const debugAgentRoot = getDebugAgentProjectsRoot();
+  if (debugAgentRoot) {
+    roots.push({ provider: DEBUG_AGENT_PROVIDER_ID as LLMProvider, rootPath: debugAgentRoot });
+  }
+
+  const seen = new Set<string>();
+  return roots.filter(({ rootPath }) => {
+    const key = path.resolve(rootPath);
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
+ * Creates every root in `resolveProviderWatchPaths()`, and returns the set it
+ * created them for.
+ *
+ * This is the step that would materialise the fixture root if it were listed,
+ * which is why the gate criterion calls it rather than asserting on the list
+ * alone: "not listed" and "not created" are two readings of one decision, and
+ * the criterion prints both.
+ */
+export async function ensureProviderWatchRoots(): Promise<ProviderWatchPath[]> {
+  const ensured: ProviderWatchPath[] = [];
+
+  for (const path of resolveProviderWatchPaths()) {
+    try {
+      await fsPromises.mkdir(path.rootPath, { recursive: true });
+      ensured.push(path);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to initialize session watcher for provider "${path.provider}"`, {
+        rootPath: path.rootPath,
+        error: message,
+      });
+    }
+  }
+
+  return ensured;
+}
 
 const WATCHER_IGNORED_PATTERNS = [
   '**/node_modules/**',
@@ -204,10 +273,8 @@ export async function initializeSessionsWatcher(): Promise<void> {
     failures: initialSync.failures,
   });
 
-  for (const { provider, rootPath } of PROVIDER_WATCH_PATHS) {
+  for (const { provider, rootPath } of await ensureProviderWatchRoots()) {
     try {
-      await fsPromises.mkdir(rootPath, { recursive: true });
-
       const watcher = chokidar.watch(rootPath, {
         ignored: WATCHER_IGNORED_PATTERNS,
         persistent: true,

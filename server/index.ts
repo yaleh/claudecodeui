@@ -53,6 +53,11 @@ import { fileTreeRoutes } from './modules/file-tree/index.js';
 import { worktreesRoutes } from './modules/worktrees/index.js';
 import browserUseMcpRoutes from './modules/browser-use/browser-use-mcp.routes.js';
 import { createStaticAssetsMiddleware } from './modules/static-assets/index.js';
+import {
+    DEBUG_AGENT_CONTROL_PLANE_PATH,
+    getDebugAgentGateReason,
+    mountDebugAgentControlPlane,
+} from './modules/debug-agent/index.js';
 import { browserUseService } from './modules/browser-use/browser-use.service.js';
 import { initializeDatabase, sessionsDb } from './modules/database/index.js';
 import { configureWebPush } from './modules/notifications/index.js';
@@ -199,6 +204,19 @@ app.use('/api/scheduled-messages', authenticateToken, scheduledMessagesRoutes);
 app.use('/api/agent', agentRoutes);
 
 app.use('/api/voice', authenticateToken, voiceRoutes);
+
+// The debug agent's dev-only control plane (ADR-003 decision 3, face 3). The
+// gate decides *at mount time*: while it is closed nothing is attached at this
+// path, so there is no layer for a request to reach — a handler answering "403"
+// would still be a layer, and would still be reachable by every logged-in user.
+// With nothing attached the path falls through to the SPA catch-all below and
+// answers `200 text/html`, which is why the face's criterion is not a status
+// code (see `debug-agent.gate.ts` for the reading behind that).
+if (mountDebugAgentControlPlane(app, authenticateToken)) {
+    console.log(
+        `[DEBUG-AGENT] control plane mounted at ${DEBUG_AGENT_CONTROL_PLANE_PATH} (${getDebugAgentGateReason()})`,
+    );
+}
 
 // Static assets and the SPA entry, mounted after every API route so response
 // compression only ever applies to the bundle and HTML above (see the module
