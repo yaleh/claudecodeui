@@ -19,7 +19,7 @@
 
 ## 摘要
 
-今天"支持任意语音识别服务"是**配置层面的假象**：`baseUrl + apiKey + sttModel` 看起来通用，但 OpenAI-compatible 的协议形状被硬编码在三处，且没有任何地方能表达服务之间的能力差异。结果是——把 `sttModel` 改成 `gemini-2.5-flash-lite` 不会工作，不是配置错了，而是请求根本发不出去。
+今天"支持任意语音识别服务"是**配置层面的假象**：`baseUrl + apiKey + sttModel` 看起来通用，但 OpenAI-compatible 的协议形状被硬编码在**四处**（两跳各自的请求构造与响应解析），且没有任何地方能表达服务之间的能力差异。结果是——把 `sttModel` 改成 `gemini-2.5-flash-lite` 不会工作，不是配置错了，而是请求根本发不出去。
 
 本 proposal 立一条**缝**：一份环境中立的适配器契约 + 每服务一个纯模块 + 一张能力声明表，并把"命令行与库一级的验证"变成落地顺序里的**前置步骤**而不是事后补丁。目标形态是 S0–S3 全部落地后，服务端路由与前端 UI **一行未改**，而新识别服务已经可以用一条命令在真实音频上跑通、并与旧服务在同一批语料上做配对比较。
 
@@ -29,15 +29,23 @@
 
 ## 背景与现状
 
-### 一、三处硬编码的单一化
+### 一、四处硬编码，且两跳不同
+
+先分清两跳，否则下面的描述会自相矛盾：
+
+- **客户端 → 服务端（仅代理路径）**：multipart 字段 `audio`，**不带** `model`；模型与密钥走 `x-voice-*` 头（`voice.routes.ts:39-47`）。
+- **客户端 → 识别服务（直连）** 与 **服务端 → 识别服务（代理）**：字段 `file` 与 `model`，`Authorization: Bearer`，路径写死 `/audio/transcriptions`。
 
 | # | 位置 | 硬编码了什么 |
 |---|---|---|
-| 1 | `src/shared/api.ts:610-621` | **直连分支**自己拼 OpenAI multipart：字段 `file` + `model`、`Authorization: Bearer`、路径写死 `/audio/transcriptions` |
-| 2 | `server/modules/voice/voice.service.ts:107-112,132` | **代理分支**同样：`file` + `model`，URL 写死 `${config.baseUrl}/audio/transcriptions`；没有 `language`、没有 `prompt`、没有 `response_format` |
-| 3 | 同文件 `:139-152` | 响应只认 `{ text: string }`；非 JSON body 被当作转写文本原样返回 |
+| 1 | `src/shared/api.ts:610-617` | 直连分支的**请求构造**：multipart `file` + `model`、`Authorization: Bearer`、写死路径 |
+| 2 | `src/modules/chat/hooks/useVoiceInput.ts:499` | 直连分支的**响应解析**：`res.json()` 后取 `.text`；**非 JSON 响应会抛异常** |
+| 3 | `server/modules/voice/voice.service.ts:107-112,132` | 代理分支的**请求构造**：`file` + `model`，URL 写死 `${config.baseUrl}/audio/transcriptions`；没有 `language`、没有 `prompt`、没有 `response_format` |
+| 4 | 同文件 `:139-152` | 代理分支的**响应解析**：只认 `{ text: string }`；**非 JSON body 被当作转写文本原样返回** |
 
-三条路径的字段名甚至不一致：直连发 `file`，代理发 `audio`，模型与密钥在代理路径上走 `x-voice-*` 头（`voice.routes.ts:39-47`），而**没有任何 `x-voice-base-url`**——代理只认服务端 env 的 base URL。
+第 2 与第 4 处**容忍度不同**，这比"数量是四处"更重要：同一个上游异常（例如网关返回 HTML 错误页），在直连路径上报错，在代理路径上会被当成一段转写文本填进 composer。**两条路径已经分叉**——这是本提案要消灭的那类不一致的现存实例。
+
+另有一处不对称：代理路径的 base URL 只认服务端 env，**没有任何 `x-voice-base-url`**（这是**有意**的安全约束，见「配置与拓扑」）。
 
 这意味着"支持有差异的服务"在本仓库的真实含义是：**造一条缝，而不是加一个字段**。
 
@@ -116,7 +124,7 @@
                                             │  同一份适配器
      ┌──────────────────────────────────────┴───────────────────────────────────┐
      │ server/modules/voice/voice.service.ts（代理，env 兜底）                    │
-     │ experiments/voice-asr/run-transcribe.mjs（CLI，裸 node）                   │
+     │ experiments/voice-asr/run-transcribe.mjs（CLI，`npx tsx` 运行）          │
      └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -130,9 +138,11 @@ export type AsrProviderId = 'openai-compatible' | 'gemini' | (string & {});
 export type AsrCapabilities = {
   /** 接受的容器/编码。驱动上传前的容器选择与 MIME 白名单（缺口 ①）。 */
   acceptsMime: string[];
-  /** 单请求内联音频上限（字节）。驱动 multer 上限与 >上限 的分流（缺口 ②）。 */
-  maxInlineBytes: number;
-  /** 超过 maxInlineBytes 时的行为。'reject' 在第一版是唯一允许值。 */
+  /** 单请求内联上限（字节）。**注意是整个请求的预算，不只是音频**：官方对某多模态服务的
+   *  表述是"最大请求 20MB（含提示词与所有文件）"，因此提示词与上下文与音频共享同一预算
+   *  （与 D4 上下文偏置相撞，见「上下文偏置」）。 */
+  maxInlineRequestBytes: number;
+  /** 超过 maxInlineRequestBytes 时的行为。'reject' 在第一版是唯一允许值。 */
   oversize: 'reject' | 'files-api';
   /** 各提示参数是否被该服务承认。false 表示"发了也没用"，适配器必须拒发而非静默丢弃。 */
   honors: { prompt: boolean; language: boolean; context: boolean };
@@ -206,7 +216,7 @@ export type AsrInvocation = {
 
 ### L3 — 三条验证通路
 
-**(a) CLI（裸 node，沿用 `experiments/` 既有形态）**
+**(a) CLI（`npx tsx` 运行，沿用 `experiments/` 既有形态）**
 
 ```bash
 # 零成本：打印脱敏后的出站请求，不联网
@@ -219,7 +229,11 @@ node experiments/voice-asr/run-transcribe.mjs --provider gemini --file fixtures/
 GEMINI_API_KEY=... node experiments/voice-asr/run-transcribe.mjs --provider gemini --file fixtures/zh-d01.wav --json
 ```
 
-为什么 CLI 入口放在 `experiments/` 而不是 `shared/`：**根 `tsconfig.json` 的 `types` 只有 `["vite/client"]`，没有 node 类型**，一个使用 `process.argv` 的文件放进 `shared/` 会直接让 `npm run typecheck` 变红。`experiments/**` 不被任何 tsconfig include，因此可以是裸 node 脚本——这与 `experiments/voice-trim/run-savings.mjs` 完全一致（它已经用裸 node 通过类型剥离 `import '../../src/shared/voiceTrim.ts'`）。后续若要提升为操作面命令，再包一层 `cloudcli voice transcribe` 子命令。
+为什么 CLI 入口放在 `experiments/` 而不是 `shared/asr/cli/`：**根 `tsconfig.json` 的 `types` 只有 `["vite/client"]`，没有 node 类型**，一个使用 `process.argv` 的文件放进 `shared/` 会直接让 `npm run typecheck` 变红。
+
+**但"与既有 runner 同形"这句话在初版是错的，必须更正**：既有 runner 用**裸 node** 导入出货模块（`experiments/voice-trim/run-savings.mjs` 等），之所以可行，是因为它们导入的 `voiceTrim.ts` / `identifierRepair.ts` 是**零 import** 的单文件，且住在被 `server/tsconfig.json` `exclude` 的 `src/` 里——因此从不经过说明符解析。本方案的适配器是**带相对导入的模块图**，一旦住在被服务端 NodeNext 构建覆盖的目录里，其内部说明符必须是 `.js`，而裸 node 对 `.js` 说明符报 `ERR_MODULE_NOT_FOUND`（实测）。**所以 CLI 改为 `npx tsx` 运行**（已是仓库依赖；`experiments/voice-identifiers/run-shipped-*.mjs` 已是这个跑法）。`experiments/**` 不被任何 tsconfig include，也不在 `npm run lint` 的路径列表里，因此它本身不受静态检查——这一点如实登记。
+
+后续若要提升为操作面命令，再包一层 `cloudcli voice transcribe` 子命令。
 
 **(b) 不变量套件（对 registry 参数化，离线）**
 
@@ -227,7 +241,7 @@ GEMINI_API_KEY=... node experiments/voice-asr/run-transcribe.mjs --provider gemi
 
 1. 请求构造 golden：给定固定 `AsrRequest` + 注入的 `fetchImpl` 记录，断言出站 URL / 头 / 体**逐字节等于**录制基线（含 `honors.prompt=false` 时**不发** prompt 而不是发空串）。
 2. 错误映射：401/403/429/5xx/timeout/空响应/非 JSON body 各返回哪个 `AsrErrorCode`。
-3. 大小分流：`> maxInlineBytes` 必须走 `oversize` 声明的路径，且**不得把整个音频塞进请求**。
+3. 大小分流：`> maxInlineRequestBytes` 必须走 `oversize` 声明的路径，且**不得把整个音频塞进请求**；另需一条"音频本身在预算内、加上长上下文后超预算"的用例（预算含提示词与上下文）。
 4. 脱敏：密钥与音频字节**不得**出现在任何返回值、错误 message 或日志行里。
 5. MIME：不在 `acceptsMime` 内的输入必须在**发出请求之前**被拒绝（`UNSUPPORTED_MIME`）。
 
@@ -242,25 +256,34 @@ GEMINI_API_KEY=... node experiments/voice-asr/run-transcribe.mjs --provider gemi
 - 根 `tsconfig.json`：`"include": ["src", "shared", "vite.config.js"]`
 - `server/tsconfig.json`：`"include": ["./**/*.js", "./**/*.ts", "../shared/**/*.js", "../shared/**/*.ts"]`，`"rootDir": ".."`，产物落 `dist-server/shared/`，并且 `"exclude": [..., "../src"]`
 
-也就是说 `shared/` 是**唯一**被前端与后端两套编译同时纳入的目录。今天它只有一个文件 `shared/networkHosts.js`，消费者是 `server/index.ts:20` 与 `vite.config.js:5`——**已验证的组合是"构建工具 + 服务端"，尚未验证 `src/modules/**` 对它的导入**。
+也就是说 `shared/` 是**唯一**被前端与后端两套编译同时纳入的目录。今天它只有一个文件 `shared/networkHosts.js`，消费者是 `server/index.ts:20` 与 `vite.config.js:5`。
 
-**由"两套 tsconfig 同时编译同一份文件"直接推出的四条硬约束**（这四条不是风格偏好，违反必然在其中一侧编译失败）：
+**但"唯一被两套 tsconfig include"远不等于"能被两侧导入"。** 评审实测出四个障碍，任一个都能让探针红：
 
-1. **只用相对导入，禁止 `@/`**。两套配置对同一个别名给出不同答案：根 tsconfig `"@/*": ["src/*"]`，`server/tsconfig.json` `"@/*": ["server/*"]`。`shared/` 内的文件一旦写 `@/…`，两侧会解析到不同目标。
-2. **不碰 node 内建**。根 tsconfig 的 `types` 只有 `["vite/client"]`、`lib` 只到 `ES2020 + DOM`：`process`、`Buffer`、`node:*` 在此侧没有类型。凡是需要这些的代码（读 env、读 argv、读写文件）都不能进 `shared/`——这正是 CLI 入口不能放在 `shared/asr/cli/` 的原因。
-3. **`isolatedModules: true`**（根侧）：类型再导出必须写 `export type`，并配合前端 lint 的 `typescript/consistent-type-imports` 用 `import type`。
-4. **环境依赖一律注入**（`fetchImpl`、`baseUrl`、`apiKey`、`model`、`timeoutMs`）：这条既满足约束 2，又让同一个适配器在三处（浏览器 / Node 服务端 / CLI）同构可测。
+1. **前端 lint 禁止相对导入，且没有任何别名能到达仓库根 `shared/`**。`.oxlintrc.json` 对 `src/modules/**` 与 `src/shared/*.ts` 施加 `no-restricted-imports`（正则 `^\.{1,2}/`，error，提示语"使用 `@/` 源根别名"）。而 `@` 映射到 `src`，`package.json` 里没有 `imports`、也不是 workspace 布局——**不存在通往仓库根 `shared/` 的别名**。三条路全堵：相对导入 ⇒ 该规则报错；`@/shared/asr/…` ⇒ 落进 `src/shared/asr/`（错树）；裸写 ⇒ `importx/no-unresolved`（同一 override 里也是 error）。旁证：今天 `src/modules/**` 与 `src/shared/**` 的相对导入数为 **0**，即该规则真的在生效。
+2. **`.js` 说明符与"裸 node 跑 CLI"不可兼得**。`server/tsconfig.json` 是 NodeNext + 发射式构建，其内部相对导入**必须**写 `.js`（服务端 TS 一律如此，全仓无一处 `.ts` 说明符）。而裸 node 对说明符做**字面**解析、不把 `.js` 映射到 `.ts`：实测 `b.ts` 存在而 `a.ts` 写 `from './b.js'` 时，裸 node 报 `ERR_MODULE_NOT_FOUND`；同一文件 `npx tsx` 运行则通过。
+3. **`shared/` 不在 lint 路径里**。`npm run lint` 的路径列表是 `src/ server/ scripts/`，**不含 `shared/`**。登记 `boundaries/elements` 买到的是"不被 `no-unknown` 判红"，**不是**"被 lint 覆盖"。`experiments/` 同理，所以 CLI 也不受静态检查。
+4. **`.ts` 那半从未被证明过**：`shared/` 今天唯一的文件是纯 JS，两侧能解析 `.js` **不蕴含**能解析 `.ts`——而上面三个障碍恰好都住在 `.ts` 那一侧。
 
-因此 S0 必须先做一个**边界探针**，并且以实证为准：
+**由"两套 tsconfig 同时编译同一份文件"推出的硬约束**（违反必然在其中一侧失败）：
 
-1. 一个最小模块放在 `shared/asr/`，从 `src/modules/chat/hooks/useVoiceInput.ts` 与 `server/modules/voice/voice.service.ts` 各导入一次。
-2. `npm run typecheck` 绿（两套 tsconfig 同时编译同一份文件，这同时也是一条**"环境中立"的机器判据**：它必须同时满足 `lib: DOM` + `moduleResolution: Bundler` 与 `lib: ES2022` + `NodeNext` + `types: node`）。
-3. `npm run lint` 绿。**已知风险**：`shared/**` 不在 `.oxlintrc.json` 的 `boundaries/include` 里，所以它自身不被 lint；但新模块应被显式纳入——而一旦纳入 `boundaries/include` 却不在 `boundaries/elements` 里声明，`boundaries/no-unknown` 会把它判红。**两者必须同时加**（这是本仓库已付过代价的坑：`src/shared/*.ts` 新增文件必须先登记进 elements 才不红）。因此 S0 的交付里包含：
-   - `boundaries/include` 增加 `shared/**/*.ts`
-   - `boundaries/elements` 增加一个跨边界库元素（建议名 `cross-boundary-library`）
-   - 两者同一个 commit 落地
+1. **导入形式必须是两侧都接受的那一种** —— 而它**目前不存在**，需由别名路径创造。（⚠️ 本文件初版此处写的是"只用相对导入，禁止 `@/`"，那条**在前端侧恰好是错的杠杆**：前端 lint 禁止的正是相对导入。这是评审最有价值的一条产出——一个从服务端编译要求推出的约束，在另一侧正好是反的。）
+2. **相对导入的说明符扩展名由服务端构建决定（`.js`）**，因此 CLI 必须以 `npx tsx` 运行。备选是给 `server/tsconfig.json` 加 `allowImportingTsExtensions` + `rewriteRelativeImportExtensions`（实测 tsc 退出 0，且把 `./b.ts` 重写为 `./b.js`、产物裸 node 可跑），但它**动的是全局构建配置**，波及面远大于改一个 CLI 的启动方式。
+3. **不碰 node 内建**。根侧 `types` 只有 `["vite/client"]`、`lib` 只到 `ES2020 + DOM`：`process`、`Buffer`、`node:*` 无类型。这正是 CLI 入口不能放在 `shared/asr/cli/` 的原因。
+4. **也不要用 ES2021+ 的库特性** —— 上一条**对称的另一半**，初版漏了：服务端 `lib` 是 `ES2022`、根侧是 `ES2020`，所以 `replaceAll`、`Array.at`、`Error.cause`、`structuredClone` 在服务端编得过、在前端侧**编不过**。
+5. **`isolatedModules: true`**（根侧）：类型再导出必须写 `export type`，并配合前端 lint 的 `typescript/consistent-type-imports` 用 `import type`。
+6. **环境依赖一律注入**（`fetchImpl`、`baseUrl`、`apiKey`、`model`、`timeoutMs`）：既满足约束 3，又让同一个适配器在三处同构可测。
 
-**若探针变红（后备方案，明确写下以免落地时临时发明）**：线协议实现只能有**一个**家，即 `src/shared/asr/`（登记进 `boundaries/elements` 的 `frontend-shared-file` 列表 + 计入 Touches）。此时**服务端代理不新增 provider**，直到边界问题解决为止——因为在 `server/modules/voice/providers/` 里再写一份线协议实现，会精确重演 AC-113 已经付过代价的错误（判据量的是副本而不是出货实现，16 条里 6 条不一致）。服务端侧 Gemini 因此是**被边界阻塞**，而不是"再写一份适配器"。
+因此 S0 必须先做一个**边界探针**，且**必须先解决上面障碍 1、2**。可选路径只有两条：
+
+- **(a) 为仓库根 `shared/` 创造一条别名**，三处同时（根 `tsconfig.json` 的 `paths`、`vite.config.js` 的 `resolve.alias`、oxlint 的 resolver），并把 CLI 改为 `npx tsx`；
+- **(b) 落回 `src/shared/asr/`**，即后备方案。
+
+探针步骤：最小模块落在候选落点，从 `src/modules/**` 与 `server/modules/**` 各导入一次；`npm run typecheck` 退出 0（这同时是"环境中立"的**机器判据**：必须同时满足 `lib: DOM` + `moduleResolution: Bundler` 与 `lib: ES2022` + `NodeNext` + `types: node`）；`npm run lint` 退出 0，**且断言 lint 路径列表确实包含该目录**（否则只证明"没被判红"，不证明被覆盖）。
+
+**若探针变红（后备方案）**：线协议实现只能有**一个**家，即 `src/shared/asr/`。此时**服务端代理不新增 provider**——因为在 `server/modules/voice/providers/` 里再写一份，会精确重演 AC-113 已经付过代价的错误（判据量的是副本而不是出货实现，16 条里 6 条不一致）。
+
+**后备方案有一个初版没有承认的后果，必须写在这里：它会让缺口一与缺口三变成不可实现。** 因为 `server/tsconfig.json` 的 `exclude` 含 `../src`、服务端的 `@/` 映射到 `server/*`，所以**服务端消费不到 `src/shared/asr/`**；而缺口一（白名单由 `capabilities.acceptsMime` 决定）与缺口三（健康检查返回 provider 与能力）**都是服务端路由的改动**。因此**缺口一、缺口三对应的任务是有条件的**（仅当路径 (a) 成立），其判据必须写明这个前提。
 
 ---
 
@@ -319,6 +342,7 @@ D4：**按模型/服务分别测试**后再决定是否启用。落实为：
 - 能力字段 `honors.context: boolean`，**未声明的 provider 一律不发 context**。
 - context 载荷必须是**有界且可审的**：形状固定（最近 N 轮 assistant 输出 + 当前可见对话 + 文件树标识符候选）、有字节上限、有开关、开关状态在 UI 可见。
 - **隐私**：context 会连同音频一起送到第三方。启用前必须让用户知道这一条，且默认关闭。
+- **一条与 L1 能力字段相撞的硬约束（评审补）**：上下文进的是**同一个请求**，而多模态服务的内联上限是**整个请求的预算**（"含提示词与所有文件"）。因此上下文越长，音频的可用预算越小。这也是该字段命名为 `maxInlineRequestBytes` 而不是"音频上限"的原因——按音频建模会让一个长上下文请求在音频侧被误判为可发。
 - **已有反面证据**：prompt 偏置在中文 + 出货裁剪下把句读从 2.31 打到 1.25、标识符从 33.3% 打到 22.2%（punctuation §三）。因此"给了上下文就更准"是**假设**，每个 provider 必须各自用配对实验判定。
 - 与现有 `repairIdentifiers` 的关系：客户端确定性修复（候选来自项目文件树，`ChatComposer.tsx:18,292`）是**独立于 provider 的一层**，继续保留；context 是"把同样的信息以提示形式给模型"，两者不是替代关系。若 provider 声明 `identifier-canonicalized`，则跳过客户端修复以免二次改写。
 
@@ -332,6 +356,8 @@ D4：**按模型/服务分别测试**后再决定是否启用。落实为：
 - 新增 provider 必须在两条路径上都能工作：`src/shared/api.ts:610-621` 的直连分支与 `server/modules/voice/voice.service.ts` 的代理分支都要改为"解析 provider → 调适配器"。
 - **直连的既然后果**：Gemini 走直连时，API key 存在浏览器。这是 D2 的已接受代价，但必须在设置页明确告知（复用 `gap-voice-settings-server-storage` 建立的边界约定：密钥在浏览器是**有意为之**，见 `voiceConfig.ts:16-19`）。服务端 env 配置仍然保留给不愿在浏览器放键的部署。
 - 三条配置轴今天已经并存（服务端 env 兜底 / 用户级 `user_voice_settings` / `voiceEnabled` 的 uiPreferences），加 provider 会变成第四条。**必须明确 provider id 只在用户级配置里，env 只提供"默认 provider id"**，不允许出现"env 说 A、用户配置说 B"时无从判断的情形。
+- **未注册 / 拼错的 provider id 的行为必须定义（评审补，初版完全沉默）**，而它是可达状态：id 存在用户级配置里，会随版本与拼写漂移。沿用既有 registry 的失败模式——未注册 id 一律 fail-closed 并返回明确的不可用错误，**不得静默回落到默认 provider**（静默回落最坏：用户以为在用新服务，实际在用旧的）。三个面各需一条判据：直连分支、代理分支、健康检查。
+- **一条必须显式保留的安全不变式（评审补）**：代理路径的 `VoiceRequestOverrides` **刻意不含 base URL**（`server/shared/types.ts:1285-1287`），即"客户端不得控制服务端的出站目的地"。把 provider id 放进用户级配置**并没有**重开这条规矩——端点始终由适配器按 id 固定，用户选的是**哪份适配器**，不是**往哪里发**。这一点要写明，否则下一个读代码的人会把 provider id 误当成一个可被客户端扩张的字段。
 
 ---
 
@@ -347,18 +373,25 @@ D4：**按模型/服务分别测试**后再决定是否启用。落实为：
 
 1. 白名单**由所选 provider 的 `capabilities.acceptsMime` 决定**，不新增第二个全局常量。
 2. 拒绝必须发生在**读取上游之前**，返回语义码 `UNSUPPORTED_MIME`，且**不得消耗一次转写请求**（不产生上游调用、不计费）。
-3. 客户端必须能拿到 `acceptsMime`：录音容器今天是 `MIME_CANDIDATES` 里的第一个受支持项（`useVoiceInput.ts:18-24`），裁剪路径还会重编码为 WAV（`encodeWavBlob`）。**容器选择必须按 provider 能力收敛**，否则会出现"录了 webm、provider 只收 wav、白名单把用户自己的录音拒了"。
-4. 该拒绝路径需要一条负对照：不在白名单内的输入必须红，且在白名单内的必须绿（避免把白名单写成恒拒）。
+3. **匹配必须按基类型（剥离 `;` 之后的参数）**。这条是评审补的，初版漏了：浏览器首选录音 MIME 是**带参数**的（`MIME_CANDIDATES` 首项 `audio/webm;codecs=opus`），而服务商公布的是**基类型**（`audio/webm`，无参数）。按公布列表做**精确匹配**会把**出货录音器自己的输出**判为不支持——正是本条要防的那件事，只是机制不同。
+4. 客户端必须能拿到 `acceptsMime`：录音容器今天是 `MIME_CANDIDATES` 里的第一个受支持项（`useVoiceInput.ts:18-24`），裁剪路径还会重编码为 WAV（`encodeWavBlob`）。**容器选择必须按 provider 能力收敛**，否则会出现"录了 webm、provider 只收 wav、白名单把用户自己的录音拒了"。
+5. 该拒绝路径需要双向负对照：不在白名单内的输入必须红，在白名单内的（**含带参数形式**）必须绿（避免把白名单写成恒拒或写成精确匹配）。
 
-### 缺口 ②：25MB 上限与 provider 的 inline 上限互不知情，是两个真相源
+### 缺口 ②：25MB 全局界与 provider 的**请求预算**互不知情，是两个真相源
 
-现状：`voice.module.ts:42` 写死 `fileSize: 25 * 1024 * 1024`；而 Gemini 的 inline 上限是 20MB（`voice-input-gemini-2.5-flash-lite.md` §官方能力约束）；Groq 又是另一个数。超限时 multer 错误经路由变成 **400**，不是 413。
+现状：`voice.module.ts:42` 写死 `fileSize: 25 * 1024 * 1024`；而多模态服务的内联上限是 **20MB 的整个请求预算**（含提示词与所有文件，不止音频）；Groq 又是另一个数。超限时 multer 错误经路由变成 **400**，不是 413。
 
 修改要求：
 
-1. 有效上限 = `min(全局硬上限, capabilities.maxInlineBytes)`，**单一计算点**，且该值随 provider 变化可观测。
+1. **"单一计算点"这个说法是错的，初版写错了，这里更正。** 上限**必然分两层**：
+   - multer 在 **handler 之前**按 `LIMIT_FILE_SIZE` 拒绝（`voice.routes.ts:92-96`），此时它**无从知道 provider**，只能取一个与 provider 无关的界；
+   - per-provider 的 `min(全局界, provider 预算)` 只能在**适配器里**、上传已被缓冲**之后**执行。
+
+   落地形态二选一：让 multer 取"所有 provider 的最大值"而由适配器执行本 provider 的界；或接受两层各自拒绝。**判据读"切换 provider 后读数改变"时，必须读适配器的拒绝，而不是 multer 的**，否则这条读数会在两层之间张冠李戴。
 2. 超限返回语义码 `OVERSIZE`，HTTP 映射为 **413**（现状 400 是误导：客户端会以为是格式问题）。`voice-input-gemini-2.5-flash-lite.md` 已写明"当前 25MB Multer 限制需要与 Gemini 的 20MB inline 限制协调"，本条即其落实。
-3. `oversize: 'files-api'` 在第一版**不得被任何 provider 声明**（第一版只允许 `'reject'`）；声明它的 provider 必须同时给出远端文件的生命周期与清理策略，否则不允许合入。
+3. **预算按整个请求计**：提示词与上下文与音频共享同一预算（与 D4 相撞）。因此判定超限时不能只看音频字节。
+4. **必须登记的一处必然代价**：小于全局界、但大于本 provider 预算的请求，会**先被完整缓冲**再被拒。这是"两层"这个事实的后果，不是实现缺陷。
+5. `oversize: 'files-api'` 在第一版**不得被任何 provider 声明**（第一版只允许 `'reject'`）；声明它的 provider 必须同时给出远端文件的生命周期与清理策略，否则不允许合入。
 
 ### 缺口 ③：`GET /api/voice/health` 只反映服务端 env，是单一真相源
 
@@ -409,7 +442,7 @@ D4：**按模型/服务分别测试**后再决定是否启用。落实为：
 |---|---|---|---|
 | **S0** | 契约 + registry + 把现有 OpenAI-compatible 抽成第一个适配器；**边界探针**（`shared/` 双向导入 + typecheck + lint + `boundaries` 登记） | `shared/asr/**`、`.oxlintrc.json`、`voice.service.ts`、`api.ts` | — |
 | **S1** | CLI（`--dry-run` / `--offline` / 真跑）+ 不变量套件 | `experiments/voice-asr/**`、`shared/asr/tests/**` | S0 |
-| **S2** | Gemini 适配器（仅 inline；`>20MB` 明确拒绝） | `shared/asr/list/gemini/**` | S1 |
+| **S2** | 多模态适配器（仅 inline；超**请求预算**明确拒绝） | `shared/asr/list/<provider>/**` | S1 |
 | **S3** | 配对实验记录 `docs/experiments/<date>-gemini.md`（同语料、`flat` 负对照、五轴读数） | `docs/experiments/**` | S2 |
 | **S4** | 三处缺口修复 + `GET /api/voice/providers` 能力快照 + 设置页 provider 选择 + 路由分派 | `voice.routes.ts`、`voice.module.ts`、`voice.service.ts`、`VoiceSettingsTab.tsx`、`useVoiceAvailable.ts` | S3 |
 | **S5** | 限流 / 并发 / 审计 / Files API（若届时需要） | — | S4 |
@@ -465,3 +498,17 @@ punctuation §七 描述的换识别器接口（`tools/groq.mjs` 是唯一碰 HT
 ## 修订记录
 
 - 2026-09-22 立（人 yale 授权）。依据当日勘查：三处硬编码单一化（`api.ts:610-621`、`voice.service.ts:107-112,132`、`:139-152`）、`experiments/README.md` 与 punctuation §七 所记的换识别器接口、两套 tsconfig 的 include 事实。同日决策五项（D1 默认裁剪 / D2 保持直连 / D3 优先风格化 / D4 上下文按服务分别测 / D5 既有 non-goal 是阶段性的），并纳入本次勘查发现的三处真实缺口（MIME 白名单、大小上限双真相源、`/health` 单一真相源）作为范围内的修改要求。
+
+- 2026-09-22 **第二版修订**（人 yale 指示，依据一次全新上下文的独立对抗评审 + 作者的实测探针）。**决策记录见 `adr/ADR-004`，本文件随其第二版一并修订。** 本版更正的项目：
+
+  - **协议硬编码点由"三处"更正为"四处"**，并区分**两跳**（入站字段 `audio` vs 出站字段 `file`）；初版"代理发 `audio`"一句对它所命名的那个分支是**错的**。
+  - **响应解析更正为两处且容忍度不同**：直连分支的契约在客户端 hook 里（`res.json()`，非 JSON 抛异常），代理分支才把非 JSON 当文本返回。这本身就说明两条路径已经分叉。
+  - **CLI 由"裸 node"改为 `npx tsx`**，并写明既有先例为何没暴露这个问题（先例导入的是**零 import** 的单文件，且住在被服务端构建 exclude 的 `src/` 里）。
+  - **落点新增四个障碍**（前端 lint 禁相对导入且无别名可达 `shared/`；`.js` 说明符与裸 node 不可兼得；`shared/` 不在 lint 路径里，登记≠覆盖；`.ts` 那半从未被证明过），并给出两条可选路径 (a)/(b)。**初版第一条硬约束"只用相对导入，禁止 `@/`"在前端侧恰好是错的杠杆，已更正。**
+  - **后备方案新增后果**：它会让缺口一、缺口三变成不可实现（服务端消费不到 `src/shared/asr/`），两条任务因此**转为有条件**。
+  - **内联上限更正为整个请求的预算**（含提示词与所有文件），字段改名 `maxInlineRequestBytes`，并写明与 D4 相撞。
+  - **MIME 白名单新增匹配语义**：必须按基类型匹配（浏览器发的是带参数的 `audio/webm;codecs=opus`，精确匹配会拒掉出货录音器自己的输出）。
+  - **缺口二更正**：`min(全局, provider 预算)` **不是单一计算点**，必然分两层（multer 在 handler 之前、且不知道 provider），并登记"先缓冲再拒"这一必然代价。
+  - **补上对称的另一半约束**：`lib` 是 `ES2020 + DOM`，所以 ES2021+ 的库特性在前端侧编不过。
+  - **补上未注册 provider id 的行为**（fail-closed、不静默回落，三个面各一条判据）。
+  - **补上一条须显式保留的安全不变式**：provider id 进用户配置并未重开"客户端不得控制服务端出站目的地"。
