@@ -31,12 +31,19 @@ const { transcribeVoice, getFiles } = vi.hoisted(() => ({
   getFiles: vi.fn(),
 }));
 
-vi.mock('@/shared/api', () => ({
-  api: { getFiles },
-  transcribeVoice,
-  synthesizeVoice: vi.fn(),
-  voiceConfigSignature: () => 'test-signature',
-}));
+vi.mock('@/shared/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/shared/api')>();
+  return {
+    api: { getFiles },
+    transcribeVoice,
+    synthesizeVoice: vi.fn(),
+    voiceConfigSignature: () => 'test-signature',
+    // The hook reads the recogniser's answer through this named export. It does no I/O, so it is
+    // driven for real rather than doubled — the double exists to cut the speech endpoint, and a
+    // second copy of the parse here would be a second copy of the thing under test.
+    parseTranscriptionResponse: actual.parseTranscriptionResponse,
+  };
+});
 
 // The real hook asks the backend whether a voice provider is configured; the mic button
 // is gated on that, and this file drives the mic button.

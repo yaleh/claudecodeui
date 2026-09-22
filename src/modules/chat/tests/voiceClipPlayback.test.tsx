@@ -29,11 +29,18 @@ import enChat from '@/modules/i18n/locales/en/chat.json';
 
 const { transcribeVoice } = vi.hoisted(() => ({ transcribeVoice: vi.fn() }));
 
-vi.mock('@/shared/api', () => ({
-  transcribeVoice,
-  synthesizeVoice: vi.fn(),
-  voiceConfigSignature: () => 'test-signature',
-}));
+vi.mock('@/shared/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/shared/api')>();
+  return {
+    transcribeVoice,
+    synthesizeVoice: vi.fn(),
+    voiceConfigSignature: () => 'test-signature',
+    // The hook reads the recogniser's answer through this named export. It does no I/O, so it is
+    // driven for real rather than doubled — the double exists to cut the speech endpoint, and a
+    // second copy of the parse here would be a second copy of the thing under test.
+    parseTranscriptionResponse: actual.parseTranscriptionResponse,
+  };
+});
 
 // The real hook asks the backend whether a voice provider is configured; the clip
 // pill is not gated on that, but the mic button is, and the composer test drives one.
