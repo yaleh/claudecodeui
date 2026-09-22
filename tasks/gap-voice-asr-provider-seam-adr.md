@@ -36,14 +36,14 @@ extra:
 
 ## AC
 
-- [ ] AC1 `adr/ADR-004-*.md` 存在，frontmatter 的 `id: ADR-004` 与 `status: proposed` 可按行读出。命令：`ls adr/ADR-004-*.md && head -5 adr/ADR-004-*.md`。失败时输出 `missing ADR-004 file`，或逐行打印实际 frontmatter。取假形态：把 status 擅自改成 accepted 而未经人评审，本判据仍绿——故本判据只覆盖「文件与 frontmatter 存在」，评审状态由 DoD 承担。
-- [ ] AC2 九条决策各成一个以「决策 N：」开头的三级小节。命令：`grep -c '^### 决策 ' adr/ADR-004-*.md` 必须等于 9，且打印实际计数；不足时逐条打印命中的标题。
-- [ ] AC3 每条决策都写明代价与被否决的替代。命令：`awk '/^### 决策 /{n++} /^\*\*代价：\*\*/{c++} /^\*\*被否决的替代：\*\*/{a++} END{printf "decisions=%d cost=%d alt=%d\n",n,c,a; if(n!=9||c!=9||a!=9) exit 1}' adr/ADR-004-*.md`，退出码 0。取假形态：删掉任一条决策的「被否决的替代」段使 a 变 8，本判据必须红。
-- [ ] AC4 后续任务草案为 10 条，且每条带判据与取假变体。命令：`grep -c '^### 后续任务 ' adr/ADR-004-*.md` 等于 10，且 `grep -c '取假变体' adr/ADR-004-*.md` 不小于 10；打印两个实际计数。
-- [ ] AC5 文档内引用一律用符号名，不出现「文件加行号」的引用形式。命令：`grep -nE '[A-Za-z0-9_/.-]+\.(ts|tsx|js|mjs):[0-9]+' adr/ADR-004-*.md` 无输出（退出码 1）；命中时逐行打印。
-- [ ] AC6 文档不写本机绝对路径。命令：`grep -nE '/data/(home|scratch)/' adr/ADR-004-*.md` 无输出；命中时逐行打印。
-- [ ] AC7 设计提案与设计文档互引，且写明冲突时的权威顺序。命令：`grep -c 'voice-asr-provider-seam.md' adr/ADR-004-*.md` 不小于 1，`grep -c 'ADR-004' docs/proposals/voice-asr-provider-seam.md` 不小于 1，且两处都能命中「为准」二字；打印四处实际命中。取假形态：只保留单向引用使其中一条计数为 0，本判据必须红。
-- [ ] AC8 本任务未产生任何代码、未改动任何既有文档或目标。命令：`git diff --name-only "$(git merge-base develop HEAD)" -- . ':!adr/ADR-004-*.md' ':!tasks/gap-voice-asr-provider-seam-adr.md'` 无输出；命中时逐行打印。用 merge-base 而非裸 develop：develop 会随其它任务的 fan-in 前进，拿裸 develop 比会把别人的提交读成本任务的改动。
+- [x] AC1 `adr/ADR-004-*.md` 存在，frontmatter 的 `id: ADR-004` 与 `status: proposed` 可按行读出。命令：`ls adr/ADR-004-*.md && head -5 adr/ADR-004-*.md`。失败时输出 `missing ADR-004 file`，或逐行打印实际 frontmatter。取假形态：把 status 擅自改成 accepted 而未经人评审，本判据仍绿——故本判据只覆盖「文件与 frontmatter 存在」，评审状态由 DoD 承担。
+- [x] AC2 九条决策各成一个以「决策 N：」开头的三级小节。命令：`grep -c '^### 决策 ' adr/ADR-004-*.md` 必须等于 9，且打印实际计数；不足时逐条打印命中的标题。
+- [x] AC3 每条决策都写明代价与被否决的替代。命令：`awk '/^### 决策 /{n++} /^\*\*代价：\*\*/{c++} /^\*\*被否决的替代：\*\*/{a++} END{printf "decisions=%d cost=%d alt=%d\n",n,c,a; if(n!=9||c!=9||a!=9) exit 1}' adr/ADR-004-*.md`，退出码 0。取假形态：删掉任一条决策的「被否决的替代」段使 a 变 8，本判据必须红。
+- [x] AC4 后续任务草案为 10 条，且每条带判据与取假变体。命令：`grep -c '^### 后续任务 ' adr/ADR-004-*.md` 等于 10，且 `grep -c '取假变体' adr/ADR-004-*.md` 不小于 10；打印两个实际计数。
+- [x] AC5 文档内引用一律用符号名，不出现「文件加行号」的引用形式。命令：`grep -nE '[A-Za-z0-9_/.-]+\.(ts|tsx|js|mjs):[0-9]+' adr/ADR-004-*.md` 无输出（退出码 1）；命中时逐行打印。
+- [x] AC6 文档不写本机绝对路径。命令：`grep -nE '/data/(home|scratch)/' adr/ADR-004-*.md` 无输出；命中时逐行打印。
+- [x] AC7 设计提案与设计文档互引，且写明冲突时的权威顺序。命令：`grep -c 'voice-asr-provider-seam.md' adr/ADR-004-*.md` 不小于 1，`grep -c 'ADR-004' docs/proposals/voice-asr-provider-seam.md` 不小于 1，且两处都能命中「为准」二字；打印四处实际命中。取假形态：只保留单向引用使其中一条计数为 0，本判据必须红。
+- [x] AC8 本任务未产生任何代码、未改动任何既有文档或目标。命令：`git diff --name-only "$(git merge-base develop HEAD)" -- . ':!adr/ADR-004-*.md' ':!tasks/gap-voice-asr-provider-seam-adr.md'` 无输出；命中时逐行打印。用 merge-base 而非裸 develop：develop 会随其它任务的 fan-in 前进，拿裸 develop 比会把别人的提交读成本任务的改动。
 
 ## DoD
 
@@ -64,3 +64,37 @@ L_G 该轴仍暗，理由：同上——目标层判据（新识别服务在直�
 
 - adr/ADR-004-语音识别-provider-缝-环境中立的适配器契约与能力声明.md
 - tasks/gap-voice-asr-provider-seam-adr.md
+
+## 完成记录
+
+**本任务不产生代码、不改任何既有文档。** 交付物是对**已落盘**的 `adr/ADR-004-*.md`（由此前提交落盘，frontmatter `status: proposed`）的评审立案：逐条核实该文档确实承载 Proposal 所列的九条决策、能力声明出处、文件落点与边界探针、以及十条带判据与取假变体的后续任务。以下为逐条实测读数。
+
+**AC1** `ls adr/ADR-004-*.md` → 命中 1 个文件；`head -5` 逐行读出 `id: ADR-004` 与 `status: proposed`。
+
+**AC2** `grep -c '^### 决策 ' adr/ADR-004-*.md` = **9**（等于 9）。
+
+**AC3** `awk '/^### 决策 /{n++} /^\*\*代价：\*\*/{c++} /^\*\*被否决的替代：\*\*/{a++} END{...}'` 读数 `decisions=9 cost=9 alt=9`，退出码 **0**。三类计数均为 9，说明不是靠某几条重复计数凑齐。
+
+**AC4** `grep -c '^### 后续任务 '` = **10**；`grep -c '取假变体'` = **13**（≥10）。13 > 10 是因为第 8、10 条各自带两个方向的变体，属覆盖更严而非重复。
+
+**AC5** `grep -nE '[A-Za-z0-9_/.-]+\.(ts|tsx|js|mjs):[0-9]+' adr/ADR-004-*.md` **无输出，退出码 1** —— 文档内引用一律以符号名给出。
+
+**AC6** `grep -nE '/data/(home|scratch)/' adr/ADR-004-*.md` **无输出，退出码 1**。
+
+**AC7** 互引与权威顺序四处读数：`grep -c 'voice-asr-provider-seam.md'`(ADR) = **1**；`grep -c 'ADR-004' docs/proposals/voice-asr-provider-seam.md` = **1**；`grep -c '为准'` ADR = **2**、提案 = **2**。两个「为准」命中均为权威顺序句而非无关用法：ADR 写「两者不一致时**以本 ADR 为准**」，提案写「两者不一致时**以 ADR 为准**」—— 方向一致、无矛盾。
+
+**AC8** `git diff --name-only "$(git merge-base develop HEAD)" -- . ':!adr/ADR-004-*.md' ':!tasks/gap-voice-asr-provider-seam-adr.md'` **无输出** —— 本任务未触碰任何其它文件。
+
+**DoD 承重性抽查（三件事，均实测）**
+
+(a) **每条决策都点得出替代与代价** —— AC3 的 9/9/9 即该读数的机器形式；抽查决策 3 的代价写明「探针读数可判据化，但其结论（落点是否成立）是人读的」，替代写明「先按 `server/modules/voice/providers/` 开工」及其二选一后果，不是单方面陈述。
+
+(b) **文档引用的机制按符号名可 grep 到**（逐条命中，故 AC5 禁行号不削弱可定位性）：`transcribeVoice` → `src/modules/chat/hooks/useVoiceInput.ts`；`resolveVoiceConfig` → `server/modules/voice/voice.service.ts`；`shared/networkHosts.js` → `server/index.ts`；`provider.registry` → `server/modules/providers/`；`AbstractProvider` → `server/modules/providers/README.md`；`voiceTrim.ts` → `src/modules/chat/utils/audioDecode.ts`。
+
+(c) **文档描述的能力今天确实不存在**（空读数，既是本任务存在的理由，也防止把已实现的东西重述冒充设计）：`AsrCapabilities`、`asrRegistry`、`asrContract` 在 `src/`、`server/`、`shared/` 内命中数**均为 0**；`server/modules/voice/` 内 `provider|adapt` 只有 1 处命中，且是既有 SSRF 测试名 `blocks link-local metadata destinations before calling the fetch adapter`，与识别服务 provider 缝无关。故「能力声明 / 适配器缝」在语音链路上确无实现。
+
+**DoD 另要求登记的两点**已由 ADR 正文 `## 完成记录` 承载并复核：三处缺口的现场依据来自对语音链路的一次完整通读（路由、服务、共享配置、客户端采集路径、既有测试与端到端替身），**未做运行期复现**；文中引用的 20MB、25MB、10 秒下限、−89%、25.5% 均为既有代码、官方文档或既有实验记录里的既成值，**本 ADR 未新立任何阈值**。
+
+**scoped gate** `bash scripts/test.sh --for-task gap-voice-asr-provider-seam-adr --allow-thin` 退出码 **0**，输出 `no scoped test files for gap-voice-asr-provider-seam-adr (thin)` —— 本任务 `## Touches` 不含 `*.test.*`，thin 即该项的通过形态，非跳过失败。
+
+**未决（人评审）**：DoD 明确「人评审是本任务 DoD 的一部分……未获评审前不得置 done」。ADR 的 `## Adjudication` 小节已就位并写明「**状态：待评审**」，并列出五条建议优先裁决的开放问题。本次只勾 AC，**不置 done** —— 评审结论（通过 / 要求修订）须由人记入该小节，若要求修订则落在同一份 ADR 内、AC 随修订重跑。
