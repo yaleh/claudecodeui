@@ -44,12 +44,12 @@ extra:
 
 **本任务必须基于已存在的原型开发，不要从零重写。** 原型已落在一个独立 worktree：
 
-- 路径：`/data/home/yale/workclaudecodeui-worktrees/mobile-enter-send-key`（实际为 `/data/home/yale/work/claudecodeui-worktrees/mobile-enter-send-key`）
+- 路径：`/data/home/yale/work/claudecodeui-worktrees/mobile-enter-send-key`
 - 分支：`proto/mobile-enter-send-key`，commit `bb787bcd`，基于 `develop`
 - 内容：新增 `src/modules/chat/hooks/useSendOnEnter.ts`（导出 `useSendOnEnter(sendByCtrlEnter) -> { sendOnEnter, touchOnly }`，含媒体查询 `change` 监听），改 `useChatComposerState.ts`（keydown 用 `sendOnEnter`）与 `ChatComposer.tsx`（提示文案与容器可见性）。
 - 该原型已过 `tsc --noEmit`（退出 0）、新增文件 `npx oxlint` 零告警、`npx vitest run src/modules/chat/tests src/shared/tests/uiPreferences.test.ts` 42 文件 / 313 用例全绿。
 
-取用方式：把该分支并入本任务的 `task/<id>` 分支（`git merge proto/mobile-enter-send-key` 或先行 cherry-pick `bb787bcd`），再在其上补齐下面的缺口。**不要**预建或复用名为 `task/<id>` 的分支以外的 `task/*` 分支——`claim-task` 把已存在的 `task/<候选 id>` 视为"在途"并拒绝派发。
+取用方式：把该分支并入本任务的 `task/<id>` 分支（`git merge proto/mobile-enter-send-key`，或先 cherry-pick `bb787bcd`），再在其上补齐下面的缺口。派生本任务时**不要**为它预建任何 `task/*` 分支：`claim-task` 把已存在的 `task/<候选 id>` 视为在途并拒绝派发。
 
 原型**故意没做**、本任务要补齐的：
 
@@ -71,7 +71,7 @@ extra:
 - [ ] i18n 完整性（12 个 locale × 2 个 key）：一条 `node -e` 或等价脚本校验 `src/modules/i18n/locales/*/chat.json` 全部存在非空 `input.hintText.touch`，且 `src/modules/i18n/locales/*/settings.json` 的 `quickSettings.sendByCtrlEnterDescription` 已说明该设置只在有键盘的设备上生效；任一缺失或为空即以非 0 退出并打印缺哪个文件哪个 key。同时校验 12 个 `chat.json` 与 12 个 `settings.json` 仍是可解析 JSON。
 - [ ] e2e 触摸 leg：`npx playwright test e2e/mobile-composer-send-key.spec.ts` 退出码 0。该 leg 以 `test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } })` 运行，并**在断言行为之前先断言前提**：页内 `matchMedia('(pointer: coarse) and (hover: none)').matches` 必须为 true，否则以该读数直接 fail（没有这一条，spec 在桌面配置下会静默通过，等于没测）。随后断言三件事：空输入按 Enter 后 textarea 值 === `"\n"`；输入文本后按 Enter，值恰好多出一个 `\n` 且 `location.pathname` 不变；点 `button[aria-label="Send"]` 后 `location.pathname` 变为 `/session/<id>`。
 - [ ] e2e 桌面 leg（同一 spec 文件内的另一个 describe 块，共用一次运行与同一个 `DATABASE_PATH`；不要拆成第二个 spec 文件，那会踩"一次运行一个库"的鉴权坑）：默认配置下 Enter 提交（`location.pathname` 变化），Shift+Enter 只让值增加 `\n` 而不提交。该 leg 同时是空输入死键的回归读数：空输入按 Enter 后值仍为 `""`、`location.pathname` 不变。
-- [ ] 抗假变体：把 `sendOnEnter` 恒置为 `!sendByCtrlEnter`（等价于删掉触摸判定）后重跑该 spec，触摸 leg 必须在"输入文本后按 Enter 未提交"那条变红（红的原因是该 leg 真的点了发送按钮之外的路径）；还原后全绿，`git diff` 只剩本任务声明的写点。`npx vitest run src/modules/chat/tests/sendOnEnter.test.tsx` 在变体下同样应变红。
+- [ ] 抗假变体：把 `sendOnEnter` 恒置为 `!sendByCtrlEnter`（等价于删掉触摸判定）后重跑该 spec，触摸 leg 必须在"输入文本后按 Enter 未提交"那条变红；还原后全绿，`git diff` 只剩本任务声明的写点。`npx vitest run src/modules/chat/tests/sendOnEnter.test.tsx` 在变体下同样应变红。
 - [ ] `npm run typecheck` 与 `npm run lint` 退出码均为 0（`npm run lint` 是 `oxlint src/ server/`；裸 `npx oxlint` 在本仓库预先就有 146 条诊断并非 0，不作为判据）。
 
 ## DoD
