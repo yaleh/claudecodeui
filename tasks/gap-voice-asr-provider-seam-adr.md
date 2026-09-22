@@ -1,7 +1,7 @@
 ---
 id: gap-voice-asr-provider-seam-adr
 title: ADR-004：语音识别 Provider 缝 —— 环境中立的适配器契约与能力声明（只落设计文档，不实现）
-status: ready
+status: done
 needs_human_cause: unclassified
 labels:
   - gap
