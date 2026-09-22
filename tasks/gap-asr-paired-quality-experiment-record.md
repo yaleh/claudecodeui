@@ -29,14 +29,18 @@ goal_ac: " "
 - **S2 负对照。** 一条能红的负对照（`flat` 形态，沿用既有协议），并报告它是否按预测方向移动；负对照去掉即红。
 - **S3 记录与留档。** 记录落在 `docs/experiments/`，在 `docs/experiments/README.md` 登记。
 
+## 交付物
+
+`docs/experiments/2026-09-22-voice-provider-paired-quality.md`（读数：n=8、40 条配对读数、单次运行 `2026-09-22T15:35:41.828Z`；负对照 Δ=-2 按预测方向 down）、`experiments/voice-provider-paired-quality/run.mjs`（离线重算 + 七条自检变异 + 对应关系机检）、`fixtures/`（8 条固定片段 + 冻结快照 `paired.json`，令记录里每个数字都能离线重算）。`fixtures/*.wav` 是继 `experiments/voice-trim/fixtures/` 之后第二处音频入库，理由登记在 `docs/experiments/README.md`。
+
 ## AC
 
-- [ ] AC1 runner 在同一批语料上产出**配对比较**读数，并报 `n`（`n` 为语料条数）；`n` 为 0 或读数条数为 0 ⇒ 非零退出（空读数不是绿）。
-- [ ] AC2 **负对照能红**：把负对照去掉（或置零）⇒ 读数必须红；负对照本身不是「写了就算」，它必须能被触发。
-- [ ] AC3 记录报告**负对照是否按预测方向移动**（而不是只报「跑了负对照」）。
-- [ ] AC4 协议：配对比较不跨运行、被测实现必须是**出货模块**（探针打印所驱动的绝对路径 + 符号名，均在出货树内）、串行执行、结果落盘缓存。
-- [ ] AC5 **不判据化（ADR-004 决策 8）**：质量数值不进判据集；且**不得**把「记录里提到了某个词」当作任何判据 —— 文本匹配无法区分「做了负对照」与「写了负对照」。
-- [ ] AC6 不改任何出货代码：本任务的 diff 只含 `docs/experiments/` 与 `experiments/voice-provider-paired-quality/` 下的新文件。
+- [x] AC1 runner 在同一批语料上产出**配对比较**读数，并报 `n`（`n` 为语料条数）；`n` 为 0 或读数条数为 0 ⇒ 非零退出（空读数不是绿）。`--corpus=empty` ⇒ 退出码 1（`[n] the paired set is empty — n=0 is not a green reading`），真实快照打印 `n=8 × 5 condition(s) = 40 row(s)`。
+- [x] AC2 **负对照能红**：把负对照去掉（或置零）⇒ 读数必须红；负对照本身不是「写了就算」，它必须能被触发。`--control=absent` ⇒ 1（`条件表里没有声明负对照`）、`--control=zero` ⇒ 1（Δ=0 `负对照没有移动`）、`--control=inverted` ⇒ 1（`朝预测的**反方向**移动`）、`--control=empty` ⇒ 1。
+- [x] AC3 记录报告**负对照是否按预测方向移动**（而不是只报「跑了负对照」）：runner 每次运行都打印 `ok turbo|raw|flat marks=8 vs turbo|raw|none marks=10 (Δ=-2, 2↑ 4= 2↓) —— 按预测方向（down）移动` 与逐片段句读，记录 3.2 节引用了它并给出逐片段表。
+- [x] AC4 协议：配对比较不跨运行（run id 落进快照并打印；`--runs=straddle` ⇒ 1，报 `the readings come from 2 different runs`）、被测实现必须是**出货模块**（`--probe` 打印绝对路径 + 符号名 `src/shared/voiceTrim.ts#trimVoiceAudio`、`src/shared/identifierFidelity.ts#identifierFidelity`，并断言两者都在出货树内、工装内无第二份实现）、串行执行（`one call in flight`，最小间隔 3200 ms，写入 `provenance.throttle`）、结果落盘缓存（`out/quality-cache.json` + 入库的冻结快照 `fixtures/paired.json`）。
+- [x] AC5 **不判据化（ADR-004 决策 8）**：质量数值不进判据集；且**不得**把「记录里提到了某个词」当作任何判据 —— 文本匹配无法区分「做了负对照」与「写了负对照」。本任务的 `## Touches` 无 `*.test.*`，`scripts/test.sh --for-task … --allow-thin` 报 `no scoped test files … (thin)` 并退出 0；记录与 runner 都不被任何判据脚本引用，runner 末行自陈 `quality numbers are a reading and are NOT a criterion`。
+- [x] AC6 不改任何出货代码：本任务的 diff 只含 `docs/experiments/` 与 `experiments/voice-provider-paired-quality/` 下的新文件。`git diff --name-only develop...HEAD` 共 12 个文件，全部落在这两个前缀下。
 
 ## DoD
 
@@ -45,7 +49,7 @@ goal_ac: " "
 (a) 空读数不是绿：`n` 为 0 或读数条数为 0 必须红（AC1）；
 (b) 负对照能红：去掉负对照必须使读数红（AC2）—— 一个「写了负对照但不触发它」的记录等于没有负对照。
 
-**必须如实登记（决策 8 的代价，已被裁定 5 接受）：** 质量结论不进 CI，因此质量回归不会自动被发现，依赖人工义务。本任务**不证明**质量阈值 —— 阈值不可导出（语料是合成的、样本量小、效应方向明确而幅度不确定），一个拍出来的阈值会在下一次语料变化时变成假判据。
+**必须如实登记（决策 8 的代价，已被裁定 5 接受）：** 质量结论不进 CI，因此质量回归不会自动被发现，依赖人工义务。本任务**不证明**质量阈值 —— 阈值不可导出（语料是合成的、样本量小、效应方向明确而幅度不确定），一个拍出来的阈值会在下一次语料变化时变成假判据。本轮另有一条实测印证：同一批 8 条片段上 no-prompt 两臂与已发布读数逐字相同（8/8），prompt 两臂从 0/0 变成 22/8 —— **prompt 臂跨运行不可复现**，基于它的阈值更不可导出。
 
 L_D 该轴仍暗，理由：本任务只产出配对质量实验记录，不新增领域数据能力，也没有可读出的领域读数。
 L_G 该轴仍暗，理由：同上 —— 目标层判据（换识别服务不改路由与 UI）由 GOAL-008 的其余判据承担。
@@ -55,4 +59,13 @@ L_G 该轴仍暗，理由：同上 —— 目标层判据（换识别服务不�
 - docs/experiments/2026-09-22-voice-provider-paired-quality.md (new)
 - docs/experiments/README.md
 - experiments/voice-provider-paired-quality/run.mjs (new)
+- experiments/voice-provider-paired-quality/fixtures/paired.json (new)
+- experiments/voice-provider-paired-quality/fixtures/d01-o65.wav (new)
+- experiments/voice-provider-paired-quality/fixtures/d02-o65.wav (new)
+- experiments/voice-provider-paired-quality/fixtures/d03-o65.wav (new)
+- experiments/voice-provider-paired-quality/fixtures/d04-o65.wav (new)
+- experiments/voice-provider-paired-quality/fixtures/d05-o65.wav (new)
+- experiments/voice-provider-paired-quality/fixtures/d06-o65.wav (new)
+- experiments/voice-provider-paired-quality/fixtures/d07-o65.wav (new)
+- experiments/voice-provider-paired-quality/fixtures/d08-o65.wav (new)
 - tasks/gap-asr-paired-quality-experiment-record.md
