@@ -1,7 +1,7 @@
 ---
 id: AC-134
 title: 健康检查反映用户有效配置；未注册 provider id 三面 fail-closed
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-008
 criterion: node scripts/asr-config-resolution-check.mjs
@@ -16,6 +16,11 @@ statusLog:
     to: active
     actor: goal-cli
     reason: ""
+  - at: 2026-09-22T16:51:49.591Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: not-evaluated
   reason: no judge configured

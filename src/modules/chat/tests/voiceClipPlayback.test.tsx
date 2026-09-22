@@ -12,6 +12,7 @@ import { voicePlayer } from '@/modules/chat/utils/voicePlayer';
 import enChat from '@/modules/i18n/locales/en/chat.json';
 // Type-only, so it is erased before vi.mock's hoisted factory runs.
 import type * as SharedApi from '@/shared/api';
+import type * as VoiceTrim from '@/shared/voiceTrim';
 
 /**
  * The composer keeps the last recording as a single slot so it can be replayed — and, once the
@@ -81,7 +82,14 @@ vi.mock('@/modules/chat/utils/audioDecode', () => ({
     new Blob([new Uint8Array(samples.length * 2)], { type: 'audio/wav' }),
 }));
 
-vi.mock('@/shared/voiceTrim', () => ({
+/**
+ * The trim itself is stubbed, but the rest of the module is not: whether 裁不裁 is the recogniser's
+ * declaration, and the shipping declaration says the pauses are destructive — which is the state
+ * every case here records in. Doubling the whole module would mean this file carries its own answer
+ * to that question, and then a change to *who decides* could not show up here at all.
+ */
+vi.mock('@/shared/voiceTrim', async (importOriginal) => ({
+  ...(await importOriginal<typeof VoiceTrim>()),
   trimVoiceAudio: (samples: Float32Array) => ({
     samples,
     stats: {
