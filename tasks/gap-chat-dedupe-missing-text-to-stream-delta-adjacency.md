@@ -2,7 +2,7 @@
 id: gap-chat-dedupe-missing-text-to-stream-delta-adjacency
 title: 助手回复的首段被渲染两次：dedupeAdjacentAssistantEchoes 缺 (text→stream_delta)
   这一条相邻规则，而 live 行总排在服务端回声之后 —— 补规则且必须保留 live 行
-status: ready
+status: done
 labels:
   - gap
   - defect
