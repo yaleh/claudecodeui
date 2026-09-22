@@ -59,6 +59,45 @@ export interface IProvider {
    * its absence is what makes "fork session" unavailable.
    */
   readonly fork?: IProviderFork;
+  /**
+   * Rename write-back. Present only for providers whose own storage keeps a
+   * session title that their tooling reads back (Claude's transcript
+   * `custom-title` entry); its absence is what makes the app-side name the only
+   * place the rename exists.
+   */
+  readonly rename?: IProviderSessionRename;
+}
+
+// ---------------------------
+//----------------- PROVIDER SESSION RENAME INTERFACE ------------
+/**
+ * Offline rename contract for one provider.
+ *
+ * A rename in this app is authoritative in the app's own database; this is the
+ * second, best-effort half that records the same name in the provider's own
+ * store. It exists so the name a user sets here is visible to the provider's
+ * own tooling — Claude Code's resume list, its session search, and `/resume`
+ * argument completion all read a session's title from the transcript, not from
+ * this app.
+ */
+export interface IProviderSessionRename {
+  /**
+   * Records `title` as the session's name in the provider's own store.
+   *
+   * `projectPath` is the session's working directory — the same scoping
+   * `forkSession` takes — because providers locate a session by the directory
+   * it was run in rather than by the transcript path a caller already knows.
+   *
+   * Callers treat a rejection as informational, never as a failed rename: the
+   * app-side name is stored before this is called, so an implementation may
+   * reject freely and a caller must not turn that into a failed request.
+   */
+  renameSession(input: {
+    providerSessionId: string;
+    /** The session's working directory — how providers scope a session lookup. */
+    projectPath: string;
+    title: string;
+  }): Promise<void>;
 }
 
 // ---------------------------
