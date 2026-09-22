@@ -119,10 +119,53 @@ test('recent sessions map project metadata and preserve database pagination', { 
         projectDisplayName: 'Recent Project',
         sessionTitle: 'Newer conversation',
         lastActivity: '2026-08-01T11:00:00.000Z',
+        // Neither row here was branched, so the recents payload still carries
+        // the field — as null. Asserted inside the exact-shape comparison so a
+        // payload that quietly dropped it fails rather than passes.
+        forkedFromSessionId: null,
       }],
       total: 2,
       hasMore: true,
     });
+  });
+});
+
+test('recent sessions carry the source id for a branched conversation', { concurrency: false }, async () => {
+  await withIsolatedDatabase(() => {
+    sessionsDb.createSession(
+      'branch-source',
+      'claude',
+      '/tmp/branch-project',
+      'Branch topic',
+      '2026-08-01T08:00:00.000Z',
+      '2026-08-01T09:00:00.000Z',
+    );
+    sessionsDb.createForkedSession({
+      sessionId: 'branch-copy',
+      provider: 'claude',
+      projectPath: '/tmp/branch-project',
+      customName: 'Branch topic',
+      providerSessionId: 'native-branch-copy',
+      jsonlPath: '/tmp/branch-project/native-branch-copy.jsonl',
+      forkedFromSessionId: 'branch-source',
+      model: null,
+      effort: null,
+      permissionMode: null,
+    });
+
+    const page = sessionsService.listRecentSessions(10, 0);
+    const branch = page.conversations.find((conversation) => conversation.sessionId === 'branch-copy');
+    const source = page.conversations.find((conversation) => conversation.sessionId === 'branch-source');
+
+    // The branch names the row it came from and the source names nothing. The
+    // pair is asserted together because a field that only ever reads null is
+    // indistinguishable from one that was never wired to the column at all —
+    // and this list is where the two rows read as unrelated duplicates.
+    assert.equal(branch?.forkedFromSessionId, 'branch-source');
+    assert.equal(source?.forkedFromSessionId, null);
+    // The pair renders the same name on purpose: the lineage, not the name, is
+    // what tells them apart.
+    assert.equal(branch?.sessionTitle, source?.sessionTitle);
   });
 });
 
