@@ -1,7 +1,7 @@
 ---
 id: gap-session-fork-lineage-list
 title: 会话列表按血缘分组与分支标识
-status: todo
+status: ready
 labels:
   - gap
 parent: null
