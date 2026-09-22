@@ -37,6 +37,10 @@ export default defineConfig(({ mode }) => {
     server: {
       host,
       port: parseInt(env.VITE_PORT) || 5173,
+      // Host header allowlist (dev server only; this is Vite's DNS-rebinding guard).
+      // A leading dot allows the domain itself AND every subdomain, so any zrok share
+      // in this zone works — the share name changes on each `zrok share` restart.
+      allowedHosts: ['.shares.zrok.io'],
       proxy: {
         '/api': `http://${proxyHost}:${serverPort}`,
         '/ws': {
@@ -55,6 +59,11 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       outDir: 'dist',
+      // Vite empties outDir on EVERY build pass, and `vite build --watch` re-runs the
+      // whole pipeline per change. That would blank dist/ for the length of each rebuild
+      // (rollup only writes at the end), so a refresh mid-rebuild 404s. Keeping old
+      // hashed chunks also lets a page loaded before the rebuild finish its requests.
+      emptyOutDir: false,
       chunkSizeWarningLimit: 1000,
       rollupOptions: {
         output: {

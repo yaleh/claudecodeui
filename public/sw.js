@@ -42,8 +42,13 @@ self.addEventListener('fetch', event => {
       caches.match(event.request).then(cached => {
         if (cached) return cached;
         return fetch(event.request).then(response => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+          // Only cache real successes. This branch is cache-first, so a transient
+          // failure (e.g. the dev server writing dist/ mid-rebuild) would otherwise
+          // be pinned for that URL until the cache is purged.
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+          }
           return response;
         });
       })
