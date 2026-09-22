@@ -1,7 +1,7 @@
 ---
 id: gap-goal-007-exit-conditions-section
 title: GOAL-007 缺 `## 退出条件` 小节：提议补上独立小节以解除机械短路，并把两处无在域 AC 覆盖的范围项交人裁定
-status: needs-human
+status: todo
 labels:
   - gap
 parent: null
