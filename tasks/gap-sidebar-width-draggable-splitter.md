@@ -46,14 +46,14 @@ extra:
 
 ## AC
 
-- [ ] `npx vitest run src/modules/sidebar/tests/sidebarResize.test.ts` 退出码 0，且每条判定**各自独立可反红**并在失败信息里打印实际读数：(a) 无存储时宽度 === 288；(b) 存储 9999 被钳到当日上限、存储 10 被钳到 220；(c) 存储 `"abc"` / `"0x10"` 等损坏值回退 288 而不是 NaN；(d) 键盘四键各自读数——`←` = 起始−16、`Shift+←` = 起始−64、`Home` = 220、`End` = 当日上限；(e) 双击复位 288。
-- [ ] 同一文件断言**拖拽期间不落盘、仅松手落一次**：以 `localStorage.setItem` 的 spy 记录调用序列，拖拽中间态（多次 pointermove）的调用次数为 0，pointerup 后恰为 1 且传入值为松手时的宽度；断言的是这两个读数，不是"没报错"。
-- [ ] 同一文件断言**设备排他**：以 `window.matchMedia` 替身分别给出 `(pointer: coarse) and (hover: none)` 为真/假两 leg，真 leg 下 `canResize === false` 且渲染结果中无 `[role="separator"]`，假 leg 下 `canResize === true` 且有；两 leg 各自独立可反红（失败信息打印两 leg 的实际布尔）。jsdom 不实现 `matchMedia`，替身须自带且按 query 分支返回（`vitest.setup.ts` 现有替身恒返回 false，只够假 leg）。
-- [ ] e2e 触摸 leg：`npx playwright test e2e/sidebar-resize.spec.ts` 退出码 0。该 leg 以 `test.use({ hasTouch: true, isMobile: true, viewport: { width: 1024, height: 768 } })` 运行（**视口与触摸同处给**），并在断言行为**之前先断言前提**：页内 `matchMedia('(pointer: coarse) and (hover: none)').matches` 为 true、且 `document.querySelector('[role="separator"]')` 为 null，否则以该实际读数直接 fail（没有这两条，spec 在桌面配置下会静默通过，等于没测）。随后以 CDP `Input.dispatchTouchEvent` 在侧栏右缘做一次真实 touchStart/若干 touchMove/touchEnd，断言侧栏渲染宽度与 `localStorage.getItem('sidebarWidth')` 两者拖拽前后**逐字段相同**。
-- [ ] e2e 指针 leg（**同一 spec 文件内的另一个 describe 块**，共用一次运行与同一个 `DATABASE_PATH`；不要拆成第二个 spec 文件，那会踩"一次运行一个库"的鉴权坑）：默认配置 + 1440×900 视口下，断言拖拽后渲染宽度跟手（≥2 个采样点）、`localStorage.sidebarWidth` 落盘为松手值、reload 后仍为该值、往左拖到极左停在 220、往右拖到极右停在 `min(480, 50vw)`、双击复位 288。
-- [ ] 抗假变体：把设备排他判定恒置为真（等价于删掉 `!isTouchOnlyPointer` 那一半）后重跑该 spec，触摸 leg 必须在"无 `[role="separator"]`"那条变红；再单独把 `!isMobile` 那一半删掉重跑，767px 视口 leg 应变红。还原后全绿，`git diff` 只剩本任务声明的写点。单测 `sidebarResize.test.ts` 在变体下同样应变红。
-- [ ] i18n 完整性（12 个 locale × 1 个 key）：一条 `node -e` 或等价脚本校验 `src/modules/i18n/locales/*/sidebar.json` 全部存在**非空**的 `resizeHandle.label`，且 12 个文件仍是可解析 JSON；任一缺失或为空即以非 0 退出并打印缺哪个文件哪个 key。
-- [ ] `npm run typecheck` 与 `npm run lint` 退出码均为 0（`npm run lint` 是 `oxlint src/ server/`；裸 `npx oxlint` 在本仓库预先就有诊断且非 0，不作为判据）。
+- [x] `npx vitest run src/modules/sidebar/tests/sidebarResize.test.ts` 退出码 0，且每条判定**各自独立可反红**并在失败信息里打印实际读数：(a) 无存储时宽度 === 288；(b) 存储 9999 被钳到当日上限、存储 10 被钳到 220；(c) 存储 `"abc"` / `"0x10"` 等损坏值回退 288 而不是 NaN；(d) 键盘四键各自读数——`←` = 起始−16、`Shift+←` = 起始−64、`Home` = 220、`End` = 当日上限；(e) 双击复位 288。
+- [x] 同一文件断言**拖拽期间不落盘、仅松手落一次**：以 `localStorage.setItem` 的 spy 记录调用序列，拖拽中间态（多次 pointermove）的调用次数为 0，pointerup 后恰为 1 且传入值为松手时的宽度；断言的是这两个读数，不是"没报错"。
+- [x] 同一文件断言**设备排他**：以 `window.matchMedia` 替身分别给出 `(pointer: coarse) and (hover: none)` 为真/假两 leg，真 leg 下 `canResize === false` 且渲染结果中无 `[role="separator"]`，假 leg 下 `canResize === true` 且有；两 leg 各自独立可反红（失败信息打印两 leg 的实际布尔）。jsdom 不实现 `matchMedia`，替身须自带且按 query 分支返回（`vitest.setup.ts` 现有替身恒返回 false，只够假 leg）。
+- [x] e2e 触摸 leg：`npx playwright test e2e/sidebar-resize.spec.ts` 退出码 0。该 leg 以 `test.use({ hasTouch: true, isMobile: true, viewport: { width: 1024, height: 768 } })` 运行（**视口与触摸同处给**），并在断言行为**之前先断言前提**：页内 `matchMedia('(pointer: coarse) and (hover: none)').matches` 为 true、且 `document.querySelector('[role="separator"]')` 为 null，否则以该实际读数直接 fail（没有这两条，spec 在桌面配置下会静默通过，等于没测）。随后以 CDP `Input.dispatchTouchEvent` 在侧栏右缘做一次真实 touchStart/若干 touchMove/touchEnd，断言侧栏渲染宽度与 `localStorage.getItem('sidebarWidth')` 两者拖拽前后**逐字段相同**。
+- [x] e2e 指针 leg（**同一 spec 文件内的另一个 describe 块**，共用一次运行与同一个 `DATABASE_PATH`；不要拆成第二个 spec 文件，那会踩"一次运行一个库"的鉴权坑）：默认配置 + 1440×900 视口下，断言拖拽后渲染宽度跟手（≥2 个采样点）、`localStorage.sidebarWidth` 落盘为松手值、reload 后仍为该值、往左拖到极左停在 220、往右拖到极右停在 `min(480, 50vw)`、双击复位 288。
+- [x] 抗假变体：把设备排他判定恒置为真（等价于删掉 `!isTouchOnlyPointer` 那一半）后重跑该 spec，触摸 leg 必须在"无 `[role="separator"]`"那条变红；再单独把 `!isMobile` 那一半删掉重跑，767px 视口 leg 应变红。还原后全绿，`git diff` 只剩本任务声明的写点。单测 `sidebarResize.test.ts` 在变体下同样应变红。
+- [x] i18n 完整性（12 个 locale × 1 个 key）：一条 `node -e` 或等价脚本校验 `src/modules/i18n/locales/*/sidebar.json` 全部存在**非空**的 `resizeHandle.label`，且 12 个文件仍是可解析 JSON；任一缺失或为空即以非 0 退出并打印缺哪个文件哪个 key。
+- [x] `npm run typecheck` 与 `npm run lint` 退出码均为 0（`npm run lint` 是 `oxlint src/ server/`；裸 `npx oxlint` 在本仓库预先就有诊断且非 0，不作为判据）。
 
 ## DoD
 
