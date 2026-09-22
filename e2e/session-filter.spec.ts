@@ -109,9 +109,18 @@ test.describe('session name filter in a real browser', () => {
     await expect(firstSession).toBeVisible({ timeout: 15_000 });
   };
 
+  /**
+   * Opens the rule editor for the project under test. The sidebar renders one filter control per project, so
+   * the click has to be scoped to this project's own row: an unscoped `.first()` picks whichever project the
+   * sidebar happens to render first, which is a property of the fixture set and its name sort rather than of
+   * this spec. Whichever control the click lands on, the editor names its project — so the assertion below
+   * fails here, where the cause is legible, instead of surfacing downstream as a preview count.
+   */
   const openFilterEditor = async () => {
-    await page.getByTitle('Session filter…').first().click();
-    await expect(page.getByRole('dialog')).toBeVisible();
+    await projectRow().getByTitle('Session filter…').click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText(`Session filter · ${path.basename(workspace)}`);
   };
 
   const acceptRules = async () => {
