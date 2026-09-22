@@ -1,8 +1,8 @@
 {
   "schema": "asr-extraction-parity-baseline/v1",
   "provenance": {
-    "recordedFromCommit": "a87ba539d15989d9743e252dfc19accac8d66c6c",
-    "recordedAt": "2026-09-22T15:29:33.338Z",
+    "recordedFromCommit": "2506f8d3a5d4f69ed648419c32da403a9a2ed58d",
+    "recordedAt": "2026-09-22T15:34:20.870Z",
     "recordedInWorktree": false,
     "recordedBy": "scripts/asr-extraction-parity-check.mjs --record"
   },
