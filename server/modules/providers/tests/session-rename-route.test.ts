@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -120,6 +120,41 @@ test('renaming a session that does not exist changes nothing and tells no one', 
       'a rename must not create the session it could not find',
     );
     assert.deepEqual(connection.frames, []);
+  });
+});
+
+test('a rename the provider cannot write back is still stored, broadcast, and answered 200', async () => {
+  await withProviderServer(async (baseUrl, workspacePath) => {
+    // Codex keeps no writable session title, so this rename has nowhere to go
+    // on disk. That must not be visible in the response: the app-side half of a
+    // rename is complete on its own, and a rename that reached no provider store
+    // is still a rename the user made and every client has to hear about.
+    const transcriptPath = path.join(workspacePath, 'rollout-codex-1.jsonl');
+    await mkdir(workspacePath, { recursive: true });
+    await writeFile(transcriptPath, '{"type":"session_meta"}\n', 'utf8');
+    sessionsDb.createSession(
+      'codex-rename-1',
+      'codex',
+      workspacePath,
+      'first prompt',
+      undefined,
+      undefined,
+      transcriptPath,
+    );
+    const connection = new FakeConnection();
+    connectedClients.add(connection as never);
+
+    const response = await rename(baseUrl, 'codex-rename-1', { summary: 'Renamed On Codex' });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(storedName('codex-rename-1'), { name: 'Renamed On Codex', source: 'manual' });
+    assert.equal(connection.frames.length, 1);
+    assert.equal(connection.frames[0].sessionId, 'codex-rename-1');
+    assert.equal(
+      await readFile(transcriptPath, 'utf8'),
+      '{"type":"session_meta"}\n',
+      'a provider with no writable title must leave its own files alone',
+    );
   });
 });
 

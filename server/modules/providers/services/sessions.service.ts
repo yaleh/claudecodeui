@@ -91,6 +91,65 @@ async function removeFileIfExists(filePath: string): Promise<boolean> {
 }
 
 /**
+ * Writes one rename through to the provider's own store, best-effort.
+ *
+ * A rename in this app is stored in the app's database first and written to the
+ * provider's store second, so nothing here is allowed to fail the request: the
+ * name the user sees has already changed by the time this runs.
+ *
+ * Skipped — silently, because each case is a complete answer rather than a
+ * failure — when the provider keeps no writable title, when the row has no
+ * transcript yet (an app-created session whose first run has not produced a
+ * file), and when the file the row points at is gone. A rejection from the
+ * provider is logged and swallowed for the same reason: surfacing it would make
+ * a disk problem look like a rejected rename.
+ *
+ * The file is checked here rather than left to the provider because providers
+ * locate the transcript themselves from the session's working directory; a row
+ * whose file is already gone has to be a skip, and the two must not be
+ * distinguishable by whether the request succeeded.
+ */
+async function writeRenameToProviderTranscript(
+  session: {
+    session_id: string;
+    provider: string;
+    provider_session_id: string | null;
+    project_path: string | null;
+    jsonl_path: string | null;
+  },
+  title: string,
+): Promise<void> {
+  try {
+    const rename = providerRegistry.resolveProvider(session.provider).rename;
+    if (!rename) {
+      return;
+    }
+
+    const transcriptPath = session.jsonl_path;
+    if (!transcriptPath || !session.provider_session_id) {
+      return;
+    }
+
+    try {
+      await fsp.stat(transcriptPath);
+    } catch {
+      return;
+    }
+
+    await rename.renameSession({
+      providerSessionId: session.provider_session_id,
+      projectPath: session.project_path ?? '',
+      title,
+    });
+  } catch (error) {
+    console.warn(
+      `[sessions] could not write the rename of session "${session.session_id}" back to the "${session.provider}" store:`,
+      error,
+    );
+  }
+}
+
+/**
  * Archive rows need a stable project label even when the owning project is not
  * part of the active sidebar payload. This lightweight resolver keeps the
  * archive API self-contained while still matching the project's stored display
@@ -675,6 +734,11 @@ export const sessionsService = {
    * one client has to appear on the others without them refetching, and the
    * `session_upserted` delta is the same one the on-disk watcher sends when a
    * transcript renames a session by itself.
+   *
+   * Order is deliberate: the database write and its broadcast happen first, and
+   * the provider's own copy of the name is written afterwards, best-effort. The
+   * reverse order has the worse failure — a provider store that carries the new
+   * name while this app, and so the user, still shows the old one.
    */
   async renameSessionById(
     sessionId: string,
@@ -690,6 +754,7 @@ export const sessionsService = {
 
     sessionsDb.updateSessionCustomName(sessionId, summary);
     await broadcastSessionUpserted(sessionId);
+    await writeRenameToProviderTranscript(session, summary);
     return { sessionId, summary };
   },
 };
