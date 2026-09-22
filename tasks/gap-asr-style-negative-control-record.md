@@ -1,7 +1,7 @@
 ---
 id: gap-asr-style-negative-control-record
 title: 风格化的双向负对照（实验记录，不判据化）：含路径与代码片段的句子经风格化后标识符逐字保留，且"确实发生了"有证据（无 goal_ac）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
