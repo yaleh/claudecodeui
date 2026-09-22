@@ -49,6 +49,12 @@ type SessionTitleSearchResult = {
   lastActivity: string | null;
   /** True when the session's project hides it via a session-name filter; search ignores the filter and flags it instead. */
   filtered: boolean;
+  /**
+   * App id of the session this one was branched from, or null when it started
+   * on its own. A search spans every project, so a result's source is usually
+   * absent from the same payload; the flag still lets the row mark a branch.
+   */
+  forkedFromSessionId: string | null;
 };
 
 export type SessionConversationSearchProgressUpdate = {
@@ -218,6 +224,7 @@ function findSessionTitleResults(
         sessionTitle,
         lastActivity: session.updated_at || session.created_at || null,
         filtered: compileStoredSessionFilter(project?.session_filter)(session.custom_name ?? ''),
+        forkedFromSessionId: session.forked_from_session_id ?? null,
         matchIndex,
       }];
     })

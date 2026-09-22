@@ -50,7 +50,9 @@
     "cancel": "Cancelar",
     "clearSearch": "Limpiar búsqueda",
     "openCommandPalette": "Abrir paleta de comandos",
-    "attentionRequiredIndicator": "La sesión requiere atención"
+    "attentionRequiredIndicator": "La sesión requiere atención",
+    "branchedSession": "Ramificado desde otra sesión",
+    "branchedSessionOrdinal": "Rama {{index}} de {{count}}"
   },
   "navigation": {
     "chat": "Chat",

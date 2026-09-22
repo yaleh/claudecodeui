@@ -92,7 +92,14 @@ test('a fork becomes an independent session that points back at its source', asy
     assert.equal(forked?.provider_session_id, 'native-fork');
     assert.equal(forked?.jsonl_path, path.join(directory, 'native-fork.jsonl'));
     assert.equal(forked?.forked_from_session_id, SOURCE_ID);
-    assert.equal(forked?.custom_name, 'Original session (fork)');
+    // The branch inherits the source's name rather than gaining a "(fork)"
+    // suffix: the sidebar draws the lineage from forked_from_session_id, and a
+    // suffix inside the name is the first thing an ellipsis eats on a narrow row.
+    assert.equal(forked?.custom_name, 'Original session');
+    // The old shape named the branch by appending a marker to the source name.
+    // Asserted as a literal so this stays a real negative control: the branch
+    // name must not carry the suffix the sidebar can no longer rely on.
+    assert.notEqual(forked?.custom_name, 'Original session (fork)');
 
     // The source is untouched: this is "try two approaches", not a move.
     const source = sessionsDb.getSessionById(SOURCE_ID);

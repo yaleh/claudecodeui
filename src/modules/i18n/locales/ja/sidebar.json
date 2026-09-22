@@ -49,7 +49,9 @@
     "save": "保存",
     "cancel": "キャンセル",
     "openCommandPalette": "コマンドパレットを開く",
-    "attentionRequiredIndicator": "セッションが対応を必要としています"
+    "attentionRequiredIndicator": "セッションが対応を必要としています",
+    "branchedSession": "別のセッションから分岐",
+    "branchedSessionOrdinal": "{{count}} 件中 {{index}} 番目のブランチ"
   },
   "navigation": {
     "chat": "チャット",
