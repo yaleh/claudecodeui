@@ -1,5 +1,16 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  appendFile,
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  utimes,
+  writeFile,
+} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -983,4 +994,286 @@ test('synchronizeFile skips non-jsonl files', { concurrency: false }, async () =
     const result = await synchronizer.synchronizeFile('/tmp/not-a-jsonl.txt');
     assert.equal(result, null);
   });
+});
+
+// ---------------------------------------------------------------------------
+// Last activity: read from transcript content, never from the file's mtime
+// ---------------------------------------------------------------------------
+
+const ACTIVITY_SESSION_ID = 'claude-activity-session';
+const CONTENT_TIMESTAMP = '2026-01-05T00:00:00.000Z';
+const APPENDED_TIMESTAMP = '2026-01-06T12:00:00.000Z';
+
+/** An atime old enough that any read of the file moves it under `relatime`. */
+const UNREAD_ATIME = new Date('2020-01-01T00:00:00.000Z');
+
+/**
+ * Writes a Claude transcript whose content reports activity at
+ * `contentTimestamp` and ends on the timestamp-less bookkeeping records a real
+ * transcript is flushed with.
+ */
+async function writeActivityTranscript(
+  projectDirectory: string,
+  contentTimestamp: string,
+): Promise<string> {
+  const transcriptPath = path.join(projectDirectory, `${ACTIVITY_SESSION_ID}.jsonl`);
+  const rows = [
+    {
+      type: 'user', uuid: 'au1', sessionId: ACTIVITY_SESSION_ID, cwd: '/workspace/demo',
+      timestamp: contentTimestamp,
+      message: { role: 'user', content: [{ type: 'text', text: 'a prompt' }] },
+    },
+    { type: 'last-prompt', sessionId: ACTIVITY_SESSION_ID, lastPrompt: 'a prompt' },
+    { type: 'cost-state', sessionId: ACTIVITY_SESSION_ID },
+  ];
+  await writeFile(transcriptPath, `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`, 'utf8');
+  return transcriptPath;
+}
+
+/** Writes one indexable Claude transcript carrying a single timestamped turn. */
+async function writeScanTranscript(projectDirectory: string, sessionId: string): Promise<string> {
+  const transcriptPath = path.join(projectDirectory, `${sessionId}.jsonl`);
+  const rows = [
+    {
+      type: 'user', uuid: 'su1', sessionId, cwd: '/workspace/demo',
+      timestamp: '2026-08-01T00:00:00.000Z',
+      message: { role: 'user', content: [{ type: 'text', text: 'hello' }] },
+    },
+  ];
+  await writeFile(transcriptPath, `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`, 'utf8');
+  return transcriptPath;
+}
+
+/**
+ * Waits until the filesystem's creation clock has clearly moved past `after`.
+ *
+ * The scan cursor compares against a transcript's birthtime, and tmpfs stamps
+ * creation times from a coarse timer — a file written immediately after a
+ * `new Date()` can carry a birthtime a millisecond *before* it, and would then
+ * be filtered out as already-indexed. Waiting a tick past the cursor is what
+ * makes "a transcript appeared after the last scan" true rather than lucky.
+ */
+async function waitPastBirthtime(after: Date): Promise<void> {
+  const deadline = after.getTime() + 20;
+  while (Date.now() <= deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
+}
+
+/** Creates `<tmp>/.claude/projects/demo` beside an empty name-lookup file. */
+async function createClaudeProjectsDir(tmp: string): Promise<string> {
+  const claudeHome = path.join(tmp, '.claude');
+  const projectsPath = path.join(claudeHome, 'projects', 'demo');
+  await mkdir(projectsPath, { recursive: true });
+  await writeFile(path.join(claudeHome, 'history.jsonl'), '', 'utf8');
+  return projectsPath;
+}
+
+test('last activity comes from transcript content, not the file mtime', { concurrency: false }, async () => {
+  const tmp = await mkdtemp(path.join(os.tmpdir(), 'claude-activity-'));
+  const restoreHomeDir = patchHomeDir(tmp);
+
+  try {
+    const projectsPath = await createClaudeProjectsDir(tmp);
+    const transcriptPath = await writeActivityTranscript(projectsPath, CONTENT_TIMESTAMP);
+
+    await withIsolatedDatabase(async () => {
+      const synchronizer = new ClaudeSessionSynchronizer();
+
+      // Control: the row a fresh index writes already carries the activity the
+      // transcript reports, even though the transcript's mtime is "now".
+      assert.equal(await synchronizer.synchronize(), 1);
+      assert.equal(
+        sessionsDb.getSessionById(ACTIVITY_SESSION_ID)?.updated_at,
+        CONTENT_TIMESTAMP,
+        'indexing must record the activity the transcript reports',
+      );
+
+      // (a) A filesystem-level touch — what an external rewrite or a CLI's own
+      // flush does — leaves the reading exactly where it was.
+      await utimes(transcriptPath, new Date(), new Date());
+      await synchronizer.synchronizeFile(transcriptPath);
+      const afterTouch = sessionsDb.getSessionById(ACTIVITY_SESSION_ID)?.updated_at;
+      console.log(`touch: before=${CONTENT_TIMESTAMP} after=${afterTouch}`);
+      assert.equal(
+        afterTouch,
+        CONTENT_TIMESTAMP,
+        'a touch that changes no content must not move last activity',
+      );
+
+      // (b) A record that does report activity moves it, and moves it to that
+      // record's own timestamp.
+      await appendFile(
+        transcriptPath,
+        `${JSON.stringify({
+          type: 'assistant', uuid: 'aa1', sessionId: ACTIVITY_SESSION_ID,
+          timestamp: APPENDED_TIMESTAMP,
+          message: { role: 'assistant', model: 'claude-opus-5', content: [{ type: 'text', text: 'a later answer' }] },
+        })}\n`,
+        'utf8',
+      );
+      await synchronizer.synchronizeFile(transcriptPath);
+      const afterAppend = sessionsDb.getSessionById(ACTIVITY_SESSION_ID)?.updated_at;
+      console.log(`append: before=${afterTouch} after=${afterAppend}`);
+      assert.equal(afterAppend, APPENDED_TIMESTAMP);
+
+      // The transcript's mtime is "now" by this point, so a reading taken from
+      // it could not have produced the value asserted above.
+      const { mtime } = await stat(transcriptPath);
+      assert.ok(mtime.toISOString() > APPENDED_TIMESTAMP, 'the mtime must be the uninformative one');
+    });
+  } finally {
+    restoreHomeDir();
+    await rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test('a scan does not read the transcripts its cursor excludes', { concurrency: false }, async () => {
+  const scanSessionIds = ['scan-a', 'scan-b', 'scan-c', 'scan-d'];
+  const tmp = await mkdtemp(path.join(os.tmpdir(), 'claude-scan-cursor-'));
+  const restoreHomeDir = patchHomeDir(tmp);
+
+  try {
+    const projectsPath = await createClaudeProjectsDir(tmp);
+    const transcriptPaths: string[] = [];
+    for (const sessionId of scanSessionIds) {
+      transcriptPaths.push(await writeScanTranscript(projectsPath, sessionId));
+    }
+
+    await withIsolatedDatabase(async () => {
+      const synchronizer = new ClaudeSessionSynchronizer();
+
+      // Control: the fixture is indexable, so a later zero means the cursor
+      // excluded these files rather than that nothing was ever there.
+      assert.equal(await synchronizer.synchronize(), scanSessionIds.length);
+
+      // Every transcript is now excluded by the cursor and made unreadable, so
+      // a scan that opens one for its content fails on it, while a scan that
+      // only stats it processes nothing at all.
+      const cursor = new Date();
+      for (const transcriptPath of transcriptPaths) {
+        await chmod(transcriptPath, 0o000);
+      }
+
+      try {
+        assert.equal(await synchronizer.synchronize(cursor), 0);
+
+        // Control: the same scan still reaches the directory and picks up the
+        // file that is genuinely new, so the zero above is a real zero.
+        await waitPastBirthtime(cursor);
+        const freshPath = await writeScanTranscript(projectsPath, 'scan-new');
+        assert.ok((await stat(freshPath)).birthtime > cursor, 'the control transcript must look new');
+        assert.equal(await synchronizer.synchronize(cursor), 1);
+      } finally {
+        for (const transcriptPath of transcriptPaths) {
+          await chmod(transcriptPath, 0o644);
+        }
+      }
+    });
+  } finally {
+    restoreHomeDir();
+    await rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test('a scan does not open the transcripts its cursor excludes', { concurrency: false }, async () => {
+  const scanSessionIds = ['open-a', 'open-b', 'open-c', 'open-d'];
+  const tmp = await mkdtemp(path.join(os.tmpdir(), 'claude-scan-open-'));
+  const restoreHomeDir = patchHomeDir(tmp);
+
+  try {
+    const projectsPath = await createClaudeProjectsDir(tmp);
+    const transcriptPaths: string[] = [];
+    for (const sessionId of scanSessionIds) {
+      transcriptPaths.push(await writeScanTranscript(projectsPath, sessionId));
+    }
+
+    await withIsolatedDatabase(async () => {
+      const synchronizer = new ClaudeSessionSynchronizer();
+      assert.equal(await synchronizer.synchronize(), scanSessionIds.length);
+
+      // A read is the only thing that moves an atime parked this far in the
+      // past, which makes "was this file opened?" directly observable — the
+      // scan is asked about the work it did, not about how long it took.
+      const cursor = new Date();
+      for (const transcriptPath of transcriptPaths) {
+        await utimes(transcriptPath, UNREAD_ATIME, new Date('2026-01-01T00:00:00.000Z'));
+      }
+
+      assert.equal(await synchronizer.synchronize(cursor), 0);
+
+      // Control: the probe does see reads. A transcript that is genuinely new
+      // work must come back with its atime moved, or the assertions below
+      // would pass on a filesystem that never records them at all.
+      await waitPastBirthtime(cursor);
+      const freshPath = await writeScanTranscript(projectsPath, 'open-new');
+      assert.ok((await stat(freshPath)).birthtime > cursor, 'the control transcript must look new');
+      await utimes(freshPath, UNREAD_ATIME, new Date('2026-01-01T00:00:00.000Z'));
+      assert.equal(await synchronizer.synchronize(cursor), 1);
+      assert.notEqual(
+        (await stat(freshPath)).atime.toISOString(),
+        UNREAD_ATIME.toISOString(),
+        'the probe must see the read of a transcript that is new work',
+      );
+
+      for (const transcriptPath of transcriptPaths) {
+        assert.equal(
+          (await stat(transcriptPath)).atime.toISOString(),
+          UNREAD_ATIME.toISOString(),
+          `${path.basename(transcriptPath)} was opened by a scan that should have skipped it`,
+        );
+      }
+    });
+  } finally {
+    restoreHomeDir();
+    await rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test('an already-indexed row is re-derived from its transcript, not left on the mtime', { concurrency: false }, async () => {
+  const tmp = await mkdtemp(path.join(os.tmpdir(), 'claude-activity-backfill-'));
+  const restoreHomeDir = patchHomeDir(tmp);
+
+  try {
+    const projectsPath = await createClaudeProjectsDir(tmp);
+    const transcriptPath = await writeActivityTranscript(projectsPath, CONTENT_TIMESTAMP);
+
+    await withIsolatedDatabase(async () => {
+      const synchronizer = new ClaudeSessionSynchronizer();
+
+      // Exactly the shape of an index written before content was read: a row
+      // already in the database whose activity is the transcript's mtime.
+      const mtimeReading = (await stat(transcriptPath)).mtime.toISOString();
+      sessionsDb.createSession(
+        ACTIVITY_SESSION_ID,
+        'claude',
+        '/workspace/demo',
+        'an already-indexed session',
+        mtimeReading,
+        mtimeReading,
+        transcriptPath,
+      );
+      assert.equal(sessionsDb.getSessionById(ACTIVITY_SESSION_ID)?.updated_at, mtimeReading);
+
+      // The cursor already covers the transcript, so the scan itself processes
+      // no files. Nothing else would ever revisit this row — the cursor filters
+      // on birthtime and the watcher only fires on a change — which leaves the
+      // re-derivation pass as the only thing that can move it.
+      assert.equal(await synchronizer.synchronize(new Date()), 0);
+      assert.equal(
+        sessionsDb.getSessionById(ACTIVITY_SESSION_ID)?.updated_at,
+        CONTENT_TIMESTAMP,
+        'the stale row must be re-derived from its transcript',
+      );
+
+      // The pass is keyed, not repeated: a row left stale again must stay
+      // stale, or every sidebar refresh would be re-reading every transcript.
+      sessionsDb.updateSessionUpdatedAt(ACTIVITY_SESSION_ID, mtimeReading);
+      assert.equal(await synchronizer.synchronize(new Date()), 0);
+      assert.equal(sessionsDb.getSessionById(ACTIVITY_SESSION_ID)?.updated_at, mtimeReading);
+    });
+  } finally {
+    restoreHomeDir();
+    await rm(tmp, { recursive: true, force: true });
+  }
 });
