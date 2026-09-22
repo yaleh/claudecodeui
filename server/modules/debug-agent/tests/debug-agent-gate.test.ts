@@ -274,6 +274,12 @@ type GateState = 'closed' | 'closed-unrecognised-value' | 'open' | 'open-without
  * Runs one child in the given gate state. `HOME` is redirected into a scratch
  * directory for every state so the watcher's `mkdir` step can never touch the
  * real home — including in the states where it is supposed to run.
+ *
+ * The CLOSED state deliberately carries `DEBUG_AGENT_HOME` anyway: the gate
+ * variable is what decides, so the fixture root is available in the environment
+ * and must still not be listed, created or mounted. A closed child with no root
+ * anywhere would satisfy faces 2 and 3 vacuously — there would be nothing to
+ * observe and the tamper case ("keep the root, drop the gate") could not exist.
  */
 function runChild(state: GateState): { reading: ProbeReading; scratch: string; home: string; fixtureHome: string } {
   const scratch = mkdtempSync(path.join(os.tmpdir(), `debug-agent-gate-${state}-`));
@@ -285,7 +291,9 @@ function runChild(state: GateState): { reading: ProbeReading; scratch: string; h
   delete env[GATE_VAR];
   delete env[GATE_HOME_VAR];
 
-  if (state === 'open') {
+  if (state === 'closed') {
+    env[GATE_HOME_VAR] = fixtureHome;
+  } else if (state === 'open') {
     env[GATE_VAR] = 'on';
     env[GATE_HOME_VAR] = fixtureHome;
   } else if (state === 'open-without-root') {
@@ -379,8 +387,24 @@ function registerCriteria(): void {
       );
 
       // ---- Face 2 ----
+      // The premise, asserted rather than assumed: this child HAD a fixture root
+      // in its environment. Without this line the two readings below would pass
+      // for a build that never resolved a root at all.
+      assert.equal(reading.env.gateVar, null, 'the closed child must not have the gate variable set');
+      assert.ok(reading.env.gateHome, 'the closed child must still carry the fixture root, or this face proves nothing');
+      assert.ok(reading.watcher.fixtureRoot.length > 0, 'face 2: the fixture root must be well defined');
+
       assert.equal(reading.watcher.fixtureListed, false, 'face 2: the fixture root must not be in the observation set');
       assert.equal(reading.watcher.fixtureCreated, false, 'face 2: the fixture root must not be created');
+
+      // The general form of the same reading, so the face is not satisfied by a
+      // watcher that merely looks somewhere *else*: no root may be attributed to
+      // the debug agent at all, whatever path it names.
+      assert.deepEqual(
+        reading.watcher.roots.filter(({ provider }) => provider === DEBUG_AGENT_PROVIDER_ID),
+        [],
+        'face 2: no root may be attributed to the debug agent while the gate is closed',
+      );
 
       // Positive control: the same run must show the product roots being listed
       // AND created, otherwise "the fixture root was not created" would be
@@ -431,6 +455,11 @@ function registerCriteria(): void {
 
       assert.equal(reading.watcher.fixtureListed, true, 'face 2 control: the fixture root must be observed');
       assert.equal(reading.watcher.fixtureCreated, true, 'face 2 control: the fixture root must be created');
+      assert.deepEqual(
+        reading.watcher.roots.filter(({ provider }) => provider === DEBUG_AGENT_PROVIDER_ID).map(({ rootPath }) => rootPath),
+        [reading.watcher.fixtureRoot],
+        'face 2 control: exactly the fixture root, attributed to the debug agent',
+      );
 
       assert.equal(reading.routes.mounted, true, 'face 3 control: the control plane must attach');
       // The mount contributes exactly two layers, and their ORDER is the reading:
