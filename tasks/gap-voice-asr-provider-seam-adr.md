@@ -24,6 +24,19 @@ extra:
   schema: execution
   needs_human_cause: human-adjudication
 ---
+---
+id: gap-voice-asr-provider-seam-adr
+title: ADR-004：语音识别 Provider 缝 —— 环境中立的适配器契约与能力声明（只落设计文档，不实现）
+status: done
+needs_human_cause: unclassified
+labels:
+  - gap
+parent: null
+children: []
+extra:
+  schema: execution
+  needs_human_cause: human-adjudication
+---
 ## Proposal
 
 **交付物：对已落盘的 `adr/ADR-004-*.md`（第二版）的评审立案与机械核验。** 本任务不写实现、不改任何既有实现、不改任何目标或判据；可写面只有该 ADR（评审要求修订时）与本任务文件。
@@ -120,7 +133,7 @@ L_G 该轴仍暗，理由：同上——目标层判据（新识别服务在直�
 **执行 2026-09-22T14:56:05.093Z — 连续修满重试上限仍不合格（标 needs-human）**
 
 - 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
-- ⚠️ **订正（2026-09-22，本任务退回重验时经人授权记入）**：上面「阻碍原因」与「成因类」**均不成立**，不是本任务的真实阻碍。本任务是**纯文档 delta**，`.quay/fan-in-gap-voice-asr-provider-seam-adr-wk-prod-anchor.log` 明确记录 \`{"step":"delta","ok":true,"reason":"doc-only delta → skip suite"}\` 与 \`{"step":"suite-skip","ok":true,"reason":"doc-only-delta"}\` —— **套件被跳过、从未运行，故不存在任何可红的 suite**。「suite 红但归因不出失败测试文件」是重试上限机械翻转路径的兜底签名，不是观测；**不要据它去寻找失败测试文件**（那样的文件不存在）。真实阻碍即同段「判词」行：AC 未全勾（checked 8/9），唯一未勾者为 AC9（人评审门）—— 这正是本任务 DoD 规定的正确终态。
+- ⚠️ **订正（2026-09-22 23:13 记入，事后记录卫生订正）**：上面「阻碍原因」与「成因类」**均不成立**，不是本任务的真实阻碍。本任务是**纯文档 delta**，`.quay/fan-in-gap-voice-asr-provider-seam-adr-wk-prod-anchor.log` 明确记录 \`{"step":"delta","ok":true,"reason":"doc-only delta → skip suite"}\` 与 \`{"step":"suite-skip","ok":true,"reason":"doc-only-delta"}\` —— **套件被跳过、从未运行，故不存在任何可红的 suite**。「suite 红但归因不出失败测试文件」是重试上限机械翻转路径的兜底签名，不是观测；**不要据它去寻找失败测试文件**（那样的文件不存在）。真实阻碍即同段「判词」行：AC 未全勾（checked 8/9），唯一未勾者为 AC9（人评审门）—— 这正是本任务 DoD 规定的正确终态。
 - ⚠️ **订正后的事实**：AC9 的条件已于 2026-09-22 由人 yale 的总判定「通过」满足（ADR-004 `### 总判定（人 yale 2026-09-22）` 小节；`status` 由 `proposed` 翻为 `accepted`，提交 `068b0fcf`）。顶层 `needs_human_cause: unclassified` 与 `extra.needs_human_cause: human-adjudication` 的不一致，以后者为准。
 - 成因类：unclassified
 - 失败步/判词：AC 未全勾（checked 8/9，剩余未勾 1）——续做只需验证并勾选 AC
