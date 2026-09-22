@@ -2,7 +2,7 @@
 id: gap-scripts-static-gates-and-mint-token
 title: 把 scripts/ 纳入静态门禁（typecheck 进 CI + lint + test runner 接线），并新增
   scripts/mint-token.mjs 一次性主体观察凭证工具及其不变量测试
-status: ready
+status: done
 labels:
   - gap
 parent: null
