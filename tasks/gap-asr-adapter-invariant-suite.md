@@ -2,7 +2,7 @@
 id: gap-asr-adapter-invariant-suite
 title: 对 registry 参数化的离线不变量套件：五组契约不变量（请求 golden / 错误映射 / 大小分流 / 脱敏 /
   MIME）各自独立可红（无 goal_ac，实验/守卫类）
-status: ready
+status: done
 labels:
   - gap
 parent: null
