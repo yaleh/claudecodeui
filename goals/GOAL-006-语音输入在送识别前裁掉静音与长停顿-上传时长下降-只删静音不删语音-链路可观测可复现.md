@@ -1,11 +1,17 @@
 ---
 id: GOAL-006
 title: 语音输入在送识别前裁掉静音与长停顿：上传时长下降、只删静音不删语音、链路可观测可复现
-status: active
+status: achieved
 kind: goal
 origin: 2026-09-21 现测（仓库外工装 tc-verify）+ 人 yale 决策：VAD 优先、压缩晚做。GOAL-005
   的延续：同一条语音链路，换了瓶颈（从标识符还原到音频时长）。
 activatedAt: 2026-09-21T15:18:16.608Z
+statusLog:
+  - at: 2026-09-22T05:53:44.046Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: all ACs achieved + sufficiency covered"
 ---
 ## 背景
 
