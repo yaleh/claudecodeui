@@ -1,7 +1,7 @@
 ---
 id: gap-debug-agent-synthetic-provider-adr
 title: ADR-003：可控制的调试 Agent —— 不跑真 CLI 也能产生输出的测试与调试机制（只落设计文档，不实现）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
