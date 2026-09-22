@@ -115,15 +115,14 @@ async function main(argv: readonly string[]): Promise<number> {
   );
 
   const response = await fetch(request.url, request.init);
-  const responseText = await response.text();
   if (!response.ok) {
-    process.stderr.write(`transcribe: ${response.status} ${responseText}\n`);
+    process.stderr.write(`transcribe: ${response.status} ${await response.text()}\n`);
     return 1;
   }
 
   // `strict` here, unlike the proxy path: this is a diagnostic, so a malformed answer has to
   // be visible as a failure rather than printed as if it were a transcript.
-  process.stdout.write(`${parseTranscriptionResponse(responseText, 'strict')}\n`);
+  process.stdout.write(`${await parseTranscriptionResponse(response, 'strict')}\n`);
   return 0;
 }
 

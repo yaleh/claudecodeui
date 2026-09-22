@@ -97,18 +97,26 @@ export function createTranscriptionRequest(
 }
 
 /**
- * Reads the transcript out of an already-consumed response body, under the named tolerance.
+ * Reads the transcript out of a transcription response, under the named tolerance.
  *
- * The two branches are the two historical implementations, kept apart on purpose and
- * selected by an argument rather than by which file the call is in. `strict` propagates the
- * parse failure (the caller's `catch` turns it into a failed transcription); `lenient`
- * treats an unparseable body as the transcript itself.
+ * The two branches are the two historical implementations, kept apart on purpose and selected by
+ * an argument rather than by which file the call is in. `strict` propagates the parse failure (the
+ * caller's `catch` turns it into a failed transcription); `lenient` treats an unparseable body as
+ * the transcript itself.
+ *
+ * This takes the `Response` and not a body already read out of it, because the two branches do not
+ * read a body the same way: the direct path has always gone through `json()` and the proxy path
+ * through `text()`. Handing over the response keeps each of them on the exact call it made before
+ * — a shared `text()` (or a shared `json()`) would have been this refactor changing one of the two
+ * paths rather than merging them. `strict` consumes the response as JSON, `lenient` as text, and
+ * neither is read twice; each caller reads the body for its own error path before calling this.
  */
-export function parseTranscriptionResponse(
-  responseText: string,
+export async function parseTranscriptionResponse(
+  response: Response,
   tolerance: TranscriptionTolerance,
-): string {
+): Promise<string> {
   if (tolerance === 'lenient') {
+    const responseText = await response.text();
     try {
       const parsed = JSON.parse(responseText) as { text?: unknown };
       return typeof parsed.text === 'string' ? parsed.text : '';
@@ -117,6 +125,9 @@ export function parseTranscriptionResponse(
     }
   }
 
-  const parsed = JSON.parse(responseText) as { text?: unknown } | null;
-  return String(parsed?.text || '');
+  // Cast rather than annotated: this file is compiled by both configurations, and the DOM lib
+  // types `json()` as `any` while `@types/node` types it as `unknown`. The assertion is the one
+  // the direct path's inline expression always relied on, now written where both compilers see it.
+  const data = (await response.json()) as { text?: unknown } | null;
+  return String(data?.text || '');
 }

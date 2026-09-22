@@ -499,10 +499,11 @@ export function useVoiceInput(
       }
       const res = await transcribeVoice(prepared.body, prepared.filename);
       if (!res.ok) throw new Error(`transcribe ${res.status}`);
-      // `strict` is this path's own tolerance, named at the call site rather than implied
-      // by living in this file: a body that is not JSON throws, and the catch below reports
-      // a failed transcription. The proxy path reads the same answer leniently.
-      raw = parseTranscriptionResponse(await res.text(), 'strict');
+      // Parsed before the cancellation check, exactly as the inline `res.json()` was: a body that
+      // is not JSON still has to reach the catch below even when this capture was cancelled.
+      // `strict` is this path's own tolerance, named at the call site rather than implied by
+      // living in this file — the proxy path reads the same answer leniently.
+      raw = await parseTranscriptionResponse(res, 'strict');
       if (cancelledRef.current) return;
       const text = raw.trim();
       if (text) {

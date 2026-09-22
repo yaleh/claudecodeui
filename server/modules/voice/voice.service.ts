@@ -135,17 +135,17 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
           },
         );
         const response = await dependencies.fetchBackend(request.url, request.init);
-        const responseText = await response.text();
         if (!response.ok) {
-          return backendFailure(response.status, responseText);
+          return backendFailure(response.status, await response.text());
         }
 
         // Lenient on purpose, and named here rather than implied by living in this file:
         // the proxy path hands an unparseable body back as the transcript instead of
-        // failing, which is the tolerance it had before this module existed.
+        // failing, which is the tolerance it had before this module existed. The body is
+        // read once, here or in the branch above, never twice.
         return {
           ok: true,
-          value: { text: parseTranscriptionResponse(responseText, 'lenient') },
+          value: { text: await parseTranscriptionResponse(response, 'lenient') },
         };
       } catch (error) {
         return unreachableBackendFailure(error, dependencies.timeoutMs);

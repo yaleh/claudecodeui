@@ -8,7 +8,10 @@ import type { VoiceConfig } from '@/shared/voiceConfig';
 import { readVoiceConfig, voiceConfigHeaders, whenVoiceConfigReady } from '@/shared/voiceConfig';
 // The direct path's request construction lives in the repository-root shared tree, the same
 // module the server and the CLI compile — see shared/asr/transcriptionWire.ts.
-import { createTranscriptionRequest } from '@shared/asr/transcriptionWire';
+import {
+  createTranscriptionRequest,
+  parseTranscriptionResponse as readTranscriptionResponse,
+} from '@shared/asr/transcriptionWire';
 
 // Headers are a plain record rather than the full `HeadersInit` union so the
 // defaults below can be merged with a caller's headers by spreading.
@@ -629,6 +632,32 @@ export async function transcribeVoice(blob: Blob, filename: string): Promise<Res
   const body = new FormData();
   body.append('audio', blob, filename);
   return api.voice.transcribe(body, voiceConfigHeaders());
+}
+
+/**
+ * Reads the recogniser's answer out of a transcription response.
+ *
+ * Named and exported rather than left inline where the direct path is called: the
+ * tolerance of this parse is half of what the voice chain promises, and the other
+ * half lives on the server, so a reader has to be able to drive *this* parse on
+ * the same response shapes the server-side one is driven on. An inline expression
+ * could only be measured by a second implementation of it, which would be a
+ * reading of the reader rather than of the app. `scripts/asr-extraction-parity-check.mjs`
+ * drives this symbol; the proxy path reads its (tolerant) counterpart in
+ * `server/modules/voice/voice.service.ts`.
+ *
+ * Behaviour is deliberately the direct path's strict one: a body that is not JSON
+ * is an error, not text. The proxy's tolerance is applied where the proxy applies
+ * it, not here.
+ *
+ * The parse itself is not written here. It is one of the two branches of the one
+ * implementation of this wire protocol (`shared/asr/transcriptionWire.ts`), named at this call
+ * site rather than restated: this symbol is the frontend's address for it, kept because the
+ * reader above drives it by name, and delegating because a copy here is the second
+ * implementation that module exists to prevent.
+ */
+export async function parseTranscriptionResponse(response: Response): Promise<string> {
+  return readTranscriptionResponse(response, 'strict');
 }
 
 /**
