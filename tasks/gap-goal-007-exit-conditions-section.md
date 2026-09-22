@@ -85,7 +85,7 @@ GOAL-007 的正文**没有 `## 退出条件` 小节**，退出条件从未写下
 - [x] **AC1 退出条件小节落地**：`grep -c '^## 退出条件' goals/GOAL-007-调试-agent-不跑真-cli-也能产出与历史一致的输出-且关闭态结构性不存在.md` 输出 **1**，且按 `goal-driver.ts` 的**同一条正则** `##[ \t]+(退出条件[ \t]*)\r?\n([\s\S]*?)(?=\r?\n##[ \t]|$)` 取出节体、去空白后字符数 **≥ 40**。命令逐行打印实际计数与字符数；不足时打印实际取到的节体，并以非 0 退出。
 - [x] **AC2 人（yale）已裁定并被记录**：本任务的 `## Resolution` 小节写明 (i) 是否采纳本修订（采纳 / 改措辞 / 不采纳并另立 AC），以及 (ii) 两处无在域 AC 覆盖的范围项（「不跑真 CLI」否命题、裁决 A 的 UI 显示身份）各自的处理方式——**明示不作退出条件**，或**另立 AC 并给出任务 id**。二者缺一即本 AC 不满足。
 - [x] **AC3 机械短路不再触发，且语义判官确被咨询**（2026-09-22 人裁定加固）：修订后`.quay/goal-round.jsonl` 中 GOAL-007 最新 `goal-sufficiency` 的 reason 必须**同时**满足三条——(a) verdict ∈ {`covered`, `insufficient`}（机械层 `goalSufficiencyVerdict()` 只可能返回 `insufficient` / `not-evaluated`，故 `covered` 只可能来自语义路径）；(b) reason 中**不含** `cause=`（语义判官不可用 / 超时 / 读不懂时产出 `sufficiency=not-evaluated（cause=judge-unavailable）…`，它同样『不是机械短路形态』，原措辞可被一次 spawn 失败冒充达标）；(c) **正面控制**——`sufficiencyCacheKey(goal, inScopeAcs)` 算出的键在 `.quay/goal-sufficiency-cache.json` 的 `entries` 中**存在**（只有真跑过判官才会写缓存；本任务立案时 GOAL-007 的键不在其中，19 条缓存无一属于它）。命令打印该 goal 的 `goal-sufficiency` 序列**最后两条**、上面三条的逐条读数，以及缓存键的命中与否。
-- [ ] **AC4 本任务未触及 Touches 之外的文件**：命令 `git diff --name-only "$(git merge-base develop HEAD)"` 的每一行都必须能对应到 Touches 内的一条；命中 Touches 之外时逐行打印并以非 0 退出。用 merge-base 而非裸 develop——develop 会随他人 fan-in 前进。
+- [x] **AC4 本任务未触及 Touches 之外的文件**：命令 `git diff --name-only "$(git merge-base develop HEAD)"` 的每一行都必须能对应到 Touches 内的一条；命中 Touches 之外时逐行打印并以非 0 退出。用 merge-base 而非裸 develop——develop 会随他人 fan-in 前进。
 
 ## DoD
 
