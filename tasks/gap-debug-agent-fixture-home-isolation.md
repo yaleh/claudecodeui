@@ -1,7 +1,7 @@
 ---
 id: gap-debug-agent-fixture-home-isolation
 title: 调试 Agent 的 fixture HOME 隔离：根来自门控变量而非 os.homedir()，正面断言真实 home 未被写入
-status: todo
+status: ready
 labels:
   - gap
 parent: null
