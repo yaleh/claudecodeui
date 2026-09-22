@@ -41,6 +41,7 @@
       "node": { "extensions": [".mjs", ".cjs", ".js", ".json", ".node", ".ts", ".tsx"] }
     },
     "boundaries/include": [
+      "shared/**/*.ts",
       "server/**/*.js",
       "server/**/*.ts",
       "src/modules/**/*.ts",
@@ -54,6 +55,15 @@
       "src/shared/ui/**/*.tsx"
     ],
     "boundaries/elements": [
+      {
+        // The repository-root shared tree (ADR-004 decision 2): the only modules both
+        // compiler configurations compile, so every dependency on it is cross-cutting
+        // rather than a frontend/backend boundary. Registering it here is what keeps a
+        // frontend module's import of it from being reported as an unknown element.
+        "type": "repo-shared",
+        "pattern": "shared/**/*.ts",
+        "mode": "file"
+      },
       {
         "type": "backend-shared-barrel",
         "pattern": "server/shared/index.ts",
