@@ -2,7 +2,7 @@
 id: gap-suite-criterion-wallclock-budget
 title: AC-103 判据的墙钟超出 goal gate 硬上限：默认路径 ≈ 2× 最重服务端文件（新的 32s 成员）⇒ 实测 66–67s >
   60000ms，被击杀后记成 fail，与它要检测的「互拖红」同形
-status: ready
+status: done
 labels:
   - gap
   - defect
