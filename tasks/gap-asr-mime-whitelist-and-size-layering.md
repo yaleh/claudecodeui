@@ -1,7 +1,7 @@
 ---
 id: gap-asr-mime-whitelist-and-size-layering
 title: 缺口一与缺口二（有条件）：MIME 白名单按基类型匹配、双向可红；大小上限两层且超限返回 413 而非 400（AC-133）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
