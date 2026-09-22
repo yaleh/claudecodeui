@@ -1,7 +1,7 @@
 ---
 id: gap-asr-cli-offline-verification
 title: 命令行离线可验证：--dry-run 零网络且连音频字节一起脱敏，--offline 回放与录制逐字一致，启动方式判据可红（AC-131）
-status: ready
+status: done
 labels:
   - gap
 parent: null
