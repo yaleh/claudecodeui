@@ -3,13 +3,14 @@ import path from 'node:path';
 import fs from 'node:fs';
 import readline from 'node:readline';
 
-import { sessionsDb, type SessionNameSource } from '@/modules/database/index.js';
+import { appConfigDb, sessionsDb, type SessionNameSource } from '@/modules/database/index.js';
 import {
   buildLookupMap,
   extractFirstValidJsonlData,
   findFilesRecursivelyCreatedAfter,
   normalizeSessionName,
   readFileTimestamps,
+  readTranscriptLastActivity,
 } from '@/shared/utils.js';
 import type { IProviderSessionSynchronizer } from '@/shared/interfaces.js';
 import { readAiTitleEntry } from '@/modules/providers/services/session-ai-title.service.js';
@@ -30,6 +31,16 @@ type TranscriptTitle = {
 
 /** The name a Claude session carries before anything has named it. */
 const UNTITLED_CLAUDE_SESSION = 'Untitled Claude Session';
+
+/**
+ * `app_config` key recording that this database's already-indexed Claude rows
+ * have had their activity re-derived from transcript content.
+ *
+ * Versioned because the derivation itself can be corrected later: a new suffix
+ * asks every database to redo the pass once, instead of leaving rows the
+ * previous pass wrote with a reading this one would no longer produce.
+ */
+const LAST_ACTIVITY_BACKFILL_KEY = 'claude_last_activity_backfill_v1';
 
 /**
  * Session indexer for Claude transcript artifacts.
@@ -59,6 +70,8 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
    * Scans ~/.claude/projects and upserts discovered sessions into DB.
    */
   async synchronize(since?: Date): Promise<number> {
+    await this.backfillLastActivity();
+
     const nameMap = await buildLookupMap(path.join(this.claudeHome, 'history.jsonl'), 'sessionId', 'display');
     const files = await findFilesRecursivelyCreatedAfter(
       path.join(this.claudeHome, 'projects'),
@@ -84,7 +97,7 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
         parsed.projectPath,
         parsed.sessionName,
         timestamps.createdAt,
-        timestamps.updatedAt,
+        await this.resolveLastActivity(filePath, timestamps.updatedAt),
         filePath,
         parsed.nameSource
       );
@@ -118,10 +131,71 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
       parsed.projectPath,
       parsed.sessionName,
       timestamps.createdAt,
-      timestamps.updatedAt,
+      await this.resolveLastActivity(filePath, timestamps.updatedAt),
       filePath,
       parsed.nameSource
     );
+  }
+
+  /**
+   * Resolves the activity time one transcript should be recorded with.
+   *
+   * The transcript's own last `timestamp` wins, because a file's mtime moves
+   * for reasons that are not activity — a CLI flushing its bookkeeping
+   * records, an external process rewriting or restoring the file — which is
+   * what let a session idle for days read as active minutes ago.
+   *
+   * The mtime is the fallback for the two cases content cannot answer: a
+   * transcript with no records yet (a session the user just created), and one
+   * that cannot be read. Neither may end up without a time, or the session
+   * disappears from a sidebar that sorts by activity.
+   */
+  private async resolveLastActivity(
+    filePath: string,
+    fileUpdatedAt: string | undefined
+  ): Promise<string | undefined> {
+    return (await readTranscriptLastActivity(filePath)) ?? fileUpdatedAt;
+  }
+
+  /**
+   * Re-derives `updated_at` for Claude rows indexed before content was read.
+   *
+   * A row is only rewritten when its transcript is re-scanned, and both entry
+   * points skip a file nothing has touched — the scan cursor compares
+   * `birthtime > lastScanAt`, and the watcher only fires on a change. Without
+   * this pass every row already in the database would keep its mtime reading
+   * forever, which is precisely the wrong reading this synchronizer now
+   * refuses to write.
+   *
+   * Rows are read from the database rather than by walking `~/.claude/projects`:
+   * the walk is the one thing that runs on every list request, and paying a
+   * content read per transcript there is the cost this design exists to avoid.
+   * The `app_config` marker keeps the pass to once per database.
+   *
+   * A row whose transcript has since been deleted, or records no activity, is
+   * left exactly as it is — `pruneOrphanedSessions` owns deletion, and a
+   * transcript with no records has no better reading to offer.
+   */
+  private async backfillLastActivity(): Promise<void> {
+    if (appConfigDb.get(LAST_ACTIVITY_BACKFILL_KEY)) {
+      return;
+    }
+
+    let repaired = 0;
+    for (const row of sessionsDb.getSessionsWithTranscriptPath(this.provider)) {
+      const lastActivity = await readTranscriptLastActivity(row.jsonl_path);
+      if (lastActivity && sessionsDb.updateSessionUpdatedAt(row.session_id, lastActivity)) {
+        repaired += 1;
+      }
+    }
+
+    appConfigDb.set(LAST_ACTIVITY_BACKFILL_KEY, new Date().toISOString());
+
+    if (repaired > 0) {
+      console.log(
+        `[Sessions] Re-derived last activity from transcript content for ${repaired} Claude session row(s).`
+      );
+    }
   }
 
   /**

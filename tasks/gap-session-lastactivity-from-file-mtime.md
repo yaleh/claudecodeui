@@ -2,7 +2,7 @@
 id: gap-session-lastactivity-from-file-mtime
 title: 会话列表「最近活动」取自 transcript 文件 mtime 而非内容里最后一条带 timestamp 的记录：真实空闲 46.5h 的会话在
   UI 上显示为约 1 小时前
-status: ready
+status: done
 labels:
   - gap
   - defect

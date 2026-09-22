@@ -927,16 +927,49 @@ export const sessionsDb = {
    * app-created sessions still waiting for their first provider write and
    * OpenCode rows (whose transcripts all live inside one shared sqlite file).
    * Used by the session synchronizer to find rows whose transcript has been
-   * deleted underneath the index.
+   * deleted underneath the index, and by a provider's one-time activity
+   * backfill to find the rows it must re-derive. Pass `provider` to restrict
+   * the result to one provider's transcripts.
    */
-  getSessionsWithTranscriptPath(): Array<{ session_id: string; jsonl_path: string }> {
+  getSessionsWithTranscriptPath(provider?: string): Array<{ session_id: string; jsonl_path: string }> {
     const db = getConnection();
     return db
       .prepare(
         `SELECT session_id, jsonl_path
          FROM sessions
-         WHERE jsonl_path IS NOT NULL AND jsonl_path <> ''`
+         WHERE jsonl_path IS NOT NULL AND jsonl_path <> ''
+           AND (@provider IS NULL OR provider = @provider)`
       )
-      .all() as Array<{ session_id: string; jsonl_path: string }>;
+      .all({ provider: provider ?? null }) as Array<{ session_id: string; jsonl_path: string }>;
+  },
+
+  /**
+   * Rewrites one session's `updated_at`, leaving every other column alone.
+   *
+   * `createSession` is the wrong tool for a correction that changes only the
+   * timestamp: it re-runs project registration and the name-precedence rules,
+   * which is work — and risk — a timestamp fix does not need. Callers that
+   * re-derive activity from a transcript's content use this so a stale
+   * `updated_at` can be repaired without touching the row's name, archive flag,
+   * or transcript path.
+   *
+   * Returns true only when a row was actually changed, so a caller reporting
+   * how many rows it repaired reports real corrections rather than rows
+   * visited. Returns false without writing when the value is not a parseable
+   * timestamp: a NULL `updated_at` would silently reorder the sidebar, which is
+   * worse than leaving the stale reading in place.
+   */
+  updateSessionUpdatedAt(sessionId: string, updatedAt: string): boolean {
+    const normalized = normalizeTimestamp(updatedAt);
+    if (!normalized) {
+      return false;
+    }
+
+    const db = getConnection();
+    return db.prepare(
+      `UPDATE sessions
+       SET updated_at = @updatedAt
+       WHERE session_id = @sessionId AND updated_at IS NOT @updatedAt`
+    ).run({ updatedAt: normalized, sessionId }).changes > 0;
   },
 };
