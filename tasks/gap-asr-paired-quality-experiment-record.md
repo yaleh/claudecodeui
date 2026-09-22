@@ -28,10 +28,7 @@ goal_ac: " "
 - **S1 runner。** 驱动**出货模块**（不得在工装里放第二份实现），取配对读数，落盘缓存；串行执行。
 - **S2 负对照。** 一条能红的负对照（`flat` 形态，沿用既有协议），并报告它是否按预测方向移动；负对照去掉即红。
 - **S3 记录与留档。** 记录落在 `docs/experiments/`，在 `docs/experiments/README.md` 登记。
-
-## 交付物
-
-`docs/experiments/2026-09-22-voice-provider-paired-quality.md`（读数：n=8、40 条配对读数、单次运行 `2026-09-22T15:35:41.828Z`；负对照 Δ=-2 按预测方向 down）、`experiments/voice-provider-paired-quality/run.mjs`（离线重算 + 七条自检变异 + 对应关系机检）、`fixtures/`（8 条固定片段 + 冻结快照 `paired.json`，令记录里每个数字都能离线重算）。`fixtures/*.wav` 是继 `experiments/voice-trim/fixtures/` 之后第二处音频入库，理由登记在 `docs/experiments/README.md`。
+- **交付物。** `docs/experiments/2026-09-22-voice-provider-paired-quality.md`（读数：n=8、40 条配对读数、单次运行 `2026-09-22T15:35:41.828Z`；负对照 Δ=-2 按预测方向 down）、`experiments/voice-provider-paired-quality/run.mjs`（离线重算 + 七条自检变异 + 对应关系机检）、`fixtures/`（8 条固定片段 + 冻结快照 `paired.json`，令记录里每个数字都能离线重算）。`fixtures/*.wav` 是继 `experiments/voice-trim/fixtures/` 之后第二处音频入库，理由登记在 `docs/experiments/README.md`。
 
 ## AC
 
