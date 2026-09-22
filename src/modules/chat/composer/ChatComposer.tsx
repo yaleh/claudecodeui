@@ -14,6 +14,7 @@ import { PaperclipIcon, MessageSquareIcon, XIcon, Loader2, ArrowUpIcon, PencilIc
 
 import { useVoiceInput } from '@/modules/chat/hooks/useVoiceInput';
 import { useVoiceAvailable } from '@/modules/chat/hooks/useVoiceAvailable';
+import { useSendOnEnter } from '@/modules/chat/hooks/useSendOnEnter';
 import { loadProjectIdentifiers } from '@/shared/projectIdentifiers';
 import { isVoiceDebugEnabled } from '@/shared/voiceDebug';
 import type { QueuedDraft, ScheduledMessage, SlashCommand,SessionActivity,PendingPermissionRequest,PermissionMode,ProviderModelOption } from '@/shared/types';
@@ -205,6 +206,9 @@ export default function ChatComposer({
   sendByCtrlEnter,
 }: ChatComposerProps) {
   const { t } = useTranslation('chat');
+  // Same resolution the keydown uses, so the hint below cannot describe a key that does
+  // something else on this device.
+  const { sendOnEnter, touchOnly } = useSendOnEnter(sendByCtrlEnter);
   const fileDropdownRef = useRef<HTMLDivElement | null>(null);
   const selectedFileRef = useRef<HTMLDivElement | null>(null);
   const commandMenuPosition = useMemo(() => {
@@ -296,13 +300,17 @@ export default function ChatComposer({
 
   const hasQueuedDraft = Boolean(queuedDraft);
   const canQueueDraft = isLoading && Boolean(input.trim() || attachedFiles.length > 0);
-  const submitHint = canQueueDraft
-    ? hasQueuedDraft
-      ? t('input.hintText.updateQueued', { defaultValue: 'Enter to update queued message' })
-      : t('input.hintText.queue', { defaultValue: 'Enter to queue your next message' })
-    : sendByCtrlEnter
-      ? t('input.hintText.ctrlEnter')
-      : t('input.hintText.enter');
+  // On a touch-only device Enter is the newline key, so no hint may name a keyboard key as the
+  // way to send: there is no Shift for a newline and no Enter for a send, only the button.
+  const submitHint = touchOnly
+    ? t('input.hintText.touch', { defaultValue: 'Tap ➤ to send • Return adds a line' })
+    : canQueueDraft
+      ? hasQueuedDraft
+        ? t('input.hintText.updateQueued', { defaultValue: 'Enter to update queued message' })
+        : t('input.hintText.queue', { defaultValue: 'Enter to queue your next message' })
+      : sendOnEnter
+        ? t('input.hintText.enter')
+        : t('input.hintText.ctrlEnter');
   const submitAriaLabel = canQueueDraft
     ? hasQueuedDraft
       ? t('input.queue.update', { defaultValue: 'Update queued message' })
@@ -592,7 +600,7 @@ export default function ChatComposer({
           </div>
 
           <div
-            className={`order-last hidden basis-full px-2 text-center text-xs leading-4 text-muted-foreground/50 transition-opacity duration-200 lg:block ${
+            className={`order-last basis-full px-2 text-center text-xs leading-4 text-muted-foreground/50 transition-opacity duration-200 ${touchOnly ? '' : 'hidden lg:block'} ${
               input.trim() && !canQueueDraft ? 'opacity-0' : 'opacity-100'
             }`}
           >

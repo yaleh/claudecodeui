@@ -28,6 +28,7 @@ import {
 import { escapeRegExp } from '@/modules/chat/utils/chatFormatting';
 import { useFileMentions } from '@/modules/chat/hooks/useFileMentions';
 import { useInputHistory } from '@/modules/chat/hooks/useInputHistory';
+import { useSendOnEnter } from '@/modules/chat/hooks/useSendOnEnter';
 import { useSlashCommands } from '@/modules/chat/hooks/useSlashCommands';
 
 type UseChatComposerStateArgs = {
@@ -1101,6 +1102,11 @@ export function useChatComposerState({
     [handleCommandInputChange, resetCommandMenuState, setCursorPosition],
   );
 
+  // Resolved here rather than from the raw preference: on a touch-only device Enter inserts a
+  // newline regardless of what the stored preference says, because a soft keyboard has no
+  // Shift key to offer as the newline alternative.
+  const { sendOnEnter } = useSendOnEnter(sendByCtrlEnter);
+
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
       if (handleCommandMenuKeyDown(event)) {
@@ -1131,7 +1137,7 @@ export function useChatComposerState({
         if ((event.ctrlKey || event.metaKey) && !event.shiftKey) {
           event.preventDefault();
           handleSubmit(event);
-        } else if (!event.shiftKey && !event.ctrlKey && !event.metaKey && !sendByCtrlEnter) {
+        } else if (!event.shiftKey && !event.ctrlKey && !event.metaKey && sendOnEnter) {
           event.preventDefault();
           handleSubmit(event);
         }
@@ -1143,7 +1149,7 @@ export function useChatComposerState({
       handleFileMentionsKeyDown,
       handleHistoryKeyDown,
       handleSubmit,
-      sendByCtrlEnter,
+      sendOnEnter,
       showCommandMenu,
       showFileDropdown,
     ],
