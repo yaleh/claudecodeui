@@ -2,7 +2,7 @@
 id: gap-sidebar-width-draggable-splitter
 title: 侧栏（展开态）宽度可拖拽：桌面指针设备专属 splitter（默认 288 / 220–min(480,50vw) / 键盘与双击复位 /
   localStorage），移动端抽屉与触屏专用设备一律不提供
-status: ready
+status: done
 labels:
   - gap
 parent: null
