@@ -1,7 +1,7 @@
 ---
 id: gap-transcript-follow-whole-row-append-drift
 title: 贴底跟随在「整行到达」时累积漂移：外部写入的会话每来一条新消息就比底部多留一截且不再自行修复（首帧 240px 占位盒 + 1px 偏移闸误读为手势）
-status: ready
+status: done
 labels:
   - gap
   - defect
@@ -87,7 +87,7 @@ t=28674 gap=552  rows=18 lastH=240 → t=28690 gap=366
 - [x] 抗假变体 B 真跑并留输出：改为只在 `chatMessages.length` 变化时 pin（在 `judgeTranscriptGrowth` 加计数闸）后 **AC-106 退出码 1**（`variantB-red.log`：`a pinned transcript must stay on the bottom when the last row grows; it sat 480px above it`，红在 `e2e/transcript-follow.spec.ts:1729`），且同一变体下新单测同红（`variantB-unit-red.log`：`Tests 5 failed | 13 passed (18)`，其中 `follows a whole row past the box its first layout used` 红在 `the commit has to place the viewport on the bottom the row's own box leaves; got []`）。`git checkout --` 还原后 `git status --porcelain` 空、AC-106 复绿（`variantB-green.log`：`1 passed (10.3s)`）。
 - [x] 新用例的几何断言之外**有内容/行数断言**：`arrivals` 逐项断言 `rows` 严格按注入次数增长（`[1,2,3,4,5,6]`），并断言每行末行文本含该行自己的标记、最后一次的末行文本含最后一次注入的标记 —— 只改 DOM 不产出内容的实现会被这两组断言打红。
 - [x] `bash scripts/test.sh --for-task gap-transcript-follow-whole-row-append-drift` 退出码 **0**（`scoped-gate-postmerge.log`：`# tests 1 / # pass 1 / # fail 0`，`__PERFILE__ duration_ms=256 … passed=true`，墙钟 1.563s；`suite-scope-check: PASS`）；`npm run lint` 退出码 **0**（仅有仓库既存 warning）、`npm run typecheck` 退出码 **0**（三份 tsconfig 全过）。
-- [x] `git diff --name-only develop` = `e2e/transcript-follow.spec.ts`、`src/modules/chat/tests/transcriptScrollOwnership.test.tsx`（外加本任务文件，Touches 内），全部落在 Touches 内。**注**：合并 develop **之前**该命令还会列出 `tasks/gap-voice-asr-provider-seam-adr.md` —— 那是分支落后于 develop 造成的假阳性（该文件的 `[x]` 在 develop 侧），合并后即消失；用 `develop` 而非 `merge-base` 比对的这个坑已在另一任务的 AC8 里被点名。
+- [x] 本任务的改动全部落在 Touches 内。命令用 **merge-base 而非裸 develop**：`git diff --name-only "$(git merge-base develop HEAD)"` ⇒ `e2e/transcript-follow.spec.ts`、`src/modules/chat/tests/transcriptScrollOwnership.test.tsx`、`tasks/gap-transcript-follow-whole-row-append-drift.md`（第三个是任务文件自身，在 Touches 内）。**为什么不用裸 develop**：develop 会随其它任务的 fan-in 前进 —— 本次收尾期间它就从 `3574f599` 前进到 `77a32521`（10 个提交），裸 `git diff --name-only develop` 随即把别人的 `adr/`、`goals/`、`tasks/gap-debug-agent-*` 全读成本任务的改动（实测：合并后立刻读是 2 个文件，几分钟后同一命令变成 13+ 个）。合并 develop **之前**还会额外列出 `tasks/gap-voice-asr-provider-seam-adr.md`（分支落后于 develop 造成的假阳性，该文件的 `[x]` 在 develop 侧，合并后即消失）。develop 这 10 个提交**未触及任何代码路径**：`git diff --name-only 3574f599 develop -- src/ server/ e2e/ scripts/ docs/ package.json` 无输出。
 - [x] `docs/architecture/05-scrolling.md` 无需改动，附读数：文档对跟随两道的表述在 `:54-64`（第 7 条「geometry 而非 React」）与 `:73-79`（第 9 条「行几何不背着用户改变」），CSS 声明在 `:488-490` / `:493` / `:587-589` / `:607`。本任务**未改任何生产代码**，故这些表述全部仍然为真；`grep -n "整行\|whole row\|新行到达"` 零命中、`grep -n "TRANSCRIPT_FOLLOW_TOLERANCE_PX\|judgeTranscriptGrowth\|偏移"` 零命中（文档不点名这两道闸的实现符号），因此**不存在**因本次改动而失真的表述。第 7 条那句「equal means the change happened under a viewport that was pinned」正是 Proposal 质疑的对象，但本轮四种形状都没能证伪它，故不把未测得的结论写进架构文档。
 
 ## DoD

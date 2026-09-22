@@ -833,6 +833,14 @@ type FollowSample = {
   lastRowStamp: string | null;
   /** The content column's own laid-out height — what the rows add up to, independent of the pane. */
   contentHeight: number;
+  /**
+   * Whether the scroll-to-bottom control is on screen at this frame.
+   *
+   * It is the only thing a reader is offered when the pane is not at the bottom, so a run that
+   * ends up above the bottom with no control ever appearing has left the reader with a transcript
+   * that is neither following nor offering to — a different, and worse, state than "detached".
+   */
+  scrollButton: boolean;
 };
 
 /** One sample as a single line, for the readings that have to fit in a gate's excerpt. */
@@ -842,7 +850,8 @@ const describeSample = (sample: FollowSample, index: number, marked = false) =>
   + `,text${sample.lastRowText}/${sample.paneText}`
   + `,col${Math.round(sample.contentHeight)},node${sample.lastRowNode}`
   + `,stamp${sample.lastRowStamp === null ? '-' : sample.lastRowStamp.slice(11, 23)}`
-  + (sample.lastRowPlaceholder === null ? '' : `,ph${sample.lastRowPlaceholder}`);
+  + (sample.lastRowPlaceholder === null ? '' : `,ph${sample.lastRowPlaceholder}`)
+  + (sample.scrollButton ? ',btn' : '');
 
 /**
  * One layout the content column went through, as the probe's own observer saw it.
@@ -905,6 +914,7 @@ const startFollowSampler = (page: Page) =>
       lastRowStamp: string | null;
       lastRowPlaceholder: number | null;
       contentHeight: number;
+      scrollButton: boolean;
     };
     type HeightEntry = { t: number; height: number };
     type MutationEntry = { t: number; kind: 'added' | 'removed'; stamp: string | null };
@@ -1010,6 +1020,7 @@ const startFollowSampler = (page: Page) =>
         lastRowStamp: wrapper?.getAttribute('data-message-timestamp') ?? null,
         lastRowPlaceholder: placeholder,
         contentHeight: content ? Math.round(content.getBoundingClientRect().height) : 0,
+        scrollButton: pane.querySelector('[aria-label="Scroll to bottom"], [title="Scroll to bottom"]') !== null,
       };
     };
     const state = {
@@ -1031,6 +1042,22 @@ const startFollowSampler = (page: Page) =>
     };
     tick();
   });
+
+/**
+ * Waits until the sampler has read its first frame.
+ *
+ * A case that hands the app a row the moment the sampler is installed races the sampler's own
+ * first tick: the row can be in the pane before any frame is read, which leaves the first growth
+ * with no frame in front of it to be measured against — and the first frame of a run is exactly
+ * the one a follow has no previous bottom to answer from. Waiting here makes every growth below
+ * a growth *from* something rather than a state the run started in.
+ */
+const waitForFirstSample = (page: Page) =>
+  page.waitForFunction(
+    () => ((window as unknown as { __ac108?: { samples: unknown[] } }).__ac108?.samples.length ?? 0) > 0,
+    undefined,
+    { timeout: 5_000 },
+  );
 
 /**
  * Stops the sampler and returns everything it read.
@@ -1492,6 +1519,115 @@ const runAc109Window = async (page: Page, options: {
     settledGap: Math.round(settled.gap),
   };
 };
+
+/* ------------------------------------------------------------------ */
+/*  A whole row arriving                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Viewport the whole-row case runs at.
+ *
+ * The same one AC-108 and AC-109 use, so the pane's height — the box a row has to be measured
+ * against — is the height those cases already characterise.
+ */
+const WHOLE_ROW_VIEWPORT = { width: 1280, height: 720 };
+
+/** How many whole rows the case appends, one at a time. The criterion reads a series of ≥5. */
+const WHOLE_ROW_COUNT = 6;
+
+/**
+ * Paragraphs in one appended row.
+ *
+ * Every row has to be *markedly taller than the pane*: a row that lands near the fold leaves the
+ * band the pane can skip on screen either side of it, and whether the placeholder box took part
+ * in the layout stops being readable from the geometry. Twenty paragraphs of prose at this width
+ * is a row an order of magnitude past the pane, so the row is either wholly in view or wholly
+ * out of it and its height is never in question.
+ */
+const WHOLE_ROW_PARAGRAPHS = 20;
+
+/**
+ * How long each row is given before the next one is appended.
+ *
+ * Not a settle in the "wait for the follow" sense — the readings are taken from the frame samples
+ * either way — but enough that each row is a separate arrival rather than one long growth, which
+ * is what makes the per-row first-frame height and its own settled height separable.
+ */
+const WHOLE_ROW_SETTLE_MS = 400;
+
+/**
+ * The height the pane lays a row it has not drawn yet out at.
+ *
+ * `src/index.css` gives `.chat-message.assistant` a `contain-intrinsic-size` of this, and
+ * `content-visibility: auto` is what makes the box stand in for the row's content on the layout
+ * the row is inserted in: the row is below the fold at that moment, its contents are skipped, and
+ * the pane's scrollHeight is computed against this box rather than the row's real height. It is
+ * the whole subject of this case, so it is named here rather than inlined, and asserted against
+ * (the criterion allows ±2px).
+ */
+const WHOLE_ROW_INTRINSIC_PX = 240;
+
+/**
+ * The tail row as the pane is showing it: how many rows there are and what the last one says.
+ *
+ * Both halves are read from the row wrappers, which stay in the DOM whether or not a row's
+ * content is mounted, so an unmounted row is counted as the row it is rather than as the absence
+ * of one. The text is the arrival's own evidence: `wholeRowText` numbers every row, so "the last
+ * row is the one just injected" is a fact about the content rather than about the geometry.
+ */
+const readTailRow = (page: Page) =>
+  page.evaluate(() => {
+    const rows = (Array.from(document.querySelectorAll('.chat-messages-pane [data-message-timestamp]')) as HTMLElement[])
+      .filter((row) => !row.parentElement?.closest('[data-message-timestamp]'));
+    const last = rows[rows.length - 1];
+    return { rows: rows.length, text: (last?.textContent ?? '').slice(0, 40) };
+  });
+
+/**
+ * The text one appended row carries.
+ *
+ * Plain prose on purpose, for the same reason AC-108's reply is plain prose: the row goes through
+ * the app's markdown renderer, and a construct whose layout can jump — a table, a fence, a list
+ * that renumbers — would make "the row arrived" a claim about the renderer. The paragraphs are
+ * numbered so the last row's text is a function of which row it is, which is what makes the
+ * content assertion below about the arrival rather than about prose appearing somewhere.
+ */
+const wholeRowText = (index: number) => Array.from(
+  { length: WHOLE_ROW_PARAGRAPHS },
+  (_, paragraph) =>
+    `Row ${index}, paragraph ${paragraph}. ${'The transcript pane keeps the newest line in view while whole rows arrive one at a time. '.repeat(2)}`,
+).join('\n\n');
+
+/** The row's own opening words, as the marker its arrival can be read from. */
+const wholeRowMarker = (index: number) => `Row ${index}, paragraph 0.`;
+
+/**
+ * Hands the app one whole assistant row on its own chat socket, the way the backend hands over a
+ * row a provider finished.
+ *
+ * A `kind: 'text'` frame with `role: 'assistant'` and no `seq` is the transport's own shape for a
+ * completed assistant turn — the same frame the seeded transcript is made of, and the same one
+ * the live path routes to the store for anything that is not a streaming delta. It is deliberately
+ * not a `stream_delta`: a delta grows the row the previous delta made, and the case is about a row
+ * that was not there before.
+ *
+ * The timestamp is the wall clock, which is what the row's `data-message-timestamp` carries and
+ * what the app keys the row by; distinct values keep the rows from being folded into each other.
+ */
+const injectWholeRow = (page: Page, sessionId: string, index: number) =>
+  page.evaluate(
+    (payload) =>
+      (window as unknown as { __injectStreamFrame: (frame: unknown) => number }).__injectStreamFrame({
+        kind: 'text',
+        sessionId: payload.sessionId,
+        content: payload.content,
+        id: `e2e-whole-row-${payload.index}-${payload.timestamp}`,
+        timestamp: payload.timestamp,
+        provider: 'claude',
+        role: 'assistant',
+      }),
+    { sessionId, index, content: wholeRowText(index), timestamp: new Date().toISOString() },
+  );
 
 test.describe.configure({ mode: 'serial', timeout: 180_000 });
 
@@ -2523,5 +2659,242 @@ test.describe('transcript follow in a real browser', () => {
     expect(readings.map((reading) => reading.label)).toEqual(['wheel', 'keyboard']);
     // The readings, kept in the run's output: a red run should still show what each window saw.
     console.log(`AC-109 readings: ${JSON.stringify(readings)}`);
+  });
+
+  test('a whole row arriving while pinned keeps the pane at the bottom', async () => {
+    await page.setViewportSize(WHOLE_ROW_VIEWPORT);
+
+    // A conversation the app creates and opens, exactly as AC-108 and AC-109 do. Every row this
+    // case appends is delivered on the app's own socket, so no provider run, no CLI and no model
+    // is involved at any point here: what is doubled is the frame source, never the consumer.
+    const sessionId = await openAppSession(page, workspace);
+
+    // An empty conversation, asserted rather than assumed: every reading below treats "the last
+    // row" and "the row that just arrived" as the same thing, which is only true while there is
+    // nothing else in the transcript.
+    expect(
+      await page.locator(`${PANE} .chat-message`).count(),
+      'the whole-row case has to start from an empty conversation',
+    ).toBe(0);
+
+    // The case measures a follow, so the pane has to be pinned before the first row arrives: the
+    // follow holds a viewport that is already there and deliberately leaves one that is not.
+    const start = await waitForSettledPane(page);
+    expect(
+      start.gap,
+      `the whole-row case must begin at the bottom; the pane settled ${start.gap}px above it`,
+    ).toBeLessThanOrEqual(AT_BOTTOM_PX);
+
+    await startFollowSampler(page);
+    await waitForFirstSample(page);
+
+    /** What one appended row did to the pane, read once it had stopped moving. */
+    type Arrival = {
+      index: number;
+      /** Rows the transcript held once this one had arrived. */
+      rows: number;
+      /** The delivery count for its frame: 0 would be a row the app was never handed. */
+      delivered: number;
+      /** The last row's own opening words, which is how "the row that arrived is this one" is read. */
+      tail: string;
+      /** The gap the pane settled at after this row, in CSS pixels. */
+      settledGap: number;
+      /** Whether the scroll-to-bottom control was on screen once it had settled. */
+      button: boolean;
+    };
+    const arrivals: Arrival[] = [];
+    const settledGaps: number[] = [];
+
+    for (let index = 0; index < WHOLE_ROW_COUNT; index += 1) {
+      const delivered = await injectWholeRow(page, sessionId, index);
+      // Liveness of the fixture, and what makes the geometry below mean anything: a row that was
+      // never handed over looks exactly like a row the app ignored.
+      expect(delivered, `row ${index} never reached the app (${delivered} deliveries)`).toBeGreaterThan(0);
+
+      // Long enough that this row's arrival and the one after it are separate events rather than
+      // one long growth, which is what the per-row first-frame height is read against.
+      await page.waitForTimeout(WHOLE_ROW_SETTLE_MS);
+
+      const tail = await readTailRow(page);
+      const geometry = await readGeometry(page);
+      const button = await page.locator(SCROLL_BUTTON).count() > 0;
+      arrivals.push({ index, rows: tail.rows, delivered, tail: tail.text, settledGap: geometry.gap, button });
+      settledGaps.push(geometry.gap);
+    }
+
+    // A last moment of quiet, so the samples cover the pane after the final row as well as while
+    // the rows were arriving.
+    await page.waitForTimeout(400);
+    const { samples, contentHeightTrace, rowMutations } = await stopFollowSampler(page);
+
+    /* ---------------------------------------------------------------- */
+    /*  Content, before geometry                                          */
+    /* ---------------------------------------------------------------- */
+
+    // The rows are counted and named by their own text, not by the geometry: a pane that produced
+    // a box without producing a row has satisfied every geometric reading below and still shown
+    // the reader nothing.
+    expect(
+      arrivals.map((arrival) => arrival.rows),
+      'the transcript has to grow by exactly one row per injection',
+    ).toEqual(arrivals.map((_, index) => index + 1));
+    for (const arrival of arrivals) {
+      expect(
+        arrival.tail,
+        `the last row of ${arrival.rows} has to be the row that just arrived (row ${arrival.index})`,
+      ).toContain(wholeRowMarker(arrival.index));
+    }
+    expect(
+      arrivals[arrivals.length - 1].tail,
+      'the last row has to be the last one injected, or the readings below are of some earlier row',
+    ).toContain(wholeRowMarker(WHOLE_ROW_COUNT - 1));
+
+    /* ---------------------------------------------------------------- */
+    /*  Per-arrival readings                                              */
+    /* ---------------------------------------------------------------- */
+
+    /**
+     * The frames each row's arrival occupies, and the height its box went through while they ran.
+     *
+     * The first frame is the placeholder the pane lays a row it has not drawn yet out at: the box
+     * is the row's intrinsic size until the row's own content is rendered, and that box is what
+     * the pane's geometry was computed against before the row's real height existed. The settled
+     * value is the last one the row had while it was the tail, which is its real height.
+     */
+    const layout = samples.map((sample, index) => ({ sample, index }));
+    const perRow = arrivals.map((arrival) => {
+      const window = layout.filter(({ sample }) => sample.rows === arrival.rows);
+      const first = window.find(({ sample }) => sample.lastRowHeight > 0) ?? null;
+      const last = window[window.length - 1] ?? null;
+      return {
+        index: arrival.index,
+        firstHeight: first ? first.sample.lastRowHeight : null,
+        firstGap: first ? first.sample.gap : null,
+        firstPlaceholder: first ? first.sample.lastRowPlaceholder : null,
+        settledHeight: last ? last.sample.lastRowHeight : null,
+        frames: window.length,
+      };
+    });
+
+    // Every frame the sampler saw, as one line each: the criterion is about what the pane did
+    // frame by frame, so the run's output has to carry the frames rather than a summary of them.
+    console.log(`whole-row frames (${samples.length}):`);
+    for (let index = 0; index < samples.length; index += 1) {
+      console.log(`  ${describeSample(samples[index], index)}`);
+    }
+    console.log(`whole-row arrivals: ${JSON.stringify(arrivals.map((arrival) => ({
+      row: arrival.index,
+      rows: arrival.rows,
+      delivered: arrival.delivered,
+      gap: Math.round(arrival.settledGap),
+      button: arrival.button,
+      firstHeight: perRow[arrival.index].firstHeight,
+      firstGap: perRow[arrival.index].firstGap === null ? null : Math.round(perRow[arrival.index].firstGap),
+      firstPlaceholder: perRow[arrival.index].firstPlaceholder,
+      settledHeight: perRow[arrival.index].settledHeight,
+      frames: perRow[arrival.index].frames,
+    })))}`);
+    console.log(`whole-row settled gaps: ${settledGaps.map((gap) => Math.round(gap)).join(' → ')}`);
+    console.log(`whole-row content heights: ${contentHeightTrace.map((entry) => entry.height).join(' → ')}`);
+    console.log(`whole-row row mutations: ${rowMutations.length} `
+      + `${rowMutations.map((entry) => `${entry.kind}@${entry.t}:${entry.stamp === null ? '-' : entry.stamp.slice(11, 23)}`).join(' ')}`);
+    console.log(`whole-row pane height: ${start.clientHeight}`);
+    console.log(`whole-row drift: worst settled gap ${Math.max(...settledGaps.map((gap) => Math.abs(gap)))}px; `
+      + `arrival-frame shortfall off the intrinsic box `
+      + `${perRow.slice(1).map((row) => `${Math.round((row.firstGap ?? 0) - ((row.firstHeight ?? 0) - WHOLE_ROW_INTRINSIC_PX))}`).join(',')}px`);
+
+    /* ---------------------------------------------------------------- */
+    /*  The placeholder box took part                                     */
+    /* ---------------------------------------------------------------- */
+
+    // The red this case exists for is a layout mechanism, not a slow frame: while a row the pane has
+    // never drawn is being laid out, its box is the intrinsic size the stylesheet gives it, and the
+    // pane's geometry — including the scroll position the follow writes — is computed against that
+    // box. A run in which the box never entered the geometry cannot say anything about a follow that
+    // misread it, so its participation is asserted here rather than assumed.
+    //
+    // What the participation looks like from the sampler's chair is a *shortfall*, not a row height:
+    // the commit-time pin answers the placeholder's growth inside the same frame, which drags the
+    // row into view and lets the browser render it for real before the frame is sampled. So by the
+    // time a frame can be read, the row is already at its own height — and the placeholder is
+    // visible only as the distance the pane was left behind by: the row's real height minus the
+    // intrinsic box it was standing in for. (Drop `contain-intrinsic-size` and the same frame reads
+    // the row's whole height as the shortfall instead; 1135 - 240 = 895 is the box's fingerprint.)
+    //
+    // The first row of the run is exempt and read separately: an empty conversation has no bottom
+    // to have been pinned to, so its arrival frame measures the content against the pane rather
+    // than one bottom against the next.
+    for (const row of perRow.slice(1)) {
+      expect(
+        row.firstGap === null || row.firstHeight === null
+          ? Number.NaN
+          : Math.abs(row.firstGap - (row.firstHeight - WHOLE_ROW_INTRINSIC_PX)),
+        `row ${row.index} has to leave the pane behind by exactly its own height minus the intrinsic `
+        + `box the pane laid it out at (${WHOLE_ROW_INTRINSIC_PX}px), or the box was not in the `
+        + `geometry the pane's scroll was placed against (${JSON.stringify(row)})`,
+      ).toBeLessThanOrEqual(2);
+    }
+    for (const row of perRow) {
+      expect(
+        row.firstHeight ?? 0,
+        `row ${row.index} has to arrive taller than the pane it arrives in, or it lands at the fold, `
+        + `the intrinsic box is never what stands in for it, and the family cannot separate `
+        + `(${JSON.stringify(row)} vs pane ${start.clientHeight})`,
+      ).toBeGreaterThan(start.clientHeight);
+      expect(
+        Math.abs((row.settledHeight ?? 0) - (row.firstHeight ?? 0)),
+        `row ${row.index} may not change height between its first sampled frame and the last — that `
+        + `spread is what a re-laid-out row looks like, and it would make the shortfall above a `
+        + `moving target (${JSON.stringify(row)})`,
+      ).toBeLessThanOrEqual(2);
+    }
+
+    /* ---------------------------------------------------------------- */
+    /*  The pane stayed pinned                                            */
+    /* ---------------------------------------------------------------- */
+
+    // The criterion's bound, read once per row after it had stopped moving. This is the reading a
+    // reader would make: the row arrived, the pane is showing its last line.
+    const aboveBottom = arrivals
+      .filter((arrival) => Math.abs(arrival.settledGap) > AT_BOTTOM_PX)
+      .map((arrival) => ({ row: arrival.index, gap: Math.round(arrival.settledGap), button: arrival.button }));
+    expect(
+      aboveBottom,
+      `the pane has to be at the bottom after each whole row arrives (gaps: `
+      + `${settledGaps.map((gap) => Math.round(gap)).join(' → ')})`,
+    ).toEqual([]);
+
+    // And the same bound frame by frame, with the one exception a follow cannot avoid: the frame a
+    // growth lands on may be painted before the write that answers it. That frame is allowed, and
+    // only that frame — the next one has to be pinned, which is what separates a growth being
+    // followed from a gap being kept.
+    const grew = (index: number) => index > 0
+      && samples[index].scrollHeight > samples[index - 1].scrollHeight + AT_BOTTOM_PX;
+    const unpinnedFrames = samples
+      .map((sample, index) => ({ sample, index }))
+      .filter(({ sample }) => Math.abs(sample.gap) > AT_BOTTOM_PX)
+      .filter(({ index }) => (
+        !grew(index)
+        || index + 1 >= samples.length
+        || Math.abs(samples[index + 1].gap) > AT_BOTTOM_PX
+      ))
+      .map(({ sample, index }) => `${describeSample(sample, index, grew(index))}`
+        + `,next${index + 1 < samples.length ? Math.round(samples[index + 1].gap) : 'n/a'}`);
+    expect(
+      unpinnedFrames,
+      `the pane has to stay pinned while whole rows arrive, allowing one frame per growth`,
+    ).toEqual([]);
+
+    // Non-vacuity: the run has to have contained growths to follow and frames to read, or every
+    // bound above is a statement about an empty window.
+    expect(samples.length, 'the run has to have been sampled').toBeGreaterThan(WHOLE_ROW_COUNT);
+    expect(
+      samples.filter((_, index) => grew(index)).length,
+      'rows have to have kept arriving while the sampler watched',
+    ).toBeGreaterThanOrEqual(WHOLE_ROW_COUNT);
+
+    // The conversation the pane is showing is the one the rows were addressed to, or the readings
+    // above are of some other session's transcript.
+    expect(new URL(page.url()).pathname).toBe(`/session/${sessionId}`);
   });
 });

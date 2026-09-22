@@ -41,11 +41,11 @@ goal_ac: AC-123
 
 ## AC
 
-- [ ] AC1 三面判据——`npx tsx --tsconfig server/tsconfig.json --test server/modules/debug-agent/tests/debug-agent-gate.test.ts` 退出码 0。该用例即 `goals/AC-123`：关闭态逐一断言 (1) registry 无键且解析失败**与拼错一个 id 逐字相同**；(2) fixture 根不在观察路径集合里且该目录不被创建；(3) 控制面路径**不以控制面的应答作答**（**不得断言 404**——见 Proposal 与 ADR 的 a）；开启态对照三面都存在；并断言 fail-closed（取值不认识、或开了但没有根，一律按关闭且打印原因）。打印三面的实际读数。
-- [ ] AC2 抗假变体（**真跑并留输出**）：**只关掉其中一面**——例如保留 registry 键但摘掉路由。`AC1` 的命令必须因此**退出码非 0**，且红因指明是哪一面漏了。跑完还原，`git status` 干净，并贴两次输出。这一条是「三面各自独立读门控」这个代价的正面覆盖。
-- [ ] AC3 判据自身不得被 404 骗过：对关闭态的同一个控制面路径，命令**同时**打印无扩展名与带扩展名两种写法各自的状态码与 content-type，使「200 text/html」与「404」的差别在输出里可见。取假形态：把第 3 面写成「关闭时返回 404」后，本判据在**实现完全正确**的前提下也必须红——若它仍绿，说明该面根本没被断言。
-- [ ] AC4 门控只有一个读点：命令断言除门控模块本身外，`server/` 下没有第二处直接读该 env 变量的位置（逐行打印命中）。取假形态：某个消费点自己解析 env 而绕过门控模块时，本判据必须红。
-- [ ] AC5 本任务未触及 Touches 之外的文件。命令：`git diff --name-only "$(git merge-base develop HEAD)"` 的每一行都必须能对应到 Touches 内的一条；命中之外时逐行打印并以非 0 退出。
+- [x] AC1 三面判据——`npx tsx --tsconfig server/tsconfig.json --test server/modules/debug-agent/tests/debug-agent-gate.test.ts` 退出码 0。该用例即 `goals/AC-123`：关闭态逐一断言 (1) registry 无键且解析失败**与拼错一个 id 逐字相同**；(2) fixture 根不在观察路径集合里且该目录不被创建；(3) 控制面路径**不以控制面的应答作答**（**不得断言 404**——见 Proposal 与 ADR 的 a）；开启态对照三面都存在；并断言 fail-closed（取值不认识、或开了但没有根，一律按关闭且打印原因）。打印三面的实际读数。
+- [x] AC2 抗假变体（**真跑并留输出**）：**只关掉其中一面**——例如保留 registry 键但摘掉路由。`AC1` 的命令必须因此**退出码非 0**，且红因指明是哪一面漏了。跑完还原，`git status` 干净，并贴两次输出。这一条是「三面各自独立读门控」这个代价的正面覆盖。
+- [x] AC3 判据自身不得被 404 骗过：对关闭态的同一个控制面路径，命令**同时**打印无扩展名与带扩展名两种写法各自的状态码与 content-type，使「200 text/html」与「404」的差别在输出里可见。取假形态：把第 3 面写成「关闭时返回 404」后，本判据在**实现完全正确**的前提下也必须红——若它仍绿，说明该面根本没被断言。
+- [x] AC4 门控只有一个读点：命令断言除门控模块本身外，`server/` 下没有第二处直接读该 env 变量的位置（逐行打印命中）。取假形态：某个消费点自己解析 env 而绕过门控模块时，本判据必须红。
+- [x] AC5 本任务未触及 Touches 之外的文件。命令：`git diff --name-only "$(git merge-base develop HEAD)"` 的每一行都必须能对应到 Touches 内的一条；命中之外时逐行打印并以非 0 退出。
 
 ## DoD
 
@@ -60,11 +60,98 @@ goal_ac: AC-123
 L_D 该轴仍暗，理由：本任务交付的是调试/测试机制的门控，不改变产品领域能力，没有可读出的产品领域读数；判定面由 AC1 的三面读数与 AC2 的变体承担。
 L_G 本目标的判据是 `goals/AC-123`（门控关闭时三面都不存在，且「只关掉其中一面」的变体必须红），本任务的 AC1 即该判据的命令；AC2 是它的抗假变体。
 
+## 验证记录（2026-09-22）
+
+判据命令：`npx tsx --tsconfig server/tsconfig.json --test server/modules/debug-agent/tests/debug-agent-gate.test.ts`（基线退出码 0，6/6，约 4.9s；门控的 60s 上限内）。
+
+### AC1 基线：关闭态（`DEBUG_AGENT` 未设，而 `DEBUG_AGENT_HOME` 已在环境里——对该性质最强的形态）
+
+```
+[gate] CLOSED (DEBUG_AGENT is unset); home=<none>
+[face 1 registry] registered=false resolve('debug')=AppError/UNSUPPORTED_PROVIDER/400 resolve('claud')=AppError/UNSUPPORTED_PROVIDER/400
+[face 2 watcher] fixtureRoot=/data/scratch/yale/debug-agent-gate-closed-L48sak/fixture/.claude/projects listed=false created=false productRoots=4 productRootsCreated=4
+[face 3 routes] mounted=false layersAdded=0 layers=[]
+[face 3 routes] extension-less /api/debug-agent -> 200 text/html; charset=UTF-8 "<!doctype html><title>spa shell</title>"
+[face 3 routes] with-extension  /api/debug-agent/scenarios.json -> 404 text/html; charset=utf-8 "Not found"
+```
+
+面 1 的「逐字相同」是断言出来的：`debug` 与 `claud` 的 errorName/code/statusCode 相等，且 message 把请求的 id 抹掉后逐字相等。面 2 的 positive control：同一次运行里 4 个产品根**都被列出且都被创建**，所以「fixture 根没被创建」不是「mkdir 根本没跑」。此外还断言「观察集合里没有任何一条归属于 debug agent 的根」——于是「换一个目录去看」也满足不了这一面。
+
+### AC1 基线：开启态（另一个子进程）
+
+```
+[gate] OPEN (DEBUG_AGENT="on" with DEBUG_AGENT_HOME=".../fixture"); home=.../fixture
+[face 1 registry] registered=true resolve('debug')=resolved resolve('claud')=AppError/UNSUPPORTED_PROVIDER/400
+[face 2 watcher] fixtureRoot=.../fixture/.claude/projects listed=true created=true productRoots=4 productRootsCreated=4
+[face 3 routes] mounted=true layersAdded=4 layers=["query","expressInit","authenticate","router"]
+[face 3 routes] extension-less /api/debug-agent -> 401 application/json; charset=utf-8 "{...code\":\"AUTH_TOKEN_INVALID}"
+```
+
+（`query`/`expressInit` 是 express 首次 `use` 时自己的引导层；因此断言的是层的**内容与次序** `["authenticate","router"]`，不是层数。）
+
+### AC1 基线：fail-closed（两个子进程，各自打印原因）
+
+```
+[gate] CLOSED (DEBUG_AGENT="enabled" is not a recognised value (expected one of 1/true/yes/on or 0/false/no/off))
+[gate] CLOSED (DEBUG_AGENT is enabled but DEBUG_AGENT_HOME is empty: the fixture root is mandatory and is never defaulted to os.homedir())
+```
+
+### AC2 抗假变体：「只关掉其中一面」（真跑，4 个变体全部退出码非 0；每次跑完 `git checkout -- server/`，4 次跑完 `git status --short` 为空）
+
+| 变体 | 改动 | 退出码 | 红因（断言消息） |
+| --- | --- | --- | --- |
+| v1 registry 无视门控 | 去掉 `registerDebugAgentProvider` 里的门控读 | 1 | `face 1: the key must not be written while the gate is closed` |
+| v2 watcher 无视门控 | watcher 自己读 `DEBUG_AGENT_HOME` 拼根 | 1 | `face 2: the fixture root must not be in the observation set`（并同时红了 AC4 的读点扫描，命中 `sessions-watcher.service.ts:56`） |
+| v3 路由无视门控 | 去掉 `mountDebugAgentControlPlane` 里的门控读 | 1 | `face 3: the control plane must not attach while the gate is closed` |
+| v4 关闭态反而答 404 | 关闭时挂一个 404 处理函数 | 1 | `face 3: no middleware layer may be added at the control-plane path`（3 !== 0） |
+
+v2 是这一条的正面覆盖：它只动 watcher 一面，**另外两面仍然绿**——三面确实是三条独立路径。
+
+### AC3 判据不被 404 骗过
+
+关闭态同一路径的两种写法（上面基线里已同时打印）：
+
+- 无扩展名 `/api/debug-agent` → `200 text/html`（SPA 壳：**不是**控制面的应答，也**不是** 404）
+- 带扩展名 `/api/debug-agent/scenarios.json` → `404 text/html`（真的没有这个文件）
+
+假形态 v4（把第 3 面写成「关闭时返回 404」，其余实现完全正确）下判据红：
+
+```
+AssertionError: face 3: no middleware layer may be added at the control-plane path   (3 !== 0)
+AssertionError: the extension-less variant is the SPA shell                          (404 !== 200)
+```
+
+即：若把这一面写成 404，本判据在**正确实现**下就会红——它测的是「不以控制面的应答作答」，不是状态码。
+
+### AC4 只有一个读点
+
+基线逐行打印的结论是 `no direct gate reads outside server/modules/debug-agent/debug-agent.gate.ts`（零命中）；v2 变体（消费点自己解析 env）下它红并逐行打印命中位置。该扫描对本用例文件自身也成立——用例是用 `process.env[NAME]` 的常量拼写取的，不是直接读字面量。
+
+### AC5 未触及 Touches 之外的文件
+
+`git diff --name-only "$(git merge-base develop HEAD)"` 与未跟踪文件合计 7 条，逐条对应 Touches；两条此前漏登记的（本任务新建的模块 barrel 与被扩展的 providers barrel）已补进 Touches：
+
+- `server/modules/debug-agent/debug-agent.gate.ts` (new)
+- `server/modules/debug-agent/index.ts` (new)
+- `server/modules/debug-agent/tests/debug-agent-gate.test.ts` (new)
+- `server/modules/providers/provider.registry.ts`
+- `server/modules/providers/index.ts`
+- `server/modules/providers/services/sessions-watcher.service.ts`
+- `server/index.ts`
+
+### 如实登记
+
+- `capabilities` 那一面按裁决 B **不在**三面内；本任务不实测、不裁决（DoD 已登记）。
+- 控制面路由的**端点**不在本任务范围。本任务只保证关闭态不被挂载，并把那个 router（`debugAgentControlPlaneRouter`）与挂载点（`mountDebugAgentControlPlane`）放在 `debug-agent.gate.ts` 里由门控模块自己持有：控制面任务把端点注册到同一个 router 上即可，`server/index.ts` 的挂载点无需改动。
+- 判据里 auth 中间件用的是形状替身（401 + JSON，与真实中间件同形）：这一面测的是「有没有东西被 attach」，而真实中间件会在 import 期求值 app-config 数据库。控制面任务自己去测真实中间件。
+
 ## Touches
 
 - server/modules/debug-agent/debug-agent.gate.ts (new)
+- server/modules/debug-agent/index.ts (new)
 - server/modules/debug-agent/tests/debug-agent-gate.test.ts (new)
 - server/modules/providers/provider.registry.ts
+- server/modules/providers/index.ts
 - server/modules/providers/services/sessions-watcher.service.ts
 - server/index.ts
 - tasks/gap-debug-agent-gate-structural-off.md
