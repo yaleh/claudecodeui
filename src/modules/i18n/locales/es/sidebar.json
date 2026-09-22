@@ -151,5 +151,8 @@
     "deleteAllData": "Eliminar todos los datos permanentemente",
     "allConversationsDeleted": "El proyecto se quitará de la barra lateral. Tus archivos, memorias y datos de sesión se conservarán.",
     "cannotUndo": "Puedes volver a añadir el proyecto más tarde."
+  },
+  "resizeHandle": {
+    "label": "Cambiar el ancho de la barra lateral"
   }
 }

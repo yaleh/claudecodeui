@@ -12,6 +12,8 @@ type SidebarResizeHandleProps = {
   isResizing: boolean;
   /** The drag, keyboard and reset handlers from useSidebarResize. */
   handlers: SidebarResizeHandleHandlers;
+  /** Element id of the panel this splitter sizes, so `aria-controls` names it. */
+  panelId: string;
   t: TFunction;
 };
 
@@ -30,6 +32,7 @@ export default function SidebarResizeHandle({
   maxWidth,
   isResizing,
   handlers,
+  panelId,
   t,
 }: SidebarResizeHandleProps) {
   const label = t('resizeHandle.label');
@@ -40,6 +43,7 @@ export default function SidebarResizeHandle({
       role="separator"
       aria-orientation="vertical"
       aria-label={label}
+      aria-controls={panelId}
       aria-valuenow={width}
       aria-valuemin={minWidth}
       aria-valuemax={maxWidth}

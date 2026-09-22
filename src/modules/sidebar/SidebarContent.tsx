@@ -36,6 +36,14 @@ function HighlightedSnippet({ snippet, highlights }: { snippet: string; highligh
   );
 }
 
+/**
+ * The docked panel's element id, which the splitter names as the thing it
+ * sizes. Exactly one SidebarContent is mounted at a time — the desktop region
+ * renders the docked panel and the mobile region the drawer, never both — so a
+ * fixed id is unique where a generated one would not be addressable.
+ */
+const SIDEBAR_PANEL_ID = 'sidebar-panel';
+
 type ArchivedSessionGroup = {
   key: string;
   projectId: string | null;
@@ -198,6 +206,8 @@ export default function SidebarContent({
   return (
     <div
       ref={sidebarRootRef}
+      // Named so the splitter can point `aria-controls` at the panel it sizes.
+      id={SIDEBAR_PANEL_ID}
       // The drawer sizes itself and is drawn over the workspace, so only the
       // docked panel pins a width. A device that cannot resize still pins one —
       // it opens at the stored width, it just has no handle.
@@ -725,6 +735,7 @@ export default function SidebarContent({
           maxWidth={sidebarMaxWidth}
           isResizing={isSidebarResizing}
           handlers={sidebarResizeHandlers}
+          panelId={SIDEBAR_PANEL_ID}
           t={t}
         />
       )}

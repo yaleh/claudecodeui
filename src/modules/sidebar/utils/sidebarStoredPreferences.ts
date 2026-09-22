@@ -61,14 +61,28 @@ export const readShownHiddenProjectIds = (): string[] => {
 const SIDEBAR_WIDTH_STORAGE_KEY = 'sidebarWidth';
 
 /**
+ * Exactly the shape {@link writeStoredSidebarWidth} writes: an optional sign and
+ * a run of digits, and nothing else.
+ *
+ * A permissive parse is not good enough here, because `Number.parseInt` answers
+ * with a *number* for several strings that are not widths: `'abc'` gives NaN,
+ * but `'0x10'` gives 0 and `'12px'` gives 12. Both of those reach the clamp as a
+ * plausible-looking small width and land the sidebar on its 220px floor, so a
+ * corrupted key looks like a deliberate narrow sidebar instead of a key to
+ * ignore — and the user has no way to widen it back except by dragging.
+ */
+const STORED_WIDTH_PATTERN = /^-?\d+$/;
+
+/**
  * Reads the sidebar width the user dragged to, in px, or null when they never
- * dragged it. Browser-local on purpose: how much room navigation deserves is a
- * property of the screen it is on, not of the account.
+ * dragged it or the stored value is not a width. Browser-local on purpose: how
+ * much room navigation deserves is a property of the screen it is on, not of
+ * the account.
  */
 export const readStoredSidebarWidth = (): number | null => {
   try {
     const saved = localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
-    if (!saved) {
+    if (saved === null || !STORED_WIDTH_PATTERN.test(saved)) {
       return null;
     }
 

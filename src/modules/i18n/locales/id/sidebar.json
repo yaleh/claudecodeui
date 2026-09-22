@@ -159,5 +159,8 @@
     "deleteAllData": "Hapus semua data secara permanen",
     "allConversationsDeleted": "Proyek akan dihapus dari sidebar. File, memori, dan data sesi tetap dipertahankan.",
     "cannotUndo": "Proyek dapat ditambahkan kembali nanti."
+  },
+  "resizeHandle": {
+    "label": "Ubah ukuran sidebar"
   }
 }
