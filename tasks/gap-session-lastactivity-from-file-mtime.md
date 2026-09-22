@@ -2,7 +2,7 @@
 id: gap-session-lastactivity-from-file-mtime
 title: 会话列表「最近活动」取自 transcript 文件 mtime 而非内容里最后一条带 timestamp 的记录：真实空闲 46.5h 的会话在
   UI 上显示为约 1 小时前
-status: ready
+status: done
 labels:
   - gap
   - defect
@@ -76,7 +76,7 @@ L_G 该轴仍暗，理由：本任务不新增 goal 判据，只让会话列表�
 
 ## Completion
 
-**判据（commits e7534bcc，merge develop 后重跑于 500ee9f9）**
+**判据（commits e7534bcc，merge develop 后重跑于 500ee9f9；第二轮修复于 c4c843dd）**
 
 | AC | 命令 | 结果 |
 | --- | --- | --- |
@@ -89,7 +89,7 @@ L_G 该轴仍暗，理由：本任务不新增 goal 判据，只让会话列表�
 **AC-2 (a) 半段的抗假对照（DoD(a)）** —— 三个变体均以「临时改实现 → 跑 → `git checkout --` 还原」取得，还原后工作树即已提交状态：
 
 1. `resolveLastActivity` 换回 mtime（AC-2/AC-4 承载文件）：红。因首个控制断言先失败，为使 (a) 半段本身被判定，单独把该前置断言降级为打印后再跑一次，得 `indexed: updated_at=2026-09-22T07:03:53.661Z`、`touch: before=2026-01-05T00:00:00.000Z after=2026-09-22T07:03:53.793Z`、`AssertionError: a touch that changes no content must not move last activity`——(a) 半段确实变红。
-2. 窗口首行判定恒为「半截」(`startsMidLine` → `return true`)：红，`✖ reads a complete record that starts exactly at the window boundary`，`AssertionError: Expected values to be strictly equal`（1 MiB 上限处返回 null，调用方回落 mtime）。
+2. 窗口首行判定恒为「半截」(`startsMidLine` → `return true`)：红，`✖ reads a complete record that starts exactly at the window boundary`，`AssertionError: Expected values to be strictly equal`（512 KiB 上限处返回 null，调用方回落 mtime）。
 3. 把内容读取放进遍历（`synchronize()` 内对全量 transcript 无条件读一遍）：红，`AssertionError: open-a.jsonl was opened by a scan that should have skipped it`——AC-4 的 atime 断言正是钉住这一层的判据。
 
 **AC-3 真实语料（DoD(b)）** —— 对**真实语料 + 真实行**（`~/.claude/projects` 1218 个 transcript / 896.6 MB，现库 1183 条 claude 行）跑，用库文件的一份拷贝（**未改动 `/data/home/yale/.cloudcli/auth.db` 本体**；拷贝与本体同内容，读数不受影响）：
@@ -123,3 +123,32 @@ L_G 该轴仍暗，理由：本任务不新增 goal 判据，只让会话列表�
 - 本机 `~/.claude/projects` 语料在本次工作期间由 1213 个 / 826.6 MB 增长到 1218 个 / 896.6 MB（fleet 并发在跑），上述所有读数均出自同一时刻的同一份语料快照。
 - AC-4 的字面 `chmod 000` 探针本身不足以区分实现：遍历里的 `try/catch` 会吞掉 EACCES，且游标本来就排除这些文件，于是「什么都不做」也拿到 `processed === 0`。因此该 AC 由三条断言共同承载——字面 chmod 探针、atime 探针（每个被排除的 transcript 的 atime 保持在被设为的旧值，并带正对照证明探针确实看得见读取）、以及变体 3 的红。这一点如实登记，不把单条 chmod 断言当成充分证明。
 - 本次未跑 fan-in 全量 suite（按调度约定由 driver 接管）。
+
+**第二轮：fan-in 全量 suite 红 → 修复（commit `c4c843dd`）**
+
+上一轮 fan-in 的 suite 在 `server/modules/providers/tests/claude-session-title-source.test.ts` 变红，报 `AssertionError [ERR_ASSERTION]: an ai-title already in the row must not be re-read (read 1507651 bytes of a ~8MB file)`。该文件是 develop 既有判据、**不在本任务 Touches 内**，故未作任何改动，修复落在实现侧。
+
+**红因（本任务引入的真实开销，非加载噪声）**：该判据用 `/proc/self/io` 的 `rchar` 把「已持有 ai-title 的行再同步一次」的开销钉在 1 MiB 以内；本实现为取最后活动时间多读了一段尾部窗口。原实现每次加宽都**重读整个窗口**，于是「只在 1 MiB 天花板处才有答案」的文件要付 64 KiB + 256 KiB + 1 MiB，落到 1.5 MB。`__PERFILE_KIND__` 报 `kind=assert`，两次读数逐次确定（1507643 / 1507651），排除加载类红。
+
+**修复**（两处，均在 `server/shared/utils.ts` 内）：(1) 加宽只读窗口**尚未持有的那一段**（新增 `readFileRange` + `Buffer.concat`），天花板处的总 I/O 等于天花板本身，而不是各窗口之和；(2) 天花板由 1 MiB 降到 512 KiB。
+
+**512 KiB 的依据（本轮重测，同机，1189 个 transcript）**：64 KiB 答出 1144 个，256 KiB 再答 37 个，512 KiB 答出最后 6 个；剩下 2 个是约 700 字节、**完全不含 timestamp 记录**的文件。**没有任何 transcript 需要超过 512 KiB**，所以降低天花板不损失任何真实读数。
+
+**复测读数**
+
+| 读数 | 值 |
+| --- | --- |
+| `claude-session-title-source.test.ts`「title 已知的第二遍」（判据 < 1048576） | 655683（余量 37%） |
+| 同文件「24 MB 文件的 ai-title」（判据 < 4 MiB） | 786867（修复前 1638875） |
+| AC-3 不变式复验（实现读数 vs **全文件** ground truth，1189 个 transcript） | `rows=1189 controls=1187 mismatched=0 nullWithTruth=0` |
+| AC-1 | 8 tests / 0 fail，退出码 0 |
+| AC-2 / AC-4 承载文件 | 26 tests / 0 fail，退出码 0，含 `touch: before=… after=…` 与 `append: before=… after=…` |
+| providers + shared 模块全量 | 341 pass / 0 fail / 1 skipped，退出码 0 |
+| 域内 scoped 门 `scripts/test.sh --for-task … --allow-thin` | 退出码 0 |
+
+其中 `nullWithTruth=0` 是这一轮的关键读数：没有任何「内容里确有 timestamp」的 transcript 落到 mtime 回落——即降低天花板没有把任何真实行推回本任务要修的错误读数。该复验比原 AC-3 更强：原判据比的是「库中 `updated_at` vs 内容」，本轮直接比「实现返回值 vs 全文件 ground truth」，不含库快照与静止口径的影响。
+
+AC-2 的反假对照（变体 1：实现换回 mtime）语义未变、仍成立；变体 2 描述中的天花板数字已由 1 MiB 更正为 512 KiB（承载其红的判据是本任务新增的 `transcript-last-activity.test.ts`，常量与注释已同步更新）。
+
+本次仍未自行跑 fan-in 全量 suite（按调度约定由 driver 接管）。
+

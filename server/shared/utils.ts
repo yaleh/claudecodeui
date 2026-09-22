@@ -4,6 +4,7 @@ import {
   access,
   lstat,
   mkdir,
+  open,
   readFile,
   readdir,
   readlink,
@@ -11,6 +12,7 @@ import {
   stat,
   writeFile,
 } from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
@@ -1025,6 +1027,205 @@ export async function readFileTimestamps(
   } catch {
     return {};
   }
+}
+
+/**
+ * The tail window `readTranscriptLastActivity` starts from, and the ceiling it
+ * may grow to.
+ *
+ * A transcript ends with a run of bookkeeping records — `last-prompt`,
+ * `cost-state`, `mode`, `permission-mode`, `atis-latch` — that carry no
+ * `timestamp`, so the newest real activity can sit well behind the end of the
+ * file. Measured over one machine's corpus (1189 transcripts): a 64 KiB window
+ * answered 1144 of them, 256 KiB answered 37 more, and 512 KiB answered the
+ * last 6. The two that no window answers are ~700-byte files that record no
+ * activity at all, so nothing on that corpus asked to look further back than
+ * the ceiling. Starting small keeps the common case to one 64 KiB read; the
+ * ceiling stops a pathological file from turning a sidebar refresh into a
+ * whole-file read, and keeps one synchronizer pass over a large transcript
+ * inside the byte budget its callers are held to.
+ */
+const TRANSCRIPT_ACTIVITY_INITIAL_WINDOW_BYTES = 64 * 1024;
+const TRANSCRIPT_ACTIVITY_MAX_WINDOW_BYTES = 512 * 1024;
+
+/**
+ * Reads the newest activity time a transcript's own content records.
+ *
+ * Session indexers must not take a session's "last activity" from the
+ * transcript's mtime. A file's mtime moves for reasons that are not user
+ * activity — a CLI flushing bookkeeping records, an external process rewriting
+ * or restoring the file — so a session idle for days can be shown as active
+ * minutes ago. The records that do describe activity are the ones carrying a
+ * `timestamp`, which is what this helper returns.
+ *
+ * Only a bounded tail window is read, growing from
+ * `TRANSCRIPT_ACTIVITY_INITIAL_WINDOW_BYTES` to
+ * `TRANSCRIPT_ACTIVITY_MAX_WINDOW_BYTES`: the newest activity is at the end of
+ * the file, and transcripts reach hundreds of megabytes, so walking the whole
+ * file line by line is not an option. Within a window the lines are walked
+ * backwards, and the first parseable record with a usable `timestamp` wins.
+ *
+ * Returns the record's timestamp string exactly as stored, or null when no
+ * record in the scanned window carries one. Callers must fall back to a
+ * filesystem timestamp on null: a transcript that was just created has no
+ * records yet, and it still needs an activity time. A missing or unreadable
+ * file also returns null rather than throwing, so one bad transcript cannot
+ * abort a scan.
+ */
+export async function readTranscriptLastActivity(filePath: string): Promise<string | null> {
+  let handle: FileHandle | undefined;
+
+  try {
+    handle = await open(filePath, 'r');
+
+    const { size } = await handle.stat();
+    if (size <= 0) {
+      return null;
+    }
+
+    let windowBytes = Math.min(TRANSCRIPT_ACTIVITY_INITIAL_WINDOW_BYTES, size);
+    let windowStart = size - windowBytes;
+    let window = await readFileRange(handle, windowStart, windowBytes);
+
+    for (;;) {
+      const timestamp = findLastRecordedTimestamp(
+        window.toString('utf8'),
+        await startsMidLine(handle, windowStart)
+      );
+      if (timestamp) {
+        return timestamp;
+      }
+
+      // The window already covered the whole file, so the transcript records
+      // no activity at all; enlarging it further cannot change that.
+      if (windowStart === 0 || windowBytes >= TRANSCRIPT_ACTIVITY_MAX_WINDOW_BYTES) {
+        return null;
+      }
+
+      // Widening reads only the bytes the window does not already hold: the
+      // newest activity usually sits in the first window, and a transcript that
+      // needs the ceiling should cost one read of the ceiling rather than the
+      // sum of every window on the way there.
+      const widenedBytes = Math.min(windowBytes * 4, TRANSCRIPT_ACTIVITY_MAX_WINDOW_BYTES, size);
+      const widenedStart = size - widenedBytes;
+      const prefix = await readFileRange(handle, widenedStart, windowStart - widenedStart);
+      if (prefix.length === 0) {
+        // The file shrank under the scan, so there is nothing older to read
+        // and the window that was already searched is all this file has.
+        return null;
+      }
+
+      window = Buffer.concat([prefix, window]);
+      windowStart -= prefix.length;
+      windowBytes = window.length;
+    }
+  } catch {
+    return null;
+  } finally {
+    try {
+      await handle?.close();
+    } catch {
+      // A close failure cannot change the answer this helper already produced.
+    }
+  }
+}
+
+/**
+ * Reads up to `length` bytes at `offset`, returning fewer when the file ends.
+ *
+ * One `FileHandle.read` is allowed to return a short count — and does when
+ * another process rewrites or truncates a transcript mid-scan — so a caller
+ * cannot treat a single read as the whole range it asked for. Callers therefore
+ * advance their cursors by `buffer.length`, which keeps the buffer's start
+ * offset honest even when the read came up short.
+ */
+async function readFileRange(handle: FileHandle, offset: number, length: number): Promise<Buffer> {
+  const buffer = Buffer.allocUnsafe(length);
+  let filled = 0;
+
+  while (filled < length) {
+    const { bytesRead } = await handle.read(buffer, filled, length - filled, offset + filled);
+    if (bytesRead === 0) {
+      break;
+    }
+    filled += bytesRead;
+  }
+
+  return filled === length ? buffer : buffer.subarray(0, filled);
+}
+
+/**
+ * Reports whether a read starting at `offset` begins inside a line.
+ *
+ * A window that opens mid-line begins with the tail of a record whose head lies
+ * before it, and a fragment is not evidence of anything — so the caller drops
+ * it. Testing the byte that precedes the offset, rather than assuming any
+ * offset past zero is mid-line, keeps a window that happens to open exactly on
+ * a line boundary from discarding the complete record sitting there.
+ */
+async function startsMidLine(handle: FileHandle, offset: number): Promise<boolean> {
+  if (offset <= 0) {
+    return false;
+  }
+
+  const precedingByte = Buffer.allocUnsafe(1);
+  const { bytesRead } = await handle.read(precedingByte, 0, 1, offset - 1);
+  return bytesRead === 1 && precedingByte[0] !== 0x0a;
+}
+
+/**
+ * Walks one tail window backwards for the newest record that reports activity.
+ *
+ * `hasLeadingFragment` drops the window's first line when the read started
+ * mid-line: that line is the tail of a record whose head lies before the window,
+ * and a fragment is not evidence of anything. The last line needs no such
+ * treatment — a record still being written fails `JSON.parse` and falls through
+ * to the record before it, which is how a half-written append must behave
+ * instead of throwing.
+ */
+function findLastRecordedTimestamp(windowText: string, hasLeadingFragment: boolean): string | null {
+  const lines = windowText.split('\n');
+  if (hasLeadingFragment) {
+    lines.shift();
+  }
+
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index].trim();
+    if (!line) {
+      continue;
+    }
+
+    let record: unknown;
+    try {
+      record = JSON.parse(line);
+    } catch {
+      continue;
+    }
+
+    const timestamp = readRecordedTimestamp(record);
+    if (timestamp) {
+      return timestamp;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Reads the activity timestamp one transcript record carries, if it carries one.
+ *
+ * A value the database layer cannot parse would be written as
+ * `CURRENT_TIMESTAMP` — i.e. "active just now", the exact reading this helper
+ * exists to stop — so an unparseable `timestamp` is treated as no timestamp and
+ * the walk continues to an older record.
+ */
+function readRecordedTimestamp(record: unknown): string | null {
+  const value = readObjectRecord(record)?.timestamp;
+  if (typeof value !== 'string' || !value.trim()) {
+    return null;
+  }
+
+  return Number.isNaN(new Date(value).getTime()) ? null : value;
 }
 
 // ---------------------------
