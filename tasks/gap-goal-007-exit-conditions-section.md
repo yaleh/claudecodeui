@@ -1,13 +1,18 @@
 ---
 id: gap-goal-007-exit-conditions-section
 title: GOAL-007 缺 `## 退出条件` 小节：提议补上独立小节以解除机械短路，并把两处无在域 AC 覆盖的范围项交人裁定
-status: todo
+status: needs-human
 labels:
   - gap
 parent: null
 children: []
 extra:
   schema: execution
+  needs_human_cause: human-adjudication
+  park_reason: 跟进提案：GOAL-007 缺 `## 退出条件` 小节（机械层 goal-driver.ts:866 在任何在域 AC
+    被考虑之前短路 ⇒ verdict 恒为 insufficient，语义 judge
+    从未被咨询）。本任务只提议文本修订，须人裁定是否采纳，以及两处无在域 AC 覆盖的范围项（「不跑真 CLI」否命题、裁决 A 的 UI
+    显示身份）是明示不作退出条件还是另立 AC。
 ---
 ## Proposal
 
