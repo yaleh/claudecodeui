@@ -41,12 +41,12 @@ agentName || customTitle || aiTitle || summary || firstPrompt || sessionId.slice
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-session-title-mirror.test.ts` 退出码 0：用**从 CLI 行为推导的真实形状**夹具（含 `mode` / `permission-mode` / user 行等真实条目，不是最简 JSON）断言阶梯矩阵，每条独立可反红——(a) 同一会话两条不同 `ai-title`（模拟 CLI 修订）取**后**一条；(b) `custom-title` 追加在 `ai-title` **之后**（模拟 `/rename`）取 `custom-title`、来源 `manual`；(c) 行已是 `ai` 来源后追加一条 `custom-title` 并再次同步，名字变为改名后的值（旧的「已 ai 不重读」短路必须消失）；(d) `agent-name` 与 `custom-title` 并存时取 `agent-name`、来源 `agent`（夹具里两者取**不同**字符串，否则同值看不出取了哪个）；(e) 只有 `agent-name`、无任何 `custom-title`/`ai-title` 时取 `agent-name`；(f) 无任何标题条目时 derived 档取**第一句**而非最后一条 `last-prompt`（夹具里第一句与两条 `last-prompt` 三者互不相同）。
-- [ ] 同一命令下的读取量上界用例：夹具 A「标题条目只在文件尾部、其前有约 24MB 内容」与夹具 B「同一条标题**只有**文件头部那一个实例、其后有约 24MB 内容」都必须满足硬字节上界、**都不得整文件读取**，两个读数（`/proc/self/io` 的 `rchar` 增量）都要打印出来。规模沿用既有夹具量级，不要构造更大的文件。
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/database/tests/sessions-name-source.integration.test.ts` 退出码 0：迁移用例对没有 `transcript_name` 列的旧库连跑两次迁移，第一次按 `name_source` 分流（`manual` 行保留为显式覆盖、其余搬进 `transcript_name`）、第二次无操作；两次之间把一行改成 `agent`，第二次后它仍是 `agent`。并断言 `agent` 档在优先级矩阵里高于 `manual`。
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/session-ai-title.test.ts` 退出码 0：`/cost` 的取值在「`ai-title` 有两条不同值」时返回**后**一条；既有全部用例不回归。
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-session-title-corpus.test.ts` 退出码 0：语料仪器对一份**冻结的真实形状语料**（在测试内按真实条目形状生成，含尖括号元数据行与几十条重复标题条目）逐条比较「读取器会取的名字」与「`wze` 阶梯会取的名字」，分歧数必须为 0；语料里必须**包含**至少一条 `custom-title` 与 `ai-title` 共存的 transcript、一条 `ai-title` 被修订的 transcript、一条只有 `agent-name` 的 transcript。**正控**：把读取器换回「首个 `ai-title` 即停」后同一命令必须非 0，且红的必须来自前两类夹具（第三类保持绿）。
-- [ ] `npm run typecheck` 与 `npm run lint` 退出码均为 0。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-session-title-mirror.test.ts` 退出码 0：用**从 CLI 行为推导的真实形状**夹具（含 `mode` / `permission-mode` / user 行等真实条目，不是最简 JSON）断言阶梯矩阵，每条独立可反红——(a) 同一会话两条不同 `ai-title`（模拟 CLI 修订）取**后**一条；(b) `custom-title` 追加在 `ai-title` **之后**（模拟 `/rename`）取 `custom-title`、来源 `manual`；(c) 行已是 `ai` 来源后追加一条 `custom-title` 并再次同步，名字变为改名后的值（旧的「已 ai 不重读」短路必须消失）；(d) `agent-name` 与 `custom-title` 并存时取 `agent-name`、来源 `agent`（夹具里两者取**不同**字符串，否则同值看不出取了哪个）；(e) 只有 `agent-name`、无任何 `custom-title`/`ai-title` 时取 `agent-name`；(f) 无任何标题条目时 derived 档取**第一句**而非最后一条 `last-prompt`（夹具里第一句与两条 `last-prompt` 三者互不相同）。
+- [x] 同一命令下的读取量上界用例：夹具 A「标题条目只在文件尾部、其前有约 24MB 内容」与夹具 B「同一条标题**只有**文件头部那一个实例、其后有约 24MB 内容」都必须满足硬字节上界、**都不得整文件读取**，两个读数（`/proc/self/io` 的 `rchar` 增量）都要打印出来。规模沿用既有夹具量级，不要构造更大的文件。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/database/tests/sessions-name-source.integration.test.ts` 退出码 0：迁移用例对没有 `transcript_name` 列的旧库连跑两次迁移，第一次按 `name_source` 分流（`manual` 行保留为显式覆盖、其余搬进 `transcript_name`）、第二次无操作；两次之间把一行改成 `agent`，第二次后它仍是 `agent`。并断言 `agent` 档在优先级矩阵里高于 `manual`。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/session-ai-title.test.ts` 退出码 0：`/cost` 的取值在「`ai-title` 有两条不同值」时返回**后**一条；既有全部用例不回归。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-session-title-corpus.test.ts` 退出码 0：语料仪器对一份**冻结的真实形状语料**（在测试内按真实条目形状生成，含尖括号元数据行与几十条重复标题条目）逐条比较「读取器会取的名字」与「`wze` 阶梯会取的名字」，分歧数必须为 0；语料里必须**包含**至少一条 `custom-title` 与 `ai-title` 共存的 transcript、一条 `ai-title` 被修订的 transcript、一条只有 `agent-name` 的 transcript。**正控**：把读取器换回「首个 `ai-title` 即停」后同一命令必须非 0，且红的必须来自前两类夹具（第三类保持绿）。
+- [x] `npm run typecheck` 与 `npm run lint` 退出码均为 0。
 
 ## DoD
 
@@ -55,6 +55,73 @@ agentName || customTitle || aiTitle || summary || firstPrompt || sessionId.slice
 另需一次**真实语料读数**：在本机 `~/.claude/projects` 上跑一次语料仪器，记录分歧条数。修改前实测 4 条，修改后必须为 0 条。诚实标注：该读数依赖本机语料、会随新会话变化，是回归哨兵而非判据；且本机 1238 条有标题的 transcript 里没有一条同时含 `custom-title` 与 `ai-title`，所以「改名声在标题之后」这一分支只能由 AC 的夹具覆盖，语料仪器补不上。
 
 L_D 读数：真实语料上「读取器取名 ≠ wze 阶梯取名」的条数 修改前 = 4，修改后 = 0（分母为 1254 条 transcript）。这是独立的数据读数，不是测试通过与否。
+
+## Evidence
+
+DoD 端到端读数（真实临时 `HOME`，transcript 按真实条目形状写入；真实同步器 `synchronize()` 的发现扫描 + 真实数据库；对同一份 transcript 独立跑一遍 `wze` 阶梯）：
+
+```
+$ npx tsx --tsconfig server/tsconfig.json /tmp/gap-title-probe/dod.mjs
+indexed=3 bytes_read=831624
+[11111111] transcript_name="Repo Index Work" transcript_name_source="manual" display="Repo Index Work" ladder="Repo Index Work" equal=true
+[22222222] transcript_name="Release Notes Agent" transcript_name_source="agent" display="Release Notes Agent" ladder="Release Notes Agent" equal=true
+[33333333] transcript_name="what does this function do?" transcript_name_source="derived" display="what does this function do?" ladder="what does this function do?" equal=true
+divergences=0
+[app rename] display="Renamed In The App" name_source="manual" transcript_name="Repo Index Work" transcript_name_source="manual"
+```
+
+三条会话各落在阶梯的一档上：`11111111` 的 `ai-title` 在文件中被改写过、随后 CLI 侧 `/rename` 追加了一条 `custom-title`（取后者，来源 `manual`）；`22222222` 只有 `agent-name`；`33333333` 无任何标题条目，取第一句 `what does this function do?`，而文件末尾那条 `last-prompt` 是 `the last thing I typed`（旧读取器会取它）。第 (3) 读数为 `equal=true` / `divergences=0`。
+
+App 改名落地读数：`updateSessionCustomName` 之后整轮重新同步，显示名仍是 `Renamed In The App`（`name_source=manual`），底下的 `transcript_name` 仍是 `Repo Index Work` —— 用户改名没有被回滚。
+
+真实语料读数（本机 `~/.claude/projects`，`/tmp/gap-title-probe/instrument2.mjs`）：
+
+```
+classes: {"A-title":1264,"B-firstPrompt":14,"C-nothing":4}
+total transcripts: 1282
+old-reader vs new-ladder divergences: 11
+  其中「旧读取器也给出了名字」的语义分歧 = 4：
+    1d179b43 / 1916b5ae / 2749789d  (B-firstPrompt：旧=最后一条 last-prompt，新=第一句)
+    f55089be                        (A-title：旧=PWA 会话输入框底部固定可见高度，新=pwa 可见高度优化)
+stored rows compared: 1279
+stored vs ladder divergences — A(title)=0 B(firstPrompt)=0 C(nothing)=3
+```
+
+L_D 读数：真实语料上「读取器取名 ≠ wze 阶梯取名」的条数 —— 修改前 4、修改后 0（分母 1279 条已入库 transcript / 语料 1282 条）。余下 3 条 C 类分歧是**有意的**：transcript 里既无标题条目也无可用第一句时，App 存占位名而 CLI 会显示 `sessionId.slice(0,8)`；读取器里对此有注释，它前后都在，不计入 4→0。
+
+诚实标注：该读数依赖本机语料、会随新会话变化，是回归哨兵而非判据（写本任务时语料 1254 条，现为 1282 条，类计数随之变动，但语义分歧仍是同一批 4 条会话）。且本机有标题的 transcript 里没有一条同时含 `custom-title` 与 `ai-title`，「改名声在标题之后」只能由 AC 夹具覆盖，语料仪器补不上。
+
+AC #2 读取量读数（`rchar` 增量，两个夹具都在 4MB 硬上界内、都不整读 ~24MB）：
+
+```
+[reading] fixture A, title entries at the tail of ~24MB: bytes_read=721275
+[reading] fixture B, the only instance of the title at the head of ~24MB: bytes_read=1245622
+```
+
+AC #5 正控：把生产读取器改回「首个 `ai-title` 即停」（探针，事后已还原，文件 sha256 与探针前一致）后同一命令非 0：
+
+```
+$ npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-session-title-corpus.test.ts
+✖ every corpus transcript is named what the CLI ladder would name it
+    actual: [ { corpusClass: 'revised-ai-title', reader: 'Draft Title 0', ladder: 'The Final Title' },
+              { corpusClass: 'custom-title-after-ai-title', reader: 'Generated Title', ladder: 'Renamed By Hand' } ]
+    expected: []
+✖ the corpus tells the reader apart from a reader that stops at the first ai-title
+---EXIT:1---
+```
+
+红的两条正是前两类夹具（`revised-ai-title` / `custom-title-after-ai-title`），第三类 `agent-name-only` 与第四类 `single-ai-title` 保持绿。
+
+门读数（本分支 merge develop 之后）：
+
+```
+$ bash scripts/test.sh --for-task gap-claude-title-ladder-mirror --allow-thin
+# tests 7   # pass 7   # fail 0
+$ npm run typecheck   # exit 0
+$ npm run lint        # exit 0（仅既有 warning）
+$ npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/*.test.ts
+ℹ tests 286  ℹ pass 285  ℹ fail 0
+```
 
 ## Touches
 
