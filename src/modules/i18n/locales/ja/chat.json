@@ -105,7 +105,10 @@
     "stop": "停止",
     "hintText": {
       "ctrlEnter": "Ctrl+Enterで送信 • Shift+Enterで改行 • Tabでモード切替 • / でスラッシュコマンド",
-      "enter": "Enterで送信 • Shift+Enterで改行 • Tabでモード切替 • / でスラッシュコマンド"
+      "enter": "Enterで送信 • Shift+Enterで改行 • Tabでモード切替 • / でスラッシュコマンド",
+      "touch": "➤ をタップで送信 • Return で改行",
+      "touchQueue": "➤ をタップで次のメッセージをキューに追加",
+      "touchUpdateQueued": "➤ をタップでキューのメッセージを更新"
     },
     "clickToChangeMode": "クリックで権限モードを変更（または入力欄でTab）",
     "showAllCommands": "すべてのコマンドを表示"

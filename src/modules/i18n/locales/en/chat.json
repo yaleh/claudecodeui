@@ -127,6 +127,9 @@
       "ctrlEnter": "Ctrl+Enter to send • Shift+Enter for new line • Tab to change modes • / for slash commands",
       "enter": "Enter to send • Shift+Enter for new line • Tab to change modes • / for slash commands",
       "queue": "Enter to queue your next message",
+      "touch": "Tap ➤ to send • Return adds a line",
+      "touchQueue": "Tap ➤ to queue your next message",
+      "touchUpdateQueued": "Tap ➤ to update the queued message",
       "updateQueued": "Enter to update queued message"
     },
     "clickToChangeMode": "Click to change permission mode (or press Tab in input)",

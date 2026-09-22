@@ -120,6 +120,9 @@
       "ctrlEnter": "Ctrl+Enter 发送 • Shift+Enter 换行 • Tab 切换模式 • / 斜杠命令",
       "enter": "Enter 发送 • Shift+Enter 换行 • Tab 切换模式 • / 斜杠命令",
       "queue": "Enter 排队发送下一条消息",
+      "touch": "点 ➤ 发送 • 回车换行",
+      "touchQueue": "点 ➤ 排队下一条消息",
+      "touchUpdateQueued": "点 ➤ 更新已排队的消息",
       "updateQueued": "Enter 更新排队消息"
     },
     "clickToChangeMode": "点击更改权限模式（或在输入框中按 Tab）",

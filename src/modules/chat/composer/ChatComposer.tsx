@@ -300,14 +300,23 @@ export default function ChatComposer({
 
   const hasQueuedDraft = Boolean(queuedDraft);
   const canQueueDraft = isLoading && Boolean(input.trim() || attachedFiles.length > 0);
+  // A hint printed from `touchOnly` names no keyboard key at all: a soft keyboard has neither
+  // Shift nor a sendable Enter, so the button is the only way out — the queued state included,
+  // where the button has become the queue arrow.
+  const hint = (touchKey: string, keyboardKey: string, fallback: string) =>
+    t(touchOnly ? touchKey : keyboardKey, { defaultValue: fallback });
   // On a touch-only device Enter is the newline key, so no hint may name a keyboard key as the
   // way to send: there is no Shift for a newline and no Enter for a send, only the button.
-  const submitHint = touchOnly
-    ? t('input.hintText.touch', { defaultValue: 'Tap ➤ to send • Return adds a line' })
-    : canQueueDraft
-      ? hasQueuedDraft
-        ? t('input.hintText.updateQueued', { defaultValue: 'Enter to update queued message' })
-        : t('input.hintText.queue', { defaultValue: 'Enter to queue your next message' })
+  const submitHint = canQueueDraft
+    ? hasQueuedDraft
+      ? hint(
+        'input.hintText.touchUpdateQueued',
+        'input.hintText.updateQueued',
+        'Enter to update queued message',
+      )
+      : hint('input.hintText.touchQueue', 'input.hintText.queue', 'Enter to queue your next message')
+    : touchOnly
+      ? t('input.hintText.touch', { defaultValue: 'Tap ➤ to send • Return adds a line' })
       : sendOnEnter
         ? t('input.hintText.enter')
         : t('input.hintText.ctrlEnter');

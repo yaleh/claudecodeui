@@ -127,6 +127,9 @@
       "ctrlEnter": "Ctrl+Enter untuk mengirim • Shift+Enter untuk baris baru • Tab untuk mengganti mode • / untuk slash command",
       "enter": "Enter untuk mengirim • Shift+Enter untuk baris baru • Tab untuk mengganti mode • / untuk slash command",
       "queue": "Enter untuk mengantrekan pesan berikutnya",
+      "touch": "Ketuk ➤ untuk mengirim • Return menambah baris",
+      "touchQueue": "Ketuk ➤ untuk mengantre • Return menambah baris",
+      "touchUpdateQueued": "Ketuk ➤ untuk memperbarui pesan dalam antrean",
       "updateQueued": "Enter untuk memperbarui pesan yang diantrekan"
     },
     "clickToChangeMode": "Klik untuk mengganti mode izin (atau tekan Tab di input)",

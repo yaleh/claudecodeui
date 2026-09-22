@@ -540,11 +540,58 @@ const seedVoiceTrimWorkspace = () => {
   );
 };
 
+/** Workspace e2e/mobile-composer-send-key.spec.ts opens its composer in. */
+const MOBILE_SEND_KEY_WORKSPACE = path.join(dataDir, 'mobile-send-key-workspace');
+/** Session id that spec's project is registered by, and the display name it looks the row up by. */
+const MOBILE_SEND_KEY_SESSION_ID = 'e2e-mobile-send-key';
+const MOBILE_SEND_KEY_SESSION_NAME = 'mobile-send-key';
+
+/**
+ * Seeds the workspace e2e/mobile-composer-send-key.spec.ts drives the composer in.
+ *
+ * The spec needs a project to select, not a session to read, and indexing a session is what registers its
+ * project — so one plain turn is enough. Same reason as the four above for placing it here rather than in
+ * the spec: the backend scans ~/.claude/projects at boot and only then starts its file watcher with
+ * `ignoreInitial`, so a transcript written while the test runs is picked up by the watcher and broadcast as
+ * a session_upserted, which the sidebar correctly reads as "needs attention".
+ */
+const seedMobileSendKeyWorkspace = () => {
+  fs.mkdirSync(MOBILE_SEND_KEY_WORKSPACE, { recursive: true });
+  const transcriptDir = path.join(dataDir, '.claude', 'projects', 'mobile-send-key-workspace');
+  fs.mkdirSync(transcriptDir, { recursive: true });
+  const timestamp = new Date().toISOString();
+  // The synchronizer reads the session id and cwd from the first record it can parse, so one transcript has to
+  // carry both a turn and a title.
+  const records = [
+    {
+      type: 'user',
+      sessionId: MOBILE_SEND_KEY_SESSION_ID,
+      cwd: MOBILE_SEND_KEY_WORKSPACE,
+      timestamp,
+      message: { role: 'user', content: [{ type: 'text', text: 'open the composer for the send-key check' }] },
+    },
+    {
+      type: 'custom-title',
+      sessionId: MOBILE_SEND_KEY_SESSION_ID,
+      cwd: MOBILE_SEND_KEY_WORKSPACE,
+      timestamp,
+      customTitle: MOBILE_SEND_KEY_SESSION_NAME,
+    },
+  ];
+
+  fs.writeFileSync(
+    path.join(transcriptDir, `${MOBILE_SEND_KEY_SESSION_ID}.jsonl`),
+    `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
+    'utf8',
+  );
+};
+
 if (isDataDirOwner) {
   seedSessionFilterTranscripts();
   seedTranscriptFollowTranscript();
   seedVoiceIdentifierWorkspace();
   seedVoiceTrimWorkspace();
+  seedMobileSendKeyWorkspace();
 }
 
 export default defineConfig({
