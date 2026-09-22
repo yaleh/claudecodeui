@@ -181,5 +181,8 @@
     "hideSimilar": "Hide similar",
     "hideSimilarHint": "Opens the filter with a rule for sessions like this",
     "ruleAlreadyExists": "This rule already exists"
+  },
+  "resizeHandle": {
+    "label": "Resize sidebar"
   }
 }

@@ -5,8 +5,10 @@ import type { TFunction } from 'i18next';
 import { LLMProviderLogo, ScrollArea } from '@/shared/ui';
 import type { ArchivedProjectListItem, ArchivedSessionListItem, ConversationSearchResults, Project, RecentConversationListItem, ReleaseInfo, SearchProgress, SidebarProjectListProps, SidebarSearchMode } from '@/shared/types';
 import { formatCompactAge, getAllSessions } from '@/modules/sidebar/utils/sidebarProjectFormatting';
+import { useSidebarResize } from '@/modules/sidebar/hooks/useSidebarResize';
 import SidebarFooter from '@/modules/sidebar/SidebarFooter';
 import SidebarHeader from '@/modules/sidebar/SidebarHeader';
+import SidebarResizeHandle from '@/modules/sidebar/SidebarResizeHandle';
 import SidebarProjectList from '@/modules/sidebar/SidebarProjectList';
 import SidebarRecentConversations from '@/modules/sidebar/SidebarRecentConversations';
 
@@ -175,6 +177,15 @@ export default function SidebarContent({
   projectListProps,
   t,
 }: SidebarContentProps) {
+  const {
+    rootRef: sidebarRootRef,
+    width: sidebarWidth,
+    canResize: canResizeSidebar,
+    minWidth: sidebarMinWidth,
+    maxWidth: sidebarMaxWidth,
+    isResizing: isSidebarResizing,
+    handleProps: sidebarResizeHandlers,
+  } = useSidebarResize({ isMobile });
   const showConversationSearch = searchMode === 'conversations' && searchFilter.trim().length >= 2;
   const hasSearchResults = Boolean(
     conversationResults
@@ -186,8 +197,12 @@ export default function SidebarContent({
 
   return (
     <div
-      className="flex h-full flex-col bg-background/80 backdrop-blur-sm md:w-72 md:select-none"
-      style={{}}
+      ref={sidebarRootRef}
+      // The drawer sizes itself and is drawn over the workspace, so only the
+      // docked panel pins a width. A device that cannot resize still pins one —
+      // it opens at the stored width, it just has no handle.
+      className="relative flex h-full flex-col bg-background/80 backdrop-blur-sm md:select-none"
+      style={isMobile ? undefined : { width: `${sidebarWidth}px` }}
     >
       <SidebarHeader
         isPWA={isPWA}
@@ -699,6 +714,17 @@ export default function SidebarContent({
           currentVersion={currentVersion}
           onShowVersionModal={onShowVersionModal}
           onShowSettings={onShowSettings}
+          t={t}
+        />
+      )}
+
+      {canResizeSidebar && (
+        <SidebarResizeHandle
+          width={sidebarWidth}
+          minWidth={sidebarMinWidth}
+          maxWidth={sidebarMaxWidth}
+          isResizing={isSidebarResizing}
+          handlers={sidebarResizeHandlers}
           t={t}
         />
       )}

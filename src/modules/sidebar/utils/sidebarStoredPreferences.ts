@@ -58,6 +58,36 @@ export const readShownHiddenProjectIds = (): string[] => {
   }
 };
 
+const SIDEBAR_WIDTH_STORAGE_KEY = 'sidebarWidth';
+
+/**
+ * Reads the sidebar width the user dragged to, in px, or null when they never
+ * dragged it. Browser-local on purpose: how much room navigation deserves is a
+ * property of the screen it is on, not of the account.
+ */
+export const readStoredSidebarWidth = (): number | null => {
+  try {
+    const saved = localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
+    if (!saved) {
+      return null;
+    }
+
+    const parsed = Number.parseInt(saved, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+/** Persists the sidebar width in px, so the next visit opens at the width the user left it at. */
+export const writeStoredSidebarWidth = (width: number) => {
+  try {
+    localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(Math.round(width)));
+  } catch {
+    // Keep the drag responsive even if storage is unavailable; the width holds for this session either way.
+  }
+};
+
 /** Persists the temporary "show hidden sessions" project ids; an empty list removes the key. */
 export const writeShownHiddenProjectIds = (projectIds: Iterable<string>) => {
   try {

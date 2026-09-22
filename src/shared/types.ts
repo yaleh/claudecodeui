@@ -1,5 +1,9 @@
 import type { TFunction } from 'i18next';
-import type { CSSProperties } from 'react';
+import type {
+  CSSProperties,
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+} from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 
 //----------------- LLM PROVIDER MODEL CATALOG ------------
@@ -1372,6 +1376,20 @@ export type MobileTerminalSelectionManager = {
 // ---------------------------
 
 //----------------- SIDEBAR ------------
+
+/**
+ * The pointer, keyboard and reset handlers a sidebar splitter spreads onto its
+ * element, produced by useSidebarResize and consumed by SidebarResizeHandle —
+ * the hook owns the drag, the steps and the persistence, the handle the markup.
+ */
+export type SidebarResizeHandleHandlers = {
+  onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onPointerMove: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onPointerUp: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onPointerCancel: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void;
+  onDoubleClick: () => void;
+};
 
 /** The complete project-list state and callback bundle the sidebar assembles once and threads down through its project list, project rows and session rows. */
 /**
