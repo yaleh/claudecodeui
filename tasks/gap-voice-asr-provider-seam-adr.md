@@ -1,7 +1,8 @@
 ---
 id: gap-voice-asr-provider-seam-adr
 title: ADR-004：语音识别 Provider 缝 —— 环境中立的适配器契约与能力声明（只落设计文档，不实现）
-status: ready
+status: needs-human
+needs_human_cause: unclassified
 labels:
   - gap
 parent: null
@@ -90,3 +91,13 @@ L_G 该轴仍暗，理由：同上——目标层判据（新识别服务在直�
 **终态。** AC1–AC8 已满足而 AC9 未满足 ⇒ 依上文的 DoD 条目「停在 needs-human 而不是 done」，本任务不得置 done，正确终态是 `needs-human`（等人工裁定）。worker 不自行改写 `status:` 字段，本轮的收尾由 driver 机械完成。**人需要给出的唯一一项裁定是 ADR-004 第二版的「总判定」（通过 / 要求修订）**；人另需一并裁决作者自陈的过程性保留——第二版未经独立评审。
 
 **DoD 要求如实登记的两点。** 其一，三处缺口的现场依据来自一次对语音链路的完整通读，未做运行期复现。其二，文中 20MB、25MB、10 秒下限、−89%、25.5% 等数字均为既有代码、官方文档或既有实验记录里的既成值，未新立阈值。
+
+## Needs-Human
+
+**执行 2026-09-22T14:56:05.093Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：unclassified
+- 失败步/判词：AC 未全勾（checked 8/9，剩余未勾 1）——续做只需验证并勾选 AC
+- run_id：wk-prod-anchor
+- session_id：247cc21a-a0e7-4742-aecd-3f810598af10
