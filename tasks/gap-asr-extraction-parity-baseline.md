@@ -52,17 +52,17 @@ AC 自带两条取假形态，两条都在说**这份基线必须覆盖哪一跳
 
 ## AC
 
-- [ ] AC1 主读：`node scripts/asr-extraction-parity-check.mjs` 退出码 0；stdout 逐行给出 `inbound` / `direct-outbound` / `proxy-outbound` / `response-tolerance` 四组，每组带 `equal`，并有一行 `baseline sha256=<64hex>` 与一行 `baseline recordedFromCommit=<sha>`。
-- [ ] AC2「抽取前录制」是机械断言而不是承诺：`--check` 打印 `pre-extraction ok`，判词取自 `git show <recordedFromCommit>:src/shared/api.ts` 仍含内联的入站字段写入（`append('audio'`）且该提交是 HEAD 的祖先。取假控制：在工装里把基线 JSON 的 `recordedFromCommit` 改成一个不含该内联写入的提交，同一命令必须非零退出且判词含 `baseline-not-pre-extraction`。
-- [ ] AC3 取假形态 ①：临时 git worktree 里把入站字段 `audio` 改成 `file`（改的是**出货源文件**；替换处数断言 `=== 1`；命中文件由 `grep -rl "append('audio'" src/ shared/ server/` 解析而不是写死路径），`node scripts/asr-extraction-parity-check.mjs --root <工装>` 非零退出且 stdout 指名 `inbound`；同一份工装在**未变异**时同一命令退出 0。
-- [ ] AC4 取假形态 ②：另一条独立用例，在临时 worktree 里把接缝 `parseTranscriptionResponse` 的非 JSON 分支改成返回原文（即与代理同一种容忍度），同一命令非零退出且 stdout 指名 `response-tolerance`；未变异时退出 0。
-- [ ] AC5 空读数不是绿：把工装里的 reader 删掉 ⇒ 非零退出且判词含 `reader-missing`；把 reader 改成打印空读数并退出 0 ⇒ 非零退出且判词含 `no readings`。
-- [ ] AC6 驱动的是出货代码：`node scripts/asr-extraction-parity-check.mjs --explain-sites` 退出码 0，逐组打印所驱动的绝对路径 + 符号名，四组 realpath 全在出货树内（`src/shared/api.ts`、`server/modules/voice/voice.service.ts`，或抽取后承载同一实现的那些文件）；独立读数 `grep -rn "audio/transcriptions" experiments/voice-asr-parity/` 无命中。
-- [ ] AC7 静态门：`npm run typecheck` 退出码 0（新增的 `scripts/*.mjs` 由 `scripts/tsconfig.json` 的 `checkJs` 覆盖）；`npm run lint` 退出码 0。
-- [ ] AC8 既有语音读数不变：`npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice.service.test.ts`、`npx vitest run src/shared/tests/voiceConfig.test.ts src/shared/tests/voiceConfigHydration.test.ts`、`npx vitest run src/modules/chat/tests/voiceTranscriptRepair.test.tsx` 三条命令各自退出码 0。
-- [ ] AC9 控制文件真的会被跑：`node scripts/list-script-tests.mjs` 退出码 0 且输出含 `scripts/asr-extraction-parity-check.test.mjs`；`node --test scripts/asr-extraction-parity-check.test.mjs` 退出码 0，AC2–AC5 的每条控制各为一个具名用例。
-- [ ] AC10 控制的控制：每个变异用例在施加变异前先对同一临时树断言退出 0（防「恒红」），变异后断言非零，并断言变异命中数 `=== 1`（命中 0 处即该用例红 —— 「没改到东西」不许读成绿）。
-- [ ] AC11 基线里没有环境值：`grep -rn "process.env" experiments/voice-asr-parity/ scripts/asr-extraction-parity-check.mjs` 无命中；基线 JSON 的 `audio.sha256` 等于 reader 声明的合成音频常量的 sha256，且 `--explain-sites` 打印 `fixture synthetic`。
+- [x] AC1 主读：`node scripts/asr-extraction-parity-check.mjs` 退出码 0；stdout 逐行给出 `inbound` / `direct-outbound` / `proxy-outbound` / `response-tolerance` 四组，每组带 `equal`，并有一行 `baseline sha256=<64hex>` 与一行 `baseline recordedFromCommit=<sha>`。
+- [x] AC2「抽取前录制」是机械断言而不是承诺：`--check` 打印 `pre-extraction ok`，判词取自 `git show <recordedFromCommit>:src/shared/api.ts` 仍含内联的入站字段写入（`append('audio'`）且该提交是 HEAD 的祖先。取假控制：在工装里把基线 JSON 的 `recordedFromCommit` 改成一个不含该内联写入的提交，同一命令必须非零退出且判词含 `baseline-not-pre-extraction`。
+- [x] AC3 取假形态 ①：临时 git worktree 里把入站字段 `audio` 改成 `file`（改的是**出货源文件**；替换处数断言 `=== 1`；命中文件由 `grep -rl "append('audio'" src/ shared/ server/` 解析而不是写死路径），`node scripts/asr-extraction-parity-check.mjs --root <工装>` 非零退出且 stdout 指名 `inbound`；同一份工装在**未变异**时同一命令退出 0。
+- [x] AC4 取假形态 ②：另一条独立用例，在临时 worktree 里把接缝 `parseTranscriptionResponse` 的非 JSON 分支改成返回原文（即与代理同一种容忍度），同一命令非零退出且 stdout 指名 `response-tolerance`；未变异时退出 0。
+- [x] AC5 空读数不是绿：把工装里的 reader 删掉 ⇒ 非零退出且判词含 `reader-missing`；把 reader 改成打印空读数并退出 0 ⇒ 非零退出且判词含 `no readings`。
+- [x] AC6 驱动的是出货代码：`node scripts/asr-extraction-parity-check.mjs --explain-sites` 退出码 0，逐组打印所驱动的绝对路径 + 符号名，四组 realpath 全在出货树内（`src/shared/api.ts`、`server/modules/voice/voice.service.ts`，或抽取后承载同一实现的那些文件）；独立读数 `grep -rn "audio/transcriptions" experiments/voice-asr-parity/` 无命中。
+- [x] AC7 静态门：`npm run typecheck` 退出码 0（新增的 `scripts/*.mjs` 由 `scripts/tsconfig.json` 的 `checkJs` 覆盖）；`npm run lint` 退出码 0。
+- [x] AC8 既有语音读数不变：`npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice.service.test.ts`、`npx vitest run src/shared/tests/voiceConfig.test.ts src/shared/tests/voiceConfigHydration.test.ts`、`npx vitest run src/modules/chat/tests/voiceTranscriptRepair.test.tsx` 三条命令各自退出码 0。
+- [x] AC9 控制文件真的会被跑：`node scripts/list-script-tests.mjs` 退出码 0 且输出含 `scripts/asr-extraction-parity-check.test.mjs`；`node --test scripts/asr-extraction-parity-check.test.mjs` 退出码 0，AC2–AC5 的每条控制各为一个具名用例。
+- [x] AC10 控制的控制：每个变异用例在施加变异前先对同一临时树断言退出 0（防「恒红」），变异后断言非零，并断言变异命中数 `=== 1`（命中 0 处即该用例红 —— 「没改到东西」不许读成绿）。
+- [x] AC11 基线里没有环境值：`grep -rn "process.env" experiments/voice-asr-parity/ scripts/asr-extraction-parity-check.mjs` 无命中；基线 JSON 的 `audio.sha256` 等于 reader 声明的合成音频常量的 sha256，且 `--explain-sites` 打印 `fixture synthetic`。
 
 ## DoD
 
@@ -86,6 +86,8 @@ L_G 该轴仍暗，理由：本任务量的是「抽取前后字节相等」这�
 
 - src/shared/api.ts
 - src/modules/chat/hooks/useVoiceInput.ts
+- src/modules/chat/tests/voiceTranscriptRepair.test.tsx
+- src/modules/chat/tests/voiceClipPlayback.test.tsx
 - experiments/voice-asr-parity/read-client.ts (new)
 - experiments/voice-asr-parity/read-server.ts (new)
 - scripts/asr-extraction-parity-check.mjs (new)
