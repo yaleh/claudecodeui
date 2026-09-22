@@ -44,11 +44,11 @@ goal_ac: AC-126
 
 ## AC
 
-- [ ] AC1 守卫判据——`npx tsx --tsconfig server/tsconfig.json --test server/modules/debug-agent/tests/debug-agent-vocabulary-guard.test.ts` 退出码 0。该用例即 `goals/AC-126`：断言 (1) 调试模块源码范围内不出现 Proposal 列出的每一类字面量；(2) 该模块存在指向归一化入口的**真实 import 语句**且该符号被使用。命中时逐条打印文件与行号。
-- [ ] AC2 抗假变体（**真跑并留输出**）：在调试模块里手写一个 `stream_delta` 字面量 ⇒ `AC1` 的命令必须**退出码非 0**，且输出里能看到命中的文件与行。再用 `git checkout --` 还原，`git status` 干净，并贴两次输出。**这是本任务的核心**：守卫若在这个变体下仍绿，它测的就不是它声称要测的东西。
-- [ ] AC3 第 2 半可判真伪：删除调试模块对归一化入口的 import（或改成只在注释里提到）⇒ `AC1` 的命令必须**退出码非 0**。取假形态：若第 2 半写成"全文出现 `normalizeMessage` 即通过"，本 AC 必须红——它证明第 2 半没有退化成注释命中。
-- [ ] AC4 守卫不得自命中、也不得漏扫：命令打印被扫描的文件清单与词表长度，并断言守卫自身不在清单内。取假形态：把守卫文件放进被扫描目录时，本判据必须红（否则词表会被自己的词表命中而恒红，或被迫写歪词表从而恒绿）。
-- [ ] AC5 本任务未触及 Touches 之外的文件。命令：`git diff --name-only "$(git merge-base develop HEAD)"` 的每一行都必须能对应到 Touches 内的一条；命中之外时逐行打印并以非 0 退出。
+- [x] AC1 守卫判据——`npx tsx --tsconfig server/tsconfig.json --test server/modules/debug-agent/tests/debug-agent-vocabulary-guard.test.ts` 退出码 0。该用例即 `goals/AC-126`：断言 (1) 调试模块源码范围内不出现 Proposal 列出的每一类字面量；(2) 该模块存在指向归一化入口的**真实 import 语句**且该符号被使用。命中时逐条打印文件与行号。
+- [x] AC2 抗假变体（**真跑并留输出**）：在调试模块里手写一个 `stream_delta` 字面量 ⇒ `AC1` 的命令必须**退出码非 0**，且输出里能看到命中的文件与行。再用 `git checkout --` 还原，`git status` 干净，并贴两次输出。**这是本任务的核心**：守卫若在这个变体下仍绿，它测的就不是它声称要测的东西。
+- [x] AC3 第 2 半可判真伪：删除调试模块对归一化入口的 import（或改成只在注释里提到）⇒ `AC1` 的命令必须**退出码非 0**。取假形态：若第 2 半写成"全文出现 `normalizeMessage` 即通过"，本 AC 必须红——它证明第 2 半没有退化成注释命中。
+- [x] AC4 守卫不得自命中、也不得漏扫：命令打印被扫描的文件清单与词表长度，并断言守卫自身不在清单内。取假形态：把守卫文件放进被扫描目录时，本判据必须红（否则词表会被自己的词表命中而恒红，或被迫写歪词表从而恒绿）。
+- [x] AC5 本任务未触及 Touches 之外的文件。命令：`git diff --name-only "$(git merge-base develop HEAD)"` 的每一行都必须能对应到 Touches 内的一条；命中之外时逐行打印并以非 0 退出。
 
 ## DoD
 
@@ -59,6 +59,10 @@ goal_ac: AC-126
 (c) **守卫自身不自命中也不漏扫**（AC4），否则它要么恒红要么恒绿。
 
 另需如实登记：本守卫覆盖的是**字面量**层面的词表，它挡不住"用变量拼出帧名"这类刻意绕过——那是本判据的已知上界，不得声称它可以替代决策 4 的行为判据（产出是否落盘、实时与历史是否一致由引擎任务断言）。
+
+**落地时如实登记的一处收窄（第 2 半的两种形态）。** 第 2 半实际实现接受两种**真实 import 语句**形态：(a) 直接绑定入口并在文件内被使用（`import { createNormalizedMessage } from '@/shared/utils.js'`）；(b) 经 shared 契约命名该入口（`import type { IProviderSessions } from '@/shared/interfaces.js'` + `IProviderSessions['normalizeMessage']`）。引擎采用 (b)：本仓不存在可导入的 `normalizeMessage` 值（该名字是 `IProviderSessions` 的方法签名，没有独立导出），而运行时直接使用 `createNormalizedMessage` 必然要写一个 `kind:` 字面量、与第 1 半相斥；因此把三处内联签名收敛为共享契约类型 `IProviderSessions['normalizeMessage']` 才是真实且承重的耦合边——入口签名一变，这些缝合点就不再编译。注释命中与未使用 import 在两种形态下都仍然红（AC3 已实测）。
+
+**AC2 取假变体顺带查出的一处守卫缺陷（已修）**：(a) 取假运行时，守卫报出的行号是 13 而实际写入行是 35——守卫的行号计数器不跨块注释累加（`blank()` 保留了换行符，但计数器没跟着加），于是任何位于块注释之后的字面量都会报错行号。已改为从注释剥离后的同一份文本按偏移量求行号（`lineAt(code, literal.start)`），两处共用同一份数据，不再有第二套行号来源。这正是"取假变体必须真跑"的价值：只跑通过路径时，这个缺陷不可见。
 
 L_D 该轴仍暗，理由：本任务交付的是调试/测试机制的一条静态守卫，不改变产品领域能力，没有可读出的产品领域读数；判定面由 AC2/AC3 两次真跑的变体承担。
 L_G 本目标的判据是 `goals/AC-126`（调试模块源码内不存在帧/事件字面量，且该守卫可判真伪），本任务的 AC1 即该判据的命令；AC2 是它的抗假变体。
