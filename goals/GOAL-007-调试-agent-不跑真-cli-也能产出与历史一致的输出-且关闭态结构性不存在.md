@@ -1,7 +1,7 @@
 ---
 id: GOAL-007
 title: 调试 Agent：不跑真 CLI 也能产出与历史一致的输出，且关闭态结构性不存在
-status: active
+status: achieved
 kind: goal
 origin: ADR-003 评审通过（人 yale，2026-09-22，见 adr/ADR-003-*.md 的 Adjudication 小节，含裁决
   A–E）。立此目标前已在 worktree 分支 proto/debug-agent-spike 上做过一次热修改实测：845 行模块 + 5 个既有 文件
@@ -16,6 +16,11 @@ statusLog:
     reason: 人 yale 指示激活（"激活该 goal"）。此前已按 ADR-003 评审通过（见该 ADR 的 Adjudication 小节，裁决
       A–E）立此目标，六条 AC-123…128 与六条对应派工任务已立。激活时现场复测六条判据的 criterion，全部
       exit=1（红先行成立）——它们引用的 checker 与模块今天都不存在。
+  - at: 2026-09-22T16:36:07.635Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: all ACs achieved + sufficiency covered"
 ---
 ## 背景
 

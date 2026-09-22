@@ -9,9 +9,20 @@ const defaults = {
   sttModel: 'whisper-1',
   ttsModel: 'tts-1',
   ttsVoice: 'alloy',
+  providerId: '',
 };
 
-test('reports whether the server-controlled backend is configured', () => {
+/** A user who has never saved voice settings. */
+const NO_USER_SETTINGS = {
+  baseUrl: '',
+  apiKey: '',
+  sttModel: '',
+  ttsModel: '',
+  ttsVoice: '',
+  ttsFormat: '',
+};
+
+test('reports an unconfigured link when neither side has a backend', () => {
   const service = createVoiceService({
     defaults: { ...defaults, baseUrl: '' },
     timeoutMs: 1_000,
@@ -20,7 +31,11 @@ test('reports whether the server-controlled backend is configured', () => {
     },
   });
 
-  assert.deepEqual(service.getHealth(), { configured: false });
+  const health = service.getHealth({ settings: NO_USER_SETTINGS });
+  assert.equal(health.ok, true);
+  // `configured` keeps the field and the meaning its only consumer reads; what this test
+  // pins is that the empty case is still reported as empty, from either source.
+  assert.equal(health.ok && health.value.configured, false);
 });
 
 test('transcribes with injected fetch and request-level credential/model overrides', async () => {

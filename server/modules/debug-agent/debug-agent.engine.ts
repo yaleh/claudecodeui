@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import type { IProviderSessions } from '@/shared/interfaces.js';
 import type { AnyRecord, NormalizedMessage, ProviderRuntimeWriter } from '@/shared/types.js';
 
 import type { DebugAgentScenario, DebugAgentScenarioOp } from './debug-agent.scenario.js';
@@ -33,6 +34,19 @@ import {
  */
 
 /**
+ * The product's normalization entry (`IProviderSessions['normalizeMessage']`), as
+ * the debug agent's seams take it: the row → frame edge, and the only one this
+ * module is allowed to have (ADR-003 decision 7).
+ *
+ * Spelled from the shared contract instead of written out at each seam. The
+ * coupling decision 7 permits is exactly "a dialect row goes in, the product's
+ * own frames come out", so the seam's signature IS the product's own: if the
+ * entry's signature changes, these seams stop compiling rather than drift away
+ * from the normalizer they hand rows to.
+ */
+type DebugAgentNormalizeMessage = IProviderSessions['normalizeMessage'];
+
+/**
  * The normalizer → writer seam, as the product's own forwarder takes it.
  *
  * Typed here rather than imported so this module depends on no other module's
@@ -49,7 +63,7 @@ export type DebugAgentFrameForwarder = (input: {
    */
   transformedMessage: object;
   sessionId: string | null;
-  normalizeMessage: (raw: unknown, sessionId: string | null) => NormalizedMessage[];
+  normalizeMessage: DebugAgentNormalizeMessage;
   writer: ProviderRuntimeWriter;
 }) => void;
 
@@ -61,7 +75,7 @@ export type DebugAgentRunInput = {
   transcriptPath: string;
   writer: ProviderRuntimeWriter;
   /** The product's normalizer, supplied through the runtime context. */
-  normalizeMessage: (raw: unknown, sessionId: string | null) => NormalizedMessage[];
+  normalizeMessage: DebugAgentNormalizeMessage;
   forwardFrames: DebugAgentFrameForwarder;
 };
 
@@ -201,7 +215,7 @@ export function evaluateScenarioExpectations(input: {
   transcriptPath: string;
   reading: DebugAgentRunReading;
   sessionId: string | null;
-  normalizeMessage: (raw: unknown, sessionId: string | null) => NormalizedMessage[];
+  normalizeMessage: DebugAgentNormalizeMessage;
 }): DebugAgentScenarioEvaluation {
   const { scenario, transcriptPath, reading, sessionId, normalizeMessage } = input;
   const shape = readTranscriptShape(transcriptPath);

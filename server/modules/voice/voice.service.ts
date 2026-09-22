@@ -12,6 +12,10 @@ import type {
 // shared tree, the same module the browser and the CLI compile — see
 // shared/asr/transcriptionWire.ts. A second copy here is what this import exists to prevent.
 import { createTranscriptionRequest, parseTranscriptionResponse } from '../../../shared/asr/transcriptionWire.js';
+// The provider address book. The health payload republishes what this exports and the two
+// request paths ask it whether an id exists at all, so a provider is added by registering it
+// there rather than by editing anything in this module.
+import { listProviders, tryResolve } from '../../../shared/asr/asrRegistry.js';
 
 type VoiceServiceDependencies = {
   defaults: {
@@ -20,12 +24,23 @@ type VoiceServiceDependencies = {
     sttModel: string;
     ttsModel: string;
     ttsVoice: string;
+    /**
+     * The provider id the deployment prefers, from the server's environment.
+     *
+     * It is only a *default*: the id a request uses can be overridden per request, and an id
+     * that no adapter claims is refused rather than replaced by this one. Empty means "the
+     * first registered adapter", which is how a deployment that never sets the variable gets
+     * the registry's own order instead of a hardcoded id that could be renamed.
+     */
+    providerId: string;
   };
   timeoutMs: number;
   fetchBackend(url: string, options: RequestInit): Promise<Response>;
 };
 
-type ResolvedVoiceConfig = VoiceServiceDependencies['defaults'] & {
+// The provider id is not part of the outbound request's configuration: it selects which
+// adapter would serve the request, which happens before this shape is built.
+type ResolvedVoiceConfig = Omit<VoiceServiceDependencies['defaults'], 'providerId'> & {
   ttsFormat: string;
 };
 
@@ -41,6 +56,46 @@ function resolveVoiceConfig(
     ttsVoice: overrides.ttsVoice || defaults.ttsVoice,
     ttsFormat: overrides.ttsFormat?.trim() ?? '',
   };
+}
+
+/**
+ * The provider id a request will actually use.
+ *
+ * The request's own override wins, then the deployment's default, then the registry's first
+ * entry. That last step is why this returns a resolved id rather than the raw input: when
+ * neither the client nor the environment names a provider, "the default one" has to become a
+ * concrete id before it can be checked, and taking it from the registry means a deployment
+ * that never sets `VOICE_PROVIDER_ID` cannot be broken by a provider being renamed.
+ */
+function effectiveProviderId(requested: string | undefined, defaults: { providerId: string }): string {
+  const explicit = (requested || defaults.providerId || '').trim();
+  if (explicit) {
+    return explicit;
+  }
+
+  return listProviders()[0]?.id ?? '';
+}
+
+/** The message both refusal paths return, naming the id that could not be served. */
+function unknownProviderMessage(providerId: string): string {
+  return providerId
+    ? `Unknown voice provider id '${providerId}': no ASR adapter is registered for it.`
+    : 'No ASR adapter is registered, so no provider id can be served.';
+}
+
+/**
+ * The fail-closed refusal for an id nothing claims, in the shape the caller's transport needs.
+ *
+ * There is deliberately no third branch that quietly substitutes the default provider. The
+ * worst case of a silent fallback is a user who believes they are transcribing with the
+ * service they selected while the previous one answers, and nothing on screen says otherwise.
+ *
+ * The status distinguishes whose id was wrong: a request-carried override is the client's
+ * (400), while an id that came from the server's own configuration is not something the caller
+ * can fix (503).
+ */
+function unknownProviderFailure(providerId: string, status: number): VoiceServiceResult<never> {
+  return { ok: false, status, error: unknownProviderMessage(providerId) };
 }
 
 function validateBackendBaseUrl(baseUrl: string): boolean {
@@ -114,10 +169,55 @@ function validateConfiguredBackend(config: ResolvedVoiceConfig): VoiceServiceRes
  * required so the service never reads globals or creates production defaults.
  */
 export function createVoiceService(dependencies: VoiceServiceDependencies): VoiceService {
+  /**
+   * Whether a recording would reach a recogniser with this configuration.
+   *
+   * The user's stored backend wins over the server's environment, so a user who configured
+   * their own backend is configured even on a server that has no voice environment variables
+   * set at all — the answer this used to give wrongly, because it only ever looked at the
+   * environment.
+   */
+  function effectiveBackendConfigured(settings: VoiceSettings): boolean {
+    return Boolean(settings.baseUrl.trim() || dependencies.defaults.baseUrl);
+  }
+
   return {
-    getHealth: () => ({ configured: Boolean(dependencies.defaults.baseUrl) }),
+    getHealth({ settings }) {
+      const providerId = effectiveProviderId(undefined, dependencies.defaults);
+      if (tryResolve(providerId) === null) {
+        // The whole link is unavailable, not just one entry in the list: nothing in this
+        // process can serve the id the configuration names.
+        return unknownProviderFailure(providerId, 503);
+      }
+
+      const configured = effectiveBackendConfigured(settings);
+      return {
+        ok: true,
+        value: {
+          configured,
+          provider: providerId,
+          // Straight from the registry, capabilities object and all. The client reads the
+          // container, the inline budget and the hint switches from here, so a provider that
+          // changes its declaration changes the client's behaviour without a second edit.
+          providers: listProviders().map((adapter) => ({
+            id: adapter.id,
+            label: adapter.id,
+            capabilities: adapter.capabilities,
+            configured,
+          })),
+        },
+      };
+    },
 
     async transcribe(input) {
+      const requestedProviderId = input.overrides.providerId?.trim();
+      const providerId = effectiveProviderId(requestedProviderId, dependencies.defaults);
+      if (tryResolve(providerId) === null) {
+        // Refused before the configuration is even resolved and before any request is built:
+        // nothing about the user's backend can make an unregistered id serveable.
+        return unknownProviderFailure(providerId, requestedProviderId ? 400 : 503);
+      }
+
       const config = resolveVoiceConfig(dependencies.defaults, input.overrides);
       const configurationFailure = validateConfiguredBackend(config);
       if (configurationFailure) {
