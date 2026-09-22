@@ -81,14 +81,14 @@ Received:   159
 
 ## AC
 
-- [ ] 单测（**改源码之前**）确定性红：pane 上派发 `PageUp` 的 `keydown`（无任何偏移移动、无 scroll 报告）后触发一次带增长的提交，`container.writes` 非空（pin 落在 keydown 之后）；输出、退出码与失败读数记入完成记录。
-- [ ] 同一单测在改完之后绿：同形场景 `container.writes` 为 `[]`，且在提交渲染之前 `result.current.isUserScrolledUp` 已为 true（意图在输入处生效，而不是等报告）。
-- [ ] 正向对照绿：同形但**不派发** keydown 的那次提交写入 `container.bottom`，证明重渲染确实走到了 pin，「零写入」不是空实现凑出来的。
-- [ ] 向下键不脱离：`ArrowDown`/`PageDown`/`End` 的 keydown 之后 `isUserScrolledUp` 仍为 false（断言在单测内，与向上键同批）。
-- [ ] `npm run test:client` 退出码 0（含 `transcriptScrollOwnership.test.tsx` 全绿）。
-- [ ] `npx playwright test e2e/transcript-follow.spec.ts -g "AC-109"` 连续 ≥3 次退出码 0，每次记 wall time（必须落在 goal gate `runAcceptance` 的 60s 硬超时之内）。
-- [ ] `npx playwright test e2e/transcript-follow.spec.ts -g "AC-108"` 退出码 0（挡住「把 commit-time pin 一票门掉」那类过度修法——它会让 pane 在静默窗口内不再逐帧贴底）。
-- [ ] `npm run typecheck` 退出码 0；`npm run lint`（= `oxlint src/ server/`；⛔ 裸 `npx oxlint` 在干净 checkout 上就退出 1，不作为判据）退出码 0。
+- [x] 单测（**改源码之前**）确定性红：pane 上派发 `PageUp` 的 `keydown`（无任何偏移移动、无 scroll 报告）后触发一次带增长的提交，`container.writes` 非空（pin 落在 keydown 之后）；输出、退出码与失败读数记入完成记录。
+- [x] 同一单测在改完之后绿：同形场景 `container.writes` 为 `[]`，且在提交渲染之前 `result.current.isUserScrolledUp` 已为 true（意图在输入处生效，而不是等报告）。
+- [x] 正向对照绿：同形但**不派发** keydown 的那次提交写入 `container.bottom`，证明重渲染确实走到了 pin，「零写入」不是空实现凑出来的。
+- [x] 向下键不脱离：`ArrowDown`/`PageDown`/`End` 的 keydown 之后 `isUserScrolledUp` 仍为 false（断言在单测内，与向上键同批）。
+- [x] `npm run test:client` 退出码 0（含 `transcriptScrollOwnership.test.tsx` 全绿）。
+- [x] `npx playwright test e2e/transcript-follow.spec.ts -g "AC-109"` 连续 ≥3 次退出码 0，每次记 wall time（必须落在 goal gate `runAcceptance` 的 60s 硬超时之内）。
+- [x] `npx playwright test e2e/transcript-follow.spec.ts -g "AC-108"` 退出码 0（挡住「把 commit-time pin 一票门掉」那类过度修法——它会让 pane 在静默窗口内不再逐帧贴底）。
+- [x] `npm run typecheck` 退出码 0；`npm run lint`（= `oxlint src/ server/`；⛔ 裸 `npx oxlint` 在干净 checkout 上就退出 1，不作为判据）退出码 0。
 
 ## DoD
 
@@ -109,3 +109,38 @@ L_G 该轴仍暗，理由：同上；本任务的读数是浏览器里的 scroll
 - src/modules/chat/hooks/useChatSessionState.ts
 - src/modules/chat/tests/transcriptScrollOwnership.test.tsx
 - tasks/gap-transcript-follow-key-detach-vs-commit-pin.md
+
+## 完成记录
+
+工作树 `task/gap-transcript-follow-key-detach-vs-commit-pin`（worktree `.claude/worktrees/gap-transcript-follow-key-detach-vs-commit-pin`），先 `git merge --no-edit develop`（fast-forward 到 `4cb5a7c9`，仅 `tasks/gap-session-fork-lineage-list.md` 变动，与本案两个源文件无交集）。
+
+**改动面**（与 Touches 一致，无第三方文件）：
+
+- `src/modules/chat/hooks/useChatSessionState.ts`：新增模块级 `SCROLL_UP_INTENT_KEYS = {ArrowUp, PageUp, Home}`；`onKeyDown` 在原有 `noteInput()`（语义未动）之后，对「向上键 + `isOverPane(event)`」立刻 `setIsUserScrolledUp(true)` **并** `isUserScrolledUpRef.current = true`。写 ref 是必需的：pin 在 layout effect 里读 ref，而 ref 由被动 effect 从 state 镜像，state-only 的写会让本竞态要修的那一次提交仍读到旧值。向下键（`ArrowDown`/`PageDown`/`End`/空格）路径一行未动。`onScroll` 的方向判读、`noteInput()`、`lastPlacedTopRef`、`pendingScrollRestore` / 搜索跳转均未触碰。
+- `src/modules/chat/tests/transcriptScrollOwnership.test.tsx`：`mountFollow` 现额外返回 `rerender`/`store`/`messages`/`session`，并新增绑定的 `commitGrownRow()`——它向 store **追加一条新行**（新数组身份），以此驱动 `chatMessages` 换身份、真正重跑 :771 的 layout effect（裸 `rerender` 复用同一数组会假绿）；`store` 因此从内联构造改为具名 `messages`。新增 3 条用例（提交路径 + 正向对照 + 向下键），既有 14 条断言一行未改。
+- `tasks/gap-transcript-follow-key-detach-vs-commit-pin.md`（AC 勾选与本节）。
+
+**改源码之前**（`npx vitest run src/modules/chat/tests/transcriptScrollOwnership.test.tsx -t "scroll key the browser has not reported"`）：
+
+```
+{ intentAtInput: false, writes: [ 4900 ] }   ← 期望 { intentAtInput: true, writes: [] }
+Test Files 1 failed (1) / Tests 1 failed | 16 skipped (17)
+EXIT=1
+```
+
+`writes: [4900]` 正是 `container.bottom`（grow(400) 之后 5000+400−500）——pin 落在 keydown 之后，与线上 `Δ=159` 同形。两条读数放在**同一个** `assert.deepEqual` 里，红时不至于只报最先命中的那一半。
+
+**改完之后**（同一文件全量）：`Test Files 1 passed (1) / Tests 17 passed (17)`，`EXIT=0`。
+
+**逐条 AC 读数**：
+
+1. 改源码前确定性红 ✓ —— 上框；`EXIT=1`。
+2. 改完绿 ✓ —— 同用例 `{intentAtInput: true, writes: []}`，`EXIT=0`。`intentAtInput` 在提交**之前**读取，故「意图在输入处生效」不是提交凑出来的。
+3. 正向对照 ✓ —— `pins the same growth when no scroll key was pressed` 断言 `writes == [container.bottom]`，绿 ⇒ 同一次提交确实走到了 pin。
+4. 向下键 ✓ —— `does not detach on a scroll key that asks for the bottom` 断言 `[false,false,false]`（`ArrowDown`/`PageDown`/`End`），绿。
+5. `npm run test:client` ✓ —— `Test Files 86 passed (86) / Tests 597 passed (597)`，`EXIT=0`。
+6. AC-109 连续 4 次 ✓ —— `EXIT=0`，wall **25s / 24s / 24s / 23s**（安静窗口，未设 `QUAY_E2E_DATA_DIR`），全部远在 60s 硬超时内。每次两半读数一致：wheel `movedUpBy=30`、keyboard `movedUpBy=434`，两者均 `highestOffsetDelta=0, paneWrites=[], pageWrites=[], unpinned=[], settledGap=0`。
+7. AC-108 ✓ —— `EXIT=0`，wall **17s**；`minGapPx=0, maxGrowthFrameGapPx=0, offBottomFrames=0, unrepairedFrames=[], unpinnedFrames=[]`，22 个 delta 逐帧贴底 ⇒ 「把 commit-time pin 一票门掉」那类过度修法已被判据挡下。
+8. `npm run typecheck` `EXIT=0`（三个 tsconfig 全过）；`npm run lint` = `oxlint src/ server/ scripts/` `EXIT=0`（余下为既存 warning）。
+
+⛔ 无超时发生，故没有「读数丢失」需要点名；e2e 每次都单独记了 wall time。本竞态 e2e 触发概率约 1/9，故不用 e2e 的连续绿单独作修复证据——证据是上面单测那一帧（改前 `writes:[4900]`、改后 `[]`）与正向对照。`e2e/transcript-follow.spec.ts` 与 `playwright.config.ts` 一行未改。

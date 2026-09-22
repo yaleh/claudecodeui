@@ -112,6 +112,10 @@ export type ProjectSession = {
   lastActivity?: string;
   messageCount?: number;
   provider?: LLMProvider;
+  // App id of the session this one was branched from, or null/absent when it
+  // started on its own. The sidebar keeps a fork beside its source and renders a
+  // branch marker from it, so a fork is never mistaken for a duplicate row.
+  forkedFromSessionId?: string | null;
   __provider?: LLMProvider;
   // Tags the session with the owning project's DB `projectId` so UI handlers
   // (session switching, sidebar focus, etc.) can match against selectedProject.
@@ -1440,6 +1444,15 @@ export type ArchivedProjectListItem = Project & { isArchived: true };
 /** A ProjectSession whose LLM provider has been resolved into the required __provider field, so list rendering never has to re-derive it. */
 export type SessionWithProvider = ProjectSession & {
   __provider: LLMProvider;
+  // Nesting level the sidebar's lineage grouping placed this session at. Set on
+  // branched sessions only and absent (level 0) on every other row; the row
+  // renderer indents by it so a fork reads as belonging to the row above it.
+  __lineageDepth?: number;
+  // 1-based position of this branch among its source's branches, and how many
+  // there are. The row shows the number only above one, where a bare branch
+  // glyph could not say which of several branches the row is.
+  __lineageSiblingIndex?: number;
+  __lineageSiblingCount?: number;
 };
 
 /** One archived session as returned by the archive API, carrying its own project identity because the owning project may itself be archived. */
@@ -1454,12 +1467,17 @@ export type ArchivedSessionListItem = {
   updatedAt: string | null;
   lastActivity: string | null;
   isProjectArchived: boolean;
+  // App id of the session this one was branched from, or null/absent when it
+  // started on its own. Optional rather than required: the field is additive on
+  // the wire, and rows the UI assembles from already-loaded project sessions do
+  // not all carry it.
+  forkedFromSessionId?: string | null;
 };
 
 /** The subset of archived-session fields needed to render a recent-conversations row and reopen the session it points at. */
 export type RecentConversationListItem = Pick<
   ArchivedSessionListItem,
-  'sessionId' | 'provider' | 'projectId' | 'projectDisplayName' | 'sessionTitle' | 'lastActivity'
+  'sessionId' | 'provider' | 'projectId' | 'projectDisplayName' | 'sessionTitle' | 'lastActivity' | 'forkedFromSessionId'
 >;
 
 /**
@@ -1530,6 +1548,10 @@ export type SessionTitleSearchResult = {
   lastActivity: string | null;
   /** True when the owning project's name filter hides this session from the normal list. */
   filtered?: boolean;
+  // App id of the session this result was branched from, or null/absent when it
+  // started on its own. A search spans every project, so a result's source is
+  // usually absent from the same payload; the flag still marks the row.
+  forkedFromSessionId?: string | null;
 };
 
 /** All conversation matches found inside a single project during a search, grouped so the results can be rendered under one project heading. */

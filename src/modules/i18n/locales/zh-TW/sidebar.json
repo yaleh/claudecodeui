@@ -49,7 +49,9 @@
     "cancel": "取消",
     "clearSearch": "清除搜尋",
     "openCommandPalette": "開啟指令面板",
-    "attentionRequiredIndicator": "工作階段需要處理"
+    "attentionRequiredIndicator": "工作階段需要處理",
+    "branchedSession": "從其他工作階段分支而來",
+    "branchedSessionOrdinal": "第 {{index}} 個分支（共 {{count}} 個）"
   },
   "navigation": {
     "chat": "聊天",

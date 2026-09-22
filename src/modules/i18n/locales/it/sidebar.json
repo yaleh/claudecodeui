@@ -50,7 +50,9 @@
     "cancel": "Annulla",
     "clearSearch": "Cancella ricerca",
     "openCommandPalette": "Apri tavolozza comandi",
-    "attentionRequiredIndicator": "La sessione richiede attenzione"
+    "attentionRequiredIndicator": "La sessione richiede attenzione",
+    "branchedSession": "Derivato da un’altra sessione",
+    "branchedSessionOrdinal": "Ramo {{index}} di {{count}}"
   },
   "navigation": {
     "chat": "Chat",

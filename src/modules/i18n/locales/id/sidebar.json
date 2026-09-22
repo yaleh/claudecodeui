@@ -50,7 +50,9 @@
     "cancel": "Batal",
     "clearSearch": "Hapus pencarian",
     "openCommandPalette": "Buka palet perintah",
-    "attentionRequiredIndicator": "Sesi memerlukan perhatian"
+    "attentionRequiredIndicator": "Sesi memerlukan perhatian",
+    "branchedSession": "Bercabang dari sesi lain",
+    "branchedSessionOrdinal": "Cabang {{index}} dari {{count}}"
   },
   "navigation": {
     "chat": "Chat",

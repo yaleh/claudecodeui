@@ -8,6 +8,7 @@ import type {
   SessionWithProvider,
   SettingsProject,
 } from '@/shared/types';
+import { groupSessionsByLineage } from '@/modules/sidebar/utils/groupSessionsByLineage';
 
 // Presentation data the sidebar derives from a session before rendering its row.
 type SessionViewModel = {
@@ -95,11 +96,16 @@ export const getAllSessions = (project: Project): SessionWithProvider[] => {
     return cached;
   }
 
-  const sessions = (project.sessions || []).map((session) => ({
-    ...session,
-    __provider: getSessionProvider(session),
-  })).sort(
-    (a, b) => getSessionDate(b).getTime() - getSessionDate(a).getTime(),
+  // Grouped after sorting, not before: grouping reads recency rank to decide
+  // which slot a lineage group takes, so it has to see the final time order.
+  const sessions = groupSessionsByLineage(
+    (project.sessions || []).map((session) => ({
+      ...session,
+      __provider: getSessionProvider(session),
+    })).sort(
+      (a, b) => getSessionDate(b).getTime() - getSessionDate(a).getTime(),
+    ),
+    (session) => session.id,
   );
 
   sortedSessionsByProject.set(project, sessions);

@@ -6,6 +6,8 @@ import { Button, LLMProviderLogo, Tooltip } from '@/shared/ui';
 import { cn } from '@/shared/utils';
 import type { ProjectSession, RecentConversationListItem, SessionRowActions } from '@/shared/types';
 import { formatCompactAge } from '@/modules/sidebar/utils/sidebarProjectFormatting';
+import { groupSessionsByLineage } from '@/modules/sidebar/utils/groupSessionsByLineage';
+import SessionBranchBadge from '@/modules/sidebar/SessionBranchBadge';
 import SessionOptions from '@/modules/sidebar/SessionOptions';
 
 type SidebarRecentConversationsProps = {
@@ -96,6 +98,12 @@ export default function SidebarRecentConversations({
     );
   }
 
+  // A branch is pulled under its source when the source is on this page. This
+  // list spans every project, so most of the time it is not, and the util's
+  // "source not loaded" path leaves the row exactly where recency put it — which
+  // is why the branch marker below is keyed off the fork origin, not the depth.
+  const groupedConversations = groupSessionsByLineage(conversations, (conversation) => conversation.sessionId);
+
   return (
     <div className="px-1" data-testid="recent-conversations-list">
       <div className="flex items-center justify-between px-2 pb-1.5 pt-0.5">
@@ -106,7 +114,7 @@ export default function SidebarRecentConversations({
       </div>
 
       <div className="space-y-0.5">
-        {conversations.map((conversation) => {
+        {groupedConversations.map((conversation) => {
           const isSelected = String(selectedSession?.id ?? '') === conversation.sessionId;
           const age = formatCompactAge(conversation.lastActivity, currentTime);
           const isProcessing = sessionActions.activeSessions.has(conversation.sessionId);
@@ -160,6 +168,10 @@ export default function SidebarRecentConversations({
                   isSelected
                     ? 'bg-primary/10 text-foreground'
                     : 'text-foreground hover:bg-accent/60',
+                  // Indented only when the grouping actually placed it under its
+                  // source; on the usual page the source is elsewhere and the
+                  // row keeps its plain, flat shape.
+                  (conversation.__lineageDepth ?? 0) > 0 && 'ml-3 border-l border-border/60',
                 )}
               >
                 <span className={cn(
@@ -168,6 +180,14 @@ export default function SidebarRecentConversations({
                 )}>
                   <LLMProviderLogo provider={conversation.provider} className="h-3.5 w-3.5" />
                 </span>
+
+                {conversation.forkedFromSessionId ? (
+                  <SessionBranchBadge
+                    siblingIndex={conversation.__lineageSiblingIndex}
+                    siblingCount={conversation.__lineageSiblingCount}
+                    t={t}
+                  />
+                ) : null}
 
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[13px] font-normal leading-4">

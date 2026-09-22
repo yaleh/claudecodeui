@@ -33,11 +33,13 @@ type ArchivedSessionListItem = {
   updatedAt: string | null;
   lastActivity: string | null;
   isProjectArchived: boolean;
+  /** App id of the session this one was branched from; null when it started on its own. */
+  forkedFromSessionId: string | null;
 };
 
 type RecentSessionListItem = Pick<
   ArchivedSessionListItem,
-  'sessionId' | 'provider' | 'projectId' | 'projectDisplayName' | 'sessionTitle' | 'lastActivity'
+  'sessionId' | 'provider' | 'projectId' | 'projectDisplayName' | 'sessionTitle' | 'lastActivity' | 'forkedFromSessionId'
 >;
 
 type RecentSessionsPage = {
@@ -166,6 +168,9 @@ export const sessionsService = {
         projectDisplayName: resolveProjectDisplayName(projectPath, project?.custom_project_name),
         sessionTitle: session.custom_name?.trim() || session.session_id,
         lastActivity: session.updated_at ?? session.created_at ?? null,
+        // Carried so the recents list can mark a branch even though the source
+        // it was forked from is usually on another project's page.
+        forkedFromSessionId: session.forked_from_session_id ?? null,
       };
     });
 
@@ -281,8 +286,15 @@ export const sessionsService = {
       });
     }
 
+    // A branch keeps its source's name instead of gaining a "(fork)" suffix.
+    // The name states the topic and the lineage is structure the sidebar draws,
+    // so the marker survives a narrow row: a suffix is the first thing an
+    // ellipsis removes. It also does not generalise — a second branch would
+    // carry the identical constant suffix and the two would be as
+    // indistinguishable as the pair was before.
     const sessionName = options.title?.trim()
-      || `${source.custom_name?.trim() || 'Session'} (fork)`;
+      || source.custom_name?.trim()
+      || 'Session';
 
     const forked = await fork.forkSession({
       providerSessionId: source.provider_session_id,
@@ -572,6 +584,7 @@ export const sessionsService = {
         updatedAt: session.updated_at ?? null,
         lastActivity: session.updated_at ?? session.created_at ?? null,
         isProjectArchived: Boolean(project?.isArchived),
+        forkedFromSessionId: session.forked_from_session_id ?? null,
       };
     });
   },

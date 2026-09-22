@@ -8,6 +8,7 @@ import type { LLMProvider, Project, ProjectSession, SessionWithProvider } from '
 import { PROVIDER_LABELS, createSessionViewModel, formatCompactAge } from '@/modules/sidebar/utils/sidebarProjectFormatting';
 import { useCompactSidebar } from '@/modules/sidebar/hooks/useCompactSidebar';
 import { useProviderSessionIdCopy } from '@/modules/sidebar/hooks/useProviderSessionIdCopy';
+import SessionBranchBadge from '@/modules/sidebar/SessionBranchBadge';
 import SessionOptions from '@/modules/sidebar/SessionOptions';
 
 type SidebarSessionItemProps = {
@@ -63,6 +64,9 @@ function SidebarSessionItem({
   const showAttentionIndicator = needsAttention && !isSelected;
   const showRecentIndicator = !showAttentionIndicator && !isProcessing && sessionView.isActive;
   const providerLabel = PROVIDER_LABELS[session.__provider];
+  // Nesting level the sidebar's lineage grouping assigned; 0 for every row that
+  // is not a branch, which is what keeps an unbranched row pixel-identical.
+  const lineageDepth = session.__lineageDepth ?? 0;
 
   // The desktop controls live in SessionOptions, which owns the rename panel and
   // its outside-click dismissal. The mobile rename sits inside the bottom sheet,
@@ -127,7 +131,9 @@ function SidebarSessionItem({
       )}
 
       {isCompact && (
-      <div>
+      // Same indent-and-rule treatment as the desktop row, so a branch is placed
+      // under its source on a narrow screen too.
+      <div className={cn(lineageDepth > 0 && 'ml-3 border-l border-border/60')}>
         <div
           className={cn(
             'p-2 mx-3 my-0.5 rounded-md bg-card border active:scale-[0.98] transition-all duration-150 relative',
@@ -149,6 +155,16 @@ function SidebarSessionItem({
             >
               <LLMProviderLogo provider={session.__provider} className="h-3 w-3" />
             </div>
+
+            {/* The name no longer carries a "(fork)" suffix, so the compact row
+              * needs the marker as much as the desktop one does. */}
+            {session.forkedFromSessionId ? (
+              <SessionBranchBadge
+                siblingIndex={session.__lineageSiblingIndex}
+                siblingCount={session.__lineageSiblingCount}
+                t={t}
+              />
+            ) : null}
 
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
@@ -327,7 +343,12 @@ function SidebarSessionItem({
       )}
 
       {!isCompact && (
-      <div>
+      <div
+        // A branched session is indented under its source and joined to it by a
+        // rule, so the pair reads as one conversation with a branch rather than
+        // two unrelated rows that happen to share a name.
+        className={cn(lineageDepth > 0 && 'ml-3 border-l border-border/60 pl-2')}
+      >
         <a
           href={`/session/${session.id}`}
           className={cn(
@@ -357,6 +378,19 @@ function SidebarSessionItem({
             >
               <LLMProviderLogo provider={session.__provider} className="h-3 w-3" />
             </div>
+            {/*
+              * Outside the truncating name box below, so the branch marker stays
+              * readable however long the name is. Driven by forkedFromSessionId
+              * rather than by the depth, because the recents list often cannot
+              * place a branch next to its source but must still mark it.
+              */}
+            {session.forkedFromSessionId ? (
+              <SessionBranchBadge
+                siblingIndex={session.__lineageSiblingIndex}
+                siblingCount={session.__lineageSiblingCount}
+                t={t}
+              />
+            ) : null}
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <div

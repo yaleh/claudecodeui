@@ -50,7 +50,9 @@
     "cancel": "İptal",
     "clearSearch": "Aramayı temizle",
     "openCommandPalette": "Komut paletini aç",
-    "attentionRequiredIndicator": "Oturum ilgi bekliyor"
+    "attentionRequiredIndicator": "Oturum ilgi bekliyor",
+    "branchedSession": "Başka bir oturumdan çatallandı",
+    "branchedSessionOrdinal": "{{count}} dalın {{index}}."
   },
   "navigation": {
     "chat": "Sohbet",
