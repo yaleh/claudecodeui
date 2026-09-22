@@ -1,7 +1,7 @@
 ---
 id: gap-debug-agent-gate-structural-off
 title: 调试 Agent 的 env 门控：关闭即结构性不存在（registry 无键 / watcher 无根 / 路由未挂载三面），且 fail-closed
-status: ready
+status: done
 labels:
   - gap
 parent: null
