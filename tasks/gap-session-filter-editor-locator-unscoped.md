@@ -2,7 +2,7 @@
 id: gap-session-filter-editor-locator-unscoped
 title: AC-101 判据转红：session-filter e2e 的「会话过滤…」入口未限定项目，第五个 e2e 夹具入场后点开的是
   mobile-send-key-workspace
-status: ready
+status: done
 labels:
   - gap
   - defect
