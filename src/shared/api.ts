@@ -15,7 +15,7 @@ import {
 // The provider address book, the same table the server's health reading republishes. The
 // browser asks it whether an id exists rather than keeping its own list of the ids it knows.
 import type { AsrCapabilities } from '@shared/asr/asrRegistry';
-import { tryResolve } from '@shared/asr/asrRegistry';
+import { baseMimeType, declaredAcceptsMime, tryResolve } from '@shared/asr/asrRegistry';
 
 // Headers are a plain record rather than the full `HeadersInit` union so the
 // defaults below can be merged with a caller's headers by spreading.
@@ -651,8 +651,46 @@ function unregisteredProviderRefusal(): Response | null {
   );
 }
 
+/**
+ * The refusal the direct path owes a recording whose container the effective provider does not
+ * declare, or `null` when there is nothing to refuse.
+ *
+ * The whitelist is the health reading's own declaration — the registry's `AsrCapabilities` as the
+ * server republished it — so the browser holds no second table of accepted containers that could
+ * disagree with the server's. Matched on the base type, because the recorder's preferred type is
+ * `audio/webm;codecs=opus`: an exact comparison against the published base types would refuse the
+ * recording this app just made.
+ *
+ * Checked before the settings are awaited, like the unregistered-id refusal above and for the same
+ * reason: the answer does not depend on the settings. The code is `UNSUPPORTED_MIME`, the same one
+ * the proxy path returns, so a caller gets one answer about one recording rather than a different
+ * one depending on which of the two endpoints it took.
+ *
+ * A profile that was never published — a health reading that has not happened yet, or a server too
+ * old to send one — leaves this gate silent. It has no declaration to read, and inventing a
+ * whitelist here would be exactly the second source of truth this function exists to not be; the
+ * server's own gate is still ahead of the recogniser on the proxy path.
+ */
+function unsupportedContainerRefusal(mimeType: string): Response | null {
+  const profile = voiceProviderProfile;
+  if (!profile || declaredAcceptsMime(profile.capabilities, mimeType)) {
+    return null;
+  }
+
+  const base = baseMimeType(mimeType);
+  return new Response(
+    JSON.stringify({
+      error:
+        `provider '${profile.id}' does not accept ${base}; ` +
+        `it accepts ${profile.capabilities.acceptsMime.join(', ')}`,
+      code: 'UNSUPPORTED_MIME',
+    }),
+    { status: 415, headers: { 'Content-Type': 'application/json' } },
+  );
+}
+
 export async function transcribeVoice(blob: Blob, filename: string): Promise<Response> {
-  const refusal = unregisteredProviderRefusal();
+  const refusal = unregisteredProviderRefusal() ?? unsupportedContainerRefusal(blob.type);
   if (refusal) {
     return refusal;
   }

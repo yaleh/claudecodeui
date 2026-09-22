@@ -15,7 +15,16 @@ import { createTranscriptionRequest, parseTranscriptionResponse } from '../../..
 // The provider address book. The health payload republishes what this exports and the two
 // request paths ask it whether an id exists at all, so a provider is added by registering it
 // there rather than by editing anything in this module.
-import { listProviders, tryResolve } from '../../../shared/asr/asrRegistry.js';
+// The container rule itself, which is a property of a declaration rather than of this module: the
+// browser's direct path asks the same function of the same declaration, which is what makes one
+// refusal code mean one thing on both paths.
+import {
+  baseMimeType,
+  declaredAcceptsMime,
+  listProviders,
+  tryResolve,
+} from '../../../shared/asr/asrRegistry.js';
+import type { AsrCapabilities } from '../../../shared/asr/asrRegistry.js';
 
 type VoiceServiceDependencies = {
   defaults: {
@@ -96,6 +105,78 @@ function unknownProviderMessage(providerId: string): string {
  */
 function unknownProviderFailure(providerId: string, status: number): VoiceServiceResult<never> {
   return { ok: false, status, error: unknownProviderMessage(providerId) };
+}
+
+/**
+ * The container gate: the refusal owed an upload whose type `capabilities` does not declare.
+ *
+ * The whitelist is the DECLARATION, not a table of this module's own — a second list here would be
+ * the very "two sources of truth" this gate exists to remove, and would go stale the day a
+ * provider changes. Matched on the base type, so `audio/webm;codecs=opus` — the shipped recorder's
+ * own output — is the `audio/webm` entry the service published, instead of a type nothing claims.
+ *
+ * The code is `UNSUPPORTED_MIME` and not the status number, because the browser's direct path
+ * refuses the same upload in the same words: a client that branches on "is this a container I sent
+ * wrongly or a recording that is too big" cannot answer that from `415` versus `413` across two
+ * different transports, but can from the seam's own vocabulary.
+ *
+ * Exported for `scripts/asr-mime-size-gaps-check.mjs`, which drives it with a second declaration
+ * to read that the whitelist follows the declaration rather than a constant.
+ */
+export function containerRefusal(
+  capabilities: AsrCapabilities,
+  providerId: string,
+  mimeType: string,
+): VoiceServiceResult<never> | null {
+  if (declaredAcceptsMime(capabilities, mimeType)) {
+    return null;
+  }
+
+  return {
+    ok: false,
+    status: 415,
+    code: 'UNSUPPORTED_MIME',
+    error:
+      `provider '${providerId}' does not accept ${baseMimeType(mimeType)}; ` +
+      `it accepts ${capabilities.acceptsMime.join(', ')}`,
+  };
+}
+
+/**
+ * The size gate: the per-provider half of the two-layer upload limit.
+ *
+ * There is a transport ceiling above this one — multer's, which runs before the handler and
+ * therefore before any provider is known — and that ceiling is the largest budget any registered
+ * provider declares. So the effective limit for a request is `min(ceiling, this provider's
+ * budget)`, and because the ceiling is the maximum over the registry it can never be the smaller
+ * term. What is left to enforce here is the selected provider's own figure, applied to bytes that
+ * have already been buffered: an upload between the two figures is read in full and then refused,
+ * which is the price of the ceiling not knowing which provider will serve it.
+ *
+ * `OVERSIZE` rather than the transport's `LIMIT_FILE_SIZE`, for the same reason the container gate
+ * carries `UNSUPPORTED_MIME`: the caller's remedy is different (a shorter recording, not a
+ * differently encoded one), and only the semantic code says which of the two layers refused.
+ *
+ * Exported for the same probe, which reads that the threshold is the declaration's.
+ */
+export function budgetRefusal(
+  capabilities: AsrCapabilities,
+  providerId: string,
+  byteLength: number,
+): VoiceServiceResult<never> | null {
+  const budget = capabilities.maxInlineRequestBytes;
+  if (byteLength <= budget) {
+    return null;
+  }
+
+  return {
+    ok: false,
+    status: 413,
+    code: 'OVERSIZE',
+    error:
+      `upload of ${byteLength} B exceeds provider '${providerId}' budget of ${budget} B ` +
+      `(the budget is the provider's own declared maximum for one request)`,
+  };
 }
 
 function validateBackendBaseUrl(baseUrl: string): boolean {
@@ -212,10 +293,34 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
     async transcribe(input) {
       const requestedProviderId = input.overrides.providerId?.trim();
       const providerId = effectiveProviderId(requestedProviderId, dependencies.defaults);
-      if (tryResolve(providerId) === null) {
+      const adapter = tryResolve(providerId);
+      if (adapter === null) {
         // Refused before the configuration is even resolved and before any request is built:
         // nothing about the user's backend can make an unregistered id serveable.
         return unknownProviderFailure(providerId, requestedProviderId ? 400 : 503);
+      }
+
+      // The two gates the SELECTED provider's declaration decides, both before the configuration
+      // is resolved and before a request exists: an upload this provider does not accept, or one
+      // past its own declared budget, is refused here and costs no upstream request at all. The
+      // order is deliberate — a container the provider cannot read is refused before the size is
+      // even considered, so "too big" is only ever reported about audio that could have been sent.
+      const containerFailure = containerRefusal(
+        adapter.capabilities,
+        providerId,
+        input.audio.mimeType,
+      );
+      if (containerFailure) {
+        return containerFailure;
+      }
+
+      const budgetFailure = budgetRefusal(
+        adapter.capabilities,
+        providerId,
+        input.audio.bytes.length,
+      );
+      if (budgetFailure) {
+        return budgetFailure;
       }
 
       const config = resolveVoiceConfig(dependencies.defaults, input.overrides);

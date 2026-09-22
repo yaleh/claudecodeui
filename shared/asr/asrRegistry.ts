@@ -154,6 +154,54 @@ export type AsrAdapter = {
   transcribe(request: AsrRequest, invocation: AsrInvocation): Promise<AsrResult>;
 };
 
+// ── the container rule, read off a declaration ───────────────────────────────────────────────
+
+/**
+ * The base type of a media type header: everything before the first `;`, trimmed and lower-cased.
+ *
+ * WHY THE PARAMETERS HAVE TO COME OFF. The browser's preferred recording type is
+ * `audio/webm;codecs=opus` — the shipped recorder's own output (ADR-004 §缺口①.3) — while every
+ * published figure is a base type. Comparing a raw header against a published list therefore
+ * refuses the very recording the app produced, which is a whitelist that rejects its own input.
+ * The comparison is case-insensitive for the same reason: `AUDIO/WEBM` is the same container.
+ *
+ * Both compiler configurations compile this file (see the module comment), so this is written
+ * with ES5 string operations only.
+ */
+export function baseMimeType(mimeType: string): string {
+  return mimeType.split(';')[0].trim().toLowerCase();
+}
+
+/**
+ * Whether `capabilities` declares `mimeType` acceptable, matched on the base type.
+ *
+ * The declaration is a PARAMETER and not read from this module's registry: the caller has already
+ * selected the provider the request will use, and a rule that re-resolved the provider itself
+ * could answer about a different one than the request is served by. Every consumer of a
+ * declaration — the browser's direct path, the server's proxy path, the adapter's own guard —
+ * asks this one function, so "which containers are allowed" has one answer per declaration
+ * instead of one per call site.
+ *
+ * Used by `server/modules/voice/voice.service.ts` (the proxy path) and `src/shared/api.ts` (the
+ * browser's direct path), which is what makes one refusal code mean the same thing on both.
+ */
+export function declaredAcceptsMime(capabilities: AsrCapabilities, mimeType: string): boolean {
+  const base = baseMimeType(mimeType);
+  // An unlabelled container is not a refused one. `Blob` defaults its type to the empty string, so
+  // a file the user picked that carries no media type arrives naming no container at all — and
+  // there is nothing for a declaration to be compared against. Refusing it would repeat the fault
+  // the base-type match above removes: turning an upload away for something that is not its
+  // container. The server's route reads an absent header the same way, defaulting it to
+  // `audio/webm` rather than refusing an upload that never made a claim.
+  if (!base) {
+    return true;
+  }
+
+  return capabilities.acceptsMime.indexOf(base) !== -1;
+}
+
+// ── the address book ─────────────────────────────────────────────────────────────────────────
+
 /** Thrown by `resolve` for an id no adapter claims. */
 export class UnknownAsrProviderError extends Error {
   readonly providerId: AsrProviderId;

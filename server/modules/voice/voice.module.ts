@@ -2,6 +2,10 @@ import multer from 'multer';
 
 import { voiceSettingsDb } from '@/modules/database/index.js';
 
+// The provider address book, read here for the one figure the transport layer can know without
+// knowing which provider will serve the request: the ceiling above every declared budget.
+import { listProviders } from '../../../shared/asr/asrRegistry.js';
+
 import { createVoiceRouter } from './voice.routes.js';
 import { createVoiceService, createVoiceSettingsService } from './voice.service.js';
 
@@ -41,9 +45,36 @@ const voiceService = createVoiceService({
   },
 });
 
+/**
+ * The transport ceiling: the largest upload ANY registered provider declares it can take.
+ *
+ * Derived from the registry rather than written as a number, because the two figures in this
+ * layering must not be able to disagree. A literal here would be a second source of truth about
+ * how big an upload may be, and the day a provider's budget moved it would silently become the
+ * binding one — the provider would be handed a truncated read, or a request it could have served
+ * would be refused by a parser that never knew which provider it was for.
+ *
+ * Because this is the maximum over the registry, it can never be smaller than the selected
+ * provider's own budget, so the effective limit for one request is `min(this, that budget)` — and
+ * the provider-level gate is the one that computes it, since only it knows the provider. Multer
+ * runs before the handler and therefore before any provider is known; that is why this layer can
+ * only be a ceiling and not the limit itself.
+ *
+ * An empty registry leaves the ceiling at zero, which refuses every upload rather than admitting
+ * an unbounded one: nothing can serve a request in that state, so accepting bytes for it would be
+ * buffering work with no destination.
+ */
+function transportCeilingBytes(): number {
+  let ceiling = 0;
+  for (const adapter of listProviders()) {
+    ceiling = Math.max(ceiling, adapter.capabilities.maxInlineRequestBytes);
+  }
+  return ceiling;
+}
+
 const audioUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 25 * 1024 * 1024 },
+  limits: { fileSize: transportCeilingBytes() },
 });
 
 // The settings the user saved, read and written through the Voice settings
