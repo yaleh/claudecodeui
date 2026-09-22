@@ -172,13 +172,16 @@ test('an app session takes up the ai-title its transcript later gains', async ()
   });
 });
 
-test('a disk-discovered session takes up the ai-title over its last-prompt name', async () => {
+test('a disk-discovered session takes up the ai-title over its derived name', async () => {
   await withClaudeHome(async ({ workspacePath, transcriptPath }) => {
+    // The `last-prompt` entry is what the session used to be named after; the
+    // first prompt is what the CLI names it after, and both are here so the
+    // assertion says which one the row took rather than only that it took one.
     await writeFile(
       transcriptPath,
       [
         ...headLines(SESSION_ID, workspacePath),
-        transcriptLine(SESSION_ID, workspacePath, { type: 'last-prompt', lastPrompt: 'the first thing I typed' }),
+        transcriptLine(SESSION_ID, workspacePath, { type: 'last-prompt', lastPrompt: 'the last thing I typed' }),
         '',
       ].join('\n'),
       'utf8',
@@ -186,9 +189,9 @@ test('a disk-discovered session takes up the ai-title over its last-prompt name'
 
     await withIsolatedDatabase(async () => {
       const synchronizer = new ClaudeSessionSynchronizer();
-      await syncOnce(synchronizer, transcriptPath, 'cli session, last-prompt only');
+      await syncOnce(synchronizer, transcriptPath, 'cli session, no title entries');
       assert.deepEqual(storedName(SESSION_ID), {
-        name: 'the first thing I typed',
+        name: 'first prompt',
         source: 'derived',
       });
 
@@ -253,7 +256,7 @@ test('a transcript custom-title records the rename as manual', async () => {
   });
 });
 
-test('a session that already has an ai-title does not read its transcript again', async () => {
+test('a session already named by an ai-title takes up the one written later', async () => {
   await withClaudeHome(async ({ workspacePath, transcriptPath }) => {
     await writeFile(
       transcriptPath,
@@ -270,8 +273,10 @@ test('a session that already has an ai-title does not read its transcript again'
       await syncOnce(synchronizer, transcriptPath, 'first pass names the session');
       assert.deepEqual(storedName(SESSION_ID), { name: 'The First Title', source: 'ai' });
 
-      // A title the scan would certainly adopt if it looked — and a file big
-      // enough that looking would show up in the byte reading.
+      // Claude re-titles the session as the conversation goes on. The row is
+      // already named by an ai-title, and it still has to change: a name that
+      // is never re-read is a name that goes stale the moment Claude revises
+      // the title it wrote, which it does on every round of a long session.
       const megabytes = 8;
       const filler = Array.from({ length: megabytes * 16 }, (_, index) =>
         fillerLine(SESSION_ID, workspacePath, 65536 + index),
@@ -289,10 +294,14 @@ test('a session that already has an ai-title does not read its transcript again'
 
       const spent = await syncOnce(synchronizer, transcriptPath, 'second pass over a title already known');
 
-      assert.deepEqual(storedName(SESSION_ID), { name: 'The First Title', source: 'ai' });
+      assert.deepEqual(storedName(SESSION_ID), { name: 'A Title Written Later', source: 'ai' });
+      // Re-reading the title still costs a bounded window at each end of the
+      // file rather than the file: the title sits near the head and the tail
+      // holds none, so both windows are paid for and neither grows with the
+      // transcript.
       assert.ok(
-        spent < 1024 * 1024,
-        `an ai-title already in the row must not be re-read (read ${spent} bytes of a ~${megabytes}MB file)`,
+        spent < 4 * 1024 * 1024,
+        `re-reading a title must not read ~${megabytes}MB (read ${spent} bytes)`,
       );
     });
   });
@@ -302,13 +311,14 @@ test('a session that already has an ai-title does not read its transcript again'
 // Reading a transcript stops at the answer
 // ---------------------------------------------------------------------------
 
-test('the scan stops at the ai-title instead of reading the rest of the transcript', async () => {
+test('a title near the head of a huge transcript is found without reading the file', async () => {
   await withClaudeHome(async ({ workspacePath, transcriptPath }) => {
     const megabytes = 24;
     const filler = Array.from({ length: megabytes * 16 }, (_, index) =>
       fillerLine(SESSION_ID, workspacePath, 65536 + index),
     );
-    // The title is on line 5, a quarter of the way into nothing.
+    // The title is on line 5, a quarter of the way into nothing, and the tail
+    // of the file is a wall of filler: the window that answers is the head one.
     await writeFile(
       transcriptPath,
       [
@@ -333,7 +343,7 @@ test('the scan stops at the ai-title instead of reading the rest of the transcri
   });
 });
 
-test('a transcript with no title entries still falls back to its last prompt', async () => {
+test('a transcript with no title entries is named after its first prompt, not its last', async () => {
   await withClaudeHome(async ({ workspacePath, transcriptPath }) => {
     const filler = Array.from({ length: 4096 }, (_, index) =>
       fillerLine(SESSION_ID, workspacePath, 1024 + index),
@@ -343,6 +353,16 @@ test('a transcript with no title entries still falls back to its last prompt', a
       [
         ...headLines(SESSION_ID, workspacePath),
         ...filler,
+        // Three different strings, so the assertion says which one the name
+        // came from: the first thing the user typed, the last thing the CLI
+        // recorded, and a later message of the user's.
+        transcriptLine(SESSION_ID, workspacePath, {
+          parentUuid: 'msg-1',
+          isSidechain: false,
+          type: 'user',
+          message: { role: 'user', content: 'the second thing I typed' },
+          uuid: 'msg-2',
+        }),
         transcriptLine(SESSION_ID, workspacePath, { type: 'last-prompt', lastPrompt: 'the last thing I typed' }),
         '',
       ].join('\n'),
@@ -354,7 +374,47 @@ test('a transcript with no title entries still falls back to its last prompt', a
       await syncOnce(synchronizer, transcriptPath, 'no title entries at all');
 
       assert.deepEqual(storedName(SESSION_ID), {
-        name: 'the last thing I typed',
+        name: 'first prompt',
+        source: 'derived',
+      });
+    });
+  });
+});
+
+test('a metadata block is not mistaken for the prompt that names a session', async () => {
+  await withClaudeHome(async ({ workspacePath, transcriptPath }) => {
+    await writeFile(
+      transcriptPath,
+      [
+        // The CLI writes its own bookkeeping as `user` entries. A session named
+        // after one of them would be named after XML, so the first entry that
+        // is the user's own words is the one the derived name comes from.
+        transcriptLine(SESSION_ID, workspacePath, {
+          parentUuid: null,
+          isSidechain: false,
+          isMeta: true,
+          type: 'user',
+          message: { role: 'user', content: '<system-reminder>Context loaded</system-reminder>' },
+          uuid: 'meta-1',
+        }),
+        transcriptLine(SESSION_ID, workspacePath, {
+          parentUuid: null,
+          isSidechain: false,
+          type: 'user',
+          message: { role: 'user', content: [{ type: 'text', text: 'how do I index a repo?' }] },
+          uuid: 'msg-1',
+        }),
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    await withIsolatedDatabase(async () => {
+      const synchronizer = new ClaudeSessionSynchronizer();
+      await syncOnce(synchronizer, transcriptPath, 'metadata entry before the first prompt');
+
+      assert.deepEqual(storedName(SESSION_ID), {
+        name: 'how do I index a repo?',
         source: 'derived',
       });
     });

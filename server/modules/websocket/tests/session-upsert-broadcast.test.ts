@@ -157,8 +157,12 @@ test('an ai-title the watcher picks up reaches other clients carrying the new na
     transcriptPath,
     [
       line({ type: 'mode', mode: 'normal' }),
-      line({ type: 'user', message: { role: 'user', content: 'first prompt' }, uuid: 'msg-1' }),
-      line({ type: 'last-prompt', lastPrompt: 'the first thing I typed' }),
+      line({ type: 'user', message: { role: 'user', content: 'the first thing I typed' }, uuid: 'msg-1' }),
+      // A titleless session is named after the first prompt, as the CLI names
+      // it, and the `last-prompt` beside it is the entry that used to be read
+      // instead — kept here so the assertion below says which of the two named
+      // the row rather than only that it was named.
+      line({ type: 'last-prompt', lastPrompt: 'the last thing I typed' }),
       '',
     ].join('\n'),
     'utf8',
@@ -171,7 +175,7 @@ test('an ai-title the watcher picks up reaches other clients carrying the new na
     await withIsolatedDatabase(async () => {
       const synchronizer = new ClaudeSessionSynchronizer();
 
-      // Indexed first under the name inferred from the transcript's fallback.
+      // Indexed first under the name derived from the transcript itself.
       await synchronizer.synchronizeFile(transcriptPath);
       assert.equal(sessionsDb.getSessionById(SESSION_ID)?.custom_name, 'the first thing I typed');
 

@@ -132,14 +132,35 @@ CREATE TABLE IF NOT EXISTS sessions (
     -- \`provider_session_id\` is filled in once the provider announces its own
     -- id mid-run, or equals \`session_id\` for sessions discovered on disk.
     provider_session_id TEXT,
+    -- The name the user explicitly chose for this session: a rename through
+    -- the app. NULL means the user has not named it and the session's name is
+    -- whatever \`transcript_name\` holds; readers that show a session's name
+    -- project \`COALESCE(custom_name, transcript_name)\`, so this column is
+    -- the override and \`transcript_name\` the reading.
     custom_name TEXT,
-    -- Where \`custom_name\` came from: 'derived' (the first visible message, a
-    -- transcript's \`last-prompt\`, or the history fallback), 'ai' (the title
-    -- Claude writes into the transcript itself) or 'manual' (a rename through
-    -- the app, or a CLI \`/rename\` recorded as the transcript's
-    -- \`custom-title\`). Upserts only ever move a name up that order, so the
-    -- column is what keeps a provider rescan from undoing a rename.
+    -- Where \`custom_name\` came from: 'derived' (the first visible message or
+    -- the history fallback), 'ai' (the title Claude writes into the transcript
+    -- itself) or 'manual' (a rename through the app). Upserts only ever move a
+    -- name up that order, so the column is what keeps a provider rescan from
+    -- undoing a rename.
     name_source TEXT DEFAULT 'derived',
+    -- The name this session's provider transcript gives it, kept apart from
+    -- \`custom_name\` because the two answer different questions: this one is
+    -- re-read on every sync (Claude revises its own title, and a CLI \`/rename\`
+    -- can append one at any time), while \`custom_name\` only ever changes when
+    -- the user does. One column could hold only one of them, and whichever lost
+    -- would be silently rolled back by the next sync — a user's rename by the
+    -- transcript, or a transcript's newer title by a rename that was recorded
+    -- before it.
+    transcript_name TEXT,
+    -- Which rung of the provider's own title ladder \`transcript_name\` came
+    -- from: 'agent' (the \`agent-name\` entry, the top rung), 'manual' (a
+    -- \`custom-title\` entry, i.e. a CLI \`/rename\`), 'ai' (\`ai-title\`) or
+    -- 'derived' (the session's first prompt). Unused for providers that do not
+    -- publish such a ladder, which is also why it stays separate from
+    -- \`name_source\`: 'manual' there means the user renamed it *in this app*,
+    -- a claim the transcript cannot make.
+    transcript_name_source TEXT,
     project_path TEXT,
     jsonl_path TEXT,
     -- Model and reasoning effort this session runs with. Written when the user
