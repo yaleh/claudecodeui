@@ -57,15 +57,15 @@ if (!isVoiceTrimEnabled() || !trimDecisionFor(recogniser.pauseCues).trim) return
 
 ## AC
 
-- [ ] AC1 主读：`node scripts/asr-config-resolution-check.mjs` 退出码 0，且 stdout 的 `client-capability-table` 读数必须打印且不再是 `declared-in-2-file(s)`。
-- [ ] AC2 不变量读数是新的且当前必红：新判据 `node scripts/asr-pause-cues-source-check.mjs` 在**未修**的树上退出码非零，判词指名「客户端声明的 `pauseCues` 与 registry 对当前 provider 的声明不一致」，并逐字打印两个值（形如 `client=destructive registry=useful provider=...`）。
-- [ ] AC3 不变量判据的取假形态：临时工装里只把 `src/shared/voiceTrim.ts` 的表值改成 `'useful'`（其余不动）⇒ 同一命令退出码 0；改成与 registry 不同的第二个值 ⇒ 非零。每条**先对未变异的同一工装断言退出 0**，再变异，并断言变异命中数 `=== 1`（命中 0 处即该用例红）。
-- [ ] AC4 硬编码 id 消失且可红：命令断言 `src/modules/chat/hooks/useVoiceInput.ts` 不再出现字面量 `OPENAI_COMPATIBLE_PROVIDER`，且裁剪门的 provider id 来自配置读取路径；取假形态为「把该字面量写回」⇒ 必红。
-- [ ] AC5 唯一性：`grep -rn "pauseCues\s*:" src/` 去重后命中文件数为 0（能力的**声明**只在 `shared/asr/` 侧）；同一命令断言 `grep -rn "pauseCues" shared/asr/` 仍非空（证明没有把能力本身一起删掉）。
-- [ ] AC6 既有语音读数不变：`npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice.service.test.ts`、`npx vitest run src/shared/tests/voiceConfig.test.ts src/shared/tests/voiceConfigHydration.test.ts src/modules/chat/tests/voiceTrimCapabilityWiring.test.tsx` 各自退出码 0。
-- [ ] AC7 AC-130 的守卫不被本任务打穿：`node scripts/asr-extraction-parity-check.mjs` 退出码 0，四组 `equal`。
-- [ ] AC8 静态门：`npm run typecheck` 退出码 0；`npm run lint` 退出码 0。
-- [ ] AC9 行为变化如实登记：命令打印**修改前 / 后**同一段中文与英文样本的裁剪判定与上传体时长；若结论是「不再裁剪」，须在 Evidence 里逐字记录该差值，并把「这是 ADR-004 二节实测结论的期望方向」与「这属于人已裁定的产品决策」两件事分开写。
+- [x] AC1 主读：`node scripts/asr-config-resolution-check.mjs` 退出码 0，且 stdout 的 `client-capability-table` 读数必须打印且不再是 `declared-in-2-file(s)`。
+- [x] AC2 不变量读数是新的且当前必红：新判据 `node scripts/asr-pause-cues-source-check.mjs` 在**未修**的树上退出码非零，判词指名「客户端声明的 `pauseCues` 与 registry 对当前 provider 的声明不一致」，并逐字打印两个值（形如 `client=destructive registry=useful provider=...`）。
+- [x] AC3 不变量判据的取假形态：临时工装里只把 `src/shared/voiceTrim.ts` 的表值改成 `'useful'`（其余不动）⇒ 同一命令退出码 0；改成与 registry 不同的第二个值 ⇒ 非零。每条**先对未变异的同一工装断言退出 0**，再变异，并断言变异命中数 `=== 1`（命中 0 处即该用例红）。
+- [x] AC4 硬编码 id 消失且可红：命令断言 `src/modules/chat/hooks/useVoiceInput.ts` 不再出现字面量 `OPENAI_COMPATIBLE_PROVIDER`，且裁剪门的 provider id 来自配置读取路径；取假形态为「把该字面量写回」⇒ 必红。
+- [x] AC5 唯一性：`grep -rn "pauseCues\s*:" src/` 去重后命中文件数为 0（能力的**声明**只在 `shared/asr/` 侧）；同一命令断言 `grep -rn "pauseCues" shared/asr/` 仍非空（证明没有把能力本身一起删掉）。
+- [x] AC6 既有语音读数不变：`npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice.service.test.ts`、`npx vitest run src/shared/tests/voiceConfig.test.ts src/shared/tests/voiceConfigHydration.test.ts src/modules/chat/tests/voiceTrimCapabilityWiring.test.tsx` 各自退出码 0。
+- [x] AC7 AC-130 的守卫不被本任务打穿：`node scripts/asr-extraction-parity-check.mjs` 退出码 0，四组 `equal`。
+- [x] AC8 静态门：`npm run typecheck` 退出码 0；`npm run lint` 退出码 0。
+- [x] AC9 行为变化如实登记：命令打印**修改前 / 后**同一段中文与英文样本的裁剪判定与上传体时长；若结论是「不再裁剪」，须在 Evidence 里逐字记录该差值，并把「这是 ADR-004 二节实测结论的期望方向」与「这属于人已裁定的产品决策」两件事分开写。
 
 ## DoD
 
@@ -81,6 +81,234 @@ if (!isVoiceTrimEnabled() || !trimDecisionFor(recogniser.pauseCues).trim) return
 L_D 该轴仍暗，理由：本任务只把一份已存在的领域能力收敛到唯一声明处，不新增领域数据能力，也没有可读出的领域读数。
 
 L_G 该轴仍暗，理由：本任务量的是「裁剪决策的值来自 registry」这一守卫，不产出目标层读数 —— GOAL-008 的目标层（换识别服务不改路由与 UI）由其余判据承担。
+
+## 落地证据
+
+实现提交 `0ae696cd`（分支 `task/gap-asr-pause-cues-second-source-contradicts-registry`），随后 `git merge --no-edit develop` 合入 `ff0c0d11`（无冲突）。scoped 门：`bash scripts/test.sh --for-task gap-asr-pause-cues-second-source-contradicts-registry --allow-thin` 退出 0，`__PERFILE__ duration_ms=20 src/modules/chat/tests/voiceTrimCapabilityWiring.test.tsx passed=true`，`# tests 1 / # pass 1 / # fail 0`。
+
+### AC1
+
+```
+$ node scripts/asr-config-resolution-check.mjs
+landing=shared/asr
+landing-candidate=a
+server-compiles-landing=yes
+registry-providers=multimodal
+health-user-configured=true
+health-empty-configured=false
+health-providers-match-registry=yes
+health-unknown-provider=refused-503
+proxy-unknown-provider=refused-400-no-fetch
+proxy-registered-provider=sent-1
+configured-field-present=yes
+client-capability-table=none
+client-read-points=voiceProviderProfile,setVoiceProviderProfile
+verdict=pass
+$ echo $?
+0
+```
+
+修前该行是 `client-capability-table=declared-in-2-file(s)`，指名 `src/modules/chat/tests/voiceTrimCapabilityWiring.test.tsx, src/shared/voiceTrim.ts`（本任务 Proposal 的判词原文）；现在是 `none`，`src/` 里没有任何一处 capability 声明。注意 `client-read-points` 仍是那两项 —— 健康读数的消费点没有被动过，被移走的只是**声明**。
+
+### AC2（未修的树 = 用实现前的四个文件搭的临时工装）
+
+```
+$ RIG=$(mktemp -d /tmp/asr-unfixed-rig.XXXXXX)
+$ mkdir -p "$RIG/shared/asr/list/multimodal" "$RIG/src/shared" "$RIG/src/modules/chat/hooks"
+$ for f in shared/asr/asrRegistry.ts shared/asr/list/multimodal/multimodal.asr-provider.ts \
+           src/shared/voiceTrim.ts src/modules/chat/hooks/useVoiceInput.ts; do
+    git show HEAD:"$f" > "$RIG/$f"; done      # HEAD 在实现提交之前
+$ node scripts/asr-pause-cues-source-check.mjs --root "$RIG"
+registry-module=shared/asr/asrRegistry.ts
+registry-provider=multimodal (1 of 1 registered, nothing requested or configured)
+registry-pauseCues=useful
+registry-declared-by=shared/asr/list/multimodal/multimodal.asr-provider.ts
+client-declaration-rows=2
+client-pauseCues=destructive
+client-declaration-source=src/shared/voiceTrim.ts (provider openai-compatible)
+gate-module=src/modules/chat/hooks/useVoiceInput.ts
+gate-reads-registry=no
+gate-retired-literal=OPENAI_COMPATIBLE_PROVIDER
+failure=客户端声明的 `pauseCues` 与 registry 对当前 provider 的声明不一致：client=destructive registry=useful provider=multimodal（client 的声明在 src/shared/voiceTrim.ts，其 provider 列为 openai-compatible）
+failure=AC4: src/modules/chat/hooks/useVoiceInput.ts 仍出现字面量 OPENAI_COMPATIBLE_PROVIDER
+failure=AC4: src/modules/chat/hooks/useVoiceInput.ts 的裁剪门没读到 registry 的声明读取点（provider id 不来自配置读取路径）
+verdict=fail
+$ echo $?
+1
+```
+
+`client-declaration-rows=2` 是真的两处，不是误报：`git show HEAD:src/shared/voiceTrim.ts | grep -n "pauseCues: '"` 给出 `379: pauseCues: 'destructive',`（声明表的那一行）与 `402: ?? { provider: DEFAULT_PAUSE_CUES_PROVIDER, pauseCues: 'destructive' }`（未声明 id 的回落行）。客户端侧两处都答 `destructive`，而它自己那张表里没有 `multimodal` 这一行 —— 这正是「用一张表答一个它并不认识的识别器」。
+
+出射侧：`registry` 侧不是照抄常量，是**顺着注册表走到适配器模块**读它自己的 `id` 与 `capabilities.pauseCues`；`client` 侧是扫 `src/` 里 `pauseCues: '<值>'` 这一**形状**，并跟随客户端自己的 `DEFAULT_*PROVIDER` 回落。
+
+### AC3（同一工装、同一命令，只差一个字符串）
+
+```
+$ RIG=$(mktemp -d /tmp/ac3-rig.XXXXXX)   # 从出货文件复制四个 FIXTURE_FILES
+$ node scripts/asr-pause-cues-source-check.mjs --root "$RIG"     # (1) 未变异
+client-pauseCues=none
+verdict=ok
+$ echo $?
+0
+$ # 工装里插入客户端自建表，值 = registry 的值 'useful'（断言命中 1 处）
+$ node scripts/asr-pause-cues-source-check.mjs --root "$RIG"     # (2) 相等的值
+client-declaration-rows=1
+client-pauseCues=useful
+client-declaration-source=src/shared/voiceTrim.ts (provider multimodal)
+verdict=ok
+$ echo $?
+0
+$ # 只把那一行的值改成 registry 的相反值 'destructive'（断言命中 1 处）
+$ node scripts/asr-pause-cues-source-check.mjs --root "$RIG"     # (3) 不相等的值
+client-pauseCues=destructive
+failure=客户端声明的 `pauseCues` 与 registry 对当前 provider 的声明不一致：client=destructive registry=useful provider=multimodal（client 的声明在 src/shared/voiceTrim.ts，其 provider 列为 multimodal）
+verdict=fail
+$ echo $?
+1
+```
+
+对照用例（把同一形式固化成可重复的读数，每条**先对未变异的同一工装断言退出 0**，再变异，`patch()` 断言命中数 `=== 1`）：
+
+```
+$ node --test scripts/asr-pause-cues-source-check.test.mjs
+✔ the shipping tree passes: the client declares nothing and reads the registry
+✔ a client table whose value EQUALS the registry stays green
+✔ the same rig, with only that value changed to the registry's opposite, reds
+✔ AC4: writing the retired literal back into the gate reds it
+✔ a tree whose registry cannot be read reds rather than passing an empty scan
+ℹ tests 5
+ℹ pass 5
+ℹ fail 0
+$ echo $?
+0
+```
+
+第 2 与第 3 条驱动的是同一工装、同一命令，差别只有 `pauseCues` 的值 —— 只有「值恰好等于 registry 对当前 provider 的声明」才绿，把表挪个位置或换个名字都不绿。第 5 条是「空读数即失败」的控制：把 `shared/asr/asrRegistry.ts` 删掉后必须非零，读不出来不能读成通过。
+
+### AC4
+
+```
+$ grep -c "OPENAI_COMPATIBLE_PROVIDER" src/modules/chat/hooks/useVoiceInput.ts
+0
+$ echo $?
+1
+$ grep -n "effectivePauseCuesDeclaration" src/modules/chat/hooks/useVoiceInput.ts
+5:import { effectivePauseCuesDeclaration, transcribeVoice } from '@/shared/api';
+232:  const recogniser = effectivePauseCuesDeclaration();
+```
+
+provider id 的来路：`effectivePauseCuesDeclaration()`（`src/shared/api.ts`）从健康读数发布的 `voiceProviderProfile` 取**当前生效 provider**，再问 `pauseCuesDeclarationFor(id)`；同一 id 就是 `transcribeVoice` 路由所用的那个。未注册 id / 健康读数未落地 ⇒ `null` ⇒ 不裁（fail-closed），而不是回落一张默认行。取假形态见 AC3 对照用例第 4 条：把 `pauseCuesFor(OPENAI_COMPATIBLE_PROVIDER)` 写回门里 ⇒ 非零，且 `gate-retired-literal=OPENAI_COMPATIBLE_PROVIDER`、`gate-reads-registry=no`。
+
+### AC5
+
+```
+$ grep -rn "pauseCues\s*:" src/ | cut -d: -f1 | sort -u | wc -l
+0
+$ grep -rn "pauseCues" shared/asr/ | wc -l
+10
+```
+
+`src/` 侧 0 个文件（含测试文件在内），`shared/asr/` 侧仍非空 —— 能力本身没有被一起删掉。声明只剩一份，在 provider 侧：`AsrCapabilities.pauseCues`（适配器模块）+ `pauseCuesDeclarationFor`（registry 的查找）。
+
+### AC6
+
+```
+$ npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice.service.test.ts
+ℹ tests 4 / pass 4 / fail 0
+$ echo $?
+0
+
+$ npx vitest run src/shared/tests/voiceConfig.test.ts src/shared/tests/voiceConfigHydration.test.ts \
+                 src/modules/chat/tests/voiceTrimCapabilityWiring.test.tsx
+✓ src/shared/tests/voiceConfig.test.ts (17 tests)
+✓ src/shared/tests/voiceConfigHydration.test.ts (8 tests)
+✓ src/modules/chat/tests/voiceTrimCapabilityWiring.test.tsx (4 tests)
+Test Files  3 passed (3)
+     Tests  29 passed (29)
+$ echo $?
+0
+```
+
+接线用例由 3 条扩到 4 条：声明改为在 `@/shared/api` 的 `effectivePauseCuesDeclaration()` 处驱动（即 hook 真正问的那个接缝），`trimDecisionFor` 不再被 mock，真实映射在每条里都跑；新增的第 4 条是 fail-closed 臂（无可读声明 ⇒ 录音原样上传）。断言的观察量仍是上传体的容器与字节 —— `audio/wav` 是被裁过的，`audio/webm` 是原录音。
+
+### AC7
+
+```
+$ node scripts/asr-extraction-parity-check.mjs
+pre-extraction ok recordedFromCommit=2506f8d3a5d4f69ed648419c32da403a9a2ed58d
+group inbound equal sha256=dc18ceac9e46f623c0eb7d4fe5616ead48864f4185eea6f8159335ca5016c871
+group direct-outbound equal sha256=6985b92a09881c3ff249aa14a35ccd06a71925ea1f5937691f223e344d834c87
+group proxy-outbound equal sha256=93899fb6cc81f87b52aa0e4d2ff6389ed1723974196c7c7b5ae3ecb43423c8fd
+group response-tolerance equal sha256=aa0189610da7bdd63ed65f6c436ee725426dc69d20c440943606584aa11026c2
+baseline sha256=81f24ac8852349d3cefead3eb3d40dd461e6773d73778f8cbb48465afc7730a6
+observed sha256=81f24ac8852349d3cefead3eb3d40dd461e6773d73778f8cbb48465afc7730a6
+verdict PASS
+$ echo $?
+0
+```
+
+四组 `equal`，AC-130 的字节基线 sha 未变。
+
+### AC8
+
+```
+$ npm run typecheck
+> tsc --noEmit -p tsconfig.json && tsc --noEmit -p server/tsconfig.json && tsc --noEmit -p scripts/tsconfig.json
+$ echo $?
+0
+
+$ npm run lint
+$ echo $?
+0
+```
+
+`lint` 只剩既有 warning（`react(set-state-in-effect)` 等），新脚本与新用例 0 warning 0 error。`scripts/tsconfig.json` 是 `checkJs: true` + `strict`，新判据的每个 JSDoc 参数与返回类型都是为它补的。
+
+### AC9 行为变化（如实登记）
+
+命令（用 `experiments/voice-trim/fixtures/` 里那两段实测样本，16 kHz PCM16 单声道；判定取「修改前客户端表对当前生效 provider 的答案 `destructive`」与「修改后 registry 对同一 provider 的声明 `useful`」，上传体时长 = 判定为裁时 `trimVoiceAudio` 的 `outputSec`，否则 = 输入时长）：
+
+```
+$ npx tsx ac9-scratch.ts
+before: capability=destructive trim=true  source=client table row for openai-compatible (the pre-fix answer for the effective provider)
+after:  capability=useful      trim=false source=registry declaration of multimodal (docs/experiments/2026-09-22-voice-provider-paired-quality.md)
+
+sample=zh-d01-o85.wav sampleRate=16000 inputSec=11.887 before: truncated=true uploadedSec=10.910 after: truncated=false uploadedSec=11.887 deltaSec=0.977
+sample=en-e01-o45.wav sampleRate=16000 inputSec=11.323 before: truncated=true uploadedSec=6.290  after: truncated=false uploadedSec=11.323 deltaSec=5.033
+$ echo $?
+0
+```
+
+结论逐字：**中文样本 10.910s → 11.887s（+0.977s），英文样本 6.290s → 11.323s（+5.033s）**，即**不再裁剪**。（临时脚本用完即删，未进提交。）
+
+两件事分开写：
+
+1. **这是 ADR-004 二节实测结论的期望方向。** 该节量的是「裁剪对每个识别器的准确率做了什么」；唯一注册的适配器 `multimodal` 的配对实验结论是它的停顿**是标点线索**（`pauseCues: 'useful'`，见 `shared/asr/list/multimodal/multimodal.asr-provider.ts` 的注释与 `docs/experiments/2026-09-22-voice-provider-paired-quality.md`）。对这样的识别器裁剪，正是 ADR-004 二节判为有害的方向；收敛到唯一声明处之后行为朝这个方向移动，是**声明的忠实执行**，不是本任务挑的方向。
+2. **这属于人已裁定的产品决策。** 「出货配置里到底裁不裁」不由本任务裁定：本任务只让唯一那份声明说话，并把差值登记在此。若人裁定 `openai-compatible` 是另一个**待注册**的识别器、其 `pauseCues` 确为 `destructive`，正确形态是把**它注册进 registry 并在那里声明**（`AsrCapabilities.pauseCues`），客户端侧仍然一个字都不写；两条路都不允许客户端自己声明。AC-130 的字节基线（字段名 / URL / 头 / 容忍度）不受影响，AC7 已复查四组 `equal`。
+
+### 边界副作用（本任务写作面之外，如实登记）
+
+本任务删掉的是 `src/shared/voiceTrim.ts` 里的客户端声明表，而 AC-135 的判据**要求**那张表存在，因此它现在红了：
+
+```
+$ node scripts/asr-trim-capability-check.mjs
+scan: 624 production sources ... across 5 globs
+declaration module: src/shared/voiceTrim.ts
+check declaration: FAIL no exported declaration table in src/shared/voiceTrim.ts has a row — a table with 0 rows is a zero-row reading, not a pass
+$ echo $?
+1
+
+$ node --test scripts/asr-trim-capability-check.test.mjs
+ℹ tests 9
+ℹ pass 0
+ℹ fail 9
+$ echo $?
+1
+```
+
+这是结构性的、不是回归：AC-135 的判据要求声明模块（它按 `export type PauseCues =` 找到 `src/shared/voiceTrim.ts`）导出一张带 `provider` / `pauseCues` 行的表，且至少一行裁、一个回落行也裁；本任务的 AC5 与 DoD(c) 要求 `src/` 里 `pauseCues:` 出现 0 次。两者不能同时成立，而 DoD 已明确「两条路都不允许客户端自己声明」—— 即本次修复必然让 AC-135 的该判据失去对象。另：AC-135 的判据是**纯 node 导入**声明模块，把 `PauseCues` 类型搬到 `shared/asr/asrRegistry.ts` 也不行（该模块 `import ... from './list/.../x.js'`，裸 node 解析不了），所以它不可能改指 provider 侧。
+
+`scripts/asr-trim-capability-check.mjs` 与其 `.test.mjs` 都不在本任务的 `## Touches` 内，本条无权修改；同因，两者也不在 scoped 门的文件集里（门只跑 Touches 的 `*.test.*`），`scripts/test.sh` 自身不跑 `scripts/**/*.test.mjs`（已核：`grep -n "test:scripts\|scripts/\*\*/\*.test" scripts/test.sh` 无命中），故本次 fan-in 不受影响。**AC-135 的判据需要由它的所有者按 provider 侧声明重新推导**（那是 `gap-asr-trim-capability-wiring` 的判据面，本任务只登记事实）。
 
 ## Touches
 
