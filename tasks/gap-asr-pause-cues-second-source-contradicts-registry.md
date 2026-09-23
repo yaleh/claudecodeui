@@ -66,6 +66,7 @@ if (!isVoiceTrimEnabled() || !trimDecisionFor(recogniser.pauseCues).trim) return
 - [x] AC7 AC-130 的守卫不被本任务打穿：`node scripts/asr-extraction-parity-check.mjs` 退出码 0，四组 `equal`。
 - [x] AC8 静态门：`npm run typecheck` 退出码 0；`npm run lint` 退出码 0。
 - [x] AC9 行为变化如实登记：命令打印**修改前 / 后**同一段中文与英文样本的裁剪判定与上传体时长；若结论是「不再裁剪」，须在 Evidence 里逐字记录该差值，并把「这是 ADR-004 二节实测结论的期望方向」与「这属于人已裁定的产品决策」两件事分开写。
+- [x] AC10 客户端侧的两份手工替身跟上被接走的接缝，且「默认不裁」是被量到的量：`npx vitest run src/modules/chat/tests/voiceClipPlayback.test.tsx src/modules/chat/tests/voiceTranscriptRepair.test.tsx` 退出码 0（此前 5 + 2 例红，成因见 Evidence：两份替身把 `@/shared/api` 的面写成固定键，新接走的 `effectivePauseCuesDeclaration` 读成 `undefined`，采集路径第一行即抛）；同一命令须打印 20 例全绿，其中包含一条把默认态钉住的用例（开关打开、解码可用、无人声明 ⇒ 仍不裁）；取假形态：把默认声明从「无」改成授权裁剪 ⇒ 恰 1 例红且正是那条钉住默认态的用例，改回后 20 例全绿。
 
 ## DoD
 
@@ -310,11 +311,76 @@ $ echo $?
 
 `scripts/asr-trim-capability-check.mjs` 与其 `.test.mjs` 都不在本任务的 `## Touches` 内，本条无权修改；同因，两者也不在 scoped 门的文件集里（门只跑 Touches 的 `*.test.*`），`scripts/test.sh` 自身不跑 `scripts/**/*.test.mjs`（已核：`grep -n "test:scripts\|scripts/\*\*/\*.test" scripts/test.sh` 无命中），故本次 fan-in 不受影响。**AC-135 的判据需要由它的所有者按 provider 侧声明重新推导**（那是 `gap-asr-trim-capability-wiring` 的判据面，本任务只登记事实）。
 
+### AC10（续轮：两份麦克风替身跟上被接走的接缝 —— fan-in 套件红的真因）
+
+上一轮 fan-in 套件红 2 例，判词是
+
+```
+not ok - src/modules/chat/tests/voiceClipPlayback.test.tsx: AssertionError [ERR_ASSERTION]: the transcript still reaches the composer
+not ok - src/modules/chat/tests/voiceTranscriptRepair.test.tsx: AssertionError [ERR_ASSERTION]: the composer must be handed the project's real file name, not the recogniser's spelling
+# tests 213 / # pass 211 / # fail 2
+```
+
+真因**不是**这两条断言本身，是两份**手工复写 `@/shared/api` 面**的替身没有跟着长：hook 现在从该模块新接走 `effectivePauseCuesDeclaration`，而替身的 `vi.mock` 工厂返回的是固定键集合，于是
+
+```
+Transcription failed: [vitest] No "effectivePauseCuesDeclaration" export is defined on the "@/shared/api" mock. Did you forget to return it from "vi.mock"?
+```
+
+采集路径第一行即抛 ⇒ 转写文本根本到不了 composer，两条断言读到的是「什么都没发生」。这不是新形态：同一处的上一轮 `2506f8d3`（「test(voice): list the seam in the two module doubles that drive the mic」）就是同样成因、同样改法 —— 手工替身是模块面的**描述**，面长了描述就过时了。
+
+```
+$ npx vitest run src/modules/chat/tests/voiceClipPlayback.test.tsx src/modules/chat/tests/voiceTranscriptRepair.test.tsx
+× a finished recording lands in the clip slot
+× the trimmed upload lands beside the recording, as its own track
+× the two tracks never sound at once
+× a rejected play() returns the pill to idle and reports the error once
+× the replay controls exist only while a clip does, one per track, and rename themselves while playing
+   Test Files  1 failed (1)   Tests  5 failed | 12 passed (17)      ← voiceClipPlayback
+× a mis-heard name is repaired against the project the composer is open in
+× a sentence carrying no identifier arrives character for character
+   Test Files  1 failed (1)   Tests  2 failed (2)                   ← voiceTranscriptRepair
+$ echo $?
+1
+```
+
+**改法**（两份文件都已进 `## Touches`，故 AC10 覆盖到）：
+
+- `voiceTranscriptRepair.test.tsx` —— 按 `2506f8d3` 的先例直接取真访问器（`effectivePauseCuesDeclaration: actual.effectivePauseCuesDeclaration`）。该文件的主语是修复 join，不是谁答裁不裁；本仓没有发布 voice profile，它答「无可读声明」⇒ 原录音上传，正是那些读数被取的输入，而不是它们依赖的状态。
+- `voiceClipPlayback.test.tsx` —— 同样以真访问器作答，另加一个可变的声明位（`voiceProfile.declaration`）供用例**显式交出授权裁剪的声明**，因为该文件的主语正是那对轨道的 UI，而那对轨道只能由一份授权裁剪的声明产生。五条「裁」的用例改为同时交出开关与声明 —— 两者都必须说 yes，这才让「谁决定」在这一侧也可变。
+
+```
+$ npx vitest run src/modules/chat/tests/voiceClipPlayback.test.tsx src/modules/chat/tests/voiceTranscriptRepair.test.tsx
+ Test Files  2 passed (2)
+      Tests  20 passed (20)
+$ echo $?
+0
+```
+
+新增的第 18 例 `a recogniser that asks for nothing keeps the recording: the switch alone authorises nothing` 把**默认态本身**变成被量到的量：开关打开、解码可用、没有识别器声明 ⇒ 仍是原录音一条轨道（这也是出货配置的读数：唯一注册的适配器声明 `useful`，读到的上传体与原录音相同）。取假形态**实测**（只把默认声明改成授权裁剪，其余不动）：
+
+```
+$ # 把 beforeEach 里的 voiceProfile.declaration = null 改成 = TRIMS_PAUSES
+$ npx vitest run src/modules/chat/tests/voiceClipPlayback.test.tsx
+× a recogniser that asks for nothing keeps the recording: the switch alone authorises nothing 10ms
+ Test Files  1 failed (1)      Tests  1 failed | 17 passed (18)
+$ # 改回后：2 文件 20 例全绿
+```
+
+恰 1 例红，且正是那条钉住默认态的用例 —— 「开关打开就裁」这一读法在这里可红，而 AC6 的接线用例里也可红（那是另一次读数）。
+
+**其余读数在续轮后逐一复跑未变**：AC1 `verdict=pass`（`client-capability-table=none`）；AC2 树侧 `verdict=ok`（`client-declaration-rows=0`、`gate-reads-registry=yes (effectivePauseCuesDeclaration)`、`gate-retired-literal=absent`）；AC3 `node --test scripts/asr-pause-cues-source-check.test.mjs` 5/5；AC4 `grep -c` = 0；AC5 `src/` 去重后 0 文件、`shared/asr/` 10 命中；AC6 `ℹ tests 4 / pass 4 / fail 0` + vitest 3 文件 29 例；AC7 四组 `equal`、基线 sha `81f24ac8…` 未变；AC8 `npm run typecheck` / `npm run lint` 均退出 0（lint 只剩既有 warning）。旁证：`npx vitest run src/modules/chat/tests/` 全目录 44 文件 325 例全绿。
+
+**本续轮只动两份麦克风替身，未动生产代码**（`git diff --stat`：2 files changed, 79 insertions(+), 4 deletions(-)），故 AC9 登记的行为结论不变、没有新的行为差值。
+
+
 ## Touches
 
 - src/shared/voiceTrim.ts
 - src/modules/chat/hooks/useVoiceInput.ts
 - src/modules/chat/tests/voiceTrimCapabilityWiring.test.tsx
+- src/modules/chat/tests/voiceClipPlayback.test.tsx
+- src/modules/chat/tests/voiceTranscriptRepair.test.tsx
 - src/shared/api.ts
 - shared/asr/asrRegistry.ts
 - scripts/asr-pause-cues-source-check.mjs (new)
