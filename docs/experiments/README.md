@@ -35,6 +35,7 @@
 | 2026-09-22 | 风格化：双向负对照（标识符逐字保留 ×「确实发生了」） | [2026-09-22-voice-style-negative-control.md](./2026-09-22-voice-style-negative-control.md) |
 | 2026-09-22 | 配对质量：provider × 裁剪 × 上下文（n=8，含能红的负对照） | [2026-09-22-voice-provider-paired-quality.md](./2026-09-22-voice-provider-paired-quality.md) |
 | 2026-09-23 | Gemini 配对质量：multimodal × 裁剪 × 上下文 × 模型（n=8，`pauseCues: 'useful'` 的证据记录） | [2026-09-23-gemini.md](./2026-09-23-gemini.md) |
+| 2026-09-23 | **webm/opus 上传**的 ASR 候选：七个服务 × 裁剪 × 上下文 × 数字写法归一（n=8，单一运行，含能红的负对照） | [2026-09-23-webm-asr-candidates.md](./2026-09-23-webm-asr-candidates.md) |
 
 ## 工装
 
@@ -72,6 +73,7 @@ LANG_TARGET=en LEVELS=all CONDS=raw,trimFrozen,trimMild node tools/test10-punct-
 | `experiments/voice-style-negative-control/run.mjs` | 风格化（`style: written`）的双向负对照：离线控制、反假变体、真实服务读数（见 [2026-09-22-voice-style-negative-control.md](./2026-09-22-voice-style-negative-control.md)） | 协议第 3 条要求被测实现是**出货模块**，仓库外的工装 `import` 不到 `src/shared/identifierFidelity.ts`；且该任务由 `## Touches` 指定了这个路径。它没有音频语料，真实读数落在被 git 忽略的 `out/` |
 | `experiments/voice-provider-paired-quality/run.mjs` | provider × 裁剪 × 上下文的配对质量读数：离线重算配对表与负对照方向、七条自检变异、真实服务读数（见 [2026-09-22-voice-provider-paired-quality.md](./2026-09-22-voice-provider-paired-quality.md)） | 同上：协议第 3 条要求被测实现是**出货模块**（`src/shared/voiceTrim.ts`、`src/shared/identifierFidelity.ts`），且该任务由 `## Touches` 指定了这个路径 |
 | `experiments/voice-gemini-paired-quality/run.mjs` | **Gemini** × whisper 基线 × 裁剪 × 上下文 × 模型的配对质量读数：同上协议、同一批片段、七条自检变异、真实服务读数（见 [2026-09-23-gemini.md](./2026-09-23-gemini.md)） | 同上，且更强：协议第 3 条在这里要求被测实现是**出货适配器**本身 —— 每个 Gemini 条件都经 `shared/asr/list/multimodal/multimodal.asr-provider.ts#transcribe`（由 registry 解析）发出，工装不包装 `fetch`、不自己拼请求；该任务由 `## Touches` 指定了这个路径 |
+| `experiments/voice-webm-asr-paired-quality/run.mjs` | **七个候选服务 × webm/opus 上传 × 裁剪 × 上下文 × 数字写法归一**的配对质量读数：同一协议、同一批片段、七条自检变异、单一运行的真实服务读数（见 [2026-09-23-webm-asr-candidates.md](./2026-09-23-webm-asr-candidates.md)） | 同上前一条的理由，另加一条：本记录换的是**上传容器**，而容器转换必须由被测链路之外的工具完成并把字节钉住 —— webm 由主机 `ffmpeg`（`-fflags +bitexact -flags +bitexact`）编出，每条片段 × 每条裁剪列的 sha256 写进冻结快照、离线逐字节比对，缺 `ffmpeg` 就非零退出而**不**静默回退到 wav。OpenRouter/Groq 条件经 registry 解析出的出货 `openai-compatible` 适配器发出；DashScope 没有出货适配器，它的列在快照里如实标为 `runner-local wire (no shipped adapter)`；该任务由 `## Touches` 指定了这个路径 |
 
 ```bash
 # 离线负对照 + 正面控制（无网络，确定性）
@@ -91,6 +93,15 @@ node experiments/voice-gemini-paired-quality/run.mjs
 
 # 只打印所驱动的出货模块的绝对路径 + 符号名（AC：被测实现必须是出货模块）
 node experiments/voice-gemini-paired-quality/run.mjs --probe
+
+# webm 候选配对质量：离线从冻结快照重算全部读数 + 负对照 + 七条自检变异（不联网）
+node experiments/voice-webm-asr-paired-quality/run.mjs
+
+# 同上，只打印所驱动的出货模块的绝对路径与符号名，并断言冻结快照里没有 wav 上传记录
+node experiments/voice-webm-asr-paired-quality/run.mjs --probe
+
+# 把每条片段 × 每条裁剪列编码成 webm 并打印请求计划（要 ffmpeg；不联网、不用凭据）
+node experiments/voice-webm-asr-paired-quality/run.mjs --live --dry-run
 ```
 
 ### 仓库内**音频**（例外，逐条登记）
