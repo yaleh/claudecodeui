@@ -32,7 +32,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { FIXTURE_FILES } from './asr-pause-cues-source-check.mjs';
+import { FIXTURE_FILES, registryDeclarations } from './asr-pause-cues-source-check.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
@@ -57,6 +57,23 @@ const OPPOSING_VALUE = 'useful';
 /** The judgement the probe has to reach on a disagreement, and the literal AC4 retires. */
 const MISMATCH = '客户端声明的 `pauseCues` 与 registry 对当前 provider 的声明不一致';
 const RETIRED_LITERAL = 'OPENAI_COMPATIBLE_PROVIDER';
+
+/**
+ * The paired experiment each registered provider's declaration rests on (ADR-004 decision 1).
+ *
+ * TWO PROVIDERS, TWO RECORDS. The obligation decision 1 states is on the PROVIDER: a
+ * non-destructive value may only change what gets uploaded on the strength of *that provider's own*
+ * paired measurement. `scripts/asr-trim-capability-check.mjs`'s `discipline` check enforces that the
+ * named record EXISTS, and an existence check cannot tell a record about this service from a record
+ * about another one — so both rows naming one run passes it while leaving half the claim unmeasured.
+ * That is the shape the case below draws.
+ */
+const WHISPER_RECORD = 'docs/experiments/2026-09-22-voice-provider-paired-quality.md';
+const MULTIMODAL_RECORD = 'docs/experiments/2026-09-23-gemini.md';
+const MULTIMODAL_PROVIDER = 'multimodal';
+/** The registry row as it ships, and the retargeting the falsification case applies to it. */
+const MULTIMODAL_EVIDENCE_ROW = `  [multimodalId]: '${MULTIMODAL_RECORD}',`;
+const MULTIMODAL_EVIDENCE_ROW_RETARGETED = `  [multimodalId]: '${WHISPER_RECORD}',`;
 
 /** Where a client-side declaration is installed: immediately before the read point it would feed. */
 const READ_POINT = 'export function trimDecisionFor(capability: PauseCues): TrimDecision {';
@@ -204,4 +221,46 @@ test('a tree whose registry cannot be read reds rather than passing an empty sca
   assert.notEqual(status, 0, `the registry was gone and the probe passed:\n${stdout}`);
   assert.match(stdout, /^verdict=fail$/m);
   assert.ok(stdout.includes(REGISTRY), stdout);
+});
+
+test('every registered provider names its OWN paired experiment (ADR-004 decision 1)', () => {
+  const { providers, error } = registryDeclarations(REPO_ROOT);
+  assert.equal(error, null, `the registry's declarations could not be read: ${error}`);
+
+  const evidence = new Map(providers.map((row) => [row.id, row.evidence]));
+  // The non-destructive declaration is the one decision 1 is about: `destructive` is the shipped
+  // default and needs no measurement, every other value changes what leaves the machine.
+  assert.equal(
+    evidence.get(MULTIMODAL_PROVIDER),
+    MULTIMODAL_RECORD,
+    `${MULTIMODAL_PROVIDER} declares a non-destructive pauseCues; its record must be the run it was measured in`,
+  );
+  assert.equal(evidence.get(EFFECTIVE_PROVIDER), WHISPER_RECORD, `${EFFECTIVE_PROVIDER} must keep its own record`);
+
+  // The judgement itself, stated as the count rather than as two comparisons: with `n` providers and
+  // `n` distinct records, no row is resting on a measurement of a different service. A per-row check
+  // would go on passing if a third provider were added pointing at one of these two.
+  const distinct = new Set(evidence.values());
+  assert.equal(
+    distinct.size,
+    evidence.size,
+    `two providers rest on the same paired experiment (${[...evidence.entries()].map(([id, e]) => `${id}->${e}`).join(', ')}) — decision 1 obliges the provider, so one of them is unmeasured`,
+  );
+});
+
+test('a provider\'s evidence row retargeted at another provider\'s record is visible in the reading', (t) => {
+  const root = greenRig(t);
+
+  patch(root, REGISTRY, MULTIMODAL_EVIDENCE_ROW, MULTIMODAL_EVIDENCE_ROW_RETARGETED);
+  const { providers } = registryDeclarations(root);
+  const evidence = new Map(providers.map((row) => [row.id, row.evidence]));
+
+  // The reading followed the tree. Without this half the case above could be asserting a constant
+  // and never opening the registry at all.
+  assert.equal(
+    evidence.get(MULTIMODAL_PROVIDER),
+    WHISPER_RECORD,
+    `the reading did not follow the mutated row (${evidence.get(MULTIMODAL_PROVIDER)})`,
+  );
+  assert.equal(new Set(evidence.values()).size, 1, 'the two rows now name one record — the shape this case exists to catch');
 });

@@ -10,7 +10,7 @@
 ## 协议（新增实验必须遵守）
 
 1. **配对比较，不跨运行比较。** 所有条件在同一批片段上跑；某个条件少返回一条就缩小配对集合，而不是和另一个集合比。每条读数旁边打印 `n`。
-2. **必须有能红的负对照。** 一个永远为绿的判据没有测量任何东西。本目录的 `flat`（去掉句末标点的同一个 prompt）就是这种对照：它必须**相对 `none` 下降**，否则「prompt 的标点被镜像」这个解释不成立。
+2. **必须有能红的负对照。** 一个永远为绿的判据没有测量任何东西。本目录的 `flat`（去掉句末标点的同一个 prompt）就是这种对照：它必须**相对「只差被检验的那一个变量」的参照条件按预测方向移动**，否则那个解释不成立。预测必须在取数**之前**写下来，参照条件是哪一个由每份记录自己声明 —— 关键是**单变量**：`2026-09-22-voice-provider-paired-quality.md` 声明的参照是 `none`（在那一份里被测 provider 不接受上下文，`none`/`punct`/`flat` 三个条件发出去的请求逐字节相同，那一格的位移是采样噪声）；`2026-09-23-gemini.md` 声明的参照是 `punct`（那里上下文真的被接受，`none` 与 `flat` 之间换的是两个变量）。
 3. **被测实现必须是出货模块。** 用绝对路径 import 仓库里的实现（`src/shared/voiceTrim.ts`、`src/shared/identifierFidelity.ts`），**不得在工装里放第二份算法**。这条代价已经付过一次（AC-113 的旧判据量的是副本，与出货模块 16 条里 6 条不一致）。
 4. **指标自己先自测。** 每个计数口径都要有若干已知答案的用例，包含**中文用例**。本目录的第一版蒙版正则在英文上正确、在中文上把整句删空 —— 只测英文会得到一个干净且完全错误的结论。
 5. **不能拿参考文本当标点真值。** 语料脚本本身不带句末标点（`Change the timeout … to thirty seconds`），所以「标点准确率」不可计算，只能做条件间配对比较；标点**位置**是否合理靠人读配对文本判断。
@@ -34,6 +34,7 @@
 | 2026-09-22 | 标点：prompt 偏置与停顿上限 | [2026-09-22-voice-punctuation.md](./2026-09-22-voice-punctuation.md) |
 | 2026-09-22 | 风格化：双向负对照（标识符逐字保留 ×「确实发生了」） | [2026-09-22-voice-style-negative-control.md](./2026-09-22-voice-style-negative-control.md) |
 | 2026-09-22 | 配对质量：provider × 裁剪 × 上下文（n=8，含能红的负对照） | [2026-09-22-voice-provider-paired-quality.md](./2026-09-22-voice-provider-paired-quality.md) |
+| 2026-09-23 | Gemini 配对质量：multimodal × 裁剪 × 上下文 × 模型（n=8，`pauseCues: 'useful'` 的证据记录） | [2026-09-23-gemini.md](./2026-09-23-gemini.md) |
 
 ## 工装
 
@@ -70,6 +71,7 @@ LANG_TARGET=en LEVELS=all CONDS=raw,trimFrozen,trimMild node tools/test10-punct-
 |---|---|---|
 | `experiments/voice-style-negative-control/run.mjs` | 风格化（`style: written`）的双向负对照：离线控制、反假变体、真实服务读数（见 [2026-09-22-voice-style-negative-control.md](./2026-09-22-voice-style-negative-control.md)） | 协议第 3 条要求被测实现是**出货模块**，仓库外的工装 `import` 不到 `src/shared/identifierFidelity.ts`；且该任务由 `## Touches` 指定了这个路径。它没有音频语料，真实读数落在被 git 忽略的 `out/` |
 | `experiments/voice-provider-paired-quality/run.mjs` | provider × 裁剪 × 上下文的配对质量读数：离线重算配对表与负对照方向、七条自检变异、真实服务读数（见 [2026-09-22-voice-provider-paired-quality.md](./2026-09-22-voice-provider-paired-quality.md)） | 同上：协议第 3 条要求被测实现是**出货模块**（`src/shared/voiceTrim.ts`、`src/shared/identifierFidelity.ts`），且该任务由 `## Touches` 指定了这个路径 |
+| `experiments/voice-gemini-paired-quality/run.mjs` | **Gemini** × whisper 基线 × 裁剪 × 上下文 × 模型的配对质量读数：同上协议、同一批片段、七条自检变异、真实服务读数（见 [2026-09-23-gemini.md](./2026-09-23-gemini.md)） | 同上，且更强：协议第 3 条在这里要求被测实现是**出货适配器**本身 —— 每个 Gemini 条件都经 `shared/asr/list/multimodal/multimodal.asr-provider.ts#transcribe`（由 registry 解析）发出，工装不包装 `fetch`、不自己拼请求；该任务由 `## Touches` 指定了这个路径 |
 
 ```bash
 # 离线负对照 + 正面控制（无网络，确定性）
@@ -83,6 +85,12 @@ node experiments/voice-style-negative-control/run.mjs --replay
 
 # 配对质量：离线从冻结快照重算全部读数 + 负对照方向 + 七条自检变异（不联网）
 node experiments/voice-provider-paired-quality/run.mjs
+
+# Gemini 配对质量：同一批片段，被测实现是出货的 multimodal 适配器（不联网）
+node experiments/voice-gemini-paired-quality/run.mjs
+
+# 只打印所驱动的出货模块的绝对路径 + 符号名（AC：被测实现必须是出货模块）
+node experiments/voice-gemini-paired-quality/run.mjs --probe
 ```
 
 ### 仓库内**音频**（例外，逐条登记）
@@ -94,4 +102,6 @@ node experiments/voice-provider-paired-quality/run.mjs
 | `experiments/voice-provider-paired-quality/fixtures/d01..d08-o65.wav`（8 条，3.9 MB） | 配对质量实验的固定片段 | 冻结快照 `fixtures/paired.json` 里的**每个数字**（句读、CER、标识符、`savedRatio`、音频哈希）都要能在这个仓库里离线重算，而重算必须**重新解码原始音频**（对应关系检查还会用出货模块重新编码并比对 sha256）。语料全集（o65 档 16 条 × 多档）仍在仓库外，只有这 8 条固定片段进来 |
 
 `fixtures/paired.json` 是**读数原文**不是缓存（缓存 `out/` 被 git 忽略）—— 记录里的表格全部由它离线重算，`--live` 取新读数才需要凭据。
+
+这 8 条片段**一份语料一个家**：Gemini 的记录（`experiments/voice-gemini-paired-quality/`）**不复制**它们，它从 `../voice-provider-paired-quality/fixtures/` 原地读音频与参考文本，并在自己的冻结快照里记下每条片段 × 每条裁剪列的 sha256 —— 离线重算时会用出货模块重新编码并逐字节比对，所以「两份记录的数字在同一批片段上」这句话是可机检的，而不是靠人记得。跨记录比较前仍请读上面那条口径分歧。
 

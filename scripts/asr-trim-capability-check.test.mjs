@@ -43,6 +43,13 @@ const DECLARING_MODULE = 'src/shared/voiceTrim.ts';
 const CONSUMER = 'src/modules/chat/hooks/useVoiceInput.ts';
 const SWITCH = 'src/shared/voiceDebug.ts';
 const EVIDENCE = 'docs/experiments/2026-09-22-voice-provider-paired-quality.md';
+/**
+ * The record the OTHER registered provider's row names. The discipline check reads every row, not
+ * just the effective one, so a fixture carrying the registry without this file reds the `discipline`
+ * check before any case under test runs — and the two records are deliberately different files,
+ * because decision 1 is a per-provider obligation.
+ */
+const SECOND_EVIDENCE = 'docs/experiments/2026-09-23-gemini.md';
 /** Where the declarations live now: the adapter module of the recogniser registered FIRST. */
 const FIRST_ADAPTER = 'shared/asr/list/openai-compatible/openai-compatible.asr-provider.ts';
 const REGISTRY = 'shared/asr/asrRegistry.ts';
@@ -58,6 +65,7 @@ const SHIPPING_FILES = [
   CONSUMER,
   SWITCH,
   EVIDENCE,
+  SECOND_EVIDENCE,
   REGISTRY,
   FIRST_ADAPTER,
   'shared/asr/list/multimodal/multimodal.asr-provider.ts',
