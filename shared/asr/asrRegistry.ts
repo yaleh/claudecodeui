@@ -238,3 +238,66 @@ export function resolve(providerId: AsrProviderId): AsrAdapter {
   if (adapter === null) throw new UnknownAsrProviderError(providerId);
   return adapter;
 }
+
+// ── the pause-cue declaration, as an identity plus its value ──────────────────────────────────
+
+/**
+ * One registered provider's own declaration of what trimming does to its pauses, carrying the
+ * provider id beside the value.
+ *
+ * WHY THE ID TRAVELS WITH THE VALUE. `AsrCapabilities.pauseCues` is a bare value; a caller that
+ * carries it around on its own loses which recogniser it was read from, and two abilities read
+ * from two providers become two interchangeable strings. Everything downstream that has to say
+ * *whose* capability it acted on — a reading, a log line, an error — needs the pair.
+ *
+ * The field is `capability` rather than a repeat of the capability's name so that the CLIENT side
+ * has no text of the form `pauseCues: <value>` anywhere in it: the declaration lives on the
+ * provider side (in `AsrCapabilities`), and a client that spelled the vocabulary again — even to
+ * re-publish a value it was handed — is the second table this seam exists to not have.
+ */
+export type PauseCuesDeclaration = {
+  provider: AsrProviderId;
+  /** The provider's own `AsrCapabilities.pauseCues`, verbatim. */
+  capability: AsrCapabilities['pauseCues'];
+  /** The paired experiment a non-default value rests on (ADR-004 decision 1). */
+  evidence?: string;
+};
+
+/**
+ * The paired experiment each registered provider's declaration rests on, keyed by provider id.
+ *
+ * A declared value that is not the shipped default is a CLAIM: ADR-004 decision 1 lets a provider
+ * change what gets uploaded, but only on the strength of that provider's own paired measurement,
+ * so the record is named beside the declaration rather than left implicit in a commit message.
+ * The lookups that read it — `scripts/asr-pause-cues-source-check.mjs` and
+ * `scripts/asr-trim-capability-check.mjs` — require the named file to exist.
+ */
+const PAUSE_CUES_EVIDENCE: Readonly<Record<string, string>> = {
+  [multimodalId]: 'docs/experiments/2026-09-22-voice-provider-paired-quality.md',
+};
+
+/**
+ * The pause-cue declaration of the adapter registered under `providerId`, or `null` when nothing
+ * is registered under it.
+ *
+ * THIS IS A LOOKUP, NOT A TABLE. The value returned is the adapter's own `capabilities.pauseCues`,
+ * read off the declaration the adapter module exports, so there is exactly one place a provider's
+ * answer to 裁不裁 can be written down and no way for a caller to hold a different one.
+ *
+ * `null` RATHER THAN A DEFAULT ROW, deliberately, and the difference matters: a default row makes
+ * an id nobody registered answerable — a caller that mistyped a provider id, or read one from a
+ * version that had since changed, would get the shipped behaviour and never learn it was asking
+ * about a provider that does not exist. The caller decides what an unnameable provider means for
+ * its own action; for a trim the only safe answer is "do not change the audio".
+ */
+export function pauseCuesDeclarationFor(providerId: AsrProviderId): PauseCuesDeclaration | null {
+  const adapter = tryResolve(providerId);
+  if (adapter === null) {
+    return null;
+  }
+  return {
+    provider: adapter.id,
+    capability: adapter.capabilities.pauseCues,
+    evidence: PAUSE_CUES_EVIDENCE[adapter.id],
+  };
+}

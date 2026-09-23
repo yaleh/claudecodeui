@@ -14,8 +14,13 @@ import {
 } from '@shared/asr/transcriptionWire';
 // The provider address book, the same table the server's health reading republishes. The
 // browser asks it whether an id exists rather than keeping its own list of the ids it knows.
-import type { AsrCapabilities } from '@shared/asr/asrRegistry';
-import { baseMimeType, declaredAcceptsMime, tryResolve } from '@shared/asr/asrRegistry';
+import type { AsrCapabilities, PauseCuesDeclaration } from '@shared/asr/asrRegistry';
+import {
+  baseMimeType,
+  declaredAcceptsMime,
+  pauseCuesDeclarationFor,
+  tryResolve,
+} from '@shared/asr/asrRegistry';
 
 // Headers are a plain record rather than the full `HeadersInit` union so the
 // defaults below can be merged with a caller's headers by spreading.
@@ -626,6 +631,33 @@ let voiceProviderProfile: { id: string; capabilities: AsrCapabilities } | null =
  */
 export function setVoiceProviderProfile(profile: { id: string; capabilities: AsrCapabilities } | null): void {
   voiceProviderProfile = profile;
+}
+
+/**
+ * The pause-cue declaration of the provider a recording will actually be transcribed by, or
+ * `null` when this build cannot name one.
+ *
+ * THE PROVIDER ID COMES FROM THE SAME READING THE UPLOAD ROUTES ON: the health payload's
+ * effective provider, which the server derives from the user's stored configuration over the
+ * server's own environment — the same id `transcribeVoice` below refuses an upload for. That is
+ * deliberate. A trim gate that named its own provider would be answering about a recogniser the
+ * request is not being sent to, which is exactly what the removed `OPENAI_COMPATIBLE_PROVIDER`
+ * literal did: it named an id nothing is registered under, so the answer it produced said nothing
+ * about the service on the other end.
+ *
+ * `null` RATHER THAN A DEFAULT DECLARATION, and the caller treats it as "leave the audio alone":
+ * the value is only knowable once the health reading has published a profile, and an id the
+ * registry does not claim has no declaration to read. Inventing one would recreate the second
+ * source of truth this accessor exists to remove — and the action it would authorise is the
+ * destructive one.
+ */
+export function effectivePauseCuesDeclaration(): PauseCuesDeclaration | null {
+  const profile = voiceProviderProfile;
+  if (!profile) {
+    return null;
+  }
+
+  return pauseCuesDeclarationFor(profile.id);
 }
 
 /**

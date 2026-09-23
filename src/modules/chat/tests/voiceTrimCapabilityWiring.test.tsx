@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, test, vi } from 'vitest';
 
+import type { PauseCuesDeclaration } from '@shared/asr/asrRegistry';
+
 import { useVoiceInput } from '@/modules/chat/hooks/useVoiceInput';
 import type * as SharedApi from '@/shared/api';
-// Type-only, so it is erased before vi.mock's hoisted factory runs.
-import type * as VoiceTrim from '@/shared/voiceTrim';
 
 /**
  * Whether a recording is trimmed is the *recogniser's* declaration, not this hook's opinion.
@@ -18,13 +18,24 @@ import type * as VoiceTrim from '@/shared/voiceTrim';
  * runs**. So the readings are the two containers the chain can upload: the recording as it arrived,
  * or the re-encoded WAV the trim produced.
  *
- * The capability itself is driven through the one seam that exists — the read point's answer — and
- * the real read point is what answers when a case leaves that seam alone. So a case flipping the
- * seam is asking exactly the question AC-135 is about: with the capability saying "keep the
- * pauses", does anything else still put a trimmed clip on the wire?
+ * THE DECLARATION IS DRIVEN WHERE THE HOOK ASKS FOR IT: `effectivePauseCuesDeclaration()` in the
+ * shared API module, which is the same accessor the shipping hook calls and which reads the
+ * provider id off the health reading's published profile. Nothing here re-declares a capability or
+ * re-implements the mapping — the real `trimDecisionFor` runs in every case below, and the third
+ * case is the positive control for it: with the switch on, the decoder working and the trim ready
+ * to run, a recogniser whose pauses are worth keeping still gets its recording uploaded untouched.
  */
 
 const { transcribeVoice } = vi.hoisted(() => ({ transcribeVoice: vi.fn() }));
+
+/**
+ * The recogniser's declaration, as the cases drive it: `null` is the "no declaration to read"
+ * state — the health reading has not landed, or names an id the registry does not claim — which
+ * must leave the recording alone rather than fall back to a shipped row.
+ */
+const { voiceProfile } = vi.hoisted(() => ({
+  voiceProfile: { declaration: null as null | PauseCuesDeclaration },
+}));
 
 vi.mock('@/shared/api', async (importOriginal) => {
   const actual = await importOriginal<typeof SharedApi>();
@@ -34,23 +45,9 @@ vi.mock('@/shared/api', async (importOriginal) => {
     // No I/O, and it is the same parse the shipping hook performs — a second copy here would be a
     // second copy of the thing under test.
     parseTranscriptionResponse: actual.parseTranscriptionResponse,
-  };
-});
-
-/**
- * The recogniser's declared capability, as the cases drive it: `null` leaves the real read point
- * in place, so the shipping declaration is what the hook reads.
- */
-const { capabilityOverride } = vi.hoisted(() => ({
-  capabilityOverride: { decision: null as null | VoiceTrim.TrimDecision },
-}));
-
-vi.mock('@/shared/voiceTrim', async (importOriginal) => {
-  const actual = await importOriginal<typeof VoiceTrim>();
-  return {
-    ...actual,
-    trimDecisionFor: (pauseCues: VoiceTrim.PauseCues) =>
-      capabilityOverride.decision ?? actual.trimDecisionFor(pauseCues),
+    // The one seam the capability arrives through, and the shipping accessor is what answers when
+    // a case leaves it alone.
+    effectivePauseCuesDeclaration: () => voiceProfile.declaration,
   };
 });
 
@@ -114,10 +111,16 @@ const uploadAFile = async () => {
   return view;
 };
 
+/** A declaration, built where the vocabulary lives — this file never spells the capability's key. */
+const declaring = (capability: PauseCuesDeclaration['capability']): PauseCuesDeclaration => ({
+  provider: 'fixture-recogniser',
+  capability,
+});
+
 beforeEach(() => {
   transcribeVoice.mockReset();
   transcribeVoice.mockResolvedValue({ ok: true, json: async () => ({ text: 'hello' }) });
-  capabilityOverride.decision = null;
+  voiceProfile.declaration = declaring('destructive');
   voiceFlags.trim = true;
 });
 
@@ -145,12 +148,26 @@ test('the capability alone decides: a recogniser whose pauses are worth keeping 
   // The capability's own other value, and nothing else changed — the switch is on, the decoder
   // works, the trim would run. This is the positive control for the two cases above: if it were
   // the switch or the decoder deciding, this upload would still be a WAV.
-  capabilityOverride.decision = { pauseCues: 'useful', trim: false };
+  voiceProfile.declaration = declaring('useful');
 
   await uploadAFile();
 
   const { body, filename } = uploaded();
   assert.equal(body.type, 'audio/webm', 'the trim ran against the recogniser\'s own declaration');
+  assert.equal(filename, 'take.webm');
+  assert.equal(body.size, RECORDING_BYTES);
+});
+
+test('a recogniser with no readable declaration is not trimmed: an unknown service gets the audio as recorded', async () => {
+  // The fail-closed arm. The trim changes the audio, so a provider this build cannot name — an
+  // unregistered id, or a health reading that never landed — must not authorise it, and must not
+  // be answered from a shipped row kept here for the purpose.
+  voiceProfile.declaration = null;
+
+  await uploadAFile();
+
+  const { body, filename } = uploaded();
+  assert.equal(body.type, 'audio/webm', 'an unnameable recogniser was trimmed anyway');
   assert.equal(filename, 'take.webm');
   assert.equal(body.size, RECORDING_BYTES);
 });

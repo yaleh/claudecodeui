@@ -1,0 +1,200 @@
+#!/usr/bin/env node
+/**
+ * The falsification controls for scripts/asr-pause-cues-source-check.mjs.
+ *
+ * WHAT EACH CASE IS FOR. The probe's judgement is a comparison: the value the client would act on
+ * against the value the registry declares for the effective provider. A probe like that can be
+ * wrong in two opposite ways, and a control is needed for each:
+ *
+ *   · it reds on trees it should not — the control is a rig whose client declaration EQUALS the
+ *     registry's, which has to stay green. A probe that reds on any client-side table would pass
+ *     every "it must be red" case below while being useless.
+ *   · it stays green on trees it should red — the control is the same rig with that one value
+ *     changed to the registry's opposite, which has to red and to say which two values disagreed.
+ *
+ * Both cases drive the SAME rig, and both assert green on it BEFORE the mutation. That ordering is
+ * the whole of the evidence: it rules out a red that came from the fixture being broken rather
+ * than from the mutation, and it makes the two cases differ by exactly one string.
+ *
+ * THE FIXTURE IS COPIED FROM THE SHIPPING FILES, never re-typed, and it is the probe's own
+ * `FIXTURE_FILES` list that says which ones. A hand-written stub would prove the probe reads the
+ * stub; a fixture checked into the repository would be a second copy of the very declaration this
+ * criterion is about.
+ *
+ * Run with: node --test scripts/asr-pause-cues-source-check.test.mjs
+ */
+
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+
+import { FIXTURE_FILES } from './asr-pause-cues-source-check.mjs';
+
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
+const PROBE = path.join(SCRIPT_DIR, 'asr-pause-cues-source-check.mjs');
+
+const REGISTRY = 'shared/asr/asrRegistry.ts';
+const VOICE_TRIM = 'src/shared/voiceTrim.ts';
+const GATE = 'src/modules/chat/hooks/useVoiceInput.ts';
+
+/** The provider the shipped configuration sends to, and the two capability values that oppose. */
+const EFFECTIVE_PROVIDER = 'multimodal';
+const KEEP_VALUE = 'useful';
+const TRIM_VALUE = 'destructive';
+
+/** The judgement the probe has to reach on a disagreement, and the literal AC4 retires. */
+const MISMATCH = '客户端声明的 `pauseCues` 与 registry 对当前 provider 的声明不一致';
+const RETIRED_LITERAL = 'OPENAI_COMPATIBLE_PROVIDER';
+
+/** Where a client-side declaration is installed: immediately before the read point it would feed. */
+const READ_POINT = 'export function trimDecisionFor(capability: PauseCues): TrimDecision {';
+
+/** A client-side table, of exactly the shape the probe's scan is written to find. */
+const CLIENT_TABLE = [
+  '/** A client-side declaration of the capability, of the shape this check reads. */',
+  'export const PAUSE_CUES_DECLARATIONS = [',
+  `  { provider: '${EFFECTIVE_PROVIDER}', pauseCues: '${KEEP_VALUE}' },`,
+  '];',
+].join('\n');
+
+/** The one row above, as the value-change case rewrites it. */
+const ROW = `  { provider: '${EFFECTIVE_PROVIDER}', pauseCues: '${KEEP_VALUE}' },`;
+const ROW_OPPOSING = `  { provider: '${EFFECTIVE_PROVIDER}', pauseCues: '${TRIM_VALUE}' },`;
+
+/** The gate's shipping line, and the pre-fix line that names the retired literal instead. */
+const GATE_READS_REGISTRY = '  const recogniser = effectivePauseCuesDeclaration();';
+const GATE_NAMES_LITERAL = `  const recogniser = pauseCuesFor(${RETIRED_LITERAL});`;
+
+/** @returns {string} a rig copied from the shipping files the probe declares */
+function buildRig() {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'asr-pause-cues-source-'));
+  for (const relativePath of FIXTURE_FILES) {
+    const destination = path.join(root, relativePath);
+    mkdirSync(path.dirname(destination), { recursive: true });
+    cpSync(path.join(REPO_ROOT, relativePath), destination);
+  }
+  return root;
+}
+
+/**
+ * @param {string} root
+ * @returns {{ status: number | null, stdout: string }}
+ */
+function runProbe(root) {
+  const result = spawnSync(process.execPath, [PROBE, '--root', root], { encoding: 'utf8' });
+  assert.equal(result.error, undefined, `the probe could not be started: ${result.error?.message}`);
+  return { status: result.status, stdout: result.stdout };
+}
+
+/**
+ * Replaces `from` with `to` in a rig file, requiring exactly one occurrence — a mutation that
+ * matched nothing (because the shipping source moved on) would leave the case asserting about an
+ * unmutated tree, and would read as a probe that cannot be reddened at all.
+ *
+ * @param {string} root
+ * @param {string} relativePath
+ * @param {string} from
+ * @param {string} to
+ */
+function patch(root, relativePath, from, to) {
+  const file = path.join(root, relativePath);
+  const source = readFileSync(file, 'utf8');
+  const occurrences = source.split(from).length - 1;
+  assert.equal(occurrences, 1, `the mutation does not match ${relativePath} exactly once (${occurrences})`);
+  writeFileSync(file, source.replace(from, to));
+}
+
+/**
+ * A rig whose probe run is green — the state every mutation below starts from.
+ *
+ * @param {import('node:test').TestContext} t
+ * @returns {string} the rig root
+ */
+function greenRig(t) {
+  const root = buildRig();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const before = runProbe(root);
+  assert.equal(before.status, 0, `the rig is not green before any mutation:\n${before.stdout}`);
+  return root;
+}
+
+/**
+ * Installs a client-side table that agrees with the registry, and requires the probe to still pass
+ * — so the disagreement case below differs from this one by a single value and not by a table.
+ *
+ * @param {string} root
+ * @returns {{ status: number | null, stdout: string }}
+ */
+function installAgreeingTable(root) {
+  patch(root, VOICE_TRIM, READ_POINT, `${CLIENT_TABLE}\n${READ_POINT}`);
+  const after = runProbe(root);
+  assert.equal(after.status, 0, `a client table that agrees with the registry was refused:\n${after.stdout}`);
+  return after;
+}
+
+test('the shipping tree passes: the client declares nothing and reads the registry', () => {
+  const { status, stdout } = runProbe(REPO_ROOT);
+
+  assert.equal(status, 0, stdout);
+  // The readings the pass rests on, so a green that came from an empty scan cannot hide here:
+  // the registry side was read, and the gate was found reaching it.
+  assert.match(stdout, /^registry-pauseCues=useful$/m);
+  assert.match(stdout, /^client-declaration-rows=0$/m);
+  assert.match(stdout, /^gate-reads-registry=yes \(/m);
+  assert.match(stdout, /^verdict=ok$/m);
+});
+
+test('a client table whose value EQUALS the registry stays green', (t) => {
+  const root = greenRig(t);
+
+  const { status, stdout } = installAgreeingTable(root);
+
+  assert.equal(status, 0, stdout);
+  assert.match(stdout, /^client-declaration-rows=1$/m);
+  assert.match(stdout, /^client-pauseCues=useful$/m);
+  assert.match(stdout, /^verdict=ok$/m);
+});
+
+test('the same rig, with only that value changed to the registry\'s opposite, reds', (t) => {
+  const root = greenRig(t);
+  installAgreeingTable(root);
+
+  patch(root, VOICE_TRIM, ROW, ROW_OPPOSING);
+  const { status, stdout } = runProbe(root);
+
+  assert.notEqual(status, 0, `the client disagreed with the registry and the probe passed:\n${stdout}`);
+  assert.ok(stdout.includes(MISMATCH), stdout);
+  // Both values verbatim, and which provider they are about: the judgement is only actionable if
+  // the reader can see what disagreed with what without opening either file.
+  assert.ok(
+    stdout.includes(`client=${TRIM_VALUE} registry=${KEEP_VALUE} provider=${EFFECTIVE_PROVIDER}`),
+    stdout,
+  );
+});
+
+test('AC4: writing the retired literal back into the gate reds it', (t) => {
+  const root = greenRig(t);
+
+  patch(root, GATE, GATE_READS_REGISTRY, GATE_NAMES_LITERAL);
+  const { status, stdout } = runProbe(root);
+
+  assert.notEqual(status, 0, `the gate named ${RETIRED_LITERAL} and the probe passed:\n${stdout}`);
+  assert.match(stdout, new RegExp(`^gate-retired-literal=${RETIRED_LITERAL}$`, 'm'));
+  assert.match(stdout, /^gate-reads-registry=no$/m);
+});
+
+test('a tree whose registry cannot be read reds rather than passing an empty scan', (t) => {
+  const root = greenRig(t);
+
+  rmSync(path.join(root, REGISTRY));
+  const { status, stdout } = runProbe(root);
+
+  assert.notEqual(status, 0, `the registry was gone and the probe passed:\n${stdout}`);
+  assert.match(stdout, /^verdict=fail$/m);
+  assert.ok(stdout.includes(REGISTRY), stdout);
+});

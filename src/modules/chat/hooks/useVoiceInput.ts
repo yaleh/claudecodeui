@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { decodeVoiceBlob, encodeWavBlob } from '@/modules/chat/utils/audioDecode';
 import { voicePlayer } from '@/modules/chat/utils/voicePlayer';
-import { transcribeVoice } from '@/shared/api';
+import { effectivePauseCuesDeclaration, transcribeVoice } from '@/shared/api';
 import { identifierFidelity } from '@/shared/identifierFidelity';
 import { repairIdentifiers } from '@/shared/identifierRepair';
 import type {
@@ -12,12 +12,7 @@ import type {
   VoiceInputState,
 } from '@/shared/types';
 import { isVoiceDebugEnabled, isVoiceTrimEnabled } from '@/shared/voiceDebug';
-import {
-  OPENAI_COMPATIBLE_PROVIDER,
-  pauseCuesFor,
-  trimDecisionFor,
-  trimVoiceAudio,
-} from '@/shared/voiceTrim';
+import { trimDecisionFor, trimVoiceAudio } from '@/shared/voiceTrim';
 // The recogniser's answer is read by the same module that built the request — the
 // repository-root shared tree the server and the CLI compile.
 import { parseTranscriptionResponse } from '@shared/asr/transcriptionWire';
@@ -222,11 +217,22 @@ async function prepareUpload(
   const recorded = { ...asRecorded, body: blob, reading: unmeasured(source), trimmed: null };
   // Whether this recogniser's silence is worth removing is the recogniser's own declaration
   // (ADR-004 decision 1), read at its one read point; the switch is the user's and only ever turns
-  // a trim off. Both have to say yes. That is what makes "裁不裁" a property of the service rather
-  // than of this hook — and it is also why the shipped default is unchanged: the recogniser this
-  // build talks to declares its pauses destructive.
-  const recogniser = pauseCuesFor(OPENAI_COMPATIBLE_PROVIDER);
-  if (!isVoiceTrimEnabled() || !trimDecisionFor(recogniser.pauseCues).trim) return recorded;
+  // a trim off. Both have to say yes.
+  //
+  // The declaration is asked for BY THE ID THE REQUEST WILL BE SENT UNDER — the health reading's
+  // effective provider, the same one `transcribeVoice` routes on — rather than by an id written
+  // here. This hook used to name `openai-compatible` itself, an id nothing is registered under,
+  // and got an answer out of a table of its own; the recogniser the recording actually reaches is
+  // a different one and had declared the opposite. Asking the registry by the effective id is what
+  // makes 裁不裁 a property of the service rather than of this hook.
+  //
+  // No declaration to read — the health reading has not landed yet, or names an id no adapter
+  // claims — is not a reason to trim: the trim changes the audio, so an unknown recogniser gets
+  // the recording as it arrived.
+  const recogniser = effectivePauseCuesDeclaration();
+  if (!isVoiceTrimEnabled() || recogniser === null || !trimDecisionFor(recogniser.capability).trim) {
+    return recorded;
+  }
 
   const decoded = await decodeVoiceBlob(blob);
   if (!decoded) return recorded;
