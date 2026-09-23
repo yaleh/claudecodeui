@@ -1,7 +1,7 @@
 ---
 id: gap-voice-dual-replay-absent-under-shipped-recogniser
 title: 录音槽只剩一条回放：裁剪默认翻面后第二回放消失，登记恢复后两条必须重新并存
-status: ready
+status: done
 labels:
   - gap
   - defect
