@@ -132,8 +132,8 @@ AC4 读的是请求体里的 `"temperature":0` 与 `"thinkingBudget":0`（`gemin
           Tests  37 passed (37)
 
     $ node --test scripts/asr-contract-invariants-check.test.mjs scripts/asr-second-adapter-check.test.mjs
-    ℹ tests 18
-    ℹ pass 18
+    ℹ tests 19
+    ℹ pass 19
     ℹ fail 0
 
     $ node scripts/asr-contract-invariants-check.mjs
