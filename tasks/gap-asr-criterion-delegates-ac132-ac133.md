@@ -21,11 +21,11 @@ extra:
 
 ## AC
 
-- [ ] AC1 `node scripts/asr-capability-check.mjs` 退出码 0，且其 stdout 与 `node scripts/asr-second-adapter-check.mjs` 的 stdout 逐字节相同（`diff <(node scripts/asr-capability-check.mjs) <(node scripts/asr-second-adapter-check.mjs)` 退出 0）。
-- [ ] AC2 `node scripts/asr-mime-allowlist-check.mjs` 退出码 0，且 `diff <(node scripts/asr-mime-allowlist-check.mjs) <(node scripts/asr-mime-size-gaps-check.mjs)` 退出 0。
-- [ ] AC3 转发可红（正向对照，防止委托恒返 0）：`node --test scripts/asr-criterion-delegates.test.mjs` 退出 0，其中对两个委托各有独立用例——把委托复制到临时目录、旁边放一个以 `process.exit(7)` 结尾并回显 argv 的假目标探针，断言委托退出码为 7、且 `--root /x --landing` 原样到达假探针；以及目标探针缺失时委托退出码非 0。
-- [ ] AC4 委托不含读数逻辑：`wc -c scripts/asr-capability-check.mjs scripts/asr-mime-allowlist-check.mjs` 各 < 2048 字节，且 `grep -c "spawnSync" <每个文件>` 为 1。
-- [ ] AC5 已落地探针未被改动：`git diff --quiet develop -- scripts/asr-second-adapter-check.mjs scripts/asr-mime-size-gaps-check.mjs goals/` 退出 0。
+- [x] AC1 `node scripts/asr-capability-check.mjs` 退出码 0，且其 stdout 与 `node scripts/asr-second-adapter-check.mjs` 的 stdout 逐字节相同（`diff <(node scripts/asr-capability-check.mjs) <(node scripts/asr-second-adapter-check.mjs)` 退出 0）。
+- [x] AC2 `node scripts/asr-mime-allowlist-check.mjs` 退出码 0，且 `diff <(node scripts/asr-mime-allowlist-check.mjs) <(node scripts/asr-mime-size-gaps-check.mjs)` 退出 0。
+- [x] AC3 转发可红（正向对照，防止委托恒返 0）：`node --test scripts/asr-criterion-delegates.test.mjs` 退出 0，其中对两个委托各有独立用例——把委托复制到临时目录、旁边放一个以 `process.exit(7)` 结尾并回显 argv 的假目标探针，断言委托退出码为 7、且 `--root /x --landing` 原样到达假探针；以及目标探针缺失时委托退出码非 0。
+- [x] AC4 委托不含读数逻辑：`wc -c scripts/asr-capability-check.mjs scripts/asr-mime-allowlist-check.mjs` 各 < 2048 字节，且 `grep -c "spawnSync" <每个文件>` 为 1。
+- [x] AC5 已落地探针未被改动：`git diff --quiet develop -- scripts/asr-second-adapter-check.mjs scripts/asr-mime-size-gaps-check.mjs goals/` 退出 0。
 
 ## DoD
 
