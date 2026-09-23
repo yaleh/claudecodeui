@@ -2,7 +2,7 @@
 id: gap-asr-pause-cues-second-source-contradicts-registry
 title: 裁剪能力的第二份声明与 registry 矛盾：客户端用未注册 id `openai-compatible` 答
   `destructive`，与唯一适配器 `multimodal` 的 `useful` 相反（AC-134 回归）
-status: todo
+status: ready
 labels:
   - gap
   - defect
