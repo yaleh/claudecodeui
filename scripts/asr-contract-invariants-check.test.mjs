@@ -30,12 +30,14 @@
  * mutation that quietly did not apply would leave this file asserting nothing, which is the same
  * failure it exists to catch.
  *
- * The checker is TypeScript-importing, so it runs under tsx — resolved from THIS file, so the
- * driven tree needs no `node_modules` of its own.
+ * THE CHECKER IS DRIVEN WITH BARE `node`, which is the command the criterion names. It measures
+ * TypeScript, so it re-executes itself under tsx — resolved from the checker's own file, so neither
+ * this test nor a driven tree needs a `node_modules` of its own. Spawning it the way the criterion
+ * does is what makes this file a witness for that command rather than for a loader someone has to
+ * remember to pass.
  */
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -51,11 +53,6 @@ const ALL_GROUPS = ['request-construction', 'error-mapping', 'size-layering', 'r
 
 /** @type {string[]} */
 const temporaryRoots = [];
-
-/** The tsx entry point, resolved from this file rather than from the driven tree. */
-function tsxCliPath() {
-  return createRequire(import.meta.url).resolve('tsx/cli');
-}
 
 /**
  * A copy of this repository's `shared/` in a throwaway directory, with one or more lines changed.
@@ -87,7 +84,7 @@ function treeWithMutations(mutations) {
  * @param {string[]} args
  */
 function runChecker(args) {
-  const result = spawnSync(process.execPath, [tsxCliPath(), CHECKER, ...args], { encoding: 'utf8' });
+  const result = spawnSync(process.execPath, [CHECKER, ...args], { encoding: 'utf8' });
   return {
     status: result.status,
     stdout: String(result.stdout ?? ''),
@@ -280,7 +277,20 @@ describe('asr-contract-invariants-check', () => {
       {
         name: 'empty-registry',
         file: REGISTRY_RELATIVE,
-        find: 'const REGISTERED: readonly AsrAdapter[] = [\n  { id: multimodalId, capabilities: multimodalCapabilities, transcribe: multimodalTranscribe },\n];',
+        find: 'const REGISTERED: readonly AsrAdapter[] = [\n'
+          + '  {\n'
+          + '    id: openaiCompatibleId,\n'
+          + '    capabilities: openaiCompatibleCapabilities,\n'
+          + "    wire: 'multipart',\n"
+          + '    transcribe: openaiCompatibleTranscribe,\n'
+          + '  },\n'
+          + '  {\n'
+          + '    id: multimodalId,\n'
+          + '    capabilities: multimodalCapabilities,\n'
+          + "    wire: 'inline-json',\n"
+          + '    transcribe: multimodalTranscribe,\n'
+          + '  },\n'
+          + '];',
         replace: 'const REGISTERED: readonly AsrAdapter[] = [];',
       },
     ]);

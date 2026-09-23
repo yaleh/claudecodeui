@@ -10,10 +10,19 @@
  *
  * THE BOARD IS PARAMETERISED BY THE REGISTRY, not by a provider list written here. Every group
  * runs against every adapter the caller hands it, so a provider added to `asrRegistry.ts`
- * tomorrow is measured by this file the day it is registered. That is why the group subject is an
- * `AsrAdapter` and not this repository's adapter: the contract is the thing under test, and a
- * board that could only measure one shape could not tell a second shape's declaration from a
- * comment.
+ * tomorrow is measured by this file the day it is registered.
+ *
+ * IT IS ALSO PARAMETERISED BY THE WIRE — and that is a correction rather than a feature. A
+ * registered adapter is only half a subject: the readings below are about a request, and a request
+ * only exists in some shape. The first version of this board had the multimodal shape written
+ * through it — the generation endpoint, a JSON body, base64 audio, a generation envelope — so
+ * registering the SHIPPED recogniser (a multipart `/audio/transcriptions` adapter) turned every
+ * group red with readings that said the new adapter was broken when the board was. That is the
+ * same fault the seam exists to prevent, one level up: expectations held once, for a shape, in a
+ * place that then measures a different one. The shape an adapter speaks is therefore DECLARED
+ * (`AsrAdapter.wire`) and this file derives its expectations from that declaration, which makes the
+ * declaration itself a second thing under test: an adapter that declares one wire and sends another
+ * disagrees with the golden body its own declaration implies.
  *
  * AN EMPTY BOARD IS NOT A GREEN BOARD. A registry that resolved to zero providers, or a group
  * that produced zero readings, is `empty` — never `pass`. An exit code 0 from a glob that matched
@@ -34,6 +43,7 @@ import type {
   AsrInvocation,
   AsrRequest,
   AsrResult,
+  AsrWire,
 } from './asrRegistry.js';
 
 export const INVARIANT_GROUP_IDS = [
@@ -99,8 +109,12 @@ export const INVARIANT_TRANSCRIPT = 'the invariant transcript';
 export const INVARIANT_BASE_URL = 'https://asr.invalid';
 export const INVARIANT_MODEL = 'invariant-model';
 
-/** The URL the fixture's base URL and model resolve to, recorded rather than re-derived. */
+/**
+ * The URL the fixture's base URL and model resolve to, recorded rather than re-derived — one per
+ * wire, because the endpoint is the first thing the two shapes disagree about.
+ */
 export const INVARIANT_ENDPOINT = 'https://asr.invalid/v1beta/models/invariant-model:generateContent';
+export const INVARIANT_TRANSCRIPTION_ENDPOINT = 'https://asr.invalid/audio/transcriptions';
 
 /** The audio payload's canonical form inside a recorded body reading. */
 export const INVARIANT_AUDIO_TOKEN = '<AUDIO>';
@@ -167,9 +181,16 @@ export function invariantRequest(overrides?: {
   };
 }
 
-/** The service's answer envelope, as this seam's response reader expects it. */
+/**
+ * The multimodal service's answer, as the generation envelope carries it: `envelope(text)` is a
+ * complete answer and `emptyEnvelope()` the same answer with no text part in it.
+ */
 export function envelope(text: string): unknown {
   return { candidates: [{ content: { parts: [{ text }] } }] };
+}
+
+export function emptyEnvelope(): unknown {
+  return { candidates: [{ content: { parts: [] } }] };
 }
 
 // ── the injected transport ───────────────────────────────────────────────────────────────────
@@ -221,6 +242,42 @@ function headerOf(init: RequestInit | undefined, name: string): string | null {
   return null;
 }
 
+/** One form field, or one file part, as a line that carries no bytes. */
+function describePart(name: string, value: unknown): string {
+  if (typeof value === 'string') return `${name}=${value}`;
+  const part = value as { name?: unknown; type?: unknown; size?: unknown };
+  const fileName = typeof part.name === 'string' && part.name !== '' ? part.name : '<unnamed>';
+  const type = typeof part.type === 'string' && part.type !== '' ? part.type : '<unlabelled>';
+  const size = typeof part.size === 'number' ? part.size : 0;
+  return `${name}:<file name=${fileName} type=${type} size=${size}B>`;
+}
+
+/**
+ * A request body as a comparable string, in whatever shape the wire sent it.
+ *
+ * WHY THIS IS NOT `typeof body === 'string' ? body : ''`. The multipart wire sends a `FormData`,
+ * so that expression records its every request as an empty body — which silently disables the
+ * golden-body reading, the hint readings and the redaction needle scan for that whole wire, all of
+ * which would then pass by measuring nothing. The rendering below is a faithful account of a
+ * `FormData`: the field names in order, the file part's name, container and SIZE, and never the
+ * bytes. The size is what keeps the audio part measurable without putting the audio on the log
+ * surface the redaction group scans.
+ *
+ * A body that is neither a string nor a `FormData` is still recorded as empty rather than guessed
+ * at — a wire this board cannot render is one whose readings must not be invented.
+ */
+export function renderBody(body: unknown): string {
+  if (typeof body === 'string') return body;
+  if (typeof FormData !== 'undefined' && body instanceof FormData) {
+    const parts: string[] = [];
+    body.forEach((value, name) => {
+      parts.push(describePart(String(name), value));
+    });
+    return parts.join('&');
+  }
+  return '';
+}
+
 function recordRequest(url: string, init: RequestInit | undefined): RecordedRequest {
   const authorization = headerOf(init, 'authorization');
   return {
@@ -228,7 +285,7 @@ function recordRequest(url: string, init: RequestInit | undefined): RecordedRequ
     url,
     contentType: headerOf(init, 'content-type'),
     authorization: authorization === null || authorization === '' ? 'absent' : 'present',
-    body: typeof init?.body === 'string' ? init.body : '',
+    body: renderBody(init?.body),
   };
 }
 
@@ -356,11 +413,6 @@ function outcome(result: AsrResult, requests: number): string {
   return `${head} requests=${requests}`;
 }
 
-/** The recorded body with the audio payload replaced by its token, so no reading carries bytes. */
-function canonicaliseBody(body: string): string {
-  return body.split(`"data":"${INVARIANT_AUDIO_BASE64}"`).join(`"data":"${INVARIANT_AUDIO_TOKEN}"`);
-}
-
 /**
  * The body the declaration promises for the fixture, composed from recorded fragments.
  *
@@ -377,27 +429,16 @@ export function goldenBody(capabilities: AsrCapabilities): string {
   return `${contents},"systemInstruction":{"parts":[{"text":"${INVARIANT_PROMPT}"}]}}`;
 }
 
-type PromptReading = 'no-prompt-part' | 'empty-prompt-part' | 'prompt-part-present' | 'unexpected-prompt-text';
-
-function promptPart(body: string): PromptReading {
-  if (!body.includes('"systemInstruction"')) return 'no-prompt-part';
-  if (body.includes('"text":""')) return 'empty-prompt-part';
-  if (body.includes(`"text":"${INVARIANT_PROMPT}"`)) return 'prompt-part-present';
-  return 'unexpected-prompt-text';
-}
-
-type ContextReading = 'text-part-present' | 'no-context-part' | 'unexpected-context-text';
-
-function contextPart(body: string): ContextReading {
-  if (body.includes(`"text":"${INVARIANT_CONTEXT}"`)) return 'text-part-present';
-  return body.includes('"text":') ? 'unexpected-context-text' : 'no-context-part';
-}
-
 /**
  * The peak a declared budget cannot be guessed at, only derived: base64 turns 3 bytes into 4, so
  * an audio of `ceil((budget + 1) / 4) * 3` bytes encodes to at least one byte past the budget.
  * Derived from the DECLARATION, which is why a declaration that shrinks or grows carries these
  * probes with it instead of leaving them silently on one side of the line.
+ *
+ * THIS IS THE `inline-json` DERIVATION, and it is named as one: on that wire the budget is spent by
+ * the audio's ENCODING, so a raw byte length means nothing until it has been through the encoder.
+ * A wire that carries the audio itself has the same pair derived in its own arithmetic, which is
+ * why the models below own these two functions rather than the group calling them directly.
  */
 export function overBudgetAudioBytes(budget: number): number {
   return Math.ceil((budget + 1) / 4) * 3;
@@ -408,6 +449,157 @@ export function affordableAudioBytes(budget: number): number {
   return Math.floor((budget * 3) / 4) - 4096;
 }
 
+// ── the wire models ──────────────────────────────────────────────────────────────────────────
+
+type PromptReading =
+  | 'no-prompt-part'
+  | 'empty-prompt-part'
+  | 'prompt-part-present'
+  | 'unexpected-prompt-text';
+
+type ContextReading = 'text-part-present' | 'no-context-part' | 'unexpected-context-text';
+
+/** The generation body's own vocabulary: a hint is read out of the JSON part that carries it. */
+function inlinePromptPart(body: string): PromptReading {
+  if (!body.includes('"systemInstruction"')) return 'no-prompt-part';
+  if (body.includes('"text":""')) return 'empty-prompt-part';
+  if (body.includes(`"text":"${INVARIANT_PROMPT}"`)) return 'prompt-part-present';
+  return 'unexpected-prompt-text';
+}
+
+function inlineContextPart(body: string): ContextReading {
+  if (body.includes(`"text":"${INVARIANT_CONTEXT}"`)) return 'text-part-present';
+  return body.includes('"text":') ? 'unexpected-context-text' : 'no-context-part';
+}
+
+/**
+ * A form field as `renderBody` wrote it. The rendered body is `name=value` parts joined by `&`,
+ * which is unambiguous for the fixture's own values — none of them carries a separator.
+ */
+function fieldValue(body: string, name: string): string | null {
+  const prefix = `${name}=`;
+  for (const part of body.split('&')) {
+    if (part.startsWith(prefix)) return part.slice(prefix.length);
+  }
+  return null;
+}
+
+/** The same two readings, read out of a form: the vocabulary is the wire's, the answer is not. */
+function formPromptPart(body: string): PromptReading {
+  const value = fieldValue(body, 'prompt');
+  if (value === null) return 'no-prompt-part';
+  if (value === '') return 'empty-prompt-part';
+  return value === INVARIANT_PROMPT ? 'prompt-part-present' : 'unexpected-prompt-text';
+}
+
+function formContextPart(body: string): ContextReading {
+  const value = fieldValue(body, 'context');
+  if (value === null) return 'no-context-part';
+  return value === INVARIANT_CONTEXT ? 'text-part-present' : 'unexpected-context-text';
+}
+
+/** The audio's file part as `renderBody` writes it: named, contained, sized — never its bytes. */
+function formAudioPart(): string {
+  return `file:<file name=${INVARIANT_FIXTURE.fileName} type=${INVARIANT_FIXTURE.mimeType} `
+    + `size=${INVARIANT_AUDIO_TEXT.length}B>`;
+}
+
+/**
+ * The multipart body the declaration promises, composed the same way the JSON one is: recorded
+ * fragments plus the declaration. The audio part is carried as its size, so the golden body is a
+ * statement about WHICH bytes travelled without the golden body carrying them.
+ */
+function formGoldenBody(capabilities: AsrCapabilities): string {
+  const parts = [formAudioPart(), `model=${INVARIANT_MODEL}`];
+  if (capabilities.honors.prompt) parts.push(`prompt=${INVARIANT_PROMPT}`);
+  if (capabilities.honors.context) parts.push(`context=${INVARIANT_CONTEXT}`);
+  return parts.join('&');
+}
+
+/** The answers each wire's service gives: a transcript, an empty answer, and no answer at all. */
+export type AsrWireAnswers = {
+  transcript: unknown;
+  empty: unknown;
+  /** A body that is not this service's answer: the shape both wires must refuse to read as text. */
+  notAnAnswer: string;
+};
+
+export type AsrWireModel = {
+  wire: AsrWire;
+  /** The URL the fixture's base URL and model resolve to on this wire — recorded, not re-derived. */
+  endpoint: string;
+  /** The Content-Type the request announces, or null when it announces none. */
+  contentType: string | null;
+  /** The body the declaration promises for the fixture, with the audio carried as a token. */
+  goldenBody(capabilities: AsrCapabilities): string;
+  /** `match` when the recorded body carries the fixture's audio the way this wire carries it. */
+  audioOnWire(body: string): 'match' | 'mismatch';
+  promptPart(body: string): PromptReading;
+  contextPart(body: string): ContextReading;
+  answers: AsrWireAnswers;
+  /** The audio sizes that straddle a declared budget IN THIS WIRE'S ARITHMETIC. */
+  overBudgetAudioBytes(budget: number): number;
+  affordableAudioBytes(budget: number): number;
+};
+
+/**
+ * The two shapes a registered adapter may speak, each with the expectations it implies.
+ *
+ * Both are written out here rather than derived from the adapter, and that is deliberate: these
+ * are the CLAIMS. An adapter is scored against the model its own declaration names, so a body that
+ * contradicts the declared wire reds instead of quietly defining a third model nothing describes.
+ */
+const WIRE_MODELS: Record<AsrWire, AsrWireModel> = {
+  'inline-json': {
+    wire: 'inline-json',
+    endpoint: INVARIANT_ENDPOINT,
+    contentType: 'application/json',
+    goldenBody,
+    audioOnWire: (body) => (body.includes(`"data":"${INVARIANT_AUDIO_BASE64}"`) ? 'match' : 'mismatch'),
+    promptPart: inlinePromptPart,
+    contextPart: inlineContextPart,
+    answers: {
+      transcript: envelope(INVARIANT_TRANSCRIPT),
+      empty: emptyEnvelope(),
+      notAnAnswer: '<html>502 Bad Gateway</html>',
+    },
+    overBudgetAudioBytes,
+    affordableAudioBytes,
+  },
+  multipart: {
+    wire: 'multipart',
+    endpoint: INVARIANT_TRANSCRIPTION_ENDPOINT,
+    contentType: null,
+    goldenBody: formGoldenBody,
+    audioOnWire: (body) => (body.includes(formAudioPart()) ? 'match' : 'mismatch'),
+    promptPart: formPromptPart,
+    contextPart: formContextPart,
+    answers: {
+      transcript: { text: INVARIANT_TRANSCRIPT },
+      empty: { text: '' },
+      notAnAnswer: '<html>502 Bad Gateway</html>',
+    },
+    overBudgetAudioBytes: (budget) => budget + 1,
+    affordableAudioBytes: (budget) => Math.floor(budget * 0.75),
+  },
+};
+
+/** The model an adapter is measured against: the wire it declared, or the contract's default. */
+export function wireModelFor(provider: AsrAdapter): AsrWireModel {
+  return WIRE_MODELS[provider.wire ?? 'inline-json'];
+}
+
+/**
+ * The recorded body with the audio payload replaced by its token, so no reading carries bytes.
+ *
+ * A no-op on any wire that does not put the encoding in the body — the multipart rendering already
+ * carries the audio as a size — which is why it is a per-model step rather than a shared one.
+ */
+function canonicaliseBody(body: string, model: AsrWireModel): string {
+  if (model.wire === 'multipart') return body;
+  return body.split(`"data":"${INVARIANT_AUDIO_BASE64}"`).join(`"data":"${INVARIANT_AUDIO_TOKEN}"`);
+}
+
 // ── group 1: request construction ────────────────────────────────────────────────────────────
 
 /** Everything the adapter was asked to send, per method, URL, headers and body. */
@@ -415,7 +607,8 @@ export async function probeRequestConstruction(provider: AsrAdapter): Promise<In
   const group: InvariantGroupId = 'request-construction';
   const readings: InvariantReading[] = [];
   const capabilities = provider.capabilities;
-  const step: InvariantStep = { kind: 'json', payload: envelope(INVARIANT_TRANSCRIPT) };
+  const model = wireModelFor(provider);
+  const step: InvariantStep = { kind: 'json', payload: model.answers.transcript };
 
   const sent = await drive(provider, invariantRequest(), step);
   const first = sent.transport.requests[0];
@@ -426,24 +619,30 @@ export async function probeRequestConstruction(provider: AsrAdapter): Promise<In
       'one transcription sends exactly one request'),
     reading(group, `request.method[${provider.id}]`, provider.id, first?.method ?? 'no-request', 'POST',
       'the request is a POST'),
-    reading(group, `request.url[${provider.id}]`, provider.id, first?.url ?? 'no-request', INVARIANT_ENDPOINT,
-      'the base URL and the model compose the recorded endpoint'),
+    reading(group, `request.url[${provider.id}]`, provider.id, first?.url ?? 'no-request', model.endpoint,
+      'the base URL and the model compose the endpoint recorded for the wire the adapter declared'),
     reading(group, `request.content-type[${provider.id}]`, provider.id, first?.contentType ?? 'no-header',
-      'application/json', 'the body is announced as JSON'),
+      model.contentType ?? 'no-header',
+      model.contentType === null
+        // `no-header` is not "the adapter forgot": a multipart body's Content-Type carries the
+        // boundary the transport generates, so the only correct announcement is none at all.
+        ? 'this wire announces no Content-Type of its own; the multipart boundary is the transport\'s to name'
+        : 'the body is announced as JSON'),
     reading(group, `request.authorization[${provider.id}]`, provider.id, first?.authorization ?? 'no-request',
       'present', 'a configured credential reaches the wire as an Authorization header'),
-    reading(group, `request.body.golden[${provider.id}]`, provider.id, canonicaliseBody(body),
-      goldenBody(capabilities),
-      'the recorded request body, byte for byte, with the audio payload carried as its token'),
-    reading(group, `request.audio-encoding[${provider.id}]`, provider.id,
-      body.includes(`"data":"${INVARIANT_AUDIO_BASE64}"`) ? 'match' : 'mismatch', 'match',
-      `the encoded payload is the independently computed base64 of the fixture bytes (${INVARIANT_AUDIO_BASE64.length} characters)`),
-    reading(group, `request.context.honored[${provider.id}]`, provider.id, contextPart(body),
+    reading(group, `request.body.golden[${provider.id}]`, provider.id, canonicaliseBody(body, model),
+      model.goldenBody(capabilities),
+      'the recorded request body as the wire renders it, with the audio carried as its token or its size and never as its bytes'),
+    reading(group, `request.audio-encoding[${provider.id}]`, provider.id, model.audioOnWire(body), 'match',
+      model.wire === 'multipart'
+        ? `the audio travels as the fixture's own ${INVARIANT_AUDIO_TEXT.length} bytes, in a part naming ${INVARIANT_FIXTURE.fileName} and its container — the part IS the audio rather than a re-encoding of it`
+        : `the encoded payload is the independently computed base64 of the fixture bytes (${INVARIANT_AUDIO_BASE64.length} characters)`),
+    reading(group, `request.context.honored[${provider.id}]`, provider.id, model.contextPart(body),
       capabilities.honors.context ? 'text-part-present' : 'no-context-part',
       capabilities.honors.context
         ? 'the declaration acknowledges the context, so the context is on the wire — the positive control for hint handling'
         : 'the declaration does not acknowledge the context, so it is off the wire'),
-    reading(group, `request.prompt.unsupported-omitted[${provider.id}]`, provider.id, promptPart(body),
+    reading(group, `request.prompt.unsupported-omitted[${provider.id}]`, provider.id, model.promptPart(body),
       capabilities.honors.prompt ? 'prompt-part-present' : 'no-prompt-part',
       capabilities.honors.prompt
         ? 'the declaration acknowledges the prompt, so the prompt is on the wire'
@@ -467,10 +666,10 @@ export async function probeRequestConstruction(provider: AsrAdapter): Promise<In
       keyless.transport.requests[0]?.authorization ?? 'no-request', 'absent',
       'an empty credential is not announced rather than announced empty'),
     reading(group, `request.url-trailing-slash[${provider.id}]`, provider.id,
-      trailingSlash.transport.requests[0]?.url ?? 'no-request', INVARIANT_ENDPOINT,
+      trailingSlash.transport.requests[0]?.url ?? 'no-request', model.endpoint,
       'a base URL with a trailing slash joins the path with no doubled slash'),
     reading(group, `request.prompt.empty-hint-omitted[${provider.id}]`, provider.id,
-      promptPart(emptyPrompt.transport.requests[0]?.body ?? ''), 'no-prompt-part',
+      model.promptPart(emptyPrompt.transport.requests[0]?.body ?? ''), 'no-prompt-part',
       'an empty prompt is left off the wire rather than sent as an empty text part'),
   );
 
@@ -496,26 +695,35 @@ function failedWith(code: AsrErrorCode): string {
  *
  * Every row here reaches the transport, so every row spends exactly one request: the two guards
  * that refuse BEFORE the transport are the size and mime groups' subject, not this one's.
+ *
+ * THE ANSWER-SHAPED ROWS ARE BUILT PER WIRE. A status is a status on any wire, so those rows are
+ * shared; an "answer with no text" is not, because what counts as an answer differs — a generation
+ * envelope with no text part on one wire, the transcription envelope's empty string on the other.
+ * Handing one wire's payload to the other would red the row for a reason that has nothing to do
+ * with error mapping.
  */
-export const ERROR_SCENARIOS: ErrorScenario[] = [
-  { id: 'error.status-401', step: { kind: 'json', status: 401, payload: { error: 'unauthorized' } }, expected: failedWith('UNAUTHORIZED'), detail: 'a rejected credential is its own code' },
-  { id: 'error.status-403', step: { kind: 'json', status: 403, payload: { error: 'forbidden' } }, expected: failedWith('UNAUTHORIZED'), detail: 'a forbidden credential is the credential code, not a generic upstream failure' },
-  { id: 'error.status-429', step: { kind: 'json', status: 429, payload: { error: 'slow down' } }, expected: failedWith('RATE_LIMITED'), detail: 'a throttled upstream is its own code, because the caller retries it differently' },
-  { id: 'error.status-500', step: { kind: 'json', status: 500, payload: { error: 'boom' } }, expected: failedWith('UPSTREAM_ERROR'), detail: 'an upstream fault is the generic upstream code' },
-  { id: 'error.status-503', step: { kind: 'json', status: 503, payload: { error: 'unavailable' } }, expected: failedWith('UPSTREAM_ERROR'), detail: 'an unavailable upstream follows the same rule as any other 5xx' },
-  { id: 'error.status-400', step: { kind: 'json', status: 400, payload: { error: 'bad request' } }, expected: failedWith('UPSTREAM_ERROR'), detail: 'a request the upstream rejects is not the credential code' },
-  { id: 'error.transport', step: { kind: 'reject', mode: 'transport' }, expected: failedWith('UNREACHABLE'), detail: 'a transport that never answered is unreachable, not a timeout' },
-  { id: 'error.timeout', step: { kind: 'reject', mode: 'timeout' }, expected: failedWith('TIMEOUT'), detail: 'an aborted request is a timeout, and is read from the abort itself' },
-  { id: 'error.body-not-json', step: { kind: 'raw', body: '<html>502 Bad Gateway</html>' }, expected: failedWith('UPSTREAM_ERROR'), detail: 'a gateway page is neither a transcript nor a crash' },
-  { id: 'error.envelope-without-text', step: { kind: 'json', payload: { candidates: [{ content: { parts: [] } }] } }, expected: failedWith('NO_SPEECH_DETECTED'), detail: 'an answer carrying no text part is an empty answer, not a success with empty text' },
-  { id: 'error.transcript-arrives', step: { kind: 'json', payload: envelope(INVARIANT_TRANSCRIPT) }, expected: `ok:${INVARIANT_TRANSCRIPT} requests=1`, detail: 'a well-formed envelope reaches the caller as its text, in one request' },
-];
+export function errorScenarios(wire: AsrWire): ErrorScenario[] {
+  const answers = WIRE_MODELS[wire].answers;
+  return [
+    { id: 'error.status-401', step: { kind: 'json', status: 401, payload: { error: 'unauthorized' } }, expected: failedWith('UNAUTHORIZED'), detail: 'a rejected credential is its own code' },
+    { id: 'error.status-403', step: { kind: 'json', status: 403, payload: { error: 'forbidden' } }, expected: failedWith('UNAUTHORIZED'), detail: 'a forbidden credential is the credential code, not a generic upstream failure' },
+    { id: 'error.status-429', step: { kind: 'json', status: 429, payload: { error: 'slow down' } }, expected: failedWith('RATE_LIMITED'), detail: 'a throttled upstream is its own code, because the caller retries it differently' },
+    { id: 'error.status-500', step: { kind: 'json', status: 500, payload: { error: 'boom' } }, expected: failedWith('UPSTREAM_ERROR'), detail: 'an upstream fault is the generic upstream code' },
+    { id: 'error.status-503', step: { kind: 'json', status: 503, payload: { error: 'unavailable' } }, expected: failedWith('UPSTREAM_ERROR'), detail: 'an unavailable upstream follows the same rule as any other 5xx' },
+    { id: 'error.status-400', step: { kind: 'json', status: 400, payload: { error: 'bad request' } }, expected: failedWith('UPSTREAM_ERROR'), detail: 'a request the upstream rejects is not the credential code' },
+    { id: 'error.transport', step: { kind: 'reject', mode: 'transport' }, expected: failedWith('UNREACHABLE'), detail: 'a transport that never answered is unreachable, not a timeout' },
+    { id: 'error.timeout', step: { kind: 'reject', mode: 'timeout' }, expected: failedWith('TIMEOUT'), detail: 'an aborted request is a timeout, and is read from the abort itself' },
+    { id: 'error.body-not-json', step: { kind: 'raw', body: answers.notAnAnswer }, expected: failedWith('UPSTREAM_ERROR'), detail: 'a gateway page is neither a transcript nor a crash' },
+    { id: 'error.envelope-without-text', step: { kind: 'json', payload: answers.empty }, expected: failedWith('NO_SPEECH_DETECTED'), detail: 'an answer carrying no text is an empty answer, not a success with empty text' },
+    { id: 'error.transcript-arrives', step: { kind: 'json', payload: answers.transcript }, expected: `ok:${INVARIANT_TRANSCRIPT} requests=1`, detail: 'a well-formed answer reaches the caller as its text, in one request' },
+  ];
+}
 
 /** One reading per failure shape, so "the error mapping changed" reads as which row moved. */
 export async function probeErrorMapping(provider: AsrAdapter): Promise<InvariantReading[]> {
   const group: InvariantGroupId = 'error-mapping';
   const readings: InvariantReading[] = [];
-  for (const scenario of ERROR_SCENARIOS) {
+  for (const scenario of errorScenarios(wireModelFor(provider).wire)) {
     const driven = await drive(provider, invariantRequest(), scenario.step);
     readings.push(
       reading(group, `${scenario.id}[${provider.id}]`, provider.id,
@@ -527,16 +735,27 @@ export async function probeErrorMapping(provider: AsrAdapter): Promise<Invariant
 
 // ── group 3: size layering ───────────────────────────────────────────────────────────────────
 
-/** The declared budget decides who is refused, and a refusal costs no request at all. */
+/**
+ * The declared budget decides who is refused, and a refusal costs no request at all.
+ *
+ * WHAT THE BUDGET IS SPENT BY DEPENDS ON THE WIRE, and the two sizes are therefore derived per
+ * model rather than from one arithmetic: the `inline-json` wire spends the budget on the audio's
+ * ENCODING (base64 of n bytes is `ceil(n / 3) * 4` characters), while the multipart wire spends it
+ * on the audio's own bytes. A single derivation would leave one of the two wires with both sizes on
+ * the same side of the line — the group would still print four readings and measure three sides of
+ * nothing.
+ */
 export async function probeSizeLayering(provider: AsrAdapter): Promise<InvariantReading[]> {
   const group: InvariantGroupId = 'size-layering';
   const readings: InvariantReading[] = [];
   const capabilities = provider.capabilities;
+  const model = wireModelFor(provider);
   const budget = capabilities.maxInlineRequestBytes;
-  const step: InvariantStep = { kind: 'json', payload: envelope(INVARIANT_TRANSCRIPT) };
+  const step: InvariantStep = { kind: 'json', payload: model.answers.transcript };
 
-  const affordable = affordableAudioBytes(budget);
-  const overBudget = overBudgetAudioBytes(budget);
+  const affordable = model.affordableAudioBytes(budget);
+  const overBudget = model.overBudgetAudioBytes(budget);
+  const spentBy = model.wire === 'multipart' ? 'measures' : 'encodes';
 
   const oversize = await drive(provider, invariantRequest({ bytes: new Uint8Array(overBudget), hints: {} }), step);
   const fitting = await drive(provider, invariantRequest({ bytes: new Uint8Array(affordable), hints: {} }), step);
@@ -546,18 +765,29 @@ export async function probeSizeLayering(provider: AsrAdapter): Promise<Invariant
     step,
   );
 
+  // The context case is the group's one HONORS-AWARE expectation, and it is the same invariant read
+  // from both sides of the declaration. A declaration that acknowledges the context has it counted,
+  // so a long one is what pushes an otherwise-affordable audio over. A declaration that does not
+  // acknowledges nothing, so the same audio must go out UNCHANGED — a budget that counted a hint
+  // the adapter never sends would refuse an upload the service would have accepted.
+  const pushedOverExpected = capabilities.honors.context
+    ? 'OVERSIZE requests=0'
+    : `ok:${INVARIANT_TRANSCRIPT} requests=1`;
+
   readings.push(
     reading(group, `size.oversize-declared[${provider.id}]`, provider.id, capabilities.oversize, 'reject',
       'the first version declares rejection as the only oversize policy'),
     reading(group, `size.audio-alone-over-limit[${provider.id}]`, provider.id,
       outcome(oversize.result, oversize.transport.calls), `OVERSIZE requests=0`,
-      `an audio of ${overBudget} B encodes past the declared ${budget} B budget: refused, and with zero requests the audio was never put on the wire`),
+      `an audio of ${overBudget} B ${spentBy} past the declared ${budget} B budget: refused, and with zero requests the audio was never put on the wire`),
     reading(group, `size.audio-alone-affordable[${provider.id}]`, provider.id,
       outcome(fitting.result, fitting.transport.calls), `ok:${INVARIANT_TRANSCRIPT} requests=1`,
-      `an audio of ${affordable} B encodes inside the declared ${budget} B budget: sent — the guard is a line, not a wall`),
+      `an audio of ${affordable} B ${spentBy} inside the declared ${budget} B budget: sent — the guard is a line, not a wall`),
     reading(group, `size.context-pushes-over-limit[${provider.id}]`, provider.id,
-      outcome(pushedOver.result, pushedOver.transport.calls), `OVERSIZE requests=0`,
-      'the SAME audio as the accepted case, plus a long context: the budget is the whole request, so the context is what pushed it over'),
+      outcome(pushedOver.result, pushedOver.transport.calls), pushedOverExpected,
+      capabilities.honors.context
+        ? 'the SAME audio as the accepted case, plus a long context: the budget is the whole request, so the context is what pushed it over'
+        : 'the SAME audio, plus a long context the declaration does not acknowledge: the context is not on the wire and not counted against the budget, so the request goes out as it would have without it'),
   );
 
   return readings;
@@ -578,8 +808,10 @@ export type NeedleHit = { line: number; needle: string };
  * encoder agrees with it by construction and so cannot report it as wrong, and the body's shape is
  * not a source of needles at all — a long JSON field name is indistinguishable from a payload
  * token, so a heuristic over the body reports structural names (`systemInstruction`, 17
- * characters, is a legal base64 run) as leaks. The encoding reading in the request-construction
- * group is what pins the wire's payload against this same constant.
+ * characters, is a legal base64 run) as leaks. The audio reading in the request-construction group
+ * is what pins the wire's payload against these same constants — the encoding against the base64
+ * one on a wire that carries the encoding, the part naming the fixture's bytes on a wire that
+ * carries the bytes themselves.
  */
 export function redactionNeedles(): { credential: string; payload: string[] } {
   return { credential: INVARIANT_API_KEY, payload: [INVARIANT_AUDIO_TEXT, INVARIANT_AUDIO_BASE64] };
@@ -612,7 +844,8 @@ function describeHits(hits: NeedleHit[]): string {
 export async function probeRedaction(provider: AsrAdapter): Promise<InvariantReading[]> {
   const group: InvariantGroupId = 'redaction';
   const readings: InvariantReading[] = [];
-  const step: InvariantStep = { kind: 'json', payload: envelope(INVARIANT_TRANSCRIPT) };
+  const model = wireModelFor(provider);
+  const step: InvariantStep = { kind: 'json', payload: model.answers.transcript };
 
   const sent = await drive(provider, invariantRequest(), step);
   const body = sent.transport.requests[0]?.body ?? '';
@@ -642,8 +875,8 @@ export async function probeRedaction(provider: AsrAdapter): Promise<InvariantRea
       sent.transport.requests[0]?.authorization ?? 'no-request', 'present',
       'the credential is on the request, so its absence from the answer surface says something'),
     reading(group, `redaction.payload.reaches-the-wire[${provider.id}]`, provider.id,
-      body.includes(INVARIANT_AUDIO_BASE64) ? 'present' : 'absent', 'present',
-      'the encoded audio is on the request, so its absence from the answer surface says something'),
+      model.audioOnWire(body), 'match',
+      'the audio is on the request in the shape the declared wire carries it, so its absence from the answer surface says something'),
   );
 
   const scenarios: InvariantStep[] = [
@@ -710,7 +943,7 @@ export async function probeLogRedaction(
 export async function probeMimeGate(provider: AsrAdapter): Promise<InvariantReading[]> {
   const group: InvariantGroupId = 'mime-gate';
   const readings: InvariantReading[] = [];
-  const step: InvariantStep = { kind: 'json', payload: envelope(INVARIANT_TRANSCRIPT) };
+  const step: InvariantStep = { kind: 'json', payload: wireModelFor(provider).answers.transcript };
 
   const withParameters = await drive(provider, invariantRequest({ mimeType: 'audio/webm;codecs=opus' }), step);
   const upperCase = await drive(provider, invariantRequest({ mimeType: 'AUDIO/WEBM' }), step);

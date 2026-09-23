@@ -74,6 +74,20 @@ export function useVoiceAvailable(): boolean {
 
         if (readVoiceConfig().baseUrl.trim()) {
           setAvailable(true);
+          // The health reading is asked for on this path too, even though its answer is not what
+          // decides availability here. It is what PUBLISHES the effective provider, and that
+          // publication is the only place the client learns what the recogniser declares — the
+          // container gate and the trim gate both read it. Returning without asking left an
+          // install with its own endpoint, which is the shipped shape, holding no declaration at
+          // all: `effectivePauseCuesDeclaration()` answered `null`, and the trim gate reads `null`
+          // as "this recogniser's pauses are worth keeping".
+          //
+          // Awaited rather than fired and forgotten, so a capture started immediately still sees
+          // the declaration; its failure is swallowed rather than folded into `available`, because
+          // a user whose own endpoint answers must keep their microphone whether or not this
+          // server can be reached. A server that cannot answer leaves the profile unpublished,
+          // which is the "do not trim" answer this path gave before — never a broken mic.
+          await checkVoiceHealth().catch(() => {});
           return;
         }
 

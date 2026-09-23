@@ -58,12 +58,15 @@ const DEFAULT_ROOT = path.resolve(SCRIPT_DIR, '..');
 /**
  * The files a falsification rig has to carry for this check to answer about the rig.
  *
- * The two registry-side entries are what the registration table is followed through; the two
- * `src/` entries are the client side — where a second declaration would be written, and the gate
- * that has to reach the registry's instead.
+ * The registry-side entries are what the registration table is followed through — EVERY module the
+ * table names, because the probe resolves each registration to the module that declares it and a
+ * missing one fails the whole reading rather than skipping that row; the two `src/` entries are the
+ * client side — where a second declaration would be written, and the gate that has to reach the
+ * registry's instead.
  */
 export const FIXTURE_FILES = [
   'shared/asr/asrRegistry.ts',
+  'shared/asr/list/openai-compatible/openai-compatible.asr-provider.ts',
   'shared/asr/list/multimodal/multimodal.asr-provider.ts',
   'src/shared/voiceTrim.ts',
   'src/modules/chat/hooks/useVoiceInput.ts',

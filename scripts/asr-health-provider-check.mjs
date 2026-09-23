@@ -58,17 +58,24 @@ const TYPES_MODULE = 'server/shared/types.ts';
 const SERVER_TSCONFIG = 'server/tsconfig.json';
 const TRANSCRIPTION_WIRE_MODULE = 'shared/asr/transcriptionWire.ts';
 const MULTIMODAL_MODULE = 'shared/asr/list/multimodal/multimodal.asr-provider.ts';
+const OPENAI_COMPATIBLE_MODULE = 'shared/asr/list/openai-compatible/openai-compatible.asr-provider.ts';
 
 /**
  * Every file this probe reads. A fixture built from these is the smallest tree all of its
  * readings can be produced from, which is what the falsification controls mutate one file at a
  * time.
+ *
+ * EVERY module the landing registry imports is here, not merely the one a reading is about: the
+ * behavioural reading loads the registry by absolute path and the registry imports its adapters,
+ * so an adapter missing from the fixture makes the registry fail to load — and a fixture that
+ * cannot load produces no readings at all rather than the readings the controls are mutating.
  */
 export const FIXTURE_FILES = [
   SERVER_TSCONFIG,
   TYPES_MODULE,
   SERVICE_MODULE,
   LANDING_MODULE,
+  OPENAI_COMPATIBLE_MODULE,
   MULTIMODAL_MODULE,
   TRANSCRIPTION_WIRE_MODULE,
   'src/shared/api.ts',

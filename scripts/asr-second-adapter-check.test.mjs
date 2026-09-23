@@ -56,12 +56,30 @@ const SHIPPING_FILES = [
   'package.json',
   'tsconfig.json',
   'shared/asr/asrRegistry.ts',
+  'shared/asr/transcriptionWire.ts',
   'shared/asr/list/multimodal/multimodal.asr-provider.ts',
+  'shared/asr/list/openai-compatible/openai-compatible.asr-provider.ts',
 ];
 
+/** The adapter every mutation below is applied to: the SECOND one, whose claims this file pins. */
 const ADAPTER = 'shared/asr/list/multimodal/multimodal.asr-provider.ts';
 const REGISTRY = 'shared/asr/asrRegistry.ts';
-const REGISTRATION_ENTRY = '  { id: multimodalId, capabilities: multimodalCapabilities, transcribe: multimodalTranscribe },';
+
+/**
+ * The registered row the two registry mutations below rewrite. It is the second adapter's entry,
+ * and it is matched as the multi-line literal the registry writes: the fixture ships BOTH
+ * adapters (the probe drives every provider module it finds through the registry), so an anchor
+ * that matched a row by its id alone would also have to be unique — this one is, because only the
+ * multimodal row names `multimodalId`.
+ */
+const REGISTRATION_ENTRY = [
+  '  {',
+  '    id: multimodalId,',
+  '    capabilities: multimodalCapabilities,',
+  "    wire: 'inline-json',",
+  '    transcribe: multimodalTranscribe,',
+  '  },',
+].join('\n');
 
 /**
  * @returns {string} the fixture root

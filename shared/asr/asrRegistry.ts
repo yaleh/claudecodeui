@@ -30,6 +30,11 @@ import {
   id as multimodalId,
   transcribe as multimodalTranscribe,
 } from './list/multimodal/multimodal.asr-provider.js';
+import {
+  capabilities as openaiCompatibleCapabilities,
+  id as openaiCompatibleId,
+  transcribe as openaiCompatibleTranscribe,
+} from './list/openai-compatible/openai-compatible.asr-provider.js';
 
 /** A provider id, as it is written in user-level configuration. */
 export type AsrProviderId = string;
@@ -147,10 +152,36 @@ export type AsrInvocation = {
   signal?: AbortSignal;
 };
 
+/**
+ * The request shape an adapter speaks, as a name the contract suite can select its expectations by.
+ *
+ * WHY THIS IS DECLARED RATHER THAN SNIFFED OFF THE REQUEST. A probe that read the shape off the
+ * recorded request would score an adapter against whatever it happened to send, which is the one
+ * thing a contract check must not do: an adapter that stopped base64-encoding its audio would
+ * simply be measured as a different wire and stay green. Declared here, the tag is a CLAIM — the
+ * suite pins the request against it, so `wire: 'multipart'` answered by a JSON body is a red
+ * reading rather than a silently different set of expectations. It is the same discipline
+ * `AsrCapabilities` follows: the table is under test, not documentation.
+ *
+ *   · `'multipart'` — the shipped `/audio/transcriptions` shape: a `FormData` body carrying the
+ *     audio as a file part and the model as a field, the service's own JSON answer read back
+ *     (`shared/asr/transcriptionWire.ts`, the single implementation of it).
+ *   · `'inline-json'` — the multimodal shape: the audio base64-encoded into a JSON generation
+ *     request, the transcript read out of the generation envelope.
+ *
+ * OMITTED MEANS `'inline-json'`, and that default is deliberately not a convenience: the tag was
+ * added when the second adapter was already registered, and a module that predates the tag speaks
+ * the inline shape. Reading an absent tag as anything else would have made that adapter's readings
+ * move under a change it did not make.
+ */
+export type AsrWire = 'inline-json' | 'multipart';
+
 /** What a provider module must supply to be registered. */
 export type AsrAdapter = {
   id: AsrProviderId;
   capabilities: AsrCapabilities;
+  /** The request shape this adapter speaks. Absent means `'inline-json'` (see `AsrWire`). */
+  wire?: AsrWire;
   transcribe(request: AsrRequest, invocation: AsrInvocation): Promise<AsrResult>;
 };
 
@@ -217,9 +248,30 @@ export class UnknownAsrProviderError extends Error {
  * Every registered adapter. The `AsrAdapter` annotation is load-bearing: a provider whose
  * capability declaration or `transcribe` signature does not satisfy the contract fails to compile
  * here rather than at the first call.
+ *
+ * THE SHIPPED RECOGNISER IS FIRST, AND THE ORDER IS LOAD-BEARING RATHER THAN COSMETIC. A
+ * deployment that names no provider — the shipped default, since `VOICE_PROVIDER_ID` defaults to
+ * the empty string and the user-level configuration carries no provider id — resolves its
+ * effective provider as the first row (`server/modules/voice/voice.service.ts`). With only the
+ * multimodal adapter registered, that deployment reported itself as `multimodal` while its audio
+ * went to the OpenAI-compatible endpoint, so every question asked of "the effective provider" was
+ * answered about a service the audio never reached. Registering the shipped recogniser first makes
+ * the reported identity and the wire the same thing again; the order is the fix, not a detail of
+ * it, which is why it is written here instead of left to the reader.
  */
 const REGISTERED: readonly AsrAdapter[] = [
-  { id: multimodalId, capabilities: multimodalCapabilities, transcribe: multimodalTranscribe },
+  {
+    id: openaiCompatibleId,
+    capabilities: openaiCompatibleCapabilities,
+    wire: 'multipart',
+    transcribe: openaiCompatibleTranscribe,
+  },
+  {
+    id: multimodalId,
+    capabilities: multimodalCapabilities,
+    wire: 'inline-json',
+    transcribe: multimodalTranscribe,
+  },
 ];
 
 /** The registered adapters, in registration order. */
@@ -273,6 +325,7 @@ export type PauseCuesDeclaration = {
  * `scripts/asr-trim-capability-check.mjs` — require the named file to exist.
  */
 const PAUSE_CUES_EVIDENCE: Readonly<Record<string, string>> = {
+  [openaiCompatibleId]: 'docs/experiments/2026-09-22-voice-provider-paired-quality.md',
   [multimodalId]: 'docs/experiments/2026-09-22-voice-provider-paired-quality.md',
 };
 

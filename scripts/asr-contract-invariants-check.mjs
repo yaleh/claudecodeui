@@ -24,15 +24,27 @@
  *      through an injected implementation, and an adapter that reached `globalThis.fetch`
  *      directly would be caught here.
  *
- * RUN IT UNDER tsx, not bare `node`. The modules it measures are TypeScript and their internal
- * specifiers end in `.js` (the extension `server/tsconfig.json`'s NodeNext resolution demands),
- * which bare Node's type stripping does not map back onto the `.ts` files on disk. The control
- * test resolves tsx from its own file, so a driven tree needs no `node_modules` of its own.
+ * RUNNABLE AS `node scripts/asr-contract-invariants-check.mjs`. The modules it measures are
+ * TypeScript and their internal specifiers end in `.js` (the extension `server/tsconfig.json`'s
+ * NodeNext resolution demands), which bare Node's type stripping does not map back onto the `.ts`
+ * files on disk — so this file RE-EXECUTES ITSELF under tsx rather than documenting a loader the
+ * caller has to remember. A criterion that names a command has to be satisfied by that command, and
+ * "run it under tsx" is a property of the caller rather than of the tree: the same command under a
+ * different caller measured a different thing. The re-exec carries the arguments through and
+ * propagates the child's exit status, so the operator-visible contract is unchanged; the marker
+ * stops the second pass from re-executing itself again. Being already under tsx (the control test
+ * spawns it that way) costs one extra process and nothing else, which is why the marker — and not a
+ * loader probe — is what decides.
  */
+import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+/** Set on the re-executed pass, so the second copy does the measuring instead of spawning a third. */
+const TSX_MARKER = 'ASR_CONTRACT_INVARIANTS_UNDER_TSX';
 
 /** Where the board's modules live inside a tree. */
 const MODULE_DIR = join('shared', 'asr');
@@ -156,7 +168,41 @@ async function main() {
   process.exitCode = report.verdict === 'pass' && fetchCalls === 0 ? 0 : 1;
 }
 
-main().catch((error) => {
-  console.error(`asr-contract-invariants-check: ${error instanceof Error ? error.message : String(error)}`);
-  process.exitCode = 1;
-});
+/**
+ * Re-runs this file under tsx and returns the child's status.
+ *
+ * `import.meta.url` and `process.argv.slice(2)` are carried over verbatim, so the re-executed pass
+ * measures the same tree with the same options and the operator sees one command's output. A tsx
+ * that cannot be resolved is reported as a failed run rather than silently skipped: a checker that
+ * measured nothing must not exit 0.
+ */
+function reexecUnderTsx() {
+  let cli;
+  try {
+    cli = createRequire(import.meta.url).resolve('tsx/cli');
+  } catch (error) {
+    console.error(
+      `asr-contract-invariants-check: tsx could not be resolved (${error instanceof Error ? error.message : String(error)})`,
+    );
+    return 1;
+  }
+
+  const child = spawnSync(process.execPath, [cli, fileURLToPath(import.meta.url), ...process.argv.slice(2)], {
+    stdio: 'inherit',
+    env: { ...process.env, [TSX_MARKER]: '1' },
+  });
+  if (child.error !== undefined) {
+    console.error(`asr-contract-invariants-check: could not run under tsx (${child.error.message})`);
+    return 1;
+  }
+  return child.status ?? 1;
+}
+
+if (process.env[TSX_MARKER] !== '1') {
+  process.exitCode = reexecUnderTsx();
+} else {
+  main().catch((error) => {
+    console.error(`asr-contract-invariants-check: ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  });
+}

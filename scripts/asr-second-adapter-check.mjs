@@ -23,6 +23,17 @@
  *     the text with a positive control that the acknowledged hint IS there, so a builder that
  *     sends nothing cannot pass by sending nothing (AC3).
  *
+ * EVERY CASE IS DRIVEN PER WIRE, because every case above is a statement about a REQUEST and a
+ * request only exists in some shape. A registered adapter declares which shape it speaks
+ * (`AsrAdapter.wire`, absent meaning the inline one), and the case inputs and expectations are
+ * derived from that declaration: what "past the budget" means (the audio's encoding on one wire,
+ * its own bytes on the other), what a well-formed answer looks like, and how a recorded body is
+ * read at all — a multipart body is a `FormData`, so reading it as "no body" would silently
+ * disable every wire check rather than fail one. The declaration is therefore a second thing under
+ * test: an adapter that declares one wire and sends another disagrees with the inputs its own
+ * declaration implies. Each case is also namespaced by the provider it ran against, so with two
+ * registered adapters no case can be satisfied by the other adapter's reading of it (AC8).
+ *
  * OFFLINE IS ENFORCED, NOT ASSERTED (AC7). Every case injects its own transport, and the probe
  * also REPLACES `globalThis.fetch` with a poison for the duration: an adapter that reaches for the
  * ambient fetch instead of the injected one is caught by the poison rather than merely discouraged.
@@ -276,6 +287,107 @@ function base64Length(byteLength) {
   return Math.ceil(byteLength / 3) * 4;
 }
 
+/**
+ * The wire an adapter declared. The tag is optional on the contract and an absent one means the
+ * inline shape, which is the same default the registry documents — read here rather than inferred
+ * from the body, because a probe that scored an adapter against whatever it happened to send could
+ * not notice an adapter that stopped sending what it declared.
+ *
+ * @param {any} adapter
+ * @returns {'multipart'|'inline-json'}
+ */
+function wireOf(adapter) {
+  return adapter.wire === 'multipart' ? 'multipart' : 'inline-json';
+}
+
+/**
+ * The bytes THIS wire's budget accounting counts for an audio of `byteLength` bytes.
+ *
+ * THE BUDGET IS NOT SPENT BY THE SAME THING ON EVERY WIRE, so "past the budget" is not one number:
+ * a wire that base64-encodes its audio spends the budget on the ENCODING (four characters per three
+ * bytes), a wire that uploads the audio spends it on the audio's own bytes. Both quantities are
+ * derived here from the declared wire — independently of the adapter's own guard — so the pair of
+ * sizes below straddles the line the adapter says it draws.
+ *
+ * @param {'multipart'|'inline-json'} wire
+ * @param {number} byteLength
+ * @returns {number}
+ */
+function measuredBytes(wire, byteLength) {
+  return wire === 'multipart' ? byteLength : base64Length(byteLength);
+}
+
+/**
+ * An audio size that is past `budget` in this wire's arithmetic.
+ * @param {'multipart'|'inline-json'} wire
+ * @param {number} budget
+ * @returns {number}
+ */
+function oversizeAudioBytes(wire, budget) {
+  return wire === 'multipart' ? budget + 1 : Math.ceil((budget + 1) / 4) * 3;
+}
+
+/**
+ * An audio size well inside `budget` in this wire's arithmetic, leaving room for the request's
+ * skeleton and for a context that is meant to push it over.
+ * @param {'multipart'|'inline-json'} wire
+ * @param {number} budget
+ * @returns {number}
+ */
+function affordableAudioBytes(wire, budget) {
+  return wire === 'multipart' ? Math.floor(budget * 0.75) : Math.floor((budget * 0.75) / 4) * 3;
+}
+
+/**
+ * The request body as a comparable string, in whatever shape the wire sent it.
+ *
+ * A multipart body MUST NOT be read as "no body". The hint checks below search this string for the
+ * hints' text, so recording a `FormData` as empty would make every "the unacknowledged hint is not
+ * on the wire" reading pass by measuring nothing — the same fault this probe exists to catch, one
+ * level down. The rendering carries field names, values and a file part's name and SIZE; never the
+ * file's bytes, which is what keeps it a reading about the wire rather than a copy of the audio.
+ *
+ * @param {unknown} body
+ * @returns {string}
+ */
+function renderBody(body) {
+  if (typeof body === 'string') return body;
+  if (typeof FormData !== 'undefined' && body instanceof FormData) {
+    /** @type {string[]} */
+    const parts = [];
+    for (const [name, value] of body.entries()) {
+      if (typeof value === 'string') {
+        parts.push(`${name}=${value}`);
+        continue;
+      }
+      const part = /** @type {{ name?: unknown, type?: unknown, size?: unknown }} */ (value);
+      parts.push(
+        `${name}:<file name=${String(part?.name ?? '')} type=${String(part?.type ?? '')} size=${Number(part?.size ?? 0)}B>`,
+      );
+    }
+    return parts.join('&');
+  }
+  return '';
+}
+
+/**
+ * The audio as THIS wire carries it, as a substring of the rendered body.
+ *
+ * This is the hint group's POSITIVE CONTROL, and it is why the group is not satisfied by a builder
+ * that puts nothing anywhere: "the unacknowledged prompt is absent" is only a reading if the
+ * request carries something the absence can be told apart from. Both markers are derived here
+ * rather than read off the adapter — a multipart wire names the part's size, an inline wire carries
+ * the base64 of the audio's bytes — so neither can agree with the adapter by construction.
+ *
+ * @param {'multipart'|'inline-json'} wire
+ * @param {number} byteLength
+ * @returns {string}
+ */
+function audioMarker(wire, byteLength) {
+  if (wire === 'multipart') return `size=${byteLength}B`;
+  return Buffer.from(new Uint8Array(byteLength)).toString('base64');
+}
+
 // ── outcomes ─────────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -329,12 +441,37 @@ const ENVELOPE_BODY = JSON.stringify({
 const NON_ENVELOPE_JSON_BODY = JSON.stringify({ error: { code: 429, message: 'quota exceeded' } });
 const NON_JSON_BODY = '<html><body>502 Bad Gateway</body></html>';
 
-/** The two halves of the response-parse baseline: a non-envelope body is never a transcript. */
-const RESPONSE_CASES = [
-  { id: 'response-envelope', body: ENVELOPE_BODY, expectOk: true, expectText: 'hello world' },
-  { id: 'response-non-envelope-json', body: NON_ENVELOPE_JSON_BODY, expectOk: false, expectText: null },
-  { id: 'response-non-json', body: NON_JSON_BODY, expectOk: false, expectText: null },
+/**
+ * The response-parse baseline, one case per body shape, PER WIRE.
+ *
+ * "Not this service's answer" is the same reading on both wires — a body that is not this
+ * service's JSON is a failed transcription, never the transcript. "A well-formed answer" is not:
+ * a generation envelope with a text part on one wire, the transcription object's own `text` field
+ * on the other, so the first case's body is built from the wire rather than shared. Handing one
+ * wire's answer to the other would red the case for a reason that has nothing to do with parsing.
+ *
+ * @param {'multipart'|'inline-json'} wire
+ * @returns {{ id: string, body: string, expectOk: boolean, expectText: string|null }[]}
+ */
+const RESPONSE_CASE_SHAPES = [
+  { id: 'response-envelope', expectOk: true, expectText: 'hello world' },
+  { id: 'response-non-envelope-json', expectOk: false, expectText: null },
+  { id: 'response-non-json', expectOk: false, expectText: null },
 ];
+
+/**
+ * @param {'multipart'|'inline-json'} wire
+ * @returns {{ id: string, body: string, expectOk: boolean, expectText: string|null }[]}
+ */
+function responseCases(wire) {
+  /** @type {Record<string, string>} */
+  const bodies = {
+    'response-envelope': wire === 'multipart' ? JSON.stringify({ text: 'hello world' }) : ENVELOPE_BODY,
+    'response-non-envelope-json': NON_ENVELOPE_JSON_BODY,
+    'response-non-json': NON_JSON_BODY,
+  };
+  return RESPONSE_CASE_SHAPES.map((shape) => ({ ...shape, body: bodies[shape.id] }));
+}
 
 /**
  * Every case this probe claims to run. The list is the probe's own inventory, not a claim about
@@ -347,7 +484,7 @@ const EXPECTED_CASES = [
   'budget-audio-alone',
   'budget-audio-plus-context',
   'hints-on-the-wire',
-  ...RESPONSE_CASES.map((responseCase) => responseCase.id),
+  ...RESPONSE_CASE_SHAPES.map((responseCase) => responseCase.id),
 ];
 
 /**
@@ -361,37 +498,50 @@ const CONTEXT_TEXT = 'quarterly revenue recognition policy';
  * @param {any} adapter the adapter resolved out of the registry
  * @param {any} capabilities that adapter's declaration
  * @param {Ledger} ledger
+ * @param {string} providerId the id the adapter is registered under. Every reading and every case
+ *   id below is namespaced by it, so with more than one registered adapter "case X ran" is a claim
+ *   about one provider rather than about the run as a whole — otherwise a case one adapter skipped
+ *   would be satisfied by another adapter's reading of it.
  */
-async function runCases(adapter, capabilities, ledger) {
+async function runCases(adapter, capabilities, ledger, providerId) {
+  /** @param {string} id @returns {string} */
+  const scoped = (id) => `${providerId}:${id}`;
+  const wire = wireOf(adapter);
   const budget = capabilities.maxInlineRequestBytes;
-  ledger.record('budget-bytes', budget);
+  const transcriptBody = responseCases(wire)[0].body;
+  ledger.record(scoped('wire'), wire);
+  ledger.record(scoped('budget-bytes'), budget);
 
   // ── AC6: the declaration is a real one, with every field present and of the declared kind ──
   for (const field of ['acceptsMime', 'maxInlineRequestBytes', 'oversize', 'honors', 'billing', 'pauseCues', 'style', 'oneShot']) {
-    ledger.record(`capabilities.${field}`, capabilities[field]);
+    ledger.record(scoped(`capabilities.${field}`), capabilities[field]);
     if (capabilities[field] === undefined) {
-      ledger.fail('CAPABILITIES_MISSING_FIELD', `the resolved declaration has no '${field}'`);
+      ledger.fail('CAPABILITIES_MISSING_FIELD', `the resolved declaration for '${providerId}' has no '${field}'`);
     }
   }
-  ledger.record('capabilities.acceptsMime.length', capabilities.acceptsMime?.length ?? 0);
+  ledger.record(scoped('capabilities.acceptsMime.length'), capabilities.acceptsMime?.length ?? 0);
 
   // ── AC5: oversize is a declared rejection, taken before anything leaves ───────────────────
-  ledger.record('oversize-policy', capabilities.oversize);
+  ledger.record(scoped('oversize-policy'), capabilities.oversize);
   if (capabilities.oversize !== 'reject') {
     ledger.fail(
       'OVERSIZE_POLICY_NOT_REJECT',
-      `the adapter declares oversize='${String(capabilities.oversize)}'; the first version only allows 'reject' — an over-budget request must be refused here, not handed to the service to refuse`,
+      `'${providerId}' declares oversize='${String(capabilities.oversize)}'; the first version only allows 'reject' — an over-budget request must be refused here, not handed to the service to refuse`,
     );
   }
 
   // ── AC1: over budget ⇒ OVERSIZE, and the stand-in's counter must read zero ────────────────
-  const oversizeBytes = Math.ceil((budget + 1) / 4) * 3;
-  ledger.record('oversize-audio-bytes', oversizeBytes);
-  ledger.record('oversize-encoded-bytes', base64Length(oversizeBytes));
-  if (base64Length(oversizeBytes) <= budget) {
-    ledger.fail('CASE_INPUT_STALE', `the oversize input no longer exceeds the declared budget of ${budget} B`);
+  const oversizeBytes = oversizeAudioBytes(wire, budget);
+  ledger.record(scoped('oversize-audio-bytes'), oversizeBytes);
+  ledger.record(scoped('oversize-encoded-bytes'), base64Length(oversizeBytes));
+  ledger.record(scoped('oversize-measured-bytes'), measuredBytes(wire, oversizeBytes));
+  if (measuredBytes(wire, oversizeBytes) <= budget) {
+    ledger.fail(
+      'CASE_INPUT_STALE',
+      `'${providerId}': the oversize input no longer exceeds the declared budget of ${budget} B in the ${wire} wire's arithmetic`,
+    );
   }
-  const oversizeStandIn = makeStandIn(ENVELOPE_BODY);
+  const oversizeStandIn = makeStandIn(transcriptBody);
   const oversizeOutcome = await callAdapter(
     adapter,
     {
@@ -399,21 +549,21 @@ async function runCases(adapter, capabilities, ledger) {
     },
     invocationFor(oversizeStandIn),
     ledger,
-    'oversize-refused',
+    scoped('oversize-refused'),
   );
   if (oversizeOutcome !== null) {
-    ledger.record('oversize-code', oversizeOutcome.code);
-    ledger.record('oversize-calls', oversizeStandIn.count());
+    ledger.record(scoped('oversize-code'), oversizeOutcome.code);
+    ledger.record(scoped('oversize-calls'), oversizeStandIn.count());
     if (oversizeOutcome.ok || oversizeOutcome.code !== 'OVERSIZE') {
       ledger.fail(
         'OVERSIZE_NOT_REJECTED',
-        `an over-budget request returned ${JSON.stringify(oversizeOutcome)} instead of a failure with code OVERSIZE`,
+        `'${providerId}': an over-budget request returned ${JSON.stringify(oversizeOutcome)} instead of a failure with code OVERSIZE`,
       );
     }
     if (oversizeStandIn.count() !== 0) {
       ledger.fail(
         'OVERSIZE_NOT_ZERO_REQUEST',
-        `an over-budget request was refused but still cost ${oversizeStandIn.count()} upstream call(s) — the guard runs after the transport, so the bytes left`,
+        `'${providerId}': an over-budget request was refused but still cost ${oversizeStandIn.count()} upstream call(s) — the guard runs after the transport, so the bytes left`,
       );
     }
   }
@@ -421,38 +571,41 @@ async function runCases(adapter, capabilities, ledger) {
   // ── AC2: the budget is the WHOLE REQUEST — the same audio passes alone and fails with a
   //        long context beside it. Sizes are derived from the declared budget rather than
   //        typed in, so a declaration that shrinks moves the control with it.
-  const affordableBytes = Math.floor((budget * 0.75) / 4) * 3;
+  const affordableBytes = affordableAudioBytes(wire, budget);
   const contextText = 'x'.repeat(budget);
-  ledger.record('affordable-audio-bytes', affordableBytes);
-  ledger.record('affordable-encoded-bytes', base64Length(affordableBytes));
-  ledger.record('context-bytes', contextText.length);
-  if (base64Length(affordableBytes) + 1024 > budget) {
+  const contextHonored = capabilities.honors?.context === true;
+  ledger.record(scoped('affordable-audio-bytes'), affordableBytes);
+  ledger.record(scoped('affordable-encoded-bytes'), base64Length(affordableBytes));
+  ledger.record(scoped('affordable-measured-bytes'), measuredBytes(wire, affordableBytes));
+  ledger.record(scoped('context-bytes'), contextText.length);
+  ledger.record(scoped('context.honored'), contextHonored);
+  if (measuredBytes(wire, affordableBytes) + 1024 > budget) {
     ledger.fail(
       'CASE_INPUT_STALE',
-      `the 'affordable' input already fills the declared budget of ${budget} B, so the pair below would prove nothing`,
+      `'${providerId}': the 'affordable' input already fills the declared budget of ${budget} B in the ${wire} wire's arithmetic, so the pair below would prove nothing`,
     );
   }
 
-  const aloneStandIn = makeStandIn(ENVELOPE_BODY);
+  const aloneStandIn = makeStandIn(transcriptBody);
   const aloneOutcome = await callAdapter(
     adapter,
     { audio: { bytes: new Uint8Array(affordableBytes), mimeType: 'audio/webm;codecs=opus', fileName: 'alone.webm' } },
     invocationFor(aloneStandIn),
     ledger,
-    'budget-audio-alone',
+    scoped('budget-audio-alone'),
   );
   if (aloneOutcome !== null) {
-    ledger.record('budget-audio-alone-ok', aloneOutcome.ok);
-    ledger.record('budget-audio-alone-calls', aloneStandIn.count());
+    ledger.record(scoped('budget-audio-alone-ok'), aloneOutcome.ok);
+    ledger.record(scoped('budget-audio-alone-calls'), aloneStandIn.count());
     if (!aloneOutcome.ok || aloneStandIn.count() !== 1) {
       ledger.fail(
         'AUDIO_ALONE_REFUSED',
-        `an audio well inside the budget was not sent (${JSON.stringify(aloneOutcome)}, ${aloneStandIn.count()} call(s)) — the pair below can only show the budget is request-level if this half is accepted`,
+        `'${providerId}': an audio well inside the budget was not sent (${JSON.stringify(aloneOutcome)}, ${aloneStandIn.count()} call(s)) — the pair below can only show the budget is request-level if this half is accepted`,
       );
     }
   }
 
-  const withContextStandIn = makeStandIn(ENVELOPE_BODY);
+  const withContextStandIn = makeStandIn(transcriptBody);
   const withContextOutcome = await callAdapter(
     adapter,
     {
@@ -461,95 +614,124 @@ async function runCases(adapter, capabilities, ledger) {
     },
     invocationFor(withContextStandIn),
     ledger,
-    'budget-audio-plus-context',
+    scoped('budget-audio-plus-context'),
   );
   if (withContextOutcome !== null) {
-    ledger.record('budget-audio-plus-context-code', withContextOutcome.code);
-    ledger.record('budget-audio-plus-context-calls', withContextStandIn.count());
-    if (withContextOutcome.ok || withContextOutcome.code !== 'OVERSIZE') {
+    ledger.record(scoped('budget-audio-plus-context-code'), withContextOutcome.code);
+    ledger.record(scoped('budget-audio-plus-context-calls'), withContextStandIn.count());
+    if (contextHonored) {
+      if (withContextOutcome.ok || withContextOutcome.code !== 'OVERSIZE') {
+        ledger.fail(
+          'BUDGET_IS_AUDIO_ONLY',
+          `'${providerId}': the same audio that was accepted alone returned ${JSON.stringify(withContextOutcome)} once ${contextText.length} B of context joined it — the budget is being measured on the audio instead of on the whole request`,
+        );
+      }
+      if (withContextStandIn.count() !== 0) {
+        ledger.fail(
+          'OVERSIZE_NOT_ZERO_REQUEST',
+          `'${providerId}': the request that exceeded the budget after its context was added still cost ${withContextStandIn.count()} upstream call(s)`,
+        );
+      }
+    } else if (!withContextOutcome.ok || withContextStandIn.count() !== 1) {
+      // THE MIRROR READING, and the same invariant seen from the other side of the declaration. A
+      // hint the declaration does not acknowledge is not sent — so its bytes are not on the request
+      // and must not be counted against the budget either. An adapter that drops the context but
+      // still sizes it refuses an upload the service would have accepted, which is the defect this
+      // group names, read from the direction the honoring provider cannot show it from.
       ledger.fail(
-        'BUDGET_IS_AUDIO_ONLY',
-        `the same audio that was accepted alone returned ${JSON.stringify(withContextOutcome)} once ${contextText.length} B of context joined it — the budget is being measured on the audio instead of on the whole request`,
-      );
-    }
-    if (withContextStandIn.count() !== 0) {
-      ledger.fail(
-        'OVERSIZE_NOT_ZERO_REQUEST',
-        `the request that exceeded the budget after its context was added still cost ${withContextStandIn.count()} upstream call(s)`,
+        'UNHONORED_HINT_COUNTED_AGAINST_BUDGET',
+        `'${providerId}': the same audio that was accepted alone returned ${JSON.stringify(withContextOutcome)} once a context the declaration does not acknowledge joined it (${withContextStandIn.count()} call(s)) — an unacknowledged hint is left off the wire, so it cannot be what pushes a request over the budget`,
       );
     }
   }
 
   // ── AC3: a hint the declaration does not acknowledge is NOT on the wire ───────────────────
   const PROMPT_TEXT = 'biasing prompt for the probe';
-  const hintsStandIn = makeStandIn(ENVELOPE_BODY);
+  const hintAudioBytes = 2048;
+  const hintsStandIn = makeStandIn(transcriptBody);
   const hintsOutcome = await callAdapter(
     adapter,
     {
-      audio: { bytes: new Uint8Array(2048), mimeType: 'audio/webm;codecs=opus', fileName: 'hints.webm' },
+      audio: { bytes: new Uint8Array(hintAudioBytes), mimeType: 'audio/webm;codecs=opus', fileName: 'hints.webm' },
       hints: { prompt: PROMPT_TEXT, language: 'zh', context: CONTEXT_TEXT },
     },
     invocationFor(hintsStandIn),
     ledger,
-    'hints-on-the-wire',
+    scoped('hints-on-the-wire'),
   );
   if (hintsOutcome !== null) {
     const call = hintsStandIn.calls[0];
-    const rawBody = typeof call?.init?.body === 'string' ? call.init.body : '';
-    ledger.record('hints-calls', hintsStandIn.count());
-    ledger.record('hints-body-bytes', rawBody.length);
-    if (typeof call?.init?.body !== 'string') {
-      ledger.fail('CASE_INPUT_STALE', 'the stand-in received no string body, so the wire checks below cannot read one');
+    const rawBody = renderBody(call?.init?.body);
+    ledger.record(scoped('hints-calls'), hintsStandIn.count());
+    ledger.record(scoped('hints-body-bytes'), rawBody.length);
+    if (rawBody.length === 0) {
+      ledger.fail(
+        'CASE_INPUT_STALE',
+        `'${providerId}': the stand-in received a body this probe cannot render as a wire (${typeof call?.init?.body}), so the hint checks below cannot read one`,
+      );
     } else {
+      // THE POSITIVE CONTROL FOR THE GROUP, and it is read first: whatever else is left off, the
+      // request carries the audio in the wire's own form. Without it, a builder that put nothing on
+      // the wire at all would satisfy every absence below — the same "an inert implementation
+      // passes" fault the whole probe exists to refuse, one case down.
+      const marker = audioMarker(wire, hintAudioBytes);
+      const audioPresent = rawBody.includes(marker);
+      ledger.record(scoped('hints.audio.on-the-wire'), audioPresent);
+      if (!audioPresent) {
+        ledger.fail(
+          'HINT_CONTROL_ABSENT',
+          `'${providerId}': the audio is not on the request in the ${wire} wire's own form, so the absences below could be satisfied by a request that carries nothing at all`,
+        );
+      }
       for (const hint of ['prompt', 'language']) {
         const honored = capabilities.honors?.[hint] === true;
         const present = rawBody.includes(hint === 'prompt' ? PROMPT_TEXT : 'zh');
-        ledger.record(`hints.${hint}.honored`, honored);
-        ledger.record(`hints.${hint}.text-present`, present);
+        ledger.record(scoped(`hints.${hint}.honored`), honored);
+        ledger.record(scoped(`hints.${hint}.text-present`), present);
         if (!honored && present) {
           ledger.fail(
             hint === 'prompt' ? 'PROMPT_SENT' : 'UNHONORED_HINT_SENT',
-            `the declaration says honors.${hint}=false, but the value is in the request body — an unacknowledged hint must not be sent at all (not sent as an empty value either)`,
+            `'${providerId}': the declaration says honors.${hint}=false, but the value is in the request body — an unacknowledged hint must not be sent at all (not sent as an empty value either)`,
           );
         }
       }
-      // The positive control: what IS acknowledged must be there, so an empty body cannot pass.
+      // The other half: what IS acknowledged must be there, so the absences above cannot be
+      // satisfied by an adapter that sends only the audio.
       const contextPresent = rawBody.includes(CONTEXT_TEXT);
-      ledger.record('hints.context.honored', capabilities.honors?.context === true);
-      ledger.record('hints.context.text-present', contextPresent);
+      ledger.record(scoped('hints.context.text-present'), contextPresent);
       if (capabilities.honors?.context === true && !contextPresent) {
         ledger.fail(
           'ACKNOWLEDGED_HINT_ABSENT',
-          'the declaration acknowledges context, but the context text is absent from the body — the absence of the prompt above would otherwise be satisfied by a builder that sends nothing',
+          `'${providerId}': the declaration acknowledges context, but the context text is absent from the body — the absence of the prompt above would otherwise be satisfied by a builder that sends nothing`,
         );
       }
     }
   }
 
   // ── AC4: the response-parse baseline, one case per body shape ─────────────────────────────
-  for (const responseCase of RESPONSE_CASES) {
+  for (const responseCase of responseCases(wire)) {
     const standIn = makeStandIn(responseCase.body);
     const outcome = await callAdapter(
       adapter,
       { audio: { bytes: new Uint8Array(1024), mimeType: 'audio/webm;codecs=opus', fileName: 'response.webm' } },
       invocationFor(standIn),
       ledger,
-      responseCase.id,
+      scoped(responseCase.id),
     );
     if (outcome === null) continue;
-    ledger.record(`${responseCase.id}-ok`, outcome.ok);
-    ledger.record(`${responseCase.id}-text`, outcome.text ?? '<none>');
+    ledger.record(scoped(`${responseCase.id}-ok`), outcome.ok);
+    ledger.record(scoped(`${responseCase.id}-text`), outcome.text ?? '<none>');
     if (responseCase.expectOk) {
       if (!outcome.ok || outcome.text !== responseCase.expectText) {
         ledger.fail(
           'ENVELOPE_NOT_READ',
-          `${responseCase.id}: a well-formed answer read as ${JSON.stringify(outcome)} instead of '${String(responseCase.expectText)}'`,
+          `'${providerId}' ${responseCase.id}: a well-formed answer read as ${JSON.stringify(outcome)} instead of '${String(responseCase.expectText)}'`,
         );
       }
     } else if (outcome.ok) {
       ledger.fail(
         'LOOSE_RESPONSE_PARSE',
-        `${responseCase.id}: a body that is not the generation envelope was returned as a transcript (${JSON.stringify(outcome.text)}) — the whole response must never stand in for the text`,
+        `'${providerId}' ${responseCase.id}: a body that is not this service's answer was returned as a transcript (${JSON.stringify(outcome.text)}) — the whole response must never stand in for the text`,
       );
     }
   }
@@ -645,8 +827,10 @@ async function main() {
         }
 
         if (resolved.capabilities?.maxInlineRequestBytes > 0) {
-          await runCases(resolved, resolved.capabilities, ledger);
-          ledger.requireAll(EXPECTED_CASES);
+          await runCases(resolved, resolved.capabilities, ledger, String(providerId));
+          // Scoped to THIS provider: with two adapters registered, an unscoped inventory would let
+          // one provider's reading of a case stand in for the other's missing one (AC8).
+          ledger.requireAll(EXPECTED_CASES.map((id) => `${String(providerId)}:${id}`));
         } else {
           ledger.fail(
             'EMPTY_READING',

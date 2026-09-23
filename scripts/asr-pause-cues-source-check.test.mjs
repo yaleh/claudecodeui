@@ -42,10 +42,17 @@ const REGISTRY = 'shared/asr/asrRegistry.ts';
 const VOICE_TRIM = 'src/shared/voiceTrim.ts';
 const GATE = 'src/modules/chat/hooks/useVoiceInput.ts';
 
-/** The provider the shipped configuration sends to, and the two capability values that oppose. */
-const EFFECTIVE_PROVIDER = 'multimodal';
-const KEEP_VALUE = 'useful';
-const TRIM_VALUE = 'destructive';
+/**
+ * The provider the shipped configuration sends to, and the two capability values that oppose.
+ *
+ * The effective provider is the FIRST registered adapter, so these name the first row of
+ * `shared/asr/asrRegistry.ts`: when the ordering changes, this file changes with it. `REGISTRY_VALUE`
+ * is that adapter's own declaration — the value the agreeing rig writes and the probe must accept;
+ * `OPPOSING_VALUE` is the other side of the distinction the probe is asked to draw.
+ */
+const EFFECTIVE_PROVIDER = 'openai-compatible';
+const REGISTRY_VALUE = 'destructive';
+const OPPOSING_VALUE = 'useful';
 
 /** The judgement the probe has to reach on a disagreement, and the literal AC4 retires. */
 const MISMATCH = '客户端声明的 `pauseCues` 与 registry 对当前 provider 的声明不一致';
@@ -58,13 +65,13 @@ const READ_POINT = 'export function trimDecisionFor(capability: PauseCues): Trim
 const CLIENT_TABLE = [
   '/** A client-side declaration of the capability, of the shape this check reads. */',
   'export const PAUSE_CUES_DECLARATIONS = [',
-  `  { provider: '${EFFECTIVE_PROVIDER}', pauseCues: '${KEEP_VALUE}' },`,
+  `  { provider: '${EFFECTIVE_PROVIDER}', pauseCues: '${REGISTRY_VALUE}' },`,
   '];',
 ].join('\n');
 
 /** The one row above, as the value-change case rewrites it. */
-const ROW = `  { provider: '${EFFECTIVE_PROVIDER}', pauseCues: '${KEEP_VALUE}' },`;
-const ROW_OPPOSING = `  { provider: '${EFFECTIVE_PROVIDER}', pauseCues: '${TRIM_VALUE}' },`;
+const ROW = `  { provider: '${EFFECTIVE_PROVIDER}', pauseCues: '${REGISTRY_VALUE}' },`;
+const ROW_OPPOSING = `  { provider: '${EFFECTIVE_PROVIDER}', pauseCues: '${OPPOSING_VALUE}' },`;
 
 /** The gate's shipping line, and the pre-fix line that names the retired literal instead. */
 const GATE_READS_REGISTRY = '  const recogniser = effectivePauseCuesDeclaration();';
@@ -143,7 +150,7 @@ test('the shipping tree passes: the client declares nothing and reads the regist
   assert.equal(status, 0, stdout);
   // The readings the pass rests on, so a green that came from an empty scan cannot hide here:
   // the registry side was read, and the gate was found reaching it.
-  assert.match(stdout, /^registry-pauseCues=useful$/m);
+  assert.match(stdout, /^registry-pauseCues=destructive$/m);
   assert.match(stdout, /^client-declaration-rows=0$/m);
   assert.match(stdout, /^gate-reads-registry=yes \(/m);
   assert.match(stdout, /^verdict=ok$/m);
@@ -156,7 +163,7 @@ test('a client table whose value EQUALS the registry stays green', (t) => {
 
   assert.equal(status, 0, stdout);
   assert.match(stdout, /^client-declaration-rows=1$/m);
-  assert.match(stdout, /^client-pauseCues=useful$/m);
+  assert.match(stdout, /^client-pauseCues=destructive$/m);
   assert.match(stdout, /^verdict=ok$/m);
 });
 
@@ -172,7 +179,7 @@ test('the same rig, with only that value changed to the registry\'s opposite, re
   // Both values verbatim, and which provider they are about: the judgement is only actionable if
   // the reader can see what disagreed with what without opening either file.
   assert.ok(
-    stdout.includes(`client=${TRIM_VALUE} registry=${KEEP_VALUE} provider=${EFFECTIVE_PROVIDER}`),
+    stdout.includes(`client=${OPPOSING_VALUE} registry=${REGISTRY_VALUE} provider=${EFFECTIVE_PROVIDER}`),
     stdout,
   );
 });

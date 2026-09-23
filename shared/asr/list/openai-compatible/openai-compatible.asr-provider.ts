@@ -1,0 +1,242 @@
+/**
+ * The FIRST recogniser adapter: the shipped OpenAI-compatible transcription service, multipart.
+ *
+ * WHY THIS MODULE EXISTS AT ALL. The shipped path has spoken to this service since before the seam
+ * did — `shared/asr/transcriptionWire.ts` is its wire, and the browser's direct path, the server's
+ * proxy path and the command line all go through it. What was missing was the ADDRESS: no adapter
+ * was registered under this service's id, so nothing in the registry could answer for the
+ * recogniser every recording actually reaches. The first symptom was the trim, which asks the
+ * registry 裁不裁 and got no declaration at all (ADR-004 decision 1); the shape is general — a
+ * provider the app uses but the address book does not list answers no question about itself.
+ *
+ * IT IS THE SHIPPED WIRE, NOT A SECOND IMPLEMENTATION OF IT. `transcribe` composes the two halves
+ * of `../../transcriptionWire.js` (`createTranscriptionRequest`, `parseTranscriptionResponse`) and
+ * nothing else: the request construction and the answer parsing stay in the one module that
+ * already owned them, so registering this adapter cannot make the app send something different
+ * from what it sent yesterday. The guards below (container, budget) run BEFORE the wire is
+ * touched, which is the discipline the second adapter shares and the invariant board measures.
+ *
+ * ENVIRONMENT NEUTRALITY, the same machine property `../../asrRegistry.ts` documents: this file is
+ * compiled by BOTH compiler configurations (root: `lib: ES2020 + DOM`, `types: vite/client`;
+ * server: `lib: ES2022`, NodeNext, `types: node`), so it uses no Node built-in and no ES2021+
+ * library feature, and every environment dependency (base URL, credential, model, transport,
+ * signal) arrives through `AsrInvocation`.
+ */
+
+import {
+  declaredAcceptsMime,
+  type AsrAdapter,
+  type AsrCapabilities,
+  type AsrErrorCode,
+  type AsrHints,
+  type AsrInvocation,
+  type AsrRequest,
+  type AsrResult,
+} from '../../asrRegistry.js';
+import { createTranscriptionRequest, parseTranscriptionResponse } from '../../transcriptionWire.js';
+
+/** The id this provider is registered under — the id the shipped path has always been spoken of by. */
+export const id: string = 'openai-compatible';
+
+/**
+ * This provider's capability declaration, every field read off what the shipped path does today.
+ *
+ *   · `acceptsMime` is the set of containers the seam already serves: the recorder's own
+ *     `audio/webm;codecs=opus` (matched on the base type) and the files the pickers offer. A
+ *     shorter list would refuse an upload the app accepts today; a longer one would admit a
+ *     container the shipped path has never been handed.
+ *   · `maxInlineRequestBytes` is this service's own published ceiling for one request, and it is
+ *     the figure the transport layer was reading before the budget became a declaration (ADR-004
+ *     §缺口②: the 25 MB global bound). It is a REQUEST maximum: the whole upload, not a share of it.
+ *   · `honors` IS ALL FALSE, and that is a reading of the wire rather than a view about the
+ *     service: `createTranscriptionRequest` puts the file and the model on the request and nothing
+ *     else, so a hint this module declared it honored would be a hint no code knows how to send —
+ *     and ADR-004 §二's paired measurement is the reason not to add one (a prompt collapses Chinese
+ *     punctuation on the trimmed path, and the product carries no language to switch on).
+ *   · `billing: 'audio-seconds'` and `style: 'verbatim'`: a saved second is a saved second here
+ *     (this service bills by audio, with a per-request floor), and the answer comes back as spoken.
+ *   · `pauseCues: 'destructive'` — the shipped default the trim was taken under: trimming hits this
+ *     recogniser's Chinese punctuation (−89%, `docs/experiments/2026-09-22-voice-punctuation.md`),
+ *     so its silence is removed before the audio is uploaded.
+ */
+export const capabilities: AsrCapabilities = {
+  acceptsMime: [
+    'audio/wav',
+    'audio/x-wav',
+    'audio/mpeg',
+    'audio/mp3',
+    'audio/aac',
+    'audio/ogg',
+    'audio/flac',
+    'audio/webm',
+  ],
+  maxInlineRequestBytes: 25 * 1024 * 1024,
+  oversize: 'reject',
+  honors: { prompt: false, language: false, context: false },
+  billing: 'audio-seconds',
+  pauseCues: 'destructive',
+  style: 'verbatim',
+  oneShot: true,
+};
+
+// ── the hints ────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The subset of `hints` this provider will actually put on the wire.
+ *
+ * This is the only place the `honors` declaration is applied, exactly as the second adapter does
+ * it, so "the prompt is not sent" is a property of the declaration rather than of a second
+ * condition downstream that could drift from it. With this declaration the result is always empty;
+ * it is written from the declaration anyway, so a declaration that starts acknowledging a hint
+ * carries the rest of the arithmetic with it instead of leaving a guard that under-counts.
+ */
+export function honoredHints(hints: AsrHints | undefined): AsrHints {
+  const honored: AsrHints = {};
+  if (hints === undefined) return honored;
+  if (capabilities.honors.prompt && hints.prompt !== undefined) honored.prompt = hints.prompt;
+  if (capabilities.honors.language && hints.language !== undefined) honored.language = hints.language;
+  if (capabilities.honors.context && hints.context !== undefined) honored.context = hints.context;
+  return honored;
+}
+
+/**
+ * The budget subject: the caller-controlled bytes the request carries — the audio, plus every hint
+ * the declaration acknowledges, measured as the bytes the wire would carry them as.
+ *
+ * `Blob.size` is the byte length of a string part, which is why the hints are measured by encoding
+ * them the way the wire would rather than by counting characters: a Chinese context is three bytes
+ * per character, and a guard that counted characters would pass a request the service rejects.
+ *
+ * What this deliberately does not model is the constant transport envelope — the multipart
+ * boundaries, the field names, the model — for the reason the second adapter's equivalent gives:
+ * it is fixed per call and carries no caller-controlled bytes.
+ */
+export function measureRequestBytes(request: AsrRequest, honored: AsrHints): number {
+  let bytes = request.audio.bytes.length;
+  if (honored.prompt !== undefined) bytes += new Blob([honored.prompt]).size;
+  if (honored.language !== undefined) bytes += new Blob([honored.language]).size;
+  if (honored.context !== undefined) bytes += new Blob([honored.context]).size;
+  return bytes;
+}
+
+/**
+ * The audio as the `File` part the multipart body carries.
+ *
+ * THE COPY IS THE POINT, not a workaround. `bytes` may be a view into a larger buffer — the trim
+ * path hands over slices of the recording it decoded — and a `Blob` built from the view's own
+ * `.buffer` would carry the neighbours of that slice as well as the slice. Reading exactly
+ * `byteLength` bytes into a fresh buffer makes the part carry the audio and nothing else. It is
+ * also what the two compiler configurations agree on: the root configuration types a `BlobPart` as
+ * an `ArrayBufferView<ArrayBuffer>` while `AsrAudio.bytes` is a `Uint8Array<ArrayBufferLike>`, so
+ * the plain `ArrayBuffer` is the portable form of the same bytes.
+ */
+export function filePart(bytes: Uint8Array, mimeType: string): Blob {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return new Blob([buffer], { type: mimeType });
+}
+
+// ── the response ─────────────────────────────────────────────────────────────────────────────
+
+/** Transport status to the semantic code the route above maps to HTTP. */
+export function errorCodeForStatus(status: number): AsrErrorCode {
+  if (status === 401 || status === 403) return 'UNAUTHORIZED';
+  if (status === 429) return 'RATE_LIMITED';
+  return 'UPSTREAM_ERROR';
+}
+
+function isAbortError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { name?: unknown }).name === 'AbortError';
+}
+
+// ── the adapter ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Transcribes one multipart request.
+ *
+ * The two guards run before the transport is touched, in this order: an unaccepted container is
+ * refused before anything is sized, and an oversized request is refused before anything is sent.
+ * Neither produces an upstream call. The wire itself is built by `transcriptionWire.ts`, and the
+ * answer is read with the `strict` tolerance — the direct path's historical reading, where a body
+ * that is not this service's JSON is a failed transcription rather than a transcript.
+ */
+export async function transcribe(request: AsrRequest, invocation: AsrInvocation): Promise<AsrResult> {
+  if (!declaredAcceptsMime(capabilities, request.audio.mimeType)) {
+    return {
+      ok: false,
+      code: 'UNSUPPORTED_MIME',
+      message:
+        `provider '${id}' does not accept ${request.audio.mimeType}; ` +
+        `it accepts ${capabilities.acceptsMime.join(', ')}`,
+    };
+  }
+
+  const requestBytes = measureRequestBytes(request, honoredHints(request.hints));
+  if (requestBytes > capabilities.maxInlineRequestBytes) {
+    return {
+      ok: false,
+      code: 'OVERSIZE',
+      message:
+        `request of ${requestBytes} B exceeds provider '${id}' budget of ` +
+        `${capabilities.maxInlineRequestBytes} B (the budget covers the whole request, not the audio alone)`,
+    };
+  }
+
+  const wire = createTranscriptionRequest(
+    { baseUrl: invocation.baseUrl, apiKey: invocation.apiKey, model: invocation.model },
+    {
+      audio: filePart(request.audio.bytes, request.audio.mimeType),
+      fileName: request.audio.fileName,
+    },
+  );
+  const signal = invocation.signal ?? AbortSignal.timeout(invocation.timeoutMs);
+
+  let response: Response;
+  try {
+    response = await invocation.fetchImpl(wire.url, { ...wire.init, signal });
+  } catch (error) {
+    return {
+      ok: false,
+      code: isAbortError(error) ? 'TIMEOUT' : 'UNREACHABLE',
+      message: isAbortError(error)
+        ? `provider '${id}' did not answer within ${invocation.timeoutMs} ms`
+        : `provider '${id}' could not be reached`,
+    };
+  }
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      code: errorCodeForStatus(response.status),
+      message: `provider '${id}' answered ${response.status}`,
+      status: response.status,
+    };
+  }
+
+  let transcript: string;
+  try {
+    transcript = await parseTranscriptionResponse(response, 'strict');
+  } catch {
+    return {
+      ok: false,
+      code: 'UPSTREAM_ERROR',
+      message: `provider '${id}' answer was not the transcription envelope`,
+    };
+  }
+
+  if (transcript === '') {
+    return { ok: false, code: 'NO_SPEECH_DETECTED', message: `provider '${id}' returned no text` };
+  }
+
+  return {
+    ok: true,
+    text: transcript,
+    style: 'verbatim',
+    transformations: [],
+    providerId: id,
+    meta: { model: invocation.model },
+  };
+}
+
+/** This module as the registry consumes it. */
+export const adapter: AsrAdapter = { id, capabilities, transcribe };
