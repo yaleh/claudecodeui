@@ -1,7 +1,7 @@
 ---
 id: gap-voice-upload-leg-unmeasured-under-shipped-recogniser
 title: 上传入口那一腿量不到东西：裁剪默认翻面后 setInputFiles 提交的音频不再被解码/裁剪，读数退回全 null 占位
-status: todo
+status: ready
 labels:
   - gap
   - defect
