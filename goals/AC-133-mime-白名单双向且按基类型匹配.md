@@ -1,7 +1,7 @@
 ---
 id: AC-133
 title: MIME 白名单双向且按基类型匹配
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-008
 criterion: node scripts/asr-mime-allowlist-check.mjs
@@ -17,6 +17,11 @@ statusLog:
     to: active
     actor: goal-cli
     reason: ""
+  - at: 2026-09-23T05:03:03.098Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: not-evaluated
   reason: no judge configured
