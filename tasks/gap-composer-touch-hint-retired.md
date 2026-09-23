@@ -1,7 +1,7 @@
 ---
 id: gap-composer-touch-hint-retired
 title: 触摸设备不再显示发送键提示行：还原 `hidden lg:block`（手机省 20px），并把已达成 AC 的判据迁移到新的不变量
-status: ready
+status: done
 labels:
   - gap
 parent: null
