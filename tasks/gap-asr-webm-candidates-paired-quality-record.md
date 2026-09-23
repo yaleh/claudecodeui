@@ -45,16 +45,16 @@ extra:
 
 ## AC
 
-- [ ] AC1 空读数不是绿：`node experiments/voice-webm-asr-paired-quality/run.mjs --corpus=empty` 退出 1；默认离线重算退出 0 并打印 `n=8 × <k> condition(s)`，`k` ≥ 13 且条件 key 覆盖 Proposal 所列全部条件。
-- [ ] AC2 只用 webm：离线重算打印每条上传的 mime 与 sha256，全部为 `audio/webm`；`grep -nE "audio/wav|format: *'wav'" experiments/voice-webm-asr-paired-quality/run.mjs` 只命中「读 fixture」处，不命中任何请求构造；`--probe` 断言快照中无 wav 上传记录并退出 0。
-- [ ] AC3 缺 ffmpeg 不静默：以 `PATH` 去掉 ffmpeg 所在目录运行 `--live --dry-run`（不联网）⇒ 非零退出且 stderr 含 `ffmpeg`。
-- [ ] AC4 出货模块：`--probe` 打印 `shared/asr/asrRegistry.ts` 解析出的 `openai-compatible` 适配器 `transcribe` 与 `src/shared/voiceTrim.ts#trimVoiceAudio` 的绝对路径；runner 源码无 `/audio/transcriptions` 字面量（OpenRouter/Groq 请求不由 runner 自造）；DashScope 列在快照 `provenance` 中标为 `runner-local wire (no shipped adapter)`。
-- [ ] AC5 单一运行：快照内全部读数来自同一个 run id；`--runs=straddle`（把一条读数改成另一 run）⇒ 退出 1 并报 `different runs`。
-- [ ] AC6 负对照与上下文结论：`--control=absent` / `--control=zero` / `--control=inverted` 各退出 1 且判词指名 `flat`；离线重算为每个上下文臂打印 `context honored` 或 `context not honored` 与依据。
-- [ ] AC7 数字归一：离线重算对每个条件同时打印 `cer` 与 `cerNumNorm`；单元自检 `--selftest` 断言 `十五秒`↔`15秒`、`三十`↔`30`、`五十秒，不是五秒`↔`50秒，不是5秒` 归一后逐字相等，退出 0。
-- [ ] AC8 记录作答：`docs/experiments/2026-09-23-webm-asr-candidates.md` 存在，含 `n=8`、run id、「TTS 合成」、「单一时段、一次采样、无噪声尺子」、`cerNumNorm` 列、上下文结论、裁剪结论、以及「DashScope 列测的是服务而非出货代码、浏览器不能直连（CORS）」两句；`docs/experiments/README.md` 列出该文件。
-- [ ] AC9 不判据化与凭据不入库：runner 末行含 `quality numbers are a reading and are NOT a criterion`；`grep -rl voice-webm-asr-paired-quality scripts/` 为空；在载入 `.env.test` 的 shell 里 `git log -p develop..HEAD | grep -cF "$OPENROUTER_API_KEY"` 与 `grep -cF "$DASHSCOPE_API_KEY"` 均为 0；`out/` 不入库。
-- [ ] AC10 静态门：`npm run typecheck` 与 `npm run lint` 退出 0。
+- [x] AC1 空读数不是绿：`node experiments/voice-webm-asr-paired-quality/run.mjs --corpus=empty` 退出 1；默认离线重算退出 0 并打印 `n=8 × <k> condition(s)`，`k` ≥ 13 且条件 key 覆盖 Proposal 所列全部条件。
+- [x] AC2 只用 webm：离线重算打印每条上传的 mime 与 sha256，全部为 `audio/webm`；`grep -nE "audio/wav|format: *'wav'" experiments/voice-webm-asr-paired-quality/run.mjs` 只命中「读 fixture」处，不命中任何请求构造；`--probe` 断言快照中无 wav 上传记录并退出 0。
+- [x] AC3 缺 ffmpeg 不静默：以 `PATH` 去掉 ffmpeg 所在目录运行 `--live --dry-run`（不联网）⇒ 非零退出且 stderr 含 `ffmpeg`。
+- [x] AC4 出货模块：`--probe` 打印 `shared/asr/asrRegistry.ts` 解析出的 `openai-compatible` 适配器 `transcribe` 与 `src/shared/voiceTrim.ts#trimVoiceAudio` 的绝对路径；runner 源码无 `/audio/transcriptions` 字面量（OpenRouter/Groq 请求不由 runner 自造）；DashScope 列在快照 `provenance` 中标为 `runner-local wire (no shipped adapter)`。
+- [x] AC5 单一运行：快照内全部读数来自同一个 run id；`--runs=straddle`（把一条读数改成另一 run）⇒ 退出 1 并报 `different runs`。
+- [x] AC6 负对照与上下文结论：`--control=absent` / `--control=zero` / `--control=inverted` 各退出 1 且判词指名 `flat`；离线重算为每个上下文臂打印 `context honored` 或 `context not honored` 与依据。
+- [x] AC7 数字归一：离线重算对每个条件同时打印 `cer` 与 `cerNumNorm`；单元自检 `--selftest` 断言 `十五秒`↔`15秒`、`三十`↔`30`、`五十秒，不是五秒`↔`50秒，不是5秒` 归一后逐字相等，退出 0。
+- [x] AC8 记录作答：`docs/experiments/2026-09-23-webm-asr-candidates.md` 存在，含 `n=8`、run id、「TTS 合成」、「单一时段、一次采样、无噪声尺子」、`cerNumNorm` 列、上下文结论、裁剪结论、以及「DashScope 列测的是服务而非出货代码、浏览器不能直连（CORS）」两句；`docs/experiments/README.md` 列出该文件。
+- [x] AC9 不判据化与凭据不入库：runner 末行含 `quality numbers are a reading and are NOT a criterion`；`grep -rl voice-webm-asr-paired-quality scripts/` 为空；在载入 `.env.test` 的 shell 里 `git log -p develop..HEAD | grep -cF "$OPENROUTER_API_KEY"` 与 `grep -cF "$DASHSCOPE_API_KEY"` 均为 0；`out/` 不入库。
+- [x] AC10 静态门：`npm run typecheck` 与 `npm run lint` 退出 0。
 
 ## DoD
 
