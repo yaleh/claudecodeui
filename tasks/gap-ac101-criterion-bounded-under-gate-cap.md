@@ -2,7 +2,7 @@
 id: gap-ac101-criterion-bounded-under-gate-cap
 title: AC-101 判据在 60s 门限之上无界、越过时不归因：端口预检只是一次快照而 Playwright 自身的 spawn 前探测没有
   deadline（实测构造 150s 不出，预检生效时 0.481s）
-status: ready
+status: done
 labels:
   - gap
   - defect
