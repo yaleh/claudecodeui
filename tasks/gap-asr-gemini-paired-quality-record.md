@@ -32,17 +32,42 @@ depends_on:
 
 **边界（不做）**：不改 `pauseCues`/`style` 等声明本身 —— 若读数不支持 `useful`，记录写明，并另立 gap 任务改声明；不接路由分派；不把质量数字做成判据。
 
+**实现注记（落地时与 Proposal 的偏差，如实登记）：**
+
+- **上下文条件的参照是 `punct` 而不是 `none`。** 负对照的预测必须在取数前写下且必须是单变量：本份里被测 provider 真的接受上下文（`honors.context: true`），`none` 与 `flat` 之间换的是两个变量（有没有上下文 + 上下文里有没有句末标点），只有 `punct` 与 `flat` 只差一个。`docs/experiments/README.md` 协议第 2 条原本把 whisper 那份记录的参照（`none`）写成了通则，已改为陈述单变量这一不变式，并登记两份记录各自的参照。实测：`flat` 4 vs `punct` 19，Δ=-15，8/8 片段下降。
+- **`usageMetadata` token 轴读不到。** 契约里 `AsrSuccess.meta.usage` 存在，但两个出货适配器都没填（multimodal 的 `meta` 只带 `model`）。如实记 `n/a`，不拿别处的数字冒充；本记录因此不做成本侧结论。
+- **`pauseCues` 轴的结论是「读数不足」，不是「支持」。** 裁剪是实打实的（削掉 21.5%–29.0% 样本，均值 25.0%），但句读 4 对 4、逐片段位移互相抵消、CER 反而略降 0.54 pp。判「读数不足」而不是「不支持」的理由是这套语料+口径对这句话**是盲的**：参考文本没有句末标点（协议第 5 条），而参考文本里唯一的边界是逗号，`sentenceMarks` 不数逗号；且 16 个格子里 14 个句读为 0（地板效应）。按边界条款，声明不改，另立 gap 任务。
+- **最重要的产品读数：`hints.context` 会被回声进转写。** 8 条里 3 条（d04/d07/d08）的 `punct` 臂转写**整条就是 prompt 原文**，音频内容消失。这同时解释了上下文臂的标识符存活 5/6（相对三个 `none` 臂的 0/6）与 CER > 1 —— 两者同源于 prompt 文本被吐出，不是识别变好。适配器的能力声明不在本任务 Touches 内，只登记结论。
+
 ## AC
 
-- [ ] AC1 runner 报 `n` 并在空读数时红：`node experiments/voice-gemini-paired-quality/run.mjs --corpus=empty` 退出 1；默认离线重算退出 0 且打印 `n=8 × 6 condition(s) = 48 row(s)`（条件数以实际表为准，须 ≥ 6 且含上述六个 key）。
-- [ ] AC2 负对照能红：`--control=absent`、`--control=zero`、`--control=inverted` 三种各退出 1，且红在负对照那一位（打印的判词指名 `flat`）。
-- [ ] AC3 不跨运行：快照内所有读数来自同一 run id；`--runs=straddle` 退出 1 并报 `different runs`。
-- [ ] AC4 出货模块：`--probe` 打印 `shared/asr/list/multimodal/multimodal.asr-provider.ts#transcribe` 与 `src/shared/voiceTrim.ts#trimVoiceAudio` 的绝对路径，并断言 runner 内没有第二份 Gemini 请求构造（grep runner 源码无 `generateContent` / `inlineData` 字面量）；退出 0。
-- [ ] AC5 记录存在且作答：`docs/experiments/2026-09-23-gemini.md` 存在；含 `n=8`、run id、「TTS 合成」字样、负对照方向结论、以及一节以 `pauseCues` 为题且给出「支持 / 不支持 / 读数不足」三者之一的结论。`docs/experiments/README.md` 列出该文件。
-- [ ] AC6 证据重指：`grep -n "multimodalId\]: 'docs/experiments/2026-09-23-gemini.md'" shared/asr/asrRegistry.ts` 命中；`node scripts/asr-pause-cues-source-check.mjs` 与 `node scripts/asr-trim-capability-check.mjs` 退出 0；`node --test scripts/asr-pause-cues-source-check.test.mjs scripts/asr-trim-capability-check.test.mjs` 退出 0。
-- [ ] AC7 不判据化：runner 末行自陈 `quality numbers are a reading and are NOT a criterion`；记录与 runner 不被任何 `scripts/*` 判据脚本引用（`grep -rl voice-gemini-paired-quality scripts/` 为空）。
-- [ ] AC8 凭据不入库：`git diff --name-only develop...HEAD` 不含 `.env*`；在载入 `.env.test` 的 shell 里 `git log -p develop..HEAD | grep -cF "$GEMINI_API_KEY"` 为 0（比对 key 的值本身，不比对前缀字面量 —— 本任务正文就含前缀字样，按前缀 grep 必然自红）；缓存目录 `experiments/voice-gemini-paired-quality/out/` 不入库。
-- [ ] AC9 静态门：`npm run typecheck` 与 `npm run lint` 退出 0。
+- [x] AC1 runner 报 `n` 并在空读数时红：`node experiments/voice-gemini-paired-quality/run.mjs --corpus=empty` 退出 1；默认离线重算退出 0 且打印 `n=8 × 6 condition(s) = 48 row(s)`（条件数以实际表为准，须 ≥ 6 且含上述六个 key）。
+- [x] AC2 负对照能红：`--control=absent`、`--control=zero`、`--control=inverted` 三种各退出 1，且红在负对照那一位（打印的判词指名 `flat`）。
+- [x] AC3 不跨运行：快照内所有读数来自同一 run id；`--runs=straddle` 退出 1 并报 `different runs`。
+- [x] AC4 出货模块：`--probe` 打印 `shared/asr/list/multimodal/multimodal.asr-provider.ts#transcribe` 与 `src/shared/voiceTrim.ts#trimVoiceAudio` 的绝对路径，并断言 runner 内没有第二份 Gemini 请求构造（grep runner 源码无 `generateContent` / `inlineData` 字面量）；退出 0。
+- [x] AC5 记录存在且作答：`docs/experiments/2026-09-23-gemini.md` 存在；含 `n=8`、run id、「TTS 合成」字样、负对照方向结论、以及一节以 `pauseCues` 为题且给出「支持 / 不支持 / 读数不足」三者之一的结论。`docs/experiments/README.md` 列出该文件。
+- [x] AC6 证据重指：`grep -n "multimodalId]: 'docs/experiments/2026-09-23-gemini.md'" shared/asr/asrRegistry.ts` 命中；`node scripts/asr-pause-cues-source-check.mjs` 与 `node scripts/asr-trim-capability-check.mjs` 退出 0；`node --test scripts/asr-pause-cues-source-check.test.mjs scripts/asr-trim-capability-check.test.mjs` 退出 0。
+- [x] AC7 不判据化：runner 末行自陈 `quality numbers are a reading and are NOT a criterion`；记录与 runner 不被任何 `scripts/*` 判据脚本引用（`grep -rl voice-gemini-paired-quality scripts/` 为空）。
+- [x] AC8 凭据不入库：`git diff --name-only develop...HEAD` 不含 `.env*`；在载入 `.env.test` 的 shell 里 `git log -p develop..HEAD | grep -cF "$GEMINI_API_KEY"` 为 0（比对 key 的值本身，不比对前缀字面量 —— 本任务正文就含前缀字样，按前缀 grep 必然自红）；缓存目录 `experiments/voice-gemini-paired-quality/out/` 不入库。
+- [x] AC9 静态门：`npm run typecheck` 与 `npm run lint` 退出 0。
+
+**逐条证据（每条判据的实跑结论）：**
+
+| AC | 实跑 | 结果 |
+|---|---|---|
+| AC1 | `node …/run.mjs` | 退出 0，打印 `readings: n=8 × 6 condition(s) = 48 row(s), n = clips = 8`；条件表恰为六个声明的 key |
+| AC1 | `node …/run.mjs --corpus=empty` | 退出 1，`[n] the paired set is empty — n=0 is not a green reading` |
+| AC2 | `--control=absent` | 退出 1，`[control] g25lite\|raw\|flat 不在本次条件表里 —— 「marks 相对 g25lite\|raw\|punct down」这条预测没有被执行` |
+| AC2 | `--control=zero` | 退出 1，`[control] g25lite\|raw\|flat marks=19 vs g25lite\|raw\|punct marks=19 (Δ=0, 0↑ 8= 0↓) —— 负对照没有移动` |
+| AC2 | `--control=inverted` | 退出 1，`[control] … (Δ=8, 8↑ 0= 0↓) —— 朝预测的**反方向**移动` |
+| AC3 | `--runs=straddle` | 退出 1，`[pairing] the readings come from 2 different runs …` |
+| AC3 | 冻结快照 | `provenance.runIds = ["2026-09-23T10:27:39.515Z"]`（单一 run） |
+| AC4 | `--probe` | 退出 0，打印两个出货模块的绝对路径与符号名；`grep -n "generateContent\|inlineData" run.mjs` 无命中（返回 1） |
+| AC5 | 文件与 README | `n=8` ×3、run id ×2、「TTS 合成」×2、`## 六、pauseCues：…` 一节给出「读数不足」、README 索引与工装表各一行 |
+| AC6 | grep / 两个 check / `node --test` | grep 命中 `shared/asr/asrRegistry.ts:336`；两个 check 各退出 0；`node --test` 17 项全过 |
+| AC7 | 末行 + grep | 每次运行的末行都是那句自陈（含红路径与 `--probe` 路径）；`grep -rl voice-gemini-paired-quality scripts/` 无命中 |
+| AC8 | diff / patch / 缓存 | `.env` 命中 0；载入 `.env.test` 后 `grep -cF "$GEMINI_API_KEY"` 为 0；`out/` 命中 0，`git ls-files` 只有 `fixtures/gemini.json` 与 `run.mjs` |
+| AC9 | `npm run typecheck` / `npm run lint` | 各退出 0（lint 只剩仓库既有的 warning） |
 
 ## DoD
 
