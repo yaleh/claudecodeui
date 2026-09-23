@@ -3,7 +3,7 @@ id: gap-asr-webm-candidates-paired-quality-record
 title: webm-only ASR 候选配对质量记录（不判据化）：OpenRouter Qwen3-ASR
   1.7B/0.6B/Flash、Nemotron、whisper-turbo（双网关）与 DashScope
   qwen-audio-3.1-asr-flash，数字写法归一 CER、句读、上下文、两个时段
-status: todo
+status: ready
 labels:
   - gap
 parent: null
