@@ -57,7 +57,7 @@ extra:
 (b) 请求级预算把新增的指令算进去（AC3）—— 不然预算读数与实际 body 会分叉，这是第二个适配器立案时的核心不变量；
 (c) 声明与线上行为一致（AC7）：`style` 不再宣称一个线上从未请求过的书面化。
 
-`.env.test` 与其中的 key 不入 git：本任务提交前 `git status --short` 不得出现 `.env.test`，`git log -p` 不得出现 key 前缀。
+`.env.test` 与其中的 key 不入 git：本任务提交前 `git status --short` 不得出现 `.env.test`，在载入 `.env.test` 的 shell 里 `git log -p develop..HEAD | grep -cF "$GEMINI_API_KEY"` 为 0（比对 key 的值本身）。
 
 L_D 该轴仍暗，理由：本任务修适配器线协议，不新增领域数据能力；质量读数归配对实验记录，不进本任务判据。
 L_G 该轴仍暗，理由：目标层判据（换识别服务不改路由与 UI）需要 S4 路由分派，本任务不接路由。
