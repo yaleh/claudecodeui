@@ -11,6 +11,7 @@ extra:
   schema: execution
 depends_on:
   - gap-voice-trim-default-flipped-by-unregistered-first-adapter
+goal_ac: AC-122
 ---
 ## Proposal
 
