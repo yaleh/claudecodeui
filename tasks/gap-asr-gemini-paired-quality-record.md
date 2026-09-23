@@ -2,7 +2,7 @@
 id: gap-asr-gemini-paired-quality-record
 title: Gemini 配对质量实验记录（S3，不判据化）：同一运行内 Gemini × whisper 基线 × 裁剪臂 × 负对照，并把
   multimodal 的 PAUSE_CUES_EVIDENCE 重指到这份实测
-status: ready
+status: done
 labels:
   - gap
 parent: null
