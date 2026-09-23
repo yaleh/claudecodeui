@@ -2,7 +2,7 @@
 id: gap-asr-multimodal-adapter-real-gemini-wire
 title: multimodal 适配器对真实 Gemini 可用：x-goog-api-key
   鉴权、适配器自有转写指令、generationConfig、停顿换行合并、400/finishReason 错误映射、style 诚实声明
-status: ready
+status: done
 labels:
   - gap
   - defect
