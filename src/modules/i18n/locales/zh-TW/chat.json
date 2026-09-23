@@ -110,7 +110,15 @@
     "clickToChangeMode": "點擊變更權限模式（或在輸入框中按 Tab）",
     "showAllCommands": "顯示所有指令",
     "clearInput": "清空輸入",
-    "scrollToBottom": "捲動到底部"
+    "scrollToBottom": "捲動到底部",
+    "queue": {
+      "sendNext": "將下一則訊息排入佇列",
+      "update": "更新已排入佇列的訊息",
+      "label": "已排入佇列",
+      "willSend": "將在目前回合完成後傳送",
+      "edit": "編輯已排入佇列的訊息",
+      "delete": "刪除已排入佇列的訊息"
+    }
   },
   "thinkingMode": {
     "selector": {

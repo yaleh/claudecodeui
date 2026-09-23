@@ -1,7 +1,7 @@
 ---
 id: AC-132
 title: 能力声明真的生效：请求预算超限零上游请求、honors 为假时不发该字段
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-008
 criterion: node scripts/asr-capability-check.mjs
@@ -17,6 +17,11 @@ statusLog:
     to: active
     actor: goal-cli
     reason: ""
+  - at: 2026-09-23T05:03:01.881Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: not-evaluated
   reason: no judge configured
