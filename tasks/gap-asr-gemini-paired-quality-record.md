@@ -41,7 +41,7 @@ depends_on:
 - [ ] AC5 记录存在且作答：`docs/experiments/2026-09-23-gemini.md` 存在；含 `n=8`、run id、「TTS 合成」字样、负对照方向结论、以及一节以 `pauseCues` 为题且给出「支持 / 不支持 / 读数不足」三者之一的结论。`docs/experiments/README.md` 列出该文件。
 - [ ] AC6 证据重指：`grep -n "multimodalId\]: 'docs/experiments/2026-09-23-gemini.md'" shared/asr/asrRegistry.ts` 命中；`node scripts/asr-pause-cues-source-check.mjs` 与 `node scripts/asr-trim-capability-check.mjs` 退出 0；`node --test scripts/asr-pause-cues-source-check.test.mjs scripts/asr-trim-capability-check.test.mjs` 退出 0。
 - [ ] AC7 不判据化：runner 末行自陈 `quality numbers are a reading and are NOT a criterion`；记录与 runner 不被任何 `scripts/*` 判据脚本引用（`grep -rl voice-gemini-paired-quality scripts/` 为空）。
-- [ ] AC8 凭据不入库：`git diff --name-only develop...HEAD` 不含 `.env*`；`git log -p develop..HEAD | grep -c 'AIza'` 为 0；缓存目录 `experiments/voice-gemini-paired-quality/out/` 不入库。
+- [ ] AC8 凭据不入库：`git diff --name-only develop...HEAD` 不含 `.env*`；在载入 `.env.test` 的 shell 里 `git log -p develop..HEAD | grep -cF "$GEMINI_API_KEY"` 为 0（比对 key 的值本身，不比对前缀字面量 —— 本任务正文就含前缀字样，按前缀 grep 必然自红）；缓存目录 `experiments/voice-gemini-paired-quality/out/` 不入库。
 - [ ] AC9 静态门：`npm run typecheck` 与 `npm run lint` 退出 0。
 
 ## DoD
