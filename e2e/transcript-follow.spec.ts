@@ -591,6 +591,65 @@ const readFixture = (page: Page) =>
     };
   });
 
+/** The element the app mounts into, and the one thing a blank document can be asked about. */
+const APP_ROOT = '#root';
+/** How long a document is given to put the app into its root before this spec reloads it, and how often. */
+const MOUNT_PROBE_MS = 5_000;
+const MOUNT_RELOADS = 2;
+
+/**
+ * What the page said about itself, for the guards below: a client that never rendered has to be explainable.
+ *
+ * Filled by the describe's `beforeAll` from the moment the page exists, read by whichever guard gives up.
+ */
+type PageEvidence = { consoleErrors: string[]; failedRequests: string[] };
+const pageEvidence: PageEvidence = { consoleErrors: [], failedRequests: [] };
+
+/**
+ * The page's own account of a load that did not render, in the form a failure message can carry.
+ *
+ * A blank page is a blank page. What tells the ways this spec meets one apart is the text, the console
+ * and the requests that failed: `504 Outdated Optimize Dep` is a dependency re-optimization, a cancelled
+ * module URL is a document whose graph was pulled out from under it, and neither says anything by itself.
+ * The last ten entries rather than the first, because the failure being explained is the latest one.
+ */
+const readPageEvidence = async (page: Page, evidence: PageEvidence): Promise<string> => {
+  const shown = await page.locator('body').innerText().catch(() => '<unreadable>');
+  return `the page shows "${shown.replace(/\s+/g, ' ').slice(0, 600)}"; `
+    + `console errors: ${evidence.consoleErrors.slice(-10).join(' | ') || 'none'}; `
+    + `failed requests: ${evidence.failedRequests.slice(-10).join(' | ') || 'none'}`;
+};
+
+/**
+ * Waits, bounded, for the app to mount into the document it was sent to, and says so loudly if it never does.
+ *
+ * The routes this spec opens are full document loads, so they are where a client that was still catching up
+ * leaves a white page: nothing on such a document will ever answer the locator await that follows, so the run
+ * reports this spec's own error — with the page's text, the console's and the failed requests — instead of an
+ * assertion timing out thirty seconds later or a ceiling above the spec killing it with nothing to read.
+ * Reloading is what the app's own client does about the same class of blank, and it is bounded: two reloads,
+ * and the error stands if the third load is blank too.
+ */
+const waitForAppMount = async (page: Page, evidence: PageEvidence): Promise<void> => {
+  const mounted = (timeoutMs: number) =>
+    page
+      .waitForFunction(
+        (selector) => (document.querySelector(selector)?.childElementCount ?? 0) > 0,
+        APP_ROOT,
+        { timeout: timeoutMs, polling: 100 },
+      )
+      .then(() => true, () => false);
+  if (await mounted(MOUNT_PROBE_MS)) return;
+  for (let attempt = 0; attempt < MOUNT_RELOADS; attempt += 1) {
+    await page.reload().catch(() => undefined);
+    if (await mounted(MOUNT_PROBE_MS)) return;
+  }
+  throw new Error(
+    `the app never mounted into ${APP_ROOT} across ${MOUNT_RELOADS + 1} bounded loads of the document: `
+    + await readPageEvidence(page, evidence),
+  );
+};
+
 /**
  * A conversation the app creates and then opens, over the app's own REST route.
  *
@@ -624,6 +683,9 @@ const openAppSession = async (page: Page, projectPath: string) => {
 
   await page.goto(`/session/${sessionId}`);
   await expect(page).toHaveURL(new RegExp(`/session/${sessionId}$`));
+  // A full document load, so the app is built from scratch here — the load a blank one lands on. Bounded
+  // and self-reporting, rather than leaving the assertion below to wait out a document that never renders.
+  await waitForAppMount(page, pageEvidence);
   await expect(page.locator(PANE)).toBeVisible({ timeout: 30_000 });
   // The app registers the workspace while it boots, so the sidebar settles too. Waiting for
   // rest keeps the first sampled frame from landing on a pane the app is still laying out.
@@ -1629,6 +1691,140 @@ const injectWholeRow = (page: Page, sessionId: string, index: number) =>
     { sessionId, index, content: wholeRowText(index), timestamp: new Date().toISOString() },
   );
 
+/**
+ * How long this run's client is given to answer its own app entry before the criterion's startup path gives
+ * up on it.
+ *
+ * Not a guess at the slow case, but the bound that turns "the client never came up" into this spec's own red:
+ * the run already has two ceilings above it (the watchdog ends a browser-launch-or-cases run at 55s, the goal
+ * gate kills at 60s), and both are *outside* the spec — an unbounded wait inside `beforeAll` would be
+ * reported by whichever of them fired first, naming neither the url nor the status.
+ */
+const CLIENT_WARM_DEADLINE_MS = 30_000;
+
+/** A dependency the optimizer serves out of this run's private cache, already rewritten to its url. */
+const OPTIMIZED_DEP_IN_TEXT = /["'](\/@fs\/[^"']*\/deps\/[^"']+\.js\?v=[0-9a-f]+)["']/;
+
+/**
+ * Takes this run's first dependency optimization out of the measurement window: the html shell, the app's
+ * entry module, and then one optimized dependency — all requested against this run's own client before any
+ * page of this run exists.
+ *
+ * The dependency request is the one that carries the proof, and it is why the step is not just "warm the
+ * cache". The imports of a transformed module are already rewritten to this run's own
+ * `/@fs/<cacheDir>/deps/<dep>.js?v=<hash>` urls, and that url only answers 200 once the optimizer has
+ * committed the bundle: while the bundle is still being built the request is held, and a url carrying a hash
+ * from a superseded run is exactly what a page receives `504 Outdated Optimize Dep` for — the answer the
+ * app's own Vite client reacts to with `location.reload()`, which is the way this criterion lost its page
+ * mid-measurement. So a 200 there means the page below will not race the optimizer, and the geometry the
+ * criterion samples will be sampled on a document that is still the document it navigated to.
+ *
+ * The proof needs the entry and nothing else. Walking the app's module graph first — 80 modules, breadth
+ * first, the imports of each one read back out of its transformed body — was measured as well: it does not
+ * change what the commit covers, because the optimizer's own scan already reaches the app's dependencies
+ * through the entry (the runs that walked the graph logged the same single `[BABEL] … deps/react-scan.js`
+ * line as the runs that did not, so neither run re-optimized at page time), and it cost 3-7s of the run's
+ * budget against this step's 1.4-2.6s. What the fixture is missing is the commit proof, not the walk.
+ *
+ * Why the warm-up lives here rather than in `playwright.config.ts`'s `globalSetup`, which is where this
+ * defect's proposal put it: Playwright resolves every `globalSetup` entry as a *script* — `resolveScript()`
+ * turns it into a path and the file must default-export the function — so an inline warm-up is neither
+ * type-legal nor loadable, and this task's write surface allows no new file. `beforeAll`, before
+ * `browser.newPage()`, is the earliest point inside the criterion's own startup path, and it is strictly
+ * before any page exists — the same requests the page would have made, made first.
+ *
+ * Every step is bounded, including each request: a client that accepts the connection and then never answers
+ * fails here, by name, with the url and the status, rather than waiting out a timeout further up.
+ */
+const warmClientStartup = async (clientUrl: string): Promise<number> => {
+  const startedAt = Date.now();
+  const deadline = startedAt + CLIENT_WARM_DEADLINE_MS;
+  const budgetMs = () => Math.max(1, deadline - Date.now());
+  const fetchWithin = async (url: string): Promise<Response> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), budgetMs());
+    try {
+      return await fetch(url, { signal: controller.signal });
+    } catch (error) {
+      throw new Error(
+        `the client did not answer ${url} inside the ${CLIENT_WARM_DEADLINE_MS}ms startup budget `
+        + `(${error instanceof Error ? error.message : String(error)})`,
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  const shellUrl = new URL('/', clientUrl).href;
+  const shell = await fetchWithin(shellUrl);
+  if (!shell.ok) throw new Error(`the client's shell did not load: ${shellUrl} answered HTTP ${shell.status}`);
+  await shell.text();
+
+  const entryUrl = new URL('/src/main.tsx', clientUrl).href;
+  const entry = await fetchWithin(entryUrl);
+  if (!entry.ok) throw new Error(`the app entry did not transform: ${entryUrl} answered HTTP ${entry.status}`);
+  await entry.text();
+
+  // The proof: a dependency url current for this run — re-read from the entry each attempt, because the hash a
+  // url carries is the one its writer committed, and the entry is where the current one is written.
+  let lastAnswer = 'no dependency url was ever served';
+  for (let attempt = 0; attempt < 5 && Date.now() < deadline; attempt += 1) {
+    const specifier = OPTIMIZED_DEP_IN_TEXT.exec(await (await fetchWithin(entryUrl)).text())?.[1];
+    if (!specifier) break;
+    const depUrl = new URL(specifier, clientUrl).href;
+    const dep = await fetchWithin(depUrl);
+    if (dep.ok) {
+      console.log(`[e2e] client warm-up: pre-bundle committed in ${Date.now() - startedAt}ms`);
+      return Date.now() - startedAt;
+    }
+    lastAnswer = `${depUrl} answered HTTP ${dep.status}`;
+    await dep.text().catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(
+    `this run's dependency pre-bundle never committed, so the criterion cannot measure on a stable document: `
+    + lastAnswer,
+  );
+};
+
+/** How long the app's own service worker is given to take control of the first document. */
+const SERVICE_WORKER_SETTLE_MS = 10_000;
+
+/**
+ * Waits, bounded, for the service worker the app registers to finish claiming the document that registered it.
+ *
+ * `src/main.tsx` registers `/sw.js` on every load, and `public/sw.js` installs with `skipWaiting()` and claims
+ * its clients from its own `activate` handler — so the claim lands on *whatever document is loading at that
+ * moment*. The browser cancels that document's in-flight subresource requests and re-issues them under the new
+ * controller; the app's worker answers a request that failed inside it with its cache, which holds only the
+ * manifest, so those module requests end as network errors and the document is left with a module graph that has
+ * holes in it. React never mounts, the page stays white, and the next thing to touch it is a locator await with
+ * nothing under it. That is the white page behind the red runs whose failure predates the geometry — the second
+ * navigation is a full document load, so it is the load the claim tends to land inside.
+ *
+ * The claim is a one-off per registration. Waiting for it here, on the first document and before the session the
+ * criterion measures on, keeps it out of the measurement the same way the warm-up keeps the dependency build out.
+ * Never throws: a page the app put no worker on is a page nothing can claim mid-load either, and the guard around
+ * each navigation is what covers anything left.
+ */
+const settleServiceWorker = async (page: Page): Promise<string> => {
+  const supported = await page.evaluate(() => 'serviceWorker' in navigator).catch(() => false);
+  if (!supported) return 'no service worker api on this page';
+  const startedAt = Date.now();
+  const controlling = () =>
+    page.evaluate(() => navigator.serviceWorker.controller !== null).catch(() => false);
+  if (await controlling()) return 'already controlling the first document';
+  const claimed = await page
+    .waitForFunction(() => navigator.serviceWorker.controller !== null, undefined, {
+      timeout: SERVICE_WORKER_SETTLE_MS,
+      polling: 250,
+    })
+    .then(() => true, () => false);
+  return claimed
+    ? `claimed the first document after ${Date.now() - startedAt}ms`
+    : `did not claim the first document within ${SERVICE_WORKER_SETTLE_MS}ms`;
+};
+
 test.describe.configure({ mode: 'serial', timeout: 180_000 });
 
 test.describe('transcript follow in a real browser', () => {
@@ -1646,6 +1842,14 @@ test.describe('transcript follow in a real browser', () => {
     // Seeded (with its transcript) by playwright.config.ts before the server booted.
     workspace = path.join(dataDir, 'transcript-follow-workspace');
 
+    // The run's own client, as playwright.config.ts declared it for this project: the url the page below
+    // navigates to relatively, so the warm-up cannot address a server some other run started.
+    const clientUrl = test.info().project.use.baseURL;
+    if (!clientUrl) throw new Error('playwright.config.ts must give this project a baseURL for the startup warm-up to address');
+    // Before the page exists, so this run's optimize/re-optimize is over before the criterion's first
+    // navigation — see the helper for why the cost cannot be left inside the measurement window.
+    await warmClientStartup(clientUrl);
+
     page = await browser.newPage();
     // Before the first script runs, so AC-111 counts every input and every
     // offset write the spec's own setup performs, not just the ones after it
@@ -1655,8 +1859,38 @@ test.describe('transcript follow in a real browser', () => {
     // A tab that loses focus pauses the scroll animation the gestures rely on.
     await page.bringToFront();
 
+    // What the page said, kept for one purpose: the guards have to be able to *explain* a client that never
+    // rendered instead of reporting that a wait ran out.
+    page.on('console', (message) => {
+      if (message.type() === 'error') pageEvidence.consoleErrors.push(message.text());
+    });
+    page.on('requestfailed', (request) => {
+      pageEvidence.failedRequests.push(`${request.url()} — ${request.failure()?.errorText ?? 'no error text'}`);
+    });
+
     // First run on a fresh database: create the single account, then finish onboarding.
     await page.goto('/');
+    // The wait this fixture used to have no bound on. A page pulled out from under the navigation — the app's
+    // own `location.reload()` after `504 Outdated Optimize Dep`, or any other restart of the document — leaves
+    // this locator waiting on a document that no longer exists, and the run then dies in whichever ceiling is
+    // above it (55s watchdog, 60s gate) with nothing to read. So: probe with a short budget, reload a bounded
+    // number of times, and if the form is still absent, end here with what the page and the console said.
+    const appears = async (timeoutMs: number) =>
+      page.locator('#username').waitFor({ state: 'visible', timeout: timeoutMs }).then(() => true, () => false);
+    let onboarded = await appears(5_000);
+    for (let attempt = 0; !onboarded && attempt < 2; attempt += 1) {
+      await page.reload().catch(() => undefined);
+      onboarded = await appears(3_000);
+    }
+    if (!onboarded) {
+      throw new Error(
+        'the account form never rendered, so this run\'s client never came up to a document that stays: '
+        + await readPageEvidence(page, pageEvidence),
+      );
+    }
+    // The app's service worker, settled on this document — see the helper for why a claim must not be left to
+    // land inside a later load. Logged so a run's log carries what the worker did, not just that it was waited on.
+    console.log(`[e2e] client service worker: ${await settleServiceWorker(page)}`);
     await page.locator('#username').fill('e2euser');
     await page.locator('input[type=password]').nth(0).fill('e2epassword');
     await page.locator('input[type=password]').nth(1).fill('e2epassword');
