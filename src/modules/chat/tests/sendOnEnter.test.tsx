@@ -22,14 +22,20 @@ import type { QueuedDraft } from '@/shared/types';
  * empty Enter was a dead key that neither sent nor broke the line.
  *
  * The fix is a device-scoped send key: `useSendOnEnter` resolves Enter's behaviour from the
- * *input capabilities* of the device in hand, and the composer prints its hint from the same
- * resolution, so the key and the sentence describing it cannot disagree.
+ * *input capabilities* of the device in hand.
+ *
+ * The composer no longer prints a hint for such a device at all. Every sentence it could print
+ * names a keyboard key — Enter, Shift+Enter, Ctrl+Enter — and a soft keyboard has none of them,
+ * so there is no wording that would be true; the row is hidden instead, at every width. What a
+ * touch device *does* still gets said, by the button: tapping it sends, and tapping it while a
+ * turn runs queues.
  *
  * These tests hold the two halves that jsdom can hold honestly: the policy (which device gets
  * which behaviour, and that it never writes itself into the account preference) and the hint
  * the user reads. jsdom implements no media queries, so the double below is the "device"; that
- * the browser really answers `(pointer: coarse) and (hover: none)` for a touch device is the
- * e2e spec's premise assertion, not something a unit test can stand in for.
+ * the browser really answers `(pointer: coarse) and (hover: none)` for a touch device — and that
+ * the hidden row really has `display: none` at every viewport width — is the e2e spec's job,
+ * not something a unit test can stand in for.
  */
 
 /** The query the hook must ask about — the double answers only this exact string, so a renamed query fails here. */
@@ -332,44 +338,52 @@ const renderHint = (overrides: Partial<ComposerProps> = {}): { text: string; cla
 
 const QUEUED_DRAFT: QueuedDraft = { content: 'queued', attachments: [] };
 
-test('a touch-only device is told to use the button, and the hint is no longer hidden below lg', () => {
+/** Every wording the composer can still print — the four keyboard branches, read off the locale file. */
+const KEYBOARD_WORDINGS = new Set<string>([
+  enChat.input.hintText.enter,
+  enChat.input.hintText.ctrlEnter,
+  enChat.input.hintText.queue,
+  enChat.input.hintText.updateQueued,
+]);
+
+test('a touch-only device is shown no hint at any width, and no touch wording survives to be shown', () => {
   installMatchMedia(true);
-  const hint = renderHint({ sendByCtrlEnter: false });
 
-  assert.ok(hint.text.length > 0, 'the hint must say something: silence is not a hint');
-  assert.equal(
-    hint.text,
-    enChat.input.hintText.touch,
-    'the hint must be the touch wording, from the locale file rather than a fallback',
-  );
-  // The keyboard wording names Shift and Ctrl, neither of which a soft keyboard has — those were
-  // the two keys the user could not press.
-  assert.ok(!hint.text.includes('Shift'), `a touch hint must not name Shift: ${JSON.stringify(hint.text)}`);
-  assert.ok(!hint.text.includes('Ctrl'), `a touch hint must not name Ctrl: ${JSON.stringify(hint.text)}`);
-  // `hidden lg:block` is what made the hint invisible on every phone and tablet.
-  assert.ok(
-    !/\bhidden\b/.test(hint.className) && !hint.className.includes('lg:block'),
-    `a touch hint must be visible at every width, not hidden below lg: ${JSON.stringify(hint.className)}`,
-  );
-});
+  // The hint row is `basis-full`, so it costs the footer a whole line — and a touch-only device is
+  // the one class of device with the least vertical room to spare. It is hidden rather than
+  // reworded, because every sentence the composer can print names a key a soft keyboard does not
+  // have. `hidden` alone, never `hidden lg:block`: that pair would lift the hiding at ≥1024px and
+  // hand a landscape tablet the keyboard wording, whose Shift its soft keyboard cannot press.
+  const cases: { name: string; props: Partial<ComposerProps> }[] = [
+    { name: 'idle, preference off', props: { sendByCtrlEnter: false } },
+    { name: 'idle, preference on', props: { sendByCtrlEnter: true } },
+    { name: 'mid-turn, nothing queued', props: { sendByCtrlEnter: false, isLoading: true, input: 'hello' } },
+    {
+      name: 'mid-turn, a draft queued',
+      props: { sendByCtrlEnter: false, isLoading: true, input: 'hello', queuedDraft: QUEUED_DRAFT },
+    },
+  ];
 
-test('a touch-only device mid-turn is told about the queue arrow, not about Enter', () => {
-  installMatchMedia(true);
-  const hint = renderHint({ sendByCtrlEnter: false, isLoading: true, input: 'hello' });
-
-  assert.ok(hint.text.length > 0, 'the queued-state hint must say something');
-  assert.equal(
-    hint.text,
-    enChat.input.hintText.touchQueue,
-    'while the button has become the queue arrow the hint must describe that, not the idle button',
-  );
-  assert.ok(!hint.text.includes('Shift'), `a touch hint must not name Shift: ${JSON.stringify(hint.text)}`);
-  assert.ok(!hint.text.includes('Ctrl'), `a touch hint must not name Ctrl: ${JSON.stringify(hint.text)}`);
-  assert.notEqual(
-    hint.text,
-    enChat.input.hintText.touch,
-    'the queued state must not reuse the idle touch hint — it describes a different button',
-  );
+  for (const { name, props } of cases) {
+    const hint = renderHint(props);
+    assert.ok(
+      /\bhidden\b/.test(hint.className),
+      `a touch device must be shown no hint (${name}); the row's class read ${JSON.stringify(hint.className)}`,
+    );
+    assert.ok(
+      !hint.className.includes('lg:block'),
+      `the hiding must hold at every width, so nothing may lift it at lg (${name}): `
+        + `${JSON.stringify(hint.className)}`,
+    );
+    // The convergence, stated positively: with the touch branches gone, what a touch device resolves
+    // is one of the keyboard wordings. A revived touch branch — even via a `defaultValue` fallback —
+    // puts a string here that is in no locale file.
+    assert.ok(
+      KEYBOARD_WORDINGS.has(hint.text),
+      `a touch device must resolve to a keyboard wording, not to wording of its own (${name}): `
+        + `${JSON.stringify(hint.text)} is in none of ${JSON.stringify([...KEYBOARD_WORDINGS])}`,
+    );
+  }
 });
 
 test('a device with a keyboard prints the same hint it printed before, character for character', () => {
@@ -399,9 +413,9 @@ test('a device with a keyboard prints the same hint it printed before, character
     );
   }
 
-  // The positive control for the touch case above: "no hidden, no lg:block" must not be reachable
-  // by deleting the class everywhere, because on a keyboard device the verbose hint is hidden
-  // below lg on purpose.
+  // The positive control for the touch case above: "hidden, but never lg:block" must not be
+  // reachable by deleting the class everywhere, because a keyboard device keeps the hiding it
+  // always had — invisible below lg, visible from lg up.
   const keyboardHint = renderHint({ sendByCtrlEnter: false });
   assert.ok(
     /\bhidden\b/.test(keyboardHint.className) && keyboardHint.className.includes('lg:block'),

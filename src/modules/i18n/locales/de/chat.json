@@ -105,10 +105,7 @@
     "stop": "Stoppen",
     "hintText": {
       "ctrlEnter": "Strg+Enter zum Senden • Shift+Enter für neue Zeile • Tab zum Moduswechsel • / für Slash-Befehle",
-      "enter": "Enter zum Senden • Shift+Enter für neue Zeile • Tab zum Moduswechsel • / für Slash-Befehle",
-      "touch": "Zum Senden ➤ tippen • Return fügt eine Zeile ein",
-      "touchQueue": "Zum Einreihen ➤ tippen • Return fügt eine Zeile ein",
-      "touchUpdateQueued": "Zum Aktualisieren der eingereihten Nachricht ➤ tippen"
+      "enter": "Enter zum Senden • Shift+Enter für neue Zeile • Tab zum Moduswechsel • / für Slash-Befehle"
     },
     "clickToChangeMode": "Klicken, um den Berechtigungsmodus zu ändern (oder Tab in der Eingabe drücken)",
     "showAllCommands": "Alle Befehle anzeigen",

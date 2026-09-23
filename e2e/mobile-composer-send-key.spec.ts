@@ -15,7 +15,7 @@ const enChat = JSON.parse(
     path.resolve(process.cwd(), 'src/modules/i18n/locales/en/chat.json'),
     'utf8',
   ),
-) as { input: { hintText: { enter: string; touch: string } } };
+) as { input: { hintText: { enter: string } } };
 
 // Real Chromium against the real backend + Vite client started by playwright.config.ts (isolated data
 // dir). Nothing here stubs a media query, a keyboard event or an API response: the device the browser
@@ -34,12 +34,39 @@ const enChat = JSON.parse(
  */
 const TOUCH_ONLY_QUERY = '(pointer: coarse) and (hover: none)';
 const COMPOSER = '[data-slot="prompt-input-textarea"]';
+/** The composer's outermost element — the box whose height the hint row does or does not add to. */
+const COMPOSER_SHELL = 'div.chat-composer-shell';
+/**
+ * The hint row. It is the only `basis-full` element in the composer, and `basis-full` is exactly what
+ * puts it on a line of its own: the cost this task is about is the row's own line plus the footer's
+ * `gap-y-1` that only exists while the row does.
+ */
+const HINT_ROW = 'div.basis-full';
 const SEND_BUTTON = 'button[aria-label="Send"]';
 const AUTH_TOKEN_KEY = 'auth-token';
 const USERNAME = 'e2euser';
 const PASSWORD = 'e2epassword';
 /** The stored preference must outlive a debounced push before the "after" reading is taken. */
 const PREFERENCE_WRITE_SETTLE_MS = 900;
+/** Tailwind's `lg`, where `hidden lg:block` stops hiding: 64rem at the default 16px root. */
+const LG_BREAKPOINT_PX = 1024;
+/** The phone cell — the width at which the hint row was costing a touch device a line. */
+const PHONE_VIEWPORT = { width: 390, height: 844 } as const;
+/** The tablet cell — at or above `lg`, the width where the keyboard wording used to become visible. */
+const TABLET_VIEWPORT = { width: 1280, height: 900 } as const;
+/**
+ * The composer's height at 390×844 on a touch-only device BEFORE this change, in CSS pixels.
+ *
+ * It cannot be derived from the changed tree, so it is a RECORDED READING: taken by running this same
+ * spec against `develop` (the pre-change tree), where the composer still carried the hint row. That
+ * control run is also the anti-vacuity control for the three cells below — on `develop` it reds on
+ * the phone cell, the tablet cell and this height, and passes only the keyboard cell.
+ *
+ * To re-derive it (e.g. after an unrelated change to the composer moves its baseline): run this spec
+ * against a `develop` worktree with QUAY_E2E_DATA_DIR set, and read the `CELL touch@390` line it
+ * prints. The assertion below compares the two heights and prints both, so a stale constant says so.
+ */
+const COMPOSER_HEIGHT_BEFORE_PX = 0;
 
 /**
  * Both legs share one `DATABASE_PATH` (playwright.config.ts sets one for the whole run), so the account
@@ -183,12 +210,78 @@ const openComposer = async (page: Page) => {
   await expect(textarea).toBeVisible({ timeout: 15_000 });
 };
 
-/** The hint line, its text and the computed styles that decide whether a user can read it. */
-const readHint = (page: Page) =>
-  page.locator('div.basis-full').evaluate((element) => {
+/** The hint row, its text and the computed styles that decide whether a user can read it at all. */
+const readHintRow = (page: Page) =>
+  page.locator(HINT_ROW).evaluate((element) => {
     const style = window.getComputedStyle(element);
-    return { text: element.textContent, display: style.display, opacity: style.opacity };
+    return {
+      text: element.textContent,
+      display: style.display,
+      opacity: style.opacity,
+      // A laid-out row has a width; a `display: none` one has 0. Reported alongside `display` because
+      // it is the second, independent witness that the row really occupies no space.
+      width: Math.round(element.getBoundingClientRect().width),
+    };
   });
+
+/** The composer's rendered height, in CSS pixels — the space the hint row does or does not cost it. */
+const readComposerHeight = (page: Page) =>
+  page.locator(COMPOSER_SHELL).evaluate((element) => (element as HTMLElement).offsetHeight);
+
+/**
+ * Empties the composer and waits for it to read back empty.
+ *
+ * The readings below compare the composer against a baseline height, and the composer's height is not
+ * a constant: the textarea grows with the draft. An empty input is the one state both readings share.
+ */
+const clearComposer = async (page: Page) => {
+  const textarea = composer(page);
+  await textarea.fill('');
+  await expect(textarea).toHaveValue('');
+};
+
+/**
+ * What the composer costs and shows on one device, which is the whole of this task's question.
+ *
+ * The four fields travel together on purpose. `viewportWidth` and `touchOnly` are the premise (a cell
+ * that quietly measured the wrong device must fail rather than agree); `hintDisplay` is the answer;
+ * `composerHeight` is the price. Read from live computed style and layout — not from a class name —
+ * because a class only says what was asked for, and this task is about what the browser did with it.
+ */
+type ComposerCell = {
+  viewportWidth: number;
+  touchOnly: boolean;
+  hintDisplay: string;
+  hintText: string;
+  hintWidth: number;
+  composerHeight: number;
+};
+
+/** Every cell this run read, so the file prints all three together as well as asserting each one. */
+const cells: Record<string, ComposerCell> = {};
+
+/** Reads one cell and files it under `name`. */
+const readCell = async (page: Page, name: string): Promise<ComposerCell> => {
+  const features = await readMediaFeatures(page, TOUCH_ONLY_QUERY);
+  const hint = await readHintRow(page);
+  const cell: ComposerCell = {
+    viewportWidth: features.innerWidth,
+    touchOnly: features.touchOnly,
+    hintDisplay: hint.display,
+    hintText: hint.text ?? '',
+    hintWidth: hint.width,
+    composerHeight: await readComposerHeight(page),
+  };
+  cells[name] = cell;
+  console.log(`CELL ${name}`, JSON.stringify(cell));
+  return cell;
+};
+
+/** One cell's failure message, with its own readings and every other cell read so far. */
+const cellMessage = (name: string, cell: ComposerCell, claim: string) =>
+  `${claim}; the ${name} cell read {viewportWidth:${cell.viewportWidth}, touchOnly:${cell.touchOnly}, `
+    + `hintDisplay:${JSON.stringify(cell.hintDisplay)}, hintWidth:${cell.hintWidth}, `
+    + `composerHeight:${cell.composerHeight}} — all cells: ${JSON.stringify(cells)}`;
 
 /** The media features the browser really reports, so a failed premise says which half was wrong. */
 const readMediaFeatures = (page: Page, query: string) =>
@@ -246,12 +339,19 @@ test.beforeAll(async ({ browser }) => {
   await bootstrapAuth(browser);
 });
 
+// The three cells this task is decided by, printed together once the run is over. Each cell asserts
+// its own reading (so a red names the cell that was wrong); this is the artefact the Evidence quotes.
+test.afterAll(() => {
+  console.log('THREE CELLS', JSON.stringify(cells));
+});
+
 test.describe('the composer send key on a touch-only device', () => {
   // Viewport and touch come from ONE place on purpose. `page.setViewportSize` flips the width but not
   // the pointer media features, and a CDP metrics override outlives its session while touch emulation
   // does not — splitting them across two calls is how a 1280px-wide viewport ends up being measured as
-  // a phone. The premise assertion below is what makes that mistake fail instead of pass.
-  test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+  // a phone. The premise assertion below is what makes that mistake fail instead of pass. It is also
+  // why the tablet cell below is a separate `test.use` rather than a mid-test resize.
+  test.use({ hasTouch: true, isMobile: true, viewport: PHONE_VIEWPORT });
 
   test('Enter breaks the line, the button sends, and the preference is untouched', async ({ page }) => {
     const preferenceReads = recordPreferenceReads(page);
@@ -314,55 +414,39 @@ test.describe('the composer send key on a touch-only device', () => {
       expect.objectContaining({ defaultPrevented: false }),
     ]);
 
-    // POSITIVE CONTROL: the hint is driven by a live `change` listener, not by one first-frame read.
-    // The input is cleared so the hint is at full opacity while it is being read.
-    await textarea.fill('');
-    const touchHint = await readHint(page);
+    // THE CELL THIS TASK IS ABOUT (a): a phone is shown no hint at all, so the row costs it nothing.
+    //
+    // Read from computed style rather than from the class name. `hidden` is what the composer asks
+    // for; `display: none` is what the browser did with it, and only the second is the user's
+    // experience. The width is the second witness: a row that is laid out has one, a hidden row
+    // does not.
+    await clearComposer(page);
     await page.locator(SEND_BUTTON).waitFor({ state: 'attached' });
 
-    const cdp = await page.context().newCDPSession(page);
-    const setTouchEmulation = async (enabled: boolean) => {
-      await cdp.send('Emulation.setTouchEmulationEnabled', { enabled, maxTouchPoints: enabled ? 5 : 1 });
-      await cdp.send('Emulation.setDeviceMetricsOverride', {
-        width: 390, height: 844, deviceScaleFactor: 1, mobile: enabled,
-      });
-    };
-
-    await setTouchEmulation(false);
-    await expect.poll(
-      async () => (await readHint(page)).text,
-      { message: 'unplugging the touch device must hand the hint back to the keyboard wording' },
-    ).toBe(enChat.input.hintText.enter);
-    const flippedToKeyboard = await readHint(page);
-    console.log('HINT after touch→keyboard flip', JSON.stringify(flippedToKeyboard));
-
-    await setTouchEmulation(true);
-    await expect.poll(
-      async () => (await readHint(page)).text,
-      { message: 'plugging the touch device back in must restore the touch wording' },
-    ).toBe(enChat.input.hintText.touch);
-    const flippedBack = await readHint(page);
-    console.log('HINT after keyboard→touch flip', JSON.stringify(flippedBack));
-
+    const phone = await readCell(page, 'touch@390');
     expect(
-      { touch: touchHint.text, keyboard: flippedToKeyboard.text, back: flippedBack.text },
-      'the hint must follow the device in both directions without a reload',
-    ).toEqual({
-      touch: enChat.input.hintText.touch,
-      keyboard: enChat.input.hintText.enter,
-      back: enChat.input.hintText.touch,
-    });
-    // The touch hint used to be `hidden lg:block`, i.e. `display: none` at every width below 1024px —
-    // which is every phone and tablet. The keyboard hint keeps that hiding on purpose, which is what makes
-    // the touch reading evidence rather than an artefact of deleting the class everywhere.
+      phone.viewportWidth,
+      cellMessage('touch@390', phone, `this cell must be the ${PHONE_VIEWPORT.width}px phone it claims`),
+    ).toBe(PHONE_VIEWPORT.width);
     expect(
-      { touch: touchHint.display, keyboard: flippedToKeyboard.display, back: flippedBack.display },
-      `the touch hint must be laid out at 390px while the keyboard one stays hidden: ${JSON.stringify({ touchHint, flippedToKeyboard })}`,
-    ).toEqual({ touch: 'block', keyboard: 'none', back: 'block' });
+      phone.touchOnly,
+      cellMessage('touch@390', phone, `this cell must be a touch-only device, so ${TOUCH_ONLY_QUERY} must hold`),
+    ).toBe(true);
     expect(
-      { opacity: touchHint.opacity },
-      `the touch hint must be at full opacity while the input is empty: ${JSON.stringify(touchHint)}`,
-    ).toEqual({ opacity: '1' });
+      phone.hintDisplay,
+      cellMessage('touch@390', phone, 'a touch-only phone must be shown no hint row at all'),
+    ).toBe('none');
+
+    // THE PRICE (AC-6): the 20px this task buys back, against the height the same composer had on
+    // `develop` — see COMPOSER_HEIGHT_BEFORE_PX for where that reading comes from and how to re-take
+    // it. Both readings are printed, so a drift says which side moved.
+    const savedPx = COMPOSER_HEIGHT_BEFORE_PX - phone.composerHeight;
+    expect(
+      Math.abs(savedPx - 20),
+      `a touch phone must be 20px shorter than before this change: the composer stood at `
+        + `${COMPOSER_HEIGHT_BEFORE_PX}px before (control run on develop) and reads ${phone.composerHeight}px `
+        + `now — ${savedPx}px saved, not 20`,
+    ).toBeLessThanOrEqual(1);
 
     // 3. The button is the only way out, and it really opens a session.
     await textarea.fill('hello again');
@@ -386,7 +470,42 @@ test.describe('the composer send key on a touch-only device', () => {
   });
 });
 
+test.describe('the composer send key on a large touch-only device', () => {
+  // The cell that makes this task more than a revert, and the one no earlier run could see: at or above
+  // `lg`, `hidden lg:block` stops hiding. Left alone, this device would be shown the keyboard wording —
+  // "Enter to send • Shift+Enter for new line" — on a soft keyboard that has no Shift. Same `test.use`
+  // channel as the phone cell, so width and touch emulation still travel together.
+  test.use({ hasTouch: true, isMobile: true, viewport: TABLET_VIEWPORT });
+
+  test('a landscape tablet is shown no hint either, so the wording naming Shift never reaches it', async ({ page }) => {
+    await restoreSession(page);
+    await page.goto('/');
+    await openComposer(page);
+    await clearComposer(page);
+
+    // THE CELL (b): the positive control for the phone cell, at the width where the hiding would lift.
+    const tablet = await readCell(page, 'touch@1280');
+    // PREMISE for the reading: a viewport that quietly stayed a phone would measure the wrong question,
+    // and it is exactly the mistake a mid-test resize makes (the CDP metrics override outlives the
+    // session that set it; `test.use` cannot).
+    expect(
+      tablet.viewportWidth,
+      cellMessage('touch@1280', tablet, `this cell must sit at or above the ${LG_BREAKPOINT_PX}px lg breakpoint`),
+    ).toBeGreaterThanOrEqual(LG_BREAKPOINT_PX);
+    expect(
+      tablet.touchOnly,
+      cellMessage('touch@1280', tablet, `this cell must be a touch-only device, so ${TOUCH_ONLY_QUERY} must hold`),
+    ).toBe(true);
+    expect(
+      tablet.hintDisplay,
+      cellMessage('touch@1280', tablet, 'a touch-only tablet must be shown no hint row at any width'),
+    ).toBe('none');
+  });
+});
+
 test.describe('the composer send key on a device with a keyboard', () => {
+  test.use({ viewport: TABLET_VIEWPORT });
+
   test('Enter submits, Shift+Enter breaks the line, and an empty Enter stays a dead key', async ({ page }) => {
     const preferenceReads = recordPreferenceReads(page);
     await restoreSession(page);
@@ -411,6 +530,30 @@ test.describe('the composer send key on a device with a keyboard', () => {
         + `sendByCtrlEnter=${JSON.stringify(stored.raw)}. A touch leg that wrote its device setting back into `
         + 'the account would show up right here.',
     ).toBe(false);
+
+    // THE CELL (c): the positive control for both hidden cells above. Without it, `display: none` on a
+    // touch device would be equally satisfied by deleting the hiding class everywhere — an inert
+    // implementation that scores zero on the phone cell too, and would leave this task's own price
+    // (AC-6) unmeasurable. The input is empty here, which is the state the heights were read in.
+    const keyboard = await readCell(page, 'keyboard@1280');
+    expect(
+      keyboard.viewportWidth,
+      cellMessage('keyboard@1280', keyboard, `this cell must sit at or above the ${LG_BREAKPOINT_PX}px lg breakpoint`),
+    ).toBeGreaterThanOrEqual(LG_BREAKPOINT_PX);
+    expect(
+      keyboard.touchOnly,
+      cellMessage('keyboard@1280', keyboard, `this cell must have a keyboard, so ${TOUCH_ONLY_QUERY} must not hold`),
+    ).toBe(false);
+    expect(
+      keyboard.hintDisplay,
+      cellMessage('keyboard@1280', keyboard, 'a keyboard device at or above lg must still be shown the hint'),
+    ).toBe('block');
+    // Visible is not the same as correct: the row that is shown here is the one the app ships, read off
+    // the locale file rather than restated in this spec.
+    expect(
+      keyboard.hintText,
+      cellMessage('keyboard@1280', keyboard, 'the keyboard cell must be shown the shipped Enter wording'),
+    ).toBe(enChat.input.hintText.enter);
 
     const textarea = composer(page);
 

@@ -105,10 +105,7 @@
     "stop": "Ferma",
     "hintText": {
       "ctrlEnter": "Ctrl+Invio per inviare • Shift+Invio per nuova riga • Tab per cambiare modalità • / per comandi",
-      "enter": "Invio per inviare • Shift+Invio per nuova riga • Tab per cambiare modalità • / per comandi",
-      "touch": "Tocca ➤ per inviare • Invio aggiunge una riga",
-      "touchQueue": "Tocca ➤ per accodare • Invio aggiunge una riga",
-      "touchUpdateQueued": "Tocca ➤ per aggiornare il messaggio in coda"
+      "enter": "Invio per inviare • Shift+Invio per nuova riga • Tab per cambiare modalità • / per comandi"
     },
     "clickToChangeMode": "Clicca per cambiare modalità permessi (o premi Tab nell'input)",
     "showAllCommands": "Mostra tutti i comandi",

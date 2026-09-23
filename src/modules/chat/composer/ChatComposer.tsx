@@ -300,26 +300,18 @@ export default function ChatComposer({
 
   const hasQueuedDraft = Boolean(queuedDraft);
   const canQueueDraft = isLoading && Boolean(input.trim() || attachedFiles.length > 0);
-  // A hint printed from `touchOnly` names no keyboard key at all: a soft keyboard has neither
-  // Shift nor a sendable Enter, so the button is the only way out — the queued state included,
-  // where the button has become the queue arrow.
-  const hint = (touchKey: string, keyboardKey: string, fallback: string) =>
-    t(touchOnly ? touchKey : keyboardKey, { defaultValue: fallback });
-  // On a touch-only device Enter is the newline key, so no hint may name a keyboard key as the
-  // way to send: there is no Shift for a newline and no Enter for a send, only the button.
+  // Every sentence this hint can print names a keyboard key — Enter, Shift+Enter, Ctrl+Enter — and a
+  // soft keyboard has none of them, so there is no wording that would be true on a touch-only device.
+  // Such a device is given no hint at all rather than the wrong one: the button is the only way out
+  // (the queued state included, where the button has become the queue arrow), and tapping it is the
+  // universal convention, so the sentence would be describing what the user already assumes.
   const submitHint = canQueueDraft
     ? hasQueuedDraft
-      ? hint(
-        'input.hintText.touchUpdateQueued',
-        'input.hintText.updateQueued',
-        'Enter to update queued message',
-      )
-      : hint('input.hintText.touchQueue', 'input.hintText.queue', 'Enter to queue your next message')
-    : touchOnly
-      ? t('input.hintText.touch', { defaultValue: 'Tap ➤ to send • Return adds a line' })
-      : sendOnEnter
-        ? t('input.hintText.enter')
-        : t('input.hintText.ctrlEnter');
+      ? t('input.hintText.updateQueued', { defaultValue: 'Enter to update queued message' })
+      : t('input.hintText.queue', { defaultValue: 'Enter to queue your next message' })
+    : sendOnEnter
+      ? t('input.hintText.enter')
+      : t('input.hintText.ctrlEnter');
   const submitAriaLabel = canQueueDraft
     ? hasQueuedDraft
       ? t('input.queue.update', { defaultValue: 'Update queued message' })
@@ -608,8 +600,16 @@ export default function ChatComposer({
             </PromptInputSubmit>
           </div>
 
+          {/*
+            `basis-full` puts this line on a row of its own, so it costs the composer a whole
+            `leading-4` line plus the footer's `gap-y-1` — 20px on the one class of device with the
+            least vertical room to spare. A touch-only device therefore hides it at EVERY width:
+            `hidden lg:block` alone would hand a ≥1024px tablet (landscape iPad, Surface) the
+            keyboard wording, whose Shift a soft keyboard does not have. A keyboard device keeps the
+            narrower behaviour it always had — hidden below lg, visible from lg up.
+          */}
           <div
-            className={`order-last basis-full px-2 text-center text-xs leading-4 text-muted-foreground/50 transition-opacity duration-200 ${touchOnly ? '' : 'hidden lg:block'} ${
+            className={`order-last basis-full px-2 text-center text-xs leading-4 text-muted-foreground/50 transition-opacity duration-200 ${touchOnly ? 'hidden' : 'hidden lg:block'} ${
               input.trim() && !canQueueDraft ? 'opacity-0' : 'opacity-100'
             }`}
           >

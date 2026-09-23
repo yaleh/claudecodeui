@@ -120,9 +120,6 @@
       "ctrlEnter": "Ctrl+Enter para enviar • Shift+Enter para nueva línea • Tab para cambiar de modo • / para comandos",
       "enter": "Enter para enviar • Shift+Enter para nueva línea • Tab para cambiar de modo • / para comandos",
       "queue": "Enter para poner en cola tu siguiente mensaje",
-      "touch": "Toca ➤ para enviar • Return añade una línea",
-      "touchQueue": "Toca ➤ para poner en cola • Return añade una línea",
-      "touchUpdateQueued": "Toca ➤ para actualizar el mensaje en cola",
       "updateQueued": "Enter para actualizar el mensaje en cola"
     },
     "clickToChangeMode": "Haz clic para cambiar el modo de permisos (o pulsa Tab en el campo de texto)",
