@@ -32,6 +32,7 @@ import {
   INVARIANT_AUDIO_TEXT,
   INVARIANT_API_KEY,
   INVARIANT_GROUP_IDS,
+  INVARIANT_MODEL,
   affordableAudioBytes,
   goldenBody,
   overBudgetAudioBytes,
@@ -40,7 +41,7 @@ import {
   scanLines,
 } from '@shared/asr/asrInvariants';
 import {
-  WRITTEN_STYLE_TRANSFORMATIONS,
+  STYLE_TRANSFORMATIONS,
   base64Encode,
   baseMimeType,
   buildInlineRequestBody,
@@ -71,7 +72,7 @@ const promptHonouringAdapter: AsrAdapter = {
     if (declared.honors.prompt && hints.prompt !== undefined && hints.prompt !== '') {
       honored.prompt = hints.prompt;
     }
-    if (measureInlineRequestBytes(request, honored) > declared.maxInlineRequestBytes) {
+    if (measureInlineRequestBytes(request, honored, invocation.model) > declared.maxInlineRequestBytes) {
       return { ok: false, code: 'OVERSIZE', message: 'stand-in: past the declared budget' };
     }
     const endpoint = generateContentEndpoint(invocation.baseUrl, invocation.model);
@@ -81,9 +82,13 @@ const promptHonouringAdapter: AsrAdapter = {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(invocation.apiKey ? { Authorization: `Bearer ${invocation.apiKey}` } : {}),
+          // The header this wire declares it reads the credential from (`AsrWireModel`): a stand-in
+          // that announced the key in a header the wire does not declare would be a second wire.
+          ...(invocation.apiKey ? { 'x-goog-api-key': invocation.apiKey } : {}),
         },
-        body: JSON.stringify(buildInlineRequestBody(request, honored, base64Encode(request.audio.bytes))),
+        body: JSON.stringify(
+          buildInlineRequestBody(request, honored, base64Encode(request.audio.bytes), invocation.model),
+        ),
         signal: invocation.signal,
       });
     } catch (error) {
@@ -109,8 +114,8 @@ const promptHonouringAdapter: AsrAdapter = {
     return {
       ok: true,
       text,
-      style: 'written',
-      transformations: [...WRITTEN_STYLE_TRANSFORMATIONS],
+      style: 'verbatim',
+      transformations: [...STYLE_TRANSFORMATIONS],
       providerId: promptHonouringAdapter.id,
     };
   },
@@ -213,8 +218,14 @@ describe('the transcription seam invariant board', () => {
   });
 
   it('pins the request body against the declaration rather than against itself', () => {
-    const withPrompt = goldenBody({ ...capabilities, honors: { prompt: true, language: false, context: true } });
-    const withoutPrompt = goldenBody(capabilities);
+    // The model is a parameter of the golden body because the decode configuration is a function of
+    // the model name; the wire's own model is what the board probes with, so it is what is pinned
+    // against here.
+    const withPrompt = goldenBody(
+      { ...capabilities, honors: { prompt: true, language: false, context: true } },
+      INVARIANT_MODEL,
+    );
+    const withoutPrompt = goldenBody(capabilities, INVARIANT_MODEL);
 
     expect(withoutPrompt).not.toBe(withPrompt);
     expect(withoutPrompt.includes('systemInstruction')).toBe(false);
@@ -224,7 +235,10 @@ describe('the transcription seam invariant board', () => {
     expect(withPrompt.includes('<AUDIO>')).toBe(true);
     // A declaration that does not acknowledge the context drops the part, which is the same rule
     // the prompt axis follows.
-    const withoutContext = goldenBody({ ...capabilities, honors: { prompt: false, language: false, context: false } });
+    const withoutContext = goldenBody(
+      { ...capabilities, honors: { prompt: false, language: false, context: false } },
+      INVARIANT_MODEL,
+    );
     expect(withoutContext.includes('the invariant context')).toBe(false);
     expect(withoutContext.includes('inlineData')).toBe(true);
   });

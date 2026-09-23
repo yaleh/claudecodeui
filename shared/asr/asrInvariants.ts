@@ -24,6 +24,13 @@
  * declaration itself a second thing under test: an adapter that declares one wire and sends another
  * disagrees with the golden body its own declaration implies.
  *
+ * A WIRE IS ALSO WHERE THE CREDENTIAL'S HEADER NAME COMES FROM — `authorization` on the multipart
+ * shape, `x-goog-api-key` on the generation one — so the credential readings ask each wire's own
+ * header rather than one name chosen here. A board that read `authorization` on both would report
+ * every generation-shape request as unauthenticated and red an adapter that was authenticating
+ * correctly, which is the same fault one level down: the board's own vocabulary deciding what
+ * counts as a credential.
+ *
  * AN EMPTY BOARD IS NOT A GREEN BOARD. A registry that resolved to zero providers, or a group
  * that produced zero readings, is `empty` — never `pass`. An exit code 0 from a glob that matched
  * nothing is a shape this repository has already paid for, so `readings.length === 0` is scored
@@ -108,6 +115,21 @@ export const INVARIANT_CONTEXT = 'the invariant context';
 export const INVARIANT_TRANSCRIPT = 'the invariant transcript';
 export const INVARIANT_BASE_URL = 'https://asr.invalid';
 export const INVARIANT_MODEL = 'invariant-model';
+
+/**
+ * The instruction the multimodal adapter sends as the first text part of `contents[0]`.
+ *
+ * RECORDED AS ITS OWN LITERAL — retyped, not imported from the adapter — and that is the same
+ * discipline `INVARIANT_ENDPOINT` and `INVARIANT_AUDIO_BASE64` follow: a body composed from the
+ * adapter's own constant could not disagree with the adapter. Editing the adapter's instruction
+ * without editing this one reds `request.body.golden`, which is the reading that says the request
+ * changed; the editor then decides whether the change was meant instead of the board quietly
+ * redefining what it expects. It is a text part of `contents[0]` rather than a `systemInstruction`
+ * on purpose: that is what keeps `honors.prompt: false` (the caller's prompt is not forwarded)
+ * separable from "the request asks for nothing at all".
+ */
+export const INVARIANT_INSTRUCTION =
+  '请逐字转写这段音频，保持原有语言，只输出转写文本，不要时间戳、说话人标签、翻译或总结。';
 
 /**
  * The URL the fixture's base URL and model resolve to, recorded rather than re-derived — one per
@@ -210,8 +232,18 @@ export type RecordedRequest = {
   method: string;
   url: string;
   contentType: string | null;
-  /** `present`/`absent` and never the value: a board that recorded the key would leak it itself. */
-  authorization: 'present' | 'absent';
+  /**
+   * `present`/`absent`, and never the value: a board that recorded the key would leak it itself.
+   *
+   * WHICH HEADER THIS WAS READ FROM IS A PROPERTY OF THE WIRE, NOT OF THE ADAPTER. An API key
+   * travels as `Authorization: Bearer <key>` on the OpenAI-compatible shape and as
+   * `x-goog-api-key: <key>` on the generation shape (measured against the service, 2026-09-23),
+   * so a board that read one name everywhere would record every generation-shape request as
+   * unauthenticated and then red an adapter that was authenticating correctly. The name arrives as
+   * a parameter (`AsrWireModel.credentialHeader`); the reading stays what it was, which is WHETHER
+   * the request announced a credential at all.
+   */
+  credential: 'present' | 'absent';
   body: string;
 };
 
@@ -278,13 +310,17 @@ export function renderBody(body: unknown): string {
   return '';
 }
 
-function recordRequest(url: string, init: RequestInit | undefined): RecordedRequest {
-  const authorization = headerOf(init, 'authorization');
+function recordRequest(
+  url: string,
+  init: RequestInit | undefined,
+  credentialHeader: string,
+): RecordedRequest {
+  const credential = headerOf(init, credentialHeader);
   return {
     method: String(init?.method ?? 'GET'),
     url,
     contentType: headerOf(init, 'content-type'),
-    authorization: authorization === null || authorization === '' ? 'absent' : 'present',
+    credential: credential === null || credential === '' ? 'absent' : 'present',
     body: renderBody(init?.body),
   };
 }
@@ -306,15 +342,22 @@ function responseFor(step: InvariantStep): Response {
   throw new Error('a reject step is answered by the transport, not by a response');
 }
 
-/** The stub transport and the log of what it was asked to send. */
-export function makeTransport(step: InvariantStep): {
+/**
+ * The stub transport and the log of what it was asked to send.
+ *
+ * `credentialHeader` is the name the credential travels under ON THE WIRE THE CALLER IS MEASURING
+ * (`AsrWireModel.credentialHeader`), passed in rather than looked up here: the transport is built
+ * before a provider is named in some call sites, and the header name belongs to the wire model
+ * either way.
+ */
+export function makeTransport(step: InvariantStep, credentialHeader: string): {
   fetchImpl: AsrInvocation['fetchImpl'];
   transport: RecordedTransport;
 } {
   const transport: RecordedTransport = { calls: 0, requests: [] };
   const fetchImpl = (url: string, init?: RequestInit): Promise<Response> => {
     transport.calls += 1;
-    transport.requests.push(recordRequest(String(url), init));
+    transport.requests.push(recordRequest(String(url), init, credentialHeader));
     if (step.kind === 'reject') {
       if (step.mode === 'transport') return Promise.reject(new Error('the transport is down'));
       // A timeout is the honest shape: the invocation's own signal aborts and the transport
@@ -341,6 +384,8 @@ export function makeTransport(step: InvariantStep): {
 export function invariantInvocation(overrides?: {
   apiKey?: string;
   baseUrl?: string;
+  /** The model name, for the readings about a request whose body depends on it. */
+  model?: string;
   signal?: AbortSignal;
 }): AsrInvocation {
   const fixture = INVARIANT_FIXTURE;
@@ -353,7 +398,7 @@ export function invariantInvocation(overrides?: {
       overrides !== undefined && overrides.baseUrl !== undefined ? overrides.baseUrl : fixture.baseUrl,
     apiKey:
       overrides !== undefined && overrides.apiKey !== undefined ? overrides.apiKey : fixture.apiKey,
-    model: fixture.model,
+    model: overrides !== undefined && overrides.model !== undefined ? overrides.model : fixture.model,
     timeoutMs: fixture.timeoutMs,
     // A signal is always supplied, so the adapter never has to reach for a platform timer to make
     // one; the timeout probe below is the abort that actually fires.
@@ -364,18 +409,27 @@ export function invariantInvocation(overrides?: {
 
 type Driven = { result: AsrResult; transport: RecordedTransport };
 
-/** Runs one transcription against a stub transport and keeps what it sent. */
+/** The invocation fields a probe may vary: what the adapter is handed, never what it sends. */
+type DriveOverrides = { apiKey?: string; baseUrl?: string; model?: string };
+
+/**
+ * Runs one transcription against a stub transport and keeps what it sent.
+ *
+ * The transport is built for the wire the PROVIDER declared, so the credential reading below is
+ * taken from the header that wire authenticates with rather than from one name chosen here.
+ */
 async function drive(
   provider: AsrAdapter,
   request: AsrRequest,
   step: InvariantStep,
-  invocationOverrides?: { apiKey?: string; baseUrl?: string },
+  invocationOverrides?: DriveOverrides,
 ): Promise<Driven> {
-  const { fetchImpl, transport } = makeTransport(step);
+  const { fetchImpl, transport } = makeTransport(step, wireModelFor(provider).credentialHeader);
   const controller = new AbortController();
   const invocation = invariantInvocation({
     ...(invocationOverrides?.apiKey !== undefined ? { apiKey: invocationOverrides.apiKey } : {}),
     ...(invocationOverrides?.baseUrl !== undefined ? { baseUrl: invocationOverrides.baseUrl } : {}),
+    ...(invocationOverrides?.model !== undefined ? { model: invocationOverrides.model } : {}),
     signal: controller.signal,
   });
   const pending = provider.transcribe(request, { ...invocation, fetchImpl });
@@ -417,14 +471,31 @@ function outcome(result: AsrResult, requests: number): string {
  * The body the declaration promises for the fixture, composed from recorded fragments.
  *
  * Composed rather than computed: a body builder called here would agree with itself. The
- * fragments are recorded constants and the only thing read off the adapter is the declaration the
- * wire is supposed to follow — so a provider whose body disagrees with its own declaration reds.
+ * fragments are recorded constants and the only things read off the adapter are the declaration the
+ * wire is supposed to follow and the model name the body depends on — so a provider whose body
+ * disagrees with its own declaration reds.
+ *
+ * THE INSTRUCTION AND THE DECODE CONFIGURATION ARE PART OF THAT BODY, not decoration around it:
+ * the adapter asks the service to transcribe verbatim in a text part of its own, and it configures
+ * the decode (`temperature: 0`, plus a zero thinking budget on the 2.5 series). Both are request
+ * bytes, both are counted by the request-level budget, so a golden body that omitted them would
+ * score "the adapter stopped asking" as green.
+ *
+ * The 2.5-series branch is the recorded MODEL-NAME rule, written out here rather than imported from
+ * the adapter's `thinkingBudgetApplies`: a board that derived its expectation from the function it
+ * is measuring could not report that function changing.
  */
-export function goldenBody(capabilities: AsrCapabilities): string {
+export function goldenBody(capabilities: AsrCapabilities, model: string): string {
+  const instructionPart = `{"text":"${INVARIANT_INSTRUCTION}"}`;
   const audioPart = `{"inlineData":{"mimeType":"audio/webm","data":"${INVARIANT_AUDIO_TOKEN}"}}`;
   const contextPart = `{"text":"${INVARIANT_CONTEXT}"}`;
-  const parts = capabilities.honors.context ? [audioPart, contextPart] : [audioPart];
-  const contents = `{"contents":[{"parts":[${parts.join(',')}]}]`;
+  const parts = capabilities.honors.context
+    ? [instructionPart, audioPart, contextPart]
+    : [instructionPart, audioPart];
+  const generationConfig = model.startsWith('gemini-2.5')
+    ? '{"temperature":0,"thinkingConfig":{"thinkingBudget":0}}'
+    : '{"temperature":0}';
+  const contents = `{"contents":[{"parts":[${parts.join(',')}]}],"generationConfig":${generationConfig}`;
   if (!capabilities.honors.prompt) return `${contents}}`;
   return `${contents},"systemInstruction":{"parts":[{"text":"${INVARIANT_PROMPT}"}]}}`;
 }
@@ -508,9 +579,13 @@ function formAudioPart(): string {
  * The multipart body the declaration promises, composed the same way the JSON one is: recorded
  * fragments plus the declaration. The audio part is carried as its size, so the golden body is a
  * statement about WHICH bytes travelled without the golden body carrying them.
+ *
+ * The model name is a parameter here too, for the same reason it is on the JSON body: it is a field
+ * of the request, so a reading that varied it would otherwise be measuring a body this function
+ * could not describe.
  */
-function formGoldenBody(capabilities: AsrCapabilities): string {
-  const parts = [formAudioPart(), `model=${INVARIANT_MODEL}`];
+function formGoldenBody(capabilities: AsrCapabilities, model: string): string {
+  const parts = [formAudioPart(), `model=${model}`];
   if (capabilities.honors.prompt) parts.push(`prompt=${INVARIANT_PROMPT}`);
   if (capabilities.honors.context) parts.push(`context=${INVARIANT_CONTEXT}`);
   return parts.join('&');
@@ -530,8 +605,15 @@ export type AsrWireModel = {
   endpoint: string;
   /** The Content-Type the request announces, or null when it announces none. */
   contentType: string | null;
-  /** The body the declaration promises for the fixture, with the audio carried as a token. */
-  goldenBody(capabilities: AsrCapabilities): string;
+  /**
+   * The header this wire carries an API key in, lower-cased: `authorization` for the
+   * OpenAI-compatible multipart shape, `x-goog-api-key` for the generation shape. Recorded per wire
+   * rather than written once, because a board that read one name on both wires would report the
+   * other as unauthenticated however correct the adapter was.
+   */
+  credentialHeader: string;
+  /** The body the declaration promises for the fixture and `model`, with the audio as a token. */
+  goldenBody(capabilities: AsrCapabilities, model: string): string;
   /** `match` when the recorded body carries the fixture's audio the way this wire carries it. */
   audioOnWire(body: string): 'match' | 'mismatch';
   promptPart(body: string): PromptReading;
@@ -554,6 +636,7 @@ const WIRE_MODELS: Record<AsrWire, AsrWireModel> = {
     wire: 'inline-json',
     endpoint: INVARIANT_ENDPOINT,
     contentType: 'application/json',
+    credentialHeader: 'x-goog-api-key',
     goldenBody,
     audioOnWire: (body) => (body.includes(`"data":"${INVARIANT_AUDIO_BASE64}"`) ? 'match' : 'mismatch'),
     promptPart: inlinePromptPart,
@@ -570,6 +653,7 @@ const WIRE_MODELS: Record<AsrWire, AsrWireModel> = {
     wire: 'multipart',
     endpoint: INVARIANT_TRANSCRIPTION_ENDPOINT,
     contentType: null,
+    credentialHeader: 'authorization',
     goldenBody: formGoldenBody,
     audioOnWire: (body) => (body.includes(formAudioPart()) ? 'match' : 'mismatch'),
     promptPart: formPromptPart,
@@ -602,6 +686,15 @@ function canonicaliseBody(body: string, model: AsrWireModel): string {
 
 // ── group 1: request construction ────────────────────────────────────────────────────────────
 
+/**
+ * The model name the request body's decode configuration depends on: a 2.5-series model, which is
+ * the series that takes a thinking budget. Named here rather than taken from the fixture because it
+ * is an INPUT to a reading — the fixture's own model is deliberately not in that series, so the two
+ * readings together show the body following the name instead of one branch being the only one ever
+ * driven.
+ */
+const THINKING_MODEL = 'gemini-2.5-flash-lite';
+
 /** Everything the adapter was asked to send, per method, URL, headers and body. */
 export async function probeRequestConstruction(provider: AsrAdapter): Promise<InvariantReading[]> {
   const group: InvariantGroupId = 'request-construction';
@@ -628,10 +721,11 @@ export async function probeRequestConstruction(provider: AsrAdapter): Promise<In
         // boundary the transport generates, so the only correct announcement is none at all.
         ? 'this wire announces no Content-Type of its own; the multipart boundary is the transport\'s to name'
         : 'the body is announced as JSON'),
-    reading(group, `request.authorization[${provider.id}]`, provider.id, first?.authorization ?? 'no-request',
-      'present', 'a configured credential reaches the wire as an Authorization header'),
+    reading(group, `request.credential[${provider.id}]`, provider.id, first?.credential ?? 'no-request',
+      'present',
+      `a configured credential reaches the wire in the header this wire authenticates with (${model.credentialHeader})`),
     reading(group, `request.body.golden[${provider.id}]`, provider.id, canonicaliseBody(body, model),
-      model.goldenBody(capabilities),
+      model.goldenBody(capabilities, INVARIANT_FIXTURE.model),
       'the recorded request body as the wire renders it, with the audio carried as its token or its size and never as its bytes'),
     reading(group, `request.audio-encoding[${provider.id}]`, provider.id, model.audioOnWire(body), 'match',
       model.wire === 'multipart'
@@ -661,10 +755,19 @@ export async function probeRequestConstruction(provider: AsrAdapter): Promise<In
   // that forwarded an empty prompt would be indistinguishable from a correct one if only the
   // declared-unhonored case were measured.
   const emptyPrompt = await drive(provider, invariantRequest({ hints: { prompt: '' } }), step);
+  // The same request at a model whose decode configuration differs. The fixture's model is not in
+  // the 2.5 series, so without this reading the model-dependent half of the body would never be
+  // driven at all: an adapter that asked every model for a thinking budget would pass everything
+  // above, and the golden body's own model branch would be a claim nothing measured.
+  const thinking = await drive(provider, invariantRequest(), step, { model: THINKING_MODEL });
   readings.push(
-    reading(group, `request.authorization-absent[${provider.id}]`, provider.id,
-      keyless.transport.requests[0]?.authorization ?? 'no-request', 'absent',
+    reading(group, `request.credential-absent[${provider.id}]`, provider.id,
+      keyless.transport.requests[0]?.credential ?? 'no-request', 'absent',
       'an empty credential is not announced rather than announced empty'),
+    reading(group, `request.body.golden-2.5[${provider.id}]`, provider.id,
+      canonicaliseBody(thinking.transport.requests[0]?.body ?? '', model),
+      model.goldenBody(capabilities, THINKING_MODEL),
+      `the same request at a ${THINKING_MODEL} model: the model name is an input to the body, so a series that takes a decode budget is asked for a budget of zero and every other model is sent no such field`),
     reading(group, `request.url-trailing-slash[${provider.id}]`, provider.id,
       trailingSlash.transport.requests[0]?.url ?? 'no-request', model.endpoint,
       'a base URL with a trailing slash joins the path with no doubled slash'),
@@ -872,8 +975,8 @@ export async function probeRedaction(provider: AsrAdapter): Promise<InvariantRea
   // a discrimination rather than a statement about a credential that was never used.
   readings.push(
     reading(group, `redaction.credential.reaches-the-wire[${provider.id}]`, provider.id,
-      sent.transport.requests[0]?.authorization ?? 'no-request', 'present',
-      'the credential is on the request, so its absence from the answer surface says something'),
+      sent.transport.requests[0]?.credential ?? 'no-request', 'present',
+      `the credential is on the request, in the header this wire declares (${model.credentialHeader}), so its absence from the answer surface says something`),
     reading(group, `redaction.payload.reaches-the-wire[${provider.id}]`, provider.id,
       model.audioOnWire(body), 'match',
       'the audio is on the request in the shape the declared wire carries it, so its absence from the answer surface says something'),

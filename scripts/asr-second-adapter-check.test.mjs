@@ -173,7 +173,7 @@ test('AC2: a budget measured on the audio alone is caught by the audio-plus-cont
   control(t, {
     name: 'a budget sized by the audio bytes instead of by the whole request',
     file: ADAPTER,
-    from: '  const requestBytes = measureInlineRequestBytes(request, hints);',
+    from: '  const requestBytes = measureInlineRequestBytes(request, hints, invocation.model);',
     to: '  const requestBytes = request.audio.bytes.length;',
     token: 'BUDGET_IS_AUDIO_ONLY',
   });
@@ -234,7 +234,9 @@ test('AC6: a registry that hands back a different declaration than the module ex
     name: 'a registration whose capabilities are not the module’s own constant',
     file: REGISTRY,
     from: REGISTRATION_ENTRY,
-    to: '  { id: multimodalId, capabilities: { ...multimodalCapabilities, style: \'verbatim\' }, transcribe: multimodalTranscribe },',
+    // The value has to DIFFER from the module's own declaration, or the spread is a no-op and the
+    // case goes green. It is 'written' for that reason: the module declares 'verbatim'.
+    to: '  { id: multimodalId, capabilities: { ...multimodalCapabilities, style: \'written\' }, transcribe: multimodalTranscribe },',
     token: 'CAPABILITIES_MISMATCH',
   });
 });
@@ -270,5 +272,25 @@ test('AC8: an unreadable outcome is a failure, not a reading of zero', (t) => {
     from: 'export async function transcribe(request: AsrRequest, invocation: AsrInvocation): Promise<AsrResult> {',
     to: 'export async function transcribe(request: AsrRequest, invocation: AsrInvocation): Promise<AsrResult> {\n  return undefined as unknown as AsrResult;',
     token: 'EMPTY_READING',
+  });
+});
+
+// ── real-wire AC1 ────────────────────────────────────────────────────────────────────────────
+//
+// The cases above carry AC-132's numbers. These carry the numbers of the task that corrected this
+// wire against the live service (`gap-asr-multimodal-adapter-real-gemini-wire`) — a different set
+// of claims, so a bare number would make two statements answer to one label.
+
+test('real-wire AC1: a key announced in a header the wire does not declare is caught', (t) => {
+  control(t, {
+    // The live defect, restored: this adapter shipped `Authorization: Bearer <key>` and the service
+    // answered 401 `Expected OAuth 2 access token`. The mutation keeps the credential on the request
+    // — a one-sided "is a header present" check would stay green — and only moves it to the header
+    // this wire does not read.
+    name: 'the credential announced under Authorization instead of the header this wire declares',
+    file: ADAPTER,
+    from: "        ...(invocation.apiKey ? { 'x-goog-api-key': invocation.apiKey } : {}),",
+    to: '        ...(invocation.apiKey ? { authorization: invocation.apiKey } : {}),',
+    token: 'CREDENTIAL_NOT_ON_WIRE',
   });
 });

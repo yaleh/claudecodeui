@@ -175,6 +175,50 @@ function installFetchPoison() {
   };
 }
 
+/**
+ * One header as the stand-in recorded it, or `null` when the request does not carry it.
+ *
+ * Matched case-insensitively because header names are: the multipart wire writes `Authorization`
+ * with a capital A, and a reader that compared raw keys would report the credential as absent on
+ * the one wire that demonstrably sends it.
+ *
+ * @param {RequestInit|undefined} init
+ * @param {string} name
+ * @returns {string|null}
+ */
+function headerValue(init, name) {
+  const headers = init?.headers;
+  if (headers === undefined || headers === null) return null;
+  const wanted = name.toLowerCase();
+  if (Array.isArray(headers)) {
+    for (const entry of headers) {
+      if (String(entry[0]).toLowerCase() === wanted) return String(entry[1]);
+    }
+    return null;
+  }
+  if (typeof headers.get === 'function') {
+    const value = headers.get(name);
+    return value === null || value === undefined ? null : String(value);
+  }
+  const record = /** @type {Record<string, string>} */ (headers);
+  for (const key of Object.keys(record)) {
+    if (key.toLowerCase() === wanted) return String(record[key]);
+  }
+  return null;
+}
+
+/**
+ * The header each wire carries the credential under. Declared here per wire for the same reason the
+ * board declares it per wire (`AsrWireModel.credentialHeader`): the name is a property of the
+ * protocol, and a probe that assumed one name could not report the other wire's.
+ *
+ * @param {string} wire
+ * @returns {string}
+ */
+function credentialHeaderFor(wire) {
+  return wire === 'multipart' ? 'authorization' : 'x-goog-api-key';
+}
+
 // ── the stand-in transport ───────────────────────────────────────────────────────────────────
 
 /**
@@ -681,6 +725,34 @@ async function runCases(adapter, capabilities, ledger, providerId) {
         ledger.fail(
           'HINT_CONTROL_ABSENT',
           `'${providerId}': the audio is not on the request in the ${wire} wire's own form, so the absences below could be satisfied by a request that carries nothing at all`,
+        );
+      }
+      // The credential's HEADER is a wire property, and it is read beside the hints because it
+      // decides whether any of this reaches the service at all: measured against the live service,
+      // a key sent as `Authorization: Bearer` is answered with a 401 naming OAuth 2 before the body
+      // is read. Read by the wire's declared name rather than by a name written in here, so the
+      // multipart wire is still read under `Authorization` and the generation wire under the header
+      // it actually declares.
+      const credentialHeader = credentialHeaderFor(wire);
+      const announced = headerValue(call?.init, credentialHeader);
+      ledger.record(scoped('credential.header-name'), credentialHeader);
+      ledger.record(scoped('credential.on-the-wire'), announced !== null && announced !== '');
+      if (announced === null || announced === '') {
+        ledger.fail(
+          'CREDENTIAL_NOT_ON_WIRE',
+          `'${providerId}': a configured key is not on the request under '${credentialHeader}', the header this wire declares — such a request is refused before its body is read`,
+        );
+      }
+      // The other half of the reading, and it is the one that caught the live defect: the credential
+      // must not ALSO travel in a header this wire does not declare. A request that announced the
+      // key in two places would keep passing a one-sided check while the service read neither.
+      const otherHeader = credentialHeader === 'authorization' ? 'x-goog-api-key' : 'authorization';
+      const stray = headerValue(call?.init, otherHeader);
+      ledger.record(scoped('credential.stray-header'), stray !== null);
+      if (stray !== null) {
+        ledger.fail(
+          'UNEXPECTED_CREDENTIAL_HEADER',
+          `'${providerId}': the request announces the credential in '${otherHeader}', which the '${wire}' wire does not declare — the credential has one declared home per wire`,
         );
       }
       for (const hint of ['prompt', 'language']) {
