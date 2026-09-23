@@ -2,7 +2,7 @@
 id: gap-e2e-shared-vite-dep-cache-invalidates-inflight-page
 title: AC-121 判据在并发 e2e 下偶发假红：所有 checkout / worker 共用 node_modules/.vite
   依赖缓存，一个运行的重预构建把另一个在飞行页面的依赖图作废（504 → ChatInterface 错误边界 → composer 缺席）
-status: ready
+status: done
 labels:
   - gap
   - defect
