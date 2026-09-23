@@ -110,7 +110,15 @@
     "clickToChangeMode": "İzin modunu değiştirmek için tıkla (veya girdide Tab tuşuna bas)",
     "showAllCommands": "Tüm komutları göster",
     "clearInput": "Girdiyi temizle",
-    "scrollToBottom": "En alta git"
+    "scrollToBottom": "En alta git",
+    "queue": {
+      "sendNext": "Sonraki mesajı kuyruğa al",
+      "update": "Kuyruktaki mesajı güncelle",
+      "label": "Kuyrukta",
+      "willSend": "Bu işlem bittiğinde gönderilecek",
+      "edit": "Kuyruktaki mesajı düzenle",
+      "delete": "Kuyruktaki mesajı sil"
+    }
   },
   "providerSelection": {
     "title": "AI Asistanını Seç",

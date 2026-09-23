@@ -110,7 +110,15 @@
     "clickToChangeMode": "Clicca per cambiare modalità permessi (o premi Tab nell'input)",
     "showAllCommands": "Mostra tutti i comandi",
     "clearInput": "Cancella input",
-    "scrollToBottom": "Scorri in basso"
+    "scrollToBottom": "Scorri in basso",
+    "queue": {
+      "sendNext": "Metti in coda il messaggio successivo",
+      "update": "Aggiorna il messaggio in coda",
+      "label": "In coda",
+      "willSend": "Verrà inviato al termine",
+      "edit": "Modifica il messaggio in coda",
+      "delete": "Elimina il messaggio in coda"
+    }
   },
   "providerSelection": {
     "title": "Scegli il tuo assistente AI",

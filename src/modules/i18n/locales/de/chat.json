@@ -110,7 +110,15 @@
     "clickToChangeMode": "Klicken, um den Berechtigungsmodus zu ändern (oder Tab in der Eingabe drücken)",
     "showAllCommands": "Alle Befehle anzeigen",
     "clearInput": "Eingabe leeren",
-    "scrollToBottom": "Nach unten scrollen"
+    "scrollToBottom": "Nach unten scrollen",
+    "queue": {
+      "sendNext": "Nächste Nachricht einreihen",
+      "update": "Nachricht in der Warteschlange aktualisieren",
+      "label": "In Warteschlange",
+      "willSend": "Wird gesendet, wenn dieser Vorgang abgeschlossen ist",
+      "edit": "Nachricht in der Warteschlange bearbeiten",
+      "delete": "Nachricht in der Warteschlange löschen"
+    }
   },
   "providerSelection": {
     "title": "KI-Assistent wählen",

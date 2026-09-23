@@ -108,7 +108,15 @@
       "enter": "Enterで送信 • Shift+Enterで改行 • Tabでモード切替 • / でスラッシュコマンド"
     },
     "clickToChangeMode": "クリックで権限モードを変更（または入力欄でTab）",
-    "showAllCommands": "すべてのコマンドを表示"
+    "showAllCommands": "すべてのコマンドを表示",
+    "queue": {
+      "sendNext": "次のメッセージを送信待ちにする",
+      "update": "送信待ちのメッセージを更新",
+      "label": "送信待ち",
+      "willSend": "この処理が完了すると送信されます",
+      "edit": "送信待ちのメッセージを編集",
+      "delete": "送信待ちのメッセージを削除"
+    }
   },
   "providerSelection": {
     "title": "AIアシスタントを選択",
