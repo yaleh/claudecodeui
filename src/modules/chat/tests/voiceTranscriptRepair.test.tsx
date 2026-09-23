@@ -44,6 +44,13 @@ vi.mock('@/shared/api', async (importOriginal) => {
     // driven for real rather than doubled — the double exists to cut the speech endpoint, and a
     // second copy of the parse here would be a second copy of the thing under test.
     parseTranscriptionResponse: actual.parseTranscriptionResponse,
+    // The other thing the capture path asks the shared module for: the declaration that decides
+    // whether the audio is changed before it is uploaded. Taken from the real accessor for the same
+    // reason as the parse above — this file's subject is the repair join, not who answers 裁不裁,
+    // and an answer copied here would be a second copy of that decision. Nothing has published a
+    // voice profile, so it answers "nothing to read" and the recording travels as it was recorded,
+    // which is the input every reading below is taken on rather than a state they depend on.
+    effectivePauseCuesDeclaration: actual.effectivePauseCuesDeclaration,
   };
 });
 

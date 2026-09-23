@@ -6,6 +6,8 @@ import React from 'react';
 import { initReactI18next } from 'react-i18next';
 import { afterEach, beforeEach, test, vi } from 'vitest';
 
+import type { PauseCuesDeclaration } from '@shared/asr/asrRegistry';
+
 import ChatComposer from '@/modules/chat/composer/ChatComposer';
 import { useVoiceInput } from '@/modules/chat/hooks/useVoiceInput';
 import { voicePlayer } from '@/modules/chat/utils/voicePlayer';
@@ -32,6 +34,16 @@ import type * as VoiceTrim from '@/shared/voiceTrim';
 
 const { transcribeVoice } = vi.hoisted(() => ({ transcribeVoice: vi.fn() }));
 
+/**
+ * The declaration a case records under, when it records under one at all. `null` is "nothing
+ * authorises a trim" — the shipping answer for a recording whose voice profile has not been
+ * published — and it is what every case here records in unless it turns the trim on and says whose
+ * recogniser is asking for it.
+ */
+const { voiceProfile } = vi.hoisted(() => ({
+  voiceProfile: { declaration: null as null | PauseCuesDeclaration },
+}));
+
 vi.mock('@/shared/api', async (importOriginal) => {
   const actual = await importOriginal<typeof SharedApi>();
   return {
@@ -42,6 +54,12 @@ vi.mock('@/shared/api', async (importOriginal) => {
     // driven for real rather than doubled — the double exists to cut the speech endpoint, and a
     // second copy of the parse here would be a second copy of the thing under test.
     parseTranscriptionResponse: actual.parseTranscriptionResponse,
+    // The other thing the capture path asks the shared module for: the declaration that authorises
+    // the trim, read by the id the upload routes on. Taken from the real accessor for the same
+    // reason as the parse above, so a case that leaves it alone reads the shipping decision rather
+    // than a second copy of it kept here; a case that wants the pair of tracks names its recogniser.
+    effectivePauseCuesDeclaration: () =>
+      voiceProfile.declaration ?? actual.effectivePauseCuesDeclaration(),
   };
 });
 
@@ -83,10 +101,17 @@ vi.mock('@/modules/chat/utils/audioDecode', () => ({
 }));
 
 /**
- * The trim itself is stubbed, but the rest of the module is not: whether 裁不裁 is the recogniser's
- * declaration, and the shipping declaration says the pauses are destructive — which is the state
- * every case here records in. Doubling the whole module would mean this file carries its own answer
- * to that question, and then a change to *who decides* could not show up here at all.
+ * The trim itself is stubbed, but the rest of the module is not: `trimDecisionFor` — the mapping
+ * from a declared capability to 裁不裁 — is the shipping one, so a case that names a declaration
+ * still exercises the real decision. What is stubbed is the DSP, which jsdom cannot drive at all.
+ *
+ * WHOSE CAPABILITY IS DECIDED ELSEWHERE, and deliberately: the value arrives through the accessor
+ * doubled in the `@/shared/api` mock above, and what this file records in by default is the
+ * shipping answer — no declaration to read, so the recording travels exactly as it was recorded.
+ * The one adapter this build registers declares its pauses worth keeping, which is the same
+ * upload, and `voiceTrimCapabilityWiring.test.tsx` owns that reading. A case here that wants the
+ * pair of tracks therefore has to name a recogniser that asks for the trim: the pair cannot exist
+ * without one, and inventing an answer inside this file would hide who decides it.
  */
 vi.mock('@/shared/voiceTrim', async (importOriginal) => ({
   ...(await importOriginal<typeof VoiceTrim>()),
@@ -105,6 +130,18 @@ vi.mock('@/shared/voiceTrim', async (importOriginal) => ({
     },
   }),
 }));
+
+/**
+ * A recogniser that asks for its pauses to be trimmed: the declaration a case turns on when it
+ * wants the pair of tracks. `destructive` because nothing else can put a second track in the slot —
+ * and named as a fixture rather than as any real service, because the only adapter this build
+ * registers declares the opposite. That is the point: the pair is reachable by declaration alone,
+ * so "who decides" is what these cases can vary.
+ */
+const TRIMS_PAUSES: PauseCuesDeclaration = {
+  provider: 'fixture-recogniser',
+  capability: 'destructive',
+};
 
 await i18next.use(initReactI18next).init({
   lng: 'en',
@@ -214,6 +251,7 @@ beforeEach(() => {
   recorderChunks = [];
   nextPlayResult = Promise.resolve();
   voiceFlags.trim = false;
+  voiceProfile.declaration = null;
   stubbedTrim.outputSec = 1;
   stubbedTrim.fallback = false;
   stubbedTrim.decodable = true;
@@ -398,6 +436,8 @@ test('going inactive stops the sound but keeps the clip', async () => {
 
 test('the trimmed upload lands beside the recording, as its own track', async () => {
   voiceFlags.trim = true;
+  // Both have to say yes: the user's switch above, and the recogniser's own declaration here.
+  voiceProfile.declaration = TRIMS_PAUSES;
   const { view } = renderVoice();
 
   // A press longer than the trimmed audio the stub reports, so "the shorter one" is a comparison
@@ -418,8 +458,30 @@ test('the trimmed upload lands beside the recording, as its own track', async ()
   );
 });
 
+test('a recogniser that asks for nothing keeps the recording: the switch alone authorises nothing', async () => {
+  // Everything the trim needs is in place — the switch is on and the decoder works — except a
+  // recogniser saying its pauses are worth removing, which is the state the shipping build records
+  // in: nothing has published a voice profile, and the one adapter it registers keeps its pauses.
+  // Both halves are required, so the switch being on has to be readable as *not* enough.
+  voiceFlags.trim = true;
+  const { view } = renderVoice();
+
+  await record(view, 2000, 3000);
+
+  const slot = view.result.current.clipSlot;
+  assert.ok(slot, 'the recording is still replayable');
+  assert.equal(
+    slot.trimmed,
+    null,
+    'the trim ran with no recogniser asking for it, so the switch was read as the decision',
+  );
+  assert.equal(slot.original.meta.bytes, 2000, 'and what is replayable is the recording itself');
+});
+
 test('a capture that was uploaded untrimmed gets one track, not a second copy of the first', async () => {
   voiceFlags.trim = true;
+  // Both have to say yes: the user's switch above, and the recogniser's own declaration here.
+  voiceProfile.declaration = TRIMS_PAUSES;
   stubbedTrim.fallback = true;
   const { view } = renderVoice();
 
@@ -436,6 +498,8 @@ test('a capture that was uploaded untrimmed gets one track, not a second copy of
 
 test('the two tracks never sound at once', async () => {
   voiceFlags.trim = true;
+  // Both have to say yes: the user's switch above, and the recogniser's own declaration here.
+  voiceProfile.declaration = TRIMS_PAUSES;
   const { view } = renderVoice();
   await record(view, 2000, 1000);
   assert.ok(view.result.current.clipSlot?.trimmed, 'this test is about the pair');
@@ -623,6 +687,8 @@ const renderComposer = (onVoiceTranscript: (text: string, send?: boolean) => voi
 
 test('the replay controls exist only while a clip does, one per track, and rename themselves while playing', async () => {
   voiceFlags.trim = true;
+  // Both have to say yes: the user's switch above, and the recogniser's own declaration here.
+  voiceProfile.declaration = TRIMS_PAUSES;
   const view = renderComposer(() => undefined);
   const { queryByRole, getByRole } = view;
 
@@ -682,6 +748,8 @@ test('the replay controls exist only while a clip does, one per track, and renam
 
 test('a capture that was uploaded as recorded gets one control, not two over the same audio', async () => {
   voiceFlags.trim = true;
+  // Both have to say yes: the user's switch above, and the recogniser's own declaration here.
+  voiceProfile.declaration = TRIMS_PAUSES;
   stubbedTrim.decodable = false;
   const view = renderComposer(() => undefined);
   const { queryByRole, getByRole } = view;
