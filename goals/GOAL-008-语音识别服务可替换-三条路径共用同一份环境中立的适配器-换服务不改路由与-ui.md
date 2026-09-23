@@ -1,13 +1,19 @@
 ---
 id: GOAL-008
 title: 语音识别服务可替换：三条路径共用同一份环境中立的适配器，换服务不改路由与 UI
-status: active
+status: achieved
 kind: goal
 origin: "ADR-004（adr/ADR-004-语音识别-provider-缝-环境中立的适配器契约与能力声明.md，status:
   accepted，2026-09-22 人 yale 裁定通过）；设计细节与过程见
   docs/proposals/voice-asr-provider-seam.md；七条开放问题的裁定记录在 ADR-004 的 Adjudication
   小节。"
 activatedAt: 2026-09-22T15:00:23.325Z
+statusLog:
+  - at: 2026-09-23T09:17:26.319Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: all ACs achieved + sufficiency covered"
 ---
 ## 背景
 
