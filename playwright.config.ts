@@ -1,9 +1,18 @@
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
+import net from 'node:net';
 import { execFileSync } from 'node:child_process';
 
 import { defineConfig } from '@playwright/test';
+
+/**
+ * When this file started being evaluated — the first moment of the run that can be observed from here.
+ *
+ * The watchdog below reports its elapsed time against this, so the number it prints covers config evaluation
+ * and seeding as well as everything Playwright does afterwards.
+ */
+const runStartedAt = Date.now();
 
 // Everything the servers persist lives under one throwaway directory so the run never touches real user data.
 // Exported through the environment so worker processes (which re-evaluate this file) share the directory and the spec can put a project workspace inside it.
@@ -61,7 +70,9 @@ const listen = () => new Promise((resolve, reject) => {
   await Promise.all([first, second].map((server) => new Promise((done) => server.close(done))));
 })().catch((error) => { console.error(error.message); process.exit(1); });`,
     ],
-    { encoding: 'utf8' },
+    // Bounded: this call blocks the event loop, so a child that never exits would also stop the watchdog
+    // below from firing — a config lookup with no deadline is the same defect this file keeps closing.
+    { encoding: 'utf8', timeout: 10_000 },
   );
   const [serverPort, clientPort] = stdout.trim().split(/\s+/).map(Number);
   return [serverPort, clientPort];
@@ -104,7 +115,9 @@ const probe = (port) => new Promise((resolve) => {
   process.stdout.write(taken.join(' '));
 })().catch((error) => { console.error(error.message); process.exit(1); });`,
     ],
-    { encoding: 'utf8' },
+    // Bounded for the same reason `freePortPair`'s is: this is a synchronous block, and the watchdog cannot
+    // fire while the event loop is held.
+    { encoding: 'utf8', timeout: 10_000 },
   );
   return stdout.trim().split(/\s+/).filter(Boolean).map(Number);
 };
@@ -115,9 +128,13 @@ const probe = (port) => new Promise((resolve) => {
  * Playwright asks each webServer URL whether something is already serving it *before* it spawns the command,
  * and that probe has no deadline and no timeout of its own: a listener that accepts the connection but never
  * answers makes the check wait forever. The run then never reaches `webServer.timeout` below, never exits, and
- * a watchdog that caps the criterion at 60s kills it as an unattributable timeout — leaving the servers it did
- * start holding their ports into the next run. Binding each port once here turns the same condition into an
+ * the goal gate that caps the criterion at 60s kills it as an unattributable timeout — leaving the servers it
+ * did start holding their ports into the next run. Binding each port once here turns the same condition into an
  * immediate failure that names the port, which is what a red run has to say to be actionable.
+ *
+ * This check is a *snapshot*, taken here, and Playwright's probe happens after it: a port that gets taken in
+ * between is let through by this check and still hangs the probe. That window is closed by the watchdog below,
+ * which is the run's own ceiling and names whatever stage it finds the run stuck in.
  *
  * Only the process that is about to start the servers probes. Workers re-evaluate this file long after both
  * are listening, so a probe there would report the run's own servers as the conflict; the flag rides the same
@@ -132,6 +149,206 @@ if (process.env.QUAY_E2E_PORTS_VERIFIED === undefined) {
     );
   }
   process.env.QUAY_E2E_PORTS_VERIFIED = '1';
+}
+
+/**
+ * The url each webServer is told to serve, declared once so the watchdog probes exactly what Playwright was
+ * given rather than a second copy of the same two strings that could drift away from it.
+ */
+const SERVER_HEALTH_URL = `http://127.0.0.1:${serverPort}/health`;
+const CLIENT_URL = `http://127.0.0.1:${clientPort}`;
+const RUN_SERVERS = [
+  { name: 'server', url: SERVER_HEALTH_URL },
+  { name: 'client', url: CLIENT_URL },
+];
+
+/**
+ * The run's own ceilings — the bounds above which nothing else in this file bounds anything.
+ *
+ * The gate that runs this criterion kills it at 60s and records the kill as `verdict: fail`, the same shape a
+ * real failure has, so a run that crosses 60s is a red nobody can read. Two ceilings already exist under these
+ * and neither covers the whole run: `webServer[].timeout` bounds only the wait *after* a server is spawned, and
+ * the filter spec's own `test.describe.configure({ timeout: 120_000 })` raises the per-test budget to twice the
+ * gate's cap. What is left over is everything outside both — most sharply Playwright's *pre-spawn* availability
+ * probe (the note above), which asks each webServer url once with no deadline of its own, so a listener that
+ * completes the TCP handshake and then never writes a byte makes it wait forever.
+ *
+ * The unboundedness is not spread evenly, so neither is the bound. Before both webServers answer, a run is on
+ * the path nothing bounds, and `BOOT_CEILING_MS` bounds it there. Once both answer, the run is inside browser
+ * launch and the cases, where the spec's own per-test timeout is the bound that already exists — so that stage
+ * gets `RUN_CEILING_MS` instead, the largest value that still beats the gate's kill. A watchdog that used the
+ * tight value for both stages would kill a perfectly healthy run of any spec in this checkout that load had
+ * merely slowed past it — a bound lower than a sibling spec's own runtime turns a load artifact into a lost
+ * run, and one already did: `e2e/voice-trim.spec.ts` runs 41.1-41.3s here and was killed mid-case at 45s.
+ *
+ * Both fire by *explaining themselves*: each reads back which stage the run is stuck in, writes one line naming
+ * that stage and the milliseconds elapsed, ends any server process this run left behind, and exits non-zero. A
+ * watchdog that only said "too slow" would leave the next reader exactly where the 60s kill does.
+ *
+ * The values are derived rather than guessed. A quiet run's stages measure ~0.6s config evaluation and seeding,
+ * ~2.9s server boot, ~0.9s vite, ~8s browser launch plus `beforeAll`, and ~12s across the five cases — ~24s in
+ * total, and a run under six concurrent sibling specs measured 23.6s. `BOOT_CEILING_MS` must clear every boot
+ * that is already bounded (2 × 30s webServer waits, but serially — the first expiry ends the run, so ~31s), and
+ * it is 9× the quiet boot. `RUN_CEILING_MS` must clear the longest healthy run in this checkout (voice-trim,
+ * ~42s) and still land its line before the gate's kill: 55s + the 2s diagnosis probe + ~0.6s of process
+ * start-up puts the line on stdout at ~57.6s, ~2.4s inside 60s.
+ */
+const BOOT_CEILING_MS = 40_000;
+const RUN_CEILING_MS = 55_000;
+/** How long the watchdog waits for an answer before it calls a bound port silent. Deliberately short: this is a reading, not a wait. */
+const WATCHDOG_PROBE_MS = 2_000;
+
+/**
+ * Asks one of the run's ports a single HTTP request, with a deadline, and reports which of three states it is
+ * in: `answered` (something served it), `silent` (the port is bound and nothing came back), or `closed`
+ * (nothing is listening).
+ *
+ * This is the one reading the watchdog needs and the reading Playwright's own probe cannot give: it waits on
+ * the same socket with no deadline, which is what the run is stuck on in the first place. So this one hangs up
+ * rather than waits — it must be impossible for the thing that explains a hang to hang.
+ */
+const probePort = (target: string): Promise<'answered' | 'silent' | 'closed'> =>
+  new Promise((resolve) => {
+    const url = new URL(target);
+    const socket = net.connect({ host: url.hostname, port: Number(url.port) });
+    let settled = false;
+    const settle = (state: 'answered' | 'silent' | 'closed') => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(state);
+    };
+    socket.setTimeout(WATCHDOG_PROBE_MS);
+    socket.on('connect', () => socket.write(`GET ${url.pathname} HTTP/1.0\r\nHost: ${url.host}\r\n\r\n`));
+    socket.on('data', () => settle('answered'));
+    socket.on('timeout', () => settle('silent'));
+    socket.on('error', () => settle('closed'));
+  });
+
+/**
+ * Which stage the run is in, read back from the ports at the moment a ceiling is crossed.
+ *
+ * The stage is returned as data and not only as prose because it decides what happens next: a run still in
+ * `webServer-start` is on the unbounded path and ends here, while a run past it is merely slow and is handed
+ * the looser ceiling instead. Reading it back out of the message would make the message load-bearing.
+ *
+ * A port that is bound but silent is the sharpest reading of the three: it is the listener whose handshake
+ * succeeds and whose answer never comes, which is precisely the condition Playwright's pre-spawn probe cannot
+ * survive. Naming it turns "the run timed out" into "this process is holding this port and not answering".
+ */
+type Stall = { readonly stage: 'webServer-start' | 'browser-launch-or-cases'; readonly detail: string };
+
+const describeStall = async (): Promise<Stall> => {
+  const readings = await Promise.all(
+    RUN_SERVERS.map(async (server) => ({ ...server, state: await probePort(server.url), port: new URL(server.url).port })),
+  );
+  const silent = readings.filter((reading) => reading.state === 'silent');
+  if (silent.length > 0) {
+    const named = silent.map((reading) => `port ${reading.port} (${reading.name}) accepts TCP but never answers an HTTP request`).join(', ');
+    return {
+      stage: 'webServer-start',
+      detail: `${named} — Playwright's pre-spawn availability probe for ${silent[0].url} has no deadline, so it cannot return`,
+    };
+  }
+  const closed = readings.filter((reading) => reading.state === 'closed');
+  if (closed.length > 0) {
+    const named = closed.map((reading) => `port ${reading.port} (${reading.name}) is not listening`).join(', ');
+    return { stage: 'webServer-start', detail: named };
+  }
+  return {
+    stage: 'browser-launch-or-cases',
+    detail: 'both webServers answered, so this run is past boot and inside browser launch or a test case',
+  };
+};
+
+/**
+ * The direct children of this process, read from `/proc`.
+ *
+ * Playwright spawns every webServer `detached`, so each direct child leads its own process group and
+ * `process.kill(-pid, ...)` reaches the whole `sh -c` -> `npx` -> `tsx` -> server chain. Signalling the leader
+ * alone would leave its children reparented and still holding the ports — the orphan this run must not leave.
+ */
+const childPids = (): number[] => {
+  const pids: number[] = [];
+  for (const entry of fs.readdirSync('/proc')) {
+    if (!/^\d+$/.test(entry)) continue;
+    try {
+      // `pid (comm) state ppid ...`, and `comm` may itself contain spaces and parentheses, so the fields are
+      // read from after its closing one.
+      const stat = fs.readFileSync(`/proc/${entry}/stat`, 'utf8');
+      if (Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[1]) === process.pid) pids.push(Number(entry));
+    } catch {
+      // Exited between the directory listing and the read: not a child left to clean up.
+    }
+  }
+  return pids;
+};
+
+/**
+ * Ends the run with a line explaining it, and takes this run's server processes with it.
+ *
+ * Only the process that allocated the data directory arms these. Workers re-evaluate this file, and a worker's
+ * own lifetime is short and already bounded by the runner — a ceiling armed there would fire on the runner's
+ * run, not on the worker's, and report the wrong elapsed time.
+ */
+if (isDataDirOwner) {
+  const endRun = (label: string, ceiling: number, crossedAt: number, stall: Stall): void => {
+    const elapsed = Date.now() - runStartedAt;
+    // `fs.writeSync` rather than `console.log`: on POSIX a pipe is written asynchronously, so a line handed to
+    // `process.stdout` is not flushed before `process.exit` — and the one line that explains the red would be
+    // the one lost. The fallback covers a pipe that will not take the write right now; a lost line is bad but
+    // not as bad as an exception on the way out swallowing the cleanup below.
+    const line = `[e2e] watchdog: this run crossed its own ${ceiling}ms ${label} at ${crossedAt}ms and is ending here with exit 1 at ${elapsed}ms — stuck at stage "${stall.stage}": ${stall.detail}.\n`;
+    try {
+      fs.writeSync(1, line);
+    } catch {
+      try {
+        fs.writeSync(2, line);
+      } catch {
+        // Neither stream is taking writes; the non-zero exit below is all that is left to report.
+      }
+    }
+    for (const pid of childPids()) {
+      try {
+        process.kill(-pid, 'SIGKILL');
+      } catch {
+        // Already gone, or not a group leader; either way there is nothing here to signal.
+      }
+    }
+    process.exit(1);
+  };
+
+  /**
+   * Arms one ceiling, and at the boot one hands a run that turns out to be past boot to the run ceiling instead
+   * of firing. The reading costs the probe below; the run receiving it is still starting up, so the two
+   * ceilings stay two independent readings rather than one budget split between them — and a healthy run that
+   * load has slowed down is never the one a boot bound ends.
+   */
+  const arm = (ceiling: number, label: string, mayReArm: boolean): void => {
+    const watchdog = setTimeout(() => {
+      // Read before the probe below, so the moment the ceiling was crossed is reported as itself and the probe's
+      // own cost is not folded into it — otherwise the line would name a 55s ceiling and an elapsed of 57s.
+      const crossedAt = Date.now() - runStartedAt;
+      describeStall()
+        .catch(
+          (): Stall => ({ stage: 'webServer-start', detail: 'the port probe itself failed, so the stage could not be read' }),
+        )
+        .then((stall) => {
+          if (mayReArm && stall.stage === 'browser-launch-or-cases') {
+            arm(RUN_CEILING_MS, 'ceiling', false);
+            return;
+          }
+          endRun(label, ceiling, crossedAt, stall);
+        });
+      // Measured from the run's own start rather than from this call, so the second arming lands on the run
+      // ceiling itself and not on the boot ceiling plus it.
+    }, Math.max(0, runStartedAt + ceiling - Date.now()));
+    // Not referenced: a run that finishes on its own must not be held open by this timer. It can only fire while
+    // something else is genuinely keeping the event loop alive — which is exactly the condition it exists for.
+    watchdog.unref();
+  };
+
+  arm(BOOT_CEILING_MS, 'boot ceiling', true);
 }
 
 /** Workspace e2e/session-filter.spec.ts creates its project in; its own directory so no other spec picks these sessions up. */
@@ -697,7 +914,7 @@ export default defineConfig({
   webServer: [
     {
       command: 'npx tsx --tsconfig server/tsconfig.json server/index.ts',
-      url: `http://127.0.0.1:${serverPort}/health`,
+      url: SERVER_HEALTH_URL,
       reuseExistingServer: false,
       timeout: 30_000,
       env: {
@@ -712,7 +929,7 @@ export default defineConfig({
       // so the url checked below — the port the browser is sent to — would never answer and the run would sit
       // here until the ceiling instead of reporting the port. Strict, it fails at once and says which port.
       command: 'npx vite --host 127.0.0.1 --strictPort',
-      url: `http://127.0.0.1:${clientPort}`,
+      url: CLIENT_URL,
       reuseExistingServer: false,
       timeout: 30_000,
       env: {
