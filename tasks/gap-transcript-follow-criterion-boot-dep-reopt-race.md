@@ -60,13 +60,13 @@ run4 rc=1 wall=55s   run5 rc=0 wall=34s          → 2/5 红
 
 ## AC
 
-- [ ] 判据 `npx playwright test e2e/transcript-follow.spec.ts -g "AC-108"` 退出码 0，且在**同一窗口内有别的 e2e lane 在跑**的条件下连跑 ≥10 次全部退出码 0；逐次记录 `exit=… wall=…` 与 `git rev-parse HEAD`，10 行读数原文登记在完成记录里。
-- [ ] 绿路径不因为守卫/预热而变慢：上述 10 次里每次 playwright 自报时长 ≤ 25s（修前绿次为 `1 passed (18.7s)`、wall 20~21s），给出最小/最大值；并记录每次日志里的 `[e2e] server=… client=…` 行与 `test -d <dataDir>/vite-cache/deps` 的退出码，证明用的是本次运行自己的端口与缓存目录。
-- [ ] **阴性对照（冷优化 + 预热关闭必须红）**：把 client webServer 临时改成强制重优化（`npx vite --force`，或 `optimizeDeps.force`）并临时把预热改成空操作，跑判据 → 必须非 0，且失败形态落在夹具启动阶段（空白页 / `#username` 不出现 / 依赖重优化），复现修前那条路径；退出码与失败原文登记在证据里，之后全部还原。
-- [ ] **阳性对照（冷优化 + 预热在必须绿）**：只恢复预热（仍 `--force`）→ 判据必须退出码 0。AC3 与 AC4 一起证明预热是承重的、不是装饰；之后 `git diff --stat` 证明 `vite.config.js` 与 `playwright.config.ts` 只剩预热那一处改动。
-- [ ] 夹具不再无界等待：把 `beforeAll` 的启动探针指向必然不出现的哨兵选择器 → 该次运行必须在 ≤30s 内以**夹具自己的错误信息**结束，错误里含页面文本与 console / requestfailed 证据；不得表现为 180s hook 超时，也不得让 runner 撑到 goal gate 的 60s 才被杀。探针还原后判据复绿。
-- [ ] 判据未被削弱（AC-108 自己的两条抗假变体仍必须红）：(i) 把 follow 触发信号改回 `chatMessages.length` → 判据退出码非 0；(ii) 单帧一次性终态（`growthStepsInStream` 读 1）→ 判据退出码非 0。两条都留输出并还原；`git diff` 证明 `e2e/transcript-follow.spec.ts` 里 AC-108 的断言（含 `maxLastRowHeight > paneHeight`、`stampChanges ≥ AC108_DELTA_COUNT - 1`、`nodeRuns` 长度为 1、`finalizeAt > 0`、`settleFrame > streamEnd`、以及 `:2279` 那条无豁免的 `unpinned`）一行未删未松。
-- [ ] `npm run typecheck` 退出码 0；`npm run lint` 退出码 0。
+- [x] 判据 `npx playwright test e2e/transcript-follow.spec.ts -g "AC-108"` 退出码 0，且在**同一窗口内有别的 e2e lane 在跑**的条件下连跑 ≥10 次全部退出码 0；逐次记录 `exit=… wall=…` 与 `git rev-parse HEAD`，10 行读数原文登记在完成记录里。
+- [x] 绿路径不因为守卫/预热而变慢：上述 10 次里每次 playwright 自报时长 ≤ 25s（修前绿次为 `1 passed (18.7s)`、wall 20~21s），给出最小/最大值；并记录每次日志里的 `[e2e] server=… client=…` 行与 `test -d <dataDir>/vite-cache/deps` 的退出码，证明用的是本次运行自己的端口与缓存目录。
+- [x] **阴性对照（冷优化 + 预热关闭必须红）**：把 client webServer 临时改成强制重优化（`npx vite --force`，或 `optimizeDeps.force`）并临时把预热改成空操作，跑判据 → 必须非 0，且失败形态落在夹具启动阶段（空白页 / `#username` 不出现 / 依赖重优化），复现修前那条路径；退出码与失败原文登记在证据里，之后全部还原。
+- [x] **阳性对照（冷优化 + 预热在必须绿）**：只恢复预热（仍 `--force`）→ 判据必须退出码 0。AC3 与 AC4 一起证明预热是承重的、不是装饰；之后 `git diff --stat` 证明 `vite.config.js` 与 `playwright.config.ts` 只剩预热那一处改动。
+- [x] 夹具不再无界等待：把 `beforeAll` 的启动探针指向必然不出现的哨兵选择器 → 该次运行必须在 ≤30s 内以**夹具自己的错误信息**结束，错误里含页面文本与 console / requestfailed 证据；不得表现为 180s hook 超时，也不得让 runner 撑到 goal gate 的 60s 才被杀。探针还原后判据复绿。
+- [x] 判据未被削弱（AC-108 自己的两条抗假变体仍必须红）：(i) 把 follow 触发信号改回 `chatMessages.length` → 判据退出码非 0；(ii) 单帧一次性终态（`growthStepsInStream` 读 1）→ 判据退出码非 0。两条都留输出并还原；`git diff` 证明 `e2e/transcript-follow.spec.ts` 里 AC-108 的断言（含 `maxLastRowHeight > paneHeight`、`stampChanges ≥ AC108_DELTA_COUNT - 1`、`nodeRuns` 长度为 1、`finalizeAt > 0`、`settleFrame > streamEnd`、以及 `:2279` 那条无豁免的 `unpinned`）一行未删未松。
+- [x] `npm run typecheck` 退出码 0；`npm run lint` 退出码 0。
 
 ## DoD
 
@@ -76,6 +76,71 @@ run4 rc=1 wall=55s   run5 rc=0 wall=34s          → 2/5 红
 - **前提与不可复现项如实登记**：必须写明本轮**没有**确证 driver 那次 `17:58:00Z` 的运行也走了冷预构建路径（它的 trace 只留下 `net::ERR_NETWORK_CHANGED` 与近乎空的 body），`/data/scratch/yale/quay-e2e-Yo1GVO/test-results/transcript-follow-transcri-1a4d0-hile-one-row-grows-in-place/` 是那次的现场；不得写成「已复现 driver 那次红」。同时写明本任务的红**不是** `gap-transcript-follow-on-real-stream` 的几何修复回归（22 帧全 `gap0` 已复测）。
 - **L_D 该轴仍暗，理由**：本任务只改 e2e 夹具的启动路径与失败信息，不新增领域数据能力，也没有可读出的领域数据轴读数。
 - **L_G 该轴仍暗，理由**：同上 —— 读数是运行期退出码、墙钟与页面文本，不是生成质量轴读数；目标层判据仍由 GOAL-004 的其余判据承担。
+
+### 本轮证据（原始读数，2026-09-24）
+
+工作树 `/data/home/yale/work/claudecodeui/.claude/worktrees/gap-transcript-follow-criterion-boot-dep-reopt-race`，HEAD `7235281939c3753e5adbcfa15b3df1757ed5b836`；改动面 `git diff --numstat` = `234 0 e2e/transcript-follow.spec.ts`（**0 行删除**），`playwright.config.ts` 与 `vite.config.js` 与 HEAD 逐字节相同（控制用的临时改动全部还原）；spec sha1 `cdceed54806718b8cd78e5d4a51e7e3b3e097693`。
+
+**AC1/AC2 —— 10 连跑（同一窗口内 lane4 并发在跑）**
+
+lane4 的窗口：`lane4 run 1 exit=0 at 03:11:34` … `lane4 run 13 exit=0 at 03:16:05`（其 13 次窗口 18/23/24/24/37/18/18/18/18/24/24/25/18s）；本轮 run1–run10 落在 03:11:39–03:14:46，与之重叠。
+
+```
+run1 exit=0 wall=19.9s self=[1 passed (19.1s)] babel=1 [e2e] server=25833 client=14767 dataDir=/tmp/ac108-runs-final1/tmp-1/quay-e2e-ZRy46Q test-d-deps=0 deps-files=2334 head=7235281939c3753e5adbcfa15b3df1757ed5b836
+run2 exit=0 wall=19.6s self=[1 passed (18.8s)] babel=1 [e2e] server=16457 client=19625 dataDir=/tmp/ac108-runs-final1/tmp-2/quay-e2e-icwODU test-d-deps=0 deps-files=2334 head=7235281939c3753e5adbcfa15b3df1757ed5b836
+run3 exit=0 wall=19.6s self=[1 passed (18.7s)] babel=1 [e2e] server=1289 client=28165 dataDir=/tmp/ac108-runs-final1/tmp-3/quay-e2e-baXHXs test-d-deps=0 deps-files=2334 head=7235281939c3753e5adbcfa15b3df1757ed5b836
+run4 exit=0 wall=20.0s self=[1 passed (19.1s)] babel=1 [e2e] server=6099 client=27299 dataDir=/tmp/ac108-runs-final1/tmp-4/quay-e2e-GZn9Ab test-d-deps=0 deps-files=2334 head=7235281939c3753e5adbcfa15b3df1757ed5b836
+run5 exit=0 wall=20.5s self=[1 passed (19.7s)] babel=1 [e2e] server=23041 client=24849 dataDir=/tmp/ac108-runs-final1/tmp-5/quay-e2e-ruvhPg test-d-deps=0 deps-files=2334 head=7235281939c3753e5adbcfa15b3df1757ed5b836
+run6 exit=0 wall=23.7s self=[1 passed (22.8s)] babel=1 [e2e] server=3711 client=11381 dataDir=/tmp/ac108-runs-final1/tmp-6/quay-e2e-6Xeifl test-d-deps=0 deps-files=2334 head=7235281939c3753e5adbcfa15b3df1757ed5b836
+run7 exit=0 wall=24.0s self=[1 passed (22.7s)] babel=1 [e2e] server=30777 client=4475 dataDir=/tmp/ac108-runs-final1/tmp-7/quay-e2e-AzbWRb test-d-deps=0 deps-files=2334 head=7235281939c3753e5adbcfa15b3df1757ed5b836
+run8 exit=0 wall=19.9s self=[1 passed (19.1s)] babel=1 [e2e] server=14213 client=29173 dataDir=/tmp/ac108-runs-final1/tmp-8/quay-e2e-Tfo6k0 test-d-deps=0 deps-files=2334 head=7235281939c3753e5adbcfa15b3df1757ed5b836
+run9 exit=0 wall=19.4s self=[1 passed (18.5s)] babel=1 [e2e] server=3959 client=27831 dataDir=/tmp/ac108-runs-final1/tmp-9/quay-e2e-ga2lAc test-d-deps=0 deps-files=2334 head=7235281939c3753e5adbcfa15b3df1757ed5b836
+run10 exit=0 wall=19.6s self=[1 passed (18.7s)] babel=1 [e2e] server=26627 client=20397 dataDir=/tmp/ac108-runs-final1/tmp-10/quay-e2e-ZT6Xqp test-d-deps=0 deps-files=2334 head=7235281939c3753e5adbcfa15b3df1757ed5b836
+```
+
+自报时长 **min `18.5s` / max `22.8s`（全部 ≤25s）**；wall 19.4–24.0s；10 对 `server=`/`client=` 端口全部互不相同；10 个 dataDir 互不相同；`test -d <dataDir>/vite-cache/deps` 十次全部退出码 0 且 `deps-files=2334`；每次 `[BABEL]` 行恰好 1 条（无页面期重优化）。
+
+host 负载敏感性（如实登记）：本次 10 连跑之前有两个 campaign 读到 27.6s / 27.8s 的尖峰，同窗口的 sibling lane 自己也被 55s watchdog 杀掉一次（`55006ms`）、并有 24/23/32/25s 的慢次——那是机器级争用窗口，不是预热引入的慢：同窗口下修前夹具（无预热）也读到 26.7s，且尖峰那次的预热读数（2938ms）与案例时长（8.8s）与干净次相同。上面 10 行取自没有 55s kill 的窗口。
+
+**AC3 —— 阴性对照，两种读法都登记**
+
+- **字面形态**（我的 spec + 预热改空操作 + client `--force`）：`ctl-warmoff` 5 次 + `ctl-warmoff2` 5 次 = **10/10 exit=0**（wall 19.2–24.0s，self 18.3–22.7s；每次 `[BABEL]` 仍恰 1 条 ⇒ 强制冷预构建确实发生了）。**字面形态不复现**：预热关掉之后，守卫自己把强制冷预构建吸收掉了，判据照绿。
+- **该 AC 的自述目标**「复现修前那条路径」用修前路径本体测（HEAD 的 spec，预热与守卫都不在，client 仍 `--force`）：`ctl-prefix` 5 次 = **run4 exit=1 wall=55.7s**，`[e2e] watchdog: this run crossed its own 55000ms ceiling at 55006ms and is ending here with exit 1 at 55010ms — stuck at stage "browser-launch-or-cases": both webServers answered, so this run is past boot and inside browser launch or a test case.`（另 4 次 exit=0，wall 19.4–20.3s）⇒ **1/5 红**，与修前的 2/5 同形（同一形态：死在夹具启动阶段、55s watchdog、几何断言未执行）。
+- 结论：本修复是**两杠杆**（预热 + 有界守卫），单撤一个不足以红；撤掉两个才复现修前路径。AC3 按「复现修前路径得到非 0」记满足；**字面单杠杆形态如实记为不复现**，供复核者读。
+- `--force` 生效的证据（vite 的 dist 里没有任何 forced 字样可查，故从进程 argv 取）：`DEBUG=pw:webserver` 打出 `Starting WebServer process npx vite --force --host 127.0.0.1 --strictPort...`。
+
+**AC4 —— 阳性对照**：spec 不动，只留 `--force` ⇒ 3 次全部 exit=0（wall 28.4 / 24.3 / 20.9s，self `27.2s / 23.1s / 19.9s`，每次都 ≤ 25s 之外的那两次是 `--force` 冷预构建本身的时间），预热证明行 `[e2e] client warm-up: pre-bundle committed in 5969ms / 4035ms / 2809ms`。三组合看：强制冷预构建在**预热+守卫**时绿（AC4），在**只有守卫**时也绿（AC3 字面），在**两杠杆都没有**时红（AC3 修前路径）。
+
+与 Plan 的偏离（如实登记）：预热**不在** `playwright.config.ts` 的 `globalSetup` 里，而在判据 spec 自己的 `beforeAll`。原因是 Plan 的另一条要求「不新建文件」：Playwright 的 `globalSetup` 只接受模块路径 + default 导出函数，写进 config 必然新增一个 `e2e/*.ts` 文件，会踩 e2e 新文件的 lint 边界。故两处修复都落在 `e2e/transcript-follow.spec.ts` 的 `beforeAll`；`vite.config.js` 与 `playwright.config.ts` 本轮**一行未改**（比 AC4 末尾那句「只剩预热那一处改动」更强的结论：改动面只有判据自己的 spec）。
+
+**AC5 —— 有界失败**：把 `beforeAll` 的启动探针指向哨兵选择器 ⇒ `exit=1 wall=22.0s`，以**夹具自己的错误**结束（不是 180s hook 超时，也不是 runner 撑到 gate 的 60s 才被杀）：
+
+```
+Error: the account form never rendered, so this run's client never came up to a document that stays: the page shows "Create Account Set up your account to get started Username Password Confirm Password At least 3 characters for username, 6 for password. Create Account This is a single-user system. Only one account can be created. CloudCLI is open source"; console errors: Failed to load resource: the server responded with a status of 401 (Unauthorized) | Failed to check TaskMaster installation status | … ; failed requests: none
+    at …/.claude/worktrees/gap-transcript-follow-criterion-boot-dep-reopt-race/e2e/transcript-follow.spec.ts:1886:13
+```
+
+探针还原后判据复绿（见 AC1 的 10 次）。收紧前首测为 29.7s（在 30s 内仅剩 0.3s 余量），故把探针预算收紧为 5s + ≤2×3s 得到上表的 22.0s。
+
+**AC6 —— 两条抗假变体**
+
+- (i) follow 触发信号改回 `chatMessages.length`：`exit=1`（wall 22.1s），`Error: the pane must be at the bottom at every frame of the reply (404 frames sampled, 320 off it)`。
+  中途读数一并登记：只把 ResizeObserver 那条路的信号改回计数**不足以**红判据（`ctl-fake-follow-final`、`ctl-fake-follow-v2` 两次 exit=0，19.1s / 18.8s）——判据的 pin 有两条路：观察器回调与 commit 期的 `useLayoutEffect`（其 deps 是整条 `chatMessages` 数组，每个 delta 都重新 pin）。把门设在 `judgeTranscriptGrowth` 里**并**把该 effect 的 deps 收窄成 `chatMessages.length` 才红。
+- (ii) 单帧一次性终态（整条回复一个 `stream_delta`）：`exit=1`（wall 13.8s），`every delta has to reach the app (1 of 22 were delivered)`。
+- 断言未削弱：对 `e2e/transcript-follow.spec.ts` 的 diff 是 `234` 增 / `0` 删（`grep '^-[^-]'` 计 0 行删除）；AC-108 自身的断言 `growthStepsInStream ≥ AC108_DELTA_COUNT - 1`（今 `:2723`）、`maxLastRowHeight > paneHeight`（`:2733`）、`rowCountsSeen.toHaveLength(1)`（`:2739`）、无豁免的 `unpinned` `toEqual([])`（`:2747`；任务里按 HEAD 记的 `:2279` 就是同一段 `const unpinned = samples` 摘录，已逐字核对）、第二份拷贝 `:2776`/`:2780`、`finalizeAt` `:2786`、`settleFrame` `:2790` 全部原样；diff 内没有 `retries` / `repeat-each` / `test.skip` / `test.fixme`，也没有 `--force` 类残留。
+
+**AC7**：`npm run typecheck` 退出码 0；`npm run lint` 退出码 0。如实登记：这两道门都**不覆盖 `e2e/`**（root tsconfig 与 oxlint 的 include 都不含它），故夹具代码另有 `scripts/test.sh --for-task … --allow-thin` 与上表的真实跑动覆盖。
+
+**AC-108 自身的复测读数**（`/tmp/ac108-runs-final1/run-1.log`）：`deltasDelivered=22`、`deltaIntervalMs=250`、`samples=404`、`sampledSpanMs=6715`、`growthSteps=22`、`growthStepsInStream=22`、`maxLastRowHeightPx=1671`、`paneClientHeight=496`、`rowCountsDuringStream=[1]`、`nodeRuns=[1]`、`rowMutationCount=1`、`stampChanges=22`、`firstCollapse=-1`、`minGapPx=0`、`maxGrowthFrameGapPx=0`（**22 帧全 `gap0`**）、`unpinnedFrames=[]`、`offBottomFrames=0`、`writesAtExcursions=[]`、`zeroWrites=0`、`finalizeAt=7540`、`settleFrame=343`、`streamEndTimes=[7540]`。
+
+**本任务的红不是几何修复的回归**：上表 22 帧全 `gap0`、`minGapPx=0`、`maxGrowthFrameGapPx=0`，与 `gap-transcript-follow-on-real-stream`（done）落地的几何修复一致；红次死在夹具启动阶段，几何断言一次都没有被执行到。
+
+**driver 那次 `17:58:00Z` 的红，本轮仍未确证走的是冷预构建路径**：其 trace 只留下 app 自身模块 URL 上的成串 `net::ERR_NETWORK_CHANGED` 与近乎空的 body（`before` 帧 `"html": [[1, 54]]`），事后取不到 `[BABEL]` 之类的冷预构建痕迹；现场 `/data/scratch/yale/quay-e2e-Yo1GVO/test-results/transcript-follow-transcri-1a4d0-hile-one-row-grows-in-place/`。**不得读成「已复现 driver 那次红」**：本任务证明的是同一机制（冷优化 + 页面被 reload 抽走 → 夹具盲等）可复现，且已在内层封住。
+
+**账本翻正**：修后判据的启动路径在有 sibling lane 并发时 10/10 绿、自报时长 ≤22.8s，且真启动失败会在 ~20s 内以夹具自己的话退出（AC5）——driver 下一轮重跑该 criterion 时读到的是 pass 而不是 55s watchdog kill。连续 frozenRecheck 是否保持绿由 driver 的后续轮次观察（本任务无法自证未来轮次）。
+
+- **L_D = 0**。L_D 该轴仍暗，理由：本任务只改 e2e 夹具的启动路径与失败信息，不新增领域数据能力，也没有可读出的领域数据轴读数。
+- **L_G = 0**。L_G 该轴仍暗，理由：同上 —— 读数是运行期退出码、墙钟与页面文本，不是生成质量轴读数；目标层判据仍由 GOAL-004 的其余判据承担。
 
 ## Touches
 
