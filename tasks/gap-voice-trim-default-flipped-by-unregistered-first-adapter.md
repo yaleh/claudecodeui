@@ -1,7 +1,7 @@
 ---
 id: gap-voice-trim-default-flipped-by-unregistered-first-adapter
 title: 裁剪读数退回全 null 占位：出货识别器从未登记进 registry，未命名 provider 部署的裁剪默认被翻成「不裁」
-status: todo
+status: ready
 labels:
   - gap
   - defect
