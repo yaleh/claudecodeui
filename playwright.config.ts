@@ -13,6 +13,24 @@ const isDataDirOwner = !process.env.QUAY_E2E_DATA_DIR;
 process.env.QUAY_E2E_DATA_DIR = dataDir;
 
 /**
+ * The dependency cache this run's Vite is told to use, under the run's own throwaway directory.
+ *
+ * Vite's default is `<cwd>/node_modules/.vite`, and that default is one mutable directory shared by every
+ * checkout on the machine: `dispatch-worktree-setup.sh` links each task worktree's `node_modules` to the main
+ * checkout's, so the symlink resolves to the same directory for all of them. Sharing alone would only be a
+ * hazard; what makes it a defect is that Vite is *guaranteed* to rewrite it. Its staleness check compares a
+ * `configHash` that includes `root`, `root` defaults to the process cwd, and a worktree's cwd is by
+ * construction a different path from the main checkout's — so a run in a worktree finds the cache another root
+ * wrote "stale because vite config has changed" and re-optimizes it. Re-optimizing swaps the `browserHash`
+ * that is baked into every dependency URL, and a page another run already has in flight is holding the old
+ * hash: each of its requests then answers `504 (Outdated Optimize Dep)`, the pre-bundled `react` chunk and its
+ * siblings arrive from two different builds, React's dispatcher is null by the time a hook runs, and the app's
+ * own error boundary replaces the chat interface. Pointing each run at a directory of its own removes the
+ * shared mutable state rather than widening anyone's tolerances.
+ */
+const viteCacheDir = path.join(dataDir, 'vite-cache');
+
+/**
  * Asks the kernel for two free TCP ports, held at the same time so it cannot hand back the same one twice,
  * and releases them on the way out.
  *
@@ -586,7 +604,71 @@ const seedMobileSendKeyWorkspace = () => {
   );
 };
 
+/**
+ * Fills this run's own dependency cache with a copy of the shared one, so `viteCacheDir` starts hot.
+ *
+ * Isolation is about who may *write* the cache, not about paying for a pre-bundle. Seeding by copy keeps the
+ * run's start-up where it was: measured on this checkout, a cold pre-bundle adds ~1.2 s to the criterion, so
+ * the copy is cheap insurance and every failure below simply degrades to that cold path rather than failing
+ * the run. That is also why the copy is not verified beyond what is written here — a run that silently
+ * optimizes from scratch is correct, only slower.
+ *
+ * The copy has to be repaired on the way in, but only in one of its two path fields. Vite stores both as
+ * paths *relative to the deps directory that wrote them* (`stringifyDepsOptimizerMetadata`) and resolves them
+ * back against whichever directory it reads them from (`parseDepsOptimizerMetadata`) — so both have to be
+ * right for the directory they now live in, and the two need opposite treatment:
+ *
+ *   `file` is the optimized chunk itself, which sits *inside* the deps directory (`getOptimizedDepPath`
+ *   builds it from that directory), so it is stored as a bare name like `react.js` and the copy brought it
+ *   along. Left alone it is already correct, and it must be: resolving it against the directory it came from
+ *   would point this run's chunk requests back into the shared directory, so the run would read chunk bytes
+ *   from the very thing it is supposed to be isolated from — a sibling's re-optimization could then rename
+ *   them away mid-run and the 504s would be back.
+ *
+ *   `src` is the module in `node_modules` the chunk was built from, which the copy did *not* bring along
+ *   (`../../react/index.js`, reaching out of the deps directory into the checkout). Relocated verbatim it
+ *   would resolve against this run's throwaway directory instead — naming nothing, and making a nested
+ *   dependency (`react-dom > scheduler`) unmatchable in `tryOptimizedResolve`, the one place a cached `src`
+ *   is genuinely consulted. Recomputing it for the new directory is what makes the seeded metadata say
+ *   exactly what Vite would have written had it optimized into this directory itself.
+ *
+ * This is not a rare path: the seed is only usable at all when the shared cache was written by *this* root
+ * (`configHash` includes the root), and that is precisely the case where Vite trusts these fields.
+ *
+ * Ownership matters: workers re-evaluate this file, and the cache in their `dataDir` is the one the run's own
+ * server is serving from — so the caller runs this once, before the servers start, and never again.
+ */
+const seedViteCache = (destination: string): void => {
+  const destinationDeps = path.join(destination, 'deps');
+  fs.mkdirSync(destination, { recursive: true });
+  try {
+    // Resolved the way Vite resolves its own default, so this names the directory the run would otherwise
+    // have shared. `node_modules` is this checkout's, which in a worktree is the symlink to the main one.
+    const sharedDeps = path.resolve('node_modules', '.vite', 'deps');
+    fs.cpSync(sharedDeps, destinationDeps, { recursive: true });
+
+    const metadataPath = path.join(destinationDeps, '_metadata.json');
+    const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8')) as {
+      optimized?: Record<string, Record<string, unknown>>;
+    };
+    for (const entry of Object.values(metadata.optimized ?? {})) {
+      // `file` is deliberately not touched — see above: it names a chunk the copy carried with it.
+      const value = entry.src;
+      if (typeof value === 'string') {
+        entry.src = path.relative(destinationDeps, path.resolve(sharedDeps, value));
+      }
+    }
+    fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
+  } catch {
+    // A shared cache being rewritten by a sibling run right now (the very race this closes) can hand back a
+    // torn or unreadable copy. Keeping it would leave Vite a cache whose entries no longer describe the files
+    // beside them, so the copy is discarded and Vite optimizes into the private directory from scratch.
+    fs.rmSync(destinationDeps, { recursive: true, force: true });
+  }
+};
+
 if (isDataDirOwner) {
+  seedViteCache(viteCacheDir);
   seedSessionFilterTranscripts();
   seedTranscriptFollowTranscript();
   seedVoiceIdentifierWorkspace();
@@ -637,6 +719,10 @@ export default defineConfig({
         SERVER_PORT: String(serverPort),
         VITE_PORT: String(clientPort),
         HOST: '127.0.0.1',
+        // Read by vite.config.js as its `cacheDir`. Without it every run on this machine pre-bundles into the
+        // one `node_modules/.vite` the worktree symlinks share, and a re-optimization there 504s whatever
+        // another run already has in flight — the failure this whole file's comment above describes.
+        VITE_CACHE_DIR: viteCacheDir,
       },
     },
   ],

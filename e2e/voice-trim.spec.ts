@@ -467,7 +467,24 @@ test.describe('the voice path end to end', () => {
     await expandProject();
     await sessionLink().click();
     await expect(page).toHaveURL(new RegExp(`/session/${SESSION_ID}$`));
-    await expect(composer()).toBeVisible({ timeout: 15_000 });
+    // The same wait and the same budget as any other `toBeVisible` here; only what a timeout *says* changes.
+    // The composer's absence is the far end of several unrelated causes and a bare locator timeout names none
+    // of them — it reports "element(s) not found" for a client still building its module graph, for a proxy
+    // that answered 500, and for a page the dev server cut off mid-load alike. The last of those is the one
+    // this file's cold-load retry cannot see: it happens after onboarding, on a later `page.goto`, and it does
+    // not blank the page — it renders the app's own error boundary in place of the chat interface, so the
+    // sidebar and the shell all look right. The boundary's text and the console errors are what tell these
+    // apart, so both are attached to the failure instead of being left in a log the gate's excerpt truncates.
+    try {
+      await expect(composer()).toBeVisible({ timeout: 15_000 });
+    } catch {
+      const shown = await page.locator('body').innerText().catch(() => '<unreadable>');
+      const errors = voiceTraffic.filter((line) => line.startsWith('console.error'));
+      throw new Error(
+        `the composer never rendered at ${url}; the page shows: ${JSON.stringify(shown.slice(0, 300))}`
+          + `\n  console errors: ${errors.length > 0 ? errors.slice(0, 3).join(' | ') : '<none>'}`,
+      );
+    }
     await composer().fill('');
     await expect(composer()).toHaveValue('');
   };

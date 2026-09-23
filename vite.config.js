@@ -24,7 +24,25 @@ export default defineConfig(({ mode }) => {
   // TODO: Remove support for legacy PORT variables in all locations in a future major release, leaving only SERVER_PORT.
   const serverPort = env.SERVER_PORT || env.PORT || 3001
 
+  // Where Vite keeps its dependency pre-bundle. Left unset this is Vite's own default, `node_modules/.vite`,
+  // and that default is one mutable directory shared by every checkout: `dispatch-worktree-setup.sh` links
+  // each task worktree's `node_modules` to the main checkout's, so the symlink is the same directory for all
+  // of them. It is not merely "shared", it is *guaranteed to be rewritten*: Vite's dep-cache staleness check
+  // compares a `configHash` that includes `root`, `root` defaults to the process cwd, and a worktree's cwd is
+  // by construction a different path from the main checkout's — so a run in a worktree finds the cache the
+  // main checkout wrote "stale because vite config has changed" and re-optimizes it, which swaps the
+  // `browserHash` in every dependency URL. A page already in flight from another run is holding the old hash
+  // and each of its requests then gets `504 (Outdated Optimize Dep)`, losing the React dispatcher mid-render.
+  // Pointing this at a directory the caller owns makes the cache private to that caller, so nobody's
+  // re-optimization can reach anyone else's in-flight page. Unset, the default is untouched and every other
+  // entry point (`npm run dev`, the build) behaves exactly as before.
+  //
+  // Read through `env` like the ports above: `loadEnv` is called with an empty prefix, so the process
+  // environment reaches this object too — the same channel SERVER_PORT and VITE_PORT already travel on.
+  const cacheDir = env.VITE_CACHE_DIR || undefined
+
   return {
+    cacheDir,
     plugins: [react()],
     define: {
       __APP_VERSION__: JSON.stringify(pkg.version)
