@@ -2,7 +2,7 @@
 id: gap-transcript-follow-criterion-boot-dep-reopt-race
 title: AC-108 判据在并发负载下偶发假红（本轮实测 2/5）：夹具的 fresh-DB 启动无守卫，一次 Vite 依赖重优化/reload
   把页面从测量脚下抽走（守卫已在 voice-trim 修过，未回灌到本判据）
-status: ready
+status: done
 labels:
   - gap
   - defect
