@@ -25,6 +25,20 @@ const enChat = JSON.parse(
 // This spec is the only place the media query STRING is proven. A jsdom test cannot implement media
 // queries, so `src/modules/chat/tests/sendOnEnter.test.tsx` proves the policy against a double; whether
 // `(pointer: coarse) and (hover: none)` is what a touch device really answers can only be read here.
+//
+// Whether the hint row is SHOWN is a question no jsdom test can answer either, and one cell cannot
+// answer it alone. Three cells are read in this one run, each with its own `test.use` so that the
+// viewport and the touch emulation are always handed over together:
+//
+//   (a) touch @390   — must be `display: none` (the change itself)
+//   (b) touch @1280  — must be `display: none` too (the ≥lg tablet, where `hidden lg:block` would have
+//                      lifted the hiding and shown a soft keyboard the wording naming Shift)
+//   (c) keyboard @1280 — must be `display: block` (the positive control: without it, deleting the
+//                      hiding class everywhere scores the same "none" on (a) and (b))
+//
+// The three together are falsifiable in three different directions, which is the point: an
+// always-visible row reds (a), an always-hidden one reds (c), and reverting to a bare
+// `hidden lg:block` reds (b) while (a) stays green.
 
 /**
  * The touch-only signal the composer must gate on, both halves required.
@@ -57,16 +71,21 @@ const TABLET_VIEWPORT = { width: 1280, height: 900 } as const;
 /**
  * The composer's height at 390×844 on a touch-only device BEFORE this change, in CSS pixels.
  *
- * It cannot be derived from the changed tree, so it is a RECORDED READING: taken by running this same
- * spec against `develop` (the pre-change tree), where the composer still carried the hint row. That
- * control run is also the anti-vacuity control for the three cells below — on `develop` it reds on
- * the phone cell, the tablet cell and this height, and passes only the keyboard cell.
+ * It cannot be derived from the changed tree — the wording that used to fill the row is deleted — so it
+ * is a RECORDED READING, taken by putting the pre-change sources back in this worktree and reading the
+ * live layout the same way this spec reads it:
  *
- * To re-derive it (e.g. after an unrelated change to the composer moves its baseline): run this spec
- * against a `develop` worktree with QUAY_E2E_DATA_DIR set, and read the `CELL touch@390` line it
- * prints. The assertion below compares the two heights and prints both, so a stale constant says so.
+ *     git checkout develop -- src/modules/chat/composer/ChatComposer.tsx \
+ *                              src/modules/i18n/locales/en/chat.json
+ *     npx playwright test e2e/__baseline-probe.spec.ts      # scratch probe, prints BASELINE touch@390
+ *     git checkout HEAD -- <same paths>
+ *
+ * That reading was `{touchOnly: true, innerWidth: 390, hintDisplay: 'block', hintHeight: 16,
+ * hintText: 'Tap ➤ to send • Return adds a line', composerHeight: 151}`. The row was one 16px line and
+ * the footer's `gap-y-1` added 4px more, which is where the 20px comes from; the assertion below
+ * compares the two heights and prints both, so a stale constant says so rather than passing quietly.
  */
-const COMPOSER_HEIGHT_BEFORE_PX = 0;
+const COMPOSER_HEIGHT_BEFORE_PX = 151;
 
 /**
  * Both legs share one `DATABASE_PATH` (playwright.config.ts sets one for the whole run), so the account
@@ -444,7 +463,7 @@ test.describe('the composer send key on a touch-only device', () => {
     expect(
       Math.abs(savedPx - 20),
       `a touch phone must be 20px shorter than before this change: the composer stood at `
-        + `${COMPOSER_HEIGHT_BEFORE_PX}px before (control run on develop) and reads ${phone.composerHeight}px `
+        + `${COMPOSER_HEIGHT_BEFORE_PX}px before (pre-change reading) and reads ${phone.composerHeight}px `
         + `now — ${savedPx}px saved, not 20`,
     ).toBeLessThanOrEqual(1);
 

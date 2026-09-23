@@ -409,7 +409,8 @@ test('a device with a keyboard prints the same hint it printed before, character
     assert.equal(
       hint.text,
       expected,
-      `with a keyboard, ${name} must print exactly the pre-change string`,
+      `with a keyboard, ${name} must print exactly the string the locale file ships: the composer `
+        + `printed ${JSON.stringify(hint.text)}, the locale file holds ${JSON.stringify(expected)}`,
     );
   }
 
