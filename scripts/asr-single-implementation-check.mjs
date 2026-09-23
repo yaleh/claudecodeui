@@ -12,6 +12,12 @@
  *
  *   · the implementation is FOUND by scanning production sources for the wire protocol's own
  *     vocabulary (the endpoint, the multipart it posts, the response field it reads);
+ *   · a file carrying ONLY the endpoint literal is read as a MENTION, not as an implementation —
+ *     the vocabulary is two families and the literal alone is in neither. A recorded URL (a
+ *     fixture's expected endpoint, an endpoint named in a doc comment) shapes no request and
+ *     parses no response, and counting it as a second implementation is a false positive that
+ *     reds a tree with exactly one wire in it. This is not a hole: the "no implementation"
+ *     verdict below is loud, so a tree whose wire is only ever mentioned cannot read as passing;
  *   · each consumer group is found by parsing the real import specifiers out of its files and
  *     RESOLVING them (relative paths, `@/…` and `@shared/…` read out of tsconfig.json's
  *     `paths`, not out of this file);
@@ -52,7 +58,9 @@ const DEFAULT_ROOT = path.resolve(SCRIPT_DIR, '..');
  * @typedef {{ specifier: string, line: number }} ImportReference a specifier and where it was written
  * @typedef {{ relativePath: string, line: number, specifier: string, realPath: string }} ImportSite an import that resolves into the implementation
  * @typedef {{ id: string, files: number, sites: ImportSite[], targets: string[] }} ConsumerGroup
- * @typedef {{ relativePath: string, markers: string[] }} ImplementationHit a file carrying the wire protocol's vocabulary
+ * @typedef {{ relativePath: string, markers: string[], implementation: boolean }} ImplementationHit a file
+ *   carrying the wire protocol's vocabulary, `implementation` distinguishing the files that shape a request
+ *   or parse a response from the ones that only mention the endpoint
  * @typedef {{ file: string, match: RegExp, why: string }} Registration
  * @typedef {{ root: string, explainScan: boolean, landing: boolean }} Options
  */
@@ -321,10 +329,30 @@ function scanProductionForImplementation(root) {
     const response = RESPONSE_MARKERS.filter((marker) => marker.pattern.test(source)).map((marker) => marker.id);
     const buildsMultipart = request.includes('multipart-file-field') && request.includes('multipart-model-field');
     if (request.includes('endpoint-literal') || buildsMultipart || response.length > 0) {
-      hits.push({ relativePath, markers: [...request, ...response] });
+      const markers = [...request, ...response];
+      hits.push({ relativePath, markers, implementation: shapesTheWire(markers) });
     }
   }
   return { scanned: files, hits };
+}
+
+/**
+ * Whether a file's markers make it an IMPLEMENTATION of the wire rather than a file that mentions
+ * it. `endpoint-literal` on its own is a mention: a constant holding a URL, or the endpoint named
+ * in a doc comment. Shaping a request (the multipart field names) or parsing a response (the
+ * parsed-text backreference) is the thing itself — and each of those two is enough on its own,
+ * because a copy that rebuilds the multipart without the literal, or re-parses the answer without
+ * posting anything, is still half of the wire protocol written a second time.
+ *
+ * Both false positives this removes were measured, not imagined: the registry module names the
+ * endpoint in the comment that explains the multipart shape, and the offline invariant board
+ * records the URL its fixture resolves to (`https://asr.invalid/audio/transcriptions`). Neither
+ * posts nor parses anything.
+ * @param {string[]} markers
+ * @returns {boolean}
+ */
+function shapesTheWire(markers) {
+  return markers.some((marker) => marker !== 'endpoint-literal');
 }
 
 /**
@@ -466,9 +494,14 @@ function main() {
   }
 
   const implementation = scanProductionForImplementation(root);
+  // Only the files that shape a request or parse a response are implementations; the rest merely
+  // mention the endpoint. The two sets below are what every verdict from here on reads — a
+  // mention is printed so a reader can see it was looked at, and decides nothing.
+  const implementations = implementation.hits.filter((hit) => hit.implementation);
+  const mentions = implementation.hits.filter((hit) => !hit.implementation);
   /** @type {Set<string>} */
   const implementationPaths = new Set();
-  for (const hit of implementation.hits) {
+  for (const hit of implementations) {
     try {
       implementationPaths.add(realpathSync(path.join(root, hit.relativePath)));
     } catch {
@@ -494,14 +527,20 @@ function main() {
     }
   }
 
-  if (implementation.hits.length === 0) {
+  if (implementations.length === 0) {
     lines.push(
-      `no implementation: none of ${PRODUCTION_GLOBS.join(' ')} (${implementation.scanned.length} file(s) scanned, tests excluded) defines the transcription wire protocol`,
+      `no implementation: none of ${PRODUCTION_GLOBS.join(' ')} (${implementation.scanned.length} file(s) scanned, tests excluded) shapes a transcription request or parses a transcription response` +
+        (mentions.length > 0
+          ? `; ${mentions.length} file(s) mention the endpoint without doing either: ${mentions.map((hit) => hit.relativePath).join(', ')}`
+          : ''),
     );
   } else {
-    for (const hit of implementation.hits) {
+    for (const hit of implementations) {
       lines.push(`implementation path=${path.join(root, hit.relativePath)} realpath=${realpathSync(path.join(root, hit.relativePath))} markers=${hit.markers.join(',')}`);
     }
+  }
+  for (const hit of mentions) {
+    lines.push(`mention ${hit.relativePath} markers=${hit.markers.join(',')} (carries the endpoint literal and neither shapes a request nor parses a response)`);
   }
 
   const distinctTargets = new Set();
@@ -528,10 +567,10 @@ function main() {
     }
   }
 
-  const extraImplementations = implementation.hits.filter((hit, index) => index > 0);
+  const extraImplementations = implementations.filter((hit, index) => index > 0);
   if (extraImplementations.length > 0) {
     for (const hit of extraImplementations) lines.push(`SECOND_IMPL ${hit.relativePath} markers=${hit.markers.join(',')}`);
-  } else if (implementation.hits.length > 0) {
+  } else if (implementations.length > 0) {
     lines.push('SECOND_IMPL none');
   }
 

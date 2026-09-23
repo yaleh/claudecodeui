@@ -72,7 +72,8 @@ export const FIXTURE_FILES = [
   'src/modules/chat/hooks/useVoiceInput.ts',
 ];
 
-const REGISTRY_MODULE = 'shared/asr/asrRegistry.ts';
+/** Exported for the same reason `registryDeclarations` is: one home for the registry's path. */
+export const REGISTRY_MODULE = 'shared/asr/asrRegistry.ts';
 
 /** The module whose trim gate AC4 is about: the client-side read point this task unwires. */
 const GATE_MODULE = 'src/modules/chat/hooks/useVoiceInput.ts';
@@ -102,6 +103,9 @@ const REGISTRY_READ = /(?:pauseCuesDeclarationFor|effectivePauseCuesDeclaration)
 
 /** The registry's own registration table, which is what the provider order is read from. */
 const REGISTRATION_TABLE = /const\s+REGISTERED[^=]*=\s*\[([\s\S]*?)\n\];/;
+
+/** The registry's own evidence map, which is what each declaration names as its paired experiment. */
+const PAUSE_CUES_EVIDENCE_TABLE = /const\s+PAUSE_CUES_EVIDENCE[^=]*=\s*\{([\s\S]*?)\n\};/;
 
 /**
  * @param {string[]} argv
@@ -202,22 +206,28 @@ function resolveModule(root, fromRel, specifier) {
 }
 
 /**
- * The registry's declaration for every registered provider, in registration order.
+ * The registry's declaration for every registered provider, in registration order — the id, the
+ * `pauseCues` the adapter module declares, the module it was read from, and the paired experiment
+ * the registry names for it (absent when the registry names none).
  *
  * `providers` is empty exactly when `error` is set, so a caller that ignores the error cannot read
  * a truncated list as a complete one.
  *
+ * EXPORTED, because the registry side has exactly one reading: `scripts/asr-trim-capability-check.mjs`
+ * needs the same rows — which recognisers are registered and what each declares — and following the
+ * registration table a second time there would be the same 口径 derived twice.
+ *
  * @param {string} root
- * @returns {{ providers: { id: string, capability: string, module: string }[], error: string | null }}
+ * @returns {{ providers: { id: string, capability: string, module: string, evidence: string | undefined }[], error: string | null }}
  */
-function registryDeclarations(root) {
-  /** @type {{ id: string, capability: string, module: string }[]} */
+export function registryDeclarations(root) {
+  /** @type {{ id: string, capability: string, module: string, evidence: string | undefined }[]} */
   const providers = [];
   /** @type {string | null} */
   let error = null;
   /**
    * @param {string} message
-   * @returns {{ providers: { id: string, capability: string, module: string }[], error: string | null }}
+   * @returns {{ providers: { id: string, capability: string, module: string, evidence: string | undefined }[], error: string | null }}
    */
   const fail = (message) => {
     error = message;
@@ -235,6 +245,19 @@ function registryDeclarations(root) {
   const registered = [...table[1].matchAll(/\bid:\s*([A-Za-z_$][\w$]*)/g)].map((m) => m[1]);
   if (registered.length === 0) return fail(`${REGISTRY_MODULE}: nothing is registered`);
 
+  // The paired experiment each declaration rests on, keyed by the binding the registration table
+  // imports the adapter under. Read, not enforced: a declaration that changes what gets uploaded
+  // without a record behind it is `scripts/asr-trim-capability-check.mjs`'s `discipline` check,
+  // and a registry that names none must come back as "none" rather than as a failure here.
+  /** @type {Map<string, string>} */
+  const evidenceByBinding = new Map();
+  const evidenceTable = PAUSE_CUES_EVIDENCE_TABLE.exec(text);
+  if (evidenceTable) {
+    for (const row of evidenceTable[1].matchAll(/\[?\s*([A-Za-z_$][\w$]*)\s*\]?\s*:\s*['"]([^'"]+)['"]/g)) {
+      evidenceByBinding.set(row[1], row[2]);
+    }
+  }
+
   for (const binding of registered) {
     const specifier = bindings.get(binding);
     if (!specifier) return fail(`${REGISTRY_MODULE}: '${binding}' is registered but never imported`);
@@ -245,7 +268,7 @@ function registryDeclarations(root) {
     const capability = declaredCapability(providerText);
     if (!id) return fail(`${module}: the adapter's id could not be read`);
     if (!capability) return fail(`${module}: the adapter declares no pauseCues in its capabilities`);
-    providers.push({ id, capability, module });
+    providers.push({ id, capability, module, evidence: evidenceByBinding.get(binding) });
   }
   return { providers, error };
 }

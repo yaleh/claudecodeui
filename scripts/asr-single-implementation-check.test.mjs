@@ -41,6 +41,13 @@ const SHIPPING_FILES = [
   '.oxlintrc.json',
   'package.json',
   'shared/asr/transcriptionWire.ts',
+  // The two files that carry the endpoint literal WITHOUT shaping a request or parsing a
+  // response: the registry names it in the comment explaining the multipart shape, and the
+  // offline invariant board records the URL its fixture resolves to. They are in the fixture
+  // because the probe used to report them as second implementations; the case at the bottom of
+  // this file is the one that holds the distinction in place.
+  'shared/asr/asrRegistry.ts',
+  'shared/asr/asrInvariants.ts',
   'src/shared/api.ts',
   'src/modules/chat/hooks/useVoiceInput.ts',
   'server/modules/voice/voice.service.ts',
@@ -48,6 +55,8 @@ const SHIPPING_FILES = [
 ];
 
 const IMPLEMENTATION_FILE = 'shared/asr/transcriptionWire.ts';
+/** A file in the fixture that mentions the endpoint and implements nothing. */
+const MENTION_FILE = 'shared/asr/asrRegistry.ts';
 
 function buildFixture() {
   const root = mkdtempSync(path.join(os.tmpdir(), 'asr-wire-probe-'));
@@ -210,6 +219,39 @@ test('AC4: a second implementation anywhere in production sources is reported as
     rmSync(path.join(root, variant.relativePath));
     assert.equal(runProbe(root).status, 0, `the fixture must return to green after removing ${variant.name}`);
   }
+});
+
+// ── the false positive this probe used to have ───────────────────────────────────────────────
+
+/**
+ * A file that only RECORDS the endpoint is not a second implementation. Both halves are asserted:
+ * green (the unmutated fixture, which now carries the two real mention files), and red once that
+ * same file is given a request to shape — so the reading above is a distinction rather than a
+ * blind spot.
+ */
+test('AC4: a file that only records the endpoint is a mention, not a second implementation', (t) => {
+  const root = greenFixture(t);
+  const baseline = runProbe(root);
+  assert.match(
+    baseline.stdout,
+    new RegExp(`^mention ${MENTION_FILE.replace(/[.\\/]/g, '\\$&')} markers=endpoint-literal \\(`, 'm'),
+    `the mention has to be printed, or the green above is a scan that stopped looking:\n${baseline.stdout}`,
+  );
+
+  const filePath = path.join(root, MENTION_FILE);
+  writeFileSync(
+    filePath,
+    `${readFileSync(filePath, 'utf8')}\nfunction legacyBody(audio, model) {\n  const body = new FormData();\n  body.append('file', audio);\n  body.append('model', model);\n  return body;\n}\n`,
+  );
+
+  const result = runProbe(root);
+  assert.notEqual(result.status, 0, `shaping a request in that file must not pass:\n${result.stdout}`);
+  assert.match(result.stdout, /SECOND_IMPL/, `the verdict must name the shape it found:\n${result.stdout}`);
+  assert.doesNotMatch(
+    result.stdout,
+    new RegExp(`^mention ${MENTION_FILE.replace(/[.\\/]/g, '\\$&')} `, 'm'),
+    `the mutated file is no longer a mere mention:\n${result.stdout}`,
+  );
 });
 
 // ── AC5 ──────────────────────────────────────────────────────────────────────────────────────

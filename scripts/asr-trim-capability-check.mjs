@@ -4,15 +4,28 @@
  * exactly one read point, and the shipped default still trims.
  *
  * WHY THIS IS A RESOLVER AND NOT A LIST. The three things this criterion is about — which
- * declaration table is authoritative, which export is the read point, and who reaches it — are
- * all FOUND here rather than named here, because each of them can be moved without this file
- * being edited, and a checker that names them asserts what its own text says. So:
+ * declaration is authoritative, which export is the read point, and who reaches it — are all
+ * FOUND here rather than named here, because each of them can be moved without this file being
+ * edited, and a checker that names them asserts what its own text says. So:
  *
- *   · the declaring module is the one production file that declares the capability's type;
+ *   · the declaring module is the one production file that declares the capability's type — the
+ *     VOCABULARY's home, which is not the same module as the DECLARATIONS' home;
+ *   · the declarations are the registry's: which recognisers are registered and what each
+ *     declares, read by following the registration table to the adapter modules (through
+ *     `registryDeclarations`, the same reading `scripts/asr-pause-cues-source-check.mjs` makes,
+ *     so the roster is not derived twice);
  *   · the read point is the one exported function whose answer FLIPS between two opposite values
  *     of the capability (a function that returns the same thing for both is not deciding
  *     anything, whatever it is called);
  *   · the consumers are production files whose own text reaches that symbol.
+ *
+ * ⚠️ THE VOCABULARY AND THE DECLARATIONS LIVE IN DIFFERENT MODULES, and this file was red for as
+ * long as it assumed otherwise. It used to require an exported `{provider, pauseCues}` table
+ * inside the type-declaring module. `0ae696cd` then moved the declarations to where the capability
+ * is — `AsrCapabilities.pauseCues` on the adapter modules, read back through
+ * `pauseCuesDeclarationFor(id)` — and left the vocabulary (`export type PauseCues`) where it was.
+ * The table the old reading looked for is not in that module any more, and cannot be: keeping one
+ * there is the second declaration the seam exists to remove.
  *
  * That is what makes the two fake forms falsifiable rather than merely forbidden. A client that
  * keeps deciding for itself is caught from the consumer side (nothing reaches the read point any
@@ -26,11 +39,11 @@
  * deleting the thing under test cannot read as passing it.
  *
  * The last two checks are the "nothing changed" half. The default chain is read as the product of
- * the two gates it really has — the shipped switch's default AND the declaration an undeclared
- * recogniser falls back to — so "the default still trims" is a measurement of this tree rather
- * than a restatement of the task. And every declaration that is not `destructive` has to point at
- * a file that exists, which is ADR-004 decision 1's discipline: changing what gets uploaded is
- * not a one-line edit.
+ * the two gates it really has — the shipped switch's default AND the declaration of the recogniser
+ * a deployment that names no provider resolves to, which is the FIRST registered one — so "the
+ * default still trims" is a measurement of this tree rather than a restatement of the task. And
+ * every declaration that is not `destructive` has to point at a file that exists, which is ADR-004
+ * decision 1's discipline: changing what gets uploaded is not a one-line edit.
  *
  * Usage:
  *   node scripts/asr-trim-capability-check.mjs [--root <dir>] [--explain-scan]
@@ -46,6 +59,11 @@
 import { existsSync, globSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+
+// The registry side's one reading. Imported rather than re-derived: following the registration
+// table to the adapter modules a second time here would be the same 口径 read twice, and the two
+// copies are free to disagree the moment the registry's shape moves.
+import { REGISTRY_MODULE, registryDeclarations } from './asr-pause-cues-source-check.mjs';
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const SCRIPT_DIR = path.dirname(SCRIPT_PATH);
@@ -64,17 +82,20 @@ const CAPABILITY_VALUES = ['destructive', 'neutral', 'useful'];
 const TRIM_VALUE = CAPABILITY_VALUES[0];
 const KEEP_VALUE = CAPABILITY_VALUES[CAPABILITY_VALUES.length - 1];
 
-/** An id no declaration table can plausibly hold, for reading the fallback row. */
-const UNDECLARED_PROVIDER = '__asr-trim-capability-check-undeclared__';
-
 /**
- * A production file comparing the capability vocabulary itself: `…pauseCues === 'destructive'`.
+ * A production file comparing the capability vocabulary itself: `…capability === 'destructive'`.
  * This is the shape of a second answer to 裁不裁, and the shape this criterion forbids outside the
  * declaring module.
+ *
+ * BOTH NAMES THE VALUE HAS TRAVELLED UNDER, because the shape is the comparison and not the
+ * spelling: `pauseCues` is what the provider side calls it, and `capability` is what the client's
+ * own read point receives. Keyed to one of them, this scan is blind to a hand-decision written
+ * with the other — and `0ae696cd` renamed the client-side field, so the name it used to be keyed
+ * to is no longer the name a client would write.
  * @type {RegExp}
  */
 const HAND_DECISION = new RegExp(
-  `pauseCues\\s*(?:===|!==|==|!=)\\s*['"](?:${CAPABILITY_VALUES.join('|')})['"]`,
+  `(?:\\bcapability|\\bpauseCues)\\s*(?:===|!==|==|!=)\\s*['"](?:${CAPABILITY_VALUES.join('|')})['"]`,
 );
 
 /** The capability's type declaration, which is what makes a file the declaring module. */
@@ -222,45 +243,6 @@ function discriminatingExports(moduleExports) {
  */
 
 /**
- * The exported array of declarations: the one whose entries each carry a provider id and a
- * capability value. Found by shape, so the table can be renamed.
- * @param {Record<string, unknown>} moduleExports
- * @returns {DeclarationTable[]}
- */
-function declarationTables(moduleExports) {
-  /** @type {DeclarationTable[]} */
-  const found = [];
-  for (const [name, value] of Object.entries(moduleExports)) {
-    if (!Array.isArray(value) || value.length === 0) continue;
-    const rows = /** @type {unknown[]} */ (value).filter(
-      (row) => row && typeof row === 'object'
-        && typeof (/** @type {Record<string, unknown>} */ (row).provider) === 'string'
-        && typeof (/** @type {Record<string, unknown>} */ (row).pauseCues) === 'string',
-    );
-    if (rows.length === value.length) found.push({ name, rows: /** @type {DeclarationRow[]} */ (rows) });
-  }
-  return found;
-}
-
-/**
- * The exported function answering "which declaration is this recogniser's": called with an id no
- * row declares, it still answers with a row carrying a capability value. That call is also how
- * the fallback row below is read.
- * @param {Record<string, unknown>} moduleExports
- * @returns {Function | null}
- */
-function providerLookup(moduleExports) {
-  for (const value of Object.values(moduleExports)) {
-    if (typeof value !== 'function') continue;
-    const answer = callSafely(value, UNDECLARED_PROVIDER);
-    if (!answer || typeof answer !== 'object') continue;
-    const pauseCues = /** @type {Record<string, unknown>} */ (answer).pauseCues;
-    if (typeof pauseCues === 'string' && CAPABILITY_VALUES.includes(pauseCues)) return value;
-  }
-  return null;
-}
-
-/**
  * Reads the capability and answers 裁不裁 for it — used by this file to ask the read point what it
  * decides, without knowing what the read point is called.
  * @param {Function} readPoint
@@ -344,19 +326,36 @@ async function run(root, explainScan) {
   lines.push(`declaration module: ${declaringModule}`);
   const moduleExports = await importModule(root, declaringModule);
 
-  // ── the declaration table ───────────────────────────────────────────────────────────────────
-  const tables = declarationTables(moduleExports);
-  if (tables.length !== 1) {
+  // ── the declarations ───────────────────────────────────────────────────────────────────────
+  // Read from the registry, not from the declaring module: the vocabulary's home and the
+  // declarations' home are two modules, and the declarations are the ones a request is actually
+  // served under. The rows are `{provider, pauseCues, evidence}` where the registry keeps them —
+  // the adapter modules' own `capabilities.pauseCues`, reached through the registration table.
+  const registry = registryDeclarations(root);
+  if (registry.error !== null) {
     check(
       'declaration',
       false,
-      tables.length === 0
-        ? `no exported declaration table in ${declaringModule} has a row — a table with 0 rows is a zero-row reading, not a pass`
-        : `${tables.length} exported declaration tables in ${declaringModule}: ${tables.map((t) => t.name).join(', ')}`,
+      `the registered declarations could not be read: ${registry.error} — a registry that cannot be followed is not a pass`,
     );
     return { checks, lines };
   }
-  const table = tables[0];
+  const table = /** @type {DeclarationTable} */ ({
+    name: `the registration table (${REGISTRY_MODULE})`,
+    rows: registry.providers.map((entry) => ({
+      provider: entry.id,
+      pauseCues: entry.capability,
+      evidence: entry.evidence,
+    })),
+  });
+  if (table.rows.length === 0) {
+    check(
+      'declaration',
+      false,
+      `${REGISTRY_MODULE} registers no recogniser — a table with 0 rows is a zero-row reading, not a pass`,
+    );
+    return { checks, lines };
+  }
   const malformed = table.rows.filter((row) => !CAPABILITY_VALUES.includes(row.pauseCues));
   if (malformed.length > 0) {
     check(
@@ -366,7 +365,7 @@ async function run(root, explainScan) {
     );
     return { checks, lines };
   }
-  check('declaration', true, `${declaringModule} declares ${table.name} with ${table.rows.length} row(s)`);
+  check('declaration', true, `${table.name} declares ${table.rows.length} row(s), read off the adapter modules`);
   for (const row of table.rows) {
     lines.push(`declared provider=${row.provider} pauseCues=${row.pauseCues} evidence=${row.evidence ?? '(none)'}`);
   }
@@ -431,21 +430,21 @@ async function run(root, explainScan) {
   );
 
   // ── the shipped default ─────────────────────────────────────────────────────────────────────
-  const lookup = providerLookup(moduleExports);
-  const fallback = lookup ? callSafely(lookup, UNDECLARED_PROVIDER) : null;
-  const fallbackPauseCues = fallback && typeof fallback === 'object'
-    ? /** @type {Record<string, unknown>} */ (fallback).pauseCues
-    : null;
-  const fallbackTrim = typeof fallbackPauseCues === 'string' ? trimAnswerFor(reachable, fallbackPauseCues) : null;
+  // The default is not a fallback row (the registry deliberately has none: an id no adapter claims
+  // yields `null`, covered by `src/shared/tests/voiceTrimShippedRecogniser.test.ts`). It is the
+  // recogniser a deployment that names no provider actually resolves to, which is the FIRST
+  // registered one — so the order of the registration table is part of the reading, not a detail.
+  const effective = table.rows[0];
+  const effectiveTrim = trimAnswerFor(reachable, effective.pauseCues);
   const trimSwitch = await readTrimSwitchDefault(root, sources);
-  const defaultOk = fallbackTrim === true && trimSwitch !== null && trimSwitch.default === true;
+  const defaultOk = effectiveTrim === true && trimSwitch !== null && trimSwitch.default === true;
   check(
     'default',
     defaultOk,
     defaultOk
-      ? `an undeclared recogniser falls back to ${String(fallbackPauseCues)} and is trimmed; ${trimSwitch.file}'s own default is ${String(trimSwitch.default)} — the shipped chain still trims`
-      : fallbackTrim !== true
-        ? `an undeclared recogniser falls back to ${String(fallbackPauseCues)}, which does not take the trim path — the default changed what gets uploaded`
+      ? `a deployment that names no provider resolves to ${effective.provider} (first registered), which declares ${effective.pauseCues} and is trimmed; ${trimSwitch.file}'s own default is ${String(trimSwitch.default)} — the shipped chain still trims`
+      : effectiveTrim !== true
+        ? `a deployment that names no provider resolves to ${effective.provider} (first registered), which declares ${effective.pauseCues} and does not take the trim path — the default stopped changing what gets uploaded`
         : trimSwitch === null
           ? 'the shipped trim switch could not be read, so "the default is on" has no reading'
           : `${trimSwitch.file}'s own default is ${String(trimSwitch.default)} — the trim is off unless somebody switches it on`,
