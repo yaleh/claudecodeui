@@ -65,12 +65,12 @@ goal_ac: AC-121
 
 ## AC
 
-- [ ] AC1 判据单独跑仍为绿且不超预算：`npx playwright test e2e/voice-trim.spec.ts -g "AC-121"` 退出 0；wall 记进 DoD（本轮基线 5/5 为 `17.3~19.3s`，`1 passed`；gate 上限 60s）。改动不得把它推过 60s。
-- [ ] AC2 并发对两腿都绿：同一命令在 ~1s 内起两次（第二次的 Vite 服务器与第一次的页面重叠），两个退出码**都是 0**，两份日志各自 `1 passed`。命令原文与两个退出码记进 DoD。
-- [ ] AC3 隔离是机械可读的，不是「跑得更快」：一次完整运行前后 `stat -c %Y node_modules/.vite/deps/_metadata.json` 读数**相同**（该共享目录不再被任何一次运行写入）；且 `grep -c 'VITE_CACHE_DIR' playwright.config.ts` 与 `grep -c 'VITE_CACHE_DIR' vite.config.js` 各自 ≥ 1；且该次运行自己的 `dataDir` 下确实出现了 dep cache 目录（`test -d` 退出 0）。
-- [ ] AC4 干涉形态（带正控）：在 AC-121 运行**进行中**，从第二个进程对**共享**目录制造一次重写（例如 `npx vite optimize --force`，或把 `node_modules/.vite/deps/_metadata.json` 覆盖成 `browserHash` 不同的副本），要求：(a) 正控 —— 该共享文件的 mtime 在运行窗口内**确实变了**（前后读数打印，证明干涉真的落地，否则本条空洞）；(b) 该运行仍 `exit 0`。两项读数（mtime 前后值 + 退出码）记进 DoD。⚠️ 干涉只打共享目录，不得打该运行自己的 cacheDir；跑之前用 `pgrep -af '[p]laywright test'` 确认没有别的 e2e 在飞行，避免把干涉泼到别人身上。
-- [ ] AC5 判据与断言都没有被削弱：`git diff --name-only $(git merge-base HEAD develop)..HEAD | grep -c '^goals/'` 输出 `0`；`grep -c "the switch was off and the chain printed a trim reading anyway" e2e/voice-trim.spec.ts`、`grep -c "the chain printed no \[voice:trim\] reading for this capture" e2e/voice-trim.spec.ts`、`grep -c "the switch-on capture printed more than one trim reading" e2e/voice-trim.spec.ts` 各自输出 `1`；且 diff 未给 playwright 加 `retries`（`git diff $(git merge-base HEAD develop)..HEAD -- playwright.config.ts | grep -c '^+.*retries'` 输出 `0`）。
-- [ ] AC6 不回归：`npm run typecheck` 退出 0；`npm run lint` 退出 0；`npx playwright test e2e/voice-trim.spec.ts`（整文件全腿）退出 0 —— 若某一腿因本任务之外的既有原因红，逐条登记红因与该腿单独跑的读数，**不得因此改动该腿**。
+- [x] AC1 判据单独跑仍为绿且不超预算：`npx playwright test e2e/voice-trim.spec.ts -g "AC-121"` 退出 0；wall 记进 DoD（本轮基线 5/5 为 `17.3~19.3s`，`1 passed`；gate 上限 60s）。改动不得把它推过 60s。
+- [x] AC2 并发对两腿都绿：同一命令在 ~1s 内起两次（第二次的 Vite 服务器与第一次的页面重叠），两个退出码**都是 0**，两份日志各自 `1 passed`。命令原文与两个退出码记进 DoD。
+- [x] AC3 隔离是机械可读的，不是「跑得更快」：一次完整运行前后 `stat -c %Y node_modules/.vite/deps/_metadata.json` 读数**相同**（该共享目录不再被任何一次运行写入）；且 `grep -c 'VITE_CACHE_DIR' playwright.config.ts` 与 `grep -c 'VITE_CACHE_DIR' vite.config.js` 各自 ≥ 1；且该次运行自己的 `dataDir` 下确实出现了 dep cache 目录（`test -d` 退出 0）。
+- [x] AC4 干涉形态（带正控）：在 AC-121 运行**进行中**，从第二个进程对**共享**目录制造一次重写（例如 `npx vite optimize --force`，或把 `node_modules/.vite/deps/_metadata.json` 覆盖成 `browserHash` 不同的副本），要求：(a) 正控 —— 该共享文件的 mtime 在运行窗口内**确实变了**（前后读数打印，证明干涉真的落地，否则本条空洞）；(b) 该运行仍 `exit 0`。两项读数（mtime 前后值 + 退出码）记进 DoD。⚠️ 干涉只打共享目录，不得打该运行自己的 cacheDir；跑之前用 `pgrep -af '[p]laywright test'` 确认没有别的 e2e 在飞行，避免把干涉泼到别人身上。
+- [x] AC5 判据与断言都没有被削弱：`git diff --name-only $(git merge-base HEAD develop)..HEAD | grep -c '^goals/'` 输出 `0`；`grep -c "the switch was off and the chain printed a trim reading anyway" e2e/voice-trim.spec.ts`、`grep -c "the chain printed no \[voice:trim\] reading for this capture" e2e/voice-trim.spec.ts`、`grep -c "the switch-on capture printed more than one trim reading" e2e/voice-trim.spec.ts` 各自输出 `1`；且 diff 未给 playwright 加 `retries`（`git diff $(git merge-base HEAD develop)..HEAD -- playwright.config.ts | grep -c '^+.*retries'` 输出 `0`）。
+- [x] AC6 不回归：`npm run typecheck` 退出 0；`npm run lint` 退出 0；`npx playwright test e2e/voice-trim.spec.ts`（整文件全腿）退出 0 —— 若某一腿因本任务之外的既有原因红，逐条登记红因与该腿单独跑的读数，**不得因此改动该腿**。
 
 ## DoD
 
@@ -80,6 +80,47 @@ goal_ac: AC-121
 - **前提与不可复现项如实登记**：完成记录里必须逐条复述三条对照（单跑 5/5 绿、`9179f394..HEAD` 树差异为零、同刻并发 run dataDir 四个），并写明**本轮未能自造出 06:08:02 那次红**（并发对两次都绿、`_metadata.json` mtime 未变），以及 06:08:02 的现场产物路径 —— 不得把它写成「已复现」。同时写明本任务的红**不是** `gap-voice-trim-default-flipped-by-unregistered-first-adapter`（修复 `9c809952`，fan-in `da6bfd5c`）的回归。
 - **L_D 该轴仍暗，理由**：本任务只改 e2e 运行期的资源隔离与失败信息，不新增领域数据能力，也没有可读出的领域数据轴读数。
 - **L_G 该轴仍暗，理由**：同上 —— 读数是运行期退出码与缓存目录 mtime，不是生成质量轴读数；目标层判据仍由 GOAL-006 的其余判据承担。
+
+### 完成记录（读数原文，2026-09-23 本机）
+
+**根因（本轮实测，比 Proposal 里登记的更进一步）**：Proposal 写「谁触发了那次重预构建在本轮无法从产物回溯」。本轮把它读出来了：`getConfigHash` 把 `root` 计入 `configHash`（`node_modules/vite/dist/node/chunks/dep-CuuNgwUk.js:11234` 附近的 `getConfigHash`，字段 `root: config$2.root`），而 Vite 的 `root` 默认取进程 cwd。worktree 的 cwd 与主 checkout 必然不同 ⇒ **worktree 里的每次运行都判定共享缓存 "stale because vite config has changed" 而重预构建**，不是偶发，是结构性必然。实测该共享 `_metadata.json` 的 `configHash` / `browserHash` 在两组值之间来回翻：
+
+- 主 checkout root：`configHash=1eff4809`、`browserHash=b031e593` ← **`b031e593` 正是 06:08:02 红 trace 里 `?v=b031e593`**（即那次红是「主 checkout 的运行持旧 hash，被一个 worktree 运行的重预构建作废」）。
+- worktree root：`configHash=31546897`、`browserHash=06bf98e6`。
+
+**S0 基线（改动前，安静机）**：
+
+- (a) 单跑 `npx playwright test e2e/voice-trim.spec.ts -g "AC-121"` → `exit 0`，wall `19.58s`，`1 passed (18.9s)`。
+- (b) 并发对（同命令 ~1s 内起两次）→ `run1 exit=0 wall=19.17s`、`run2 exit=0 wall=18.35s`，两份日志各自 `1 passed (18.6s / 17.8s)`。
+- (c) 共享 `_metadata.json`：`before=<absent>` → `after=1790144260`。**基线读数此处有假**：`before` 读不到，因为一次普通的 e2e 运行本身就把该共享目录整个重写了一遍（Vite 写 `_metadata.json` 用「改名 `deps`→`deps_temp_*`、再改名回来」的原子替换，替换窗口内该路径不存在）。这恰好是该机制的直接观测：**改动前，一次普通运行就会重写共享缓存**。
+
+**AC1（修后）**：`npx playwright test e2e/voice-trim.spec.ts -g "AC-121"` → `exit 0`，wall `18.82s`，`1 passed (18.2s)`。60s 预算内。
+
+**AC2（修后并发对）**：同一命令 ~1s 内起两次 → `run1 exit=0 wall=20.00s`、`run2 exit=0 wall=19.56s`，两份日志各自 `1 passed (19.3s / 18.9s)`；命令原文 `npx playwright test e2e/voice-trim.spec.ts -g "AC-121"`（worktree 内，两次 `&` 后台 + `sleep 1`）。
+
+**AC3**：该次运行前后 `stat -c %Y node_modules/.vite/deps/_metadata.json` = `1790144308` → `1790144308`（**相同**）；另一次完整运行 `1790144785` → `1790144785`（**相同**）；`grep -c 'VITE_CACHE_DIR' playwright.config.ts` = `1`，`grep -c 'VITE_CACHE_DIR' vite.config.js` = `1`；该运行的 `dataDir` 下 `<dataDir>/vite-cache/deps` 存在（`test -d` 退出 0，2334 个条目）。
+
+**AC4 干涉形态**：跑前 `pgrep -af '[p]laywright test'` 计数 `0`（安静窗口）。运行进行到 `t+8s` 时，从第二个进程执行 `env -u VITE_CACHE_DIR bash -c 'tail -f /dev/null | npx vite optimize --force'`（worktree 内，即**故意用共享 cacheDir**；stdin 必须是打开的管道，vite CLI 遇 stdin EOF 会静默 exit 0）。
+
+- (a) 正控 —— 共享目录在运行窗口内**确实被重写**：`mtime 1790144308 → 1790144785`、`configHash 1eff4809 → 31546897`、`browserHash b031e593 → 61e3e5cc`、`_metadata.json` 的 sha `579cff1db548 → 04e75af5a627`，且**共享的 chunk 文件本身** `deps/react.js` 的 sha `84250d8977ce → 95babec4de75`。干涉自己的日志含 `Forced re-optimization of dependencies`（exit 0，wall 2.00s）。
+- (b) 该运行仍 `exit 0`，wall `19.51s`，`1 passed (18.9s)`。
+- 注：`browserHash` 离开 `b031e593` 这一步就是机制本身 —— 主 checkout 的在飞行页面持有的正是该 hash。另：运行自己的 `vite-cache`（`quay-e2e-H1P6mA`，mtime `1790144780`）未被干涉触碰。
+
+**AC5**：`git diff --name-only $(git merge-base HEAD develop)..HEAD | grep -c '^goals/'` = `0`；三条 spec 字符串 grep 各 = `1`；`git diff … -- playwright.config.ts | grep -c '^+.*retries'` = `0`。改动文件仅 `vite.config.js` / `playwright.config.ts` / `e2e/voice-trim.spec.ts` 三个。
+
+**AC6**：`npm run typecheck` 退出 `0`；`npm run lint` 退出 `0`（仅既有 warning）；`npx playwright test e2e/voice-trim.spec.ts` 整文件 → `exit 0`，wall `39.56s`，`4 passed (38.9s)`，逐腿 AC-119 `8.3s` / AC-120 `4.0s` / AC-121 `9.6s` / AC-122 `8.5s`，无一腿因既有原因红。
+
+**种子契约的单独验证**（S1 的正确性，与 AC 无关但决定「不回到冷预构建」是否真成立）：
+
+- 冷预构建实测只加 `~1.2s`（空 cacheDir 首跑 `19.88s` vs 次跑 `18.71s`）—— 故 `gap-e2e-hardcoded-ports-collide` 担心的「数十秒」在本仓库不成立，种子是廉价保险而非命脉，拷贝失败一律退化为冷路径而非让运行失败。
+- 拷贝必须只重写 `src`、**不能**动 `file`：Vite 把两者都存成「相对写它的 deps 目录」并在读取时按当前目录还原（`stringifyDepsOptimizerMetadata` / `parseDepsOptimizerMetadata`）。`file` 是 deps 目录**内部**的 chunk 裸名（拷贝已带过来），若也按源目录还原，运行的 chunk 请求会指回共享目录 —— 隔离就破了，sibling 的重预构建又能把 chunk 改名掉。`src` 指向未随拷贝走位的 `node_modules`，必须重算。
+- 实测：重写后 `src` 95/95 可解析、0 缺失；`file` 95/95 保持裸名且存在。把这样一份「同 root 的缓存重定位」交给 Vite，它 `ready in 101 ms`（**未预构建**）且 `_metadata.json` 哈希三元组前后不变 —— 即被当作新鲜缓存接受，种子路径成立。
+
+**前提与不可复现项如实登记（照 DoD 要求逐条）**：
+
+1. 三条对照照录：单跑 5/5 绿（`19.21 / 17.85 / 18.19 / 19.30 / 18.05`s）；`git diff --stat 9179f394 HEAD` 树差异仅 `tasks/gap-voice-dual-replay-absent-under-shipped-recogniser.md` 一个文件；同刻并发 run dataDir 四个（`14:07:09 / 14:07:43 / 14:07:46 / 14:08:11`，其中 `14:07:46` 即本次 goal 运行 `quay-e2e-nZOkjk`）。
+2. **本轮仍未自造出 06:08:02 那次红**：Proposal 记的并发对两次都绿、`_metadata.json` mtime 未变；本任务修后的 AC2 并发对同样两次都绿。**不得把它写成「已复现」。** 06:08:02 现场产物路径：`/data/scratch/yale/quay-e2e-nZOkjk/test-results/voice-trim-the-voice-path--69d20-plete-when-the-switch-is-on/`。本轮自造出的、与之同机制且可复核的是 AC4 的干涉形态（正控落地：共享 `browserHash` 与 `deps/react.js` 双双被重写，运行仍 `exit 0`），以及本机实测的 `configHash`/`browserHash` 在两组 root 值之间反复翻转。
+3. 本任务的红**不是** `gap-voice-trim-default-flipped-by-unregistered-first-adapter`（修复 `9c809952`，fan-in `da6bfd5c`）的回归：那条改的是被测裁剪链路的默认开关，本条红在 `openComposer` 的 composer 缺席，且 trace 里的 `504 (Outdated Optimize Dep)` + `Cannot read properties of null (reading 'useMemo')` 与裁剪逻辑无关。
 
 ## Touches
 
