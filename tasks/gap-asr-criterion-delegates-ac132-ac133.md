@@ -2,7 +2,7 @@
 id: gap-asr-criterion-delegates-ac132-ac133
 title: AC-132 / AC-133 判据脚本名缺失：补两个薄委托 spawner（asr-capability-check.mjs /
   asr-mime-allowlist-check.mjs）
-status: todo
+status: ready
 labels:
   - gap
   - defect
