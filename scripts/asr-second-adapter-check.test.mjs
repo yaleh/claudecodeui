@@ -59,11 +59,19 @@ const SHIPPING_FILES = [
   'shared/asr/transcriptionWire.ts',
   'shared/asr/list/multimodal/multimodal.asr-provider.ts',
   'shared/asr/list/openai-compatible/openai-compatible.asr-provider.ts',
+  // THE THIRD SHAPE'S MODULE IS PART OF THE FIXTURE, not an optional extra. The registry ships the
+  // third row and imports this module, so a fixture without it cannot load the registry at all —
+  // and the third wire's own cases (AC3) need the module the probe drives, since a fixture that did
+  // not carry it would make "the third wire is modelled" a claim about a tree nobody assembled.
+  'shared/asr/list/dashscope-omni/dashscope-omni.asr-provider.ts',
 ];
 
 /** The adapter every mutation below is applied to: the SECOND one, whose claims this file pins. */
 const ADAPTER = 'shared/asr/list/multimodal/multimodal.asr-provider.ts';
 const REGISTRY = 'shared/asr/asrRegistry.ts';
+
+/** The THIRD wire's adapter: the one the two cases at the bottom of this file are about. */
+const THIRD_ADAPTER = 'shared/asr/list/dashscope-omni/dashscope-omni.asr-provider.ts';
 
 /**
  * The registered row the two registry mutations below rewrite. It is the second adapter's entry,
@@ -95,11 +103,12 @@ function buildFixture() {
 }
 
 /**
- * @param {string} root
+ * @param {string} root the fixture tree to check
+ * @param {string} [probe] the probe to run it with; the shipping one unless a case mutates the probe
  * @returns {{ status: number|null, stdout: string, stderr: string }}
  */
-function runProbe(root) {
-  const result = spawnSync(process.execPath, [PROBE, '--root', root], { encoding: 'utf8', cwd: REPO_ROOT });
+function runProbe(root, probe = PROBE) {
+  const result = spawnSync(process.execPath, [probe, '--root', root], { encoding: 'utf8', cwd: REPO_ROOT });
   assert.equal(result.error, undefined, `the probe could not be started: ${result.error?.message}`);
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
@@ -293,4 +302,103 @@ test('real-wire AC1: a key announced in a header the wire does not declare is ca
     to: '        ...(invocation.apiKey ? { authorization: invocation.apiKey } : {}),',
     token: 'CREDENTIAL_NOT_ON_WIRE',
   });
+});
+
+// ── the third wire (gap-asr-capability-probe-third-wire) ─────────────────────────────────────
+//
+// The probe's vocabulary is a table with a row per declared wire, and the third adapter ships
+// declaring `'chat-audio'`. These two cases pin that the row is reached by the DECLARATION and that
+// the row is what makes the run green — the pair the task's DoD calls load bearing, read from both
+// directions. Each starts from the same unmutated fixture, which must be green first: a red run
+// proves nothing unless the tree it ran against is healthy.
+
+/**
+ * The third adapter's wire declaration, as the module writes it, and the inline one it is mutated
+ * to. The body is not touched by either case below — only the tag — because the fault is precisely
+ * a declaration that disagrees with the request it describes.
+ */
+const THIRD_WIRE_DECLARATION = "export const wire: AsrWire = 'chat-audio';";
+const THIRD_WIRE_AS_INLINE = "export const wire: AsrWire = 'inline-json';";
+
+/**
+ * The wire derivation in the probe's two forms: the shipped one (the tag is passed through, and the
+ * vocabulary decides) and the PRE-FIX one (the closed-set fold this task replaced). The pair is
+ * written as literals so the pre-fix form is the form that shipped rather than a paraphrase of it.
+ */
+const WIRE_DERIVATION_SHIPPED = [
+  '  const declared = adapter.wire;',
+  "  return declared === undefined || declared === null ? 'inline-json' : declared;",
+].join('\n');
+const WIRE_DERIVATION_PRE_FIX = "  return adapter.wire === 'multipart' ? 'multipart' : 'inline-json';";
+
+/**
+ * Writes a copy of the shipping probe with `from` replaced by `to`, INSIDE THE REPOSITORY, and
+ * returns its path.
+ *
+ * WHY IN-REPO AND NOT `os.tmpdir()`, where every other artefact in this file lives. The probe's
+ * first act is `register()` from `tsx/esm/api` — a BARE specifier, which Node resolves by walking up
+ * from the importing file's own directory. A copy under the system temp directory finds no
+ * `node_modules` on that walk and dies before it can report anything about the fixture, so its red
+ * would be attributable to the copy's location rather than to the mutation. From `scripts/` the
+ * walk reaches this repository's own `node_modules`.
+ *
+ * The copy is deleted when the test ends, before any static gate can see it, and it is named
+ * without a `.test.` segment so that even a crash that leaked it could not have it COLLECTED as a
+ * case. `patchFixtureFile`'s "the anchor is still there" guard is reused for the source edit: a
+ * probe that has drifted enough to lose the anchor must fail loudly rather than run unmutated.
+ *
+ * @param {import('node:test').TestContext} t
+ * @param {string} from
+ * @param {string} to
+ * @returns {string} the path of the mutated probe
+ */
+function probeWithSourcePatch(t, from, to) {
+  const source = readFileSync(PROBE, 'utf8');
+  assert.ok(source.includes(from), `the probe no longer contains ${from}; this case needs updating`);
+  const directory = mkdtempSync(path.join(SCRIPT_DIR, '.probe-mutant-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const mutated = path.join(directory, 'asr-second-adapter-check.mjs');
+  writeFileSync(mutated, source.replace(from, to));
+  return mutated;
+}
+
+test('third wire: a third wire DECLARED as the inline one is caught by the declaration-derived cases', (t) => {
+  const root = greenFixture(t);
+  // Only the declaration moves. The request the adapter sends is byte for byte the one it shipped:
+  // this is the defect the fold produced for every third-wire adapter at once, and it is a
+  // declaration disagreeing with the request it describes — the second thing this probe tests.
+  patchFixtureFile(root, THIRD_ADAPTER, THIRD_WIRE_DECLARATION, THIRD_WIRE_AS_INLINE);
+  const result = runProbe(root);
+  assert.notEqual(
+    result.status,
+    0,
+    `an adapter declaring the inline wire while sending the chat one must not pass:\n${result.stdout}`,
+  );
+  assert.match(
+    result.stdout,
+    /^FAIL (?:CREDENTIAL_NOT_ON_WIRE|UNEXPECTED_CREDENTIAL_HEADER|ENVELOPE_NOT_READ|CASE_INPUT_STALE):/m,
+    `the declaration-derived cases must be what catches it:\n${result.stdout}`,
+  );
+});
+
+test('third wire: the PRE-FIX fold is red on the unmutated fixture', (t) => {
+  const root = greenFixture(t);
+  const preFixProbe = probeWithSourcePatch(t, WIRE_DERIVATION_SHIPPED, WIRE_DERIVATION_PRE_FIX);
+  const result = runProbe(root, preFixProbe);
+  assert.notEqual(
+    result.status,
+    0,
+    `a probe that folds every non-multipart wire onto the inline one must not pass a tree whose\n` +
+      `third adapter speaks the chat wire:\n${result.stdout}`,
+  );
+  // The two readings the fold corrupts, and they are the reason this case exists: the fold asks the
+  // request for the OTHER wire's credential header, and hands it the OTHER wire's answer envelope.
+  // If this pair ever stops firing, the green above was not bought by teaching the probe a shape.
+  for (const token of ['CREDENTIAL_NOT_ON_WIRE', 'ENVELOPE_NOT_READ']) {
+    assert.match(
+      result.stdout,
+      new RegExp(`^FAIL ${token}:`, 'm'),
+      `the pre-fix fold must red on ${token}:\n${result.stdout}`,
+    );
+  }
 });
