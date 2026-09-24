@@ -362,7 +362,7 @@ function probeWithSourcePatch(t, from, to) {
   return mutated;
 }
 
-test('third wire: a third wire DECLARED as the inline one is caught by the declaration-derived cases', (t) => {
+test('third-wire-declared-as-inline: a third wire declared as the inline one is caught by the declaration-derived cases', (t) => {
   const root = greenFixture(t);
   // Only the declaration moves. The request the adapter sends is byte for byte the one it shipped:
   // this is the defect the fold produced for every third-wire adapter at once, and it is a
@@ -381,7 +381,7 @@ test('third wire: a third wire DECLARED as the inline one is caught by the decla
   );
 });
 
-test('third wire: the PRE-FIX fold is red on the unmutated fixture', (t) => {
+test('third-wire-not-modelled: the PRE-FIX fold is red on the unmutated fixture', (t) => {
   const root = greenFixture(t);
   const preFixProbe = probeWithSourcePatch(t, WIRE_DERIVATION_SHIPPED, WIRE_DERIVATION_PRE_FIX);
   const result = runProbe(root, preFixProbe);
