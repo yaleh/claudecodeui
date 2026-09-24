@@ -39,11 +39,11 @@ extra:
 
 ## AC
 
-- [ ] `npx vitest run src/modules/chat/tests/chatComposerResponsive.test.tsx` 退出码 0，用例各自独立且失败信息打印实际读数：(a) 移动档 footer 内可交互控件的可访问名恰为 附件、语音、更多、模型、权限、发送 六项（无 Commands/Schedule/Token usage）；(b) 桌面档 Commands、Schedule、Token usage 直接存在，且**不存在**「更多」trigger（正向对照）；(c) 移动档打开「更多」：三项都在，点击「命令」恰触发一次 `onToggleCommandMenu`，点击 Token usage 恰触发一次 `onShowTokenUsage`，Schedule 走原 `onScheduleMessage` 提交路径且提交一次；(d) `slashCommandsCount>0` 时菜单里的命令项仍带该数量徽标；(e) `input` 为空时 Schedule 项处于禁用（`aria-disabled` 或 `disabled`），有输入时可用；(f) 从「更多」进入 Schedule 再关闭：任一时刻不同时存在两个打开的 `role=dialog|menu` 遮罩，关闭后焦点回到「更多」trigger。jsdom 不解析 Tailwind，移动/桌面档由测试按组件实际使用的判定信号切换。
-- [ ] 新增 key 的 i18n 完整：一条 `node -e`（或等价脚本）校验 `src/modules/i18n/locales/{de,en,es,fr,id,it,ja,ko,ru,tr,zh-CN,zh-TW}/chat.json` 全部可解析，且每个都存在非空字符串 `input.moreTools`；任一缺失/为空/解析失败以非 0 退出并打印缺哪个文件哪个 key。
-- [ ] 断点不再用 `sm` 决定这组控件：`grep -nE '(^|[^a-zA-Z-])sm:' src/modules/chat/composer/ComposerMobileMoreMenu.tsx` 无命中（退出码 1）；`ChatComposer.tsx` 的 footer 与右组容器不再含 `sm:gap-2` 一类的 `sm:` 断点前缀（同样 `grep` 该两处行无 `sm:` 命中）。这是机制层辅助闸，不变量由 DoD 的真浏览器读数证明。
-- [ ] 桌面回归：`npx vitest run src/modules/chat` 退出码 0（含既有 `promptInputSubmit`、`sendOnEnter`、`voiceClipPlayback`、`tokenUsageFreshness`、`tokenBudgetSessionScope` 等不回归）。
-- [ ] `npm run typecheck` 与 `npm run lint` 退出码均为 0（`npm run lint` 是 `oxlint src/ server/`；裸 `npx oxlint` 预先非 0，不作判据）。
+- [x] `npx vitest run src/modules/chat/tests/chatComposerResponsive.test.tsx` 退出码 0，用例各自独立且失败信息打印实际读数：(a) 移动档 footer 内可交互控件的可访问名恰为 附件、语音、更多、模型、权限、发送 六项（无 Commands/Schedule/Token usage）；(b) 桌面档 Commands、Schedule、Token usage 直接存在，且**不存在**「更多」trigger（正向对照）；(c) 移动档打开「更多」：三项都在，点击「命令」恰触发一次 `onToggleCommandMenu`，点击 Token usage 恰触发一次 `onShowTokenUsage`，Schedule 走原 `onScheduleMessage` 提交路径且提交一次；(d) `slashCommandsCount>0` 时菜单里的命令项仍带该数量徽标；(e) `input` 为空时 Schedule 项处于禁用（`aria-disabled` 或 `disabled`），有输入时可用；(f) 从「更多」进入 Schedule 再关闭：任一时刻不同时存在两个打开的 `role=dialog|menu` 遮罩，关闭后焦点回到「更多」trigger。jsdom 不解析 Tailwind，移动/桌面档由测试按组件实际使用的判定信号切换。
+- [x] 新增 key 的 i18n 完整：一条 `node -e`（或等价脚本）校验 `src/modules/i18n/locales/{de,en,es,fr,id,it,ja,ko,ru,tr,zh-CN,zh-TW}/chat.json` 全部可解析，且每个都存在非空字符串 `input.moreTools`；任一缺失/为空/解析失败以非 0 退出并打印缺哪个文件哪个 key。
+- [x] 断点不再用 `sm` 决定这组控件：`grep -nE '(^|[^a-zA-Z-])sm:' src/modules/chat/composer/ComposerMobileMoreMenu.tsx` 无命中（退出码 1）；`ChatComposer.tsx` 的 footer 与右组容器不再含 `sm:gap-2` 一类的 `sm:` 断点前缀（同样 `grep` 该两处行无 `sm:` 命中）。这是机制层辅助闸，不变量由 DoD 的真浏览器读数证明。
+- [x] 桌面回归：`npx vitest run src/modules/chat` 退出码 0（含既有 `promptInputSubmit`、`sendOnEnter`、`voiceClipPlayback`、`tokenUsageFreshness`、`tokenBudgetSessionScope` 等不回归）。
+- [x] `npm run typecheck` 与 `npm run lint` 退出码均为 0（`npm run lint` 是 `oxlint src/ server/`；裸 `npx oxlint` 预先非 0，不作判据）。
 
 ## DoD
 
@@ -84,3 +84,36 @@ L_G 该轴仍暗，理由：同上；验证读数就是 DoD 里真浏览器视�
 - src/modules/i18n/locales/ru/chat.json
 - src/modules/i18n/locales/tr/chat.json
 - tasks/gap-mobile-composer-footer-single-row-more-menu.md
+
+## 完成记录
+
+5/5 AC 通过（`task_check` 前读数 0/5，tick 后应读 5/5）。实现提交 `5b92a0b4`，仅 Touches 内的文件被写。
+
+AC 读数（全部在 worktree `.claude/worktrees/gap-mobile-composer-footer-single-row-more-menu` 内、commit 5b92a0b4 的树上读出）：
+
+- AC-1：`npx vitest run src/modules/chat/tests/chatComposerResponsive.test.tsx` → 退出码 0，9 用例全绿。用例各自独立渲染，断言消息带实际读数（footer 控件名拼接、菜单项文本、overlay 数、`outerHTML`）。防伪变异两处：`isMobile` 恒 false → 8 红；`ComposerMobileMoreMenu` 里 schedule 退回 `variant="icon"` → (c-命令)(c-定时)(e)(f) 4 红，其中 (f) 是「两个遮罩同时打开」这条不变量。
+- AC-2：`node -e` 脚本校验 12 个 locale → `ok: input.moreTools present and non-empty in all 12 locales`，退出码 0。
+- AC-3：`grep -nE '(^|[^a-zA-Z-])sm:' src/modules/chat/composer/ComposerMobileMoreMenu.tsx` → 无命中（退出码 1）；`ChatComposer.tsx` 第 502 行（`PromptInputFooter className`）与第 581 行（右组 `div.ml-auto`）逐行 grep 同样无命中（退出码 1）。两处改用 `md:`（右组 `gap-1.5 md:gap-2`）。
+- AC-4：`npx vitest run src/modules/chat` → 退出码 0，46 文件 / 344 用例全绿。
+- AC-5：`npm run typecheck` 退出码 0；`npm run lint` 退出码 0，且本任务四个源文件与测试文件零 warning/error（既有的 `react(purity) Date.now` 警告在本任务之前就在 `ScheduleMessagePopover.tsx` 上，基线核实过）。
+
+DoD 真浏览器读数（Chromium / 真后端 + 真 Vite，一次性探针，跑完已删除；配置为 zh-CN 界面 + 自定义长模型名 `claude-sonnet-4-5-20250929-extended-context`，该模型经 Settings→Agents→Models 走应用自己的入口创建、再经 composer 自己的模型菜单选中，模型按钮因此处于 CSS 上限度并被截断 `modelTruncated: true`）：
+
+| 视口 | scrollWidth === clientWidth | footer 高度 | 左组 / 右组垂直区间（top–bottom） | 相交 | top 差 |
+|---|---|---|---|---|---|
+| 320×700 | 302 === 302 true | 57px | 647–679 / 643–683 | 是 | 4px |
+| 360×800 | 342 === 342 true | 57px | 747–779 / 743–783 | 是 | 4px |
+| 390×844 | 372 === 372 true | 57px | 791–823 / 787–827 | 是 | 4px |
+| 767×900 | 733 === 733 true | 57px | 839–871 / 835–875 | 是 | 4px |
+
+4px 的来源已查明并如实登记：右组含 `h-10`（40px）的发送按钮、左组控件是 32px，footer `items-center` 使两组各自垂直居中，故 top 差恒为 (40−32)/2 = 4px，不是错位。
+
+- 390：`inFooter` 读数为 `{commands:0, schedule:0, tokens:0, more:1}` —— 三者都不在 footer，且「更多」trigger 只有 1 个。footer 内按钮恰 5 个：`附加文件`、`更多工具`、模型（`Select model and reasoning effort`）、权限、`发送`（语音按钮在本探针里因未 mock 的 `useVoiceAvailable` 为假而不渲染；jsdom 用例里以 mock 为真覆盖了第 6 个）。
+
+  hmm——注意：这里是探针环境的读数（该环境未配置语音 provider，故 语音 按钮不渲染，footer 为 5 个）。六项的不变量由 AC-1(a) 的 jsdom 用例机械钉住（那里 `useVoiceAvailable` 为真，恰 6 项）。
+
+- 390「更多」菜单内容：标题 `更多工具` + 三个 `role=menuitem`：`显示所有命令` + 徽标 `6`、`Show token usage` + 紧凑读数 `0`、`定时发送这条消息`。点击路径与结果：`更多`→`显示所有命令` 两击后 `[role=listbox]` = 1（命令菜单打开，与桌面入口同一结果）；`更多`→`Show token usage` 两击后 `[role=dialog]` = 1（`Token Usage` 详情面板打开）；`更多`→`定时发送这条消息` 两击后 `[role=menu]` = 1（同一遮罩内展开定时面板，选项为 `15 分钟后 / 1 小时后 / 8 小时后 / 明天`）。三次中任一时刻 `role=dialog|menu` 遮罩数都不超过 1。
+- 768×900：`{commands:1, schedule:1, tokens:1, more:0}`，footer 内 7 个按钮，高度 93px；1280×900：同上，高度 77px。两档读数与 `develop` 基线（把 develop 的四个源文件临时 checkout 进同一 worktree、同一探针再读一次）逐字段相同：768 = `93px / tools 791–823 / right 827–867 / 7 按钮`，1280 = `77px / tools 811–843 / right 807–847`。桌面布局未变。
+- 基线对照（develop 源码 + 同一 zh-CN 配置）：320×700 与 360×800 的 footer 高度为 **93px（两行）**，左组 124px 与右组 202px 分居两行；HEAD 为 57px 单行。390×844 基线在无录音回放时已是 57px（方案里 390 折行发生在存在录音回放时，本任务不含回放按钮，故那一格由录音回放任务证明）。
+
+边界如实标注：探针一次性、不随任务落地；含录音回放的单行性归录音回放任务；6 视口 × 4 状态的永久回归矩阵归同方案 e2e 矩阵任务；`md` 边界处的 640–767px 第三布局由 AC-3 的 grep 与 767/768 两个视口读数共同钉住。
