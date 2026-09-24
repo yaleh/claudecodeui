@@ -1,8 +1,8 @@
 # A2 结果：未通过，不进入「对话上下文」的实现
 
-按 `PREREG.md`（提交于取数之前，commit `5f4b7a90`）的规则判定。
+按 `PREREG.md`（提交于取数之前，commit `5f4b7a90`）的规则判定。650 次调用，649 次返回 200。分析：`npx tsx experiments/voice-omni-written/a2/an.mts cells`。
 
-> 命名更正：`PREREG.md` 与提交 `a73c5c0d` 的信息里，把原计划的「对话上下文」目标称为 GOAL-010。这个编号实际已被另一个目标占用（语音识别的服务端捕获）。本文件所说的「不进入实现」只针对对话上下文，与现有的 GOAL-010 无关。`PREREG.md` 是取数前的记录，不做事后修改。650 次调用，649 次返回 200。分析：`npx tsx experiments/voice-omni-written/a2/an.mts cells`。
+> 命名更正：`PREREG.md` 与提交 `a73c5c0d` 的信息里，把原计划的「对话上下文」目标称为 GOAL-010。这个编号实际已被另一个目标占用（语音识别的服务端捕获）。本文件所说的「不进入实现」只针对对话上下文，与现有的 GOAL-010 无关。`PREREG.md` 是取数前的记录，不做事后修改。
 
 ## 判定
 
