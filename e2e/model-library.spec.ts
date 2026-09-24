@@ -19,6 +19,26 @@ const UNTRANSLATED_KEY = /\b(?:modelLibrary|composer|settings|chat|common|sideba
 
 type GatewayHit = { url: string; headers: http.IncomingHttpHeaders; body: string };
 
+/**
+ * One half of the third leg's predicate: did this hit present the model's token?
+ *
+ * Declared once and used by both the wait and the count printed beside it. The criterion is "the mock
+ * received a request carrying this token", so a hit that does not present it is not an answer to the
+ * question, however many of them there are.
+ */
+const carriedToken = (hit: GatewayHit): boolean =>
+  hit.headers['authorization'] === `Bearer ${TOKEN}` || hit.headers['x-api-key'] === TOKEN;
+
+/**
+ * The other half: does this hit's body name the model the composer was told to use?
+ *
+ * Necessary and not sufficient on its own. The Agent SDK names the session through this same gateway, with
+ * its own cheap model rather than the selected one, so hits naming *a* model exist that are not the message;
+ * and a hit can name this model while having been sent without the token. The third leg is about the
+ * intersection, so both halves stay in the predicate it waits on.
+ */
+const namedModel = (hit: GatewayHit): boolean => hit.body.includes(MODEL.id);
+
 test.describe.serial('model library in a real browser', () => {
   let page: Page;
   let gateway: http.Server;
@@ -72,6 +92,12 @@ test.describe.serial('model library in a real browser', () => {
   });
 
   test.afterAll(async () => {
+    // The run's own wall clock, from the instant playwright.config.ts began evaluating to here: config
+    // evaluation, seeding, both servers' boot, browser launch and all three legs. That is the span the gate's
+    // 60s ceiling bounds, which is why it is measured from there and not from this leg — a spec that timed
+    // itself would report a number whose shortfall against the ceiling is the part it could not observe.
+    console.log(`criterion-wall-ms=${Date.now() - Number(process.env.QUAY_E2E_RUN_STARTED_AT)}`);
+
     // Leave no model behind, whatever the tests did.
     try {
       await page.goto('/');
@@ -152,16 +178,41 @@ test.describe.serial('model library in a real browser', () => {
     await page.getByPlaceholder(/Type \/ for commands/).fill(PROMPT);
     await page.getByRole('button', { name: 'Send', exact: true }).click();
 
+    // The wait and the assertion are one predicate, not two.
+    //
+    // Waiting on the token alone is strictly weaker than what is asserted next. The Agent SDK names the
+    // session through this same gateway as well, with its own cheap model rather than the selected one, so a
+    // token-bearing hit exists before the message does — a wait that stops there hands the next line a set
+    // that need not contain the message at all, and whether it does is decided by which of two independent
+    // requests the CLI sent first. That is a coin flip, not a property of the code under test: it is how the
+    // criterion came to be recorded red at 16:28 and 16:36 and green at 16:29 and 16:33 on one unchanged tree.
+    //
+    // So the wait stops on a hit the assertion accepts — this model's id in the body AND this model's token
+    // on the request — and the hit it stopped on is the one returned to the assertion below. Nothing is
+    // looked up afterwards, so there is no second, weaker reading left to disagree with the wait.
+    let matched: GatewayHit | undefined;
     await expect
-      .poll(() => gatewayHits.some((hit) => hit.headers['authorization'] === `Bearer ${TOKEN}` || hit.headers['x-api-key'] === TOKEN), {
-        timeout: 45_000,
-      })
+      .poll(
+        () => {
+          matched = gatewayHits.find((entry) => namedModel(entry) && carriedToken(entry));
+          return matched !== undefined;
+        },
+        { timeout: 45_000 },
+      )
       .toBe(true);
-    // The Agent SDK names the session through this same gateway as well, with its own cheap model rather than
-    // the selected one, so the first /v1/messages hit is not necessarily the message: pick the request that
-    // carries this model's id, and still assert it landed on the messages endpoint.
-    const hit = gatewayHits.find((entry) => entry.body.includes(MODEL.id));
-    expect(hit, `no gateway request carried ${MODEL.id}; urls seen: ${JSON.stringify(gatewayHits.map((entry) => entry.url))}`).toBeTruthy();
-    expect(hit!.url).toContain('/v1/messages');
+
+    // Read at the instant the wait above stopped. Three numbers rather than one, because the difference
+    // between them is exactly where the race lived: the token-only reading is the predicate that used to be
+    // waited on, and a run where `token-hits` reaches 1 while `model-hits` is still 0 is the failing shape.
+    console.log(
+      `hits=${gatewayHits.length} token-hits=${gatewayHits.filter(carriedToken).length} model-hits=${gatewayHits.filter(namedModel).length}`,
+    );
+
+    const hit: GatewayHit | undefined = matched;
+    expect(
+      hit,
+      `no gateway request carried ${MODEL.id} together with the model's token; urls seen: ${JSON.stringify(gatewayHits.map((entry) => entry.url))}`,
+    ).toBeTruthy();
+    expect(hit?.url).toContain('/v1/messages');
   });
 });
