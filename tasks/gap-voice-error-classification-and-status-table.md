@@ -3,7 +3,7 @@ id: gap-voice-error-classification-and-status-table
 title: 适配器按响应体错误码串分类为稳定 code（403 Unpurchased 与 400 Arrearage 归
   ACCOUNT_ACCESS、429 配额类归 QUOTA_EXHAUSTED、5xx/超时/连不上归 UPSTREAM_UNAVAILABLE），词汇表
   13 码且状态表恰有一行，同 400 不同码串必须不同（AC-149）
-status: todo
+status: ready
 labels:
   - gap
   - defect
