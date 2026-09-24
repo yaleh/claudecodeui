@@ -3,7 +3,7 @@ id: gap-ac103-worktree-state-drag-and-unbudgeted-confirm
 title: AC-103 现在是红的：两个 voice false-forms 测试读共享 worktree 状态 ⇒ 并发组必红、差集地板=2 吃光
   DIFF_MAX 的余量（一个普通偶发即「成批死亡」判红）；而把差集洗成偶发的确认步成本既不在判词墙钟里也不受预算闸管 ⇒ 外层 60000ms
   击杀后被记成 fail；冷路径地板 62–70s 也装不进同一条上限
-status: ready
+status: needs-human
 labels:
   - gap
   - defect
@@ -224,3 +224,14 @@ develop 的树，而本条的五处修复还只在本分支上；本轮**不**�
 按 `AGENTS.md`：改 `src/shared/tests/**` 前加载并施用了 `$frontend-module-standards`，改 `server/**`
 前加载并施用了 `$backend-module-standards`。收尾逐条复跑：`npm run lint` rc=0、
 `npm run typecheck` rc=0、`npx tsc -p scripts/tsconfig.json` rc=0。
+
+## Needs-Human
+
+**执行 2026-09-24T17:18:27.278Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: not ok - suite-watchdog: terminated by an external signal before the suite finished — see the report above
+- run_id：wk-prod-anchor
+- session_id：43cfb38a-421b-4238-97f6-03efe9e97d9b
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-ac103-worktree-state-drag-and-unbudgeted-confirm~wk-prod-anchor~1790270229484-e6744d.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-ac103-worktree-state-drag-and-unbudgeted-confirm-wk-prod-anchor.log
