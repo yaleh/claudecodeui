@@ -2,7 +2,7 @@
 id: gap-voice-capture-mode-gate-off-fail-closed
 title: 语音捕获的模式闸门与失败关闭：VOICE_CAPTURE 未设置/off/非法值三情形下日志逐字节等于基线、不建目录不写文件、非法值一行告警并按
   off、启动行读出生效模式（AC-143）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
