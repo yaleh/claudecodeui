@@ -101,6 +101,10 @@ goal_ac: AC-103
 
 **必须如实登记**：冷路径地板是 `(最重服务端文件) + (并发相 ≈12s 非文件开销 + 最重文件)`；本轮最重文件是 `voice-capture-off.false-forms.test.ts`（25016ms 安静 / 25470ms 并发 / 23447ms 单跑），不是它在争用下变慢（安静/并发比 1.02），所以**任何**「把 estimate 调乐观」的路线都不成立。若实现者选择压低该文件成本，登记它压的是哪一段等待、以及为什么那一段不是承重断言。
 
+**本轮登记的第三条，与压掉的那一段等待**：除两个必红成员外，同形状的第三条也一并收窄 —— `server/modules/voice/tests/voice-capture-text.false-forms.test.ts`，它在今天替代 capture-off 成为判据服务器文件集里**最重**的一个（安静 27768ms / 并发 30706ms / 单跑 25466ms，且冷路径预检正是被它顶出预算：三次冷跑分别以 `并发相保守估计 38556ms`、`确认步保守估计 34710ms` 撞上 60000ms 而 exit 3）。它同时吃两条通道：AC11 与那两个文件一样读全树 porcelain，而它自己的探针也会被兄弟进程当成残留。压掉的等待是它 AC10 的八条 `execFileSync`（六份既有判据 + `npm run typecheck` + `npm run lint`，其中 typecheck 单条约 12s）：原来串行，于是把这**八次等待之和**记在该文件头上；改成 `spawn` + `Promise.all`（与 capture-off 的 AC6 同形状）后单跑 **25466ms → 12520ms**。那一段不是承重断言 —— AC10 只断言退出码与用例数（并断言用例数非零），从不断言耗时、也从不断言八条被串行过；断言集合逐条不变。AC11 的两条读数收窄到 `-<pid>.ts`，并补上两条互不重叠的取假形态（漏留自己的副本 ⇒ `leftovers` 红；自己新增未跟踪文件 ⇒ `unchanged` 红），跳过的兄弟副本条数以 `other-process-copies=` 打印而不是静默丢弃。
+
+**`__criterion-falsify-*` 是生成物，不是源码**：oxlint 先枚举目录、再逐个打开文件，兄弟进程在这两步之间删掉自己的探针会让 `npm run lint` 因 `ENOENT` 退出 1（本轮实测 `error: Failed to open file …/__criterion-falsify-truncated-always-true-base-3727593.ts with error "No such file or directory (os error 2)"`）；`server/tsconfig.json` 的 `include` 同理会把一个随时可能消失的文件放进 program。两处都把它与 `dist-server/**` 并列排除（`.oxlintrc.json` 的 `ignorePatterns`、`server/tsconfig.json` 的 `exclude`）。这一条是「把该形状广播给同类工装」的那一半：四份在飞任务新增的 `*.false-forms.test.ts` 不必各自改配置就能免掉这条噪声。
+
 **已知不等价点**：AC3 的两条取假形态证明的是「收窄到本 run 自己」这件事仍然可红，不是「任何别人的副本都不会被误判」的穷举；AC4 的合成控制证明的是判据自己的账覆盖确认步，不证明外层 gate 不会再以别的理由击杀（那由 AC1 的外部计时覆盖）。四份在飞任务（`gap-voice-capture-text-payload`<!-- dedup-ref:inline --> / `gap-voice-capture-audio-file`<!-- dedup-ref:inline --> / `gap-voice-capture-secrets-three-modes`<!-- dedup-ref:inline --> / `gap-voice-capture-isolation`<!-- dedup-ref:inline -->）会各新增一份同形状的 `*.false-forms.test.ts`，本条若只修两个文件而不改模板/工装，下一轮差集地板会变成 6 —— 这个残余风险登记在案，由后续轮次的读数暴露（并发红名单里同一形状的成员数）。
 
 L_D 该轴仍暗，理由：本条读数全是计数、布尔与墙钟毫秒，判据没有「性能读数」这一维；相窗口与中位耗时是判定输入，不是被评的量。
@@ -109,8 +113,11 @@ L_G 该轴仍暗，理由：目标层要的是「两个全量套件互不拖红�
 
 ## Touches
 
+- .oxlintrc.json（AC1 冷支 / AC2：`__criterion-falsify-*` 是判据探针的生成物，纳入 `ignorePatterns` 才能让并发相里的 `npm run lint` 不因兄弟进程删探针而 ENOENT 退出 1）
+- server/tsconfig.json（同上，`include` 会把兄弟进程随时会删掉的探针放进 program）
 - scripts/suite-concurrency-check.sh
 - scripts/suite-concurrency-check.test.mjs
 - server/modules/voice/tests/voice-capture-off.false-forms.test.ts
+- server/modules/voice/tests/voice-capture-text.false-forms.test.ts（AC1 冷支：判据最重的服务端文件；AC2：同形状的共享 worktree 读数，第三条）
 - server/modules/voice/tests/voice-dashscope-settings.false-forms.test.ts
 - tasks/gap-ac103-worktree-state-drag-and-unbudgeted-confirm.md
