@@ -114,7 +114,15 @@ L_G 该轴仍暗，理由：书面化质量（意图正确率/误导率）按 GO
 | AC11 | 每条腿的 `flags=` 逐条打印（`{"voiceDebug":"0","voiceTrim":"off"}` / `{"voiceDebug":"1","voiceTrim":"off"}`）；`dataDir-owner=true`；四段导航都把两个开关写在 URL 上；对外替身只有 `page.route`，aliyuncs 主机也拦在浏览器侧 |
 | AC12 | 见下 |
 
-**scoped 门与缓存**：`bash scripts/test.sh --for-task gap-voice-dashscope-written-browser-e2e --allow-thin` 退出 0（`# tests 1 # pass 1`，跑的是 `server/modules/voice/tests/voiceHealth.test.ts`）；scoped-gate cache 已按 develop `b4d81b20877c35a67adb62af3f643b9104371b64` 写入。
+**fan-in 第二轮：suite 红的两条读数与修（2026-09-24）**
+
+上一轮以 `step=suite` 退出：`src/shared/tests/voiceConfig.test.ts` 与 `src/shared/tests/voiceConfigHydration.test.ts` 各报 `ERR_ASSERTION … strictly deep-equal`，`# tests 219 / # pass 217 / # fail 2`。根因不是判据工装，是**本条自己的实现**：AC7 要求整档 PUT 带全四件 ⇒ `VOICE_CONFIG_FIELDS` 与 `VoiceConfig` 加宽成十格 ⇒ `readVoiceConfig()` 读回的是十格文档；而这两个文件是**该文档的契约面**（拿六格字面量做 `deepEqual`），当时仍写六格。scoped 门看不到它，因为这两个文件当时不在 `## Touches` 里。
+
+修法是让契约面跟着文档走，不是让文档跟着契约面走：`voiceConfig.test.ts` 改用同文件既有的 `{ ...VOICE_CONFIG_DEFAULTS, … }` 形状；`voiceConfigHydration.test.ts` 加一个 `asStored()` helper，只加宽**期望**一侧。两份 fixture 都保持六格不动 —— 六格正是旧服务端应答与旧浏览器键**实际持有**的东西，那才是这两组用例的题材。比对仍是全等 `deepEqual` 而不是子集：丢掉新四格的实现照样会红，分辨力未失。两个文件已按 AC7 补进 `## Touches`（这一条也顺带被 anti-drift 守卫验证过）。
+
+重测（在该合并之后的树上）：两个共享契约文件 `25 passed`；`npm run typecheck` 三套退出 0；`npm run lint` 退出 0（error 行 0）；`voiceHealth.test.ts` + `voice-settings.db.integration.test.ts` → `tests 14 / pass 14 / fail 0`；anti-drift `13 actual file(s), all within declared Touches (14 glob(s))`。AC1–AC9、AC11、AC12 的读数不受影响：这一轮只改了 `src/shared/tests/` 下两个文件，判据（浏览器侧那条）不读它们。
+
+**scoped 门与缓存**：`bash scripts/test.sh --for-task gap-voice-dashscope-written-browser-e2e --allow-thin` 退出 0（`# tests 1 # pass 1`，跑的是 `server/modules/voice/tests/voiceHealth.test.ts`）。两个 `src/shared/tests/voiceConfig*.test.ts` 的 bullet 带 AC 注解，而 `test.sh:112` 用 `grep -E '\.test\.[jt]sx?$'` 取的是 bullet 的**第一个字段**，注解会把它挤出 scoped 面 —— 这是仓库既有形状（同类注解 bullet 共 132 条），这两个文件由整档 suite 覆盖，上面那轮红正是它抓到的。scoped-gate cache 按退出时的 develop tip 写入（`--develop-sha "$(git rev-parse develop)"`，即本记录自身的 `task_write` 提交）：key 与 fan-in 读到的 tip 一致时命中，不一致时只是重新跑一遍这条一文件的 scoped 门，不会给出错误判决。
 
 **如实登记（AC12 逐条）**：本条只做浏览器端到端与设置页的服务选择/字段 —— 不做 dashscope-omni 线协议、不做服务端分派、不做 transport 与白名单规则的本体、不做用户凭据的存储/掩码/日志，这四件都由本条**消费**而非复制。判据把 `/api/voice/transcribe` 与 aliyuncs 主机都拦在浏览器侧，**不等于**真实 DashScope 与真机浏览器（ADR-004 决策 8：真实冒烟归人工）；`qwen3.8-omni-flash` 是别名，服务端升级后可能漂移；`-g "AC-142"` 的两条腿不 reload，掩码回写那条规则不在本条内（水合回来的 `dashscopeApiKey` 是掩码，本条只证明「设置页里填的明文原样上线」）。
 
