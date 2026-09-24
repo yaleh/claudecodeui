@@ -40,7 +40,7 @@
 - 每个（上下文 × 片段）组合只有 5 次；判定按分层汇总。
 - c1、c7 是讨论语音实验本身的消息，引用了识别错误的写法，比一般对话更容易误导。敏感性检查（`EXCLUDE=c1,c7`，不属于预注册）：去掉这两个上下文后，规则 1（旧 8 条 −11.2pp）、规则 3（4.9%）、规则 4（p90 20.1 秒）仍不通过；规则 2 变为通过（剩余 3 个「目标加竞争者」组合的竞争者上线率为 0）。所以竞争者上线主要来自这两条自指消息，但结论不变。
 - 片段是 TTS 合成，目标集中在语音模块；A1 的基础比例来自全部项目的打字输入，不是同一个总体。
-- 扩展 5 条的音频（`fixtures/webm/`）没有入库。重新取数需要它；离线重算也需要旧 8 条的本地 webm，因为 `an.mts` 经 `raw/written.mts` 导入了 `raw/omni.mts`，后者在导入时读取 `experiments/voice-gemini-paired-quality/out/webm/`（生成方法见 `raw/README.md`）。
+- 扩展 5 条的音频（`fixtures/webm/`）已入库（登记在 `docs/experiments/README.md`）。离线重算还需要旧 8 条的本地 webm，因为 `an.mts` 经 `raw/written.mts` 导入了 `raw/omni.mts`，后者在导入时读取 `experiments/voice-gemini-paired-quality/out/webm/`（生成方法见 `raw/README.md`）。
 
 ## 对 GOAL-009 的含义
 

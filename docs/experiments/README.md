@@ -114,11 +114,12 @@ node experiments/voice-dashscope-omni-paired-quality/run.mjs --probe
 
 ### 仓库内**音频**（例外，逐条登记）
 
-音频语料不入库是常态（`experiments/voice-trim/fixtures/*.wav` 是本项目里唯一既有的例外）。第二条例外登记在这里，理由与第一条同形：
+音频语料不入库是常态（`experiments/voice-trim/fixtures/*.wav` 是本项目里唯一既有的例外）。第二、三条例外登记在这里，理由与第一条同形：
 
 | 文件 | 作用 | 为什么在仓库内 |
 |---|---|---|
 | `experiments/voice-provider-paired-quality/fixtures/d01..d08-o65.wav`（8 条，3.9 MB） | 配对质量实验的固定片段 | 冻结快照 `fixtures/paired.json` 里的**每个数字**（句读、CER、标识符、`savedRatio`、音频哈希）都要能在这个仓库里离线重算，而重算必须**重新解码原始音频**（对应关系检查还会用出货模块重新编码并比对 sha256）。语料全集（o65 档 16 条 × 多档）仍在仓库外，只有这 8 条固定片段进来 |
+| `experiments/voice-omni-written/fixtures/webm/n01..n05-o65.webm`（5 条，1.2 MB） | qwen3.8-omni-flash 书面化与上下文实验的扩展片段（路径、自我更正、指代、否定四类） | 这 5 条没有 wav 母本在仓库里，webm 本身就是唯一的原件：`raw/e-ctx-ext.jsonl`、`raw/e-ctx-real.jsonl`、`a2/results.jsonl` 的全部读数都是把它们原样上传得到的，重新取数必须用同一批字节。参考文本在 `fixtures/ext-refs.json` |
 
 `fixtures/paired.json` 是**读数原文**不是缓存（缓存 `out/` 被 git 忽略）—— 记录里的表格全部由它离线重算，`--live` 取新读数才需要凭据。
 
