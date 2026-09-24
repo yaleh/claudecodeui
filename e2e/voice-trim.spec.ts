@@ -84,16 +84,33 @@ const UTTERANCES = [
 ];
 
 /**
+ * The English vocabulary, read off the shipped locale file for the reason the criterion reads it: a sentence
+ * typed into this file stops moving when the copy moves. Read with `fs` rather than imported because this package
+ * is ESM and this spec is evaluated by Node's ESM loader, where a JSON import is only legal with a
+ * `with { type: 'json' }` attribute that no spec in this checkout carries.
+ */
+const EN_CHAT = JSON.parse(
+  fs.readFileSync(path.resolve(process.cwd(), 'src/modules/i18n/locales/en/chat.json'), 'utf8'),
+) as { voice: { errors: Record<string, string> } };
+
+/**
  * The sentences `useVoiceInput` reports its own failures with, looked for in the page when a transcript never
  * lands. Each one names a link in the chain the composer cannot show: a recording the app refused to send, a
  * recogniser call that came back unusable, a call that returned nothing to say.
+ *
+ * The last entry used to be the literal `'No speech detected'`, which is what the local-empty branch handed the
+ * composer directly. That branch now reports the CODE `NO_SPEECH_DETECTED` and the sentence is resolved at render,
+ * in the user's language — so this entry reads the vocabulary instead of restating it, and a future change to the
+ * copy moves this diagnostic with it rather than leaving it looking for a sentence the app no longer says. The
+ * three literals above it are a different family and stay literals: they are the chain's own transport failures,
+ * written in English by `useVoiceInput` itself, and no locale owns them.
  */
 const VOICE_ERRORS = [
   'Recording too short',
   'Audio file too small',
   'Transcription failed',
-  'No speech detected',
   'Microphone access denied',
+  EN_CHAT.voice.errors.NO_SPEECH_DETECTED,
 ];
 
 /**

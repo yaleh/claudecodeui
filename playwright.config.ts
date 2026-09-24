@@ -307,6 +307,26 @@ const childPids = (): number[] => {
 };
 
 /**
+ * Where this run records whether its watchdog was armed, and whether it ever fired.
+ *
+ * The `[e2e] watchdog:` line is written to *this* process's stdout, which a criterion that runs the suite from
+ * outside cannot read — and "no watchdog line in the output" is exactly what the voice-error criterion has to
+ * assert. A spec observing only that the line is absent would accept a run whose watchdog was never armed at
+ * all, so the two facts the line encodes are also written here, in the run's own data directory, where the spec
+ * can read them: `armed:true` is the positive control that the ceiling really existed, and `fired:true` is what
+ * a run that crossed one leaves behind. Both readings are joined by the file's absence meaning "no run wrote
+ * here", which is why the spec fails on a missing file rather than treating it as a quiet watchdog.
+ */
+const WATCHDOG_STATE_FILE = path.join(dataDir, 'watchdog-state.json');
+const writeWatchdogState = (state: { armed: boolean; fired: boolean; ceilingMs: number; detail: string }): void => {
+  try {
+    fs.writeFileSync(WATCHDOG_STATE_FILE, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+  } catch {
+    // The reading is what is lost here; the watchdog's own behaviour never depends on this file.
+  }
+};
+
+/**
  * Ends the run with a line explaining it, and takes this run's server processes with it.
  *
  * Only the process that allocated the data directory arms these. Workers re-evaluate this file, and a worker's
@@ -316,6 +336,9 @@ const childPids = (): number[] => {
 if (isDataDirOwner) {
   const endRun = (label: string, ceiling: number, crossedAt: number, stall: Stall): void => {
     const elapsed = Date.now() - runStartedAt;
+    // Recorded before anything can exit this process, and before the line below, so a run killed from outside
+    // still leaves the evidence that its watchdog had fired.
+    writeWatchdogState({ armed: true, fired: true, ceilingMs: ceiling, detail: `${label} crossed at ${crossedAt}ms` });
     // `fs.writeSync` rather than `console.log`: on POSIX a pipe is written asynchronously, so a line handed to
     // `process.stdout` is not flushed before `process.exit` — and the one line that explains the red would be
     // the one lost. The fallback covers a pipe that will not take the write right now; a lost line is bad but
@@ -371,6 +394,14 @@ if (isDataDirOwner) {
   };
 
   arm(BOOT_CEILING_MS, 'boot ceiling', true);
+  // Written after the arming calls rather than inside `arm`, so the record describes the run's watchdog as a
+  // whole — the boot ceiling and the run ceiling it hands over to — instead of whichever arming happened last.
+  writeWatchdogState({
+    armed: true,
+    fired: false,
+    ceilingMs: RUN_CEILING_MS,
+    detail: `boot ${BOOT_CEILING_MS}ms, re-armed to ${RUN_CEILING_MS}ms once past boot`,
+  });
 }
 
 /** Workspace e2e/session-filter.spec.ts creates its project in; its own directory so no other spec picks these sessions up. */
@@ -870,6 +901,81 @@ const seedVoiceDashscopeWorkspace = () => {
   );
 };
 
+/** Workspace e2e/voice-error-messages.spec.ts records into; its own directory so no other spec picks this session up. */
+const VOICE_ERROR_WORKSPACE = path.join(dataDir, 'voice-error-messages-workspace');
+/** Session id that spec opens the composer in, and the display name it anchors its sidebar row and its locators to. */
+const VOICE_ERROR_SESSION_ID = 'e2e-voice-error-messages';
+const VOICE_ERROR_SESSION_NAME = 'voice-error-messages';
+/** The project file the seeded workspace holds, so the project is a directory the app has really seen. */
+const VOICE_ERROR_FILE = 'failure.notes.md';
+/**
+ * What the fake microphone is saying.
+ *
+ * The same shape as the dashscope seed's fixture and for the same reason: the recogniser this spec points the
+ * settings at is a stand-in under the test's own control, and every answer it gives on this spec's legs is a
+ * failure envelope, so the spoken fixture only has to be something the capture chain can really encode. Spelled
+ * out rather than borrowed from the seed above because the two specs assert on different answers, and one file
+ * serving both would make a change to either look like a change to both.
+ */
+const VOICE_ERROR_UTTERANCE = 'the recogniser answers this recording with a failure about the request';
+/**
+ * Where the fake microphone reads its samples from, published so the spec's launch args can name the file.
+ * Written below, before `webServer` starts, because Chromium opens it at browser launch.
+ */
+const VOICE_ERROR_AUDIO_FILE = path.join(dataDir, 'voice-error-messages-utterance.wav');
+process.env.QUAY_E2E_VOICE_ERROR_AUDIO = VOICE_ERROR_AUDIO_FILE;
+
+/**
+ * Seeds the workspace e2e/voice-error-messages.spec.ts records in.
+ *
+ * Same reason as the seeds above: the backend scans ~/.claude/projects at boot and only then starts its file
+ * watcher with `ignoreInitial`, so a transcript written while the test runs would be picked up by the watcher
+ * and broadcast as a session_upserted instead — which the sidebar correctly reads as "needs attention". That
+ * matters more for this spec than for its neighbours, because its own session row has to be told apart from the
+ * rows every other seed in this file put in the same sidebar.
+ *
+ * The WAV is written here for the same class of reason as the identifier seed's: it has to exist before the
+ * browser that plays it is launched, and this function runs once, in the process that owns the data directory,
+ * before `webServer` starts anything.
+ */
+const seedVoiceErrorMessageWorkspace = () => {
+  fs.mkdirSync(VOICE_ERROR_WORKSPACE, { recursive: true });
+  fs.writeFileSync(
+    path.join(VOICE_ERROR_WORKSPACE, VOICE_ERROR_FILE),
+    'Notes kept in the workspace the voice failure-message spec records in.\nNothing here is named by the spoken fixture.\n',
+    'utf8',
+  );
+  writeVoiceUtterance(VOICE_ERROR_AUDIO_FILE, VOICE_ERROR_UTTERANCE);
+
+  const transcriptDir = path.join(dataDir, '.claude', 'projects', 'voice-error-messages-workspace');
+  fs.mkdirSync(transcriptDir, { recursive: true });
+  const timestamp = new Date().toISOString();
+  // The synchronizer reads the session id and cwd from the first record it can parse, so one transcript has to
+  // carry both a turn and a title.
+  const records = [
+    {
+      type: 'user',
+      sessionId: VOICE_ERROR_SESSION_ID,
+      cwd: VOICE_ERROR_WORKSPACE,
+      timestamp,
+      message: { role: 'user', content: [{ type: 'text', text: 'open the composer for the failure-message check' }] },
+    },
+    {
+      type: 'custom-title',
+      sessionId: VOICE_ERROR_SESSION_ID,
+      cwd: VOICE_ERROR_WORKSPACE,
+      timestamp,
+      customTitle: VOICE_ERROR_SESSION_NAME,
+    },
+  ];
+
+  fs.writeFileSync(
+    path.join(transcriptDir, `${VOICE_ERROR_SESSION_ID}.jsonl`),
+    `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
+    'utf8',
+  );
+};
+
 /** Workspace e2e/mobile-composer-send-key.spec.ts opens its composer in. */
 const MOBILE_SEND_KEY_WORKSPACE = path.join(dataDir, 'mobile-send-key-workspace');
 /** Session id that spec's project is registered by, and the display name it looks the row up by. */
@@ -986,6 +1092,7 @@ if (isDataDirOwner) {
   seedVoiceIdentifierWorkspace();
   seedVoiceTrimWorkspace();
   seedVoiceDashscopeWorkspace();
+  seedVoiceErrorMessageWorkspace();
   seedMobileSendKeyWorkspace();
 }
 
