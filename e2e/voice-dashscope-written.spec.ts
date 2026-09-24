@@ -234,8 +234,8 @@ const STARTUP_PROBE_DEADLINE_MS = 14_000;
  * How long the account wizard — both of its forms, and every re-entry after a replaced document — is given.
  *
  * Its own budget rather than the hook's, so exhausting it is this spec's error and not a timeout fired from
- * outside. Together with the probe's worst case (8s + 3×4s) and the warm-up it stays inside the hook's budget
- * below, and the probe's own worst case alone stays inside the 30s the bounded-failure reading asks for.
+ * outside. The three are ordered, each strictly inside the next: this budget and the probe's deadline are
+ * inside the hook's, and the hook's is inside the goal gate's 60s.
  */
 const WIZARD_BUDGET_MS = 12_000;
 
