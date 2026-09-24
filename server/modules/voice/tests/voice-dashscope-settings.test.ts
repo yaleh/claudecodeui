@@ -515,14 +515,14 @@ function jsonParseOrNull(text: string): Record<string, unknown> | null {
   }
 }
 
-/** Every `.ts` file under `directory`, skipping dependency trees and test directories. */
+/** Every `.ts` file under `directory`. Dependency trees are skipped; `tests/` directories are not. */
 async function collectSourceFiles(directory: string): Promise<string[]> {
   const found: string[] = [];
   const entries = await readdir(directory, { withFileTypes: true });
   for (const entry of entries) {
     const full = path.join(directory, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name === 'node_modules' || entry.name === 'tests') {
+      if (entry.name === 'node_modules') {
         continue;
       }
       found.push(...(await collectSourceFiles(full)));
@@ -533,6 +533,11 @@ async function collectSourceFiles(directory: string): Promise<string[]> {
     }
   }
   return found;
+}
+
+/** Whether a path lives under a `tests/` directory. */
+function isTestPath(file: string): boolean {
+  return file.split(path.sep).includes('tests');
 }
 
 // ── the readings ─────────────────────────────────────────────────────────────────────────────
@@ -915,29 +920,37 @@ const READINGS: readonly Reading[] = [
     }),
   },
   {
-    // AC8: no provider id is branched on in the shipping server tree. The scan is done in-process
-    // (this file runs no subprocesses) over every `.ts` file outside a `tests/` directory, and the
-    // equivalent grep is printed so a reader can reproduce the reading by hand.
+    // AC8: no provider id is branched on in the shipping server tree.
+    //
+    // THE WHOLE TREE IS SCANNED, `tests/` INCLUDED, and the hits are PARTITIONED rather than
+    // filtered away — because the literal does occur under `server/`, in test fixtures that name a
+    // provider (this file among them, in the reading names and in the document it saves). A reading
+    // that simply skipped those directories would print `hits=0` and leave a reader who ran
+    // `grep -rn "'dashscope-omni'" server/` looking at a contradiction. What the criterion asserts
+    // is the part that matters and the part the AC names — the server does not BRANCH on the id, so
+    // no non-test file contains it — and it reports the test-directory occurrences beside that, by
+    // path, so the two statements are checkable against each other.
     name: 'AC8 server-branch-scan',
     run: async () => {
-      const literal = `'dashscope-omni'`;
-      const doubleQuoted = `"dashscope-omni"`;
+      const needles = [`'dashscope-omni'`, `"dashscope-omni"`];
       const files = await collectSourceFiles(SERVER_DIR);
-      const hits: string[] = [];
+      const shippingHits: string[] = [];
+      const fixtureHits: string[] = [];
       for (const file of files) {
         const text = await readFile(file, 'utf8');
-        for (const needle of [literal, doubleQuoted]) {
-          if (text.includes(needle)) {
-            hits.push(`${path.relative(SERVER_DIR, file)}:${needle}`);
-          }
+        if (!needles.some((needle) => text.includes(needle))) {
+          continue;
         }
+        const where = path.relative(SERVER_DIR, file);
+        (isTestPath(file) ? fixtureHits : shippingHits).push(where);
       }
       return {
         value:
-          `server-branch-scan files=${files.length} hits=${hits.length}` +
-          (hits.length === 0 ? '' : ` [${hits.join(' ')}]`) +
-          ` (equivalent: grep -rn "'dashscope-omni'" server/ excluding tests/)`,
-        ok: hits.length === 0,
+          `server-branch-scan files=${files.length} shipping-hits=${shippingHits.length}` +
+          (shippingHits.length === 0 ? '' : ` [${shippingHits.join(' ')}]`) +
+          ` test-fixture-hits=${fixtureHits.length} [${fixtureHits.join(' ')}]` +
+          ` (equivalent: grep -rn "'dashscope-omni'" server/)`,
+        ok: shippingHits.length === 0,
       };
     },
   },
