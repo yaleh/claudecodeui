@@ -3,7 +3,7 @@ id: gap-voice-error-single-classifier-two-paths
 title: 浏览器直连路径与代理路径适配器对同一批（状态、响应体码串）夹具逐行同码，分类只有一份实现在共享识别目录，码串表补 OpenAI
   兼容四条拼写（invalid_api_key / model_not_found / insufficient_quota /
   rate_limit_exceeded）（AC-152）
-status: todo
+status: ready
 labels:
   - gap
   - defect
