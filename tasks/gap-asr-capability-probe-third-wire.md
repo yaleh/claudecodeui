@@ -2,7 +2,7 @@
 id: gap-asr-capability-probe-third-wire
 title: AC-132 判据的线词汇表是个闭集：声明 chat-audio 的适配器被折成
   inline-json（凭证头与响应包络都按另一条线读），注册后一个正确的适配器仍必红 —— 教会探针第三条线（hold 在 AC-139 注册之后）
-status: ready
+status: done
 labels:
   - gap
   - defect
