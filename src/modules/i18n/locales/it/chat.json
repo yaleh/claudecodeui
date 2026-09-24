@@ -95,6 +95,25 @@
     },
     "technicalDetails": "Dettagli tecnici"
   },
+  "voice": {
+    "errors": {
+      "ACCOUNT_ACCESS": "L'account non può usare questo servizio vocale — verifica che il piano e l'accesso al modello siano attivi, poi riprova.",
+      "UNAUTHORIZED": "Il servizio vocale ha rifiutato la sua chiave — controlla le credenziali del fornitore vocale nelle impostazioni, poi riprova.",
+      "QUOTA_EXHAUSTED": "La quota del servizio vocale è esaurita — ricarica l'account o passa a un altro fornitore vocale.",
+      "RATE_LIMITED": "Troppe trascrizioni contemporaneamente — attendi un momento e registra di nuovo.",
+      "MODEL_NOT_FOUND": "Il modello di trascrizione non è disponibile per questo account — scegli un altro modello nelle impostazioni del fornitore vocale.",
+      "AUDIO_REJECTED": "Il servizio ha rifiutato questa registrazione — registra di nuovo o carica un altro file audio.",
+      "CONTENT_FLAGGED": "Il servizio ha segnalato il contenuto di questa registrazione — controlla l'audio e prova un altro estratto.",
+      "NO_SPEECH_DETECTED": "Nella registrazione non è stata rilevata voce — registra di nuovo parlando più vicino al microfono.",
+      "UPSTREAM_UNAVAILABLE": "Il servizio vocale non risponde in questo momento — attendi un momento e riprova.",
+      "NOT_CONFIGURED": "Nessun fornitore vocale è configurato — configurane uno nelle impostazioni per trascrivere le registrazioni.",
+      "INVALID_BASE_URL": "L'URL di base del fornitore vocale non è valido — correggilo nelle impostazioni del fornitore vocale.",
+      "OVERSIZE": "La registrazione è troppo grande per il caricamento — registra un estratto più breve e riprova.",
+      "UNSUPPORTED_MIME": "Questo formato audio non è supportato — prova un altro file o registra con il microfono.",
+      "unknown": "La trascrizione non è riuscita — riprova o controlla le impostazioni del fornitore vocale."
+    }
+  },
+
   "input": {
     "placeholder": "Digita / per i comandi, @ per i file, o chiedi qualcosa a {{provider}}...",
     "placeholderDefault": "Scrivi il tuo messaggio...",
@@ -109,6 +128,7 @@
     },
     "clickToChangeMode": "Clicca per cambiare modalità permessi (o premi Tab nell'input)",
     "showAllCommands": "Mostra tutti i comandi",
+    "moreTools": "Altri strumenti",
     "clearInput": "Cancella input",
     "scrollToBottom": "Scorri in basso",
     "queue": {
