@@ -31,8 +31,11 @@ import type { AsrAdapter, AsrCapabilities, AsrErrorCode, AsrFailure } from '../.
 import type { TranscriptionTolerance } from '../../../shared/asr/transcriptionWire.js';
 // The recording seam, as a TYPE only: this module never decides a mode and never builds a row. It is
 // handed a port and either has one or does not, which is what keeps the environment, the row's shape
-// and the audio write out of the transcription path itself.
-import type { VoiceCapturePort } from './voice-capture.js';
+// and the audio write out of the transcription path itself. `VoiceCaptureRawReturn` is here because
+// this is the side the request leaves from: the raw answer the attempt read is something only the
+// transport can hand over, so the shape it is held in has to be nameable here even though the row
+// that consumes it is built in the capture module.
+import type { VoiceCapturePort, VoiceCaptureRawReturn } from './voice-capture.js';
 
 type VoiceServiceDependencies = {
   defaults: {
@@ -658,6 +661,33 @@ function declaredEndpointRefusal(settings: VoiceSettings): VoiceRefusal | null {
 const PROXY_ANSWER_TOLERANCE: TranscriptionTolerance = 'lenient';
 
 /**
+ * The raw answer one attempt read, taken off a CLONE of the response the adapter is about to get.
+ *
+ * THE CLONE IS LOAD-BEARING, in both directions. It is what makes reading the body here invisible to
+ * the adapter — a `Response` body can only be read once, so instrumenting the response the adapter
+ * receives would empty it and turn every successful transcription into a parse failure. And it is
+ * read BEFORE the adapter is handed the response, because `clone()` on a body that has already been
+ * consumed throws, so there is no later moment at which this could be done.
+ *
+ * A `null` RETURN MEANS "NO READABLE ANSWER", never "an empty one". A stream that errors mid-body, a
+ * body that was already consumed by the stand-in that produced the response, a redirect stub with no
+ * body at all — none of those is the upstream saying the empty string, and recording them as one would
+ * put a false quotation in the row. The caller keeps `null` and reports the attempt as one whose
+ * request went out without a usable answer.
+ *
+ * THE ANSWER IS BUFFERED WHOLE. The adapters already read the full body themselves, so this adds no
+ * buffering that was not already there; what it does add is the copy the clone's tee produces, and it
+ * is bounded by the same thing the adapter's own read is bounded by — the response the upstream sends.
+ */
+async function readUpstreamAnswer(response: Response): Promise<VoiceCaptureRawReturn | null> {
+  try {
+    return { status: response.status, body: await response.clone().text() };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Creates the Voice application service used by the Voice composition root and
  * its unit tests. The outbound request function and server configuration are
  * required so the service never reads globals or creates production defaults.
@@ -741,6 +771,34 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
       const requestedProviderId = input.overrides.providerId?.trim();
       const providerId = effectiveProviderId(requestedProviderId, dependencies.defaults, settings);
 
+      // WHAT THIS ATTEMPT READ OFF THE TRANSPORT, filled in by `captureTransport` below and read by
+      // the row's payload. Attempt-scoped by construction: both are locals of this call, so an answer
+      // read for one attempt cannot be attributed to another, and there is nothing on the service to
+      // reset between attempts. `requestSent` is what tells a refusal that never left this process
+      // apart from a request that went out and came back unusable — see the payload's `requestSent`.
+      let upstreamAnswer: VoiceCaptureRawReturn | null = null;
+      let requestSent = false;
+
+      /**
+       * THE INJECTED TRANSPORT, instrumented for THIS attempt only.
+       *
+       * It records the answer on its way past and hands the adapter the ORIGINAL response, so nothing
+       * about what the adapter reads changes. What it does NOT look at is as deliberate as what it
+       * does: the request's `init` is passed through untouched and none of it is kept, so the body and
+       * every header this process sends are unreachable from the row — not filtered out of it, simply
+       * never named here.
+       *
+       * A closure rather than a function on the dependencies because what it records belongs to one
+       * attempt: on the service it would be shared state that the next attempt would have to clear.
+       */
+      const captureTransport = async (url: string, options: RequestInit): Promise<Response> => {
+        requestSent = true;
+        const response = await dependencies.fetchBackend(url, options);
+        // Before the adapter is handed the response, because `clone()` on an already-read body throws.
+        upstreamAnswer = await readUpstreamAnswer(response);
+        return response;
+      };
+
       /**
        * One structured line per attempt, written as the attempt is answered — followed, when this
        * deployment records, by that attempt's capture row.
@@ -758,11 +816,25 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
        * same string in both places — a caller correlating the process's output with a recording has
        * only the id to join them on, so two ids that merely look alike would be worse than none. In
        * an `off` deployment none of this happens and the line is the one above, unchanged.
+       *
+       * `meta` CARRIES TWO KINDS OF FACT AND THEY GO TO TWO DIFFERENT PLACES. The first two are the
+       * facts this line has always carried, and the line below still spells out exactly those — the
+       * additions are not fields of the line. The last two are the adapter's own reading of the
+       * attempt (the code it failed with, the text it returned), and they are read by the CAPTURE ROW,
+       * where the branch and the returned text live. So the line's shape is untouched by any of this,
+       * byte for byte, in every mode and whether or not the deployment records.
        */
       const logAttempt = (
         outcome: 'ok' | 'fail',
         status: number,
-        meta?: { promptVersion?: string; writtenFallback?: number },
+        meta?: {
+          promptVersion?: string;
+          writtenFallback?: number;
+          /** The adapter's code for this failure, read for the row's branch. Never on the line. */
+          code?: string;
+          /** The text this attempt returned to its caller, read for the row. Never on the line. */
+          text?: string;
+        },
       ): void => {
         const line =
           `voice.transcribe providerId=${providerId} outcome=${outcome} status=${status} ` +
@@ -781,28 +853,81 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
         // process's own output sees the attempt first and what was recorded about it second. The
         // attempt object is built HERE, inside the gate: an `off` deployment constructs no record at
         // all, which is what keeps its output byte-identical to the one this seam never touched.
+        //
+        // WHAT CROSSES INTO THE PAYLOAD IS THE SHAPE OF IT. The resolved configuration is in hand here
+        // and its `apiKey` is NOT part of the payload input at all — the address goes over and the key
+        // does not, because the row has no field for a credential rather than a filter that removes
+        // one. The same is true of the request: `captureTransport` kept the answer and dropped the
+        // init, and no name for a header or a body exists on the input this is built from.
+        const used = configForRow();
         recording.recordAttempt(captureId, {
           providerId,
           outcome,
           status,
           audio: input.audio,
+          payload: {
+            model: used.model,
+            baseUrl: used.baseUrl,
+            audio: input.audio,
+            upstream: upstreamAnswer,
+            requestSent,
+            reading: {
+              ok: outcome === 'ok',
+              code: meta?.code,
+              writtenFallback: meta?.writtenFallback,
+              text: meta?.text ?? '',
+            },
+          },
         });
       };
 
       const adapter = tryResolve(providerId);
       if (adapter === null) {
-        // Refused before the configuration is even resolved and before any request is built:
-        // nothing about the user's backend can make an unregistered id serveable.
+        // Refused before any request is built: nothing about the user's backend can make an
+        // unregistered id serveable. The row still names an address and a model — see `configForRow`,
+        // which falls back to the shared backend's own resolution precisely because there is no
+        // adapter here to declare either.
         const refusal = unknownProviderFailure(providerId, requestedProviderId ? 400 : 503);
         logAttempt('fail', refusal.status);
         return refusal;
       }
 
-      // The two gates the SELECTED provider's declaration decides, both before the configuration
-      // is resolved and before a request exists: an upload this provider does not accept, or one
-      // past its own declared budget, is refused here and costs no upstream request at all. The
-      // order is deliberate — a container the provider cannot read is refused before the size is
-      // even considered, so "too big" is only ever reported about audio that could have been sent.
+      /**
+       * THE ADDRESS, KEY AND MODEL THIS ATTEMPT USES, resolved once and remembered.
+       *
+       * MEMOIZED SO THERE IS STILL EXACTLY ONE RESOLUTION, and so that the row, the gates and the
+       * invocation cannot be looking at different addresses: whoever asks first resolves, everyone
+       * after reads the same object. It is reached from the row as well as from the gates, which is
+       * why it is callable before the invocation — a refused attempt still has to say which address,
+       * model and host it would have used, and that is the same answer the refusal was made on.
+       *
+       * A PROVIDER WITH NO ADAPTER HAS NOTHING TO DECLARE, so there is no provider-declared address
+       * and no declared default model to report; the row then names what the SHARED backend resolves
+       * to, which is where this deployment would have sent had the id been one anything claimed.
+       */
+      let attemptConfig: { baseUrl: string; apiKey: string; model: string } | null = null;
+      const configForRow = (): { baseUrl: string; apiKey: string; model: string } => {
+        if (adapter === null) {
+          const resolved = resolveVoiceConfig(dependencies.defaults, input.overrides);
+          return { baseUrl: resolved.baseUrl, apiKey: resolved.apiKey, model: resolved.sttModel };
+        }
+
+        attemptConfig ??= resolveRecognitionConfig(
+          adapter,
+          dependencies.defaults,
+          input.overrides,
+          settings,
+        );
+        return attemptConfig;
+      };
+
+      // The two gates the SELECTED provider's declaration decides, both before a request exists: an
+      // upload this provider does not accept, or one past its own declared budget, is refused here and
+      // costs no upstream request at all. The order is deliberate — a container the provider cannot
+      // read is refused before the size is even considered, so "too big" is only ever reported about
+      // audio that could have been sent. (A recording deployment does resolve the address by the time
+      // it writes this refusal's row — see `configForRow` — but resolving an address asks no upstream
+      // anything, and no gate below is reordered by it.)
       //
       // The adapter repeats both guards, and that is not a second rule: it asks the same two
       // functions of the same declaration, so it can only ever fire for a caller that did not come
@@ -830,11 +955,11 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
         return budgetFailure;
       }
 
-      // THE ADDRESS, KEY AND MODEL THIS ATTEMPT USES. For a provider that declares credential
-      // fields of its own this is the user's stored pair, not the deployment's — see
-      // `resolveRecognitionConfig`. Everything below reads this one shape, so the gates and the
-      // invocation cannot be looking at different addresses.
-      const config = resolveRecognitionConfig(adapter, dependencies.defaults, input.overrides, settings);
+      // THE ADDRESS, KEY AND MODEL THIS ATTEMPT USES: the same object the row and any refusal above
+      // already read, since there is one resolution and not one per reader — see `configForRow`. For a
+      // provider that declares credential fields of its own this is the user's stored pair, not the
+      // deployment's; see `resolveRecognitionConfig`.
+      const config = configForRow();
 
       // The third pre-request gate, and the only one that reads the SELECTED ADAPTER rather than
       // its capabilities alone: a proxy-only provider may only be addressed at its own service, so
@@ -889,8 +1014,10 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
             // The transport stays the injected port, so one place still owns every request that
             // leaves this process (its redirect policy, its abort controller and the test double
             // that replaces it). The adapter's `fetch` shape takes a `RequestInfo | URL` and an
-            // optional init while the port takes a string and an init, hence the wrapper.
-            fetchImpl: (url, init) => dependencies.fetchBackend(String(url), init ?? {}),
+            // optional init while the port takes a string and an init, hence the wrapper — and the
+            // wrapper is this attempt's own `captureTransport`, which records the answer on its way
+            // past without keeping one byte of the request.
+            fetchImpl: (url, init) => captureTransport(String(url), init ?? {}),
             // Named rather than inherited: how much of an answer is tolerable is a property of the
             // CALLER, and this path's reading is the one the parity baseline records.
             tolerance: PROXY_ANSWER_TOLERANCE,
@@ -901,19 +1028,22 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
           // The status is the table's — or, for the one code whose adapter carries the upstream's
           // own status, the upstream's. The message is the adapter's, which names the provider the
           // way a seam with more than one provider has to. The code is deliberately not
-          // republished here; see the table's comment.
+          // republished here; see the table's comment. It is passed to `logAttempt` all the same,
+          // because the row's branch is decided from it — that is the one reader it has.
           const status = providerFailureStatus(result);
-          logAttempt('fail', status);
+          logAttempt('fail', status, { code: result.code });
           return { ok: false, status, error: result.message };
         }
 
         // The two facts this path can read off a successful answer and nowhere else: which frozen
         // prompt produced the text, and whether a written recogniser had to degrade to a
         // transcription. Recorded on the attempt line so a change in either is visible in the
-        // process's own output rather than only in a response body.
+        // process's own output rather than only in a response body. The text goes to the ROW, not to
+        // the line: it is the attempt's own returned value, and the line carries no free text.
         logAttempt('ok', 200, {
           promptVersion: result.meta?.promptVersion,
           writtenFallback: result.meta?.writtenFallback,
+          text: result.text,
         });
 
         // The payload stays `{ text }`. The seam's richer envelope (`style`, `transformations`,

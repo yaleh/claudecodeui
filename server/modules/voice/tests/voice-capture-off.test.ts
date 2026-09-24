@@ -214,6 +214,24 @@ type CaptureModule = {
     log: VoiceLogPort;
     audio?: VoiceCaptureAudioSink;
   }) => VoiceCapturePort;
+  /**
+   * The module's payload builder, when it ships one.
+   *
+   * OPTIONAL, AND THE ABSENCE IS A READING RATHER THAN A SKIP. The row's payload refinement is a
+   * later delivery of this seam and this criterion does not verify its CONTENTS — but it does verify
+   * that a row carries no field the module's own construction point does not produce, and that check
+   * needs the builder's key set. A module with no builder predates the payload, so the key set is
+   * empty and the expectation is the five declared fields: stricter than the relaxation, never
+   * looser. See `payloadKeySet` and the AC8 registration reading.
+   */
+  buildVoiceCapturePayload?: (input: {
+    model: string;
+    baseUrl: string;
+    audio: VoiceCaptureAudio;
+    upstream: { status: number; body: string } | null;
+    requestSent: boolean;
+    reading: { ok: boolean; text: string };
+  }) => Record<string, unknown>;
 };
 
 /** Which module each half of the rig is imported from; both default to the shipping module. */
@@ -324,6 +342,14 @@ type Measurement = {
   /** The composition root's own `createVoiceCapture(…)` call, as text — what it wires, and what not. */
   compositionCall: string;
   /**
+   * The field names the module under test's payload builder produces, read off that module.
+   *
+   * Empty for a module that ships no builder, and that is a reading rather than a skip — see
+   * `payloadKeySet` and the AC8 registration reading, which adds these to the five declared row
+   * fields instead of replacing them.
+   */
+  payloadFields: string[];
+  /**
    * The module's two line producers, taken off the SHIPPING module.
    *
    * They are held as functions so AC4 can read the start-up line and the warning as the module's own
@@ -431,6 +457,34 @@ function parseCaptureRow(line: string): Record<string, unknown> | null {
   }
   const record = parsed as Record<string, unknown>;
   return record.event === CAPTURE_EVENT ? record : null;
+}
+
+/**
+ * The field names the module under test's payload builder produces, or none when it ships none.
+ *
+ * READ OFF THE MODULE RATHER THAN WRITTEN DOWN HERE, and that is the whole point of the helper: the
+ * row's expected field set becomes "the five declared fields plus whatever THIS module's construction
+ * point produces", so a field that appears on a row without the builder producing it is still a red.
+ * A list spelled again in this file would have said nothing about the module and would have had to be
+ * edited in lockstep with it.
+ *
+ * The argument is a minimal but COMPLETE input, so what comes back is the builder's SHAPE rather than
+ * a function of the fixture: every field of a payload is returned whether or not its source is empty.
+ */
+function payloadKeySet(capture: CaptureModule): string[] {
+  if (capture.buildVoiceCapturePayload === undefined) {
+    return [];
+  }
+  return Object.keys(
+    capture.buildVoiceCapturePayload({
+      model: '',
+      baseUrl: '',
+      audio: { bytes: new Uint8Array(0), mimeType: '', fileName: '' },
+      upstream: null,
+      requestSent: false,
+      reading: { ok: false, text: '' },
+    }),
+  );
 }
 
 /** The field names a line carries, in the order they appear (`key=value` tokens). */
@@ -643,6 +697,8 @@ async function measure(modules: CriterionModules, paths: TempPaths): Promise<Mea
       announceCalled: compositionRoot.includes(`${announceSymbol}(`),
       announceSymbol,
       compositionCall: callText(compositionRoot, 'createVoiceCapture') ?? '',
+      // Read off the module UNDER TEST, so a mutated copy is measured against its own builder.
+      payloadFields: payloadKeySet(capture),
       lines: {
         startup: (mode) => capture.voiceCaptureStartupLine(mode),
         warning: (value) => capture.voiceCaptureWarningLine(value),
@@ -856,9 +912,12 @@ const READINGS: readonly Reading[] = [
       // prose is the claim; the figures after it are the parts of the claim this run can measure:
       //
       //   · the ROW'S FIELD SET is the AC's minimal set (`captureId`/`providerId`/`outcome`/`status`
-      //     plus the `event` marker) — nothing this task does not deliver can be on it, and the
-      //     payload refinement (`text` mode's actual model, the upstream body verbatim, the result
-      //     branch, the 64KB cut) is another criterion's subject;
+      //     plus the `event` marker) PLUS the key set of the module under test's own payload builder —
+      //     nothing this task does not deliver can be on it, and the payload refinement (`text` mode's
+      //     actual model, the upstream body verbatim, the result branch, the 64KB cut) is another
+      //     criterion's subject: asserted there for its CONTENTS, and read here only for its shape,
+      //     because the fields' presence on this row is what this task's change to the construction
+      //     point is. See `payloadKeySet` for why the second half is read off the module;
       //   · the composition root wires NO AUDIO SINK, so the file write, the directory and their
       //     permissions are not this task's shipping shape either — the sink the AC3 control arms
       //     reach exists only inside this criterion;
@@ -870,6 +929,12 @@ const READINGS: readonly Reading[] = [
       const rows = [...measurement.arms.values()].flatMap((arm) => arm.rows);
       const rowFields = [...new Set(rows.flatMap((row) => Object.keys(row.parsed)))].sort();
       const declaredRowFields = ['captureId', 'event', 'outcome', 'providerId', 'status'];
+      // The expectation is the five declared fields PLUS the module's own payload, and reading the
+      // second half off the module is what keeps this a check rather than a second hand-kept list: the
+      // builder gains a field and this expectation follows it, while a field that appears on a row
+      // without the construction point producing it stays a red. A module with no builder makes this
+      // the five fields alone — stricter than the relaxation, never looser.
+      const expectedRowFields = [...declaredRowFields, ...measurement.payloadFields].sort();
       const attemptLines = [...measurement.arms.values()].flatMap((arm) => arm.attemptLines);
       const frozenClockLines = attemptLines.filter((line) => line.includes('latencyMs=0')).length;
       const backendCalls = [...measurement.arms.values()].reduce((total, arm) => total + arm.backendCalls, 0);
@@ -882,12 +947,14 @@ const READINGS: readonly Reading[] = [
           'capture row, the fail-closed form] out-of-scope=[text payload, audio file write, secrets ' +
           'criterion, capture-failure isolation, real process] fixtures=[stand-in fetchBackend, ' +
           `frozen clock] audio-sink-wired=${audioWired} row-fields=[${rowFields.join(' ')}] ` +
+          `declared-fields=[${declaredRowFields.join(' ')}] ` +
+          `payload-fields=[${measurement.payloadFields.join(' ')}] ` +
           `frozen-clock-lines=${frozenClockLines}/${attemptLines.length} double-calls=${backendCalls} ` +
           `socket-doors=${doors.length}`,
         ok:
           !audioWired &&
           rows.length > 0 &&
-          rowFields.join(' ') === declaredRowFields.join(' ') &&
+          rowFields.join(' ') === expectedRowFields.join(' ') &&
           attemptLines.length > 0 &&
           frozenClockLines === attemptLines.length &&
           backendCalls > 0 &&

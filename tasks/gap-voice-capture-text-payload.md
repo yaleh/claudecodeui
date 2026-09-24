@@ -3,7 +3,7 @@ id: gap-voice-capture-text-payload
 title: text 档捕获行载荷：一次成功、一次上游
   404、一次预检拒绝各一行，含实际模型/宿主名/mime/bytes/sha256/上游原始返回逐字/结果分支/返回文本，超 64KB
   截断带标记而不超限不带，行内无请求体与请求头、不建文件（AC-144）
-status: ready
+status: done
 labels:
   - gap
 parent: null
