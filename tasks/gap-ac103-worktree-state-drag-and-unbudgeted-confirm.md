@@ -245,3 +245,48 @@ asserted a lower bound here would be a different and wrong one」⇒ 压它等�
    并发相 24042/24335ms）。它现在同时吃两条通道：自己 17s 级的单跑成本 ⇒ 确认步估计 21s 级
    （`elapsed≈57.9s + 21391ms` 必被拒）。修法不在本条：AC8 的「变异体必须红且**指名**」是那份任务的
    承重断言，可取的收窄是「tsc 没产出任何诊断 ⇒ 该臂不可归因 ⇒ 重试一次而不是判红」。
+
+### 四、合并 develop 的**最后一次合并**又带进来一个同类阻塞（本轮新发现，未修）
+
+本节的合并（`git merge develop`，在四处改动提交之后）把
+`src/shared/tests/voiceErrorClassification.test.ts`（新的前端判据）带进客户端套件。
+它的 `AC1: budget, doors, and no residue` 读的是**整棵仓库树**：
+
+```
+function treeSnapshot()  // walk(REPO_ROOT)，只 skip .git/node_modules/dist/coverage/artifacts/.vite
+const residue = treeSnapshot().filter((entry) => !SNAPSHOT_AT_START.includes(entry));
+expect(residue, `the run left files behind: ${residue.slice(0, 5).join(', ')}`).toEqual([]);
+```
+
+于是**判据自己**在并发相里写下的东西就成了它的残渣。合并后连跑三条（冷 1 暖 2），三条全部
+`rc=1 FAIL — 并发组非零退出但无法归因到文件：concurrent-suite-0.out(rc=1) concurrent-suite-1.out(rc=1)`，
+墙钟 59240/32894/31488ms；`concurrent-suite-0.out` 里是同一个断言：
+
+```
+ Test Files  1 failed | 102 passed (103)
+residue = ["/.quay/suite-concurrency-check/20260925T001245-2983566/concurrent-suite-0.out:…",
+           "/server/modules/voice/__criterion-falsify-upstream-body-replaced-by-final-text-base-2986307.ts:…"]
+```
+
+两条残渣都不是这条前端判据写的：一条是**判据自己的运行目录**（`.quay/suite-concurrency-check/<run>/`），
+一条是**兄弟进程**（`voice-capture-text.false-forms.test.ts`，pid 2986307）当时活着的探针副本 ——
+即本条 Proposal 里说的那条「共享 worktree 状态」通道，**又一次**（这次在客户端套件一侧）。
+`E/AC1` 自己的打印写着 `git-clean-after=${residue.length === 0}`：它要的读数是「跑完树是干净的」，
+而整树 walk 把**本跑自己产生的** `.quay/` 运行数据与**别人的**活探针都算成了自己的残渣。
+
+**归因（不是我的改动引入的）**：(1) 该文件在本次最终合并前不在树上（合并输出把它列为 create）；
+(2) 本轮四处改动只改**等待与起跑顺序**，没有新增任何写树行为；(3) 两条残渣在**任何**跑判据的树上都会出现 ——
+`.quay/suite-concurrency-check/<run>/` 由判据自己写，`__criterion-falsify-*` 由 develop 服务器文件集里的
+`voice-capture-text.false-forms.test.ts` 写（该文件在 develop 上就有）。
+
+**为什么本轮没有替它修**：这条读数的收窄属于**它自己的任务**（`src/shared/tests/**` 是前端模块，
+`AGENTS.md` 要求先加载 `$frontend-module-standards`，且该文件是 develop 带进来的另一份交付物）。
+按本仓纪律这是「下游红挂在其成因上」：应当**立案**（`goal_ac: AC-103`，`depends_on` 那份任务），
+而不是由本条替它改。可取的收窄形状与本条已经做过的三处同形：读数收窄到**本 run 自己**写下的路径
+（`git status --porcelain` 语义天然排除 gitignore 的 `.quay/`；再排除 pid ≠ 本进程的 `__criterion-falsify-*`），
+并保留可红的取假形态 —— 本 run 自己漏下的探针/新增文件仍必须判红。
+
+**对 AC1/AC2 的影响（如实登记）**：本节三条合并后的运行是 `rc=1`，所以**最终树上的 AC1/AC2 都没有
+可用的绿读数**；第三节里 `- [x]` 的 AC2 与 AC1 的暖支读数都取自在这次合并**之前**的树（那时该文件不在树上）。
+AC1 本来也已按第三节判定为未满足（冷支 3/9），这次合并没有改变那个结论，只是把「暖支也绿」这个已有事实
+从最终树上拿掉了。
