@@ -1,7 +1,7 @@
 ---
 id: AC-137
 title: DashScope 适配器的提示词与实验中评估过的 E 组逐字一致，且有每条 ≥10 次的冻结读数背书
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-009
 criterion: node scripts/asr-omni-prompt-frozen-check.mjs
@@ -18,6 +18,11 @@ statusLog:
     to: active
     actor: goal-cli
     reason: ""
+  - at: 2026-09-24T03:28:54.057Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
