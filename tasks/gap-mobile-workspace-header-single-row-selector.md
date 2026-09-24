@@ -1,7 +1,7 @@
 ---
 id: gap-mobile-workspace-header-single-row-selector
 title: 移动端工作区 header 合并为单行：菜单 + 会话标题 + 当前工作区入口，其余工作区收进底部 dialog；移动/桌面边界统一到 md（768px）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
