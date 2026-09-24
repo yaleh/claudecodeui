@@ -26,6 +26,12 @@
  */
 
 import {
+  capabilities as dashscopeOmniCapabilities,
+  id as dashscopeOmniId,
+  transcribe as dashscopeOmniTranscribe,
+  wire as dashscopeOmniWire,
+} from './list/dashscope-omni/dashscope-omni.asr-provider.js';
+import {
   capabilities as multimodalCapabilities,
   id as multimodalId,
   transcribe as multimodalTranscribe,
@@ -35,6 +41,7 @@ import {
   id as openaiCompatibleId,
   transcribe as openaiCompatibleTranscribe,
 } from './list/openai-compatible/openai-compatible.asr-provider.js';
+import type { TranscriptionTolerance } from './transcriptionWire.js';
 
 /** A provider id, as it is written in user-level configuration. */
 export type AsrProviderId = string;
@@ -175,6 +182,21 @@ export type AsrInvocation = {
   timeoutMs: number;
   fetchImpl: typeof fetch;
   signal?: AbortSignal;
+  /**
+   * How much of the upstream's answer the caller is willing to see as malformed before it is an
+   * error, for the adapters whose wire reads an answer back (see `TranscriptionTolerance`).
+   *
+   * IT IS A FIELD OF THE INVOCATION BECAUSE IT IS A PROPERTY OF THE CALLER, NOT OF THE PROVIDER.
+   * The same recogniser is reached by two callers whose historical readings differ — the browser's
+   * direct path has always treated a body that is not the transcription envelope as a failed
+   * transcription, and the server's proxy path has always handed that body back as the transcript
+   * — so an adapter that hardcoded either one would change the other path's behaviour the moment
+   * the two began sharing it. The proxy path therefore names `'lenient'` at its call site and
+   * every other caller gets the absent-means-`'strict'` default it has always had, which keeps the
+   * invariant board's and the experiments' invocations (this field absent) reading what they read
+   * before.
+   */
+  tolerance?: TranscriptionTolerance;
 };
 
 /**
@@ -301,6 +323,22 @@ const REGISTERED: readonly AsrAdapter[] = [
     capabilities: multimodalCapabilities,
     wire: 'inline-json',
     transcribe: multimodalTranscribe,
+  },
+  // APPENDED LAST, and the position is the whole point of this row. An id-less deployment
+  // resolves its effective provider as the FIRST row (see the comment above), and the client
+  // publishes that same row as "the recogniser a trim decision is about"; the third recogniser
+  // is a service a user must select, so registering it first would silently move every default
+  // reading in the repository onto a service no shipped configuration points at. Last is also
+  // its own reading: `listProviders()` now ends with this id, which is what the criterion prints.
+  //
+  // The four fields are the module's own exports and not a second copy of them — the declaration
+  // the registry hands out IS the object the adapter declares, so a field changed in the module
+  // changes what every consumer sees without a second edit here.
+  {
+    id: dashscopeOmniId,
+    capabilities: dashscopeOmniCapabilities,
+    wire: dashscopeOmniWire,
+    transcribe: dashscopeOmniTranscribe,
   },
 ];
 

@@ -8,23 +8,26 @@ import type {
   VoiceSpeechPayload,
 } from '@/shared/types.js';
 
-// The proxy path's request construction and response parsing live in the repository-root
-// shared tree, the same module the browser and the CLI compile — see
-// shared/asr/transcriptionWire.ts. A second copy here is what this import exists to prevent.
-import { createTranscriptionRequest, parseTranscriptionResponse } from '../../../shared/asr/transcriptionWire.js';
-// The provider address book. The health payload republishes what this exports and the two
-// request paths ask it whether an id exists at all, so a provider is added by registering it
-// there rather than by editing anything in this module.
-// The container rule itself, which is a property of a declaration rather than of this module: the
-// browser's direct path asks the same function of the same declaration, which is what makes one
-// refusal code mean one thing on both paths.
+// The provider address book AND the dispatch. The health payload republishes what this module
+// exports, the request paths ask it whether an id exists at all, and `transcribe` asks it for the
+// ADAPTER the selected id names and hands that adapter the audio (see the dispatch comment in
+// `transcribe`). So a provider is added by registering it there, and the wire a provider speaks is
+// the adapter's to know rather than this module's.
+// The container rule is read from a declaration for the same reason: the browser's direct path asks
+// the same function of the same declaration, which is what makes one refusal code mean one thing on
+// both paths.
 import {
   baseMimeType,
   declaredAcceptsMime,
   listProviders,
   tryResolve,
 } from '../../../shared/asr/asrRegistry.js';
-import type { AsrCapabilities } from '../../../shared/asr/asrRegistry.js';
+import type { AsrCapabilities, AsrErrorCode, AsrFailure } from '../../../shared/asr/asrRegistry.js';
+// The wire's own vocabulary for how much of an upstream answer is allowed to be malformed, which
+// this path names below. A TYPE import deliberately: what the wire implements — the request it
+// builds, the answer it parses — is reached through the adapter now, so the only thing left for
+// this module to name from that file is the reading it asks the adapter for.
+import type { TranscriptionTolerance } from '../../../shared/asr/transcriptionWire.js';
 
 type VoiceServiceDependencies = {
   defaults: {
@@ -108,6 +111,71 @@ function unknownProviderFailure(providerId: string, status: number): VoiceServic
 }
 
 /**
+ * The seam's semantic vocabulary, mapped to the status this service owes the caller.
+ *
+ * WHY IT IS A TABLE AND NOT THE BRANCHES IT REPLACED. The statuses on this path used to be decided
+ * in four separate places — a literal in each of the two gates, an `if` on 401/403 inside
+ * `backendFailure`, a literal in the timeout branch — so which number a caller saw depended on
+ * which branch happened to produce the failure, and the set of statuses this path could answer was
+ * not readable from anywhere. Every code in the vocabulary now has exactly one row, and each is
+ * reachable from the proxy path: the adapters translate a transport-level failure into a code, and
+ * this table is the only place a code becomes HTTP.
+ *
+ * WHY THESE NUMBERS, stated once instead of per site:
+ *   · 503 / 400 — no backend is configured, or the configured URL could never be called. The
+ *     distinction is whose value was wrong: the deployment's own environment (503, not the
+ *     caller's to fix) against a URL that arrived in the request (400).
+ *   · 502 — the upstream refused the credential, or answered something unreadable. Neither is
+ *     fixable from here, and 502 is what this path has always answered a rejected key with.
+ *   · 429 — the upstream's own rate limit, reported as itself: it is the one upstream status whose
+ *     meaning a client changes behaviour on, and folding it into 502 would hide that.
+ *   · 504 / 413 / 415 / 422 — timed out, too large, wrong container, no speech. Four different user
+ *     remedies, four numbers; the two upload ones are also the codes the result itself republishes.
+ *
+ * WHAT IT DECIDES, AND WHAT IT DOES NOT. It decides the STATUS of every failure this path returns.
+ * Whether a failure also republishes its code in the result body is a separate and narrower
+ * question (`VoiceServiceResult.code`) and this task leaves that reading exactly as it was: the two
+ * pre-upstream refusals carry their codes, and the rest do not.
+ *
+ * Exported for `server/modules/voice/tests/voice-provider-dispatch.test.ts`, which is the criterion
+ * that reads the table row by row and then drives each code through this service to the status it
+ * names.
+ */
+export const PROVIDER_ERROR_STATUS: Readonly<Record<AsrErrorCode, number>> = {
+  NOT_CONFIGURED: 503,
+  INVALID_BASE_URL: 400,
+  UNAUTHORIZED: 502,
+  RATE_LIMITED: 429,
+  TIMEOUT: 504,
+  UNREACHABLE: 502,
+  OVERSIZE: 413,
+  UNSUPPORTED_MIME: 415,
+  NO_SPEECH_DETECTED: 422,
+  UPSTREAM_ERROR: 502,
+};
+
+/**
+ * The status one adapter failure is owed.
+ *
+ * The table holds every code, and one cell of it is deliberately not the last word: an
+ * `UPSTREAM_ERROR` that carries the status its adapter read off the transport is answered with that
+ * status instead of the table's 502. That is the reading this path has always had — a 404 from the
+ * recogniser reached the client as 404 — and it is the only code for which the status is DATA
+ * rather than a constant: every other code is a meaning an adapter derived, and a meaning has one
+ * number. The clause is "carries a status" rather than "is a non-2xx answer" because both adapters
+ * set the field when they read the transport and leave it unset when they do not, so the presence
+ * of the field is exactly the difference between "the upstream said this" and "we interpreted
+ * this".
+ */
+function providerFailureStatus(failure: AsrFailure): number {
+  if (failure.code === 'UPSTREAM_ERROR' && typeof failure.status === 'number') {
+    return failure.status;
+  }
+
+  return PROVIDER_ERROR_STATUS[failure.code];
+}
+
+/**
  * The container gate: the refusal owed an upload whose type `capabilities` does not declare.
  *
  * The whitelist is the DECLARATION, not a table of this module's own — a second list here would be
@@ -134,7 +202,7 @@ export function containerRefusal(
 
   return {
     ok: false,
-    status: 415,
+    status: PROVIDER_ERROR_STATUS.UNSUPPORTED_MIME,
     code: 'UNSUPPORTED_MIME',
     error:
       `provider '${providerId}' does not accept ${baseMimeType(mimeType)}; ` +
@@ -171,7 +239,7 @@ export function budgetRefusal(
 
   return {
     ok: false,
-    status: 413,
+    status: PROVIDER_ERROR_STATUS.OVERSIZE,
     code: 'OVERSIZE',
     error:
       `upload of ${byteLength} B exceeds provider '${providerId}' budget of ${budget} B ` +
@@ -232,17 +300,47 @@ function unreachableBackendFailure(error: unknown, timeoutMs: number): VoiceServ
   };
 }
 
+/**
+ * The configuration gate: the two refusals owed a backend that is absent or unspeakable.
+ *
+ * Both statuses come from `PROVIDER_ERROR_STATUS` rather than being written here, so this gate is
+ * the third reader of the one table instead of a third place a number is decided. The codes are not
+ * republished in the result — see the table's comment — but the status is the table's.
+ */
 function validateConfiguredBackend(config: ResolvedVoiceConfig): VoiceServiceResult<never> | null {
   if (!config.baseUrl) {
-    return { ok: false, status: 503, error: 'No voice backend configured' };
+    return {
+      ok: false,
+      status: PROVIDER_ERROR_STATUS.NOT_CONFIGURED,
+      error: 'No voice backend configured',
+    };
   }
 
   if (!validateBackendBaseUrl(config.baseUrl)) {
-    return { ok: false, status: 400, error: 'Invalid voice backend URL.' };
+    return {
+      ok: false,
+      status: PROVIDER_ERROR_STATUS.INVALID_BASE_URL,
+      error: 'Invalid voice backend URL.',
+    };
   }
 
   return null;
 }
+
+/**
+ * How this path reads an upstream answer: the tolerance it has always had.
+ *
+ * A named constant rather than a literal at the call site, because `TranscriptionTolerance` is the
+ * wire's own vocabulary and this is the one place in the server that names `'lenient'` — the
+ * browser's direct path stays on the absent-means-`'strict'` default (`src/shared/api.ts`), so a
+ * reader comparing the two paths finds each of them naming its own reading in exactly one place.
+ *
+ * `'lenient'` is a description of the behaviour this path must not change, not a licence: a body
+ * that is not the transcription envelope is the transcript here (that is what the parity baseline
+ * records, gateway error page and all), and an EMPTY transcript is a successful transcription of
+ * silence rather than `NO_SPEECH_DETECTED`.
+ */
+const PROXY_ANSWER_TOLERANCE: TranscriptionTolerance = 'lenient';
 
 /**
  * Creates the Voice application service used by the Voice composition root and
@@ -305,6 +403,13 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
       // past its own declared budget, is refused here and costs no upstream request at all. The
       // order is deliberate — a container the provider cannot read is refused before the size is
       // even considered, so "too big" is only ever reported about audio that could have been sent.
+      //
+      // The adapter repeats both guards, and that is not a second rule: it asks the same two
+      // functions of the same declaration, so it can only ever fire for a caller that did not come
+      // through this module (the direct path, the CLI, the invariant board). They stay here as well
+      // because a refusal that reaches no adapter costs nothing to explain — no configuration, no
+      // transport, no invocation — and because these two exported functions are the symbols
+      // `scripts/asr-mime-size-gaps-check.mjs` reads this module's behaviour through.
       const containerFailure = containerRefusal(
         adapter.capabilities,
         providerId,
@@ -330,29 +435,56 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
       }
 
       try {
-        // The bytes arrive as a Buffer; the wire takes a Blob, so the container and the
-        // bytes are handed over together, exactly as the browser hands over its recording.
-        const request = createTranscriptionRequest(
-          { baseUrl: config.baseUrl, apiKey: config.apiKey, model: config.sttModel },
+        // THE DISPATCH. Which endpoint, which verb, which headers, which body shape, which
+        // envelope the answer comes back in — all of that is the ADAPTER's to know, and this module
+        // no longer knows any of it: it hands over the audio and the environment, and reads back a
+        // result. Before this the proxy path built the multipart request itself, so registering a
+        // second provider changed nothing about what the app actually sent — the registry was a
+        // DESCRIPTION of behaviour the app did not go through, and every reader of the seam (the
+        // trim's declaration, the health payload, the invariant board) was reading a description of
+        // a path nothing ran. That is also what makes this task's falsification possible at all:
+        // hardcode one wire here and the other provider is silently unreachable.
+        const result = await adapter.transcribe(
           {
-            audio: new Blob([input.audio.bytes], { type: input.audio.mimeType }),
-            fileName: input.audio.fileName,
+            audio: {
+              bytes: input.audio.bytes,
+              mimeType: input.audio.mimeType,
+              fileName: input.audio.fileName,
+            },
+          },
+          {
+            baseUrl: config.baseUrl,
+            apiKey: config.apiKey,
+            model: config.sttModel,
+            timeoutMs: dependencies.timeoutMs,
+            // The transport stays the injected port, so one place still owns every request that
+            // leaves this process (its redirect policy, its abort controller and the test double
+            // that replaces it). The adapter's `fetch` shape takes a `RequestInfo | URL` and an
+            // optional init while the port takes a string and an init, hence the wrapper.
+            fetchImpl: (url, init) => dependencies.fetchBackend(String(url), init ?? {}),
+            // Named rather than inherited: how much of an answer is tolerable is a property of the
+            // CALLER, and this path's reading is the one the parity baseline records.
+            tolerance: PROXY_ANSWER_TOLERANCE,
           },
         );
-        const response = await dependencies.fetchBackend(request.url, request.init);
-        if (!response.ok) {
-          return backendFailure(response.status, await response.text());
+
+        if (!result.ok) {
+          // The status is the table's — or, for the one code whose adapter carries the upstream's
+          // own status, the upstream's. The message is the adapter's, which names the provider the
+          // way a seam with more than one provider has to. The code is deliberately not
+          // republished here; see the table's comment.
+          return { ok: false, status: providerFailureStatus(result), error: result.message };
         }
 
-        // Lenient on purpose, and named here rather than implied by living in this file:
-        // the proxy path hands an unparseable body back as the transcript instead of
-        // failing, which is the tolerance it had before this module existed. The body is
-        // read once, here or in the branch above, never twice.
-        return {
-          ok: true,
-          value: { text: await parseTranscriptionResponse(response, 'lenient') },
-        };
+        // The payload stays `{ text }`. The seam's richer envelope (`style`, `transformations`,
+        // the provider's own `meta`) belongs to the surfaces that consume it — the settings entry
+        // point and the trim declarations of later tasks — not to this route's two fields.
+        return { ok: true, value: { text: result.text } };
       } catch (error) {
+        // Reachable only if an adapter throws where its contract says it answers: every documented
+        // failure is a returned `AsrFailure`, and each adapter catches its own transport errors,
+        // so this keeps the module's promise — `transcribe` answers with a result — for the bug
+        // rather than for the design.
         return unreachableBackendFailure(error, dependencies.timeoutMs);
       }
     },

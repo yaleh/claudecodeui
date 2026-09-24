@@ -156,9 +156,22 @@ function isAbortError(error: unknown): boolean {
  *
  * The two guards run before the transport is touched, in this order: an unaccepted container is
  * refused before anything is sized, and an oversized request is refused before anything is sent.
- * Neither produces an upstream call. The wire itself is built by `transcriptionWire.ts`, and the
- * answer is read with the `strict` tolerance — the direct path's historical reading, where a body
- * that is not this service's JSON is a failed transcription rather than a transcript.
+ * Neither produces an upstream call. The wire itself is built by `transcriptionWire.ts`.
+ *
+ * THE READING OF THE ANSWER IS THE CALLER'S, not this module's, and that is why it arrives on the
+ * invocation. This wire has two callers with two historical readings of the same bytes — the
+ * browser's direct path takes a body that is not this service's JSON as a failed transcription,
+ * the server's proxy path has always handed it back verbatim as the transcript — and
+ * `TranscriptionTolerance` is that difference written down once (`../../transcriptionWire.ts`).
+ * The default is `strict`, so a caller that says nothing about tolerance (the direct path, the
+ * invariant probes) keeps the reading it had before; the proxy path names `lenient` at its call
+ * site instead of this module guessing from who is asking.
+ *
+ * The empty answer is read by the same tolerance, and it is the second half of that difference
+ * rather than a separate rule: `lenient` means "whatever came back is the transcript", and an
+ * empty transcript is a successful transcription of silence — the proxy path has always answered
+ * `ok` with an empty string there. `strict` keeps calling it `NO_SPEECH_DETECTED`, because the
+ * direct path's caller needs the distinction to tell "you said nothing" from "the service failed".
  */
 export async function transcribe(request: AsrRequest, invocation: AsrInvocation): Promise<AsrResult> {
   if (!declaredAcceptsMime(capabilities, request.audio.mimeType)) {
@@ -213,9 +226,11 @@ export async function transcribe(request: AsrRequest, invocation: AsrInvocation)
     };
   }
 
+  const tolerance = invocation.tolerance ?? 'strict';
+
   let transcript: string;
   try {
-    transcript = await parseTranscriptionResponse(response, 'strict');
+    transcript = await parseTranscriptionResponse(response, tolerance);
   } catch {
     return {
       ok: false,
@@ -224,7 +239,7 @@ export async function transcribe(request: AsrRequest, invocation: AsrInvocation)
     };
   }
 
-  if (transcript === '') {
+  if (transcript === '' && tolerance === 'strict') {
     return { ok: false, code: 'NO_SPEECH_DETECTED', message: `provider '${id}' returned no text` };
   }
 
