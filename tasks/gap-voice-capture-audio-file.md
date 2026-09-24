@@ -13,6 +13,7 @@ extra:
 depends_on:
   - gap-voice-capture-mode-gate-off-fail-closed
   - gap-voice-capture-text-payload
+  - gap-ac103-worktree-state-drag-and-unbudgeted-confirm
 goal_ac: AC-145
 ---
 ## Proposal
