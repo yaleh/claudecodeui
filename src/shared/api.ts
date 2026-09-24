@@ -734,6 +734,27 @@ export async function transcribeVoice(blob: Blob, filename: string): Promise<Res
   await whenVoiceConfigReady();
   const config = readVoiceConfig();
 
+  // THE ROUTE IS THE DECLARATION'S, NOT THE SETTINGS'. This is read BEFORE the direct branch
+  // below, and that order is the whole deliverable: a provider declaring `transport: 'proxy-only'`
+  // is one a browser cannot address itself — its service answers no CORS preflight for this origin
+  // — so the base URL the user stored must be stepped over rather than called. An unresolved or
+  // unpublished profile keeps the behaviour below unchanged, the same discipline
+  // `unregisteredProviderRefusal` and `unsupportedContainerRefusal` follow: no readable declaration
+  // means no change of route. Note what this is NOT: it is not a test of whether a base URL is set,
+  // and it is not a fallback taken after the direct call failed — the request never goes out.
+  const profile = voiceProviderProfile;
+  if (profile !== null && profile.capabilities.transport === 'proxy-only') {
+    // The proxy hop is a different protocol from the one below: this is the client talking to
+    // CloudCLI (field `audio`, model and key in headers), not to the recogniser's endpoint. The
+    // routing header is assembled HERE rather than inside `voiceConfigHeaders()`, which returns an
+    // empty map when there is no window: a routing header that vanished there would hand the
+    // recording to whatever provider the server defaults to, which is the very thing this branch
+    // exists to prevent — silently, on the one path that cannot show it.
+    const body = new FormData();
+    body.append('audio', blob, filename);
+    return api.voice.transcribe(body, { ...voiceConfigHeaders(), 'x-voice-provider': profile.id });
+  }
+
   if (config.baseUrl.trim()) {
     // The outbound request is built by the one module that owns this protocol. What stays
     // here is what is genuinely local to the browser: which of the two endpoints this

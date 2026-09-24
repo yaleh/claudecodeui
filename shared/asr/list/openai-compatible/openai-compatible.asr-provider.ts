@@ -77,6 +77,12 @@ export const capabilities: AsrCapabilities = {
   pauseCues: 'destructive',
   style: 'verbatim',
   oneShot: true,
+  // 'direct' — the shipped path's own reading, and the reason this field is a declaration rather
+  // than a special case: the browser has always addressed this service itself when the user set a
+  // base URL, and every deployment that does so must keep doing it. The server's own rule for a
+  // user-supplied address (`validateBackendBaseUrl`) is the only one that applies here — http and
+  // private backends are deliberately legal — so no `allowedBaseUrl` is declared.
+  transport: 'direct',
 };
 
 // ── the hints ────────────────────────────────────────────────────────────────────────────────

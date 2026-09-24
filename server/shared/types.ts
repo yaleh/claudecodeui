@@ -1372,13 +1372,21 @@ export type VoiceServiceResult<TValue> =
      * The semantic code for a refusal the caller is meant to act on differently from a generic
      * failure, taken from the recogniser seam's own vocabulary (`AsrErrorCode`). Absent for the
      * failures whose meaning a caller does not branch on — an unreachable backend, a rejected
-     * key, a bad URL.
+     * key.
      *
-     * The route republishes it verbatim beside the message, because the two status codes this
-     * carries today (`UNSUPPORTED_MIME`, `OVERSIZE`) are both *pre-upstream* refusals that a
-     * client distinguishes by reason rather than by status: "this container is not accepted" and
-     * "this recording is too big" are different user remedies, and a status number alone cannot
-     * carry which one it was across the two paths that both produce them.
+     * A BAD URL IS NO LONGER ONE OF THOSE, and the example is worth spelling out because it moved:
+     * the recogniser seam now carries an endpoint rule of its own (`AsrAdapter.allowedBaseUrl`),
+     * and the server refuses a `'proxy-only'` provider's address through it with
+     * `INVALID_BASE_URL` — the code the vocabulary has always had for that refusal. The URL that
+     * still arrives without a code is the one `validateBackendBaseUrl` cannot parse as a backend
+     * address at all, which no client can act on beyond "fix the setting".
+     *
+     * The route republishes it verbatim beside the message, because the three status codes this
+     * carries today (`UNSUPPORTED_MIME`, `OVERSIZE`, `INVALID_BASE_URL`) are all *pre-upstream*
+     * refusals that a client distinguishes by reason rather than by status: "this container is not
+     * accepted", "this recording is too big" and "this address is not one this recogniser may be
+     * reached at" are different user remedies, and a status number alone cannot carry which one it
+     * was across the two paths that both produce them.
      */
     code?: AsrErrorCode;
   };

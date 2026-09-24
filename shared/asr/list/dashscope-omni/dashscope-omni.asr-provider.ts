@@ -55,11 +55,17 @@
  * inline ceiling covers the prompt, the task turn and the encoded audio together), which is why
  * `measureChatRequestBytes` sizes the body it is about to send rather than the audio inside it.
  *
- * WHAT THIS MODULE DELIBERATELY DOES NOT DO, because a reader will otherwise look for it: it is not
- * registered in `asrRegistry.ts` and `voice.service.ts` does not dispatch to it (that is the next
- * task), and it declares no `transport` capability (`'proxy-only'`, the CORS measurement) — that
- * field belongs to a task of its own, and a capability table that declared it here would make every
- * board row about it unmeasurable.
+ * WHAT THIS MODULE DELIBERATELY DOES NOT DO, because a reader will otherwise look for it: this
+ * module owns the wire, the parse and the endpoint rule, and nothing above it — the settings tab,
+ * the user-level provider selection, key masking and the health reading's `configured` semantics
+ * belong to tasks of their own.
+ *
+ * THE ENDPOINT RULE IS DECLARED HERE AND ENFORCED ELSEWHERE, which is the point of `allowedBaseUrl`
+ * below: what counts as this service's address is a fact this module knows and no other module
+ * should hold a second copy of, while the refusal it produces is the server's to issue before a
+ * request is built. The rule's own text is
+ * `docs/proposals/voice-dashscope-omni-written-instruction.md` §3 verbatim, not a rule invented
+ * here; the module comment says so because a later reader comparing the two must find them equal.
  *
  * ENVIRONMENT NEUTRALITY, the same machine property `../../asrRegistry.ts` documents: this file is
  * compiled by BOTH compiler configurations (root: `lib: ES2020 + DOM`, `types: vite/client`;
@@ -185,7 +191,73 @@ export const capabilities: AsrCapabilities = {
   pauseCues: 'neutral',
   style: 'written',
   oneShot: true,
+  // 'proxy-only', AND THIS IS A MEASUREMENT RATHER THAN A PREFERENCE. A browser cannot call this
+  // service's endpoint itself — the CORS preflight is not answered (the 2026-09-23 webm candidate
+  // record has the 401 arriving with no usable CORS headers, which is what a browser reports as an
+  // opaque failure) — so a user's recording reaches it through this server and only through it. The
+  // declaration is what makes the client's direct path step aside without the client having to know
+  // the hostname; `allowedBaseUrl` below is what holds the address the user typed to this service's
+  // own.
+  transport: 'proxy-only',
 };
+
+/**
+ * The workspace hostname shape this service hands out: one sub-domain under a regional workspace
+ * name, under the `maas` product, under the vendor's domain.
+ *
+ * `maas` IS PART OF THE PATTERN ON PURPOSE. A rule that accepted any `*.aliyuncs.com` host would
+ * accept every other product on the vendor's shared domain — DashScope's own model APIs, OSS, the
+ * console — so the recording would be offered to a host that has nothing to do with this endpoint
+ * while the rule said it was this endpoint's address.
+ */
+const WORKSPACE_HOSTNAME = /^[a-z0-9-]+\.[a-z0-9-]+\.maas\.aliyuncs\.com$/;
+
+/** The service's own public hostname, accepted as it stands: it is the address without a workspace. */
+const PUBLIC_HOSTNAME = 'dashscope.aliyuncs.com';
+
+/**
+ * Whether `baseUrl` is an address this provider's endpoint may be reached at.
+ *
+ * THE RULE IS `docs/proposals/voice-dashscope-omni-written-instruction.md` §3 (the SSRF section),
+ * and each clause is there for a reason that clause alone carries:
+ *
+ *   · `https:` ONLY — the recording is the user's voice and the credential travels beside it. A
+ *     plain-`http` address would send both in the clear, and the workspace shape below says nothing
+ *     about the transport.
+ *   · THE HOSTNAME IS ONE OF THE TWO DECLARED SHAPES — a workspace under `maas`, or the service's
+ *     public hostname. This is the SSRF clause: the address a user types travels to a cloud
+ *     metadata endpoint or an internal service exactly as readily as to this one, so the hosts the
+ *     value may name are enumerated rather than filtered. `aliyuncs.com.evil.com` and
+ *     `dashscope.aliyuncs.com.evil.com` are different hostnames from the two above and are refused
+ *     by the same clause — the match is on the WHOLE hostname, never a suffix or a substring.
+ *   · NO PORT — the service is reached on its own default port. A port is a way to point a
+ *     permitted hostname at something else entirely on the other end of it.
+ *   · NO USER INFORMATION — `https://user:pass@host` sends a credential this path does not own and
+ *     makes the authority a string no reader of the address would expect.
+ *
+ * A value that is not a URL at all is refused here too, and by the same answer: `new URL` throwing
+ * is not a different meaning, it is the same "this is not this service's address". The caller reads
+ * the boolean; the code and message it turns into are the server's (`INVALID_BASE_URL`).
+ *
+ * WHAT IT DOES NOT DO: it does not resolve DNS, follow redirects or inspect the audio. A hostname
+ * that passes and then answers a redirect somewhere else is a property of the transport, and this
+ * predicate has no transport to read.
+ */
+export function allowedBaseUrl(baseUrl: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    return false;
+  }
+
+  if (parsed.protocol !== 'https:') return false;
+  if (parsed.port !== '') return false;
+  if (parsed.username !== '' || parsed.password !== '') return false;
+
+  const hostname = parsed.hostname;
+  return hostname === PUBLIC_HOSTNAME || WORKSPACE_HOSTNAME.test(hostname);
+}
 
 /**
  * The request shape this adapter speaks. Declared rather than implied: the contract board selects
@@ -607,5 +679,5 @@ export async function transcribe(request: AsrRequest, invocation: AsrInvocation)
   };
 }
 
-/** This module as a registry would consume it. Not registered here — see the module comment. */
-export const adapter: AsrAdapter = { id, capabilities, wire, transcribe };
+/** This module as the registry consumes it. The endpoint rule travels with the adapter, not beside it. */
+export const adapter: AsrAdapter = { id, capabilities, wire, allowedBaseUrl, transcribe };

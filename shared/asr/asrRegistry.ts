@@ -26,6 +26,7 @@
  */
 
 import {
+  allowedBaseUrl as dashscopeOmniAllowedBaseUrl,
   capabilities as dashscopeOmniCapabilities,
   id as dashscopeOmniId,
   transcribe as dashscopeOmniTranscribe,
@@ -75,6 +76,19 @@ export type AsrCapabilities = {
   style: 'verbatim' | 'written';
   /** One-shot or streaming. The first version only allows one-shot. */
   oneShot: boolean;
+  /**
+   * From where this recogniser's endpoint may be addressed: the browser's own direct path
+   * (`'direct'`) or this server's proxy path only (`'proxy-only'`).
+   *
+   * IT IS REQUIRED, AND THE ABSENCE OF A DEFAULT IS THE WHOLE POINT. A defaulted field is a second
+   * source of truth: a service whose endpoint a browser cannot call — a site that answers no CORS
+   * preflight, which is the measurement that named this capability — would answer `'direct'` by
+   * omission and be addressed by the browser's direct path anyway, where the request either fails
+   * opaquely or, worse, is sent with the user's credential. Requiring it makes each declaration
+   * state the path its audio travels, and makes a new adapter's silence about it a compile error
+   * rather than a route.
+   */
+  transport: 'direct' | 'proxy-only';
 };
 
 /** The audio half of a request. Bytes travel as a `Uint8Array` so the browser and Node agree. */
@@ -234,6 +248,23 @@ export type AsrAdapter = {
   capabilities: AsrCapabilities;
   /** The request shape this adapter speaks. Absent means `'inline-json'` (see `AsrWire`). */
   wire?: AsrWire;
+  /**
+   * Whether `baseUrl` is an address THIS provider's endpoint may be reached at, or absent when the
+   * provider has no rule of its own.
+   *
+   * WHY THE RULE TRAVELS WITH THE ADAPTER RATHER THAN WITH THE SERVER. What counts as this
+   * service's address is a property of the service — its hostname scheme, the transport it speaks
+   * — and a caller-side table indexed by provider id would be a second copy of a fact the provider
+   * already knows, which is the failing shape this seam exists to remove. Required of every
+   * `transport: 'proxy-only'` adapter in practice: the server refuses a proxy-only provider's
+   * configured address when this predicate answers false, so a proxy-only adapter that omitted it
+   * would have no rule to be held to.
+   *
+   * Absent means "no rule", never "allow everything by construction": a `'direct'` provider is not
+   * asked, and the server's own `validateBackendBaseUrl` remains the only rule that applies to it
+   * (http and private backends are deliberately legal on that side).
+   */
+  allowedBaseUrl?: (baseUrl: string) => boolean;
   transcribe(request: AsrRequest, invocation: AsrInvocation): Promise<AsrResult>;
 };
 
@@ -333,11 +364,14 @@ const REGISTERED: readonly AsrAdapter[] = [
   //
   // The four fields are the module's own exports and not a second copy of them — the declaration
   // the registry hands out IS the object the adapter declares, so a field changed in the module
-  // changes what every consumer sees without a second edit here.
+  // changes what every consumer sees without a second edit here. `allowedBaseUrl` is the fifth for
+  // the same reason: the endpoint rule a proxy-only provider's address is held to is the one the
+  // provider module exports, so there is exactly one copy of it and no table in between.
   {
     id: dashscopeOmniId,
     capabilities: dashscopeOmniCapabilities,
     wire: dashscopeOmniWire,
+    allowedBaseUrl: dashscopeOmniAllowedBaseUrl,
     transcribe: dashscopeOmniTranscribe,
   },
 ];

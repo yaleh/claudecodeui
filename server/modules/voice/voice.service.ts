@@ -22,7 +22,7 @@ import {
   listProviders,
   tryResolve,
 } from '../../../shared/asr/asrRegistry.js';
-import type { AsrCapabilities, AsrErrorCode, AsrFailure } from '../../../shared/asr/asrRegistry.js';
+import type { AsrAdapter, AsrCapabilities, AsrErrorCode, AsrFailure } from '../../../shared/asr/asrRegistry.js';
 // The wire's own vocabulary for how much of an upstream answer is allowed to be malformed, which
 // this path names below. A TYPE import deliberately: what the wire implements — the request it
 // builds, the answer it parses — is reached through the adapter now, so the only thing left for
@@ -134,8 +134,11 @@ function unknownProviderFailure(providerId: string, status: number): VoiceServic
  *
  * WHAT IT DECIDES, AND WHAT IT DOES NOT. It decides the STATUS of every failure this path returns.
  * Whether a failure also republishes its code in the result body is a separate and narrower
- * question (`VoiceServiceResult.code`) and this task leaves that reading exactly as it was: the two
- * pre-upstream refusals carry their codes, and the rest do not.
+ * question (`VoiceServiceResult.code`), and the reading is: the PRE-UPSTREAM refusals carry their
+ * codes and the rest do not. There are three of them now — the container gate, the size gate and
+ * the endpoint rule (`endpointRuleRefusal`) — and each earns its code the same way, by being a
+ * refusal whose remedy a client chooses between by reason rather than by status number. A failure
+ * read off the transport has no such remedy and stays message-only.
  *
  * Exported for `server/modules/voice/tests/voice-provider-dispatch.test.ts`, which is the criterion
  * that reads the table row by row and then drives each code through this service to the status it
@@ -304,8 +307,12 @@ function unreachableBackendFailure(error: unknown, timeoutMs: number): VoiceServ
  * The configuration gate: the two refusals owed a backend that is absent or unspeakable.
  *
  * Both statuses come from `PROVIDER_ERROR_STATUS` rather than being written here, so this gate is
- * the third reader of the one table instead of a third place a number is decided. The codes are not
- * republished in the result — see the table's comment — but the status is the table's.
+ * the third reader of the one table instead of a third place a number is decided. Neither code is
+ * republished — see the table's comment on which failures carry a code — but the status is the
+ * table's. This is the gate for a backend that is ABSENT or unparseable; whether a well-formed
+ * address is one a particular provider may be reached at is `endpointRuleRefusal`'s question,
+ * asked of the selected adapter rather than of the URL alone — and asked BEFORE this one, for the
+ * ordering reason recorded at the call site.
  */
 function validateConfiguredBackend(config: ResolvedVoiceConfig): VoiceServiceResult<never> | null {
   if (!config.baseUrl) {
@@ -325,6 +332,73 @@ function validateConfiguredBackend(config: ResolvedVoiceConfig): VoiceServiceRes
   }
 
   return null;
+}
+
+/**
+ * The endpoint rule: the refusal owed a `'proxy-only'` provider whose configured address its own
+ * adapter does not accept.
+ *
+ * WHY THIS IS A PROVIDER RULE AND NOT A TABLE HERE. What counts as a service's address is a fact
+ * about the service — its hostname shapes, the transport it speaks — and this module has no way to
+ * keep a second copy of it in step with the provider that owns it. The rule therefore travels on
+ * the adapter (`AsrAdapter.allowedBaseUrl`, which the registry hands out as the module's own
+ * export), and this function only decides WHEN it is asked: exactly for the providers that declare
+ * `transport: 'proxy-only'`.
+ *
+ * WHY ONLY THOSE, and this is the half a reader will otherwise read as an oversight. A `'direct'`
+ * provider's address is the user's own OpenAI-compatible backend, and http and private hosts are
+ * deliberately legal there (`validateBackendBaseUrl` says so in as many words — a local backend is
+ * a supported deployment). Holding every provider to this service's hostname shape would refuse
+ * exactly those deployments, so the rule's scope is the transport declaration: a provider a browser
+ * cannot reach is one whose address this server, and only this server, will speak to, and that is
+ * the provider whose address has to be the service's own.
+ *
+ * THE REFUSAL IS PRE-REQUEST, which is the property the code and the status rest on: it is decided
+ * from the resolved configuration and the adapter's declaration alone, so it costs no `fetchBackend`
+ * call. The status is the table's `INVALID_BASE_URL` row rather than a literal here, and — unlike
+ * the two gates above it — the code IS republished, because the caller acts on it differently from
+ * a generic 400: "the address you configured is not one this recogniser may be reached at" is a
+ * remedy ("use the address the service gave you"), while a 400 with no code could be anything.
+ *
+ * An adapter that declares `'proxy-only'` and carries no rule is not refused here: this function
+ * has nothing to ask, and inventing a rule would be the second source of truth it exists not to be.
+ * What catches that pairing is the seam's own criterion, which reads the registry rather than this
+ * call site.
+ *
+ * AN ABSENT ADDRESS IS NOT THIS FUNCTION'S QUESTION, and the guard below says so rather than
+ * leaving it to call order. "No backend configured" is a property of the settings (503, and the
+ * user's own to fix), while "this address is not this service's" is a property of what they typed;
+ * a rule asked about the empty string would answer "no" and report the second failure for the
+ * first condition. It is asked about a value, or not at all.
+ *
+ * Exported so the probe can drive the same gate the service runs, and so a reader of the service
+ * can see the rule's scope stated once.
+ */
+export function endpointRuleRefusal(
+  adapter: AsrAdapter,
+  baseUrl: string,
+): VoiceServiceResult<never> | null {
+  if (!baseUrl) {
+    return null;
+  }
+
+  if (adapter.capabilities.transport !== 'proxy-only') {
+    return null;
+  }
+
+  const rule = adapter.allowedBaseUrl;
+  if (rule === undefined || rule(baseUrl)) {
+    return null;
+  }
+
+  return {
+    ok: false,
+    status: PROVIDER_ERROR_STATUS.INVALID_BASE_URL,
+    code: 'INVALID_BASE_URL',
+    error:
+      `provider '${adapter.id}' cannot be reached at this address; ` +
+      `the address must be one of the service's own.`,
+  };
 }
 
 /**
@@ -429,6 +503,27 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
       }
 
       const config = resolveVoiceConfig(dependencies.defaults, input.overrides);
+
+      // The third pre-request gate, and the only one that reads the SELECTED ADAPTER rather than
+      // its capabilities alone: a proxy-only provider may only be addressed at its own service, so
+      // an address its rule refuses is refused here — before the invocation below exists, and
+      // therefore before any transport is reached. See `endpointRuleRefusal` for why the rule is
+      // the adapter's and why it is asked only of proxy-only providers.
+      //
+      // IT IS ASKED BEFORE THE FORMAT GATE BELOW, and the order is load-bearing rather than
+      // stylistic. The format gate answers "is this a URL at all" and answers it WITHOUT a code:
+      // it guards a setting on its way to a fetch, where the address's shape is an implementation
+      // detail. For a provider that may only be reached at its own service the shape is instead
+      // part of the rule, and the rule's refusals all carry `INVALID_BASE_URL` — an answer that
+      // arrived from the format gate first would report a well-formed address's problem as
+      // unclassifiable, and the client would have no code to act on. Nothing is lost by asking the
+      // narrower question first: an address this rule accepts is a URL, so the format gate below
+      // can only be reached and pass.
+      const endpointFailure = endpointRuleRefusal(adapter, config.baseUrl);
+      if (endpointFailure) {
+        return endpointFailure;
+      }
+
       const configurationFailure = validateConfiguredBackend(config);
       if (configurationFailure) {
         return configurationFailure;

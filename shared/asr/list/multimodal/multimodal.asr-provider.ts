@@ -97,6 +97,10 @@ export const capabilities: AsrCapabilities = {
   pauseCues: 'useful',
   style: 'verbatim',
   oneShot: true,
+  // 'direct'. The real endpoint was driven from a bare script during the 2026-09-23 correction, and
+  // nothing in that measurement says a browser cannot reach it; a declaration of 'proxy-only' here
+  // would be a claim with no reading behind it, and it would move every existing caller's route.
+  transport: 'direct',
 };
 
 /** The transformations a `style: 'verbatim'` recogniser performs on its way to `AsrResult.text`. */
