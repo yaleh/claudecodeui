@@ -1,7 +1,7 @@
 ---
 id: AC-150
 title: 语音转写路由的所有失败都带 code，上游失败带合规的 upstreamCode，响应里没有 key 与上游响应体的其余文本
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-011
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -19,6 +19,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-09-24T13:52:16.567Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
