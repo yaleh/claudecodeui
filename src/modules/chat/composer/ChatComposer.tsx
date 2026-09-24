@@ -334,7 +334,15 @@ export default function ChatComposer({
 
   return (
     <div className="chat-composer-shell relative flex-shrink-0 px-2 pb-2 pt-0 sm:px-4 sm:pb-4 md:px-4 md:pb-6">
-      {!hasPendingPermissions && (
+      {/*
+        The tab is the `md`-and-up surface: it hangs over the top edge of the input
+        and, being out of flow, over the last of the transcript. Below `md` it is
+        not rendered at all — the pane draws the same status in the message flow
+        instead (see ChatMessagesPane), and the composer's submit button is the
+        only stop entry, so the single-entry rule holds without a second control
+        to hide.
+      */}
+      {!hasPendingPermissions && !isMobile && (
         <div className="pointer-events-none absolute bottom-full left-1/2 z-10 w-[calc(100%-1rem)] max-w-[54.25rem] -translate-x-1/2 translate-y-px bg-transparent sm:w-[calc(100%-2rem)]">
           <ActivityIndicator activity={activity} onAbort={onAbortSession} isInputFocused={isInputFocused} />
         </div>
@@ -431,7 +439,9 @@ export default function ChatComposer({
           status={isLoading ? 'streaming' : 'ready'}
           className={[
             isTextareaExpanded ? 'chat-input-expanded' : '',
-            hasActivityIndicator ? 'rounded-t-none' : '',
+            // Only the tab squares the input's top corners off; below `md` there
+            // is no tab sitting there, so the box keeps its own rounding.
+            hasActivityIndicator && !isMobile ? 'rounded-t-none' : '',
           ].filter(Boolean).join(' ')}
           {...getRootProps()}
         >
