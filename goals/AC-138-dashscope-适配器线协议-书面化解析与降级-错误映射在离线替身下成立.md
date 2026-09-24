@@ -1,7 +1,7 @@
 ---
 id: AC-138
 title: DashScope 适配器线协议、书面化解析与降级、错误映射在离线替身下成立
-status: draft
+status: active
 kind: criterion
 goal: GOAL-009
 criterion: node scripts/asr-dashscope-omni-check.mjs
@@ -15,4 +15,15 @@ expect: 全程注入替身 fetch、零真实网络：请求为 chat-audio 形状
   必须红；(2) 403 映射成 UPSTREAM_ERROR ⇒ 必须红；(3) 超限仍发出请求 ⇒ 必须红。
 origin: docs/proposals/voice-dashscope-omni-written-instruction.md（2026-09-24 人
   yale 裁定：E 组提示词定型；key 由用户提供；书面指令进 composer；本轮不改输入体验）
+activatedAt: 2026-09-24T02:56:34.382Z
+statusLog:
+  - at: 2026-09-24T02:56:34.382Z
+    from: draft
+    to: active
+    actor: goal-cli
+    reason: ""
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-09-24T02:56:34.382Z
 ---

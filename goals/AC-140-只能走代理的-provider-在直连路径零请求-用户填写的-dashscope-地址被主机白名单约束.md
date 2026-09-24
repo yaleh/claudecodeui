@@ -1,7 +1,7 @@
 ---
 id: AC-140
 title: 只能走代理的 provider 在直连路径零请求；用户填写的 DashScope 地址被主机白名单约束
-status: draft
+status: active
 kind: criterion
 goal: GOAL-009
 criterion: node scripts/asr-proxy-only-ssrf-check.mjs
@@ -13,4 +13,15 @@ expect: 生效 provider 的 transport 为 proxy-only 时，即使浏览器侧配
   必须红。
 origin: docs/proposals/voice-dashscope-omni-written-instruction.md（2026-09-24 人
   yale 裁定：E 组提示词定型；key 由用户提供；书面指令进 composer；本轮不改输入体验）
+activatedAt: 2026-09-24T02:59:36.066Z
+statusLog:
+  - at: 2026-09-24T02:59:36.066Z
+    from: draft
+    to: active
+    actor: goal-cli
+    reason: ""
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-09-24T02:59:36.066Z
 ---

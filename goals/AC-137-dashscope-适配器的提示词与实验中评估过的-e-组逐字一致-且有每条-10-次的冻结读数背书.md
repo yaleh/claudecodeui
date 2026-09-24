@@ -1,7 +1,7 @@
 ---
 id: AC-137
 title: DashScope 适配器的提示词与实验中评估过的 E 组逐字一致，且有每条 ≥10 次的冻结读数背书
-status: draft
+status: active
 kind: criterion
 goal: GOAL-009
 criterion: node scripts/asr-omni-prompt-frozen-check.mjs
@@ -11,4 +11,15 @@ expect: 读取 dashscope-omni 适配器导出的 ROLE、RULES、EXAMPLES、JSON_
   必须红；(3) 快照缺失 ⇒ 必须红而不是跳过。
 origin: docs/proposals/voice-dashscope-omni-written-instruction.md（2026-09-24 人
   yale 裁定：E 组提示词定型；key 由用户提供；书面指令进 composer；本轮不改输入体验）
+activatedAt: 2026-09-24T02:55:59.788Z
+statusLog:
+  - at: 2026-09-24T02:55:59.788Z
+    from: draft
+    to: active
+    actor: goal-cli
+    reason: ""
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-09-24T02:55:59.788Z
 ---
