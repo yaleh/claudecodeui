@@ -2,7 +2,7 @@
 id: gap-asr-dashscope-user-credential-configured-mask-and-log
 title: DashScope 的用户凭据（key 与工作空间地址）存于服务端语音设置：健康检查按 provider 报 configured、key
   掩码回读、一次成功与一次失败的转写后日志无 key 明文与正文，TTS 仍用原 baseUrl/apiKey（AC-141）
-status: ready
+status: done
 labels:
   - gap
 parent: null
