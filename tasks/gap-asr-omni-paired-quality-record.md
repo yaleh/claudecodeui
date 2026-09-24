@@ -2,7 +2,7 @@
 id: gap-asr-omni-paired-quality-record
 title: DashScope omni 的裁剪配对实验记录：同一运行内 omni × 裁剪臂 × whisper 基线 × 能红的负对照，并把
   PAUSE_CUES_EVIDENCE[dashscope-omni] 指过去（AC-135）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
