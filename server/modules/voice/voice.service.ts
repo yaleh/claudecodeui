@@ -178,11 +178,13 @@ function resolveRecognitionConfig(
   return {
     baseUrl: readStoredField(settings, fields.endpointField) || resolved.baseUrl,
     apiKey: readStoredField(settings, fields.apiKeyField) || resolved.apiKey,
-    // Precedence: the user's stored model, the request's own override, the provider's declared
-    // default, and only then the shared `sttModel`. That last one names a model of the OTHER service
-    // (e.g. a Whisper id) and must never be what an unset per-user model resolves to — but a
-    // request that names a model explicitly is still asking for exactly that one.
-    model: storedModel || overrides.sttModel || fields.defaultModel || resolved.sttModel,
+    // Precedence: the user's stored model, then the provider's declared default, and only then the
+    // shared `sttModel`. `overrides.sttModel` is NOT consulted before the default: the settings page
+    // sends the SHARED backend's model on every transcribe (`x-voice-stt-model`, a Whisper id for a
+    // Groq/OpenAI user), so honouring it here sent that id to a provider that has its own model
+    // field and got a 404 back. A provider with credentials of its own is configured through those
+    // fields, not through the header that configures the shared backend.
+    model: storedModel || fields.defaultModel || resolved.sttModel,
   };
 }
 

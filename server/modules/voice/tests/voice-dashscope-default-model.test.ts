@@ -57,7 +57,10 @@ function settingsWith(dashscopeModel: string): VoiceSettings {
 }
 
 /** Transcribes one clip with `settings` and returns the `model` the upstream request body carried. */
-async function upstreamModel(settings: VoiceSettings): Promise<{ model: unknown; url: string }> {
+async function upstreamModel(
+  settings: VoiceSettings,
+  overrides: { sttModel?: string } = {},
+): Promise<{ model: unknown; url: string }> {
   const seen: { url: string; body: unknown }[] = [];
   const service = createVoiceService({
     defaults: DEFAULTS,
@@ -72,7 +75,7 @@ async function upstreamModel(settings: VoiceSettings): Promise<{ model: unknown;
   });
   const result = await service.transcribe({
     audio: { bytes: Buffer.alloc(16, 0x6b), mimeType: 'audio/webm', fileName: 'clip.webm' },
-    overrides: {},
+    overrides,
     settings,
   });
   assert.equal(result.ok, true, 'the request must reach the upstream for its body to be read');
@@ -90,6 +93,14 @@ test('a blank dashscopeModel sends the adapter\'s DEFAULT_MODEL, not the shared 
 test('a model the user typed wins over the default', async () => {
   const { model } = await upstreamModel(settingsWith('qwen-omni-typed-by-user'));
   assert.equal(model, 'qwen-omni-typed-by-user');
+});
+
+test('the shared backend\'s model, sent in the request header on every transcribe, is not the provider\'s model', async () => {
+  // The settings page attaches `x-voice-stt-model: <shared sttModel>` to every upload. Read as an
+  // override it sent a Whisper id to DashScope, which answered 404 (the defect this pins, seen live).
+  const { model } = await upstreamModel(settingsWith(''), { sttModel: SHARED_STT_MODEL });
+  assert.equal(model, dashscopeOmni.DEFAULT_MODEL);
+  assert.notEqual(model, SHARED_STT_MODEL);
 });
 
 test('the provider declares its default, and the health payload republishes it', () => {

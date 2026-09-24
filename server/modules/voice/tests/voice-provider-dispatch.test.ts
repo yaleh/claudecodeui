@@ -196,9 +196,13 @@ test('AC2 dashscope-omni / chat-audio: one JSON POST to the compatible-mode endp
     answer: () => chatAnswer('{"transcript":"k-omni-answer"}'),
   });
 
+  // The model rides in the user's stored per-provider field. It is deliberately NOT the request's
+  // `sttModel` override: the settings page sends the shared backend's model in that header on every
+  // transcribe, and a provider with its own model field must not read it (voice-dashscope-default-model).
   const result = await service.transcribe({
     audio: audioUpload(),
-    overrides: { providerId: dashscopeOmniId, sttModel: requestedModel },
+    overrides: { providerId: dashscopeOmniId },
+    settings: { ...NO_USER_SETTINGS, dashscopeModel: requestedModel },
   });
 
   assert.equal(calls.length, 1, 'the chat-audio shape is one request, not a probe plus a request');
@@ -208,7 +212,7 @@ test('AC2 dashscope-omni / chat-audio: one JSON POST to the compatible-mode endp
   assert.equal(call.body instanceof FormData, false, 'the chat-audio wire is JSON, not multipart');
   const body = JSON.parse(String(call.body)) as { messages?: unknown; model?: unknown };
   assert.equal(Array.isArray(body.messages), true, 'the body carries the chat turn list');
-  assert.equal(body.model, requestedModel, 'the model is the invocation\'s, not the provider default');
+  assert.equal(body.model, requestedModel, 'the model is the one the user stored, not the provider default');
   assert.equal(call.headers.Authorization, `Bearer ${DEFAULTS.apiKey}`);
   assert.equal(result.ok, true);
 
