@@ -1,7 +1,7 @@
 ---
 id: gap-voice-dashscope-written-browser-e2e
 title: 真实浏览器端到端：设置页选 DashScope 后语音按钮经代理拿书面指令进 composer；上游 403 时报错且草稿不丢（AC-142）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
