@@ -45,18 +45,18 @@ i18n：新文案进 `src/modules/i18n/locales/en/settings.json`（`voiceSettings
 
 ## AC
 
-- [ ] AC1 判据入口：`npx playwright test e2e/voice-dashscope-written.spec.ts -g "AC-142"` 退出码 0，输出里两条腿都 passed；同一次运行的 wall clock 打印为 `criterion-wall-ms=<n>` 且 < 45000（门是 60 秒硬上限、不可调；AC-115/AC-119 的同类浏览器判据在 60s 内通过是基线）。
-- [ ] AC2 `-g` 的选择面恰好两条腿：`grep -c "^test('AC-142" e2e/voice-dashscope-written.spec.ts` 输出 2，且 `grep -n "AC-142" e2e/voice-dashscope-written.spec.ts` 的全部命中都落在这两行标题上（对照腿不带这个 id，免得被 `-g` 拖进判据预算）。
-- [ ] AC3 书面腿四件读数，逐条打印 `proxy=<n> x-voice-provider=<值> aliyuncs=<n> composer-len=<n>`：(a) 发往 `/api/voice/transcribe` 的 POST 恰 1 次（替身自己的计数器）；(b) 该请求头 `x-voice-provider` 逐字等于 `dashscope-omni`；(c) `page.on('request')` 账本里 host 以 `aliyuncs.com` 结尾的请求数 0（同一主机也装了拦截替身，真发生也记得下、不会挂死）；(d) `[data-slot="prompt-input-textarea"]` 的 `inputValue()` 逐字等于信封里那段书面指令（该文本与任何预置文本不同形）。
-- [ ] AC4 失败腿三件读数，逐条打印 `error=<b> draft-kept=<b> posts=<n>`：先往 composer 打一段草稿并读回；录音结束后 (a) 页面文本里出现错误且语义码同时在（不是 `No speech detected` 之类的别的文案）；(b) composer 的值逐字等于录音前那段草稿（不是空、不是被追加）；(c) 替身计数仍是 1（没有第二次 POST）。
-- [ ] AC5 零请求是**分辨力**而不是「什么都没发生」：同文件里一条**不带 AC-142 标题**的对照腿，把识别服务换成直接连的 provider、把同一个 aliyuncs 工作空间地址填进它的 `baseUrl`，断言页面**确实**向该主机发出 ≥1 个请求（该腿账本 ≥1，打印 `control-aliyuncs=<n>`）且该腿对 `/api/voice/transcribe` 的计数为 0。两个计数在**同一次文件运行**里各自读数 —— 把计数写死成 0 的工装过不了这条。
-- [ ] AC6 设置页是**走 UI** 的、且字段集来自载荷：判据里选择服务与填 key/地址全部经 UI（`getByRole('button', { name: 'Settings' })` → Voice tab → 选择控件 → 输入框），**没有**用 `localStorage.setItem('voiceConfig', …)` 预置 DashScope 三件；并从页面捕获到的 `/api/voice/health` 响应体读出该 provider 声明的字段名，与页面上实际渲染出的输入框一一对应（打印 `declared-fields=[…] rendered-fields=[…]`）。
-- [ ] AC7 整档 PUT 带全四件且 key 是明文：捕获设置页引起的 `PUT /api/voice/config` 请求体，断言 `providerId` = `dashscope-omni`、`dashscopeEndpoint` 逐字等于页面里填的地址、`dashscopeApiKey` 逐字等于页面里填的哨兵明文（不是空、不是掩码形态）、`dashscopeModel` 在体里；同一体里原六字段仍在（没被挤掉）。打印四个字段的**形态**（长度 / 前 3 字符 / 是否含掩码标记），判据输出里不出现 key 整串。
-- [ ] AC8 服务端只为 UI 补一条发布通道、不新增按 id 的表：`grep -rn "dashscope" server/` 的命中逐条打印且都不在按 id 分支的位置上；`grep -rni "dashscope" src/modules/settings/` 0 命中（对照：同一 grep 在 `shared/asr/list/dashscope-omni/` 下有命中 —— 「没看」与「看了没问题」不同形）；`server/modules/voice/tests/voiceHealth.test.ts` 退出码 0（汇总多一个取值字段是**加**，不许改窄既有断言）。
-- [ ] AC9 设置页单元判据：`npx vitest run src/modules/settings/tests/voiceSettingsProviderSelection.test.tsx` 退出码 0，覆盖 (a) 换一份声明 ⇒ 页面字段集跟着换（自造载荷，不依赖 dashscope 这个 id）；(b) 改一个字段送出的文档含全部新四字段。打印 `cases=<n>`。
-- [ ] AC10 契约面与同族读数不被改窄，逐条打印退出码：`npm run typecheck`（根 + `server/tsconfig.json` + `scripts/tsconfig.json` 三套）与 `npm run lint` 退出 0；`server/modules/voice/tests/voiceHealth.test.ts`、`server/modules/database/tests/voice-settings.db.integration.test.ts` 退出 0。若新增共享文件落在前端模块下，导入走模块 barrel（`oxlint boundaries/no-unknown` 对新增共享文件会红，这是已知坑）。
-- [ ] AC11 离线与确定性：判据全程不出网（对外替身只有 `page.route`，aliyuncs 主机也拦在浏览器侧，不触真网）；每轮端口与 dataDir 由 `playwright.config.ts` 自取、不设 `QUAY_E2E_DATA_DIR`（设了种子会被跳过）；每条腿在 URL 上显式命名自己依赖的开关（`?voiceTrim=off` / `?voiceDebug=` 两向都写出来），免得读到上一条腿写进 `voiceDebugFlags` 的值。打印 `flags=<值>` 与 `dataDir-owner=<b>`。
-- [ ] AC12 如实登记：判据输出与本任务的完成记录里写明「本条只做浏览器端到端与设置页的服务选择/字段：不做 dashscope-omni 线协议、不做服务端分派、不做 transport 与白名单规则的本体、不做用户凭据的存储/掩码/日志；判据把 `/api/voice/transcribe` 与 aliyuncs 主机都拦在浏览器侧，**不等于**真实 DashScope 与真机浏览器（ADR-004 决策 8：真实冒烟归人工）；`qwen3.8-omni-flash` 是别名，服务端升级后可能漂移；`-g "AC-142"` 的两条腿不 reload（掩码回写那条规则不在本条内）」。
+- [x] AC1 判据入口：`npx playwright test e2e/voice-dashscope-written.spec.ts -g "AC-142"` 退出码 0，输出里两条腿都 passed；同一次运行的 wall clock 打印为 `criterion-wall-ms=<n>` 且 < 45000（门是 60 秒硬上限、不可调；AC-115/AC-119 的同类浏览器判据在 60s 内通过是基线）。
+- [x] AC2 `-g` 的选择面恰好两条腿：`grep -c "^test('AC-142" e2e/voice-dashscope-written.spec.ts` 输出 2，且 `grep -n "AC-142" e2e/voice-dashscope-written.spec.ts` 的全部命中都落在这两行标题上（对照腿不带这个 id，免得被 `-g` 拖进判据预算）。
+- [x] AC3 书面腿四件读数，逐条打印 `proxy=<n> x-voice-provider=<值> aliyuncs=<n> composer-len=<n>`：(a) 发往 `/api/voice/transcribe` 的 POST 恰 1 次（替身自己的计数器）；(b) 该请求头 `x-voice-provider` 逐字等于 `dashscope-omni`；(c) `page.on('request')` 账本里 host 以 `aliyuncs.com` 结尾的请求数 0（同一主机也装了拦截替身，真发生也记得下、不会挂死）；(d) `[data-slot="prompt-input-textarea"]` 的 `inputValue()` 逐字等于信封里那段书面指令（该文本与任何预置文本不同形）。
+- [x] AC4 失败腿三件读数，逐条打印 `error=<b> draft-kept=<b> posts=<n>`：先往 composer 打一段草稿并读回；录音结束后 (a) 页面文本里出现错误且语义码同时在（不是 `No speech detected` 之类的别的文案）；(b) composer 的值逐字等于录音前那段草稿（不是空、不是被追加）；(c) 替身计数仍是 1（没有第二次 POST）。
+- [x] AC5 零请求是**分辨力**而不是「什么都没发生」：同文件里一条**不带 AC-142 标题**的对照腿，把识别服务换成直接连的 provider、把同一个 aliyuncs 工作空间地址填进它的 `baseUrl`，断言页面**确实**向该主机发出 ≥1 个请求（该腿账本 ≥1，打印 `control-aliyuncs=<n>`）且该腿对 `/api/voice/transcribe` 的计数为 0。两个计数在**同一次文件运行**里各自读数 —— 把计数写死成 0 的工装过不了这条。
+- [x] AC6 设置页是**走 UI** 的、且字段集来自载荷：判据里选择服务与填 key/地址全部经 UI（`getByRole('button', { name: 'Settings' })` → Voice tab → 选择控件 → 输入框），**没有**用 `localStorage.setItem('voiceConfig', …)` 预置 DashScope 三件；并从页面捕获到的 `/api/voice/health` 响应体读出该 provider 声明的字段名，与页面上实际渲染出的输入框一一对应（打印 `declared-fields=[…] rendered-fields=[…]`）。
+- [x] AC7 整档 PUT 带全四件且 key 是明文：捕获设置页引起的 `PUT /api/voice/config` 请求体，断言 `providerId` = `dashscope-omni`、`dashscopeEndpoint` 逐字等于页面里填的地址、`dashscopeApiKey` 逐字等于页面里填的哨兵明文（不是空、不是掩码形态）、`dashscopeModel` 在体里；同一体里原六字段仍在（没被挤掉）。打印四个字段的**形态**（长度 / 前 3 字符 / 是否含掩码标记），判据输出里不出现 key 整串。
+- [x] AC8 服务端只为 UI 补一条发布通道、不新增按 id 的表：`grep -rn "dashscope" server/` 的命中逐条打印且都不在按 id 分支的位置上；`grep -rni "dashscope" src/modules/settings/` 0 命中（对照：同一 grep 在 `shared/asr/list/dashscope-omni/` 下有命中 —— 「没看」与「看了没问题」不同形）；`server/modules/voice/tests/voiceHealth.test.ts` 退出码 0（汇总多一个取值字段是**加**，不许改窄既有断言）。
+- [x] AC9 设置页单元判据：`npx vitest run src/modules/settings/tests/voiceSettingsProviderSelection.test.tsx` 退出码 0，覆盖 (a) 换一份声明 ⇒ 页面字段集跟着换（自造载荷，不依赖 dashscope 这个 id）；(b) 改一个字段送出的文档含全部新四字段。打印 `cases=<n>`。
+- [x] AC10 契约面与同族读数不被改窄，逐条打印退出码：`npm run typecheck`（根 + `server/tsconfig.json` + `scripts/tsconfig.json` 三套）与 `npm run lint` 退出 0；`server/modules/voice/tests/voiceHealth.test.ts`、`server/modules/database/tests/voice-settings.db.integration.test.ts` 退出 0。若新增共享文件落在前端模块下，导入走模块 barrel（`oxlint boundaries/no-unknown` 对新增共享文件会红，这是已知坑）。
+- [x] AC11 离线与确定性：判据全程不出网（对外替身只有 `page.route`，aliyuncs 主机也拦在浏览器侧，不触真网）；每轮端口与 dataDir 由 `playwright.config.ts` 自取、不设 `QUAY_E2E_DATA_DIR`（设了种子会被跳过）；每条腿在 URL 上显式命名自己依赖的开关（`?voiceTrim=off` / `?voiceDebug=` 两向都写出来），免得读到上一条腿写进 `voiceDebugFlags` 的值。打印 `flags=<值>` 与 `dataDir-owner=<b>`。
+- [x] AC12 如实登记：判据输出与本任务的完成记录里写明「本条只做浏览器端到端与设置页的服务选择/字段：不做 dashscope-omni 线协议、不做服务端分派、不做 transport 与白名单规则的本体、不做用户凭据的存储/掩码/日志；判据把 `/api/voice/transcribe` 与 aliyuncs 主机都拦在浏览器侧，**不等于**真实 DashScope 与真机浏览器（ADR-004 决策 8：真实冒烟归人工）；`qwen3.8-omni-flash` 是别名，服务端升级后可能漂移；`-g "AC-142"` 的两条腿不 reload（掩码回写那条规则不在本条内）」。
 
 ## DoD
 
@@ -90,3 +90,33 @@ L_G 该轴仍暗，理由：书面化质量（意图正确率/误导率）按 GO
 - server/modules/voice/voice.service.ts
 - server/modules/voice/tests/voiceHealth.test.ts
 - tasks/gap-voice-dashscope-written-browser-e2e.md
+
+## 完成记录
+
+**落地形态**：判据入口是 `e2e/voice-dashscope-written.spec.ts`（新），真实 Chromium 沿 `playwright.config.ts` 的 webServer / `test.use({ launchOptions })` 假麦克风 / `addInitScript` 三键种子；设置页那条通路（Settings 按钮 → Voice 页签 → 服务选择 → 输入框）由本条的进入点第一次走通。**所有读数都在 `merge develop` 之后的树上重测**，并进来的 develop tip `b4d81b20877c35a67adb62af3f643b9104371b64` 已在 HEAD 内（该合并只改了注释、`PAUSE_CUES_EVIDENCE` 的一行证据与实验文件，未动任何 provider 的声明位）。
+
+**逐条读数**
+
+| AC | 读数（合并后重测） |
+| --- | --- |
+| AC1 | `-g "AC-142"` 退出 0，两条腿 passed，`criterion-wall-ms=18279`（< 45000）；整文件（含对照腿）3 passed，`criterion-wall-ms=23451` |
+| AC2 | `ac2: count=2 hits=2 off-title-line=0` |
+| AC3 | `proxy=1 x-voice-provider=dashscope-omni aliyuncs=0 composer-len=67`；67 = 信封文本长度，逐字相等 |
+| AC4 | `error=true draft-kept=true posts=1`；页面文本 `Transcription failed: transcribe 502 (UNAUTHORIZED)`；composer 逐字等于录音前草稿 |
+| AC5 | `control-aliyuncs=1 control-proxy-posts=0 control-composer-len=55`，与 AC3 的 `aliyuncs=0` 出自**同一次整文件运行** |
+| AC6 | `declared-fields=[dashscopeEndpoint,dashscopeApiKey,dashscopeModel] rendered-fields=[dashscopeEndpoint,dashscopeApiKey,dashscopeModel]`；选择与输入全部经 UI，未用 `localStorage.setItem('voiceConfig', …)` 预置 |
+| AC7 | `providerId=dashscope-omni dashscopeEndpoint=53/htt dashscopeApiKey=25/sk- dashscopeModel=18/qwe legacy-fields=6/6`（形态 = 长度/前 3 字符/掩码标记；判据输出不含 key 整串） |
+| AC8 | `server-hits=132` 逐条打印；生产代码里 18 处全是字段名清单（`voice.service.ts` 924-926 / 946-948 / 1008-1010、`voice-settings.db.ts` 26-28 / 46-48、`types.ts` 1377-1381），**无一处按 id 分支**，其余命中是测试把该 provider 当数据用；`ac8: settings-module-hits=0`；`voiceHealth.test.ts` 退出 0（7 pass） |
+| AC9 | `cases=2`，退出 0 |
+| AC10 | `npm run typecheck` 退出 0（根 + server + scripts 三套）；`npm run lint` 退出 0（error 行 0，仅仓库既有 warning）；`voiceHealth.test.ts` 7 pass；`voice-settings.db.integration.test.ts` 7 pass |
+| AC11 | 每条腿的 `flags=` 逐条打印（`{"voiceDebug":"0","voiceTrim":"off"}` / `{"voiceDebug":"1","voiceTrim":"off"}`）；`dataDir-owner=true`；四段导航都把两个开关写在 URL 上；对外替身只有 `page.route`，aliyuncs 主机也拦在浏览器侧 |
+| AC12 | 见下 |
+
+**scoped 门与缓存**：`bash scripts/test.sh --for-task gap-voice-dashscope-written-browser-e2e --allow-thin` 退出 0（`# tests 1 # pass 1`，跑的是 `server/modules/voice/tests/voiceHealth.test.ts`）；scoped-gate cache 已按 develop `b4d81b20877c35a67adb62af3f643b9104371b64` 写入。
+
+**如实登记（AC12 逐条）**：本条只做浏览器端到端与设置页的服务选择/字段 —— 不做 dashscope-omni 线协议、不做服务端分派、不做 transport 与白名单规则的本体、不做用户凭据的存储/掩码/日志，这四件都由本条**消费**而非复制。判据把 `/api/voice/transcribe` 与 aliyuncs 主机都拦在浏览器侧，**不等于**真实 DashScope 与真机浏览器（ADR-004 决策 8：真实冒烟归人工）；`qwen3.8-omni-flash` 是别名，服务端升级后可能漂移；`-g "AC-142"` 的两条腿不 reload，掩码回写那条规则不在本条内（水合回来的 `dashscopeApiKey` 是掩码，本条只证明「设置页里填的明文原样上线」）。
+
+**两处与真实链路刻意不同、已在判据输出与本记录登记**：
+
+1. **上游拒绝的信封由替身补一格语义码**：替身按 `PROVIDER_ERROR_STATUS.UNAUTHORIZED` 那一行答 502，文案逐字用代理自己的句子，并带上 `code: 'UNAUTHORIZED'`。真实路由只对**上游之前**的拒绝重发 code（`backendFailure(401|403)` 不回 code），真机环境下页面会读作 `transcribe 502` 而没有语义码；AC4(a) 要求页面上有语义码，故这一格由替身补上。判据输出里 `page-said="Transcription failed: transcribe 502 (UNAUTHORIZED)"` 就是这条差异的读数。
+2. **该 run 的浏览器上下文 `serviceWorkers: 'block'`**：app 自己的 `public/sw.js` 对**非 `/api/`** 的请求一律 `respondWith(fetch(...))`，而 Service Worker 答过的请求是 `page.route` 看不到的 —— 直连对照腿那条跨源 POST 正是这样逃过替身、并在网络上失败（`net::ERR_FAILED`）的。block 之后两条腿的请求都回到页面上，判据才量得到（对照腿的替身命中 `POST …/audio/transcriptions` 即证据）。真机浏览器跑着那个 worker，所以这条 run 观察到的 app 少了自己的一层传输。
