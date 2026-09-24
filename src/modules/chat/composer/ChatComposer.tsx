@@ -494,6 +494,29 @@ export default function ChatComposer({
         </PromptInputBody>
 
         {/*
+          Below `md`, the replay pair gets a row of its own between the box and the footer.
+
+          It has nowhere to live inside the narrow footer — that row is exactly the six controls that
+          send a message and may not wrap — so without this the arrival of a recording is what pushed
+          the footer into a second line. The row exists only while `clipSlot` holds something (a clip
+          only exists because the mic produced one), and it is the row that grows and shrinks: the
+          footer's own height and position are the same with a recording as without one. It may wrap
+          *between* its two tracks, which is the move the footer is forbidden, not this row.
+
+          One renderer, not two: the pair is drawn here at narrow widths and in the tools group from
+          `md` up, off the same `clipSlot`/`clipPlayState` the hook owns, so exactly one set of replay
+          controls is ever on screen — and therefore exactly one set in the accessibility tree.
+        */}
+        {clipSlot && isMobile && (
+          <div
+            data-slot="prompt-input-clip-row"
+            className="flex flex-wrap items-center gap-1 px-3 py-0.5"
+          >
+            <VoiceClipButton clips={clipSlot} state={clipPlayState} onToggle={toggleClipPlayback} />
+          </div>
+        )}
+
+        {/*
           Below the `md` breakpoint the row must never wrap: the six controls that
           send a message stay reachable without hunting, so both groups are
           `shrink-0` and the box is `flex-nowrap`. From `md` up the previous
@@ -522,8 +545,13 @@ export default function ChatComposer({
               <VoiceUploadButton state={voiceState} onSelectFile={transcribeFile} />
             )}
 
-            {/* Right of the mic: a clip only exists because the mic produced it. */}
-            {clipSlot && (
+            {/*
+              Right of the mic: a clip only exists because the mic produced it. From `md` up it stays
+              here, where it has always been. Below `md` this row is exactly the six controls that
+              send a message and may not wrap, so the pair goes to a row of its own instead — see the
+              clip row between the box and the footer.
+            */}
+            {clipSlot && !isMobile && (
               <VoiceClipButton clips={clipSlot} state={clipPlayState} onToggle={toggleClipPlayback} />
             )}
 

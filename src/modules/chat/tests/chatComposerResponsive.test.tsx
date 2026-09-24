@@ -4,10 +4,11 @@ import { fireEvent, render, within } from '@testing-library/react';
 import i18next from 'i18next';
 import React from 'react';
 import { initReactI18next } from 'react-i18next';
-import { test, vi } from 'vitest';
+import { beforeEach, test, vi } from 'vitest';
 
 import ChatComposer from '@/modules/chat/composer/ChatComposer';
 import enChat from '@/modules/i18n/locales/en/chat.json';
+import type { VoiceClipSlot } from '@/shared/types';
 
 /**
  * On a phone the composer's footer wrapped onto a second row, because it carried
@@ -47,6 +48,47 @@ vi.mock('@/shared/voiceDebug', () => ({
   isVoiceDebugEnabled: () => false,
   isVoiceTrimEnabled: () => false,
 }));
+
+/**
+ * The clip the composer is holding, as the replay-count case below wants it.
+ *
+ * The voice hook is doubled because the capture chain is not what that case is about — the number of
+ * accessible replay controls the composer renders is — and driving a real recording would mean
+ * stubbing `MediaRecorder`, the clip's `Audio` elements and the object-URL calls in a file whose
+ * subject is the breakpoint. Every other case wants a composer with nothing recorded, which is what
+ * the slot's `null` default gives them, so their rendering is unchanged.
+ */
+const { clipFixture } = vi.hoisted(() => ({
+  clipFixture: { slot: null as VoiceClipSlot | null },
+}));
+
+vi.mock('@/modules/chat/hooks/useVoiceInput', () => ({
+  useVoiceInput: () => ({
+    state: 'idle',
+    toggle: () => undefined,
+    stop: () => undefined,
+    transcribeFile: () => undefined,
+    clipSlot: clipFixture.slot,
+    clipPlayState: { original: 'idle', trimmed: 'idle' },
+    toggleClipPlayback: () => undefined,
+  }),
+}));
+
+/** The pair a trimmed capture leaves in the slot: the recording, and the upload made of it. */
+const CLIP_PAIR: VoiceClipSlot = {
+  original: {
+    url: 'blob:responsive-original',
+    meta: { bytes: 6_400, mimeType: 'audio/webm', durationMs: 9_000 },
+  },
+  trimmed: {
+    url: 'blob:responsive-trimmed',
+    meta: { bytes: 32_000, mimeType: 'audio/wav', durationMs: 4_000 },
+  },
+};
+
+beforeEach(() => {
+  clipFixture.slot = null;
+});
 
 /**
  * jsdom implements no media queries at all. The double answers "no" to every query,
@@ -382,4 +424,44 @@ test('(f) reaching the picker never leaves two overlays open, and closing return
     trigger,
     'closing from the picker must return focus to the "more" trigger',
   );
+});
+
+test('(g) a clip leaves exactly one accessible replay control per track, in each tier', () => {
+  // The pair is drawn at narrow widths in a row of its own and from `md` up in the left tool group —
+  // one renderer switched by `isMobile`, not two DOM copies with one hidden by a class. That is the
+  // mechanism under test: with a single copy there is no second one for the accessibility tree to
+  // have to hide, and the count below is the reading that says so. (A two-copy implementation would
+  // have to make this file parse a `display:none` rule to keep the count at one; nothing here has to
+  // read CSS, which is the observable difference between the two mechanisms.)
+  clipFixture.slot = CLIP_PAIR;
+  const readings: string[] = [];
+
+  for (const tier of [
+    { label: 'narrow (390px)', width: MOBILE_WIDTH },
+    { label: 'wide (1280px)', width: DESKTOP_WIDTH },
+  ]) {
+    const { view } = renderComposer(tier.width);
+    // `queryAllByRole` is `getAllByRole`'s accessible-elements query in its non-throwing form: a
+    // count of zero is a reading here rather than a caught error, which is what lets the failure
+    // message print the number — and a composer that never rendered would otherwise report the same
+    // thing as one that rendered two copies.
+    const original = view.queryAllByRole('button', { name: 'Replay original' });
+    const trimmed = view.queryAllByRole('button', { name: 'Replay trimmed' });
+    readings.push(
+      `${tier.label}: Replay original=${original.length}, Replay trimmed=${trimmed.length}`,
+    );
+
+    assert.equal(
+      original.length,
+      1,
+      `each tier must expose exactly one accessible "Replay original"; readings: ${readings.join(' | ')}`,
+    );
+    assert.equal(
+      trimmed.length,
+      1,
+      `each tier must expose exactly one accessible "Replay trimmed"; readings: ${readings.join(' | ')}`,
+    );
+
+    view.unmount();
+  }
 });
