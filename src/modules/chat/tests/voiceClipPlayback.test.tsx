@@ -264,6 +264,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   vi.useRealTimers();
+  // The tier is global window state, so a case that pinned it must not leave it pinned for the
+  // next one: jsdom's own default (1024, the wide layout) is what a case that says nothing gets.
+  Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 1024 });
 });
 
 /* ─── Hook harness ─────────────────────────────────────────────────── */
@@ -615,6 +618,37 @@ test('the clip reports the wall-clock time the mic was held', async () => {
 
 /* ─── Render face ──────────────────────────────────────────────────── */
 
+/**
+ * The tier the composer reads, as it reads it: `window.innerWidth` against `md` (768), taken by
+ * `useDeviceSettings` in a state initialiser. A component that switched on some other signal would
+ * render the other tier here and these cases would fail rather than pass against a second copy of
+ * the rule. Set before the render, for the same reason the hook takes it before the render.
+ */
+const setViewportWidth = (width: number) => {
+  Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: width });
+};
+
+/** The narrow tier (any width below `md`), and the wide one the composer has always had. */
+const MOBILE_WIDTH = 390;
+const DESKTOP_WIDTH = 1280;
+
+/** The composer's own slots, so a case reads the structure the CSS then lays out. */
+const CLIP_ROW_SELECTOR = '[data-slot="prompt-input-clip-row"]';
+const FOOTER_SELECTOR = '[data-slot="prompt-input-footer"]';
+const TOOLS_SELECTOR = '[data-slot="prompt-input-tools"]';
+const TEXTAREA_SELECTOR = '[data-slot="prompt-input-textarea"]';
+
+/** Where the replay controls really are, for a failure message that can be acted on. */
+const describePlacement = (root: HTMLElement, control: HTMLElement | null) => {
+  if (!control) return 'no replay control rendered';
+  const slots: string[] = [];
+  for (let node = control.parentElement; node && node !== root; node = node.parentElement) {
+    const slot = node.getAttribute('data-slot');
+    if (slot) slots.push(slot);
+  }
+  return slots.length > 0 ? slots.join(' < ') : 'in no labelled slot';
+};
+
 const renderComposer = (onVoiceTranscript: (text: string, send?: boolean) => void) =>
   render(
     React.createElement(ChatComposer, {
@@ -685,46 +719,153 @@ const renderComposer = (onVoiceTranscript: (text: string, send?: boolean) => voi
     } as unknown as React.ComponentProps<typeof ChatComposer>),
   );
 
-test('the replay controls exist only while a clip does, one per track, and rename themselves while playing', async () => {
-  voiceFlags.trim = true;
-  // Both have to say yes: the user's switch above, and the recogniser's own declaration here.
-  voiceProfile.declaration = TRIMS_PAUSES;
-  const view = renderComposer(() => undefined);
-  const { queryByRole, getByRole } = view;
-
-  assert.equal(
-    queryByRole('button', { name: 'Replay original' }),
-    null,
-    'a composer with nothing recorded must not show a replay control',
-  );
-
+/** Records one press through the composer's own buttons — the path a user takes, not the hook's API. */
+const recordThroughComposer = async (view: ReturnType<typeof render>) => {
   recorderChunks = [new Blob([new Uint8Array(2000)])];
   await act(async () => {
-    getByRole('button', { name: 'Voice input' }).click();
+    view.getByRole('button', { name: 'Voice input' }).click();
   });
   await act(async () => {
-    getByRole('button', { name: 'Stop recording' }).click();
+    view.getByRole('button', { name: 'Stop recording' }).click();
   });
   await act(async () => {});
+};
+
+/** Turns the trim on for the pair of tracks: the switch above, and the recogniser's own declaration. */
+const withTrimmedPair = () => {
+  voiceFlags.trim = true;
+  voiceProfile.declaration = TRIMS_PAUSES;
+};
+
+/*
+ * The replay pair's two homes. Below `md` it has a row of its own between the box and the footer —
+ * the narrow footer is exactly the six controls that send a message and may not wrap, so the pair
+ * cannot live there; from `md` up it stays in the left tool group where it has always been. The
+ * cases below read each tier's placement out of the DOM the composer built, including the order the
+ * slots appear in, because that order is the whole of "the row is between the box and the footer".
+ */
+
+test('(a) mobile: the pair lands in its own row between the box and the footer, one control per track', async () => {
+  withTrimmedPair();
+  setViewportWidth(MOBILE_WIDTH);
+  const view = renderComposer(() => undefined);
+  const { container, getByRole } = view;
+
+  await recordThroughComposer(view);
+
+  const row = container.querySelector<HTMLElement>(CLIP_ROW_SELECTOR);
+  assert.ok(
+    row,
+    `a recording at ${MOBILE_WIDTH}px must give the replay pair a row of its own; the controls read: ${describePlacement(container, container.querySelector('button[aria-label="Replay original"]'))}`,
+  );
+  const textarea = container.querySelector<HTMLElement>(TEXTAREA_SELECTOR);
+  const footer = container.querySelector<HTMLElement>(FOOTER_SELECTOR);
+  assert.ok(textarea && footer, 'the composer must render its box and its footer');
+  assert.ok(
+    textarea.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING,
+    'the clip row has to come after the textarea',
+  );
+  assert.ok(
+    row.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING,
+    'the clip row has to come before the footer',
+  );
+  assert.equal(
+    footer.contains(row),
+    false,
+    'the clip row is the footer\'s replacement for a wrapped row, not a row inside it',
+  );
 
   const replayOriginal = getByRole('button', { name: 'Replay original' });
-  assert.ok(replayOriginal, 'a recording puts a replay control in the composer tool row');
   const replayTrimmed = getByRole('button', { name: 'Replay trimmed' });
-  assert.ok(replayTrimmed, 'the uploaded copy is a second control beside the recording, not a second state of the first');
+  assert.ok(
+    row.contains(replayOriginal) && row.contains(replayTrimmed),
+    `both controls belong to the clip row; they read: ${describePlacement(container, replayOriginal)}`,
+  );
   assert.notEqual(
     replayOriginal.getAttribute('data-clip-url'),
     replayTrimmed.getAttribute('data-clip-url'),
     'the two controls have to be over two different audio sources',
   );
 
+  // Clickable, and the whole point of the pair: pressing one offers to stop *that* audio.
   await act(async () => {
     replayOriginal.click();
   });
-
   assert.ok(
     getByRole('button', { name: 'Stop original playback' }),
     'while the clip sounds the control has to announce that pressing it stops',
   );
+});
+
+test('(b) desktop: the pair stays in the left tool group inside the footer, right of the mic', async () => {
+  withTrimmedPair();
+  setViewportWidth(DESKTOP_WIDTH);
+  const view = renderComposer(() => undefined);
+  const { container, getByRole } = view;
+
+  await recordThroughComposer(view);
+
+  assert.equal(
+    container.querySelector(CLIP_ROW_SELECTOR),
+    null,
+    'the clip row is the narrow layout\'s; the wide layout keeps the controls where they were',
+  );
+
+  const tools = container.querySelector<HTMLElement>(TOOLS_SELECTOR);
+  const footer = container.querySelector<HTMLElement>(FOOTER_SELECTOR);
+  assert.ok(tools && footer, 'the composer must render its tool group and its footer');
+
+  const replayOriginal = getByRole('button', { name: 'Replay original' });
+  const replayTrimmed = getByRole('button', { name: 'Replay trimmed' });
+  assert.ok(
+    footer.contains(replayOriginal) && footer.contains(replayTrimmed),
+    `the wide layout keeps the pair in the footer; they read: ${describePlacement(container, replayOriginal)}`,
+  );
+  assert.ok(
+    tools.contains(replayOriginal) && tools.contains(replayTrimmed),
+    `and in the left tool group, not the right-hand cluster; they read: ${describePlacement(container, replayOriginal)}`,
+  );
+
+  const mic = getByRole('button', { name: 'Voice input' });
+  assert.ok(
+    mic.compareDocumentPosition(replayOriginal) & Node.DOCUMENT_POSITION_FOLLOWING,
+    'the pair sits right of the microphone it was recorded from',
+  );
+});
+
+test('(c) mobile: with nothing recorded the clip row does not exist at all, not empty', () => {
+  withTrimmedPair();
+  setViewportWidth(MOBILE_WIDTH);
+  const view = renderComposer(() => undefined);
+  const { container, queryByRole } = view;
+
+  assert.equal(
+    queryByRole('button', { name: 'Replay original' }),
+    null,
+    'a composer with nothing recorded must not show a replay control',
+  );
+  assert.equal(
+    container.querySelector(CLIP_ROW_SELECTOR),
+    null,
+    'the row is conditional on the clip, so its container must be absent rather than rendered empty',
+  );
+  // The positive control: the box and footer are really there, so the two absences above are the
+  // clip's doing rather than a composer that never painted.
+  assert.ok(container.querySelector(TEXTAREA_SELECTOR), 'the composer must have rendered its box');
+  assert.ok(container.querySelector(FOOTER_SELECTOR), 'the composer must have rendered its footer');
+});
+
+test('(d) one track at a time: starting the trimmed replay stops the original, and the names follow', async () => {
+  withTrimmedPair();
+  setViewportWidth(MOBILE_WIDTH);
+  const view = renderComposer(() => undefined);
+  const { queryByRole, getByRole } = view;
+
+  await recordThroughComposer(view);
+
+  await act(async () => {
+    getByRole('button', { name: 'Replay original' }).click();
+  });
   assert.equal(
     queryByRole('button', { name: 'Replay original' }),
     null,
@@ -747,21 +888,13 @@ test('the replay controls exist only while a clip does, one per track, and renam
 });
 
 test('a capture that was uploaded as recorded gets one control, not two over the same audio', async () => {
-  voiceFlags.trim = true;
-  // Both have to say yes: the user's switch above, and the recogniser's own declaration here.
-  voiceProfile.declaration = TRIMS_PAUSES;
+  withTrimmedPair();
   stubbedTrim.decodable = false;
+  setViewportWidth(MOBILE_WIDTH);
   const view = renderComposer(() => undefined);
   const { queryByRole, getByRole } = view;
 
-  recorderChunks = [new Blob([new Uint8Array(2000)])];
-  await act(async () => {
-    getByRole('button', { name: 'Voice input' }).click();
-  });
-  await act(async () => {
-    getByRole('button', { name: 'Stop recording' }).click();
-  });
-  await act(async () => {});
+  await recordThroughComposer(view);
 
   assert.ok(getByRole('button', { name: 'Replay original' }), 'the recording is still replayable');
   assert.equal(
