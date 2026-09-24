@@ -5,7 +5,8 @@ import { judge } from '../raw/judge.mts';
 import { judgeExt } from '../raw/judge-ext.mts';
 import { stratumOf, idsOf, has, TARGETS } from './strata.mjs';
 const E = CONDS.find((c) => c.key === 'E-twostep-low')!;
-const rows = readFileSync(new URL('./results.jsonl', import.meta.url), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+const EXCLUDE = (process.env.EXCLUDE ?? '').split(',').filter(Boolean); // sensitivity check only, not part of PREREG
+const rows = readFileSync(new URL('./results.jsonl', import.meta.url), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((r) => !EXCLUDE.includes(r.cond));
 const CTX: Record<string, string> = Object.fromEntries(JSON.parse(readFileSync(new URL('../fixtures/a2-contexts.json', import.meta.url), 'utf8')).contexts.map((c: any) => [c.key, c.text]));
 const REF: Record<string, string> = { ...Object.fromEntries(JSON.parse(readFileSync('experiments/voice-provider-paired-quality/fixtures/paired.json', 'utf8')).entries.map((e: any) => [e.clip, e.reference])), ...Object.fromEntries(JSON.parse(readFileSync(new URL('../fixtures/ext-refs.json', import.meta.url), 'utf8')).clips.map((c: any) => [c.id, c.text])) };
 const W = { targetOnly: 45.3, targetAndCompetitor: 6.7, competitorOnly: 4.0, neither: 44.0 } as Record<string, number>;
