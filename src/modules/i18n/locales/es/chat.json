@@ -106,7 +106,23 @@
     "replayOriginal": "Reproducir original",
     "replayTrimmed": "Reproducir recortado",
     "stopReplayOriginal": "Detener reproducción original",
-    "stopReplayTrimmed": "Detener reproducción recortada"
+    "stopReplayTrimmed": "Detener reproducción recortada",
+    "errors": {
+      "ACCOUNT_ACCESS": "La cuenta no puede usar este servicio de voz — comprueba que su plan y el acceso al modelo estén activos y vuelve a intentarlo.",
+      "UNAUTHORIZED": "El servicio de voz rechazó su clave — revisa las credenciales del proveedor de voz en los ajustes y vuelve a intentarlo.",
+      "QUOTA_EXHAUSTED": "La cuota del servicio de voz se ha agotado — recarga la cuenta o cambia a otro proveedor de voz.",
+      "RATE_LIMITED": "Demasiadas transcripciones a la vez — espera un momento y vuelve a grabar.",
+      "MODEL_NOT_FOUND": "El modelo de transcripción no está disponible para esta cuenta — elige otro modelo en los ajustes del proveedor de voz.",
+      "AUDIO_REJECTED": "El servicio rechazó esta grabación — vuelve a grabar o sube otro archivo de audio.",
+      "CONTENT_FLAGGED": "El servicio marcó el contenido de esta grabación — revisa el audio y prueba con otro fragmento.",
+      "NO_SPEECH_DETECTED": "No se detectó voz en la grabación — vuelve a grabar hablando más cerca del micrófono.",
+      "UPSTREAM_UNAVAILABLE": "El servicio de voz no responde ahora mismo — espera un momento y vuelve a intentarlo.",
+      "NOT_CONFIGURED": "No hay ningún proveedor de voz configurado — configura uno en los ajustes para transcribir grabaciones.",
+      "INVALID_BASE_URL": "La URL base del proveedor de voz no es válida — corrígela en los ajustes del proveedor de voz.",
+      "OVERSIZE": "La grabación es demasiado grande para subirla — graba un fragmento más corto y vuelve a intentarlo.",
+      "UNSUPPORTED_MIME": "Este formato de audio no es compatible — prueba con otro archivo o graba con el micrófono.",
+      "unknown": "La transcripción ha fallado — vuelve a intentarlo o revisa los ajustes del proveedor de voz."
+    }
   },
   "input": {
     "placeholder": "Escribe / para comandos, @ para archivos, o pregúntale lo que quieras a {{provider}}...",

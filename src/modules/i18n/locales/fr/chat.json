@@ -96,6 +96,25 @@
     },
     "technicalDetails": "Détails techniques"
   },
+  "voice": {
+    "errors": {
+      "ACCOUNT_ACCESS": "Le compte ne peut pas utiliser ce service vocal — vérifiez que son abonnement et l'accès au modèle sont actifs, puis réessayez.",
+      "UNAUTHORIZED": "Le service vocal a refusé sa clé — vérifiez les identifiants du fournisseur de voix dans les réglages, puis réessayez.",
+      "QUOTA_EXHAUSTED": "Le quota du service vocal est épuisé — rechargez le compte ou passez à un autre fournisseur de voix.",
+      "RATE_LIMITED": "Trop de transcriptions en même temps — attendez un instant et réenregistrez.",
+      "MODEL_NOT_FOUND": "Le modèle de transcription n'est pas accessible à ce compte — choisissez un autre modèle dans les réglages du fournisseur de voix.",
+      "AUDIO_REJECTED": "Le service a refusé cet enregistrement — enregistrez de nouveau ou importez un autre fichier audio.",
+      "CONTENT_FLAGGED": "Le service a signalé le contenu de cet enregistrement — vérifiez l'audio et essayez un autre extrait.",
+      "NO_SPEECH_DETECTED": "Aucune parole n'a été détectée dans l'enregistrement — enregistrez de nouveau en parlant plus près du microphone.",
+      "UPSTREAM_UNAVAILABLE": "Le service vocal ne répond pas pour le moment — attendez un instant et réessayez.",
+      "NOT_CONFIGURED": "Aucun fournisseur de voix n'est configuré — configurez-en un dans les réglages pour transcrire vos enregistrements.",
+      "INVALID_BASE_URL": "L'URL de base du fournisseur de voix n'est pas valide — corrigez-la dans les réglages du fournisseur de voix.",
+      "OVERSIZE": "L'enregistrement est trop volumineux pour être envoyé — enregistrez un extrait plus court et réessayez.",
+      "UNSUPPORTED_MIME": "Ce format audio n'est pas pris en charge — essayez un autre fichier ou enregistrez avec le microphone.",
+      "unknown": "La transcription a échoué — réessayez ou vérifiez les réglages du fournisseur de voix."
+    }
+  },
+
   "input": {
     "placeholder": "Tapez / pour les commandes, @ pour les fichiers, ou posez une question à {{provider}}...",
     "placeholderDefault": "Tapez votre message...",

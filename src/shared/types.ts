@@ -752,6 +752,41 @@ export type VoiceClipPlayState = {
   trimmed: VoicePlayState;
 };
 
+/**
+ * A transcription the recogniser refused, kept as the fields the answer carried rather than as
+ * the sentence they were flattened into.
+ *
+ * Structured because two consumers need two different things from one failure: the composer shows
+ * the localized sentence its `code` selects, and the technical line shows the machine-readable
+ * half. Building the sentence at the moment of failure — which is what the capture chain used to
+ * do — spends the code and the status irreversibly: nothing downstream can tell a refusal the
+ * vocabulary names from one it does not, and the status number survives only as digits inside a
+ * sentence nobody can re-read.
+ *
+ * `code` is absent when the answer's body carried none, which is NOT the same fact as a code
+ * outside the vocabulary: both take the fallback sentence, but only the first says the backend
+ * never classified the failure at all. `upstreamCode` is the recogniser's own code string, passed
+ * through when the backend had one; it names nothing on its own and is carried for the technical
+ * line only.
+ */
+export type VoiceTranscriptionFailure = {
+  code?: string;
+  status?: number;
+  upstreamCode?: string;
+};
+
+/**
+ * What one capture hands the composer when it fails.
+ *
+ * A union rather than one shape because the two kinds of failure are already unlike: a refusal from
+ * the recogniser arrives with a code and a status and no sentence, while the chain's own local
+ * failures (a recording too short to send, a missing microphone, a playback that would not start)
+ * have neither a code nor a vocabulary behind them and carry their sentence already written. Sending
+ * them through the same channel keeps one failure path; the discriminator is the `typeof` check at
+ * the consumer, which is exactly the question "is this a sentence or something to look up?".
+ */
+export type VoiceFailureReport = string | VoiceTranscriptionFailure;
+
 // ---------------------------
 
 //----------------- CHAT STORAGE ------------

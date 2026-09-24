@@ -95,6 +95,25 @@
     },
     "technicalDetails": "Teknik ayrıntılar"
   },
+  "voice": {
+    "errors": {
+      "ACCOUNT_ACCESS": "Hesap bu konuşma hizmetini kullanamıyor — planın ve model erişiminin etkin olduğundan emin olup yeniden deneyin.",
+      "UNAUTHORIZED": "Konuşma hizmeti anahtarını reddetti — ayarlardan ses sağlayıcısının kimlik bilgilerini kontrol edip yeniden deneyin.",
+      "QUOTA_EXHAUSTED": "Konuşma hizmetinin kotası tükendi — hesaba yükleme yapın veya başka bir ses sağlayıcısına geçin.",
+      "RATE_LIMITED": "Aynı anda çok fazla deşifre isteği var — biraz bekleyip yeniden kaydedin.",
+      "MODEL_NOT_FOUND": "Deşifre modeli bu hesap için kullanılamıyor — ses sağlayıcısı ayarlarından başka bir model seçin.",
+      "AUDIO_REJECTED": "Hizmet bu kaydı reddetti — yeniden kaydedin veya başka bir ses dosyası yükleyin.",
+      "CONTENT_FLAGGED": "Hizmet bu kaydın içeriğini işaretledi — sesi kontrol edip başka bir bölümü deneyin.",
+      "NO_SPEECH_DETECTED": "Kayıtta konuşma bulunamadı — mikrofona daha yakın konuşarak yeniden kaydedin.",
+      "UPSTREAM_UNAVAILABLE": "Konuşma hizmeti şu anda yanıt vermiyor — biraz bekleyip yeniden deneyin.",
+      "NOT_CONFIGURED": "Yapılandırılmış bir ses sağlayıcısı yok — kayıtları deşifre etmek için ayarlardan bir tane kurun.",
+      "INVALID_BASE_URL": "Ses sağlayıcısının temel adresi geçersiz — ses sağlayıcısı ayarlarından düzeltin.",
+      "OVERSIZE": "Kayıt yüklenemeyecek kadar büyük — daha kısa bir bölüm kaydedip yeniden deneyin.",
+      "UNSUPPORTED_MIME": "Bu ses biçimi desteklenmiyor — başka bir dosya deneyin veya mikrofonla kaydedin.",
+      "unknown": "Deşifre başarısız oldu — yeniden deneyin veya ses sağlayıcısı ayarlarını kontrol edin."
+    }
+  },
+
   "input": {
     "placeholder": "Komutlar için /, dosyalar için @ yaz ya da {{provider}}'a her şeyi sor...",
     "placeholderDefault": "Mesajını yaz...",

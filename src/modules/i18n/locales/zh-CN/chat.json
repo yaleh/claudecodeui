@@ -106,7 +106,23 @@
     "replayOriginal": "播放原始录音",
     "replayTrimmed": "播放裁剪后音频",
     "stopReplayOriginal": "停止播放原始录音",
-    "stopReplayTrimmed": "停止播放裁剪后音频"
+    "stopReplayTrimmed": "停止播放裁剪后音频",
+    "errors": {
+      "ACCOUNT_ACCESS": "该账户无法使用这个语音服务——请确认订阅与模型权限已生效，然后重试。",
+      "UNAUTHORIZED": "语音服务拒绝了它的密钥——请在设置里检查语音提供方的凭据，然后重试。",
+      "QUOTA_EXHAUSTED": "语音服务的配额已用尽——请为账户充值，或换一个语音提供方。",
+      "RATE_LIMITED": "同时转写的请求太多——请稍等片刻再重新录音。",
+      "MODEL_NOT_FOUND": "该账户用不了这个转写模型——请在语音提供方设置里换一个模型。",
+      "AUDIO_REJECTED": "服务拒绝了这段录音——请重新录制，或换一个音频文件上传。",
+      "CONTENT_FLAGGED": "服务标记了这段录音的内容——请检查音频，换一段再试。",
+      "NO_SPEECH_DETECTED": "录音里没有检测到人声——请靠近麦克风重新录制。",
+      "UPSTREAM_UNAVAILABLE": "语音服务暂时没有响应——请稍等片刻后重试。",
+      "NOT_CONFIGURED": "还没有配置语音提供方——请先在设置里配置一个，才能转写录音。",
+      "INVALID_BASE_URL": "语音提供方的服务地址无效——请在语音提供方设置里改正。",
+      "OVERSIZE": "录音文件太大，无法上传——请录一段更短的再试。",
+      "UNSUPPORTED_MIME": "不支持这种音频格式——请换一个文件，或用麦克风录制。",
+      "unknown": "转写失败了——请重试，或检查语音提供方的设置。"
+    }
   },
   "input": {
     "placeholder": "输入 / 调用命令，@ 选择文件，或向 {{provider}} 提问...",
