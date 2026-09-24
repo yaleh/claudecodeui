@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 
 import { expect, test } from '@playwright/test';
@@ -89,7 +90,13 @@ const WRITTEN_ENVELOPE = {
 };
 
 /**
- * The refusal the double answers the second leg with, and the code that has to reach the page with it.
+ * The refusal the double answers the second leg with, and the code the page's sentence is chosen by.
+ *
+ * The transport sentence (`error`) is not what the page shows any more and this file asserts on it nowhere: the
+ * composer renders the localized sentence the code selects (see `REFUSAL_COPY`), and the code itself belongs to
+ * the folded technical-detail line another criterion owns. The field stays because it is part of the envelope
+ * the real proxy answers a refusal with, and a double that dropped it would be answering a shape the app never
+ * meets.
  *
  * WHAT IS AND IS NOT FAITHFUL HERE, stated because the difference is deliberate and a reader would otherwise
  * have to reconstruct it. The upstream condition is a credential the service refused, and the app's own
@@ -98,15 +105,48 @@ const WRITTEN_ENVELOPE = {
  * (`backendFailure(401|403)`). The CODE is where this double is one step outside the app: the real route
  * republishes a code only for the refusals that happen BEFORE the upstream is called (the container and size
  * gates), so an upstream refusal reaches the browser as a message with no code and the page would read
- * "transcribe 502". The criterion asks for the failure to be recognisable by code on the page, so this double
- * supplies the code the seam itself holds for this classification. The deviation is registered in this file's
- * own output rather than left for a reader to find.
+ * "transcribe 502". The criterion asks that a refused recognition be recognisable as the refusal it is, and the
+ * app's recognition is the code the seam classified it with, so this double supplies the code the seam itself
+ * holds for this classification. The deviation is registered in this file's own output rather than left for a
+ * reader to find.
  */
 const REFUSAL_ENVELOPE = {
   error: 'Voice backend rejected the request (check the API key).',
   code: 'UNAUTHORIZED',
 };
 const REFUSAL_STATUS = 502;
+
+/**
+ * The shipped English sentences for the refusals this leg has to tell apart, read off the disk at run time.
+ *
+ * WHY THIS FILE DOES NOT CARRY THE SENTENCE ITSELF. The copy a refusal gets is chosen from its code, so the
+ * string this leg has to expect is a function of the locale file and of the code rather than of this spec — and
+ * a copy restated here is one that stops moving when the locale does. That is not hypothetical for THIS leg: it
+ * was pinned to the transport sentence plus the bare code, a later change replaced the displayed sentence with a
+ * localized one, and the expectation stayed behind and reddened while the behaviour under test kept working.
+ * Read here instead, an edit to `/src/modules/i18n/locales/en/chat.json` moves the assertion with it.
+ *
+ * THREE SENTENCES, AND WHY ALL THREE. `REFUSAL_COPY` is the one this leg's own envelope earns, indexed by the
+ * envelope's code so that the key is named once (in the envelope) and not twice. The other two are the ones a
+ * leg must not be reading: `NO_SPEECH_DETECTED` is the class of copy a chain that reached no answer at all
+ * would show, and `unknown` is the fallback every failure outside the vocabulary lands on. "Some error is on
+ * screen" is satisfiable by either; the classification is what this leg is about, so all three are printed and
+ * taken apart.
+ *
+ * The shipped directory is the right one because the interface language is: `beforeAll`'s `addInitScript` pins
+ * the UI language to `en`, so the sentence the app renders and the sentence read here come from the same file.
+ */
+const EN_VOICE_ERRORS = (
+  JSON.parse(
+    fs.readFileSync(path.resolve(process.cwd(), 'src/modules/i18n/locales/en/chat.json'), 'utf8'),
+  ) as { voice: { errors: Record<string, string> } }
+).voice.errors;
+/** The sentence the refusal leg's own envelope selects — the code is read off the envelope rather than restated. */
+const REFUSAL_COPY = EN_VOICE_ERRORS[REFUSAL_ENVELOPE.code];
+/** The "no answer reached this recording" sentence, which the refusal leg must NOT be showing. */
+const NO_SPEECH_COPY = EN_VOICE_ERRORS.NO_SPEECH_DETECTED;
+/** The fallback sentence an unnamed failure lands on, which the refusal leg must NOT be showing either. */
+const UNKNOWN_COPY = EN_VOICE_ERRORS.unknown;
 
 /**
  * The draft the refusal leg types before it records.
@@ -874,7 +914,9 @@ test.afterAll(async () => {
       + 'selected by -g do not reload, so the masked-readback writeback rule is outside this file. One deviation '
       + 'from the real proxy is deliberate and registered here: an upstream refusal is answered by the stand-in with '
       + 'the seam\'s own UNAUTHORIZED code beside the proxy\'s message, because the real route republishes a code '
-      + 'only for the pre-upstream refusals, and the criterion asks for a semantic code on the page. The app\'s own '
+      + 'only for the pre-upstream refusals, and the criterion asks that the refusal be recognisable as the '
+      + 'classification it is — which the page answers with the sentence that code selects, the code itself being '
+      + 'the folded technical-detail line a separate criterion owns. The app\'s own '
       + 'Service Worker is blocked for this run\'s browser context, because a request a worker answers is one the '
       + 'page-level interception cannot see; a real browser runs that worker, so this run observes the app with one '
       + 'layer of its own transport absent.',
@@ -984,14 +1026,26 @@ test('AC-142 written: a proxied provider is selected in settings and the written
 });
 
 /**
- * The refusal leg: a draft is typed, the recording is refused upstream, the page says so with a code, and the
- * draft is still there — character for character — afterward.
+ * The refusal leg: a draft is typed, the recording is refused upstream, the page says so in the sentence its code
+ * selects, and the draft is still there — character for character — afterward.
  *
- * The three readings are the whole claim, and the third is what stops the second from being vacuous: "nothing
- * happened, so the draft is still there" is excluded by the error having really been shown, and "the leg
- * uploaded and got an answer" is what the count of one says.
+ * WHAT THE PAGE IS EXPECTED TO SAY, and why it is read off the locale file rather than restated here: the app
+ * turns a refusal into the sentence the shipped vocabulary has for its code, so the expectation is a function of
+ * that file. The code itself is deliberately NOT asserted here — it belongs to the folded technical-detail line
+ * a separate criterion owns, and this leg is about the sentence a user reads.
+ *
+ * The readings, and what each one stops the next from being:
+ *   · the sentence is absent before the recording and present after it — without both ends, "the sentence is on
+ *     screen" would be satisfied by a page that was already showing it and the recording would be measured by
+ *     nothing;
+ *   · the sentence is the one `UNAUTHORIZED` selects, and is neither the "no answer reached this recording"
+ *     sentence nor the fallback — three distinct strings, so a leg that read either of the other two, or
+ *     compared a string with itself, cannot pass;
+ *   · the draft survives character for character, which is only a reading because the error really was shown and
+ *     the leg really did upload exactly once — "nothing happened, so the draft is still there" is what the other
+ *     two readings exclude.
  */
-test('AC-142 refusal: a refused recognition shows an error with its code and leaves the draft untouched', async () => {
+test('AC-142 refusal: a refused recognition shows the sentence its code selects and leaves the draft untouched', async () => {
   test.setTimeout(45_000);
 
   const leg = await openLeg('refusal', '/?voiceTrim=off&voiceDebug=1', 'refused');
@@ -1002,6 +1056,12 @@ test('AC-142 refusal: a refused recognition shows an error with its code and lea
   await composer(page).fill(DRAFT);
   const before = await composer(page).inputValue();
   expect(before).toBe(DRAFT);
+
+  // (a) The page's own words BEFORE the recording, read off the same page text the post-recording reading uses.
+  // This end of the pair is required to be false: the conversion is what this leg measures, and a sentence that
+  // was already there cannot be evidence of it.
+  const saidRefusal = (text: string) => text.includes(REFUSAL_COPY);
+  const beforeSaidRefusal = saidRefusal(await page.locator('body').innerText());
 
   // The provider is the one the previous leg saved, so no settings trip is needed here: the page reads health
   // on load and routes on that reading.
@@ -1016,13 +1076,16 @@ test('AC-142 refusal: a refused recognition shows an error with its code and lea
     { timeout: 15_000, message: 'the recording never reached the proxy stand-in' },
   ).toBe(1);
 
-  // (a) The page's own words: an error, and the semantic code beside it — not the "no speech detected" class of
-  // copy, which is what a chain that never got an answer from anywhere would show.
-  const errorLine = page.getByText(/Transcription failed/);
+  // (b) The page's own words AFTER it: the sentence this envelope's code selects, and nothing from the two
+  // other classes. Read off the whole page rather than off the bubble alone, so the assertion is about what the
+  // page says instead of about which element happened to carry it.
+  const errorLine = page.getByText(REFUSAL_COPY);
   let shown = '<unreadable>';
+  let afterText = '<unreadable>';
   try {
     await expect(errorLine).toBeVisible({ timeout: 10_000 });
     shown = await errorLine.innerText();
+    afterText = await page.locator('body').innerText();
   } catch {
     const body = await page.locator('body').innerText().catch(() => '<unreadable>');
     throw new Error(
@@ -1030,18 +1093,37 @@ test('AC-142 refusal: a refused recognition shows an error with its code and lea
         + `\n  proxy posts=${leg.proxyPosts.length}`,
     );
   }
+  const afterSaidRefusal = saidRefusal(afterText);
   const draftKept = (await composer(page).inputValue()) === DRAFT;
-  const refusalShown = shown.includes('Transcription failed') && shown.includes(REFUSAL_ENVELOPE.code);
-  console.log(`error=${refusalShown} draft-kept=${draftKept} posts=${leg.proxyPosts.length}`);
+  console.log(`before-said-unauthorized=${beforeSaidRefusal} after-said-unauthorized=${afterSaidRefusal}`);
+  console.log(
+    `copy[${REFUSAL_ENVELOPE.code}]=${JSON.stringify(REFUSAL_COPY)}`
+      + ` copy[NO_SPEECH_DETECTED]=${JSON.stringify(NO_SPEECH_COPY)}`
+      + ` copy[unknown]=${JSON.stringify(UNKNOWN_COPY)}`
+      + ` distinct=${new Set([REFUSAL_COPY, NO_SPEECH_COPY, UNKNOWN_COPY]).size}/3`,
+  );
+  console.log(
+    `draft-kept=${draftKept} posts=${leg.proxyPosts.length} aliyuncs-refusal=${leg.aliyuncsLedger.length}`,
+  );
   console.log(
     `[voice-dashscope] refusal: page-said=${JSON.stringify(shown)}`
       + ` composer=${JSON.stringify(await composer(page).inputValue())}`
       + ` run-total-posts=${leg.proxyPosts.length} (this leg's own stand-in counted every POST it answered)`,
   );
 
-  expect(shown).toContain('Transcription failed');
-  expect(shown).toContain(REFUSAL_ENVELOPE.code);
-  expect(shown).not.toContain('No speech detected');
+  // The three sentences are pairwise distinct strings, so what follows compares three different things rather
+  // than a string with itself — a locale that collapsed two of them would make the reading below vacuous.
+  expect(
+    new Set([REFUSAL_COPY, NO_SPEECH_COPY, UNKNOWN_COPY]).size,
+    'the three sentences read off the locale file are not pairwise distinct, so the reading below compares a string with itself',
+  ).toBe(3);
+  // The conversion, at both ends: absent before the recording, present after it.
+  expect(beforeSaidRefusal, 'the refusal sentence was already on the page before the recording').toBe(false);
+  expect(afterSaidRefusal).toBe(true);
+  // WHICH sentence: the one this envelope's code selects, and neither of the two it must not be.
+  expect(afterText).toContain(REFUSAL_COPY);
+  expect(afterText).not.toContain(NO_SPEECH_COPY);
+  expect(afterText).not.toContain(UNKNOWN_COPY);
   expect(draftKept).toBe(true);
   // The stand-in's own counter, this leg's: one upload, no retry behind the refusal. (The two -g legs each keep
   // their own stand-in, so this number is about this leg rather than about the file's total.)
