@@ -53,18 +53,18 @@ check discipline: FAIL dashscope-omni=neutral declares a non-destructive capabil
 
 ## AC
 
-- [ ] AC1 runner 报 `n` 且空读数不是绿：`node experiments/voice-dashscope-omni-paired-quality/run.mjs` 默认离线重算退出 0，并打印 `n=8 × <k> condition(s) = <N> row(s)`（k ≥ 4，且条件表含一个 whisper 基线、`omni|raw`、`omni|trim` 与负对照臂）；`--corpus=empty` 退出 1，判词指名空读数而不是静默绿。
-- [ ] AC2 负对照能红：`--control=absent`、`--control=zero`、`--control=inverted` 三种各退出 1，且红在负对照那一位（判词指名该对照条件名与预测方向）；记录里写明对照条件对是哪一个、相对哪个参照、以及**取数之前**写下的预测方向。
-- [ ] AC3 不跨运行：冻结快照里所有读数来自同一个 run id；`--runs=straddle` 退出 1 并报 `different runs`。
-- [ ] AC4 出货模块：`--probe` 打印 `shared/asr/list/dashscope-omni/dashscope-omni.asr-provider.ts#transcribe` 与 `src/shared/voiceTrim.ts#trimVoiceAudio` 的绝对路径并断言 runner 内没有第二份请求构造（`grep -nE "input_audio|compatible-mode/v1/chat/completions" experiments/voice-dashscope-omni-paired-quality/run.mjs` 无命中）；退出 0；语义判定走 `experiments/voice-omni-written/raw/judge.mts`，runner 里 `grep -c "✅\|◐"` 不出现第二份 rubric 阈值。
-- [ ] AC5 记录存在且作答：`ls docs/experiments/ | grep -cE '^[0-9]{4}-[0-9]{2}-[0-9]{2}-omni-written\.md$'` 为 1；该文件含 `n=8`、run id、「TTS 合成」字样、负对照方向结论、逐片段并列文本，以及一节以 `pauseCues` 为题且给出「支持 `neutral` / 不支持（指向某值）/ 读数不足」三者之一的结论；`docs/experiments/README.md` 的索引表列出该文件。
-- [ ] AC6 证据指针与判据转绿，且检查未被改窄：`grep -n "dashscopeOmniId]" shared/asr/asrRegistry.ts` 命中且指向 AC5 的那份记录；`node scripts/asr-trim-capability-check.mjs` 退出 0，输出行 `declared provider=dashscope-omni pauseCues=<值> evidence=<记录路径>` 不再为 `(none)`；`node scripts/asr-pause-cues-source-check.mjs` 退出 0；`git diff --name-only <base>...HEAD` 不含 `scripts/asr-trim-capability-check.mjs` 与 `scripts/asr-pause-cues-source-check.mjs`。
-- [ ] AC7 取假夹具跟得上：`scripts/asr-trim-capability-check.test.mjs` 的 `SHIPPING_FILES` 加入 AC5 的记录文件（第三份证据），`scripts/asr-pause-cues-source-check.test.mjs` 里对应的清单同样更新；`node --test scripts/asr-trim-capability-check.test.mjs scripts/asr-pause-cues-source-check.test.mjs` 退出 0；且有一条变异用例（把第三份记录从夹具里删掉）红在 `discipline` 那一条上，而不是红在别处。
-- [ ] AC8 声明与记录一致：AC5 记录给出的 `pauseCues` 结论与 `shared/asr/list/dashscope-omni/dashscope-omni.asr-provider.ts` 的 `capabilities.pauseCues` 逐字一致 —— 结论是「读数不足」则声明不动、注释如实写「读数不足，按 proposal §2 的理由保持 `neutral`」，结论指向别的值就在本条改声明（不留给后续任务：ADR-004 决策 1 的纪律就是声明跟着该服务自己的实测走）；两种情形都必须把模块注释里「trimming was never measured against this service」那一段按读数重写，并点名 AC5 的记录路径。
-- [ ] AC9 不判据化：runner 末行自陈 `quality numbers are a reading and are NOT a criterion`；`grep -rl voice-dashscope-omni-paired-quality scripts/` 为空。
-- [ ] AC10 凭据不入库：`git diff --name-only <base>...HEAD` 不含 `.env*`；载入 `.env.test` 的 shell 里 `git log -p <base>..HEAD | grep -cF "$DASHSCOPE_API_KEY"` 为 0（比对 key 的值本身，不比对前缀字面量）；缓存目录 `experiments/voice-dashscope-omni-paired-quality/out/` 不入库。
-- [ ] AC11 静态门：`npm run typecheck` 与 `npm run lint` 退出 0（lint 只允许仓库既有 warning）。
-- [ ] AC12 如实登记：完成记录写明「本条只补 AC-135 纪律那一半的证据面；`capabilities` 唯一来源与默认行为不变那一半由 `gap-asr-trim-capability-wiring` 落地且本轮仍绿；这条红是 `gap-asr-proxy-provider-dispatch` 把第三个适配器登记进 `REGISTERED` 的后果，该任务已如实登记并让渡；本条不改路由、不做前端、不动 SSRF 与用户凭据（AC-140/141/142 的范围）；质量读数按 ADR-004 决策 8 不进 CI、依赖人工义务；n=8、TTS 合成语料、单次运行只界定效应方向」。
+- [x] AC1 runner 报 `n` 且空读数不是绿：`node experiments/voice-dashscope-omni-paired-quality/run.mjs` 默认离线重算退出 0，并打印 `n=8 × <k> condition(s) = <N> row(s)`（k ≥ 4，且条件表含一个 whisper 基线、`omni|raw`、`omni|trim` 与负对照臂）；`--corpus=empty` 退出 1，判词指名空读数而不是静默绿。
+- [x] AC2 负对照能红：`--control=absent`、`--control=zero`、`--control=inverted` 三种各退出 1，且红在负对照那一位（判词指名该对照条件名与预测方向）；记录里写明对照条件对是哪一个、相对哪个参照、以及**取数之前**写下的预测方向。
+- [x] AC3 不跨运行：冻结快照里所有读数来自同一个 run id；`--runs=straddle` 退出 1 并报 `different runs`。
+- [x] AC4 出货模块：`--probe` 打印 `shared/asr/list/dashscope-omni/dashscope-omni.asr-provider.ts#transcribe` 与 `src/shared/voiceTrim.ts#trimVoiceAudio` 的绝对路径并断言 runner 内没有第二份请求构造（`grep -nE "input_audio|compatible-mode/v1/chat/completions" experiments/voice-dashscope-omni-paired-quality/run.mjs` 无命中）；退出 0；语义判定走 `experiments/voice-omni-written/raw/judge.mts`，runner 里 `grep -c "✅\|◐"` 不出现第二份 rubric 阈值。
+- [x] AC5 记录存在且作答：`ls docs/experiments/ | grep -cE '^[0-9]{4}-[0-9]{2}-[0-9]{2}-omni-written\.md$'` 为 1；该文件含 `n=8`、run id、「TTS 合成」字样、负对照方向结论、逐片段并列文本，以及一节以 `pauseCues` 为题且给出「支持 `neutral` / 不支持（指向某值）/ 读数不足」三者之一的结论；`docs/experiments/README.md` 的索引表列出该文件。
+- [x] AC6 证据指针与判据转绿，且检查未被改窄：`grep -n "dashscopeOmniId]" shared/asr/asrRegistry.ts` 命中且指向 AC5 的那份记录；`node scripts/asr-trim-capability-check.mjs` 退出 0，输出行 `declared provider=dashscope-omni pauseCues=<值> evidence=<记录路径>` 不再为 `(none)`；`node scripts/asr-pause-cues-source-check.mjs` 退出 0；`git diff --name-only <base>...HEAD` 不含 `scripts/asr-trim-capability-check.mjs` 与 `scripts/asr-pause-cues-source-check.mjs`。
+- [x] AC7 取假夹具跟得上：`scripts/asr-trim-capability-check.test.mjs` 的 `SHIPPING_FILES` 加入 AC5 的记录文件（第三份证据），`scripts/asr-pause-cues-source-check.test.mjs` 里对应的清单同样更新；`node --test scripts/asr-trim-capability-check.test.mjs scripts/asr-pause-cues-source-check.test.mjs` 退出 0；且有一条变异用例（把第三份记录从夹具里删掉）红在 `discipline` 那一条上，而不是红在别处。
+- [x] AC8 声明与记录一致：AC5 记录给出的 `pauseCues` 结论与 `shared/asr/list/dashscope-omni/dashscope-omni.asr-provider.ts` 的 `capabilities.pauseCues` 逐字一致 —— 结论是「读数不足」则声明不动、注释如实写「读数不足，按 proposal §2 的理由保持 `neutral`」，结论指向别的值就在本条改声明（不留给后续任务：ADR-004 决策 1 的纪律就是声明跟着该服务自己的实测走）；两种情形都必须把模块注释里「trimming was never measured against this service」那一段按读数重写，并点名 AC5 的记录路径。
+- [x] AC9 不判据化：runner 末行自陈 `quality numbers are a reading and are NOT a criterion`；`grep -rl voice-dashscope-omni-paired-quality scripts/` 为空。
+- [x] AC10 凭据不入库：`git diff --name-only <base>...HEAD` 不含 `.env*`；载入 `.env.test` 的 shell 里 `git log -p <base>..HEAD | grep -cF "$DASHSCOPE_API_KEY"` 为 0（比对 key 的值本身，不比对前缀字面量）；缓存目录 `experiments/voice-dashscope-omni-paired-quality/out/` 不入库。
+- [x] AC11 静态门：`npm run typecheck` 与 `npm run lint` 退出 0（lint 只允许仓库既有 warning）。
+- [x] AC12 如实登记：完成记录写明「本条只补 AC-135 纪律那一半的证据面；`capabilities` 唯一来源与默认行为不变那一半由 `gap-asr-trim-capability-wiring` 落地且本轮仍绿；这条红是 `gap-asr-proxy-provider-dispatch` 把第三个适配器登记进 `REGISTERED` 的后果，该任务已如实登记并让渡；本条不改路由、不做前端、不动 SSRF 与用户凭据（AC-140/141/142 的范围）；质量读数按 ADR-004 决策 8 不进 CI、依赖人工义务；n=8、TTS 合成语料、单次运行只界定效应方向」。
 
 ## DoD
 
@@ -85,10 +85,21 @@ L_D 该轴仍暗，理由：本条交付的是一份实验记录、一行证据�
 
 - experiments/voice-dashscope-omni-paired-quality/run.mjs (new)
 - experiments/voice-dashscope-omni-paired-quality/fixtures/omni.json (new)
-- docs/experiments/2026-09-25-omni-written.md (new)
+- docs/experiments/2026-09-24-omni-written.md (new)
 - docs/experiments/README.md
 - shared/asr/asrRegistry.ts
 - shared/asr/list/dashscope-omni/dashscope-omni.asr-provider.ts
 - scripts/asr-trim-capability-check.test.mjs
 - scripts/asr-pause-cues-source-check.test.mjs
 - tasks/gap-asr-omni-paired-quality-record.md
+
+## 完成记录
+
+**结论：读数支持 `pauseCues` 保持 `'neutral'`，声明一个字未改；证据指针指向本条的记录。**
+
+- **交付**：新 runner `experiments/voice-dashscope-omni-paired-quality/run.mjs`（4 臂：whisper 基线 / `omni|raw` / `omni|trim` / `omni|head` 负对照，同一运行、同一批 8 条 **TTS 合成**片段）、冻结快照 `fixtures/omni.json`、记录 `docs/experiments/2026-09-24-omni-written.md`、`PAUSE_CUES_EVIDENCE[dashscopeOmniId]` 一行、适配器 `pauseCues` 注释按读数重写、两条判据工装的自检夹具清单各加第三份证据。
+- **读数（run=2026-09-24T08:01:20.915Z，n=8，单次运行）**：负对照 `omni|head|none` 的满分 `0` vs 参照 `omni|raw|none` 的 `7`（Δ=-7），**按取数前写下的方向（down）移动**；裁剪臂 `omni|trim|none` 满分 `6/8`，相对参照**没有一条片段变好**、d02 掉了一条满分；标识符两臂都是 `3/6`（d01 被裁剪修好、d02 被裁剪弄坏，净额为零）；`tokens` 因出货适配器的 `meta` 不带 `usage` 而记 n/a。
+- **文件名偏差（Proposal 要求登记）**：Touches 立案时按预计运行日写作 `docs/experiments/2026-09-25-omni-written.md`；实际取数运行发生在 **2026-09-24**，记录按运行日命名为 `docs/experiments/2026-09-24-omni-written.md`，上面的 Touches 行已改为实际路径。
+- **AC12 的边界如实登记**：本条只补 AC-135 **纪律那一半**的证据面 —— `capabilities` 唯一来源、读取点唯一、默认行为不变那一半由 `gap-asr-trim-capability-wiring`（done）落地，本轮探针输出里 `check single-source` 与 `check default` 两条仍然绿；这条红是 `gap-asr-proxy-provider-dispatch` 把第三个适配器登记进 `REGISTERED` 之后**第一次**进入读数面的后果，该任务已在完成记录里如实登记并让渡。本条不改路由、不做前端、不动 SSRF 与用户凭据（AC-140/141/142 的范围），不改 `multimodal` / `openai-compatible` 的声明与证据，没有重取 `e-ctx*` 读数，没有写第二份 trim 实现或第二份 rubric，检查脚本本体一字未动。
+- **质量读数按 ADR-004 决策 8 不进 CI**，依赖人工义务；n=8、TTS 合成语料、单次运行只界定效应方向，不界定真人语音上的幅度。
+- **scoped gate 的实情**：`bash scripts/test.sh --for-task gap-asr-omni-paired-quality-record --allow-thin` 退出 0，但输出是 `no scoped test files … (thin)` —— 该脚本按 `.test.[jt]sx?$` 收 Touches 里的测试文件，两条 `.test.mjs` 不在其内（仓库既有性质，不是本条引入）。所以那一步是空转；两条测试文件另行直接跑过：`node --test scripts/asr-trim-capability-check.test.mjs scripts/asr-pause-cues-source-check.test.mjs` = 18/18 通过、退出 0，fan-in 的全量套件会真正覆盖它们。

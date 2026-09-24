@@ -1,7 +1,7 @@
 ---
 id: AC-141
 title: DashScope 的 key 与地址由用户提供并存于服务端设置；健康检查反映之；key 不回显不入日志；与 TTS 凭据分离
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-009
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -18,6 +18,11 @@ statusLog:
     to: active
     actor: goal-cli
     reason: ""
+  - at: 2026-09-24T07:51:45.426Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
