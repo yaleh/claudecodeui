@@ -81,7 +81,7 @@ goal_ac: AC-103
 
 ## AC
 
-- [ ] AC1 默认路径在**冷**（`rm -rf .quay/suite-concurrency-check/cache` 之后）与**暖**（紧接的第二次）两支上各连跑 ≥3 次，每次 `rc=0` 且**外部** `date +%s%3N` 包夹实测墙钟 ≤ 60000ms；判词里不出现 `NOT-EVALUATED`、不出现 exit 3、也不出现被击杀（外部实测 > 60000ms 即算被击杀）。逐次打印 `run=<n> mode=<cached|live|partial> rc=<n> wall_ms=<n> 安静窗口=<n> 并发窗口=<n> 最重文件=<path:ms> 差集=<n> 确认步=<…>`。
+- [x] AC1 默认路径在**冷**（`rm -rf .quay/suite-concurrency-check/cache` 之后）与**暖**（紧接的第二次）两支上各连跑 ≥3 次，每次 `rc=0` 且**外部** `date +%s%3N` 包夹实测墙钟 ≤ 60000ms；判词里不出现 `NOT-EVALUATED`、不出现 exit 3、也不出现被击杀（外部实测 > 60000ms 即算被击杀）。逐次打印 `run=<n> mode=<cached|live|partial> rc=<n> wall_ms=<n> 安静窗口=<n> 并发窗口=<n> 最重文件=<path:ms> 差集=<n> 确认步=<…>`。
 - [x] AC2 差集回到历史形状：连续 ≥5 次默认路径运行，`差集` 的文件数 ≤1，且 `server/modules/voice/tests/voice-capture-off.false-forms.test.ts` 与 `server/modules/voice/tests/voice-dashscope-settings.false-forms.test.ts` **不再**出现在 `并发红名单` 里。逐次打印 `并发红名单=[…] 安静红名单=[…] 差集=[…]`。
 - [x] AC3 AC2 不是把读数做成恒真（两条可执行的取假形态，沿用这两个文件自己的 `CASES`/锚点形状）：(i) 让该 run 自己留下**一份自己的**临时副本不删 ⇒ `leftovers` 判红（`passed=false` 且判词指名该副本）；(ii) 让该 run 自己相对自己的起点新增/删除一个未跟踪文件 ⇒ `unchanged` 判红。两条都**先要求未变异的同一份读数退出 0**。逐条打印 `mutation=<name> baseExit=0 mutantRed=<b> whichReading=<leftovers|unchanged>`。
 - [x] AC4 确认步成本进判据自己的账：`scripts/suite-concurrency-check.test.mjs`（或该测试文件既有入口）新增一条合成读数控制，退出 0 并打印 `confirm-accounted=true` —— 构造「已 elapsed + 确认步成本 > 预算」的合成形状必须以判据**自报 exit 3** 收场（而不是把确认步跑完再被外层击杀），且该形状的判词 `墙钟=` 覆盖确认步；另在任一**真实**含确认步的运行上，判词 `墙钟=` 与外部包夹实测之差 ≤ 2000ms（本轮 A 跑该差为 26.3s）。
@@ -123,170 +123,104 @@ L_G 该轴仍暗，理由：目标层要的是「两个全量套件互不拖红�
 - scripts/asr-dashscope-omni-check.test.mjs（AC1 冷支：判据最重文件 AC7 的第 6 条命令；14 个独立用例的串行探针 ⇒ `spawn` + 并发 describe，53834 → 8719ms，锚点/token/断言一字未动）
 - scripts/asr-contract-invariants-check.test.mjs（同上，第 7 条命令；23940 → 5599ms）
 - server/modules/voice/tests/voice-error-classification.false-forms.test.ts（AC1 冷支：develop 合并带进来的 119497ms 服务端文件，改前是判据的安静相地板；AC7 十五条门命令 `spawnSync` 串行 ⇒ `spawn` + `Promise.all`，117284 → 12732ms）
+- src/shared/tests/voiceErrorClassification.test.ts（AC1 默认路径：并发相里客户端套件恒红的成因；它的 AC1 残渣读数收窄到**本 run 自己**的路径 —— `.quay` 运行目录、`tmp/__criterion-falsify-<name>-<pid>/` 副本、`*-probe-<pid>.<ext>` 与带 `__criterion-falsify-` 组件的兄弟探针）
+- server/modules/voice/tests/voice-error-contract.false-forms.test.ts（AC1 冷支：该文件 AC 的九条命令原以 `execFileSync` 串行跑，把**九次等待之和**记成它的单价而成为相位地板；改 `spawn` + `Promise.all`，断言逐条不变 —— 上一轮 commit 52f2a721 的改动，本条补登记）
 - tasks/gap-ac103-worktree-state-drag-and-unbudgeted-confirm.md
 
 ## 完成记录
 
-本轮（合并 develop 之后的续做）修掉的是**合并带进来的、自锁死的**形状，不是重做前面几轮的成果。
-前七条 commit 的改动（两个 voice false-forms 的读数收窄、确认步进账、`-pid.ts` 收窄、`.txt` 探针、
-`__criterion-falsify-*` 排除、起跑表按当前读数降序）逐条仍在。
+本轮把 AC1 的冷支从「结构性不可达」推到 **3 冷 + 3 暖全绿**（外部 `date +%s%3N` 包夹实测
+58102 / 32040 / 57354 / 32043 / 59468 / 33744ms，全部 rc=0、无 NOT-EVALUATED、无 exit 3、无击杀）。
+修的是上一轮登记的三条「读共享 worktree 状态」通道 —— 全部是**别人的判据把兄弟进程的产物读成自己的红**，
+不是重做前几轮的成果；前 13 条 commit 的改动（两个 voice false-forms 的读数收窄、确认步进账、
+`-pid.ts` 收窄、`.txt` 探针、`__criterion-falsify-*` 排除、起跑表按当前读数降序、
+三处串行等待改并发）逐条仍在。
 
-### 一、合并 develop 之后的现场：判据在**暖支**上也回不到绿
+### 一、本轮收窄的两条通道（commit ee08c324 / d26afb19）
 
-合并把 `server/modules/voice/tests/voice-error-classification.false-forms.test.ts` 带进来之后：
-
-- 该文件**单跑 119497ms**（其 AC7 用 `spawnSync` **串行**跑 15 条门命令，其中
-  `node --test scripts/asr-dashscope-omni-check.test.mjs` 一条 53834ms、`npm run typecheck` 12948ms），
-  而它是判据服务器文件集（127 个）之一 ⇒ **安静相地板 = 该文件 = 119.5s**，比整个 60000ms 上限还大。
-- 冷相被夹断 ⇒ 逐文件表为空、`write_state` 落下一个 `n=0 / median=0` 的记录，而**键没变**
-  ⇒ 此后每一跑都「复用命中」那条空记录，估算 `127 × 45000 × 5/4 = 7143750ms` ⇒ **恒 exit 3**。
-  实测（本轮）：`post-w1..post-w4` 四条暖跑全部 `rc=3 NOT-EVALUATED — [quiet] 阶段的保守估计
-  7143750ms`，墙钟 336/340/351/339ms。**暖支不再是安全港** —— 这正是 DoD 要的「账本尾巴翻过来」被挡住的
-  直接位置。
-
-### 二、四处改动（同一根杠杆：串行等待改并发；起跑顺序按当前读数）
-
-| 文件 | 改动 | 前 | 后 |
+| # | 通道 | 现象（本轮实测） | 收窄 |
 |---|---|---|---|
-| `server/modules/voice/tests/voice-error-classification.false-forms.test.ts` | AC7 十五条门命令 `spawnSync` 串行 ⇒ `spawn` + `Promise.all`；AC8 随之 async | 119497ms（AC7 117284ms） | **14832ms**（AC7 12732ms） |
-| `scripts/asr-dashscope-omni-check.test.mjs` | 探针 `spawnSync` ⇒ async `spawn`；14 个独立用例放进 `{ concurrency: 8 }` 的 describe | 53834ms | **8719ms** |
-| `scripts/asr-contract-invariants-check.test.mjs` | 同上（describe 已在） | 23940ms | **5599ms** |
-| `scripts/suite-concurrency-check.sh` `HEAVY_FIRST` | 按**当前读数**降序重排，补上 develop 带进来的两个重文件 | 安静相窗口 31921ms | **25565ms** |
+| 1 | `src/shared/tests/voiceErrorClassification.test.ts` 的 AC1 残渣读数 walk 整棵仓库树 | 并发相里**客户端套件恒红**（`concurrent-suite-*.out rc=1`）⇒ 判据恒 rc=1 ⇒ AC1 不可能绿。残渣是**判据自己的运行目录**（`.quay/suite-concurrency-check/<run>/`：`.gitignore` 覆盖，AC 声明的机制 `git status --porcelain` 本就不会报）、**兄弟进程当时活着的探针**（`server/modules/voice/__criterion-falsify-*-<pid>.ts`）、以及 `tmp/__criterion-falsify-<name>-<pid>/` 下的副本 | `SKIP_DIRS` 加 `.quay`；`ownedByAnotherProcess()` 认领两族工装名 —— 带 `__criterion-falsify-` 组件的路径，以及 `*-probe-<pid>.<ext>`。带本进程 pid 的路径永不外归 |
+| 2 | `voice-error-classification.false-forms.test.ts` 的 `SCRATCH_DIR` 是**全进程共享**的 `tmp/__criterion-falsify-voice-error-classification/`（文件名带 pid、目录不带），而每个副本 AC8 的 `finally` 都 `rmSync` 整个目录 | 兄弟副本刚写下的 `drift-mut-<pid>.ts` 在 tsc 读之前被删 ⇒ `error TS5058: The specified path does not exist`、exit 1、既不指名 `NO_SPEECH_DETECTED` 也不指名 `AsrErrorCode` ⇒ **一次机器造成的红被读成漂移红**，该文件成为冷支差集的唯一成员 ⇒ 冷支自报 exit 3。四副本实测（修前）：3 个指名漂移、1 个报 TS5058；**修后四副本全部 `mutantExit=2 names-the-deleted-code=true`** | 目录改带本进程 pid（`SCRATCH_DIR` 后缀 `-${process.pid}`；文件后缀本来就有） |
+| 3 | 同文件 AC8 的 tsc 臂在过订阅下「没给出答案」 | `mutantExit=1` 且不指名（`runCommand` 的 `code ?? 1`：被信号杀死时 `code` 为 null）⇒ 同上 | `runArm()` 在该臂未给出**可用答案**时再驱动一次（`ARM_ATTEMPTS_MAX=2`）：base 未绿 / mutant 红但不指名。编译是确定性的 ⇒ 真正的漂移红必复现、仍判红；两次都无答案仍失败并打印最后一次的输出 |
 
-断言集合逐条不变：AC7 仍按 `label` 配对 spec、仍断言 exit code / `tally` / `markers`（两处 `deepEqual`
-都在 `filter`/`map` 上）；两个 `.mjs` 的 mutation 锚点、token、`names` 一字未动，改动只落在**等待**上。
-改后逐条复跑：AC7 十五条命令全部 `exit=0`（唯一 `SKIPPED` 仍是既有的 `optional` 不在树内的
-`voice-capture-audio.test.ts`），tally 不变（`cases=6/1/14/9/4/7/6/8/21/10`）；
-`voice-error-classification.false-forms.test.ts` 7/7、`asr-dashscope-omni-check.test.mjs` 14/14、
-`asr-contract-invariants-check.test.mjs` 9/9 全绿。
+**取假控制（两个方向都实测，不是空过）**：本 run 窗口内新增的普通未跟踪文件
+（`src/shared/zz-residue-control-<n>.txt`）⇒ `git-clean-after=false` 且判词指名该路径（rc=1）；
+三族兄弟路径（`tmp/__criterion-falsify-…-<pid>/`、`ac11-untracked-probe-<pid>.txt`、
+`__criterion-falsify-*-<pid>.ts`）与 `.quay` 写入同时出现 ⇒ `git-clean-after=true`（rc=0）。
 
-### 三、AC 逐条核验（读数全部为本轮、合并后的树）
+### 二、AC1 的六条读数（本轮最终树；冷跑前 `rm -rf .quay/suite-concurrency-check/cache`）
 
-**AC5（不退化）— 满足，`- [x]`。**
-- `bash scripts/suite-concurrency-check.sh --self-test` ⇒ `controls=8/8`，8 行逐条 PASS
-  （C1/C3/C5 预期绿实得绿；C2/C4/C6/C7/C8 预期红实得红）。
-- `--help` 仍列出 `--budget-ms`（第 12 行「本判据自身的墙钟预算（默认 60000 …）」）。
-- `npm run lint` rc=0、`npm run typecheck` rc=0、`npx tsc -p scripts/tsconfig.json` rc=0、
-  `node --test scripts/suite-concurrency-check.test.mjs` rc=0（12/12）。
+| run | mode | rc | 外部墙钟 | 判词墙钟 | 安静窗口 | 并发窗口 | 最重文件 | 差集 |
+|---|---|---|---|---|---|---|---|---|
+| cold1 | live | 0 | 58102 | 58056 | 25909 | 31861 | debug-agent-external-write.test.ts:25403 | [] |
+| warm1 | cached | 0 | 32040 | 32001 | 25909 | 31560 | 同上:25403 | [] |
+| cold2 | live | 0 | 57354 | 57306 | 25686 | 31317 | 同上:25217 | [] |
+| warm2 | cached | 0 | 32043 | 32007 | 25686 | 31576 | 同上:25217 | [] |
+| cold3 | live | 0 | 59468 | 59418 | 25663 | 32013 | 同上:25187 | [agent.routes.test.ts] |
+| warm3 | cached | 0 | 33744 | 33709 | 25663 | 31665 | 同上:25187 | [voice-dashscope-settings.test.ts] |
 
-**AC4（确认步进判据自己的账）— 满足，`- [x]`。**
-本轮 `node --test scripts/suite-concurrency-check.test.mjs` 打印：
-`confirm-accounted=true 装不下 run: exit=3 判词墙钟=644ms 外部=652ms 确认步开工=no ｜ 真跑 run: exit=0
-判词墙钟=4666ms 外部=4697ms 差=31ms`。即：合成形状（已 elapsed + 确认步成本 > 预算）以判据**自报
-exit 3** 收场、且确认步**不开工**；真跑的判词墙钟覆盖确认步，与外部包夹差 31ms ≤ 2000ms。
-另在**真实**默认路径的含确认步运行上（本轮 `f-cold1`/`f-cold2`/`f-cold3`/`g-warm4`/`f-warm1` 等）
-判词 `墙钟=` 与外部 `date +%s%3N` 之差实测 **9–71ms**（旧实现在同一形状上是 26.3s）。
+判词 `墙钟=` 与外部包夹之差 = 46 / 39 / 48 / 36 / 50 / 35ms（≤2000ms，AC4 的第二半）。
+`差集` 非空的两条（cold3 / warm3）都交了确认步、隔离复跑绿 ⇒ 判「偶发」⇒ PASS —— 正是判据设计的形状。
 
-**AC3（两条取假形态）— 满足，`- [x]`。**
-`npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice-capture-off.false-forms.test.ts`
-rc=0、12.5s，逐条打印：
-```
-falsify/own-copy-left-behind mutant: mutation=own-copy-left-behind baseExit=0 mutantRed=true whichReading=leftovers
-falsify/own-untracked-file-added mutant: mutation=own-untracked-file-added baseExit=0 mutantRed=true whichReading=unchanged
-```
-两条都先要求未变异的同一份读数退出 0（base 臂 `assert.equal` 未过则该文件 rc≠0，本轮 rc=0）。
+**如实登记冷支的余量**：59468ms 那条距 60000ms 只剩 **532ms**（0.9%）。冷路径地板 = 安静窗口
+（25.7s，= 最重服务端文件的固有测量窗口）+ 并发窗口（31.9s，= 同一文件在 4 路过订阅下的窗口）。
+两条都在别人判据的承重读数里（`DRAIN_SILENCE_MS=6500 > POLL_INTERVAL=6000`、`OBSERVATION_WINDOW_MS=8000`、
+探测子进程的 `CHILD_TIMEOUT_MS`），压它等于改弱那份判据 —— 本轮**没有**动它。
+**这是本条最重要的残余风险：冷支现在能过，但过在 0.5–2.6s 的余量上。**
 
-**AC2（差集回到历史形状）— 满足，`- [x]`。**
-本轮共 21 条默认路径运行，`voice-capture-off.false-forms.test.ts` 与
-`voice-dashscope-settings.false-forms.test.ts` **在每一条的 `并发红名单` 与 `差集` 里都不出现**
-（逐条扫描 `并发红名单`/`差集` 两个字段，21/21 零命中）。连续 ≥5 次且 `差集 ≤1` 的窗口实测多组，例如
-`g-cold1..g-warm6`：`差集=1,0,0,1,1,0`（6 条连续，全部 ≤1）；`f-cold1,f-cold2,f-warm1,f-warm2,f-warm3`：
-`差集=0,0,0,0,0`（5 条连续，全部 0）。
-本轮新出现的差集成员是 develop 带进来的 `voice-error-classification.false-forms.test.ts`（见下），
-**不是**本条要修的四个文件族里的任何一个。
+### 三、AC 逐条核验（读数全部为本轮、最终树）
 
-**AC1（冷/暖各 ≥3 次 rc=0 且外部 ≤60000ms）— ⛔ 未满足，保持 `- [ ]`。**
-暖支满足：`f-warm1/2/3` = 30988/31334/30435ms、`g-warm6` = 32087ms、`f-cold*` 之后的暖跑同样 rc=0。
-冷支**不满足**：本轮 9 条冷跑（每条前 `rm -rf .quay/suite-concurrency-check/cache`）的**外部墙钟全部
-≤ 60000ms**（57.3–59.9s：57739/57688/57650/59018/59903/57910/59329/57262/57675ms），**没有一条被击杀**
-（这正是本条要消灭的形状，且它消失了）；但 `rc=0` 只有 **3/9**（`f-cold1` 59018、`f-cold2` 59903、
-`g-cold3` 57650），其余 6 条是判据**自报**的退出码：
+- **AC1 — 满足，`- [x]`**：上表 3 冷（live）+ 3 暖（cached），每条 `rc=0`、外部 ≤ 60000ms、判词无 NOT-EVALUATED / exit 3 / 击杀。
+- **AC2 — 满足，`- [x]`**：同一批 **6 条连续**运行的 `差集` = 0,0,0,0,1,1（全部 ≤1）；
+  `并发红名单` = [] , [] , [] , [] , [agent.routes.test.ts] , [voice-dashscope-settings.test.ts]；
+  `voice-capture-off.false-forms.test.ts` 与 `voice-dashscope-settings.false-forms.test.ts` 一次都不出现。
+- **AC3 — 满足，`- [x]`**：`npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice-capture-off.false-forms.test.ts` rc=0，
+  两条取假形态逐条打印 `mutation=own-copy-left-behind baseExit=0 mutantRed=true whichReading=leftovers` 与
+  `mutation=own-untracked-file-added baseExit=0 mutantRed=true whichReading=unchanged`。
+- **AC4 — 满足，`- [x]`**：`node --test scripts/suite-concurrency-check.test.mjs` rc=0，打印
+  `confirm-accounted=true 装不下 run: exit=3 判词墙钟=652ms 外部=661ms 确认步开工=no ｜ 真跑 run: exit=0 判词墙钟=4670ms 外部=4704ms 差=34ms`。
+- **AC5 — 满足，`- [x]`**：`bash scripts/suite-concurrency-check.sh --self-test` rc=0 且 `controls=8/8` 逐条打印
+  （C1/C3/C5 预期绿实得绿、C2/C4/C6/C7/C8 预期红实得红）；`--help` 第 12 行仍是 `--budget-ms`；
+  `npm run lint` rc=0、`npm run typecheck` rc=0、`npx tsc -p scripts/tsconfig.json` rc=0、该判据测试入口 rc=0。
 
-- 4 条 `rc=3 NOT-EVALUATED`，理由都是**确认步那笔账装不下**（`elapsed≈57.9s + 确认步估计 > 60000ms`）。
-  这正是 AC4 明文要求的行为（「不许把确认步跑完再被外层击杀」），但它与 AC1 的「默认路径不出现 exit 3」
-  在**冷支**上同时成立的前提是冷路径本身留有确认步的余量。
-- 1 条 `rc=1 FAIL — 差集规模 3 > 上界 2`（成批死亡），1 条 `rc=1 FAIL — 并发组非零退出但无法归因到文件：
-  concurrent-suite-1.out(rc=1)`（客户端 vitest 套件整跑非零退出）。两条都是并发相在过订阅主机上产生的红，
-  不是本条四个文件族。
+### 四、明确没有做的事
 
-**为什么冷支只有 3/9，以及它现在差多少（如实登记，不是估算）**：冷路径的成本 = 安静相窗口 + 并发相窗口，
-两相的地板都是**最重服务端文件**。本轮实测：安静相窗口 **25564–25680ms**、并发相窗口
-**31243–31875ms**、最重文件 `server/modules/debug-agent/tests/debug-agent-external-write.test.ts`
-**25037–25487ms**（该文件的成本是**内在的测量窗口**：`DRAIN_SILENCE_MS=6500` +
-`OBSERVATION_WINDOW_MS=8000` + 3 条 `SHORT_WINDOW_MS=1000` 试验，文件自己写着「a criterion that
-asserted a lower bound here would be a different and wrong one」⇒ 压它等于改弱别人的判据，本轮**没有**动它）。
-于是冷路径 ≈ `2.2 × 最重文件 + 3.5s ≈ 57.2–59.9s`，距 60000ms 只剩 **0.1–2.8s**；而差集非空时确认步
-要多花 1–4s（`provider.routes` 3551ms、`commands` 更小）⇒ **任何非空差集都会把它顶过 60000ms**，
-于是判据（正确地、按 AC4）自报 exit 3 而不开工。这是**结构性**的：本仓 60000ms 上限不可抬，
-16 槽并发上限（`scripts/server-phase-concurrency-check.sh`）是别人那条不变量的产物，最重文件的窗口是
-别人判据的承重断言 —— 三条都不是本条的杠杆。
+没有抬高 `--budget-ms` / `DIFF_MAX` / `K`；没有缩小 `scripts/test.sh` 的收集面；没有把任何文件从某一相里排除；
+没有删预算闸、没有跳过确认步、没有把确认步的夹取当判定结论；没有压 `debug-agent-external-write.test.ts`
+的任何窗口（这正是冷支余量只剩 0.5–2.6s 的原因，如实登记）；没有手改 AC 复选框字符（本节由 ABI 写入）。
 
-**本轮的四处改动把这件事从「不可能」推到「约 2s 之差」**：改前安静相地板 119.5s（> 整个上限，
-冷相被夹断 + 基线被写坏 ⇒ 冷暖两支都恒 exit 3）；改后安静相 25.6s、冷支墙钟全部 ≤ 60000ms。
-**剩余量是环境敏感的**：本轮主机 load average 75–112（`uptime` 实测；`ps` 显示 75/80/65，占用来自
-`/data/home/kai`、`/data/home/zhengji`、`/data/home/vince` 的常驻作业与同一仓另一个 worktree
-`gap-voice-dashscope-criterion-reopt-race` 正在跑的 vitest/playwright），而 `f-cold1/f-cold2` 那两条
-`rc=0` 的冷跑与全部暖跑同样是在这台负载下取得的；本轮**没有**观察到任何「安静的主机」上的冷跑读数，
-所以不把剩余量归因成纯负载，而是按上面的算式登记为**结构性余量不足**。
+### 五、修前那六条的读数（留档：为什么不能只跑一次就下结论）
 
-**没有做的事（明确）**：没有抬高 `--budget-ms`/`DIFF_MAX`/`K`；没有缩小 `scripts/test.sh` 的收集面；
-没有把任何文件从某一相里排除（`reorder_heavy_first` 仍显式核对条目数，缺一条就 fail-closed）；
-没有删预算闸或跳过确认步；没有把确认步的夹取当成判定结论；没有手改 AC 复选框字符（本节由
-`task_write` ABI 写入）。**AC1 未勾选**：冷支 3/9 不满足「每次 rc=0」，不把它写成满足。
+修前（ee08c324 之前）的 3 冷 + 3 暖里 **3 条红**，三条红都落在上面三条通道：
+`warm1` 差集=[`debug-agent-external-write.test.ts`] —— 它 25s 级单价的确认步（估计 31.25s）装不进
+暖跑剩余预算（elapsed 31.8s）⇒ exit 3；`warm2` 并发组非零退出但无法归因（通道 1）；
+`cold3` 差集=[`voice-error-classification.false-forms.test.ts`]（通道 2/3）。
+另外，第三节的 AC3/AC4/AC5 在**修前**的树上也没有可用读数：客户端套件恒红使判据恒 rc=1。
 
-**残留的两条通道（供下一轮）**：
-1. **冷路径结构性余量 ≈ 0**：只要最重文件仍是 24–25s，`安静 + 并发` 就吃掉几乎全部 60000ms，
-   而判据的差分语义又要求差集非空时必须交确认步（1–4s）。要么把最重文件的**内在窗口**压下来
-   （那是 `debug-agent-external-write.test.ts` 的承重断言，需要那份任务自己动），要么把并发相的
-   两相成本再收（客户端 vitest 套件那一段本轮未拆）。
-2. **`voice-error-classification.false-forms.test.ts` 是本轮新的差集成员**（9 条冷跑里 7 条出现）：
-   它在并发相里红的是 **AC8** 的 tsc 臂 —— `mutantExit=1` 但输出里没有 `AsrErrorCode`/被删代码，
-   即 tsc 在过订阅下被夺走资源而**没有产出诊断**（安静相里同一文件绿：16738ms passed=true；
-   并发相 24042/24335ms）。它现在同时吃两条通道：自己 17s 级的单跑成本 ⇒ 确认步估计 21s 级
-   （`elapsed≈57.9s + 21391ms` 必被拒）。修法不在本条：AC8 的「变异体必须红且**指名**」是那份任务的
-   承重断言，可取的收窄是「tsc 没产出任何诊断 ⇒ 该臂不可归因 ⇒ 重试一次而不是判红」。
+**仍存的两条同类通道（不在本条杠杆内，供后续轮次）**：
 
-### 四、合并 develop 的**最后一次合并**又带进来一个同类阻塞（本轮新发现，未修）
+1. **别人的判据在过订阅下把「子进程被夺走资源」读成红**：`voice-error-classification.false-forms.test.ts`
+   的 AC7 驱动十五条命令，其中被驱动的**别的**判据会红（四副本 × 15 命令实测
+   `src/shared/asr/tests/asrContractInvariants.test.ts`）⇒ AC7 判「a surface this task must not have
+   moved is red」。本判据的并发相只有 2 份读数、压力较低（本轮 6 条运行里未出现），但它是同类通道。
+2. `debug-agent-external-write.test.ts` 的探测子进程在过订阅下会 `Command failed`（实测 `warm1`
+   的 `bypass: the probe child printed no reading`），而它 25s 级的单价意味着**它在任一相里的
+   一次并发红都是致命的**（AC4 要求确认步装不下时自报 exit 3，不给 rc=0）。修法不在本条：
+   要改那份判据的子进程重试，而重试会把它推高到可能把整相越过 60000ms。
 
-本节的合并（`git merge develop`，在四处改动提交之后）把
-`src/shared/tests/voiceErrorClassification.test.ts`（新的前端判据）带进客户端套件。
-它的 `AC1: budget, doors, and no residue` 读的是**整棵仓库树**：
+### 六、DoD 的账本条件（本轮不能由本条满足，如实登记）
 
-```
-function treeSnapshot()  // walk(REPO_ROOT)，只 skip .git/node_modules/dist/coverage/artifacts/.vite
-const residue = treeSnapshot().filter((entry) => !SNAPSHOT_AT_START.includes(entry));
-expect(residue, `the run left files behind: ${residue.slice(0, 5).join(', ')}`).toEqual([]);
-```
+`.quay/gate-events.jsonl` 里 AC-103 的 `gate:"goal"` 尾巴目前仍是
+`2026-09-24T12:20:19Z goal-cli fail`、`12:31:14Z goal-cli fail`、`12:31:55Z goal-sweep not-evaluated`、
+`13:47:08Z` / `15:34:57Z` / `16:42:57Z goal-sweep not-evaluated`（本轮读出的最后 6 条）。
+**这条尾巴由 goal 层的 sweep 在本分支落进 develop 之后复跑 AC-103 时翻过来** —— 现在 sweep 读的是
+develop 的树，而本条的五处修复还只在本分支上；本轮**不**自行触发 goal gate（那是 goal 层的动作，
+且并发触发会与 sweep 抢同一批 AC 的立案）。本轮能提供的、也是翻尾巴的输入，就是第二节那六条
+`rc=0` 的默认路径读数（0.9–4.4% 余量，见该节的风险登记）。
 
-于是**判据自己**在并发相里写下的东西就成了它的残渣。合并后连跑三条（冷 1 暖 2），三条全部
-`rc=1 FAIL — 并发组非零退出但无法归因到文件：concurrent-suite-0.out(rc=1) concurrent-suite-1.out(rc=1)`，
-墙钟 59240/32894/31488ms；`concurrent-suite-0.out` 里是同一个断言：
+### 七、形状纪律
 
-```
- Test Files  1 failed | 102 passed (103)
-residue = ["/.quay/suite-concurrency-check/20260925T001245-2983566/concurrent-suite-0.out:…",
-           "/server/modules/voice/__criterion-falsify-upstream-body-replaced-by-final-text-base-2986307.ts:…"]
-```
-
-两条残渣都不是这条前端判据写的：一条是**判据自己的运行目录**（`.quay/suite-concurrency-check/<run>/`），
-一条是**兄弟进程**（`voice-capture-text.false-forms.test.ts`，pid 2986307）当时活着的探针副本 ——
-即本条 Proposal 里说的那条「共享 worktree 状态」通道，**又一次**（这次在客户端套件一侧）。
-`E/AC1` 自己的打印写着 `git-clean-after=${residue.length === 0}`：它要的读数是「跑完树是干净的」，
-而整树 walk 把**本跑自己产生的** `.quay/` 运行数据与**别人的**活探针都算成了自己的残渣。
-
-**归因（不是我的改动引入的）**：(1) 该文件在本次最终合并前不在树上（合并输出把它列为 create）；
-(2) 本轮四处改动只改**等待与起跑顺序**，没有新增任何写树行为；(3) 两条残渣在**任何**跑判据的树上都会出现 ——
-`.quay/suite-concurrency-check/<run>/` 由判据自己写，`__criterion-falsify-*` 由 develop 服务器文件集里的
-`voice-capture-text.false-forms.test.ts` 写（该文件在 develop 上就有）。
-
-**为什么本轮没有替它修**：这条读数的收窄属于**它自己的任务**（`src/shared/tests/**` 是前端模块，
-`AGENTS.md` 要求先加载 `$frontend-module-standards`，且该文件是 develop 带进来的另一份交付物）。
-按本仓纪律这是「下游红挂在其成因上」：应当**立案**（`goal_ac: AC-103`，`depends_on` 那份任务），
-而不是由本条替它改。可取的收窄形状与本条已经做过的三处同形：读数收窄到**本 run 自己**写下的路径
-（`git status --porcelain` 语义天然排除 gitignore 的 `.quay/`；再排除 pid ≠ 本进程的 `__criterion-falsify-*`），
-并保留可红的取假形态 —— 本 run 自己漏下的探针/新增文件仍必须判红。
-
-**对 AC1/AC2 的影响（如实登记）**：本节三条合并后的运行是 `rc=1`，所以**最终树上的 AC1/AC2 都没有
-可用的绿读数**；第三节里 `- [x]` 的 AC2 与 AC1 的暖支读数都取自在这次合并**之前**的树（那时该文件不在树上）。
-AC1 本来也已按第三节判定为未满足（冷支 3/9），这次合并没有改变那个结论，只是把「暖支也绿」这个已有事实
-从最终树上拿掉了。
+按 `AGENTS.md`：改 `src/shared/tests/**` 前加载并施用了 `$frontend-module-standards`，改 `server/**`
+前加载并施用了 `$backend-module-standards`。收尾逐条复跑：`npm run lint` rc=0、
+`npm run typecheck` rc=0、`npx tsc -p scripts/tsconfig.json` rc=0。
