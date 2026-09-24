@@ -29,6 +29,10 @@ import type { AsrAdapter, AsrCapabilities, AsrErrorCode, AsrFailure } from '../.
 // builds, the answer it parses — is reached through the adapter now, so the only thing left for
 // this module to name from that file is the reading it asks the adapter for.
 import type { TranscriptionTolerance } from '../../../shared/asr/transcriptionWire.js';
+// The recording seam, as a TYPE only: this module never decides a mode and never builds a row. It is
+// handed a port and either has one or does not, which is what keeps the environment, the row's shape
+// and the audio write out of the transcription path itself.
+import type { VoiceCapturePort } from './voice-capture.js';
 
 type VoiceServiceDependencies = {
   defaults: {
@@ -55,6 +59,20 @@ type VoiceServiceDependencies = {
    * default is resolved here rather than at the composition root.
    */
   logger?: VoiceLogPort;
+  /**
+   * Where an attempt is recorded, when this deployment records at all.
+   *
+   * IT CARRIES THE MODE, and that is what makes the gate below a reading rather than a convention: a
+   * port built for `off` is a port the service holds and writes nothing through, so "the deployment
+   * is off" and "the service records" cannot both be true. Absent means the same thing as an `off`
+   * port — a caller that wires nothing records nothing — which is the shape every existing test and
+   * probe keeps.
+   *
+   * It is a dependency rather than something this module reads, because the mode comes from the
+   * deployment's environment while this service is constructed by whoever composes the server: the
+   * composition root reads the variable once, and everything downstream of it sees a mode.
+   */
+  capture?: VoiceCapturePort;
 };
 
 // The provider id is not part of the outbound request's configuration: it selects which
@@ -651,6 +669,26 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
   // this type at all.
   const log: VoiceLogPort = dependencies.logger ?? console;
 
+  /**
+   * THE GATE, and the only place a mode is consulted in this module.
+   *
+   * A port whose mode is `off` is READ AS ABSENT rather than written to and filtered: an `off`
+   * deployment has to produce the same attempt lines it produced before this seam existed, byte for
+   * byte, and the cheapest way for that to be true is for nothing on this path to run at all — no id
+   * minted, no attempt object built, no file touched. An unrecognised `VOICE_CAPTURE` value resolved
+   * to `off` at the composition root, so the fail-closed decision is already made by the time this
+   * binding is read; what is here is only the mechanical consequence of it.
+   *
+   * The denial is deliberately ONE expression over `dependencies.capture`, so the seam either records
+   * every attempt or none: a gate that could be true for some attempts and false for others (say,
+   * only for failures) would make "the log does not carry the audio" a property of the attempt's
+   * outcome instead of a property of the deployment.
+   */
+  const recording: VoiceCapturePort | null =
+    dependencies.capture !== undefined && dependencies.capture.mode !== 'off'
+      ? dependencies.capture
+      : null;
+
   return {
     getHealth({ settings }) {
       // The user's own selection is the first step of the precedence (see `effectiveProviderId`):
@@ -704,7 +742,8 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
       const providerId = effectiveProviderId(requestedProviderId, dependencies.defaults, settings);
 
       /**
-       * One structured line per attempt, written as the attempt is answered.
+       * One structured line per attempt, written as the attempt is answered — followed, when this
+       * deployment records, by that attempt's capture row.
        *
        * WHAT THE LINE DOES NOT CARRY IS THE POINT OF IT. Every field below is one this module
        * computed — an id, an outcome, a status, a duration — so there is no free text on the line
@@ -713,18 +752,41 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
        * someone has to remember to keep in step. The fields the client and the metrics select on
        * are the ones recorded, including the two facts only a written recogniser produces
        * (which prompt version answered, and whether it degraded to a transcription).
+       *
+       * RECORDED ATTEMPTS ADD EXACTLY ONE THING TO THE LINE: `captureId`, the id that names the row
+       * written immediately after it. It is minted BEFORE the line for that reason, and it is the
+       * same string in both places — a caller correlating the process's output with a recording has
+       * only the id to join them on, so two ids that merely look alike would be worse than none. In
+       * an `off` deployment none of this happens and the line is the one above, unchanged.
        */
       const logAttempt = (
         outcome: 'ok' | 'fail',
         status: number,
         meta?: { promptVersion?: string; writtenFallback?: number },
       ): void => {
-        log.info(
+        const line =
           `voice.transcribe providerId=${providerId} outcome=${outcome} status=${status} ` +
-            `latencyMs=${Date.now() - startedAt}` +
-            (meta?.promptVersion === undefined ? '' : ` promptVersion=${meta.promptVersion}`) +
-            (meta?.writtenFallback === undefined ? '' : ` writtenFallback=${meta.writtenFallback}`),
-        );
+          `latencyMs=${Date.now() - startedAt}` +
+          (meta?.promptVersion === undefined ? '' : ` promptVersion=${meta.promptVersion}`) +
+          (meta?.writtenFallback === undefined ? '' : ` writtenFallback=${meta.writtenFallback}`);
+
+        if (recording === null) {
+          log.info(line);
+          return;
+        }
+
+        const captureId = recording.newAttemptId();
+        log.info(`${line} captureId=${captureId}`);
+        // The row goes out AFTER its attempt line and through the same port, so a reader of the
+        // process's own output sees the attempt first and what was recorded about it second. The
+        // attempt object is built HERE, inside the gate: an `off` deployment constructs no record at
+        // all, which is what keeps its output byte-identical to the one this seam never touched.
+        recording.recordAttempt(captureId, {
+          providerId,
+          outcome,
+          status,
+          audio: input.audio,
+        });
       };
 
       const adapter = tryResolve(providerId);

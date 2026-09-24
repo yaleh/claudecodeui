@@ -1,13 +1,40 @@
 import multer from 'multer';
 
 import { voiceSettingsDb } from '@/modules/database/index.js';
+import type { VoiceLogPort } from '@/shared/types.js';
 
 // The provider address book, read here for the one figure the transport layer can know without
 // knowing which provider will serve the request: the ceiling above every declared budget.
 import { listProviders } from '../../../shared/asr/asrRegistry.js';
 
+import { announceVoiceCapture, createVoiceCapture } from './voice-capture.js';
 import { createVoiceRouter } from './voice.routes.js';
 import { createVoiceService, createVoiceSettingsService } from './voice.service.js';
+
+/**
+ * Where this deployment's own voice lines go.
+ *
+ * Resolved ONCE, here, because the start-up line below and every attempt line after it have to reach
+ * the same place: a process that announced its recording mode on one stream and wrote its attempts
+ * to another would have made the announcement unreadable to exactly the reader who needs it. The
+ * service keeps its own `console` fallback for callers that wire no port (tests, probes, the
+ * invariant board), so this binding changes nothing for them.
+ */
+const voiceLog: VoiceLogPort = console;
+
+/**
+ * THE ONE READ of `VOICE_CAPTURE` in this process, and the one place it is announced.
+ *
+ * Read at start-up and never per request, because the mode is a property of the DEPLOYMENT rather
+ * than of a user or a request: a value re-read on the request path could change what is recorded
+ * halfway through a recording, which is precisely the reading nobody could reconstruct afterwards.
+ * An unrecognised value comes back as `off` with a warning, and the warning is written here rather
+ * than swallowed — see `resolveVoiceCaptureMode` for why a misspelling fails closed.
+ *
+ * The resolution announced here IS the one injected below, so "the mode the process says it is in"
+ * and "the mode it records in" cannot disagree.
+ */
+const voiceCapture = announceVoiceCapture(process.env.VOICE_CAPTURE, voiceLog);
 
 const DEFAULT_VOICE_TIMEOUT_MS = 300_000;
 const parsedTimeoutMs = Number(process.env.VOICE_TIMEOUT_MS);
@@ -30,6 +57,16 @@ const voiceService = createVoiceService({
     providerId: (process.env.VOICE_PROVIDER_ID || '').trim(),
   },
   timeoutMs: voiceTimeoutMs,
+  // The recording seam, built from the mode this process resolved above. It is ALWAYS injected —
+  // including for `off`, where the port records nothing — so that the decision to record lives in
+  // one place inside the service rather than in a ternary here: a root that omitted the port for
+  // `off` would leave "the service is off" untested by the only deployment shape that matters.
+  //
+  // The audio sink is deliberately not wired: the mode is resolved and gated, and a deployment that
+  // records rows puts nothing on disk until the audio half (the write, the directory, its
+  // permissions) supplies a sink. See `VoiceCaptureAudioSink`.
+  capture: createVoiceCapture({ mode: voiceCapture.mode, log: voiceLog }),
+  logger: voiceLog,
   fetchBackend: async (url, options) => {
     const abortController = new AbortController();
     const timeoutHandle = setTimeout(() => abortController.abort(), voiceTimeoutMs);
