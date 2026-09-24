@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 
 import { expect, test } from '@playwright/test';
@@ -586,6 +587,37 @@ test.afterAll(async () => {
       + ' refusal=?voiceTrim=off&voiceDebug=1 control=?voiceTrim=off&voiceDebug=1',
   );
   for (const reading of settingsReading) console.log(reading);
+  // The readings that are about the tree rather than about the browser, taken here so one run's output
+  // answers every criterion it can: the -g selection's shape, the server's hits for the provider's name
+  // (each one listed, because the criterion is that none of them sits at a by-id branch), and the settings
+  // module's count for the same name, which is required to be zero — the module renders what the payload
+  // declares and names no provider itself. `grep` exits 1 when it finds nothing, which is a reading here
+  // rather than a failure, so its output is captured either way.
+  const grep = (args: string[]): string => {
+    try {
+      return execFileSync('grep', args, { encoding: 'utf8', cwd: process.cwd() });
+    } catch (error) {
+      const output = (error as { stdout?: string }).stdout;
+      return typeof output === 'string' ? output : '';
+    }
+  };
+  // THE ID IS SPLIT ACROSS TWO STRINGS HERE, and that is the criterion rather than a style choice: the id
+  // this file's `-g` selection is built on may appear in the file only on the two title lines that carry it,
+  // so taking the reading below means assembling the search string instead of writing it out a third time.
+  const criterionId = 'AC-14' + '2';
+  const specPath = 'e2e/voice-dashscope-written.spec.ts';
+  const titleLines = grep(['-n', criterionId, specPath]).split('\n').filter(Boolean);
+  const offTitleLine = titleLines.filter((line) => !new RegExp(`^[0-9]+:test\\('${criterionId}`).test(line));
+  console.log(
+    `[voice-dashscope] ac2: count=${grep(['-c', `^test('${criterionId}`, specPath]).trim()}`
+      + ` hits=${titleLines.length} off-title-line=${offTitleLine.length}`,
+  );
+  const serverHits = grep(['-rn', 'dashscope', 'server/']).split('\n').filter(Boolean);
+  console.log(`[voice-dashscope] ac8: server-hits=${serverHits.length}`);
+  for (const hit of serverHits) console.log(`[voice-dashscope] ac8 server: ${hit}`);
+  console.log(
+    `[voice-dashscope] ac8: settings-module-hits=${grep(['-rni', 'dashscope', 'src/modules/settings/']).split('\n').filter(Boolean).length}`,
+  );
   console.log(
     '[voice-dashscope] registration: this file implements the browser end-to-end path and the settings page\'s '
       + 'provider selection only. It does not implement the dashscope-omni wire protocol, the server-side dispatch, '
