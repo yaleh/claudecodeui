@@ -121,7 +121,11 @@ export default function VoiceSettingsTab() {
                     name={field}
                     type={role === 'apiKey' ? 'password' : undefined}
                     autoComplete={role === 'apiKey' ? 'off' : undefined}
-                    placeholder={role === 'model' ? t('voiceSettings.providerModelPlaceholder') : undefined}
+                    // An empty model field is not "nothing": it resolves to the provider's declared default,
+                    // so that name — when the payload carries one — is what the box shows.
+                    placeholder={role === 'model'
+                      ? declaration?.defaultModel || t('voiceSettings.providerModelPlaceholder')
+                      : undefined}
                     label={t(
                       role === 'apiKey'
                         ? 'voiceSettings.providerApiKey'

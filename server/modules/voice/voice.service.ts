@@ -178,7 +178,11 @@ function resolveRecognitionConfig(
   return {
     baseUrl: readStoredField(settings, fields.endpointField) || resolved.baseUrl,
     apiKey: readStoredField(settings, fields.apiKeyField) || resolved.apiKey,
-    model: storedModel || resolved.sttModel,
+    // Precedence: the user's stored model, the request's own override, the provider's declared
+    // default, and only then the shared `sttModel`. That last one names a model of the OTHER service
+    // (e.g. a Whisper id) and must never be what an unset per-user model resolves to — but a
+    // request that names a model explicitly is still asking for exactly that one.
+    model: storedModel || overrides.sttModel || fields.defaultModel || resolved.sttModel,
   };
 }
 

@@ -93,8 +93,11 @@ function stage(t) {
   // loaded as CommonJS and Node refuses it with "require() ES Module ... in a cycle" — a failure
   // about the arena's own shape, which would otherwise be read as a failure of the checker.
   writeFileSync(path.join(root, 'package.json'), '{"type":"module"}\n');
+  // `shared/asr` goes across whole: the adapter value-imports `baseMimeType` out of the registry, so an
+  // arena holding only the adapter's own directory dies on "Cannot find module .../asrRegistry.js" —
+  // a failure about the arena, which would otherwise be read as a failure of the checker.
   for (const relative of [
-    path.dirname(ADAPTER_REL),
+    path.dirname(path.dirname(path.dirname(ADAPTER_REL))),
     path.dirname(PROMPT_REL),
     path.dirname(SNAPSHOT_REL),
   ]) {

@@ -273,6 +273,17 @@ export type AsrCredentialFields = {
    * per-user model of its own — a service with one frozen model has nothing for a user to choose.
    */
   modelField?: string;
+  /**
+   * The model this provider uses when the user left `modelField` empty, or absent when the provider
+   * has none of its own.
+   *
+   * It is the PROVIDER'S name for its own model, and it is what stops an unset per-user model from
+   * falling through to the shared backend's `sttModel`: that value names a model of a DIFFERENT
+   * service (a Whisper id, for a user who also has an OpenAI-compatible backend configured), and
+   * sending it to this provider is a request for a model it has never heard of. The settings form
+   * shows it as the empty field's placeholder, so what a blank field will do is on screen.
+   */
+  defaultModel?: string;
 };
 
 /** What a provider module must supply to be registered. */

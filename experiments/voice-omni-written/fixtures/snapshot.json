@@ -9,7 +9,7 @@
     "source": {
       "promptFile": {
         "path": "experiments/voice-omni-written/raw/written.mts",
-        "sha256": "d0f1d6751cd413fa0ae13e59b8a24f1acab49ab0210345dbfaaaaefb1e439e35"
+        "sha256": "f1f5bc0c6c4be320b35d6a43f16a6b3e52049ee926c0f81612dc2743da589418"
       },
       "readingsFile": {
         "path": "experiments/voice-omni-written/raw/written-ds.jsonl",

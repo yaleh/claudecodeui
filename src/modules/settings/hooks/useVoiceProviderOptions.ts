@@ -40,7 +40,7 @@ function readDeclaration(value: unknown): AsrCredentialFields | null {
     return null;
   }
 
-  const { endpointField, apiKeyField, modelField } = value as Record<string, unknown>;
+  const { endpointField, apiKeyField, modelField, defaultModel } = value as Record<string, unknown>;
   if (typeof endpointField !== 'string' || !endpointField) return null;
   if (typeof apiKeyField !== 'string' || !apiKeyField) return null;
 
@@ -48,6 +48,7 @@ function readDeclaration(value: unknown): AsrCredentialFields | null {
     endpointField,
     apiKeyField,
     ...(typeof modelField === 'string' && modelField ? { modelField } : {}),
+    ...(typeof defaultModel === 'string' && defaultModel ? { defaultModel } : {}),
   };
 }
 

@@ -59,7 +59,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { globSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, globSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { register } from 'tsx/esm/api';
@@ -632,6 +632,21 @@ function listFiles(root, pattern) {
 }
 
 /**
+ * Enter `shared/asr/` through the registry before touching an adapter module.
+ *
+ * The registry value-imports every adapter and the adapters value-import `baseMimeType` /
+ * `declaredAcceptsMime` back out of it, so the entry order decides the outcome: registry first is fine, an
+ * adapter first throws `Cannot access '<symbol>' before initialization` at module-eval time. The registry
+ * is absent in a reduced tree, and then there is nothing to enter through.
+ *
+ * @param {string} root @returns {Promise<void>}
+ */
+async function enterThroughRegistry(root) {
+  const registry = path.join(root, 'shared/asr/asrRegistry.ts');
+  if (existsSync(registry)) await import(pathToFileURL(registry).href);
+}
+
+/**
  * The module the probe measures: the one that declares this adapter's id.
  *
  * FOUND by its vocabulary rather than by a path written in here, for the reason the second adapter's
@@ -644,6 +659,7 @@ function listFiles(root, pattern) {
  */
 async function loadShippingAdapter(root) {
   const candidates = listFiles(root, 'shared/asr/**/*.asr-provider.ts');
+  await enterThroughRegistry(root);
   /** @type {string[]} */
   const others = [];
   for (const relativePath of candidates) {

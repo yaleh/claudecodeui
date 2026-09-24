@@ -64,7 +64,7 @@ type Row = {
   id: string;
   label: string;
   configured: boolean;
-  credentialFields?: { endpointField: string; apiKeyField: string; modelField?: string };
+  credentialFields?: { endpointField: string; apiKeyField: string; modelField?: string; defaultModel?: string };
 };
 
 /**
@@ -257,4 +257,30 @@ test('editing a declared field sends a document carrying every new field, the ke
     `[settings] saved document: providerId=${String(sent.providerId)}`
       + ` fields=${Object.keys(sent).length} keyShape=${SENTINEL_KEY.length}/${SENTINEL_KEY.slice(0, 3)}`,
   );
+});
+
+test('an empty model box shows the declared default as its placeholder, and falls back to the generic text without one', async () => {
+  const withDefault = { ...ALPHA_DECLARATION, defaultModel: 'alpha-default-model' };
+  voice.health.mockImplementation(() => ok({
+    configured: true,
+    provider: 'alpha-asr',
+    providers: [row('alpha-asr', 'Alpha ASR', withDefault)],
+  }));
+
+  const view = render(<VoiceSettingsTab />);
+  await waitFor(() => assert.ok(renderedFields(view).includes(ALPHA_DECLARATION.modelField)));
+  // What a blank box will do is on screen: the provider's own default model, not a generic word.
+  assert.equal(renderedField(view, ALPHA_DECLARATION.modelField).placeholder, 'alpha-default-model');
+
+  // A provider that declares no default keeps the generic placeholder, so the box is never bare.
+  voice.health.mockImplementation(() => ok({
+    configured: true,
+    provider: 'alpha-asr',
+    providers: [row('alpha-asr', 'Alpha ASR', ALPHA_DECLARATION)],
+  }));
+  view.unmount();
+  const plain = render(<VoiceSettingsTab />);
+  await waitFor(() => assert.ok(renderedFields(plain).includes(ALPHA_DECLARATION.modelField)));
+  assert.notEqual(renderedField(plain, ALPHA_DECLARATION.modelField).placeholder, 'alpha-default-model');
+  assert.notEqual(renderedField(plain, ALPHA_DECLARATION.modelField).placeholder, '');
 });

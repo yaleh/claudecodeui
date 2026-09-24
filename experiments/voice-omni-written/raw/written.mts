@@ -42,7 +42,11 @@ async function call(c: Cond, clip: any) {
     return { status: res.status, ms: Date.now() - t0, text: j?.choices?.[0]?.message?.content ?? '', err: res.ok ? '' : `${j?.error?.code} ${String(j?.error?.message).slice(0, 160)}`, usage: j?.usage ?? null, provider: j?.provider ?? null };
   } catch (e: any) { return { status: 0, ms: Date.now() - t0, text: '', err: e.name, usage: null }; }
 }
-if (process.argv[2] === 'run') {
+// The argv[1] guard is not decoration: this module is imported by `e-ctx.mts` (E 组 × 上下文),
+// and without the guard an `import` of it runs THIS loop instead — with `GW` unset it appends
+// OpenRouter readings to `written.jsonl` before the importing script gets a single line of its own
+// executed. `omni.mts` has carried the same guard since it was written; this one was missing it.
+if (process.argv[2] === 'run' && process.argv[1]?.endsWith('written.mts')) {
   const done = new Set(existsSync(RES) ? readFileSync(RES, 'utf8').split('\n').filter(Boolean).map((l) => { const r = JSON.parse(l); return `${r.cond}|${r.clip}|${r.rep}`; }) : []);
   const deadline = Date.now() + 540000; let n = 0, fails = 0; const REPN = Number(process.env.REPS ?? 3); const ONLY = process.env.ONLY?.split(',');
   for (const c of CONDS) { if (ONLY && !ONLY.includes(c.key)) continue; for (let rep = 0; rep < REPN; rep++) for (const clip of clips) {

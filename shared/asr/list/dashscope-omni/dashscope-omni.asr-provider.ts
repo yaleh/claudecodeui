@@ -292,14 +292,16 @@ export const wire: AsrWire = 'chat-audio';
  * declaration, which is what keeps the server free of any branching on this provider's id.
  *
  * `modelField` IS DECLARED AND MAY BE EMPTY. An empty value means "unset", and an unset per-user
- * model falls back to the deployment's model name exactly as the other two fields do — the field is
- * declared rather than made mandatory because "this service takes a per-user model" and "this user
- * picked one" are different statements.
+ * model resolves to `defaultModel` — this module's own frozen `DEFAULT_MODEL`, NOT the deployment's
+ * shared `sttModel`, which names a model of another service and would be sent here as-is. The field
+ * is declared rather than made mandatory because "this service takes a per-user model" and "this
+ * user picked one" are different statements.
  */
 export const credentials: AsrCredentialFields = {
   endpointField: 'dashscopeEndpoint',
   apiKeyField: 'dashscopeApiKey',
   modelField: 'dashscopeModel',
+  defaultModel: DEFAULT_MODEL,
 };
 
 /**

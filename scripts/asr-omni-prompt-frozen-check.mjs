@@ -174,6 +174,21 @@ class Ledger {
 // ── reading the two sides ────────────────────────────────────────────────────────────────────
 
 /**
+ * Enter `shared/asr/` through the registry before touching an adapter module.
+ *
+ * The registry value-imports every adapter and the adapters value-import `baseMimeType` /
+ * `declaredAcceptsMime` back out of it, so the entry order decides the outcome: registry first is fine, an
+ * adapter first throws `Cannot access '<symbol>' before initialization` at module-eval time. The registry
+ * is absent in a reduced tree, and then there is nothing to enter through.
+ *
+ * @param {string} root @returns {Promise<void>}
+ */
+async function enterThroughRegistry(root) {
+  const registry = path.join(root, 'shared/asr/asrRegistry.ts');
+  if (existsSync(registry)) await import(pathToFileURL(registry).href);
+}
+
+/**
  * The adapter's six segments, as the module actually exports them.
  *
  * A module that could not be imported is NOT an empty object: returning `{}` would make every
@@ -186,6 +201,7 @@ class Ledger {
 async function loadAdapterSegments(root) {
   const file = path.join(root, ADAPTER_REL);
   if (!existsSync(file)) return null;
+  await enterThroughRegistry(root);
   const module = await import(pathToFileURL(file).href);
   /** @type {Record<string, unknown>} */
   const values = {};
