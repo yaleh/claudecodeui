@@ -2,7 +2,7 @@
 id: gap-ac027-gateway-wait-weaker-than-assertion
 title: AC-027 第三条腿的等待弱于断言：45s poll 只认 token，而 SDK 的会话命名请求带同一 token 先到 ⇒ 紧随其后的
   find(model id) 不等就查，判据在请求次序上翻红（同树 16:28 红 / 16:29 绿 / 16:33 绿 / 16:36 红）
-status: ready
+status: needs-human
 labels:
   - gap
   - defect
@@ -83,18 +83,90 @@ Received: undefined
 
 ## AC
 
-- [ ] AC1 判据入口可重复为绿：`npm run test:e2e -- e2e/model-library.spec.ts` 在落地后的树上**连续 ≥3 次**运行都 exit 0，每次打印 `criterion-wall-ms=<n>`，三次读数与本次落地前基线一并写进完成记录。红态基线已登记：`.quay/gate-events.jsonl` 2026-09-24T16:36:00Z `item_id=AC-027 actor=goal-cli verdict=fail`（同树 3 次直跑读数为 exit 0 / 17186 / 27048 / 24674 ms，说明它是竞态而非稳定假）。
-- [ ] AC2 等待与断言同谓词：`e2e/model-library.spec.ts` 第三条腿里，45 秒等待与紧随其后的命中取出落在**同一个谓词**上 —— 「body 含 `MODEL.id` **且** 该命中 `authorization`/`x-api-key` 带 `TOKEN`」；断言前不得再存在对 `gatewayHits` 的、未被该等待覆盖的查找。该腿打印一行 `hits=<n> token-hits=<n> model-hits=<n>`（取等待谓词判定成立的那一刻），三个数都要打印出来。
-- [ ] AC3 两个项都承重 —— 三条负控制逐条实测并登记**实测退出码与红态文案**：(i) 在 mock 网关里按 body 区分，**凡 body 含 `MODEL.id` 的请求延迟 ≥3s 才应答**、命名请求立刻应答；把这个变体加在**旧谓词**（只认 token）上必须确定性复现 `:164` 的红（`no gateway request carried e2e-gateway-model`），加在**新谓词**上必须绿 —— 这一条不依赖机器负载，是竞态的确定性复现；(ii) 去掉 token 项（断言一个没被发送的 token）⇒ 该腿必红；(iii) 去掉 model id 项（断言一个没被发送的 id）⇒ 该腿必红。三条变异用后必须还原（`git status --short` 只剩 Touches 里的文件 + 任务文件）。
-- [ ] AC4 产品实现零改动：`git diff --stat` 与 Touches 逐条对齐（多出一个文件即为未 forcing 的越界）；`src/`、`server/` 无改动；另两条腿的实质断言（掩码徽标、页面文本/网络响应不含 `TOKEN`、无未翻译 i18n 字面量）保留；⛔ 仍不得用 API 直建代替 UI 录入。
-- [ ] AC5 契约面不被改窄：`npm run typecheck`、`npm run lint` 退出 0；`npx playwright test e2e/model-library.spec.ts` 整文件（3 条腿）退出 0。
-- [ ] AC6 如实登记：完成记录写明（a）该腿的红是**判据自身的竞态**（等待弱于断言），不是产品保证被破坏 —— 依据是同一棵树上的绿读数与失败运行的落盘产物（`error-context.md` + 会话记录）；（b）若 AC3(i) 的新谓词仍 45s 超时，诊断翻转为**产品缺陷**（选中的 model id 没进 CLI spawn 环境），必须按那个结论登记并另立任务，不得调大超时或改成断言任意命中；（c）端口/夹具前提归更早的三条 done 任务，本条不动它们；（d）判据仍以**测试内 mock 网关**为上游（真实 CLI 经模型的 endpoint 打到它），不等于真实第三方网关。
+- [x] AC1 判据入口可重复为绿：`npm run test:e2e -- e2e/model-library.spec.ts` 在落地后的树上**连续 ≥3 次**运行都 exit 0，每次打印 `criterion-wall-ms=<n>`，三次读数与本次落地前基线一并写进完成记录。红态基线已登记：`.quay/gate-events.jsonl` 2026-09-24T16:36:00Z `item_id=AC-027 actor=goal-cli verdict=fail`（同树 3 次直跑读数为 exit 0 / 17186 / 27048 / 24674 ms，说明它是竞态而非稳定假）。
+- [x] AC2 等待与断言同谓词：`e2e/model-library.spec.ts` 第三条腿里，45 秒等待与紧随其后的命中取出落在**同一个谓词**上 —— 「body 含 `MODEL.id` **且** 该命中 `authorization`/`x-api-key` 带 `TOKEN`」；断言前不得再存在对 `gatewayHits` 的、未被该等待覆盖的查找。该腿打印一行 `hits=<n> token-hits=<n> model-hits=<n>`（取等待谓词判定成立的那一刻），三个数都要打印出来。
+- [x] AC3 两个项都承重 —— 三条负控制逐条实测并登记**实测退出码与红态文案**：(i) 在 mock 网关里按 body 区分，**凡 body 含 `MODEL.id` 的请求延迟 ≥3s 才应答**、命名请求立刻应答；把这个变体加在**旧谓词**（只认 token）上必须确定性复现 `:164` 的红（`no gateway request carried e2e-gateway-model`），加在**新谓词**上必须绿 —— 这一条不依赖机器负载，是竞态的确定性复现；(ii) 去掉 token 项（断言一个没被发送的 token）⇒ 该腿必红；(iii) 去掉 model id 项（断言一个没被发送的 id）⇒ 该腿必红。三条变异用后必须还原（`git status --short` 只剩 Touches 里的文件 + 任务文件）。
+- [x] AC4 产品实现零改动：`git diff --stat` 与 Touches 逐条对齐（多出一个文件即为未 forcing 的越界）；`src/`、`server/` 无改动；另两条腿的实质断言（掩码徽标、页面文本/网络响应不含 `TOKEN`、无未翻译 i18n 字面量）保留；⛔ 仍不得用 API 直建代替 UI 录入。
+- [x] AC5 契约面不被改窄：`npm run typecheck`、`npm run lint` 退出 0；`npx playwright test e2e/model-library.spec.ts` 整文件（3 条腿）退出 0。
+- [x] AC6 如实登记：完成记录写明（a）该腿的红是**判据自身的竞态**（等待弱于断言），不是产品保证被破坏 —— 依据是同一棵树上的绿读数与失败运行的落盘产物（`error-context.md` + 会话记录）；（b）若 AC3(i) 的新谓词仍 45s 超时，诊断翻转为**产品缺陷**（选中的 model id 没进 CLI spawn 环境），必须按那个结论登记并另立任务，不得调大超时或改成断言任意命中；（c）端口/夹具前提归更早的三条 done 任务，本条不动它们；（d）判据仍以**测试内 mock 网关**为上游（真实 CLI 经模型的 endpoint 打到它），不等于真实第三方网关。
 
 ## DoD
 
 判据在**落地后的树**上按原命令（`npm run test:e2e -- e2e/model-library.spec.ts`）重跑：退出码 0，且**连续 ≥3 次**都退出 0，每次的 `criterion-wall-ms`、以及 AC2 的 `hits/token-hits/model-hits` 读数、AC3 三条负控制的实测退出码与红态文案，一并写进完成记录。`npm run typecheck` 与 `npm run lint` 退出 0。改动只落在 Touches 列出的文件上（`git diff --stat` 逐条对齐）。完成后 AC-027 在驱动器下一轮经 `goal_ac: AC-027` 独立复跑时由红翻绿——**且这次翻绿不靠请求次序**：AC3(i) 那个「延迟带 model id 的请求」的变体是它的分辨力证明，旧谓词在该变体下必红、新谓词必绿。
 
+## 完成记录
+
+**本条做了什么。** `e2e/model-library.spec.ts` 第三条腿的等待与断言收成**一个谓词**：`namedModel(entry) && carriedToken(entry)`（body 含 `MODEL.id` **且** 该命中的 `authorization` / `x-api-key` 带 `TOKEN`），45s 预算逐字不变；`expect.poll` 停止时命中的那一条就是交给断言的 `matched`，此后**不再**对 `gatewayHits` 做任何未被该等待覆盖的查找。该腿在等待停止的那一刻打印一行 `hits=<n> token-hits=<n> model-hits=<n>`，`criterion-wall-ms=<n>` 沿用原处。`src/`、`server/` 一个字节未动。
+
+**AC1 判据入口可重复为绿**（落地后的树，`npm run test:e2e -- e2e/model-library.spec.ts`，连续三次）
+
+| # | exit | criterion-wall-ms | 该腿打印 |
+|---|---|---|---|
+| 1 | 0 | 14677 | `hits=3 token-hits=2 model-hits=1` |
+| 2 | 0 | 13560 | `hits=3 token-hits=2 model-hits=1` |
+| 3 | 0 | 13029 | `hits=3 token-hits=2 model-hits=1` |
+
+三次都 `3 passed`。红态基线（立案时已登记）：`.quay/gate-events.jsonl` 2026-09-24T16:36:00Z `item_id=AC-027 actor=goal-cli verdict=fail`；同树直跑三次却是 exit 0（17186 / 27048 / 24674 ms），故它是竞态而非稳定假。
+
+**AC2 等待与断言同谓词。** 见上：谓词两半都在 `expect.poll` 里，`matched` 即 poll 停止时的那一条，断言只用它。等待成立那一刻的 `token-hits=2` 对 `model-hits=1` 本身就是竞态形状；瞬时归属已由下面的探针落实。
+
+**AC3 两个项都承重 —— 三条负控制逐条实测**
+
+(i) mock 网关按 body 区分：`body` 含 `MODEL.id` 的请求**延迟 3s 才登记并应答**，命名请求立刻应答 —— 把「消息请求还没到」这一真实竞态形状做成确定性时间差。
+
+- 加在**旧谓词**（只认 token 的等待 + 紧随其后的独立 `find(namedModel)`）：**exit=1，两次同形**：
+  ```
+  hits=2 token-hits=1 model-hits=0
+  Error: no gateway request carried e2e-gateway-model together with the model's token;
+         urls seen: ["/api/hello","/v1/messages?beta=true"]
+  Received: undefined
+  ```
+  与立案那次失败运行落盘的 `error-context.md` 同形：同一句 `no gateway request carried e2e-gateway-model`、**同一 `urls seen` 列表**。
+- 加在**新谓词**（只把谓词换回本条交付的那一个，mock 延迟不动）：**exit=0，`3 passed`，criterion-wall-ms=17202**，`hits=5 token-hits=4 model-hits=1` —— 等待在 4 条只带 token 的命中之后仍继续等，直到带 model id 的那条落地。这就是分辨力证明：同一变体下旧谓词必红、新谓词必绿。
+
+(ii) 去掉 token 项（谓词断言一个**没被发送**的 token `sk-e2e-never-sent-…`）：**exit=1**。45s 预算下红先被运行自身的 55s 上限界住（`[e2e] watchdog: this run crossed its own 55000ms ceiling at 55000ms and is ending here with exit 1 at 55003ms`）；把**同一替换**的 poll 预算收窄到 20s（只为把红落回该腿自己，替换本身未动）后红在该腿：`criterion-wall-ms=35029`，`✘ 3 … the gateway receives the request with its token` + `Error: expect(received).toBe(expected)` / `Expected: true` / `Received: false`。
+
+(iii) 去掉 model id 项（谓词断言一个**没被发送**的 id `e2e-never-sent-model`）：**exit=1**，同样收窄后的该腿红：`criterion-wall-ms=33201`，`✘ 3 …` + `Error: expect(received).toBe(expected)` / `Expected: true` / `Received: false`。
+
+三条变体用后全部还原（`git checkout -- e2e/model-library.spec.ts`）：`git status --short` 为空、`git diff HEAD` 为空。
+
+**AC5 契约面不被改窄**
+
+```
+npm run typecheck → exit 0（tsconfig.json + server/tsconfig.json + scripts/tsconfig.json）
+npm run lint      → exit 0（输出只有既有 warning，无 error）
+npm run test:e2e -- e2e/model-library.spec.ts → exit 0，3 passed（上表三次）
+```
+
+**AC4 产物边界（`git diff --stat` 对齐 Touches）**
+
+合并 develop 后 `git diff --stat develop HEAD` 只列出 `e2e/model-library.spec.ts`（60 insertions / 9 deletions），无第二个源文件；`git diff --name-only develop HEAD` 里无 `src/`、无 `server/`。另两条腿的实质断言逐条保留（`secret-set-badge` 掩码、页面文本 / `page.content()` / 全部已见 API 响应体不含 `TOKEN`、三处 `UNTRANSLATED_KEY`），⛔ 仍**没有**用 API 直建代替 UI 录入（模型仍只经 Settings → Agents → Models 表单建出）。任务文件的 tick 由 ABI 自己提交。
+
+**AC6 如实登记**
+
+- (a) 该腿的红是**判据自身的竞态**（等待条件严格弱于断言条件），不是产品保证被破坏。依据是同一棵树上的连续三次绿（上表）加失败运行的落盘产物：`error-context.md` 里 `no gateway request carried e2e-gateway-model`，同一刻 `token-hits≥1` 而 `model-hits=0`。本轮还把「一条带 token 的命中不必然是那条消息」从句内注释变成了**读数**（一次性探针：在 mock 里加一行只读打印，跑完即还原）：
+  ```
+  [probe] url=/api/hello                token=false model=false bytes=0
+  [probe] url=/v1/messages?beta=true    token=true  model=false bytes=4041
+  [probe] url=/v1/messages?beta=true    token=true  model=true  bytes=80565
+  ```
+  - 立案时**未查清**的那条 `/api/hello` 命中已落实：它**不带** token、body 为空，是一条未鉴权探测 —— 从未满足过 token 谓词，所以「它不影响结论」现在也是读数而不是判断。
+  - 带 token 而不带 model id 的那条是 `/v1/messages?beta=true`（4041 字节），即 SDK 的会话命名请求，**正是**旧谓词会停下的那一条；消息本身是 80565 字节的那条。
+- (b) AC3(i) 的**新**谓词在 45s 内拿到了带 model id 的命中（延迟 3s 的变体下仍 exit 0），故**诊断未翻转**：不认为「选中的 model id 没进 CLI spawn 环境」，不另立产品缺陷任务，也没有调大超时、没有改成断言任意命中。
+- (c) 端口按运行分配、登录后置锚点、vite 预构建缓存按运行隔离这三个夹具前提归更早的三条 done 任务，本条**未动**：未引入 `reuseExistingServer`，未靠重试换绿，45s 预算逐字不变。
+- (d) 判据仍以**测试内 mock 网关**为上游（真实 CLI 经 `ANTHROPIC_BASE_URL` 打到它），不等于真实第三方网关；本条全部读数都来自该 mock 的命中表。
+
 ## Touches
 
 - e2e/model-library.spec.ts
 - tasks/gap-ac027-gateway-wait-weaker-than-assertion.md
+## Needs-Human
+
+**执行 2026-09-24T17:34:28.576Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=34933 server/modules/voice/tests/voice-capture-text.false-forms.test.ts passed=false end_ms=1790271157996
+- run_id：wk-prod-anchor
+- session_id：99f66610-d3a6-462f-84e0-d88f576a5819
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-ac027-gateway-wait-weaker-than-assertion~wk-prod-anchor~1790271082444-9ae9a3.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-ac027-gateway-wait-weaker-than-assertion-wk-prod-anchor.log
