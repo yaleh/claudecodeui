@@ -1401,8 +1401,10 @@ export type VoiceServiceResult<TValue> =
      * upload that reached a gate — the three pre-request gates (container, budget, endpoint rule)
      * always did, and the failures read off the transport now do as well: an adapter already names
      * its upstream's refusal in the vocabulary (`UNAUTHORIZED` for a rejected key, `RATE_LIMITED`
-     * for the upstream's own limit, `TIMEOUT` and `UNREACHABLE` for a transport that never answered,
-     * `UPSTREAM_ERROR` for an answer that was not the service's envelope), and the route republishes
+     * for the upstream's own limit, `UPSTREAM_UNAVAILABLE` for a 5xx, a transport that never
+     * answered and an answer that was not the service's envelope, and the finer members the answer's
+     * own body earns it: `ACCOUNT_ACCESS`, `QUOTA_EXHAUSTED`, `MODEL_NOT_FOUND`, `AUDIO_REJECTED`,
+     * `CONTENT_FLAGGED` — see `classifyUpstreamFailure`), and the route republishes
      * that name instead of dropping it. A client that has to choose the words for "you said nothing"
      * against "we could not reach the service" cannot do it from a status number — `422` and `502`
      * are the same two numbers for several different remedies — and the code is the one field that
@@ -1429,7 +1431,7 @@ export type VoiceServiceResult<TValue> =
      * technical detail in the UI) can compare it against the service's own error-code page, which is
      * the only place the exact row for a failure like an expired account exists — and a code the
      * classifier does not recognise still arrives with its evidence attached instead of being
-     * swallowed into a generic `UPSTREAM_ERROR`.
+     * swallowed into the generic `UPSTREAM_UNAVAILABLE`.
      *
      * IT IS ALWAYS A SLICE OF THE UPSTREAM'S BODY (`extractUpstreamCode` guarantees that) and it is
      * absent, never empty or invented, when the upstream named nothing, when this process never got

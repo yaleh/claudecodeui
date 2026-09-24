@@ -128,18 +128,37 @@ export type AsrTransformation =
  * The semantic error vocabulary. Adapters translate their upstream's transport-level failure into
  * one of these, so the route above them does a mechanical code-to-HTTP mapping instead of
  * re-deriving meaning from a status number that several services use differently.
+ *
+ * WHY SOME MEMBERS ARE FINER THAN AN HTTP STATUS. `403` is at least three different facts — a key
+ * the service refuses, a model the account has not enabled, an account in arrears — and the sentence
+ * a user needs is different for each, so the vocabulary separates what the number cannot. `429`
+ * likewise covers "slow down" and "your quota is gone", which have different remedies. The evidence
+ * that separates them is in the answer BODY, which is why the classifier below reads it
+ * (`classifyUpstreamFailure`).
+ *
+ * WHY THE TRANSPORT FAILURES ARE COARSER THAN THEY LOOK. A 5xx, an aborted request and a transport
+ * that never connected are ONE member here — `UPSTREAM_UNAVAILABLE` — rather than three. From this
+ * side of the seam the caller's remedy is the same for all of them (wait and retry, or report a
+ * broken provider), and the two paths that reach an adapter (the browser addressing a backend
+ * itself, and the server proxying it) must answer one upstream failure with one code.
+ *
+ * THE MEMBERS ARE A CONTRACT WITH THE RUNTIME LIST BELOW, held together at type time rather than by
+ * a test: see `ASR_ERROR_CODE_ALIGNMENT`.
  */
 export type AsrErrorCode =
+  | 'ACCOUNT_ACCESS'
+  | 'UNAUTHORIZED'
+  | 'QUOTA_EXHAUSTED'
+  | 'RATE_LIMITED'
+  | 'MODEL_NOT_FOUND'
+  | 'AUDIO_REJECTED'
+  | 'CONTENT_FLAGGED'
+  | 'NO_SPEECH_DETECTED'
+  | 'UPSTREAM_UNAVAILABLE'
   | 'NOT_CONFIGURED'
   | 'INVALID_BASE_URL'
-  | 'UNAUTHORIZED'
-  | 'RATE_LIMITED'
-  | 'TIMEOUT'
-  | 'UNREACHABLE'
   | 'OVERSIZE'
-  | 'UNSUPPORTED_MIME'
-  | 'NO_SPEECH_DETECTED'
-  | 'UPSTREAM_ERROR';
+  | 'UNSUPPORTED_MIME';
 
 export type AsrSuccess = {
   ok: true;
@@ -273,6 +292,150 @@ export function extractUpstreamCode(body: string): string | undefined {
   }
 
   return undefined;
+}
+
+/**
+ * The vocabulary as a VALUE, for the readings that have to count it.
+ *
+ * WHY THIS EXISTS AT ALL. `AsrErrorCode` is a type, and a type is erased: nothing at runtime can ask
+ * "which codes are there". The two places that need the answer — the code→status table in
+ * `server/modules/voice/voice.service.ts`, which must have exactly one row per member, and any
+ * criterion reading that table — otherwise have no source to read it from, and would each have to
+ * keep a hand-written list in step with the union by hand.
+ *
+ * THE ALIGNMENT IS TYPE-LEVEL, AND THAT IS THE POINT. This record is written out by hand with
+ * `Readonly<Record<AsrErrorCode, true>>` as its declared type, so the compiler holds the two ends
+ * together in BOTH directions: a member added to the union and left out here is a missing property,
+ * and a key here that is not a member is an excess property. Neither reaches a run — `npm run
+ * typecheck` reds on both. `Object.keys` of a record whose key set IS the union is therefore the
+ * union, which is what lets `ASR_ERROR_CODES` be a restatement of the type rather than a second
+ * source of truth that could drift from it.
+ *
+ * THE VALUES ARE ALL `true` BECAUSE ONLY THE KEYS CARRY INFORMATION. An array literal would have
+ * needed a hand-written element type that nothing checks against the union; a record whose type IS
+ * the union is checked by the compiler, key by key.
+ */
+export const ASR_ERROR_CODE_ALIGNMENT: Readonly<Record<AsrErrorCode, true>> = {
+  ACCOUNT_ACCESS: true,
+  UNAUTHORIZED: true,
+  QUOTA_EXHAUSTED: true,
+  RATE_LIMITED: true,
+  MODEL_NOT_FOUND: true,
+  AUDIO_REJECTED: true,
+  CONTENT_FLAGGED: true,
+  NO_SPEECH_DETECTED: true,
+  UPSTREAM_UNAVAILABLE: true,
+  NOT_CONFIGURED: true,
+  INVALID_BASE_URL: true,
+  OVERSIZE: true,
+  UNSUPPORTED_MIME: true,
+};
+
+/** Every member of the vocabulary, in the order `ASR_ERROR_CODE_ALIGNMENT` declares them. */
+export const ASR_ERROR_CODES: readonly AsrErrorCode[] = Object.keys(
+  ASR_ERROR_CODE_ALIGNMENT,
+) as AsrErrorCode[];
+
+/**
+ * The upstream's own error code strings, and what each one MEANS.
+ *
+ * THE ORDER IS PART OF THE RULE, and the list is written longest-token-first so that the order a
+ * reader sees IS the order the matcher uses. These codes are hierarchical — `Throttling.
+ * AllocationQuota` is a child of `Throttling`, `AllocationQuota.FreeTierOnly` is its sibling — so a
+ * shorter rule reached first would take a failure away from the longer one that names it better.
+ *
+ * MATCHING IS BY SUBSTRING, because the upstream puts these strings in an `error.code` field or
+ * inside the human-readable message depending on which layer produced the failure, and the two
+ * spellings are the same fact.
+ *
+ * A CODE THAT IS NOT HERE IS NOT A CLASSIFICATION. The table is deliberately not exhaustive — the
+ * service's published error page is a general one and this deployment reads one recogniser — so a
+ * code this table does not know falls through to the status fallback below rather than being guessed
+ * at by a looser pattern.
+ */
+const UPSTREAM_CODE_RULES: ReadonlyArray<{ token: string; code: AsrErrorCode }> = [
+  { token: 'AllocationQuota.FreeTierOnly', code: 'QUOTA_EXHAUSTED' },
+  { token: 'Throttling.AllocationQuota', code: 'QUOTA_EXHAUSTED' },
+  { token: 'AccessDenied.Unpurchased', code: 'ACCOUNT_ACCESS' },
+  { token: 'Throttling.RateQuota', code: 'RATE_LIMITED' },
+  { token: 'DataInspectionFailed', code: 'CONTENT_FLAGGED' },
+  { token: 'ModelNotFound', code: 'MODEL_NOT_FOUND' },
+  { token: 'InvalidApiKey', code: 'UNAUTHORIZED' },
+  { token: 'Arrearage', code: 'ACCOUNT_ACCESS' },
+];
+
+/**
+ * The one code string that means something only in company: `InvalidParameter` is the service's
+ * generic "this request was malformed", and the recording's duration is one of the things it can be
+ * malformed about.
+ *
+ * WHY THIS RULE NEEDS THE BODY AND THE OTHERS DO NOT. Every other rule is a fact about the code
+ * string alone; this one narrows a general code by what the message says the problem was. The needles
+ * are the words the service uses for the offending field (`audio`, `duration`, `seconds`) and the
+ * literal phrase from its own documentation for the bound (`1 to 300`), so a body that names the
+ * duration is a body whose `InvalidParameter` is about the recording rather than about the request
+ * around it. A body that says neither is left to the status fallback, which is the honest reading:
+ * the code alone does not say enough to classify.
+ */
+const AUDIO_DURATION_CODE = 'InvalidParameter';
+const AUDIO_DURATION_NEEDLES = ['audio', 'duration', 'seconds', '1 to 300'];
+
+/** Whether the answer says the objection is to the recording's length. */
+function namesAudioDuration(body: string): boolean {
+  const lowered = body.toLowerCase();
+  return AUDIO_DURATION_NEEDLES.some((needle) => lowered.includes(needle));
+}
+
+/**
+ * The status fallback, for a body that names nothing this module knows.
+ *
+ * `401`/`403` are the credential code and `429` the rate-limit code because those two numbers have
+ * one meaning each on every service in this family — and keeping them here rather than deleting them
+ * is what leaves an ordinary `403` and an ordinary `429` classified at all. Everything else — the
+ * other 4xx, the 5xx, `408`, and a failure that never reached a status because the transport refused
+ * or the deadline passed — is `UPSTREAM_UNAVAILABLE`.
+ */
+function fallbackCodeForStatus(status: number | undefined): AsrErrorCode {
+  if (status === 401 || status === 403) return 'UNAUTHORIZED';
+  if (status === 429) return 'RATE_LIMITED';
+  return 'UPSTREAM_UNAVAILABLE';
+}
+
+/**
+ * What an upstream failure MEANS, read from the answer's own error code and falling back to the
+ * status it arrived with.
+ *
+ * THE ONE IMPLEMENTATION, here rather than in the adapters, for two reasons. (a) An adapter has two
+ * callers — the browser's direct path and the server's proxy path — and both must answer one
+ * upstream failure with one code; a copy per adapter would be two answers to one question even
+ * before the two paths were compared. (b) The other placement would be the wrong direction of an
+ * edge that already exists: every adapter reads `baseMimeType` and `declaredAcceptsMime` out of this
+ * module, so a classifier living in an adapter and read from here would close a cycle, and one end of
+ * it would be evaluated while the other was still in its temporal dead zone.
+ *
+ * THE BODY WINS OVER THE STATUS, which is the whole reason the function takes both. A `403` whose
+ * body names `AccessDenied.Unpurchased` and a `403` whose body names nothing are the same number and
+ * two different facts: the first is a model this account has not enabled, the second is a refused
+ * credential.
+ *
+ * THE BODY IS READ THROUGH `extractUpstreamCode`, never re-parsed here. That function is this
+ * module's one answer to "did this body name a failure, and what did it name"; a second reading of
+ * the same bytes would be free to disagree with it. The full body is still handed to the
+ * `InvalidParameter` qualifier, because that rule is about the MESSAGE rather than about the code.
+ *
+ * A failure with no status at all (`undefined`: the transport refused, or the caller's own deadline
+ * passed) and a body that names nothing both reach the fallback.
+ */
+export function classifyUpstreamFailure(status: number | undefined, body: string): AsrErrorCode {
+  const named = extractUpstreamCode(body);
+  if (named !== undefined) {
+    for (const rule of UPSTREAM_CODE_RULES) {
+      if (named.includes(rule.token)) return rule.code;
+    }
+    if (named.includes(AUDIO_DURATION_CODE) && namesAudioDuration(body)) return 'AUDIO_REJECTED';
+  }
+
+  return fallbackCodeForStatus(status);
 }
 
 /**

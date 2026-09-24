@@ -39,7 +39,7 @@
  *     `meta.writtenFallback: 1`, so the degradation is a READING the UI and the metrics can select
  *     rather than a silent downgrade;
  *   · neither of the two, in an answer that parsed ⇒ `NO_SPEECH_DETECTED`;
- *   · an answer that is not this service's envelope at all ⇒ `UPSTREAM_ERROR`.
+ *   · an answer that is not this service's envelope at all ⇒ `UPSTREAM_UNAVAILABLE`.
  *
  * The wrapper is allowed — first `{` to last `}`, exactly as §2 says — and the CONTENT is never
  * handed back as the transcription on its way to a failure: the fourth row above is a statement
@@ -81,13 +81,12 @@ import type {
   AsrAdapter,
   AsrCapabilities,
   AsrCredentialFields,
-  AsrErrorCode,
   AsrInvocation,
   AsrRequest,
   AsrResult,
   AsrWire,
 } from '../../asrRegistry.js';
-import { baseMimeType, declaredAcceptsMime } from '../../asrRegistry.js';
+import { baseMimeType, classifyUpstreamFailure, declaredAcceptsMime } from '../../asrRegistry.js';
 
 /**
  * The version of this frozen prompt. A value, not a derivation: it names the experiment round whose
@@ -565,12 +564,16 @@ export function isModelNotPurchased(responseText: string): boolean {
   return responseText.indexOf('AccessDenied.Unpurchased') !== -1;
 }
 
-/** Transport status to the semantic code the route above maps to HTTP. */
-export function errorCodeForStatus(status: number): AsrErrorCode {
-  if (status === 401 || status === 403) return 'UNAUTHORIZED';
-  if (status === 429) return 'RATE_LIMITED';
-  return 'UPSTREAM_ERROR';
-}
+/**
+ * The semantic code this answer means, read by the ONE classifier in the registry.
+ *
+ * WHAT WAS HERE INSTEAD, and why it was the defect: a three-line `errorCodeForStatus(status)` reading
+ * only the number. `isModelNotPurchased` above reads the body for the MESSAGE, and the mapper did not
+ * read it at all, so an unenabled model and a refused credential were one code to it. The
+ * implementation now lives beside the vocabulary (`classifyUpstreamFailure`), which reads the same
+ * body — so the sentence and the code above it are two readings of one answer rather than two
+ * answers to one question.
+ */
 
 function isAbortError(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { name?: unknown }).name === 'AbortError';
@@ -638,9 +641,12 @@ export async function transcribe(request: AsrRequest, invocation: AsrInvocation)
       signal,
     });
   } catch (error) {
+    // One code, two messages: a transport that never connected and a request the invocation's
+    // deadline (or the caller's signal) ended are the same fact about the upstream from this side of
+    // the seam (`UPSTREAM_UNAVAILABLE`).
     return {
       ok: false,
-      code: isAbortError(error) ? 'TIMEOUT' : 'UNREACHABLE',
+      code: 'UPSTREAM_UNAVAILABLE',
       message: isAbortError(error)
         ? `provider '${id}' did not answer within ${invocation.timeoutMs} ms`
         : `provider '${id}' could not be reached`,
@@ -648,8 +654,9 @@ export async function transcribe(request: AsrRequest, invocation: AsrInvocation)
   }
 
   if (!response.ok) {
-    // The body decides whether a 403 is a model this account has not enabled; see
-    // `isModelNotPurchased`. Everything else follows the status.
+    // The body decides whether a 403 is a model this account has not enabled — for the MESSAGE; see
+    // `isModelNotPurchased`. The CODE comes from the one classifier over the same body, so the two
+    // are readings of one answer rather than two answers to one question.
     const failureText = await readTextQuietly(response);
     const notPurchased = response.status === 403 && isModelNotPurchased(failureText);
     let message = `provider '${id}' answered ${response.status}`;
@@ -659,21 +666,26 @@ export async function transcribe(request: AsrRequest, invocation: AsrInvocation)
           `balance is insufficient（未开通或余额不足）`
         : `provider '${id}' rejected the credential (${response.status})`;
     }
-    return { ok: false, code: errorCodeForStatus(response.status), message, status: response.status };
+    return {
+      ok: false,
+      code: classifyUpstreamFailure(response.status, failureText),
+      message,
+      status: response.status,
+    };
   }
 
   let responseText: string;
   try {
     responseText = await response.text();
   } catch {
-    return { ok: false, code: 'UPSTREAM_ERROR', message: `provider '${id}' answer could not be read` };
+    return { ok: false, code: 'UPSTREAM_UNAVAILABLE', message: `provider '${id}' answer could not be read` };
   }
 
   const content = readAnswerContent(responseText);
   if (content === null) {
     return {
       ok: false,
-      code: 'UPSTREAM_ERROR',
+      code: 'UPSTREAM_UNAVAILABLE',
       message: `provider '${id}' answer was not a chat completion envelope`,
     };
   }

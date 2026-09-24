@@ -359,29 +359,38 @@ export const PROVIDER_ERROR_STATUS: Readonly<Record<AsrErrorCode, number>> = {
   INVALID_BASE_URL: 400,
   UNAUTHORIZED: 502,
   RATE_LIMITED: 429,
-  TIMEOUT: 504,
-  UNREACHABLE: 502,
+  ACCOUNT_ACCESS: 403,
+  QUOTA_EXHAUSTED: 429,
+  MODEL_NOT_FOUND: 404,
+  AUDIO_REJECTED: 400,
+  CONTENT_FLAGGED: 422,
   OVERSIZE: 413,
   UNSUPPORTED_MIME: 415,
   NO_SPEECH_DETECTED: 422,
-  UPSTREAM_ERROR: 502,
+  UPSTREAM_UNAVAILABLE: 502,
 };
 
 /**
  * The status one adapter failure is owed.
  *
  * The table holds every code, and one cell of it is deliberately not the last word: an
- * `UPSTREAM_ERROR` that carries the status its adapter read off the transport is answered with that
- * status instead of the table's 502. That is the reading this path has always had — a 404 from the
+ * `UPSTREAM_UNAVAILABLE` that carries the status its adapter read off the transport is answered with
+ * that status instead of the table's 502. That is the reading this path has always had — a 404 from the
  * recogniser reached the client as 404 — and it is the only code for which the status is DATA
  * rather than a constant: every other code is a meaning an adapter derived, and a meaning has one
- * number. The clause is "carries a status" rather than "is a non-2xx answer" because both adapters
- * set the field when they read the transport and leave it unset when they do not, so the presence
- * of the field is exactly the difference between "the upstream said this" and "we interpreted
- * this".
+ * number. The clause is "carries a status" rather than "is a non-2xx answer" because all three
+ * adapters set the field when they read the transport and leave it unset when they do not, so the
+ * presence of the field is exactly the difference between "the upstream said this" and "we
+ * interpreted this".
+ *
+ * WHY THIS MEMBER AND NOT THE OLDER `UPSTREAM_ERROR`. The vocabulary merged the transport failures —
+ * a 5xx, an aborted request, a transport that never connected — into `UPSTREAM_UNAVAILABLE`
+ * (`AsrErrorCode`), so this clause follows the member rather than the old name. The set of answers
+ * that pass through is unchanged: it is still "the upstream's own status, on the failures where the
+ * upstream named one".
  */
 function providerFailureStatus(failure: AsrFailure): number {
-  if (failure.code === 'UPSTREAM_ERROR' && typeof failure.status === 'number') {
+  if (failure.code === 'UPSTREAM_UNAVAILABLE' && typeof failure.status === 'number') {
     return failure.status;
   }
 

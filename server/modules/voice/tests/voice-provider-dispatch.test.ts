@@ -401,7 +401,7 @@ const ERROR_DRIVES: readonly ErrorDrive[] = [
       }),
   },
   {
-    code: 'TIMEOUT',
+    code: 'UPSTREAM_UNAVAILABLE',
     provider: 'openai-compatible',
     condition: 'the transport rejects with an AbortError',
     drive: async () =>
@@ -412,7 +412,7 @@ const ERROR_DRIVES: readonly ErrorDrive[] = [
       }).transcribe({ audio: audioUpload(), overrides: {} }),
   },
   {
-    code: 'UNREACHABLE',
+    code: 'UPSTREAM_UNAVAILABLE',
     provider: 'openai-compatible',
     condition: 'the transport rejects',
     drive: async () =>
@@ -452,7 +452,7 @@ const ERROR_DRIVES: readonly ErrorDrive[] = [
       }).transcribe({ audio: audioUpload(), overrides: { providerId: dashscopeOmniId } }),
   },
   {
-    code: 'UPSTREAM_ERROR',
+    code: 'UPSTREAM_UNAVAILABLE',
     provider: dashscopeOmniId,
     condition: 'a 200 answer that is not a chat completion envelope',
     drive: async () =>
@@ -471,20 +471,25 @@ test('AC5 the code→status table: a row per member, each driven to the status i
     emit(`provider-error-status ${code}=${status ?? 'UNMAPPED'}`);
   }
 
-  // The six the criterion pins verbatim. Changing any of these numbers is a red here and in the
-  // drive below — the two readings are independent: one is the table, the other is a real
-  // transcribe through the service.
+  // The rows this criterion pinned before this task, at the numbers it pinned: every one of them is
+  // unchanged, which is the reading that says the vocabulary grew around them rather than under them.
   assert.equal(PROVIDER_ERROR_STATUS.NOT_CONFIGURED, 503);
   assert.equal(PROVIDER_ERROR_STATUS.INVALID_BASE_URL, 400);
   assert.equal(PROVIDER_ERROR_STATUS.UNAUTHORIZED, 502);
-  assert.equal(PROVIDER_ERROR_STATUS.TIMEOUT, 504);
+  assert.equal(PROVIDER_ERROR_STATUS.RATE_LIMITED, 429);
   assert.equal(PROVIDER_ERROR_STATUS.OVERSIZE, 413);
   assert.equal(PROVIDER_ERROR_STATUS.UNSUPPORTED_MIME, 415);
-  // And the four the criterion does not pin are still read, so a missing row cannot hide in them.
-  assert.equal(PROVIDER_ERROR_STATUS.RATE_LIMITED, 429);
-  assert.equal(PROVIDER_ERROR_STATUS.UNREACHABLE, 502);
   assert.equal(PROVIDER_ERROR_STATUS.NO_SPEECH_DETECTED, 422);
-  assert.equal(PROVIDER_ERROR_STATUS.UPSTREAM_ERROR, 502);
+  // And every other row the vocabulary has is read too, so a missing one cannot hide in the rows
+  // above. The three transport failures that used to be three rows (`TIMEOUT` 504, `UNREACHABLE` 502,
+  // `UPSTREAM_ERROR` 502) are one member now — `UPSTREAM_UNAVAILABLE` — and it keeps the 502 the two
+  // of them shared.
+  assert.equal(PROVIDER_ERROR_STATUS.ACCOUNT_ACCESS, 403);
+  assert.equal(PROVIDER_ERROR_STATUS.QUOTA_EXHAUSTED, 429);
+  assert.equal(PROVIDER_ERROR_STATUS.MODEL_NOT_FOUND, 404);
+  assert.equal(PROVIDER_ERROR_STATUS.AUDIO_REJECTED, 400);
+  assert.equal(PROVIDER_ERROR_STATUS.CONTENT_FLAGGED, 422);
+  assert.equal(PROVIDER_ERROR_STATUS.UPSTREAM_UNAVAILABLE, 502);
 
   for (const drive of ERROR_DRIVES) {
     const result = await drive.drive();
@@ -501,7 +506,7 @@ test('AC5 the code→status table: a row per member, each driven to the status i
     );
   }
 
-  // The one cell the table does not have the last word on: an `UPSTREAM_ERROR` that carries the
+  // The one cell the table does not have the last word on: an `UPSTREAM_UNAVAILABLE` that carries the
   // status its adapter read off the transport is answered with that status, not with the table's
   // 502 — the upstream's own answer about itself, which this path has always passed through.
   const passthrough = await makeService({

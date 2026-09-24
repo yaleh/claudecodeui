@@ -26,7 +26,12 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { listProviders, type AsrAdapter, type AsrHints } from '@shared/asr/asrRegistry';
+import {
+  classifyUpstreamFailure,
+  listProviders,
+  type AsrAdapter,
+  type AsrHints,
+} from '@shared/asr/asrRegistry';
 import {
   INVARIANT_AUDIO_BASE64,
   INVARIANT_AUDIO_TEXT,
@@ -46,7 +51,6 @@ import {
   baseMimeType,
   buildInlineRequestBody,
   capabilities,
-  errorCodeForStatus,
   generateContentEndpoint,
   measureInlineRequestBytes,
   readTranscriptText,
@@ -91,15 +95,17 @@ const promptHonouringAdapter: AsrAdapter = {
         ),
         signal: invocation.signal,
       });
-    } catch (error) {
-      const aborted =
-        typeof error === 'object' && error !== null && (error as { name?: unknown }).name === 'AbortError';
-      return { ok: false, code: aborted ? 'TIMEOUT' : 'UNREACHABLE', message: 'stand-in: no answer' };
+    } catch {
+      // The same single code the shipping adapters reach for a transport that refused and for one the
+      // deadline ended: two messages, one meaning (`AsrErrorCode`).
+      return { ok: false, code: 'UPSTREAM_UNAVAILABLE', message: 'stand-in: no answer' };
     }
     if (!response.ok) {
+      // The shipping classifier, over the same bytes the shipping adapter would hand it: a stand-in
+      // with its own idea of the mapping would be measuring a second implementation.
       return {
         ok: false,
-        code: errorCodeForStatus(response.status),
+        code: classifyUpstreamFailure(response.status, await response.text()),
         message: 'stand-in: the service answered',
         status: response.status,
       };
@@ -108,7 +114,7 @@ const promptHonouringAdapter: AsrAdapter = {
     try {
       text = readTranscriptText(await response.text());
     } catch {
-      return { ok: false, code: 'UPSTREAM_ERROR', message: 'stand-in: unreadable answer' };
+      return { ok: false, code: 'UPSTREAM_UNAVAILABLE', message: 'stand-in: unreadable answer' };
     }
     if (text === '') return { ok: false, code: 'NO_SPEECH_DETECTED', message: 'stand-in: no text' };
     return {

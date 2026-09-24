@@ -410,7 +410,7 @@ describe('the failure is read for what it says (real-wire AC6)', () => {
 
     const result = await transcribe({ audio: audioOf(1024) }, invocationFor(stand));
 
-    expect(result).toMatchObject({ ok: false, code: 'UPSTREAM_ERROR', status: 400 });
+    expect(result).toMatchObject({ ok: false, code: 'UPSTREAM_UNAVAILABLE', status: 400 });
   });
 
   it('reports a refusal as an upstream fault naming the reason, not as silence', async () => {
@@ -418,7 +418,7 @@ describe('the failure is read for what it says (real-wire AC6)', () => {
       { audio: audioOf(1024) },
       invocationFor(standIn(JSON.stringify({ candidates: [{ finishReason: 'SAFETY' }] }))),
     );
-    expect(blocked).toMatchObject({ ok: false, code: 'UPSTREAM_ERROR' });
+    expect(blocked).toMatchObject({ ok: false, code: 'UPSTREAM_UNAVAILABLE' });
     expect(blocked.ok === false ? blocked.message : '').toContain('SAFETY');
 
     const promptBlocked = await transcribe(
@@ -427,7 +427,7 @@ describe('the failure is read for what it says (real-wire AC6)', () => {
         standIn(JSON.stringify({ promptFeedback: { blockReason: 'PROHIBITED_CONTENT' }, candidates: [] })),
       ),
     );
-    expect(promptBlocked).toMatchObject({ ok: false, code: 'UPSTREAM_ERROR' });
+    expect(promptBlocked).toMatchObject({ ok: false, code: 'UPSTREAM_UNAVAILABLE' });
     expect(promptBlocked.ok === false ? promptBlocked.message : '').toContain('PROHIBITED_CONTENT');
 
     // The positive control: a model that simply produced nothing is still silence, so the two

@@ -77,7 +77,7 @@ const SELF_MODULE = fileURLToPath(import.meta.url);
  *
  * The no-speech arm needs an upstream that says "I heard nothing" as a 200, and only this recogniser's
  * envelope distinguishes that from "the answer was not mine" (`readAnswerContent` returns `null` for
- * the latter, which is an `UPSTREAM_ERROR`). So the whole criterion rides on the proxy-only provider,
+ * the latter, which is an `UPSTREAM_UNAVAILABLE`). So the whole criterion rides on the proxy-only provider,
  * which also means every arm goes through the endpoint rule on the way — the address below is the
  * service's own, which is the address that rule accepts.
  */
@@ -217,7 +217,7 @@ const ARM_FIXTURES: readonly ArmFixture[] = [
     upload: { file: { mimetype: 'audio/webm' } },
     upstream: { status: 404, body: JSON.stringify({ error: { code: 'Model.NotFound' } }) },
     // The one code whose answer is DATA: a 404 is carried through as 404 rather than folded into the
-    // table's row for `UPSTREAM_ERROR`.
+    // table's row for `UPSTREAM_UNAVAILABLE`.
     expectedStatus: 'carrier',
     bodyCode: 'Model.NotFound',
     sent: true,
@@ -231,7 +231,7 @@ const ARM_FIXTURES: readonly ArmFixture[] = [
     },
     expectedStatus: 'carrier',
     // The non-fabrication control: an answer with no code-shaped string in it must answer with a code
-    // (`UPSTREAM_ERROR`) and NO `upstreamCode`.
+    // (`UPSTREAM_UNAVAILABLE`) and NO `upstreamCode`.
     bodyCode: null,
     sent: true,
   },

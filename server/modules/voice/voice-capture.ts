@@ -459,9 +459,9 @@ export function truncateVoiceCaptureReturn(rawReturn: VoiceCaptureRawReturn): Vo
  * answer. Among failures, `NO_SPEECH_DETECTED` is asked first because it is the one failure that
  * arrives on a 2xx answer: asked later, it would be caught by the envelope test below and reported as
  * a malformed answer instead of as silence. The envelope test itself needs BOTH halves of its name —
- * `UPSTREAM_ERROR` is the adapter's word for "I could not use what came back", and a 2xx status is
- * what makes that a malformed ANSWER rather than a refusal — so a 404 carrying the same code falls
- * through to the transport test below and is reported as what it is.
+ * `UPSTREAM_UNAVAILABLE` is the adapter's word for "I could not use what came back", and a 2xx
+ * status is what makes that a malformed ANSWER rather than a refusal — so a 404 carrying the same
+ * code falls through to the transport test below and is reported as what it is.
  *
  * The last two are decided by whether a request ever left the process, which is why `requestSent` is
  * an input rather than something the builder infers: an attempt refused before the transport never
@@ -483,7 +483,7 @@ export function voiceCaptureBranch(input: {
   if (input.code === 'NO_SPEECH_DETECTED') {
     return 'no-speech';
   }
-  if (input.code === 'UPSTREAM_ERROR' && input.upstream !== null && input.upstream.status < 400) {
+  if (input.code === 'UPSTREAM_UNAVAILABLE' && input.upstream !== null && input.upstream.status < 400) {
     return 'envelope-error';
   }
   return input.requestSent ? 'upstream-failure' : 'preflight-refused';

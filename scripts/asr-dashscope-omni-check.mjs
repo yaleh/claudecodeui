@@ -22,7 +22,7 @@
  *     present and each hash the recorded one (AC3) — the tooling holds no prompt text, only hashes;
  *   · the answer is read as the service's chat envelope and DEGRADES rather than failing: a rewrite
  *     when there is one, the transcription when the wrapper was missing, `NO_SPEECH_DETECTED` when
- *     the service heard nothing, and `UPSTREAM_ERROR` when the body was not an answer at all — the
+ *     the service heard nothing, and `UPSTREAM_UNAVAILABLE` when the body was not an answer at all —
  *     raw response is never handed back as the text (AC5–AC7);
  *   · a 401/403/429/timeout/transport failure each reach their own code, and the two 403s — a model
  *     this account has not enabled versus a plain refusal — carry two DIFFERENT messages (AC8);
@@ -1166,8 +1166,8 @@ async function checkEmptyAndNotAnAnswer(ledger, adapter) {
     ledger.expect(
       'parse.not-an-answer.code',
       outcome.code,
-      'UPSTREAM_ERROR',
-      'NON_ENVELOPE_NOT_UPSTREAM_ERROR',
+      'UPSTREAM_UNAVAILABLE',
+      'NON_ENVELOPE_NOT_UPSTREAM_UNAVAILABLE',
       'a body that is not this service\'s chat envelope is an upstream fault: the model did not answer in prose, there was no answer',
     );
     ledger.expect(
@@ -1185,12 +1185,12 @@ async function checkEmptyAndNotAnAnswer(ledger, adapter) {
 /**
  * Every way the upstream can refuse, and the code each one must reach.
  *
- * THE TWO 403s ARE THE POINT OF THE GROUP. `AccessDenied.Unpurchased` arrives as a plain 403 and is
- * a different fact from a credential the service refuses — one is a model this account has not
- * enabled, which the user can act on, and the other is a key that is wrong. A reading that only
- * checked the code would pass on an adapter that told both users the same thing, so the two messages
- * are read against EACH OTHER, and the entitlement one is read for the words that make it say what
- * happened.
+ * THE TWO 403s ARE THE POINT OF THE GROUP, and they are two readings rather than one. The CODE says
+ * the two are different facts — `AccessDenied.Unpurchased` is a model this account has not enabled
+ * (`ACCOUNT_ACCESS`), a 403 naming nothing is a credential the service refuses (`UNAUTHORIZED`) — and
+ * the MESSAGES are read against EACH OTHER, because a reading that only checked the code would pass
+ * on an adapter that told both users the same thing. The entitlement message is also read for the
+ * words that make it say what happened.
  *
  * @param {Ledger} ledger
  * @param {any} adapter
@@ -1202,10 +1202,10 @@ async function checkErrorMapping(ledger, adapter) {
   /** @type {[string, { status: number, body: string }, string][]} */
   const statusCases = [
     ['401', { status: 401, body: JSON.stringify({ error: 'unauthorized' }) }, 'UNAUTHORIZED'],
-    ['403-unpurchased', { status: 403, body: unpurchasedBody }, 'UNAUTHORIZED'],
+    ['403-unpurchased', { status: 403, body: unpurchasedBody }, 'ACCOUNT_ACCESS'],
     ['403-plain', { status: 403, body: JSON.stringify({ error: 'forbidden' }) }, 'UNAUTHORIZED'],
     ['429', { status: 429, body: JSON.stringify({ error: 'slow down' }) }, 'RATE_LIMITED'],
-    ['500', { status: 500, body: JSON.stringify({ error: 'boom' }) }, 'UPSTREAM_ERROR'],
+    ['500', { status: 500, body: JSON.stringify({ error: 'boom' }) }, 'UPSTREAM_UNAVAILABLE'],
   ];
   /** @type {Record<string, string|null>} */
   const messageByCase = {};
@@ -1256,9 +1256,9 @@ async function checkErrorMapping(ledger, adapter) {
     ledger.expect(
       'error.timeout.code',
       timeout.code,
-      'TIMEOUT',
+      'UPSTREAM_UNAVAILABLE',
       'TIMEOUT_NOT_MAPPED',
-      'a transport that was still silent when the invocation\'s own deadline passed is a timeout, read from the abort the adapter raised rather than from a code it chose',
+      'a transport that was still silent when the invocation\'s own deadline passed is an unavailable upstream, read from the abort the adapter raised rather than from a code it chose — the failure this row refuses is that abort reaching the caller as something else',
     );
   }
 
@@ -1272,7 +1272,7 @@ async function checkErrorMapping(ledger, adapter) {
     ledger.expect(
       'error.caller-signal.code',
       cancelled.code,
-      'TIMEOUT',
+      'UPSTREAM_UNAVAILABLE',
       'CALLER_SIGNAL_IGNORED',
       'a caller\'s own abort signal reaches the transport: an invocation that passed one and had it ignored would keep a cancelled request alive',
     );
@@ -1284,9 +1284,9 @@ async function checkErrorMapping(ledger, adapter) {
     ledger.expect(
       'error.transport.code',
       unreachable.code,
-      'UNREACHABLE',
-      'TRANSPORT_COLLAPSED_INTO_TIMEOUT',
-      'a transport that never answered is unreachable, NOT a timeout: the two need different words, and a caller that retried a wrong credential as if it were a slow one would retry forever',
+      'UPSTREAM_UNAVAILABLE',
+      'TRANSPORT_NOT_MAPPED',
+      "a transport that never answered is an unavailable upstream — the SAME code a 5xx and an aborted request reach, because the caller's remedy is the same for all three — and the failure this row refuses is a transport failure that reaches the caller as some other code (an unmapped one, or the credential code a caller would then retry forever)",
     );
     ledger.expect(
       'error.transport.requests',
