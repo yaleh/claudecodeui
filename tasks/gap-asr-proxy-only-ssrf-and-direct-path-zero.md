@@ -3,7 +3,7 @@ id: gap-asr-proxy-only-ssrf-and-direct-path-zero
 title: proxy-only 的 provider 在直连路径零请求并改走 /api/voice/transcribe（带
   x-voice-provider）；用户填写的 DashScope 地址受主机白名单约束：白名单外 INVALID_BASE_URL
   且零上游请求，白名单内放行（AC-140）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
