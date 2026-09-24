@@ -22,7 +22,10 @@
  *   · the default is changed to "do not trim" (AC-135 AC2's fake) — `default`;
  *   · the read point is gutted so the capability is read but changes nothing (AC-135 AC5's empty
  *     reading) — `read-point`;
- *   · a non-destructive declaration with no experiment to point at (AC-135 AC7) — `discipline`.
+ *   · a non-destructive declaration with no experiment to point at (AC-135 AC7) — `discipline`;
+ *   · the same red reached the other way: the fixture is complete except that the third registered
+ *     provider's own record is gone, and the two records the other providers name are still there —
+ *     `discipline`, which is what proves the check is per provider rather than per tree.
  *
  * Run with: node --test scripts/asr-trim-capability-check.test.mjs
  */
@@ -50,6 +53,15 @@ const EVIDENCE = 'docs/experiments/2026-09-22-voice-provider-paired-quality.md';
  * because decision 1 is a per-provider obligation.
  */
 const SECOND_EVIDENCE = 'docs/experiments/2026-09-23-gemini.md';
+/**
+ * The THIRD registered provider's record and adapter module. `dashscope-omni` was registered by
+ * `gap-asr-proxy-provider-dispatch`, and it declares `pauseCues: 'neutral'` — a non-destructive
+ * value, so decision 1 obliges it to name its own paired measurement. That record is this case's
+ * subject: the fixture carries it, and the last case below is what proves the `discipline` check is
+ * reading it rather than passing because some file with that shape happens to exist.
+ */
+const THIRD_EVIDENCE = 'docs/experiments/2026-09-24-omni-written.md';
+const THIRD_ADAPTER = 'shared/asr/list/dashscope-omni/dashscope-omni.asr-provider.ts';
 /** Where the declarations live now: the adapter module of the recogniser registered FIRST. */
 const FIRST_ADAPTER = 'shared/asr/list/openai-compatible/openai-compatible.asr-provider.ts';
 const REGISTRY = 'shared/asr/asrRegistry.ts';
@@ -57,8 +69,10 @@ const REGISTRY = 'shared/asr/asrRegistry.ts';
 /**
  * The shipping files a fixture needs: the declaring module (the vocabulary and the read point),
  * the file that reaches the read point, the module the shipped switch's default is read from, the
- * experiment record the declaration points at — which has to exist, or the discipline check reds
- * before the case under test runs — and the registry side the declarations are read through.
+ * experiment record every declaration points at — each of which has to exist, or the discipline
+ * check reds before the case under test runs — and the registry side the declarations are read
+ * through, including the adapter module of EVERY registered provider, because the check reads the
+ * declarations off those modules rather than out of the registration table.
  */
 const SHIPPING_FILES = [
   DECLARING_MODULE,
@@ -66,9 +80,11 @@ const SHIPPING_FILES = [
   SWITCH,
   EVIDENCE,
   SECOND_EVIDENCE,
+  THIRD_EVIDENCE,
   REGISTRY,
   FIRST_ADAPTER,
   'shared/asr/list/multimodal/multimodal.asr-provider.ts',
+  THIRD_ADAPTER,
 ];
 
 /** The read point's own body in the declaring module; the mutations below rewrite it. */
@@ -115,6 +131,24 @@ const REGISTRATION_ROWS = [
   '  },',
 ].join('\n');
 const REGISTRATION_ROWS_EMPTY = '';
+
+/**
+ * The third row, verbatim, kept apart from the two above rather than folded into them: the two
+ * constants above model a row by its four oldest fields, and this one carries the two
+ * `gap-asr-proxy-provider-dispatch` added (`allowedBaseUrl`, `credentials`). Keeping them separate
+ * means the reorder case goes on swapping exactly the two rows it names, and the zero-row case
+ * empties the table with a second patch instead of by re-typing every row into one constant.
+ */
+const THIRD_REGISTRATION_ROW = [
+  '  {',
+  '    id: dashscopeOmniId,',
+  '    capabilities: dashscopeOmniCapabilities,',
+  '    wire: dashscopeOmniWire,',
+  '    allowedBaseUrl: dashscopeOmniAllowedBaseUrl,',
+  '    credentials: dashscopeOmniCredentials,',
+  '    transcribe: dashscopeOmniTranscribe,',
+  '  },',
+].join('\n');
 
 /**
  * @returns {string} a fixture tree copied from the shipping files
@@ -290,6 +324,37 @@ test('a fixture whose declaring module is deleted reds declaration rather than p
 test('a registry with no rows reds declaration with the zero-row cause (AC5)', (t) => {
   const root = greenFixture(t);
   patch(root, REGISTRY, REGISTRATION_ROWS, REGISTRATION_ROWS_EMPTY);
+  // Two patches, because the table has three rows now and a table with one row left in it is not
+  // the shape this case is about: the third row is emptied separately so that the pair above keeps
+  // swapping exactly the two rows it names.
+  patch(root, REGISTRY, THIRD_REGISTRATION_ROW, REGISTRATION_ROWS_EMPTY);
   const stdout = expectCheckFails(root, 'declaration');
   assert.match(stdout, /nothing is registered — a registry that cannot be followed is not a pass/, stdout);
+});
+
+/**
+ * The third provider's own record, removed from a fixture that is otherwise complete.
+ *
+ * This is the case the whole task exists for: `dashscope-omni` declares a non-destructive
+ * `pauseCues`, so decision 1 obliges it to name its own paired measurement, and a check that only
+ * asked whether SOME record exists would go on passing here. Deleting the third record must red
+ * `discipline` — the check whose name says the obligation — and name the provider it is about,
+ * rather than reding some earlier check (the fixture is green before the deletion) or passing on
+ * the two records the other providers name.
+ *
+ * WHICH HALF OF `discipline` FIRES. The obligation has two halves and they are two sub-checks: the
+ * row must NAME a record, and the record it names must EXIST. This fixture keeps the row and
+ * removes the file, so the red is the existence half — the literal below is therefore the
+ * "does not exist" cause and not the "no paired experiment" one, and it carries the provider and
+ * the path, because a missing record that the reader cannot attribute is not actionable.
+ */
+test('deleting the third provider\'s record reds discipline (AC7: the evidence is per provider)', (t) => {
+  const root = greenFixture(t);
+  rmSync(path.join(root, THIRD_EVIDENCE));
+  const stdout = expectCheckFails(root, 'discipline');
+  assert.match(
+    stdout,
+    /the declared experiment record does not exist: dashscope-omni->docs\/experiments\/2026-09-24-omni-written\.md/,
+    stdout,
+  );
 });

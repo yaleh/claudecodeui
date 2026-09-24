@@ -482,13 +482,16 @@ export type PauseCuesDeclaration = {
  * ONE ROW PER PROVIDER, AND NOT THE SAME RECORD TWICE. Decision 1 is an obligation on the provider,
  * so a row that names a record measured against a *different* service satisfies the existence check
  * while leaving the claim itself unmeasured — the check cannot tell the two apart, which is why the
- * distinction has to be kept here. The two rows below name two different runs on purpose: the
- * whisper-family record for the multipart recogniser, and the Gemini record `multimodal` was
- * actually measured in, for the one that declares `pauseCues: 'useful'`.
+ * distinction has to be kept here. The three rows below name three different runs on purpose: the
+ * whisper-family record for the multipart recogniser, the Gemini record `multimodal` was actually
+ * measured in (the one that declares `pauseCues: 'useful'`), and the omni record `dashscope-omni`
+ * was measured in — the third recogniser declares `pauseCues: 'neutral'`, so it is the second row
+ * decision 1 is about, and until its record existed the check that reads this table was red on it.
  */
 const PAUSE_CUES_EVIDENCE: Readonly<Record<string, string>> = {
   [openaiCompatibleId]: 'docs/experiments/2026-09-22-voice-provider-paired-quality.md',
   [multimodalId]: 'docs/experiments/2026-09-23-gemini.md',
+  [dashscopeOmniId]: 'docs/experiments/2026-09-24-omni-written.md',
 };
 
 /**
