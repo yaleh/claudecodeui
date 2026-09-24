@@ -149,6 +149,10 @@ function postThroughRouter(uploadError: unknown): RouteOutcome {
     voiceSettingsService: {
       getSettings: () => NO_USER_SETTINGS,
       saveSettings: () => ({ ok: false, status: 400, error: 'unused' }),
+      // The readback face is a no-op here: this file drives the upload parser's refusals, which are
+      // decided before any settings are read, and a stand-in with a mask of its own would be
+      // asserting something about a layer this test never reaches.
+      maskForReadback: (settings) => settings,
     },
     parseAudioUpload: (_request, _response, callback) => callback(uploadError),
   });

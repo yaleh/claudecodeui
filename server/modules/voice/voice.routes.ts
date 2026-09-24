@@ -110,19 +110,29 @@ export function createVoiceRouter(dependencies: VoiceRouterDependencies): expres
   // The user's own backend settings. Reading them back is what lets a second
   // device (or the same device on another origin) pick up a configuration the
   // user saved somewhere else, instead of starting from nothing.
+  //
+  // WHAT CROSSES THIS BOUNDARY IS THE MASKED DOCUMENT, not the stored one: a credential the SERVER
+  // holds and presents upstream is not something a readback has any use for, and a response is the
+  // one place it would outlive the request. The mask is applied by the settings service rather than
+  // here — see `maskForReadback` — because which fields are credentials is a provider's declaration
+  // and this router knows no provider. `getHealth` above still reads the STORED document, which is
+  // the point: a masked key would be a non-empty string and every provider would read as configured.
   router.get('/config', (request, response) => {
-    response.json(dependencies.voiceSettingsService.getSettings(readUserId(request)));
+    const settings = dependencies.voiceSettingsService.getSettings(readUserId(request));
+    response.json(dependencies.voiceSettingsService.maskForReadback(settings));
   });
 
   // A whole-document PUT rather than a patch: the settings tab always has all
-  // six fields on screen, and an empty string is the explicit "clear this".
+  // ten fields on screen, and an empty string is the explicit "clear this". The
+  // answer is masked for the same reason the read is: the client compares the two
+  // responses, and the saved document is not a second exemption from the rule.
   router.put('/config', (request, response) => {
     const result = dependencies.voiceSettingsService.saveSettings(readUserId(request), request.body);
     if (sendFailure(response, result)) {
       return;
     }
 
-    response.json(result.value);
+    response.json(dependencies.voiceSettingsService.maskForReadback(result.value));
   });
 
   router.post('/transcribe', (request, response, next) => {
@@ -144,6 +154,10 @@ export function createVoiceRouter(dependencies: VoiceRouterDependencies): expres
           return;
         }
 
+        // The stored document rides along as the STORED document — unmasked, because the wire is
+        // where a server-held credential is supposed to be presented. It is the same read the
+        // health route makes, so "which provider is configured" and "which credential an attempt
+        // uses" are answered from one document rather than from two that could drift.
         const result = await dependencies.voiceService.transcribe({
           audio: {
             bytes: request.file.buffer,
@@ -151,6 +165,7 @@ export function createVoiceRouter(dependencies: VoiceRouterDependencies): expres
             fileName: request.file.originalname || 'recording.webm',
           },
           overrides: parseVoiceOverrides(request),
+          settings: dependencies.voiceSettingsService.getSettings(readUserId(request)),
         });
 
         if (sendFailure(response, result)) {

@@ -98,11 +98,19 @@ test('AC2: every registered provider is listed with the registry\'s own capabili
   // Compared against the registry rather than against a literal, so a provider added or
   // changed there is what the payload has to match — a hardcoded expectation here would pass
   // while the payload drifted from the table it claims to republish.
+  //
+  // THE `configured` COLUMN IS DERIVED FROM THE SAME DECLARATION THE PAYLOAD READS, and the
+  // derivation is the whole subject of this task: a provider that declares credential fields of its
+  // own can only be reached with the USER's pair, and `USER_SETTINGS` above is a document with the
+  // six shared fields and nothing else — so such a provider must read as NOT configured, while
+  // every provider reached through the deployment's backend still reads as configured. Writing
+  // `true` here would assert the opposite of what the payload is supposed to say and would keep
+  // passing only while the reading ignored provider declarations.
   const registry = listProviders().map((adapter) => ({
     id: adapter.id,
     label: adapter.id,
     capabilities: adapter.capabilities,
-    configured: true,
+    configured: adapter.credentials === undefined,
   }));
   assert.deepEqual(health.value.providers, registry);
   assert.deepEqual(

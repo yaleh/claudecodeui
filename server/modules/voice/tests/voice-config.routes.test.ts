@@ -46,6 +46,9 @@ const { AppError } = await import('@/shared/utils.js');
 
 const USER_ID = 1;
 
+// The document is exhaustive over `VoiceSettings`, so a field added to the shape has to be added
+// here as well: the assertions below compare whole documents with `deepEqual`, and a literal that
+// omitted a field would let the comparison pass while the response carried a key nobody named.
 const SAMPLE_SETTINGS = {
   baseUrl: 'https://api.groq.com/openai/v1',
   apiKey: 'sk-sentinel-voice-backend-key',
@@ -53,6 +56,10 @@ const SAMPLE_SETTINGS = {
   ttsModel: 'playai-tts',
   ttsVoice: 'Arista-PlayAI',
   ttsFormat: 'mp3',
+  providerId: '',
+  dashscopeEndpoint: '',
+  dashscopeApiKey: '',
+  dashscopeModel: '',
 };
 
 const EMPTY_SETTINGS = {
@@ -62,10 +69,24 @@ const EMPTY_SETTINGS = {
   ttsModel: '',
   ttsVoice: '',
   ttsFormat: '',
+  providerId: '',
+  dashscopeEndpoint: '',
+  dashscopeApiKey: '',
+  dashscopeModel: '',
 };
 
 /** Distinct from `SAMPLE_SETTINGS.apiKey`, so a leak from either path is attributable. */
 const PREFERENCE_SENTINEL_KEY = 'sk-sentinel-must-not-reach-preferences';
+
+/**
+ * The value of the credential the SERVER holds for a proxy-only provider.
+ *
+ * Distinct from both sentinels above, because the three travel different routes and a failure has to
+ * name which one leaked: this one is stored in the clear, presented upstream, and masked on every
+ * readback — so a response carrying it, or carrying the mask where it should carry the empty string,
+ * says which of those three faces went wrong.
+ */
+const DASHSCOPE_SENTINEL_KEY = 'sk-dashscope-must-not-be-returned';
 
 /**
  * The settings endpoints must never consult the transcription service — that is
@@ -377,3 +398,75 @@ test('saving an API key leaves the user-preferences response free of it', async 
     assert.deepEqual(tablesContaining(PREFERENCE_SENTINEL_KEY), ['user_voice_settings']);
   });
 });
+
+// ── the readback face, when the credential is the SERVER's to present ─────────────────────────
+
+/**
+ * The marker a server-held credential reads back as.
+ *
+ * Spelled out rather than imported, because it is the wire's value and not an implementation
+ * detail: a client compares this string to decide "something is stored here", so a criterion that
+ * took the constant from the module it is checking would still pass if the value changed to the key
+ * itself. (The marker carries no character of any value — that is what makes "the response does not
+ * contain the key" structural — so naming it here discloses nothing.)
+ */
+const CREDENTIAL_MASK = '••••••••';
+
+/** A legal DashScope workspace address: the shape that provider's own rule accepts. */
+const DASHSCOPE_ENDPOINT = 'https://llm-szunnpxbx46k86c0.cn-beijing.maas.aliyuncs.com';
+
+test('a server-held credential is masked on the readback while the browser-held key is not', async () => {
+  await withServer(async (context) => {
+    const stored = {
+      ...SAMPLE_SETTINGS,
+      dashscopeEndpoint: DASHSCOPE_ENDPOINT,
+      dashscopeApiKey: DASHSCOPE_SENTINEL_KEY,
+      dashscopeModel: 'qwen3.8-omni-flash',
+    };
+
+    const save = await send(context, 'PUT', '/api/voice/config', { body: stored });
+    assert.equal(save.status, 200);
+    const saved = await readJson(save);
+
+    // The distinguishing pair, on ONE response: the credential the server presents upstream comes
+    // back as a mask, and the key the browser keeps for its own direct path comes back verbatim.
+    // A blanket "mask every key-shaped field" would fail the second assertion, and a missing mask
+    // would fail the first — so the reading cannot pass by masking everything or nothing.
+    assert.equal(saved.dashscopeApiKey, CREDENTIAL_MASK);
+    assert.notEqual(saved.dashscopeApiKey, DASHSCOPE_SENTINEL_KEY);
+    assert.equal(saved.apiKey, SAMPLE_SETTINGS.apiKey, 'the browser-held key is not the server\'s to hide');
+
+    // Everything that is not a credential travels verbatim, address and model included: masking is
+    // about the secret, not about the provider's fields.
+    assert.equal(saved.dashscopeEndpoint, DASHSCOPE_ENDPOINT);
+    assert.equal(saved.dashscopeModel, 'qwen3.8-omni-flash');
+
+    const read = await send(context, 'GET', '/api/voice/config');
+    assert.equal(read.status, 200);
+    const reread = await readJson(read);
+    assert.equal(reread.dashscopeApiKey, CREDENTIAL_MASK);
+    assert.equal(reread.dashscopeEndpoint, DASHSCOPE_ENDPOINT);
+
+    // The mask is a READBACK face and not a filter on the way in: the storage row holds the value
+    // the user typed, which is what the transcription path presents upstream.
+    const row = getConnection()
+      .prepare('SELECT settings_json FROM user_voice_settings WHERE user_id = ?')
+      .get(USER_ID) as { settings_json: string } | undefined;
+    assert.ok(row, 'the save must have written the user\'s row');
+    assert.equal(
+      (JSON.parse(row.settings_json) as Record<string, unknown>).dashscopeApiKey,
+      DASHSCOPE_SENTINEL_KEY,
+      'storage keeps the credential in the clear; only the readback masks it',
+    );
+
+    // A user who never filled the field reads back the empty string rather than a mask: "not
+    // filled" must stay distinguishable from "filled and hidden", or the settings tab could never
+    // clear it.
+    const cleared = await send(context, 'PUT', '/api/voice/config', {
+      body: { ...stored, dashscopeApiKey: '' },
+    });
+    assert.equal(cleared.status, 200);
+    assert.equal((await readJson(cleared)).dashscopeApiKey, '');
+  });
+});
+

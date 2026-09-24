@@ -25,7 +25,32 @@ const SAMPLE_SETTINGS: VoiceSettings = {
   ttsModel: 'playai-tts',
   ttsVoice: 'Arista-PlayAI',
   ttsFormat: 'mp3',
+  providerId: '',
+  dashscopeEndpoint: '',
+  dashscopeApiKey: '',
+  dashscopeModel: '',
 };
+
+/**
+ * What the document of a user who has never saved anything reads as.
+ *
+ * Spelled out per site below rather than shared through this constant, and that is deliberate: each
+ * site is an assertion about the WHOLE document, so a reader comparing the expected value to the
+ * stored one has both in front of them. The four provider-owned fields are present and empty in
+ * every one of them, which is the property this task adds — a field the writer drops is
+ * indistinguishable from a field the user never set, and only an exhaustive literal can tell the
+ * difference.
+ */
+const LEGACY_ROW_FIELDS = ['baseUrl', 'apiKey', 'sttModel', 'ttsModel', 'ttsVoice', 'ttsFormat'] as const;
+
+/**
+ * The four fields this task added, in the order the store's own list carries them.
+ *
+ * Named once here because two readings below are about them as a group — "a legacy row reads them
+ * as empty" and "a saved row carries all of them" — and a list written out at each site would let
+ * one of the two silently cover three fields after a fourth was added.
+ */
+const PROVIDER_OWNED_FIELDS = ['providerId', 'dashscopeEndpoint', 'dashscopeApiKey', 'dashscopeModel'] as const;
 
 async function withIsolatedDatabase(runTest: () => void | Promise<void>): Promise<void> {
   const previousDatabasePath = process.env.DATABASE_PATH;
@@ -94,6 +119,10 @@ test('a freshly created database carries an empty user_voice_settings table', as
       ttsModel: '',
       ttsVoice: '',
       ttsFormat: '',
+      providerId: '',
+      dashscopeEndpoint: '',
+      dashscopeApiKey: '',
+      dashscopeModel: '',
     });
   });
 });
@@ -177,14 +206,98 @@ test('a field the stored document does not carry reads back as unset', async () 
       .prepare("INSERT INTO user_voice_settings (user_id, settings_json) VALUES (?, ?)")
       .run(1, JSON.stringify({ baseUrl: 'https://voice.example/v1', apiKey: 12 }));
 
-    assert.deepEqual(voiceSettingsDb.getSettings(1), {
+    const legacy = voiceSettingsDb.getSettings(1);
+    assert.deepEqual(legacy, {
       baseUrl: 'https://voice.example/v1',
       apiKey: '',
       sttModel: '',
       ttsModel: '',
       ttsVoice: '',
       ttsFormat: '',
+      providerId: '',
+      dashscopeEndpoint: '',
+      dashscopeApiKey: '',
+      dashscopeModel: '',
     });
+
+    // The reading, printed rather than only asserted: the four provider-owned fields are absent from
+    // a document written before they existed (this row carries the six the old writer knew) and they
+    // must read as EMPTY rather than as the legacy row losing the rest of itself. Printed as field
+    // names with their emptiness, never a value — the row's `apiKey` is a secret even at this size.
+    const providerOwned = PROVIDER_OWNED_FIELDS;
+    const legacyRowJson = JSON.parse(
+      (
+        getConnection()
+          .prepare('SELECT settings_json FROM user_voice_settings WHERE user_id = ?')
+          .get(1) as { settings_json: string }
+      ).settings_json,
+    ) as Record<string, unknown>;
+
+    // The reading is a conjunction of the two halves of the claim, so it cannot be satisfied by
+    // reading the new fields correctly while dropping the old ones or the other way round: the four
+    // provider-owned fields are empty, and the address the legacy row DID carry came through it.
+    const providerOwnedEmpty = providerOwned.every((field) => legacy[field] === '');
+    const legacyAddressIntact = legacy.baseUrl === legacyRowJson.baseUrl;
+    process.stdout.write(
+      `db.legacyRow=${providerOwnedEmpty && legacyAddressIntact} row=${LEGACY_ROW_FIELDS.length}-fields ` +
+        `providerOwned=${providerOwned.map((field) => `${field}:${legacy[field] === '' ? 'empty' : 'set'}`).join(',')} ` +
+        `baseUrl=${legacy.baseUrl}\n`,
+    );
+  });
+});
+
+test('the four provider-owned fields round-trip through save and get verbatim', async () => {
+  await withIsolatedDatabase(() => {
+    createUser(1, 'tester');
+
+    // A document that exercises all four at once, since the failure this guards against is a field
+    // the writer's list does not carry: the store is exhaustive over the shape, and `decodeSettings`
+    // reads a stored document THROUGH the same list, so a field missing from it is dropped on the
+    // way back out with nothing reporting it. Each value is distinct from the others so a
+    // transposition between two of them would be visible rather than symmetric.
+    const stored: VoiceSettings = {
+      ...SAMPLE_SETTINGS,
+      providerId: 'dashscope-omni',
+      dashscopeEndpoint: 'https://llm-szunnpxbx46k86c0.cn-beijing.maas.aliyuncs.com',
+      dashscopeApiKey: 'sk-sentinel-dashscope-workspace-key',
+      dashscopeModel: 'qwen3.8-omni-flash',
+    };
+
+    voiceSettingsDb.saveSettings(1, stored);
+    const readBack = voiceSettingsDb.getSettings(1);
+    assert.deepEqual(readBack, stored);
+
+    // The same statement about the bytes on disk, not about the reader: the row's JSON carries the
+    // four keys, so a `getSettings` that synthesised the fields would not satisfy this.
+    const row = getConnection()
+      .prepare('SELECT settings_json FROM user_voice_settings WHERE user_id = ?')
+      .get(1) as { settings_json: string };
+    const raw = JSON.parse(row.settings_json) as Record<string, unknown>;
+    assert.deepEqual(
+      PROVIDER_OWNED_FIELDS.map((field) => field in raw),
+      PROVIDER_OWNED_FIELDS.map(() => true),
+    );
+
+    // The credential is stored in the clear here, which is the storage face's whole contract: the
+    // mask belongs to the readback face (`maskForReadback`), and a store that masked on write would
+    // make the value unusable upstream with no way to tell it from a user who typed the mask.
+    // Every key of the shape reached the row, and every value came back as the one that was saved.
+    // Both halves are in the token, because "the field is present" and "the field is the value I
+    // stored" are what a `decodeSettings` that dropped or defaulted a field would each fail.
+    const expectedKeys = LEGACY_ROW_FIELDS.length + PROVIDER_OWNED_FIELDS.length;
+    const roundTrip =
+      Object.keys(raw).length === expectedKeys &&
+      readBack.providerId === stored.providerId &&
+      readBack.dashscopeEndpoint === stored.dashscopeEndpoint &&
+      readBack.dashscopeApiKey === stored.dashscopeApiKey &&
+      readBack.dashscopeModel === stored.dashscopeModel;
+    process.stdout.write(
+      `db.roundtrip=${roundTrip} fields=${Object.keys(raw).length}/${expectedKeys} ` +
+        `providerId=${readBack.providerId} ` +
+        `endpointVerbatim=${readBack.dashscopeEndpoint === stored.dashscopeEndpoint} ` +
+        `apiKeyVerbatim=${readBack.dashscopeApiKey === stored.dashscopeApiKey} ` +
+        `model=${readBack.dashscopeModel}\n`,
+    );
   });
 });
 
@@ -221,6 +334,10 @@ test('two users never see each other’s settings', async () => {
       ttsModel: '',
       ttsVoice: '',
       ttsFormat: '',
+      providerId: '',
+      dashscopeEndpoint: '',
+      dashscopeApiKey: '',
+      dashscopeModel: '',
     });
 
     voiceSettingsDb.saveSettings(2, { ...SAMPLE_SETTINGS, baseUrl: '', apiKey: 'sk-second' });

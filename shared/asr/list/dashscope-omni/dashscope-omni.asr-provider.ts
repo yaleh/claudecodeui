@@ -56,14 +56,18 @@
  * `measureChatRequestBytes` sizes the body it is about to send rather than the audio inside it.
  *
  * WHAT THIS MODULE DELIBERATELY DOES NOT DO, because a reader will otherwise look for it: this
- * module owns the wire, the parse and the endpoint rule, and nothing above it — the settings tab,
- * the user-level provider selection, key masking and the health reading's `configured` semantics
- * belong to tasks of their own.
+ * module owns the wire, the parse, the endpoint rule and the credential-field declaration, and
+ * nothing above them — the settings tab, the browser's own provider selection, the masking of a
+ * key on its way back to the screen and the health reading's per-provider `configured` semantics
+ * are the SERVER's and the client's. What this module does say about the credential is WHICH
+ * SETTINGS FIELDS carry it (`credentials` below); how those fields are stored, masked, validated
+ * against a request or logged is decided where they are used.
  *
  * THE ENDPOINT RULE IS DECLARED HERE AND ENFORCED ELSEWHERE, which is the point of `allowedBaseUrl`
  * below: what counts as this service's address is a fact this module knows and no other module
  * should hold a second copy of, while the refusal it produces is the server's to issue before a
- * request is built. The rule's own text is
+ * request is built — on the transcription path and, through the same function, on the settings
+ * path where the address is first stored. The rule's own text is
  * `docs/proposals/voice-dashscope-omni-written-instruction.md` §3 verbatim, not a rule invented
  * here; the module comment says so because a later reader comparing the two must find them equal.
  *
@@ -76,6 +80,7 @@
 import type {
   AsrAdapter,
   AsrCapabilities,
+  AsrCredentialFields,
   AsrErrorCode,
   AsrInvocation,
   AsrRequest,
@@ -264,6 +269,35 @@ export function allowedBaseUrl(baseUrl: string): boolean {
  * its expectations by this tag, so a body that contradicts it is a red reading there.
  */
 export const wire: AsrWire = 'chat-audio';
+
+/**
+ * Which of a user's stored voice-settings fields carry THIS service's address, credential and model.
+ *
+ * THE SERVER HAS NO SECOND COPY OF THIS, and that is the whole content of the declaration. A
+ * deployment-wide `VOICE_API_KEY`/`VOICE_API_BASE_URL` cannot serve this recogniser: the credential
+ * is the user's own DashScope key and the address is their own workspace endpoint, both of which
+ * only the user knows — so a request that reaches this service has to be given them, and the only
+ * module that can say WHICH fields to read them from is this one. A table in the server indexed by
+ * provider id would be a second copy of a fact that lives here, and would go stale the day a field
+ * is renamed; `AsrCredentialFields` is the seam that lets it be stated once (the same discipline
+ * `allowedBaseUrl` above follows for the address RULE, this one for the address ITSELF).
+ *
+ * THE THREE NAMES ARE SETTINGS KEYS, and the names are this provider's own vocabulary on purpose:
+ * `dashscopeApiKey` says whose key it is, so a reader of the settings document can tell the
+ * server-held credential from the `apiKey` the browser keeps for its own direct path. The shared
+ * settings shape does not know them as first-class fields — the server reaches them through this
+ * declaration, which is what keeps the server free of any branching on this provider's id.
+ *
+ * `modelField` IS DECLARED AND MAY BE EMPTY. An empty value means "unset", and an unset per-user
+ * model falls back to the deployment's model name exactly as the other two fields do — the field is
+ * declared rather than made mandatory because "this service takes a per-user model" and "this user
+ * picked one" are different statements.
+ */
+export const credentials: AsrCredentialFields = {
+  endpointField: 'dashscopeEndpoint',
+  apiKeyField: 'dashscopeApiKey',
+  modelField: 'dashscopeModel',
+};
 
 /**
  * What this adapter did to the text when it returns the model's rewrite.
@@ -679,5 +713,9 @@ export async function transcribe(request: AsrRequest, invocation: AsrInvocation)
   };
 }
 
-/** This module as the registry consumes it. The endpoint rule travels with the adapter, not beside it. */
-export const adapter: AsrAdapter = { id, capabilities, wire, allowedBaseUrl, transcribe };
+/**
+ * This module as the registry consumes it. The endpoint rule travels with the adapter, not beside it
+ * — and so does the credential-field declaration (`credentials` above), for the same reason: both
+ * are facts about this service, and a consumer that read them anywhere else would be reading a copy.
+ */
+export const adapter: AsrAdapter = { id, capabilities, wire, allowedBaseUrl, credentials, transcribe };

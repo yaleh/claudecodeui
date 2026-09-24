@@ -1335,15 +1335,34 @@ export type VoiceSpeechPayload = {
 /**
  * One user's Voice backend settings as they are stored server-side.
  *
- * The six fields are the ones the settings tab edits; the empty string is the
- * "unset" value for every one of them, which is what a user who has never saved
- * anything reads back as. Declared here rather than in the Voice module because
- * both the database repository (which persists a row) and the Voice service
- * (which validates and returns it) speak this shape.
+ * The first six fields are the ones the settings tab has always edited; the empty string is the
+ * "unset" value for every one of them, which is what a user who has never saved anything reads back
+ * as. Declared here rather than in the Voice module because both the database repository (which
+ * persists a row) and the Voice service (which validates and returns it) speak this shape.
  *
- * `baseUrl` is only stored, never fetched by the server: a client-configured
- * backend is called directly from the browser, so this value never becomes SSRF
- * input on this side.
+ * `baseUrl` is only stored, never fetched by the server: a client-configured backend is called
+ * directly from the browser, so this value never becomes SSRF input on this side.
+ *
+ * THE LAST FOUR ARE OPTIONAL, AND EACH ONE IS OWNED BY A PROVIDER RATHER THAN BY THE SERVER. A
+ * recogniser whose credential is the user's own — a workspace endpoint that only that user has, a
+ * key that may only be presented server-side — cannot be reached through `baseUrl`/`apiKey`, which
+ * describe the browser's own backend and are deliberately control-able from a header. Which fields
+ * carry such a credential is DECLARED BY THE PROVIDER (`AsrAdapter.credentials`,
+ * `AsrCredentialFields` in `shared/asr/asrRegistry.ts`) rather than fixed here, so this type does
+ * not have to grow a branch per provider and the server never indexes anything by an id: it reads
+ * the field names off whichever adapter it selected.
+ *
+ * OPTIONAL RATHER THAN REQUIRED, even though a stored document always carries all four (the
+ * repository fills an absent one with the empty string). A required field would make every existing
+ * caller that speaks the six-field document a compile error, and the ones that matter are outside
+ * the change that adds these: a settings document read from a row written by an older build has no
+ * such fields at all, and that state is exactly what "unset" means. Absent and empty are the same
+ * reading here, on purpose.
+ *
+ * `providerId` is the one exception in kind: it selects WHICH adapter serves the user's audio, so it
+ * is the user-level half of the precedence `effectiveProviderId` applies (user's choice, then the
+ * deployment's environment, then the registry's first row). An id no adapter claims is still
+ * refused rather than replaced.
  */
 export type VoiceSettings = {
   baseUrl: string;
@@ -1352,6 +1371,14 @@ export type VoiceSettings = {
   ttsModel: string;
   ttsVoice: string;
   ttsFormat: string;
+  /** The recogniser this user selected, as it is spelled in user-level configuration. */
+  providerId?: string;
+  /** A provider-declared endpoint field: the address a `'proxy-only'` recogniser is reached at. */
+  dashscopeEndpoint?: string;
+  /** A provider-declared credential field: a key the server holds and the browser must never see. */
+  dashscopeApiKey?: string;
+  /** A provider-declared model field: the model the user selected for that recogniser. */
+  dashscopeModel?: string;
 };
 
 /**
@@ -1459,6 +1486,18 @@ export type VoiceService = {
   transcribe(input: {
     audio: VoiceAudioUpload;
     overrides: VoiceRequestOverrides;
+    /**
+     * The user's stored settings, when the caller has them.
+     *
+     * IT IS AN ARGUMENT FOR THE SAME REASON `getHealth`'s is: which provider is effective, and what
+     * a provider that declares credential fields of its own is reached with, are properties of the
+     * USER's stored document, and the route owns the storage lookup so the service stays free of the
+     * database. Optional because the document is not always at hand — a caller driving this service
+     * without a user (a probe, an invariant board, the request path before the lookup) gets the
+     * behaviour this path had before these fields existed, which is the deployment's own
+     * configuration, and an absent document and an all-empty one are the same reading.
+     */
+    settings?: VoiceSettings;
   }): Promise<VoiceServiceResult<{ text: string }>>;
   synthesizeSpeech(input: {
     text: string;
@@ -1497,9 +1536,46 @@ export type VoiceSettingsService = {
   /**
    * Validates and stores a complete settings document, replacing what was
    * there. Returns `ok: false, status: 400` when a field is the wrong type, too
-   * long, or names a backend URL the browser could not call directly.
+   * long, or names a backend URL the browser could not call directly — and when a
+   * provider-declared endpoint field names an address that provider's own rule does not accept.
    */
   saveSettings(userId: number, input: unknown): VoiceServiceResult<VoiceSettings>;
+  /**
+   * The same document as it may be sent back over HTTP: every field a provider has declared as ITS
+   * OWN credential is replaced by a mask, and every other field is returned verbatim.
+   *
+   * WHY IT IS A SEPARATE METHOD RATHER THAN WHAT `getSettings` RETURNS. The two readers want
+   * opposite things. `getSettings` is the STORAGE face: the route's own health reading and the
+   * transcription path have to see the credential as it will be presented upstream, so a masked
+   * document there would authenticate with `••••`. `maskForReadback` is the READBACK face, applied
+   * at the HTTP boundary and nowhere else, and the split is what makes "the mask exists" and "the
+   * wire still carries the plaintext" two readings of one document rather than a contradiction.
+   *
+   * Which fields are masked is read off the registry's declarations, never off a list here: a
+   * provider that declares `credentials.apiKeyField` gets that field masked, a provider that
+   * declares nothing (the browser's own backend, whose `apiKey` the client must keep) is untouched.
+   * The field is DECLARED by the provider and the mask is applied by this method — that is what
+   * keeps one provider's secret from being handled by a rule written for another's.
+   */
+  maskForReadback(settings: VoiceSettings): VoiceSettings;
+};
+
+/**
+ * Where one transcription attempt's structured reading goes.
+ *
+ * WHY A PORT AND NOT `console`. Two reasons, and both are readings rather than taste. A port can be
+ * collected by a caller, which is the only way "this line does not contain the key" is checkable at
+ * all — against the global console it is a claim about a stream no test can hold. And the process's
+ * console is not one writer's to replace: patching `console.log` to intercept one service's lines
+ * changes the output of every other module in the process for the duration.
+ *
+ * The default is resolved INSIDE `createVoiceService` (the injected port wins; `console` is the
+ * fallback), so the composition root that wires the service to the process's real output does not
+ * have to name this type or pass anything — which is also why the production wiring is unchanged by
+ * the seam's existence.
+ */
+export type VoiceLogPort = {
+  info(message: string): void;
 };
 
 // ---------------------------

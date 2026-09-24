@@ -1,4 +1,5 @@
 import type {
+  VoiceLogPort,
   VoiceRequestOverrides,
   VoiceService,
   VoiceServiceResult,
@@ -48,6 +49,12 @@ type VoiceServiceDependencies = {
   };
   timeoutMs: number;
   fetchBackend(url: string, options: RequestInit): Promise<Response>;
+  /**
+   * Where a transcription attempt's structured reading goes. Absent means the process's own output
+   * (`console`), which is what a deployment wiring no port gets — see `VoiceLogPort` for why the
+   * default is resolved here rather than at the composition root.
+   */
+  logger?: VoiceLogPort;
 };
 
 // The provider id is not part of the outbound request's configuration: it selects which
@@ -55,6 +62,17 @@ type VoiceServiceDependencies = {
 type ResolvedVoiceConfig = Omit<VoiceServiceDependencies['defaults'], 'providerId'> & {
   ttsFormat: string;
 };
+
+/**
+ * The failure half of the service's result type.
+ *
+ * A refusal produced here is always a failure, and every one of the constructors below is written
+ * to say so — but `VoiceServiceResult<never>` is a two-armed union, so a caller that wants the
+ * status out of a refusal (the attempt log does) has to narrow a branch it already knows the answer
+ * to. Naming the failure arm once, here, is what lets those constructors be read for their status
+ * at the call site without a cast or a redundant guard.
+ */
+type VoiceRefusal = Extract<VoiceServiceResult<never>, { ok: false }>;
 
 function resolveVoiceConfig(
   defaults: VoiceServiceDependencies['defaults'],
@@ -71,16 +89,173 @@ function resolveVoiceConfig(
 }
 
 /**
+ * One stored settings field, read as a string.
+ *
+ * `VoiceSettings` names its six original fields and leaves the provider-owned ones to the
+ * declaration that owns them, so the field arrives here as a NAME the adapter supplied rather than
+ * as a key of the type. Both shapes are read through this one function, which is what keeps the two
+ * readings identical: a field that is absent, null, or not a string reads as the empty string, and
+ * surrounding whitespace comes off — a key pasted with a trailing newline would otherwise be
+ * presented upstream verbatim and fail authentication with nothing on screen to explain it.
+ *
+ * THE `undefined` DOCUMENT IS A REAL ARGUMENT, not a defensive one: `transcribe` may be driven
+ * without a user's settings at all, and that caller must read exactly as a user who has saved
+ * nothing does. Absent and all-empty are the same reading, on purpose.
+ */
+function readStoredField(settings: VoiceSettings | undefined, field: string): string {
+  if (settings === undefined) {
+    return '';
+  }
+
+  const value = (settings as unknown as Record<string, unknown>)[field];
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+/**
+ * Whether a recording would actually reach `adapter` with this user's stored settings.
+ *
+ * THE QUESTION IS PER PROVIDER, AND THAT IS THE WHOLE POINT OF THE FUNCTION. The answer used to be
+ * one boolean computed from `baseUrl` alone and handed to every row of the health payload, which
+ * was right while every registered recogniser was reached through the browser's own backend. A
+ * provider whose credential is the USER'S OWN — an address and a key only they have — is not
+ * configured by `baseUrl` at all, so a single boolean is wrong in both directions: it reports that
+ * provider as ready when the user has never filled its fields, and — once the shared backend is
+ * cleared — reports it as unready while the user's own address and key sit in the document.
+ *
+ * WHICH FIELDS ARE "ITS OWN" IS THE ADAPTER'S DECLARATION, never a list here. A provider that
+ * declares `credentials` is configured by those fields and by nothing else: both the address and
+ * the credential must be present, because an address without a key cannot authenticate and a key
+ * without an address has nowhere to go. A provider that declares nothing is reached through the
+ * deployment's own backend, and keeps the reading it has always had — the user's `baseUrl` if they
+ * saved one, otherwise the server's. The model field is deliberately NOT required: an unset model
+ * falls back to the deployment's name rather than making the link unusable.
+ */
+function providerConfigured(
+  adapter: AsrAdapter,
+  settings: VoiceSettings | undefined,
+  defaults: VoiceServiceDependencies['defaults'],
+): boolean {
+  const fields = adapter.credentials;
+  if (fields === undefined) {
+    return Boolean(readStoredField(settings, 'baseUrl') || defaults.baseUrl);
+  }
+
+  return (
+    readStoredField(settings, fields.endpointField) !== '' &&
+    readStoredField(settings, fields.apiKeyField) !== ''
+  );
+}
+
+/**
+ * The address, credential and model ONE attempt uses, once its provider is known.
+ *
+ * WHY THIS IS NOT `resolveVoiceConfig`. That function answers "what did the request and the
+ * deployment agree on", which is the right answer for the browser's own backend and for TTS. A
+ * provider that declares credential fields of its own is reached with a DIFFERENT pair, and the
+ * precedence is the user's stored value FIRST — the deployment's key is not a fallback for a
+ * service that key cannot authenticate against, it is simply the wrong credential. So the stored
+ * value wins when it is set, and the existing resolution stands when it is not: absent means unset,
+ * and a caller driving this service with no user document (a probe, the invariant board) keeps
+ * reading the deployment's configuration exactly as before.
+ *
+ * THE PER-REQUEST OVERRIDE IS BELOW THE STORED VALUE AND ABOVE THE DEPLOYMENT'S, which is the same
+ * order `effectiveProviderId` applies for the provider itself: what the user saved is their
+ * standing choice, and a request-carried override is a caller that has already looked at it.
+ */
+function resolveRecognitionConfig(
+  adapter: AsrAdapter,
+  defaults: VoiceServiceDependencies['defaults'],
+  overrides: VoiceRequestOverrides,
+  settings: VoiceSettings | undefined,
+): { baseUrl: string; apiKey: string; model: string } {
+  const resolved = resolveVoiceConfig(defaults, overrides);
+  const fields = adapter.credentials;
+  if (fields === undefined) {
+    return { baseUrl: resolved.baseUrl, apiKey: resolved.apiKey, model: resolved.sttModel };
+  }
+
+  const storedModel = fields.modelField === undefined ? '' : readStoredField(settings, fields.modelField);
+  return {
+    baseUrl: readStoredField(settings, fields.endpointField) || resolved.baseUrl,
+    apiKey: readStoredField(settings, fields.apiKeyField) || resolved.apiKey,
+    model: storedModel || resolved.sttModel,
+  };
+}
+
+/**
+ * The fixed marker a masked credential carries.
+ *
+ * A CONSTANT AND NOTHING OF THE SECRET, deliberately. The obvious alternative — keep a prefix or a
+ * suffix of the value so a user can recognise which key it is — is a partial disclosure of a
+ * credential that this readback face has no use for: the browser's own `apiKey` is the one a client
+ * re-uses, and the field this masks is one the server holds and presents upstream, so the mask's
+ * only job is to say "something is stored here". Nothing of the value survives, which is also what
+ * makes "the response does not contain the key" a structural property rather than a filter that
+ * some later edit has to keep in step.
+ */
+const CREDENTIAL_MASK_MARKER = '••••••••';
+
+/**
+ * The value a stored credential is replaced with on its way back to a client; empty stays empty.
+ *
+ * The empty case is not a special case of the mask but the ABSENCE of one: a user who has not
+ * filled the field must read back the empty string, and a mask there would turn "not filled" into
+ * "filled with something you cannot see" — a state a client cannot tell from a real key, and one
+ * that the settings tab would then have no way to clear.
+ */
+function maskCredential(value: string): string {
+  return value === '' ? '' : CREDENTIAL_MASK_MARKER;
+}
+
+/**
+ * One settings document as it may cross the HTTP boundary: provider-declared credentials masked,
+ * everything else verbatim.
+ *
+ * The fields come from the registry's own declarations (`listProviders()` hands out the adapters,
+ * each carrying its module's `credentials` object by reference), so a provider that declares a
+ * credential field gets it masked without this file naming the provider or the field. That is the
+ * same discipline `allowedBaseUrl` and the capability table follow, and it is what makes a second
+ * provider with a server-held secret a declaration in its own module rather than an edit here.
+ */
+function maskSettingsForReadback(settings: VoiceSettings): VoiceSettings {
+  const masked: VoiceSettings = { ...settings };
+  const writable = masked as unknown as Record<string, unknown>;
+
+  for (const adapter of listProviders()) {
+    const fields = adapter.credentials;
+    if (fields === undefined) {
+      continue;
+    }
+
+    const value = writable[fields.apiKeyField];
+    if (typeof value === 'string') {
+      writable[fields.apiKeyField] = maskCredential(value);
+    }
+  }
+
+  return masked;
+}
+
+/**
  * The provider id a request will actually use.
  *
- * The request's own override wins, then the deployment's default, then the registry's first
- * entry. That last step is why this returns a resolved id rather than the raw input: when
- * neither the client nor the environment names a provider, "the default one" has to become a
- * concrete id before it can be checked, and taking it from the registry means a deployment
- * that never sets `VOICE_PROVIDER_ID` cannot be broken by a provider being renamed.
+ * The request's own override wins, then the user's stored selection, then the deployment's default,
+ * then the registry's first entry. That last step is why this returns a resolved id rather than the
+ * raw input: when none of the three names a provider, "the default one" has to become a concrete id
+ * before it can be checked, and taking it from the registry means a deployment that never sets
+ * `VOICE_PROVIDER_ID` cannot be broken by a provider being renamed.
+ *
+ * THE USER'S CHOICE SITS ABOVE THE DEPLOYMENT'S because it is the more specific statement: the
+ * environment says which recogniser this installation prefers, and the stored document says which
+ * one this user picked. It sits BELOW the request override because a caller that names a provider
+ * for one request has already read the stored document and is choosing against it.
  */
-function effectiveProviderId(requested: string | undefined, defaults: { providerId: string }): string {
-  const explicit = (requested || defaults.providerId || '').trim();
+function effectiveProviderId(
+  requested: string | undefined,
+  defaults: { providerId: string },
+  settings?: VoiceSettings,
+): string {
+  const explicit = (requested || readStoredField(settings, 'providerId') || defaults.providerId || '').trim();
   if (explicit) {
     return explicit;
   }
@@ -106,7 +281,7 @@ function unknownProviderMessage(providerId: string): string {
  * (400), while an id that came from the server's own configuration is not something the caller
  * can fix (503).
  */
-function unknownProviderFailure(providerId: string, status: number): VoiceServiceResult<never> {
+function unknownProviderFailure(providerId: string, status: number): VoiceRefusal {
   return { ok: false, status, error: unknownProviderMessage(providerId) };
 }
 
@@ -198,7 +373,7 @@ export function containerRefusal(
   capabilities: AsrCapabilities,
   providerId: string,
   mimeType: string,
-): VoiceServiceResult<never> | null {
+): VoiceRefusal | null {
   if (declaredAcceptsMime(capabilities, mimeType)) {
     return null;
   }
@@ -234,7 +409,7 @@ export function budgetRefusal(
   capabilities: AsrCapabilities,
   providerId: string,
   byteLength: number,
-): VoiceServiceResult<never> | null {
+): VoiceRefusal | null {
   const budget = capabilities.maxInlineRequestBytes;
   if (byteLength <= budget) {
     return null;
@@ -270,7 +445,7 @@ function authorizationHeader(apiKey: string): Record<string, string> {
   return apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
 }
 
-function backendFailure(status: number, responseText?: string): VoiceServiceResult<never> {
+function backendFailure(status: number, responseText?: string): VoiceRefusal {
   if (status === 401 || status === 403) {
     return {
       ok: false,
@@ -286,7 +461,7 @@ function backendFailure(status: number, responseText?: string): VoiceServiceResu
   };
 }
 
-function unreachableBackendFailure(error: unknown, timeoutMs: number): VoiceServiceResult<never> {
+function unreachableBackendFailure(error: unknown, timeoutMs: number): VoiceRefusal {
   if (error instanceof Error && error.name === 'AbortError') {
     return {
       ok: false,
@@ -313,8 +488,13 @@ function unreachableBackendFailure(error: unknown, timeoutMs: number): VoiceServ
  * address is one a particular provider may be reached at is `endpointRuleRefusal`'s question,
  * asked of the selected adapter rather than of the URL alone — and asked BEFORE this one, for the
  * ordering reason recorded at the call site.
+ *
+ * IT ASKS ABOUT ONE FIELD, so it takes one. The two callers hand it differently shaped
+ * configurations — the transcription path resolves only the address, key and model one attempt
+ * uses, while TTS resolves the whole six-field document — and widening either to satisfy the other
+ * would be this function claiming an interest in fields it never reads.
  */
-function validateConfiguredBackend(config: ResolvedVoiceConfig): VoiceServiceResult<never> | null {
+function validateConfiguredBackend(config: { baseUrl: string }): VoiceRefusal | null {
   if (!config.baseUrl) {
     return {
       ok: false,
@@ -377,7 +557,7 @@ function validateConfiguredBackend(config: ResolvedVoiceConfig): VoiceServiceRes
 export function endpointRuleRefusal(
   adapter: AsrAdapter,
   baseUrl: string,
-): VoiceServiceResult<never> | null {
+): VoiceRefusal | null {
   if (!baseUrl) {
     return null;
   }
@@ -402,6 +582,43 @@ export function endpointRuleRefusal(
 }
 
 /**
+ * The same rule, asked about a settings document that is about to be STORED.
+ *
+ * WHY THE SAVE PATH ASKS IT AT ALL. An address a provider's own rule refuses can never serve a
+ * request — the transcription path above refuses it before the invocation is built — so storing one
+ * is storing a value whose only future is a refusal at the next recording, with nothing at the time
+ * of saving to say so. Asked here, the user learns at the moment they paste it, and the refusal
+ * carries the same code (`INVALID_BASE_URL`) the transcription path would have produced later, so a
+ * client has one thing to branch on rather than two.
+ *
+ * IT IS ASKED OF EVERY REGISTERED PROVIDER'S DECLARED ENDPOINT FIELD, not only of the effective
+ * one, and the scope is deliberate: the field belongs to the provider whose declaration names it,
+ * and a value stored while a DIFFERENT provider is selected is still that provider's address, held
+ * for the day the user switches to it. Validating only the effective provider would let a foreign
+ * address sit in the document until the switch, which is precisely when it would be discovered —
+ * after the user has moved on and has no reason to connect the failure to what they typed.
+ *
+ * AN EMPTY FIELD IS NOT THIS FUNCTION'S QUESTION: `endpointRuleRefusal` answers `null` for one, so
+ * clearing a field stays a legal save. The rule's own text lives on the adapter, so this file holds
+ * no hostname and no provider id; it holds only the decision to ask.
+ */
+function declaredEndpointRefusal(settings: VoiceSettings): VoiceRefusal | null {
+  for (const adapter of listProviders()) {
+    const fields = adapter.credentials;
+    if (fields === undefined) {
+      continue;
+    }
+
+    const refusal = endpointRuleRefusal(adapter, readStoredField(settings, fields.endpointField));
+    if (refusal) {
+      return refusal;
+    }
+  }
+
+  return null;
+}
+
+/**
  * How this path reads an upstream answer: the tolerance it has always had.
  *
  * A named constant rather than a literal at the call site, because `TranscriptionTolerance` is the
@@ -422,32 +639,36 @@ const PROXY_ANSWER_TOLERANCE: TranscriptionTolerance = 'lenient';
  * required so the service never reads globals or creates production defaults.
  */
 export function createVoiceService(dependencies: VoiceServiceDependencies): VoiceService {
-  /**
-   * Whether a recording would reach a recogniser with this configuration.
-   *
-   * The user's stored backend wins over the server's environment, so a user who configured
-   * their own backend is configured even on a server that has no voice environment variables
-   * set at all — the answer this used to give wrongly, because it only ever looked at the
-   * environment.
-   */
-  function effectiveBackendConfigured(settings: VoiceSettings): boolean {
-    return Boolean(settings.baseUrl.trim() || dependencies.defaults.baseUrl);
-  }
+  // The one place the port is resolved: the injected logger wins, and the process's own output is
+  // the fallback. See `VoiceLogPort` — patching the global console is what this seam exists to
+  // avoid, and resolving the default here is what keeps the composition root from having to know
+  // this type at all.
+  const log: VoiceLogPort = dependencies.logger ?? console;
 
   return {
     getHealth({ settings }) {
-      const providerId = effectiveProviderId(undefined, dependencies.defaults);
-      if (tryResolve(providerId) === null) {
+      // The user's own selection is the first step of the precedence (see `effectiveProviderId`):
+      // a stored id is what the health reading is ABOUT, so a payload that reported the
+      // deployment's preference here would be answering a question nobody asked.
+      const providerId = effectiveProviderId(settings.providerId, dependencies.defaults);
+      const effectiveAdapter = tryResolve(providerId);
+      if (effectiveAdapter === null) {
         // The whole link is unavailable, not just one entry in the list: nothing in this
         // process can serve the id the configuration names.
         return unknownProviderFailure(providerId, 503);
       }
 
-      const configured = effectiveBackendConfigured(settings);
+      // Every row is asked about ITSELF, so a provider whose credential is the user's own is not
+      // reported through a backend it is never reached with (see `providerConfigured`), and the
+      // top-level reading is the effective provider's own answer rather than a second computation
+      // that could disagree with the row beside it.
+      const configuredFor = (adapter: AsrAdapter): boolean =>
+        providerConfigured(adapter, settings, dependencies.defaults);
+
       return {
         ok: true,
         value: {
-          configured,
+          configured: configuredFor(effectiveAdapter),
           provider: providerId,
           // Straight from the registry, capabilities object and all. The client reads the
           // container, the inline budget and the hint switches from here, so a provider that
@@ -456,20 +677,49 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
             id: adapter.id,
             label: adapter.id,
             capabilities: adapter.capabilities,
-            configured,
+            configured: configuredFor(adapter),
           })),
         },
       };
     },
 
     async transcribe(input) {
+      const startedAt = Date.now();
+      const settings = input.settings;
       const requestedProviderId = input.overrides.providerId?.trim();
-      const providerId = effectiveProviderId(requestedProviderId, dependencies.defaults);
+      const providerId = effectiveProviderId(requestedProviderId, dependencies.defaults, settings);
+
+      /**
+       * One structured line per attempt, written as the attempt is answered.
+       *
+       * WHAT THE LINE DOES NOT CARRY IS THE POINT OF IT. Every field below is one this module
+       * computed — an id, an outcome, a status, a duration — so there is no free text on the line
+       * at all, and therefore no message, no transcript, no credential and no audio can reach it:
+       * "the log has no key in it" is a property of the line's SHAPE rather than of a filter
+       * someone has to remember to keep in step. The fields the client and the metrics select on
+       * are the ones recorded, including the two facts only a written recogniser produces
+       * (which prompt version answered, and whether it degraded to a transcription).
+       */
+      const logAttempt = (
+        outcome: 'ok' | 'fail',
+        status: number,
+        meta?: { promptVersion?: string; writtenFallback?: number },
+      ): void => {
+        log.info(
+          `voice.transcribe providerId=${providerId} outcome=${outcome} status=${status} ` +
+            `latencyMs=${Date.now() - startedAt}` +
+            (meta?.promptVersion === undefined ? '' : ` promptVersion=${meta.promptVersion}`) +
+            (meta?.writtenFallback === undefined ? '' : ` writtenFallback=${meta.writtenFallback}`),
+        );
+      };
+
       const adapter = tryResolve(providerId);
       if (adapter === null) {
         // Refused before the configuration is even resolved and before any request is built:
         // nothing about the user's backend can make an unregistered id serveable.
-        return unknownProviderFailure(providerId, requestedProviderId ? 400 : 503);
+        const refusal = unknownProviderFailure(providerId, requestedProviderId ? 400 : 503);
+        logAttempt('fail', refusal.status);
+        return refusal;
       }
 
       // The two gates the SELECTED provider's declaration decides, both before the configuration
@@ -490,6 +740,7 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
         input.audio.mimeType,
       );
       if (containerFailure) {
+        logAttempt('fail', containerFailure.status);
         return containerFailure;
       }
 
@@ -499,10 +750,15 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
         input.audio.bytes.length,
       );
       if (budgetFailure) {
+        logAttempt('fail', budgetFailure.status);
         return budgetFailure;
       }
 
-      const config = resolveVoiceConfig(dependencies.defaults, input.overrides);
+      // THE ADDRESS, KEY AND MODEL THIS ATTEMPT USES. For a provider that declares credential
+      // fields of its own this is the user's stored pair, not the deployment's — see
+      // `resolveRecognitionConfig`. Everything below reads this one shape, so the gates and the
+      // invocation cannot be looking at different addresses.
+      const config = resolveRecognitionConfig(adapter, dependencies.defaults, input.overrides, settings);
 
       // The third pre-request gate, and the only one that reads the SELECTED ADAPTER rather than
       // its capabilities alone: a proxy-only provider may only be addressed at its own service, so
@@ -521,11 +777,13 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
       // can only be reached and pass.
       const endpointFailure = endpointRuleRefusal(adapter, config.baseUrl);
       if (endpointFailure) {
+        logAttempt('fail', endpointFailure.status);
         return endpointFailure;
       }
 
       const configurationFailure = validateConfiguredBackend(config);
       if (configurationFailure) {
+        logAttempt('fail', configurationFailure.status);
         return configurationFailure;
       }
 
@@ -550,7 +808,7 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
           {
             baseUrl: config.baseUrl,
             apiKey: config.apiKey,
-            model: config.sttModel,
+            model: config.model,
             timeoutMs: dependencies.timeoutMs,
             // The transport stays the injected port, so one place still owns every request that
             // leaves this process (its redirect policy, its abort controller and the test double
@@ -568,8 +826,19 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
           // own status, the upstream's. The message is the adapter's, which names the provider the
           // way a seam with more than one provider has to. The code is deliberately not
           // republished here; see the table's comment.
-          return { ok: false, status: providerFailureStatus(result), error: result.message };
+          const status = providerFailureStatus(result);
+          logAttempt('fail', status);
+          return { ok: false, status, error: result.message };
         }
+
+        // The two facts this path can read off a successful answer and nowhere else: which frozen
+        // prompt produced the text, and whether a written recogniser had to degrade to a
+        // transcription. Recorded on the attempt line so a change in either is visible in the
+        // process's own output rather than only in a response body.
+        logAttempt('ok', 200, {
+          promptVersion: result.meta?.promptVersion,
+          writtenFallback: result.meta?.writtenFallback,
+        });
 
         // The payload stays `{ text }`. The seam's richer envelope (`style`, `transformations`,
         // the provider's own `meta`) belongs to the surfaces that consume it — the settings entry
@@ -580,7 +849,9 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
         // failure is a returned `AsrFailure`, and each adapter catches its own transport errors,
         // so this keeps the module's promise — `transcribe` answers with a result — for the bug
         // rather than for the design.
-        return unreachableBackendFailure(error, dependencies.timeoutMs);
+        const refusal = unreachableBackendFailure(error, dependencies.timeoutMs);
+        logAttempt('fail', refusal.status);
+        return refusal;
       }
     },
 
@@ -623,7 +894,17 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
   };
 }
 
-/** Every field of a settings document, so validation cannot miss one by accident. */
+/**
+ * Every field of a settings document, so validation cannot miss one by accident.
+ *
+ * THE PROVIDER-OWNED FIELDS BELONG ON THIS LIST even though the headers above say the browser calls
+ * the backend itself: these are the fields the SERVER presents upstream when the selected provider
+ * is one whose transport is `proxy-only`, so they are stored through this same document and have to
+ * survive the same validation. Leaving them off would not make them unreachable — the store's own
+ * field list would still carry them — it would make them the one part of the document a request
+ * could set to a non-string or to megabytes of text, which is exactly what this list exists to
+ * prevent.
+ */
 const VOICE_SETTINGS_FIELDS: readonly (keyof VoiceSettings)[] = [
   'baseUrl',
   'apiKey',
@@ -631,12 +912,20 @@ const VOICE_SETTINGS_FIELDS: readonly (keyof VoiceSettings)[] = [
   'ttsModel',
   'ttsVoice',
   'ttsFormat',
+  'providerId',
+  'dashscopeEndpoint',
+  'dashscopeApiKey',
+  'dashscopeModel',
 ];
 
 /**
  * The longest value each field accepts. Generous for any real endpoint, key or
  * model name, and small enough that one request cannot park megabytes in the
  * settings row and have every later read pay for it.
+ *
+ * The provider-owned entries are the same generous bounds as their counterparts above rather than
+ * new policy: an endpoint is an endpoint and a key is a key, and a bound that differed by field
+ * would be a second, silent rule about which provider's address is the longer one.
  */
 const VOICE_SETTINGS_MAX_LENGTHS: Record<keyof VoiceSettings, number> = {
   baseUrl: 2048,
@@ -645,6 +934,10 @@ const VOICE_SETTINGS_MAX_LENGTHS: Record<keyof VoiceSettings, number> = {
   ttsModel: 256,
   ttsVoice: 256,
   ttsFormat: 64,
+  providerId: 128,
+  dashscopeEndpoint: 2048,
+  dashscopeApiKey: 4096,
+  dashscopeModel: 256,
 };
 
 /**
@@ -703,6 +996,10 @@ function parseVoiceSettingsInput(input: unknown): VoiceServiceResult<VoiceSettin
     ttsModel: '',
     ttsVoice: '',
     ttsFormat: '',
+    providerId: '',
+    dashscopeEndpoint: '',
+    dashscopeApiKey: '',
+    dashscopeModel: '',
   };
 
   for (const field of VOICE_SETTINGS_FIELDS) {
@@ -717,6 +1014,14 @@ function parseVoiceSettingsInput(input: unknown): VoiceServiceResult<VoiceSettin
     return { ok: false, status: 400, error: 'Invalid voice backend URL.' };
   }
 
+  // The provider-declared addresses are checked with their own providers' rules, after the six above
+  // have been read, so a document is rejected for the first thing wrong with it in field order
+  // rather than in whichever order the registry happens to iterate.
+  const endpointFailure = declaredEndpointRefusal(settings);
+  if (endpointFailure) {
+    return endpointFailure;
+  }
+
   return { ok: true, value: settings };
 }
 
@@ -729,6 +1034,12 @@ function parseVoiceSettingsInput(input: unknown): VoiceServiceResult<VoiceSettin
 export function createVoiceSettingsService(store: VoiceSettingsStore): VoiceSettingsService {
   return {
     getSettings: (userId) => store.getSettings(userId),
+
+    // The readback face is this one method, and it is applied to the SAVED document too rather than
+    // only to the read: the two responses a client compares field by field are the document it just
+    // sent and the document it reads back, and a save that answered with the key in the clear would
+    // be a second place the value leaves the process — one whose output a client stores.
+    maskForReadback: (settings) => maskSettingsForReadback(settings),
 
     saveSettings(userId, input) {
       const parsed = parseVoiceSettingsInput(input);

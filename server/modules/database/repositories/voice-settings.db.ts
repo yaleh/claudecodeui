@@ -5,7 +5,16 @@ type VoiceSettingsRow = {
   settings_json: string;
 };
 
-/** Every field of a settings document, in one place so readers and writers agree. */
+/**
+ * Every field of a settings document, in one place so readers and writers agree.
+ *
+ * WHY THE FOUR PROVIDER-OWNED FIELDS ARE LISTED HERE TOO. This array is what `decodeSettings` reads
+ * a stored document through, so a field missing from it is silently DROPPED on the way back out —
+ * a user would save a workspace address and their key, read the document back, and find both gone,
+ * with nothing anywhere reporting it. The list is therefore exhaustive over `VoiceSettings` and not
+ * over "the fields this module happens to care about", and adding a field to the type without
+ * adding it here is a bug this file is arranged to make visible rather than quiet.
+ */
 const VOICE_SETTINGS_FIELDS = [
   'baseUrl',
   'apiKey',
@@ -13,9 +22,19 @@ const VOICE_SETTINGS_FIELDS = [
   'ttsModel',
   'ttsVoice',
   'ttsFormat',
+  'providerId',
+  'dashscopeEndpoint',
+  'dashscopeApiKey',
+  'dashscopeModel',
 ] as const satisfies readonly (keyof VoiceSettings)[];
 
-/** What a user who has never saved voice settings reads back as. */
+/**
+ * What a user who has never saved voice settings reads back as.
+ *
+ * The provider-owned fields are present and empty here for the same reason the six are: a document
+ * that omits them and one that carries the empty string mean the same thing to every reader, and
+ * having exactly one shape cross the wire is what lets a client compare whole documents.
+ */
 const EMPTY_VOICE_SETTINGS: VoiceSettings = {
   baseUrl: '',
   apiKey: '',
@@ -23,6 +42,10 @@ const EMPTY_VOICE_SETTINGS: VoiceSettings = {
   ttsModel: '',
   ttsVoice: '',
   ttsFormat: '',
+  providerId: '',
+  dashscopeEndpoint: '',
+  dashscopeApiKey: '',
+  dashscopeModel: '',
 };
 
 /**
@@ -79,7 +102,7 @@ export const voiceSettingsDb = {
    *
    * One row per user, so this is a plain upsert: there is no partial-update
    * shape to reconcile, and a caller that intends to change one field reads the
-   * document first and writes all six back.
+   * document first and writes the whole of it back.
    */
   saveSettings(userId: number, settings: VoiceSettings): void {
     getConnection()

@@ -28,6 +28,7 @@
 import {
   allowedBaseUrl as dashscopeOmniAllowedBaseUrl,
   capabilities as dashscopeOmniCapabilities,
+  credentials as dashscopeOmniCredentials,
   id as dashscopeOmniId,
   transcribe as dashscopeOmniTranscribe,
   wire as dashscopeOmniWire,
@@ -242,6 +243,38 @@ export type AsrInvocation = {
  */
 export type AsrWire = 'chat-audio' | 'inline-json' | 'multipart';
 
+/**
+ * Which fields of a user's stored settings ARE this provider's own address, credential and model.
+ *
+ * WHY THE PROVIDER NAMES THEM RATHER THAN THE SERVER. A second adapter that authenticates against a
+ * service of its own needs a credential the first one's fields cannot carry — a different hostname
+ * shape, a key that may only be used server-side — and the server has no way to know that beyond
+ * being told. A table in the server indexed by provider id would be precisely the second copy of a
+ * provider-owned fact that `allowedBaseUrl` above exists to remove, and it would go stale the day a
+ * provider renamed a field. So the ownership is DECLARED here, next to the capability declaration,
+ * and the server only ever reads the names off the adapter it has already selected.
+ *
+ * THE FIELD NAMES ARE SETTINGS KEYS, NOT VALUES, and that is what keeps this type free of any
+ * provider's vocabulary: this module compiles under both compiler configurations (see the module
+ * comment), so it may not import the server's settings type — and it does not need to, because the
+ * names are data the provider supplies and the server looks them up on the document it holds.
+ *
+ * A provider that declares nothing is a provider whose address and credential come from the
+ * deployment's own configuration, which is the behaviour every adapter had before this seam
+ * existed: absent means "no fields of my own", never "read whatever is around".
+ */
+export type AsrCredentialFields = {
+  /** The settings field carrying the address this provider is reached at. */
+  endpointField: string;
+  /** The settings field carrying the credential this provider authenticates with. */
+  apiKeyField: string;
+  /**
+   * The settings field carrying the model the user selected, or absent when the provider has no
+   * per-user model of its own — a service with one frozen model has nothing for a user to choose.
+   */
+  modelField?: string;
+};
+
 /** What a provider module must supply to be registered. */
 export type AsrAdapter = {
   id: AsrProviderId;
@@ -265,6 +298,18 @@ export type AsrAdapter = {
    * (http and private backends are deliberately legal on that side).
    */
   allowedBaseUrl?: (baseUrl: string) => boolean;
+  /**
+   * Which of a user's stored settings fields are THIS provider's own address, credential and model,
+   * or absent when this provider has none of its own and is reached through the deployment's
+   * configuration (see `AsrCredentialFields`).
+   *
+   * IT IS DECLARED HERE, BESIDE `allowedBaseUrl`, FOR THE SAME REASON THAT FIELD IS: both are
+   * facts about the service, and a caller-side table keyed by provider id would be a second copy of
+   * them. The server never asks "which fields belong to dashscope-omni"; it asks the adapter it has
+   * ALREADY selected which fields are its own, so a provider whose credential moves to another
+   * settings key is a one-line change in that provider's module and nothing else.
+   */
+  credentials?: AsrCredentialFields;
   transcribe(request: AsrRequest, invocation: AsrInvocation): Promise<AsrResult>;
 };
 
@@ -367,11 +412,19 @@ const REGISTERED: readonly AsrAdapter[] = [
   // changes what every consumer sees without a second edit here. `allowedBaseUrl` is the fifth for
   // the same reason: the endpoint rule a proxy-only provider's address is held to is the one the
   // provider module exports, so there is exactly one copy of it and no table in between.
+  //
+  // `credentials` is the sixth, and it follows the same discipline for the same reason: which
+  // stored settings fields carry this service's address, key and model is this service's own fact.
+  // What that buys is visible one level up — the server reads the field NAMES off whichever adapter
+  // it selected, so it has no branch and no literal naming this id anywhere (the criterion greps
+  // for exactly that), and a second provider with fields of its own is registered by declaring them
+  // in its own module.
   {
     id: dashscopeOmniId,
     capabilities: dashscopeOmniCapabilities,
     wire: dashscopeOmniWire,
     allowedBaseUrl: dashscopeOmniAllowedBaseUrl,
+    credentials: dashscopeOmniCredentials,
     transcribe: dashscopeOmniTranscribe,
   },
 ];
