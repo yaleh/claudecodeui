@@ -14,10 +14,12 @@ import {
 } from '@shared/asr/transcriptionWire';
 // The provider address book, the same table the server's health reading republishes. The
 // browser asks it whether an id exists rather than keeping its own list of the ids it knows.
-import type { AsrCapabilities, PauseCuesDeclaration } from '@shared/asr/asrRegistry';
+import type { AsrCapabilities, AsrErrorCode, PauseCuesDeclaration } from '@shared/asr/asrRegistry';
 import {
   baseMimeType,
+  classifyUpstreamFailure,
   declaredAcceptsMime,
+  extractUpstreamCode,
   pauseCuesDeclarationFor,
   tryResolve,
 } from '@shared/asr/asrRegistry';
@@ -721,6 +723,119 @@ function unsupportedContainerRefusal(mimeType: string): Response | null {
   );
 }
 
+/**
+ * The failure envelope the direct path answers with, shaped exactly like the one the server's
+ * proxy route builds (`server/modules/voice/voice.routes.ts`).
+ *
+ * WHY IT IS THE SAME SHAPE AND NOT A SHAPE OF ITS OWN. Both paths land at the SAME reader —
+ * `refusalCode` in `src/modules/chat/hooks/useVoiceInput.ts` reads `body.code` and nothing else —
+ * so a second envelope here would be a second contract for one field, and the branch that read the
+ * proxy's spelling would go blind on the direct path's. `upstreamCode` rides beside `code` when the
+ * upstream named one, and is dropped rather than defaulted when it did not: a placeholder would
+ * read as a classification, which is the same discipline the route's `sendFailure` follows.
+ */
+function voiceFailureEnvelope(
+  code: AsrErrorCode,
+  status: number,
+  message: string,
+  upstreamCode?: string,
+): Response {
+  return new Response(
+    JSON.stringify({
+      error: message,
+      code,
+      ...(upstreamCode === undefined ? {} : { upstreamCode }),
+    }),
+    { status, headers: { 'Content-Type': 'application/json' } },
+  );
+}
+
+/**
+ * The answer's body, read WITHOUT consuming the response the caller still uses.
+ *
+ * A clone is taken whenever the response offers one, which is what keeps this reading from being a
+ * change of behaviour rather than a reading: `useVoiceInput` reads the same answer afterwards on
+ * the success path. The fallback exists for the stand-in transports the suite drives this seam
+ * with, which implement the five members the app reads (`ok`, `status`, `json`, `text`, `headers`)
+ * and nothing else; there, and only there, the body is read from the response itself — and on those
+ * rows the response is a failure the caller is handed a replacement for, so nothing is left spent.
+ * An unreadable body is the empty string, which is the same thing the adapters' `readTextQuietly`
+ * answers with, and it means the status fallback decides.
+ */
+async function readAnswerBody(response: Response): Promise<string> {
+  try {
+    const copy = typeof response.clone === 'function' ? response.clone() : response;
+    return await copy.text();
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * The text a `2xx` answer carries, or `null` when the body is not this family's envelope at all.
+ *
+ * The parse is the SHIPPED wire's (`readTranscriptionResponse`, `strict`), over a response built
+ * from the body copy: `200` is read the same way here as it is by every other reader of this
+ * protocol, so a recognised transcript is never re-described by a second parse. A body that is not
+ * JSON at all answers `null` rather than throwing — that answer is not this seam's to reclassify,
+ * and the caller's own parse already has an opinion about it.
+ */
+async function transcriptIn(body: string): Promise<string | null> {
+  if (body === '') {
+    return null;
+  }
+  try {
+    return await readTranscriptionResponse(
+      new Response(body, { status: 200, headers: { 'Content-Type': 'application/json' } }),
+      'strict',
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The refusal the direct path owes an upstream answer, or `null` when the answer is a transcription
+ * the caller can use as it stands.
+ *
+ * THIS IS THE DIRECT PATH'S CLASSIFICATION, AND IT HAS NO TABLE OF ITS OWN. The code comes from
+ * `classifyUpstreamFailure` in `shared/asr/asrRegistry.ts` — the same call the three adapters make
+ * — so an upstream failure means one thing on the browser's path and on the server's proxy path.
+ * A client that decided this locally would be the second implementation this seam exists to not be,
+ * and the two paths would be free to disagree about the same `403`.
+ *
+ * THE BODY DECIDES AND THE STATUS IS THE FALLBACK, which is the whole reason the upstream's own
+ * code string is read out of the answer at all: `429 AllocationQuota.FreeTierOnly` and
+ * `429 Throttling.RateQuota` are one number and two facts (a quota that is gone, a caller who is
+ * going too fast), and the sentence a user needs is different for each.
+ *
+ * A `2xx` IS NOT A FAILURE, and this returns `null` for one that carries text. It reads the body
+ * for the one case the status cannot answer — a well-formed answer that names neither `instruction`
+ * nor `transcript` is `NO_SPEECH_DETECTED`, not a success with empty text. The proxy path already
+ * answers that way (`server/modules/voice/voice.service.ts` maps the adapter's code to `422`), so
+ * leaving it out here would be the two paths disagreeing about a silent recording, which is the one
+ * failure a user is most likely to meet.
+ */
+async function voiceAnswerRefusal(response: Response): Promise<Response | null> {
+  const body = await readAnswerBody(response);
+
+  if (!response.ok) {
+    return voiceFailureEnvelope(
+      classifyUpstreamFailure(response.status, body),
+      response.status,
+      `the voice backend answered ${response.status}`,
+      extractUpstreamCode(body),
+    );
+  }
+
+  const text = await transcriptIn(body);
+  if (text === null || text.trim() !== '') {
+    return null;
+  }
+
+  return voiceFailureEnvelope('NO_SPEECH_DETECTED', 422, 'the voice backend returned no speech');
+}
+
 export async function transcribeVoice(blob: Blob, filename: string): Promise<Response> {
   const refusal = unregisteredProviderRefusal() ?? unsupportedContainerRefusal(blob.type);
   if (refusal) {
@@ -767,7 +882,27 @@ export async function transcribeVoice(blob: Blob, filename: string): Promise<Res
       },
       { audio: blob, fileName: filename },
     );
-    return fetch(request.url, request.init);
+
+    let response: Response;
+    try {
+      response = await fetch(request.url, request.init);
+    } catch {
+      // A transport that never connected and a request the caller's own deadline ended are ONE
+      // code on this side of the seam, exactly as they are inside every adapter: the remedy is
+      // the same for both, and the proxy route answers both with the same member. There is no
+      // status to carry — the request never reached one — so the envelope uses the code the
+      // route uses for an unreachable upstream rather than inventing a number.
+      return voiceFailureEnvelope(
+        'UPSTREAM_UNAVAILABLE',
+        502,
+        'the voice backend could not be reached',
+      );
+    }
+
+    // The answer is classified HERE, on the one path that has it, rather than handed back raw
+    // for the caller to guess at: see `voiceAnswerRefusal`. A `2xx` that carries a transcript
+    // comes back untouched, so the caller reads it exactly as it always has.
+    return (await voiceAnswerRefusal(response)) ?? response;
   }
 
   // The proxy hop is a different protocol from the one above: this is the client talking to

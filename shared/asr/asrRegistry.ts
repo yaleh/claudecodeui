@@ -352,6 +352,16 @@ export const ASR_ERROR_CODES: readonly AsrErrorCode[] = Object.keys(
  * service's published error page is a general one and this deployment reads one recogniser — so a
  * code this table does not know falls through to the status fallback below rather than being guessed
  * at by a looser pattern.
+ *
+ * TWO SPELLING FAMILIES, ONE TABLE. The dotted `PascalCase` codes are this service's own; the four
+ * `snake_case` rows are the OpenAI-compatible family's, which the shared wire
+ * (`shared/asr/transcriptionWire.ts`) also speaks to, so a deployment pointed at such a service
+ * names its refusals differently for the same facts. They are rows here rather than a second table
+ * because the CLASSIFICATION is the same — `insufficient_quota` and `AllocationQuota.FreeTierOnly`
+ * are both "the quota is gone" and must reach `QUOTA_EXHAUSTED` — and a second table would be a
+ * second answer to that question. Their positions follow the same longest-first discipline: the
+ * four are shorter than every dotted rule above them and longer than, or equal to, the ones below,
+ * so no rule can take a failure away from a longer one that names it better.
  */
 const UPSTREAM_CODE_RULES: ReadonlyArray<{ token: string; code: AsrErrorCode }> = [
   { token: 'AllocationQuota.FreeTierOnly', code: 'QUOTA_EXHAUSTED' },
@@ -359,6 +369,10 @@ const UPSTREAM_CODE_RULES: ReadonlyArray<{ token: string; code: AsrErrorCode }> 
   { token: 'AccessDenied.Unpurchased', code: 'ACCOUNT_ACCESS' },
   { token: 'Throttling.RateQuota', code: 'RATE_LIMITED' },
   { token: 'DataInspectionFailed', code: 'CONTENT_FLAGGED' },
+  { token: 'rate_limit_exceeded', code: 'RATE_LIMITED' },
+  { token: 'insufficient_quota', code: 'QUOTA_EXHAUSTED' },
+  { token: 'invalid_api_key', code: 'UNAUTHORIZED' },
+  { token: 'model_not_found', code: 'MODEL_NOT_FOUND' },
   { token: 'ModelNotFound', code: 'MODEL_NOT_FOUND' },
   { token: 'InvalidApiKey', code: 'UNAUTHORIZED' },
   { token: 'Arrearage', code: 'ACCOUNT_ACCESS' },
