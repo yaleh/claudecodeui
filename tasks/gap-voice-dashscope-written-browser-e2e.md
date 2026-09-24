@@ -85,6 +85,8 @@ L_G 该轴仍暗，理由：书面化质量（意图正确率/误导率）按 GO
 - src/modules/settings/hooks/useVoiceProviderOptions.ts（新，读 health 载荷的 providers[] 与字段声明）
 - src/modules/settings/tests/voiceSettingsProviderSelection.test.tsx（新）
 - src/shared/voiceConfig.ts
+- src/shared/tests/voiceConfig.test.ts（AC7 把存储文档加宽成十格，本文件断言其逐字段形状）
+- src/shared/tests/voiceConfigHydration.test.ts（同 AC7；水合读回与整档 PUT 的文档形状）
 - src/modules/i18n/locales/en/settings.json
 - server/shared/types.ts
 - server/modules/voice/voice.service.ts
@@ -120,3 +122,4 @@ L_G 该轴仍暗，理由：书面化质量（意图正确率/误导率）按 GO
 
 1. **上游拒绝的信封由替身补一格语义码**：替身按 `PROVIDER_ERROR_STATUS.UNAUTHORIZED` 那一行答 502，文案逐字用代理自己的句子，并带上 `code: 'UNAUTHORIZED'`。真实路由只对**上游之前**的拒绝重发 code（`backendFailure(401|403)` 不回 code），真机环境下页面会读作 `transcribe 502` 而没有语义码；AC4(a) 要求页面上有语义码，故这一格由替身补上。判据输出里 `page-said="Transcription failed: transcribe 502 (UNAUTHORIZED)"` 就是这条差异的读数。
 2. **该 run 的浏览器上下文 `serviceWorkers: 'block'`**：app 自己的 `public/sw.js` 对**非 `/api/`** 的请求一律 `respondWith(fetch(...))`，而 Service Worker 答过的请求是 `page.route` 看不到的 —— 直连对照腿那条跨源 POST 正是这样逃过替身、并在网络上失败（`net::ERR_FAILED`）的。block 之后两条腿的请求都回到页面上，判据才量得到（对照腿的替身命中 `POST …/audio/transcriptions` 即证据）。真机浏览器跑着那个 worker，所以这条 run 观察到的 app 少了自己的一层传输。
+
