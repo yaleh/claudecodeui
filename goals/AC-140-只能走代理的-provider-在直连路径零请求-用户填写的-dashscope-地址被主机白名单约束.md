@@ -1,7 +1,7 @@
 ---
 id: AC-140
 title: 只能走代理的 provider 在直连路径零请求；用户填写的 DashScope 地址被主机白名单约束
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-009
 criterion: node scripts/asr-proxy-only-ssrf-check.mjs
@@ -20,6 +20,11 @@ statusLog:
     to: active
     actor: goal-cli
     reason: ""
+  - at: 2026-09-24T07:24:45.906Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
