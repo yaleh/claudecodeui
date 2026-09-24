@@ -63,14 +63,14 @@ goal_ac: AC-150
 
 ## AC
 
-- [ ] AC1 判据入口与预算：`npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice-error-contract.test.ts` 退出 0；判据自身零子进程、零真实监听端口、零网络（离线替身 `fetchBackend`），末尾打印 `elapsed-ms=<n>` 且实测 < 15000（目标侧判据门是 60 秒硬上限、不可调）。打印 `subprocess-or-socket-imports=<n>`。
-- [ ] AC2 四臂逐条带 `error` 与 `code`：预检拒绝臂（`LIMIT_FILE_SIZE` 形状的 parser 失败 ⇒ 413；缺文件与格式拒各一条）、上游失败臂（至少三条不同上游状态，各自 body 里带码串）、无语音臂（200 且 envelope 里既无 instruction 也无 transcript ⇒ 422）、不可达臂（`fetchBackend` reject）各驱动一次。逐条打印 `arm=<名> status=<n> code=<c> hasError=<b> upstreamCode=<c|none>`，并断言 `error` 是非空字符串、`code` 是**出货运行期词表的成员**（键集从出货的 `PROVIDER_ERROR_STATUS` 读，不另抄一份字符串数组）。打印 `arms=<n> coded=<n>`。
-- [ ] AC3 `upstreamCode` 合规且取自响应体：对每条上游失败臂断言 `upstreamCode` 匹配 `^[A-Za-z][A-Za-z0-9._-]{0,63}$`、`length <= 64`、且 `upstreamBody.includes(upstreamCode)` 为真；**非捏造对照**两条——上游答 5xx 但 body 无码串 ⇒ `code` 有而 `upstreamCode` 缺席；不可达臂 ⇒ `upstreamCode` 缺席；**长度界臂**一条——body 里候选串 200 字符 ⇒ 响应里长度 ≤ 64（或缺席），不得出现 200 字符。打印 `upstreamCode=<值> codeCompliant=<b> isSubstringOfBody=<b> noBodyArm=<none|值> unreachableArm=<none|值> oversizeArmLen=<n>`。
-- [ ] AC4 零泄漏读数带正对照：**正对照先在**——断言替身上游收到的 `init.headers` 里确实有 `Bearer <fakeKey>`、且替身上游的响应体确实含哨兵文本（两条都为真才继续）；随后把返回给页面的整个响应体序列化，断言其中不含 `fakeKey` 明文、不含 `Bearer ` + `fakeKey`、不含哨兵文本；再对 `error` 与 `upstreamCode` 两个字段单独各断言一次。打印 `sentinelInUpstream=<b> keyInUpstreamRequest=<b> sentinelInResponse=<b> keyInResponse=<b> bearerInResponse=<b>`。
-- [ ] AC5 取假形态可执行：`npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice-error-contract.false-forms.test.ts` 退出 0；两例各自「未变异副本先绿 → 变异体在预测族里红一条并打印红的是哪一条 → 族外仍绿」，并逐例指名：`upstream-failure-without-code` 红 AC2 的上游臂、`raw-body-copied-through` 红 AC3/AC4 的哨兵、正则或长度读数；跑完 `git status --porcelain` 与本文件启动时逐字相同、无临时副本残留。打印 `mutation=<name> baseExit=0 mutantRed=<b> whichReading=<…> outsideFamilyGreen=<b>`。
-- [ ] AC6 既有面不退化（逐条打印 `exit=<n> name=<…>`，不是空过）：`voiceTranscribeGaps.test.ts`（含本次改为带 code 的那条）、`voice-provider-dispatch.test.ts`、`voice-provider-dispatch-falsify.test.ts`、`voice-config.routes.test.ts`、`voice-capture-text.test.ts`、`voiceHealth.test.ts`、`voice.service.test.ts` 各退出 0；`npm run typecheck` 与 `npm run lint` 退出 0。被顶掉的 `voiceTranscribeGaps.test.ts:196-200` 在完成记录里写清「原来钉什么、现在钉什么」。
-- [ ] AC7 词表成员读数不另抄一份：判据从 `voice.service.ts` 的出货 `PROVIDER_ERROR_STATUS` 读键集，断言每个观察到的 `code` 都在其中，并打印 `vocab-size=<n> observed-codes=<…> all-members=<b>`；源码里不存在第二份 code 字符串数组（`grep -n "ASR_ERROR_CODES\|ERROR_CODES" server/modules/voice/tests/voice-error-contract.test.ts` 对「本文件自建词表数组」为 0 命中）。
-- [ ] AC8 如实登记：判据输出与本任务完成记录里写明「本条只做路由失败信封（`code` 全覆盖、`upstreamCode` 的提取与合规、零泄漏读数、两例取假形态）；未做词汇表扩充与分类函数（AC-149）、十二语言文案（AC-151）、直连路径统一（AC-152）、真实浏览器（AC-153）、ADR-004 修订；未改 `voice.transcribe` 行的形状；未联网、未跑真实上游；预检两支的 code 取值选择与 `voiceTranscribeGaps` 那条被改读数逐条登记」。
+- [x] AC1 判据入口与预算：`npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice-error-contract.test.ts` 退出 0；判据自身零子进程、零真实监听端口、零网络（离线替身 `fetchBackend`），末尾打印 `elapsed-ms=<n>` 且实测 < 15000（目标侧判据门是 60 秒硬上限、不可调）。打印 `subprocess-or-socket-imports=<n>`。
+- [x] AC2 四臂逐条带 `error` 与 `code`：预检拒绝臂（`LIMIT_FILE_SIZE` 形状的 parser 失败 ⇒ 413；缺文件与格式拒各一条）、上游失败臂（至少三条不同上游状态，各自 body 里带码串）、无语音臂（200 且 envelope 里既无 instruction 也无 transcript ⇒ 422）、不可达臂（`fetchBackend` reject）各驱动一次。逐条打印 `arm=<名> status=<n> code=<c> hasError=<b> upstreamCode=<c|none>`，并断言 `error` 是非空字符串、`code` 是**出货运行期词表的成员**（键集从出货的 `PROVIDER_ERROR_STATUS` 读，不另抄一份字符串数组）。打印 `arms=<n> coded=<n>`。
+- [x] AC3 `upstreamCode` 合规且取自响应体：对每条上游失败臂断言 `upstreamCode` 匹配 `^[A-Za-z][A-Za-z0-9._-]{0,63}$`、`length <= 64`、且 `upstreamBody.includes(upstreamCode)` 为真；**非捏造对照**两条——上游答 5xx 但 body 无码串 ⇒ `code` 有而 `upstreamCode` 缺席；不可达臂 ⇒ `upstreamCode` 缺席；**长度界臂**一条——body 里候选串 200 字符 ⇒ 响应里长度 ≤ 64（或缺席），不得出现 200 字符。打印 `upstreamCode=<值> codeCompliant=<b> isSubstringOfBody=<b> noBodyArm=<none|值> unreachableArm=<none|值> oversizeArmLen=<n>`。
+- [x] AC4 零泄漏读数带正对照：**正对照先在**——断言替身上游收到的 `init.headers` 里确实有 `Bearer <fakeKey>`、且替身上游的响应体确实含哨兵文本（两条都为真才继续）；随后把返回给页面的整个响应体序列化，断言其中不含 `fakeKey` 明文、不含 `Bearer ` + `fakeKey`、不含哨兵文本；再对 `error` 与 `upstreamCode` 两个字段单独各断言一次。打印 `sentinelInUpstream=<b> keyInUpstreamRequest=<b> sentinelInResponse=<b> keyInResponse=<b> bearerInResponse=<b>`。
+- [x] AC5 取假形态可执行：`npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice-error-contract.false-forms.test.ts` 退出 0；两例各自「未变异副本先绿 → 变异体在预测族里红一条并打印红的是哪一条 → 族外仍绿」，并逐例指名：`upstream-failure-without-code` 红 AC2 的上游臂、`raw-body-copied-through` 红 AC3/AC4 的哨兵、正则或长度读数；跑完 `git status --porcelain` 与本文件启动时逐字相同、无临时副本残留。打印 `mutation=<name> baseExit=0 mutantRed=<b> whichReading=<…> outsideFamilyGreen=<b>`。
+- [x] AC6 既有面不退化（逐条打印 `exit=<n> name=<…>`，不是空过）：`voiceTranscribeGaps.test.ts`（含本次改为带 code 的那条）、`voice-provider-dispatch.test.ts`、`voice-provider-dispatch-falsify.test.ts`、`voice-config.routes.test.ts`、`voice-capture-text.test.ts`、`voiceHealth.test.ts`、`voice.service.test.ts` 各退出 0；`npm run typecheck` 与 `npm run lint` 退出 0。被顶掉的 `voiceTranscribeGaps.test.ts:196-200` 在完成记录里写清「原来钉什么、现在钉什么」。
+- [x] AC7 词表成员读数不另抄一份：判据从 `voice.service.ts` 的出货 `PROVIDER_ERROR_STATUS` 读键集，断言每个观察到的 `code` 都在其中，并打印 `vocab-size=<n> observed-codes=<…> all-members=<b>`；源码里不存在第二份 code 字符串数组（`grep -n "ASR_ERROR_CODES\|ERROR_CODES" server/modules/voice/tests/voice-error-contract.test.ts` 对「本文件自建词表数组」为 0 命中）。
+- [x] AC8 如实登记：判据输出与本任务完成记录里写明「本条只做路由失败信封（`code` 全覆盖、`upstreamCode` 的提取与合规、零泄漏读数、两例取假形态）；未做词汇表扩充与分类函数（AC-149）、十二语言文案（AC-151）、直连路径统一（AC-152）、真实浏览器（AC-153）、ADR-004 修订；未改 `voice.transcribe` 行的形状；未联网、未跑真实上游；预检两支的 code 取值选择与 `voiceTranscribeGaps` 那条被改读数逐条登记」。
 
 ## DoD
 
@@ -100,4 +100,34 @@ L_G 该轴仍暗，理由：目标层的读数是真实浏览器里页面上的�
 - server/modules/voice/tests/voice-error-contract.test.ts (new)
 - server/modules/voice/tests/voice-error-contract.false-forms.test.ts (new)
 - server/modules/voice/tests/voiceTranscribeGaps.test.ts
+- scripts/asr-mime-size-gaps-check.mjs
 - tasks/gap-voice-error-envelope-contract.md
+
+## 完成记录
+
+**判据与取假形态的实测读数**（`voice-error-contract.test.ts` 27 例全绿、退出 0、`elapsed-ms=128`、`subprocess-or-socket-imports=0`；`voice-error-contract.false-forms.test.ts` 退出 0）
+
+- 四类失败共 12 臂，逐臂 `error` 非空且 `code` 是出货词表成员：`arms=12 coded=12 errored=12 upstream-statuses=6 [401 403 429 404 500 200]`。预检臂 `parser-ceiling:OVERSIZE(413)`、`parser-other:UNSUPPORTED_MIME(400)`、`missing-file:UNSUPPORTED_MIME(400)`、`format-refusal:UNSUPPORTED_MIME(415)`；上游臂 `upstream-401:code=UNAUTHORIZED/upstreamCode=InvalidApiKey`、`upstream-403:code=UNAUTHORIZED/upstreamCode=AccessDenied.Unpurchased`、`upstream-429:code=RATE_LIMITED/upstreamCode=Throttling.RateQuota`、`upstream-404:code=UPSTREAM_ERROR/upstreamCode=Model.NotFound`、`upstream-500:code=UPSTREAM_ERROR/upstreamCode=none`、`upstream-500-overlong:code=UPSTREAM_ERROR/upstreamCode=none`；`no-speech:code=NO_SPEECH_DETECTED(422)`；`unreachable:code=UNREACHABLE(502)`。
+- AC3：`upstreamCode=[upstream-401:InvalidApiKey upstream-403:AccessDenied.Unpurchased upstream-429:Throttling.RateQuota upstream-404:Model.NotFound] codeCompliant=true isSubstringOfBody=true noBodyArm=none unreachableArm=none oversizeArmLen=0`（`candidateLen=200 candidateInResponse=false`）。
+- AC4：`sentinelInUpstream=true keyInUpstreamRequest=true sentinelInResponse=false keyInResponse=false bearerInResponse=false field-level-clean=true bodies=12`。
+- AC7：`vocab-size=10 observed-codes=[OVERSIZE UNSUPPORTED_MIME UNAUTHORIZED RATE_LIMITED UPSTREAM_ERROR NO_SPEECH_DETECTED UNREACHABLE] observed=12 all-members=true`；键集由 `import { PROVIDER_ERROR_STATUS } from '../voice.service.js'` 读入，`grep -n "ASR_ERROR_CODES\|ERROR_CODES" server/modules/voice/tests/voice-error-contract.test.ts` 0 命中。
+- AC5：`upstream-failure-without-code` base 绿 → 变异体族内红 6 条（`whichReading=AC2 arm/upstream-401`，`red-reason=... code=none hasError=true ...`），族外 `AC2 arm/parser-ceiling` 仍绿；`raw-body-copied-through` base 绿 → 族内红 9 条（`whichReading=AC3 code/upstream-401`，`upstreamCode={"code":"InvalidApiKey"} codeCompliant=false`）并含 `AC4 leak/serialized-response`，族外 `AC2 arm/parser-ceiling` 仍绿；`git.status-clean=true unchanged=true temp-copies=none`。
+- AC6：`exit=0 name=voiceTranscribeGaps cases=8`、`voice-provider-dispatch cases=6`、`voice-provider-dispatch-falsify cases=1`、`voice-config.routes cases=6`、`voice-capture-text cases=10`、`voiceHealth cases=7`、`voice.service cases=4`、`name=typecheck`、`name=lint`。
+- 连带读的 AC-133 判据（`node scripts/asr-mime-allowlist-check.mjs`）退出 0、`verdict=pass`，其中 `transport-non-ceiling=400/UNSUPPORTED_MIME`；同族的 `asr-single-implementation-check` / `asr-proxy-only-ssrf-check(verdict=ok)` / `asr-second-adapter-check` / `asr-contract-invariants-check(verdict=pass)` 均退出 0。
+
+**预检两支 code 取值的裁定**（词表闭集，最合适成员）
+
+`readUploadFailure` 的非上限 400 支与 `No audio uploaded` 支都取 `UNSUPPORTED_MIME`（常量 `MALFORMED_UPLOAD_CODE`，`voice.routes.ts:110`）。理由：词表十个成员里，只有它是对「上传本身长什么样」下判断（其余分别对服务、对音频内容、对大小下判断），而这两支要说的正是「你送来的不是这条路径能接的音频上传」；两处状态码不变（仍 400），因为状态答传输层、code 答原因；不与 `OVERSIZE` 共用（413 有独立补救）。不新造字符串，且在 AC-149 按证据扩表前后都成立。
+
+**与既有判据直接冲突、在同一次改动里改掉的两处（连带改动登记）**
+
+1. `server/modules/voice/tests/voiceTranscribeGaps.test.ts:196-200`：原来钉 `assert.equal(outcome.body.code, undefined)` 一类读数（「非上限的 parser 失败仍 400 且不带 code」）；现在钉 `code === 'UNSUPPORTED_MIME'`，`status`（400）与 `error`（`/Unexpected field/`）两半原样不动，测试名改为 `a parser failure that is not the ceiling is still 400 and carries the vocabulary code`。
+2. `scripts/asr-mime-size-gaps-check.mjs`（AC-133 的 criterion `scripts/asr-mime-allowlist-check.mjs` 的 delegate，其 AC3 transport 层控制）：原来要求 `other?.body?.code === undefined`，现在要求「`code` 是字符串且不是 `OVERSIZE`」。GOAL-008 AC3 的文本读数（其余 parser 失败仍是 400）原样保留，被顶掉的只是「不带码」这一枚附加钉子；该文件已登记进 `## Touches`。
+
+**范围登记（AC8）**
+
+本条只做路由失败信封：`code` 全覆盖（上游失败与无语音、不可达都带上）、`upstreamCode` 的一份提取实现（`shared/asr/asrRegistry.ts` 的 `extractUpstreamCode`）与合规（正则 / 长度界 / 取自 body）、零泄漏读数（带正对照）、两例取假形态。未做：词汇表扩充与分类函数（AC-149，注释里点名其分类器必须复用 `extractUpstreamCode` 而不是并列第二张匹配表）、十二语言文案（AC-151）、直连路径与代理路径同码（AC-152）、真实浏览器（AC-153）、ADR-004 词汇表修订；未改 `voice.transcribe` 行的形状（`logAttempt` 的字段未动，`voice-capture-text.test.ts` 读数原样绿）；未联网、未驱动真实上游（替身回答的 body 是判据自己造的）。判据不绑端口、不起子进程、不联网，不等于真实部署下的网关行为。
+
+**有意的例外：仍然不带 `code` 的失败**（「每一个失败都带 code」的边界，写进 `VoiceServiceResult.code` 与表注释）
+
+`validateConfiguredBackend` 的格式拒（「这个设置根本不是 URL」，是部署状态而非关于一次尝试的意义；更窄的 endpoint 规则才是 `INVALID_BASE_URL` 那条）、未注册 provider id（同样是无成员可命名的状态）、以及 TTS 面（共用该类型但不共用识别器词表）。让这三处保持不带码，才使 `voice.service.test.ts:112` 的 `deepEqual` 与既有读数原样成立——即「不放松既有面」与「所有失败带码」两条要求在该交界处按上述边界收敛；这一取舍在 `server/shared/types.ts` 与 `voice.service.ts` 的表注释里各写明一次。
