@@ -1,7 +1,7 @@
 ---
 id: AC-139
 title: 服务端代理按 provider 分派到适配器，OpenAI-compatible 路径线上字节不变
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-009
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -19,6 +19,11 @@ statusLog:
     to: active
     actor: goal-cli
     reason: ""
+  - at: 2026-09-24T06:47:44.427Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
