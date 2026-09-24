@@ -3,7 +3,7 @@ id: gap-asr-proxy-provider-dispatch
 title: 服务端代理按 provider 分派到适配器：dashscope-omni 的请求进它自己的适配器（替身读到 chat/completions 的
   JSON 体），openai-compatible 的 multipart 线上字节与宽松解析逐字节不变，AsrErrorCode→HTTP
   映射十项各有读数（AC-139）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
