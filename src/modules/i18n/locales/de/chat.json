@@ -128,6 +128,7 @@
     },
     "clickToChangeMode": "Klicken, um den Berechtigungsmodus zu ändern (oder Tab in der Eingabe drücken)",
     "showAllCommands": "Alle Befehle anzeigen",
+    "moreTools": "Weitere Tools",
     "clearInput": "Eingabe leeren",
     "scrollToBottom": "Nach unten scrollen",
     "queue": {

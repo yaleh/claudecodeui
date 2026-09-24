@@ -140,6 +140,7 @@
     },
     "clickToChangeMode": "Haz clic para cambiar el modo de permisos (o pulsa Tab en el campo de texto)",
     "showAllCommands": "Mostrar todos los comandos",
+    "moreTools": "Más herramientas",
     "clearInput": "Limpiar entrada",
     "scrollToBottom": "Ir al final",
     "queue": {

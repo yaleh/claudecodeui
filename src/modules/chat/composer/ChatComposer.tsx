@@ -15,6 +15,7 @@ import { PaperclipIcon, MessageSquareIcon, XIcon, Loader2, ArrowUpIcon, PencilIc
 import { useVoiceInput } from '@/modules/chat/hooks/useVoiceInput';
 import { useVoiceAvailable } from '@/modules/chat/hooks/useVoiceAvailable';
 import { useSendOnEnter } from '@/modules/chat/hooks/useSendOnEnter';
+import { useDeviceSettings } from '@/shared/hooks/useDeviceSettings';
 import { voiceErrorMessage } from '@/modules/chat/utils/voiceErrorMessages';
 import { loadProjectIdentifiers } from '@/shared/projectIdentifiers';
 import { isVoiceDebugEnabled } from '@/shared/voiceDebug';
@@ -42,6 +43,7 @@ import { ScheduleMessagePopover } from '@/modules/chat/composer/ScheduleMessageP
 import { ScheduledMessageList } from '@/modules/chat/composer/ScheduledMessageList';
 import ComposerModelMenu from '@/modules/chat/composer/ComposerModelMenu';
 import ComposerPermissionMenu from '@/modules/chat/composer/ComposerPermissionMenu';
+import ComposerMobileMoreMenu from '@/modules/chat/composer/ComposerMobileMoreMenu';
 
 type MentionableFile = {
   name: string;
@@ -210,6 +212,10 @@ export default function ChatComposer({
   // Same resolution the keydown uses, so the hint below cannot describe a key that does
   // something else on this device.
   const { sendOnEnter, touchOnly } = useSendOnEnter(sendByCtrlEnter);
+  // Drives the footer's layout branch below. It is `md` (768px) on purpose: the
+  // `sm` (640px) boundary this group used to switch on gave the 640–767px band a
+  // third arrangement, and the device rule the rest of the app uses is this one.
+  const { isMobile } = useDeviceSettings();
   const fileDropdownRef = useRef<HTMLDivElement | null>(null);
   const selectedFileRef = useRef<HTMLDivElement | null>(null);
   const commandMenuPosition = useMemo(() => {
@@ -487,8 +493,14 @@ export default function ChatComposer({
             />
         </PromptInputBody>
 
-        <PromptInputFooter className="flex-wrap gap-y-1">
-          <PromptInputTools className="min-w-0">
+        {/*
+          Below the `md` breakpoint the row must never wrap: the six controls that
+          send a message stay reachable without hunting, so both groups are
+          `shrink-0` and the box is `flex-nowrap`. From `md` up the previous
+          wrapping row is kept exactly as it was.
+        */}
+        <PromptInputFooter className={isMobile ? 'flex-nowrap' : 'flex-wrap gap-y-1'}>
+          <PromptInputTools className={isMobile ? 'shrink-0' : 'min-w-0'}>
             <PromptInputButton
               tooltip={{ content: t('input.attachFiles') }}
               onClick={openAttachmentPicker}
@@ -515,42 +527,64 @@ export default function ChatComposer({
               <VoiceClipButton clips={clipSlot} state={clipPlayState} onToggle={toggleClipPlayback} />
             )}
 
-            <TokenUsageSummary usage={tokenBudget} onClick={onShowTokenUsage} />
+            {isMobile ? (
+              // The three controls below move behind one entry on a phone; that
+              // entry is the only addition to this row, so the row stays six wide.
+              <ComposerMobileMoreMenu
+                tokenBudget={tokenBudget}
+                onShowTokenUsage={onShowTokenUsage}
+                slashCommandsCount={slashCommandsCount}
+                onToggleCommandMenu={onToggleCommandMenu}
+                canSchedule={Boolean(input.trim())}
+                onScheduleMessage={onScheduleMessage}
+              />
+            ) : (
+              <>
+                <TokenUsageSummary usage={tokenBudget} onClick={onShowTokenUsage} />
 
-            <PromptInputButton
-              tooltip={{ content: t('input.showAllCommands') }}
-              onClick={onToggleCommandMenu}
-              className="relative"
-              aria-label={t('input.showAllCommands')}
-            >
-              <MessageSquareIcon />
-              {slashCommandsCount > 0 && (
-                <span
-                  className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground"
+                <PromptInputButton
+                  tooltip={{ content: t('input.showAllCommands') }}
+                  onClick={onToggleCommandMenu}
+                  className="relative"
+                  aria-label={t('input.showAllCommands')}
                 >
-                  {slashCommandsCount}
-                </span>
-              )}
-            </PromptInputButton>
+                  <MessageSquareIcon />
+                  {slashCommandsCount > 0 && (
+                    <span
+                      className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground"
+                    >
+                      {slashCommandsCount}
+                    </span>
+                  )}
+                </PromptInputButton>
 
-            {hasInput && (
-              <PromptInputButton
-                tooltip={{ content: t('input.clearInput', { defaultValue: 'Clear input' }) }}
-                onClick={onClearInput}
-                className="hidden sm:flex"
-                aria-label={t('input.clearInput', { defaultValue: 'Clear input' })}
-              >
-                <XIcon />
-              </PromptInputButton>
+                {/*
+                  Desktop only. The narrow row is exactly the six primary controls,
+                  so a seventh that appears with text would either wrap it or push
+                  send off the edge — the one thing that row may not do.
+                */}
+                {hasInput && (
+                  <PromptInputButton
+                    tooltip={{ content: t('input.clearInput', { defaultValue: 'Clear input' }) }}
+                    onClick={onClearInput}
+                    className="hidden sm:flex"
+                    aria-label={t('input.clearInput', { defaultValue: 'Clear input' })}
+                  >
+                    <XIcon />
+                  </PromptInputButton>
+                )}
+              </>
             )}
 
           </PromptInputTools>
 
-          <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
-            <ScheduleMessagePopover
-              disabled={!input.trim()}
-              onSchedule={onScheduleMessage}
-            />
+          <div className="ml-auto flex shrink-0 items-center gap-1.5 md:gap-2">
+            {!isMobile && (
+              <ScheduleMessagePopover
+                disabled={!input.trim()}
+                onSchedule={onScheduleMessage}
+              />
+            )}
 
             <ComposerModelMenu
               effort={effort}

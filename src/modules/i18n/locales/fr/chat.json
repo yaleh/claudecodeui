@@ -129,6 +129,7 @@
     },
     "clickToChangeMode": "Cliquez pour changer le mode de permission (ou appuyez sur Tab dans la saisie)",
     "showAllCommands": "Afficher toutes les commandes",
+    "moreTools": "Plus d'outils",
     "clearInput": "Effacer la saisie",
     "scrollToBottom": "Défiler vers le bas",
     "queue": {
