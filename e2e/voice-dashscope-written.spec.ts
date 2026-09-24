@@ -218,9 +218,17 @@ const ACCOUNT_FORM_PROBE = '#username';
 
 /** How long the account form's *first* appearance is given on the navigation, and on each bounded reload after it. */
 const STARTUP_PROBE_MS = 8_000;
-const STARTUP_RELOAD_PROBE_MS = 4_000;
-/** How many reloads the startup probe is allowed before it reports the client never came up. */
-const STARTUP_PROBE_RELOADS = 3;
+const STARTUP_RELOAD_PROBE_MS = 3_000;
+
+/**
+ * How long the startup probe may spend proving the form is there, reloads included.
+ *
+ * A deadline rather than a reload count, because it is the *sum* that has to stay inside the criterion's own
+ * wall clock: the bounded-failure reading asks that a probe which cannot succeed ends the run in under 30s,
+ * and that run pays the config evaluation, both servers' boot and the browser launch before the probe's first
+ * attempt even starts. Counting reloads leaves that head-room to chance; a deadline spends it.
+ */
+const STARTUP_PROBE_DEADLINE_MS = 14_000;
 
 /**
  * How long the account wizard — both of its forms, and every re-entry after a replaced document — is given.
@@ -787,10 +795,14 @@ test.beforeAll(async ({ browser }) => {
   // the difference. Neither throws on its own — the navigation succeeded, so nothing surfaces until the wait
   // for the form runs out. A reload clears both, so it is retried, bounded, because this preamble is not what
   // the criterion tests; if it is still absent the probe ends here, with what the page and the run said.
+  const probeDeadline = Date.now() + STARTUP_PROBE_DEADLINE_MS;
   let onboarded = await appears(onboarding.locator(ACCOUNT_FORM_PROBE), STARTUP_PROBE_MS);
-  for (let attempt = 0; !onboarded && attempt < STARTUP_PROBE_RELOADS; attempt += 1) {
+  while (!onboarded && Date.now() < probeDeadline) {
     await onboarding.reload();
-    onboarded = await appears(onboarding.locator(ACCOUNT_FORM_PROBE), STARTUP_RELOAD_PROBE_MS);
+    onboarded = await appears(
+      onboarding.locator(ACCOUNT_FORM_PROBE),
+      Math.min(STARTUP_RELOAD_PROBE_MS, Math.max(1, probeDeadline - Date.now())),
+    );
   }
   if (!onboarded) {
     throw new Error(`the account form never rendered; ${await readStartupEvidence(onboarding)}`);
