@@ -11,7 +11,7 @@
  * 这个文件证伪的是 ② 的【机制】，不是它的墙钟数字（那由 AC1 的实跑读数负责）：
  * 夹具把两个阶段缩到毫秒级（stub `bash scripts/test.sh` 按收到的文件参数逐条吐 __PERFILE__
  * 行；stub `npx` 睡一小会儿后退出 0，于是两份套件有正的并发重叠），判据的形状、基线键、
- * 命中前三样再校验、判定语义全部照跑。
+ * 命中前的逐项再校验、判定语义全部照跑。
  *
  * 覆盖（AC4 逐条）：
  *   T1 默认预算字面量（判词里是 /60000ms）+ 正面控制：预算充裕时【不因预算红】，
@@ -24,10 +24,27 @@
  *      （fail-closed / 预算闸）上，只有前一次写生效 —— 它必须带上真的 median/n。
  *   T7 estimate 段的 `0` 是【没量过】的占位而不是读数：并发相窗口为 0 时，估计必须落到
  *      安静相窗口那格真读数，⛔ 不许短接到冷地板 45000（判词点名的来源就是这件事的读数）。
+ *   T8–T11 是【逐文件再校验】那一半（`gap-ac103-whole-set-baseline-key-revives-full-quiet-phase`），
+ *      跑在一棵临时树里（判据的 ROOT_DIR 由 BASH_SOURCE 推出 ⇒ 服务端文件集可数）：
+ *   T8 粒度是【内容】不是 mtime：touch 一个文件后仍然全命中，且安静相一次读数都没跑。
+ *   T9 内容变了的那个文件重量、其余复用：读数只收到那一个文件，复用的读数逐条来自记录
+ *      （这一轮的伪读数被换成 777ms ⇒ 表里只有那一个是 777，其余仍是上一轮的 50 ——
+ *      「重量」与「复用」在读数上不可互换），中位分母仍是整个文件集。
+ *   T10 ⛔ 没有逐文件表就一条都不许复用：删表 ⇒ 全部重量（复用必须逐条有据）。
+ *   T11 表里没有的文件（新增）也只重量它自己，且这一相把表补全 ⇒ 下一相全命中。
  */
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -86,10 +103,22 @@ function buildFixture() {
     `#!${REAL_BASH}
 if [ "\${1:-}" = "scripts/test.sh" ]; then
   shift
+  if [ -n "\${SCC_TEST_STUB_ARGS_LOG:-}" ]; then
+    printf 'CALL' >> "\$SCC_TEST_STUB_ARGS_LOG"
+    for a in "\$@"; do
+      case "\$a" in --*) ;; *) printf ' %s' "\$a" >> "\$SCC_TEST_STUB_ARGS_LOG" ;; esac
+    done
+    printf '\\n' >> "\$SCC_TEST_STUB_ARGS_LOG"
+  fi
   while [ "\$#" -gt 0 ]; do
     case "\$1" in
       --*) shift ;;
-      *) printf '__PERFILE__ duration_ms=%s %s passed=true end_ms=0\\n' "\${SCC_TEST_STUB_DURATION:-50}" "\$1"; shift ;;
+      *) dur="\${SCC_TEST_STUB_DURATION:-50}"
+         if [ -n "\${SCC_TEST_STUB_DUR_MAP:-}" ]; then
+           m="\$(awk -v p="\$1" '\$1 == p { print \$2; exit }' "\$SCC_TEST_STUB_DUR_MAP" 2>/dev/null)"
+           [ -n "\$m" ] && dur="\$m"
+         fi
+         printf '__PERFILE__ duration_ms=%s %s passed=true end_ms=0\\n' "\$dur" "\$1"; shift ;;
     esac
   done
   exit 0
@@ -152,6 +181,106 @@ function fixture(t) {
   const fx = buildFixture();
   t.after(() => rmSync(fx.root, { recursive: true, force: true }));
   return fx;
+}
+
+// ── T8–T11 的夹具：一个【可数的】服务端文件集 ────────────────────────────────
+// 判据的 ROOT_DIR 由 BASH_SOURCE 推出、服务端文件集是 `find server …`（相对 ROOT_DIR）。
+// 于是把判据脚本【原样复制】到一棵临时树里，它就只看得见那棵树里那几个合成文件 ——
+// 这是「逐文件」这件事唯一测得动的前提：真仓的服务端文件上百个，「哪一个被复用了」不可断言。
+// ⛔ 复制的就是本仓那一份脚本（不是改写过的副本）：被判的仍然是被判对象本身。
+
+/** @param {import('node:test').TestContext} t @returns {string} 临时树根（内含 scripts/ 与 server/） */
+function treeFixture(t) {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'scc-tree-'));
+  mkdirSync(path.join(root, 'scripts'), { recursive: true });
+  mkdirSync(path.join(root, 'server', 'nested'), { recursive: true });
+  copyFileSync(CRITERION, path.join(root, 'scripts', 'suite-concurrency-check.sh'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  return root;
+}
+
+/**
+ * 在临时树里跑一次判据（判据的 ROOT_DIR = 临时树，故服务端文件集 = 合成文件集）。
+ * ⛔ 不设 SCC_LOG_DIR / SCC_CACHE_DIR：走判据自己的默认路径（<root>/.quay/…），
+ * 于是这份测试顺带证明默认落点也在被覆盖的树里。
+ *
+ * @param {string} root
+ * @param {Fixture} fx 只用它的 bin（stub 的 PATH）
+ * @param {string[]} args
+ * @param {Record<string, string>} [extraEnv]
+ * @returns {CriterionRun}
+ */
+function runTree(root, fx, args, extraEnv = {}) {
+  const r = spawnSync(REAL_BASH, [path.join(root, 'scripts', 'suite-concurrency-check.sh'), ...args], {
+    cwd: root,
+    encoding: 'utf8',
+    timeout: 120000,
+    env: { ...process.env, PATH: `${fx.bin}:${process.env.PATH}`, ...extraEnv },
+  });
+  const stdout = String(r.stdout ?? '');
+  const stderr = String(r.stderr ?? '');
+  return {
+    status: r.status,
+    stdout,
+    stderr,
+    verdict: stdout
+      .split('\n')
+      .filter((l) => VERDICT_RE.test(`${l}\n`))
+      .join('\n'),
+    context: (s) => `${s}\n--- exit=${r.status}\n${stdout}\n${stderr}`,
+  };
+}
+
+/** @param {string} p */
+function sha256Of(p) {
+  return execFileSync('sha256sum', [p], { encoding: 'utf8' }).split(' ')[0];
+}
+
+/**
+ * stub 收到的每一次 `bash scripts/test.sh …` 调用的【文件参数】。stub 每被调用一行
+ * `CALL <file>…` —— 于是「安静相这一次到底量了几个文件」是实测，不是推断。
+ *
+ * @param {string} logPath
+ * @returns {string[][]}
+ */
+function stubCalls(logPath) {
+  if (!existsSync(logPath)) return [];
+  return readFileSync(logPath, 'utf8')
+    .split('\n')
+    .filter((l) => l.startsWith('CALL'))
+    .map((l) => l.slice('CALL'.length).trim().split(/\s+/).filter(Boolean));
+}
+
+/**
+ * 逐文件读数表 `<内容sha256> <duration_ms> <passed> <path>` → path → 那一行的三个字段。
+ *
+ * @param {string} root
+ * @returns {Map<string, { sha: string, dur: string, passed: string }>}
+ */
+function tableMap(root) {
+  const p = path.join(root, '.quay', 'suite-concurrency-check', 'cache', 'quiet-baseline.files');
+  assert.ok(existsSync(p), `逐文件读数表应存在：${p}`);
+  const out = new Map();
+  for (const line of readFileSync(p, 'utf8').split('\n')) {
+    if (line.trim() === '') continue;
+    const [sha, dur, passed, ...rest] = line.split(' ');
+    out.set(rest.join(' '), { sha, dur, passed });
+  }
+  return out;
+}
+
+/** 一棵临时树里的合成服务端文件（含一个子目录、一个 .test.js —— 两条 find 分支都要覆盖）。 */
+const SEED_FILES = [
+  'server/alpha.test.ts',
+  'server/beta.test.ts',
+  'server/delta.test.js',
+  'server/epsilon.test.ts',
+  'server/nested/gamma.test.ts',
+];
+
+/** @param {string} root @param {string[]} files */
+function seedServer(root, files) {
+  for (const f of files) writeFileSync(path.join(root, f), `// ${f}\n`);
 }
 
 test('T1 默认预算字面量是 /60000ms；预算充裕时判据不因预算红（正面控制）', (t) => {
@@ -306,5 +435,178 @@ test('T7 estimate 的 `0` 是「没量过」不是读数：必须回退到安静
     r.verdict,
     /无历史读数，保守地板/,
     r.context('quiet 窗口还在时不许短接到冷地板（0 不是读数）'),
+  );
+});
+
+// ── T8–T11：逐文件再校验（复用的颗粒度是【文件的内容】）──────────────────────
+// 判词里那截归因读数是断言面：`安静相成本=模式:<m> 复用=<r>/<n> 重跑=[<名单>] 重跑窗口=<ms>ms`。
+
+test('T8 复用的粒度是【内容】不是 mtime：touch 一个文件后仍然全命中，安静相一次读数都没跑', (t) => {
+  const fx = fixture(t);
+  const root = treeFixture(t);
+  seedServer(root, SEED_FILES);
+  const argsLog = path.join(root, 'stub-args.log');
+
+  const warm = runTree(root, fx, ['--test-concurrency=4'], { SCC_TEST_STUB_ARGS_LOG: argsLog });
+  assert.equal(warm.status, 0, warm.context('预热运行应为绿'));
+  // 冷路径：整相活读数，一条都没复用。
+  assert.match(warm.verdict, /安静基线=活读数/, warm.context('首次运行应为活读数'));
+  assert.match(warm.verdict, /安静相成本=模式:live 复用=0\/5 /, warm.context('冷路径不该复用任何读数'));
+  assert.equal(stubCalls(argsLog).length, 3, warm.context('冷路径的安静相 + 并发相各读过一次'));
+  assert.equal(stubCalls(argsLog)[0].length, 5, warm.context('冷路径的安静相应量整个文件集'));
+
+  // ⛔ 把 alpha 的 mtime 推到未来，内容一字未动。旧实现（整集「路径+大小+mtime」指纹）会因此
+  // 判定键失配 ⇒ 整相重量；逐文件内容哈希这一版必须仍然全命中 —— mtime 只对「真的改了内容」
+  // 敏感、对「只是摸了一下」过敏，两个方向都错。
+  const future = Date.now() / 1000 + 4000;
+  utimesSync(path.join(root, 'server', 'alpha.test.ts'), future, future);
+  writeFileSync(argsLog, '');
+
+  const again = runTree(root, fx, ['--test-concurrency=4'], { SCC_TEST_STUB_ARGS_LOG: argsLog });
+  assert.equal(again.status, 0, again.context('touch 之后的运行应为绿'));
+  assert.match(
+    again.verdict,
+    /安静相成本=模式:cached 复用=5\/5 重跑=\[无\] /,
+    again.context('mtime 变了但内容没变 ⇒ 必须逐文件全命中'),
+  );
+  const calls = stubCalls(argsLog);
+  assert.equal(calls.length, 2, again.context('全命中时安静相不许起读数：只剩并发相的两次'));
+  for (const c of calls) {
+    assert.equal(c.length, 5, again.context('并发相仍然是整个文件集'));
+  }
+});
+
+test('T9 内容变了的那个文件重量、其余复用；中位分母仍是整个文件集', (t) => {
+  const fx = fixture(t);
+  const root = treeFixture(t);
+  seedServer(root, SEED_FILES);
+  const argsLog = path.join(root, 'stub-args.log');
+
+  const warm = runTree(root, fx, ['--test-concurrency=4'], {
+    SCC_TEST_STUB_ARGS_LOG: argsLog,
+    SCC_TEST_STUB_DURATION: '50',
+  });
+  assert.equal(warm.status, 0, warm.context('预热运行应为绿'));
+
+  // 改一个字符，并让 beta 这一步的伪读数变成 40ms（其余文件仍是 50ms）。⛔ 用【逐文件】的
+  // 读数表而不是把整轮的伪读数换掉：并发相也要读同一张表，于是「安静 50 vs 并发 50」= 1.00×，
+  // 判绿是它本来的理由，不是被 fixture 的常量差顶出来的。
+  // 若实现把整集重量，quiet 的中位与表里的 alpha/delta/… 全都会变成新值 —— 复用的读数
+  // 与重量的读数因此在【读数本身】上不可互换，而不是只靠条数说话。
+  writeFileSync(path.join(root, 'server', 'beta.test.ts'), '// changed\n');
+  const durMap = path.join(root, 'stub-dur.map');
+  writeFileSync(
+    durMap,
+    SEED_FILES.map((f) => `${f} ${f === 'server/beta.test.ts' ? 40 : 50}`).join('\n') + '\n',
+  );
+  writeFileSync(argsLog, '');
+  const again = runTree(root, fx, ['--test-concurrency=4'], {
+    SCC_TEST_STUB_ARGS_LOG: argsLog,
+    SCC_TEST_STUB_DURATION: '50',
+    SCC_TEST_STUB_DUR_MAP: durMap,
+  });
+
+  assert.equal(again.status, 0, again.context('部分重量的运行应为绿'));
+  assert.match(
+    again.verdict,
+    /安静相成本=模式:partial 复用=4\/5 重跑=\[server\/beta\.test\.ts\] 重跑窗口=\d+ms/,
+    again.context('判词应点名「复用 4 条、只重跑 beta」'),
+  );
+  assert.match(again.verdict, /安静=\d+ms\(n=5\)/, again.context('中位分母仍是整个文件集'));
+
+  const calls = stubCalls(argsLog);
+  assert.equal(calls.length, 3, again.context('安静相 1 次 + 并发相 2 次'));
+  assert.deepEqual(calls[0], ['server/beta.test.ts'], again.context('重跑相只许收到那一个文件'));
+
+  const table = tableMap(root);
+  assert.equal(table.size, 5, again.context('表应覆盖整个文件集'));
+  assert.equal(
+    table.get('server/beta.test.ts')?.dur,
+    '40',
+    again.context('被重跑的那条应是本节实测的新读数'),
+  );
+  for (const f of ['server/alpha.test.ts', 'server/delta.test.js', 'server/epsilon.test.ts', 'server/nested/gamma.test.ts']) {
+    assert.equal(
+      table.get(f)?.dur,
+      '50',
+      again.context(`复用来的读数必须【逐条来自记录】（${f} 该是上一轮的 50，整集重量的话会是 50 之外的新值）`),
+    );
+  }
+  // 记录里的哈希 = 判定那一刻的内容哈希（两者同源）：beta 那条必须是【新】内容的哈希。
+  assert.equal(
+    table.get('server/beta.test.ts')?.sha,
+    sha256Of(path.join(root, 'server', 'beta.test.ts')),
+    again.context('记录里的哈希必须等于当前内容 —— 记录与复用判定同源'),
+  );
+
+  // 这一相之后没有别的内容变化 ⇒ 下一相必须全命中（部分重量把表补全了，而不是留着旧条）。
+  const third = runTree(root, fx, ['--test-concurrency=4'], {
+    SCC_TEST_STUB_ARGS_LOG: argsLog,
+    SCC_TEST_STUB_DURATION: '50',
+    SCC_TEST_STUB_DUR_MAP: durMap,
+  });
+  assert.match(
+    third.verdict,
+    /安静相成本=模式:cached 复用=5\/5 /,
+    third.context('部分重量之后的表应已覆盖新内容 ⇒ 下一相全命中'),
+  );
+});
+
+test('T10 ⛔ 没有逐文件读数表就一条都不许复用：删表 ⇒ 全部重量', (t) => {
+  const fx = fixture(t);
+  const root = treeFixture(t);
+  seedServer(root, SEED_FILES);
+  const argsLog = path.join(root, 'stub-args.log');
+
+  const warm = runTree(root, fx, ['--test-concurrency=4'], { SCC_TEST_STUB_ARGS_LOG: argsLog });
+  assert.equal(warm.status, 0, warm.context('预热运行应为绿'));
+
+  // ⛔ AC 明文禁止的形态：读数【记录】不在了，却靠键或日志继续复用 —— 那等于把没有读数
+  // 当过有读数。删掉表必须退成整相活读数。
+  rmSync(path.join(root, '.quay', 'suite-concurrency-check', 'cache', 'quiet-baseline.files'));
+  writeFileSync(argsLog, '');
+  const again = runTree(root, fx, ['--test-concurrency=4'], { SCC_TEST_STUB_ARGS_LOG: argsLog });
+
+  assert.equal(again.status, 0, again.context('退成活读数后应为绿'));
+  assert.match(again.verdict, /安静基线=活读数/, again.context('表缺失 ⇒ 必须退成活读数'));
+  assert.match(again.verdict, /安静相成本=模式:live 复用=0\/5 /, again.context('表缺失时复用条数必须是 0'));
+  // 「为什么重量」印在 [quiet] 那一行（不是判词行）：它是运行过程的一部分，不是判定。
+  assert.match(again.stdout, /逐文件读数表缺失/, again.context('判词应点名重量是因为表不在'));
+  assert.equal(stubCalls(argsLog)[0].length, 5, again.context('退成活读数就要量整个文件集'));
+});
+
+test('T11 表里没有的文件（新增）也只重量它自己，且这一相把表补全 ⇒ 下一相全命中', (t) => {
+  const fx = fixture(t);
+  const root = treeFixture(t);
+  seedServer(root, SEED_FILES);
+  const argsLog = path.join(root, 'stub-args.log');
+
+  const warm = runTree(root, fx, ['--test-concurrency=4'], { SCC_TEST_STUB_ARGS_LOG: argsLog });
+  assert.equal(warm.status, 0, warm.context('预热运行应为绿'));
+
+  writeFileSync(path.join(root, 'server', 'zeta.test.ts'), '// new\n');
+  writeFileSync(argsLog, '');
+  const again = runTree(root, fx, ['--test-concurrency=4'], { SCC_TEST_STUB_ARGS_LOG: argsLog });
+
+  assert.equal(again.status, 0, again.context('新增文件后的运行应为绿'));
+  assert.match(
+    again.verdict,
+    /安静相成本=模式:partial 复用=5\/6 重跑=\[server\/zeta\.test\.ts\] /,
+    again.context('新增文件只重量它自己（「表里没这个条目」与「哈希不等」同一条口径）'),
+  );
+  // 分母跟着文件集长：覆盖面是【本次枚举到的文件集】，不是上一轮的规模。
+  assert.match(again.verdict, /安静=\d+ms\(n=6\)/, again.context('中位分母应含新增的那个文件'));
+  assert.deepEqual(
+    stubCalls(argsLog)[0],
+    ['server/zeta.test.ts'],
+    again.context('重跑相只许收到新增的那一个文件'),
+  );
+
+  const third = runTree(root, fx, ['--test-concurrency=4'], { SCC_TEST_STUB_ARGS_LOG: argsLog });
+  assert.equal(third.status, 0, third.context('第三相应为绿'));
+  assert.match(
+    third.verdict,
+    /安静相成本=模式:cached 复用=6\/6 重跑=\[无\] /,
+    third.context('部分重量应已把新文件补进表 ⇒ 下一相全命中'),
   );
 });
