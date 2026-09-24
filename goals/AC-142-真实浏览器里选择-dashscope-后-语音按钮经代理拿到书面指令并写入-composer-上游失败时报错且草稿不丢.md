@@ -1,7 +1,7 @@
 ---
 id: AC-142
 title: 真实浏览器里选择 DashScope 后，语音按钮经代理拿到书面指令并写入 composer；上游失败时报错且草稿不丢
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-009
 criterion: npx playwright test e2e/voice-dashscope-written.spec.ts -g "AC-142"
@@ -18,6 +18,11 @@ statusLog:
     to: active
     actor: goal-cli
     reason: ""
+  - at: 2026-09-24T08:29:46.424Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
