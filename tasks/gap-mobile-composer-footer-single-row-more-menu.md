@@ -2,7 +2,7 @@
 id: gap-mobile-composer-footer-single-row-more-menu
 title: 移动端 composer 主操作栏固定单行：常驻只留 附件/语音/更多/模型/权限/发送，Commands/定时发送/Token usage
   收进「更多」菜单（桌面不变）
-status: ready
+status: done
 labels:
   - gap
 parent: null
