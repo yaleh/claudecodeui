@@ -2,7 +2,7 @@
 id: gap-voice-capture-real-process
 title: 真实服务进程按 VOICE_CAPTURE 启动：stdout 出现启动行与捕获行、未设置时零捕获行，读数来自子进程 stdout 与一次真实
   HTTP（AC-148）
-status: ready
+status: done
 labels:
   - gap
 parent: null
