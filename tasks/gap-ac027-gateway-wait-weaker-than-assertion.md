@@ -2,7 +2,7 @@
 id: gap-ac027-gateway-wait-weaker-than-assertion
 title: AC-027 第三条腿的等待弱于断言：45s poll 只认 token，而 SDK 的会话命名请求带同一 token 先到 ⇒ 紧随其后的
   find(model id) 不等就查，判据在请求次序上翻红（同树 16:28 红 / 16:29 绿 / 16:33 绿 / 16:36 红）
-status: todo
+status: ready
 labels:
   - gap
   - defect
