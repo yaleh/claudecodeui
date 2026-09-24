@@ -85,8 +85,8 @@ L_G 该轴仍暗，理由：书面化质量（意图正确率/误导率）按 GO
 - src/modules/settings/hooks/useVoiceProviderOptions.ts（新，读 health 载荷的 providers[] 与字段声明）
 - src/modules/settings/tests/voiceSettingsProviderSelection.test.tsx（新）
 - src/shared/voiceConfig.ts
-- src/shared/tests/voiceConfig.test.ts（AC7 把存储文档加宽成十格，本文件断言其逐字段形状）
-- src/shared/tests/voiceConfigHydration.test.ts（同 AC7；水合读回与整档 PUT 的文档形状）
+- src/shared/tests/voiceConfig.test.ts
+- src/shared/tests/voiceConfigHydration.test.ts
 - src/modules/i18n/locales/en/settings.json
 - server/shared/types.ts
 - server/modules/voice/voice.service.ts
@@ -122,7 +122,7 @@ L_G 该轴仍暗，理由：书面化质量（意图正确率/误导率）按 GO
 
 重测（在该合并之后的树上）：两个共享契约文件 `25 passed`；`npm run typecheck` 三套退出 0；`npm run lint` 退出 0（error 行 0）；`voiceHealth.test.ts` + `voice-settings.db.integration.test.ts` → `tests 14 / pass 14 / fail 0`；anti-drift `13 actual file(s), all within declared Touches (14 glob(s))`。AC1–AC9、AC11、AC12 的读数不受影响：这一轮只改了 `src/shared/tests/` 下两个文件，判据（浏览器侧那条）不读它们。
 
-**scoped 门与缓存**：`bash scripts/test.sh --for-task gap-voice-dashscope-written-browser-e2e --allow-thin` 退出 0（`# tests 1 # pass 1`，跑的是 `server/modules/voice/tests/voiceHealth.test.ts`）。两个 `src/shared/tests/voiceConfig*.test.ts` 的 bullet 带 AC 注解，而 `test.sh:112` 用 `grep -E '\.test\.[jt]sx?$'` 取的是 bullet 的**第一个字段**，注解会把它挤出 scoped 面 —— 这是仓库既有形状（同类注解 bullet 共 132 条），这两个文件由整档 suite 覆盖，上面那轮红正是它抓到的。scoped-gate cache 按退出时的 develop tip 写入（`--develop-sha "$(git rev-parse develop)"`，即本记录自身的 `task_write` 提交）：key 与 fan-in 读到的 tip 一致时命中，不一致时只是重新跑一遍这条一文件的 scoped 门，不会给出错误判决。
+**scoped 门与缓存**：`bash scripts/test.sh --for-task gap-voice-dashscope-written-browser-e2e --allow-thin` 退出 0，`# tests 3 # pass 3 / # fail 0`（`server/modules/voice/tests/voiceHealth.test.ts` + 两个 `src/shared/tests/voiceConfig*.test.ts`）。这三个 bullet 都写成**裸路径**是刻意的：`test.sh:112` 先 `print $1` 再 `grep -E '\.test\.[jt]sx?$'`，所以紧跟路径的 `（注解）` 会被连同路径一起取走、令该行不匹配 —— 带注解的 bullet 对 scoped 门**不可见**（仓库里同类注解 bullet 有 132 条，裸的 86 条）。上一轮的红正是因此绕过 scoped 门、只在整档 suite 里现形；把这两个文件按裸路径声明，才是那条红的结构性修法（`scoped-gate-file-set-is-touches-test-bullets-only` 第 2 条）。scoped-gate cache 按退出时的 develop tip 写入（`--develop-sha "$(git rev-parse develop)"`，即本记录自身的 `task_write` 提交）：key 与 fan-in 读到的 tip 一致时命中，不一致时只是重新跑一遍这条三门 scoped 门，不会给出错误判决。
 
 **如实登记（AC12 逐条）**：本条只做浏览器端到端与设置页的服务选择/字段 —— 不做 dashscope-omni 线协议、不做服务端分派、不做 transport 与白名单规则的本体、不做用户凭据的存储/掩码/日志，这四件都由本条**消费**而非复制。判据把 `/api/voice/transcribe` 与 aliyuncs 主机都拦在浏览器侧，**不等于**真实 DashScope 与真机浏览器（ADR-004 决策 8：真实冒烟归人工）；`qwen3.8-omni-flash` 是别名，服务端升级后可能漂移；`-g "AC-142"` 的两条腿不 reload，掩码回写那条规则不在本条内（水合回来的 `dashscopeApiKey` 是掩码，本条只证明「设置页里填的明文原样上线」）。
 
