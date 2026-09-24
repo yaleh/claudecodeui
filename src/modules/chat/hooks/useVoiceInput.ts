@@ -9,7 +9,9 @@ import type {
   VoiceClipPlayState,
   VoiceClipSlot,
   VoiceClipTrack,
+  VoiceFailureReport,
   VoiceInputState,
+  VoiceTranscriptionFailure,
 } from '@/shared/types';
 import { isVoiceDebugEnabled, isVoiceTrimEnabled } from '@/shared/voiceDebug';
 import { trimDecisionFor, trimVoiceAudio } from '@/shared/voiceTrim';
@@ -49,7 +51,7 @@ function extensionFor(mimeType: string): string {
 }
 
 /**
- * The recogniser seam's semantic code out of a refused transcription answer, or `null`.
+ * The recogniser seam's classification out of a refused transcription answer.
  *
  * Read out of the answer's body rather than derived from its status, because the status alone
  * cannot say which of the two refusals this was. `415` and `413` are the two the seam publishes —
@@ -58,17 +60,24 @@ function extensionFor(mimeType: string): string {
  * message. Deriving a code from the number here would be a second opinion about a classification
  * the two paths already agree on, and it would be wrong for every other 4xx the backend can send.
  *
+ * BOTH CODES ARE READ, AND THEY ARE NOT THE SAME THING. `code` is the semantic member the vocabulary
+ * names; `upstreamCode` is the recogniser's own string, passed through by the backend when it had
+ * one. Neither is invented here: a body that is not JSON, or one carrying neither field, leaves the
+ * status alone to report — which is all there is.
+ *
  * The body is read from a clone, so the original answer is not left spent for the caller that
- * still wants it. A body that is not JSON, or one carrying no code, reads as `null`: the message
- * is then whatever the transport said, which is all there is to say.
+ * still wants it.
  */
-async function refusalCode(response: Response): Promise<string | null> {
+async function refusalDetail(response: Response): Promise<VoiceTranscriptionFailure> {
   try {
     const body: unknown = await response.clone().json();
-    const code = (body as { code?: unknown } | null)?.code;
-    return typeof code === 'string' && code ? code : null;
+    const record = body as { code?: unknown; upstreamCode?: unknown } | null;
+    const code = typeof record?.code === 'string' && record.code ? record.code : undefined;
+    const upstreamCode =
+      typeof record?.upstreamCode === 'string' && record.upstreamCode ? record.upstreamCode : undefined;
+    return { status: response.status, code, upstreamCode };
   } catch {
-    return null;
+    return { status: response.status };
   }
 }
 
@@ -325,10 +334,16 @@ const NO_CANDIDATES: readonly string[] = [];
  * replay what was just said — and, once the trim has run, replay what was actually sent
  * beside it. The recording is taken before the upload, so a failed or timed-out
  * transcription still leaves something to listen back to.
+ *
+ * `onError` carries two kinds of failure (see `VoiceFailureReport`): a recogniser refusal as the
+ * `{ code, status, upstreamCode }` the answer carried, and the chain's own local failures as the
+ * sentence they have always been. The split is not cosmetic — a refusal's sentence depends on the
+ * code and on the user's language, neither of which this hook knows, so writing one here would be
+ * a sentence in the wrong language that no consumer could re-translate.
  */
 export function useVoiceInput(
   onTranscript: (text: string, send?: boolean) => void,
-  onError?: (msg: string) => void,
+  onError?: (failure: VoiceFailureReport) => void,
   options: UseVoiceInputOptions = {},
 ) {
   const { scope = null, isActive = true, candidates = NO_CANDIDATES } = options;
@@ -541,11 +556,16 @@ export function useVoiceInput(
       }
       const res = await transcribeVoice(prepared.body, prepared.filename);
       if (!res.ok) {
-        // The refusal's own classification travels with it, on both paths, so the user is told
-        // which of the two things to change — the recording's container or its length — instead of
-        // being handed a number they would have to know the seam to read.
-        const code = await refusalCode(res);
-        throw new Error(code ? `transcribe ${res.status} (${code})` : `transcribe ${res.status}`);
+        // The refusal is handed over STRUCTURED, not as a sentence the transport spelled: the code
+        // selects which sentence the composer shows, and the status and upstream code are what a
+        // technical line is built from. Flattening them into text here — `transcribe 502
+        // (UNSUPPORTED_MIME)` — spent all three at once, and left the composer unable to tell a
+        // refusal the vocabulary names from one it does not.
+        const refusal = await refusalDetail(res);
+        if (!cancelledRef.current) onError?.(refusal);
+        // The `finally` below still runs: the capture is over, the reading is reported and the
+        // state returns to idle on this exit exactly as it does on a thrown one.
+        return;
       }
       // Parsed before the cancellation check, exactly as the inline `res.json()` was: a body that
       // is not JSON still has to reach the catch below even when this capture was cancelled.
