@@ -2,7 +2,7 @@
 id: gap-asr-omni-prompt-frozen-snapshot
 title: dashscope-omni 提示词冻结：适配器四段提示词、reasoning_effort 与默认模型与冻结实验快照 E 组逐字一致，快照
   C/E 各 8 条片段 × 每条 10 次读数同一 run 且可离线重算
-status: todo
+status: ready
 labels:
   - gap
 parent: null
