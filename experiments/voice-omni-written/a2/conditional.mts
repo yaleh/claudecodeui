@@ -6,11 +6,13 @@ import { CONDS, instructionOf } from '../raw/written.mts';
 import { judge } from '../raw/judge.mts';
 import { judgeExt } from '../raw/judge-ext.mts';
 import { idsOf, has } from './strata.mjs';
+import { semantic } from './semantic.mts';
 const E = CONDS.find((c) => c.key === 'E-twostep-low')!;
 const rows = readFileSync(new URL('./results.jsonl', import.meta.url), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((r) => r.status === 200);
 const CTX: Record<string, string> = Object.fromEntries(JSON.parse(readFileSync(new URL('../fixtures/a2-contexts.json', import.meta.url), 'utf8')).contexts.map((c: any) => [c.key, c.text]));
 const ins = (r: any) => instructionOf(E, r.text).instruction;
-const V = (set: string, clip: string, text: string) => (set === 'base' ? judge(clip, text) : judgeExt(clip, text))[0];
+const SEM = process.env.JUDGE === 'semantic';
+const V = (set: string, clip: string, text: string) => SEM ? semantic({ set, clip, text: JSON.stringify({ transcript: '', instruction: text }) })[0] : (set === 'base' ? judge(clip, text) : judgeExt(clip, text))[0];
 const low = (s: string) => s.toLowerCase();
 function lev(a: string, b: string) { const d = Array.from({ length: a.length + 1 }, (_, i) => [i]); for (let j = 1; j <= b.length; j++) d[0][j] = j; for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); return d[a.length][b.length]; }
 // identifier-looking fragments in an output: backticked spans, dotted tokens, camelCase
