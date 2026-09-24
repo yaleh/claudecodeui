@@ -1,7 +1,7 @@
 ---
 id: AC-143
 title: 未设置、设为 off 或设为非法值时，语音捕获完全不存在：不多一行日志、不写文件，非法值失败关闭为 off
-status: draft
+status: active
 kind: criterion
 goal: GOAL-010
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -13,4 +13,15 @@ expect: 环境变量 VOICE_CAPTURE 未设置、为
   档对同样输入必须出现捕获行，证明这里的零不是空实现的零。取假形态：(1) 不看模式一律记录 ⇒ 必须红；(2) 无法识别的值当作 text ⇒ 必须红。
 origin: docs/proposals/voice-capture-server-side.md（2026-09-24 人 yale 裁定：三档
   off/text/audio、只在服务端配置、默认 off、无保留期与大小限制、音频目录不清理、AC-141 的转写正文条款错误需修订）
+activatedAt: 2026-09-24T11:20:16.514Z
+statusLog:
+  - at: 2026-09-24T11:20:16.514Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-09-24T11:20:16.514Z
 ---
