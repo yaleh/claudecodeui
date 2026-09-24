@@ -110,6 +110,7 @@ L_G 该轴仍暗，理由：目标层的读数是真实浏览器里页面上的�
 - src/modules/chat/hooks/useVoiceInput.ts
 - src/modules/chat/composer/ChatComposer.tsx
 - src/modules/chat/tests/voiceErrorMessages.test.tsx (new)
+- src/shared/types.ts (AC4/AC5：结构化失败载荷 VoiceTranscriptionFailure / VoiceFailureReport 被 useVoiceInput 生产、ChatComposer 消费、voiceErrorMessages 映射、判据断言四处共用；AGENTS.md 强制的 frontend-module-standards 规定两个以上文件使用的同一类型落在 src/shared/types.ts 且禁止模块内另立类型文件，故该位点由规范强制；其 CHAT VOICE 组已有 VoiceSnapshot / VoicePlayState / VoiceClipPlayState 先例)
 - src/modules/i18n/index.ts
 - src/modules/i18n/locales/en/chat.json
 - src/modules/i18n/locales/fr/chat.json
@@ -175,3 +176,17 @@ L_G 该轴仍暗，理由：目标层的读数是真实浏览器里页面上的�
 
 **L_D 该轴仍暗**，理由：本条读数全是字符串的存在性、相等/不等与集合大小，没有可比的数值量。
 **L_G 该轴仍暗**，理由：目标层的读数是真实浏览器里页面上的文案与提示持续显示（AC-153），本条只到 jsdom 里的气泡文本。
+
+### Touches 更正（第二轮，anti-drift 硬失败后补登）
+
+第一轮 fan-in 的 anti-drift 硬失败读数（可复现，退出码 1）：`out-of-declared: task wrote src/shared/types.ts (matches no declared Touches glob)` —— 共 1 条，正是本记录的漏登项。
+
+漏登原因不是顺手多写：`VoiceTranscriptionFailure` 与 `VoiceFailureReport` 是**跨文件共用**的类型 —— `useVoiceInput.ts` 生产它、`ChatComposer.tsx` 消费它、`utils/voiceErrorMessages.ts` 以它作映射入参、判据文件断言它，共四处。`AGENTS.md` 强制要求前端代码遵循 `frontend-module-standards`，该规范写明「两个以上文件使用的同一类型放在 `src/shared/types.ts`」并禁止为回避导入而在模块内另立类型文件或复制类型。也就是说这个写入位点是规范强制的，不是可以换地方的实现选择；且 `src/shared/types.ts` 的 `CHAT VOICE` 组本来就住着 `VoiceSnapshot` / `VoicePlayState` / `VoiceClipPlayState`（由更早落地的语音任务加入），本条落在这里与同模块既有先例一致。
+
+**实现与判据一个字节都没有改**：本轮只补登声明位点，随后重跑判据与既有面读数确认仍然全绿（读数见下）。为什么这条位点被判据需要：AC4 读的就是这条结构化失败载荷（驱动出货 composer、断言 `status` 保留为 502 且技术详情含子串 `502`），AC5 的映射入参也是它。
+
+**本轮重跑读数**（实现与判据未改动，以下为补登后在当前树上重取）：
+
+- 判据 `npx vitest run src/modules/chat/tests/voiceErrorMessages.test.tsx` → **exit 0**，9 tests passed：`fallback-probe en="EN" de="probe" no-fallback=true`、`langs=12 vocab=13 cells=168 missing=0`、`identical=0`、`concat-hits=0`、`vocab=13 mapped=26 distinct-messages=26 fallback-distinct=true unknown-code=true no-code=true`、`status=502 technical-detail="502" status-preserved=true`、三段取假形态 `base-green=true mutant-red=true outside-family-green=true`、`shipped-intact=true clones-in-memory=true`、`subprocess-imports=0`、`elapsed-ms=397`（< 30000）。
+- AC7 既有面逐条：五个文件 `npx vitest run …` → **exit 0**（5 files / 32 tests passed）；`npm run test:client` → **exit 0**（100 files / 699 tests passed）；`npm run typecheck` → **exit 0**；`npm run lint` → **exit 0**（仅既有 warning，无新增）。
+- anti-drift 自检（本轮补登后重跑）：`ANTI-DRIFT OK`，18 个实际文件全部落在 19 条声明位点内，0 violation。
