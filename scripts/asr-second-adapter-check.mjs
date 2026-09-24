@@ -34,6 +34,15 @@
  * declaration implies. Each case is also namespaced by the provider it ran against, so with two
  * registered adapters no case can be satisfied by the other adapter's reading of it (AC8).
  *
+ * THE VOCABULARY IS A TABLE WITH ONE ROW PER DECLARED WIRE (`WIRE_MODELS`), NOT A CLOSED SET WIDER
+ * THAN IT. It used to be the latter — `wire === 'multipart' ? 'multipart' : 'inline-json'` — and
+ * the fold was a defect with a live cost: a third adapter declaring `'chat-audio'` was scored as
+ * `inline-json`, so the probe asked its request for the other wire's credential header, fed it the
+ * other wire's answer envelope and sized it with the other wire's arithmetic. A CORRECT adapter
+ * went red for a reason that was not its behaviour, which is exactly what this file's design
+ * statement above forbids. Adding a row is now the whole cost of teaching the probe a shape, and a
+ * declaration with no row is a named failure rather than a fold.
+ *
  * OFFLINE IS ENFORCED, NOT ASSERTED (AC7). Every case injects its own transport, and the probe
  * also REPLACES `globalThis.fetch` with a poison for the duration: an adapter that reaches for the
  * ambient fetch instead of the injected one is caught by the poison rather than merely discouraged.
@@ -207,16 +216,123 @@ function headerValue(init, name) {
   return null;
 }
 
+// ── the wire vocabulary ──────────────────────────────────────────────────────────────────────
+
 /**
- * The header each wire carries the credential under. Declared here per wire for the same reason the
- * board declares it per wire (`AsrWireModel.credentialHeader`): the name is a property of the
- * protocol, and a probe that assumed one name could not report the other wire's.
+ * The transcript a well-formed answer carries on EVERY wire, as one literal. A wire that has to
+ * build its answer out of parts (`'inline-json'`) is the reason this is named rather than typed
+ * four times: the parts join to this string, and the expectation below is this string.
+ */
+const TRANSCRIPT_TEXT = 'hello world';
+
+/**
+ * @typedef {{ credentialHeader: string,
+ *             audioCharge: 'raw' | 'encoded',
+ *             audioMarker: 'file-part' | 'encoded',
+ *             wellFormedAnswer: () => string }} WireModel
+ */
+
+/**
+ * ONE ROW PER DECLARED WIRE, and the DECLARATION selects the row: no field below is reached for by
+ * a provider id, which is what keeps `grep -c <provider-id> scripts/asr-second-adapter-check.mjs`
+ * at zero. The four fields are the four things every case derives an input or an expectation from:
+ *
+ *   · `credentialHeader` — the header this wire announces its key under. A property of the
+ *     protocol, not of the caller: a request that carries the credential under some other name is
+ *     refused before its body is read, so the probe has to know which name is the right one.
+ *   · `audioCharge` — what an audio of N bytes costs THIS wire's budget: its own bytes on a wire
+ *     that uploads them (`'raw'`), the base64 encoding on a wire that inlines them (`'encoded'`).
+ *     This is what puts the oversize and affordable inputs on the correct side of the line, and it
+ *     is why "past the budget" is not one number across the vocabulary.
+ *   · `audioMarker` — the form the recording takes inside the body. The hint group's POSITIVE
+ *     CONTROL: an absence is only a reading if the request demonstrably carries something.
+ *   · `wellFormedAnswer` — a body this wire's own parser must read back as `TRANSCRIPT_TEXT`.
+ *     Handing one wire's answer to another reds the case for a reason that is not parsing.
+ *
+ * @type {Record<string, WireModel|undefined>}
+ */
+const WIRE_MODELS = {
+  // The shipped `/audio/transcriptions` shape: a `FormData` body carrying the audio as a file part,
+  // the service's own transcription object (`{"text": …}`) read back, the key in `Authorization`.
+  multipart: {
+    credentialHeader: 'authorization',
+    audioCharge: 'raw',
+    audioMarker: 'file-part',
+    wellFormedAnswer: () => JSON.stringify({ text: TRANSCRIPT_TEXT }),
+  },
+  // The multimodal shape: the audio base64-encoded INTO the JSON generation request (`inlineData`),
+  // so the budget is spent on the ENCODING; the answer is a generation envelope whose text parts
+  // concatenate — the two below join to `TRANSCRIPT_TEXT`, which is asserted by the expectation.
+  'inline-json': {
+    credentialHeader: 'x-goog-api-key',
+    audioCharge: 'encoded',
+    audioMarker: 'encoded',
+    wellFormedAnswer: () =>
+      JSON.stringify({
+        candidates: [{ content: { parts: [{ text: 'hello ' }, { text: 'world' }] } }],
+      }),
+  },
+  // The chat-completions shape (the third `AsrWire` member): the audio rides inside an
+  // `input_audio` data URI in the user turn, the credential is a bearer token like the multipart
+  // wire's rather than a key header, and the answer is the assistant turn's content — which is
+  // itself the JSON object the recogniser asked the model for.
+  //
+  // WHAT THIS ROW'S `audioCharge` DELIBERATELY DOES NOT MODEL: this wire's request carries a frozen
+  // prompt (~3 KB of UTF-8) that its own guard also pays for, and `'encoded'` is the MARGINAL cost
+  // of the audio rather than the whole request. The omitted constant cannot move an input across a
+  // budget this size — the affordable audio already sits at three quarters of it — and it is named
+  // here so that a future budget small enough for the constant to matter is a deliberate change
+  // rather than a silent one. The row is still declared rather than folded: `'encoded'` here is
+  // this wire's own answer, checked against the adapter's arithmetic, not the inline wire's row
+  // reached by a fallback.
+  'chat-audio': {
+    credentialHeader: 'authorization',
+    audioCharge: 'encoded',
+    audioMarker: 'encoded',
+    wellFormedAnswer: () =>
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({ transcript: TRANSCRIPT_TEXT, instruction: TRANSCRIPT_TEXT }),
+            },
+          },
+        ],
+      }),
+  },
+};
+
+/**
+ * The model for `wire`, or a throw when the declaration names a shape this probe has no row for.
+ *
+ * THROWING RATHER THAN FOLDING IS THE POINT OF THE TABLE. The fold is what this row set replaces:
+ * a shape the probe cannot model, scored against one it can, produces readings about the wrong
+ * request — and those readings are indistinguishable from readings about a defect. `runCases`
+ * reports the same condition as a named `WIRE_NOT_MODELLED` failure before reaching here, so this
+ * throw is the backstop for a call that skipped that check, not the reported path.
+ *
+ * @param {string} wire
+ * @returns {WireModel}
+ */
+function wireModelFor(wire) {
+  const model = WIRE_MODELS[wire];
+  if (model === undefined) {
+    throw new Error(
+      `no model for wire '${wire}': this probe models ${Object.keys(WIRE_MODELS).join(', ')}, ` +
+        'and a declaration it cannot model must not be scored against one it can',
+    );
+  }
+  return model;
+}
+
+/**
+ * The header `wire` carries the credential under.
  *
  * @param {string} wire
  * @returns {string}
  */
 function credentialHeaderFor(wire) {
-  return wire === 'multipart' ? 'authorization' : 'x-goog-api-key';
+  return wireModelFor(wire).credentialHeader;
 }
 
 // ── the stand-in transport ───────────────────────────────────────────────────────────────────
@@ -332,16 +448,22 @@ function base64Length(byteLength) {
 }
 
 /**
- * The wire an adapter declared. The tag is optional on the contract and an absent one means the
- * inline shape, which is the same default the registry documents — read here rather than inferred
- * from the body, because a probe that scored an adapter against whatever it happened to send could
- * not notice an adapter that stopped sending what it declared.
+ * The wire an adapter declared, VERBATIM. The tag is optional on the contract and an absent one
+ * means the inline shape, which is the same default the registry documents — read here rather than
+ * inferred from the body, because a probe that scored an adapter against whatever it happened to
+ * send could not notice an adapter that stopped sending what it declared.
+ *
+ * IT IS A PASSTHROUGH AND NOT A MAP. Folding the tag onto a smaller vocabulary here — the way this
+ * function used to — decides the adapter's expectations before anything knows which shapes exist,
+ * so a declaration the vocabulary has no row for is silently scored as one it has. Whether a tag is
+ * modelled is `WIRE_MODELS`'s question, asked where the failure can be reported by name.
  *
  * @param {any} adapter
- * @returns {'multipart'|'inline-json'}
+ * @returns {string}
  */
 function wireOf(adapter) {
-  return adapter.wire === 'multipart' ? 'multipart' : 'inline-json';
+  const declared = adapter.wire;
+  return declared === undefined || declared === null ? 'inline-json' : declared;
 }
 
 /**
@@ -349,37 +471,47 @@ function wireOf(adapter) {
  *
  * THE BUDGET IS NOT SPENT BY THE SAME THING ON EVERY WIRE, so "past the budget" is not one number:
  * a wire that base64-encodes its audio spends the budget on the ENCODING (four characters per three
- * bytes), a wire that uploads the audio spends it on the audio's own bytes. Both quantities are
- * derived here from the declared wire — independently of the adapter's own guard — so the pair of
- * sizes below straddles the line the adapter says it draws.
+ * bytes), a wire that uploads the audio spends it on the audio's own bytes. WHICH ONE IS A FIELD OF
+ * THE WIRE'S ROW (`audioCharge`) rather than a test against a wire name — the arithmetic follows
+ * the declaration the same way the credential header and the answer envelope do, so a third shape
+ * is sized by ITS OWN row instead of by the row the vocabulary happened to fold it onto. Each
+ * quantity is derived independently of the adapter's own guard, so the pair of sizes below
+ * straddles the line the adapter says it draws.
  *
- * @param {'multipart'|'inline-json'} wire
+ * @param {string} wire
  * @param {number} byteLength
  * @returns {number}
  */
 function measuredBytes(wire, byteLength) {
-  return wire === 'multipart' ? byteLength : base64Length(byteLength);
+  return wireModelFor(wire).audioCharge === 'raw' ? byteLength : base64Length(byteLength);
 }
 
 /**
- * An audio size that is past `budget` in this wire's arithmetic.
- * @param {'multipart'|'inline-json'} wire
+ * An audio size that is past `budget` in this wire's arithmetic: the smallest size whose charge
+ * exceeds the budget (one byte over on a raw-charging wire; the base64 encoding of that on an
+ * encoding-charging one).
+ * @param {string} wire
  * @param {number} budget
  * @returns {number}
  */
 function oversizeAudioBytes(wire, budget) {
-  return wire === 'multipart' ? budget + 1 : Math.ceil((budget + 1) / 4) * 3;
+  return wireModelFor(wire).audioCharge === 'raw'
+    ? budget + 1
+    : Math.ceil((budget + 1) / 4) * 3;
 }
 
 /**
  * An audio size well inside `budget` in this wire's arithmetic, leaving room for the request's
- * skeleton and for a context that is meant to push it over.
- * @param {'multipart'|'inline-json'} wire
+ * skeleton and for a context that is meant to push it over: three quarters of the budget, inverted
+ * back through the wire's own charge.
+ * @param {string} wire
  * @param {number} budget
  * @returns {number}
  */
 function affordableAudioBytes(wire, budget) {
-  return wire === 'multipart' ? Math.floor(budget * 0.75) : Math.floor((budget * 0.75) / 4) * 3;
+  return wireModelFor(wire).audioCharge === 'raw'
+    ? Math.floor(budget * 0.75)
+    : Math.floor((budget * 0.75) / 4) * 3;
 }
 
 /**
@@ -419,16 +551,17 @@ function renderBody(body) {
  *
  * This is the hint group's POSITIVE CONTROL, and it is why the group is not satisfied by a builder
  * that puts nothing anywhere: "the unacknowledged prompt is absent" is only a reading if the
- * request carries something the absence can be told apart from. Both markers are derived here
- * rather than read off the adapter — a multipart wire names the part's size, an inline wire carries
- * the base64 of the audio's bytes — so neither can agree with the adapter by construction.
+ * request carries something the absence can be told apart from. The FORM is the wire's own row
+ * (`audioMarker`) and the value is computed here rather than read off the adapter — a wire that
+ * uploads the recording names the part's size, a wire that inlines it carries the base64 of the
+ * audio's bytes — so the marker cannot agree with the adapter by construction.
  *
- * @param {'multipart'|'inline-json'} wire
+ * @param {string} wire
  * @param {number} byteLength
  * @returns {string}
  */
 function audioMarker(wire, byteLength) {
-  if (wire === 'multipart') return `size=${byteLength}B`;
+  if (wireModelFor(wire).audioMarker === 'file-part') return `size=${byteLength}B`;
   return Buffer.from(new Uint8Array(byteLength)).toString('base64');
 }
 
@@ -479,38 +612,36 @@ async function callAdapter(adapter, request, invocation, ledger, caseId) {
 
 // ── the cases ────────────────────────────────────────────────────────────────────────────────
 
-const ENVELOPE_BODY = JSON.stringify({
-  candidates: [{ content: { parts: [{ text: 'hello ' }, { text: 'world' }] } }],
-});
 const NON_ENVELOPE_JSON_BODY = JSON.stringify({ error: { code: 429, message: 'quota exceeded' } });
 const NON_JSON_BODY = '<html><body>502 Bad Gateway</body></html>';
 
 /**
  * The response-parse baseline, one case per body shape, PER WIRE.
  *
- * "Not this service's answer" is the same reading on both wires — a body that is not this
- * service's JSON is a failed transcription, never the transcript. "A well-formed answer" is not:
- * a generation envelope with a text part on one wire, the transcription object's own `text` field
- * on the other, so the first case's body is built from the wire rather than shared. Handing one
- * wire's answer to the other would red the case for a reason that has nothing to do with parsing.
+ * "Not this service's answer" is the same reading on every wire — a body that is not this
+ * service's JSON is a failed transcription, never the transcript. "A well-formed answer" IS NOT:
+ * a generation envelope whose text parts concatenate on one wire, the transcription object's own
+ * `text` field on another, the assistant turn of a chat completion carrying a JSON object on the
+ * third — so the first case's body comes from the wire's own row rather than being shared. Handing
+ * one wire's answer to another would red the case for a reason that has nothing to do with parsing.
  *
- * @param {'multipart'|'inline-json'} wire
+ * @param {string} wire
  * @returns {{ id: string, body: string, expectOk: boolean, expectText: string|null }[]}
  */
 const RESPONSE_CASE_SHAPES = [
-  { id: 'response-envelope', expectOk: true, expectText: 'hello world' },
+  { id: 'response-envelope', expectOk: true, expectText: TRANSCRIPT_TEXT },
   { id: 'response-non-envelope-json', expectOk: false, expectText: null },
   { id: 'response-non-json', expectOk: false, expectText: null },
 ];
 
 /**
- * @param {'multipart'|'inline-json'} wire
+ * @param {string} wire
  * @returns {{ id: string, body: string, expectOk: boolean, expectText: string|null }[]}
  */
 function responseCases(wire) {
   /** @type {Record<string, string>} */
   const bodies = {
-    'response-envelope': wire === 'multipart' ? JSON.stringify({ text: 'hello world' }) : ENVELOPE_BODY,
+    'response-envelope': wireModelFor(wire).wellFormedAnswer(),
     'response-non-envelope-json': NON_ENVELOPE_JSON_BODY,
     'response-non-json': NON_JSON_BODY,
   };
@@ -552,8 +683,22 @@ async function runCases(adapter, capabilities, ledger, providerId) {
   const scoped = (id) => `${providerId}:${id}`;
   const wire = wireOf(adapter);
   const budget = capabilities.maxInlineRequestBytes;
-  const transcriptBody = responseCases(wire)[0].body;
   ledger.record(scoped('wire'), wire);
+  // A declaration the vocabulary has no row for is an EMPTY READING, not a green one. Every case
+  // below is an expectation about a request that exists in the declared shape, so scoring an
+  // unmodelled shape against a modelled one would measure a request nobody sent — the fault the
+  // `WIRE_MODELS` table exists to remove. Reported by name and then stopped, which leaves the cases
+  // un-run and therefore `EMPTY_READING` below: "nothing was looked at" stays distinguishable.
+  if (WIRE_MODELS[wire] === undefined) {
+    ledger.fail(
+      'WIRE_NOT_MODELLED',
+      `'${providerId}' declares wire '${wire}', which this probe has no model for (it models ` +
+        `${Object.keys(WIRE_MODELS).join(', ')}) — a shape nothing here describes cannot be scored, ` +
+        'and folding it onto a modelled one would score the request against a vocabulary it does not speak',
+    );
+    return;
+  }
+  const transcriptBody = responseCases(wire)[0].body;
   ledger.record(scoped('budget-bytes'), budget);
 
   // ── AC6: the declaration is a real one, with every field present and of the declared kind ──
