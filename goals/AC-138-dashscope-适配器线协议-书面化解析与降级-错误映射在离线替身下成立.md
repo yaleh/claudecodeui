@@ -1,7 +1,7 @@
 ---
 id: AC-138
 title: DashScope 适配器线协议、书面化解析与降级、错误映射在离线替身下成立
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-009
 criterion: node scripts/asr-dashscope-omni-check.mjs
@@ -22,6 +22,11 @@ statusLog:
     to: active
     actor: goal-cli
     reason: ""
+  - at: 2026-09-24T03:55:40.546Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
