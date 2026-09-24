@@ -274,8 +274,7 @@ function buildSnapshot(root) {
     provenance: {
       runId: RUN_ID,
       frozenAt: FROZEN_AT,
-      readingWindow: '2026-09-23 .. 2026-09-24（两次 API 批次：reps 0–2 与 reps 3–9）',
-      endpoint: 'https://llm-szunnpxbx46k86c0.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions',
+      readingWindow: '2026-09-23 至 09-24（raw/README.md）',
       promptVersion: 'written-e-2026-09-24',
       source: {
         promptFile: { path: PROMPT_REL, sha256: sha256Hex(promptBytes) },
@@ -299,9 +298,9 @@ function buildSnapshot(root) {
       ),
       statuses,
       judge:
-        'C 与 E 的语义判定（raw/judge.mts 的 ✅/◐/❌ 规则）不在这里冻结：judge.mts 经 written.mts 导入 omni.mts，而 omni.mts 在导入期读取未入库的 webm，冻结无法离线驱动它；重写一遍规则又会成为判据的第二份实现。质量数字本就不进判据集（ADR-004 决策 8），本快照冻结的是提示词与读数形状。原始判定口径见 README（C ✅50 ◐26 ❌4、E ✅58 ◐18 ❌4）。',
+        '每条读数冻结的是原文（text）、延迟（ms）与调用结果（status，160 条全为 200）；语义判定（✅ 意图正确 / ◐ 可猜回 / ❌ 会误导）没有逐条冻结，因为它由 raw/judge.mts 的规则算出，而 judge.mts 经 written.mts 导入 omni.mts，omni.mts 在导入期读取未入库的 webm（raw/README.md：重算前需先用 ffmpeg 生成），离线驱动不了；把规则重写一遍又会在工装里留下第二份实现。口径本身记在 README 里：C ✅50 ◐26 ❌4、E ✅58 ◐18 ❌4（各 80 条）。',
       limits:
-        '8 条 TTS 合成中文片段；语义判定是规则化的人工口径；不同批次之间有时段差异（延迟尤其明显）；qwen3.8-omni-flash 是别名，服务端升级后效果可能漂移。',
+        '8 条 TTS 合成中文片段；语义判定是规则化的人工口径；不同运行之间有时段差异（延迟尤其明显）；qwen3.8-omni-flash 是别名，服务端升级后效果可能漂移；读数不重跑（联网且计费，按 ADR-004 决策 8 归人工）。',
     },
     prompts: {
       ...literals,
