@@ -28,8 +28,11 @@ type DeclaredFieldRole = 'endpoint' | 'apiKey' | 'model';
  *
  * The three roles are the three halves of `AsrCredentialFields`, chosen from the declaration's
  * own slots rather than from the field's name — the form decides an input's type, label and
- * placeholder from the SLOT a field occupies, so a provider that renames `dashscopeApiKey` to
- * something else still gets a password input and still gets the credential label.
+ * placeholder from the SLOT a field occupies, so a provider whose key field is named something
+ * this module has never heard of still gets a password input and still gets the credential label.
+ * No provider's name appears in this file at all, and that is deliberate: the names it renders
+ * come from the payload, so a provider this build has never been told about is rendered the same
+ * way, and a rename moves the UI with it instead of leaving a stale table behind.
  */
 function declaredEntries(declaration: { endpointField: string; apiKeyField: string; modelField?: string }) {
   const entries: { field: string; role: DeclaredFieldRole }[] = [

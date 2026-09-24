@@ -511,7 +511,20 @@ test.beforeAll(async ({ browser }) => {
   // nothing, so the budget stops short of it and lets the failure above be the thing that is read.
   test.setTimeout(40_000);
 
-  context = await browser.newContext({ baseURL: CLIENT_URL, permissions: ['microphone'] });
+  // `serviceWorkers: 'block'` is what makes the interception below possible at all, and it is not a
+  // convenience: the app registers `public/sw.js`, whose fetch handler answers every request that is not
+  // under `/api/` through `respondWith(fetch(...))` — and a request a Service Worker answers is one the
+  // page-level `page.route` never sees. The app's own worker is what hides `/api/` from itself (the handler
+  // returns early for those, which is why the proxy hop was interceptable without this), and the
+  // directly-connected leg's cross-origin POST to the workspace host is exactly the kind of request that
+  // went through the worker instead: it left the page, was answered by the worker rather than by any
+  // stand-in, and failed at the network. Blocking the worker for this context puts every request back on
+  // the page, which is where both legs' readings are taken.
+  context = await browser.newContext({
+    baseURL: CLIENT_URL,
+    permissions: ['microphone'],
+    serviceWorkers: 'block',
+  });
 
   // The preference this file is allowed to seed: voice is ON, the language is English. The Provider's own
   // settings are NOT seeded here — choosing them in the form is the reading this file exists for, and a
@@ -564,6 +577,14 @@ test.afterAll(async () => {
   // which is why it is measured from there and not from the first leg.
   console.log(`criterion-wall-ms=${Date.now() - startedAt}`);
   console.log(`dataDir-owner=${process.env.QUAY_E2E_DATA_DIR_OWNER}`);
+  // Every navigation's switches, so the reading above can be checked against what each leg asked for rather
+  // than against what it inherited. Both switches are named on all four navigations; `voiceDebug` is
+  // exercised in both directions, and `voiceTrim` is named off on every leg because each leg's upload has to
+  // clear the 800-byte minimum-capture floor untrimmed.
+  console.log(
+    '[voice-dashscope] switches: onboarding=?voiceDebug=0&voiceTrim=off written=?voiceTrim=off&voiceDebug=0'
+      + ' refusal=?voiceTrim=off&voiceDebug=1 control=?voiceTrim=off&voiceDebug=1',
+  );
   for (const reading of settingsReading) console.log(reading);
   console.log(
     '[voice-dashscope] registration: this file implements the browser end-to-end path and the settings page\'s '
@@ -575,7 +596,10 @@ test.afterAll(async () => {
       + 'selected by -g do not reload, so the masked-readback writeback rule is outside this file. One deviation '
       + 'from the real proxy is deliberate and registered here: an upstream refusal is answered by the stand-in with '
       + 'the seam\'s own UNAUTHORIZED code beside the proxy\'s message, because the real route republishes a code '
-      + 'only for the pre-upstream refusals, and the criterion asks for a semantic code on the page.',
+      + 'only for the pre-upstream refusals, and the criterion asks for a semantic code on the page. The app\'s own '
+      + 'Service Worker is blocked for this run\'s browser context, because a request a worker answers is one the '
+      + 'page-level interception cannot see; a real browser runs that worker, so this run observes the app with one '
+      + 'layer of its own transport absent.',
   );
   await context?.close();
 });

@@ -34,8 +34,8 @@ export function useVoiceConfig() {
   }, []);
 
   // THE PATCH IS KEYED BY STRING, not by `keyof VoiceConfig`, because one caller's field names
-  // come from a provider's own declaration: the form renders `dashscopeEndpoint` and its siblings
-  // without naming them, so the patch it builds has a computed key. Widening the TYPE loses
+  // come from a provider's own declaration: the form renders a provider's declared endpoint field
+  // and its siblings without naming them, so the patch it builds has a computed key. Widening the TYPE loses
   // nothing, because the filter was never the type — `updateVoiceConfig` copies only the names in
   // `VOICE_CONFIG_FIELDS` and ignores the rest, so an undeclared key is dropped there rather than
   // written into the document (see `isVoiceConfigField`, which is how the form avoids asking for

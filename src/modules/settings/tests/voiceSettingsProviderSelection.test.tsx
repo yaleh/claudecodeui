@@ -73,13 +73,23 @@ type Row = {
  * `alpha-asr` fills all three slots, `beta-asr` leaves the model out (the same provider shape
  * without a per-user model to choose), `gamma-asr` declares nothing at all — the shared backend's
  * shape — and `delta-asr` declares fields this client does not store.
+ *
+ * WHY THE NAMES ARE THE DEPLOYMENT'S OWN FIELD NAMES and not the ones a reader might expect for a
+ * provider-shaped payload: a declaration maps three SLOTS onto names the client stores, so every
+ * name here has to be one of those or the form renders nothing (the `delta-asr` case is that
+ * refusal, asserted rather than assumed — see the file comment above). The slots are filled with
+ * `baseUrl`/`apiKey`/`sttModel` because those are the names this client stores that mean an
+ * address, a key and a model — and because the settings module carries no provider's name
+ * anywhere, this file included: a reading that needed one provider's literal in the module would
+ * be red on a rule the module itself is held to. The slot, not the name, is what the form reads
+ * either way, which is exactly what the swap below exercises.
  */
 const ALPHA_DECLARATION = {
-  endpointField: 'dashscopeEndpoint',
-  apiKeyField: 'dashscopeApiKey',
-  modelField: 'dashscopeModel',
+  endpointField: 'baseUrl',
+  apiKeyField: 'apiKey',
+  modelField: 'sttModel',
 };
-const BETA_DECLARATION = { endpointField: 'dashscopeEndpoint', apiKeyField: 'dashscopeApiKey' };
+const BETA_DECLARATION = { endpointField: 'baseUrl', apiKeyField: 'apiKey' };
 const DELTA_DECLARATION = { endpointField: 'gammaEndpoint', apiKeyField: 'gammaKey' };
 
 const row = (id: string, label: string, credentialFields?: Row['credentialFields']): Row => ({
@@ -155,7 +165,13 @@ test('the rendered fields are the selected provider\'s own declaration, and only
     ALPHA_DECLARATION.apiKeyField,
     ALPHA_DECLARATION.modelField,
   ]));
-  const shared = view.container.querySelectorAll('input[name="baseUrl"], input[name="apiKey"]');
+  // Scoped by EXCLUDING the declared section rather than by name alone: a declaration maps its
+  // slots onto stored names, and the names this case declares are two the shared block also
+  // renders — so `input[name="baseUrl"]` alone would count both copies and the reading would be
+  // about the page's total rather than about the shared block's own two.
+  const shared = Array.from(
+    view.container.querySelectorAll('input[name="baseUrl"], input[name="apiKey"]'),
+  ).filter((input) => !input.closest('[data-testid="voice-provider-fields"]'));
   assert.equal(shared.length, 2, 'the shared backend fields are still rendered beside the declared ones');
   assert.equal(renderedField(view, ALPHA_DECLARATION.apiKeyField).type, 'password');
 
