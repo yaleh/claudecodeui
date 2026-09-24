@@ -611,13 +611,37 @@ function chooseHosts(candidates, accept) {
 }
 
 /**
- * Which files of the SOURCE trees spell a host the rule accepted.
+ * Whether a repository-relative path is a test file.
+ *
+ * The tree's own convention — `<module>/tests/*.test.ts(x)`, and `*.test.ts(x)` beside its subject
+ * — rather than a list of files, so a test written later is in scope by construction.
+ *
+ * @param {string} relativePath
+ * @returns {boolean}
+ */
+function isTestFile(relativePath) {
+  return relativePath.includes('/tests/') || /\.test\.tsx?$/.test(relativePath);
+}
+
+/**
+ * Which files of the SHIPPING source trees spell a host the rule accepted.
  *
  * This is the task's "one copy" reading (the DoD's third load-bearing measurement): if the rule is
  * the only place the service's hosts live, then outside the rule's own module no `src/`, `shared/`
- * or `server/` file mentions them at all. The records are not in those globs — they are records,
- * and a record quoting an address is not a second implementation of the rule. The probe's own two
- * files are not in them either, which is what the criterion's grep checks separately.
+ * or `server/` SOURCE file mentions them at all. The records are not in those globs — they are
+ * records, and a record quoting an address is not a second implementation of the rule. The probe's
+ * own two files are not in them either, which is what the criterion's grep checks separately.
+ *
+ * TEST FILES ARE OUT OF SCOPE, and that is a correction rather than an exemption. A criterion that
+ * drives a `'proxy-only'` provider through the shipping service has to hand that service an address
+ * the provider may be reached at — the pre-request gate refuses every other one before its adapter
+ * is reached, which is AC6 — so a test file naming an accepted address is a CALLER naming its own
+ * input, not a second copy of the rule. Counting it would make this reading unsatisfiable for
+ * exactly the provider this task is about, and a check no legitimate test can survive is measuring
+ * the wrong thing. What still has to hold — and what this reading still measures — is that no
+ * SHIPPING source file outside the rule module spells either host: the predicate and the two
+ * hostnames it is built from live in one file. A second copy smuggled into `src/shared/api.ts` or
+ * into `voice.service.ts` still reds this, which is the shape `rule-loosened` is paired with.
  *
  * @param {string} root
  * @param {string[]} hosts
@@ -629,6 +653,7 @@ function findHostBearers(root, hosts) {
   const patterns = ['src/**/*.ts', 'src/**/*.tsx', 'shared/**/*.ts', 'server/**/*.ts'];
   for (const pattern of patterns) {
     for (const relativePath of listFiles(root, pattern)) {
+      if (isTestFile(relativePath)) continue;
       const source = readSource(root, relativePath);
       if (source === null) continue;
       if (hosts.some((host) => source.includes(host))) bearers.push(relativePath);
@@ -1078,8 +1103,9 @@ async function main() {
       'endpoint-rule.single-implementation',
       bearers.length === 1 && bearers[0] === ruleModulePath,
       'ENDPOINT_RULE_NOT_SINGLE_COPY',
-      `the addresses this service is reached at are spelled in ${bearers.length} source file(s) (${bearers.join(', ') || '<none>'}); ` +
-        `the rule exists once, in ${String(ruleModulePath)}, and a second file holding the hosts is a second place the answer lives`,
+      `the addresses this service is reached at are spelled in ${bearers.length} shipping source file(s) ` +
+        `(${bearers.join(', ') || '<none>'}; test files are out of scope — a criterion driving a proxy-only provider must name an address its rule accepts); ` +
+        `the rule exists once, in ${String(ruleModulePath)}, and a second shipping file holding the hosts is a second place the answer lives`,
     );
 
     // ── the same rule, driven as a WALL and as a DOOR (AC5/AC6) ──

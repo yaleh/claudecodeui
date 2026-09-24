@@ -86,9 +86,21 @@ type Defaults = {
   providerId: string;
 };
 
-/** The deployment the shipped tests use, so a reading here is comparable with theirs. */
+/**
+ * The deployment the shipped tests use, so a reading here is comparable with theirs.
+ *
+ * WHY THIS HOST AND NOT AN EXAMPLE ONE. AC-140 gave the `'proxy-only'` providers an endpoint rule:
+ * `voice.service.ts` asks the SELECTED adapter's `allowedBaseUrl` before it builds a request and
+ * refuses the invocation when the rule says no, so an address outside that provider's own service
+ * never reaches its adapter. This file drives `dashscope-omni` through the same service as the
+ * factory entry — that is the whole reading — so a deployment host that provider may not be reached
+ * at would refuse it in the pre-request gate and there would be no wire to read at all. The address
+ * is therefore one the rule accepts; the factory entry declares `'direct'`, is held to no rule, and
+ * its readings are unaffected either way. Nothing else about this file changed with AC-140: every
+ * assertion below is still about WHICH WIRE the selected provider sends, not about which host.
+ */
 const DEFAULTS: Defaults = {
-  baseUrl: 'https://voice.example/v1',
+  baseUrl: 'https://dashscope.aliyuncs.com',
   apiKey: 'server-key',
   sttModel: 'whisper-1',
   ttsModel: 'tts-1',
