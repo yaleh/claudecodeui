@@ -2,7 +2,7 @@
 id: gap-asr-dashscope-omni-wire-and-degradation
 title: dashscope-omni 适配器线协议与降级（AC-138 的 checker）：chat-audio 请求形状、书面化解析与
   verbatim 降级、401/403/429/超时映射、超限零请求、hints 不上线
-status: ready
+status: done
 labels:
   - gap
 parent: null
