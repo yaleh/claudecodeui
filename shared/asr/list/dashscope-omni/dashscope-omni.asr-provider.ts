@@ -168,8 +168,11 @@ export const id: string = 'dashscope-omni';
  * THE VALUES THAT ARE NOT THE OTHER ADAPTERS' ARE THE LOAD-BEARING PART, and each one is a
  * measurement rather than a preference: `style: 'written'` (the E-group readings — this is the
  * recogniser the whole proposal exists for), `billing: 'audio-tokens'` (measured: 14.5 s of audio
- * billed as 100 audio tokens, so a saved second IS a saved token), `pauseCues: 'neutral'` (trimming
- * was never measured against this service, and neutral means the upload is left as recorded), and
+ * billed as 100 audio tokens, so a saved second IS a saved token), `pauseCues: 'neutral'` (measured in
+ * `docs/experiments/2026-09-24-omni-written.md`, where the shipping trim ran against this service on
+ * the same eight clips: trimming the pauses gained no verdict and cost one, and no clip came out
+ * better for it — so the value the reading supports is `neutral`, i.e. the upload is left as
+ * recorded), and
  * `honors` false on all three axes (the context experiment produced echo and mis-inserted
  * identifiers, so a prompt has nothing to offer here).
  *
