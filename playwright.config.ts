@@ -14,12 +14,34 @@ import { defineConfig } from '@playwright/test';
  */
 const runStartedAt = Date.now();
 
+/**
+ * The same instant, published so a spec can print the wall clock of the run it is part of.
+ *
+ * A criterion's ceiling is on the whole `npx playwright test` invocation — config evaluation, seeding, server
+ * boot, browser launch — while a spec can only see itself: a spec that timed its own body would report a number
+ * whose shortfall against the ceiling is the part it could not observe. Workers re-evaluate this file, so the
+ * guard matters: without it each worker would overwrite the owner's reading with its own start and the printed
+ * number would again be "since this worker began". The value set here is the earliest this file has ever run.
+ */
+if (!process.env.QUAY_E2E_RUN_STARTED_AT) {
+  process.env.QUAY_E2E_RUN_STARTED_AT = String(runStartedAt);
+}
+
 // Everything the servers persist lives under one throwaway directory so the run never touches real user data.
 // Exported through the environment so worker processes (which re-evaluate this file) share the directory and the spec can put a project workspace inside it.
 const dataDir = process.env.QUAY_E2E_DATA_DIR ?? fs.mkdtempSync(path.join(os.tmpdir(), 'quay-e2e-'));
 /** True only in the process that created the directory: workers re-evaluate this file with it already set. */
 const isDataDirOwner = !process.env.QUAY_E2E_DATA_DIR;
 process.env.QUAY_E2E_DATA_DIR = dataDir;
+/**
+ * ...and the same reading published, because the assignment above destroys the evidence for it: every worker
+ * inherits `QUAY_E2E_DATA_DIR` set, so asking the question again inside a spec would answer "someone else owns
+ * this directory" for a run that created it. Guarded for the same reason the run clock is — the owner's answer is
+ * the first one, and the workers re-evaluate this file with it already in the environment.
+ */
+if (process.env.QUAY_E2E_DATA_DIR_OWNER === undefined) {
+  process.env.QUAY_E2E_DATA_DIR_OWNER = String(isDataDirOwner);
+}
 
 /**
  * The dependency cache this run's Vite is told to use, under the run's own throwaway directory.
@@ -775,6 +797,79 @@ const seedVoiceTrimWorkspace = () => {
   );
 };
 
+/** Workspace e2e/voice-dashscope-written.spec.ts records into; its own directory so no other spec picks this session up. */
+const VOICE_DASHSCOPE_WORKSPACE = path.join(dataDir, 'voice-dashscope-workspace');
+/** Session id that spec opens the composer in, and the display name it looks its sidebar row up by. */
+const VOICE_DASHSCOPE_SESSION_ID = 'e2e-voice-dashscope';
+const VOICE_DASHSCOPE_SESSION_NAME = 'voice-dashscope';
+/** The project file the seeded workspace holds, so the project is a directory the app has really seen. */
+const VOICE_DASHSCOPE_FILE = 'recognition.notes.md';
+/**
+ * What the fake microphone is saying.
+ *
+ * An ordinary sentence with no identifier in it: the recogniser this spec points the settings at is a stand-in
+ * under the test's own control, and what it answers is what lands in the composer — so the spoken fixture only
+ * has to be *something* the capture chain can encode, not the text under assertion. It is spelled out rather
+ * than borrowed from another spec's fixture because the two specs assert on different answers, and one file
+ * serving both would make a change to either look like a change to both.
+ */
+const VOICE_DASHSCOPE_UTTERANCE = 'the workspace recogniser writes down the sentence it hears';
+/**
+ * Where the fake microphone reads its samples from, published so the spec's launch args can name the file.
+ * Written below, before `webServer` starts, because Chromium opens it at browser launch.
+ */
+const VOICE_DASHSCOPE_AUDIO_FILE = path.join(dataDir, 'voice-dashscope-utterance.wav');
+process.env.QUAY_E2E_VOICE_DASHSCOPE_AUDIO = VOICE_DASHSCOPE_AUDIO_FILE;
+
+/**
+ * Seeds the workspace e2e/voice-dashscope-written.spec.ts records in.
+ *
+ * Same reason as the seeds above: the backend scans ~/.claude/projects at boot and only then starts its file
+ * watcher with `ignoreInitial`, so a transcript written while the test runs would be picked up by the watcher
+ * and broadcast as a session_upserted — which the sidebar correctly reads as "needs attention".
+ *
+ * The WAV is written here for the same class of reason as the identifier seed's: it has to exist before the
+ * browser that plays it is launched, and this function runs once, in the process that owns the data directory,
+ * before `webServer` starts anything.
+ */
+const seedVoiceDashscopeWorkspace = () => {
+  fs.mkdirSync(VOICE_DASHSCOPE_WORKSPACE, { recursive: true });
+  fs.writeFileSync(
+    path.join(VOICE_DASHSCOPE_WORKSPACE, VOICE_DASHSCOPE_FILE),
+    'Notes kept in the workspace the voice provider spec records in.\nNothing here is named by the spoken fixture.\n',
+    'utf8',
+  );
+  writeVoiceUtterance(VOICE_DASHSCOPE_AUDIO_FILE, VOICE_DASHSCOPE_UTTERANCE);
+
+  const transcriptDir = path.join(dataDir, '.claude', 'projects', 'voice-dashscope-workspace');
+  fs.mkdirSync(transcriptDir, { recursive: true });
+  const timestamp = new Date().toISOString();
+  // The synchronizer reads the session id and cwd from the first record it can parse, so one transcript has to
+  // carry both a turn and a title.
+  const records = [
+    {
+      type: 'user',
+      sessionId: VOICE_DASHSCOPE_SESSION_ID,
+      cwd: VOICE_DASHSCOPE_WORKSPACE,
+      timestamp,
+      message: { role: 'user', content: [{ type: 'text', text: 'open the composer for the provider check' }] },
+    },
+    {
+      type: 'custom-title',
+      sessionId: VOICE_DASHSCOPE_SESSION_ID,
+      cwd: VOICE_DASHSCOPE_WORKSPACE,
+      timestamp,
+      customTitle: VOICE_DASHSCOPE_SESSION_NAME,
+    },
+  ];
+
+  fs.writeFileSync(
+    path.join(transcriptDir, `${VOICE_DASHSCOPE_SESSION_ID}.jsonl`),
+    `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
+    'utf8',
+  );
+};
+
 /** Workspace e2e/mobile-composer-send-key.spec.ts opens its composer in. */
 const MOBILE_SEND_KEY_WORKSPACE = path.join(dataDir, 'mobile-send-key-workspace');
 /** Session id that spec's project is registered by, and the display name it looks the row up by. */
@@ -890,6 +985,7 @@ if (isDataDirOwner) {
   seedTranscriptFollowTranscript();
   seedVoiceIdentifierWorkspace();
   seedVoiceTrimWorkspace();
+  seedVoiceDashscopeWorkspace();
   seedMobileSendKeyWorkspace();
 }
 

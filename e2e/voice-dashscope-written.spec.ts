@@ -1,0 +1,817 @@
+import path from 'node:path';
+
+import { expect, test } from '@playwright/test';
+import type { BrowserContext, Locator, Page } from '@playwright/test';
+
+// Real Chromium against the real backend + Vite client started by playwright.config.ts (isolated data dir),
+// recording through the app's own voice button. The recorder is the browser's own: Chromium is launched with a
+// fake audio device whose samples come from the WAV playwright.config.ts wrote before the servers booted, so
+// `getUserMedia` hands `MediaRecorder` a real stream and the app's own hook encodes what it hears.
+//
+// What this file adds over the two voice specs beside it: those point the voice settings at a real local HTTP
+// recogniser, and the settings page is never touched — they seed the legacy `voiceConfig` blob. Here the
+// SETTINGS PAGE is the only way the provider is chosen and the credential is typed, and the recogniser is
+// intercepted in the browser instead of stood up on a socket. Both differences are the reading this file
+// exists for: "the settings page really selects a provider and really sends the user's own address and key
+// with it, and the recording then takes the route that provider's own declaration names".
+//
+// INTERCEPTION VS A REAL SERVICE, said once because it bounds every claim below: `page.route` answers
+// `/api/voice/transcribe` and the aliyuncs host in the browser. Nothing here is the real DashScope service,
+// and no request leaves the machine. What IS real is everything on this side of the interception: the
+// settings form, the whole-document PUT the server stores, the health payload the client routes on, and the
+// upload the capture chain actually produced — which is what makes "the page went through the proxy and never
+// touched the workspace host" a statement about the app rather than about the harness.
+//
+// THE TWO COUNTS THAT MAKE EACH OTHER CREDIBLE: the DashScope leg reads zero requests to the aliyuncs host and
+// the control leg — a provider the payload declares as directly connected, given the SAME address — reads at
+// least one. A harness that counted nothing anywhere, or hardcoded the zero, could not produce the second.
+
+const DATA_DIR = process.env.QUAY_E2E_DATA_DIR!;
+const CLIENT_URL = `http://127.0.0.1:${process.env.QUAY_E2E_CLIENT_PORT}`;
+const WORKSPACE = path.join(DATA_DIR, 'voice-dashscope-workspace');
+const SESSION_ID = 'e2e-voice-dashscope';
+const SESSION_NAME = 'voice-dashscope';
+/** Where the fake microphone reads its samples from; the config wrote it before the browser was launched. */
+const AUDIO_FILE = process.env.QUAY_E2E_VOICE_DASHSCOPE_AUDIO!;
+
+/**
+ * The id the criterion reads off the request header verbatim.
+ *
+ * It is NOT how the leg picks its provider — the selection is made from the health payload's own rows (see
+ * `proxyRow`), so a rename would move the selection with the registry and red this assertion rather than
+ * silently selecting nothing. This constant is the criterion's literal: the header the proxy hop carries.
+ */
+const PROXIED_PROVIDER_ID = 'dashscope-omni';
+
+/**
+ * The address typed into the provider's own endpoint field, and the one the served webm is uploaded to.
+ *
+ * It is a workspace hostname of the shape that provider's declaration accepts (`<workspace>.<region>.maas.
+ * aliyuncs.com`, https, no port), which matters because every settings save re-validates the stored address
+ * against that rule: an address the rule refuses is a save the server answers 400 to, and the leg would then
+ * be recording through whatever provider was stored before.
+ */
+const WORKSPACE_ADDRESS = 'https://voice-e2e-check.cn-hangzhou.maas.aliyuncs.com';
+/** The credential typed into the provider's own key field. A sentinel, and the one string that must travel as typed. */
+const API_KEY = 'sk-e2e-dashscope-4f19c7a2';
+/** The per-user model typed into the provider's own model field. */
+const MODEL = 'qwen3.8-omni-flash';
+
+/**
+ * The written instruction the transcribe double answers the DashScope leg with.
+ *
+ * Deliberately unlike anything else in this file's fixture: the seeded transcript says "open the composer for
+ * the provider check", the seeded file says "notes kept in the workspace…", and the draft the refusal leg
+ * types is its own sentence. A composer assertion satisfied by any of them would be satisfied by a leg that
+ * transcribed nothing, so the sentence asserted on is one no other part of this run can produce.
+ *
+ * It is also an ordinary lowercase sentence with no dotted name in it: the composer's transcript is repaired
+ * against the project's own identifiers before it lands, and a name the repair might rewrite would put a
+ * second, unrelated transformation between the recogniser and the assertion.
+ */
+const WRITTEN_INSTRUCTION = 'draft the paragraph as one written instruction for the coding agent';
+
+/**
+ * The written-style envelope the double answers the DashScope leg with.
+ *
+ * The shape is the one the task's proposal fixes: the transcription envelope the proxy path returns, with the
+ * written-style fields beside the text. The client reads `text` and nothing else (`parseTranscriptionResponse`,
+ * strict), so the extra fields are this envelope's own metadata rather than a second input — the same reason
+ * they are pinned: an envelope without them would not be the written instruction's answer.
+ */
+const WRITTEN_ENVELOPE = {
+  ok: true,
+  text: WRITTEN_INSTRUCTION,
+  style: 'written',
+  transformations: ['written-style'],
+  providerId: PROXIED_PROVIDER_ID,
+};
+
+/**
+ * The refusal the double answers the second leg with, and the code that has to reach the page with it.
+ *
+ * WHAT IS AND IS NOT FAITHFUL HERE, stated because the difference is deliberate and a reader would otherwise
+ * have to reconstruct it. The upstream condition is a credential the service refused, and the app's own
+ * classification of that condition is `UNAUTHORIZED` — `PROVIDER_ERROR_STATUS` maps it to 502, which is what
+ * this status is. The message is the proxy's own sentence for it, character for character
+ * (`backendFailure(401|403)`). The CODE is where this double is one step outside the app: the real route
+ * republishes a code only for the refusals that happen BEFORE the upstream is called (the container and size
+ * gates), so an upstream refusal reaches the browser as a message with no code and the page would read
+ * "transcribe 502". The criterion asks for the failure to be recognisable by code on the page, so this double
+ * supplies the code the seam itself holds for this classification. The deviation is registered in this file's
+ * own output rather than left for a reader to find.
+ */
+const REFUSAL_ENVELOPE = {
+  error: 'Voice backend rejected the request (check the API key).',
+  code: 'UNAUTHORIZED',
+};
+const REFUSAL_STATUS = 502;
+
+/**
+ * The draft the refusal leg types before it records.
+ *
+ * Read back before the recording and compared character for character after it: the claim is about the SAME
+ * string surviving, which is only a reading if the leg knows the string it started from. Distinct from every
+ * other sentence in the run, so a composer that took the recogniser's text instead could not pass.
+ */
+const DRAFT = 'keep this draft through a refused recognition attempt 7f2a';
+
+/**
+ * How long each leg holds the recorder open.
+ *
+ * `useVoiceInput` refuses to upload a blob under 800 bytes ("Recording too short"), which this clears by an
+ * order of magnitude, and the trim is switched off on every leg — so the bytes uploaded are the bytes the
+ * recorder produced, with no second codec in between.
+ */
+const CAPTURE_MS = 1_500;
+
+/** The proxy hop the app is expected to take for a provider declaring `transport: 'proxy-only'`. */
+const PROXY_PATH = /\/api\/voice\/transcribe/;
+/** The browser-side stand-in for the provider's own host, so a request that really goes out is answered rather than left hanging. */
+const ALIYUNCS_URL = /aliyuncs\.com/;
+
+/**
+ * Chromium's fake audio device, fed from the WAV playwright.config.ts wrote before the servers booted.
+ *
+ * `--use-fake-device-for-media-stream` is what makes `--use-file-for-fake-audio-capture` take effect at all:
+ * without it the file is ignored and the device synthesises a beep, which would still record and still
+ * transcribe — the run would go green while testing no fixture.
+ */
+test.use({
+  launchOptions: {
+    args: [
+      '--use-fake-device-for-media-stream',
+      '--use-fake-ui-for-media-stream',
+      `--use-file-for-fake-audio-capture=${AUDIO_FILE}`,
+      '--autoplay-policy=no-user-gesture-required',
+    ],
+  },
+});
+
+/**
+ * One row of the health payload, as much of it as this file reads.
+ *
+ * `credentialFields` is the provider's own declaration of WHICH settings fields hold its address, key and
+ * model — republished by the server for the settings form, and read here for the same reason the form reads
+ * it: so this file renders no table of its own. `capabilities.transport` is the declaration the routing under
+ * test follows.
+ */
+type HealthRow = {
+  id: string;
+  label: string;
+  configured: boolean;
+  capabilities?: { transport?: string };
+  credentialFields?: { endpointField: string; apiKeyField: string; modelField?: string };
+};
+
+type HealthPayload = { configured?: boolean; provider?: string; providers?: HealthRow[] };
+
+/** One POST the leg's own proxy stand-in answered. */
+type ProxyPost = { url: string; method: string; headers: Record<string, string> };
+
+/**
+ * One leg's page and the readings taken off it.
+ *
+ * Per leg rather than per file, because every count below is a count ABOUT ONE LEG: the proxy stand-in's own
+ * counter answers "did this leg upload once", the ledger answers "did this leg touch that host", and the
+ * captured bodies answer "which provider did this leg's page route on". Counters shared across the file would
+ * make the second leg's reading a function of the first leg's, which is exactly the coupling the two legs are
+ * meant to be compared without.
+ */
+type Leg = {
+  name: string;
+  page: Page;
+  /** Every POST this leg's `/api/voice/transcribe` stand-in answered — the leg's own counter. */
+  proxyPosts: ProxyPost[];
+  /** Every request this leg's aliyuncs stand-in answered, method and URL. */
+  aliyuncsHits: string[];
+  /** Every host ending in `aliyuncs.com` this leg's `page.on('request')` ledger saw. */
+  aliyuncsLedger: string[];
+  /** Every `/api/voice/health` response body this leg captured. */
+  health: HealthPayload[];
+  /** Every `PUT /api/voice/config` REQUEST body this leg's settings page sent. */
+  configPuts: Record<string, unknown>[];
+  /** Every `PUT /api/voice/config` RESPONSE body the server answered — the readback, masked. */
+  configReadbacks: Record<string, unknown>[];
+  /** What this leg's stand-in answers a transcription with. */
+  answer: 'written' | 'refused';
+  /** The `voiceDebugFlags` this leg's page had after it loaded, read off its own storage. */
+  flags: string;
+};
+
+/** Whether `locator` showed up within `timeoutMs`. */
+const appears = async (locator: Locator, timeoutMs: number): Promise<boolean> =>
+  locator.waitFor({ state: 'visible', timeout: timeoutMs }).then(
+    () => true,
+    () => false,
+  );
+
+/** The headers the aliyuncs stand-in answers with, so a browser-side call to that host can really complete. */
+const CORS_HEADERS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization,content-type',
+  'Access-Control-Allow-Methods': 'POST,OPTIONS',
+};
+
+test.describe.configure({ mode: 'serial' });
+
+let context: BrowserContext;
+/** The page the account is created on. The legs each open their own. */
+let onboarding: Page;
+
+/**
+ * What the settings page's own writes produced, printed once at the end: the four fields and their SHAPES.
+ *
+ * Shapes rather than values for the credential: the criterion is that the key travels as typed, and printing
+ * it to prove that would put a plaintext key in a log that outlives the run. Length, first three characters
+ * and the mask marker are what an assertion about "as typed, not masked, not empty" can be re-read from.
+ */
+const settingsReading: string[] = [];
+
+/**
+ * Opens a leg: a page of its own, the two stand-ins, and the switch naming the address it starts from.
+ *
+ * A page per leg rather than one page navigated three times, because the stand-ins are registered per page:
+ * a second `page.route` on the same pattern would stack a second handler onto the first leg's closure, and the
+ * counters would then be answering about the file instead of about the leg.
+ */
+const openLeg = async (name: string, url: string, answer: Leg['answer']): Promise<Leg> => {
+  const page = await context.newPage();
+  const leg: Leg = {
+    name,
+    page,
+    proxyPosts: [],
+    aliyuncsHits: [],
+    aliyuncsLedger: [],
+    health: [],
+    configPuts: [],
+    configReadbacks: [],
+    answer,
+    flags: '<unread>',
+  };
+
+  // The ledger is registered before any handler, so a request is recorded whether or not a stand-in answers
+  // it: what the criterion reads is "did the page address this host at all", which is a fact about the
+  // request rather than about its answer.
+  page.on('request', (request) => {
+    const hostname = new URL(request.url()).hostname;
+    if (hostname.endsWith('aliyuncs.com')) leg.aliyuncsLedger.push(hostname);
+  });
+
+  // The health payload, captured rather than stubbed: the legs assert against the body the page really routed
+  // on, and the settings form's own options come from this same response.
+  page.on('response', (response) => {
+    if (response.url().includes('/api/voice/health')) {
+      void response.json().then(
+        (body: HealthPayload) => leg.health.push(body),
+        () => undefined,
+      );
+    }
+    if (response.request().method() !== 'PUT' || !response.url().includes('/api/voice/config')) return;
+    void response.json().then(
+      (body: Record<string, unknown>) => leg.configReadbacks.push(body),
+      () => undefined,
+    );
+  });
+
+  // The settings document the form sent. Read off the request rather than off the module's state, because the
+  // claim is about what really went over the wire — the whole-document PUT is the hazard this criterion closes.
+  page.on('request', (request) => {
+    if (request.method() !== 'PUT' || !request.url().includes('/api/voice/config')) return;
+    try {
+      leg.configPuts.push(JSON.parse(request.postData() ?? '{}') as Record<string, unknown>);
+    } catch {
+      leg.configPuts.push({});
+    }
+  });
+
+  await page.route(PROXY_PATH, async (route) => {
+    const request = route.request();
+    leg.proxyPosts.push({ url: request.url(), method: request.method(), headers: request.headers() });
+    await route.fulfill({
+      status: answer === 'written' ? 200 : REFUSAL_STATUS,
+      contentType: 'application/json',
+      body: JSON.stringify(answer === 'written' ? WRITTEN_ENVELOPE : REFUSAL_ENVELOPE),
+    });
+  });
+
+  // The provider's own host, answered here for two reasons at once: the criterion counts requests to it, and a
+  // request that really went out would otherwise be a real network call this run must not make. It answers the
+  // preflight too, so a browser-side call to it can complete rather than being blocked by CORS.
+  await page.route(ALIYUNCS_URL, async (route) => {
+    const request = route.request();
+    leg.aliyuncsHits.push(`${request.method()} ${request.url()}`);
+    if (request.method() === 'OPTIONS') {
+      await route.fulfill({ status: 204, headers: CORS_HEADERS });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: 'the directly connected endpoint answered this recording' }),
+    });
+  });
+
+  await page.goto(url);
+  leg.flags = await page.evaluate(() => window.localStorage.getItem('voiceDebugFlags') ?? '<unset>');
+  return leg;
+};
+
+/** The composer's textarea, the one place the transcript from a recording lands. */
+const composer = (page: Page) => page.locator('[data-slot="prompt-input-textarea"]');
+
+/** The project row is a toggle whose accessible name starts with the workspace's display name. */
+const projectRow = (page: Page) =>
+  page.getByRole('button', { name: new RegExp(`^${path.basename(WORKSPACE)}`) }).first();
+
+const sessionLink = (page: Page) => page.locator('a[href^="/session/"]').filter({ hasText: SESSION_NAME });
+
+/**
+ * Expands the project's session list. The row is a toggle, so a click that lands while the sidebar is still
+ * re-rendering would leave it collapsed — retry until the session link is really on screen.
+ */
+const expandProject = async (page: Page) => {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    if (await sessionLink(page).isVisible().catch(() => false)) {
+      return;
+    }
+    await projectRow(page).click();
+    try {
+      await expect(sessionLink(page)).toBeVisible({ timeout: 10_000 });
+      return;
+    } catch {
+      // Collapsed again (or the click missed); the loop clicks once more.
+    }
+  }
+  await expect(sessionLink(page)).toBeVisible({ timeout: 15_000 });
+};
+
+/**
+ * Opens the seeded session's composer on a leg's page, and empties it.
+ *
+ * Emptying is what makes the assertion after a recording a transition rather than a state: the composer keeps
+ * a draft per session, so an earlier leg's sentence would otherwise already be sitting there — and a composer
+ * that already held the expected text would make "the transcript landed" unfalsifiable.
+ */
+const openComposer = async (page: Page) => {
+  await expandProject(page);
+  await sessionLink(page).click();
+  await expect(page).toHaveURL(new RegExp(`/session/${SESSION_ID}$`));
+  try {
+    await expect(composer(page)).toBeVisible({ timeout: 15_000 });
+  } catch {
+    const shown = await page.locator('body').innerText().catch(() => '<unreadable>');
+    throw new Error(
+      `the composer never rendered on leg ${await page.title()}; the page shows: ${JSON.stringify(shown.slice(0, 300))}`,
+    );
+  }
+  await composer(page).fill('');
+  await expect(composer(page)).toHaveValue('');
+};
+
+/**
+ * Opens Settings, the Voice tab, and waits for the provider select.
+ *
+ * The whole path is the app's own: the sidebar's Settings button, the settings sidebar's Voice entry, and the
+ * select the form renders. Nothing here reaches into the store, which is what makes "the provider was chosen
+ * in the settings page" a reading about the page.
+ */
+const openVoiceSettings = async (page: Page) => {
+  await page.getByRole('button', { name: 'Settings', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Voice', exact: true }).first().click();
+  await expect(page.locator('select[name="providerId"]')).toBeVisible({ timeout: 15_000 });
+};
+
+/** The provider select, named by the stored field it edits. */
+const providerSelect = (page: Page) => page.locator('select[name="providerId"]');
+
+/** The section of inputs the selected provider's own declaration asks for. */
+const declaredSection = (page: Page) => page.locator('[data-testid="voice-provider-fields"]');
+
+/**
+ * The health payload's latest reading of one provider's row.
+ *
+ * Polled, because the run reaches this before deciding anything about a provider: the page asks for health on
+ * load and again when the form mounts, and the payload is the only place this file can learn a provider's
+ * declaration from — the client has no copy of it either, which is the point of the server republishing it.
+ */
+const healthRow = async (leg: Leg, providerId: string): Promise<HealthRow> => {
+  let found: HealthRow | undefined;
+  await expect.poll(
+    () => {
+      for (const payload of leg.health) {
+        const row = payload.providers?.find((candidate) => candidate.id === providerId);
+        if (row) found = row;
+      }
+      return found !== undefined;
+    },
+    { timeout: 15_000, message: `${leg.name}: no /api/voice/health payload listed ${providerId}` },
+  ).toBe(true);
+  return found!;
+};
+
+/**
+ * The field names the selected provider's declaration asks the settings form for, in the order it asks.
+ *
+ * Read from the payload and not written here, for the same reason the form does not write them: which fields
+ * hold a provider's credential is that provider's own fact, and a list in this file would be a second copy of
+ * it that could agree with the form while both disagreed with the registry.
+ */
+const declaredFields = (row: HealthRow): string[] => {
+  const declaration = row.credentialFields;
+  if (!declaration) return [];
+  return [declaration.endpointField, declaration.apiKeyField, declaration.modelField]
+    .filter((field): field is string => typeof field === 'string' && field !== '');
+};
+
+/** The inputs the form really rendered for the declaration, by the name each one edits. */
+const renderedFields = (page: Page): Promise<string[]> =>
+  page.locator('[data-testid="voice-provider-fields"] input').evaluateAll((nodes) =>
+    nodes.map((node) => (node as HTMLInputElement).name),
+  );
+
+/**
+ * Switches the page's provider, through the form's own select.
+ *
+ * The value is the payload row's own id, so a provider the registry renames is a provider this step follows
+ * rather than one it fails to find.
+ */
+const selectProvider = async (page: Page, providerId: string) => {
+  await providerSelect(page).selectOption(providerId);
+  await expect(providerSelect(page)).toHaveValue(providerId);
+};
+
+/** Fills one of the declared inputs by the name its declaration gives it. */
+const fillDeclared = async (page: Page, field: string, value: string) => {
+  const input = page.locator(`[data-testid="voice-provider-fields"] input[name="${field}"]`);
+  await input.fill(value);
+  await expect(input).toHaveValue(value);
+};
+
+/**
+ * Waits for the whole-document PUT that carries `field` at `value`, and returns the request body.
+ *
+ * The save is debounced (one request for a burst of typing), so the document is read off the request the form
+ * really made rather than off the module's state — and the wait is on the value, because a put issued for an
+ * earlier edit would be a document that does not yet carry what this leg typed.
+ */
+const awaitConfigWrite = async (leg: Leg, field: string, value: string): Promise<Record<string, unknown>> => {
+  await expect.poll(
+    () => leg.configPuts.some((body) => body[field] === value),
+    { timeout: 15_000, message: `${leg.name}: the settings page never sent a document carrying ${field}` },
+  ).toBe(true);
+  return leg.configPuts.filter((body) => body[field] === value).pop()!;
+};
+
+/**
+ * Makes the app read the health payload again, now that the server holds the settings the form just sent.
+ *
+ * WHY THIS IS NEEDED AT ALL: the availability check asks the server which provider is effective, and the form's
+ * writes are debounced — so the reading taken while the user was typing is a reading of the document BEFORE
+ * what they typed. Toggling the enable switch is the user's own way of asking again (the hook re-checks when
+ * that preference changes), and it is what a person who had just typed a key and seen no microphone would do.
+ * Waiting on the health payload rather than on a timer is what makes the sequence a reading: the profile the
+ * upload routes on is published by that read and by nothing else.
+ */
+const rereadHealth = async (page: Page) => {
+  const voiceSwitch = page.getByRole('switch', { name: 'Enable voice' });
+  await expect(voiceSwitch).toHaveAttribute('aria-checked', 'true');
+  await voiceSwitch.click();
+  await expect(voiceSwitch).toHaveAttribute('aria-checked', 'false');
+  await voiceSwitch.click();
+  await expect(voiceSwitch).toHaveAttribute('aria-checked', 'true');
+};
+
+/**
+ * Records one pass of the fixture through the app's voice button.
+ *
+ * There is no event to wait on for "the recorder has captured enough" — the upload does not exist until the
+ * stop — so the wait is the capture duration itself.
+ */
+const recordOnce = async (page: Page) => {
+  const record = page.getByRole('button', { name: 'Voice input' });
+  await expect(record).toBeVisible({ timeout: 15_000 });
+  await record.click();
+  // Recording really started: the button renames itself for as long as the recorder is running.
+  const stop = page.getByRole('button', { name: 'Stop recording' });
+  await expect(stop).toBeVisible({ timeout: 10_000 });
+  await page.waitForTimeout(CAPTURE_MS);
+  await stop.click();
+};
+
+/**
+ * One account on a fresh database, created through the app's own onboarding — and the seeded workspace.
+ *
+ * The bill for this preamble is paid once for the whole file: the legs afterwards load straight into the app,
+ * because the account is in the database and the session token is in the context's storage.
+ */
+test.beforeAll(async ({ browser }) => {
+  // Onboarding plus the first project load outlasts the default per-test budget, but only as far as the
+  // criterion's own ceiling allows: a hook that runs longer than that is killed from outside and reports
+  // nothing, so the budget stops short of it and lets the failure above be the thing that is read.
+  test.setTimeout(40_000);
+
+  context = await browser.newContext({ baseURL: CLIENT_URL, permissions: ['microphone'] });
+
+  // The preference this file is allowed to seed: voice is ON, the language is English. The Provider's own
+  // settings are NOT seeded here — choosing them in the form is the reading this file exists for, and a
+  // preloaded document would make every assertion below satisfiable without the form ever being touched.
+  await context.addInitScript(({ preferences }: { preferences: unknown }) => {
+    window.localStorage.setItem('uiPreferences', JSON.stringify(preferences));
+    window.localStorage.setItem('user-preferences', JSON.stringify({ uiPreferences: preferences, userLanguage: 'en' }));
+    window.localStorage.setItem('userLanguage', 'en');
+  }, { preferences: { voiceEnabled: true } });
+
+  onboarding = await context.newPage();
+
+  // First run on a fresh database: create the single account, then finish onboarding. Both switches are named
+  // on this navigation too, so no page in this file reads a flag an earlier one happened to write.
+  await onboarding.goto('/?voiceDebug=0&voiceTrim=off');
+
+  // The account form is the app's first rendered screen, which also makes it the first thing a cold Vite dev
+  // server can fail to produce. Two different blanks arrive here: a transform graph built on demand under
+  // load, and `504 Outdated Optimize Dep` on the pre-bundled dependencies, which is what a dev server answers
+  // for a moment once its dependency cache has been re-optimized underneath it. Neither throws on its own —
+  // the navigation succeeded, so nothing surfaces until the wait for the form runs out. A reload clears both,
+  // so it is retried, bounded, because this preamble is not what the criterion tests.
+  let onboarded = await appears(onboarding.locator('#username'), 8_000);
+  for (let attempt = 0; !onboarded && attempt < 3; attempt += 1) {
+    await onboarding.reload();
+    onboarded = await appears(onboarding.locator('#username'), 4_000);
+  }
+  if (!onboarded) {
+    const shown = await onboarding.locator('body').innerText().catch(() => '<unreadable>');
+    throw new Error(`the account form never rendered; the page shows: ${JSON.stringify(shown.slice(0, 300))}`);
+  }
+  await onboarding.locator('#username').fill('e2euser');
+  await onboarding.locator('input[type=password]').nth(0).fill('e2epassword');
+  await onboarding.locator('input[type=password]').nth(1).fill('e2epassword');
+  await onboarding.getByRole('button', { name: 'Create Account' }).click();
+  await onboarding.getByPlaceholder('John Doe').fill('E2E User');
+  await onboarding.getByPlaceholder('john@example.com').fill('e2e@example.com');
+  await onboarding.getByRole('button', { name: 'Next' }).click();
+  await onboarding.getByRole('button', { name: 'Complete Setup' }).click();
+
+  // Indexing a session auto-registers its project, so the seeded workspace is already a project here; the
+  // sidebar is the proof that the fixture really reached the backend.
+  await expect(projectRow(onboarding)).toBeVisible({ timeout: 12_000 });
+});
+
+test.afterAll(async () => {
+  const startedAt = Number(process.env.QUAY_E2E_RUN_STARTED_AT);
+  // The run's own wall clock, from the instant playwright.config.ts began evaluating to here: config
+  // evaluation, seeding, both servers' boot and the browser run. That is the span the gate's ceiling bounds,
+  // which is why it is measured from there and not from the first leg.
+  console.log(`criterion-wall-ms=${Date.now() - startedAt}`);
+  console.log(`dataDir-owner=${process.env.QUAY_E2E_DATA_DIR_OWNER}`);
+  for (const reading of settingsReading) console.log(reading);
+  console.log(
+    '[voice-dashscope] registration: this file implements the browser end-to-end path and the settings page\'s '
+      + 'provider selection only. It does not implement the dashscope-omni wire protocol, the server-side dispatch, '
+      + 'the transport or host-whitelist rules themselves, or the storage, masking and logging of a user credential '
+      + '— it consumes all four. Both /api/voice/transcribe and the aliyuncs host are intercepted in the browser, '
+      + 'which is NOT the real service and not a real-device browser (ADR-004 decision 8 leaves the real smoke run '
+      + 'to a human). The declared model name is an alias and may drift when the service is upgraded. The two legs '
+      + 'selected by -g do not reload, so the masked-readback writeback rule is outside this file. One deviation '
+      + 'from the real proxy is deliberate and registered here: an upstream refusal is answered by the stand-in with '
+      + 'the seam\'s own UNAUTHORIZED code beside the proxy\'s message, because the real route republishes a code '
+      + 'only for the pre-upstream refusals, and the criterion asks for a semantic code on the page.',
+  );
+  await context?.close();
+});
+
+/**
+ * The written leg: the settings page selects a proxied provider, the recording goes through the proxy, and the
+ * envelope's written instruction lands in the composer verbatim.
+ *
+ * Four readings, and the first two are what make the third and fourth mean anything: exactly one upload left
+ * the page, it carried the effective provider's id on the routing header, no request in the ledger addressed
+ * the provider's own host, and the text in the box is the envelope's.
+ */
+test('AC-142 written: a proxied provider is selected in settings and the written instruction lands verbatim', async () => {
+  test.setTimeout(50_000);
+
+  const leg = await openLeg('written', '/?voiceTrim=off&voiceDebug=0', 'written');
+  const page = leg.page;
+  console.log(`[voice-dashscope] leg=written flags=${leg.flags}`);
+
+  await openComposer(page);
+
+  // (1) The settings page: open it, read the payload's own rows, and select the provider whose declaration
+  // says the browser cannot address its service itself. That declaration is what the routing under test
+  // follows, so the selection is made from it rather than from an id this file knows.
+  await openVoiceSettings(page);
+  const payload = leg.health[leg.health.length - 1];
+  const proxiedRow = payload?.providers?.find((row) => row.capabilities?.transport === 'proxy-only');
+  expect(
+    proxiedRow,
+    'the health payload lists no provider declaring transport: proxy-only',
+  ).toBeTruthy();
+  await selectProvider(page, proxiedRow!.id);
+
+  const declared = declaredFields(proxiedRow!);
+  const rendered = await renderedFields(page);
+  console.log(`declared-fields=[${declared.join(',')}] rendered-fields=[${rendered.join(',')}]`);
+  expect(rendered).toEqual(declared);
+
+  // (2) The credential, typed into the inputs the declaration named — by name, so this step has no list of
+  // fields of its own either.
+  const [endpointField, apiKeyField, modelField] = declared;
+  expect(modelField, 'the selected provider declares no model field to fill').toBeTruthy();
+  await fillDeclared(page, endpointField, WORKSPACE_ADDRESS);
+  await fillDeclared(page, apiKeyField, API_KEY);
+  await fillDeclared(page, modelField, MODEL);
+
+  const sent = await awaitConfigWrite(leg, apiKeyField, API_KEY);
+  expect(sent.providerId).toBe(proxiedRow!.id);
+  expect(sent[endpointField]).toBe(WORKSPACE_ADDRESS);
+  expect(sent[apiKeyField]).toBe(API_KEY);
+  expect(sent[modelField]).toBe(MODEL);
+  for (const field of ['baseUrl', 'apiKey', 'sttModel', 'ttsModel', 'ttsVoice', 'ttsFormat']) {
+    expect(field in sent, `${field} is missing from the saved document`).toBe(true);
+  }
+  // The shapes, never the key: length, the first three characters, and whether the mask marker is anywhere in
+  // it. "Not empty, not masked" is what the criterion asks, and neither needs the string itself.
+  const shapeOf = (value: unknown): string => {
+    const text = String(value ?? '');
+    return `${text.length}/${text.slice(0, 3)}${text.includes('•') ? '/masked' : ''}`;
+  };
+  settingsReading.push(
+    `[voice-dashscope] saved document providerId=${String(sent.providerId)}`
+      + ` ${endpointField}=${shapeOf(sent[endpointField])}`
+      + ` ${apiKeyField}=${shapeOf(sent[apiKeyField])}`
+      + ` ${modelField}=${shapeOf(sent[modelField])}`
+      + ` legacy-fields=${['baseUrl', 'apiKey', 'sttModel', 'ttsModel', 'ttsVoice', 'ttsFormat'].filter((f) => f in sent).length}/6`,
+  );
+
+  // (3) The page reads health again now that the server holds the selection, so the profile the upload routes
+  // on is the one just saved — and the microphone, which the payload's `configured` gates, appears.
+  await rereadHealth(page);
+  await expect.poll(
+    () => leg.health.some((body) => body.provider === proxiedRow!.id && body.configured === true),
+    { timeout: 15_000, message: 'the page never read a health payload naming the selected provider as effective' },
+  ).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(composer(page)).toBeVisible({ timeout: 10_000 });
+
+  // (4) One recording, and the four readings about it.
+  await recordOnce(page);
+  await expect.poll(
+    () => leg.proxyPosts.length,
+    { timeout: 15_000, message: 'the recording never reached the proxy stand-in' },
+  ).toBe(1);
+
+  const post = leg.proxyPosts[0];
+  const composerLength = (await composer(page).inputValue()).length;
+  const aliyncsCount = leg.aliyuncsLedger.length;
+  console.log(
+    `proxy=${leg.proxyPosts.length} x-voice-provider=${String(post.headers['x-voice-provider'])}`
+      + ` aliyuncs=${aliyncsCount} composer-len=${composerLength}`,
+  );
+  console.log(
+    `[voice-dashscope] written: url=${post.url} method=${post.method}`
+      + ` aliyuncs-double-hits=${leg.aliyuncsHits.length} health-reads=${leg.health.length} answer=${leg.answer}`,
+  );
+
+  expect(post.url).toContain('/api/voice/transcribe');
+  expect(post.headers['x-voice-provider']).toBe(PROXIED_PROVIDER_ID);
+  expect(leg.aliyuncsLedger).toEqual([]);
+  await expect(composer(page)).toHaveValue(WRITTEN_INSTRUCTION);
+
+  await page.close();
+});
+
+/**
+ * The refusal leg: a draft is typed, the recording is refused upstream, the page says so with a code, and the
+ * draft is still there — character for character — afterward.
+ *
+ * The three readings are the whole claim, and the third is what stops the second from being vacuous: "nothing
+ * happened, so the draft is still there" is excluded by the error having really been shown, and "the leg
+ * uploaded and got an answer" is what the count of one says.
+ */
+test('AC-142 refusal: a refused recognition shows an error with its code and leaves the draft untouched', async () => {
+  test.setTimeout(45_000);
+
+  const leg = await openLeg('refusal', '/?voiceTrim=off&voiceDebug=1', 'refused');
+  const page = leg.page;
+  console.log(`[voice-dashscope] leg=refusal flags=${leg.flags}`);
+
+  await openComposer(page);
+  await composer(page).fill(DRAFT);
+  const before = await composer(page).inputValue();
+  expect(before).toBe(DRAFT);
+
+  // The provider is the one the previous leg saved, so no settings trip is needed here: the page reads health
+  // on load and routes on that reading.
+  await expect.poll(
+    () => leg.health.some((body) => body.provider === PROXIED_PROVIDER_ID && body.configured === true),
+    { timeout: 15_000, message: 'the page never read a health payload naming the saved provider as effective' },
+  ).toBe(true);
+
+  await recordOnce(page);
+  await expect.poll(
+    () => leg.proxyPosts.length,
+    { timeout: 15_000, message: 'the recording never reached the proxy stand-in' },
+  ).toBe(1);
+
+  // (a) The page's own words: an error, and the semantic code beside it — not the "no speech detected" class of
+  // copy, which is what a chain that never got an answer from anywhere would show.
+  const errorLine = page.getByText(/Transcription failed/);
+  let shown = '<unreadable>';
+  try {
+    await expect(errorLine).toBeVisible({ timeout: 10_000 });
+    shown = await errorLine.innerText();
+  } catch {
+    const body = await page.locator('body').innerText().catch(() => '<unreadable>');
+    throw new Error(
+      `${leg.name}: the refused recording was never reported on the page; the page shows: ${JSON.stringify(body.slice(0, 300))}`
+        + `\n  proxy posts=${leg.proxyPosts.length}`,
+    );
+  }
+  const draftKept = (await composer(page).inputValue()) === DRAFT;
+  const refusalShown = shown.includes('Transcription failed') && shown.includes(REFUSAL_ENVELOPE.code);
+  console.log(`error=${refusalShown} draft-kept=${draftKept} posts=${leg.proxyPosts.length}`);
+  console.log(
+    `[voice-dashscope] refusal: page-said=${JSON.stringify(shown)}`
+      + ` composer=${JSON.stringify(await composer(page).inputValue())}`
+      + ` run-total-posts=${leg.proxyPosts.length} (this leg's own stand-in counted every POST it answered)`,
+  );
+
+  expect(shown).toContain('Transcription failed');
+  expect(shown).toContain(REFUSAL_ENVELOPE.code);
+  expect(shown).not.toContain('No speech detected');
+  expect(draftKept).toBe(true);
+  // The stand-in's own counter, this leg's: one upload, no retry behind the refusal. (The two -g legs each keep
+  // their own stand-in, so this number is about this leg rather than about the file's total.)
+  expect(leg.proxyPosts.length).toBe(1);
+  expect(leg.aliyuncsLedger).toEqual([]);
+
+  await page.close();
+});
+
+/**
+ * The control leg: the same address, reached directly — the discriminator that makes the zero above a reading.
+ *
+ * A provider declaring `transport: 'direct'` is one the browser addresses itself, so the very same workspace
+ * address typed into its shared base URL has to leave the page. It also reads zero uploads to the proxy, which
+ * is the other half: the two routes are chosen by the declaration, not by which one happens to work.
+ *
+ * Its title deliberately carries no criterion id: `-g` selects the two legs above, and this one must not be
+ * dragged into their budget.
+ */
+test('control leg: a directly connected provider really reaches the workspace host and never the proxy', async () => {
+  test.setTimeout(50_000);
+
+  const leg = await openLeg('control', '/?voiceTrim=off&voiceDebug=1', 'written');
+  const page = leg.page;
+  console.log(`[voice-dashscope] leg=control flags=${leg.flags}`);
+
+  await openComposer(page);
+
+  await openVoiceSettings(page);
+  const payload = leg.health[leg.health.length - 1];
+  const directRow = payload?.providers?.find((row) => row.capabilities?.transport === 'direct');
+  expect(directRow, 'the health payload lists no provider declaring transport: direct').toBeTruthy();
+  await selectProvider(page, directRow!.id);
+
+  // The same address, in the shared base URL a directly connected provider is reached with. It is not this
+  // provider's own field — that is the point: whichever field the address sits in, only the provider whose
+  // declaration names it may be used to reach that host.
+  const baseUrl = page.locator('input[name="baseUrl"]');
+  await baseUrl.fill(WORKSPACE_ADDRESS);
+  await expect(baseUrl).toHaveValue(WORKSPACE_ADDRESS);
+  await awaitConfigWrite(leg, 'baseUrl', WORKSPACE_ADDRESS);
+
+  await rereadHealth(page);
+  await expect.poll(
+    () => leg.health.some((body) => body.provider === directRow!.id && body.configured === true),
+    { timeout: 15_000, message: 'the page never read a health payload naming the directly connected provider' },
+  ).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(composer(page)).toBeVisible({ timeout: 10_000 });
+
+  await recordOnce(page);
+  // The request is what this leg is about, so the wait is on the ledger rather than on the composer.
+  await expect.poll(
+    () => leg.aliyuncsLedger.length,
+    { timeout: 15_000, message: 'the directly connected provider never addressed the workspace host' },
+  ).toBeGreaterThan(0);
+
+  const composerLength = (await composer(page).inputValue()).length;
+  console.log(
+    `control-aliyuncs=${leg.aliyuncsLedger.length} control-proxy-posts=${leg.proxyPosts.length}`
+      + ` control-composer-len=${composerLength}`,
+  );
+  console.log(
+    `[voice-dashscope] control: ledger=${leg.aliyuncsLedger.join(',')}`
+      + ` double-hits=${leg.aliyuncsHits.slice(0, 2).join(' | ')}`,
+  );
+
+  expect(leg.aliyuncsLedger.length).toBeGreaterThan(0);
+  expect(leg.proxyPosts.length).toBe(0);
+  // The round trip really completed — the stand-in's answer came back through CORS and was parsed — rather
+  // than the request having been refused somewhere after it left the page.
+  await expect(composer(page)).toHaveValue('the directly connected endpoint answered this recording');
+
+  await page.close();
+});

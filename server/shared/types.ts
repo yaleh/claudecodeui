@@ -5,7 +5,7 @@ import type { Readable } from 'node:stream';
 // repository-root shared tree rather than restated here: the whole point of the payload is
 // that it carries the registry's own declaration, so a restatement could drift from it
 // silently. `import type` only — the backend never calls an adapter from this file.
-import type { AsrCapabilities, AsrErrorCode } from '../../shared/asr/asrRegistry.js';
+import type { AsrCapabilities, AsrCredentialFields, AsrErrorCode } from '../../shared/asr/asrRegistry.js';
 
 //----------------- HTTP RESPONSE SHAPES ------------
 /**
@@ -1439,6 +1439,22 @@ export type VoiceProviderSummary = {
   label: string;
   capabilities: AsrCapabilities;
   configured: boolean;
+  /**
+   * WHICH STORED SETTINGS FIELDS ARE THIS PROVIDER'S OWN, republished verbatim from the
+   * registry's declaration (`AsrCredentialFields`), the same way `capabilities` is.
+   *
+   * The settings form has to render a different set of inputs per provider — a provider whose
+   * address and key are its own gets their fields, one reached through the deployment's backend
+   * gets the shared six — and neither of the two obvious ways to answer that is acceptable: a
+   * table of ids in the client is a second source of truth that would silently disagree with the
+   * registry after a provider changes, and a client that simply rendered all ten fields would ask
+   * a user for an address that is never sent anywhere.
+   *
+   * `undefined` is the declaration's own answer for "no fields of its own" — the same absence
+   * `providerConfigured` and `resolveRecognitionConfig` branch on server-side, so the client and
+   * the request path read one shape rather than two.
+   */
+  credentialFields?: AsrCredentialFields;
 };
 
 /**

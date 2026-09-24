@@ -111,6 +111,7 @@ test('AC2: every registered provider is listed with the registry\'s own capabili
     label: adapter.id,
     capabilities: adapter.capabilities,
     configured: adapter.credentials === undefined,
+    credentialFields: adapter.credentials,
   }));
   assert.deepEqual(health.value.providers, registry);
   assert.deepEqual(
@@ -121,6 +122,33 @@ test('AC2: every registered provider is listed with the registry\'s own capabili
   // A capability field that the UI branches on, asserted to have travelled intact rather than
   // merely to have a key of that name.
   assert.equal(health.value.providers[0]?.capabilities.maxInlineRequestBytes, listProviders()[0]?.capabilities.maxInlineRequestBytes);
+
+  // THE SECOND DECLARATION, read the same way: the row that declares credential fields of its own
+  // publishes them, field for field, and the row that declares none says so by absence. This is
+  // what the settings form renders its inputs from, so "the declaration reached the payload" is
+  // the reading that has to exist here rather than in the client, which cannot see the registry.
+  //
+  // Asserted against the registry's own objects, never against the three names this checkout
+  // happens to register: a literal here would keep passing while the payload and the declaration it
+  // claims to republish drifted apart, which is the failure this whole republishing exists to make
+  // impossible.
+  const declaring = health.value.providers.filter((provider) => provider.credentialFields !== undefined);
+  assert.ok(declaring.length > 0, 'at least one registered provider declares credential fields of its own');
+  for (const provider of health.value.providers) {
+    const adapter = listProviders().find((candidate) => candidate.id === provider.id);
+    assert.deepEqual(
+      provider.credentialFields,
+      adapter?.credentials,
+      `${provider.id}: the published declaration must be the registry's own`,
+    );
+  }
+  // The reading, printed rather than only asserted: which rows declare, and the shape the settings
+  // form will render from. The names are the declaration's own, so this line is a reading of the
+  // payload and not a second copy of it.
+  console.log(
+    `voice-health providers=${health.value.providers.length} declaring=[${declaring.map((provider) => provider.id).join(',')}]`
+      + ` first-declaration=${JSON.stringify(declaring[0]?.credentialFields ?? null)}`,
+  );
 });
 
 test('AC3 proxy face: an unregistered override id is refused and nothing is sent', async () => {

@@ -673,11 +673,19 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
           // Straight from the registry, capabilities object and all. The client reads the
           // container, the inline budget and the hint switches from here, so a provider that
           // changes its declaration changes the client's behaviour without a second edit.
+          //
+          // THE CREDENTIAL DECLARATION IS REPUBLISHED THE SAME WAY, and for the same reason one
+          // step further out: the settings form renders one input per declared field, so it needs
+          // the declaration itself rather than a copy of the answer. Note what is NOT here — no
+          // entry keyed by id, and no branch that names one: the map's argument is the adapter and
+          // every field of a row comes off that adapter, which is what keeps a provider added to
+          // the registry from needing a second edit on this side.
           providers: listProviders().map((adapter) => ({
             id: adapter.id,
             label: adapter.id,
             capabilities: adapter.capabilities,
             configured: configuredFor(adapter),
+            credentialFields: adapter.credentials,
           })),
         },
       };

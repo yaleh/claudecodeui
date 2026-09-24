@@ -29,6 +29,25 @@ export type VoiceConfig = {
   ttsModel: string;
   ttsVoice: string;
   ttsFormat: string;
+  /**
+   * The recogniser the user selected, and the fields that recogniser declared as its own.
+   *
+   * THEY ARE PART OF THIS DOCUMENT RATHER THAN A STORE OF THEIR OWN, and that is the whole
+   * point: the settings are saved as ONE document (`flushServerWrite` sends the whole thing,
+   * never a patch), so a field the client does not know about is a field the next save deletes —
+   * the server reads an absent one as the empty string. Listing them here is what makes the
+   * settings page's own writes preserve them, and it is the same reason the client has to know
+   * the names at all: the form is what a user types them into.
+   *
+   * The three `dashscope*` names are the ones the recogniser in this checkout declares (see the
+   * health payload's `credentialFields`), not a table the client keeps: which of them the form
+   * shows is decided by the selected provider's own declaration. The names are fixed here because
+   * the STORAGE is fixed here — one document, one set of columns — while the form is not.
+   */
+  providerId: string;
+  dashscopeEndpoint: string;
+  dashscopeApiKey: string;
+  dashscopeModel: string;
 };
 
 /** The localStorage key the six fields lived under before they moved server-side. */
@@ -44,6 +63,10 @@ export const VOICE_CONFIG_DEFAULTS: VoiceConfig = {
   ttsModel: '',
   ttsVoice: '',
   ttsFormat: '',
+  providerId: '',
+  dashscopeEndpoint: '',
+  dashscopeApiKey: '',
+  dashscopeModel: '',
 };
 
 const VOICE_CONFIG_FIELDS: readonly (keyof VoiceConfig)[] = [
@@ -53,6 +76,10 @@ const VOICE_CONFIG_FIELDS: readonly (keyof VoiceConfig)[] = [
   'ttsModel',
   'ttsVoice',
   'ttsFormat',
+  'providerId',
+  'dashscopeEndpoint',
+  'dashscopeApiKey',
+  'dashscopeModel',
 ];
 
 /**
@@ -154,6 +181,30 @@ function clearLegacyVoiceConfig(): void {
  */
 export function readVoiceConfig(): VoiceConfig {
   return { ...config };
+}
+
+/**
+ * Whether `field` is one of the names this module stores.
+ *
+ * Exposed for the settings form, whose field names come from a provider's declaration rather than
+ * from this type: a server whose registry declares a field this build does not store has to be
+ * told apart from one declaring a field it does, because rendering an input whose edits are
+ * dropped by the whole-document save is worse than not rendering it — the user would watch their
+ * key disappear on the next reload with nothing to explain it.
+ */
+export function isVoiceConfigField(field: string): field is keyof VoiceConfig {
+  return (VOICE_CONFIG_FIELDS as readonly string[]).includes(field);
+}
+
+/**
+ * Reads one named field, for a caller whose field name came from a declaration.
+ *
+ * A name this module does not store reads as the empty string rather than as undefined, so a form
+ * binding it renders an empty input instead of an uncontrolled one.
+ */
+export function readVoiceConfigField(candidate: VoiceConfig, field: string): string {
+  const value = (candidate as unknown as Record<string, unknown>)[field];
+  return typeof value === 'string' ? value : '';
 }
 
 /**
