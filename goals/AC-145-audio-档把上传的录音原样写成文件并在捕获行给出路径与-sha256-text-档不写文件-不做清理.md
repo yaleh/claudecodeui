@@ -1,7 +1,7 @@
 ---
 id: AC-145
 title: audio 档把上传的录音原样写成文件并在捕获行给出路径与 sha256；text 档不写文件；不做清理
-status: draft
+status: active
 kind: criterion
 goal: GOAL-010
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -13,4 +13,15 @@ expect: VOICE_CAPTURE=audio 下，一次成功转写后在 VOICE_CAPTURE_DIR 指
   必须红。
 origin: docs/proposals/voice-capture-server-side.md（2026-09-24 人 yale 裁定：三档
   off/text/audio、只在服务端配置、默认 off、无保留期与大小限制、音频目录不清理、AC-141 的转写正文条款错误需修订）
+activatedAt: 2026-09-24T11:21:56.214Z
+statusLog:
+  - at: 2026-09-24T11:21:56.214Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-09-24T11:21:56.214Z
 ---
