@@ -55,12 +55,17 @@ function sendFailure<TValue>(
     return false;
   }
 
-  // The semantic code rides beside the message when the refusal has one. It is dropped rather than
-  // defaulted for the failures that do not: a placeholder code would read as a classification, and
-  // a client branching on it would treat "the backend did not answer" as a kind of bad upload.
-  response
-    .status(result.status)
-    .json(result.code === undefined ? { error: result.error } : { error: result.error, code: result.code });
+  // The semantic code rides beside the message whenever the failure has one, and the upstream's own
+  // code beside that when the upstream named one. It is dropped rather than defaulted for the few
+  // failures that have none: a placeholder code would read as a classification, and a client
+  // branching on it would treat "the backend did not answer" as a kind of bad upload. See
+  // `VoiceServiceResult.code` for which those are — they are refusals that never became an attempt
+  // (a setting that is not a URL, an id nothing is registered for), not failures of one.
+  response.status(result.status).json({
+    error: result.error,
+    ...(result.code === undefined ? {} : { code: result.code }),
+    ...(result.upstreamCode === undefined ? {} : { upstreamCode: result.upstreamCode }),
+  });
   return true;
 }
 
@@ -80,9 +85,35 @@ function sendFailure<TValue>(
  */
 const UPLOAD_TOO_LARGE = 'LIMIT_FILE_SIZE';
 
-function readUploadFailure(error: unknown): { status: number; code?: string } {
+/**
+ * The code the two pre-provider upload refusals carry: a parser failure that is not the ceiling, and
+ * a request that arrived with no file at all.
+ *
+ * WHY THESE TWO AND NOT THE REMEDY'S OWN WORD. The vocabulary is the recogniser seam's and is
+ * CLOSED — its members name what a recogniser can say about an attempt — so there is no member for
+ * "the multipart body was malformed" or "the audio field was missing". The choice is therefore which
+ * existing member means closest, and it is `UNSUPPORTED_MIME`: of the ten, it is the one member that
+ * is about the UPLOAD AS IT ARRIVED rather than about the service (a missing key, an unreachable
+ * host), about the audio's content (no speech in it), or about a limit on its size. Both of these
+ * refusals are that same sentence in the caller's terms — "what you sent is not an audio upload this
+ * path can serve" — so they share the word, and they keep their own statuses (`400`, which is what
+ * the parser's failures have always answered) because the status and the code are answering
+ * different questions here: the status is the transport's, the code is the reason.
+ *
+ * A member of the SHIPPED vocabulary rather than a new string, and a member that survives the
+ * vocabulary's evidence-driven expansion: a code invented here would be a second source of truth for
+ * a set the criterion reads off `PROVIDER_ERROR_STATUS` at runtime.
+ *
+ * The size refusal above is not this constant because it is not this sentence: `OVERSIZE` has a
+ * remedy of its own (a shorter recording), which is exactly why the two are two statuses.
+ */
+const MALFORMED_UPLOAD_CODE = 'UNSUPPORTED_MIME';
+
+function readUploadFailure(error: unknown): { status: number; code: string } {
   const code = (error as { code?: unknown } | null)?.code;
-  return code === UPLOAD_TOO_LARGE ? { status: 413, code: 'OVERSIZE' } : { status: 400 };
+  return code === UPLOAD_TOO_LARGE
+    ? { status: 413, code: 'OVERSIZE' }
+    : { status: 400, code: MALFORMED_UPLOAD_CODE };
 }
 
 /**
@@ -140,9 +171,7 @@ export function createVoiceRouter(dependencies: VoiceRouterDependencies): expres
       if (uploadError) {
         const message = uploadError instanceof Error ? uploadError.message : String(uploadError);
         const failure = readUploadFailure(uploadError);
-        response
-          .status(failure.status)
-          .json(failure.code === undefined ? { error: message } : { error: message, code: failure.code });
+        response.status(failure.status).json({ error: message, code: failure.code });
         return;
       }
 
@@ -150,7 +179,10 @@ export function createVoiceRouter(dependencies: VoiceRouterDependencies): expres
       // service call and forward unexpected rejections to Express middleware.
       void (async () => {
         if (!request.file) {
-          response.status(400).json({ error: 'No audio uploaded' });
+          // The same code the parser's other failures carry, for the same reason: the audio this
+          // route was asked to transcribe is not there, which is a fault in the upload the caller
+          // can fix and not one of the recogniser's. See `MALFORMED_UPLOAD_CODE`.
+          response.status(400).json({ error: 'No audio uploaded', code: MALFORMED_UPLOAD_CODE });
           return;
         }
 

@@ -186,6 +186,96 @@ export type AsrFailure = {
 export type AsrResult = AsrSuccess | AsrFailure;
 
 /**
+ * The shape a string must have to travel as an `upstreamCode`: a letter, then up to 63 more
+ * characters drawn from the alphabet every error-code spelling in this family uses.
+ *
+ * WHY THE BOUND IS 64 AND WHY IT IS A REJECTION RATHER THAN A TRUNCATION. The value's whole job is
+ * to be shown to a user as the upstream's own words for what went wrong, so a value this module
+ * shortened would be a quotation that is not a quotation — and the one case that produces a long
+ * run of code-shaped characters is a body that is not a code at all (a stack trace, a base64 blob,
+ * a whole sentence with its spaces stripped). Truncating would manufacture a plausible-looking code
+ * out of it; refusing leaves the field absent, which is the honest reading. See
+ * `extractUpstreamCode`.
+ */
+export const UPSTREAM_CODE_SHAPE = /^[A-Za-z][A-Za-z0-9._-]{0,63}$/;
+
+/**
+ * A dotted token: at least two letter-led alphanumeric runs joined by `.` — the spelling every
+ * service in this family gives its machine-readable failures (`AccessDenied.Unpurchased`,
+ * `Throttling.RateQuota`, `Model.NotFound`).
+ *
+ * The dot is required, and that is what keeps a bare word out of the field: the prose in an error
+ * body is full of single words, so a pattern that accepted one would answer with the first English
+ * noun it met. A section of prose has no `x.y` adjacency either, because a sentence's dots are
+ * followed by spaces — so a dotted token is overwhelmingly a code or a hostname, and the shape
+ * check in `extractUpstreamCode` is what separates the rest.
+ */
+const DOTTED_CODE_TOKEN = /[A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)+/g;
+
+/** One value offered as a code, or `undefined` when it is not shaped like one. */
+function asUpstreamCode(value: unknown): string | undefined {
+  return typeof value === 'string' && UPSTREAM_CODE_SHAPE.test(value) ? value : undefined;
+}
+
+/**
+ * The upstream's own error code, read out of the body it answered with — or `undefined` when its
+ * answer carries nothing code-shaped.
+ *
+ * THE ONE IMPLEMENTATION OF THIS EXTRACTION, here beside the vocabulary it feeds, for the same
+ * reason the vocabulary itself lives in one file: the proxy path (the server's `transcribe`) and
+ * the direct path (the browser addressing a backend itself) both need to say "the upstream named
+ * this failure", and two extractors would be two answers to one question.
+ *
+ * WHAT IT DOES: it offers candidates and takes the first that satisfies `UPSTREAM_CODE_SHAPE`.
+ * The candidate order is the body's own structure — the JSON `code` field, then the `code` field
+ * of a nested `error` object (the two spellings this family's bodies use for a machine-readable
+ * reason), then, for a body that is not JSON at all or puts its code only in prose, the first
+ * dotted token in the text. The value returned is always a slice of the body it was given: the
+ * caller can read `body.includes(code)` and it is true by construction.
+ *
+ * WHAT IT DELIBERATELY DOES NOT DO:
+ *   · It never copies the body. An answer that is not a code never becomes one: no slicing a
+ *     sentence down to its first word, no falling back to the message field, no placeholder.
+ *   · It does not truncate. A candidate past 64 characters is not the answer and neither is the
+ *     first 64 of it; the scan moves on, and a body whose only candidate is too long yields
+ *     `undefined`.
+ *   · It does not classify. Which code an upstream failure MEANS — whether `AccessDenied.Unpurchased`
+ *     is a rejected credential or an account that has not enabled the model — is the classifier's
+ *     question, and this function hands it the string without answering it. When that classifier
+ *     lands it must read the string THROUGH here rather than grow a second matching table.
+ *
+ * The empty string, a non-string, a body that parses to a scalar: all `undefined`, because none of
+ * them is the upstream naming a failure.
+ */
+export function extractUpstreamCode(body: string): string | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    parsed = undefined;
+  }
+
+  if (typeof parsed === 'object' && parsed !== null) {
+    const record = parsed as Record<string, unknown>;
+    const direct = asUpstreamCode(record.code);
+    if (direct !== undefined) return direct;
+
+    const nested = record.error;
+    if (typeof nested === 'object' && nested !== null) {
+      const nestedCode = asUpstreamCode((nested as Record<string, unknown>).code);
+      if (nestedCode !== undefined) return nestedCode;
+    }
+  }
+
+  for (const token of body.match(DOTTED_CODE_TOKEN) ?? []) {
+    const candidate = asUpstreamCode(token);
+    if (candidate !== undefined) return candidate;
+  }
+
+  return undefined;
+}
+
+/**
  * Everything one invocation needs from its environment, injected rather than read. This is what
  * makes the same adapter runnable in the browser's direct path, in the server's proxy path and
  * from the command line — and what makes it testable against a stand-in transport.

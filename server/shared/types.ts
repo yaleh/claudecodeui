@@ -1396,26 +1396,49 @@ export type VoiceServiceResult<TValue> =
     status: number;
     error: string;
     /**
-     * The semantic code for a refusal the caller is meant to act on differently from a generic
-     * failure, taken from the recogniser seam's own vocabulary (`AsrErrorCode`). Absent for the
-     * failures whose meaning a caller does not branch on — an unreachable backend, a rejected
-     * key.
+     * The semantic code for this failure, taken from the recogniser seam's own vocabulary
+     * (`AsrErrorCode`). EVERY FAILURE OF AN ATTEMPT CARRIES ONE, and so does every refusal of an
+     * upload that reached a gate — the three pre-request gates (container, budget, endpoint rule)
+     * always did, and the failures read off the transport now do as well: an adapter already names
+     * its upstream's refusal in the vocabulary (`UNAUTHORIZED` for a rejected key, `RATE_LIMITED`
+     * for the upstream's own limit, `TIMEOUT` and `UNREACHABLE` for a transport that never answered,
+     * `UPSTREAM_ERROR` for an answer that was not the service's envelope), and the route republishes
+     * that name instead of dropping it. A client that has to choose the words for "you said nothing"
+     * against "we could not reach the service" cannot do it from a status number — `422` and `502`
+     * are the same two numbers for several different remedies — and the code is the one field that
+     * survives the round trip with its meaning.
      *
-     * A BAD URL IS NO LONGER ONE OF THOSE, and the example is worth spelling out because it moved:
-     * the recogniser seam now carries an endpoint rule of its own (`AsrAdapter.allowedBaseUrl`),
-     * and the server refuses a `'proxy-only'` provider's address through it with
-     * `INVALID_BASE_URL` — the code the vocabulary has always had for that refusal. The URL that
-     * still arrives without a code is the one `validateBackendBaseUrl` cannot parse as a backend
-     * address at all, which no client can act on beyond "fix the setting".
+     * THE FAILURES STILL WITHOUT ONE, named so the rule above is read as what it is rather than as a
+     * promise the path does not keep: the format gate (`validateConfiguredBackend`), which refuses a
+     * setting that is not a URL at all — a state of the deployment rather than a meaning about an
+     * attempt, and the narrower endpoint rule above it is what carries `INVALID_BASE_URL`; a provider
+     * id nothing in the registry claims, which is the same kind of state and has no member in the
+     * vocabulary to be named by; and the TTS face, which shares this type but not the recogniser's
+     * vocabulary.
      *
-     * The route republishes it verbatim beside the message, because the three status codes this
-     * carries today (`UNSUPPORTED_MIME`, `OVERSIZE`, `INVALID_BASE_URL`) are all *pre-upstream*
-     * refusals that a client distinguishes by reason rather than by status: "this container is not
-     * accepted", "this recording is too big" and "this address is not one this recogniser may be
-     * reached at" are different user remedies, and a status number alone cannot carry which one it
-     * was across the two paths that both produce them.
+     * The route republishes it verbatim beside the message.
      */
     code?: AsrErrorCode;
+    /**
+     * The upstream's own error code, when it answered with one — the string its body used to name the
+     * failure, such as `AccessDenied.Unpurchased` or `Throttling.RateQuota`.
+     *
+     * WHAT THIS IS FOR, given `code` above already says what went wrong. `code` is the CLASSIFIED
+     * meaning, and the classification is this application's reading; `upstreamCode` is the evidence
+     * it was read from, unclassified and unlocalised. A user (or a support thread, or the folded
+     * technical detail in the UI) can compare it against the service's own error-code page, which is
+     * the only place the exact row for a failure like an expired account exists — and a code the
+     * classifier does not recognise still arrives with its evidence attached instead of being
+     * swallowed into a generic `UPSTREAM_ERROR`.
+     *
+     * IT IS ALWAYS A SLICE OF THE UPSTREAM'S BODY (`extractUpstreamCode` guarantees that) and it is
+     * absent, never empty or invented, when the upstream named nothing, when this process never got
+     * an answer to read (a transport that refused to connect), or when the answer held no string of
+     * the shape a code has. It is a value the server read, not a value it composed — so it is also
+     * not sanitised prose, and the two rules that keep it that way (never copy the body, never
+     * truncate a candidate) are stated where it is extracted.
+     */
+    upstreamCode?: string;
   };
 
 /**
