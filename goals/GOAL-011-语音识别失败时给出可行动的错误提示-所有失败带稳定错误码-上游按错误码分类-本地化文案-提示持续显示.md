@@ -1,10 +1,17 @@
 ---
 id: GOAL-011
 title: 语音识别失败时给出可行动的错误提示：所有失败带稳定错误码，上游按错误码分类，本地化文案，提示持续显示
-status: draft
+status: active
 kind: goal
 origin: docs/proposals/voice-error-messages.md（2026-09-24 人 yale 裁定：所有失败带稳定
   code、账户类合成 ACCOUNT_ACCESS、提示持续显示并带折叠技术详情、不做上传前静音检查、建成新 goal）
+activatedAt: 2026-09-24T12:38:35.161Z
+statusLog:
+  - at: 2026-09-24T12:38:35.161Z
+    from: draft
+    to: active
+    actor: claude-session
+    reason: 人 yale 2026-09-24 裁定：按提案 docs/proposals/voice-error-messages.md 激活
 ---
 ## 背景
 
