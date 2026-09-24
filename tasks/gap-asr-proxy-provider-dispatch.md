@@ -49,16 +49,16 @@ goal_ac: AC-139
 
 ## AC
 
-- [ ] AC1 主读（criterion 第一条命令）：`npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice-provider-dispatch.test.ts` 退出 0；输出含 `fail 0`，且每条用例的名字点在它量的是哪条 provider 的哪个形状（不得是同一个断言换个名字）。
-- [ ] AC2 dashscope-omni 走它自己的适配器（取假形态的正对侧）：只注入一个记录器 `fetchBackend`，以 `overrides.providerId = 'dashscope-omni'` 调 `transcribe` ⇒ 记录器恰好收到 1 个请求，`url` 逐字等于 `{baseUrl}/compatible-mode/v1/chat/completions`、method 为 POST、`body` **不是** `FormData`（`!(body instanceof FormData)`）而是 JSON 文本，解析后含 `messages` 数组、`model` 等于 invocation 给的模型、`Authorization` 头带该 key。同一读数在同一文件里有阳性对照：`overrides.providerId = 'openai-compatible'` ⇒ 记录器收到的那一个请求 `url` 是 `{baseUrl}/audio/transcriptions`、`body instanceof FormData` 且含 `file` 与 `model` 两个部分（「什么都不发」与「两种 provider 发同一种形状」都过不了这一对）。
-- [ ] AC3 线上字节不变：`node scripts/asr-extraction-parity-check.mjs` 退出 0，四组各打印 `equal`，`pre-extraction ok` 仍在，且 **`scripts/__fixtures__/asr-extraction-parity-baseline.json` 未被本任务改动**（`git diff --stat` 对该文件为空，且 `git log -1 --format=%H -- scripts/__fixtures__/asr-extraction-parity-baseline.json` 指向本任务之前的那次提交）。
-- [ ] AC4 宽松解析那半条基线在判据里也有独立读数：新测试对五个容忍度输入（非 JSON body、`{"text":"…"}`、`{"text":0}`、无 `text`、`null`）各断言代理结果与基线 `response-tolerance.proxy` 逐项一致（`ok` 与那个字符串），并断言空文本仍是成功 —— 这三件事一旦被适配器的 `strict` / `NO_SPEECH_DETECTED` 语义吃掉，本项与 AC3 同时红。
-- [ ] AC5 错误映射逐项有读数：判据打印一张 `code → status` 表，十个 `AsrErrorCode` 成员各占一行（表里缺谁就把谁打印成 `UNMAPPED` 并计失败）；其中 `NOT_CONFIGURED`→503、`INVALID_BASE_URL`→400、`UNAUTHORIZED`→502、`TIMEOUT`→504、`OVERSIZE`→413、`UNSUPPORTED_MIME`→415 逐字断言（这六项是今天的行为，改一个数就红），另有独立断言：上游非 2xx 透传自身状态（例如替身答 404 ⇒ 客户端拿到 404）。取假形态：把 `UNAUTHORIZED` 改成 401 ⇒ 本项必红。
-- [ ] AC6 注册顺序承重：判据打印 `listProviders().map(p => p.id)` 并断言首条仍是出厂那一个、`dashscope-omni` 在末尾；`getHealth().value.provider` 与改动前一致；新条目的 `capabilities` 是适配器模块导出的那个对象（引用相等或逐字段相等），不是注册表里另抄的一份。
-- [ ] AC7 取假形态是可执行用例（不放进 criterion 文件）：把出货的 `server/modules/voice/voice.service.ts` 连同其模块图复制到临时树，改成「无论什么 provider 都写死 multipart」，用与 criterion 相同的驱动跑 dashscope-omni 那条 ⇒ **非零退出且输出指名 dashscope-omni 那一条**；同一临时树**未变异**时同一命令退出 0（正向控制先行 —— 一个恒红的工装不能证明任何事）。提示（立案时已核）：该服务模块图只含类型导入与 `shared/asr/*`（无第三方依赖），临时树不必装 `node_modules`。criterion 文件本身保持零子进程。
+- [x] AC1 主读（criterion 第一条命令）：`npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice-provider-dispatch.test.ts` 退出 0；输出含 `fail 0`，且每条用例的名字点在它量的是哪条 provider 的哪个形状（不得是同一个断言换个名字）。
+- [x] AC2 dashscope-omni 走它自己的适配器（取假形态的正对侧）：只注入一个记录器 `fetchBackend`，以 `overrides.providerId = 'dashscope-omni'` 调 `transcribe` ⇒ 记录器恰好收到 1 个请求，`url` 逐字等于 `{baseUrl}/compatible-mode/v1/chat/completions`、method 为 POST、`body` **不是** `FormData`（`!(body instanceof FormData)`）而是 JSON 文本，解析后含 `messages` 数组、`model` 等于 invocation 给的模型、`Authorization` 头带该 key。同一读数在同一文件里有阳性对照：`overrides.providerId = 'openai-compatible'` ⇒ 记录器收到的那一个请求 `url` 是 `{baseUrl}/audio/transcriptions`、`body instanceof FormData` 且含 `file` 与 `model` 两个部分（「什么都不发」与「两种 provider 发同一种形状」都过不了这一对）。
+- [x] AC3 线上字节不变：`node scripts/asr-extraction-parity-check.mjs` 退出 0，四组各打印 `equal`，`pre-extraction ok` 仍在，且 **`scripts/__fixtures__/asr-extraction-parity-baseline.json` 未被本任务改动**（`git diff --stat` 对该文件为空，且 `git log -1 --format=%H -- scripts/__fixtures__/asr-extraction-parity-baseline.json` 指向本任务之前的那次提交）。
+- [x] AC4 宽松解析那半条基线在判据里也有独立读数：新测试对五个容忍度输入（非 JSON body、`{"text":"…"}`、`{"text":0}`、无 `text`、`null`）各断言代理结果与基线 `response-tolerance.proxy` 逐项一致（`ok` 与那个字符串），并断言空文本仍是成功 —— 这三件事一旦被适配器的 `strict` / `NO_SPEECH_DETECTED` 语义吃掉，本项与 AC3 同时红。
+- [x] AC5 错误映射逐项有读数：判据打印一张 `code → status` 表，十个 `AsrErrorCode` 成员各占一行（表里缺谁就把谁打印成 `UNMAPPED` 并计失败）；其中 `NOT_CONFIGURED`→503、`INVALID_BASE_URL`→400、`UNAUTHORIZED`→502、`TIMEOUT`→504、`OVERSIZE`→413、`UNSUPPORTED_MIME`→415 逐字断言（这六项是今天的行为，改一个数就红），另有独立断言：上游非 2xx 透传自身状态（例如替身答 404 ⇒ 客户端拿到 404）。取假形态：把 `UNAUTHORIZED` 改成 401 ⇒ 本项必红。
+- [x] AC6 注册顺序承重：判据打印 `listProviders().map(p => p.id)` 并断言首条仍是出厂那一个、`dashscope-omni` 在末尾；`getHealth().value.provider` 与改动前一致；新条目的 `capabilities` 是适配器模块导出的那个对象（引用相等或逐字段相等），不是注册表里另抄的一份。
+- [x] AC7 取假形态是可执行用例（不放进 criterion 文件）：把出货的 `server/modules/voice/voice.service.ts` 连同其模块图复制到临时树，改成「无论什么 provider 都写死 multipart」，用与 criterion 相同的驱动跑 dashscope-omni 那条 ⇒ **非零退出且输出指名 dashscope-omni 那一条**；同一临时树**未变异**时同一命令退出 0（正向控制先行 —— 一个恒红的工装不能证明任何事）。提示（立案时已核）：该服务模块图只含类型导入与 `shared/asr/*`（无第三方依赖），临时树不必装 `node_modules`。criterion 文件本身保持零子进程。
 - [ ] AC8 注册没有把别人的读数改红：`node scripts/asr-second-adapter-check.mjs` 退出 0（它对「磁盘上的 provider 模块是否都被注册、声明是否与模块一致」给出 `registered-count` 与逐字段读数 —— 这是本条注册生效的强读数）；`node scripts/asr-contract-invariants-check.mjs` 退出 0 且读数里含新 provider 的行（不是空过）；`node scripts/asr-health-provider-check.mjs` 退出 0；`node scripts/asr-pause-cues-source-check.mjs` 退出 0；`node scripts/asr-mime-size-gaps-check.mjs` 退出 0。若某一条因为新行而红，修的是适配器/线协议那一行或本条的注册，**不得**改窄这些检查。
-- [ ] AC9 静态门：`npm run typecheck`（根 + `server/tsconfig.json` + `scripts/tsconfig.json` 三套）退出 0 —— `shared/asr/asrRegistry.ts` 被前后端两套编译同时编译；`npm run lint` 退出 0。
-- [ ] AC10 如实登记：判据输出与本任务的完成记录里写明「本条不做 proxy-only 与 SSRF 白名单（AC-140）、不做用户配置与 key 掩码（AC-141）、不做浏览器端到端（AC-142）；全程替身与注入 transport，未接触真实 DashScope（ADR-004 决策 8：真实冒烟归人工）」。
+- [x] AC9 静态门：`npm run typecheck`（根 + `server/tsconfig.json` + `scripts/tsconfig.json` 三套）退出 0 —— `shared/asr/asrRegistry.ts` 被前后端两套编译同时编译；`npm run lint` 退出 0。
+- [x] AC10 如实登记：判据输出与本任务的完成记录里写明「本条不做 proxy-only 与 SSRF 白名单（AC-140）、不做用户配置与 key 掩码（AC-141）、不做浏览器端到端（AC-142）；全程替身与注入 transport，未接触真实 DashScope（ADR-004 决策 8：真实冒烟归人工）」。
 
 ## DoD
 
@@ -85,3 +85,43 @@ L_G 该轴仍暗，理由：目标层判据（真实浏览器里经语音按钮�
 - server/modules/voice/tests/voice-provider-dispatch.test.ts (new)
 - server/modules/voice/tests/voice-provider-dispatch-falsify.test.ts (new)
 - tasks/gap-asr-proxy-provider-dispatch.md
+
+## 完成记录
+
+**本条做了什么。** `server/modules/voice/voice.service.ts` 的 `transcribe` 不再自己造 multipart 体：它把选中的 provider id 交给 `tryResolve`，用解析出的适配器发请求（`AsrRequest` + `AsrInvocation`），再把 `AsrResult` 映射回 `VoiceServiceResult`。两个预先闸（容器 415 / 预算 413）留在原处、在发请求之前。`dashscope-omni` 追加在 `REGISTERED` **末尾**（首条仍是出厂那一个）。错误码→HTTP 写成一张 `PROVIDER_ERROR_STATUS`（十个成员各一行），上游状态仍按自身透传。
+
+**读数（本工作树，全部实测）。**
+
+| 命令 | 结果 |
+|---|---|
+| `npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice-provider-dispatch.test.ts` | 退出 0，`tests 6 / pass 6 / fail 0`（六条用例各自点名 provider 与形状） |
+| `node scripts/asr-extraction-parity-check.mjs` | 退出 0，四组 `equal`，`pre-extraction ok`，基线 sha256 与观测 sha256 同为 `81f24ac8…c7730a6`，`recordedFromCommit=2506f8d3` |
+| `npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice-provider-dispatch-falsify.test.ts` | 退出 0；正控（未变异临时树）退出 0 且输出含 `AC2 dashscope-omni / chat-audio`；变异 `multipart-for-every-provider` 退出 1 且输出含 `AC2 dashscope-omni / chat-audio` 与 `audio/transcriptions`；变异 `unauthorized-row-moved`（`UNAUTHORIZED: 502`→`401`）退出 1 且输出含 `AC5 the code→status table` |
+| `npm run typecheck` / `npm run lint` | 各退出 0（lint 只有既有 warning） |
+| `bash scripts/test.sh --for-task gap-asr-proxy-provider-dispatch --allow-thin` | 退出 0，`# tests 2 / # pass 2 / # fail 0`（两条 Touches 用例 679ms / 2303ms），前序 `suite-scope-check: PASS` |
+| `node …/worker-driver.js --write-scoped-gate-cache --task … --develop-sha c3e460a8…` | `scoped-gate-cache-written`（先核 `git merge-base --is-ancestor develop HEAD`） |
+| `git merge --no-edit develop` | 干净合并（只带进 AC-138 的 goals 记录），合并提交 `9515966a` |
+
+**判据打印的关键读数（原文形态）。** dashscope-omni 那一个请求：`url=https://voice.example/v1/compatible-mode/v1/chat/completions`、`body=json-text`、`messages=array`、`model=omni-model-from-the-invocation`（= invocation 给的模型，与适配器默认不同，故「模型来自调用」是可读的）；同一服务的 `openai-compatible` 那一个请求：`url=…/audio/transcriptions`、`FormData` 含 `file` 与 `model`；`mutually-exclusive=true`。五个容忍度输入（非 JSON body / `{"text":"…"}` / `{"text":0}` / 无 `text` / `null`）逐项等于基线 `response-tolerance.proxy`（`null` 那例是 `'null'`），空文本仍是 `ok` + 空串。十行 `provider-error-status` 表逐行打印，六项今天的值逐字钉住（503/400/502/504/413/415），十次驱动各回表里的值，上游 404 仍透传 404。`provider-order openai-compatible multimodal dashscope-omni`；`getHealth().value.provider` 仍是 `openai-compatible`；新条目的 `capabilities` 与适配器模块导出**同一对象**（引用相等 + 逐字段相等，health 行亦然）。
+
+**为什么宽松容忍度必须随调用传下去。** 代理对空文本一直是 `ok` + 空串，而适配器在空文本上给 `NO_SPEECH_DETECTED`；把整条路径换成 `adapter.transcribe` 再照搬其语义会直接让 `proxy-outbound` 与 `response-tolerance.proxy` 变红。所以 `AsrInvocation` 增一个**可选** `tolerance`，适配器缺省 `'strict'`（直连路径、`asrInvariants` 板、`experiments/` 两个 reader 一字未动），代理路径在自己的调用点写 `PROXY_ANSWER_TOLERANCE: TranscriptionTolerance = 'lenient'`。AC3 的字节相等与 AC4 的逐项相等是同一条约定的两个读数。
+
+**AC8 未勾选，理由（可复验）。** 五项里四项绿：`node scripts/asr-contract-invariants-check.mjs` 退出 0（五组 PASS、135 readings；`--verbose` 下 **45 条 `dashscope-omni` 读数全 `ok`**，含 `request.body.golden[dashscope-omni]` 与 `error.status-401[dashscope-omni]`）；`node scripts/asr-health-provider-check.mjs` 退出 0（`registry-providers=openai-compatible,multimodal,dashscope-omni`、`health-providers-match-registry=yes`、`proxy-registered-provider=sent-1`）；`node scripts/asr-pause-cues-source-check.mjs` 退出 0（`registry-provider=openai-compatible (1 of 3 registered)`，即首条未动）；`node scripts/asr-mime-size-gaps-check.mjs` 退出 0（`verdict=pass`，`two-paths-same-code=yes-UNSUPPORTED_MIME`）。
+
+第五项 `node scripts/asr-second-adapter-check.mjs` **退出 1**，五条 FAIL 全部落在 `dashscope-omni`：`AUDIO_ALONE_REFUSED`、`UNHONORED_HINT_COUNTED_AGAINST_BUDGET`、`CREDENTIAL_NOT_ON_WIRE`（向它要 `x-goog-api-key`）、`UNEXPECTED_CREDENTIAL_HEADER`（把 `authorization` 判成未声明的头）、`ENVELOPE_NOT_READ`（发的是 inline-json 的包络体）。原因是探针的**线词汇表是闭集**：`wireOf`（`scripts/asr-second-adapter-check.mjs:344`）把非 multipart 一律折成 `inline-json`，`credentialHeaderFor`（:219）因此要 Google 的头，`responseCases` 因此发 `{"candidates":…}`，预算算术也只按 inline-json 那一套读。也就是说：一个**完全正确**的 `chat-audio` 适配器注册进来，这条判据依然红，红在探针不认识第三条线，而不红在被测行为 —— 这正是 `gap-asr-capability-probe-third-wire`（`goal_ac: AC-132`，`depends_on` 本条，status todo）存在的理由，它的 AC1 逐字就是这五条读数的翻转（`dashscope-omni:wire value=chat-audio`、`credential.header-name value=authorization`、`credential.stray-header value=false`、`response-envelope-ok value=true`…）。本条**不得也无需**修它：AC8 自己写着「不得改窄这些检查」，而 `scripts/asr-second-adapter-check.mjs` 不在本条 Touches 里（写它会同时撞上那条任务的 AC4）。该探针已打印 `registered-count value=3`，即注册本身生效了。
+
+**另一条红（不在 AC8 名单里，如实登记，且是本条注册的后果）。** `node scripts/asr-trim-capability-check.mjs` 退出 1，唯一一条 `check discipline: FAIL dashscope-omni=neutral declares a non-destructive capability with no paired experiment to point at`。这条检查的行集取自**注册表**（`scripts/asr-trim-capability-check.mjs:345` 的 `registry.providers.map(...)`，判据输出「declares 3 row(s)」），所以：注册之前只有 2 行、`dashscope-omni` 这一行根本不在读数面上（`goals/AC-135-裁剪决策以能力声明为唯一来源-且默认行为不变.md` 的 `criterion` 就是这条命令，`.quay/gate-events.jsonl` 里它最近四次 sweep 均 `pass`，最后一次 2026-09-24T03:38:04Z）；本条注册后它首次带上 `pauseCues=neutral` 且 `evidence=(none)`，检查因此要求一份成对实验记录（`docs/experiments/<date>-omni-written.md` 一类）而仓库里没有。红的内容属 AC-138 的声明侧，修它要么补一份**真实**的成对实验记录、要么改声明，两者都不在本条 Touches（本条明写不改 `shared/asr/list/dashscope-omni/*`）；把这条检查改窄是 AC8 禁止的。**因此这几项都不是本条可以做绿的，如实留红。** 目标层会因此在 develop 上产生一条下游红，触发因是本次注册、成因是 AC-138 的 `neutral` 声明缺证。
+
+**别的读数没有因为注册而移动。** `node scripts/asr-single-implementation-check.mjs` 退出 0 / `SECOND_IMPL none`；它列出的 server 侧导入点是 `server/modules/voice/voice.service.ts:30`，那是**类型**导入（`TranscriptionTolerance`，用于 `PROXY_ANSWER_TOLERANCE` 的类型）。如实记：服务端在运行期经**适配器**到达线实现，该检查枚举的是说明符，两者不同层，都记在这里；不改窄该检查，也不靠它证明派发。
+
+**两条在工装里实测到的环境陷阱（写给下一个做同类取假形态的人）。** (1) 临时树必须有 `{"type":"module"}`：tsx 按最近的 `package.json` 决定模块格式，`os.tmpdir()` 下的树没有祖先 manifest，判据的顶层 `await import` 会被编译成 CJS 并死在 transform 阶段（报 `Top-level await is currently not supported with the "cjs" output format`）——一个与派发无关的红。(2) 从 `node --test` 里 spawn 的子进程会继承 `NODE_TEST_CONTEXT`，它自己的 `--test` 于是只打印 `node:test run() is being called recursively within a test file. skipping running files.` 并**以 0 退出**，正控会断言在沉默上、变异也会因为错误的原因看起来红；驱动子进程前必须删掉 `NODE_TEST_CONTEXT` / `NODE_TEST_WORKER_ID`（工装里有注释写明）。
+
+**一处未修的上游形状（本条边界之外）。** `shared/asr/asrRegistry.ts` 与声明 `honors` 的适配器之间有真实的值导入环：先进入**适配器**会 `ReferenceError: Cannot access '<id>' before initialization`（`openai-compatible` 与 `dashscope-omni` 都实测会），先进入 registry 则正常。判据因此用顶层 `await import` 在 registry 之后取适配器模块，并把这条实测顺序写在文件头。破环要把 `baseMimeType` / `declaredAcceptsMime` 移出 registry —— 那是对缝的形状与一个冻结适配器的改动，不在本条的边界内。
+
+**必须如实登记（AC10 的范围声明，与判据输出逐字一致）**：本条只做「按 provider 分派 + 码↔状态映射 + 保持出厂路径不变」；不做 proxy-only 与 SSRF 白名单（AC-140）、不做用户配置与 key 掩码（AC-141）、不做浏览器端到端（AC-142）；判据全程跑在替身与注入的 `fetchBackend` 下（`globalThis.fetch` 被换成记账即抛的毒药，`liveCalls=0`），**不等于**真实 DashScope（ADR-004 决策 8：真实冒烟归人工）。注册新 provider 会让 `getHealth()` 的 `providers[]` 多一行，这是本条的后果而非 AC-141 的配置语义（新条目的 `configured` 仍读同一份用户后端配置）。
+
+**提交。** 实现 `fd910f7d`（三改两新：`voice.service.ts`、`asrRegistry.ts`、`openai-compatible.asr-provider.ts`，新增两条判据文件），合并 `9515966a`；本任务的任务文件由 `task_write` 自行提交。
+
+L_D 该轴仍暗，理由：本条不新增用户数据通路、不新增持久化结构（用户级 provider 选择与 DashScope 凭据在 AC-141）；它只把一条既有请求按 provider 交给对应适配器，并把错误码翻译成既有的 HTTP 状态。
+
+L_G 该轴仍暗，理由：目标层判据（真实浏览器里经语音按钮拿到书面指令并写入 composer）还要求设置页选择、凭据分离与 proxy-only 的直连归零（AC-140/141/142）；本条只让服务端具备了分派能力，用户侧还没有可达入口。
