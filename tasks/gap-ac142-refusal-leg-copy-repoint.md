@@ -3,7 +3,7 @@ id: gap-ac142-refusal-leg-copy-repoint
 title: AC-142 失败腿钉着已被替换的文案：6d14ec0c 把拒绝显示改为 voice.errors.<code> 的句子，spec 仍断言
   Transcription failed 与裸 code ⇒ 判据红；错误显示与草稿逐字保留的本体仍在，把该腿重指到按 code 选出的那句文案（裸
   code 归 AC-153 的折叠详情）
-status: todo
+status: ready
 labels:
   - gap
   - defect
