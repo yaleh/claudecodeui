@@ -113,7 +113,23 @@
     "replayOriginal": "Replay original",
     "replayTrimmed": "Replay trimmed",
     "stopReplayOriginal": "Stop original playback",
-    "stopReplayTrimmed": "Stop trimmed playback"
+    "stopReplayTrimmed": "Stop trimmed playback",
+    "errors": {
+      "ACCOUNT_ACCESS": "The account cannot use this speech service — check that its plan and its model access are active, then try again.",
+      "UNAUTHORIZED": "The speech service rejected its key — check the voice provider credentials in Settings, then try again.",
+      "QUOTA_EXHAUSTED": "The speech service quota is used up — top up the account or switch to another voice provider.",
+      "RATE_LIMITED": "Too many transcriptions at once — wait a moment and record again.",
+      "MODEL_NOT_FOUND": "The transcription model is not available to this account — pick another model in the voice provider settings.",
+      "AUDIO_REJECTED": "The service refused this recording — record again, or upload a different audio file.",
+      "CONTENT_FLAGGED": "The service flagged this recording's content — check the audio and try a different clip.",
+      "NO_SPEECH_DETECTED": "No speech was found in the recording — record again and speak closer to the microphone.",
+      "UPSTREAM_UNAVAILABLE": "The speech service is not answering right now — wait a moment and try again.",
+      "NOT_CONFIGURED": "No voice provider is configured — set one up in Settings to transcribe recordings.",
+      "INVALID_BASE_URL": "The voice provider's base URL is not valid — correct it in the voice provider settings.",
+      "OVERSIZE": "The recording is too large to upload — record a shorter clip and try again.",
+      "UNSUPPORTED_MIME": "This audio format is not supported — try a different file, or record with the microphone.",
+      "unknown": "The transcription failed — try again, or check the voice provider settings."
+    }
   },
   "input": {
     "placeholder": "Type / for commands, @ for files, or ask {{provider}} anything...",

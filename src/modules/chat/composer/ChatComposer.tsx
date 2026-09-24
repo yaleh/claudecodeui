@@ -15,9 +15,10 @@ import { PaperclipIcon, MessageSquareIcon, XIcon, Loader2, ArrowUpIcon, PencilIc
 import { useVoiceInput } from '@/modules/chat/hooks/useVoiceInput';
 import { useVoiceAvailable } from '@/modules/chat/hooks/useVoiceAvailable';
 import { useSendOnEnter } from '@/modules/chat/hooks/useSendOnEnter';
+import { voiceErrorMessage } from '@/modules/chat/utils/voiceErrorMessages';
 import { loadProjectIdentifiers } from '@/shared/projectIdentifiers';
 import { isVoiceDebugEnabled } from '@/shared/voiceDebug';
-import type { QueuedDraft, ScheduledMessage, SlashCommand,SessionActivity,PendingPermissionRequest,PermissionMode,ProviderModelOption } from '@/shared/types';
+import type { QueuedDraft, ScheduledMessage, SlashCommand,SessionActivity,PendingPermissionRequest,PermissionMode,ProviderModelOption,VoiceFailureReport } from '@/shared/types';
 import {
   PromptInput,
   PromptInputHeader,
@@ -252,11 +253,16 @@ export default function ChatComposer({
   const voiceAvailable = useVoiceAvailable();
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const voiceErrorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const handleVoiceError = useCallback((msg: string) => {
-    setVoiceError(msg);
+  // A failure reaches the bubble as a SENTENCE either way, but only the chain's own failures arrive
+  // as one: a recogniser refusal arrives as the fields its answer carried, and is turned into the
+  // sentence the user's language has for that code here, at the one point that knows the language.
+  // Everything below — the single timer, the one-line bubble, the shape handed to the button — is
+  // unchanged, because what the bubble shows was never the disagreement.
+  const handleVoiceError = useCallback((failure: VoiceFailureReport) => {
+    setVoiceError(typeof failure === 'string' ? failure : voiceErrorMessage(failure, t));
     if (voiceErrorTimer.current) clearTimeout(voiceErrorTimer.current);
     voiceErrorTimer.current = setTimeout(() => setVoiceError(null), 4000);
-  }, []);
+  }, [t]);
   useEffect(() => () => {
     if (voiceErrorTimer.current) clearTimeout(voiceErrorTimer.current);
   }, []);
