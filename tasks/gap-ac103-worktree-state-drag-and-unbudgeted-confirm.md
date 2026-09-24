@@ -208,3 +208,19 @@ L_G 该轴仍暗，理由：目标层要的是「两个全量套件互不拖红�
    的 `bypass: the probe child printed no reading`），而它 25s 级的单价意味着**它在任一相里的
    一次并发红都是致命的**（AC4 要求确认步装不下时自报 exit 3，不给 rc=0）。修法不在本条：
    要改那份判据的子进程重试，而重试会把它推高到可能把整相越过 60000ms。
+
+### 六、DoD 的账本条件（本轮不能由本条满足，如实登记）
+
+`.quay/gate-events.jsonl` 里 AC-103 的 `gate:"goal"` 尾巴目前仍是
+`2026-09-24T12:20:19Z goal-cli fail`、`12:31:14Z goal-cli fail`、`12:31:55Z goal-sweep not-evaluated`、
+`13:47:08Z` / `15:34:57Z` / `16:42:57Z goal-sweep not-evaluated`（本轮读出的最后 6 条）。
+**这条尾巴由 goal 层的 sweep 在本分支落进 develop 之后复跑 AC-103 时翻过来** —— 现在 sweep 读的是
+develop 的树，而本条的五处修复还只在本分支上；本轮**不**自行触发 goal gate（那是 goal 层的动作，
+且并发触发会与 sweep 抢同一批 AC 的立案）。本轮能提供的、也是翻尾巴的输入，就是第二节那六条
+`rc=0` 的默认路径读数（0.9–4.4% 余量，见该节的风险登记）。
+
+### 七、形状纪律
+
+按 `AGENTS.md`：改 `src/shared/tests/**` 前加载并施用了 `$frontend-module-standards`，改 `server/**`
+前加载并施用了 `$backend-module-standards`。收尾逐条复跑：`npm run lint` rc=0、
+`npm run typecheck` rc=0、`npx tsc -p scripts/tsconfig.json` rc=0。
