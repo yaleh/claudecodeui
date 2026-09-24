@@ -2,7 +2,7 @@
 id: gap-ac027-gateway-wait-weaker-than-assertion
 title: AC-027 第三条腿的等待弱于断言：45s poll 只认 token，而 SDK 的会话命名请求带同一 token 先到 ⇒ 紧随其后的
   find(model id) 不等就查，判据在请求次序上翻红（同树 16:28 红 / 16:29 绿 / 16:33 绿 / 16:36 红）
-status: ready
+status: needs-human
 labels:
   - gap
   - defect
@@ -160,3 +160,13 @@ npm run test:e2e -- e2e/model-library.spec.ts → exit 0，3 passed（上表三�
 
 - e2e/model-library.spec.ts
 - tasks/gap-ac027-gateway-wait-weaker-than-assertion.md
+## Needs-Human
+
+**执行 2026-09-24T17:34:28.576Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=34933 server/modules/voice/tests/voice-capture-text.false-forms.test.ts passed=false end_ms=1790271157996
+- run_id：wk-prod-anchor
+- session_id：99f66610-d3a6-462f-84e0-d88f576a5819
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-ac027-gateway-wait-weaker-than-assertion~wk-prod-anchor~1790271082444-9ae9a3.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-ac027-gateway-wait-weaker-than-assertion-wk-prod-anchor.log
