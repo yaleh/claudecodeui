@@ -24,14 +24,14 @@ const paths = execFileSync('git', ['ls-files'], { encoding: 'utf8' }).split('\n'
 const proj: string[] = []; const seen = new Set<string>();
 for (const p of paths) { const b = p.split('/').pop()!; for (const n of [b, b.replace(/\.[a-z]{1,5}$/i, '')]) if (n && !seen.has(n)) { seen.add(n); proj.push(n); } }
 export const TRUE = ['voice.service.ts', 'voice.routes.ts', 'voice.module.ts', 'useVoiceInput'];
-const IRRELEVANT = ['tailwind.config.js', 'package-lock.json', 'playwright.config.ts', 'useLocalStorage'];
-const DECOY = ['voice.controller.ts', 'voice.router.ts', 'voice.model.ts', 'useVoiceOutput'];
-const hay = shuffle(proj.filter((n) => !TRUE.includes(n))).slice(0, 66); for (const t of TRUE) hay.splice(Math.floor(rnd() * 66), 0, t);
-const full = shuffle(proj);
+export const IRRELEVANT = ['tailwind.config.js', 'package-lock.json', 'playwright.config.ts', 'useLocalStorage'];
+export const DECOY = ['voice.controller.ts', 'voice.router.ts', 'voice.model.ts', 'useVoiceOutput'];
+export const hay = shuffle(proj.filter((n) => !TRUE.includes(n))).slice(0, 66); for (const t of TRUE) hay.splice(Math.floor(rnd() * 66), 0, t);
+export const full = shuffle(proj);
 const VERBATIM = '逐字转写这段音频。只输出转写文本，不要解释。代码标识符、文件名保持原样。';
 const WRITTEN = '把这段口述转写成书面文字：加标点，删掉「嗯」「那个」「就是」等口头禅；说话人自我更正时只保留更正后的内容。代码标识符、文件名、英文词逐字保留，不要翻译、不要编造、不要省略实际说出的内容。只输出结果。';
-const CTX = (list: string[]) => `\n\n以下是本项目中可能出现的名字（文件名、标识符）：\n${list.join('、')}`;
-const GUARD = '\n只有音频里明确说到时才使用上面列表里的名字；听不清或不确定时按听到的写，不要替换成列表里的名字，也不要输出音频里没有说的名字。';
+export const CTX = (list: string[]) => `\n\n以下是本项目中可能出现的名字（文件名、标识符）：\n${list.join('、')}`;
+export const GUARD = '\n只有音频里明确说到时才使用上面列表里的名字；听不清或不确定时按听到的写，不要替换成列表里的名字，也不要输出音频里没有说的名字。';
 type Cond = { key: string; phase: number; effort?: string; prompt: string; injected: string[]; written?: boolean };
 export const CONDS: Cond[] = [
   { key: 'p1-none', phase: 1, effort: 'none', prompt: VERBATIM, injected: [] },
