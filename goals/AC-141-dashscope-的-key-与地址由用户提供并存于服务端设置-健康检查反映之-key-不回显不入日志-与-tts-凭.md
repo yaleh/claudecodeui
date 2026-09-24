@@ -1,7 +1,7 @@
 ---
 id: AC-141
 title: DashScope 的 key 与地址由用户提供并存于服务端设置；健康检查反映之；key 不回显不入日志；与 TTS 凭据分离
-status: draft
+status: active
 kind: criterion
 goal: GOAL-009
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -11,4 +11,15 @@ expect: 不设任何服务端环境变量：用户未填写时健康检查 provi
   baseUrl 与 apiKey。取假形态：(1) key 明文回显 ⇒ 必须红；(2) 只看环境变量判定 configured ⇒ 必须红。
 origin: docs/proposals/voice-dashscope-omni-written-instruction.md（2026-09-24 人
   yale 裁定：E 组提示词定型；key 由用户提供；书面指令进 composer；本轮不改输入体验）
+activatedAt: 2026-09-24T03:01:23.900Z
+statusLog:
+  - at: 2026-09-24T03:01:23.900Z
+    from: draft
+    to: active
+    actor: goal-cli
+    reason: ""
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-09-24T03:01:23.900Z
 ---
