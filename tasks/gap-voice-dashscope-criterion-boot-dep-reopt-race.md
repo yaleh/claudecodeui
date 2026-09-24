@@ -2,7 +2,7 @@
 id: gap-voice-dashscope-criterion-boot-dep-reopt-race
 title: AC-142 判据在门自己那次运行里红、本体 4/4 绿：夹具的依赖重优化在开户向导已在场时提交并 full-reload 把表单抽走（同族已在
   AC-108 修过 warmClientStartup，未回灌本 spec）
-status: ready
+status: done
 labels:
   - gap
   - defect
