@@ -3,7 +3,7 @@ id: gap-voice-error-envelope-contract
 title: 语音转写路由的失败信封：所有失败带 error 与 code（词表成员），上游失败另带合规
   upstreamCode（[A-Za-z0-9._-]、长度有界、取自上游响应体码串），响应无 key、无 Bearer
   形式、无上游响应体其余文本（AC-150）
-status: todo
+status: ready
 labels:
   - gap
   - defect
