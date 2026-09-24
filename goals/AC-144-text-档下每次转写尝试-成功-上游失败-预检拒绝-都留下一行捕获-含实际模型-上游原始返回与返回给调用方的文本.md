@@ -1,7 +1,7 @@
 ---
 id: AC-144
 title: text 档下每次转写尝试（成功、上游失败、预检拒绝）都留下一行捕获，含实际模型、上游原始返回与返回给调用方的文本
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-010
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -23,6 +23,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-09-24T12:30:14.544Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
