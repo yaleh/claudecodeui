@@ -1,7 +1,7 @@
 ---
 id: gap-ac103-whole-set-baseline-key-revives-full-quiet-phase
 title: AC-103：整集基线键让「一个服务端测试文件变了」付一整相，冷路径占满 gate 的 60000ms 上限
-status: ready
+status: done
 labels:
   - gap
   - defect
