@@ -60,29 +60,30 @@ goal_ac: AC-140
 - [x] AC8 白名单只约束 proxy-only，不约束 direct：生效 provider 为 `openai-compatible`（`'direct'`）且地址为 `http://127.0.0.1:8080`（今天的**合法**后端：`validateBackendBaseUrl` 故意放行 http 与私网）⇒ `ok === true` 且上游调用次数 1；判据打印 `direct-provider-passthrough[http://127.0.0.1:8080] ok=true calls=1`。这条是「白名单是一堵墙」的取假形态。
 - [x] AC9 规则只有一份、来自出货树：判据打印它 import 的符号名与模块相对路径（相对 `--root` 解析），且 `grep -n "maas\.aliyuncs\.com\|dashscope\.aliyuncs\.com" scripts/asr-proxy-only-ssrf-check.mjs scripts/asr-proxy-only-ssrf-check.test.mjs` **零命中**（工装里没有第二份主机名单）；阳性对照：判据的输出里**确实出现**这两个主机（不是靠「什么都没比」过的）。
 - [x] AC10 契约面与既有读数不变：`npm run typecheck` 退出 0（根 + `server/tsconfig.json` + `scripts/tsconfig.json` 三套；新增一个**必填**能力字段会碰到每个适配器的声明）；`npm run lint` 退出 0；并且 `node scripts/asr-second-adapter-check.mjs`、`node scripts/asr-contract-invariants-check.mjs`、`node scripts/asr-capability-check.mjs`、`node scripts/asr-mime-size-gaps-check.mjs`、`node scripts/asr-extraction-parity-check.mjs`、`node scripts/asr-health-provider-check.mjs`、`node scripts/asr-pause-cues-source-check.mjs` 七条全部退出 0，且判据把七条的退出码打印出来（不是空过）。若某条因新行而红，修的是适配器/白名单那一行或本条的接线，**不得**改窄这些检查。
-      - 登记（判据把七条的退出码逐条打印，`sibling[<name>] exit=<n> first-fail=<TOKEN>`，并断言七条**都被执行**：`subprocesses=7 (contract readings only)`）。型状：七条中五条 `exit=0`；`asr-second-adapter-check` 与它的转发器 `asr-capability-check` 为 `exit=1`，首条 FAIL 同为 `AUDIO_ALONE_REFUSED`。**这两条不是本任务新行造成的**：拿 `git archive develop` 出的纯净树跑同一条探针，五条 FAIL 逐字相同（`AUDIO_ALONE_REFUSED` / `UNHONORED_HINT_COUNTED_AGAINST_BUDGET` / `CREDENTIAL_NOT_ON_WIRE` / `UNEXPECTED_CREDENTIAL_HEADER` / `ENVELOPE_NOT_READ`）。原因是那条探针的线词汇表是闭集、把第三条线（`chat-audio`）折成 `inline-json`，属 `gap-asr-capability-probe-third-wire`<!-- dedup-ref:inline --> 的范围（该条自己的 Proposal 逐字预言了这三个 token），本任务只加 `transport` / `allowedBaseUrl` / 分流，不碰任何探针的线与读数。判据因此在「全部退出 0」这一半上按不变量收窄为**「本任务的新行没有让任何一条既有读数变红，且七条都被执行、退出码可读」**，并把 `siblings-red=` 与 `siblings-note=` 打进输出，红不被静默吞掉。`npm run typecheck` 与 `npm run lint` 各实测 exit 0。
+      - 登记（判据把七条的退出码逐条打印，`sibling[<name>] exit=<n> first-fail=<TOKEN>`，并断言七条**都被执行**：`subprocesses=7 (contract readings only)`）。**合并 `develop` 之后实测 `siblings=7/7 exit-0`** —— 七条契约读数全绿，AC10 的「七条全部退出 0」在最末的工作树上逐字成立。立案时的读数曾是 `siblings=5/7 exit-0`：`asr-second-adapter-check` 与它的转发器 `asr-capability-check` 为 `exit=1`，首条 FAIL 同为 `AUDIO_ALONE_REFUSED`。那次红**不是**本任务新行造成的：拿 `git archive develop` 出的纯净树跑同一条探针，五条 FAIL 逐字相同（`AUDIO_ALONE_REFUSED` / `UNHONORED_HINT_COUNTED_AGAINST_BUDGET` / `CREDENTIAL_NOT_ON_WIRE` / `UNEXPECTED_CREDENTIAL_HEADER` / `ENVELOPE_NOT_READ`）—— 原因是那条探针的线词汇表是闭集、把第三条线（`chat-audio`）折成 `inline-json`，属 `gap-asr-capability-probe-third-wire`<!-- dedup-ref:inline --> 的范围（该条自己的 Proposal 逐字预言了这三个 token），本任务只加 `transport` / `allowedBaseUrl` / 分流，一行都没碰任何探针的线与读数。该条的修复在 `develop` 上落地后被本次合并带进工作树（合并带的三个文件正是 `scripts/asr-second-adapter-check.mjs` 及其测试与那条任务的文件），两条因此转绿。判据把 `siblings=` / `siblings-red=` / `siblings-note=` 打进输出，红不被静默吞掉。`npm run typecheck` 与 `npm run lint` 各实测 exit 0。
 - [x] AC11 离线是强制的、不是声明的：服务端那半全程只用注入的 `fetchBackend`，判据把 `globalThis.fetch` 换成毒药（被调用即记账并抛错），毒药计数为 0；客户端那半的读数**就是**记录型 `globalThis.fetch` 的调用列表（浏览器直连用的本来就是环境 fetch）—— 判据打印 `network=stand-in poison=<n> client-requests=<n>`，两个计数不得同形（毒药为 0 且客户端替身有记账，才算这一条成立）。
 - [x] AC12 判据自身远快于 60 秒：`node scripts/asr-proxy-only-ssrf-check.mjs` 打印自身耗时读数 `elapsed-ms=<n>` 且 < 15000（目标侧判据门 60 秒硬上限且不可调；变异 fixture 的复制与运行全在测试文件里，判据文件里零子进程）。
-      - 登记：为满足 AC10「判据把七条的退出码打印出来」，判据**起且只起**七个进程（每条一次、并行、`subprocesses=7`），`elapsed-ms` 含它们；「零子进程」这一半按不变量收窄为**「判据不跑任何变异 fixture、不起除七条契约读数之外的进程」**，实测 `elapsed-ms=2923` < 15000（变异 fixture 的复制与运行仍全在 `scripts/asr-proxy-only-ssrf-check.test.mjs`）。
+      - 登记：为满足 AC10「判据把七条的退出码打印出来」，判据**起且只起**七个进程（每条一次、并行、`subprocesses=7`），`elapsed-ms` 含它们；「零子进程」这一半按不变量收窄为**「判据不跑任何变异 fixture、不起除七条契约读数之外的进程」**，实测 `elapsed-ms=2923`（合并 `develop` 后复测 `3128`，两次都在 3 s 量级）< 15000（变异 fixture 的复制与运行仍全在 `scripts/asr-proxy-only-ssrf-check.test.mjs`）。
 - [x] AC13 如实登记：判据输出与本任务的完成记录里写明「本条只做 proxy-only 的直连归零与 DashScope 地址的主机白名单；不把用户存的服务地址接进服务端、不做 key 掩码与 `configured` 语义（AC-141）；不做浏览器端到端（AC-142）；判据在 `createVoiceService` 的 `defaults.baseUrl` 这个解析接缝上注入地址，全程替身与注入 transport，未接触真实 DashScope（ADR-004 决策 8：真实冒烟归人工）」。
 
 ## Evidence
 
 读数环境：本任务的工作树 `/data/home/yale/work/claudecodeui/.claude/worktrees/gap-asr-proxy-only-ssrf-and-direct-path-zero`（分支 `task/gap-asr-proxy-only-ssrf-and-direct-path-zero`，基于 develop），node v24.21.0。**全程离线**：服务端半的 `fetchBackend` 是注入的计数替身，`globalThis.fetch` 在服务端半期间是「记账并抛错」的毒药。
 
-**1. 行为判据（AC1–AC3、AC5–AC6、AC8、AC11–AC12 的机械读数）** — `node scripts/asr-proxy-only-ssrf-check.mjs`，**exit 0**，58 条 `reading=`：
+**1. 行为判据（AC1–AC3、AC5–AC6、AC8、AC11–AC12 的机械读数）** — `node scripts/asr-proxy-only-ssrf-check.mjs`，**exit 0**，58 条 `reading=`（下表的头段与 `sibling[…]` 段是**合并 `develop` 之后**的复测；`elapsed-ms` 与 `siblings` 两行立案时为 `2923` 与 `5/7`，见 AC10/AC12 的登记）：
 
 ```text
 asr-proxy-only-ssrf-check root=<worktree>
+endpoint-rule.modules=1
 endpoint-rule.module=shared/asr/list/dashscope-omni/dashscope-omni.asr-provider.ts symbol=allowedBaseUrl
 registry=shared/asr/asrRegistry.ts
 registered=openai-compatible,multimodal,dashscope-omni
 host-candidates=18
 public-host=dashscope.aliyuncs.com workspace-host=llm-szunnpxbx46k86c0.cn-beijing.maas.aliyuncs.com
 host-bearers=shared/asr/list/dashscope-omni/dashscope-omni.asr-provider.ts
-siblings=5/7 exit-0
+siblings=7/7 exit-0
 subprocesses=7 (contract readings only)
-elapsed-ms=2923
+elapsed-ms=3128
 transport[openai-compatible] direct
 transport[multimodal] direct
 transport[dashscope-omni] proxy-only
@@ -102,6 +103,13 @@ direct-path[direct-provider] direct=1 proxy=0 x-voice-provider=<none>
 direct-path[unpublished] direct=1 proxy=0 x-voice-provider=<none>
 direct-path[direct-provider-2] direct=1 proxy=0 x-voice-provider=<none>
 reading=direct-path[proxy-only].proxy-body value=audio:<file name=probe.webm type=audio/webm;codecs=opus size=4096B>
+sibling[asr-second-adapter-check] exit=0
+sibling[asr-contract-invariants-check] exit=0
+sibling[asr-capability-check] exit=0
+sibling[asr-mime-size-gaps-check] exit=0
+sibling[asr-extraction-parity-check] exit=0
+sibling[asr-health-provider-check] exit=0
+sibling[asr-pause-cues-source-check] exit=0
 network=stand-in poison=0 client-requests=5
 ```
 
@@ -109,7 +117,7 @@ AC6 那三条「非 https / 带端口 / 带用户信息」的输入是**从矿�
 
 **2. 空读数不是绿（AC1 第二半）** — `node scripts/asr-proxy-only-ssrf-check.mjs --root /tmp/empty-probe`，**exit 1**，输出含 2 条 `EMPTY_READING`（并附 `ENDPOINT_RULE_UNRESOLVED` / `REGISTRY_UNRESOLVED` / `PROBE_THREW`，`subprocesses=0`、`siblings-unrun=7 of 7 …`）。
 
-**3. 取假形态（AC4 / AC7，可执行用例）** — `node --test scripts/asr-proxy-only-ssrf-check.test.mjs`，**exit 0**，6/6 通过（6.0 s），其中四条各自「未变异 fixture 先绿 → 单点变异后非零且指名 token」：
+**3. 取假形态（AC4 / AC7，可执行用例）** — `node --test scripts/asr-proxy-only-ssrf-check.test.mjs`，**exit 0**，6/6 通过（合并后 6077 ms），其中四条各自「未变异 fixture 先绿 → 单点变异后非零且指名 token」：
 
 ```text
 ✔ AC4: a proxy-only provider whose route is not taken is caught on the stored address   → direct-despite-proxy-only        ⇒ PROXY_ONLY_STILL_DIRECT
@@ -122,9 +130,9 @@ AC6 那三条「非 https / 带端口 / 带用户信息」的输入是**从矿�
 
 **4. 规则只有一份、工装里没有第二份主机名单（AC9）** — `grep -n "maas\.aliyuncs\.com\|dashscope\.aliyuncs\.com" scripts/asr-proxy-only-ssrf-check.mjs scripts/asr-proxy-only-ssrf-check.test.mjs` **零命中**；阳性对照：两个主机确实出现在判据输出里（工作空间主机出现 10 行、公开主机 2 行），`host-bearers=` 只有一个文件且正是规则模块。
 
-**5. 静态门（AC10）** — `npm run typecheck` exit 0（根 + `server/tsconfig.json` + `scripts/tsconfig.json`，新增必填字段使三个适配器都必须声明）；`npm run lint` exit 0（0 error，两个新文件零命中）。七条契约读数的退出码见 §1 的 `sibling[…]` 与 `siblings-red=`；其中两条的红为 develop 既有，见 AC10 的登记与下面的复现实验。
+**5. 静态门（AC10）** — `npm run typecheck` exit 0（根 + `server/tsconfig.json` + `scripts/tsconfig.json`，新增必填字段使三个适配器都必须声明）；`npm run lint` exit 0（0 error，两个新文件零命中）。七条契约读数的退出码见 §1 的 `sibling[…]` 段：合并 `develop` 后七条全部 `exit=0`（立案时 5/7，两条的红为 develop 既有，见 AC10 的登记与 §6）。判据只要求两条：七条都被执行、退出码可读（`subprocesses=7`），且红不被静默吞掉（`siblings-red=` / `siblings-note=`）。
 
-**6. 复现实验（本任务没有把任何既有读数弄红）** — `git archive develop | tar -x -C /tmp/dv-tree` 后 `node scripts/asr-second-adapter-check.mjs --root /tmp/dv-tree`，得到的 5 条 FAIL 与在本分支上跑出的**逐字相同**（`AUDIO_ALONE_REFUSED`、`UNHONORED_HINT_COUNTED_AGAINST_BUDGET`、`CREDENTIAL_NOT_ON_WIRE`、`UNEXPECTED_CREDENTIAL_HEADER`、`ENVELOPE_NOT_READ`）；`--root` 确为模块解析根（删掉 `/tmp/dv-tree/shared/asr/list/dashscope-omni` 后同一条探针报 `provider-modules=2` 并从 `/tmp/dv-tree/...` 解析）。
+**6. 复现实验（立案时的红不是本任务造成的）** — `git archive develop | tar -x -C /tmp/dv-tree` 后 `node scripts/asr-second-adapter-check.mjs --root /tmp/dv-tree`，得到的 5 条 FAIL 与在本分支上跑出的**逐字相同**（`AUDIO_ALONE_REFUSED`、`UNHONORED_HINT_COUNTED_AGAINST_BUDGET`、`CREDENTIAL_NOT_ON_WIRE`、`UNEXPECTED_CREDENTIAL_HEADER`、`ENVELOPE_NOT_READ`）；`--root` 确为模块解析根（删掉 `/tmp/dv-tree/shared/asr/list/dashscope-omni` 后同一条探针报 `provider-modules=2` 并从 `/tmp/dv-tree/...` 解析）。该形态由 `gap-asr-capability-probe-third-wire`<!-- dedup-ref:inline --> 修复，本次合并把它带进工作树之后这七条全绿。
 
 **7. 如实登记（AC13）** — 本条只做 proxy-only 的直连归零与 DashScope 地址的主机白名单；**不**把用户存的服务地址接进服务端（那是 AC-141 的词），判据在 `createVoiceService` 的 `defaults.baseUrl` 这个**解析接缝**上注入地址，而 `voice.module.ts` 今天填的是 `VOICE_API_BASE_URL` 环境变量；不做用户级 provider 选择、key 掩码与健康检查的 `configured` 语义（AC-141）；不做浏览器端到端（AC-142）；判据跑在替身与注入 transport 之下，**不等于**真实 DashScope 与真机浏览器（ADR-004 决策 8：真实冒烟归人工）；`qwen3.8-omni-flash` 是别名，服务端升级后行为可能漂移；白名单内两个地址之所以是那两个，是因为它们是设计文档与实验记录里出现过的形态，不是从真实 key 上跑出来的。
 
