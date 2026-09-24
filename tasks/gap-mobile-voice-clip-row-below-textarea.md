@@ -1,7 +1,7 @@
 ---
 id: gap-mobile-voice-clip-row-below-textarea
 title: 移动端录音回放独立成 textarea 与 footer 之间的 chip 行：原始/裁剪后两条都可访问，不再挤占主操作栏；桌面仍在左侧工具组
-status: ready
+status: done
 labels:
   - gap
 parent: null
