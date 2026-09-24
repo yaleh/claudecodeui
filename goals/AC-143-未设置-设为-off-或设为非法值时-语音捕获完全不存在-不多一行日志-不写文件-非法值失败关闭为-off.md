@@ -1,7 +1,7 @@
 ---
 id: AC-143
 title: 未设置、设为 off 或设为非法值时，语音捕获完全不存在：不多一行日志、不写文件，非法值失败关闭为 off
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-010
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -20,6 +20,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-09-24T11:56:13.995Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
