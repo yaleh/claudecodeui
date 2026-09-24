@@ -12,6 +12,20 @@ extra:
   schema: execution
 goal_ac: AC-142
 ---
+---
+id: gap-voice-dashscope-criterion-boot-dep-reopt-race
+title: AC-142 判据在门自己那次运行里红、本体 4/4 绿：夹具的依赖重优化在开户向导已在场时提交并 full-reload 把表单抽走（同族已在
+  AC-108 修过 warmClientStartup，未回灌本 spec）
+status: ready
+labels:
+  - gap
+  - defect
+parent: null
+children: []
+extra:
+  schema: execution
+goal_ac: AC-142
+---
 ## Proposal
 
 **本轮的直接测量（不是台账尾巴）**
@@ -77,14 +91,14 @@ call@25 12150ms  waiting for getByPlaceholder('John Doe')   ← 之后二十多�
 
 ## AC
 
-- [ ] AC1 判据在**门自己所处的条件下**连跑 ≥10 次全部退出码 0：同一次窗口内另有一条 e2e lane 对同一 checkout 在跑（这正是产出那次红的条件），逐次登记 `exit=… wall=…`、spec 自报的 `criterion-wall-ms=`、`[e2e] server=… client=…` 行与 `git rev-parse HEAD`，10 行原文进完成记录。
-- [ ] AC2 **阴性对照（预热关掉 + 冷优化 ⇒ 必须红）**：把预热临时改成空操作，并把本 run 的预打包强制冷建（`optimizeDeps.force` 或等价手段），判据必须非 0，且失败形态落在**启动前导**（`#username` 或 `John Doe` 不在本次文档上出现），并附运行时那条 `[BABEL] … <本 run dataDir>/vite-cache/deps/…` 行作为「本 run 真的冷了」的读数；退出码与失败原文登记，之后全部还原。
-- [ ] AC3 **阳性对照（预热恢复 + 仍冷优化 ⇒ 必须绿）**：只恢复预热（优化仍强制冷），判据必须退出码 0。AC2 与 AC3 一起证明预热是承重的；之后 `git diff --stat` 证明 `playwright.config.ts` 与 `vite.config.js` 相对基线无差异。
-- [ ] AC4 前导**有界自报**：把启动探针指向一个必然不存在的哨兵选择器，该次运行必须在 ≤30s 内以**这条 spec 自己的错误**结束，错误里含页面文本与 console / `requestfailed` 证据；不得表现为 `"beforeAll" hook timeout`，也不得让 runner 撑到门的 60s 才被杀。探针还原后判据复绿（给退出码）。
-- [ ] AC5 判据未被削弱、选择面未变：`grep -c "^test('AC-142" e2e/voice-dashscope-written.spec.ts` = 2，`grep -n "AC-142" e2e/voice-dashscope-written.spec.ts` 的全部命中都落在这两行标题上；`git diff` 证明两条腿的断言与对照腿逐字节未改；`retries` / `test.skip` / `test.fixme` 零新增。
-- [ ] AC6 判据自己的抗假变体仍红（防「用更长的等待换绿」）：(i) 让前端忽略 proxy-only、直连工作空间主机 ⇒ 书面腿退出码非 0；(ii) 让失败腿清空草稿 ⇒ 失败腿退出码非 0。两条都留输出并还原。
-- [ ] AC7 `npm run typecheck`（根 + `server/tsconfig.json` + `scripts/tsconfig.json` 三套）退出 0；`npm run lint` 退出 0（error 行 0）。
-- [ ] AC8 改动面收在夹具里：最终 `git diff --stat` 只有 `e2e/voice-dashscope-written.spec.ts`（外加本任务自己的 `tasks/gap-voice-dashscope-criterion-boot-dep-reopt-race.md`）；`playwright.config.ts` 逐字节等于基线。若确有必要动夹具之外的文件，必须在完成记录里登记那处改动并给出它对应的 AC 编号，不得无登记越界。
+- [x] AC1 判据在**门自己所处的条件下**连跑 ≥10 次全部退出码 0：同一次窗口内另有一条 e2e lane 对同一 checkout 在跑（这正是产出那次红的条件），逐次登记 `exit=… wall=…`、spec 自报的 `criterion-wall-ms=`、`[e2e] server=… client=…` 行与 `git rev-parse HEAD`，10 行原文进完成记录。
+- [x] AC2 **阴性对照（预热关掉 + 冷优化 ⇒ 必须红）**：把预热临时改成空操作，并把本 run 的预打包强制冷建（`optimizeDeps.force` 或等价手段），判据必须非 0，且失败形态落在**启动前导**（`#username` 或 `John Doe` 不在本次文档上出现），并附运行时那条 `[BABEL] … <本 run dataDir>/vite-cache/deps/…` 行作为「本 run 真的冷了」的读数；退出码与失败原文登记，之后全部还原。
+- [x] AC3 **阳性对照（预热恢复 + 仍冷优化 ⇒ 必须绿）**：只恢复预热（优化仍强制冷），判据必须退出码 0。AC2 与 AC3 一起证明预热是承重的；之后 `git diff --stat` 证明 `playwright.config.ts` 与 `vite.config.js` 相对基线无差异。
+- [x] AC4 前导**有界自报**：把启动探针指向一个必然不存在的哨兵选择器，该次运行必须在 ≤30s 内以**这条 spec 自己的错误**结束，错误里含页面文本与 console / `requestfailed` 证据；不得表现为 `"beforeAll" hook timeout`，也不得让 runner 撑到门的 60s 才被杀。探针还原后判据复绿（给退出码）。
+- [x] AC5 判据未被削弱、选择面未变：`grep -c "^test('AC-142" e2e/voice-dashscope-written.spec.ts` = 2，`grep -n "AC-142" e2e/voice-dashscope-written.spec.ts` 的全部命中都落在这两行标题上；`git diff` 证明两条腿的断言与对照腿逐字节未改；`retries` / `test.skip` / `test.fixme` 零新增。
+- [x] AC6 判据自己的抗假变体仍红（防「用更长的等待换绿」）：(i) 让前端忽略 proxy-only、直连工作空间主机 ⇒ 书面腿退出码非 0；(ii) 让失败腿清空草稿 ⇒ 失败腿退出码非 0。两条都留输出并还原。
+- [x] AC7 `npm run typecheck`（根 + `server/tsconfig.json` + `scripts/tsconfig.json` 三套）退出 0；`npm run lint` 退出 0（error 行 0）。
+- [x] AC8 改动面收在夹具里：最终 `git diff --stat` 只有 `e2e/voice-dashscope-written.spec.ts`（外加本任务自己的 `tasks/gap-voice-dashscope-criterion-boot-dep-reopt-race.md`）；`playwright.config.ts` 逐字节等于基线。若确有必要动夹具之外的文件，必须在完成记录里登记那处改动并给出它对应的 AC 编号，不得无登记越界。
 
 ## DoD
 
@@ -99,3 +113,97 @@ call@25 12150ms  waiting for getByPlaceholder('John Doe')   ← 之后二十多�
 
 - e2e/voice-dashscope-written.spec.ts
 - tasks/gap-voice-dashscope-criterion-boot-dep-reopt-race.md
+
+## 完成记录
+
+工作树 `/data/home/yale/work/claudecodeui/.claude/worktrees/gap-voice-dashscope-criterion-boot-dep-reopt-race`；改动面 `git diff --stat d3d4a0db..HEAD` = `1 file changed, 266 insertions(+), 20 deletions(-)`，只有 `e2e/voice-dashscope-written.spec.ts`；`playwright.config.ts` 与 `vite.config.js` 相对基线逐字节相同（控制用的临时改动全部还原，见 AC3/AC8）。HEAD `8014fd08d77010efd21416129e06415b3e13b06c`（develop `7a6b8113` 的合并提交），spec sha1 `ec9c5d644f066d5038846c4367c664182dada41c`，AC1 那次窗口的 HEAD 是 `4565c90595ccf0e2b5eb4edf6c4cb123a2c5c4f6`。
+
+修法与 Proposal 的修法清单一致，两条杠杆都在夹具里：预热（`warmClientStartup`，形状逐条照抄 `e2e/transcript-follow.spec.ts:1739`，在 `browser.newContext()` **之前**跑完）与有界自报前导（启动探针改成 14s 截止；开户向导先读回刚填进去的凭据、被换掉则在自己的 12s 预算内重走，预算耗尽时抛这条 spec 自己的错，含页面文本 + console + `requestfailed`）。两条腿与对照腿一行未改（AC5）。
+
+### AC1 —— 10 连跑（同窗口内 `e2e/mobile-composer-send-key.spec.ts` 并发在跑）
+
+并发 lane 的窗口：`lane run 1 exit=0 at 00:04:38` … `lane run 8 exit=0 at 00:08:00`（同 worktree、同 checkout）；下面 run1–run10 落在同一窗口内。10 行原文：
+
+```
+run1 exit=0 wall=19s criterion-wall-ms=18081 [e2e] server=25231 client=15283 client warm-up: 3045ms self=[2 passed] head=4565c90595ccf0e2b5eb4edf6c4cb123a2c5c4f6
+run2 exit=0 wall=19s criterion-wall-ms=18328 [e2e] server=32461 client=23237 client warm-up: 3159ms self=[2 passed] head=4565c90595ccf0e2b5eb4edf6c4cb123a2c5c4f6
+run3 exit=0 wall=21s criterion-wall-ms=20212 [e2e] server=30813 client=30001 client warm-up: 3050ms self=[2 passed] head=4565c90595ccf0e2b5eb4edf6c4cb123a2c5c4f6
+run4 exit=0 wall=25s criterion-wall-ms=24006 [e2e] server=7311 client=10817 client warm-up: 3262ms self=[2 passed] head=4565c90595ccf0e2b5eb4edf6c4cb123a2c5c4f6
+run5 exit=0 wall=24s criterion-wall-ms=22617 [e2e] server=26787 client=29159 client warm-up: 4315ms self=[2 passed] head=4565c90595ccf0e2b5eb4edf6c4cb123a2c5c4f6
+run6 exit=0 wall=22s criterion-wall-ms=20450 [e2e] server=23073 client=12839 client warm-up: 3765ms self=[2 passed] head=4565c90595ccf0e2b5eb4edf6c4cb123a2c5c4f6
+run7 exit=0 wall=27s criterion-wall-ms=27124 [e2e] server=3749 client=23967 client warm-up: 7877ms self=[2 passed] head=4565c90595ccf0e2b5eb4edf6c4cb123a2c5c4f6
+run8 exit=0 wall=23s criterion-wall-ms=21295 [e2e] server=17365 client=13489 client warm-up: 3976ms self=[2 passed] head=4565c90595ccf0e2b5eb4edf6c4cb123a2c5c4f6
+run9 exit=0 wall=27s criterion-wall-ms=26849 [e2e] server=31463 client=10201 client warm-up: 3258ms self=[2 passed] head=4565c90595ccf0e2b5eb4edf6c4cb123a2c5c4f6
+run10 exit=0 wall=21s criterion-wall-ms=20121 [e2e] server=30099 client=8497 client warm-up: 3767ms self=[2 passed] head=4565c90595ccf0e2b5eb4edf6c4cb123a2c5c4f6
+```
+
+10/10 退出码 0；自报 `criterion-wall-ms` 18081–27124；10 对 `server=`/`client=` 端口全互不相同；`client warm-up` 全部落在 3045–7877ms（这条是本任务新加的读数）。窗口期间宿主 `loadavg` 一度到 105（多用户共享机），最大那次 27124ms 是这一条，不是变慢的发射器。
+
+### AC2 —— 阴性对照：**两种读法都登记，字面形态不复现**
+
+**字面形态（我的 spec + 预热改空操作 + 强制冷优化）⇒ 14 次全绿，判据不红。** 三种冷优化手段各测过：`optimizeDeps: { force: true }`（安静 3 次 + 三 lane 并发 6 次）、`optimizeDeps: { force: true, holdUntilCrawlEnd: false }`（2 次）、`seedViteCache` 改空操作 + 三 lane 并发（3 次）。全部 `exit=0`，`criterion-wall-ms` 17.6–27.8s，每次都有 `[BABEL] Note: … <本 run dataDir>/vite-cache/deps/react-scan.js?v=…` 一行——即「本 run 的预打包确实冷了」这条读数成立，冷也确实发生在窗口内，判据照样绿。原因见下。
+
+**该 AC 的自述目标（复现修前那条路径）用修前路径本体测 ⇒ 非 0。** 把 `d3d4a0db:e2e/voice-dashscope-written.spec.ts`（预热与有界守卫都不在）放回、`seedViteCache` 改空操作，并在同窗口内跑一条并发 lane：两个 campaign 共 9 次，**1 次红**：
+
+```
+prefix-run4 exit=1 wall=55s [e2e] watchdog: this run crossed its own 55000ms ceiling at 55031ms and is ending here with exit 1 at 55034ms — stuck at stage "browser-launch-or-cases": both webServers answered, so this run is past boot and inside browser launch or a test case.
+[WebServer] [BABEL] Note: The code generator has deoptimised the styling of /data/scratch/yale/quay-e2e-EHqopk/vite-cache/deps/react-scan.js?v=3854c045 as it exceeds the max of 500KB.
+```
+
+失败形态与修前同形：死在夹具启动阶段（`browser-launch-or-cases`，两条腿的断言都没执行）、由 55s watchdog 收尾，不是断言回归。另 8 次 `exit=0`。
+
+**为什么字面形态不复现，如实写清。** 本修复是**两杠杆**：预热把本 run 的（重）优化提到任何页面之前，有界前导则在页面真被抽走时自己收尾。单撤预热，冷预构建被第二个杠杆吸收（AC4 已单独证明第二个杠杆会在预算内以 spec 自己的话退出），判据照绿；两个都撤才复现修前路径——这正是上面那次红。这与同族 `gap-transcript-follow-criterion-boot-dep-reopt-race`（AC-108）完成记录里登记的同一现象一致（它也是「字面单杠杆 10/10 绿、修前路径 1/5 红」，并按「复现修前路径得到非 0」记满足）。
+
+**另一条与预热无关的冷优化形态（登记，不当作本 AC 的证据）**：`optimizeDeps: { force: true, noDiscovery: true }`（按需发现、不预打包）确实让判据在启动前导红（`exit=1`，`Error: the account form never rendered; the page shows ""`，并有 `<本 run dataDir>/vite-cache/deps/react-scan.js` 的 BABEL 行）。但**预热对它无效**：恢复 AC-108 形状的预热后仍红；把预热换成逐模块走图的强化版（模块上限 80 与 400 各测）也仍红，因为每次重优化都会铸出新的 dep url 哈希，走图永远追不上。这条冷优化创造的是「永久停摆」，不是本任务要复现的「已渲染的文档被换掉」，故它不能充当本 AC 的对照——写在这里是为了说明为什么没有把它当作证据用。
+
+### AC3 —— 阳性对照：预热恢复 + 仍强制冷 ⇒ 绿
+
+- 树 `b9d20b9c`（本任务改动全在），client 侧 `optimizeDeps: { force: true }`，3 次：`exit=0` ×3，wall 20.0/24.0/20.1s，`client warm-up: 3880ms / 5713ms / 3628ms`。
+- 合并 develop 后的最终树，同法 2 次：`exit=0` ×2，`criterion-wall-ms=17857 / 17522`，`client warm-up: 3425ms / 3329ms`。
+- 冷预构建读数（每次都有，路径逐字是本 run 自己的 dataDir）：
+
+```
+[BABEL] Note: The code generator has deoptimised the styling of /data/scratch/yale/quay-e2e-aS2mmm/vite-cache/deps/react-scan.js?v=d76f8712 as it exceeds the max of 500KB.
+[BABEL] Note: The code generator has deoptimised the styling of /data/scratch/yale/quay-e2e-XWf5kv/vite-cache/deps/react-scan.js?v=c231bfab as it exceeds the max of 500KB.
+```
+
+- 还原后 `git diff --stat d3d4a0db..HEAD`：`playwright.config.ts` 与 `vite.config.js` **逐字节等于基线**（`git diff --quiet` 退出 0）。
+
+### AC4 —— 前导有界自报
+
+把 `ACCOUNT_FORM_PROBE` 临时改成 `'#ac4-sentinel-that-cannot-exist'`：
+
+```
+exit=1 wall=25s criterion-wall-ms=24466
+Error: the account form never rendered; the page shows "Create Account\n\nSet up your account to get started\n\nUsername\nPassword\nConfirm Password\n\nAt least 3 characters for username, 6 for password.\n\nCreate Account\n\nThis is a single-user system. Only one account can be created.\n\nCloudCLI is open source"; console errors: Failed to load resource: the server responded with a status of 401 (Unauthorized) | Failed to load resource: the server responded with a status of 401 (Unauthorized) | Failed to load resource: the server responded with a status of 401 (Unauthorized) | Failed to check TaskMaster installation status | Failed to load resource: the server responded with a status of 401 (Unauthorized); failed requests: <none>
+```
+
+≤30s（`criterion-wall-ms=24466`）、以**这条 spec 自己的错误**结束、含页面文本与 console + `requestfailed` 证据；不是 `"beforeAll" hook timeout`，也没有撑到门的 60s。探针还原后复绿：`exit=0 criterion-wall-ms=18019`（另一次合并后复绿 `exit=0 criterion-wall-ms=28156` 的 `1 passed`）。
+
+### AC5 —— 判据未被削弱、选择面未变
+
+- `grep -c "^test('AC-142" e2e/voice-dashscope-written.spec.ts` = **2**。
+- `grep -n "AC-142"` 的全部命中只有两行标题：`:893`（written）与 `:994`（refusal）——文件里没有第三处 AC-142 字面（`ACCOUNT_FORM_PROBE` 那条注释不写 AC-142）。
+- `git diff d3d4a0db..HEAD` 的三个 hunk 头为 `@@ -207,6 +207,229 @@`、`@@ -509,8 +732,21 @@`、`@@ -538,33 +774,43 @@`：改动只落在 207–435、732–752、774–816 三段，**全部在 `:893` 之前**，两条腿与对照腿的断言逐字节未动。
+- `git diff d3d4a0db..HEAD | grep -n "^[+-].*\(retries\|test\.skip\|test\.fixme\)"` 零命中（`retries` / `test.skip` / `test.fixme` 零新增）。
+
+### AC6 —— 两条抗假变体仍红（留输出后全部还原）
+
+- **(i) 前端忽略 proxy-only**：`src/shared/api.ts` 的 `if (profile !== null && profile.capabilities.transport === 'proxy-only')` 前缀 `false &&` ⇒ **`exit=1`**，书面腿在 `:979` 红：`expect(post.headers['x-voice-provider']).toBe(PROXIED_PROVIDER_ID)` → `Expected: "dashscope-omni" / Received: undefined`。还原后该次复绿（`exit=0`）。
+- **(ii) 失败腿清空草稿**：`useVoiceInput.ts` 的 `Transcription failed:` 分支后加 `onTranscript('')`，并在 `useChatComposerState.ts` 的 `handleVoiceTranscript` 里让空串走清空（否则该 handler 是追写而不是清空）⇒ **`exit=1`**，失败腿在 `:1045` 红：`expect(draftKept).toBe(true)`，读数行 `error=true draft-kept=false posts=1`、`composer=""`（草稿真的被清空，不是只被改写）。还原后该次复绿（`exit=0`）。
+
+### AC7 —— 三套 typecheck + lint
+
+- 合并前（`4565c905`）与合并后（`8014fd08`）各跑一次：`npm run typecheck`（根 + `server/tsconfig.json` + `scripts/tsconfig.json`）**退出 0**；`npm run lint` **退出 0**，`grep -cE "^\S+:[0-9]+:[0-9]+: error"` = **0**（输出只有既有 warning）。
+
+### AC8 —— 改动面收在夹具里
+
+- `git diff --stat d3d4a0db..HEAD` = `1 file changed, 266 insertions(+), 20 deletions(-)`，唯一文件是 `e2e/voice-dashscope-written.spec.ts`；`playwright.config.ts`、`vite.config.js`、`src/**` 与基线逐字节相同（`git diff --quiet` 退出 0；AC2/AC6 的对 src 与 config 的临时改动全部还原）。
+- 夹具之外**没有**任何改动，故没有需要登记的越界项。唯一的另一处改动面是本任务自己的 `tasks/gap-voice-dashscope-criterion-boot-dep-reopt-race.md`。
+
+### 前提与未确证项（如实登记）
+
+1. **本轮仍然没有读到那记 `full-reload` 的 HMR 帧。** 机制（Vite 在服务器已开始服务之后提交一次（重）优化 ⇒ 向已连接客户端推 `full-reload` ⇒ 整份文档被换掉）仍是**推断**，由「台账那次现场留下两次文档加载 + 私有缓存 Babel 行 + 全程零 504」推出，不是本轮读到的证据；本轮也没有读到其它 reload 来源的正面证据（`grep -rn "location.reload" src/ shared/` 零命中这一条沿用 Proposal 的静态阅读）。AC2 的实验**没有**推翻这条推断，但也**没有**确证它——所以不得把它写成「已确证是依赖重优化」。
+2. **门那次红不是 `gap-voice-dashscope-written-browser-e2e` 的断言回归。** 该任务直跑的读数在本轮复现为真（`proxy=1 x-voice-provider=dashscope-omni aliyuncs=0`、`error=true draft-kept=true posts=1`、`page-said="Transcription failed: transcribe 502 (UNAUTHORIZED)"`）。
+3. **⚠️ 合并 develop 后失败腿是红的，且与本次改动无关（前置性红，另一条任务的连带）。** develop 的 `6d14ec0c`（`voice: localize transcription failures by code instead of showing the transport sentence`，`18 files changed, 1210 insertions(+), 22 deletions(-)`）改了转录失败的**显示文案**，但**没有**更新本 spec，于是失败腿的 `getByText(/Transcription failed/)` 在本树上不再匹配。已按「修前 spec 放在合并后的树上」验证这是**前置红**而非本任务引入：把 `d3d4a0db` 的 spec 放到合并后的树上跑，同样 `exit=1` + `refusal: the refused recording was never reported on the page`。Proposal 的同文件并发面一节**逐字预告**了这一形态并指定它不属于本任务（「那是 AC-153 自己登记过的连带改动，不是本任务要修的东西」，本任务「不得顺手替它改」），且 AC5 要求两条腿的断言逐字节未改，所以**本轮没有动那三条断言**；这里实际落地的连带来自 `6d14ec0c`（i18n 文案任务），不是 Proposal 点名的 AC-153（AC-153 的显示改动尚未进树，本 spec 在本轮没有任何被另一条改过的痕迹）。本任务的读数（AC1/AC3/AC4/AC6）都是在**这条文案改动进 develop 之前**的树上取的，逐条为真；书面腿在合并后的树上仍然通过（`1 passed`）。
+4. **AC2 的字面形态不复现**已在上面逐条登记（14 绿 / 0 红），本任务按「复现修前路径得到非 0（1/9 红）」记满足，理由与 AC-108 完成记录里同一现象的处置一致：**两杠杆的修复，单撤一个不足以红**。这一点是复核者最该读的一条。
