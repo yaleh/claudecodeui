@@ -39,11 +39,11 @@ depends_on:
 
 ## AC
 
-- [ ] `npx vitest run src/modules/chat/tests/voiceClipPlayback.test.tsx` 退出码 0；更新后的用例分别验证移动档与桌面档，且失败信息打印实际读数：(a) 移动档、`clipSlot` 含 original 与 trimmed：`Replay original` 与 `Replay trimmed` 均存在、可区分、可点击，且它们所在容器在 DOM 顺序上**位于 textarea 之后、footer 之前**，且**不在** footer 内；(b) 桌面档：两条回放仍在左侧工具组（footer 内、语音按钮之后）；(c) 无 `clipSlot` 时移动档**不渲染** chip 行（该行的容器整体不存在，不是空容器）；(d) 单槽播放语义不变：播放 original 时点 trimmed，original 被停止、trimmed 接管（沿用该文件既有的这组断言）。
-- [ ] 同一档位下回放按钮只有一套：`src/modules/chat/tests/chatComposerResponsive.test.tsx` 新增用例，在移动档与桌面档各自读 `getAllByRole('button', { name: 'Replay original' })`，可访问元素数**恰为 1**（对照：若渲染两份 DOM，测试须能读出被隐藏那份确实处于 `display:none`——jsdom 不解析 Tailwind 时，用注入等价 `display:none` 规则的样式表，或改用 `isMobile` 单份渲染，二者择一，并在失败信息里打印命中数）。
-- [ ] 断点边界：`grep -nE '(^|[^a-zA-Z-])sm:' src/modules/chat/composer/ChatComposer.tsx` 中与回放行/回放容器相关的行无 `sm:` 命中（用 `grep -n` 读出行号并逐行核对，不以行号推断——静态判据的行号必须用 `grep -n` 现读）。这是机制层辅助闸，不变量由 DoD 的真浏览器读数证明。
-- [ ] `npx vitest run src/modules/chat` 退出码 0（既有 chat 测试不回归）。
-- [ ] `npm run typecheck` 与 `npm run lint` 退出码均为 0（`npm run lint` 是 `oxlint src/ server/`；裸 `npx oxlint` 预先非 0，不作判据）。
+- [x] `npx vitest run src/modules/chat/tests/voiceClipPlayback.test.tsx` 退出码 0；更新后的用例分别验证移动档与桌面档，且失败信息打印实际读数：(a) 移动档、`clipSlot` 含 original 与 trimmed：`Replay original` 与 `Replay trimmed` 均存在、可区分、可点击，且它们所在容器在 DOM 顺序上**位于 textarea 之后、footer 之前**，且**不在** footer 内；(b) 桌面档：两条回放仍在左侧工具组（footer 内、语音按钮之后）；(c) 无 `clipSlot` 时移动档**不渲染** chip 行（该行的容器整体不存在，不是空容器）；(d) 单槽播放语义不变：播放 original 时点 trimmed，original 被停止、trimmed 接管（沿用该文件既有的这组断言）。
+- [x] 同一档位下回放按钮只有一套：`src/modules/chat/tests/chatComposerResponsive.test.tsx` 新增用例，在移动档与桌面档各自读 `getAllByRole('button', { name: 'Replay original' })`，可访问元素数**恰为 1**（对照：若渲染两份 DOM，测试须能读出被隐藏那份确实处于 `display:none`——jsdom 不解析 Tailwind 时，用注入等价 `display:none` 规则的样式表，或改用 `isMobile` 单份渲染，二者择一，并在失败信息里打印命中数）。
+- [x] 断点边界：`grep -nE '(^|[^a-zA-Z-])sm:' src/modules/chat/composer/ChatComposer.tsx` 中与回放行/回放容器相关的行无 `sm:` 命中（用 `grep -n` 读出行号并逐行核对，不以行号推断——静态判据的行号必须用 `grep -n` 现读）。这是机制层辅助闸，不变量由 DoD 的真浏览器读数证明。
+- [x] `npx vitest run src/modules/chat` 退出码 0（既有 chat 测试不回归）。
+- [x] `npm run typecheck` 与 `npm run lint` 退出码均为 0（`npm run lint` 是 `oxlint src/ server/`；裸 `npx oxlint` 预先非 0，不作判据）。
 
 ## DoD
 
@@ -70,3 +70,48 @@ L_G 该轴仍暗，理由：同上；验证读数就是 DoD 里真浏览器的 f
 - src/modules/chat/tests/voiceClipPlayback.test.tsx
 - src/modules/chat/tests/chatComposerResponsive.test.tsx
 - tasks/gap-mobile-voice-clip-row-below-textarea.md
+
+## 完成记录
+
+实现落位：`src/modules/chat/composer/ChatComposer.tsx` 新增 `data-slot="prompt-input-clip-row"` 独立行（条件 `clipSlot && isMobile`，第 509–517 行），插在 `PromptInputBody`（textarea）与 `PromptInputFooter` 之间；`PromptInputTools` 里的回放改为 `clipSlot && !isMobile`（第 548–555 行）。两处共用 `useVoiceInput` 返回的同一份 `clipSlot` / `clipPlayState` / `toggleClipPlayback`。机制选**单份渲染**：`isMobile` 来自 `useDeviceSettings`（断点 768，`innerWidth < 768`），与 md 边界一致，且任何时刻只渲染一套回放 DOM —— 因此可访问性树里天然只有一套，不需要靠 CSS 隐藏第二份。桌面档渲染路径相对改动前只多了 `!isMobile` 这一个条件。
+
+### AC 读数（逐条，命令真实退出码）
+
+| 判据 | 命令 | 退出码 | 读数 |
+|---|---|---|---|
+| AC1 | `npx vitest run src/modules/chat/tests/voiceClipPlayback.test.tsx` | 0 | 21 passed（新增/更新 (a)(b)(c)(d) 四例；失败信息打印 `describePlacement` 实际落位） |
+| AC2 | `npx vitest run src/modules/chat/tests/chatComposerResponsive.test.tsx` | 0 | 10 passed；新增 (g)：两档各自 `Replay original=1`、`Replay trimmed=1` |
+| AC3 | `grep -nE '(^|[^a-zA-Z-])sm:' src/modules/chat/composer/ChatComposer.tsx` | — | 命中 4 行，逐行核对：336 壳内边距、338 Activity 容器宽、598 清空输入按钮 `hidden sm:flex`、661 发送按钮尺寸；**无一行**属于回放行（509–517）或回放渲染点（512/515/555） |
+| AC4 | `npx vitest run src/modules/chat` | 0 | 46 files / 348 tests passed |
+| AC5 | `npm run typecheck` / `npm run lint` | 0 / 0 | typecheck 无输出；lint 0 error（166 条均为既有 warning，改动文件无新增） |
+
+### DoD 真实浏览器读数
+
+探针形态：由 `e2e/voice-trim.spec.ts` 临时派生的 scratch spec（配一份把 watchdog ceiling 抬高的 config 副本），跑完即删、**未入库**。真实 Chromium + 真实后端/Vite + 真实 `getUserMedia`（--use-fake-device 喂 config 写出的 fixture WAV）→ 真实 `MediaRecorder` → 真实 decode/trim/encode → 真实 `transcribeVoice` 打到 recogniser stand-in。`clipSlot` **不是替身**：两条 clip 由 `useVoiceInput` 的 `adoptClip` / `adoptTrimmedClip` 真实产生（trim 由 `?voiceTrim=on` + 适配器声明共同授权）。
+
+入口如实标注偏离：DoD 写的 `?voiceDebug=1` **上传**入口产生不了 clip —— `submitCapture` 只在 `source === 'mic'` 时 `adoptClip`，上传路径刻意不占用 slot（`useVoiceInput.ts` 注释：a file they chose is already theirs to play）。所以探针走**同一 harness 的录音路径**（同一 fixture 音频、同一条链、同一 recogniser stand-in），这是能产生真实 original+trimmed 两条 clip 的唯一路径。窄视口下侧栏不可见，会话经 `/session/<id>` 直达。
+
+| 视口 | 无回放 footer | 单条回放 footer | 双条回放 footer | `scrollWidth===clientWidth`（双条） | chip 行在 footer 之前 | chip 行 DOM 顺序 | chip 行在 footer 内 | a11y original / trimmed | 回放在工具组 | 输入区总高度 无→有录音 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 320×700 | 57 | 57 | 57 | true（302/302） | true | textarea 之后、footer 之前 | false | 1 / 1 | false | 123 → 159（+36） |
+| 360×800 | 57 | 57 | 57 | true（342/342） | true | 同上 | false | 1 / 1 | false | 123 → 159（+36） |
+| 390×844 | 57 | 57 | 57 | true（372/372） | true | 同上 | false | 1 / 1 | false | 123 → 159（+36） |
+| 767×900 | 57 | 57 | 57 | true（733/733） | true | 同上 | false | 1 / 1 | false | 123 → 159（+36） |
+| 768×900 | 93 | 93 | 93 | false（470/445） | n/a（无 chip 行） | n/a | n/a | 1 / 1 | true | 159 → 159（+0） |
+| 1280×800 | 77 | 77 | 77 | true（866/866） | n/a（无 chip 行） | n/a | n/a | 1 / 1 | true | 143 → 143（+0） |
+
+- 四条移动视口：footer 高度在「无回放 / 单条 / 双条」三态下**完全不变**（57px；改动前 390 双条为 93px 两行 → 目标 ≤57 达成），变化只发生在 chip 行；双条时 `footer.scrollWidth === footer.clientWidth` 全 true。
+- ① 390 可访问性树：`Replay original` / `Replay trimmed` 各恰 1 个（`page.getByRole(...).count()`，非 `querySelectorAll`）。
+- ② 768 与 1280：无 chip 行，两条回放仍在**左侧工具组**内（`data-slot="prompt-input-tools"` 内含 `Replay ` 按钮），可访问性树各恰 1 个。
+- ③ 390：点 original → 出现 `Stop original playback`；再点 trimmed → 出现 `Stop trimmed playback`，此时 `Stop original playback` 计数为 0（original 真被停止、trimmed 接管）。
+- ④ 输入区总高度（`data-slot="prompt-input"` 表单）随录音出现由 123 → 159 = **+36px**，与方案声明的「chip 自身约 36px、不消除」一致；**未**消除。
+- 边界如实标注（不在 DoD 断言集合内）：768×900 桌面档在**双条**时 footer `scrollWidth 470 > clientWidth 445`（横向溢出 25px）。该档位按方案保持原布局，桌面分支相对改动前只多了 `!isMobile`，故此溢出非本次引入；DoD 要求「必须 true」的四条移动视口全部 true。
+- 同一次运行里 `e2e/voice-trim.spec.ts` 既有的 AC-119/120/121/122 四条真实浏览器判据在新布局下全部通过（4 passed）。
+
+### 可证伪性（防判据空洞）
+
+对实现做两次临时变异，确认对应用例转红、其余保持绿，之后均已还原：
+1. 回放**始终**渲染在工具组（改动前行为）→ (a) 红（`a recording at 390px must give the replay pair a row of its own; the controls read: no replay control rendered`），(d) 与单条用例红，(g) 红并打印 `narrow (390px): Replay original=0`。
+2. 改成**两份 DOM**（工具组始终渲染 + 移动档再加一行）→ (g) 红并打印 `narrow (390px): Replay original=2, Replay trimmed=2`，(a) 因 `getByRole` 命中 2 个而红。
+
+L_D 该轴仍暗，理由同正文：不产出领域数据或文档语义读数。L_G 该轴仍暗，理由同正文：验证读数即上表与可访问性树计数。
