@@ -1,10 +1,17 @@
 ---
 id: GOAL-009
 title: 语音输入经 DashScope Qwen3.8-Omni-Flash 直接产出书面化指令：只走服务端代理、用户自带 key、提示词与实验逐字一致
-status: draft
+status: active
 kind: goal
 origin: docs/proposals/voice-dashscope-omni-written-instruction.md（2026-09-24 人
   yale 裁定：E 组提示词定型；key 由用户提供；书面指令进 composer；本轮不改输入体验）
+activatedAt: 2026-09-24T03:03:54.633Z
+statusLog:
+  - at: 2026-09-24T03:03:54.633Z
+    from: draft
+    to: active
+    actor: goal-cli
+    reason: ""
 ---
 ## 背景
 
