@@ -137,9 +137,43 @@ export const INVARIANT_INSTRUCTION =
  */
 export const INVARIANT_ENDPOINT = 'https://asr.invalid/v1beta/models/invariant-model:generateContent';
 export const INVARIANT_TRANSCRIPTION_ENDPOINT = 'https://asr.invalid/audio/transcriptions';
+export const INVARIANT_CHAT_ENDPOINT = 'https://asr.invalid/compatible-mode/v1/chat/completions';
+
+/**
+ * The written instruction the chat wire's answer carries BESIDE its transcript.
+ *
+ * A value of its own rather than a second use of `INVARIANT_TRANSCRIPT`, and the difference is the
+ * reading: a wire whose answer holds two different strings can tell "the adapter returned the
+ * rewrite" from "the adapter returned the transcription it was given" — the degradation the
+ * `chat-audio` model exists to be measured for. An answer whose two fields held the same string
+ * would be green under both, so the chat row's own steps use this one as the instruction.
+ */
+export const INVARIANT_WRITTEN_INSTRUCTION = 'the invariant written instruction';
 
 /** The audio payload's canonical form inside a recorded body reading. */
 export const INVARIANT_AUDIO_TOKEN = '<AUDIO>';
+
+/** The chat wire's audio payload: the data URI with its encoded bytes tokenised. */
+export const INVARIANT_CHAT_AUDIO_URI = `data:audio/webm;base64,${INVARIANT_AUDIO_TOKEN}`;
+
+/**
+ * The chat wire's two prompt-bearing positions, as tokens rather than as text.
+ *
+ * WHY THE BOARD DOES NOT RETYPE THE FROZEN PROMPT. The E group's prompt ships as
+ * `shared/asr/list/dashscope-omni/dashscope-omni.asr-provider.ts`, whose authoritative record is
+ * `experiments/voice-omni-written/fixtures/snapshot.json` — the pair
+ * `scripts/asr-omni-prompt-frozen-check.mjs` keeps identical segment by segment. This is the same
+ * discipline `INVARIANT_INSTRUCTION` follows for the multimodal adapter's own instruction, one step
+ * further: that instruction is one short sentence, while this prompt is four segments of measured
+ * text. A third copy here would be a copy of a frozen artefact that nothing pins, and importing the
+ * adapter's module would make the board depend on the module it measures.
+ *
+ * What the board pins instead is the SHAPE: the system turn holds a string, the user turn's text
+ * part holds a string, and both sit where the declaration says they sit. The prompt's TEXT is
+ * pinned where it belongs — by sha256, in the criterion that owns it.
+ */
+export const INVARIANT_SYSTEM_TOKEN = '<SYSTEM>';
+export const INVARIANT_JSON_TASK_TOKEN = '<JSON-TASK>';
 
 export type InvariantFixture = {
   baseUrl: string;
@@ -213,6 +247,23 @@ export function envelope(text: string): unknown {
 
 export function emptyEnvelope(): unknown {
   return { candidates: [{ content: { parts: [] } }] };
+}
+
+/**
+ * The chat service's answer: a chat completion whose assistant turn carries the two-field JSON
+ * object the task turn asked for, serialised as its content.
+ *
+ * The two fields are PARAMETERS because the wire's whole point is that they are different strings:
+ * an answer whose instruction and transcript were the same string could not tell a rewrite from a
+ * passthrough, and that distinction is the degradation reading.
+ */
+export function chatEnvelope(transcript: string, instruction: string): unknown {
+  return { choices: [{ message: { content: JSON.stringify({ transcript, instruction }) } }] };
+}
+
+/** The same answer with an empty assistant turn. */
+export function chatEmptyEnvelope(): unknown {
+  return { choices: [{ message: { content: JSON.stringify({ transcript: '', instruction: '' }) } }] };
 }
 
 // ── the injected transport ───────────────────────────────────────────────────────────────────
@@ -591,12 +642,100 @@ function formGoldenBody(capabilities: AsrCapabilities, model: string): string {
   return parts.join('&');
 }
 
+// ── the chat-audio model's own readings ──────────────────────────────────────────────────────
+
+/** The container the fixture's recording is in, as this wire's `format` field spells it. */
+const CHAT_AUDIO_FORMAT = 'webm';
+
+/**
+ * The chat body the declaration promises for the fixture and `model`.
+ *
+ * IT IS SERIALISED FROM A LITERAL rather than composed as a string the way the two models above
+ * are, and that is a difference in mechanism, not in what the reading asserts: this body is nested,
+ * and a hand-composed nesting is a second JSON encoder whose escaping rules the board would have to
+ * get right. What it is composed FROM is unchanged — recorded fragments, the model name the body
+ * depends on, and the declaration — so it still cannot agree with the adapter by construction, and
+ * the three positions the board cannot retype (the system turn, the task turn, the audio) arrive as
+ * tokens the recorded body is canonicalised with.
+ */
+function chatGoldenBody(capabilities: AsrCapabilities, model: string): string {
+  const parts: Record<string, unknown>[] = [
+    {
+      type: 'input_audio',
+      input_audio: { data: INVARIANT_CHAT_AUDIO_URI, format: CHAT_AUDIO_FORMAT },
+    },
+    { type: 'text', text: INVARIANT_JSON_TASK_TOKEN },
+  ];
+  if (capabilities.honors.context) parts.push({ type: 'text', text: INVARIANT_CONTEXT });
+  return JSON.stringify({
+    model,
+    // The decode parameters this provider's E condition was run at. Retyped rather than imported
+    // from the adapter's `REASONING_EFFORT`, for the reason `INVARIANT_INSTRUCTION` gives.
+    modalities: ['text'],
+    stream: false,
+    reasoning_effort: 'low',
+    messages: [
+      { role: 'system', content: INVARIANT_SYSTEM_TOKEN },
+      { role: 'user', content: parts },
+    ],
+  });
+}
+
+/**
+ * A prompt reading for the chat wire: the caller's own prompt is the needle.
+ *
+ * `empty-prompt-part` is unreachable here and deliberately not invented: this adapter's builder
+ * takes no hints at all (its declaration is false on all three axes), so "sent, but empty" is not a
+ * shape the wire can produce. Two of the four readings is the honest answer for it.
+ */
+function chatPromptPart(body: string): PromptReading {
+  return body.includes(INVARIANT_PROMPT) ? 'prompt-part-present' : 'no-prompt-part';
+}
+
+function chatContextPart(body: string): ContextReading {
+  return body.includes(INVARIANT_CONTEXT) ? 'text-part-present' : 'no-context-part';
+}
+
+/** The fixture's own bytes, base64-encoded, inside the data URI this wire carries them in. */
+function chatAudioOnWire(body: string): 'match' | 'mismatch' {
+  return body.includes(`data:audio/webm;base64,${INVARIANT_AUDIO_BASE64}`) ? 'match' : 'mismatch';
+}
+
+/**
+ * The chat wire spends its budget on the audio's ENCODING, like the generation wire and unlike the
+ * multipart one (see `overBudgetAudioBytes`), so the oversize size is the same derivation: the
+ * encoded payload alone is already past the budget, and this wire adds a fixed data-URI prefix and
+ * a larger skeleton on top of it.
+ *
+ * The affordable size leaves a wider margin than the generation wire's, and the margin is not
+ * cosmetic: this skeleton is the larger one, so a derivation that left the generation wire's
+ * 4 KiB — or none at all — would put the rejected and the accepted fixture on the same side of the
+ * line and the group would measure one side twice.
+ */
+function chatOverBudgetAudioBytes(budget: number): number {
+  return Math.ceil((budget + 1) / 4) * 3;
+}
+
+function chatAffordableAudioBytes(budget: number): number {
+  return Math.floor((budget * 3) / 4) - 16384;
+}
+
 /** The answers each wire's service gives: a transcript, an empty answer, and no answer at all. */
 export type AsrWireAnswers = {
   transcript: unknown;
   empty: unknown;
   /** A body that is not this service's answer: the shape both wires must refuse to read as text. */
   notAnAnswer: string;
+  /**
+   * The text `transcript` must reach the caller as.
+   *
+   * A field of its own because it is not the same string on every wire: the multipart and
+   * generation answers ARE the transcription, while the chat wire's answer carries a transcript and
+   * a REWRITE, and the adapter is expected to return the rewrite. Derived here from the same
+   * recorded pair the answer was built from, so an expectation cannot drift from the payload it
+   * describes.
+   */
+  transcriptText: string;
 };
 
 export type AsrWireModel = {
@@ -645,9 +784,30 @@ const WIRE_MODELS: Record<AsrWire, AsrWireModel> = {
       transcript: envelope(INVARIANT_TRANSCRIPT),
       empty: emptyEnvelope(),
       notAnAnswer: '<html>502 Bad Gateway</html>',
+      transcriptText: INVARIANT_TRANSCRIPT,
     },
     overBudgetAudioBytes,
     affordableAudioBytes,
+  },
+  'chat-audio': {
+    wire: 'chat-audio',
+    endpoint: INVARIANT_CHAT_ENDPOINT,
+    contentType: 'application/json',
+    credentialHeader: 'authorization',
+    goldenBody: chatGoldenBody,
+    audioOnWire: chatAudioOnWire,
+    promptPart: chatPromptPart,
+    contextPart: chatContextPart,
+    answers: {
+      // The answer carries BOTH strings, and they differ: this is the wire whose adapter is
+      // expected to return the rewrite, so the transcript alone is distinguishable from it.
+      transcript: chatEnvelope(INVARIANT_TRANSCRIPT, INVARIANT_WRITTEN_INSTRUCTION),
+      empty: chatEmptyEnvelope(),
+      notAnAnswer: '<html>502 Bad Gateway</html>',
+      transcriptText: INVARIANT_WRITTEN_INSTRUCTION,
+    },
+    overBudgetAudioBytes: chatOverBudgetAudioBytes,
+    affordableAudioBytes: chatAffordableAudioBytes,
   },
   multipart: {
     wire: 'multipart',
@@ -662,6 +822,7 @@ const WIRE_MODELS: Record<AsrWire, AsrWireModel> = {
       transcript: { text: INVARIANT_TRANSCRIPT },
       empty: { text: '' },
       notAnAnswer: '<html>502 Bad Gateway</html>',
+      transcriptText: INVARIANT_TRANSCRIPT,
     },
     overBudgetAudioBytes: (budget) => budget + 1,
     affordableAudioBytes: (budget) => Math.floor(budget * 0.75),
@@ -681,7 +842,72 @@ export function wireModelFor(provider: AsrAdapter): AsrWireModel {
  */
 function canonicaliseBody(body: string, model: AsrWireModel): string {
   if (model.wire === 'multipart') return body;
+  if (model.wire === 'chat-audio') return chatCanonicaliseBody(body);
   return body.split(`"data":"${INVARIANT_AUDIO_BASE64}"`).join(`"data":"${INVARIANT_AUDIO_TOKEN}"`);
+}
+
+/**
+ * The chat body with its three payloads replaced by their tokens: the system turn, the task turn
+ * and the audio's data URI.
+ *
+ * A PARSE-AND-REPLACE rather than a substring substitution, and the difference is the reading: each
+ * of the three sits at a position the golden body names, so replacing the audio's encoding wherever
+ * it appeared would not say WHICH field carried it — a body that moved the audio into the text part
+ * would be canonicalised into agreement with a golden body it no longer matches. The positions are
+ * read off the parsed body and the replacements are then made textually (the whole quoted literal,
+ * so a value that happened to be a substring of another field cannot be hit twice).
+ *
+ * A body that does not parse, or one whose messages are not the two this wire's declaration
+ * promises, is returned as it stands: it then disagrees with the golden body, which is the red this
+ * is here to produce rather than to hide.
+ */
+function chatCanonicaliseBody(body: string): string {
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(body);
+  } catch {
+    return body;
+  }
+  const messages = (decoded as { messages?: unknown } | null)?.messages;
+  if (!Array.isArray(messages)) return body;
+
+  let canonical = body;
+  const system = (messages[0] as { content?: unknown } | undefined)?.content;
+  if (typeof system === 'string') {
+    canonical = replaceJsonLiteral(canonical, system, INVARIANT_SYSTEM_TOKEN);
+  }
+
+  const userParts = (messages[1] as { content?: unknown } | undefined)?.content;
+  if (Array.isArray(userParts)) {
+    for (const part of userParts) {
+      const record = part as {
+        type?: unknown;
+        input_audio?: { data?: unknown };
+        text?: unknown;
+      } | null;
+      if (record === null || typeof record !== 'object') continue;
+      const audio = record.input_audio?.data;
+      if (record.type === 'input_audio' && typeof audio === 'string') {
+        canonical = replaceJsonLiteral(canonical, audio, INVARIANT_CHAT_AUDIO_URI);
+      }
+      if (record.type === 'text' && typeof record.text === 'string') {
+        canonical = replaceJsonLiteral(canonical, record.text, INVARIANT_JSON_TASK_TOKEN);
+      }
+    }
+  }
+  return canonical;
+}
+
+/**
+ * `value`'s JSON literal replaced by `token`'s, quoted forms on both sides so only a whole field
+ * value can match.
+ *
+ * An empty `value` is left alone: its literal is `""`, which occurs wherever the body has an empty
+ * string, and substituting those would rewrite a field the caller did not ask about.
+ */
+function replaceJsonLiteral(source: string, value: string, token: string): string {
+  if (value === '') return source;
+  return source.split(JSON.stringify(value)).join(JSON.stringify(token));
 }
 
 // ── group 1: request construction ────────────────────────────────────────────────────────────
@@ -818,7 +1044,7 @@ export function errorScenarios(wire: AsrWire): ErrorScenario[] {
     { id: 'error.timeout', step: { kind: 'reject', mode: 'timeout' }, expected: failedWith('TIMEOUT'), detail: 'an aborted request is a timeout, and is read from the abort itself' },
     { id: 'error.body-not-json', step: { kind: 'raw', body: answers.notAnAnswer }, expected: failedWith('UPSTREAM_ERROR'), detail: 'a gateway page is neither a transcript nor a crash' },
     { id: 'error.envelope-without-text', step: { kind: 'json', payload: answers.empty }, expected: failedWith('NO_SPEECH_DETECTED'), detail: 'an answer carrying no text is an empty answer, not a success with empty text' },
-    { id: 'error.transcript-arrives', step: { kind: 'json', payload: answers.transcript }, expected: `ok:${INVARIANT_TRANSCRIPT} requests=1`, detail: 'a well-formed answer reaches the caller as its text, in one request' },
+    { id: 'error.transcript-arrives', step: { kind: 'json', payload: answers.transcript }, expected: `ok:${answers.transcriptText} requests=1`, detail: 'a well-formed answer reaches the caller as its text, in one request — on a wire whose answer carries two strings, the one the caller must receive is the wire model\'s own `transcriptText`, not whichever field happened to arrive first' },
   ];
 }
 
@@ -873,9 +1099,8 @@ export async function probeSizeLayering(provider: AsrAdapter): Promise<Invariant
   // so a long one is what pushes an otherwise-affordable audio over. A declaration that does not
   // acknowledges nothing, so the same audio must go out UNCHANGED — a budget that counted a hint
   // the adapter never sends would refuse an upload the service would have accepted.
-  const pushedOverExpected = capabilities.honors.context
-    ? 'OVERSIZE requests=0'
-    : `ok:${INVARIANT_TRANSCRIPT} requests=1`;
+  const accepted = `ok:${model.answers.transcriptText} requests=1`;
+  const pushedOverExpected = capabilities.honors.context ? 'OVERSIZE requests=0' : accepted;
 
   readings.push(
     reading(group, `size.oversize-declared[${provider.id}]`, provider.id, capabilities.oversize, 'reject',
@@ -884,7 +1109,7 @@ export async function probeSizeLayering(provider: AsrAdapter): Promise<Invariant
       outcome(oversize.result, oversize.transport.calls), `OVERSIZE requests=0`,
       `an audio of ${overBudget} B ${spentBy} past the declared ${budget} B budget: refused, and with zero requests the audio was never put on the wire`),
     reading(group, `size.audio-alone-affordable[${provider.id}]`, provider.id,
-      outcome(fitting.result, fitting.transport.calls), `ok:${INVARIANT_TRANSCRIPT} requests=1`,
+      outcome(fitting.result, fitting.transport.calls), accepted,
       `an audio of ${affordable} B ${spentBy} inside the declared ${budget} B budget: sent — the guard is a line, not a wall`),
     reading(group, `size.context-pushes-over-limit[${provider.id}]`, provider.id,
       outcome(pushedOver.result, pushedOver.transport.calls), pushedOverExpected,
@@ -1055,10 +1280,12 @@ export async function probeMimeGate(provider: AsrAdapter): Promise<InvariantRead
 
   readings.push(
     reading(group, `mime.accept.base-type-with-parameters[${provider.id}]`, provider.id,
-      outcome(withParameters.result, withParameters.transport.calls), `ok:${INVARIANT_TRANSCRIPT} requests=1`,
+      outcome(withParameters.result, withParameters.transport.calls),
+      `ok:${wireModelFor(provider).answers.transcriptText} requests=1`,
       'a declared base type carrying parameters is accepted, so the gate matches the base type'),
     reading(group, `mime.accept.case-insensitive-base-type[${provider.id}]`, provider.id,
-      outcome(upperCase.result, upperCase.transport.calls), `ok:${INVARIANT_TRANSCRIPT} requests=1`,
+      outcome(upperCase.result, upperCase.transport.calls),
+      `ok:${wireModelFor(provider).answers.transcriptText} requests=1`,
       'the base type is matched case-insensitively'),
     reading(group, `mime.reject.outside-declaration[${provider.id}]`, provider.id,
       outcome(outside.result, outside.transport.calls), 'UNSUPPORTED_MIME requests=0',

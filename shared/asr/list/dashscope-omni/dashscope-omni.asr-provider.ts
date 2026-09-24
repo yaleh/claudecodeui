@@ -1,31 +1,82 @@
 /**
- * The DashScope omni recogniser's FROZEN PROMPT, as six constants and nothing else.
+ * The THIRD recogniser adapter: DashScope's `qwen3.8-omni-flash` — spoken instruction in, WRITTEN
+ * instruction out, over a chat-completions wire that carries the audio inline.
  *
- * WHAT THIS MODULE IS, AND WHAT IT IS NOT. It is the shipping home of the written-instruction
- * prompt the experiment selected, and it deliberately carries no `transcribe`, no `capabilities`
- * and no `id`: the wire protocol, the written-answer parse and its degradation are a later task's
- * subject, and a module that declared a capability table before it could honour one would be a
- * claim nobody could falsify. What is here is exactly the part that is frozen.
+ * IT IS THE REPOSITORY'S ONLY `style: 'written'` RECOGNISER, and that is what the wire is for:
+ * `docs/proposals/voice-dashscope-omni-written-instruction.md` §2 fixes the body below, and the E
+ * group in `experiments/voice-omni-written/` is the measurement the body rests on. The other two
+ * adapters ask their service for the words as they were spoken; this one hands the model a task —
+ * transcribe, then rewrite into an instruction an agent can execute — and returns the rewrite.
  *
- * WHY THE PROMPT IS FROZEN AT ALL. `docs/proposals/voice-dashscope-omni-written-instruction.md`
- * turned a measurement into a decision: of the six prompt conditions the experiment ran against
- * `qwen3.8-omni-flash`, the E condition — role + rules + few-shot examples as a system message, a
- * JSON two-step task as the user turn, `reasoning_effort: low` — is the one the readings support.
- * The 160 readings behind that decision (C and E, 8 clips × 10 each, all `status: 200`) are frozen
- * in `experiments/voice-omni-written/fixtures/snapshot.json`, and `scripts/asr-omni-prompt-frozen-check.mjs`
- * compares the six constants below against that snapshot SEGMENT BY SEGMENT, naming whichever one
- * moved. So the chain is: this module ≡ the frozen snapshot ≡ `experiments/voice-omni-written/raw/written.mts`,
- * the file the experiment actually sent — each link pinned, each independently readable.
+ * THE FROZEN PROMPT LIVES HERE, AND ITS SIX CONSTANTS ARE NOT THIS TASK'S SUBJECT. `ROLE`, `RULES`,
+ * `EXAMPLES`, `JSON_TASK`, `REASONING_EFFORT` and `DEFAULT_MODEL` below are the E group's prompt,
+ * character for character, frozen by the task that created this module and compared against the
+ * experiment snapshot segment by segment by `scripts/asr-omni-prompt-frozen-check.mjs`. Editing one
+ * character of one of them is a change to a measured artefact, and that checker names which segment
+ * moved. What THIS module adds is the half the freeze deliberately left out — the wire, the parse
+ * and its degradation — so the module's own comment used to say it carried no `transcribe`, no
+ * `capabilities` and no `id`; that sentence was true of the frozen half and is now the thing this
+ * header replaces.
  *
- * THE TEXTS BELOW ARE VERBATIM. They are the E group's `ROLE` / `RULES` / `EXAMPLES` / `JSON_TASK`
- * literals from `raw/written.mts`, character for character, including the escaped backticks inside
- * the examples (the identifiers are delimited by real backticks in the value). Editing one
- * character here is exactly what the criterion exists to catch, and it will catch it by name.
+ * THE WIRE IS `'chat-audio'`, and it is a third shape rather than a variant of the other two: an
+ * OpenAI-compatible chat body — `POST {baseUrl}/compatible-mode/v1/chat/completions`, a bearer
+ * credential, `application/json` — whose user turn carries the recording as an `input_audio` data
+ * URI beside a text part. Neither existing wire can express it: `multipart` posts a form and reads
+ * a transcription envelope, `inline-json` posts a generation request whose parts are `inlineData`
+ * blocks. So the tag is DECLARED (`AsrWire`), and the contract board derives its expectations from
+ * the declaration — a body that contradicts the tag it carries reds there rather than quietly
+ * defining a shape nothing describes.
  *
- * ENVIRONMENT NEUTRALITY: no Node built-in, no ES2021+ library feature, no environment read. The
- * same property `../multimodal/multimodal.asr-provider.ts` documents, for the same reason — both
- * compiler configurations compile this file.
+ * THE PARSE DEGRADES RATHER THAN FAILING, which is a product decision with a measurement behind it:
+ * the model's written rewrite is sometimes not a JSON object at all (the experiment's raw readings
+ * are the evidence), and losing a usable transcription because the wrapper was missing would be
+ * worse than returning the transcription. `transcribe` below therefore answers in four shapes, in
+ * this order — the table is `docs/proposals/voice-dashscope-omni-written-instruction.md` §2:
+ *
+ *   · an `instruction` — the answer was a JSON object and the rewrite is non-empty ⇒ `style:
+ *     'written'`, and the caller's text IS the instruction;
+ *   · otherwise a `transcript` ⇒ `style: 'verbatim'`, `transformations: []` and
+ *     `meta.writtenFallback: 1`, so the degradation is a READING the UI and the metrics can select
+ *     rather than a silent downgrade;
+ *   · neither of the two, in an answer that parsed ⇒ `NO_SPEECH_DETECTED`;
+ *   · an answer that is not this service's envelope at all ⇒ `UPSTREAM_ERROR`.
+ *
+ * The wrapper is allowed — first `{` to last `}`, exactly as §2 says — and the CONTENT is never
+ * handed back as the transcription on its way to a failure: the fourth row above is a statement
+ * about the envelope (a gateway page, a truncated body), not about a model that answered in prose.
+ * A model that answers in prose HAS answered, so its text is the transcript; that is the second row
+ * read at its widest, and it is why the fallback is a passthrough for an answer with no JSON object
+ * in it and an extraction for one with.
+ *
+ * EVERY DEPENDENCY ARRIVES THROUGH `AsrInvocation` — base URL, credential, model, timeout, the
+ * transport and the abort signal — and the two guards run before the transport is touched: an
+ * undeclared container is refused before anything is sized, and an oversized request is refused
+ * before anything is encoded or sent. The budget is the WHOLE request (§2: the service's 10 MB
+ * inline ceiling covers the prompt, the task turn and the encoded audio together), which is why
+ * `measureChatRequestBytes` sizes the body it is about to send rather than the audio inside it.
+ *
+ * WHAT THIS MODULE DELIBERATELY DOES NOT DO, because a reader will otherwise look for it: it is not
+ * registered in `asrRegistry.ts` and `voice.service.ts` does not dispatch to it (that is the next
+ * task), and it declares no `transport` capability (`'proxy-only'`, the CORS measurement) — that
+ * field belongs to a task of its own, and a capability table that declared it here would make every
+ * board row about it unmeasurable.
+ *
+ * ENVIRONMENT NEUTRALITY, the same machine property `../../asrRegistry.ts` documents: this file is
+ * compiled by BOTH compiler configurations (root: `lib: ES2020 + DOM`, `types: vite/client`;
+ * server: `lib: ES2022`, NodeNext, `types: node`), so it uses no Node built-in and no ES2021+
+ * library feature, and relative specifiers end in `.js`.
  */
+
+import type {
+  AsrAdapter,
+  AsrCapabilities,
+  AsrErrorCode,
+  AsrInvocation,
+  AsrRequest,
+  AsrResult,
+  AsrWire,
+} from '../../asrRegistry.js';
+import { baseMimeType, declaredAcceptsMime } from '../../asrRegistry.js';
 
 /**
  * The version of this frozen prompt. A value, not a derivation: it names the experiment round whose
@@ -94,3 +145,467 @@ export const REASONING_EFFORT = 'low';
  * the name still resolves to the same weights.
  */
 export const DEFAULT_MODEL = 'qwen3.8-omni-flash';
+
+// ── the declaration ──────────────────────────────────────────────────────────────────────────
+
+/** The id this provider is registered under (by the task that registers it — not this one). */
+export const id: string = 'dashscope-omni';
+
+/**
+ * This provider's capability declaration.
+ *
+ * THE VALUES THAT ARE NOT THE OTHER ADAPTERS' ARE THE LOAD-BEARING PART, and each one is a
+ * measurement rather than a preference: `style: 'written'` (the E-group readings — this is the
+ * recogniser the whole proposal exists for), `billing: 'audio-tokens'` (measured: 14.5 s of audio
+ * billed as 100 audio tokens, so a saved second IS a saved token), `pauseCues: 'neutral'` (trimming
+ * was never measured against this service, and neutral means the upload is left as recorded), and
+ * `honors` false on all three axes (the context experiment produced echo and mis-inserted
+ * identifiers, so a prompt has nothing to offer here).
+ *
+ * `maxInlineRequestBytes` is 10 MB and it is the WHOLE REQUEST, not the audio: the service publishes
+ * an inline ceiling for the request, so an adapter that sized the audio alone would send — and pay
+ * for — a body the service rejects.
+ */
+export const capabilities: AsrCapabilities = {
+  acceptsMime: [
+    'audio/webm',
+    'audio/ogg',
+    'audio/wav',
+    'audio/x-wav',
+    'audio/mpeg',
+    'audio/mp3',
+    'audio/aac',
+    'audio/amr',
+  ],
+  // The published inline maximum, and it is the WHOLE request: prompt, task turn and encoded audio.
+  maxInlineRequestBytes: 10 * 1024 * 1024,
+  oversize: 'reject',
+  honors: { prompt: false, language: false, context: false },
+  billing: 'audio-tokens',
+  pauseCues: 'neutral',
+  style: 'written',
+  oneShot: true,
+};
+
+/**
+ * The request shape this adapter speaks. Declared rather than implied: the contract board selects
+ * its expectations by this tag, so a body that contradicts it is a red reading there.
+ */
+export const wire: AsrWire = 'chat-audio';
+
+/**
+ * What this adapter did to the text when it returns the model's rewrite.
+ *
+ * All four are performed BY THE INSTRUCTION rather than by this module: the rules in `RULES` ask for
+ * punctuation, de-disfluency, self-correction resolution and a written register, and the pair of
+ * measurement and instruction is what a `style: 'written'` declaration means here. The degraded path
+ * declares `[]` instead — a verbatim transcription is not these four.
+ */
+export const WRITTEN_TRANSFORMATIONS = [
+  'punctuate',
+  'de-disfluency',
+  'self-correction-applied',
+  'written-style',
+] as const;
+
+// ── the prompt's composition ─────────────────────────────────────────────────────────────────
+
+/**
+ * The system turn's content: the three text segments joined by a blank line, EXACTLY as the
+ * experiment sent them.
+ *
+ * The join is a named function rather than a template at the build site because the criterion
+ * compares byte for byte against `` `${ROLE}\n\n${RULES}\n\n${EXAMPLES}` ``: a builder free to
+ * compose the three differently would be a second, unreported prompt.
+ */
+export function systemPrompt(): string {
+  return `${ROLE}\n\n${RULES}\n\n${EXAMPLES}`;
+}
+
+/**
+ * The `format` field, derived from the recording's BASE media type.
+ *
+ * The rules are the two asymmetries between a media type and this service's own vocabulary, and
+ * they are a table rather than a prefix/trim because they are exceptions and not a scheme:
+ * `audio/x-wav` and `audio/wav` are the same container and the service knows only `wav`; the
+ * service spells MPEG audio `mp3` while the media type spells it `mpeg`. Everything else is its own
+ * subtype, so a container the declaration accepts needs no row here.
+ *
+ * The parameters come off through `baseMimeType` and not a second local rule: the browser's own
+ * recording type is `audio/webm;codecs=opus`, and a derivation that kept the parameters would send
+ * `webm;codecs=opus` where the service expects a container name.
+ */
+const FORMAT_ALIASES: Readonly<Record<string, string>> = { 'x-wav': 'wav', mpeg: 'mp3' };
+
+export function audioFormatFor(mimeType: string): string {
+  const base = baseMimeType(mimeType);
+  const slash = base.indexOf('/');
+  const subtype = slash === -1 ? base : base.slice(slash + 1);
+  const alias = FORMAT_ALIASES[subtype];
+  return alias === undefined ? subtype : alias;
+}
+
+/** The `input_audio.data` value: the data URI a recording is addressed by, with `encoded` in it. */
+export function chatAudioDataUri(mimeType: string, encoded: string): string {
+  return `data:${baseMimeType(mimeType)};base64,${encoded}`;
+}
+
+/**
+ * The URL the chat-completions call goes to.
+ *
+ * The configured base URL is a workspace address, so the path is appended to it rather than
+ * replacing it — and a trailing slash on the configured value is removed first, because
+ * `https://host//compatible-mode/…` is a different URL to a service that routes on the path.
+ */
+export function chatCompletionsEndpoint(baseUrl: string): string {
+  return `${baseUrl.replace(/\/$/, '')}/compatible-mode/v1/chat/completions`;
+}
+
+// ── the request body ─────────────────────────────────────────────────────────────────────────
+
+export type ChatAudioPart = { type: 'input_audio'; input_audio: { data: string; format: string } };
+export type ChatTextPart = { type: 'text'; text: string };
+export type ChatMessage = {
+  role: 'system' | 'user';
+  content: string | (ChatAudioPart | ChatTextPart)[];
+};
+
+/** One chat-completions request, as this service's compatible mode expects it. */
+export type ChatAudioRequestBody = {
+  model: string;
+  modalities: string[];
+  stream: boolean;
+  reasoning_effort: string;
+  messages: ChatMessage[];
+};
+
+/**
+ * Builds the request body.
+ *
+ * `audioData` is a PARAMETER rather than something this function computes, which is what makes the
+ * budget check exact without materialising the encoded audio: the same builder produces the
+ * skeleton the guard measures and the body that is sent, so the two can never describe different
+ * requests. See `measureChatRequestBytes`.
+ *
+ * THERE IS NO `hints` PARAMETER, AND THAT IS THE DECLARATION. `honors` is false on all three axes,
+ * so the caller's hints have no path onto this body at all: an adapter that took the hints and
+ * dropped them would leave "the prompt is not sent" resting on a condition downstream of the
+ * declaration, where it could drift from it. The system turn is the adapter's own frozen prompt and
+ * is not a hint — the caller cannot set it, and cannot turn it off.
+ */
+export function buildChatRequestBody(
+  request: AsrRequest,
+  audioData: string,
+  model: string,
+): ChatAudioRequestBody {
+  return {
+    model,
+    modalities: ['text'],
+    stream: false,
+    reasoning_effort: REASONING_EFFORT,
+    messages: [
+      { role: 'system', content: systemPrompt() },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'input_audio',
+            input_audio: {
+              data: chatAudioDataUri(request.audio.mimeType, audioData),
+              format: audioFormatFor(request.audio.mimeType),
+            },
+          },
+          { type: 'text', text: JSON_TASK },
+        ],
+      },
+    ],
+  };
+}
+
+// ── the budget arithmetic ────────────────────────────────────────────────────────────────────
+
+/** The exact length a base64 encoding of `byteLength` bytes has, without encoding anything. */
+export function base64Length(byteLength: number): number {
+  return Math.ceil(byteLength / 3) * 4;
+}
+
+/** The UTF-8 length of `value`, counted directly so no encoder global is needed on either side. */
+export function utf8ByteLength(value: string): number {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 0x80) bytes += 1;
+    else if (code < 0x800) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff) {
+      bytes += 4;
+      index += 1;
+    } else bytes += 3;
+  }
+  return bytes;
+}
+
+const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+/** Standard base64 of `bytes`. Written out rather than reached for, for the neutrality reason above. */
+export function base64Encode(bytes: Uint8Array): string {
+  let encoded = '';
+  for (let index = 0; index < bytes.length; index += 3) {
+    const first = bytes[index];
+    const second = index + 1 < bytes.length ? bytes[index + 1] : 0;
+    const third = index + 2 < bytes.length ? bytes[index + 2] : 0;
+    encoded += BASE64_ALPHABET[first >> 2];
+    encoded += BASE64_ALPHABET[((first & 0x03) << 4) | (second >> 4)];
+    encoded += index + 1 < bytes.length ? BASE64_ALPHABET[((second & 0x0f) << 2) | (third >> 6)] : '=';
+    encoded += index + 2 < bytes.length ? BASE64_ALPHABET[third & 0x3f] : '=';
+  }
+  return encoded;
+}
+
+/**
+ * The byte length of the request this adapter would send for `request` and `model` — the budget
+ * subject, and an exact reading rather than an estimate.
+ *
+ * It is exact because the audio's contribution is not guessed at: the body is serialised once with
+ * an EMPTY payload and the encoded payload's own length, plus the data URI's fixed prefix, is added
+ * on. Base64's alphabet contains no character JSON would escape and the prefix is ASCII, so
+ * replacing `""` with the real data URI changes the serialised length by exactly that sum. The cost
+ * is that the audio is never encoded for a request that is about to be rejected — the same
+ * discipline the guard's position (before `fetchImpl`) enforces on the network side.
+ *
+ * The subject is the WHOLE request (§2: the service's ceiling is a request maximum), and because the
+ * frozen prompt, the task turn and the decode parameters are produced by the same builder, they are
+ * charged here by construction rather than by a second addition that could be forgotten.
+ *
+ * What this deliberately does not model: the constant transport envelope (URL, headers). It is
+ * fixed per call and carries no caller-controlled bytes; everything a caller can grow — the audio —
+ * is inside the number below.
+ */
+export function measureChatRequestBytes(request: AsrRequest, model: string): number {
+  const skeleton = JSON.stringify(buildChatRequestBody(request, '', model));
+  const prefix = chatAudioDataUri(request.audio.mimeType, '');
+  return utf8ByteLength(skeleton) + utf8ByteLength(prefix) + base64Length(request.audio.bytes.length);
+}
+
+// ── the answer ───────────────────────────────────────────────────────────────────────────────
+
+type ChatAnswer = { choices?: { message?: { content?: unknown } }[] };
+
+/**
+ * The assistant turn's text out of this service's chat envelope, or `null` when the body is not it.
+ *
+ * `null` rather than the empty string, because the two are different answers: a body that is not
+ * this envelope is an upstream fault, while an assistant turn with nothing in it is a service that
+ * heard nothing. Collapsing them would report a gateway page as `NO_SPEECH_DETECTED`.
+ */
+export function readAnswerContent(responseText: string): string | null {
+  let parsed: ChatAnswer;
+  try {
+    parsed = JSON.parse(responseText) as ChatAnswer;
+  } catch {
+    return null;
+  }
+  const content = parsed?.choices?.[0]?.message?.content;
+  return typeof content === 'string' ? content : null;
+}
+
+/**
+ * The JSON object inside an answer, or `null` when there is none.
+ *
+ * §2 allows the object to arrive wrapped — in a Markdown fence, in explanatory prose — so the slice
+ * is first `{` to last `}`, and only that slice is parsed. A slice that does not parse is `null`:
+ * the caller decides what an answer with no object in it means, and for this adapter it means the
+ * content is the transcription.
+ */
+export function extractJsonObject(content: string): Record<string, unknown> | null {
+  const start = content.indexOf('{');
+  const end = content.lastIndexOf('}');
+  if (start === -1 || end <= start) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+  return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : null;
+}
+
+/**
+ * One string field of a parsed answer, or the empty string when it is absent or not a string.
+ *
+ * The empty string is the absent value on purpose: every caller below asks "is there something
+ * here" and nothing distinguishes "the key was missing" from "the key held an empty string", which
+ * is exactly the pair §2's table treats alike.
+ */
+function stringField(record: Record<string, unknown>, key: string): string {
+  const value = record[key];
+  return typeof value === 'string' ? value : '';
+}
+
+/**
+ * Whether a 403 body is the service saying the MODEL is not enabled for this account.
+ *
+ * WHY THIS IS A BODY READING RATHER THAN A STATUS READING. `AccessDenied.Unpurchased` arrives as a
+ * plain 403, exactly like a credential the service refuses, and the two need different words: the
+ * experiment hit the first one for real, and a user who is told "your key was rejected" while their
+ * account simply has not enabled the model has no way to act on it. The token in the body is what
+ * separates them; a 403 carrying neither is an ordinary refusal and keeps the plain message.
+ */
+export function isModelNotPurchased(responseText: string): boolean {
+  return responseText.indexOf('AccessDenied.Unpurchased') !== -1;
+}
+
+/** Transport status to the semantic code the route above maps to HTTP. */
+export function errorCodeForStatus(status: number): AsrErrorCode {
+  if (status === 401 || status === 403) return 'UNAUTHORIZED';
+  if (status === 429) return 'RATE_LIMITED';
+  return 'UPSTREAM_ERROR';
+}
+
+function isAbortError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { name?: unknown }).name === 'AbortError';
+}
+
+/** A failure body, read for its evidence and never for its text: an unreadable one is empty. */
+async function readTextQuietly(response: Response): Promise<string> {
+  try {
+    return await response.text();
+  } catch {
+    return '';
+  }
+}
+
+// ── the adapter ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Transcribes one recording into a written instruction, or into the transcription it degraded to.
+ *
+ * The two guards run before the transport is touched, in this order: an undeclared container is
+ * refused before anything is sized, and an oversized request is refused before anything is encoded
+ * or sent. Neither produces an upstream call — which is what makes "oversize costs nothing" a
+ * counter rather than a claim.
+ */
+export async function transcribe(request: AsrRequest, invocation: AsrInvocation): Promise<AsrResult> {
+  if (!declaredAcceptsMime(capabilities, request.audio.mimeType)) {
+    return {
+      ok: false,
+      code: 'UNSUPPORTED_MIME',
+      message:
+        `provider '${id}' does not accept ${baseMimeType(request.audio.mimeType)}; ` +
+        `it accepts ${capabilities.acceptsMime.join(', ')}`,
+    };
+  }
+
+  const requestBytes = measureChatRequestBytes(request, invocation.model);
+  if (requestBytes > capabilities.maxInlineRequestBytes) {
+    return {
+      ok: false,
+      code: 'OVERSIZE',
+      message:
+        `inline request of ${requestBytes} B exceeds provider '${id}' budget of ` +
+        `${capabilities.maxInlineRequestBytes} B (the budget covers the whole request: the encoded ` +
+        `audio, the prompt and the task turn together, not the audio alone)`,
+    };
+  }
+
+  const endpoint = chatCompletionsEndpoint(invocation.baseUrl);
+  const body = JSON.stringify(
+    buildChatRequestBody(request, base64Encode(request.audio.bytes), invocation.model),
+  );
+  const signal = invocation.signal ?? AbortSignal.timeout(invocation.timeoutMs);
+
+  let response: Response;
+  try {
+    response = await invocation.fetchImpl(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        // The bearer form, and only when there is a credential: an unconfigured call is not an
+        // unauthenticated claim, so the header is absent rather than empty.
+        ...(invocation.apiKey ? { Authorization: `Bearer ${invocation.apiKey}` } : {}),
+      },
+      body,
+      signal,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      code: isAbortError(error) ? 'TIMEOUT' : 'UNREACHABLE',
+      message: isAbortError(error)
+        ? `provider '${id}' did not answer within ${invocation.timeoutMs} ms`
+        : `provider '${id}' could not be reached`,
+    };
+  }
+
+  if (!response.ok) {
+    // The body decides whether a 403 is a model this account has not enabled; see
+    // `isModelNotPurchased`. Everything else follows the status.
+    const failureText = await readTextQuietly(response);
+    const notPurchased = response.status === 403 && isModelNotPurchased(failureText);
+    let message = `provider '${id}' answered ${response.status}`;
+    if (response.status === 401 || response.status === 403) {
+      message = notPurchased
+        ? `provider '${id}' cannot use this model: it is not enabled for the account or the ` +
+          `balance is insufficient（未开通或余额不足）`
+        : `provider '${id}' rejected the credential (${response.status})`;
+    }
+    return { ok: false, code: errorCodeForStatus(response.status), message, status: response.status };
+  }
+
+  let responseText: string;
+  try {
+    responseText = await response.text();
+  } catch {
+    return { ok: false, code: 'UPSTREAM_ERROR', message: `provider '${id}' answer could not be read` };
+  }
+
+  const content = readAnswerContent(responseText);
+  if (content === null) {
+    return {
+      ok: false,
+      code: 'UPSTREAM_ERROR',
+      message: `provider '${id}' answer was not a chat completion envelope`,
+    };
+  }
+
+  // §2's table, in one pass: an answer with a JSON object in it is read out of that object, and an
+  // answer without one IS the transcription (the model answered in prose rather than in the shape
+  // it was asked for, which is the degradation §2 records — the raw RETURN, the envelope, is never
+  // the text; that case was refused above).
+  const answer = extractJsonObject(content);
+  const instruction = answer === null ? '' : stringField(answer, 'instruction');
+  const transcript = answer === null ? content.trim() : stringField(answer, 'transcript');
+
+  if (instruction !== '') {
+    return {
+      ok: true,
+      text: instruction,
+      style: 'written',
+      transformations: [...WRITTEN_TRANSFORMATIONS],
+      providerId: id,
+      meta: { model: invocation.model, promptVersion: PROMPT_VERSION },
+    };
+  }
+
+  if (transcript !== '') {
+    return {
+      ok: true,
+      text: transcript,
+      style: 'verbatim',
+      // Not the four the declaration names: nothing was rewritten, and a caller that read
+      // `written-style` off a degraded answer would show the user a transformation that did not
+      // happen. `meta.writtenFallback` is what carries the degradation.
+      transformations: [],
+      providerId: id,
+      meta: { model: invocation.model, writtenFallback: 1, promptVersion: PROMPT_VERSION },
+    };
+  }
+
+  return {
+    ok: false,
+    code: 'NO_SPEECH_DETECTED',
+    message: `provider '${id}' returned neither an instruction nor a transcript`,
+  };
+}
+
+/** This module as a registry would consume it. Not registered here — see the module comment. */
+export const adapter: AsrAdapter = { id, capabilities, wire, transcribe };

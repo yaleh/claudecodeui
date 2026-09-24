@@ -126,7 +126,32 @@ export type AsrSuccess = {
   style: 'verbatim' | 'written';
   transformations: AsrTransformation[];
   providerId: AsrProviderId;
-  meta?: { model?: string; latencyMs?: number; usage?: Record<string, number> };
+  meta?: {
+    model?: string;
+    latencyMs?: number;
+    usage?: Record<string, number>;
+    /**
+     * Which version of a recogniser's own frozen prompt produced this text, for the services that
+     * carry one (`dashscope-omni`). A value the adapter holds, not a derivation: the point of
+     * recording it is that a prompt which changed on purpose can be told apart in a reading from
+     * one that changed by accident.
+     */
+    promptVersion?: string;
+    /**
+     * Set to `1` when a `style: 'written'` recogniser could not produce its rewrite and returned
+     * the transcription instead.
+     *
+     * WHY THIS IS A FIELD AND NOT A STYLE. The result is genuinely verbatim — the text is the
+     * words as they were spoken, `style` and `transformations` say so — but "the service did not do
+     * what it was asked" is exactly the kind of thing a caller must be able to notice without
+     * diffing the text, and the UI and the metrics select on it (ADR-004 decision 5's envelope
+     * carries `style` for what the text IS, this for why). Absent means the rewrite happened.
+     *
+     * A number rather than a boolean so a future second degradation reason has somewhere to go
+     * without changing this field's type under callers that already read it.
+     */
+    writtenFallback?: number;
+  };
 };
 
 export type AsrFailure = {
@@ -168,13 +193,18 @@ export type AsrInvocation = {
  *     (`shared/asr/transcriptionWire.ts`, the single implementation of it).
  *   · `'inline-json'` — the multimodal shape: the audio base64-encoded into a JSON generation
  *     request, the transcript read out of the generation envelope.
+ *   · `'chat-audio'` — the chat-completions shape: a JSON chat body whose user turn carries the
+ *     recording as an `input_audio` data URI beside a text part, the answer read out of the
+ *     assistant turn (`shared/asr/list/dashscope-omni/dashscope-omni.asr-provider.ts`). It is the
+ *     third shape rather than a variant of the second because neither of the two above can express
+ *     it: the form posts no JSON, and the generation request's parts are `inlineData` blocks.
  *
  * OMITTED MEANS `'inline-json'`, and that default is deliberately not a convenience: the tag was
  * added when the second adapter was already registered, and a module that predates the tag speaks
  * the inline shape. Reading an absent tag as anything else would have made that adapter's readings
  * move under a change it did not make.
  */
-export type AsrWire = 'inline-json' | 'multipart';
+export type AsrWire = 'chat-audio' | 'inline-json' | 'multipart';
 
 /** What a provider module must supply to be registered. */
 export type AsrAdapter = {
