@@ -3,7 +3,7 @@ id: gap-voice-error-messages-i18n-fallback
 title: 十二语言 chat 文案补齐 voice.errors.<code> 与兜底
   unknown（非英文不与英文逐字相同），code→文案映射只有一份实现，出货 composer 不再显示 transcribe+状态码
   的拼接句（AC-151）
-status: todo
+status: ready
 labels:
   - gap
   - defect
