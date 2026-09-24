@@ -76,14 +76,14 @@ goal_ac: AC-151
 
 ## AC
 
-- [ ] AC1 判据入口与预算：`npx vitest run src/modules/chat/tests/voiceErrorMessages.test.tsx` 退出 0；判据自身零子进程、零真实监听端口、零网络（`transcribeVoice` 是替身）；末尾打印 `elapsed-ms=<n>` 且实测 < 30000（目标侧判据门是 60 秒硬上限、不可调）。打印 `subprocess-imports=<n>`。
-- [ ] AC2 十二语言 × 词表逐格覆盖：code 集合从 `@shared/asr/asrRegistry` 的出货运行期常量读（判据里不另抄数组）；语言集合从 `src/modules/i18n/languages.ts` 的出货 `languages` 读，并断言判据导入的 `chat.json` 数据集与它逐字相等（防「只挑几个语言」）。对词表里每个 code 断言十二个语言的 `voice.errors.<code>` 存在、是 `string`、`trim()` 后非空；`voice.errors.unknown` 同样断言一遍。逐语言打印 `lang=<值> keys=<n> missing=<…>`，末尾打印 `langs=<n> vocab=<n> cells=<n> missing=<n>`，断言 missing 为 0。**取假形态 (1) 的正式读数**：词表新增一个 code 而文案不动 ⇒ 这条必红（判据迭代的是出货词表本身）。
-- [ ] AC3 非英文不与英文逐字相同（未翻译占位视为缺失）：对 11 个非英文语言、每个键断言 `非英文文案 !== 英文文案`，且不等于键名、不含 `TODO` / `translation missing` 一类占位串、`trim()` 后非空。逐语言打印 `lang=<值> identical-to-en=<n>`，末尾打印 `identical=<n>`，断言为 0。**取假形态 (2) 的正式读数**：任一语言缺键或抄英文 ⇒ 这条必红。
-- [ ] AC4 不是拼接句（含出货路径的读数）：(a) 十二语言的全部 `voice.errors.*` 字符串里没有一条匹配 `/transcribe\s*\(?\d+/i`，也没有一条以 `transcribe` 开头；(b) 驱动**出货的 `ChatComposer`**（`transcribeVoice` 替身返回 **502 且响应体不带 `code`** 的失败），读气泡里实际显示的那句话，断言它等于当前语言的 `voice.errors.unknown` 文案（这条等式本身就是取假形态 (3)：显示拼接句则不等）；(c) 同一次失败里状态码仍被前端保留：断言失败载荷的 `status` 是 502，且出货的「技术详情」访问器对该载荷的输出**包含子串 `502`**（不钉格式）。打印 `concat-hits=<n> composer-text=<…> equals-unknown=<b> status-preserved=<b>`。
-- [ ] AC5 映射对所有词表 code 成立、有兜底、且有正对照：对词表里每个 code 断言映射（en 与 zh-CN 各一遍）返回的文案 === 该语言 `voice.errors.<code>` 字符串；对词表外的 code（如 `Some.Future.Code`）与**没有 code**（`undefined`）的失败断言返回该语言的 `voice.errors.unknown` 字符串。**正对照**（防「一律返回兜底」的空过）：(i) 词表内至少两个 code 的文案互不相同；(ii) 每个 code 的文案 !== 兜底文案。打印 `vocab=<n> mapped=<n> distinct-messages=<n> fallback-distinct=<b> unknown-code=<b> no-code=<b>`。
-- [ ] AC6 取假形态可执行（同一次运行内，三段各自 base 绿 → 变异红并指名 → 族外绿）：(i) `vocab-gains-a-code`：把出货词表克隆后追加一个合成 code ⇒ AC2 的覆盖读数必须报它十二个语言全缺，未克隆那一份同时报 0 缺（同一段代码两个方向都读得出）；(ii) `locale-missing-a-key`：把某一语言克隆后删掉一个 `voice.errors.<code>` ⇒ 覆盖读数必须恰好报出（该语言, 该 code），未克隆那份报 0；(iii) `concat-fallback`：断言拼接句形状 `transcribe 502` 确实被 AC4 的读数判红（`/transcribe\s*\(?\d+/i` 命中，且 **不等于** 当前语言的 `voice.errors.unknown`），同时出货路径的读数判绿 —— 三条一起证明「等式 + 正则」这对读数真的能分辨，而不是恒真。逐例打印 `mutation=<名> base-green=<b> mutant-red=<b> which=<…> outside-family-green=<b>`。三段都是内存克隆：不写文件、不留残留、不起子进程；跑完 `git status --porcelain` 与本任务开工时逐字相同。
-- [ ] AC7 既有面不退化（逐条打印 `exit=<n> name=<…>`，不是空过）：`npx vitest run src/modules/chat/tests/voiceTranscriptRepair.test.tsx src/modules/chat/tests/voiceClipPlayback.test.tsx src/modules/chat/tests/voiceInputButtonName.test.tsx src/modules/chat/tests/composerDraftScoping.test.tsx src/modules/chat/tests/voiceTrimCapabilityWiring.test.tsx` 退出 0（这五个都驱动真 `ChatComposer` / 真 hook，是本条最可能顶到的既有面）；`npm run test:client`、`npm run typecheck`、`npm run lint` 各退出 0。
-- [ ] AC8 如实登记：判据输出与本任务完成记录里写明「本条只做十二语言 `voice.errors.*` 文案、code→文案映射与技术详情访问器、失败通道结构化、composer 的文案解析；未做持续显示 / 关闭 / 折叠详情 / 4 秒计时器移除（AC-153）、词表与分类（AC-149）、路由信封与 `upstreamCode`（AC-150）、直连路径同码（AC-152）、ADR-004 修订；未改 `voice.transcribe` 行形状；未联网、未跑真实上游与真实浏览器；本地失败（录音太短 / 文件太小 / `Mic error` / `Playback failed`）的既有文案保持原样、未给它们编 code」，并把所用运行期词表常量的**实际名字**与它当时含的 code 数记下来。
+- [x] AC1 判据入口与预算：`npx vitest run src/modules/chat/tests/voiceErrorMessages.test.tsx` 退出 0；判据自身零子进程、零真实监听端口、零网络（`transcribeVoice` 是替身）；末尾打印 `elapsed-ms=<n>` 且实测 < 30000（目标侧判据门是 60 秒硬上限、不可调）。打印 `subprocess-imports=<n>`。
+- [x] AC2 十二语言 × 词表逐格覆盖：code 集合从 `@shared/asr/asrRegistry` 的出货运行期常量读（判据里不另抄数组）；语言集合从 `src/modules/i18n/languages.ts` 的出货 `languages` 读，并断言判据导入的 `chat.json` 数据集与它逐字相等（防「只挑几个语言」）。对词表里每个 code 断言十二个语言的 `voice.errors.<code>` 存在、是 `string`、`trim()` 后非空；`voice.errors.unknown` 同样断言一遍。逐语言打印 `lang=<值> keys=<n> missing=<…>`，末尾打印 `langs=<n> vocab=<n> cells=<n> missing=<n>`，断言 missing 为 0。**取假形态 (1) 的正式读数**：词表新增一个 code 而文案不动 ⇒ 这条必红（判据迭代的是出货词表本身）。
+- [x] AC3 非英文不与英文逐字相同（未翻译占位视为缺失）：对 11 个非英文语言、每个键断言 `非英文文案 !== 英文文案`，且不等于键名、不含 `TODO` / `translation missing` 一类占位串、`trim()` 后非空。逐语言打印 `lang=<值> identical-to-en=<n>`，末尾打印 `identical=<n>`，断言为 0。**取假形态 (2) 的正式读数**：任一语言缺键或抄英文 ⇒ 这条必红。
+- [x] AC4 不是拼接句（含出货路径的读数）：(a) 十二语言的全部 `voice.errors.*` 字符串里没有一条匹配 `/transcribe\s*\(?\d+/i`，也没有一条以 `transcribe` 开头；(b) 驱动**出货的 `ChatComposer`**（`transcribeVoice` 替身返回 **502 且响应体不带 `code`** 的失败），读气泡里实际显示的那句话，断言它等于当前语言的 `voice.errors.unknown` 文案（这条等式本身就是取假形态 (3)：显示拼接句则不等）；(c) 同一次失败里状态码仍被前端保留：断言失败载荷的 `status` 是 502，且出货的「技术详情」访问器对该载荷的输出**包含子串 `502`**（不钉格式）。打印 `concat-hits=<n> composer-text=<…> equals-unknown=<b> status-preserved=<b>`。
+- [x] AC5 映射对所有词表 code 成立、有兜底、且有正对照：对词表里每个 code 断言映射（en 与 zh-CN 各一遍）返回的文案 === 该语言 `voice.errors.<code>` 字符串；对词表外的 code（如 `Some.Future.Code`）与**没有 code**（`undefined`）的失败断言返回该语言的 `voice.errors.unknown` 字符串。**正对照**（防「一律返回兜底」的空过）：(i) 词表内至少两个 code 的文案互不相同；(ii) 每个 code 的文案 !== 兜底文案。打印 `vocab=<n> mapped=<n> distinct-messages=<n> fallback-distinct=<b> unknown-code=<b> no-code=<b>`。
+- [x] AC6 取假形态可执行（同一次运行内，三段各自 base 绿 → 变异红并指名 → 族外绿）：(i) `vocab-gains-a-code`：把出货词表克隆后追加一个合成 code ⇒ AC2 的覆盖读数必须报它十二个语言全缺，未克隆那一份同时报 0 缺（同一段代码两个方向都读得出）；(ii) `locale-missing-a-key`：把某一语言克隆后删掉一个 `voice.errors.<code>` ⇒ 覆盖读数必须恰好报出（该语言, 该 code），未克隆那份报 0；(iii) `concat-fallback`：断言拼接句形状 `transcribe 502` 确实被 AC4 的读数判红（`/transcribe\s*\(?\d+/i` 命中，且 **不等于** 当前语言的 `voice.errors.unknown`），同时出货路径的读数判绿 —— 三条一起证明「等式 + 正则」这对读数真的能分辨，而不是恒真。逐例打印 `mutation=<名> base-green=<b> mutant-red=<b> which=<…> outside-family-green=<b>`。三段都是内存克隆：不写文件、不留残留、不起子进程；跑完 `git status --porcelain` 与本任务开工时逐字相同。
+- [x] AC7 既有面不退化（逐条打印 `exit=<n> name=<…>`，不是空过）：`npx vitest run src/modules/chat/tests/voiceTranscriptRepair.test.tsx src/modules/chat/tests/voiceClipPlayback.test.tsx src/modules/chat/tests/voiceInputButtonName.test.tsx src/modules/chat/tests/composerDraftScoping.test.tsx src/modules/chat/tests/voiceTrimCapabilityWiring.test.tsx` 退出 0（这五个都驱动真 `ChatComposer` / 真 hook，是本条最可能顶到的既有面）；`npm run test:client`、`npm run typecheck`、`npm run lint` 各退出 0。
+- [x] AC8 如实登记：判据输出与本任务完成记录里写明「本条只做十二语言 `voice.errors.*` 文案、code→文案映射与技术详情访问器、失败通道结构化、composer 的文案解析；未做持续显示 / 关闭 / 折叠详情 / 4 秒计时器移除（AC-153）、词表与分类（AC-149）、路由信封与 `upstreamCode`（AC-150）、直连路径同码（AC-152）、ADR-004 修订；未改 `voice.transcribe` 行形状；未联网、未跑真实上游与真实浏览器；本地失败（录音太短 / 文件太小 / `Mic error` / `Playback failed`）的既有文案保持原样、未给它们编 code」，并把所用运行期词表常量的**实际名字**与它当时含的 code 数记下来。
 
 ## DoD
 
@@ -110,6 +110,7 @@ L_G 该轴仍暗，理由：目标层的读数是真实浏览器里页面上的�
 - src/modules/chat/hooks/useVoiceInput.ts
 - src/modules/chat/composer/ChatComposer.tsx
 - src/modules/chat/tests/voiceErrorMessages.test.tsx (new)
+- src/modules/i18n/index.ts
 - src/modules/i18n/locales/en/chat.json
 - src/modules/i18n/locales/fr/chat.json
 - src/modules/i18n/locales/es/chat.json
@@ -123,3 +124,54 @@ L_G 该轴仍暗，理由：目标层的读数是真实浏览器里页面上的�
 - src/modules/i18n/locales/it/chat.json
 - src/modules/i18n/locales/id/chat.json
 - tasks/gap-voice-error-messages-i18n-fallback.md
+
+## 完成记录
+
+### 交付面（做了什么）
+
+1. **`src/modules/chat/utils/voiceErrorMessages.ts`（新）**：code→文案只有一份实现。`voiceErrorKey(failure)` 用**值**导入的运行期词表 `ASR_ERROR_CODES`（来自 `@shared/asr/asrRegistry`）决定句子键 —— 词表内 → `voice.errors.<code>`，未知 code 与没有 code → `voice.errors.unknown`；`voiceErrorMessage(failure, t)` 用调用方自己的 `t` 解析成文案（语言是调用方的，不是模块级意见）；`voiceErrorTechnicalDetail(failure)` 是技术详情访问器，输出 `状态码 · code · upstreamCode`（不翻译、不钉格式，载荷为空则输出空串）。
+2. **十二个 `src/modules/i18n/locales/<lang>/chat.json`**：`voice.errors` 新增 13 个 code 键 + `unknown`，共 14 键 × 12 语言 = **168 格**。en/es/ko/zh-CN/id 五个本来已有 `voice` 块，在块内追加 `errors`；fr/zh-TW/ja/ru/de/tr/it 七个**本来没有 `voice` 块**，新建的块**只含 `errors`** —— 同块里今天缺的其余十个 `voice.*` 键（input / stopRecording / …）保持缺失、仍回落英文。判断依据：AC 只要求 `voice.errors.*`，补那 70 条没人要求、也没有判据读它，属本条的边界外。
+3. **`src/modules/chat/hooks/useVoiceInput.ts`**：`refusalCode` → `refusalDetail`，返回 `{ status, code?, upstreamCode? }`（两个码串都读，且不是一回事）。服务端失败不再 `throw new Error('transcribe <status> (<code>)')`，而是把结构化载荷交给 `onError` 后 `return`；`finally` 照旧跑，读数仍上报、状态仍回 idle。`onError` 形参类型 `string` → `VoiceFailureReport`。**本地失败**（`Recording too short` / `Audio file too small` / `No speech detected` / `Transcription failed: …` / `Mic error: …` / `Playback failed: …`）**原样仍是 string**，未被兜底顶掉，也未给它们编 code。
+4. **`src/modules/chat/composer/ChatComposer.tsx`**：`handleVoiceError` 形参 `string` → `VoiceFailureReport`；string 直通，结构化载荷经 `voiceErrorMessage(failure, t)` 换成当前语言文案再进 `voiceError`；`useCallback` 依赖加 `t`。
+5. **`src/shared/types.ts`**：`CHAT VOICE` 组新增 `VoiceTranscriptionFailure`（`code?` / `status?` / `upstreamCode?`）与 `VoiceFailureReport = string | VoiceTranscriptionFailure`。
+6. **`src/modules/chat/tests/voiceErrorMessages.test.tsx`（新）**：AC-151 的 `criterion:` 文件，9 个 test（含一条前置探针 + AC2/AC3/AC4a/AC4b/AC4c/AC5/AC6 + AC1 预算与门禁）。
+
+### 跨判据的连带改动（逐条登记）
+
+- **`useVoiceInput` 的失败通道**：原来 `onError?: (msg: string) => void`，服务端拒绝经 `throw` 后在 `catch` 里被压成 `Transcription failed: transcribe 502 (UNSUPPORTED_MIME)` 一个 string；现在 `onError?: (failure: VoiceFailureReport) => void`，服务端拒绝是 `{ status, code?, upstreamCode? }` 对象；`catch` 现在只再兜 `prepareUpload` / `parseTranscriptionResponse` / 网络异常这些非拒绝类错误，其文案 `Transcription failed: <msg>` 原样保留。
+- **`ChatComposer.handleVoiceError`**：原来收 `string` 直接 `setVoiceError(msg)`；现在收 `VoiceFailureReport`，string 直通、对象走映射换文案。
+- **传给 `VoiceInputButton` 的 `errorMsg`**：**形状一个都没动**，仍是 `string | null`，composer 解析完再传下去（所以 Touches 不含 `VoiceInputButton.tsx`，该文件确实未被改）。
+- **显示行为一个都没动**：4 秒计时器（`setTimeout(…, 4000)`）、单行气泡、无关闭按钮、无折叠技术详情 —— 全部保持原样，那是 AC-153 的交付面。`voiceErrorTimer` 的 ref 与 cleanup 未改。
+- **`src/modules/i18n/index.ts`（Touches 新增这一行）**：re-export `languages` 与 `Language` 类型。原因是判据文件住在 `src/modules/chat/tests/`，要读 `src/modules/i18n/languages.ts` 出货的 `languages`，而 oxlint 的 `boundaries/dependencies` 要求跨模块读走 barrel —— 实测不走 barrel 时 `npm run lint` 报一条 error（`src/modules/chat/tests/voiceErrorMessages.test.tsx:62:27: error boundaries(dependencies)`）。词表来源未变：判据读到的仍是 `languages.ts` 出货的那个值，barrel 只是 re-export。
+
+### 判据与读数（实测）
+
+`npx vitest run src/modules/chat/tests/voiceErrorMessages.test.tsx` → **exit 0**，9 tests passed，`elapsed-ms=370`（< 30000），`subprocess-imports=0`。
+
+- **前置探针**（判据自己必须没有回退语言）：`fallback-probe en="EN" de="probe" no-fallback=true` —— 只加在 en 上的探针键在 de 上解析回键名本身，证明 `fallbackLng: false` 真的生效；否则「某语言缺键」会静默读成英文，AC2/AC4 恒绿。
+- **AC2**：`langs=12 vocab=13 cells=168 missing=0`，逐语言 `lang=<v> keys=14 missing=0`；语言集合从 `languages.ts` 的出货 `languages` 读并与判据导入的十二个 `chat.json` 数据集做集合相等断言。
+- **AC3**：`identical=0`（11 个非英文语言 × 14 键逐字比较；另逐格查非空、≠ 键名、无 `TODO` / `translation missing` 一类占位串）。
+- **AC4**：`concat-hits=0`；十二个语言各驱动一次真 `ChatComposer`（`transcribeVoice` 替身返回 **502 且响应体不带 `code`**），读气泡里实际显示的那句话，**逐字等于**该语言 `voice.errors.unknown`，`equals-unknown=true`；取自真 `useVoiceInput` 的失败载荷 `status=502`，`technical-detail="502"`，`status-preserved=true`。
+- **AC5**：`vocab=13 mapped=26 distinct-messages=26 fallback-distinct=true unknown-code=true no-code=true`（en 与 zh-CN 各一遍；正对照两条：26 条互不相同、每条的文案 ≠ 兜底文案）。
+- **AC6**：三段全 `base-green=true mutant-red=true outside-family-green=true`：
+  - `vocab-gains-a-code` → 十二个语言各报一格缺（`en:SYNTHETIC_FUTURE_CODE` … `id:SYNTHETIC_FUTURE_CODE`），未克隆那份同时报 0 缺；
+  - `locale-missing-a-key` → 恰好报 `de:ACCOUNT_ACCESS` 一格，未克隆那份报 0；
+  - `concat-fallback` → `transcribe 502` 被 `/transcribe\s*\(?\d+/i` 命中且 ≠ 当前语言 `voice.errors.unknown`，同一次运行内出货路径的读数判绿。
+  三段全是内存克隆：`shipped-intact=true clones-in-memory=true`，不写文件、不留残留、不起子进程。
+- **AC6 末句的残留读数**：判据跑完后 `git status --porcelain` 与跑前**逐字相同**（`diff` 为空），且只列出本任务的实现文件，没有任何由判据运行产生的文件。该读数由 worker 在判据外取（AC1 禁判据自身起子进程），判据内对应面是 `shipped-intact=true`。
+- **AC7（逐条，全部 exit 0）**：`exit=0 name=src/modules/chat/tests/voiceTranscriptRepair.test.tsx`、`…/voiceClipPlayback.test.tsx`、`…/voiceInputButtonName.test.tsx`、`…/composerDraftScoping.test.tsx`、`…/voiceTrimCapabilityWiring.test.tsx`、`npm run test:client`（100 files / 699 tests passed）、`npm run typecheck`、`npm run lint`。
+
+### AC8 如实登记：本条只做了什么 / 没做什么
+
+**只做**：十二语言 `voice.errors.*` 文案（13 code + unknown）、code→文案映射（`voiceErrorKey` / `voiceErrorMessage`）、技术详情访问器（`voiceErrorTechnicalDetail`）、失败通道结构化、composer 侧的文案解析、以及为判据让路的一行 barrel re-export。
+
+**未做**：持续显示 / 关闭按钮 / 折叠技术详情 / 去掉 4 秒计时器 / 草稿保留（AC-153）；词表扩展、分类函数、`PROVIDER_ERROR_STATUS`（AC-149）；路由信封与 `upstreamCode` 的提取与合规（AC-150）；直连路径与代理路径同码（AC-152）；ADR-004 修订；`voice.transcribe` 行形状未改（AC-143）；识别行为 / 提示词 / 模型未改；**未联网、未跑真实上游、未跑真实浏览器**；本地失败（录音太短 / 文件太小 / `No speech detected` / `Mic error` / `Playback failed`）的既有文案保持原样、未给它们编 code。
+
+**所用运行期词表常量**：**`ASR_ERROR_CODES`**，来自 `shared/asr/asrRegistry.ts`（`Object.keys(ASR_ERROR_CODE_ALIGNMENT)`，类型级对齐保证它与 `AsrErrorCode` union 双向一致），落地时含 **13** 个 code：`ACCOUNT_ACCESS` / `UNAUTHORIZED` / `QUOTA_EXHAUSTED` / `RATE_LIMITED` / `MODEL_NOT_FOUND` / `AUDIO_REJECTED` / `CONTENT_FLAGGED` / `NO_SPEECH_DETECTED` / `UPSTREAM_UNAVAILABLE` / `NOT_CONFIGURED` / `INVALID_BASE_URL` / `OVERSIZE` / `UNSUPPORTED_MIME`。判据与出货代码都只读这一个常量，判据文件里没有另抄数组。
+
+**已知不等价点（复核后仍成立）**：判据读的是文案的存在性与非同一性，不是措辞质量 —— 一个把英文抄成占位符的实现在这里红，但一句机器翻得别扭的中文不会红；前端跑在 jsdom 与 `transcribeVoice` 替身上，不代表真实服务端信封（AC-150）与真实浏览器（AC-153）；`voice.errors.unknown` 是兜底文案，不代表未知 code 的语义被正确解释（那是 AC-149 分类器的事）；「十二个语言」是 `languages.ts` 今天的出货集合，新增语言会让 AC2 的集合相等读数红，需在同一次改动里补文案。
+
+**遗留**：`voiceErrorTechnicalDetail` 目前只被判据读，页面上没有展示入口 —— 折叠技术详情面板是 AC-153 的交付面；它是本条明确要求的交付物（「按需渲染成含状态码数字的字符串」），不是投机 helper。
+
+**L_D 该轴仍暗**，理由：本条读数全是字符串的存在性、相等/不等与集合大小，没有可比的数值量。
+**L_G 该轴仍暗**，理由：目标层的读数是真实浏览器里页面上的文案与提示持续显示（AC-153），本条只到 jsdom 里的气泡文本。
