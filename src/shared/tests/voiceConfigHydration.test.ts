@@ -76,6 +76,19 @@ const LEGACY_SETTINGS = {
   ttsFormat: 'wav',
 };
 
+/**
+ * What either payload above reads back as, and what the whole-document save of
+ * it carries.
+ *
+ * Both fixtures name only the six fields that predate the recogniser's own, and
+ * that is deliberate — they are what an older server and an older browser key
+ * actually hold. Read back they are the whole document: the settings are stored
+ * as ONE document and an absent column is the empty string, so keeping the two
+ * sides of every comparison below in that same shape is what lets them stay
+ * exact rather than loosened to a subset.
+ */
+const asStored = (fields: Record<string, string>) => ({ ...VOICE_CONFIG_DEFAULTS, ...fields });
+
 let requests: { url: string; method: string; body: unknown }[] = [];
 let configBody: unknown = SERVER_SETTINGS;
 let configStatus = 200;
@@ -130,7 +143,7 @@ afterEach(() => {
 test('the settings are read from the server for the signed-in user', async () => {
   await whenVoiceConfigReady();
 
-  assert.deepEqual(readVoiceConfig(), SERVER_SETTINGS);
+  assert.deepEqual(readVoiceConfig(), asStored(SERVER_SETTINGS));
   assert.deepEqual(requestedUrls(), [CONFIG_URL]);
 });
 
@@ -175,12 +188,12 @@ test('a legacy localStorage key is imported into the empty server and then remov
 
   // Adopted, so voice keeps working for a user whose settings only ever existed
   // in this browser...
-  assert.deepEqual(readVoiceConfig(), LEGACY_SETTINGS);
+  assert.deepEqual(readVoiceConfig(), asStored(LEGACY_SETTINGS));
 
   // ...pushed to the server as one document...
   const put = requests.find((request) => request.url === CONFIG_URL && request.method === 'PUT');
   assert.ok(put, 'the legacy settings must be sent to the server');
-  assert.deepEqual(JSON.parse(String(put.body)), LEGACY_SETTINGS);
+  assert.deepEqual(JSON.parse(String(put.body)), asStored(LEGACY_SETTINGS));
 
   // ...and only then removed. This is the moment the API key stops living in
   // browser storage.
@@ -202,7 +215,7 @@ test('a legacy key whose import was refused stays behind to be retried', async (
     JSON.stringify(LEGACY_SETTINGS),
   );
   // The values are still in memory, so this session can still use them.
-  assert.deepEqual(readVoiceConfig(), LEGACY_SETTINGS);
+  assert.deepEqual(readVoiceConfig(), asStored(LEGACY_SETTINGS));
 });
 
 test('a server that already has settings wins over the legacy key, which is removed', async () => {
@@ -211,7 +224,7 @@ test('a server that already has settings wins over the legacy key, which is remo
 
   await whenVoiceConfigReady();
 
-  assert.deepEqual(readVoiceConfig(), SERVER_SETTINGS);
+  assert.deepEqual(readVoiceConfig(), asStored(SERVER_SETTINGS));
   assert.equal(localStorage.getItem(VOICE_CONFIG_STORAGE_KEY), null);
   // The other profile's older values must not overwrite what was saved
   // elsewhere, so the legacy document is never sent.

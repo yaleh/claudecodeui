@@ -82,7 +82,11 @@ test("the server's saved settings read back field for field", async () => {
     ttsFormat: 'mp3',
   });
 
+  // The answer names the six fields that predate the recogniser's own; it reads
+  // back as the whole document, because one document is what the server stores
+  // and an absent column is the empty string.
   assert.deepEqual(readVoiceConfig(), {
+    ...VOICE_CONFIG_DEFAULTS,
     baseUrl: 'https://api.groq.com/openai/v1',
     apiKey: 'sk-test',
     sttModel: 'whisper-large-v3',
