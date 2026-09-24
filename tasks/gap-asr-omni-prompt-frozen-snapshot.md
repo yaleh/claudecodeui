@@ -46,14 +46,14 @@ goal_ac: AC-137
 
 ## AC
 
-- [ ] AC1 判据入口与「空读数不是绿」：`node scripts/asr-omni-prompt-frozen-check.mjs` 退出 0，并打印六项（`ROLE`、`RULES`、`EXAMPLES`、`JSON_TASK`、`REASONING_EFFORT`、`DEFAULT_MODEL`）每项各自的 `ok` 与适配器/快照两侧 sha256；`node scripts/asr-omni-prompt-frozen-check.mjs --root <临时空目录>` 非零退出且输出含 `EMPTY_READING`（不得静默跳过）。
-- [ ] AC2 快照形状被机械校验：判据输出含 `C 8 clips x 10 readings`、`E 8 clips x 10 readings` 与唯一的 `runId=`；取假形态各非零退出并指名——`--control=low-rep`（E 组某片段只剩 9 条）报该片段 id，`--control=straddle`（把一条读数改成另一个 runId）报 `different runs`。
-- [ ] AC3 逐字比较会指名，且六段各有单段用例：`--control=prompt-mutated:ROLE`、`:=RULES`、`:=EXAMPLES`、`:=JSON_TASK`、`:=REASONING_EFFORT`、`:=DEFAULT_MODEL` 六个用例各非零退出并打印 `MISMATCH <SEGMENT>`（改 `reasoning_effort` 必须指名 `REASONING_EFFORT`，不得只报「提示词不一致」）；正向控制：未改动的树退出 0（否则「改一个字符必红」与「恒红」不可区分）。
-- [ ] AC4 快照缺失 ⇒ 红而不是跳过：`--control=no-snapshot`（快照文件不存在）与 `--control=empty-snapshot`（快照为 `{}`）各非零退出，且输出指名缺失的文件或缺哪几项；两者的退出码都不得是 0。
-- [ ] AC5 冻结可离线重算：`node experiments/voice-omni-written/freeze.mjs --check` 退出 0，打印 C/E 各 `8 x 10`、`runId`、`source.promptFile` 与 `source.readingsFile` 的 sha256，且不产生任何网络请求；`--root <staged 副本：snapshot.json 的 RULES 改一个字符>` 非零退出并指名 `RULES`；`--root <staged 副本：raw/written-ds.jsonl 少一条 C 组读数>` 非零退出并报该片段读数不足 10。
-- [ ] AC6 提示词来源被 sha256 钉住：`fixtures/snapshot.json` 的 `provenance.source.promptFile` 指向 `experiments/voice-omni-written/raw/written.mts` 并记录其 sha256；`freeze.mjs --check` 校验该 sha256 与文件当前内容一致；`--root <staged 副本：written.mts 里 E 组提示词改一个字符>` 非零退出并报 sha256 不符。
-- [ ] AC7 被测实现是出货模块且工装无第二副本：`--probe` 打印适配器绝对路径，断言它位于 `shared/asr/list/dashscope-omni/` 且文件存在；`grep -n "你是编码 agent 的语音指令整理器\|规则：" scripts/asr-omni-prompt-frozen-check.mjs scripts/asr-omni-prompt-frozen-check.test.mjs` 零命中（工装里没有提示词正文的第二份拷贝），而判据确实打印出了六项正文的 sha256（阳性对照：不是靠「什么都没比」过的）。
-- [ ] AC8 静态门：`npm run typecheck` 退出 0（`scripts/tsconfig.json` 以 `checkJs: true` 覆盖 `scripts/**/*.mjs`，新脚本要带 JSDoc 类型）且 `npm run lint` 退出 0。
+- [x] AC1 判据入口与「空读数不是绿」：`node scripts/asr-omni-prompt-frozen-check.mjs` 退出 0，并打印六项（`ROLE`、`RULES`、`EXAMPLES`、`JSON_TASK`、`REASONING_EFFORT`、`DEFAULT_MODEL`）每项各自的 `ok` 与适配器/快照两侧 sha256；`node scripts/asr-omni-prompt-frozen-check.mjs --root <临时空目录>` 非零退出且输出含 `EMPTY_READING`（不得静默跳过）。
+- [x] AC2 快照形状被机械校验：判据输出含 `C 8 clips x 10 readings`、`E 8 clips x 10 readings` 与唯一的 `runId=`；取假形态各非零退出并指名——`--control=low-rep`（E 组某片段只剩 9 条）报该片段 id，`--control=straddle`（把一条读数改成另一个 runId）报 `different runs`。
+- [x] AC3 逐字比较会指名，且六段各有单段用例：`--control=prompt-mutated:ROLE`、`:=RULES`、`:=EXAMPLES`、`:=JSON_TASK`、`:=REASONING_EFFORT`、`:=DEFAULT_MODEL` 六个用例各非零退出并打印 `MISMATCH <SEGMENT>`（改 `reasoning_effort` 必须指名 `REASONING_EFFORT`，不得只报「提示词不一致」）；正向控制：未改动的树退出 0（否则「改一个字符必红」与「恒红」不可区分）。
+- [x] AC4 快照缺失 ⇒ 红而不是跳过：`--control=no-snapshot`（快照文件不存在）与 `--control=empty-snapshot`（快照为 `{}`）各非零退出，且输出指名缺失的文件或缺哪几项；两者的退出码都不得是 0。
+- [x] AC5 冻结可离线重算：`node experiments/voice-omni-written/freeze.mjs --check` 退出 0，打印 C/E 各 `8 x 10`、`runId`、`source.promptFile` 与 `source.readingsFile` 的 sha256，且不产生任何网络请求；`--root <staged 副本：snapshot.json 的 RULES 改一个字符>` 非零退出并指名 `RULES`；`--root <staged 副本：raw/written-ds.jsonl 少一条 C 组读数>` 非零退出并报该片段读数不足 10。
+- [x] AC6 提示词来源被 sha256 钉住：`fixtures/snapshot.json` 的 `provenance.source.promptFile` 指向 `experiments/voice-omni-written/raw/written.mts` 并记录其 sha256；`freeze.mjs --check` 校验该 sha256 与文件当前内容一致；`--root <staged 副本：written.mts 里 E 组提示词改一个字符>` 非零退出并报 sha256 不符。
+- [x] AC7 被测实现是出货模块且工装无第二副本：`--probe` 打印适配器绝对路径，断言它位于 `shared/asr/list/dashscope-omni/` 且文件存在；`grep -n "你是编码 agent 的语音指令整理器\|规则：" scripts/asr-omni-prompt-frozen-check.mjs scripts/asr-omni-prompt-frozen-check.test.mjs` 零命中（工装里没有提示词正文的第二份拷贝），而判据确实打印出了六项正文的 sha256（阳性对照：不是靠「什么都没比」过的）。
+- [x] AC8 静态门：`npm run typecheck` 退出 0（`scripts/tsconfig.json` 以 `checkJs: true` 覆盖 `scripts/**/*.mjs`，新脚本要带 JSDoc 类型）且 `npm run lint` 退出 0。
 
 ## DoD
 
