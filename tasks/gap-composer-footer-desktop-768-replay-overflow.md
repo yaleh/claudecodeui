@@ -38,3 +38,11 @@ extra:
 - 如实标注：headless Chromium 的视口/触摸模拟不等于真机；该档位此前两个任务已登记为既有边界，本次是首次认领修复。
 - 与量化修前路径：修前读数已在本仓两处 DoD 里留档（470/445），修后必须并排给出。
 - 人不介入的机械判据不设人审项；若未跑 MCP 人工复核，Evidence 必须写「未执行，理由：…」，不得留空。
+
+## Touches
+
+- src/modules/chat/composer/ChatComposer.tsx
+- src/modules/chat/composer/PromptInput.tsx
+- src/modules/chat/tests/chatComposerResponsive.test.tsx
+- src/modules/chat/tests/voiceClipPlayback.test.tsx
+- tasks/gap-composer-footer-desktop-768-replay-overflow.md
