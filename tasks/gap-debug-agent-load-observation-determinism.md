@@ -1,7 +1,7 @@
 ---
 id: gap-debug-agent-load-observation-determinism
 title: AC-125 的装载观测由推断改为读数：观察者自身的就绪证据 + 确定性伪证臂（判据从偶发红转可靠绿）
-status: todo
+status: ready
 labels:
   - gap
   - defect
