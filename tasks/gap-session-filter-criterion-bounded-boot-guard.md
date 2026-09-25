@@ -120,6 +120,5 @@ round-104 recheck 23.6s。两次红都死于启动阶段，5 个用例一个都�
 
 ## Touches
 
-- e2e/session-filter.spec.ts — 唯一被修改的文件：加入有界客户端预热与有界启动探针，并让
-  `beforeAll` 与测试体里的每一次导航都走它
-- tasks/gap-session-filter-criterion-bounded-boot-guard.md — 本任务自身（状态翻转须可归因）
+- e2e/session-filter.spec.ts
+- tasks/gap-session-filter-criterion-bounded-boot-guard.md
