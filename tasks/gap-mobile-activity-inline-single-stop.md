@@ -24,6 +24,19 @@ extra:
 depends_on:
   - gap-mobile-voice-clip-row-below-textarea
 ---
+---
+id: gap-mobile-activity-inline-single-stop
+title: 移动端执行状态进入消息流末尾（无 Stop、不覆盖消息），只保留右下角主 Stop 一个入口；桌面仍用 composer 上沿 tab 状态
+status: ready
+labels:
+  - gap
+parent: null
+children: []
+extra:
+  schema: execution
+depends_on:
+  - gap-mobile-voice-clip-row-below-textarea
+---
 ## Proposal
 
 来源方案：`docs/proposals/mobile-workspace-and-composer-layout.md` 第 4 节（本任务自包含）。仅前端，范围 `src/modules/chat/`。
@@ -52,8 +65,6 @@ depends_on:
 - [x] 跟随行为不回归：`npx vitest run src/modules/chat/tests/transcriptScrollOwnership.test.tsx src/modules/chat/tests/messageStreamEnd.test.tsx` 退出码 0；并在 `activityIndicatorResponsive.test.tsx` 新增用例——inline 状态行挂载/更新（elapsed 文本变化）时，用户处于底部则继续贴底；用户已主动上滚离底则**零次**程序化写 `scrollTop`（对照：与不带 inline 状态行的同一场景读数一致）。
 - [x] 断点边界：`grep -nE '(^|[^a-zA-Z-])sm:' src/modules/chat/composer/ActivityIndicator.tsx` 无命中（退出码 1）；`grep -n 'pb-12' src/modules/chat/transcript/ChatMessagesPane.tsx` 的命中行都带 `md:` 前缀或在桌面分支内（逐行核对）。这是机制层辅助闸，不变量由 DoD 的真浏览器读数证明。
 - [x] `npx vitest run src/modules/chat` 退出码 0（既有 chat 测试不回归）；`npm run typecheck` 与 `npm run lint` 退出码均为 0（`npm run lint` 是 `oxlint src/ server/`；裸 `npx oxlint` 预先非 0，不作判据）。
-
-## DoD
 
 ## DoD
 
