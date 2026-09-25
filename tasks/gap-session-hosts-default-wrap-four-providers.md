@@ -2,7 +2,7 @@
 id: gap-session-hosts-default-wrap-four-providers
 title: AC-154 默认包装：四个 provider 的每一轮经 provider-runtime.service 的真实分派入口登记为 per-run
   宿主，按实际收尾给出 turn-complete / aborted / released，Claude 的持有期读成 lingering
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -132,3 +132,14 @@ goal_ac: AC-154
 - server/shared/types.ts
 - server/shared/interfaces.ts
 - tasks/gap-session-hosts-default-wrap-four-providers.md
+
+## Needs-Human
+
+**执行 2026-09-25T10:22:48.836Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=27303 server/modules/voice/tests/voice-capture-text.false-forms.test.ts passed=false end_ms=1790331660886
+- run_id：wk-prod-anchor
+- session_id：7668a421-819d-44c5-aac3-2ee88bad5483
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-session-hosts-default-wrap-four-providers~wk-prod-anchor~1790331249370-399867.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-session-hosts-default-wrap-four-providers-wk-prod-anchor.log
