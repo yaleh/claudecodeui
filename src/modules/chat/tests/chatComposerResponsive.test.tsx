@@ -134,8 +134,22 @@ const setViewportWidth = (width: number) => {
 };
 
 const FOOTER_SELECTOR = '[data-slot="prompt-input-footer"]';
+/** The footer's left control group — the one whose own wrapping permission is read below. */
+const TOOLS_SELECTOR = '[data-slot="prompt-input-tools"]';
 /** Every open overlay the composer can put on screen; two at once is the nesting bug. */
 const openOverlays = () => Array.from(document.querySelectorAll('[role="menu"],[role="dialog"]'));
+
+/**
+ * The wrapping tokens an element declares, read off its class list.
+ *
+ * jsdom parses no stylesheet, so this is not a layout reading — it is the *permission*
+ * the component itself declares, which is what the box below turns on. The layout
+ * consequence is the browser probe's: at the narrowest desktop width (768, sidebar open)
+ * one recording's replay pair in this group read `scrollWidth 470 / clientWidth 445`
+ * before the group was allowed to wrap, and `445 / 445` after.
+ */
+const wrapTokens = (element: Element) =>
+  Array.from(element.classList).filter((name) => /^flex-(?:wrap|nowrap)$/.test(name));
 
 /** The names the six primary controls carry in the narrow layout, read from the shipping locale. */
 const PRIMARY_NAMES = [
@@ -422,6 +436,42 @@ test('(a) the tier boundary is md: 767px is still the narrow layout, and 768px i
     within(wide.footer).queryByRole('button', { name: enChat.input.moreTools }),
     null,
     `768px must take the wide layout; controls read: ${describeFooterControls(wide.footer)}`,
+  );
+});
+
+test('(a) the narrow row may never wrap; from md up the left tool group may, instead of widening the box', () => {
+  // The two halves of one rule, read on the group that holds the replay pair. Below `md`
+  // the row is the six controls that send a message and may not wrap, so neither the box
+  // nor the group carries a wrap token: the row's height is a constant the narrow layout
+  // depends on. From `md` up the box keeps its own wrapping row, but that only decides
+  // where the two groups go — it cannot break a group, and this group's children cannot
+  // shrink (the pair declares `shrink-0`; an icon button cannot go below its own icon).
+  // Without a wrap token here the group's content is what a narrow desktop width pushes
+  // past the box's edge, which is the 470/445 overflow the browser probe records.
+  const narrow = renderComposer(NARROW_EDGE_WIDTH);
+  const narrowTools = narrow.footer.querySelector(TOOLS_SELECTOR);
+  assert.ok(narrowTools, `the narrow footer must render its tool group (${TOOLS_SELECTOR})`);
+  const narrowReading = `@${NARROW_EDGE_WIDTH}: box="${narrow.footer.className}" tools="${narrowTools.className}"`;
+  assert.deepEqual(
+    wrapTokens(narrow.footer),
+    ['flex-nowrap'],
+    `the narrow box must be the row that never wraps; ${narrowReading}`,
+  );
+  assert.equal(
+    wrapTokens(narrowTools).includes('flex-wrap'),
+    false,
+    `the narrow tool group must not be allowed to wrap; ${narrowReading}`,
+  );
+  narrow.view.unmount();
+
+  const wide = renderComposer(NARROW_EDGE_WIDTH + 1);
+  const wideTools = wide.footer.querySelector(TOOLS_SELECTOR);
+  assert.ok(wideTools, `the wide footer must render its tool group (${TOOLS_SELECTOR})`);
+  const wideReading = `@${NARROW_EDGE_WIDTH + 1}: box="${wide.footer.className}" tools="${wideTools.className}"`;
+  assert.equal(
+    wrapTokens(wideTools).includes('flex-wrap'),
+    true,
+    `from md up the tool group must be able to take a second line of its own; ${wideReading}`,
   );
 });
 
