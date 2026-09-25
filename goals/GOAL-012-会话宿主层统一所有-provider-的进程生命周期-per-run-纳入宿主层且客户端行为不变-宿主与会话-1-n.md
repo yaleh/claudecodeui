@@ -1,11 +1,19 @@
 ---
 id: GOAL-012
 title: 会话宿主层统一所有 provider 的进程生命周期：per-run 纳入宿主层且客户端行为不变，宿主与会话 1:N
-status: draft
+status: active
 kind: goal
 origin: docs/proposals/claude-resident-sessions.md（e88175cf）。人 yale 2026-09-25
   裁定：拆成两个 goal，本 goal 为 GOAL-A「统一宿主层」并激活；扩展调试 agent 作宿主层对非 Claude provider
   适用性的替身；不加 cloudcli 子命令，只靠 HTTP/WS 加脚本
+activatedAt: 2026-09-25T08:55:05.067Z
+statusLog:
+  - at: 2026-09-25T08:55:05.067Z
+    from: draft
+    to: active
+    actor: claude-session
+    reason: 人 yale 2026-09-25 裁定：按 docs/proposals/claude-resident-sessions.md 拆两个
+      goal，GOAL-A（本 goal）激活；AC-154…160 现场 gate 均 exit 1（判据引用的测试文件不存在），红先行成立
 ---
 ## 背景
 
