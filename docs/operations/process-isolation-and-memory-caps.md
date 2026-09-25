@@ -88,6 +88,34 @@ native memory instead is **invisible** to it and still needs layer 2. That is wh
 described as additive, and why `scripts/with-memory-cap.sh` must not be deleted or loosened on the
 strength of this ceiling.
 
+That boundary is **measured**, not asserted. Two probes, same `node`, same
+`--max-old-space-size=300`, each contained by a 2 G cgroup as a safety net:
+
+| Probe | Channel | Result |
+|---|---|---|
+| `for(;;) h.push(new Array(1e6).fill(1.5))` | JS old space | aborted in **266 ms**, rc 134, `Reached heap limit` — layer 1 alone |
+| `for(;;) b.push(Buffer.alloc(32<<20))` | `Buffer`/external | sailed **past** the 300 MB old-space limit, killed by the 2 G cgroup after **52.2 s**, rc 137, **no** heap evidence — layer 1 blind |
+
+So the ceiling's guarantee is precisely "a **JS-heap** runaway dies fast and attributably". It
+does **not** shorten the life of a non-JS-heap runaway; that one still runs until layer 2 takes it.
+
+A runaway of the first kind, injected into the real component under test (not a synthetic fixture
+file) and run through the test named in the 2026-09-25 incident,
+`chatComposerResponsive.test.tsx`, dies the same way: whole `npx vitest run` wall clock **3.8 s**,
+tree RSS peak **5162 MB** (≤ 1.5 × 4352), `FATAL ERROR: Reached heap limit` plus
+`ERR_IPC_CHANNEL_CLOSED`. The synthetic fixture and the real test behave alike on that channel.
+
+**What this does not settle.** The incident's own reproduction input is *unrecoverable*: the
+one-line edit is described as "remove the tab's `!hasPendingPermissions` guard", and on the tree
+that carries that guard removal the rendered output is **byte-identical** — `chatComposerResponsive`
+renders with `activity: null` and `pendingPermissionRequests: []`, so both `!hasPendingPermissions`
+and `activity && !hasPendingPermissions` are already `true`/`false` respectively and the guard
+short-circuits nothing. Measured: that mutation leaves the test at rc 0, 945 MB tree peak. And a
+single JS heap on this host tops out at 4288 MB by default, so a one-process **12 GB** reading
+cannot be explained by the old-space channel alone. **Which channel the original runaway used is
+therefore undetermined, and this ceiling must not be claimed to have "plugged" that incident** —
+layer 2 is still the guard that covers it, exactly as before.
+
 It is also **not** a cap on the machine: 4352 MB sits just under Node's own default
 `heap_size_limit` on this host (4288 MB), so it changes *how fast and how attributably* a runaway
 fails, not how large it gets.
