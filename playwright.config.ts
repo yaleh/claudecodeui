@@ -2,9 +2,19 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import net from 'node:net';
+import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
 import { defineConfig } from '@playwright/test';
+
+/**
+ * This config's own directory.
+ *
+ * The file is loaded as an ES module, where `__dirname` does not exist — referencing it throws before a single test
+ * is collected, so the fallback path below has to be derived from the module's own URL instead. It is the same
+ * directory Playwright itself resolves `testDir` against, which is why the fallback and the config agree.
+ */
+const CONFIG_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * When this file started being evaluated — the first moment of the run that can be observed from here.
@@ -185,6 +195,88 @@ const RUN_SERVERS = [
 ];
 
 /**
+ * What one spec's own run is allowed to take, and what the run's ceiling is assembled from: the specs this
+ * invocation was actually asked to run, each carrying its own budget.
+ *
+ * The gate's 60s kill is what `SINGLE_SPEC_CEILING_MS` is derived against — see the block below — and it binds a
+ * *criterion*, which is one file. A full-tree `npx playwright test` is not that invocation: it is every spec in
+ * the directory, one after another, and the eleven that shipped before this task measured ~5 minutes on this
+ * host. A ceiling derived for one file applied to that run kills it mid-tree, which reads exactly like a hang —
+ * the failure mode this whole watchdog exists to make legible, arriving from the watchdog itself. So the bound is
+ * per-file and summed over the selection, and the shipped single-file value becomes the *default* every spec
+ * keeps unless it declares otherwise. Every existing invocation — one file, often narrowed further with `-g` —
+ * computes `SINGLE_SPEC_CEILING_MS` and is bounded exactly as before.
+ *
+ * The budgets are declarations, not guesses, and the reason they are a table rather than a formula is that
+ * runtime is a property of the file: a quiet spec costs a handful of seconds and one that records audio twice
+ * per viewport costs minutes. `mobile-workspace-composer-layout.spec.ts` is the only declared entry, and its
+ * budget clears its measured run with the same margin the single-file value clears voice-trim's.
+ */
+const SINGLE_SPEC_CEILING_MS = 55_000;
+/** Per-spec budgets that differ from `SINGLE_SPEC_CEILING_MS`. Keyed by basename so the rule holds from any cwd. */
+const SPEC_BUDGET_MS: Record<string, number> = {
+  'mobile-workspace-composer-layout.spec.ts': 240_000,
+};
+
+/**
+ * The flags whose value is the token *after* them, so a value can never be mistaken for a spec path. Short of
+ * listing them, `-g e2e/foo.spec.ts` would read its own grep pattern as a second file to run.
+ */
+const VALUE_TAKING_FLAGS = new Set([
+  '-g',
+  '--grep',
+  '--grep-invert',
+  '-c',
+  '--config',
+  '--reporter',
+  '--project',
+  '--workers',
+  '-j',
+  '--timeout',
+  '--global-timeout',
+  '--output',
+  '--retries',
+  '--repeat-each',
+  '--max-failures',
+  '-x',
+  '--shard',
+  '--last-failed',
+]);
+
+/** The `*.spec.ts` files inside a directory, or `[]` when it is not one. Empty rather than throwing: a ceiling is not a reason for a run to die. */
+const specFilesIn = (dir: string): string[] => {
+  try {
+    return fs.readdirSync(dir).filter((entry) => entry.endsWith('.spec.ts'));
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * The spec files this invocation names on the command line, or every spec in `testDir` when it names none.
+ *
+ * Playwright's own selection language is wider than this (globs, `--project`, `--last-failed`); the two shapes
+ * that exist in this checkout are "one file, maybe with `-g`" — what every goal criterion runs — and the bare
+ * full-tree invocation. Anything else lands in the full-tree branch, which is the generous reading.
+ */
+const selectedSpecFiles = (): string[] => {
+  const named = process.argv
+    .slice(1)
+    .filter((token, index, all) => !token.startsWith('-') && !VALUE_TAKING_FLAGS.has(all[index - 1] ?? ''))
+    .filter((token) => token.endsWith('.spec.ts'));
+  const resolved = named.flatMap((token) => {
+    const target = path.resolve(process.cwd(), token);
+    return fs.existsSync(target) && fs.statSync(target).isDirectory() ? specFilesIn(target) : [path.basename(target)];
+  });
+  return resolved.length > 0 ? resolved : specFilesIn(path.join(CONFIG_DIR, 'e2e'));
+};
+
+const RUN_CEILING_MS = selectedSpecFiles().reduce(
+  (total, file) => total + (SPEC_BUDGET_MS[file] ?? SINGLE_SPEC_CEILING_MS),
+  0,
+);
+
+/**
  * The run's own ceilings — the bounds above which nothing else in this file bounds anything.
  *
  * The gate that runs this criterion kills it at 60s and records the kill as `verdict: fail`, the same shape a
@@ -211,12 +303,14 @@ const RUN_SERVERS = [
  * ~2.9s server boot, ~0.9s vite, ~8s browser launch plus `beforeAll`, and ~12s across the five cases — ~24s in
  * total, and a run under six concurrent sibling specs measured 23.6s. `BOOT_CEILING_MS` must clear every boot
  * that is already bounded (2 × 30s webServer waits, but serially — the first expiry ends the run, so ~31s), and
- * it is 9× the quiet boot. `RUN_CEILING_MS` must clear the longest healthy run in this checkout (voice-trim,
- * ~42s) and still land its line before the gate's kill: 55s + the 2s diagnosis probe + ~0.6s of process
- * start-up puts the line on stdout at ~57.6s, ~2.4s inside 60s.
+ * it is 9× the quiet boot. `SINGLE_SPEC_CEILING_MS` must clear the longest healthy run in this checkout
+ * (voice-trim, ~42s) and still land its line before the gate's kill: 55s + the 2s diagnosis probe + ~0.6s of
+ * process start-up puts the line on stdout at ~57.6s, ~2.4s inside 60s.
+ *
+ * The run ceiling itself is the sum of the selected specs' budgets, computed above; for the one-file invocation
+ * the gate makes, that sum is `SINGLE_SPEC_CEILING_MS` and nothing about it changed.
  */
 const BOOT_CEILING_MS = 40_000;
-const RUN_CEILING_MS = 55_000;
 /** How long the watchdog waits for an answer before it calls a bound port silent. Deliberately short: this is a reading, not a wait. */
 const WATCHDOG_PROBE_MS = 2_000;
 
@@ -916,6 +1010,58 @@ const seedMobileSendKeyWorkspace = () => {
   );
 };
 
+/** Workspace e2e/mobile-workspace-composer-layout.spec.ts reads its mobile cells in. */
+const MOBILE_LAYOUT_WORKSPACE = path.join(dataDir, 'mobile-layout-workspace');
+/** Session id that file navigates to, and the display name its header has to hold. */
+const MOBILE_LAYOUT_SESSION_ID = 'e2e-mobile-layout';
+/**
+ * The name is deliberately long.
+ *
+ * The matrix asserts that the workspace header is a single row below the breakpoint, and the row it has to hold
+ * holds this name next to the selector that replaced the tablist. A short name — every other seeded session in
+ * this file has one — would fit whether or not the header had been collapsed, so the cell that reads the header
+ * would pass against the layout it exists to rule out.
+ */
+const MOBILE_LAYOUT_SESSION_NAME = 'mobile workspace and composer layout session with a name long enough to truncate';
+
+/**
+ * Seeds the long-title session the viewport matrix's mobile cells read, in a workspace of its own.
+ *
+ * A workspace of its own for the same reason the four specs above have one: the header's dialog lists the
+ * workspaces a run has, and a session added to one already in use is a new row in lists that other specs read
+ * with unscoped locators. Placed here rather than in the spec for the reason the note above gives — the backend
+ * starts its watcher with `ignoreInitial` only after the boot scan, so a transcript written mid-run is broadcast
+ * as a session_upserted and read as "needs attention".
+ */
+const seedMobileLayoutWorkspace = () => {
+  fs.mkdirSync(MOBILE_LAYOUT_WORKSPACE, { recursive: true });
+  const transcriptDir = path.join(dataDir, '.claude', 'projects', 'mobile-layout-workspace');
+  fs.mkdirSync(transcriptDir, { recursive: true });
+  const timestamp = new Date().toISOString();
+  const records = [
+    {
+      type: 'user',
+      sessionId: MOBILE_LAYOUT_SESSION_ID,
+      cwd: MOBILE_LAYOUT_WORKSPACE,
+      timestamp,
+      message: { role: 'user', content: [{ type: 'text', text: 'open the composer for the layout matrix' }] },
+    },
+    {
+      type: 'custom-title',
+      sessionId: MOBILE_LAYOUT_SESSION_ID,
+      cwd: MOBILE_LAYOUT_WORKSPACE,
+      timestamp,
+      customTitle: MOBILE_LAYOUT_SESSION_NAME,
+    },
+  ];
+
+  fs.writeFileSync(
+    path.join(transcriptDir, `${MOBILE_LAYOUT_SESSION_ID}.jsonl`),
+    `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
+    'utf8',
+  );
+};
+
 /**
  * Fills this run's own dependency cache with a copy of the shared one, so `viteCacheDir` starts hot.
  *
@@ -987,6 +1133,7 @@ if (isDataDirOwner) {
   seedVoiceTrimWorkspace();
   seedVoiceDashscopeWorkspace();
   seedMobileSendKeyWorkspace();
+  seedMobileLayoutWorkspace();
 }
 
 export default defineConfig({
