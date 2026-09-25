@@ -204,6 +204,48 @@ round-104 recheck 23.6s。两次红都死于启动阶段，5 个用例一个都�
 AC3 那次 25.5s 整轮红能落在 30s 之内的原因。若将来落点在有守卫的负载下稳定超过 ~10s，先量再调 ——
 把 deadline 调大就会把 AC3 的 30s 读数顶破。触发源本身（宿主网络抖动）不在本条范围内。
 
+### 2026-09-25 复核轮：那次 suite 红的归因与解除（实现未变）
+
+这一轮的起因是上一轮 `exited-not-landed`：suite 红在 `server/modules/voice/tests/voice-capture-text.false-forms.test.ts`。
+**实现提交未变（仍是 `069c663d`），本任务 diff 仍只有 `e2e/session-filter.spec.ts`（271+/7−）** —— 这一轮只做归因、预合并与门禁。
+
+**归因（读真因日志，不读台账 `reason` 的 stderr 尾巴）** ——
+`/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-session-filter-criterion-bounded-boot-guard~wk-prod-anchor~1790332379121-02be41.log`
+里 `passed=false` **只有一处**：`server/modules/voice/tests/voice-capture-text.false-forms.test.ts`（`duration_ms=27136`）。
+该日志的 `not ok` 行引的是它自己的 `falsify/failure-row-dropped mutant: …` **读数行 —— 是一条通过的读数**
+（`scripts/test.sh` 的 `first_error()` 抓的是首个含 `failed` 字样的行，而 `why=a failed attempt builds no row` 文本里恰好有
+`failed`）；真因因此不在那一行上。同一份读数在本 worktree 单独跑时同样打印、而文件是绿的。
+
+**舰队级证据（20 份日志扫过）** —— `.quay/fan-in-suite-*.log` 共 20 份，其中 **14 份**红在该文件，
+横跨 **8 个互不相干的任务**：`gap-ac027-gateway-wait-weaker-than-assertion`、`gap-claude-session-cgroup-scope`、
+`gap-mobile-layout-e2e-viewport-matrix`、`gap-session-hosts-default-wrap-four-providers`、
+`gap-transcript-follow-ac110-case-nav-skips-boot-guard`、`gap-voice-capture-audio-file`、`gap-voice-error-notice-browser-e2e`、
+本任务。这 8 份的 diff 里没有任何一个 voice 文件 —— 与本任务的 `e2e/session-filter.spec.ts` 更无因果关系。
+
+**根因** 就是 frontmatter `depends_on` 里已登记的那条 `gap-voice-false-forms-siblings-pid-attribution`
+（现 **done**）：三个兄弟 `*.false-forms.test.ts` 把 `__criterion-falsify-*` 变异临时副本写进**共享的**
+`server/modules/voice/`，却按整树 `git status --porcelain` 快照比对，读到邻居在途的副本即红。
+本 worktree 单独跑该文件：`npx tsx --tsconfig server/tsconfig.json --test <file>` → **EXIT=0、`tests 6 / pass 6 / fail 0`（39725ms）**。
+
+**预合并** —— `git merge --no-edit develop` → 干净合并（无冲突、无 UU，未手改任何一边）；
+`git merge-base --is-ancestor develop HEAD` 成立（HEAD=`40e2e199`，HEAD²=`97458b6f`），
+带入 `d5f7904b voice false-forms: attribute the shared directory's temp copies by pid`。
+合并后该文件的收尾读数已是修好的形态：
+`falsify/leftovers: git.status-clean=true unchanged=true own-temp-copies=none temp-copies-any=0 foreign-temp-copies=0 raw-unchanged=true added=0 removed=0 concurrent-foreign-only=false`。
+
+**并发复现（旧红条件在窗口里真实存在，现已不红）** —— 同时起 5 份兄弟 `*.false-forms.test.ts`
+（capture-off / capture-text / error-contract / error-classification / dashscope-settings），**五个全部 EXIT=0**；
+其中 3 份的收尾读数记到 `concurrent-foreign-only=true`（`removed=1` / `removed=1` / `removed=2`），
+`voice-error-classification` 记到 `concurrent-foreign-copies=1` ——
+**即本轮运行窗口里确实有兄弟的在途临时副本**（旧逻辑下正是这一点把该文件记红），现已按 pid 正确放过。
+
+**范围门** —— `bash scripts/test.sh --for-task gap-session-filter-criterion-bounded-boot-guard --allow-thin` → **EXIT=0**
+（thin：`no scoped test files for gap-session-filter-criterion-bounded-boot-guard`；`suite-scope-check` PASS，`tasks=196 active=18`）。
+scoped-gate 缓存已写：`--develop-sha 97458b6ffefa340164813ef952dc858d3166b323`（= HEAD²，HEAD 的祖先）。
+
+**本轮未做** —— 没有改任何实现、断言、判据命令或门限；没有把 suite 红当成实现缺陷去"修"。
+suite 本身仍由 driver 的 fan-in 跑，本任务不自行运行全量 suite。
+
 ## Needs-Human
 
 **执行 2026-09-25T10:35:34.278Z — 连续修满重试上限仍不合格（标 needs-human）**
@@ -214,3 +256,14 @@ AC3 那次 25.5s 整轮红能落在 30s 之内的原因。若将来落点在有�
 - session_id：f20f81a3-b465-4a71-affc-f62a92d057de
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-session-filter-criterion-bounded-boot-guard~wk-prod-anchor~1790332379121-02be41.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-session-filter-criterion-bounded-boot-guard-wk-prod-anchor.log
+
+**2026-09-25 复核轮 —— 本条已归因并解除（RESOLVED），上面那条"归因不出任何失败测试文件"的判词不成立。**
+
+- **能归因**：那份 suite 日志里 `passed=false` 只有一处，就是 `voice-capture-text.false-forms.test.ts`；
+  之所以此前读不出来，是因为日志引的 `not ok` 行是一条**通过的**读数行（见「复核轮」段的 `first_error()` 说明）。
+- **与本任务无因果**：该文件在 20 份 fan-in 日志里红 14 份、横跨 8 个互不相干的任务；本任务 diff 只有
+  `e2e/session-filter.spec.ts`。根因是共享目录串扰，即 `depends_on` 里那条
+  `gap-voice-false-forms-siblings-pid-attribution`（现 **done**，`d5f7904b` 已在 develop）。
+- **旧红条件已复现且已不红**：5 份兄弟并发全部 EXIT=0，其中 3 份记到 `concurrent-foreign-only=true`。
+- **门禁**：scoped gate EXIT=0，缓存已写（`--develop-sha 97458b6f…`）。
+- 因此本条不再有需要人类介入的阻碍；把它留在正文里只为保留当时的原始判词与日志路径，供审计对照。
