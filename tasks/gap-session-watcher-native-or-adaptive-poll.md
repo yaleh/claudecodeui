@@ -1,7 +1,7 @@
 ---
 id: gap-session-watcher-native-or-adaptive-poll
 title: 会话 watcher 不再无条件 6 秒全量轮询：本地文件系统走原生事件，轮询只作降级并按文件数退避
-status: ready
+status: done
 labels:
   - gap
 parent: null
