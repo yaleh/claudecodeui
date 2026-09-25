@@ -1,7 +1,7 @@
 ---
 id: gap-vitest-worker-heap-limit
 title: vitest 工作进程堆上限：失控用例在配置层被秒级掐死，不再靠 24G 的 cgroup 兜底、也不因直接 npx vitest 绕过
-status: todo
+status: ready
 labels:
   - gap
 parent: null
