@@ -1,7 +1,7 @@
 ---
 id: gap-server-soak-harness
 title: server 长期运行 soak 装置（手动触发）：会话/连接/transcript 搅动下采样 RSS、堆、fd、线程、子进程，斜率与残留超阈值即红
-status: ready
+status: done
 labels:
   - gap
 parent: null
