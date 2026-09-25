@@ -115,9 +115,25 @@ export function ActionMenu({
     }
 
     const closeOnViewportChange = () => setMenuOpen(false);
-    window.addEventListener('resize', closeOnViewportChange);
-    window.addEventListener('scroll', closeOnViewportChange, true);
+
+    // Arm the listeners on the next frame rather than now.
+    //
+    // A menu opened from a row the sidebar's scroll container has clipped scrolls
+    // that container itself: mousedown focuses the trigger, and the browser scrolls
+    // the nearest scrollable ancestor to reveal the focused element. That scroll
+    // event is dispatched in this frame's rendering steps — before animation-frame
+    // callbacks — so a listener installed synchronously here closes the menu on the
+    // very click that opened it: a partially clipped row's first ⋯ click only
+    // flashes, and its items can never be reached. Waiting a frame lets that one
+    // scroll through while a later, genuinely user-driven scroll (or a resize)
+    // still dismisses a menu that no longer sits where it was placed.
+    const frame = window.requestAnimationFrame(() => {
+      window.addEventListener('resize', closeOnViewportChange);
+      window.addEventListener('scroll', closeOnViewportChange, true);
+    });
+
     return () => {
+      window.cancelAnimationFrame(frame);
       window.removeEventListener('resize', closeOnViewportChange);
       window.removeEventListener('scroll', closeOnViewportChange, true);
     };
