@@ -19,7 +19,7 @@ extra:
 
 方案：让「用紧凑排布」这一个决定同时看两个信号，任一成立就紧凑：(1) 视口 < 768（现有规则，原样保留）；(2) composer 外壳（`chat-composer-shell` 内的输入框容器）的实测宽度 < 阈值。新增一个模块内 hook（`src/modules/chat/hooks/useComposerCompactTier.ts`），用 `ResizeObserver` 量该容器，返回是否紧凑，并在容器被拖拽/侧栏开合而改宽时不重挂载地翻转。**未测量（无 `ResizeObserver`、宽度为 0，即 jsdom）时一律退回仅按视口判断**，这样现有三份以 `window.innerWidth` 作为档位信号的单测（`chatComposerResponsive`、`voiceClipPlayback`、`activityIndicatorResponsive`）读数不变，新增的只是「测得窄」这一条腿。
 
-范围边界：仅 footer 排布与回放行两处改用新信号。Tailwind 是 3.4 且没装 container-queries 插件，源码里也没有 `@container` 用法，所以不引入它；用 ResizeObserver（`ChatMessagesPane`、`WorkspaceHeader` 已在用，是仓库既有惯例）。不动 `WorkspaceHeader`/`WorkspaceTabs`（它们按视口切换是对的）、不动活动指示（`:345`、`:444` 的 `!isMobile`：桌面执行态仍是 tab 状态 + composer 的 Stop，与矩阵任务的桌面判据一致）、不动 `useSendOnEnter`/`touchOnly`（那是设备属性，不是宽度属性）。
+范围边界：仅 footer 排布与回放行两处改用新信号。Tailwind 是 3.4 且没装 container-queries 插件，源码里也没有 `@container` 用法，所以不引入它；用 ResizeObserver（`useChatSessionState.ts`、`WorkspaceHeader.tsx`、`EditorSidebar.tsx` 已在用，是仓库既有惯例）。不动 `WorkspaceHeader`/`WorkspaceTabs`（它们按视口切换是对的）、不动活动指示（`:345`、`:444` 的 `!isMobile`：桌面执行态仍是 tab 状态 + composer 的 Stop，与矩阵任务的桌面判据一致）、不动 `useSendOnEnter`/`touchOnly`（那是设备属性，不是宽度属性）。
 
 阈值必须实测推出，不许凭感觉：在真浏览器里扫 composer 容器宽度，读出「桌面排布带一对回放仍能单行放下」的最小宽度，阈值取该读数之上并写明余量；扫描过程原样记入 Evidence。
 
