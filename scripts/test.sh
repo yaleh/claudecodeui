@@ -7,6 +7,7 @@
 #      QUAY_TEST_FILE_TIMEOUT=<secs> per-process wall-clock bound (default 600).
 #      QUAY_SUITE_MAX_RUNTIME_MS=<ms> whole-invocation bound (see the liveness watchdogs below).
 #      QUAY_SUITE_SILENCE_MS=<ms> no-progress bound (see the liveness watchdogs below).
+#      QUAY_MEMORY_MAX=<size> memory cap for the client vitest process (default 24G; `off` disables).
 #      QUAY_SUITE_WATCHDOG_TRACE=1 print the observed progress readings at the end, so the two
 #                                  thresholds above can be RE-DERIVED from a measurement rather
 #                                  than re-guessed.
@@ -442,6 +443,9 @@ classify_failure_kind() {
       # stderr and skip the assertion tally it exists to read.
       case "$failed" in ''|*[!0-9]*) failed=0 ;; esac
       if [ "$failed" -gt 0 ]; then echo assert; return 0; fi
+      # Killed by the memory cap scripts/with-memory-cap.sh imposes: the test blew its budget, which
+      # is attributable to the code under test, so it is NOT the "cut off" infra shape below.
+      if grep -q 'client vitest OOM-killed at the memory cap' "$log" 2>/dev/null; then echo assert; return 0; fi
       ;;
     stage) : ;;                      # no framework tally to read: the envelope below decides
     *) echo assert; return 0 ;;      # unknown lane: never grant an exemption
@@ -540,14 +544,26 @@ if [ ${#CLIENT_FILES[@]} -gt 0 ]; then
   # watchdog measures during the client phase is the client phase and not the tail of
   # whatever ran before it.
   progress
+  # The vitest process runs in its own memory-capped cgroup scope: a runaway test (2026-09-25:
+  # 218G peak) otherwise makes the kernel OOM-kill the whole tmux-pane scope, :3001 included.
+  # A capped kill surfaces as exit 137 with no report, which classify_failure_kind reads as infra.
+  MEMCAP="$ROOT_DIR/scripts/with-memory-cap.sh"
+  export QUAY_MEMORY_UNIT="quay-vitest-$$-$(now_ms)"
   ARGS=()
   [ "${CLIENT_FILES[0]}" != "__all__" ] && ARGS=("${CLIENT_FILES[@]}")
   VRC=0
   if [ -n "$TIMEOUT_BIN" ]; then
     "$TIMEOUT_BIN" --signal=TERM --kill-after=10 "$FILE_TIMEOUT_SECS" \
-      npx vitest run --reporter=json --outputFile="$TMP/vitest.json" "${ARGS[@]+"${ARGS[@]}"}" >"$TMP/vitest.out" 2>&1 || VRC=$?
+      "$MEMCAP" npx vitest run --reporter=json --outputFile="$TMP/vitest.json" "${ARGS[@]+"${ARGS[@]}"}" >"$TMP/vitest.out" 2>&1 || VRC=$?
   else
-    npx vitest run --reporter=json --outputFile="$TMP/vitest.json" "${ARGS[@]+"${ARGS[@]}"}" >"$TMP/vitest.out" 2>&1 || VRC=$?
+    "$MEMCAP" npx vitest run --reporter=json --outputFile="$TMP/vitest.json" "${ARGS[@]+"${ARGS[@]}"}" >"$TMP/vitest.out" 2>&1 || VRC=$?
+  fi
+  # The kernel kills a WORKER, not vitest itself, so the exit code is unreliable (observed: 1, with
+  # ERR_IPC_CHANNEL_CLOSED and no report) and would read as the "cut off"/zero-assertion infra shape.
+  # Exceeding the cap is the test's own defect, not the host's: the journal is the only witness, so
+  # leave a marker classify_failure_kind reads.
+  if [ "$VRC" -ne 0 ] && journalctl --user --no-pager -q -u "$QUAY_MEMORY_UNIT.scope" 2>/dev/null | grep -q 'OOM killer'; then
+    echo "client vitest OOM-killed at the memory cap (QUAY_MEMORY_MAX=${QUAY_MEMORY_MAX:-24G})" >>"$TMP/vitest.out"
   fi
   # A guard that fired while vitest was running reaches here only if this shell's TERM trap
   # has not been honoured yet; reporting the client phase from a dead run would be a lie.
