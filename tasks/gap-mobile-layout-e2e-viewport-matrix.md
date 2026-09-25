@@ -10,6 +10,11 @@ children: []
 extra:
   schema: execution
 depends_on:
+  - gap-mobile-workspace-header-single-row-selector
+  - gap-mobile-composer-footer-single-row-more-menu
+  - gap-mobile-voice-clip-row-below-textarea
+  - gap-mobile-activity-inline-single-stop
+  - gap-composer-footer-tier-follows-own-width
   - gap-voice-false-forms-siblings-pid-attribution
 ---
 ## Proposal
