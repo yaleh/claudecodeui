@@ -35,11 +35,11 @@ extra:
 
 ## AC
 
-- [ ] AC1 先拿到**确定性**复现，再动夹具：给出一个命令，在改动前的树上重复运行 ≥5 次，至少 1 次复现出同样的签名（`passed=false` 且服务端日志出现 `Session "edit-session" was not found.`），逐次记录 `run=N exit=… fail=… reading=…`。做不到确定性复现时，改用等价的证伪替代（`quay-unreproducible-before-reading-falsification-substitute` 的允许形状）：在工作树里把 `sessionsDb.getSessionById` 对 `edit-session` 一次性打桩返回空，证明该抛出点**可达**且红态签名与现场一致（退出码、文案原文抄进完成记录），随后还原。两种读数都要有，且必须在同一份完成记录里写明用的是哪一条。
-- [ ] AC2 夹具不再靠固定睡眠等待：`withGateway()` 或其调用方改为等待一个**真实信号**（例如等那一轮的运行被登记 / 等帧序列里出现该轮的 complete，或对薄注入的 handler 返回的 promise 做 await），`grep -n 'setTimeout(resolve, 30)' server/modules/websocket/tests/chat-edit-send.test.ts` 在改动后不再命中 `settle` 的定义行；改动只允许改夹具与等待方式，**不得删除或放宽该文件任何一条 `assert`**（`git diff develop -- server/modules/websocket/tests/chat-edit-send.test.ts | grep -c '^-.*assert'` 为 0）。
-- [ ] AC3 负控制——改了等待之后，被强制的失败仍必须红：AC1 用的那条注入（或确定性复现的触发条件）在改动后的树上再跑一次，仍须退出码非 0 且签名相同。这证明新的等待等的是真信号，而不是把错误吞掉。读数与还原一并登记。
-- [ ] AC4 回归：该文件连续 5 次单独运行全部 `exit 0` 且 `fail 0`；`npm run typecheck` 与 `npm run lint` 退出 0；`server/modules/websocket/tests/` 下其余文件在该次改动后不变（`git diff --stat develop...HEAD` 逐条对齐 `## Touches`）。
-- [ ] AC5 范围纪律：若 AC1 的诊断证明根因在产品代码（例如 `initializeDatabase()` / DB 单例与逐用例 `DATABASE_PATH` 切换不同步、或 `getSessionById` 的读路径有缺陷），**停止改夹具并如实把证据写进完成记录**，按机制另立 gap 任务处理产品侧；本任务不把改动伸到 `## Touches` 之外的文件。
+- [x] AC1 先拿到**确定性**复现，再动夹具：给出一个命令，在改动前的树上重复运行 ≥5 次，至少 1 次复现出同样的签名（`passed=false` 且服务端日志出现 `Session "edit-session" was not found.`），逐次记录 `run=N exit=… fail=… reading=…`。做不到确定性复现时，改用等价的证伪替代（`quay-unreproducible-before-reading-falsification-substitute` 的允许形状）：在工作树里把 `sessionsDb.getSessionById` 对 `edit-session` 一次性打桩返回空，证明该抛出点**可达**且红态签名与现场一致（退出码、文案原文抄进完成记录），随后还原。两种读数都要有，且必须在同一份完成记录里写明用的是哪一条。
+- [x] AC2 夹具不再靠固定睡眠等待：`withGateway()` 或其调用方改为等待一个**真实信号**（例如等那一轮的运行被登记 / 等帧序列里出现该轮的 complete，或对薄注入的 handler 返回的 promise 做 await），`grep -n 'setTimeout(resolve, 30)' server/modules/websocket/tests/chat-edit-send.test.ts` 在改动后不再命中 `settle` 的定义行；改动只允许改夹具与等待方式，**不得删除或放宽该文件任何一条 `assert`**（`git diff develop -- server/modules/websocket/tests/chat-edit-send.test.ts | grep -c '^-.*assert'` 为 0）。
+- [x] AC3 负控制——改了等待之后，被强制的失败仍必须红：AC1 用的那条注入（或确定性复现的触发条件）在改动后的树上再跑一次，仍须退出码非 0 且签名相同。这证明新的等待等的是真信号，而不是把错误吞掉。读数与还原一并登记。
+- [x] AC4 回归：该文件连续 5 次单独运行全部 `exit 0` 且 `fail 0`；`npm run typecheck` 与 `npm run lint` 退出 0；`server/modules/websocket/tests/` 下其余文件在该次改动后不变（`git diff --stat develop...HEAD` 逐条对齐 `## Touches`）。
+- [x] AC5 范围纪律：若 AC1 的诊断证明根因在产品代码（例如 `initializeDatabase()` / DB 单例与逐用例 `DATABASE_PATH` 切换不同步、或 `getSessionById` 的读路径有缺陷），**停止改夹具并如实把证据写进完成记录**，按机制另立 gap 任务处理产品侧；本任务不把改动伸到 `## Touches` 之外的文件。
 
 ## DoD
 
@@ -49,3 +49,161 @@ extra:
 
 - server/modules/websocket/tests/chat-edit-send.test.ts
 - tasks/gap-chat-edit-send-unawaited-handler-lane-flake.md
+
+## 完成记录
+
+**结论：根因在夹具，不在产品代码（AC5 判否）。改动只落在
+`server/modules/websocket/tests/chat-edit-send.test.ts` 一个文件。**
+
+### AC1 —— 确定性复现（走的是主路，不是证伪替代）
+
+树：`ceb4990d`（= develop），`git diff develop -- <夹具>` 空行数为 0。命令：
+`bash /tmp/chat-edit-probe-yale/ac1-official.sh 5 16` —— 5 轮 × 16 份并发，共 **80 次**
+跑动该文件。逐次读数如下（全文 `/tmp/chat-edit-probe-yale/ac1-official.txt`）：
+
+```
+run=1 exit=1 fail=1 reading=1
+run=2 exit=0 fail=0 reading=0
+run=3 exit=0 fail=0 reading=0
+run=4 exit=1 fail=1 reading=1
+run=5 exit=0 fail=0 reading=0
+run=6 exit=0 fail=0 reading=0
+run=7 exit=1 fail=1 reading=1
+run=8 exit=0 fail=0 reading=0
+run=9 exit=0 fail=0 reading=0
+run=10 exit=0 fail=0 reading=0
+run=11 exit=1 fail=1 reading=1
+run=12 exit=0 fail=0 reading=0
+run=13 exit=0 fail=0 reading=0
+run=14 exit=0 fail=0 reading=0
+run=15 exit=0 fail=0 reading=0
+run=16 exit=0 fail=0 reading=0
+run=17 exit=0 fail=0 reading=0
+run=18 exit=0 fail=0 reading=0
+run=19 exit=0 fail=0 reading=0
+run=20 exit=0 fail=0 reading=0
+run=21 exit=0 fail=0 reading=0
+run=22 exit=0 fail=0 reading=0
+run=23 exit=0 fail=0 reading=0
+run=24 exit=0 fail=0 reading=0
+run=25 exit=0 fail=0 reading=0
+run=26 exit=0 fail=0 reading=0
+run=27 exit=0 fail=0 reading=0
+run=28 exit=0 fail=0 reading=0
+run=29 exit=0 fail=0 reading=0
+run=30 exit=0 fail=0 reading=0
+run=31 exit=0 fail=0 reading=0
+run=32 exit=0 fail=0 reading=0
+run=33 exit=0 fail=0 reading=0
+run=34 exit=0 fail=0 reading=0
+run=35 exit=0 fail=0 reading=0
+run=36 exit=0 fail=0 reading=0
+run=37 exit=0 fail=0 reading=0
+run=38 exit=0 fail=0 reading=0
+run=39 exit=0 fail=0 reading=0
+run=40 exit=0 fail=0 reading=0
+run=41 exit=0 fail=0 reading=0
+run=42 exit=0 fail=0 reading=0
+run=43 exit=0 fail=0 reading=0
+run=44 exit=0 fail=0 reading=0
+run=45 exit=0 fail=0 reading=0
+run=46 exit=0 fail=0 reading=0
+run=47 exit=0 fail=0 reading=0
+run=48 exit=0 fail=0 reading=0
+run=49 exit=0 fail=0 reading=0
+run=50 exit=0 fail=0 reading=0
+run=51 exit=0 fail=0 reading=0
+run=52 exit=0 fail=0 reading=0
+run=53 exit=0 fail=0 reading=0
+run=54 exit=0 fail=0 reading=0
+run=55 exit=0 fail=0 reading=0
+run=56 exit=0 fail=0 reading=0
+run=57 exit=0 fail=0 reading=0
+run=58 exit=0 fail=0 reading=0
+run=59 exit=0 fail=0 reading=0
+run=60 exit=0 fail=0 reading=0
+run=61 exit=0 fail=0 reading=0
+run=62 exit=0 fail=0 reading=0
+run=63 exit=0 fail=0 reading=0
+run=64 exit=0 fail=0 reading=0
+run=65 exit=0 fail=0 reading=0
+run=66 exit=0 fail=0 reading=0
+run=67 exit=0 fail=0 reading=0
+run=68 exit=0 fail=0 reading=0
+run=69 exit=0 fail=0 reading=0
+run=70 exit=0 fail=0 reading=0
+run=71 exit=0 fail=0 reading=0
+run=72 exit=0 fail=0 reading=0
+run=73 exit=0 fail=0 reading=0
+run=74 exit=0 fail=0 reading=0
+run=75 exit=0 fail=0 reading=0
+run=76 exit=0 fail=0 reading=0
+run=77 exit=0 fail=0 reading=0
+run=78 exit=0 fail=0 reading=0
+run=79 exit=0 fail=0 reading=0
+run=80 exit=0 fail=0 reading=0
+```
+
+**green 76 / red 4**（红的是 run=1、4、7、11，全是第 1 轮）。四次红逐字同形
+（`ac1-official/r1-c1|c4|c7|c11.out`，`rc=1`）：
+
+```
+Database connection closed
+[ERROR] Chat WebSocket error: Session "edit-session" was not found.
+✖ a refused send never rewinds the conversation (653..673ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+    actual: undefined,
+    expected: 'RUN_IN_PROGRESS',
+```
+
+即 driver 那次红的签名（`passed=false` 且服务端日志出现该行）**逐字复现**，且是**同一条
+用例**——第 7 题 `a refused send never rewinds the conversation`。盘上 1/11 的频率与这里
+4/80 的档位一致。
+
+lane 同形读数（整棵服务端测试集按 fan-in 形状跑：129 文件、并发 16，
+`bash /tmp/chat-edit-probe-yale/lane-repro.sh 6`）：第 3 轮该文件 `exit=1 reading=1`，
+签名同上，落在 `/tmp/chat-edit-probe-yale/lane/round-3-target.out`（该文件 mtime 22:48:15
+早于夹具首次改动，且它读到的失败形态只可能出自未改的夹具）；第 1、2 轮 0。
+
+**被否掉的路径（如实登记）**：单独跑 8 次（含 `taskset -c 0` + 4 个压核进程的 CPU 饥饿）
+0 复现；6/8 路兄弟文件加压 0 复现。需要的是 **16 路并发造成的 /tmp 文件系统争用**——
+被拉长的正是夹具从临时目录读转录本那一步。AC1 用的就是这条确定性复现主路，**没有**退到
+证伪替代；打桩形状只在 AC3 里用作「被强制的失败」的负控制。
+
+### 根因（AC5 的证据）
+
+抛出点确如任务所述，是 `chat-websocket.service.ts:378` 那次裸调用
+`providerRewindsForEdit` 里的 `sessionsDb.getSessionById`。但**会话行不是没写进去，
+而是被夹具自己搬走了**：
+
+1. 每一次红里紧挨日志行之前的都是 `Database connection closed` —— 那是 `withGateway()`
+   的 `finally`（`closeConnection()`），即**夹具的拆卸**；
+2. 失败的断言是 `socket.frames.at(-1)?.code` 读到 `undefined`，说明 `await settle()`
+   的 30ms 先到，第 7 题的 handler 仍停在 `await resolveEditAnchor`（codex rollout 读盘）里；
+3. handler 随后恢复：`getConnection()` 已置空，于是**新开**一个连到已还原的
+   `DATABASE_PATH` 的连接，那里没有 `edit-session` → 抛 `SESSION_NOT_FOUND`。
+
+产品代码没有任何一处会删这一行：同一次请求里 `resolveSendTarget`（`:190`）刚成功读到它。
+产品侧没有可修的机制，故 AC5 判否，改动不伸到 Touches 段之外。
+
+### AC2 / AC3 / AC4 读数
+
+- **AC2**：`grep -n 'setTimeout(resolve, 30)' <夹具>` 无输出（该串已整条不存在，`settle`
+  标识符也已移除）；`git diff develop -- <夹具> | grep -c '^-.*assert'` = **0**（一条
+  assert 未改未删）。等待改为两种**真信号**：帧交给 `handleChatConnection` 注册的那个
+  async listener 返回的 promise 并 await；第 7 题那个**故意留在飞行中**的回合改等
+  `runs.length === 1`（运行已登记）。
+- **AC3**：改后的树上把 `providerRewindsForEdit` 那次读一次性打桩返回空，3/3
+  `exit=1 fail=1 reading=1`，日志同文（`/tmp/chat-edit-probe-yale/ac3-forced-1..3.out`）；
+  打桩已还原，夹具 md5 回到 `7cc9ac655637d0045f9c67fbc01292b7`。新等待没吞错。
+- **AC4**：改后同一加压形状 **80/80 全绿、0 签名**（`post-fix-readings.txt`）；单独连跑
+  5 次全 `exit=0 / tests 8 / pass 8 / fail 0 / reading 0`；`npm run typecheck` 退出 0；
+  `npm run lint` 退出 0（只剩既有告警）；`git diff --stat develop` 只有夹具一个文件。
+
+### 诚实边界
+
+- 本地 6 路/8 路加压与 CPU 饥饿都不复现；本任务用 16 路并发把该通道放大到 4/80 才拿到
+  确定性读数，因此可以说「复现了 driver 那次红的通道、位置与签名」，不声称「就是那一次
+  同一根因序列」。
+- 夹具现在没有任何固定时长参与同步；`waitFor` 里的 5000ms 只是**失败上界**（超时转成具名
+  断言失败），不是等待本身。
