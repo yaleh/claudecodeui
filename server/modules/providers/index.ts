@@ -54,3 +54,25 @@ export { ClaudeSessionsProvider } from './list/claude/claude-sessions.provider.j
 // broadcast test, which needs the real indexer to put an ai-title on a row
 // before asserting the delta that carries it.
 export { ClaudeSessionSynchronizer } from './list/claude/claude-session-synchronizer.provider.js';
+
+// Session scoping: `mapCliOptionsToSDK` installs the spawn hook that puts every
+// Claude session in its own capped systemd scope, and `server/index.ts` sweeps
+// orphaned scopes at start-up and stops this server's scopes on shutdown. The
+// session-scope test drives the hook, the lifecycle and the failure readings.
+export {
+  createClaudeSessionScopeSpawn,
+  resolveClaudeSessionMemoryMax,
+  probeSystemdUserScope,
+  resetClaudeSessionScopeProbeCache,
+  buildClaudeSessionScopeUnitName,
+  parseClaudeSessionScopeOwnerPid,
+  listClaudeSessionScopeUnits,
+  stopClaudeSessionScopes,
+  sweepOrphanClaudeSessionScopes,
+  DEFAULT_CLAUDE_SESSION_MEMORY_MAX,
+} from './services/claude-session-scope.service.js';
+export type {
+  ClaudeSessionScopeSpawnDeps,
+  SessionScopeProcess,
+  SessionScopeSpawnImpl,
+} from './services/claude-session-scope.service.js';

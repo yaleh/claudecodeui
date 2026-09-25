@@ -1,6 +1,6 @@
 # Process isolation and memory caps
 
-*Why a runaway test used to look like "the :3001 server died", and the two guards that stop it.*
+*Why a runaway process used to look like "the :3001 server died", and the guards that stop it.*
 
 ## Incident (2026-09-25)
 
@@ -22,16 +22,25 @@ run away; it does not prove the 218G peaks were it. Earlier OOM scopes the same 
 31.9G) were never individually root-caused, and the 217.8G peak followed a run of the AC-103
 concurrency criterion by about ten minutes. Treat the attribution of those peaks as open.
 
-## The two guards
+## The guards
 
 | Subject | Guard | Why |
 |---|---|---|
 | Tests (vitest) | hard `MemoryMax` in their own scope — `scripts/with-memory-cap.sh` | a runaway test dies alone |
+| Claude sessions | hard `MemoryMax` in one scope each — `claude-session-scope.service.ts` | a runaway session or MCP dies alone, in its own cgroup |
 | The :3001 server | its own systemd user service — `scripts/serve-scoped.sh` | other processes' OOM cannot reach it |
 
-The server deliberately gets **isolation, not a cap**. It has no leak history, and a cap would
-make it the OOM victim instead of a bystander. If a leak ever shows up, add a generous
+The server itself deliberately gets **isolation, not a cap**. It has no leak history, and a cap
+would make it the OOM victim instead of a bystander. If a leak ever shows up, add a generous
 `MemoryMax` to that unit separately.
+
+The two halves of that sentence are now doing different work, and it is worth being precise about
+which one protects the server. A systemd user service is not a cgroup boundary against the
+processes its own `ExecStart` goes on to spawn: `claudecodeui-server.service` owns everything the
+server forks, so with the server's unit at `memory.max=max` the kernel would reap server *and*
+sessions together. Isolation only began to hold when the sessions stopped being in that unit's
+cgroup — which is what the session scopes below do. The server still has no cap, on purpose; it
+now shares its cgroup with nothing that can run away.
 
 ### `scripts/with-memory-cap.sh <cmd…>`
 
@@ -56,6 +65,60 @@ to `server.log`. Refuses to `start` when already active.
 
 Run it from a tmux pane, **not** from a session the server hosts: sessions are the server's child
 processes, so `stop`/`restart` stops the caller's own cgroup.
+
+### Session scopes: `claude-session-scope.service.ts`
+
+A Claude session is not one process. It is the `claude` CLI plus the MCP servers it starts (pdf,
+playwright, …), and when the CLI is launched through an npm shim, a wrapper process on top. On this
+host that is roughly 1 GB of RSS per idle session. All of it used to land in
+`claudecodeui-server.service`'s cgroup, where `memory.max` is `max` — so a single runaway session,
+or one MCP it launched, was enough for the kernel to reap the whole unit with the server in it. The
+2026-09-25 fix separated *tests* from the server; this separates *sessions* from the server.
+
+`server/modules/providers/services/claude-session-scope.service.ts` exports a factory that returns
+the SDK's `spawnClaudeCodeProcess` hook. `mapCliOptionsToSDK` installs it, so every Claude session
+spawns as:
+
+```
+systemd-run --user --scope --quiet --unit=claudecodeui-session-<serverPid>-<rand> \
+  -p MemoryMax=<cap> -p MemorySwapMax=0 -- <command> <args…>
+```
+
+`--scope` registers a transient scope and then `exec`s the target on the same PID, so stdio, PID and
+exit status are unchanged (the same property `with-memory-cap.sh` relies on). `cwd`, `env` and the
+abort `signal` are passed straight through.
+
+| Piece | Value |
+|---|---|
+| cap | `CLAUDE_SESSION_MEMORY_MAX`, default `8G`; `off` (or `0`) disables wrapping |
+| unit name | `claudecodeui-session-<serverPid>-<8 hex>` — the owner PID is in the name so a later process can tell whether the server that made the scope still exists |
+| degradation | no usable systemd user manager (macOS, CI, containers) → the factory returns `undefined`, the option is **not set**, and the SDK spawns the CLI exactly as before; one log line says so |
+
+The cap is checked once per process by really running `true` inside a capped scope, and the verdict
+is cached. `systemd-run` failing (no user manager) and the command failing (a cap too small to even
+fork) are indistinguishable by exit status, so nothing weaker than a real capped run can answer it.
+
+**The consequence that has to be handled: a scope is not in the server's cgroup**, which is exactly
+what confines the kill — and also means nothing collects it when the server goes away.
+
+- `shutdownRuntimeServices` (`server/index.ts`) stops every scope owned by its own PID, so
+  `serve-scoped.sh stop` and `restart` still take their sessions with them.
+- `server/index.ts` sweeps *orphaned* scopes at start-up: a scope whose encoded owner PID is gone.
+  The shutdown path cannot run when the server is `SIGKILL`ed or reaped, so this is what reaps
+  those sessions — on the **next** start, not immediately.
+- **A server restart no longer kills the sessions it hosts.** Before the scopes, `stop`/`restart`
+  tore down the cgroup and every session in it died with the server. Now a `SIGKILL`ed server's
+  sessions keep running until the sweep runs. Treat an unexpected restart as "my sessions may still
+  be alive" and check `systemctl --user list-units 'claudecodeui-session-*'`.
+- A scope that died on its own (cap kill, abort, crash) stays listed as `failed` until it is
+  explicitly reset — `systemctl stop` alone does not clear it. Both stop and sweep therefore
+  `reset-failed` as well, or a server that loses sessions to its cap would pile up dead units
+  forever.
+
+Attributing a kill to the cap uses the same witness as the test path: the exit code cannot say
+(whether the cap did it, look at `journalctl --user -u <unit>.scope | grep 'OOM killer'`), and the
+journal write trails the exit, so the lookup retries briefly. On a hit it logs one line naming the
+cap; an unreadable journal is silent, which is the known gap described below.
 
 ## Classification: OOM is an `assert`, not `infra`
 
