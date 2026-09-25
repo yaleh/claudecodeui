@@ -1,7 +1,7 @@
 ---
 id: gap-session-watcher-native-or-adaptive-poll
 title: 会话 watcher 不再无条件 6 秒全量轮询：本地文件系统走原生事件，轮询只作降级并按文件数退避
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -126,3 +126,14 @@ extra:
 - **第 2 轮（2026-09-25，上轮 fan-in suite 红后重派）**：在 worktree 重跑 scoped 门（`bash scripts/test.sh --for-task gap-session-watcher-native-or-adaptive-poll --allow-thin`）绿：2/2（`sessions-watcher-mode.test.ts` 13.3s、`debug-agent-external-write.test.ts` 22.9s）；`npm run typecheck` rc=0、`npm run lint` rc=0（仅既有 warning）；与 `develop`（`1f52c9d4`）零落后、零冲突、无未合并路径。
 - **上轮 suite 红的两条都在本任务 `## Touches` 之外，且都是并发环境产物，不是本任务缺陷。** `voice-dashscope-settings.false-forms.test.ts`：AC8 的 `server-branch-scan` 先 `collectSourceFiles(server/)` 全树收集、再逐个 `readFile`，兄弟用例在**共享的** `server/modules/voice/` 里反复建删 `__criterion-falsify-*` 副本 ⇒ 收集到的路径在读取时已消失，`collectReadings` 逐条 catch 后记为 `threw: ENOENT`，与「真命中」在断言文本里不可分。`voice-capture-text.false-forms.test.ts`：其 AC11 拿模块加载时的 `git status --porcelain` 快照与跑后全树对拍，兄弟用例的副本使快照不同；suite 日志引的那行（`falsify/failure-row-dropped …`）是 `first_error()` 误取了一条**通过**的读数行，不是失败原因。两条单跑皆绿（`voice-dashscope-settings` 3/3、rc=0、1.3s）。
 - 这是全队共享的结构性竞态：现存 11 份 `.quay/fan-in-suite-*.log` **全部**以 `# suite red failed` 结束。其归属任务 `gap-ac103-worktree-state-drag-and-unbudgeted-confirm` 已于 2026-09-25 转为 `superseded`，通道当前无主；本条不越界修改兄弟判据（在 Touches 之外），仅记录归因。
+
+## Needs-Human
+
+**执行 2026-09-25T05:05:03.235Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=14941 server/modules/providers/tests/model-gateway-end-to-end.test.ts passed=false end_ms=1790312593875
+- run_id：wk-prod-anchor
+- session_id：39175782-4f7a-41c7-a9dc-aae36b100f7a
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-session-watcher-native-or-adaptive-poll~wk-prod-anchor~1790312544569-88e004.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-session-watcher-native-or-adaptive-poll-wk-prod-anchor.log
