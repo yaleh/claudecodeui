@@ -1,7 +1,7 @@
 ---
 id: AC-155
 title: per-run 的客户端可见行为在接入宿主层前后逐帧相同
-status: draft
+status: active
 kind: criterion
 goal: GOAL-012
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -15,4 +15,15 @@ expect: 对四个 provider，经真实 chat websocket 分派（chat.send、chat.
 origin: docs/proposals/claude-resident-sessions.md（e88175cf）。人 yale 2026-09-25
   裁定：拆成两个 goal，本 goal 为 GOAL-A「统一宿主层」并激活；扩展调试 agent 作宿主层对非 Claude provider
   适用性的替身；不加 cloudcli 子命令，只靠 HTTP/WS 加脚本
+activatedAt: 2026-09-25T08:59:47.634Z
+statusLog:
+  - at: 2026-09-25T08:59:47.634Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-09-25T08:59:47.634Z
 ---
