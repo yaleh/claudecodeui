@@ -2,7 +2,7 @@
 id: gap-composer-footer-tier-follows-own-width
 title: composer footer 的紧凑排布按 composer 自身宽度切换而不是按视口：768px + 侧栏展开时输入框只有
   445px，桌面分支叠成两行（空闲 93px、双回放 129px），移动分支在 302px 宽下都是 57px 单行
-status: todo
+status: ready
 labels:
   - gap
   - defect
