@@ -631,6 +631,14 @@ const setViewportWidth = (width: number) => {
 /** The narrow tier (any width below `md`), and the wide one the composer has always had. */
 const MOBILE_WIDTH = 390;
 const DESKTOP_WIDTH = 1280;
+/**
+ * The narrowest width that still takes the wide tier — one pixel over `md`.
+ *
+ * It is the width the pair's home is read at below, because it is the only one where the
+ * group holding the pair has to fit a second line: the box is at its narrowest here, and
+ * the pair is the widest thing the group carries.
+ */
+const NARROW_DESKTOP_WIDTH = 768;
 
 /** The composer's own slots, so a case reads the structure the CSS then lays out. */
 const CLIP_ROW_SELECTOR = '[data-slot="prompt-input-clip-row"]';
@@ -830,6 +838,42 @@ test('(b) desktop: the pair stays in the left tool group inside the footer, righ
   assert.ok(
     mic.compareDocumentPosition(replayOriginal) & Node.DOCUMENT_POSITION_FOLLOWING,
     'the pair sits right of the microphone it was recorded from',
+  );
+});
+
+test('(b) the pair\'s home at the narrowest desktop width: still the tool group, and that group may wrap it', async () => {
+  // The same placement as (b), read one pixel over the breakpoint rather than far from it. The
+  // pair is the widest thing the tool group carries and it declares `shrink-0`, so at this width
+  // there is nowhere for it to go inside a single line: without a wrap permission on the group,
+  // the group's content is what the box pushes past its own edge. jsdom lays nothing out, so what
+  // this case reads is the permission the component declares — the layout consequence is the
+  // browser probe's (768 with a pair: `scrollWidth 470 / clientWidth 445` before, `445 / 445`
+  // after) — and the placement beside it, which must not have moved into the mobile clip row.
+  withTrimmedPair();
+  setViewportWidth(NARROW_DESKTOP_WIDTH);
+  const view = renderComposer(() => undefined);
+  const { container, getByRole } = view;
+
+  await recordThroughComposer(view);
+
+  assert.equal(
+    container.querySelector(CLIP_ROW_SELECTOR),
+    null,
+    'the clip row is the narrow layout\'s replacement for a wrapped row; this width is not that layout',
+  );
+
+  const tools = container.querySelector<HTMLElement>(TOOLS_SELECTOR);
+  assert.ok(tools, 'the composer must render its tool group');
+  const replayOriginal = getByRole('button', { name: 'Replay original' });
+  const replayTrimmed = getByRole('button', { name: 'Replay trimmed' });
+  assert.ok(
+    tools.contains(replayOriginal) && tools.contains(replayTrimmed),
+    `the pair keeps its tool group here too; they read: ${describePlacement(container, replayOriginal)}`,
+  );
+  assert.equal(
+    Array.from(tools.classList).includes('flex-wrap'),
+    true,
+    `the group holding the pair has to be allowed to take a second line, or the pair widens the box instead; class="${tools.className}"`,
   );
 });
 
