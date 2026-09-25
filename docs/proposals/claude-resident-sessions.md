@@ -244,7 +244,7 @@ residentFeatures?: {
 
 | Provider | `lifecycleModes` | `multiplexedHost` | 备注 |
 |---|---|---|---|
-| Claude | `['per-run', 'resident']` | `false` | `residentFeatures` 各项依实验 E1–E8 确认后填写 |
+| Claude | `['per-run', 'resident']` | `false` | `residentFeatures` 已由实验 E1–E8 实测确认（见「阶段 0 结论」）：`{ interruptKeepsProcess: true, liveReconfigure: [], unattendedTurns: true, addressable: true, inputWhileBusy: true }`；`liveReconfigure` 不在 E1–E8 范围内，**待单独验证**。 |
 | Codex | `['per-run']` | `false` | 将来接 app-server 时改为两者，`multiplexedHost: true`，`unattendedTurns: false` |
 | Cursor | `['per-run']` | `false` | |
 | OpenCode | `['per-run']` | `false` | 将来接 `opencode serve` 时可改为两者，`multiplexedHost: true` |
@@ -300,6 +300,7 @@ SDK 选项构建（`mapCliOptionsToSDK` 等）从 `claude-runtime.provider.js` �
 - 这条消息是并入当前轮，还是等当前轮结束后另起一轮，由 CLI 决定。服务端只按输出流中实际出现的轮次边界切分 run，并把这条用户消息记进它实际所属的那一轮。
 - 前端依据 `residentFeatures.inputWhileBusy` 跳过本地排队，直接发送（§15.7）。per-run 会话的前端排队不变。
 - 行为基准是交互式 Claude Code CLI 在同样情况下的表现。实验 E2/E3 要同时记录交互式 CLI 和 SDK stream-json 输入两种形态下的实际行为。**如果两者不一致**，把差异写回本文档，由用户决定：是在服务端补齐到交互式 CLI 的行为，还是接受 stream-json 的行为。
+- **实测基准（2026-09-25，E2/E3）**：两种形态**一致**——busy 时推入的用户消息**另起一轮**，不丢、不拒。stream-json 形态与交互式 CLI 形态各读到 2 条真 agent 轮；无人轮进行中推入同样另起一轮（注入后出现 2 条 `result`）。因此 driver 不需要为"并入"写分支，只按 `result` 边界切分即可。原始读数见 `claude-resident-sessions-experiments.md`。人工确认行见该文件（`E2/E3 基准确认：`）。
 
 **兜底**：无人轮同样写进转录文件，现有的转录监听和同步会把它补进会话。实时推送是"尽力而为"，转录才是最终来源。
 
@@ -336,6 +337,11 @@ SDK 选项构建（`mapCliOptionsToSDK` 等）从 `claude-runtime.provider.js` �
 - 常驻进程放在独立 scope（§11）后会**逃出服务的 cgroup**：服务被杀时它们不会随之被杀，只会因 stdin EOF 退出。为防止 CLI 未及时退出，服务启动时由 L3 **清扫**残留的 `cloudcli-host-*.scope`（`systemctl --user stop`），只清理、不接管。
 - 重启后，会话的 `lifecycle_mode` 仍为 `resident`，但进程已不存在，界面显示"常驻进程已随服务重启关闭，定时任务已丢失"。用户下一次发送时重新拉起（`--resume`）。这是用户触发的，不属于自动恢复。
 
+**E5 实测（2026-09-25）：清扫不是可选项。** 扮演服务进程的父进程被 `SIGKILL` 后，常驻 `claude`
+**120 秒内没有退出**（不会因 stdin EOF 自行退出），只能被 `kill`。所以上面这条"服务启动时清扫
+残留 scope"必须真的实现，L3 的清扫逻辑不能省。E5 那次实验自己也把留下的常驻进程 SIGKILL 掉了
+（读数里的 `残留清扫：已由本实验清扫（SIGKILL），无残留`）——每轮实验不留残留进程。
+
 ### 11. 资源：不限数量，但要有内存包络（L3）
 
 原则 3 不限数量。但 2026-09-25 的事故说明，不设上限的进程群会把整机拖进换页：负载一度到 4309，OOM 杀了 36 次。所以建议**不限个数，只限内存**：
@@ -346,13 +352,15 @@ SDK 选项构建（`mapCliOptionsToSDK` 等）从 `claude-runtime.provider.js` �
 - 被 OOM 杀掉的宿主显示 `exited`，`detail = oom`（从 journal 或退出信号判断）。
 - 没有 systemd 时退化为不包装，并在日志里说明一次。
 
-两个上限的具体数值需要实测后再定（见实验 E7），这里**不给拍脑袋的数**。
+两个上限的具体数值需要实测后再定（见实验 E7），这里**不给拍脑袋的数**。E7 的**真实模型**一轮实际
+观察窗只有 0.10 小时（峰值树 RSS 262532KB，0.10 小时花掉 $1.0836），**远不到 ≥24 小时**，只够说明
+"没有分钟级的暴涨"——两个上限的数值**仍未定**，见「阶段 0 结论」的 E7 行。
 
 **待确认**：是否接受"不限个数，但有总内存上限"。如果连总内存上限也不要，常驻进程就只能和服务一样没有保护。
 
 ### 12. 身份与寻址
 
-- 通过 `extraArgs: { name: '<标题 slug>-<会话 ID 前 6 位>' }` 给常驻进程一个稳定的 peer 名，driver 以 `identity` 事件把它上报到绑定的 `peerName`。标题变化时不改名，名字在进程生命周期内固定。中文和空格是否被接受需要验证（E6）；不接受则只用 ID 前缀。
+- 通过 `extraArgs: { name: '<标题 slug>-<会话 ID 前 6 位>' }` 给常驻进程一个稳定的 peer 名，driver 以 `identity` 事件把它上报到绑定的 `peerName`。标题变化时不改名，名字在进程生命周期内固定。**E6 实测：`-n, --name <name>` 是合法旗标，中文与空格被原样接受**（本地转录里 `agent-name` / `custom-title` 与设定值逐字一致，含 `实验会话 中文 空格`）。⚠️ 但这个名字**不进 `/v1/messages` 请求体**——driver 判定它是否生效只能读本地转录（`<configDir>/projects/<slug>/<session>.jsonl` 里的 `agent-name` 记录），读请求体是看不出来的。
 - 会话菜单新增"复制 SendMessage 地址"，仅当绑定存活且 `addressable` 时可用。
 - 会话详情显示 pid、peer 名、启动时间、内存（读 scope 的 `memory.current`）、状态和保活理由。这些数据来自统一的宿主接口。
 - 在 Shell 标签页执行 `claude --resume` 会让同一会话多出第二个写入者。因此**常驻会话不支持 Shell 标签页**：只按 `lifecycle_mode` 判断，与进程是否存活无关，也不提供强行打开。关闭常驻模式后恢复可用。
@@ -531,6 +539,52 @@ Claude 自建的 cron 标注"推测存活，重启即丢失"，与持久的 `sch
 | E8 | `bypassPermissions` 下 `AskUserQuestion` 走不走 `canUseTool` | 能在回调中拦截 |
 
 实验会真实调用模型，产生费用。
+
+### 阶段 0 结论（2026-09-25 实测，claude 2.1.282）
+
+原始读数（pid、时间戳、消息类型序列、RSS 样本）逐节写在
+`docs/proposals/claude-resident-sessions-experiments.md`，`node scripts/resident-experiment.mjs
+--check-record` 可校验八节齐全。实验脚本是 `scripts/resident-experiment.mjs`，护栏测试是
+`scripts/resident-experiment.test.mjs`。逐条结论：
+
+| 编号 | 结论 | 对文档的影响 |
+|---|---|---|
+| E1 | **成立**。常驻进程里 `CronCreate` 被接受（工具返回 `Scheduled recurring job … Session-only (not written to disk, dies when Claude exits). Auto-expires after 7 days.`），330s 窗口内按分钟面连续触发 **5** 次（要求 ≥3），每次都作为一次独立的无人轮出现在输出流里（多一条 `result`）。 | §10 的"cron 保活理由是推测出来的"成立；§8 的无人轮定义成立。 |
+| E2 | **两种形态一致：都另起一轮**。stream-json 形态：一轮进行中推入第二条用户消息，出现 2 个 `result`。交互式 CLI 形态读数见记录文件。 | §8、§15.7 的基准填"另起一轮"，**不是**"并入当前回答"。 |
+| E3 | **不丢失，且另起一轮**。无人轮（cron 触发）进行中推入用户消息：2 条用户消息 + 1 次无人轮共产生 3 个 `result`，说明插入的消息既没被拒，也没并进正在跑的那一轮。 | §8 忙时输入规则成立；§15.7 的文案按"另起一轮"写。 |
+| E4 | **成立**。`interrupt()` 后同一 pid（如 `3849730`）仍存活，cron 从 1 次继续涨到 2 次——`interrupt()` 只停当前这一轮。 | §7 的 `interrupt()`／§15.4 的"停止"语义成立。 |
+| E5 | **必须清扫**。扮演服务进程的子进程被 `SIGKILL` 后，常驻 `claude` 进程 **120s 内没有退出**（不会因 stdin EOF 自行退出）。 | §10 的服务重启清扫不是可选项；L3 清扫必须实现。注意：这个不退出的进程要由清扫逻辑**真的 kill 掉**，否则每轮实验都会在机器上留一个常驻进程（本实验自己也收尾清扫了）。 |
+| E6 | **成立，且中文与空格被原样接受**。`-n, --name <name>` 是合法旗标；`extraArgs.name` 的值出现在**本地转录**里，`agent-name` 与 `custom-title` 均与设定值逐字一致（含 `实验会话 中文 空格`）。 | §12 的 `extraArgs.name` 方案可照原样落地。**判定通道要注意**：这个名字不进 `/v1/messages` 请求体，用 mock 端点看请求体是**看不出来**的——driver 若要读取 peer 名，读转录（`<configDir>/projects/<slug>/<session>.jsonl` 里的 `agent-name` 记录），不要读请求体。 |
+| E7 | **未达标（阻塞项）**。**真实模型**下观察窗 **0.10 小时**，远不到 ≥24 小时；峰值树 RSS 262532KB；0.10 小时花掉 $1.0836（input 29080 / output 11964 / cache_read 300928 tokens），期间 1 次 cron 无人轮。只够说明"分钟级没有暴涨"，**不足以**定 §11 的两个上限数值。 | §11 的"不给拍脑袋的数"仍然成立——数值待一次真正的 24 小时浸泡。 |
+| E8 | **成立**。`bypassPermissions` 下 `AskUserQuestion` 仍然走 `canUseTool`（被调用 1 次），可以在回调里拦截并自动拒绝。 | §9 的无人值守处理（自动拒绝 `AskUserQuestion`/`ExitPlanMode`）可实现。 |
+
+补充两条实测细节，写驱动的人必须知道：
+
+1. **一轮开始时会发两条 `/v1/messages` 请求**：一条 ~2KB 的预检（也带 `tools`、也带用户文本），
+   一条 ~77KB 的真 agent 轮（完整 system prompt + skills 前导）。**按序号或按"请求里有没有用户
+   文本"去识别这一轮，都会识别错**——实验中把 `tool_use` 发给预检那条时，回复被丢弃，那一轮
+   拿到别处的文本就结束了，读数长得像"CronCreate 不触发"，其实是工具从没被创建。要按**请求体
+   体量**挑（真轮 >10KB）。
+2. **每轮以正好一条 `result` 结束**（`subtype: success/error`）。数轮次就数 `result`；不要用
+   "最新一条消息里有没有某个标记"来数触发——cron 推入的那一轮里，标记同时出现在历史
+   （`tool_use` 的入参）和最新消息里，会数错。
+
+`residentFeatures` 按 E1–E8 可填的项（`liveReconfigure` 不在本轮实验范围内，**留空待验**）：
+
+```ts
+residentFeatures: {
+  interruptKeepsProcess: true,   // E4
+  liveReconfigure: [],          // 未被 E1–E8 覆盖，需单独验证
+  unattendedTurns: true,        // E1、E3
+  addressable: true,            // E6
+  inputWhileBusy: true,         // E2
+}
+```
+
+⚠️ **本节结论仍未过人工关卡**：E2/E3 的基准（忙时推入用户消息 = 另起一轮）还等着人签字；记录文件
+`docs/proposals/claude-resident-sessions-experiments.md` 里以 `E2/E3 基准确认：` 开头的那一行**只能由
+人（yale）写**，执行者不得代写。加上 E7 的 ≥24 小时浸泡尚未达标，任务 `gap-claude-resident-phase0-experiments`
+的正确终态是 `needs-human`，不是 `done`——机器能验的四条 AC 已全绿，卡住的正是人证那一关。
 
 ### 阶段 1 起：自动化测试
 
