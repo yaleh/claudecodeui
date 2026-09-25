@@ -531,9 +531,23 @@ export default function ChatComposer({
           send a message stay reachable without hunting, so both groups are
           `shrink-0` and the box is `flex-nowrap`. From `md` up the previous
           wrapping row is kept exactly as it was.
+
+          From `md` up the *left group* may take a second line of its own, which is
+          what `flex-wrap` here buys. The box's own `flex-wrap` only decides where the
+          two groups go; it cannot break a group, and a group whose children may not
+          shrink (the replay pair declares `shrink-0`, and an icon button cannot go
+          below its own icon) then pushes the box's content past its edge instead of
+          moving down. Measured at the narrowest desktop width — 768, sidebar open, so
+          the box is 445px wide — one recording's pair in this group read
+          `scrollWidth 470 / clientWidth 445`: 25px of content the box would have
+          scrolled sideways, invisible without a horizontal scroll gesture. Wrapping
+          the group is the move the mobile branch already makes one level up (the clip
+          row) and leaves every reading that has no pair to fit on one line: a
+          recording only ever arrives because the mic produced one, and the two groups'
+          placement, the 93px height and the 1280 footer are unchanged without it.
         */}
         <PromptInputFooter className={isMobile ? 'flex-nowrap' : 'flex-wrap gap-y-1'}>
-          <PromptInputTools className={isMobile ? 'shrink-0' : 'min-w-0'}>
+          <PromptInputTools className={isMobile ? 'shrink-0' : 'min-w-0 flex-wrap'}>
             <PromptInputButton
               tooltip={{ content: t('input.attachFiles') }}
               onClick={openAttachmentPicker}
