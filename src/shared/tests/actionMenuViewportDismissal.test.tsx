@@ -79,3 +79,32 @@ test('a scroll from a later interaction still dismisses the menu', async () => {
   assert.equal(menu(), null, 'an independent scroll dismisses the menu');
   assert.equal(trigger().getAttribute('aria-expanded'), 'false');
 });
+
+/**
+ * The other half of the arming frame's timing assumption.
+ *
+ * The two cases above both dispatch the opening scroll *before* running the arming frame, which
+ * is the order the browser uses only while rendering keeps up: the scroll steps of a frame run
+ * before that frame's animation-frame callbacks, so a scroll caused in the click's own frame
+ * always beats the frame that arms the listener. Slower rendering breaks that: the same scroll
+ * can be dispatched in a later frame, after the listener is armed, and the menu closes on the
+ * click that opened it again.
+ *
+ * This case opens the menu and runs the arming frame without any scroll first, so the armed
+ * listener cannot know whether the first scroll it sees is a user's or that slowed-down opening
+ * scroll. It must therefore let it through — and only it: the second scroll is a viewport change
+ * that no click of ours caused, so it must dismiss the menu.
+ */
+test('a scroll that arrives only after the arming frame is tolerated once, then dismisses', async () => {
+  render(<Harness />);
+
+  fireEvent.click(trigger());
+  assert.ok(menu(), 'the click opens the menu');
+
+  await nextFrame();
+  fireEvent.scroll(scroller());
+  assert.ok(menu(), 'a scroll the arming frame never saw before it armed must not close the menu');
+
+  fireEvent.scroll(scroller());
+  assert.equal(menu(), null, 'a further scroll dismisses the menu');
+});
