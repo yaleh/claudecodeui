@@ -2,7 +2,7 @@
 id: gap-e2e-data-dir-lands-on-a-full-root-fs
 title: e2e data dir 无条件落在 os.tmpdir()：根卷 99% 满时 AC-122 红成 ENOSPC /
   ERR_INSUFFICIENT_RESOURCES，读起来像应用缺陷
-status: ready
+status: done
 labels:
   - gap
   - defect
