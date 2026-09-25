@@ -412,12 +412,44 @@ with the same REST refresh as the fallback.
 **RULE: the watcher discovers conversations independently of the app, and its rows are keyed
 by the provider id until the app claims them.**
 
-`sessions-watcher.service.ts` watches four provider directories with chokidar in polling mode
-(`usePolling`, a 6 s interval, `depth: 6`, `ignoreInitial`), keeps only `*.jsonl` files —
-`opencode.db` for OpenCode — and calls `sessionSynchronizerService.synchronizeProviderFile`.
-Indexed ids are queued and flushed with a 500 ms debounce and a 2 s maximum wait
-(`PROJECTS_UPDATE_DEBOUNCE_MS`, `PROJECTS_UPDATE_MAX_WAIT_MS`), then handed to
-`broadcastSessionUpsertedBatch`, which walks the client set once for the whole batch.
+`sessions-watcher.service.ts` watches four provider directories with chokidar (`depth: 6`,
+`ignoreInitial`), keeps only `*.jsonl` files — `opencode.db` for OpenCode — and calls
+`sessionSynchronizerService.synchronizeProviderFile`. Indexed ids are queued and flushed with a
+500 ms debounce and a 2 s maximum wait (`PROJECTS_UPDATE_DEBOUNCE_MS`,
+`PROJECTS_UPDATE_MAX_WAIT_MS`), then handed to `broadcastSessionUpsertedBatch`, which walks the
+client set once for the whole batch.
+
+Which mechanism delivers those events is decided per root, not fixed:
+
+- `CLOUDCLI_WATCHER_MODE` selects it: `auto` (the default), `native`, or `poll`. `auto` runs a
+  native watcher probe on the root (`depth: 0`, nothing written) and prefers native events when
+  the probe reaches `ready` without an error. An explicit `native` that the probe cannot honour
+  **throws** — falling back would hand the operator the polling clock they asked to avoid — and
+  the escape hatch is `poll`, which reproduces the pre-2026 behaviour exactly. An unrecognised
+  value is treated as `auto` and says so in the mode line.
+- Polling is a **fallback that backs off**, not the default: the period scales linearly with the
+  root's tracked file count from a 6 s floor up to a 60 s ceiling (`POLL_INTERVAL_MIN_MS`,
+  `POLL_INTERVAL_MAX_MS`, `POLL_INTERVAL_REFERENCE_FILES`). One sweep costs roughly one `stat`
+  per tracked file, so scaling the period with the corpus holds the idle duty cycle constant
+  instead of letting it grow with history.
+- A **native** watcher that errors (ENOSPC, the inotify watch limit) is replaced by a polling one
+  for that root rather than being left with a dead descriptor; a polling watcher that errors has
+  nothing below it and keeps polling.
+- Narrow, and native-only: **a change written into the gap between the first walk ending and the
+  watches being live is not replayed.** Measured on this machine's real corpus (200 project
+  directories, ~2 k transcripts) a metadata-only change made in the first second after `ready`
+  was lost in 3 runs out of 3 and observed in ~0.5 s in all 7 runs that made it after a settle.
+  Polling has no such gap: its first sweep diffs against the baseline the walk just took, so it
+  reports what the gap missed. The window is one process start, and anything changed before the
+  watchers are created is already covered by the initial synchronization that runs first — but a
+  transcript touched in that second can wait for its next event.
+
+Every root logs one line naming the mechanism it resolved to and why, and
+`readActiveWatcherModes()` reads them back for the criteria that have to prove which clock they
+measured. Native events on a Docker mount or a network filesystem have **not been verified here**
+— the probe answers "does a native watch establish on this root", not "does it fire for writes
+made by the other side of a mount" — which is why `CLOUDCLI_WATCHER_MODE=poll` exists and should
+be set wherever that distinction has ever bitten.
 
 How rows are claimed:
 
