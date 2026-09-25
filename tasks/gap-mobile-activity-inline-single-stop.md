@@ -1,7 +1,7 @@
 ---
 id: gap-mobile-activity-inline-single-stop
 title: 移动端执行状态进入消息流末尾（无 Stop、不覆盖消息），只保留右下角主 Stop 一个入口；桌面仍用 composer 上沿 tab 状态
-status: ready
+status: done
 labels:
   - gap
 parent: null
