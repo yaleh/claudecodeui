@@ -3,7 +3,7 @@ id: gap-voice-error-notice-browser-e2e
 title: 真实浏览器里 403 未开通 / 404 模型不存在 / 空答案 / 服务端 422
   各显示自己的中文文案，提示持续显示到关闭、下次录音时清除，草稿逐字保留，技术详情折叠展开后才读得到状态码与
   upstreamCode，页面上没有拼接句（AC-153）
-status: needs-human
+status: todo
 labels:
   - gap
   - defect
