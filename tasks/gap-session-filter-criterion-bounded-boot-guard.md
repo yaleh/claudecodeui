@@ -3,7 +3,7 @@ id: gap-session-filter-criterion-bounded-boot-guard
 title: AC-101 判据的启动阶段无界：一次渲染器侧模块加载中断（net::ERR_NETWORK_CHANGED，实测 10 连发 / 5 个模块同时
   ERR_FAILED）被拖到 55s 自带看门狗 SIGKILL 记红——本族既有的有界预热+启动探针只活在三份 spec 里，未回灌到
   e2e/session-filter.spec.ts
-status: todo
+status: ready
 labels:
   - gap
   - defect
