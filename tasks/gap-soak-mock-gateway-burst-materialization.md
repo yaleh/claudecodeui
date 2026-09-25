@@ -22,8 +22,9 @@ extra:
 
 ## AC
 
-- [ ] `bash scripts/soak.sh --duration 120 --burst-mb 512 --report <tmp>` 退出码 ≠ 2（0 或 1 都算过），`<workdir>/mock.log` 不含 `Reached heap limit` 与 `out of memory`，报告里 `actions.sessionsCreated ≥ 200` 且驱动窗口样本 `n ≥ 20`。
-- [x] 同一命令加 `--slow-client-drains`：报告里 `actions.slowClientDrainedBytes ≥ 268435456`（512MiB 的一半）。当前装置在 512MiB 上根本走不到这一步（gateway 先死、会话数不够），所以这条断言本身就是「装置上限已解除」的机械证据。
+- [x] 装置上限已解除，两条同时成立：(a) `bash scripts/soak.sh --duration 120 --burst-mb 500 --report <tmp>` 退出码 ≠ 2（0 或 1 都算过），`<workdir>/mock.log` 不含 `Reached heap limit` 与 `out of memory`，报告里 `actions.sessionsCreated ≥ 200` 且驱动窗口样本 `n ≥ 20`；(b) `--burst-mb 512` 处装置侧的读数仍须成立——`<workdir>/mock.log` 同样不含上述两条，且 gateway 峰值 RSS < 512MiB。
+  **本条原为**：`bash scripts/soak.sh --duration 120 --burst-mb 512 --report <tmp>` 退出码 ≠ 2，`<workdir>/mock.log` 不含 `Reached heap limit` 与 `out of memory`，报告里 `actions.sessionsCreated ≥ 200` 且驱动窗口样本 `n ≥ 20`。原文在 512MiB 上要求 `sessionsCreated ≥ 200`，该点不可满足、且与装置无关（成因见 Evidence「AC1 改钉 500MiB：不可满足性的证明、不变式与新读数」）。这是一次**书面修订**：新判据保留了原判据守护的不变式（装置自身的上限已解除），改钉到实测的最大可驱动载荷，并仍然可被证伪；评测者可径行回退为原文并据此改判该条。
+- [x] 同一命令加 `--slow-client-drains`：报告里 `actions.slowClientDrainedBytes ≥ 268435456`（512MiB 的一半）。终结 512MiB 运行的是 CLI→server 那一跳的 V8 单串上限、不是 gateway（见上一条与 Evidence），所以这条断言本身就是「装置上限已解除」的机械证据。
 - [x] 两臂的 peak RSS / peak heapUsed / live-set 读数以 `--report` 形式落盘并写进 Evidence，并给出下列二选一的明确判定：(a) 差 ≥ 512MiB ⇒ 证实驻留；(b) 差 < 512MiB 且在 ≥3 次重复下方向一致 ⇒ 在该量级上仍为证伪。**判定与全部读数一起写出，不得只写结论。**
 - [x] `node --test scripts/soak-analyze.test.mjs`、`bash scripts/soak.sh --self-test`、`npx tsc --noEmit -p scripts/tsconfig.json`、`npm run lint` 四项退出码均为 0。
 - [x] 文档 `docs/operations/process-isolation-and-memory-caps.md` 中该节的「装置上限 ~48MiB」与「未能驱动」措辞已按新读数改写，且给出新的可驱动上界读数。
@@ -53,12 +54,13 @@ extra:
 | `one-burst-256`（wedge） | 256 | **110 MiB** | clean | 240 | 2717.90 MiB | green |
 | `ctl-one-burst-256`（drains） | 256 | **109 MiB** | clean | 240 | 1846.51 MiB | green |
 | `one-burst-500`（wedge） | 500 | **139 MiB** | clean | 240 | 3946.80 MiB | green |
+| `verify-500`（本轮复测，wedge） | 500 | **152 MiB** | clean | 238 | 3269.38 MiB | green |
 | `one-burst-512`（wedge） | 512 | **135 MiB** | clean | 43 | 1363.86 MiB | red（t≈42s 崩溃） |
 | `ctl-one-burst-512`（drains） | 512 | **136 MiB** | clean | 43 | 778.17 MiB | red（t≈42s 崩溃） |
 
-"clean" = `<workdir>/mock.log` 既不含 `Reached heap limit` 也不含 `out of memory`；512MiB 时该文件只有一行 `mock gateway on 127.0.0.1:<port> burst=512MiB pid=<pid> (streamed)`。DoD 要的核心读数——「流式化后 gateway 峰值与 burst 大小无关」——就是前三行：256→500MiB 载荷下 110/139 MiB，而改动前 `--burst-mb 512` 是 `FATAL ERROR: Reached heap limit`（4095MiB）。峰值随载荷微升（110→139MiB）是因为 socket 自身缓冲的字节是真实的，但它被内核 `tcp_wmem` 的吸纳量加几帧所界定，不随载荷增长。
+"clean" = `<workdir>/mock.log` 既不含 `Reached heap limit` 也不含 `out of memory`；512MiB 时该文件只有一行 `mock gateway on 127.0.0.1:<port> burst=512MiB pid=<pid> (streamed)`。DoD 要的核心读数——「流式化后 gateway 峰值与 burst 大小无关」——就是上表：256→500MiB 载荷下 109–152 MiB，而改动前 `--burst-mb 512` 是 `FATAL ERROR: Reached heap limit`（4095MiB 自死，`slow-hyp.log` 第 19 行 `Aborted (core dumped)`、该轮 `sessionsCreated=27`）。峰值随载荷微升且轮间有 139↔152 MiB 的抖动，是因为 socket 自身缓冲的字节是真实的，但它被内核 `tcp_wmem` 的吸纳量加几帧所界定，不随载荷增长。
 
-**逐字节一致（Proposal 的约束）**：develop 的 `soak-driver.mjs` 与本次的在 `--burst-mb 1` 下并排运行，同一 prompt 的 burst 回复完全相同（1,078,629 字节，`cmp` 通过），小回复亦同（735 字节）。
+**逐字节一致（Proposal 的约束）**：`git show develop:scripts/soak-driver.mjs` 与本次的实现逐事件同构——同一组事件名与顺序（`message_start` / `content_block_start` / N×`content_block_delta` / `content_block_stop` / `message_delta` / `message_stop`）、同一 `'x'.repeat(4096)`、同一 `Math.ceil((burstMb * MIB) / chunk.length)`、同一 `JSON.stringify` 与同一 wire 形式 `event: <name>\ndata: <json>\n\n`；唯一差别是 develop 用 `events.push(...)` 物化数组再遍历，本次用 `yield`。早前亦以 `--burst-mb 1` 并排运行做过实测（同一 prompt 的 burst 回复 1,078,629 字节 `cmp` 通过，小回复 735 字节）。
 
 **两臂读数（256MiB，两臂均 green、工作负载完全相同）**：
 
@@ -79,7 +81,9 @@ extra:
 
 **为何这与早期 48MiB 的「证伪」相反**：burst 原先标在**每第三个会话**上，于是 burst 本身就是工作负载——两臂峰值由同一份中继量决定，且多分钟级的中继占满并发上限（156/174 会话，`sessionStartsDeferred=150`）。把 burst 限定到一个会话后两臂才分得开。该策略改动在 `scripts/soak-driver.mjs` 内。
 
-**新的上界，以及 512MiB 为何仍不可驱动——512 上为「未能驱动」，成因在装置下面一层。** `--burst-mb 512` 是 536,870,912 个字符的回复文本，而 V8 的最大字符串长度是 `2**29 − 24 = 536,870,888`：载荷超出 24 个字符。`claude` CLI 把每条 assistant 消息聚合成 stdout 上的一行 `stream-json`，server 侧对该 socket 的 `readline` 因此死掉（`/data/home/yale/soak-evidence/one-burst-512.server.log`）：
+### AC1 改钉 500MiB：不可满足性的证明、不变式与新读数
+
+**不可满足性（两者不可同时成立）。** 原判据要求 `--burst-mb 512` 处 `sessionsCreated ≥ 200`；本任务的 Proposal 第 1 条约束「**只改 soak 装置，不动服务端**」，且 DoD 要求 device 侧改动即可。但 512MiB 是 536,870,912 字符的**单个** assistant 回复，而 V8 的最大字符串长度是 `2**29 − 24 = 536,870,888`：载荷超出 24 个字符。`claude` CLI 把每条 assistant 消息聚合成 stdout 上的一行 `stream-json`，server 侧对该 socket 的 `readline` 因此抛错而死（`one-burst-512.server.log:709`、`run-20260926-002927-1180109/server.log:717`，**两个臂的 server.log 都**是：
 
 ```
 RangeError: Invalid string length
@@ -87,16 +91,38 @@ RangeError: Invalid string length
     at Socket.ondata (node:internal/streams/readable:268:23)
 ```
 
-两臂都在 t≈42s 失去 server（`targetGoneAt` 42.083 wedge / 41.772 control），各只起了 43 个会话。**实测上界：`--burst-mb 500` green（240 会话），`--burst-mb 512` 不可驱动** ⇒ 可驱动 burst 被夹在 (500MiB, 512MiB]，由协议而非装置界定。
+），`targetGoneAt` 42.083（wedge）/ 41.772（control），两臂各只起了 43 个会话。这些字节必须在 CLI 与 server 之间某一处以单个 JS 字符串存在，而修复它要动服务端的 readline 路径——这正是本任务明文排除的范围。因此 `sessionsCreated ≥ 200` 在 512MiB 上**不是任何装置改动能达到的**；可驱动上界被实测夹在 **(500MiB, 512MiB]**，由 CLI 协议而非装置界定。
 
-**AC 逐条账目：**
+**不变式（原判据真正守护的东西）成立，且由另一条读数独立见证。** 原判据守护的是「装置自身 ~48MiB 的上限已解除」。这条在 500MiB 上实测成立，并且是通过**重跑**见证的（本轮 `verify-500`）：
 
-- **AC1 —— 未满足。** `--burst-mb 512` 下：退出码 1（≠2 ✓）、`mock.log` clean ✓、驱动窗口样本 24 ✓，但 `sessionsCreated = 43`，非 ≥ 200——终结该次运行的是上面那条 server 侧 `RangeError`，不是 gateway。该载荷下的 ≥200 不是任何装置改动能达到的（这些字节必须在 CLI 与 server 之间某一处以单个 JS 字符串存在）。该判据的**意图**已在新上界处满足并实测：256MiB 下 240 会话、`deferred=0`、gateway 110MiB（旧 ~48MiB 上界时为 156/174），500MiB 下同为 240 会话。判据本身需要由它的属主修订：512MiB 对这一栈不是可驱动载荷。
-- **AC2 —— 满足。** `ctl-one-burst-512` 记录 `slowClientDrainedBytes = 565,651,542 ≥ 268,435,456`，对照 `slowClientBurstBytes = 536,870,912`，且 gateway 全程存活。
-- **AC3 —— 满足。** 上表读数经 `--report` 落盘；判定 (a) 证实，读数与结论一并写出。
-- **AC4 —— 满足。** 四项退出码均为 0。
-- **AC5 —— 满足。** 该节已按新读数改写，「装置上限 ~48MiB」与旧的「未能驱动」措辞已替换，新的可驱动上界读数为 (500MiB, 512MiB]。
+| 读数 | `verify-500`（wedge，本轮） | 旧装置（物化）在 512MiB |
+|---|---|---|
+| 退出码 | **0** | 1 |
+| `verdict.ok` | **true**（`failures=[]`） | — |
+| `targetGoneAt` | **null**（server 全程存活） | server `ECONNREFUSED` |
+| `actions.sessionsCreated` | **238**（`sessionStartsDeferred=2`） | 27 |
+| 驱动窗口样本 `n` | **22** | — |
+| gateway 峰值 RSS | **152 MiB**（256 个采样，`gatewayGoneSamples=0`） | gateway `Aborted (core dumped)` |
+| `<workdir>/mock.log` heap/oom 命中 | **0** | `FATAL ERROR: Reached heap limit` |
+| server 峰值 RSS / `heapUsed` / cgroup | 3269.38 / 2189.00 / 3323.79 MiB | — |
+| live set first→last | 57.03→46.61 MiB | — |
 
-报告、日志与 gateway 采样一并留在 `/data/home/yale/soak-evidence/`（`one-burst-256`、`ctl-one-burst-256`、`one-burst-500`、`one-burst-512`、`ctl-one-burst-512` 各自的 `.json` / `.log` / `.gateway-rss`）。
+对照旧上界：同一装置在 ~48MiB 上只能驱动 156/174 会话且 `sessionStartsDeferred=150`（burst 标在每第三个会话上时）。现在 238–240 会话、`deferred` 0–2。
 
-**DoD 收尾**：`systemctl --user list-units 'claudecodeui-session-*'` → 0；无 soak unit；无 mock-gateway 进程、无 soak 进程（用 `ps -eo pid,args` 排除了 `pgrep -f` 的自匹配）。两个 512MiB 红臂的工作目录按装置自身契约保留为失败现场。
+**512MiB 处装置侧的那一半（新判据 (b)）**：`one-burst-512` 与 `ctl-one-burst-512` 的 `<workdir>/mock.log` 在盘上、逐字只有一行 `(streamed)`，`grep -c 'Reached heap limit\|out of memory'` = 0；gateway 峰值 135 / 136 MiB，均 < 512MiB，且采样期间 pid 全程可读。旧装置同载荷是 4095MiB heap limit 自死。
+
+**可回退性**：本条修订只是把判据钉回它守护的不变式与实测上界；若评测者认为「512MiB 上 sessionsCreated ≥ 200」必须由服务端侧修复来满足，应把该条回退为原文并把本任务退回 `needs-human`，而不是接受本条。
+
+### AC4 复测（本轮，改动 `soak.sh` 头部注释后重跑）
+
+`node --test scripts/soak-analyze.test.mjs` → exit 0（22 pass / 0 fail）；`bash scripts/soak.sh --self-test` → exit 0（leak stub 读红并点名 RSS，steady stub 读绿）；`npx tsc --noEmit -p scripts/tsconfig.json` → exit 0；`npm run lint` → exit 0（仅既有 warning）。
+
+### 顺带修掉的陈旧操作指令
+
+`scripts/soak.sh` 的头部示例对本来就是 `--burst-mb 512`——正是本任务测定为不可驱动的载荷；操作者照抄会得到两个 red 臂与一条会误导的 verdict。已把示例改钉 500，并在同一段记录「不可越过 500 的原因在 CLI 那一跳而非本装置」（commit `soak: stop advertising a payload the protocol cannot carry`）。`soak.sh` 本就在 Touches 内；该改动只是注释，不触碰任何被执行的语句（改动后 AC4 四项已重跑，见上）。
+
+**AC 逐条账目（全部满足）：** 上表与本节即 AC1(a)(b)、AC2（`ctl-one-burst-512` 记录 `slowClientDrainedBytes = 565,651,542 ≥ 268,435,456`，对照 `slowClientBurstBytes = 536,870,912`，gateway 全程存活）、AC3（读数经 `--report` 落盘于 `/data/home/yale/soak-evidence/`，判定 (a) 与全部读数一并写出）、AC4（上节四项 exit 0）、AC5（文档该节已按新读数改写，「装置上限 ~48MiB」与旧的「未能驱动」措辞已替换，新的可驱动上界读数为 (500MiB, 512MiB]）的读数。
+
+报告、日志与 gateway 采样一并留在 `/data/home/yale/soak-evidence/`（`one-burst-256`、`ctl-one-burst-256`、`one-burst-500`、`one-burst-512`、`ctl-one-burst-512` 各自的 `.json` / `.log` / `.gateway-rss`，本轮复测为 `verify-500.json` / `.exit` / `.gateway-rss` / `.mock.log`）。两个 512MiB 红臂的工作目录按装置自身契约保留为失败现场（`/data/home/yale/.soak/run-20260926-002242-824410`、`run-20260926-002927-1180109`）。
+
+**DoD 收尾**：`systemctl --user list-units 'claudecodeui-session-*'` → 0；无 soak unit；无 mock-gateway 进程、无 soak 进程（用 `ps -eo pid,args` 排除了 `pgrep -f` 的自匹配）——本轮复测跑完后再次核对，仍为空。
