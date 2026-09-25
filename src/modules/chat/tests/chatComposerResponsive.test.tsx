@@ -7,8 +7,18 @@ import { initReactI18next } from 'react-i18next';
 import { beforeEach, test, vi } from 'vitest';
 
 import ChatComposer from '@/modules/chat/composer/ChatComposer';
+import ChatMessagesPane from '@/modules/chat/transcript/ChatMessagesPane';
 import enChat from '@/modules/i18n/locales/en/chat.json';
-import type { VoiceClipSlot } from '@/shared/types';
+import { UiPreferencesProvider } from '@/shared/context/UiPreferencesContext';
+import type {
+  ChatMessage,
+  PendingPermissionRequest,
+  Project,
+  ProjectSession,
+  ProviderModelActions,
+  SessionActivity,
+  VoiceClipSlot,
+} from '@/shared/types';
 
 /**
  * On a phone the composer's footer wrapped onto a second row, because it carried
@@ -25,6 +35,15 @@ import type { VoiceClipSlot } from '@/shared/types';
  * these cases would fail rather than pass against a second copy of the rule. That
  * the real box really measures `scrollWidth === clientWidth` on a phone is the e2e
  * probe's job, not a unit test's.
+ *
+ * The last two cases read the running turn instead of the footer, over a composer
+ * and a message pane rendered together — the two surfaces the turn can be drawn on,
+ * as ChatInterface renders them. What they can hold is which surface exists at
+ * which tier and how many accessible stop entries the pair offers: below `md` the
+ * status is a line in the transcript carrying no control, so the composer's own
+ * submit button is the one entry; from `md` up the tab still carries its own, and
+ * the reading is unchanged. That the line really sits under the last message and
+ * really scrolls with it is likewise the browser probe's job.
  */
 
 /**
@@ -231,6 +250,127 @@ const openMoreMenu = (view: ReturnType<typeof render>) => {
   fireEvent.click(view.getByRole('button', { name: enChat.input.moreTools }));
   return view.getByRole('menu');
 };
+
+/* ── one running turn, two surfaces, and the stop entries it offers ───────── */
+
+/** A fixed clock, so the turn's elapsed reading is a number the cases can name. */
+const START = Date.parse('2026-01-01T00:00:00.000Z');
+/** The pane's inline status line, as the message-flow surface is addressed in the DOM. */
+const INLINE_ACTIVITY_SLOT = '[data-slot="chat-activity-inline"]';
+
+/**
+ * The turn both cases are about: running, and interruptible — so the tab surface
+ * has something of its own to offer and the pair genuinely could expose two stop
+ * entries, which is what makes the counts below readings rather than zeroes.
+ */
+const RUNNING_ACTIVITY: SessionActivity = {
+  statusText: 'Reviewing',
+  canInterrupt: true,
+  startedAt: START,
+};
+
+/** A request already on screen: the status belongs to it, and the turn stops being shown. */
+const PENDING_PERMISSION: PendingPermissionRequest = { requestId: 'req-1', toolName: 'Bash' };
+
+const TURN_MESSAGES: ChatMessage[] = [
+  { type: 'user', content: 'question', timestamp: '2026-01-01T00:00:00.000Z' },
+  { type: 'assistant', content: 'answer', timestamp: '2026-01-01T00:00:01.000Z' },
+];
+
+const TURN_PROJECT: Project = {
+  projectId: 'project-1',
+  path: '/repo',
+  fullPath: '/repo',
+  displayName: 'Repo',
+  isStarred: false,
+};
+
+/**
+ * The pane's own props, only as far as a transcript holding one turn needs them. The
+ * pane is rendered by ChatInterface next to the composer, and its inline status line
+ * is the second surface of this turn: `hasActivityIndicator` is that component's own
+ * reading of "a turn is running and no permission request has taken the status over",
+ * and `activity` is the same turn.
+ */
+const paneProps = (overrides: Partial<React.ComponentProps<typeof ChatMessagesPane>> = {}) => ({
+  scrollContainerRef: { current: null },
+  scrollContentRef: () => undefined,
+  onWheel: () => undefined,
+  onTouchMove: () => undefined,
+  isLoadingSessionMessages: false,
+  isProcessing: true,
+  hasActivityIndicator: false,
+  activity: null,
+  chatMessages: TURN_MESSAGES,
+  selectedSession: { id: 'session-a' } as ProjectSession,
+  currentSessionId: 'session-a',
+  provider: 'claude' as const,
+  setProvider: () => undefined,
+  textareaRef: { current: null },
+  providerModels: { claude: LONG_MODEL_NAME },
+  setProviderModel: () => undefined,
+  providerModelCatalog: {},
+  providerModelActions: {} as ProviderModelActions,
+  providerModelsLoading: false,
+  tasksEnabled: false,
+  isTaskMasterInstalled: null,
+  setInput: () => undefined,
+  isLoadingMoreMessages: false,
+  hasMoreMessages: false,
+  totalMessages: TURN_MESSAGES.length,
+  sessionMessagesCount: TURN_MESSAGES.length,
+  visibleMessageCount: TURN_MESSAGES.length,
+  visibleMessages: TURN_MESSAGES,
+  loadEarlierMessages: () => undefined,
+  loadAllMessages: () => undefined,
+  allMessagesLoaded: true,
+  isLoadingAllMessages: false,
+  loadAllJustFinished: false,
+  showLoadAllOverlay: false,
+  createDiff: () => undefined,
+  selectedProject: TURN_PROJECT,
+  showThinking: true,
+  ...overrides,
+});
+
+/**
+ * The composer and the message pane in one tree, as ChatInterface renders them, with
+ * a turn running. Both surfaces are on screen for every reading taken over it, so a
+ * count of one means "one entry, across two surfaces" and not "nothing rendered" —
+ * the pane alone could not show the tab, and the composer alone cannot show the line.
+ * Returned as an element rather than a render result, so a case can build the pair in
+ * either state: a turn running, or a permission request holding the status.
+ */
+const turnElement = (width: number, { pendingPermissionRequests = [] as PendingPermissionRequest[] } = {}) => {
+  injectMatchMediaOnce();
+  setViewportWidth(width);
+  const activity = RUNNING_ACTIVITY;
+  const hasActivityIndicator = pendingPermissionRequests.length === 0;
+  const composerProps = { ...baseProps(), activity, isLoading: true, pendingPermissionRequests };
+  return (
+    <UiPreferencesProvider>
+      <ChatComposer {...(composerProps as React.ComponentProps<typeof ChatComposer>)} />
+      <ChatMessagesPane
+        {...(paneProps({ activity, hasActivityIndicator }) as React.ComponentProps<typeof ChatMessagesPane>)}
+      />
+    </UiPreferencesProvider>
+  );
+};
+
+const renderTurn = (width: number, options: { pendingPermissionRequests?: PendingPermissionRequest[] } = {}) => {
+  const view = render(turnElement(width, options));
+  const footer = view.container.querySelector<HTMLElement>(FOOTER_SELECTOR);
+  assert.ok(footer, `the composer must render a footer (${FOOTER_SELECTOR})`);
+  return { view, footer };
+};
+
+/** Every accessible control whose name says stop — the reading the criterion counts. */
+const stopButtons = (root: HTMLElement) => within(root).queryAllByRole('button', { name: /stop/i });
+
+/** The reads above, named rather than counted, so a stray control is identifiable in the failure. */
+const nameStops = (buttons: HTMLElement[]) =>
+  buttons.map((button) => button.getAttribute('aria-label') ?? button.textContent?.trim() ?? '<unnamed>').join(' | ')
+  || '<none>';
 
 await i18next.use(initReactI18next).init({
   lng: 'en',
@@ -460,6 +600,115 @@ test('(g) a clip leaves exactly one accessible replay control per track, in each
       trimmed.length,
       1,
       `each tier must expose exactly one accessible "Replay trimmed"; readings: ${readings.join(' | ')}`,
+    );
+
+    view.unmount();
+  }
+});
+
+test('(h) a running turn offers one stop entry below md and two from md up, and the one below md is the composer\'s own submit', () => {
+  const readings: string[] = [];
+
+  for (const tier of [
+    // Below `md` the status is the transcript's line, which carries no control, so the
+    // composer's submit is the one entry. From `md` up the tab still carries its own,
+    // which is the reading this change had to leave alone.
+    { label: 'narrow (390px)', width: MOBILE_WIDTH, stops: 1, outsideForm: 0, inlineLine: true },
+    { label: 'wide (1280px)', width: DESKTOP_WIDTH, stops: 2, outsideForm: 1, inlineLine: false },
+  ]) {
+    const { view, footer } = renderTurn(tier.width);
+    const form = view.container.querySelector('form[data-slot="prompt-input"]');
+    assert.ok(
+      form,
+      'the composer must render its PromptInput form, or "which control is the submit" has no answer to read',
+    );
+
+    const stops = stopButtons(view.container);
+    // The submit button is the one stop entry that lives inside the composer's own form;
+    // anything else offering a stop is a second surface's control.
+    const inForm = stops.filter((button) => form.contains(button));
+    const outsideForm = stops.filter((button) => !form.contains(button));
+    readings.push(
+      `${tier.label}: ${stops.length} stop(s) [${nameStops(stops)}], ${outsideForm.length} outside the composer's own submit`,
+    );
+
+    assert.equal(
+      stops.length,
+      tier.stops,
+      `each tier must offer ${tier.stops} stop entr${tier.stops === 1 ? 'y' : 'ies'}; readings: ${readings.join(' | ')}`,
+    );
+    assert.equal(
+      outsideForm.length,
+      tier.outsideForm,
+      `the tab's own stop must exist exactly from md up; readings: ${readings.join(' | ')}`,
+    );
+    assert.equal(
+      inForm.length,
+      1,
+      `the composer's own submit must be one of them on every tier; readings: ${readings.join(' | ')}`,
+    );
+    assert.equal(
+      inForm[0]?.getAttribute('aria-label'),
+      enChat.input.stop,
+      `the surviving entry must be the composer's submit control, not a same-named second one; readings: ${readings.join(' | ')}`,
+    );
+    assert.ok(
+      outsideForm.every((button) => button.className.includes('chat-activity-tab')),
+      `every stop entry outside the submit must be the activity tab's, so the wide reading is the existing pair and not a stray control; readings: ${readings.join(' | ')}`,
+    );
+
+    // The turn is still *shown* on the tier with one stop entry: it is the control that is
+    // absent from that surface, not the status. Without this the narrow count above would
+    // read the same for a pane that drew no status at all.
+    assert.equal(
+      view.container.querySelector(INLINE_ACTIVITY_SLOT) !== null,
+      tier.inlineLine,
+      `the transcript's status line must be the surface below md and only below md; readings: ${readings.join(' | ')}`,
+    );
+    assert.equal(
+      within(footer).queryAllByRole('button', { name: /stop/i }).length,
+      1,
+      `the composer must keep exactly one stop entry of its own at ${tier.label}; readings: ${readings.join(' | ')}`,
+    );
+
+    view.unmount();
+  }
+});
+
+test('(i) a pending permission request takes the status over: neither tier draws an activity surface', () => {
+  // Read on a pair rendered with the request already on screen, so the status belongs to
+  // the request from the first commit and the case holds that the two never coexist — no
+  // clock, and no exit animation to wait out. That those surfaces do exist while the turn
+  // is running is case (h)'s reading, taken on these same two widths: between them, a
+  // surface that vanished cannot be told apart from one that was never drawn.
+  const readings: string[] = [];
+
+  for (const tier of [
+    { label: 'narrow (390px)', width: MOBILE_WIDTH },
+    { label: 'wide (1280px)', width: DESKTOP_WIDTH },
+  ]) {
+    const view = render(turnElement(tier.width, { pendingPermissionRequests: [PENDING_PERMISSION] }));
+
+    // Premise: the request's own surface is what took the status over. Without this the
+    // two absences below would also be read for a pair that never rendered at all.
+    assert.ok(
+      view.container.textContent?.includes('Permission required'),
+      `premise: the pending request must be on screen at ${tier.label}, or the absences below are about nothing`,
+    );
+
+    const tab = view.container.querySelector('.chat-activity-tab');
+    const line = view.container.querySelector(INLINE_ACTIVITY_SLOT);
+    readings.push(`${tier.label}: tab=${tab ? 'present' : 'absent'}, status line=${line ? 'present' : 'absent'}`);
+
+    assert.equal(
+      tab,
+      null,
+      `the request's own surface must replace the tab, never sit beside it; readings: ${readings.join(' | ')}`,
+    );
+    assert.equal(
+      line,
+      null,
+      `the request's own surface must replace the transcript's status line too; readings: ${readings.join(' | ')}`,
     );
 
     view.unmount();

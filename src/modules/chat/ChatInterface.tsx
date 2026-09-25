@@ -454,6 +454,7 @@ function ChatInterface({
             isLoadingSessionMessages={isLoadingSessionMessages}
             isProcessing={isProcessing}
             hasActivityIndicator={hasActivityIndicator}
+            activity={sessionActivity}
             chatMessages={chatMessages}
             selectedSession={selectedSession}
             currentSessionId={currentSessionId}

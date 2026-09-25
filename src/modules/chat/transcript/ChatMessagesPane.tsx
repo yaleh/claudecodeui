@@ -7,16 +7,19 @@ import type { ChatMessage,
   ProjectSession,
   LLMProvider,
   ProviderModelActions,
-  ProviderModelsDefinition } from '@/shared/types';
+  ProviderModelsDefinition,
+  SessionActivity } from '@/shared/types';
 import { getIntrinsicMessageKey } from '@/modules/chat/utils/messageKeys';
 import { groupConsecutiveTools, isToolGroupItem } from '@/modules/chat/utils/toolGrouping';
 import { useLazyRowObserver } from '@/modules/chat/hooks/useLazyRowObserver';
+import { useDeviceSettings } from '@/shared/hooks/useDeviceSettings';
 import LazyMessageRow from '@/modules/chat/transcript/LazyMessageRow';
 import MessageComponent from '@/modules/chat/transcript/MessageComponent';
 import ProviderSelectionEmptyState from '@/modules/chat/transcript/ProviderSelectionEmptyState';
 import ToolGroupContainer from '@/modules/chat/transcript/ToolGroupContainer';
 import LoadAllMessagesOverlay from '@/modules/chat/transcript/LoadAllMessagesOverlay';
 import ChatExportMenu from '@/modules/chat/transcript/ChatExportMenu';
+import ActivityIndicator from '@/modules/chat/composer/ActivityIndicator';
 
 /**
  * How many of the newest rows mount with real content on the first commit,
@@ -39,6 +42,13 @@ type ChatMessagesPaneProps = {
   isProcessing?: boolean;
   /** True while ChatComposer's floating activity/stop tab is rendered above the input. */
   hasActivityIndicator?: boolean;
+  /**
+   * The running turn's activity, drawn below `md` as an in-flow status line at
+   * the end of the message list. Passed rather than re-derived: the pane already
+   * receives `hasActivityIndicator` for its bottom padding, and this is the same
+   * turn's data, not a second account of it.
+   */
+  activity?: SessionActivity | null;
   chatMessages: ChatMessage[];
   selectedSession: ProjectSession | null;
   currentSessionId: string | null;
@@ -94,6 +104,7 @@ function ChatMessagesPane({
   isLoadingSessionMessages,
   isProcessing = false,
   hasActivityIndicator = false,
+  activity = null,
   chatMessages,
   selectedSession,
   currentSessionId,
@@ -133,6 +144,10 @@ function ChatMessagesPane({
   selectedProject,
 }: ChatMessagesPaneProps) {
   const { t } = useTranslation('chat');
+  // The same `md` (768px) signal ChatComposer reads for the tab it draws, so the
+  // pane's status line and the composer's tab can never both be on screen or
+  // both be absent: one breakpoint decides which surface carries the turn.
+  const { isMobile } = useDeviceSettings();
   const lazyRows = useLazyRowObserver(scrollContainerRef);
   const groupedVisibleMessages = useMemo(
     () => groupConsecutiveTools(visibleMessages, Boolean(showThinking)),
@@ -171,6 +186,12 @@ function ChatMessagesPane({
     [messageKeyMap],
   );
 
+  // Below `md` the running turn is drawn in the message flow, so nothing has to
+  // be kept clear for a floating tab and the pane keeps its ordinary bottom
+  // space. From `md` up the tab still hangs over the last message, so the space
+  // it was always given is still reserved — same value as before this change.
+  const paneBottomPadding = hasActivityIndicator && !isMobile ? 'pb-12 md:pb-14' : 'pb-3 sm:pb-4';
+
   return (
     <div
       ref={scrollContainerRef}
@@ -184,9 +205,7 @@ function ChatMessagesPane({
       tabIndex={-1}
       onWheel={onWheel}
       onTouchMove={onTouchMove}
-      className={`chat-messages-pane relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden pt-3 sm:pt-4 ${
-        hasActivityIndicator ? 'pb-12 sm:pb-14' : 'pb-3 sm:pb-4'
-      }`}
+      className={`chat-messages-pane relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden pt-3 sm:pt-4 ${paneBottomPadding}`}
     >
       {chatMessages.length > 0 && (
         <div className="pointer-events-none sticky right-4 top-3 z-10 mb-2 flex justify-end sm:px-4">
@@ -348,6 +367,30 @@ function ChatMessagesPane({
             });
           })()}
         </>
+      )}
+
+      {/*
+        The running turn's status, in the message flow and after the last row, so
+        it scrolls with the transcript and never covers a message. It is the only
+        activity surface below `md` — the composer draws no tab there — and it
+        carries no Stop, because the composer's submit button is already the one
+        stop entry on that layout.
+
+        Mounted for the whole time the pane is, with `activity` set to null while
+        the turn is over or a permission request has taken over the status: the
+        component owns the exit animation, and unmounting it here would cut that
+        animation short and pop the row out instead of collapsing it.
+
+        Inside the content column on purpose — that is the box the transcript's
+        content-growth follow observes, so the row appearing and its elapsed
+        reading widening are growth the follow answers for free, under the same
+        "the user has not scrolled away" gate as every other growth.
+      */}
+      {isMobile && (
+        <ActivityIndicator
+          activity={hasActivityIndicator ? activity : null}
+          variant="inline"
+        />
       )}
       </div>
     </div>
