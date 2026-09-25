@@ -2,7 +2,7 @@
 id: gap-mobile-layout-e2e-viewport-matrix
 title: 移动端工作区 header / composer 布局的真浏览器验收矩阵：320/360/390/767/768/1280 ×
   idle/单回放/双回放/执行中，边界框 + 溢出 + 单一 Stop + 桌面无回归
-status: done
+status: needs-human
 labels:
   - gap
 parent: null
@@ -181,3 +181,14 @@ L_G 该轴仍暗，理由：同上；本任务的验证读数就是 DoD 里的�
 - session_id：4b5faa54-4c26-49cc-8b5b-56770924cf30
 
 **续做会话 2026-09-25（第二次）已归因该 suite 红**：上一条「归因不出任何失败测试文件」的形状即 develop 的固定 55s 看门狗杀全量调用（第 5 节对照重现：55.64s、停在 `browser-launch-or-cases`、不点名任何用例）；修复不是重试而是把 `RUN_CEILING_MS` 改为各 spec 预算之和，随后全量调用跑到 738.90s，并把剩下的 6 个失败逐一定位到既有 spec 的「一次运行一个库」鉴权坑（与本任务无关，AC 7 已按不变量收窄，见 Proposal 第二次补记）。
+
+## Needs-Human
+
+**执行 2026-09-25T11:27:26.895Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 3 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=27623 server/modules/voice/tests/voice-capture-text.false-forms.test.ts passed=false end_ms=1790335555623
+- run_id：wk-prod-anchor
+- session_id：90ae40e6-0994-4079-9eb9-4e945de6f0fe
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-mobile-layout-e2e-viewport-matrix~wk-prod-anchor~1790335484398-66c6fa.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-mobile-layout-e2e-viewport-matrix-wk-prod-anchor.log
