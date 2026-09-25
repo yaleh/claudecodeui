@@ -1,7 +1,7 @@
 ---
 id: gap-soak-mock-gateway-burst-materialization
 title: soak 装置上限：mock gateway 物化 burst，`--burst-mb` 一超 ~48MiB 就自己 OOM，慢客户端假设无法在有效量级上驱动
-status: ready
+status: done
 labels:
   - gap
 parent: null
