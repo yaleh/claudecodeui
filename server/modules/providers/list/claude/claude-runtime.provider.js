@@ -38,6 +38,7 @@ import {
 } from '@/modules/notifications/index.js';
 import { resolveModelContextWindowRow, resolveModelLaunchSpec } from '@/modules/providers/services/model-launch-spec.service.js';
 import { resolveContextWindow } from '@/modules/providers/services/launch-spec.service.js';
+import { createClaudeSessionScopeSpawn } from '@/modules/providers/services/claude-session-scope.service.js';
 import { applyLaunchSpecEnv, createCompleteMessage, createNormalizedMessage } from '@/shared/utils.js';
 
 const activeSessions = new Map();
@@ -315,6 +316,15 @@ function mapCliOptionsToSDK(options = {}) {
     if (resumeAnchorId) {
       sdkOptions.resumeSessionAt = resumeAnchorId;
     }
+  }
+
+  // Give every session its own capped systemd scope, so a runaway CLI or MCP server is reaped
+  // alone instead of taking the server's own cgroup down with it. On a host with no usable systemd
+  // user manager the factory returns undefined and the option is left unset, which keeps the
+  // spawn path exactly as it is today.
+  const spawnClaudeCodeProcess = createClaudeSessionScopeSpawn();
+  if (spawnClaudeCodeProcess) {
+    sdkOptions.spawnClaudeCodeProcess = spawnClaudeCodeProcess;
   }
 
   return sdkOptions;
