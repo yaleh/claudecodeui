@@ -1,7 +1,7 @@
 ---
 id: gap-claude-resident-phase0-experiments
 title: Claude 常驻会话阶段 0 实验 E1–E9：用真实 claude 二进制取得读数，定下忙时输入基准、控制协议用法与内存上限，结论写回 proposal
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -117,3 +117,12 @@ extra:
 - 失败步/判词：AC 未全勾（checked 4/5，剩余未勾 1）——续做只需验证并勾选 AC
 - run_id：wk-prod-anchor
 - session_id：e06237e5-ed39-4739-b5a4-c35d7b4e2e81
+
+## Needs-Human
+
+**执行 2026-09-25T10:47:03.145Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 3 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：AC 未全勾（checked 4/5，剩余未勾 1）——续做只需验证并勾选 AC
+- run_id：wk-prod-anchor
+- session_id：c7f1eb34-033a-4783-b6d2-0879cce7073b
