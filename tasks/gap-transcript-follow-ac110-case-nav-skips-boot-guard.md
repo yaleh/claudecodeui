@@ -3,7 +3,7 @@ id: gap-transcript-follow-ac110-case-nav-skips-boot-guard
 title: AC-110 判据偶发假红（近 16 次 gate 事件 2 红）：判据自己那条 case 在 beforeAll
   守卫之外重导航（全文件唯一一条这样做），页面被反复替换时 click 无界重试撞上 55s watchdog 杀浏览器，台账只留 "Channel
   closed"
-status: needs-human
+status: todo
 labels:
   - gap
   - defect
