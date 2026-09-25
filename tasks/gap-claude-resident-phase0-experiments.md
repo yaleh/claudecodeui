@@ -1,6 +1,6 @@
 ---
 id: gap-claude-resident-phase0-experiments
-title: Claude 常驻会话阶段 0 实验 E1–E8：用真实 claude 二进制取得读数，定下忙时输入基准与内存上限，结论写回 proposal
+title: Claude 常驻会话阶段 0 实验 E1–E9：用真实 claude 二进制取得读数，定下忙时输入基准、控制协议用法与内存上限，结论写回 proposal
 status: ready
 labels:
   - gap
@@ -25,6 +25,8 @@ extra:
 - E7 用真实模型，按常驻的实际用法跑（多轮 + 一个周期 cron + 一个 Monitor），每 5 分钟采一次 RSS（主进程与整棵子树分开记）。费用写进记录。
 - 所有实验用一次性临时实例：**显式设置临时 `DATABASE_PATH`** 并读 `/proc/<pid>/environ` 核对（本机 shell 已导出 `DATABASE_PATH` 指向真实库）；**不重启 :3001**；端口避开 3001；实验结束后 `systemctl --user list-units` 与进程表里没有本实验的残留。
 
+**人 yale 2026-09-25 追加 E9（控制协议清单）。** 对 `claude` 2.1.282 二进制的静态分析与对 `sdk.d.ts`（0.3.165）的核对表明，常驻 driver 可以直接用 CLI 的控制协议事件，而不必推测：`session_state_changed`（轮次边界）、`task_started` / `task_notification`（后台任务保活理由）、Stop hook 输入的 `session_crons` / `background_tasks`（cron 与后台任务的权威清单）、用户消息的 `origin`（无人轮触发类型与跨会话发送方）、`priority` 三档与 `cancel_async_message`（CLI 自己的输入队列与撤回）、`onElicitation` 与 `request_user_dialog`（除 `canUseTool` 外另两个需要人回应的入口），以及 flag settings 里的 `remoteControlAtStartup` / `isolatePeerMachines`（常驻 + bypass 进程若被 Remote Control 桥接出去，信任边界会超出同一 Unix 用户）。proposal 已据此修订（任务分支提交 `41bd6abf`），其中写着「由 E9 确认」的地方都等本任务的读数定稿。E9 的问题清单见 proposal「阶段 0：实验」表的 E9 行。取读数的办法同上：真实 `claude` 二进制 + mock 端点；「交互式 CLI 用哪一档 `priority`」一项在 tmux 里跑交互式 `claude` 取数。SDK 类型里没有的 subtype（`scheduled_task_fire`、`side_question`、`peer_message_hold`、`claim_session`）如果出现，记录原始 JSON。
+
 <!-- dedup-ref -->
 相关任务 `gap-claude-session-cgroup-scope`（needs-human，未合入 develop）已实现「每个 Claude 会话进自己的 systemd scope + 内存上限 + 启动清扫」，并测得真实会话子树约 390–470MB。E5 与 E7 若在该服务可用时进行，记录注明读数是在 scope 内还是 scope 外取得的；proposal §11 的 L3 以后应复用该服务而不是另起一套，本任务只在结论里指出，不改代码。
 
@@ -35,6 +37,7 @@ extra:
 3. 依次跑 E1、E3、E4、E5、E6、E8（mock 端点），E2 两种形态，E7 浸泡。每个实验的原始读数（pid、时间戳、流中出现的消息类型序列、RSS 样本）原样写进 `docs/proposals/claude-resident-sessions-experiments.md` 对应小节，结论单独一行。
 4. 把结论写回 `docs/proposals/claude-resident-sessions.md`：新增「阶段 0 结论」小节；按结论修订 §5 `residentFeatures` 各项取值、§8 忙时输入基准、§11 两个上限的数值、§12 peer 名格式；E5 结论决定清扫是否必需。
 5. 请人 yale 确认 E2/E3 基准（一致时确认沿用，不一致时裁定），由人在记录文件里写下确认行。
+6. （2026-09-25 追加）给实验脚本加子命令 `e9` 并让 `--check-record` 要求 E9 节；按 proposal 的 E9 行逐项取读数写进记录文件的 E9 节；再把 proposal 里每一处「由 E9 确认」按读数改成定稿文字（读数否定了方案的，改方案并写明依据），并在「阶段 0 结论」表里补 E9 行。
 
 ## AC
 
@@ -43,6 +46,8 @@ extra:
 - [x] proposal 已写回结论：`grep -n '阶段 0 结论' docs/proposals/claude-resident-sessions.md` 有输出且 exit 0
 - [ ] 人工关卡——忙时输入基准已由人确认：`grep -n '^E2/E3 基准确认：' docs/proposals/claude-resident-sessions-experiments.md` 有输出且 exit 0（该行只能由人 yale 写入，内容为「沿用 CLI 行为」或裁定采用的形态；执行者不得代写）
 - [x] `npm run lint` exit 0
+- [ ] E9 节齐全：`node scripts/resident-experiment.mjs --check-record docs/proposals/claude-resident-sessions-experiments.md` exit 0，且该命令要求 E1–E9 九节（护栏测试 `node --test scripts/resident-experiment.test.mjs` 含「缺 E9 节时 exit 1 并点名 E9」的用例，exit 0）
+- [ ] proposal 中不再有待 E9 定稿的文字：`! grep -n '由 E9 确认' docs/proposals/claude-resident-sessions.md` exit 0
 
 ## DoD
 
@@ -51,6 +56,7 @@ extra:
 - E2 的交互式形态与 stream-json 形态各有一份读数，结论写明两者是否一致。
 - 临时实例的 `DATABASE_PATH` 经 `/proc/<pid>/environ` 核对并写进记录；实验期间 :3001 未重启；结束后无残留进程与 scope（附 `systemctl --user list-units` 与 `pgrep` 的读数）。
 - 真实模型费用写进记录。
+- E9 每一项都有原始读数（事件 JSON 原文或其逐字摘录、时间戳、`claude --version` 与 SDK 版本）；「flag settings 能否压过用户 settings 关掉 Remote Control」一项必须在一个 settings 里开着 `remoteControlAtStartup` 的临时配置目录下取数，不得改动真实的 `~/.claude/settings.json`。
 - **前四条 AC 通过而人工关卡那条未勾时，本任务的正确终态是 needs-human，不是 done。**
 
 ## Touches
@@ -102,3 +108,12 @@ extra:
   17:31:02 那次 Stopping→Started 是**环境侧**发生的，`journalctl` 原文已抄进记录。
 - 收尾后逐 pid 查 `/proc`：记录里出现过的 **8 个 pid 全部已退出**；`pgrep` 与 `tmux ls` 均无残留；
   `systemctl --user list-units` 读数已抄进记录。
+
+## Needs-Human
+
+**执行 2026-09-25T10:24:19.304Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：AC 未全勾（checked 4/5，剩余未勾 1）——续做只需验证并勾选 AC
+- run_id：wk-prod-anchor
+- session_id：e06237e5-ed39-4739-b5a4-c35d7b4e2e81
