@@ -12,9 +12,7 @@ children: []
 extra:
   schema: execution
 depends_on:
-  - gap-voice-error-classification-and-status-table
-  - gap-voice-error-envelope-contract
-  - gap-voice-error-messages-i18n-fallback
+  - gap-ac103-worktree-state-drag-and-unbudgeted-confirm
 goal_ac: AC-153
 ---
 ## Proposal
