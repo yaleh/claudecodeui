@@ -15,6 +15,10 @@
 #   QUAY_MEMORY_UNIT=<name> name the scope `<name>.scope` instead of a generated one, so the caller
 #                           can ask the journal afterwards whether this cap's OOM kill happened
 #                           (`journalctl --user -u <name>.scope | grep 'OOM killer'`).
+#   QUAY_MEMORY_SLICE=<slice> place the scope under this systemd user slice (e.g. quay-fleet.slice).
+#                           `systemd-run --scope` does NOT nest under the caller's cgroup, so without
+#                           this the scope escapes any limit set on the caller's own scope. Set by
+#                           scripts/start-drivers-scoped.sh so the whole fleet shares one ceiling.
 #
 # Degrades to running <cmd> uncapped (with one stderr line saying so) when there is no usable
 # systemd user manager, e.g. macOS, containers, CI runners. The probe is a real `true` in a real
@@ -29,11 +33,14 @@ case "$CAP" in
   0|off) exec "$@" ;;
 esac
 
+SLICE_ARGS=()
+[ -n "${QUAY_MEMORY_SLICE:-}" ] && SLICE_ARGS=(--slice="$QUAY_MEMORY_SLICE")
+
 if command -v systemd-run >/dev/null 2>&1 \
-  && systemd-run --user --scope --quiet -p MemoryMax="$CAP" -p MemorySwapMax=0 true >/dev/null 2>&1; then
+  && systemd-run --user --scope --quiet "${SLICE_ARGS[@]+"${SLICE_ARGS[@]}"}" -p MemoryMax="$CAP" -p MemorySwapMax=0 true >/dev/null 2>&1; then
   UNIT_ARGS=()
   [ -n "${QUAY_MEMORY_UNIT:-}" ] && UNIT_ARGS=(--unit="$QUAY_MEMORY_UNIT")
-  exec systemd-run --user --scope --quiet "${UNIT_ARGS[@]+"${UNIT_ARGS[@]}"}" -p MemoryMax="$CAP" -p MemorySwapMax=0 -- "$@"
+  exec systemd-run --user --scope --quiet "${UNIT_ARGS[@]+"${UNIT_ARGS[@]}"}" "${SLICE_ARGS[@]+"${SLICE_ARGS[@]}"}" -p MemoryMax="$CAP" -p MemorySwapMax=0 -- "$@"
 fi
 
 echo "with-memory-cap: no systemd user manager, running uncapped: $1" >&2
