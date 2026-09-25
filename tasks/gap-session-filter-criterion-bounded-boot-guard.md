@@ -12,6 +12,8 @@ children: []
 extra:
   schema: execution
 goal_ac: AC-101
+depends_on:
+  - gap-voice-false-forms-siblings-pid-attribution
 ---
 ## Proposal
 
