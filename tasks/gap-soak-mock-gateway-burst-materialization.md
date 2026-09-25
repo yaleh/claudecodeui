@@ -37,10 +37,10 @@ extra:
 
 ## Touches
 
-- scripts/soak-driver.mjs
-- scripts/soak-analyze.mjs
-- scripts/soak-analyze.test.mjs
-- scripts/soak.sh
+- scripts/soak-driver.mjs (new)
+- scripts/soak-analyze.mjs (new)
+- scripts/soak-analyze.test.mjs (new)
+- scripts/soak.sh (new)
 - docs/operations/process-isolation-and-memory-caps.md
 - tasks/gap-soak-mock-gateway-burst-materialization.md
 
