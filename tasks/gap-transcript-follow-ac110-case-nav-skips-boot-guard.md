@@ -12,6 +12,8 @@ children: []
 extra:
   schema: execution
 goal_ac: AC-110
+depends_on:
+  - gap-voice-false-forms-siblings-pid-attribution
 ---
 ## Proposal
 
@@ -79,12 +81,12 @@ Call log:
 
 ## AC
 
-- [ ] 判据 `npx playwright test e2e/transcript-follow.spec.ts -g "AC-110"` 退出码 0，且在**同一窗口内有别的 e2e lane 在跑**的条件下连跑 ≥10 次全部退出码 0；逐次记录 `exit=… wall=… self=[…]` 与 `git rev-parse HEAD`，10 行读数原文写进完成记录；且这 10 次日志里 `Channel closed` 出现 **0** 次、`[e2e] watchdog … crossed its own 55000ms ceiling` 出现 **0** 次（用 `grep -c` 给退出码）。
-- [ ] 绿路径不因为守卫而变慢：上述 10 次里每次 playwright 自报时长 ≤ 30s（修前绿次为 `1 passed (19.9s)`、case `6.3s`、wall `20.652s`），给出最小/最大值；并记录每次日志里的 `[e2e] server=… client=…` 行与 `[e2e] client warm-up: pre-bundle committed in …ms` 行，证明用的是本次运行自己的端口与缓存目录（不是别的 run 的）。
-- [ ] **阴性对照（那次重导航的守卫必须承重）**：构造一个**确定性**的假形态，让 `:2227` 那次导航之后文档被替换 / 稳不住——例如把该处启动探针临时指向必然不出现的哨兵选择器，或在导航后从页面侧有界地强制重放若干次 `location.reload()`——跑判据 → 必须非 0，且失败形态**落在夹具启动阶段并以夹具自己的话结束**：错误信息里含页面文本与 console errors / failedRequests，**退出发生在 ≤30s**，**不得**表现为 `Error: Channel closed`、**不得**是 55s watchdog kill、**不得**是 180s hook 超时。退出码与失败原文登记在证据里，之后全部还原。
-- [ ] **阳性对照**：只把 AC3 那处注入撤掉、守卫保留 ⇒ 判据必须退出码 0。AC3 与 AC4 一起证明这次补的守卫是承重的、不是装饰；之后 `git diff develop --stat` 证明改动面只剩 `e2e/transcript-follow.spec.ts` 一处（`playwright.config.ts` 一行未改）。
-- [ ] **判据未被削弱（AC-110 自己的抗假变体仍必须红）**：按 AC 记录 `expect` 里已写明的假形态——「prepend 恢复结束后回到原 mode（首屏不可滚时原 mode 是跟随）⇒ 下一次增长把视图拉到底」——构造该变体，判据必须退出码非 0（修前该变体已实测为 `driftPx 120`、`smallestGapPx 0`、`downwardWritesInWindow 2`，本轮须复现同形）；留输出并还原。`git diff` 证明 `e2e/transcript-follow.spec.ts` 里 AC-110 的断言（`drift <= AC110_DRIFT_PX`、`highest - before.scrollTop <= 1`、`smallestGap > 2`、`downwardWrites` 为空）与常量（`AC110_VIEWPORT`、`AC110_FIRST_PAGE_ROWS`、`AC110_SAMPLE_WINDOW_MS`、`AC110_DRIFT_PX`）以及 `-g "AC-110"` 命令一行未删未松；diff 内没有 `retries` / `repeat-each` / `test.skip` / `test.fixme`，也没有 `RUN_CEILING_MS` 或 gate 上限的改动。
-- [ ] `npm run lint` 退出码 0（如实登记：root tsconfig 与 oxlint 的 include 都不含 `e2e/`，故夹具代码另有 `scripts/test.sh --for-task … --allow-thin` 与 AC1 的真实跑动覆盖）。
+- [x] 判据 `npx playwright test e2e/transcript-follow.spec.ts -g "AC-110"` 退出码 0，且在**同一窗口内有别的 e2e lane 在跑**的条件下连跑 ≥10 次全部退出码 0；逐次记录 `exit=… wall=… self=[…]` 与 `git rev-parse HEAD`，10 行读数原文写进完成记录；且这 10 次日志里 `Channel closed` 出现 **0** 次、`[e2e] watchdog … crossed its own 55000ms ceiling` 出现 **0** 次（用 `grep -c` 给退出码）。
+- [x] 绿路径不因为守卫而变慢：上述 10 次里每次 playwright 自报时长 ≤ 30s（修前绿次为 `1 passed (19.9s)`、case `6.3s`、wall `20.652s`），给出最小/最大值；并记录每次日志里的 `[e2e] server=… client=…` 行与 `[e2e] client warm-up: pre-bundle committed in …ms` 行，证明用的是本次运行自己的端口与缓存目录（不是别的 run 的）。
+- [x] **阴性对照（那次重导航的守卫必须承重）**：构造一个**确定性**的假形态，让 `:2227` 那次导航之后文档被替换 / 稳不住——例如把该处启动探针临时指向必然不出现的哨兵选择器，或在导航后从页面侧有界地强制重放若干次 `location.reload()`——跑判据 → 必须非 0，且失败形态**落在夹具启动阶段并以夹具自己的话结束**：错误信息里含页面文本与 console errors / failedRequests，**退出发生在 ≤30s**，**不得**表现为 `Error: Channel closed`、**不得**是 55s watchdog kill、**不得**是 180s hook 超时。退出码与失败原文登记在证据里，之后全部还原。
+- [x] **阳性对照**：只把 AC3 那处注入撤掉、守卫保留 ⇒ 判据必须退出码 0。AC3 与 AC4 一起证明这次补的守卫是承重的、不是装饰；之后 `git diff develop --stat` 证明改动面只剩 `e2e/transcript-follow.spec.ts` 一处（`playwright.config.ts` 一行未改）。
+- [x] **判据未被削弱（AC-110 自己的抗假变体仍必须红）**：按 AC 记录 `expect` 里已写明的假形态——「prepend 恢复结束后回到原 mode（首屏不可滚时原 mode 是跟随）⇒ 下一次增长把视图拉到底」——构造该变体，判据必须退出码非 0（修前该变体已实测为 `driftPx 120`、`smallestGapPx 0`、`downwardWritesInWindow 2`，本轮须复现同形）；留输出并还原。`git diff` 证明 `e2e/transcript-follow.spec.ts` 里 AC-110 的断言（`drift <= AC110_DRIFT_PX`、`highest - before.scrollTop <= 1`、`smallestGap > 2`、`downwardWrites` 为空）与常量（`AC110_VIEWPORT`、`AC110_FIRST_PAGE_ROWS`、`AC110_SAMPLE_WINDOW_MS`、`AC110_DRIFT_PX`）以及 `-g "AC-110"` 命令一行未删未松；diff 内没有 `retries` / `repeat-each` / `test.skip` / `test.fixme`，也没有 `RUN_CEILING_MS` 或 gate 上限的改动。
+- [x] `npm run lint` 退出码 0（如实登记：root tsconfig 与 oxlint 的 include 都不含 `e2e/`，故夹具代码另有 `scripts/test.sh --for-task … --allow-thin` 与 AC1 的真实跑动覆盖）。
 
 ## DoD
 
@@ -103,3 +105,120 @@ Call log:
 
 - `e2e/transcript-follow.spec.ts`
 - `tasks/gap-transcript-follow-ac110-case-nav-skips-boot-guard.md`
+
+## 完成记录
+
+**实现（`e2e/transcript-follow.spec.ts`，95 insertions / 4 deletions，唯一改动文件）**
+
+两条新助手，都在夹具侧；判据的断言、常量与 `-g "AC-110"` 命令一行未动：
+
+- `settleSecondDocument(page, evidence)`（`SECOND_DOCUMENT_READY = '#sidebar-panel, [aria-label="Show sidebar"]'`、`SECOND_DOCUMENT_PROBE_MS = 4_000`、`SECOND_DOCUMENT_RELOADS = 2`）：把 `beforeAll` 已有的两件套就地套到 AC-110 自己那次 `page.goto('/')` 之后——有界探针（侧栏容器；塌陷时用塌陷条的展开钮）→ ≤2 次有界 `page.reload()` → 仍不稳住则抛含页面文本 + console errors + failedRequests 的错误。`playwright.config.ts` 一行未改，`RUN_CEILING_MS` 未动。
+- `clickSessionLink(page, link, evidence)`（`SESSION_LINK_CLICK_MS = 15_000`）：把 `sessionLink().click()` 这条无界等待换成有界自报，`beforeAll` 与 AC-110 两处都换（本仓 `locator.click()` 没有 action timeout，正是现场里跑了 33.5s 的那一次）。
+
+壁钟算术：绿路径探针首帧即中、不 reload，故 10 连跑的自报时长与修前同量级；注入路径 3 次加载 × 4s = 12s，落在 `beforeAll` 之上仍在 30s 内（AC3 实测 26.05s）。
+
+### AC1 — 10 连跑（有别的 lane 同窗口在跑）
+
+`git rev-parse HEAD` = `db4ee84e34206d7a52868485b471d327b714b766`（10 次同一 sha；2b 的 develop 合并 `3032bddd` 在其后）。
+
+别的 lane：本 worktree 内重复跑 `e2e/session-filter.spec.ts`（另一个 project、另一份 data-dir、自己的端口），窗口 `2026-09-25T18:20:26+08:00` → 至少 `18:23:48+08:00`（iter 12 起始）**连续在跑**，iter 1–11 每次 `exit=0`。10 次判据跑动落在 `18:20:45 → 18:23:50`，完全被它覆盖。
+
+10 行读数原文（`exit=… wall=… self=[…]`，末尾附该次自己的端口 / 预热 / data-dir）：
+
+```
+run=01 exit=0 wall=17.30s self=[1 passed (16.5s)] case=[5.5s] server=23461 client=15997 warm-up=3363ms data-dir=quay-e2e-h3cU9M
+run=02 exit=0 wall=16.80s self=[1 passed (16.1s)] case=[5.5s] server=19105 client=29741 warm-up=3173ms data-dir=quay-e2e-mUAmvd
+run=03 exit=0 wall=17.24s self=[1 passed (16.5s)] case=[5.6s] server=31405 client=16111 warm-up=3422ms data-dir=quay-e2e-jqY2Kd
+run=04 exit=0 wall=16.68s self=[1 passed (16.0s)] case=[5.6s] server=23261 client=18233 warm-up=3355ms data-dir=quay-e2e-FgPCGy
+run=05 exit=0 wall=17.01s self=[1 passed (16.3s)] case=[5.6s] server=9431 client=32547 warm-up=3363ms data-dir=quay-e2e-zr7xq6
+run=06 exit=0 wall=17.53s self=[1 passed (16.8s)] case=[5.7s] server=11565 client=25173 warm-up=3534ms data-dir=quay-e2e-QBiSYm
+run=07 exit=0 wall=17.77s self=[1 passed (17.1s)] case=[5.8s] server=26109 client=16331 warm-up=3913ms data-dir=quay-e2e-97TBzV
+run=08 exit=0 wall=17.44s self=[1 passed (16.7s)] case=[5.5s] server=28415 client=2533 warm-up=3623ms data-dir=quay-e2e-ef3uaj
+run=09 exit=0 wall=17.52s self=[1 passed (16.8s)] case=[5.7s] server=8969 client=15773 warm-up=3508ms data-dir=quay-e2e-13vqtA
+run=10 exit=0 wall=17.91s self=[1 passed (17.2s)] case=[5.5s] server=6731 client=21455 warm-up=3209ms data-dir=quay-e2e-9Uo8Vy
+```
+
+`grep -c "Channel closed"`（10 份日志合计）→ **0**；`grep -c "crossed its own 55000ms ceiling"` → **0**；`nonzero_exits=0`。
+
+### AC2 — 绿路径未变慢
+
+playwright 自报总时长：min **16.0s** / max **17.2s**（修前绿次 `1 passed (19.9s)`），全部 ≤30s；case 自报 min **5.5s** / max **5.8s**（修前 `6.3s`）；wall min 16.68s / max 17.91s（修前 `real 0m20.652s`）。
+
+每次的 `[e2e] server=… client=…` 与 `[e2e] client warm-up: pre-bundle committed in …ms` 见上表：10 次端口两两不同（23461/15997、19105/29741、31405/16111、23261/18233、9431/32547、11565/25173、26109/16331、28415/2533、8969/15773、6731/21455），data-dir 也 10 份不同——每次用的都是它自己那份服务与缓存，不是别的 run 的。
+
+### AC3 — 阴性对照（哨兵选择器）
+
+注入：`SECOND_DOCUMENT_READY` 单行改成 `'#e2e-negative-control-sentinel-that-never-renders'`（探针指向必然不出现的哨兵）。
+
+`EXIT=1`，wall **26.05s**（≤30s），case 自报 14.4s。失败落在夹具启动阶段，原文：
+
+```
+Error: this run's client never settled on a document the criterion can measure on: #e2e-negative-control-sentinel-that-never-renders did not appear across 3 bounded loads of it (4000ms each): the page shows "CloudCLI Star Projects Conversations Ctrl K mobile-send-key-workspace 1 - ... transcript-follow-workspace 1 - ... Report Issue Join Community Settings CloudCLI v1.37.3 – Open Source Choose Your Project Select a project from the sidebar to start coding with Claude. Each project contains your chat sessions and file history. Tip: Create a"; console errors: Failed to load resource: the server responded with a status of 403 () | (×10); failed requests: http://127.0.0.1:2825/api/file-tree/projects/3d720303-853a-4d3d-b908-ef4df4b0795c/files?respectGitignore=true — net::ERR_ABORTED
+    at settleSecondDocument (e2e/transcript-follow.spec.ts:692:9)
+    at e2e/transcript-follow.spec.ts:2318:5
+```
+
+`grep -c "Channel closed"` → **0**；`grep -c "watchdog"` → **0**。错误信息含页面文本 + console errors + failedRequests，退出发生在 26.05s，不是 55s watchdog kill、不是 180s hook 超时。**注入已 `git checkout --` 还原。**
+
+### AC4 — 阳性对照
+
+撤掉注入、守卫保留后重跑（**在已合并 develop `3baf0a56` 的树上**）：`EXIT=0`，wall 17.16s，`1 passed (16.5s)`，读数 `driftPx 0` / `smallestGapPx 299` / `downwardWritesInWindow 0`。
+
+合并后 `git -C <worktree> diff develop --stat` → **`e2e/transcript-follow.spec.ts | 99 ++++++++--`，`1 file changed, 95 insertions(+), 4 deletions(-)`**——只剩这一处；`playwright.config.ts` 一行未改。
+
+### AC5 — 抗假变体仍必须红
+
+假形态按 AC 记录里已写明的取法构造（与 `gap-transcript-follow-prepend-restore-not-reattaching` 完成记录同一取法）：把 `onWheel` 里「朝上且仍有过往页 ⇒ 记脱离」那一行短路——`src/modules/chat/hooks/useChatSessionState.ts:955` 改为 `if (false && event.deltaY < 0 && …)`，于是恢复结束后的 mode 恒为「跟随」，正是 AC 写的取假形态。
+
+`EXIT=1`，红灯出自 AC-110 自己的断言：
+
+```
+AC-110 readings {...,"restoreWrite":[683,6620],"gapAfterRestorePx":0,"scrollTopAfterRestore":844,"offset0Px":306,
+"samples":12,"offsets":[186×12],"scrollTops":[964×12],"gaps":[0×12],
+"driftPx":120,"scrollTopRisePx":120,"smallestGapPx":0,"scrollWritesInWindow":[0,1100,6876],"downwardWritesInWindow":2}
+    Error: a prepend the user asked for must leave the row where it was: the offset moved 120px over the window ([186,186,...])
+    expect(received).toBeLessThanOrEqual(expected)
+    Expected: <= 2
+    > 2439 |     ).toBeLessThanOrEqual(AC110_DRIFT_PX);
+```
+
+与修前登记**同形**：`driftPx 120` / `scrollTopRisePx 120` / `smallestGapPx 0` / `gapAfterRestorePx 0` / `restoreWrite [683,6620]` / `downwardWritesInWindow 2`（`scrollWritesInWindow` 由 `[0,964,6740]` 到 `[0,1100,6876]`——同一形状，数值随该次几何窗口移动）。
+
+**`src/` 改动已 `git checkout -- src/modules/chat/hooks/useChatSessionState.ts` 还原**（还原后 `git status --short` 空）。
+
+断言/常量未删未松（`grep -n`）：`AC110_VIEWPORT :520`、`AC110_FIRST_PAGE_ROWS :522`、`AC110_SAMPLE_WINDOW_MS :524`、`AC110_DRIFT_PX :528`、`.toBeLessThanOrEqual(AC110_DRIFT_PX) :2439`、`highest - before.scrollTop :2441`、`smallestGap :2445`、`downwardWrites :2450` 全在。
+
+diff 的删除行只有 4 行：`-import type { Page } from '@playwright/test';`（换成 `Locator, Page`）、`beforeAll` 与 AC-110 各一条 `-    await sessionLink().click();` 及其上一行注释。diff 内没有 `retries` / `repeat-each` / `test.skip` / `test.fixme` / `RUN_CEILING_MS`（`grep` 给 `none added`）。
+
+### AC6 — lint
+
+`npm run lint` → **exit 0**（输出里是 `src/` 既有的 react / react-hooks warning，与本任务无关）。如实登记：root tsconfig 与 oxlint 的 include 都不含 `e2e/`，夹具代码另有 `scripts/test.sh --for-task gap-transcript-follow-ac110-case-nav-skips-boot-guard --allow-thin` → **exit 0**（`no scoped test files … (thin)`）与 AC1 的 10 次真实跑动覆盖。
+
+### 前提与不可复现项（逐条对应 DoD）
+
+1. **本轮直跑判据是绿的**：`EXIT=0`、`driftPx 0`、`smallestGapPx 299`、`downwardWritesInWindow 0`。**不是「已复现几何回归」**——本任务证明的是夹具可测性缺陷（近 16 次 gate 事件 2 红），不是 prepend/restore 保证不成立。
+2. **那次红的触发源本轮未确证**：`quay-e2e-9atUIN` 的 trace 里没有 504、没有 `net::ERR_NETWORK_CHANGED`、没有 `ERR_FAILED`（只有 `net::ERR_ABORTED` 与未建立的 `/ws`）。被确证的只有**站点**（`:2227` 那次导航在守卫覆盖之外、其后的 `click` 无界）。**不是「已复现 driver 那次红」**；本轮做到的是证明同形路径可被**确定性**重放（AC3）并在内层封住。
+3. 现场 `/data/home/yale/.cache/quay-e2e-tmp/quay-e2e-9atUIN/test-results/transcript-follow-transcri-9252a-re-that-lands-at-the-bottom/` 是那次红的原始产物（`error-context.md` + `trace.zip`），读数取自它而不是 ledger 的 `reason` 尾巴。
+4. 端口/负载前提：本机与别的 lane 共享宿主。AC1 的 10 连跑期间同窗口在跑的是本 worktree 里的 `e2e/session-filter.spec.ts`（`18:20:26 → ≥18:23:48+08:00`，iter 1–11 各 `exit=0`）；每次判据跑动自己在日志里报了 `[e2e] server=… client=…` 与自己的 `data-dir`（10 份互不相同），所以端口不是复用的。
+
+### 2b — 预合并与 scoped 门
+
+- `git -C <worktree> merge --no-edit develop` → `Merge made by the 'ort' strategy`，无冲突（合并提交 `3032bddd`，develop 侧 `3baf0a56`）。
+- `bash <worktree>/scripts/test.sh --for-task gap-transcript-follow-ac110-case-nav-skips-boot-guard --allow-thin` → **exit 0**（`suite-scope-check: PASS — 20 active task(s) scanned …`；`no scoped test files for … (thin)`）。
+- scoped-gate cache 已写：`{"event":"scoped-gate-cache-written","task":"gap-transcript-follow-ac110-case-nav-skips-boot-guard","developSha":"3baf0a568765fef9edeb14cbaf7434f7d809acc4"}`。
+
+### 轴读数
+
+- L_D = 0，理由：该轴仍暗——本任务只改 e2e 夹具的启动路径与失败信息，不新增领域数据能力，没有可读出的领域数据轴读数。
+- L_G = 0，理由：该轴仍暗——读数是运行期退出码、墙钟与页面文本，不是生成质量轴读数；目标层判据仍由 GOAL-004 的其余判据承担。
+
+## Needs-Human
+
+**执行 2026-09-25T10:43:36.122Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=27122 server/modules/voice/tests/voice-capture-text.false-forms.test.ts passed=false end_ms=1790332922471
+- run_id：wk-prod-anchor
+- session_id：69300ee4-fae6-4ae0-bef9-5ab6cd8ce99b
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-transcript-follow-ac110-case-nav-skips-boot-guard~wk-prod-anchor~1790332859065-1c31bb.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-transcript-follow-ac110-case-nav-skips-boot-guard-wk-prod-anchor.log

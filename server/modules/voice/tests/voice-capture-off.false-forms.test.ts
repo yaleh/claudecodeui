@@ -30,6 +30,10 @@
  * a mutant written over the base copy's path would import the already-evaluated base module and the
  * run would measure nothing. A copy of the SERVICE module still imports the SHIPPING capture module,
  * which is exactly what makes the two cases independent — each mutation is the only difference.
+ * THAT DIRECTORY IS SHARED: the sibling criteria that build temp copies (`voice-capture-text`,
+ * `voice-dashscope-settings`) write the same `__criterion-falsify-` prefix there and the suite runs
+ * them concurrently, so the tree-half reading is scoped to this process's own copies — the AC7 case's
+ * doc comment says why.
  *
  * WHY AC6'S EXIT CODES ARE HERE. AC6 asks for the exit code of four existing criteria plus
  * `npm run typecheck` and `npm run lint`, each printed rather than assumed. Those are SUBPROCESSES,
@@ -57,6 +61,42 @@ const TEMP_PREFIX = '__criterion-falsify-';
 /** `git status --porcelain` for the worktree, as one string. */
 function gitStatusPorcelain(): string {
   return execFileSync('git', ['status', '--porcelain'], { cwd: REPO_ROOT, encoding: 'utf8' });
+}
+
+/**
+ * The tail every temp copy THIS process writes ends with.
+ *
+ * A copy's name already carries `process.pid` (`${TEMP_PREFIX}${name}-base-${process.pid}.ts`), so
+ * "is this porcelain line mine?" is answered by the same value the file name was built from. It has
+ * to be asked, because this directory is shared with the sibling criteria — see the AC7 case below.
+ */
+const OWN_TEMP_SUFFIX = `-${process.pid}.ts`;
+
+/** True for a porcelain line naming a temp copy — any process's, this one's included. */
+function isTempCopy(line: string): boolean {
+  return line.includes(TEMP_PREFIX);
+}
+
+/** True for a porcelain line naming a temp copy THIS process wrote. */
+function isOwnTempCopy(line: string): boolean {
+  return isTempCopy(line) && line.trimEnd().endsWith(OWN_TEMP_SUFFIX);
+}
+
+/**
+ * The two snapshots' disagreement, split by which side each line was seen on.
+ *
+ * Set-based rather than positional: `git status --porcelain` emits its entries sorted, so a set
+ * difference says the same thing as a line-by-line walk while staying correct if porcelain ever
+ * repeats a line.
+ */
+function snapshotDelta(before: string, after: string): { onlyBefore: string[]; onlyAfter: string[] } {
+  const split = (value: string): string[] => value.split('\n').filter((line) => line !== '');
+  const beforeLines = new Set(split(before));
+  const afterLines = new Set(split(after));
+  return {
+    onlyBefore: [...beforeLines].filter((line) => !afterLines.has(line)),
+    onlyAfter: [...afterLines].filter((line) => !beforeLines.has(line)),
+  };
 }
 
 /** The first line of a string, for printing something bounded. */
@@ -309,31 +349,81 @@ test('AC6 the existing criteria and the repository gates still exit 0', () => {
   );
 });
 
+/**
+ * AC7's tree half, scoped to what THIS run is answerable for.
+ *
+ * WHY THE READING IS SCOPED BY PID. The copies cannot live in the OS temp directory (their relative
+ * imports would not resolve), and this file is not the only criterion writing into that directory:
+ * `voice-capture-text` and `voice-dashscope-settings` build their own `__criterion-falsify-*` copies
+ * in the SAME directory, and the suite runs four files at a time. So a sibling's copies are untracked
+ * lines in this file's tree through no act of this file's, and a sibling that is still holding them
+ * when this file STARTS has finished and cleaned up by the time this reading runs — which made the
+ * snapshot-vs-sample comparison report "changed" on a tree whose final state was empty. That is a
+ * cross-PROCESS artifact, not residue, so the comparison forgives exactly that and nothing else:
+ *
+ *   · THIS run's own copies stay an unconditional red (`own-temp-copies`), so the property AC7 names
+ *     — no temp copy of this run survives — is asserted at full strength, and more precisely than
+ *     before (the old reading reported a sibling's copies as if they were this run's);
+ *   · a difference is forgiven ONLY when every line in it is a temp copy belonging to another pid.
+ *     Any other added, removed or modified path — a copy of this run's, a stray file, a touched
+ *     tracked file — keeps the red, and the failure prints both sides of the delta;
+ *   · a foreign copy present in BOTH snapshots contributes no difference at all and needs no
+ *     forgiveness.
+ *
+ * `temp-copies-any` and `raw-unchanged` are printed beside the scoped verdict, so what was excluded
+ * is visible in the reading rather than implied by it.
+ */
 test('AC7: the temp copies are gone and git status --porcelain gained nothing', () => {
   const porcelain = gitStatusPorcelain();
-  const leftovers = porcelain
-    .split('\n')
-    .filter((line) => line.includes(TEMP_PREFIX))
-    .join(' ');
+  const lines = porcelain.split('\n');
+  const ownLeftovers = lines.filter(isOwnTempCopy);
+  const anyTempCopies = lines.filter(isTempCopy);
+  const foreignTempCopies = anyTempCopies.filter((line) => !isOwnTempCopy(line));
   const clean = porcelain.trim() === '';
-  const unchanged = porcelain === PRE_RUN_PORCELAIN;
+
+  const delta = snapshotDelta(PRE_RUN_PORCELAIN, porcelain);
+  const rawUnchanged = delta.onlyBefore.length === 0 && delta.onlyAfter.length === 0;
+  const differing = [...delta.onlyBefore, ...delta.onlyAfter];
+  // Every differing line is some other process's in-flight temp copy => this run changed nothing.
+  const concurrentOnly =
+    differing.length > 0 && differing.every((line) => isTempCopy(line) && !isOwnTempCopy(line));
+  const unchanged = rawUnchanged || concurrentOnly;
 
   process.stdout.write(
     `falsify/leftovers: git.status-clean=${String(clean)} unchanged=${String(unchanged)} ` +
-      `temp-copies=${leftovers === '' ? 'none' : leftovers}\n`,
+      `own-temp-copies=${ownLeftovers.length === 0 ? 'none' : ownLeftovers.join(' ')} ` +
+      `temp-copies-any=${anyTempCopies.length} foreign-temp-copies=${foreignTempCopies.length} ` +
+      `raw-unchanged=${String(rawUnchanged)} added=${delta.onlyAfter.length} ` +
+      `removed=${delta.onlyBefore.length} concurrent-foreign-only=${String(concurrentOnly)}\n`,
   );
 
   // The copies are UNTRACKED files, so a run that failed to delete one shows up as a `??` line
-  // naming it. This is asserted before the readings below, because it is the property the cases are
+  // naming it. This is asserted before the comparison below, because it is the property the cases are
   // responsible for and it is the one that holds whether or not the tree was clean.
-  assert.equal(leftovers, '', `the run left temp copies behind: ${leftovers}`);
+  assert.deepEqual(
+    ownLeftovers,
+    [],
+    `this run left its own temp copies behind: ${ownLeftovers.join(' ')}`,
+  );
 
-  // AC7's own words: `git status --porcelain` is empty once the run is over. That is exactly true
-  // when the run starts from a committed tree — which is how the gate runs it — and the criterion
-  // says which reading it took rather than assuming it. In a tree that was ALREADY dirty (a
-  // developer iterating on the module), the property this case owns is that the run ADDED nothing,
-  // so the comparison is against the state this file started in rather than against an ideal.
-  assert.equal(unchanged, true, `this run changed the worktree's git status: ${firstLine(porcelain)}`);
+  // AC7's own words: `git status --porcelain` is identical to the state this file started in. In the
+  // tree the gate runs, that state is empty; in a tree a developer was already iterating on, the
+  // property this case owns is that the run ADDED nothing, so the comparison is against the state
+  // this file started in rather than against an ideal it was never handed — and, for that same
+  // reason, a sibling criterion's in-flight copies are not this run's change to answer for.
+  assert.equal(
+    unchanged,
+    true,
+    "this run changed the worktree's git status; " +
+      `added=[${delta.onlyAfter.join(' ')}] removed=[${delta.onlyBefore.join(' ')}] ` +
+      `started-with=["${firstLine(PRE_RUN_PORCELAIN)}"] ended-with=["${firstLine(porcelain)}"]`,
+  );
+  if (concurrentOnly) {
+    process.stdout.write(
+      `falsify/concurrent-foreign-only=true (the only delta was ${differing.length} temp copy ` +
+        "line(s) belonging to another process, alive at this file's start and cleaned up by now)\n",
+    );
+  }
   if (clean) {
     process.stdout.write('falsify/git-status-clean=true (the run started from a committed tree)\n');
   } else {
