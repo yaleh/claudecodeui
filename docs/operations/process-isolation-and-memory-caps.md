@@ -17,8 +17,10 @@ kernel OOM killer, not the server.
   edit to `ChatComposer.tsx`; the same test on a clean checkout passes in ~300ms. The server never
   loads that file — it only serves the built `dist/` — so the server was a bystander, not a cause.
 
-Earlier OOM scopes the same day (60G, 217.8G, 31.9G) are consistent with the same shape but were
-not individually root-caused.
+**Correction (same day, after the second OOM below):** the reproduction only proves that test can
+run away; it does not prove the 218G peaks were it. Earlier OOM scopes the same day (60G, 217.8G,
+31.9G) were never individually root-caused, and the 217.8G peak followed a run of the AC-103
+concurrency criterion by about ten minutes. Treat the attribution of those peaks as open.
 
 ## The guards
 
@@ -156,3 +158,63 @@ journalctl --user --since "2 hours ago" | grep -E 'OOM killer|memory peak'
 
 `dmesg` needs the `adm` group and is denied here; the user journal is enough. Look for a
 `tmux-spawn-*.scope` with a large `memory peak`, then find what ran in that pane at that time.
+
+## Second incident (2026-09-25 10:38–10:53) and what was retired
+
+The machine thrashed for ~15 minutes (load average 4309) and the operator killed the node processes
+by hand. Reconstructed from the user journal, because the processes were gone:
+
+- Every OOM kill (36) landed in `quay-drivers-claudecodeui-*.scope`, the scope the quay drivers and
+  all their workers ran in. It was started ad hoc with `systemd-run --user --scope … -p
+  OOMPolicy=continue` and **no `MemoryMax`**, and it had no memory accounting, so there is no peak
+  reading for it.
+- The vitest scopes made by `with-memory-cap.sh` all finished normally before 10:38:31 (CPU 7–95 s).
+  The cap was not the problem this time, and it had nothing to catch.
+- Four workers were running heavy jobs at 10:35, one of them `scripts/suite-concurrency-check.sh`
+  (the AC-103 criterion). That script oversubscribes by design — 2 full client vitest pools plus 2
+  server-phase readouts — and called `npx vitest run` directly, bypassing the wrapper. Its own log
+  recorded `load=3312` and readouts killed with `rc=137`.
+- **Not proven:** which process held the memory. Nothing was left to measure. AC-103 is the strongest
+  suspect, not a finding.
+
+Decisions taken (human, 2026-09-25):
+
+1. AC-103 is `superseded`, `GOAL-003`'s exit conditions no longer list it, and
+   `scripts/suite-concurrency-check.sh` and its test are deleted (history keeps them).
+   claudecodeui has no need to prove oversubscription tolerance; that capability belongs to quay's
+   own concurrency tests. The criterion was also evaluated 24–61 times a day by the goal sweep.
+2. The task `gap-ac103-worktree-state-drag-and-unbudgeted-confirm` is `superseded`. Its branch
+   `task/gap-ac103-worktree-state-drag-and-unbudgeted-confirm` still carries 20 unmerged commits
+   (voice false-forms readings narrowed to the run's own files, `__criterion-falsify-*` excluded from
+   oxlint and tsc). They are independent of AC-103 and may be worth cherry-picking; nothing was deleted.
+3. The quay fleet gets a shared parent slice with a memory ceiling (next section).
+
+## The fleet ceiling: `quay-fleet.slice`
+
+One ceiling over everything the quay loop starts. `systemd-run --scope` does **not** nest under the
+caller's cgroup (a capped test scope lands in `app.slice`, not inside the driver's scope), so a limit
+on the drivers' own scope would not count the tests they spawn. The shared parent has to be a slice.
+
+| Piece | Where | What |
+|---|---|---|
+| `quay-fleet.slice` | `~/.config/systemd/user/quay-fleet.slice` (outside the repo) | `MemoryHigh=48G` throttles first, `MemoryMax=64G` kills, `MemorySwapMax=0` |
+| `scripts/start-drivers-scoped.sh` | this repo | starts `start-drivers.js` under `--slice=quay-fleet.slice`, exports `QUAY_MEMORY_SLICE`; refuses to start if the slice has no `MemoryMax` or drivers already run for this root |
+| `scripts/with-memory-cap.sh` | this repo | honours `QUAY_MEMORY_SLICE`: each per-test scope keeps its own 24G cap **and** counts toward the fleet ceiling |
+
+The numbers are provisional. Read `memory.peak` of the slice after a day of real use and re-set them;
+the largest single pane peak seen before this was 26G. The host is shared (kai, tom, vince, zhengji
+run their own drivers), so lean low. Note the dash in the slice name makes systemd create an implicit,
+unlimited parent `quay.slice`; harmless, but it is why the cgroup path reads
+`quay.slice/quay-fleet.slice`.
+
+The unit file lives in the user's home, not the repo, so a fresh machine needs it created by hand
+(the two `Memory*` lines above are the whole content). `start-drivers-scoped.sh` fails loudly rather
+than starting uncapped when it is missing.
+
+Verified (2026-09-25): the wrapper's scope lands under the slice; a scope whose own cap was 10G was
+killed at a 300M ceiling set on a throwaway slice, so the parent ceiling binds children; the start
+script refuses on a slice with no limit and on a missing plugin. **Not yet verified:** a real driver
+run — that `start-drivers.js` and the workers it spawns inherit `QUAY_MEMORY_SLICE` (workers are
+`claude` sessions, and env inheritance through them was not checked). Confirm after the first start
+that `test.sh` scopes appear under `quay-fleet.slice`.
+
