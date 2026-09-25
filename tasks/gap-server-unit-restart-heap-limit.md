@@ -1,7 +1,7 @@
 ---
 id: gap-server-unit-restart-heap-limit
 title: :3001 server unit 化收尾：崩溃自动拉起、V8 堆上限让泄漏变成「重启」而不是「换页拖死宿主」
-status: todo
+status: ready
 labels:
   - gap
 parent: null
