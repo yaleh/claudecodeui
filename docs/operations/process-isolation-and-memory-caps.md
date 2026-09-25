@@ -115,3 +115,32 @@ Decisions taken (human, 2026-09-25):
    oxlint and tsc). They are independent of AC-103 and may be worth cherry-picking; nothing was deleted.
 3. The quay fleet gets a shared parent slice with a memory ceiling (next section).
 
+## The fleet ceiling: `quay-fleet.slice`
+
+One ceiling over everything the quay loop starts. `systemd-run --scope` does **not** nest under the
+caller's cgroup (a capped test scope lands in `app.slice`, not inside the driver's scope), so a limit
+on the drivers' own scope would not count the tests they spawn. The shared parent has to be a slice.
+
+| Piece | Where | What |
+|---|---|---|
+| `quay-fleet.slice` | `~/.config/systemd/user/quay-fleet.slice` (outside the repo) | `MemoryHigh=48G` throttles first, `MemoryMax=64G` kills, `MemorySwapMax=0` |
+| `scripts/start-drivers-scoped.sh` | this repo | starts `start-drivers.js` under `--slice=quay-fleet.slice`, exports `QUAY_MEMORY_SLICE`; refuses to start if the slice has no `MemoryMax` or drivers already run for this root |
+| `scripts/with-memory-cap.sh` | this repo | honours `QUAY_MEMORY_SLICE`: each per-test scope keeps its own 24G cap **and** counts toward the fleet ceiling |
+
+The numbers are provisional. Read `memory.peak` of the slice after a day of real use and re-set them;
+the largest single pane peak seen before this was 26G. The host is shared (kai, tom, vince, zhengji
+run their own drivers), so lean low. Note the dash in the slice name makes systemd create an implicit,
+unlimited parent `quay.slice`; harmless, but it is why the cgroup path reads
+`quay.slice/quay-fleet.slice`.
+
+The unit file lives in the user's home, not the repo, so a fresh machine needs it created by hand
+(the two `Memory*` lines above are the whole content). `start-drivers-scoped.sh` fails loudly rather
+than starting uncapped when it is missing.
+
+Verified (2026-09-25): the wrapper's scope lands under the slice; a scope whose own cap was 10G was
+killed at a 300M ceiling set on a throwaway slice, so the parent ceiling binds children; the start
+script refuses on a slice with no limit and on a missing plugin. **Not yet verified:** a real driver
+run — that `start-drivers.js` and the workers it spawns inherit `QUAY_MEMORY_SLICE` (workers are
+`claude` sessions, and env inheritance through them was not checked). Confirm after the first start
+that `test.sh` scopes appear under `quay-fleet.slice`.
+
