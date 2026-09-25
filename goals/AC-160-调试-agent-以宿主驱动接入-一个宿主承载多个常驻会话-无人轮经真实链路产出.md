@@ -1,7 +1,7 @@
 ---
 id: AC-160
 title: 调试 agent 以宿主驱动接入：一个宿主承载多个常驻会话，无人轮经真实链路产出
-status: draft
+status: active
 kind: criterion
 goal: GOAL-012
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -18,4 +18,15 @@ expect: 门控开启时：(1) 调试 agent 的能力矩阵 lifecycleModes 含 pe
 origin: docs/proposals/claude-resident-sessions.md（e88175cf）。人 yale 2026-09-25
   裁定：拆成两个 goal，本 goal 为 GOAL-A「统一宿主层」并激活；扩展调试 agent 作宿主层对非 Claude provider
   适用性的替身；不加 cloudcli 子命令，只靠 HTTP/WS 加脚本
+activatedAt: 2026-09-25T09:03:53.998Z
+statusLog:
+  - at: 2026-09-25T09:03:53.998Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-09-25T09:03:53.998Z
 ---
