@@ -1,7 +1,7 @@
 ---
 id: AC-156
 title: GET /api/session-hosts 列出所有 provider 的宿主，含状态、绑定、保活理由与关闭原因，需鉴权
-status: draft
+status: active
 kind: criterion
 goal: GOAL-012
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -17,4 +17,15 @@ expect: 挂真实 express 应用与 authenticateToken：(1) 缺凭据 401；(2) 
 origin: docs/proposals/claude-resident-sessions.md（e88175cf）。人 yale 2026-09-25
   裁定：拆成两个 goal，本 goal 为 GOAL-A「统一宿主层」并激活；扩展调试 agent 作宿主层对非 Claude provider
   适用性的替身；不加 cloudcli 子命令，只靠 HTTP/WS 加脚本
+activatedAt: 2026-09-25T09:00:20.428Z
+statusLog:
+  - at: 2026-09-25T09:00:20.428Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-09-25T09:00:20.428Z
 ---
