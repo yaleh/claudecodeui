@@ -1,7 +1,7 @@
 ---
 id: AC-159
 title: Claude per-run 的后台持有由宿主层策略执行，被新一轮顶替时可辨为 superseded
-status: draft
+status: active
 kind: criterion
 goal: GOAL-012
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -17,4 +17,15 @@ expect: 伪造 SDK 流驱动 Claude per-run driver：(1) 一轮中出现 startsB
 origin: docs/proposals/claude-resident-sessions.md（e88175cf）。人 yale 2026-09-25
   裁定：拆成两个 goal，本 goal 为 GOAL-A「统一宿主层」并激活；扩展调试 agent 作宿主层对非 Claude provider
   适用性的替身；不加 cloudcli 子命令，只靠 HTTP/WS 加脚本
+activatedAt: 2026-09-25T09:03:21.395Z
+statusLog:
+  - at: 2026-09-25T09:03:21.395Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-09-25T09:03:21.395Z
 ---
