@@ -2,7 +2,7 @@
 id: gap-actionmenu-dismissed-by-open-focus-scroll
 title: AC-101 判据 case 5 红：⋯ 菜单被它自己那次打开点击引发的浏览器焦点滚动关掉——ActionMenu 在捕获期监听 window
   scroll，部分被裁切的行第一次点 ⋯ 只会把菜单闪开又关掉，Hide similar menuitem 永不出现
-status: todo
+status: ready
 labels:
   - gap
   - defect
