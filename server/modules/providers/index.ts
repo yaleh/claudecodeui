@@ -28,6 +28,13 @@ export {
   ensureProviderWatchRoots,
 } from './services/sessions-watcher.service.js';
 export type { ProviderWatchPath } from './services/sessions-watcher.service.js';
+// readActiveWatcherModes: consumed by the debug agent's external-write criterion
+// (`debug-agent-external-write.test.ts`), whose arms must each prove the fixture
+// root came up in the mechanism that arm pinned — an arm that asked for native
+// events and silently got a polling clock would be reporting a different
+// experiment than the one it names.
+export { readActiveWatcherModes } from './services/sessions-watcher.service.js';
+export type { WatcherMode } from './services/sessions-watcher.service.js';
 export { providerRegistry } from './provider.registry.js';
 // resolveModelLaunchSpec: consumed by the websocket module's shell pty to compile the
 // spawn env for the selected custom model.
