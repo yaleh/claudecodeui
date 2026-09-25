@@ -3,7 +3,7 @@ id: gap-ac103-worktree-state-drag-and-unbudgeted-confirm
 title: AC-103 现在是红的：两个 voice false-forms 测试读共享 worktree 状态 ⇒ 并发组必红、差集地板=2 吃光
   DIFF_MAX 的余量（一个普通偶发即「成批死亡」判红）；而把差集洗成偶发的确认步成本既不在判词墙钟里也不受预算闸管 ⇒ 外层 60000ms
   击杀后被记成 fail；冷路径地板 62–70s 也装不进同一条上限
-status: needs-human
+status: todo
 labels:
   - gap
   - defect
