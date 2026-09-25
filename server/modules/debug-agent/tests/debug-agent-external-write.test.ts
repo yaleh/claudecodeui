@@ -15,9 +15,11 @@ import { initializeDatabase } from '@/modules/database/index.js';
 import {
   closeSessionsWatcher,
   initializeSessionsWatcher,
+  readActiveWatcherModes,
   resolveProviderWatchPaths,
   sessionSynchronizerService,
   sessionsService,
+  type WatcherMode,
 } from '@/modules/providers/index.js';
 import { WS_OPEN_STATE, connectedClients } from '@/modules/websocket/index.js';
 import type { LLMProvider } from '@/shared/types.js';
@@ -81,6 +83,17 @@ const GATE_VAR = 'DEBUG_AGENT';
 const GATE_HOME_VAR = 'DEBUG_AGENT_HOME';
 const PROBE_VAR = 'DEBUG_AGENT_EXTERNAL_WRITE_PROBE';
 const MODE_VAR = 'DEBUG_AGENT_EXTERNAL_WRITE_MODE';
+/**
+ * The observer's mechanism selector. Every arm pins it: the readings below are
+ * built around a known clock — the drain's silence requirement, the observation
+ * window, the short-window falsification — so an arm that let `auto` choose would
+ * be measuring whichever mechanism the host happened to offer, and the polling
+ * and native arms would be the same experiment twice on a host that prefers one.
+ *
+ * Spelled locally rather than imported, like `GATE_VAR` above: this file names
+ * the variables it sets, and it is not the module that owns them.
+ */
+const WATCHER_MODE_VAR = 'CLOUDCLI_WATCHER_MODE';
 const PROBE_MARKER = '__DEBUG_AGENT_EXTERNAL_WRITE_READING__';
 
 const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -148,7 +161,13 @@ const SCENARIO: DebugAgentScenario = {
 
 const OBSERVER_LINE = /Session synchronization triggered by (add|change) event for provider "([^"]+)"/;
 
-type ChildMode = 'external-write' | 'bypass';
+/**
+ * `external-write` and `external-write-native` are the same arm on the two
+ * mechanisms — everything below the mode is shared, including the criterion they
+ * are judged by, so the pair reads "the chain holds under native events too"
+ * rather than "native events are a different experiment". `bypass` is the fake.
+ */
+type ChildMode = 'external-write' | 'external-write-native' | 'bypass';
 
 /** One `session_upserted` as it reached a connected client. */
 type UpsertReading = { at: number; sessionId: string | null; providerSessionId: string | null };
@@ -162,7 +181,14 @@ type LoadAttempt = { attempt: number; transcriptPath: string; addObserved: boole
 type ExternalWriteReading = {
   gate: { enabled: boolean; home: string | null; reason: string };
   mode: ChildMode;
-  fixture: { root: string | null; rootListed: boolean; transcriptPath: string; projectPath: string };
+  fixture: {
+    root: string | null;
+    rootListed: boolean;
+    /** The mechanism the fixture root's watcher actually runs in. */
+    watcherMode: WatcherMode | null;
+    transcriptPath: string;
+    projectPath: string;
+  };
   session: { sessionId: string; providerSessionId: string; seedRows: number };
   /** Producing the load event, and how many tries the observer needed to see it. */
   load: { attempts: LoadAttempt[]; observedOn: number | null };
@@ -507,6 +533,17 @@ async function readExternalWrite(mode: ChildMode): Promise<ExternalWriteReading>
     );
 
   await initializeSessionsWatcher();
+  // The mechanism this arm's observer actually came up in, read from the
+  // watcher rather than inferred from the variable this arm exported: an
+  // explicit `native` that the host could not honour would have failed the boot,
+  // and an `auto` that silently fell back would otherwise make a "native" arm a
+  // second reading of the polling one.
+  const fixtureWatcherMode =
+    fixtureRoot === null
+      ? null
+      : (readActiveWatcherModes().find(
+          ({ rootPath }) => path.resolve(rootPath) === path.resolve(fixtureRoot),
+        )?.mode ?? null);
   await waitForObserverWalk();
 
   // The fixture is armed AFTER the observer is up, which is what makes the load
@@ -582,6 +619,7 @@ async function readExternalWrite(mode: ChildMode): Promise<ExternalWriteReading>
     fixture: {
       root: fixtureRoot,
       rootListed: fixtureRootListed,
+      watcherMode: fixtureWatcherMode,
       transcriptPath: armed.transcriptPath,
       projectPath: armed.projectPath,
     },
@@ -650,6 +688,10 @@ function runChild(mode: ChildMode): Promise<ChildRun> {
   delete env[GATE_HOME_VAR];
   env[GATE_VAR] = 'on';
   env[GATE_HOME_VAR] = fixtureHome;
+  // Pinned, not inherited: a `CLOUDCLI_WATCHER_MODE` the caller happened to have
+  // exported must not be able to decide which clock an arm is measured against.
+  delete env[WATCHER_MODE_VAR];
+  env[WATCHER_MODE_VAR] = mode === 'external-write-native' ? 'native' : 'poll';
 
   return new Promise<ChildRun>((resolve) => {
     execFile(
@@ -772,7 +814,7 @@ function describe(reading: ExternalWriteReading): string {
   return [
     `[gate] ${reading.gate.enabled ? 'OPEN' : 'CLOSED'} (${reading.gate.reason}); home=${reading.gate.home ?? '<none>'}`,
     `[mode] ${reading.mode}`,
-    `[fixture] root=${fixture.root ?? '<none>'} listed=${fixture.rootListed}; transcript=${fixture.transcriptPath} (${reading.session.seedRows} seed row(s), session ${reading.session.sessionId})`,
+    `[fixture] root=${fixture.root ?? '<none>'} listed=${fixture.rootListed} watcherMode=${fixture.watcherMode ?? '<none>'}; transcript=${fixture.transcriptPath} (${reading.session.seedRows} seed row(s), session ${reading.session.sessionId})`,
     `[load] \`add\` observed on attempt ${load.observedOn} of ${load.attempts.length}; per attempt: ${load.attempts.map((entry) => `#${entry.attempt}=${entry.addObserved}`).join(' ')}`,
     `[drain (i)] ${drain.upsertsObserved} upsert(s) observed; silence ${drain.silenceMs}ms (> one polling period ${POLL_INTERVAL_MS}ms); settled after ${drain.tookMs}ms`,
     `[append] at +${append.loadToAppendMs}ms after the load upsert; observerClosed=${append.observerClosed}`,
@@ -789,22 +831,30 @@ function describe(reading: ExternalWriteReading): string {
 if (process.env[PROBE_VAR] === '1') {
   // Child mode: take the reading for this arm, print one line, exit.
   const mode = process.env[MODE_VAR];
-  if (mode !== 'external-write' && mode !== 'bypass') {
+  if (mode !== 'external-write' && mode !== 'external-write-native' && mode !== 'bypass') {
     throw new Error(`unknown probe mode ${JSON.stringify(mode)}`);
   }
 
   const reading = await readExternalWrite(mode);
   emit(`${PROBE_MARKER}${JSON.stringify(reading)}`);
 } else {
-  // Both arms are started together. Each is almost entirely waiting on a 6s
-  // polling clock, so running them concurrently costs the suite one arm's wall
-  // clock instead of both, and they share nothing — separate scratch HOME,
-  // separate database, separate observer.
-  const runs = { externalWrite: runChild('external-write'), bypass: runChild('bypass') };
+  // All three arms are started together. Each is almost entirely waiting on a
+  // 6s clock of one kind or another, so running them concurrently costs the
+  // suite one arm's wall clock instead of three, and they share nothing —
+  // separate scratch HOME, separate database, separate observer.
+  const runs = {
+    externalWrite: runChild('external-write'),
+    externalWriteNative: runChild('external-write-native'),
+    bypass: runChild('bypass'),
+  };
   registerCriteria(runs);
 }
 
-function registerCriteria(runs: { externalWrite: Promise<ChildRun>; bypass: Promise<ChildRun> }): void {
+function registerCriteria(runs: {
+  externalWrite: Promise<ChildRun>;
+  externalWriteNative: Promise<ChildRun>;
+  bypass: Promise<ChildRun>;
+}): void {
   test('an external write reaches the client through the file observer, and the criterion drains the load event first', async () => {
     const reading = requireReading(await runs.externalWrite, 'external-write');
     console.log(describe(reading));
@@ -815,6 +865,11 @@ function registerCriteria(runs: { externalWrite: Promise<ChildRun>; bypass: Prom
       reading.fixture.rootListed,
       true,
       'the fixture root must be in the observation set, or nothing below is about the observer',
+    );
+    assert.equal(
+      reading.fixture.watcherMode,
+      'poll',
+      'this arm pins CLOUDCLI_WATCHER_MODE=poll, so every clock below is the one the pre-task code ran on',
     );
 
     const verdict = evaluateCriterion(reading);
@@ -873,6 +928,65 @@ function registerCriteria(runs: { externalWrite: Promise<ChildRun>; bypass: Prom
       reading.windowFalsification.trials.some((trial) => !trial.delivered),
       `a ${SHORT_WINDOW_MS}ms window must not be green every time, or the criterion is measuring a fixed phase: ${JSON.stringify(reading.windowFalsification.trials)}`,
     );
+  });
+
+  test('the same chain holds under native events, with no polling clock in the observer at all', async () => {
+    const reading = requireReading(await runs.externalWriteNative, 'external-write-native');
+    console.log(describe(reading));
+
+    assert.equal(reading.gate.enabled, true, 'this arm needs the gate open');
+    assert.equal(reading.mode, 'external-write-native', 'this arm must leave the observer in the loop');
+    assert.equal(
+      reading.fixture.rootListed,
+      true,
+      'the fixture root must be in the observation set, or nothing below is about the observer',
+    );
+    assert.equal(
+      reading.fixture.watcherMode,
+      'native',
+      `this arm pins CLOUDCLI_WATCHER_MODE=native: an arm that silently came up polling would be a second reading of the polling arm, not a reading about native events${JSON.stringify(reading.fixture)}`,
+    );
+
+    // ---- (i) the drain still applies ----
+    // Native events arrive in microseconds, so the silence requirement is not
+    // what makes the drain meaningful here — the LOAD EVENT still is: without it
+    // the drain would be "silent" from the start and every reading after it
+    // would rest on an `add` that never happened.
+    assert.notEqual(
+      reading.load.observedOn,
+      null,
+      `the load event must have been announced by the observer: ${JSON.stringify(reading.load.attempts)}`,
+    );
+    assert.ok(
+      reading.drain.upsertsObserved >= 1,
+      `the load event must have been observed for the drain to mean anything (saw ${reading.drain.upsertsObserved})`,
+    );
+    assert.ok(
+      reading.drain.silenceMs > POLL_INTERVAL_MS,
+      `the drain must outlast one polling period: silence was ${reading.drain.silenceMs}ms, interval is ${POLL_INTERVAL_MS}ms`,
+    );
+    assert.ok(
+      reading.append.loadToAppendMs !== null && reading.append.loadToAppendMs > POLL_INTERVAL_MS,
+      `the write must be separated from the load event by more than one polling period (got ${reading.append.loadToAppendMs}ms)`,
+    );
+
+    // ---- (ii) + (iii) + (iv), through the shared criterion ----
+    const verdict = evaluateCriterion(reading);
+    assert.deepEqual(verdict.failures, [], `the criterion must be clean:\n${verdict.failures.join('\n')}`);
+    assert.deepEqual(verdict.blindFailures, [], 'the blind criterion is clean here too');
+    assert.ok(
+      reading.delivery.deliveryMs !== null && reading.delivery.deliveryMs <= OBSERVATION_WINDOW_MS,
+      `delivery must land inside the window (got ${reading.delivery.deliveryMs}ms of ${OBSERVATION_WINDOW_MS}ms)`,
+    );
+
+    // ---- what is deliberately NOT asserted here ----
+    // The short-window falsification is a reading about a polling clock: three
+    // sub-second windows against a six-second period must not all be green. Under
+    // native events delivery is immediate, so EVERY sub-second window would be
+    // green and the assertion would be a criterion that cannot go red — the run
+    // still measures it (it is printed above), but it is asserted where it means
+    // something, in the polling arm. Nothing else is relaxed: (i)–(iv) above are
+    // the same assertions, through the same `evaluateCriterion`.
   });
 
   test('the anti-fake arm bypasses the observer: (ii) and (iii) both fail while the blind criterion stays green', async () => {
