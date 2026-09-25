@@ -1,7 +1,7 @@
 ---
 id: gap-vitest-worker-heap-limit
 title: vitest 工作进程堆上限：失控用例在配置层被秒级掐死，不再靠 24G 的 cgroup 兜底、也不因直接 npx vitest 绕过
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -88,3 +88,14 @@ vitest-heap-limit-check: FAIL — 未受限：QUAY_VITEST_HEAP_MB=off 时配置�
 - DoD(2) 原始失控**未能复现**，且不可复原（该测试的 props 让那个守卫成为 no-op）；按 DoD 要求如实写出，**不宣称**原事故已堵，层 2 仍为其兜底。另附两条通道的实测边界与「真实被测组件」的 JS 堆失控读数。
 - DoD(3) 文档已增补两层分工、覆盖变量与上述实测。
 - `L_D` / `L_G` 两轴仍暗，理由见 DoD（纯测试基础设施，无可独立度量的读数）。
+
+## Needs-Human
+
+**执行 2026-09-25T05:14:21.675Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: not ok - server/modules/voice/tests/voice-dashscope-settings.false-forms.test.ts:   AssertionError [ERR_ASSERTION]: the unmutated copy must clear the whole list before the mutation means anything; it red at AC8 server-branch-scan
+- run_id：wk-prod-anchor
+- session_id：ba87c226-9b9d-4289-b9e9-c920591cc3b5
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-vitest-worker-heap-limit~wk-prod-anchor~1790313111277-228589.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-vitest-worker-heap-limit-wk-prod-anchor.log
