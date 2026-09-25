@@ -11,32 +11,6 @@ extra:
 depends_on:
   - gap-mobile-voice-clip-row-below-textarea
 ---
----
-id: gap-mobile-activity-inline-single-stop
-title: 移动端执行状态进入消息流末尾（无 Stop、不覆盖消息），只保留右下角主 Stop 一个入口；桌面仍用 composer 上沿 tab 状态
-status: ready
-labels:
-  - gap
-parent: null
-children: []
-extra:
-  schema: execution
-depends_on:
-  - gap-mobile-voice-clip-row-below-textarea
----
----
-id: gap-mobile-activity-inline-single-stop
-title: 移动端执行状态进入消息流末尾（无 Stop、不覆盖消息），只保留右下角主 Stop 一个入口；桌面仍用 composer 上沿 tab 状态
-status: ready
-labels:
-  - gap
-parent: null
-children: []
-extra:
-  schema: execution
-depends_on:
-  - gap-mobile-voice-clip-row-below-textarea
----
 ## Proposal
 
 来源方案：`docs/proposals/mobile-workspace-and-composer-layout.md` 第 4 节（本任务自包含）。仅前端，范围 `src/modules/chat/`。
