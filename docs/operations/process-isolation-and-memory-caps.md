@@ -433,53 +433,100 @@ equally consistent with "the server never wrote anything". So `--slow-client-dra
 only difference is that the bytes are read (the leg itself lives in `soak-driver.mjs`).
 
 ```bash
-bash scripts/soak.sh --duration 120 --burst-mb 48 --report hyp.json
-bash scripts/soak.sh --duration 120 --burst-mb 48 --slow-client-drains --report ctl.json
+bash scripts/soak.sh --duration 120 --burst-mb 256 --report hyp.json
+bash scripts/soak.sh --duration 120 --burst-mb 256 --slow-client-drains --report ctl.json
 ```
 
-**Read the positive control first.** The control arm recorded `slowClientDrainedBytes=103,460,364`
-(98.7MiB) against `slowClientBurstBytes=50,331,648` (48MiB): the server really did push the burst to
-a subscriber. Without that number the pair proves nothing.
+**Read the positive control first.** The control arm recorded `slowClientDrainedBytes=551,322,627`
+(525.8MiB) against `slowClientBurstBytes=268,435,456` (256MiB): the server really did push the burst
+to a subscriber. Without that number the pair proves nothing.
 
 | Reading (whole run, 120s) | wedge arm (`drains=false`) | control arm (`drains=true`) |
 |---|---|---|
-| sessions created | 156 | 174 |
-| samples / in-window | 30 / 20 | 26 / **19** (series SKIPped, see below) |
-| peak RSS / VmHWM | 4348.63 / 4591.44 MiB | 4727.91 / 4791.04 MiB |
-| peak `heapUsed` | 3718.00 MiB | 3970.00 MiB |
-| peak cgroup `memory.current` | 6222.14 MiB | 4884.63 MiB |
-| live set first→last | 50.21→143.70 MiB (+93.49) | 48.10→152.48 MiB (+104.38) |
-| live nodes | 623,074→1,831,886 | 600,680→1,940,755 |
+| sessions created | 240 | 240 |
+| samples / in-window | 34 / 23 | 34 / 23 |
+| peak RSS / VmHWM | 2717.90 / 2717.90 MiB | 1846.51 / 1846.51 MiB |
+| peak `heapUsed` | 2118.00 MiB | 584.00 MiB |
+| peak cgroup `memory.current` | 2763.78 MiB | 1855.48 MiB |
+| live set first→last | 58.56→46.58 MiB (−11.98) | 43.77→46.38 MiB (+2.61) |
+| live nodes | 713,243→577,027 | 547,021→576,745 |
+| slow-client window peak RSS | 2717.90 MiB | 1846.51 MiB |
+| window RSS before → settled after | 276.47→818.18 MiB | 293.19→815.97 MiB |
+| `slowClientDrainedBytes` | 0 | 551,322,627 |
 | `closedBeforeDeadline` | false | false |
+| verdict | green | green |
 
-**The wedged arm is not the higher one** (the control arm's peak RSS is 379MiB *above* it), and the
-spread between the arms is several times the 48MiB payload the hypothesis is about. Both arms' peaks
-are set by the same workload — 48MiB of burst per session, sessions every 500ms, a 105.1MB jsonl
-re-read by the sessions watcher — and in both arms the live set grows by ~95–105MiB against a
-~205MiB budget for the sessions added. At this scale the reading is **证伪: consuming the payload and
-not consuming it are indistinguishable above the workload's own churn.** Note also that both arms
-read **red** on their own criteria (slope backstops; the control arm additionally SKIPs its required
-series at 19 of the 20 in-window samples, because a 4GB heap makes the 5s tick and the 30s snapshot
-collide). The pair is compared on peaks and live-set readings, not on verdicts — an unplanned
-limitation of the instrument, not a property of the server.
+**The wedged arm is the higher one**, by **871.39MiB of peak RSS and 1534.00MiB of peak `heapUsed`**,
+in a pair whose workload is identical: 240 sessions in both arms, same 500ms interval, same legs, same
+`--burst-mb`, and 525.8MiB of drained bytes in the control proving the stream really moved. At this
+scale the reading is **证实: unread bytes are retained while the subscriber is wedged.** It is also not
+a leak — the settled live set 40s after the window is 818.18 vs 815.97MiB, and the wedge arm's live set
+*shrank* (−11.98MiB) against a ~205MiB budget for the sessions added. The residency is the wedged
+client's own backlog, released when the socket goes away.
 
-**Why that verdict is bounded, and not "false, period".** The mock gateway **materializes** the
-burst — one 4KiB string per delta event — before writing it, so the gateway is the first casualty of
+That **reverses** the 48MiB reading this section used to carry (wedge 4348.63MiB, control
+4727.91MiB — the wedged arm *lower*, i.e. indistinguishable above the churn), and the reversal has a
+cause worth recording. With the burst marked onto **every third session** the burst *is* the workload:
+both arms' peaks were then set by the same relay volume and the differential drowned in it — note that
+those two arms managed only 156 and 174 sessions against a 500ms interval that allows 240, because the
+multi-minute burst relays sat on the concurrency cap (`sessionStartsDeferred=150` at 512MiB). The burst
+is the differential's subject and belongs on one session; `soak-driver.mjs` now says so, and the same
+policy is what lets the run drive its full workload at a payload five times the old ceiling: 240
+sessions at 256MiB with `sessionStartsDeferred=0`.
+
+**Why the old verdict was bounded, and not "false, period".** The mock gateway **materialized** the
+burst — one 4KiB string per delta event — before writing it, so the gateway was the first casualty of
 a large `--burst-mb`. At `--burst-mb 512` it died of its own heap (`FATAL ERROR: Reached heap limit
 Allocation failed - JavaScript heap out of memory`, 4095MiB), the server saw `ECONNREFUSED`, only 27
 sessions ran, and the arm's residuals read red for scopes still in flight — a contaminated reading,
-discarded. The largest drivable burst is therefore ~48MiB, and at 48MiB the raw RSS/heap series
-already red on churn. The "unbounded" branch is **未能驱动** by this harness as it stands, and the
-cause is the harness's burst materialization, not the server; it is filed as
-`gap-soak-mock-gateway-burst-materialization` (stream the burst instead of building it, then re-run
-the pair at 256–512MiB, where the payload dominates the churn).
+discarded. The largest drivable burst was therefore ~48MiB, and at 48MiB the raw RSS/heap series
+already red on churn. The "unbounded" branch was **未能驱动** by the harness as it stood, for a cause
+in the harness's burst materialization rather than in the server; that cause is now removed (next
+paragraph), and the hypothesis is answered **证实** above.
+
+**What the instrument's ceiling was, and what replaced it.** The mock gateway used to **materialize**
+the burst, so the gateway itself was the first casualty of a large `--burst-mb`. It now produces the
+reply frame by frame under the socket's backpressure (`replyFrames` + `streamReply` in
+`soak-driver.mjs`), and its peak RSS no longer tracks the payload at all: **110MiB at `--burst-mb 256`
+and 135MiB at `--burst-mb 512`**, both gateways alive for the whole run, with `<workdir>/mock.log` free
+of both `Reached heap limit` and `out of memory`. The wire bytes are unchanged — same event names, same
+order, same `JSON.stringify`, the same 4KiB text block, the same count — verified by diffing the
+streamed reply against the develop build.
+
+What stops the instrument now sits one layer down, at a **hard V8 limit in the server's protocol
+path**. `--burst-mb 512` is 536,870,912 characters of reply text, and V8's maximum string length is
+`2**29 − 24` = **536,870,888**: the payload overshoots it by 24 characters. The `claude` CLI aggregates
+each assistant message into a single `stream-json` line on its stdout, and the server's `readline` over
+that socket cannot hold the line —
+
+```
+RangeError: Invalid string length
+    at [_normalWrite] [as _normalWrite] (node:internal/readline/interface:665:34)
+    at Socket.ondata (node:internal/streams/readable:268:23)
+```
+
+— which is fatal to the server process and hits **both** arms at t≈42s (wedge `targetGoneAt=42.083`,
+control `41.772`) after 43 sessions, so the 512MiB pair is reported on peaks and never on verdicts. No
+harness change can lift this one: the bytes have to exist as one string somewhere between the CLI and
+the server. **The largest drivable burst is therefore no longer ~48MiB — it is bounded by the protocol
+rather than by the instrument, and it is bracketed to `(500MiB, 512MiB]`:** `--burst-mb 500` is
+measured green end-to-end (240 sessions, 23 in-window samples, `ok: true`, gateway peak 139MiB, server
+peak RSS 3946.80MiB), `--burst-mb 256` likewise (240 sessions, gateway peak 110MiB), and
+`--burst-mb 512` is not drivable at all.
+
+The same pair at `--burst-mb 512`, for corroboration: wedge peak RSS 1363.86MiB against control
+778.17MiB (**+585.69MiB**), peak `heapUsed` 759.00 vs 267.00MiB (+492.00MiB), control
+`slowClientDrainedBytes=565,651,542` (539.4MiB), `closedBeforeDeadline` false (wedge) vs true
+(control). Same direction and same order of magnitude as the 256MiB pair, in runs cut short at t≈42s —
+consistent with the mechanism: at 512MiB the wedged subscriber's backlog alone exceeds half a gigabyte.
 
 Two things this pair *does* establish, independently of the differential:
 
-- `closedBeforeDeadline=false` in every arm (4MiB / 48MiB / 512MiB, and the 30-minute run): within a
-  40–60s window the server never closes a subscriber that has stopped reading. No cap, no reaper —
-  the mechanism the hypothesis names is present and unguarded. What is undemonstrated is its
-  amplification at a scale above the harness's ceiling.
+- `closedBeforeDeadline=false` in every arm (4MiB / 48MiB / 256MiB / 512MiB, and the 30-minute run):
+  within a 40–60s window the server never closes a subscriber that has stopped reading. No cap, no
+  reaper — the mechanism the hypothesis names is present and unguarded. Its amplification is no longer
+  undemonstrated: at 256MiB the wedged arm peaks 871.39MiB above the arm that read the same 525.8MiB,
+  and at 512MiB it is 585.69MiB above before the protocol ceiling — not the server — ends the run.
 - `--burst-mb` must exceed the kernel's absorption, or the leg tests nothing: this host's
   `net.ipv4.tcp_wmem` max is 4194304 and `net.core.wmem_max` is 212992, so a default 4MiB burst need
   never reach the server's user-space send queue at all. That is why the flag exists and why the

@@ -28,6 +28,10 @@
 //          without credentials and without touching the network. It streams a small reply, or a
 //          multi-megabyte one when the prompt carries SOAK_BURST (the lever the slow-client
 //          hypothesis needs: something big enough to actually fill a socket that is not read).
+//          The burst is produced FRAME BY FRAME under the socket's backpressure (replyFrames +
+//          streamReply), never materialized: `--burst-mb` must be able to exceed the workload's own
+//          churn, and an array-of-events implementation made the GATEWAY the first thing to OOM at
+//          ~512MiB, capping the instrument at ~48MiB — below the scale the question is asked at.
 //          The hypothesis is only answerable differentially: the same socket, the same subscribe,
 //          the same window, but reading (`--slow-client-drains`) is the control arm, and every other
 //          reading in the run — the workload, the session count, the probe cadence — is shared. A
@@ -66,6 +70,7 @@ import fsp from 'node:fs/promises';
 import http from 'node:http';
 import net from 'node:net';
 import path from 'node:path';
+import { once } from 'node:events';
 import { createRequire } from 'node:module';
 
 import { analyzeSoakReport, REQUIRED_ACTIONS, REQUIRED_SERIES } from './soak-analyze.mjs';
@@ -552,6 +557,103 @@ async function runStub(kind, retainMb) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * The reply's SSE frames in wire order: the two header events, the delta events (one 4KiB block each
+ * for a burst), then the three tail events.
+ *
+ * IT IS A GENERATOR, AND THAT IS THE WHOLE FIX. The previous version built this list as an ARRAY
+ * before writing a byte, so a `--burst-mb 512` reply was ~131k JS strings held at once and the
+ * GATEWAY was the first process to die of it: `FATAL ERROR: Reached heap limit Allocation failed`,
+ * 4095MiB, server `ECONNREFUSED`, 27 sessions, arm discarded. That put the instrument's ceiling at
+ * ~48MiB — the size at which its own heap survived — which is BELOW the churn the slow-client
+ * hypothesis has to be read against, so the "unbounded send buffer" branch was **未能驱动** rather
+ * than refuted. Producing one frame at a time makes the gateway's memory independent of `--burst-mb`.
+ *
+ * The WIRE BYTES ARE UNCHANGED by that: same event names, same order, same `JSON.stringify`, the
+ * same 4KiB text block, the same count. The SDK reads exactly what it read before; only the
+ * gateway's peak stops scaling with the reply.
+ *
+ * @param {boolean} burst
+ * @param {number} burstMb
+ * @returns {Generator<[string, unknown]>}
+ */
+function* replyFrames(burst, burstMb) {
+  yield ['message_start', {
+    type: 'message_start',
+    message: {
+      id: 'msg_soak', type: 'message', role: 'assistant', model: 'soak-mock', content: [],
+      stop_reason: null, stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 },
+    },
+  }];
+  yield ['content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }];
+  if (burst) {
+    // Many small deltas rather than one big one: this is what makes the SERVER emit many
+    // websocket frames, which is the shape a slow client's backlog is made of.
+    const chunk = 'x'.repeat(4096);
+    const count = Math.ceil((burstMb * MIB) / chunk.length);
+    for (let i = 0; i < count; i += 1) {
+      yield ['content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: chunk } }];
+    }
+  } else {
+    yield ['content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'soak-ok' } }];
+  }
+  yield ['content_block_stop', { type: 'content_block_stop', index: 0 }];
+  yield ['message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 1 } }];
+  yield ['message_stop', { type: 'message_stop' }];
+}
+
+/**
+ * One Anthropic-compatible reply, streamed frame by frame with BACKPRESSURE.
+ *
+ * `res.write` returns false once the response's buffer is past its high-water mark, and the bytes are
+ * buffered all the same — so ignoring that return value is what turns "stream the burst" back into
+ * "materialize the burst", only this time in Node's socket queue instead of in an array. Awaiting
+ * 'drain' there is the half of the fix that actually bounds the gateway: its pending bytes then track
+ * the SOCKET's buffer, not the reply's size.
+ *
+ * The abort signal is attached ONCE per reply, not per frame. A 512MiB reply is 131,072 frames, and a
+ * 'close' listener attached per frame would accumulate to Node's max-listener warning (and a real
+ * leak of closures) — while the frame the reader abandons mid-write is exactly what has to be caught:
+ * `event: message_stop` on a dead socket is not a reading anyone has.
+ *
+ * @param {import('node:http').ServerResponse} res
+ * @param {boolean} burst
+ * @param {number} burstMb
+ * @returns {Promise<void>}
+ */
+async function streamReply(res, burst, burstMb) {
+  const gone = new AbortController();
+  const onGone = () => gone.abort();
+  res.on('close', onGone);
+  res.on('error', onGone);
+
+  /**
+   * @param {string} name
+   * @param {unknown} data
+   * @returns {Promise<boolean>} false when the reader went away and the reply must stop.
+   */
+  const send = async (name, data) => {
+    if (gone.signal.aborted) return false;
+    if (res.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`)) return true;
+    try {
+      await once(res, 'drain', { signal: gone.signal });
+      return true;
+    } catch {
+      // Aborted: the socket is gone, so there is nothing left to write to.
+      return false;
+    }
+  };
+
+  res.writeHead(200, { 'content-type': 'text/event-stream' });
+  for (const [name, data] of replyFrames(burst, burstMb)) {
+    if (!(await send(name, data))) {
+      res.destroy();
+      return;
+    }
+  }
+  res.end();
+}
+
+/**
  * @param {number} port 0 = pick a free one
  * @param {string} portFile written once bound, so the caller never races the bind
  * @param {number} burstMb reply size when the request carries the SOAK_BURST marker
@@ -568,43 +670,21 @@ async function runMockGateway(port, portFile, burstMb) {
         res.end('{}');
         return;
       }
-      const burst = body.includes('SOAK_BURST');
-      /** @type {Array<[string, unknown]>} */
-      const events = [
-        ['message_start', {
-          type: 'message_start',
-          message: {
-            id: 'msg_soak', type: 'message', role: 'assistant', model: 'soak-mock', content: [],
-            stop_reason: null, stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 },
-          },
-        }],
-        ['content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }],
-      ];
-      if (burst) {
-        // Many small deltas rather than one big one: this is what makes the SERVER emit many
-        // websocket frames, which is the shape a slow client's backlog is made of.
-        const chunk = 'x'.repeat(4096);
-        const count = Math.ceil((burstMb * MIB) / chunk.length);
-        for (let i = 0; i < count; i += 1) {
-          events.push(['content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: chunk } }]);
-        }
-      } else {
-        events.push(['content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'soak-ok' } }]);
-      }
-      events.push(
-        ['content_block_stop', { type: 'content_block_stop', index: 0 }],
-        ['message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 1 } }],
-        ['message_stop', { type: 'message_stop' }],
-      );
-      res.writeHead(200, { 'content-type': 'text/event-stream' });
-      for (const [name, data] of events) res.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`);
-      res.end();
+      // The reply handler is async because the burst waits on socket drains, so it must not be handed
+      // to the emitter directly: an unhandled rejection here would take the gateway down mid-run,
+      // which is the failure this mode exists to stop inflicting on the run.
+      streamReply(res, body.includes('SOAK_BURST'), burstMb).catch(() => {
+        res.destroy();
+      });
     });
   });
   await new Promise((resolve) => server.listen(port, '127.0.0.1', () => resolve(null)));
   const address = /** @type {import('node:net').AddressInfo} */ (server.address());
   fs.writeFileSync(portFile, String(address.port));
-  process.stdout.write(`soak-driver: mock gateway on 127.0.0.1:${address.port} burst=${burstMb}MiB\n`);
+  // The pid, next to the port, for the same reason the port is there: the DoD reads the gateway's OWN
+  // peak RSS out of /proc, and a sampler cannot race the bind-or-die window to find it any other way.
+  fs.writeFileSync(`${portFile}.pid`, String(process.pid));
+  process.stdout.write(`soak-driver: mock gateway on 127.0.0.1:${address.port} burst=${burstMb}MiB pid=${process.pid} (streamed)\n`);
   await new Promise(() => {});
 }
 
@@ -704,9 +784,23 @@ async function driveOneSession(ctx, options = {}) {
 }
 
 /**
- * The session leg: keep two sessions in flight so session scopes churn while the sampler watches.
- * Every third run carries the burst marker (the slow client's source of data); every fourth is
- * aborted mid-run, which is the path that leaves `abortedSessionIds` entries behind.
+ * The session leg: keep sessions in flight so session scopes churn while the sampler watches. The
+ * FIRST session carries the burst marker (the slow client's source of data); every fourth is aborted
+ * mid-run, which is the path that leaves `abortedSessionIds` entries behind.
+ *
+ * WHY THE BURST IS ONE SESSION AND NOT EVERY THIRD — the harness's own ceiling at `--burst-mb 512`.
+ * The burst is the differential's SUBJECT: it is what fills the socket the slow client is supposed
+ * to wedge, and one stream is what the hypothesis needs. Marking every third session instead makes
+ * the burst the WORKLOAD, and the instrument cannot afford that: the server holds O(burst) per
+ * in-flight reply, so at 512MiB a third of the (capped) in-flight slots are permanently occupied by
+ * multi-minute relays. Measured with the burst on every third session at `--burst-mb 512`:
+ * `sessionStartsDeferred=150`, 31 sessions offered in the ~67s before the server's own heap ran out
+ * (`FATAL ERROR: Reached heap limit`), in BOTH arms — i.e. the OOM is the relay volume, not the
+ * wedged client, so the arm that was supposed to be the control died identically and the pair
+ * measured nothing. The same every-third policy at 48MiB is why the doc's earlier pair recorded only
+ * 156/174 sessions against a 500ms interval that allows 240: the arrivals are interval-bound, the
+ * cap is what binds. With the burst confined to one session the session count stops being a function
+ * of `--burst-mb`, which is exactly the "instrument ceiling lifted" reading AC1 asks for.
  *
  * @param {LegContext} ctx
  * @param {(sessionId: string) => void} onBurstSession
@@ -733,7 +827,7 @@ async function runSessionLeg(ctx, onBurstSession, durationSeconds) {
     if (inFlight.size >= ctx.sessionMaxConcurrent) {
       ctx.actions.sessionStartsDeferred += 1;
     } else {
-      const burst = iteration % 3 === 0;
+      const burst = iteration === 0;
       const abort = iteration % 4 === 3;
       iteration += 1;
       const promise = driveOneSession(ctx, { burst, abort, subscribe: burst ? onBurstSession : undefined })

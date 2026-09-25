@@ -15,7 +15,10 @@
 # the burst (a stalled socket the server never wrote to proves nothing); the hypothesis arm's RSS
 # trajectory is the reading. `--burst-mb` must exceed what the kernel socket buffers can absorb
 # (~4MiB send + a few MiB receive on loopback, see net.ipv4.tcp_wmem), otherwise the burst never
-# reaches the server's user-space send queue and the leg tests nothing.
+# reaches the server's user-space send queue and the leg tests nothing — and it should exceed the
+# workload's own churn, or the two arms are indistinguishable above noise. The mock gateway streams
+# its reply frame by frame under backpressure, so the gateway's own memory does NOT scale with
+# `--burst-mb`; it can be raised to the hundreds of MiB the differential needs.
 #
 # MANUAL BY CONSTRUCTION. Nothing in this repo calls this script: not scripts/test.sh, not
 # `npm test`, not a quay routine. package.json exposes it as `npm run soak`, and the task's own AC
@@ -79,7 +82,8 @@ usage:
   --keep           keep the working directory (temp HOME/DB/transcripts/logs) after a green run
   --burst-mb <n>   size of the reply the mock gateway streams for a burst session, and therefore of
                    the payload the slow-client leg subscribes to (default: 4). Raise it well above
-                   the kernel socket buffers when the send-buffer hypothesis is the question.
+                   the kernel socket buffers — and above the run's own churn — when the send-buffer
+                   hypothesis is the question; the gateway streams, so its memory is not a ceiling.
   --slow-client-drains
                    run the slow-client leg's CONTROL arm: identical socket, handshake, subscribe and
                    window, but the bytes are read. Pair it with a matching --burst-mb run to answer
@@ -323,7 +327,10 @@ run_drive() {
   # because "which arm produced this report" is unreadable from the report alone after the fact.
   local slow_seconds=$((DURATION / 3))
   [ "$slow_seconds" -gt 60 ] && slow_seconds=60
-  log "server up: unit=$UNIT pid=$SERVER_PID port=$port mock=$mock_port work=$WORK"
+  # The gateway's pid is on the log line for the same reason the server's is: it is the process whose
+  # OWN peak RSS is the reading that says the burst no longer bounds the instrument (see the DoD), and
+  # /proc/<gateway pid> is how a sampler gets it. The gateway also writes it to <port-file>.pid.
+  log "server up: unit=$UNIT pid=$SERVER_PID port=$port mock=$mock_port mock-pid=$MOCK_PID work=$WORK"
   log "slow-client arm: burst=${BURST_MB}MiB drains=$SLOW_DRAINS seconds=$slow_seconds"
 
   # 3. The observation token. JWT_SECRET is explicitly removed: minting a token while the server
