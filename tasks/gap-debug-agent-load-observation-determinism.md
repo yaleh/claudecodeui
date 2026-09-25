@@ -183,3 +183,19 @@ server/modules/debug-agent/tests/debug-agent-external-write.test.ts
 - **Touches。** 只动了列出的两个文件（AC6 一行）。
 - **L_D 该轴仍暗，理由**：本任务交付的是调试/测试机制里「装载观测」这一环的确定性，不改变产品领域能力，没有可读出的产品领域读数；判定面由 AC1 的 `[load]`/`[readiness]` 读数与 AC3 的两读承担。
 - **L_G** 本目标的判据是 `goals/AC-125`（外部写入经真实文件观察者送达客户端，判据自带排空与正面控制），本任务的 AC1/AC4 即该判据的命令与它的四项读数；AC3 是它的抗假与确定性对照。
+
+
+
+
+### 续跑轮（suite-red 归因，2026-09-25 18:5x）
+
+**本轮未改任何代码。** 分支相对 develop 的 delta 仍是 Touches 第一条那一个文件；`task_check` 读回 `acTotal=7 acChecked=7 ok=true`。上轮 fan-in 的 suite 红落在 `server/modules/voice/tests/voice-capture-text.false-forms.test.ts`——与本任务 delta 无关，归因读数如下。
+
+- **不在 Touches，且与 develop 逐字节相同**：`git rev-parse HEAD:<f>` = `git rev-parse develop:<f>` = `fb86bfac8e95472eef3071fbf77a0f1f9806f977`。本任务唯一的 delta 文件（`debug-agent-external-write.test.ts`）在同一次 suite 里 `passed=true duration_ms=29435`。
+- **单跑绿**：`npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice-capture-text.false-forms.test.ts` → exit 0、`pass 6`、`fail 0`、`duration_ms=25338`。
+- **舰队级而非本任务**：`.quay/` 的 19 份 `fan-in-suite-*.log` 里该文件红 12 次，横跨 6 个任务（`gap-transcript-follow-ac110-case-nav-skips-boot-guard`、`gap-session-filter-criterion-bounded-boot-guard`、`gap-session-hosts-default-wrap-four-providers`、`gap-claude-session-cgroup-scope`、`gap-voice-error-notice-browser-e2e`、本条）。17:59 起连续 7 次 fan-in 全红（该窗口内 18:14 有三个 fan-in 同时在跑）。
+- **机制（自读源文件，非转述）**：AC11（`:444`）在**模块加载时**抓全树 `git status --porcelain` 存为 `PRE_RUN_PORCELAIN`（`:88`），跑结束再抓一次（`:445`）比 `porcelain === PRE_RUN_PORCELAIN`（`:451`），断言 `unchanged === true`（`:468`）。`gitStatusPorcelain()` 是**全工作树**读（`:73`、`cwd: REPO_ROOT`），而 `server/modules/voice/` 是**跨进程共享**目录：兄弟判据在跑期建删 `__criterion-falsify-*` 临时副本，只要落在两次读之间，`unchanged` 即为 false。独跑时无兄弟进程 ⇒ 绿（实测 `git.status-clean=true unchanged=true temp-copies=none`）；并发时红。
+- **suite 日志引的那行不是红因**：`not ok - ... falsify/failure-row-dropped ... predicted=[failRow=0] red=4` 是**通过**的读数行（单跑同样打印 `red=4` 而该 case `✔` 且整文件 `pass 6`），被 `first_error()` 误取；真正的红是 AC11 的 `this run changed the worktree git status`。
+- **不扩围**：该文件不在 Touches（硬边界 3），且其认领任务 `gap-voice-capture-text-payload` 已是 `done`，`tasks/` 内无在飞任务认领此竞态。读数登记于此，由下一轮/管理者另立。
+
+**本轮 2b**：`git merge develop` → `Already up to date`（`develop == HEAD^2 == 46454a07`），无 UU；scoped 门 `bash scripts/test.sh --for-task gap-debug-agent-load-observation-determinism --allow-thin` → exit 0、`passed=true`、`fail 0`、`duration_ms=29096`、`suite-scope-check: PASS`；scoped-gate 缓存已写（key `46454a0718967c04456be1667b2e6dc9caf25324`）。
