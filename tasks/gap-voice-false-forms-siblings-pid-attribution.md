@@ -3,7 +3,7 @@ id: gap-voice-false-forms-siblings-pid-attribution
 title: voice false-forms 三个兄弟判据（capture-off / capture-text /
   dashscope-settings）共写 server/modules/voice/ 却不按 pid 归因：suite 并发 4 下读到邻居在途的
   __criterion-falsify-* 临时副本 ⇒ 全舰队 fan-in 假红（19 份日志 12 份），且日志引的 not ok 行是一条通过的读数
-status: todo
+status: ready
 labels:
   - gap
   - defect
