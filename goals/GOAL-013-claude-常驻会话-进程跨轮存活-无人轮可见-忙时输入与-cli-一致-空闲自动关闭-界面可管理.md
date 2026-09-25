@@ -16,7 +16,7 @@ per-run 模式下每轮一个 claude 进程，CronCreate 最多触发一次、�
 
 ## 范围
 
-- Claude resident driver：不结束的输入队列、读取循环按 result 切分轮次、interrupt 不杀进程、setModel/setPermissionMode 等在线重配置、关闭即 stdin EOF。
+- Claude resident driver：不结束的输入队列、读取循环以 session_state_changed 切分轮次（缺失时退回 result）、task_* 事件与 Stop hook 的 session_crons / background_tasks 维护保活理由、interrupt 不杀进程、setModel/setPermissionMode 等在线重配置、关闭即 stdin EOF。
 - 无人轮（cron、Monitor/后台任务回报、跨会话消息）由 manager 开 run，来源为 unattended，无连接也记录，可回放，并推送通知。
 - 忙时输入与 CLI 一致：不拒绝、不在服务端排队，立即写入进程，归入 CLI 实际给出的那一轮。
 - 默认 bypassPermissions 启动；无人值守时 AskUserQuestion 与 ExitPlanMode 自动拒绝并通知。
@@ -47,11 +47,13 @@ per-run 模式下每轮一个 claude 进程，CronCreate 最多触发一次、�
 - AC-168 默认 bypass，无人值守时交互式请求被自动拒绝并通知。
 - AC-169 lifecycle_mode 与能力矩阵的约束，常驻的 start/close 可经 API 操作。
 - AC-170 人工关卡：API 面真模型冒烟由人确认通过。
-- AC-171 至 AC-175 真实浏览器里的开启知情、状态呈现、Running 分组、Shell 禁用、忙时直发。
+- AC-171 至 AC-175 真实浏览器里的开启知情、状态呈现、Running 分组、Shell 禁用、忙时直发与撤回。
+- AC-176 常驻进程的 Remote Control 跨机器可达性被强制关闭，信任边界保持在同一 Unix 用户。
 - 上述 AC 全部 achieved；或由人裁定放宽、取消其中任一条。
 - 标题中的「cron 跨轮持续触发」不作为 60 秒判据：cron 最小粒度 1 分钟，连续触发要数分钟，超出判据硬超时。其读数由实验 E1 给出并记录在 proposal；目标级判据以 Monitor 驱动的无人轮（AC-162）与 cron 保活理由的记账（AC-165）承载同一不变式。
 
 ## 已知限制
 
-- 本 goal 的 AC 在实验任务完成前均为草案；AC-163、AC-167、AC-168 的判据细节依赖 E2/E3、E7、E8 的结论，激活前要按结论修订。
+- 本 goal 的 AC 在实验任务完成前均为草案；AC-163、AC-165、AC-167、AC-168、AC-175、AC-176 的判据细节依赖 E2/E3、E7、E8、E9 的结论，激活前要按结论修订。E2/E3 已测得忙时推入的消息另起一轮；E9（控制协议清单）是 2026-09-25 依据对 claude 2.1.282 二进制的静态分析追加的。
+- SDK 0.3.165 的类型落后于全局 claude 2.1.282：scheduled_task_fire、side_question 等 subtype 只在 CLI 里出现。判据里的伪造流要包含一条未知 subtype，确认 driver 放过它。
 - 真实 claude 二进制类判据受本机全局重装 claude 影响（SDK spawn 测试会红），归因时先看二进制 mtime。

@@ -9,6 +9,8 @@ parent: null
 children: []
 extra:
   schema: execution
+depends_on:
+  - gap-voice-false-forms-siblings-pid-attribution
 ---
 ## Proposal
 
@@ -103,4 +105,15 @@ extra:
 - run_id：wk-prod-anchor
 - session_id：d0fc82e0-c63d-43eb-a3b2-9d63b17b7d78
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-session-cgroup-scope~wk-prod-anchor~1790313469198-1bdab7.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-session-cgroup-scope-wk-prod-anchor.log
+
+## Needs-Human
+
+**执行 2026-09-25T10:17:05.447Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 3 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=29759 server/modules/voice/tests/voice-capture-text.false-forms.test.ts passed=false end_ms=1790331332699
+- run_id：wk-prod-anchor
+- session_id：b5584087-3db1-499d-bfed-2b7f0c027f64
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-session-cgroup-scope~wk-prod-anchor~1790331249354-d7370c.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-session-cgroup-scope-wk-prod-anchor.log
