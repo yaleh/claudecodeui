@@ -2,7 +2,7 @@
 id: gap-mobile-layout-e2e-viewport-matrix
 title: 移动端工作区 header / composer 布局的真浏览器验收矩阵：320/360/390/767/768/1280 ×
   idle/单回放/双回放/执行中，边界框 + 溢出 + 单一 Stop + 桌面无回归
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -78,3 +78,12 @@ L_G 该轴仍暗，理由：同上；本任务的验证读数就是 DoD 里的�
 - e2e/mobile-workspace-composer-layout.spec.ts (new)
 - playwright.config.ts
 - tasks/gap-mobile-layout-e2e-viewport-matrix.md
+
+## Needs-Human
+
+**执行 2026-09-25T06:43:45.597Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：AC 未全勾（checked 0/7，剩余未勾 7）——续做只需验证并勾选 AC
+- run_id：wk-prod-anchor
+- session_id：4b5faa54-4c26-49cc-8b5b-56770924cf30

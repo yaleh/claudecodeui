@@ -1,10 +1,11 @@
-import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import net from 'node:net';
 import { execFileSync } from 'node:child_process';
 
 import { defineConfig } from '@playwright/test';
+
+import { resolveE2eDataDir } from './scripts/e2e-data-dir-selection.mjs';
 
 /**
  * When this file started being evaluated — the first moment of the run that can be observed from here.
@@ -29,9 +30,18 @@ if (!process.env.QUAY_E2E_RUN_STARTED_AT) {
 
 // Everything the servers persist lives under one throwaway directory so the run never touches real user data.
 // Exported through the environment so worker processes (which re-evaluate this file) share the directory and the spec can put a project workspace inside it.
-const dataDir = process.env.QUAY_E2E_DATA_DIR ?? fs.mkdtempSync(path.join(os.tmpdir(), 'quay-e2e-'));
+//
+// Which directory that is — and whether there is room for it — is decided in `scripts/e2e-data-dir-selection.mjs`,
+// not by an unconditional `mkdtempSync(path.join(os.tmpdir(), …))`. `os.tmpdir()` reads `TMPDIR`, the driver's
+// environment does not set it, and so every run on this host used to land on the root filesystem whatever its
+// remaining space was: when the run did not fit, it failed as `ENOSPC` / `net::ERR_INSUFFICIENT_RESOURCES` *inside*
+// a case that was measuring something else entirely. The selection reads each candidate's filesystem at the moment
+// it chooses, prints the three numbers it chose by, and refuses to start the run when nothing has room — see the
+// module for the readings that fix its shape.
+const dataDirSelection = resolveE2eDataDir();
+const dataDir = dataDirSelection.dataDir;
 /** True only in the process that created the directory: workers re-evaluate this file with it already set. */
-const isDataDirOwner = !process.env.QUAY_E2E_DATA_DIR;
+const isDataDirOwner = !dataDirSelection.explicit;
 process.env.QUAY_E2E_DATA_DIR = dataDir;
 /**
  * ...and the same reading published, because the assignment above destroys the evidence for it: every worker

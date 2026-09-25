@@ -27,11 +27,15 @@ concurrency criterion by about ten minutes. Treat the attribution of those peaks
 | Subject | Guard | Why |
 |---|---|---|
 | Tests (vitest) | hard `MemoryMax` in their own scope — `scripts/with-memory-cap.sh` | a runaway test dies alone |
-| The :3001 server | its own systemd user service — `scripts/serve-scoped.sh` | other processes' OOM cannot reach it |
+| The :3001 server | its own systemd user service, with a restart policy and a V8 heap ceiling — `scripts/serve-scoped.sh` | other processes' OOM cannot reach it, and its own leak ends as a restart rather than as a swap storm |
 
-The server deliberately gets **isolation, not a cap**. It has no leak history, and a cap would
-make it the OOM victim instead of a bystander. If a leak ever shows up, add a generous
-`MemoryMax` to that unit separately.
+The server deliberately gets **isolation and a process-level ceiling, not a cgroup cap**. It has no
+leak history — but "no leak history" was, until 2026-09-25, an absence of observation rather than a
+positive reading (the only measurement was ~224MB RSS just after boot). A cap that kills the whole
+cgroup would make the server the OOM victim instead of a bystander, which is the opposite of what
+the second incident needed. So the server is bounded with a **V8 heap ceiling and a restart policy**
+instead: a leak ends as a non-zero exit at a predictable point and systemd starts the server again,
+rather than the process growing until the *host* thrashes. See below for the numbers.
 
 ### `scripts/with-memory-cap.sh <cmd…>`
 
@@ -52,10 +56,69 @@ concurrency clamp and has no memory incident on record.
 
 Runs `npm run server` as the transient unit `claudecodeui-server.service` with the repo as working
 directory, `HOST` (default `0.0.0.0`) and `SERVER_PORT` (default `3001`), and stdout/stderr appended
-to `server.log`. Refuses to `start` when already active.
+to `server.log`. Refuses to `start` when already active, and refuses to run at all — exit 3, with
+the reason on stderr — when there is no *usable* systemd user manager, rather than starting an
+unscoped server.
+
+**Restart policy.** The unit carries `Restart=on-failure`, `RestartSec=5`, `StartLimitBurst=5`,
+`StartLimitIntervalSec=60`. Isolation alone still left a dead server dead: on 2026-09-25
+`server.log` simply ended and the only detector was a person happening to look. A crash, a `kill -9`
+or an abort now brings the server back within ~5s. A *clean* `stop` is not a failure and is never
+restarted — the burst limit is the asymmetry that matters in the other direction: five restarts
+inside 60s means something is genuinely wrong, and the unit is left visibly failed instead of
+spinning forever.
+
+**Heap ceiling.** The server starts with `NODE_OPTIONS=--max-old-space-size=<MB>`, default **2048**,
+`QUAY_SERVER_HEAP_MB` overriding it and `off` (or `0`) omitting it. A caller's own `NODE_OPTIONS` is
+appended to, never replaced. When V8 hits the ceiling the process aborts non-zero, which the restart
+policy above picks up: a leak becomes a visible restart loop rather than unbounded growth. The host
+has 252G and 14.7G of its 16G swap already in use, so an uncapped server on a leak path is a
+host-wide problem, not a server problem.
+
+**2048 is a conservative default, not a measurement.** It was chosen before any long soak reading
+existed, precisely so that the failure mode is a restart rather than a swap storm. Tighten it once
+there is a real soak reading — the point of the ceiling is to be lower than the point where the host
+suffers, and nobody knows where that is yet. This is also why there is still no `MemoryMax` here:
+the heap ceiling is a *process* limit only the server can trip, and it leaves the cgroup cap — the
+thing that would make the server an OOM victim — off the table.
+
+`status` prints the unit's own counters (`NRestarts`, `MemoryCurrent`, `MemoryPeak`, `MainPID`,
+`LoadState`, `ActiveState`) after the usual `systemctl status`, because those two readings are what
+tell "quietly crash-looping" apart from "up the whole time". `Restart=` doing its job is invisible
+otherwise.
+
+Test seams (defaults are the production behaviour; used by `scripts/serve-scoped-check.sh`, so a
+check never touches :3001): `QUAY_SERVER_UNIT`, `QUAY_SERVER_CMD`, `QUAY_SERVER_LOG`,
+`QUAY_SERVER_HEAP_MB`.
 
 Run it from a tmux pane, **not** from a session the server hosts: sessions are the server's child
 processes, so `stop`/`restart` stops the caller's own cgroup.
+
+**Not done here — `server.log`.** The file is 4,729 multi-line synchronous log lines with no
+rotation, and the restart policy now makes restarts *more* likely to be the thing that grows it. Log
+rotation and de-noising are out of scope for this change and are not covered by any criterion; they
+are their own problem, and the append target should be revisited once it is solved.
+
+### `scripts/serve-scoped-check.sh [all|fake|restart|stop|heap]`
+
+Re-runnable proof of the two promises above, as readings rather than as source text — grepping the
+script for `Restart=on-failure` would pass for a unit that never comes back.
+
+| Section | What it reads |
+|---|---|
+| `fake` | a fake `systemd-run` first on PATH records the argv of each `start`; asserts the restart properties, the burst limit, the 2048 ceiling (and its absence under `off`), the append-not-replace rule for a caller's `NODE_OPTIONS`, the `QUAY_SERVER_CMD` seam, and that a missing user manager is a refusal (exit 3) and not a silent success |
+| `restart` | a throwaway unit runs a liveness stub; `kill -9` its main process; the unit must be active again inside 15s with a different `MainPID` and `NRestarts=1` |
+| `stop` | a second throwaway unit is stopped through `serve-scoped.sh stop`; `NRestarts` must be 0 beforehand and the unit unloaded afterwards (`LoadState=not-found`) — which is what proves a clean stop is not a failure path |
+| `heap` | a third unit runs a stub that retains objects; with the default ceiling it must abort (node's heap-limit line in its log) and come back restarted, with `MemoryPeak` under 2x the ceiling |
+
+`all` (the default) runs `fake` then the three real sections **in parallel**, so the whole thing
+finishes in ~15s — inside the 60s criterion gate. Every unit is named with the run's own suffix and
+stopped by the EXIT trap, failure paths included. Without a usable systemd user manager the real
+sections print `SKIP`; a skip is loud and is not a pass.
+
+`scripts/serve-scoped-check.test.mjs` (`npm run test:scripts`) covers the verdict machinery: for
+each branch, the pristine tree must exit 0 and a mutated copy of `serve-scoped.sh` must go red with
+the verdict naming the missing item and carrying the actual argv on the same line.
 
 ## Classification: OOM is an `assert`, not `infra`
 
