@@ -313,6 +313,219 @@ journalctl --user --since "2 hours ago" | grep -E 'OOM killer|memory peak'
 `dmesg` needs the `adm` group and is denied here; the user journal is enough. Look for a
 `tmux-spawn-*.scope` with a large `memory peak`, then find what ran in that pane at that time.
 
+## The soak harness: a long run as a reading
+
+`bash scripts/soak.sh --duration <seconds> [--report <file>] [--keep] [--burst-mb <n>] [--slow-client-drains]`
+— the manual entry point of
+`gap-server-soak-harness`, exposed as `npm run soak`. It answers the question the section above
+could only answer by absence: **does the real server grow under sustained load?** Nothing in this
+repo calls it — not `scripts/test.sh`, not `npm test`, not a quay routine, and `package.json`'s
+`soak` entry is the only reference to it in the tree (its own AC greps for that). A soak starts a
+real server and runs for minutes, which is something an operator asks for.
+
+| File | Role |
+|---|---|
+| `scripts/soak.sh` | the driver of drivers: temp HOME/DB/port, mock gateway, the server's own unit, the trap that cleans all of it up, exit code = verdict |
+| `scripts/soak-driver.mjs` | the agitator (sessions, ws clients, transcript writes, searches, shell PTYs) and the sampler; also `stub` (the two self-test processes) and `mock-gateway` |
+| `scripts/soak-analyze.mjs` | the pure judge: report in, verdict out. No I/O, no clock, no /proc |
+| `scripts/soak-analyze.test.mjs` | the analyzer's controls, in `npm run test:scripts` |
+
+**Isolation, by construction.** `HOME` and `DATABASE_PATH` are redirected into a per-run work
+directory, the port is a fresh one that refuses to be 3001, and the server runs in its own transient
+unit (`claudecodeui-soak-<pid>`). The real `~/.claude` and the real `auth.db` are never read or
+written, and the :3001 server and its cgroup are not touched at any point.
+
+**The `systemd-run` PATH trap — read this before debugging a soak whose sessions all fail.**
+`systemd-run --user` does *not* inherit the caller shell's `PATH`. On this host the systemd user
+manager's `PATH` has no nvm bin directory and therefore no `claude`, and every session then ends with
+`Claude Code process exited with code 1` in `server.log`. That message is `systemd-run` failing to
+find the executable, **not** the CLI failing, so it reads like a broken server rather than a broken
+launch. The unit is therefore given both `--setenv=PATH=<claude dir>:<node dir>:/usr/local/bin:/usr/bin:/bin`
+(the CLI is a `#!/usr/bin/env node` script, so `node` has to resolve on that same PATH) and
+`--setenv=CLAUDE_CLI_PATH=<abs path>`, which the server forwards to the SDK.
+
+**Sessions come from the real `claude` binary** behind a local mock Anthropic endpoint
+(`soak-driver.mjs mock-gateway`), so the readings are of the shipped path — the spec's preferred
+source. The token is minted into the temp DB with `JWT_SECRET` removed from the environment (a token
+minted under a different secret cannot be verified), and the driver adopts the server's
+`X-Refreshed-Token` re-issue so a run longer than the token's TTL stays authenticated.
+
+### Reading it: two kinds of criterion, and why the raw slopes are not the sharp one
+
+The sampler takes one tick every 5s and reads `/proc/<pid>` (RSS, `VmHWM`), the server's own
+`/status` command (V8 heap), `fd`/thread/child counts, the cgroup's `memory.current`, and the number
+of `claudecodeui-session-*` scopes. Then:
+
+| Criterion | Shape | What it can and cannot see |
+|---|---|---|
+| `rssBytes`, `heapUsedBytes` | least-squares slope over the drive window, bytes/s | a **gross backstop** only. The series is dominated by uncollected garbage: V8 collects lazily, and the spec'd agitation (transcript lines appended at ~2000/s into a jsonl that reached 105.1MB, re-read by the sessions watcher on every change) leaves hundreds of MB of reclaimable heap on the books. Measured live set 41–77MiB against a heap counter reading up to 824MiB — the raw series is ~11x the live set |
+| `probe=live-set` | the heap-snapshot FILES taken at 30s intervals: byte size and `node_count`/`edge_count`, first probe → last probe, against `floor + allowance × sessionsAdded` | the sharp rule. A snapshot is built by walking the **reachable** graph, so garbage is excluded whether or not a collection ran. This is what separates "the live set grew with the workload" from "the live set grew with time" — the second has no per-session number |
+| `fdCount`, `childCount`, `sessionScopeCount` | residual after the cool-down vs the pre-agitation baseline, in count units | a leak here is a failure to come back down, not a slope: these are step functions, so a regression slope would be dominated by when the last scope happened to start |
+| target lifetime | consecutive unreadable ticks | a server that exited mid-window otherwise reads as "too few samples", which sends the reader after the sampler |
+
+The heap counter read *after* a snapshot signal is **not** a settled reading: measured 92MB at one
+probe and 291MB at the next on the same run, because the churn refills hundreds of MB before the
+HTTP round trip returns. It is carried in the report as context; the snapshot file is the reading.
+(`--heapsnapshot-signal=SIGUSR1` also writes the file progressively — it exists before it is
+complete, so a copy taken on existence is truncated. The driver waits for the size to settle twice
+and verifies the copy before it keeps it.)
+
+### Thresholds are only meaningful under a pinned load
+
+The workload's memory scale is the **number of sessions driven**: measured ~5.2MB of peak RSS and
+~148KiB of live set per session. The first version of the session leg started the next session as
+soon as any in-flight one settled, which made that number a function of the *host*:
+
+| Run | Sessions in 120s | Peak RSS | RSS slope | Verdict |
+|---|---|---|---|---|
+| `baseline-a` (unpinned) | 227 | 1247MiB | 6.42MB/s | green |
+| `baseline-b` (unpinned) | 227 | 1285MiB | 6.51MB/s | green |
+| a run on a faster host (unpinned) | **582** | **3024MiB** | **24.3MB/s** | red — on the RSS backstop, with a live set that was still workload-proportional (152.7MiB over 573 sessions = 260KiB/session) |
+| `baseline-c` (pinned, 500ms) | 240 | 1321MiB | 7.43MB/s | green |
+
+So the leg now starts sessions on a fixed 500ms interval with an 8-session concurrency cap, and
+counts the ticks the cap swallows (`sessionStartsDeferred`). The offered load is the same number on
+a fast host and a slow one, which is what makes a threshold derived from a baseline mean anything.
+
+### Where the numbers come from
+
+`node scripts/soak-analyze.mjs --calibrate --report <file>` reprints every observed slope, drift and
+probe reading of any report, so the table can be re-derived from a fresh measurement instead of
+re-guessed. The published thresholds and their multiples:
+
+| Threshold | Value | Measured floor | Multiple |
+|---|---|---|---|
+| `rssBytesPerSecond` | 12582912 (12MiB/s) | 6.42 / 6.51 / 7.43MB/s (r² 0.90–0.91) | 1.69x the highest |
+| `heapUsedBytesPerSecond` | 12582912 | 5.30 / 5.30 / 6.32MB/s (r² 0.95–0.98) | 1.99x the highest |
+| `liveSetGrowthBytes` | 138412032 (132MiB) | +31.45 / +30.54 / +32.76MiB | 4.03x the largest |
+| `liveSetBytesPerSession` | 524288 (512KiB) | 144.8 / 147.8KiB per session | 3.46x the measured |
+| `fdCountResidual` | 16 | drift 7–12 | — |
+| `childCountResidual` | 4 | drift 1–4 (unpinned: 10–12) | — |
+
+The self-test is the control that keeps the whole table honest: `bash scripts/soak.sh --self-test`
+runs the same sampler and the same analyzer against a stub that retains 32MiB/s (must read **red**,
+naming RSS) and a steady stub (must read green). Without that pair, a harness that is green whatever
+happens would pass every real run.
+
+### Cleanup, and failure evidence
+
+Every exit path — green, red, harness error, `Ctrl-C` — runs the same trap: session scopes owned by
+**this** server's pid are stopped (they are transient units in the same slice, *not* children of the
+server's unit, so stopping the unit would leave them behind), the soak unit is stopped and reset, and
+the mock gateway is killed. Scopes are matched by the owner pid embedded in their name
+(`claudecodeui-session-<ownerPid>-<suffix>`), so a scope belonging to the operator's own session is
+never a candidate. The run's last line reports what it did:
+`cleanup: stopped N session scope(s); unit=gone; scopes-of-this-server-left=0`.
+
+A red run keeps its whole work directory (`--keep` does the same for a green one). The report at
+`--report` carries the samples, the probes, the action counts and the verdict lines; a red run also
+copies the last heap snapshot beside it and the tail of `server.log`, so the evidence for a failure
+survives the cleanup.
+
+### The slow-client hypothesis: a pair of runs, and where the instrument stops
+
+The harness exists partly to answer one hypothesis: **does a websocket slow client make the server's
+send buffer grow without bound?** The mechanism it names is real and unguarded — this path has no
+`bufferedAmount` cap and no reaper — so the question is not whether the guard is missing but whether
+*unread bytes* accumulate observably. One arm cannot answer it: "the wedged arm did not grow" is
+equally consistent with "the server never wrote anything". So `--slow-client-drains` runs the
+**control arm**: same socket, same hand-written handshake, same `chat.subscribe`, same window — the
+only difference is that the bytes are read (the leg itself lives in `soak-driver.mjs`).
+
+```bash
+bash scripts/soak.sh --duration 120 --burst-mb 48 --report hyp.json
+bash scripts/soak.sh --duration 120 --burst-mb 48 --slow-client-drains --report ctl.json
+```
+
+**Read the positive control first.** The control arm recorded `slowClientDrainedBytes=103,460,364`
+(98.7MiB) against `slowClientBurstBytes=50,331,648` (48MiB): the server really did push the burst to
+a subscriber. Without that number the pair proves nothing.
+
+| Reading (whole run, 120s) | wedge arm (`drains=false`) | control arm (`drains=true`) |
+|---|---|---|
+| sessions created | 156 | 174 |
+| samples / in-window | 30 / 20 | 26 / **19** (series SKIPped, see below) |
+| peak RSS / VmHWM | 4348.63 / 4591.44 MiB | 4727.91 / 4791.04 MiB |
+| peak `heapUsed` | 3718.00 MiB | 3970.00 MiB |
+| peak cgroup `memory.current` | 6222.14 MiB | 4884.63 MiB |
+| live set first→last | 50.21→143.70 MiB (+93.49) | 48.10→152.48 MiB (+104.38) |
+| live nodes | 623,074→1,831,886 | 600,680→1,940,755 |
+| `closedBeforeDeadline` | false | false |
+
+**The wedged arm is not the higher one** (the control arm's peak RSS is 379MiB *above* it), and the
+spread between the arms is several times the 48MiB payload the hypothesis is about. Both arms' peaks
+are set by the same workload — 48MiB of burst per session, sessions every 500ms, a 105.1MB jsonl
+re-read by the sessions watcher — and in both arms the live set grows by ~95–105MiB against a
+~205MiB budget for the sessions added. At this scale the reading is **证伪: consuming the payload and
+not consuming it are indistinguishable above the workload's own churn.** Note also that both arms
+read **red** on their own criteria (slope backstops; the control arm additionally SKIPs its required
+series at 19 of the 20 in-window samples, because a 4GB heap makes the 5s tick and the 30s snapshot
+collide). The pair is compared on peaks and live-set readings, not on verdicts — an unplanned
+limitation of the instrument, not a property of the server.
+
+**Why that verdict is bounded, and not "false, period".** The mock gateway **materializes** the
+burst — one 4KiB string per delta event — before writing it, so the gateway is the first casualty of
+a large `--burst-mb`. At `--burst-mb 512` it died of its own heap (`FATAL ERROR: Reached heap limit
+Allocation failed - JavaScript heap out of memory`, 4095MiB), the server saw `ECONNREFUSED`, only 27
+sessions ran, and the arm's residuals read red for scopes still in flight — a contaminated reading,
+discarded. The largest drivable burst is therefore ~48MiB, and at 48MiB the raw RSS/heap series
+already red on churn. The "unbounded" branch is **未能驱动** by this harness as it stands, and the
+cause is the harness's burst materialization, not the server; it is filed as
+`gap-soak-mock-gateway-burst-materialization` (stream the burst instead of building it, then re-run
+the pair at 256–512MiB, where the payload dominates the churn).
+
+Two things this pair *does* establish, independently of the differential:
+
+- `closedBeforeDeadline=false` in every arm (4MiB / 48MiB / 512MiB, and the 30-minute run): within a
+  40–60s window the server never closes a subscriber that has stopped reading. No cap, no reaper —
+  the mechanism the hypothesis names is present and unguarded. What is undemonstrated is its
+  amplification at a scale above the harness's ceiling.
+- `--burst-mb` must exceed the kernel's absorption, or the leg tests nothing: this host's
+  `net.ipv4.tcp_wmem` max is 4194304 and `net.core.wmem_max` is 212992, so a default 4MiB burst need
+  never reach the server's user-space send queue at all. That is why the flag exists and why the
+  script header says to raise it.
+
+### The 30-minute reading, and what it says about the 2048MB heap default
+
+`gap-server-unit-restart-heap-limit` gave the server unit `Restart=on-failure` plus a provisional
+`--max-old-space-size=2048`, explicitly "待 soak 读数收紧". The reading has now arrived (one run,
+`bash scripts/soak.sh --duration 1800`, real server, real CLI behind the mock gateway; log kept as
+`dod-1800.log`, report `dod-1800-report.json`):
+
+| Reading | Value |
+|---|---|
+| workload | 3371 sessions, 908,000 transcript lines, 178 searches, 651 normal ws closes / 658 half-open, 258 PTY opens+closes |
+| peak RSS = peak VmHWM | 3270.01 MiB |
+| peak `heapUsed` (uncapped) | **2146.00 MiB** |
+| peak cgroup `memory.current` | 3498.60 MiB |
+| live set first→last | 42.91→180.54 MiB (live nodes 533,220→2,273,082), 42.0 KiB/session against a 512 KiB/session allowance |
+| slope readings | rss 0.91 MB/s (r² 0.63), heap 0.43 MB/s (r² 0.28), threads 0 |
+| residuals after cooldown | fds 1/16, children 0/4, session scopes 0/1 |
+| verdict | green |
+
+**Conclusion: 2048MB is too tight for the workload this repo generates; suggested value 4096MB**
+(`QUAY_SERVER_HEAP_MB` override and `off` unchanged). Uncapped, the 30-minute `heapUsed` high-water
+was 2146.00MiB — 4.8% *above* the default. A cap below legitimate churn does not keep a leak from
+growing the heap; it only converts the margin into GC pressure, so the server burns CPU collecting
+and then restarts anyway. The cap's job is to make a runaway end in a restart rather than in host
+swap (host RAM 246GB, swap already 14.7/16GB used), so the value belongs above real churn and far
+below the host: 4096MB is 1.9x the measured high-water, 22.7x the measured live set (180.54MiB),
+and ~1/60 of host RAM.
+
+Three caveats, so the number is not over-read:
+
+1. It is **one 1800s run of a synthetic workload** (the transcript leg writes a 105.1MB jsonl and
+   re-reads it on every change, which is heavier than an operator session). A longer run could raise
+   the high-water; treat 4096 as a floor with margin, not a derived optimum.
+2. The reading is of an **uncapped** instance, so it is an upper bound on what a capped instance
+   would allocate, not the amount it needs.
+3. The decision belongs to that task, which is `done`; nothing here changes `scripts/serve-scoped.sh`
+   (that task's Touches), and this section is where its DoD asked for the stance to be recorded.
+
+By the same logic, the 30-minute run's *slopes* (0.91 and 0.43 MB/s, r² 0.63/0.28) are the wrong
+instrument for choosing this value: a cap needs the high-water, and a trend cannot see a peak that
+uncollected garbage already sets. The series are reported here for completeness, not as the basis.
+
 ## Second incident (2026-09-25 10:38–10:53) and what was retired
 
 The machine thrashed for ~15 minutes (load average 4309) and the operator killed the node processes
