@@ -129,16 +129,40 @@ const MOBILE_VIEWPORTS = [
   { width: 390, height: 844 },
   { width: 767, height: 900 },
 ];
+/**
+ * The desktop viewports, each declaring which footer arrangement its own box ends up in.
+ *
+ * Declared rather than derived from the width, because the width is not what decides it: 768×900 opens with the
+ * sidebar out, so the composer is handed ~445px and takes the compact arrangement, while 1280×720 hands it ~866px
+ * and keeps the desktop's. Each cell asserts the declared side as a premise (printing the box it measured) and then
+ * reads that arrangement, so the two desktop cells together cover both tiers at widths where neither window rule
+ * would put them.
+ */
 const DESKTOP_VIEWPORTS = [
-  { width: 768, height: 900 },
-  { width: 1280, height: 720 },
+  { width: 768, height: 900, compactFooter: true },
+  { width: 1280, height: 720, compactFooter: false },
 ];
 /**
- * The desktop width whose footer content fits on one line. 768's does not — its two control groups sit 36px apart,
- * stacked, which is the desktop footer's own `flex-wrap` at work — so only the widest viewport can be asked for a
- * single row, and the other one is asked for the wrap it really has.
+ * The width of the composer's own input box below which the footer takes the compact arrangement, mirrored from
+ * `COMPACT_TIER_WIDTH_PX` in `src/modules/chat/hooks/useComposerCompactTier.ts`.
+ *
+ * The desktop cells need it because the arrangement a desktop *window* gets is decided by the box inside it, not by
+ * the window: 768×900 with the sidebar open hands the composer a 445px box, which is below this threshold, so its
+ * footer takes the same one-row compact arrangement the mobile cells read, while 1280's 866px box keeps the
+ * desktop's. Each desktop cell therefore asserts *which side of this threshold its own box is on* before it reads
+ * any arrangement, so a cell whose box turned out to be on the other side fails as a premise rather than quietly
+ * measuring an arrangement it was not written for.
  */
-const ONE_LINE_DESKTOP_WIDTH = Math.max(...DESKTOP_VIEWPORTS.map((viewport) => viewport.width));
+const COMPACT_TIER_WIDTH_PX = 800;
+
+/** The box the composer is handed, or null when no footer was found. */
+const footerBoxWidth = (cell: CellReading): number | null => cell.footer?.clientWidth ?? null;
+
+/** Whether the cell's own box is narrow enough for the compact arrangement. */
+const boxIsNarrow = (cell: CellReading): boolean => {
+  const box = footerBoxWidth(cell);
+  return box !== null && box < COMPACT_TIER_WIDTH_PX;
+};
 
 /* ------------------------------------------------------------------------------------------------------------
  * The recogniser stand-in
@@ -326,7 +350,7 @@ type CellReading = {
 
 /** One reading of everything the cells assert on, taken in a single evaluate so the numbers describe one instant. */
 const readCell = (page: Page): Promise<CellReading> =>
-  page.evaluate(() => {
+  page.evaluate((stopNames: string[]) => {
     const round = (n: number) => Math.round(n * 100) / 100;
     const box = (el: Element | null) => {
       if (!el) return null;
@@ -370,7 +394,7 @@ const readCell = (page: Page): Promise<CellReading> =>
       stopNames: [...document.querySelectorAll('button[aria-label]')]
         .filter(visible)
         .map((b) => b.getAttribute('aria-label') ?? '')
-        .filter((label) => ['Stop', 'Stoppen'].includes(label)),
+        .filter((label) => stopNames.includes(label)),
       tablists: document.querySelectorAll('[role="tablist"]').length,
       collapsedTrigger: box(collapsed),
       collapsedText: (collapsed?.textContent ?? '').replace(/\s+/g, ' ').trim(),
@@ -378,7 +402,7 @@ const readCell = (page: Page): Promise<CellReading> =>
       modelTriggerBox: box(modelButton),
       footerText: (footer?.textContent ?? '').replace(/\s+/g, ' ').trim(),
     };
-  });
+  }, STOP_NAMES);
 
 /**
  * The reading, formatted for a failure message.
@@ -422,44 +446,62 @@ const expectHeaderBranch = (width: number, cell: CellReading) => {
   );
 };
 
-/** The desktop footer's arrangement, at the one width where its content fits on a line and at the one where it wraps. */
-const expectDesktopFooterRow = (width: number, cell: CellReading) =>
+/**
+ * The premise a desktop cell asserts before it reads any arrangement: its own box is on the side of the tier
+ * threshold the case declares.
+ *
+ * Without it a cell could read the *other* arrangement and still pass — `oneRow` is true on the compact tier and
+ * true on the wide tier at a wide enough box, so a 768 cell whose box had somehow stayed 866px wide would read a
+ * correct-looking row while measuring the arrangement 1280 is there to measure. The box width is printed either
+ * way, which is what the criterion asks for: record `footer.clientWidth` so the reading can be checked against the
+ * band the case claimed.
+ */
+const expectFooterBoxTier = (width: number, narrow: boolean, cell: CellReading): void =>
   expectReading(
-    width === ONE_LINE_DESKTOP_WIDTH ? oneRow(cell) : stacked(cell),
-    `@${width}: the desktop footer's two control groups must ${
-      width === ONE_LINE_DESKTOP_WIDTH ? 'be one row' : 'stack — the desktop footer is allowed to wrap at this width'
-    }`,
+    boxIsNarrow(cell) === narrow,
+    `@${width}: this case reads the ${narrow ? 'compact' : 'wide'} arrangement, so the composer's box has to be ` +
+      `${narrow ? 'below' : 'at or above'} ${COMPACT_TIER_WIDTH_PX}px; it read ${footerBoxWidth(cell)}px ` +
+      '— a cell whose box is on the other side is not measuring what it was written for',
     cell,
   );
 
-/** The premise every cell asserts before it reads: the viewport really is the width the case declares. */
-const expectDeclaredWidth = (cell: CellReading, width: number) =>
-  expect(cell.innerWidth, `the case declares ${width}px; the page reports ${cell.innerWidth}px`).toBe(width);
+/**
+ * The desktop footer's arrangement: one row, at both desktop widths and for both tiers.
+ *
+ * The window no longer decides this. A 768px window with the sidebar open hands the composer a 445px box, and the
+ * arrangement that fits the row into that box is the same compact one the mobile cells read — which is what makes
+ * the assertion identical at both desktop widths rather than relaxed at the narrower one. Asserting the wrap at 768
+ * (what this file did before `gap-composer-footer-tier-follows-own-width` landed) was the criterion being written
+ * around the defect instead of the requirement: the two groups sitting on separate lines *is* the failure.
+ */
+const expectDesktopFooterRow = (width: number, cell: CellReading) =>
+  expectReading(
+    oneRow(cell),
+    `@${width}: the desktop footer's two control groups must be one row — tools ${JSON.stringify(cell.tools)} ` +
+      `vs right ${JSON.stringify(cell.right)}, tolerance ${SAME_ROW_TOP_TOLERANCE}px`,
+    cell,
+  );
 
 /**
- * The desktop footer's sideways reading: asserted at the one desktop width the criterion pins, printed at every other.
+ * The desktop footer's sideways reading, asserted at every desktop width.
  *
- * `scrollWidth === clientWidth` is a bound this matrix is given for the *mobile* cells, where the footer is one row
- * inside a 302-374px box. From `md` up the composer keeps its original wrapping footer, and at 768 — the narrowest
- * desktop width, with the sidebar open, so the composer is handed ~445px — a replay pair in the tool group pushes the
- * footer's content 25px past its own box, on the baseline commit as much as after the four implementation tasks (both
- * readings are in Evidence). Asserting the mobile bound there would fail the baseline too, which is a criterion that
- * cannot tell the change apart from the state it started in. The desktop's own criterion is "unchanged from the
- * baseline", so the assertion lives at 1280, whose baseline footer is a single non-scrolling row, and the wider
- * reading is still printed for every desktop cell — an observation, labelled as one.
+ * It was a mobile-only bound while the desktop footer was the wrapping one: at 768 a replay pair in the tool group
+ * pushed the content 25px past a 445px box. The box is what decides the arrangement now, so that box takes the
+ * compact tier, the wrap never arises, and the desktop footer is a non-scrolling row at both widths — the same
+ * reading the mobile cells are given, for the same reason.
  */
 const expectDesktopFooterOverflow = (width: number, cell: CellReading): void => {
   if (cell.footer && cell.footer.scrollWidth > cell.footer.clientWidth) {
     console.log(
-      `[layout] NOTE @${width}: the composer footer scrolls sideways by ${cell.footer.scrollWidth - cell.footer.clientWidth}px` +
-        ' — a desktop-side observation, not a mobile-criterion failure: the baseline read in Evidence carries the same' +
-        ' number, so it is not a change the four implementation tasks made.',
+      `[layout] NOTE @${width}: the composer footer scrolls sideways by ${cell.footer.scrollWidth - cell.footer.clientWidth}px`,
     );
   }
-  if (width === ONE_LINE_DESKTOP_WIDTH) {
-    expectReading(noOverflow(cell), `@${width}: the one-line desktop footer must not scroll sideways`, cell);
-  }
+  expectReading(noOverflow(cell), `@${width}: the desktop footer must not scroll sideways`, cell);
 };
+
+/** The premise every cell asserts before it reads: the viewport really is the width the case declares. */
+const expectDeclaredWidth = (cell: CellReading, width: number) =>
+  expect(cell.innerWidth, `the case declares ${width}px; the page reports ${cell.innerWidth}px`).toBe(width);
 
 /** The single-row reading: both footer groups are present, their vertical ranges overlap, and their tops are close. */
 const oneRow = (cell: CellReading): boolean => {
@@ -470,11 +512,11 @@ const oneRow = (cell: CellReading): boolean => {
 };
 
 /**
- * The wrapped reading, for the desktop width whose footer is *meant* to wrap.
+ * The wrapped reading: the two groups are on separate lines.
  *
- * From `md` up the footer keeps its original `flex-wrap gap-y-1`, so at 768 its own content does not fit on one line
- * and the two groups stack 36px apart — asserting `oneRow` there would assert a shape the desktop never had. At 1280
- * the same footer is one line, and `oneRow` is the reading. Both are printed by every cell.
+ * Printed for every cell and asserted by none. It is the *complement* of `oneRow`, so asserting both would be one
+ * criterion counted twice; keeping it in the log line is what makes a failure legible — `sameRow=false stacked=true`
+ * says "two rows" where `sameRow=false stacked=false` would say the groups were missing entirely.
  */
 const stacked = (cell: CellReading): boolean => {
   const { tools, right } = cell;
@@ -535,9 +577,6 @@ const dialogEntries = (page: Page) =>
 /* ------------------------------------------------------------------------------------------------------------
  * Recording, and the long model
  * --------------------------------------------------------------------------------------------------------- */
-
-/** The composer's textarea — where a transcript lands, and the surface whose row the replay pair must not disturb. */
-const textarea = (page: Page) => page.locator('[data-slot="prompt-input-textarea"]');
 
 /** The microphone, whose accessible name is English at both languages (the German bundle has no `voice.*` entries). */
 const mic = (page: Page) => page.getByRole('button', { name: 'Voice input' });
@@ -875,16 +914,16 @@ for (const viewport of MOBILE_VIEWPORTS) {
 }
 
 /* ------------------------------------------------------------------------------------------------------------
- * Desktop cells: the breakpoint's other side, where nothing may have moved
+ * Desktop cells: the breakpoint's other side, where the header is never collapsed and the footer is read on both tiers
  * --------------------------------------------------------------------------------------------------------- */
 
 for (const viewport of DESKTOP_VIEWPORTS) {
-  const { width, height } = viewport;
+  const { width, height, compactFooter } = viewport;
 
   test.describe(`desktop workspace and composer @${width}`, () => {
     test.use({ viewport: { width, height }, hasTouch: false, isMobile: false });
 
-    test(`@${width} idle — the full tablist, no collapsed selector, the composer unchanged`, async ({ browser }) => {
+    test(`@${width} idle — the full tablist, no collapsed selector, one footer row and no sideways scroll`, async ({ browser }) => {
       test.setTimeout(90_000);
       const { context, page } = await openCell(browser, { ...viewport, touch: false, language: MOBILE_LANGUAGE, session: DESKTOP_SESSION });
       try {
@@ -897,22 +936,27 @@ for (const viewport of DESKTOP_VIEWPORTS) {
         expectReading(cell.tablists >= 1, `@${width} idle: the full tablist has to be there at and above the breakpoint`, cell);
         expectHeaderBranch(width, cell);
         expectReading(cell.collapsedTrigger === null, `@${width} idle: no collapsed workspace selector may be rendered here`, cell);
+        // The premise: which arrangement this cell is about to read, decided by the box it measured.
+        expectFooterBoxTier(width, compactFooter, cell);
         expectDesktopFooterOverflow(width, cell);
         expectDesktopFooterRow(width, cell);
-        // Where the desktop keeps things: token usage, commands and scheduling are in the footer itself, not
-        // behind a menu — the mobile cells assert the opposite, and this is the reading that keeps the two honest.
+        // Where the three controls live follows the arrangement, and the arrangement follows the box — the two
+        // readings together cover both tiers, so neither "always in the footer" nor "always behind a menu" passes.
         const footer = page.locator('[data-slot="prompt-input-footer"]');
+        const more = footer.getByRole('button', { name: /More tools|Weitere Tools/ });
         for (const name of FOOTER_ONLY_CONTROLS) {
+          const inFooter = (await footer.getByRole('button', { name }).count()) === 1;
           expectReading(
-            (await footer.getByRole('button', { name }).count()) === 1,
-            `@${width} idle: ${name} must still be in the desktop footer`,
+            inFooter === !compactFooter,
+            `@${width} idle: ${name} must ${compactFooter ? 'not ' : ''}be in the footer on the ` +
+              `${compactFooter ? 'compact' : 'wide'} tier (box ${footerBoxWidth(cell)}px)`,
             cell,
           );
         }
-        // The mobile layout's escape hatch must not exist here: nothing is behind a "more" menu at desktop widths.
         expectReading(
-          (await footer.getByRole('button', { name: /More tools|Weitere Tools/ }).count()) === 0,
-          `@${width} idle: the more menu's trigger must not be rendered at desktop widths`,
+          (await more.count()) === (compactFooter ? 1 : 0),
+          `@${width} idle: the more menu's trigger must ${compactFooter ? '' : 'not '}be rendered on the ` +
+            `${compactFooter ? 'compact' : 'wide'} tier`,
           cell,
         );
       } finally {
@@ -920,7 +964,64 @@ for (const viewport of DESKTOP_VIEWPORTS) {
       }
     });
 
-    test(`@${width} double playback — the pair stays in the footer, which does not grow`, async ({ browser }) => {
+    test(`@${width} single playback — one clip, placed by the tier, footer height unchanged`, async ({ browser }) => {
+      test.setTimeout(90_000);
+      const { context, page } = await openCell(browser, {
+        ...viewport,
+        touch: false,
+        language: MOBILE_LANGUAGE,
+        session: DESKTOP_SESSION,
+        // Trim off, as in the mobile single cell: the original is uploaded as it was recorded, so the second clip
+        // the trimmed path produces never exists and this really is the single-clip reading.
+        query: '?voiceTrim=off',
+      });
+      try {
+        await settleComposer(page, width);
+        await expectDeclaredWidth(await readCell(page), width);
+        const before = await readCell(page);
+        expectReading(before.footer !== null, `@${width} single: the footer has to exist before a recording is made`, before);
+
+        await recordOnce(page, `@${width} single`);
+        const cell = await readCell(page);
+        const counts = await replayCounts(page);
+        console.log(`[layout] @${width} single aria replay lines: ${JSON.stringify(counts.excerpt)}`);
+        logCell(`@${width} single playback`, cell);
+
+        expectReading(counts.original === 1 && counts.trimmed === 0, `@${width} single: exactly one replay control, and it is the original's`, cell);
+        expectReading(cell.clipButtons.length === 1, `@${width} single: the one clip control must be in the composer`, cell);
+        expectFooterBoxTier(width, compactFooter, cell);
+        if (compactFooter) {
+          expectReading(
+            cell.clipButtons[0]?.inClipRow === true,
+            `@${width} single: on the compact tier the clip must live in the row between the box and the footer`,
+            cell,
+          );
+          expectReading(
+            cell.clipRow !== null && cell.footer !== null && cell.clipRow.top < cell.footer.top,
+            `@${width} single: the clip row must sit above the footer, not inside it`,
+            cell,
+          );
+        } else {
+          expectReading(
+            cell.clipButtons[0]?.inTools === true,
+            `@${width} single: on the wide tier the clip must stay in the footer's tool group`,
+            cell,
+          );
+          expectReading(cell.clipRow === null, `@${width} single: no separate clip row may be rendered on the wide tier`, cell);
+        }
+        expectDesktopFooterOverflow(width, cell);
+        expectDesktopFooterRow(width, cell);
+        expectReading(
+          cell.footer !== null && before.footer !== null && cell.footer.height === before.footer.height,
+          `@${width} single: the footer height must be identical before and after the clip appears (${before.footer?.height} → ${cell.footer?.height})`,
+          cell,
+        );
+      } finally {
+        await context.close();
+      }
+    });
+
+    test(`@${width} double playback — the pair is placed by the tier and the footer does not grow`, async ({ browser }) => {
       test.setTimeout(90_000);
       const { context, page } = await openCell(browser, { ...viewport, touch: false, language: MOBILE_LANGUAGE, session: DESKTOP_SESSION });
       try {
@@ -936,35 +1037,39 @@ for (const viewport of DESKTOP_VIEWPORTS) {
         logCell(`@${width} double playback`, cell);
 
         expectReading(counts.original === 1 && counts.trimmed === 1, `@${width} double: exactly one original and one trimmed replay control`, cell);
-        expectReading(
-          cell.clipButtons.length === 2 && cell.clipButtons.every((b) => b.inTools),
-          `@${width} double: the replay pair must live in the footer's tool group, where it has always been`,
-          cell,
-        );
-        expectReading(cell.clipRow === null, `@${width} double: no separate clip row may be rendered above the breakpoint`, cell);
-        expectDesktopFooterOverflow(width, cell);
-        expectDesktopFooterRow(width, cell);
-        // "The clips do not change the footer's height" is a *mobile* promise: the pair gets a row of its own
-        // outside the footer there, so the 57px bound survives. At a desktop width the pair stays inside the tool
-        // group and how that group absorbs one is the group's own business — at 768 (sidebar open, so ~445px of
-        // box) it takes a second line, and the footer reads 129px instead of 93px. That is exactly what leaves the
-        // box at 445/445 instead of the 470/445 the baseline read: the 25px was the pre-existing
-        // `gap-composer-footer-desktop-768-replay-overflow`, fixed on develop by `74edd766` *after* this matrix's
-        // baseline commit, and the taller footer is that fix's own trade rather than a regression from the four
-        // implementation tasks. So the height invariant is asserted where the footer is meant to be one line, and
-        // printed as an observation at the narrower desktop width.
-        if (width === ONE_LINE_DESKTOP_WIDTH) {
+        expectFooterBoxTier(width, compactFooter, cell);
+        if (compactFooter) {
+          // The compact arrangement puts the pair in the row *between* the box and the footer — the row the mobile
+          // cells read — which is what keeps the footer one row and 57px tall while the pair is on screen.
           expectReading(
-            cell.footer !== null && before.footer !== null && cell.footer.height === before.footer.height,
-            `@${width} double: the one-line footer's height must be identical before and after the clips appear (${before.footer?.height} → ${cell.footer?.height})`,
+            cell.clipButtons.length === 2 && cell.clipButtons.every((b) => b.inClipRow),
+            `@${width} double: on the compact tier the pair must live in the clip row between the box and the footer`,
+            cell,
+          );
+          expectReading(
+            cell.clipRow !== null && cell.footer !== null && cell.clipRow.top < cell.footer.top,
+            `@${width} double: the clip row must sit above the footer, not inside it`,
             cell,
           );
         } else {
-          console.log(
-            `[layout] NOTE @${width}: the pair put the footer at ${cell.footer?.height}px (was ${before.footer?.height}px) —`
-              + ' a desktop-side observation, not a criterion failure: the tool group is allowed to take a second line here.',
+          expectReading(
+            cell.clipButtons.length === 2 && cell.clipButtons.every((b) => b.inTools),
+            `@${width} double: on the wide tier the pair must live in the footer's tool group, where it has always been`,
+            cell,
           );
+          expectReading(cell.clipRow === null, `@${width} double: no separate clip row may be rendered on the wide tier`, cell);
         }
+        expectDesktopFooterOverflow(width, cell);
+        expectDesktopFooterRow(width, cell);
+        // The height invariant holds on both tiers — it is not a mobile promise. On the compact tier the pair is
+        // outside the footer entirely; on the wide tier it stays in the tool group, which had 25px of content past
+        // the box at a 445px box until the tier hook took that box to the compact side, so a footer that is one
+        // non-scrolling row without a recording stays one non-scrolling row with one.
+        expectReading(
+          cell.footer !== null && before.footer !== null && cell.footer.height === before.footer.height,
+          `@${width} double: the footer height must be identical before and after the clips appear (${before.footer?.height} → ${cell.footer?.height})`,
+          cell,
+        );
       } finally {
         await context.close();
       }
@@ -993,6 +1098,7 @@ for (const viewport of DESKTOP_VIEWPORTS) {
         // The desktop keeps both controls: the tab's own Stop and the composer's. The mobile cells assert the
         // opposite count, and this is the reading that keeps the two widths honest about each other.
         expectReading(cell.stopNames.length === 2, `@${width} running: the desktop keeps the tab's Stop and the composer's`, cell);
+        expectFooterBoxTier(width, compactFooter, cell);
         expectDesktopFooterOverflow(width, cell);
         expectDesktopFooterRow(width, cell);
       } finally {
