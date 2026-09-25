@@ -648,6 +648,29 @@ const openCell = async (
   return { context, page };
 };
 
+/**
+ * The composer's presence, waited for in a way that survives the document restarting underneath the wait.
+ *
+ * A first paint can be pulled out from under this locator: the app's own Vite client reloads the document after
+ * `504 Outdated Optimize Dep`, which the shipped transcript-follow fixture documents at its own onboarding step,
+ * and a locator left waiting across that restart waits on a document that no longer exists — the cell then dies
+ * on the ceiling above it with nothing to read. One matrix run did exactly that: `@360 double playback` sat its
+ * whole 30s on a footer that a reloaded document would have rendered in a second, while every other cell in the
+ * same run read the same footer fine. So the wait is bounded into probes with a bounded number of reloads, and a
+ * composer that is still absent afterwards is a reading the cell can print, not a silent timeout.
+ */
+const settleComposer = async (page: Page, width: number): Promise<void> => {
+  const footer = page.locator('[data-slot="prompt-input-footer"]');
+  const appears = (timeoutMs: number) =>
+    footer.waitFor({ state: 'visible', timeout: timeoutMs }).then(() => true, () => false);
+  let up = await appears(10_000);
+  for (let attempt = 0; !up && attempt < 2; attempt += 1) {
+    await page.reload().catch(() => undefined);
+    up = await appears(8_000);
+  }
+  expect(up, `@${width}: the composer footer never rendered, so this run's client never came up to a document that stays`).toBe(true);
+};
+
 /* ------------------------------------------------------------------------------------------------------------
  * Mobile cells: four widths, four states
  * --------------------------------------------------------------------------------------------------------- */
@@ -662,7 +685,7 @@ for (const viewport of MOBILE_VIEWPORTS) {
       test.setTimeout(90_000);
       const { context, page } = await openCell(browser, { ...viewport, touch: true, language: MOBILE_LANGUAGE, session: MOBILE_SESSION });
       try {
-        await expect(page.locator('[data-slot="prompt-input-footer"]')).toBeVisible({ timeout: 30_000 });
+        await settleComposer(page, width);
         await expectDeclaredWidth(await readCell(page), width);
 
         await selectLongModel(page, width);
@@ -753,7 +776,7 @@ for (const viewport of MOBILE_VIEWPORTS) {
         query: '?voiceTrim=off',
       });
       try {
-        await expect(page.locator('[data-slot="prompt-input-footer"]')).toBeVisible({ timeout: 30_000 });
+        await settleComposer(page, width);
         await expectDeclaredWidth(await readCell(page), width);
         await selectLongModel(page, width);
         const before = await readCell(page);
@@ -787,7 +810,7 @@ for (const viewport of MOBILE_VIEWPORTS) {
       test.setTimeout(90_000);
       const { context, page } = await openCell(browser, { ...viewport, touch: true, language: MOBILE_LANGUAGE, session: MOBILE_SESSION });
       try {
-        await expect(page.locator('[data-slot="prompt-input-footer"]')).toBeVisible({ timeout: 30_000 });
+        await settleComposer(page, width);
         await expectDeclaredWidth(await readCell(page), width);
         await selectLongModel(page, width);
         const before = await readCell(page);
@@ -821,7 +844,7 @@ for (const viewport of MOBILE_VIEWPORTS) {
       test.setTimeout(90_000);
       const { context, page } = await openCell(browser, { ...viewport, touch: true, language: MOBILE_LANGUAGE, session: MOBILE_SESSION });
       try {
-        await expect(page.locator('[data-slot="prompt-input-footer"]')).toBeVisible({ timeout: 30_000 });
+        await settleComposer(page, width);
         await expectDeclaredWidth(await readCell(page), width);
         await selectLongModel(page, width);
 
@@ -865,7 +888,7 @@ for (const viewport of DESKTOP_VIEWPORTS) {
       test.setTimeout(90_000);
       const { context, page } = await openCell(browser, { ...viewport, touch: false, language: MOBILE_LANGUAGE, session: DESKTOP_SESSION });
       try {
-        await expect(page.locator('[data-slot="prompt-input-footer"]')).toBeVisible({ timeout: 30_000 });
+        await settleComposer(page, width);
         await expectDeclaredWidth(await readCell(page), width);
         await page.waitForTimeout(250);
         const cell = await readCell(page);
@@ -901,7 +924,7 @@ for (const viewport of DESKTOP_VIEWPORTS) {
       test.setTimeout(90_000);
       const { context, page } = await openCell(browser, { ...viewport, touch: false, language: MOBILE_LANGUAGE, session: DESKTOP_SESSION });
       try {
-        await expect(page.locator('[data-slot="prompt-input-footer"]')).toBeVisible({ timeout: 30_000 });
+        await settleComposer(page, width);
         await expectDeclaredWidth(await readCell(page), width);
         const before = await readCell(page);
         expectReading(before.footer !== null, `@${width} double: the footer has to exist before a recording is made`, before);
@@ -935,7 +958,7 @@ for (const viewport of DESKTOP_VIEWPORTS) {
       test.setTimeout(90_000);
       const { context, page } = await openCell(browser, { ...viewport, touch: false, language: MOBILE_LANGUAGE, session: DESKTOP_SESSION });
       try {
-        await expect(page.locator('[data-slot="prompt-input-footer"]')).toBeVisible({ timeout: 30_000 });
+        await settleComposer(page, width);
         await expectDeclaredWidth(await readCell(page), width);
 
         const delivered = await injectStatusFrame(page, DESKTOP_SESSION);
