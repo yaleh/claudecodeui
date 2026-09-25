@@ -2,7 +2,7 @@
 id: gap-ac101-actionmenu-arm-window-unverified
 title: AC-101 台账连红是合并竞态：修法 35cd475c 不在 driver 那批红跑所用的树里（本轮实测 11/11 绿，含并发）；钉住
   ActionMenu「武装晚一帧」留下的未测窗口
-status: ready
+status: done
 labels:
   - gap
 parent: null
