@@ -2,7 +2,7 @@
 id: gap-chat-edit-send-unawaited-handler-lane-flake
 title: chat-edit-send.test.ts 在 fan-in lane 下偶发红：服务端在 providerRewindsForEdit
   里读不到夹具刚同步创建的会话行（SESSION_NOT_FOUND），夹具唯一的同步手段是固定 30ms 的 settle()；单独跑 8/8 绿
-status: ready
+status: needs-human
 labels:
   - gap
   - defect
@@ -207,3 +207,14 @@ lane 同形读数（整棵服务端测试集按 fan-in 形状跑：129 文件、
   同一根因序列」。
 - 夹具现在没有任何固定时长参与同步；`waitFor` 里的 5000ms 只是**失败上界**（超时转成具名
   断言失败），不是等待本身。
+
+## Needs-Human
+
+**执行 2026-09-25T15:21:47.344Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: not ok - server/modules/providers/tests/claude-session-scope.test.ts:   AssertionError [ERR_ASSERTION]: timed out after 10000ms waiting for: one surviving session scope, saw ["claudecodeui-session-1173991-e710433d.scope","claudecodeui-session-1177720-a25be588.scope","claudecodeui-session-264422-f8cfcacc.scope"]
+- run_id：wk-prod-anchor
+- session_id：01b5d4f1-5cb2-4ea4-97a6-5697cc888720
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-chat-edit-send-unawaited-handler-lane-flake~wk-prod-anchor~1790349548241-61217f.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-chat-edit-send-unawaited-handler-lane-flake-wk-prod-anchor.log
