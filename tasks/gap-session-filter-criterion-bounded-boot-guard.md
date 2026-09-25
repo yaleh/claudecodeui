@@ -12,6 +12,8 @@ children: []
 extra:
   schema: execution
 goal_ac: AC-101
+depends_on:
+  - gap-voice-false-forms-siblings-pid-attribution
 ---
 ## Proposal
 
@@ -201,3 +203,14 @@ round-104 recheck 23.6s。两次红都死于启动阶段，5 个用例一个都�
 是量出来的、不是猜的：健康落点实测 1.2s–3.6s，deadline 对它有 4× 以上余量；同时 14s 的 deadline 是
 AC3 那次 25.5s 整轮红能落在 30s 之内的原因。若将来落点在有守卫的负载下稳定超过 ~10s，先量再调 ——
 把 deadline 调大就会把 AC3 的 30s 读数顶破。触发源本身（宿主网络抖动）不在本条范围内。
+
+## Needs-Human
+
+**执行 2026-09-25T10:35:34.278Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=27136 server/modules/voice/tests/voice-capture-text.false-forms.test.ts passed=false end_ms=1790332441827
+- run_id：wk-prod-anchor
+- session_id：f20f81a3-b465-4a71-affc-f62a92d057de
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-session-filter-criterion-bounded-boot-guard~wk-prod-anchor~1790332379121-02be41.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-session-filter-criterion-bounded-boot-guard-wk-prod-anchor.log
