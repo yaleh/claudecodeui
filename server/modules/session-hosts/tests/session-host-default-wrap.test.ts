@@ -415,8 +415,10 @@ test('AC3: a running turn registers one per-run host per provider', async (t) =>
         claude: dispatch(service, 'claude', sessions.claude),
       };
 
+      // One snapshot, read synchronously after the four dispatches, so the
+      // reading is "one live host per provider at the same moment".
       const snapshot = sessionHostManager.snapshot();
-      for (const provider of ['codex', 'cursor', 'opencode', 'claude'] as const) {
+      const readings = (['codex', 'cursor', 'opencode', 'claude'] as const).map((provider) => {
         const hosts = snapshot.filter(
           (host) => host.provider === provider && host.state !== 'closed',
         );
@@ -425,6 +427,18 @@ test('AC3: a running turn registers one per-run host per provider', async (t) =>
         console.log(
           `provider=${provider} hosts=${hosts.length} mode=${host?.mode} state=${host?.state} appSessionId=${bindingKeys.join(',')}`,
         );
+        return { provider, hosts, host, bindingKeys };
+      });
+
+      // Every leg is awaited inside the fake-PATH scope — and before any
+      // assertion, so a failing reading cannot leave a run (and its CLI child)
+      // behind for the file to hang on.
+      for (const provider of ['codex', 'cursor', 'opencode', 'claude'] as const) {
+        const outcome = await dispatched[provider].settled;
+        assert.equal(outcome.ok, true, `${provider} run rejected`);
+      }
+
+      for (const { provider, hosts, host, bindingKeys } of readings) {
         assert.equal(hosts.length, 1, `expected exactly one live ${provider} host`);
         assert.equal(host?.provider, provider);
         assert.equal(host?.mode, 'per-run');
@@ -435,12 +449,6 @@ test('AC3: a running turn registers one per-run host per provider', async (t) =>
           ['turn'],
           `expected one turn lease on the ${provider} binding`,
         );
-      }
-
-      // Every leg is awaited inside the fake-PATH scope so no run outlives it.
-      for (const provider of ['codex', 'cursor', 'opencode', 'claude'] as const) {
-        const outcome = await dispatched[provider].settled;
-        assert.equal(outcome.ok, true, `${provider} run rejected`);
       }
     });
   } finally {
@@ -556,39 +564,48 @@ test('AC6: a held run reads lingering and is released when it settles', async (t
         const claudeLeg = dispatch(service, 'claude', 'ac6-claude');
         const codexLeg = dispatch(service, 'codex', 'ac6-codex');
 
-        const lingering = await waitForHost(
-          'ac6-claude',
-          (host) => host.state === 'lingering',
-          'the claude host to read lingering',
-        );
+        // The held reading is captured while the run is still pending. Both the
+        // release and the awaits happen before any assertion, so a failed held
+        // reading cannot leave a held CLI (and its pending run) behind.
+        let heldReadingFailed = false;
+        try {
+          await waitForHost(
+            'ac6-claude',
+            (host) => host.state === 'lingering',
+            'the claude host to read lingering',
+          );
+        } catch {
+          heldReadingFailed = true;
+        }
+
+        const heldHost = hostsBoundTo('ac6-claude')[0];
         const codexHost = hostsBoundTo('ac6-codex')[0];
-        console.log(
-          `provider=claude state=${lingering.state} closeReason=${lingering.closeReason}`,
-        );
+        console.log(`provider=claude state=${heldHost?.state} closeReason=${heldHost?.closeReason}`);
         console.log(
           `provider=codex state=${codexHost?.state} closeReason=${codexHost?.closeReason} (positive control)`,
         );
-        assert.equal(lingering.state, 'lingering');
-        assert.equal(lingering.closeReason, null);
+
+        await writeFile(releaseFile, 'release', 'utf8');
+        const claudeOutcome = await claudeLeg.settled;
+        const codexOutcome = await codexLeg.settled;
+        const released = hostsBoundTo('ac6-claude')[0];
+        console.log(
+          `provider=claude state=${released?.state} closeReason=${released?.closeReason}`,
+        );
+
+        assert.equal(heldReadingFailed, false, 'the claude host never read lingering');
+        assert.equal(heldHost?.state, 'lingering');
+        assert.equal(heldHost?.closeReason, null);
         assert.equal(
-          lingering.bindings.get('ac6-claude')?.state,
+          heldHost?.bindings.get('ac6-claude')?.state,
           'idle',
           'the turn lease must already be gone while the host is held',
         );
         assert.equal(codexHost?.state, 'closed');
         assert.equal(codexHost?.closeReason, 'turn-complete');
-
-        await writeFile(releaseFile, 'release', 'utf8');
-        const claudeOutcome = await claudeLeg.settled;
         assert.equal(claudeOutcome.ok, true, 'the released claude run rejected');
-        const released = hostsBoundTo('ac6-claude')[0];
-        console.log(
-          `provider=claude state=${released?.state} closeReason=${released?.closeReason}`,
-        );
         assert.equal(released?.state, 'closed');
         assert.equal(released?.closeReason, 'released');
-
-        const codexOutcome = await codexLeg.settled;
         assert.equal(codexOutcome.ok, true);
       },
     );
