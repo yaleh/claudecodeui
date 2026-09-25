@@ -11,6 +11,8 @@ children: []
 extra:
   schema: execution
 goal_ac: AC-027
+depends_on:
+  - gap-ac103-worktree-state-drag-and-unbudgeted-confirm
 ---
 ## Proposal
 
