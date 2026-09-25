@@ -88,21 +88,21 @@ round-104 recheck 23.6s。两次红都死于启动阶段，5 个用例一个都�
 
 ## AC
 
-- [ ] 预热在首次导航之前真实生效：`e2e/session-filter.spec.ts` 里有 `warmClientStartup`（或其等价
+- [x] 预热在首次导航之前真实生效：`e2e/session-filter.spec.ts` 里有 `warmClientStartup`（或其等价
       命名）的定义与调用，逐 URL 带 deadline，非 200 / 超时按 url 指名抛错。验证：该 spec 的
       typecheck `exit 0`，且 `grep -n "warmClientStartup" e2e/session-filter.spec.ts` 同时命中定义行
       与 `beforeAll` 内的调用行。
-- [ ] 每一次导航都走同一个有界探针：`grep -n "page\.goto(\|page\.reload(" e2e/session-filter.spec.ts`
+- [x] 每一次导航都走同一个有界探针：`grep -n "page\.goto(\|page\.reload(" e2e/session-filter.spec.ts`
       的每一处行号都落在探针函数体内部，函数体外没有任何裸导航；探针耗尽预算时抛出携带页面文本与
       `requestfailed` 列表的错误。验证：上述 `grep -n` 输出逐行落界 + 该 spec typecheck `exit 0`。
-- [ ] 有界失败的实测（照 `e2e/voice-dashscope-written.spec.ts:251-255` 的有界失败变体）：把探针落点
+- [x] 有界失败的实测（照 `e2e/voice-dashscope-written.spec.ts:251-255` 的有界失败变体）：把探针落点
       临时指向一个不可能存在的 sentinel 后，`npm run test:e2e -- e2e/session-filter.spec.ts` 在
       **30s 内**以非零退出，且输出里带页面文本与失败请求列表；还原后该读数与还原读数一并登记。验证：
       两次运行的 `echo $?` 与 wall time。
-- [ ] 判据在负载下连续绿：`npm run test:e2e -- e2e/session-filter.spec.ts` 连续 ≥5 次全部 `exit 0`，
+- [x] 判据在负载下连续绿：`npm run test:e2e -- e2e/session-filter.spec.ts` 连续 ≥5 次全部 `exit 0`，
       且每一次 wall < 55_000ms（一次都不触发自带看门狗，`Channel closed` 零次），其中至少一次与 ≥4
       份兄弟 spec 并发。验证：逐次 `echo $?` + wall time 记录。
-- [ ] 判据命令、门限与断言语义未变：与 develop 的 diff 中 `package.json` 与
+- [x] 判据命令、门限与断言语义未变：与 develop 的 diff 中 `package.json` 与
       `playwright.config.ts` 无 `test:e2e` / `RUN_CEILING_MS` / `BOOT_CEILING_MS` 的增删，且
       `e2e/session-filter.spec.ts` 的 diff 里删除行不含 `expect(`。验证：
       `git diff develop -- package.json playwright.config.ts` 为空，且
@@ -122,3 +122,82 @@ round-104 recheck 23.6s。两次红都死于启动阶段，5 个用例一个都�
 
 - e2e/session-filter.spec.ts
 - tasks/gap-session-filter-criterion-bounded-boot-guard.md
+
+## 完成记录
+
+**实现提交**：`069c663d`（`e2e/session-filter.spec.ts`，+271 / −7）。改动只落在 Touches 的第一条；
+本段由 `task_write` 写进 Touches 的第二条。worktree 分支
+`task/gap-session-filter-criterion-bounded-boot-guard`。
+
+**落地形态（移植，不发明）**：家族既有的两个杠杆搬进本 spec 的启动路径 ——
+`warmClientStartup(clientUrl)`（形态与语义取自 `e2e/voice-dashscope-written.spec.ts` /
+`e2e/transcript-follow.spec.ts`）在任何页面存在之前跑；`navigateBounded(page, landing, kind)` 是本文件
+**唯一**导航点，按 deadline 重放导航，预算耗尽时带页面文本 + `requestfailed` 列表大声抛错。三处导航
+（`beforeAll` 的首次 goto、`beforeAll` 的 reload、测试体那次 reload）全部改走守卫。5 个用例的 `expect`
+一字未改。
+
+**AC1** —— `grep -n "warmClientStartup" e2e/session-filter.spec.ts` 命中两行：
+`127:const warmClientStartup = async (clientUrl: string): Promise<number> => {`（定义行）与
+`391:    await warmClientStartup(clientUrl);`（`beforeAll` 内调用行）。逐 URL 带 deadline，非 200 / 超时
+按 url 指名抛错（含「接了连接却不答」）。`npx tsc --noEmit -p tsconfig.json` → EXIT=0。
+
+**AC2** —— `grep -n "page\.goto(\|page\.reload(" e2e/session-filter.spec.ts` 只有两行：`272:` 与 `274:`，
+两行都落在 `const navigateBounded`（260 行起）到其闭合 `};`（295 行）之间；函数体外没有任何裸导航。
+`npx tsc --noEmit -p tsconfig.json` → EXIT=0。
+
+**AC3（有界失败，两次读数 + 还原）** ——
+(i) `ACCOUNT_FORM_PROBE` 临时改为 `#impossible-sentinel-for-the-bounded-failure-reading`：
+`npm run test:e2e -- e2e/session-filter.spec.ts` → **EXIT=1 / wall 25472ms（<30s）**，原文
+`Error: the account form (#impossible-sentinel-for-the-bounded-failure-reading) never rendered, so this run's client never came up to a document that stays: the page shows "Create Account\n\nSet up your account to get started\n\nUsername\nPassword\nConfirm Password\n\nAt least 3 characters for username, 6 for password.\n\nCreate Account\n\nThis is a single-user system. Only one account can be created.\n\nCloudCLI is open source"; console errors: Failed to load resource: … 401 (Unauthorized) | … 401 (Unauthorized) | … 401 (Unauthorized) | Failed to check TaskMaster installation status | … 401 (Unauthorized); failed requests: <none>`。
+页面文本在，`failed requests` 字段在 —— 但该变体里它是 `<none>`：页面本身健康，只有探针落点被改坏，
+本轮**本来就没有失败请求**。如实登记，不把「字段在」写成「有失败请求」。
+(ii) 为证明 `requestfailed` 列表真的会被填充（并同时覆盖「导航本身失败」那条分支），另跑一次：探针
+里那次 goto 临时指向 `http://127.0.0.1:1/` → **EXIT=1 / wall 25827ms**，原文
+`… never rendered, so this run's client never came up to a document that stays (the navigation itself failed: page.reload: net::ERR_UNSAFE_PORT): the page shows ""; console errors: …; failed requests: http://127.0.0.1:1/ — net::ERR_UNSAFE_PORT | http://127.0.0.1:1/ — net::ERR_UNSAFE_PORT | http://127.0.0.1:1/ — net::ERR_UNSAFE_PORT`。
+失败请求列表**非空**，三条都在；页面文本读到 `""`（Chromium 错误页无正文），与 (i) 互补。
+还原：`git checkout -- e2e/session-filter.spec.ts`；`git status --short` 为空；
+`grep -n "ACCOUNT_FORM_PROBE = \|page.goto('"` 回到 `186:const ACCOUNT_FORM_PROBE = '#username';` 与
+`272:        await page.goto('/', { timeout: … });`，与提交状态一致。
+
+**AC4（负载下连续绿，逐次读数）** —— 6 次全部 `5 passed`、EXIT=0、wall 均 < 55_000ms、`Channel closed` 零次：
+
+| # | 形态 | EXIT | wall (ms) |
+|---|------|------|-----------|
+| 1 | 单独 | 0 | 26905 |
+| 2 | **与 4 份兄弟 spec 并发** | 0 | 27938 |
+| 3 | 单独 | 0 | 29969 |
+| 4 | 单独 | 0 | 26582 |
+| 5 | 单独 | 0 | 25421 |
+| 6 | 单独 | 0 | 22234 |
+
+第 2 次是同一时刻起 5 份：`e2e/session-filter.spec.ts`（判据）+ `e2e/transcript-follow.spec.ts` +
+`e2e/voice-trim.spec.ts` + `e2e/voice-dashscope-written.spec.ts` + `e2e/mobile-composer-send-key.spec.ts`。
+**如实登记**：那一批里 `transcript-follow` 与 `voice-trim` 各自 EXIT=1、wall 55755ms / 55804ms —— 是
+`playwright.config.ts` 自己的 `RUN_CEILING_MS = 55_000` 看门狗把被 5 路并发饿住的整轮结束掉（原文
+`ceiling at 55001ms and is ending here with exit 1`），属本机负载产物；本次改动只落在
+`e2e/session-filter.spec.ts` 一份文件上，与它们无关。被守卫的**这一份**在同一批里 27.9s 跑完。
+6 次运行里守卫都记了自己的工作：`[e2e] client warm-up: pre-bundle committed in …ms` 一次 +
+`[e2e] client startup: … landed after …ms (attempt 1)` 三次（首次落 `#username`，两次 reload 落项目行），
+**没有一次用到重放** —— 这 6 次都走健康路径，守卫没有替用例放行任何东西。
+
+**AC5（判定面未变）** —— `git diff develop -- package.json playwright.config.ts` 输出为空；
+`git diff develop -- e2e/session-filter.spec.ts | grep -c "^-.*expect("` = **0**；
+`git diff develop --stat` 只有 `e2e/session-filter.spec.ts | 278 ++++--`（1 file changed, 271 insertions(+),
+7 deletions(-)）。没有加 `retries`、没有开 `reuseExistingServer`、判据命令与 60s 门限未动。
+
+**门禁** —— `bash scripts/test.sh --for-task gap-session-filter-criterion-bounded-boot-guard --allow-thin`
+→ EXIT=0（scoped 集合为 thin：Touches 里的 `*.spec.ts` 不在 scoped 门读的 `\.test\.[jt]sx?$` 集合内；
+`suite-scope-check` PASS）。scoped-gate cache 已写：`--develop-sha 18263d2b99f711901ae714f1fb5e4ba0c377d4f0`，
+该 sha 是 HEAD 的祖先。
+
+**如实登记（DoD 点名要写的那一条）** —— 本仓修掉的是**响应方式**：把「一次瞬时的模块加载中断 →
+无界等待 → 55s 看门狗 SIGKILL → 台账记成 `Channel closed`」换成「有界重放 → 要么落到 document，
+要么带页面文本与失败请求列表大声红」。**触发源不在本仓可控范围内**：`net::ERR_NETWORK_CHANGED` 由宿主层
+网络变更通知（本机 docker/veth 变动）产生，本任务既不检测也不抑制它。因此这条判据的稳定性**依赖守卫，
+不依赖触发源消失** —— 触发源再出现时，这条判据的行为是「多花一次 reload」，而不是「记一次
+`Channel closed`」。
+
+**未关闭的残留（如实登记）** —— 守卫的预算（首次落点 8s、每次重放 3s、单次导航 8s、总 deadline 14s）
+是量出来的、不是猜的：健康落点实测 1.2s–3.6s，deadline 对它有 4× 以上余量；同时 14s 的 deadline 是
+AC3 那次 25.5s 整轮红能落在 30s 之内的原因。若将来落点在有守卫的负载下稳定超过 ~10s，先量再调 ——
+把 deadline 调大就会把 AC3 的 30s 读数顶破。触发源本身（宿主网络抖动）不在本条范围内。
