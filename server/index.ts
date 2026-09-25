@@ -15,6 +15,8 @@ import {
     initializeSessionsWatcher,
     providerRegistry,
     providerRuntimeService,
+    stopClaudeSessionScopes,
+    sweepOrphanClaudeSessionScopes,
 } from '@/modules/providers/index.js';
 import { createWebSocketServer } from '@/modules/websocket/index.js';
 
@@ -354,7 +356,18 @@ async function startServer() {
         }
 
         console.log(`${terminalTextStyles.info('[INFO]')} To run in development mode with hot-module replacement, go to http://${DISPLAY_HOST}:${VITE_PORT}`);
-   
+
+        // Claude sessions now run in their own systemd scopes (see
+        // claude-session-scope.service.ts), which puts them outside this unit's cgroup: the
+        // kernel can no longer reap them along with the server, but it also means nothing
+        // collects them when the server is SIGKILLed and the shutdown path never runs. Clear
+        // those orphans before this server starts adding scopes of its own; scopes whose owning
+        // server is still alive are left untouched.
+        const sweptSessionScopes = sweepOrphanClaudeSessionScopes();
+        if (sweptSessionScopes.length > 0) {
+            console.log(`${terminalTextStyles.info('[INFO]')} Swept ${sweptSessionScopes.length} orphaned Claude session scope(s): ${sweptSessionScopes.join(', ')}`);
+        }
+
         server.listen(SERVER_PORT, HOST, async () => {
             const appInstallPath = APP_ROOT;
             await writeLocalServerMarker().catch((error) => {
@@ -387,6 +400,18 @@ async function startServer() {
         closeScheduledMessageDispatcher();
         // Clean up plugin processes on shutdown
         const shutdownRuntimeServices = async () => {
+            // Sessions are spawned into their own scopes, so they are no longer part of this
+            // unit's cgroup and nothing else here would stop them. Stop this server's own
+            // scopes before exiting; without this a stopped or restarted server leaves every
+            // session it was hosting running, where the cgroup teardown used to collect them.
+            try {
+                const stoppedSessionScopes = stopClaudeSessionScopes();
+                if (stoppedSessionScopes.length > 0) {
+                    console.log(`[Sessions] Stopped ${stoppedSessionScopes.length} Claude session scope(s)`);
+                }
+            } catch (err) {
+                console.error('[Sessions] Error stopping session scopes during shutdown:', getErrorMessage(err));
+            }
             try {
                 await browserUseService.stopAllSessions();
             } catch (err) {

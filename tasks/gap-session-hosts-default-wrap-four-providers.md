@@ -145,3 +145,14 @@ depends_on:
 - session_id：7668a421-819d-44c5-aac3-2ee88bad5483
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-session-hosts-default-wrap-four-providers~wk-prod-anchor~1790331249370-399867.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-session-hosts-default-wrap-four-providers-wk-prod-anchor.log
+
+## Needs-Human
+
+**执行 2026-09-25T13:30:00.869Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 3 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=5977 server/modules/websocket/tests/chat-edit-send.test.ts passed=false end_ms=1790342831703
+- run_id：wk-prod-anchor
+- session_id：4ac3c079-570a-4584-87c3-54f518f8930d
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-session-hosts-default-wrap-four-providers~wk-prod-anchor~1790342649056-665fe6.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-session-hosts-default-wrap-four-providers-wk-prod-anchor.log
