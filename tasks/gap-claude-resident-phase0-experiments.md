@@ -38,11 +38,11 @@ extra:
 
 ## AC
 
-- [ ] 实验脚本的护栏测试通过：`node --test scripts/resident-experiment.test.mjs` exit 0（覆盖：未显式给临时 DATABASE_PATH 时拒绝运行；`--check-record` 对缺节记录 exit 1 并点名缺的小节）
-- [ ] 记录文件八节齐全：`node scripts/resident-experiment.mjs --check-record docs/proposals/claude-resident-sessions-experiments.md` exit 0（E1–E8 每节都有 `读数：` 与 `结论：` 行；缺任何一节即打印节名并 exit 1）
-- [ ] proposal 已写回结论：`grep -n '阶段 0 结论' docs/proposals/claude-resident-sessions.md` 有输出且 exit 0
+- [x] 实验脚本的护栏测试通过：`node --test scripts/resident-experiment.test.mjs` exit 0（覆盖：未显式给临时 DATABASE_PATH 时拒绝运行；`--check-record` 对缺节记录 exit 1 并点名缺的小节）
+- [x] 记录文件八节齐全：`node scripts/resident-experiment.mjs --check-record docs/proposals/claude-resident-sessions-experiments.md` exit 0（E1–E8 每节都有 `读数：` 与 `结论：` 行；缺任何一节即打印节名并 exit 1）
+- [x] proposal 已写回结论：`grep -n '阶段 0 结论' docs/proposals/claude-resident-sessions.md` 有输出且 exit 0
 - [ ] 人工关卡——忙时输入基准已由人确认：`grep -n '^E2/E3 基准确认：' docs/proposals/claude-resident-sessions-experiments.md` 有输出且 exit 0（该行只能由人 yale 写入，内容为「沿用 CLI 行为」或裁定采用的形态；执行者不得代写）
-- [ ] `npm run lint` exit 0
+- [x] `npm run lint` exit 0
 
 ## DoD
 
@@ -60,3 +60,45 @@ extra:
 - docs/proposals/claude-resident-sessions-experiments.md (new)
 - docs/proposals/claude-resident-sessions.md
 - tasks/gap-claude-resident-phase0-experiments.md
+
+## 完成记录
+
+执行者：quay worker（分支 `task/gap-claude-resident-phase0-experiments`，实现提交 `f6cc58dd`，scoped 门 `--allow-thin` exit 0，
+`tsc -p scripts/tsconfig.json` exit 0）。四条机器可验的 AC 已全绿；**AC4 人工关卡未勾**，因此按 DoD，本任务的正确终态是
+`needs-human`，不是 `done`。
+
+**交付物**
+
+- `scripts/resident-experiment.mjs`：E1–E8 实验台。公共部分＝起 mock Anthropic 端点（按**请求体**识别 SDK 的标题请求，不按 token）、
+  起一次性临时实例并核对 `DATABASE_PATH`、用 SDK `query()` 以不结束的 `AsyncIterable` 驱动常驻进程；每个子命令把**原始**读数
+  （pid、时间戳、消息类型序列、请求体摘要、RSS 样本）追加进记录文件对应小节，结论单独一行。护栏三条：必须显式给临时
+  `DATABASE_PATH` 且不得等于 shell 导出的值、路径必须落在临时根内、端口不得是 3001。
+- `scripts/resident-experiment.test.mjs`：13 个具名用例，`node --test scripts/resident-experiment.test.mjs` exit 0。
+- `docs/proposals/claude-resident-sessions-experiments.md`（新）：E1–E8 八节原始读数 + 逐节结论，外加「环境核对」附录。
+- `docs/proposals/claude-resident-sessions.md`：新增「阶段 0 结论」小节，并据此修订 §5 `residentFeatures`、§8 忙时输入基准、
+  §10（E5 结论：清扫不是可选项）、§11（上限数值仍待 24 小时浸泡）、§12（peer 名生效通道）。
+
+**结论摘要**（原始读数与时间戳见记录文件，不是转述）
+
+- E1：cron 在 330s 内触发 **5** 次（要求 ≥3），每次是一次独立的无人轮。
+- E2：stream-json 与交互式 CLI **两种形态一致** —— busy 时推入的用户消息**另起一轮**，不丢、不拒。
+- E3：无人轮进行中推入用户消息 → **另起一轮**（注入后出现 2 条 `result`）。
+- E4：`interrupt()` 后**同一 pid 仍存活**，cron 从 1 次继续涨到 2 次。
+- E5：扮演服务进程的子进程被 `SIGKILL` 后，常驻 `claude` **120s 内没有退出** → 清扫是必需的（实验自身在 `finally` 里清扫）。
+- E6：`extraArgs.name` **生效**（中文与空格原样接受），但**只能读本地转录**判定，`/v1/messages` 请求体里看不到。
+- E7：**未达标**。真实模型下观察窗只有 **0.10 小时**（峰值树 RSS 262532KB，花掉 $1.0836），远不到 ≥24 小时。
+- E8：`bypassPermissions` 下 `AskUserQuestion` 仍走 `canUseTool`（被调用 1 次），可在回调里拦截。
+
+**阻塞 `done` 的两条（本任务为什么停在 needs-human）**
+
+1. **AC4**：记录文件里以 `E2/E3 基准确认：` 开头的那一行只能由人 yale 写，执行者不得代写。
+2. **DoD 的「E7 覆盖 ≥24 小时」**：一次 dispatch 内跑不出 24 小时浸泡，本次只跑到 0.10 小时。§11 的两个上限数值仍**未定**，
+   proposal 里保持"不给拍脑袋的数"，等一次真正的 24 小时浸泡。
+
+**环境核对**（原文见记录文件「环境核对」节）
+
+- 每个临时实例的 `DATABASE_PATH` 都在实例**还活着**时读 `/proc/<pid>/environ` 核对过，逐行写进记录。
+- `:3001` 常驻服务**未被本实验重启**：实验脚本里 `systemctl` 调用 0 次，且 3001 是受保护端口（`GuardRefusal` 拒绝）；
+  17:31:02 那次 Stopping→Started 是**环境侧**发生的，`journalctl` 原文已抄进记录。
+- 收尾后逐 pid 查 `/proc`：记录里出现过的 **8 个 pid 全部已退出**；`pgrep` 与 `tmux ls` 均无残留；
+  `systemctl --user list-units` 读数已抄进记录。
