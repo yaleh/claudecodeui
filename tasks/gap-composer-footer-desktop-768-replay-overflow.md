@@ -2,7 +2,7 @@
 id: gap-composer-footer-desktop-768-replay-overflow
 title: 桌面 768px 档含录音回放时 composer footer 横向溢出 25px（scrollWidth 470 > clientWidth
   445）：非本方案引入，前序两任务已如实标注但无人认领
-status: ready
+status: done
 labels:
   - gap
 parent: null
