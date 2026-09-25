@@ -3,7 +3,7 @@ id: gap-transcript-follow-ac110-case-nav-skips-boot-guard
 title: AC-110 判据偶发假红（近 16 次 gate 事件 2 红）：判据自己那条 case 在 beforeAll
   守卫之外重导航（全文件唯一一条这样做），页面被反复替换时 click 无界重试撞上 55s watchdog 杀浏览器，台账只留 "Channel
   closed"
-status: ready
+status: needs-human
 labels:
   - gap
   - defect
@@ -209,3 +209,14 @@ diff 的删除行只有 4 行：`-import type { Page } from '@playwright/test';`
 
 - L_D = 0，理由：该轴仍暗——本任务只改 e2e 夹具的启动路径与失败信息，不新增领域数据能力，没有可读出的领域数据轴读数。
 - L_G = 0，理由：该轴仍暗——读数是运行期退出码、墙钟与页面文本，不是生成质量轴读数；目标层判据仍由 GOAL-004 的其余判据承担。
+
+## Needs-Human
+
+**执行 2026-09-25T10:43:36.122Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=27122 server/modules/voice/tests/voice-capture-text.false-forms.test.ts passed=false end_ms=1790332922471
+- run_id：wk-prod-anchor
+- session_id：69300ee4-fae6-4ae0-bef9-5ab6cd8ce99b
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-transcript-follow-ac110-case-nav-skips-boot-guard~wk-prod-anchor~1790332859065-1c31bb.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-transcript-follow-ac110-case-nav-skips-boot-guard-wk-prod-anchor.log
