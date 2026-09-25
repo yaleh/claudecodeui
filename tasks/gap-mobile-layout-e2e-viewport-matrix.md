@@ -2,7 +2,7 @@
 id: gap-mobile-layout-e2e-viewport-matrix
 title: 移动端工作区 header / composer 布局的真浏览器验收矩阵：320/360/390/767/768/1280 ×
   idle/单回放/双回放/执行中，边界框 + 溢出 + 单一 Stop + 桌面无回归
-status: ready
+status: done
 labels:
   - gap
 parent: null
