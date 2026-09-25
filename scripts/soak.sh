@@ -9,8 +9,8 @@
 # the control arm of the slow-client leg (soak-driver.mjs): the same socket, handshake, subscribe and
 # window, but the bytes ARE read. A single arm cannot separate "the server retained the unread
 # frames" from "the workload simply grew", so the conclusion is read from the DIFFERENCE between
-#   bash scripts/soak.sh --duration 120 --burst-mb 512 --report hyp.json
-#   bash scripts/soak.sh --duration 120 --burst-mb 512 --slow-client-drains --report ctl.json
+#   bash scripts/soak.sh --duration 120 --burst-mb 500 --report hyp.json
+#   bash scripts/soak.sh --duration 120 --burst-mb 500 --slow-client-drains --report ctl.json
 # The control arm's `slowClientDrainedBytes` is the positive control that the server really pushed
 # the burst (a stalled socket the server never wrote to proves nothing); the hypothesis arm's RSS
 # trajectory is the reading. `--burst-mb` must exceed what the kernel socket buffers can absorb
@@ -18,7 +18,12 @@
 # reaches the server's user-space send queue and the leg tests nothing — and it should exceed the
 # workload's own churn, or the two arms are indistinguishable above noise. The mock gateway streams
 # its reply frame by frame under backpressure, so the gateway's own memory does NOT scale with
-# `--burst-mb`; it can be raised to the hundreds of MiB the differential needs.
+# `--burst-mb`; it can be raised to the hundreds of MiB the differential needs — but not past 500:
+# the reply is ONE assistant message, the `claude` CLI writes it as ONE `stream-json` line, and
+# `--burst-mb 512` is 536,870,912 characters against V8's `2**29 - 24` maximum string length, so the
+# server's `readline` dies with `RangeError: Invalid string length` at t~42s in BOTH arms. The
+# largest drivable burst is bracketed to (500MiB, 512MiB]; past that the ceiling is the CLI's
+# protocol hop, not this harness (see docs/operations/process-isolation-and-memory-caps.md).
 #
 # MANUAL BY CONSTRUCTION. Nothing in this repo calls this script: not scripts/test.sh, not
 # `npm test`, not a quay routine. package.json exposes it as `npm run soak`, and the task's own AC
