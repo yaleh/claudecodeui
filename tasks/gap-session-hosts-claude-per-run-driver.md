@@ -3,7 +3,7 @@ id: gap-session-hosts-claude-per-run-driver
 title: AC-159 Claude per-run 的后台持有与顶替由宿主层策略执行：伪造 SDK 流下 result 后 lingering、新一轮
   superseded、30 分钟静默 released 且输入流被结束、后台回报 result released 且
   notifyBackgroundWorkCompleted 恰一次；claude-background-work.test.ts 不改断言照常通过
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -240,3 +240,14 @@ elapsed=1721ms
 ### 顺序说明
 
 本轮按 ABI 记录 AC 状态**先行**：写入前 `task_check` 读数 `ok:false acTotal=11 acChecked=0`；写入用 `quay task edit <id> --body-file`（即 `task_write` 的 CLI 形，同一 provider 路径，提交信息自称 `tasks: <id> task_write by cli:<pid>`），写入后 11/11 勾选。随后 `git merge --no-edit develop` → 作用域门 → `node .../worker-driver.js --write-scoped-gate-cache --develop-sha "$(git rev-parse HEAD^2)"`（`HEAD^2` 即合并提交真正并入的那枚 develop 尖端，按构造成 HEAD 的祖先）。
+
+## Needs-Human
+
+**执行 2026-09-26T13:23:06.455Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=22544 server/modules/voice/tests/voice-capture-off.false-forms.test.ts passed=false end_ms=1790428890265
+- run_id：wk-prod-anchor
+- session_id：cd9bb781-90f7-45f2-89bf-2ff78cb96bed
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-session-hosts-claude-per-run-driver~wk-prod-anchor~1790428823628-e49d55.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-session-hosts-claude-per-run-driver-wk-prod-anchor.log
