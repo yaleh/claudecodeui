@@ -2,7 +2,7 @@
 id: gap-session-hosts-per-run-frame-parity
 title: AC-155 per-run 客户端可见帧逐帧不变：四个 provider 经真实 chat websocket（send / abort /
   忙时重复发送 / subscribe 重放）与接入宿主层之前录下的基线 fixture 深比较
-status: todo
+status: ready
 labels:
   - gap
 parent: null
