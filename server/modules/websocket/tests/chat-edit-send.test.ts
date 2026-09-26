@@ -77,6 +77,7 @@ async function withGateway(
   runTest: (context: {
     socket: ReturnType<typeof createFakeSocket>;
     runs: RunCall[];
+    sendFrame: (frame: Record<string, unknown>) => Promise<void>;
   }) => Promise<void>,
   rows: unknown[] = TRANSCRIPT_ROWS,
 ): Promise<void> {
@@ -112,7 +113,17 @@ async function withGateway(
       },
     );
 
-    await runTest({ socket, runs });
+    // `emit` discards the listener's promise, so the fixture reaches for the
+    // listener `handleChatConnection` just registered and awaits the turn
+    // itself. Awaiting that promise is the signal the assertions need: it
+    // settles exactly when the turn is over, rather than after a guess at how
+    // long it takes.
+    const handleMessage = socket.listeners('message')[0] as MessageHandler;
+    const sendFrame = async (frame: Record<string, unknown>): Promise<void> => {
+      await handleMessage(JSON.stringify(frame));
+    };
+
+    await runTest({ socket, runs, sendFrame });
   } finally {
     releaseHeldRun?.();
     releaseHeldRun = null;
@@ -129,18 +140,47 @@ async function withGateway(
   }
 }
 
-/** The handler is async and the socket listener does not await it. */
-const settle = () => new Promise((resolve) => { setTimeout(resolve, 30); });
+/**
+ * The async listener `handleChatConnection` registers, and the promise it
+ * returns for one frame. `emit` throws that promise away, so the fixture takes
+ * the listener itself and awaits the turn.
+ */
+type MessageHandler = (rawMessage: unknown) => Promise<void>;
+
+/**
+ * Resolves only once `condition` holds, yielding to the event loop between
+ * checks.
+ *
+ * Waiting on the condition — a run that has been registered, a frame that has
+ * arrived — is the point: the wait then lasts exactly as long as the turn
+ * does. A fixed sleep cannot, and this file's was the whole defect. Under load
+ * the handler's own async work (reading the provider transcript, opening the
+ * database) outlives any constant the fixture picks, so the assertions read the
+ * state from before the turn; the still-running handler then outlives the
+ * teardown and re-reads a database that no longer holds the session, which is
+ * the `SESSION_NOT_FOUND` the driver's log reported.
+ *
+ * The deadline is a failure bound, not the synchronisation: it turns a signal
+ * that never arrives into a named assertion failure instead of a hang.
+ */
+async function waitFor(condition: () => boolean, description: string): Promise<void> {
+  const deadline = Date.now() + 5000;
+  while (!condition()) {
+    if (Date.now() > deadline) {
+      assert.fail(`timed out waiting for ${description}`);
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
 
 test('an edit resumes through the turn before the one being replaced', async () => {
-  await withGateway('claude', async ({ socket, runs }) => {
-    socket.emit('message', JSON.stringify({
+  await withGateway('claude', async ({ runs, sendFrame }) => {
+    await sendFrame({
       type: 'chat.edit-send',
       sessionId: SESSION_ID,
       anchorId: 'e-u2',
       content: 'a better second prompt',
-    }));
-    await settle();
+    });
 
     assert.equal(runs.length, 1);
     assert.equal(runs[0].command, 'a better second prompt');
@@ -151,14 +191,13 @@ test('an edit resumes through the turn before the one being replaced', async () 
 });
 
 test('editing the first prompt starts the conversation over', async () => {
-  await withGateway('claude', async ({ socket, runs }) => {
-    socket.emit('message', JSON.stringify({
+  await withGateway('claude', async ({ runs, sendFrame }) => {
+    await sendFrame({
       type: 'chat.edit-send',
       sessionId: SESSION_ID,
       anchorId: 'e-u1',
       content: 'a better first prompt',
-    }));
-    await settle();
+    });
 
     assert.equal(runs.length, 1);
     assert.equal(runs[0].options.resumeAnchorId, undefined);
@@ -167,14 +206,13 @@ test('editing the first prompt starts the conversation over', async () => {
 });
 
 test('every subscribed client is told to drop the superseded turns', async () => {
-  await withGateway('claude', async ({ socket }) => {
-    socket.emit('message', JSON.stringify({
+  await withGateway('claude', async ({ socket, sendFrame }) => {
+    await sendFrame({
       type: 'chat.edit-send',
       sessionId: SESSION_ID,
       anchorId: 'e-u2',
       content: 'replacement',
-    }));
-    await settle();
+    });
 
     const truncation = socket.frames.find((frame) => frame.kind === 'history_truncated');
     assert.ok(truncation, 'a history_truncated frame is emitted');
@@ -186,13 +224,12 @@ test('every subscribed client is told to drop the superseded turns', async () =>
 });
 
 test('an edit without an anchor is refused', async () => {
-  await withGateway('claude', async ({ socket, runs }) => {
-    socket.emit('message', JSON.stringify({
+  await withGateway('claude', async ({ socket, runs, sendFrame }) => {
+    await sendFrame({
       type: 'chat.edit-send',
       sessionId: SESSION_ID,
       content: 'no anchor',
-    }));
-    await settle();
+    });
 
     assert.equal(runs.length, 0);
     assert.equal(socket.frames.at(-1)?.code, 'ANCHOR_REQUIRED');
@@ -200,14 +237,13 @@ test('an edit without an anchor is refused', async () => {
 });
 
 test('an anchor the transcript does not hold is refused', async () => {
-  await withGateway('claude', async ({ socket, runs }) => {
-    socket.emit('message', JSON.stringify({
+  await withGateway('claude', async ({ socket, runs, sendFrame }) => {
+    await sendFrame({
       type: 'chat.edit-send',
       sessionId: SESSION_ID,
       anchorId: 'not-in-transcript',
       content: 'replacement',
-    }));
-    await settle();
+    });
 
     assert.equal(runs.length, 0);
     assert.equal(socket.frames.at(-1)?.code, 'ANCHOR_NOT_FOUND');
@@ -215,14 +251,13 @@ test('an anchor the transcript does not hold is refused', async () => {
 });
 
 test('a provider that cannot re-run from a point is refused rather than sending a new message', async () => {
-  await withGateway('cursor', async ({ socket, runs }) => {
-    socket.emit('message', JSON.stringify({
+  await withGateway('cursor', async ({ socket, runs, sendFrame }) => {
+    await sendFrame({
       type: 'chat.edit-send',
       sessionId: SESSION_ID,
       anchorId: 'e-u2',
       content: 'replacement',
-    }));
-    await settle();
+    });
 
     assert.equal(runs.length, 0);
     assert.equal(socket.frames.at(-1)?.code, 'EDIT_NOT_SUPPORTED');
@@ -230,7 +265,7 @@ test('a provider that cannot re-run from a point is refused rather than sending 
 });
 
 test('a refused send never rewinds the conversation', async () => {
-  await withGateway('codex', async ({ socket, runs }) => {
+  await withGateway('codex', async ({ socket, runs, sendFrame }) => {
     // The rewind moves the session onto a different provider transcript and
     // cannot be undone, so a send the gateway is about to refuse must not
     // reach it. A run already in flight is the realistic way that happens: a
@@ -246,16 +281,18 @@ test('a refused send never rewinds the conversation', async () => {
         sessionId: SESSION_ID,
         content: 'a turn that is already running',
       }));
-      await settle();
+      // This turn is deliberately left in flight, so its handler's promise is
+      // not available to await — the real signal is the run having been
+      // registered, which is also what the assertion below reads.
+      await waitFor(() => runs.length === 1, 'the in-flight run to be registered');
       assert.equal(runs.length, 1);
 
-      socket.emit('message', JSON.stringify({
+      await sendFrame({
         type: 'chat.edit-send',
         sessionId: SESSION_ID,
         anchorId: 'turn-b',
         content: 'an edit that arrives too late',
-      }));
-      await settle();
+      });
     } finally {
       sessionsService.rewindSessionForEdit = realRewind;
     }
@@ -267,7 +304,7 @@ test('a refused send never rewinds the conversation', async () => {
 });
 
 test('a provider that has to branch to rewind is rewound before the run, not during it', async () => {
-  await withGateway('codex', async ({ socket, runs }) => {
+  await withGateway('codex', async ({ socket, runs, sendFrame }) => {
     // The rewind itself belongs to the provider and is covered there; what
     // this asserts is the gateway's half — that a provider which reports it
     // rewound gets an ordinary run instead of one carrying a resume anchor its
@@ -281,13 +318,12 @@ test('a provider that has to branch to rewind is rewound before the run, not dur
     };
 
     try {
-      socket.emit('message', JSON.stringify({
+      await sendFrame({
         type: 'chat.edit-send',
         sessionId: SESSION_ID,
         anchorId: 'turn-b',
         content: 'a better second prompt',
-      }));
-      await settle();
+      });
     } finally {
       sessionsService.rewindSessionForEdit = realRewind;
     }
