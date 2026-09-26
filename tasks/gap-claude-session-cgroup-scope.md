@@ -2,13 +2,15 @@
 id: gap-claude-session-cgroup-scope
 title: 每个 Claude 会话进自己的 systemd scope 并带内存上限：失控的 claude/MCP 只杀该会话，不再拖垮 server
   所在的 cgroup
-status: needs-human
+status: done
 labels:
   - gap
 parent: null
 children: []
 extra:
   schema: execution
+depends_on:
+  - gap-voice-false-forms-siblings-pid-attribution
 ---
 ## Proposal
 
