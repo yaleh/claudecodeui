@@ -205,7 +205,6 @@ test('AC2: multiplexedHost decides whether one host carries two sessions', async
   assert.equal(first.ok, true);
   assert.equal(second.ok, true);
   assert.ok(first.ok && second.ok);
-  assert.equal(first.hostId, second.hostId);
 
   const hosts = manager.snapshot();
   const host = readHost(manager, first.hostId);
@@ -214,8 +213,13 @@ test('AC2: multiplexedHost decides whether one host carries two sessions', async
     `hosts=${hosts.length} hostId=${first.hostId} bindings=${host.bindings.size} ` +
       `appSessionIds=[${[...host.bindings.keys()].join(',')}] calls=${formatCalls([...driver.calls])}`,
   );
+  // The cardinality claim first, and the corroborating readings after it: a
+  // manager that keys hosts 1:1 with sessions fails on `bindings` here rather
+  // than on a proxy for it, so the red names the reading this criterion exists
+  // to establish.
   assert.equal(host.bindings.size, 2);
   assert.deepEqual([...host.bindings.keys()], ['A', 'B']);
+  assert.equal(first.hostId, second.hostId);
   assert.equal(hosts.length, 1);
   // One process, so exactly one start: the second bind was placed on the first
   // host rather than served by a second process that happens to look similar.
