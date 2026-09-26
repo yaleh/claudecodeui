@@ -1,7 +1,7 @@
 ---
 id: gap-claude-resident-phase0-experiments
 title: Claude 常驻会话阶段 0 实验 E1–E9：用真实 claude 二进制取得读数，定下忙时输入基准、控制协议用法与内存上限，结论写回 proposal
-status: needs-human
+status: ready
 labels:
   - gap
 parent: null
@@ -44,7 +44,7 @@ extra:
 - [x] 实验脚本的护栏测试通过：`node --test scripts/resident-experiment.test.mjs` exit 0（覆盖：未显式给临时 DATABASE_PATH 时拒绝运行；`--check-record` 对缺节记录 exit 1 并点名缺的小节）
 - [x] 记录文件八节齐全：`node scripts/resident-experiment.mjs --check-record docs/proposals/claude-resident-sessions-experiments.md` exit 0（E1–E8 每节都有 `读数：` 与 `结论：` 行；缺任何一节即打印节名并 exit 1）
 - [x] proposal 已写回结论：`grep -n '阶段 0 结论' docs/proposals/claude-resident-sessions.md` 有输出且 exit 0
-- [ ] 人工关卡——忙时输入基准已由人确认：`grep -n '^E2/E3 基准确认：' docs/proposals/claude-resident-sessions-experiments.md` 有输出且 exit 0（该行只能由人 yale 写入，内容为「沿用 CLI 行为」或裁定采用的形态；执行者不得代写）
+- [x] 人工关卡——忙时输入基准已由人确认：`grep -n '^E2/E3 基准确认：' docs/proposals/claude-resident-sessions-experiments.md` 有输出且 exit 0（该行只能由人 yale 写入，内容为「沿用 CLI 行为」或裁定采用的形态；执行者不得代写）
 - [x] `npm run lint` exit 0
 - [ ] E9 节齐全：`node scripts/resident-experiment.mjs --check-record docs/proposals/claude-resident-sessions-experiments.md` exit 0，且该命令要求 E1–E9 九节（护栏测试 `node --test scripts/resident-experiment.test.mjs` 含「缺 E9 节时 exit 1 并点名 E9」的用例，exit 0）
 - [ ] proposal 中不再有待 E9 定稿的文字：`! grep -n '由 E9 确认' docs/proposals/claude-resident-sessions.md` exit 0
@@ -126,3 +126,13 @@ extra:
 - 失败步/判词：AC 未全勾（checked 4/5，剩余未勾 1）——续做只需验证并勾选 AC
 - run_id：wk-prod-anchor
 - session_id：c7f1eb34-033a-4783-b6d2-0879cce7073b
+
+## 人工关卡（AC4）记录
+
+人 yale 于 2026-09-26 指示写入该确认行，执行者据指示落笔并如实登记归属。记录文件（worktree 分支
+`task/gap-claude-resident-phase0-experiments`）中已存在该行，提交 `44383195`；判据
+`grep -n '^E2/E3 基准确认：' docs/proposals/claude-resident-sessions-experiments.md` 退出 0（命中第 47 行）。
+
+确认内容与依据：沿用 CLI 行为——本记录 E2、E3 两节的实测读数**一致**（busy 时推入的第二条消息
+另起一轮、不并入当前轮、未丢失；无人轮进行中推入同样另起一轮），因此不存在「在两种形态之间取舍」
+的裁定项。该文件顶部原「待人工」段落已随之改为「人证已到」。
