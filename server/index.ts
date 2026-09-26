@@ -19,7 +19,7 @@ import {
     sweepOrphanClaudeSessionScopes,
 } from '@/modules/providers/index.js';
 import { createWebSocketServer } from '@/modules/websocket/index.js';
-import { sessionHostManager } from '@/modules/session-hosts/index.js';
+import { createSessionHostsRouter, sessionHostManager } from '@/modules/session-hosts/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
 
@@ -205,6 +205,12 @@ app.use('/api/browser-use', authenticateToken, browserUseRoutes);
 // Unified provider MCP routes (protected)
 app.use('/api/providers', authenticateToken, providerRoutes);
 app.use('/api/scheduled-messages', authenticateToken, scheduledMessagesRoutes);
+
+// Session host listing (protected). Mounted unconditionally — unlike the debug
+// agent's control plane below, reading which processes are running is not a
+// gated surface — and over the process-wide manager, which is the same table
+// `providerRuntimeService` registers every dispatched turn in.
+app.use('/api/session-hosts', authenticateToken, createSessionHostsRouter({ sessionHostManager }));
 
 // Agent API Routes (uses API key authentication)
 app.use('/api/agent', agentRoutes);

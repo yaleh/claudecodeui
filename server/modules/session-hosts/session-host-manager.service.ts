@@ -91,6 +91,25 @@ export const DEFAULT_RESIDENT_POLICY: LifecyclePolicy = {
 };
 
 /**
+ * How long a closed host stays readable in `snapshot()` after it closed.
+ *
+ * A close reason is only useful while the run that produced it is still recent
+ * — "why did that process go away" is a question about a moment, not about a
+ * history — so the read port stops answering for a closed host once this window
+ * has passed. Five minutes is long enough for a browser that reconnects after a
+ * dropped socket to still see how the turn ended, and short enough that the
+ * listing does not fill up with a morning's worth of finished processes.
+ *
+ * Enforced at *read* time rather than by a timer: `snapshot()` compares
+ * `closedAt` against the manager's clock, so the window is reachable in a
+ * criterion that injects a clock and never waits, and a manager that nobody
+ * reads pays nothing for it. Overridable per instance through
+ * `SessionHostManagerOptions.closedHostRetentionMs`; the value here is what the
+ * process-wide manager uses.
+ */
+export const CLOSED_HOST_RETENTION_MS = 5 * 60 * 1000;
+
+/**
  * Where the manager puts its pending decisions, so they can be driven by a test
  * clock instead of by the wall clock.
  *
@@ -130,6 +149,14 @@ export type SessionHostManagerOptions = {
   perRunPolicy?: Partial<LifecyclePolicy>;
   /** Overrides for `DEFAULT_RESIDENT_POLICY`, merged over it. */
   residentPolicy?: Partial<LifecyclePolicy>;
+  /**
+   * How long a closed host stays readable in `snapshot()`.
+   *
+   * Defaults to `CLOSED_HOST_RETENTION_MS`. A criterion that wants to read both
+   * sides of the window injects a clock as well, so it never waits the window
+   * out.
+   */
+  closedHostRetentionMs?: number;
   createHostId?: () => string;
   createRunId?: () => string;
 };
@@ -213,9 +240,11 @@ export type ShutdownSummary = {
  *
  * Two indices back it — `hostId → host` for reads and `appSessionId → hostId`
  * to enforce the single-writer invariant (a new turn supersedes the host a
- * previous turn was still holding). Retention is deliberately unbounded for now:
- * closed hosts stay readable so a close reason survives the run that produced
- * it, and a pruning policy belongs to the AC that adds host listing.
+ * previous turn was still holding). Closed hosts stay readable so a close reason
+ * survives the run that produced it, and they leave the read port —
+ * `snapshot()`, which is what the host-listing route reads — once
+ * `CLOSED_HOST_RETENTION_MS` has passed since they closed. Nothing is ever
+ * collected from the underlying index; only the read port expires.
  *
  * State is derived from leases, never from an event: `deriveState` recomputes
  * `host.state` from the union of the binding's leases every time one is added or
@@ -234,8 +263,18 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
   const createRunId = options.createRunId ?? (() => `run-${randomUUID()}`);
   const perRunPolicy: LifecyclePolicy = { ...DEFAULT_PER_RUN_POLICY, ...options.perRunPolicy };
   const residentPolicy: LifecyclePolicy = { ...DEFAULT_RESIDENT_POLICY, ...options.residentPolicy };
+  const closedHostRetentionMs = options.closedHostRetentionMs ?? CLOSED_HOST_RETENTION_MS;
 
   const hosts = new Map<string, ProcessHost>();
+  /**
+   * When each host closed, so `snapshot()` can expire it.
+   *
+   * A side index rather than a field on `ProcessHost` because the instant is
+   * the manager's own bookkeeping: nothing that reads a host has a question
+   * whose answer is "when did this close" that `closeReason` does not already
+   * answer better, and the record type is shared with the client.
+   */
+  const closedAtByHostId = new Map<string, number>();
   const hostIdByAppSession = new Map<string, string>();
   const perRunTurns = new Map<string, PerRunTurn>();
   const driverByHostId = new Map<string, IProviderHostDriver>();
@@ -432,6 +471,10 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
     host.state = 'closed';
     host.closeReason = reason;
     host.closeDetail = detail;
+    // Stamped here rather than read off `host`, so the retention window is
+    // anchored at the moment the close happened and not at the moment someone
+    // asks about it.
+    closedAtByHostId.set(hostId, now());
     clearQuietClose(host);
 
     for (const [appSessionId, binding] of host.bindings) {
@@ -1155,14 +1198,44 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
   }
 
   /**
-   * Read port for the whole host view, closed hosts included.
+   * Read port for the whole host view: every live host, plus the closed ones
+   * that are still inside the retention window.
    *
-   * Consumed by this module's tests and (later) by the host-listing API. Each
-   * call returns detached copies, so a reader cannot mutate the manager's state
-   * by holding on to a snapshot.
+   * Consumed by this module's tests and by the host-listing route
+   * (`session-hosts.routes.ts`), which is what makes the window's far edge
+   * observable. The filter is applied here, at read time, so a closed host
+   * disappears from the listing without anything having to run at its deadline
+   * — and the instant compared against is a single reading of the manager's
+   * clock, so two hosts that closed together expire together.
+   *
+   * Each call returns detached copies, so a reader cannot mutate the manager's
+   * state by holding on to a snapshot.
    */
   function snapshot(): ProcessHost[] {
-    return [...hosts.values()].map(copyHost);
+    const at = now();
+    return [...hosts.values()]
+      .filter((host) => withinRetention(host, at))
+      .map(copyHost);
+  }
+
+  /**
+   * Whether a closed host is still readable at `at`.
+   *
+   * A host that is not closed is always readable; a closed one is readable
+   * while `closedAt + retention` is still ahead. The comparison is strict, so
+   * the window is half-open: at exactly `closedAt + retention` the host is
+   * gone, which is the reading a criterion can place a deadline on without
+   * guessing whether the boundary belongs to the window or to the gap after it.
+   */
+  function withinRetention(host: ProcessHost, at: number): boolean {
+    if (host.state !== 'closed') {
+      return true;
+    }
+    const closedAt = closedAtByHostId.get(host.hostId);
+    // A closed host with no stamp cannot be expired honestly, so it is kept
+    // rather than dropped: the only closes are `closeHost`'s and it always
+    // stamps, which makes this branch unreachable rather than a policy.
+    return closedAt === undefined || closedAt + closedHostRetentionMs > at;
   }
 
   return {

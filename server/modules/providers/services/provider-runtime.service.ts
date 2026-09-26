@@ -1,7 +1,8 @@
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
 import { providerModelsService } from '@/modules/providers/services/provider-models.service.js';
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
-import { sessionHostManager } from '@/modules/session-hosts/index.js';
+import { sessionHostManager as processWideSessionHostManager } from '@/modules/session-hosts/index.js';
+import type { SessionHostManager } from '@/modules/session-hosts/index.js';
 import type { IProvider } from '@/shared/interfaces.js';
 import type {
   AnyRecord,
@@ -22,6 +23,17 @@ type ProviderRuntimeServiceDependencies = {
     requestedModel?: string | null,
   ): Promise<string | undefined>;
   getProviderModels: typeof providerModelsService.getProviderModels;
+  /**
+   * The host view every dispatched turn registers in.
+   *
+   * Injectable so a criterion can drive a run through this service and then
+   * read the very same manager from its own HTTP surface — the default wrapper
+   * writes the host, the listing route reads it, and both have to be looking at
+   * one table for "the listing comes from the host layer" to be a statement
+   * about the production path. Production leaves it at the process-wide
+   * singleton.
+   */
+  sessionHostManager: SessionHostManager;
 };
 
 const defaultDependencies: ProviderRuntimeServiceDependencies = {
@@ -31,6 +43,7 @@ const defaultDependencies: ProviderRuntimeServiceDependencies = {
   resolveResumeModel: (provider, sessionId, requestedModel) =>
     providerModelsService.resolveResumeModel(provider, sessionId, requestedModel),
   getProviderModels: (provider) => providerModelsService.getProviderModels(provider),
+  sessionHostManager: processWideSessionHostManager,
 };
 
 /**
@@ -87,7 +100,7 @@ export function createProviderRuntimeService(
     // it wraps the writer so it can see the terminal frame and hands the
     // runtime's own promise straight back — so the runtimes below stay
     // byte-identical and this stays the single dispatch entry point.
-    return sessionHostManager.trackPerRunTurn({
+    return dependencies.sessionHostManager.trackPerRunTurn({
       provider: providerName,
       appSessionId: resolveAppSessionId(options),
       writer,
@@ -117,7 +130,7 @@ export function createProviderRuntimeService(
         // The runtime confirmed it stopped something, so the host bound to this
         // session is aborted rather than left busy. Reported after `abort` (not
         // before) so a failed stop never closes a host that is still running.
-        sessionHostManager.requestAbort(sessionId);
+        dependencies.sessionHostManager.requestAbort(sessionId);
       }
       return aborted;
     },
