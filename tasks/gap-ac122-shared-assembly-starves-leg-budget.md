@@ -1,7 +1,7 @@
 ---
 id: gap-ac122-shared-assembly-starves-leg-budget
 title: AC-122 判据在宿主并发下红在文件的共享装配阶段：装配与判据共用同一个 35s 预算，被饿死时与「双回放保证破了」同形
-status: ready
+status: done
 labels:
   - gap
   - defect
