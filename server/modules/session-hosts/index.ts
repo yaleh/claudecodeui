@@ -6,7 +6,12 @@ export { sessionHostManager, createSessionHostManager } from './session-host-man
 // PerRunTurnInput / SessionHostManagerOptions / OpenHostInput: the manager's own
 // call shapes, so a caller can type the turn or the host it hands over without
 // reaching into the service file.
+// BindSessionInput: the session-addressed call shape beside them — a caller with
+// an application session id lets the manager choose the process instead of
+// naming a host itself; used by providers that own their process through a host
+// driver.
 export type {
+  BindSessionInput,
   OpenHostInput,
   PerRunTurnInput,
   SessionHostManager,
@@ -40,6 +45,14 @@ export type {
 // criterion can assert that its cases produced all of them instead of trusting
 // its own list to match the union.
 export { HOST_CLOSE_REASONS } from '@/shared/types.js';
+// HostBindResult / HostBindErrorCode: what a `bindSession` answered, and the
+// refusal vocabulary it branches on, so a caller can tell "the session is
+// already somewhere" from "this process cannot take a second conversation".
+export type { HostBindErrorCode, HostBindResult } from '@/shared/types.js';
+// HOST_BIND_ERROR_CODES: every refusal as a runtime value, so a criterion can
+// assert each one is reachable by reading the list the manager is typed against
+// rather than a literal typed a second time.
+export { HOST_BIND_ERROR_CODES } from '@/shared/types.js';
 // LifecyclePolicy / HostCloseDetail: the policy a mode runs under and the extra
 // fact two close reasons carry, needed by any caller that injects a policy or
 // reads why an `exited` host died.

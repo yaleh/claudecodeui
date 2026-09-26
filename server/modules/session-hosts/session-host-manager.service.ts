@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import type { IProviderHostDriver, IProviderHostDriverSink } from '@/shared/interfaces.js';
 import type {
+  HostBindResult,
   HostCloseDetail,
   HostCloseReason,
   HostLease,
@@ -159,6 +160,30 @@ export type OpenHostInput = {
   mode: HostMode;
   appSessionId: string;
   driver: IProviderHostDriver;
+  /** The child pid, when the driver knows it; the default wrapper never does. */
+  pid?: number | null;
+};
+
+/**
+ * One session a provider is asking the manager to place on a process.
+ *
+ * The difference from `OpenHostInput` is the whole point of `bindSession`: this
+ * input names a *session*, not a process. The manager decides which process —
+ * reusing a live one when the driver says it can multiplex, opening a fresh one
+ * otherwise — and answers with a `HostBindResult` rather than with a host, so a
+ * refusal is a value the caller branches on instead of an exception.
+ *
+ * `mode` defaults to `resident`, which is the shape multiplexing belongs to: a
+ * process that outlives one conversation. A caller that wants the per-run
+ * wrapper's policy (one host per turn, superseded on the next) names it, and
+ * that is also the mode under which the supersede-before-start ordering below
+ * becomes reachable.
+ */
+export type BindSessionInput = {
+  provider: LLMProvider;
+  appSessionId: string;
+  driver: IProviderHostDriver;
+  mode?: HostMode;
   /** The child pid, when the driver knows it; the default wrapper never does. */
   pid?: number | null;
 };
@@ -448,6 +473,24 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
   }
 
   /**
+   * Closes a host and answers with the driver's own settling.
+   *
+   * `closeHost` deliberately does not await the driver — a driver that takes its
+   * time must not be able to stall the state machine — but one caller genuinely
+   * needs the wait: `bindSession`'s supersede path, which may not start the
+   * replacement process until the old one's driver has acknowledged the close.
+   * The promise awaited is the same one `shutdown()` collects, so "closed" means
+   * the same thing on both paths.
+   *
+   * A host that was already closed has no pending close, and awaiting a resolved
+   * promise is the right answer there: nothing is outstanding.
+   */
+  async function closeHostAndWait(hostId: string, reason: HostCloseReason): Promise<void> {
+    closeHost(hostId, reason);
+    await (pendingCloseByHost.get(hostId) ?? Promise.resolve());
+  }
+
+  /**
    * Reports that the process is gone, without asking the driver to kill it.
    *
    * The sink's `exited` and a driver that threw while starting both land here.
@@ -600,14 +643,7 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
       }
     }
 
-    const binding: SessionBinding = {
-      appSessionId,
-      providerSessionId: null,
-      state: 'idle',
-      leases: mode === 'resident' ? [{ kind: 'resident-policy' }] : [],
-      lastActivityAt: now(),
-      detachReason: null,
-    };
+    const binding = createBinding(appSessionId, mode);
     const host: ProcessHost = {
       hostId: createHostId(),
       provider,
@@ -637,6 +673,163 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
     }
 
     return copyHost(host);
+  }
+
+  /**
+   * Places one session on a process, or refuses and says why.
+   *
+   * The production entry point for a provider that owns its process: a caller
+   * names the session, and the manager answers which host it landed on. The
+   * three rules it enforces, in the order it enforces them, are the whole of
+   * the host/session cardinality contract:
+   *
+   *  1. **Supersede before start.** A policy with `supersedeOnNewTurn` lets a new
+   *     turn on a session replace the host a previous turn left `lingering` —
+   *     but the old host's driver is *awaited* before the replacement is opened.
+   *     The order is not stylistic: the old binding must be gone before the new
+   *     one is written, or the new bind would collide with the single-writer
+   *     index it is about to replace. Closing first is what makes the new bind
+   *     legal rather than an exception to rule 2.
+   *  2. **One binding per session.** A session that is already bound is refused
+   *     with `session-already-bound` and the id of the host that holds it —
+   *     whichever host the request was aimed at, because the conflict is with
+   *     the session, not with the target.
+   *  3. **One conversation per process, unless the driver says otherwise.** A
+   *     live host for the same provider and mode is reused only when its driver
+   *     declares `multiplexedHost === true`; otherwise the second binding is
+   *     refused with `host-not-multiplexed`. Refusing rather than silently
+   *     starting a second process keeps the driver's declaration load-bearing in
+   *     both directions, and keeps a misplaced `bindSession` from looking like a
+   *     successful multiplex when the process is in fact single-conversation.
+   *
+   * A refusal writes nothing: no host is opened, no binding is added, so a
+   * failed bind never leaves the target host holding a session the caller was
+   * told it did not get.
+   */
+  async function bindSession(input: BindSessionInput): Promise<HostBindResult> {
+    const { provider, appSessionId, driver } = input;
+    const mode = input.mode ?? 'resident';
+
+    const existingHostId = hostIdByAppSession.get(appSessionId);
+    if (existingHostId) {
+      const existing = hosts.get(existingHostId);
+      const supersedes =
+        existing !== undefined && existing.state === 'lingering' && policyFor(mode).supersedeOnNewTurn;
+      if (!supersedes) {
+        return { ok: false, code: 'session-already-bound', existingHostId };
+      }
+      await closeHostAndWait(existingHostId, 'superseded');
+    }
+
+    const reuse = findReusableHost(provider, mode);
+    if (!reuse) {
+      const host = await openHost({ provider, mode, appSessionId, driver, pid: input.pid });
+      return { ok: true, hostId: host.hostId };
+    }
+    if (driver.multiplexedHost !== true) {
+      return { ok: false, code: 'host-not-multiplexed', existingHostId: reuse.hostId };
+    }
+
+    const binding = createBinding(appSessionId, mode);
+    reuse.bindings.set(appSessionId, binding);
+    hostIdByAppSession.set(appSessionId, reuse.hostId);
+    deriveState(reuse, binding, null);
+    await driver.bind(reuse, binding);
+
+    return { ok: true, hostId: reuse.hostId };
+  }
+
+  /**
+   * Detaches one session and closes the host only when it was the last one.
+   *
+   * The driver is told about the detach even when it is the final binding — the
+   * detach and the process kill are different acts, and a driver that has to
+   * release a conversation before its process dies is entitled to hear about it
+   * — and then the manager decides the host's fate from what is left:
+   *
+   *  - Bindings remain: the host stays open, and the remaining bindings are
+   *    deliberately *not* re-derived. Nothing about them changed, so recomputing
+   *    their state could only introduce a difference; leaving them byte-identical
+   *    is the invariant a multiplexed process depends on.
+   *  - Nothing remains: the host is closed under the *caller's* reason, so a host
+   *    let go because the user closed a tab records `user` rather than a generic
+   *    release. The close is awaited, which makes the return value a statement
+   *    about a settled process.
+   *
+   * Idempotent: a second detach for the same session finds no binding (the
+   * single-writer index was cleared with the first) and touches no driver, so
+   * "closed exactly once" is reachable as a reading rather than assumed.
+   * Returns whether a live binding was found and detached.
+   */
+  async function unbindSession(appSessionId: string, reason: HostCloseReason): Promise<boolean> {
+    const hostId = hostIdByAppSession.get(appSessionId);
+    const host = hostId ? hosts.get(hostId) : undefined;
+    const binding = host?.bindings.get(appSessionId);
+    if (!host || !binding) {
+      return false;
+    }
+
+    const driver = driverByHostId.get(host.hostId);
+    if (driver) {
+      await driver.unbind(host, appSessionId, reason);
+    }
+
+    host.bindings.delete(appSessionId);
+    if (hostIdByAppSession.get(appSessionId) === host.hostId) {
+      hostIdByAppSession.delete(appSessionId);
+    }
+
+    if (host.bindings.size > 0) {
+      return true;
+    }
+
+    await closeHostAndWait(host.hostId, reason);
+    return true;
+  }
+
+  /**
+   * The live host a new binding would land on, or null when none exists.
+   *
+   * Scoped to one provider and one mode, because a binding is a conversation
+   * inside a process and neither a foreign provider's process nor a process
+   * opened under the other mode's policy can host it. The newest matching host
+   * wins, and the choice is deterministic rather than a judgement: hosts are
+   * iterated in insertion order, so "newest" is a property of the record, not of
+   * a clock reading two hosts could share. The newest is chosen because it is
+   * the process most recently brought up — the one whose warm state is freshest
+   * — and because packing onto it leaves the older hosts on their own paths to
+   * the quiet ceiling instead of making them immortal.
+   */
+  function findReusableHost(provider: LLMProvider, mode: HostMode): ProcessHost | null {
+    let reuse: ProcessHost | null = null;
+    for (const host of hosts.values()) {
+      if (host.state === 'closed' || host.provider !== provider || host.mode !== mode) {
+        continue;
+      }
+      reuse = host;
+    }
+    return reuse;
+  }
+
+  /**
+   * One session's record inside a host, with the mode's opening reason.
+   *
+   * Resident mode is opened holding `resident-policy` — the mode's statement
+   * that the process is meant to sit between turns — and per-run mode holds
+   * nothing until a turn arrives. Shared by `openHost` and `bindSession` so a
+   * reused binding is opened by the same rule as the first one; two copies of
+   * this literal is how a multiplexed host would end up with bindings that are
+   * not equivalent.
+   */
+  function createBinding(appSessionId: string, mode: HostMode): SessionBinding {
+    return {
+      appSessionId,
+      providerSessionId: null,
+      state: 'idle',
+      leases: mode === 'resident' ? [{ kind: 'resident-policy' }] : [],
+      lastActivityAt: now(),
+      detachReason: null,
+    };
   }
 
   /**
@@ -974,6 +1167,8 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
 
   return {
     openHost,
+    bindSession,
+    unbindSession,
     trackPerRunTurn,
     addLease,
     removeLease,

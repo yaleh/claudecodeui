@@ -1864,6 +1864,52 @@ export type SessionBinding = {
 };
 
 /**
+ * Why a bind request was refused.
+ *
+ * Two refusals, and they are different failures: `session-already-bound` says
+ * the session is already somewhere (the request may have named a second host,
+ * but the session is not free), while `host-not-multiplexed` says the session is
+ * free and the *process* is what cannot take it — a host whose driver did not
+ * declare `multiplexedHost` carries one conversation and no more. Named here
+ * rather than thrown as a message because the manager's caller has to branch on
+ * which refusal it got, and a branch on prose is a branch that breaks silently.
+ */
+export type HostBindErrorCode = 'session-already-bound' | 'host-not-multiplexed';
+
+/**
+ * Every member of `HostBindErrorCode`, as a runtime value.
+ *
+ * Same contract as `HOST_CLOSE_REASONS`: the union is the definition and this
+ * array is the same list in a form a program can iterate, so a criterion that
+ * wants to prove each refusal is reachable reads the list the manager is typed
+ * against instead of a literal typed a second time. Keep the two in the same
+ * order, and add a member to both at once.
+ */
+export const HOST_BIND_ERROR_CODES = [
+  'session-already-bound',
+  'host-not-multiplexed',
+] as const satisfies readonly HostBindErrorCode[];
+
+/**
+ * The outcome of one `bindSession` request.
+ *
+ * A discriminated union rather than a thrown error because a refusal is an
+ * ordinary answer to a race — two turns arriving for one session is normal
+ * traffic, not a fault — and because the caller needs the refusal's identity,
+ * not just its message.
+ *
+ * `existingHostId` is the load-bearing half of a refusal: for
+ * `session-already-bound` it names the host that already holds the session
+ * (which is *not* necessarily the host the request was aimed at, and naming the
+ * aimed-at host instead would hide the conflict); for `host-not-multiplexed` it
+ * names the live host that could not take a second binding. Null only when a
+ * refusal has no host to point at.
+ */
+export type HostBindResult =
+  | { ok: true; hostId: string }
+  | { ok: false; code: HostBindErrorCode; existingHostId: string | null };
+
+/**
  * One process the session-host layer knows about, in any lifecycle mode.
  *
  * `pid` is deliberately nullable: a runtime driven through the default per-run

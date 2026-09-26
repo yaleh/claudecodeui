@@ -130,6 +130,20 @@ export interface IProviderHostDriver {
   unbind(host: ProcessHost, appSessionId: string, reason: HostCloseReason): Promise<void>;
   /** Terminates the host process. */
   closeHost(host: ProcessHost, reason: HostCloseReason): Promise<void>;
+  /**
+   * Whether one process of this provider may serve several sessions at once.
+   *
+   * The statement only the driver can make, because it is a fact about the
+   * process's protocol rather than about the manager: a multiplexing driver
+   * (`Codex app-server`, `opencode serve`) routes conversations by session id
+   * inside one process, while a driver that replaces the per-run wrapper does
+   * not. Absent means false — a driver that never thought about multiplexing
+   * gets the safe reading, one conversation per process — so the manager reads
+   * this as `=== true` and never as truthiness. Consumed by
+   * `session-host-manager.bindSession`, which reuses a live host only for a
+   * provider that declares it and refuses the second binding otherwise.
+   */
+  readonly multiplexedHost?: boolean;
 }
 
 /**
