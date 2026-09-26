@@ -200,7 +200,12 @@ test('AC2/AC3: sixteen recordings through the real dispatch surface, each non-tr
     const busy = all.find((r) => r.provider === provider && r.scenario === 'busy');
     assert.ok(busy);
     const refusals = busy.frames.filter((frame) => frame.kind === 'protocol_error');
-    assert.equal(refusals.length, 1, `${provider}/busy must carry exactly one protocol_error`);
+    assert.equal(
+      refusals.length,
+      1,
+      `${provider}/busy must carry exactly one RUN_IN_PROGRESS protocol_error for the ` +
+        `refused second send (found ${refusals.length}; kinds=${kindsOf(busy.frames)})`,
+    );
     assert.equal(
       refusals[0].code,
       'RUN_IN_PROGRESS',
@@ -341,6 +346,12 @@ test('AC6: the comparator flags a dropped frame and an appended one', async () =
 // ---------------------------
 //----------------- RECORDING DETERMINISM ------------
 test('AC7: a re-run of the same scenario projects to the same bytes', async () => {
+  // The "first run" of each pair is the reading the earlier tests already took,
+  // not a fresh drive: that makes the comparison span the whole file's wall
+  // clock instead of two adjacent calls, and it keeps this test to four drives
+  // rather than eight — the criterion is run under a hard timeout by the
+  // promotion gate, and the machine it runs on is often heavily oversubscribed.
+  const all = await readings();
   const pairs: Array<[ProviderId, ScenarioId]> = [
     ['claude', 'turn'],
     ['codex', 'busy'],
@@ -350,11 +361,12 @@ test('AC7: a re-run of the same scenario projects to the same bytes', async () =
 
   let projectionIsLoadBearing = false;
   for (const [provider, scenario] of pairs) {
-    const first = await runScenario(provider, scenario);
+    const first = all.find((r) => r.provider === provider && r.scenario === scenario);
+    assert.ok(first, `${provider}/${scenario} was never driven`);
     const second = await runScenario(provider, scenario);
-    const run1 = projectFrames(first.frames);
+    const run1 = first.frames;
     const run2 = projectFrames(second.frames);
-    const rawEqual = JSON.stringify(first.frames) === JSON.stringify(second.frames);
+    const rawEqual = JSON.stringify(first.raw) === JSON.stringify(second.frames);
     const equal = compareFrames(run1, run2).equal;
     console.log(
       `provider=${provider} scenario=${scenario} run1=${run1.length} run2=${run2.length} ` +

@@ -122,40 +122,54 @@ function describeFrame(index: number, frame: Frame | undefined): string {
 /**
  * Compares a recorded sequence against a freshly driven one.
  *
- * Length is checked first so the two synthetic defects the criterion relies on —
- * a dropped tail frame and an appended synthetic `complete` — are named as such
- * rather than as an anonymous mismatch somewhere in the middle.
+ * The first divergence is located before it is classified, treating "this
+ * sequence ran out" as a divergence like any other. Classifying on length alone
+ * was wrong for the case that matters most: a refusal vanishing from the middle
+ * of a busy sequence leaves the live run one frame short, and a length-only
+ * check blamed the last frame — reporting a lost terminal `complete` when what
+ * actually went missing was the `RUN_IN_PROGRESS` frame two positions earlier.
+ * Naming the wrong frame is worse than naming none, because the reader believes
+ * it.
  */
 export function compareFrames(baseline: FrameSequence, actual: FrameSequence): FrameDiff {
+  const shared = Math.min(baseline.length, actual.length);
+  let divergence = shared;
+  for (let index = 0; index < shared; index += 1) {
+    if (JSON.stringify(baseline[index]) !== JSON.stringify(actual[index])) {
+      divergence = index;
+      break;
+    }
+  }
+
+  if (divergence === baseline.length && baseline.length === actual.length) {
+    return { equal: true, missingIndex: null, extraIndex: null, reason: null };
+  }
+
   if (actual.length < baseline.length) {
     return {
       equal: false,
-      missingIndex: actual.length,
+      missingIndex: divergence,
       extraIndex: null,
-      reason: `missing frame at ${describeFrame(actual.length, baseline[actual.length])}`,
+      reason: `missing frame at ${describeFrame(divergence, baseline[divergence])}`,
     };
   }
   if (actual.length > baseline.length) {
     return {
       equal: false,
       missingIndex: null,
-      extraIndex: baseline.length,
-      reason: `extra frame at ${describeFrame(baseline.length, actual[baseline.length])}`,
+      extraIndex: divergence,
+      reason: `extra frame at ${describeFrame(divergence, actual[divergence])}`,
     };
   }
 
-  for (let index = 0; index < baseline.length; index += 1) {
-    if (JSON.stringify(baseline[index]) !== JSON.stringify(actual[index])) {
-      return {
-        equal: false,
-        missingIndex: null,
-        extraIndex: null,
-        reason: `frame differs at #${index}: baseline ${JSON.stringify(baseline[index])} live ${JSON.stringify(actual[index])}`,
-      };
-    }
-  }
-
-  return { equal: true, missingIndex: null, extraIndex: null, reason: null };
+  return {
+    equal: false,
+    missingIndex: null,
+    extraIndex: null,
+    reason: `frame differs at #${divergence}: baseline ${JSON.stringify(
+      baseline[divergence],
+    )} live ${JSON.stringify(actual[divergence])}`,
+  };
 }
 
 // ---------------------------
