@@ -3,6 +3,15 @@
 // by `server/index.ts` to stop every host during shutdown, and by this module's
 // criterion tests, which read hosts only through `snapshot()`.
 export { sessionHostManager, createSessionHostManager } from './session-host-manager.service.js';
+// createSessionHostsRouter: the listing face this module owns, mounted by
+// `server/index.ts` at `/api/session-hosts` over the process-wide manager, and
+// by the routes criterion over a manager it drove itself. A factory because the
+// manager is a dependency: `createApiSuccessResponse` wraps its one response.
+export { createSessionHostsRouter } from './session-hosts.routes.js';
+// CLOSED_HOST_RETENTION_MS: how long a closed host stays in `snapshot()`, so a
+// reader of the listing (and the criterion for its far edge) can place a
+// deadline on the same value the manager expires with.
+export { CLOSED_HOST_RETENTION_MS } from './session-host-manager.service.js';
 // PerRunTurnInput / SessionHostManagerOptions / OpenHostInput: the manager's own
 // call shapes, so a caller can type the turn or the host it hands over without
 // reaching into the service file.
