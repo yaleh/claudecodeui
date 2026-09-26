@@ -2,7 +2,7 @@
 id: gap-session-hosts-default-wrap-four-providers
 title: AC-154 默认包装：四个 provider 的每一轮经 provider-runtime.service 的真实分派入口登记为 per-run
   宿主，按实际收尾给出 turn-complete / aborted / released，Claude 的持有期读成 lingering
-status: needs-human
+status: done
 labels:
   - gap
 parent: null

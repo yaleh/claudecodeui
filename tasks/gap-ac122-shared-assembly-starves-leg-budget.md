@@ -219,3 +219,14 @@ Touches 段与实现均未扩：`git diff --name-only $(git merge-base HEAD deve
 - session_id：2f3f2d07-fb4b-4c3f-b61b-c3ce00816110
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-ac122-shared-assembly-starves-leg-budget~wk-prod-anchor~1790387301864-d9013c.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-ac122-shared-assembly-starves-leg-budget-wk-prod-anchor.log
+
+## Needs-Human
+
+**执行 2026-09-26T02:17:34.689Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 3 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: not ok - server/modules/providers/tests/claude-sessions.test.ts:   AssertionError [ERR_ASSERTION]: open-a.jsonl was opened by a scan that should have skipped it
+- run_id：wk-prod-anchor
+- session_id：239b7b85-6261-44c0-9734-b546546173c0
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-ac122-shared-assembly-starves-leg-budget~wk-prod-anchor~1790388878653-138691.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-ac122-shared-assembly-starves-leg-budget-wk-prod-anchor.log

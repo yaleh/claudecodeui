@@ -2,9 +2,13 @@ import type {
   AnyRecord,
   FetchHistoryOptions,
   FetchHistoryResult,
+  HostCloseReason,
+  HostReconfigurePatch,
+  HostTurnInput,
   LLMProvider,
   McpScope,
   NormalizedMessage,
+  ProcessHost,
   ProviderSkill,
   ProviderSkillListOptions,
   ProviderAuthStatus,
@@ -16,6 +20,7 @@ import type {
   ProviderRuntimeContext,
   ProviderRuntimePermissionGateway,
   ProviderRuntimeWriter,
+  SessionBinding,
   UpsertProviderMcpServerInput,
 } from '@/shared/types.js';
 
@@ -66,6 +71,54 @@ export interface IProvider {
    * place the rename exists.
    */
   readonly rename?: IProviderSessionRename;
+  /**
+   * Process-lifetime ownership. Present only for providers that can hold a
+   * process across turns (Claude `resident`) or multiplex several conversations
+   * onto one already-running process. Its absence is the normal case: every
+   * provider without it is driven by the session-host manager's default per-run
+   * wrapper, which keeps the existing `IProviderRuntime.run`/`abort` contract as
+   * the whole of the provider's lifecycle.
+   */
+  readonly hostDriver?: IProviderHostDriver;
+}
+
+// ---------------------------
+//----------------- PROVIDER HOST DRIVER INTERFACE ------------
+/**
+ * Optional provider facet for lifecycle modes the default per-run wrapper
+ * cannot express.
+ *
+ * The default wrapper in `server/modules/session-hosts` only observes: it opens
+ * a per-run host, watches the runtime's writer for the terminal frame and lets
+ * the runtime keep `IProviderRuntime.abort` as the way to stop a turn. A
+ * provider that implements this facet instead owns process lifetime — it decides
+ * when a host starts, which session is bound to it, and how it is closed — which
+ * is what makes `resident` mode and multiplexed hosts possible.
+ *
+ * `host` carries the identity and state the manager already tracks; a driver
+ * mutates process reality and reports back through the manager, never by editing
+ * the host record itself. Verbs are specified in
+ * `docs/proposals/claude-resident-sessions.md` §4.
+ */
+export interface IProviderHostDriver {
+  /** Starts the host process, or returns the already-running one a multiplexing provider reuses. */
+  startHost(host: ProcessHost): Promise<ProcessHost>;
+  /** Opens one session binding on the host (for Claude this is the same action as `startHost`). */
+  bind(host: ProcessHost, binding: SessionBinding): Promise<void>;
+  /** Delivers one turn: for `per-run` this is what `run` used to be; for `resident` it writes to the process input. */
+  submit(host: ProcessHost, appSessionId: string, turn: HostTurnInput): Promise<void>;
+  /** Stops the turn in flight and reports whether anything was stopped. */
+  interrupt(host: ProcessHost, appSessionId: string): Promise<boolean>;
+  /** Applies a model/effort/permission change, reporting whether it took effect now or next turn. */
+  reconfigure(
+    host: ProcessHost,
+    appSessionId: string,
+    patch: HostReconfigurePatch,
+  ): Promise<'live' | 'next-turn'>;
+  /** Detaches one session, leaving the host running while it still has other bindings. */
+  unbind(host: ProcessHost, appSessionId: string, reason: HostCloseReason): Promise<void>;
+  /** Terminates the host process. */
+  closeHost(host: ProcessHost, reason: HostCloseReason): Promise<void>;
 }
 
 // ---------------------------

@@ -326,3 +326,66 @@ request and still tells the row AC6 the three answers a reachable service can en
 - session_id：4703df67-3779-487a-b268-fba278ee139c
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-resident-phase0-experiments~wk-prod-anchor~1790385751624-871619.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-resident-phase0-experiments-wk-prod-anchor.log
+
+## Needs-Human
+
+**执行 2026-09-26T02:15:01.676Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 6 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=23994 server/modules/voice/tests/voice-capture-off.false-forms.test.ts passed=false end_ms=1790388808613
+- run_id：wk-prod-anchor
+- session_id：a4e1ddd1-d0ff-40f1-bf1e-27c1dfd4cecc
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-resident-phase0-experiments~wk-prod-anchor~1790388621399-a4b12a.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-resident-phase0-experiments-wk-prod-anchor.log
+## Evidence（第 7 轮续做，2026-09-26：suite 红已归因，非本 delta）
+
+执行者：quay worker（分支 `task/gap-claude-resident-phase0-experiments`，续做前几轮已落地的实现提交，
+本轮**没有新实验、没有新代码**）。本轮做两件事：把上一轮 suite-red 的**真因**从保留日志里读出来，
+并把七条 AC 在合并 develop 后的树上逐条重验。
+
+**真因读数（保留的 suite 日志，逐字引用）。** 文件
+`.quay/fan-in-suite-gap-claude-resident-phase0-experiments~wk-prod-anchor~1790388621399-a4b12a.log`
+第 244 行：
+
+```text
+not ok - server/modules/voice/tests/voice-capture-off.false-forms.test.ts: AC6 FAIL cases=n/a :: npm run typecheck (exit=2) | sig: error TS6053: File '/data/home/yale/work/claudecodeui-worktrees/gap-claude-resident-phase0-experiments/server/modules/voice/tmp/__stray-shipping-probe.ts' not found.
+```
+
+同一次 suite 的计数是 `# tests 237 / # pass 236 / # fail 1`，而 fan-in 自己的 typecheck 步读作
+`__PERFILE__ duration_ms=12099 typecheck passed=true`（同一日志第 5 行）。所以全树 **236/237 绿**，
+唯一的红是并发测试造出的**瞬时探针文件**：`server/modules/voice/tests/voice-dashscope-settings.test.ts:1121`
+的 AC4(b) 正控制先写 `server/modules/voice/tmp/__stray-shipping-probe.ts`、用例收尾再 `rm -rf` 该目录，
+而同一时刻另一个 `.false-forms` 用例的子进程 `npm run typecheck` 正好扫到它、报 TS6053。
+该目录此刻已不存在（瞬时），`server/tsconfig.json` 的 `include` 收 `./**/*.ts`、`exclude` 未含 `voice/tmp`。
+
+**结论：这条红不是本 delta。** 本任务的交付物是实验脚本与其测试、两份 proposal 和任务记录；
+`server/tsconfig.json` 不在本任务的 Touches 段里，也不该由本任务改。该竞态的修复已另立任务
+`gap-tsc-sees-transient-probe-file`（现 `ready`，尚未并入 develop——`git show develop:server/tsconfig.json`
+里没有 `voice/tmp`）。本任务不越界改它。
+
+**对旧 Needs-Human 判词的更正。** 前六轮的 `Needs-Human` 都写「suite 红但归因不出任何失败测试文件」。
+develop 本轮合入 `gap-suite-runner-keeps-per-file-logs-on-red`（提交 `45884caa`「keep the per-file child
+logs when a run is red」）之后，红跑的**子进程原文被保住了**，那条读数现在**点名**失败命令与其 sig
+（见上）。所以「归因不出」的措辞应由这条读数取代：凶手是 `npm run typecheck` 的 TS6053，触发者是
+另一个测试文件的瞬时探针，两者都不是本任务的写点。
+
+**本轮逐条重验**（均在 `git merge --no-edit develop` 之后的树上，HEAD `61864b25`，0 冲突）
+
+- AC1 `node --test scripts/resident-experiment.test.mjs` → 14 用例全过，exit 0。
+- AC2/AC6 `node scripts/resident-experiment.mjs --check-record docs/proposals/claude-resident-sessions-experiments.md`
+  → 打印 `--check-record OK：E1–E9 九节齐全`，exit 0（护栏测试含「缺 E9 节时 exit 1 并点名 E9」用例）。
+- AC3 `grep -n '阶段 0 结论' docs/proposals/claude-resident-sessions.md` → 命中（第 581 行标题，270/393 行引用），exit 0。
+- AC4 `grep -n '^E2/E3 基准确认：' docs/proposals/claude-resident-sessions-experiments.md` → 命中第 49 行
+  （人 yale 指示写入的那一行，非执行者代写）。
+- AC5 `npm run lint` → exit 0（只有既存 warning，无新增）。
+- AC7 `! grep -n '由 E9 确认' docs/proposals/claude-resident-sessions.md` → exit 0（三处已定稿）。
+- 另跑 `npm run typecheck`（根 + server + scripts 三个 tsc 项目）→ exit 0；
+  `task_check` → `acTotal 7 / acChecked 7`、`eligible to move to done`。
+- 合并读数：`git merge --no-edit develop` 干净，把 develop 的 `scripts/test.sh`（逐文件日志保留）与四个
+  兄弟任务的 task 文件带进来；本任务七个 AC 勾选一条未丢，`status: ready` 保持（该字段由 driver 拥有）。
+
+**仍未满足的 DoD（照旧如实记下，不因 AC 全绿而消失）**
+
+- E7 的「≥24 小时浸泡」仍未达标：记录里仍是 0.10 小时（真实模型、$1.0836），proposal §11 的两个上限
+  数值**仍未定**。本轮未重跑 E7。
+- E9 的两处读数缺口照旧：`next` 档执行时的落点（9.2 里被撤掉没读到）、`request_user_dialog` 的实物。
