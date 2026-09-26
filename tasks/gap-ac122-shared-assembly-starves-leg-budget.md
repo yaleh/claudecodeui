@@ -166,3 +166,14 @@ AC1–AC5 中 AC2/AC3/AC4/AC5 的**原始**实验读数产生于上一轮，而�
 ### 本轮的边界与门读数
 
 本轮只做续做与重退：`git -C <worktree> merge --no-edit develop` → `Already up to date`（无冲突、`git status --porcelain` 空，无 UU）。scoped 门 `bash scripts/test.sh --for-task gap-ac122-shared-assembly-starves-leg-budget --allow-thin` → 退出 `0`，其中 `suite-scope-check: PASS — 14 active task(s) scanned`；文件集走 thin 分支（`no scoped test files for gap-ac122-shared-assembly-starves-leg-budget (thin)`）—— 本任务 Touches 段里的 `*.test.*` 是 `.mjs`，scoped 文件集正则不含 `.mjs`，本族前例同形。判据文件 `e2e/voice-trim.spec.ts` 本轮**逐字未改**。
+
+## Needs-Human
+
+**执行 2026-09-26T01:51:03.955Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=3145 server/modules/providers/tests/model-config-write-path.test.ts passed=false end_ms=1790387333503
+- run_id：wk-prod-anchor
+- session_id：2f3f2d07-fb4b-4c3f-b61b-c3ce00816110
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-ac122-shared-assembly-starves-leg-budget~wk-prod-anchor~1790387301864-d9013c.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-ac122-shared-assembly-starves-leg-budget-wk-prod-anchor.log
