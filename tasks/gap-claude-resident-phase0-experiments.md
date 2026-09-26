@@ -46,8 +46,8 @@ extra:
 - [x] proposal 已写回结论：`grep -n '阶段 0 结论' docs/proposals/claude-resident-sessions.md` 有输出且 exit 0
 - [x] 人工关卡——忙时输入基准已由人确认：`grep -n '^E2/E3 基准确认：' docs/proposals/claude-resident-sessions-experiments.md` 有输出且 exit 0（该行只能由人 yale 写入，内容为「沿用 CLI 行为」或裁定采用的形态；执行者不得代写）
 - [x] `npm run lint` exit 0
-- [ ] E9 节齐全：`node scripts/resident-experiment.mjs --check-record docs/proposals/claude-resident-sessions-experiments.md` exit 0，且该命令要求 E1–E9 九节（护栏测试 `node --test scripts/resident-experiment.test.mjs` 含「缺 E9 节时 exit 1 并点名 E9」的用例，exit 0）
-- [ ] proposal 中不再有待 E9 定稿的文字：`! grep -n '由 E9 确认' docs/proposals/claude-resident-sessions.md` exit 0
+- [x] E9 节齐全：`node scripts/resident-experiment.mjs --check-record docs/proposals/claude-resident-sessions-experiments.md` exit 0，且该命令要求 E1–E9 九节（护栏测试 `node --test scripts/resident-experiment.test.mjs` 含「缺 E9 节时 exit 1 并点名 E9」的用例，exit 0）
+- [x] proposal 中不再有待 E9 定稿的文字：`! grep -n '由 E9 确认' docs/proposals/claude-resident-sessions.md` exit 0
 
 ## DoD
 
@@ -136,3 +136,42 @@ extra:
 确认内容与依据：沿用 CLI 行为——本记录 E2、E3 两节的实测读数**一致**（busy 时推入的第二条消息
 另起一轮、不并入当前轮、未丢失；无人轮进行中推入同样另起一轮），因此不存在「在两种形态之间取舍」
 的裁定项。该文件顶部原「待人工」段落已随之改为「人证已到」。
+
+## Evidence（E9 轮，2026-09-26）
+
+执行者：quay worker（分支 `task/gap-claude-resident-phase0-experiments`，实现提交 `7d37fd68`，scoped 门 `--allow-thin` exit 0，
+`npm run lint` exit 0）。续做上一轮（`44383195`）的 E9 部分并把它跑完。
+
+**本轮做了什么**
+
+- 跑 `node scripts/resident-experiment.mjs e9 --database-path /tmp/resident-e9-r1/auth.db --cron-wait 80`：
+  真实 `claude` 2.1.283 + mock Anthropic 端点，9.0–9.8 八个探针（含 tmux 里的交互式 CLI 那条腿），exit 0，
+  读数写入记录文件的 E9 节（含 `session_crons` / `background_tasks`、`command_lifecycle` 序列、
+  `elicitation` 控制请求原文、`/proc/<pane_pid>/environ` 的 `DATABASE_PATH` 见证）。
+- proposal 原先剩下三处「由 E9 确认」按读数定稿：§8 忙时输入落到协议上（三档都排队、`now` 出队先于 `later`、
+  撤回判据改用 `command_lifecycle` 的 `cancelled` 而不是控制响应）、§9 三个「需要人回应」入口
+  （`onElicitation` 读到实体请求；`side_question` 方向相反、移出要拦的三个入口；`request_user_dialog` 记为缺口）、
+  §9 Remote Control 走最保守分支。并在「阶段 0 结论」表补 E9 行。
+- **修正生成器里两处与自身读数相悖的结论**（记录文件的 E9 结论行同步改正）：flag settings 那条原本写
+  「`--settings` 确实盖在用户 settings 之上」，而同一节的读数是 `get_settings` 两处都「（无响应）」——
+  改为如实记作**读数缺口**并说明方案改走最保守分支；交互式忙时那条原本断言「等价于 priority=next」，
+  改为「落在后一轮、与 stream-json 形态一致」，并写明**分不开三档**（`next` 档在 9.2 里被撤掉、没读到落点）。
+
+**AC 逐条验证**（本轮实跑）
+
+- AC1 `node --test scripts/resident-experiment.test.mjs` → 14 个用例全过，exit 0。
+- AC2 `--check-record` → exit 0。
+- AC3 `grep -n '阶段 0 结论'` → 命中（`docs/proposals/claude-resident-sessions.md`）。
+- AC4 `grep -n '^E2/E3 基准确认：'` → 命中第 49 行（人 yale 指示写入的那一行）。
+- AC5 `npm run lint` → exit 0。
+- AC6 `--check-record` → `E1–E9 九节齐全`，exit 0；护栏测试含「缺 E9 节时 exit 1 并点名 E9」用例。
+- AC7 `! grep -n '由 E9 确认' docs/proposals/claude-resident-sessions.md` → exit 0（三处全已定稿）。
+
+**仍未满足的 DoD（如实记下，不因 AC 全绿而消失）**
+
+- **E7 的「≥24 小时浸泡」仍未达标**：本轮未重跑 E7，记录里仍是 0.10 小时（真实模型、花掉 $1.0836）。
+  proposal §11 的两个上限数值**仍未定**，保持"不给拍脑袋的数"。E9 的读数不改变这一点。
+  另注：develop 本轮合入的 `scripts/soak.sh` / `soak-driver.mjs` / `soak-analyze.mjs` 看起来正是为这类浸泡准备的，
+  下一轮若用它跑 E7，应采用它并注明读数是否取自 systemd scope 内。
+- E9 自身有两处**读数缺口**已写进记录与 proposal：`next` 档执行时的落点（9.2 里被撤掉）、
+  `request_user_dialog` 的实物（没触发到入口）。两处都不阻塞已定稿的三处文字，但定档/接线前应补读数。
