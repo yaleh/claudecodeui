@@ -186,3 +186,96 @@ extra:
 - session_id：5cc9441d-5e63-46ac-a4fe-7758bea05875
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-resident-phase0-experiments~wk-prod-anchor~1790383818461-934706.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-resident-phase0-experiments-wk-prod-anchor.log
+
+## Evidence（typecheck 修复轮，2026-09-26）
+
+执行者：quay worker（分支 `task/gap-claude-resident-phase0-experiments`，实现提交 `94bff354`）。
+本轮**没有新实验**：修的是前四轮 suite-red 的真因——我自己分支上的 `npm run typecheck` 红了。
+
+**根因：前四轮的判词是一句常量文案，而真因就在它上面一行，且点名的是本任务的文件。**
+
+前四轮的失败步都读作 `a surface this task must not have moved is red`，落在
+`server/modules/voice/tests/voice-capture-off.false-forms.test.ts`，被登记成「suite 红但归因不出
+任何失败测试文件（基建/contract 疑似，非实现缺陷）」。读原始 suite 日志
+（`.quay/fan-in-suite-gap-claude-resident-phase0-experiments~wk-prod-anchor~1790383818461-934706.log`），
+那条 voice 读数**上面一行**就写着名字：
+
+```
+not ok - typecheck: scripts/resident-experiment.mjs(1616,27): error TS18048: 'child.pid' is possibly 'undefined'.
+```
+
+`npm run typecheck` 是三个 tsc 项目的合取（根 `tsconfig.json` && `server/tsconfig.json` &&
+`scripts/tsconfig.json`）。E9 轮（`7d37fd68`）新增的 `describeEvent` / `e9Group` /
+`e9EnvironmentWitness` 让 **scripts 项目**红在 6 处——全是类型问题，不是测试失败：
+
+| 行 | 错误 |
+| --- | --- |
+| 1616 | `process.kill(-child.pid, 'SIGKILL')`：`spawn` 失败时 `child.pid` 是 `undefined` |
+| 1623 | `describeEvent(event)` 缺 `@param`（`checkJs` 下隐式 `any`）|
+| 1666 ×2 | `e9Group(label, lines)` 两个参数缺 `@param` |
+| 1688 / 1689 | `cli.child.pid`（`number \| undefined`）传给 `databasePathWitness(number[])` / `readEnviron(number)` |
+
+它为什么把四个 voice `.false-forms` 测试一起拖红：每个 `.false-forms` 的 AC6 用例把
+`npm run typecheck`（和 `npm run lint`）当**子进程**跑，用来断言「本任务不该动的面没有动」；
+typecheck 一红，那条集合断言就非空，而它的文案是**静态字符串**。于是本轮日志里五条 `not ok`
+有四条长得一模一样，唯一点名的那条是 `not ok - typecheck:`。
+
+这与 `tasks/gap-voice-capture-off-ac6-red-not-attributable.md` 的 Finding 完全吻合——它正确指出了
+「断言文案静态、逐条读数随 runner 的 TMP 删除、本地与 15 路加压都复现不了」，并留下「哪一条子命令
+非零目前没有读数」。**本轮补上那个读数：非零的子命令是 `npm run typecheck`，原因是本分支
+`scripts/resident-experiment.mjs` 的类型错误**，与 lane 形状、负载、宿主都无关；它的「本地不复现」
+也因此有了解释（当时那棵树上的 typecheck 是红的，只是没人把它和 voice 那条读数连起来）。
+该任务要交付的「下次红能点名」是另一件事，本轮的修复不替代它。
+
+**为什么前几轮没抓到。** 上一轮只跑了 `tsc -p scripts/tsconfig.json`（在 E9 轮**之前**的提交上它是绿的）
+和 `npm run lint`，都没覆盖 E9 轮新增代码；而本任务的 scoped 门是 **thin** 的：
+
+```
+bash scripts/test.sh --for-task gap-claude-resident-phase0-experiments --allow-thin
+→ no scoped test files for gap-claude-resident-phase0-experiments (thin)
+```
+
+它 exit 0 且**一条测试都没跑**——scoped 门的文件集正则不含 `.mjs` 测试。所以 step-1b 的「门绿」
+对本任务不构成任何证据，真正兜住这个错的是 fan-in 的**全量** suite。这也是本轮把证据放在
+`npm run typecheck` 与四个文件独立跑上、而不是放在 scoped 门上的原因。
+
+**修法（6 处，只加类型护栏、不动行为）**
+
+- `stop()`：先取 `const pid = child.pid`；`undefined` 时退回 `child.kill('SIGKILL')`，
+  否则原样按进程组 `process.kill(-pid, 'SIGKILL')`（原语义不变，孤儿清理仍按组）。
+- `describeEvent` / `e9Group`：补 `@param` JSDoc（含 `@returns`）。
+- `e9EnvironmentWitness`：取 `const cliPid = cli.child.pid`；`undefined` 时 witness 如实记
+  「（未取到：cli 进程没有 pid）」、`environ` 记 `null`（现有分支渲染成「（environ 读不到）」），
+  不再把 `undefined` 当 pid 传给取数函数。
+
+**本轮实跑读数（均在合并 develop 后的树上；修复前 / 修复后对照）**
+
+- `npm run typecheck`：修复前 **exit 2**、6 处错误（逐字见上表）；修复后 **exit 0**（三个项目全绿）。
+- `node --test scripts/resident-experiment.test.mjs` → 14 用例全过，exit 0（AC1/AC6 护栏）。
+- `node scripts/resident-experiment.mjs --check-record docs/proposals/claude-resident-sessions-experiments.md`
+  → `--check-record OK：E1–E9 九节齐全`，exit 0（AC2/AC6）。
+- `npm run lint` → exit 0（只有既有 warning，无新增）（AC5）。
+- 四个 `.false-forms` 文件在 worktree 里**各自单独跑全部 exit 0**，且每个 AC6 用例的**每一条子命令
+  读数都是 0**，含 `AC6 exit=0 cases=n/a :: npm run typecheck` 与 `:: npm run lint`：
+  `voice-capture-off` 4/4、`voice-capture-text` 6/6、`voice-error-classification` 7/7、
+  `voice-error-contract` 4/4。这是「typecheck 是那一个变量」的对照读数：同一棵树、同四个文件，
+  唯一的改变是 `npm run typecheck` 由红转绿。
+
+**AC 逐条（本轮重验，命令与读数）**
+
+- AC1 `node --test scripts/resident-experiment.test.mjs` → 14/14，exit 0。
+- AC2 `--check-record` → exit 0。
+- AC3 `grep -n '阶段 0 结论' docs/proposals/claude-resident-sessions.md` → 命中 proposal:581。
+- AC4 `grep -n '^E2/E3 基准确认：' docs/proposals/claude-resident-sessions-experiments.md` → 命中第 49 行
+  （人 yale 指示写入的那一行，非执行者代写）。
+- AC5 `npm run lint` → exit 0。
+- AC6 `--check-record` → E1–E9 九节齐全，exit 0；护栏测试含「缺 E9 节时 exit 1 并点名 E9」用例。
+- AC7 `! grep -n '由 E9 确认' docs/proposals/claude-resident-sessions.md` → exit 0（三处已定稿）。
+
+**仍未满足的 DoD（不因 AC 全绿而消失，照旧如实记下）**
+
+- E7 的「≥24 小时浸泡」仍未达标：记录里仍是 0.10 小时（真实模型、$1.0836），proposal §11 的
+  两个上限数值**仍未定**。
+- E9 自身两处读数缺口照旧：`next` 档执行时的落点（9.2 里被撤掉）、`request_user_dialog` 的实物。
+
+本轮修复不触碰以上三项，也不改变任何 E1–E9 的读数与结论。
