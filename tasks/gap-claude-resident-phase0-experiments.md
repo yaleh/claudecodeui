@@ -175,3 +175,14 @@ extra:
   下一轮若用它跑 E7，应采用它并注明读数是否取自 systemd scope 内。
 - E9 自身有两处**读数缺口**已写进记录与 proposal：`next` 档执行时的落点（9.2 里被撤掉）、
   `request_user_dialog` 的实物（没触发到入口）。两处都不阻塞已定稿的三处文字，但定档/接线前应补读数。
+
+## Needs-Human
+
+**执行 2026-09-26T00:53:06.870Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 4 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: not ok - server/modules/voice/tests/voice-capture-off.false-forms.test.ts:   AssertionError [ERR_ASSERTION]: a surface this task must not have moved is red
+- run_id：wk-prod-anchor
+- session_id：5cc9441d-5e63-46ac-a4fe-7758bea05875
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-resident-phase0-experiments~wk-prod-anchor~1790383818461-934706.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-resident-phase0-experiments-wk-prod-anchor.log

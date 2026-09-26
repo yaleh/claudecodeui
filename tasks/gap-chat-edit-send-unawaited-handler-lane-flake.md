@@ -2,7 +2,7 @@
 id: gap-chat-edit-send-unawaited-handler-lane-flake
 title: chat-edit-send.test.ts 在 fan-in lane 下偶发红：服务端在 providerRewindsForEdit
   里读不到夹具刚同步创建的会话行（SESSION_NOT_FOUND），夹具唯一的同步手段是固定 30ms 的 settle()；单独跑 8/8 绿
-status: ready
+status: done
 labels:
   - gap
   - defect
@@ -209,6 +209,32 @@ lane 同形读数（整棵服务端测试集按 fan-in 形状跑：129 文件、
   同一根因序列」。
 - 夹具现在没有任何固定时长参与同步；`waitFor` 里的 5000ms 只是**失败上界**（超时转成具名
   断言失败），不是等待本身。
+
+### 轮次 2（2026-09-26）—— 上一轮 exit-not-landed 的红不是本任务的 delta
+
+上一轮 `step=suite` 判词停在兄弟文件，本轮**未改任何代码**，只做归因核实与 pre-merge 链条：
+
+1. **直接读那一轮的原始 suite 日志**（`…1790349548241-61217f.log`，不是判词行）：本任务唯一
+   的 delta 文件 `__PERFILE__ … chat-edit-send.test.ts passed=true` —— **绿**。红的是两个
+   **兄弟**：`server/modules/providers/tests/claude-session-scope.test.ts`（`passed=false`，
+   `timed out after 10000ms waiting for: one surviving session scope`，saw 的三个 scope 带的是
+   **别的 pid**：`-1173991` / `-1177720` / `-264422`）与
+   `server/modules/providers/tests/model-config-write-path.test.ts`（`TypeError: fetch failed`，
+   本仓已知的 undici 坏端口彩票）。整轮 `# tests 236 / # pass 234 / # fail 2`。
+2. **fleet-wide 证据**：`claude-session-scope.test.ts` 的红在**另一个任务**的 fan-in 里也出现过
+   （`fan-in-suite-gap-session-hosts-default-wrap-four-providers~wk-prod-anchor~1790350562645-af8de5.log`），
+   即并发跑动造成的 scope 泄漏，不是本任务 delta 的产物。上一轮更早那次的红
+   （`voice-capture-off.false-forms.test.ts`）同样是兄弟文件，且与 `d5f7904b` 已修的共写目录串扰同族。
+3. **本轮链条读数**：merge develop 进工作树**无冲突**（`tasks/<id>.md` 取 per-hunk 并集，develop 的
+   `## Needs-Human` 与分支的 AC tick 都在）；合并后重跑本任务 scoped 门
+   `bash scripts/test.sh --for-task gap-chat-edit-send-unawaited-handler-lane-flake --allow-thin`
+   → `__PERFILE__ … chat-edit-send.test.ts passed=true`、`# tests 1 / # pass 1 / # fail 0`、exit 0；
+   再单独连跑 5 次全 `exit=0 reading=0`；`npm run typecheck` 退出 0、`npm run lint` 退出 0；
+   `git diff --stat develop...HEAD` 仍只有夹具一个文件（72+/36−）。scoped-gate cache 已按
+   `develop=49fe47a7` 登记（`HEAD^2` 同值）。
+
+结论：本任务的落地物在前一轮已完成且未被触碰；上一轮的红是 fleet-wide 兄弟红，按重派逃生。
+若本轮 suite 再在兄弟文件上红，应归因到该兄弟文件自己的机制，而不是本任务。
 
 ## Needs-Human
 
