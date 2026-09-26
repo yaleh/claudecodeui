@@ -1,7 +1,7 @@
 ---
 id: gap-claude-resident-phase0-experiments
 title: Claude 常驻会话阶段 0 实验 E1–E9：用真实 claude 二进制取得读数，定下忙时输入基准、控制协议用法与内存上限，结论写回 proposal
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -389,3 +389,14 @@ logs when a run is red」）之后，红跑的**子进程原文被保住了**，
 - E7 的「≥24 小时浸泡」仍未达标：记录里仍是 0.10 小时（真实模型、$1.0836），proposal §11 的两个上限
   数值**仍未定**。本轮未重跑 E7。
 - E9 的两处读数缺口照旧：`next` 档执行时的落点（9.2 里被撤掉没读到）、`request_user_dialog` 的实物。
+
+## Needs-Human
+
+**执行 2026-09-26T12:02:22.819Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 7 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: not ok - server/modules/providers/tests/claude-sessions.test.ts:   AssertionError [ERR_ASSERTION]: open-a.jsonl was opened by a scan that should have skipped it
+- run_id：wk-prod-anchor
+- session_id：eed2836d-368d-4949-8b0e-a7411e2ad26b
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-resident-phase0-experiments~wk-prod-anchor~1790423985171-c7e044.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-resident-phase0-experiments-wk-prod-anchor.log
