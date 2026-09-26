@@ -3,7 +3,7 @@ id: gap-debug-agent-host-driver
 title: AC-160 调试 agent 以宿主驱动接入：一个 multiplexedHost 宿主承载两个 resident 绑定，无人轮由
   manager 开 run（来源 unattended、seq 由 registry 分配且递增、transcript 落盘、可完整回放），lease
   增减与 exit(oom) 反映到宿主快照，门控关闭时宿主层无任何调试宿主
-status: ready
+status: done
 labels:
   - gap
 parent: null
