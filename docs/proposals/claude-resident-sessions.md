@@ -289,7 +289,7 @@ residentFeatures?: {
 - 一个**不结束**的 `AsyncIterable<SDKUserMessage>` 输入队列，作为 `query()` 的 `prompt`；
 - 这个 `Query` 对象；
 - 一个贯穿进程生命周期的读取循环，通过 `sink` 上报轮次与保活理由：
-  - **轮次边界**以 `session_state_changed` 的 `running → idle` 为准，`requires_action` 对应"等待人回应"；拿不到该事件时退回到 `result`（阶段 0 实测每轮恰有一条 `result`）。两者的先后与是否一致由 E9 确认，以读数为准；
+  - **轮次边界**以 `result` 为准（阶段 0 实测每轮恰有一条）。E9 实测：常驻 stream-json 与 SDK `query()` 两条路**都没有** `session_state_changed`（含 `running → idle` 与 `requires_action`）——它是 remote-io/CCR 路径上的信号，纯 `--print --input-format stream-json` 不提。因此 driver **不要**等这个事件；一轮的开始另有 `system/init`（每轮一条），每条输入排进了哪一轮看 `command_lifecycle` 的 `queued → started → completed`。"等待人回应"不靠 `requires_action` 判定，而是由 §9 的三个入口自己上报（pending 控制请求在场即有人要回应）；
   - **保活理由**按 §3：`task_*` 事件驱动后台任务，Stop hook 的 `session_crons` / `background_tasks` 每轮对账 cron；`startsBackgroundWork` 只作为拿不到事件时的兜底；
   - 未知的 system subtype 放过，不中断读取循环；
 - 启动时强制的 flag settings：`remoteControlAtStartup: false`、`isolatePeerMachines: true`（§9），实际生效值写进宿主快照。
@@ -327,8 +327,9 @@ SDK 选项构建（`mapCliOptionsToSDK` 等）从 `claude-runtime.provider.js` �
 - 前端依据 `residentFeatures.inputWhileBusy` 跳过本地排队，直接发送（§15.7）。per-run 会话的前端排队不变。
 - 行为基准是交互式 Claude Code CLI 在同样情况下的表现。实验 E2/E3 要同时记录交互式 CLI 和 SDK stream-json 输入两种形态下的实际行为。**如果两者不一致**，把差异写回本文档，由用户决定：是在服务端补齐到交互式 CLI 的行为，还是接受 stream-json 的行为。
 - **实测基准（2026-09-25，E2/E3）**：两种形态**一致**——busy 时推入的用户消息**另起一轮**，不丢、不拒。stream-json 形态与交互式 CLI 形态各读到 2 条真 agent 轮；无人轮进行中推入同样另起一轮（注入后出现 2 条 `result`）。因此 driver 不需要为"并入"写分支，只按 `result` 边界切分即可。原始读数见 `claude-resident-sessions-experiments.md`。人工确认行见该文件（`E2/E3 基准确认：`）。
-- **落到协议上**：忙时写入的消息进入 CLI 自己的 command queue。服务端给每条消息分配 uuid，按 E9 实测得到的交互式 CLI 默认 `priority` 写入（E2 读到的"另起一轮"对应哪一档由 E9 确认；三档 `now` / `next` / `later` 各自的归属也记入读数）。消息尚未出队时，前端可以撤回，服务端调用 `cancel_async_message(message_uuid)`，与交互式 CLI 行为一致；已出队的撤回是 no-op，界面据此提示"已开始处理，无法撤回"。
-- **无人轮的触发类型**读用户消息的 `origin`：`peer` 取 `from` / `name` 作发送方，`task-notification` 为后台任务回报；cron 触发带哪种 `origin`、是否另发 `scheduled_task_fire`，由 E9 确认。都读不到时显示"非用户触发"。
+- **落到协议上**：忙时写入的消息进入 CLI 自己的 command queue。服务端给每条消息分配 uuid，写帧时把它作为 `command_uuid`。**E9 实测**：三档 `now` / `next` / `later` 都被 CLI 收下并进队列（可见形态就是 `command_lifecycle` 的 `queued → started → completed`），区别只在**出队顺序**——`now` 排到 `later` 前面（`now` 在 00:40:07.477 `started`，`later` 在 00:40:07.513），三档**都不并入**当前轮；交互式 CLI 的忙时输入同样落在后一轮（E9 9.8），与 E2/E3 的 stream-json 形态一致。所以写入用"排在当前轮之后"的那一档即可复现交互式行为，要插队才用 `now`。**读数缺口**：`next` 那一档在 E9 里于排队时被撤掉，没读到它自己执行时的落点，故精确归属只定到 `now` 与 `later`（原始读数见记录文件 E9 节）。
+- **撤回**：服务端调用 `cancel_async_message(message_uuid)`。E9 实测**三种时机都没有 `control_response` 回来**（仍在队列里 / 已被处理完 / uuid 不存在，读到的都是"无响应"），所以**不能靠控制响应判断撤回是否成功**；判据是 `command_lifecycle` 的 `cancelled`——排队中撤掉的那条确实发出 `state=cancelled`，且它的文本再没出现在任何一轮请求里；已出队的那条毫无反应，即 no-op。界面按 `cancelled` 事件提示"已撤回"，未收到该事件就提示"已开始处理，无法撤回"。
+- **无人轮的触发类型**：读用户消息的 `origin`——`peer` 取 `from` / `name` 作发送方，`task-notification` 为后台任务回报。**cron 触发的轮不在其中**：E9 实测它既不新造用户帧、也没有任何 `origin`，也**不**另发 `scheduled_task_fire`；它在流里的唯一形态是一条 CLI 自己造 `command_uuid` 的 `command_lifecycle`（该 uuid 从未 `queued`——宿主的已推 uuid 集合里没有它）。因此 driver 判"这是无人轮"用`command_uuid 不在本宿主已推集合里`，触发类型用 §10 的 Stop hook 清单（`session_crons` 与 `background_tasks`）对账，而不是读 `origin`。`origin` 与 `scheduled_task_fire` 都读不到时显示"非用户触发"。
 
 **兜底**：无人轮同样写进转录文件，现有的转录监听和同步会把它补进会话。实时推送是"尽力而为"，转录才是最终来源。
 
@@ -340,13 +341,13 @@ SDK 选项构建（`mapCliOptionsToSDK` 等）从 `claude-runtime.provider.js` �
 - 用户在常驻会话中切换到别的权限模式时，调用 `setPermissionMode()`，**并提示**：切换后，无人轮遇到权限确认会按下一条的规则处理。
 - 无人时需要人回应的请求有**三个入口**，全部要拦截，只拦一个的话另外两个会让该轮一直挂起：
   - `canUseTool`：`AskUserQuestion`、`ExitPlanMode`（E8 已证实 bypass 下仍走此回调）；
-  - `onElicitation`：MCP 服务器发起的 elicitation；
-  - `request_user_dialog`：CLI 请求宿主弹出对话框。
-  - `side_question` 不在 SDK 类型里，它走不走上面三者之一由 E9 确认；若都不走，列为已知缺口。
+  - `onElicitation`：MCP 服务器发起的 elicitation。E9 已读到实物：MCP 工具的 `elicitation/create` 被 CLI 转成一条 `control_request`（`subtype: "elicitation"`，带 `mcp_server_name` / `message` / `mode` / `requested_schema`）交给宿主——这个入口确实要接；
+  - `request_user_dialog`：CLI 请求宿主弹出对话框。E9 **没触发到**它的入口（工具驱动的阻塞对话框要有对应工具在场），该 subtype 只在 SDK 的类型联合里、实跑没读到，属**读数缺口**——实现时按类型定义接，并在缺实物读数的情况下保守处理（收到即按无人值守策略应答）。
+  - `side_question` **不属于**这三个入口，方向相反：上面三个都是 CLI 问宿主（CLI → 宿主的 `control_request`），`side_question` 是宿主问 CLI（宿主 → CLI 的 `control_request`）。E9 实测 CLI 侧认这个 subtype（发出了 `control_request_progress`），但**没有**回 `control_response`（8s 窗口内无响应）。故无人值守**不需要**为它写拒绝分支；它是宿主可主动使用的能力，响应的可用性待补读数（记录文件 E9 9.6）。
   - 若当前没有浏览器连接，或没有用户轮在进行：三个入口一律**自动拒绝或取消**，附一句"当前无人值守，请在下次用户消息中再问"，同时推送通知。普通工具权限请求在 bypass 下不会出现。
   - 有人在线时维持现有弹窗流程，超时（`TOOL_APPROVAL_TIMEOUT_MS`）后按现有逻辑处理。
 - 启用常驻时，界面必须明确告知：该会话会以跳过所有权限确认的方式运行。
-- **强制关闭 Remote Control 的跨机器可达性**：常驻进程启动时以 flag settings 强制 `remoteControlAtStartup: false`、`isolatePeerMachines: true`，并把实际生效值写进宿主快照。原因：用户的全局 settings 若开了 `remoteControlAtStartup`，一个 bypass 的常驻进程会被桥接到 Anthropic 后端，其他**机器**上的 peer 也能给它发 SendMessage，信任边界就不再是下面写的"同一 Unix 用户"。flag settings 能否压过用户 settings 由 E9 确认；压不过时，检测到 Remote Control 已开启就拒绝以 bypass 启动常驻进程，并在界面说明。
+- **强制关闭 Remote Control 的跨机器可达性**：常驻进程启动时以 flag settings 强制 `remoteControlAtStartup: false`、`isolatePeerMachines: true`，并把实际生效值写进宿主快照。原因：用户的全局 settings 若开了 `remoteControlAtStartup`，一个 bypass 的常驻进程会被桥接到 Anthropic 后端，其他**机器**上的 peer 也能给它发 SendMessage，信任边界就不再是下面写的"同一 Unix 用户"。E9 对"能否压过"**没取到读数**：`get_settings` 这个 subtype 在两条腿上都不返回响应（记录文件 E9 9.7 两处都记"无响应"），本机也没有可用的 Remote Control 后端可比对，因此既没有"压过"的证据也没有"压不过"的证据——`--settings` 写进去的值是否真的赢过用户 settings，**本实验不能作数**。据此**走最保守分支**（不依赖这条读数）：检测到 Remote Control 已开启就拒绝以 bypass 启动常驻进程，并在界面说明。
 
 **风险须写明**：按外部 SPEC §7.3，`<cross-session-message>` 直接进入对方上下文，不经审批。常驻 + bypass 意味着**本机同一 Unix 用户下的任何 Claude 会话都能让这个会话不经确认执行任意命令**。信任边界因此等于"同一 Unix 用户"（前提是上一条的 Remote Control 隔离生效），这一点要在界面和文档里写清楚。
 
@@ -362,7 +363,7 @@ SDK 选项构建（`mapCliOptionsToSDK` 等）从 `claude-runtime.provider.js` �
 
 **cron 保活理由按 CLI 的清单对账**：driver 在 SDK 的 `hooks` 选项里注册 Stop 与 SubagentStop 回调，每轮结束时用 hook 输入的 `session_crons`（覆盖 CronCreate、ScheduleWakeup、`/loop`）**整体覆盖**该绑定的 cron 保活理由，用 `background_tasks` 核对后台任务。模型没有显式删除 cron 时也不会误判；状态条能显示真实的 cron 表达式与 prompt。E1 读到的工具回执写明周期任务"Auto-expires after 7 days"，所以 `expiresAt` 仍取创建时间加 7 天作上限。
 
-只有拿不到清单时（旧版 CLI、hook 未触发，由 E9 确认会不会发生），才退回到按工具名推测：观察流中的 `CronCreate`（记录 id 与 `recurring`）、`CronDelete` 和一次性任务的触发。推测不准的后果只是多活一段时间或按 7 天上限关闭。周期任务每次触发也会刷新 `lastActivityAt`。
+E9 实测这条清单路径可靠：`claude` 2.1.282 下 **Stop hook 每轮都触发**，`session_crons` 与 `background_tasks` 两个键**每轮都在**（有周期 cron 在场时 `session_crons` 逐次非空且带 `{id, schedule, recurring, prompt}`；有在飞的后台 Bash 时 `background_tasks` 给出 `{id, type, status, description, command}`），cron 无人轮也一样触发。所以只有**旧版 CLI 没有这两个键**时才退回按工具名推测：观察流中的 `CronCreate`（记录 id 与 `recurring`）、`CronDelete` 和一次性任务的触发。推测不准的后果只是多活一段时间或按 7 天上限关闭。周期任务每次触发也会刷新 `lastActivityAt`。
 
 界面**不显示**"即将因空闲关闭"的预告。关闭后会话显示 `idle` 原因，用户下一次发送即重新拉起。
 
@@ -573,15 +574,15 @@ Claude 自建的 cron 显示 CLI 清单里的表达式与 prompt 摘要，标注
 | E6 | `extraArgs.name` 是否生效，是否接受中文和空格 | peer 名等于设置值 |
 | E7 | 长驻内存增长 | 至少 24 小时浸泡，记录 RSS 曲线，以此确定 §11 的数值 |
 | E8 | `bypassPermissions` 下 `AskUserQuestion` 走不走 `canUseTool` | 能在回调中拦截 |
-| E9 | 控制协议清单（2026-09-25 追加，依据对 CLI 二进制与 `sdk.d.ts` 的核对）：常驻 stream-json 下 `session_state_changed` 相对 `result` 的时序；`task_started` / `task_notification` 是否覆盖 Monitor、后台 Bash、后台 Agent；Stop hook 输入的 `session_crons` / `background_tasks` 是否每轮都有值；cron 触发、Monitor 回报、跨会话消息各自的 `origin`，以及是否出现 `scheduled_task_fire`；`priority` 三档各落在哪一轮、交互式 CLI 用哪一档；`cancel_async_message` 在出队前后的效果；`onElicitation`、`request_user_dialog`、`side_question` 的实际入口；flag settings 能否压过用户 settings 关掉 `remoteControlAtStartup` 并开启 `isolatePeerMachines` | 每项都有原始读数；§7、§8、§9、§10 中写着"由 E9 确认"的地方按读数定稿 |
+| E9 | 控制协议清单（2026-09-25 追加，依据对 CLI 二进制与 `sdk.d.ts` 的核对）：常驻 stream-json 下 `session_state_changed` 相对 `result` 的时序；`task_started` / `task_notification` 是否覆盖 Monitor、后台 Bash、后台 Agent；Stop hook 输入的 `session_crons` / `background_tasks` 是否每轮都有值；cron 触发、Monitor 回报、跨会话消息各自的 `origin`，以及是否出现 `scheduled_task_fire`；`priority` 三档各落在哪一轮、交互式 CLI 用哪一档；`cancel_async_message` 在出队前后的效果；`onElicitation`、`request_user_dialog`、`side_question` 的实际入口；flag settings 能否压过用户 settings 关掉 `remoteControlAtStartup` 并开启 `isolatePeerMachines` | 每项都有原始读数；§7、§8、§9、§10 里原先待 E9 定的四处已按读数定稿（结论见下表 E9 行） |
 
 实验会真实调用模型，产生费用。
 
-### 阶段 0 结论（2026-09-25 实测，claude 2.1.282）
+### 阶段 0 结论（2026-09-25 E1–E8 实测 `claude` 2.1.282；2026-09-26 E9 实测 `claude` 2.1.283）
 
 原始读数（pid、时间戳、消息类型序列、RSS 样本）逐节写在
 `docs/proposals/claude-resident-sessions-experiments.md`，`node scripts/resident-experiment.mjs
---check-record` 可校验八节齐全。实验脚本是 `scripts/resident-experiment.mjs`，护栏测试是
+--check-record` 可校验九节齐全（E1–E9）。实验脚本是 `scripts/resident-experiment.mjs`，护栏测试是
 `scripts/resident-experiment.test.mjs`。逐条结论：
 
 | 编号 | 结论 | 对文档的影响 |
@@ -594,6 +595,7 @@ Claude 自建的 cron 显示 CLI 清单里的表达式与 prompt 摘要，标注
 | E6 | **成立，且中文与空格被原样接受**。`-n, --name <name>` 是合法旗标；`extraArgs.name` 的值出现在**本地转录**里，`agent-name` 与 `custom-title` 均与设定值逐字一致（含 `实验会话 中文 空格`）。 | §12 的 `extraArgs.name` 方案可照原样落地。**判定通道要注意**：这个名字不进 `/v1/messages` 请求体，用 mock 端点看请求体是**看不出来**的——driver 若要读取 peer 名，读转录（`<configDir>/projects/<slug>/<session>.jsonl` 里的 `agent-name` 记录），不要读请求体。 |
 | E7 | **未达标（阻塞项）**。**真实模型**下观察窗 **0.10 小时**，远不到 ≥24 小时；峰值树 RSS 262532KB；0.10 小时花掉 $1.0836（input 29080 / output 11964 / cache_read 300928 tokens），期间 1 次 cron 无人轮。只够说明"分钟级没有暴涨"，**不足以**定 §11 的两个上限数值。 | §11 的"不给拍脑袋的数"仍然成立——数值待一次真正的 24 小时浸泡。 |
 | E8 | **成立**。`bypassPermissions` 下 `AskUserQuestion` 仍然走 `canUseTool`（被调用 1 次），可以在回调里拦截并自动拒绝。 | §9 的无人值守处理（自动拒绝 `AskUserQuestion`/`ExitPlanMode`）可实现。 |
+| E9 | **九项都有原始读数，两处缺口如实记下**。9.1 轮次边界：raw 驱动与 SDK `query()` 两条路都**没有** `session_state_changed`（各 0 条），可用把手是「每轮一条 `system/init` + 轮末一条 `result`」。9.2 忙时队列：三档 `now`/`next`/`later` 都进 `command_lifecycle` 队列（`queued → started → completed`），`now` 出队排在 `later` 之前，三档都不并入当前轮；`cancel_async_message` 三种时机**都没有 `control_response`**，但排队中撤掉的那条确实发 `state=cancelled` 且文本再没进任何一轮请求。9.3 后台工作：读到 `task_started` / `task_notification` / `background_tasks_changed`；工具表里**没有 Monitor**、有 ScheduleWakeup。9.4/9.5 cron 无人轮：既不新造 `user` 帧也没有 `origin`、**没有** `scheduled_task_fire`，唯一形态是 CLI 自造 `command_uuid` 的 `command_lifecycle`；Stop hook 2 次调用里 `session_crons` 2 次非空、`background_tasks` 1 次非空。9.6 人工入口：`elicitation` 读到 1 条实体控制请求；`side_question` 方向相反（宿主问 CLI）且无响应；`request_user_dialog` 没触发到。9.7 flag settings：`get_settings` 无响应，**没读到**"能否压过"，故走最保守分支。9.8 交互式忙时：第二条消息落在后一轮，与 stream-json 形态一致。**缺口**：`next` 档执行时的落点、`request_user_dialog` 的实物，都待补读数。 | §7 轮次边界改以 `result` / `system/init` 为准（**不要**等 `session_state_changed`）；§8 忙时输入按"排队不并入"落地、撤回判据改用 `cancelled` 事件而不是控制响应；§9 `onElicitation` 确认要接、`side_question` 移出"要拦的三个入口"、Remote Control 走最保守分支；§10 Stop hook 的 `session_crons` / `background_tasks` 确认为权威清单。 |
 
 补充两条实测细节，写驱动的人必须知道：
 

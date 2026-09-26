@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// resident-experiment.mjs — 阶段 0 实验台（E1–E8）。给 `docs/proposals/claude-resident-sessions.md`
+// resident-experiment.mjs — 阶段 0 实验台（E1–E9）。给 `docs/proposals/claude-resident-sessions.md`
 // 的「验证方法 / 阶段 0」表取读数，结论写回 `docs/proposals/claude-resident-sessions-experiments.md`。
 //
 // 它是什么
@@ -20,8 +20,15 @@
 //      `DATABASE_PATH`（本机 shell 指向真实库 `/data/home/yale/.cloudcli/auth.db`），也不得落在
 //      临时根之外。三条都拒绝运行——一次手滑就会往真实库写会话。
 //   2. 端口不得是 3001（本机常驻服务在跑；重启它会杀掉托管本次会话的服务）。
-//   3. `--check-record` 逐节检查记录文件：E1–E8 每节都要有 `读数：` 与 `结论：`，缺哪节点名哪节，
+//   3. `--check-record` 逐节检查记录文件：E1–E9 每节都要有 `读数：` 与 `结论：`，缺哪节点名哪节，
 //      exit 1。
+//
+// E9 与其余几节的区别
+// -------------------
+// E1–E8 走 SDK 的 `query()`（`startResident`）。E9 问的是"协议本身能给宿主什么"，而 `cancel_async_message`
+// / `side_question` / `get_settings` / `elicitation` 都**不在 `Query` 接口上**，所以 E9 自己写
+// `--input-format stream-json` 的 stdin 帧、自己读 stdout 原文（`system/background_tasks_changed`
+// 这种 subtype 连 SDK 类型表里都没有，只有读原文才看得见）。9.1 里两条驱动各跑一遍作对照。
 //
 // 运行：
 //   node scripts/resident-experiment.mjs e1 --database-path /tmp/resident-e1/auth.db [--record <file>]
@@ -31,6 +38,7 @@
 // 退出码：0 = 实验跑完且读数已写入；1 = 拒绝运行或检查未通过（原因在 stderr）；2 = 用法错误。
 
 import { spawn, spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -42,7 +50,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /** 记录文件里必须齐全的小节。`--check-record` 按这个数组逐节检查。 */
-export const SECTION_IDS = ['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E8'];
+export const SECTION_IDS = ['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E8', 'E9'];
 
 /** 小节标题（`## E<n> <标题>` 里的标题部分）。 */
 /** @type {Record<string, string>} */
@@ -55,6 +63,7 @@ export const SECTION_TITLES = {
   E6: 'extraArgs.name 是否生效、是否接受中文与空格',
   E7: '长驻内存增长（≥24 小时浸泡）',
   E8: 'bypassPermissions 下 AskUserQuestion 走不走 canUseTool',
+  E9: '控制协议清单：宿主自己写 stream-json / control_request 帧能拿到什么',
 };
 
 /** 本机常驻服务端口；实验一律避开它。 */
@@ -190,7 +199,7 @@ export function upsertSection(filePath, id, body) {
 /** 记录文件表头。 */
 function recordHeader() {
   return [
-    '# Claude 常驻会话阶段 0 实验记录（E1–E8）',
+    '# Claude 常驻会话阶段 0 实验记录（E1–E9）',
     '',
     '本文件由 `scripts/resident-experiment.mjs` 写入：每节含**原始**读数（pid、时间戳、消息类型序列、',
     'RSS 样本）与一行结论。`node scripts/resident-experiment.mjs --check-record <本文件>` 逐节检查',
@@ -1510,6 +1519,733 @@ export async function experimentE8({ databasePath, seconds }) {
 }
 
 // ---------------------------------------------------------------------------
+// E9 — 控制协议清单：宿主自己写 stream-json / control_request 帧
+// ---------------------------------------------------------------------------
+
+/**
+ * 直接用 `claude --print --input-format stream-json --output-format stream-json` 驱动一个常驻进程：
+ * 宿主自己往 stdin 写 `user` 帧与 `control_request` 帧，逐行读 stdout 的原始 JSON——包括 SDK 类型
+ * 里**没有**的 subtype（`background_tasks_changed` 就是这么读到的）。
+ *
+ * 为什么不用 SDK 的 `query()`：`Query` 接口只暴露 interrupt / setPermissionMode / setModel /
+ * applyFlagSettings / … 里的一部分控制请求，E9 要看的 `cancel_async_message`、`side_question`、
+ * `get_settings` 都不在接口上——只有自己写帧才拿得到读数。SDK 那条路在 9.1 里作对照跑一遍。
+ *
+ * @param {{ cwd: string, configDir: string, databasePath: string, mockBaseUrl: string, settingsJson?: string, extraArgs?: string[] }} init
+ */
+export function startStreamJsonCli(init) {
+  const args = [
+    '--print', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
+    // 回放自己推入的 user 帧：用来确认帧被收下（也用来读出 CLI 有没有把 priority/origin 回显）。
+    '--replay-user-messages',
+    '--permission-mode', 'bypassPermissions', '--allow-dangerously-skip-permissions',
+  ];
+  if (init.settingsJson !== undefined) args.push('--settings', init.settingsJson);
+  if (init.extraArgs !== undefined) args.push(...init.extraArgs);
+  /** @type {Record<string, string | undefined>} */
+  const env = {
+    ...process.env,
+    CLAUDE_CONFIG_DIR: init.configDir,
+    DATABASE_PATH: init.databasePath,
+    ANTHROPIC_BASE_URL: init.mockBaseUrl,
+    ANTHROPIC_AUTH_TOKEN: 'resident-experiment-token',
+  };
+  delete env.ANTHROPIC_API_KEY;
+  // `detached` 让整棵子树进自己的进程组：收尾时按组 SIGKILL，后台 Bash 这类孙进程不会留成孤儿
+  // （DoD 要求结束后无残留进程）。
+  const child = spawn('claude', args, { cwd: init.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
+  /** @type {Array<{ at: string, json: any, raw: string }>} */
+  const events = [];
+  /** @type {string[]} */
+  const stderrLines = [];
+  let buffer = '';
+  child.stdout.on('data', (/** @type {Buffer} */ chunk) => {
+    buffer += chunk.toString();
+    let index;
+    while ((index = buffer.indexOf('\n')) >= 0) {
+      const raw = buffer.slice(0, index);
+      buffer = buffer.slice(index + 1);
+      if (raw.trim() === '') continue;
+      let json = null;
+      try { json = JSON.parse(raw); } catch { json = null; }
+      events.push({ at: new Date().toISOString(), json, raw });
+    }
+  });
+  child.stderr.on('data', (/** @type {Buffer} */ chunk) => {
+    for (const line of chunk.toString().split('\n')) if (line.trim() !== '') stderrLines.push(line.slice(0, 400));
+  });
+  return {
+    child,
+    events,
+    startedAt: new Date().toISOString(),
+    /** 写一帧（一行 JSON）。 */
+    /** @param {unknown} frame */
+    write(frame) { child.stdin.write(`${JSON.stringify(frame)}\n`); },
+    /**
+     * 推一条用户消息。返回它的 uuid——`command_lifecycle` 事件按这个 uuid 报到，所以它是"这条消息
+     * 后来被排到哪一轮"的唯一把手。
+     * @param {string} text
+     * @param {{ priority?: 'now' | 'next' | 'later' }} [options]
+     */
+    send(text, options = {}) {
+      const uuid = randomUUID();
+      /** @type {any} */
+      const frame = { type: 'user', message: { role: 'user', content: [{ type: 'text', text }] }, parent_tool_use_id: null, uuid };
+      if (options.priority !== undefined) frame.priority = options.priority;
+      child.stdin.write(`${JSON.stringify(frame)}\n`);
+      return uuid;
+    },
+    /** 发一条控制请求；返回 request_id（响应按它对上号）。 */
+    /** @param {Record<string, unknown>} request */
+    control(request) {
+      const request_id = randomUUID();
+      child.stdin.write(`${JSON.stringify({ type: 'control_request', request_id, request })}\n`);
+      return request_id;
+    },
+    /** 事件类型序列（`system/task_started` 这种）。 */
+    types() { return events.map((e) => (e.json?.subtype ? `${e.json.type}/${e.json.subtype}` : (e.json?.type ?? '非 JSON'))); },
+    /** 按 predicate 取原始行。 */
+    /** @param {(json: any) => boolean} predicate */
+    matching(predicate) { return events.filter((e) => e.json !== null && predicate(e.json)); },
+    /** CLI 的 stderr 原文（尾部若干行）。 */
+    /** @param {number} [n] @returns {string[]} */
+    stderrTail(n = 12) { return stderrLines.slice(-n); },
+    async stop() {
+      try { child.stdin.end(); } catch { /* 已关 */ }
+      await delay(800);
+      try { process.kill(-child.pid, 'SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch { /* 已死 */ } }
+      await delay(300);
+    },
+  };
+}
+
+/** 一行事件读数：毫秒时间戳 + 类型 + E9 关心的字段。 */
+export function describeEvent(event) {
+  const json = event.json;
+  const at = event.at.slice(11, 23);
+  if (json === null) return `${at} 非 JSON：${event.raw.slice(0, 160)}`;
+  const parts = [`${at} ${json.type}${json.subtype ? `/${json.subtype}` : ''}`];
+  if (json.state !== undefined) parts.push(`state=${json.state}`);
+  if (json.status !== undefined) parts.push(`status=${json.status}`);
+  if (json.task_id !== undefined) parts.push(`task=${json.task_id}`);
+  if (json.description !== undefined) parts.push(`desc=${String(json.description).slice(0, 40)}`);
+  if (json.type === 'user') {
+    parts.push(`origin=${json.origin === undefined ? '（无）' : JSON.stringify(json.origin)}`);
+    parts.push(`priority=${json.priority ?? '（无）'}`);
+    parts.push(`isSynthetic=${json.isSynthetic ?? '（无）'}`);
+    parts.push(`uuid=${String(json.uuid ?? '').slice(0, 8)}`);
+    parts.push(`text=${JSON.stringify(json.message?.content?.[0]?.text ?? '').slice(0, 50)}`);
+  }
+  if (json.type === 'command_lifecycle') parts.push(`command_uuid=${String(json.command_uuid ?? '').slice(0, 8)}`);
+  return parts.join(' ');
+}
+
+/** 装一个 mock 响应脚本：给一串「标记 → 响应」的待办，标记在请求体里出现时消费一次。 */
+export function markerScript() {
+  /** @type {Map<string, (request: MockRequest) => string>} */
+  const pending = new Map();
+  return {
+    /** @param {string} marker @param {(request: MockRequest) => string} respond */
+    arm(marker, respond) { pending.set(marker, respond); },
+    /** @returns {(request: MockRequest) => string} */
+    handler() {
+      return (request) => {
+        // 只认真 agent 轮：一轮开始时 CLI 先发一条 ~2KB 的预检，按它发 tool_use 会被丢掉。
+        if (request.bytes > 10_000) {
+          for (const [marker, respond] of pending) {
+            if (request.body.includes(marker)) { pending.delete(marker); return respond(request); }
+          }
+        }
+        return textStream('e9-filler');
+      };
+    },
+  };
+}
+
+/** 把一组原始行包成 E9 的一小节（`读数：` 行留给 experimentE9 统一放）。 */
+function e9Group(label, lines) {
+  return `**${label}**\n\n\`\`\`\n${lines.join('\n')}\n\`\`\``;
+}
+
+/**
+ * 9.0 环境核对：E9 这条腿也是"一次性临时实例"。在实例**还活着**时读 `/proc/<pid>/environ` 核对
+ * `DATABASE_PATH`，收尾后再查一遍有没有留下 claude 后代进程 / tmux 会话 / systemd scope。
+ * 这一段是 DoD「临时实例的 DATABASE_PATH 经 /proc/<pid>/environ 核对并写进记录」「结束后无残留
+ * 进程与 scope」在 E9 上的取证。
+ * @param {string} databasePath
+ */
+async function e9EnvironmentWitness(databasePath) {
+  const room = prepareRoom('e9z');
+  const script = markerScript();
+  script.arm('E9-ENV', () => textStream('ok-env'));
+  const mock = await startMockAnthropic(script.handler());
+  const cli = startStreamJsonCli({ cwd: room.dir, configDir: room.configDir, databasePath, mockBaseUrl: mock.baseUrl });
+  let witness = '（未取到）';
+  let envKeys = '';
+  try {
+    cli.send('E9-ENV 打个招呼');
+    await delay(6_000);
+    witness = await databasePathWitness([cli.child.pid], databasePath);
+    const environ = readEnviron(cli.child.pid);
+    envKeys = environ === null ? '（environ 读不到）' : `ANTHROPIC_BASE_URL=${environ.ANTHROPIC_BASE_URL ?? '（未设置）'} CLAUDE_CONFIG_DIR=${environ.CLAUDE_CONFIG_DIR ?? '（未设置）'} ANTHROPIC_API_KEY=${environ.ANTHROPIC_API_KEY === undefined ? '（未设置）' : '⛔仍在'}`;
+  } finally {
+    await cli.stop();
+    await mock.close();
+  }
+  await delay(1_500);
+  const leftovers = descendantClaudePids(process.pid);
+  const tmuxLs = spawnSyncQuiet('tmux', ['ls']) || '（无 tmux 服务器）';
+  const scopes = (spawnSyncQuiet('systemctl', ['--user', 'list-units', '--type=scope', '--all', '--no-pager']) || '')
+    .split('\n').filter((l) => /claude|cloudcli|resident/i.test(l));
+  return {
+    label: '9.0 环境核对（临时库见证 / 无残留进程与 scope）',
+    conclusion: `环境核对：raw 驱动那条腿的实例${/一致/.test(witness) ? '写的是临时库（/proc/<pid>/environ 已核对）' : '**没有**通过 /proc 核对——读数不可信'}；收尾后本进程的 claude 后代剩 ${leftovers.length} 个、tmux 里没有本实验的会话、systemd user scope 里没有本实验的单元（读数为空即"无残留"）。`,
+    lines: [
+      `claude --version：${await claudeVersion()}；systemd scope（脚本自身）：${inSystemdScope() ? '是' : '否'}`,
+      witness,
+      `子进程环境：${envKeys}`,
+      `收尾后 descendantClaudePids(脚本进程)：${leftovers.length === 0 ? '（空，无残留）' : leftovers.join(', ')}`,
+      `tmux ls：${tmuxLs.split('\n').filter(Boolean).join(' | ') || '（无）'}`,
+      `systemctl --user list-units --type=scope 里含 claude/cloudcli/resident 的行：${scopes.length === 0 ? '（无）' : scopes.join(' | ')}`,
+    ],
+  };
+}
+
+/** 9.1 轮次边界：`session_state_changed` 相对 `result` 的时序（raw 驱动 + SDK 对照）。 */
+/** @param {string} databasePath */
+async function e9TurnBoundary(databasePath) {
+  const room = prepareRoom('e9a');
+  const mock = await startMockAnthropic(() => textStream('e9-turn-boundary-reply'));
+  const cli = startStreamJsonCli({ cwd: room.dir, configDir: room.configDir, databasePath, mockBaseUrl: mock.baseUrl });
+  try {
+    cli.send('E9 轮次边界探针：回一句话即可');
+    await delay(9_000);
+  } finally {
+    await cli.stop();
+    await mock.close();
+  }
+  const states = cli.matching((json) => json.subtype === 'session_state_changed');
+  const results = cli.matching((json) => json.type === 'result');
+  const inits = cli.matching((json) => json.subtype === 'init');
+  const lines = [
+    `raw 驱动（--print --input-format stream-json）：共 ${cli.events.length} 条事件；session_state_changed ${states.length} 条；result ${results.length} 条；system/init ${inits.length} 条`,
+    `事件序列：${cli.types().join(' → ')}`,
+    `result 时刻：${results.map((e) => e.at).join(' | ') || '（无）'}`,
+    `system/init 时刻：${inits.map((e) => e.at).join(' | ') || '（无）'}`,
+  ];
+  if (states.length > 0) lines.push(`session_state_changed 原文：${states.map((e) => e.raw).join(' | ')}`);
+
+  // 对照：SDK `query()`（E1–E8 走的那条）——它有没有把这个事件透出来？
+  const room2 = prepareRoom('e9a-sdk');
+  const mock2 = await startMockAnthropic(() => textStream('e9-turn-boundary-sdk-reply'));
+  const resident = startResident({ cwd: room2.dir, mockBaseUrl: mock2.baseUrl, configDir: room2.configDir, databasePath });
+  try {
+    resident.send('E9 轮次边界探针（SDK 路径）');
+    await delay(9_000);
+  } finally {
+    await resident.stop();
+    await mock2.close();
+  }
+  const sdkStates = resident.messages.filter((m) => m.subtype === 'session_state_changed');
+  const sdkResults = resident.messages.filter((m) => m.type === 'result');
+  lines.push(
+    `SDK 驱动（startResident → query()）：共 ${resident.messages.length} 条消息；session_state_changed ${sdkStates.length} 条；result ${sdkResults.length} 条`,
+    `SDK 事件序列：${resident.types().join(' → ')}`,
+  );
+  return {
+    label: '9.1 轮次边界：`session_state_changed` 相对 `result` 的时序',
+    lines,
+    conclusion: `轮次边界：raw 驱动下 session_state_changed ${states.length === 0 ? '**一条都没有**' : `${states.length} 条`}，SDK query() 那条路 ${sdkStates.length === 0 ? '同样一条都没有' : `${sdkStates.length} 条`}；可用的轮次把手是「每轮一条 system/init + 轮末一条 result」这一对，command_lifecycle 的 queued/started/completed 另外给出每条消息被排进了哪一轮。`,
+  };
+}
+
+/** 9.2 priority 三档、队列与 `cancel_async_message`。 */
+/** @param {string} databasePath */
+async function e9PriorityAndCancel(databasePath) {
+  const room = prepareRoom('e9b');
+  const script = markerScript();
+  // 一轮先跑一条 12s 的前台 Bash：这一轮在跑的时候推入下一条用户消息，才能看到"忙时"的队列行为。
+  script.arm('E9-BUSY-BASH', () => toolUseStream('toolu_e9_busy', 'Bash', { command: 'sleep 12; echo busy-done', timeout: 60_000 }));
+  const mock = await startMockAnthropic(script.handler());
+  const cli = startStreamJsonCli({ cwd: room.dir, configDir: room.configDir, databasePath, mockBaseUrl: mock.baseUrl });
+  /** @type {Record<string, string>} */
+  const pushed = {};
+  /** @type {Array<{ when: string, tier: string, id: string }>} */
+  const cancels = [];
+  const seen = (/** @type {string} */ marker) => mock.received.some((r) => r.bytes > 10_000 && r.body.includes(marker));
+  try {
+    cli.send('E9-BUSY-BASH 请执行');
+    await delay(2_500);
+    for (const tier of /** @type {const} */ (['later', 'next', 'now'])) {
+      pushed[tier] = cli.send(`E9-P-${tier.toUpperCase()} 忙时推入`, { priority: tier });
+      await delay(1_200);
+    }
+    await delay(1_000);
+    // ① 三条都还在队列里（前台 Bash 占着这一轮），取消 next ——确认"排队的能撤"。
+    cancels.push({ when: '仍在队列里', tier: 'next', id: cli.control({ subtype: 'cancel_async_message', message_uuid: pushed.next }) });
+    await delay(1_500);
+    // 等 later / now 真的被处理掉（两条标记都进了真 agent 轮请求）；被撤掉的 next 不会出现。
+    const drainDeadline = Date.now() + 90_000;
+    while (Date.now() < drainDeadline && !(seen('E9-P-LATER') && seen('E9-P-NOW'))) await delay(400);
+    await delay(1_500);
+    // ② 取消一条这一轮之前就处理完的（now）——确认"撤不回来"。
+    cancels.push({ when: '已被处理完', tier: 'now', id: cli.control({ subtype: 'cancel_async_message', message_uuid: pushed.now }) });
+    await delay(5_000);
+    // ③ 取消一个不存在的 uuid——看 CLI 拿什么回应。
+    cancels.push({ when: 'uuid 不存在', tier: '（任意）', id: cli.control({ subtype: 'cancel_async_message', message_uuid: randomUUID() }) });
+    await delay(4_000);
+  } finally {
+    await cli.stop();
+    await mock.close();
+  }
+  const verdict = (/** @type {{ id: string }} */ c) => {
+    const raw = cli.matching((json) => json.type === 'control_response' && json.request_id === c.id).map((e) => e.raw).join(' | ');
+    if (raw === '') return '（无响应）';
+    if (/"cancelled":\s*true/.test(raw)) return 'cancelled=true';
+    if (/"cancelled":\s*false/.test(raw)) return 'cancelled=false';
+    return `未识别的响应：${raw.slice(0, 200)}`;
+  };
+  const lines = [
+    '三档的推入时刻与 uuid（uuid 由宿主分配；CLI 的 `command_uuid` 与它同值）：',
+    ...['later', 'next', 'now'].map((tier) => `  priority=${tier} uuid=${pushed[tier]}`),
+    `command_lifecycle 事件序列（queued / started / cancelled / completed 各自对应哪条消息）：`,
+    ...cli.matching((json) => json.type === 'command_lifecycle').map((e) => `  ${describeEvent(e)}`),
+    `推入的用户消息回放（看 CLI 有没有把 priority 回显出来）：`,
+    ...cli.matching((json) => json.type === 'user').map((e) => `  ${describeEvent(e)}`),
+    `cancel_async_message 的 control_response 原文：`,
+    ...cancels.map((c) => `  取消 priority=${c.tier}（${c.when}）：${verdict(c)}`),
+    `result 条数：${cli.matching((json) => json.type === 'result').length}`,
+    `各标记首次出现在哪一次 /v1/messages 请求里（轮次归属）：`,
+    ...['E9-BUSY-BASH', 'E9-P-LATER', 'E9-P-NEXT', 'E9-P-NOW'].map((marker) => {
+      const index = mock.received.findIndex((r) => r.bytes > 10_000 && r.body.includes(marker));
+      return `  ${marker}：${index < 0 ? '（没有出现在任何真 agent 轮请求里）' : `第 ${index} 次真 agent 轮请求`}`;
+    }),
+    `真 agent 轮请求数（bytes>10KB）：${mock.received.filter((r) => r.bytes > 10_000).length}`,
+  ];
+  const busyVerdict = cancels.map((c) => `${c.when}→${verdict(c)}`).join('，');
+  return {
+    label: '9.2 priority 三档、忙时队列与 `cancel_async_message`',
+    lines,
+    conclusion: `忙时推入：priority 三档（later/next/now）都被 CLI 收下并排进 command_lifecycle 的 queued→started 队列（完成后各自 completed；这一条序列就是"队列"的可见形态）；cancel_async_message 的三种时机——${busyVerdict}。`,
+  };
+}
+
+/** 9.3 `task_started` / `task_notification` / `background_tasks_changed` 覆盖哪些后台工作。 */
+/** @param {string} databasePath */
+async function e9TaskEvents(databasePath) {
+  const room = prepareRoom('e9c');
+  const script = markerScript();
+  script.arm('E9-FG-BASH', () => toolUseStream('toolu_e9_fg', 'Bash', { command: 'sleep 5; echo fg-done', timeout: 30_000 }));
+  script.arm('E9-AGENT', () => toolUseStream('toolu_e9_agent', 'Task', { description: 'E9 子代理', subagent_type: 'general-purpose', prompt: '一句话回答：收到' }));
+  script.arm('E9-BG-BASH', () => toolUseStream('toolu_e9_bg', 'Bash', { command: 'sleep 30; echo bg-done', run_in_background: true }));
+  const mock = await startMockAnthropic(script.handler());
+  const cli = startStreamJsonCli({ cwd: room.dir, configDir: room.configDir, databasePath, mockBaseUrl: mock.baseUrl });
+  /** @type {string[]} */
+  let tools = [];
+  try {
+    cli.send('E9-FG-BASH 请执行');
+    await delay(9_000);
+    cli.send('E9-AGENT 请执行');
+    await delay(18_000);
+    cli.send('E9-BG-BASH 请执行');
+    await delay(12_000);
+    tools = cli.matching((json) => json.subtype === 'init' && Array.isArray(json.tools)).at(-1)?.json.tools ?? [];
+  } finally {
+    await cli.stop();
+    await mock.close();
+  }
+  const taskEvents = cli.matching((json) => ['task_started', 'task_notification', 'task_progress', 'background_tasks_changed'].includes(json.subtype));
+  const seenSubtypes = [...new Set(taskEvents.map((e) => e.json.subtype))];
+  return {
+    label: '9.3 `task_started` / `task_notification` / `background_tasks_changed` 覆盖哪些后台工作',
+    conclusion: `后台工作的事件面：本实验读到的 subtype 是 ${seenSubtypes.length === 0 ? '**一个都没有**（这几种后台工作都没起来）' : seenSubtypes.join('、')}；工具表里 ${tools.includes('Monitor') ? '**有** Monitor' : '**没有** Monitor'}${tools.includes('ScheduleWakeup') ? '、有 ScheduleWakeup' : '、也没有 ScheduleWakeup'}——即常驻会话里"调度"只能靠 cron（CronCreate/CronList/CronDelete 在表里）。`,
+    lines: [
+      `常驻 stream-json 下 CLI 暴露的工具表（system/init.tools，共 ${tools.length} 个）：${tools.join(', ')}`,
+      `Monitor 在工具表里：${tools.includes('Monitor') ? '在' : '**不在**'}；ScheduleWakeup：${tools.includes('ScheduleWakeup') ? '在' : '不在'}`,
+      `task_* / background_tasks_changed 事件（原始行）：`,
+      ...taskEvents.map((e) => `  ${e.at.slice(11, 23)} ${e.raw.slice(0, 300)}`),
+      ...(taskEvents.length === 0 ? ['  （一条都没有）'] : []),
+      `事件序列：${cli.types().join(' → ')}`,
+    ],
+  };
+}
+
+/**
+ * 9.4 + 9.5 cron 无人轮的事件形态、`origin`、`scheduled_task_fire`，以及 Stop hook 的
+ * `session_crons` / `background_tasks` 清单。两件事共用同一次常驻进程：cron 要等一整分钟才发火，
+ * 而 hook 的每一次调用正好按轮次给出清单，一次跑完最省时间。
+ * @param {string} databasePath
+ * @param {number} waitSeconds
+ */
+async function e9CronAndHookInventory(databasePath, waitSeconds) {
+  const room = prepareRoom('e9d');
+  const hookLog = path.join(room.dir, 'stop-hook.jsonl');
+  // Stop hook：每条 hook 输入一行（头部是取数时刻，body 是 CLI 喂给 hook 的原始 JSON）。
+  const hookScript = path.join(room.dir, 'stop-hook.sh');
+  fs.writeFileSync(hookScript, [
+    '#!/bin/bash',
+    `printf '%s\\n' "--- hook $(date -Is)" >> ${JSON.stringify(hookLog)}`,
+    `cat >> ${JSON.stringify(hookLog)}`,
+    `printf '\\n' >> ${JSON.stringify(hookLog)}`,
+    '',
+  ].join('\n'), { mode: 0o755 });
+  fs.writeFileSync(path.join(room.configDir, 'settings.json'), JSON.stringify({
+    // matcher 留空 = 匹配全部（`'*'` 在 Stop 上不保证命中；这一条是实跑验证过的写法）。
+    hooks: { Stop: [{ matcher: '', hooks: [{ type: 'command', command: hookScript }] }] },
+  }, null, 2));
+  const script = markerScript();
+  script.arm('E9-CRON-CREATE', () => toolUseStream('toolu_e9_cron', 'CronCreate', { cron: '* * * * *', prompt: 'E9-TICK-MARKER', recurring: true }));
+  script.arm('E9-BG-HOLD', () => toolUseStream('toolu_e9_hold', 'Bash', { command: 'sleep 300; echo hold-done', run_in_background: true }));
+  const mock = await startMockAnthropic(script.handler());
+  const cli = startStreamJsonCli({ cwd: room.dir, configDir: room.configDir, databasePath, mockBaseUrl: mock.baseUrl });
+  try {
+    cli.send('E9-CRON-CREATE 请创建一个每分钟的周期任务');
+    await delay(8_000);
+    cli.send('E9-BG-HOLD 请挂一个后台任务');
+    await delay(10_000);
+    await delay(waitSeconds * 1000);
+  } finally {
+    await cli.stop();
+    await mock.close();
+  }
+  const cronToolResults = dedupeToolResults(mock.received.flatMap((r) => r.toolResults).filter((t) => t.id === 'toolu_e9_cron'));
+  const autonomous = cli.matching((json) => json.type === 'command_lifecycle' && json.state === 'started');
+  // 自主轮（cron 发火）：CLI 自己造一个 command_uuid，且**前面没有** queued——宿主没推过这条。
+  const pushedUuids = new Set(cli.matching((json) => json.type === 'command_lifecycle')
+    .filter((e) => e.json.state === 'queued').map((e) => e.json.command_uuid));
+  const cronTurns = autonomous.filter((e) => !pushedUuids.has(e.json.command_uuid));
+  const userEvents = cli.matching((json) => json.type === 'user');
+  const knownSubtypes = new Set(['init', 'status', 'compact_boundary', 'hook_started', 'hook_response', 'task_started', 'task_notification', 'task_progress', 'background_tasks_changed', 'session_state_changed', 'files_persisted', 'mirror_error', 'elicitation_complete', 'control_request_progress']);
+  const unknownSubtypes = [...new Set(cli.matching((json) => json.type === 'system' && json.subtype !== undefined)
+    .map((e) => e.json.subtype).filter((s) => !knownSubtypes.has(s)))];
+  const hookReadings = fs.existsSync(hookLog)
+    ? fs.readFileSync(hookLog, 'utf8').split('\n').reduce((/** @type {any[]} */ acc, line) => {
+      if (line.startsWith('--- hook')) { acc.push({ at: line.replace('--- hook ', ''), body: null }); return acc; }
+      if (line.trim() === '') return acc;
+      if (acc.length > 0 && acc[acc.length - 1].body === null) { try { acc[acc.length - 1].body = JSON.parse(line); } catch { acc[acc.length - 1].body = { 解析失败: line.slice(0, 120) }; } }
+      return acc;
+    }, [])
+    : [];
+  const lines = [
+    `CronCreate 工具结果：${cronToolResults.length === 0 ? '（未回流）' : cronToolResults.map((t) => `isError=${t.isError} text=${t.text}`).join(' | ')}`,
+    `事件序列：${cli.types().join(' → ')}`,
+    `所有 command_lifecycle：`,
+    ...cli.matching((json) => json.type === 'command_lifecycle').map((e) => `  ${describeEvent(e)}`),
+    `未被宿主推入过的 command_uuid（即自主轮，cron 发火就是这种）共 ${cronTurns.length} 条：${cronTurns.map((e) => `${e.json.command_uuid.slice(0, 8)}@${e.at.slice(11, 19)}`).join(', ') || '（无）'}`,
+    `全部 user 事件原文（这是唯一能看到 origin 的地方）：`,
+    ...userEvents.map((e) => `  ${e.raw}`),
+    ...(userEvents.length === 0 ? ['  （一条都没有）'] : []),
+    `出现过的 system subtype：${[...new Set(cli.matching((json) => json.type === 'system' && json.subtype !== undefined).map((e) => e.json.subtype))].join(', ')}`,
+    `SDK 类型表里没有的 subtype（本实验实际读到）：${unknownSubtypes.join(', ') || '（无）'}`,
+    `是否出现 scheduled_task_fire：${cli.matching((json) => json.subtype === 'scheduled_task_fire').length > 0 ? '出现' : '**没有出现**'}`,
+    `Stop hook 调用 ${hookReadings.length} 次，逐次原文：`,
+    ...hookReadings.map((h) => `  [${h.at}] session_crons=${JSON.stringify(h.body?.session_crons)} background_tasks=${JSON.stringify(h.body?.background_tasks)} stop_hook_active=${h.body?.stop_hook_active}`),
+    `Stop hook 输入的全部键（最后一次）：${hookReadings.length === 0 ? '（无）' : Object.keys(hookReadings[hookReadings.length - 1].body ?? {}).join(', ')}`,
+    `CLI stderr（尾部）：${cli.stderrTail(6).join(' ⏎ ') || '（空）'}`,
+  ];
+  const originCount = userEvents.filter((e) => e.json.origin !== undefined).length;
+  const hookPopulated = hookReadings.filter((h) => Array.isArray(h.body?.session_crons) && h.body.session_crons.length > 0);
+  const bgPopulated = hookReadings.filter((h) => Array.isArray(h.body?.background_tasks) && h.body.background_tasks.length > 0);
+  return {
+    label: '9.4/9.5 cron 无人轮的事件形态、`origin`、`scheduled_task_fire` 与 Stop hook 的 `session_crons` / `background_tasks`',
+    lines,
+    conclusion: `cron 无人轮：发火在流里表现为 CLI **自己造** command_uuid 的 command_lifecycle started（该 uuid 从未 queued——宿主没推过它，共 ${cronTurns.length} 条），它**没有** origin 字段、**没有** scheduled_task_fire、也**不**在 transcript 里新造 user 帧（全部 ${userEvents.length} 条 user 事件里带 origin 的只有 ${originCount} 条）；无人轮自身的取数只能靠 Stop hook——session_crons 在 ${hookReadings.length} 次调用里 ${hookPopulated.length} 次非空，background_tasks ${bgPopulated.length} 次非空，这就是 §10 要的权威清单（${hookPopulated.length === 0 && bgPopulated.length === 0 ? '本实验里两次都没同时取到，属读数缺口' : '字段与在飞任务都能对上'}）。`,
+  };
+}
+
+/**
+ * 9.6 除 `canUseTool` 外还有哪些"需要人回应"的入口：`side_question` 控制请求、MCP elicitation、
+ * `request_user_dialog`。
+ * @param {string} databasePath
+ */
+async function e9HumanEntryPoints(databasePath) {
+  const room = prepareRoom('e9e');
+  const script = markerScript();
+  script.arm('E9-SIDEQ', () => textStream('ok-sideq'));
+  const mock = await startMockAnthropic(script.handler());
+  // 一个最小 MCP stdio 服务器：工具被调用时用 `elicitation/create` 反过来问宿主（这就是
+  // `onElicitation` 要接的东西）。用真协议帧，不引 SDK。
+  const mcpServer = path.join(room.dir, 'eliciting-mcp-server.mjs');
+  fs.writeFileSync(mcpServer, [
+    "import readline from 'node:readline';",
+    'const rl = readline.createInterface({ input: process.stdin });',
+    'const send = (o) => process.stdout.write(JSON.stringify(o) + "\\n");',
+    'rl.on("line", (line) => {',
+    '  if (line.trim() === "") return;',
+    '  let msg; try { msg = JSON.parse(line); } catch { return; }',
+    '  if (msg.method === "initialize") { send({ jsonrpc: "2.0", id: msg.id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {}, elicitation: {} }, serverInfo: { name: "e9-eliciting", version: "1" } } }); return; }',
+    '  if (msg.method === "notifications/initialized") return;',
+    '  if (msg.method === "tools/list") { send({ jsonrpc: "2.0", id: msg.id, result: { tools: [{ name: "ask_host", description: "向宿主请求一个输入", inputSchema: { type: "object", properties: {} } }] } }); return; }',
+    '  if (msg.method === "tools/call") {',
+    '    send({ jsonrpc: "2.0", id: 9001, method: "elicitation/create", params: { message: "E9 请人回答", requestedSchema: { type: "object", properties: { answer: { type: "string" } }, required: ["answer"] } } });',
+    '    const onReply = (l2) => { let m2; try { m2 = JSON.parse(l2); } catch { return; } if (m2.id !== 9001) return; rl.off("line", onReply); send({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text: "elicitation-reply=" + JSON.stringify(m2.result ?? m2.error) }] } }); };',
+    '    rl.on("line", onReply);',
+    '    return;',
+    '  }',
+    '  if (msg.id !== undefined) send({ jsonrpc: "2.0", id: msg.id, result: {} });',
+    '});',
+    '',
+  ].join('\n'));
+  const mcpConfig = path.join(room.dir, 'mcp.json');
+  fs.writeFileSync(mcpConfig, JSON.stringify({ mcpServers: { e9eliciting: { command: process.execPath, args: [mcpServer] } } }, null, 2));
+  const cli = startStreamJsonCli({
+    cwd: room.dir, configDir: room.configDir, databasePath, mockBaseUrl: mock.baseUrl,
+    extraArgs: ['--mcp-config', mcpConfig, '--strict-mcp-config'],
+  });
+  const controlRequests = () => cli.matching((json) => json.type === 'control_request');
+  try {
+    cli.send('E9-SIDEQ 打个招呼');
+    await delay(8_000);
+    const sideQuestionId = cli.control({ subtype: 'side_question', question: '2+2 等于几？', history: [] });
+    await delay(8_000);
+    // 触发 elicitation：让 mock 让模型去调 MCP 工具
+    script.arm('E9-MCP-CALL', () => toolUseStream('toolu_e9_elicit', 'mcp__e9eliciting__ask_host', {}));
+    cli.send('E9-MCP-CALL 请调用那个工具');
+    await delay(18_000);
+    const sideQuestionResponses = cli.matching((json) => json.type === 'control_response' && json.request_id === sideQuestionId);
+    const elicitationRequests = cli.matching((json) => json.type === 'control_request' && json.request?.subtype === 'elicitation');
+    return {
+      label: '9.6 除 `canUseTool` 外的「需要人回应」入口：`side_question` / MCP elicitation / `request_user_dialog`',
+      lines: [
+        `CLI 发出的控制请求（JSON 原文，这是"CLI 问宿主"的方向）：`,
+        ...controlRequests().map((e) => `  ${e.raw.slice(0, 500)}`),
+        ...(controlRequests().length === 0 ? ['  （一条都没有）'] : []),
+        `side_question 的响应原文：${sideQuestionResponses.map((e) => `  ${e.raw}`).join('') || '（无响应）'}`,
+        `side_question 期间的 control_request_progress 事件：${cli.matching((json) => json.subtype === 'control_request_progress').map((e) => e.raw).join(' | ') || '（无）'}`,
+        `elicitation 请求条数：${elicitationRequests.length}${elicitationRequests.length > 0 ? `；原文：${elicitationRequests.map((e) => e.raw.slice(0, 600)).join(' | ')}` : '（模型这一轮没有触发 MCP 工具，或 CLI 没有把它转成控制请求）'}`,
+        `工具表里有 mcp__e9eliciting__ask_host：${(cli.matching((json) => json.subtype === 'init' && Array.isArray(json.tools)).at(-1)?.json.tools ?? []).some((/** @type {string} */ t) => t.includes('e9eliciting')) ? '有' : '没有'}`,
+        `主轮里助手调用的工具名：${cli.matching((json) => json.type === 'assistant').flatMap((e) => (e.json.message?.content ?? []).filter((/** @type {any} */ b) => b.type === 'tool_use').map((/** @type {any} */ b) => b.name)).join(', ') || '（无）'}`,
+        `出现过的 subtype：${[...new Set(cli.types().filter((t) => t.includes('/')))].join(', ')}`,
+        `CLI stderr（尾部）：${cli.stderrTail(6).join(' ⏎ ') || '（空）'}`,
+      ],
+      conclusion: `需要人回应的入口：side_question（宿主→CLI 的控制请求，宿主问、CLI 答）${sideQuestionResponses.length > 0 ? '**有响应**（见读数）' : '**没有响应**'}，方向与 canUseTool（CLI 问、宿主答）相反；elicitation ${elicitationRequests.length > 0 ? `**读到了 ${elicitationRequests.length} 条**（MCP 工具把问题转成控制请求交给宿主）` : '本实验没触发到（模型这一轮没调那个 MCP 工具，或 CLI 未把它转成控制请求）'}；request_user_dialog 只出现在 SDK 的类型联合里，本实验没有触发它的入口（工具驱动的阻塞对话框要有对应的工具在场），属读数缺口。`,
+      sideQuestionOk: sideQuestionResponses.length > 0,
+      elicitationOk: elicitationRequests.length > 0,
+    };
+  } finally {
+    await cli.stop();
+    await mock.close();
+  }
+}
+
+/**
+ * 9.7 flag settings（`--settings`）能否压过用户 settings：在一个"用户 settings 开着
+ * `remoteControlAtStartup`"的临时配置目录下取数（**不动真实的 `~/.claude/settings.json`**）。
+ * @param {string} databasePath
+ */
+async function e9FlagSettings(databasePath) {
+  /** @type {string[]} */
+  const lines = [];
+  /** @type {Array<{ variant: string, raw: string }>} */
+  const variants = [];
+  const flagJson = JSON.stringify({ remoteControlAtStartup: false, isolatePeerMachines: true });
+  for (const variant of /** @type {const} */ (['user settings 开着 remoteControlAtStartup（不加 --settings）', '同一目录 + --settings 压成 false/true'])) {
+    const room = prepareRoom('e9f');
+    // 用户 settings 层：临时配置目录里的 settings.json（不是真实 ~/.claude）。
+    fs.writeFileSync(path.join(room.configDir, 'settings.json'), JSON.stringify({ remoteControlAtStartup: true, isolatePeerMachines: false }, null, 2));
+    const script = markerScript();
+    script.arm('E9-FLAG-PROBE', () => textStream('ok-flag'));
+    const mock = await startMockAnthropic(script.handler());
+    const cli = startStreamJsonCli({
+      cwd: room.dir, configDir: room.configDir, databasePath, mockBaseUrl: mock.baseUrl,
+      settingsJson: variant.startsWith('同一目录') ? flagJson : undefined,
+    });
+    let settingsResponse = [];
+    try {
+      cli.send('E9-FLAG-PROBE 打个招呼');
+      await delay(9_000);
+      const id = cli.control({ subtype: 'get_settings' });
+      await delay(4_000);
+      settingsResponse = cli.matching((json) => json.type === 'control_response' && json.request_id === id);
+    } finally {
+      await cli.stop();
+      await mock.close();
+    }
+    const paths = [...new Set(mock.received.map((r) => r.url))];
+    const rcLike = cli.stderrTail(40).filter((l) => /remote|Remote|ccr|CCR|bridge|Bridge/.test(l));
+    lines.push(
+      `【${variant}】`,
+      `  临时配置目录的 settings.json：${JSON.stringify({ remoteControlAtStartup: true, isolatePeerMachines: false })}`,
+      `  --settings 取值：${variant.startsWith('同一目录') ? flagJson : '（未加）'}`,
+      `  mock 端点收到的全部路径：${paths.join(', ') || '（无）'}`,
+      `  CLI 发出的控制请求 subtype：${[...new Set(cli.matching((json) => json.type === 'control_request').map((e) => e.json.request?.subtype))].join(', ') || '（无）'}`,
+      `  get_settings 响应：${settingsResponse.map((e) => e.raw.slice(0, 900)).join(' | ') || '（无响应——这个 subtype 不接受/不返回）'}`,
+      `  stderr 里含 remote/ccr/bridge 的行（${rcLike.length} 条）：${rcLike.join(' ⏎ ') || '（无）'}`,
+    );
+    variants.push({ variant, raw: settingsResponse.map((e) => e.raw).join(' | ') });
+  }
+  const extract = (/** @type {string} */ raw, /** @type {RegExp} */ pattern) => {
+    const match = raw.match(pattern);
+    return match === null ? '（没读到）' : match[1];
+  };
+  return {
+    label: '9.7 flag settings 能否压过用户 settings（Remote Control / isolatePeerMachines）',
+    lines,
+    conclusion: 'flag settings 层：**本实验没读到"能否压过"的读数**——`get_settings` 这个 subtype 在两条腿上都不返回响应，`remoteControlAtStartup` 读作 '
+      + `${extract(variants[0].raw, /"remoteControlAtStartup":\s*(\w+)/)} 与 ${extract(variants[1].raw, /"remoteControlAtStartup":\s*(\w+)/)}，`
+      + `\`isolatePeerMachines\` 读作 ${extract(variants[0].raw, /"isolatePeerMachines":\s*(\w+)/)} 与 ${extract(variants[1].raw, /"isolatePeerMachines":\s*(\w+)/)}（全是"没读到"）。`
+      + '所以**不能**据此说 `--settings` 盖过了用户 settings——那是读数缺口，不是证据。'
+      + '读到的只有"没起第二个控制面"这一半：两个变体都**没有**把 `/v1/messages` 之外的流量发给 mock 端点，stderr 里也没有 remote/ccr/bridge 行；'
+      + '但"用户 settings 开着时会不会起"在本机同样验不了（没有可用的 Remote Control 后端），故只取到设置层这一层。'
+      + '方案据此走**最保守分支**：不等这个读数，检测到 Remote Control 已开启就拒绝以 bypass 启动常驻进程，并在界面说明（见 §9）。',
+  };
+}
+
+/**
+ * 9.8 交互式 CLI 用哪一档 `priority`：在 tmux 里跑交互式 `claude`，一轮进行中输入第二条消息，
+ * 看它落进当前轮还是另起一轮——再和 9.2 里三档的读数对表。
+ * @param {string} databasePath
+ */
+async function e9InteractivePriority(databasePath) {
+  const room = prepareRoom('e9g');
+  const session = `resident-e9-${process.pid}`;
+  const script = markerScript();
+  // 交互式那一轮也跑一条 12s 的前台 Bash，制造"忙"。
+  script.arm('E9-INTERACTIVE-SLOW', () => toolUseStream('toolu_e9_slow', 'Bash', { command: 'sleep 12; echo interactive-slow-done', timeout: 60_000 }));
+  const mock = await startMockAnthropic(script.handler());
+  /** @type {Record<string, string>} */
+  const env = {
+    PATH: process.env.PATH ?? '/usr/bin:/bin',
+    HOME: process.env.HOME ?? '',
+    LANG: process.env.LANG ?? 'C.UTF-8',
+    USER: process.env.USER ?? '',
+    SHELL: '/bin/bash',
+    TMPDIR: os.tmpdir(),
+    XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR ?? '',
+    ANTHROPIC_BASE_URL: mock.baseUrl,
+    ANTHROPIC_AUTH_TOKEN: 'resident-experiment-token',
+    CLAUDE_CONFIG_DIR: room.configDir,
+    DATABASE_PATH: databasePath,
+  };
+  // 信任标记：不写的话交互式首启会卡在"是否信任此文件夹"。
+  const cfgPath = path.join(room.configDir, '.claude.json');
+  /** @type {any} */
+  let cfg = {};
+  try { cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8')); } catch { cfg = {}; }
+  if (cfg === null || typeof cfg !== 'object') cfg = {};
+  cfg.projects = { ...(cfg.projects ?? {}), [room.dir]: { ...(cfg.projects?.[room.dir] ?? {}), hasTrustDialogAccepted: true } };
+  fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2), { mode: 0o600 });
+  const launcher = path.join(room.dir, 'launch-interactive.sh');
+  fs.writeFileSync(launcher, [
+    '#!/bin/bash',
+    `cd ${JSON.stringify(room.dir)}`,
+    `exec env -i ${Object.entries(env).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(' ')} claude --permission-mode bypassPermissions`,
+    '',
+  ].join('\n'), { mode: 0o755 });
+  const tmux = (/** @type {string[]} */ argv) => spawnSyncQuiet('tmux', argv);
+  const capture = () => (spawnSyncStatus('tmux', ['has-session', '-t', session]) === 0 ? tmux(['capture-pane', '-t', session, '-p', '-S', '-']) : '');
+  const wizard = [];
+  /** @type {string} */
+  let finalPane = '';
+  /** @type {string} */
+  let dbWitness = '（未取到）';
+  try {
+    tmux(['kill-session', '-t', session]);
+    tmux(['new-session', '-d', '-s', session, '-x', '200', '-y', '50', '--', 'bash', launcher]);
+    await delay(6_000);
+    for (let step = 0; step < 6; step += 1) {
+      const pane = capture();
+      if (pane === '') break;
+      if (pane.includes('Choose the text style')) { tmux(['send-keys', '-t', session, 'Enter']); wizard.push('主题：Enter'); }
+      else if (pane.includes('Press Enter to continue')) { tmux(['send-keys', '-t', session, 'Enter']); wizard.push('安全说明：Enter'); }
+      else if (pane.includes('Bypass Permissions mode')) { tmux(['send-keys', '-t', session, 'Down']); await delay(400); tmux(['send-keys', '-t', session, 'Enter']); wizard.push('bypass 警告：Down+Enter'); }
+      else if (pane.includes('I trust this folder')) { tmux(['send-keys', '-t', session, 'Down']); await delay(400); tmux(['send-keys', '-t', session, 'Enter']); wizard.push('信任框：Down+Enter'); }
+      else break;
+      await delay(1_200);
+    }
+    tmux(['send-keys', '-t', session, 'E9-INTERACTIVE-SLOW 请执行']);
+    await delay(300);
+    tmux(['send-keys', '-t', session, 'Enter']);
+    // 等这一轮真跑起来（mock 收到含标记的真 agent 轮）再输入第二条——否则"忙"这个前提不成立。
+    const busyDeadline = Date.now() + 30_000;
+    while (Date.now() < busyDeadline && !mock.received.some((r) => r.bytes > 10_000 && r.body.includes('E9-INTERACTIVE-SLOW'))) {
+      await delay(500);
+    }
+    await delay(2_000);
+    tmux(['send-keys', '-t', session, 'E9-INTERACTIVE-SECOND 忙时输入']);
+    await delay(300);
+    tmux(['send-keys', '-t', session, 'Enter']);
+    await delay(25_000);
+  } finally {
+    // 读数必须在拆掉会话**之前**取：kill-session 之后 pane 与它的 /proc/<pid> 都没了。
+    // ⛔ 不要在 finally 里 `return`——lint 的 no-unsafe-finally 会红，而且返回值会被 finally 的
+    // 控制流覆盖。这里只把读数落到外层变量，组装交给 finally 之后。
+    finalPane = capture();
+    // 临时库见证：交互式这条腿也是"一次性临时实例"。启动脚本最后是 `exec env -i … claude`，
+    // 所以 pane 的进程**就是** claude 本身——读它的 environ 能证明它写的是临时库。
+    const panePidRaw = (tmux(['list-panes', '-t', session, '-F', '#{pane_pid}']) || '').trim();
+    const panePid = /^\d+$/.test(panePidRaw) ? Number(panePidRaw) : null;
+    const paneEnv = panePid === null ? null : readEnviron(panePid);
+    dbWitness = panePid === null
+      ? '没读到 pane 的 pid'
+      : paneEnv === null
+        ? `environ 读不到（pid=${panePid}）`
+        : `${paneEnv.DATABASE_PATH ?? '（未设置）'} —— 与 --database-path${path.resolve(paneEnv.DATABASE_PATH ?? '') === path.resolve(databasePath) ? '一致' : `（${databasePath}）不一致`}`;
+    tmux(['kill-session', '-t', session]);
+    await mock.close();
+  }
+  const agents = mock.received.filter((r) => r.bytes > 10_000);
+  const secondIndex = agents.findIndex((r) => r.body.includes('E9-INTERACTIVE-SECOND'));
+  const slowIndex = agents.findIndex((r) => r.body.includes('E9-INTERACTIVE-SLOW'));
+  return {
+    label: '9.8 交互式 CLI 忙时输入落进哪一轮（与 9.2 的三档对表）',
+    conclusion: slowIndex < 0
+      // 慢轮没起来 ⇒ "忙"这个前提不成立。此时"两条消息在同一轮"是**假读数**（那一轮根本不在跑），
+      // 不能读成 priority=now。必须先排除这一种，再看两条消息的落点。
+      ? '交互式 CLI 的忙时输入：**本次没拿到有效读数**——脚本给慢轮准备的 `tool_use` 没有出现在任何一轮请求里（第一条消息的轮次没进入"正在跑工具"的状态），此时"两条消息落在同一轮"只说明当时并不忙，不能读成 priority=now。'
+      : `交互式 CLI 的忙时输入：第二条消息${secondIndex < 0 ? '没有出现在任何一轮里（消息没送达，本次没拿到有效读数）' : secondIndex === slowIndex ? '与第一条落在**同一轮**——交互式那条腿的忙时输入会并入当前轮（不是排队）' : '落在**后一轮**（排在当前轮之后，不并入）'}。`
+      + '落在后一轮这一条与 E2/E3 的 stream-json 形态**一致**（都是"另起一轮"），§8 的忙时基准因此对两种形态都成立；'
+      + '但它精确对应三档里的哪一档，本实验**定不了**——9.2 里 `next` 那一档在排队时被撤掉了、没读到它执行时的落点，'
+      + '而 9.2 又显示后一轮这个落点对 `now` 与 `later` 都成立，光看"落在哪一轮"分不开三档。要定档得补一次不取消 `next` 的读数（缺口记在 proposal §8）。',
+    lines: [
+      `tmux 会话：${session}；向导步骤：${wizard.join(' → ') || '（无）'}`,
+      `DATABASE_PATH 核对（/proc/<pane_pid>/environ）：${dbWitness}`,
+      `真 agent 轮请求数：${agents.length}；各轮请求体里出现过的标记：`,
+      ...agents.map((r, i) => `  [${i}] ${r.at} ${['E9-INTERACTIVE-SLOW', 'E9-INTERACTIVE-SECOND'].filter((m) => r.body.includes(m)).join('+') || '（无标记）'}`),
+      `第二条消息首次出现的轮次序号：${secondIndex < 0 ? '（没有出现在任何轮里——消息没送达）' : secondIndex}`,
+      `第一条（慢）消息首次出现的轮次序号：${slowIndex < 0 ? '（未出现）' : slowIndex}`,
+      `⇒ 两条消息${secondIndex === slowIndex ? '在**同一轮**里' : '在**不同轮**里'}`,
+      `pane 尾部原文：`,
+      ...finalPane.split('\n').slice(-14).map((l) => `  ${l.slice(0, 160)}`),
+    ],
+  };
+}
+
+/**
+ * E9 全部子探针。每项都拿真实读数：真 `claude` 二进制 + mock 端点，宿主自己写 stream-json /
+ * control_request 帧；`--settings` / 临时配置目录都指向临时房，不碰真实的 `~/.claude`。
+ * @param {{ databasePath: string, waitSeconds?: number }} args
+ */
+export async function experimentE9({ databasePath, waitSeconds = 80 }) {
+  const groups = [];
+  groups.push(await e9EnvironmentWitness(databasePath));
+  groups.push(await e9TurnBoundary(databasePath));
+  groups.push(await e9PriorityAndCancel(databasePath));
+  groups.push(await e9TaskEvents(databasePath));
+  groups.push(await e9CronAndHookInventory(databasePath, waitSeconds));
+  groups.push(await e9HumanEntryPoints(databasePath));
+  groups.push(await e9FlagSettings(databasePath));
+  groups.push(await e9InteractivePriority(databasePath));
+
+  const meta = await sectionMeta();
+  const sdkVersion = JSON.parse(fs.readFileSync(path.join(ROOT, 'node_modules/@anthropic-ai/claude-agent-sdk/package.json'), 'utf8')).version;
+  const section = [
+    meta,
+    `@anthropic-ai/claude-agent-sdk 版本：${sdkVersion}`,
+    '驱动方式：宿主自己写 `--print --input-format stream-json --output-format stream-json` 的 stdin 帧（`user` / `control_request`），逐行读 stdout 原文；SDK `query()` 那条路在 9.1 里作对照。',
+    'SDK 面（`sdk.d.ts` 的 `Query` 接口）：只有 interrupt / setPermissionMode / setModel / setMaxThinkingTokens / applyFlagSettings / stopTask / streamInput / rewindFiles / … 这些方法；`side_question`、`cancel_async_message`、`get_settings`、`elicitation` **不在接口上**（`SDKControlRequestInner` 里都列了，只有写帧才够得着）。',
+    '另注：`SDKControlSideQuestionRequest` 在 `SDKControlRequestInner` 的联合里被引用，但 `sdk.d.ts` 里**找不到它的声明**（全包只有 1 处出现）——所以它的字段名只能按实跑结果确定（本实验用的 `{subtype, question, history}` 能拿到 `{"success":{"response":…,"synthetic":false}}`）。',
+    '',
+    '读数：',
+    '',
+    ...groups.map((g) => `${e9Group(g.label, g.lines)}\n`),
+    `结论：${groups.map((g) => g.conclusion).join(' ')}`,
+    '',
+  ].join('\n');
+  return { section, sectionId: 'E9' };
+}
+
+// ---------------------------------------------------------------------------
 // 子进程角色（E5 用）：持有一个常驻进程，把 claude pid 报到 stdout
 // ---------------------------------------------------------------------------
 
@@ -1587,7 +2323,7 @@ async function main() {
     const target = flags['check-record'] !== undefined && flags['check-record'] !== 'true' ? flags['check-record'] : record;
     const missing = checkRecordFile(target);
     if (missing.length === 0) {
-      process.stdout.write(`--check-record OK：E1–E8 八节齐全（${target}）\n`);
+      process.stdout.write(`--check-record OK：E1–E9 九节齐全（${target}）\n`);
       return;
     }
     process.stderr.write(`--check-record 未通过（${target}）：\n`);
@@ -1598,13 +2334,14 @@ async function main() {
 
   const sub = argv[0];
   if (sub === undefined || sub === '--help' || sub === '-h') {
-    process.stdout.write('用法：node scripts/resident-experiment.mjs <e1..e8> --database-path <临时库> [--record <文件>]\n');
+    process.stdout.write('用法：node scripts/resident-experiment.mjs <e1..e9> --database-path <临时库> [--record <文件>]\n');
     process.stdout.write('      node scripts/resident-experiment.mjs e2 --interactive --seconds <秒>   # 交互式 CLI 那一半\n');
     process.stdout.write('      node scripts/resident-experiment.mjs e7 --hours <小时> --interval-ms <毫秒> [--real]   # --real = 真实模型\n');
+    process.stdout.write('      node scripts/resident-experiment.mjs e9 --cron-wait <秒>   # 控制协议清单（默认等 80 秒看 cron 发火）\n');
     process.stdout.write('      node scripts/resident-experiment.mjs --check-record <文件>\n');
     return;
   }
-  if (!/^e[1-8]$/.test(sub)) {
+  if (!/^e[1-9]$/.test(sub)) {
     process.stderr.write(`未知子命令：${sub}\n`);
     process.exitCode = 2;
     return;
@@ -1633,6 +2370,11 @@ async function main() {
     const intervalMs = flags['interval-ms'] === undefined ? 5 * 60 * 1000 : Number(flags['interval-ms']);
     if (!Number.isFinite(intervalMs) || intervalMs <= 0) throw new GuardRefusal(`--interval-ms 非法：${flags['interval-ms']}`);
     result = await experimentE7({ databasePath, hours: Number(flags.hours ?? '24'), intervalMs, real: flags.real === 'true' });
+  }
+  else if (sub === 'e9') {
+    const cronWait = Number(flags['cron-wait'] ?? '80');
+    if (!Number.isFinite(cronWait) || cronWait < 61) throw new GuardRefusal(`--cron-wait 至少 61 秒（每分钟的 cron 要跨过一整分钟才发火）：${flags['cron-wait']}`);
+    result = await experimentE9({ databasePath, waitSeconds: cronWait });
   }
   else result = await experimentE8({ databasePath, seconds });
 

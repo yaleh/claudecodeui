@@ -88,18 +88,33 @@ test('CLI：--database-path 指向真实库时 exit 1', () => {
 test('CLI：--check-record 对缺节记录 exit 1 并点名缺的小节', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'resident-record-missing-'));
   const file = path.join(dir, 'record.md');
-  // 只写 E1，且 E1 缺 `结论：`；其余七节整个缺失。
+  // 只写 E1，且 E1 缺 `结论：`；其余八节整个缺失。
   fs.writeFileSync(file, ['# 记录', '', '## E1 常驻 cron', '', '读数：', '```', 'pid=1', '```', ''].join('\n'));
   const result = runCli(['--check-record', file]);
   assert.strictEqual(result.status, 1, `期望 exit 1，实际 ${result.status}`);
-  for (const id of ['E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E8']) {
+  for (const id of ['E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E8', 'E9']) {
     assert.match(result.stderr, new RegExp(`${id}：缺整个小节`), `stderr 应点名 ${id}`);
   }
   assert.match(result.stderr, /E1：缺 `结论：` 行/, 'stderr 应点名 E1 缺结论行');
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('CLI：--check-record 对八节齐全的记录 exit 0', () => {
+test('CLI：--check-record 对缺 E9 节的记录 exit 1 并点名 E9', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'resident-record-no-e9-'));
+  const file = path.join(dir, 'record.md');
+  // E1–E8 齐（每节都有 `读数：`/`结论：`），只差 E9。
+  const sections = SECTION_IDS
+    .filter((id) => id !== 'E9')
+    .map((id) => `## ${id} 标题\n\n读数：\n\`\`\`\nraw\n\`\`\`\n结论：ok\n`);
+  fs.writeFileSync(file, `# 记录\n\n${sections.join('\n')}`);
+  const result = runCli(['--check-record', file]);
+  assert.strictEqual(result.status, 1, `期望 exit 1，实际 ${result.status}；stdout=${result.stdout}`);
+  assert.match(result.stderr, /E9：缺整个小节/, 'stderr 必须点名 E9');
+  assert.doesNotMatch(result.stderr, /E1：/, 'E1 齐了，不该被点名');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('CLI：--check-record 对九节齐全的记录 exit 0', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'resident-record-ok-'));
   const file = path.join(dir, 'record.md');
   const sections = SECTION_IDS.map((id) => `## ${id} 标题\n\n读数：\n\`\`\`\nraw\n\`\`\`\n结论：ok\n`);
@@ -111,10 +126,10 @@ test('CLI：--check-record 对八节齐全的记录 exit 0', () => {
 
 test('纯函数：checkRecordText 逐节报告缺什么', () => {
   const missing = checkRecordText('## E1 x\n\n读数：\n结论：ok\n');
-  assert.deepStrictEqual(missing.map((m) => m.id), ['E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E8']);
+  assert.deepStrictEqual(missing.map((m) => m.id), ['E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E8', 'E9']);
 });
 
-test('纯函数：checkRecordFile 对不存在的文件点名全部八节', () => {
+test('纯函数：checkRecordFile 对不存在的文件点名全部九节', () => {
   const missing = checkRecordFile('/tmp/definitely-not-here-resident.md');
   assert.deepStrictEqual(missing.map((m) => m.id), SECTION_IDS);
 });

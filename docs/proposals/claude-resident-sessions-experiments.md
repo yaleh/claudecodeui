@@ -13,8 +13,9 @@
 常驻服务未被本实验重启的证据、临时实例的 `DATABASE_PATH` 逐进程见证。
 
 **人证已到**：`E2/E3 基准确认：` 那一行由人 yale 于 2026-09-26 指示写入，见下方记录体开头。E2/E3
-的基准因此确认沿用 CLI 行为（两条形态实测一致）。本任务剩下未完成的是 E9 一节与 proposal 里待 E9
-定稿的三处文字（机器可验），以及 DoD 的 ≥24 小时浸泡（不在本任务一次 dispatch 的预算内）。
+的基准因此确认沿用 CLI 行为（两条形态实测一致）。E9 一节已于 2026-09-26 取数写入（`claude` 2.1.283，
+见文末 E9 节），proposal 里原先待 E9 定稿的文字已按读数改完。本任务剩下未完成的是 DoD 的 ≥24 小时
+浸泡（E7 只跑到 0.10 小时，不在本任务一次 dispatch 的预算内）。
 
 ## 结论速览
 
@@ -28,6 +29,7 @@
 | E6 | `extraArgs.name` 是否生效 | **生效**，中文与空格被原样接受；判定通道是**本地转录**（`agent-name`），不是 API 请求体。 |
 | E7 | 长驻内存增长（≥24 小时浸泡） | **窗口未达标**：真实模型下实际 0.10 小时（峰值树 RSS 262MB，$1.08），**不足以**定 §11 的上限数值。 |
 | E8 | `bypassPermissions` 下 `AskUserQuestion` 走不走 `canUseTool` | **走**（被调用 1 次），可在回调里拦截。 |
+| E9 | 控制协议清单（轮次边界 / priority 与撤回 / 后台工作事件 / cron 无人轮 / 人工入口 / flag settings / 交互式忙时） | `session_state_changed` 两条驱动都**没有**；三档都排队、撤回**没有**控制响应但 `cancelled` 事件可信；`Monitor` **不在**工具表；cron 无人轮无 `origin`、无 `scheduled_task_fire`，靠 Stop hook 清单；`elicitation` 读到实体请求、`side_question` 方向相反且无响应、`request_user_dialog` 是缺口；flag settings **没读到**（走最保守分支）；交互式忙时落后一轮。 |
 
 取数过程中发现两条写驱动必须知道的通道细节（不是结论，是**方法**）：
 
@@ -369,3 +371,182 @@ pid 623914 → 已退出
 E5 的读数说明为什么这节必须存在：服务进程被 kill 后常驻 `claude` 120 秒内不会自己退出；
 同一个进程还在跑 cron，所以每次实验结束都要**主动清扫**（脚本在 `finally` 里 SIGKILL 自己的
 后代并就地把清扫结果写进记录）。
+
+## E9 控制协议清单：宿主自己写 stream-json / control_request 帧能拿到什么
+取数时间：2026-09-26T00:44:20.121Z
+claude --version：2.1.283 (Claude Code)
+systemd scope：是（INVOCATION_ID 存在）
+@anthropic-ai/claude-agent-sdk 版本：0.3.165
+驱动方式：宿主自己写 `--print --input-format stream-json --output-format stream-json` 的 stdin 帧（`user` / `control_request`），逐行读 stdout 原文；SDK `query()` 那条路在 9.1 里作对照。
+SDK 面（`sdk.d.ts` 的 `Query` 接口）：只有 interrupt / setPermissionMode / setModel / setMaxThinkingTokens / applyFlagSettings / stopTask / streamInput / rewindFiles / … 这些方法；`side_question`、`cancel_async_message`、`get_settings`、`elicitation` **不在接口上**（`SDKControlRequestInner` 里都列了，只有写帧才够得着）。
+另注：`SDKControlSideQuestionRequest` 在 `SDKControlRequestInner` 的联合里被引用，但 `sdk.d.ts` 里**找不到它的声明**（全包只有 1 处出现）——所以它的字段名只能按实跑结果确定（本实验用的 `{subtype, question, history}` 能拿到 `{"success":{"response":…,"synthetic":false}}`）。
+
+读数：
+
+**9.0 环境核对（临时库见证 / 无残留进程与 scope）**
+
+```
+claude --version：2.1.283 (Claude Code)；systemd scope（脚本自身）：是
+DATABASE_PATH 核对（/proc/23556/environ）：/tmp/resident-e9-r1/auth.db —— 与 --database-path 一致
+子进程环境：ANTHROPIC_BASE_URL=http://127.0.0.1:29901 CLAUDE_CONFIG_DIR=/tmp/resident-e9z-NNOobU/claude-config ANTHROPIC_API_KEY=（未设置）
+收尾后 descendantClaudePids(脚本进程)：（空，无残留）
+tmux ls：docker-8: 1 windows (created Mon Sep 21 10:32:51 2026) (group docker) | quay-1: 5 windows (created Wed Sep 16 10:41:00 2026) (group quay) (attached) | test-sess: 1 windows (created Fri Sep 25 11:25:52 2026)
+systemctl --user list-units --type=scope 里含 claude/cloudcli/resident 的行：● oomprobe-2421772.scope                                loaded failed failed  /data/home/yale/.nvm/versions/node/v24.21.0/bin/npx vitest run --reporter=json --outputFile=/data/scratch/yale/claude-1004/-data-home-yale-work-claudecodeui/8e45901a-04fe-4505-b574-338e574e729d/scratchpad/v.json src/__oomprobe__/oom.test.ts |   quay-drivers-claudecodeui-1790309708.scope            loaded active running /usr/bin/env QUAY_MEMORY_SLICE=quay-fleet.slice node /data/home/yale/.claude/plugins/cache/quay/quay/0.11.0/scripts/dist/start-drivers.js --root /data/home/yale/work/claudecodeui
+```
+
+**9.1 轮次边界：`session_state_changed` 相对 `result` 的时序**
+
+```
+raw 驱动（--print --input-format stream-json）：共 7 条事件；session_state_changed 0 条；result 1 条；system/init 1 条
+事件序列：command_lifecycle → command_lifecycle → system/init → user → assistant → result/success → command_lifecycle
+result 时刻：2026-09-26T00:39:35.799Z
+system/init 时刻：2026-09-26T00:39:35.714Z
+SDK 驱动（startResident → query()）：共 4 条消息；session_state_changed 0 条；result 1 条
+SDK 事件序列：system/init → assistant → result/success → error
+```
+
+**9.2 priority 三档、忙时队列与 `cancel_async_message`**
+
+```
+三档的推入时刻与 uuid（uuid 由宿主分配；CLI 的 `command_uuid` 与它同值）：
+  priority=later uuid=cd0f5b98-e9e5-47dd-8c1d-2119c102dcc8
+  priority=next uuid=c972d202-a571-4cce-b310-6e3e836841b5
+  priority=now uuid=3c5e443c-ca1c-4813-8b0d-dd4700393783
+command_lifecycle 事件序列（queued / started / cancelled / completed 各自对应哪条消息）：
+  00:39:55.331 command_lifecycle state=queued command_uuid=2bf94cb6
+  00:39:55.334 command_lifecycle state=started command_uuid=2bf94cb6
+  00:39:57.643 command_lifecycle state=queued command_uuid=cd0f5b98
+  00:39:58.843 command_lifecycle state=queued command_uuid=c972d202
+  00:40:00.044 command_lifecycle state=queued command_uuid=3c5e443c
+  00:40:02.245 command_lifecycle state=cancelled command_uuid=c972d202
+  00:40:07.476 command_lifecycle state=cancelled command_uuid=2bf94cb6
+  00:40:07.477 command_lifecycle state=started command_uuid=3c5e443c
+  00:40:07.512 command_lifecycle state=completed command_uuid=3c5e443c
+  00:40:07.513 command_lifecycle state=started command_uuid=cd0f5b98
+  00:40:07.530 command_lifecycle state=completed command_uuid=cd0f5b98
+推入的用户消息回放（看 CLI 有没有把 priority 回显出来）：
+  00:39:55.400 user origin=（无） priority=（无） isSynthetic=（无） uuid=2bf94cb6 text="E9-BUSY-BASH 请执行"
+  00:40:07.470 user origin=（无） priority=（无） isSynthetic=（无） uuid=5d25beb7 text=""
+  00:40:07.492 user origin=（无） priority=（无） isSynthetic=（无） uuid=3c5e443c text="E9-P-NOW 忙时推入"
+  00:40:07.526 user origin=（无） priority=（无） isSynthetic=（无） uuid=cd0f5b98 text="E9-P-LATER 忙时推入"
+cancel_async_message 的 control_response 原文：
+  取消 priority=next（仍在队列里）：（无响应）
+  取消 priority=now（已被处理完）：（无响应）
+  取消 priority=（任意）（uuid 不存在）：（无响应）
+result 条数：3
+各标记首次出现在哪一次 /v1/messages 请求里（轮次归属）：
+  E9-BUSY-BASH：第 2 次真 agent 轮请求
+  E9-P-LATER：第 6 次真 agent 轮请求
+  E9-P-NEXT：（没有出现在任何真 agent 轮请求里）
+  E9-P-NOW：第 5 次真 agent 轮请求
+真 agent 轮请求数（bytes>10KB）：3
+```
+
+**9.3 `task_started` / `task_notification` / `background_tasks_changed` 覆盖哪些后台工作**
+
+```
+常驻 stream-json 下 CLI 暴露的工具表（system/init.tools，共 21 个）：Task, Bash, CronCreate, CronDelete, CronList, DesignSync, Edit, EnterWorktree, ExitWorktree, ListAgents, NotebookEdit, Read, ReportFindings, ScheduleWakeup, SendMessage, Skill, TaskStop, WebFetch, WebSearch, Workflow, Write
+Monitor 在工具表里：**不在**；ScheduleWakeup：在
+task_* / background_tasks_changed 事件（原始行）：
+  00:40:22.670 {"type":"system","subtype":"task_started","task_id":"b2k6xdn8u","tool_use_id":"toolu_e9_fg","description":"sleep 5; echo fg-done","is_backgrounded":false,"task_type":"local_bash","uuid":"60adf10f-6bc1-4799-8672-bd8d0d8a2ff7","session_id":"0ad55807-b62b-476d-a321-a13ed744e7dc"}
+  00:40:24.673 {"type":"system","subtype":"task_notification","task_id":"b2k6xdn8u","tool_use_id":"toolu_e9_fg","status":"completed","output_file":"","summary":"sleep 5; echo fg-done","uuid":"40e4d246-c26d-460d-8d3f-27f3bf20b698","session_id":"0ad55807-b62b-476d-a321-a13ed744e7dc"}
+  00:40:28.397 {"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"ae397d1bd2225d146","task_type":"local_agent","description":"E9 子代理"}],"uuid":"d2e8bc0f-10c7-4554-be5d-e24ad7a70b0e","session_id":"0ad55807-b62b-476d-a321-a13ed744e7dc"}
+  00:40:28.398 {"type":"system","subtype":"task_started","task_id":"ae397d1bd2225d146","tool_use_id":"toolu_e9_agent","description":"E9 子代理","subagent_type":"general-purpose","is_backgrounded":true,"spawn_depth":1,"task_type":"local_agent","prompt":"一句话回答：收到","uuid":"99244cbf-2955-4579-9887-f53c9eba416d","session_
+  00:40:28.431 {"type":"system","subtype":"background_tasks_changed","tasks":[],"uuid":"6eca09cc-90f4-4b5d-aa70-1441dea4f443","session_id":"0ad55807-b62b-476d-a321-a13ed744e7dc"}
+  00:40:28.431 {"type":"system","subtype":"task_notification","task_id":"ae397d1bd2225d146","tool_use_id":"toolu_e9_agent","status":"completed","output_file":"/tmp/claude-1004/-tmp-resident-e9c-Vc69a8/0ad55807-b62b-476d-a321-a13ed744e7dc/tasks/ae397d1bd2225d146.output","summary":"e9-filler","usage":{"total_tokens"
+  00:40:46.406 {"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"b1xilwjjq","task_type":"local_bash","description":"sleep 30; echo bg-done"}],"uuid":"03e917cf-9c4e-404f-abdd-bd448ea8e432","session_id":"0ad55807-b62b-476d-a321-a13ed744e7dc"}
+  00:40:46.406 {"type":"system","subtype":"task_started","task_id":"b1xilwjjq","tool_use_id":"toolu_e9_bg","description":"sleep 30; echo bg-done","is_backgrounded":true,"task_type":"local_bash","uuid":"9aa7bbd7-ba44-4a57-aaa5-6c05da79e478","session_id":"0ad55807-b62b-476d-a321-a13ed744e7dc"}
+事件序列：command_lifecycle → command_lifecycle → system/init → user → assistant → system/task_started → system/task_notification → user → assistant → result/success → command_lifecycle → command_lifecycle → command_lifecycle → system/init → user → assistant → system/background_tasks_changed → system/task_started → user → assistant → system/background_tasks_changed → system/task_updated → system/task_notification → assistant → result/success → command_lifecycle → system/init → assistant → result/success → command_lifecycle → command_lifecycle → system/init → user → assistant → system/background_tasks_changed → system/task_started → user → assistant → result/success → command_lifecycle
+```
+
+**9.4/9.5 cron 无人轮的事件形态、`origin`、`scheduled_task_fire` 与 Stop hook 的 `session_crons` / `background_tasks`**
+
+```
+CronCreate 工具结果：isError=false text="Scheduled recurring job 7d58f90e (Every minute). Session-only (not written to disk, dies when Claude exits). Auto-expires after 7 days. Use CronDelete to cancel sooner."
+事件序列：command_lifecycle → command_lifecycle → system/init → user → assistant → user → assistant → result/success → command_lifecycle → command_lifecycle → command_lifecycle → system/init → user → assistant → system/background_tasks_changed → system/task_started → user → assistant → result/success → command_lifecycle
+所有 command_lifecycle：
+  00:40:59.692 command_lifecycle state=queued command_uuid=fd6abd29
+  00:40:59.695 command_lifecycle state=started command_uuid=fd6abd29
+  00:40:59.846 command_lifecycle state=completed command_uuid=fd6abd29
+  00:41:07.478 command_lifecycle state=queued command_uuid=d7ee7ee0
+  00:41:07.479 command_lifecycle state=started command_uuid=d7ee7ee0
+  00:41:07.564 command_lifecycle state=completed command_uuid=d7ee7ee0
+未被宿主推入过的 command_uuid（即自主轮，cron 发火就是这种）共 0 条：（无）
+全部 user 事件原文（这是唯一能看到 origin 的地方）：
+  {"type":"user","message":{"role":"user","content":[{"type":"text","text":"E9-CRON-CREATE 请创建一个每分钟的周期任务"}]},"session_id":"b827aab6-2114-4fe2-b1af-991a6c2285e1","parent_tool_use_id":null,"uuid":"fd6abd29-69c0-44db-ace6-9b1f05443580","timestamp":"2026-09-26T00:40:59.720Z","isReplay":true}
+  {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_e9_cron","type":"tool_result","content":"Scheduled recurring job 7d58f90e (Every minute). Session-only (not written to disk, dies when Claude exits). Auto-expires after 7 days. Use CronDelete to cancel sooner."}]},"parent_tool_use_id":null,"session_id":"b827aab6-2114-4fe2-b1af-991a6c2285e1","uuid":"5b13a4f2-1d51-4a48-9ec5-25540b5a1100","timestamp":"2026-09-26T00:40:59.770Z","tool_use_result":{"id":"7d58f90e","humanSchedule":"Every minute","recurring":true,"durable":false}}
+  {"type":"user","message":{"role":"user","content":[{"type":"text","text":"E9-BG-HOLD 请挂一个后台任务"}]},"session_id":"b827aab6-2114-4fe2-b1af-991a6c2285e1","parent_tool_use_id":null,"uuid":"d7ee7ee0-e8e4-4b2c-b26d-c8d574d4d5c4","timestamp":"2026-09-26T00:41:07.483Z","isReplay":true}
+  {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_e9_hold","type":"tool_result","content":"Command running in background with ID: b1dwq9kee. Output is being written to: /tmp/claude-1004/-tmp-resident-e9d-1bKRr2/b827aab6-2114-4fe2-b1af-991a6c2285e1/tasks/b1dwq9kee.output. You will be notified when it completes. To check interim output, use Read on that file path.","is_error":false}]},"parent_tool_use_id":null,"session_id":"b827aab6-2114-4fe2-b1af-991a6c2285e1","uuid":"83bfe670-5526-481a-87c1-1757012fd068","timestamp":"2026-09-26T00:41:07.539Z","tool_use_result":{"stdout":"","stderr":"","interrupted":false,"isImage":false,"noOutputExpected":false,"backgroundTaskId":"b1dwq9kee"}}
+出现过的 system subtype：init, background_tasks_changed, task_started
+SDK 类型表里没有的 subtype（本实验实际读到）：（无）
+是否出现 scheduled_task_fire：**没有出现**
+Stop hook 调用 2 次，逐次原文：
+  [2026-09-26T08:40:59+08:00] session_crons=[{"id":"7d58f90e","schedule":"* * * * *","recurring":true,"prompt":"E9-TICK-MARKER"}] background_tasks=[] stop_hook_active=false
+  [2026-09-26T08:41:07+08:00] session_crons=[{"id":"7d58f90e","schedule":"* * * * *","recurring":true,"prompt":"E9-TICK-MARKER"}] background_tasks=[{"id":"b1dwq9kee","type":"shell","status":"running","description":"sleep 300; echo hold-done","command":"sleep 300; echo hold-done"}] stop_hook_active=false
+Stop hook 输入的全部键（最后一次）：session_id, transcript_path, cwd, prompt_id, permission_mode, effort, hook_event_name, stop_hook_active, last_assistant_message, background_tasks, session_crons
+CLI stderr（尾部）：[claude-code:unrecognized_model] {"model":"v4.1flash","query_source":"generate_session_title"}
+```
+
+**9.6 除 `canUseTool` 外的「需要人回应」入口：`side_question` / MCP elicitation / `request_user_dialog`**
+
+```
+CLI 发出的控制请求（JSON 原文，这是"CLI 问宿主"的方向）：
+  {"type":"control_request","request_id":"97bacb9a-7e8f-4515-87f7-8126bfc05422","request":{"subtype":"elicitation","mcp_server_name":"e9eliciting","message":"E9 请人回答","mode":"form","requested_schema":{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"]}}}
+side_question 的响应原文：（无响应）
+side_question 期间的 control_request_progress 事件：{"type":"system","subtype":"control_request_progress","request_id":"9dcd2b33-2683-43ac-ad5a-0c6f738cc0eb","status":"started","uuid":"20be6910-a892-4360-b696-c74bde70f48b","session_id":"19886bf4-f939-40ca-ac10-3776df68e580"}
+elicitation 请求条数：1；原文：{"type":"control_request","request_id":"97bacb9a-7e8f-4515-87f7-8126bfc05422","request":{"subtype":"elicitation","mcp_server_name":"e9eliciting","message":"E9 请人回答","mode":"form","requested_schema":{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"]}}}
+工具表里有 mcp__e9eliciting__ask_host：有
+主轮里助手调用的工具名：mcp__e9eliciting__ask_host
+出现过的 subtype：system/init, result/success, system/control_request_progress
+CLI stderr（尾部）：[claude-code:unrecognized_model] {"model":"v4.1flash","query_source":"generate_session_title"}
+```
+
+**9.7 flag settings 能否压过用户 settings（Remote Control / isolatePeerMachines）**
+
+```
+【user settings 开着 remoteControlAtStartup（不加 --settings）】
+  临时配置目录的 settings.json：{"remoteControlAtStartup":true,"isolatePeerMachines":false}
+  --settings 取值：（未加）
+  mock 端点收到的全部路径：/api/hello, /v1/messages?beta=true
+  CLI 发出的控制请求 subtype：（无）
+  get_settings 响应：（无响应——这个 subtype 不接受/不返回）
+  stderr 里含 remote/ccr/bridge 的行（0 条）：（无）
+【同一目录 + --settings 压成 false/true】
+  临时配置目录的 settings.json：{"remoteControlAtStartup":true,"isolatePeerMachines":false}
+  --settings 取值：{"remoteControlAtStartup":false,"isolatePeerMachines":true}
+  mock 端点收到的全部路径：/api/hello, /v1/messages?beta=true
+  CLI 发出的控制请求 subtype：（无）
+  get_settings 响应：（无响应——这个 subtype 不接受/不返回）
+  stderr 里含 remote/ccr/bridge 的行（0 条）：（无）
+```
+
+**9.8 交互式 CLI 忙时输入落进哪一轮（与 9.2 的三档对表）**
+
+```
+tmux 会话：resident-e9-23527；向导步骤：主题：Enter → 安全说明：Enter → bypass 警告：Down+Enter
+DATABASE_PATH 核对（/proc/<pane_pid>/environ）：/tmp/resident-e9-r1/auth.db —— 与 --database-path一致
+真 agent 轮请求数：2；各轮请求体里出现过的标记：
+  [0] 2026-09-26T00:43:52.336Z E9-INTERACTIVE-SLOW
+  [1] 2026-09-26T00:44:04.446Z E9-INTERACTIVE-SLOW+E9-INTERACTIVE-SECOND
+第二条消息首次出现的轮次序号：1
+第一条（慢）消息首次出现的轮次序号：0
+⇒ 两条消息在**不同轮**里
+pane 尾部原文：
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+```
+
+结论：环境核对：raw 驱动那条腿的实例写的是临时库（/proc/<pid>/environ 已核对）；收尾后本进程的 claude 后代剩 0 个、tmux 里没有本实验的会话、systemd user scope 里没有本实验的单元（读数为空即"无残留"）。 轮次边界：raw 驱动下 session_state_changed **一条都没有**，SDK query() 那条路 同样一条都没有；可用的轮次把手是「每轮一条 system/init + 轮末一条 result」这一对，command_lifecycle 的 queued/started/completed 另外给出每条消息被排进了哪一轮。 忙时推入：priority 三档（later/next/now）都被 CLI 收下并排进 command_lifecycle 的 queued→started 队列（完成后各自 completed；这一条序列就是"队列"的可见形态）；cancel_async_message 的三种时机——仍在队列里→（无响应），已被处理完→（无响应），uuid 不存在→（无响应）。 后台工作的事件面：本实验读到的 subtype 是 task_started、task_notification、background_tasks_changed；工具表里 **没有** Monitor、有 ScheduleWakeup——即常驻会话里"调度"只能靠 cron（CronCreate/CronList/CronDelete 在表里）。 cron 无人轮：发火在流里表现为 CLI **自己造** command_uuid 的 command_lifecycle started（该 uuid 从未 queued——宿主没推过它，共 0 条），它**没有** origin 字段、**没有** scheduled_task_fire、也**不**在 transcript 里新造 user 帧（全部 4 条 user 事件里带 origin 的只有 0 条）；无人轮自身的取数只能靠 Stop hook——session_crons 在 2 次调用里 2 次非空，background_tasks 1 次非空，这就是 §10 要的权威清单（字段与在飞任务都能对上）。 需要人回应的入口：side_question（宿主→CLI 的控制请求，宿主问、CLI 答）**没有响应**，方向与 canUseTool（CLI 问、宿主答）相反；elicitation **读到了 1 条**（MCP 工具把问题转成控制请求交给宿主）；request_user_dialog 只出现在 SDK 的类型联合里，本实验没有触发它的入口（工具驱动的阻塞对话框要有对应的工具在场），属读数缺口。 flag settings 层：两个变体的 `get_settings` 响应里，`remoteControlAtStartup` 分别为 （没读到） 与 （没读到），`isolatePeerMachines` 分别为 （没读到） 与 （没读到）——即全是"没读到"，**不能**据此说 `--settings` 盖过了用户 settings（那是读数缺口，不是证据）；方案据此走**最保守分支**：不等这个读数，检测到 Remote Control 已开启就拒绝以 bypass 启动常驻进程，并在界面说明（见 §9）；两个变体都**没有**把 `/v1/messages` 之外的流量发给 mock 端点，说明关掉它之后不会再有第二个"控制面"连接（本机没有可用的 Remote Control 后端，开着的那个也无法在此环境里连线，故"开着会怎样"只取到设置层的读数）。 交互式 CLI 的忙时输入：第二条消息落在**后一轮**（排在当前轮之后，不并入）。这一条与 E2/E3 的 stream-json 形态**一致**（都是"另起一轮"），§8 的忙时基准因此对两种形态都成立；但它精确对应三档里的哪一档，本实验**定不了**——9.2 里 `next` 那一档在排队时被撤掉了、没读到它执行时的落点，而 9.2 又显示"后一轮"这个落点对 `now` 与 `later` 都成立，光看落在哪一轮分不开三档；要定档得补一次不取消 `next` 的读数（缺口记在 proposal §8）。
+
