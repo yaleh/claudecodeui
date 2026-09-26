@@ -11,6 +11,13 @@
 #      QUAY_SUITE_WATCHDOG_TRACE=1 print the observed progress readings at the end, so the two
 #                                  thresholds above can be RE-DERIVED from a measurement rather
 #                                  than re-guessed.
+#      QUAY_SUITE_KEEP_LOGS=1 keep the per-file child output even on a GREEN run (default: only a
+#                             red/aborted run keeps it — see the suite-logs block below).
+#      QUAY_SUITE_KEEP_LOGS_DIR=<dir> where the kept logs go (default .quay/suite-logs/<run-id>).
+#      QUAY_SUITE_LOG_MAX_BYTES=<n>  per-file cap for a kept log (default 262144 = 256 KiB).
+#      QUAY_SUITE_LOG_TOTAL_BYTES=<n> whole-run cap for everything kept (default 67108864 = 64 MiB).
+#   Flags: --keep-logs <dir> = name the directory AND keep even when green (the explicit switch);
+#          --run-id <id>     = use <id> as the run directory's name instead of the generated one.
 #
 # Every FAILING file also gets a second, machine-readable record right after its `__PERFILE__`
 # line:  `__PERFILE_KIND__ file=<label> kind=infra|assert`
@@ -59,7 +66,13 @@ while [ $# -gt 0 ]; do
     --for-task) FOR_TASK="${2:-}"; shift 2 ;;
     --static-checks-doc) echo "no doc checks in this repo"; exit 0 ;;
     --allow-thin) shift ;;
-    --buckets|--root|--state-dir|--runner|--log-file|--run-id) shift 2 ;;
+    --run-id) RUN_ID_ARG="${2:-}"; shift 2 ;;
+    --keep-logs)
+      # `--keep-logs` alone is still the explicit switch; the value (if any) only names the dir.
+      ALWAYS_KEEP_LOGS=1
+      case "${2:-}" in ''|-*) shift ;; *) KEEP_LOGS_DIR="$2"; shift 2 ;; esac
+      ;;
+    --buckets|--root|--state-dir|--runner|--log-file) shift 2 ;;
     --test-concurrency=*)
       CONCURRENCY="${1#*=}"
       case "$CONCURRENCY" in ''|*[!0-9]*|0) CONCURRENCY=4 ;; esac
@@ -360,6 +373,10 @@ suite_abort() {
   else
     printf 'not ok - suite-watchdog: terminated by an external signal before the suite finished — see the report above\n'
   fi
+  # An aborted run is the one whose evidence is scarcest: the units that never reported are
+  # exactly the ones whose output exists nowhere else. Copy $TMP before the EXIT trap removes it
+  # (the copy is taken AFTER kill_tree, so no child is still writing into what is being read).
+  suite_keep_logs "aborted: the run did not finish on its own"
   # The four counters stay consistent (tests = pass + fail + cancelled) even though the run
   # was cut short: every unit that never reported is a cancellation, except that one of them
   # is the hang itself, which the verdict line above already counts as the failure. Before
@@ -373,12 +390,203 @@ suite_abort() {
   exit 3
 }
 
+# ── suite-logs: keep the per-file child output when the run is red ───────────────────────────
+#
+# WHY. Every child's full stdout/stderr is written into $TMP, and the exit path below used to
+# `rm -rf "$TMP"` it unconditionally — so a red run left behind nothing but the 300-character
+# `first_error` excerpt per file. The 2026-09-25 09:17 fan-in suite is the shape this removes:
+# 12 of its 14 failures were, verbatim,
+#   `not ok - <file>: no result file was written for this file — its process died without reporting`
+# and with $TMP gone, whether those processes were OOM-killed, signalled, or hung is not
+# recoverable from anything left on disk. This block copies $TMP into a per-run directory BEFORE
+# that rm, so a red run leaves behind the evidence that explains it.
+#
+# It only PRESERVES output; it never judges. classify_failure_kind() and first_error() are
+# untouched, no failure line is added or reworded, and the exit status is still decided by
+# `[ "$FAIL" -eq 0 ] && [ "$UNCLASSIFIED" -eq 0 ]` at the end of this script — nothing here can
+# turn a green run red or a red run green.
+#
+#   red            the run's own verdict was non-zero   => keep (default)
+#   aborted        a guard or an external signal ended it => keep (this is the run whose
+#                  evidence is scarcest: the units that never reported are exactly the ones
+#                  whose output exists only in $TMP)
+#   any other non-zero exit (a `set -u` death, a signal that never reached the report) => keep
+#                  — see the suite_cleanup fallback
+#   green          => nothing is copied and $TMP is removed as before, so any number of green
+#                  runs leaves no growth behind
+#   --keep-logs <dir> | QUAY_SUITE_KEEP_LOGS=1 => keep even when green (the explicit switch)
+#
+# BOUNDED, because "keep the evidence" must not become "fill the disk": one kept file is cut at
+# PER_FILE_LOG_CAP and the whole directory at TOTAL_LOG_CAP, and a file that was cut gets a
+# `<name>.truncated` sidecar saying how many bytes were dropped. The one-line `# suite-logs:`
+# record printed next to the failures repeats both facts, so a reader of the fan-in log can tell
+# a complete capture from a partial one without opening anything.
+#
+# The plan arrays are re-declared at the point they are filled; they are named here too because
+# suite_keep_logs() reads them and runs from an EXIT trap, and a read of an unset array under
+# `set -u` would abort the very trap that exists to preserve the evidence.
+SERVER_FILES=(); CLIENT_FILES=()
+SUITE_LOGS_KEPT=0
+SUITE_LOGS_DIR=""
+KEEP_MANIFEST=""
+ALWAYS_KEEP_LOGS="${ALWAYS_KEEP_LOGS:-0}"
+KEEP_LOGS_DIR="${KEEP_LOGS_DIR:-${QUAY_SUITE_KEEP_LOGS_DIR:-}}"
+case "${QUAY_SUITE_KEEP_LOGS:-}" in ''|0|no|false) ;; *) ALWAYS_KEEP_LOGS=1 ;; esac
+PER_FILE_LOG_CAP="${QUAY_SUITE_LOG_MAX_BYTES:-262144}"     # 256 KiB
+TOTAL_LOG_CAP="${QUAY_SUITE_LOG_TOTAL_BYTES:-67108864}"    # 64 MiB
+case "$PER_FILE_LOG_CAP" in ''|*[!0-9]*|0) PER_FILE_LOG_CAP=262144 ;; esac
+case "$TOTAL_LOG_CAP" in ''|*[!0-9]*|0) TOTAL_LOG_CAP=67108864 ;; esac
+# What the manifest may occupy. The copy loop reserves it out of TOTAL_LOG_CAP and the manifest
+# is cut to it, so `kept content + ledger <= TOTAL_LOG_CAP` holds by construction.
+LEDGER_RESERVE=65536
+
+# The run's identity. Default is the human-readable twin of the `<epoch_ms>-<pid>` suffix fan-in
+# puts in `.quay/fan-in-suite-*.log`, so a `.quay/suite-logs/<run-id>/` directory can be matched
+# back to the run that produced it; --run-id / QUAY_SUITE_RUN_ID let a caller that already has an
+# id keep the two aligned. Slugged, because it becomes a path segment.
+log_slug() { printf '%s' "$1" | sed -e 's#[/\\]#__#g' -e 's/[^A-Za-z0-9._-]/_/g'; }
+SUITE_RUN_ID="$(log_slug "${RUN_ID_ARG:-${QUAY_SUITE_RUN_ID:-}}")"
+[ -n "$SUITE_RUN_ID" ] || SUITE_RUN_ID="$(date +%Y%m%dT%H%M%S)-$$"
+
+# wc -c rather than stat(1): the count has to survive on whatever coreutils this host has, and a
+# failed read must read as 0 rather than as an empty string that breaks every `-gt` test below.
+file_bytes() {
+  local n
+  n="$(wc -c <"$1" 2>/dev/null | tr -d '[:space:]')"
+  case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  printf '%s' "$n"
+}
+
+# log_dest_name <basename-in-TMP> — the name a child's output gets in the keep dir. The index in
+# `srv-3.out` means nothing to a reader six hours later, so the label is carried through:
+# `server/database/x.test.ts` -> `server__database__x.test.ts.out`.
+log_dest_name() {
+  local b="$1" i
+  case "$b" in
+    srv-*.out|srv-*.res)
+      i="${b#srv-}"; i="${i%.*}"
+      printf '%s.%s' "$(log_slug "${SERVER_FILES[$i]:-server-$i}")" "${b##*.}"
+      ;;
+    stage-*.out) i="${b#stage-}"; printf '%s.stage.log' "$(log_slug "${i%.out}")" ;;
+    vitest.out)  printf 'client-vitest.log' ;;
+    vitest.json) printf 'client-vitest.json' ;;
+    *)           printf '%s.log' "$(log_slug "$b")" ;;
+  esac
+}
+
+# keep_pair <src> <dest-name> — copy ONE child artifact under both caps, appending its ledger row
+# to $KEEP_MANIFEST and accumulating the run totals in the KEPT_* globals. Never fails the run:
+# an artifact that cannot be written is recorded as omitted instead, because a silently missing
+# log is indistinguishable from a log that was never produced — the exact confusion this block
+# exists to remove.
+keep_pair() {
+  local src="$1" name="$2" size take room cut_note=""
+  [ -f "$src" ] || return 0
+  size="$(file_bytes "$src")"
+  take="$size"
+  if [ "$take" -gt "$PER_FILE_LOG_CAP" ]; then
+    take="$PER_FILE_LOG_CAP"
+    cut_note="per-file cap ${PER_FILE_LOG_CAP} B"
+  fi
+  room=$((TOTAL_LOG_CAP - KEPT_BYTES - LEDGER_RESERVE))
+  [ "$room" -lt 0 ] && room=0
+  if [ "$take" -gt "$room" ]; then
+    take="$room"
+    cut_note="${cut_note:+$cut_note; }whole-run cap ${TOTAL_LOG_CAP} B"
+  fi
+  if [ "$take" -le 0 ]; then
+    KEPT_OMITTED=$((KEPT_OMITTED + 1))
+    printf '%s\t0\t%s\tOMITTED: no room left under the whole-run cap %s B\n' \
+      "$name" "$size" "$TOTAL_LOG_CAP" >>"$KEEP_MANIFEST"
+    return 0
+  fi
+  if ! head -c "$take" "$src" >"$SUITE_LOGS_DIR/$name" 2>/dev/null; then
+    KEPT_OMITTED=$((KEPT_OMITTED + 1))
+    printf '%s\t0\t%s\tOMITTED: could not write %s\n' "$name" "$size" "$SUITE_LOGS_DIR/$name" >>"$KEEP_MANIFEST"
+    return 0
+  fi
+  KEPT_FILES=$((KEPT_FILES + 1)); KEPT_BYTES=$((KEPT_BYTES + take))
+  if [ "$take" -lt "$size" ]; then
+    KEPT_CUT=$((KEPT_CUT + 1))
+    printf '[suite-logs] TRUNCATED: kept the first %s of %s bytes — %s bytes were dropped (%s)\n' \
+      "$take" "$size" "$((size - take))" "$cut_note" >"$SUITE_LOGS_DIR/$name.truncated"
+    KEPT_BYTES=$((KEPT_BYTES + $(file_bytes "$SUITE_LOGS_DIR/$name.truncated")))
+    printf '%s\t%s\t%s\tTRUNCATED: %s B dropped (%s); the note is in %s.truncated\n' \
+      "$name" "$take" "$size" "$((size - take))" "$cut_note" "$name" >>"$KEEP_MANIFEST"
+  else
+    printf '%s\t%s\t%s\t-\n' "$name" "$take" "$size" >>"$KEEP_MANIFEST"
+  fi
+  return 0
+}
+
+# suite_keep_logs <reason> — copy $TMP into this run's keep dir (idempotent) and print the
+# one-line record naming it. Returns 0 on every path; when the logs could not be written the
+# record says so, because a lost capture must never be reported in the shape of a kept one.
+suite_keep_logs() {
+  local reason="$1"
+  [ "${SUITE_LOGS_KEPT:-0}" = "1" ] && return 0
+  [ -d "$TMP" ] || return 0
+  SUITE_LOGS_KEPT=1
+  if [ -n "${KEEP_LOGS_DIR:-}" ]; then
+    SUITE_LOGS_DIR="$KEEP_LOGS_DIR"
+  else
+    SUITE_LOGS_DIR="$ROOT_DIR/.quay/suite-logs/$SUITE_RUN_ID"
+  fi
+  if ! mkdir -p "$SUITE_LOGS_DIR" 2>/dev/null; then
+    printf '# suite-logs: UNAVAILABLE (cannot create %s) — this run'"'"'s per-file output was destroyed with %s; keep reason: %s\n' \
+      "$SUITE_LOGS_DIR" "$TMP" "$reason"
+    return 0
+  fi
+  KEEP_MANIFEST="$SUITE_LOGS_DIR/MANIFEST.txt"
+  KEPT_FILES=0; KEPT_BYTES=0; KEPT_CUT=0; KEPT_OMITTED=0; KEPT_TRIED=0
+  {
+    printf '# suite-logs MANIFEST — per-file child output kept from a run that did not pass\n'
+    printf '# keep reason: %s\n' "$reason"
+    printf '# source: %s\n' "$TMP"
+    printf '# caps: per-file %s B, whole run %s B (this ledger may occupy %s B of it)\n' \
+      "$PER_FILE_LOG_CAP" "$TOTAL_LOG_CAP" "$LEDGER_RESERVE"
+    printf '# file\tkept_bytes\tproduced_bytes\tnote\n'
+  } >"$KEEP_MANIFEST" 2>/dev/null
+  local f
+  for f in "$TMP"/*; do
+    [ -f "$f" ] || continue
+    KEPT_TRIED=$((KEPT_TRIED + 1))
+    keep_pair "$f" "$(log_dest_name "$(basename "$f")")"
+  done
+  # The watchdog's own readings exist only for the runs that ended early — i.e. precisely the
+  # runs this block is for, and they are what separates "it hung" from "we do not know why".
+  for f in "$TMP/watchdog/trace" "$TMP/watchdog/verdict"; do
+    [ -f "$f" ] || continue
+    KEPT_TRIED=$((KEPT_TRIED + 1))
+    keep_pair "$f" "watchdog-$(basename "$f").txt"
+  done
+  local mbytes
+  mbytes="$(file_bytes "$KEEP_MANIFEST")"
+  if [ "$mbytes" -gt "$LEDGER_RESERVE" ]; then
+    head -c "$LEDGER_RESERVE" "$KEEP_MANIFEST" >"$KEEP_MANIFEST.cut" 2>/dev/null \
+      && mv -f "$KEEP_MANIFEST.cut" "$KEEP_MANIFEST"
+    mbytes="$(file_bytes "$KEEP_MANIFEST")"
+  fi
+  KEPT_BYTES=$((KEPT_BYTES + mbytes))
+  printf '# suite-logs: %s | kept %s of %s child artifact(s), %s bytes on disk (truncation sidecars and the ledger included) of the %s-byte whole-run cap; truncated %s, omitted %s | reason: %s\n' \
+    "$SUITE_LOGS_DIR" "$KEPT_FILES" "$KEPT_TRIED" "$KEPT_BYTES" "$TOTAL_LOG_CAP" "$KEPT_CUT" "$KEPT_OMITTED" "$reason"
+  return 0
+}
+
 # Every exit path ends the tree, not just the abort path: a fatal error in this script
 # (set -u, a bad read) would otherwise orphan whatever tests are still running, which is
 # the same "nobody ends it" shape the watchdogs exist to remove.
 suite_cleanup() {
+  local rc="$?"
   watchdog_stop
   kill_tree "$$" TERM
+  # An exit that never went through the report (a `set -u` death, a signal this shell could not
+  # trap, a kill that arrived after the report) still has $TMP intact. Removing it would
+  # reproduce exactly the loss this block exists to remove, and a non-zero exit status is the
+  # only verdict available at this point — which is enough to justify the copy.
+  if [ "$rc" -ne 0 ] && [ "${SUITE_LOGS_KEPT:-0}" != "1" ]; then
+    suite_keep_logs "unexpected non-zero exit (rc=$rc)"
+  fi
   rm -rf "$TMP"
 }
 trap 'suite_abort' TERM INT
@@ -600,6 +808,14 @@ watchdog_stop
 
 echo
 for l in "${FAILED_LINES[@]+"${FAILED_LINES[@]}"}"; do echo "$l"; done
+# The kept evidence is named right next to the failures it explains, so the directory is readable
+# straight out of the run's own stdout (and therefore out of `.quay/fan-in-suite-*.log`) instead
+# of having to be known in advance. A green run keeps nothing and so prints nothing here.
+if [ "$FAIL" -gt 0 ] || [ "$UNCLASSIFIED" -gt 0 ]; then
+  suite_keep_logs "red: ${FAIL} failed, ${UNCLASSIFIED} unclassified"
+elif [ "$ALWAYS_KEEP_LOGS" = "1" ]; then
+  suite_keep_logs "explicit --keep-logs (this run is green)"
+fi
 # Opt-in: the raw readings the two thresholds are derived from, so a later change to them
 # can be a re-measurement instead of a guess. Read from the trace the watchdog rewrote on
 # every poll — it is a snapshot, not a final tally, so it is only printed for a run that
