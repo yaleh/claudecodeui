@@ -3,7 +3,7 @@ id: gap-session-scope-test-global-namespace-count
 title: claude-session-scope.test.ts 把 listClaudeSessionScopeUnits()
   的宿主全局计数当断言（等「恰好剩一个 scope」，10s 超时）：本机任何别的会话 scope 生产者（:3001 上的真实会话、并发 lane、DoD
   harness 起的临时 server）都会把它打红 —— 已连红两轮、挡住两个任务
-status: ready
+status: done
 labels:
   - gap
   - defect
