@@ -93,13 +93,13 @@ per-run cache 的代价是它**每一次运行都是冷的**：浏览器第一�
 
 ## AC
 
-- [ ] AC1 基线三条原文：`env -u TMPDIR npx playwright test e2e/voice-trim.spec.ts -g "AC-122"` 三次各自退出 `0`、输出含 `[voice-replay] original=…s/…B trimmed=…s/…B` 与 `1 passed`；三条命令 + 退出码 + 关键行进 DoD。同时把 `quay-e2e-o3wIsz` / `quay-e2e-iqkbb2` 两份 `error-context.md` 的原文（或它们已被回收的读数）记进 DoD。
-- [ ] AC2 复现：在宿主并发下把这条腿红出至少一次 `Test timeout of 35000ms exceeded`，且失败时刻的 `error-context.md` 里**不含** `the recording slot offers no replay of the trimmed upload` 与 `[voice-replay]`（即红在装配阶段、不在 AC-122 的断言上）。复现命令、并发度、当时 `load average`、失败目录路径与 `error-context.md` 原文进 DoD。
-- [ ] AC3 点名：写出 S1 复现点名的那个共享资源，以及它如何被移走。若点名的是冷 cache 预打包，须给出「预热前 / 预热后」在同一并发度下首次页面加载耗时与整条腿耗时的对照读数，且预热后不再复现 AC2。若复现点名的是别的资源，写下本 Proposal 里那段候选机制被证伪。
-- [ ] AC4 修后终态：AC2 的同一复现命令、同一并发度，连跑 `N >= 3` 次**全部退出 0**（每次都有 `[voice-replay]` 行）；原文与退出码进 DoD。
-- [ ] AC5 取假（承重）：把 S2 的改动还原 ⇒ AC2 的复现重新红（退出 `1`、`Test timeout`），原文与退出码进 DoD；随后还原，`git status --porcelain` 只剩本任务文件。
-- [ ] AC6 判据未被削弱、预算未被抬高：`grep -c "the recording slot offers no replay of the trimmed upload" e2e/voice-trim.spec.ts` → `1`；`grep -c "the recording and the trimmed audio were sounding at once" e2e/voice-trim.spec.ts` → `1`；`grep -c "setTimeout(35_000)" e2e/voice-trim.spec.ts` → `1`（数值未变）；`git diff $(git merge-base HEAD develop)..HEAD -- e2e/voice-trim.spec.ts playwright.config.ts | grep -cE '^\+.*(60_000|35_000)'` → `0`；`git diff --name-only $(git merge-base HEAD develop)..HEAD | grep -c '^shared/asr/'` → `0`；`git diff --name-only $(git merge-base HEAD develop)..HEAD | grep -c '^src/modules/chat/'` → `0`。
-- [ ] AC7 `npm run typecheck` 退出 `0`；`npm run lint` 退出 `0`；`node --test scripts/e2e-assembly-budget.test.mjs` 退出 `0`（用例数进 DoD）。
+- [x] AC1 基线三条原文：`env -u TMPDIR npx playwright test e2e/voice-trim.spec.ts -g "AC-122"` 三次各自退出 `0`、输出含 `[voice-replay] original=…s/…B trimmed=…s/…B` 与 `1 passed`；三条命令 + 退出码 + 关键行进 DoD。同时把 `quay-e2e-o3wIsz` / `quay-e2e-iqkbb2` 两份 `error-context.md` 的原文（或它们已被回收的读数）记进 DoD。
+- [x] AC2 复现：在宿主并发下把这条腿红出至少一次 `Test timeout of 35000ms exceeded`，且失败时刻的 `error-context.md` 里**不含** `the recording slot offers no replay of the trimmed upload` 与 `[voice-replay]`（即红在装配阶段、不在 AC-122 的断言上）。复现命令、并发度、当时 `load average`、失败目录路径与 `error-context.md` 原文进 DoD。
+- [x] AC3 点名：写出 S1 复现点名的那个共享资源，以及它如何被移走。若点名的是冷 cache 预打包，须给出「预热前 / 预热后」在同一并发度下首次页面加载耗时与整条腿耗时的对照读数，且预热后不再复现 AC2。若复现点名的是别的资源，写下本 Proposal 里那段候选机制被证伪。
+- [x] AC4 修后终态：AC2 的同一复现命令、同一并发度，连跑 `N >= 3` 次**全部退出 0**（每次都有 `[voice-replay]` 行）；原文与退出码进 DoD。
+- [x] AC5 取假（承重）：把 S2 的改动还原 ⇒ AC2 的复现重新红（退出 `1`、`Test timeout`），原文与退出码进 DoD；随后还原，`git status --porcelain` 只剩本任务文件。
+- [x] AC6 判据未被削弱、预算未被抬高：`grep -c "the recording slot offers no replay of the trimmed upload" e2e/voice-trim.spec.ts` → `1`；`grep -c "the recording and the trimmed audio were sounding at once" e2e/voice-trim.spec.ts` → `1`；`grep -c "setTimeout(35_000)" e2e/voice-trim.spec.ts` → `1`（数值未变）；`git diff $(git merge-base HEAD develop)..HEAD -- e2e/voice-trim.spec.ts playwright.config.ts | grep -cE '^\+.*(60_000|35_000)'` → `0`；`git diff --name-only $(git merge-base HEAD develop)..HEAD | grep -c '^shared/asr/'` → `0`；`git diff --name-only $(git merge-base HEAD develop)..HEAD | grep -c '^src/modules/chat/'` → `0`。
+- [x] AC7 `npm run typecheck` 退出 `0`；`npm run lint` 退出 `0`；`node --test scripts/e2e-assembly-budget.test.mjs` 退出 `0`（用例数进 DoD）。
 
 ## DoD
 
