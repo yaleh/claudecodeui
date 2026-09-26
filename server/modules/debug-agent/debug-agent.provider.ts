@@ -1,5 +1,5 @@
 import type { IProvider, IProviderRuntime, IProviderSessionSynchronizer } from '@/shared/interfaces.js';
-import type { LLMProvider } from '@/shared/types.js';
+import type { LLMProvider, RuntimeProviderCapabilities } from '@/shared/types.js';
 import { AppError, createCompleteMessage } from '@/shared/utils.js';
 
 import {
@@ -8,6 +8,11 @@ import {
   type DebugAgentFrameForwarder,
 } from './debug-agent.engine.js';
 import { DEBUG_AGENT_PROVIDER_ID, readDebugAgentGate } from './debug-agent.gate.js';
+import {
+  createDebugAgentHostDriver,
+  type DebugAgentHostDriver,
+  type DebugAgentOpenRun,
+} from './debug-agent.host-driver.js';
 import { readArmedDebugAgentScenario } from './debug-agent.runtime.js';
 
 /**
@@ -48,6 +53,43 @@ export type DebugAgentProviderDependencies = {
    * product's own instance would scan the user's real transcripts.
    */
   createSessionSynchronizer: (options: DebugAgentSynchronizerOptions) => IProviderSessionSynchronizer;
+  /**
+   * How an unattended turn opens the run it belongs to.
+   *
+   * Injected, and optional, because the run registry lives in the websocket
+   * module and the construction site that builds this provider does not have it
+   * in scope — the registry this provider is being registered into is what the
+   * websocket module imports, so reaching back for it would close the cycle
+   * ADR-003 decision 7 forbids. A build that wires no seam gets a provider
+   * whose scenario steps still run and whose unattended turn fails loudly
+   * naming the gap; the capability declaration below is about the process
+   * lifetimes the driver implements, not about this one seam.
+   */
+  openRun?: DebugAgentOpenRun;
+  /**
+   * Records the lifecycle facts this provider states about itself.
+   *
+   * A callback rather than a direct call because the capability matrix belongs
+   * to the providers module. It is how a provider that is deliberately not in
+   * `LLMProvider` states `resident` mode and a multiplexed host without the
+   * union-keyed table gaining a row for an id that can serve no user-facing
+   * request.
+   */
+  declareRuntimeCapabilities?: (capabilities: RuntimeProviderCapabilities) => void;
+};
+
+/**
+ * The run seam of a build that wired none.
+ *
+ * Throws rather than returning null: "no run was opened" and "this build has
+ * nowhere to open one" are different failures, and a scenario author debugging
+ * a silent turn deserves to be told which one they hit.
+ */
+const unwiredOpenRun: DebugAgentOpenRun = ({ appSessionId }) => {
+  throw new AppError(
+    `No run seam is wired for the debug agent's unattended turn on session "${appSessionId}".`,
+    { code: 'DEBUG_AGENT_RUN_SEAM_UNAVAILABLE', statusCode: 500 },
+  );
 };
 
 /**
@@ -59,7 +101,10 @@ export type DebugAgentProviderDependencies = {
  * quietly producing nothing — a debug session that appears to run and emits no
  * frame would be indistinguishable from a client that failed to connect.
  */
-function createDebugAgentRuntime(forwardFrames: DebugAgentFrameForwarder): IProviderRuntime {
+function createDebugAgentRuntime(
+  forwardFrames: DebugAgentFrameForwarder,
+  hostDriver: DebugAgentHostDriver,
+): IProviderRuntime {
   return {
     async run(command, options, writer, context) {
       const sessionId = typeof options.sessionId === 'string' ? options.sessionId : '';
@@ -76,14 +121,31 @@ function createDebugAgentRuntime(forwardFrames: DebugAgentFrameForwarder): IProv
       // what the terminal `complete`'s REST re-fetch reads the history through.
       writer.setSessionId?.(armed.providerSessionId);
 
+      // Where this run's frames ended up. It starts as the caller's writer and
+      // follows them to the run's own writer when an unattended turn opens one,
+      // which is the whole reason it is tracked here: the terminal frame has to
+      // end the run that produced the turn. Writing it to the caller's writer
+      // instead would leave the run open for good — a client that replayed it
+      // would see a turn that never finished, and the session would stay
+      // "processing" with nothing running.
+      let delivery = writer;
+
       const reading = await runDebugAgentScenario({
         scenario: armed.scenario,
         sessionId: armed.providerSessionId,
+        // The id the host layer and the run registry address the session by.
+        // `sessionId` above is the provider-native one the rows carry; a host
+        // step addressed with that would land on a session no one is watching.
+        appSessionId: armed.sessionId,
         cwd: armed.projectPath,
         transcriptPath: armed.transcriptPath,
         writer,
         normalizeMessage: context.normalizeMessage,
         forwardFrames,
+        hostOps: hostDriver,
+        onDelivery: (next) => {
+          delivery = next;
+        },
       });
 
       const evaluation = evaluateScenarioExpectations({
@@ -104,7 +166,7 @@ function createDebugAgentRuntime(forwardFrames: DebugAgentFrameForwarder): IProv
         );
       }
 
-      writer.send(
+      delivery.send(
         createCompleteMessage({
           provider: DEBUG_AGENT_RUNTIME_PROVIDER_ID,
           sessionId: armed.providerSessionId,
@@ -142,9 +204,29 @@ export function createDebugAgentProvider(
     return null;
   }
 
+  const hostDriver = createDebugAgentHostDriver({ openRun: dependencies.openRun ?? unwiredOpenRun });
+  if (!hostDriver) {
+    // Unreachable: `createDebugAgentHostDriver` reads the same gate this
+    // function just read. Kept as a refusal rather than a non-null assertion so
+    // that a future gate rule that disagrees between the two produces no
+    // provider at all instead of one with an unsound lifetime claim.
+    return null;
+  }
+
+  // The declaration is derived from the driver rather than written out beside
+  // it: "this provider serves resident hosts and multiplexes them" is a
+  // statement about what the object below implements, and two copies of it
+  // would be two things to keep in step.
+  dependencies.declareRuntimeCapabilities?.({
+    provider: DEBUG_AGENT_PROVIDER_ID,
+    lifecycleModes: [...hostDriver.lifecycleModes],
+    multiplexedHost: hostDriver.multiplexedHost === true,
+  });
+
   return {
     id: DEBUG_AGENT_RUNTIME_PROVIDER_ID,
-    runtime: createDebugAgentRuntime(dependencies.forwardFrames),
+    runtime: createDebugAgentRuntime(dependencies.forwardFrames, hostDriver),
+    hostDriver,
     models: dependencies.base.models,
     mcp: dependencies.base.mcp,
     auth: dependencies.base.auth,

@@ -1977,3 +1977,44 @@ export type HostReconfigurePatch = {
   effort?: string;
   permissionMode?: string;
 };
+
+// ---------------------------
+//----------------- CHAT RUN ORIGIN + NON-UNION CAPABILITIES ------------
+/**
+ * Who asked for one provider run.
+ *
+ * `user` is a turn a human sent from a client; `scheduled` is one a timer
+ * fired (the scheduled-messages dispatcher); `unattended` is one the
+ * session-host layer opened by itself, with no request and no socket behind
+ * it. The fact is recorded on the run rather than inferred later from the
+ * absence of a connection, because "no connection" is equally true of a
+ * scheduled run — and a run opened by a host driver must be distinguishable
+ * from both.
+ *
+ * Read by `chatRunRegistry` (which stamps it at `startRun` and exposes it on
+ * the run record) and by the debug agent's host-driver criterion.
+ */
+export type ChatRunSource = 'user' | 'scheduled' | 'unattended';
+
+/**
+ * Lifecycle facts a provider states about itself at runtime.
+ *
+ * Deliberately keyed by a plain provider id string rather than by
+ * `LLMProvider`: the providers this describes include ones intentionally kept
+ * outside that union (the debug agent), and widening the union to hold them
+ * would make every exhaustive `Record<LLMProvider, …>` in the codebase claim
+ * support for a provider that has no CLI, no SDK and no user-facing entry.
+ * Declared through `providerCapabilitiesService.declareRuntimeProviderCapabilities`
+ * and read through `getRuntimeProviderCapabilities`.
+ */
+export type RuntimeProviderCapabilities = {
+  provider: string;
+  /** Lifecycle modes this provider's host driver implements. */
+  lifecycleModes: HostMode[];
+  /**
+   * Whether one process of this provider may serve several sessions at once —
+   * `IProviderHostDriver.multiplexedHost` stated as a standalone fact, so it
+   * can be read without an instance of the driver.
+   */
+  multiplexedHost: boolean;
+};

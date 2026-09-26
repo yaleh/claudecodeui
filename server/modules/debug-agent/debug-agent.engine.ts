@@ -3,8 +3,16 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 import type { IProviderSessions } from '@/shared/interfaces.js';
 import type { AnyRecord, NormalizedMessage, ProviderRuntimeWriter } from '@/shared/types.js';
+import { AppError } from '@/shared/utils.js';
 
-import type { DebugAgentScenario, DebugAgentScenarioOp } from './debug-agent.scenario.js';
+import {
+  DEBUG_AGENT_HOST_OPS,
+  isDebugAgentHostOp,
+  type DebugAgentExitDetail,
+  type DebugAgentKeepaliveKind,
+  type DebugAgentScenario,
+  type DebugAgentScenarioOp,
+} from './debug-agent.scenario.js';
 import {
   appendTranscriptRow,
   buildMessageRow,
@@ -67,16 +75,60 @@ export type DebugAgentFrameForwarder = (input: {
   writer: ProviderRuntimeWriter;
 }) => void;
 
+/**
+ * The host layer, as the engine's host steps take it.
+ *
+ * Declared here rather than imported from the driver so the engine depends on
+ * no other module's internals — the same rule the forwarder above follows, and
+ * the reason a run can be driven by a host layer this module has never heard
+ * of. The driver is structurally one of these; nothing is registered or
+ * injected twice to make it so.
+ *
+ * Every verb is session-addressed because that is the layer's own addressing: a
+ * step names the session, and which process serves it is the host layer's
+ * business, not the scenario's.
+ */
+export type DebugAgentHostOps = {
+  openUnattendedTurn(input: { appSessionId: string; text: string }): Promise<ProviderRuntimeWriter>;
+  addKeepalive(input: { appSessionId: string; kind: DebugAgentKeepaliveKind }): Promise<void>;
+  removeKeepalive(input: { appSessionId: string; kind: DebugAgentKeepaliveKind }): Promise<void>;
+  reportExit(input: { appSessionId: string; detail: DebugAgentExitDetail }): Promise<void>;
+};
+
 export type DebugAgentRunInput = {
   scenario: DebugAgentScenario;
   /** The session id inside every row this run writes. */
   sessionId: string;
+  /**
+   * The application session id — what the host layer, the run registry and the
+   * client all address the session by. Distinct from `sessionId`, which is the
+   * provider-native id the rows carry; a run whose host steps went to the wrong
+   * one would report against a session nobody is watching.
+   */
+  appSessionId: string;
   cwd: string;
   transcriptPath: string;
   writer: ProviderRuntimeWriter;
   /** The product's normalizer, supplied through the runtime context. */
   normalizeMessage: DebugAgentNormalizeMessage;
   forwardFrames: DebugAgentFrameForwarder;
+  /**
+   * The host layer, for the steps that go through it. Optional because a
+   * scenario of transcript operations alone needs none; a scenario that carries
+   * a host step without one is refused before it runs.
+   */
+  hostOps?: DebugAgentHostOps;
+  /**
+   * Called when the writer this run's frames go to changes.
+   *
+   * A callback rather than a field on the reading, and it is the one thing a
+   * caller cannot learn any other way: an unattended turn delivers its frames
+   * to the run the host layer opened instead of to the caller, and the terminal
+   * frame has to end *that* run. A caller that went on ending the run it passed
+   * in would leave the real one open for good, while every client that replayed
+   * it saw a turn that never finished.
+   */
+  onDelivery?: (writer: ProviderRuntimeWriter) => void;
 };
 
 /**
@@ -111,13 +163,53 @@ export type DebugAgentRunReading = {
  * or a frame of its own.
  */
 export async function runDebugAgentScenario(input: DebugAgentRunInput): Promise<DebugAgentRunReading> {
-  const { scenario, sessionId, cwd, transcriptPath, writer, normalizeMessage, forwardFrames } = input;
+  const { scenario, sessionId, appSessionId, cwd, transcriptPath, normalizeMessage, forwardFrames } = input;
+  const hostOps = input.hostOps;
+
+  // Refused before anything is written. A host step with no host layer is a
+  // document this build cannot execute, and discovering that halfway through
+  // would leave a transcript that is neither the old one nor the new one.
+  const hostSteps = scenario.steps
+    .map((step, index) => ({ op: step.op, index }))
+    .filter((step) => isDebugAgentHostOp(step.op));
+  if (hostSteps.length > 0 && !hostOps) {
+    throw new AppError(
+      `Scenario step(s) ${hostSteps
+        .map((step) => `steps[${step.index}].${step.op}`)
+        .join(', ')} need a host layer, and this run was given none. This build knows the host steps: ${DEBUG_AGENT_HOST_OPS.join(', ')}.`,
+      { code: 'DEBUG_AGENT_HOST_OPS_UNAVAILABLE', statusCode: 400 },
+    );
+  }
+
   const before = readTranscriptShape(transcriptPath);
   const steps: DebugAgentStepObservation[] = [];
   const startedAt = Date.now();
 
+  // Which writer this run's frames go to. It starts as the caller's own and is
+  // replaced by the run's writer when an unattended turn opens one: the turn
+  // exists before its frames do, and frames delivered to the caller's writer
+  // instead would reach the socket but never the run a late subscriber replays.
+  let delivery = input.writer;
   const forward = (row: AnyRecord): void => {
-    forwardFrames({ transformedMessage: row, sessionId, normalizeMessage, writer });
+    forwardFrames({ transformedMessage: row, sessionId, normalizeMessage, writer: delivery });
+  };
+
+  const appendRow = (role: string, text: string): void => {
+    // The new row chains onto whatever is on disk right now, so the transcript
+    // keeps the parent/uuid links the dialect's readers expect.
+    const parent = readTranscriptShape(transcriptPath).lastRow;
+    const row = buildMessageRow({
+      sessionId,
+      cwd,
+      role,
+      text,
+      uuid: crypto.randomUUID(),
+      parentUuid: typeof parent?.uuid === 'string' ? parent.uuid : null,
+      timestamp: new Date().toISOString(),
+    });
+
+    appendTranscriptRow(transcriptPath, row);
+    forward(row);
   };
 
   for (const [index, step] of scenario.steps.entries()) {
@@ -129,21 +221,34 @@ export async function runDebugAgentScenario(input: DebugAgentRunInput): Promise<
 
     switch (step.op) {
       case 'row': {
-        // The new row chains onto whatever is on disk right now, so the
-        // transcript keeps the parent/uuid links the dialect's readers expect.
-        const parent = readTranscriptShape(transcriptPath).lastRow;
-        const row = buildMessageRow({
-          sessionId,
-          cwd,
-          role: step.role,
-          text: step.text,
-          uuid: crypto.randomUUID(),
-          parentUuid: typeof parent?.uuid === 'string' ? parent.uuid : null,
-          timestamp: new Date().toISOString(),
-        });
+        appendRow(step.role, step.text);
+        break;
+      }
 
-        appendTranscriptRow(transcriptPath, row);
-        forward(row);
+      case 'unattended-turn': {
+        // The run is opened by the host layer, not here: the engine's job is to
+        // write the turn's row and hand it to whatever writer the host layer
+        // answered with. An engine that opened its own run would be reporting a
+        // turn the host layer never saw, which is the difference this step
+        // exists to make measurable.
+        delivery = await requireHostOps(hostOps).openUnattendedTurn({ appSessionId, text: step.text });
+        input.onDelivery?.(delivery);
+        appendRow('user', step.text);
+        break;
+      }
+
+      case 'keepalive-add': {
+        await requireHostOps(hostOps).addKeepalive({ appSessionId, kind: step.kind });
+        break;
+      }
+
+      case 'keepalive-remove': {
+        await requireHostOps(hostOps).removeKeepalive({ appSessionId, kind: step.kind });
+        break;
+      }
+
+      case 'exit': {
+        await requireHostOps(hostOps).reportExit({ appSessionId, detail: step.detail });
         break;
       }
 
@@ -165,6 +270,25 @@ export async function runDebugAgentScenario(input: DebugAgentRunInput): Promise<
   }
 
   return { before, steps };
+}
+
+/**
+ * The host layer, narrowed to non-null for a step that needs it.
+ *
+ * Only reachable after the up-front refusal above has established that a step
+ * carrying a host op implies a host layer, so this cannot throw in practice —
+ * and it exists so the steps read as the calls they are instead of as a chain
+ * of optional checks whose failure mode would be a silent no-op.
+ */
+function requireHostOps(hostOps: DebugAgentHostOps | undefined): DebugAgentHostOps {
+  if (!hostOps) {
+    throw new AppError('A host step ran with no host layer.', {
+      code: 'DEBUG_AGENT_HOST_OPS_UNAVAILABLE',
+      statusCode: 400,
+    });
+  }
+
+  return hostOps;
 }
 
 /** One in-place growth, read as: did the row count hold, and what changed? */
