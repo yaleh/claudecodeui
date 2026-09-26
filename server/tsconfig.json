@@ -36,5 +36,20 @@
     "types": ["node"]
   },
   "include": ["./**/*.js", "./**/*.ts", "../shared/**/*.js", "../shared/**/*.ts"],
-  "exclude": ["../dist", "../dist-server", "../dist-server.next", "../dist-server.old", "../node_modules", "../src"]
+  // ./modules/voice/tmp holds no source: it is the git-ignored scratch directory the voice criteria's
+  // positive controls plant transient probe files in (e.g. voice-dashscope-settings AC4(b)'s
+  // `__stray-shipping-probe.ts`). Those probes are written and removed inside one test case, while
+  // the suite runs `npm run typecheck` concurrently — tsc's directory walk would collect a probe and
+  // then fail to read it, reporting `TS6053: File ... not found` against an unrelated task's worktree.
+  // Excluding it only removes the directory from the tsc program: the criteria's scanners walk the
+  // filesystem directly (readdir), so the positive controls still find their probe.
+  "exclude": [
+    "../dist",
+    "../dist-server",
+    "../dist-server.next",
+    "../dist-server.old",
+    "../node_modules",
+    "../src",
+    "./modules/voice/tmp"
+  ]
 }
