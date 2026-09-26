@@ -1770,6 +1770,66 @@ export type HostCloseReason =
   | 'server-shutdown';
 
 /**
+ * Every member of `HostCloseReason`, as a runtime value.
+ *
+ * The union above is the contract; this array is the same list in a form a
+ * program can iterate, so "which reasons exist" is one fact rather than two
+ * lists that can drift apart. It is a shared definition because it has two
+ * consumers that must agree: the session-host manager derives its close
+ * decisions from reasons named here, and the lifecycle criterion asserts that
+ * every value in this array was actually produced by some case — an enumeration
+ * test that read its own literal list could pass while the union changed under
+ * it. Keep the two in the same order, and add a member to both at once.
+ */
+export const HOST_CLOSE_REASONS = [
+  'turn-complete',
+  'released',
+  'superseded',
+  'aborted',
+  'user',
+  'idle',
+  'mode-change',
+  'rewind',
+  'exited',
+  'server-shutdown',
+] as const satisfies readonly HostCloseReason[];
+
+/**
+ * The extra fact some close reasons carry.
+ *
+ * `ProcessHost.closeReason` says why a host ended; for two reasons that answer
+ * is incomplete and this names the rest. `exited` distinguishes a process the
+ * kernel killed for memory from one that died on a signal or failed on its own
+ * — the three the runtime can report. `forced` is not a driver report at all:
+ * it records that the server shut down while the driver had still not settled
+ * its `closeHost`, so the host was closed out from under it. A null
+ * `closeDetail` means the reason needs no detail (`turn-complete`, `user`, …).
+ */
+export type HostCloseDetail = 'oom' | 'signal' | 'error' | 'forced';
+
+/**
+ * The two knobs that decide when a host is closed, one set per lifecycle mode.
+ *
+ * Read by the session-host manager each time it recomputes state, so a policy is
+ * data rather than a branch on `mode`: `per-run` and `resident` differ only in
+ * the values below, which is what makes either mode testable by injecting a
+ * policy instead of a provider. The values themselves mirror
+ * `docs/proposals/claude-resident-sessions.md` §3.
+ */
+export type LifecyclePolicy = {
+  /** A new turn on the same bound session closes the host the previous turn held. */
+  supersedeOnNewTurn: boolean;
+  /** Close the host as soon as the union of its bindings' leases is empty. */
+  closeWhenLeasesEmpty: boolean;
+  /**
+   * How long a host with no `turn` lease — `lingering` under `per-run`, `idle`
+   * under `resident` — may sit before the quiet ceiling closes it. The window is
+   * counted from the binding's `lastActivityAt`, not from the last frame.
+   */
+  quietCeilingMs: number;
+};
+
+/**
  * One reason a bound session still needs its host process.
  *
  * The host is kept alive while the union of its bindings' leases is non-empty,
@@ -1821,6 +1881,29 @@ export type ProcessHost = {
   /** Keyed by application session id; see `SessionBinding`. */
   bindings: Map<string, SessionBinding>;
   closeReason: HostCloseReason | null;
+  /**
+   * The extra fact `closeReason` carries, or null when it carries none.
+   *
+   * Set together with `closeReason` and never before it: a host that is still
+   * open has null here, and `'forced'` appears only on a host the server closed
+   * during shutdown while its driver was still settling. Optional so a reader
+   * written against the reason alone keeps type-checking.
+   */
+  closeDetail?: HostCloseDetail | null;
+  /**
+   * When the quiet ceiling is due to close this host, on the manager's clock.
+   *
+   * Exposed because the deadline is the only evidence that a host with no
+   * `turn` lease is being *held* rather than merely not yet collected — the
+   * lifecycle criterion prints it instead of waiting for it. Null while none is
+   * armed (a `turn` lease is held, or the host is closed).
+   */
+  quietDeadlineAt?: number | null;
+  /**
+   * The instant `quietDeadlineAt` was counted from: `lastActivityAt`, or — after
+   * a re-time — the `expiresAt` of the cron lease that pushed the deadline out.
+   */
+  quietWindowStartAt?: number | null;
 };
 
 /**
