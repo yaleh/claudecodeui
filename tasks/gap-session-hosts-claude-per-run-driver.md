@@ -223,9 +223,14 @@ elapsed=1721ms
 - **AC8**：判据文件里 `criterionSource await new Promise lines=0`、`await sleep lines=0`、`setTimeout( lines=0`（三个 needle 在文件内由 `'await' + ' new Promise'` 这类片段拼出，故该 grep 不会命中检查自身）；连续两次运行关键读数逐字相同（`keyReadings lines=14 sha256=79ae7d64ee666919`，两次同值），墙钟 `elapsed=1721ms`/`1759ms`，两次都 `< 60_000`。**如实登记**：node:test 的每例 `(x.xxms)` 与 `ℹ duration_ms` 两次不同，那是运行器耗时统计，不是判据读数，未计入 key 块。
 - **AC9**：`startsBackgroundWork` 在 driver 里 5 行命中（`[22,53,174,183,195]`，import 自 `claude-runtime.provider.js`）；`grep -n "1800000\|30 \* 60\|BG_WAIT_CEILING" <driver>` **无**输出（`driver ceilingLiterals=0`）；`grep -c "run_in_background" <driver>` → 0（`driver runInBackgroundLiterals=0`）。三条都打印。
 
+
 ### 作用域门（worker 侧先行）
 
-`bash scripts/test.sh --for-task gap-session-hosts-claude-per-run-driver --allow-thin`：退出 **0**，`suite-scope-check: PASS`（`tasks=206 skipped(done/superseded)=197 active=9 with-tests=7 no-tests=2`），`__PERFILE__ ... server/modules/providers/tests/claude-host-per-run.test.ts passed=true`，`# tests 1 / # pass 1 / # fail 0 / # cancelled 0`（文件集来自 Touches 的 `*.test.*`，恰为本条判据一个文件）。**同一命令在并入 develop 后重跑**（见下节），读数与退出码一致。
+`bash scripts/test.sh --for-task gap-session-hosts-claude-per-run-driver --allow-thin`：**并入 develop 前**（分支 HEAD = `05db7d4a`）退出 **0**，`suite-scope-check: PASS`（`tasks=206 skipped(done/superseded)=197 active=9 with-tests=7 no-tests=2`），`__PERFILE__ duration_ms=2491 server/modules/providers/tests/claude-host-per-run.test.ts passed=true`，`# tests 1 / # pass 1 / # fail 0 / # cancelled 0`。
+
+**并入 develop 后**（HEAD = 合并提交 `bca28569`，`HEAD^2` = develop 尖端 `e2368894`）同命令重跑：退出 **0**，`suite-scope-check: PASS`（`tasks=206 skipped(done/superseded)=198 active=8 with-tests=6 no-tests=2`），`__PERFILE__ duration_ms=2542 server/modules/providers/tests/claude-host-per-run.test.ts passed=true`，`# tests 1 / # pass 1 / # fail 0 / # cancelled 0`。两次的文件集都恰为本条判据一个文件（来自 Touches 的 `*.test.*`）；扫描行里 active/with-tests 的差是 develop 上前进的其他任务造成的（develop 并入的还有 AC-156 的 `session-hosts.routes.test.ts` 等），不是本条的文件集变化。
+
+判据本身在并入 develop 后的树上按原命令重跑：退出 **0**、`ℹ fail 0`、`keyReadings lines=14 sha256=79ae7d64ee666919`（与并前**逐字相同**，唯一变化是 `elapsed` 由 1721ms 变 1747ms）⇒ 合并 develop 没有改变本条的读数。
 
 ### 顺序说明
 
