@@ -326,3 +326,14 @@ request and still tells the row AC6 the three answers a reachable service can en
 - session_id：4703df67-3779-487a-b268-fba278ee139c
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-resident-phase0-experiments~wk-prod-anchor~1790385751624-871619.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-resident-phase0-experiments-wk-prod-anchor.log
+
+## Needs-Human
+
+**执行 2026-09-26T02:15:01.676Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 6 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=23994 server/modules/voice/tests/voice-capture-off.false-forms.test.ts passed=false end_ms=1790388808613
+- run_id：wk-prod-anchor
+- session_id：a4e1ddd1-d0ff-40f1-bf1e-27c1dfd4cecc
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-resident-phase0-experiments~wk-prod-anchor~1790388621399-a4b12a.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-resident-phase0-experiments-wk-prod-anchor.log

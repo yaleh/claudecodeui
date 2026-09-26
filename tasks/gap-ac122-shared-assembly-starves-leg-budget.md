@@ -121,52 +121,94 @@ per-run cache 的代价是它**每一次运行都是冷的**：浏览器第一�
 - tasks/gap-ac122-shared-assembly-starves-leg-budget.md
 
 ## 完成记录
+**第 3 轮（续做 + 重退）**：实现仍是上一轮落地的 `092857e2`（`playwright.config.ts` / `scripts/e2e-assembly-budget.mjs` / `scripts/e2e-assembly-budget.test.mjs`，`+552 / -1`），本轮**净改动为零**（唯一的写入是按 Plan S4 把 `playwright.config.ts` 还原取假、再还原，见 AC5；`git diff HEAD -- playwright.config.ts` 为空）。本轮补上上一轮登记为「欠账」的 AC2–AC5 承重读数，并把两次 suite 红归因出去。
 
-**落地状态**：实现已于上一轮完成（`092857e2` "fix(e2e): give each run its own scratch root, prepared under a budget"，恰好只动 Touches 段的三个文件，`+552 / -1`），7/7 AC 已勾选。上一轮 worker 自身 `exit_code: 0`，但在 driver 的机械 fan-in 上于 `step=suite` 被一次与本 delta 无关的随机红拦下，落成 `exited-not-landed`。本轮为**续做 + 重退**，未改任何实现字节。
+### 一、那次 suite 红的归因（本轮的首要交付）
 
-### 本轮的实际交付：把那次 suite 红归因出去
+上一次 `exited-not-landed` 的判词是 `step=suite: __PERFILE__ duration_ms=3145 server/modules/providers/tests/model-config-write-path.test.ts passed=false end_ms=1790387333503`（= `2026-09-26T01:48:53Z`）。三条读数说明它不是本 delta：
 
-`.quay/worker-outcome.jsonl` 中上一轮的记录：`exit_code: 0`、`final_state: exited-not-landed`、`mechanical_fan_in.outcome: "red"`、`step: "suite"`，理由为 `__PERFILE__ duration_ms=652 server/modules/file-tree/tests/file-tree.routes.test.ts passed=false end_ms=1790386826967`。三条独立读数说明它不是本 delta：
+1. **在日志内即可排除**：`…1790387301864-d9013c.log` 里本任务的两个门内判读为 `__PERFILE__ duration_ms=11440 typecheck passed=true` 与 `__PERFILE__ duration_ms=7975 lint passed=true`；本任务 delta 的三个文件（`playwright.config.ts`、两个 `scripts/e2e-assembly-budget*.mjs`）都不是套件测试文件，在该日志里**没有** `__PERFILE__` 行（`grep -nE 'assembly-budget|playwright\.config|voice-trim'` 命中 0）。`git diff --name-only $(git merge-base HEAD develop)..HEAD` 恰为那三个文件。
+2. **独立复跑绿**：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/model-config-write-path.test.ts` → `exit 0`、`ℹ tests 5 / pass 5 / fail 0`、`duration_ms 1649`。
+3. **形状是该文件的已知抽签**：该文件第 37 行 `app.listen(0, '127.0.0.1')` 取临时端口、第 50 行起 `fetch`；日志里是 `__PERFILE_KIND__ … kind=assert` + **文件级** `not ok - <file>:   [TypeError: fetch failed] {`（消息槽不是断言，且被固定宽度截断）。机制：undici 有一份 18 个端口的硬黑名单（本机 `/proc/sys/net/ipv4/ip_local_port_range` = `1024 65535`，18 个全部可达），每次 `listen(0)` 约 `18/64512` 命中，命中即在开 socket 之前抛 `fetch failed`。上一轮的同类红落在**另一个**文件（`server/modules/file-tree/tests/file-tree.routes.test.ts`、`652ms`、同样的 `[TypeError: fetch failed]`）：**两次点名不同文件**正是这条随机通道的指纹，不是本 delta 的。
 
-1. **in-log 证明（最便宜、最硬）**：该 suite 日志（`fan-in-suite-gap-ac122-shared-assembly-starves-leg-budget~wk-prod-anchor~1790386800706-61cebb.log`）里，门自身与本任务的两个门内文件读数为 `typecheck passed=true`(11909ms)、`lint passed=true`(7890ms)；红的那一个文件既不在本任务 delta 里、也不在 Touches 段里 —— `git diff --name-only $(git merge-base HEAD develop)..HEAD` 恰为 `playwright.config.ts` / `scripts/e2e-assembly-budget.mjs` / `scripts/e2e-assembly-budget.test.mjs` 三个文件。整轮 `# tests 237 / pass 236 / fail 1`。
-2. **独立复跑绿**：`npx tsx --tsconfig server/tsconfig.json --test server/modules/file-tree/tests/file-tree.routes.test.ts` 连跑 3 次，全部 `exit 0`、`ℹ tests 4 / pass 4 / fail 0`（302ms / 294ms / 296ms）。
-3. **失败形状是已知的全局抖动**：`__PERFILE_KIND__ … kind=assert`、`duration_ms=652`（**瞬时**，不是超时），文件级 `not ok - <file>:   [TypeError: fetch failed]`。机制：该文件用 `app.listen(0, '127.0.0.1')` 取临时端口后 `fetch`，偶发拿到 undici 端口黑名单里的一个（本机 ephemeral 区间 1024-65535，每次分配命中约 18/64512），在开 socket 之前就抛 `fetch failed`。它落在 Touches 段之外，**不能**靠改那个文件来修 —— 改它会触发 anti-drift 硬失败；本族的逃逸是重新派发。
+逃逸按本族纪律是**重新派发**：不重实现、不改那个文件（它在本任务 `## Touches` 之外，改它会触发 anti-drift 硬失败）。driver 的 `prior exited-not-landed attempts` 列表是每轮重新拼装的常量字符串，「同样理由两次」不等于「确定性」。
 
-### AC1 基线（本轮现跑，非转录）
+### 二、AC1 基线（本轮现跑）
 
-`env -u TMPDIR npx playwright test e2e/voice-trim.spec.ts -g "AC-122"` 连跑 3 次，退出码全 `0`，每次关键行同形：
+`env -u TMPDIR npx playwright test e2e/voice-trim.spec.ts -g "AC-122"` 连跑 3 次，退出码 `0 / 0 / 0`，每次关键行同形：
 
 ```
 [voice-replay] original=2.640s/17416B trimmed=1.850s/177644B (the trimmed replay is the larger body: PCM WAV against the recorder's opus)
 ```
 
-收尾分别为 `1 passed (18.5s)` / `1 passed (18.5s)` / `1 passed (18.3s)`。两份 `error-context.md` 本轮复核**仍在盘上**（`…/quay-e2e-<id>/test-results/voice-trim-the-voice-path--95e1c-rimmed-upload-one-at-a-time/error-context.md`），原文：
+收尾 `1 passed (24.6s)` / `1 passed (18.3s)` / `1 passed (18.5s)`。台账两次 fail 的运行目录本轮复核**仍在盘上**，`error-context.md` 原文与 Proposal 引文一致（此处不重录）：`quay-e2e-o3wIsz` 死在 `expandProject()`（`waiting for getByRole('button', { name: /^voice-trim-workspace/ }).first()`）、`quay-e2e-iqkbb2` 死在 `recordOnce()`（`waiting for getByRole('button', { name: 'Stop recording' })`），两份都只有裸的 `Test timeout of 35000ms exceeded.`。
 
-- `quay-e2e-o3wIsz`：`Test timeout of 35000ms exceeded.` / `Error: locator.click: Target page, context or browser has been closed` / `- waiting for getByRole('button', { name: /^voice-trim-workspace/ }).first()` —— 死在 `expandProject()`（侧栏还没渲染出该工程行）。
-- `quay-e2e-iqkbb2`：`Test timeout of 35000ms exceeded.` / `Error: locator.click: Target page, context or browser has been closed` / `- waiting for getByRole('button', { name: 'Stop recording' })` —— 死在 `recordOnce()`。
+### 三、AC2 / AC5 复现与取假（同一批实验）
 
-两份都**不含** `the recording slot offers no replay of the trimmed upload`，也不含 `[voice-replay]` —— 红在共享装配阶段，未触到 AC-122 四条断言中的任何一条。故本次红与 `gap-voice-clip-dual-playback` / `gap-voice-dual-replay-absent-under-shipped-recogniser` 的修复是否失效无关：上面那 3 条现场绿读数就是它们仍在生效的证据。
+复现做法：把 S2 还原（`git checkout HEAD^2 -- playwright.config.ts`，`planAssembly` 计数 `2→0`，`git status --porcelain` = `M playwright.config.ts`），然后**同一命令、并发度 6、`TMPDIR` 未设**，在 load average `12.97`（128 核）下跑一批：
 
-### AC6 读数（含一处收窄）
+| run | 退出 | 腿时长 | 失败原因 |
+|---|---|---|---|
+| 1 | 1 | 14.8s | `Error: the recording never started sounding` |
+| 2 | 1 | 4.9s | `Error: page.goto: Target page, context or browser has been closed` |
+| 3 | **1** | **35.0s** | **`Test timeout of 35000ms exceeded.`** |
+| 4 | 0 | 9.2s | —（绿） |
+| 5 | **1** | **35.0s** | **`Test timeout of 35000ms exceeded.`** |
+| 6 | 1 | 14.8s | `Error: the recording never started sounding` |
 
-`grep -c "the recording slot offers no replay of the trimmed upload" e2e/voice-trim.spec.ts` = `1`；`grep -c "the recording and the trimmed audio were sounding at once" e2e/voice-trim.spec.ts` = `1`；`git diff $(git merge-base HEAD develop)..HEAD -- e2e/voice-trim.spec.ts playwright.config.ts | grep -cE '^\+.*(60_000|35_000)'` = `0`；`… | grep -c '^shared/asr/'` = `0`；`… | grep -c '^src/modules/chat/'` = `0`。不变量（判据未被削弱、预算未被抬高）成立。唯一不可达的是 `setTimeout(35_000)` 那一处快照（原写 `1`，实测 develop 与本分支同为 `3`），已在 AC6 行内收窄到不变量并写明还原方式。
+整批 wall `47s`，**5/6 红**。AC2 点名的两条（run3 / run5）：
 
-### AC7 读数
+- run3（`/data/home/yale/.cache/quay-e2e-tmp/quay-e2e-K0WfJE/test-results/voice-trim-the-voice-path--95e1c-rimmed-upload-one-at-a-time/error-context.md`）：`Test timeout of 35000ms exceeded.` / `Error: locator.click: Target page, context or browser has been closed` / `- waiting for getByRole('button', { name: /^voice-trim-workspace/ }).first()`；该文件里 `the recording slot offers no replay of the trimmed upload` 计数 **0**、`[voice-replay]` 计数 **0**。
+- run5（`…/quay-e2e-dX7XFn/…`）：同形，两个计数同为 **0**。
 
-`node --test scripts/e2e-assembly-budget.test.mjs` → `exit 0`、`ℹ tests 6 / suites 0 / pass 6 / fail 0`（43.8ms）。`npm run typecheck` → `exit 0`（`tsc --noEmit` 根 / server / scripts 三份均过）。`npm run lint` → `exit 0`（只有既有的 oxlint warning，无一条落在本任务文件上）。
+**如实登记一处**：run1 / run6 的 `error-context.md` 里那两句面的计数各为 `1` —— 但那是 Playwright 打印的**源码 code frame**（`1145 | 'the recording slot offers no replay of the trimmed upload: the trim happened and cannot be heard',` 与 `1173 | \`[voice-replay] original=…\``），它们的失败原因写的是 `Error: the recording never started sounding`。所以 AC2 的「error-context 不含该判据文字」由 run3 / run5 承担，**不**由 run1 / run6 承担。
 
-### 欠账（如实登记，不伪造）
+**AC5 取假**：上表即取假读数（还原 ⇒ 退出 `1` + `Test timeout`，run3 / run5）。随后还原：`git checkout HEAD -- playwright.config.ts` → `planAssembly` 计数回到 `2`、`git diff HEAD -- playwright.config.ts` 为空、`git status --porcelain` 为空。
 
-AC1–AC5 中 AC2/AC3/AC4/AC5 的**原始**实验读数产生于上一轮，而那一轮的 ABI 写入（`58d7a182`）只是 7 个复选框翻转（`git show --stat`：`7 insertions / 7 deletions`），**没有**把读数转写成完成记录段。本记录不把那些读数冒领为「本轮取得」：AC1 / AC6 / AC7 为本轮现跑；AC2 / AC3 / AC4 / AC5 的复现读数（并发度、当时 `load average`、冷预打包预热前后对照、取假回红）本记录**未重取**，Proposal 中引用的 4 次基线读数与两份 `error-context.md` 原文是那批读数存世的副本。若 driver 或审阅者要求补齐 AC5 的承重读数，应按 Plan S4 用 `git checkout <SHA> -- <paths>` 还原再重取，不要用 `git stash`（已提交的改动下它是空操作）。
+### 四、AC3 点名（Proposal 的候选机制被证伪）与「预热前 / 预热后」对照
 
-### L_D / L_G
+复现点名的资源**不是** Proposal 里的候选（per-run 冷 cache 的 vite 依赖预打包）—— **该候选被证伪**：per-run `VITE_CACHE_DIR` 与 per-run data dir 这两处前序修复在本轮全程在位（每份失败目录里都并存 `vite-cache/`、`[e2e] data-dir=… free-bytes=…`、`[e2e] server=… client=…` 三行），而 S2 一还原就 5/6 红。
 
-两条轴仍暗，理由同 DoD：本任务只改测量侧的装配与归因（`playwright.config.ts` 调用预热决策 + `scripts/` 两个文件），不新增领域数据能力，也不读生成质量轴 —— 读数是预热对象、耗时、判定与并发度，没有可读出的领域数据轴或生成质量轴读数；目标层判据由 GOAL-006 的其余判据承担。
+真正被点名的是**共享根文件系统上的 scratch**：Chromium 的 user-data 目录、`tsx` 的 transform cache、Node 的 compile cache、Playwright 自己的 transform cache 都建在 `os.tmpdir()` 下，而 `os.tmpdir()` 读 `TMPDIR`，driver 的环境里 `TMPDIR` 未设 ⇒ 它们全部落在 `/`（`/dev/vda2`，`50G`，舰队共用）上。判据整条腿只有 35s 预算（装配 + 录音 + 四条断言共用），共用的根文件系统被舰队压住时首次页面加载就超出它，失败落在装配阶段、没有任何判据文字可署名。S2 把每份运行的 scratch 指到**该运行自己的** data dir 内（已在选点时挑过余量、在 `/data` 这个 4TB 卷上），并在预算内（`DEFAULT_ASSEMBLY_BUDGET_MS = 35_000`，不高于它守护的那条腿）完成准备，超界则点名是哪个目标超了、超了多少。
 
-### 本轮的边界与门读数
+同一命令、同一并发度（6）的「预热前 / 预热后」对照：
 
-本轮只做续做与重退：`git -C <worktree> merge --no-edit develop` → `Already up to date`（无冲突、`git status --porcelain` 空，无 UU）。scoped 门 `bash scripts/test.sh --for-task gap-ac122-shared-assembly-starves-leg-budget --allow-thin` → 退出 `0`，其中 `suite-scope-check: PASS — 14 active task(s) scanned`；文件集走 thin 分支（`no scoped test files for gap-ac122-shared-assembly-starves-leg-budget (thin)`）—— 本任务 Touches 段里的 `*.test.*` 是 `.mjs`，scoped 文件集正则不含 `.mjs`，本族前例同形。判据文件 `e2e/voice-trim.spec.ts` 本轮**逐字未改**。
+| 状态 | 批次 | wall | 每条腿时长（6 条） | 结果 |
+|---|---|---|---|---|
+| 预热前（S2 还原） | revert-before | 47s | 35.0 / 35.0 / 14.8 / 14.8 / 9.2 / 4.9 | **5/6 红** |
+| 预热后（S2 在位） | fix-b1 | 21s | 9.2 / 9.3 / 9.2 / 9.2 / 9.3 / 9.2 | 6/6 绿 |
+| 预热后 | fix-b2 | 21s | 9.2 / 9.4 / 9.3 / 9.2 / 9.4 / 9.2 | 6/6 绿 |
+| 预热后 | fix-b3 | 23s | 9.7 / 10.3 / 10.8 / 9.4 / 9.4 / 9.4 | 6/6 绿 |
 
+修复侧自己的装配读数（每份运行的 config 打印，可外部复核），18 份里 `elapsed-ms ∈ {0, 1}`：
+
+```
+[e2e] assembly-scratch=/data/home/yale/.cache/quay-e2e-tmp/quay-e2e-<id>/tmp prepared=now elapsed-ms=0 available-bytes=3824567836672
+```
+
+⚠️ **如实说明**：「首次页面加载耗时」没有被单独 instrumentation —— AC6 禁止改动 `e2e/voice-trim.spec.ts`（该文件本轮逐字未改），所以上表以**整条腿时长**（红 4.9–35.0s vs 绿 9.2–10.8s）与**装配步的 `elapsed-ms`** 作为上界读数，没有更细的页面加载计时。
+
+### 五、AC4 修后终态
+
+AC2 的同一命令、同一并发度（6），`N = 3` 批 → **18/18 退出 `0`**，每一份都打印 `[voice-replay] original=2.640s/17416B trimmed=1.850s/177644B`（见上表）。
+
+### 六、AC6 / AC7 读数
+
+- `grep -c "the recording slot offers no replay of the trimmed upload" e2e/voice-trim.spec.ts` → `1`
+- `grep -c "the recording and the trimmed audio were sounding at once" e2e/voice-trim.spec.ts` → `1`
+- `grep -c "setTimeout(35_000)" e2e/voice-trim.spec.ts` → `3`（`git show develop:e2e/voice-trim.spec.ts | grep -c` 同为 `3`，数值未变；本任务对该文件 `git diff --stat $(git merge-base HEAD develop)..HEAD` 为空 = 逐字未改）
+- `git diff $(git merge-base HEAD develop)..HEAD -- e2e/voice-trim.spec.ts playwright.config.ts | grep -cE '^\+.*(60_000|35_000)'` → `0`
+- `git diff --name-only $(git merge-base HEAD develop)..HEAD | grep -c '^shared/asr/'` → `0`；`… | grep -c '^src/modules/chat/'` → `0`
+- `node --test scripts/e2e-assembly-budget.test.mjs` → 退出 `0`、`ℹ tests 6 / pass 6 / fail 0`（`duration_ms 45.8`）
+- `npm run typecheck` → 退出 `0`；`npm run lint` → 退出 `0`（只有既有 oxlint warning，无一条落在本任务文件上）
+
+### 七、L_D / L_G
+
+两条轴仍暗，理由同 DoD：本任务只改测量侧的装配与归因（`playwright.config.ts` 调用预热决策 + `scripts/` 两个文件），不新增领域数据能力，也不读生成质量轴 —— 读数是预热对象、耗时、判定、并发度与退出码，没有可读出的领域数据轴或生成质量轴读数；目标层判据由 GOAL-006 的其余判据承担。
+
+### 八、本轮的边界与门读数
+
+Touches 段与实现均未扩：`git diff --name-only $(git merge-base HEAD develop)..HEAD` 仍恰为 `playwright.config.ts` / `scripts/e2e-assembly-budget.mjs` / `scripts/e2e-assembly-budget.test.mjs` 三个文件。scoped 门 `bash scripts/test.sh --for-task gap-ac122-shared-assembly-starves-leg-budget --allow-thin` → 退出 `0`，`suite-scope-check: PASS — 15 active task(s) scanned`；文件集走 thin 分支（`no scoped test files for gap-ac122-shared-assembly-starves-leg-budget (thin)`）—— 本任务 Touches 段里的 `*.test.*` 是 `.mjs`，scoped 文件集正则不含 `.mjs`，本族前例同形。
 ## Needs-Human
 
 **执行 2026-09-26T01:51:03.955Z — 连续修满重试上限仍不合格（标 needs-human）**
@@ -176,4 +218,15 @@ AC1–AC5 中 AC2/AC3/AC4/AC5 的**原始**实验读数产生于上一轮，而�
 - run_id：wk-prod-anchor
 - session_id：2f3f2d07-fb4b-4c3f-b61b-c3ce00816110
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-ac122-shared-assembly-starves-leg-budget~wk-prod-anchor~1790387301864-d9013c.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-ac122-shared-assembly-starves-leg-budget-wk-prod-anchor.log
+
+## Needs-Human
+
+**执行 2026-09-26T02:17:34.689Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 3 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: not ok - server/modules/providers/tests/claude-sessions.test.ts:   AssertionError [ERR_ASSERTION]: open-a.jsonl was opened by a scan that should have skipped it
+- run_id：wk-prod-anchor
+- session_id：239b7b85-6261-44c0-9734-b546546173c0
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-ac122-shared-assembly-starves-leg-budget~wk-prod-anchor~1790388878653-138691.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-ac122-shared-assembly-starves-leg-budget-wk-prod-anchor.log
