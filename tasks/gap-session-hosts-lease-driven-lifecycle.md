@@ -2,7 +2,7 @@
 id: gap-session-hosts-lease-driven-lifecycle
 title: AC-157 宿主状态机由保活理由驱动：伪造 driver + 注入时钟直接驱动 manager，per-run/resident
   两种策略、关闭原因枚举十值穷举、attach 不刷新 lastActivityAt、exited(oom) 与 shutdown() 停机
-status: ready
+status: done
 labels:
   - gap
 parent: null

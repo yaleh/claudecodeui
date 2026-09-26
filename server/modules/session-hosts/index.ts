@@ -1,14 +1,30 @@
 // sessionHostManager: the process-wide host view. Used by the providers module's
 // `provider-runtime.service` to register every dispatched run as a per-run host,
-// and by this module's criterion test, which reads hosts only through
-// `snapshot()`.
+// by `server/index.ts` to stop every host during shutdown, and by this module's
+// criterion tests, which read hosts only through `snapshot()`.
 export { sessionHostManager, createSessionHostManager } from './session-host-manager.service.js';
-// PerRunTurnInput / SessionHostManagerOptions: the manager's own call shapes, so a
-// caller can type the turn it hands over without reaching into the service file.
+// PerRunTurnInput / SessionHostManagerOptions / OpenHostInput: the manager's own
+// call shapes, so a caller can type the turn or the host it hands over without
+// reaching into the service file.
 export type {
+  OpenHostInput,
   PerRunTurnInput,
   SessionHostManager,
   SessionHostManagerOptions,
+  ShutdownSummary,
+} from './session-host-manager.service.js';
+// HostScheduler: the deadline seam a criterion injects in place of the wall
+// clock, so the quiet ceiling and the shutdown grace period are reachable
+// without waiting them out.
+export type { HostScheduler } from './session-host-manager.service.js';
+// The two shipped policies and the ceilings they are built from, exported so a
+// reader (and the lifecycle criterion) can state a deadline from the same value
+// the manager uses rather than restating the number.
+export {
+  DEFAULT_PER_RUN_POLICY,
+  DEFAULT_RESIDENT_POLICY,
+  PER_RUN_QUIET_CEILING_MS,
+  RESIDENT_IDLE_TIMEOUT,
 } from './session-host-manager.service.js';
 // Host lifecycle read-port types: the vocabulary a consumer needs to read
 // `snapshot()` (and the shape siblings will extend with resident-mode data).
@@ -20,3 +36,11 @@ export type {
   ProcessHost,
   SessionBinding,
 } from '@/shared/types.js';
+// HOST_CLOSE_REASONS: every close reason as a runtime value, so the lifecycle
+// criterion can assert that its cases produced all of them instead of trusting
+// its own list to match the union.
+export { HOST_CLOSE_REASONS } from '@/shared/types.js';
+// LifecyclePolicy / HostCloseDetail: the policy a mode runs under and the extra
+// fact two close reasons carry, needed by any caller that injects a policy or
+// reads why an `exited` host died.
+export type { HostCloseDetail, LifecyclePolicy } from '@/shared/types.js';
