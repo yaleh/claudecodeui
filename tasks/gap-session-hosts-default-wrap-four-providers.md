@@ -2,7 +2,7 @@
 id: gap-session-hosts-default-wrap-four-providers
 title: AC-154 默认包装：四个 provider 的每一轮经 provider-runtime.service 的真实分派入口登记为 per-run
   宿主，按实际收尾给出 turn-complete / aborted / released，Claude 的持有期读成 lingering
-status: needs-human
+status: ready
 labels:
   - gap
 parent: null
@@ -12,6 +12,7 @@ extra:
 goal_ac: AC-154
 depends_on:
   - gap-voice-false-forms-siblings-pid-attribution
+  - gap-session-scope-test-global-namespace-count
 ---
 ## Proposal
 
@@ -155,4 +156,15 @@ depends_on:
 - run_id：wk-prod-anchor
 - session_id：4ac3c079-570a-4584-87c3-54f518f8930d
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-session-hosts-default-wrap-four-providers~wk-prod-anchor~1790342649056-665fe6.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-session-hosts-default-wrap-four-providers-wk-prod-anchor.log
+
+## Needs-Human
+
+**执行 2026-09-25T15:49:46.339Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 4 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: not ok - server/modules/providers/tests/claude-session-scope.test.ts:   AssertionError [ERR_ASSERTION]: timed out after 10000ms waiting for: one surviving session scope, saw ["claudecodeui-session-2180019-1fa1b9e0.scope","claudecodeui-session-2180019-200596a2.scope","claudecodeui-session-2180019-229d6a2d.scope","claudecodeui-session-2180019-44cf8d53.scope","claudecode
+- run_id：wk-prod-anchor
+- session_id：983ec5c5-8a86-4f8e-b3a7-b5991a11cf02
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-session-hosts-default-wrap-four-providers~wk-prod-anchor~1790350562645-af8de5.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-session-hosts-default-wrap-four-providers-wk-prod-anchor.log

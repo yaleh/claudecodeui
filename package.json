@@ -53,6 +53,7 @@
     "test:scripts": "node scripts/list-script-tests.mjs && node --test \"scripts/**/*.test.mjs\"",
     "test:client": "bash scripts/with-memory-cap.sh vitest run",
     "test:e2e": "playwright test",
+    "soak": "bash scripts/soak.sh",
     "lint": "oxlint src/ server/ scripts/ shared/",
     "lint:server": "oxlint server/",
     "lint:client": "oxlint src/",
