@@ -3,7 +3,7 @@ id: gap-tsc-sees-transient-probe-file
 title: server/tsconfig.json 的 include 扫到 voice 判据的瞬时探针：voice-dashscope-settings
   的 AC4(b) 正控制在 server/modules/voice/tmp/ 写下 __stray-shipping-probe.ts 又删掉，并发的
   voice-capture-off AC6 typecheck 收进它之后报 TS6053 ⇒ 全舰队 suite 红、两个任务连停 6/7 轮
-status: todo
+status: ready
 labels:
   - gap
   - defect
