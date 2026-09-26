@@ -2,7 +2,7 @@
 id: gap-session-hosts-binding-multiplexing
 title: AC-158 宿主与会话 1:N：multiplexedHost 伪造 driver 下同一宿主承载两条绑定、解绑一条不关宿主、最后一条恰好一次
   closeHost、同一 appSessionId 二次绑定被拒且点名冲突宿主、per-run 顶替先以 superseded 关旧宿主再起新宿主
-status: ready
+status: done
 labels:
   - gap
 parent: null
