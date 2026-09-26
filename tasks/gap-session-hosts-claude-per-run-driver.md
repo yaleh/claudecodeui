@@ -227,13 +227,13 @@ elapsed=1721ms
 
 ### 作用域门（worker 侧先行）
 
-`bash scripts/test.sh --for-task gap-session-hosts-claude-per-run-driver --allow-thin`：**合并 develop 前**（分支 HEAD = `05db7d4a`）与**并入 develop 后**（合并提交，`HEAD^2` = 并入的那枚 develop 尖端）各按原命令实跑；并后再跑 2 次（末次在一次只动本任务文件的新合并之后）。退出码全部 **0**，读数一致：
+`bash scripts/test.sh --for-task gap-session-hosts-claude-per-run-driver --allow-thin`：**合并 develop 前**（分支 HEAD = `05db7d4a`）与**并入 develop 后**（合并提交，`HEAD^2` = 并入的那枚 develop 尖端）各按原命令实跑；并后在每次只动本任务文件的合并之后都再跑一次。退出码全部 **0**，读数一致：
 
-- `suite-scope-check: PASS — 8 active task(s) scanned`；并后的两次扫描行均为 `tasks=206 skipped(done/superseded)=198 active=8 with-tests=6 no-tests=2`（并前那次为 `skipped=197 active=9 with-tests=7 no-tests=2`——差在 develop 上其他任务的前进，不是本条文件集）；
-- `__PERFILE__ duration_ms=2517..2542 server/modules/providers/tests/claude-host-per-run.test.ts passed=true`；
+- `suite-scope-check: PASS`；扫描行是 **develop 当时的快照**（随其他任务前进而变，不是本条的读数）：并后各次均为 `tasks=206 skipped(done/superseded)=198 active=8 with-tests=6 no-tests=2`，并前那次为 `skipped=197 active=9 with-tests=7 no-tests=2`；本条的文件集恒为下面那一个文件；
+- `__PERFILE__ server/modules/providers/tests/claude-host-per-run.test.ts passed=true`（`duration_ms` 每次约 2.5s 浮动，是运行器的耗时统计、不是判据读数——同 AC8 处的如实登记）；
 - `# tests 1 / # pass 1 / # fail 0 / # cancelled 0` —— 文件集恰为本条判据一个文件，来源是 Touches 的 `*.test.*`。
 
-判据本身在并入 develop 后的树上按原命令重跑：退出 **0**、`ℹ fail 0`、`keyReadings lines=14 sha256=79ae7d64ee666919`（与并前**逐字相同**，唯一变化是 `elapsed` 1721→1747→1756ms）⇒ 合并 develop 没有改动本条的任何读数。
+判据本身在并入 develop 后的树上按原命令重跑：退出 **0**、`ℹ fail 0`、`keyReadings lines=14 sha256=79ae7d64ee666919`（与并前**逐字相同**；唯一变化是运行器耗时 `elapsed`，每次约 1.7s 上下浮动，属机器噪声）⇒ 合并 develop 没有改动本条的任何读数。
 
 作用域门缓存按管道约定写入：`node …/worker-driver.js --write-scoped-gate-cache --task gap-session-hosts-claude-per-run-driver --develop-sha "$(git rev-parse HEAD^2)" --root /data/home/yale/work/claudecodeui`，键取**合并提交真正并入的那枚 develop 尖端**（按构造成本分支 HEAD 的祖先）；本条不把任何合并提交 sha 当作终态——worker 退出后管道自己还要再并 develop。
 
