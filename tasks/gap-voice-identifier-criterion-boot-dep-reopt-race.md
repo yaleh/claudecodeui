@@ -2,7 +2,7 @@
 id: gap-voice-identifier-criterion-boot-dep-reopt-race
 title: AC-115 判据在门自己那次运行里红、且从未跑到自己的断言：夹具的开户前导既无预热也无有界护栏，浏览器被拆时与「修复失效」同形（同族护栏已在
   AC-121/AC-108/AC-142 落地，本 spec 未回灌）
-status: todo
+status: ready
 labels:
   - gap
   - defect
