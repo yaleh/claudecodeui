@@ -41,6 +41,13 @@
  * `npm run typecheck` alone is most of that budget. This file is the task's other executable
  * artifact, it already starts `git`, and it is not the file the target-side gate runs. The in-process
  * half of AC6 (the `off` attempt line gains no field) is where the lines are, in the criterion file.
+ *
+ * WHAT AC6'S RED HAS TO SAY, AND WHY IT SAYS IT IN ONE LINE. A failure here reaches the log through
+ * `scripts/test.sh`'s `first_error()`, which keeps the FIRST 300 BYTES of the first error-ish line
+ * and then deletes the rest of the file's output with `$TMP`. So the attribution is not a diagnostic
+ * that may be printed elsewhere or unfolded over several lines: the command, its exit and the
+ * command's own failure line have to fit in that window, in that order, or the next red is as
+ * unattributable as the one this task was filed about.
  */
 
 import assert from 'node:assert/strict';
@@ -280,12 +287,143 @@ const EXISTING_CRITERIA = [
   'server/modules/voice/tests/voiceTranscribeGaps.test.ts',
 ];
 
+/**
+ * How long ONE of AC6's subcommands may run before it is killed and reported as its own failure.
+ *
+ * THE BOUND IS PART OF THE ATTRIBUTION. Without it a command that hangs is not a reading at all: the
+ * runner kills this whole file at its per-file timeout (`$QUAY_TEST_FILE_TIMEOUT`, 600s), the
+ * assertion below never runs, and the log keeps nothing but "a file died" — the same unattributable
+ * shape this task was filed about. 240s is 20x the slowest command measured on an idle host
+ * (`npm run typecheck`, 11.7s) and leaves 360s of the runner's budget for the other five, so one
+ * hung command is named and the rest of the file still finishes. Six simultaneous hangs would still
+ * outlast the runner — that is the one shape this bound cannot name, and it is not a shape the suite
+ * produces by accident.
+ */
+const COMMAND_TIMEOUT_MS = 240_000;
+
+/** How much of a red command's own output travels with a reading: the last lines, then a byte cap. */
+const TAIL_LINES = 20;
+const TAIL_CHARS = 2048;
+
+/** How much of a red command's own diagnostic line travels with a reading. */
+const SIGNATURE_CHARS = 240;
+
+/** The shape one command's result is reported in: its exit, and — for a red — what it said. */
 type CommandOutcome = {
   command: string;
   exitCode: number;
   /** The case tally the runner printed, or `null` for a command that prints no tally. */
   cases: number | null;
+  /** The signal that killed the command, or `null` when it exited on its own. */
+  signal: string | null;
+  /** True when the command was killed for exceeding `COMMAND_TIMEOUT_MS` rather than exiting. */
+  timedOut: boolean;
+  /** The command's own most diagnostic output line, or `null` when it printed nothing. */
+  signature: string | null;
+  /** The bounded tail of the command's own output, or `null` when it printed nothing. */
+  tail: string | null;
+  /** What `tail` dropped, as a label: `tail: last 20 of 44 lines, 1832B of 9231B kept`. */
+  tailLabel: string | null;
 };
+
+/**
+ * The lines that read as a failure signature.
+ *
+ * A DELIBERATE SUPERSET OF THE RUNNER'S OWN PATTERN. `scripts/test.sh`'s `first_error()` greps
+ * `Error|error|not ok|✗|FAIL|failed`; the spec reporter this file is read under marks a failing test
+ * with `✖` (U+2716 — a different codepoint from the `✗` it greps for) and puts the sentence a reader
+ * needs on the line after it, so the runner's pattern steps over both. What this picks is the first
+ * line a reader would call the failure — the line the runner would have quoted had it reached it.
+ */
+const FAILURE_SIGNATURE_LINE = /✖|✗|✘|Error|error|not ok|FAIL|fail/;
+
+/** The command's own most diagnostic line, bounded, or `null` when it printed nothing. */
+function signatureOf(text: string): string | null {
+  const lines = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
+  if (lines.length === 0) return null;
+  const line = lines.find((candidate) => FAILURE_SIGNATURE_LINE.test(candidate)) ?? lines[lines.length - 1];
+  return line.length > SIGNATURE_CHARS ? `${line.slice(0, SIGNATURE_CHARS)}…` : line;
+}
+
+/**
+ * The tail of a command's output, bounded twice, with the label that says what was dropped.
+ *
+ * THE LABEL IS NOT DECORATION. The runner keeps 300 bytes of a failing line and deletes the rest of
+ * the file's output with `$TMP`, so a reading that shows fewer lines than the command printed has to
+ * say so — otherwise "this command printed one unhelpful line" and "this command's last 40 lines did
+ * not survive the runner" look the same, which is the ambiguity this task removes. `tail` is `null`
+ * only when the command printed nothing at all, which is itself worth carrying: a child killed by a
+ * signal says nothing, and only the label distinguishes that from a child whose words were too long.
+ */
+function tailOf(text: string): { tail: string | null; label: string | null } {
+  const lines = text.split('\n').filter((line) => line.trim() !== '');
+  const body = lines.slice(-TAIL_LINES).join(' ⏎ ');
+  if (body === '') return { tail: null, label: null };
+  const tail = body.length > TAIL_CHARS ? body.slice(-TAIL_CHARS) : body;
+  return {
+    tail,
+    label:
+      `tail: last ${Math.min(TAIL_LINES, lines.length)} of ${lines.length} lines, ` +
+      `${tail.length}B of ${text.length}B kept`,
+  };
+}
+
+/** How a command ended, when `exit=N` alone would misdescribe it. */
+function endOf(outcome: CommandOutcome): string {
+  if (outcome.timedOut) {
+    return `, timed out after ${COMMAND_TIMEOUT_MS}ms${outcome.signal === null ? '' : ` (killed by ${outcome.signal})`}`;
+  }
+  if (outcome.signal === null) return '';
+  // No exit status at all: the child was KILLED, which is a different event from "it failed". An OOM
+  // kill reads here, and so does an outside `timeout(1)`. Reporting the fallback `exit=1` alone would
+  // show that as an ordinary failing test, which is the misattribution this reading exists to stop.
+  return `, killed by ${outcome.signal} with no exit status`;
+}
+
+/** True when a command reds either of AC6's two sets: a non-zero exit, or a vacuous case count. */
+function isRed(outcome: CommandOutcome): boolean {
+  return outcome.exitCode !== 0 || (outcome.cases !== null && outcome.cases === 0);
+}
+
+/**
+ * One red command, described so that the runner's 300-byte slice of this line still names it, its
+ * exit, and what it said.
+ *
+ * ORDER IS THE WHOLE POINT, and it is the difference between this task's red and the one it was filed
+ * about. The command and its exit come first, the command's OWN diagnostic line second, and the
+ * bounded tail last — so what the runner cuts is the tail, never the attribution. The message this
+ * replaces carried none of it: it flagged a boolean and left the reasons in `$TMP`, which the runner
+ * deletes before anyone can read them.
+ */
+function describeRed(outcome: CommandOutcome): string {
+  const parts = [`${outcome.command} (exit=${outcome.exitCode}${endOf(outcome)})`];
+  if (outcome.signature !== null) parts.push(`sig: ${outcome.signature}`);
+  if (outcome.tail !== null) parts.push(`${outcome.tailLabel}: ${outcome.tail}`);
+  // A command can end having printed NOTHING AT ALL — a child killed by a signal often does — and
+  // that is worth stating: it is what tells a reader the silence is the child's, rather than the
+  // runner's 300-byte budget having eaten words the child did say.
+  if (parts.length === 1) parts.push('it printed nothing at all');
+  return parts.join(' | ');
+}
+
+/**
+ * One command's reading, in the shape the runner will quote it.
+ *
+ * A GREEN reading is exactly what it always was. A RED one gains the token `first_error()` greps for
+ * and then the attribution, so the line lifted into `not ok - <file>: …` is this command's own
+ * reading rather than a flag sentence whose reasons are already gone.
+ */
+function readingOf(outcome: CommandOutcome): string {
+  const tally =
+    outcome.cases === null
+      ? 'cases=n/a'
+      : `cases=${outcome.cases}${outcome.cases > 0 ? '' : ' (NOTHING RAN)'}`;
+  if (!isRed(outcome)) return `AC6 exit=${outcome.exitCode} ${tally} :: ${outcome.command}`;
+  return `AC6 FAIL ${tally} :: ${describeRed(outcome)}`;
+}
 
 /**
  * Runs one command and reports its exit code plus, for a test runner, how many cases it ran.
@@ -294,6 +432,14 @@ type CommandOutcome = {
  * something: a `node --test` child that inherits it runs in the parent's context and exits 0 having
  * run NOTHING, which is the exact false green this reading exists to catch. The tally is asserted
  * non-zero for the same reason, one level down.
+ *
+ * THE OUTPUT IS KEPT NOW, AND THAT IS THE FIX. This function used to return the exit code and throw
+ * the command's words away, so a red could only be reported AS a red: the reason lived in the child's
+ * stdout, which this file never saw and the runner deletes with `$TMP` when it exits. On the failing
+ * path both streams are captured — a successful `execFileSync` hands back stdout alone, and a green
+ * command's stderr is nothing this reading needs — and bounded into `signature`/`tail`. Every command
+ * also carries `COMMAND_TIMEOUT_MS`, so a hang ends as this command's named failure rather than as a
+ * file that stopped reporting.
  */
 function runCommand(command: string, args: readonly string[], tally: boolean): CommandOutcome {
   const environment = { ...process.env };
@@ -304,48 +450,86 @@ function runCommand(command: string, args: readonly string[], tally: boolean): C
     env: environment,
     stdio: ['ignore', 'pipe', 'pipe'] as ['ignore', 'pipe', 'pipe'],
     maxBuffer: 64 * 1024 * 1024,
+    timeout: COMMAND_TIMEOUT_MS,
   };
 
-  let output = '';
+  // `stdout` stays apart from the combined capture because the case tally is read from it alone: a
+  // `pass N` that appeared on stderr is not a runner's tally and must not become this reading's.
+  let stdout = '';
+  let spoken = '';
   let exitCode = 0;
+  let signal: string | null = null;
+  let timedOut = false;
   try {
-    output = execFileSync(command, [...args], options);
+    stdout = execFileSync(command, [...args], options);
+    spoken = stdout;
   } catch (error) {
-    const failure = error as { status?: number; stdout?: string };
+    const failure = error as {
+      status?: number;
+      signal?: string | null;
+      stdout?: string;
+      stderr?: string;
+      code?: string;
+    };
+    signal = typeof failure.signal === 'string' ? failure.signal : null;
+    timedOut = failure.code === 'ETIMEDOUT';
     exitCode = typeof failure.status === 'number' ? failure.status : 1;
-    output = typeof failure.stdout === 'string' ? failure.stdout : '';
+    stdout = typeof failure.stdout === 'string' ? failure.stdout : '';
+    spoken = [stdout, typeof failure.stderr === 'string' ? failure.stderr : '']
+      .filter((part) => part !== '')
+      .join('\n');
   }
 
-  const match = tally ? /pass (\d+)/.exec(output) : null;
-  return { command: `${command} ${args.join(' ')}`, exitCode, cases: match === null ? null : Number(match[1]) };
+  const match = tally ? /pass (\d+)/.exec(stdout) : null;
+  const { tail, label } = tailOf(spoken);
+  return {
+    command: `${command} ${args.join(' ')}`,
+    exitCode,
+    cases: match === null ? null : Number(match[1]),
+    signal,
+    timedOut,
+    signature: signatureOf(spoken),
+    tail,
+    tailLabel: label,
+  };
 }
 
 test('AC6 the existing criteria and the repository gates still exit 0', () => {
-  const outcomes: CommandOutcome[] = [
-    ...EXISTING_CRITERIA.map((file) =>
-      runCommand('npx', ['tsx', '--tsconfig', 'server/tsconfig.json', '--test', file], true),
-    ),
-    runCommand('npm', ['run', 'typecheck'], false),
-    runCommand('npm', ['run', 'lint'], false),
-  ];
+  // EACH READING IS WRITTEN AS ITS COMMAND RETURNS, not after all six. A command that hangs, or a
+  // runner that kills this file at its per-file timeout, then still leaves the readings that DID
+  // finish in the log — which is where `first_error()` looks — instead of leaving nothing at all.
+  const outcomes: CommandOutcome[] = [];
+  const runAndReport = (outcome: CommandOutcome): void => {
+    outcomes.push(outcome);
+    process.stdout.write(`${readingOf(outcome)}\n`);
+  };
 
-  for (const outcome of outcomes) {
-    const tally =
-      outcome.cases === null
-        ? 'cases=n/a'
-        : `cases=${outcome.cases}${outcome.cases > 0 ? '' : ' (NOTHING RAN)'}`;
-    process.stdout.write(`AC6 exit=${outcome.exitCode} ${tally} :: ${outcome.command}\n`);
+  for (const file of EXISTING_CRITERIA) {
+    runAndReport(runCommand('npx', ['tsx', '--tsconfig', 'server/tsconfig.json', '--test', file], true));
   }
+  runAndReport(runCommand('npm', ['run', 'typecheck'], false));
+  runAndReport(runCommand('npm', ['run', 'lint'], false));
 
+  // THE TWO SETS BELOW ARE UNCHANGED ON PURPOSE: the set is the criterion, and this task adds
+  // attribution without relaxing it. What changed is the MESSAGE — which command, which exit, and
+  // what that command itself said — because the runner keeps the first 300 bytes of the first
+  // error-ish line and then deletes the command's output with `$TMP`. Nothing renders when the sets
+  // are empty, so the green path is untouched.
   assert.deepEqual(
     outcomes.filter((outcome) => outcome.exitCode !== 0).map((outcome) => outcome.command),
     [],
-    'a surface this task must not have moved is red',
+    [
+      'a surface this task must not have moved is red —',
+      outcomes.filter((outcome) => outcome.exitCode !== 0).map(describeRed).join(' ;; '),
+    ].join(' '),
   );
   assert.deepEqual(
     outcomes.filter((outcome) => outcome.cases !== null && outcome.cases === 0).map((outcome) => outcome.command),
     [],
-    'a criterion that exits 0 having run no cases is a vacuous pass, not a green one',
+    [
+      'a criterion that exits 0 having run no cases is a vacuous pass, not a green one —',
+      outcomes.filter((outcome) => outcome.cases !== null && outcome.cases === 0).map(describeRed).join(' ;; '),
+    ].join(' '),
   );
 });
 

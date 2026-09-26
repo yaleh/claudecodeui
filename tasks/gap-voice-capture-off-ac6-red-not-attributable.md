@@ -3,7 +3,7 @@ id: gap-voice-capture-off-ac6-red-not-attributable
 title: voice-capture-off 的 AC6 红在日志里不点名：断言文案是静态字符串、逐条读数只进 stdout、runner 的
   per-file 输出随 TMP 删除 ⇒ suite 连续两轮只留下「a surface this task must not have moved is
   red」；独立跑与 15 路加压下六条子命令全 exit 0
-status: ready
+status: done
 labels:
   - gap
   - defect
@@ -64,11 +64,11 @@ AC6 exit=0 cases=n/a :: npm run lint
 
 ## AC
 
-- [ ] AC1 断言消息点名失败者：把 `EXISTING_CRITERIA[0]` 临时指向一个不存在的文件（或在 `runCommand` 的返回值上注入一次非零），跑 `npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice-capture-off.false-forms.test.ts`，必须退出非 0，且失败文案**逐字含那条命令与其退出码**。注入前后的原文照抄进完成记录，之后还原并给出还原后的 md5。
-- [ ] AC2 子命令输出随 TAP 进日志：同一注入下，失败文案里含该子命令 stdout/stderr 的**尾部**（有界长度，且文案里标明是尾部与截断长度）。证明方式：把该次运行的 `not ok` 行按 `scripts/test.sh` 的 `first_error()` 规则（`grep -m1 -E 'Error|error|not ok|✗|FAIL|failed' | head -c 300`）取一遍，指出子命令的失败签名确实落在前 300 字符内（或说明为何必须在 300 字符内）。
-- [ ] AC3 有界，且超时也具名：每条子命令带 `timeoutMs`；用一个必然超预算的假子命令（例如把某条命令临时换成 `sleep` 超过预算的等价物）证伪一次——必须退出非 0，文案含命令与 `timed out`。读数与还原一并登记。
-- [ ] AC4 判据未被放松：`git diff develop -- server/modules/voice/tests/voice-capture-off.false-forms.test.ts | grep -c '^-.*assert'` 为 0；两条断言的两个集合条件（`exitCode !== 0`、`cases === 0`）在 diff 里仍是原样；该文件独立连跑 3 次全 `exit 0 / tests 4 / pass 4 / fail 0`；`npm run typecheck`、`npm run lint` 退出 0。
-- [ ] AC5 范围纪律：改动只落在 `server/modules/voice/tests/voice-capture-off.false-forms.test.ts`。若证明必须改 `scripts/test.sh`（例如保留失败文件的输出）才能让原因进日志，**停止**，把证据写进完成记录并按机制另立 gap 任务；不得在本任务里改 runner。
+- [x] AC1 断言消息点名失败者：把 `EXISTING_CRITERIA[0]` 临时指向一个不存在的文件（或在 `runCommand` 的返回值上注入一次非零），跑 `npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice-capture-off.false-forms.test.ts`，必须退出非 0，且失败文案**逐字含那条命令与其退出码**。注入前后的原文照抄进完成记录，之后还原并给出还原后的 md5。
+- [x] AC2 子命令输出随 TAP 进日志：同一注入下，失败文案里含该子命令 stdout/stderr 的**尾部**（有界长度，且文案里标明是尾部与截断长度）。证明方式：把该次运行的 `not ok` 行按 `scripts/test.sh` 的 `first_error()` 规则（`grep -m1 -E 'Error|error|not ok|✗|FAIL|failed' | head -c 300`）取一遍，指出子命令的失败签名确实落在前 300 字符内（或说明为何必须在 300 字符内）。
+- [x] AC3 有界，且超时也具名：每条子命令带 `timeoutMs`；用一个必然超预算的假子命令（例如把某条命令临时换成 `sleep` 超过预算的等价物）证伪一次——必须退出非 0，文案含命令与 `timed out`。读数与还原一并登记。
+- [x] AC4 判据未被放松：`git diff develop -- server/modules/voice/tests/voice-capture-off.false-forms.test.ts | grep -c '^-.*assert'` 为 0；两条断言的两个集合条件（`exitCode !== 0`、`cases === 0`）在 diff 里仍是原样；该文件独立连跑 3 次全 `exit 0 / tests 4 / pass 4 / fail 0`；`npm run typecheck`、`npm run lint` 退出 0。
+- [x] AC5 范围纪律：改动只落在 `server/modules/voice/tests/voice-capture-off.false-forms.test.ts`。若证明必须改 `scripts/test.sh`（例如保留失败文件的输出）才能让原因进日志，**停止**，把证据写进完成记录并按机制另立 gap 任务；不得在本任务里改 runner。
 
 ## DoD
 
@@ -78,3 +78,37 @@ AC6 exit=0 cases=n/a :: npm run lint
 
 - server/modules/voice/tests/voice-capture-off.false-forms.test.ts
 - tasks/gap-voice-capture-off-ac6-red-not-attributable.md
+
+## 完成记录
+
+落地：`1fe9714d`（分支 `task/gap-voice-capture-off-ac6-red-not-attributable`）。改动只有 `server/modules/voice/tests/voice-capture-off.false-forms.test.ts`（AC5）。冻结后的文件 md5 = `827f0a274c3a115325848a9065a8f07c`；下列每一条读数都是在**这组字节**上跑出来的（早期一次读数在补 `describeRed` 的悬空分隔符之前，已作废，未登记）。
+
+**AC1 断言消息点名失败者。** 改前 develop 上的原文（即 driver 两轮日志里那一行，除断言消息外什么都没有）：
+
+```
+not ok - server/modules/voice/tests/voice-capture-off.false-forms.test.ts:   AssertionError [ERR_ASSERTION]: a surface this task must not have moved is red
+```
+
+注入：把 `EXISTING_CRITERIA[0]` 临时指向 `server/modules/voice/tests/__ac1-injected-missing.ts`（注入后整文件 md5 = `8645eb50b23326812ef884edfeee9159`），跑 `npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice-capture-off.false-forms.test.ts`。注入后原文：
+
+```
+AC6 FAIL cases=n/a :: npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/__ac1-injected-missing.ts (exit=1) | sig: Could not find 'server/modules/voice/tests/__ac1-injected-missing.ts' | tail: last 1 of 1 lines, 69B of 70B kept: Could not find 'server/modules/voice/tests/__ac1-injected-missing.ts'
+```
+
+读数：文件退出码 **1**；`ℹ tests 4 / pass 3 / fail 1`。失败文案逐字含那条命令（`npx tsx … --test server/modules/voice/tests/__ac1-injected-missing.ts`）与其退出码（`(exit=1)`）。测试体里流式写出的那一行先于 reporter 的 `✖` 落到 stdout，所以 `first_error()` 的 `grep -m1` 取到的就是它，driver 的 suite 日志里从此显示的是归因行而不是那句无名的 `a surface … is red`。还原后 md5 = `827f0a274c3a115325848a9065a8f07c`（= 注入前同值，无残留）。
+
+**AC2 子命令输出随 TAP 进日志。** 同一次注入的文案里，`tail:` 就是该子命令 stdout/stderr 的尾部，且自带截断读数：`tail: last 1 of 1 lines, 69B of 70B kept: Could not find '…'` —— 「last N of M lines」「XB of YB kept」是标签，`tailOf()` 取末 `TAIL_LINES=20` 行、再按末 `TAIL_CHARS=2048` 字节截断，所以有界。按 `scripts/test.sh` 的 `first_error()` 规则（`grep -m1 -E 'Error|error|not ok|✗|FAIL|failed' | head -c 300`）复取一遍：**命令、`(exit=1)`、完整的 `sig:` 行、以及 tail 标签全部落在前 300 字节内**，300 字节的切割点落在 tail 正文的 `…tests/__ac1` 处（tail 正文被截，标签与签名未被截）—— 这正是「签名先于尾部」这条排版顺序要保证的。`FAIL` 这个 token 是给 `first_error()` 抓的锚；签名正则另含 `✖|✗|✘` 的超集，因为 spec reporter 打的是 `✖`（U+2716），而 `first_error()` 的 `✗`（U+2717）抓不到它。
+
+**AC3 有界，且超时也具名。** 注入：第一条子命令临时换成 `runCommand('sleep', ['300'], false)`，同时 `runCommand` 的 `execFileSync` 选项加了 `timeout: COMMAND_TIMEOUT_MS`（240000ms）。读数：wall = **268s**，文件退出码 **1**，`first_error()` 取到：
+
+```
+AC6 FAIL cases=n/a :: sleep 300 (exit=1, timed out after 240000ms (killed by SIGTERM)) | it printed nothing at all
+```
+
+`timedOut` 从抛出的 `code === 'ETIMEDOUT'` 读（`status=null`、`signal='SIGTERM'`），`exitCode` 落 `1`；该子命令一行都没输出，`describeRed` 于是补一句 `it printed nothing at all` 而不是留下悬空分隔符。同一轮里其余五条读数照常给出（`AC6 exit=0 cases=7/6/8/n/a/n/a`），说明 240s 的有界超时是把「挂住」变成具名的失败，而不是让整个文件被 runner 的 `FILE_TIMEOUT_SECS=600` 打死（268s < 600s，且其余五条仍在同一轮报出）。240s 取自实测：六条子命令里最慢的是 `npm run typecheck` 11.7s，240s 是其 20 倍（`voice.service` 0.57s / `voiceHealth` 0.59s / `voice-config` 2.3s / `voiceTranscribeGaps` 0.73s / `typecheck` 11.7s / `lint` 8.1s）。还原后 md5 = `827f0a274c3a115325848a9065a8f07c`。
+
+**AC4 判据未被放松。** `git diff develop -- server/modules/voice/tests/voice-capture-off.false-forms.test.ts | grep -c '^-.*assert'` = **0**（没有删改任何 `assert.*` 行）；两条断言的两个集合条件 `exitCode !== 0` 与 `cases === 0` 在 diff 里仍是上下文行（无 +/- 前缀）。该文件独立连跑 3 次全 `exit 0 / ℹ tests 4 / pass 4 / fail 0`；`npm run typecheck` rc=0；`npm run lint` rc=0（只有既有的 oxlint 警告，且不在本任务文件上）。改动只落在这一个文件：`git status --porcelain` 只有 ` M server/modules/voice/tests/voice-capture-off.false-forms.test.ts`。
+
+**AC5 范围纪律：没有动 `scripts/test.sh`。** 归因不需要 runner 配合，是因为 `first_error()` 本来就会取「文件里第一行像错误的东西」——把归因放进那条流式读数/断言消息里，就自动搭上了这趟车。所以 runner 一行未改（`git diff develop -- scripts/test.sh` 为空），也没有按「必须改 runner」另立 gap。
+
+**诚实边界（重要）。** 本任务**没有复现** driver 那两轮的红。本任务自己跑出来的读数只有：单跑 3 连绿、以及上面三次注入（注入是「证明下次红能读出来」，不是「红已经被消除」）。finding 里提到的「15 路 lane 形状加压仍绿、六条子命令全 exit 0」**不是本任务跑的**，此处不复核、不作为本任务的证据。因此交付的是**可归因性**，不是**红已被消除**：真正的子命令失败（最可能是 OOM/SIGKILL 或 typecheck 红）需要等这条归因落地后另立任务，届时那轮的 `not ok` 行会直接点名是哪条命令、什么退出码/信号、尾部说了什么。
