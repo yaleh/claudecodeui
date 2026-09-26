@@ -2,7 +2,7 @@
 id: gap-suite-runner-keeps-per-file-logs-on-red
 title: suite runner 在红时把 per-file 日志留盘：$TMP 里每个子进程的完整输出现在随 suite_cleanup 的 rm
   -rf 一起销毁，只剩 first_error 的 300 字符 ⇒ 12 个「died without reporting」的进程事后无法复查
-status: ready
+status: done
 labels:
   - gap
   - defect
