@@ -2,7 +2,7 @@
 id: gap-session-hosts-default-wrap-four-providers
 title: AC-154 默认包装：四个 provider 的每一轮经 provider-runtime.service 的真实分派入口登记为 per-run
   宿主，按实际收尾给出 turn-complete / aborted / released，Claude 的持有期读成 lingering
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -167,4 +167,15 @@ depends_on:
 - run_id：wk-prod-anchor
 - session_id：983ec5c5-8a86-4f8e-b3a7-b5991a11cf02
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-session-hosts-default-wrap-four-providers~wk-prod-anchor~1790350562645-af8de5.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-session-hosts-default-wrap-four-providers-wk-prod-anchor.log
+
+## Needs-Human
+
+**执行 2026-09-26T01:03:35.079Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 5 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: not ok - server/modules/voice/tests/voice-capture-off.false-forms.test.ts:   AssertionError [ERR_ASSERTION]: a surface this task must not have moved is red
+- run_id：wk-prod-anchor
+- session_id：40d83efe-d077-47a3-89a7-0e529b2a7ef4
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-session-hosts-default-wrap-four-providers~wk-prod-anchor~1790384251159-3c90df.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-session-hosts-default-wrap-four-providers-wk-prod-anchor.log
