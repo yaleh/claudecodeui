@@ -279,3 +279,39 @@ bash scripts/test.sh --for-task gap-claude-resident-phase0-experiments --allow-t
 - E9 自身两处读数缺口照旧：`next` 档执行时的落点（9.2 里被撤掉）、`request_user_dialog` 的实物。
 
 本轮修复不触碰以上三项，也不改变任何 E1–E9 的读数与结论。
+
+## Evidence（falsification 变体：把错放回去，2026-09-26）
+
+上一节那条「typecheck 是唯一变量」的对照，本轮又做了一次**直接证伪**：把 6 处类型错误里的第 1 处
+（`stop()` 的 `-child.pid`）原样放回、其余不动，然后单独跑
+`server/modules/voice/tests/voice-capture-text.false-forms.test.ts`：
+
+- `npm run typecheck` → **exit 2**：`scripts/resident-experiment.mjs(1617,27): error TS18048: 'pid' is possibly 'undefined'.`
+- 该文件 → **exit 1**，失败在 `AC10 the six criteria and the repository gates still exit 0`，逐字：
+
+```
+  AssertionError [ERR_ASSERTION]: a surface this task must not have moved is red
+  + actual - expected
+
+  + [
+  +   'npm run typecheck'
+  + ]
+  - []
+```
+
+并且它复现了 suite 日志第 250 行那条 mutant 读数（同一串，不是相似）：
+
+```
+falsify/failure-row-dropped mutant: mutation=failure-row-dropped baseExit=0 mutantRed=true
+whichReading=AC4/failRow predicted=[failRow=0] red=4 [AC2 mode resolution and the two arms
+AC4 the refused attempt keeps the upstream own answer AC5 the preflight refusal costs no
+request and still tells the row AC6 the three answers a reachable service can end as]
+```
+
+放回前同一命令是 `red=0`、该文件 6/6 exit 0；放回后是 `red=4`、exit 1。`git checkout --` 还原后
+`npm run typecheck` 回到 exit 0、该文件回到 6/6 exit 0，工作树 `git status` 干净（还原后 `HEAD=25286036`）。
+**这条读数把「suite 里那 5 条 `not ok` 同源于一个类型错误」从推断变成了实测。**
+
+顺带一条对 `gap-voice-capture-off-ac6-red-not-attributable` 有用的差别：`voice-capture-text` 的这条断言
+把非零命令名**放进了消息**（`actual: [ 'npm run typecheck' ]`），而 `voice-capture-off` 的 AC6 用的是
+**静态字符串**、不含命令名——这就是为什么同一轮里只有后者的红在日志里读不出凶手。
