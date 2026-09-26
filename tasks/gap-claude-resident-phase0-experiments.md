@@ -1,7 +1,7 @@
 ---
 id: gap-claude-resident-phase0-experiments
 title: Claude 常驻会话阶段 0 实验 E1–E9：用真实 claude 二进制取得读数，定下忙时输入基准、控制协议用法与内存上限，结论写回 proposal
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -315,3 +315,14 @@ request and still tells the row AC6 the three answers a reachable service can en
 顺带一条对 `gap-voice-capture-off-ac6-red-not-attributable` 有用的差别：`voice-capture-text` 的这条断言
 把非零命令名**放进了消息**（`actual: [ 'npm run typecheck' ]`），而 `voice-capture-off` 的 AC6 用的是
 **静态字符串**、不含命令名——这就是为什么同一轮里只有后者的红在日志里读不出凶手。
+
+## Needs-Human
+
+**执行 2026-09-26T01:25:41.202Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 5 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=11535 server/modules/debug-agent/tests/debug-agent-gate.test.ts passed=false end_ms=1790385789523
+- run_id：wk-prod-anchor
+- session_id：4703df67-3779-487a-b268-fba278ee139c
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-resident-phase0-experiments~wk-prod-anchor~1790385751624-871619.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-resident-phase0-experiments-wk-prod-anchor.log
