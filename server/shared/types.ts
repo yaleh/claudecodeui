@@ -1711,3 +1711,140 @@ export type ResolvedLaunchSpec = {
   contextWindow: number;
   warnings: string[];
 };
+
+// ---------------------------
+//----------------- SESSION HOST LIFECYCLE TYPES ------------
+/**
+ * How long one host process is meant to live.
+ *
+ * `per-run` is the default for every provider: the process exists for exactly
+ * one turn, so the application has no handle on it between turns. `resident`
+ * is the Claude-only mode in which one process serves many turns, which is what
+ * `HostLease` records are for.
+ */
+export type HostMode = 'per-run' | 'resident';
+
+/**
+ * State of one `ProcessHost`.
+ *
+ * `busy` and `lingering` are the two states the default per-run wrapper can
+ * reach on its own: `busy` while the turn's `turn` lease is held, and
+ * `lingering` once that lease is gone but the run's promise has still not
+ * settled (Claude's held-stdin window, made observable for the first time).
+ * `starting`, `idle` and `closing` are reached only by a provider that owns its
+ * process lifetime through a host driver, so no default-wrapped provider ever
+ * reports them.
+ */
+export type HostState = 'starting' | 'idle' | 'busy' | 'lingering' | 'closing' | 'closed';
+
+/**
+ * Why a host process or one of its session bindings ended.
+ *
+ * One enum covers both `ProcessHost.closeReason` and
+ * `SessionBinding.detachReason` so a client renders a single vocabulary instead
+ * of two provider-shaped ones. Only `turn-complete`, `aborted` and `released`
+ * are produced by the default per-run wrapper; the remaining members are named
+ * here because the state machine they document is shared with the resident mode
+ * and with providers that implement a host driver.
+ */
+export type HostCloseReason =
+  /** The turn ended and nothing else kept the host alive. */
+  | 'turn-complete'
+  /** A held host was let go — the background work reported back or the hold hit its ceiling. */
+  | 'released'
+  /** A newer turn replaced the host a previous turn was still holding. */
+  | 'superseded'
+  /** The user stopped the turn; for a per-run host that means the process dies. */
+  | 'aborted'
+  /** The user closed the host, or deleted/archived the session it served. */
+  | 'user'
+  /** A resident host hit its inactivity ceiling. */
+  | 'idle'
+  /** The session changed between per-run and resident. */
+  | 'mode-change'
+  /** An edited message forced the conversation to restart from a truncation point. */
+  | 'rewind'
+  /** The process exited on its own or crashed. */
+  | 'exited'
+  /** The server shut down normally. */
+  | 'server-shutdown';
+
+/**
+ * One reason a bound session still needs its host process.
+ *
+ * The host is kept alive while the union of its bindings' leases is non-empty,
+ * so leases — not the process — are what the close decision is computed from. A
+ * `turn` lease is held for the duration of one run; the others record work that
+ * outlives the turn that started it, which is what makes a host `lingering`
+ * rather than `closed`.
+ */
+export type HostLease =
+  | { kind: 'turn'; runId: string }
+  | { kind: 'background-task' | 'monitor'; id: string }
+  | { kind: 'cron'; id: string; recurring: boolean; expiresAt: number }
+  | { kind: 'resident-policy' };
+
+/**
+ * One application session running inside one host process.
+ *
+ * Hosts are 1:N with sessions: a per-run host always carries exactly one
+ * binding, while a multiplexing process (Codex `app-server`, `opencode serve`)
+ * carries one per conversation. `providerSessionId` is filled in from the
+ * runtime's own session-id announcement when the provider reports one, so a
+ * binding is the join point between the app id and the provider-native id.
+ */
+export type SessionBinding = {
+  appSessionId: string;
+  providerSessionId: string | null;
+  state: 'idle' | 'busy';
+  leases: HostLease[];
+  lastActivityAt: number;
+  /** Set when the binding was detached; mirrors the host's `closeReason` for that binding. */
+  detachReason: HostCloseReason | null;
+};
+
+/**
+ * One process the session-host layer knows about, in any lifecycle mode.
+ *
+ * `pid` is deliberately nullable: a runtime driven through the default per-run
+ * wrapper never reports its child's pid, and the layer records the truth
+ * (`null`) rather than inventing one. Filling it in is the job of a provider
+ * that owns its process through a host driver.
+ */
+export type ProcessHost = {
+  hostId: string;
+  provider: LLMProvider;
+  mode: HostMode;
+  state: HostState;
+  pid: number | null;
+  startedAt: number;
+  /** Keyed by application session id; see `SessionBinding`. */
+  bindings: Map<string, SessionBinding>;
+  closeReason: HostCloseReason | null;
+};
+
+/**
+ * One turn handed to a host driver.
+ *
+ * Mirrors the command plus run options the application already passes to
+ * `IProviderRuntime.run`, so a driver receives the same inputs the default
+ * wrapper forwards to the runtime it replaces.
+ */
+export type HostTurnInput = {
+  command: string;
+  options: AnyRecord;
+};
+
+/**
+ * One live setting change for a host that is already running.
+ *
+ * Only the three settings a resident provider can change without restarting its
+ * process are modelled; anything else is a new turn's option. Applied through
+ * `IProviderHostDriver.reconfigure`, which reports whether the change took
+ * effect immediately or was deferred to the next turn.
+ */
+export type HostReconfigurePatch = {
+  model?: string;
+  effort?: string;
+  permissionMode?: string;
+};

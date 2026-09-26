@@ -230,3 +230,35 @@ Touches 段与实现均未扩：`git diff --name-only $(git merge-base HEAD deve
 - session_id：239b7b85-6261-44c0-9734-b546546173c0
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-ac122-shared-assembly-starves-leg-budget~wk-prod-anchor~1790388878653-138691.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-ac122-shared-assembly-starves-leg-budget-wk-prod-anchor.log
+
+
+### 九、第 4 轮（续做）：上一次 suite 红的归因，以及本轮的零改动
+
+本轮**实现零改动**：分支上的实现仍是第 3 轮的三个文件（`git diff --name-only $(git merge-base HEAD develop)..HEAD` 恰为 `playwright.config.ts` / `scripts/e2e-assembly-budget.mjs` / `scripts/e2e-assembly-budget.test.mjs`，`+552 / -1`）。`git status --porcelain` 为空。本轮唯一的写入是把 develop（领先 38 个提交）并入本分支（无冲突）与本节记录。
+
+上一次 `exited-not-landed` 的判词是 `step=suite: not ok - server/modules/providers/tests/claude-sessions.test.ts:   AssertionError [ERR_ASSERTION]: open-a.jsonl was opened by a scan that should have skipped it`（suite 日志 `…1790388878653-138691.log`，该文件 `duration_ms=10126`、`__PERFILE_KIND__ … kind=assert`）。**这条红不在本 delta 上**，四条读数：
+
+1. **被判红的文件在本分支上与 develop 逐字相同**：`git diff develop HEAD -- server/modules/providers/tests/claude-sessions.test.ts` 为空（本分支连把它列进 Touches 都没有）。
+2. **本 delta 的三个文件全套件都不会被加载**：server 车道的收集式是 `find server -name '*.test.ts' -o -name '*.test.js'`（`scripts/test.sh:486`），两个 `scripts/*.mjs` 不在其中 —— 判红那份日志的 237 条 `__PERFILE__` 里没有一条 `scripts/`。而 `playwright.config.ts` 只被 playwright 加载：`grep -n playwright scripts/test.sh` 命中 0，所以本任务那行 `process.env.TMPDIR = assemblyTarget` 在套件里**根本没有执行路径**。
+3. **同一份日志里本任务自己的两道门是绿的**：`__PERFILE__ duration_ms=11639 typecheck passed=true`、`__PERFILE__ duration_ms=8027 lint passed=true`。
+4. **被判红的文件在本分支上 37 次连跑全绿**：3 次单跑（退出 `0 / 0 / 0`，`ℹ tests 26 / pass 26 / fail 0`，`duration_ms 5574`）；10 份**同文件并发**（退出 `0` ×10）；3 轮 × 8 个同车道邻居并发（`claude-session-scope` / `session-orphan-prune` / `sessions-watcher-mode` / `session-rename-writeback` / `codex-sessions` / `opencode-sessions` + 两个本舰队公认的负载发生器 `voice-capture-text.false-forms`），共 24 份退出 `0`，loadavg 27–39，`grep -c "was opened by a scan that should have skipped it"` 在每个输出里都是 `0`。**37/37 无一次复现。**
+
+**被点名的机制（已定位，未证实）**：那条断言守的是「游标排除的 transcript 不许被打开」，而 develop 上确有一条**无视游标**的读取通道 —— `ClaudeSessionSynchronizer.synchronize()` 第一步无条件调 `backfillLastActivity()`（`server/modules/providers/list/claude/claude-session-synchronizer.provider.ts:248`），它按 `sessionsDb.getSessionsWithTranscriptPath()`（同文件 `:341-342`）**逐行读取每一个已入库 transcript**，唯一的闸门是一枚一次性 `app_config` 标记 `claude_last_activity_backfill_v1`（`:335-338`）。而这枚闸门是 **fail-open** 的：`appConfigDb.get()` 吞掉一切异常并返回 `null`（`server/modules/database/repositories/app-config.ts:26-29`，注释自陈"Swallow errors so early-startup reads … do not crash"）。于是一次瞬态的 DB 读错误就足以让这个 pass 在下一次 `synchronize()` 时重跑、把那 4 个被游标排除的文件重新读一遍 ⇒ atime 移动 ⇒ 退出码不变、`synchronize(cursor)` 仍返回 `0`、而唯一的署名句恰好是那句 `open-a.jsonl was opened by a scan that should have skipped it`。该测试之所以平时能过，只是因为它的第一次 `synchronize()` 已经把标记写下了。
+
+⚠️ **如实登记**：我没能观察到那次被吞掉的 DB 错误，因此这是**已定位的候选机制**（fail-open 通道经代码复核确认），不是已证实的根因。它所在的文件在本任务 `## Touches` 之外（随 `e7534bcc` 于 2026-09-22 落地，属 `gap-session-lastactivity-from-file-mtime`），按本族纪律**逃逸是重新派发**：不重实现、不改那个文件（改它会触发 anti-drift 硬失败）。另按 `[fan-in suite red]` 族的指纹，被判红的文件集每一轮都不同（本任务三轮分别是 `file-tree.routes` → `model-config-write-path` → `claude-sessions`），这也是它不是本 delta 的证据。
+
+**本轮门读数**：`bash scripts/test.sh --for-task gap-ac122-shared-assembly-starves-leg-budget --allow-thin` 见本节随后的登记（第 3 轮同命令退出 `0`、`suite-scope-check: PASS — 15 active task(s) scanned`、文件集走 thin 分支）。`quay task check` → `ok:true, acTotal 7, acChecked 7`。
+
+
+### 十、第 4 轮读数（全部在合并 develop 之后的树上重测）
+
+承第九节末的登记。本轮已把 develop（领先 38 个提交）并入本分支且无冲突；合并后 `git merge-base HEAD develop` = `ac467188`，`git diff --name-only $(git merge-base HEAD develop)..HEAD` 仍**恰为**三个文件（`playwright.config.ts` / `scripts/e2e-assembly-budget.mjs` / `scripts/e2e-assembly-budget.test.mjs`，`+552 / -1`）。
+
+- **AC1（重测）**：`env -u TMPDIR npx playwright test e2e/voice-trim.spec.ts -g "AC-122"` 连跑 3 次 → 退出 `0 / 0 / 0`，每条都打印 `[voice-replay] original=2.640s/17416B trimmed=1.850s/177644B (the trimmed replay is the larger body: PCM WAV against the recorder's opus)`，收尾分别是 `1 passed (19.0s) / (18.8s) / (18.6s)`，三份的 `[e2e] data-dir=` 各是自己的一份（`quay-e2e-6touPl` / `PBRbOR` / `xAc2ly`）。
+- **AC4（重测）**：AC2 的同一命令、同一并发度（6）一批 → **6/6 退出 `0`**，batch wall `21s`，6 条腿 `1 passed (20.1 / 19.7 / 19.7 / 20.1 / 19.7 / 19.6s)`，每份都有 `[voice-replay]` 行（其中一份 `original=2.640s/17734B` —— 录制体字节随录音抖动，不是异常）。loadavg `17.7 → 21.9`（128 核）。第 3 轮同项为 `N = 3` 批 18/18 绿，本轮为合并后的一批 6/6 绿。
+- **修复在合并后的树上仍在生效**（每份运行自己的 config 打印，可外部复核）：`[e2e] data-dir=/data/home/yale/.cache/quay-e2e-tmp/quay-e2e-<id> free-bytes=… min-free-bytes=1073741824 (candidate /data/home/yale/.cache/quay-e2e-tmp)` 与 `[e2e] assembly-scratch=/data/home/yale/.cache/quay-e2e-tmp/quay-e2e-<id>/tmp prepared=now elapsed-ms=0 available-bytes=…`；同一份运行第二次求值时打印 `prepared=already` —— 即 worker 继承 `TMPDIR`、靠预热留下的探针文件判定「已备好」，这是修复自己声明的「重复求值免费」行为，在合并后的树上逐字复现。
+- **AC6（重测）**：`grep -c "the recording slot offers no replay of the trimmed upload" e2e/voice-trim.spec.ts` → `1`；`grep -c "the recording and the trimmed audio were sounding at once"` → `1`；`grep -c "setTimeout(35_000)" e2e/voice-trim.spec.ts` → `3`，`git show develop:e2e/voice-trim.spec.ts | grep -c "setTimeout(35_000)"` → `3`（数值未变）；`git diff $(git merge-base HEAD develop)..HEAD -- e2e/voice-trim.spec.ts playwright.config.ts | grep -cE '^\+.*(60_000|35_000)'` → `0`；`git diff --name-only $(git merge-base HEAD develop)..HEAD | grep -c '^shared/asr/'` → `0`、`… | grep -c '^src/modules/chat/'` → `0`；`git diff --stat develop HEAD -- e2e/voice-trim.spec.ts` 为空（该文件在合并后的树上仍与 develop 逐字相同）。
+- **AC7（重测）**：`npm run typecheck` → 退出 `0`；`npm run lint` → 退出 `0`（只有既有 oxlint warning，无一条落在本任务文件上）；`node --test scripts/e2e-assembly-budget.test.mjs` → 退出 `0`、`ℹ tests 6 / pass 6 / fail 0`（`duration_ms 63.9`）。
+- **scoped 门（本轮，合并后）**：`bash scripts/test.sh --for-task gap-ac122-shared-assembly-starves-leg-budget --allow-thin` → 退出 `0`；`suite-scope-check: scan tasks=205 skipped(done/superseded)=191 active=14 with-tests=10 no-tests=4` 与 `suite-scope-check: PASS — 14 active task(s) scanned: every active task whose ## Touches lists *.test.* carries --for-task in its ## AC self-test … (line 101 < stage line 428)`；随后 `no scoped test files for gap-ac122-shared-assembly-starves-leg-budget (thin)` —— 与第 3 轮同形：Touches 段里的 `*.test.*` 是 `.mjs`，而 scoped 文件集的正则不含 `.mjs`（本族前例同形）。
+- **scoped 门缓存**：`worker-driver.js --write-scoped-gate-cache --task gap-ac122-shared-assembly-starves-leg-budget --develop-sha "$(git rev-parse develop)" --root …` → `{"event":"scoped-gate-cache-written", …}`，写入 `.quay/scoped-gate-cache.json`。
+- **`quay task check`** → `ok:true, acTotal 7, acChecked 7`；7 条 AC 在本轮逐条复核后全部保持 `- [x]`，**未翻动任何一条**（实现零改动，读数只是重测）。

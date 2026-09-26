@@ -1,6 +1,7 @@
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
 import { providerModelsService } from '@/modules/providers/services/provider-models.service.js';
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
+import { sessionHostManager } from '@/modules/session-hosts/index.js';
 import type { IProvider } from '@/shared/interfaces.js';
 import type {
   AnyRecord,
@@ -31,6 +32,19 @@ const defaultDependencies: ProviderRuntimeServiceDependencies = {
     providerModelsService.resolveResumeModel(provider, sessionId, requestedModel),
   getProviderModels: (provider) => providerModelsService.getProviderModels(provider),
 };
+
+/**
+ * Reads the application session id out of a run's options.
+ *
+ * `options.sessionId` is the stable app id every runtime already receives (and
+ * the id `abort` is called with), which is what a host binding is keyed by.
+ * Callers that pass none get no host, rather than a host keyed by a
+ * provider-native id that changes every run.
+ */
+function resolveAppSessionId(options: AnyRecord): string | null {
+  const sessionId = options?.sessionId;
+  return typeof sessionId === 'string' && sessionId ? sessionId : null;
+}
 
 /**
  * Creates the application-facing provider runtime dispatcher.
@@ -69,7 +83,17 @@ export function createProviderRuntimeService(
     writer: ProviderRuntimeWriter,
   ): Promise<unknown> => {
     const provider = dependencies.resolveProvider(providerName);
-    return provider.runtime.run(command, options, writer, createRuntimeContext(provider));
+    // Every dispatched turn becomes a per-run host. The manager only observes —
+    // it wraps the writer so it can see the terminal frame and hands the
+    // runtime's own promise straight back — so the runtimes below stay
+    // byte-identical and this stays the single dispatch entry point.
+    return sessionHostManager.trackPerRunTurn({
+      provider: providerName,
+      appSessionId: resolveAppSessionId(options),
+      writer,
+      start: (observingWriter) =>
+        provider.runtime.run(command, options, observingWriter, createRuntimeContext(provider)),
+    });
   };
 
   return {
@@ -88,7 +112,14 @@ export function createProviderRuntimeService(
     },
 
     async abort(providerName: LLMProvider, sessionId: string): Promise<boolean> {
-      return Boolean(await dependencies.resolveProvider(providerName).runtime.abort(sessionId));
+      const aborted = Boolean(await dependencies.resolveProvider(providerName).runtime.abort(sessionId));
+      if (aborted) {
+        // The runtime confirmed it stopped something, so the host bound to this
+        // session is aborted rather than left busy. Reported after `abort` (not
+        // before) so a failed stop never closes a host that is still running.
+        sessionHostManager.requestAbort(sessionId);
+      }
+      return aborted;
     },
 
     resolveToolApproval(requestId: string, decision: ProviderPermissionDecision): void {

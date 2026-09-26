@@ -1,7 +1,7 @@
 ---
 id: AC-154
 title: 默认包装：四个 provider 的每一轮都登记为 per-run 宿主，并按实际收尾给出关闭原因
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-012
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -25,6 +25,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-09-26T11:59:59.227Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
