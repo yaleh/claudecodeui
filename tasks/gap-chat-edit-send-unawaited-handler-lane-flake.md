@@ -10,6 +10,8 @@ parent: null
 children: []
 extra:
   schema: execution
+depends_on:
+  - gap-session-scope-test-global-namespace-count
 ---
 ## Finding
 
