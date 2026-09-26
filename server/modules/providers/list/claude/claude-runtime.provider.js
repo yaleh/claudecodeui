@@ -665,8 +665,13 @@ export function startsBackgroundWork(sdkMessage) {
  * @param {Array} files - Non-image attachment descriptors
  * @param {string} cwd - Project working directory attachment paths resolve against
  * @returns {Promise<Array<Object>>} SDKUserMessage records for the turn
+ *
+ * Exported for the per-run host driver, which must deliver the same prompt a run
+ * of this runtime delivers: attachment expansion and file tags have to behave
+ * identically whether the turn is driven from here or from a host, and the only
+ * way to guarantee that is to run the same builder rather than a second copy.
  */
-async function buildPromptMessages(command, images, files, cwd) {
+export async function buildPromptMessages(command, images, files, cwd) {
   const promptWithFiles = appendFilesInputTag(command, files);
   const content = normalizeImageDescriptors(images).length === 0
     ? promptWithFiles
@@ -693,8 +698,12 @@ async function buildPromptMessages(command, images, files, cwd) {
  *
  * @param {Array<Object>} messages - SDKUserMessage records to send
  * @returns {{ stream: AsyncIterable, release: () => void }} Stream plus its closer
+ *
+ * Exported for the per-run host driver: the driver owns a host's lifetime, and
+ * the thing that keeps the CLI alive past a turn's `result` is this hold, so the
+ * driver must use the same hold this runtime uses rather than inventing one.
  */
-function createHeldPromptStream(messages) {
+export function createHeldPromptStream(messages) {
   let release;
   const held = new Promise((resolve) => { release = resolve; });
 
