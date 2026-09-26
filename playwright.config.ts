@@ -6,7 +6,13 @@ import { execFileSync } from 'node:child_process';
 
 import { defineConfig } from '@playwright/test';
 
-import { resolveE2eDataDir } from './scripts/e2e-data-dir-selection.mjs';
+import { fsAvailableBytes, resolveE2eDataDir } from './scripts/e2e-data-dir-selection.mjs';
+import {
+  ASSEMBLY_TEMP_ROOT_ENV,
+  PROBE_FILE_NAME,
+  assemblyTempCandidates,
+  planAssembly,
+} from './scripts/e2e-assembly-budget.mjs';
 
 /**
  * This config's own directory.
@@ -80,6 +86,60 @@ if (process.env.QUAY_E2E_DATA_DIR_OWNER === undefined) {
  * shared mutable state rather than widening anyone's tolerances.
  */
 const viteCacheDir = path.join(dataDir, 'vite-cache');
+
+/**
+ * Where this run's scratch space goes — and whether it can be prepared before the browser needs it.
+ *
+ * The data directory above was moved off `os.tmpdir()`; the rest of the run's scratch was not. Chromium's
+ * user-data directory, `tsx`'s transform cache, Node's compile cache and Playwright's own transform cache are
+ * all created under `os.tmpdir()`, which reads `TMPDIR`, which the driver's environment does not set — so
+ * every run on this host writes them onto the root filesystem, shared with the whole fleet. The criterion this
+ * config serves is bounded at 35 s for its whole leg, assembly included; when that shared filesystem is under
+ * the load a fleet puts on it, the first page load does not finish inside that budget and the leg dies in
+ * `expandProject()` with a bare `Test timeout of 35000ms exceeded` — the same failure a broken replay pair
+ * would produce, and with none of the criterion's own wording to tell them apart. Measured on this host on
+ * 2026-09-26: six concurrent runs of the criterion with `TMPDIR` unset failed 6/6 that way, and the same six
+ * with each run's scratch on the 4 TB volume passed 6/6.
+ *
+ * So the run's scratch is pointed at a directory of its own, inside the directory that was already chosen for
+ * having room, and the choice is made by `scripts/e2e-assembly-budget.mjs` under a budget so that a
+ * preparation that cannot finish is refused *here* — before any server or browser starts, naming the target —
+ * rather than surfacing later as a case that timed out for reasons it cannot see. `TMPDIR` itself is set
+ * rather than passed to the children alone: this is the same variable the whole process tree reads, and the
+ * browser is launched from it.
+ *
+ * Re-evaluation is free by construction: a worker inherits `TMPDIR` already pointed at the owner's directory,
+ * and the probe file left by the owner's warm-up is what `isWarmed` reads, so the second evaluation prepares
+ * nothing.
+ */
+const probePath = (target: string) => path.join(target, PROBE_FILE_NAME);
+const assemblyPlan = planAssembly({
+  candidates: assemblyTempCandidates({ env: process.env, dataDir }),
+  availableBytes: fsAvailableBytes,
+  isWarmed: (target) => fs.existsSync(probePath(target)),
+  warm: (target) => {
+    fs.mkdirSync(target, { recursive: true });
+    // The probe is written, not merely the directory created: a directory that exists is equally what
+    // someone else's run, or a run that died, leaves behind — "prepared" has to be about this run's own
+    // writing for a worker's re-evaluation to be able to trust it.
+    fs.writeFileSync(probePath(target), `${new Date().toISOString()} ${process.pid}\n`);
+  },
+});
+if (!assemblyPlan.ok) {
+  // Ending the run here, synchronously, for the reason the data-directory refusal gives above: on a pipe
+  // `console.error` hands the line off asynchronously, and the refusal text is the whole product of the path.
+  fs.writeSync(2, `${assemblyPlan.reason}\n`);
+  process.exit(1);
+}
+const [assemblyTarget] = assemblyPlan.targets.length > 0 ? assemblyPlan.targets : assemblyPlan.prepared;
+const assemblyReading = 'warmed' in assemblyPlan ? assemblyPlan.warmed[0] : undefined;
+process.env.TMPDIR = assemblyTarget;
+process.env[ASSEMBLY_TEMP_ROOT_ENV] = assemblyTarget;
+console.log(
+  `[e2e] assembly-scratch=${assemblyTarget} prepared=${assemblyPlan.skipped ? 'already' : 'now'}`
+    + ` elapsed-ms=${assemblyPlan.elapsedMs}`
+    + ` available-bytes=${assemblyReading?.availableBytes ?? 'n/a'}`,
+);
 
 /**
  * Asks the kernel for two free TCP ports, held at the same time so it cannot hand back the same one twice,
