@@ -2,7 +2,7 @@
 id: gap-session-hosts-rest-list-endpoint
 title: AC-156 `GET /api/session-hosts` 需鉴权：列出所有 provider
   的宿主（状态/绑定/保活理由/pid/关闭原因），lingering 可见，关闭原因有可注入时钟的保留窗口
-status: todo
+status: ready
 labels:
   - gap
 parent: null
