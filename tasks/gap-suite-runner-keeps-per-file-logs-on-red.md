@@ -2,7 +2,7 @@
 id: gap-suite-runner-keeps-per-file-logs-on-red
 title: suite runner 在红时把 per-file 日志留盘：$TMP 里每个子进程的完整输出现在随 suite_cleanup 的 rm
   -rf 一起销毁，只剩 first_error 的 300 字符 ⇒ 12 个「died without reporting」的进程事后无法复查
-status: ready
+status: done
 labels:
   - gap
   - defect
@@ -44,12 +44,12 @@ extra:
 
 ## AC
 
-- [ ] AC1 红时证据留盘：制造一次确定的失败（临时把某个薄测试文件改坏，或用一个必然非零的假文件），跑 `bash scripts/test.sh --for-task <某任务> --allow-thin`（或等价入口）→ 退出非 0，且运行后**存在** per-file 日志目录；`ls` 该目录应含那个失败文件的完整 stdout/stderr。给出一段原文（含失败签名）与目录路径。
-- [ ] AC2 路径进 TAP：同一轮的 stdout 里有一行点名该目录（路径可直接 `ls`）。把该行原文与 `.quay/fan-in-suite-*.log` 里可见的位置一并登记。
-- [ ] AC3 有界：构造一个输出超大的子进程（例如打印 >1MB），确认留存文件被截断到声明上限，且截断事实写进文件（或 TAP）。同时登记整轮留存总量不超过声明的总上限。
-- [ ] AC4 绿时不增长：一次全绿的运行（可用 scoped/thin 入口）结束后，留存目录**没有**新增（或保持空），`$TMP` 仍被清掉；`/tmp` 的占用与运行前同量级（给出前后 `du -sh /tmp`）。
-- [ ] AC5 中止路径也留：用 SIGTERM/INT 打断一次运行，确认留存目录里仍有该轮已产生的 per-file 日志，且 `kill_tree` 生效（无残留子进程，`pgrep` 读数给出）。
-- [ ] AC6 判定面未变：`git diff develop -- scripts/test.sh` 里 `classify()`/`first_error()` 相关的行没有语义改动（引号原文对照）；`npm run lint` 退出 0；`bash -n scripts/test.sh` 退出 0。
+- [x] AC1 红时证据留盘：制造一次确定的失败（临时把某个薄测试文件改坏，或用一个必然非零的假文件），跑 `bash scripts/test.sh --for-task <某任务> --allow-thin`（或等价入口）→ 退出非 0，且运行后**存在** per-file 日志目录；`ls` 该目录应含那个失败文件的完整 stdout/stderr。给出一段原文（含失败签名）与目录路径。
+- [x] AC2 路径进 TAP：同一轮的 stdout 里有一行点名该目录（路径可直接 `ls`）。把该行原文与 `.quay/fan-in-suite-*.log` 里可见的位置一并登记。
+- [x] AC3 有界：构造一个输出超大的子进程（例如打印 >1MB），确认留存文件被截断到声明上限，且截断事实写进文件（或 TAP）。同时登记整轮留存总量不超过声明的总上限。
+- [x] AC4 绿时不增长：一次全绿的运行（可用 scoped/thin 入口）结束后，留存目录**没有**新增（或保持空），`$TMP` 仍被清掉；`/tmp` 的占用与运行前同量级（给出前后 `du -sh /tmp`）。
+- [x] AC5 中止路径也留：用 SIGTERM/INT 打断一次运行，确认留存目录里仍有该轮已产生的 per-file 日志，且 `kill_tree` 生效（无残留子进程，`pgrep` 读数给出）。
+- [x] AC6 判定面未变：`git diff develop -- scripts/test.sh` 里 `classify()`/`first_error()` 相关的行没有语义改动（引号原文对照）；`npm run lint` 退出 0；`bash -n scripts/test.sh` 退出 0。
 
 ## DoD
 
@@ -59,3 +59,67 @@ extra:
 
 - scripts/test.sh
 - tasks/gap-suite-runner-keeps-per-file-logs-on-red.md
+
+## 完成记录
+
+（worker `task/gap-suite-runner-keeps-per-file-logs-on-red`，实现 commit `45884caa`。以下读数都在该 commit 的树上重测；只有 AC2 的「在 fan-in 日志里的落位」读的是既有日志。）
+
+**AC1 红时证据留盘。** 人为失败 `server/.keep-logs-ac/ac1-fail.test.ts`（`assert.equal(1,2)`，外加一行只存在于该子进程 stdout 的标记），`bash scripts/test.sh server/.keep-logs-ac/ac1-fail.test.ts` → **rc=1**。留存目录
+`<wt>/.quay/suite-logs/20260926T101642-1354145/`，其中 `server__.keep-logs-ac__ac1-fail.test.ts.out`（**31 行**）原文：
+
+```
+AC1-EVIDENCE-MARKER: 0197d3 <-- this line only ever existed in this child process
+✖ AC1 deliberate failing assertion (1.440647ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 133.287967
+
+✖ failing tests:
+
+test at server/.keep-logs-ac/ac1-fail.test.ts:1:165
+✖ AC1 deliberate failing assertion (1.440647ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  1 !== 2
+
+      at TestContext.<anonymous> (/data/home/yale/work/claudecodeui-worktrees/gap-suite-runner-keeps-per-file-logs-on-red/server/.keep-logs-ac/ac1-fail.test.ts:7:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 2,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+```
+
+同轮还留了 `.res`（20 B）与 `watchdog-trace.txt`（48 B）；`MANIFEST.txt` 逐文件记了 kept/produced 字节（`…out 1020 1020`）。
+
+**AC2 路径进 TAP。** 同一轮 stdout 第 7 行逐字（<abs> = 上面那个绝对路径）：
+
+```
+# suite-logs: /data/home/yale/work/claudecodeui-worktrees/gap-suite-runner-keeps-per-file-logs-on-red/.quay/suite-logs/20260926T101642-1354145 | kept 3 of 3 child artifact(s), 1505 bytes on disk (truncation sidecars and the ledger included) of the 67108864-byte whole-run cap; truncated 0, omitted 0 | reason: red: 1 failed, 0 unclassified
+```
+
+位置：紧跟在 `not ok - server/.keep-logs-ac/ac1-fail.test.ts:   AssertionError …`（第 6 行）之后、`# tests 1`（第 8 行）之前。**在 `.quay/fan-in-suite-*.log` 里可见的位置**：该日志是 suite 的 stdout/stderr 逐字留存（首行 `[full-suite-runner] SUITE-RUN-START …`，第 3 行即 `suite-scope-check: scan …`），既有日志 `.quay/fan-in-suite-gap-session-hosts-default-wrap-four-providers~wk-prod-anchor~1790385420930-889531.log` 的 `not ok -` 批占 269–282 行、`# tests 238` 在 283 行；本行由 `scripts/test.sh:810` 的 `not ok` 批循环之后、`:815` 的 `suite_keep_logs "red: …"` 打出，在那份日志里就落在 282 与 283 之间（即其后所有行的行号各 +1）。
+
+**AC3 有界。** 单文件上限：默认 262144 B；打印 >2 MB 的子进程 → 留存文件 `stat -c %s` = **262144**，旁证 `<name>.out.truncated`：
+`[suite-logs] TRUNCATED: kept the first 262144 of 2098103 bytes — 1835959 bytes were dropped (per-file cap 262144 B)`。
+整轮上限：`QUAY_SUITE_LOG_TOTAL_BYTES=400000` 跑两个大输出的失败文件 → 打印
+`kept 3 of 5 child artifact(s), 335513 bytes on disk (truncation sidecars and the ledger included) of the 400000-byte whole-run cap; truncated 2, omitted 2`，与盘上 `find <dir> -type f -printf '%s\n'` 求和 **335513**（6 个文件）一致且 ≤ 400000。上限按构造成立：拷贝前先从总量里扣掉 `LEDGER_RESERVE`，`kept + ledger ≤ cap` 恒真；截断/省略同时写进 sidecar、MANIFEST 与那一行 TAP。
+
+**AC4 绿时不增长。** 一次全绿（`server/.keep-logs-ac/ac4-green.test.ts`，`# pass 1 / # fail 0`）→ **rc=0**，stdout **没有** `# suite-logs:` 行（`grep -c` = 0），`.quay/suite-logs/` 目录数 **17 → 17**（无新增），`du -sh /tmp` 前后均 **6.8G**，`$TMP` 仍被 `rm -rf` 清掉。（显式开关 `QUAY_SUITE_KEEP_LOGS=1` / `--keep-logs [dir]` 才会在绿时也留。）
+
+**AC5 中止路径也留。** 对一次运行发 SIGTERM → **rc=3**，stdout 第 3 行 `not ok - suite-watchdog: terminated by an external signal before the suite finished — see the report above`，第 4 行即该轮 `# suite-logs: … | reason: aborted: the run did not finish on its own`；留存目录里 `server__.keep-logs-ac__ac5-slow.test.ts.out`（566 B）含中断前写下的 `AC5-PARTIAL-MARKER 7a31c` 与 `✖ server/.keep-logs-ac/ac5-slow.test.ts (5796.626047ms)`。`kill_tree` 生效：信号前递归收下 10 个后代 pid，abort 后逐个读 `/proc` → `still alive after the abort: []`。看门狗那条（`QUAY_SUITE_MAX_RUNTIME_MS=4000`）同样留了 `watchdog-verdict.txt`（`suite-watchdog: ABORT guard=max-runtime reason=timeout threshold_ms=4000 elapsed_ms=4022 silent_ms=2008`）与部分输出。EXIT trap 兜底：一次因 `unbound variable` 提前死亡的运行（rc=1）也被留存，`reason: unexpected non-zero exit (rc=1)`。
+
+**AC6 判定面未变。** `git diff develop...HEAD` = **217 insertions / 1 deletion**；唯一的删除行是参数分派那一行（把 `--run-id` 拆成独立 case 记录其值、并新增 `--keep-logs`），与判定无关。`first_error()`（5 行，md5 `f4a5865c…`）与 `# __BEGIN_CLASSIFY__`…`# __END_CLASSIFY__` 区间（54 行，md5 `9e8365d5…`）在 develop 与 HEAD 上逐字节相同（行号 408..412 / 414..467 → 616..620 / 622..675，纯位移）。`bash -n scripts/test.sh` rc=0；`npm run lint` rc=0（仅既有 warning）。
+
+**诚实边界。** 本任务**不解释** 2026-09-25 那 12 个进程为什么消失（现场窗口内没有 OOM，已按秒核对）。它只保证下一次红时那个失败文件（或那个消失进程）自己的输出在盘上、路径在 TAP 里可读；真因要等有了这份证据再另立任务。
