@@ -1,7 +1,7 @@
 ---
 id: AC-155
 title: per-run 的客户端可见行为在接入宿主层前后逐帧相同
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-012
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -22,6 +22,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-09-26T12:36:30.689Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
