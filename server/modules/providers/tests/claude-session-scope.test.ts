@@ -68,6 +68,33 @@ async function waitUntil(
   assert.fail(`timed out after ${timeoutMs}ms waiting for: ${describe()}`);
 }
 
+/**
+ * The unit names from {@link listClaudeSessionScopeUnits} that belong to this file.
+ *
+ * The product function answers the operator's question — every `claudecodeui-session-*` unit on
+ * this host — and that is deliberately the right answer for stop and sweep, whose whole job is to
+ * find *other* servers' orphans. It is the wrong answer for an assertion: a real server on this
+ * machine (a dev `:3001`, a concurrent lane, a DoD harness) keeps its own live sessions in the same
+ * list, so comparing that list against a fixed count is a claim about the host, not about this
+ * file, and it goes red whenever anything else on the machine is holding a session — the normal
+ * state here.
+ *
+ * So every read below goes through this filter, and a unit counts as ours two ways, because this
+ * file fixtures both kinds:
+ *  - hook-created scopes are named `claudecodeui-session-<owner>-<suffix>` with *our* pid, so the
+ *    prefix {@link buildClaudeSessionScopeUnitName} of `process.pid` selects them;
+ *  - `startScope` fixtures are named by hand, and the orphan ones carry a deliberately dead owner
+ *    pid, so the caller passes the names it started via `startedHere`.
+ * A unit matching neither is somebody else's and stays invisible. A *missing* or *extra* unit of
+ * ours still fails, which is what keeps these criteria sharp.
+ */
+const ownScopes = (startedHere: readonly string[] = []): string[] => {
+  const ownPrefix = buildClaudeSessionScopeUnitName(process.pid, '');
+  return listClaudeSessionScopeUnits().filter(
+    (unit) => unit.startsWith(ownPrefix) || startedHere.includes(unit),
+  );
+};
+
 /** Real scopes started directly by the lifecycle case, so every one of them can be reaped. */
 const startedScopeChildren: Array<ChildProcess> = [];
 
@@ -296,10 +323,12 @@ test('a session over its cap dies alone; a live sibling is untouched', async () 
     assert.equal(sibling.exitCode, null, 'the sibling session must still be running');
     assert.equal(sibling.killed, false);
     await waitUntil(
-      () => listClaudeSessionScopeUnits().length === 1,
+      // This process's scopes only: a real server on this host keeps its own live sessions in the
+      // same global list, so the count has to be attributed before it means anything.
+      () => ownScopes().length === 1,
       // The doomed scope is reaped when its last process dies; the sibling's outlives it.
       10_000,
-      () => `one surviving session scope, saw ${JSON.stringify(listClaudeSessionScopeUnits())}`,
+      () => `one surviving session scope, saw ${JSON.stringify(ownScopes())}`,
     );
   } finally {
     sibling.kill('SIGKILL');
@@ -375,17 +404,17 @@ test('stopping this server\'s scopes leaves none, and sweep takes only orphans',
     const owned = ['one', 'two', 'three'].map((suffix) =>
       startScope(buildClaudeSessionScopeUnitName(process.pid, suffix)));
     await waitUntil(
-      () => owned.every((unit) => listClaudeSessionScopeUnits().includes(unit)),
+      () => owned.every((unit) => ownScopes(owned).includes(unit)),
       15_000,
-      () => `three session scopes, saw ${JSON.stringify(listClaudeSessionScopeUnits())}`,
+      () => `three session scopes, saw ${JSON.stringify(ownScopes(owned))}`,
     );
 
     const stopped = stopClaudeSessionScopes();
     assert.deepEqual([...stopped].sort(), [...owned].sort());
     assert.deepEqual(
-      listClaudeSessionScopeUnits(),
+      ownScopes(owned),
       [],
-      'the stop function must leave nothing matching the session scope glob',
+      'the stop function must leave none of this server\'s scopes on the host',
     );
 
     // Two scopes whose owning server is gone, and one whose owner (this process) is not.
@@ -393,16 +422,19 @@ test('stopping this server\'s scopes leaves none, and sweep takes only orphans',
     const orphans = ['orphan-one', 'orphan-two'].map((suffix) =>
       startScope(buildClaudeSessionScopeUnitName(deadOwnerPid, suffix)));
     const survivor = startScope(buildClaudeSessionScopeUnitName(process.pid, 'survivor'));
+    // The two orphans answer to a dead owner pid, so they cannot be attributed by this process's
+    // prefix; the case names them instead. A foreign scope in neither arm stays out of the count.
+    const fixtures = [...orphans, survivor];
     await waitUntil(
-      () => listClaudeSessionScopeUnits().length === 3,
+      () => ownScopes(fixtures).length === 3,
       15_000,
-      () => `three scopes before the sweep, saw ${JSON.stringify(listClaudeSessionScopeUnits())}`,
+      () => `three scopes before the sweep, saw ${JSON.stringify(ownScopes(fixtures))}`,
     );
 
     const swept = sweepOrphanClaudeSessionScopes();
     assert.deepEqual([...swept].sort(), [...orphans].sort());
     assert.deepEqual(
-      listClaudeSessionScopeUnits(),
+      ownScopes([survivor]),
       [survivor],
       'a live server\'s session must survive the sweep',
     );
