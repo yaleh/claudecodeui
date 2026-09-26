@@ -1,7 +1,7 @@
 ---
 id: AC-156
 title: GET /api/session-hosts 列出所有 provider 的宿主，含状态、绑定、保活理由与关闭原因，需鉴权
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-012
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -24,6 +24,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-09-26T13:02:06.460Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
