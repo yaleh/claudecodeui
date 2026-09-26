@@ -70,18 +70,18 @@ goal_ac: AC-155
 
 ## AC
 
-- [ ] AC1 判据入口为绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/session-host-per-run-parity.test.ts` 在落地后的树上退出 **0** 且输出 `fail 0`。红态基线已测：同命令当前退出 1、文案逐字 `Could not find 'server/modules/session-hosts/tests/session-host-per-run-parity.test.ts'`。
-- [ ] AC2 四条场景 × 四个 provider = 16 条录制，全部经真实 `handleChatConnection`（`chat-websocket.service.ts:620`）分派、`chatRunRegistry` 与 `providerRuntimeService`（`:108` 单例）为真、只换进程；逐行打印 `provider=… scenario=… frames=… kinds=…`，16 行都在。
-- [ ] AC3 非平凡正控制：投影后每条序列帧数 > 0；正常一轮那条含且仅含 1 个 `kind: 'complete'` 且打印其 `exitCode`/`aborted`；忙时重复发送那条含 1 个 `kind: 'protocol_error'` 且 `code == 'RUN_IN_PROGRESS'`；重放那条含 1 个 `kind: 'chat_subscribed'` 且重放帧数 ≥ 1（打印 `replayed=…`）。
-- [ ] AC4 宿主层确实在路径上（防「AC-154 被回退 ⇒ 假绿」）：正常一轮进行中 `sessionHostManager.snapshot()` 里该会话恰有一个 `mode=per-run` 宿主，逐 provider 打印 `provider=… hosts=… mode=per-run`；同时 16 条帧序列与基线相同。
-- [ ] AC5 基线确实是接入之前录的：fixture 头部有 `recordedAtCommit`；判据断言 `git cat-file -e <recordedAtCommit>:server/modules/session-hosts/index.ts` 失败、而当前 HEAD 的同一路径存在；两条腿分别打印，失败时点名是哪条腿。
-- [ ] AC6 比较器自测（反红可达性）：`(基线, 基线去掉最后一帧)` 报缺帧并点名该帧；`(基线, 基线 + 一条合成 complete)` 报多帧；两种输入各打印一次判定。
-- [ ] AC7 录制确定性：同一 provider 同一场景连跑两次的投影逐字节相同（至少 4 例，打印 `run1=… run2=… equal=…`）。
-- [ ] AC8 假形态 (a) 承重：宿主关闭路径补发合成 complete ⇒ 判据退出 **1**，红文案点名多出的那条帧；并登记「朴素版本是否被 `chat-run-registry.service.ts:88-92` 去重吞掉（no-op）」的实测读数。实测退出码与红态文案抄进完成记录，用后还原。
-- [ ] AC9 假形态 (b) 承重：忙时直写泄漏到 per-run ⇒ 判据退出 **1**，红文案点名场景③少了 `RUN_IN_PROGRESS` 帧；登记该变体是「构造的」（常驻侧真实现尚未落地）。实测退出码与红态文案抄进完成记录，用后还原。
-- [ ] AC10 生产面零改动：`git diff --name-only` 里没有 `server/modules/providers/list/**`、没有 `server/modules/websocket/services/**`、没有 `server/modules/providers/services/provider-runtime.service.ts`；落地的只有 Touches 列出的文件（`git diff --stat` 逐条对齐）。
-- [ ] AC11 契约面不被改窄：`npm run typecheck`、`npm run lint` 退出 0；既有 `npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-run-registry.test.ts` 与 `…/chat-edit-send.test.ts` 退出 0。
-- [ ] AC12 如实登记：完成记录写明（a）四个 provider 各自的假进程形态与出处（codex 的 mock 面、cursor/opencode 的假可执行文件、claude 假 CLI 的协议与「`result` 之后不退出」如何做到）；（b）`$PRE` 的实际 sha 与「它确实不含宿主模块」的读数；（c）两个假形态的实测退出码与红态文案，含 (a) 的 no-op 读数；（d）投影里除 `timestamp` 外还丢了哪些字段、为什么；（e）未实现：AC-156…AC-160 与常驻侧的一切。
+- [x] AC1 判据入口为绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/session-host-per-run-parity.test.ts` 在落地后的树上退出 **0** 且输出 `fail 0`。红态基线已测：同命令当前退出 1、文案逐字 `Could not find 'server/modules/session-hosts/tests/session-host-per-run-parity.test.ts'`。
+- [x] AC2 四条场景 × 四个 provider = 16 条录制，全部经真实 `handleChatConnection`（`chat-websocket.service.ts:620`）分派、`chatRunRegistry` 与 `providerRuntimeService`（`:108` 单例）为真、只换进程；逐行打印 `provider=… scenario=… frames=… kinds=…`，16 行都在。
+- [x] AC3 非平凡正控制：投影后每条序列帧数 > 0；正常一轮那条含且仅含 1 个 `kind: 'complete'` 且打印其 `exitCode`/`aborted`；忙时重复发送那条含 1 个 `kind: 'protocol_error'` 且 `code == 'RUN_IN_PROGRESS'`；重放那条含 1 个 `kind: 'chat_subscribed'` 且重放帧数 ≥ 1（打印 `replayed=…`）。
+- [x] AC4 宿主层确实在路径上（防「AC-154 被回退 ⇒ 假绿」）：正常一轮进行中 `sessionHostManager.snapshot()` 里该会话恰有一个 `mode=per-run` 宿主，逐 provider 打印 `provider=… hosts=… mode=per-run`；同时 16 条帧序列与基线相同。
+- [x] AC5 基线确实是接入之前录的：fixture 头部有 `recordedAtCommit`；判据断言 `git cat-file -e <recordedAtCommit>:server/modules/session-hosts/index.ts` 失败、而当前 HEAD 的同一路径存在；两条腿分别打印，失败时点名是哪条腿。
+- [x] AC6 比较器自测（反红可达性）：`(基线, 基线去掉最后一帧)` 报缺帧并点名该帧；`(基线, 基线 + 一条合成 complete)` 报多帧；两种输入各打印一次判定。
+- [x] AC7 录制确定性：同一 provider 同一场景连跑两次的投影逐字节相同（至少 4 例，打印 `run1=… run2=… equal=…`）。
+- [x] AC8 假形态 (a) 承重：宿主关闭路径补发合成 complete ⇒ 判据退出 **1**，红文案点名多出的那条帧；并登记「朴素版本是否被 `chat-run-registry.service.ts:88-92` 去重吞掉（no-op）」的实测读数。实测退出码与红态文案抄进完成记录，用后还原。
+- [x] AC9 假形态 (b) 承重：忙时直写泄漏到 per-run ⇒ 判据退出 **1**，红文案点名场景③少了 `RUN_IN_PROGRESS` 帧；登记该变体是「构造的」（常驻侧真实现尚未落地）。实测退出码与红态文案抄进完成记录，用后还原。
+- [x] AC10 生产面零改动：`git diff --name-only` 里没有 `server/modules/providers/list/**`、没有 `server/modules/websocket/services/**`、没有 `server/modules/providers/services/provider-runtime.service.ts`；落地的只有 Touches 列出的文件（`git diff --stat` 逐条对齐）。
+- [x] AC11 契约面不被改窄：`npm run typecheck`、`npm run lint` 退出 0；既有 `npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-run-registry.test.ts` 与 `…/chat-edit-send.test.ts` 退出 0。
+- [x] AC12 如实登记：完成记录写明（a）四个 provider 各自的假进程形态与出处（codex 的 mock 面、cursor/opencode 的假可执行文件、claude 假 CLI 的协议与「`result` 之后不退出」如何做到）；（b）`$PRE` 的实际 sha 与「它确实不含宿主模块」的读数；（c）两个假形态的实测退出码与红态文案，含 (a) 的 no-op 读数；（d）投影里除 `timestamp` 外还丢了哪些字段、为什么；（e）未实现：AC-156…AC-160 与常驻侧的一切。
 
 ## DoD
 
@@ -94,3 +94,181 @@ goal_ac: AC-155
 - server/modules/session-hosts/tests/record-per-run-frame-baseline.test.ts (new)
 - server/modules/session-hosts/tests/fixtures/per-run-frame-baseline.json (new)
 - tasks/gap-session-hosts-per-run-frame-parity.md
+
+## Completion
+
+**改动：** 只加测试与 fixture，生产面零改动。`git diff --stat develop...HEAD` = 4 files changed, 1723 insertions(+)：`session-host-per-run-parity.test.ts`（判据，377 行）、`per-run-frame-scenarios.ts`（驱动 + 投影 + 比较器，664 行）、`record-per-run-frame-baseline.test.ts`（录制器，137 行）、`fixtures/per-run-frame-baseline.json`（16 条投影帧，545 行）。`git diff --name-only develop...HEAD | grep -E '^server/modules/providers/list/|^server/modules/websocket/services/|^server/modules/providers/services/provider-runtime.service.ts'` → **空**。判据命令被跑过多次，逐轮读数见下。
+
+### AC1 判据为绿
+
+```
+npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/session-host-per-run-parity.test.ts
+→ exit 0   ℹ pass 5   ℹ fail 0   ℹ duration_ms 6349  （另两轮 7239 / 12265；宿主 load average 215 @ 128 核）
+```
+
+红态基线（未落地时直跑，不是推断）：exit **1**，文案逐字 `Could not find 'server/modules/session-hosts/tests/session-host-per-run-parity.test.ts'`。
+
+### AC2 16 条录制（逐行读数）
+
+```
+provider=claude   scenario=turn    frames=3 kinds=text,text,complete
+provider=claude   scenario=abort   frames=3 kinds=text,text,complete
+provider=claude   scenario=busy    frames=4 kinds=text,text,protocol_error,complete
+provider=claude   scenario=replay  frames=3 kinds=chat_subscribed,text,complete
+provider=codex    scenario=turn    frames=3 kinds=text,text,complete
+provider=codex    scenario=abort   frames=3 kinds=text,text,complete
+provider=codex    scenario=busy    frames=4 kinds=text,text,protocol_error,complete
+provider=codex    scenario=replay  frames=3 kinds=chat_subscribed,text,complete
+provider=cursor   scenario=turn    frames=3 kinds=stream_delta,stream_delta,complete
+provider=cursor   scenario=abort   frames=3 kinds=stream_delta,stream_delta,complete
+provider=cursor   scenario=busy    frames=4 kinds=stream_delta,stream_delta,protocol_error,complete
+provider=cursor   scenario=replay  frames=3 kinds=chat_subscribed,stream_delta,complete
+provider=opencode scenario=turn    frames=4 kinds=stream_delta,stream_delta,stream_end,complete
+provider=opencode scenario=abort   frames=3 kinds=stream_delta,stream_delta,complete
+provider=opencode scenario=busy    frames=5 kinds=stream_delta,stream_delta,protocol_error,stream_end,complete
+provider=opencode scenario=replay  frames=4 kinds=chat_subscribed,stream_delta,stream_end,complete
+```
+
+全部经真实 `handleChatConnection` 分派、真实 `chatRunRegistry` 排序/重放、生产 `providerRuntimeService` 单例跑，只换进程。
+
+### AC3 非平凡正控制
+
+16 条帧数全部 > 0。正常一轮的 terminal complete（**按有无打印，不按值**）：
+
+```
+claude   hasExitCode=true  hasAborted=true  exitCode=0 aborted=false
+codex    hasExitCode=false hasAborted=false exitCode=undefined aborted=undefined
+cursor   hasExitCode=true  hasAborted=true  exitCode=0 aborted=false
+opencode hasExitCode=true  hasAborted=true  exitCode=0 aborted=false
+```
+
+**codex 的 `complete` 根本不带 `exitCode`/`aborted`** —— 这是 codex emit 侧的形状，不是投影丢的：基线（接入宿主层**之前**录的）里同样没有，投影也只丢 `id`/`timestamp`。判据因此按「字段在不在」打印，而不是按值，免得把 `undefined` 读成「被宿主层吃掉了」。
+
+忙时那条：4/4 provider 各含 1 个 `protocol_error` 且 `code == 'RUN_IN_PROGRESS'`。重放那条：
+
+```
+claude   ackLastSeq=2 replayed=1 kinds=text
+codex    ackLastSeq=2 replayed=1 kinds=text
+cursor   ackLastSeq=2 replayed=1 kinds=stream_delta
+opencode ackLastSeq=2 replayed=2 kinds=stream_delta,stream_end
+```
+
+`replayed` 只数 ack 之后 `seq > lastSeq` 的**非 terminal** 帧（terminal complete 是闸门放开后生的，算进去会把重放功劳记到没重放的东西上）。
+
+### AC4 宿主层确实在路径上
+
+正常一轮进行中（闸门关着）取 `sessionHostManager.snapshot()`：
+
+```
+claude   session=claude-turn-parity   hosts=1  mode=per-run=1  host-299cf01e…(mode=per-run state=busy)
+codex    session=codex-turn-parity    hosts=5  mode=per-run=1  host-57c44de8…(mode=per-run state=busy)
+cursor   session=cursor-turn-parity   hosts=9  mode=per-run=1  host-52293faa…(mode=per-run state=busy)
+opencode session=opencode-turn-parity hosts=13 mode=per-run=1  host-7c4a42d8…(mode=per-run state=busy)
+```
+
+`hosts=N` 递增是 `snapshot()` 有意不裁剪已关闭宿主（关闭原因要留在读数里），所以每轮多一台；关键是**绑定在该会话上的 `mode=per-run` 恰好 1 台**。摘掉 AC-154 的包装则这条为 0 ⇒ 判据红，而不是帧没变就假绿。
+
+同时 16 条逐帧深比较：
+
+```
+baseline compared: 16 sequences, 55 frames, 0 differences (projection drops id + timestamp)
+```
+
+### AC5 基线录在接入之前
+
+```
+leg1 recordedAtCommit=53739649d1c6c953338561fef0d67e6327bbadc0 containsHostModule=false -> PASS
+leg2 HEAD=7cc6c6633aa680c0dbf76c505a13328ce2f4b81f containsHostModule=true -> PASS
+```
+
+两腿分别打印；任一条不成立时断言文案点名是哪条腿。`$PRE` 的实际读数：`git cat-file -e 53739649…:server/modules/session-hosts/index.ts` → `fatal: path … exists on disk, but not in '53739649…'`，退出 128。
+
+### AC6 比较器自测
+
+```
+comparator baseline-minus-last-frame       -> missing frame at #2 {"kind":"complete",…,"exitCode":0,"success":true,"aborted":false,"seq":3}
+comparator baseline-plus-synthetic-complete -> extra frame at #3 {"kind":"complete",…,"exitCode":0,"success":true,"aborted":false,"seq":4}
+```
+
+两种输入各点名了那一条帧 —— 这是假形态 (a) 检出路径的存在性证明，不是一条永不触发的断言。
+
+### AC7 录制确定性
+
+```
+claude/turn    run1=3 run2=3 rawEqual=false equal=true
+codex/busy     run1=4 run2=4 rawEqual=false equal=true
+cursor/replay  run1=3 run2=3 rawEqual=false equal=true
+opencode/turn  run1=4 run2=4 rawEqual=false equal=true
+```
+
+`rawEqual=false` 而 `equal=true` 是**投影承重**的读数：不丢 `id`/`timestamp` 两轮就不等，丢了就逐字节相等。判据断言「至少一对 raw 不等」，否则丢字段这件事没人挣得。AC7 的「第一次跑」用的是前面 16 条里已录的那次读数（不是新跑一遍），这样比较横跨整个文件的墙钟、且把判据的驱动数从 24 降到 20 —— 判据在驱动器里有硬超时，机器又常被整队 fan-in 压满（本轮实测 load 215）。
+
+### AC8 假形态 (a)：朴素版本是 no-op，可达形态必红
+
+判据文件一字未动，只改生产实现，测完 `git checkout --` 还原。
+
+**(a-i) 朴素写法 = no-op，被去重吞掉。** 在 `provider-runtime.service.ts` 的宿主关闭时机（`start` 返回的 promise 结算后）经 `observingWriter.send(createCompleteMessage(...))` 补发合成 complete：
+
+```
+exit 0   ℹ pass 5   ℹ fail 0        ← 判据照绿，你会以为它在承重
+```
+
+**正控制（证明钩子确实活着、被吞的就是去重那一条）：** 同一钩子、同一 writer，只把帧换成 `{kind:'text', content:'variant-a-probe'}`：
+
+```
+exit 1   ℹ fail 1
+AssertionError: claude/turn: extra frame at #3 {"kind":"text","provider":"claude","role":"assistant","content":"variant-a-probe","sessionId":"claude-turn-parity","seq":4}
+```
+
+即钩子真跑了、writer 真到了 socket、还真拿到了 `seq`（=4）。所以 (a-i) 的 no-op 不是「钩子没到」，就是 `chat-run-registry.service.ts:88-92` 的 exactly-one-complete 去重丢的。
+
+**(a-ii) 可达形态：直写连接。** 生产里通往客户端的出口只有一个 —— `ChatSessionWriter`。`send()` 与 `sendComplete()` 都过 `decorateOutboundEvent`（就是那条去重），只有连接级的 `forward()` 不过。所以「直写连接那一支」= 走 `forward`。在宿主关闭时取 `chatRunRegistry.getRun(appSessionId)` 再 `forward` 一份合成 complete：
+
+```
+exit 1   ℹ fail 2
+AssertionError: claude/turn must end in exactly one terminal complete
+AssertionError: claude/turn: extra frame at #3 {"kind":"complete","provider":"claude","sessionId":"claude-turn-parity","actualSessionId":"claude-turn-parity","exitCode":0,"success":true,"aborted":false}
+```
+
+红文案点名了多出的那条帧，且它**没有 `seq`** —— 正是绕过注册表的直写签名（和 `protocol_error` 一样直发不带 seq）。
+
+顺带一个更强的结构性读数：`decorateAndRecordEvent` 里 `run.writer.send(message)` **不是**直写 —— `run.writer` 就是那个装饰 writer，`send` 会回头再进 `decorateOutboundEvent`。实测这样写在单条 `claude/turn` 上产生 **2657 次** `decorateAndRecordEvent` 重入（3 次真帧 + 2654 次自噬），既是重入陷阱也不是出口。
+
+### AC9 假形态 (b)：构造的，红在点名那条读数上
+
+常驻侧的真实现今天不存在（AC-157 / AC-159 未落地），所以这条是**构造出来的**，不是真回归。做法：`chat-websocket.service.ts` 忙时分支 (`:235-247`)，当该会话有活 run 时，走「把新输入写进活着的进程、不再拒绝」的常驻规则，于是不再发 `RUN_IN_PROGRESS`；帧流上表现为恰好少一帧。
+
+```
+exit 1   ℹ fail 2
+AssertionError: claude/busy must carry exactly one RUN_IN_PROGRESS protocol_error for the refused second send (found 0; kinds=text,text,complete)
+AssertionError: claude/busy: missing frame at #2 {"kind":"protocol_error","code":"RUN_IN_PROGRESS","error":"Session \"claude-busy-parity\" already has a run in progress.","sessionId":"claude-busy-parity"}
+```
+
+### AC10 生产面零改动
+
+`git diff --name-only develop...HEAD` = 恰好 4 个文件（判据、驱动、录制器、fixture），全部在 Touches 里；`server/modules/providers/list/**`、`server/modules/websocket/services/**`、`provider-runtime.service.ts` 一个都没有。两个假形态的临时改动均已 `git checkout --` 还原，`git status --short` 干净。
+
+### AC11 契约面不被改窄
+
+`npm run typecheck` → exit 0（三条 tsc 全过）。`npm run lint` → exit 0（输出里没有本条的任何一个文件）。既有 `chat-run-registry.test.ts` → exit 0（9 pass / 0 fail）；`chat-edit-send.test.ts` → exit 0（8 pass / 0 fail）。
+
+### AC12 如实登记
+
+**(a) 四个假进程的形态与出处。** 四者都只在**进程层**伪造，provider 对象、`ProviderRuntimeContext`、`handleChatConnection`、`chatRunRegistry`、`providerRuntimeService` 全是真的。
+
+- **codex**：`Codex.prototype.startThread` / `resumeThread` 换成返回假 `Thread`（`runStreamed()` 给一个 async generator，按序 yield `thread.started` → `item.completed`(alpha) → `item.completed`(omega) → 等闸门 → `turn.completed`）。机制出处 `server/modules/providers/tests/codex-runtime.test.ts`。`item.completed` 只有 alpha 带 `id`，omega 不带 —— 正因为这个不稳定字段才需要投影。
+- **cursor / opencode**：临时目录里写可执行 shim（`chmod 0o755`）并前插 `PATH`，形态照 `opencode-runtime.provider.test.js` 的 `createFakeOpenCodeExecutable`。两者都必须带 `--version` 守卫：opencode 的 runtime 在子进程 `code === null` 时会 `await context.isProviderInstalled()` 探 `opencode --version`，假进程若无视 argv 就地停住，探测会超时 ~5s 并**伪造一条 `error` 帧**污染读数（实测 abort 场景 5254ms + 多一帧；加守卫后 289ms）。cursor 同理。
+- **claude**：`CLAUDE_CLI_PATH` 指向临时目录里的假 CLI，按 SDK stream-json 协议输出 `system/init` → `assistant`(alpha) → `assistant`(omega) → 等闸门 → `result`。**「`result` 之后不退出」怎么做到**：闸门是环境变量轮询（`process.env.PER_RUN_PARITY_RELEASE`，10ms 一次，上限 15s），`result` 之后靠 `process.stdin.on('end', …)` 收尾；中断靠 SDK 的 control_request —— 解析 stdin 的 `control_request`，`subtype === 'interrupt'` 时 20ms 后 `process.exit(0)`。**这一条是必须的**：不认 interrupt 的话 claude 那一格会一直停在闸门上直到 15s 上限（实测 abort 15369ms；认了之后 350ms）。
+- 四个假自带一份、不 import AC-154 的测试文件；`per-run-frame-scenarios.ts` 不 import `@/modules/session-hosts`（只在注释里提到），所以它也能在 `$PRE` 那棵树上跑（录制器正是这么用的）。
+
+**(b) `$PRE` 的实际 sha 与读数。** `HOST_COMMIT=d911624794e844b5ed9613bf0629a05355405fb3`（`git log --diff-filter=A --format=%H -1 -- server/modules/session-hosts/index.ts`），`PRE=53739649d1c6c953338561fef0d67e6327bbadc0`。`git cat-file -e 53739649…:server/modules/session-hosts/index.ts` **失败**（`fatal: path … exists on disk, but not in '53739649…'`，exit 128）；同一路径在 `HEAD` 上存在。fixture 头 `recordedAtCommit: "53739649d1c6c953338561fef0d67e6327bbadc0"`、`recordedAt: "2026-09-26T12:13:25.240Z"`。录制在仓内临时 worktree `.worktrees/parity-record` 上做（放仓内是为了让 Node 沿父目录找到仓库根的 `node_modules`），录完拷回、`git worktree remove` 清掉。
+
+**(c) 两个假形态的实测退出码与红态文案。** 见上面 AC8 / AC9 两节（含 (a-i) 的 no-op 读数 `exit 0 / fail 0`、它的 `text` 正控制 `exit 1` 点名该帧、(a-ii) 的 `exit 1` 点名多帧、以及 (b) 的 `exit 1` 点名缺 `RUN_IN_PROGRESS` 帧）。两个形态都只改实现、判据文件一字未动，用后还原。
+
+**(d) 投影除 `timestamp` 外还丢了哪些字段、为什么。** 丢的字段是 `id` 与 `timestamp` 两个，逐个有实测理由：同一 provider 同一场景连跑两轮，逐字段比对（`rawEqual=false`）显示**只有**这两个字段变动，其余全稳。`id` 是运行时/假进程侧生成的帧标识，`timestamp` 是墙钟。两者都不是客户端可见语义（前端不按它们做去重或排序 —— 排序用的是 `seq`），故进投影丢弃清单。**`kind` 与 `seq` 永不丢**（比较两者是「逐帧不变」的骨架）；`complete` 的 `exitCode`/`aborted` 与 `protocol_error` 的 `code` 同样永不丢 —— codex 那格 `complete` 里它们**本就不存在**，判据读的是「字段在不在」，不拿投影去糊成统一形状。
+
+**(e) 未实现：** AC-156 的两条 REST、AC-157 的状态机/停机/关闭原因穷举、AC-158 的 1:N 解绑与顶替、AC-159 的 Claude 常驻 driver、AC-160 的调试 agent 场景 op，以及常驻侧的一切。本条不改任何生产代码。
+
+### 一处判据修正（由 AC9 实测换来）
+
+AC9 的实测第一次跑出来，红文案点的是**错的帧**：基线比较报 `missing frame at #3 {"kind":"complete",…}`，而真正消失的是 `#2` 的 `protocol_error`。原因是 `compareFrames` 先比长度、把任何更短的序列都归成「缺了尾巴」。改成**先定位第一处分歧、再分类**：中间少一帧就点名它消失的位置，中间插一帧就点名它落下的位置。改完 (b) 的红文案变成 `missing frame at #2 {"kind":"protocol_error","code":"RUN_IN_PROGRESS",…}` —— 点名点对了。这条修正不是预想的，是假形态实测逼出来的：**如果只登记「变体红了」而不读红文案，这个错归因会被原样留在判据里。**
