@@ -1613,13 +1613,19 @@ export function startStreamJsonCli(init) {
     async stop() {
       try { child.stdin.end(); } catch { /* 已关 */ }
       await delay(800);
-      try { process.kill(-child.pid, 'SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch { /* 已死 */ } }
+      const pid = child.pid;
+      // `spawn` 失败时 `child.pid` 是 undefined，此时 `-undefined` 会算成 `NaN`；
+      // 没有 pid 就没有进程组可杀，退回杀 child 本身（同样失败即已被回收）。
+      if (pid === undefined) { try { child.kill('SIGKILL'); } catch { /* 已死 */ } } else {
+        try { process.kill(-pid, 'SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch { /* 已死 */ } }
+      }
       await delay(300);
     },
   };
 }
 
 /** 一行事件读数：毫秒时间戳 + 类型 + E9 关心的字段。 */
+/** @param {{ at: string, json: any, raw: string }} event @returns {string} */
 export function describeEvent(event) {
   const json = event.json;
   const at = event.at.slice(11, 23);
@@ -1663,6 +1669,7 @@ export function markerScript() {
 }
 
 /** 把一组原始行包成 E9 的一小节（`读数：` 行留给 experimentE9 统一放）。 */
+/** @param {string} label @param {string[]} lines @returns {string} */
 function e9Group(label, lines) {
   return `**${label}**\n\n\`\`\`\n${lines.join('\n')}\n\`\`\``;
 }
@@ -1685,8 +1692,11 @@ async function e9EnvironmentWitness(databasePath) {
   try {
     cli.send('E9-ENV 打个招呼');
     await delay(6_000);
-    witness = await databasePathWitness([cli.child.pid], databasePath);
-    const environ = readEnviron(cli.child.pid);
+    // `spawn` 失败时 `child.pid` 是 undefined：没有 pid 就读不到 `/proc/<pid>/environ`，
+    // 如实记成"未取到"，不把 `NaN` 当 pid 传给取数函数。
+    const cliPid = cli.child.pid;
+    witness = cliPid === undefined ? '（未取到：cli 进程没有 pid）' : await databasePathWitness([cliPid], databasePath);
+    const environ = cliPid === undefined ? null : readEnviron(cliPid);
     envKeys = environ === null ? '（environ 读不到）' : `ANTHROPIC_BASE_URL=${environ.ANTHROPIC_BASE_URL ?? '（未设置）'} CLAUDE_CONFIG_DIR=${environ.CLAUDE_CONFIG_DIR ?? '（未设置）'} ANTHROPIC_API_KEY=${environ.ANTHROPIC_API_KEY === undefined ? '（未设置）' : '⛔仍在'}`;
   } finally {
     await cli.stop();
