@@ -2,7 +2,7 @@
 id: gap-chat-edit-send-unawaited-handler-lane-flake
 title: chat-edit-send.test.ts 在 fan-in lane 下偶发红：服务端在 providerRewindsForEdit
   里读不到夹具刚同步创建的会话行（SESSION_NOT_FOUND），夹具唯一的同步手段是固定 30ms 的 settle()；单独跑 8/8 绿
-status: todo
+status: ready
 labels:
   - gap
   - defect
