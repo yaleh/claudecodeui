@@ -3,7 +3,7 @@ id: gap-voice-capture-off-ac6-red-not-attributable
 title: voice-capture-off 的 AC6 红在日志里不点名：断言文案是静态字符串、逐条读数只进 stdout、runner 的
   per-file 输出随 TMP 删除 ⇒ suite 连续两轮只留下「a surface this task must not have moved is
   red」；独立跑与 15 路加压下六条子命令全 exit 0
-status: ready
+status: done
 labels:
   - gap
   - defect
