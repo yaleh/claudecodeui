@@ -12,6 +12,7 @@ extra:
 goal_ac: AC-154
 depends_on:
   - gap-voice-false-forms-siblings-pid-attribution
+  - gap-session-scope-test-global-namespace-count
 ---
 ## Proposal
 
