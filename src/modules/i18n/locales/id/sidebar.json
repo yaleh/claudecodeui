@@ -1,4 +1,9 @@
 {
+  "sessionMenu": {
+    "closeResidentMode": "Tutup mode residen",
+    "closeResidentModeHint": "Sesi berhenti saat tab ditutup; tab Shell kembali tersedia.",
+    "closeResidentModeFailed": "Server menolak perubahan — kemungkinan ada giliran yang sedang berjalan."
+  },
   "projects": {
     "title": "Proyek",
     "newProject": "Proyek Baru",

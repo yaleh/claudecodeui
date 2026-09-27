@@ -1,4 +1,9 @@
 {
+  "sessionMenu": {
+    "closeResidentMode": "Dauerhaften Modus beenden",
+    "closeResidentModeHint": "Die Sitzung endet beim Schließen des Tabs; der Shell-Tab wird wieder verfügbar.",
+    "closeResidentModeFailed": "Der Server hat die Änderung abgelehnt — wahrscheinlich läuft gerade ein Turn."
+  },
   "projects": {
     "title": "Projekte",
     "newProject": "Neues Projekt",

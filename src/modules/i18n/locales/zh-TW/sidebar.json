@@ -1,4 +1,9 @@
 {
+  "sessionMenu": {
+    "closeResidentMode": "關閉常駐模式",
+    "closeResidentModeHint": "讓工作階段在分頁關閉時停止；Shell 分頁將恢復可用。",
+    "closeResidentModeFailed": "伺服器拒絕了這次變更 —— 很可能有一輪對話正在進行。"
+  },
   "projects": {
     "title": "專案",
     "newProject": "新增專案",

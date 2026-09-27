@@ -15,6 +15,12 @@ type WorkspaceHeaderProps = {
   selectedSession: ProjectSession | null;
   shouldShowTasksTab: boolean;
   shouldShowBrowserTab: boolean;
+  /**
+   * The selected session's stored lifecycle mode, resolved by WorkspaceMain.
+   * Optional with `false` as the meaning of absent, so that a header rendered
+   * without a mode reading keeps offering Shell rather than closing it by default.
+   */
+  isResidentSession?: boolean;
   isMobile: boolean;
   onMenuClick: () => void;
 };
@@ -32,6 +38,7 @@ export default function WorkspaceHeader({
   selectedSession,
   shouldShowTasksTab,
   shouldShowBrowserTab,
+  isResidentSession,
   isMobile,
   onMenuClick,
 }: WorkspaceHeaderProps) {
@@ -114,6 +121,7 @@ export default function WorkspaceHeader({
           setActiveTab={setActiveTab}
           shouldShowTasksTab={shouldShowTasksTab}
           shouldShowBrowserTab={shouldShowBrowserTab}
+          isResidentSession={isResidentSession}
         />
       ) : (
         <div className="min-w-0 flex-1">
@@ -134,6 +142,7 @@ export default function WorkspaceHeader({
                 setActiveTab={setActiveTab}
                 shouldShowTasksTab={shouldShowTasksTab}
                 shouldShowBrowserTab={shouldShowBrowserTab}
+                isResidentSession={isResidentSession}
               />
             </div>
             {canScrollRight && (

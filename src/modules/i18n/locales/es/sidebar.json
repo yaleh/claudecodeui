@@ -1,4 +1,9 @@
 {
+  "sessionMenu": {
+    "closeResidentMode": "Cerrar modo residente",
+    "closeResidentModeHint": "La sesión se detiene al cerrar la pestaña; la pestaña Shell vuelve a estar disponible.",
+    "closeResidentModeFailed": "El servidor rechazó el cambio: probablemente hay un turno en curso."
+  },
   "projects": {
     "title": "Proyectos",
     "newProject": "Nuevo proyecto",

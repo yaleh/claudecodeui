@@ -1,4 +1,9 @@
 {
+  "sessionMenu": {
+    "closeResidentMode": "상주 모드 종료",
+    "closeResidentModeHint": "탭을 닫으면 세션이 중지됩니다. Shell 탭이 다시 사용 가능해집니다.",
+    "closeResidentModeFailed": "서버가 변경을 거부했습니다 — 턴이 진행 중일 가능성이 있습니다."
+  },
   "projects": {
     "title": "프로젝트",
     "newProject": "새 프로젝트",

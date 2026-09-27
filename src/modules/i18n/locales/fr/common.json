@@ -24,7 +24,9 @@
     "git": "Contrôle de source",
     "tasks": "Tâches",
     "browser": "Navigateur",
-    "computer": "Ordinateur"
+    "computer": "Ordinateur",
+    "shellResidentDisabled": "Shell n'est pas disponible pour les sessions résidentes. Fermez le mode résident pour l'utiliser.",
+    "shellResidentDisabledLabel": "Shell indisponible pour les sessions résidentes"
   },
   "status": {
     "loading": "Chargement...",

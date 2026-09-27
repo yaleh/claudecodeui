@@ -24,7 +24,9 @@
     "git": "Quellcodeverwaltung",
     "tasks": "Aufgaben",
     "browser": "Browser",
-    "computer": "Computer"
+    "computer": "Computer",
+    "shellResidentDisabled": "Shell ist für dauerhafte Sitzungen nicht verfügbar. Beenden Sie den dauerhaften Modus, um es zu nutzen.",
+    "shellResidentDisabledLabel": "Shell für dauerhafte Sitzungen nicht verfügbar"
   },
   "status": {
     "loading": "Lädt...",

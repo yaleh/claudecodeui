@@ -4,7 +4,10 @@
     "convertToResidentHint": "会话在轮次之间保持运行；转换前会先请你确认。",
     "residentConsentTitle": "把这个会话转为常驻",
     "residentConsentConfirm": "转为常驻",
-    "residentConsentFailed": "服务端拒绝了这次转换 —— 很可能有一轮对话正在进行。"
+    "residentConsentFailed": "服务端拒绝了这次转换 —— 很可能有一轮对话正在进行。",
+    "closeResidentMode": "关闭常驻模式",
+    "closeResidentModeHint": "让会话在标签页关闭时停止；Shell 标签页将恢复可用。",
+    "closeResidentModeFailed": "服务端拒绝了这次更改 —— 很可能有一轮对话正在进行。"
   },
   "projects": {
     "title": "项目",

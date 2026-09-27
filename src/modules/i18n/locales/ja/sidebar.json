@@ -1,4 +1,9 @@
 {
+  "sessionMenu": {
+    "closeResidentMode": "常駐モードを解除",
+    "closeResidentModeHint": "タブを閉じるとセッションが停止します。Shell タブが再び利用できます。",
+    "closeResidentModeFailed": "サーバーが変更を拒否しました —— ターンが実行中である可能性があります。"
+  },
   "projects": {
     "title": "プロジェクト",
     "newProject": "新規プロジェクト",

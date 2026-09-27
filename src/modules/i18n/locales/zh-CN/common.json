@@ -24,7 +24,9 @@
     "git": "源代码管理",
     "tasks": "任务",
     "browser": "浏览器",
-    "computer": "计算机"
+    "computer": "计算机",
+    "shellResidentDisabled": "常驻会话不支持 Shell，关闭常驻模式后可用",
+    "shellResidentDisabledLabel": "常驻会话的 Shell 标签页不可用"
   },
   "status": {
     "loading": "加载中...",

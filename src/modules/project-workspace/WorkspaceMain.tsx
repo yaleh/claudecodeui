@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, type Dispatch, type SetStateAction, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
+import { api } from '@/shared/api';
 import { ChatInterface } from '@/modules/chat';
 import { FileTree } from '@/modules/file-tree';
 import { StandaloneShell } from '@/modules/standalone-shell';
@@ -13,8 +15,17 @@ import { useUiPreferences } from '@/shared/context/UiPreferencesContext';
 import { useFileOpenResolver } from '@/modules/project-workspace/hooks/useFileOpenResolver';
 import { EditorSidebar, useEditorSidebar } from '@/modules/code-editor';
 import WorkspaceHeader from '@/modules/project-workspace/WorkspaceHeader';
+import { RESIDENT_SHELL_NOTICE_ID } from '@/modules/project-workspace/WorkspaceTabs';
 import WorkspaceStateView from '@/modules/project-workspace/WorkspaceStateView';
 import WorkspaceErrorBoundary from '@/modules/project-workspace/WorkspaceErrorBoundary';
+
+/**
+ * How often the workspace re-reads the selected session's lifecycle mode. The
+ * mode is changed from outside this view — the sidebar's session menu — and
+ * nothing broadcasts that change, so the reading has to be a poll. Two seconds is
+ * the shortest interval that still keeps the request rate unremarkable.
+ */
+const LIFECYCLE_MODE_POLL_MS = 2_000;
 
 type WorkspaceMainProps = {
   selectedProject: Project | null;
@@ -56,6 +67,7 @@ function WorkspaceMain({
   onProjectSelect,
   onProjectsRefresh,
 }: WorkspaceMainProps) {
+  const { t } = useTranslation();
   const preferences = useUiPreferences();
   const { showRawParameters, showThinking, sendByCtrlEnter } = preferences;
 
@@ -101,6 +113,72 @@ function WorkspaceMain({
     }
   }, [shouldShowBrowserTab, activeTab, setActiveTab]);
 
+  // The selected session's stored lifecycle mode. The mode belongs to the session
+  // row, not to any process: a resident session whose process was never started has
+  // no host and still reads `resident`, and that is exactly the state the Shell view
+  // has to stay closed for — so `running` is not the reading this asks for. The
+  // workspace's own session objects do not carry the mode at all, and the host
+  // listing is the only face that publishes it.
+  const [lifecycleMode, setLifecycleMode] = useState<{ sessionId: string; mode: string } | null>(null);
+
+  const selectedSessionId = selectedSession?.id ?? null;
+
+  useEffect(() => {
+    // Nothing selected, nothing to ask about. The reading is left where it stands rather
+    // than cleared: it is tagged with the session it was taken for, so a stale one cannot
+    // be mistaken for this session's (see `isResidentSession` below).
+    if (!selectedSessionId) return;
+
+    let cancelled = false;
+
+    const readMode = async () => {
+      try {
+        const response = await api.sessionHostListing();
+        if (!response.ok) return;
+        const body = (await response.json()) as {
+          data?: { sessions?: { appSessionId?: string; lifecycleMode?: string }[] };
+        };
+        if (cancelled) return;
+        const row = body.data?.sessions?.find((entry) => entry.appSessionId === selectedSessionId);
+        // A row the listing does not know is per-run: that is the column's own
+        // default, and guessing `resident` would close a tab nobody asked to close.
+        setLifecycleMode({ sessionId: selectedSessionId, mode: row?.lifecycleMode ?? 'per-run' });
+      } catch (error) {
+        // The last reading stands. Re-opening Shell because one poll failed would be
+        // the one failure mode this whole guard exists to prevent, and a resident
+        // session is not made per-run by a flaky request.
+        console.error('Error reading the session lifecycle mode:', error);
+      }
+    };
+
+    void readMode();
+    const timer = window.setInterval(() => {
+      void readMode();
+    }, LIFECYCLE_MODE_POLL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [selectedSessionId]);
+
+  // A reading speaks only for the session it was taken for: while the first poll
+  // for a newly selected session is in flight, the previous session's mode must not
+  // decide this session's tabs.
+  const isResidentSession =
+    lifecycleMode !== null && lifecycleMode.sessionId === selectedSessionId && lifecycleMode.mode === 'resident';
+
+  // A resident session's whole point is that the app holds the process, so handing
+  // the user a terminal onto that process is the opposite of the mode. The tab is
+  // disabled, but a session that was already on Shell when its mode changed would
+  // keep the terminal it had — the mode is what decides, so this has to be reactive
+  // rather than a mount-time check.
+  useEffect(() => {
+    if (isResidentSession && activeTab === 'shell') {
+      setActiveTab('chat');
+    }
+  }, [isResidentSession, activeTab, setActiveTab]);
+
   // Stable so React.memo(ChatInterface) can bail out: an inline arrow here made
   // every WorkspaceMain render re-render the whole chat tree, including during
   // an editor-divider drag.
@@ -145,9 +223,26 @@ function WorkspaceMain({
         selectedSession={selectedSession}
         shouldShowTasksTab={shouldShowTasksTab}
         shouldShowBrowserTab={shouldShowBrowserTab}
+        isResidentSession={isResidentSession}
         isMobile={isMobile}
         onMenuClick={onMenuClick}
       />
+
+      {/* Why the Shell tab is closed to this session. Rendered as a workspace-level
+          banner rather than inside the Shell view: the view never mounts for a
+          resident session, so a notice living in it would be a notice nobody sees.
+          It is the element the disabled tab points at with `aria-describedby`. */}
+      {isResidentSession && (
+        <p
+          id={RESIDENT_SHELL_NOTICE_ID}
+          data-resident-shell-notice="true"
+          role="note"
+          aria-label={t('tabs.shellResidentDisabledLabel')}
+          className="flex-shrink-0 border-b border-amber-500/40 bg-amber-500/5 px-3 py-1.5 text-xs text-muted-foreground md:px-4"
+        >
+          {t('tabs.shellResidentDisabled')}
+        </p>
+      )}
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className={`flex min-h-0 min-w-[200px] flex-col overflow-hidden ${editorExpanded ? 'hidden' : ''} flex-1`}>
@@ -183,8 +278,11 @@ function WorkspaceMain({
             </div>
           )}
 
-          {activeTab === 'shell' && (
-            <div className="h-full w-full overflow-hidden">
+          {/* `!isResidentSession` is not redundant with the guard effect above: it
+              closes the view on the very render the reading arrives, before the
+              effect that moves the tab away has had a chance to run. */}
+          {activeTab === 'shell' && !isResidentSession && (
+            <div className="h-full w-full overflow-hidden" data-workspace-view="shell">
               <StandaloneShell
                 project={selectedProject}
                 session={selectedSession}

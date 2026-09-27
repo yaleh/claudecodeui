@@ -24,7 +24,9 @@
     "git": "Система контроля версий",
     "tasks": "Задачи",
     "browser": "Browser",
-    "computer": "Компьютер"
+    "computer": "Компьютер",
+    "shellResidentDisabled": "Shell недоступен для резидентных сессий. Закройте резидентный режим, чтобы использовать его.",
+    "shellResidentDisabledLabel": "Shell недоступен для резидентных сессий"
   },
   "status": {
     "loading": "Загрузка...",

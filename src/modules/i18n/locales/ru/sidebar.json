@@ -1,4 +1,9 @@
 {
+  "sessionMenu": {
+    "closeResidentMode": "Закрыть резидентный режим",
+    "closeResidentModeHint": "Сессия остановится при закрытии вкладки; вкладка Shell снова станет доступной.",
+    "closeResidentModeFailed": "Сервер отклонил изменение — вероятно, идёт ход."
+  },
   "projects": {
     "title": "Проекты",
     "newProject": "Новый проект",

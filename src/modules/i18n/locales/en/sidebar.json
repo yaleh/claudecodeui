@@ -4,7 +4,10 @@
     "convertToResidentHint": "Keep the session running between turns; asks for consent first.",
     "residentConsentTitle": "Convert this session to resident",
     "residentConsentConfirm": "Convert to resident",
-    "residentConsentFailed": "The server refused the conversion — a turn is probably in flight."
+    "residentConsentFailed": "The server refused the conversion — a turn is probably in flight.",
+    "closeResidentMode": "Close resident mode",
+    "closeResidentModeHint": "Let this session stop when the tab closes; re-enables the Shell tab.",
+    "closeResidentModeFailed": "The server refused the change — a turn is probably in flight."
   },
   "projects": {
     "title": "Projects",

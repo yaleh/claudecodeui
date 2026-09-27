@@ -24,7 +24,9 @@
     "git": "Controllo Versione",
     "tasks": "Attività",
     "browser": "Browser",
-    "computer": "Computer"
+    "computer": "Computer",
+    "shellResidentDisabled": "Shell non è disponibile per le sessioni residenti. Chiudi la modalità residente per usarlo.",
+    "shellResidentDisabledLabel": "Shell non disponibile per le sessioni residenti"
   },
   "status": {
     "loading": "Caricamento...",

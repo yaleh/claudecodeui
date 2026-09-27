@@ -12,7 +12,56 @@ type WorkspaceTabsProps = {
   setActiveTab: Dispatch<SetStateAction<AppTab>>;
   shouldShowTasksTab: boolean;
   shouldShowBrowserTab: boolean;
+  /**
+   * Whether the selected session asked to run as a resident process. A resident
+   * session's Shell view would hand the user a terminal onto the very process the
+   * mode exists to keep under the app's control, so the view is offered disabled
+   * rather than silently removed — the user can see the tab exists and why it is
+   * closed to this session.
+   *
+   * Optional, and absent means "not resident": only a caller that has read the
+   * session's mode can close the tab, so the default has to be the open tab.
+   */
+  isResidentSession?: boolean;
 };
+
+/**
+ * Id of the workspace-level notice that explains that closure. WorkspaceMain
+ * renders the element; the tab points at it with `aria-describedby`, so the
+ * reason travels with the tab itself instead of living only in a `title`, which
+ * no touch device ever shows.
+ */
+export const RESIDENT_SHELL_NOTICE_ID = 'resident-shell-notice';
+
+type ShellTabState = {
+  className: string;
+  disabled?: boolean;
+  'aria-disabled'?: boolean;
+  title?: string;
+  'aria-describedby'?: string;
+  'data-disabled-reason'?: string;
+};
+
+/**
+ * The props that close the Shell tab to a resident session — or only its ordinary
+ * class when the tab is open. Kept in one place because the desktop pill and the
+ * mobile selector draw the same tab and must not disagree about whether it works.
+ * `notice` is the sentence the disabled tab points at, already translated.
+ */
+function shellTabState(isResidentSession: boolean, tabId: AppTab, notice: string): ShellTabState {
+  if (!(isResidentSession && tabId === 'shell')) {
+    return { className: 'h-8 max-w-44 px-2.5 py-[5px]' };
+  }
+
+  return {
+    disabled: true,
+    'aria-disabled': true,
+    title: notice,
+    'aria-describedby': RESIDENT_SHELL_NOTICE_ID,
+    'data-disabled-reason': 'resident',
+    className: 'h-8 max-w-44 cursor-not-allowed px-2.5 py-[5px] opacity-50',
+  };
+}
 
 // The icon class differs per kind, so the shared renderer takes both rather than
 // one class that would have to be wrong for one of the two.
@@ -115,9 +164,13 @@ export default function WorkspaceTabs({
   setActiveTab,
   shouldShowTasksTab,
   shouldShowBrowserTab,
+  isResidentSession = false,
 }: WorkspaceTabsProps) {
   const { t } = useTranslation();
   const { tabs, builtInCount } = useWorkspaceTabDefinitions({ shouldShowTasksTab, shouldShowBrowserTab });
+  // The sentence the disabled Shell tab points at. Read here so the `title` and the
+  // notice element WorkspaceMain renders cannot disagree: both are this key.
+  const residentShellNotice = t('tabs.shellResidentDisabled');
 
   const handleTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     const tabList = event.currentTarget.closest('[role="tablist"]');
@@ -159,9 +212,13 @@ export default function WorkspaceTabs({
                 aria-selected={isActive}
                 tabIndex={isActive ? 0 : -1}
                 isActive={isActive}
+                // The shell cell's stable contract, on the desktop surface too: the same
+                // hook the mobile selector carries, so a reading of "which view is this"
+                // and of "why is it closed" does not have to go through translated text.
+                data-workspace-tab={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 onKeyDown={handleTabKeyDown}
-                className="h-8 max-w-44 px-2.5 py-[5px]"
+                {...shellTabState(isResidentSession, tab.id, residentShellNotice)}
               >
                 <WorkspaceTabIcon tab={tab} strokeWidth={isActive ? 2.2 : 1.8} />
                 <span className={`${isActive ? 'inline max-w-28' : 'hidden'} truncate md:max-w-36 lg:inline`}>
@@ -187,9 +244,14 @@ export function CollapsedWorkspaceSelector({
   setActiveTab,
   shouldShowTasksTab,
   shouldShowBrowserTab,
+  isResidentSession = false,
 }: WorkspaceTabsProps) {
   const { t } = useTranslation();
   const { tabs } = useWorkspaceTabDefinitions({ shouldShowTasksTab, shouldShowBrowserTab });
+  // The same sentence the desktop pill carries: the dialog is the only way to reach
+  // the Shell view on a narrow screen, so it has to close the view for the same
+  // reason and say the same thing.
+  const residentShellNotice = t('tabs.shellResidentDisabled');
 
   // Whether the workspace picker is open. The open state cannot be derived: the
   // trigger that has to report `aria-expanded` is rendered outside DialogContent,
@@ -228,9 +290,19 @@ export function CollapsedWorkspaceSelector({
             <button
               key={tab.id}
               type="button"
+              data-workspace-tab={tab.id}
               aria-current={tab.id === activeTab ? 'true' : undefined}
+              {...(isResidentSession && tab.id === 'shell' ? {
+                disabled: true,
+                'aria-disabled': true,
+                title: residentShellNotice,
+                'aria-describedby': RESIDENT_SHELL_NOTICE_ID,
+                'data-disabled-reason': 'resident',
+              } : {})}
               onClick={() => selectWorkspace(tab.id)}
-              className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium text-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-primary/60"
+              className={`flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium text-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-primary/60 ${
+                isResidentSession && tab.id === 'shell' ? 'cursor-not-allowed opacity-50 hover:bg-transparent' : ''
+              }`}
             >
               <WorkspaceTabIcon tab={tab} strokeWidth={2} />
               <span className="min-w-0 truncate">{tab.label}</span>

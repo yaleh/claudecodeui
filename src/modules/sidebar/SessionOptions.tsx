@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Check, Edit2, EyeOff, GitBranch, MoreHorizontal, Timer, Trash2, X } from 'lucide-react';
+import { Check, Edit2, EyeOff, GitBranch, MoreHorizontal, PowerOff, Timer, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { ActionMenu } from '@/shared/ui';
@@ -90,6 +90,17 @@ export default function SessionOptions({
   // A refused conversion (a live host mid-turn, most likely). Held so the panel can say so instead of
   // closing as if it had worked.
   const [residentFailed, setResidentFailed] = useState(false);
+  // The session's stored lifecycle mode, read when the menu opens. The workspace's own
+  // session objects carry no mode — the projects listing drops the column — so the host
+  // listing is the only place this menu can learn whether the session is resident, and
+  // it answers per session row rather than per process: a resident session that was
+  // never started has no host and still reads `resident`.
+  const [sessionLifecycleMode, setSessionLifecycleMode] = useState<string | null>(null);
+  // In-flight mode change, so the item cannot be fired twice while the server decides.
+  const [residentClosing, setResidentClosing] = useState(false);
+  // A refused change — a live host mid-turn, most likely. Held so the item can say so
+  // instead of resting there as though nothing had been asked of it.
+  const [residentCloseFailed, setResidentCloseFailed] = useState(false);
   // The disclosure's sentences are chat's, not this module's: they are the same two facts the
   // composer's notice states, and sharing the keys is what keeps the two entry points from drifting
   // into two different disclosures. Only the menu's own wording lives in the sidebar namespace.
@@ -110,6 +121,39 @@ export default function SessionOptions({
       setResidentFailed(true);
     } finally {
       setResidentConverting(false);
+    }
+  };
+
+  const readSessionLifecycleMode = async () => {
+    try {
+      const response = await api.sessionHostListing();
+      if (!response.ok) return;
+      const body = (await response.json()) as {
+        data?: { sessions?: { appSessionId?: string; lifecycleMode?: string }[] };
+      };
+      const row = body.data?.sessions?.find((entry) => entry.appSessionId === sessionId);
+      // A row the listing does not know is per-run: the mode column's own default, and
+      // the reading that keeps the ordinary session's menu ordinary.
+      setSessionLifecycleMode(row?.lifecycleMode ?? 'per-run');
+    } catch (error) {
+      console.error('Error reading the session lifecycle mode:', error);
+    }
+  };
+
+  const closeResidentMode = async () => {
+    setResidentClosing(true);
+    setResidentCloseFailed(false);
+    try {
+      const response = await api.providers.setSessionLifecycleMode(provider, sessionId, 'per-run');
+      if (!response.ok) {
+        throw new Error(`Failed to close resident mode (${response.status})`);
+      }
+      setSessionLifecycleMode('per-run');
+    } catch (error) {
+      console.error('Closing resident mode failed:', error);
+      setResidentCloseFailed(true);
+    } finally {
+      setResidentClosing(false);
     }
   };
 
@@ -191,11 +235,17 @@ export default function SessionOptions({
           size="icon"
           onOpenChange={(open) => {
             setOptionsOpen(open);
-            if (!open) {
+            if (open) {
+              // Read on open rather than on mount: a sidebar of rows would otherwise
+              // fetch the listing once per row, and the answer only matters here.
+              void readSessionLifecycleMode();
+            } else {
               // A closed menu takes its disclosure and its tick with it: consent is per-conversion.
               setResidentConsentOpen(false);
               setResidentAcknowledged(false);
               setResidentFailed(false);
+              // And its complaint about the last attempt, for the same reason.
+              setResidentCloseFailed(false);
             }
           }}
           triggerClassName="h-7 w-7 text-muted-foreground opacity-70 hover:bg-muted hover:opacity-100"
@@ -257,7 +307,10 @@ export default function SessionOptions({
               closeOnSelect: false,
               onSelect: handleCopyAction,
             },
-            ...(residentProviders.has(provider) ? [{
+            // Offered only to a session that is not already resident: converting a resident
+            // session to resident is a no-op the server answers with `changed: false`, and the
+            // way out of the mode is the item right below, not this one.
+            ...(residentProviders.has(provider) && sessionLifecycleMode !== 'resident' ? [{
               key: 'convert-to-resident',
               label: t('sessionMenu.convertToResident'),
               description: t('sessionMenu.convertToResidentHint'),
@@ -269,6 +322,23 @@ export default function SessionOptions({
               // under a live host, and offering the action would promise something it cannot keep.
               disabled: isProcessing,
               onSelect: () => setResidentConsentOpen(true),
+            }] : []),
+            // The way back out. The Shell tab's closure is what a resident session costs, so
+            // the same menu has to be able to lift it — and the change takes effect without a
+            // reload, because the workspace re-reads the mode rather than caching it.
+            ...(sessionLifecycleMode === 'resident' ? [{
+              key: 'close-resident-mode',
+              label: t('sessionMenu.closeResidentMode'),
+              description: residentCloseFailed
+                ? t('sessionMenu.closeResidentModeFailed')
+                : t('sessionMenu.closeResidentModeHint'),
+              icon: PowerOff,
+              // Stays open while the change is in flight, so a refusal is visible where it
+              // happened rather than a menu that closed as if the mode had changed.
+              closeOnSelect: false,
+              disabled: isProcessing || residentClosing,
+              loading: residentClosing,
+              onSelect: () => { void closeResidentMode(); },
             }] : []),
             ...(canFork && onFork ? [{
               key: 'fork',

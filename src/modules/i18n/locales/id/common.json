@@ -24,7 +24,9 @@
     "git": "Kontrol Sumber",
     "tasks": "Tugas",
     "browser": "Browser",
-    "computer": "Komputer"
+    "computer": "Komputer",
+    "shellResidentDisabled": "Shell tidak tersedia untuk sesi residen. Tutup mode residen untuk menggunakannya.",
+    "shellResidentDisabledLabel": "Shell tidak tersedia untuk sesi residen"
   },
   "status": {
     "loading": "Memuat...",

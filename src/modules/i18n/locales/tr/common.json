@@ -24,7 +24,9 @@
     "git": "Kaynak Kontrolü",
     "tasks": "Görevler",
     "browser": "Browser",
-    "computer": "Bilgisayar"
+    "computer": "Bilgisayar",
+    "shellResidentDisabled": "Shell kalıcı oturumlarda kullanılamaz. Kullanmak için kalıcı modu kapatın.",
+    "shellResidentDisabledLabel": "Kalıcı oturumlarda Shell kullanılamaz"
   },
   "status": {
     "loading": "Yükleniyor...",

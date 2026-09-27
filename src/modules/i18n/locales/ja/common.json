@@ -24,7 +24,9 @@
     "git": "ソース管理",
     "tasks": "タスク",
     "browser": "Browser",
-    "computer": "Computer"
+    "computer": "Computer",
+    "shellResidentDisabled": "常駐セッションでは Shell を利用できません。常駐モードを解除すると利用できます。",
+    "shellResidentDisabledLabel": "常駐セッションでは Shell を利用できません"
   },
   "status": {
     "loading": "読み込み中...",

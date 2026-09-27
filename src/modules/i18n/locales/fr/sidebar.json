@@ -1,4 +1,9 @@
 {
+  "sessionMenu": {
+    "closeResidentMode": "Fermer le mode résident",
+    "closeResidentModeHint": "La session s'arrête à la fermeture de l'onglet ; l'onglet Shell redevient disponible.",
+    "closeResidentModeFailed": "Le serveur a refusé le changement — un tour est probablement en cours."
+  },
   "projects": {
     "title": "Projets",
     "newProject": "Nouveau projet",

@@ -1,4 +1,9 @@
 {
+  "sessionMenu": {
+    "closeResidentMode": "Kalıcı modu kapat",
+    "closeResidentModeHint": "Sekme kapanınca oturum durur; Shell sekmesi yeniden kullanılabilir.",
+    "closeResidentModeFailed": "Sunucu değişikliği reddetti — büyük olasılıkla bir tur sürüyor."
+  },
   "projects": {
     "title": "Projeler",
     "newProject": "Yeni Proje",

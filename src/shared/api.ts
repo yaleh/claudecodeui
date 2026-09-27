@@ -200,6 +200,19 @@ export const api = {
   projects: ({ keepSessionIds }: { keepSessionIds?: string[] } = {}) =>
     get(`/api/projects${query({ keepSessionIds: keepSessionIds?.join(',') })}`),
   archivedProjects: () => get('/api/projects/archived'),
+  /**
+   * The host layer's listing: the live processes, and the lifecycle mode the
+   * user asked for from **every** stored session.
+   *
+   * The second array is the reason this exists as a client method at all: a
+   * session's stored mode is not on the session object the workspace already
+   * holds, and the listing is the only face that publishes it. The two arrays
+   * answer different questions on purpose — `hosts` says whether a process is
+   * alive right now, `sessions` says what the row's `lifecycle_mode` is — and
+   * they disagree exactly where it matters here: a resident session whose
+   * process was never started has no host and still reads `resident`.
+   */
+  sessionHostListing: () => get('/api/session-hosts'),
   projectSessions: (
     projectId: string,
     {
