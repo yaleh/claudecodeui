@@ -1,7 +1,7 @@
 ---
 id: AC-173
 title: 真实浏览器里 Running 视图分正在运行与常驻（空闲）两组，侧栏徽标只计正在运行的会话
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-013
 criterion: npx playwright test e2e/resident-running-view.spec.ts
@@ -18,6 +18,11 @@ statusLog:
     to: active
     actor: human:yale
     reason: 人 yale 2026-09-27 指令：判据已按 E1–E9 结论修订，转 active
+  - at: 2026-09-27T19:01:06.073Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
