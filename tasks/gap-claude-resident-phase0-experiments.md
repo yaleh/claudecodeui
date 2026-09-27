@@ -1,7 +1,7 @@
 ---
 id: gap-claude-resident-phase0-experiments
 title: Claude 常驻会话阶段 0 实验 E1–E9：用真实 claude 二进制取得读数，定下忙时输入基准、控制协议用法与内存上限，结论写回 proposal
-status: needs-human
+status: done
 labels:
   - gap
 parent: null
@@ -469,3 +469,86 @@ typecheck 扫到的那个瞬时探针），本分支没有它——只因为**�
 - session_id：a3a6f029-c4e2-4c00-9975-4698e392175b
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-resident-phase0-experiments~wk-prod-anchor~1790476936243-800b73.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-resident-phase0-experiments-wk-prod-anchor.log
+
+## Evidence（第 9 轮续做，2026-09-27：挡住第 8 轮的那条 suite-red 已过期，其修复已在本分支）
+
+执行者：quay worker（分支 `task/gap-claude-resident-phase0-experiments`）。本轮**没有新实验、没有新代码**：
+七条 AC 在合并 develop 后的树上逐条重验全绿；本轮交付的是**挡住第 8 轮的那条 suite-red 的归因与证伪**。
+
+**那条红是过期的：它的修复在红跑之后 3.5 分钟才落进 develop，而本分支现在已含该修复。**
+
+时间线（时刻取自 git 提交时间与保留日志的原始时间戳，非转述）：
+
+| 事件 | 时刻（+0800） |
+| --- | --- |
+| 第 8 轮 suite 开始（`SUITE-RUN-START ts=2026-09-27T02:42:19.706Z`） | 10:42:19 |
+| 修复 `7e6d0744 fix(server/tsconfig): exclude __criterion-falsify-* from the tsc program` | **10:45:46** |
+| 本分支头部 merge（`cf8aeafd`，已含 `7e6d0744`） | 11:04:37 |
+
+保留日志（`.quay/fan-in-suite-gap-claude-resident-phase0-experiments~wk-prod-anchor~1790476936243-800b73.log`
+第 251 行）逐字：
+
+```text
+AC6 FAIL cases=n/a :: npm run typecheck (exit=2) | sig: error TS6053: File
+'…/server/modules/voice/__criterion-falsify-ac8probe-19.ts' not found.
+```
+
+那次红跑的**子进程原文**（`.quay/suite-logs/20260927T104219-2611177/server__modules__voice__tests__voice-capture-off.false-forms.test.ts.out`）
+把 tsc 自己的解释也留下了——这一行就是归因的全部：
+
+```text
+error TS6053: File '…/server/modules/voice/__criterion-falsify-ac8probe-19.ts' not found.
+  The file is in the program because:
+    Matched by include pattern './**/*.ts' in 'server/tsconfig.json'
+```
+
+即：该文件**被 include 收进了 tsc 的 program**（`exclude` 没盖住它）。写入者是
+`server/modules/voice/tests/voice-dashscope-settings.test.ts:1179` 的 AC4(b)：它 20 次写/删
+`__criterion-falsify-ac8probe-<i>.ts`；并发的 `voice-capture-off.false-forms.test.ts` AC6 把
+`npm run typecheck` 当子进程跑，收进它之后文件已被删 → TS6053。同一次红跑的总计数是
+`# tests 244 / # pass 243 / # fail 1`，唯一的红就是这条。
+
+**这不是本任务的写点。** 看上表前两行：第 8 轮红跑时 develop 里还没有 `7e6d0744`，
+`server/tsconfig.json` 的 `exclude` 只有目录级的 `./modules/voice/tmp`（`cfd66cea`，即第 7 轮那条红
+`__stray-shipping-probe.ts` 的修复），盖不到写在 `server/modules/voice/` 下、**按名字**命名的四个
+false-forms 副本与 AC4(b) 的 churn。`7e6d0744` 正是按名排除 `./**/__criterion-falsify-*` 的修复：
+`git merge-base --is-ancestor 7e6d0744 HEAD` → 0；`grep -c __criterion-falsify server/tsconfig.json` → 4。
+
+**本轮证伪：把红跑的条件原样放回去，现在是绿的。**
+
+在合并 develop 后的树上（HEAD `7e7e0780`），一边以 20 次写/删 churn
+`server/modules/voice/__criterion-falsify-ac8probe-<i>.ts`，一边跑那次红跑里非零的**同一条子命令**：
+
+```text
+npm run typecheck   → exit 0，TS6053 与 TS2322 各 0 条
+```
+
+另单独确认 `exclude` 真在起作用（`tsc -p server/tsconfig.json --listFiles`）：写一个
+`__criterion-falsify-ac8probe-99.ts` 后列出 program → 该名字 0 条（不在 program 里）。
+churn 结束后目录无残留，`git status` 干净。
+
+**AC 逐条（本轮重验；`git merge --no-edit develop` 0 冲突，HEAD `7e7e0780`）**
+
+- AC1 `node --test scripts/resident-experiment.test.mjs` → exit 0。
+- AC2/AC6 `node scripts/resident-experiment.mjs --check-record docs/proposals/claude-resident-sessions-experiments.md`
+  → `--check-record OK：E1–E9 九节齐全`，exit 0。
+- AC3 `grep -n '阶段 0 结论' docs/proposals/claude-resident-sessions.md` → 命中 270 / 393 / 581 行，exit 0。
+- AC4 `grep -n '^E2/E3 基准确认：' docs/proposals/claude-resident-sessions-experiments.md` → 命中第 49 行
+  （人 yale 指示写入的那一行，非执行者代写）。
+- AC5 `npm run lint` → exit 0（只有既存 warning，无新增）。
+- AC7 `! grep -n '由 E9 确认' docs/proposals/claude-resident-sessions.md` → exit 0（三处已定稿）。
+- 另：`npm run typecheck` → exit 0；scoped 门 `bash scripts/test.sh --for-task … --allow-thin` → exit 0（thin）；
+  `task_check` → `acTotal 7 / acChecked 7`、`eligible to move to done`。
+- 合并读数：merge 把 develop 的 `status: ready` 带进来（该字段由 driver 拥有，本轮照 develop 取值），
+  本任务七个 AC 勾选一条未丢。
+
+**仍未满足的 DoD（照旧如实记下，不因 AC 全绿而消失）——这才是本任务停在 needs-human 的原因**
+
+- **E7 的「≥24 小时浸泡」仍未达标**：记录里仍是 0.10 小时（真实模型、$1.0836），proposal §11 的两个
+  上限数值**仍未定**。本轮未重跑 E7；一次 dispatch 内跑不出 24 小时，这不是靠重派能解决的形状。
+- E9 自身两处读数缺口照旧：`next` 档执行时的落点（9.2 里被撤掉）、`request_user_dialog` 的实物。
+
+**对旧 Needs-Human 判词的更正。** 第 5–8 轮的 `Needs-Human` 都写「suite 红但归因不出任何失败测试文件
+（基建/契约疑似，非实现缺陷）」。有了保留子进程日志之后，两轮红都已逐条归因（第 8 轮那条见上，第 7 轮
+那条见上一节），**没有一条是本任务的 delta**。所以那几句「归因不出」应视为已作废；真正挡住 `done` 的是
+上面那两条 DoD，其中 E7 需要一次真正的 ≥24 小时浸泡。
