@@ -1,7 +1,7 @@
 ---
 id: AC-168
 title: 常驻默认 bypass 启动；无人值守时三个需要人回应的入口都被自动拒绝并通知
-status: draft
+status: active
 kind: criterion
 goal: GOAL-013
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -25,4 +25,15 @@ origin: docs/proposals/claude-resident-sessions.md（e88175cf）。人 yale 2026
   proposal 阶段 0 结论（E1–E9，记录文件
   docs/proposals/claude-resident-sessions-experiments.md）修订判据；三个入口按 E9 9.6 读数与
   proposal §9 落地，side_question 移出，request_user_dialog 缺实物读数
+activatedAt: 2026-09-27T05:01:23.935Z
+statusLog:
+  - at: 2026-09-27T05:01:23.935Z
+    from: draft
+    to: active
+    actor: human:yale
+    reason: 人 yale 2026-09-27 指令：判据已按 E1–E9 结论修订，转 active
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-09-27T05:01:23.935Z
 ---
