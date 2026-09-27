@@ -252,6 +252,15 @@ system/init 原文：{"type":"system","subtype":"init","cwd":"/tmp/resident-e6b-
 ```
 结论：extraArgs.name 生效：本地转录里 `agent-name` 与设定值逐字一致（ASCII="resident-e6-103193"，中文+空格="实验会话 中文 空格"），中文与空格**被原样接受**。该名不进 API 请求体（mock 端看不到），判定必须读转录。
 
+**补记（2026-09-27，AC-164 判据的实测读数）**：`agent-name` 行的原文形态逐字如下，它除了名字还带 `sessionId`，因此判据可以核对这行确实属于本次进程（而不是同目录下别的会话留下的）：
+
+```
+{"type":"agent-name","agentName":"ac164-addressable-alpha-d275e2","sessionId":"0baaf7be-67b1-4bcc-9453-75bd9c2b2d2a"}
+{"type":"agent-name","agentName":"ac164-addressable-beta-d275e2","sessionId":"c318f5c4-6145-4f6c-9df9-521c00917d7f"}
+```
+
+名字按 `标题 slug + "-" + 会话 ID 前 6 位` 生成（proposal §12），落在 `<CLAUDE_CONFIG_DIR>/projects/<bucket>/<session>.jsonl` 里；bucket 名是 CLI 对 cwd 的编码，判据不重算它、而是扫 `projects/*/` 下按 session 名匹配的文件。
+
 ## E7 长驻内存增长（≥24 小时浸泡）
 取数时间：2026-09-25T09:49:49.426Z
 claude --version：2.1.282 (Claude Code)
@@ -611,6 +620,25 @@ SDK 路：command_lifecycle 0 条（`grep -rn "command_lifecycle" node_modules/@
 ```
 
 **结论（一行）**：后台 Bash 跑完且宿主**不推任何东西**时，CLI **会自己开一轮** —— 三件套是 `system/task_updated` → `system/task_notification`(`status=completed`) → **`system/init`** → `assistant` → `result`（SDK 路 977/978/980/985/986ms，raw 路 1036/1036/1066/–/1078ms），因此 AC-162 的「不开轮 ⇒ 停并交人」分支**不触发**，任务继续；但该轮**没有**任何 `command_lifecycle`（raw 路给了 0 条，SDK 路该 subtype 全滤），故「无人轮识别」不能取 `command_lifecycle started` 的 uuid —— 可用的识别面是**这一轮自己的开启事件 `system/init` 的 uuid**（宿主从未推过，`inPushedSet=false`）加上「流里出现轮边界时宿主手上没有在飞轮」这个结构事实；触发类型则可对账 **Stop hook 的 `background_tasks`**（上表两次输入的原始行就是权威清单，`type=shell`/`status` 与在飞任务对得上）。这一条差异需要在 AC-162 里改措辞（`command_lifecycle started` → 无人轮的开启事件），属"由人改判据"的范畴，本条按实测读数落地并在完成记录里逐字登记。
+
+**9.10 跨会话到达：`result.origin.kind="peer"` 的原文形态（AC-164 的触发类型读数）**
+
+取数时间：2026-09-27（判据 `claude-resident-addressable.test.ts` 自身那次运行，三个常驻进程）
+claude --version：2.1.283 (Claude Code)
+
+```
+被寻址的那个常驻进程（乙）在收到跨会话消息后自己开了一轮，该轮 result 上的 origin 原文：
+{"kind":"peer","from":"uds:/run/user/1004/cc-socks/568562.sock","verifiedPeerPid":568562,"verifiedPeerProcStart":"104827810","msg_id":"065a29bd-a164-4c69-8cc2-547870e8e172","name":"ac164-addressable-alpha-5884ac","fromMode":"bypass","body":"AC164-XCROSS hello from the alpha session"}
+宿主侧同一轮的读数（判据打印）：run.source=unattended run.trigger=cross-session-message runsBefore=0 runsAfter=1
+发送方（甲）这次 SendMessage 的工具结果（mock 端脚本化发出的 tool_use 的执行结果，节选）：
+  “AC164 cross-session probe” → ac164-addressable-beta-5884ac (another Claude session on this machine; queued there …)
+```
+
+**结论**：跨会话到达在真实二进制上**有可分辨的标记**，因此 AC-164 的触发类型不需要交人改判据。
+
+- 标记是 `result.origin.kind === "peer"`，且**只在这个无人轮自己的 `result` 上**出现：进程自己的任务表（Stop hook 的 `background_tasks` / `session_crons`）里什么也没有——对端发来的一条消息不构成"进程自己持有的工作"，这正是 `cross-session-message` 必须与 `background-task`/`session-cron`/`non-user` 分列的理由，也是 driver 只能在这一轮的**末尾**读触发类型的原因（`claude-host-driver.provider.ts` 的 `finishUnattendedTurn`）。
+- `origin` **不重复收件人自己的地址**；`origin.name` 是**发件人**注册的那个地址（上例 `ac164-addressable-alpha-5884ac` 即甲的快照 `peerName`）。这是从乙一侧对甲地址的独立复读；判据不依赖它（甲的地址在快照与甲自己的转录里各读到一次），但它说明这条通道对账得起。
+- `origin.body` 是消息正文；`from` 是发件进程的 unix socket 路径、`verifiedPeerPid` / `verifiedPeerProcStart` 是 CLI 对发件进程的核对结果、`fromMode` 是发件会话的权限模式。判据只钉 `kind`，其余字段只做登记——它们不是 AC-164 的承载面。
 
 结论：环境核对：raw 驱动那条腿的实例写的是临时库（/proc/<pid>/environ 已核对）；收尾后本进程的 claude 后代剩 0 个、tmux 里没有本实验的会话、systemd user scope 里没有本实验的单元（读数为空即"无残留"）。 轮次边界：raw 驱动下 session_state_changed **一条都没有**，SDK query() 那条路 同样一条都没有；可用的轮次把手是「每轮一条 system/init + 轮末一条 result」这一对，command_lifecycle 的 queued/started/completed 另外给出每条消息被排进了哪一轮。 忙时推入：priority 三档（later/next/now）都被 CLI 收下并排进 command_lifecycle 的 queued→started 队列（完成后各自 completed；这一条序列就是"队列"的可见形态）；cancel_async_message 的三种时机——仍在队列里→（无响应），已被处理完→（无响应），uuid 不存在→（无响应）。 后台工作的事件面：本实验读到的 subtype 是 task_started、task_notification、background_tasks_changed；工具表里 **没有** Monitor、有 ScheduleWakeup——即常驻会话里"调度"只能靠 cron（CronCreate/CronList/CronDelete 在表里）。 cron 无人轮：发火在流里表现为 CLI **自己造** command_uuid 的 command_lifecycle started（该 uuid 从未 queued——宿主没推过它，共 0 条），它**没有** origin 字段、**没有** scheduled_task_fire、也**不**在 transcript 里新造 user 帧（全部 4 条 user 事件里带 origin 的只有 0 条）；无人轮自身的取数只能靠 Stop hook——session_crons 在 2 次调用里 2 次非空，background_tasks 1 次非空，这就是 §10 要的权威清单（字段与在飞任务都能对上）。 需要人回应的入口：side_question（宿主→CLI 的控制请求，宿主问、CLI 答）**没有响应**，方向与 canUseTool（CLI 问、宿主答）相反；elicitation **读到了 1 条**（MCP 工具把问题转成控制请求交给宿主）；request_user_dialog 只出现在 SDK 的类型联合里，本实验没有触发它的入口（工具驱动的阻塞对话框要有对应的工具在场），属读数缺口。 flag settings 层：两个变体的 `get_settings` 响应里，`remoteControlAtStartup` 分别为 （没读到） 与 （没读到），`isolatePeerMachines` 分别为 （没读到） 与 （没读到）——即全是"没读到"，**不能**据此说 `--settings` 盖过了用户 settings（那是读数缺口，不是证据）；方案据此走**最保守分支**：不等这个读数，检测到 Remote Control 已开启就拒绝以 bypass 启动常驻进程，并在界面说明（见 §9）；两个变体都**没有**把 `/v1/messages` 之外的流量发给 mock 端点，说明关掉它之后不会再有第二个"控制面"连接（本机没有可用的 Remote Control 后端，开着的那个也无法在此环境里连线，故"开着会怎样"只取到设置层的读数）。 交互式 CLI 的忙时输入：第二条消息落在**后一轮**（排在当前轮之后，不并入）。这一条与 E2/E3 的 stream-json 形态**一致**（都是"另起一轮"），§8 的忙时基准因此对两种形态都成立；但它精确对应三档里的哪一档，本实验**定不了**——9.2 里 `next` 那一档在排队时被撤掉了、没读到它执行时的落点，而 9.2 又显示"后一轮"这个落点对 `now` 与 `later` 都成立，光看落在哪一轮分不开三档；要定档得补一次不取消 `next` 的读数（缺口记在 proposal §8）。
 

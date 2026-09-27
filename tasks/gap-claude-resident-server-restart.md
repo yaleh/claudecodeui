@@ -5,7 +5,7 @@ title: AC-166 服务停止或被杀后不留常驻进程 — 真服务进程（�
   closeReason=server-shutdown；(2) SIGKILL ⇒ 下次启动清扫后无残留进程与 scope；(3) 重启后会话仍
   resident、宿主接口读到未运行与重启原因；(4) 下次 chat.send 拉起新 pid；60 秒预算守卫超时 exit 3；假形态（启动不清扫且
   CLI 不因 EOF 退出）必须红
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -74,10 +74,34 @@ goal_ac: AC-166
 
 ## Touches
 
-- `server/modules/session-hosts/tests/resident-server-restart.test.ts` (new) — 判据
+- `server/modules/session-hosts/tests/resident-server-restart.test.ts` (new)（判据）
 - `server/modules/session-hosts/session-hosts.routes.ts`（重启后 resident 会话的「未运行 + 原因」投影）
 - `server/modules/session-hosts/session-host-manager.service.ts`（若该投影需要 manager 提供 resident 会话视图或新原因常量）
 - `server/modules/session-hosts/index.ts`（barrel 收口）
 - `server/modules/providers/list/claude/claude-host-driver.provider.ts`（AC-161 落的 resident driver；仅当 (1) 的 `server-shutdown` 路径需要 driver 侧改动时动，否则不动）
 - `server/index.ts`（仅当清扫 / 停机接线需要调整时动，否则不动）
 - `tasks/gap-claude-resident-server-restart.md`（自触）
+
+## 完成记录
+
+**本轮（2026-09-27）承接上一轮 `exited-not-landed`，唯一实质改动是任务声明面：`## Touches` 的第一条形状写错，`anti-drift-touches-check` 因此硬失败。** 实现面（`0e14412d`）未重做，判据在还原后的树上逐条复跑，全部读数重取。
+
+**为什么只有声明面要改。** `anti-drift-touches-check` 的 `stripTouchAnnotation` 只剥离**行尾**的括注（全角 `（…）`，或行尾的 ASCII `(…)`）；原条目写作「反引号路径 + 半角空格 + `(new)` + `破折号 + 判据`」，`(new)` 不在行尾，于是 `parseTouchEntries` 产出的 glob 逐字为 `server/modules/session-hosts/tests/resident-server-restart.test.ts\` (new) — 判据`——反引号与散字都进了 glob，判据文件自然「matches no declared Touches glob」。现改成与兄弟任务 `gap-claude-resident-busy-input` 相同的形状：路径 + 半角空格 + `(new)` + **行尾**全角括注。**路径本身一字未改**，其余六条未动。`scripts/test.sh --for-task` 的选择器（`gsub` 掉反引号后取 `$1`）对两种拼法等价，故 scoped 门选中的文件集合不因本次改写而变。
+
+**判据（命令逐字）**：`npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/resident-server-restart.test.ts` → 退出 **0**、`tests 1 / pass 1 / fail 0 / duration_ms 6483.99`，打印 `elapsed-ms=6042`（< 60000）。
+
+读数（还原后的落树实跑，逐字）：
+
+- **AC2 真服务进程**：`server-boot pid=1542174 port=5385 log=/tmp/resident-server-restart-Onx2SL/server-5385.log`；`server-environ DATABASE_PATH=/tmp/resident-server-restart-Onx2SL/auth.db | HOST=127.0.0.1`——端口 5385 ≠ 3001（正控制：本 shell 导出的 `SERVER_PORT=3001` 未被继承），临时库与 `HOST` 都经 `/proc/<pid>/environ` 证明。
+- **AC3 正常停止（SIGTERM）**：`sigterm-precondition resident-pid=1543779 alive-before=true`；`sigterm resident-pid=1543779 alive-before=true gone-after-ms=503 closeReason=server-shutdown`——「发信号前活着」是先打印的正控制；`gone-after-ms=503` 在 5000ms 宽限内。
+- **AC4 被杀（SIGKILL）**：`sigkill-in-flight resident-pid=1544729 held-replies=1 alive=true`；`sigkill survivor=true killed=4 spared=1 server-pid=1544351 resident-pid=1544729`（E5 预期 `true`：被杀的父进程留下了孤儿）；下次启动后 `sigkill-residue pid=1544729 alive-at-next-boot=false swept=1`、`sigkill-reaped pid=1544729 alive-after-sweep=false`——`swept=1 ≥ 1`，且 `scopes pattern=claudecodeui-session-1544351-* output=""`（systemd user 面存在、该探针为真，故走「读 scope 为空」这一支而不是跳过支）。
+- **AC5 重启后「未运行 + 原因」**：`sessions stopped lifecycle_mode=resident running=false reason="No resident host is running for this session; the last server stop or restart dropped it."`；同一次读里的正控制 `sessions control lifecycle_mode=per-run running=false reason=null`——该字段不是恒真。原因值经 barrel 与实现同源（`RESIDENT_NOT_RUNNING_REASON`，判据把它与投影填的值一起打印）。
+- **AC6 下一次发送拉起新 pid**：`restart old-pid=1543779 new-pid=1545322 distinct=true alive=true running=true`。
+- **AC7 60 秒进程级预算守卫**：`guard({elapsedMs:60001,budgetMs:60000})=3`、`guard({elapsedMs:0,budgetMs:60000})=0`（阈值两侧都断言，非恒真）；`budget-ms=60000 elapsed-ms=6042`。
+- **AC8 假形态承重（判据文件一字未动）**：把 (a) `server/index.ts` 的 `sweepOrphanClaudeSessionScopes()` 调用点短路为 `const sweptSessionScopes: string[] = []`、且 (b) resident driver `closeHost` 的 `state.queue.end()` 删掉（CLI 不因 EOF 退出，正是 E5 的实测行为）之后，同命令退出 **1**、`pass 0 / fail 1`，读数为 `sigkill survivor=true killed=4 spared=1 server-pid=1570258 resident-pid=1570691`、`sigkill-residue pid=1570691 alive-at-next-boot=true swept=0`，失败断言文案逐字：`AssertionError [ERR_ASSERTION]: the next boot swept nothing (swept=0); the orphan was not there to reap`（`resident-server-restart.test.ts:1007`）。`git checkout --` 还原两处后同命令回到退出 **0**、`pass 1 / fail 0`、`sigkill-residue pid=1576127 alive-at-next-boot=false swept=1`、`elapsed-ms=6124`（正控制：还原即回绿）。
+- **AC9 既有六条判据**：`git diff --name-only develop...HEAD` 只列出本任务的四条（`server/index.ts`、`server/modules/session-hosts/index.ts`、`server/modules/session-hosts/session-hosts.routes.ts`、判据文件），六条既有判据一个未动，各自退出 0——`session-host-lifecycle.test.ts`（`tests 6 / pass 6 / fail 0`）、`session-hosts-routes.test.ts`（`5/5`）、`session-host-per-run-parity.test.ts`（`5/5`）、`claude-host-per-run.test.ts`（`7/7`）、`claude-background-work.test.ts`（`10/10`）、`passthrough-parity.test.ts`（`4/4`）。
+- **AC10 契约面**：`npm run typecheck` 退出 0（三条 tsconfig 全过）；`npm run lint` 退出 0（只有既存 warning）。新判据跨模块 import 只经 barrel；改动只落在 `## Touches` 列出的文件上。
+
+**scoped 门**（在**合入 develop 之前**的本工作树上实测；顺序如此是因为任务文件自己的提交必须先于 merge、而 merge 又必须是分支的最后一步，否则 develop 不再是 HEAD 的祖先、驱动的 `merge --ff-only` 会失败）：`bash scripts/test.sh --for-task gap-claude-resident-server-restart --allow-thin` 退出 **0**，`suite-scope-check: PASS — 16 active task(s) scanned`，`__PERFILE__ duration_ms=7373 server/modules/session-hosts/tests/resident-server-restart.test.ts passed=true`，`# tests 1 / # pass 1 / # fail 0`——scoped 选择器解析到了上面改正后的路径并**真跑过判据本身**，不是 `(thin)` 空跑（这正是本轮的修复点：改写前的拼法在 scoped 一侧同样取不到路径）。改写只动声明、不动路径，故该文件集合在 merge 前后一致；scoped-gate 缓存在合入 develop 之后按当时实测的 develop sha 写入，key 以 `.quay/scoped-gate-cache.json` 的实测值为准，本文不写死字面量。
+
+**非目标复查**：`shutdown()` 的 `5_000`ms 宽限、`'server-shutdown'` 词表、清扫只碰「属主已死」的 scope、per-run 会话的客户端可见行为——逐条未改；AC-161 的 resident driver 本体与分派接线不在本条改动内（分支 diff 里没有 `claude-host-driver.provider.ts`）。

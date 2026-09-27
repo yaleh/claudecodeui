@@ -4,7 +4,7 @@ title: AC-164 常驻进程有稳定的 SendMessage 地址 — 两个常驻会话
   peerName 等于按 proposal §12 规则（标题 slug-会话 ID 前 6 位）生成的名字、与 CLI 转录 agent-name
   及实际送达地址逐字一致、进程存活期间改名不变；mock 让会话甲以该地址 SendMessage ⇒ 会话乙产出
   source=unattended、触发类型=跨会话消息可回放的 run；假形态（不传 extraArgs.name）必须红
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -168,12 +168,63 @@ npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/test
 **未解释 / 未验证**：无标题进程「不给 `--name` 就不注册名字」是实测行为，没有查 CLI 的自动命名规则（本 build 下 `agent-name` 行只在显式给名时出现）；进程重启（新 pid）后按当时标题重算地址这条路，判据没有覆盖（AC-164 只要求「存活期间不变」）。
 
 
+### 续：上一轮 fan-in suite 红的真因、修正，与合并 develop 的语义并集
+
+**真因：sibling 契约没跟着投影长。** 上一轮 `step=suite` 红在 `server/modules/session-hosts/tests/session-hosts-routes.test.ts` 的 AC6，读数逐字（`.quay/fan-in-suite-gap-claude-resident-addressable~wk-prod-anchor~1790505092073-ed41c8.log`）：
+
+```
+AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
++ actual - expected
+  [ 'appSessionId', 'lastActivityAt', 'leases',
++   'peerName',
+    'providerSessionId', 'state' ]
+  expected: [ 'appSessionId', 'lastActivityAt', 'leases', 'providerSessionId', 'state' ]
+```
+
+`11b33700` 把 `peerName` 加进 `GET /api/session-hosts` 的 binding 投影（AC-4 要求用来发送的地址**逐字**来自这条投影），而该判据用 `deepEqual(Object.keys(binding).sort(), BINDING_VIEW_KEYS)` 断言**整个**元素 —— 这正是它写明要抓的那类漂移（「the client's contract is the whole element, not a subset of it」）。
+
+⚠️ **更正上面第一条完成记录里的一处错读数**：那里写「`session-hosts-routes.test.ts` EXIT=0 tests 5 pass 5 fail 0」是**错的** —— 那是 `11b33700` 落地**之前**的旧读数，写记录时没有重测。按同一条命令重跑才看到红。
+
+**修法（`8b1b02b2`）**：把 `peerName` 加进 `BINDING_VIEW_KEYS`。键集仍排序、仍 `deepEqual`、仍断言**全集**，所以断言强度不变；`null` 时键也在（元素形状不随状态变化）。这**不是**放宽判据 —— AC-4 要求投影带地址、该判据要求投影的键集完整且精确，两者只有在契约跟着长时才同时成立。
+
+⚠️ **如实登记的偏差（对照 AC-10 末句与 DoD 的「逐字不变」）**：本条**改了一个** `server/modules/session-hosts/tests/` 下的既有判据文件（只动 `BINDING_VIEW_KEYS` 常量与它上面的注释）。AC-10 对三条 per-run 判据（`claude-host-per-run` / `claude-background-work` / `passthrough-parity`）要求「一字不改」—— 那三条**确实一字未改**；宿主层那句的落点是「仍绿」，四条按原命令逐条重测为绿（读数见下）。改动的性质是**契约声明**，不是弱化：断言对象与操作符都没动。
+
+**合并 develop 的语义并集**（合并提交 `1c8329e2`，三处文本冲突 + 一处类型收口）：
+
+- `PendingHost` 类型与 `this.pending` 字面量两处：并入 develop 的 `stopHook: StopHookSink` 与本条原有的 `peerName` / `configDir`（develop 的 stop-hook 缓冲整块是新增，HEAD 上 `stopHook` 零命中）。导入处并入 HEAD 的 `node:fs` / `node:os` / `node:path` 与 develop 的 `type { Writable } from 'node:stream'`。
+- **类型收口（不补则类型不过）**：develop 新增的无早退分支 `if (state.unattended)` 调 `finishUnattendedTurn(state, sessionId)`（2 参），而本条的签名是 3 参（第 3 参 `result` 正是读 `result.origin.kind === 'peer'` 的来源）⇒ `TS2554: Expected 3 arguments, but got 2`。补上 `message` 后两条语义同时保住：develop 的「无人轮的 `result` 必须先于轮 FIFO 读」，与本条的「触发类型由 origin 命名」—— 无人轮**本身**也可能来自 peer，而它的 origin 只写在这一条 `result` 上。
+
+**合并后的树上复测读数（逐字）**
+
+```
+npm run typecheck                                                                                                   EXIT=0
+npm run lint                                                                                                        EXIT=0（只剩既有 warning）
+npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-addressable.test.ts    EXIT=0  tests 1  pass 1  fail 0  [readings] elapsed=11226ms
+npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-idle.test.ts           EXIT=0  tests 1  pass 1  fail 0
+npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-busy-input.test.ts     EXIT=0  tests 1  pass 1  fail 0
+npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-host-per-run.test.ts            EXIT=0  tests 7  pass 7  fail 0
+npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-background-work.test.ts         EXIT=0  tests 10 pass 10 fail 0
+npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/passthrough-parity.test.ts             EXIT=0  tests 4  pass 4  fail 0
+npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/session-hosts-routes.test.ts       EXIT=0  tests 5  pass 5  fail 0
+npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/session-host-bindings.test.ts      EXIT=0  tests 6  pass 6  fail 0
+npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/session-host-lifecycle.test.ts     EXIT=0  tests 6  pass 6  fail 0
+```
+
+AC-1 的判据在合并后的树上仍绿、`elapsed=11226ms < 60_000`；AC-7 的三条正控制与 AC-8 的假形态读数不受合并影响（被测量的机制一行未动）。十三条 AC 的勾选状态不变（13/13）。
+
+**本轮实测到一次「负载导致」的假红：已复跑为绿，不是被测量机制的缺陷（如实登记）。** 第一次 `--for-task` scoped gate 红在 AC-5 的 pid 读数 —— `AssertionError: the rename must not move the process (2000491 -> 2004038)`，该次 `duration_ms=55903`，日志里有四次等待超时（`B to open a run` 15s、`B's arriving turn to buffer its first frames` 15s、`the subscribe replay to land` 5s、`A identity` 8s），原始子件在 `.quay/suite-logs/20260927T194040-1998492/`。
+
+归属依据（不是猜的）：**driver 与宿主层没有任何 rename 处理** —— `grep -rn 'rename'` 在 `claude-host-driver.provider.ts` 与 `session-hosts/` 下零命中 ⇒ rename 本身**不可能**让进程重启；同一棵树、同一条命令随后连跑两次都是绿（`13879ms` / `13934ms`，standalone `11226ms`）。真实过程是：A 的 CLI 进程在负载下死掉，后续发送把它重新拉起，新进程按**当时已改名的标题**算出新地址，而「读回转录的 `agent-name`」取到了旧进程留下的那个转录 —— 两者不等 ⇒ 本条实现里的守卫按 `null` 上报、**不发布**不一致的地址（日志逐字：`Resident process registered a different address than it was launched with { launched: '...-renamed-...', registered: '...-alpha-...' }`）。守卫按设计工作；红落在「rename 不得移动进程」这条读数上，是因为**进程真的换了**，而那条读数的前提（同一进程）被环境打破了。
+
+**不因此弱化 AC-5**：把「进程死过」判成通过会让这条恒真 —— 那正是判据要堵的洞（一个 kill-and-restart 的缺陷会与它无法区分）。给下一位读者的提示：fan-in 全量并发下这条判据的 60 秒预算很紧（这次 55.9s，正常 11–14s）；见到「pid 变了 + 多次等待超时」这个形态，先复跑、先怀疑环境，再查 delta。
+
 ## Touches
 
 - `server/shared/types.ts`（`SessionBinding.peerName`）
 - `server/shared/interfaces.ts`（`IProviderHostDriverSink.identity`）
 - `server/modules/session-hosts/session-host-manager.service.ts`（把 `identity` 记到绑定上）
 - `server/modules/session-hosts/session-hosts.routes.ts`（`GET /api/session-hosts` 投影带出 `peerName`）
+- `server/modules/session-hosts/tests/session-hosts-routes.test.ts` （AC6 的 binding 声明键集加 `peerName` —— 投影长了，契约跟着长）
 - `server/modules/session-hosts/index.ts`（barrel 收口；签名不变则不动）
 - `server/modules/providers/list/claude/claude-host-driver.provider.ts`（AC-161 落地的 resident driver；本条在其上按 §12 规则建 `extraArgs.name`、读回转录 `agent-name`、`identity` 上报；若其实际文件名不同，按实际文件登记并在完成记录里写明）
 - `server/modules/providers/list/claude/claude.provider.ts`（若需要透传 peer 名/触发类型）

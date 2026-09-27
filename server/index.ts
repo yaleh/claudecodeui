@@ -10,6 +10,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import cors from 'cors';
 
 import { AppError, findApplicationRoot, getModuleDirectory, IS_PLATFORM, terminalTextStyles } from '@/shared/utils.js';
+import type { HostMode, LLMProvider } from '@/shared/types.js';
 import {
     closeSessionsWatcher,
     initializeSessionsWatcher,
@@ -237,6 +238,19 @@ app.use('/api/session-hosts', authenticateToken, createSessionHostsRouter({
     sessionHostManager,
     readSession: (sessionId) => sessionsService.readSessionLifecycle(sessionId),
     resolveHostDriver: (provider) => providerRegistry.resolveProvider(provider).hostDriver ?? null,
+    // The listing's second half: every visible session, so a resident one whose
+    // process a restart dropped still appears — with `running: false` and the
+    // derived reason — instead of vanishing with its host. The mode is read off
+    // the row rather than through `readSessionLifecycle` because this is the
+    // bulk path: one query for the whole list, and the column is never NULL on
+    // a stored row (`DEFAULT 'per-run'`), so the fallback here matches the
+    // single-row reader's normalization rather than inventing a second rule.
+    listSessions: () =>
+      sessionsDb.getAllSessions().map((session) => ({
+        appSessionId: session.session_id,
+        provider: session.provider as LLMProvider,
+        mode: (session.lifecycle_mode ?? 'per-run') as HostMode,
+      })),
 }));
 
 // Agent API Routes (uses API key authentication)
@@ -440,6 +454,46 @@ async function startServer() {
         closeScheduledMessageDispatcher();
         // Clean up plugin processes on shutdown
         const shutdownRuntimeServices = async () => {
+            // Hosts first, scopes second, and the order is load-bearing rather
+            // than tidy.
+            //
+            // A host records the first reason it is given and ignores every
+            // later one (`closeHost` returns early on a closed host), because the
+            // reason is meant to name the *cause*. Stopping the scopes first
+            // kills the session processes, so the driver sees its process end
+            // and reports `exited` — a true statement about the process, but not
+            // about who ended it, and by the time this function reaches the
+            // shutdown call the record is closed and `server-shutdown` can no
+            // longer be written. Closing the hosts first makes the server's own
+            // decision the recorded cause, and that close *is* the graceful path:
+            // for a resident host it ends the input queue, which is stdin EOF,
+            // which is how the CLI is meant to leave.
+            //
+            // The scope stop below then does what it was written for — collecting
+            // anything the EOF did not end — with the record already carrying the
+            // reason that explains why it was asked to leave.
+            try {
+                const hosts = await sessionHostManager.shutdown({ timeoutMs: SESSION_HOST_SHUTDOWN_TIMEOUT_MS });
+                if (hosts.closed.length > 0) {
+                    const forced = hosts.forced.length > 0 ? `, ${hosts.forced.length} forced` : '';
+                    console.log(`[Sessions] Closed ${hosts.closed.length} session host(s)${forced}`);
+                }
+                // One line per closed host, with the reason and the pid it had.
+                // The host record lives in this process's memory and dies with
+                // it, so a resident session's close reason is unrecoverable
+                // after exit unless it is written down here — and it is the one
+                // fact the next boot cannot reconstruct, because by then the
+                // process is gone and the row only remembers the mode. Read
+                // from the snapshot rather than from the shutdown summary: the
+                // summary answers with ids, and the pid and reason are what a
+                // reader needs to tie the line to a process.
+                for (const host of sessionHostManager.snapshot()) {
+                    if (!host.closeReason) continue;
+                    console.log(`[Sessions] shutdown-close host=${host.hostId} provider=${host.provider} mode=${host.mode} pid=${host.pid ?? 'none'} closeReason=${host.closeReason}`);
+                }
+            } catch (err) {
+                console.error('[Sessions] Error closing session hosts during shutdown:', getErrorMessage(err));
+            }
             // Sessions are spawned into their own scopes, so they are no longer part of this
             // unit's cgroup and nothing else here would stop them. Stop this server's own
             // scopes before exiting; without this a stopped or restarted server leaves every
@@ -461,15 +515,6 @@ async function startServer() {
                 await stopAllPlugins();
             } catch (err) {
                 console.error('[Plugins] Error stopping plugins during shutdown:', getErrorMessage(err));
-            }
-            try {
-                const hosts = await sessionHostManager.shutdown({ timeoutMs: SESSION_HOST_SHUTDOWN_TIMEOUT_MS });
-                if (hosts.closed.length > 0) {
-                    const forced = hosts.forced.length > 0 ? `, ${hosts.forced.length} forced` : '';
-                    console.log(`[Sessions] Closed ${hosts.closed.length} session host(s)${forced}`);
-                }
-            } catch (err) {
-                console.error('[Sessions] Error closing session hosts during shutdown:', getErrorMessage(err));
             }
             try {
                 await removeLocalServerMarker();

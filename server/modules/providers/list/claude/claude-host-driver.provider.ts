@@ -73,6 +73,9 @@
  */
 import { spawn as nodeSpawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { readFileSync, readdirSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import type { Writable } from 'node:stream';
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
@@ -542,6 +545,116 @@ export function deriveBackgroundWorkTrigger(
 }
 
 /**
+ * The SendMessage address a resident process is launched under.
+ *
+ * `claude-resident-sessions.md` §12 states the rule: the process's title, slugged,
+ * with the first six characters of the conversation's app session id appended —
+ * app-side rather than provider-side because the app id is known *before* the
+ * process starts (the provider id is minted by the CLI at launch, so a name
+ * derived from it could not be handed to the CLI as a launch argument), and
+ * because it is the id every other part of this app already has in hand.
+ *
+ * The slug keeps letters and digits in any script and joins runs of anything
+ * else with a single `-`, which is what makes the rule total rather than
+ * English-only: this app's titles are frequently Chinese, and the CLI takes a
+ * name verbatim (measured: `-n, --name` accepts Chinese and spaces as written).
+ * A title with no letter or digit in it at all yields `null`, which is the
+ * honest answer — there is nothing to build a stable address out of — and not an
+ * empty or numeric name that would collide with every other untitled session.
+ */
+export function residentPeerName(title: unknown, appSessionId: string): string | null {
+  if (typeof title !== 'string') {
+    return null;
+  }
+  const slug = title
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
+    .replace(/^-+|-+$/g, '');
+  if (!slug) {
+    return null;
+  }
+  return `${slug}-${appSessionId.slice(0, 6)}`;
+}
+
+/**
+ * How long a launched process is given to state its own name, and how often it
+ * is asked.
+ *
+ * The name is written to the process's transcript as an `agent-name` entry, and
+ * that entry is the only reading of it that proves the process really registered
+ * the address rather than merely being launched with the flag. The budget is
+ * short because the entry is written at startup: a process that has already
+ * emitted its session id has been up long enough that a name which has not
+ * appeared by the end of this window is one that is not coming.
+ */
+export const CLAUDE_RESIDENT_IDENTITY_BUDGET_MS = 5_000;
+const CLAUDE_RESIDENT_IDENTITY_POLL_MS = 50;
+
+/**
+ * The config directory the CLI this driver spawns will write its transcript to.
+ *
+ * Read from the host's own environment rather than from the turn's option bag,
+ * because the launch builder builds the child's environment from `process.env`
+ * and ignores any `env` the caller supplied — so the bag is not what the process
+ * was given, and reading it would be reading a value that never reached the CLI.
+ */
+function resolveClaudeConfigDir(): string {
+  const fromEnv = process.env.CLAUDE_CONFIG_DIR;
+  return fromEnv && fromEnv.trim() ? fromEnv : join(homedir(), '.claude');
+}
+
+/**
+ * The `agent-name` entry a Claude CLI has written for itself, or null.
+ *
+ * The transcript is the only place this name is legible: the CLI registers the
+ * address on its own side, and the name is deliberately absent from every
+ * `/v1/messages` body it sends (measured), so nothing on the wire carries it and
+ * no frame reports it. The file is located by session id across the config
+ * directory's project buckets rather than by recomputing the bucket name,
+ * because the bucket is the CLI's own encoding of the working directory — a rule
+ * this file does not own and should not have a second copy of.
+ *
+ * A malformed line is skipped rather than fatal: a transcript being appended to
+ * while it is read has a partial final line by construction, and that is not a
+ * reason to miss the entry that is already on disk.
+ */
+function readTranscriptAgentName(configDir: string, providerSessionId: string): string | null {
+  const projects = join(configDir, 'projects');
+  let buckets: string[];
+  try {
+    buckets = readdirSync(projects);
+  } catch {
+    // No transcript yet, or a config directory this process cannot see.
+    return null;
+  }
+
+  for (const bucket of buckets) {
+    let raw: string;
+    try {
+      raw = readFileSync(join(projects, bucket, `${providerSessionId}.jsonl`), 'utf8');
+    } catch {
+      continue;
+    }
+    for (const line of raw.split('\n')) {
+      if (!line.trim()) {
+        continue;
+      }
+      let row: AnyRecord;
+      try {
+        row = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (row?.type === 'agent-name' && typeof row.agentName === 'string' && row.agentName) {
+        return row.agentName;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
  * What the CLI's own `Stop` hook has said about the work it is holding.
  *
  * One reading per hook firing, newest kept. The list is a *ledger* rather than a
@@ -792,7 +905,7 @@ function spawnResidentCli(spawnOptions: SdkSpawnOptions): ClaudeResidentProcessH
  * the builder installed (the memory-capped systemd scope, when this host has
  * one) and keeps the child it returns.
  */
-function createSdkResidentProcess(input: {
+export function createSdkResidentProcess(input: {
   prompt: AsyncIterable<AnyRecord>;
   options: AnyRecord;
   seams?: ClaudeResidentProcessSeams;
@@ -814,6 +927,20 @@ function createSdkResidentProcess(input: {
   // builder's declared return; it is still the same object that is handed to
   // `query`, which reads `hooks` off it at runtime like any other option.
   const launchOptions = sdkOptions as unknown as Record<string, unknown>;
+
+  // Raw CLI flags, carried through from the caller's option bag.
+  //
+  // The shared launch builder maps options field by field and has no passthrough
+  // for `extraArgs`, which is deliberate: it is the builder every per-run turn
+  // goes through, and a per-run turn has no launch-time address to state. The
+  // resident factory is where that gap belongs, because it is the factory that
+  // owns what a *resident* process is launched with — so the flag is copied here
+  // rather than taught to the shared builder.
+  const extraArgs = (input.options as AnyRecord)?.extraArgs;
+  if (extraArgs && typeof extraArgs === 'object') {
+    launchOptions.extraArgs = extraArgs;
+  }
+
   const onStop = input.seams?.onStop;
   if (onStop) {
     const installedHooks = (launchOptions.hooks ?? {}) as Record<string, unknown>;
@@ -1009,6 +1136,27 @@ type ResidentHostState = {
   sessionStateChanged: number;
   /** Provider-native session id, captured once from the stream. */
   providerSessionId: string | null;
+  /**
+   * The address this process was launched under, or null when none was computed.
+   *
+   * Held because the read-back has to be measured against the name that was
+   * asked for rather than against whatever the transcript happens to say: a
+   * process that registered a different name than the one it was launched with
+   * has not answered to the address a caller was given, and reporting the
+   * transcript's word for it would publish an address that does not work.
+   */
+  peerName: string | null;
+  /**
+   * Where this process's CLI keeps its state, as the process itself was told.
+   *
+   * Read from the environment the child really receives — the launch builder
+   * builds `sdkOptions.env` from the host's own environment and ignores any
+   * `env` a caller puts in the option bag, so reading the bag here would be
+   * reading something that never reached the process.
+   */
+  configDir: string;
+  /** True once the identity read-back has been started, so it starts only once. */
+  identityReadbackStarted: boolean;
   /** True when this process was launched resuming an existing conversation. */
   resumed: boolean;
   sessionCreatedSent: boolean;
@@ -1027,6 +1175,15 @@ type PendingHost = {
   modelContextWindow: ReturnType<typeof resolveModelContextWindowRow>;
   /** The hook ledger built for this process, carried over with the queue. */
   ledger: BackgroundWorkLedger;
+  /**
+   * What this process was launched with, decided before the spawn because both
+   * are launch facts: the name handed to the CLI, and the directory the
+   * read-back of that name has to look in. Carried here rather than recomputed
+   * at adoption because the option bag they were derived from belongs to the
+   * turn that started the process, which `startHost` never sees.
+   */
+  peerName: string | null;
+  configDir: string;
   /** The one slot this process's `Stop` hook can reach before its host exists. */
   stopHook: StopHookSink;
 };
@@ -1228,6 +1385,9 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       resultTimes: [],
       sessionStateChanged: 0,
       providerSessionId: null,
+      peerName: pending.peerName,
+      configDir: pending.configDir,
+      identityReadbackStarted: false,
       resumed: false,
       sessionCreatedSent: false,
       assistantBudgetSent: false,
@@ -1812,10 +1972,21 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
     // buffered for `startHost` rather than dropped.
     const stopHook: StopHookSink = { state: null, buffered: [] };
 
+    // The address is a launch argument, so it is decided before the spawn and
+    // travels in the option bag the factory reads. `residentPeerName` owns the
+    // rule; the title it reads is the conversation's own summary, which is the
+    // name the user sees and the same field the stopped-run report already uses.
+    const peerName = residentPeerName(options.sessionSummary, appSessionId);
+    // Absent rather than empty when there is no name: a `name` flag with nothing
+    // in it is not the same statement as no flag, and the CLI would be asked to
+    // register an empty address.
+    const launchArgs = peerName ? { extraArgs: { name: peerName } } : {};
+
     const process = await this.createProcess({
       prompt: queue.stream,
       options: {
         ...options,
+        ...launchArgs,
         providerSessionId: context.resolveProviderSessionId(appSessionId),
         model: resolvedModel || options.model,
         effortModels,
@@ -1838,6 +2009,8 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       process,
       modelContextWindow: resolveModelContextWindowRow('claude', resolvedModel || options.model),
       ledger,
+      peerName,
+      configDir: resolveClaudeConfigDir(),
       stopHook,
     };
 
@@ -2060,6 +2233,70 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
   }
 
   /**
+   * Reads the address back out of the process and reports it, or reports none.
+   *
+   * A launch flag is a request, not a fact: handing the CLI a name does not by
+   * itself prove the process is reachable at it, and a binding that published
+   * the requested name on faith would be advertising an address nobody has
+   * checked. What is checked is the process's own registration — the `agent-name`
+   * entry it writes into its transcript — and the only two outcomes reported are
+   * that entry agreeing with what was requested, or a stated `null`. A name that
+   * differs is reported as `null` rather than as itself, because the address a
+   * caller was handed is the requested one and that is the one that does not
+   * work; the disagreement is logged rather than swallowed, and the transcript's
+   * own word is never published as if it were the requested address.
+   *
+   * Called once per host, at the first message that names the provider session,
+   * which is the earliest moment the transcript has a known filename. The poll
+   * is bounded and unref'd: the entry is written at startup, so a process that
+   * has not produced it within the budget has not registered an address, and a
+   * driver must not hold the event loop open waiting for one that is not coming.
+   */
+  private startIdentityReadback(state: ResidentHostState, sessionId: string): void {
+    if (state.identityReadbackStarted) {
+      return;
+    }
+    state.identityReadbackStarted = true;
+
+    const expected = state.peerName;
+    if (!expected) {
+      // Launched with no name: there is no address to read back, and reporting
+      // `null` now is a statement — "this binding has no address" — rather than
+      // the absence a binding that was never asked about would show.
+      state.sink.identity(state.appSessionId, null);
+      return;
+    }
+
+    const deadline = Date.now() + CLAUDE_RESIDENT_IDENTITY_BUDGET_MS;
+    const poll = (): void => {
+      if (state.closed) {
+        return;
+      }
+      const registered = readTranscriptAgentName(state.configDir, sessionId);
+      if (registered === null) {
+        if (Date.now() >= deadline) {
+          return;
+        }
+        const timer = setTimeout(poll, CLAUDE_RESIDENT_IDENTITY_POLL_MS);
+        timer.unref?.();
+        return;
+      }
+      if (registered !== expected) {
+        console.error('[ClaudeResidentHostDriver] Resident process registered a different address than it was launched with', {
+          appSessionId: state.appSessionId,
+          launched: expected,
+          registered,
+        });
+        state.sink.identity(state.appSessionId, null);
+        return;
+      }
+      state.sink.identity(state.appSessionId, expected);
+    };
+
+    poll();
+  }
+
+  /**
    * Ends the unattended turn a `result` closed: its terminal frame, then the
    * report that says what the turn was for.
    *
@@ -2068,8 +2305,16 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
    * has ended should not be able to arrive before the ending it describes. No
    * lease is touched: an unattended turn never held one, because nothing asked
    * the manager for it.
+   *
+   * The trigger is the one reading that cannot be taken at the opener. A turn
+   * opened by a peer session leaves nothing in the process's own task list, so
+   * the `Stop` hook's account of what it holds reads as an unexplained turn; the
+   * fact that a message arrived is stated only on the turn's `result`, as the
+   * message's origin, which is the turn's *end*. So the hook's reading is kept
+   * as the answer for every other reason and is overridden here — at the `result`
+   * — exactly when the CLI says the turn came from a peer.
    */
-  private finishUnattendedTurn(state: ResidentHostState, sessionId: string | null): void {
+  private finishUnattendedTurn(state: ResidentHostState, sessionId: string | null, result: AnyRecord): void {
     const unattended = state.unattended;
     if (!unattended) {
       return;
@@ -2083,13 +2328,15 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
         aborted: false,
       }),
     );
+    const origin = (result?.origin ?? null) as AnyRecord | null;
+    const fromPeer = origin?.kind === 'peer';
     this.notifyUnattendedWork({
       appSessionId: state.appSessionId,
       provider: 'claude',
       userId: state.lastUserId,
       sessionId: state.appSessionId,
       sessionName: state.lastSessionName,
-      trigger: unattended.trigger,
+      trigger: fromPeer ? 'cross-session-message' : unattended.trigger,
     });
   }
 
@@ -2311,6 +2558,9 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
     if (typeof message?.session_id === 'string' && message.session_id && !state.providerSessionId) {
       state.providerSessionId = message.session_id;
       writer?.setSessionId?.(message.session_id);
+      // This message is what names the transcript, so it is the first moment the
+      // address the process was launched under can be read back out of it.
+      this.startIdentityReadback(state, message.session_id);
       if (!state.resumed && !state.sessionCreatedSent) {
         state.sessionCreatedSent = true;
         writer?.send(
@@ -2423,7 +2673,10 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
     // own `result` would then find an empty queue and be read as another ending
     // of the unattended turn.
     if (state.unattended) {
-      this.finishUnattendedTurn(state, sessionId);
+      // The `result` travels with the ending here too: the unattended turn can
+      // itself have come from a peer, and the origin that says so is stated on
+      // this message and nowhere else.
+      this.finishUnattendedTurn(state, sessionId, message);
       return;
     }
 
@@ -2433,8 +2686,10 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       // the resident shape of the background-work follow-up. The mode already
       // holds the process open, so there is no lease to drop, and the frames
       // above have reached the client. What there is to do is end the run the
-      // opener made for that turn, if this driver made one.
-      this.finishUnattendedTurn(state, sessionId);
+      // opener made for that turn, if this driver made one — handing over the
+      // `result` itself, because that message is the only place the turn's
+      // origin is stated and the origin is what names the trigger.
+      this.finishUnattendedTurn(state, sessionId, message);
       return;
     }
 

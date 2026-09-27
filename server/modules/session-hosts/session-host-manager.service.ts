@@ -685,6 +685,28 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
     return true;
   }
 
+  /**
+   * Records the address the binding's own process answers to.
+   *
+   * Deliberately not `noteActivity`: the process stating its name is not work,
+   * and counting it as work would let a process keep its own quiet deadline
+   * pushed out by nothing but coming up. This is the one write that changes
+   * what a caller can *do* with the binding — `peerName` is what the REST view
+   * publishes so another session has somewhere to send — so a stale value
+   * would be worse than a missing one; hence the refusal to invent one when no
+   * live binding is found, and the driver's rule of reporting only names it
+   * read back from the process itself.
+   */
+  function recordIdentity(appSessionId: string, peerName: string | null): boolean {
+    const found = findBinding(appSessionId);
+    if (!found || found.host.state === 'closed') {
+      return false;
+    }
+
+    found.binding.peerName = peerName;
+    return true;
+  }
+
   /** Closes the host bound to this session, if one is live. */
   function closeSessionHost(appSessionId: string, reason: HostCloseReason): boolean {
     const hostId = hostIdByAppSession.get(appSessionId);
@@ -706,6 +728,7 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
     leaseAdded: addLease,
     leaseRemoved: removeLease,
     activity: noteActivity,
+    identity: recordIdentity,
     exited: (event) => reportExited(event.hostId, event.detail),
   };
 
@@ -932,6 +955,7 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
       state: 'idle',
       leases: mode === 'resident' ? [{ kind: 'resident-policy' }] : [],
       lastActivityAt: now(),
+      peerName: null,
       detachReason: null,
     };
   }
@@ -1075,6 +1099,9 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
       state: 'busy',
       leases: [{ kind: 'turn', runId } satisfies HostLease],
       lastActivityAt: now(),
+      // A per-run host has no address: its process lives for one turn, so a name
+      // handed to it would be gone before a peer could use it.
+      peerName: null,
       detachReason: null,
     };
     const host: ProcessHost = {
@@ -1361,6 +1388,7 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
     removeLease,
     attachViewer,
     noteActivity,
+    recordIdentity,
     interrupt,
     changeMode,
     rewind,

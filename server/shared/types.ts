@@ -1871,6 +1871,20 @@ export type SessionBinding = {
   state: 'idle' | 'busy';
   leases: HostLease[];
   lastActivityAt: number;
+  /**
+   * The SendMessage address this binding's process answers to, when it has one.
+   *
+   * Reported by the driver once the process has registered the name with its own
+   * tooling and the driver has read that registration back — never computed and
+   * assumed here, because the name a process answers to is a fact about the
+   * process's own peer registry rather than about the string some caller chose.
+   * `null` means "not addressable": the mode has no stable address at all, the
+   * process never registered one, or what it registered is not what the naming
+   * rule asked for. Fixed for the process's lifetime — a title change does not
+   * move it — and belongs to the binding rather than to the host because it is
+   * per-conversation, like every other fact on this record.
+   */
+  peerName: string | null;
   /** Set when the binding was detached; mirrors the host's `closeReason` for that binding. */
   detachReason: HostCloseReason | null;
 };
@@ -2078,8 +2092,15 @@ export type ChatRunSource = 'user' | 'scheduled' | 'unattended';
  * scheduled prompt firing, and `non-user` is the path where no list is readable
  * at all: the honest reading there is that the turn is unexplained, not that it
  * has a reason this code could not name.
+ *
+ * `cross-session-message` is the fourth reason and the one the task list cannot
+ * explain: a peer session addressed this process and the message itself is what
+ * opened the turn, so the process was holding nothing of its own at the time.
+ * The CLI states that fact on the turn's own `result` (the message's origin),
+ * which is why the trigger for this reason is read at the turn's end rather than
+ * at its opener — see `finishUnattendedTurn` in the resident driver.
  */
-export type BackgroundWorkTrigger = 'background-task' | 'session-cron' | 'non-user';
+export type BackgroundWorkTrigger = 'background-task' | 'session-cron' | 'non-user' | 'cross-session-message';
 
 /**
  * What a provider's resident process can do, beyond merely being long-lived.

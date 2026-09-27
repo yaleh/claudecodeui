@@ -170,6 +170,20 @@ export interface IProviderHostDriverSink {
    */
   activity(appSessionId: string): void;
   /**
+   * Reports the address this binding's process answers to, once it is known.
+   *
+   * A driver reports it because only the process knows it: the name is handed
+   * to the provider CLI at launch and the CLI registers it on its own side, so
+   * reading it back is the only way to learn whether the address a caller
+   * computed is the address that actually answers. `null` is the honest reading
+   * when the process was launched without one — not "unknown yet", but "this
+   * binding has no address".
+   *
+   * Unlike `activity`, this is not a work event and must not move
+   * `lastActivityAt`: a process stating its own name says nothing about a turn.
+   */
+  identity(appSessionId: string, peerName: string | null): void;
+  /**
    * Reports that the process is gone, with the detail the runtime could see.
    *
    * Terminal: the manager closes the host with `exited` and this detail. The
