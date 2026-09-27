@@ -3,7 +3,7 @@ id: gap-debug-agent-ac10-reads-the-whole-branch-delta
 title: debug-agent-host-driver 的 AC10 读整条分支 delta 判 providers/list
   是否被碰：base=develop、并集还含 git show --name-only HEAD ⇒ 任何合法范围包含
   server/modules/providers/list/ 的兄弟任务必红（AC-159 已连停 3 轮）；该断言在自己的分支上是对的，缺的是按分支设门
-status: todo
+status: ready
 labels:
   - gap
   - defect
