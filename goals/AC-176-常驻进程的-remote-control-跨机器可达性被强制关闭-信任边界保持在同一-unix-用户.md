@@ -24,15 +24,15 @@ origin: 2026-09-25 人 yale 裁定：按对 claude 2.1.282 二进制的静态分
   peer 也能驱动它，信任边界超出 proposal §9 写的同一 Unix 用户 ｜2026-09-27 人 yale 指令：按 proposal 阶段
   0 结论（E1–E9，记录文件 docs/proposals/claude-resident-sessions-experiments.md）修订判据；E9
   未读到 flag settings 的覆盖读数，判据改为检测到即拒绝启动，快照只记请求值与检测值
-activatedAt: 2026-09-27T05:11:27.441Z
+activatedAt: 2026-09-27T05:12:07.055Z
 statusLog:
-  - at: 2026-09-27T05:11:27.441Z
+  - at: 2026-09-27T05:12:07.055Z
     from: draft
     to: active
-    actor: goal-driver
-    reason: "triage: activate"
+    actor: human:yale
+    reason: 人 yale 2026-09-27 指令：判据已按 E1–E9 结论修订，转 active
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
-  at: 2026-09-27T05:11:27.441Z
+  at: 2026-09-27T05:12:07.055Z
 ---
