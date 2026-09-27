@@ -88,6 +88,8 @@ const FILE_STARTED_AT = Date.now();
 const SESSION = 'ac165-resident-idle';
 const E9_SESSION_ID = 'b827aab6-2114-4fe2-b1af-991a6c2285e1';
 const HOUR_MS = 60 * 60 * 1000;
+/** The id of the frame leg (6) pushes *after* the subtype it does not know. */
+const LIVENESS_TASK_ID = 'b3liveness';
 
 /**
  * One line of this criterion's readings, prefixed so a reader can find them.
@@ -910,14 +912,23 @@ test('resident idle ceiling: held work defers the close and the REST listing rep
         });
       }
       leg.process.emit(assistantFrame());
+      // Liveness, read directly rather than by proxy: a frame this build *does*
+      // read arrives after the one it does not, and its effect has to land. A
+      // loop that stopped on the unknown subtype would never consume this, so
+      // the lease below is the difference between "it passed the alphabet" and
+      // "it is still reading". Its own retraction follows so the settled
+      // summaries of the two runs stay comparable.
+      leg.process.emit(taskStartedFrame({ task_id: LIVENESS_TASK_ID }));
       await settle();
 
       const reading = leg.driver.lifecycleReading(leg.sessionId);
       const host = findHost(leg);
-      const alive = reading !== null && host.state !== 'closed';
+      const liveness = heldTasksOf(leg).some((lease) => lease.id === LIVENESS_TASK_ID);
+      const alive = reading !== null && host.state !== 'closed' && liveness;
       say(
         `(6) with-fire=${withFire} unknownSubtypeSeen=${reading?.unhandledSystemSubtypes.includes('scheduled_task_fire') === true} ` +
-          `loopAlive=${alive} unhandled=[${(reading?.unhandledSystemSubtypes ?? []).join(',')}] host.state=${host.state}`,
+          `loopAlive=${alive} frameAfterUnknownRead=${liveness} ` +
+          `unhandled=[${(reading?.unhandledSystemSubtypes ?? []).join(',')}] host.state=${host.state}`,
       );
       if (withFire) {
         assert.equal(reading?.unhandledSystemSubtypes.includes('scheduled_task_fire'), true);
@@ -927,7 +938,12 @@ test('resident idle ceiling: held work defers the close and the REST listing rep
         assert.deepEqual(reading?.unhandledSystemSubtypes, []);
         assert.notEqual(host.state, 'closed');
       }
+      // The one assertion both runs make, and the one that reds when the loop
+      // stopped on the earlier frame.
+      assert.equal(liveness, true, 'a frame pushed after the unknown subtype was still read');
 
+      leg.process.emit(taskNotificationFrame({ task_id: LIVENESS_TASK_ID }));
+      await settle();
       await endRound(leg);
       const settledHost = findHost(leg);
       const summary =
