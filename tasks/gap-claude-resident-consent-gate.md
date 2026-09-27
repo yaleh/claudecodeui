@@ -4,7 +4,7 @@ title: AC-171 真实浏览器里常驻开关须先勾选知情：新建会话开
   用户信任边界告知、未勾「我了解」发送禁用、勾选后能发送且会话
   lifecycle_mode=resident；会话菜单「转为常驻…」同门控且处理中禁用；开关只对能力矩阵含 resident 的 provider
   显示；假形态（勾选框不门控发送）必须红
-status: todo
+status: ready
 labels:
   - gap
 parent: null
