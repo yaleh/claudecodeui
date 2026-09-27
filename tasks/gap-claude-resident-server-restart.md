@@ -5,7 +5,7 @@ title: AC-166 服务停止或被杀后不留常驻进程 — 真服务进程（�
   closeReason=server-shutdown；(2) SIGKILL ⇒ 下次启动清扫后无残留进程与 scope；(3) 重启后会话仍
   resident、宿主接口读到未运行与重启原因；(4) 下次 chat.send 拉起新 pid；60 秒预算守卫超时 exit 3；假形态（启动不清扫且
   CLI 不因 EOF 退出）必须红
-status: ready
+status: done
 labels:
   - gap
 parent: null
