@@ -2,7 +2,7 @@
 id: gap-voice-capture-secrets-three-modes
 title: 三档脱敏判据：off/text/audio 各一次成功与一次失败下，DashScope key、共享 backend key、Bearer
   形式与录音 base64 都不出现在任何日志行与任何捕获文件里，且它们确实过了线（正例）（AC-146）
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -188,3 +188,14 @@ AC7 修复（`gap-voice-error-classification-ac7-vitest-child-fragile`）已落�
 核对：逐字匹配已知记录 `undici-bad-port-lottery-in-listen0-route-tests`——`app.listen(0)` 的端口落在 undici 拒收的 18 个端口之一，约 2%/次舰队跑的纯抽签，不是断言缺陷。本任务自己的 `## Touches` 判据在同一份日志里 `passed=true`；红的文件不在 Touches 里，也不在 `git diff develop...HEAD` 里；standalone 复核 `exit 0`，`pass 9 / fail 0`（2.6s）。
 
 结论：普通的端口抽签型舰队噪声，不是「读全局事实」的例外，重新排队即可。
+
+## Needs-Human
+
+**执行 2026-09-27T12:29:07.814Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 5 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=20858 server/modules/providers/tests/sessions-watcher-mode.test.ts passed=false end_ms=1790512030797
+- run_id：wk-prod-anchor
+- session_id：05372a5b-cfe8-4b30-b828-514e78c6a883
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-capture-secrets-three-modes~wk-prod-anchor~1790511962100-48936d.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-capture-secrets-three-modes-wk-prod-anchor.log
