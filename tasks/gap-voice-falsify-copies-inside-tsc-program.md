@@ -4,7 +4,7 @@ title: voice 判据的瞬时副本仍在 tsc 的 program 里：server/tsconfig.j
   ./**/*.ts，而四个 false-forms 副本与 AC4(b) 的 20 次 churn 都写在 server/modules/voice/ 下
   ⇒ 并发 typecheck 删除竞态报 TS6053（已观测 5 次、挡住 2 个任务），种一个带类型错误的副本更会无需竞态地报 TS2322；site
   1 的 exclude 修法盖不到
-status: ready
+status: done
 labels:
   - gap
   - defect
