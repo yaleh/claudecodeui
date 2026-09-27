@@ -2,7 +2,7 @@
 id: gap-ac027-gateway-wait-weaker-than-assertion
 title: AC-027 第三条腿的等待弱于断言：45s poll 只认 token，而 SDK 的会话命名请求带同一 token 先到 ⇒ 紧随其后的
   find(model id) 不等就查，判据在请求次序上翻红（同树 16:28 红 / 16:29 绿 / 16:33 绿 / 16:36 红）
-status: ready
+status: needs-human
 labels:
   - gap
   - defect
@@ -189,3 +189,14 @@ npm run test:e2e -- e2e/model-library.spec.ts → exit 0，3 passed（上表三�
 - **机制**：该文件 AC6 拿 `git diff --name-only develop...HEAD` 当「driver 在 delta 里」的代理。fan-in 的 `merge-develop` 之后 develop 已是 HEAD 的祖先，这个区间恰好是**当前分支自己的 delta**，于是只有 driver 自己的那条分支能过它。
 - **本任务自身状态**：AC 6/6 满足（`task_check` ok）、五个实现提交一字未改、本轮 scoped 门绿（thin）、scoped-gate cache 已按 develop sha 写入。
 - **处置**：该红已由独立立案的修复任务承接（标题同时含「claude-host-per-run」与「按分支设门」两处字样），它落地后本任务即可直推。⛔ 在此之前**不要**改这条兄弟判据来换绿：既越界（本任务 `## Touches` 不含 `server/`），也会把一条真判据改哑。
+
+## Needs-Human
+
+**执行 2026-09-27T04:32:08.445Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: not ok - server/modules/providers/tests/claude-host-per-run.test.ts:   AssertionError [ERR_ASSERTION]: the develop delta does not mention the driver, so it is not the delta being read: server/modules/providers/list/claude/claude-per-run-host-driver.provider.ts
+- run_id：wk-prod-anchor
+- session_id：6d279e49-7d77-48b8-ad88-960ab7244c8d
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-ac027-gateway-wait-weaker-than-assertion~wk-prod-anchor~1790483362208-58f9b0.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-ac027-gateway-wait-weaker-than-assertion-wk-prod-anchor.log

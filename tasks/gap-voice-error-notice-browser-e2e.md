@@ -3,7 +3,7 @@ id: gap-voice-error-notice-browser-e2e
 title: 真实浏览器里 403 未开通 / 404 模型不存在 / 空答案 / 服务端 422
   各显示自己的中文文案，提示持续显示到关闭、下次录音时清除，草稿逐字保留，技术详情折叠展开后才读得到状态码与
   upstreamCode，页面上没有拼接句（AC-153）
-status: ready
+status: needs-human
 labels:
   - gap
   - defect
@@ -257,3 +257,14 @@ fan-in 的 `merge-develop` 让 `develop` 成为 HEAD 的祖先，于是 `develop
 **需要的修法（与已 done 的 `gap-debug-agent-ac10-reads-the-whole-branch-delta` 同类同形）**：给该断言**按分支设门** —— 仅当 `git rev-parse --abbrev-ref HEAD` 等于 `task/gap-session-hosts-claude-per-run-driver` 时求值；其它分支上打印分支名与理由、**不求值**（读数行仍在，不是静默跳过）。⛔ 不得删掉或改成恒真，并须配负控制（在 owner 分支上违反不变量时仍然红）。这正是 ac10 立案时给出的修法 (a)，其落地提交 `b5d6c663` 已在 develop 上，形状可照抄。本轮已按此形状另立修复任务 `gap-claude-host-per-run-delta-scope-gate`（Touches 指向该判据文件），以免 fleet 上每条带代码 delta 的任务都停在这一条断言上。
 
 **本任务自身状态**：10/10 AC 保持满足（工作树 delta 与本文件启动时逐字相同）；本轮 scoped gate 绿（`scripts/test.sh --for-task … --allow-thin` → `# tests 2 / pass 2 / fail 0`，exit 0）；scoped-gate cache 已按 develop sha `5b6d3f3f70b39675798a8732e3212df2142b4347` 写入。承重的浏览器判据（四条腿、4 秒持续、草稿逐字、折叠技术详情、无拼接句）在最近一次全绿运行里的读数见上一节，本轮未改任何实现字节。
+
+## Needs-Human
+
+**执行 2026-09-27T04:35:00.255Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: not ok - server/modules/providers/tests/claude-host-per-run.test.ts:   AssertionError [ERR_ASSERTION]: the develop delta does not mention the driver, so it is not the delta being read: server/modules/providers/list/claude/claude-per-run-host-driver.provider.ts
+- run_id：wk-prod-anchor
+- session_id：9011c081-ce58-45ad-95f5-ec245943aee4
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-error-notice-browser-e2e~wk-prod-anchor~1790483390115-bfb12b.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-error-notice-browser-e2e-wk-prod-anchor.log
