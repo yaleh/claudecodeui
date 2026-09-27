@@ -19,8 +19,15 @@ export { createSessionHostsRouter } from './session-hosts.routes.js';
 // root supplies so this module never imports the providers module back.
 export type {
   HostDriverResolver,
+  SessionHostStateReading,
   SessionLifecycleReading,
+  SessionReader,
 } from './session-hosts.routes.js';
+// RESIDENT_NOT_RUNNING_REASON: the derived reason a resident session carries on
+// the listing when nothing is serving it. Exported as a value — not restated as
+// a literal at the read site — so a consumer (and the restart criterion, which
+// prints it) asserts against the same string the projection fills in.
+export { RESIDENT_NOT_RUNNING_REASON } from './session-hosts.routes.js';
 // CLOSED_HOST_RETENTION_MS: how long a closed host stays in `snapshot()`, so a
 // reader of the listing (and the criterion for its far edge) can place a
 // deadline on the same value the manager expires with.

@@ -101,7 +101,7 @@ export class ClaudeProvider extends AbstractProvider {
    * driver reports *what* completed, and the notification layer already treats a
    * missing user as "no per-user preferences to consult".
    */
-  readonly hostDriver: IProviderHostDriver = new ClaudeResidentHostDriver({
+  readonly residentHostDriver: ClaudeResidentHostDriver = new ClaudeResidentHostDriver({
     host: sessionHostManager,
     notifyBackgroundWork: (event) =>
       reportBackgroundWorkCompleted({
@@ -139,6 +139,20 @@ export class ClaudeProvider extends AbstractProvider {
         trigger: event.trigger,
       }),
   });
+
+  /**
+   * The same instance, held under its own type.
+   *
+   * `hostDriver` is the shared facet every provider mounts, so it is typed as
+   * `IProviderHostDriver` and the driver's own verbs — the busy-input readings
+   * and the withdrawal entry — are not on it. The dispatch reaches those
+   * through a structural check on the instance, which is the right reading at
+   * that layer (it must work for a provider that has no such verb) but the
+   * wrong one here: at the mount site the concrete class is known, and a second
+   * field is what says so without a cast back from the interface. Both fields
+   * are the one object, so a verb added to the class is reachable both ways.
+   */
+  readonly hostDriver: IProviderHostDriver = this.residentHostDriver;
 
   constructor() {
     super('claude');

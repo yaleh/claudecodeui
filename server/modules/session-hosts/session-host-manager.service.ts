@@ -1337,6 +1337,29 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
   }
 
   /**
+   * The live host serving one session, or null when the session has none.
+   *
+   * The question every caller has to ask before it addresses a driver by
+   * session: which process is serving this conversation *right now*. It lives
+   * here because the manager is the only layer that owns the binding table —
+   * an answer assembled anywhere else would be a second copy of "who is bound
+   * to what", and the two could disagree exactly when it matters (a host that
+   * closed between the read and the write).
+   *
+   * Detached like `snapshot`, and for the same reason: the caller holds the
+   * record across an await while it addresses the driver, so what it holds must
+   * be a reading rather than a handle on the manager's own object.
+   */
+  function liveHostForSession(appSessionId: string): ProcessHost | null {
+    for (const host of hosts.values()) {
+      if (host.state !== 'closed' && host.bindings.has(appSessionId)) {
+        return copyHost(host);
+      }
+    }
+    return null;
+  }
+
+  /**
    * Whether a closed host is still readable at `at`.
    *
    * A host that is not closed is always readable; a closed one is readable
@@ -1373,6 +1396,7 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
     closeHost,
     shutdown,
     snapshot,
+    liveHostForSession,
     setUnattendedRunOpener,
     openUnattendedRun,
   };
