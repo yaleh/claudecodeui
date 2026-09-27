@@ -2,7 +2,7 @@
 id: gap-voice-capture-secrets-three-modes
 title: 三档脱敏判据：off/text/audio 各一次成功与一次失败下，DashScope key、共享 backend key、Bearer
   形式与录音 base64 都不出现在任何日志行与任何捕获文件里，且它们确实过了线（正例）（AC-146）
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -118,3 +118,14 @@ L_G 该轴仍暗，理由：目标层的读数是真实服务进程按环境变�
 | AC9/AC10 | 取假形态文件退出 0（`tests 4 / pass 4 / fail 0`）；八条既有判据退出 0（tallies 32/21/10/10/4/7/6/8）；`npm run typecheck` 0；`npm run lint` 0；树 `unchanged=true`，无 `__criterion-falsify-` 残留 |
 
 **已知不等价点（与 DoD 同）。** 替身上游收到的体是判据自己的音频与响应，不等于真实 DashScope 的信封；`console` 探针只覆盖 `info/warn/error/log/debug` 五个方法，不是对进程 stderr/子进程输出的穷举；12 次尝试只走 `dashscope-omni` 与 `openai-compatible`，`multimodal` 未被走到；`AUDIO_BASE64` 有 304 字符，塞不进单个路径分量（`NAME_MAX=255`），所以 AC8 的文件**名**面上该族按 `nameSurfaceSkipped=[audio-base64(319B)]` 记，四个 `probe.<family>` 值仍全部 > 0（另三族 3/3/6，base64 族在**内容**面上读到 2）。
+
+## Needs-Human
+
+**执行 2026-09-27T06:30:55.008Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: not ok - server/modules/providers/tests/claude-sessions.test.ts:   AssertionError [ERR_ASSERTION]: open-a.jsonl was opened by a scan that should have skipped it
+- run_id：wk-prod-anchor
+- session_id：dad39ada-a5e2-4c8d-a0e8-0660e2cfd6c5
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-capture-secrets-three-modes~wk-prod-anchor~1790490258229-c937f6.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-capture-secrets-three-modes-wk-prod-anchor.log
