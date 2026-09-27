@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import type { AnyRecord } from '@/shared/types.js';
+import type { AnyRecord, MessageOrigin } from '@/shared/types.js';
 import { AppError, readObjectRecord } from '@/shared/utils.js';
 
 import { getDebugAgentProjectsRoot } from './debug-agent.gate.js';
@@ -33,6 +33,23 @@ type DebugAgentMessageRowInput = {
   uuid: string;
   parentUuid: string | null;
   timestamp: string;
+  /**
+   * What started this turn, for a turn nobody typed.
+   *
+   * The one field on these rows that the claude dialect does not have, and it is
+   * here because the dialect has nowhere else to put it: a turn the host layer
+   * opened is, on the wire and on disk, a `user` row with a prompt, and the only
+   * thing that tells it apart from a turn a person typed is the cause the
+   * scenario stated. Writing it as a row field keeps it where every other fact
+   * about the message is — and the provider that owns this dialect is what lifts
+   * it onto the normalized message, so nothing downstream has to know it was ever
+   * a row field.
+   *
+   * Omitted (not `undefined`-valued) for a typed turn, so a row written by a
+   * person and a row written by the host layer differ on disk rather than only
+   * in the reader's interpretation.
+   */
+  origin?: MessageOrigin;
 };
 
 /**
@@ -50,6 +67,7 @@ export function buildMessageRow(input: DebugAgentMessageRowInput): AnyRecord {
     sessionId: input.sessionId,
     cwd: input.cwd,
     timestamp: input.timestamp,
+    ...(input.origin ? { origin: input.origin } : {}),
     message: {
       role: input.role,
       content: [{ type: 'text', text: input.text }],

@@ -2,7 +2,12 @@ import crypto from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import type { IProviderSessions } from '@/shared/interfaces.js';
-import type { AnyRecord, NormalizedMessage, ProviderRuntimeWriter } from '@/shared/types.js';
+import type {
+  AnyRecord,
+  MessageOrigin,
+  NormalizedMessage,
+  ProviderRuntimeWriter,
+} from '@/shared/types.js';
 import { AppError } from '@/shared/utils.js';
 
 import {
@@ -89,9 +94,25 @@ export type DebugAgentFrameForwarder = (input: {
  * business, not the scenario's.
  */
 export type DebugAgentHostOps = {
-  openUnattendedTurn(input: { appSessionId: string; text: string }): Promise<ProviderRuntimeWriter>;
+  /**
+   * Opens a turn for a session with no client behind it.
+   *
+   * `runId` is what the turn's `turn` lease is held under, minted here because
+   * the run id is the engine's to name: the step is what decided a turn exists,
+   * and a host layer that invented an id would be reporting a turn under a name
+   * nothing else in the run used.
+   */
+  openUnattendedTurn(input: {
+    appSessionId: string;
+    text: string;
+    runId: string;
+  }): Promise<ProviderRuntimeWriter>;
+  /** Reports that the turn opened above has ended. Distinct from stopping it. */
+  endUnattendedTurn(input: { appSessionId: string }): Promise<void>;
   addKeepalive(input: { appSessionId: string; kind: DebugAgentKeepaliveKind }): Promise<void>;
   removeKeepalive(input: { appSessionId: string; kind: DebugAgentKeepaliveKind }): Promise<void>;
+  /** Reports the address the process answers to, for the popover's copy leg. */
+  reportIdentity(input: { appSessionId: string; name: string }): Promise<void>;
   reportExit(input: { appSessionId: string; detail: DebugAgentExitDetail }): Promise<void>;
 };
 
@@ -194,7 +215,7 @@ export async function runDebugAgentScenario(input: DebugAgentRunInput): Promise<
     forwardFrames({ transformedMessage: row, sessionId, normalizeMessage, writer: delivery });
   };
 
-  const appendRow = (role: string, text: string): void => {
+  const appendRow = (role: string, text: string, origin?: MessageOrigin): void => {
     // The new row chains onto whatever is on disk right now, so the transcript
     // keeps the parent/uuid links the dialect's readers expect.
     const parent = readTranscriptShape(transcriptPath).lastRow;
@@ -206,6 +227,11 @@ export async function runDebugAgentScenario(input: DebugAgentRunInput): Promise<
       uuid: crypto.randomUUID(),
       parentUuid: typeof parent?.uuid === 'string' ? parent.uuid : null,
       timestamp: new Date().toISOString(),
+      // Carried onto the row, never onto a frame: what the trigger and the
+      // sender mean on the wire is the normalizer's reading of this field (see
+      // `debug-agent.runtime.ts`). An engine that built a frame itself would be
+      // the second implementation ADR-003 decision 7 forbids.
+      ...(origin ? { origin } : {}),
     });
 
     appendTranscriptRow(transcriptPath, row);
@@ -231,9 +257,46 @@ export async function runDebugAgentScenario(input: DebugAgentRunInput): Promise<
         // answered with. An engine that opened its own run would be reporting a
         // turn the host layer never saw, which is the difference this step
         // exists to make measurable.
-        delivery = await requireHostOps(hostOps).openUnattendedTurn({ appSessionId, text: step.text });
+        //
+        // The lease is named before the row is written, so a reader that polls
+        // between the two writes sees a turn whose content is still landing
+        // rather than a session that has not started one.
+        const runId = crypto.randomUUID();
+        // A turn that states no cause writes a row with no `origin` at all,
+        // rather than one whose cause is null: absent and "stated as nothing"
+        // are the same reading to every consumer, and the omission keeps the row
+        // byte-identical to the one this step wrote before it could carry a
+        // cause.
+        const origin: MessageOrigin | undefined = step.trigger
+          ? {
+              trigger: step.trigger,
+              // The sender is the step's own statement about who sent this, and
+              // it is only meaningful for the one trigger that has another
+              // conversation behind it — the loader refuses a sender on any
+              // other, so this is a narrowing rather than a rule applied twice.
+              sender: step.trigger === 'cross-session' ? (step.sender ?? null) : null,
+            }
+          : undefined;
+        delivery = await requireHostOps(hostOps).openUnattendedTurn({
+          appSessionId,
+          text: step.text,
+          runId,
+        });
         input.onDelivery?.(delivery);
-        appendRow('user', step.text);
+        appendRow('user', step.text, origin);
+        break;
+      }
+
+      case 'turn-end': {
+        // Writes nothing. The step exists to place "the turn that was running
+        // has finished" on the clock, which is the 空闲 state, and the host
+        // layer is the only place that fact is true.
+        await requireHostOps(hostOps).endUnattendedTurn({ appSessionId });
+        break;
+      }
+
+      case 'identity': {
+        await requireHostOps(hostOps).reportIdentity({ appSessionId, name: step.name });
         break;
       }
 

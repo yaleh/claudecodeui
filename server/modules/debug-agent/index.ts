@@ -82,7 +82,7 @@ export type {
 // that owns the session (`bindSession`/`openHost`). The criterion drives it
 // directly, which is what makes a resident, multiplexed host measurable without
 // a real process to wait on.
-export { createDebugAgentHostDriver } from './debug-agent.host-driver.js';
+export { createDebugAgentHostDriver, setDebugAgentOpenRun } from './debug-agent.host-driver.js';
 export type {
   DebugAgentHostDriver,
   DebugAgentHostDriverDependencies,

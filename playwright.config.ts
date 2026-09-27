@@ -1313,6 +1313,25 @@ if (isDataDirOwner) {
   seedMobileLayoutWorkspace();
 }
 
+/**
+ * The one spec that drives the debug agent, and the fixture home the server gets when that spec is selected.
+ *
+ * The debug agent's provider is not a product provider: `provider.registry.ts` writes its key only while the gate
+ * is open (`DEBUG_AGENT` + `DEBUG_AGENT_HOME`), so a server booted without those variables cannot arm a scenario,
+ * cannot resolve provider `debug`, and mounts no control plane. Turning the gate on for every run would put a
+ * fixture-writing provider and its HTTP face in front of every other spec's server — the face is authenticated but
+ * it is still a surface nothing else asked for. `selectedSpecFiles()` is the seam that keeps that from happening:
+ * the selection is this invocation's own command line, so the gate opens for exactly the runs that name the spec
+ * below and the env object is byte-identical to what it was for every other selection.
+ *
+ * The home is `dataDir` itself, and that is the point rather than a convenience: `getDebugAgentProjectsRoot()`
+ * answers `<home>/.claude/projects`, and the server's `HOME` is already `dataDir`, so the fixture transcripts land
+ * in the same tree the boot scan and the file watcher already read. A home anywhere else would write transcripts
+ * no listing could see.
+ */
+const DEBUG_AGENT_SPEC_FILE = 'resident-status-bar.spec.ts';
+const debugAgentFixtureHome = selectedSpecFiles().includes(DEBUG_AGENT_SPEC_FILE) ? dataDir : null;
+
 export default defineConfig({
   testDir: './e2e',
   timeout: 60_000,
@@ -1342,6 +1361,11 @@ export default defineConfig({
         HOST: '127.0.0.1',
         DATABASE_PATH: path.join(dataDir, 'auth.db'),
         HOME: dataDir,
+        // Absent — not empty — for every selection that does not name the debug agent's spec, so the gate stays
+        // closed exactly as it does today. See `debugAgentFixtureHome` above.
+        ...(debugAgentFixtureHome
+          ? { DEBUG_AGENT: '1', DEBUG_AGENT_HOME: debugAgentFixtureHome }
+          : {}),
       },
     },
     {

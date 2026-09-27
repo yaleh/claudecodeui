@@ -327,6 +327,33 @@ export type CompactionInfo = {
   error?: string | null;
 };
 
+/**
+ * What started a turn nobody typed.
+ *
+ * A closed set, and the ONLY one: the divider the transcript draws before such a
+ * turn, the copy the popover shows and the lease a host is held for all have to
+ * name the same three causes, so the names live here and every other module
+ * narrows to them rather than spelling its own list. `background-task` and
+ * `cron` are the two host leases that describe work outliving a turn; the third
+ * is a message another session sent, which is why it — and only it — carries a
+ * sender.
+ */
+export type MessageOriginTrigger = 'background-task' | 'cron' | 'cross-session';
+
+/**
+ * Why a turn exists, when the answer is not "the user sent it".
+ *
+ * Absent on every turn a person typed, which is what makes the absence
+ * meaningful: a message with no `origin` is a user turn, and the transcript
+ * renders it the way it has always been rendered. `sender` is the address the
+ * sending session answers to (`SessionBinding.peerName`), and is null for the
+ * two triggers that have no other conversation behind them.
+ */
+export type MessageOrigin = {
+  trigger: MessageOriginTrigger;
+  sender: string | null;
+};
+
 export type NormalizedMessage = {
   id: string;
   /**
@@ -349,6 +376,16 @@ export type NormalizedMessage = {
   seq?: number;
   role?: 'user' | 'assistant';
   content?: string;
+  /**
+   * Who started this turn, when it was not a person at a browser.
+   *
+   * Present only on turns the host layer opened on its own behalf — a
+   * background task reporting back, a timer firing, another session writing in.
+   * The transcript draws those turns differently from a typed one, and it can
+   * only do that from a fact the server published: a client that guessed from
+   * the sender's absence would be inferring, not reading.
+   */
+  origin?: MessageOrigin;
   /**
    * Optional display-oriented metadata used by providers that need to expose
    * richer transcript artifacts without introducing a brand-new message kind.

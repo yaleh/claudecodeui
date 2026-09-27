@@ -77,6 +77,24 @@ export type DebugAgentControlPlaneSeams = {
    * product normalizes them.
    */
   resolveProvider(): IProvider;
+  /**
+   * What opened the run this session currently has, or `null` when it has none.
+   *
+   * The one fact about an unattended turn that the transcript cannot show: the
+   * rows it wrote are on disk and readable by anyone, but "a *run* was opened
+   * for it, by the host layer, and not by a client" lives in the run registry.
+   * Published here so a criterion can read it off the same HTTP face that drove
+   * the scenario, which is what makes "the turn really opened a run" a reading
+   * about the production path rather than about a seam the criterion wired
+   * itself.
+   *
+   * Optional, and an absent reader answers `null`: the seams object is built by
+   * the composition root, and a criterion that drives this face without a run
+   * registry (the control-plane criterion does) has no runs to report. `null`
+   * says exactly that and is what the caller already has to handle for a session
+   * whose turn opened none.
+   */
+  readRunSource?(sessionId: string): string | null;
 };
 
 /**
@@ -258,6 +276,10 @@ export function registerDebugAgentControlPlaneRoutes(seams: DebugAgentControlPla
         transcriptPath: armed.transcriptPath,
         frames: frames.length,
         reading,
+        // Read after the walk, because the run this reports is opened *by* a
+        // step in it. A completed run stays in the registry, so a turn that
+        // already ended is still the answer to "what opened the last one".
+        runSource: seams.readRunSource?.(armed.sessionId) ?? null,
       }));
     }),
   );
