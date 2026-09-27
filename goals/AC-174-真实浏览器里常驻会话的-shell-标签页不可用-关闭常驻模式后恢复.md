@@ -1,7 +1,7 @@
 ---
 id: AC-174
 title: 真实浏览器里常驻会话的 Shell 标签页不可用，关闭常驻模式后恢复
-status: draft
+status: active
 kind: criterion
 goal: GOAL-013
 criterion: npx playwright test e2e/resident-shell-tab.spec.ts
@@ -12,4 +12,15 @@ origin: docs/proposals/claude-resident-sessions.md（e88175cf）。人 yale 2026
   裁定：拆成两个 goal，本 goal 为 GOAL-B「Claude 常驻」，暂不激活，等
   tasks/gap-claude-resident-phase0-experiments 把 E1–E8 结论写回 proposal 后再定 AC
   并激活；调试 agent 扩展出的常驻场景作 UI e2e 替身；不加 cloudcli 子命令
+activatedAt: 2026-09-27T05:08:42.821Z
+statusLog:
+  - at: 2026-09-27T05:08:42.821Z
+    from: draft
+    to: active
+    actor: human:yale
+    reason: 人 yale 2026-09-27 指令：判据已按 E1–E9 结论修订，转 active
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-09-27T05:08:42.821Z
 ---
