@@ -269,6 +269,29 @@ export type VoiceCapturePort = {
 /** The marker every capture row carries as its `event`. */
 export const VOICE_CAPTURE_EVENT = 'voice.capture';
 
+/**
+ * The ONE line a capture failure is allowed to write, and the whole of it.
+ *
+ * IT CARRIES NOTHING, AND THAT IS A PROPERTY OF THE CONSTANT RATHER THAN OF THE CODE THAT PRINTS IT.
+ * No error message, no error code, no field of the attempt, no capture id, not even the reason the
+ * attempt failed: a failure line that quoted any of those would put a string this module does not
+ * control into the process's output, and on the audio path that string is a filesystem error naming a
+ * path. The criterion that reads this line compares it VERBATIM rather than by prefix for exactly
+ * that reason — "the line says it failed" and "the line says nothing else" are two readings, and a
+ * prefix match would only ever make the first one.
+ *
+ * IT IS A CONSTANT AND NOT A CONSTRUCTOR because there is nothing to construct: a function taking the
+ * error would invite the message onto the line one caller at a time, and the first caller that
+ * wanted a readable cause would be the one that made the line a disclosure. One literal, one shape,
+ * in every mode and for every kind of failure.
+ *
+ * Consumed by `captureAttemptLine` below — the road where the row or the write threw — and by
+ * `voice.service.ts`, which prints it when the LOG PORT itself refuses the row line: the two roads
+ * that can end an attempt's recording must produce the same line, and naming it twice is how they
+ * stop agreeing.
+ */
+export const VOICE_CAPTURE_FAILED_LINE = 'voice.capture failed';
+
 /** The directory name a recording goes into when `VOICE_CAPTURE_DIR` names none. */
 const CAPTURE_DIRECTORY_NAME = 'voice-capture';
 
@@ -612,6 +635,91 @@ export function buildVoiceCapturePayload(input: VoiceCapturePayloadInput): Voice
   };
 }
 
+/**
+ * THE attempt's line: the row serialised, or the ONE failure line when building it threw.
+ *
+ * WHY THE ISOLATION IS HERE AND NOT AT THE CALL SITE. Everything this function does is work the
+ * RECORDER owns — build the row, write the audio, serialise the row — and every one of those can
+ * throw: `buildVoiceCapturePayload` on a shape it cannot read, the audio sink on a directory the
+ * filesystem refuses, `JSON.stringify` on a value that is not serialisable. A caller cannot isolate
+ * what it cannot see, so the boundary that catches them is the boundary that runs them, and what
+ * crosses it is either the line or the failure line: a string on both roads, which is what makes
+ * "the recorder failed" impossible to mistake for "the attempt failed" one frame up.
+ *
+ * THE FAILURE LINE IS THE CONSTANT AND NOT A FUNCTION OF THE ERROR, so a throw here cannot become a
+ * disclosure and cannot become a different line on a different day. The cause is not lost — it is
+ * whatever the deployment's own logging does with it — it is simply not this line's job, and the
+ * whole point of the line is that it says one thing only.
+ *
+ * WHAT IT DOES NOT DO IS PRINT. A function that wrote the line would also be the function that
+ * swallows a throw from the LOG PORT, and the port that refused the row is the same port that
+ * carries every other line this process writes: whether a refused line is retried, and what a
+ * retry's own refusal means, is the CALLER's decision — see the guard in `voice.service.ts`, which
+ * is the one place that decision is made. What this function guarantees is only that the text it
+ * hands over is either a faithful row or the one constant.
+ */
+function captureAttemptLine(input: {
+  mode: VoiceCaptureMode;
+  audio: VoiceCaptureAudioSink | undefined;
+  captureId: string;
+  attempt: VoiceCaptureAttempt;
+}): string {
+  try {
+    // The row: the fields that name the attempt, and the payload when this attempt carries one. The
+    // payload is BUILT here from the narrowed input rather than taken ready-made, so the set of
+    // fields a row can have is decided by `buildVoiceCapturePayload` and nowhere else — a caller
+    // cannot add one by putting it in the object it hands over, because what it hands over is the
+    // INPUT and not the row. An attempt that carries no payload writes the row this port has always
+    // written, byte for byte.
+    const row: Record<string, unknown> = {
+      event: VOICE_CAPTURE_EVENT,
+      captureId: input.captureId,
+      providerId: input.attempt.providerId,
+      outcome: input.attempt.outcome,
+      status: input.attempt.status,
+    };
+    if (input.attempt.payload !== undefined) {
+      Object.assign(row, buildVoiceCapturePayload(input.attempt.payload));
+    }
+
+    // The audio write, and only in the mode that asked for it. The directory is resolved HERE
+    // rather than at construction, so no mode that writes nothing ever resolves one.
+    //
+    // IT IS INSIDE THE GUARD, which is what makes an unwritable directory a RECORDING failure
+    // rather than a transcription failure: the `ENOTDIR` this raises on a path whose parent is a
+    // file is answered by the line above instead of by the caller's error handling. The alternative
+    // — deferring the write to a caller that has already returned its transcription — would put the
+    // recording's failure on a path where nothing is left to say it.
+    //
+    // THE WRITE COMES BEFORE THE ROW, and the order is the row's `path` field: the path a reader is
+    // handed has to be one they could have opened at the moment they read it, and a row written
+    // first would name a file that did not exist yet — or, on a write that failed, one that never
+    // existed at all. What is deferred is the ROW, not the attempt line: that one went out above,
+    // with this attempt's id, so the two things a reader sees about one attempt are still in the
+    // order the seam promises.
+    //
+    // `path` is written HERE rather than by `buildVoiceCapturePayload` because it is the one field
+    // the sink decides: the builder is a function of the narrowed input and the writer is not part
+    // of that input, which is also why a `text` deployment's rows have no `path` key at all — not
+    // an empty one, not a null one.
+    if (input.mode === 'audio' && input.audio !== undefined) {
+      row.path = input.audio.writeAudio(
+        input.audio.resolveDirectory(),
+        input.captureId,
+        input.attempt.audio,
+      );
+    }
+
+    // One line, serialised once. `JSON.stringify` at the construction point rather than at the log
+    // port is what keeps the row single-line and parseable no matter which port a deployment wired —
+    // and, since it is inside this guard, a row that cannot be serialised is a recording failure
+    // rather than an exception on the transcription path.
+    return JSON.stringify(row);
+  } catch {
+    return VOICE_CAPTURE_FAILED_LINE;
+  }
+}
+
 /** What the port factory needs: the mode it was resolved to, where rows go, and the audio sink. */
 export type VoiceCaptureDependencies = {
   mode: VoiceCaptureMode;
@@ -648,48 +756,21 @@ export function createVoiceCapture(dependencies: VoiceCaptureDependencies): Voic
       return `${dependencies.mode}-${sequence}`;
     },
     recordAttempt(captureId: string, attempt: VoiceCaptureAttempt): void {
-      // The row: the fields that name the attempt, and the payload when this attempt carries one. The
-      // payload is BUILT here from the narrowed input rather than taken ready-made, so the set of
-      // fields a row can have is decided by `buildVoiceCapturePayload` and nowhere else — a caller
-      // cannot add one by putting it in the object it hands over, because what it hands over is the
-      // INPUT and not the row. An attempt that carries no payload writes the row this port has always
-      // written, byte for byte.
-      const row: Record<string, unknown> = {
-        event: VOICE_CAPTURE_EVENT,
-        captureId,
-        providerId: attempt.providerId,
-        outcome: attempt.outcome,
-        status: attempt.status,
-      };
-      if (attempt.payload !== undefined) {
-        Object.assign(row, buildVoiceCapturePayload(attempt.payload));
-      }
-
-      // The audio write, and only in the mode that asked for it. The directory is resolved HERE
-      // rather than at construction, so no mode that writes nothing ever resolves one.
-      //
-      // THE WRITE COMES BEFORE THE ROW, and the order is the row's `path` field: the path a reader is
-      // handed has to be one they could have opened at the moment they read it, and a row written
-      // first would name a file that did not exist yet — or, on a write that failed, one that never
-      // existed at all. What is deferred is the ROW, not the attempt line: that one went out above,
-      // with this attempt's id, so the two things a reader sees about one attempt are still in the
-      // order the seam promises.
-      //
-      // `path` is written HERE rather than by `buildVoiceCapturePayload` because it is the one field
-      // the sink decides: the builder is a function of the narrowed input and the writer is not part
-      // of that input, which is also why a `text` deployment's rows have no `path` key at all — not
-      // an empty one, not a null one.
-      if (dependencies.mode === 'audio' && dependencies.audio !== undefined) {
-        row.path = dependencies.audio.writeAudio(
-          dependencies.audio.resolveDirectory(),
+      // The line — the row, or the one failure line — and then it is printed. The two are split, and
+      // the split is the whole design: `captureAttemptLine` owns everything that can throw while the
+      // row is being made, and this call owns the print, which is deliberately NOT guarded here. A
+      // port that refuses the line throws out of `recordAttempt`, where the service's call site
+      // catches it and decides what a refused line becomes — because that port is the process's own
+      // output port, the same one every other line goes through, and a recorder that quietly
+      // swallowed its output port's failures would report a recording that nothing ever received.
+      dependencies.log.info(
+        captureAttemptLine({
+          mode: dependencies.mode,
+          audio: dependencies.audio,
           captureId,
-          attempt.audio,
-        );
-      }
-
-      // One line, serialised once. `JSON.stringify` at the construction point rather than at the log
-      // port is what keeps the row single-line and parseable no matter which port a deployment wired.
-      dependencies.log.info(JSON.stringify(row));
+          attempt,
+        }),
+      );
     },
   };
 }
