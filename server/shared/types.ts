@@ -1837,11 +1837,23 @@ export type LifecyclePolicy = {
  * `turn` lease is held for the duration of one run; the others record work that
  * outlives the turn that started it, which is what makes a host `lingering`
  * rather than `closed`.
+ *
+ * `inferred` marks the two held-work reasons whose *identity* a driver may have
+ * had to guess. A cron and a background task are normally named twice: by the
+ * `Stop` hook's own lists, which are the CLI's authoritative account of what it
+ * holds, and by the events the same work emits on the stream. When the first is
+ * unavailable — an older CLI, a hook that never fired — a driver can still read
+ * the second and hold the host for it, but the entry it names is its own reading
+ * rather than the CLI's; that is what this flag says, and its absence is the
+ * authoritative case (an omitted flag means "the CLI named this"). It is
+ * deliberately optional so a lease written before this distinction existed still
+ * satisfies the type, and it is confined to the two kinds a stream can describe,
+ * because `turn` and `resident-policy` are never inferred from anything.
  */
 export type HostLease =
   | { kind: 'turn'; runId: string }
-  | { kind: 'background-task' | 'monitor'; id: string }
-  | { kind: 'cron'; id: string; recurring: boolean; expiresAt: number }
+  | { kind: 'background-task' | 'monitor'; id: string; inferred?: boolean }
+  | { kind: 'cron'; id: string; recurring: boolean; expiresAt: number; inferred?: boolean }
   | { kind: 'resident-policy' };
 
 /**
@@ -1859,6 +1871,20 @@ export type SessionBinding = {
   state: 'idle' | 'busy';
   leases: HostLease[];
   lastActivityAt: number;
+  /**
+   * The SendMessage address this binding's process answers to, when it has one.
+   *
+   * Reported by the driver once the process has registered the name with its own
+   * tooling and the driver has read that registration back — never computed and
+   * assumed here, because the name a process answers to is a fact about the
+   * process's own peer registry rather than about the string some caller chose.
+   * `null` means "not addressable": the mode has no stable address at all, the
+   * process never registered one, or what it registered is not what the naming
+   * rule asked for. Fixed for the process's lifetime — a title change does not
+   * move it — and belongs to the binding rather than to the host because it is
+   * per-conversation, like every other fact on this record.
+   */
+  peerName: string | null;
   /** Set when the binding was detached; mirrors the host's `closeReason` for that binding. */
   detachReason: HostCloseReason | null;
 };
@@ -1866,15 +1892,25 @@ export type SessionBinding = {
 /**
  * Why a bind request was refused.
  *
- * Two refusals, and they are different failures: `session-already-bound` says
+ * Three refusals, and they are different failures: `session-already-bound` says
  * the session is already somewhere (the request may have named a second host,
  * but the session is not free), while `host-not-multiplexed` says the session is
  * free and the *process* is what cannot take it — a host whose driver did not
  * declare `multiplexedHost` carries one conversation and no more. Named here
  * rather than thrown as a message because the manager's caller has to branch on
  * which refusal it got, and a branch on prose is a branch that breaks silently.
+ *
+ * `remote-control-enabled` is a refusal about a *launch* rather than about a
+ * placement, and it is named in this same vocabulary on purpose: what the caller
+ * has to branch on is identical — "you did not get a host, and here is the kind
+ * of no it was" — and a second vocabulary for the same branch would be two lists
+ * to keep in step. The one it names is the Remote Control gate: the user's own
+ * settings have Remote Control on, so a resident process launched under
+ * `bypassPermissions` would be reachable from another machine's peer sessions and
+ * the trust boundary would leave the Unix user. The gate refuses instead of
+ * launching (see the Claude resident driver's Remote Control section).
  */
-export type HostBindErrorCode = 'session-already-bound' | 'host-not-multiplexed';
+export type HostBindErrorCode = 'session-already-bound' | 'host-not-multiplexed' | 'remote-control-enabled';
 
 /**
  * Every member of `HostBindErrorCode`, as a runtime value.
@@ -1888,6 +1924,7 @@ export type HostBindErrorCode = 'session-already-bound' | 'host-not-multiplexed'
 export const HOST_BIND_ERROR_CODES = [
   'session-already-bound',
   'host-not-multiplexed',
+  'remote-control-enabled',
 ] as const satisfies readonly HostBindErrorCode[];
 
 /**
@@ -1967,6 +2004,40 @@ export type HostBindResult =
   | { ok: false; code: HostBindErrorCode; existingHostId: string | null };
 
 /**
+ * What one host has to say about the Remote Control gate it launched under.
+ *
+ * The three halves are three different facts and are deliberately not one
+ * object's fields: `requested` is what *this* build asked the SDK for,
+ * `detected` is what the user's own settings file said when the gate read it,
+ * and `launched` is the `settings` object the SDK query was really handed.
+ *
+ * `detected` is the reading the refusal is decided on, and it is a *reading of a
+ * file*, not an effective value: `null` means the key was absent (or the file
+ * was not there, or was not parseable) and is distinct from `false`. There is
+ * deliberately no member here that claims to say whether Remote Control is off
+ * on the running process — the experiment that would have measured it (E9 §9.7)
+ * got no `get_settings` answer at all, so a field named for an "effective" value
+ * would be asserting something this build cannot read. A criterion therefore
+ * reads these fields against the file it wrote, never against a claim about what
+ * the CLI did with the flag.
+ *
+ * `launched` is `null` for a host whose process factory does not report one (a
+ * substituted factory in a criterion), and its two members are `boolean |
+ * undefined` for the same reason `detected`'s are `boolean | null`: a launch
+ * that did not state a key is not a launch that stated `false`.
+ */
+export type RemoteControlIsolation = {
+  /** What this host asked the SDK's `settings` to carry, verbatim. */
+  requested: { remoteControlAtStartup: boolean; isolatePeerMachines: boolean };
+  /** What the user-level settings file said, key by key; `null` = not stated. */
+  detected: { remoteControlAtStartup: boolean | null; isolatePeerMachines: boolean | null };
+  /** The settings file the reading above came from, verbatim. */
+  settingsPath: string;
+  /** The `settings` object the SDK query was handed, as it was handed over. */
+  launched: { remoteControlAtStartup?: boolean; isolatePeerMachines?: boolean } | null;
+};
+
+/**
  * One process the session-host layer knows about, in any lifecycle mode.
  *
  * `pid` is deliberately nullable: a runtime driven through the default per-run
@@ -2007,6 +2078,18 @@ export type ProcessHost = {
    * a re-time — the `expiresAt` of the cron lease that pushed the deadline out.
    */
   quietWindowStartAt?: number | null;
+  /**
+   * What the launch of this host stated and read about Remote Control, when its
+   * driver has anything to say about it.
+   *
+   * Optional and null-for-silent because only a driver that runs a launch gate
+   * can answer — every other host (a per-run turn, a provider whose driver never
+   * read the user's settings) has nothing here rather than a record of zeroes.
+   * Written by the resident driver while `openHost` is still opening the host and
+   * deep-copied by the snapshot, so a reader of `snapshot()` sees the same object
+   * a reader of the live record does (see `RemoteControlIsolation`).
+   */
+  remoteControl?: RemoteControlIsolation | null;
 };
 
 /**
@@ -2066,8 +2149,15 @@ export type ChatRunSource = 'user' | 'scheduled' | 'unattended';
  * scheduled prompt firing, and `non-user` is the path where no list is readable
  * at all: the honest reading there is that the turn is unexplained, not that it
  * has a reason this code could not name.
+ *
+ * `cross-session-message` is the fourth reason and the one the task list cannot
+ * explain: a peer session addressed this process and the message itself is what
+ * opened the turn, so the process was holding nothing of its own at the time.
+ * The CLI states that fact on the turn's own `result` (the message's origin),
+ * which is why the trigger for this reason is read at the turn's end rather than
+ * at its opener — see `finishUnattendedTurn` in the resident driver.
  */
-export type BackgroundWorkTrigger = 'background-task' | 'session-cron' | 'non-user';
+export type BackgroundWorkTrigger = 'background-task' | 'session-cron' | 'non-user' | 'cross-session-message';
 
 /**
  * What a provider's resident process can do, beyond merely being long-lived.
@@ -2135,3 +2225,60 @@ export type RuntimeProviderCapabilities = {
    */
   residentFeatures?: ResidentFeatures;
 };
+
+// ---------------------------
+//--------------- BUSY INPUT: PRIORITY, LIFECYCLE, WITHDRAWAL ----------
+/**
+ * The tier a user message is written into the CLI's own command queue under.
+ *
+ * The CLI holds its own queue and the host writes into it rather than building
+ * one of its own, so "what happens to a message sent while a turn is running"
+ * is a fact about the tier, not about the server. `later` is the tier that
+ * reproduces the interactive CLI's behavior — the message waits for the turn in
+ * flight and is then run as a turn of its own, never merged into the current
+ * one and never dropped (`docs/proposals/claude-resident-sessions.md` §8).
+ *
+ * A union rather than a bare string because it is the CLI's vocabulary, not
+ * this codebase's: the SDK declares the same three values, and a host that
+ * accepted anything else would be writing a frame the process cannot honor.
+ */
+export type HostInputPriority = 'now' | 'next' | 'later';
+
+/**
+ * Where one queued user message is in the CLI's own lifecycle.
+ *
+ * `queued` and `started` are the two facts that separate "still withdrawable"
+ * from "already running"; `cancelled` is the only evidence a withdrawal worked
+ * (the CLI answers a `cancel_async_message` control frame with no
+ * `control_response` at any timing, so the queue's own account of the message is
+ * the verdict — `docs/proposals/claude-resident-sessions-experiments.md` §9.2);
+ * `completed` is the turn having run to its end.
+ */
+export type CommandLifecycleState = 'queued' | 'started' | 'cancelled' | 'completed';
+
+/**
+ * One `command_lifecycle` event the CLI emitted for a queued user message.
+ *
+ * `commandUuid` is the uuid the *host* assigned when it wrote the frame — the
+ * CLI echoes it back verbatim rather than minting one of its own (§9.2), which
+ * is what makes a pushed message and a queue entry the same object from this
+ * side. `at` is when the host read it off the stream, in host clock terms.
+ */
+export type CommandLifecycleEvent = {
+  commandUuid: string;
+  state: CommandLifecycleState;
+  at: number;
+};
+
+/**
+ * How one attempt to withdraw a queued user message ended.
+ *
+ * `withdrawn` means the CLI reported `cancelled` for that uuid, so the message
+ * will run in no turn at all. `already-started` means it did not — the message
+ * had been dequeued before the withdrawal reached the process, so it is running
+ * or has run, and the process was not disturbed. `unknown` is the honest answer
+ * for a uuid this host has no live process to withdraw from, or none it ever
+ * pushed; it is deliberately not folded into `already-started`, because "we
+ * cannot say" and "we know it is too late" are different facts.
+ */
+export type HostQueuedInputCancelResult = 'withdrawn' | 'already-started' | 'unknown';

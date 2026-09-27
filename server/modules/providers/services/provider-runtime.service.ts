@@ -8,7 +8,9 @@ import type { SessionHostManager } from '@/modules/session-hosts/index.js';
 import type { IProvider } from '@/shared/interfaces.js';
 import type {
   AnyRecord,
+  HostBindErrorCode,
   HostMode,
+  HostQueuedInputCancelResult,
   HostTurnInput,
   LLMProvider,
   ProcessHost,
@@ -17,6 +19,33 @@ import type {
   ProviderRuntimeContext,
   ProviderRuntimeWriter,
 } from '@/shared/types.js';
+
+/**
+ * The refusal a resident driver recorded when it declined to launch a process.
+ *
+ * Structural, and declared here rather than in the shared vocabulary, on the
+ * same reasoning as `ResidentTurnEntry` below: it is one provider's reading,
+ * surfaced by the dispatch that reads it. Putting a provider-specific record in
+ * `@/shared/types.js` would make every provider's type surface carry a refusal
+ * only one of them can make, and the caller this pass-through exists for — the
+ * one that has just watched a run end with no explanation — has no use for the
+ * driver's class, only for the code and the sentence.
+ *
+ * The *code* is what a caller branches on, and it is a `HostBindErrorCode`
+ * because a refusal to launch is a refusal to place a session: the two answers a
+ * caller can give (`retry`, `tell the user to change a setting`) are decided by
+ * whether the code is the one they know how to act on, not by reading prose.
+ * `message` is the operator-facing sentence and is deliberately not the branch
+ * key; `settingsPath` and `at` are there so the sentence can be made specific
+ * ("close Remote Control in <that file>") and so a stale refusal can be told
+ * from a fresh one.
+ */
+type RemoteControlRefusalReading = {
+  code: HostBindErrorCode;
+  message: string;
+  settingsPath: string;
+  at: number;
+};
 
 type ProviderRuntimeServiceDependencies = {
   listProviders(): IProvider[];
@@ -86,6 +115,34 @@ type ResidentTurnEntry = {
     writer: ProviderRuntimeWriter,
     context: ProviderRuntimeContext,
   ): Promise<void>;
+  /**
+   * Withdraws a message the host wrote but has not started running.
+   *
+   * Optional for the same reason the whole entry is absent for most providers:
+   * a driver that never writes into a busy process has no queue to withdraw
+   * from, and a caller reaching this one must read the absence as "cannot",
+   * never as "did".
+   */
+  cancelQueuedInput?(
+    appSessionId: string,
+    messageUuid: string,
+  ): Promise<HostQueuedInputCancelResult>;
+  /**
+   * The Remote Control refusal this driver last made for a session, or null.
+   *
+   * Necessary without a host, which is why it is a reading of its own rather
+   * than a field on one: the gate refuses *before* any host is opened, so the
+   * only trace a refusal leaves is the thrown error — and the application
+   * dispatch catches that, logs it, and ends the turn with a terminal frame. A
+   * caller that only sees the end of a run therefore has no way to learn *why*
+   * unless the driver keeps the answer and something passes it through, which is
+   * this entry.
+   *
+   * Optional for the same reason the rest of this structural type is: a driver
+   * that runs no launch gate has nothing to report, and a caller reaching this
+   * one must read the absence as "cannot say", never as "nothing refused".
+   */
+  remoteControlRefusal?(appSessionId: string): RemoteControlRefusalReading | null;
 };
 
 /**
@@ -149,26 +206,6 @@ function residentEntryFor(provider: IProvider, appSessionId: string | null): Res
 }
 
 /**
- * The live host bound to one session, as the manager sees it.
- *
- * Read through `snapshot()` — the manager's detached view — because the dispatch
- * has no business holding a host record across an await, and because a copy is
- * all the driver verbs need: they are addressed by `hostId` and read the mode.
- * A closed host is skipped rather than returned, so an abort cannot be aimed at
- * a process that is already gone.
- */
-function liveHostForSession(
-  sessionHostManager: SessionHostManager,
-  appSessionId: string,
-): ProcessHost | null {
-  return (
-    sessionHostManager
-      .snapshot()
-      .find((host) => host.state !== 'closed' && host.bindings.has(appSessionId)) ?? null
-  );
-}
-
-/**
  * Creates the application-facing provider runtime dispatcher.
  *
  * The provider registry owns each concrete runtime. This service supplies the
@@ -225,6 +262,34 @@ export function createProviderRuntimeService(
     }
   };
 
+  /**
+   * The resident driver serving a session *and* the process it is holding.
+   *
+   * Stricter than `resolveResidentEntry` in exactly one way: a live host is
+   * required. The mode questions — is this session resident, does the provider
+   * declare it, does the driver have the entry — are that function's, and are
+   * asked through it so the two answers cannot drift. What is added here is the
+   * process: writing into a busy session, or withdrawing something from it, is
+   * meaningless without one, and a session whose host is not up is a session
+   * whose next turn is a cold start rather than a busy write.
+   */
+  const resolveResidentDriver = (
+    provider: IProvider,
+    appSessionId: string | null,
+  ): { entry: ResidentTurnEntry; host: ProcessHost } | null => {
+    const entry = resolveResidentEntry(provider, appSessionId);
+    if (!entry || !appSessionId) {
+      return null;
+    }
+
+    const host = dependencies.sessionHostManager.liveHostForSession(appSessionId);
+    if (!host) {
+      return null;
+    }
+
+    return { entry, host };
+  };
+
   const run = (
     providerName: LLMProvider,
     command: string,
@@ -275,6 +340,83 @@ export function createProviderRuntimeService(
       return (command, options, writer) => run(provider, command, options, writer);
     },
 
+    /**
+     * Whether a turn dispatched right now would be written into a live process.
+     *
+     * "Busy input" is not a session setting, it is a state: the same session is
+     * accepting it in the middle of a turn and cold-starting between turns, and
+     * the caller has to be told which before it decides what a second send
+     * means. Everything that could make the answer stale — the mode, the
+     * declaration, the driver's shape, the pid — is resolved in the same call,
+     * so `true` means a write would land and not merely that it might.
+     */
+    acceptsBusyInput(providerName: LLMProvider, sessionId: string): boolean {
+      try {
+        return Boolean(resolveResidentDriver(dependencies.resolveProvider(providerName), sessionId));
+      } catch {
+        return false;
+      }
+    },
+
+    /**
+     * Withdraws a queued message from a live resident process.
+     *
+     * `unknown` is the answer to every question this service cannot answer —
+     * an unknown provider, a session that is not resident, a driver without
+     * the entry, a host that is gone — because the one thing this caller must
+     * never be told is that a message was withdrawn when it was not. The
+     * driver's own verdict passes through unchanged.
+     */
+    async cancelQueuedInput(
+      providerName: LLMProvider,
+      sessionId: string,
+      messageUuid: string,
+    ): Promise<HostQueuedInputCancelResult> {
+      try {
+        const resolved = resolveResidentDriver(dependencies.resolveProvider(providerName), sessionId);
+        const cancel = resolved?.entry.cancelQueuedInput;
+        if (!resolved || typeof cancel !== 'function') {
+          return 'unknown';
+        }
+        return await cancel.call(resolved.entry, sessionId, messageUuid);
+      } catch {
+        return 'unknown';
+      }
+    },
+
+    /**
+     * The Remote Control refusal the resident driver last made for a session.
+     *
+     * Read through `resolveResidentEntry` and *not* `resolveResidentDriver`, and
+     * that difference is the whole reason this entry exists as its own reading:
+     * the gate refuses before a process is opened, so the moment a refusal is the
+     * answer is the one moment there is no live host to hang it off. Requiring a
+     * host here would make the refusal unreadable exactly when it happened.
+     *
+     * `null` for every question this service cannot answer — an unknown provider,
+     * a session that is not resident, a driver with no gate, a session whose last
+     * launch passed — because the alternative reading, "nothing was refused", is
+     * the one thing a caller must not be handed on the strength of a probe that
+     * failed. A refusal that really happened is a value the driver keeps until
+     * the next launch overwrites it, so this is a reading of *what the driver
+     * last said*, not of whether a turn is currently being blocked.
+     */
+    remoteControlRefusal(
+      providerName: LLMProvider,
+      sessionId: string,
+    ): RemoteControlRefusalReading | null {
+      try {
+        const entry = resolveResidentEntry(dependencies.resolveProvider(providerName), sessionId);
+        const read = entry?.remoteControlRefusal;
+        if (!entry || typeof read !== 'function') {
+          return null;
+        }
+        return read.call(entry, sessionId) ?? null;
+      } catch {
+        return null;
+      }
+    },
+
     async abort(providerName: LLMProvider, sessionId: string): Promise<boolean> {
       const provider = dependencies.resolveProvider(providerName);
       const resident = resolveResidentEntry(provider, sessionId);
@@ -288,7 +430,7 @@ export function createProviderRuntimeService(
         // `complete` is the caller's (the websocket abort handler sends it on the
         // run's behalf), so a false here means no round was in flight to stop.
         const driver = provider.hostDriver;
-        const host = liveHostForSession(dependencies.sessionHostManager, sessionId);
+        const host = dependencies.sessionHostManager.liveHostForSession(sessionId);
         if (!driver || !host) {
           return false;
         }

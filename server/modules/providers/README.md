@@ -91,6 +91,90 @@ import the service from `server/modules/providers/index.ts`.
 - `sessions` handles runtime event normalization and history fetches.
 - `sessionSynchronizer` handles file-backed session indexing into `sessionsDb`.
 
+## Resident Permissions (Claude)
+
+Claude's resident host (`list/claude/claude-host-driver.provider.ts`) holds one
+CLI across turns. Every launch is built with
+`permissionMode: 'bypassPermissions'` **and**
+`allowDangerouslySkipPermissions: true` — the SDK requires the pair together, and
+a turn nobody pushed has no client sitting there to approve a tool.
+
+Bypass is not the same as "nothing ever asks a person": the SDK still refers the
+human-facing requests to the host, so the same launch installs three callbacks.
+
+| Entry | What reaches it | Unattended answer | Attended answer |
+| --- | --- | --- | --- |
+| `canUseTool` | `AskUserQuestion` and `ExitPlanMode` (E8 read these reaching the callback *under bypass*), plus any tool the mode does not settle | `{behavior:'deny', message}` | the client's decision |
+| `onElicitation` | an MCP `elicitation/create`, which the CLI turns into a `control_request` with `subtype: 'elicitation'` (E9 §9.6) | `{action:'cancel'}` | `{action:'accept', content}` |
+| `onUserDialog` | a `request_user_dialog` control request | `{behavior:'cancelled'}` | `{behavior:'completed', result}` |
+
+"Unattended" is a live reading rather than a stored flag: no browser is connected
+(`connectedClientCount`, installed at the composition root from the websocket
+registry's own set — the driver imports nothing from `modules/websocket`, an edge
+that would close a cycle) **and** no user round is in flight. While it holds, the
+entry answers by itself with a refusal that says why (`当前无人值守…`), the
+refusal is logged on the host (`permissionReading`), a
+`permission.unattended_refused` notification goes out, and the turn ends instead
+of parking on a client that is not there.
+
+When a browser *is* connected the three entries take the **existing** per-run
+flow instead — a `permission_request` frame, `waitForToolApproval`, the client's
+own decision — so there is no second request protocol to keep in step. The
+request-shaped entries have no tool name, so their frame carries the entry name
+in `toolName` and the whole request in `input`.
+
+Switching modes mid-life is `query.setPermissionMode(<mode>)` on the running
+process; the host and its pid are untouched, and a new mode is reflected by
+`permissionReading`.
+
+`side_question` is deliberately **not** part of this surface: it travels
+host→CLI, its answer is not a refusal, and an unattended turn needs no branch for
+it. The criterion holds its own file to that — no assertion or branch for it.
+
+## The Remote Control Gate Before A Resident Launch (Claude)
+
+A resident host runs under `bypassPermissions`, so a process that is also
+reachable over Remote Control is a process another machine can drive without a
+person in the loop. `startResidentHost` therefore reads one file *before* it
+builds a `query()` or spawns anything:
+`join(resolveClaudeConfigDir(), 'settings.json')` — the user-level settings.
+
+Only a literal `true` reads as "on". A missing file, a file that will not parse,
+a missing key and a literal `false` all read as "not on"; the reader never
+guesses, and it never treats "could not read" as "off" in the refusal direction
+either — it treats it as "not stated", which is what the snapshot records.
+
+| Detected `remoteControlAtStartup` | What a launch does |
+| --- | --- |
+| `true` | **Refused.** No `query()`, no child process. The refusal travels as `HostBindErrorCode` `remote-control-enabled` plus interface copy naming the file to change. |
+| `false` / not stated | Launches, and `sdkOptions.settings` carries `{ remoteControlAtStartup: false, isolatePeerMachines: true }` anyway. |
+
+**Why refuse rather than trust the flags.** E9 §9.7 could not read a
+`get_settings` response in either variant, so whether `--settings` outranks the
+user's own settings is *unmeasured on this machine*. The flags are passed as
+defence in depth, but the criterion must not treat "the flags were passed" as
+evidence that remote reachability is closed — so the one case that is actually
+decidable (the user said on) is answered by refusing to start. This is the same
+conservative branch the proposal settled on, and the criterion asserts exactly
+those two things: the flags were passed, and "detected on" refuses.
+
+Once a host is up, the snapshot keeps the two facts apart: `requested` is the
+pair this build states (always `{false, true}`), `detected` is the user's own
+file key by key, with "the key was not there" carried as `null` rather than
+folded into `false`. No field is named for an *effect* (`effective` / 生效): a
+single merged field could not represent a file that says `true` while the request
+says `false`, and that divergence is the whole point of keeping them apart.
+
+The refusal is readable through
+`providerRuntimeService.remoteControlRefusal(provider, sessionId)`. It is a
+reading of its own rather than a field on a host because the gate refuses
+*before* a host exists — hanging it off a `ProcessHost` would make it unreadable
+exactly when it happened.
+
+⛔ **Known gap:** 本条只检测用户级 settings；项目级 / 本地级 / 托管级 settings 未读数，是已知缺口。
+Project-, local- and managed-tier settings are not read, so a machine that turns
+Remote Control on through one of those tiers is not caught by this gate.
+
 ## How To Add A Provider
 
 1. Add the provider id everywhere it is part of the contract.

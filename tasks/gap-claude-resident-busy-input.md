@@ -5,7 +5,7 @@ title: AC-163 忙时输入与 CLI 一致 — resident 会话忙时 chat.send 不
   result）并归入其后另起一轮的 run 不丢，撤回按 command_lifecycle 的 cancelled 事件判定（不读
   control_response）；五条假形态（服务端排队到轮末 / 返回 RUN_IN_PROGRESS / 撤回只在前端隐藏 / 以控制响应判成败 /
   等 session_state_changed）必须红
-status: ready
+status: done
 labels:
   - gap
 parent: null

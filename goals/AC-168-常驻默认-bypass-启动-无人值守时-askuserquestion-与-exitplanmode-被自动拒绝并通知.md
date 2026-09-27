@@ -1,7 +1,7 @@
 ---
 id: AC-168
 title: 常驻默认 bypass 启动；无人值守时三个需要人回应的入口都被自动拒绝并通知
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-013
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -32,6 +32,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-09-27T12:26:13.673Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"

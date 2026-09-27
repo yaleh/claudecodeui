@@ -169,6 +169,25 @@ export const chatRunRegistry = {
   /**
    * Starts tracking a run and returns it, or `null` when a run is already in
    * progress for the session (callers must reject the duplicate send).
+   *
+   * `supersedeRunning` is the one exception, and it is not a weakening of that
+   * contract: it is how a second turn that is genuinely accepted while the
+   * first is still running gets a run of its own. A resident session has no
+   * reason to refuse a busy send — the CLI queues it and runs it as its own
+   * turn — but the run registry is keyed one run per session, so the newer turn
+   * must replace the older one *as the session's current run* or its frames
+   * would be attributed to a run that already ended its own conversation.
+   *
+   * The replaced run is not marked completed by the replacement, and that is
+   * the load-bearing half: its own turn is still running, and its terminal
+   * `complete` is written through its own writer when that turn ends
+   * (`ClaudeResidentHostDriver` sends it through the round's writer, not through
+   * whichever round was armed last). Marking it completed here would hand it to
+   * `decorateAndRecordEvent`'s exactly-one-complete rule, so the ending of a
+   * turn that was genuinely running would be dropped and every client watching
+   * the session would be left waiting on a run that never reports itself over.
+   * Status tracks the run's *own* turn; the map slot is what "the session's
+   * current run" means, and the newer run simply takes it.
    */
   startRun(input: {
     appSessionId: string;
@@ -191,9 +210,15 @@ export const chatRunRegistry = {
      * asked for — states `unattended` explicitly.
      */
     source?: ChatRunSource;
+    /**
+     * Whether an already-running run is replaced by this one instead of
+     * refusing this one. Only ever set by a caller that has established the
+     * session's provider will really run this turn concurrently — see above.
+     */
+    supersedeRunning?: boolean;
   }): ChatRun | null {
     const existing = runs.get(input.appSessionId);
-    if (existing && existing.status === 'running') {
+    if (existing && existing.status === 'running' && !input.supersedeRunning) {
       return null;
     }
 

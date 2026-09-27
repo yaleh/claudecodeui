@@ -17,6 +17,8 @@ import {
   notifyRunStopped,
 } from '@/modules/notifications/index.js';
 import { sessionHostManager } from '@/modules/session-hosts/index.js';
+// eslint-disable-next-line boundaries/dependencies -- the websocket barrel would close the eval cycle above; this leaf re-enters nothing.
+import { connectedClients } from '@/modules/websocket/services/websocket-state.service.js';
 import type {
   IProviderAuth,
   IProviderFork,
@@ -101,7 +103,7 @@ export class ClaudeProvider extends AbstractProvider {
    * driver reports *what* completed, and the notification layer already treats a
    * missing user as "no per-user preferences to consult".
    */
-  readonly hostDriver: IProviderHostDriver = new ClaudeResidentHostDriver({
+  readonly residentHostDriver: ClaudeResidentHostDriver = new ClaudeResidentHostDriver({
     host: sessionHostManager,
     notifyBackgroundWork: (event) =>
       reportBackgroundWorkCompleted({
@@ -138,7 +140,49 @@ export class ClaudeProvider extends AbstractProvider {
         sessionName: event.sessionName,
         trigger: event.trigger,
       }),
+    /**
+     * Whether a browser is connected, read from the registry that owns the set.
+     *
+     * This is the one place both modules are in scope, which is why the driver
+     * takes the count as a port: the driver imports nothing from `modules/websocket`
+     * (an edge from it would close a cycle, and the structural reading in
+     * `claude-resident-unattended-turn.test.ts` holds the file to zero), so the
+     * registry's own set is installed here instead.
+     *
+     * The *leaf* module is named rather than the websocket barrel, and that is
+     * load-bearing rather than a style choice: this file is reached from
+     * `provider.registry.ts`, and the barrel pulls in `chat-websocket.service.js`,
+     * which imports the providers barrel back. That edge closes the cycle
+     * `providerRegistry` → `claude.provider` → websocket barrel → chat → providers
+     * barrel → `provider-models.service.js`, whose module body reads
+     * `providerRegistry` while the registry is still evaluating — a TDZ that reds
+     * every test entering the providers graph (`ReferenceError: Cannot access
+     * 'providerRegistry' before initialization`). `websocket-state.service.js` is
+     * a leaf (one `import type`), so naming it re-enters nothing and the closure
+     * stays open. The deep cross-module import is the one boundary rule it
+     * breaks, waived on the line itself.
+     *
+     * Read at call time rather than captured, so the answer is the connection
+     * count when a human-facing request actually arrives — a resident turn can
+     * outlive the page that opened it, and the whole point of the reading is that
+     * nobody is watching *now*.
+     */
+    connectedClientCount: () => connectedClients.size,
   });
+
+  /**
+   * The same instance, held under its own type.
+   *
+   * `hostDriver` is the shared facet every provider mounts, so it is typed as
+   * `IProviderHostDriver` and the driver's own verbs — the busy-input readings
+   * and the withdrawal entry — are not on it. The dispatch reaches those
+   * through a structural check on the instance, which is the right reading at
+   * that layer (it must work for a provider that has no such verb) but the
+   * wrong one here: at the mount site the concrete class is known, and a second
+   * field is what says so without a cast back from the interface. Both fields
+   * are the one object, so a verb added to the class is reachable both ways.
+   */
+  readonly hostDriver: IProviderHostDriver = this.residentHostDriver;
 
   constructor() {
     super('claude');

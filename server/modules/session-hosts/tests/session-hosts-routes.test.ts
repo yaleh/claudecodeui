@@ -94,11 +94,20 @@ const HOST_VIEW_KEYS = [
   'state',
 ];
 
-/** The same contract one level down, for the sessions on a host. */
+/**
+ * The same contract one level down, for the sessions on a host.
+ *
+ * `peerName` is part of the element because it is the address the process
+ * registered inside itself, and the listing is the only place a reader can
+ * find it — the client's "copy the SendMessage address" affordance reads
+ * nothing else. It is `null` for a binding that has no address, but the key
+ * is always present, so the element shape does not vary by state.
+ */
 const BINDING_VIEW_KEYS = [
   'appSessionId',
   'lastActivityAt',
   'leases',
+  'peerName',
   'providerSessionId',
   'state',
 ];

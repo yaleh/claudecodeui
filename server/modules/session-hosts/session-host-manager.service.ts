@@ -685,6 +685,28 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
     return true;
   }
 
+  /**
+   * Records the address the binding's own process answers to.
+   *
+   * Deliberately not `noteActivity`: the process stating its name is not work,
+   * and counting it as work would let a process keep its own quiet deadline
+   * pushed out by nothing but coming up. This is the one write that changes
+   * what a caller can *do* with the binding — `peerName` is what the REST view
+   * publishes so another session has somewhere to send — so a stale value
+   * would be worse than a missing one; hence the refusal to invent one when no
+   * live binding is found, and the driver's rule of reporting only names it
+   * read back from the process itself.
+   */
+  function recordIdentity(appSessionId: string, peerName: string | null): boolean {
+    const found = findBinding(appSessionId);
+    if (!found || found.host.state === 'closed') {
+      return false;
+    }
+
+    found.binding.peerName = peerName;
+    return true;
+  }
+
   /** Closes the host bound to this session, if one is live. */
   function closeSessionHost(appSessionId: string, reason: HostCloseReason): boolean {
     const hostId = hostIdByAppSession.get(appSessionId);
@@ -706,6 +728,7 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
     leaseAdded: addLease,
     leaseRemoved: removeLease,
     activity: noteActivity,
+    identity: recordIdentity,
     exited: (event) => reportExited(event.hostId, event.detail),
   };
 
@@ -719,6 +742,18 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
           { ...binding, leases: binding.leases.map((lease) => ({ ...lease })) },
         ]),
       ),
+      // The nested halves are copied too, not shared with the live record. Every
+      // other sub-object here is rebuilt for the same reason: a copy that a
+      // reader could reach into and find moving under it is not a copy, and this
+      // one is written by a driver while the host is being opened.
+      remoteControl: host.remoteControl
+        ? {
+            ...host.remoteControl,
+            requested: { ...host.remoteControl.requested },
+            detected: { ...host.remoteControl.detected },
+            launched: host.remoteControl.launched ? { ...host.remoteControl.launched } : null,
+          }
+        : (host.remoteControl ?? null),
     };
   }
 
@@ -932,6 +967,7 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
       state: 'idle',
       leases: mode === 'resident' ? [{ kind: 'resident-policy' }] : [],
       lastActivityAt: now(),
+      peerName: null,
       detachReason: null,
     };
   }
@@ -1075,6 +1111,9 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
       state: 'busy',
       leases: [{ kind: 'turn', runId } satisfies HostLease],
       lastActivityAt: now(),
+      // A per-run host has no address: its process lives for one turn, so a name
+      // handed to it would be gone before a peer could use it.
+      peerName: null,
       detachReason: null,
     };
     const host: ProcessHost = {
@@ -1310,6 +1349,29 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
   }
 
   /**
+   * The live host serving one session, or null when the session has none.
+   *
+   * The question every caller has to ask before it addresses a driver by
+   * session: which process is serving this conversation *right now*. It lives
+   * here because the manager is the only layer that owns the binding table —
+   * an answer assembled anywhere else would be a second copy of "who is bound
+   * to what", and the two could disagree exactly when it matters (a host that
+   * closed between the read and the write).
+   *
+   * Detached like `snapshot`, and for the same reason: the caller holds the
+   * record across an await while it addresses the driver, so what it holds must
+   * be a reading rather than a handle on the manager's own object.
+   */
+  function liveHostForSession(appSessionId: string): ProcessHost | null {
+    for (const host of hosts.values()) {
+      if (host.state !== 'closed' && host.bindings.has(appSessionId)) {
+        return copyHost(host);
+      }
+    }
+    return null;
+  }
+
+  /**
    * Whether a closed host is still readable at `at`.
    *
    * A host that is not closed is always readable; a closed one is readable
@@ -1338,6 +1400,7 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
     removeLease,
     attachViewer,
     noteActivity,
+    recordIdentity,
     interrupt,
     changeMode,
     rewind,
@@ -1345,6 +1408,7 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
     closeHost,
     shutdown,
     snapshot,
+    liveHostForSession,
     setUnattendedRunOpener,
     openUnattendedRun,
   };
