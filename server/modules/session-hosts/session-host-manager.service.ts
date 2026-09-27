@@ -140,9 +140,58 @@ const defaultScheduler: HostScheduler = {
   },
 };
 
+/**
+ * One turn a resident process opened by itself, handed to the opener.
+ *
+ * Carries no command: there is none. A process that starts a turn on its own
+ * was not asked to, so what is left to say is *which* conversation the turn
+ * belongs to and who should hear about it — which is what the run record needs
+ * and all it can be given.
+ */
+export type UnattendedRunInput = {
+  provider: LLMProvider;
+  /** The conversation the process is holding; the run is keyed by it. */
+  appSessionId: string;
+  /** The provider-native id, once the process has announced one. */
+  providerSessionId: string | null;
+  /** Who to report to; the last turn's own user, since this turn carries none. */
+  userId: string | number | null;
+  /** What to call the session in a report; likewise carried over. */
+  sessionName: string | null;
+};
+
+/**
+ * What an opener hands back: where the turn's frames go.
+ *
+ * Deliberately not a run record. The registry that owns runs lives in another
+ * module and the frames are the only part of it a driver may touch, so the
+ * handle is one field wide — a writer whose `complete` frame is what ends the
+ * run on the registry's side.
+ */
+export type UnattendedRunHandle = {
+  writer: ProviderRuntimeWriter;
+};
+
+/**
+ * How a run gets opened for a turn nobody dispatched.
+ *
+ * A *seam*, not an implementation: opening a run means writing to the run
+ * registry, which belongs to the websocket module — and this module is imported
+ * by the providers module, so reaching back would close a cycle. The
+ * composition root supplies the opener (see `server/index.ts`), which is where
+ * the run registry and this manager are both already in scope.
+ *
+ * `null` from an opener means no run could be opened — no seam is installed, or
+ * the session already has a run in flight — and the caller keeps the mode's old
+ * behaviour rather than failing the turn.
+ */
+export type UnattendedRunOpener = (input: UnattendedRunInput) => UnattendedRunHandle | null;
+
 export type SessionHostManagerOptions = {
   /** Clock seam, so the lifecycle readings are reproducible in tests. */
   now?: () => number;
+  /** The unattended-run seam; production supplies it from the composition root. */
+  unattendedRunOpener?: UnattendedRunOpener;
   /** Deadline seam, so the quiet ceiling and the shutdown grace period are reachable in tests. */
   scheduler?: HostScheduler;
   /** Overrides for `DEFAULT_PER_RUN_POLICY`, merged over it. */
@@ -264,6 +313,18 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
   const perRunPolicy: LifecyclePolicy = { ...DEFAULT_PER_RUN_POLICY, ...options.perRunPolicy };
   const residentPolicy: LifecyclePolicy = { ...DEFAULT_RESIDENT_POLICY, ...options.residentPolicy };
   const closedHostRetentionMs = options.closedHostRetentionMs ?? CLOSED_HOST_RETENTION_MS;
+  /**
+   * The unattended-run seam, held mutably because it is wired after this
+   * manager is built.
+   *
+   * The opener lives in the websocket module, which imports this one, so the
+   * composition root — the one place both are in scope — installs it through
+   * `setUnattendedRunOpener` right after construction. It stays optional: a
+   * manager with no opener is a manager in a process that has no run registry,
+   * which is a supported shape (every criterion test that constructs one
+   * directly), and there an unattended turn keeps the mode's old behaviour.
+   */
+  let unattendedRunOpener: UnattendedRunOpener | null = options.unattendedRunOpener ?? null;
 
   const hosts = new Map<string, ProcessHost>();
   /**
@@ -1198,6 +1259,36 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
   }
 
   /**
+   * Installs the unattended-run seam, once, from the composition root.
+   *
+   * A setter rather than a constructor option because the opener is built from
+   * the run registry, and the registry lives on the far side of an import edge
+   * this module may not cross — so the two cannot be constructed in the order a
+   * constructor option would require. Late binding is the point: what the
+   * manager owns is the *call*, not who answers it.
+   */
+  function setUnattendedRunOpener(opener: UnattendedRunOpener | null): void {
+    unattendedRunOpener = opener;
+  }
+
+  /**
+   * Opens a run for a turn nobody dispatched, through the installed opener.
+   *
+   * Returns `null` when there is no opener (a process with no run registry) or
+   * when the opener declines — the registry answering "this session already has
+   * a run" is the ordinary decline, not an error. A host driver treats `null`
+   * as "carry on as this mode always did": the frames stay with the last writer
+   * and no run is opened, which is exactly the pre-seam behaviour.
+   *
+   * The manager adds nothing here. It holds no run state and must not: a run's
+   * lifetime is the registry's, and a second copy of "is a run in flight" on
+   * this side could only disagree with it.
+   */
+  function openUnattendedRun(input: UnattendedRunInput): UnattendedRunHandle | null {
+    return unattendedRunOpener ? unattendedRunOpener(input) : null;
+  }
+
+  /**
    * Read port for the whole host view: every live host, plus the closed ones
    * that are still inside the retention window.
    *
@@ -1216,6 +1307,29 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
     return [...hosts.values()]
       .filter((host) => withinRetention(host, at))
       .map(copyHost);
+  }
+
+  /**
+   * The live host serving one session, or null when the session has none.
+   *
+   * The question every caller has to ask before it addresses a driver by
+   * session: which process is serving this conversation *right now*. It lives
+   * here because the manager is the only layer that owns the binding table —
+   * an answer assembled anywhere else would be a second copy of "who is bound
+   * to what", and the two could disagree exactly when it matters (a host that
+   * closed between the read and the write).
+   *
+   * Detached like `snapshot`, and for the same reason: the caller holds the
+   * record across an await while it addresses the driver, so what it holds must
+   * be a reading rather than a handle on the manager's own object.
+   */
+  function liveHostForSession(appSessionId: string): ProcessHost | null {
+    for (const host of hosts.values()) {
+      if (host.state !== 'closed' && host.bindings.has(appSessionId)) {
+        return copyHost(host);
+      }
+    }
+    return null;
   }
 
   /**
@@ -1254,6 +1368,9 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
     closeHost,
     shutdown,
     snapshot,
+    liveHostForSession,
+    setUnattendedRunOpener,
+    openUnattendedRun,
   };
 }
 

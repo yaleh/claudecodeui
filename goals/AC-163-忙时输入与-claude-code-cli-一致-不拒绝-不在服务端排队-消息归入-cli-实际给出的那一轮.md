@@ -1,7 +1,7 @@
 ---
 id: AC-163
 title: 忙时输入与 Claude Code CLI 一致：不拒绝、不在服务端排队，进入 CLI 的输入队列并可在出队前撤回
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-013
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -36,6 +36,11 @@ statusLog:
     to: active
     actor: human:yale
     reason: 人 yale 2026-09-27 指令：判据已按 E1–E9 结论修订，转 active
+  - at: 2026-09-27T11:24:19.090Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"

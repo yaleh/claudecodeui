@@ -19,7 +19,7 @@ import {
     stopClaudeSessionScopes,
     sweepOrphanClaudeSessionScopes,
 } from '@/modules/providers/index.js';
-import { createWebSocketServer } from '@/modules/websocket/index.js';
+import { chatRunRegistry, createWebSocketServer } from '@/modules/websocket/index.js';
 import { createSessionHostsRouter, sessionHostManager } from '@/modules/session-hosts/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
@@ -132,6 +132,21 @@ createWebSocketServer(server, {
     },
     getPluginPort,
 });
+
+// The unattended-run seam, wired here because it is the only place both halves
+// are in scope.
+//
+// A resident process can open a turn of its own — a background task finishing
+// with nothing queued behind it — and that turn needs a run so its frames are
+// seq-numbered, buffered for replay and readable as history. Opening one means
+// writing to the run registry, which belongs to the websocket module, which
+// imports the providers module, which owns the host drivers: a seam injected
+// from either side would close that cycle. `provider.registry.ts` states the
+// gap rather than papering over it, so the wiring lives at the composition
+// root — the same reason the session-hosts router's reader seams are resolved
+// here. Without this, an unattended turn is still carried (its frames go to the
+// last writer, as before the seam existed); it is simply not a run.
+sessionHostManager.setUnattendedRunOpener((input) => chatRunRegistry.openUnattendedRun(input));
 
 app.use(cors({ exposedHeaders: ['X-Refreshed-Token', 'X-Auth-Error'] }));
 app.use(express.json({

@@ -5,7 +5,7 @@ title: AC-163 忙时输入与 CLI 一致 — resident 会话忙时 chat.send 不
   result）并归入其后另起一轮的 run 不丢，撤回按 command_lifecycle 的 cancelled 事件判定（不读
   control_response）；五条假形态（服务端排队到轮末 / 返回 RUN_IN_PROGRESS / 撤回只在前端隐藏 / 以控制响应判成败 /
   等 session_state_changed）必须红
-status: todo
+status: done
 labels:
   - gap
 parent: null
@@ -58,22 +58,22 @@ goal_ac: AC-163
 
 ## AC
 
-- [ ] 判据入口为绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-busy-input.test.ts` 在落地后的树上退出 **0** 且输出 `fail 0`。红态基线（本轮直跑）：同命令退出 **1**，stdout 逐字 `Could not find 'server/modules/providers/tests/claude-resident-busy-input.test.ts'`；同命令形状跑既有 `…/claude-host-per-run.test.ts` 退出 **0**（`tests 7 / pass 7 / fail 0 / duration_ms 2348.35`）⇒ 红只因判据文件不存在。命令逐字含文件路径，不用 glob。
-- [ ] 真实链路：判据里用**真实** `claude` 二进制 + mock Anthropic 兼容端点（临时 `DATABASE_PATH`），mock **拖住响应**造出忙；真 agent 轮按请求体 **`bytes > 10KB`** 识别（**不按序号、也不按请求里有无用户文本**——每轮会先发一条约 2KB 的预检请求）；打印逐次请求体量 `bytesPerTurn=[…] realTurns=<n>`。
-- [ ] (1) 两腿都不拒：**用户轮进行中**与**无人轮进行中**各发一次真 `chat.send`，两次都**不**返回 `RUN_IN_PROGRESS`（打印 `busySends=[{leg:'user',code:null},{leg:'unattended',code:null}]`）；**正控制**：同一次运行里对 per-run 会话在忙时发一次 `chat.send`，读数 `perRunBusyCode=RUN_IN_PROGRESS`——保证该判定不是恒真。
-- [ ] (2) 写入时刻与帧形状：两腿各打印 `writeAt=<ts> turnResultAt=<ts> before=true`（帧写入进程 stdin 的时刻**早于**当前轮的 `result`）与 `frame.uuid=<uuid> frame.priority=later`；该 uuid 与随后 CLI 输出的 `command_lifecycle command_uuid` **逐字相同**（两个读数并排打印）。
-- [ ] (3) 不丢、归入后一轮：该消息文本出现在**其后另起一轮**的请求体里（打印 `appearsInTurnRequest#<n> textPresent=true`），且被记入**那一轮**的 run（打印 `run.appSessionId=<A> messageInRun=true`）；**正控制**：当前轮请求体里 `textPresentInCurrentTurn=false`（既没并进当前轮，也没丢）。
-- [ ] (4a) 队列中撤回：对**尚在队列中**的消息发起撤回 ⇒ 服务端发出 `cancel_async_message`（打印发出的控制帧原文），读到该 uuid 的 `command_lifecycle state=cancelled`，该消息文本**不出现在任何一轮请求体里**（打印 `textInAnyTurn=false`），返回值标为**已撤回**（打印 `cancelResult=withdrawn`）。**不读控制响应**：打印 `controlResponsesForCancel=0`。
-- [ ] (4b) 已出队撤回：对**已出队**的消息撤回 ⇒ **没有** cancelled 事件（打印 `cancelledEvents=0`），返回值是可辨的「已开始处理」（打印 `cancelResult=already-started`），进程无副作用（打印撤回前后 `hostPid` **相同**，且其后仍产生 `result`）。
-- [ ] 假形态 (a) 承重：让服务端自己排队、等当前轮 `result` 之后才写入 ⇒ (2) 的写入时刻读数**必须红**（判据文件内一臂，照 `model-gateway-end-to-end.test.ts:211` 的 `(b-fake)` 形状：构造该假行为并断言读数确实变红）。
-- [ ] 假形态 (b) 承重：让 resident 的忙时 `chat.send` 返回 `RUN_IN_PROGRESS` ⇒ (1) **必须红**。
-- [ ] 假形态 (c) 承重：撤回只在前端隐藏、不发 `cancel_async_message` ⇒ 无 cancelled 事件且消息仍产生一轮 ⇒ (4) **必须红**。
-- [ ] 假形态 (d) 承重：以 `control_response` 的到达判撤回成败 ⇒ 撤回成功也读成失败 ⇒ (4) **必须红**。
-- [ ] 假形态 (e) 承重：等 `session_state_changed` 才切分轮次 ⇒ 读不到轮边界 ⇒ (3) **必须红**（打印本次实跑的 `sessionStateChanged=<n>`；E9 9.1 两条驱动各 0 条）。
-- [ ] 不越权断言：`next` 档执行时的落点 E9 没读到 ⇒ 判据**不**对 `next` 作断言，只打印 `nextPriorityLanding=unread`（读不到就是读不到，不编）。
-- [ ] 不使既有判据变红：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-host-per-run.test.ts`、`…/claude-background-work.test.ts`、`…/passthrough-parity.test.ts` 三条各自退出 **0**（逐条打印命令与退出码），这三条文件**一字不改**（`git diff --name-only` 里没有它们）。
-- [ ] 契约面：`npm run typecheck`、`npm run lint` 退出 0。
-- [ ] 不闭环：忙时写入与撤回的注入点不引入 providers → websocket 的反向 import 边（照 `provider.registry.ts:101-103` 的禁环说明选边），打印该文件的 import 边读数证明未新增反向依赖。
+- [x] 判据入口为绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-busy-input.test.ts` 在落地后的树上退出 **0** 且输出 `fail 0`。红态基线（本轮直跑）：同命令退出 **1**，stdout 逐字 `Could not find 'server/modules/providers/tests/claude-resident-busy-input.test.ts'`；同命令形状跑既有 `…/claude-host-per-run.test.ts` 退出 **0**（`tests 7 / pass 7 / fail 0 / duration_ms 2348.35`）⇒ 红只因判据文件不存在。命令逐字含文件路径，不用 glob。
+- [x] 真实链路：判据里用**真实** `claude` 二进制 + mock Anthropic 兼容端点（临时 `DATABASE_PATH`），mock **拖住响应**造出忙；真 agent 轮按请求体 **`bytes > 10KB`** 识别（**不按序号、也不按请求里有无用户文本**——每轮会先发一条约 2KB 的预检请求）；打印逐次请求体量 `bytesPerTurn=[…] realTurns=<n>`。
+- [x] (1) 两腿都不拒：**用户轮进行中**与**无人轮进行中**各发一次真 `chat.send`，两次都**不**返回 `RUN_IN_PROGRESS`（打印 `busySends=[{leg:'user',code:null},{leg:'unattended',code:null}]`）；**正控制**：同一次运行里对 per-run 会话在忙时发一次 `chat.send`，读数 `perRunBusyCode=RUN_IN_PROGRESS`——保证该判定不是恒真。
+- [x] (2) 写入时刻与帧形状：两腿各打印 `writeAt=<ts> turnResultAt=<ts> before=true`（帧写入进程 stdin 的时刻**早于**当前轮的 `result`）与 `frame.uuid=<uuid> frame.priority=later`；该 uuid 与随后 CLI 输出的 `command_lifecycle command_uuid` **逐字相同**（两个读数并排打印）。
+- [x] (3) 不丢、归入后一轮：该消息文本出现在**其后另起一轮**的请求体里（打印 `appearsInTurnRequest#<n> textPresent=true`），且被记入**那一轮**的 run（打印 `run.appSessionId=<A> messageInRun=true`）；**正控制**：当前轮请求体里 `textPresentInCurrentTurn=false`（既没并进当前轮，也没丢）。
+- [x] (4a) 队列中撤回：对**尚在队列中**的消息发起撤回 ⇒ 服务端发出 `cancel_async_message`（打印发出的控制帧原文），读到该 uuid 的 `command_lifecycle state=cancelled`，该消息文本**不出现在任何一轮请求体里**（打印 `textInAnyTurn=false`），返回值标为**已撤回**（打印 `cancelResult=withdrawn`）。**不读控制响应**：打印 `controlResponsesForCancel=0`。
+- [x] (4b) 已出队撤回：对**已出队**的消息撤回 ⇒ **没有** cancelled 事件（打印 `cancelledEvents=0`），返回值是可辨的「已开始处理」（打印 `cancelResult=already-started`），进程无副作用（打印撤回前后 `hostPid` **相同**，且其后仍产生 `result`）。
+- [x] 假形态 (a) 承重：让服务端自己排队、等当前轮 `result` 之后才写入 ⇒ (2) 的写入时刻读数**必须红**（判据文件内一臂，照 `model-gateway-end-to-end.test.ts:211` 的 `(b-fake)` 形状：构造该假行为并断言读数确实变红）。
+- [x] 假形态 (b) 承重：让 resident 的忙时 `chat.send` 返回 `RUN_IN_PROGRESS` ⇒ (1) **必须红**。
+- [x] 假形态 (c) 承重：撤回只在前端隐藏、不发 `cancel_async_message` ⇒ 无 cancelled 事件且消息仍产生一轮 ⇒ (4) **必须红**。
+- [x] 假形态 (d) 承重：以 `control_response` 的到达判撤回成败 ⇒ 撤回成功也读成失败 ⇒ (4) **必须红**。
+- [x] 假形态 (e) 承重：等 `session_state_changed` 才切分轮次 ⇒ 读不到轮边界 ⇒ (3) **必须红**（打印本次实跑的 `sessionStateChanged=<n>`；E9 9.1 两条驱动各 0 条）。
+- [x] 不越权断言：`next` 档执行时的落点 E9 没读到 ⇒ 判据**不**对 `next` 作断言，只打印 `nextPriorityLanding=unread`（读不到就是读不到，不编）。
+- [x] 不使既有判据变红：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-host-per-run.test.ts`、`…/claude-background-work.test.ts`、`…/passthrough-parity.test.ts` 三条各自退出 **0**（逐条打印命令与退出码），这三条文件**一字不改**（`git diff --name-only` 里没有它们）。
+- [x] 契约面：`npm run typecheck`、`npm run lint` 退出 0。
+- [x] 不闭环：忙时写入与撤回的注入点不引入 providers → websocket 的反向 import 边（照 `provider.registry.ts:101-103` 的禁环说明选边），打印该文件的 import 边读数证明未新增反向依赖。
 
 ## DoD
 
@@ -81,7 +81,7 @@ goal_ac: AC-163
 
 ## Touches
 
-- `server/modules/providers/tests/claude-resident-busy-input.test.ts`（新：判据，AC-163 的 criterion 路径）
+- `server/modules/providers/tests/claude-resident-busy-input.test.ts` (new)（判据，AC-163 的 criterion 路径）
 - `server/modules/providers/list/claude/claude-host-driver.provider.ts`（AC-161 落地的 resident driver：输入队列写入 + 服务端 uuid + `priority=later` + `command_lifecycle` 解析 + `cancel_async_message` 控制帧；若其实际文件名不同，按实际文件登记并在完成记录里写明）
 - `server/modules/providers/list/claude/claude.provider.ts`（submit / cancel 的 provider 缝）
 - `server/modules/providers/services/provider-runtime.service.ts`（忙时 submit 的分派与消息归轮）
@@ -90,3 +90,28 @@ goal_ac: AC-163
 - `server/modules/session-hosts/session-host-manager.service.ts`（resident 宿主的忙态查询与输入提交入口）
 - `server/shared/types.ts`（优先档 / `command_lifecycle` 事件 / 撤回结果的类型）
 - `tasks/gap-claude-resident-busy-input.md`（自触）
+
+## 完成记录
+
+落地提交 `35e94019`（任务分支 `task/gap-claude-resident-busy-input`；develop `a32b41ee` 已合入）。判据命令逐字：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-busy-input.test.ts` → 退出 **0**，`tests 1 / pass 1 / fail 0 / duration_ms 8897.32`（进程自然退出，无 `[budget]` 行）。
+
+读数（落树实跑，逐字）：
+- 真链路：`bytesPerTurn=[4079,69943,4050,70705,70922,71951,4050,72174,4038,80863] realTurns=6`——真 agent 轮按请求体 `bytes > 10KB` 识别，不按序号、也不按请求里有无用户文本
+- (1) 两腿都不拒：`busySends=[{"leg":"user","code":null},{"leg":"unattended","code":null}]`；正控制 `perRunBusyCode=RUN_IN_PROGRESS`（同一次运行里 per-run 会话忙时仍被拒，证明该判定不是恒真）
+- (2) 写入时刻与帧形状：`leg=user writeAt=1790501878396 turnResultAt=1790501878621 before=true frame.uuid=e7610d4b-efe8-47e9-9938-a6f789c88c43 frame.priority=later command_lifecycle.command_uuid=e7610d4b-efe8-47e9-9938-a6f789c88c43`；`leg=unattended writeAt=1790501878900 turnResultAt=1790501884020 before=true frame.uuid=a5372c56-61a4-4163-aa95-4d61adb39cba frame.priority=later command_lifecycle.command_uuid=a5372c56-61a4-4163-aa95-4d61adb39cba`（两腿的 uuid 与 CLI 输出的 `command_uuid` 逐字相同）
+- (3) 不丢、归入其后另起一轮：`leg=user appearsInTurnRequest#3 inFlightTurn#1 textPresentInCurrentTurn=false run.appSessionId=claude-resident-busy-input-session messageInRun=true`；`leg=unattended appearsInTurnRequest#5 inFlightTurn#4 textPresentInCurrentTurn=false run.appSessionId=claude-resident-busy-input-session messageInRun=true`
+- (4a) 队列中撤回：`cancelResult=withdrawn command_lifecycle.state=cancelled textInAnyTurn=false controlResponsesForCancel=0`；发出的控制帧原文 `{"type":"control_request","request_id":"c7a0ee29-265b-4b65-9b9a-c9ee40921db3","request":{"subtype":"cancel_async_message","message_uuid":"da7e1064-d801-4fb3-b2d1-aeac0f592b95"}}`（成败只读 `command_lifecycle`，不读 `control_response`）
+- (4b) 已出队撤回：`alreadyStarted cancelledEvents=0 cancelResult=already-started hostPidBefore=3070627 hostPidAfter=3070627 laterResult=true unattendedFinished=true`（进程无副作用且其后仍产生 `result`）
+- 轮次边界与回执帧：`turnBoundaries=4 fakeBoundaries(sessionStateChanged)=0 terminalsAtQueuedTurn=3 terminalsAtUnattendedTurn=3`；`ackFrames user={count=2 withSeq=2 kinds=["stream_delta:number","text:number"]} unattended={count=2 withSeq=2 kinds=["stream_delta:number","text:number"]}`
+- 收尾读数：`unattendedStarted=true unattendedQueued=true resultsBefore=2 resultsAfter=2 resultsNow=4 queuedTurnEnded=true queuedUnattendedTurnEnded=true`；`framesAfterPerRunSends=2 perRunTurnInFlight=true perRunTurnStopped=true`——per-run 控制腿那一轮经生产 `runtime.abort('claude', <session>)` 停住：它的宿主由 `trackPerRunTurn` 建立、`pid` 为 `null`，teardown 的 SIGKILL 够不着它，不停就会把判据进程拖到 60s 进程预算上（曾实测 `[budget] elapsed=60003ms exit=3`）
+- 不越权：`nextPriorityLanding=unread`（`next` 档出队落点 E9 未读到，故不作断言）；`sessionStateChanged=0`
+- 不闭环：五个文件的 `websocketImports(...)=0`（`provider.registry.ts` / `provider-runtime.service.ts` / `claude-host-driver.provider.ts` / `claude.provider.ts` / `session-host-manager.service.ts`），未新增 providers → websocket 反向边
+- 五条假形态：`fake (a): red`、`fake (b): red`、`fake (c): red`、`fake (d): red (verdict-from-control-response=unknown)`、`fake (e): red (sessionStateChanged=0, realTurnBoundaries=4)`
+
+旁证——既有判据逐字未改（`git diff --name-only develop..HEAD` 共 8 条，不含它们），各自退出 0：
+- `claude-host-per-run.test.ts`（`tests 7 / pass 7 / fail 0`）
+- `claude-background-work.test.ts`（`tests 10 / pass 10 / fail 0`）
+- `passthrough-parity.test.ts`（`tests 4 / pass 4 / fail 0`）
+- `npm run typecheck` 退出 0；`npm run lint` 退出 0
+
+门与缓存：`bash scripts/test.sh --for-task gap-claude-resident-busy-input --allow-thin` 退出 0。第一次跑时本任务判据那一条 Touches 写的是「反引号路径紧贴全角括注」，scoped 选择器取不到该路径、照 `(thin)` 空跑；本次一并改成半角空格分隔的 `(new)（…）` 形状（路径不变，anti-drift 解析对两种拼法等价），并 `git merge develop` 把改写后的任务文件带进 worktree——重跑 scoped 门即真的选中并跑过判据：`__PERFILE__ duration_ms=9269 server/modules/providers/tests/claude-resident-busy-input.test.ts passed=true`，`# tests 1 / # pass 1 / # fail 0`，退出 0（`suite-scope-check: PASS — 16 active task(s) scanned`，active 16 / with-tests 7）。scoped-gate 缓存按跑门时实测的 develop sha 写：`--develop-sha` 取的是 `git -C <worktree> rev-parse develop`，跑门前后该值不变、且该提交是 HEAD 的祖先（该次 HEAD 为 `Merge branch 'develop' into task/gap-claude-resident-busy-input`）。任务文件每改写一次 develop 就前进一格，故缓存 key 里的 sha 以 `.quay/scoped-gate-cache.json` 的实测值为准，本文不写死字面量。
