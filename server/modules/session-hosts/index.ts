@@ -79,6 +79,7 @@ export type {
   HostMode,
   HostState,
   ProcessHost,
+  RemoteControlIsolation,
   SessionBinding,
 } from '@/shared/types.js';
 // HOST_CLOSE_REASONS: every close reason as a runtime value, so the lifecycle

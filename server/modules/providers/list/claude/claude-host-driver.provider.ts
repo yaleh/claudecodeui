@@ -103,6 +103,7 @@ import type {
   BackgroundWorkTrigger,
   CommandLifecycleEvent,
   CommandLifecycleState,
+  HostBindErrorCode,
   HostCloseReason,
   HostInputPriority,
   HostLease,
@@ -113,6 +114,7 @@ import type {
   ProcessHost,
   ProviderRuntimeContext,
   ProviderRuntimeWriter,
+  RemoteControlIsolation,
   SessionBinding,
 } from '@/shared/types.js';
 import { createCompleteMessage, createNormalizedMessage } from '@/shared/utils.js';
@@ -297,6 +299,22 @@ export type ClaudeResidentProcess = {
    * answers `unknown` rather than pretending to have written anything.
    */
   writeRaw?(frame: AnyRecord): void;
+  /**
+   * The `settings` object this process's launch handed the SDK, as it was handed
+   * over; null when the launch stated none.
+   *
+   * Reported by the factory rather than guessed by the driver, because the
+   * driver never sees the built bag: `buildResidentSdkOptions` produces it and
+   * `query` consumes it, both inside `createSdkResidentProcess`. That is the only
+   * boundary at which "what did the launch really state" can be read at all, and
+   * it is the reading the Remote Control criterion asks for — the request is the
+   * driver's, the launched bag is the SDK's.
+   *
+   * Optional for the same reason `writeRaw` is: a substituted factory has no bag
+   * to report, and absent means the host record's `launched` half is `null`
+   * rather than a claim built from the request.
+   */
+  launchSettings?: { remoteControlAtStartup?: boolean; isolatePeerMachines?: boolean } | null;
 };
 
 /**
@@ -535,6 +553,20 @@ export type ClaudeResidentProcessFactory = (input: {
    * can read them without the SDK being involved at all.
    */
   permissions?: ClaudeResidentPermissions;
+  /**
+   * The two Remote Control flags this launch must state for the SDK.
+   *
+   * On the factory input for the same reason `permissions` is: the *request* is
+   * this driver's policy decision (it is the half of the gate the driver owns
+   * once the user's settings have said "not enabled"), while *stating* it on the
+   * SDK options is the launch's job. The default factory writes them into
+   * `sdkOptions.settings`; the driver records the same object on the host record,
+   * so the request and the launched bag can be compared against each other.
+   *
+   * Absent means "state nothing", which is what a build that dropped the
+   * defence-in-depth half does — the mutant the criterion's arm (b) expresses.
+   */
+  remoteControlFlags?: ClaudeRemoteControlFlags;
 }) => ClaudeResidentProcess;
 
 /**
@@ -625,6 +657,19 @@ export type ClaudeResidentHostDriverOptions = {
    * clock rather than two.
    */
   now?: () => number;
+  /**
+   * The user-level settings file the Remote Control gate reads, when it is not
+   * the one the process will run under.
+   *
+   * Defaults to `<CLAUDE_CONFIG_DIR>/settings.json` resolved *at launch time*,
+   * which is the only file whose answer decides what the child is launched with
+   * — so production never sets this. It is a seam for the same reason the
+   * filesystem is normally reached through one: a criterion has to be able to
+   * drive the gate against a temp directory, and to express the mutant where the
+   * gate reads something other than the settings the process runs under (see the
+   * Remote Control section above).
+   */
+  userSettingsPath?: string;
 };
 
 /**
@@ -826,6 +871,208 @@ const CLAUDE_RESIDENT_IDENTITY_POLL_MS = 50;
 function resolveClaudeConfigDir(): string {
   const fromEnv = process.env.CLAUDE_CONFIG_DIR;
   return fromEnv && fromEnv.trim() ? fromEnv : join(homedir(), '.claude');
+}
+
+// ------------------------- The Remote Control gate -------------------------
+//
+// A resident process is launched under `bypassPermissions` (see
+// `RESIDENT_PERMISSION_MODE`), and a Claude CLI with the user's own
+// `remoteControlAtStartup` on is reachable from *other machines*: Remote Control
+// bridges it to Anthropic's backend, where a peer session on another host can
+// drive it. A resident process that nobody is watching, running under bypass,
+// therefore has a trust boundary that is wider than the Unix user this
+// application's whole process model assumes — which is the boundary the proposal
+// promised. The gate below is the conservative branch of that promise.
+//
+// ## Why "refuse" and not "turn it off"
+//
+// The obvious fix — state `remoteControlAtStartup: false` in the launch's own
+// settings and rely on it — is *also* done (see `CLAUDE_REMOTE_CONTROL_FLAGS`),
+// but it is not what the refusal rests on, because this build has no reading
+// that the flag wins: E9 §9.7 asked the running process what its settings were
+// and got no answer at all (`get_settings` never responded), so "the flag
+// overrides the user's file" is an assumption rather than a measurement. A gate
+// that assumed it would be claiming a security property from an unmeasured
+// precedence rule. So the user's *file* is read first, and if it says on, no
+// process is started at all: the refusal is a fact this side owns, where the
+// precedence is not. The two flags are still passed on every launch that *does*
+// happen — defence in depth, and stated as such, never as evidence.
+//
+// ## What is read, and what is not
+//
+// User-level settings only: `<CLAUDE_CONFIG_DIR>/settings.json`. Project-level,
+// local and managed settings are **not** read by this gate — that is a known gap,
+// not an oversight, and it is recorded as one here because the reading has to be
+// honest about its own scope. The file is read at launch time, on the config
+// directory the process will actually be given, so what is read is what the
+// child sees.
+//
+// A missing file, a missing key, an unparseable file and a `false` all read as
+// "not on": only a literal `true` refuses. That is a deliberate asymmetry — this
+// gate does not turn a file it cannot read into a permission it never granted —
+// and it is why the reading is three-valued (`null` for "not stated") rather
+// than a boolean: a criterion has to be able to tell `false` from "the key was
+// not there at all".
+
+/** The file inside a Claude config directory that holds the user-level settings. */
+export const CLAUDE_USER_SETTINGS_FILE = 'settings.json';
+
+/** The user-level key that turns Remote Control on at startup. */
+export const CLAUDE_REMOTE_CONTROL_KEY = 'remoteControlAtStartup';
+
+/**
+ * The user-level key that requires an explicit approval before `SendMessage` can
+ * reach a peer session on another machine.
+ */
+export const CLAUDE_ISOLATE_PEERS_KEY = 'isolatePeerMachines';
+
+/**
+ * The words the refusal's copy carries, named as constants for the same reason
+ * `UNATTENDED_REFUSAL` is: the sentence is a user-facing statement this build
+ * makes in exactly one place, and a criterion has to be able to hold it to those
+ * words rather than to a paraphrase of them.
+ */
+export const REMOTE_CONTROL_ENABLED_REFUSAL = 'Remote Control 已开启';
+export const REMOTE_CONTROL_BYPASS_REASON = '以 bypass 运行的常驻进程会被跨机器驱动';
+
+/**
+ * The two flags every resident launch states, requested and launched alike.
+ *
+ * `remoteControlAtStartup: false` is the defence-in-depth half and
+ * `isolatePeerMachines: true` is the peer half — measured out of the SDK's own
+ * type (`sdk.d.ts`: "Require explicit approval before SendMessage can reach a
+ * peer session on another machine via Remote Control"). Both travel together
+ * because the SDK's `settings` is one object; a launch that stated only one of
+ * them would be a build that dropped half the sentence.
+ */
+export const CLAUDE_REMOTE_CONTROL_FLAGS: ClaudeRemoteControlFlags = {
+  remoteControlAtStartup: false,
+  isolatePeerMachines: true,
+};
+
+export type ClaudeRemoteControlFlags = {
+  remoteControlAtStartup: boolean;
+  isolatePeerMachines: boolean;
+};
+
+/**
+ * What one user-level settings file said, key by key.
+ *
+ * `path` is carried so a reading can be printed next to the file it came from —
+ * the criterion's negative half ("nothing under `~/.claude` was touched") is only
+ * checkable if every reading names its source.
+ */
+export type ClaudeUserSettingsReading = {
+  path: string;
+  /** `true` only for a literal `true`; `false` for a literal `false`; else `null`. */
+  remoteControlAtStartup: boolean | null;
+  isolatePeerMachines: boolean | null;
+};
+
+/**
+ * Why a resident start was refused, and what the user is told about it.
+ *
+ * `code` is a member of the application's refusal vocabulary (`HostBindErrorCode`)
+ * rather than a word this file invents, so a caller branches on it the same way
+ * it branches on the manager's two placement refusals; `message` is the
+ * interface copy verbatim — the sentence a client renders is *this* string, not
+ * a second one written beside it.
+ */
+export type ClaudeRemoteControlRefusal = {
+  code: Extract<HostBindErrorCode, 'remote-control-enabled'>;
+  message: string;
+  /** The settings file the reading that refused came from, verbatim. */
+  settingsPath: string;
+  /** When the refusal was made, in host clock terms. */
+  at: number;
+};
+
+/**
+ * The refusal, as something a caller can catch.
+ *
+ * Thrown rather than returned because the refusal happens inside a *run*, whose
+ * signature (`Promise<void>`) has no room for an answer, and because the caller
+ * that has to branch on it — the application dispatch — already handles a
+ * rejected run. `code` and `settingsPath` are carried as fields rather than
+ * folded into the message so the branch is on a value, not on prose.
+ */
+export class ClaudeRemoteControlRefusalError extends Error {
+  readonly code: ClaudeRemoteControlRefusal['code'];
+  readonly settingsPath: string;
+
+  constructor(refusal: ClaudeRemoteControlRefusal) {
+    super(refusal.message);
+    this.name = 'ClaudeRemoteControlRefusalError';
+    this.code = refusal.code;
+    this.settingsPath = refusal.settingsPath;
+  }
+}
+
+/** The refusal's copy, built once so every caller gets the same sentence. */
+export function remoteControlRefusalMessage(): string {
+  return (
+    `${REMOTE_CONTROL_ENABLED_REFUSAL}：${REMOTE_CONTROL_BYPASS_REASON}，` +
+    '已拒绝以 bypass 启动常驻进程。请在用户级 settings 里关闭 Remote Control 后重试。'
+  );
+}
+
+/** True for exactly the two JSON values this gate reads as a statement. */
+function readSettingsFlag(value: unknown): boolean | null {
+  return value === true ? true : value === false ? false : null;
+}
+
+/**
+ * Reads one user-level settings file, as the gate sees it.
+ *
+ * The three "not stated" paths — no such file, unreadable file, unparseable
+ * JSON — all answer `null` for both keys rather than throwing, because the gate
+ * that calls this is deciding whether to *allow* a launch: a settings file this
+ * process cannot make sense of is not a file that said "on", and refusing every
+ * launch on a machine with a malformed file would trade a real feature for
+ * nothing. What that costs is stated above: the reading's scope is one file.
+ */
+export function readClaudeUserSettings(settingsPath: string): ClaudeUserSettingsReading {
+  let raw: string;
+  try {
+    raw = readFileSync(settingsPath, 'utf8');
+  } catch {
+    return { path: settingsPath, remoteControlAtStartup: null, isolatePeerMachines: null };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { path: settingsPath, remoteControlAtStartup: null, isolatePeerMachines: null };
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { path: settingsPath, remoteControlAtStartup: null, isolatePeerMachines: null };
+  }
+
+  const record = parsed as Record<string, unknown>;
+  return {
+    path: settingsPath,
+    remoteControlAtStartup: readSettingsFlag(record[CLAUDE_REMOTE_CONTROL_KEY]),
+    isolatePeerMachines: readSettingsFlag(record[CLAUDE_ISOLATE_PEERS_KEY]),
+  };
+}
+
+/** The two Remote Control keys of an SDK `settings` object, as the launch stated them. */
+export function readLaunchedRemoteControlSettings(
+  settings: unknown,
+): { remoteControlAtStartup?: boolean; isolatePeerMachines?: boolean } | null {
+  if (!settings || typeof settings !== 'object') {
+    return null;
+  }
+  const record = settings as Record<string, unknown>;
+  const launched: { remoteControlAtStartup?: boolean; isolatePeerMachines?: boolean } = {};
+  if (typeof record[CLAUDE_REMOTE_CONTROL_KEY] === 'boolean') {
+    launched.remoteControlAtStartup = record[CLAUDE_REMOTE_CONTROL_KEY] as boolean;
+  }
+  if (typeof record[CLAUDE_ISOLATE_PEERS_KEY] === 'boolean') {
+    launched.isolatePeerMachines = record[CLAUDE_ISOLATE_PEERS_KEY] as boolean;
+  }
+  return launched;
 }
 
 /**
@@ -1144,8 +1391,22 @@ function spawnResidentCli(spawnOptions: SdkSpawnOptions): ClaudeResidentProcessH
 export function buildResidentSdkOptions(input: {
   options: AnyRecord;
   permissions?: ClaudeResidentPermissions;
+  remoteControlFlags?: ClaudeRemoteControlFlags;
 }): AnyRecord {
   const sdkOptions = mapCliOptionsToSDK(input.options) as unknown as AnyRecord;
+
+  // The Remote Control flags, merged into whatever `settings` the shared builder
+  // already produced rather than assigned over it: `applyClaudeEffort` writes an
+  // `ultracode` marker into the same object, and a launch that lost it would be
+  // trading one launch option for another. The resident bag is the only one that
+  // states these — a per-run turn has no resident process to isolate — so they
+  // arrive on the input rather than being read out of the option bag.
+  if (input.remoteControlFlags) {
+    sdkOptions.settings = {
+      ...((sdkOptions.settings as AnyRecord | undefined) ?? {}),
+      ...input.remoteControlFlags,
+    };
+  }
 
   // The launch mode is stated *after* the shared builder, not asked of it: the
   // builder maps a caller's `permissionMode` for the per-run path, where a turn
@@ -1195,6 +1456,7 @@ export function createSdkResidentProcess(
     options: AnyRecord;
     seams?: ClaudeResidentProcessSeams;
     permissions?: ClaudeResidentPermissions;
+    remoteControlFlags?: ClaudeRemoteControlFlags;
   },
   launchSeams: { createQuery?: ClaudeResidentQueryFactory } = {},
 ): ClaudeResidentProcess {
@@ -1283,6 +1545,11 @@ export function createSdkResidentProcess(
       }
       stdin.write(`${JSON.stringify(frame)}\n`);
     },
+    // Read off the bag that was just handed to `query`, not off the request: the
+    // point of reporting it is that it is the SDK's copy of the fact rather than
+    // the driver's, and the two are only the same number when the launch really
+    // stated what it was asked to state.
+    launchSettings: readLaunchedRemoteControlSettings(sdkOptions.settings),
   };
 }
 
@@ -1492,6 +1759,15 @@ type PendingHost = {
    * is built one `openHost` later.
    */
   permissions: ClaudePermissionScope;
+  /**
+   * What this launch asked and read about Remote Control, adopted with the host.
+   *
+   * Built before `openHost` — the reading is taken before the spawn, because the
+   * whole point of the gate is that a refused launch never reaches it — and
+   * written onto the live host record by `startHost`, which is the only moment
+   * the driver holds that record (see {@link ProcessHost.remoteControl}).
+   */
+  remoteControl: RemoteControlIsolation;
 };
 
 /**
@@ -1562,6 +1838,24 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
   /** Where a permission notification goes; see {@link ClaudeResidentHostDriverOptions.notifyUser}. */
   private readonly notifyUser: (delivery: { userId: string | number | null; event: AnyRecord }) => void;
   /**
+   * The user-level settings file the gate reads; null means "resolve it at
+   * launch time from the config directory the process will run under".
+   */
+  private readonly userSettingsPath: string | null;
+  /**
+   * The refusals this driver has made, newest last per session.
+   *
+   * Kept because a refusal leaves no host behind — that is the point of it — so
+   * there is nothing in `snapshot()` to carry the code and the copy to a reader.
+   * The caller that caught the thrown error has them already; this is for the
+   * caller that did not, which is every caller that reached the run through the
+   * application dispatch (`chat.send`): there the rejection is logged and the
+   * turn ends with a terminal frame, and the *reason* would otherwise be
+   * unreadable from outside. The same shape the permission log has, and for the
+   * same reason: a decision nothing else records.
+   */
+  private readonly refusals = new Map<string, ClaudeRemoteControlRefusal>();
+  /**
    * The per-run facet, composed rather than replaced.
    *
    * The provider mounts exactly one `hostDriver`, so whoever holds the slot
@@ -1590,6 +1884,7 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
     this.connectedClientCount = options.connectedClientCount ?? (() => 0);
     this.notifyUser =
       options.notifyUser ?? (({ userId, event }) => notifyUserIfEnabled({ userId, event }));
+    this.userSettingsPath = options.userSettingsPath ?? null;
     this.perRun = new ClaudePerRunHostDriver({
       host: options.host,
       notify: options.notifyBackgroundWork,
@@ -1668,6 +1963,15 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
         `Resident host ${host.hostId} was opened without a process; a resident host is started by the driver's run entry.`,
       );
     }
+
+    // The launch's Remote Control facts, onto the live record.
+    //
+    // Written here because this is the one moment the driver holds the record
+    // itself: `run` gets a copy back from `openHost`, and `snapshot()` hands out
+    // copies, so a value written anywhere else would never be visible to a
+    // reader. `pid` is the manager's own field and is written the same way, for
+    // the same reason.
+    host.remoteControl = pending.remoteControl;
 
     this.hosts.set(host.hostId, {
       hostId: host.hostId,
@@ -2024,6 +2328,26 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
   }
 
   /**
+   * The Remote Control refusal this driver made for a session, or null.
+   *
+   * Read from a map keyed by session rather than from a host, because a refusal
+   * is precisely the case where no host exists: the gate refuses *before*
+   * `openHost`, so there is no record in `snapshot()` to carry the code or the
+   * copy. A caller that caught the thrown error does not need this; the caller
+   * that drove the run through the application dispatch — where the rejection is
+   * logged and the turn ends with a terminal frame — does, because otherwise the
+   * reason is unreadable from outside the process.
+   *
+   * Last-write-wins per session, like the permission log: a session refused,
+   * then allowed after the user turned Remote Control off, reads `null` — which
+   * is the truth, and the pair of readings is why the map is cleared on a launch
+   * that gets past the gate.
+   */
+  remoteControlRefusal(appSessionId: string): ClaudeRemoteControlRefusal | null {
+    return this.refusals.get(appSessionId) ?? null;
+  }
+
+  /**
    * Withdraws a message this host wrote, if the CLI still has it queued.
    *
    * The frame is written by hand because the SDK's `Query` has no verb for
@@ -2300,6 +2624,34 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
     context: ProviderRuntimeContext,
   ): Promise<ResidentHostState> {
     const options = turn.options;
+
+    // The Remote Control gate, first and before anything is built.
+    //
+    // Before the model lookup and before the queue, the ledger and the process:
+    // a refused launch must leave no trace of one, and "no `/v1/messages`, no
+    // child, no host" is only a meaningful reading if nothing that could produce
+    // any of the three has run yet. The config directory is resolved here rather
+    // than taken from `options` for the reason `resolveClaudeConfigDir` states:
+    // the child's environment is built from `process.env`, so the file this reads
+    // is the one the process would have been launched under.
+    const configDir = resolveClaudeConfigDir();
+    const settingsPath = this.userSettingsPath ?? join(configDir, CLAUDE_USER_SETTINGS_FILE);
+    const detected = readClaudeUserSettings(settingsPath);
+    if (detected.remoteControlAtStartup === true) {
+      const refusal: ClaudeRemoteControlRefusal = {
+        code: 'remote-control-enabled',
+        message: remoteControlRefusalMessage(),
+        settingsPath,
+        at: this.now(),
+      };
+      this.refusals.set(appSessionId, refusal);
+      throw new ClaudeRemoteControlRefusalError(refusal);
+    }
+    // A launch that got past the gate clears the last refusal: the reading is
+    // "what this driver last said about this session", and a user who turned
+    // Remote Control off and started again must not keep reading the old no.
+    this.refusals.delete(appSessionId);
+
     const resolvedModel = await context.resolveResumeModel(appSessionId, options.model);
     let effortModels: unknown;
     try {
@@ -2354,6 +2706,10 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
         effortModels,
       },
       permissions: this.createPermissionEntries(appSessionId, permissions),
+      // The defence-in-depth half of the gate: the settings above said "not on",
+      // so the launch goes ahead — stating both flags as well, without ever
+      // reading their effect back as a fact (see the Remote Control section).
+      remoteControlFlags: { ...CLAUDE_REMOTE_CONTROL_FLAGS },
       seams: {
         onStop: (input) => {
           ledger.record(input);
@@ -2373,9 +2729,18 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       modelContextWindow: resolveModelContextWindowRow('claude', resolvedModel || options.model),
       ledger,
       peerName,
-      configDir: resolveClaudeConfigDir(),
+      configDir,
       stopHook,
       permissions,
+      remoteControl: {
+        requested: { ...CLAUDE_REMOTE_CONTROL_FLAGS },
+        detected: {
+          remoteControlAtStartup: detected.remoteControlAtStartup,
+          isolatePeerMachines: detected.isolatePeerMachines,
+        },
+        settingsPath,
+        launched: process.launchSettings ?? null,
+      },
     };
 
     const host = await this.host.openHost({

@@ -8,6 +8,7 @@ import type { SessionHostManager } from '@/modules/session-hosts/index.js';
 import type { IProvider } from '@/shared/interfaces.js';
 import type {
   AnyRecord,
+  HostBindErrorCode,
   HostMode,
   HostQueuedInputCancelResult,
   HostTurnInput,
@@ -18,6 +19,33 @@ import type {
   ProviderRuntimeContext,
   ProviderRuntimeWriter,
 } from '@/shared/types.js';
+
+/**
+ * The refusal a resident driver recorded when it declined to launch a process.
+ *
+ * Structural, and declared here rather than in the shared vocabulary, on the
+ * same reasoning as `ResidentTurnEntry` below: it is one provider's reading,
+ * surfaced by the dispatch that reads it. Putting a provider-specific record in
+ * `@/shared/types.js` would make every provider's type surface carry a refusal
+ * only one of them can make, and the caller this pass-through exists for — the
+ * one that has just watched a run end with no explanation — has no use for the
+ * driver's class, only for the code and the sentence.
+ *
+ * The *code* is what a caller branches on, and it is a `HostBindErrorCode`
+ * because a refusal to launch is a refusal to place a session: the two answers a
+ * caller can give (`retry`, `tell the user to change a setting`) are decided by
+ * whether the code is the one they know how to act on, not by reading prose.
+ * `message` is the operator-facing sentence and is deliberately not the branch
+ * key; `settingsPath` and `at` are there so the sentence can be made specific
+ * ("close Remote Control in <that file>") and so a stale refusal can be told
+ * from a fresh one.
+ */
+type RemoteControlRefusalReading = {
+  code: HostBindErrorCode;
+  message: string;
+  settingsPath: string;
+  at: number;
+};
 
 type ProviderRuntimeServiceDependencies = {
   listProviders(): IProvider[];
@@ -99,6 +127,22 @@ type ResidentTurnEntry = {
     appSessionId: string,
     messageUuid: string,
   ): Promise<HostQueuedInputCancelResult>;
+  /**
+   * The Remote Control refusal this driver last made for a session, or null.
+   *
+   * Necessary without a host, which is why it is a reading of its own rather
+   * than a field on one: the gate refuses *before* any host is opened, so the
+   * only trace a refusal leaves is the thrown error — and the application
+   * dispatch catches that, logs it, and ends the turn with a terminal frame. A
+   * caller that only sees the end of a run therefore has no way to learn *why*
+   * unless the driver keeps the answer and something passes it through, which is
+   * this entry.
+   *
+   * Optional for the same reason the rest of this structural type is: a driver
+   * that runs no launch gate has nothing to report, and a caller reaching this
+   * one must read the absence as "cannot say", never as "nothing refused".
+   */
+  remoteControlRefusal?(appSessionId: string): RemoteControlRefusalReading | null;
 };
 
 /**
@@ -337,6 +381,39 @@ export function createProviderRuntimeService(
         return await cancel.call(resolved.entry, sessionId, messageUuid);
       } catch {
         return 'unknown';
+      }
+    },
+
+    /**
+     * The Remote Control refusal the resident driver last made for a session.
+     *
+     * Read through `resolveResidentEntry` and *not* `resolveResidentDriver`, and
+     * that difference is the whole reason this entry exists as its own reading:
+     * the gate refuses before a process is opened, so the moment a refusal is the
+     * answer is the one moment there is no live host to hang it off. Requiring a
+     * host here would make the refusal unreadable exactly when it happened.
+     *
+     * `null` for every question this service cannot answer — an unknown provider,
+     * a session that is not resident, a driver with no gate, a session whose last
+     * launch passed — because the alternative reading, "nothing was refused", is
+     * the one thing a caller must not be handed on the strength of a probe that
+     * failed. A refusal that really happened is a value the driver keeps until
+     * the next launch overwrites it, so this is a reading of *what the driver
+     * last said*, not of whether a turn is currently being blocked.
+     */
+    remoteControlRefusal(
+      providerName: LLMProvider,
+      sessionId: string,
+    ): RemoteControlRefusalReading | null {
+      try {
+        const entry = resolveResidentEntry(dependencies.resolveProvider(providerName), sessionId);
+        const read = entry?.remoteControlRefusal;
+        if (!entry || typeof read !== 'function') {
+          return null;
+        }
+        return read.call(entry, sessionId) ?? null;
+      } catch {
+        return null;
       }
     },
 

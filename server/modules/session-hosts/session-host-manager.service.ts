@@ -742,6 +742,18 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
           { ...binding, leases: binding.leases.map((lease) => ({ ...lease })) },
         ]),
       ),
+      // The nested halves are copied too, not shared with the live record. Every
+      // other sub-object here is rebuilt for the same reason: a copy that a
+      // reader could reach into and find moving under it is not a copy, and this
+      // one is written by a driver while the host is being opened.
+      remoteControl: host.remoteControl
+        ? {
+            ...host.remoteControl,
+            requested: { ...host.remoteControl.requested },
+            detected: { ...host.remoteControl.detected },
+            launched: host.remoteControl.launched ? { ...host.remoteControl.launched } : null,
+          }
+        : (host.remoteControl ?? null),
     };
   }
 

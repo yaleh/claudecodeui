@@ -1892,15 +1892,25 @@ export type SessionBinding = {
 /**
  * Why a bind request was refused.
  *
- * Two refusals, and they are different failures: `session-already-bound` says
+ * Three refusals, and they are different failures: `session-already-bound` says
  * the session is already somewhere (the request may have named a second host,
  * but the session is not free), while `host-not-multiplexed` says the session is
  * free and the *process* is what cannot take it — a host whose driver did not
  * declare `multiplexedHost` carries one conversation and no more. Named here
  * rather than thrown as a message because the manager's caller has to branch on
  * which refusal it got, and a branch on prose is a branch that breaks silently.
+ *
+ * `remote-control-enabled` is a refusal about a *launch* rather than about a
+ * placement, and it is named in this same vocabulary on purpose: what the caller
+ * has to branch on is identical — "you did not get a host, and here is the kind
+ * of no it was" — and a second vocabulary for the same branch would be two lists
+ * to keep in step. The one it names is the Remote Control gate: the user's own
+ * settings have Remote Control on, so a resident process launched under
+ * `bypassPermissions` would be reachable from another machine's peer sessions and
+ * the trust boundary would leave the Unix user. The gate refuses instead of
+ * launching (see the Claude resident driver's Remote Control section).
  */
-export type HostBindErrorCode = 'session-already-bound' | 'host-not-multiplexed';
+export type HostBindErrorCode = 'session-already-bound' | 'host-not-multiplexed' | 'remote-control-enabled';
 
 /**
  * Every member of `HostBindErrorCode`, as a runtime value.
@@ -1914,6 +1924,7 @@ export type HostBindErrorCode = 'session-already-bound' | 'host-not-multiplexed'
 export const HOST_BIND_ERROR_CODES = [
   'session-already-bound',
   'host-not-multiplexed',
+  'remote-control-enabled',
 ] as const satisfies readonly HostBindErrorCode[];
 
 /**
@@ -1993,6 +2004,40 @@ export type HostBindResult =
   | { ok: false; code: HostBindErrorCode; existingHostId: string | null };
 
 /**
+ * What one host has to say about the Remote Control gate it launched under.
+ *
+ * The three halves are three different facts and are deliberately not one
+ * object's fields: `requested` is what *this* build asked the SDK for,
+ * `detected` is what the user's own settings file said when the gate read it,
+ * and `launched` is the `settings` object the SDK query was really handed.
+ *
+ * `detected` is the reading the refusal is decided on, and it is a *reading of a
+ * file*, not an effective value: `null` means the key was absent (or the file
+ * was not there, or was not parseable) and is distinct from `false`. There is
+ * deliberately no member here that claims to say whether Remote Control is off
+ * on the running process — the experiment that would have measured it (E9 §9.7)
+ * got no `get_settings` answer at all, so a field named for an "effective" value
+ * would be asserting something this build cannot read. A criterion therefore
+ * reads these fields against the file it wrote, never against a claim about what
+ * the CLI did with the flag.
+ *
+ * `launched` is `null` for a host whose process factory does not report one (a
+ * substituted factory in a criterion), and its two members are `boolean |
+ * undefined` for the same reason `detected`'s are `boolean | null`: a launch
+ * that did not state a key is not a launch that stated `false`.
+ */
+export type RemoteControlIsolation = {
+  /** What this host asked the SDK's `settings` to carry, verbatim. */
+  requested: { remoteControlAtStartup: boolean; isolatePeerMachines: boolean };
+  /** What the user-level settings file said, key by key; `null` = not stated. */
+  detected: { remoteControlAtStartup: boolean | null; isolatePeerMachines: boolean | null };
+  /** The settings file the reading above came from, verbatim. */
+  settingsPath: string;
+  /** The `settings` object the SDK query was handed, as it was handed over. */
+  launched: { remoteControlAtStartup?: boolean; isolatePeerMachines?: boolean } | null;
+};
+
+/**
  * One process the session-host layer knows about, in any lifecycle mode.
  *
  * `pid` is deliberately nullable: a runtime driven through the default per-run
@@ -2033,6 +2078,18 @@ export type ProcessHost = {
    * a re-time — the `expiresAt` of the cron lease that pushed the deadline out.
    */
   quietWindowStartAt?: number | null;
+  /**
+   * What the launch of this host stated and read about Remote Control, when its
+   * driver has anything to say about it.
+   *
+   * Optional and null-for-silent because only a driver that runs a launch gate
+   * can answer — every other host (a per-run turn, a provider whose driver never
+   * read the user's settings) has nothing here rather than a record of zeroes.
+   * Written by the resident driver while `openHost` is still opening the host and
+   * deep-copied by the snapshot, so a reader of `snapshot()` sees the same object
+   * a reader of the live record does (see `RemoteControlIsolation`).
+   */
+  remoteControl?: RemoteControlIsolation | null;
 };
 
 /**

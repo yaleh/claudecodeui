@@ -131,6 +131,50 @@ process; the host and its pid are untouched, and a new mode is reflected by
 host→CLI, its answer is not a refusal, and an unattended turn needs no branch for
 it. The criterion holds its own file to that — no assertion or branch for it.
 
+## The Remote Control Gate Before A Resident Launch (Claude)
+
+A resident host runs under `bypassPermissions`, so a process that is also
+reachable over Remote Control is a process another machine can drive without a
+person in the loop. `startResidentHost` therefore reads one file *before* it
+builds a `query()` or spawns anything:
+`join(resolveClaudeConfigDir(), 'settings.json')` — the user-level settings.
+
+Only a literal `true` reads as "on". A missing file, a file that will not parse,
+a missing key and a literal `false` all read as "not on"; the reader never
+guesses, and it never treats "could not read" as "off" in the refusal direction
+either — it treats it as "not stated", which is what the snapshot records.
+
+| Detected `remoteControlAtStartup` | What a launch does |
+| --- | --- |
+| `true` | **Refused.** No `query()`, no child process. The refusal travels as `HostBindErrorCode` `remote-control-enabled` plus interface copy naming the file to change. |
+| `false` / not stated | Launches, and `sdkOptions.settings` carries `{ remoteControlAtStartup: false, isolatePeerMachines: true }` anyway. |
+
+**Why refuse rather than trust the flags.** E9 §9.7 could not read a
+`get_settings` response in either variant, so whether `--settings` outranks the
+user's own settings is *unmeasured on this machine*. The flags are passed as
+defence in depth, but the criterion must not treat "the flags were passed" as
+evidence that remote reachability is closed — so the one case that is actually
+decidable (the user said on) is answered by refusing to start. This is the same
+conservative branch the proposal settled on, and the criterion asserts exactly
+those two things: the flags were passed, and "detected on" refuses.
+
+Once a host is up, the snapshot keeps the two facts apart: `requested` is the
+pair this build states (always `{false, true}`), `detected` is the user's own
+file key by key, with "the key was not there" carried as `null` rather than
+folded into `false`. No field is named for an *effect* (`effective` / 生效): a
+single merged field could not represent a file that says `true` while the request
+says `false`, and that divergence is the whole point of keeping them apart.
+
+The refusal is readable through
+`providerRuntimeService.remoteControlRefusal(provider, sessionId)`. It is a
+reading of its own rather than a field on a host because the gate refuses
+*before* a host exists — hanging it off a `ProcessHost` would make it unreadable
+exactly when it happened.
+
+⛔ **Known gap:** 本条只检测用户级 settings；项目级 / 本地级 / 托管级 settings 未读数，是已知缺口。
+Project-, local- and managed-tier settings are not read, so a machine that turns
+Remote Control on through one of those tiers is not caught by this gate.
+
 ## How To Add A Provider
 
 1. Add the provider id everywhere it is part of the contract.
