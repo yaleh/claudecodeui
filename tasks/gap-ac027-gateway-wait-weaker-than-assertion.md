@@ -179,3 +179,13 @@ npm run test:e2e -- e2e/model-library.spec.ts → exit 0，3 passed（上表三�
 - 判据重跑 3 次（`npm run test:e2e -- e2e/model-library.spec.ts`）：exit 0 ×3，`criterion-wall-ms=14775 / 14041 / 14058`，每次 `hits=3 token-hits=2 model-hits=1`，`3 passed`。
 - `npm run typecheck` exit 0；`npm run lint` exit 0（仅既有 warning）；scoped gate（`scripts/test.sh --for-task gap-ac027-gateway-wait-weaker-than-assertion --allow-thin`）exit 0（thin：本条 Touches 无 `*.test.*`）。
 - 上一轮 fan-in 的 suite 红落在 `server/modules/voice/tests/voice-capture-text.false-forms.test.ts`（`passed=false duration_ms=34933`）。该文件**不在本条 Touches**（本条只改 `e2e/model-library.spec.ts`，fan-in suite 也不收 e2e）；在本工作树单独复跑该文件得 `exit=0 / tests 6 / pass 6 / fail 0`，故该红是舰队级负载抖动、非本条 delta（同类 `voice-dashscope-settings.false-forms` 的上一轮红同形）。
+### 第 4 轮 suite 红归因（2026-09-27，作者分支自查）：责任人不是本任务的 delta，而是兄弟判据拿「当前分支 delta」当代理
+
+- **唯一红逐字**（本轮 fan-in 真因日志 `.quay/fan-in-suite-*.log`）：
+  `not ok - server/modules/providers/tests/claude-host-per-run.test.ts: AssertionError [ERR_ASSERTION]: the develop delta does not mention the driver, so it is not the delta being read: server/modules/providers/list/claude/claude-per-run-host-driver.provider.ts`
+  该文件 7 条判据里 6 条绿（AC2/AC3/AC4/AC5/AC9/AC8），只有 AC6 红；台账 `# tests 245 / # pass 244 / # fail 1`。
+- **不是本任务的 delta**：本任务对 develop 的 delta 只有 `e2e/model-library.spec.ts` 一个文件，与该判据无交集；同一轮里另一条 delta 交集为空（8 个文件，全在 `e2e/` 与 `src/modules/chat/`）的任务被**同一句文案**打红 ⇒ 跨任务的 fleet 级串扰，与本轮改动无关。
+- **确定性**：该文件不在本任务 `## Touches`；在本 worktree standalone 复跑（`npx tsx --tsconfig server/tsconfig.json --test …`）exit 1、约 0.6s、无子进程超时 ⇒ 不是负载抖动，重新派发也逃不掉。
+- **机制**：该文件 AC6 拿 `git diff --name-only develop...HEAD` 当「driver 在 delta 里」的代理。fan-in 的 `merge-develop` 之后 develop 已是 HEAD 的祖先，这个区间恰好是**当前分支自己的 delta**，于是只有 driver 自己的那条分支能过它。
+- **本任务自身状态**：AC 6/6 满足（`task_check` ok）、五个实现提交一字未改、本轮 scoped 门绿（thin）、scoped-gate cache 已按 develop sha 写入。
+- **处置**：该红已由独立立案的修复任务承接（标题同时含「claude-host-per-run」与「按分支设门」两处字样），它落地后本任务即可直推。⛔ 在此之前**不要**改这条兄弟判据来换绿：既越界（本任务 `## Touches` 不含 `server/`），也会把一条真判据改哑。
