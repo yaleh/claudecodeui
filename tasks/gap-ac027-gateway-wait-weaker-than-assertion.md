@@ -171,3 +171,11 @@ npm run test:e2e -- e2e/model-library.spec.ts → exit 0，3 passed（上表三�
 - session_id：99f66610-d3a6-462f-84e0-d88f576a5819
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-ac027-gateway-wait-weaker-than-assertion~wk-prod-anchor~1790271082444-9ae9a3.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-ac027-gateway-wait-weaker-than-assertion-wk-prod-anchor.log
+
+### 本轮（合并 develop 后）复核
+
+合并 `develop`（`efb00ee8`）后在本工作树复核，改动面未变 —— `git diff --stat develop...HEAD` 仍是 `e2e/model-library.spec.ts`（+60/−9），合并前后该文件 blob 同为 `8d28b16d`（`git rev-parse HEAD~1:e2e/model-library.spec.ts HEAD:e2e/model-library.spec.ts`）。
+
+- 判据重跑 3 次（`npm run test:e2e -- e2e/model-library.spec.ts`）：exit 0 ×3，`criterion-wall-ms=14775 / 14041 / 14058`，每次 `hits=3 token-hits=2 model-hits=1`，`3 passed`。
+- `npm run typecheck` exit 0；`npm run lint` exit 0（仅既有 warning）；scoped gate（`scripts/test.sh --for-task gap-ac027-gateway-wait-weaker-than-assertion --allow-thin`）exit 0（thin：本条 Touches 无 `*.test.*`）。
+- 上一轮 fan-in 的 suite 红落在 `server/modules/voice/tests/voice-capture-text.false-forms.test.ts`（`passed=false duration_ms=34933`）。该文件**不在本条 Touches**（本条只改 `e2e/model-library.spec.ts`，fan-in suite 也不收 e2e）；在本工作树单独复跑该文件得 `exit=0 / tests 6 / pass 6 / fail 0`，故该红是舰队级负载抖动、非本条 delta（同类 `voice-dashscope-settings.false-forms` 的上一轮红同形）。
