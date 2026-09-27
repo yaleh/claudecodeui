@@ -157,6 +157,28 @@ export type VoiceCapturePayloadInput = {
    * one happened rather than leaving the builder to infer it from a consequence that both produce.
    */
   requestSent: boolean;
+  /**
+   * The request headers this attempt's request carried, WHETHER OR NOT THE ROW WRITES THEM.
+   *
+   * WHY THIS FIELD EXISTS AT ALL, AND WHY NOTHING READS IT. The row is built by enumerating the
+   * fields of this input — the projection is the builder's return literal, not a spread — so a
+   * header the service holds in `init.headers` is unreachable from any row unless a name for it
+   * crosses the seam. That makes "the credential is not in the row" a property of a shape the
+   * service cannot widen by accident, which is the property the deployment recording headers would
+   * break, and it is also why the property cannot be FALSIFIED from the service side: a mutation
+   * that adds `requestHeaders` to the builder's return would find the field already there and drop
+   * nothing. This field is the receiving end of that wire, and it is on the input rather than the
+   * payload because the INPUT is what the service fills in — a name that existed only on
+   * `VoiceCapturePayload` would be a field the builder had to produce out of nothing.
+   *
+   * THE SHIPPING BUILDER DOES NOT WRITE IT. `buildVoiceCapturePayload` enumerates the fields it
+   * copies and this is not one of them, so a row produced by the shipping path is byte-identical to
+   * the row produced before this field existed. The two falsifying forms in
+   * `voice-capture-secrets.false-forms.test.ts` are the two one-anchor mutations of that return
+   * literal, and this field is what makes them mutations of a reachable surface rather than of a
+   * dead one.
+   */
+  requestHeaders?: Record<string, string>;
   reading: VoiceCaptureAttemptReading;
 };
 

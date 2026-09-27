@@ -417,6 +417,52 @@ function upstreamCodeOf(answer: VoiceCaptureRawReturn | null): string | undefine
 }
 
 /**
+ * The headers an attempt's request carried, narrowed to a plain record — or `undefined` if none did.
+ *
+ * THIS IS THE SERVICE END OF A WIRE THE SHIPPING ROW DOES NOT READ. What it produces is handed to the
+ * capture port as the payload input's `requestHeaders`, and `buildVoiceCapturePayload` does not copy
+ * that field into a row, so the value below reaches no log line, no recording and no file. It exists
+ * so that "the row has no header in it" is a statement about the builder's return literal rather than
+ * about nothing having been in scope: a form that adds the field on that literal has a value to leak.
+ *
+ * `RequestInit.headers` is a `HeadersInit` — three different shapes the standard permits — so the
+ * narrowing is done by the runtime type rather than by a cast, and every branch preserves the header
+ * NAMES case as the sender wrote them. Nothing here filters or redacts: a filter would be a second
+ * place that has to know which headers are sensitive, and the absence of the field from the row is
+ * what actually keeps them out.
+ */
+function requestHeadersOf(init: RequestInit): Record<string, string> | undefined {
+  const headers = init.headers;
+  if (headers === undefined) {
+    return undefined;
+  }
+  if (headers instanceof Headers) {
+    const entries: Record<string, string> = {};
+    headers.forEach((value, name) => {
+      entries[name] = value;
+    });
+    return entries;
+  }
+  const entries: Record<string, string> = {};
+  if (Array.isArray(headers)) {
+    // The standard's pair form. Widened through `unknown` because `@types/node` types the element as
+    // `string[]` rather than as the fixed pair the runtime guarantees; the read below is still the
+    // pair's two positions and nothing is asserted about them beyond that.
+    for (const pair of headers as unknown as readonly (readonly [string, string])[]) {
+      entries[pair[0]] = pair[1];
+    }
+    return entries;
+  }
+  // The record form, which is what both shipped adapters build. A name that carries a LIST of values
+  // is joined rather than dropped: dropping one would make this a place that decides which header
+  // values are uninteresting, which is the judgment call the row's shape is supposed to replace.
+  for (const [name, value] of Object.entries(headers)) {
+    entries[name] = typeof value === 'string' ? value : value.join(', ');
+  }
+  return entries;
+}
+
+/**
  * The container gate: the refusal owed an upload whose type `capabilities` does not declare.
  *
  * The whitelist is the DECLARATION, not a table of this module's own — a second list here would be
@@ -814,6 +860,10 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
       // apart from a request that went out and came back unusable — see the payload's `requestSent`.
       let upstreamAnswer: VoiceCaptureRawReturn | null = null;
       let requestSent = false;
+      // The request's own headers, kept in the same attempt-scoped way and read by nothing the
+      // shipping deployment writes — see `requestHeadersOf`. `undefined` for an attempt that never
+      // built a request, which is the same distinction `requestSent` draws.
+      let requestHeaders: Record<string, string> | undefined;
 
       /**
        * THE INJECTED TRANSPORT, instrumented for THIS attempt only.
@@ -829,6 +879,10 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
        */
       const captureTransport = async (url: string, options: RequestInit): Promise<Response> => {
         requestSent = true;
+        // Narrowed OUTSIDE the row's builder and handed over as data. `buildVoiceCapturePayload`
+        // enumerates the fields it copies and does not name this one, so what is kept here is
+        // reachable from the payload INPUT and from no row the shipping path produces.
+        requestHeaders = requestHeadersOf(options);
         const response = await dependencies.fetchBackend(url, options);
         // Before the adapter is handed the response, because `clone()` on an already-read body throws.
         upstreamAnswer = await readUpstreamAnswer(response);
@@ -893,8 +947,15 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
         // WHAT CROSSES INTO THE PAYLOAD IS THE SHAPE OF IT. The resolved configuration is in hand here
         // and its `apiKey` is NOT part of the payload input at all — the address goes over and the key
         // does not, because the row has no field for a credential rather than a filter that removes
-        // one. The same is true of the request: `captureTransport` kept the answer and dropped the
-        // init, and no name for a header or a body exists on the input this is built from.
+        // one.
+        //
+        // THE REQUEST IS THE ONE EXCEPTION, AND IT IS A NAMED FIELD RATHER THAN A LEAK. What a request
+        // carried crosses as `requestHeaders` (the answer crosses as `upstream`), and neither is a row
+        // field: `buildVoiceCapturePayload` copies a fixed list of names off this input and this one is
+        // not on it, so the shipping deployment's row is the same row it was before the field existed.
+        // The field is here because the alternative — arguments carried as far as the call and then
+        // dropped at the seam — is what makes "the row has no key in it" unfalsifiable from this side:
+        // a form that adds the name to the builder's return literal has to find a value there.
         const used = configForRow();
         recording.recordAttempt(captureId, {
           providerId,
@@ -907,6 +968,7 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
             audio: input.audio,
             upstream: upstreamAnswer,
             requestSent,
+            requestHeaders,
             reading: {
               ok: outcome === 'ok',
               code: meta?.code,
