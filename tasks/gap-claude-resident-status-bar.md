@@ -3,7 +3,7 @@ id: gap-claude-resident-status-bar
 title: AC-172 真实浏览器里常驻会话的侧栏标记与状态条读宿主接口：未运行/空闲/运行中/exited(oom)
   四态各自成形、计数等于宿主保活理由、popover 复制 SendMessage
   地址并关闭常驻进程、停止只中止一轮、无人轮带触发类型标签且跨会话消息显示发送方（两条假形态必须红）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
