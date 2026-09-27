@@ -93,7 +93,7 @@ goal_ac: AC-169
 
 ## Touches
 
-- `server/modules/session-hosts/tests/lifecycle-mode.test.ts`（新：判据，AC-169 的 criterion 路径）
+- `server/modules/session-hosts/tests/lifecycle-mode.test.ts` （新：判据，AC-169 的 criterion 路径）
 - `server/modules/session-hosts/session-hosts.routes.ts`（`POST /:sessionId/start` + close 的 per-run 拒绝臂 + `resolveHostDriver` 依赖参数）
 - `server/modules/session-hosts/index.ts`（新符号经 barrel 收口）
 - `server/modules/session-hosts/session-host-manager.service.ts`（模式切换的 busy 窗口缝，复用 `changeMode` / `unbindSession`）
