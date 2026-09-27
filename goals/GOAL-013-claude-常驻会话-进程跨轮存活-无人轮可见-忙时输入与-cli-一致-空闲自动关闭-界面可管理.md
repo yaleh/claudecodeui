@@ -1,23 +1,30 @@
 ---
 id: GOAL-013
 title: Claude 常驻会话：进程跨轮存活、无人轮可见、忙时输入与 CLI 一致、空闲自动关闭、界面可管理
-status: draft
+status: active
 kind: goal
-origin: docs/proposals/claude-resident-sessions.md（e88175cf）。人 yale 2026-09-25
+origin: "docs/proposals/claude-resident-sessions.md（e88175cf）。人 yale 2026-09-25
   裁定：拆成两个 goal，本 goal 为 GOAL-B「Claude 常驻」，暂不激活，等
   tasks/gap-claude-resident-phase0-experiments 把 E1–E8 结论写回 proposal 后再定 AC
-  并激活；调试 agent 扩展出的常驻场景作 UI e2e 替身；不加 cloudcli 子命令
+  并激活；调试 agent 扩展出的常驻场景作 UI e2e 替身；不加 cloudcli 子命令 "
+activatedAt: 2026-09-27T04:49:41.111Z
+statusLog:
+  - at: 2026-09-27T04:49:41.111Z
+    from: draft
+    to: active
+    actor: human:yale
+    reason: 人 yale 指令：激活 GOAL-013
 ---
 ## 背景
 
 per-run 模式下每轮一个 claude 进程，CronCreate 最多触发一次、周期大于 30 分钟不触发、用户一说话就丢；ScheduleWakeup 大于 30 分钟不触发；SendMessage 的 peer 名与 socket 每个进程都变；空闲会话没有进程，不可寻址。提案 docs/proposals/claude-resident-sessions.md 给 Claude 增加常驻模式：进程在两轮之间不退出，stdin 由服务端握着，所有输入推进同一个进程。
 
-本 goal 建立在 GOAL-012（宿主层）之上。人 yale 2026-09-25 裁定本 goal 暂不激活：忙时输入的基准（原则 6，与 Claude Code CLI 一致）与内存上限的数值要由 tasks/gap-claude-resident-phase0-experiments 的实验给出，写回 proposal 并经人确认后再定稿 AC 并激活。
+本 goal 建立在 GOAL-012（宿主层）之上。人 yale 2026-09-25 裁定本 goal 暂不激活，等 tasks/gap-claude-resident-phase0-experiments 的实验结论写回 proposal 并经人确认后再定稿 AC。2026-09-26 E2/E3 基准已由人确认，E9 已取数；2026-09-27 人 yale 指令激活本 goal，并按结论修订 AC-162、163、165、167、168、175、176 的判据。内存上限的生产数值（E7 的 24 小时浸泡）仍未取得，不在任何 AC 里钉数。
 
 ## 范围
 
-- Claude resident driver：不结束的输入队列、读取循环以 session_state_changed 切分轮次（缺失时退回 result）、task_* 事件与 Stop hook 的 session_crons / background_tasks 维护保活理由、interrupt 不杀进程、setModel/setPermissionMode 等在线重配置、关闭即 stdin EOF。
-- 无人轮（cron、Monitor/后台任务回报、跨会话消息）由 manager 开 run，来源为 unattended，无连接也记录，可回放，并推送通知。
+- Claude resident driver：不结束的输入队列、读取循环以 system/init 与 result 切分轮次（E9 两条驱动都没读到 session_state_changed，出现时不作依赖）、task_* 事件与 Stop hook 的 session_crons / background_tasks 维护保活理由、interrupt 不杀进程、setModel/setPermissionMode 等在线重配置、关闭即 stdin EOF。
+- 无人轮（cron、后台任务回报、跨会话消息；E9 读到 CLI 工具表里没有 Monitor）由 manager 开 run，来源为 unattended，无连接也记录，可回放，并推送通知。
 - 忙时输入与 CLI 一致：不拒绝、不在服务端排队，立即写入进程，归入 CLI 实际给出的那一轮。
 - 默认 bypassPermissions 启动；无人值守时 AskUserQuestion 与 ExitPlanMode 自动拒绝并通知。
 - 稳定的 SendMessage 地址（extraArgs.name）。
@@ -50,10 +57,11 @@ per-run 模式下每轮一个 claude 进程，CronCreate 最多触发一次、�
 - AC-171 至 AC-175 真实浏览器里的开启知情、状态呈现、Running 分组、Shell 禁用、忙时直发与撤回。
 - AC-176 常驻进程的 Remote Control 跨机器可达性被强制关闭，信任边界保持在同一 Unix 用户。
 - 上述 AC 全部 achieved；或由人裁定放宽、取消其中任一条。
-- 标题中的「cron 跨轮持续触发」不作为 60 秒判据：cron 最小粒度 1 分钟，连续触发要数分钟，超出判据硬超时。其读数由实验 E1 给出并记录在 proposal；目标级判据以 Monitor 驱动的无人轮（AC-162）与 cron 保活理由的记账（AC-165）承载同一不变式。
+- 标题中的「cron 跨轮持续触发」不作为 60 秒判据：cron 最小粒度 1 分钟，连续触发要数分钟，超出判据硬超时。其读数由实验 E1 给出并记录在 proposal；目标级判据以后台任务回报驱动的无人轮（AC-162）与 cron 保活理由的记账（AC-165）承载同一不变式。
 
 ## 已知限制
 
-- 本 goal 的 AC 在实验任务完成前均为草案；AC-163、AC-165、AC-167、AC-168、AC-175、AC-176 的判据细节依赖 E2/E3、E7、E8、E9 的结论，激活前要按结论修订。E2/E3 已测得忙时推入的消息另起一轮；E9（控制协议清单）是 2026-09-25 依据对 claude 2.1.282 二进制的静态分析追加的。
+- 已按 E1–E9 结论修订判据：忙时推入的消息另起一轮（E2/E3，人已确认）；写入用 later 档；撤回以 command_lifecycle 的 cancelled 事件为准（cancel_async_message 没有 control_response）；elicitation 已读到实物，request_user_dialog 没触发到、只按类型定义构造；side_question 移出无人值守入口；flag settings 能否压过用户 settings 没读到，AC-176 走「检测到 Remote Control 开启即拒绝启动」的保守分支，只覆盖用户级 settings。
+- 读数缺口：后台 Bash 完成后 CLI 是否自行开无人轮（AC-162 的触发依赖它，实现任务先取读数，读到不开轮时由人改判据）；next 档的落点；request_user_dialog 的实物形态；E7 的 24 小时浸泡。
 - SDK 0.3.165 的类型落后于全局 claude 2.1.282：scheduled_task_fire、side_question 等 subtype 只在 CLI 里出现。判据里的伪造流要包含一条未知 subtype，确认 driver 放过它。
 - 真实 claude 二进制类判据受本机全局重装 claude 影响（SDK spawn 测试会红），归因时先看二进制 mtime。
