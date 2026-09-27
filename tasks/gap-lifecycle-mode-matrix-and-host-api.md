@@ -4,7 +4,7 @@ title: AC-169 lifecycle_mode 偏好列与能力矩阵：默认 per-run、不支�
   写入被拒且错误可辨、分叉不继承、POST /api/session-hosts/:sessionId/start 与 /close
   对常驻会话拉起与关闭宿主（per-run 的 close 被拒）、宿主 busy 时模式切换不在进行中的轮上生效；五条假形态（写入不校验 / 分叉继承 /
   per-run 也允许 close / busy 时照切 / start 不起进程）必须红
-status: ready
+status: done
 labels:
   - gap
 parent: null
