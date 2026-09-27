@@ -1,7 +1,7 @@
 ---
 id: AC-160
 title: 调试 agent 以宿主驱动接入：一个宿主承载多个常驻会话，无人轮经真实链路产出
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-012
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -25,6 +25,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-09-26T13:54:54.068Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"

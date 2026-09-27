@@ -400,3 +400,72 @@ logs when a run is red」）之后，红跑的**子进程原文被保住了**，
 - session_id：eed2836d-368d-4949-8b0e-a7411e2ad26b
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-resident-phase0-experiments~wk-prod-anchor~1790423985171-c7e044.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-resident-phase0-experiments-wk-prod-anchor.log
+
+## Evidence（第 8 轮续做，2026-09-27：两轮 suite-red 均已逐条归因）
+
+执行者：quay worker（分支 `task/gap-claude-resident-phase0-experiments`）。本轮**没有新实验、没有新代码**：
+七条 AC 在合并 develop 后的树上逐条重验全绿，另把前两轮「归因不出任何失败测试文件」的判词换成本轮的读数。
+本轮把 develop 合入工作树（`ca2d1352`，0 冲突），七个 AC 勾选一条未丢，`status: ready` 保持（该字段由 driver 拥有）。
+
+**第一条红（第 7 轮，`voice-capture-off.false-forms.test.ts` 的 TS6053）已在 develop 修好，本轮合入即消。**
+
+保留日志第 247 行读到 `AC6 FAIL :: npm run typecheck (exit=2) | sig: error TS6053: File
+'…/server/modules/voice/tmp/__stray-shipping-probe.ts' not found.`。逐字比对 `server/tsconfig.json`：
+develop 的 `exclude` 多一项 `"./modules/voice/tmp"`（并带注释说明这正是 voice 判据的正控制写入、又被并发的
+typecheck 扫到的那个瞬时探针），本分支没有它——只因为**本分支落后 develop**，不是本任务写点。
+合入 develop 后本树的 `npm run typecheck` → exit 0（根 + server + scripts 三个项目）。
+
+**第二条红（第 8 轮，`claude-sessions.test.ts` 的 atime 断言）是 develop 上的既存 fail-open 闸门 + 无视游标的读取。**
+
+逐字读数（`.quay/suite-logs/20260926T195949-1182811/server__modules__providers__tests__claude-sessions.test.ts.out`）：
+`✖ a scan does not open the transcripts its cursor excludes` →
+`AssertionError: open-a.jsonl was opened by a scan that should have skipped it`，`actual '2026-09-26T12:00:24.648Z'` /
+`expected '2020-01-01T00:00:00.000Z'`，落在 `claude-sessions.test.ts:1243`。
+该用例用 atime 当探针（把 4 个 transcript 的 atime 用 `utimes` 停在 2020-01-01，要求带游标的 `synchronize()`
+不读它们）。唯一能不计数地读这些文件的通道是 `synchronize()` 第一步**无条件**调用的 `backfillLastActivity()`：
+它逐行读每一个已入库 transcript、完全无视游标，唯一闸门是 `app_config` 的
+`claude_last_activity_backfill_v1`，而该闸门 **fail-open**（`appConfigDb.get()` 吞掉异常返回 `null`）。
+两个都在 develop 上（随 `e7534bcc` 于 2026-09-22 落地，属 `gap-session-lastactivity-from-file-mtime`）。
+**本轮未能观测到那次被吞掉的 DB 读错误**，因此这条登记为「已定位、未证实」，不是本任务的 delta。
+
+**四条剔除读数（本轮实跑）**
+
+1. 写点：`git diff develop...HEAD`（三点、取 merge-base）是 4 个文件——`scripts/resident-experiment.mjs`、
+   `scripts/resident-experiment.test.mjs`、两份 docs；三个判红文件与 `server/tsconfig.json` 均不在内。
+2. 收集式：`scripts/test.sh:694` 是 `find server -name '*.test.ts' -o -name '*.test.js'`，`scripts/*.mjs`
+   **根本不被 suite 收集**（本任务的护栏测试只由 AC1 的手跑命令覆盖）。
+3. 同一份 true-cause 日志里 fan-in 自己的 `__PERFILE__ … typecheck passed=true`（第 5 行）与
+   `lint passed=true`（第 6 行）。
+4. 判红文件集每轮都不同：`debug-agent-gate.test.ts` → `voice-capture-off.false-forms.test.ts` ×2 →
+   `claude-sessions.test.ts`。这是 fleet-wide 红的指纹，不是单一 delta 的形状。
+
+**AC 逐条（本轮重验，均在合并 develop 后的树上）**
+
+- AC1 `node --test scripts/resident-experiment.test.mjs` → 14/14，exit 0。
+- AC2 / AC6 `node scripts/resident-experiment.mjs --check-record docs/proposals/claude-resident-sessions-experiments.md`
+  → `--check-record OK：E1–E9 九节齐全`，exit 0。
+- AC3 `grep -n '阶段 0 结论' docs/proposals/claude-resident-sessions.md` → 命中（270 / 393 / 581 行），exit 0。
+- AC4 `grep -n '^E2/E3 基准确认：' docs/proposals/claude-resident-sessions-experiments.md` → 命中第 49 行
+  （人 yale 指示写入的那一行，非执行者代写）。
+- AC5 `npm run lint` → exit 0（只有既存 warning，无新增）。
+- AC7 `! grep -n '由 E9 确认' docs/proposals/claude-resident-sessions.md` → exit 0（三处已定稿）。
+- 另：`npm run typecheck` → exit 0；scoped 门 `bash scripts/test.sh --for-task … --allow-thin` → exit 0（thin）；
+  `task_check` → `acTotal 7 / acChecked 7`、`eligible to move to done`。
+
+**仍未满足的 DoD（照旧如实记下，不因 AC 全绿而消失）**
+
+- E7 的「≥24 小时浸泡」仍未达标：记录里仍是 0.10 小时（真实模型、$1.0836），proposal §11 的两个上限
+  数值**仍未定**。本轮未重跑 E7。develop 已合入 `scripts/soak.sh` / `soak-driver.mjs` / `soak-analyze.mjs`，
+  下一轮若用它跑 E7，应采用它并注明读数是否取自 systemd scope 内。
+- E9 自身两处读数缺口照旧：`next` 档执行时的落点（9.2 里被撤掉）、`request_user_dialog` 的实物。
+
+## Needs-Human
+
+**执行 2026-09-27T02:44:58.365Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 8 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=23776 server/modules/voice/tests/voice-capture-off.false-forms.test.ts passed=false end_ms=1790476995981
+- run_id：wk-prod-anchor
+- session_id：a3a6f029-c4e2-4c00-9975-4698e392175b
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-resident-phase0-experiments~wk-prod-anchor~1790476936243-800b73.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-resident-phase0-experiments-wk-prod-anchor.log
