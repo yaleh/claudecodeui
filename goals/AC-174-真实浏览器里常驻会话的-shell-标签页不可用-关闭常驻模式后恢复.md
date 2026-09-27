@@ -1,7 +1,7 @@
 ---
 id: AC-174
 title: 真实浏览器里常驻会话的 Shell 标签页不可用，关闭常驻模式后恢复
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-013
 criterion: npx playwright test e2e/resident-shell-tab.spec.ts
@@ -19,6 +19,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-09-27T19:08:27.695Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
