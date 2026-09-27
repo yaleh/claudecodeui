@@ -401,10 +401,19 @@ function countingDriver(openRun: DebugAgentOpenRun): {
       closeCalls += 1;
       await inner.closeHost(host, reason);
     },
+    run: (appSessionId, turn, writer, context) => inner.run(appSessionId, turn, writer, context),
+    setTurnRunner: (runner) => inner.setTurnRunner(runner),
     openUnattendedTurn: (input) => inner.openUnattendedTurn(input),
+    endUnattendedTurn: (input) => inner.endUnattendedTurn(input),
     addKeepalive: (input) => inner.addKeepalive(input),
     removeKeepalive: (input) => inner.removeKeepalive(input),
+    reportIdentity: (input) => inner.reportIdentity(input),
     reportExit: (input) => inner.reportExit(input),
+    registerPushedCommand: (input) => inner.registerPushedCommand(input),
+    cancelQueuedInput: (appSessionId, messageUuid) => inner.cancelQueuedInput(appSessionId, messageUuid),
+    readOldestQueuedCommand: (input) => inner.readOldestQueuedCommand(input),
+    acknowledgeCancel: (input) => inner.acknowledgeCancel(input),
+    readCommandQueue: (appSessionId) => inner.readCommandQueue(appSessionId),
   };
 
   return {

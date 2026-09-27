@@ -127,6 +127,16 @@
     "updateAvailable": "Update verfügbar",
     "restartRequired": "Update installiert – zum Anwenden Server neu starten"
   },
+  "running": {
+    "groupRunning": "Läuft",
+    "groupResidentIdle": "Resident (Leerlauf)",
+    "close": "Schließen",
+    "closeLabel": "Resident-Sitzung {{title}} schließen",
+    "badgeLabel": "{{n}} laufende Sitzungen",
+    "emptyTitle": "Keine Sitzungen laufen",
+    "emptyDescription": "Aktive Arbeit erscheint hier, während ein Anbieter verarbeitet.",
+    "noMatchingSessions": "Keine Sitzungen entsprechen dieser Suche."
+  },
   "search": {
     "modeProjects": "Projekte",
     "modeConversations": "Unterhaltungen",
@@ -139,7 +149,10 @@
     "matches_one": "{{count}} Treffer",
     "matches_other": "{{count}} Treffer",
     "projectsScanned_one": "{{count}} Projekt durchsucht",
-    "projectsScanned_other": "{{count}} Projekte durchsucht"
+    "projectsScanned_other": "{{count}} Projekte durchsucht",
+    "runningPlaceholder": "Laufende Sitzungen durchsuchen...",
+    "runningTooltip": "Laufende Sitzungen",
+    "modeRunning": "Läuft"
   },
   "deleteConfirmation": {
     "deleteProject": "Projekt entfernen",
@@ -159,5 +172,13 @@
   },
   "resizeHandle": {
     "label": "Breite der Seitenleiste ändern"
+  },
+  "resident": {
+    "mark": {
+      "unstarted": "Resident-Sitzung, läuft nicht",
+      "idle": "Resident-Sitzung, Leerlauf",
+      "busy": "Resident-Sitzung, läuft",
+      "exited": "Resident-Prozess beendet"
+    }
   }
 }

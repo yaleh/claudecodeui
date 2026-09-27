@@ -1,6 +1,13 @@
-import type { IProvider, IProviderRuntime, IProviderSessionSynchronizer } from '@/shared/interfaces.js';
-import type { LLMProvider, RuntimeProviderCapabilities } from '@/shared/types.js';
-import { AppError, createCompleteMessage } from '@/shared/utils.js';
+import type { IProvider, IProviderRuntime, IProviderSessions, IProviderSessionSynchronizer } from '@/shared/interfaces.js';
+import type {
+  LLMProvider,
+  MessageOrigin,
+  NormalizedMessage,
+  ProviderRuntimeContext,
+  ProviderRuntimeWriter,
+  RuntimeProviderCapabilities,
+} from '@/shared/types.js';
+import { AppError, createCompleteMessage, readObjectRecord } from '@/shared/utils.js';
 
 import {
   evaluateScenarioExpectations,
@@ -10,10 +17,19 @@ import {
 import { DEBUG_AGENT_PROVIDER_ID, readDebugAgentGate } from './debug-agent.gate.js';
 import {
   createDebugAgentHostDriver,
+  DEBUG_AGENT_BUSY_INPUT_OPTION,
   type DebugAgentHostDriver,
   type DebugAgentOpenRun,
 } from './debug-agent.host-driver.js';
-import { readArmedDebugAgentScenario } from './debug-agent.runtime.js';
+import {
+  buildCommandLifecycleRow,
+  readArmedDebugAgentScenario,
+  type ArmedDebugAgentScenario,
+} from './debug-agent.runtime.js';
+import {
+  DEBUG_AGENT_TURN_TRIGGERS,
+  type DebugAgentTurnTrigger,
+} from './debug-agent.scenario.js';
 
 /**
  * The debug agent as a provider: a face the registry can resolve and the product
@@ -93,6 +109,132 @@ const unwiredOpenRun: DebugAgentOpenRun = ({ appSessionId }) => {
 };
 
 /**
+ * The `origin` a transcript row carries, read back into the shared vocabulary.
+ *
+ * `null` for a row with none, and — deliberately — for a row whose field is
+ * present but not one this build recognises. The row is the artifact and can be
+ * hand-edited or written by an older build, so an unknown trigger reads as "no
+ * stated cause" rather than being cast into the union and handed to a frontend
+ * that would then have to render a label it has no word for. The frontend's own
+ * fallback for a missing origin (`非用户触发`, §15.6) is what covers it.
+ */
+function readRowOrigin(raw: unknown): MessageOrigin | null {
+  const origin = readObjectRecord(readObjectRecord(raw)?.origin);
+  const trigger = origin?.trigger;
+  if (typeof trigger !== 'string' || !(DEBUG_AGENT_TURN_TRIGGERS as readonly string[]).includes(trigger)) {
+    return null;
+  }
+
+  const sender = origin?.sender;
+
+  return {
+    trigger: trigger as DebugAgentTurnTrigger,
+    sender: typeof sender === 'string' && sender.length > 0 ? sender : null,
+  };
+}
+
+/**
+ * The claude sessions face with `origin` lifted onto the messages it builds.
+ *
+ * The debug agent's rows carry one field the claude dialect does not (see
+ * `debug-agent.runtime.ts`), and the product's normalizer builds each message
+ * field by field — so a row field it has never heard of is dropped on the way to
+ * the wire, and every reader of a debug transcript sees a turn with no stated
+ * cause. This is where it is put back, at the seam the readers reach the
+ * normalizer through: the WebSocket frames (`context.normalizeMessage`), the
+ * debug agent's own self-check and the REST history (`sessionsService`) all call
+ * `provider.sessions.normalizeMessage` on this face.
+ *
+ * A proxy rather than a copy, because `ClaudeSessionsProvider` is a class: its
+ * methods live on the prototype, so a spread would leave this face with no
+ * `fetchHistory` at all. Everything but the one member is forwarded to the real
+ * instance, which is what keeps this a lift rather than a second sessions
+ * implementation.
+ */
+function withMessageOrigin(base: IProviderSessions): IProviderSessions {
+  /**
+   * The one member that is replaced: `normalizeMessage`, with every message it
+   * builds stamped with the cause its own row stated.
+   */
+  const liftOrigin = (raw: unknown, sessionId: string | null): NormalizedMessage[] => {
+    const messages = base.normalizeMessage(raw, sessionId);
+    const origin = readRowOrigin(raw);
+    return origin ? messages.map((message) => ({ ...message, origin })) : messages;
+  };
+
+  const face: IProviderSessions = new Proxy(base, {
+    get(target, property) {
+      if (property === 'normalizeMessage') {
+        return liftOrigin;
+      }
+
+      const value = Reflect.get(target, property, target);
+      // Bound to the face and not to the target, because one of the readers
+      // never leaves the object: `fetchHistory` re-normalizes every raw row
+      // through its own `this.normalizeMessage`, and a method bound to the
+      // target would reach the un-lifted one. That is the whole difference
+      // between the two halves of a conversation an unattended turn ran in —
+      // the frames would carry the cause while the same rows, read back over
+      // REST after a reload, would not — and it is a difference no caller can
+      // see, which is why the calls made *inside* this face have to resolve
+      // through it as well.
+      return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(face) : value;
+    },
+  });
+
+  return face;
+}
+
+/**
+ * Records one command the host accepted while it was already in a turn.
+ *
+ * The whole act is one row and one frame. The uuid is minted here because the
+ * host's own queue is keyed by it — the same value goes into the queue, into the
+ * transcript row's `command_uuid` and out over the socket, so "the message the
+ * user sent", "the entry the process is holding" and "the command a withdrawal
+ * names" are one object to every reader, which is the only way the client's
+ * withdrawal button can address the right command.
+ *
+ * The row is *not* appended to the transcript file. The engine's own steps write
+ * the artifact's rows, and this row is not one of them: a push does not run the
+ * scenario, so a row here would be a row the walk's own `expect.rows.delta` never
+ * accounted for — an artifact that disagreed with the clock that produced it. The
+ * frame is what a client reads, and the two steps that later act on this command
+ * (`dequeue`, `cancel-ack`) write their rows through the engine, on the clock.
+ *
+ * Returns the reading, not `undefined`: the resident dispatch hands this value
+ * back to whoever dispatched the turn, and a marker that said "this was a push"
+ * is the only thing that distinguishes this run's result from a walk's.
+ */
+function acceptPushedCommand(input: {
+  armed: ArmedDebugAgentScenario;
+  writer: ProviderRuntimeWriter;
+  context: ProviderRuntimeContext;
+  forwardFrames: DebugAgentFrameForwarder;
+  hostDriver: DebugAgentHostDriver;
+}): { pushed: true; commandUuid: string } {
+  const commandUuid = crypto.randomUUID();
+  input.hostDriver.registerPushedCommand({ appSessionId: input.armed.sessionId, commandUuid });
+
+  const row = buildCommandLifecycleRow({
+    sessionId: input.armed.providerSessionId,
+    cwd: input.armed.projectPath,
+    commandUuid,
+    state: 'queued',
+    timestamp: new Date().toISOString(),
+  });
+
+  input.forwardFrames({
+    transformedMessage: row,
+    sessionId: input.armed.providerSessionId,
+    normalizeMessage: input.context.normalizeMessage,
+    writer: input.writer,
+  });
+
+  return { pushed: true, commandUuid };
+}
+
+/**
  * The runtime face: it walks the scenario armed for the session the run is for,
  * and reports the artifact's own readings back to its caller.
  *
@@ -120,6 +262,22 @@ function createDebugAgentRuntime(
       // It is what the registry maps the run's session back to, and therefore
       // what the terminal `complete`'s REST re-fetch reads the history through.
       writer.setSessionId?.(armed.providerSessionId);
+
+      // A command the host took while it was already in a turn. This is not a
+      // run of the scenario: a real CLI holds such a command in its own queue
+      // until the turn in flight ends, so there is no walk to perform and no
+      // terminal frame to send — the run this dispatch opened is a carrier for
+      // one row, and it is the host's own `dequeue` / `cancel-ack` steps, on the
+      // scenario's clock, that later say what became of the command.
+      //
+      // Read off the options rather than asked of the host layer, because this
+      // and the decision that produced it are the same dispatch: the driver reads
+      // the process's state, stamps the answer onto the turn, and this reads it
+      // back. Asking the host again here would answer about the moment after,
+      // when the pushed command's own arrival may already have changed it.
+      if (options[DEBUG_AGENT_BUSY_INPUT_OPTION] === true) {
+        return acceptPushedCommand({ armed, writer, context, forwardFrames, hostDriver });
+      }
 
       // Where this run's frames ended up. It starts as the caller's writer and
       // follows them to the run's own writer when an unattended turn opens one,
@@ -223,15 +381,31 @@ export function createDebugAgentProvider(
     multiplexedHost: hostDriver.multiplexedHost === true,
   });
 
+  const runtime = createDebugAgentRuntime(dependencies.forwardFrames, hostDriver);
+
+  // The resident turn entry, bound after both halves exist: the driver is what
+  // the runtime reports its host steps through, and the runtime is what the
+  // driver runs a turn with, so one of the two edges has to be late. Without
+  // this binding `provider-runtime.service` finds no `run` on the driver and
+  // routes every resident session through the per-run wrapper — which
+  // *supersedes* the resident host, making a turn inside a held process
+  // unreachable from the product's own dispatch.
+  hostDriver.setTurnRunner(async (appSessionId, turn, writer, context) =>
+    // Returned, not awaited-and-dropped: the runtime's result carries the reading its control plane
+    // checks against the artifact, and this is the last hop before the dispatch hands it back to the
+    // caller. Dropping it here is invisible in the walk — every step still runs and every frame still
+    // arrives — and only shows up as a `/clock` that answers `DEBUG_AGENT_RUN_READING_MISSING`.
+    runtime.run(turn.command, turn.options, writer, context));
+
   return {
     id: DEBUG_AGENT_RUNTIME_PROVIDER_ID,
-    runtime: createDebugAgentRuntime(dependencies.forwardFrames, hostDriver),
+    runtime,
     hostDriver,
     models: dependencies.base.models,
     mcp: dependencies.base.mcp,
     auth: dependencies.base.auth,
     skills: dependencies.base.skills,
-    sessions: dependencies.base.sessions,
+    sessions: withMessageOrigin(dependencies.base.sessions),
     sessionSynchronizer: dependencies.createSessionSynchronizer({
       home: gate.home,
       providerId: DEBUG_AGENT_PROVIDER_ID,

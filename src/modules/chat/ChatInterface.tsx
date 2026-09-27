@@ -262,6 +262,11 @@ function ChatInterface({
     onShowSettings,
     scrollToBottom,
     addMessage,
+    // The composer hands a message to a resident process through the same store
+    // the live `command_lifecycle` events land in, so the row it writes is the
+    // row those events update — one object per held command, not two halves
+    // that a refresh could separate.
+    addResidentPending: sessionStore.addResidentPending,
     setIsUserScrolledUp,
     setPendingPermissionRequests,
     resolvePermissionModeForProvider,
@@ -357,6 +362,30 @@ function ChatInterface({
       console.error('Error forking session:', error);
     }
   }, [onNavigateToSession, selectedSession?.id]);
+
+  /**
+   * Asks the resident process holding one of this client's messages to take it
+   * back.
+   *
+   * The uuid is the message's own — the host assigned it and the client adopted
+   * it off the host's `queued` event — because that is the only name the
+   * process's queue answers to. Nothing here reports whether the withdrawal
+   * worked: this frame is a request, and the process's answer arrives as a
+   * `command_lifecycle` event, which is what the transcript draws. Reading the
+   * acknowledgement instead would make the UI's state a claim about a request
+   * rather than about the queue.
+   */
+  const handleWithdrawResidentCommand = useCallback((message: ChatMessage) => {
+    const targetSessionId = currentSessionId || selectedSession?.id || null;
+    const commandUuid = message.residentCommandUuid;
+    if (!targetSessionId || !commandUuid) return;
+
+    sendMessage({
+      type: 'chat.cancel-queued',
+      sessionId: targetSessionId,
+      messageUuid: commandUuid,
+    });
+  }, [currentSessionId, selectedSession?.id, sendMessage]);
 
   const { scheduledMessages, schedule: scheduleMessage, cancel: cancelScheduledMessage } =
     useScheduledMessages(currentSessionId || selectedSession?.id || null);
@@ -492,6 +521,7 @@ function ChatInterface({
             // Editing replaces the turn and everything after it, so it is only
             // offered when the session is idle — a half-truncated transcript with
             // a live stream writing into it is not recoverable.
+            onWithdrawResidentCommand={handleWithdrawResidentCommand}
             onEditMessage={supportsMessageEditing && !isProcessing ? beginEditMessage : undefined}
             onForkFromMessage={supportsSessionForking ? handleForkFromMessage : undefined}
             onLoadFullTranscript={loadFullTranscript}
@@ -573,6 +603,7 @@ function ChatInterface({
           input={input}
           onVoiceTranscript={handleVoiceTranscript}
           scope={draftScope}
+          sessionId={currentSessionId || selectedSession?.id || null}
           projectId={selectedProject?.projectId ?? null}
           isActive={isActive}
           onInputChange={handleInputChange}

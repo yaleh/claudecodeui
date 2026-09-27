@@ -1,8 +1,9 @@
 import { memo, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { GitBranchIcon, PencilIcon } from 'lucide-react';
+import type { TFunction } from 'i18next';
 
-import type { ChatMessage, ClaudePermissionSuggestion, PermissionGrantResult, LLMProvider,DiffLine,Project } from '@/shared/types';
+import type { ChatMessage, ClaudePermissionSuggestion, PermissionGrantResult, LLMProvider,DiffLine,Project,MessageOrigin } from '@/shared/types';
 import { formatUsageLimitText, stripProposedPlanEnvelope } from '@/modules/chat/utils/chatFormatting';
 import { ToolRenderer, ToolErrorDisplay, SubagentPanel, shouldHideToolResult } from '@/modules/chat/tools';
 import { LLMProviderLogo } from '@/shared/ui';
@@ -15,6 +16,10 @@ import MessageCopyControl from '@/modules/chat/transcript/MessageCopyControl';
 import MessageSpeakControl from '@/modules/chat/transcript/MessageSpeakControl';
 import { useIsExportingTranscript } from '@/modules/chat/context/TranscriptRenderContext';
 import { MemoryCitations } from '@/modules/chat/transcript/MemoryCitations';
+import {
+  UNATTENDED_DIVIDER_MESSAGE_TYPE,
+  UNATTENDED_TURN_MESSAGE_TYPE,
+} from '@/modules/chat/hooks/useChatMessages';
 
 type MessageComponentProps = {
   message: ChatMessage;
@@ -41,6 +46,45 @@ type MessageComponentProps = {
 };
 
 const COPY_HIDDEN_TOOL_NAMES = new Set(['Bash', 'Edit', 'Write', 'ApplyPatch']);
+
+/**
+ * The sentence a divider shows for the trigger behind a turn.
+ *
+ * Read from the locale at render time rather than kept as prose here: which words
+ * a trigger gets is the user's language's answer, and a copy held in this file
+ * would be a second one — the same reason the spec reads the shipped directories
+ * instead of transcribing sentences.
+ *
+ * A trigger this build does not recognise reads as "not user-initiated", which is
+ * §15.6's fallback for a cause that cannot be read. A divider has no other option:
+ * it exists because the row below it is not a person's, and saying nothing would
+ * leave that row unexplained rather than described.
+ */
+function readDividerLabel(
+  origin: MessageOrigin | undefined,
+  timestamp: ChatMessage['timestamp'],
+  t: TFunction,
+): string {
+  const time = new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  if (!origin) {
+    return t('resident.divider.unknown');
+  }
+
+  switch (origin.trigger) {
+    case 'cron':
+      return t('resident.divider.cron', { time });
+    case 'cross-session':
+      // The sender is the address the sending conversation answers to. When one
+      // is not stated the sentence still has to name a sender, so it says what
+      // the divider would say about an unreadable cause.
+      return t('resident.divider.crossSession', { sender: origin.sender ?? t('resident.divider.unknown'), time });
+    case 'background-task':
+      return t('resident.divider.backgroundTask', { time });
+    default:
+      return t('resident.divider.unknown');
+  }
+}
 
 /**
  * Rendered by chat's ChatMessagesPane and ToolGroupContainer to draw one
@@ -75,7 +119,18 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
   // also pull in browser-only voice state that a document render has no
   // provider for.
   const isExporting = useIsExportingTranscript();
-  const shouldShowUserCopyControl = !isExporting && message.type === 'user' && userCopyContent.trim().length > 0;
+  /**
+   * Whether this row is drawn as a person's turn.
+   *
+   * One predicate rather than three copies of `message.type === 'user'`: the
+   * className, the markup branch and the copy control all have to agree about
+   * it, and it is also what the row publishes as `data-message-style` — a row
+   * that took the user branch while that attribute said otherwise would be a
+   * styling decision nothing could measure.
+   */
+  const rendersAsUser = message.type === 'user';
+  const isUnattendedTurn = message.type === UNATTENDED_TURN_MESSAGE_TYPE;
+  const shouldShowUserCopyControl = !isExporting && rendersAsUser && userCopyContent.trim().length > 0;
   const shouldShowAssistantCopyControl = !isExporting &&
     message.type === 'assistant' &&
     assistantCopyContent.trim().length > 0 &&
@@ -84,19 +139,50 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
 
 
   const formattedTime = useMemo(() => new Date(message.timestamp).toLocaleTimeString(), [message.timestamp]);
+  const dividerLabel = useMemo(
+    () => readDividerLabel(message.origin, message.timestamp, t),
+    [message.origin, message.timestamp, t],
+  );
   const shouldHideThinkingMessage = Boolean(message.isThinking && !showThinking);
 
   if (shouldHideThinkingMessage) {
     return null;
   }
 
+  if (message.type === UNATTENDED_DIVIDER_MESSAGE_TYPE) {
+    /*
+     * The line that says what started the turn below it. It is drawn as a
+     * transcript row of its own — a rule with the label centred on it — rather
+     * than as a heading inside the message, so it keeps its position when the
+     * turn is long, scrolled past, or grouped with nothing.
+     */
+    return (
+      <div
+        data-unattended-divider={message.origin?.trigger ?? 'unknown'}
+        data-unattended-sender={message.origin?.sender ?? ''}
+        className="chat-message unattended-divider flex items-center gap-2 px-3 py-1 sm:px-0"
+      >
+        <span className="h-px flex-1 bg-border/60" aria-hidden="true" />
+        <span className="flex-shrink-0 text-xs text-muted-foreground">{dividerLabel}</span>
+        <span className="h-px flex-1 bg-border/60" aria-hidden="true" />
+      </div>
+    );
+  }
+
   return (
     <div
       ref={messageRef}
       data-message-timestamp={message.timestamp || undefined}
-      className={`chat-message ${message.type} ${isGrouped ? 'grouped' : ''} ${message.type === 'user' ? 'flex justify-end px-3 sm:px-0' : 'px-3 sm:px-0'}`}
+      data-message-style={rendersAsUser ? 'user' : message.type}
+      // Only an unattended row carries these, so the selector names exactly one
+      // row per turn: the styling decision this row is checked against is the
+      // one made below, on this element.
+      {...(isUnattendedTurn
+        ? { 'data-unattended-row': 'true', 'data-unattended-sender': message.origin?.sender ?? '' }
+        : {})}
+      className={`chat-message ${message.type} ${isGrouped ? 'grouped' : ''} ${rendersAsUser ? 'flex justify-end px-3 sm:px-0' : 'px-3 sm:px-0'}`}
     >
-      {message.type === 'user' ? (
+      {rendersAsUser ? (
         /* User turn on the right: claude.ai-style attachment cards above the bubble */
         <div className="flex w-full items-end space-x-0 sm:w-auto sm:max-w-[85%] sm:space-x-3 md:max-w-md lg:max-w-lg xl:max-w-xl">
           <div className="flex min-w-0 flex-1 flex-col items-end gap-2 sm:flex-initial">
@@ -160,6 +246,24 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
               U
             </div>
           )}
+        </div>
+      ) : isUnattendedTurn ? (
+        /*
+         * A turn nobody typed: left-aligned like a reply, and visibly not the
+         * reader's own. The dashed edge and the absence of the avatar are the
+         * whole difference, and they are the difference between "this was said
+         * to me" and "I said this" — which is the reading the divider above it
+         * and this row's own styling have to agree about.
+         */
+        <div className="w-full">
+          <div className="max-w-[85%] rounded-2xl rounded-bl-md border border-dashed border-border/70 bg-muted/30 px-3 py-2 text-foreground sm:px-4">
+            <Markdown
+              breaks
+              className="prose prose-sm max-w-none dark:prose-invert"
+            >
+              {message.content}
+            </Markdown>
+          </div>
         </div>
       ) : message.compact ? (
         /* A compaction: one row, its numbers, and its summary folded into it */

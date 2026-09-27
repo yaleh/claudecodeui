@@ -78,6 +78,16 @@ export default function SidebarHeader({
         ? t('search.runningPlaceholder', 'Search running sessions...')
         : t('projects.searchPlaceholder');
   const runningBadgeText = runningSessionsCount > 99 ? '99+' : String(runningSessionsCount);
+  // The badge draws a number and nothing else, so its accessible name has to
+  // carry the unit: read aloud on its own, "3" is not a sentence. Interpolated
+  // with `{{n}}` rather than i18next's `{{count}}`, which would make the lookup
+  // plural-aware and require a `_one`/`_other` pair in every locale for a string
+  // that reads the same at 1 and at 99. The number is what the badge already
+  // prints, so the name and the pixel agree by construction.
+  const runningBadgeLabel = t('running.badgeLabel', {
+    n: runningSessionsCount,
+    defaultValue: '{{n}} running sessions',
+  });
 
   return (
     <div className="flex-shrink-0">
@@ -184,7 +194,12 @@ export default function SidebarHeader({
                   <span className="relative flex h-3 w-3 items-center justify-center">
                     <Activity className={cn("h-3 w-3", runningSessionsCount > 0 && "text-emerald-500")} />
                     {runningSessionsCount > 0 && (
-                      <span className="absolute -right-2.5 -top-2 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-emerald-500 px-0.5 text-[8px] font-semibold leading-none text-white shadow-sm ring-1 ring-background">
+                      <span
+                        data-running-badge="true"
+                        role="status"
+                        aria-label={runningBadgeLabel}
+                        className="absolute -right-2.5 -top-2 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-emerald-500 px-0.5 text-[8px] font-semibold leading-none text-white shadow-sm ring-1 ring-background"
+                      >
                         {runningBadgeText}
                       </span>
                     )}
@@ -324,7 +339,12 @@ export default function SidebarHeader({
                   <span className="relative flex h-3 w-3 items-center justify-center">
                     <Activity className={cn("h-3 w-3", runningSessionsCount > 0 && "text-emerald-500")} />
                     {runningSessionsCount > 0 && (
-                      <span className="absolute -right-2.5 -top-2 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-emerald-500 px-0.5 text-[8px] font-semibold leading-none text-white shadow-sm ring-1 ring-background">
+                      <span
+                        data-running-badge="true"
+                        role="status"
+                        aria-label={runningBadgeLabel}
+                        className="absolute -right-2.5 -top-2 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-emerald-500 px-0.5 text-[8px] font-semibold leading-none text-white shadow-sm ring-1 ring-background"
+                      >
                         {runningBadgeText}
                       </span>
                     )}

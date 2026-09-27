@@ -7,6 +7,31 @@ import type { ChatMessage,NormalizedMessage,SubagentActivity } from '@/shared/ty
 import { formatUsageLimitText } from '@/modules/chat/utils/chatFormatting';
 import { isLiveRowId } from '@/modules/chat/utils/liveRowIdentity';
 
+/**
+ * The `ChatMessage.type` of the divider that introduces a turn nobody typed.
+ *
+ * Declared beside the projection that mints the row, because the row exists only
+ * as this projection's output: the renderer reads the type to know what it is
+ * drawing, and a second spelling of it anywhere would be a second vocabulary for
+ * a row neither file could then agree about.
+ */
+export const UNATTENDED_DIVIDER_MESSAGE_TYPE = 'unattended-divider';
+
+/** The `ChatMessage.type` of a turn nobody typed — see {@link UNATTENDED_DIVIDER_MESSAGE_TYPE}. */
+export const UNATTENDED_TURN_MESSAGE_TYPE = 'unattended';
+
+/**
+ * The `ChatMessage.type` of a message a resident process has taken but not
+ * started.
+ *
+ * Its own type rather than a `user` row with a flag, for the reason the two
+ * constants above are: this row is drawn by a different component, carries the
+ * host's own account of where the command is, and offers an action no other row
+ * has — and a renderer that had to narrow a `user` row first would be reading
+ * two facts to decide one thing.
+ */
+export const RESIDENT_PENDING_MESSAGE_TYPE = 'resident_pending';
+
 function formatToolResultContent(content: unknown): string {
   const text = typeof content === 'string' ? content : JSON.stringify(content);
   const toolUseErrorMatch = /^<tool_use_error>([\s\S]*)<\/tool_use_error>$/.exec(text.trim());
@@ -328,6 +353,27 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
     }
 
     switch (msg.kind) {
+      case 'command_lifecycle': {
+        // The process's account of a message it is holding. Only this client's
+        // own row is drawn: a `command_lifecycle` row served over REST is the
+        // process talking about a command, not a turn in the conversation, and
+        // the store already keeps those out of the transcript. What is left is
+        // the row the composer wrote when the user's send went into a live
+        // process — the message itself, plus whatever the host has said about it
+        // since (`queued`, then `started`, or gone once it was withdrawn).
+        if (!isLiveRowId(msg.id)) break;
+
+        converted.push({
+          type: RESIDENT_PENDING_MESSAGE_TYPE,
+          content: msg.content || '',
+          timestamp: msg.timestamp,
+          residentCommandUuid: msg.commandUuid ?? null,
+          residentCommandState: msg.commandState ?? 'queued',
+          ...sharedMetadata,
+        });
+        break;
+      }
+
       case 'text': {
         const content = msg.content || '';
         const images = Array.isArray(msg.images) && msg.images.length > 0 ? msg.images : undefined;
@@ -335,36 +381,65 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
         if (!content.trim() && !images && !files) break;
 
         if (msg.role === 'user') {
-          // Parse task notifications
-          const taskNotif = parseTaskNotification(content);
-          if (taskNotif) {
+          if (msg.origin) {
+            // A turn nobody typed is drawn as two rows: a divider naming what
+            // started it, and the turn itself in a style that is not a person's.
+            // They are minted here, side by side, because the divider is a
+            // transcript row in its own right — it has a position, it scrolls,
+            // and deriving it at render time from the row below would make it
+            // depend on where the row below happened to be grouped.
+            //
+            // The alternative this replaces is the reason the two types exist:
+            // pushed as a plain `user` row, an unattended turn would render in
+            // the user's own bubble and be indistinguishable from something the
+            // reader typed.
             converted.push({
-              type: 'assistant',
-              content: taskNotif.summary,
+              type: UNATTENDED_DIVIDER_MESSAGE_TYPE,
+              content: '',
               timestamp: msg.timestamp,
-              isTaskNotification: true,
-              taskStatus: taskNotif.status,
-              ...sharedMetadata,
+              origin: msg.origin,
             });
-            // Render the agent's result as a normal assistant message so its
-            // markdown displays correctly instead of leaking raw XML.
-            if (taskNotif.result) {
-              converted.push({
-                type: 'assistant',
-                content: formatUsageLimitText(taskNotif.result),
-                timestamp: msg.timestamp,
-                ...sharedMetadata,
-              });
-            }
-          } else {
             converted.push({
-              type: 'user',
+              type: UNATTENDED_TURN_MESSAGE_TYPE,
               content,
               timestamp: msg.timestamp,
               images,
               files,
+              origin: msg.origin,
               ...sharedMetadata,
             });
+          } else {
+            // Parse task notifications
+            const taskNotif = parseTaskNotification(content);
+            if (taskNotif) {
+              converted.push({
+                type: 'assistant',
+                content: taskNotif.summary,
+                timestamp: msg.timestamp,
+                isTaskNotification: true,
+                taskStatus: taskNotif.status,
+                ...sharedMetadata,
+              });
+              // Render the agent's result as a normal assistant message so its
+              // markdown displays correctly instead of leaking raw XML.
+              if (taskNotif.result) {
+                converted.push({
+                  type: 'assistant',
+                  content: formatUsageLimitText(taskNotif.result),
+                  timestamp: msg.timestamp,
+                  ...sharedMetadata,
+                });
+              }
+            } else {
+              converted.push({
+                type: 'user',
+                content,
+                timestamp: msg.timestamp,
+                images,
+                files,
+                ...sharedMetadata,
+              });
+            }
           }
         } else {
           const text = formatUsageLimitText(content);

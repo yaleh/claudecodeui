@@ -241,7 +241,8 @@ export type MessageKind =
   | 'permission_cancelled'
   | 'session_created'
   | 'history_truncated'
-  | 'task_notification';
+  | 'task_notification'
+  | 'command_lifecycle';
 
 /**
  * Event kinds added by the chat gateway layer on top of provider message kinds.
@@ -327,6 +328,33 @@ export type CompactionInfo = {
   error?: string | null;
 };
 
+/**
+ * What started a turn nobody typed.
+ *
+ * A closed set, and the ONLY one: the divider the transcript draws before such a
+ * turn, the copy the popover shows and the lease a host is held for all have to
+ * name the same three causes, so the names live here and every other module
+ * narrows to them rather than spelling its own list. `background-task` and
+ * `cron` are the two host leases that describe work outliving a turn; the third
+ * is a message another session sent, which is why it — and only it — carries a
+ * sender.
+ */
+export type MessageOriginTrigger = 'background-task' | 'cron' | 'cross-session';
+
+/**
+ * Why a turn exists, when the answer is not "the user sent it".
+ *
+ * Absent on every turn a person typed, which is what makes the absence
+ * meaningful: a message with no `origin` is a user turn, and the transcript
+ * renders it the way it has always been rendered. `sender` is the address the
+ * sending session answers to (`SessionBinding.peerName`), and is null for the
+ * two triggers that have no other conversation behind them.
+ */
+export type MessageOrigin = {
+  trigger: MessageOriginTrigger;
+  sender: string | null;
+};
+
 export type NormalizedMessage = {
   id: string;
   /**
@@ -349,6 +377,29 @@ export type NormalizedMessage = {
   seq?: number;
   role?: 'user' | 'assistant';
   content?: string;
+  /**
+   * Who started this turn, when it was not a person at a browser.
+   *
+   * Present only on turns the host layer opened on its own behalf — a
+   * background task reporting back, a timer firing, another session writing in.
+   * The transcript draws those turns differently from a typed one, and it can
+   * only do that from a fact the server published: a client that guessed from
+   * the sender's absence would be inferring, not reading.
+   */
+  origin?: MessageOrigin;
+  /**
+   * The host-assigned uuid of the queued command a `command_lifecycle` message
+   * is about, and where that command is in the CLI's own queue.
+   *
+   * Both are set only on `kind: 'command_lifecycle'`, and they are the whole
+   * payload of it: the frame says "command <uuid> is now <state>" and nothing
+   * else, because that is all the dialect row it comes from carries. The uuid is
+   * the same value the host wrote into the transcript row for the user's message
+   * and the same one a withdrawal names, which is what lets a client hold one
+   * message and its queue state as one object.
+   */
+  commandUuid?: string;
+  commandState?: CommandLifecycleState;
   /**
    * Optional display-oriented metadata used by providers that need to expose
    * richer transcript artifacts without introducing a brand-new message kind.
@@ -2255,6 +2306,26 @@ export type HostInputPriority = 'now' | 'next' | 'later';
  * `completed` is the turn having run to its end.
  */
 export type CommandLifecycleState = 'queued' | 'started' | 'cancelled' | 'completed';
+
+/**
+ * The dialect's own name for the row that carries one command lifecycle fact.
+ *
+ * The name is the claude transcript dialect's, not this codebase's: the row is
+ * what the CLI writes into a transcript and what the host reads back off the
+ * stream, and both envelopes the CLI uses (`type: 'command_lifecycle'` and
+ * `type: 'system'` with this subtype) are spelled with it
+ * (`docs/proposals/claude-resident-sessions-experiments.md` §9.2).
+ *
+ * Exported as a value, and not as prose the producers each retype, because the
+ * string sits on both sides of the row → frame edge: the normalizer recognises
+ * the row by it, and the client-visible kind that row normalizes to carries the
+ * same name in `MessageKind`. A producer that must write the row *without*
+ * naming a frame — the debug agent is one, and its static guard forbids wire
+ * names in its own sources
+ * (`server/modules/debug-agent/tests/debug-agent-vocabulary-guard.test.ts`) —
+ * references the dialect's name here instead of embedding the literal.
+ */
+export const COMMAND_LIFECYCLE_ROW_TYPE = 'command_lifecycle';
 
 /**
  * One `command_lifecycle` event the CLI emitted for a queued user message.

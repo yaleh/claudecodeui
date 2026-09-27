@@ -298,4 +298,39 @@
     "cancel": "예약 취소",
     "dismiss": "실패 알림 닫기"
   }
+,
+  "resident": {
+    "pending": {
+      "annotation": "현재 답변이 끝난 후 처리됩니다",
+      "started": "처리 시작됨",
+      "withdraw": "취소",
+      "withdrawn": "취소됨"
+    },
+    "statusBar": {
+      "unstarted": "상주 · 실행되지 않음 ({{reason}})",
+      "idle": "상주 · 유휴",
+      "busy": "상주 · 실행 중",
+      "exited": "상주 프로세스가 종료됨 ({{detail}})",
+      "start": "시작",
+      "restart": "재시작",
+      "close": "상주 프로세스 닫기",
+      "copyAddress": "주소 복사",
+      "copied": "복사됨",
+      "address": "주소",
+      "counts": {
+        "turn": "실행 중인 턴",
+        "background-task": "백그라운드 작업",
+        "monitor": "모니터",
+        "cron": "예약된 작업",
+        "resident-policy": "상주 세션"
+      }
+    },
+    "divider": {
+      "cron": "⏰ 예약된 작업 · {{time}}",
+      "crossSession": "✉ {{sender}}님의 세션 간 메시지 · {{time}}",
+      "backgroundTask": "📡 모니터 알림 · {{time}}",
+      "unknown": "사용자가 시작하지 않음"
+    },
+    "stopResident": "이 답변 중지 (프로세스와 예약된 작업은 계속됨)"
+  }
 }

@@ -127,6 +127,16 @@
     "updateAvailable": "Pembaruan tersedia",
     "restartRequired": "Pembaruan terpasang — mulai ulang server untuk menerapkan"
   },
+  "running": {
+    "groupRunning": "Berjalan",
+    "groupResidentIdle": "Residen (idle)",
+    "close": "Tutup",
+    "closeLabel": "Tutup sesi residen {{title}}",
+    "badgeLabel": "{{n}} sesi berjalan",
+    "emptyTitle": "Tidak ada sesi yang berjalan",
+    "emptyDescription": "Pekerjaan aktif akan muncul di sini saat penyedia memprosesnya.",
+    "noMatchingSessions": "Tidak ada sesi yang cocok dengan pencarian ini."
+  },
   "search": {
     "modeProjects": "Proyek",
     "modeConversations": "Percakapan",
@@ -139,7 +149,10 @@
     "matches_one": "{{count}} kecocokan",
     "matches_other": "{{count}} kecocokan",
     "projectsScanned_one": "{{count}} proyek dipindai",
-    "projectsScanned_other": "{{count}} proyek dipindai"
+    "projectsScanned_other": "{{count}} proyek dipindai",
+    "runningPlaceholder": "Cari sesi yang berjalan...",
+    "runningTooltip": "Sesi berjalan",
+    "modeRunning": "Berjalan"
   },
   "recent": {
     "title": "Percakapan terbaru",
@@ -167,5 +180,13 @@
   },
   "resizeHandle": {
     "label": "Ubah ukuran sidebar"
+  },
+  "resident": {
+    "mark": {
+      "unstarted": "Sesi residen, tidak berjalan",
+      "idle": "Sesi residen, idle",
+      "busy": "Sesi residen, berjalan",
+      "exited": "Proses residen berakhir"
+    }
   }
 }

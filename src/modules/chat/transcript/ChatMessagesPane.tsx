@@ -9,16 +9,19 @@ import type { ChatMessage,
   ProviderModelActions,
   ProviderModelsDefinition,
   SessionActivity } from '@/shared/types';
+import { RESIDENT_PENDING_MESSAGE_TYPE } from '@/modules/chat/hooks/useChatMessages';
 import { getIntrinsicMessageKey } from '@/modules/chat/utils/messageKeys';
 import { groupConsecutiveTools, isToolGroupItem } from '@/modules/chat/utils/toolGrouping';
 import { useLazyRowObserver } from '@/modules/chat/hooks/useLazyRowObserver';
 import { useDeviceSettings } from '@/shared/hooks/useDeviceSettings';
 import LazyMessageRow from '@/modules/chat/transcript/LazyMessageRow';
 import MessageComponent from '@/modules/chat/transcript/MessageComponent';
+import PendingResidentMessage from '@/modules/chat/transcript/PendingResidentMessage';
 import ProviderSelectionEmptyState from '@/modules/chat/transcript/ProviderSelectionEmptyState';
 import ToolGroupContainer from '@/modules/chat/transcript/ToolGroupContainer';
 import LoadAllMessagesOverlay from '@/modules/chat/transcript/LoadAllMessagesOverlay';
 import ChatExportMenu from '@/modules/chat/transcript/ChatExportMenu';
+import ResidentStatusBar from '@/modules/chat/transcript/ResidentStatusBar';
 import ActivityIndicator from '@/modules/chat/composer/ActivityIndicator';
 
 /**
@@ -83,6 +86,11 @@ type ChatMessagesPaneProps = {
   showRawParameters?: boolean;
   showThinking?: boolean;
   selectedProject: Project;
+  /**
+   * Asks the resident process holding this message to take it back. Absent
+   * hides the affordance rather than drawing one that would do nothing.
+   */
+  onWithdrawResidentCommand?: (message: ChatMessage) => void;
   /** Loads an already-sent message back into the composer; absent when the provider cannot re-run from a point. */
   onEditMessage?: (message: ChatMessage) => void;
   /** Branches the conversation into a new session ending at a message. */
@@ -133,6 +141,7 @@ function ChatMessagesPane({
   loadAllJustFinished,
   showLoadAllOverlay,
   createDiff,
+  onWithdrawResidentCommand,
   onEditMessage,
   onForkFromMessage,
   onLoadFullTranscript,
@@ -207,6 +216,18 @@ function ChatMessagesPane({
       onTouchMove={onTouchMove}
       className={`chat-messages-pane relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden pt-3 sm:pt-4 ${paneBottomPadding}`}
     >
+      {/* The resident process's own status, pinned beside the export control
+          rather than inside it: it describes the session's process, so it is
+          not conditional on there being a transcript to export, and it renders
+          itself away for a session that is not resident — `empty:hidden` is
+          what keeps this wrapper from reserving a row of its own on every
+          session that has no resident process. */}
+      <div className="pointer-events-none sticky right-4 top-3 z-10 mb-2 flex justify-start empty:hidden sm:px-4">
+        <ResidentStatusBar
+          sessionId={currentSessionId ?? selectedSession?.id ?? null}
+          t={t}
+        />
+      </div>
       {chatMessages.length > 0 && (
         <div className="pointer-events-none sticky right-4 top-3 z-10 mb-2 flex justify-end sm:px-4">
           <div className="pointer-events-auto">
@@ -340,6 +361,26 @@ function ChatMessagesPane({
 
               const messagePrevMessage = prevMessage;
               prevMessage = item;
+
+              // A message a resident process is holding. Its own component,
+              // because it is not a turn: it has a state the host keeps
+              // updating, an action no other row has, and — in two of its three
+              // states — no message to draw at all.
+              if (item.type === RESIDENT_PENDING_MESSAGE_TYPE) {
+                return (
+                  <LazyMessageRow
+                    key={getMessageKey(item)}
+                    lazyRows={lazyRows}
+                    timestamp={item.timestamp}
+                    initiallyNearViewport={initiallyNearViewport}
+                  >
+                    <PendingResidentMessage
+                      message={item}
+                      onWithdraw={onWithdrawResidentCommand}
+                    />
+                  </LazyMessageRow>
+                );
+              }
 
               return (
                 <LazyMessageRow

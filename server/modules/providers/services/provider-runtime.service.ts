@@ -109,12 +109,23 @@ const defaultDependencies: ProviderRuntimeServiceDependencies = {
  * being an assumption.
  */
 type ResidentTurnEntry = {
+  /**
+   * Runs one turn through the driver that owns the session's process.
+   *
+   * `unknown`, not `void`: the dispatch in this file hands the driver's value
+   * straight back to whoever dispatched the turn, and a driver may have
+   * something to say about the round it just ran — the debug agent's is the
+   * reading its control plane checks against the artifact, and a `void` here
+   * would type away the only path that value has to its reader. A driver with
+   * nothing to report simply resolves to nothing, which is what every other
+   * driver does.
+   */
   run(
     appSessionId: string,
     turn: HostTurnInput,
     writer: ProviderRuntimeWriter,
     context: ProviderRuntimeContext,
-  ): Promise<void>;
+  ): Promise<unknown>;
   /**
    * Withdraws a message the host wrote but has not started running.
    *
@@ -186,11 +197,21 @@ function residentEntryFor(provider: IProvider, appSessionId: string | null): Res
     return null;
   }
 
+  // The declaration is read from two stores because a provider states its
+  // lifecycle modes in one of two places, depending on whether it is in the
+  // `LLMProvider` union: a union provider's row lives in the static table, and a
+  // provider outside the union — one whose id cannot be validated against the
+  // union and therefore must not be added to it — states its modes through
+  // `declareRuntimeProviderCapabilities`. Both are read here, because the
+  // question this function asks is "did this provider declare `resident`", not
+  // "which table did it use"; reading only the first would make every non-union
+  // provider's declaration unreachable, which is the one place its declaration
+  // could have been read.
   try {
-    const declared = providerCapabilitiesService
-      .getProviderCapabilities(provider.id)
-      .lifecycleModes.includes('resident');
-    if (!declared) {
+    const modes = providerCapabilitiesService.getProviderCapabilities(provider.id)?.lifecycleModes
+      ?? providerCapabilitiesService.getRuntimeProviderCapabilities(provider.id)?.lifecycleModes
+      ?? [];
+    if (!modes.includes('resident')) {
       return null;
     }
   } catch {

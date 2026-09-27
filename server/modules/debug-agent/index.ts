@@ -33,6 +33,7 @@ export {
   DEBUG_AGENT_HOMES,
   DEBUG_AGENT_HOST_OPS,
   DEBUG_AGENT_KEEPALIVE_KINDS,
+  DEBUG_AGENT_LIFECYCLE_MODES,
   DEBUG_AGENT_OPS,
   DEBUG_AGENT_ROLES,
   DEBUG_AGENT_SCENARIO_VERSION,
@@ -46,6 +47,7 @@ export type {
   DebugAgentHome,
   DebugAgentHostOp,
   DebugAgentKeepaliveKind,
+  DebugAgentLifecycleMode,
   DebugAgentRole,
   DebugAgentScenario,
   DebugAgentScenarioExpectations,
@@ -82,7 +84,7 @@ export type {
 // that owns the session (`bindSession`/`openHost`). The criterion drives it
 // directly, which is what makes a resident, multiplexed host measurable without
 // a real process to wait on.
-export { createDebugAgentHostDriver } from './debug-agent.host-driver.js';
+export { createDebugAgentHostDriver, setDebugAgentOpenRun } from './debug-agent.host-driver.js';
 export type {
   DebugAgentHostDriver,
   DebugAgentHostDriverDependencies,

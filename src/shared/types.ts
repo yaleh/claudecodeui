@@ -392,6 +392,27 @@ export type ChatMessage = {
   memoryCitations?: MemoryCitation[];
   /** Lifecycle the provider reported for this tool call, when it reports one; otherwise the status is inferred from whether a result has arrived. */
   toolStatus?: string;
+  /**
+   * Who started this turn, when it was not a person at a browser.
+   *
+   * Carried through from the store row rather than recomputed here: it is the
+   * fact the transcript's divider and its non-user styling are both derived
+   * from, and its absence is what says "a person typed this".
+   */
+  origin?: MessageOrigin;
+  /**
+   * The host's uuid for the command this row is, and where the host says the
+   * command is in its own queue.
+   *
+   * Set on the row drawn for a message a resident process has taken but not
+   * started (`type: 'resident_pending'`), and on no other row. The uuid is the
+   * same one a withdrawal names, so the row's own button addresses the command
+   * the host is holding rather than a message id this client invented; it is
+   * `null` for the window between the send and the host's own account of it,
+   * which is what makes "not yet acknowledged" a state the row can draw.
+   */
+  residentCommandUuid?: string | null;
+  residentCommandState?: CommandLifecycleState;
   [key: string]: unknown;
 };
 
@@ -559,7 +580,169 @@ export type NormalizedMessage = {
   // Cursor-specific ordering
   sequence?: number;
   rowid?: number;
+  /**
+   * Who started this turn, when it was not a person at a browser.
+   *
+   * Present only on turns the host layer opened on its own behalf — a
+   * background task reporting back, a timer firing, another session writing in.
+   * The transcript draws those turns differently from a typed one, and it can
+   * only do that from a fact the server published: a client that guessed from
+   * the sender's absence would be inferring, not reading.
+   */
+  origin?: MessageOrigin;
+  /**
+   * The host-assigned uuid of the queued command a `command_lifecycle` message
+   * is about, and where that command is in the CLI's own queue.
+   *
+   * Both are set only on `kind: 'command_lifecycle'`, and they are the whole
+   * payload of it: the server forwards "command <uuid> is now <state>" and
+   * nothing else, because that is all the dialect row it normalizes carries.
+   * The uuid is the same one a withdrawal names, which is what lets the client
+   * hold a message and its queue state as one object instead of two.
+   */
+  commandUuid?: string;
+  commandState?: CommandLifecycleState;
 };
+
+// ---------------------------
+
+//----------------- COMMAND LIFECYCLE ------------
+
+/**
+ * Where one queued user message is in the CLI's own queue.
+ *
+ * The client's copy of the server's declaration (`server/shared/types.ts`), and
+ * the same four members: `queued` and `started` are the two facts that separate
+ * "still withdrawable" from "already running", `cancelled` is the ONLY evidence
+ * a withdrawal worked — the CLI answers a `cancel_async_message` control frame
+ * with no `control_response` at any timing, so the queue's own account of the
+ * message is the verdict — and `completed` is the turn having run to its end.
+ */
+export type CommandLifecycleState = 'queued' | 'started' | 'cancelled' | 'completed';
+
+// ---------------------------
+
+//----------------- UNATTENDED TURN ORIGIN ------------
+
+/**
+ * What started a turn nobody typed.
+ *
+ * A closed set, and the ONLY one: the divider the transcript draws before such
+ * a turn, the lease a host is held for and the copy the status bar shows all
+ * have to name the same three causes, so the names come from the server's own
+ * declaration and the client narrows to them rather than spelling its own list.
+ * `background-task` and `cron` are the two host leases that describe work
+ * outliving a turn; the third is a message another session sent, which is why
+ * it — and only it — carries a sender.
+ */
+export type MessageOriginTrigger = 'background-task' | 'cron' | 'cross-session';
+
+/**
+ * Why a turn exists, when the answer is not "the user sent it".
+ *
+ * Absent on every turn a person typed, which is what makes the absence
+ * meaningful: a message with no `origin` is a user turn, and the transcript
+ * renders it the way it has always been rendered. `sender` is the address the
+ * sending conversation answers to, and is null for the two triggers that have
+ * no other conversation behind them.
+ */
+export type MessageOrigin = {
+  trigger: MessageOriginTrigger;
+  sender: string | null;
+};
+
+// ---------------------------
+
+//----------------- SESSION HOSTS ------------
+
+/** One reason a resident process is being kept alive. */
+export type SessionHostLease =
+  | { kind: 'turn'; runId: string }
+  | { kind: 'background-task'; id: string }
+  | { kind: 'monitor'; id: string }
+  | { kind: 'cron'; id: string; recurring: boolean; expiresAt: number }
+  | { kind: 'resident-policy' };
+
+/** The `kind` discriminator of {@link SessionHostLease}, as its own union. */
+export type SessionHostLeaseKind = SessionHostLease['kind'];
+
+/** One conversation on a host, as `GET /api/session-hosts` reports it. */
+export type SessionHostBindingView = {
+  appSessionId: string;
+  providerSessionId: string | null;
+  state: string;
+  leases: SessionHostLease[];
+  lastActivityAt: number;
+  /**
+   * The address this conversation's process answers to, or null when it has
+   * none. It is the one fact about a resident process the client cannot derive:
+   * the name is registered inside the process.
+   */
+  peerName: string | null;
+};
+
+/**
+ * A process serving one or more conversations.
+ *
+ * `closeReason` is null on a host that is still open, which is also the only
+ * way to tell "still running" from "closed" without a second field: a closed
+ * host always has a reason.
+ */
+export type SessionHostView = {
+  hostId: string;
+  provider: LLMProvider;
+  mode: string;
+  state: string;
+  /** The child process id, or null for a host that was never given one. */
+  pid: number | null;
+  startedAt: number;
+  closeReason: string | null;
+  /**
+   * The extra fact `closeReason` carries, or null when it carries none.
+   *
+   * It is what tells a process that exited on its own (`oom`, `signal`,
+   * `error`) apart from one that was stopped, and it is the only source for the
+   * exited banner's wording — the manager holds it on a field no other route
+   * publishes.
+   */
+  closeDetail: string | null;
+  bindings: SessionHostBindingView[];
+};
+
+/**
+ * One session's host state — including the sessions no host is serving.
+ *
+ * `hosts` answers "what processes are there"; this answers "what should be
+ * running, and isn't". The stored `lifecycleMode` is what survives the restart
+ * that a live host does not.
+ */
+export type SessionHostStateView = {
+  appSessionId: string;
+  provider: LLMProvider;
+  lifecycleMode: string;
+  running: boolean;
+  /** Why a resident session has no process, or null when the question does not apply. */
+  reason: string | null;
+};
+
+/** The `GET /api/session-hosts` payload: the hosts, and the state of every session. */
+export type SessionHostsSnapshot = {
+  hosts: SessionHostView[];
+  sessions: SessionHostStateView[];
+};
+
+/**
+ * The four things a resident process can be doing, as the UI names it.
+ *
+ * Named for what a reader can act on rather than for the host's own six-member
+ * state, two of which (`starting`, `closing`) describe a transition no control
+ * behaves differently on. It is the ONE vocabulary the sidebar mark and the
+ * status bar both draw from — {@link readResidentProcessState} is the only place
+ * the host's words are translated into these — so the mark beside a session's
+ * name and the sentence in its status bar cannot describe one process
+ * differently.
+ */
+export type ResidentProcessState = 'unstarted' | 'idle' | 'busy' | 'exited';
 
 /** Discriminator on NormalizedMessage naming which kind of transcript event it carries — plain text, tool use or result, thinking, stream delta or end, error, completion, status, permission request/resolution/cancellation, session creation, interactive prompt, or task notification. */
 type MessageKind =
@@ -577,7 +760,8 @@ type MessageKind =
   | 'permission_cancelled'
   | 'session_created'
   | 'history_truncated'
-  | 'task_notification';
+  | 'task_notification'
+  | 'command_lifecycle';
 
 // ---------------------------
 

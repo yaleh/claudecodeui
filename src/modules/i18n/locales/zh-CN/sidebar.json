@@ -132,6 +132,16 @@
     "updateAvailable": "有可用更新",
     "restartRequired": "已安装更新 — 请重启服务器以生效"
   },
+  "running": {
+    "groupRunning": "正在运行",
+    "groupResidentIdle": "常驻（空闲）",
+    "close": "关闭",
+    "closeLabel": "关闭常驻会话 {{title}}",
+    "badgeLabel": "{{n}} 个正在运行的会话",
+    "emptyTitle": "没有正在运行的会话",
+    "emptyDescription": "提供商处理时，进行中的工作会显示在这里。",
+    "noMatchingSessions": "没有符合此搜索的会话。"
+  },
   "search": {
     "modeProjects": "项目",
     "modeConversations": "对话",
@@ -144,7 +154,10 @@
     "matches_one": "{{count}} 个匹配",
     "matches_other": "{{count}} 个匹配",
     "projectsScanned_one": "{{count}} 个项目已扫描",
-    "projectsScanned_other": "{{count}} 个项目已扫描"
+    "projectsScanned_other": "{{count}} 个项目已扫描",
+    "runningPlaceholder": "搜索正在运行的会话...",
+    "runningTooltip": "正在运行的会话",
+    "modeRunning": "正在运行"
   },
   "deleteConfirmation": {
     "deleteProject": "移除项目",
@@ -186,5 +199,13 @@
   },
   "resizeHandle": {
     "label": "调整侧边栏宽度"
+  },
+  "resident": {
+    "mark": {
+      "unstarted": "常驻会话，未运行",
+      "idle": "常驻会话，空闲",
+      "busy": "常驻会话，运行中",
+      "exited": "常驻进程已退出"
+    }
   }
 }

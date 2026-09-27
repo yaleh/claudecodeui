@@ -1,5 +1,5 @@
 import { type ReactNode } from 'react';
-import { Activity, Archive, Folder, MessageSquare, RotateCcw, Search, Trash2 } from 'lucide-react';
+import { Archive, Folder, MessageSquare, RotateCcw, Search, Trash2 } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { LLMProviderLogo, ScrollArea } from '@/shared/ui';
@@ -9,6 +9,7 @@ import { useSidebarResize } from '@/modules/sidebar/hooks/useSidebarResize';
 import SidebarFooter from '@/modules/sidebar/SidebarFooter';
 import SidebarHeader from '@/modules/sidebar/SidebarHeader';
 import SidebarResizeHandle from '@/modules/sidebar/SidebarResizeHandle';
+import RunningView from '@/modules/sidebar/RunningView';
 import SidebarProjectList from '@/modules/sidebar/SidebarProjectList';
 import SidebarRecentConversations from '@/modules/sidebar/SidebarRecentConversations';
 
@@ -422,38 +423,7 @@ export default function SidebarContent({
             t={t}
           />
         ) : searchMode === 'running' ? (
-          projectListProps.filteredProjects.length === 0 ? (
-            <div className="px-4 py-12 text-center md:py-8">
-              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-lg border border-border/70 bg-muted/50 md:mb-3">
-                <Activity className="h-6 w-6 text-muted-foreground" />
-              </div>
-              <h3 className="mb-2 text-base font-medium text-foreground md:mb-1">
-                {t('running.emptyTitle', 'No sessions running')}
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                {runningSessionsCount > 0
-                  ? t('running.noMatchingSessions', 'No running sessions match this search.')
-                  : t('running.emptyDescription', 'Active work will appear here while a provider is processing.')}
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <div className="mx-2 flex items-center justify-between rounded-lg border border-border/60 bg-card/50 px-3 py-2 shadow-sm">
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                    <Activity className="h-3.5 w-3.5" />
-                  </span>
-                  <span className="truncate text-xs font-normal text-foreground">
-                    {t('running.title', 'Running now')}
-                  </span>
-                </div>
-                <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-normal text-emerald-700 dark:text-emerald-300">
-                  {runningSessionsCount}
-                </span>
-              </div>
-              <SidebarProjectList {...projectListProps} />
-            </div>
-          )
+          <RunningView projects={projects} searchQuery={searchFilter} t={t} />
         ) : searchMode === 'archived' ? (
           isArchivedSessionsLoading ? (
             <div className="space-y-2 px-2 py-1" aria-live="polite" aria-busy="true">

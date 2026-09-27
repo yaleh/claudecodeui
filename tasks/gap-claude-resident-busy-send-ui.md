@@ -5,7 +5,7 @@ title: AC-175 真实浏览器里常驻会话忙时发送直接送达 — residen
   cancel_async_message）、只在收到 command_lifecycle cancelled
   后显示「已撤回」并把该消息从记录移除且不产生一轮，started 后 [撤回] 消失改「已开始处理」，per-run 忙时仍出现
   QueuedMessageCard；三条假形态（仍本地排队 / 撤回只在前端隐藏 / 点击即标已撤回）必须红
-status: todo
+status: done
 labels:
   - gap
 parent: null
@@ -48,17 +48,17 @@ goal_ac: AC-175
 
 ## AC
 
-- [ ] AC1 判据入口为绿：`npx playwright test e2e/resident-busy-send.spec.ts` 在落地后的树上退出 **0**，并打印整体墙钟 `elapsed=<n>ms` 且 `< 55_000`（`playwright.config.ts` 的 `SINGLE_SPEC_CEILING_MS`）。红态基线（本轮**直跑**）：`npx playwright test e2e/resident-busy-send.spec.ts --list` 退出 **1**，逐字 `Error: No tests found.` / `Total: 0 tests in 0 files`。命令逐字含文件路径，不用 glob。
-- [ ] AC2 (1) 常驻忙时发送不出现 `QueuedMessageCard`、消息立即进记录并带标注：判据打印 `resident.queuedCard=<n>`（断言 **0**）、`resident.row.present=true`、`resident.row.annotationKey=<key>` 与 `resident.row.annotation=<逐字文案>`（断言取自 `en/chat.json` 的 key，spec 不抄句子）。**正控制**：同一次运行里 per-run 会话忙时发送 ⇒ 打印 `perRun.queuedCard=<n>` 且 `>= 1`（证明 `resident.queuedCard=0` 不是恒真）。
-- [ ] AC3 (2) 出队前撤回**真的**送到宿主，且只在 `cancelled` 后算撤回：判据打印 `withdraw.visibleBefore=true`、`click.dispatched=true`、`cancelPayloads=<n>`（断言 **>= 1**）、`scenario.cancel_async_message=<uuid>`（断言与消息自身的 uuid **逐字相同**）、`ui.withdrawnBeforeEvent=false`、`ui.withdrawnAfterEvent=true`、`row.presentAfter=false`（从记录移除）、`turnsAfterWithdraw=0`（不产生一轮）。
-- [ ] AC4 (3) 出队后 [撤回] 消失、改「已开始处理」：判据打印 `afterStarted.withdrawButton=<n>`（断言 **0**）与 `afterStarted.label=<逐字文案>`（断言取自 `en/chat.json` 的 key）；**负控制**：出队前一刻 `beforeStarted.withdrawButton=<n>` 且 `>= 1`（证明 [撤回] 的出现与消失都不是常量）。
-- [ ] AC5 (4) per-run 会话忙时仍出现 `QueuedMessageCard`：判据打印 `perRun.queuedCard=<n>`（断言 **>= 1**）与它的文案 key 来自 `en/chat.json` 的既有 key；**正控制**：同一次运行里常驻那条腿打印 `resident.queuedCard=0`（AC2 已有；两条腿互为正/负控制）。
-- [ ] AC6 撤回成败不读控制响应：判据打印 `controlResponsesForCancel=<n>` 与 `cancelVerdictSource=command_lifecycle`；断言撤回的成败判定**不**来自控制响应（E9 9.2：三种时机都没有 `control_response`）。
-- [ ] AC7 假形态承重（三条，各自实测）：(**a**) 让常驻会话仍走本地排队 ⇒ 判据命令退出**非 0**，红**落在 AC2 的 `resident.queuedCard === 0` 那条断言**上；(**b**) 让撤回只在前端隐藏（不发 `cancel_async_message`）⇒ 退出**非 0**，红**落在 AC3 的 `cancelPayloads >= 1` / `scenario.cancel_async_message` 那条断言**上；(**c**) 让点击后立即显示「已撤回」而不等 `cancelled` ⇒ 场景不发 `cancelled` 时判据读到 `ui.withdrawnBeforeEvent=false` 那条断言红。三次变异各登记 diff、失败断言逐字、退出码，使用后各自 `git checkout --` 还原到绿。
-- [ ] AC8 替身改动不波及别的判据：`npx playwright test --list` 的收集总数与改动前**逐字相同**（打印改动前后两个数）；`npx playwright test e2e/model-env-kind-explanations.spec.ts` 仍退出 **0**（打印退出码与墙钟）；`npx tsx --tsconfig server/tsconfig.json --test server/modules/debug-agent/tests/debug-agent-vocabulary-guard.test.ts`（AC-126）与 `…/debug-agent-host-driver.test.ts` 各自退出 **0**（逐条打印命令与退出码）。
-- [ ] AC9 per-run 逐帧契约不被改窄：`npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/session-host-per-run-parity.test.ts` 退出 **0**（它钉住 per-run 忙时**恰好一条** `RUN_IN_PROGRESS`），打印退出码。
-- [ ] AC10 契约面：`npm run typecheck`、`npm run lint` 退出 **0**；若第 4 步决定新增客户端可见事件种类，`server/shared/types.ts` 与 `src/shared/types.ts` 里 `MessageKind` 的落法逐字打印，且既有成员一个不少（打印改动前后成员数）。
-- [ ] AC11 如实登记：完成记录写明（a）第 1/2 步量到的实际字段名与入口名，以及哪一件尚未落地（若有则**点名拒绝**，不写假读数）；（b）`command_lifecycle` 从替身到浏览器走的是哪条路、为什么它满足 ADR-003 decision 7 的守卫（逐字打印「行→帧」位置）；（c）三条假形态的实测退出码与红态文案；（d）未实现（明确不在本条内）：AC-163 的 driver 侧写入与撤回缝、AC-162 的真实 Claude driver 无人轮、AC-165 的空闲关闭。
+- [x] AC1 判据入口为绿：`npx playwright test e2e/resident-busy-send.spec.ts` 在落地后的树上退出 **0**，并打印整体墙钟 `elapsed=<n>ms` 且 `< 55_000`（`playwright.config.ts` 的 `SINGLE_SPEC_CEILING_MS`）。红态基线（本轮**直跑**）：`npx playwright test e2e/resident-busy-send.spec.ts --list` 退出 **1**，逐字 `Error: No tests found.` / `Total: 0 tests in 0 files`。命令逐字含文件路径，不用 glob。
+- [x] AC2 (1) 常驻忙时发送不出现 `QueuedMessageCard`、消息立即进记录并带标注：判据打印 `resident.queuedCard=<n>`（断言 **0**）、`resident.row.present=true`、`resident.row.annotationKey=<key>` 与 `resident.row.annotation=<逐字文案>`（断言取自 `en/chat.json` 的 key，spec 不抄句子）。**正控制**：同一次运行里 per-run 会话忙时发送 ⇒ 打印 `perRun.queuedCard=<n>` 且 `>= 1`（证明 `resident.queuedCard=0` 不是恒真）。
+- [x] AC3 (2) 出队前撤回**真的**送到宿主，且只在 `cancelled` 后算撤回：判据打印 `withdraw.visibleBefore=true`、`click.dispatched=true`、`cancelPayloads=<n>`（断言 **>= 1**）、`scenario.cancel_async_message=<uuid>`（断言与消息自身的 uuid **逐字相同**）、`ui.withdrawnBeforeEvent=false`、`ui.withdrawnAfterEvent=true`、`row.presentAfter=false`（从记录移除）、`turnsAfterWithdraw=0`（不产生一轮）。
+- [x] AC4 (3) 出队后 [撤回] 消失、改「已开始处理」：判据打印 `afterStarted.withdrawButton=<n>`（断言 **0**）与 `afterStarted.label=<逐字文案>`（断言取自 `en/chat.json` 的 key）；**负控制**：出队前一刻 `beforeStarted.withdrawButton=<n>` 且 `>= 1`（证明 [撤回] 的出现与消失都不是常量）。
+- [x] AC5 (4) per-run 会话忙时仍出现 `QueuedMessageCard`：判据打印 `perRun.queuedCard=<n>`（断言 **>= 1**）与它的文案 key 来自 `en/chat.json` 的既有 key；**正控制**：同一次运行里常驻那条腿打印 `resident.queuedCard=0`（AC2 已有；两条腿互为正/负控制）。
+- [x] AC6 撤回成败不读控制响应：判据打印 `controlResponsesForCancel=<n>` 与 `cancelVerdictSource=command_lifecycle`；断言撤回的成败判定**不**来自控制响应（E9 9.2：三种时机都没有 `control_response`）。
+- [x] AC7 假形态承重（三条，各自实测）：(**a**) 让常驻会话仍走本地排队 ⇒ 判据命令退出**非 0**，红**落在 AC2 的 `resident.queuedCard === 0` 那条断言**上；(**b**) 让撤回只在前端隐藏（不发 `cancel_async_message`）⇒ 退出**非 0**，红**落在 AC3 的 `cancelPayloads >= 1` / `scenario.cancel_async_message` 那条断言**上；(**c**) 让点击后立即显示「已撤回」而不等 `cancelled` ⇒ 场景不发 `cancelled` 时判据读到 `ui.withdrawnBeforeEvent=false` 那条断言红。三次变异各登记 diff、失败断言逐字、退出码，使用后各自 `git checkout --` 还原到绿。
+- [x] AC8 替身改动不波及别的判据：`npx playwright test --list` 的收集总数与改动前**逐字相同**（打印改动前后两个数）；`npx playwright test e2e/model-env-kind-explanations.spec.ts` 仍退出 **0**（打印退出码与墙钟）；`npx tsx --tsconfig server/tsconfig.json --test server/modules/debug-agent/tests/debug-agent-vocabulary-guard.test.ts`（AC-126）与 `…/debug-agent-host-driver.test.ts` 各自退出 **0**（逐条打印命令与退出码）。
+- [x] AC9 per-run 逐帧契约不被改窄：`npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/session-host-per-run-parity.test.ts` 退出 **0**（它钉住 per-run 忙时**恰好一条** `RUN_IN_PROGRESS`），打印退出码。
+- [x] AC10 契约面：`npm run typecheck`、`npm run lint` 退出 **0**；若第 4 步决定新增客户端可见事件种类，`server/shared/types.ts` 与 `src/shared/types.ts` 里 `MessageKind` 的落法逐字打印，且既有成员一个不少（打印改动前后成员数）。
+- [x] AC11 如实登记：完成记录写明（a）第 1/2 步量到的实际字段名与入口名，以及哪一件尚未落地（若有则**点名拒绝**，不写假读数）；（b）`command_lifecycle` 从替身到浏览器走的是哪条路、为什么它满足 ADR-003 decision 7 的守卫（逐字打印「行→帧」位置）；（c）三条假形态的实测退出码与红态文案；（d）未实现（明确不在本条内）：AC-163 的 driver 侧写入与撤回缝、AC-162 的真实 Claude driver 无人轮、AC-165 的空闲关闭。
 
 ## DoD
 
@@ -72,7 +72,9 @@ goal_ac: AC-175
 - `server/modules/debug-agent/debug-agent.engine.ts`
 - `server/modules/debug-agent/debug-agent.runtime.ts`
 - `server/modules/debug-agent/debug-agent.routes.ts`
+- `server/modules/debug-agent/debug-agent.provider.ts`
 - `server/modules/debug-agent/debug-agent.host-driver.ts`
+- `server/modules/debug-agent/tests/debug-agent-host-driver.test.ts`
 - `server/modules/session-hosts/session-host-manager.service.ts`
 - `server/modules/providers/list/claude/claude-sessions.provider.ts`
 - `server/modules/providers/services/sessions.service.ts`
@@ -85,7 +87,10 @@ goal_ac: AC-175
 - `src/modules/chat/hooks/useChatMessages.ts`
 - `src/modules/chat/hooks/useSessionStore.ts`
 - `src/modules/chat/composer/ChatComposer.tsx`
+- `src/modules/chat/composer/QueuedMessageCard.tsx`
 - `src/modules/chat/transcript/PendingResidentMessage.tsx` (new)
+- `src/modules/chat/transcript/ChatMessagesPane.tsx`
+- `src/modules/chat/ChatInterface.tsx`
 - `src/modules/i18n/locales/de/chat.json`
 - `src/modules/i18n/locales/en/chat.json`
 - `src/modules/i18n/locales/es/chat.json`
@@ -101,3 +106,41 @@ goal_ac: AC-175
 - `tasks/gap-claude-resident-busy-send-ui.md`（自触）
 
 （`server/index.ts` 或 `chat-websocket.service.ts` 若因 AC-163 落的注入点与实际不符而必须动，按实际文件登记并在完成记录里写明；不预列以免 Touches 与写入面漂移。）
+
+## 完成记录（2026-09-28）
+
+**判据与读数。** 判据 `e2e/resident-busy-send.spec.ts`（3 test：主判据 + 12 locale 文案 + 墙钟上限），真 Chromium + 真后端 + 调试 agent 的**常驻**替身场景。落地后的树上按原命令直跑：
+
+- **AC1**：`npx playwright test e2e/resident-busy-send.spec.ts` 退出 **0**，`3 passed (35.4s)`，打印 `elapsed=35402ms`（< `SINGLE_SPEC_CEILING_MS=55_000`）。红态基线（本轮直跑，不是推断）：把判据文件移出树后再跑 `npx playwright test e2e/resident-busy-send.spec.ts --list`，退出 **1**，stdout 逐字 `Error: No tests found.` 与 `Total: 0 tests in 0 files`。
+- **AC2**：`resident.queuedCard=0`（断言 **0**）、`resident.row.present=true`、`resident.row.annotationKey=resident.pending.annotation`、`resident.row.annotation=Will be handled after this answer finishes`（取自**运行期读的** `en/chat.json`，spec 不抄句子）。正控制同一次运行 `perRun.queuedCard=1`。
+- **AC3**：`withdraw.visibleBefore=true`、`click.dispatched=true`、`cancelPayloads=1`、`scenario.cancel_async_message=34b26641-5685-405c-b2ed-8a9bf3f9b8d8`（与该消息自身 uuid 逐字相同）、`ui.withdrawnBeforeEvent=false`、`ui.withdrawnAfterEvent=true`、`row.presentAfter=false`、`row.textAfter="Withdrawn"`、`turnsAfterWithdraw=0`；对照 `turns.control=1` 证明计数法数得到真跑过的那一轮。
+- **AC4**：`afterStarted.withdrawButton=0`、`afterStarted.annotationKey=resident.pending.started`、`afterStarted.label=Started processing`（取 `en/chat.json` 的 `resident.pending.started`）；负控制 `beforeStarted.withdrawButton=1`。
+- **AC5**：`perRun.queuedCard=1`，文案为既有 key `input.queue.label`（`perRun.card.label=Queued`）与 `input.queue.willSend`（`perRun.card.text="QUEUED · Will send when this finishes draft three — this one waits for the browser"`，`QueuedMessageCard` 用 `uppercase` 画 label，故该 key 的比对折大小写、draft 与 `willSend` 逐字不折）。
+- **AC6**：`controlResponsesForCancel=0`、`cancelVerdictSource=command_lifecycle`；并列读数 `cancelAckFrames=1`（撤回的答复帧是 `queued_input_cancel_result`，不是 `control_response`）。
+- **AC8**：`npx playwright test --list` 收集总数改动前后**逐字相同**，两次都是 `Total: 75 tests in 16 files`（两次收集只差 `playwright.config.ts` 有没有本条的改动：本条把 `resident-status-bar.spec.ts` 与 `resident-busy-send.spec.ts` 列进调试 agent fixture home 的判据集，该改动不改变收集面）；`npx playwright test e2e/model-env-kind-explanations.spec.ts` 退出 **0**（`1 passed (10.2s)`）；`npx tsx --tsconfig server/tsconfig.json --test server/modules/debug-agent/tests/debug-agent-vocabulary-guard.test.ts` 退出 **0**（`tests 5 / pass 5 / fail 0`）；`…/debug-agent-host-driver.test.ts` 退出 **0**（`tests 5 / pass 5 / fail 0`）。
+- **AC9**：`npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/session-host-per-run-parity.test.ts` 退出 **0**（`tests 5 / pass 5 / fail 0`），per-run 忙时仍恰好一条 `RUN_IN_PROGRESS`，逐帧契约未改窄。
+- **AC10**：`npm run typecheck` 退出 **0**（三环 `tsconfig.json` / `server/tsconfig.json` / `scripts/tsconfig.json` 各 0）；`npm run lint` 退出 **0**（只有既有的 warning）。`MessageKind` 两处各新增一个成员，落法逐字：`server/shared/types.ts` **15 → 16**（末位 `  | 'command_lifecycle';`）、`src/shared/types.ts` **15 → 16**（同一末位），既有 15 个成员一个不少（`git show df558ecc^:<file>` 对比，改动前末位是 `| 'task_notification';`）。
+
+**(a) 第 1/2 步量到的实际名字（不是 proposal 的规划文字）。**
+
+- 会话生命周期：DB 列 `sessions.lifecycle_mode`（`server/modules/database/schema.ts:186`，`TEXT DEFAULT 'per-run'`）；`GET /api/session-hosts` 的 `sessions[]` 投影逐字 `{ appSessionId, provider, mode }`（`server/index.ts:280-284`，`mode: (session.lifecycle_mode ?? 'per-run') as HostMode`），进程在 `hosts[]`；前端**单一来源**是 `findSessionHostState(hostsSnapshot, sessionKey)?.lifecycleMode === 'resident'`（`src/modules/chat/hooks/useChatComposerState.ts:705`，`useSessionHosts` 把 `mode` 投影成 `lifecycleMode`）——前端没有第二份宿主取数。
+- 宿主忙态：`hosts[].state`（`'busy' | 'starting' | …`），UI 词表在 `src/shared/hooks/useSessionHosts.ts:228-233`；状态条把它画成 `data-resident-ui-state`（`src/modules/chat/transcript/ResidentStatusBar.tsx:160`），判据即读这个属性。
+- AC-163 落的撤回 verb：**`chat.cancel-queued`**，入参 `{ sessionId, messageUuid }`（路由 `server/modules/websocket/services/chat-websocket.service.ts:783` → `handleChatCancelQueued:519` → `runtime.cancelQueuedInput(provider, sessionId, messageUuid)` → 宿主驱动 → 替身的 `cancel-ack` op）。
+- `command_lifecycle` 的方言字段逐字 `command_uuid` 与 `state`（四态；行类型常量 `COMMAND_LIFECYCLE_ROW_TYPE = 'command_lifecycle'`，`server/shared/types.ts:2328`，状态读数 `readCommandLifecycleState`）；替身场景的 op 名 `unattended-turn` / `dequeue` / `cancel-ack` / `turn-end` 取自 `debug-agent.scenario.ts` 的闭集（非法 op 与该文件的拒绝文案同步）。
+- **前置落地情况**：本轮逐条查状态，AC-170（`gap-claude-resident-api-smoke-human-gate`）、AC-169（`gap-lifecycle-mode-matrix-and-host-api`）、AC-172（`gap-claude-resident-status-bar`）、AC-163（`gap-claude-resident-busy-input`）、AC-160（`gap-debug-agent-host-driver`）**五条全部 `done`**，没有一件缺失，**无点名拒绝项**。
+
+**(b) `command_lifecycle` 从替身到浏览器走的是哪条路，为什么满足 ADR-003 decision 7。**
+
+替身只写**方言行**，不构造帧：`server/modules/debug-agent/debug-agent.provider.ts` 的 `acceptPushedCommand`（`:209`）铸 uuid、把 uuid 登记进宿主队列（`registerPushedCommand`），再用 `buildCommandLifecycleRow({ …, state: 'queued' })` 造一行，行交给 `input.forwardFrames({ transformedMessage: row, sessionId, normalizeMessage: input.context.normalizeMessage, writer: input.writer })`（**`:227`**）；`started` / `cancelled` 行同理，由引擎的 `dequeue` / `cancel-ack` 步骤经 `server/modules/debug-agent/debug-agent.engine.ts:238` 的同一个 `forwardFrames` 出口。**「行 → 帧」的唯一位置是产品自己的归一化器**：`server/modules/providers/list/claude/claude-sessions.provider.ts:742-763` —— `raw.type === COMMAND_LIFECYCLE_ROW_TYPE || (raw.type === 'system' && raw.subtype === COMMAND_LIFECYCLE_ROW_TYPE)` 且 `readCommandLifecycleState(raw.state)` 与 `raw.command_uuid` 都非空时，产出 `kind: 'command_lifecycle'` + `commandUuid` + `commandState`，随后由 run writer 出到 socket。守卫的两半因此逐字成立：调试模块的非 tests 源码里没有一处写 wire 帧名或 `kind` 字面量（本轮该模块的改动全是**方言行**与 op），而行也确实走产品的归一化入口——`debug-agent-vocabulary-guard.test.ts` 仍绿（见 AC8）。协议面只**新增**一个客户端可见事件种类 `command_lifecycle`（两侧 `MessageKind` 各 +1，见 AC10），既有种类与 per-run 的逐帧契约未动（AC9）。
+
+**(c) 三条假形态（各自实测，登记 diff 后用 `git checkout --` 还原到绿）。**
+
+- **(a) 常驻会话仍走本地排队**：把 `src/modules/chat/hooks/useChatComposerState.ts:705` 的 `busySendToResidentProcess` 整个表达式替换为 `false`（等价于「常驻例外从未加过」）。判据退出 **1**，红**落在 AC2 那条断言**，逐字：`Error: a resident session must not fall back to the browser's own queue` / `expect(received).toBe(expected)` / `Expected: 0` / `Received: 1`（`e2e/resident-busy-send.spec.ts:645`，打印 `resident.queuedCard=1`）。
+- **(b) 撤回只在前端隐藏**：`src/modules/chat/ChatInterface.tsx` 的 `handleWithdrawResidentCommand` 里整块删掉 `sendMessage({ type: 'chat.cancel-queued', … })`，并让 `src/modules/chat/transcript/PendingResidentMessage.tsx` 用本地 state 立刻画已撤回态。判据退出 **1**，红**落在 AC3 的 `cancelPayloads >= 1` 那条断言**，逐字：`Error: the click must reach the process that holds the command (cancelPayloads >= 1)` / `Expected: >= 1` / `Received: 0`（`e2e/resident-busy-send.spec.ts:677`，poll 计时 10s 到期）。
+- **(c) 点击即标「已撤回」**：只留 `PendingResidentMessage.tsx` 的本地 state（`if (state === 'cancelled' || withdrawnLocally)` 直接画已撤回态，不等宿主的 `cancelled`）。判据退出 **1**，红**落在 AC3 的 `ui.withdrawnBeforeEvent=false` 那条断言**，逐字：`Error: a request is not a withdrawal: the row must not claim one yet` / `Expected: 0` / `Received: 1`（`e2e/resident-busy-send.spec.ts:691`；并列读数为 `withdraw.visibleBefore=true`、`click.dispatched=true`、`ui.withdrawnBeforeEvent=true`，即帧确实发出去了、只是界面抢在判决之前宣告了结果）。
+
+三条各自还原后判据回到 **0**（`elapsed=35402ms`），树在还原后 `git status --short` 干净。
+
+**(d) 未实现（明确不在本条内）。** AC-163 的驱动侧写入路径与撤回缝（本条只**消费** `chat.cancel-queued` verb 与 `command_lifecycle` 的解析，未改 `server/modules/websocket/services/chat-websocket.service.ts`）；AC-162 的真实 Claude driver 无人轮（本条要的「无人轮进行中」由替身已有的 `unattended-turn` op 造，未动真实 driver 的无人轮）；AC-165 的空闲关闭。三者本轮均未改动。
+
+**顺带登记（不在本条判据面内，未修）：** `src/modules/i18n/locales/en/chat.json` 有两个顶层 `resident` 键（第 2 行与第 390 行），`JSON.parse` 只保留后一个，`resident.toggle` 与 `resident.notice.{title,bypass,trustBoundary,acknowledge}` 因此被遮蔽；`zh-CN/chat.json` 同形（第 2 行与第 311 行）。本条新增的 `resident.pending.*` 落在后一个 `resident` 里，运行期读得到；被遮蔽的是前一个。这是既有缺陷，属另案。

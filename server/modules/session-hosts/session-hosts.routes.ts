@@ -38,6 +38,18 @@ type HostView = {
   pid: number | null;
   startedAt: number;
   closeReason: ProcessHost['closeReason'];
+  /**
+   * The extra fact `closeReason` carries, or null when it carries none.
+   *
+   * Published because it is the only thing that tells a process that exited
+   * from one that was stopped: `closeReason: 'exited'` says the process ended on
+   * its own, and this says whether it was killed for memory (`oom`), died of a
+   * signal, or failed — which is the difference between a banner the user can
+   * act on and one that only reports. It travels with `closeReason` in the
+   * manager's own record (set together, never one without the other), so
+   * projecting it here does not invent a state the host can be in.
+   */
+  closeDetail: ProcessHost['closeDetail'];
   bindings: BindingView[];
 };
 
@@ -493,6 +505,7 @@ function toHostView(host: ProcessHost): HostView {
     pid: host.pid,
     startedAt: host.startedAt,
     closeReason: host.closeReason,
+    closeDetail: host.closeDetail ?? null,
     bindings: [...host.bindings.values()].map(toBindingView),
   };
 }

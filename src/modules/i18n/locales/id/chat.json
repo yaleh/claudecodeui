@@ -375,4 +375,39 @@
     "escClosesModal": "Esc menutup modal.",
     "close": "Tutup"
   }
+,
+  "resident": {
+    "pending": {
+      "annotation": "Akan diproses setelah jawaban ini selesai",
+      "started": "Mulai diproses",
+      "withdraw": "Tarik kembali",
+      "withdrawn": "Ditarik kembali"
+    },
+    "statusBar": {
+      "unstarted": "Residen · Tidak berjalan ({{reason}})",
+      "idle": "Residen · Idle",
+      "busy": "Residen · Berjalan",
+      "exited": "Proses residen telah berakhir ({{detail}})",
+      "start": "Mulai",
+      "restart": "Mulai Ulang",
+      "close": "Tutup proses residen",
+      "copyAddress": "Salin alamat",
+      "copied": "Disalin",
+      "address": "Alamat",
+      "counts": {
+        "turn": "Respons berjalan",
+        "background-task": "Tugas latar belakang",
+        "monitor": "Pemantau",
+        "cron": "Tugas terjadwal",
+        "resident-policy": "Sesi residen"
+      }
+    },
+    "divider": {
+      "cron": "⏰ Tugas terjadwal · {{time}}",
+      "crossSession": "✉ Pesan antarsesi dari {{sender}} · {{time}}",
+      "backgroundTask": "📡 Notifikasi pemantau · {{time}}",
+      "unknown": "Bukan dari pengguna"
+    },
+    "stopResident": "Hentikan balasan ini (proses dan tugas terjadwal tetap berjalan)"
+  }
 }

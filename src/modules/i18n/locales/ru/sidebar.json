@@ -127,6 +127,16 @@
     "updateAvailable": "Доступно обновление",
     "restartRequired": "Обновление установлено — перезапустите сервер для применения"
   },
+  "running": {
+    "groupRunning": "Выполняется",
+    "groupResidentIdle": "Резидентный (простой)",
+    "close": "Закрыть",
+    "closeLabel": "Закрыть резидентный сеанс {{title}}",
+    "badgeLabel": "Выполняется сеансов: {{n}}",
+    "emptyTitle": "Нет выполняющихся сеансов",
+    "emptyDescription": "Активная работа появится здесь, пока провайдер её обрабатывает.",
+    "noMatchingSessions": "Нет сеансов, соответствующих этому поиску."
+  },
   "search": {
     "modeProjects": "Проекты",
     "modeConversations": "Разговоры",
@@ -143,7 +153,10 @@
     "projectsScanned_one": "{{count}} проект просканирован",
     "projectsScanned_few": "{{count}} проекта просканировано",
     "projectsScanned_many": "{{count}} проектов просканировано",
-    "projectsScanned_other": "{{count}} проектов просканировано"
+    "projectsScanned_other": "{{count}} проектов просканировано",
+    "runningPlaceholder": "Поиск выполняющихся сеансов...",
+    "runningTooltip": "Выполняющиеся сеансы",
+    "modeRunning": "Выполняется"
   },
   "deleteConfirmation": {
     "deleteProject": "Убрать проект",
@@ -165,5 +178,13 @@
   },
   "resizeHandle": {
     "label": "Изменить ширину боковой панели"
+  },
+  "resident": {
+    "mark": {
+      "unstarted": "Сеанс резидента, не запущен",
+      "idle": "Сеанс резидента, простой",
+      "busy": "Сеанс резидента, выполняется",
+      "exited": "Процесс резидента завершён"
+    }
   }
 }

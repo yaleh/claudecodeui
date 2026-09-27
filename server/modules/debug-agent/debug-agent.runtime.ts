@@ -2,11 +2,17 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import type { AnyRecord } from '@/shared/types.js';
+import type { AnyRecord, CommandLifecycleState, MessageOrigin } from '@/shared/types.js';
+import { COMMAND_LIFECYCLE_ROW_TYPE } from '@/shared/types.js';
 import { AppError, readObjectRecord } from '@/shared/utils.js';
 
 import { getDebugAgentProjectsRoot } from './debug-agent.gate.js';
-import { loadScenario, type DebugAgentScenario } from './debug-agent.scenario.js';
+import {
+  loadScenario,
+  resolveScenarioLifecycleMode,
+  type DebugAgentLifecycleMode,
+  type DebugAgentScenario,
+} from './debug-agent.scenario.js';
 
 /**
  * The debug agent's transcript face: the claude dialect's row shapes, the file
@@ -33,6 +39,23 @@ type DebugAgentMessageRowInput = {
   uuid: string;
   parentUuid: string | null;
   timestamp: string;
+  /**
+   * What started this turn, for a turn nobody typed.
+   *
+   * The one field on these rows that the claude dialect does not have, and it is
+   * here because the dialect has nowhere else to put it: a turn the host layer
+   * opened is, on the wire and on disk, a `user` row with a prompt, and the only
+   * thing that tells it apart from a turn a person typed is the cause the
+   * scenario stated. Writing it as a row field keeps it where every other fact
+   * about the message is — and the provider that owns this dialect is what lifts
+   * it onto the normalized message, so nothing downstream has to know it was ever
+   * a row field.
+   *
+   * Omitted (not `undefined`-valued) for a typed turn, so a row written by a
+   * person and a row written by the host layer differ on disk rather than only
+   * in the reader's interpretation.
+   */
+  origin?: MessageOrigin;
 };
 
 /**
@@ -50,6 +73,7 @@ export function buildMessageRow(input: DebugAgentMessageRowInput): AnyRecord {
     sessionId: input.sessionId,
     cwd: input.cwd,
     timestamp: input.timestamp,
+    ...(input.origin ? { origin: input.origin } : {}),
     message: {
       role: input.role,
       content: [{ type: 'text', text: input.text }],
@@ -69,6 +93,38 @@ export function buildTitleRow(input: { sessionId: string; cwd: string; title: st
     cwd: input.cwd,
     timestamp: input.timestamp,
     customTitle: input.title,
+  };
+}
+
+/**
+ * Builds the row that says where one pushed command is in the CLI's own queue.
+ *
+ * The row's type is the dialect's, taken from the shared vocabulary rather than
+ * written out here: this module may not name a wire kind or event (ADR-003
+ * decision 7, enforced by `tests/debug-agent-vocabulary-guard.test.ts`), and the
+ * dialect's `command_lifecycle` row is exactly the kind of name that is both
+ * the artifact's field and the frame's kind. Importing the dialect's own name
+ * keeps "which string is this?" answerable in one place, and keeps the
+ * row → frame mapping where it belongs — in the product's normalizer.
+ *
+ * `command_uuid` is the uuid the host assigned when it wrote the command, and
+ * the CLI echoes it back verbatim; it is what makes a pushed message and this
+ * row the same object to every reader downstream.
+ */
+export function buildCommandLifecycleRow(input: {
+  sessionId: string;
+  cwd: string;
+  commandUuid: string;
+  state: CommandLifecycleState;
+  timestamp: string;
+}): AnyRecord {
+  return {
+    type: COMMAND_LIFECYCLE_ROW_TYPE,
+    sessionId: input.sessionId,
+    cwd: input.cwd,
+    timestamp: input.timestamp,
+    command_uuid: input.commandUuid,
+    state: input.state,
   };
 }
 
@@ -251,6 +307,25 @@ export type DebugAgentArmInput = {
    * list, select or send to.
    */
   synchronizeTranscript: (filePath: string) => Promise<string | null>;
+  /**
+   * Records the mode the seeded session is stored under, once the indexer has
+   * created its row.
+   *
+   * Called after the row exists because the stored mode is a column on it, and
+   * before the caller can start a run because the mode is read at dispatch
+   * time: a run started against a session still stored `per-run` would take the
+   * per-run path no matter what the scenario seeded.
+   *
+   * Optional, and a scenario seeding `resident` with no seam wired is REFUSED
+   * rather than run: the document asked for a process lifetime this build has
+   * nowhere to record, and a run that quietly proceeded would produce the
+   * per-run substitute under a document that says otherwise — a reading nobody
+   * could attribute to a cause.
+   */
+  setSessionLifecycleMode?: (input: {
+    appSessionId: string;
+    mode: DebugAgentLifecycleMode;
+  }) => void;
 };
 
 /** Armed scenarios, keyed by the session id a run is started for. */
@@ -304,6 +379,24 @@ export async function armDebugAgentScenario(input: DebugAgentArmInput): Promise<
       `the seeded transcript was not indexed as "${providerSessionId}" (the indexer said ${JSON.stringify(indexedSessionId)}), so the session would not be listable`,
     );
   }
+
+  // The mode is written after the index and before anything can run, and the
+  // refusal is about the build rather than the document: `per-run` is what an
+  // unseamed build already does, so only a seeded `resident` needs somewhere to
+  // put it. Read through the resolver, not off the field: a seed with no mode at
+  // all asks for `per-run` and must not be refused for having asked nothing.
+  const lifecycleMode = resolveScenarioLifecycleMode(scenario.seed);
+
+  if (lifecycleMode !== 'per-run' && !input.setSessionLifecycleMode) {
+    return refuse(
+      `seed.lifecycleMode is ${JSON.stringify(lifecycleMode)} but this build has nowhere to record it, so the session would run as "per-run" instead`,
+    );
+  }
+
+  input.setSessionLifecycleMode?.({
+    appSessionId: providerSessionId,
+    mode: lifecycleMode,
+  });
 
   const armed: ArmedDebugAgentScenario = {
     sessionId: providerSessionId,

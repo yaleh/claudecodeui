@@ -284,4 +284,39 @@
     "cancel": "Annulla messaggio programmato",
     "dismiss": "Ignora l'avviso di errore"
   }
+,
+  "resident": {
+    "pending": {
+      "annotation": "Verrà gestito al termine di questa risposta",
+      "started": "Elaborazione avviata",
+      "withdraw": "Ritira",
+      "withdrawn": "Ritirato"
+    },
+    "statusBar": {
+      "unstarted": "Residente · Non in esecuzione ({{reason}})",
+      "idle": "Residente · Inattivo",
+      "busy": "Residente · In esecuzione",
+      "exited": "Il processo residente è terminato ({{detail}})",
+      "start": "Avvia",
+      "restart": "Riavvia",
+      "close": "Chiudi il processo residente",
+      "copyAddress": "Copia indirizzo",
+      "copied": "Copiato",
+      "address": "Indirizzo",
+      "counts": {
+        "turn": "Risposta in corso",
+        "background-task": "Attività in background",
+        "monitor": "Monitoraggi",
+        "cron": "Attività pianificate",
+        "resident-policy": "Sessione residente"
+      }
+    },
+    "divider": {
+      "cron": "⏰ Attività pianificata · {{time}}",
+      "crossSession": "✉ Messaggio tra sessioni da {{sender}} · {{time}}",
+      "backgroundTask": "📡 Notifica di monitoraggio · {{time}}",
+      "unknown": "Non avviata dall’utente"
+    },
+    "stopResident": "Ferma questa risposta (il processo e le attività pianificate restano)"
+  }
 }

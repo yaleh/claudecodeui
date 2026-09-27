@@ -65,6 +65,7 @@ import {
     getDebugAgentGateReason,
     mountDebugAgentControlPlane,
     registerDebugAgentControlPlaneRoutes,
+    setDebugAgentOpenRun,
 } from './modules/debug-agent/index.js';
 import { browserUseService } from './modules/browser-use/browser-use.service.js';
 import { initializeDatabase, sessionsDb } from './modules/database/index.js';
@@ -148,6 +149,35 @@ createWebSocketServer(server, {
 // here. Without this, an unattended turn is still carried (its frames go to the
 // last writer, as before the seam existed); it is simply not a run.
 sessionHostManager.setUnattendedRunOpener((input) => chatRunRegistry.openUnattendedRun(input));
+
+// The debug agent's half of the same seam, and deliberately the *same* route: a
+// scenario's unattended turn opens a run by asking the session-host manager,
+// which asks the opener installed just above. Nothing here knows what a run is —
+// it hands over the four facts the manager's opener takes and returns the writer
+// it answered with, so a debug turn is a run by exactly the path a real resident
+// process's turn is.
+//
+// The provider id is cast for the reason ADR-003 decision 2 gives: the runtime
+// id is deliberately not in `LLMProvider`, and the run record carries the union
+// because every other caller's provider is in it. The cast is the seam's, not a
+// claim that the union has a new member.
+setDebugAgentOpenRun((input) =>
+    sessionHostManager.openUnattendedRun({
+        provider: DEBUG_AGENT_PROVIDER_ID as LLMProvider,
+        appSessionId: input.appSessionId,
+        // The provider-native id is the id the fixture transcript was indexed
+        // under, and for an armed scenario it equals the app session id — the
+        // rows carry the same value the session row does.
+        providerSessionId: input.appSessionId,
+        // A turn nobody asked for has no user to report to; the frames are
+        // buffered for replay and readable as history whoever opens them.
+        userId: null,
+        // Nor is there a conversation title to carry: the session is already
+        // named by the fixture, and a run that invented one would be reporting a
+        // name no listing ever showed.
+        sessionName: null,
+    })?.writer ?? null,
+);
 
 app.use(cors({ exposedHeaders: ['X-Refreshed-Token', 'X-Auth-Error'] }));
 app.use(express.json({
@@ -282,6 +312,24 @@ if (mountDebugAgentControlPlane(app, authenticateToken)) {
             );
         },
         resolveProvider: () => providerRegistry.resolveProvider(DEBUG_AGENT_PROVIDER_ID),
+        // Read off the run registry rather than off the host layer: "a run was
+        // opened" is the registry's fact, and the debug agent's unattended turn
+        // opens one through the very seam above. A session with no run answers
+        // null, which is what the control plane already has to handle.
+        readRunSource: (sessionId) => chatRunRegistry.getRun(sessionId)?.source ?? null,
+        // The one write this face makes outside the transcript: a scenario's
+        // seed names the lifetime its session is stored under, and the row is
+        // only there once the arming step has indexed it — which is why this is
+        // called from inside `armDebugAgentScenario` rather than before it.
+        // Written straight through the repository rather than through
+        // `switchSessionLifecycleMode`, because that service refuses a mode the
+        // session's provider has not declared and this provider is deliberately
+        // not in `LLMProvider`: the declaration it would be checked against is
+        // the driver's own (`lifecycleModes`), which is what makes the seeded
+        // mode honourable rather than aspirational.
+        setSessionLifecycleMode: ({ appSessionId, mode }) => {
+            sessionsDb.setSessionLifecycleMode(appSessionId, mode);
+        },
     });
     console.log(
         `[DEBUG-AGENT] control plane mounted at ${DEBUG_AGENT_CONTROL_PLANE_PATH} (${getDebugAgentGateReason()})`,

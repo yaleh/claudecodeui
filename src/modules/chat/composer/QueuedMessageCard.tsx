@@ -21,7 +21,14 @@ export default function QueuedMessageCard({
   const { t } = useTranslation('chat');
 
   return (
-    <div className="settings-content-enter mx-auto mb-2 max-w-[54.25rem] rounded-xl rounded-t-none border border-dashed border-primary/25 bg-primary/[0.04] px-3 py-2">
+    <div
+      // The card's own name, for readers that have to count these. It is the one
+      // mark that says "this message is waiting for the browser to send it" —
+      // what this component *is* — rather than a class name or a sentence, both
+      // of which change for reasons that have nothing to do with that.
+      data-queued-message-card="true"
+      className="settings-content-enter mx-auto mb-2 max-w-[54.25rem] rounded-xl rounded-t-none border border-dashed border-primary/25 bg-primary/[0.04] px-3 py-2"
+    >
       <div className="flex items-start gap-2.5">
         <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60" aria-hidden />
 

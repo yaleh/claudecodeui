@@ -82,9 +82,17 @@ const USER_ID = 1;
  * projection that quietly grew an internal field (or dropped `closeReason`)
  * would still satisfy "the fields I asked for are there", and the client's
  * contract is the whole element, not a subset of it.
+ *
+ * `closeDetail` is part of the element for the same reason `peerName` is part of
+ * the binding below: it is the half of "the process ended by itself" that says
+ * WHICH ending (`oom` / `signal` / `error`), the manager holds it on a field a
+ * client cannot reach, and the status bar's exited banner is the consumer. It is
+ * null whenever `closeReason` is null or carries no detail, so the key is always
+ * present and the element shape does not vary by state.
  */
 const HOST_VIEW_KEYS = [
   'bindings',
+  'closeDetail',
   'closeReason',
   'hostId',
   'mode',

@@ -320,4 +320,39 @@
     "cancel": "取消排程訊息",
     "dismiss": "關閉失敗提示"
   }
+,
+  "resident": {
+    "pending": {
+      "annotation": "將在目前回答結束後處理",
+      "started": "已開始處理",
+      "withdraw": "撤回",
+      "withdrawn": "已撤回"
+    },
+    "statusBar": {
+      "unstarted": "常駐 · 未執行（{{reason}}）",
+      "idle": "常駐 · 閒置",
+      "busy": "常駐 · 執行中",
+      "exited": "常駐行程已結束（{{detail}}）",
+      "start": "啟動",
+      "restart": "重新啟動",
+      "close": "關閉常駐行程",
+      "copyAddress": "複製位址",
+      "copied": "已複製",
+      "address": "位址",
+      "counts": {
+        "turn": "執行中的回合",
+        "background-task": "背景工作",
+        "monitor": "監視器",
+        "cron": "排程工作",
+        "resident-policy": "常駐工作階段"
+      }
+    },
+    "divider": {
+      "cron": "⏰ 排程工作 · {{time}}",
+      "crossSession": "✉ 來自 {{sender}} 的跨工作階段訊息 · {{time}}",
+      "backgroundTask": "📡 監視器通知 · {{time}}",
+      "unknown": "非使用者發起"
+    },
+    "stopResident": "停止本次回覆（行程與排程工作繼續）"
+  }
 }

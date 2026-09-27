@@ -2,7 +2,13 @@ import crypto from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import type { IProviderSessions } from '@/shared/interfaces.js';
-import type { AnyRecord, NormalizedMessage, ProviderRuntimeWriter } from '@/shared/types.js';
+import type {
+  AnyRecord,
+  CommandLifecycleState,
+  MessageOrigin,
+  NormalizedMessage,
+  ProviderRuntimeWriter,
+} from '@/shared/types.js';
 import { AppError } from '@/shared/utils.js';
 
 import {
@@ -15,6 +21,7 @@ import {
 } from './debug-agent.scenario.js';
 import {
   appendTranscriptRow,
+  buildCommandLifecycleRow,
   buildMessageRow,
   growRowText,
   readTranscriptLines,
@@ -89,9 +96,46 @@ export type DebugAgentFrameForwarder = (input: {
  * business, not the scenario's.
  */
 export type DebugAgentHostOps = {
-  openUnattendedTurn(input: { appSessionId: string; text: string }): Promise<ProviderRuntimeWriter>;
+  /**
+   * Opens a turn for a session with no client behind it.
+   *
+   * `runId` is what the turn's `turn` lease is held under, minted here because
+   * the run id is the engine's to name: the step is what decided a turn exists,
+   * and a host layer that invented an id would be reporting a turn under a name
+   * nothing else in the run used.
+   */
+  openUnattendedTurn(input: {
+    appSessionId: string;
+    text: string;
+    runId: string;
+  }): Promise<ProviderRuntimeWriter>;
+  /** Reports that the turn opened above has ended. Distinct from stopping it. */
+  endUnattendedTurn(input: { appSessionId: string }): Promise<void>;
   addKeepalive(input: { appSessionId: string; kind: DebugAgentKeepaliveKind }): Promise<void>;
   removeKeepalive(input: { appSessionId: string; kind: DebugAgentKeepaliveKind }): Promise<void>;
+  /**
+   * Takes the oldest command the process is holding that has not been started or
+   * withdrawn, and reports its uuid; null when the queue is empty.
+   *
+   * Reads AND removes: the command it names is the one the process just started,
+   * and a reader that left it in place would hand the next `dequeue` the same
+   * command twice. The uuid is the host's, which is why the engine asks for it
+   * here rather than reading it off the step — a scenario cannot name a value it
+   * never minted.
+   */
+  readOldestQueuedCommand(input: { appSessionId: string }): string | null;
+  /**
+   * Acts on the withdrawal most recently asked for: drops that command from the
+   * queue and reports its uuid, or null when nothing is waiting to be cancelled.
+   *
+   * Splitting "the withdrawal arrived" from "the process acted on it" is the
+   * point of the step: only the second one produces the `cancelled` fact, and a
+   * caller that could not place the two apart could not tell a UI that waited
+   * for the process from one that flipped the moment the button was clicked.
+   */
+  acknowledgeCancel(input: { appSessionId: string }): string | null;
+  /** Reports the address the process answers to, for the popover's copy leg. */
+  reportIdentity(input: { appSessionId: string; name: string }): Promise<void>;
   reportExit(input: { appSessionId: string; detail: DebugAgentExitDetail }): Promise<void>;
 };
 
@@ -194,7 +238,7 @@ export async function runDebugAgentScenario(input: DebugAgentRunInput): Promise<
     forwardFrames({ transformedMessage: row, sessionId, normalizeMessage, writer: delivery });
   };
 
-  const appendRow = (role: string, text: string): void => {
+  const appendRow = (role: string, text: string, origin?: MessageOrigin): void => {
     // The new row chains onto whatever is on disk right now, so the transcript
     // keeps the parent/uuid links the dialect's readers expect.
     const parent = readTranscriptShape(transcriptPath).lastRow;
@@ -205,6 +249,37 @@ export async function runDebugAgentScenario(input: DebugAgentRunInput): Promise<
       text,
       uuid: crypto.randomUUID(),
       parentUuid: typeof parent?.uuid === 'string' ? parent.uuid : null,
+      timestamp: new Date().toISOString(),
+      // Carried onto the row, never onto a frame: what the trigger and the
+      // sender mean on the wire is the normalizer's reading of this field (see
+      // `debug-agent.runtime.ts`). An engine that built a frame itself would be
+      // the second implementation ADR-003 decision 7 forbids.
+      ...(origin ? { origin } : {}),
+    });
+
+    appendTranscriptRow(transcriptPath, row);
+    forward(row);
+  };
+
+  /**
+   * Writes one command's queue state and forwards the frame it normalizes to.
+   *
+   * The same row-then-frame order `appendRow` keeps, and for the same reason: a
+   * client told "this command started" before the transcript said so would be
+   * reading a live conversation whose history disagrees with it.
+   *
+   * This is the engine's ONLY way to state a queue fact, and it exists as its own
+   * helper rather than as a branch of `appendRow` because the two write different
+   * rows: a message row is a turn, and a lifecycle row is a statement about one
+   * that has not run. `buildCommandLifecycleRow` decides the latter's shape, so
+   * the dialect's field names stay in the runtime module (ADR-003 decision 4).
+   */
+  const appendCommandLifecycle = (commandUuid: string, state: CommandLifecycleState): void => {
+    const row = buildCommandLifecycleRow({
+      sessionId,
+      cwd,
+      commandUuid,
+      state,
       timestamp: new Date().toISOString(),
     });
 
@@ -231,9 +306,70 @@ export async function runDebugAgentScenario(input: DebugAgentRunInput): Promise<
         // answered with. An engine that opened its own run would be reporting a
         // turn the host layer never saw, which is the difference this step
         // exists to make measurable.
-        delivery = await requireHostOps(hostOps).openUnattendedTurn({ appSessionId, text: step.text });
+        //
+        // The lease is named before the row is written, so a reader that polls
+        // between the two writes sees a turn whose content is still landing
+        // rather than a session that has not started one.
+        const runId = crypto.randomUUID();
+        // A turn that states no cause writes a row with no `origin` at all,
+        // rather than one whose cause is null: absent and "stated as nothing"
+        // are the same reading to every consumer, and the omission keeps the row
+        // byte-identical to the one this step wrote before it could carry a
+        // cause.
+        const origin: MessageOrigin | undefined = step.trigger
+          ? {
+              trigger: step.trigger,
+              // The sender is the step's own statement about who sent this, and
+              // it is only meaningful for the one trigger that has another
+              // conversation behind it — the loader refuses a sender on any
+              // other, so this is a narrowing rather than a rule applied twice.
+              sender: step.trigger === 'cross-session' ? (step.sender ?? null) : null,
+            }
+          : undefined;
+        delivery = await requireHostOps(hostOps).openUnattendedTurn({
+          appSessionId,
+          text: step.text,
+          runId,
+        });
         input.onDelivery?.(delivery);
-        appendRow('user', step.text);
+        appendRow('user', step.text, origin);
+        break;
+      }
+
+      case 'dequeue': {
+        // The process took the command it had been holding and started it. What
+        // it writes is the queue's account of that and nothing else: the
+        // substitute never runs a pushed command's turn, so writing the turn's
+        // own row would be claiming output that does not exist.
+        const dequeued = requireHostOps(hostOps).readOldestQueuedCommand({ appSessionId });
+        if (dequeued) {
+          appendCommandLifecycle(dequeued, 'started');
+        }
+        break;
+      }
+
+      case 'cancel-ack': {
+        // The process acted on the withdrawal. A no-op when nothing is waiting:
+        // the step is on the clock whether or not a client ever asked, and a
+        // scenario whose document is the same for a withdrawn and a
+        // never-clicked run must not fail halfway through for the second one.
+        const cancelled = requireHostOps(hostOps).acknowledgeCancel({ appSessionId });
+        if (cancelled) {
+          appendCommandLifecycle(cancelled, 'cancelled');
+        }
+        break;
+      }
+
+      case 'turn-end': {
+        // Writes nothing. The step exists to place "the turn that was running
+        // has finished" on the clock, which is the 空闲 state, and the host
+        // layer is the only place that fact is true.
+        await requireHostOps(hostOps).endUnattendedTurn({ appSessionId });
+        break;
+      }
+
+      case 'identity': {
+        await requireHostOps(hostOps).reportIdentity({ appSessionId, name: step.name });
         break;
       }
 

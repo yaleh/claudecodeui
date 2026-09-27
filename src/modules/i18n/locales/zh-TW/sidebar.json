@@ -126,6 +126,16 @@
     "updateAvailable": "有可用更新",
     "restartRequired": "已安裝更新 — 請重新啟動伺服器以套用"
   },
+  "running": {
+    "groupRunning": "正在執行",
+    "groupResidentIdle": "常駐（閒置）",
+    "close": "關閉",
+    "closeLabel": "關閉常駐工作階段 {{title}}",
+    "badgeLabel": "{{n}} 個正在執行的工作階段",
+    "emptyTitle": "沒有正在執行的會話",
+    "emptyDescription": "供應商處理時，進行中的工作會顯示在這裡。",
+    "noMatchingSessions": "沒有符合此搜尋的工作階段。"
+  },
   "search": {
     "modeProjects": "專案",
     "modeConversations": "對話",
@@ -138,7 +148,10 @@
     "matches_one": "{{count}} 個符合",
     "matches_other": "{{count}} 個符合",
     "projectsScanned_one": "{{count}} 個專案已掃描",
-    "projectsScanned_other": "{{count}} 個專案已掃描"
+    "projectsScanned_other": "{{count}} 個專案已掃描",
+    "runningPlaceholder": "搜尋正在執行的工作階段...",
+    "runningTooltip": "正在執行的工作階段",
+    "modeRunning": "正在執行"
   },
   "deleteConfirmation": {
     "deleteProject": "移除專案",
@@ -158,5 +171,13 @@
   },
   "resizeHandle": {
     "label": "調整側邊欄寬度"
+  },
+  "resident": {
+    "mark": {
+      "unstarted": "常駐工作階段，未執行",
+      "idle": "常駐工作階段，閒置",
+      "busy": "常駐工作階段，執行中",
+      "exited": "常駐行程已結束"
+    }
   }
 }

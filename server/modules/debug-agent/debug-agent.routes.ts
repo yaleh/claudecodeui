@@ -8,16 +8,20 @@ import { AppError, asyncHandler, createApiSuccessResponse, readObjectRecord } fr
 
 import { evaluateScenarioExpectations, type DebugAgentRunReading } from './debug-agent.engine.js';
 import { debugAgentControlPlaneRouter, readDebugAgentGate } from './debug-agent.gate.js';
+import type { DebugAgentHostDriver } from './debug-agent.host-driver.js';
 import {
   armDebugAgentScenario,
   readArmedDebugAgentScenario,
   type ArmedDebugAgentScenario,
 } from './debug-agent.runtime.js';
+import type { DebugAgentLifecycleMode } from './debug-agent.scenario.js';
 
 /**
  * The debug agent's dev-only control plane: the HTTP endpoints behind the three
  * operations ADR-003 decision 1 names — arm a scenario, advance the clock, read
- * the engine's self-check result.
+ * the engine's self-check result — plus the one read the busy-send criterion
+ * needs of a process rather than of an artifact: what that process is holding in
+ * its queue (`GET /queue`).
  *
  * Why HTTP, and nothing else (decision 6). None of the three needs server push,
  * so a WebSocket would buy a handshake, an auth path and reconnect semantics for
@@ -77,6 +81,36 @@ export type DebugAgentControlPlaneSeams = {
    * product normalizes them.
    */
   resolveProvider(): IProvider;
+  /**
+   * What opened the run this session currently has, or `null` when it has none.
+   *
+   * The one fact about an unattended turn that the transcript cannot show: the
+   * rows it wrote are on disk and readable by anyone, but "a *run* was opened
+   * for it, by the host layer, and not by a client" lives in the run registry.
+   * Published here so a criterion can read it off the same HTTP face that drove
+   * the scenario, which is what makes "the turn really opened a run" a reading
+   * about the production path rather than about a seam the criterion wired
+   * itself.
+   *
+   * Optional, and an absent reader answers `null`: the seams object is built by
+   * the composition root, and a criterion that drives this face without a run
+   * registry (the control-plane criterion does) has no runs to report. `null`
+   * says exactly that and is what the caller already has to handle for a session
+   * whose turn opened none.
+   */
+  readRunSource?(sessionId: string): string | null;
+  /**
+   * Stores the lifecycle mode an armed scenario's seed asks for.
+   *
+   * Injected for the reason every other seam here is: the column belongs to the
+   * sessions module, which this one may not import. Optional, and an absent
+   * writer refuses a scenario that seeds `resident` — see
+   * `DebugAgentArmInput.setSessionLifecycleMode`.
+   */
+  setSessionLifecycleMode?(input: {
+    appSessionId: string;
+    mode: DebugAgentLifecycleMode;
+  }): void;
 };
 
 /**
@@ -96,10 +130,11 @@ type DebugAgentRunRecord = {
 /** Run records, keyed by the session id the scenario was armed under. */
 const runRecords = new Map<string, DebugAgentRunRecord>();
 
-/** The three actions, as paths under {@link DEBUG_AGENT_CONTROL_PLANE_PATH}. */
+/** The actions, as paths under {@link DEBUG_AGENT_CONTROL_PLANE_PATH}. */
 const SCENARIOS_PATH = '/scenarios';
 const CLOCK_PATH = '/clock';
 const SELF_CHECK_PATH = '/self-check';
+const QUEUE_PATH = '/queue';
 
 function refuse(message: string, code: string, statusCode: number): never {
   throw new AppError(message, { code, statusCode });
@@ -205,6 +240,9 @@ export function registerDebugAgentControlPlaneRoutes(seams: DebugAgentControlPla
         projectPath,
         scenario: body?.scenario,
         synchronizeTranscript: (filePath) => provider.sessionSynchronizer.synchronizeFile(filePath),
+        ...(seams.setSessionLifecycleMode
+          ? { setSessionLifecycleMode: seams.setSessionLifecycleMode }
+          : {}),
       });
 
       res.json(createApiSuccessResponse({
@@ -258,6 +296,10 @@ export function registerDebugAgentControlPlaneRoutes(seams: DebugAgentControlPla
         transcriptPath: armed.transcriptPath,
         frames: frames.length,
         reading,
+        // Read after the walk, because the run this reports is opened *by* a
+        // step in it. A completed run stays in the registry, so a turn that
+        // already ended is still the answer to "what opened the last one".
+        runSource: seams.readRunSource?.(armed.sessionId) ?? null,
       }));
     }),
   );
@@ -305,6 +347,35 @@ export function registerDebugAgentControlPlaneRoutes(seams: DebugAgentControlPla
         grows: evaluation.grows,
         lastRowGrew: evaluation.lastRowGrew,
         failures: evaluation.failures,
+      }));
+    }),
+  );
+
+  // What the process is holding, and what it did with what it was asked to take
+  // back — the only reading that can tell "the withdrawal reached the host" from
+  // "the client stopped drawing the row".
+  //
+  // Read through the provider the registry resolved, not through a second queue
+  // kept here: the queue belongs to the running process, and a copy on this side
+  // would be a reading about this endpoint rather than about the host. The driver
+  // is optional on the interface, so a provider that has none answers with empty
+  // lists rather than a 404 — "this process was handed nothing" and "this provider
+  // cannot be asked" are different facts, and only the first is what an empty
+  // queue means.
+  router.get(
+    QUEUE_PATH,
+    asyncHandler(async (req, res) => {
+      const sessionId = readQueryString(req.query.sessionId, 'sessionId');
+      const driver = seams.resolveProvider().hostDriver as Partial<DebugAgentHostDriver> | undefined;
+      const reading = driver?.readCommandQueue?.(sessionId) ?? null;
+
+      res.json(createApiSuccessResponse({
+        sessionId,
+        supported: reading !== null,
+        queued: reading?.queued ?? [],
+        withdrawRequested: reading?.withdrawRequested ?? [],
+        withdrawn: reading?.withdrawn ?? [],
+        controlResponses: reading?.controlResponses ?? [],
       }));
     }),
   );

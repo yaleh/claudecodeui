@@ -1,4 +1,10 @@
-import type { AnyRecord, HostCloseDetail, HostLease } from '@/shared/types.js';
+import type {
+  AnyRecord,
+  HostCloseDetail,
+  HostLease,
+  HostMode,
+  MessageOriginTrigger,
+} from '@/shared/types.js';
 import { AppError, readObjectRecord } from '@/shared/utils.js';
 
 /**
@@ -53,22 +59,44 @@ export type DebugAgentTranscriptMode = (typeof DEBUG_AGENT_TRANSCRIPT_MODES)[num
  * disk: they exist so a scenario can express the passage of time and a
  * follow-along intent without inventing a frame to carry them.
  *
- * The four host steps are the same kind of statement about a different seam.
+ * The host steps are the same kind of statement about a different seam.
  * `unattended-turn` opens a run for the session with no client behind it and
  * delivers the turn through the host — the row it writes is the turn's own user
- * row, so the step changes the transcript as well. `keepalive-add` and
+ * row, so the step changes the transcript as well, and the trigger it carries is
+ * what the row's `origin` says the turn was for. `keepalive-add` and
  * `keepalive-remove` report a reason the process is held open besides a turn,
- * and `exit` reports that the process went away. None of them names a frame or
- * an event: they are statements about a process and a transcript, which is the
- * whole of what this document is allowed to describe.
+ * `identity` reports the address the process answers to, and `exit` reports that
+ * the process went away. None of them names a frame or an event: they are
+ * statements about a process and a transcript, which is the whole of what this
+ * document is allowed to describe.
+ *
+ * `turn-end` is the counterpart of the turn `unattended-turn` opens, and it is a
+ * step of its own rather than something the next turn implies: a process that has
+ * finished a turn and is still held open is the 空闲 state, and a scenario that
+ * could not say "this turn ended" could never place that state on the clock. It
+ * writes nothing and carries nothing, because it states an end rather than a
+ * row — the same reason `wait` is a step.
+ *
+ * `dequeue` and `cancel-ack` are the same shape of step for the CLI's own queue
+ * (`docs/proposals/claude-resident-sessions-experiments.md` §9.2): the first says
+ * the process took the oldest command it is holding and started it, the second
+ * that it acted on a withdrawal and dropped a command it had never started. Both
+ * carry nothing, because what they state is a moment on the clock for a queue
+ * whose commands the run was told about when they were pushed — the scenario
+ * cannot know a uuid the host minted at push time, which is exactly why the
+ * engine reads the queue rather than the document for these two.
  */
 export const DEBUG_AGENT_OPS = [
+  'cancel-ack',
+  'dequeue',
   'exit',
   'grow',
+  'identity',
   'keepalive-add',
   'keepalive-remove',
   'row',
   'scroll',
+  'turn-end',
   'unattended-turn',
   'wait',
 ] as const;
@@ -84,9 +112,13 @@ export type DebugAgentScenarioOp = (typeof DEBUG_AGENT_OPS)[number];
  * steps need the host" is one fact rather than a list the engine re-derives.
  */
 export const DEBUG_AGENT_HOST_OPS = [
+  'cancel-ack',
+  'dequeue',
   'exit',
+  'identity',
   'keepalive-add',
   'keepalive-remove',
+  'turn-end',
   'unattended-turn',
 ] as const satisfies readonly DebugAgentScenarioOp[];
 export type DebugAgentHostOp = (typeof DEBUG_AGENT_HOST_OPS)[number];
@@ -103,20 +135,42 @@ export type DebugAgentRole = (typeof DEBUG_AGENT_ROLES)[number];
 /**
  * The lease kinds a scenario may report a process as held for.
  *
- * These two and no others: `background-task` and `monitor` are the lease kinds
- * that describe work outliving the turn that started it, which is exactly what
- * a keepalive is. `turn` and `resident-policy` are absent because neither is a
- * scenario's to state — the first belongs to the turn in flight and the second
- * to the mode the manager opened the binding in. Typed by extraction from
- * `HostLease` rather than written out, so a lease kind renamed in the shared
- * contract breaks this file instead of producing a lease the manager cannot
- * interpret.
+ * The three lease kinds that describe work outliving the turn that started it,
+ * which is exactly what a keepalive is: a background task reporting back, a
+ * timer that will fire, a monitor with something to say. `turn` and
+ * `resident-policy` are absent because neither is a scenario's to state — the
+ * first belongs to the turn in flight and the second to the mode the manager
+ * opened the binding in. Typed by extraction from `HostLease` rather than
+ * written out, so a lease kind renamed in the shared contract breaks this file
+ * instead of producing a lease the manager cannot interpret.
+ *
+ * `cron` is here rather than left to a second vocabulary because the status bar
+ * shows one count per KIND, and the two it can name must be the two a scenario
+ * can produce. A build that could only report a monitor would have to label it
+ * "定时任务" to satisfy the section it was written for, which is exactly the
+ * second vocabulary this list exists to prevent.
  */
 export const DEBUG_AGENT_KEEPALIVE_KINDS = [
   'background-task',
+  'cron',
   'monitor',
-] as const satisfies readonly Extract<HostLease['kind'], 'background-task' | 'monitor'>[];
+] as const satisfies readonly Extract<HostLease['kind'], 'background-task' | 'cron' | 'monitor'>[];
 export type DebugAgentKeepaliveKind = (typeof DEBUG_AGENT_KEEPALIVE_KINDS)[number];
+
+/**
+ * What a scenario may say a turn was started by.
+ *
+ * Typed by extraction from the shared `MessageOriginTrigger`, so the words the
+ * transcript draws its divider with are the words the host layer reports — a
+ * scenario cannot name a cause the frontend has no label for, and a trigger
+ * added to the contract breaks this file rather than being silently unusable.
+ */
+export const DEBUG_AGENT_TURN_TRIGGERS = [
+  'background-task',
+  'cron',
+  'cross-session',
+] as const satisfies readonly MessageOriginTrigger[];
+export type DebugAgentTurnTrigger = (typeof DEBUG_AGENT_TURN_TRIGGERS)[number];
 
 /**
  * How a scenario's process reports that it went away.
@@ -139,13 +193,41 @@ export type DebugAgentExitDetail = (typeof DEBUG_AGENT_EXIT_DETAILS)[number];
  * that can go backwards cannot order two observations of the same file.
  */
 export type DebugAgentScenarioStep = { at: number } & (
+  | { op: 'cancel-ack' }
+  | { op: 'dequeue' }
   | { op: 'exit'; detail: DebugAgentExitDetail }
   | { op: 'grow'; text: string }
+  | { op: 'identity'; name: string }
   | { op: 'keepalive-add'; kind: DebugAgentKeepaliveKind }
   | { op: 'keepalive-remove'; kind: DebugAgentKeepaliveKind }
   | { op: 'row'; role: DebugAgentRole; text: string }
   | { op: 'scroll' }
-  | { op: 'unattended-turn'; text: string }
+  | { op: 'turn-end' }
+  | {
+      op: 'unattended-turn';
+      text: string;
+      /**
+       * What started the turn.
+       *
+       * Optional, and an omitted trigger is a turn that states no cause — the
+       * shape this step had before it could carry one. That is a real case and
+       * not a compatibility shim: §15.6's rule for a turn whose cause cannot be
+       * read is the same as for one that stated none (the frontend draws
+       * 「非用户触发」), and a document that wants a typed divider states the
+       * trigger. When it IS stated the closed set above validates it, so a
+       * scenario cannot name a cause the frontend has no label for.
+       */
+      trigger?: DebugAgentTurnTrigger;
+      /**
+       * The address of the session that sent this turn, for `cross-session`.
+       *
+       * Refused on any other trigger, including an absent one: only a
+       * cross-session turn has another conversation to name, and a scenario that
+       * supplied a sender to a cron trigger would be reading its own document
+       * back as a message from a session that never sent one.
+       */
+      sender?: string | null;
+    }
   | { op: 'wait' }
 );
 
@@ -166,7 +248,67 @@ export type DebugAgentScenarioExpectations = {
 export type DebugAgentScenarioSeed = {
   title: string;
   userText: string;
+  /**
+   * How the seeded session's process is meant to live, as the session row
+   * stores it.
+   *
+   * Part of the SEED rather than a step, because it is a fact about the fixture
+   * that must hold before the run starts: the resident path is chosen at
+   * dispatch time by reading the session's stored mode, so a scenario that
+   * could only state its mode midway through would have every step before that
+   * point dispatched down the per-run path — including the very turn the
+   * resident host is supposed to serve.
+   *
+   * Optional, and an absent field reads as `per-run`: that is what a session
+   * nobody has set runs as, which is what a scenario written before this field
+   * existed was describing. Typed by extraction from `HostMode` so the two
+   * members a fixture can ask for are the two the contract has.
+   *
+   * Optional on the TYPE as well as in the document, because the two are the
+   * same type: `loadScenario` fills the field in (so a loaded scenario always
+   * carries it), while a scenario literal written straight into a test omits it.
+   * Every reader therefore normalizes an absent value to `per-run` rather than
+   * reading the field raw — see `resolveScenarioLifecycleMode` below, which is
+   * the one place that does it.
+   */
+  lifecycleMode?: DebugAgentLifecycleMode;
 };
+
+/**
+ * The session lifecycle modes a scenario may seed.
+ *
+ * Both members of the shared `HostMode`, and no more: a scenario names a mode
+ * the product already knows how to honour, and a third member would be a
+ * lifetime no dispatch path could serve.
+ */
+export const DEBUG_AGENT_LIFECYCLE_MODES = [
+  'per-run',
+  'resident',
+] as const satisfies readonly HostMode[];
+export type DebugAgentLifecycleMode = (typeof DEBUG_AGENT_LIFECYCLE_MODES)[number];
+
+/**
+ * What a seed with no `lifecycleMode` runs as.
+ *
+ * The one place the default lives, so a scenario document, a scenario literal
+ * written into a test and the loader's own normalization cannot drift into three
+ * answers to "what does a seed with no mode run as". `readSeed` fills the field
+ * in for a document; {@link resolveScenarioLifecycleMode} answers the same
+ * question for a value that never went through the loader.
+ */
+const DEFAULT_LIFECYCLE_MODE: DebugAgentLifecycleMode = 'per-run';
+
+/**
+ * The mode a seed asks for, with an absent field read as
+ * {@link DEFAULT_LIFECYCLE_MODE}.
+ *
+ * Read this rather than the field: a scenario built directly (the module's own
+ * tests write `DebugAgentScenario` literals) never passed through `loadScenario`,
+ * so its seed may legitimately have no mode at all.
+ */
+export function resolveScenarioLifecycleMode(seed: DebugAgentScenarioSeed): DebugAgentLifecycleMode {
+  return seed.lifecycleMode ?? DEFAULT_LIFECYCLE_MODE;
+}
 
 /** A loaded, validated scenario. Only {@link loadScenario} produces one. */
 export type DebugAgentScenario = {
@@ -213,6 +355,23 @@ function readText(value: unknown, where: string): string {
   return refuse(`${where} must be a non-empty string`);
 }
 
+/**
+ * An optional string: absent, null and the empty string all read as "none".
+ *
+ * Written as one reading rather than three so a document that says
+ * `"sender": null` and one that omits the field mean the same thing — they are
+ * the same statement about a turn nobody sent from another session, and a
+ * loader that treated them differently would make the absence of a field
+ * expressible as two different facts.
+ */
+function readOptionalText(value: unknown, where: string): string | null {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  return readText(value, where);
+}
+
 function readStep(input: unknown, index: number): DebugAgentScenarioStep {
   const where = `steps[${index}]`;
   const step = readObjectRecord(input);
@@ -235,8 +394,32 @@ function readStep(input: unknown, index: number): DebugAgentScenarioStep {
         text: readText(step.text, `${where}.text`),
       };
     case 'grow':
-    case 'unattended-turn':
       return { at, op, text: readText(step.text, `${where}.text`) };
+    case 'unattended-turn': {
+      // Absent and null both read as "no cause stated", which is the one value
+      // the closed set below does not have to contain: the trigger is what the
+      // turn's row says about itself, and a row that says nothing is a reading
+      // the frontend already has a label for.
+      const trigger =
+        step.trigger === undefined || step.trigger === null
+          ? undefined
+          : readClosedValue(step.trigger, DEBUG_AGENT_TURN_TRIGGERS, `${where}.trigger`);
+      const sender = readOptionalText(step.sender, `${where}.sender`);
+      // A sender is only expressible on the one trigger that has another
+      // conversation behind it. Refused rather than dropped: a scenario that
+      // named a sender and got a turn with none would be reading its own
+      // document back as something it is not, which is the class of mistake the
+      // closed sets in this file exist to make impossible.
+      if (sender !== null && trigger !== 'cross-session') {
+        return refuse(
+          `${where}.sender is ${JSON.stringify(sender)} but the trigger is ${JSON.stringify(trigger)}; only "cross-session" has another conversation to name.`,
+        );
+      }
+
+      return { at, op, text: readText(step.text, `${where}.text`), trigger, sender };
+    }
+    case 'identity':
+      return { at, op, name: readText(step.name, `${where}.name`) };
     case 'keepalive-add':
     case 'keepalive-remove':
       return {
@@ -251,8 +434,12 @@ function readStep(input: unknown, index: number): DebugAgentScenarioStep {
         detail: readClosedValue(step.detail, DEBUG_AGENT_EXIT_DETAILS, `${where}.detail`),
       };
     default:
-      // `scroll` and `wait` carry nothing: they are the two steps whose whole
-      // content IS their position on the clock.
+      // `cancel-ack`, `dequeue`, `scroll`, `wait` and `turn-end` carry nothing:
+      // they are the five steps whose whole content IS their position on the
+      // clock. Their host layer reads the queue it is holding for the command a
+      // step acts on, so a document cannot name one — nor should it: the uuid is
+      // the host's to mint, and a scenario that restated it would be a second
+      // place the two could disagree.
       return { at, op } as DebugAgentScenarioStep;
   }
 }
@@ -266,6 +453,13 @@ function readSeed(input: unknown): DebugAgentScenarioSeed {
   return {
     title: readText(seed.title, 'seed.title'),
     userText: readText(seed.userText, 'seed.userText'),
+    // Absent and null both read as `per-run`, the mode a session nobody set
+    // runs as — so the field's absence states the same thing it did before the
+    // field existed rather than becoming a value a reader has to special-case.
+    lifecycleMode:
+      seed.lifecycleMode === undefined || seed.lifecycleMode === null
+        ? DEFAULT_LIFECYCLE_MODE
+        : readClosedValue(seed.lifecycleMode, DEBUG_AGENT_LIFECYCLE_MODES, 'seed.lifecycleMode'),
   };
 }
 

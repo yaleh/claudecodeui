@@ -398,6 +398,18 @@ export const api = {
     ) => post('/api/worktrees/remove', { project: projectId, worktreePath, ...options }),
   },
 
+  // The resident-process face: which processes exist, which sessions they hold,
+  // and the two verbs that ask for one to start or stop existing. The listing is
+  // the only place a client can learn a session's stored lifecycle mode, since
+  // the session rows do not carry it.
+  sessionHosts: {
+    list: () => get('/api/session-hosts'),
+    start: (sessionId: string) =>
+      post(`/api/session-hosts/${encodeURIComponent(sessionId)}/start`),
+    close: (sessionId: string) =>
+      post(`/api/session-hosts/${encodeURIComponent(sessionId)}/close`),
+  },
+
   // Provider (coding agent) endpoints — models, capabilities, sessions, MCP, skills.
   providers: {
     capabilities: () => get('/api/providers/capabilities'),
