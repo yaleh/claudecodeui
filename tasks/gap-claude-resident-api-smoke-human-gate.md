@@ -63,9 +63,32 @@ goal_ac: AC-170
 - 临时实例的 `DATABASE_PATH` 经 `/proc/<pid>/environ` 核对并写进记录；:3001 未重启；结束后无残留进程与 scope（附 `systemctl --user list-units` 与 `pgrep` 读数）。
 - **AC1–AC6 与 AC8 通过而 AC7（人工关卡）未勾时，本任务的正确终态是 `needs-human`，不是 `done`。** 记录文件里以 `冒烟验收：通过` 开头的那一行只由人 yale 写；执行者代写即为造假 —— 判据会因那一行翻绿，但它不是执行者的产物，且一旦代写，「冒烟」就失去了它作为人证的意义。
 
+## 完成记录
+
+**执行 2026-09-27（续做轮）——机械面全绿，AC7 人工关卡未勾 ⇒ 终态 needs-human（不是 done）**
+
+本轮只做三件事：逐条复验上一轮已落地的产物、补上缺失的完成记录、把分支保持在可 ff 的形状。未勾 AC7，未代写 `冒烟验收：通过` 那一行。
+
+**逐条复验（本轮直跑，读数不是推断）**
+
+- AC1：`node scripts/resident-smoke.mjs --check-record docs/proposals/claude-resident-sessions-smoke.md` → exit **0**，逐字 `记录合格：docs/proposals/claude-resident-sessions-smoke.md 六节齐全且每节都有 读数：/结论：`。
+- AC2：`node --test scripts/resident-smoke.test.mjs` → exit **0**（`tests 20 / pass 20 / fail 0`），含三条 DATABASE_PATH 护栏、3001 拒绝、`--check-record` 的缺节/缺结论/齐节三态。
+- AC3：`grep -c 'cloudcli' scripts/resident-smoke.mjs` → **0**；`grep -c -E "fetch\(|new WebSocket" scripts/resident-smoke.mjs` → **6**；**正控制** `grep -c 'cloudcli' scripts/resident-experiment.mjs` → **3**（非零 ⇒ 这条 grep 有分辨力，不是恒真）。
+- AC4/AC5/AC6：六段原始读数已在 `docs/proposals/claude-resident-sessions-smoke.md` 逐节落盘，本轮逐字读过 —— `lifecycle_mode=resident`；`pid=2597138 results=3`（同 pid 三轮、恰好 3 条终止帧）；无人轮 `seq=52`、触发类型 `background-task`、晚到听众拿到回放且可回放；`closeReason=user` 且 `/proc/2597138` 消失；`server-old-pid=2596678 → server-new-pid=2601664` 且未运行原因为非空，**同一读里 per-run 会话 reason=null**（正控制，该字段不是恒真）；`old-pid=2597138 → new-pid=2602171`（起的是新 pid）。版本与用量行同在：`claude --version = 2.1.283 (Claude Code)`、SDK `@anthropic-ai/claude-agent-sdk 0.3.165`、本次用量行（USD 逐字「未上报」—— 本机网关只回 token 用量、不回金额，不折算）。生产面读数：临时根上 pgrep/environ/scope 命中 **0**，记录里 :3001 终点读数 `listener-pid=4065026`、`systemd-main-pid=4065001`（记录自称与起点同值 ⇒ 全程未重启）。
+- AC8：`npm run lint` → exit **0**；`git diff --name-status develop...HEAD` 只列 Touches 的三个新文件（`scripts/resident-smoke.mjs`、`scripts/resident-smoke.test.mjs`、`docs/proposals/claude-resident-sessions-smoke.md`），`tasks/gap-claude-resident-api-smoke-human-gate.md` 已落在 develop 侧、不在 diff 里。
+
+**本轮有意未做的**
+
+- **AC7 未勾**：`grep -q '^冒烟验收：通过' docs/proposals/claude-resident-sessions-smoke.md` 本轮直跑 exit **1** —— 红态即正确态。那一行只能由人 yale 写；执行者代写即为造假，DoD 逐字：「一旦代写，冒烟就失去了它作为人证的意义」。因此本轮不置 done。
+- **没有重跑真模型冒烟**：DoD 与 Plan 都把这次冒烟定为**一次性人证读数**（真模型有费用），上一轮已真跑并把六段原始读数落盘；本轮复验的是「读数已落盘且脚本/护栏/记录三者自洽」，不是重跑。重跑会另起一份读数，反而使记录与本次运行对不上。
+- **没有勾任何 AC**：AC1–AC6/AC8 的勾由上一轮经 Provider ABI 落下（本轮只复验，未改任何一个勾选字符）。
+
+**给下一步的话**
+
+- 本任务在 AC1–AC6/AC8 全绿而 AC7 未勾时的正确终态是 **needs-human**（DoD 逐字）。若本轮被机械判为 exited-not-landed 并由重试上限标 needs-human，其 reason 很可能落在「suite 红但归因不出任何失败测试文件」—— **那是 fallback 文案，不是观测**：本任务按 doc-only/inert 路径走，根本没有 suite 跑过。真阻碍只有一条：**待在 `docs/proposals/claude-resident-sessions-smoke.md` 写下以 `冒烟验收：通过` 开头的一行人证。**
+- 人证落笔后：AC7 的判据自然翻绿，勾 AC7 并置 done 即可；六段读数、护栏脚本与记录文件都无需改动。
 ## Touches
 
 - `scripts/resident-smoke.mjs` (new)（真模型 HTTP/WS 冒烟脚本 + `--check-record`）
 - `scripts/resident-smoke.test.mjs` (new)（护栏判据）
 - `docs/proposals/claude-resident-sessions-smoke.md` (new)（六段读数记录；`冒烟验收：通过` 行由人 yale 写）
-- `tasks/gap-claude-resident-api-smoke-human-gate.md`（自触）
