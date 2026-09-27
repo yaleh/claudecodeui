@@ -4,7 +4,7 @@ title: AC-161 Claude 常驻进程跨轮存活 — 同 pid/hostId 连续三轮各
   interrupt 不杀进程且下一轮同 pid 继续、POST /api/session-hosts/:sessionId/close 后 stdin
   EOF 进程限时退出且 closeReason 为 user；判据带 60 秒预算守卫（超时 exit 3），假形态（每轮 --resume
   重启、abort 杀进程）必须红
-status: todo
+status: ready
 labels:
   - gap
 parent: null
