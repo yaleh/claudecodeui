@@ -108,8 +108,18 @@ const BACKGROUND_SENTINEL = 'AC162_BACKGROUND_DONE';
 /** Printed by the unattended turn's own foreground step. */
 const STEP_SENTINEL = 'AC162_UNATTENDED_STEP';
 
-/** How long the unattended turn is given to open, land and settle. */
-const TURN_TIMEOUT_MS = 30_000;
+/**
+ * How long the unattended turn is given to open, land and settle.
+ *
+ * Bounded well below the process budget rather than generously: the waits before
+ * the replay leg are the ones a world *without* an unattended run has to sit
+ * through, and if they add up to the budget the guard kills the process before
+ * the leg that measures the loss has said anything — a red nobody can attribute.
+ * Two of them plus the replay wait come to ~35s, so "no run" still reaches the
+ * reading that counts the replayed frames with room to spare, instead of being
+ * reported as an expired budget.
+ */
+const TURN_TIMEOUT_MS = 15_000;
 /** How long the notification and the case-files are given to catch up after it. */
 const SETTLE_MS = 1_000;
 /** The stop hook file's line count is awaited before the trigger is created. */
