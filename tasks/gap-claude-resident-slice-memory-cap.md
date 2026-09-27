@@ -92,14 +92,14 @@ goal_ac: AC-167
 
 ## Touches
 
-- `server/modules/providers/services/claude-session-scope.service.ts`（推广为 provider 中立 + `--slice=cloudcli-resident.slice` + slice 总上限，两者配置可注入）
-- `server/modules/providers/index.ts`（barrel：新增/改名的导出收口）
-- `server/modules/providers/list/claude/claude-runtime.provider.js`（接线随配置面/命名调整；纯接线，不堆逻辑）
-- `server/modules/session-hosts/session-host-manager.service.ts`（OOM 事实经 `reportExited(hostId,'oom')` 落成 `exited`/`oom` 读数；若入口已足则只加调用点）
-- `server/modules/session-hosts/tests/process-containment.test.ts`（新：判据）
-- `server/modules/providers/tests/claude-session-scope.test.ts`（仅当推广命名触及旧契约时同步；断言语义不变）
-- `docs/operations/process-isolation-and-memory-caps.md`（常驻 slice 一节）
-- `tasks/gap-claude-resident-slice-memory-cap.md`（自触）
+- `server/modules/providers/services/claude-session-scope.service.ts` （推广为 provider 中立 + `--slice=cloudcli-resident.slice` + slice 总上限，两者配置可注入）
+- `server/modules/providers/index.ts` （barrel：新增/改名的导出收口）
+- `server/modules/providers/list/claude/claude-runtime.provider.js` （接线随配置面/命名调整；纯接线，不堆逻辑）
+- `server/modules/session-hosts/session-host-manager.service.ts` （OOM 事实经 `reportExited(hostId,'oom')` 落成 `exited`/`oom` 读数；若入口已足则只加调用点）
+- `server/modules/session-hosts/tests/process-containment.test.ts` （新：判据）
+- `server/modules/providers/tests/claude-session-scope.test.ts` （仅当推广命名触及旧契约时同步；断言语义不变）
+- `docs/operations/process-isolation-and-memory-caps.md` （常驻 slice 一节）
+- `tasks/gap-claude-resident-slice-memory-cap.md` （自触）
 
 ## Evidence
 
