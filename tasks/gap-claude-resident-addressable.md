@@ -4,7 +4,7 @@ title: AC-164 常驻进程有稳定的 SendMessage 地址 — 两个常驻会话
   peerName 等于按 proposal §12 规则（标题 slug-会话 ID 前 6 位）生成的名字、与 CLI 转录 agent-name
   及实际送达地址逐字一致、进程存活期间改名不变；mock 让会话甲以该地址 SendMessage ⇒ 会话乙产出
   source=unattended、触发类型=跨会话消息可回放的 run；假形态（不传 extraArgs.name）必须红
-status: todo
+status: ready
 labels:
   - gap
 parent: null
