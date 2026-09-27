@@ -15,6 +15,7 @@ extra:
   schema: execution
 depends_on:
   - gap-claude-resident-process-survival
+goal_ac: AC-162
 ---
 ## Proposal
 
