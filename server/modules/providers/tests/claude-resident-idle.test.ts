@@ -714,7 +714,7 @@ test('resident idle ceiling: held work defers the close and the REST listing rep
 
     const crons = cronsOf(leg);
     const expiresAt = crons[0]?.expiresAt ?? 0;
-    const firstDeadline = findHost(leg).quietDeadlineAt;
+    const firstDeadline = findHost(leg).quietDeadlineAt ?? 0;
     say(
       `(3) expiresAt=${expiresAt} expected=${firstAt + CRON_MAX_AGE_MS} ` +
         `deadline-before-rearm=${String(firstDeadline)} crons=${crons.length}`,
