@@ -87,7 +87,7 @@ goal_ac: AC-162
 
 ## Touches
 
-- `server/modules/providers/tests/claude-resident-unattended-turn.test.ts`（新：判据）
+- `server/modules/providers/tests/claude-resident-unattended-turn.test.ts` (new: 判据)
 - `server/modules/providers/list/claude/claude-host-driver.provider.ts`（AC-161 落地的 resident driver；本条在其上加「已推 `command_uuid` 集合」与无人轮判定；若其实际文件名不同，按实际文件登记并在完成记录里写明）
 - `server/modules/providers/services/provider-runtime.service.ts`（无人轮的帧转发/分派）
 - `server/modules/providers/list/claude/claude.provider.ts`（`notify` 缝带触发类型）
@@ -97,6 +97,7 @@ goal_ac: AC-162
 - `server/modules/session-hosts/session-host-manager.service.ts`（宿主主动开 run 的入口）
 - `server/modules/session-hosts/index.ts`（barrel 收口）
 - `server/modules/websocket/services/chat-run-registry.service.ts`（宿主开 run 的无连接入口；`source` 已在 AC-160 落地）
+- `server/index.ts`（组合根接线：把 chatRunRegistry 的开 run 缝装到 sessionHostManager 上；照 provider.registry.ts:101-103 的禁环说明选边——providers 不反向 import websocket，接线在组合根）
 - `server/shared/types.ts`（触发类型 union）
 - `docs/proposals/claude-resident-sessions-experiments.md`（写回 E9 缺口读数）
 - `tasks/gap-claude-resident-unattended-turn.md`（自触）
