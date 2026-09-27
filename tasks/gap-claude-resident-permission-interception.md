@@ -7,7 +7,7 @@ title: AC-168 常驻默认 bypass 启动（permissionMode=bypassPermissions 且
   原文 control_request 帧驱动、(3) request_user_dialog 按 sdk.d.ts
   类型伪造帧（注明形态来自类型而非实物）；有连接时三者仍走现有 permission_request 请求帧流程；side_question
   不在本条；假形态（只拦 canUseTool、只拦前两个）必须红
-status: todo
+status: ready
 labels:
   - gap
 parent: null
