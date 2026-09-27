@@ -6,7 +6,7 @@ title: AC-167 常驻进程超出内存上限时只有它被杀 — 把 claude-se
   MemoryMax=注入值、MemorySwapMax=0、slice 名逐字；同 slice 下两子进程其一超限被 OOM（宿主快照
   closeReason=exited、closeDetail=oom），另一个与测试进程存活；结束后无残留 scope 且缺席读数带正对照；无
   systemd user manager 时打印原因并 exit 3；假形态（退化为直接 spawn、上限写死常量）必须红
-status: needs-human
+status: ready
 labels:
   - gap
 parent: null
@@ -212,3 +212,12 @@ $ npx oxlint <本任务改动的三个后端文件>                            E
 - session_id：c0c269ce-3a9a-491e-8a20-26699e437e1b
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-resident-slice-memory-cap~wk-prod-anchor~1790490827696-fb8517.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-resident-slice-memory-cap-wk-prod-anchor.log
+## 人工复核（2026-09-27，人 yale 指令「检查和推进」）
+
+停在 needs-human 的判词是 `server/modules/providers/tests/model-gateway-end-to-end.test.ts` 红，`Error aborting session model-gateway-e2e-session: Error: Query closed before response received`。核对：
+
+- 本任务自己的 `## Touches` 判据在同一份日志里都是 `passed=true`：`process-containment.test.ts`、`claude-session-scope.test.ts`。
+- `model-gateway-end-to-end.test.ts` 不在本任务 Touches 里，且该文件已知是舰队并发下的 `/tmp` mkdtemp 目录 teardown 竞态（`rmdir ENOTEMPTY`），与该用例名字对应的断言无关；standalone 曾测得 5/5 绿，见记忆 `model-gateway-e2e-red-is-a-tmp-rmdir-teardown-race`。
+- 同一份日志里 `claude-sessions.test.ts` 也红成 `open-a.jsonl was opened by a scan that should have skipped it`，这是另一条已知的 fail-open 回填闸门抽签（`claude-sessions-atime-red-is-a-fail-open-backfill-marker`），与本任务的 delta 无关。
+
+结论：两条红都是舰队并发下的基建/契约级抽签，不是本任务实现缺陷。工人已正确判断「归因不出任何失败测试文件」并按协议停止重派；现按人工裁定重新排队，交给下一轮 fan-in 重跑（同一批红在不同轮次的文件集不同，属正常抽签，见 `quay-fan-in-suite-red-is-fleet-wide-redispatch-is-the-escape`）。
