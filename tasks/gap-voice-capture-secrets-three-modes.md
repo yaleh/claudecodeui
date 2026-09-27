@@ -2,7 +2,7 @@
 id: gap-voice-capture-secrets-three-modes
 title: 三档脱敏判据：off/text/audio 各一次成功与一次失败下，DashScope key、共享 backend key、Bearer
   形式与录音 base64 都不出现在任何日志行与任何捕获文件里，且它们确实过了线（正例）（AC-146）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
