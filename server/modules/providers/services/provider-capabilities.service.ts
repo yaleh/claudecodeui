@@ -1,6 +1,7 @@
 import type {
   HostMode,
   LLMProvider,
+  ResidentFeatures,
   RuntimeProviderCapabilities,
 } from '@/shared/types.js';
 
@@ -39,12 +40,20 @@ type ProviderCapabilities = {
    */
   supportsSessionForking: boolean;
   /**
-   * Host lifecycle modes the provider's driver implements. Every provider here
-   * is driven by the session-host manager's default per-run wrapper, which is
-   * why the whole union is `['per-run']` today; a provider with its own
-   * `IProviderHostDriver` states its own list through
+   * Host lifecycle modes the provider's driver implements.
+   *
+   * `per-run` is universal: every provider here is driven by the session-host
+   * manager's default per-run wrapper, which opens one process per turn and
+   * never needs a driver at all. A mode beyond that is a statement about the
+   * provider's own `IProviderHostDriver`, and it is written here only when the
+   * driver the provider mounts really serves that mode — `claude` declares
+   * `resident` because its host driver owns the process across turns, and the
+   * dispatch in `provider-runtime.service` reads this list before it routes a
+   * turn anywhere but the default wrapper.
+   *
+   * A provider not in the `LLMProvider` union states its own list through
    * `declareRuntimeProviderCapabilities` instead of being added to this table,
-   * so this record stays a complete description of the `LLMProvider` union.
+   * so this record stays a complete description of the union.
    */
   lifecycleModes: HostMode[];
   /**
@@ -53,6 +62,16 @@ type ProviderCapabilities = {
    * never reuses a host, so a second binding is refused rather than multiplexed.
    */
   multiplexedHost: boolean;
+  /**
+   * What this provider's resident process can do, when it has one.
+   *
+   * Absent for every provider whose `lifecycleModes` is `['per-run']`: there is
+   * no process to describe, and an entry here would be a claim about a driver
+   * that does not exist. Present exactly when `lifecycleModes` includes
+   * `resident` — see `ResidentFeatures` for why an unmeasured field reads
+   * `false` rather than the expected value.
+   */
+  residentFeatures?: ResidentFeatures;
 };
 
 /**
@@ -76,8 +95,28 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     // `forkSession` copies a transcript prefix into a new session file.
     supportsMessageEditing: true,
     supportsSessionForking: true,
-    lifecycleModes: ['per-run'],
+    // `per-run` is the default wrapper's mode. `resident` is the SDK's held-input
+    // protocol: a never-ending prompt stream keeps one CLI alive across turns,
+    // and `claude-host-driver.provider.ts` is the driver that owns it.
+    lifecycleModes: ['per-run', 'resident'],
     multiplexedHost: false,
+    // The five measured entries come from the phase-0 experiments E1–E8
+    // (`docs/proposals/claude-resident-sessions.md`, "阶段 0 结论"), each with
+    // its own experiment number kept beside it. The three that follow them were
+    // *not* covered by those experiments and so state the conservative value: a
+    // capability nobody measured is not a capability this matrix may promise.
+    // `liveReconfigure` in particular is an empty list for the same reason and
+    // is called out as "待单独验证" rather than "known to apply nothing".
+    residentFeatures: {
+      interruptKeepsProcess: true, // E4
+      liveReconfigure: [], // not covered by E1–E8; awaiting its own verification
+      unattendedTurns: true, // E1, E3
+      addressable: true, // E6
+      inputWhileBusy: true, // E2
+      cancelQueuedInput: false, // not covered by E1–E8
+      authoritativeLeases: false, // not covered by E1–E8
+      remoteControl: false, // reserved; forced off for resident processes (§9)
+    },
   },
   cursor: {
     provider: 'cursor',
@@ -148,6 +187,31 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
 const RUNTIME_PROVIDER_CAPABILITIES = new Map<string, RuntimeProviderCapabilities>();
 
 /**
+ * A detached copy of one declaration.
+ *
+ * The nested arrays are copied, not just the record: a caller that received the
+ * stored declaration and sorted `lifecycleModes` in place would otherwise be
+ * editing the matrix every later reader sees. `residentFeatures` and its
+ * `liveReconfigure` list get the same treatment for the same reason.
+ */
+function copyRuntimeCapabilities(
+  declared: RuntimeProviderCapabilities,
+): RuntimeProviderCapabilities {
+  return {
+    ...declared,
+    lifecycleModes: [...declared.lifecycleModes],
+    ...(declared.residentFeatures
+      ? {
+          residentFeatures: {
+            ...declared.residentFeatures,
+            liveReconfigure: [...declared.residentFeatures.liveReconfigure],
+          },
+        }
+      : {}),
+  };
+}
+
+/**
  * Application service exposing the provider capability matrix.
  */
 export const providerCapabilitiesService = {
@@ -168,10 +232,7 @@ export const providerCapabilitiesService = {
    * must not fail or accumulate.
    */
   declareRuntimeProviderCapabilities(capabilities: RuntimeProviderCapabilities): void {
-    RUNTIME_PROVIDER_CAPABILITIES.set(capabilities.provider, {
-      ...capabilities,
-      lifecycleModes: [...capabilities.lifecycleModes],
-    });
+    RUNTIME_PROVIDER_CAPABILITIES.set(capabilities.provider, copyRuntimeCapabilities(capabilities));
   },
 
   /**
@@ -185,6 +246,6 @@ export const providerCapabilitiesService = {
       return undefined;
     }
 
-    return { ...declared, lifecycleModes: [...declared.lifecycleModes] };
+    return copyRuntimeCapabilities(declared);
   },
 };

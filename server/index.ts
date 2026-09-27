@@ -15,6 +15,7 @@ import {
     initializeSessionsWatcher,
     providerRegistry,
     providerRuntimeService,
+    sessionsService,
     stopClaudeSessionScopes,
     sweepOrphanClaudeSessionScopes,
 } from '@/modules/providers/index.js';
@@ -210,7 +211,18 @@ app.use('/api/scheduled-messages', authenticateToken, scheduledMessagesRoutes);
 // agent's control plane below, reading which processes are running is not a
 // gated surface — and over the process-wide manager, which is the same table
 // `providerRuntimeService` registers every dispatched turn in.
-app.use('/api/session-hosts', authenticateToken, createSessionHostsRouter({ sessionHostManager }));
+//
+// The two reader seams are wired here rather than inside the host module
+// because both facts live in this module's neighbours: a session's provider and
+// stored mode belong to `sessionsService`, and the host driver a provider
+// mounts belongs to `providerRegistry`. The host module cannot import either
+// (the providers module already imports it, so the edge back would close a
+// cycle), which makes this the composition root the wiring belongs to.
+app.use('/api/session-hosts', authenticateToken, createSessionHostsRouter({
+    sessionHostManager,
+    readSession: (sessionId) => sessionsService.readSessionLifecycle(sessionId),
+    resolveHostDriver: (provider) => providerRegistry.resolveProvider(provider).hostDriver ?? null,
+}));
 
 // Agent API Routes (uses API key authentication)
 app.use('/api/agent', agentRoutes);

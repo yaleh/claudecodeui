@@ -201,3 +201,23 @@ $ npx oxlint <本任务改动的三个后端文件>                            E
 
 ### 两臂复现的复原与残留
 两次假形态各自 `cp` 备份 → 打补丁 → 跑 → `cp` 还原，还原后 `md5sum` 均回到 `9a401375a544258059bc3b33ed58b562`、`git status --porcelain` 为空、判据 3/3 绿。收尾 `systemctl --user list-units 'claudecodeui-session-*'` 读到空；`cloudcli-resident.slice` 的 `MemoryMax` 复原为跑前值 `infinity`；无遗留吃内存子进程。
+
+## Needs-Human
+
+**执行 2026-09-27T06:37:02.426Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=13843 server/modules/providers/tests/model-gateway-end-to-end.test.ts passed=false end_ms=1790490891042
+- run_id：wk-prod-anchor
+- session_id：c0c269ce-3a9a-491e-8a20-26699e437e1b
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-resident-slice-memory-cap~wk-prod-anchor~1790490827696-fb8517.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-resident-slice-memory-cap-wk-prod-anchor.log
+## 人工复核（2026-09-27，人 yale 指令「检查和推进」）
+
+停在 needs-human 的判词是 `server/modules/providers/tests/model-gateway-end-to-end.test.ts` 红，`Error aborting session model-gateway-e2e-session: Error: Query closed before response received`。核对：
+
+- 本任务自己的 `## Touches` 判据在同一份日志里都是 `passed=true`：`process-containment.test.ts`、`claude-session-scope.test.ts`。
+- `model-gateway-end-to-end.test.ts` 不在本任务 Touches 里，且该文件已知是舰队并发下的 `/tmp` mkdtemp 目录 teardown 竞态（`rmdir ENOTEMPTY`），与该用例名字对应的断言无关；standalone 曾测得 5/5 绿，见记忆 `model-gateway-e2e-red-is-a-tmp-rmdir-teardown-race`。
+- 同一份日志里 `claude-sessions.test.ts` 也红成 `open-a.jsonl was opened by a scan that should have skipped it`，这是另一条已知的 fail-open 回填闸门抽签（`claude-sessions-atime-red-is-a-fail-open-backfill-marker`），与本任务的 delta 无关。
+
+结论：两条红都是舰队并发下的基建/契约级抽签，不是本任务实现缺陷。工人已正确判断「归因不出任何失败测试文件」并按协议停止重派；现按人工裁定重新排队，交给下一轮 fan-in 重跑（同一批红在不同轮次的文件集不同，属正常抽签，见 `quay-fan-in-suite-red-is-fleet-wide-redispatch-is-the-escape`）。

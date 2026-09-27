@@ -10,6 +10,7 @@ import { sessionConversationsSearchService } from '@/modules/providers/services/
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
 import type {
   CustomProviderModelInput,
+  HostMode,
   ProviderModelConfig,
   ProviderModelEnvRow,
   LLMProvider,
@@ -447,6 +448,41 @@ const parseSessionEffortPayload = (payload: unknown): string => {
   return effort;
 };
 
+/**
+ * The lifecycle-mode vocabulary, as a runtime list.
+ *
+ * `HostMode` is the definition and this is the same two values in a form a
+ * request body can be checked against. Duplicating a two-element union of a
+ * *shared type* in the route that parses it is the transport's own job — the
+ * repository's matching list is private to the database module and would be a
+ * cross-module deep import — and keeping it here is what lets the route answer
+ * `LIFECYCLE_MODE_UNKNOWN` for a typo instead of letting the write throw an
+ * untagged `Error`. The capability question ("does this provider implement the
+ * mode?") is a different refusal with a different code, and is answered by the
+ * service.
+ */
+const HOST_MODES: readonly HostMode[] = ['per-run', 'resident'];
+
+const parseLifecycleModePayload = (payload: unknown): HostMode => {
+  if (!payload || typeof payload !== 'object') {
+    throw new AppError('Request body must be an object.', {
+      code: 'INVALID_REQUEST_BODY',
+      statusCode: 400,
+    });
+  }
+
+  const body = payload as Record<string, unknown>;
+  const mode = readOptionalQueryString(body.mode);
+  if (!mode || !HOST_MODES.includes(mode as HostMode)) {
+    throw new AppError(`mode must be one of: ${HOST_MODES.join(', ')}.`, {
+      code: 'LIFECYCLE_MODE_UNKNOWN',
+      statusCode: 400,
+    });
+  }
+
+  return mode as HostMode;
+};
+
 const parseModelRecordId = (value: unknown): number => {
   const rawRecordId = readPathParam(value, 'recordId').trim();
   if (!/^\d+$/.test(rawRecordId)) {
@@ -656,6 +692,29 @@ router.post(
     res.json(createApiSuccessResponse(
       stored ?? { provider, sessionId, effort, source: 'session' as const },
     ));
+  }),
+);
+
+/**
+ * Records the lifecycle-mode preference for one app session.
+ *
+ * The fourth member of the `/:provider/sessions/:sessionId/...` family, and the
+ * only one that can end a process: a mode change is a statement about who owns
+ * the session's host, so the service moves any live host out of the way before
+ * it stores the new preference. What the route owns is the transport half —
+ * which provider, which session, and whether the mode is a mode at all — and
+ * the two refusals it can produce on its own are `LIFECYCLE_MODE_UNKNOWN` here
+ * and the service's `LIFECYCLE_MODE_NOT_SUPPORTED` / `LIFECYCLE_MODE_HOST_BUSY`,
+ * which travel through the application error middleware with their codes.
+ */
+router.put(
+  '/:provider/sessions/:sessionId/lifecycle-mode',
+  asyncHandler(async (req: Request, res: Response) => {
+    const provider = parseProvider(req.params.provider);
+    const sessionId = parseSessionId(req.params.sessionId);
+    const mode = parseLifecycleModePayload(req.body);
+    const result = sessionsService.switchSessionLifecycleMode(provider, sessionId, mode);
+    res.json(createApiSuccessResponse(result));
   }),
 );
 

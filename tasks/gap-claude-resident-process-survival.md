@@ -4,7 +4,7 @@ title: AC-161 Claude 常驻进程跨轮存活 — 同 pid/hostId 连续三轮各
   interrupt 不杀进程且下一轮同 pid 继续、POST /api/session-hosts/:sessionId/close 后 stdin
   EOF 进程限时退出且 closeReason 为 user；判据带 60 秒预算守卫（超时 exit 3），假形态（每轮 --resume
   重启、abort 杀进程）必须红
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -120,6 +120,29 @@ goal_ac: AC-161
 - **作用域门**：`env -u ANTHROPIC_DEFAULT_HAIKU_MODEL -u … bash scripts/test.sh --for-task gap-claude-resident-process-survival --allow-thin` 退出 **0**，读数 `__PERFILE__ duration_ms=13640 …/claude-resident-process.test.ts passed=true` —— 即**在 fan-in 那套 env 下真跑本判据并绿**（不再是 `thin`）。scoped-gate 缓存已按 `HEAD^2`（= `2107be2341dc0a513927644c8429c6e80e854f9b`）写入。
 - AC8 三条 per-run 族复跑：`claude-host-per-run` 7/7、`claude-background-work` 10/10、`passthrough-parity` 4/4；`git diff --name-only develop...HEAD` 逐条核对，delta 恰为 Touches 的 9 个代码文件，三条族与 `claude-runtime.provider.js` 均不在其中。
 - 契约面：`npm run typecheck`、`npm run lint` 退出 0。
+
+### 第四轮：fan-in suite 红在**兄弟判据**上，同树 standalone 绿（并发假红，不可归于本 delta）
+
+第三轮交付后 fan-in 在 **suite** 红，红的不是本条判据，而是兄弟判据
+`server/modules/voice/tests/voice-error-classification.false-forms.test.ts`（`__PERFILE__ … passed=false`）。
+读它的留存子输出（`.quay/suite-logs/20260927T143121-991150/…voice-error-classification.false-forms.test.ts.out`）
+得红态逐字读数：`AssertionError: a surface this task must not have moved is red` /
+`actual: ['src/shared/asr/tests/asrContractInvariants.test.ts']` —— 即该兄弟判据 AC7 顺序 spawn 的 14 个命令里，
+`npx vitest run src/shared/asr/tests/asrContractInvariants.test.ts` 那一次子运行 `exit=1`。逐条读数：
+
+- **同一次 fan-in 运行，同一文件在 suite 自己的 lane 上是绿的**：`__PERFILE__ duration_ms=4870 src/shared/asr/tests/asrContractInvariants.test.ts passed=true` ⇒ 同树同文件，一次绿一次红。
+- **该文件 standalone 绿**：`npx vitest run src/shared/asr/tests/asrContractInvariants.test.ts` → `Tests 9 passed (9)`，exit 0。
+- **兄弟判据整文件 standalone 绿**：`npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice-error-classification.false-forms.test.ts` → `tests 7 / pass 7 / fail 0`，含 `✔ AC7 the criteria, the check scripts and the repository gates still exit 0 (105840.9ms)` 且 `exit=0 name=src/shared/asr/tests/asrContractInvariants.test.ts cases=9` ⇒ 红态在本树上**不可复现**。
+- **并发证据**：复跑期间同一宿主上观察到**另一个任务的 worktree**（`…/gap-claude-resident-slice-memory-cap`）正并发跑**同一个**兄弟判据；该判据的 AC7 自身会顺序 spawn 14 个命令（含 `npm run typecheck`、`npm run lint` 与又一次 vitest），其"子运行必须绿"的读数在舰队并发下会因共享资源竞争而假红。
+
+**归属判定**：本条 delta（`git diff --name-status develop...HEAD` 的 9 个文件）不含 `src/shared/asr/**`、`server/modules/voice/**`、`scripts/asr-*`，也不含任何 vitest 配置；故该红**不可归因于本 delta**，属舰队并发假红一族（红态不可复现 ⇒ 逃逸是重新派发，不是改判据）。
+
+**本轮读数（merge 后：develop=`b0c1b37b`，HEAD=`62fcae23`）**
+
+- 本条判据：`env -u ANTHROPIC_DEFAULT_HAIKU_MODEL -u ANTHROPIC_DEFAULT_OPUS_MODEL -u ANTHROPIC_DEFAULT_SONNET_MODEL bash scripts/test.sh --for-task gap-claude-resident-process-survival --allow-thin` 退出 **0**，真跑本判据 `__PERFILE__ duration_ms=13431 …/claude-resident-process.test.ts passed=true`（不再是 `thin`）；scoped-gate 缓存已按 develop sha `b0c1b37b61787111c664942916bb9ff3a990ee04`（= `HEAD^2`）写入 `/data/home/yale/work/claudecodeui/.quay/scoped-gate-cache.json`。
+- AC8 三条 per-run 族在 merge 后的树上复跑：`claude-host-per-run` 7/7、`claude-background-work` 10/10、`passthrough-parity` 4/4，三条均 exit 0，且三条文件都不在本条 diff 内。
+- AC1 红态基线：`git cat-file -e develop:server/modules/providers/tests/claude-resident-process.test.ts` → `exists on disk, but not in 'develop'`。
+- merge `develop` 无冲突（只并入 `tasks/*.md` 的状态翻转）；`git status` 干净。
 
 ## Touches
 

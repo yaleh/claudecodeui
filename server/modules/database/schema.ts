@@ -175,6 +175,15 @@ CREATE TABLE IF NOT EXISTS sessions (
     -- sent with one) is what makes every client fall back to the provider
     -- default instead of inventing a choice the user never made.
     permission_mode TEXT,
+    -- How long this session's process is meant to live: 'per-run' (the
+    -- default for every provider, and the only value a provider without the
+    -- capability can hold) or 'resident' (one process serving many turns).
+    -- A preference, not a fact: it says what the user asked for, not whether
+    -- a process is up right now — hosts and leases live in memory and are
+    -- never persisted. Written only through a check against the provider's
+    -- declared modes; the default is why every pre-existing row keeps the
+    -- behavior it had.
+    lifecycle_mode TEXT DEFAULT 'per-run',
     -- The app session this one was branched from, NULL for sessions created
     -- normally. Informational only: a fork is a fully independent provider
     -- session, and deleting the source does not affect it.
