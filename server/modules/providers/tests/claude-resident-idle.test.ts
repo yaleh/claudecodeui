@@ -1003,7 +1003,7 @@ test('resident idle ceiling: held work defers the close and the REST listing rep
     const host = findHost(leg);
     say(
       `(7) subscribe-attach-calls=${attachCalls.length} lastActivityAt-before=${before} ` +
-        `lastActivityAt-after=${String(after)} quietDeadlineAt=${String(host.quietDeadlineAt)} ` +
+        `lastActivityAt-after=${String(after)} idle-closed-at=${String(host.quietDeadlineAt)} ` +
         `expected=${String(deadlineBefore)}`,
     );
     assert.ok(attachCalls.length > 0, 'the real chat.subscribe path really reached the manager');
@@ -1040,35 +1040,42 @@ test('resident idle ceiling: held work defers the close and the REST listing rep
     await once(server, 'listening');
     const port = (server.address() as AddressInfo).port;
 
-    const listingFor = async (): Promise<AnyRecord | null> => {
+    const listingFor = async (): Promise<{ status: number; host: AnyRecord | null }> => {
       const response = await fetch(`http://127.0.0.1:${port}/api/session-hosts`, {
         headers: { connection: 'close' },
       });
       const body = (await response.json()) as AnyRecord;
       const hosts = ((body.data as AnyRecord)?.hosts ?? []) as AnyRecord[];
-      return (
-        hosts.find((host) =>
-          ((host.bindings as AnyRecord[]) ?? []).some((binding) => binding.appSessionId === leg.sessionId),
-        ) ?? null
-      );
+      const host =
+        hosts.find((candidate) =>
+          ((candidate.bindings as AnyRecord[]) ?? []).some(
+            (binding) => binding.appSessionId === leg.sessionId,
+          ),
+        ) ?? null;
+      return { status: response.status, host };
     };
 
     try {
       const before = await listingFor();
-      say(`(8) before-close closeReason=${String(before?.closeReason)} state=${String(before?.state)}`);
-      assert.notEqual(before, null, 'the host is in the listing before it closes');
-      assert.equal(before?.closeReason, null);
-      assert.notEqual(before?.state, 'closed');
+      say(
+        `(8) before-close status=${before.status} closeReason=${String(before.host?.closeReason)} ` +
+          `state=${String(before.host?.state)}`,
+      );
+      assert.notEqual(before.host, null, 'the host is in the listing before it closes');
+      assert.equal(before.status, 200);
+      assert.equal(before.host?.closeReason, null);
+      assert.notEqual(before.host?.state, 'closed');
 
       leg.clock.advance(RESIDENT_IDLE_TIMEOUT);
       const after = await listingFor();
       say(
-        `(8) after-close closeReason=${String(after?.closeReason)} state=${String(after?.state)} ` +
-          `hostId=${findHost(leg).hostId}`,
+        `(8) after-close status=${after.status} closeReason=${String(after.host?.closeReason)} ` +
+          `state=${String(after.host?.state)} hostId=${findHost(leg).hostId}`,
       );
-      assert.notEqual(after, null, 'a closed host stays in the listing for its retention window');
-      assert.equal(after?.closeReason, 'idle');
-      assert.equal(after?.state, 'closed');
+      assert.notEqual(after.host, null, 'a closed host stays in the listing for its retention window');
+      assert.equal(after.status, 200);
+      assert.equal(after.host?.closeReason, 'idle');
+      assert.equal(after.host?.state, 'closed');
     } finally {
       server.closeAllConnections?.();
       await new Promise<void>((resolve) => {
