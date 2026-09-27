@@ -5,7 +5,7 @@ title: AC-165 空闲关闭由真实 Claude driver 执行 — 伪 SDK 流 + 注�
   inferred），有未过期 cron 时 24 小时不关、清单消失后恢复计时在 24 小时处以 idle 关闭、7 天 expiresAt 后重计时，未知
   subtype 不中断循环，浏览器 chat.subscribe 不改变关闭时刻，关闭后 GET /api/session-hosts 读到
   closeReason=idle；三臂假形态必须红
-status: todo
+status: ready
 labels:
   - gap
 parent: null
