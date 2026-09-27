@@ -2054,6 +2054,22 @@ export type HostReconfigurePatch = {
 export type ChatRunSource = 'user' | 'scheduled' | 'unattended';
 
 /**
+ * What made a provider CLI open a turn nobody pushed.
+ *
+ * A resident process whose own background work finishes starts a turn of its
+ * own, and that turn is not evidence of a user: the process was already running
+ * and the host pushed nothing. The reason it exists is not in the request — the
+ * CLI sends none — so it has to be reconciled from what the turn left behind,
+ * which for this build is the `Stop` hook's own task list.
+ *
+ * `background-task` is a background task reporting back, `session-cron` is a
+ * scheduled prompt firing, and `non-user` is the path where no list is readable
+ * at all: the honest reading there is that the turn is unexplained, not that it
+ * has a reason this code could not name.
+ */
+export type BackgroundWorkTrigger = 'background-task' | 'session-cron' | 'non-user';
+
+/**
  * What a provider's resident process can do, beyond merely being long-lived.
  *
  * One field per fact the frontend would otherwise have to branch on the provider

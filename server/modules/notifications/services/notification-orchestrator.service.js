@@ -170,6 +170,12 @@ function buildNotificationPayload(event) {
     data: {
       sessionId: normalizedEvent.sessionId || null,
       code: normalizedEvent.code,
+      // What made this notification exist, when the caller knew. Carried on the
+      // payload rather than only in `meta` because `meta` stops at this file:
+      // a client that receives the notification has no other way to tell an
+      // unattended turn's background work from any other report, and the two
+      // read identically otherwise. Absent for every event that has no trigger.
+      trigger: normalizedEvent.meta?.trigger ?? null,
       provider: normalizedEvent.provider || null,
       sessionName,
       tag: `${normalizedEvent.provider || 'assistant'}:${normalizedEvent.sessionId || 'none'}:${normalizedEvent.code}`
@@ -268,8 +274,20 @@ function notifyRunStopped({ userId, provider, sessionId = null, stopReason = 'co
  * Uses the `stop` kind so it rides the existing "run stopped" preference rather
  * than needing a new opt-in that would default to off. No explicit dedupeKey, so
  * the default composite key collapses repeats inside the dedupe window.
+ *
+ * `trigger` is what made the reporting turn happen, when the caller could
+ * reconcile it (`background-task`, `session-cron`, or `non-user` for the path
+ * where nothing was readable). It is optional and additive: a caller that has
+ * one turn to report and no way to say why still reports it, and no call site
+ * has to know the vocabulary to keep working.
  */
-function notifyBackgroundWorkCompleted({ userId, provider, sessionId = null, sessionName = null }) {
+function notifyBackgroundWorkCompleted({
+  userId,
+  provider,
+  sessionId = null,
+  sessionName = null,
+  trigger = null
+}) {
   notifyUserIfEnabled({
     userId,
     event: createNotificationEvent({
@@ -277,7 +295,7 @@ function notifyBackgroundWorkCompleted({ userId, provider, sessionId = null, ses
       sessionId,
       kind: 'stop',
       code: 'run.background_completed',
-      meta: { sessionName },
+      meta: { sessionName, trigger },
       severity: 'info'
     })
   });
