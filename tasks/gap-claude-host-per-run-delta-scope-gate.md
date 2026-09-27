@@ -3,7 +3,7 @@ id: gap-claude-host-per-run-delta-scope-gate
 title: claude-host-per-run 的 AC6 用「当前分支的 delta」当代理判 driver 是否被读：fan-in
   merge-develop 后 develop...HEAD 就是当前 worktree 自己的分支 delta ⇒ 任何 delta 非空且不含
   driver 的兄弟任务必红（同日两条 delta 交集为空的任务、同一句、900ms 即抛）；该断言在 owner 分支上是对的，缺的是按分支设门
-status: ready
+status: done
 labels:
   - gap
   - defect
