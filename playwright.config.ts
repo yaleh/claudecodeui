@@ -1314,7 +1314,7 @@ if (isDataDirOwner) {
 }
 
 /**
- * The one spec that drives the debug agent, and the fixture home the server gets when that spec is selected.
+ * The specs that drive the debug agent, and the fixture home the server gets when one of them is selected.
  *
  * The debug agent's provider is not a product provider: `provider.registry.ts` writes its key only while the gate
  * is open (`DEBUG_AGENT` + `DEBUG_AGENT_HOME`), so a server booted without those variables cannot arm a scenario,
@@ -1339,8 +1339,14 @@ if (isDataDirOwner) {
  * mode all exist regardless of where the file sits. The old comment's worry — "a home anywhere else would write
  * transcripts no listing could see" — describes a reader that no longer exists.
  */
-const DEBUG_AGENT_SPEC_FILE = 'resident-status-bar.spec.ts';
-const debugAgentFixtureHome = selectedSpecFiles().includes(DEBUG_AGENT_SPEC_FILE)
+const DEBUG_AGENT_SPEC_FILES: readonly string[] = [
+  // The status bar's own criterion.
+  'resident-status-bar.spec.ts',
+  // The busy-send criterion: same provider, same control plane, same fixture home — a second
+  // entry here rather than a second gate, so a run that selects only one of them boots one server.
+  'resident-busy-send.spec.ts',
+];
+const debugAgentFixtureHome = selectedSpecFiles().some((file) => DEBUG_AGENT_SPEC_FILES.includes(file))
   ? path.join(dataDir, 'debug-agent-home')
   : null;
 // Published to the workers because the spec has to place its fixture project *inside* this directory:
