@@ -1,7 +1,7 @@
 ---
 id: AC-165
 title: 空闲关闭由真实 Claude driver 执行：cron 保活理由按 CLI 清单对账，有 cron 时不在空闲超时处关闭，浏览器停留不阻止关闭
-status: draft
+status: active
 kind: criterion
 goal: GOAL-013
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -28,4 +28,15 @@ origin: docs/proposals/claude-resident-sessions.md（e88175cf）。人 yale 2026
   proposal 阶段 0 结论（E1–E9，记录文件
   docs/proposals/claude-resident-sessions-experiments.md）修订判据；cron 与后台任务保活理由按 E9
   读到的 Stop hook 清单与 task_* 事件对账，未知 subtype 放过
+activatedAt: 2026-09-27T04:58:58.692Z
+statusLog:
+  - at: 2026-09-27T04:58:58.692Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-09-27T04:58:58.692Z
 ---

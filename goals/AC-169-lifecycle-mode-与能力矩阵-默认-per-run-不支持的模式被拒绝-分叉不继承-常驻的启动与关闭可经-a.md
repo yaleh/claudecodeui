@@ -1,7 +1,7 @@
 ---
 id: AC-169
 title: lifecycle_mode 与能力矩阵：默认 per-run，不支持的模式被拒绝，分叉不继承，常驻的启动与关闭可经 API 操作
-status: draft
+status: active
 kind: criterion
 goal: GOAL-013
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -15,4 +15,15 @@ origin: docs/proposals/claude-resident-sessions.md（e88175cf）。人 yale 2026
   裁定：拆成两个 goal，本 goal 为 GOAL-B「Claude 常驻」，暂不激活，等
   tasks/gap-claude-resident-phase0-experiments 把 E1–E8 结论写回 proposal 后再定 AC
   并激活；调试 agent 扩展出的常驻场景作 UI e2e 替身；不加 cloudcli 子命令
+activatedAt: 2026-09-27T05:03:12.859Z
+statusLog:
+  - at: 2026-09-27T05:03:12.859Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-09-27T05:03:12.859Z
 ---
