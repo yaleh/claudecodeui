@@ -135,6 +135,7 @@ HOG journal blames the cap    : true
 ```
 - **负对照**（防「非零退出码冒充 OOM」）：同一宿主下 `process.exit(3)` 的子进程快照是 `closeDetail='error'`，不是 `'oom'` —— 判据 leg 2 内断言。
 - **另一臂**（防「上限不是死因」）：同一个 384MiB 有界吃内存子进程在 `MemoryMax=1G` 下 4s 后仍存活。
+- ⚠️ 归属写明白：判据里「问内核事实」这一步是**判据自己的 driver** 做的（`IProviderHostDriver` 测试替身：真 `spawnScoped` + 真 `detectResidentScopeOomKill` + 真 `session-host-manager` 的 `reportExited`→`closeHost`）。本条交付的是**事实与落点**——`detectResidentScopeOomKill` 经 barrel 导出、`reportExited(hostId,'oom')` 能把它落成 `exited`/`oom` 宿主读数，且判据端到端读到了这个读数；把这一步接进**生产**常驻驱动属于常驻宿主驱动那条线（本条 `## Touches` 未声明 `claude-host-driver.provider.ts`，故不在本条范围内）。
 
 ### AC4 — 读数 (3)：无关者存活
 ```
