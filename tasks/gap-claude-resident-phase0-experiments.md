@@ -1,7 +1,7 @@
 ---
 id: gap-claude-resident-phase0-experiments
 title: Claude 常驻会话阶段 0 实验 E1–E9：用真实 claude 二进制取得读数，定下忙时输入基准、控制协议用法与内存上限，结论写回 proposal
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -458,3 +458,14 @@ typecheck 扫到的那个瞬时探针），本分支没有它——只因为**�
   数值**仍未定**。本轮未重跑 E7。develop 已合入 `scripts/soak.sh` / `soak-driver.mjs` / `soak-analyze.mjs`，
   下一轮若用它跑 E7，应采用它并注明读数是否取自 systemd scope 内。
 - E9 自身两处读数缺口照旧：`next` 档执行时的落点（9.2 里被撤掉）、`request_user_dialog` 的实物。
+
+## Needs-Human
+
+**执行 2026-09-27T02:44:58.365Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 8 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=23776 server/modules/voice/tests/voice-capture-off.false-forms.test.ts passed=false end_ms=1790476995981
+- run_id：wk-prod-anchor
+- session_id：a3a6f029-c4e2-4c00-9975-4698e392175b
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-resident-phase0-experiments~wk-prod-anchor~1790476936243-800b73.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-resident-phase0-experiments-wk-prod-anchor.log

@@ -3,7 +3,7 @@ id: gap-session-hosts-claude-per-run-driver
 title: AC-159 Claude per-run 的后台持有与顶替由宿主层策略执行：伪造 SDK 流下 result 后 lingering、新一轮
   superseded、30 分钟静默 released 且输入流被结束、后台回报 result released 且
   notifyBackgroundWorkCompleted 恰一次；claude-background-work.test.ts 不改断言照常通过
-status: todo
+status: needs-human
 labels:
   - gap
 parent: null
@@ -251,4 +251,15 @@ elapsed=1721ms
 - run_id：wk-prod-anchor
 - session_id：cd9bb781-90f7-45f2-89bf-2ff78cb96bed
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-session-hosts-claude-per-run-driver~wk-prod-anchor~1790428823628-e49d55.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-session-hosts-claude-per-run-driver-wk-prod-anchor.log
+
+## Needs-Human
+
+**执行 2026-09-27T02:57:46.683Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 3 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: not ok - server/modules/debug-agent/tests/debug-agent-host-driver.test.ts:   AssertionError [ERR_ASSERTION]: no file under server/modules/providers/list/ may be touched
+- run_id：wk-prod-anchor
+- session_id：dd827080-c5b1-4d95-89c2-f6afd5540312
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-session-hosts-claude-per-run-driver~wk-prod-anchor~1790477694071-5d8ef4.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-session-hosts-claude-per-run-driver-wk-prod-anchor.log
