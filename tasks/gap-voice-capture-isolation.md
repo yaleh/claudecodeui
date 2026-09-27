@@ -2,7 +2,7 @@
 id: gap-voice-capture-isolation
 title: 捕获失败的隔离：text 档打印捕获行时抛错、audio 档音频目录不可写两种情形下转写仍返回成功且返回文本逐字不变，恰好一行不含内容的
   voice.capture failed（AC-147）
-status: ready
+status: done
 labels:
   - gap
 parent: null

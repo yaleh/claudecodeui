@@ -38,6 +38,28 @@ import type { TranscriptionTolerance } from '../../../shared/asr/transcriptionWi
 // that consumes it is built in the capture module.
 import type { VoiceCapturePort, VoiceCaptureRawReturn } from './voice-capture.js';
 
+/**
+ * The ONE line a refused recording is allowed to write, and the whole of it.
+ *
+ * WHY IT IS DECLARED HERE AND NOT IMPORTED FROM THE CAPTURE MODULE. The import above is a TYPE
+ * deliberately: the capture module is reached at RUNTIME through the injected port and never through
+ * this file, so the transcription path's runtime module graph is exactly what its own imports need. A
+ * value import would make the capture module a runtime edge of it, and the falsification criterion
+ * that rebuilds this path in a temp tree — `voice-provider-dispatch-falsify`, which copies the
+ * service and the `shared/asr` tree and nothing else — would then import a module that tree does not
+ * carry. The line is one literal with nothing to construct, so it is written at the one place that
+ * prints it and the type-only import stays type-only.
+ *
+ * IT CARRIES NOTHING, and that is the property the criterion reads rather than assumes: no error
+ * message, no error code, no field of the attempt, no capture id — not even why the attempt failed.
+ * On the audio road the thing a quoted cause would put into this process's output is a filesystem
+ * error naming a path, and the whole point of the line is that it says one thing only. That is also
+ * why it is a literal and not a function of the error: a constructor would invite the message onto
+ * the line one caller at a time, and the first caller that wanted a readable cause would be the one
+ * that made the line a disclosure.
+ */
+const VOICE_CAPTURE_FAILED_LINE = 'voice.capture failed';
+
 type VoiceServiceDependencies = {
   defaults: {
     baseUrl: string;
@@ -896,25 +918,65 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
         // one. The same is true of the request: `captureTransport` kept the answer and dropped the
         // init, and no name for a header or a body exists on the input this is built from.
         const used = configForRow();
-        recording.recordAttempt(captureId, {
-          providerId,
-          outcome,
-          status,
-          audio: input.audio,
-          payload: {
-            model: used.model,
-            baseUrl: used.baseUrl,
+
+        // THE LOCAL GUARD, and it is the only reason a recorder that cannot record does not turn a
+        // transcription into a failure.
+        //
+        // WHAT IT IS GUARDING AGAINST, stated as the two roads that reach it. First, the LOG PORT:
+        // `recordAttempt` prints the row through the same port this line went out on, and a port that
+        // refuses the row would otherwise throw straight into the `catch (error)` that closes this
+        // whole attempt — the one below at the end of `transcribe`, whose only vocabulary is
+        // `unreachableBackendFailure(...)`, so a transcription that SUCCEEDED would be answered as a
+        // 502 whose text says the backend was unreachable. That is the failure mode this task exists
+        // to remove, and it is not hypothetical: `logAttempt('ok', 200, …)` sits inside that `try`,
+        // so the throw would be folded into a refusal with the transcription already in hand.
+        // Second, the CAPTURE PORT itself: it is an injected seam, and a deployment's own port may
+        // throw where this module's answers — the reason the guard wraps the CALL rather than a
+        // particular line inside the capture module.
+        //
+        // WHAT IT DELIBERATELY DOES NOT COVER. `log.info` for the attempt line above is outside it,
+        // and has to be: that line is this path's own record of the attempt, it is written in every
+        // mode, and swallowing a port that refuses IT would silently drop the one line the operator
+        // reads the attempt by. The line is not the recorder's, so the recorder's guard is not over
+        // it. What the guard covers is exactly the recording, and what it produces on the way out is
+        // the same for both roads: one line, the constant, carrying nothing of what failed.
+        try {
+          recording.recordAttempt(captureId, {
+            providerId,
+            outcome,
+            status,
             audio: input.audio,
-            upstream: upstreamAnswer,
-            requestSent,
-            reading: {
-              ok: outcome === 'ok',
-              code: meta?.code,
-              writtenFallback: meta?.writtenFallback,
-              text: meta?.text ?? '',
+            payload: {
+              model: used.model,
+              baseUrl: used.baseUrl,
+              audio: input.audio,
+              upstream: upstreamAnswer,
+              requestSent,
+              reading: {
+                ok: outcome === 'ok',
+                code: meta?.code,
+                writtenFallback: meta?.writtenFallback,
+                text: meta?.text ?? '',
+              },
             },
-          },
-        });
+          });
+        } catch {
+          // The failure line is printed INSIDE the same guard, in a guard of its own, and both
+          // halves of that are deliberate. Inside, because a line printed after the `catch` is a
+          // line whose own throw escapes the isolation this block exists to provide — the port that
+          // refused the row is the port that carries the failure line, so a port that refuses every
+          // `voice.capture`-prefixed line leaves this branch by throwing too. And in a guard of its
+          // own, because at that point there is nothing left to try: the recorder has failed, the
+          // line that says so has failed, and the attempt's answer is already decided. The one thing
+          // that must not happen here is a second exception, so the branch that has run out of things
+          // to say says nothing — and the caller still receives the result this attempt produced.
+          try {
+            log.info(VOICE_CAPTURE_FAILED_LINE);
+          } catch {
+            // Nothing left to say, and nothing to do about it: the transcription this attempt
+            // already produced is the caller's, and a recorder that cannot talk must not take it.
+          }
+        }
       };
 
       const adapter = tryResolve(providerId);
