@@ -68,22 +68,22 @@ goal_ac: AC-176
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-remote-control-isolation.test.ts` 在交付树上退出 **0**；同一命令在 develop 上退出 **1**，stdout 逐字 `Could not find 'server/modules/providers/tests/claude-resident-remote-control-isolation.test.ts'`。
-- [ ] 判据的临时 `CLAUDE_CONFIG_DIR` 见证：逐字打印 `/proc/<常驻 pid>/environ` 里的 `CLAUDE_CONFIG_DIR`，与判据起子进程时传的临时目录一致（逐字读数行形如 `CLAUDE_CONFIG_DIR 核对（/proc/<pid>/environ）：<值> —— 一致`）。
-- [ ] 判据内**没有**任何对真实 `~/.claude/settings.json` 的读写（负向核对：读到的 settings 路径全部由临时目录拼出，且判据里不出现 `homedir()` 拼 `.claude/settings.json` 的路径）。
-- [ ] (1) 用户 settings 为 `{"remoteControlAtStartup":true,"isolatePeerMachines":false}` ⇒ 常驻启动被**拒绝**；拒绝携带可辨错误码（判据按 `HOST_BIND_ERROR_CODES` 数组读该成员，不写第二份字面量），且文案含「Remote Control 已开启」与「以 bypass 运行的常驻进程会被跨机器驱动」的可判定字样。
-- [ ] (1) mock 端点与进程表**都**读到没有 claude 进程被拉起：mock 端点收到 **0** 条 `/v1/messages`；进程表里以该临时配置目录为标识的 claude 子进程数 **0**。
-- [ ] (1) 宿主快照里**没有**以 bypass 运行的常驻宿主：该会话在 `snapshot()` 里没有任何 `mode === 'resident'` 的 host。
-- [ ] (2) 用户 settings **不含** `remoteControlAtStartup` ⇒ 启动成功；判据读回传给 SDK 的 `sdkOptions.settings`，逐字含 `remoteControlAtStartup === false` **且** `isolatePeerMachines === true`。
-- [ ] (2) 用户 settings 为 `{"remoteControlAtStartup":false,…}` ⇒ 同样启动成功，两项 flag settings 同样逐字在读回里。
-- [ ] (2) 宿主快照**分别**记录**请求值**与**检测到的用户 settings 值**两个字段：请求值恒为 `{remoteControlAtStartup:false, isolatePeerMachines:true}`；检测值在「不含该字段」变体里是「未设置」（**不是** `false`），在 `false` 变体里是 `false`。
-- [ ] (2) 快照里**没有**字段名匹配 `effective` / `生效` 的 remote-control 记录（负向断言；假形态 (c) 落在这条上）。
-- [ ] 假形态 **(a)**：检测到开启仍照常启动 ⇒ (1) 的拒绝读数必须红（该臂含在判据文件内，照 AC-161 的 `(fake)` 臂形状经共享读数函数由 `assert.throws` 落实）。
-- [ ] 假形态 **(b)**：启动时不传那两项 flag settings ⇒ (2) 必须红。
-- [ ] 假形态 **(c)**：把请求值当生效值写进快照（单字段充当两者，或字段名带 `effective` / 生效）⇒ (2) 必须红。
-- [ ] 判据逐字写明「本条只检测用户级 settings；项目级 / 本地级 / 托管级 settings 未读数，是已知缺口」（负向核对：判据不为那三层写断言）。
-- [ ] 既有 `server/modules/providers/tests/claude-host-per-run.test.ts`、`…/claude-background-work.test.ts`、`…/passthrough-parity.test.ts` 仍退出 0，断言不改。
-- [ ] `npm run typecheck` 与 `npm run lint` 退出码均为 0（含 boundaries：判据跨模块只经 barrel）。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-remote-control-isolation.test.ts` 在交付树上退出 **0**；同一命令在 develop 上退出 **1**，stdout 逐字 `Could not find 'server/modules/providers/tests/claude-resident-remote-control-isolation.test.ts'`。
+- [x] 判据的临时 `CLAUDE_CONFIG_DIR` 见证：逐字打印 `/proc/<常驻 pid>/environ` 里的 `CLAUDE_CONFIG_DIR`，与判据起子进程时传的临时目录一致（逐字读数行形如 `CLAUDE_CONFIG_DIR 核对（/proc/<pid>/environ）：<值> —— 一致`）。
+- [x] 判据内**没有**任何对真实 `~/.claude/settings.json` 的读写（负向核对：读到的 settings 路径全部由临时目录拼出，且判据里不出现 `homedir()` 拼 `.claude/settings.json` 的路径）。
+- [x] (1) 用户 settings 为 `{"remoteControlAtStartup":true,"isolatePeerMachines":false}` ⇒ 常驻启动被**拒绝**；拒绝携带可辨错误码（判据按 `HOST_BIND_ERROR_CODES` 数组读该成员，不写第二份字面量），且文案含「Remote Control 已开启」与「以 bypass 运行的常驻进程会被跨机器驱动」的可判定字样。
+- [x] (1) mock 端点与进程表**都**读到没有 claude 进程被拉起：mock 端点收到 **0** 条 `/v1/messages`；进程表里以该临时配置目录为标识的 claude 子进程数 **0**。
+- [x] (1) 宿主快照里**没有**以 bypass 运行的常驻宿主：该会话在 `snapshot()` 里没有任何 `mode === 'resident'` 的 host。
+- [x] (2) 用户 settings **不含** `remoteControlAtStartup` ⇒ 启动成功；判据读回传给 SDK 的 `sdkOptions.settings`，逐字含 `remoteControlAtStartup === false` **且** `isolatePeerMachines === true`。
+- [x] (2) 用户 settings 为 `{"remoteControlAtStartup":false,…}` ⇒ 同样启动成功，两项 flag settings 同样逐字在读回里。
+- [x] (2) 宿主快照**分别**记录**请求值**与**检测到的用户 settings 值**两个字段：请求值恒为 `{remoteControlAtStartup:false, isolatePeerMachines:true}`；检测值在「不含该字段」变体里是「未设置」（**不是** `false`），在 `false` 变体里是 `false`。
+- [x] (2) 快照里**没有**字段名匹配 `effective` / `生效` 的 remote-control 记录（负向断言；假形态 (c) 落在这条上）。
+- [x] 假形态 **(a)**：检测到开启仍照常启动 ⇒ (1) 的拒绝读数必须红（该臂含在判据文件内，照 AC-161 的 `(fake)` 臂形状经共享读数函数由 `assert.throws` 落实）。
+- [x] 假形态 **(b)**：启动时不传那两项 flag settings ⇒ (2) 必须红。
+- [x] 假形态 **(c)**：把请求值当生效值写进快照（单字段充当两者，或字段名带 `effective` / 生效）⇒ (2) 必须红。
+- [x] 判据逐字写明「本条只检测用户级 settings；项目级 / 本地级 / 托管级 settings 未读数，是已知缺口」（负向核对：判据不为那三层写断言）。
+- [x] 既有 `server/modules/providers/tests/claude-host-per-run.test.ts`、`…/claude-background-work.test.ts`、`…/passthrough-parity.test.ts` 仍退出 0，断言不改。
+- [x] `npm run typecheck` 与 `npm run lint` 退出码均为 0（含 boundaries：判据跨模块只经 barrel）。
 
 ## DoD
 
