@@ -65,7 +65,7 @@ goal_ac: AC-170
 
 ## Touches
 
-- `scripts/resident-smoke.mjs`（新：真模型 HTTP/WS 冒烟脚本 + `--check-record`）
-- `scripts/resident-smoke.test.mjs`（新：护栏判据）
-- `docs/proposals/claude-resident-sessions-smoke.md`（新：六段读数记录；`冒烟验收：通过` 行由人 yale 写）
+- `scripts/resident-smoke.mjs` (new)（真模型 HTTP/WS 冒烟脚本 + `--check-record`）
+- `scripts/resident-smoke.test.mjs` (new)（护栏判据）
+- `docs/proposals/claude-resident-sessions-smoke.md` (new)（六段读数记录；`冒烟验收：通过` 行由人 yale 写）
 - `tasks/gap-claude-resident-api-smoke-human-gate.md`（自触）
