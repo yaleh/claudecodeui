@@ -104,3 +104,26 @@ ac7-repro: iterations=5 fails=0
 综上：历史红在本机**不可复现**——如实记录，不用刀锋 cap 把它读成绿。两臂 anon 只差 153,038,848 B（0.14 GiB），而 AC7 自己的地板就有 ~3.4 GiB（它自己那张列表里的 `npm run lint`/`npm run typecheck` 才是峰值来源），任何「选一个 cap 恰好把 pre-fix 打红、放过 post-fix」的做法都是刀锋上的假分离，不是复现；而真正的机制（舰队共享 64G 上限被 16 路文件级并发交叉跨过）probe 加不到那个量级——加到了就会 OOM 掉别的 worker。等价的 falsification variant 是上表后两行：pre-fix 恰好多出一棵**活的 `vitest run` 进程树**（4 vs 2），并让 asr 条目多印一行 `cases=9`（AC7 自己真的把 spec 跑了一遍），post-fix 两者皆无。被删掉的那个进程单独实测（隔离 scope、各自 1 次）：`npx vitest run <spec>` = **1,953,497,088 B anon（1.819 GiB）/ 2,087,501,824 B peak（1.944 GiB）**，替换读数 `npx vitest list <spec>` = **301,756,416 B anon（0.281 GiB）/ 393,388,032 B peak（0.366 GiB）**——被移除的就是「舰队里同一份 spec 被并发跑第二遍」的那份载荷。
 
 **未做的事（如实声明）**：未跑全量套件、未触发 fan-in（按派单要求）；AC4 未用人工 cap 制造红。
+
+## Needs-Human
+
+**执行 2026-09-27T10:00:00.234Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=5510 server/modules/debug-agent/tests/debug-agent-gate.test.ts passed=false end_ms=1790503068294
+- run_id：wk-prod-anchor
+- session_id：a2caef7d-7c17-4b5f-8535-7ef8dffda49d
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-error-classification-ac7-vitest-child-fragile~wk-prod-anchor~1790503039105-7a5628.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-error-classification-ac7-vitest-child-fragile-wk-prod-anchor.log
+
+## 人工复核（2026-09-27，人 yale 指令「检查和推进」第三轮）
+
+停在 needs-human 的判词是 `server/modules/debug-agent/tests/debug-agent-gate.test.ts` 红：
+`[face 1 registry] registered=false resolve('debug')=AppError/UNSUPPORTED_PROVIDER/400 resolve('claud')=AppError/UNSUPPORTED_PROVIDER/400`。
+
+核对：
+
+- **本任务自己的判据这一轮实际是绿的**：同一份日志 `__PERFILE__ duration_ms=108319 server/modules/voice/tests/voice-error-classification.false-forms.test.ts passed=true`——本条要修的 AC7 隐患这一轮没有复现，本任务的 delta 没有问题。
+- 红的文件不在本任务 Touches 里。该签名逐字匹配已知记录 `fan-in-probe-child-red-is-host-oom-not-the-delta`：`debug-agent-gate.test.ts` 健康跑收尾打印的**就是**这一行（"关闭态"分支的预期读数），`scripts/test.sh` 对文件级失败只打印子进程 stdout 的最后一行，不是断言消息，所以绿跑和这次的"红"文本逐字相同。standalone 复核：`exit 0`，`pass 6 / fail 0`（4.7s）。
+
+结论：这是已知的、与本任务 delta 完全无关的舰队噪声（健康收尾行被误判为失败），不是「已落地兄弟判据读全局事实」的例外情形——重新排队就是正确的逃逸。
