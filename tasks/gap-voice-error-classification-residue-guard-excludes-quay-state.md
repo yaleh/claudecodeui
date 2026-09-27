@@ -51,10 +51,10 @@ goal_ac: AC-152
 
 ## AC
 
-- [ ] AC1 判据在**并发写 `.quay/`** 下连续 20 次全绿：`rm -f .quay/.residue-probe-*.tmp && touch .quay/.residue-probe-ac152.tmp`，后台起 `for i in $(seq 1 1200); do touch .quay/.residue-probe-ac152.tmp; sleep 0.02; done &`，随后连跑 20 次 `npx vitest run src/shared/tests/voiceErrorClassification.test.ts`；每次退出 0 且 stdout 含 `git-clean-after=true` 与 `6 passed` ⇒ **20/20**。跑完 `kill` 探针并 `rm -f` 探针文件。**取假形态（修复前必红）**：同一根探针、同一命令，在修复落地前连跑 ≥5 次必须 ≥5/5 红且红在 `the run left files behind`；两臂只差修复状态，实测读数记入完成记录。
-- [ ] AC2 守卫的牙仍在（正对照，防「把判据改绿」）：跑之前先确认 `git check-ignore -v src/shared/tests/.ac152-residue-probe.tmp` **退出 1**（该路径不被 gitignore，因此在任何「从 `.gitignore` 派生排除面」的修法下都必须仍算残留）；随后 `touch src/shared/tests/.ac152-residue-probe.tmp` 并起同样的后台循环，跑同一条判据命令 ⇒ **必须红**，stderr 含 `the run left files behind` 且指名该探针。跑完删除探针，`git status --porcelain` 与本任务启动时逐字相同。
-- [ ] AC3 实质读数不变（一次干净运行，退出 0）：stdout 逐条含 `rows=21`、`agreed=21`、`openai-family=4`、`classifier-defs=1 table-defs=1 adapter-local-tables=0 client-local-tables=0 client-imports-shared=true`、`mutation=client-second-table` 那行的 `mutant-red=true`、`mutation=direct-status-only` 那行的 `mutant-red=true`、`subprocess-imports=0`、`ports=0`；且 `6 passed`。
-- [ ] AC4 排除面的书写与事实一致：`grep -n "\.quay" src/shared/tests/voiceErrorClassification.test.ts` 的命中处落在 `skip` 集合的**代码**里（不是只在注释里）；同文件注释里出现 `gitignore` 或 `git status --porcelain` 字样说明理由；`git check-ignore -v .quay/anchor.json` 退出 0（证明 `.quay/` 确实是 git 看不到的面）。
+- [x] AC1 判据在**并发写 `.quay/`** 下连续 20 次全绿：`rm -f .quay/.residue-probe-*.tmp && touch .quay/.residue-probe-ac152.tmp`，后台起 `for i in $(seq 1 1200); do touch .quay/.residue-probe-ac152.tmp; sleep 0.02; done &`，随后连跑 20 次 `npx vitest run src/shared/tests/voiceErrorClassification.test.ts`；每次退出 0 且 stdout 含 `git-clean-after=true` 与 `6 passed` ⇒ **20/20**。跑完 `kill` 探针并 `rm -f` 探针文件。**取假形态（修复前必红）**：同一根探针、同一命令，在修复落地前连跑 ≥5 次必须 ≥5/5 红且红在 `the run left files behind`；两臂只差修复状态，实测读数记入完成记录。
+- [x] AC2 守卫的牙仍在（正对照，防「把判据改绿」）：跑之前先确认 `git check-ignore -v src/shared/tests/.ac152-residue-probe.tmp` **退出 1**（该路径不被 gitignore，因此在任何「从 `.gitignore` 派生排除面」的修法下都必须仍算残留）；随后 `touch src/shared/tests/.ac152-residue-probe.tmp` 并起同样的后台循环，跑同一条判据命令 ⇒ **必须红**，stderr 含 `the run left files behind` 且指名该探针。跑完删除探针，`git status --porcelain` 与本任务启动时逐字相同。
+- [x] AC3 实质读数不变（一次干净运行，退出 0）：stdout 逐条含 `rows=21`、`agreed=21`、`openai-family=4`、`classifier-defs=1 table-defs=1 adapter-local-tables=0 client-local-tables=0 client-imports-shared=true`、`mutation=client-second-table` 那行的 `mutant-red=true`、`mutation=direct-status-only` 那行的 `mutant-red=true`、`subprocess-imports=0`、`ports=0`；且 `6 passed`。
+- [x] AC4 排除面的书写与事实一致：`grep -n "\.quay" src/shared/tests/voiceErrorClassification.test.ts` 的命中处落在 `skip` 集合的**代码**里（不是只在注释里）；同文件注释里出现 `gitignore` 或 `git status --porcelain` 字样说明理由；`git check-ignore -v .quay/anchor.json` 退出 0（证明 `.quay/` 确实是 git 看不到的面）。
 
 ## DoD
 
@@ -64,3 +64,76 @@ goal_ac: AC-152
 
 - src/shared/tests/voiceErrorClassification.test.ts
 - tasks/gap-voice-error-classification-residue-guard-excludes-quay-state.md
+
+## 完成记录
+
+**结论：修的是取景，不是把守卫改绿。** 残留读数现在只覆盖 worktree 的 git 可见面：`.quay` 与既有的 `.git` / `node_modules` / `dist` / `coverage` / `artifacts` / `.vite` 同列进 `treeSnapshot()` 的 `skip` 集合（`src/shared/tests/voiceErrorClassification.test.ts:392`，逐字 `['.git', 'node_modules', 'dist', 'coverage', 'artifacts', '.vite', '.quay']`），紧邻注释写明它与 `.gitignore` / `git status --porcelain` 的关系。`treeSnapshot()` 的差集语义、`:679` 的断言形状、21 行夹具、两条取假形态、`:678` 的 doors 与 `:680` 的 30s 预算逐字未动；出货代码一行未改 —— `git diff --stat develop...HEAD` 只有 `src/shared/tests/voiceErrorClassification.test.ts | 10 +++++++++-`（1 file changed, 9 insertions(+), 1 deletion(-)），未新增任何 `*.test.*` 文件。实现提交 `ecab9014`。
+
+### 取假形态（同一根杠杆，两臂只差修复状态）
+
+杠杆 = 后台循环每 20ms `touch` 同一根探针（`for i in $(seq 1 4000); do touch <probe>; sleep 0.02; done`，pid 写进 `/tmp` 文件，跑完按 pid `kill`）。
+
+**臂 A —— 修复前，探针在 `.quay/`：5/5 红。** 命令 `npx vitest run src/shared/tests/voiceErrorClassification.test.ts`：
+
+```
+RUN 1 exit=1 residue=the run left files behind: /.quay/.residue-probe-ac152.tmp:1790496288633.364:0
+RUN 2 exit=1 residue=the run left files behind: /.quay/.residue-probe-ac152.tmp:1790496289684.3599:0
+RUN 3 exit=1 residue=the run left files behind: /.quay/.residue-probe-ac152.tmp:1790496290781.3557:0
+RUN 4 exit=1 residue=the run left files behind: /.quay/.residue-probe-ac152.tmp:1790496291878.3516:0
+RUN 5 exit=1 residue=the run left files behind: /.quay/.residue-probe-ac152.tmp:1790496292990.3472:0
+```
+
+**臂 B —— 修复后，探针在 `src/shared/tests/`：3/3 红。** 同一根杠杆、同一条命令，只把探针路径换到 `src/shared/tests/.ac152-residue-probe.tmp`：
+
+```
+CTL RUN 1 exit=1 residue=the run left files behind: /src/shared/tests/.ac152-residue-probe.tmp:1790496343458.1538:0
+CTL RUN 2 exit=1 residue=the run left files behind: /src/shared/tests/.ac152-residue-probe.tmp:1790496344556.1494:0
+CTL RUN 3 exit=1 residue=the run left files behind: /src/shared/tests/.ac152-residue-probe.tmp:1790496345635.1453:0
+```
+
+两臂只差「探针落在 `.quay/` 还是 git 可见的 `src/shared/tests/`」⇒ 改的是取景，守卫的牙仍在。
+
+### AC1 —— 并发写 `.quay/` 下连续 20 次全绿
+
+`rm -f .quay/.residue-probe-ac152.tmp && touch .quay/.residue-probe-ac152.tmp` 后起后台循环，连跑 20 次：
+
+```
+RUN 01..20 exit=0 git-clean-after=1 6passed=1   （无一条 residue）
+=== PASSED 20 / 20
+```
+
+每次 `exit=0`、stdout 含 `git-clean-after=true` 与 `6 passed`，20/20。跑完按 pid `kill` 循环、`rm -f` 探针；`.quay/` 回到只剩 `config.yml` 与 `profiles.yml`，无残留进程（`ps -eo pid,args | grep -c '[a]c152-loop'` 为 0）。
+
+### AC2 —— 守卫的牙仍在（正对照）
+
+`git check-ignore -v src/shared/tests/.ac152-residue-probe.tmp` 逐字输出为空、**退出 1**（该路径不被 gitignore）；随后同一根循环 + 同一命令 ⇒ 3/3 红，stderr 指名 `/src/shared/tests/.ac152-residue-probe.tmp`（读数见上「臂 B」）。跑完删除探针。
+
+### AC3 —— 实质读数不变（一次干净运行，退出 0）
+
+```
+rows=21 openai-family=4 agreed=21 unknown-code-fallback=UNAUTHORIZED
+classifier-defs=1 table-defs=1 adapter-local-tables=0 client-local-tables=0 client-imports-shared=true
+mutation=client-second-table base-green=true mutant-red=true which=403|AccessDenied.Unpurchased outside-family-green=true
+mutation=direct-status-only base-green=3/2/2 mutant-red=true which=403|AccessDenied.Unpurchased outside-family-green=true
+reading AC1 scope = elapsed-ms=38 subprocess-imports=0 [] git-clean-after=true offline-transport=injected ports=0 shipped=true
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+```
+
+逐条 marker 命中计数：`rows=21`=1、`agreed=21`=1、`openai-family=4`=1、`classifier-defs=1 table-defs=1 adapter-local-tables=0 client-local-tables=0 client-imports-shared=true`=1、`mutation=client-second-table … mutant-red=true`=1、`mutation=direct-status-only … mutant-red=true`=1、`subprocess-imports=0`=1、`ports=0`=1、`6 passed`=1；退出 0。
+
+### AC4 —— 排除面的书写与事实一致
+
+```
+383: * `.quay` is skipped on the same discipline — it is a directory somebody else writes. It holds
+384: * quay's own runtime state, which the driver rewrites while this criterion runs (`.quay/anchor.json`
+385: * is a heartbeat file, `.quay/per-file-cpu-*` are its per-file account files), and it is exactly the
+386: * surface `git status --porcelain` cannot see: `.gitignore` ignores `.quay/*`, re-including only the
+392:  const skip = new Set(['.git', 'node_modules', 'dist', 'coverage', 'artifacts', '.vite', '.quay']);
+```
+
+`:392` 是 `skip` 集合的**代码**命中；注释里同时出现 `gitignore` 与 `git status --porcelain` 说明理由。`git check-ignore -v .quay/anchor.json` → `.gitignore:155:.quay/*	.quay/anchor.json`、**退出 0**（证明 `.quay/` 确实是 git 看不到的面）。
+
+### 收尾状态
+
+探针全部清理后，worktree 的 `git status --porcelain` 只剩本次实现改动；主检出（`/data/home/yale/work/claudecodeui`）的 `git status --porcelain` 与本任务启动时**逐字相同**（`?? .codex/`、`?? artifacts/`、`?? docs/proposals/mobile-workspace-and-composer-layout.md`、`?? e2e/zz-diag-session-filter.spec.ts`）。未写、未改、未删 `.quay/` 里的任何驱动文件；未改 `.gitignore`。本轮 `scripts/test.sh --for-task … --allow-thin` 作用域门在合并 develop 后的树上绿：`__PERFILE__ duration_ms=40 src/shared/tests/voiceErrorClassification.test.ts passed=true`、`# pass 1 / # fail 0`、退出 0。
