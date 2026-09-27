@@ -1,7 +1,7 @@
 ---
 id: AC-146
 title: 任何一档下，key 明文、Bearer 形式与音频 base64 都不出现在任何日志行或任何捕获文件里
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-010
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -19,6 +19,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-09-27T16:04:09.674Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"

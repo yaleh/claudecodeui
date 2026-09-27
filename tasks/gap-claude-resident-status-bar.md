@@ -72,18 +72,18 @@ goal_ac: AC-172
 
 ## AC
 
-- [ ] AC1 判据绿：`npx playwright test e2e/resident-status-bar.spec.ts` 退出 **0**，并打印整体墙钟 `elapsed=<n>ms` 且 `< 55_000`（`playwright.config.ts:285` 的单文件上限；超过会被配置自己的看门狗终结）。红态基线本轮实测：`--list` 退出 **1**、`Error: No tests found.` / `Total: 0 tests in 0 files`；正控制同形状跑 `e2e/model-env-kind-explanations.spec.ts --list` 退出 **0**、`Total: 1 test in 1 file`。
-- [ ] AC2 四态各自成形（侧栏标记 + 状态条）：判据对四态各打印 `state=<未运行|空闲|运行中|exited(oom)> mark=<hollow|solid|solid+spinner|exited>` 与 `bar=<UI 文案> snapshot.state=<HostView.state> closeReason=<…> detail=<…>`；断言 mark 与 §15.1 的表逐条对应，且 `bar` 的状态词与 `snapshot` 一致；每次切换打印来源 `via=<scenario-step|start|close>`。
-- [ ] AC3 计数等于宿主保活理由的数目（**假形态 (a) 的落点**）：判据打印 `host.leases=<按 kind 的计数>`（运行期读 `GET /api/session-hosts`）与 `ui.counts=<界面读数>` 两行并断言相等；**正控制**：同一运行里加一条 lease（场景 `keepalive-add`）后重读，打印 `counts.before=<…> counts.after=<…>` 且 `after > before`（保证不是常量）；`界面类别 ← lease kind` 的对应关系逐条打印。
-- [ ] AC4 popover：复制地址与关闭进程。判据打印 `popover.address=<v> snapshot.peerName=<v> equal=true`（地址逐字来自 `GET /api/session-hosts` 投影，不是前端另算）、`copy.clipboard=<v> equalToAddress=true`、`close.request=<POST …/close 的状态码>`、`hosts.beforeClose=<n> hosts.afterClose=<n>`（后者更小）、`mark.afterClose=hollow`。**正控制**：关闭前同一 hostId 在快照里（打印 `host.present=true`）。
-- [ ] AC5 停止只中止当前一轮、进程仍在（§15.4）：常驻会话有一轮在飞时点 composer 的停止 ⇒ 判据打印 `run.status=<aborted>`、`host.hostId.before=<h> host.hostId.after=<h> same=true`、`host.state.after=<idle|lingering>`、`pid.before=<p> pid.after=<p> same=true`、`host.closeReason.after=null`。
-- [ ] AC6 无人轮的触发类型标签与跨会话发送方（**假形态 (b) 的落点**）：场景发一条 `定时任务触发`、一条 `跨会话消息`（发送方 = §12 的 `peerName`）。判据打印 `divider=<标签文案>`（逐字含触发类型）与 `sender=<发送方>`；并打印 `row.class=<…> isUserStyle=<true|false>`，断言其为 **false**；**正控制**：同一次运行里一条真用户轮打印 `userRow.isUserStyle=true`（证明该读数不是恒假）。
-- [ ] AC7 假形态 (a) 必须红（承重）：把状态条改成读本地状态（不再依赖 `GET /api/session-hosts`），判据命令退出**非 0**，且红**落在 AC3 的「场景切换状态后计数/状态必须变」那条断言**上（登记变异 diff、失败断言逐字、退出码）。恢复后判据回到 0。
-- [ ] AC8 假形态 (b) 必须红（承重）：把无人轮按用户消息样式渲染（走进 `MessageComponent.tsx:97-99` 的 user 分支），判据命令退出**非 0**，且红**落在 AC6 的「非用户样式」那条断言**上（登记变异 diff、失败断言逐字、退出码）。恢复后判据回到 0。
-- [ ] AC9 替身改动不波及别的判据：门控仅对含本判据的选择生效 —— `npx playwright test e2e/model-env-kind-explanations.spec.ts` 仍退出 **0**（打印退出码与墙钟），且 `npx playwright test --list` 的收集总数与改动前**逐字相同**（打印改动前后两个数）。
-- [ ] AC10 出厂链路的无人轮不再抛：判据打印 `unattended.run.source=<unattended>` 与 `seam.unwired=false`（场景的 `unattended-turn` 在**出厂 HTTP 控制面**上真的开出了 run，不是判据内部另接的 seam）；该次运行里 `DEBUG_AGENT_RUN_SEAM_UNAVAILABLE` 出现次数为 **0**（打印计数）。
-- [ ] AC11 文案取自运行期读的出货目录（`src/modules/i18n/locales/en/chat.json` 与 `…/sidebar.json`），spec 里不抄句子；新增 key 在 **12 个 locale** 的 `chat.json`（与用到的 `sidebar.json`）里都存在且非空，任一缺失以非 0 退出并打印是哪个文件哪个 key。
-- [ ] AC12 契约面：`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**；`git diff --stat` 与 Touches 逐条对齐（多写的文件须由判据强制）。
+- [x] AC1 判据绿：`npx playwright test e2e/resident-status-bar.spec.ts` 退出 **0**，并打印整体墙钟 `elapsed=<n>ms` 且 `< 55_000`（`playwright.config.ts:285` 的单文件上限；超过会被配置自己的看门狗终结）。红态基线本轮实测：`--list` 退出 **1**、`Error: No tests found.` / `Total: 0 tests in 0 files`；正控制同形状跑 `e2e/model-env-kind-explanations.spec.ts --list` 退出 **0**、`Total: 1 test in 1 file`。
+- [x] AC2 四态各自成形（侧栏标记 + 状态条）：判据对四态各打印 `state=<未运行|空闲|运行中|exited(oom)> mark=<hollow|solid|solid+spinner|exited>` 与 `bar=<UI 文案> snapshot.state=<HostView.state> closeReason=<…> detail=<…>`；断言 mark 与 §15.1 的表逐条对应，且 `bar` 的状态词与 `snapshot` 一致；每次切换打印来源 `via=<scenario-step|start|close>`。
+- [x] AC3 计数等于宿主保活理由的数目（**假形态 (a) 的落点**）：判据打印 `host.leases=<按 kind 的计数>`（运行期读 `GET /api/session-hosts`）与 `ui.counts=<界面读数>` 两行并断言相等；**正控制**：同一运行里加一条 lease（场景 `keepalive-add`）后重读，打印 `counts.before=<…> counts.after=<…>` 且 `after > before`（保证不是常量）；`界面类别 ← lease kind` 的对应关系逐条打印。
+- [x] AC4 popover：复制地址与关闭进程。判据打印 `popover.address=<v> snapshot.peerName=<v> equal=true`（地址逐字来自 `GET /api/session-hosts` 投影，不是前端另算）、`copy.clipboard=<v> equalToAddress=true`、`close.request=<POST …/close 的状态码>`、`hosts.beforeClose=<n> hosts.afterClose=<n>`（后者更小）、`mark.afterClose=hollow`。**正控制**：关闭前同一 hostId 在快照里（打印 `host.present=true`）。
+- [x] AC5 停止只中止当前一轮、进程仍在（§15.4）：常驻会话有一轮在飞时点 composer 的停止 ⇒ 判据打印 `run.status=<aborted>`、`host.hostId.before=<h> host.hostId.after=<h> same=true`、`host.state.after=<idle|lingering>`、`pid.before=<p> pid.after=<p> same=true`、`host.closeReason.after=null`。
+- [x] AC6 无人轮的触发类型标签与跨会话发送方（**假形态 (b) 的落点**）：场景发一条 `定时任务触发`、一条 `跨会话消息`（发送方 = §12 的 `peerName`）。判据打印 `divider=<标签文案>`（逐字含触发类型）与 `sender=<发送方>`；并打印 `row.class=<…> isUserStyle=<true|false>`，断言其为 **false**；**正控制**：同一次运行里一条真用户轮打印 `userRow.isUserStyle=true`（证明该读数不是恒假）。
+- [x] AC7 假形态 (a) 必须红（承重）：把状态条改成读本地状态（不再依赖 `GET /api/session-hosts`），判据命令退出**非 0**，且红**落在 AC3 的「场景切换状态后计数/状态必须变」那条断言**上（登记变异 diff、失败断言逐字、退出码）。恢复后判据回到 0。
+- [x] AC8 假形态 (b) 必须红（承重）：把无人轮按用户消息样式渲染（走进 `MessageComponent.tsx:97-99` 的 user 分支），判据命令退出**非 0**，且红**落在 AC6 的「非用户样式」那条断言**上（登记变异 diff、失败断言逐字、退出码）。恢复后判据回到 0。
+- [x] AC9 替身改动不波及别的判据：门控仅对含本判据的选择生效 —— `npx playwright test e2e/model-env-kind-explanations.spec.ts` 仍退出 **0**（打印退出码与墙钟），且 `npx playwright test --list` 的收集总数与改动前**逐字相同**（打印改动前后两个数）。
+- [x] AC10 出厂链路的无人轮不再抛：判据打印 `unattended.run.source=<unattended>` 与 `seam.unwired=false`（场景的 `unattended-turn` 在**出厂 HTTP 控制面**上真的开出了 run，不是判据内部另接的 seam）；该次运行里 `DEBUG_AGENT_RUN_SEAM_UNAVAILABLE` 出现次数为 **0**（打印计数）。
+- [x] AC11 文案取自运行期读的出货目录（`src/modules/i18n/locales/en/chat.json` 与 `…/sidebar.json`），spec 里不抄句子；新增 key 在 **12 个 locale** 的 `chat.json`（与用到的 `sidebar.json`）里都存在且非空，任一缺失以非 0 退出并打印是哪个文件哪个 key。
+- [x] AC12 契约面：`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**；`git diff --stat` 与 Touches 逐条对齐（多写的文件须由判据强制）。
 
 ## DoD
 
@@ -104,11 +104,23 @@ goal_ac: AC-172
 - `server/modules/debug-agent/debug-agent.scenario.ts`
 - `server/modules/debug-agent/debug-agent.engine.ts`
 - `server/modules/debug-agent/debug-agent.host-driver.ts`
+- `server/modules/debug-agent/debug-agent.provider.ts`
+- `server/modules/debug-agent/debug-agent.routes.ts`
+- `server/modules/debug-agent/debug-agent.runtime.ts`
+- `server/modules/debug-agent/index.ts`
+- `server/modules/debug-agent/tests/debug-agent-host-driver.test.ts`
+- `server/modules/debug-agent/tests/debug-agent-vocabulary-guard.test.ts`
+- `server/modules/providers/services/provider-runtime.service.ts`
+- `server/modules/session-hosts/session-hosts.routes.ts`
+- `server/modules/session-hosts/tests/session-hosts-routes.test.ts`
 - `src/shared/api.ts`
 - `src/shared/hooks/useSessionHosts.ts` (new)
 - `src/modules/chat/transcript/ResidentStatusBar.tsx` (new)
 - `src/modules/chat/transcript/ChatMessagesPane.tsx`
 - `src/modules/chat/transcript/MessageComponent.tsx`
+- `src/modules/chat/ChatInterface.tsx`
+- `src/modules/chat/hooks/useChatMessages.ts`
+- `src/shared/types.ts`
 - `src/modules/chat/composer/ChatComposer.tsx`
 - `src/modules/sidebar/ResidentMark.tsx` (new)
 - `src/modules/sidebar/SidebarSessionItem.tsx`

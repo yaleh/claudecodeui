@@ -1,7 +1,7 @@
 ---
 id: GOAL-010
 title: 语音识别的服务端捕获：由服务端环境变量选择 off、text、audio 三档，记录每次转写的原始返回与结果，默认关闭
-status: active
+status: achieved
 kind: goal
 origin: docs/proposals/voice-capture-server-side.md（2026-09-24 人 yale 裁定：三档
   off/text/audio、只在服务端配置、默认 off、无保留期与大小限制、音频目录不清理、AC-141 的转写正文条款错误需修订）
@@ -12,6 +12,11 @@ statusLog:
     to: active
     actor: claude-session
     reason: 人 yale 2026-09-24 裁定：按提案 docs/proposals/voice-capture-server-side.md 激活
+  - at: 2026-09-27T16:06:42.650Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: all ACs achieved + sufficiency covered"
 ---
 ## 背景
 

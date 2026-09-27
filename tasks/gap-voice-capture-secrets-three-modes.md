@@ -2,7 +2,7 @@
 id: gap-voice-capture-secrets-three-modes
 title: 三档脱敏判据：off/text/audio 各一次成功与一次失败下，DashScope key、共享 backend key、Bearer
   形式与录音 base64 都不出现在任何日志行与任何捕获文件里，且它们确实过了线（正例）（AC-146）
-status: needs-human
+status: done
 labels:
   - gap
 parent: null
@@ -219,3 +219,10 @@ AC7 修复（`gap-voice-error-classification-ac7-vitest-child-fragile`）已落�
 - session_id：875567b9-a66d-451a-a6c2-8edcfc66b1ee
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-capture-secrets-three-modes~wk-prod-anchor~1790515285270-f65d4d.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-capture-secrets-three-modes-wk-prod-anchor.log
+
+## 人工复核（2026-09-27，人 yale 指令「检查和推进」第六轮）
+
+第四次停在 needs-human 撞的还是同一条 `sessions-watcher-mode.test.ts` 时间预算隐患（与
+`gap-claude-resident-slice-memory-cap` 同一签名）。已直接修复（提交 `b0073b99`）：
+`POLL_WINDOW_SLACK_MS` 从 1000ms 提到 4000ms，只放宽断言容差、不改变健康路径耗时（3 次
+standalone 复核仍是 6020-6028ms）。不在本任务 Touches 里，重新排队。
