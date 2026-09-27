@@ -2,7 +2,7 @@
 id: gap-voice-capture-secrets-three-modes
 title: 三档脱敏判据：off/text/audio 各一次成功与一次失败下，DashScope key、共享 backend key、Bearer
   形式与录音 base64 都不出现在任何日志行与任何捕获文件里，且它们确实过了线（正例）（AC-146）
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -208,3 +208,14 @@ AC7 修复（`gap-voice-error-classification-ac7-vitest-child-fragile`）已落�
 - `server/modules/voice/tests/voice-dashscope-settings.test.ts` 的 AC4(b)：`AssertionError: a temp copy belonging to another process made the scan red`。这是已知的 `__criterion-falsify-*` 邻居临时文件族的同类形状（见 `server-tsconfig-include-sweeps-test-scratch`）；本任务之前的一轮（`~1790486746002-6316b5.log`）已经撞过一次同一签名。standalone 复核 2 次：`exit 0`，`pass 32 / fail 0`。
 
 两条都不在本任务 `## Touches` 里，都是舰队并发下的抽签，不是本任务的 delta。结论：重新排队。
+
+## Needs-Human
+
+**执行 2026-09-27T13:27:10.661Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 6 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=19846 server/modules/providers/tests/sessions-watcher-mode.test.ts passed=false end_ms=1790515509797
+- run_id：wk-prod-anchor
+- session_id：875567b9-a66d-451a-a6c2-8edcfc66b1ee
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-capture-secrets-three-modes~wk-prod-anchor~1790515285270-f65d4d.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-capture-secrets-three-modes-wk-prod-anchor.log
