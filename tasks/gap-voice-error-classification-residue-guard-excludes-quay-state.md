@@ -3,7 +3,7 @@ id: gap-voice-error-classification-residue-guard-excludes-quay-state
 title: AC-152 判据的 no-residue 守卫把 quay 自己的运行时状态（被 gitignore 的
   .quay/）算成残留，驱动每写心跳/每文件账目就假红一次（1990 条读数里 397 条）⇒ 残留读数只覆盖 worktree 的 git
   可见面，且守卫的牙仍在
-status: todo
+status: ready
 labels:
   - gap
   - defect
