@@ -1,7 +1,7 @@
 ---
 id: AC-161
 title: 常驻进程跨轮存活：连续三轮 pid 不变，中止当前一轮不杀进程，关闭后进程退出
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-013
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -23,6 +23,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-09-27T06:44:46.680Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"

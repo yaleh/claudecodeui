@@ -6,7 +6,7 @@ title: AC-162 无人轮在无浏览器时产生、建 run、可回放并推送�
   transcript 与 REST 历史、notifyBackgroundWorkCompleted 带触发类型=后台任务回报）；无人轮识别用
   command_uuid 不在本宿主已推集合、触发类型对账 Stop hook 的 background_tasks（不读 origin）；先补 E9「后台
   Bash 完成后 CLI 是否自行开轮」读数缺口并写回记录文件，读到不开轮由人改判据不得自行放宽；假形态（只靠转录同步补进会话、不开 run）必须红
-status: todo
+status: ready
 labels:
   - gap
 parent: null

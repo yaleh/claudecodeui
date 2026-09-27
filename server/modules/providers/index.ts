@@ -9,6 +9,11 @@ export { providerModelsService } from './services/provider-models.service.js';
 // sessionsService: used by the websocket module's chat gateway to resolve an
 // edited message's resume point, which only the providers module can read.
 export { sessionsService } from './services/sessions.service.js';
+// LifecycleModeSwitchResult: the answer `sessionsService.switchSessionLifecycleMode`
+// gives — the stored mode plus what happened to the host that was serving the
+// session — exported so a criterion can type what the lifecycle-mode route
+// answered without restating the shape.
+export type { LifecycleModeSwitchResult } from './services/sessions.service.js';
 export { searchConversations } from './services/session-conversations-search.service.js';
 
 // readSessionAiTitle: used by the commands module's `/cost` handler to show the
@@ -36,6 +41,17 @@ export type { ProviderWatchPath } from './services/sessions-watcher.service.js';
 export { readActiveWatcherModes } from './services/sessions-watcher.service.js';
 export type { WatcherMode } from './services/sessions-watcher.service.js';
 export { providerRegistry } from './provider.registry.js';
+// providerRoutes: the module's HTTP face. Mounted by `server/index.ts`, and by
+// the lifecycle-mode criterion, which has to drive the real
+// `PUT /:provider/sessions/:sessionId/lifecycle-mode` route (and read its
+// refusals) rather than call the service directly — the route is where the
+// transport-level `LIFECYCLE_MODE_UNKNOWN` refusal lives.
+export { default as providerRoutes } from './provider.routes.js';
+// providerCapabilitiesService: the capability matrix. Exported so the
+// lifecycle-mode criterion can print the claude row's `residentFeatures` and
+// prove a mode is refused because `lifecycleModes` does not list it, reading
+// the same statement the route branches on instead of a copy of it.
+export { providerCapabilitiesService } from './services/provider-capabilities.service.js';
 // resolveModelLaunchSpec: consumed by the websocket module's shell pty to compile the
 // spawn env for the selected custom model.
 export { resolveModelLaunchSpec, resolveModelContextWindowRow } from './services/model-launch-spec.service.js';

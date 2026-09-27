@@ -553,6 +553,28 @@ const addSessionPermissionModeColumn = (db: Database): void => {
 };
 
 /**
+ * Adds the `lifecycle_mode` column: how long a session's process is meant to
+ * live ('per-run' or 'resident').
+ *
+ * The `DEFAULT 'per-run'` is the whole migration. An existing row has been
+ * running one process per turn for its entire life, so that is the true value
+ * for it rather than a placeholder — and it is also what makes the column safe
+ * to read unconditionally: a reader never has to tell "no preference recorded"
+ * from "the default preference", because for this column they are the same
+ * answer.
+ *
+ * Called after `dropLaunchProfileStructures`, whose table rebuild copies an
+ * explicit column list and would otherwise drop the new column along with the
+ * old table.
+ */
+const addSessionLifecycleModeColumn = (db: Database): void => {
+  const sessionsTableInfo = getTableInfo(db, 'sessions');
+  const columnNames = sessionsTableInfo.map((column) => column.name);
+
+  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'lifecycle_mode', "TEXT DEFAULT 'per-run'");
+};
+
+/**
  * Drops the two structures the removed launch-profile feature left in the
  * database: the `launch_profiles` table and the `sessions.launch_profile_id`
  * column.
@@ -736,6 +758,10 @@ export const runMigrations = (db: Database) => {
     addSessionNameSourceColumn(db);
     // Likewise after the rebuild, and after the name_source column it reads.
     splitSessionTranscriptNameColumns(db);
+    // And again after that rebuild: it copies an explicit column list, so a
+    // lifecycle_mode added before it would be dropped along with the old table
+    // and every existing session would come back with the column missing.
+    addSessionLifecycleModeColumn(db);
     ensureProjectsForSessionPaths(db);
     db.exec(SCHEDULED_MESSAGES_TABLE_SCHEMA_SQL);
 

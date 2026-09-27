@@ -1891,6 +1891,63 @@ export const HOST_BIND_ERROR_CODES = [
 ] as const satisfies readonly HostBindErrorCode[];
 
 /**
+ * Why a lifecycle-mode read or write was refused.
+ *
+ * One vocabulary for two surfaces that answer about the same two facts — which
+ * mode a session is stored under, and whether a process is running for it — so
+ * a client can tell the refusals apart without reading prose. The members are
+ * deliberately all distinct: "you asked for a mode this provider's driver does
+ * not implement" (`LIFECYCLE_MODE_NOT_SUPPORTED`) and "you asked for a mode that
+ * does not exist" (`LIFECYCLE_MODE_UNKNOWN`) are different mistakes with
+ * different fixes, and a client that had to branch on a message would conflate
+ * them the first time one was reworded.
+ *
+ * `SESSION_NOT_FOUND` and `SESSION_HOST_NOT_FOUND` are the two ways "there is
+ * nothing to act on" splits: the first says no session row exists, the second
+ * says the session exists and no live process is serving it. The close route
+ * needs both because they lead a client to different repair — create/refresh the
+ * session versus start the host — and `LIFECYCLE_MODE_NOT_RESIDENT` sits beside
+ * them as the third answer, which is that there *is* something there and the
+ * action is not allowed on it.
+ */
+export type LifecycleModeErrorCode =
+  /** The requested mode is not one the application knows. */
+  | 'LIFECYCLE_MODE_UNKNOWN'
+  /** The provider's capability matrix does not list the requested mode. */
+  | 'LIFECYCLE_MODE_NOT_SUPPORTED'
+  /** The verb is only available to a resident session, and this one is not. */
+  | 'LIFECYCLE_MODE_NOT_RESIDENT'
+  /** The session is resident but its provider mounts no host driver to start. */
+  | 'LIFECYCLE_MODE_HOST_UNAVAILABLE'
+  /** The host serving the session is mid-turn, so the mode cannot change under it. */
+  | 'LIFECYCLE_MODE_HOST_BUSY'
+  /** No session row exists under the given id. */
+  | 'SESSION_NOT_FOUND'
+  /** The session exists but no live host is serving it. */
+  | 'SESSION_HOST_NOT_FOUND';
+
+/**
+ * Every member of `LifecycleModeErrorCode`, as a runtime value.
+ *
+ * Same contract as `HOST_CLOSE_REASONS` and `HOST_BIND_ERROR_CODES`: the union
+ * is the definition and this array is the same list in a form a program can
+ * iterate. The criterion that has to show three refusals are mutually
+ * distinguishable reads this list rather than a literal typed a second time, so
+ * a reader can see that "distinct" is a property of the vocabulary and not of
+ * the three values the case happened to produce. Keep the two in the same order,
+ * and add a member to both at once.
+ */
+export const LIFECYCLE_MODE_ERROR_CODES = [
+  'LIFECYCLE_MODE_UNKNOWN',
+  'LIFECYCLE_MODE_NOT_SUPPORTED',
+  'LIFECYCLE_MODE_NOT_RESIDENT',
+  'LIFECYCLE_MODE_HOST_UNAVAILABLE',
+  'LIFECYCLE_MODE_HOST_BUSY',
+  'SESSION_NOT_FOUND',
+  'SESSION_HOST_NOT_FOUND',
+] as const satisfies readonly LifecycleModeErrorCode[];
+
+/**
  * The outcome of one `bindSession` request.
  *
  * A discriminated union rather than a thrown error because a refusal is an
@@ -1997,6 +2054,41 @@ export type HostReconfigurePatch = {
 export type ChatRunSource = 'user' | 'scheduled' | 'unattended';
 
 /**
+ * What a provider's resident process can do, beyond merely being long-lived.
+ *
+ * One field per fact the frontend would otherwise have to branch on the provider
+ * id to learn — the same reason `permissionModes` and `supportsImages` live in
+ * the capability matrix. Every entry is an observation about the provider's CLI
+ * rather than a design intention, so a field whose experiment has not been run
+ * states `false` (or an empty list) rather than the value the author expects:
+ * `authoritativeLeases`, `cancelQueuedInput` and `liveReconfigure` are all
+ * "nothing verified" until someone measures them, and a matrix that guessed
+ * would make the frontend promise a feature no driver implements.
+ *
+ * Only meaningful for a provider whose `lifecycleModes` includes `resident`, and
+ * absent for one that has no resident mode at all — the same conditional shape
+ * as `IProvider.hostDriver`.
+ */
+export type ResidentFeatures = {
+  /** Stopping the current turn leaves the process running (so the next turn is warm). */
+  interruptKeepsProcess: boolean;
+  /** Settings that can be changed on a running process without restarting it, verified live. */
+  liveReconfigure: Array<'model' | 'effort' | 'permissionMode'>;
+  /** Turns the provider can run with no client attached (cron, wakeup, cross-session message). */
+  unattendedTurns: boolean;
+  /** The process has a stable address another session can send a message to. */
+  addressable: boolean;
+  /** Input sent while a turn is in flight reaches the process rather than being refused. */
+  inputWhileBusy: boolean;
+  /** Input that has not yet been dequeued can be withdrawn. */
+  cancelQueuedInput: boolean;
+  /** The reasons keeping the process alive come from the CLI's own events, not from inference. */
+  authoritativeLeases: boolean;
+  /** Reserved: reachability through the provider's own remote-control bridge. */
+  remoteControl: boolean;
+};
+
+/**
  * Lifecycle facts a provider states about itself at runtime.
  *
  * Deliberately keyed by a plain provider id string rather than by
@@ -2017,4 +2109,13 @@ export type RuntimeProviderCapabilities = {
    * can be read without an instance of the driver.
    */
   multiplexedHost: boolean;
+  /**
+   * What the provider's resident process can do, when it has one.
+   *
+   * Optional so a declaration written before this field existed stays valid —
+   * the debug agent's declaration states only the two lifecycle facts above, and
+   * "no declaration" is the honest reading of a provider that never claimed any
+   * of these capabilities.
+   */
+  residentFeatures?: ResidentFeatures;
 };
