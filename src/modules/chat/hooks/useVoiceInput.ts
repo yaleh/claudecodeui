@@ -596,7 +596,16 @@ export function useVoiceInput(
           after: identifierFidelity(raw, repaired),
         });
         onTranscript(repaired, send);
-      } else onError?.('No speech detected');
+      } else {
+        // A well-formed answer with no words in it is the same condition as the server's own
+        // `NO_SPEECH_DETECTED`: a recording that reached the recogniser and produced nothing to
+        // write down. It is named as a vocabulary member here, where the emptiness is FOUND, and
+        // not at the surface that shows it — a sentence written at that surface would be English
+        // in every language, and the code is what lets the composer pick the user's own sentence.
+        // The status is the answer's own, so a caller reading the technical line sees the same
+        // number for an empty 200 whether the emptiness was found here or classified upstream.
+        onError?.({ status: res.status, code: 'NO_SPEECH_DETECTED' });
+      }
     } catch (e) {
       if (!cancelledRef.current) {
         onError?.(`Transcription failed: ${e instanceof Error ? e.message : String(e)}`);

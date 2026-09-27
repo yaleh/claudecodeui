@@ -461,30 +461,32 @@ const speakInto = async (lang: string, projectId: string) => {
 };
 
 /**
- * What the mic control is showing above its button, or `null` when nothing is shown.
+ * The sentence the shipped failure notice is showing, or `null` when no notice is on screen.
  *
- * Read structurally, not by text search. `VoiceInputButton` renders the bubble as the FIRST child
- * of the layer that wraps the whole control, and the button itself sits inside a layer of its own
- * below that — so the walk climbs from the button until it reaches the layer whose first child is
- * neither the button nor something containing it. That element is the bubble, and its `textContent`
- * is the whole sentence, which is what makes the equality below an equality: a `includes` reading
- * would pass on the right copy with the transport's sentence glued to it.
+ * Read from the notice's own layer, not by text search, and the layer's `textContent` is the whole
+ * sentence — which is what makes the equality below an equality: an `includes` reading would pass on
+ * the right copy with the transport's sentence glued to it. Nothing but the sentence is a text node
+ * in that layer by design: the close control's name is an attribute, the fold's summary as well, and
+ * the fold's own body is mounted only while it is open. So this reads the shipped sentence and
+ * nothing else, and a sentence with anything appended to it is a different string.
  *
- * The climb is BOUNDED, and the bound is load-bearing in the other direction: with no bubble
- * rendered, an unbounded walk keeps climbing and would eventually return the composer's own text,
- * turning "no bubble" into a green — the one failure this reading exists to catch.
+ * `null` when no notice is rendered, and that half is load-bearing: it is what stops "nothing was
+ * shown at all" from being read as "the right sentence was shown".
+ *
+ * WHY THIS IS NO LONGER READ OFF THE MIC BUTTON. It used to climb from the button to the layer whose
+ * first child was the bubble, because `VoiceInputButton` rendered the sentence above its own button.
+ * It does not any more: the composer's form is `relative overflow-hidden` (so the textarea's
+ * highlight layer clips to its rounded corners), so a notice drawn inside the form grows out of the
+ * form's box and is clipped, and the close control — the notice's top row — ends up outside it,
+ * where the element a pointer meets is the chat pane. The notice is therefore a sibling of the form,
+ * drawn from the composer's own shell the way the activity indicator above it is, and the control's
+ * reachability is read in `e2e/voice-error-messages.spec.ts` as
+ * `close-reachable: … element-at-close=<…> reaches=true`. Only where this reading is taken from
+ * moved; the reading itself is unchanged — the whole sentence, by equality, or no notice at all.
  */
-const BUBBLE_LAYERS_UP = 2;
-
-const bubbleText = (view: ReturnType<typeof render>, label: string): string | null => {
-  const button = view.getByRole('button', { name: label });
-  let node: HTMLElement | null = button.parentElement;
-  for (let up = 0; up < BUBBLE_LAYERS_UP && node !== null; up += 1) {
-    const first = node.firstElementChild;
-    if (first !== null && first !== button && !first.contains(button)) return first.textContent;
-    node = node.parentElement;
-  }
-  return null;
+const noticeSentence = (view: ReturnType<typeof render>): string | null => {
+  const layer = view.queryByTestId('voice-error-notice');
+  return layer === null ? null : layer.textContent;
 };
 
 /**
@@ -635,8 +637,8 @@ test('AC4b the shipped composer shows the fallback copy, in every language, for 
       'voice.errors.unknown',
       `'${lang}' has no voice.errors.unknown copy, so this reading would compare a key to itself`,
     );
-    const { view, t } = await speakInto(lang, `project-error-${index}`);
-    lastText = bubbleText(view, t('voice.input'));
+    const { view } = await speakInto(lang, `project-error-${index}`);
+    lastText = noticeSentence(view);
     const equals = readsAsLocalizedFallback(lastText, unknownText);
     allEqual &&= equals;
     process.stdout.write(
