@@ -153,13 +153,15 @@ npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/test
 
 **AC-12（触发类型读数缺口）**：真实二进制上**有**可分辨标记（`result.origin.kind === 'peer'`），故不交人、不停 `needs-human`；原始事件形态已逐字写进 `docs/proposals/claude-resident-sessions-experiments.md` 的 **9.10**（并发现在 `origin.name` 里带的是**发件人**注册的地址，即从收件方一侧对发件方地址的独立复读；收件人自己的地址不在 `origin` 里）。
 
-**五处偏差 / 如实登记**
+**六处偏差 / 如实登记**
 
 1. **转录文件按标记定位，不按 provider session id**。绑定投影里的 `providerSessionId` 在本启动路径上是 `null`（判据把这条读数也打印出来：`bindingProviderSessionId=null`），所以判据改成「扫 `<CLAUDE_CONFIG_DIR>/projects/*/`，取内容含本会话标记的那个文件」；多个命中时取 mtime 最新的一个（进程死过一次再启动时可能留下同标记的旧文件）。读出来的仍是 CLI 自己写的行，判定强度不变。
 2. **AC-7(a) 的字面 vs 本 build 的读数**。AC 逐字写「假形态臂打印 `transcriptAgentName=<CLI 自动名>`」。本 build 下**不给 `--name` 就不注册任何自动名**（实测：无标题会话的转录里没有 `agent-name` 行），所以判据打印的是 `transcriptAgentName=null equalToSnapshot=false` + `hostPid/hostState`（证明这条读数是在**活着的**、无地址的进程上取的）。把「两个 absent 也算相等」堵掉的是判据自己的合取式 `registered !== null && snapshotPeerName === registered`，因此这条读数的分辨力没有降低：假形态与真对照臂都在这个合取式下取 `false`，而 A/B 取 `true`。
 3. **AC-7(c) 的口径**。AC 写的是 `replayEvents(B,0)`；判据打印两个读数：`replayEventsBefore=0`（`chatRunRegistry.clearAll()` 之后直接调 `replayEvents(B, 0)`，即 AC 逐字那条路）与 `replayed-before=0`（新连接 `chat.subscribe(lastSeq=0)`，即客户端那条路；该路只在 run 仍在飞时回放，见 `chat-websocket.service.ts`）。两个都是 0。
 4. **启动重试 + 控制臂存活断言（判据稳健性，未改动被测量的读数）**。三个会话的首次轮改成 `bootResidentSession`（最多 3 次），并在三次启动后断言 `booted=true`；控制臂加 `hostPid !== null` + `hostState !== 'closed'`。原因：一次实测里无标题会话的 CLI 进程在发出任何请求前退出 1（`bootExits=0,0,1 agentRequests=2`，该次之后连跑 22 次未复现，含 4 路并发 12 次）；那种情况下控制臂会**空洞地**通过（死进程也没有地址），所以把「进程真的起来了」变成断言而不是假设。重试只吸收环境性的启动失败，不改变任何被测量的读数（A/B 的地址等值、送达、回放都不经它）。
 5. **驱动器的单 `pending` 槽（既有行为，未改生产代码）**。`startResidentHost` 把首个进程放进 driver 的单个 `this.pending`、`startHost` 消费它；两个会话的**首次**轮同时在飞会互相覆盖（第二个以 `Resident host ... was opened without a process` 失败）。这是 develop 上既有的（`git show develop:...` 可见 `this.pending`），AC-164 里没有对应的 AC，故判据按**串行启动**绕开并在判据里写明是启动路径的性质、不是被测量的东西；生产代码一行未动。若后续要修，应是一个独立任务（把 `pending` 变成按 session 的键）。
+
+6. **Touches 的判据条目被 scoped gate 自己吞掉（已修，含读数）**。首次 `bash scripts/test.sh --for-task gap-claude-resident-addressable --allow-thin` 打了 `no scoped test files for gap-claude-resident-addressable (thin)` 并**退出 0** —— **空绿**：scoped gate 的文件集只从 `## Touches` 的 `*.test.*` 条目里取（`scripts/test.sh:106-114`：`sub(/^- +/,"");gsub(/`/,"");print $1`），而原条目是全角括注**紧贴**路径 `` `…claude-resident-addressable.test.ts`（新：判据） ``，`$1` 拿到的是「路径+注解」整串，被 `\.test\.[jt]sx?$` 挡掉。改成 ASCII 尾标 + 半角空格（`` `…test.ts` (new)（新：判据） ``）之后，**同一棵树、同一条命令** gate 真的选中并跑了判据：`__PERFILE__ duration_ms=13733 server/modules/providers/tests/claude-resident-addressable.test.ts passed=true end_ms=1790504934130`、`# tests 1 / # pass 1 / # fail 0`、退出 **0**（suite-scope-check 的计数同时从 `with-tests=7` 变成 `8`）。用 gate 自己那段 awk 本地复核：修好的拼写 `$1` = 裸路径（选中），紧贴拼写的对照组 `grep` 退出 **1**（不选中）。**故 `(thin)` 那次绿不能当证据读：条目的拼写本身就是判据的一部分。**
 
 **一次如实登记的事故与恢复**：AC-8 的假形态实测原本用 `git checkout --` 还原 driver，而当时 driver 的改动**尚未提交**——这次还原把实现从工作区抹掉了（文件回到 develop 内容）。恢复方式：从会话转录里把该文件的 13 条 `Edit`（old/new）按序重放回 HEAD 内容上（`sentinel` 唯一匹配、逐条校验；跳过那条假形态），得回 1798 行、`residentPeerName` 3 处，随后用判据重跑为绿 + 假形态为红验证了行为一致。此后实现先提交、再在提交态上做变异，未再发生。**教训：变异前先提交。**
 
