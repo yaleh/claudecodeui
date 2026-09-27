@@ -39,12 +39,20 @@ type ProviderCapabilities = {
    */
   supportsSessionForking: boolean;
   /**
-   * Host lifecycle modes the provider's driver implements. Every provider here
-   * is driven by the session-host manager's default per-run wrapper, which is
-   * why the whole union is `['per-run']` today; a provider with its own
-   * `IProviderHostDriver` states its own list through
+   * Host lifecycle modes the provider's driver implements.
+   *
+   * `per-run` is universal: every provider here is driven by the session-host
+   * manager's default per-run wrapper, which opens one process per turn and
+   * never needs a driver at all. A mode beyond that is a statement about the
+   * provider's own `IProviderHostDriver`, and it is written here only when the
+   * driver the provider mounts really serves that mode — `claude` declares
+   * `resident` because its host driver owns the process across turns, and the
+   * dispatch in `provider-runtime.service` reads this list before it routes a
+   * turn anywhere but the default wrapper.
+   *
+   * A provider not in the `LLMProvider` union states its own list through
    * `declareRuntimeProviderCapabilities` instead of being added to this table,
-   * so this record stays a complete description of the `LLMProvider` union.
+   * so this record stays a complete description of the union.
    */
   lifecycleModes: HostMode[];
   /**
@@ -76,7 +84,10 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     // `forkSession` copies a transcript prefix into a new session file.
     supportsMessageEditing: true,
     supportsSessionForking: true,
-    lifecycleModes: ['per-run'],
+    // `per-run` is the default wrapper's mode. `resident` is the SDK's held-input
+    // protocol: a never-ending prompt stream keeps one CLI alive across turns,
+    // and `claude-host-driver.provider.ts` is the driver that owns it.
+    lifecycleModes: ['per-run', 'resident'],
     multiplexedHost: false,
   },
   cursor: {
