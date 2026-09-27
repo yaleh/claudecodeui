@@ -240,3 +240,20 @@ $ npx oxlint <本任务改动的三个后端文件>                            E
 按同样的更正：`depends_on` 只在 `status: todo` 时才被 `ready-pool-check` 的机械晋升消费，挂在 `needs-human` 上不会被机械重派。状态转 `todo`，`depends_on` 加入该修复任务；修复落地为 `done` 后机械晋升会自动转回 `ready`。
 
 （第一次的 needs-human——`model-gateway-end-to-end.test.ts` 的 `/tmp` teardown 竞态——已在上一轮核实为无关的舰队噪声，见上方「人工复核」小节；不受本次更正影响。）
+
+## Needs-Human
+
+**执行 2026-09-27T12:58:47.397Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 4 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=2783 server/modules/voice/tests/voice-config.routes.test.ts passed=false end_ms=1790513804936
+- run_id：wk-prod-anchor
+- session_id：0c2447ce-a032-496e-8b18-73ceede3a680
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-resident-slice-memory-cap~wk-prod-anchor~1790513749918-a1556b.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-resident-slice-memory-cap-wk-prod-anchor.log
+
+## 人工复核（2026-09-27，人 yale 指令「检查和推进」第五轮）
+
+第三次停在 needs-human 的判词是 `server/modules/voice/tests/voice-config.routes.test.ts` 红：`[TypeError: fetch failed] { [cause]: Error: bad port }`。逐字匹配已知记录 `undici-bad-port-lottery-in-listen0-route-tests`——`app.listen(0)` 落在 undici 拒收的 18 个端口之一，约 2%/次舰队跑的抽签。不在本任务 Touches 里；standalone 复核 `exit 0`，`pass 6 / fail 0`（2.0s）。
+
+结论：普通端口抽签，重新排队。
