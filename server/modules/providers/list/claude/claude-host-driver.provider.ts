@@ -85,12 +85,15 @@ import {
   ClaudePerRunHostDriver,
   type ClaudeBackgroundWorkEvent,
 } from '@/modules/providers/list/claude/claude-per-run-host-driver.provider.js';
+import { createNotificationEvent, notifyUserIfEnabled } from '@/modules/notifications/index.js';
 import {
+  TOOLS_REQUIRING_INTERACTION,
   buildPromptMessages,
   extractCumulativeTokenBudget,
   extractTokenBudget,
   forwardNormalizedFrames,
   mapCliOptionsToSDK,
+  requestClientToolDecision,
 } from '@/modules/providers/list/claude/claude-runtime.provider.js';
 import { resolveModelContextWindowRow } from '@/modules/providers/services/model-launch-spec.service.js';
 import type { SessionHostManager } from '@/modules/session-hosts/index.js';
@@ -113,6 +116,28 @@ import type {
   SessionBinding,
 } from '@/shared/types.js';
 import { createCompleteMessage, createNormalizedMessage } from '@/shared/utils.js';
+
+/**
+ * The notification record builder, viewed with the argument shape it really takes.
+ *
+ * `createNotificationEvent` lives in a `.js` module and `checkJs` is off, so
+ * TypeScript infers its destructured parameters from their defaults alone: it
+ * presents `sessionId` and `dedupeKey` as `null | undefined` even though its own
+ * body stores whatever it is handed. The assertion is that true contract, made
+ * once here rather than cast at the call site, and it is only a widening — a
+ * record built through it is the same record, with the refusal's own words in
+ * `meta` reaching the user unchanged.
+ */
+const buildNotificationEvent = createNotificationEvent as (event: {
+  provider: LLMProvider;
+  sessionId?: string | null;
+  kind?: string;
+  code?: string;
+  meta?: AnyRecord;
+  severity?: string;
+  dedupeKey?: string | null;
+  requiresUserAction?: boolean;
+}) => AnyRecord;
 
 /**
  * How long a resident process is given to leave on its own before the SDK query
@@ -138,6 +163,55 @@ export const CLAUDE_CANCEL_VERDICT_WAIT_MS = 5_000;
 
 /** How often the withdrawal re-reads the queue while waiting. */
 const CLAUDE_CANCEL_VERDICT_POLL_MS = 25;
+
+/**
+ * The permission mode a resident process is launched under.
+ *
+ * Always `bypassPermissions`, and that is a statement about the mode rather than
+ * a default a caller may override: a resident process is one nobody is
+ * guaranteed to be watching — it runs cron and background turns of its own — so
+ * a launch that stopped at the CLI's own permission step would park such a turn
+ * on a person who is not there. The three callbacks below are where a
+ * human-facing request is answered instead; they are what makes "nobody is
+ * there" a policy this host applies rather than a hang it causes. A session that
+ * wants another mode moves it on the *running* process (`reconfigure` →
+ * `setPermissionMode`), which is the one place the mode may change, because a
+ * switch keeps the process and a relaunch would not.
+ *
+ * The SDK requires the second option alongside the first — a `bypassPermissions`
+ * launch must also set `allowDangerouslySkipPermissions` (`sdk.d.ts:1664`) — so
+ * the two are stated together here and read back together by the criterion.
+ */
+export const RESIDENT_PERMISSION_MODE = 'bypassPermissions';
+
+/**
+ * The words every unattended refusal carries.
+ *
+ * A constant rather than a literal at each of the three entries because the
+ * three refusals are one statement — this host has nobody to ask — and a
+ * criterion has to be able to hold them to the same words. It is also the
+ * notification's own reason text, so what the user is told and what the CLI was
+ * told cannot drift.
+ */
+export const UNATTENDED_REFUSAL = '当前无人值守';
+
+/**
+ * The refusal one entry is answered with when nobody is there to ask.
+ *
+ * Names what was refused as well as why, and always contains
+ * {@link UNATTENDED_REFUSAL} verbatim: the message is what reaches the CLI (and
+ * through it the transcript), so it is the only place a reader of a refused turn
+ * can learn that the refusal was about attendance rather than about the request.
+ */
+function unattendedRefusalMessage(entry: ClaudePermissionEntry, toolName: string | null): string {
+  const subject =
+    entry === 'canUseTool'
+      ? `工具 ${toolName ?? 'unknown'}`
+      : entry === 'onElicitation'
+        ? 'MCP elicitation 请求'
+        : 'request_user_dialog 对话框';
+  return `${UNATTENDED_REFUSAL}：已自动拒绝 ${subject}。`;
+}
 
 /**
  * How long a session cron is taken to live, from when the CLI created it.
@@ -333,10 +407,134 @@ export type ClaudeResidentProcessSeams = {
   onStop?: (input: AnyRecord) => void;
 };
 
+/**
+ * One place a turn can need a person, named once so every reading agrees.
+ *
+ * The three are the SDK's own three callbacks, and they are the whole of this
+ * host's answer to "who does a turn ask when it needs a human": `side_question`
+ * is deliberately absent — it travels host→CLI, so it is a question *this* side
+ * asks, and E9 read the CLI accepting the subtype with no `control_response`
+ * ever coming back (see the README's resident-permission section).
+ */
+export type ClaudePermissionEntry = 'canUseTool' | 'onElicitation' | 'onUserDialog';
+
+/**
+ * The three callbacks a resident process is launched with, structurally typed.
+ *
+ * `canUseTool`'s signature is the SDK's (`toolName`, `input`, `{ signal }` →
+ * `PermissionResult`); the other two take their own request object verbatim and
+ * answer in their own result shape. All three are typed as `AnyRecord` in and
+ * out on purpose: this file's promise is *where* the callback comes from and
+ * *what this host decides*, and restating the SDK's union types here would be a
+ * second copy of a contract the SDK already publishes (`sdk.d.ts`).
+ */
+export type ClaudeResidentPermissions = {
+  canUseTool: (toolName: string, input: AnyRecord, options: AnyRecord) => Promise<AnyRecord>;
+  onElicitation: (request: AnyRecord, options: AnyRecord) => Promise<AnyRecord>;
+  onUserDialog: (request: AnyRecord, options: AnyRecord) => Promise<AnyRecord>;
+};
+
+/**
+ * One decision one of the three entries made, as a reader can re-read it.
+ *
+ * Kept because none of the three answers is readable anywhere else after the
+ * fact: the SDK consumes the callback's return value, the wire carries only the
+ * *request*, and a refusal produces no frame at all. A criterion therefore has
+ * to read what the host decided from the host.
+ */
+export type ClaudePermissionDecision = {
+  /** Which entry answered. */
+  entry: ClaudePermissionEntry;
+  /** The tool name the entry was given, or null for the two request-shaped ones. */
+  toolName: string | null;
+  /** The request as the callback received it, verbatim. */
+  request: AnyRecord;
+  /**
+   * The answer this host returned, verbatim.
+   *
+   * Null when the client flow timed out — the third outcome of a wait that the
+   * per-run path has always branched on, and `null` rather than an invented
+   * object is what keeps that branch readable from here.
+   */
+  answer: AnyRecord | null;
+  /** True when the answer was the unattended refusal. */
+  refused: boolean;
+  /** True when the answer came from the client's request-frame flow. */
+  viaClient: boolean;
+  /** The request id the client flow used, or null when no frame was sent. */
+  requestId: string | null;
+  /** The refusal wording, or null when this was not a refusal. */
+  reason: string | null;
+  /** When the decision was made, in host clock terms. */
+  at: number;
+};
+
+/**
+ * What a live resident host knows about the requests it answered for a person.
+ *
+ * A copy, and `null` for a session this driver is not hosting — the same two
+ * properties every other reading here has. `permissionMode` is this host's own
+ * account of the mode the process is under (it is the value the three entries
+ * consult, and the value `setPermissionMode` moved), not a re-read of the
+ * launch's option bag, which stops being the truth after the first switch.
+ */
+export type ClaudePermissionReading = {
+  permissionMode: string;
+  decisions: ClaudePermissionDecision[];
+  /** The browser count this host last consulted; see {@link ClaudeResidentHostDriverOptions.connectedClientCount}. */
+  lastConnectedCount: number;
+};
+
+/**
+ * One resident process's permission state, alive from before its spawn.
+ *
+ * The three callbacks are installed on the SDK options *before* `query()` is
+ * called, while the host state they report into is adopted one `openHost` later
+ * — the same ordering problem the `Stop` sink has, and solved the same way: the
+ * scope exists first, carries its own decision log so a request answered in that
+ * gap is still readable, and is pointed at the host state by `startHost`.
+ *
+ * `mode` is this host's own account of the mode its process is under. It starts
+ * at {@link RESIDENT_PERMISSION_MODE} and moves only when `reconfigure` really
+ * moved it, because a value written before the call returned would be a claim
+ * about a process that may not have taken it.
+ */
+type ClaudePermissionScope = {
+  state: ResidentHostState | null;
+  mode: string;
+  decisions: ClaudePermissionDecision[];
+  lastConnectedCount: number;
+};
+
+/**
+ * What one entry got back for one request: a refusal, or the client's own answer.
+ *
+ * The refusal is a shape of its own rather than a `deny` decision because it
+ * never travelled through the client flow at all — the distinction the criterion
+ * reads, and the reason the two cannot be collapsed into "the answer object".
+ * `decision` is the client's answer verbatim, which is `null` when the wait
+ * timed out and `{cancelled: true}` when it was aborted; both are the client
+ * flow's own outcomes and each entry branches on them itself.
+ */
+type ClaudePermissionAnswer =
+  | { kind: 'refused'; message: string }
+  | { kind: 'client'; decision: AnyRecord | null };
+
 export type ClaudeResidentProcessFactory = (input: {
   prompt: AsyncIterable<AnyRecord>;
   options: AnyRecord;
   seams?: ClaudeResidentProcessSeams;
+  /**
+   * The three human-facing entries this host answers for, when it has any.
+   *
+   * Carried on the factory input rather than built inside the factory because
+   * the *policy* is this driver's — whether the host is unattended, which writer
+   * a request belongs on, what the refusal says — while the *installation* is
+   * the launch's, because the SDK options belong to whoever calls `query`. The
+   * default factory puts them on the SDK options verbatim; a criterion's factory
+   * can read them without the SDK being involved at all.
+   */
+  permissions?: ClaudeResidentPermissions;
 }) => ClaudeResidentProcess;
 
 /**
@@ -389,6 +587,33 @@ export type ClaudeResidentHostDriverOptions = {
   notifyRunStopped: (event: ClaudeResidentRunStoppedEvent) => void;
   /** Process seam; defaults to the real SDK with the pid capture installed. */
   createProcess?: ClaudeResidentProcessFactory;
+  /**
+   * How many browsers are connected right now; defaults to none.
+   *
+   * Taken as a port rather than imported because the connection registry lives in
+   * the websocket module, which imports this one, so an edge from here would
+   * close a cycle — the gap the file header states and the structural reading in
+   * `claude-resident-unattended-turn.test.ts` holds this file to (zero imports of
+   * `modules/websocket`). The composition root, the one place both modules are in
+   * scope, installs it over the registry's own set.
+   *
+   * The default is `() => 0` — nobody — because that is the answer that refuses:
+   * a host that cannot reach the registry must not conclude that a person is
+   * watching. It is also why the other half of the same test has to stand on its
+   * own; see {@link ClaudeResidentHostDriver.isUnattended}.
+   */
+  connectedClientCount?: () => number;
+  /**
+   * Delivers one permission notification to the session's user.
+   *
+   * The same delivery the per-run path uses (`notifyUserIfEnabled`, through the
+   * notifications barrel), taken as a seam because a resident host's notification
+   * has no connection to be addressed through: the event is the notification
+   * layer's own record and the user is the one the last round carried. A
+   * criterion substitutes its own to read *that* a notification was made, which
+   * is otherwise only observable as a channel side effect.
+   */
+  notifyUser?: (delivery: { userId: string | number | null; event: AnyRecord }) => void;
   /**
    * The instant a held-work reason is dated from, defaults to the wall clock.
    *
@@ -905,12 +1130,75 @@ function spawnResidentCli(spawnOptions: SdkSpawnOptions): ClaudeResidentProcessH
  * the builder installed (the memory-capped systemd scope, when this host has
  * one) and keeps the child it returns.
  */
-export function createSdkResidentProcess(input: {
+/**
+ * The SDK options one resident launch is built from, decided in one place.
+ *
+ * Split out of {@link createSdkResidentProcess} so the *decisions* about a
+ * resident launch can be read without a CLI: the factory's remaining body is the
+ * spawn hook, the pid capture and the raw-stdin writer, none of which a reading
+ * needs, while the mode and the three entries are exactly what a criterion has to
+ * hold the driver to. A factory that substitutes a scripted stream calls this and
+ * reads them back; so does the real one, which is what keeps the two from being
+ * two different option bags.
+ */
+export function buildResidentSdkOptions(input: {
+  options: AnyRecord;
+  permissions?: ClaudeResidentPermissions;
+}): AnyRecord {
+  const sdkOptions = mapCliOptionsToSDK(input.options) as unknown as AnyRecord;
+
+  // The launch mode is stated *after* the shared builder, not asked of it: the
+  // builder maps a caller's `permissionMode` for the per-run path, where a turn
+  // ends and a person can be asked; a resident process is launched under the
+  // mode this file owns (see `RESIDENT_PERMISSION_MODE`) and moves it live if it
+  // ever should. Both options are written together because the SDK requires
+  // `allowDangerouslySkipPermissions` alongside `bypassPermissions`.
+  sdkOptions.permissionMode = RESIDENT_PERMISSION_MODE;
+  sdkOptions.allowDangerouslySkipPermissions = true;
+
+  // The three human-facing entries, installed verbatim. The host builds them
+  // (`createPermissionEntries`) and this factory only hands them to the SDK —
+  // which is the whole reason they travel on the factory input rather than being
+  // built here: the policy is the driver's, the installation is the launch's.
+  if (input.permissions) {
+    sdkOptions.canUseTool = input.permissions.canUseTool;
+    sdkOptions.onElicitation = input.permissions.onElicitation;
+    sdkOptions.onUserDialog = input.permissions.onUserDialog;
+  }
+
+  return sdkOptions;
+}
+
+/**
+ * The SDK entry point one resident launch goes through.
+ *
+ * `query` is a module-level function — the per-run driver's `ClaudeHostQueryFactory`
+ * states the same problem for the same reason — so there is no seam to stub and
+ * no module-mocking precedent in this repository. A caller that wants to *read*
+ * the options a launch is built with hands in its own, and that is the only way
+ * the reading can come from the production path rather than from a second copy
+ * of it: the option bag is built by {@link buildResidentSdkOptions}, handed
+ * straight to this, and the default is the SDK.
+ */
+export type ClaudeResidentQueryFactory = (input: {
   prompt: AsyncIterable<AnyRecord>;
   options: AnyRecord;
-  seams?: ClaudeResidentProcessSeams;
-}): ClaudeResidentProcess {
-  const sdkOptions = mapCliOptionsToSDK(input.options);
+}) => ClaudeResidentQuery;
+
+/** The real SDK, at the one boundary where its wide type meets this module's narrow one. */
+const sdkResidentQuery: ClaudeResidentQueryFactory = (input) =>
+  query(input as unknown as Parameters<typeof query>[0]) as unknown as ClaudeResidentQuery;
+
+export function createSdkResidentProcess(
+  input: {
+    prompt: AsyncIterable<AnyRecord>;
+    options: AnyRecord;
+    seams?: ClaudeResidentProcessSeams;
+    permissions?: ClaudeResidentPermissions;
+  },
+  launchSeams: { createQuery?: ClaudeResidentQueryFactory } = {},
+): ClaudeResidentProcess {
+  const sdkOptions = buildResidentSdkOptions(input);
   const installedSpawn = sdkOptions.spawnClaudeCodeProcess as
     | ((options: SdkSpawnOptions) => SpawnedProcess)
     | undefined;
@@ -979,10 +1267,10 @@ export function createSdkResidentProcess(input: {
     return child;
   };
 
-  const stream = query({
+  const stream = (launchSeams.createQuery ?? sdkResidentQuery)({
     prompt: input.prompt,
     options: sdkOptions,
-  } as unknown as Parameters<typeof query>[0]) as unknown as ClaudeResidentQuery;
+  });
 
   return {
     query: stream,
@@ -1086,6 +1374,15 @@ type ResidentHostState = {
   /** The user and session name of the last armed round, for a report no round owns. */
   lastUserId: string | number | null;
   lastSessionName: string | null;
+  /**
+   * The three human-facing entries this process answers for, and their log.
+   *
+   * Carried on the host state rather than rebuilt per request because it is one
+   * value with one owner: the entries close over it, `startHost` points it at
+   * this state, and the reading reads its decisions. See
+   * {@link ClaudePermissionScope}.
+   */
+  permissions: ClaudePermissionScope;
   /** The turn this process opened by itself, while it is open. */
   unattended: {
     /** The CLI-minted uuid of the turn's opener: the value no push accounts for. */
@@ -1186,6 +1483,15 @@ type PendingHost = {
   configDir: string;
   /** The one slot this process's `Stop` hook can reach before its host exists. */
   stopHook: StopHookSink;
+  /**
+   * The permission scope built for this process, adopted with it.
+   *
+   * Travels beside the ledger and the `Stop` sink for the same reason: all three
+   * are created before the spawn — they have to be, or the first turn's own
+   * request would be answered into nothing — while the host state they belong to
+   * is built one `openHost` later.
+   */
+  permissions: ClaudePermissionScope;
 };
 
 /**
@@ -1251,6 +1557,10 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
   private readonly createProcess: ClaudeResidentProcessFactory;
   /** The instant a held-work reason is dated from; see {@link ClaudeResidentHostDriverOptions.now}. */
   private readonly now: () => number;
+  /** How many browsers are connected; see {@link ClaudeResidentHostDriverOptions.connectedClientCount}. */
+  private readonly connectedClientCount: () => number;
+  /** Where a permission notification goes; see {@link ClaudeResidentHostDriverOptions.notifyUser}. */
+  private readonly notifyUser: (delivery: { userId: string | number | null; event: AnyRecord }) => void;
   /**
    * The per-run facet, composed rather than replaced.
    *
@@ -1277,6 +1587,9 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
     this.notifyUnattendedWork = options.notifyUnattendedWork;
     this.createProcess = options.createProcess ?? createSdkResidentProcess;
     this.now = options.now ?? (() => Date.now());
+    this.connectedClientCount = options.connectedClientCount ?? (() => 0);
+    this.notifyUser =
+      options.notifyUser ?? (({ userId, event }) => notifyUserIfEnabled({ userId, event }));
     this.perRun = new ClaudePerRunHostDriver({
       host: options.host,
       notify: options.notifyBackgroundWork,
@@ -1374,6 +1687,7 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       unhandledSystemSubtypes: [],
       lastUserId: null,
       lastSessionName: null,
+      permissions: pending.permissions,
       unattended: null,
       lastUnattendedCommandUuid: null,
       initTools: [],
@@ -1402,6 +1716,11 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
     // than left in the buffer forever.
     const state = this.hosts.get(host.hostId);
     pending.stopHook.state = state ?? null;
+    // The permission scope is the third thing this adoption is for: the entries
+    // installed before the spawn have been able to refuse into their own log
+    // since the CLI first spoke, and from here they can see the rounds and the
+    // writer that decide whether there is anybody to ask.
+    pending.permissions.state = state ?? null;
     if (state) {
       for (const input of pending.stopHook.buffered.splice(0)) {
         this.reconcileHeldWork(state, input);
@@ -1519,6 +1838,12 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
     ) {
       try {
         await state.process.query.setPermissionMode(patch.permissionMode);
+        // Only after the call returned: the host's own account of the mode is
+        // what a later reading reports, and writing it before the process took
+        // it would publish a mode the CLI may not be in. Nothing else moves it
+        // — a switch is the one way the launch mode changes, and it does not
+        // touch the process (see `RESIDENT_PERMISSION_MODE`).
+        state.permissions.mode = patch.permissionMode;
         applied = true;
       } catch {
         // As above.
@@ -1671,6 +1996,30 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       unhandledSystemSubtypes: [...state.unhandledSystemSubtypes],
       cronsAuthoritative: state.cronsAuthoritative,
       tasksAuthoritative: state.tasksAuthoritative,
+    };
+  }
+
+  /**
+   * Reports the mode a live resident host is under, and what it decided for whom.
+   *
+   * A copy, and `null` for a session this driver is not hosting — the same two
+   * properties every other reading here has, for the same reason. Nothing on the
+   * wire carries either half: the SDK consumes a callback's return value, the
+   * frames carry only the *request*, and a refusal produces no frame at all — so
+   * "was this refused, and with what words?" is only answerable from the host
+   * that answered. `lastConnectedCount` rides along so the browser half of the
+   * attendance test is a reading rather than an inference from the other half.
+   */
+  permissionReading(appSessionId: string): ClaudePermissionReading | null {
+    const state = this.liveStateFor(appSessionId);
+    if (!state) {
+      return null;
+    }
+
+    return {
+      permissionMode: state.permissions.mode,
+      decisions: state.permissions.decisions.map((decision) => ({ ...decision })),
+      lastConnectedCount: state.permissions.lastConnectedCount,
     };
   }
 
@@ -1982,6 +2331,19 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
     // register an empty address.
     const launchArgs = peerName ? { extraArgs: { name: peerName } } : {};
 
+    // The permission scope, created here and not in the factory: whether a
+    // request is answered from a browser or refused outright is this driver's
+    // policy, and the factory's job is only to install what it is handed (see
+    // `buildResidentSdkOptions`). It exists before the spawn so a request that
+    // arrives in the window before `startHost` adopts cannot fall through to an
+    // unanswered promise.
+    const permissions: ClaudePermissionScope = {
+      state: null,
+      mode: RESIDENT_PERMISSION_MODE,
+      decisions: [],
+      lastConnectedCount: 0,
+    };
+
     const process = await this.createProcess({
       prompt: queue.stream,
       options: {
@@ -1991,6 +2353,7 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
         model: resolvedModel || options.model,
         effortModels,
       },
+      permissions: this.createPermissionEntries(appSessionId, permissions),
       seams: {
         onStop: (input) => {
           ledger.record(input);
@@ -2012,6 +2375,7 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       peerName,
       configDir: resolveClaudeConfigDir(),
       stopHook,
+      permissions,
     };
 
     const host = await this.host.openHost({
@@ -2373,6 +2737,256 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       }
     }
     return null;
+  }
+
+  /**
+   * Builds the three entries one resident process is launched with.
+   *
+   * One builder for the three because they are one policy — the same
+   * attendance test, the same notification, the same decision log — and only the
+   * *answer shape* differs: `canUseTool` speaks the SDK's `PermissionResult`,
+   * `onElicitation` speaks `ElicitResult`, and `onUserDialog` speaks the dialog
+   * result union. Those shapes are the SDK's own (`sdk.d.ts`) and are produced
+   * here, in the one place that knows what the client's answer was.
+   *
+   * The per-run path's non-interactive branch is deliberately *not* mirrored. It
+   * has an allow/deny list to consult before asking; a resident host launches
+   * under `bypassPermissions` (where the CLI never refers a non-interactive tool
+   * to a callback at all) and only reaches this branch after an explicit live
+   * switch to a mode that means "ask me". Asking, there, is what the mode means.
+   */
+  private createPermissionEntries(
+    appSessionId: string,
+    scope: ClaudePermissionScope,
+  ): ClaudeResidentPermissions {
+    const ask = async (
+      entry: ClaudePermissionEntry,
+      toolName: string | null,
+      request: AnyRecord,
+      options: AnyRecord,
+    ): Promise<ClaudePermissionAnswer> =>
+      this.answerPermissionRequest({
+        appSessionId,
+        scope,
+        entry,
+        toolName,
+        request,
+        signal: options?.signal as AbortSignal | undefined,
+      });
+
+    return {
+      canUseTool: async (toolName, input, options) => {
+        const answer = await ask('canUseTool', toolName, input, options);
+        if (answer.kind === 'refused') {
+          return { behavior: 'deny', message: answer.message };
+        }
+        const decision = answer.decision;
+        if (!decision) {
+          return { behavior: 'deny', message: 'Permission request timed out' };
+        }
+        if (decision.cancelled) {
+          return { behavior: 'deny', message: 'Permission request cancelled' };
+        }
+        if (decision.allow) {
+          return { behavior: 'allow', updatedInput: decision.updatedInput ?? input };
+        }
+        return {
+          behavior: 'deny',
+          message: typeof decision.message === 'string' ? decision.message : 'User denied tool use',
+        };
+      },
+
+      onElicitation: async (request, options) => {
+        const answer = await ask('onElicitation', null, request, options);
+        // A refusal, an aborted wait and a timed-out one all have the same
+        // meaning to the server that asked: no answer is coming. `cancel` is the
+        // SDK's word for exactly that (`ElicitResult.action`).
+        if (answer.kind === 'refused' || !answer.decision?.allow) {
+          return { action: 'cancel' };
+        }
+        return typeof answer.decision.content === 'object' && answer.decision.content !== null
+          ? { action: 'accept', content: answer.decision.content }
+          : { action: 'accept' };
+      },
+
+      onUserDialog: async (request, options) => {
+        const answer = await ask('onUserDialog', null, request, options);
+        // `cancelled` is the answer the SDK documents as the safe one: for a
+        // dialog kind the client did not fill in, the CLI applies the dialog's
+        // own default rather than being told a result nobody produced.
+        if (answer.kind === 'refused' || !answer.decision?.allow) {
+          return { behavior: 'cancelled' };
+        }
+        return { behavior: 'completed', result: answer.decision.result ?? null };
+      },
+    };
+  }
+
+  /**
+   * One request, answered: refused when nobody is there, asked when somebody is.
+   *
+   * The refusal never enters the client flow at all, and that is the reading the
+   * criterion takes of it: the per-run protocol's own pending list
+   * (`getPendingApprovalsForSession`) stays empty for a session this host refused
+   * for, and the entry returns inside the budget instead of waiting on a
+   * `timeoutMs: 0` that would never fire. The client's answer, by contrast, comes
+   * back through a promise this method is the only holder of — so it is recorded
+   * here, before it is returned, or it would be readable nowhere.
+   */
+  private async answerPermissionRequest(input: {
+    appSessionId: string;
+    scope: ClaudePermissionScope;
+    entry: ClaudePermissionEntry;
+    toolName: string | null;
+    request: AnyRecord;
+    signal?: AbortSignal;
+  }): Promise<ClaudePermissionAnswer> {
+    const { appSessionId, scope, entry, toolName, request, signal } = input;
+    const writer = this.permissionWriter(scope);
+
+    if (this.isUnattended(scope, writer)) {
+      const message = unattendedRefusalMessage(entry, toolName);
+      this.notifyPermission(appSessionId, scope, { entry, toolName, reason: message });
+      this.recordPermissionDecision(scope, {
+        entry,
+        toolName,
+        request,
+        answer: entry === 'canUseTool' ? { behavior: 'deny', message } : { action: 'cancel' },
+        refused: true,
+        viaClient: false,
+        requestId: null,
+        reason: message,
+      });
+      return { kind: 'refused', message };
+    }
+
+    // Non-null by the guard above: `isUnattended` answers true for a host with no
+    // writer, so reaching here means there is one to send the request on.
+    const requestId = randomUUID();
+    const decision = await requestClientToolDecision({
+      // The frame's `toolName` is the protocol's own label for the request; the
+      // two request-shaped entries have no tool, so they carry their entry name
+      // and the whole request travels in `input` (the README's resident-permission
+      // section says so, and the per-run protocol is otherwise unchanged).
+      toolName: toolName ?? entry,
+      input: request,
+      requiresInteraction:
+        entry !== 'canUseTool' || TOOLS_REQUIRING_INTERACTION.has(toolName ?? ''),
+      requestId,
+      ws: writer,
+      emitNotification: (event: AnyRecord) =>
+        this.notifyUser({ userId: scope.state?.lastUserId ?? null, event }),
+      sessionId: appSessionId,
+      sessionSummary: scope.state?.lastSessionName ?? null,
+      signal,
+    });
+    this.recordPermissionDecision(scope, {
+      entry,
+      toolName,
+      request,
+      answer: decision,
+      refused: false,
+      viaClient: true,
+      requestId,
+      reason: null,
+    });
+    return { kind: 'client', decision };
+  }
+
+  /**
+   * Whether this host has nobody to ask about one request.
+   *
+   * Two facts, and the conjunction is the whole of the mode's arrival at
+   * "unattended": nobody is connected *and* no user turn is in flight. Neither
+   * half stands alone — a browser watching while the process runs a cron turn of
+   * its own is somebody who could answer, and a turn this host armed came from a
+   * client even if that client has since gone (its prompt is buffered for
+   * replay, exactly as a per-run prompt's is) — so the test is
+   * `connected <= 0 && no round`.
+   *
+   * A host with no adopted state, or with no writer yet, is unattended by this
+   * reading: the callbacks can fire in the window between `query()` and
+   * `openHost` answering, and refusing there is what keeps that window from
+   * parking a turn on a person this driver cannot reach.
+   *
+   * `writer` is passed in rather than looked up again so the one caller that has
+   * to *use* it keeps the same value this decision was made about.
+   */
+  private isUnattended(
+    scope: ClaudePermissionScope,
+    writer: ProviderRuntimeWriter | null,
+  ): boolean {
+    const connected = this.connectedClientCount();
+    scope.lastConnectedCount = connected;
+    const state = scope.state;
+    if (!state || !writer) {
+      return true;
+    }
+    if (state.rounds.length > 0) {
+      return false;
+    }
+    return connected <= 0;
+  }
+
+  /**
+   * The writer one request's frames belong on, or null when there is none yet.
+   *
+   * The unattended turn's own writer wins while it is open, for the reason the
+   * read loop prefers it: that turn is the one running, so a request from it is
+   * addressed to whoever opened *it*. After that the round in flight owns its
+   * requests, and a host between turns falls back to the last writer it saw —
+   * which is what lets a browser that is still watching answer for a process
+   * running a turn of its own.
+   */
+  private permissionWriter(scope: ClaudePermissionScope): ProviderRuntimeWriter | null {
+    const state = scope.state;
+    if (!state) {
+      return null;
+    }
+    return state.unattended?.writer ?? state.rounds[0]?.writer ?? state.writer;
+  }
+
+  /**
+   * Tells the session's user that a request was refused because nobody was there.
+   *
+   * The same `action_required` notification the per-run flow emits for a request
+   * it is waiting on, under a code of its own: the user has to be able to tell
+   * "Claude is waiting for you" from "Claude was told to carry on without you",
+   * and the refusal's own words travel in the event rather than being restated.
+   */
+  private notifyPermission(
+    appSessionId: string,
+    scope: ClaudePermissionScope,
+    fact: { entry: ClaudePermissionEntry; toolName: string | null; reason: string },
+  ): void {
+    this.notifyUser({
+      userId: scope.state?.lastUserId ?? null,
+      event: buildNotificationEvent({
+        provider: this.provider,
+        sessionId: appSessionId,
+        kind: 'action_required',
+        code: 'permission.unattended_refused',
+        meta: {
+          entry: fact.entry,
+          toolName: fact.toolName,
+          sessionName: scope.state?.lastSessionName ?? null,
+          reason: fact.reason,
+        },
+        severity: 'warning',
+        requiresUserAction: true,
+        // One per entry per refusal, so a turn that hits the same wall three
+        // times does not collapse into a single notification.
+        dedupeKey: `claude:permission-refused:${appSessionId}:${fact.entry}:${scope.decisions.length}`,
+      }),
+    });
+  }
+
+  /** Appends one answered request to its scope's log, dated on the host's clock. */
+  private recordPermissionDecision(
+    scope: ClaudePermissionScope,
+    decision: Omit<ClaudePermissionDecision, 'at'>,
+  ): void {
+    scope.decisions.push({ ...decision, at: this.now() });
   }
 
   /**
