@@ -64,16 +64,16 @@ goal_ac: AC-173
 
 ## AC
 
-- [ ] AC1 判据绿：`npx playwright test e2e/resident-running-view.spec.ts` 退出 **0**，并打印整体墙钟 `elapsed=<n>ms` 且 `< 55_000`（`playwright.config.ts:285` 的单文件上限）。红态基线本轮实测：`--list` 退出 **1**、`Error: No tests found.` / `Total: 0 tests in 0 files`。
-- [ ] AC2 徽标只计正在运行（**假形态的落点**）：判据同时打印 `hosts.running=<n> hosts.residentIdle=<n> hosts.total=<n> badge.reading=<n>`，断言 `badge.reading === hosts.running`、`badge.reading === 1`（场景 = 一运行 + 两空闲常驻）、`badge.reading !== hosts.total`，并打印 `badge.source=hosts`（读数来自 `GET /api/session-hosts`，不是 `activeSessionIds.size`）。**正控制**：同一次运行里再开一个在飞会话 ⇒ 打印 `badge.afterExtra=<n>` 且 `> badge.reading`（证明不是常量 1）。
-- [ ] AC3 两组各列对应会话：判据打印 `group.running.count=<n> group.running.ids=<…>` 与 `group.residentIdle.count=<n> group.residentIdle.ids=<…>`；断言 `group.running.count === hosts.running`、`group.residentIdle.count === hosts.residentIdle`，且两个 id 集合不相交、并集等于宿主快照里常驻且未被关闭的会话集（两侧集合逐条打印比对）。
-- [ ] AC4 第二组每行有关闭按钮、点击后宿主关闭并从该组消失：判据打印 `row.close.selector=<…>`、`close.request=<POST …/close 的状态码>`、`hosts.beforeClose=<n> hosts.afterClose=<n>`（后者更小）、`group.residentIdle.count.before=<n> .after=<n>`（后者更小）、`badge.reading.after=<n>`（不变）。**正控制**：关闭前同一 hostId 在快照里（打印 `host.present=true`），且第一组行数不变（打印 `group.running.count.after=<n>`）。
-- [ ] AC5 徽标不是「数所有宿主」（负控制）：AC4 的关闭操作之后重读，打印 `hosts.total.before=<n> .after=<n>`（3→2）与 `badge.reading.before=<n> .after=<n>`（1→1，不变），断言徽标跟随 `hosts.running` 而非 `hosts.total`；再对剩下的空闲常驻做一次同样的关闭，打印 `badge.reading.final=<n>` 仍为 1。
-- [ ] AC6 文案取自运行期读的出货目录（`src/modules/i18n/locales/en/sidebar.json`），spec 里不抄句子；新增 key（`running.title`、两个组名、[关闭] 与其可访问名、徽标可访问名）在 **12 个 locale** 的 `sidebar.json` 里都存在且非空，任一缺失以非 0 退出并打印是哪个文件哪个 key。
-- [ ] AC7 契约面：`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**；`git diff --stat` 与 Touches 逐条对齐（多写的文件须由判据强制）。
-- [ ] AC8 假形态必须红（承重）：把徽标改成计入空闲常驻会话（改回读客户端忙集 `activeSessionIds.size`，或把空闲常驻宿主也计进计数），判据命令退出**非 0**，且红**落在 AC2 的 `badge.reading === hosts.running` 那条断言**上（登记变异 diff、失败断言逐字、退出码）。恢复后判据回到 0。
-- [ ] AC9 替身改动不波及别的判据：门控仅对含本判据的选择生效 —— `npx playwright test e2e/model-env-kind-explanations.spec.ts` 仍退出 **0**（打印退出码与墙钟），且 `npx playwright test --list` 的收集总数与改动前**逐字相同**（打印改动前后两个数）。
-- [ ] AC10 出厂链路的常驻 idle 可达：判据打印 `scenario.sessions=<n> hosts.total=<n>`，断言三个会话各自在 `GET /api/session-hosts` 里出得来、两个空闲常驻的 `state` 与一个在飞会话的 `state` **不同**（打印三者 `state` 逐字）；`DEBUG_AGENT_RUN_SEAM_UNAVAILABLE` 出现次数为 **0**（打印计数）。
+- [x] AC1 判据绿：`npx playwright test e2e/resident-running-view.spec.ts` 退出 **0**，并打印整体墙钟 `elapsed=<n>ms` 且 `< 55_000`（`playwright.config.ts:285` 的单文件上限）。红态基线本轮实测：`--list` 退出 **1**、`Error: No tests found.` / `Total: 0 tests in 0 files`。
+- [x] AC2 徽标只计正在运行（**假形态的落点**）：判据同时打印 `hosts.running=<n> hosts.residentIdle=<n> hosts.total=<n> badge.reading=<n>`，断言 `badge.reading === hosts.running`、`badge.reading === 1`（场景 = 一运行 + 两空闲常驻）、`badge.reading !== hosts.total`，并打印 `badge.source=hosts`（读数来自 `GET /api/session-hosts`，不是 `activeSessionIds.size`）。**正控制**：同一次运行里再开一个在飞会话 ⇒ 打印 `badge.afterExtra=<n>` 且 `> badge.reading`（证明不是常量 1）。
+- [x] AC3 两组各列对应会话：判据打印 `group.running.count=<n> group.running.ids=<…>` 与 `group.residentIdle.count=<n> group.residentIdle.ids=<…>`；断言 `group.running.count === hosts.running`、`group.residentIdle.count === hosts.residentIdle`，且两个 id 集合不相交、并集等于宿主快照里常驻且未被关闭的会话集（两侧集合逐条打印比对）。
+- [x] AC4 第二组每行有关闭按钮、点击后宿主关闭并从该组消失：判据打印 `row.close.selector=<…>`、`close.request=<POST …/close 的状态码>`、`hosts.beforeClose=<n> hosts.afterClose=<n>`（后者更小）、`group.residentIdle.count.before=<n> .after=<n>`（后者更小）、`badge.reading.after=<n>`（不变）。**正控制**：关闭前同一 hostId 在快照里（打印 `host.present=true`），且第一组行数不变（打印 `group.running.count.after=<n>`）。
+- [x] AC5 徽标不是「数所有宿主」（负控制）：AC4 的关闭操作之后重读，打印 `hosts.total.before=<n> .after=<n>`（3→2）与 `badge.reading.before=<n> .after=<n>`（1→1，不变），断言徽标跟随 `hosts.running` 而非 `hosts.total`；再对剩下的空闲常驻做一次同样的关闭，打印 `badge.reading.final=<n>` 仍为 1。
+- [x] AC6 文案取自运行期读的出货目录（`src/modules/i18n/locales/en/sidebar.json`），spec 里不抄句子；新增 key（`running.title`、两个组名、[关闭] 与其可访问名、徽标可访问名）在 **12 个 locale** 的 `sidebar.json` 里都存在且非空，任一缺失以非 0 退出并打印是哪个文件哪个 key。
+- [x] AC7 契约面：`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**；`git diff --stat` 与 Touches 逐条对齐（多写的文件须由判据强制）。
+- [x] AC8 假形态必须红（承重）：把徽标改成计入空闲常驻会话（改回读客户端忙集 `activeSessionIds.size`，或把空闲常驻宿主也计进计数），判据命令退出**非 0**，且红**落在 AC2 的 `badge.reading === hosts.running` 那条断言**上（登记变异 diff、失败断言逐字、退出码）。恢复后判据回到 0。
+- [x] AC9 替身改动不波及别的判据：门控仅对含本判据的选择生效 —— `npx playwright test e2e/model-env-kind-explanations.spec.ts` 仍退出 **0**（打印退出码与墙钟），且 `npx playwright test --list` 的收集总数与改动前**逐字相同**（打印改动前后两个数）。
+- [x] AC10 出厂链路的常驻 idle 可达：判据打印 `scenario.sessions=<n> hosts.total=<n>`，断言三个会话各自在 `GET /api/session-hosts` 里出得来、两个空闲常驻的 `state` 与一个在飞会话的 `state` **不同**（打印三者 `state` 逐字）；`DEBUG_AGENT_RUN_SEAM_UNAVAILABLE` 出现次数为 **0**（打印计数）。
 
 ## DoD
 
@@ -108,3 +108,43 @@ goal_ac: AC-173
 - `src/modules/i18n/locales/zh-CN/sidebar.json`
 - `src/modules/i18n/locales/zh-TW/sidebar.json`
 - `tasks/gap-claude-resident-running-view.md`（自触）
+
+## 完成记录（2026-09-28）
+
+**判据（树 = 本任务分支 `8357e627`，未并 develop 前）**：`npx playwright test e2e/resident-running-view.spec.ts` → 退出 **0**，`3 passed`，`elapsed=35555ms`（< `SINGLE_SPEC_CEILING_MS = 55_000`）。红态基线（立案时实测，文件尚未存在）：`--list` 退出 **1**、`Error: No tests found.` / `Total: 0 tests in 0 files`。
+
+**形状（Plan 步骤 1/2 的实测读数，并点名与 AC 前提的差异）**
+
+- 常驻会话在该链上**复用同一个宿主**（调试 agent 的宿主驱动声明 `multiplexedHost: true`）：第二次 `POST /api/session-hosts/:id/start` join 第一次的宿主，而不是各开一个 ⇒ 「三个常驻会话 = 三个宿主」的 AC 前提在本链上不成立；若三个都是常驻，`hosts.total=1`，AC2 的 `badge.reading !== hosts.total` 不可满足。
+- 本判据采的**可达形状**：在飞会话按 `per-run` 装填（`trackPerRunTurn` 每轮开一个宿主，随轮次生灭 ⇒ 自己一个宿主），两个空闲常驻按 `resident` 共用一个 ⇒ `hosts.total=2`、`hosts.running=1`、`hosts.residentIdle=2`、`badge.reading=1`（≠ total）。判据打印 `shape.premise=` 与 `shape.measured=` 两行点名这件事。
+- `POST /api/session-hosts/:id/close` 关的是**整个宿主**，而该驱动把常驻会话复用到同一宿主 ⇒ 关掉一行空闲常驻会同时结束持有两行的进程（判据打印 `shape.note=`）。AC5 的「对剩下的空闲常驻再做一次同样的关闭」按出货的 `/start` 路径重新起一台宿主后再关，逐行打印。
+- `hosts.total` 按**存活**宿主数读（`state !== 'closed'`）：`GET /api/session-hosts` 保留已关闭记录以供保留窗，AC5 的「3→2」在本链上是「2→1」，如实打印并点名。
+
+**逐条读数（判据原始输出行，不是转述）**
+
+- **AC1** 退出 0 / `elapsed=35555ms`；基线见上。
+- **AC2** `hosts.running=1 hosts.residentIdle=2 hosts.total=2 badge.reading=1`、`badge.text="1" badge.label="1 running sessions"`、`badge.source=hosts (socket frames seen=11, of them stream frames=0)`；正控制 `badge.afterExtra=2 badge.reading=1 hosts.total=2`（严格变大，证明不是常量 1）。
+- **AC3** `group.running.count=1 group.running.ids=ff961ff5-…`、`group.residentIdle.count=2 group.residentIdle.ids=ff7157f3-…,d6c9d9b4-…`、`group.union=… snapshot.held=…`（断言：两组不相交、并集 = 存活宿主持有的全部会话）、`row.running.href=/session/ff961ff5-… row.running.title="Running view — in flight"`。**点名**：AC 字面的集合（`snapshot.resident=` = 常驻且未关闭的会话）与并集差一个 per-run 在飞会话，两者都逐行打印。
+- **AC4** `close.before hosts.beforeClose=2 group.running.count=1 group.residentIdle.count.before=2 badge.reading=1`、`row.close.selector=[data-running-session="ff7157f3-…"]:visible [data-running-close]`、`close.request=200`、`hosts.beforeClose=2 hosts.afterClose=1`、`group.residentIdle.count.after=0 group.running.count.after=1`、`badge.reading.after=1`（不变）；正控制 `host.present=true inFlight.host=host-d528a169-…`，且关闭后该宿主仍 `state=busy`。
+- **AC5** `hosts.total.before=2 hosts.total.after=1`、`badge.reading.before=1 badge.reading.after=1`、第二次关闭 `close.second.request=200`、`badge.reading.final=1`（仍为 1）。
+- **AC6** `locales.checked=12 keys.checked=11 missing=0`（12 个 locale × 11 个视图实际读取的键，含两个插值键的 `{{n}}`/`{{title}}` 占位符检查）。**替换登记**：AC 点名的 `running.title` 是单组平表头的 fallback（'Running now'）；拆成两组后该表头不存在，第一组表头 `running.groupRunning` 即其替代，故不落一个无人读的键；判据打印 `keys.substituted=…`。
+- **AC7** `npm run lint` 退出 **0**（仅既有 warning）；`npm run typecheck` 退出 **0**（`tsconfig.json` + `server/tsconfig.json` + `scripts/tsconfig.json` 三条链，0 error）；改动 17 个文件 + 2 个新文件全部落在 `## Touches` 内，`Sidebar.tsx` 声明而未改（未写即不动）。
+- **AC8** 假形态（徽标额外计入空闲常驻）**真跑过**：变异 diff 见下，判据退出 **1**，红**落在 AC2 的承重断言上**，逐字 `Error: the badge counts the sessions with a turn in flight` / `Expected: 1` / `Received: 3`（spec `:698`），同一跑里打印 `badge.reading=3`。恢复后判据回到 0（`3 passed`，`elapsed=35555ms`）。
+- **AC9** `npx playwright test e2e/model-env-kind-explanations.spec.ts` → 退出 **0**，墙钟 **11158ms**；收集总数：门控在位 **`Total: 75 tests in 16 files`**，把 `playwright.config.ts` 回退到 develop 后 **`Total: 75 tests in 16 files`**，两数逐字相同（门控只改 `webServer.env` 的条件，`testDir`/`testMatch` 一律未动）。
+- **AC10** `scenario.sessions=3 hosts.total=2`、`scenario.states inFlight=busy idle=idle,idle`、三行 `scenario.session=… provider=debug lifecycleMode=<per-run|resident> running=… hostState=… bindingState=…`、`DEBUG_AGENT_RUN_SEAM_UNAVAILABLE=0 controlPlane.responses=8`。
+
+**假形态变异（AC8，逐字，`/tmp/rrv-ac8-mutation.diff`）**
+
+```
+-import { listRunningSessionIds, useSessionHosts } from '@/shared/hooks/useSessionHosts';
++import { listResidentIdleSessionIds, listRunningSessionIds, useSessionHosts } from '@/shared/hooks/useSessionHosts';
+   const runningSessionsCount = useMemo(
+-    () => listRunningSessionIds(sessionHostsSnapshot).length,
++    () => listRunningSessionIds(sessionHostsSnapshot).length + listResidentIdleSessionIds(sessionHostsSnapshot).length,
+     [sessionHostsSnapshot],
+   );
+```
+
+**前端读路径（消费 AC-172 的，不另写一份）**：徽标与两组都从 `useSessionHosts()`（`GET /api/session-hosts`）派生，未新增第二份取数。`isRunningBinding(host, binding)` 按 **binding** 判（`leases` 里有 `kind === 'turn'`；`starting` 只在宿主只持有那一个 binding 时算），`liveBindings()` 跳过 `state === 'closed'`。判据第 7 段用「一台常驻宿主两个 binding、其中一个持 turn」把 per-binding 与 per-host 读数分开打印：`shared.perBinding=1 shared.perHost=2 badge.reading=1`。
+
+**e2e 看门狗**：本轮调试期曾把 `SINGLE_SPEC_CEILING_MS` 临时抬到 200000 以便看清失败，恢复后 `git diff` 与恢复前逐字相同（该常量不在 diff 里）；最终读数是在 **55_000** 生效的树上取的。
