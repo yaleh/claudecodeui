@@ -225,3 +225,35 @@ L_G 该轴仍暗，理由：目标层要求的「真实浏览器里各类失败�
 - session_id：5debdf69-c242-42c2-8b34-6cc625de4671
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-error-notice-browser-e2e~wk-prod-anchor~1790273242324-15ad43.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-error-notice-browser-e2e-wk-prod-anchor.log
+
+### 第 4 轮（2026-09-27）suite 红归因：landed 的兄弟判据在任何非空 delta 上必红，重派发不能逃逸
+
+**唯一红**：`server/modules/providers/tests/claude-host-per-run.test.ts`（`kind=assert`，890ms），逐字：
+
+    not ok - server/modules/providers/tests/claude-host-per-run.test.ts:
+      AssertionError [ERR_ASSERTION]: the develop delta does not mention the driver, so it is not the delta being read: server/modules/providers/list/claude/claude-per-run-host-driver.provider.ts
+
+**机制（确定性，不是负载抖动）。** 该判据的 `AC6`（`:575-613`）在 delta 非空时断言：
+
+    const vsDevelop = filesOf(gitMaybe(['diff', '--name-only', 'develop...HEAD']));
+    if (vsDevelop.length > 0) assert.equal(vsDevelop.includes(DRIVER_PATH), true, '…');
+
+fan-in 的 `merge-develop` 让 `develop` 成为 HEAD 的祖先，于是 `develop...HEAD` 恰好是**当前 worktree 自己那条分支的 delta**：只有**创建 driver 的那一条分支**才含 `DRIVER_PATH`，**其它任何任务分支**必不含 ⇒ 必红。兄弟任务自己的完成记录正是这条的正面读数：`gap-session-hosts-claude-per-run-driver` 的 AC6 打印 `vsDevelopFiles=4 … driverInDelta=true`。
+
+**本任务树上的 standalone 读数**（工作树逐字干净）：
+
+    $ npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-host-per-run.test.ts
+    gitDiff workingTreeFiles=0 vsDevelopFiles=8 containsNeighbour=false driverExists=true driverInDelta=false
+      AssertionError [ERR_ASSERTION]: the develop delta does not mention the driver, …
+
+`vsDevelopFiles=8` 就是本任务 Touches 列表里的 8 个文件；`workingTreeFiles=0` 证明判据没有碰到任何未提交文件；`DRIVER_PATH` 在 develop 上存在（`driverExists=true`）且既不在本任务 delta 里、**也不可能在**（本条不碰 `providers/**`）。
+
+**其它文件全绿（in-log 读数）**：`src/modules/chat/tests/voiceErrorMessages.test.tsx passed=true`、`src/modules/chat/tests/voiceErrorNoticePersistence.test.tsx passed=true`、`voice-capture-text.false-forms.test.ts passed=true`；该轮 `# tests 246 / pass 245 / fail 1`。
+
+**同轮第二个任务、完全不同 delta、同一个唯一红**：`gap-ac027-gateway-wait-weaker-than-assertion`（delta 只有一个文件 `e2e/model-library.spec.ts`）在同一时段（`suite-end 2026-09-27T04:21:56Z`）也是 `# tests 245 / pass 244 / fail 1`，唯一红就是同一个文件、同一句文案（931ms）。两条 delta 交集为空 ⇒ 这是 fleet 级串扰，不是任何一条任务的 delta。
+
+**为什么重派发解决不了**：该断言对「delta 非空且不含 driver」的**每一个** worktree 都成立，且 `900ms` 内即抛（没有 spawn、没有超时）。develop 上当前没有任何修复提交 —— `git log --all --oneline -- server/modules/providers/tests/claude-host-per-run.test.ts` 只有 `05db7d4a`（判据自身的落地提交），它随 driver 任务的 fan-in 在 `2026-09-27T03:21:16Z` 才落到 develop，本任务 `04:16Z` 的全量 suite 是它落地后的第一次全量。
+
+**需要的修法（与已 done 的 `gap-debug-agent-ac10-reads-the-whole-branch-delta` 同类同形）**：给该断言**按分支设门** —— 仅当 `git rev-parse --abbrev-ref HEAD` 等于 `task/gap-session-hosts-claude-per-run-driver` 时求值；其它分支上打印分支名与理由、**不求值**（读数行仍在，不是静默跳过）。⛔ 不得删掉或改成恒真，并须配负控制（在 owner 分支上违反不变量时仍然红）。这正是 ac10 立案时给出的修法 (a)，其落地提交 `b5d6c663` 已在 develop 上，形状可照抄。本轮已按此形状另立修复任务 `gap-claude-host-per-run-delta-scope-gate`（Touches 指向该判据文件），以免 fleet 上每条带代码 delta 的任务都停在这一条断言上。
+
+**本任务自身状态**：10/10 AC 保持满足（工作树 delta 与本文件启动时逐字相同）；本轮 scoped gate 绿（`scripts/test.sh --for-task … --allow-thin` → `# tests 2 / pass 2 / fail 0`，exit 0）；scoped-gate cache 已按 develop sha `5b6d3f3f70b39675798a8732e3212df2142b4347` 写入。承重的浏览器判据（四条腿、4 秒持续、草稿逐字、折叠技术详情、无拼接句）在最近一次全绿运行里的读数见上一节，本轮未改任何实现字节。
