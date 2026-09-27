@@ -19,8 +19,11 @@ vi.mock('@/shared/api', () => ({
     saveProjectSessionFilter: (...args: unknown[]) => saveMock(...args),
   },
 }));
+// The sidebar reads both capability sets; the resident one is stubbed empty so the
+// "convert to resident" item stays out of the menu this test asserts on.
 vi.mock('@/shared/hooks/useProviderCapabilities', () => ({
   useSessionForkingProviders: () => new Set<string>(),
+  useResidentProviders: () => new Set<string>(),
 }));
 vi.mock('@/modules/sidebar/hooks/useProviderSessionIdCopy', () => ({
   useProviderSessionIdCopy: () => ({
