@@ -14,22 +14,6 @@ depends_on:
   - gap-voice-capture-audio-file
 goal_ac: AC-147
 ---
----
-id: gap-voice-capture-isolation
-title: 捕获失败的隔离：text 档打印捕获行时抛错、audio 档音频目录不可写两种情形下转写仍返回成功且返回文本逐字不变，恰好一行不含内容的
-  voice.capture failed（AC-147）
-status: ready
-labels:
-  - gap
-parent: null
-children: []
-extra:
-  schema: execution
-depends_on:
-  - gap-voice-capture-mode-gate-off-fail-closed
-  - gap-voice-capture-audio-file
-goal_ac: AC-147
----
 ## Proposal
 
 <!-- dedup-ref --> 同机制去重结论（本段只作溯源，不声明任何前置；真正的依赖边在 frontmatter 的 `depends_on` 上）：立案时 `grep -rho '^goal_ac: *AC-147' tasks/*.md` 零命中；`grep -rln 'AC-147' tasks/` 只命中三份同族任务的**范围让渡**文字（`gap-voice-capture-text-payload`、`gap-voice-capture-audio-file`、`gap-voice-capture-secrets-three-modes`），其中前两份的边界原文写着「不做捕获异常的隔离判据（AC-147）」；`grep -rln 'voice-capture-isolation\|voice\.capture failed' tasks/ server/ src/ scripts/` 零命中。GOAL-010 的六条判据各有一份互不重叠的判据文件，本条只认领 AC-147 的那一份（`-isolation`）：AC-143 是 `voice-capture-off.test.ts`（闸门与接缝），AC-144 是 `voice-capture-text.test.ts`（text 档载荷），AC-145 是 `voice-capture-audio.test.ts`（audio 档写文件），AC-146 是 `voice-capture-secrets.test.ts`（三档脱敏），AC-148 是 `scripts/voice-capture-process-check.mjs`（真实进程）。
