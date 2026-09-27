@@ -14,8 +14,12 @@
 //  ③ 「退出」必须是 stdin EOF 换来的真退出，不是被 kill 掩盖：第三段以 `/proc/<pid>` 的读数为准，
 //    `closeReason === 'user'` 只是同一个决定在宿主记录上的投影。
 //
-// e2e 配方照 AC-025 的 `model-gateway-end-to-end.test.ts`：mock 端点按**请求体**识别（SDK 的标题
-// 请求同样打到 `/v1/messages`，不计入轮次请求），模型条目提供端点与凭证，宿主 key 不得泄漏。
+// e2e 配方照 AC-025 的 `model-gateway-end-to-end.test.ts`：mock 端点按**请求体**识别轮次 —— 一轮的
+// 请求体带的是它累计到该轮的用户话轮，故按「带哪几轮」判轮，而**不是**按「body 里写了哪个模型名」：
+// SDK 的辅助请求（标题等）同样打到 `/v1/messages`、凭证相同，但不带累计对话，所以任何轮签名都不
+// 匹配它，而它*写*的模型名却随运行环境变（缺 `ANTHROPIC_DEFAULT_HAIKU_MODEL` 时 CLI 回落到会话
+// 模型），模型名判轮会让判据的结论取决于判据跑在谁的 env 里 —— 详见 `roundRequests`。模型条目提供
+// 端点与凭证，宿主 key 不得泄漏。
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { EventEmitter, once } from 'node:events';
@@ -208,17 +212,44 @@ function messagesRequests(received: Received[]): Received[] {
   return received.filter((request) => request.url.split('?')[0] === '/v1/messages');
 }
 
+/** The user turns this criterion sends, in round order. */
+const ROUND_CONTENT = ['round one', 'round two', 'round three'];
+
 /**
- * The requests that carry a turn this criterion sent, identified by body.
+ * The requests carrying round `n` of this criterion, identified by its own body.
  *
- * The SDK's own title generation also posts to `/v1/messages` with the same
- * credential; it asks for a different model and carries no user turn. Counting
- * it as a round request would make "the second turn reached the endpoint" true
- * before the second turn was sent, which is exactly the race the abort leg must
- * not have.
+ * A turn resends the whole conversation, so the round a request belongs to is
+ * the set of user turns its body carries: round 1's body holds the first turn,
+ * round 2's holds the first two, and round 3's holds all three. That accumulation
+ * is intrinsic to a turn and is what "identify by request body" has to mean here.
+ *
+ * It must **not** mean "the body names the session's model". The SDK's auxiliary
+ * requests (title generation, the small-model prompts behind it) post to the same
+ * path with the same credential and carry no accumulated conversation, so they
+ * can never satisfy a round signature — but the model they *name* depends on the
+ * ambient environment: with `ANTHROPIC_DEFAULT_HAIKU_MODEL` set (a Claude Code
+ * agent shell) they name that model, while in the environment this criterion is
+ * actually graded in — the driver anchor's, which sets no such variable — the CLI
+ * falls back to the session's own model and such a request reads as a fourth
+ * turn. Reading the conversation instead of the model name makes the count the
+ * same in both environments, which is the whole reason it is written this way.
+ */
+function roundRequests(received: Received[], round: number): Received[] {
+  const upTo = ROUND_CONTENT.slice(0, round);
+  const later = ROUND_CONTENT.slice(round);
+  return messagesRequests(received).filter(
+    (request) =>
+      upTo.every((content) => request.body.includes(content)) &&
+      later.every((content) => !request.body.includes(content)),
+  );
+}
+
+/**
+ * Every request carrying one of this criterion's rounds — the three signatures
+ * are disjoint by construction, so this is the three rounds and nothing else.
  */
 function turnRequests(received: Received[]): Received[] {
-  return messagesRequests(received).filter((request) => request.body.includes(`"${MODEL_ID}"`));
+  return ROUND_CONTENT.flatMap((_, index) => roundRequests(received, index + 1));
 }
 
 type FakeSocket = EventEmitter & {
@@ -542,9 +573,9 @@ test('(b) abort mid-round-2 interrupts the turn; the process survives and round 
       mock.hold();
       const secondRound = sendRound(socket, 'round two', cwd);
       await waitFor(
-        () => turnRequests(mock.received).length >= 2,
+        () => roundRequests(mock.received, 2).length >= 1,
         ROUND_TIMEOUT_MS,
-        'the second turn to reach the mock endpoint',
+        'the second turn, with round one behind it, to reach the mock endpoint',
       );
 
       socket.emit('message', JSON.stringify({ type: 'chat.abort', sessionId: SESSION_ID }));
@@ -670,9 +701,9 @@ test('(e) aborting by ending the process makes the survival reading go red', { t
       mock.hold();
       const secondRound = sendRound(socket, 'round two', cwd);
       await waitFor(
-        () => turnRequests(mock.received).length >= 2,
+        () => roundRequests(mock.received, 2).length >= 1,
         ROUND_TIMEOUT_MS,
-        'the second turn to reach the mock endpoint',
+        'the second turn, with round one behind it, to reach the mock endpoint',
       );
 
       const live = sessionHostManager
