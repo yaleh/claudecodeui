@@ -6,7 +6,7 @@ title: AC-167 常驻进程超出内存上限时只有它被杀 — 把 claude-se
   MemoryMax=注入值、MemorySwapMax=0、slice 名逐字；同 slice 下两子进程其一超限被 OOM（宿主快照
   closeReason=exited、closeDetail=oom），另一个与测试进程存活；结束后无残留 scope 且缺席读数带正对照；无
   systemd user manager 时打印原因并 exit 3；假形态（退化为直接 spawn、上限写死常量）必须红
-status: needs-human
+status: ready
 labels:
   - gap
 parent: null
@@ -251,3 +251,9 @@ $ npx oxlint <本任务改动的三个后端文件>                            E
 - session_id：0c2447ce-a032-496e-8b18-73ceede3a680
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-resident-slice-memory-cap~wk-prod-anchor~1790513749918-a1556b.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-resident-slice-memory-cap-wk-prod-anchor.log
+
+## 人工复核（2026-09-27，人 yale 指令「检查和推进」第五轮）
+
+第三次停在 needs-human 的判词是 `server/modules/voice/tests/voice-config.routes.test.ts` 红：`[TypeError: fetch failed] { [cause]: Error: bad port }`。逐字匹配已知记录 `undici-bad-port-lottery-in-listen0-route-tests`——`app.listen(0)` 落在 undici 拒收的 18 个端口之一，约 2%/次舰队跑的抽签。不在本任务 Touches 里；standalone 复核 `exit 0`，`pass 6 / fail 0`（2.0s）。
+
+结论：普通端口抽签，重新排队。
