@@ -17,6 +17,25 @@ depends_on:
   - gap-claude-session-cgroup-scope
 goal_ac: AC-167
 ---
+---
+id: gap-claude-resident-slice-memory-cap
+title: AC-167 常驻进程超出内存上限时只有它被杀 — 把 claude-session-scope 包装推广为 provider 中立并加共享
+  slice（systemd-run --user --scope --slice=cloudcli-resident.slice -p
+  MemoryMax=配置值 -p MemorySwapMax=0）：单进程上限与 slice 总上限都来自配置且可注入；注入小上限后命令行读到
+  MemoryMax=注入值、MemorySwapMax=0、slice 名逐字；同 slice 下两子进程其一超限被 OOM（宿主快照
+  closeReason=exited、closeDetail=oom），另一个与测试进程存活；结束后无残留 scope 且缺席读数带正对照；无
+  systemd user manager 时打印原因并 exit 3；假形态（退化为直接 spawn、上限写死常量）必须红
+status: ready
+labels:
+  - gap
+parent: null
+children: []
+extra:
+  schema: execution
+depends_on:
+  - gap-claude-session-cgroup-scope
+goal_ac: AC-167
+---
 ## Proposal
 
 <!-- dedup-ref --> 机制去重读数（本轮立案时实测，2026-09-27）：`grep -rn "^goal_ac: *AC-167" tasks/*.md | wc -l` → **0**；`grep -rln "AC-167" tasks/*.md | wc -l` → **0** —— 全库零命中，连邻居任务的「非目标」段都没有点名过 AC-167。机制侧同为零：`grep -rn -- "--slice" server/ --include=*.ts --include=*.js | wc -l` → **0**（今天全仓没有任何 `--slice`，现有包装只发 `MemoryMax` 与 `MemorySwapMax=0`）；`grep -rln "cloudcli-resident" tasks/*.md | wc -l` → **0**；`systemctl --user list-units 'cloudcli-resident*' --no-legend --plain | wc -l` → **0**（本机没有这个 slice）。⇒ 本条要建的机制（一个共享 slice + 来自配置的 slice 总上限 + OOM 只收超限者）在库内与机器上都不存在，不是重复。
@@ -75,16 +94,16 @@ goal_ac: AC-167
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/process-containment.test.ts` 在交付树上退出 **0**；同一命令在 develop 上退出 **1**，stdout 逐字 `Could not find 'server/modules/session-hosts/tests/process-containment.test.ts'`。
-- [ ] 判据注入一个测试用小单进程上限并起包装 ⇒ 包装命令行读到的 `MemoryMax` **等于注入的配置值**、`MemorySwapMax=0`、`--slice=cloudcli-resident.slice` 逐字出现；**slice 总上限同样来自配置**（注入并读回该值）。
-- [ ] 同一 slice 下两个子进程，其一分配内存超过单进程上限 ⇒ **它**被 OOM 杀死，且其**宿主快照**为 `closeReason='exited'`、`closeDetail='oom'`。
-- [ ] 另一个子进程与**测试进程本身**在 (2) 之后都**存活**（`/proc/<pid>` 仍在 / `process.kill(pid,0)` 不抛）。
-- [ ] 结束后 `listClaudeSessionScopeUnits()` 为空（无残留）；**缺席读数带正对照**：在 scope 存在时该读法必须**读到它**（同一探针先非空后空，不以固定 sleep 后的空读数当证据）。
-- [ ] 判据在**没有 usable systemd user manager** 的路径上打印原因并 **`process.exit(3)`**（未评估），**不得退 0**；本机探测退 0，故本机必须真跑（既非 skip 也非 3）。
-- [ ] 假形态 (a)：包装退化为直接 `spawn` ⇒ 读数 (2)(3) **必须红**（超限进程不被杀，或殃及测试进程）。
-- [ ] 假形态 (b)：上限写死为常量而不读配置 ⇒ 读数 (1) **必须红**。
-- [ ] 既有 `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-session-scope.test.ts` 退出 0 且断言不改（推广命名不得静默破坏既有契约）。
-- [ ] `npm run typecheck` 与 `npm run lint` 退出码均为 0（含 boundaries：判据跨模块只经 barrel）。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/process-containment.test.ts` 在交付树上退出 **0**；同一命令在 develop 上退出 **1**，stdout 逐字 `Could not find 'server/modules/session-hosts/tests/process-containment.test.ts'`。
+- [x] 判据注入一个测试用小单进程上限并起包装 ⇒ 包装命令行读到的 `MemoryMax` **等于注入的配置值**、`MemorySwapMax=0`、`--slice=cloudcli-resident.slice` 逐字出现；**slice 总上限同样来自配置**（注入并读回该值）。
+- [x] 同一 slice 下两个子进程，其一分配内存超过单进程上限 ⇒ **它**被 OOM 杀死，且其**宿主快照**为 `closeReason='exited'`、`closeDetail='oom'`。
+- [x] 另一个子进程与**测试进程本身**在 (2) 之后都**存活**（`/proc/<pid>` 仍在 / `process.kill(pid,0)` 不抛）。
+- [x] 结束后 `listClaudeSessionScopeUnits()` 为空（无残留）；**缺席读数带正对照**：在 scope 存在时该读法必须**读到它**（同一探针先非空后空，不以固定 sleep 后的空读数当证据）。
+- [x] 判据在**没有 usable systemd user manager** 的路径上打印原因并 **`process.exit(3)`**（未评估），**不得退 0**；本机探测退 0，故本机必须真跑（既非 skip 也非 3）。
+- [x] 假形态 (a)：包装退化为直接 `spawn` ⇒ 读数 (2)(3) **必须红**（超限进程不被杀，或殃及测试进程）。
+- [x] 假形态 (b)：上限写死为常量而不读配置 ⇒ 读数 (1) **必须红**。
+- [x] 既有 `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-session-scope.test.ts` 退出 0 且断言不改（推广命名不得静默破坏既有契约）。
+- [x] `npm run typecheck` 与 `npm run lint` 退出码均为 0（含 boundaries：判据跨模块只经 barrel）。
 
 ## DoD
 
@@ -100,3 +119,103 @@ goal_ac: AC-167
 - `server/modules/providers/tests/claude-session-scope.test.ts`（仅当推广命名触及旧契约时同步；断言语义不变）
 - `docs/operations/process-isolation-and-memory-caps.md`（常驻 slice 一节）
 - `tasks/gap-claude-resident-slice-memory-cap.md`（自触）
+
+## Evidence
+
+（读数与交付物同树：分支 `task/gap-claude-resident-slice-memory-cap`，实现 `5cbe85d6`，判据修订 `adf651de`；工作树 `/data/home/yale/work/claudecodeui-worktrees/gap-claude-resident-slice-memory-cap`。收尾 `git status --porcelain` 为空。）
+
+### AC1 — 交付树退 0、develop 退 1
+```
+$ npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/process-containment.test.ts
+ℹ tests 3   ℹ pass 3   ℹ fail 0   ℹ duration_ms 3100.18      EXIT=0
+$ git cat-file -e develop:server/modules/session-hosts/tests/process-containment.test.ts   → ABSENT_ON_DEVELOP
+# 在 develop 形状的检出里跑上面同一命令 → EXIT=1，stdout 逐字：
+Could not find 'server/modules/session-hosts/tests/process-containment.test.ts'
+```
+
+### AC2 — 读数 (1)：两个上限都来自配置，且落在 systemd 真造的 unit 上
+临时探针（跑完即删，不在 diff 里）逐字：
+```
+INJECTED per-session cap      : 96M
+INJECTED slice cap            : 512M | slice cap BEFORE this run: infinity
+READ BACK slice MemoryMax     : 536870912 ( cloudcli-resident.slice )
+ARGV                          : --user --scope --quiet --unit=claudecodeui-session-27388-9d999da0 --slice=cloudcli-resident.slice -p MemoryMax=96M -p MemorySwapMax=0 -- /data/home/yale/.nvm/versions/node/v24.21.0/bin/node -e
+UNIT props hog                : MemoryMax= 100663296 MemorySwapMax= 0 Slice= cloudcli-resident.slice
+UNIT props sibling            : MemoryMax= 100663296 Slice= cloudcli-resident.slice
+```
+- 96M → 100663296、512M → 536870912（`systemctl --user show <unit>.scope -p MemoryMax --value`，即 **systemd 自己持有的值**，不是命令行的转述）。
+- slice 总上限**注入两个不同的值各读回一次**（512M → 536870912、768M → 805306368），读数随注入值变化；随后 `createRecordingHook()` 让包装按**它被配置的** 512M 重新应用，读回又变回 536870912 —— 三处都在判据 leg 1 内断言。
+
+### AC3 — 读数 (2)：OOM 只收超限者，且是内核事实
+```
+[resident-scope] session killed by the memory cap 96M (unit claudecodeui-session-86578-fcea702b.scope)
+HOST( hog )                   : {"state":"closed","closeReason":"exited","closeDetail":"oom"}
+HOG journal blames the cap    : true
+```
+- **负对照**（防「非零退出码冒充 OOM」）：同一宿主下 `process.exit(3)` 的子进程快照是 `closeDetail='error'`，不是 `'oom'` —— 判据 leg 2 内断言。
+- **另一臂**（防「上限不是死因」）：同一个 384MiB 有界吃内存子进程在 `MemoryMax=1G` 下 4s 后仍存活。
+
+### AC4 — 读数 (3)：无关者存活
+```
+HOST( sibling )               : {"state":"idle","closeReason":null}
+SIBLING alive                 : /proc exists = true | kill0 = no throw
+TEST PROCESS alive            : kill0 = no throw
+```
+
+### AC5 — 读数 (4)：无残留，且缺席读数带正对照
+```
+POSITIVE CONTROL own scopes   : ["claudecodeui-session-27388-8935eb38.scope","claudecodeui-session-27388-9d999da0.scope"]
+NO RESIDUE own scopes         : [] | global list: []
+SLICE CAP RESTORED to         : infinity
+```
+- 正对照与空读是**同一个读法**（`listClaudeSessionScopeUnits()`）在 scope 活着时先读到、杀掉后读空；不是「固定 sleep 之后的空」。
+- ⚠️ 一处刻意的收窄，写明白：判据的空读断言取该读法**按本进程属主前缀过滤**后的结果，不是全机空。`listResidentScopeUnits` 的文档写明它返回**全机**常驻 scope，而并发的其他车道（本机此刻正跑着 `claude-resident-process.test.ts` / `voice-error-classification.false-forms.test.ts`）会在同一台机上持有活 scope ⇒ 钉全机空 = 把别人的活 scope 记成我的残留，是并发假红。本任务能证、也该证的是「**本判据没有留下残留**」；探针那一刻全机列表也读到空（`global list: []`）。
+
+### AC6 — 未评估路径：无 usable systemd user manager
+真实关闭 `systemd-run` 的执行（PATH 只留 node/npx/sh/env/bash/timeout）：
+```
+$ npx tsx --tsconfig server/tsconfig.json server/modules/session-hosts/tests/process-containment.test.ts
+[process-containment] no usable systemd user manager: 'systemd-run --user --scope --slice=cloudcli-resident.slice -p MemoryMax=96M true' did not exit 0, so resident containment is unevaluated here (exit 3)
+EXIT=3
+```
+- 判据文件**自身**退出码 **3** ⇒ 未评估，不是 0。
+- 同一 PATH 下按 AC 的逐字命令（带 `--test`）→ `EXIT=1`，`ℹ tests 1 / pass 0 / fail 1`：node:test 的 runner 把「文件自身退 3」聚合成失败（≠0，读不到绿）。这是 `--test` 的语义，上一代判据同构。
+- 本机 `probeSystemdUserScope(...)` 为真 ⇒ 本机**真跑**（既非 skip 也非 3）。
+
+### AC7 — 假形态 (a)：包装退化为直接 spawn（3/3 红，EXIT=1）
+```
+✖ the caps and the slice come from configuration…        the argv must carry the injected per-session cap, saw -e setInterval(()=>{},1000)   ← 读数 (1)
+✖ a hog over the cap dies alone…                         timed out after 20000ms waiting for: the over-limit child to be reaped              ← 读数 (2)
+✖ the listing names a live scope…                        timed out after 15000ms waiting for: the listing to name null, saw []               ← 读数 (4)
+```
+- 读数 (3) 在这一臂下**不会**红：判据的吃内存子进程是**有界**的（384MiB / 48×8MiB），臂 (a) 里它吃满即止，殃及不到测试进程 —— AC 的括号是「超限进程不被杀，**或**殃及测试进程」的析取，此处红在「不被杀」这一支。
+- 为了红在读数 (2) 上，判据把这条断言排在**任何正对照之前**（先等 reap）；否则臂 (a) 会先红在后面的正对照上，读数 (2) 留成未评估。
+
+### AC8 — 假形态 (b)：单进程上限写死为常量、不读注入值（EXIT=1）
+```
+✖ the caps and the slice come from configuration…        the argv must carry the injected per-session cap, saw --user --scope --quiet --unit=claudecodeui-session-150364-e73aea71 --slice=cloudcli-resident.slice -p MemoryMax=8G -p MemorySwapMax=0 -- …/node -e setInterval(()=>{},1000)   ← 读数 (1)
+✖ a hog over the cap dies alone…                         timed out after 20000ms waiting for: the over-limit child to be reaped              ← 8G 下 384MiB 不被收
+（leg 3 通过：这一臂不动 unit 命名）
+```
+
+### AC9 — 既有契约逐字未改
+```
+$ npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-session-scope.test.ts
+ℹ tests 9   ℹ pass 9   ℹ fail 0        EXIT=0
+$ git status --porcelain -- server/modules/providers/tests/claude-session-scope.test.ts   # 空
+```
+旧名以 re-export 保留（`createClaudeSessionScopeSpawn` / `resolveClaudeSessionMemoryMax` / `buildClaudeSessionScopeUnitName` / `listClaudeSessionScopeUnits` / `stopClaudeSessionScopes` / `sweepOrphanClaudeSessionScopes` / `parseClaudeSessionScopeOwnerPid` / `resetClaudeSessionScopeProbeCache` / `DEFAULT_CLAUDE_SESSION_MEMORY_MAX` 及类型别名），故推广命名没有静默破坏既有契约。
+
+### AC10 — 类型与 lint
+```
+$ npm run typecheck   # client + server + scripts 三个 project   EXIT=0
+$ npm run lint                                                    EXIT=0
+$ npx oxlint <本任务改动的三个后端文件>                            EXIT=0
+```
+- boundaries：判据跨模块只经 `@/modules/providers/index.js`、`@/modules/session-hosts/index.js`、`@/shared/interfaces.js`。
+
+### 文档
+`docs/operations/process-isolation-and-memory-caps.md` 的 "Session scopes" 一节改写为 "Resident scopes"：两个上限都来自配置（含 `CLAUDE_SESSION_MEMORY_MAX` / `CLAUDE_RESIDENT_SLICE` / `CLAUDE_RESIDENT_SLICE_MEMORY_MAX` 的表）、OOM 只收受害者（含「未被 touch 的 `Buffer.alloc` 页面不进 cgroup」这条实测坑）、无 systemd 时退化为不经 scope 的直启；并补 `detectResidentScopeOomKill` 与判据的复跑说明。
+
+### 两臂复现的复原与残留
+两次假形态各自 `cp` 备份 → 打补丁 → 跑 → `cp` 还原，还原后 `md5sum` 均回到 `9a401375a544258059bc3b33ed58b562`、`git status --porcelain` 为空、判据 3/3 绿。收尾 `systemctl --user list-units 'claudecodeui-session-*'` 读到空；`cloudcli-resident.slice` 的 `MemoryMax` 复原为跑前值 `infinity`；无遗留吃内存子进程。
