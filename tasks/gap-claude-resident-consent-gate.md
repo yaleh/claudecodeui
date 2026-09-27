@@ -1,0 +1,93 @@
+---
+id: gap-claude-resident-consent-gate
+title: AC-171 真实浏览器里常驻开关须先勾选知情：新建会话开常驻就地展开 bypass 与同一 Unix
+  用户信任边界告知、未勾「我了解」发送禁用、勾选后能发送且会话
+  lifecycle_mode=resident；会话菜单「转为常驻…」同门控且处理中禁用；开关只对能力矩阵含 resident 的 provider
+  显示；假形态（勾选框不门控发送）必须红
+status: todo
+labels:
+  - gap
+parent: null
+children: []
+extra:
+  schema: execution
+depends_on:
+  - gap-claude-resident-api-smoke-human-gate
+  - gap-lifecycle-mode-matrix-and-host-api
+goal_ac: AC-171
+---
+## Proposal
+
+<!-- dedup-ref --> 机制去重读数（本轮立案时实测，2026-09-27）：`grep -rn "^goal_ac: *AC-171" tasks/*.md | wc -l` → **0**；`grep -rln "AC-171" tasks/*.md | wc -l` → **1**，唯一命中是 `tasks/gap-claude-resident-api-smoke-human-gate.md` 的 2 处，逐处核对**都是边界话、不是认领**：`:26` 写「人写下 `冒烟验收：通过` 之后，AC-171–175 的 UI 派工任务才允许开工」，`:36` 把「AC-171–175 的前端与 e2e」列进**非目标**段。⇒ AC-171 无认领者，本条不是重复。
+
+**来源与判据物。** 判据逐字取自 `goals/AC-171-真实浏览器里开启常驻须先勾选知情-未勾选不能发送或转换.md` 的 `criterion:`：`npx playwright test e2e/resident-enable-consent.spec.ts`（命令逐字含文件路径，不用 glob）。`expect` 逐字（同文件 `:8-10`）：「新建会话时打开常驻开关 ⇒ 就地展开 bypass 与同一 Unix 用户信任边界的告知，未勾选「我了解」时发送按钮禁用，勾选后能发送且会话 lifecycle_mode 为 resident；已有会话经会话菜单「转为常驻…」同样需要勾选；会话处理中该菜单项禁用；常驻开关只对能力矩阵含 resident 的 provider 显示。取假形态：勾选框不门控发送 ⇒ 必须红。」
+
+**红态基线（本轮直跑，读数不是推断）**：`npx playwright test e2e/resident-enable-consent.spec.ts --list` 退出 **1**，stderr 逐字 `Error: No tests found.` 与 `Make sure that arguments are regular expressions matching test files.`，stdout 逐字 `Total: 0 tests in 0 files`（`--list` 只做收集、不起 webServer，因此这条读数与判据同为「该文件不存在」这同一个事实，且与 AC-170 那条人工关卡无关）。**命令形状是好的，红只因缺文件**（承重件，单独测过）：同一命令形状跑既有 `npx playwright test e2e/model-env-kind-explanations.spec.ts --list` → 退出 **0**，读数逐字 `model-env-kind-explanations.spec.ts:37:3 › model env kind explanations › every kind explains itself in the browser and unset is linked via aria-describedby` / `Total: 1 test in 1 file`。
+
+**现状（本轮实测的读数）—— 常驻这一格在前端一行都没有**
+
+- **判据文件不存在**：`ls e2e/resident-enable-consent.spec.ts` → `No such file or directory`；`ls e2e/ | grep -i resident | wc -l` → **0**。
+- **前端零常驻面**：`grep -rn "resident" src/ --include=*.ts --include=*.tsx | wc -l` → **0**；`grep -rn "我了解\|转为常驻\|知情" src/ --include=*.ts --include=*.tsx | wc -l` → **0**。
+- **能力矩阵这个字段前端还没读**：`grep -rn "lifecycleModes" src/ --include=*.ts --include=*.tsx | wc -l` → **0**；`grep -rn "lifecycle_mode\|lifecycleMode" src/ --include=*.ts --include=*.tsx | wc -l` → **0**。矩阵本身**已经在线上**：`GET /api/providers/capabilities`（`server/modules/providers/provider.routes.ts:758`）返回 `providerCapabilitiesService.listAllProviderCapabilities()`，而 `provider-capabilities.service.ts:158` 返回的是**整条** `ProviderCapabilities`（含 `lifecycleModes`）—— 所以前端要读的字段已经在报文体里，缺的只是消费者（前端 `api.providers.capabilities` 在 `src/shared/api.ts:390`）。
+- **claude 今天的能力矩阵不含 resident**：`provider-capabilities.service.ts:79` 逐字 `lifecycleModes: ['per-run']`；`grep -c "lifecycleModes: \['per-run'\]" 该文件` → **4**（claude/cursor/codex/opencode 四行全一样），全库唯二声明过 `resident` 的是调试 agent 的 host-driver（`grep -rn "resident" server/modules/providers/services/provider-capabilities.service.ts server/shared/types.ts` 只命中类型与调试 agent 那条链）。⇒ AC-171 的「开关显示」与「lifecycle_mode 读回 resident」两条读数**今天都取不到**，这正是它要等的两个真前置（下段）。
+- **发送按钮的门控点已定位**：`src/modules/chat/composer/ChatComposer.tsx:722` 的 `<PromptInputSubmit …>`，`disabled` 表达式在 `:738`（逐字 `isLoading ? false : isRecording ? false : isTranscribing ? true : !input.trim() && attachedFiles.length === 0`）。假形态（勾选框不门控发送）要红的**就是这一处**：门控没接进这条表达式 ⇒ 未勾选时按钮仍可用 ⇒ 判据红。
+- **会话菜单的能力门控与「处理中禁用」都有现成形状**：`src/modules/sidebar/SessionOptions.tsx:76` 逐字 `const canFork = Boolean(onFork) && forkableProviders.has(provider) && !isProcessing;` —— 一行同时是「能力矩阵门控」与「处理中禁用」的范式；菜单项数组在 `:165` 的 `items={[…]}`，`gap-project-session-name-filter-hide-similar` 已在此处加过 `t('sessionFilter.hideSimilar')` 一格（能力钩子 `useSessionForkingProviders` 在 `:63` 被本行用着）。
+- **建会话的报文今天不带模式**：`src/shared/api.ts:408` 的 `createSession` payload 逐字只有 `{ provider: string; projectPath: string; initialMessage?: unknown }`；唯一调用点 `src/modules/chat/hooks/useChatComposerState.ts:812`（`api.providers.createSession({ provider, projectPath, initialMessage: messageContent })`）。⇒ 「勾选后能发送且会话 lifecycle_mode 为 resident」的实现面是**这条报文加一个模式字段**，读数面是建完会话后从服务端读回该字段。
+- **能力钩子已有范式**：`src/shared/hooks/useProviderCapabilities.ts:63` 的 `useSessionForkingProviders(): Set<LLMProvider>` 是「读矩阵 → 得 provider 集合 → 交给 UI 门控」的现成读法（模块级缓存、加载中返回空集以免先给后撤、失败不缓存）；`useResidentProviders` 照它写。
+
+<!-- dedup-ref --> **两条真前置（已写成顶层 `depends_on` 关系边，本段只作溯源）**：`gap-claude-resident-api-smoke-human-gate`（`goal_ac: AC-170`，status=todo）—— AC-170 的 `expect` 逐字「UI 相关 AC（AC-171 至 AC-175）的派工任务以本条对应的任务为前置」，人 yale 在 `docs/proposals/claude-resident-sessions-smoke.md` 写下 `冒烟验收：通过` 之前，本条不得开工。`gap-lifecycle-mode-matrix-and-host-api`（`goal_ac: AC-169`，status=todo）—— 它落 `sessions.lifecycle_mode` 列、claude 的 `lifecycleModes` 加 `'resident'`（能力矩阵那格）、以及 `POST /api/session-hosts/:sessionId/start|close`；本条判据的「开关显示」与「读回 resident」两条读数**都长在它落的东西上**。两条机制与本条不相交（一个是 API 面冒烟人证、一个是偏好列与宿主生命周期 API；本条是**前端知情门控**），故 `depends_on` 硬串行、不并发。`gap-claude-resident-process-survival`（AC-161）是 AC-169 自己的前置，本条经 AC-169 传递覆盖，不重复加边。
+
+**要建的东西（范围是 AC-171 的最小充分集）**
+
+1. **`useResidentProviders()`**（`src/shared/hooks/useProviderCapabilities.ts`，照 `:63` 的 `useSessionForkingProviders` 写）—— 读 `GET /api/providers/capabilities` 的 `lifecycleModes`，返回 `lifecycleModes.includes('resident')` 的 provider 集合。**这是「开关只对能力矩阵含 resident 的 provider 显示」的唯一判据来源**；UI 不得按 provider id 分支（`provider-capabilities.service.ts:9-12` 的注释就是这么要求的）。
+2. **知情面 `ResidentConsentNotice`**（新组件）—— 常驻开关打开时就地展开，正文含两件事：**bypass**（常驻会话以 `bypassPermissions` 运行）与**同一 Unix 用户信任边界**（同一 Unix 用户下的其他进程可驱动该会话）；下方一个「我了解」复选框（`type=checkbox`，可被 `getByRole('checkbox', { name: … })` 命中，带可断言的 `aria-*`）。文案进 `src/modules/i18n/locales/{en,zh-CN}/chat.json` 的同一键，判据**运行期读该文件**取句子（照 `gap-ac142-refusal-leg-copy-repoint` 的读法：`fs.readFileSync(path.resolve(process.cwd(), …))`），不把句子抄进 spec；菜单项那一格走 `t()`，进 `{en,zh-CN}/sidebar.json`。
+3. **新建会话路径**：`ChatComposer.tsx` 的常驻开关（能力矩阵门控）＋ 知情面；门控接进 `PromptInputSubmit` 的 `disabled` 表达式（`:738`）—— 未勾「我了解」⇒ 按钮禁用，勾选 ⇒ 可用；勾选后建会话时 `createSession` 报文带上模式（`src/shared/api.ts:408` 加字段、`useChatComposerState.ts:812` 传值），服务端读回 `lifecycle_mode === 'resident'`。
+4. **已有会话路径**：`SessionOptions.tsx:165` 的 `items` 加「转为常驻…」一格，出现条件 = `residentProviders.has(provider)`（照 `:76` 的 `canFork` 形态）、`disabled: isProcessing`；选中后走**同一块**知情面，未勾选不得转换。
+5. **判据文件 `e2e/resident-enable-consent.spec.ts`**（新）—— 真浏览器、真服务、真会话；四条读数各一段（见 AC2–AC5），假形态一臂（见 AC6）。
+
+**非目标**：AC-169 的 `lifecycle_mode` 列、能力矩阵、`start|close` 路由与 `residentFeatures` 格；AC-161/162/166 的 driver 与重启；AC-172–175 的状态标记、Running 分组、Shell 禁用、忙时直发；AC-170 的 API 面冒烟脚本与记录文件；任何后端子进程形状。本条**只动前端**：一个能力钩子、一块知情面、两条入口门控、一个建会话字段、一条 e2e 判据。
+
+## Plan
+
+1. 读 AC-169 落地后的**实际形状**：`lifecycle_mode` 在会话读写面上的字段名与投影（`GET /api/providers/sessions/:id` 是否带它、建会话报文用哪个键接收模式）、能力矩阵里 claude 行的最终值、`POST /api/session-hosts/:sessionId/start` 的调用形状。把门控与读数的接缝钉在真面上，不按 proposal 的规划文字猜；AC-169 未落地时判据必须**点名拒绝**（缺列/缺矩阵 ⇒ exit 非 0 并打印缺哪一件），不写假读数。
+2. `useResidentProviders()` ＋ e2e 的读回工具（`GET /api/providers/capabilities` / `GET /api/providers/sessions/:id`）。
+3. `ResidentConsentNotice`（新组件）＋ 两组文案键（`chat.json` en/zh-CN；菜单项 `sidebar.json` en/zh-CN）。
+4. 新建会话路径接线（`ChatComposer.tsx` 开关 ＋ `PromptInputSubmit.disabled` 门控 ＋ `api.ts`/`useChatComposerState.ts` 的模式字段）。
+5. 会话菜单接线（`SessionOptions.tsx` 的 `items` 加格、`disabled: isProcessing`、复用知情面）。
+6. 写 `e2e/resident-enable-consent.spec.ts`：四条读数 + 假形态臂；跑绿。
+7. 跑假形态变异（把知情面从 `disabled` 表达式里摘掉），确认判据**红在**「未勾选 ⇒ 发送禁用」那条断言上，登记变异 diff 与失败行逐字；恢复。
+8. `npm run lint` 与 `npm run typecheck` 绿；写完成记录（含每条读数与假形态的那次红）。
+
+## AC
+
+- [ ] AC1 判据绿：`npx playwright test e2e/resident-enable-consent.spec.ts` 退出 **0**。红态基线本轮实测：`--list` 退出 **1**，`Error: No tests found.` / `Total: 0 tests in 0 files`。正控制：同一 `--list` 形状跑 `e2e/model-env-kind-explanations.spec.ts` 退出 **0**（`Total: 1 test in 1 file`）⇒ 命令形状有分辨力、红只因缺文件。
+- [ ] AC2 开关打开即就地展开告知，且未勾选时发送被门控（真浏览器）：判据打印 `notice.visible=<true>`、`notice.copy=<…>`、`gate.before=<true|false>`、`gate.after=<true|false>` 四行。`notice.copy` 取自运行期读的 `src/modules/i18n/locales/en/chat.json`（不抄句子），断言展开文本含 bypass 与同一 Unix 用户信任边界两条告知；`gate.before`（未勾「我了解」时 `PromptInputSubmit` 的 `disabled`）为真，`gate.after`（勾选后）为假。承重腿：未勾选时按发送**不产生任何会话**（打印 `pathname=<…>`，仍停在新建态）。
+- [ ] AC3 勾选后能发送且模式落成 resident：判据打印 `created.sessionId=<…>` 与 `session.lifecycle_mode=<…>` 两行，后者逐字 `resident`。**正控制**：同一次运行里一个 per-run 会话的同一字段读回逐字 `per-run`（证明该字段不是恒真、读数有分辨力）。
+- [ ] AC4 已有会话经菜单「转为常驻…」同样需要勾选：判据打印 `menu.item=<present|absent>`、`menu.disabledWhenProcessing=<true>`、`convert.blockedUntilAck=<true>` 三行 —— 菜单项对含 resident 的 provider 出现；会话处理中该项 `disabled`/`aria-disabled` 为真；未勾「我了解」时转换动作不可执行（点它 mode 不变，打印 `modeBefore=modeAfter=<…>`），勾选后可转换（打印 `modeAfterConvert=resident`）。
+- [ ] AC5 开关只对能力矩阵含 resident 的 provider 显示：判据打印 `capability.residentProviders=<…>` 与 `capability.nonResidentProviders=<…>` 两行（取自运行期读的 `GET /api/providers/capabilities` 的 `lifecycleModes`），并断言开关在 resident 的 provider 下**在**、在非 resident 的 provider 下**不在**（两侧各打印 `toggle.present=<true|false>`）。⇒ 显示与否由矩阵决定，不是硬编码 provider id。
+- [ ] AC6 假形态必须红（承重）：把知情面从 `src/modules/chat/composer/ChatComposer.tsx` 的 `PromptInputSubmit` `disabled` 表达式（`:738`）里摘掉（勾选框不再门控发送），`npx playwright test e2e/resident-enable-consent.spec.ts` 必须退出**非 0**，且红**落在 AC2 的「未勾选 ⇒ 发送禁用」那条断言**上（登记变异 diff、失败断言逐字、退出码）。变异恢复后判据回到 0。
+- [ ] AC7 契约面：`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**；`git diff --stat` 与 Touches 逐条对齐（多写的文件须由判据强制）。
+
+## DoD
+
+- 判据在**真浏览器**里跑：真服务、真会话、真能力矩阵；读回的 mode 是服务端事实，不是前端本地状态。
+- 四条读数都是判据的原始输出行（`notice.*` / `gate.*` / `session.lifecycle_mode` / `menu.*` / `capability.*`），不是转述。
+- 「开关只对含 resident 的 provider 显示」有**反向腿**：非 resident 的 provider 下开关不在（正控制，证明不是恒真）。
+- 假形态**真的跑过并真的红**，红落在承重断言上，不是任何一条断言都行。
+- 文案取自运行期读的出货目录（`src/modules/i18n/locales/en/chat.json`），spec 里不抄句子。
+- 只动 Touches 列出的文件；后端一行不改。
+
+## Touches
+
+- `e2e/resident-enable-consent.spec.ts` (new)
+- `src/modules/chat/composer/ChatComposer.tsx`
+- `src/modules/chat/composer/ResidentConsentNotice.tsx` (new)
+- `src/modules/sidebar/SessionOptions.tsx`
+- `src/shared/hooks/useProviderCapabilities.ts`
+- `src/shared/api.ts`
+- `src/modules/chat/hooks/useChatComposerState.ts`
+- `src/modules/i18n/locales/en/chat.json`
+- `src/modules/i18n/locales/zh-CN/chat.json`
+- `src/modules/i18n/locales/en/sidebar.json`
+- `src/modules/i18n/locales/zh-CN/sidebar.json`
+- `tasks/gap-claude-resident-consent-gate.md`（自触）

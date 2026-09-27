@@ -2,7 +2,7 @@
 id: gap-voice-capture-isolation
 title: 捕获失败的隔离：text 档打印捕获行时抛错、audio 档音频目录不可写两种情形下转写仍返回成功且返回文本逐字不变，恰好一行不含内容的
   voice.capture failed（AC-147）
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -73,11 +73,19 @@ L_G 该轴仍暗，理由：目标层的读数是真实服务进程标准输出�
 
 ## 完成记录
 
-**落地**：扩 `server/modules/voice/voice-capture.ts`（AC-143 出货的那个模块，不新开第二份）——新增出货常量 `VOICE_CAPTURE_EVENT = 'voice.capture'` 与 `VOICE_CAPTURE_FAILED_LINE = 'voice.capture failed'`，并新增模块私有纯函数 `captureAttemptLine({mode, audio, captureId, attempt})`：它承担「尝试记录 → 行」的全部工作且**整体**包在一个 try/catch 里 —— 成功时 `JSON.stringify(row)` 交出那一行，抛出时交出**恰好字面量** `VOICE_CAPTURE_FAILED_LINE`（不拼 error 消息、不拼 code、不拼捕获记录的任何字段）。**audio 档的写文件调用（`audio.writeAudio(...)`）也在同一个 try 之内**，所以 audio 档的 `ENOTDIR` 与 text 档的日志端口抛出走的是同一条隔离路径、产出同一个字面量。`createVoiceCapture({mode, log, audio})` 的 `recordAttempt(captureId, attempt)` 只做一件事：把 `captureAttemptLine(...)` 的结果交给 `log.info`。
+**落地**：代码改动只有一处 —— `server/modules/voice/voice.service.ts` 的 `logAttempt` 里，在 `recording.recordAttempt(captureId, { … })` 这个**调用点**外面包一层**局部** try/catch。它比 `transcribe` 末尾那层 `catch (error)`（把任意抛出折成 `unreachableBackendFailure(...)` 的那一层）更内层，所以捕获通道的抛出**到达不了**它。catch 里**只**打一个字面量 `voice.capture failed`，然后**继续走原有的返回路径**：成功分支仍返回 `{ ok: true, value: { text: result.text } }`，失败分支仍返回它自己那一支。这次失败行的打印**自己也在一个嵌套 guard 之内**（`try { log.info(VOICE_CAPTURE_FAILED_LINE); } catch { … }`），所以失败行自身被端口拒绝时也不再外泄（AC7）。常量 `VOICE_CAPTURE_FAILED_LINE = 'voice.capture failed'` 声明在 `voice.service.ts` 自己的模块体里，**没有**以值的形式 import 捕获模块（理由见「已登记的不等价点」第 6 条）。
 
-`server/modules/voice/voice.service.ts`：在 `logAttempt` 里捕获调用点的外面包一层**局部** try/catch（比 `:804` 的 `try {` 更内层，因此抛出到达不了 `:861` 的 `catch (error)`），catch 里只打 `VOICE_CAPTURE_FAILED_LINE`；**这次打印自己也在一个嵌套 guard 之内**，所以失败行自身被端口拒绝时也不再外泄（AC7）。三条锚点在 `voice.service.ts` 里各恰好出现一次：`try {` 在 `recordAttempt(captureId, {` 之前、`} catch {` 在其后、`log.info(VOICE_CAPTURE_FAILED_LINE);` 在嵌套 guard 内。
+**两条路走的是同一个 guard**，因为两条路都是 `recordAttempt` 抛出来的：日志端口拒绝捕获行（`recordAttempt` 末尾那次 `dependencies.log.info(JSON.stringify(row))`），以及 audio 档 `writeAudio` 在不可写目录上抛的 `ENOTDIR`。**捕获模块 `voice-capture.ts` 与出货文本逐字节相同** —— 隔离不在它里面，见下。
 
-**读数**（`npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice-capture-isolation.test.ts`，8/8 通过，`elapsed-ms=41`，`subprocess-or-socket-imports=0`，读数 7/7）：
+**三条锚点在 `voice.service.ts` 里各恰好出现一次**（取假形态据此做单点变异）：`        try {\n          recording.recordAttempt(captureId, {`、`\n        } catch {`、`            log.info(VOICE_CAPTURE_FAILED_LINE);`。
+
+**上一轮的落地为何被撤回（本轮相对上一轮的实质改动）**：上一轮把「建行 + 写音频」搬进捕获模块里的一个模块私有纯函数，并在那里 catch。那个落点让三条既有的兄弟判据变红；本轮把这一半撤回，隔离只剩调用点这一处。三处根因各自有独立读数：
+
+1. **写守卫的拼写与缩进是 `voice-capture-audio.false-forms.test.ts` 的单点变异锚。** 该文件为证明自己的 AC6 读数测的是「模式闸门」，变异 `write-in-text-too` 把 `      if (dependencies.mode === 'audio' && dependencies.audio !== undefined) {` 整行替换成丢掉 mode 的版本。上一轮的搬迁把这一行改成 `input.mode`/`input.audio`、缩进也从 6 格变 4 格，锚点因此在出货文本里出现 **0 次**，该文件红在「an anchor for write-in-text-too occurs 0 times in the shipping module」。撤回后该行唯一且逐字相同。
+2. **`voice.service.ts` 对 `./voice-capture.js` 的 import 是 type-only，这是它运行时模块图的既有性质**：捕获模块在运行期只经注入端口到达，转写路径的运行期图不因它多一条边。上一轮加了一个**值** import（`VOICE_CAPTURE_FAILED_LINE`），把捕获模块变成运行期边；`voice-provider-dispatch-falsify` 在临时树里只用 `voice.service.ts` + `shared/asr` 重建这条路径，于是死在 `ERR_MODULE_NOT_FOUND: .../server/modules/voice/voice-capture.js`。这一个红又顺着「既有面不得变红」的读数传给 `voice-error-contract`（AC6）与 `voice-error-classification`（AC7）—— 三红同源。撤回值 import 后三者同时复绿。
+3. **本条的取假形态原先把 `git status --porcelain` 的前后快照直接比相等**，而 `__criterion-falsify-` 临时副本所在的目录是与兄弟判据**共享**的、套件又并发跑：兄弟进程在「本文件加载」时刻还持有着的副本，到「本文件读数」时刻已被它自己清掉，于是两个快照不等，读数报 `unchanged=false`，而结束态其实是空的。现按本仓既有协议按 pid 归属：自己的副本（`own-temp-copies`）仍然无条件算红，只有当差异里**每一行**都是别的 pid 的临时副本时才豁免，并打印 `raw-unchanged` / `foreign-temp-copies` / `concurrent-foreign-only`，把被排除的东西显式化成读数而不是隐含在判决里。
+
+**读数**（`npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice-capture-isolation.test.ts`，8/8 通过，`elapsed-ms=42`，`subprocess-or-socket-imports=0`，读数 7/7；`elapsed-ms` 随负载浮动，本任务历次落地测得 41–61，均远在 15000 预算之下）：
 
 - AC2 `text.captureThrew=1 text.thrownOnCaptureLine=true text.resultIdentical=true text.textByteIdentical=true`
 - AC3 `transcribeLineEqual=true failedLines=1 failedLineVerbatim=true failedLine="voice.capture failed"`；基线行与抛错行去掉 `captureId=<…>` 记号后逐字节相同：`voice.transcribe providerId=dashscope-omni outcome=ok status=200 latencyMs=0 promptVersion=written-e-2026-09-24 writtenFallback=1`
@@ -89,10 +97,10 @@ L_G 该轴仍暗，理由：目标层的读数是真实服务进程标准输出�
 
 **取假形态**（`voice-capture-isolation.false-forms.test.ts`，4/4 通过，约 26s）：两条各自「未变异副本先退出 0 且 7/7 读数全绿 → 变异体在预测族里红并指名哪一条 → 族外至少一条仍绿」：
 
-- `capture-throw-reaches-the-outer-catch`（去掉调用点的局部 try/catch）⇒ 变异体红 5 条读数，族内命中 `AC2`：`text.resultIdentical=false text.textByteIdentical=false`；族外仍绿 `AC5 audio directory unwritable`。
-- `failed-line-carries-the-transcript`（失败行拼上返回正文）⇒ 变异体红 3 条读数，族内命中 `AC4`：`failedLineContentFree=false needles-present=[TRANSCRIPT_SENTINEL]`，行原文 `failedLine="voice.capture failedtranscript-…"`、`failedLineVerbatim=false`；族外仍绿 `AC2 text throw isolation`。
+- `capture-throw-reaches-the-outer-catch`（去掉调用点的局部 try/catch）⇒ 变异体红 6 条读数，族内命中 `AC2`：`text.resultIdentical=false text.textByteIdentical=false`；族外仍绿 `AC10 registration`。
+- `failed-line-carries-the-transcript`（失败行拼上返回正文）⇒ 变异体红 4 条读数，族内命中 `AC4`：`failedLineContentFree=false needles-present=[TRANSCRIPT_SENTINEL]`，行原文 `failedLine="voice.capture failedtranscript-…"`、`failedLineVerbatim=false`；族外仍绿 `AC2 text throw isolation`。
 - AC8 同一次运行里逐条打印退出码：七条判据各 0（21/10/10/4/7/6/8 个用例）、`npm run typecheck` 0、`npm run lint` 0。
-- `falsify/leftovers: git.status-clean=true unchanged=true temp-copies=none`。
+- `falsify/leftovers: git.status-clean=true unchanged=true own-temp-copies=none temp-copies-any=0 foreign-temp-copies=0 raw-unchanged=true added=0 removed=0 concurrent-foreign-only=false`。
 
 **已登记的不等价点（AC 点名的形态按字面不可达或不可满足，已换成可达且更严的形态）**
 
@@ -100,16 +108,27 @@ L_G 该轴仍暗，理由：目标层的读数是真实服务进程标准输出�
 2. **AC9 点名的副本目录按物理不可达**：原文要求副本放「与 `voice-capture-isolation.test.ts` 同目录」，理由是「使相对导入仍可解析」；但 `voice.service.ts` 的副本若落在 `tests/` 下，`./voice-capture.js` 会解析到 `tests/voice-capture.js`、`../../../shared/asr/asrRegistry.js` 会解析到 `server/shared/asr/…`，两者都不存在 —— 与它自己给的理由相反。所以两条的副本都落在**模块自己的目录** `server/modules/voice/` 下（`__criterion-falsify-<name>-{base,mut}-<pid>.ts`），相对导入按原样解析；`server/tsconfig.json` 的 `exclude` 按**名字**（`./**/__criterion-falsify-*`）排除这一族临时副本，副本因此进不了 typecheck 的 `include`。
 3. **AC3 的跨 arm 逐字节比对需要冻住时钟**：该行带 `latencyMs=${Date.now() - startedAt}`，两个 arm 之间会因为墙钟差而不同，与接缝无关。所以判据在整段测量里把 `Date.now` 钉到 `FROZEN_NOW` 并在 `finally` 里恢复（AC1 的预算因此在恢复之后测，同进程的兄弟判据不受影响）；两个 arm 都读到 `latencyMs=0`。AC10 的 `clock=` 一格登记了这件事。
 4. **AC4 里音频那一族针的正例只能在 AC5 读出**：text 档不写文件（AC-145），所以 `AUDIO_BYTES` 的正面控制（写端口收到的字节与上传逐字节相同）只能挂在 audio 档那一次上；AC4 的「不含音频字节」负例与 AC5 的 `bytesInHand=true` 是**同一次运行**里的两条读数。AC4 的 `expect` 里已明写这个跨 arm 的控制在 AC5，本条不假装它在本 arm 里被读。
-5. **取假形态 (i) 让 `transcribe` 从「返回失败」变成「抛出」**：去掉局部 catch 后，抛出落进 `voice.service.ts:861` 的 `catch (error)`，而它自己的 `logAttempt('fail', …)` 会再进一次 `recordAttempt`、再抛一次，于是 `transcribe` 是**拒绝**而不是返回。所以 `runArm` 把拒绝折进读数视图（一个 `threw` 位），AC2 读到的是 `resultIdentical=false` 这条**可归因**的读数，而不是工装崩溃。
+5. **取假形态 (i) 让 `transcribe` 从「返回失败」变成「抛出」**：去掉局部 catch 后，抛出落进 `voice.service.ts` 末尾的 `catch (error)`，而它自己的 `logAttempt('fail', …)` 会再进一次 `recordAttempt`、再抛一次，于是 `transcribe` 是**拒绝**而不是返回。所以 `runArm` 把拒绝折进读数视图（一个 `threw` 位），AC2 读到的是 `resultIdentical=false` 这条**可归因**的读数，而不是工装崩溃。
+6. **隔离的落点与 `## Touches` 的收窄**：Proposal 的「要交付的五件事」第 1 条把落点写成「扩 `server/modules/voice/voice-capture.ts`」，本轮**不**这么做 —— 隔离只在 `voice.service.ts` 的调用点，捕获模块与出货文本逐字节相同，因此 `## Touches` 里也不再声明它。理由不是省事，而是两条独立读数：(a) 上面第 1 条实测证明，把建造搬进捕获模块会移动兄弟判据的单点变异锚，而没有任何一条 AC 要求隔离住在捕获模块里；(b) AC9(i) 点名的变异是「去掉**捕获调用点**的局部 try/catch」，只有当调用点是**唯一**隔离点时，这条变异才会把 AC2 打红 —— 隔离若同时在捕获模块里，该变异就失去承重性（DoD 的 (b) 条正是靠它把「隔离不是装饰」变成可执行读数）。AC 是权威，Proposal 的机制描述让位于它；此处如实登记这处偏离，不静默放宽。
 
-**跨任务那一格**：本条不改任何 AC-143/144/145 的判据文件（七条判据在 AC8 里逐条退出 0，读数一字未动）；`voice-capture-audio.ts` 的 `VoiceCaptureAudioSink.writeAudio` 契约（AC-145 出货的 `(directory, captureId, audio) => string`）被本条**原样消费**，只多了一个「它抛错时被同一个 catch 接住」的读法。
+**跨任务那一格**：本条不改任何 AC-143/144/145 的判据文件（七条判据在 AC8 里逐条退出 0，读数一字未动）；`voice-capture-audio.ts` 的 `VoiceCaptureAudioSink.writeAudio` 契约（AC-145 出货的 `(directory, captureId, audio) => string`）被本条**原样消费**，只多了一个「它抛错时被调用点的 guard 接住」的读法。撤回上一轮的落地后，`voice-capture.ts` 对 AC-143/144/145 而言回到逐字节相同，`voice-provider-dispatch-falsify` / `voice-error-contract` / `voice-error-classification` 三条兄弟判据复绿（各自 standalone 退出 0）。
 
 **边界（未做，如实登记）**：不做闸门与模式解析（AC-143）、不做 text 档载荷细化（AC-144）、不做 audio 档写文件与权限（AC-145）、不做三档脱敏（AC-146）、不做真实进程判据（AC-148）；不改 `voice.transcribe` 行在 `off` 档的逐字节形状；不改 `voice.module.ts`；不改适配器与 registry 契约；`VOICE_CAPTURE` 不进设置页、不进健康负载、不进客户端；无重试、无退避、无告警上报（失败只留一行，这是出货行为不是遗漏）；判据全程用替身 `fetchBackend`、注入的日志端口与注入的写音频端口（audio 档那一次走出货的默认写实现加一个不可写路径），未接触真实上游、未起真实服务进程、未开监听端口。
 
 ## Touches
 
-- server/modules/voice/voice-capture.ts
 - server/modules/voice/voice.service.ts
 - server/modules/voice/tests/voice-capture-isolation.test.ts (new)
 - server/modules/voice/tests/voice-capture-isolation.false-forms.test.ts (new)
 - tasks/gap-voice-capture-isolation.md
+
+## Needs-Human
+
+**执行 2026-09-27T06:09:25.530Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=116668 server/modules/voice/tests/voice-error-classification.false-forms.test.ts passed=false end_ms=1790488558926
+- run_id：wk-prod-anchor
+- session_id：aa525928-f360-4921-864b-1b561b37a35d
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-capture-isolation~wk-prod-anchor~1790488396306-3adff6.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-capture-isolation-wk-prod-anchor.log
