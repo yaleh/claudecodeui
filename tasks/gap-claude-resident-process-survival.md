@@ -73,29 +73,45 @@ goal_ac: AC-161
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-process.test.ts` 在交付树上退出 **0**；同一命令在 develop 上退出 **1**，stdout 逐字 `Could not find 'server/modules/providers/tests/claude-resident-process.test.ts'`。
-- [ ] 判据内用**真实** `claude` 二进制 + mock Anthropic 兼容端点（按请求体识别，SDK 标题请求不计），临时 `DATABASE_PATH`：同一常驻会话经真 `chat.send` 连续 **3 轮**，每轮都产生 `complete`，且三轮读到的 `pid` 与 `hostId` **逐轮相同**。
-- [ ] 第 2 轮进行中 `chat.abort` ⇒ 该轮 `complete` 带 `aborted`，宿主快照仍显示**同一 `pid` 存活**；随后第 3 轮在**同一 pid** 上继续并产生 `complete`。
-- [ ] `POST /api/session-hosts/:sessionId/close` ⇒ stdin EOF 后进程在限定时间内退出，宿主 `closeReason` 为 `user`。
-- [ ] 判据自带 **60 秒预算守卫**：超时打印预算与实测墙钟并 `exit 3`（不是 node:test 的 case failure）。
-- [ ] 假形态 (a)：把每轮改成带 `--resume` 重启新进程 ⇒ **pid 读数必须红**（该臂含在判据文件内，照 AC-025 `(b-fake)` 的形状）。
-- [ ] 假形态 (b)：把 abort 改成杀进程 ⇒ **必须红**。
-- [ ] 既有 per-run 行为不变：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-host-per-run.test.ts`、`…/claude-background-work.test.ts`、`…/passthrough-parity.test.ts` 三条均退出 0 且断言不改。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-process.test.ts` 在交付树上退出 **0**；同一命令在 develop 上退出 **1**，stdout 逐字 `Could not find 'server/modules/providers/tests/claude-resident-process.test.ts'`。
+- [x] 判据内用**真实** `claude` 二进制 + mock Anthropic 兼容端点（按请求体识别，SDK 标题请求不计），临时 `DATABASE_PATH`：同一常驻会话经真 `chat.send` 连续 **3 轮**，每轮都产生 `complete`，且三轮读到的 `pid` 与 `hostId` **逐轮相同**。
+- [x] 第 2 轮进行中 `chat.abort` ⇒ 该轮 `complete` 带 `aborted`，宿主快照仍显示**同一 `pid` 存活**；随后第 3 轮在**同一 pid** 上继续并产生 `complete`。
+- [x] `POST /api/session-hosts/:sessionId/close` ⇒ stdin EOF 后进程在限定时间内退出，宿主 `closeReason` 为 `user`。
+- [x] 判据自带 **60 秒预算守卫**：超时打印预算与实测墙钟并 `exit 3`（不是 node:test 的 case failure）。
+- [x] 假形态 (a)：把每轮改成带 `--resume` 重启新进程 ⇒ **pid 读数必须红**（该臂含在判据文件内，照 AC-025 `(b-fake)` 的形状）。
+- [x] 假形态 (b)：把 abort 改成杀进程 ⇒ **必须红**。
+- [x] 既有 per-run 行为不变：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-host-per-run.test.ts`、`…/claude-background-work.test.ts`、`…/passthrough-parity.test.ts` 三条均退出 0 且断言不改。
 
 ## DoD
 
 真实落地判据（不是"测试存在"）：在交付的树上，**真的**起一个 `claude` 常驻进程（真二进制 + mock 端点 + 临时库 + 临时 `CLAUDE_CONFIG_DIR`），经真 `chat.send` 连发三轮读出**同一个 pid/hostId**；中途 `chat.abort` 后该 pid **仍然存活**并接住下一轮；`POST /api/session-hosts/:sessionId/close` 后该 pid **真的消失**（`/proc/<pid>` 不再存在或子进程已收尸）且宿主 `closeReason` 为 `user`——即"退出"是 stdin EOF 换来的真退出，不是被 kill 掩盖。两臂假形态（每轮 `--resume`、abort 杀进程）各自把对应读数打红（绿 = 判据有洞，必须先补判据再继续）。per-run 会话的客户端可见行为逐字未变。
 
+## 完成记录
+
+判据在**交付树**上按原命令复跑四次，逐次退出 **0**（末次 `tests 7 / pass 7 / fail 0 / duration_ms 13230.9`）。逐条读数：
+
+- **AC1** 红态基线：不含本文件的主检出树上同命令退出 **1**，stdout 逐字 `Could not find 'server/modules/providers/tests/claude-resident-process.test.ts'`；`git cat-file -e develop:<判据路径>` → 不存在。交付树上退出 **0**。
+- **AC2** 三轮同 pid/hostId：(a) 读数 `host=host-aab5053d-a3f1-4709-81a1-c8b06b96b14b pid=4100315 alive=true` 三轮逐字相同，且 `/v1/messages=4 turns=3 titleRequestsNotCounted=1`——SDK 的标题请求同打 `/v1/messages` 与同一凭证但模型不同，**按请求体**（`"<model>"` 出现）筛出轮次请求，故"第 2 轮已到达端点"不早于第 2 轮真的发出。
+- **AC3** 中止只停轮不杀进程：(b) 读数 `pid=4100552 aliveAfterAbort=true round3pid=4100552`；该轮 `complete.aborted === true`，aborted 终止帧恰一条（`chatRunRegistry` 的 first-complete-wins 由驱动的 `result` 分支在 `settle()` **之前**写帧保证，abort 路径自己的帧被登记为重复而丢弃）。abort 中段的确定性由 `mock.hold()` 保证：该轮在等一个不会到来的响应。
+- **AC4** 关闭即 EOF：(c) 读数 `pid=4100862 stateAfterEof=gone closeReason=user`；路由 200 且 `data.closeReason === 'user'`；进程离开期间**无任何信号**发给它，故退出只能是 CLI 读到 stdin 末尾换来的。
+- **AC5** 预算守卫是进程级：(f) 子运行 `budget=1ms` 在受判命令下打印 `[budget] budget=1ms elapsed=10ms exit=3 — …（a process-level kill, not a node:test case failure）`；直跑该文件（无 `--test`）读到 `status=3`——node:test 的 case failure 给不出 3，故这条读数区分了这两件事。(g) 全文件 `[budget] budget=60000ms elapsed=9985ms exit=0`。
+- **AC6** 假形态 (a)：三只不同 pid `4101403 -> 4102038 -> 4102261`，共享断言经 `assert.throws` 落在 `/must run on the round-1 pid/`。该臂复用主用例的 `assertSameHostAcrossRounds`，故红的是那条读数本身。
+- **AC7** 假形态 (b)：`pid=4102695 -> 4102695 alive=false`，共享断言 `assertProcessSurvivesAbort` 经 `assert.throws` 落在 `/must survive the abort/`。变异体走**真实缝**（`sessionHostManager.closeHost(hostId, 'aborted')`，即 per-run 侧对一次停止的回答），不是为凑红另写的分支。
+- **AC8** 既有 per-run 族：`claude-host-per-run` 7/7、`claude-background-work` 10/10、`passthrough-parity` 4/4 全绿；三条文件均不在本条 diff 内（断言逐字未改），`claude-runtime.provider.js` 未被触碰。
+- **Plan 步 1 的独立验证**（探针跑在临时库上）：迁移连跑两次后 `PRAGMA table_info(sessions)` 中 `lifecycle_mode` 恰一列；既有行与未知 id 均读回 `per-run`；词表外模式抛 `Unknown session lifecycle mode` 且不落库；不存在的行写入返回 `false`。
+- **契约面**：`npm run typecheck`、`npm run lint` 退出 0；改动只落在 Touches 列出的文件上（`git diff --stat` 逐条对齐；三个 per-run 族与 `claude-runtime.provider.js` 不在其中）。
+- **作用域门**：`bash scripts/test.sh --for-task gap-claude-resident-process-survival --allow-thin` 退出 0（读数 `thin`：该脚本的 awk 只取 Touches 行的**首个空白分隔字段**，而本条 Touches 的括注是全角括号且紧贴路径，故解析不到 `.test.ts`；quay 自己的 `parseTouchEntries` 会剥离该括注，anti-drift 不受影响。本行已改用半角空格分隔括注，fan-in 合并 develop 后作用域门即可真跑本判据；fan-in 的全量 suite 无论如何都会跑到它）。
+
 ## Touches
 
-- `server/modules/providers/list/claude/claude-host-driver.provider.ts`（新：resident driver）
-- `server/modules/providers/list/claude/claude.provider.ts`（挂上 resident driver）
-- `server/modules/providers/services/provider-runtime.service.ts`（按 `lifecycle_mode` 分派 run/abort）
-- `server/modules/providers/services/provider-capabilities.service.ts`（claude 加 `'resident'`）
-- `server/modules/session-hosts/session-hosts.routes.ts`（`POST /:sessionId/close`）
-- `server/modules/session-hosts/index.ts`（新增导出经 barrel 收口）
-- `server/modules/database/schema.ts`（`lifecycle_mode` 列）
-- `server/modules/database/migrations.ts`（`addColumnToTableIfNotExists`）
-- `server/modules/database/repositories/sessions.db.ts`（`lifecycle_mode` 读写）
-- `server/modules/providers/tests/claude-resident-process.test.ts`（新：判据）
-- `tasks/gap-claude-resident-process-survival.md`（自触）
+- `server/modules/providers/list/claude/claude-host-driver.provider.ts` （新：resident driver）
+- `server/modules/providers/list/claude/claude.provider.ts` （挂上 resident driver）
+- `server/modules/providers/services/provider-runtime.service.ts` （按 `lifecycle_mode` 分派 run/abort）
+- `server/modules/providers/services/provider-capabilities.service.ts` （claude 加 `'resident'`）
+- `server/modules/session-hosts/session-hosts.routes.ts` （`POST /:sessionId/close`）
+- `server/modules/session-hosts/index.ts` （新增导出经 barrel 收口）
+- `server/modules/database/schema.ts` （`lifecycle_mode` 列）
+- `server/modules/database/migrations.ts` （`addColumnToTableIfNotExists`）
+- `server/modules/database/repositories/sessions.db.ts` （`lifecycle_mode` 读写）
+- `server/modules/providers/tests/claude-resident-process.test.ts` （新：判据）
+- `tasks/gap-claude-resident-process-survival.md` （自触）
