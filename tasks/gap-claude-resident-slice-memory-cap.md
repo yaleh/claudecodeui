@@ -6,7 +6,7 @@ title: AC-167 常驻进程超出内存上限时只有它被杀 — 把 claude-se
   MemoryMax=注入值、MemorySwapMax=0、slice 名逐字；同 slice 下两子进程其一超限被 OOM（宿主快照
   closeReason=exited、closeDetail=oom），另一个与测试进程存活；结束后无残留 scope 且缺席读数带正对照；无
   systemd user manager 时打印原因并 exit 3；假形态（退化为直接 spawn、上限写死常量）必须红
-status: ready
+status: done
 labels:
   - gap
 parent: null

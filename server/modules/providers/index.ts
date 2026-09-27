@@ -78,14 +78,44 @@ export { ClaudeSessionsProvider } from './list/claude/claude-sessions.provider.j
 // before asserting the delta that carries it.
 export { ClaudeSessionSynchronizer } from './list/claude/claude-session-synchronizer.provider.js';
 
-// Session scoping: `mapCliOptionsToSDK` installs the spawn hook that puts every
-// Claude session in its own capped systemd scope, and `server/index.ts` sweeps
-// orphaned scopes at start-up and stops this server's scopes on shutdown. The
-// session-scope test drives the hook, the lifecycle and the failure readings.
+// Resident scoping: `mapCliOptionsToSDK` installs the spawn hook that puts every
+// resident session in its own capped systemd scope inside the shared resident
+// slice, and `server/index.ts` sweeps orphaned scopes at start-up and stops this
+// server's scopes on shutdown. The session-scope test drives the hook, the
+// lifecycle and the failure readings; the process-containment criterion drives
+// the slice cap and lands an OOM kill as a host reading.
+export {
+  createResidentScopeSpawn,
+  resolveResidentMemoryMax,
+  resolveResidentSliceName,
+  resolveResidentSliceMemoryMax,
+  applyResidentSliceMemoryMax,
+  readResidentSliceMemoryMax,
+  probeSystemdUserScope,
+  resetResidentScopeProbeCache,
+  buildResidentScopeUnitName,
+  parseResidentScopeOwnerPid,
+  listResidentScopeUnits,
+  stopResidentScopes,
+  sweepOrphanResidentScopes,
+  detectResidentScopeOomKill,
+  DEFAULT_RESIDENT_MEMORY_MAX,
+  DEFAULT_RESIDENT_SLICE_NAME,
+  DEFAULT_RESIDENT_SLICE_MEMORY_MAX,
+} from './services/claude-session-scope.service.js';
+export type {
+  ResidentScopeSpawnDeps,
+  ResidentScopeProcess,
+  ResidentScopeSpawnImpl,
+} from './services/claude-session-scope.service.js';
+// The pre-promotion `claude*` names: still exported because the runtime's
+// wiring, `server/index.ts` and the previous criterion import them, and because
+// that criterion asserts the contract they name — the generated argv and the
+// literal unit-name shape — so a rename that dropped them would be a silent
+// break dressed as a refactor.
 export {
   createClaudeSessionScopeSpawn,
   resolveClaudeSessionMemoryMax,
-  probeSystemdUserScope,
   resetClaudeSessionScopeProbeCache,
   buildClaudeSessionScopeUnitName,
   parseClaudeSessionScopeOwnerPid,

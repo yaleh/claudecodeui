@@ -191,9 +191,9 @@ check never touches :3001): `QUAY_SERVER_UNIT`, `QUAY_SERVER_CMD`, `QUAY_SERVER_
 Run it from a tmux pane, **not** from a session the server hosts: sessions are the server's child
 processes, so `stop`/`restart` stops the caller's own cgroup.
 
-### Session scopes: `claude-session-scope.service.ts`
+### Resident scopes: `claude-session-scope.service.ts`
 
-A Claude session is not one process. It is the `claude` CLI plus the MCP servers it starts (pdf,
+A resident session is not one process. It is the provider CLI plus the MCP servers it starts (pdf,
 playwright, …), and when the CLI is launched through an npm shim, a wrapper process on top. On this
 host that is roughly 1 GB of RSS per idle session. All of it used to land in
 `claudecodeui-server.service`'s cgroup, where `memory.max` is `max` — so a single runaway session,
@@ -201,27 +201,54 @@ or one MCP it launched, was enough for the kernel to reap the whole unit with th
 2026-09-25 fix separated *tests* from the server; this separates *sessions* from the server.
 
 `server/modules/providers/services/claude-session-scope.service.ts` exports a factory that returns
-the SDK's `spawnClaudeCodeProcess` hook. `mapCliOptionsToSDK` installs it, so every Claude session
-spawns as:
+the SDK's `spawnClaudeCodeProcess` hook. `mapCliOptionsToSDK` installs it, so every session spawns
+as:
 
 ```
 systemd-run --user --scope --quiet --unit=claudecodeui-session-<serverPid>-<rand> \
-  -p MemoryMax=<cap> -p MemorySwapMax=0 -- <command> <args…>
+  --slice=cloudcli-resident.slice -p MemoryMax=<cap> -p MemorySwapMax=0 -- <command> <args…>
 ```
 
 `--scope` registers a transient scope and then `exec`s the target on the same PID, so stdio, PID and
 exit status are unchanged (the same property `with-memory-cap.sh` relies on). `cwd`, `env` and the
 abort `signal` are passed straight through.
 
+**Both caps come from configuration, and both are injectable.** The per-session `MemoryMax` is what
+decides *whether* one runaway session dies. The slice's `MemoryMax` is the level at which "all the
+resident processes together" is expressible, and it is what confines the kernel's *choice of victim*
+to the residents rather than to whatever else shares the machine — a cgroup's own limit is enforced
+before its parent's, so a session over its own cap is the one reaped and its siblings under the same
+slice are not touched. Neither number is settled here: the values are a soak question (how much a
+fleet of residents really holds over 24 hours), so the task pinned the mechanism and its
+configurability and left the numbers to that reading.
+
 | Piece | Value |
 |---|---|
-| cap | `CLAUDE_SESSION_MEMORY_MAX`, default `8G`; `off` (or `0`) disables wrapping |
+| per-session cap | `CLAUDE_SESSION_MEMORY_MAX`, default `8G`; `off` (or `0`) disables wrapping |
+| slice | `CLAUDE_RESIDENT_SLICE`, default `cloudcli-resident.slice`; `off` (or `0`) places the scope in no slice (the pre-slice behaviour) |
+| slice total cap | `CLAUDE_RESIDENT_SLICE_MEMORY_MAX`, default unset — no cap is imposed and the slice keeps whatever the operator set; `off`, `0` and `infinity` all mean the same, because `infinity` is what `systemctl` reports for an uncapped unit |
 | unit name | `claudecodeui-session-<serverPid>-<8 hex>` — the owner PID is in the name so a later process can tell whether the server that made the scope still exists |
 | degradation | no usable systemd user manager (macOS, CI, containers) → the factory returns `undefined`, the option is **not set**, and the SDK spawns the CLI exactly as before; one log line says so |
 
-The cap is checked once per process by really running `true` inside a capped scope, and the verdict
-is cached. `systemd-run` failing (no user manager) and the command failing (a cap too small to even
-fork) are indistinguishable by exit status, so nothing weaker than a real capped run can answer it.
+The slice cap is applied with `systemctl --user set-property <slice> MemoryMax=<value>` — the slice
+itself is created by the first `--slice=` spawn, and systemd does not accept `MemoryMax` on
+`systemd-run --user --scope` for a *slice* — once per distinct (slice, value) pair. It is read back
+with `systemctl --user show <slice> -p MemoryMax --value`, which answers in bytes (`268435456` for
+`256M`) or the literal `infinity`; a criterion compares against bytes for that reason. A slice whose
+cap cannot be applied is logged and does not stop the sessions: the per-session caps still apply.
+
+The per-session cap is checked once per process by really running `true` inside a capped scope, and
+the verdict is cached. `systemd-run` failing (no user manager) and the command failing (a cap too
+small to even fork) are indistinguishable by exit status, so nothing weaker than a real capped run
+can answer it.
+
+**The kernel's victim is the session, not the server.** When a session exceeds its cap, the OOM
+killer reaps that scope's own processes; systemd records it on the scope unit (`Failed with result
+'oom-kill'`) even though the scope sits in a slice, and nothing outside the unit is signaled. The
+resident slice exists so that the *other* residents — and the server, which is not in the slice at
+all — are never the ones chosen. A child that is merely `Buffer.alloc`ed and never written is **not**
+charged to the cgroup: the pages are `calloc`ed and stay unmapped, so no cap fires. Anything that
+measures this has to touch its pages.
 
 **The consequence that has to be handled: a scope is not in the server's cgroup**, which is exactly
 what confines the kill — and also means nothing collects it when the server goes away.
@@ -244,6 +271,24 @@ Attributing a kill to the cap uses the same witness as the test path: the exit c
 (whether the cap did it, look at `journalctl --user -u <unit>.scope | grep 'OOM killer'`), and the
 journal write trails the exit, so the lookup retries briefly. On a hit it logs one line naming the
 cap; an unreadable journal is silent, which is the known gap described below.
+
+`detectResidentScopeOomKill(unitName)` is that same read exposed as a boolean, for a caller that
+needs the *fact* rather than a log line — a host driver whose process exited can report
+`closeDetail: 'oom'` on its host record only when the journal says the cap did it, which keeps a
+cap kill distinguishable from an ordinary non-zero exit. It is deliberately a separate function from
+the logging path: `attributeResidentScopeOom` writes prose, and prose is not something a state
+machine can branch on.
+
+Re-runnable proof of the containment claims, as readings rather than as source text:
+`server/modules/session-hosts/tests/process-containment.test.ts` (criterion AC-167) injects a 96M
+per-session cap and a slice cap, drives real scopes inside `cloudcli-resident.slice`, and reads four
+things — the argv and the two caps systemd actually holds on the created unit; a bounded 384 MiB hog
+being reaped with its host reading `closeReason: 'exited'`, `closeDetail: 'oom'`, alongside a third
+child that merely exits non-zero and must read `error`; the sibling under the same slice and the test
+process itself still alive afterwards; and the scope listing naming each live scope before it is
+required to be empty. It exits 3 (unevaluated) rather than 0 on a host with no usable systemd user
+manager; on this host it really runs. The slice cap it injects is restored on the way out, because
+the slice outlives the test.
 
 **Not done here — `server.log`.** The file is 4,729 multi-line synchronous log lines with no
 rotation, and the restart policy now makes restarts *more* likely to be the thing that grows it. Log
