@@ -179,3 +179,5 @@ Received: false
 **Touches 之外没有第二份模式写路径**：`SessionOptions.closeResidentMode` 与既有的 `convertToResident` 走同一个客户端方法 `api.providers.setSessionLifecycleMode`（`src/shared/api.ts` 已有，本轮未改它，只加了只读的 `sessionHostListing`）。
 
 **判据跑在真浏览器 + 真服务上，未拉起 claude**：驱动的会话是配置预置的 `e2e-mobile-send-key`（一条已发现的真实会话），全程只经 HTTP 改偏好、不发消息；`hosts.forSession=0` 证明「常驻但未运行」由懒启动语义天然给出，无需任何替身。
+
+**合并 develop 后在合并树上复测（AC1 的读数，按驱动步序如实补记）。** `git merge --no-edit develop` 无冲突（并入的两个文件都是台账类，未触任何源码）；合并树上重跑判据 → 退出 **0**、`1 passed`、`elapsed=31978`、整命令墙钟 `real 0m32.699s`。同一份判据在合并前实测 `elapsed=17376` / `16890`（墙钟 18.1s / 17.6s）⇒ 本轮 32s 是**宿主负载**造成的同一读数变慢，仍**低于 55_000 的判据上限**，也低于 60s 的单测上限；登记此差异供审阅者判读（判据没有依赖墙钟的阈值，除 AC1 的 `< 55_000` 外无任何计时断言）。合并后再跑 `bash scripts/test.sh --for-task gap-claude-resident-shell-tab --allow-thin` → 退出 **0**、逐字 `no scoped test files for gap-claude-resident-shell-tab (thin)`；scoped-gate 缓存按 develop sha `e92ac433815581a9002bc06e86dd5f5188840a9d` 写入 `/data/home/yale/work/claudecodeui/.quay/scoped-gate-cache.json`。
