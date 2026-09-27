@@ -13,6 +13,7 @@ depends_on:
   - gap-voice-capture-mode-gate-off-fail-closed
   - gap-voice-capture-text-payload
   - gap-voice-capture-audio-file
+  - gap-voice-error-classification-ac7-vitest-child-fragile
 goal_ac: AC-146
 ---
 ## Proposal
@@ -148,3 +149,11 @@ L_G 该轴仍暗，理由：目标层的读数是真实服务进程按环境变�
 - session_id：b95174da-7122-4934-a8bb-904980f7baf3
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-capture-secrets-three-modes~wk-prod-anchor~1790493840314-70ab8c.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-capture-secrets-three-modes-wk-prod-anchor.log
+
+## 人工复核（更正，2026-09-27 第二轮）
+
+上一条「人工复核」把这条红判成稀疏的舰队抽签、建议重新排队——**这个判断被接下来的一轮复现推翻**：重新排队后同一红以完全相同的签名（`voice-error-classification.false-forms.test.ts` 的 AC7，同一条 `asrContractInvariants.test.ts` 断言）再次出现，累计三轮无一幸免。
+
+真因已定位并立案：`gap-voice-error-classification-ac7-vitest-child-fragile`。AC7 会为 `src/shared/asr/tests/asrContractInvariants.test.ts` 额外拉起一个独立的 `npx vitest run` 子进程，与套件自己并发跑的同一文件互相超订 vitest 的 worker 池（`vitest.config.ts` 注释原文点名这个机制，并点名这份文件是堆内存最重的一份）；standalone 稳定绿，红只在舰队并发下出现。按 `quay-fan-in-suite-red-is-fleet-wide-redispatch-is-the-escape` 的例外条款——已落地的兄弟判据读全局事实 ⇒ 干净树 standalone 也红 ⇒ **重新派发对这个红无效**，需要先让 `gap-voice-error-classification-ac7-vitest-child-fragile` 落地。
+
+本任务保持 needs-human；depends_on 已加入该修复任务。修复落地后再由人或机制重新排队。
