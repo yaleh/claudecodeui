@@ -182,3 +182,25 @@ modeAfterConvert=resident
 - **2 条是本 delta 的红，本轮已修**：`src/modules/sidebar/tests/debugAgentIdentity.test.tsx` 与 `src/modules/sidebar/tests/sessionOptionsHideSimilar.test.tsx`，逐字 `Error: [vitest] No "useResidentProviders" export is defined on the "@/shared/hooks/useProviderCapabilities" mock. Did you forget to return it from "vi.mock"?`。修法：两处整块替身各补一行 `useResidentProviders: () => new Set<string>()`（空集 ⇒ 「转为常驻…」不进这两个测试所断言的菜单，与它们原本的期待一致），并各加一行注释说明为何需要。复跑 `npx vitest run <两个文件>` 逐字 `Test Files 2 passed (2)` / `Tests 5 passed (5)`。
 
 **本轮的预期终局（如实登记，供审阅者判读）。** 本 delta 的红已清零；但上面那 7 条在 fan-in 的 `suite` 步仍会红，而 worker-driver 的 `failSuite` 对该步**没有 develop 基线豁免**（`worker-driver.js`：`sr.outcome !== "done"` ⇒ 直接 `failSuite(extractFirstFailureLine(...))`）⇒ 本轮 fan-in 仍会停在 `step=suite`，且**红不在本 delta**。要真正解锁需要一条拥有 `scripts/resident-smoke.mjs` 的任务（修那 63 个类型错，或把 `scripts/tsconfig.json` 的 `include`/`checkJs` 收到不含测试脚本的范围）；本任务按 AC7 与 DoD 不动它。
+
+## Needs-Human
+
+**执行 2026-09-27T14:56:05.955Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: not ok - server/modules/voice/tests/voice-capture-audio.false-forms.test.ts:   AssertionError [ERR_ASSERTION]: a surface this task must not have moved is red
+- run_id：wk-prod-anchor
+- session_id：f8d5360b-99ff-4a7f-baba-566350f8f56d
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-resident-consent-gate~wk-prod-anchor~1790520767356-4e5b86.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-resident-consent-gate-wk-prod-anchor.log
+
+## 人工复核（2026-09-27，人 yale 指令「检查和推进」）
+
+停在 needs-human 的判词是 `voice-capture-audio.false-forms.test.ts` 的
+`a surface this task must not have moved is red`，但同一轮 suite 日志实际有 **7 条**红
+（`reason: red: 7 failed`），第一条就是 `typecheck passed=false`，逐字点名
+`scripts/resident-smoke.mjs(225,29): error TS7006: Parameter 'pid' implicitly has an 'any' type.`——
+这正是我在这之前落地 AC-170 时引入、随后已修复（提交 `a05471a9`）的仓库级 typecheck 回归。本轮的
+六个 voice `*.false-forms.test.ts` 红全部是那个 TS7006 的连带效应（`AC6/AC7/AC10` 各自重跑
+`npm run typecheck` 并要求红集为空），不是本任务的 delta：worktree 在派工时同步的 develop 还没有
+我的修复提交。修复已在，重新排队即可（下一轮 fan-in 会先合并到含修复的 develop）。

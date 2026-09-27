@@ -72,18 +72,18 @@ goal_ac: AC-172
 
 ## AC
 
-- [ ] AC1 判据绿：`npx playwright test e2e/resident-status-bar.spec.ts` 退出 **0**，并打印整体墙钟 `elapsed=<n>ms` 且 `< 55_000`（`playwright.config.ts:285` 的单文件上限；超过会被配置自己的看门狗终结）。红态基线本轮实测：`--list` 退出 **1**、`Error: No tests found.` / `Total: 0 tests in 0 files`；正控制同形状跑 `e2e/model-env-kind-explanations.spec.ts --list` 退出 **0**、`Total: 1 test in 1 file`。
-- [ ] AC2 四态各自成形（侧栏标记 + 状态条）：判据对四态各打印 `state=<未运行|空闲|运行中|exited(oom)> mark=<hollow|solid|solid+spinner|exited>` 与 `bar=<UI 文案> snapshot.state=<HostView.state> closeReason=<…> detail=<…>`；断言 mark 与 §15.1 的表逐条对应，且 `bar` 的状态词与 `snapshot` 一致；每次切换打印来源 `via=<scenario-step|start|close>`。
-- [ ] AC3 计数等于宿主保活理由的数目（**假形态 (a) 的落点**）：判据打印 `host.leases=<按 kind 的计数>`（运行期读 `GET /api/session-hosts`）与 `ui.counts=<界面读数>` 两行并断言相等；**正控制**：同一运行里加一条 lease（场景 `keepalive-add`）后重读，打印 `counts.before=<…> counts.after=<…>` 且 `after > before`（保证不是常量）；`界面类别 ← lease kind` 的对应关系逐条打印。
-- [ ] AC4 popover：复制地址与关闭进程。判据打印 `popover.address=<v> snapshot.peerName=<v> equal=true`（地址逐字来自 `GET /api/session-hosts` 投影，不是前端另算）、`copy.clipboard=<v> equalToAddress=true`、`close.request=<POST …/close 的状态码>`、`hosts.beforeClose=<n> hosts.afterClose=<n>`（后者更小）、`mark.afterClose=hollow`。**正控制**：关闭前同一 hostId 在快照里（打印 `host.present=true`）。
-- [ ] AC5 停止只中止当前一轮、进程仍在（§15.4）：常驻会话有一轮在飞时点 composer 的停止 ⇒ 判据打印 `run.status=<aborted>`、`host.hostId.before=<h> host.hostId.after=<h> same=true`、`host.state.after=<idle|lingering>`、`pid.before=<p> pid.after=<p> same=true`、`host.closeReason.after=null`。
-- [ ] AC6 无人轮的触发类型标签与跨会话发送方（**假形态 (b) 的落点**）：场景发一条 `定时任务触发`、一条 `跨会话消息`（发送方 = §12 的 `peerName`）。判据打印 `divider=<标签文案>`（逐字含触发类型）与 `sender=<发送方>`；并打印 `row.class=<…> isUserStyle=<true|false>`，断言其为 **false**；**正控制**：同一次运行里一条真用户轮打印 `userRow.isUserStyle=true`（证明该读数不是恒假）。
-- [ ] AC7 假形态 (a) 必须红（承重）：把状态条改成读本地状态（不再依赖 `GET /api/session-hosts`），判据命令退出**非 0**，且红**落在 AC3 的「场景切换状态后计数/状态必须变」那条断言**上（登记变异 diff、失败断言逐字、退出码）。恢复后判据回到 0。
-- [ ] AC8 假形态 (b) 必须红（承重）：把无人轮按用户消息样式渲染（走进 `MessageComponent.tsx:97-99` 的 user 分支），判据命令退出**非 0**，且红**落在 AC6 的「非用户样式」那条断言**上（登记变异 diff、失败断言逐字、退出码）。恢复后判据回到 0。
-- [ ] AC9 替身改动不波及别的判据：门控仅对含本判据的选择生效 —— `npx playwright test e2e/model-env-kind-explanations.spec.ts` 仍退出 **0**（打印退出码与墙钟），且 `npx playwright test --list` 的收集总数与改动前**逐字相同**（打印改动前后两个数）。
-- [ ] AC10 出厂链路的无人轮不再抛：判据打印 `unattended.run.source=<unattended>` 与 `seam.unwired=false`（场景的 `unattended-turn` 在**出厂 HTTP 控制面**上真的开出了 run，不是判据内部另接的 seam）；该次运行里 `DEBUG_AGENT_RUN_SEAM_UNAVAILABLE` 出现次数为 **0**（打印计数）。
-- [ ] AC11 文案取自运行期读的出货目录（`src/modules/i18n/locales/en/chat.json` 与 `…/sidebar.json`），spec 里不抄句子；新增 key 在 **12 个 locale** 的 `chat.json`（与用到的 `sidebar.json`）里都存在且非空，任一缺失以非 0 退出并打印是哪个文件哪个 key。
-- [ ] AC12 契约面：`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**；`git diff --stat` 与 Touches 逐条对齐（多写的文件须由判据强制）。
+- [x] AC1 判据绿：`npx playwright test e2e/resident-status-bar.spec.ts` 退出 **0**，并打印整体墙钟 `elapsed=<n>ms` 且 `< 55_000`（`playwright.config.ts:285` 的单文件上限；超过会被配置自己的看门狗终结）。红态基线本轮实测：`--list` 退出 **1**、`Error: No tests found.` / `Total: 0 tests in 0 files`；正控制同形状跑 `e2e/model-env-kind-explanations.spec.ts --list` 退出 **0**、`Total: 1 test in 1 file`。
+- [x] AC2 四态各自成形（侧栏标记 + 状态条）：判据对四态各打印 `state=<未运行|空闲|运行中|exited(oom)> mark=<hollow|solid|solid+spinner|exited>` 与 `bar=<UI 文案> snapshot.state=<HostView.state> closeReason=<…> detail=<…>`；断言 mark 与 §15.1 的表逐条对应，且 `bar` 的状态词与 `snapshot` 一致；每次切换打印来源 `via=<scenario-step|start|close>`。
+- [x] AC3 计数等于宿主保活理由的数目（**假形态 (a) 的落点**）：判据打印 `host.leases=<按 kind 的计数>`（运行期读 `GET /api/session-hosts`）与 `ui.counts=<界面读数>` 两行并断言相等；**正控制**：同一运行里加一条 lease（场景 `keepalive-add`）后重读，打印 `counts.before=<…> counts.after=<…>` 且 `after > before`（保证不是常量）；`界面类别 ← lease kind` 的对应关系逐条打印。
+- [x] AC4 popover：复制地址与关闭进程。判据打印 `popover.address=<v> snapshot.peerName=<v> equal=true`（地址逐字来自 `GET /api/session-hosts` 投影，不是前端另算）、`copy.clipboard=<v> equalToAddress=true`、`close.request=<POST …/close 的状态码>`、`hosts.beforeClose=<n> hosts.afterClose=<n>`（后者更小）、`mark.afterClose=hollow`。**正控制**：关闭前同一 hostId 在快照里（打印 `host.present=true`）。
+- [x] AC5 停止只中止当前一轮、进程仍在（§15.4）：常驻会话有一轮在飞时点 composer 的停止 ⇒ 判据打印 `run.status=<aborted>`、`host.hostId.before=<h> host.hostId.after=<h> same=true`、`host.state.after=<idle|lingering>`、`pid.before=<p> pid.after=<p> same=true`、`host.closeReason.after=null`。
+- [x] AC6 无人轮的触发类型标签与跨会话发送方（**假形态 (b) 的落点**）：场景发一条 `定时任务触发`、一条 `跨会话消息`（发送方 = §12 的 `peerName`）。判据打印 `divider=<标签文案>`（逐字含触发类型）与 `sender=<发送方>`；并打印 `row.class=<…> isUserStyle=<true|false>`，断言其为 **false**；**正控制**：同一次运行里一条真用户轮打印 `userRow.isUserStyle=true`（证明该读数不是恒假）。
+- [x] AC7 假形态 (a) 必须红（承重）：把状态条改成读本地状态（不再依赖 `GET /api/session-hosts`），判据命令退出**非 0**，且红**落在 AC3 的「场景切换状态后计数/状态必须变」那条断言**上（登记变异 diff、失败断言逐字、退出码）。恢复后判据回到 0。
+- [x] AC8 假形态 (b) 必须红（承重）：把无人轮按用户消息样式渲染（走进 `MessageComponent.tsx:97-99` 的 user 分支），判据命令退出**非 0**，且红**落在 AC6 的「非用户样式」那条断言**上（登记变异 diff、失败断言逐字、退出码）。恢复后判据回到 0。
+- [x] AC9 替身改动不波及别的判据：门控仅对含本判据的选择生效 —— `npx playwright test e2e/model-env-kind-explanations.spec.ts` 仍退出 **0**（打印退出码与墙钟），且 `npx playwright test --list` 的收集总数与改动前**逐字相同**（打印改动前后两个数）。
+- [x] AC10 出厂链路的无人轮不再抛：判据打印 `unattended.run.source=<unattended>` 与 `seam.unwired=false`（场景的 `unattended-turn` 在**出厂 HTTP 控制面**上真的开出了 run，不是判据内部另接的 seam）；该次运行里 `DEBUG_AGENT_RUN_SEAM_UNAVAILABLE` 出现次数为 **0**（打印计数）。
+- [x] AC11 文案取自运行期读的出货目录（`src/modules/i18n/locales/en/chat.json` 与 `…/sidebar.json`），spec 里不抄句子；新增 key 在 **12 个 locale** 的 `chat.json`（与用到的 `sidebar.json`）里都存在且非空，任一缺失以非 0 退出并打印是哪个文件哪个 key。
+- [x] AC12 契约面：`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**；`git diff --stat` 与 Touches 逐条对齐（多写的文件须由判据强制）。
 
 ## DoD
 
@@ -104,11 +104,23 @@ goal_ac: AC-172
 - `server/modules/debug-agent/debug-agent.scenario.ts`
 - `server/modules/debug-agent/debug-agent.engine.ts`
 - `server/modules/debug-agent/debug-agent.host-driver.ts`
+- `server/modules/debug-agent/debug-agent.provider.ts`
+- `server/modules/debug-agent/debug-agent.routes.ts`
+- `server/modules/debug-agent/debug-agent.runtime.ts`
+- `server/modules/debug-agent/index.ts`
+- `server/modules/debug-agent/tests/debug-agent-host-driver.test.ts`
+- `server/modules/debug-agent/tests/debug-agent-vocabulary-guard.test.ts`
+- `server/modules/providers/services/provider-runtime.service.ts`
+- `server/modules/session-hosts/session-hosts.routes.ts`
+- `server/modules/session-hosts/tests/session-hosts-routes.test.ts`
 - `src/shared/api.ts`
 - `src/shared/hooks/useSessionHosts.ts` (new)
 - `src/modules/chat/transcript/ResidentStatusBar.tsx` (new)
 - `src/modules/chat/transcript/ChatMessagesPane.tsx`
 - `src/modules/chat/transcript/MessageComponent.tsx`
+- `src/modules/chat/ChatInterface.tsx`
+- `src/modules/chat/hooks/useChatMessages.ts`
+- `src/shared/types.ts`
 - `src/modules/chat/composer/ChatComposer.tsx`
 - `src/modules/sidebar/ResidentMark.tsx` (new)
 - `src/modules/sidebar/SidebarSessionItem.tsx`
@@ -138,3 +150,26 @@ goal_ac: AC-172
 - `src/modules/i18n/locales/zh-CN/sidebar.json`
 - `src/modules/i18n/locales/zh-TW/sidebar.json`
 - `tasks/gap-claude-resident-status-bar.md`（自触）
+
+## 完成记录（2026-09-28）
+
+**判据（在合并 develop 后的树上重测，树 = HEAD `5dda0d51`）**：`npx playwright test e2e/resident-status-bar.spec.ts` → 退出 **0**，`4 passed`，`elapsed=30414ms`（< `SINGLE_SPEC_CEILING_MS = 55_000`）。合并前的同一条读数亦为退出 0、`elapsed=30956ms`；合并只带进 `server/modules/providers/*`、`server/modules/session-hosts/tests/*`、`server/modules/voice/*` 与两份文档，未触及本条的浏览面，故重测值与原值同形。
+
+**逐条读数（判据的原始输出行，不是转述）**
+
+- **AC1** 退出 0 / `elapsed=30414ms`。基线（本轮直跑）：`--list` 在文件不存在时退出 1、`Total: 0 tests in 0 files`；同形状的 `model-env-kind-explanations.spec.ts --list` 退出 0、`Total: 1 test in 1 file`。
+- **AC2** 四态各打印一行：`state=空闲 mark=solid bar="Resident · Idle" snapshot.state=idle closeReason= detail= via=start` / `state=运行中 mark=solid+spinner bar="Resident · Running" snapshot.state=busy … via=scenario-step` / `state=未运行 mark=hollow mark.afterClose=hollow bar="Resident · Not running (…)" snapshot.state=closed closeReason=user via=close` / `state=exited(oom) mark=exited bar="Resident process exited (oom)" snapshot.state=closed closeReason=exited detail=oom via=scenario-step`。每次切换的 `via=` 都打印。
+- **AC3** `host.leases=resident-policy:1,turn:1` 与 `ui.counts=resident-policy:1,turn:1` 两行断言相等；正控制 `counts.before=resident-policy:1` → `counts.after=monitor:1,resident-policy:1`（严格变大）；对应关系逐条打印 `界面类别 ← lease kind：Resident session ← resident-policy(1)`。
+- **AC4** `popover.address="peer-resident-status-bar" snapshot.peerName="peer-resident-status-bar" equal=true`、`copy.clipboard="peer-resident-status-bar" equalToAddress=true`、`close.request=200 hosts.beforeClose=1 hosts.afterClose=0`、`mark.afterClose=hollow`；正控制 `host.present=true host.id=host-…`。**注**：`GET /api/session-hosts` 保留已关闭宿主的记录（`state='closed'`），故 `hosts.length` 不动；判据按 AC 的语义数**存活**宿主（`state !== 'closed'`），1 → 0。
+- **AC5** `run.status=aborted`、`host.hostId.before=host-6d32ac02… host.hostId.after=host-6d32ac02… same=true`、`host.state.after=lingering`、`pid.before=(none) pid.after=(none) same=true startedAt.before=… startedAt.after=… startedAt.same=true`、`host.closeReason.after=null`。
+- **AC6** `divider="⏰ Scheduled task · 12:15 AM" trigger=cron sender=""`、`divider="✉ Cross-session message from peer-resident-status-bar · 12:15 AM" trigger=cross-session sender="peer-resident-status-bar"`；`row.text="unattended turn opened by a scheduled task" row.class=unattended isUserStyle=false`（第二条同形）；正控制 `userRow.isUserStyle=true`。
+- **AC7** 假形态 (a) 真跑过：`/tmp/ac7-mutation.diff`（状态条改读本地状态），判据退出 **1**，红落在 AC3 承重断言上，逐字 `Error: the bar counts the leases the listing reports, kind for kind` / `Expected: "resident-policy:1,turn:1"` / `Received: "resident-policy:1"`（spec `:739`）。`git checkout --` 恢复后判据回到 0。
+- **AC8** 假形态 (b) 真跑过：`/tmp/ac8-mutation.diff`（`rendersAsUser = message.type === 'user' || message.type === UNATTENDED_TURN_MESSAGE_TYPE`），判据退出 **1**，红落在 AC6 承重断言上，逐字 `Error: a turn nobody typed must not wear the user's own bubble style` / `Expected: not "user"`（spec `:923`），同一跑里 `row.class=user isUserStyle=true`。恢复后判据回到 0（`4 passed`，`elapsed=30956ms`）。
+- **AC9** 兄弟判据 `npx playwright test e2e/model-env-kind-explanations.spec.ts` → 退出 **0**，墙钟 **10776ms**（首跑退出 1，红在 `ensureSignedIn` 的登录闸门、即本条触及面之前；复跑绿，判为宿主抖动并如实登记）。收集总数：门控在位 **69 tests in 14 files**，把 `playwright.config.ts` 回退到 merge-base 后 **69 tests in 14 files**，两次数出的 69 行测试清单 `diff` 逐字相同。门控只改 `webServer.env` 的条件三元，`testDir`/`testMatch`/`testIgnore` 一律未动。
+- **AC10** `unattended.run.source=unattended seam.unwired=false`、`run.seamRefusals=0`（判据统计该次 server 日志里 `DEBUG_AGENT_RUN_SEAM_UNAVAILABLE` 的出现次数）。无人轮走的是出厂 HTTP 控制面（`server/index.ts` 注入的 `openRun`），不是 spec 内部另接的缝。
+- **AC11** 第 3 条测试绿：逐字读出货目录的 12 个 locale × `chat.json`/`sidebar.json`，缺键或空值以非 0 退出并点名文件与 key。
+- **AC12** `npm run lint` 退出 **0**（仅既有 warning）；`npm run typecheck` 退出 **0**（`tsconfig.json` + `server/tsconfig.json` + `scripts/tsconfig.json` 三条链）；`git diff --name-only $(git merge-base develop HEAD) HEAD` = **52** 个文件，全部落在 `## Touches` 内（`anti-drift-touches-check.js --worktree … --merge-target develop` → `52 actual file(s), all within declared Touches (53 glob(s))`）。本轮把 12 个此前**改了但未声明**的文件补进 `## Touches`：`debug-agent.provider.ts` / `debug-agent.routes.ts` / `debug-agent.runtime.ts` / `index.ts` / 两份 debug-agent `tests/*.test.ts` / `provider-runtime.service.ts` / `session-hosts.routes.ts` / `session-hosts-routes.test.ts` / `ChatInterface.tsx` / `useChatMessages.ts` / `src/shared/types.ts`。
+
+**范围外的一处必要根因修复**：`debug-agent.provider.ts` 的 `withMessageOrigin` 是 claude sessions face 的 Proxy，`fetchHistory` 内部用 `this.normalizeMessage` 重新归一化每一行，绑定到 target 就会绕过陷阱 ⇒ 实时帧带 `origin`、REST 历史（刷新路径）丢 `origin`，无人轮的分隔标签与发送方在刷新后归零。改为把转发的方法绑到 proxy `face` 而非 `target`。`debug-agent.host-driver.ts` 与 `provider-runtime.service.ts` 的 `RunEntry` 值透传同步放宽到 `Promise<unknown>`。
+
+**工作树读取面**：`task_write` 的提交落在主检出（`author`），故本轮按 `git merge --no-edit author` 把 ABI 写出的字节搬到 `task/<id>` 分支上，再 `git merge --no-edit develop`；合并后 `fan-in-ac-completion-gate.js --worktree …` 读 `AC 全勾（12/12）`，`scripts/test.sh --for-task gap-claude-resident-status-bar --allow-thin` 退出 **0**（`# tests 3 / # pass 3 / # fail 0`，跑的是本轮刚声明的 3 个 `*.test.ts`，证明 Touches 修订真的生效、不是拿旧清单蒙混）。

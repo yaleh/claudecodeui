@@ -70,8 +70,17 @@ const NATIVE_FAILED: WatcherModeProbe = {
 /** How long a native `add` may take. Generous next to the microseconds it costs. */
 const NATIVE_EVENT_BUDGET_MS = 2_000;
 
-/** The extra slack the polling arms allow on top of one poll period. */
-const POLL_WINDOW_SLACK_MS = 1_000;
+/**
+ * The extra slack the polling arms allow on top of one poll period.
+ *
+ * Measured 2026-09-27 (`sessions-watcher-mode.test.ts` under fleet concurrency, three separate
+ * fan-in rounds): standalone this arm lands the append 6021-6026ms after the write — right at the
+ * `POLL_INTERVAL_MIN_MS` floor with almost no overhead — but under load it once took 8383ms, well
+ * past the old 1s slack (7000ms window). 1s of slack against a 6s floor is a ~14% margin, which a
+ * moderately busy fleet eats. 4s keeps the same shape (still a bound, not "wait forever") while
+ * giving real headroom against scheduler jitter.
+ */
+const POLL_WINDOW_SLACK_MS = 4_000;
 
 /** How often the arms look at what they have collected. */
 const OBSERVATION_TICK_MS = 25;
