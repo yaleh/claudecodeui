@@ -212,6 +212,12 @@ npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/test
 
 AC-1 的判据在合并后的树上仍绿、`elapsed=11226ms < 60_000`；AC-7 的三条正控制与 AC-8 的假形态读数不受合并影响（被测量的机制一行未动）。十三条 AC 的勾选状态不变（13/13）。
 
+**本轮实测到一次「负载导致」的假红：已复跑为绿，不是被测量机制的缺陷（如实登记）。** 第一次 `--for-task` scoped gate 红在 AC-5 的 pid 读数 —— `AssertionError: the rename must not move the process (2000491 -> 2004038)`，该次 `duration_ms=55903`，日志里有四次等待超时（`B to open a run` 15s、`B's arriving turn to buffer its first frames` 15s、`the subscribe replay to land` 5s、`A identity` 8s），原始子件在 `.quay/suite-logs/20260927T194040-1998492/`。
+
+归属依据（不是猜的）：**driver 与宿主层没有任何 rename 处理** —— `grep -rn 'rename'` 在 `claude-host-driver.provider.ts` 与 `session-hosts/` 下零命中 ⇒ rename 本身**不可能**让进程重启；同一棵树、同一条命令随后连跑两次都是绿（`13879ms` / `13934ms`，standalone `11226ms`）。真实过程是：A 的 CLI 进程在负载下死掉，后续发送把它重新拉起，新进程按**当时已改名的标题**算出新地址，而「读回转录的 `agent-name`」取到了旧进程留下的那个转录 —— 两者不等 ⇒ 本条实现里的守卫按 `null` 上报、**不发布**不一致的地址（日志逐字：`Resident process registered a different address than it was launched with { launched: '...-renamed-...', registered: '...-alpha-...' }`）。守卫按设计工作；红落在「rename 不得移动进程」这条读数上，是因为**进程真的换了**，而那条读数的前提（同一进程）被环境打破了。
+
+**不因此弱化 AC-5**：把「进程死过」判成通过会让这条恒真 —— 那正是判据要堵的洞（一个 kill-and-restart 的缺陷会与它无法区分）。给下一位读者的提示：fan-in 全量并发下这条判据的 60 秒预算很紧（这次 55.9s，正常 11–14s）；见到「pid 变了 + 多次等待超时」这个形态，先复跑、先怀疑环境，再查 delta。
+
 ## Touches
 
 - `server/shared/types.ts`（`SessionBinding.peerName`）
