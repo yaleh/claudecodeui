@@ -98,7 +98,7 @@ E9 结论逐字：`elicitation 请求条数：1` —— MCP 工具的 `elicitati
 
 ## Touches
 
-- `server/modules/providers/tests/claude-resident-permissions.test.ts`（新：判据）
+- `server/modules/providers/tests/claude-resident-permissions.test.ts` (new: 判据)
 - `server/modules/providers/list/claude/claude-host-driver.provider.ts`（AC-161 落地的 resident driver；本条在其上加 bypass 启动 options、`setPermissionMode` 切模式、三入口无人值守拦截与通知；若其实际文件名不同，按实际文件登记并在完成记录里写明）
 - `server/modules/providers/list/claude/claude-runtime.provider.js`（抽出/复用 `permission_request` 帧 + `waitForToolApproval` 请求帧流程与 `TOOLS_REQUIRING_INTERACTION` 供常驻「有连接」档复用；订正 `:896-901` 与 E8 相反的注释；纯抽线与注释，不堆新逻辑）
 - `server/modules/providers/list/claude/claude.provider.ts`（组合根：把 `modules/websocket` 注册表的连接数经 `connectedClientCount` 端口装进 resident driver —— 驱动自身对 `modules/websocket` 零 import，见 `claude-resident-unattended-turn.test.ts` 的结构读数；这条写入是本任务实现中唯一的组合根改动）
