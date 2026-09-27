@@ -14,6 +14,7 @@ depends_on:
   - gap-session-hosts-default-wrap-four-providers
   - gap-session-hosts-lease-driven-lifecycle
   - gap-session-hosts-binding-multiplexing
+  - gap-voice-falsify-copies-inside-tsc-program
 goal_ac: AC-159
 ---
 ## Proposal
