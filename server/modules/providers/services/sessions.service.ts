@@ -6,12 +6,18 @@ import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { broadcastSessionUpserted, chatRunRegistry } from '@/modules/websocket/index.js';
 import { compileStoredSessionFilter } from '@/modules/projects/index.js';
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
+import { providerCapabilitiesService } from '@/modules/providers/services/provider-capabilities.service.js';
 import { sessionHistoryCache } from '@/modules/providers/services/session-history-cache.service.js';
+import { sessionHostManager } from '@/modules/session-hosts/index.js';
+import type { SessionLifecycleReading } from '@/modules/session-hosts/index.js';
 import type {
   FetchHistoryOptions,
   FetchHistoryResult,
+  HostCloseReason,
+  HostMode,
   LLMProvider,
   NormalizedMessage,
+  ProcessHost,
 } from '@/shared/types.js';
 import { AppError, sliceTailPage } from '@/shared/utils.js';
 
@@ -757,4 +763,161 @@ export const sessionsService = {
     await writeRenameToProviderTranscript(session, summary);
     return { sessionId, summary };
   },
+
+  /**
+   * Reads the two facts a host-lifecycle verb needs about one session: the
+   * provider whose driver would serve it, and the lifecycle mode the user asked
+   * for.
+   *
+   * Consumed by `session-hosts`' `/start` and `/close` routes, which receive it
+   * as an injected reader rather than importing this module — that direction is
+   * closed (this module already imports the host layer), so the composition root
+   * wires the two together. The mode is read through
+   * `getSessionLifecycleMode` and never off the raw column: a row written before
+   * the column existed carries NULL, and the reader is what turns that into the
+   * `per-run` every caller is promised.
+   *
+   * Returns null for an unknown id. The two refusals that follow from that —
+   * "no such session" and "this session's mode forbids the verb" — are
+   * deliberately not collapsed here; the route needs them apart.
+   */
+  readSessionLifecycle(sessionId: string): SessionLifecycleReading | null {
+    const session = sessionsDb.getSessionById(sessionId);
+    if (!session) {
+      return null;
+    }
+
+    return {
+      provider: session.provider as LLMProvider,
+      mode: sessionsDb.getSessionLifecycleMode(sessionId),
+    };
+  },
+
+  /**
+   * Records a new lifecycle-mode preference for one session and moves any live
+   * host out of the way.
+   *
+   * The three facts the write is checked against, in the order they are checked:
+   *
+   *  1. **The provider's declaration.** A preference is a promise about how a
+   *     turn will run, and only a provider that declared the mode can keep it.
+   *     Checked against `lifecycleModes` rather than a literal list, so the
+   *     matrix stays the single statement of what each integration supports —
+   *     and checked before the session is looked up, because the request is
+   *     invalid for this provider whether or not that particular row exists.
+   *  2. **The session's existence.** Nothing to record a preference against.
+   *  3. **The host's state.** A live process cannot become the other mode — the
+   *     two modes differ in who owns the process — so the transition ends the
+   *     old host and lets the new mode open its own. That is only honest when
+   *     no turn is in flight: closing a resident host mid-turn kills the turn,
+   *     and a preference that arrives during one must not do that. `busy` is
+   *     therefore a refusal with a named code rather than a deferred write; the
+   *     caller retries once the turn ends, which is the same "not on a running
+   *     turn" invariant stated the other way round.
+   *
+   * The ordered steps are the reason this is a service and not a route: the
+   * route parses, calls this, and formats what it returns.
+   */
+  switchSessionLifecycleMode(
+    provider: LLMProvider,
+    sessionId: string,
+    mode: HostMode,
+  ): LifecycleModeSwitchResult {
+    const session = sessionsDb.getSessionById(sessionId);
+    if (!session) {
+      throw new AppError(`Session "${sessionId}" was not found.`, {
+        code: 'SESSION_NOT_FOUND',
+        statusCode: 404,
+      });
+    }
+
+    // The matrix that decides is the *session's own* provider's, not the one in
+    // the path. The route family passes `provider` as a label — `active-model`
+    // and `active-effort` write the same way — but a mode is not a label: it
+    // decides whether a process exists at all. Consulting the path's provider
+    // would let a caller name a provider whose matrix does list `resident` and
+    // store that mode on a session running under one that does not, which is
+    // exactly the write this refusal exists to stop.
+    const owner = session.provider as LLMProvider;
+    const declared = providerCapabilitiesService.getProviderCapabilities(owner).lifecycleModes;
+    if (!declared.includes(mode)) {
+      throw new AppError(
+        `Provider "${owner}" does not implement "${mode}" lifecycle mode.`,
+        { code: 'LIFECYCLE_MODE_NOT_SUPPORTED', statusCode: 409 },
+      );
+    }
+
+    const current = sessionsDb.getSessionLifecycleMode(sessionId);
+    if (current === mode) {
+      // A write that would change nothing must not close the host serving the
+      // session: the preference already says what the caller asked for, so the
+      // only effect of continuing would be ending a process for a no-op.
+      return { provider, sessionId, mode, changed: false, closedHostReason: null };
+    }
+
+    const host = liveHostForSession(sessionId);
+    if (host?.state === 'busy') {
+      throw new AppError(
+        `Session "${sessionId}" is mid-turn; its lifecycle mode cannot change under it.`,
+        { code: 'LIFECYCLE_MODE_HOST_BUSY', statusCode: 409 },
+      );
+    }
+
+    // The host transition, before the write: a stored preference that moved
+    // while the old process was still alive would describe a session running
+    // under a mode it is not running under. Each target mode has its own close
+    // reason, because the reason is the record of *why* the process ended —
+    // `mode-change` for the resident host the mode itself retired, `superseded`
+    // for the per-run host a resident session's process replaces.
+    let closedHostReason: HostCloseReason | null = null;
+    if (host) {
+      closedHostReason = mode === 'per-run' ? 'mode-change' : 'superseded';
+      sessionHostManager.closeHost(host.hostId, closedHostReason);
+    }
+
+    if (!sessionsDb.setSessionLifecycleMode(sessionId, mode)) {
+      // Unreachable while the row above was found — the write is addressed by
+      // the same id — but a failed write must not be reported as a success.
+      throw new AppError(`Session "${sessionId}" was not found.`, {
+        code: 'SESSION_NOT_FOUND',
+        statusCode: 404,
+      });
+    }
+
+    return { provider, sessionId, mode, changed: true, closedHostReason };
+  },
 };
+
+/**
+ * What one mode switch did.
+ *
+ * A result rather than a bare boolean because the two halves are separately
+ * interesting: `changed: false` is a successful no-op (the preference already
+ * said what was asked), while `closedHostReason` says what happened to the
+ * process that was serving the session, which a client cannot infer from the
+ * stored mode alone.
+ */
+export type LifecycleModeSwitchResult = {
+  provider: LLMProvider;
+  sessionId: string;
+  mode: HostMode;
+  /** Whether the stored preference moved; false when it already read `mode`. */
+  changed: boolean;
+  /** The reason the previous host was closed with, or null when none was serving. */
+  closedHostReason: HostCloseReason | null;
+};
+
+/**
+ * The live host serving one application session, as the manager reports it.
+ *
+ * The same read the host module's own routes make, for the same reason: it goes
+ * through `snapshot()`, the manager's detached port, and skips closed hosts so a
+ * host already past its life cannot be mistaken for one a switch should end.
+ */
+function liveHostForSession(appSessionId: string): ProcessHost | null {
+  return (
+    sessionHostManager
+      .snapshot()
+      .find((host) => host.state !== 'closed' && host.bindings.has(appSessionId)) ?? null
+  );
+}
