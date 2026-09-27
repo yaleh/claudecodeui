@@ -2,7 +2,7 @@
 id: gap-voice-capture-isolation
 title: 捕获失败的隔离：text 档打印捕获行时抛错、audio 档音频目录不可写两种情形下转写仍返回成功且返回文本逐字不变，恰好一行不含内容的
   voice.capture failed（AC-147）
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -121,3 +121,14 @@ L_G 该轴仍暗，理由：目标层的读数是真实服务进程标准输出�
 - server/modules/voice/tests/voice-capture-isolation.test.ts (new)
 - server/modules/voice/tests/voice-capture-isolation.false-forms.test.ts (new)
 - tasks/gap-voice-capture-isolation.md
+
+## Needs-Human
+
+**执行 2026-09-27T06:09:25.530Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=116668 server/modules/voice/tests/voice-error-classification.false-forms.test.ts passed=false end_ms=1790488558926
+- run_id：wk-prod-anchor
+- session_id：aa525928-f360-4921-864b-1b561b37a35d
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-capture-isolation~wk-prod-anchor~1790488396306-3adff6.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-capture-isolation-wk-prod-anchor.log
