@@ -30,6 +30,7 @@ import { useFileMentions } from '@/modules/chat/hooks/useFileMentions';
 import { useInputHistory } from '@/modules/chat/hooks/useInputHistory';
 import { useSendOnEnter } from '@/modules/chat/hooks/useSendOnEnter';
 import { useSlashCommands } from '@/modules/chat/hooks/useSlashCommands';
+import { consumePendingResidentIntent } from '@/modules/chat/composer/ResidentConsentNotice';
 
 type UseChatComposerStateArgs = {
   selectedProject: Project | null;
@@ -800,6 +801,10 @@ export function useChatComposerState({
 
       const resolvedProjectPath = selectedProject.fullPath || selectedProject.path || '';
       const sessionSummary = getNotificationSessionSummary(selectedSession, currentInput);
+      // Read once, at the top: the composer records whether the send it just handed over was made
+      // with the resident switch on and its disclosure ticked, and every early return below must
+      // leave nothing behind for the next, unrelated send to pick up.
+      const residentIntent = consumePendingResidentIntent();
 
       // The conversation always has a stable backend-allocated session id
       // BEFORE the first websocket send: brand-new chats allocate one here
@@ -852,6 +857,25 @@ export function useChatComposerState({
           project: selectedProject,
           summary: createdSessionName,
         });
+      }
+
+      // The composer's resident switch is a statement about the session this send is addressed to,
+      // and it is written here — after the row exists, before the turn starts. Both halves of that
+      // window matter: there is nothing to write a preference against earlier, and the server
+      // refuses a mode change while a host is mid-turn, so a write that travelled with the send
+      // would race the process the send itself opens.
+      if (residentIntent && targetSessionId) {
+        try {
+          await api.providers.setSessionLifecycleMode(provider, targetSessionId, 'resident');
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error';
+          console.error('Resident mode request failed:', error);
+          addMessage({
+            type: 'error',
+            content: `Failed to keep this session running: ${message}`,
+            timestamp: new Date(),
+          });
+        }
       }
 
       const attachmentRecords = uploadedAttachments as ChatAttachment[];

@@ -1,11 +1,13 @@
-import { useEffect, useRef } from 'react';
-import { Check, Edit2, EyeOff, GitBranch, MoreHorizontal, Trash2, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Check, Edit2, EyeOff, GitBranch, MoreHorizontal, Timer, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { ActionMenu } from '@/shared/ui';
 import { cn } from '@/shared/utils';
 import type { LLMProvider } from '@/shared/types';
-import { useSessionForkingProviders } from '@/shared/hooks/useProviderCapabilities';
+import { useResidentProviders, useSessionForkingProviders } from '@/shared/hooks/useProviderCapabilities';
+import { api } from '@/shared/api';
 import { useProviderSessionIdCopy } from '@/modules/sidebar/hooks/useProviderSessionIdCopy';
 import { PROVIDER_LABELS } from '@/modules/sidebar/utils/sidebarProjectFormatting';
 
@@ -74,6 +76,42 @@ export default function SessionOptions({
   // provider id here; the request is cached module-side, so every row shares one.
   const forkableProviders = useSessionForkingProviders();
   const canFork = Boolean(onFork) && forkableProviders.has(provider) && !isProcessing;
+  // The same matrix answers the resident question, through the same kind of hook.
+  const residentProviders = useResidentProviders();
+  // Whether the conversion's disclosure is expanded inside this menu. It is drawn in the menu's own
+  // header rather than under the row: the row lives in a scrolling, clipped list, and a panel
+  // hanging out of it would be cut off exactly where its checkbox sits.
+  const [residentConsentOpen, setResidentConsentOpen] = useState(false);
+  // Whether "I understand" has been ticked. Cleared whenever the menu closes, so a conversion is
+  // never carried out under consent given in an earlier visit to this menu.
+  const [residentAcknowledged, setResidentAcknowledged] = useState(false);
+  // In-flight conversion, so the confirm button cannot be fired twice.
+  const [residentConverting, setResidentConverting] = useState(false);
+  // A refused conversion (a live host mid-turn, most likely). Held so the panel can say so instead of
+  // closing as if it had worked.
+  const [residentFailed, setResidentFailed] = useState(false);
+  // The disclosure's sentences are chat's, not this module's: they are the same two facts the
+  // composer's notice states, and sharing the keys is what keeps the two entry points from drifting
+  // into two different disclosures. Only the menu's own wording lives in the sidebar namespace.
+  const { t: tChat } = useTranslation('chat');
+
+  const convertToResident = async () => {
+    setResidentConverting(true);
+    setResidentFailed(false);
+    try {
+      const response = await api.providers.setSessionLifecycleMode(provider, sessionId, 'resident');
+      if (!response.ok) {
+        throw new Error(`Failed to convert session to resident (${response.status})`);
+      }
+      setResidentConsentOpen(false);
+      setResidentAcknowledged(false);
+    } catch (error) {
+      console.error('Resident conversion failed:', error);
+      setResidentFailed(true);
+    } finally {
+      setResidentConverting(false);
+    }
+  };
 
   // While editing, dismiss only when the click lands outside the rename panel,
   // matching Escape and the cancel button.
@@ -151,7 +189,15 @@ export default function SessionOptions({
           portal
           variant="ghost"
           size="icon"
-          onOpenChange={setOptionsOpen}
+          onOpenChange={(open) => {
+            setOptionsOpen(open);
+            if (!open) {
+              // A closed menu takes its disclosure and its tick with it: consent is per-conversion.
+              setResidentConsentOpen(false);
+              setResidentAcknowledged(false);
+              setResidentFailed(false);
+            }
+          }}
           triggerClassName="h-7 w-7 text-muted-foreground opacity-70 hover:bg-muted hover:opacity-100"
           menuClassName="w-[260px] rounded-xl p-1.5 shadow-xl"
           header={(
@@ -160,6 +206,39 @@ export default function SessionOptions({
                 {sessionName}
               </p>
               <p className="mt-0.5 text-[11px] text-muted-foreground">{providerLabel} session</p>
+              {residentConsentOpen && (
+                <div
+                  data-slot="resident-consent-notice"
+                  role="group"
+                  aria-label={t('sessionMenu.residentConsentTitle')}
+                  className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-2 text-[11px] leading-4"
+                >
+                  <p className="font-medium text-foreground">{t('sessionMenu.residentConsentTitle')}</p>
+                  <p className="mt-1 text-muted-foreground">{tChat('resident.notice.bypass')}</p>
+                  <p className="mt-1 text-muted-foreground">{tChat('resident.notice.trustBoundary')}</p>
+                  <label className="mt-2 flex items-center gap-2 text-foreground">
+                    <input
+                      type="checkbox"
+                      checked={residentAcknowledged}
+                      onChange={(event) => setResidentAcknowledged(event.target.checked)}
+                      aria-label={tChat('resident.notice.acknowledge')}
+                      className="h-3.5 w-3.5 accent-primary"
+                    />
+                    <span>{tChat('resident.notice.acknowledge')}</span>
+                  </label>
+                  <button
+                    type="button"
+                    disabled={!residentAcknowledged || residentConverting}
+                    onClick={() => { void convertToResident(); }}
+                    className="mt-2 w-full rounded-md bg-primary px-2 py-1 text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {t('sessionMenu.residentConsentConfirm')}
+                  </button>
+                  {residentFailed && (
+                    <p className="mt-1 text-red-600">{t('sessionMenu.residentConsentFailed')}</p>
+                  )}
+                </div>
+              )}
             </div>
           )}
           items={[
@@ -178,6 +257,19 @@ export default function SessionOptions({
               closeOnSelect: false,
               onSelect: handleCopyAction,
             },
+            ...(residentProviders.has(provider) ? [{
+              key: 'convert-to-resident',
+              label: t('sessionMenu.convertToResident'),
+              description: t('sessionMenu.convertToResidentHint'),
+              icon: Timer,
+              // The menu stays open on selection: the conversion's disclosure opens inside it, and a
+              // menu that closed here would take the checkbox the user has to tick with it.
+              closeOnSelect: false,
+              // Present but unusable while a turn is in flight — the server refuses a mode change
+              // under a live host, and offering the action would promise something it cannot keep.
+              disabled: isProcessing,
+              onSelect: () => setResidentConsentOpen(true),
+            }] : []),
             ...(canFork && onFork ? [{
               key: 'fork',
               label: 'Fork session',

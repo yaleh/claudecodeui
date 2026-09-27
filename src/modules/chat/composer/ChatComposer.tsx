@@ -18,6 +18,9 @@ import { useSendOnEnter } from '@/modules/chat/hooks/useSendOnEnter';
 import { useComposerCompactTier } from '@/modules/chat/hooks/useComposerCompactTier';
 import { useDeviceSettings } from '@/shared/hooks/useDeviceSettings';
 import { findSessionHostState, useSessionHosts } from '@/shared/hooks/useSessionHosts';
+import { useResidentProviders } from '@/shared/hooks/useProviderCapabilities';
+import { cn } from '@/shared/utils';
+import { readSelectedProvider } from '@/shared/selectedProvider';
 import { loadProjectIdentifiers } from '@/shared/projectIdentifiers';
 import { isVoiceDebugEnabled } from '@/shared/voiceDebug';
 import type { QueuedDraft, ScheduledMessage, SlashCommand,SessionActivity,PendingPermissionRequest,PermissionMode,ProviderModelOption,VoiceFailureReport } from '@/shared/types';
@@ -45,6 +48,7 @@ import { ScheduledMessageList } from '@/modules/chat/composer/ScheduledMessageLi
 import ComposerModelMenu from '@/modules/chat/composer/ComposerModelMenu';
 import ComposerPermissionMenu from '@/modules/chat/composer/ComposerPermissionMenu';
 import ComposerMobileMoreMenu from '@/modules/chat/composer/ComposerMobileMoreMenu';
+import ResidentConsentNotice, { setPendingResidentIntent } from '@/modules/chat/composer/ResidentConsentNotice';
 
 type MentionableFile = {
   name: string;
@@ -262,6 +266,20 @@ export default function ChatComposer({
   // whole answer below the breakpoint and for the status tab below; the footer's arrangement also
   // reads the box's own width, which is `isCompactTier` underneath.
   const { isMobile } = useDeviceSettings();
+  // Whether the composer offers the resident switch at all. Read from the backend capability matrix
+  // rather than from a provider id — the same rule the sidebar's conversion item follows — so a
+  // provider that gains the mode gets the switch without a UI change. The composer is not handed the
+  // provider id, only its label, so the id comes from the same stored selection `useChatProviderState`
+  // keeps in step with the open chat.
+  const residentProviders = useResidentProviders();
+  const canRunResident = residentProviders.has(readSelectedProvider());
+  // Whether this session is being sent as a resident one. Held here because this is where the switch
+  // the user flips lives; the send path learns the intent through `setPendingResidentIntent` at the
+  // moment of submit, and applies it to the session the send is addressed to.
+  const [residentEnabled, setResidentEnabled] = useState(false);
+  // Whether the disclosure below has been read and ticked. Turning the switch off clears it, so a
+  // session is never sent under consent given for an earlier one — and turning it back on asks again.
+  const [residentAcknowledged, setResidentAcknowledged] = useState(false);
   // Drives the footer's layout branch below, and the replay row with it. Narrower than the desktop
   // arrangement needs is what it means, and the box can be that narrow inside a window that is not:
   // `md` (768px) is a rule of its own — the `sm` (640px) boundary this group used to switch on gave
@@ -379,6 +397,23 @@ export default function ChatComposer({
 
   const hasQueuedDraft = Boolean(queuedDraft);
   const canQueueDraft = isLoading && Boolean(input.trim() || attachedFiles.length > 0);
+  // The switch is on but the disclosure under it has not been ticked: nothing may be sent. This is
+  // what the submit button's `disabled` expression consults, and the reason the switch and the notice
+  // are one control rather than two.
+  const residentGateClosed = canRunResident && residentEnabled && !residentAcknowledged;
+  const toggleResident = useCallback(() => {
+    // Consent is per-send, not per-session: flipping the switch either way withdraws the tick, so
+    // turning it back on asks again instead of reusing an answer given for an earlier intent.
+    setResidentEnabled((enabled) => !enabled);
+    setResidentAcknowledged(false);
+  }, []);
+  // Records the intent for the send path and then hands off to it unchanged. Both entry points into
+  // the composer's submit — the send button and the form's own submit — go through here, so the
+  // intent cannot be attached to one of them only.
+  const handleComposerSubmit = useCallback((event: Parameters<typeof onSubmit>[0]) => {
+    setPendingResidentIntent(residentEnabled && residentAcknowledged);
+    onSubmit(event);
+  }, [onSubmit, residentAcknowledged, residentEnabled]);
   // Every sentence this hint can print names a keyboard key — Enter, Shift+Enter, Ctrl+Enter — and a
   // soft keyboard has none of them, so there is no wording that would be true on a touch-only device.
   // Such a device is given no hint at all rather than the wrong one: the button is the only way out
@@ -517,7 +552,7 @@ export default function ChatComposer({
         />
 
         <PromptInput
-          onSubmit={onSubmit as (event: FormEvent<HTMLFormElement>) => void}
+          onSubmit={handleComposerSubmit as (event: FormEvent<HTMLFormElement>) => void}
           status={isLoading ? 'streaming' : 'ready'}
           className={[
             isTextareaExpanded ? 'chat-input-expanded' : '',
@@ -562,6 +597,52 @@ export default function ChatComposer({
           )}
 
           <input {...getInputProps()} />
+
+          {/*
+            The resident switch and, under it, the disclosure it opens. Above the box rather than in
+            the footer because the footer is exactly the controls that send a message and may not
+            wrap; and rendered only for a provider the capability matrix lists `resident` for, so the
+            affordance is the matrix's answer and not this file's.
+          */}
+          {canRunResident && (
+            <PromptInputHeader>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={residentEnabled}
+                aria-label={t('resident.toggle')}
+                onClick={toggleResident}
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-xs transition-colors',
+                  residentEnabled ? 'bg-primary/10 text-foreground' : 'text-muted-foreground hover:bg-muted',
+                )}
+              >
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    'relative h-4 w-7 shrink-0 rounded-full transition-colors',
+                    residentEnabled ? 'bg-primary' : 'bg-muted-foreground/30',
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'absolute top-0.5 h-3 w-3 rounded-full bg-background transition-all',
+                      residentEnabled ? 'left-3.5' : 'left-0.5',
+                    )}
+                  />
+                </span>
+                <span>{t('resident.toggle')}</span>
+              </button>
+              {residentEnabled && (
+                <div className="mt-2">
+                  <ResidentConsentNotice
+                    acknowledged={residentAcknowledged}
+                    onAcknowledgedChange={setResidentAcknowledged}
+                  />
+                </div>
+              )}
+            </PromptInputHeader>
+          )}
 
           <PromptInputBody>
             <div ref={inputHighlightRef} aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden rounded-xl">
@@ -755,7 +836,7 @@ export default function ChatComposer({
                 canQueueDraft
                   ? (e: MouseEvent<HTMLButtonElement>) => {
                       e.preventDefault();
-                      onSubmit(e);
+                      handleComposerSubmit(e);
                     }
                   : isLoading
                     ? onAbortSession
@@ -773,7 +854,9 @@ export default function ChatComposer({
                     ? false
                     : isTranscribing
                       ? true
-                      : !input.trim() && attachedFiles.length === 0
+                      : residentGateClosed
+                        ? true
+                        : !input.trim() && attachedFiles.length === 0
               }
               aria-label={submitAriaLabel}
               title={submitAriaLabel}

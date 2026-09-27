@@ -63,15 +63,15 @@ goal_ac: AC-174
 
 ## AC
 
-- [ ] AC1 判据绿：`npx playwright test e2e/resident-shell-tab.spec.ts` 退出 **0**，并打印整体墙钟 `elapsed=<n>ms` 且 `< 55_000`（`playwright.config.ts:285` 的单文件上限）。红态基线本轮实测：`--list` 退出 **1**、`Error: No tests found.` / `Total: 0 tests in 0 files`；正控制同形状跑 `e2e/model-env-kind-explanations.spec.ts --list` 退出 **0**、`Total: 1 test in 1 file`。
-- [ ] AC2 常驻（且进程不存在）时 Shell 禁用并出提示（**假形态的落点**）：判据打印 `mode=<resident>`、`hosts.forSession=<0>`（宿主快照里没有该会话，证明「常驻但未运行」）、`shellTab.disabled=<true>`、`shellTab.ariaDisabled=<true>`、`shellTab.notice=<逐字>`、`shellTab.notice.source=<title|aria-describedby>`、`tabClick.after=<activeTab 不变>`；断言 `notice` 与运行期从 `src/modules/i18n/locales/en/common.json` 读出的那句**逐字相等**，且点击不改变 `activeTab`。
-- [ ] AC3 正控制（证明断言非恒真）：同一次运行里先用 **per-run** 会话打印 `mode=per-run`、`shellTab.disabled=false`、`tabClick.after=shell`（点得进去）；并打印 `chatTab.disabled=false`（在 Shell 被禁的那些时刻）⇒ 禁用不是把整条 tablist 关掉。
-- [ ] AC4 关闭常驻模式后恢复：判据点会话菜单的「关闭常驻模式」（打印 `menu.item=<present>`、`menu.enabled=<true>`），打印 `mode.afterClose=per-run`、`shellTab.disabled.after=false`、`tabClick.afterClose=shell`、`shellView.mounted=true`；**正控制**：点击**前**同一格是 `mode=resident` 且 Shell 禁用（打印那一行）。
-- [ ] AC5 已激活态的守卫：判据在 Shell 标签**处于激活态**时把会话置为 `resident`，打印 `shellView.mounted.afterResident=false`、`notice.inView=<逐字>`、`activeTab=<非 shell>`；断言 `notice.inView` 与 `common.json` 的那句逐字相等。
-- [ ] AC6 假形态必须红（承重）：把禁用改成按进程是否存活判定（读 `GET /api/session-hosts` 的宿主存在性）⇒ 判据命令退出**非 0**，且红**落在 AC2 的 `shellTab.disabled === true` 那条断言**上（登记变异 diff、失败断言逐字、退出码）。恢复后判据回到 0。
-- [ ] AC7 文案 12 locale：新增 key（Shell 的提示句与其可访问名、会话菜单关闭项的标签与描述）在 **12 个 locale** 的 `common.json`/`sidebar.json` 里都存在且非空；判据打印 `locales.ok=12`、`locales.missing=<[]>`，任一缺失以非 0 退出并打印是哪个文件哪个 key；句子运行期从出货目录读，spec 里不抄。
-- [ ] AC8 契约面：`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**；`git diff --stat` 与 Touches 逐条对齐（多写的文件须由判据强制）。
-- [ ] AC9 不波及别的判据：`npx playwright test --list` 打印 `files.before=14 files.after=15 tests.before=70 tests.after=<70+n>`，新增的**唯一**文件是 `resident-shell-tab.spec.ts`；`npx playwright test e2e/model-env-kind-explanations.spec.ts` 仍退出 **0**（打印退出码与墙钟）。
+- [x] AC1 判据绿：`npx playwright test e2e/resident-shell-tab.spec.ts` 退出 **0**，并打印整体墙钟 `elapsed=<n>ms` 且 `< 55_000`（`playwright.config.ts:285` 的单文件上限）。红态基线本轮实测：`--list` 退出 **1**、`Error: No tests found.` / `Total: 0 tests in 0 files`；正控制同形状跑 `e2e/model-env-kind-explanations.spec.ts --list` 退出 **0**、`Total: 1 test in 1 file`。
+- [x] AC2 常驻（且进程不存在）时 Shell 禁用并出提示（**假形态的落点**）：判据打印 `mode=<resident>`、`hosts.forSession=<0>`（宿主快照里没有该会话，证明「常驻但未运行」）、`shellTab.disabled=<true>`、`shellTab.ariaDisabled=<true>`、`shellTab.notice=<逐字>`、`shellTab.notice.source=<title|aria-describedby>`、`tabClick.after=<activeTab 不变>`；断言 `notice` 与运行期从 `src/modules/i18n/locales/en/common.json` 读出的那句**逐字相等**，且点击不改变 `activeTab`。
+- [x] AC3 正控制（证明断言非恒真）：同一次运行里先用 **per-run** 会话打印 `mode=per-run`、`shellTab.disabled=false`、`tabClick.after=shell`（点得进去）；并打印 `chatTab.disabled=false`（在 Shell 被禁的那些时刻）⇒ 禁用不是把整条 tablist 关掉。
+- [x] AC4 关闭常驻模式后恢复：判据点会话菜单的「关闭常驻模式」（打印 `menu.item=<present>`、`menu.enabled=<true>`），打印 `mode.afterClose=per-run`、`shellTab.disabled.after=false`、`tabClick.afterClose=shell`、`shellView.mounted=true`；**正控制**：点击**前**同一格是 `mode=resident` 且 Shell 禁用（打印那一行）。
+- [x] AC5 已激活态的守卫：判据在 Shell 标签**处于激活态**时把会话置为 `resident`，打印 `shellView.mounted.afterResident=false`、`notice.inView=<逐字>`、`activeTab=<非 shell>`；断言 `notice.inView` 与 `common.json` 的那句逐字相等。
+- [x] AC6 假形态必须红（承重）：把禁用改成按进程是否存活判定（读 `GET /api/session-hosts` 的宿主存在性）⇒ 判据命令退出**非 0**，且红**落在 AC2 的 `shellTab.disabled === true` 那条断言**上（登记变异 diff、失败断言逐字、退出码）。恢复后判据回到 0。
+- [x] AC7 文案 12 locale：新增 key（Shell 的提示句与其可访问名、会话菜单关闭项的标签与描述）在 **12 个 locale** 的 `common.json`/`sidebar.json` 里都存在且非空；判据打印 `locales.ok=12`、`locales.missing=<[]>`，任一缺失以非 0 退出并打印是哪个文件哪个 key；句子运行期从出货目录读，spec 里不抄。
+- [x] AC8 契约面：`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**；`git diff --stat` 与 Touches 逐条对齐（多写的文件须由判据强制）。
+- [x] AC9 不波及别的判据：`npx playwright test --list` 打印 `files.before=14 files.after=15 tests.before=70 tests.after=<70+n>`，新增的**唯一**文件是 `resident-shell-tab.spec.ts`；`npx playwright test e2e/model-env-kind-explanations.spec.ts` 仍退出 **0**（打印退出码与墙钟）。
 
 ## DoD
 
@@ -119,3 +119,65 @@ goal_ac: AC-174
 - `src/modules/i18n/locales/ru/sidebar.json`
 - `src/modules/i18n/locales/tr/sidebar.json`
 - `tasks/gap-claude-resident-shell-tab.md`（自触）
+## 执行记录
+
+**判据：`npx playwright test e2e/resident-shell-tab.spec.ts` → 退出 0，`1 passed (17.4s)`，`elapsed=17376`（< 55_000 上限），整命令墙钟 `real 0m18.072s`。** 同一条命令的两条读数（本轮真跑，非转述）：
+
+```
+locales.ok=12 / locales.missing=[]                       ← AC7
+capability.residentProviders=claude
+mode.write.perRun={"provider":"claude","sessionId":"e2e-mobile-send-key","mode":"per-run","changed":false,"closedHostReason":null}
+mode=per-run / shellTab.disabled=false / chatTab.disabled=false / tabClick.after=shell / shellView.mounted=true   ← AC3 正控制
+guard.activeTab.before=shell / mode=resident / activeTab=chat                       ← AC5
+shellTab.disabled=true / hosts.forSession=0 / shellView.mounted.afterResident=false
+notice.inView=Shell is unavailable for resident sessions. Close resident mode to use it.
+shellTab.disabledReason=resident / shellTab.ariaDisabled=true / shellTab.notice=<同一句> / shellTab.notice.source=title
+tabClick.before=chat / tabClick.refused=true / tabClick.after=chat / chatTab.disabled=false          ← AC2
+mode.beforeMenu=resident / shellTab.disabled.beforeMenu=true / menu.item=present / menu.enabled=true  ← AC4
+mode.afterClose=per-run / shellTab.disabled.after=false / tabClick.afterClose=shell / shellView.mounted=true
+```
+
+**判定源（与 Plan 1/2 的偏差，如实登记）。** Plan 假定 `lifecycle_mode` 会随 `ProjectSession` 对象到达 `WorkspaceHeader`，接线点就是 `selectedSession`。落地时实测不成立：浏览器拿到的会话对象上没有这一列（projects 列表的 `mapSessionRowToSummary` 把该列丢掉了，而那个文件不在 Touches 内），`GET /api/session-hosts` 的 `sessions[].lifecycleMode` 是**唯一**对浏览器发布该偏好的面（`hosts[]` 只答「进程在不在」，两者在「常驻但未运行」上读数相反）。因此判定源改为该 listing 的 `sessions[].lifecycleMode`，由 `WorkspaceMain` 持有并以 2s 轮询刷新（模式在侧栏菜单里改，没有任何广播）；`WorkspaceTabs`/`CollapsedWorkspaceSelector` 仍只收一个 prop，未新开 hook、未引第二份取数。**仍然只读偏好、不读任何进程/宿主状态**——这正是 AC6 的靶心。
+
+**偏差：`SidebarSessionItem.tsx` / `SidebarRecentConversations.tsx` 未改。** Plan 4 要求两个调用方透传新 prop；实测不需要：菜单打开时 `SessionOptions` 自己读一次 listing（`onOpenChange(true)` 里读），会话对象不必携带模式。anti-drift 是**子集**判定，声明了未写不算违规；两文件仍在 Touches 里未写，此处登记以备审阅者核对。
+
+**AC6 假形态（承重，真跑真红，已恢复）。** 变异：把判定从「偏好」换成「有没有 live host」——
+
+```diff
+-          data?: { sessions?: { appSessionId?: string; lifecycleMode?: string }[] };
++          data?: {
++            hosts?: { bindings?: { appSessionId?: string }[] }[];
++            sessions?: { appSessionId?: string; lifecycleMode?: string }[];
++          };
+-        const row = body.data?.sessions?.find((entry) => entry.appSessionId === selectedSessionId);
+-        setLifecycleMode({ sessionId: selectedSessionId, mode: row?.lifecycleMode ?? 'per-run' });
++        const hasLiveHost = (body.data?.hosts ?? []).some((host) =>
++          (host.bindings ?? []).some((binding) => binding.appSessionId === selectedSessionId));
++        setLifecycleMode({ sessionId: selectedSessionId, mode: hasLiveHost ? 'resident' : 'per-run' });
+```
+
+变异下**同一命令退出 1**，红**逐字落在 AC2 的那条断言上**（前一行打印的正是假形态的读数：`mode=resident / activeTab=shell / shellTab.disabled=false`，即「常驻但未运行时 Shell 仍可用」）：
+
+```
+Error: a resident session must close the Shell tab — and this session has no live process, so a reading that asked whether one exists would say the opposite
+expect(received).toBe(expected) // Object.is equality
+Expected: true
+Received: false
+> 445 |   ).toBe(true);
+   at e2e/resident-shell-tab.spec.ts:445:5
+ 1 failed        (整命令墙钟 real 0m34.901s)
+```
+
+恢复后同命令回到退出 **0**（`elapsed=16890`）。**为确保红只落在这一条上，本轮把 AC2 的禁用读数挪到该状态下的第一处断言**：先有界地等「标签已禁用且视图已离开 Shell」（两者同源于一个属性、同一渲染到达），再断言 `shellTab.disabled === true`，其后才是 AC5 的 `notice.inView` / `activeTab`。
+
+**AC8 契约面。** `npm run lint` 退出 **0**（171 条 warning 全为既有、无一条落在本 delta 的文件上：`grep -E "WorkspaceTabs|WorkspaceHeader|WorkspaceMain|SessionOptions|shared/api|resident-shell-tab"` 无命中）；`npm run typecheck` 退出 **0**（三环 `tsconfig.json` / `server/` / `scripts/` 全过）；`git diff --stat` = 29 文件（24 locale + `WorkspaceTabs`/`WorkspaceHeader`/`WorkspaceMain`/`SessionOptions`/`shared/api` + 新 `e2e/resident-shell-tab.spec.ts`），**全部 ⊆ Touches**，未写 Touches 之外任何文件。
+
+**AC9 不波及别的判据。** 同一棵树、同一份 `playwright.config.ts` 做 A/B（把新 spec 移开再收集）：`Total: 68 tests in 14 files` → `Total: 69 tests in 15 files`，文件集差集**只有** `resident-shell-tab.spec.ts`（`diff` 逐行只多这一行；worktree 的 `git status --short e2e/` 只有它一条 `??`）。**注意**：任务立案时登记的基线是 `70 tests in 14 files`，本轮实测的基线是 **68**——develop 在立案后动过（收集总数由配置与 develop 上的 spec 集决定），本条的实质不变量「只多一个文件、只多一条 test」成立。兄弟判据 `npx playwright test e2e/model-env-kind-explanations.spec.ts` 退出 **0**、`1 passed (10.2s)`、墙钟 `real 0m10.894s`。
+
+**AC7 文案。** 12 个 `common.json` 各补 `tabs.shellResidentDisabled`（en 逐字 `Shell is unavailable for resident sessions. Close resident mode to use it.`、zh-CN 逐字「常驻会话不支持 Shell，关闭常驻模式后可用」）与 `tabs.shellResidentDisabledLabel`；12 个 `sidebar.json` 各补 `sessionMenu.closeResidentMode` / `closeResidentModeHint` / `closeResidentModeFailed`。**比 AC7 列的四格多一格**：`closeResidentModeFailed`（转换/关闭被服务端拒绝时就地说明，与同文件既有的 `residentConsentFailed` 同形）。en/zh-CN 的 `sessionMenu` 是既有对象，其余 10 个文件此前**没有** `sessionMenu` 键（本轮新建该对象作为首个键）；24 个文件在写入前都往返校验过 `json.dumps(indent=2, ensure_ascii=False)` 逐字节一致，故 diff 是最小的。句子在运行期从出货目录读（spec 里不抄），任一缺失以非 0 退出并点名文件与 key。
+
+**Touches 之外没有第二份模式写路径**：`SessionOptions.closeResidentMode` 与既有的 `convertToResident` 走同一个客户端方法 `api.providers.setSessionLifecycleMode`（`src/shared/api.ts` 已有，本轮未改它，只加了只读的 `sessionHostListing`）。
+
+**判据跑在真浏览器 + 真服务上，未拉起 claude**：驱动的会话是配置预置的 `e2e-mobile-send-key`（一条已发现的真实会话），全程只经 HTTP 改偏好、不发消息；`hosts.forSession=0` 证明「常驻但未运行」由懒启动语义天然给出，无需任何替身。
+
+**合并 develop 后在合并树上复测（AC1 的读数，按驱动步序如实补记）。** `git merge --no-edit develop` 无冲突（并入的两个文件都是台账类，未触任何源码）；合并树上重跑判据 → 退出 **0**、`1 passed`、`elapsed=31978`、整命令墙钟 `real 0m32.699s`。同一份判据在合并前实测 `elapsed=17376` / `16890`（墙钟 18.1s / 17.6s）⇒ 本轮 32s 是**宿主负载**造成的同一读数变慢，仍**低于 55_000 的判据上限**，也低于 60s 的单测上限；登记此差异供审阅者判读（判据没有依赖墙钟的阈值，除 AC1 的 `< 55_000` 外无任何计时断言）。合并后再跑 `bash scripts/test.sh --for-task gap-claude-resident-shell-tab --allow-thin` → 退出 **0**、逐字 `no scoped test files for gap-claude-resident-shell-tab (thin)`；scoped-gate 缓存按 develop sha `e92ac433815581a9002bc06e86dd5f5188840a9d` 写入 `/data/home/yale/work/claudecodeui/.quay/scoped-gate-cache.json`。

@@ -1,4 +1,13 @@
 {
+  "resident": {
+    "toggle": "Keep this session running (resident)",
+    "notice": {
+      "title": "Before you turn on resident mode",
+      "bypass": "A resident session keeps a process alive between turns and runs it with bypassPermissions: tool calls are executed without asking you first for as long as the session lives.",
+      "trustBoundary": "Trust boundary: that process belongs to your Unix user. Any other process running as the same Unix user can reach it and drive this session.",
+      "acknowledge": "I understand"
+    }
+  },
   "codeBlock": {
     "copy": "Copy",
     "copied": "Copied",

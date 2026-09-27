@@ -31,8 +31,11 @@ import type { LLMProvider } from '@/shared/types';
 const DEBUG_AGENT_PROVIDER_ID = 'debug';
 const SESSION_NAME = 'debug-agent-fixture';
 
+// The sidebar reads both capability sets; the resident one is stubbed empty so the
+// "convert to resident" item stays out of the menu this test asserts on.
 vi.mock('@/shared/hooks/useProviderCapabilities', () => ({
   useSessionForkingProviders: () => new Set<string>(),
+  useResidentProviders: () => new Set<string>(),
 }));
 vi.mock('@/modules/sidebar/hooks/useProviderSessionIdCopy', () => ({
   useProviderSessionIdCopy: () => ({
