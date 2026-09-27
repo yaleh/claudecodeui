@@ -271,4 +271,33 @@
     "cancel": "予約を取り消す",
     "dismiss": "失敗の通知を閉じる"
   }
+,
+  "resident": {
+    "statusBar": {
+      "unstarted": "常駐 · 未起動（{{reason}}）",
+      "idle": "常駐 · 待機中",
+      "busy": "常駐 · 実行中",
+      "exited": "常駐プロセスが終了しました（{{detail}}）",
+      "start": "開始",
+      "restart": "再起動",
+      "close": "常駐プロセスを閉じる",
+      "copyAddress": "アドレスをコピー",
+      "copied": "コピーしました",
+      "address": "アドレス",
+      "counts": {
+        "turn": "実行中のターン",
+        "background-task": "バックグラウンドタスク",
+        "monitor": "モニター",
+        "cron": "スケジュールタスク",
+        "resident-policy": "常駐セッション"
+      }
+    },
+    "divider": {
+      "cron": "⏰ スケジュールタスク · {{time}}",
+      "crossSession": "✉ {{sender}} からのセッション間メッセージ · {{time}}",
+      "backgroundTask": "📡 モニター通知 · {{time}}",
+      "unknown": "ユーザー操作ではありません"
+    },
+    "stopResident": "この回答を停止（プロセスとスケジュールタスクは継続）"
+  }
 }

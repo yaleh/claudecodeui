@@ -155,4 +155,13 @@
   "resizeHandle": {
     "label": "Cambiar el ancho de la barra lateral"
   }
+,
+  "resident": {
+    "mark": {
+      "unstarted": "Sesión residente, no en ejecución",
+      "idle": "Sesión residente, inactiva",
+      "busy": "Sesión residente, en ejecución",
+      "exited": "El proceso residente finalizó"
+    }
+  }
 }

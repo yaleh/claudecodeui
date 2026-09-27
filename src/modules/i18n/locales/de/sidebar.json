@@ -155,4 +155,13 @@
   "resizeHandle": {
     "label": "Breite der Seitenleiste ändern"
   }
+,
+  "resident": {
+    "mark": {
+      "unstarted": "Resident-Sitzung, läuft nicht",
+      "idle": "Resident-Sitzung, Leerlauf",
+      "busy": "Resident-Sitzung, läuft",
+      "exited": "Resident-Prozess beendet"
+    }
+  }
 }

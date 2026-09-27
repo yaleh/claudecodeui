@@ -155,4 +155,13 @@
   "resizeHandle": {
     "label": "Redimensionner la barre latérale"
   }
+,
+  "resident": {
+    "mark": {
+      "unstarted": "Session résidente, non démarrée",
+      "idle": "Session résidente, au repos",
+      "busy": "Session résidente, en cours d’exécution",
+      "exited": "Le processus résident s’est arrêté"
+    }
+  }
 }

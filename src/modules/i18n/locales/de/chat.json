@@ -284,4 +284,33 @@
     "cancel": "Geplante Nachricht abbrechen",
     "dismiss": "Fehlerhinweis ausblenden"
   }
+,
+  "resident": {
+    "statusBar": {
+      "unstarted": "Resident · Läuft nicht ({{reason}})",
+      "idle": "Resident · Leerlauf",
+      "busy": "Resident · Läuft",
+      "exited": "Resident-Prozess beendet ({{detail}})",
+      "start": "Starten",
+      "restart": "Neu starten",
+      "close": "Resident-Prozess schließen",
+      "copyAddress": "Adresse kopieren",
+      "copied": "Kopiert",
+      "address": "Adresse",
+      "counts": {
+        "turn": "Laufende Antwort",
+        "background-task": "Hintergrundaufgaben",
+        "monitor": "Überwachungen",
+        "cron": "Geplante Aufgaben",
+        "resident-policy": "Resident-Sitzung"
+      }
+    },
+    "divider": {
+      "cron": "⏰ Geplante Aufgabe · {{time}}",
+      "crossSession": "✉ Sitzungsübergreifende Nachricht von {{sender}} · {{time}}",
+      "backgroundTask": "📡 Überwachungsbenachrichtigung · {{time}}",
+      "unknown": "Nicht vom Benutzer ausgelöst"
+    },
+    "stopResident": "Diese Antwort stoppen (Prozess und geplante Aufgaben bleiben erhalten)"
+  }
 }

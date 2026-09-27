@@ -155,4 +155,13 @@
   "resizeHandle": {
     "label": "사이드바 너비 조정"
   }
+,
+  "resident": {
+    "mark": {
+      "unstarted": "상주 세션, 실행되지 않음",
+      "idle": "상주 세션, 유휴",
+      "busy": "상주 세션, 실행 중",
+      "exited": "상주 프로세스가 종료됨"
+    }
+  }
 }

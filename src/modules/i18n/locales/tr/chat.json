@@ -284,4 +284,33 @@
     "cancel": "Zamanlanmış mesajı iptal et",
     "dismiss": "Hata bildirimini kapat"
   }
+,
+  "resident": {
+    "statusBar": {
+      "unstarted": "Kalıcı · Çalışmıyor ({{reason}})",
+      "idle": "Kalıcı · Boşta",
+      "busy": "Kalıcı · Çalışıyor",
+      "exited": "Kalıcı süreç sonlandı ({{detail}})",
+      "start": "Başlat",
+      "restart": "Yeniden Başlat",
+      "close": "Kalıcı süreci kapat",
+      "copyAddress": "Adresi kopyala",
+      "copied": "Kopyalandı",
+      "address": "Adres",
+      "counts": {
+        "turn": "Çalışan tur",
+        "background-task": "Arka plan görevleri",
+        "monitor": "İzleyiciler",
+        "cron": "Zamanlanmış görevler",
+        "resident-policy": "Kalıcı oturum"
+      }
+    },
+    "divider": {
+      "cron": "⏰ Zamanlanmış görev · {{time}}",
+      "crossSession": "✉ {{sender}} kişisinden oturumlar arası mesaj · {{time}}",
+      "backgroundTask": "📡 İzleyici bildirimi · {{time}}",
+      "unknown": "Kullanıcı başlatmadı"
+    },
+    "stopResident": "Bu yanıtı durdur (süreç ve zamanlanmış görevler devam eder)"
+  }
 }

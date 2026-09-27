@@ -7,6 +7,19 @@ import type { ChatMessage,NormalizedMessage,SubagentActivity } from '@/shared/ty
 import { formatUsageLimitText } from '@/modules/chat/utils/chatFormatting';
 import { isLiveRowId } from '@/modules/chat/utils/liveRowIdentity';
 
+/**
+ * The `ChatMessage.type` of the divider that introduces a turn nobody typed.
+ *
+ * Declared beside the projection that mints the row, because the row exists only
+ * as this projection's output: the renderer reads the type to know what it is
+ * drawing, and a second spelling of it anywhere would be a second vocabulary for
+ * a row neither file could then agree about.
+ */
+export const UNATTENDED_DIVIDER_MESSAGE_TYPE = 'unattended-divider';
+
+/** The `ChatMessage.type` of a turn nobody typed — see {@link UNATTENDED_DIVIDER_MESSAGE_TYPE}. */
+export const UNATTENDED_TURN_MESSAGE_TYPE = 'unattended';
+
 function formatToolResultContent(content: unknown): string {
   const text = typeof content === 'string' ? content : JSON.stringify(content);
   const toolUseErrorMatch = /^<tool_use_error>([\s\S]*)<\/tool_use_error>$/.exec(text.trim());
@@ -335,36 +348,65 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
         if (!content.trim() && !images && !files) break;
 
         if (msg.role === 'user') {
-          // Parse task notifications
-          const taskNotif = parseTaskNotification(content);
-          if (taskNotif) {
+          if (msg.origin) {
+            // A turn nobody typed is drawn as two rows: a divider naming what
+            // started it, and the turn itself in a style that is not a person's.
+            // They are minted here, side by side, because the divider is a
+            // transcript row in its own right — it has a position, it scrolls,
+            // and deriving it at render time from the row below would make it
+            // depend on where the row below happened to be grouped.
+            //
+            // The alternative this replaces is the reason the two types exist:
+            // pushed as a plain `user` row, an unattended turn would render in
+            // the user's own bubble and be indistinguishable from something the
+            // reader typed.
             converted.push({
-              type: 'assistant',
-              content: taskNotif.summary,
+              type: UNATTENDED_DIVIDER_MESSAGE_TYPE,
+              content: '',
               timestamp: msg.timestamp,
-              isTaskNotification: true,
-              taskStatus: taskNotif.status,
-              ...sharedMetadata,
+              origin: msg.origin,
             });
-            // Render the agent's result as a normal assistant message so its
-            // markdown displays correctly instead of leaking raw XML.
-            if (taskNotif.result) {
-              converted.push({
-                type: 'assistant',
-                content: formatUsageLimitText(taskNotif.result),
-                timestamp: msg.timestamp,
-                ...sharedMetadata,
-              });
-            }
-          } else {
             converted.push({
-              type: 'user',
+              type: UNATTENDED_TURN_MESSAGE_TYPE,
               content,
               timestamp: msg.timestamp,
               images,
               files,
+              origin: msg.origin,
               ...sharedMetadata,
             });
+          } else {
+            // Parse task notifications
+            const taskNotif = parseTaskNotification(content);
+            if (taskNotif) {
+              converted.push({
+                type: 'assistant',
+                content: taskNotif.summary,
+                timestamp: msg.timestamp,
+                isTaskNotification: true,
+                taskStatus: taskNotif.status,
+                ...sharedMetadata,
+              });
+              // Render the agent's result as a normal assistant message so its
+              // markdown displays correctly instead of leaking raw XML.
+              if (taskNotif.result) {
+                converted.push({
+                  type: 'assistant',
+                  content: formatUsageLimitText(taskNotif.result),
+                  timestamp: msg.timestamp,
+                  ...sharedMetadata,
+                });
+              }
+            } else {
+              converted.push({
+                type: 'user',
+                content,
+                timestamp: msg.timestamp,
+                images,
+                files,
+                ...sharedMetadata,
+              });
+            }
           }
         } else {
           const text = formatUsageLimitText(content);

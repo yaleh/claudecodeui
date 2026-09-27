@@ -155,4 +155,13 @@
   "resizeHandle": {
     "label": "Ridimensiona la barra laterale"
   }
+,
+  "resident": {
+    "mark": {
+      "unstarted": "Sessione residente, non in esecuzione",
+      "idle": "Sessione residente, inattiva",
+      "busy": "Sessione residente, in esecuzione",
+      "exited": "Il processo residente è terminato"
+    }
+  }
 }

@@ -304,4 +304,33 @@
     "cancel": "Cancelar mensaje programado",
     "dismiss": "Descartar el aviso de fallo"
   }
+,
+  "resident": {
+    "statusBar": {
+      "unstarted": "Residente · No en ejecución ({{reason}})",
+      "idle": "Residente · Inactivo",
+      "busy": "Residente · En ejecución",
+      "exited": "El proceso residente finalizó ({{detail}})",
+      "start": "Iniciar",
+      "restart": "Reiniciar",
+      "close": "Cerrar el proceso residente",
+      "copyAddress": "Copiar dirección",
+      "copied": "Copiado",
+      "address": "Dirección",
+      "counts": {
+        "turn": "Respuesta en curso",
+        "background-task": "Tareas en segundo plano",
+        "monitor": "Monitores",
+        "cron": "Tareas programadas",
+        "resident-policy": "Sesión residente"
+      }
+    },
+    "divider": {
+      "cron": "⏰ Tarea programada · {{time}}",
+      "crossSession": "✉ Mensaje entre sesiones de {{sender}} · {{time}}",
+      "backgroundTask": "📡 Notificación de monitor · {{time}}",
+      "unknown": "No iniciado por el usuario"
+    },
+    "stopResident": "Detener esta respuesta (el proceso y las tareas programadas continúan)"
+  }
 }

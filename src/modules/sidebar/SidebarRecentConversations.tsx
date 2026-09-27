@@ -7,6 +7,7 @@ import { cn } from '@/shared/utils';
 import type { ProjectSession, RecentConversationListItem, SessionRowActions } from '@/shared/types';
 import { formatCompactAge } from '@/modules/sidebar/utils/sidebarProjectFormatting';
 import { groupSessionsByLineage } from '@/modules/sidebar/utils/groupSessionsByLineage';
+import ResidentMark from '@/modules/sidebar/ResidentMark';
 import SessionBranchBadge from '@/modules/sidebar/SessionBranchBadge';
 import SessionOptions from '@/modules/sidebar/SessionOptions';
 
@@ -188,6 +189,12 @@ export default function SidebarRecentConversations({
                     t={t}
                   />
                 ) : null}
+
+                {/* Keyed by the same id the host listing uses, so the recents
+                  * list reports a resident process identically to the project
+                  * rows even though the two lists are built from different
+                  * payloads. */}
+                <ResidentMark sessionId={conversation.sessionId} t={t} />
 
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[13px] font-normal leading-4">

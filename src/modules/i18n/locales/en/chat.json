@@ -377,4 +377,33 @@
     "escClosesModal": "Esc closes the modal.",
     "close": "Close"
   }
+,
+  "resident": {
+    "statusBar": {
+      "unstarted": "Resident · Not running ({{reason}})",
+      "idle": "Resident · Idle",
+      "busy": "Resident · Running",
+      "exited": "Resident process exited ({{detail}})",
+      "start": "Start",
+      "restart": "Restart",
+      "close": "Close resident process",
+      "copyAddress": "Copy address",
+      "copied": "Copied",
+      "address": "Address",
+      "counts": {
+        "turn": "Running turn",
+        "background-task": "Background tasks",
+        "monitor": "Monitors",
+        "cron": "Scheduled tasks",
+        "resident-policy": "Resident session"
+      }
+    },
+    "divider": {
+      "cron": "⏰ Scheduled task · {{time}}",
+      "crossSession": "✉ Cross-session message from {{sender}} · {{time}}",
+      "backgroundTask": "📡 Monitor notification · {{time}}",
+      "unknown": "Not user-initiated"
+    },
+    "stopResident": "Stop this answer (process and scheduled tasks stay)"
+  }
 }

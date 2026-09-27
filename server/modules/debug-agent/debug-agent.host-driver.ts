@@ -124,7 +124,7 @@ export type DebugAgentTurnRunner = (
   turn: HostTurnInput,
   writer: ProviderRuntimeWriter,
   context: ProviderRuntimeContext,
-) => Promise<void>;
+) => Promise<unknown>;
 
 export type DebugAgentHostDriver = IProviderHostDriver & {
   readonly lifecycleModes: HostMode[];
@@ -138,13 +138,18 @@ export type DebugAgentHostDriver = IProviderHostDriver & {
    * off `provider.hostDriver`, so a driver without it makes the whole resident
    * path unreachable no matter what the runtime can do. See
    * {@link DebugAgentTurnRunner} for why the binding is late.
+   *
+   * Its value is the runner's, passed through rather than dropped: the resident
+   * dispatch hands whatever this resolves to straight back to whoever dispatched
+   * the turn, and the debug run's reading — the numbers the control plane checks
+   * against the artifact — has no other path to its reader.
    */
   run(
     appSessionId: string,
     turn: HostTurnInput,
     writer: ProviderRuntimeWriter,
     context: ProviderRuntimeContext,
-  ): Promise<void>;
+  ): Promise<unknown>;
   /** Binds the turn runner above. Called once, by the factory that built both halves. */
   setTurnRunner(runner: DebugAgentTurnRunner): void;
   /**
@@ -284,7 +289,7 @@ export function createDebugAgentHostDriver(
     turn: HostTurnInput,
     writer: ProviderRuntimeWriter,
     context: ProviderRuntimeContext,
-  ): Promise<void> {
+  ): Promise<unknown> {
     if (!turnRunner) {
       throw new Error(
         `The debug agent's host driver was asked to run a turn for "${appSessionId}" before its runner was bound.`,
@@ -299,7 +304,13 @@ export function createDebugAgentHostDriver(
     lastWriter = writer;
 
     try {
-      await turnRunner(appSessionId, turn, writer, context);
+      // Returned, not dropped. The walk's own result carries the reading the control plane checks
+      // against the artifact, and this is the only path it can travel: the resident dispatch hands the
+      // driver's value straight back to its caller, so a `run` that resolved to `undefined` would make
+      // `/clock` answer `DEBUG_AGENT_RUN_READING_MISSING` for every resident session while the walk
+      // itself completed perfectly. The `finally` still ends the unattended turn on the way out — a
+      // walk that rejected must not leave a turn lease behind either.
+      return await turnRunner(appSessionId, turn, writer, context);
     } finally {
       if (host) {
         await endUnattendedTurn({ appSessionId });

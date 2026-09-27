@@ -128,32 +128,49 @@ function readRowOrigin(raw: unknown): MessageOrigin | null {
  * `debug-agent.runtime.ts`), and the product's normalizer builds each message
  * field by field — so a row field it has never heard of is dropped on the way to
  * the wire, and every reader of a debug transcript sees a turn with no stated
- * cause. This is where it is put back, at the one seam all of those readers go
- * through: the WebSocket frames (`context.normalizeMessage`), the REST history
- * (`sessionsService.normalizeMessage`) and the debug agent's own self-check all
- * call `provider.sessions.normalizeMessage`.
+ * cause. This is where it is put back, at the seam the readers reach the
+ * normalizer through: the WebSocket frames (`context.normalizeMessage`), the
+ * debug agent's own self-check and the REST history (`sessionsService`) all call
+ * `provider.sessions.normalizeMessage` on this face.
  *
  * A proxy rather than a copy, because `ClaudeSessionsProvider` is a class: its
  * methods live on the prototype, so a spread would leave this face with no
  * `fetchHistory` at all. Everything but the one member is forwarded to the real
- * instance with `this` bound to it, which is what keeps this a lift rather than a
- * second sessions implementation.
+ * instance, which is what keeps this a lift rather than a second sessions
+ * implementation.
  */
 function withMessageOrigin(base: IProviderSessions): IProviderSessions {
-  return new Proxy(base, {
+  /**
+   * The one member that is replaced: `normalizeMessage`, with every message it
+   * builds stamped with the cause its own row stated.
+   */
+  const liftOrigin = (raw: unknown, sessionId: string | null): NormalizedMessage[] => {
+    const messages = base.normalizeMessage(raw, sessionId);
+    const origin = readRowOrigin(raw);
+    return origin ? messages.map((message) => ({ ...message, origin })) : messages;
+  };
+
+  const face: IProviderSessions = new Proxy(base, {
     get(target, property) {
       if (property === 'normalizeMessage') {
-        return (raw: unknown, sessionId: string | null): NormalizedMessage[] => {
-          const messages = target.normalizeMessage(raw, sessionId);
-          const origin = readRowOrigin(raw);
-          return origin ? messages.map((message) => ({ ...message, origin })) : messages;
-        };
+        return liftOrigin;
       }
 
       const value = Reflect.get(target, property, target);
-      return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+      // Bound to the face and not to the target, because one of the readers
+      // never leaves the object: `fetchHistory` re-normalizes every raw row
+      // through its own `this.normalizeMessage`, and a method bound to the
+      // target would reach the un-lifted one. That is the whole difference
+      // between the two halves of a conversation an unattended turn ran in —
+      // the frames would carry the cause while the same rows, read back over
+      // REST after a reload, would not — and it is a difference no caller can
+      // see, which is why the calls made *inside* this face have to resolve
+      // through it as well.
+      return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(face) : value;
     },
   });
+
+  return face;
 }
 
 /**
@@ -296,9 +313,12 @@ export function createDebugAgentProvider(
   // routes every resident session through the per-run wrapper — which
   // *supersedes* the resident host, making a turn inside a held process
   // unreachable from the product's own dispatch.
-  hostDriver.setTurnRunner(async (appSessionId, turn, writer, context) => {
-    await runtime.run(turn.command, turn.options, writer, context);
-  });
+  hostDriver.setTurnRunner(async (appSessionId, turn, writer, context) =>
+    // Returned, not awaited-and-dropped: the runtime's result carries the reading its control plane
+    // checks against the artifact, and this is the last hop before the dispatch hands it back to the
+    // caller. Dropping it here is invisible in the walk — every step still runs and every frame still
+    // arrives — and only shows up as a `/clock` that answers `DEBUG_AGENT_RUN_READING_MISSING`.
+    runtime.run(turn.command, turn.options, writer, context));
 
   return {
     id: DEBUG_AGENT_RUNTIME_PROVIDER_ID,

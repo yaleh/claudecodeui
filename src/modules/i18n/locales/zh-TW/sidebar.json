@@ -154,4 +154,13 @@
   "resizeHandle": {
     "label": "調整側邊欄寬度"
   }
+,
+  "resident": {
+    "mark": {
+      "unstarted": "常駐工作階段，未執行",
+      "idle": "常駐工作階段，閒置",
+      "busy": "常駐工作階段，執行中",
+      "exited": "常駐行程已結束"
+    }
+  }
 }

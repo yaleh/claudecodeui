@@ -155,4 +155,13 @@
   "resizeHandle": {
     "label": "Kenar çubuğu genişliğini değiştir"
   }
+,
+  "resident": {
+    "mark": {
+      "unstarted": "Kalıcı oturum, çalışmıyor",
+      "idle": "Kalıcı oturum, boşta",
+      "busy": "Kalıcı oturum, çalışıyor",
+      "exited": "Kalıcı süreç sonlandı"
+    }
+  }
 }

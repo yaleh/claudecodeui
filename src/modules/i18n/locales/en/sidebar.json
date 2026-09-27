@@ -185,4 +185,13 @@
   "resizeHandle": {
     "label": "Resize sidebar"
   }
+,
+  "resident": {
+    "mark": {
+      "unstarted": "Resident session, not running",
+      "idle": "Resident session, idle",
+      "busy": "Resident session, running",
+      "exited": "Resident process exited"
+    }
+  }
 }

@@ -286,4 +286,33 @@
     "cancel": "Annuler le message programmé",
     "dismiss": "Masquer l'avis d'échec"
   }
+,
+  "resident": {
+    "statusBar": {
+      "unstarted": "Résident · Non démarré ({{reason}})",
+      "idle": "Résident · Au repos",
+      "busy": "Résident · En cours d’exécution",
+      "exited": "Le processus résident s’est arrêté ({{detail}})",
+      "start": "Démarrer",
+      "restart": "Redémarrer",
+      "close": "Fermer le processus résident",
+      "copyAddress": "Copier l’adresse",
+      "copied": "Copié",
+      "address": "Adresse",
+      "counts": {
+        "turn": "Réponse en cours",
+        "background-task": "Tâches en arrière-plan",
+        "monitor": "Surveillances",
+        "cron": "Tâches planifiées",
+        "resident-policy": "Session résidente"
+      }
+    },
+    "divider": {
+      "cron": "⏰ Tâche planifiée · {{time}}",
+      "crossSession": "✉ Message inter-session de {{sender}} · {{time}}",
+      "backgroundTask": "📡 Notification de surveillance · {{time}}",
+      "unknown": "Non déclenché par l’utilisateur"
+    },
+    "stopResident": "Arrêter cette réponse (le processus et les tâches planifiées continuent)"
+  }
 }

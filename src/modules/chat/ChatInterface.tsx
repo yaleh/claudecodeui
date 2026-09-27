@@ -573,6 +573,7 @@ function ChatInterface({
           input={input}
           onVoiceTranscript={handleVoiceTranscript}
           scope={draftScope}
+          sessionId={currentSessionId || selectedSession?.id || null}
           projectId={selectedProject?.projectId ?? null}
           isActive={isActive}
           onInputChange={handleInputChange}

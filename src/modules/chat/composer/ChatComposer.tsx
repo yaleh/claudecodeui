@@ -17,6 +17,7 @@ import { useVoiceAvailable } from '@/modules/chat/hooks/useVoiceAvailable';
 import { useSendOnEnter } from '@/modules/chat/hooks/useSendOnEnter';
 import { useComposerCompactTier } from '@/modules/chat/hooks/useComposerCompactTier';
 import { useDeviceSettings } from '@/shared/hooks/useDeviceSettings';
+import { findSessionHostState, useSessionHosts } from '@/shared/hooks/useSessionHosts';
 import { loadProjectIdentifiers } from '@/shared/projectIdentifiers';
 import { isVoiceDebugEnabled } from '@/shared/voiceDebug';
 import type { QueuedDraft, ScheduledMessage, SlashCommand,SessionActivity,PendingPermissionRequest,PermissionMode,ProviderModelOption,VoiceFailureReport } from '@/shared/types';
@@ -145,6 +146,18 @@ type ChatComposerProps = {
   onTextareaInput: (event: FormEvent<HTMLTextAreaElement>) => void;
   isInputFocused?: boolean;
   onInputFocusChange?: (focused: boolean) => void;
+  /**
+   * The session this composer is writing into, or null when none is open yet.
+   * Used to read the session's stored residency, which decides what the stop
+   * control says it is doing.
+   *
+   * Optional, and absent means "not resident": a caller that does not know which
+   * session is open cannot claim the stop button leaves a process behind, and the
+   * plain label is the one that promises nothing. Only the app's single live
+   * caller ever knows the id; the rest of the value's readers are tests that
+   * render this component standalone.
+   */
+  sessionId?: string | null;
   placeholder: string;
   isTextareaExpanded: boolean;
   sendByCtrlEnter?: boolean;
@@ -221,11 +234,27 @@ export default function ChatComposer({
   onTextareaInput,
   isInputFocused = false,
   onInputFocusChange,
+  sessionId = null,
   placeholder,
   isTextareaExpanded,
   sendByCtrlEnter,
 }: ChatComposerProps) {
   const { t } = useTranslation('chat');
+  /*
+   * Whether the session this composer writes into is stored `resident`.
+   *
+   * The stop control does the same thing either way — it interrupts the turn in
+   * flight, and it has no path that closes a process — but in a resident session
+   * that is a promise the label has to make explicitly: the process and its
+   * scheduled work outlive the turn, and a reader who cannot see that would
+   * reasonably expect the stop button to end them. §15.4 puts the destructive
+   * close in the status bar's popover and the session menu for exactly that
+   * reason, and there is deliberately no second one here.
+   */
+  const { snapshot: hostsSnapshot } = useSessionHosts();
+  const isResidentSession = sessionId
+    ? findSessionHostState(hostsSnapshot, sessionId)?.lifecycleMode === 'resident'
+    : false;
   // Same resolution the keydown uses, so the hint below cannot describe a key that does
   // something else on this device.
   const { sendOnEnter, touchOnly } = useSendOnEnter(sendByCtrlEnter);
@@ -367,7 +396,9 @@ export default function ChatComposer({
       ? t('input.queue.update', { defaultValue: 'Update queued message' })
       : t('input.queue.sendNext', { defaultValue: 'Queue next message' })
     : isLoading
-      ? t('input.stop')
+      ? isResidentSession
+        ? t('resident.stopResident')
+        : t('input.stop')
       : t('input.send');
 
   return (

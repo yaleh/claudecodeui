@@ -177,4 +177,13 @@
   "resizeHandle": {
     "label": "调整侧边栏宽度"
   }
+,
+  "resident": {
+    "mark": {
+      "unstarted": "常驻会话，未运行",
+      "idle": "常驻会话，空闲",
+      "busy": "常驻会话，运行中",
+      "exited": "常驻进程已退出"
+    }
+  }
 }

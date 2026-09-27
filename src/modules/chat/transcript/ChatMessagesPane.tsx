@@ -19,6 +19,7 @@ import ProviderSelectionEmptyState from '@/modules/chat/transcript/ProviderSelec
 import ToolGroupContainer from '@/modules/chat/transcript/ToolGroupContainer';
 import LoadAllMessagesOverlay from '@/modules/chat/transcript/LoadAllMessagesOverlay';
 import ChatExportMenu from '@/modules/chat/transcript/ChatExportMenu';
+import ResidentStatusBar from '@/modules/chat/transcript/ResidentStatusBar';
 import ActivityIndicator from '@/modules/chat/composer/ActivityIndicator';
 
 /**
@@ -207,6 +208,18 @@ function ChatMessagesPane({
       onTouchMove={onTouchMove}
       className={`chat-messages-pane relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden pt-3 sm:pt-4 ${paneBottomPadding}`}
     >
+      {/* The resident process's own status, pinned beside the export control
+          rather than inside it: it describes the session's process, so it is
+          not conditional on there being a transcript to export, and it renders
+          itself away for a session that is not resident — `empty:hidden` is
+          what keeps this wrapper from reserving a row of its own on every
+          session that has no resident process. */}
+      <div className="pointer-events-none sticky right-4 top-3 z-10 mb-2 flex justify-start empty:hidden sm:px-4">
+        <ResidentStatusBar
+          sessionId={currentSessionId ?? selectedSession?.id ?? null}
+          t={t}
+        />
+      </div>
       {chatMessages.length > 0 && (
         <div className="pointer-events-none sticky right-4 top-3 z-10 mb-2 flex justify-end sm:px-4">
           <div className="pointer-events-auto">

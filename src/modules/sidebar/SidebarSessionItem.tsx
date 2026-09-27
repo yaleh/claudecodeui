@@ -8,6 +8,7 @@ import type { LLMProvider, Project, ProjectSession, SessionWithProvider } from '
 import { PROVIDER_LABELS, createSessionViewModel, formatCompactAge } from '@/modules/sidebar/utils/sidebarProjectFormatting';
 import { useCompactSidebar } from '@/modules/sidebar/hooks/useCompactSidebar';
 import { useProviderSessionIdCopy } from '@/modules/sidebar/hooks/useProviderSessionIdCopy';
+import ResidentMark from '@/modules/sidebar/ResidentMark';
 import SessionBranchBadge from '@/modules/sidebar/SessionBranchBadge';
 import SessionOptions from '@/modules/sidebar/SessionOptions';
 
@@ -165,6 +166,7 @@ function SidebarSessionItem({
                 t={t}
               />
             ) : null}
+            <ResidentMark sessionId={session.id} t={t} />
 
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
@@ -391,6 +393,7 @@ function SidebarSessionItem({
                 t={t}
               />
             ) : null}
+            <ResidentMark sessionId={session.id} t={t} />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <div

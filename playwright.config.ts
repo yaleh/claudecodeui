@@ -1324,13 +1324,30 @@ if (isDataDirOwner) {
  * the selection is this invocation's own command line, so the gate opens for exactly the runs that name the spec
  * below and the env object is byte-identical to what it was for every other selection.
  *
- * The home is `dataDir` itself, and that is the point rather than a convenience: `getDebugAgentProjectsRoot()`
- * answers `<home>/.claude/projects`, and the server's `HOME` is already `dataDir`, so the fixture transcripts land
- * in the same tree the boot scan and the file watcher already read. A home anywhere else would write transcripts
- * no listing could see.
+ * The home is a directory of its own under `dataDir`, and NOT `dataDir` itself, which it used to be. The reason is
+ * a collision rather than a preference. `getDebugAgentProjectsRoot()` answers `<home>/.claude/projects`, and the
+ * server's `HOME` is `dataDir` — so `home = dataDir` put the fixture transcripts inside `<HOME>/.claude/projects`,
+ * which is exactly the tree the *claude* provider scans and watches. Both indexers then claimed every armed
+ * transcript and the claude one, running from the watcher after the arming call, won: the row ended up stored
+ * under provider `claude` while carrying the `resident` mode the debug seam had written, and `POST
+ * /api/session-hosts/:sessionId/start` resolved the claude host driver for it — a driver that refuses to open a
+ * resident host on demand, because for claude a resident host is born in the driver's run entry. The criterion
+ * could not start the process it had armed.
+ *
+ * A home of its own keeps the two readers apart, and nothing is lost by it: arming indexes the transcript itself
+ * (`synchronizeFile`) rather than waiting for a disk scan, so the session row, its project link and its stored
+ * mode all exist regardless of where the file sits. The old comment's worry — "a home anywhere else would write
+ * transcripts no listing could see" — describes a reader that no longer exists.
  */
 const DEBUG_AGENT_SPEC_FILE = 'resident-status-bar.spec.ts';
-const debugAgentFixtureHome = selectedSpecFiles().includes(DEBUG_AGENT_SPEC_FILE) ? dataDir : null;
+const debugAgentFixtureHome = selectedSpecFiles().includes(DEBUG_AGENT_SPEC_FILE)
+  ? path.join(dataDir, 'debug-agent-home')
+  : null;
+// Published to the workers because the spec has to place its fixture project *inside* this directory:
+// the control plane refuses a `projectPath` outside the fixture home, and the spec process does not
+// inherit the server's own `DEBUG_AGENT_HOME`. Empty — not absent — for every other selection, which
+// is also the value that tells the spec there is no fixture home to write under.
+process.env.QUAY_E2E_DEBUG_AGENT_HOME = debugAgentFixtureHome ?? '';
 
 export default defineConfig({
   testDir: './e2e',
