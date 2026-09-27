@@ -48,6 +48,14 @@ type BindingView = {
   state: SessionBinding['state'];
   leases: HostLease[];
   lastActivityAt: number;
+  /**
+   * The address this conversation's process answers to, or null when it has
+   * none. Published because it is the one fact about a resident process that
+   * cannot be derived from anything the client already holds: the name is
+   * registered inside the process, so a reader that wants to send to this
+   * session has nowhere else to read it from.
+   */
+  peerName: string | null;
 };
 
 /**
@@ -388,5 +396,6 @@ function toBindingView(binding: SessionBinding): BindingView {
     state: binding.state,
     leases: binding.leases,
     lastActivityAt: binding.lastActivityAt,
+    peerName: binding.peerName,
   };
 }
