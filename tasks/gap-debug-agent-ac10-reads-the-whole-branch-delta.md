@@ -67,15 +67,15 @@ providersListTouched: [...touched].some((file) => file.startsWith(PROVIDERS_LIST
 
 ## AC
 
-- [ ] AC1 复现（改前）：在一条 delta 触及 `server/modules/providers/list/` 的分支的 worktree 里跑该判据
+- [x] AC1 复现（改前）：在一条 delta 触及 `server/modules/providers/list/` 的分支的 worktree 里跑该判据
       （`npx tsx --tsconfig server/tsconfig.json --test server/modules/debug-agent/tests/debug-agent-host-driver.test.ts`），
       **必须**退出非 0 且文案逐字 `no file under server/modules/providers/list/ may be touched`；把该次 `git diff --name-only develop | grep providers/list` 的输出与红态原文一并抄进完成记录。
       （现成实例：`gap-session-hosts-claude-per-run-driver` 的 worktree，日志
       `.quay/fan-in-suite-gap-session-hosts-claude-per-run-driver~wk-prod-anchor~1790477685098-*.log`。）
-- [ ] AC2 改后同一棵树转绿且**说明理由**：同一 worktree 重跑同一命令 → 退出 0，且输出里有一行点明该断言**未在本分支求值**、带分支名（例如 `[AC10] providers/list touched=… evaluated=false branch=task/gap-session-hosts-claude-per-run-driver`）。读数原文登记。
-- [ ] AC3 负控制（判据没被变哑）：让这条判据**在自己的分支上**真的求值并被违反 —— 例如在 `task/gap-debug-agent-host-driver` 分支的 worktree 里（或用一次把分支判定强制为真的探针）造一个位于 `server/modules/providers/list/` 的改动，跑同一命令必须退出非 0 且文案同上。读数与还原一并登记。
-- [ ] AC4 门与范围：`npm run typecheck`、`npm run lint` 退出 0；`git diff --stat develop...HEAD` 只含 `## Touches` 列出的文件。
-- [ ] AC5 如实登记：完成记录写明本条改的是**求值范围**，不是不变量本身；并写明它救不了的那种情形（如果将来某任务**故意**要改 `providers/list/` 而又在 debug-agent 的分支上求值，仍应红 —— 这正是 AC3 保证的）。
+- [x] AC2 改后同一棵树转绿且**说明理由**：同一 worktree 重跑同一命令 → 退出 0，且输出里有一行点明该断言**未在本分支求值**、带分支名（例如 `[AC10] providers/list touched=… evaluated=false branch=task/gap-session-hosts-claude-per-run-driver`）。读数原文登记。
+- [x] AC3 负控制（判据没被变哑）：让这条判据**在自己的分支上**真的求值并被违反 —— 例如在 `task/gap-debug-agent-host-driver` 分支的 worktree 里（或用一次把分支判定强制为真的探针）造一个位于 `server/modules/providers/list/` 的改动，跑同一命令必须退出非 0 且文案同上。读数与还原一并登记。
+- [x] AC4 门与范围：`npm run typecheck`、`npm run lint` 退出 0；`git diff --stat develop...HEAD` 只含 `## Touches` 列出的文件。
+- [x] AC5 如实登记：完成记录写明本条改的是**求值范围**，不是不变量本身；并写明它救不了的那种情形（如果将来某任务**故意**要改 `providers/list/` 而又在 debug-agent 的分支上求值，仍应红 —— 这正是 AC3 保证的）。
 
 ## DoD
 
@@ -85,3 +85,96 @@ providersListTouched: [...touched].some((file) => file.startsWith(PROVIDERS_LIST
 
 - server/modules/debug-agent/tests/debug-agent-host-driver.test.ts
 - tasks/gap-debug-agent-ac10-reads-the-whole-branch-delta.md
+
+## 完成记录
+
+**本条改的是求值范围，不是不变量。** `server/modules/providers/list/` 那条断言（`no file under server/modules/providers/list/ may be touched`）在 `task/gap-debug-agent-host-driver` 分支上**一字未松**，在其它任何分支上**不再求值**，但读数行仍在：它现在打印 `touched=<bool> evaluated=<bool> branch=<name>`，并在 `evaluated=false` 时多打印一行说明为什么这里不求值。不变量本身（debug-agent 的宿主 driver 不该需要改动任何 provider 的 runtime）一个字没改；本条也**不评价** debug-agent 的实现。
+
+**为什么是 (a) 而不是 (b)。** (b) 读的是 `tasks/gap-debug-agent-host-driver.md` 的 `## Touches` —— 那是**声明**，不是树上的事实：一个任务可以不声明 `providers/list/` 却照样改那里的文件，此时 (b) 静默放行。(a) 读的仍是同一个树上事实（`git diff --name-only develop` 与 `git show --name-only HEAD` 的并集，算法未动），只把**求值范围**收到这条判据自己的分支上，判据强度与分辨力都不变。故取 (a)，未并用 (b)。
+
+**改动点**（`server/modules/debug-agent/tests/debug-agent-host-driver.test.ts`，+49/-2）：
+- 新常量 `CRITERION_OWNER_BRANCH = 'task/gap-debug-agent-host-driver'`，带注释说明「delta 是被签出分支的事实」。
+- `readFileFacts()` 增读 `git rev-parse --abbrev-ref HEAD`，返回 `branch` 与 `providersListEvaluated`（`branch === CRITERION_OWNER_BRANCH`）；`providersListTouched` 的算法**未动**。
+- 读数行改为 `[AC10] server/modules/providers/list/ touched=… evaluated=… branch=…`，未求值时追加一行 `[AC10] … is NOT evaluated here: …`。
+- 断言由无条件 `assert.equal(facts.providersListTouched, false, …)` 改为 `if (facts.providersListEvaluated) { assert.equal(…) }`；失败文案逐字未动。
+
+**AC1 改前红（在别人的树上）**
+
+树 `/data/home/yale/work/claudecodeui-worktrees/gap-session-hosts-claude-per-run-driver`，分支 `task/gap-session-hosts-claude-per-run-driver`。
+
+`git diff --name-only develop | grep providers/list`：
+
+```
+server/modules/providers/list/claude/claude-per-run-host-driver.provider.ts
+server/modules/providers/list/claude/claude-runtime.provider.js
+server/modules/providers/list/claude/claude.provider.ts
+```
+
+`npx tsx --tsconfig server/tsconfig.json --test server/modules/debug-agent/tests/debug-agent-host-driver.test.ts` → **EXIT=1**（该轮只有这一条 test 红）：
+
+```
+✖ AC9/AC10/AC11: the contract stays where it was, and this file waits for nothing (47.482959ms)
+  AssertionError [ERR_ASSERTION]: no file under server/modules/providers/list/ may be touched
+  true !== false
+      at TestContext.<anonymous> (…/debug-agent-host-driver.test.ts:1396:12)
+```
+
+**AC2 改后同一棵树转绿，且说明了理由。** 把本条的测试文件（与 develop 版仅差上述改动）临时替换进同一 worktree 后重跑同一命令 → **EXIT=0**。（替换前先备份原件，sha256 前后均为 `f2f1f7d4da54a3f72013aa7f80730a1fe57b8b57ecf501ab9e9c4176d6b14efe`；跑完按该备份还原，`git status --porcelain -- <file>` 为空。）
+
+```
+[AC10] server/modules/providers/list/ touched=true evaluated=false branch=task/gap-session-hosts-claude-per-run-driver
+[AC10] the server/modules/providers/list/ assertion is NOT evaluated here: this tree is on branch task/gap-session-hosts-claude-per-run-driver, and that invariant is decided on task/gap-debug-agent-host-driver. A file under that directory in this branch's delta is a sibling task's declared scope, not a violation of this criterion; the reading above is printed, not asserted.
+✔ AC9/AC10/AC11: the contract stays where it was, and this file waits for nothing (50.430019ms)
+```
+
+同一个 delta、同一句 `touched=true`，只是不再在别人的分支上求值。
+
+**AC3 负控制（判据没被变哑）—— 三条读数把「分支」与「树上有无改动」两个变量逐一孤立**
+
+在一条字面分支名为 `task/gap-debug-agent-host-driver` 的临时 worktree（从 `develop` 切出、本条测试文件就位）上：
+
+| # | 树上的 `providers/list/` 改动 | `[AC10]` 读数 | exit |
+|---|---|---|---|
+| 1 | `server/modules/providers/list/cursor/cursor-runtime.provider.js` 追加一行注释 | `touched=true evaluated=true branch=task/gap-debug-agent-host-driver` | **1** |
+| 2 | 同一改动已 `git checkout --` 还原 | `touched=false evaluated=true branch=task/gap-debug-agent-host-driver` | 0 |
+| 3 | 同 AC2 的兄弟树 | `touched=true evaluated=false branch=task/gap-session-hosts-claude-per-run-driver` | 0 |
+
+读 1 的逐字红：
+
+```
+✖ AC9/AC10/AC11: the contract stays where it was, and this file waits for nothing (113.511923ms)
+  AssertionError [ERR_ASSERTION]: no file under server/modules/providers/list/ may be touched
+  true !== false
+      at TestContext.<anonymous> (…/debug-agent-host-driver.test.ts:1442:14)
+```
+
+读 1 与读 3 都 `touched=true`、delta 里都有 `providers/list/` 文件，唯一差别是分支名 —— 一红一绿；读 1 与读 2 同一分支、同一 `evaluated=true`，唯一差别是树上有没有那个改动 —— 一红一绿。故断言既没变哑，也没被改成恒真。
+
+**上述临时 worktree 与分支已完整还原**：`git worktree remove --force` + `git branch -D task/gap-debug-agent-host-driver`，`git worktree list` 与 `git branch --list 'task/gap-debug-agent-host-driver'` 均为空（该任务已 done，分支本就不存在，故删除即回到原状）。
+
+**AC4 门与范围**
+
+```
+npm run typecheck → exit 0（tsconfig.json + server/tsconfig.json + scripts/tsconfig.json）
+npm run lint      → exit 0（仅 warning，均为既有）
+```
+
+`git diff --stat develop...HEAD`：
+
+```
+ .../debug-agent/tests/debug-agent-host-driver.test.ts | 51 +++++++++++++++++++++-
+ 1 file changed, 49 insertions(+), 2 deletions(-)
+```
+
+与 `## Touches` 一致（本任务文件自身的改动由 `task_write` 自提交）。
+
+scoped 门 `bash scripts/test.sh --for-task gap-debug-agent-ac10-reads-the-whole-branch-delta --allow-thin` → exit 0：
+
+```
+__PERFILE__ duration_ms=2654 server/modules/debug-agent/tests/debug-agent-host-driver.test.ts passed=true
+# tests 1 / # pass 1 / # fail 0
+```
+
+**AC5 本条救不了的那种情形（如实登记）**
+
+本条只把**求值范围**收到 `task/gap-debug-agent-host-driver`。在这条分支上，delta 里出现 `server/modules/providers/list/` 的任何文件仍然必红（AC3 读 1 即此），所以「将来某任务故意要改 `providers/list/`、又被放在这条分支的上下文里求值」这一情形**仍然会红** —— 那正是这条不变量该说的话。反过来，本条**不能**发现「某个任务改坏了 provider runtime 却从不在那条分支上求值」：那种改动的归属是 provider 自己的判据，本条不声称覆盖它。另需登记：`task/gap-debug-agent-host-driver` 已 done，此后它的分支不会再被切出，所以在实践中这条断言只在 AC3 那样的探针下求值 —— 这是 (a) 的代价；若要让它常态化地活着，该做的是给判据换一个「谁在改 `providers/list/`」的真实归属，而不是回到整条 delta。
