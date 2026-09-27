@@ -19,7 +19,8 @@ import { fileURLToPath } from 'node:url';
  *
  *  1. NO frame field name and NO event name appears in the module's source. The
  *     dialect's own field names (`type`, `message`, `content`, ...) are not in
- *     the vocabulary; the vocabulary is the WIRE's.
+ *     the vocabulary; the vocabulary is the WIRE's. The one `kind:` the module
+ *     may write is a host LEASE's — see {@link HOST_LEASE_KIND_LITERALS}.
  *  2. The module really does import the product's normalization entry. Half 1 on
  *     its own is passed by a module that produces nothing at all, so half 2 is
  *     its complement: it says the row → frame edge exists and is the product's.
@@ -80,16 +81,48 @@ const FRAME_AND_EVENT_LITERALS = [
 const VOCABULARY = new Set<string>(FRAME_AND_EVENT_LITERALS);
 
 /**
- * A `kind:` given a literal value — ANY value, not only the names listed above.
+ * The `kind:` values this module IS allowed to write by hand: a HOST LEASE's.
+ *
+ * `HostLease` (`@/shared/types.js`) is the other thing this module constructs —
+ * the host driver reports a lease when a turn opens and when a scenario adds a
+ * keepalive, and those values carry a `kind` discriminant of their own
+ * (`turn` | `background-task` | `monitor` | `cron` | `resident-policy`). That is
+ * the host layer's vocabulary, not the wire's: no client ever receives a lease,
+ * so a lease `kind:` is not the "frames are being built here" signal the rule
+ * below exists to catch.
+ *
+ * The list is written out rather than derived because `HostLease['kind']` is a
+ * type, not a value — there is no runtime closed set to read. That makes it a
+ * list that can go stale, which is why the scan is by FIELD VALUE and not by
+ * "allow-list the hits I know about": any `kind:` outside these five still reds,
+ * so a new lease kind added upstream fails this guard until it is listed here,
+ * visibly, next to the contract it is copying.
+ */
+const HOST_LEASE_KIND_LITERALS = [
+  'turn',
+  'background-task',
+  'monitor',
+  'cron',
+  'resident-policy',
+] as const;
+
+const HOST_LEASE_KINDS = new Set<string>(HOST_LEASE_KIND_LITERALS);
+
+/**
+ * A `kind:` given a literal value — ANY value outside {@link HOST_LEASE_KINDS},
+ * not only the names listed above.
  *
  * This is the other half of the literal vocabulary, and the one that catches the
  * frames-only shape: ADR-003's verification record measured a fake implementation
  * being caught by `kind: 'text'` while the real path hit nothing. A dialect row
  * has no `kind` field at all, so a `kind:` in this module can only be a frame
- * discriminator written by hand. Matching the FIELD rather than a list of values
- * is what keeps this from going stale the next time a kind is added upstream.
+ * discriminator written by hand — or a host lease's, which is the one exclusion
+ * {@link HOST_LEASE_KINDS} carries. Matching the FIELD rather than a list of
+ * values is what keeps this from going stale the next time a kind is added
+ * upstream.
  */
-const KIND_VALUE = /\bkind\s*:\s*(?<quote>['"`])(?:\\.|(?!\k<quote>)[^\\\n])*\k<quote>/g;
+const KIND_VALUE =
+  /\bkind\s*:\s*(?<quote>['"`])(?<value>(?:\\.|(?!\k<quote>)[^\\\n])*)\k<quote>/g;
 
 /**
  * The normalization entry a real import statement must reach: the product's own
@@ -257,7 +290,7 @@ function lineAt(code: string, index: number): number {
 
 /**
  * Half 1, for one source: every frame name spelled as a literal, and every
- * `kind:` given one.
+ * `kind:` given one — except a host lease's, which is not the wire's vocabulary.
  *
  * Each hit carries the file and the line, so a red run names what to delete
  * rather than only that something is wrong.
@@ -277,6 +310,11 @@ function scanLiterals(file: string, source: string): LiteralHit[] {
   }
 
   for (const match of code.matchAll(KIND_VALUE)) {
+    const value = match.groups?.value ?? '';
+    if (HOST_LEASE_KINDS.has(value)) {
+      continue;
+    }
+
     const line = lineAt(code, match.index ?? 0);
     hits.push({
       file,
@@ -477,7 +515,7 @@ test('the scan set is the module sources, and the guard is not one of them', () 
     console.log(`  - ${rel(file)}`);
   }
   console.log(
-    `[vocabulary-guard] vocabulary: ${VOCABULARY.size} frame/event literal(s), plus every \`kind:\` literal value`,
+    `[vocabulary-guard] vocabulary: ${VOCABULARY.size} frame/event literal(s), plus every \`kind:\` literal value outside the ${HOST_LEASE_KINDS.size} host-lease kind(s)`,
   );
 
   assert.ok(
@@ -533,6 +571,25 @@ test('the literal half is not inert — a planted frame is caught, a dialect row
     scanLiterals('(dialect row)', dialectRow),
     [],
     'a dialect row written the way this module writes them must not be flagged — in particular `type: \'text\'` is a row field, not a frame kind',
+  );
+
+  // The exclusion, in both directions. A host lease's `kind:` is the host
+  // layer's own discriminant and must scan clean, or the host driver cannot
+  // report a lease at all; a `kind:` at the same field position with any other
+  // value must still red, or the exclusion has widened the rule into nothing.
+  const hostLeases =
+    "const turn: HostLease = { kind: 'turn', runId };\nconst cron: HostLease = { kind: 'cron', id, recurring: true };\nconst held: HostLease = { kind: 'resident-policy' };\n";
+  assert.deepEqual(
+    scanLiterals('(host leases)', hostLeases),
+    [],
+    'the lease kinds `HostLease` declares must not be read as frame discriminators — the host driver reports leases, and the wire never carries one',
+  );
+
+  const nearMissLease = "const lease = { kind: 'delta', id };\n";
+  assert.deepEqual(
+    scanLiterals('(near-miss lease)', nearMissLease).map((hit) => hit.line),
+    [1],
+    "`kind: 'delta'` is not a `HostLease` kind, so the field rule must still catch it: an exclusion that swallowed every `kind:` would be a guard that stopped guarding",
   );
 });
 

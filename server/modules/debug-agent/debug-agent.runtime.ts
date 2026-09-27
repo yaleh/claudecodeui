@@ -6,7 +6,12 @@ import type { AnyRecord, MessageOrigin } from '@/shared/types.js';
 import { AppError, readObjectRecord } from '@/shared/utils.js';
 
 import { getDebugAgentProjectsRoot } from './debug-agent.gate.js';
-import { loadScenario, type DebugAgentScenario } from './debug-agent.scenario.js';
+import {
+  loadScenario,
+  resolveScenarioLifecycleMode,
+  type DebugAgentLifecycleMode,
+  type DebugAgentScenario,
+} from './debug-agent.scenario.js';
 
 /**
  * The debug agent's transcript face: the claude dialect's row shapes, the file
@@ -269,6 +274,25 @@ export type DebugAgentArmInput = {
    * list, select or send to.
    */
   synchronizeTranscript: (filePath: string) => Promise<string | null>;
+  /**
+   * Records the mode the seeded session is stored under, once the indexer has
+   * created its row.
+   *
+   * Called after the row exists because the stored mode is a column on it, and
+   * before the caller can start a run because the mode is read at dispatch
+   * time: a run started against a session still stored `per-run` would take the
+   * per-run path no matter what the scenario seeded.
+   *
+   * Optional, and a scenario seeding `resident` with no seam wired is REFUSED
+   * rather than run: the document asked for a process lifetime this build has
+   * nowhere to record, and a run that quietly proceeded would produce the
+   * per-run substitute under a document that says otherwise — a reading nobody
+   * could attribute to a cause.
+   */
+  setSessionLifecycleMode?: (input: {
+    appSessionId: string;
+    mode: DebugAgentLifecycleMode;
+  }) => void;
 };
 
 /** Armed scenarios, keyed by the session id a run is started for. */
@@ -322,6 +346,24 @@ export async function armDebugAgentScenario(input: DebugAgentArmInput): Promise<
       `the seeded transcript was not indexed as "${providerSessionId}" (the indexer said ${JSON.stringify(indexedSessionId)}), so the session would not be listable`,
     );
   }
+
+  // The mode is written after the index and before anything can run, and the
+  // refusal is about the build rather than the document: `per-run` is what an
+  // unseamed build already does, so only a seeded `resident` needs somewhere to
+  // put it. Read through the resolver, not off the field: a seed with no mode at
+  // all asks for `per-run` and must not be refused for having asked nothing.
+  const lifecycleMode = resolveScenarioLifecycleMode(scenario.seed);
+
+  if (lifecycleMode !== 'per-run' && !input.setSessionLifecycleMode) {
+    return refuse(
+      `seed.lifecycleMode is ${JSON.stringify(lifecycleMode)} but this build has nowhere to record it, so the session would run as "per-run" instead`,
+    );
+  }
+
+  input.setSessionLifecycleMode?.({
+    appSessionId: providerSessionId,
+    mode: lifecycleMode,
+  });
 
   const armed: ArmedDebugAgentScenario = {
     sessionId: providerSessionId,

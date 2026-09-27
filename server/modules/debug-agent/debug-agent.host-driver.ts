@@ -241,6 +241,28 @@ export function createDebugAgentHostDriver(
   let processStarts = 0;
   /** The provider-side runner that executes one turn inside the held process. Bound once, by the factory. */
   let turnRunner: DebugAgentTurnRunner | null = null;
+  /**
+   * The writer frames most recently went to, so a turn that cannot open a run of
+   * its own still has somewhere to deliver.
+   *
+   * The manager's own opener documents this fallback as the pre-seam behaviour
+   * ("the frames stay with the last writer and no run is opened", which is the
+   * ordinary outcome when the registry already has a run in flight for the
+   * session), and it is the only honest one here: a walk that opens two
+   * unattended turns cannot open two runs, and refusing the second would make a
+   * scenario's second divider unreachable rather than merely unrunned.
+   *
+   * Written by `run` (when a turn is dispatched through the host) and by a
+   * successful `openUnattendedTurn`, so it is the writer of the most recent run
+   * THIS driver was handed. That is what the fallback needs to be: the fallback
+   * is only reached when `openRun` answered null, i.e. when a run is already in
+   * flight for the session, and a script that reaches that state through this
+   * driver's own steps reached it through the writer just recorded. It is
+   * deliberately not cleared when a turn's execution returns — a walk's first
+   * run stays open across the steps that follow it, and the second unattended
+   * turn is precisely the case that needs it.
+   */
+  let lastWriter: ProviderRuntimeWriter | null = null;
 
   function setTurnRunner(runner: DebugAgentTurnRunner): void {
     turnRunner = runner;
@@ -273,6 +295,8 @@ export function createDebugAgentHostDriver(
     if (host) {
       await submit(host, appSessionId, turn);
     }
+
+    lastWriter = writer;
 
     try {
       await turnRunner(appSessionId, turn, writer, context);
@@ -382,10 +406,20 @@ export function createDebugAgentHostDriver(
     }
 
     const openRun = openRunOverride ?? dependencies.openRun;
-    const writer = openRun({ appSessionId: input.appSessionId, text: input.text });
+    // A refused open is not a failure to deliver. The registry declines by
+    // answering null — the ordinary case is a run already in flight for this
+    // session — and what that means is "the frames belong to the run that is
+    // already there", which is exactly what the last writer holds. Refusing
+    // outright would make the second unattended turn of a walk impossible, and
+    // the walk is how a scenario states that a session can receive two.
+    const writer = openRun({ appSessionId: input.appSessionId, text: input.text }) ?? lastWriter;
     if (!writer) {
-      throw new Error(`No run could be opened for session "${input.appSessionId}".`);
+      throw new Error(
+        `No run could be opened for session "${input.appSessionId}", and no writer has been handed out yet to deliver its frames to.`,
+      );
     }
+
+    lastWriter = writer;
 
     // The turn lease is reported BEFORE the run is submitted, so the binding is
     // never briefly "idle with a turn starting": a reader that polled between

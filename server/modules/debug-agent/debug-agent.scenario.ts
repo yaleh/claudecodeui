@@ -1,4 +1,10 @@
-import type { AnyRecord, HostCloseDetail, HostLease, MessageOriginTrigger } from '@/shared/types.js';
+import type {
+  AnyRecord,
+  HostCloseDetail,
+  HostLease,
+  HostMode,
+  MessageOriginTrigger,
+} from '@/shared/types.js';
 import { AppError, readObjectRecord } from '@/shared/utils.js';
 
 /**
@@ -227,7 +233,67 @@ export type DebugAgentScenarioExpectations = {
 export type DebugAgentScenarioSeed = {
   title: string;
   userText: string;
+  /**
+   * How the seeded session's process is meant to live, as the session row
+   * stores it.
+   *
+   * Part of the SEED rather than a step, because it is a fact about the fixture
+   * that must hold before the run starts: the resident path is chosen at
+   * dispatch time by reading the session's stored mode, so a scenario that
+   * could only state its mode midway through would have every step before that
+   * point dispatched down the per-run path — including the very turn the
+   * resident host is supposed to serve.
+   *
+   * Optional, and an absent field reads as `per-run`: that is what a session
+   * nobody has set runs as, which is what a scenario written before this field
+   * existed was describing. Typed by extraction from `HostMode` so the two
+   * members a fixture can ask for are the two the contract has.
+   *
+   * Optional on the TYPE as well as in the document, because the two are the
+   * same type: `loadScenario` fills the field in (so a loaded scenario always
+   * carries it), while a scenario literal written straight into a test omits it.
+   * Every reader therefore normalizes an absent value to `per-run` rather than
+   * reading the field raw — see `resolveScenarioLifecycleMode` below, which is
+   * the one place that does it.
+   */
+  lifecycleMode?: DebugAgentLifecycleMode;
 };
+
+/**
+ * The session lifecycle modes a scenario may seed.
+ *
+ * Both members of the shared `HostMode`, and no more: a scenario names a mode
+ * the product already knows how to honour, and a third member would be a
+ * lifetime no dispatch path could serve.
+ */
+export const DEBUG_AGENT_LIFECYCLE_MODES = [
+  'per-run',
+  'resident',
+] as const satisfies readonly HostMode[];
+export type DebugAgentLifecycleMode = (typeof DEBUG_AGENT_LIFECYCLE_MODES)[number];
+
+/**
+ * What a seed with no `lifecycleMode` runs as.
+ *
+ * The one place the default lives, so a scenario document, a scenario literal
+ * written into a test and the loader's own normalization cannot drift into three
+ * answers to "what does a seed with no mode run as". `readSeed` fills the field
+ * in for a document; {@link resolveScenarioLifecycleMode} answers the same
+ * question for a value that never went through the loader.
+ */
+const DEFAULT_LIFECYCLE_MODE: DebugAgentLifecycleMode = 'per-run';
+
+/**
+ * The mode a seed asks for, with an absent field read as
+ * {@link DEFAULT_LIFECYCLE_MODE}.
+ *
+ * Read this rather than the field: a scenario built directly (the module's own
+ * tests write `DebugAgentScenario` literals) never passed through `loadScenario`,
+ * so its seed may legitimately have no mode at all.
+ */
+export function resolveScenarioLifecycleMode(seed: DebugAgentScenarioSeed): DebugAgentLifecycleMode {
+  return seed.lifecycleMode ?? DEFAULT_LIFECYCLE_MODE;
+}
 
 /** A loaded, validated scenario. Only {@link loadScenario} produces one. */
 export type DebugAgentScenario = {
@@ -368,6 +434,13 @@ function readSeed(input: unknown): DebugAgentScenarioSeed {
   return {
     title: readText(seed.title, 'seed.title'),
     userText: readText(seed.userText, 'seed.userText'),
+    // Absent and null both read as `per-run`, the mode a session nobody set
+    // runs as — so the field's absence states the same thing it did before the
+    // field existed rather than becoming a value a reader has to special-case.
+    lifecycleMode:
+      seed.lifecycleMode === undefined || seed.lifecycleMode === null
+        ? DEFAULT_LIFECYCLE_MODE
+        : readClosedValue(seed.lifecycleMode, DEBUG_AGENT_LIFECYCLE_MODES, 'seed.lifecycleMode'),
   };
 }
 

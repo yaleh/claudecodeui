@@ -13,6 +13,7 @@ import {
   readArmedDebugAgentScenario,
   type ArmedDebugAgentScenario,
 } from './debug-agent.runtime.js';
+import type { DebugAgentLifecycleMode } from './debug-agent.scenario.js';
 
 /**
  * The debug agent's dev-only control plane: the HTTP endpoints behind the three
@@ -95,6 +96,18 @@ export type DebugAgentControlPlaneSeams = {
    * whose turn opened none.
    */
   readRunSource?(sessionId: string): string | null;
+  /**
+   * Stores the lifecycle mode an armed scenario's seed asks for.
+   *
+   * Injected for the reason every other seam here is: the column belongs to the
+   * sessions module, which this one may not import. Optional, and an absent
+   * writer refuses a scenario that seeds `resident` — see
+   * `DebugAgentArmInput.setSessionLifecycleMode`.
+   */
+  setSessionLifecycleMode?(input: {
+    appSessionId: string;
+    mode: DebugAgentLifecycleMode;
+  }): void;
 };
 
 /**
@@ -223,6 +236,9 @@ export function registerDebugAgentControlPlaneRoutes(seams: DebugAgentControlPla
         projectPath,
         scenario: body?.scenario,
         synchronizeTranscript: (filePath) => provider.sessionSynchronizer.synchronizeFile(filePath),
+        ...(seams.setSessionLifecycleMode
+          ? { setSessionLifecycleMode: seams.setSessionLifecycleMode }
+          : {}),
       });
 
       res.json(createApiSuccessResponse({

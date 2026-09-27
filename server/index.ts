@@ -317,6 +317,19 @@ if (mountDebugAgentControlPlane(app, authenticateToken)) {
         // opens one through the very seam above. A session with no run answers
         // null, which is what the control plane already has to handle.
         readRunSource: (sessionId) => chatRunRegistry.getRun(sessionId)?.source ?? null,
+        // The one write this face makes outside the transcript: a scenario's
+        // seed names the lifetime its session is stored under, and the row is
+        // only there once the arming step has indexed it — which is why this is
+        // called from inside `armDebugAgentScenario` rather than before it.
+        // Written straight through the repository rather than through
+        // `switchSessionLifecycleMode`, because that service refuses a mode the
+        // session's provider has not declared and this provider is deliberately
+        // not in `LLMProvider`: the declaration it would be checked against is
+        // the driver's own (`lifecycleModes`), which is what makes the seeded
+        // mode honourable rather than aspirational.
+        setSessionLifecycleMode: ({ appSessionId, mode }) => {
+            sessionsDb.setSessionLifecycleMode(appSessionId, mode);
+        },
     });
     console.log(
         `[DEBUG-AGENT] control plane mounted at ${DEBUG_AGENT_CONTROL_PLANE_PATH} (${getDebugAgentGateReason()})`,
