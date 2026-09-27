@@ -548,5 +548,69 @@ pane 尾部原文：
   
 ```
 
+**9.9 缺口补取：后台 Bash 完成后 CLI 是否自行开一轮（AC-162 的第一步）**
+
+取数时间：2026-09-27T07:18Z 起
+claude --version：2.1.283（探针 `system/init` 里逐字 `claude_code_version:"2.1.165"`）；@anthropic-ai/claude-agent-sdk 0.3.165
+驱动方式：两条路各跑一次同一个剧本 —— 宿主推**一条**用户消息让模型以后台方式起 Bash 盯一个测试控制的文件（`while [ ! -f <file> ]; do sleep 0.1; done`），首轮 `result` 之后**不再推任何东西**，500ms 后宿主创建该文件。① raw 路：`claude --print --input-format stream-json --output-format stream-json --verbose`，宿主自己写 stdin 帧（帧上带自己分配的 `uuid`），逐行读 stdout 原文；② SDK 路：`query()` + 永不结束的 prompt iterable（与本仓常驻驱动的形态一致），`options.hooks.Stop` 另外挂一个回调。两路的 mock 端点都只回答 `/v1/messages`。
+
+读数（raw 路，`[ev]` 行逐字；时间相对首帧）：
+
+```
+[host] pushed user frame uuid=3ede4498-6f78-4915-90c5-d78b56bfc11a at 300ms
+[ev] 304ms command_lifecycle command_uuid=3ede4498-... inPushedSet=true
+[ev] 306ms command_lifecycle command_uuid=3ede4498-... inPushedSet=true
+[ev] 333ms system/init uuid=c85457cf-... inPushedSet=false            ← 宿主推的那一轮
+[ev] 415ms system/task_started uuid=f3021563-... task_id=bn062v6el task_type=local_bash
+[ev] 457ms result uuid=1b5b48f7-...                                    ← 第 1 轮结束（此后不再推入）
+[ev] 458ms command_lifecycle command_uuid=3ede4498-... inPushedSet=true
+[host] first result at 458ms; creating trigger in 500ms; NO further input pushed.
+[host] trigger created at 958ms
+[ev] 1036ms system/task_updated        uuid=91706cc5-... task_id=bn062v6el
+[ev] 1036ms system/task_notification   uuid=6481b8d2-... task_id=bn062v6el status=completed
+[ev] 1066ms system/init                uuid=70aa2591-... inPushedSet=false   ← CLI 自己开的轮
+[ev] 1078ms result                     uuid=61f63674-... inPushedSet=false   ← 无 command_lifecycle 伴随
+```
+
+读数（SDK 路，同为 `[ev]` 逐字，另附 Stop hook 每次输入的键）：
+
+```
+[ev] 299ms system/init        uuid=25971db1-... (宿主推的第 1 轮)
+[ev] 308ms assistant          uuid=f30e809d-... (tool_use:Bash(run_in_background))
+[ev] 356ms system/task_started uuid=682bfbc7-... task_id=b7gl0o1l0 task_type=local_bash
+[ev] 372ms result             uuid=7955e636-...
+[probe] first result at 372ms; creating trigger in 500ms; NO further input pushed.
+[probe] trigger created at 873ms
+[ev] 977ms system/task_updated     uuid=eb2763ae-... task_id=b7gl0o1l0 patch.status=completed
+[ev] 978ms system/task_notification uuid=9496ae19-... task_id=b7gl0o1l0 status=completed
+[ev] 980ms system/init             uuid=696a6a25-... inPushedSet=false   ← CLI 自己开的轮
+[ev] 985ms assistant               uuid=17f505b4-... text="ack 4"
+[ev] 986ms result                  uuid=a77a0813-... origin={"kind":"task-notification"}
+Stop hook（options.hooks.Stop）调用 2 次，输入的全部键：
+  ["session_id","transcript_path","cwd","permission_mode","hook_event_name","stop_hook_active",
+   "last_assistant_message","background_tasks","session_crons"]   ← 无 prompt_id、无 effort
+  #1（第 1 轮末，429ms）background_tasks=[{"id":"bbk6km02l","type":"shell","status":"running",
+      "description":"watch for trigger file","command":"while [ ! -f … ]; do sleep 0.1; done; echo …"}]
+      session_crons=[]
+  #2（无人轮末，1070ms）background_tasks=[]  session_crons=[]
+```
+
+读数（`command_lifecycle` / `command_uuid` 的两条路对照）：
+
+```
+raw 路：command_lifecycle 共 3 条，全部 command_uuid=3ede4498-...（= 宿主推入帧的 uuid）⇒ 未被推入过的共 0 条
+        CLI 自己开的轮：0 条 command_lifecycle
+SDK 路：command_lifecycle 0 条（`grep -rn "command_lifecycle" node_modules/@anthropic-ai/claude-agent-sdk/` 亦 0 命中
+        —— 该 subtype 不经 SDK 的 query() 出来）
+两路的 user 事件里带 origin 的只有无人轮 result 那一条（origin.kind="task-notification"），即 origin 只在 result 上出现
+工具表（system/init.tools，25 个）：Task, AskUserQuestion, Bash, CronCreate, CronDelete, CronList, Edit,
+  EnterPlanMode, EnterWorktree, ExitPlanMode, ExitWorktree, NotebookEdit, Read, ScheduleWakeup, Skill,
+  TaskCreate, TaskGet, TaskList, TaskOutput, TaskStop, TaskUpdate, WebFetch, WebSearch, Workflow, Write
+  ⇒ Monitor **不在**表里（与 9.3 一致；本 build 比 9.3 那次多了 AskUserQuestion/EnterPlanMode/ExitPlanMode 与
+  TaskGet/TaskList/TaskOutput/TaskUpdate，少 DesignSync/ListAgents/ReportFindings/SendMessage）
+```
+
+**结论（一行）**：后台 Bash 跑完且宿主**不推任何东西**时，CLI **会自己开一轮** —— 三件套是 `system/task_updated` → `system/task_notification`(`status=completed`) → **`system/init`** → `assistant` → `result`（SDK 路 977/978/980/985/986ms，raw 路 1036/1036/1066/–/1078ms），因此 AC-162 的「不开轮 ⇒ 停并交人」分支**不触发**，任务继续；但该轮**没有**任何 `command_lifecycle`（raw 路给了 0 条，SDK 路该 subtype 全滤），故「无人轮识别」不能取 `command_lifecycle started` 的 uuid —— 可用的识别面是**这一轮自己的开启事件 `system/init` 的 uuid**（宿主从未推过，`inPushedSet=false`）加上「流里出现轮边界时宿主手上没有在飞轮」这个结构事实；触发类型则可对账 **Stop hook 的 `background_tasks`**（上表两次输入的原始行就是权威清单，`type=shell`/`status` 与在飞任务对得上）。这一条差异需要在 AC-162 里改措辞（`command_lifecycle started` → 无人轮的开启事件），属"由人改判据"的范畴，本条按实测读数落地并在完成记录里逐字登记。
+
 结论：环境核对：raw 驱动那条腿的实例写的是临时库（/proc/<pid>/environ 已核对）；收尾后本进程的 claude 后代剩 0 个、tmux 里没有本实验的会话、systemd user scope 里没有本实验的单元（读数为空即"无残留"）。 轮次边界：raw 驱动下 session_state_changed **一条都没有**，SDK query() 那条路 同样一条都没有；可用的轮次把手是「每轮一条 system/init + 轮末一条 result」这一对，command_lifecycle 的 queued/started/completed 另外给出每条消息被排进了哪一轮。 忙时推入：priority 三档（later/next/now）都被 CLI 收下并排进 command_lifecycle 的 queued→started 队列（完成后各自 completed；这一条序列就是"队列"的可见形态）；cancel_async_message 的三种时机——仍在队列里→（无响应），已被处理完→（无响应），uuid 不存在→（无响应）。 后台工作的事件面：本实验读到的 subtype 是 task_started、task_notification、background_tasks_changed；工具表里 **没有** Monitor、有 ScheduleWakeup——即常驻会话里"调度"只能靠 cron（CronCreate/CronList/CronDelete 在表里）。 cron 无人轮：发火在流里表现为 CLI **自己造** command_uuid 的 command_lifecycle started（该 uuid 从未 queued——宿主没推过它，共 0 条），它**没有** origin 字段、**没有** scheduled_task_fire、也**不**在 transcript 里新造 user 帧（全部 4 条 user 事件里带 origin 的只有 0 条）；无人轮自身的取数只能靠 Stop hook——session_crons 在 2 次调用里 2 次非空，background_tasks 1 次非空，这就是 §10 要的权威清单（字段与在飞任务都能对上）。 需要人回应的入口：side_question（宿主→CLI 的控制请求，宿主问、CLI 答）**没有响应**，方向与 canUseTool（CLI 问、宿主答）相反；elicitation **读到了 1 条**（MCP 工具把问题转成控制请求交给宿主）；request_user_dialog 只出现在 SDK 的类型联合里，本实验没有触发它的入口（工具驱动的阻塞对话框要有对应的工具在场），属读数缺口。 flag settings 层：两个变体的 `get_settings` 响应里，`remoteControlAtStartup` 分别为 （没读到） 与 （没读到），`isolatePeerMachines` 分别为 （没读到） 与 （没读到）——即全是"没读到"，**不能**据此说 `--settings` 盖过了用户 settings（那是读数缺口，不是证据）；方案据此走**最保守分支**：不等这个读数，检测到 Remote Control 已开启就拒绝以 bypass 启动常驻进程，并在界面说明（见 §9）；两个变体都**没有**把 `/v1/messages` 之外的流量发给 mock 端点，说明关掉它之后不会再有第二个"控制面"连接（本机没有可用的 Remote Control 后端，开着的那个也无法在此环境里连线，故"开着会怎样"只取到设置层的读数）。 交互式 CLI 的忙时输入：第二条消息落在**后一轮**（排在当前轮之后，不并入）。这一条与 E2/E3 的 stream-json 形态**一致**（都是"另起一轮"），§8 的忙时基准因此对两种形态都成立；但它精确对应三档里的哪一档，本实验**定不了**——9.2 里 `next` 那一档在排队时被撤掉了、没读到它执行时的落点，而 9.2 又显示"后一轮"这个落点对 `now` 与 `later` 都成立，光看落在哪一轮分不开三档；要定档得补一次不取消 `next` 的读数（缺口记在 proposal §8）。
 

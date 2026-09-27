@@ -57,16 +57,16 @@ goal_ac: AC-166
 
 ## AC
 
-- [ ] AC1 判据入口为绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/resident-server-restart.test.ts` 在落地后的树上退出 **0** 且输出 `fail 0`，打印整体墙钟 `elapsed-ms=<n>` 且 `< 60000`。红态基线本轮实测：同命令退出 **1**、文案逐字 `Could not find 'server/modules/session-hosts/tests/resident-server-restart.test.ts'`。命令逐字含文件路径，不用 glob。
-- [ ] AC2 判据驱动的是**真服务进程**（不是 in-process 装配）：打印 `server-boot pid=<n> port=<n> log=<path>`，且 (a) 端口 `!== 3001`（正控制：本 shell 导出的 `SERVER_PORT=3001` 不得被继承）、(b) `tr '\0' '\n' </proc/<pid>/environ` 里能看到**临时** `DATABASE_PATH` 与 `HOST=127.0.0.1`（打印命中行），(c) 判据文件里没有「就地改 `process.env.DATABASE_PATH` 再跑本进程」的 in-process 装配（`grep -c "process.env.DATABASE_PATH *=" <判据文件>` → 0）。
-- [ ] AC3 (1) 正常停止：先从 `GET /api/session-hosts` 读到该常驻宿主 `pid=<a>` 且 `/proc/<a>` 存在（**正控制**：「当时活着」不是恒真），再对服务**进程组**发 `SIGTERM`；打印 `sigterm resident-pid=<a> alive-before=true gone-after-ms=<n> closeReason=<…>`，其中 `closeReason` 逐字为 `server-shutdown`、`/proc/<a>` 在宽限期内消失（`<n>` 有值）。
-- [ ] AC4 (2) 被杀：新起一轮（新服务进程 + 新常驻会话，读到 `pid=<b>`），对服务进程组发 `SIGKILL`；打印 `sigkill survivor=<true|false>`（E5 预期 `true`）与下次启动的清扫读数 `swept=<n>`（`n>=1`），并断言**下次启动后** `/proc/<b>` 不存在，且 `systemctl --user list-units 'claudecodeui-session-<被杀服务 pid>-*'` 为空（打印该命令的输出）。两种分支都接受（EOF 自退 **或** 被清扫），但**最终读数必须是无残留**；若系统无 systemd user manager（该探针为假），该例按 scope 面跳过并**打印 `systemd=false`**，只读 `/proc/<b>` 不存在——不得静默变绿。
-- [ ] AC5 (3) 重启后仍是常驻且接口读到「未运行 + 原因」：重启后的服务进程上 `GET /api/session-hosts` 读到该会话 `lifecycle_mode=resident`、`running=false`、原因**非空**（打印逐字字段名与值；原因常量与实现同源）。**正控制**：同一读里一个 per-run 会话的原因字段为 `null`——保证该字段不是恒真。若实施者把该面放在别的路径（如会话列表），打印实际路径并在完成记录写明理由；`/api/session-hosts` 仍是首选读数面。
-- [ ] AC6 (4) 下一次发送拉起新 pid：重启后对**同一会话**发一条真 `chat.send`，打印 `old-pid=<a> new-pid=<c> distinct=true`，且 `/proc/<c>` 存在、`<c> !== <a>`；宿主快照在该会话上重新出现（打印 `running=true`）。
-- [ ] AC7 判据自带 **60 秒进程级预算守卫**：打印 `budget-ms=60000 elapsed-ms=<n>`；守卫的**阈值**是承重的、不是恒真：把预算判定抽成纯函数并在判据内断言 `guard({elapsedMs: 60001, budgetMs: 60000}) === 3` 与 `guard({elapsedMs: 0, budgetMs: 60000}) === 0`（打印两个返回值）。超预算时以 `process.exit(3)` 退出（不是 node:test 的 case failure）。
-- [ ] AC8 假形态承重（**判据文件一字不动**，源上改一处、实测退出码与红态文案逐字抄进完成记录，用后 `git checkout --` 还原）：把 (a) 启动清扫改为 no-op（`server/index.ts:379` 的调用点短路）**且** (b) resident driver 的 `closeHost` 不再结束输入队列（即 CLI 不因 EOF 退出，正是 E5 的实测行为）⇒ AC4 的 (2) 必须**红**（`/proc/<b>` 仍在 或 `swept=0`）。**正控制**：还原后同一条 AC4 读数必须回到绿。
-- [ ] AC9 不使既有判据变红（逐条打印命令与退出码）：`server/modules/session-hosts/tests/session-host-lifecycle.test.ts`、`…/session-hosts-routes.test.ts`、`…/session-host-per-run-parity.test.ts`、`server/modules/providers/tests/claude-host-per-run.test.ts`、`…/claude-background-work.test.ts`、`…/passthrough-parity.test.ts` 各自退出 **0**，且这些文件 `git diff --name-only` 里没有。
-- [ ] AC10 契约面与边界：`npm run typecheck`、`npm run lint` 退出 0；新判据文件跨模块 import 只经 barrel（`@/modules/<m>/index.js`），未因新符号而需要的 barrel 再导出按需登记进 Touches；改动只落在 Touches 列出的文件上（`git diff --stat` 逐条对齐）。
+- [x] AC1 判据入口为绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/resident-server-restart.test.ts` 在落地后的树上退出 **0** 且输出 `fail 0`，打印整体墙钟 `elapsed-ms=<n>` 且 `< 60000`。红态基线本轮实测：同命令退出 **1**、文案逐字 `Could not find 'server/modules/session-hosts/tests/resident-server-restart.test.ts'`。命令逐字含文件路径，不用 glob。
+- [x] AC2 判据驱动的是**真服务进程**（不是 in-process 装配）：打印 `server-boot pid=<n> port=<n> log=<path>`，且 (a) 端口 `!== 3001`（正控制：本 shell 导出的 `SERVER_PORT=3001` 不得被继承）、(b) `tr '\0' '\n' </proc/<pid>/environ` 里能看到**临时** `DATABASE_PATH` 与 `HOST=127.0.0.1`（打印命中行），(c) 判据文件里没有「就地改 `process.env.DATABASE_PATH` 再跑本进程」的 in-process 装配（`grep -c "process.env.DATABASE_PATH *=" <判据文件>` → 0）。
+- [x] AC3 (1) 正常停止：先从 `GET /api/session-hosts` 读到该常驻宿主 `pid=<a>` 且 `/proc/<a>` 存在（**正控制**：「当时活着」不是恒真），再对服务**进程组**发 `SIGTERM`；打印 `sigterm resident-pid=<a> alive-before=true gone-after-ms=<n> closeReason=<…>`，其中 `closeReason` 逐字为 `server-shutdown`、`/proc/<a>` 在宽限期内消失（`<n>` 有值）。
+- [x] AC4 (2) 被杀：新起一轮（新服务进程 + 新常驻会话，读到 `pid=<b>`），对服务进程组发 `SIGKILL`；打印 `sigkill survivor=<true|false>`（E5 预期 `true`）与下次启动的清扫读数 `swept=<n>`（`n>=1`），并断言**下次启动后** `/proc/<b>` 不存在，且 `systemctl --user list-units 'claudecodeui-session-<被杀服务 pid>-*'` 为空（打印该命令的输出）。两种分支都接受（EOF 自退 **或** 被清扫），但**最终读数必须是无残留**；若系统无 systemd user manager（该探针为假），该例按 scope 面跳过并**打印 `systemd=false`**，只读 `/proc/<b>` 不存在——不得静默变绿。
+- [x] AC5 (3) 重启后仍是常驻且接口读到「未运行 + 原因」：重启后的服务进程上 `GET /api/session-hosts` 读到该会话 `lifecycle_mode=resident`、`running=false`、原因**非空**（打印逐字字段名与值；原因常量与实现同源）。**正控制**：同一读里一个 per-run 会话的原因字段为 `null`——保证该字段不是恒真。若实施者把该面放在别的路径（如会话列表），打印实际路径并在完成记录写明理由；`/api/session-hosts` 仍是首选读数面。
+- [x] AC6 (4) 下一次发送拉起新 pid：重启后对**同一会话**发一条真 `chat.send`，打印 `old-pid=<a> new-pid=<c> distinct=true`，且 `/proc/<c>` 存在、`<c> !== <a>`；宿主快照在该会话上重新出现（打印 `running=true`）。
+- [x] AC7 判据自带 **60 秒进程级预算守卫**：打印 `budget-ms=60000 elapsed-ms=<n>`；守卫的**阈值**是承重的、不是恒真：把预算判定抽成纯函数并在判据内断言 `guard({elapsedMs: 60001, budgetMs: 60000}) === 3` 与 `guard({elapsedMs: 0, budgetMs: 60000}) === 0`（打印两个返回值）。超预算时以 `process.exit(3)` 退出（不是 node:test 的 case failure）。
+- [x] AC8 假形态承重（**判据文件一字不动**，源上改一处、实测退出码与红态文案逐字抄进完成记录，用后 `git checkout --` 还原）：把 (a) 启动清扫改为 no-op（`server/index.ts:379` 的调用点短路）**且** (b) resident driver 的 `closeHost` 不再结束输入队列（即 CLI 不因 EOF 退出，正是 E5 的实测行为）⇒ AC4 的 (2) 必须**红**（`/proc/<b>` 仍在 或 `swept=0`）。**正控制**：还原后同一条 AC4 读数必须回到绿。
+- [x] AC9 不使既有判据变红（逐条打印命令与退出码）：`server/modules/session-hosts/tests/session-host-lifecycle.test.ts`、`…/session-hosts-routes.test.ts`、`…/session-host-per-run-parity.test.ts`、`server/modules/providers/tests/claude-host-per-run.test.ts`、`…/claude-background-work.test.ts`、`…/passthrough-parity.test.ts` 各自退出 **0**，且这些文件 `git diff --name-only` 里没有。
+- [x] AC10 契约面与边界：`npm run typecheck`、`npm run lint` 退出 0；新判据文件跨模块 import 只经 barrel（`@/modules/<m>/index.js`），未因新符号而需要的 barrel 再导出按需登记进 Touches；改动只落在 Touches 列出的文件上（`git diff --stat` 逐条对齐）。
 
 ## DoD
 
@@ -74,7 +74,7 @@ goal_ac: AC-166
 
 ## Touches
 
-- `server/modules/session-hosts/tests/resident-server-restart.test.ts`（新：判据）
+- `server/modules/session-hosts/tests/resident-server-restart.test.ts` (new) — 判据
 - `server/modules/session-hosts/session-hosts.routes.ts`（重启后 resident 会话的「未运行 + 原因」投影）
 - `server/modules/session-hosts/session-host-manager.service.ts`（若该投影需要 manager 提供 resident 会话视图或新原因常量）
 - `server/modules/session-hosts/index.ts`（barrel 收口）

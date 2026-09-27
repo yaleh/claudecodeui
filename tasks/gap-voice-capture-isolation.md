@@ -2,7 +2,7 @@
 id: gap-voice-capture-isolation
 title: 捕获失败的隔离：text 档打印捕获行时抛错、audio 档音频目录不可写两种情形下转写仍返回成功且返回文本逐字不变，恰好一行不含内容的
   voice.capture failed（AC-147）
-status: needs-human
+status: todo
 labels:
   - gap
 parent: null
@@ -160,3 +160,15 @@ L_G 该轴仍暗，理由：目标层的读数是真实服务进程标准输出�
 真因已定位并立案：`gap-voice-error-classification-ac7-vitest-child-fragile`。AC7 会为 `src/shared/asr/tests/asrContractInvariants.test.ts` 额外拉起一个独立的 `npx vitest run` 子进程，与套件自己并发跑的同一文件互相超订 vitest 的 worker 池（`vitest.config.ts` 注释原文点名这个机制，并点名这份文件是堆内存最重的一份）；standalone 稳定绿，红只在舰队并发下出现。按 `quay-fan-in-suite-red-is-fleet-wide-redispatch-is-the-escape` 的例外条款——已落地的兄弟判据读全局事实 ⇒ 干净树 standalone 也红 ⇒ **重新派发对这个红无效**，需要先让 `gap-voice-error-classification-ac7-vitest-child-fragile` 落地。
 
 本任务保持 needs-human；depends_on 已加入该修复任务。修复落地后再由人或机制重新排队。
+
+## 人工复核（再更正，2026-09-27 第三轮）
+
+上一条把状态留在 `needs-human` 并加了 `depends_on` 是自相矛盾的：`depends_on` 门控的是 `ready-pool-check.ts` 的
+`todo→ready` 机械晋升扫描（`.filter((t) => t.status === TASK_STATUS.TODO && …)`），只看 `status: todo` 的任务；
+`needs-human` 根本不在这条流水线里，加在它身上的 `depends_on` 是摆设，不会被机械晋升消费，仍然要靠人手动重派——
+等于什么都没解决。
+
+改正：状态转 `todo`（不是 `ready`——修复任务 `gap-voice-error-classification-ac7-vitest-child-fragile` 还没
+`done`，现在派发只会再撞同一次红）。`depends_on` 已经指向该修复任务；`gap-claude-resident-busy-input`
+（AC-163）现在就是同一种"卡在 todo 等前置"的形状。修复落地为 `done` 后，`ready-pool-check` 的机械晋升会自动把
+本任务转 `ready`，不需要再人工干预。
