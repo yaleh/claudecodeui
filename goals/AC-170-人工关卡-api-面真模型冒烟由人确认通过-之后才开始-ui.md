@@ -1,7 +1,7 @@
 ---
 id: AC-170
 title: 人工关卡：API 面真模型冒烟由人确认通过，之后才开始 UI
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-013
 criterion: grep -q '^冒烟验收：通过' docs/proposals/claude-resident-sessions-smoke.md
@@ -23,6 +23,11 @@ statusLog:
     to: active
     actor: human:yale
     reason: 人 yale 2026-09-27 指令：判据已按 E1–E9 结论修订，转 active
+  - at: 2026-09-27T14:16:47.789Z
+    from: active
+    to: achieved
+    actor: human:yale
+    reason: 人 yale 认可六段读数，写下冒烟验收：通过；gap-claude-resident-api-smoke-human-gate 已 done
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"

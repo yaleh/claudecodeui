@@ -208,3 +208,21 @@ AC7 修复（`gap-voice-error-classification-ac7-vitest-child-fragile`）已落�
 - `server/modules/voice/tests/voice-dashscope-settings.test.ts` 的 AC4(b)：`AssertionError: a temp copy belonging to another process made the scan red`。这是已知的 `__criterion-falsify-*` 邻居临时文件族的同类形状（见 `server-tsconfig-include-sweeps-test-scratch`）；本任务之前的一轮（`~1790486746002-6316b5.log`）已经撞过一次同一签名。standalone 复核 2 次：`exit 0`，`pass 32 / fail 0`。
 
 两条都不在本任务 `## Touches` 里，都是舰队并发下的抽签，不是本任务的 delta。结论：重新排队。
+
+## Needs-Human
+
+**执行 2026-09-27T13:27:10.661Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 6 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=19846 server/modules/providers/tests/sessions-watcher-mode.test.ts passed=false end_ms=1790515509797
+- run_id：wk-prod-anchor
+- session_id：875567b9-a66d-451a-a6c2-8edcfc66b1ee
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-capture-secrets-three-modes~wk-prod-anchor~1790515285270-f65d4d.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-capture-secrets-three-modes-wk-prod-anchor.log
+
+## 人工复核（2026-09-27，人 yale 指令「检查和推进」第六轮）
+
+第四次停在 needs-human 撞的还是同一条 `sessions-watcher-mode.test.ts` 时间预算隐患（与
+`gap-claude-resident-slice-memory-cap` 同一签名）。已直接修复（提交 `b0073b99`）：
+`POLL_WINDOW_SLACK_MS` 从 1000ms 提到 4000ms，只放宽断言容差、不改变健康路径耗时（3 次
+standalone 复核仍是 6020-6028ms）。不在本任务 Touches 里，重新排队。
