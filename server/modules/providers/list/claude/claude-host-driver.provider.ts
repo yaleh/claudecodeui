@@ -768,8 +768,6 @@ type ResidentHostState = {
    * reading something that never reached the process.
    */
   configDir: string;
-  /** The working directory the process was launched in, for its transcript bucket. */
-  cwd: string;
   /** True once the identity read-back has been started, so it starts only once. */
   identityReadbackStarted: boolean;
   /** True when this process was launched resuming an existing conversation. */
@@ -792,14 +790,13 @@ type PendingHost = {
   ledger: BackgroundWorkLedger;
   /**
    * What this process was launched with, decided before the spawn because both
-   * are launch facts: the name handed to the CLI, and the two directories the
-   * read-back of that name needs. Carried here rather than recomputed at
-   * adoption because the option bag they were derived from belongs to the turn
-   * that started the process, which `startHost` never sees.
+   * are launch facts: the name handed to the CLI, and the directory the
+   * read-back of that name has to look in. Carried here rather than recomputed
+   * at adoption because the option bag they were derived from belongs to the
+   * turn that started the process, which `startHost` never sees.
    */
   peerName: string | null;
   configDir: string;
-  cwd: string;
 };
 
 /**
@@ -962,7 +959,6 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       providerSessionId: null,
       peerName: pending.peerName,
       configDir: pending.configDir,
-      cwd: pending.cwd,
       identityReadbackStarted: false,
       resumed: false,
       sessionCreatedSent: false,
@@ -1247,7 +1243,6 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       ledger,
       peerName,
       configDir: resolveClaudeConfigDir(),
-      cwd: typeof options.cwd === 'string' && options.cwd ? options.cwd : process.cwd(),
     };
 
     const host = await this.host.openHost({

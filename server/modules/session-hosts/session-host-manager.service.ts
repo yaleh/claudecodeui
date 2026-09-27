@@ -1099,6 +1099,9 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
       state: 'busy',
       leases: [{ kind: 'turn', runId } satisfies HostLease],
       lastActivityAt: now(),
+      // A per-run host has no address: its process lives for one turn, so a name
+      // handed to it would be gone before a peer could use it.
+      peerName: null,
       detachReason: null,
     };
     const host: ProcessHost = {
