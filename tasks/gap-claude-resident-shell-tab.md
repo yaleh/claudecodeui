@@ -2,7 +2,7 @@
 id: gap-claude-resident-shell-tab
 title: AC-174 真实浏览器里常驻会话的 Shell 标签页禁用并显示「常驻会话不支持 Shell，关闭常驻模式后可用」、判定只读
   lifecycle_mode（按进程是否存活判定 ⇒ 常驻但未运行时 Shell 仍可用，必须红）；关闭常驻模式后同一会话的 Shell 标签页恢复可用
-status: todo
+status: ready
 labels:
   - gap
 parent: null
