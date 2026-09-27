@@ -17,25 +17,6 @@ depends_on:
   - gap-claude-session-cgroup-scope
 goal_ac: AC-167
 ---
----
-id: gap-claude-resident-slice-memory-cap
-title: AC-167 常驻进程超出内存上限时只有它被杀 — 把 claude-session-scope 包装推广为 provider 中立并加共享
-  slice（systemd-run --user --scope --slice=cloudcli-resident.slice -p
-  MemoryMax=配置值 -p MemorySwapMax=0）：单进程上限与 slice 总上限都来自配置且可注入；注入小上限后命令行读到
-  MemoryMax=注入值、MemorySwapMax=0、slice 名逐字；同 slice 下两子进程其一超限被 OOM（宿主快照
-  closeReason=exited、closeDetail=oom），另一个与测试进程存活；结束后无残留 scope 且缺席读数带正对照；无
-  systemd user manager 时打印原因并 exit 3；假形态（退化为直接 spawn、上限写死常量）必须红
-status: ready
-labels:
-  - gap
-parent: null
-children: []
-extra:
-  schema: execution
-depends_on:
-  - gap-claude-session-cgroup-scope
-goal_ac: AC-167
----
 ## Proposal
 
 <!-- dedup-ref --> 机制去重读数（本轮立案时实测，2026-09-27）：`grep -rn "^goal_ac: *AC-167" tasks/*.md | wc -l` → **0**；`grep -rln "AC-167" tasks/*.md | wc -l` → **0** —— 全库零命中，连邻居任务的「非目标」段都没有点名过 AC-167。机制侧同为零：`grep -rn -- "--slice" server/ --include=*.ts --include=*.js | wc -l` → **0**（今天全仓没有任何 `--slice`，现有包装只发 `MemoryMax` 与 `MemorySwapMax=0`）；`grep -rln "cloudcli-resident" tasks/*.md | wc -l` → **0**；`systemctl --user list-units 'cloudcli-resident*' --no-legend --plain | wc -l` → **0**（本机没有这个 slice）。⇒ 本条要建的机制（一个共享 slice + 来自配置的 slice 总上限 + OOM 只收超限者）在库内与机器上都不存在，不是重复。
