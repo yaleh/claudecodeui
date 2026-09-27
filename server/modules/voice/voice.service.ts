@@ -37,12 +37,28 @@ import type { TranscriptionTolerance } from '../../../shared/asr/transcriptionWi
 // transport can hand over, so the shape it is held in has to be nameable here even though the row
 // that consumes it is built in the capture module.
 import type { VoiceCapturePort, VoiceCaptureRawReturn } from './voice-capture.js';
-// The one line a refused recording is allowed to write, imported as a VALUE rather than restated
-// here. This module is the side that catches a log port refusing the row, and the line it prints in
-// that case has to be the same string the capture module prints when the row itself could not be
-// built: two spellings of it would be two failure lines, and the criterion that reads them compares
-// the text verbatim.
-import { VOICE_CAPTURE_FAILED_LINE } from './voice-capture.js';
+
+/**
+ * The ONE line a refused recording is allowed to write, and the whole of it.
+ *
+ * WHY IT IS DECLARED HERE AND NOT IMPORTED FROM THE CAPTURE MODULE. The import above is a TYPE
+ * deliberately: the capture module is reached at RUNTIME through the injected port and never through
+ * this file, so the transcription path's runtime module graph is exactly what its own imports need. A
+ * value import would make the capture module a runtime edge of it, and the falsification criterion
+ * that rebuilds this path in a temp tree — `voice-provider-dispatch-falsify`, which copies the
+ * service and the `shared/asr` tree and nothing else — would then import a module that tree does not
+ * carry. The line is one literal with nothing to construct, so it is written at the one place that
+ * prints it and the type-only import stays type-only.
+ *
+ * IT CARRIES NOTHING, and that is the property the criterion reads rather than assumes: no error
+ * message, no error code, no field of the attempt, no capture id — not even why the attempt failed.
+ * On the audio road the thing a quoted cause would put into this process's output is a filesystem
+ * error naming a path, and the whole point of the line is that it says one thing only. That is also
+ * why it is a literal and not a function of the error: a constructor would invite the message onto
+ * the line one caller at a time, and the first caller that wanted a readable cause would be the one
+ * that made the line a disclosure.
+ */
+const VOICE_CAPTURE_FAILED_LINE = 'voice.capture failed';
 
 type VoiceServiceDependencies = {
   defaults: {
