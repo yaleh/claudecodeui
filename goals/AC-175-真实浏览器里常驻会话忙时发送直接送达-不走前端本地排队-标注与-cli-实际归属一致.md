@@ -1,7 +1,7 @@
 ---
 id: AC-175
 title: 真实浏览器里常驻会话忙时发送直接送达，不走前端本地排队，出队前可撤回
-status: draft
+status: active
 kind: criterion
 goal: GOAL-013
 criterion: npx playwright test e2e/resident-busy-send.spec.ts
@@ -22,4 +22,15 @@ origin: docs/proposals/claude-resident-sessions.md（e88175cf）。人 yale 2026
   proposal 阶段 0 结论（E1–E9，记录文件
   docs/proposals/claude-resident-sessions-experiments.md）修订判据；忙时标注定为「将在当前回答结束后处理」，撤回成败以
   cancelled 事件判，不再有并入当前回答的备选
+activatedAt: 2026-09-27T05:10:33.605Z
+statusLog:
+  - at: 2026-09-27T05:10:33.605Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-09-27T05:10:33.605Z
 ---
