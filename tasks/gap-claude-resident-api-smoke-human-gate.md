@@ -3,7 +3,7 @@ id: gap-claude-resident-api-smoke-human-gate
 title: AC-170 人工关卡：API 面真模型冒烟（只走 HTTP/WS 脚本，不加 cloudcli 子命令）—— 创建常驻会话 → 连续 3 轮 →
   一个无人轮 → 关闭 → 重启后读到已随重启关闭 → 再次发送重新拉起；读数写进
   docs/proposals/claude-resident-sessions-smoke.md；「冒烟验收：通过」行只由人 yale 写，执行者不得代写
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -92,3 +92,12 @@ goal_ac: AC-170
 - `scripts/resident-smoke.mjs` (new)（真模型 HTTP/WS 冒烟脚本 + `--check-record`）
 - `scripts/resident-smoke.test.mjs` (new)（护栏判据）
 - `docs/proposals/claude-resident-sessions-smoke.md` (new)（六段读数记录；`冒烟验收：通过` 行由人 yale 写）
+
+## Needs-Human
+
+**执行 2026-09-27T12:11:51.325Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：AC 未全勾（checked 7/8，剩余未勾 1）——续做只需验证并勾选 AC
+- run_id：wk-prod-anchor
+- session_id：86a1a830-1baa-423f-a7c2-94e37c9f7e94
