@@ -286,6 +286,12 @@
   }
 ,
   "resident": {
+    "pending": {
+      "annotation": "Bu yanıt bittikten sonra işlenecek",
+      "started": "İşlenmeye başlandı",
+      "withdraw": "Geri çek",
+      "withdrawn": "Geri çekildi"
+    },
     "statusBar": {
       "unstarted": "Kalıcı · Çalışmıyor ({{reason}})",
       "idle": "Kalıcı · Boşta",

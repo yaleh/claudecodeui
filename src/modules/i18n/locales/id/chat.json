@@ -377,6 +377,12 @@
   }
 ,
   "resident": {
+    "pending": {
+      "annotation": "Akan diproses setelah jawaban ini selesai",
+      "started": "Mulai diproses",
+      "withdraw": "Tarik kembali",
+      "withdrawn": "Ditarik kembali"
+    },
     "statusBar": {
       "unstarted": "Residen · Tidak berjalan ({{reason}})",
       "idle": "Residen · Idle",

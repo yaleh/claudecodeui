@@ -2,7 +2,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import type { AnyRecord, MessageOrigin } from '@/shared/types.js';
+import type { AnyRecord, CommandLifecycleState, MessageOrigin } from '@/shared/types.js';
+import { COMMAND_LIFECYCLE_ROW_TYPE } from '@/shared/types.js';
 import { AppError, readObjectRecord } from '@/shared/utils.js';
 
 import { getDebugAgentProjectsRoot } from './debug-agent.gate.js';
@@ -92,6 +93,38 @@ export function buildTitleRow(input: { sessionId: string; cwd: string; title: st
     cwd: input.cwd,
     timestamp: input.timestamp,
     customTitle: input.title,
+  };
+}
+
+/**
+ * Builds the row that says where one pushed command is in the CLI's own queue.
+ *
+ * The row's type is the dialect's, taken from the shared vocabulary rather than
+ * written out here: this module may not name a wire kind or event (ADR-003
+ * decision 7, enforced by `tests/debug-agent-vocabulary-guard.test.ts`), and the
+ * dialect's `command_lifecycle` row is exactly the kind of name that is both
+ * the artifact's field and the frame's kind. Importing the dialect's own name
+ * keeps "which string is this?" answerable in one place, and keeps the
+ * row → frame mapping where it belongs — in the product's normalizer.
+ *
+ * `command_uuid` is the uuid the host assigned when it wrote the command, and
+ * the CLI echoes it back verbatim; it is what makes a pushed message and this
+ * row the same object to every reader downstream.
+ */
+export function buildCommandLifecycleRow(input: {
+  sessionId: string;
+  cwd: string;
+  commandUuid: string;
+  state: CommandLifecycleState;
+  timestamp: string;
+}): AnyRecord {
+  return {
+    type: COMMAND_LIFECYCLE_ROW_TYPE,
+    sessionId: input.sessionId,
+    cwd: input.cwd,
+    timestamp: input.timestamp,
+    command_uuid: input.commandUuid,
+    state: input.state,
   };
 }
 

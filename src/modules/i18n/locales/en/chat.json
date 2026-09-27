@@ -388,6 +388,12 @@
   }
 ,
   "resident": {
+    "pending": {
+      "annotation": "Will be handled after this answer finishes",
+      "started": "Started processing",
+      "withdraw": "Withdraw",
+      "withdrawn": "Withdrawn"
+    },
     "statusBar": {
       "unstarted": "Resident · Not running ({{reason}})",
       "idle": "Resident · Idle",

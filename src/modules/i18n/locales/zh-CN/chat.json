@@ -309,6 +309,12 @@
   }
 ,
   "resident": {
+    "pending": {
+      "annotation": "将在当前回答结束后处理",
+      "started": "已开始处理",
+      "withdraw": "撤回",
+      "withdrawn": "已撤回"
+    },
     "statusBar": {
       "unstarted": "常驻 · 未运行（{{reason}}）",
       "idle": "常驻 · 空闲",

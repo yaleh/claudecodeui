@@ -1,5 +1,12 @@
 import type { IProvider, IProviderRuntime, IProviderSessions, IProviderSessionSynchronizer } from '@/shared/interfaces.js';
-import type { LLMProvider, MessageOrigin, NormalizedMessage, RuntimeProviderCapabilities } from '@/shared/types.js';
+import type {
+  LLMProvider,
+  MessageOrigin,
+  NormalizedMessage,
+  ProviderRuntimeContext,
+  ProviderRuntimeWriter,
+  RuntimeProviderCapabilities,
+} from '@/shared/types.js';
 import { AppError, createCompleteMessage, readObjectRecord } from '@/shared/utils.js';
 
 import {
@@ -10,10 +17,15 @@ import {
 import { DEBUG_AGENT_PROVIDER_ID, readDebugAgentGate } from './debug-agent.gate.js';
 import {
   createDebugAgentHostDriver,
+  DEBUG_AGENT_BUSY_INPUT_OPTION,
   type DebugAgentHostDriver,
   type DebugAgentOpenRun,
 } from './debug-agent.host-driver.js';
-import { readArmedDebugAgentScenario } from './debug-agent.runtime.js';
+import {
+  buildCommandLifecycleRow,
+  readArmedDebugAgentScenario,
+  type ArmedDebugAgentScenario,
+} from './debug-agent.runtime.js';
 import {
   DEBUG_AGENT_TURN_TRIGGERS,
   type DebugAgentTurnTrigger,
@@ -174,6 +186,55 @@ function withMessageOrigin(base: IProviderSessions): IProviderSessions {
 }
 
 /**
+ * Records one command the host accepted while it was already in a turn.
+ *
+ * The whole act is one row and one frame. The uuid is minted here because the
+ * host's own queue is keyed by it — the same value goes into the queue, into the
+ * transcript row's `command_uuid` and out over the socket, so "the message the
+ * user sent", "the entry the process is holding" and "the command a withdrawal
+ * names" are one object to every reader, which is the only way the client's
+ * withdrawal button can address the right command.
+ *
+ * The row is *not* appended to the transcript file. The engine's own steps write
+ * the artifact's rows, and this row is not one of them: a push does not run the
+ * scenario, so a row here would be a row the walk's own `expect.rows.delta` never
+ * accounted for — an artifact that disagreed with the clock that produced it. The
+ * frame is what a client reads, and the two steps that later act on this command
+ * (`dequeue`, `cancel-ack`) write their rows through the engine, on the clock.
+ *
+ * Returns the reading, not `undefined`: the resident dispatch hands this value
+ * back to whoever dispatched the turn, and a marker that said "this was a push"
+ * is the only thing that distinguishes this run's result from a walk's.
+ */
+function acceptPushedCommand(input: {
+  armed: ArmedDebugAgentScenario;
+  writer: ProviderRuntimeWriter;
+  context: ProviderRuntimeContext;
+  forwardFrames: DebugAgentFrameForwarder;
+  hostDriver: DebugAgentHostDriver;
+}): { pushed: true; commandUuid: string } {
+  const commandUuid = crypto.randomUUID();
+  input.hostDriver.registerPushedCommand({ appSessionId: input.armed.sessionId, commandUuid });
+
+  const row = buildCommandLifecycleRow({
+    sessionId: input.armed.providerSessionId,
+    cwd: input.armed.projectPath,
+    commandUuid,
+    state: 'queued',
+    timestamp: new Date().toISOString(),
+  });
+
+  input.forwardFrames({
+    transformedMessage: row,
+    sessionId: input.armed.providerSessionId,
+    normalizeMessage: input.context.normalizeMessage,
+    writer: input.writer,
+  });
+
+  return { pushed: true, commandUuid };
+}
+
+/**
  * The runtime face: it walks the scenario armed for the session the run is for,
  * and reports the artifact's own readings back to its caller.
  *
@@ -201,6 +262,22 @@ function createDebugAgentRuntime(
       // It is what the registry maps the run's session back to, and therefore
       // what the terminal `complete`'s REST re-fetch reads the history through.
       writer.setSessionId?.(armed.providerSessionId);
+
+      // A command the host took while it was already in a turn. This is not a
+      // run of the scenario: a real CLI holds such a command in its own queue
+      // until the turn in flight ends, so there is no walk to perform and no
+      // terminal frame to send — the run this dispatch opened is a carrier for
+      // one row, and it is the host's own `dequeue` / `cancel-ack` steps, on the
+      // scenario's clock, that later say what became of the command.
+      //
+      // Read off the options rather than asked of the host layer, because this
+      // and the decision that produced it are the same dispatch: the driver reads
+      // the process's state, stamps the answer onto the turn, and this reads it
+      // back. Asking the host again here would answer about the moment after,
+      // when the pushed command's own arrival may already have changed it.
+      if (options[DEBUG_AGENT_BUSY_INPUT_OPTION] === true) {
+        return acceptPushedCommand({ armed, writer, context, forwardFrames, hostDriver });
+      }
 
       // Where this run's frames ended up. It starts as the caller's writer and
       // follows them to the run's own writer when an unattended turn opens one,

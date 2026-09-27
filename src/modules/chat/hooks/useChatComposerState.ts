@@ -31,6 +31,7 @@ import { useInputHistory } from '@/modules/chat/hooks/useInputHistory';
 import { useSendOnEnter } from '@/modules/chat/hooks/useSendOnEnter';
 import { useSlashCommands } from '@/modules/chat/hooks/useSlashCommands';
 import { consumePendingResidentIntent } from '@/modules/chat/composer/ResidentConsentNotice';
+import { findSessionHostState, useSessionHosts } from '@/shared/hooks/useSessionHosts';
 
 type UseChatComposerStateArgs = {
   selectedProject: Project | null;
@@ -65,6 +66,18 @@ type UseChatComposerStateArgs = {
   onShowSettings?: () => void;
   scrollToBottom: () => void;
   addMessage: (msg: ChatMessage) => void;
+  /**
+   * Records a message handed to a resident process that has not started it yet.
+   *
+   * A third way for a sent message to enter the transcript, beside `addMessage`
+   * (an ordinary turn) and the durable queue (`QueuedMessageCard`): this one is
+   * neither, because the message is already the process's — what it needs is the
+   * host's own account of where the command is, which is the session store's
+   * `command_lifecycle` row. Optional so a caller with no store (a test harness)
+   * can still drive the composer; an absent one drops the row, which is exactly
+   * what a client with no transcript would show anyway.
+   */
+  addResidentPending?: (sessionId: string, text: string) => void;
   setIsUserScrolledUp: (isScrolledUp: boolean) => void;
   setPendingPermissionRequests: Dispatch<SetStateAction<PendingPermissionRequest[]>>;
 };
@@ -188,9 +201,17 @@ export function useChatComposerState({
   onShowSettings,
   scrollToBottom,
   addMessage,
+  addResidentPending,
   setIsUserScrolledUp,
   setPendingPermissionRequests,
 }: UseChatComposerStateArgs) {
+  // The stored lifecycle mode of the session this composer is addressing. The
+  // same store the sidebar's mark and the status bar read — one poller, one
+  // answer — because "is this session resident" has to mean one thing: this hook
+  // decides whether a busy session gets the message handed over or stashed, and a
+  // second reading that disagreed would put the two halves of one send in two
+  // different places.
+  const { snapshot: hostsSnapshot } = useSessionHosts();
   // The composer text together with the chat scope it belongs to. They are one
   // state rather than a value plus a ref because they have to move in lockstep:
   // on a session switch there is one commit where the scope has already changed
@@ -672,10 +693,30 @@ export function useChatComposerState({
         return;
       }
 
+      // Whether this send is going to a process that is already running.
+      //
+      // Read before anything is uploaded, because it decides whether the message
+      // is stashed at all. The mode is the session's own stored one — not a guess
+      // from the composer's switch, which is an intent about what happens next
+      // and says nothing about the process that is running now.
+      const busySendToResidentProcess = Boolean(
+        isLoading
+        && sessionKey
+        && findSessionHostState(hostsSnapshot, sessionKey)?.lifecycleMode === 'resident',
+      );
+
       // A turn is already in flight: stash this message instead of sending it.
       // Upload attached files now so the queued record contains durable image
       // descriptors that can be sent even if another session is open later.
-      if (isLoading) {
+      //
+      // A resident process is the one exception, and it is the opposite case: the
+      // message does not have to wait for the turn to end, because the process
+      // takes it while its answer is still being written and starts it when that
+      // answer is done. So it goes out on this very frame, through the ordinary
+      // send path below, and the transcript holds it with the host's own account
+      // of where the command is. Stashing it here instead would be this client
+      // keeping a queue the process already has.
+      if (isLoading && !busySendToResidentProcess) {
         // A run can restart in the tiny gap between scheduling and flushing a
         // queued submission. Put the same durable draft back without uploading
         // its files again.
@@ -891,7 +932,18 @@ export function useChatComposerState({
         ...(editingAnchorId ? { replacesAnchorId: editingAnchorId } : {}),
       };
 
-      addMessage(userMessage);
+      // A message handed to a running process is not a turn yet: it is a command
+      // the process is holding, and what the transcript has to show about it is
+      // the host's own account of where it is. So it enters the record as the
+      // store's own lifecycle row — the user's text, drawn with the state and the
+      // withdrawal that row's `command_lifecycle` updates bring with them —
+      // rather than as a user turn this client would then have to take back when
+      // the host said something else about it.
+      if (busySendToResidentProcess) {
+        addResidentPending?.(targetSessionId, messageContent);
+      } else {
+        addMessage(userMessage);
+      }
       // Mark this request as processing in the per-session activity map (the
       // single source of truth the indicator derives from). The id is always
       // concrete at this point — no pending placeholder exists anymore.

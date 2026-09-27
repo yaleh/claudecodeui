@@ -322,6 +322,12 @@
   }
 ,
   "resident": {
+    "pending": {
+      "annotation": "將在目前回答結束後處理",
+      "started": "已開始處理",
+      "withdraw": "撤回",
+      "withdrawn": "已撤回"
+    },
     "statusBar": {
       "unstarted": "常駐 · 未執行（{{reason}}）",
       "idle": "常駐 · 閒置",

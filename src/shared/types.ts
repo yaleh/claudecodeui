@@ -400,6 +400,19 @@ export type ChatMessage = {
    * from, and its absence is what says "a person typed this".
    */
   origin?: MessageOrigin;
+  /**
+   * The host's uuid for the command this row is, and where the host says the
+   * command is in its own queue.
+   *
+   * Set on the row drawn for a message a resident process has taken but not
+   * started (`type: 'resident_pending'`), and on no other row. The uuid is the
+   * same one a withdrawal names, so the row's own button addresses the command
+   * the host is holding rather than a message id this client invented; it is
+   * `null` for the window between the send and the host's own account of it,
+   * which is what makes "not yet acknowledged" a state the row can draw.
+   */
+  residentCommandUuid?: string | null;
+  residentCommandState?: CommandLifecycleState;
   [key: string]: unknown;
 };
 
@@ -577,7 +590,35 @@ export type NormalizedMessage = {
    * the sender's absence would be inferring, not reading.
    */
   origin?: MessageOrigin;
+  /**
+   * The host-assigned uuid of the queued command a `command_lifecycle` message
+   * is about, and where that command is in the CLI's own queue.
+   *
+   * Both are set only on `kind: 'command_lifecycle'`, and they are the whole
+   * payload of it: the server forwards "command <uuid> is now <state>" and
+   * nothing else, because that is all the dialect row it normalizes carries.
+   * The uuid is the same one a withdrawal names, which is what lets the client
+   * hold a message and its queue state as one object instead of two.
+   */
+  commandUuid?: string;
+  commandState?: CommandLifecycleState;
 };
+
+// ---------------------------
+
+//----------------- COMMAND LIFECYCLE ------------
+
+/**
+ * Where one queued user message is in the CLI's own queue.
+ *
+ * The client's copy of the server's declaration (`server/shared/types.ts`), and
+ * the same four members: `queued` and `started` are the two facts that separate
+ * "still withdrawable" from "already running", `cancelled` is the ONLY evidence
+ * a withdrawal worked — the CLI answers a `cancel_async_message` control frame
+ * with no `control_response` at any timing, so the queue's own account of the
+ * message is the verdict — and `completed` is the turn having run to its end.
+ */
+export type CommandLifecycleState = 'queued' | 'started' | 'cancelled' | 'completed';
 
 // ---------------------------
 
@@ -719,7 +760,8 @@ type MessageKind =
   | 'permission_cancelled'
   | 'session_created'
   | 'history_truncated'
-  | 'task_notification';
+  | 'task_notification'
+  | 'command_lifecycle';
 
 // ---------------------------
 

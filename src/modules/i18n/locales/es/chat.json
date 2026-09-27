@@ -306,6 +306,12 @@
   }
 ,
   "resident": {
+    "pending": {
+      "annotation": "Se procesará al terminar esta respuesta",
+      "started": "Procesamiento iniciado",
+      "withdraw": "Retirar",
+      "withdrawn": "Retirado"
+    },
     "statusBar": {
       "unstarted": "Residente · No en ejecución ({{reason}})",
       "idle": "Residente · Inactivo",
