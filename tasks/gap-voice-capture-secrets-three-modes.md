@@ -2,7 +2,7 @@
 id: gap-voice-capture-secrets-three-modes
 title: 三档脱敏判据：off/text/audio 各一次成功与一次失败下，DashScope key、共享 backend key、Bearer
   形式与录音 base64 都不出现在任何日志行与任何捕获文件里，且它们确实过了线（正例）（AC-146）
-status: needs-human
+status: ready
 labels:
   - gap
 parent: null
@@ -180,3 +180,11 @@ L_G 该轴仍暗，理由：目标层的读数是真实服务进程按环境变�
 - session_id：6b764403-918f-4cfa-866a-6d345c272d67
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-capture-secrets-three-modes~wk-prod-anchor~1790508464733-1e6bce.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-capture-secrets-three-modes-wk-prod-anchor.log
+
+## 人工复核（2026-09-27，人 yale 指令「检查和推进」第四轮）
+
+AC7 修复（`gap-voice-error-classification-ac7-vitest-child-fragile`）已落地 `done`，本任务的 `todo→ready` 机械晋升按预期自动生效，工人也被派发了。这次停在 needs-human 的判词换成了新签名：`server/modules/session-hosts/tests/lifecycle-mode.test.ts` 的 `[TypeError: fetch failed] { [cause]: Error: bad port }`。
+
+核对：逐字匹配已知记录 `undici-bad-port-lottery-in-listen0-route-tests`——`app.listen(0)` 的端口落在 undici 拒收的 18 个端口之一，约 2%/次舰队跑的纯抽签，不是断言缺陷。本任务自己的 `## Touches` 判据在同一份日志里 `passed=true`；红的文件不在 Touches 里，也不在 `git diff develop...HEAD` 里；standalone 复核 `exit 0`，`pass 9 / fail 0`（2.6s）。
+
+结论：普通的端口抽签型舰队噪声，不是「读全局事实」的例外，重新排队即可。
