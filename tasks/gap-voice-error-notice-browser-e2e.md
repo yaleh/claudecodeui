@@ -268,3 +268,6 @@ fan-in 的 `merge-develop` 让 `develop` 成为 HEAD 的祖先，于是 `develop
 - session_id：9011c081-ce58-45ad-95f5-ec245943aee4
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-error-notice-browser-e2e~wk-prod-anchor~1790483390115-bfb12b.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-error-notice-browser-e2e-wk-prod-anchor.log
+
+
+**第 5 轮（2026-09-27）闭环：第 4 轮判定的 suite 红已由 develop 修复，本任务 10/10 AC 保持满足。** 第 4 轮另立的修复任务 `gap-claude-host-per-run-delta-scope-gate` 已落地 develop `d320ac5b`（`fix(providers): scope AC6's driver-in-delta assertion to its own branch`）：该判据的 AC6 现在按分支设门，仅在 owner 分支 `task/gap-session-hosts-claude-per-run-driver` 上求值，其它分支打印读数并记 `evaluated=false`。本工作树已 merge 该提交，standalone 读数 `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-host-per-run.test.ts` → `# tests 7 / # pass 7 / # fail 0`（该文件即上一轮唯一红，`kind=assert`，890ms 即抛、无 spawn）。本轮**未改任何实现字节**（`git diff 85a0083e HEAD -- src/ e2e/ playwright.config.ts` 为空 ⇒ 此前四条腿的浏览器读数仍对应同一棵树）。`fan-in-ac-completion-gate --worktree` = 10/10；anti-drift = 8 actual ⊆ 10 declared；scoped gate `# tests 2 / # pass 2 / # fail 0`，exit 0。故上面两条「标 needs-human」的阻碍原因已消除，不再需要人工介入。
