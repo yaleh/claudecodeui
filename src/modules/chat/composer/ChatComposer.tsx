@@ -17,7 +17,6 @@ import { useVoiceAvailable } from '@/modules/chat/hooks/useVoiceAvailable';
 import { useSendOnEnter } from '@/modules/chat/hooks/useSendOnEnter';
 import { useComposerCompactTier } from '@/modules/chat/hooks/useComposerCompactTier';
 import { useDeviceSettings } from '@/shared/hooks/useDeviceSettings';
-import { voiceErrorMessage } from '@/modules/chat/utils/voiceErrorMessages';
 import { loadProjectIdentifiers } from '@/shared/projectIdentifiers';
 import { isVoiceDebugEnabled } from '@/shared/voiceDebug';
 import type { QueuedDraft, ScheduledMessage, SlashCommand,SessionActivity,PendingPermissionRequest,PermissionMode,ProviderModelOption,VoiceFailureReport } from '@/shared/types';
@@ -34,7 +33,7 @@ import {
 import CommandMenu from '@/modules/chat/composer/CommandMenu';
 import ActivityIndicator from '@/modules/chat/composer/ActivityIndicator';
 import ComposerAttachment from '@/modules/chat/composer/ComposerAttachment';
-import VoiceInputButton from '@/modules/chat/composer/VoiceInputButton';
+import VoiceInputButton, { VoiceFailureNotice } from '@/modules/chat/composer/VoiceInputButton';
 import VoiceUploadButton from '@/modules/chat/composer/VoiceUploadButton';
 import VoiceClipButton from '@/modules/chat/composer/VoiceClipButton';
 import PermissionRequestsBanner from '@/modules/chat/composer/PermissionRequestsBanner';
@@ -291,21 +290,19 @@ export default function ChatComposer({
   // Voice state is hosted here (not in the mic button) so the main Send button can stop
   // recording and send the transcript in one tap, the way the mic button drops it in the box.
   const voiceAvailable = useVoiceAvailable();
-  const [voiceError, setVoiceError] = useState<string | null>(null);
-  const voiceErrorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // A failure reaches the bubble as a SENTENCE either way, but only the chain's own failures arrive
-  // as one: a recogniser refusal arrives as the fields its answer carried, and is turned into the
-  // sentence the user's language has for that code here, at the one point that knows the language.
-  // Everything below — the single timer, the one-line bubble, the shape handed to the button — is
-  // unchanged, because what the bubble shows was never the disagreement.
+  // The last voice failure, held as the REPORT the chain produced rather than as a sentence: which
+  // sentence a refusal gets is the user's language's answer, and this component does not know the
+  // language any better than the button that renders it — both read the same translator.
+  //
+  // It stays until the user dismisses it or starts the next recording. The four-second timer that used
+  // to clear it was the defect this surface was filed for: a notice that disappears on its own takes
+  // the one thing the user needs — the sentence, and the codes behind it — away while they are still
+  // reading it.
+  const [voiceFailure, setVoiceFailure] = useState<VoiceFailureReport | null>(null);
   const handleVoiceError = useCallback((failure: VoiceFailureReport) => {
-    setVoiceError(typeof failure === 'string' ? failure : voiceErrorMessage(failure, t));
-    if (voiceErrorTimer.current) clearTimeout(voiceErrorTimer.current);
-    voiceErrorTimer.current = setTimeout(() => setVoiceError(null), 4000);
-  }, [t]);
-  useEffect(() => () => {
-    if (voiceErrorTimer.current) clearTimeout(voiceErrorTimer.current);
+    setVoiceFailure(failure);
   }, []);
+  const dismissVoiceFailure = useCallback(() => setVoiceFailure(null), []);
   const noopTranscript = useCallback(() => {}, []);
   // The names the transcript is repaired against. Fetched once per project (the module
   // memoises the request) and held as state so the repair sees the list on the next
@@ -339,6 +336,13 @@ export default function ChatComposer({
   );
   const isRecording = voiceState === 'recording';
   const isTranscribing = voiceState === 'transcribing';
+  // Starting the next recording is the user answering the last failure, so it dismisses the notice.
+  // Wrapped here rather than inside the button because the failing attempt's message is the
+  // composer's state: the button renders what it is handed and owns no memory of the last failure.
+  const handleVoiceToggle = useCallback(() => {
+    setVoiceFailure(null);
+    voiceToggle();
+  }, [voiceToggle]);
 
   // Hide the thinking/status bar while any permission request is pending
   const hasPendingPermissions = pendingPermissionRequests.length > 0;
@@ -380,6 +384,19 @@ export default function ChatComposer({
         <div className="pointer-events-none absolute bottom-full left-1/2 z-10 w-[calc(100%-1rem)] max-w-[54.25rem] -translate-x-1/2 translate-y-px bg-transparent sm:w-[calc(100%-2rem)]">
           <ActivityIndicator activity={activity} onAbort={onAbortSession} isInputFocused={isInputFocused} />
         </div>
+      )}
+
+      {/*
+        The failure notice, drawn from the shell rather than from inside the mic button that raised it.
+
+        The mic lives in the form's footer, and the form is `relative overflow-hidden` so the textarea's
+        highlight layer can be clipped to its rounded corners — a notice anchored to the button and drawn
+        above it therefore leaves the form's box and is clipped, which puts its close control out of a
+        pointer's reach. This layer is a sibling of the form for the same reason the activity indicator
+        above is one, and `VoiceFailureNotice` carries the reading that made the placement necessary.
+      */}
+      {voiceFailure !== null && (
+        <VoiceFailureNotice failure={voiceFailure} onDismiss={dismissVoiceFailure} />
       )}
 
       {pendingPermissionRequests.length > 0 && (
@@ -597,7 +614,10 @@ export default function ChatComposer({
             </PromptInputButton>
 
             {onVoiceTranscript && voiceAvailable && (
-              <VoiceInputButton state={voiceState} onToggle={voiceToggle} errorMsg={voiceError} />
+              <VoiceInputButton
+                state={voiceState}
+                onToggle={handleVoiceToggle}
+              />
             )}
 
             {/*

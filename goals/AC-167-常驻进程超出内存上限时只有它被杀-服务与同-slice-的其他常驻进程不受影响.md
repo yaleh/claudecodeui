@@ -1,7 +1,7 @@
 ---
 id: AC-167
 title: 常驻进程超出内存上限时只有它被杀，服务与同 slice 的其他常驻进程不受影响
-status: draft
+status: active
 kind: criterion
 goal: GOAL-013
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -24,4 +24,15 @@ origin: docs/proposals/claude-resident-sessions.md（e88175cf）。人 yale 2026
   proposal 阶段 0 结论（E1–E9，记录文件
   docs/proposals/claude-resident-sessions-experiments.md）修订判据；内存上限的生产数值待 24
   小时浸泡，本条只钉机制与配置可注入
+activatedAt: 2026-09-27T05:00:22.827Z
+statusLog:
+  - at: 2026-09-27T05:00:22.827Z
+    from: draft
+    to: active
+    actor: human:yale
+    reason: 人 yale 2026-09-27 指令：判据已按 E1–E9 结论修订，转 active
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-09-27T05:00:22.827Z
 ---
