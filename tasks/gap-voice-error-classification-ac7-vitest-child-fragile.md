@@ -3,7 +3,7 @@ id: gap-voice-error-classification-ac7-vitest-child-fragile
 title: AC7 的 asrContractInvariants
   子进程在舰队并发下假红：voice-error-classification.false-forms.test.ts 拉起独立 vitest
   进程与套件自身并发跑同一文件互相超订，standalone 绿、舰队 6/11 次红，困住两个不相干任务
-status: needs-human
+status: done
 labels:
   - gap
   - defect
@@ -115,3 +115,15 @@ ac7-repro: iterations=5 fails=0
 - session_id：a2caef7d-7c17-4b5f-8535-7ef8dffda49d
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-error-classification-ac7-vitest-child-fragile~wk-prod-anchor~1790503039105-7a5628.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-error-classification-ac7-vitest-child-fragile-wk-prod-anchor.log
+
+## 人工复核（2026-09-27，人 yale 指令「检查和推进」第三轮）
+
+停在 needs-human 的判词是 `server/modules/debug-agent/tests/debug-agent-gate.test.ts` 红：
+`[face 1 registry] registered=false resolve('debug')=AppError/UNSUPPORTED_PROVIDER/400 resolve('claud')=AppError/UNSUPPORTED_PROVIDER/400`。
+
+核对：
+
+- **本任务自己的判据这一轮实际是绿的**：同一份日志 `__PERFILE__ duration_ms=108319 server/modules/voice/tests/voice-error-classification.false-forms.test.ts passed=true`——本条要修的 AC7 隐患这一轮没有复现，本任务的 delta 没有问题。
+- 红的文件不在本任务 Touches 里。该签名逐字匹配已知记录 `fan-in-probe-child-red-is-host-oom-not-the-delta`：`debug-agent-gate.test.ts` 健康跑收尾打印的**就是**这一行（"关闭态"分支的预期读数），`scripts/test.sh` 对文件级失败只打印子进程 stdout 的最后一行，不是断言消息，所以绿跑和这次的"红"文本逐字相同。standalone 复核：`exit 0`，`pass 6 / fail 0`（4.7s）。
+
+结论：这是已知的、与本任务 delta 完全无关的舰队噪声（健康收尾行被误判为失败），不是「已落地兄弟判据读全局事实」的例外情形——重新排队就是正确的逃逸。
