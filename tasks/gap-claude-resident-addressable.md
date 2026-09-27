@@ -65,23 +65,108 @@ goal_ac: AC-164
 
 ## AC
 
-- [ ] 判据入口为绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-addressable.test.ts` 在落地后的树上退出 **0** 且输出 `fail 0`，并打印整体墙钟 `elapsed=<n>ms` 且 `< 60_000`。红态基线本轮实测：同命令退出 **1**、文案逐字 `Could not find 'server/modules/providers/tests/claude-resident-addressable.test.ts'`。命令逐字含文件路径，不用 glob。
-- [ ] §12 规则逐字：判据对**两个**常驻会话各打印一行 `session=<A|B> sid6=<6位> slug=<标题 slug> ruleName=<slug>-<sid6> snapshotPeerName=<v> equal=true`，断言 `snapshotPeerName === '<slug>-<sid6>'`。
-- [ ] 快照名 == CLI 真的注册的地址：判据打印 `transcriptAgentName=<v> equalToSnapshot=true`（从 `<CLAUDE_CONFIG_DIR>/projects/<slug>/<session>.jsonl` 的 `agent-name` 记录读出，E6 的判定通道），**并**打印 `nameInRequestBody=false`（证明该读数不是从 `/v1/messages` 请求体来的 —— 它本就不进请求体）。
-- [ ] 地址取自「复制」的那条路：判据打印 `addressSource=GET /api/session-hosts peerName=<v>` —— 断言用来发送的地址**逐字来自 REST 投影的 `peerName`**，不是判据内部的另一个变量（与界面「复制 SendMessage 地址」同源，proposal §12 `:400`）。
-- [ ] 进程存活期间不变：进程存活时改会话标题（走既有 rename 路径）⇒ 判据打印 `pidBefore=<p> pidAfter=<p> peerNameBefore=<n> peerNameAfter=<n> pidUnchanged=true nameUnchanged=true`。
-- [ ] 送达并产生一轮：判据打印 `sentFrom=<A peerName> sentTo=<B peerName> delivered=true`，以及乙侧 `run.source=unattended run.trigger=cross-session-message runsBefore=<n> runsAfter=<n+1>`（run 计数确实增加）；回放：新连接 `chat.subscribe(lastSeq=0)` 的 `replayed=<n>` 与本次产出的帧数相等。
-- [ ] 三条读数的**正控制**（保证不是恒真）：(a) 名字 —— 假形态臂打印 `transcriptAgentName=<CLI 自动名> equalToSnapshot=false`，证明上面的等值断言不是恒真；(b) 触发类型 —— 同一次运行里另有一条用户轮，打印其 `run.source=user run.trigger=<非跨会话>`，证明触发类型不是常量；(c) 回放 —— 乙在送达前 `replayEvents(B,0)` 为空（打印 `replayed-before=0`）。
-- [ ] 假形态承重：driver 照 §12 规则**算**出名字但**不传** `extraArgs.name`（判据文件一字不动）⇒ 判据命令退出 **1**，且红**落在**「快照名 == 转录 `agent-name`」那条读数上（不是别的腿先红）。实测退出码与红态文案逐字抄进完成记录，用后 `git checkout --` 还原。
-- [ ] 60 秒预算：判据打印整体墙钟 `elapsed=<n>ms` 并断言 `< 60_000`（goal 的判据闸门对单条判据是 60 秒硬超时，不可上调）；真实二进制那段的等待只能是有界轮询（等事件/等文件），不引入固定时长的 `sleep`；两个常驻进程 + 送达 + 回放都要算进这个窗口。
-- [ ] 触发面落在真实存在的工具上：判据打印 `sendMessageInToolTable=true monitorInToolTable=false`（E9 9.3 实测 21 个工具里有 `SendMessage`、没有 `Monitor`），保证触发只用 `SendMessage`。
-- [ ] 不使既有判据变红：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-host-per-run.test.ts`、`…/claude-background-work.test.ts`、`…/passthrough-parity.test.ts` 三条各自退出 **0**（逐条打印命令与退出码），这三条文件**一字不改**（`git diff --name-only` 里没有它们）；`server/modules/session-hosts/tests/` 下的既有判据也仍绿（逐条打印退出码）。
-- [ ] 契约面：`npm run typecheck`、`npm run lint` 退出 0。
-- [ ] 触发类型读数缺口如实处理：若真实二进制上读不到可分辨的「跨会话到达」标记，判据**不得**声称绿；把原始事件序列写回 `docs/proposals/claude-resident-sessions-experiments.md`（E9 一节旁）并停在 `needs-human` 由人改判据（AC 逐字要求「触发类型为跨会话消息」，放宽只能由人做）。
+- [x] 判据入口为绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-addressable.test.ts` 在落地后的树上退出 **0** 且输出 `fail 0`，并打印整体墙钟 `elapsed=<n>ms` 且 `< 60_000`。红态基线本轮实测：同命令退出 **1**、文案逐字 `Could not find 'server/modules/providers/tests/claude-resident-addressable.test.ts'`。命令逐字含文件路径，不用 glob。
+- [x] §12 规则逐字：判据对**两个**常驻会话各打印一行 `session=<A|B> sid6=<6位> slug=<标题 slug> ruleName=<slug>-<sid6> snapshotPeerName=<v> equal=true`，断言 `snapshotPeerName === '<slug>-<sid6>'`。
+- [x] 快照名 == CLI 真的注册的地址：判据打印 `transcriptAgentName=<v> equalToSnapshot=true`（从 `<CLAUDE_CONFIG_DIR>/projects/<slug>/<session>.jsonl` 的 `agent-name` 记录读出，E6 的判定通道），**并**打印 `nameInRequestBody=false`（证明该读数不是从 `/v1/messages` 请求体来的 —— 它本就不进请求体）。
+- [x] 地址取自「复制」的那条路：判据打印 `addressSource=GET /api/session-hosts peerName=<v>` —— 断言用来发送的地址**逐字来自 REST 投影的 `peerName`**，不是判据内部的另一个变量（与界面「复制 SendMessage 地址」同源，proposal §12 `:400`）。
+- [x] 进程存活期间不变：进程存活时改会话标题（走既有 rename 路径）⇒ 判据打印 `pidBefore=<p> pidAfter=<p> peerNameBefore=<n> peerNameAfter=<n> pidUnchanged=true nameUnchanged=true`。
+- [x] 送达并产生一轮：判据打印 `sentFrom=<A peerName> sentTo=<B peerName> delivered=true`，以及乙侧 `run.source=unattended run.trigger=cross-session-message runsBefore=<n> runsAfter=<n+1>`（run 计数确实增加）；回放：新连接 `chat.subscribe(lastSeq=0)` 的 `replayed=<n>` 与本次产出的帧数相等。
+- [x] 三条读数的**正控制**（保证不是恒真）：(a) 名字 —— 假形态臂打印 `transcriptAgentName=<CLI 自动名> equalToSnapshot=false`，证明上面的等值断言不是恒真；(b) 触发类型 —— 同一次运行里另有一条用户轮，打印其 `run.source=user run.trigger=<非跨会话>`，证明触发类型不是常量；(c) 回放 —— 乙在送达前 `replayEvents(B,0)` 为空（打印 `replayed-before=0`）。
+- [x] 假形态承重：driver 照 §12 规则**算**出名字但**不传** `extraArgs.name`（判据文件一字不动）⇒ 判据命令退出 **1**，且红**落在**「快照名 == 转录 `agent-name`」那条读数上（不是别的腿先红）。实测退出码与红态文案逐字抄进完成记录，用后 `git checkout --` 还原。
+- [x] 60 秒预算：判据打印整体墙钟 `elapsed=<n>ms` 并断言 `< 60_000`（goal 的判据闸门对单条判据是 60 秒硬超时，不可上调）；真实二进制那段的等待只能是有界轮询（等事件/等文件），不引入固定时长的 `sleep`；两个常驻进程 + 送达 + 回放都要算进这个窗口。
+- [x] 触发面落在真实存在的工具上：判据打印 `sendMessageInToolTable=true monitorInToolTable=false`（E9 9.3 实测 21 个工具里有 `SendMessage`、没有 `Monitor`），保证触发只用 `SendMessage`。
+- [x] 不使既有判据变红：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-host-per-run.test.ts`、`…/claude-background-work.test.ts`、`…/passthrough-parity.test.ts` 三条各自退出 **0**（逐条打印命令与退出码），这三条文件**一字不改**（`git diff --name-only` 里没有它们）；`server/modules/session-hosts/tests/` 下的既有判据也仍绿（逐条打印退出码）。
+- [x] 契约面：`npm run typecheck`、`npm run lint` 退出 0。
+- [x] 触发类型读数缺口如实处理：若真实二进制上读不到可分辨的「跨会话到达」标记，判据**不得**声称绿；把原始事件序列写回 `docs/proposals/claude-resident-sessions-experiments.md`（E9 一节旁）并停在 `needs-human` 由人改判据（AC 逐字要求「触发类型为跨会话消息」，放宽只能由人做）。
 
 ## DoD
 
 判据在**落地后的树**上按原命令重跑：退出码 0、`fail 0`、`elapsed < 60_000`。**真实落地**（不是「测试存在」）：判据里真的起**两个** `claude` 常驻进程（真二进制 + mock 端点 + 临时 `DATABASE_PATH` + 临时 `CLAUDE_CONFIG_DIR`），真的读出宿主快照的 `peerName` 与 CLI 本地转录里的 `agent-name` 是**同一个字符串**（且等于 §12 规则算出的 `<标题 slug>-<会话 ID 前 6 位>`），真的改一次会话标题而 **pid 与 peerName 都不变**，真的让甲的模型经 mock 脚本发一条指向乙 `peerName` 的 `SendMessage`、真的送达、真的让乙产出一条 `source=unattended`、触发类型为**跨会话消息**、可经 `chat.subscribe(lastSeq=0)` 完整回放的 run。假形态（算名不传 `extraArgs.name`）把「快照名 == 转录 agent-name」读数打红（绿 = 判据有洞，必须先补判据再继续）。三条读数各带正控制，保证不是恒真。既有 per-run 判据与宿主层判据逐字不变且仍绿。完成后 AC-164 在驱动器下一轮经 `goal_ac: AC-164` 独立复跑时由红翻绿——且这次翻绿有分辨力：假形态必红，名字/触发类型/回放三条读数各有正控制。
+
+## 完成记录
+
+**落地物。** 六个文件、四条提交（`11b33700` feat、`b7fa4d0e` test、`84b60df6` fix、`2600a9d2` docs）：
+
+- `server/shared/types.ts`：`SessionBinding.peerName: string | null`（§12 的地址落在绑定上，进程生命周期内固定）。
+- `server/shared/interfaces.ts`：`IProviderHostDriverSink.identity(appSessionId, peerName)`，并逐字写明它**不是**工作事件、不得移动 `lastActivityAt`。
+- `server/modules/session-hosts/session-host-manager.service.ts`：`recordIdentity` 记到绑定上（找不到存活绑定或 host 已 closed 时拒绝编造）；per-run 绑定的 `peerName` 逐字为 `null`（per-run 进程没有稳定地址）。
+- `server/modules/session-hosts/session-hosts.routes.ts`：`GET /api/session-hosts` 投影带出 `peerName`（界面「复制 SendMessage 地址」的同源面）。
+- `server/modules/providers/list/claude/claude-host-driver.provider.ts`（+267 行）：`residentPeerName`（§12 规则，导出以便判据/后续复用）→ 真的写进 `extraArgs.name`（resident 工厂自己做，因为共享 builder 逐字段映射、没有 `extraArgs` 通道，而 per-run 轮没有启动期地址要声明）→ 进程起来后从本地转录**读回** `agent-name` → 只有在**与启动时请求的名字逐字相等**时才 `identity` 上报，不等同则打日志并按 `null` 上报（不上报转录自己那一份）；这一档由「首条带 `session_id` 的消息」触发，预算 5s 有界轮询。另：`finishUnattendedTurn` 现在读该轮 `result.origin.kind === 'peer'` 并把触发类型覆写成 `cross-session-message`。
+- `server/modules/providers/tests/claude-resident-addressable.test.ts`（新，1200+ 行）：判据。
+- `docs/proposals/claude-resident-sessions-experiments.md`：E6 补记 `agent-name` 行原文形态；新增 **9.10** 跨会话到达 `result.origin` 原文形态。
+
+**判据绿（落地后的树，最终一次运行，逐字读数）**
+
+命令：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-addressable.test.ts` ⇒ 退出 **0**，`tests 1 / pass 1 / fail 0 / duration_ms 13483.137733`。
+
+```
+[readings] booted=true bootExits=0,0,0 bootAttempts=1,1,1 agentRequests=3 leg1=1039ms
+[readings] session=A sid6=fb4835 slug=ac164-addressable-alpha ruleName=ac164-addressable-alpha-fb4835 snapshotPeerName=ac164-addressable-alpha-fb4835 equal=true
+[readings] session=B sid6=fb4835 slug=ac164-addressable-beta ruleName=ac164-addressable-beta-fb4835 snapshotPeerName=ac164-addressable-beta-fb4835 equal=true
+[readings] session=C sid6=fb4835 slug= ruleName=null snapshotPeerName=null equal=false
+[readings] session=A transcriptAgentName=ac164-addressable-alpha-fb4835 equalToSnapshot=true nameInRequestBody=false ownBodiesScanned=1
+[readings] control session=C transcriptAgentName=null equalToSnapshot=false hostPid=642710 hostState=idle
+[readings] transcriptFile=3d8eb7e3-e803-4838-96ea-a8a808c532df.jsonl transcriptsScanned=3 bindingProviderSessionId=null hostPid=642484 hostState=idle
+[readings] sendMessageInToolTable=true monitorInToolTable=false tools=21 leg2=8104ms
+[readings] addressSource=GET /api/session-hosts peerName=ac164-addressable-beta-fb4835
+[readings] userTurn run.source=user run.trigger=none reportsBefore=0 roundExit=0
+[readings] pidBefore=642484 pidAfter=642484 peerNameBefore=ac164-addressable-alpha-fb4835 peerNameAfter=ac164-addressable-alpha-fb4835 pidUnchanged=true nameUnchanged=true
+[readings] sentFrom=ac164-addressable-alpha-fb4835 sentTo=ac164-addressable-beta-fb4835 delivered=true sendExit=0
+[readings] run.source=unattended run.trigger=cross-session-message runsBefore=0 runsAfter=1
+[readings] replayed=9 produced=9 replayed-before=0 replayEventsBefore=0 replayedAtSubscribe=4 framesBeforeSubscribe=4
+[readings] buffered=true replayLanded=true opened=true
+[readings] elapsed=11321ms
+```
+
+**假形态（AC-8）实测**：把 driver 的 `const launchArgs = peerName ? { extraArgs: { name: peerName } } : {};` 改成 `const launchArgs = {};`（名字照算、只是不传），判据文件一字不动 ⇒ 退出 **1**、`pass 0 / fail 1`，红落在**第一条地址读数**上（不是后面的送达腿、也不是启动前置）：
+
+```
+[readings] booted=true bootExits=0,0,0 bootAttempts=1,1,1 agentRequests=3 leg1=1088ms
+[readings] session=A sid6=176dd2 ... snapshotPeerName=null equal=false
+AssertionError [ERR_ASSERTION]: the app must publish the address the process registered, and the process must have registered one (snapshot=null transcript=null providerSessionId=null)
+```
+
+用 `git checkout -- server/modules/providers/list/claude/claude-host-driver.provider.ts` 还原（还原后工作区 0 处改动，随后同一命令再跑为绿）。
+
+**正控制（AC-7 三条）**：(a) 无标题的 C 会话 `snapshotPeerName=null` 且 `transcriptAgentName=null` ⇒ `equalToSnapshot=false`，而 A/B 为 `true`（等值读数不是恒真）；(b) 同一次运行里的用户轮 `run.source=user run.trigger=none`（触发类型不是常量）；(c) 送达前 `replayed-before=0`。
+
+**不使既有判据变红（AC-10）** —— 逐条命令与退出码：
+
+```
+npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-host-per-run.test.ts        EXIT=0  tests 7  pass 7  fail 0
+npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-background-work.test.ts      EXIT=0  tests 10 pass 10 fail 0
+npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/passthrough-parity.test.ts          EXIT=0  tests 4  pass 4  fail 0
+npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/lifecycle-mode.test.ts             EXIT=0
+npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/record-per-run-frame-baseline.test.ts EXIT=0
+npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/session-host-bindings.test.ts      EXIT=0  tests 6 pass 6 fail 0
+npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/session-host-default-wrap.test.ts  EXIT=0  tests 6 pass 6 fail 0
+npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/session-host-lifecycle.test.ts     EXIT=0  tests 6 pass 6 fail 0
+npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/session-host-per-run-parity.test.ts EXIT=0 tests 5 pass 5 fail 0
+npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/session-hosts-routes.test.ts       EXIT=0  tests 5 pass 5 fail 0
+```
+
+三条 per-run 判据文件**一字未改**：`git diff --name-only develop...HEAD` 只列出 `claude-host-driver.provider.ts`、`claude-resident-addressable.test.ts`（新）、`session-host-manager.service.ts`、`session-hosts.routes.ts`、`interfaces.ts`、`types.ts` 六个文件。
+
+**契约面（AC-11）**：`npm run typecheck` ⇒ 退出 **0**；`npm run lint` ⇒ 退出 **0**（只剩本仓既有的 warning）。
+
+**触发面（AC-9 相关）**：`sendMessageInToolTable=true monitorInToolTable=false tools=21` —— 与 E9 9.3 实测的 21 个工具一致（本 build 的表里有 `SendMessage`、没有 `Monitor`）。预算：`elapsed=11321ms < 60_000`，且判据自己断言这个上界；真实二进制那段的等待全部是有界轮询（等事件、等投影、等转录文件），没有固定时长的 sleep。
+
+**AC-12（触发类型读数缺口）**：真实二进制上**有**可分辨标记（`result.origin.kind === 'peer'`），故不交人、不停 `needs-human`；原始事件形态已逐字写进 `docs/proposals/claude-resident-sessions-experiments.md` 的 **9.10**（并发现在 `origin.name` 里带的是**发件人**注册的地址，即从收件方一侧对发件方地址的独立复读；收件人自己的地址不在 `origin` 里）。
+
+**六处偏差 / 如实登记**
+
+1. **转录文件按标记定位，不按 provider session id**。绑定投影里的 `providerSessionId` 在本启动路径上是 `null`（判据把这条读数也打印出来：`bindingProviderSessionId=null`），所以判据改成「扫 `<CLAUDE_CONFIG_DIR>/projects/*/`，取内容含本会话标记的那个文件」；多个命中时取 mtime 最新的一个（进程死过一次再启动时可能留下同标记的旧文件）。读出来的仍是 CLI 自己写的行，判定强度不变。
+2. **AC-7(a) 的字面 vs 本 build 的读数**。AC 逐字写「假形态臂打印 `transcriptAgentName=<CLI 自动名>`」。本 build 下**不给 `--name` 就不注册任何自动名**（实测：无标题会话的转录里没有 `agent-name` 行），所以判据打印的是 `transcriptAgentName=null equalToSnapshot=false` + `hostPid/hostState`（证明这条读数是在**活着的**、无地址的进程上取的）。把「两个 absent 也算相等」堵掉的是判据自己的合取式 `registered !== null && snapshotPeerName === registered`，因此这条读数的分辨力没有降低：假形态与真对照臂都在这个合取式下取 `false`，而 A/B 取 `true`。
+3. **AC-7(c) 的口径**。AC 写的是 `replayEvents(B,0)`；判据打印两个读数：`replayEventsBefore=0`（`chatRunRegistry.clearAll()` 之后直接调 `replayEvents(B, 0)`，即 AC 逐字那条路）与 `replayed-before=0`（新连接 `chat.subscribe(lastSeq=0)`，即客户端那条路；该路只在 run 仍在飞时回放，见 `chat-websocket.service.ts`）。两个都是 0。
+4. **启动重试 + 控制臂存活断言（判据稳健性，未改动被测量的读数）**。三个会话的首次轮改成 `bootResidentSession`（最多 3 次），并在三次启动后断言 `booted=true`；控制臂加 `hostPid !== null` + `hostState !== 'closed'`。原因：一次实测里无标题会话的 CLI 进程在发出任何请求前退出 1（`bootExits=0,0,1 agentRequests=2`，该次之后连跑 22 次未复现，含 4 路并发 12 次）；那种情况下控制臂会**空洞地**通过（死进程也没有地址），所以把「进程真的起来了」变成断言而不是假设。重试只吸收环境性的启动失败，不改变任何被测量的读数（A/B 的地址等值、送达、回放都不经它）。
+5. **驱动器的单 `pending` 槽（既有行为，未改生产代码）**。`startResidentHost` 把首个进程放进 driver 的单个 `this.pending`、`startHost` 消费它；两个会话的**首次**轮同时在飞会互相覆盖（第二个以 `Resident host ... was opened without a process` 失败）。这是 develop 上既有的（`git show develop:...` 可见 `this.pending`），AC-164 里没有对应的 AC，故判据按**串行启动**绕开并在判据里写明是启动路径的性质、不是被测量的东西；生产代码一行未动。若后续要修，应是一个独立任务（把 `pending` 变成按 session 的键）。
+
+6. **Touches 的判据条目被 scoped gate 自己吞掉（已修，含读数）**。首次 `bash scripts/test.sh --for-task gap-claude-resident-addressable --allow-thin` 打了 `no scoped test files for gap-claude-resident-addressable (thin)` 并**退出 0** —— **空绿**：scoped gate 的文件集只从 `## Touches` 的 `*.test.*` 条目里取（`scripts/test.sh:106-114`：`sub(/^- +/,"");gsub(/`/,"");print $1`），而原条目是全角括注**紧贴**路径 `` `…claude-resident-addressable.test.ts`（新：判据） ``，`$1` 拿到的是「路径+注解」整串，被 `\.test\.[jt]sx?$` 挡掉。改成 ASCII 尾标 + 半角空格（`` `…test.ts` (new)（新：判据） ``）之后，**同一棵树、同一条命令** gate 真的选中并跑了判据：`__PERFILE__ duration_ms=13733 server/modules/providers/tests/claude-resident-addressable.test.ts passed=true end_ms=1790504934130`、`# tests 1 / # pass 1 / # fail 0`、退出 **0**（suite-scope-check 的计数同时从 `with-tests=7` 变成 `8`）。用 gate 自己那段 awk 本地复核：修好的拼写 `$1` = 裸路径（选中），紧贴拼写的对照组 `grep` 退出 **1**（不选中）。**故 `(thin)` 那次绿不能当证据读：条目的拼写本身就是判据的一部分。**
+
+**一次如实登记的事故与恢复**：AC-8 的假形态实测原本用 `git checkout --` 还原 driver，而当时 driver 的改动**尚未提交**——这次还原把实现从工作区抹掉了（文件回到 develop 内容）。恢复方式：从会话转录里把该文件的 13 条 `Edit`（old/new）按序重放回 HEAD 内容上（`sentinel` 唯一匹配、逐条校验；跳过那条假形态），得回 1798 行、`residentPeerName` 3 处，随后用判据重跑为绿 + 假形态为红验证了行为一致。此后实现先提交、再在提交态上做变异，未再发生。**教训：变异前先提交。**
+
+**未解释 / 未验证**：无标题进程「不给 `--name` 就不注册名字」是实测行为，没有查 CLI 的自动命名规则（本 build 下 `agent-name` 行只在显式给名时出现）；进程重启（新 pid）后按当时标题重算地址这条路，判据没有覆盖（AC-164 只要求「存活期间不变」）。
+
 
 ## Touches
 
@@ -92,6 +177,6 @@ goal_ac: AC-164
 - `server/modules/session-hosts/index.ts`（barrel 收口；签名不变则不动）
 - `server/modules/providers/list/claude/claude-host-driver.provider.ts`（AC-161 落地的 resident driver；本条在其上按 §12 规则建 `extraArgs.name`、读回转录 `agent-name`、`identity` 上报；若其实际文件名不同，按实际文件登记并在完成记录里写明）
 - `server/modules/providers/list/claude/claude.provider.ts`（若需要透传 peer 名/触发类型）
-- `server/modules/providers/tests/claude-resident-addressable.test.ts`（新：判据）
+- `server/modules/providers/tests/claude-resident-addressable.test.ts` (new)（新：判据）
 - `docs/proposals/claude-resident-sessions-experiments.md`（写回跨会话到达的事件形态读数——仅当判据需要该口径时）
 - `tasks/gap-claude-resident-addressable.md`（自触）

@@ -9,6 +9,7 @@ import type { IProvider } from '@/shared/interfaces.js';
 import type {
   AnyRecord,
   HostMode,
+  HostQueuedInputCancelResult,
   HostTurnInput,
   LLMProvider,
   ProcessHost,
@@ -86,6 +87,18 @@ type ResidentTurnEntry = {
     writer: ProviderRuntimeWriter,
     context: ProviderRuntimeContext,
   ): Promise<void>;
+  /**
+   * Withdraws a message the host wrote but has not started running.
+   *
+   * Optional for the same reason the whole entry is absent for most providers:
+   * a driver that never writes into a busy process has no queue to withdraw
+   * from, and a caller reaching this one must read the absence as "cannot",
+   * never as "did".
+   */
+  cancelQueuedInput?(
+    appSessionId: string,
+    messageUuid: string,
+  ): Promise<HostQueuedInputCancelResult>;
 };
 
 /**
@@ -149,26 +162,6 @@ function residentEntryFor(provider: IProvider, appSessionId: string | null): Res
 }
 
 /**
- * The live host bound to one session, as the manager sees it.
- *
- * Read through `snapshot()` — the manager's detached view — because the dispatch
- * has no business holding a host record across an await, and because a copy is
- * all the driver verbs need: they are addressed by `hostId` and read the mode.
- * A closed host is skipped rather than returned, so an abort cannot be aimed at
- * a process that is already gone.
- */
-function liveHostForSession(
-  sessionHostManager: SessionHostManager,
-  appSessionId: string,
-): ProcessHost | null {
-  return (
-    sessionHostManager
-      .snapshot()
-      .find((host) => host.state !== 'closed' && host.bindings.has(appSessionId)) ?? null
-  );
-}
-
-/**
  * Creates the application-facing provider runtime dispatcher.
  *
  * The provider registry owns each concrete runtime. This service supplies the
@@ -225,6 +218,34 @@ export function createProviderRuntimeService(
     }
   };
 
+  /**
+   * The resident driver serving a session *and* the process it is holding.
+   *
+   * Stricter than `resolveResidentEntry` in exactly one way: a live host is
+   * required. The mode questions — is this session resident, does the provider
+   * declare it, does the driver have the entry — are that function's, and are
+   * asked through it so the two answers cannot drift. What is added here is the
+   * process: writing into a busy session, or withdrawing something from it, is
+   * meaningless without one, and a session whose host is not up is a session
+   * whose next turn is a cold start rather than a busy write.
+   */
+  const resolveResidentDriver = (
+    provider: IProvider,
+    appSessionId: string | null,
+  ): { entry: ResidentTurnEntry; host: ProcessHost } | null => {
+    const entry = resolveResidentEntry(provider, appSessionId);
+    if (!entry || !appSessionId) {
+      return null;
+    }
+
+    const host = dependencies.sessionHostManager.liveHostForSession(appSessionId);
+    if (!host) {
+      return null;
+    }
+
+    return { entry, host };
+  };
+
   const run = (
     providerName: LLMProvider,
     command: string,
@@ -275,6 +296,50 @@ export function createProviderRuntimeService(
       return (command, options, writer) => run(provider, command, options, writer);
     },
 
+    /**
+     * Whether a turn dispatched right now would be written into a live process.
+     *
+     * "Busy input" is not a session setting, it is a state: the same session is
+     * accepting it in the middle of a turn and cold-starting between turns, and
+     * the caller has to be told which before it decides what a second send
+     * means. Everything that could make the answer stale — the mode, the
+     * declaration, the driver's shape, the pid — is resolved in the same call,
+     * so `true` means a write would land and not merely that it might.
+     */
+    acceptsBusyInput(providerName: LLMProvider, sessionId: string): boolean {
+      try {
+        return Boolean(resolveResidentDriver(dependencies.resolveProvider(providerName), sessionId));
+      } catch {
+        return false;
+      }
+    },
+
+    /**
+     * Withdraws a queued message from a live resident process.
+     *
+     * `unknown` is the answer to every question this service cannot answer —
+     * an unknown provider, a session that is not resident, a driver without
+     * the entry, a host that is gone — because the one thing this caller must
+     * never be told is that a message was withdrawn when it was not. The
+     * driver's own verdict passes through unchanged.
+     */
+    async cancelQueuedInput(
+      providerName: LLMProvider,
+      sessionId: string,
+      messageUuid: string,
+    ): Promise<HostQueuedInputCancelResult> {
+      try {
+        const resolved = resolveResidentDriver(dependencies.resolveProvider(providerName), sessionId);
+        const cancel = resolved?.entry.cancelQueuedInput;
+        if (!resolved || typeof cancel !== 'function') {
+          return 'unknown';
+        }
+        return await cancel.call(resolved.entry, sessionId, messageUuid);
+      } catch {
+        return 'unknown';
+      }
+    },
+
     async abort(providerName: LLMProvider, sessionId: string): Promise<boolean> {
       const provider = dependencies.resolveProvider(providerName);
       const resident = resolveResidentEntry(provider, sessionId);
@@ -288,7 +353,7 @@ export function createProviderRuntimeService(
         // `complete` is the caller's (the websocket abort handler sends it on the
         // run's behalf), so a false here means no round was in flight to stop.
         const driver = provider.hostDriver;
-        const host = liveHostForSession(dependencies.sessionHostManager, sessionId);
+        const host = dependencies.sessionHostManager.liveHostForSession(sessionId);
         if (!driver || !host) {
           return false;
         }

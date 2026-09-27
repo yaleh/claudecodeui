@@ -1,7 +1,7 @@
 ---
 id: AC-165
 title: 空闲关闭由真实 Claude driver 执行：cron 保活理由按 CLI 清单对账，有 cron 时不在空闲超时处关闭，浏览器停留不阻止关闭
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-013
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -35,6 +35,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-09-27T11:15:59.670Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"

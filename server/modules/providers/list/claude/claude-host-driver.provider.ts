@@ -32,11 +32,17 @@
  * ## What it reports, and what it never decides
  *
  * Leases, through the sink `openHost` hands over: `turn` while a round is in
- * flight (dropped at its own `result`), and `resident-policy` — the mode's
- * statement that the process is meant to sit between turns. That second lease is
- * the manager's whole reading of "resident": with it an otherwise empty binding
+ * flight (dropped at its own `result`), `resident-policy` — the mode's
+ * statement that the process is meant to sit between turns — and the held-work
+ * reasons the CLI's own `Stop` hook reports (`cron` for each `session_crons`
+ * entry, `background-task` for each `background_tasks` one), reconciled by id so
+ * a firing that changes nothing reports nothing. `resident-policy` is the
+ * manager's whole reading of "resident": with it an otherwise empty binding
  * derives `idle` and arms the mode's quiet ceiling, where a per-run host would
- * have closed. Nothing here decides a close: the resident policy is
+ * have closed; the held-work leases are the reading that overrides it — the
+ * manager defers the idle close while an unexpired `cron` lease is held, and
+ * re-counts the window from that lease's own `expiresAt`. Nothing here decides a
+ * close: the resident policy is
  * `supersedeOnNewTurn: false`, so a new turn on a bound session is written to
  * the process that is already there, and the host ends only when the manager
  * says so (a quiet ceiling, the close route, a shutdown).
@@ -67,6 +73,7 @@
  */
 import { spawn as nodeSpawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import type { Writable } from 'node:stream';
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { SpawnOptions as SdkSpawnOptions, SpawnedProcess } from '@anthropic-ai/claude-agent-sdk';
@@ -88,8 +95,12 @@ import type { IProviderHostDriver, IProviderHostDriverSink } from '@/shared/inte
 import type {
   AnyRecord,
   BackgroundWorkTrigger,
+  CommandLifecycleEvent,
+  CommandLifecycleState,
   HostCloseReason,
+  HostInputPriority,
   HostLease,
+  HostQueuedInputCancelResult,
   HostReconfigurePatch,
   HostTurnInput,
   LLMProvider,
@@ -110,6 +121,57 @@ import { createCompleteMessage, createNormalizedMessage } from '@/shared/utils.j
  * graceful path this driver exists to provide.
  */
 export const CLAUDE_RESIDENT_EXIT_GRACE_MS = 15_000;
+
+/**
+ * How long a withdrawal waits for the queue to say a message was cancelled.
+ *
+ * A budget, not a timeout with a meaning: the queue answers in the same read
+ * loop this driver is already consuming, so the wait is over either as soon as
+ * the event arrives or when the budget runs out — and running out is not
+ * evidence of anything except that no `cancelled` was seen. The verdict is
+ * computed from the reading after the wait, never from the wait's expiry.
+ */
+export const CLAUDE_CANCEL_VERDICT_WAIT_MS = 5_000;
+
+/** How often the withdrawal re-reads the queue while waiting. */
+const CLAUDE_CANCEL_VERDICT_POLL_MS = 25;
+
+/**
+ * How long a session cron is taken to live, from when the CLI created it.
+ *
+ * The CLI's own receipt for `CronCreate` states it verbatim — "Session-only (not
+ * written to disk, dies when Claude exits). Auto-expires after 7 days. Use
+ * CronDelete to cancel sooner." (E9, `claude-resident-sessions-experiments.md`
+ * §9.4) — and neither the stream nor the hook names an instant, so the seven
+ * days are counted here from the moment the job is first read. A job the CLI
+ * keeps naming keeps the expiry it was first given rather than restarting the
+ * week (see `cronsFromStopList`), and the manager reads that instant as the
+ * point the `cron` lease stops deferring the idle close.
+ *
+ * Exported so a criterion places the deadline from the same value the driver
+ * uses instead of restating the number, the way `RESIDENT_IDLE_TIMEOUT` is.
+ */
+export const CRON_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * The `system` subtypes this driver's read loop reads for held work.
+ *
+ * Everything else the CLI puts on the stream is forwarded untouched and read by
+ * nobody here, which is the property the loop has to have: the CLI emits
+ * subtypes this build has never seen (`task_updated`, `control_request_progress`,
+ * and `scheduled_task_fire`, which E9 never observed but the binary carries), and
+ * a loop that only advances on a closed vocabulary stops the moment the CLI
+ * learns a new word. The set is the loop's own reading vocabulary, not a claim
+ * about the CLI's — a subtype absent from it is recorded
+ * ({@link ClaudeResidentLifecycleReading.unhandledSystemSubtypes}) and passed
+ * through, never treated as an error.
+ */
+const HELD_WORK_SYSTEM_SUBTYPES = new Set([
+  'init',
+  'task_started',
+  'task_notification',
+  'background_tasks_changed',
+]);
 
 /**
  * The slice of the SDK's `Query` a resident process uses.
@@ -139,6 +201,109 @@ export type ClaudeResidentQuery = AsyncIterable<AnyRecord> & {
 export type ClaudeResidentProcess = {
   query: ClaudeResidentQuery;
   readonly pid: number | null;
+  /**
+   * Writes one raw frame to the process's stdin, when this process has a stdin
+   * this driver can reach.
+   *
+   * The SDK's `Query` interface exposes no verb for most of
+   * `SDKControlRequestInner` — `cancel_async_message` among them (measured: the
+   * `Query` methods are interrupt / setPermissionMode / setModel /
+   * setMaxThinkingTokens / applyFlagSettings / stopTask / streamInput /
+   * rewindFiles, and nothing else) — so a control frame the SDK has no method
+   * for is reachable only by writing the stream-json line itself, which is
+   * exactly how the protocol's behavior was measured in the first place
+   * (`docs/proposals/claude-resident-sessions-experiments.md` §9).
+   *
+   * Optional because a process seam may not carry one: a scripted stream has no
+   * stdin to write to, and a driver that assumed otherwise would be claiming a
+   * capability its own seam never gave it. Absent means the withdrawal entry
+   * answers `unknown` rather than pretending to have written anything.
+   */
+  writeRaw?(frame: AnyRecord): void;
+};
+
+/**
+ * The tier every message a busy host pushes is written under.
+ *
+ * `later` is what makes a busy message behave the way the interactive CLI's
+ * does: it waits for the turn in flight, is then run as a turn of its own, and
+ * is never merged into the turn it arrived during. Measured on the real binary
+ * (`§9.2`): pushed under this tier, a message landed in the sixth real agent
+ * turn — a later turn, not the one it was pushed during — and the tier that
+ * "never lands" is `next`, not this one. `now` exists in the CLI's vocabulary
+ * and is deliberately not used: it jumps the queue ahead of other `later`
+ * messages, which is not what a message sent during someone else's turn asked
+ * for.
+ */
+export const CLAUDE_QUEUED_INPUT_PRIORITY: HostInputPriority = 'later';
+
+/**
+ * One user frame this host wrote into the process while the process was busy.
+ *
+ * The reading exists because the frame's own facts are unreadable from
+ * anywhere else once it has been written: the moment it was handed to the
+ * process, the tier it was written under, and the uuid the host assigned it
+ * (which is also the CLI's `command_uuid` for it) are all host-side facts.
+ * `queuedBeforeResult` is the precomputed half of the AC's write-timing
+ * reading — whether the frame reached the process before the turn in flight
+ * ended — kept here rather than in the criterion so the two timestamps it
+ * compares come from the same clock on the same side.
+ */
+export type ClaudeQueuedInput = {
+  uuid: string;
+  /** When this host handed the frame to the process input, in host clock terms. */
+  at: number;
+  /** The tier the frame was written under. */
+  priority: string | null;
+  /** The frame verbatim, as it was written. */
+  frame: AnyRecord;
+  /**
+   * When the CLI dequeued this message into a turn of its own, or `null` while
+   * it is still queued.
+   */
+  startedAt: number | null;
+  /**
+   * How many turns had ended when the frame was pushed. The turn in flight at
+   * that moment is the one whose `result` this index points at, so
+   * `resultTimes[resultsSeenAtPush]` is the `turnResultAt` of the AC's
+   * write-timing reading.
+   */
+  resultsSeenAtPush: number;
+  /** Whether the frame reached the process before that turn's `result`. */
+  queuedBeforeResult: boolean | null;
+};
+
+/**
+ * What a live resident host knows about the messages it pushed while busy, the
+ * queue's own account of them, and the control frames it wrote.
+ *
+ * A copy, like {@link ClaudeUnattendedReading}, and `null` for a session this
+ * driver is not hosting. Everything in it is read off the host that owns the
+ * process: the push moments and tiers are the host's own marks, the lifecycle
+ * list is the CLI's answer as this host read it, and the control frames are the
+ * bytes this host wrote.
+ */
+export type ClaudeBusyInputReading = {
+  /** Every frame this host pushed while the process was already busy, in push order. */
+  queuedInputs: ClaudeQueuedInput[];
+  /** Every `command_lifecycle` event this host read, in arrival order. */
+  lifecycle: CommandLifecycleEvent[];
+  /** Every control frame this host wrote to the process, in write order. */
+  controlFrames: Array<{ at: number; requestId: string; frame: AnyRecord }>;
+  /** Every `control_response` the CLI sent back, in arrival order. */
+  controlResponses: Array<{ at: number; requestId: string | null }>;
+  /**
+   * When each turn's `result` was read, in arrival order.
+   *
+   * Indexed by turns *ended*, which is the same index
+   * {@link ClaudeQueuedInput.resultsSeenAtPush} counts, so the two line up
+   * without either side knowing a round's identity.
+   */
+  resultTimes: number[];
+  /** How many `session_state_changed` messages the stream carried (E9 §9.1: none). */
+  sessionStateChanged: number;
+  /** The host process's pid, or null when the seam did not report one. */
+  hostPid: number | null;
 };
 
 /**
@@ -221,6 +386,17 @@ export type ClaudeResidentHostDriverOptions = {
   notifyRunStopped: (event: ClaudeResidentRunStoppedEvent) => void;
   /** Process seam; defaults to the real SDK with the pid capture installed. */
   createProcess?: ClaudeResidentProcessFactory;
+  /**
+   * The instant a held-work reason is dated from, defaults to the wall clock.
+   *
+   * The only thing this driver puts a *date* on is a cron's `expiresAt` (the
+   * CLI names no instant; see {@link CRON_MAX_AGE_MS}), and that date decides
+   * when the manager stops deferring the idle close. Taking it as an option is
+   * what lets a criterion reach the seven-day expiry without waiting it out —
+   * and it is injected alongside the manager's own `now` so both layers read one
+   * clock rather than two.
+   */
+  now?: () => number;
 };
 
 /**
@@ -289,6 +465,53 @@ export type ClaudeUnattendedReading = {
   initTools: string[];
   /** The `system/task_started` task type, if the process started one. */
   backgroundTaskType: string | null;
+};
+
+/** The `cron` member of the lease union, named once so the held list can be typed. */
+type CronLease = Extract<HostLease, { kind: 'cron' }>;
+/** The two background-work members of the lease union, named for the same reason. */
+type BackgroundTaskLease = Extract<HostLease, { kind: 'background-task' | 'monitor' }>;
+/**
+ * Either held-work reason, so the comparison below stays inside the two kinds
+ * that carry an id — `turn` and `resident-policy` are never held work and are
+ * never compared as if they were.
+ */
+type HeldWorkLease = CronLease | BackgroundTaskLease;
+
+/**
+ * What a live resident host holds, and what it had to guess.
+ *
+ * The manager's own snapshot reports the union of a binding's leases, which is
+ * the surface every reader of "why is this process still here" should prefer.
+ * This reading exists for the one thing the snapshot cannot carry: the driver's
+ * *own* account of how it arrived at that union — which list was the authority,
+ * which reason was inferred from a tool call instead, and which `system`
+ * subtypes it passed through without acting on. A criterion that has to tell
+ * "the CLI named this job" from "this build guessed at it" reads it here; in
+ * production nothing consumes it.
+ *
+ * A copy, and `null` for a session this driver is not hosting — the same two
+ * properties {@link ClaudeUnattendedReading} has, for the same reason.
+ */
+export type ClaudeResidentLifecycleReading = {
+  /** The live host this reading is about. */
+  hostId: string;
+  /** The `cron` reasons this driver currently reports, in report order. */
+  crons: CronLease[];
+  /** The background-work reasons it currently reports, in report order. */
+  backgroundTasks: BackgroundTaskLease[];
+  /**
+   * `system` subtypes the read loop saw and did not act on, in arrival order.
+   *
+   * A frame named here was forwarded to the client untouched and changed nothing
+   * about the process's lifetime; the loop's survival across one is the point
+   * (see {@link HELD_WORK_SYSTEM_SUBTYPES}).
+   */
+  unhandledSystemSubtypes: string[];
+  /** True once a `Stop` firing had named the cron list (`session_crons`). */
+  cronsAuthoritative: boolean;
+  /** True once a `Stop` firing had named the background-task list. */
+  tasksAuthoritative: boolean;
 };
 
 /**
@@ -364,6 +587,101 @@ function createBackgroundWorkLedger(): BackgroundWorkLedger {
       return entries.length;
     },
   };
+}
+
+// ---------------------------
+//----------------- HELD-WORK RECONCILIATION ------------
+
+/**
+ * Whether two held-work lists are the same report.
+ *
+ * The comparison is what keeps a reconciliation from being an event: a `Stop`
+ * firing at the end of a quiet turn names the same jobs it named last time, and
+ * reporting them again would move the binding's `lastActivityAt` and push the
+ * idle deadline out on nothing. `inferred` is part of the comparison because a
+ * job first guessed at from a tool call and then named by the CLI is a different
+ * fact even when the id matches.
+ */
+function sameLeases(left: HeldWorkLease[], right: HeldWorkLease[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every((lease, index) => {
+    const other = right[index];
+    if (!other || other.kind !== lease.kind) {
+      return false;
+    }
+    if (lease.kind === 'cron' && other.kind === 'cron') {
+      return (
+        lease.id === other.id &&
+        lease.recurring === other.recurring &&
+        lease.expiresAt === other.expiresAt &&
+        Boolean(lease.inferred) === Boolean(other.inferred)
+      );
+    }
+    if (lease.kind !== 'cron' && other.kind !== 'cron') {
+      return lease.id === other.id && Boolean(lease.inferred) === Boolean(other.inferred);
+    }
+    return false;
+  });
+}
+
+/**
+ * The `cron` reasons the CLI's own `session_crons` list asks for.
+ *
+ * `expiresAt` is preserved for an id the driver already holds: the CLI names no
+ * instant, and the seven days a job lives are counted from its creation (E9's
+ * receipt), so re-dating it on every firing would slide the deadline forward for
+ * as long as the user kept talking. A job the list has stopped naming is simply
+ * absent from the result, which is what makes "the list no longer names it" the
+ * same event as "the reason went away".
+ *
+ * The entries carry no `inferred` flag: an id read off this list is the CLI's
+ * own word for the job, and the absence of the flag is how that reads.
+ */
+function cronsFromStopList(list: unknown[], now: number, held: CronLease[]): CronLease[] {
+  const heldById = new Map(held.map((lease) => [lease.id, lease]));
+  return list.flatMap((entry): CronLease[] => {
+    const record = entry as AnyRecord | null;
+    const id = typeof record?.id === 'string' ? record.id : '';
+    if (!id) {
+      return [];
+    }
+    return [
+      {
+        kind: 'cron',
+        id,
+        // `!== false` rather than `=== true`, the same reading the per-run
+        // driver makes of `run_in_background`: what the CLI schedules is a
+        // recurring job, and only an explicit denial says otherwise.
+        recurring: record?.recurring !== false,
+        expiresAt: heldById.get(id)?.expiresAt ?? now + CRON_MAX_AGE_MS,
+      },
+    ];
+  });
+}
+
+/** The background-work reasons a CLI-held task list asks for, keyed by task id. */
+function tasksFromStopList(list: unknown[]): BackgroundTaskLease[] {
+  return list.flatMap((entry): BackgroundTaskLease[] => {
+    const record = entry as AnyRecord | null;
+    const id = typeof record?.id === 'string' ? record.id : '';
+    return id ? [{ kind: 'background-task', id }] : [];
+  });
+}
+
+/** The background-work reasons a `background_tasks_changed` payload asks for. */
+function tasksFromChangedFrame(tasks: unknown[]): BackgroundTaskLease[] {
+  return tasks.flatMap((entry): BackgroundTaskLease[] => {
+    const record = entry as AnyRecord | null;
+    const id = typeof record?.task_id === 'string' ? record.task_id : '';
+    return id ? [{ kind: 'background-task', id }] : [];
+  });
+}
+
+/** The `task_id` a `task_started` / `task_notification` frame is about. */
+function taskIdOf(message: AnyRecord): string {
+  return typeof message?.task_id === 'string' ? message.task_id : '';
 }
 
 /**
@@ -484,6 +802,7 @@ function createSdkResidentProcess(input: {
     | ((options: SdkSpawnOptions) => SpawnedProcess)
     | undefined;
   let pid: number | null = null;
+  let stdin: Writable | null = null;
 
   // The `Stop` hook, appended to whatever `hooks` the launch builder produced —
   // the same way the spawn hook below wraps whatever hook it found — so nothing
@@ -522,6 +841,14 @@ function createSdkResidentProcess(input: {
     if (typeof child?.pid === 'number') {
       pid = child.pid;
     }
+    // The stdin the SDK writes its own prompt messages to. Kept because a
+    // control frame the SDK's `Query` has no verb for has to be written to the
+    // same stream by hand (see `ClaudeResidentProcess.writeRaw`). Both writers
+    // go through one `Writable`, which preserves write order and writes each
+    // chunk whole — a JSON line is far inside the pipe's atomic-write bound.
+    if (child?.stdin) {
+      stdin = child.stdin;
+    }
     return child;
   };
 
@@ -534,6 +861,12 @@ function createSdkResidentProcess(input: {
     query: stream,
     get pid() {
       return pid;
+    },
+    writeRaw(frame: AnyRecord): void {
+      if (!stdin || stdin.destroyed) {
+        return;
+      }
+      stdin.write(`${JSON.stringify(frame)}\n`);
     },
   };
 }
@@ -556,6 +889,16 @@ type ResidentRound = {
   fail(error: Error): void;
   settled: boolean;
   interrupted: boolean;
+  /**
+   * The uuids this round's own messages were pushed under, when it was armed
+   * while the process was busy.
+   *
+   * Empty for a cold round: its message is the process's first work rather than
+   * a queue entry, so there is nothing behind it to withdraw it from. Non-empty
+   * is what makes the round findable by uuid, which is the only handle a
+   * withdrawal has — the CLI cancels a uuid, not a round.
+   */
+  queuedUuids: string[];
 };
 
 /**
@@ -589,6 +932,30 @@ type ResidentHostState = {
   pushedUuids: Set<string>;
   /** The `Stop` hook's own account of what this process is holding. */
   ledger: BackgroundWorkLedger;
+  /**
+   * The held-work reasons this driver has reported, so convergence is a diff.
+   *
+   * Kept here rather than read back off the manager because the manager reports
+   * leases *by kind* — "the cron reason" — while this driver reconciles them by
+   * id, and a rule that has to decide whether a `Stop` firing changed anything
+   * needs the list it last reported, not the union the manager derived from it.
+   */
+  heldCrons: CronLease[];
+  heldBackgroundTasks: BackgroundTaskLease[];
+  /**
+   * Whether the CLI's own list has ever named each kind of held work.
+   *
+   * The two flags are the whole of "is this build guessing?". Until a `Stop`
+   * firing has carried `session_crons`, the only account of the crons available
+   * is what the stream's tool calls imply, and anything read that way is marked
+   * `inferred`; the same for `background_tasks`. Observed independently because
+   * the lists are observed independently — E9's hook always carried both, but a
+   * firing that carried one says nothing about the other.
+   */
+  cronsAuthoritative: boolean;
+  tasksAuthoritative: boolean;
+  /** See {@link ClaudeResidentLifecycleReading.unhandledSystemSubtypes}. */
+  unhandledSystemSubtypes: string[];
   /** The user and session name of the last armed round, for a report no round owns. */
   lastUserId: string | number | null;
   lastSessionName: string | null;
@@ -620,6 +987,26 @@ type ResidentHostState = {
   initTools: string[];
   /** The `system/task_started` task type, when the process started one. */
   backgroundTaskType: string | null;
+  /**
+   * Every frame this host pushed while the process was already busy.
+   *
+   * Busy means a round or an unattended turn was in flight at the push: that is
+   * the only state in which a frame is *not* the thing the process is about to
+   * work on, and so the only state in which what it was written under (a tier,
+   * a queue position) is a fact worth keeping. A cold start's frames are the
+   * process's first work and are not recorded here.
+   */
+  queuedInputs: ClaudeQueuedInput[];
+  /** Every `command_lifecycle` event read off the stream, in arrival order. */
+  lifecycle: CommandLifecycleEvent[];
+  /** Every control frame written to the process's stdin, in write order. */
+  controlFrames: Array<{ at: number; requestId: string; frame: AnyRecord }>;
+  /** Every `control_response` the CLI sent back, in arrival order. */
+  controlResponses: Array<{ at: number; requestId: string | null }>;
+  /** When each turn's `result` was read; see {@link ClaudeBusyInputReading.resultTimes}. */
+  resultTimes: number[];
+  /** How many `session_state_changed` messages the stream carried. */
+  sessionStateChanged: number;
   /** Provider-native session id, captured once from the stream. */
   providerSessionId: string | null;
   /** True when this process was launched resuming an existing conversation. */
@@ -640,6 +1027,24 @@ type PendingHost = {
   modelContextWindow: ReturnType<typeof resolveModelContextWindowRow>;
   /** The hook ledger built for this process, carried over with the queue. */
   ledger: BackgroundWorkLedger;
+  /** The one slot this process's `Stop` hook can reach before its host exists. */
+  stopHook: StopHookSink;
+};
+
+/**
+ * Where a process's `Stop` hook writes until its host state exists.
+ *
+ * The hook is installed before the spawn — it has to be, or the first turn's
+ * firing would be lost — while the host state it reconciles into is built by
+ * `startHost`, one `openHost` later. The two orderings cannot be made the same,
+ * so a firing that lands in the gap is buffered here and replayed on adoption
+ * instead of being dropped or, worse, reconciled against nothing.
+ */
+type StopHookSink = {
+  /** The adopted state, or null while the host is still being opened. */
+  state: ResidentHostState | null;
+  /** Firings that arrived before it was adopted, replayed in arrival order. */
+  buffered: AnyRecord[];
 };
 
 /**
@@ -687,6 +1092,8 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
   private readonly notifyRunStopped: (event: ClaudeResidentRunStoppedEvent) => void;
   private readonly notifyUnattendedWork: (event: ClaudeUnattendedWorkEvent) => void;
   private readonly createProcess: ClaudeResidentProcessFactory;
+  /** The instant a held-work reason is dated from; see {@link ClaudeResidentHostDriverOptions.now}. */
+  private readonly now: () => number;
   /**
    * The per-run facet, composed rather than replaced.
    *
@@ -712,6 +1119,7 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
     this.notifyRunStopped = options.notifyRunStopped;
     this.notifyUnattendedWork = options.notifyUnattendedWork;
     this.createProcess = options.createProcess ?? createSdkResidentProcess;
+    this.now = options.now ?? (() => Date.now());
     this.perRun = new ClaudePerRunHostDriver({
       host: options.host,
       notify: options.notifyBackgroundWork,
@@ -744,13 +1152,22 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       // A later turn is more stdin on the stream that is already open: the
       // messages go into the queue the process has been reading since it
       // started, which is the whole of "the pid does not change".
-      this.armRound(existing, round, await this.turnMessages(turn), false);
+      //
+      // Busy is read *now*, before the await that builds the messages, and it
+      // is read off the two things that make the process busy rather than off
+      // the turn count: a round in flight, or an unattended turn the process
+      // opened for itself. Either one means the frame being written is not the
+      // process's next piece of work but a queue entry behind one — which is
+      // the fact the tier states and the fact the criterion reads the write
+      // moment against.
+      const busy = existing.rounds.length > 0 || Boolean(existing.unattended);
+      this.armRound(existing, round, await this.turnMessages(turn, busy), false);
       await round.done;
       return;
     }
 
     const round = this.createRound(appSessionId, turn, writer, context);
-    const messages = await this.turnMessages(turn);
+    const messages = await this.turnMessages(turn, false);
     const state = await this.startResidentHost(appSessionId, messages, turn, context);
     // The first round's messages are already in the queue — they seeded it before
     // the process was spawned — so this only arms the round and its lease.
@@ -793,12 +1210,23 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       writer: null,
       pushedUuids: new Set<string>(),
       ledger: pending.ledger,
+      heldCrons: [],
+      heldBackgroundTasks: [],
+      cronsAuthoritative: false,
+      tasksAuthoritative: false,
+      unhandledSystemSubtypes: [],
       lastUserId: null,
       lastSessionName: null,
       unattended: null,
       lastUnattendedCommandUuid: null,
       initTools: [],
       backgroundTaskType: null,
+      queuedInputs: [],
+      lifecycle: [],
+      controlFrames: [],
+      controlResponses: [],
+      resultTimes: [],
+      sessionStateChanged: 0,
       providerSessionId: null,
       resumed: false,
       sessionCreatedSent: false,
@@ -807,6 +1235,18 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       closed: false,
       loopError: null,
     });
+
+    // The hook could have fired while the record was being opened — the process
+    // is already reading stdin by then. Adoption is what makes those firings
+    // reconcilable, so they are replayed here in the order they arrived rather
+    // than left in the buffer forever.
+    const state = this.hosts.get(host.hostId);
+    pending.stopHook.state = state ?? null;
+    if (state) {
+      for (const input of pending.stopHook.buffered.splice(0)) {
+        this.reconcileHeldWork(state, input);
+      }
+    }
 
     return host;
   }
@@ -1022,6 +1462,320 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
   }
 
   /**
+   * Reports what a live resident host knows about its busy-time writes.
+   *
+   * A copy, and `null` for a session this driver is not hosting — the same two
+   * properties {@link unattendedReading} has, for the same reason. What is in
+   * it is everything the write side of this driver produces that nothing else
+   * can read: when each frame was handed over and under which tier, the CLI's
+   * own queue account of it, the control frames this host wrote, and the
+   * responses that came back to them.
+   */
+  busyInputReading(appSessionId: string): ClaudeBusyInputReading | null {
+    const state = this.liveStateFor(appSessionId);
+    if (!state) {
+      return null;
+    }
+
+    return {
+      queuedInputs: state.queuedInputs.map((input) => ({ ...input, frame: { ...input.frame } })),
+      lifecycle: [...state.lifecycle],
+      controlFrames: state.controlFrames.map((entry) => ({ ...entry, frame: { ...entry.frame } })),
+      controlResponses: [...state.controlResponses],
+      resultTimes: [...state.resultTimes],
+      sessionStateChanged: state.sessionStateChanged,
+      hostPid: state.process.pid,
+    };
+  }
+
+  /**
+   * Reports what a live resident host is holding, and how it came to hold it.
+   *
+   * The manager's snapshot already answers "what reasons does this binding
+   * carry"; what it cannot carry is this driver's own account of *how* each one
+   * was arrived at — whether the CLI named it or a tool call implied it, and
+   * which stream subtypes passed through unread. Read by the criterion in
+   * `tests/claude-resident-idle.test.ts`, which has to tell those apart;
+   * nothing in production consumes it.
+   */
+  lifecycleReading(appSessionId: string): ClaudeResidentLifecycleReading | null {
+    const state = this.liveStateFor(appSessionId);
+    if (!state) {
+      return null;
+    }
+
+    return {
+      hostId: state.hostId,
+      crons: state.heldCrons.map((lease) => ({ ...lease })),
+      backgroundTasks: state.heldBackgroundTasks.map((lease) => ({ ...lease })),
+      unhandledSystemSubtypes: [...state.unhandledSystemSubtypes],
+      cronsAuthoritative: state.cronsAuthoritative,
+      tasksAuthoritative: state.tasksAuthoritative,
+    };
+  }
+
+  /**
+   * Withdraws a message this host wrote, if the CLI still has it queued.
+   *
+   * The frame is written by hand because the SDK's `Query` has no verb for
+   * `cancel_async_message` (see `ClaudeResidentProcess.writeRaw`), and the
+   * verdict is read from the queue's own account rather than from a response:
+   * measured at all three timings — still queued, already dequeued, uuid that
+   * never existed — the CLI answers this frame with **no** `control_response`
+   * at all (`§9.2`). The one thing that changes when the withdrawal worked is
+   * a `state=cancelled` event for that uuid, so that is what is waited for.
+   *
+   * Returns `unknown` when there is no live process to write to or no raw
+   * write seam on it: a driver that cannot write has not withdrawn anything,
+   * and reporting `already-started` there would be claiming knowledge of a
+   * queue it never reached.
+   */
+  async cancelQueuedInput(
+    appSessionId: string,
+    messageUuid: string,
+  ): Promise<HostQueuedInputCancelResult> {
+    const state = this.liveStateFor(appSessionId);
+    if (!state || state.closed || !messageUuid) {
+      return 'unknown';
+    }
+    const writeRaw = state.process.writeRaw;
+    if (typeof writeRaw !== 'function') {
+      return 'unknown';
+    }
+
+    const requestId = randomUUID();
+    const frame: AnyRecord = {
+      type: 'control_request',
+      request_id: requestId,
+      request: { subtype: 'cancel_async_message', message_uuid: messageUuid },
+    };
+    // Recorded before the write so the reading holds the bytes even if the
+    // process dies mid-write.
+    state.controlFrames.push({ at: Date.now(), requestId, frame });
+    writeRaw.call(state.process, frame);
+
+    const withdrawn = await this.waitForLifecycle(state, messageUuid, 'cancelled');
+    if (withdrawn) {
+      this.dropWithdrawnRound(state, messageUuid);
+      return 'withdrawn';
+    }
+    // No `cancelled`, so the message was not withdrawn. It is only
+    // `already-started` if the CLI actually dequeued it; a uuid this process
+    // never queued is `unknown`, which is a different answer and stays one.
+    const dequeued = state.lifecycle.some(
+      (event) => event.commandUuid === messageUuid && event.state === 'started',
+    );
+    return dequeued ? 'already-started' : 'unknown';
+  }
+
+  /**
+   * Drops the round a withdrawn message was armed as, and ends it.
+   *
+   * A round exists per turn the dispatcher asked for, and the dispatcher awaits
+   * it: without this, a withdrawn message's round would sit in the FIFO forever,
+   * because the CLI never starts a message it cancelled and so never emits the
+   * `system/init`/`result` pair the round would settle on. Three things go wrong
+   * while it sits there, and all three are the same bug seen from three sides:
+   * the dispatcher's promise never settles, the next turn's `result` shifts the
+   * wrong round (settling the withdrawal on a turn it never ran), and the FIFO
+   * is never empty — which is exactly the reading an unattended turn's opener is
+   * refused by, so the process's own turn would be misread as a queued one.
+   *
+   * The terminal frame goes through the round's **own** writer, like every other
+   * round's: that run was opened for this message and the message will now never
+   * run, so the run is over and has to say so. `aborted` rather than a clean exit
+   * — the turn did not run and was stopped by a person, which is what that flag
+   * means everywhere else in this file. No round-end report is made: the caller
+   * of the withdrawal is the person who asked for it and gets a verdict frame
+   * back, and a "your run stopped" notification about their own withdrawal is
+   * noise about a turn that never started.
+   */
+  private dropWithdrawnRound(state: ResidentHostState, messageUuid: string): void {
+    const index = state.rounds.findIndex((round) => round.queuedUuids.includes(messageUuid));
+    if (index < 0) {
+      // Either a cold round (its message was the process's first work and was
+      // never a queue entry) or a round that already settled. Nothing to drop:
+      // the CLI answered `cancelled` for a uuid this host has no turn waiting on.
+      return;
+    }
+
+    const [withdrawn] = state.rounds.splice(index, 1);
+    // The lease accounting is the same one the `result` path keeps: one lease
+    // per live round. The dropped round is gone, so its lease goes with it.
+    state.sink.leaseRemoved(state.appSessionId, 'turn');
+    withdrawn.writer.send(
+      createCompleteMessage({
+        provider: this.provider,
+        sessionId: state.providerSessionId || withdrawn.appSessionId,
+        exitCode: 0,
+        aborted: true,
+      }),
+    );
+    // Settles the dispatcher's await for this turn. `settled` also keeps a
+    // `result` that somehow arrives anyway from settling it a second time.
+    withdrawn.settle();
+  }
+
+  /**
+   * Converges the reported `cron` reasons onto one list.
+   *
+   * Remove-then-re-add rather than a diff, because the manager's removal verb is
+   * by *kind* — a driver reports "the cron reason", not which cron — so a change
+   * of any size is expressed the same way. {@link sameLeases} is what keeps an
+   * unchanged list from being reported at all, which matters more than it looks:
+   * the `Stop` hook fires at the end of every turn, and a rule that reported its
+   * list unconditionally would move `lastActivityAt` and push the idle deadline
+   * out once per turn, so a session the user keeps talking to would never go
+   * idle and a session the CLI holds a cron for would never be observably held.
+   */
+  private settleCrons(state: ResidentHostState, desired: CronLease[]): void {
+    if (sameLeases(state.heldCrons, desired)) {
+      return;
+    }
+    state.sink.leaseRemoved(state.appSessionId, 'cron');
+    state.heldCrons = desired;
+    for (const lease of desired) {
+      state.sink.leaseAdded(state.appSessionId, lease);
+    }
+  }
+
+  /** The same convergence for the background-work reasons, which carry no expiry. */
+  private settleBackgroundTasks(state: ResidentHostState, desired: BackgroundTaskLease[]): void {
+    if (sameLeases(state.heldBackgroundTasks, desired)) {
+      return;
+    }
+    state.sink.leaseRemoved(state.appSessionId, 'background-task');
+    state.heldBackgroundTasks = desired;
+    for (const lease of desired) {
+      state.sink.leaseAdded(state.appSessionId, lease);
+    }
+  }
+
+  /**
+   * Reconciles one `Stop` hook firing into the binding's held-work reasons.
+   *
+   * A firing is authoritative only for the lists it actually carries: the hook
+   * input has `session_crons` and `background_tasks` as separate keys, and one
+   * absent key is the CLI saying nothing about that kind rather than saying it
+   * holds none. That distinction is the whole reason the two `…Authoritative`
+   * flags are separate — a build that reported `[]` for a list it never read
+   * would drop a live cron's lease and let the host go idle under it.
+   */
+  private reconcileHeldWork(state: ResidentHostState, input: AnyRecord): void {
+    if (state.closed) {
+      return;
+    }
+
+    const crons = input?.session_crons;
+    if (Array.isArray(crons)) {
+      state.cronsAuthoritative = true;
+      this.settleCrons(state, cronsFromStopList(crons, this.now(), state.heldCrons));
+    }
+
+    const tasks = input?.background_tasks;
+    if (Array.isArray(tasks)) {
+      state.tasksAuthoritative = true;
+      this.settleBackgroundTasks(state, tasksFromStopList(tasks));
+    }
+  }
+
+  /**
+   * Reads the two `system` frames that report background work, and counts the
+   * subtypes it does not read.
+   *
+   * The stream's own account runs alongside the hook's because the two answer
+   * different questions: the hook says what the process is still holding at the
+   * end of a turn, while these frames say what it is doing in the middle of one
+   * — a task that starts and finishes inside a single turn is never on any hook
+   * list, and a host that only read the hook would look idle for the whole of
+   * it. Neither list is gated on the other's authority: they converge on the
+   * same ids, and the last one to speak at a turn's end is the hook's.
+   */
+  private observeHeldWorkEvent(state: ResidentHostState, message: AnyRecord): void {
+    switch (message.subtype) {
+      case 'task_started': {
+        const id = taskIdOf(message);
+        if (id) {
+          this.settleBackgroundTasks(state, [...state.heldBackgroundTasks, { kind: 'background-task', id }]);
+        }
+        return;
+      }
+      case 'task_notification': {
+        const id = taskIdOf(message);
+        if (id) {
+          this.settleBackgroundTasks(
+            state,
+            state.heldBackgroundTasks.filter((lease) => lease.id !== id),
+          );
+        }
+        return;
+      }
+      case 'background_tasks_changed': {
+        if (Array.isArray(message.tasks)) {
+          this.settleBackgroundTasks(state, tasksFromChangedFrame(message.tasks));
+        }
+        return;
+      }
+      default:
+        return;
+    }
+  }
+
+  /**
+   * The fallback for a CLI that never tells the host what it holds.
+   *
+   * `CronCreate` / `CronDelete` are the only stream-side evidence a cron exists,
+   * and they are strictly worse evidence than the hook's list: the tool call says
+   * a job was made, not that it is still there, and nothing in the stream names
+   * the job's own id — the receipt's `7d58f90e` arrives on a `tool_result`, while
+   * the block that made it carries only the SDK's `tool_use_id`. So the inferred
+   * lease is keyed by that block id and flagged `inferred`, and it is only ever
+   * consulted while no `session_crons` list has been seen: once the CLI has named
+   * its jobs, a guess has nothing left to add.
+   *
+   * A `CronDelete` retracts the inferred reasons wholesale. It cannot be matched
+   * to one of them — its `input.id` is the CLI's id for the job, which is exactly
+   * the value an inferred lease never had — and while inference is live every
+   * cron lease is inferred, so "the user cancelled a cron" and "the reason went
+   * away" are the same event from this side.
+   */
+  private inferHeldWork(state: ResidentHostState, message: AnyRecord): void {
+    if (state.closed || state.cronsAuthoritative) {
+      return;
+    }
+
+    const content = message?.message?.content;
+    if (!Array.isArray(content)) {
+      return;
+    }
+
+    for (const block of content) {
+      if (block?.type !== 'tool_use') {
+        continue;
+      }
+      if (block.name === 'CronCreate') {
+        const id = typeof block.id === 'string' ? block.id : '';
+        if (!id) {
+          continue;
+        }
+        const input = block.input as AnyRecord | null | undefined;
+        this.settleCrons(state, [
+          ...state.heldCrons,
+          {
+            kind: 'cron',
+            id,
+            recurring: input?.recurring !== false,
+            expiresAt: this.now() + CRON_MAX_AGE_MS,
+            inferred: true,
+          },
+        ]);
+      } else if (block.name === 'CronDelete') {
+        this.settleCrons(state, []);
+      }
+    }
+  }
+
+  /**
    * Starts one resident process and asks the manager to track it.
    *
    * The order is forced by what the manager accepts: the record's pid is written
@@ -1053,6 +1807,10 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
     // it can never fire into nowhere: the first turn can end before this method
     // returns, and its `Stop` reading is the one an unattended turn will need.
     const ledger = createBackgroundWorkLedger();
+    // The same reason, one step further: the host state the hook reconciles into
+    // does not exist until `openHost` has answered, so firings that beat that are
+    // buffered for `startHost` rather than dropped.
+    const stopHook: StopHookSink = { state: null, buffered: [] };
 
     const process = await this.createProcess({
       prompt: queue.stream,
@@ -1062,7 +1820,17 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
         model: resolvedModel || options.model,
         effortModels,
       },
-      seams: { onStop: (input) => ledger.record(input) },
+      seams: {
+        onStop: (input) => {
+          ledger.record(input);
+          const state = stopHook.state;
+          if (!state) {
+            stopHook.buffered.push(input);
+            return;
+          }
+          this.reconcileHeldWork(state, input);
+        },
+      },
     });
 
     this.pending = {
@@ -1070,6 +1838,7 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       process,
       modelContextWindow: resolveModelContextWindowRow('claude', resolvedModel || options.model),
       ledger,
+      stopHook,
     };
 
     const host = await this.host.openHost({
@@ -1116,10 +1885,19 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
    * one question only — "did this host push this turn?" — which is the question
    * an unattended turn's opener has to be measured against.
    */
-  private async turnMessages(turn: HostTurnInput): Promise<AnyRecord[]> {
+  private async turnMessages(turn: HostTurnInput, queuedBehindTurn: boolean): Promise<AnyRecord[]> {
     const options = turn.options;
     const messages = await buildPromptMessages(turn.command, options.images, options.files, options.cwd);
-    return messages.map((message) => ({ ...message, uuid: randomUUID() }));
+    return messages.map((message) => ({
+      ...message,
+      uuid: randomUUID(),
+      // A frame written while the process is busy is written under the tier that
+      // makes it wait for the turn in flight and then run as a turn of its own.
+      // A cold start's frame is the process's first work, so it carries no tier:
+      // there is nothing for it to queue behind, and stating one anyway would
+      // make the frame say something about a queue that does not exist yet.
+      ...(queuedBehindTurn ? { priority: CLAUDE_QUEUED_INPUT_PRIORITY } : {}),
+    }));
   }
 
   /** One round record, with the settlement its dispatcher awaits. */
@@ -1144,6 +1922,7 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       done,
       settled: false,
       interrupted: false,
+      queuedUuids: [],
       settle(): void {
         if (round.settled) {
           return;
@@ -1189,6 +1968,30 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       }
     }
     if (!alreadyQueued) {
+      // Read before the push: `rounds` is appended to below, and the frame's
+      // tier and write moment have to be judged against the process's state as
+      // it was when the frame was handed over, not after this round joined.
+      const busy = state.rounds.length > 0 || Boolean(state.unattended);
+      const at = Date.now();
+      const resultsSeenAtPush = state.resultTimes.length;
+      for (const message of messages) {
+        if (busy && typeof message?.uuid === 'string' && message.uuid) {
+          round.queuedUuids.push(message.uuid);
+          state.queuedInputs.push({
+            uuid: message.uuid,
+            at,
+            priority: typeof message.priority === 'string' ? message.priority : null,
+            frame: message,
+            startedAt: null,
+            resultsSeenAtPush,
+            // Read off the turn's own `result` once it has one; the frame is
+            // written strictly earlier by construction, and leaving this null
+            // until then is what keeps the reading from being an assertion
+            // dressed up as a measurement.
+            queuedBeforeResult: null,
+          });
+        }
+      }
       state.queue.push(...messages);
     }
     state.rounds.push(round);
@@ -1325,6 +2128,98 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
     return null;
   }
 
+  /**
+   * Reads the queue facts off one stream message.
+   *
+   * Three readings, and each is kept for a different reason: the lifecycle
+   * list is the CLI's own account of what became of a message this host wrote,
+   * the `control_response` list is what came back to a control frame (measured:
+   * nothing does for `cancel_async_message` — `§9.2` — so this list exists to
+   * let the criterion say so from a reading rather than from an absence), and
+   * the `session_state_changed` count is the boundary check that the stream
+   * says nothing about turn starts or ends (`§9.1`).
+   *
+   * The lifecycle event's shape is accepted in both plausible encodings — a
+   * top-level `command_lifecycle` type and a `system` subtype — because §9
+   * records the event's name and payload but not which envelope carried it, and
+   * a parser that picked one would silently read nothing on the other. The
+   * fields it needs are the same either way: `command_uuid` and `state`.
+   */
+  private recordQueueFacts(state: ResidentHostState, message: AnyRecord): void {
+    if (message?.type === 'system' && message.subtype === 'session_state_changed') {
+      state.sessionStateChanged += 1;
+    }
+
+    if (message?.type === 'control_response') {
+      const inner = message.response as AnyRecord | undefined;
+      const requestId =
+        typeof inner?.request_id === 'string'
+          ? inner.request_id
+          : typeof message.request_id === 'string'
+            ? message.request_id
+            : null;
+      state.controlResponses.push({ at: Date.now(), requestId });
+      return;
+    }
+
+    const isLifecycle =
+      message?.type === 'command_lifecycle' ||
+      (message?.type === 'system' && message.subtype === 'command_lifecycle');
+    const commandUuid = typeof message?.command_uuid === 'string' ? message.command_uuid : null;
+    const lifecycleState = typeof message?.state === 'string' ? message.state : null;
+    if (!isLifecycle || !commandUuid || !lifecycleState) {
+      return;
+    }
+
+    const at = Date.now();
+    state.lifecycle.push({
+      commandUuid,
+      state: lifecycleState as CommandLifecycleState,
+      at,
+    });
+
+    // The first `started` for a uuid is the dequeue moment — the point after
+    // which a withdrawal can no longer succeed. A re-started uuid (there is no
+    // such event today) does not move it.
+    if (lifecycleState === 'started') {
+      const input = state.queuedInputs.find(
+        (candidate) => candidate.uuid === commandUuid && candidate.startedAt === null,
+      );
+      if (input) {
+        input.startedAt = at;
+      }
+    }
+  }
+
+  /**
+   * Waits for a specific lifecycle state to be read for a specific uuid.
+   *
+   * Polls the reading rather than being woken by the read loop: the stream is
+   * consumed by one loop this class owns, and handing the queue a callback
+   * registry so a withdrawal could be notified would make the wait a second
+   * consumer of the same state. `true` only when the state was actually read;
+   * the budget expiring is `false`, which the caller must interpret (and does,
+   * from the reading — never from the expiry).
+   */
+  private async waitForLifecycle(
+    state: ResidentHostState,
+    commandUuid: string,
+    wanted: CommandLifecycleState,
+  ): Promise<boolean> {
+    const deadline = Date.now() + CLAUDE_CANCEL_VERDICT_WAIT_MS;
+    for (;;) {
+      if (state.lifecycle.some((event) => event.commandUuid === commandUuid && event.state === wanted)) {
+        return true;
+      }
+      if (state.closed || Date.now() >= deadline) {
+        return false;
+      }
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, CLAUDE_CANCEL_VERDICT_POLL_MS);
+      });
+    }
+  }
+
   /** Runs the read loop detached, with a rejection sink so nothing floats unhandled. */
   private consume(state: ResidentHostState): void {
     this.readStream(state).catch(() => undefined);
@@ -1443,15 +2338,37 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
     if (message?.type === 'system' && message.subtype === 'task_started' && typeof message.task_type === 'string') {
       state.backgroundTaskType = message.task_type;
     }
+    this.recordQueueFacts(state, message);
+
+    // Held work is read from two places: the `Stop` hook's own lists (through
+    // the seam installed on the process) and these stream frames. A `system`
+    // subtype this build does not read is *passed through* — recorded, so a
+    // reader can see the loop met one, and otherwise untouched. Throwing or
+    // stopping here would end the read loop, and with it the process's whole
+    // lifetime, on a frame the CLI is entitled to invent.
+    if (message?.type === 'system') {
+      const subtype = typeof message.subtype === 'string' ? message.subtype : '';
+      if (subtype && !HELD_WORK_SYSTEM_SUBTYPES.has(subtype)) {
+        state.unhandledSystemSubtypes.push(subtype);
+      }
+      this.observeHeldWorkEvent(state, message);
+    }
+    this.inferHeldWork(state, message);
 
     // A turn this host did not push announces itself here, and from this point
     // its frames are that run's. Read before the forwarding below so the
     // opener's own frames reach the run it opened instead of the last round's.
     this.openUnattendedTurnIfOwn(state, message, sessionId);
 
-    // The round in flight owns its frames; a turn nothing owns belongs to the
-    // run opened for it, and only then to the last writer this host saw.
-    const frameWriter = round?.writer ?? state.unattended?.writer ?? state.writer;
+    // The unattended turn comes first while it is open, because the CLI runs
+    // one turn at a time: a round armed during an unattended turn is queued
+    // *behind* it, and the frames still arriving belong to the turn that is
+    // actually running. Preferring the round would send the unattended turn's
+    // own frames — its text, its tool calls, its `result` — into a run that has
+    // not started, and leave the run the turn really belongs to empty. After
+    // that, the round in flight owns its frames; a turn nothing owns belongs to
+    // the run opened for it, and only then to the last writer this host saw.
+    const frameWriter = state.unattended?.writer ?? round?.writer ?? state.writer;
 
     if (frameWriter && context) {
       forwardNormalizedFrames({
@@ -1486,6 +2403,27 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
     state.sink.activity(state.appSessionId);
 
     if (message?.type !== 'result') {
+      return;
+    }
+
+    state.resultTimes.push(Date.now());
+    // Every queued frame whose turn in flight has now ended gets its write-timing
+    // reading closed out here, at the only moment both timestamps exist.
+    for (const input of state.queuedInputs) {
+      if (input.queuedBeforeResult === null && state.resultTimes.length > input.resultsSeenAtPush) {
+        input.queuedBeforeResult = input.at < (state.resultTimes[input.resultsSeenAtPush] as number);
+      }
+    }
+
+    // The unattended turn's own `result`, and it has to be read as such before
+    // the round FIFO is consulted. The CLI runs one turn at a time, so a result
+    // arriving while an unattended turn is open is *that* turn's ending — any
+    // round armed since was pushed behind it and has not started yet. Shifting
+    // the FIFO here would settle a round on a turn it never ran, and the round's
+    // own `result` would then find an empty queue and be read as another ending
+    // of the unattended turn.
+    if (state.unattended) {
+      this.finishUnattendedTurn(state, sessionId);
       return;
     }
 

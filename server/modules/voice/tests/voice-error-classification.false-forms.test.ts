@@ -60,6 +60,40 @@
  * prints `typecheck-reds-on-drift=not-measured-here` and names this file, rather than claiming a
  * measurement it did not take.
  *
+ * WHY AC7 NO LONGER STARTS A SECOND VITEST FOR THE ASR CONTRACT SPEC. It used to: the entry ran
+ * `npx vitest run src/shared/asr/tests/asrContractInvariants.test.ts` in a child of its own, and
+ * under the fleet that child is what went red. Measured on this box (2026-09-27, one process in a
+ * scope): that child peaks at 1.944 GB, while every other entry in AC7_COMMANDS is the ~0.3 GB a
+ * `tsx --test` file costs — and the whole fleet (every task worker, every fan-in, every capped
+ * scope) runs inside ONE `quay-fleet.slice` with MemoryMax=64G (scripts/start-drivers-scoped.sh).
+ * So the extra vitest per AC7 invocation is a MULTIPLIER on that ceiling rather than a defect of any
+ * one call: while the client lane was already running the very same spec (the lane's own per-file
+ * record for it reads passed=true in the same log), the AC7 child was OOM-killed, `spawnSync`
+ * returned `status: null`, `runCommand`'s `result.status ?? 1` reported `exit=1`, and the criterion
+ * red — six such reds across two unrelated tasks' fan-ins (.quay/fan-in-suite-*.log). Re-running the
+ * suite does not clear it either: the criterion reds on a clean tree under the fleet, which is why
+ * this is a fix task and not a re-dispatch.
+ *
+ * WHAT REPLACES IT, AND WHAT STILL HOLDS. The spec's EXECUTION was never AC7's to carry: the client
+ * lane is the repository-level criterion that collects `src/**\/*.test.ts{,x}` (vitest.config.ts's
+ * `include`) and whose per-file `passed=false` reds the suite (scripts/test.sh's client phase). AC7
+ * now asks that lane's resolver to ENUMERATE the spec's cases — `vitest list <path>`, which loads the
+ * module graph but forks no worker and runs no test body: measured 0.281 GB anon / 0.366 GB peak
+ * against the 1.819 GB anon / 1.944 GB peak it replaces, a 6.5x anon cut, so it cannot contribute to
+ * the oversubscription the red came from. It asks for the full listing rather than `--filesOnly`
+ * (0.091 GB) because the listing is the stronger falsifiable reading: the lines it prints name the
+ * spec's own cases as vitest resolved them, so "collected" is a claim about a spec with cases in it
+ * rather than about a path string this file could have copied. Renaming the spec out of the lane's
+ * globs, narrowing `include` until it no longer collects the spec, and emptying the spec of cases are
+ * all reds.
+ *
+ * AND IT IS NOT AN ECHO OF ITS OWN QUESTION. `vitest list <path>` EXITS 0 WITH NO OUTPUT for a path
+ * the lane does not collect, so an exit-code-only reading here would be a vacuous pass and the case
+ * below does not take one. It asks `vitest list` about such a path and requires SILENCE: no case
+ * line, no path echoed. That arm is what makes the marker on the collected path a measurement of the
+ * lane's `include` set instead of a command repeating the argument it was handed — the same refusal
+ * of a vacuous pass that the exit-code loop makes one level up.
+ *
  * AC8'S DRIFT READING RUNS THE PROJECT'S OWN OPTIONS, NOT THE PROJECT'S OWN COMMAND. The mutant copy's
  * per-arm `tsconfig` is `{"extends": "../../server/tsconfig.json", "include": ["./<arm>.ts"]}`, so the
  * compiler options, `lib`, `types`, `moduleResolution` and `strict` are `server/tsconfig.json`'s own
@@ -525,12 +559,18 @@ const AC7_COMMANDS: readonly CommandSpec[] = [
     markers: ['provider-error-passthrough upstream=404 client=404', 'provider-error-status UNAUTHORIZED=502'],
   },
   TSX('server/modules/voice/tests/voice-provider-dispatch-falsify.test.ts'),
+  // The ASR contract board's client-lane spec. AC7 used to RUN this file in a fresh `vitest run`
+  // child of its own; that child (1.944 GB peak measured, against ~0.3 GB for every other entry in
+  // this list) was the OOM victim under the fleet's shared 64G ceiling, so the criterion now asks
+  // vitest to ENUMERATE the spec's cases without running them, and leaves the execution and the exit
+  // code to the client lane. See the header note "WHY AC7 NO LONGER STARTS A SECOND VITEST", and the
+  // control arm in the case below that keeps this from being an echo of its own question.
   {
     label: 'src/shared/asr/tests/asrContractInvariants.test.ts',
     command: 'npx',
-    args: ['vitest', 'run', 'src/shared/asr/tests/asrContractInvariants.test.ts'],
-    tally: /Tests\s+(\d+) passed/,
-    markers: [],
+    args: ['vitest', 'list', 'src/shared/asr/tests/asrContractInvariants.test.ts'],
+    tally: null,
+    markers: ['src/shared/asr/tests/asrContractInvariants.test.ts > '],
   },
   {
     label: 'scripts/asr-dashscope-omni-check.mjs',
@@ -669,6 +709,71 @@ test('AC7 the criteria, the check scripts and the repository gates still exit 0'
     vacuous.map((outcome) => outcome.label),
     [],
     'a command that exited 0 without running anything (or without printing what it decided) is a vacuous pass',
+  );
+
+  // ── the arm that keeps the enumeration reading from being an echo of its own question.
+  //
+  // The ASR contract spec's entry above is the one reading in this list that does not RUN its
+  // subject: it asks the lane's resolver to enumerate the cases the client lane collects. `vitest
+  // list <path>` prints one `<path> > <describe> > <case>` line per case only when the lane's own
+  // `include` (vitest.config.ts) collects the path. That command EXITS 0 WITH NO OUTPUT for a path
+  // the lane does not collect (measured), so its exit code cannot tell the two apart and the
+  // discriminating arm has to be the output: a path the lane does NOT collect must produce no case
+  // line. Without that arm, a change that made the command echo its argument would leave the marker
+  // green while measuring nothing at all, which is the false green this criterion exists to refuse
+  // (it is the same refusal the exit-code loop above makes one level up).
+  const SPEC_PATH = 'src/shared/asr/tests/asrContractInvariants.test.ts';
+  const DECOY_PATH = 'src/shared/asr/tests/__not-collected-by-any-lane__.test.ts';
+
+  /** The case lines vitest printed FOR ONE FILE — `list` prints them as `<file> > <describe> > <case>`. */
+  const caseLinesFor = (output: string, file: string): number =>
+    output.split('\n').filter((line) => line.startsWith(`${file} > `)).length;
+
+  const specOutcome = outcomes.find((outcome) => outcome.label === SPEC_PATH);
+  const specCollected =
+    specOutcome !== undefined && specOutcome.exitCode === 0 && specOutcome.output.includes(SPEC_PATH);
+  const specCases = specOutcome === undefined ? 0 : caseLinesFor(specOutcome.output, SPEC_PATH);
+
+  const decoyOutcome = runCommand({
+    label: DECOY_PATH,
+    command: 'npx',
+    args: ['vitest', 'list', DECOY_PATH],
+    tally: null,
+    markers: [],
+  });
+  const decoyEchoed = decoyOutcome.output.includes(DECOY_PATH);
+  const decoyCases = caseLinesFor(decoyOutcome.output, DECOY_PATH);
+
+  process.stdout.write(
+    `ac7-collection: spec-collected=${String(specCollected)} spec-cases=${specCases} ` +
+      `control-exit=${decoyOutcome.exitCode ?? 'SKIPPED'} control-echoed=${String(decoyEchoed)} ` +
+      `control-cases=${decoyCases} ` +
+      `(the spec itself is executed by the client lane — scripts/test.sh's client phase records its ` +
+      `per-file passed=false and reds the suite; AC7 does not start a second vitest for it)\n`,
+  );
+
+  assert.equal(
+    specCollected,
+    true,
+    `the client lane's resolver must name ${SPEC_PATH} as a spec it collects; it exited ` +
+      `${specOutcome?.exitCode ?? 'never ran'} and said ${firstLine(specOutcome?.output ?? '')}`,
+  );
+  assert.ok(
+    specCases > 0,
+    `${SPEC_PATH} is collected by the lane but vitest enumerated no case in it (${specCases} case ` +
+      `lines), so "collected" would be a reading about an empty spec`,
+  );
+  assert.equal(
+    decoyEchoed,
+    false,
+    `the enumeration reading echoed a path the lane does not collect (${DECOY_PATH}), so it is not ` +
+      `reading the lane's include set`,
+  );
+  assert.equal(
+    decoyCases,
+    0,
+    `the enumeration reading produced case lines for a path the lane does not collect ` +
+      `(${DECOY_PATH}), so its case count is not read out of the lane's include set`,
   );
 });
 
