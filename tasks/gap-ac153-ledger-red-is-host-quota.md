@@ -1,7 +1,7 @@
 ---
 id: gap-ac153-ledger-red-is-host-quota
 title: AC-153 的台账读数被宿主配额耗尽（EDQUOT）在判据启动前冒名成红：重跑判据与反假控制并重建读数，钉住「宿主启动死 ≠ 判据假」
-status: ready
+status: done
 labels:
   - gap
 parent: null
