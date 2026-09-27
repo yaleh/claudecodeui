@@ -1,7 +1,7 @@
 ---
 id: AC-175
 title: 真实浏览器里常驻会话忙时发送直接送达，不走前端本地排队，出队前可撤回
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-013
 criterion: npx playwright test e2e/resident-busy-send.spec.ts
@@ -29,6 +29,11 @@ statusLog:
     to: active
     actor: human:yale
     reason: 人 yale 2026-09-27 指令：判据已按 E1–E9 结论修订，转 active
+  - at: 2026-09-27T18:54:33.999Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
