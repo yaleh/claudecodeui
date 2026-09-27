@@ -2,9 +2,15 @@ import type {
   AnyRecord,
   FetchHistoryOptions,
   FetchHistoryResult,
+  HostCloseDetail,
+  HostCloseReason,
+  HostLease,
+  HostReconfigurePatch,
+  HostTurnInput,
   LLMProvider,
   McpScope,
   NormalizedMessage,
+  ProcessHost,
   ProviderSkill,
   ProviderSkillListOptions,
   ProviderAuthStatus,
@@ -16,6 +22,7 @@ import type {
   ProviderRuntimeContext,
   ProviderRuntimePermissionGateway,
   ProviderRuntimeWriter,
+  SessionBinding,
   UpsertProviderMcpServerInput,
 } from '@/shared/types.js';
 
@@ -66,6 +73,111 @@ export interface IProvider {
    * place the rename exists.
    */
   readonly rename?: IProviderSessionRename;
+  /**
+   * Process-lifetime ownership. Present only for providers that can hold a
+   * process across turns (Claude `resident`) or multiplex several conversations
+   * onto one already-running process. Its absence is the normal case: every
+   * provider without it is driven by the session-host manager's default per-run
+   * wrapper, which keeps the existing `IProviderRuntime.run`/`abort` contract as
+   * the whole of the provider's lifecycle.
+   */
+  readonly hostDriver?: IProviderHostDriver;
+}
+
+// ---------------------------
+//----------------- PROVIDER HOST DRIVER INTERFACE ------------
+/**
+ * Optional provider facet for lifecycle modes the default per-run wrapper
+ * cannot express.
+ *
+ * The default wrapper in `server/modules/session-hosts` only observes: it opens
+ * a per-run host, watches the runtime's writer for the terminal frame and lets
+ * the runtime keep `IProviderRuntime.abort` as the way to stop a turn. A
+ * provider that implements this facet instead owns process lifetime — it decides
+ * when a host starts, which session is bound to it, and how it is closed — which
+ * is what makes `resident` mode and multiplexed hosts possible.
+ *
+ * `host` carries the identity and state the manager already tracks; a driver
+ * mutates process reality and reports back through the manager, never by editing
+ * the host record itself. Verbs are specified in
+ * `docs/proposals/claude-resident-sessions.md` §4.
+ */
+export interface IProviderHostDriver {
+  /**
+   * Starts the host process, or returns the already-running one a multiplexing provider reuses.
+   *
+   * `sink` is how the driver reports back what the manager cannot observe for
+   * itself: which leases the process is being held for, when work moved, and
+   * when the process went away on its own. A driver must report through it
+   * rather than edit the host record — the record is the manager's, and the
+   * close decision is computed from the leases the sink reports, never from the
+   * driver's own bookkeeping.
+   */
+  startHost(host: ProcessHost, sink: IProviderHostDriverSink): Promise<ProcessHost>;
+  /** Opens one session binding on the host (for Claude this is the same action as `startHost`). */
+  bind(host: ProcessHost, binding: SessionBinding): Promise<void>;
+  /** Delivers one turn: for `per-run` this is what `run` used to be; for `resident` it writes to the process input. */
+  submit(host: ProcessHost, appSessionId: string, turn: HostTurnInput): Promise<void>;
+  /** Stops the turn in flight and reports whether anything was stopped. */
+  interrupt(host: ProcessHost, appSessionId: string): Promise<boolean>;
+  /** Applies a model/effort/permission change, reporting whether it took effect now or next turn. */
+  reconfigure(
+    host: ProcessHost,
+    appSessionId: string,
+    patch: HostReconfigurePatch,
+  ): Promise<'live' | 'next-turn'>;
+  /** Detaches one session, leaving the host running while it still has other bindings. */
+  unbind(host: ProcessHost, appSessionId: string, reason: HostCloseReason): Promise<void>;
+  /** Terminates the host process. */
+  closeHost(host: ProcessHost, reason: HostCloseReason): Promise<void>;
+  /**
+   * Whether one process of this provider may serve several sessions at once.
+   *
+   * The statement only the driver can make, because it is a fact about the
+   * process's protocol rather than about the manager: a multiplexing driver
+   * (`Codex app-server`, `opencode serve`) routes conversations by session id
+   * inside one process, while a driver that replaces the per-run wrapper does
+   * not. Absent means false — a driver that never thought about multiplexing
+   * gets the safe reading, one conversation per process — so the manager reads
+   * this as `=== true` and never as truthiness. Consumed by
+   * `session-host-manager.bindSession`, which reuses a live host only for a
+   * provider that declares it and refuses the second binding otherwise.
+   */
+  readonly multiplexedHost?: boolean;
+}
+
+/**
+ * The manager side of a host driver: what a driver reports, and nothing else.
+ *
+ * Held by the driver for the life of the host (`startHost` receives it) because
+ * every fact here is one the manager cannot read off the process: a lease is a
+ * statement of intent the manager has no other way to learn, and an exit is an
+ * event rather than a state. The manager owns the host record; a driver that
+ * wrote to `ProcessHost` directly would be able to make the record disagree
+ * with the process, which is exactly the disagreement this seam exists to
+ * prevent. Verbs are specified in
+ * `docs/proposals/claude-resident-sessions.md` §4.
+ */
+export interface IProviderHostDriverSink {
+  /** Reports that the host is now being held for one more reason. */
+  leaseAdded(appSessionId: string, lease: HostLease): void;
+  /** Reports that a reason no longer applies; the manager re-derives state from what is left. */
+  leaseRemoved(appSessionId: string, kind: HostLease['kind']): void;
+  /**
+   * Reports real work on the binding — a turn boundary, a streamed frame, a
+   * user send. This is the only thing that moves `lastActivityAt`; a reader
+   * attaching to the session deliberately does not.
+   */
+  activity(appSessionId: string): void;
+  /**
+   * Reports that the process is gone, with the detail the runtime could see.
+   *
+   * Terminal: the manager closes the host with `exited` and this detail. The
+   * manager does not call `closeHost` back for an exit — the process is already
+   * gone, and a driver asked to kill it would be asked to kill something that
+   * is not there.
+   */
+  exited(event: { hostId: string; detail: Exclude<HostCloseDetail, 'forced'> }): void;
 }
 
 // ---------------------------

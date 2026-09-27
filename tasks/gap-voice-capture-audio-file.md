@@ -2,7 +2,7 @@
 id: gap-voice-capture-audio-file
 title: audio 档把上传字节原样写成文件：行内给出路径与 sha256、目录 0700 文件 0600、多次转写逐次累积不清理、text
   档零文件零目录（AC-145）
-status: todo
+status: ready
 needs_human_cause: human-adjudication
 labels:
   - gap
@@ -13,7 +13,6 @@ extra:
 depends_on:
   - gap-voice-capture-mode-gate-off-fail-closed
   - gap-voice-capture-text-payload
-  - gap-ac103-worktree-state-drag-and-unbudgeted-confirm
 goal_ac: AC-145
 ---
 ## Proposal

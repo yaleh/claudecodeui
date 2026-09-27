@@ -1,0 +1,831 @@
+import assert from 'node:assert/strict';
+
+import { act, render, renderHook, within } from '@testing-library/react';
+import i18next from 'i18next';
+import React from 'react';
+import { initReactI18next } from 'react-i18next';
+import { afterEach, beforeEach, describe, test, vi } from 'vitest';
+
+import ActivityIndicator from '@/modules/chat/composer/ActivityIndicator';
+import ChatMessagesPane from '@/modules/chat/transcript/ChatMessagesPane';
+import { UiPreferencesProvider } from '@/shared/context/UiPreferencesContext';
+import enChat from '@/modules/i18n/locales/en/chat.json';
+import type {
+  ChatMessage,
+  NormalizedMessage,
+  Project,
+  ProjectSession,
+  ProviderModelActions,
+  SessionActivity,
+} from '@/shared/types';
+
+/**
+ * The running turn's status has two surfaces and one story.
+ *
+ * From `md` up it is the tab-shaped indicator the composer hangs off the input's
+ * top edge — floating, and therefore over the transcript, which is why the pane
+ * reserved space for it. Below `md` that tab is not rendered at all: the status
+ * moves into the message flow as a compact line at the end of the list, so it can
+ * never cover a message, and it carries no Stop — the composer's submit button is
+ * the one stop entry on that layout.
+ *
+ * jsdom parses no Tailwind and lays nothing out, so what these cases read is what
+ * the DOM can answer: which surface exists at which width, what each surface
+ * contains, where the inline line sits in the document, and which classes the
+ * pane's padding is built from. The tier is switched by the signal the components
+ * themselves read — `window.innerWidth` against the `md` boundary — so an
+ * implementation that switched on some other signal would take the same branch
+ * here and these cases would pass against a second copy of the rule. That the real
+ * box really scrolls with its messages, really does not overlap the last one, and
+ * really exposes one Stop is the browser probe's job, not a unit test's.
+ */
+
+const MOBILE_WIDTH = 390;
+/** One pixel under the `md` boundary: the narrow tier's own edge. */
+const NARROW_EDGE_WIDTH = 767;
+const DESKTOP_WIDTH = 768;
+const WIDE_DESKTOP_WIDTH = 1280;
+
+/** A fixed clock, so an elapsed reading is a number the case can name. */
+const START = Date.parse('2026-01-01T00:00:00.000Z');
+const EXIT_ANIMATION_MS = 220;
+
+const ACTIVITY: SessionActivity = {
+  statusText: 'Reviewing',
+  canInterrupt: true,
+  startedAt: START,
+};
+
+/** The signal both surfaces read for the tier (`useDeviceSettings`). */
+const setViewportWidth = (width: number) => {
+  Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: width });
+};
+
+/** jsdom ships no media queries; the device rule under test is the width one. */
+const installMatchMedia = () => {
+  window.matchMedia = ((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+    addListener: () => undefined,
+    removeListener: () => undefined,
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
+};
+
+const INLINE_SLOT = '[data-slot="chat-activity-inline"]';
+const PANE_SELECTOR = '.chat-messages-pane';
+
+const inlineRow = (view: { container: HTMLElement }) =>
+  view.container.querySelector<HTMLElement>(INLINE_SLOT);
+
+/** What the inline line reads, or a named absence — a case that finds nothing must say so, not print "undefined". */
+const describeInline = (view: { container: HTMLElement }) => {
+  const row = inlineRow(view);
+  return row ? `<${row.tagName.toLowerCase()} class="${row.className}">${row.textContent ?? ''}` : '<no inline status line>';
+};
+
+const paneOf = (view: { container: HTMLElement }) =>
+  view.container.querySelector<HTMLElement>(PANE_SELECTOR);
+
+const project: Project = {
+  projectId: 'project-1',
+  path: '/repo',
+  fullPath: '/repo',
+  displayName: 'Repo',
+  isStarred: false,
+};
+
+const messages: ChatMessage[] = [
+  { type: 'user', content: 'question', timestamp: '2026-01-01T00:00:00.000Z' },
+  { type: 'assistant', content: 'answer', timestamp: '2026-01-01T00:00:01.000Z' },
+];
+
+/**
+ * The pane's own props, only as far as a transcript with messages needs them.
+ * `hasActivityIndicator` is the composer's reading of "a turn is running and no
+ * permission request has taken the status over"; `activity` is the same turn.
+ */
+const paneProps = (overrides: Partial<React.ComponentProps<typeof ChatMessagesPane>> = {}) => ({
+  scrollContainerRef: { current: null },
+  scrollContentRef: () => undefined,
+  onWheel: () => undefined,
+  onTouchMove: () => undefined,
+  isLoadingSessionMessages: false,
+  isProcessing: true,
+  hasActivityIndicator: true,
+  activity: ACTIVITY,
+  chatMessages: messages,
+  selectedSession: { id: 'session-a' } as ProjectSession,
+  currentSessionId: 'session-a',
+  provider: 'claude' as const,
+  setProvider: () => undefined,
+  textareaRef: { current: null },
+  providerModels: { claude: 'claude-sonnet-4-5' },
+  setProviderModel: () => undefined,
+  providerModelCatalog: {},
+  providerModelActions: {} as ProviderModelActions,
+  providerModelsLoading: false,
+  tasksEnabled: false,
+  isTaskMasterInstalled: null,
+  setInput: () => undefined,
+  isLoadingMoreMessages: false,
+  hasMoreMessages: false,
+  totalMessages: messages.length,
+  sessionMessagesCount: messages.length,
+  visibleMessageCount: messages.length,
+  visibleMessages: messages,
+  loadEarlierMessages: () => undefined,
+  loadAllMessages: () => undefined,
+  allMessagesLoaded: true,
+  isLoadingAllMessages: false,
+  loadAllJustFinished: false,
+  showLoadAllOverlay: false,
+  createDiff: () => undefined,
+  selectedProject: project,
+  showThinking: true,
+  ...overrides,
+});
+
+const renderPane = (width: number, overrides: Partial<React.ComponentProps<typeof ChatMessagesPane>> = {}) => {
+  setViewportWidth(width);
+  // The real preferences owner, not a stub: a message row reads the voice
+  // preference to decide whether to offer its speak control, and a stub would
+  // be a second implementation of what the row is entitled to read.
+  const view = render(
+    <UiPreferencesProvider>
+      <ChatMessagesPane {...(paneProps(overrides) as React.ComponentProps<typeof ChatMessagesPane>)} />
+    </UiPreferencesProvider>,
+  );
+  const pane = paneOf(view);
+  assert.ok(pane, `the pane must render its scroll container (${PANE_SELECTOR})`);
+  return { view, pane };
+};
+
+await i18next.use(initReactI18next).init({
+  lng: 'en',
+  fallbackLng: 'en',
+  ns: ['chat'],
+  defaultNS: 'chat',
+  resources: { en: { chat: enChat } },
+  interpolation: { escapeValue: false },
+  react: { useSuspense: false },
+});
+
+beforeEach(() => {
+  installMatchMedia();
+  setViewportWidth(WIDE_DESKTOP_WIDTH);
+  vi.useFakeTimers({ now: START });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+/** Every accessible button whose name says stop, inside a subtree — the reading the criterion counts. */
+const stopButtons = (root: HTMLElement) => within(root).queryAllByRole('button', { name: /stop/i });
+
+test('(a) the inline variant reads as the tab does, minus the Stop', () => {
+  const onAbort = vi.fn();
+  const view = render(
+    React.createElement(ActivityIndicator, { activity: ACTIVITY, onAbort, variant: 'inline' }),
+  );
+  const row = inlineRow(view);
+  assert.ok(row, `the inline variant must render a status line (${INLINE_SLOT}); DOM: ${view.container.innerHTML.slice(0, 400)}`);
+
+  const text = row.textContent ?? '';
+  assert.ok(text.includes('Reviewing'), `the inline line must name the activity; it reads "${text}"`);
+  assert.ok(text.includes('0s'), `the inline line must show the elapsed time; it reads "${text}"`);
+
+  const found = stopButtons(row);
+  assert.equal(
+    found.length,
+    0,
+    `the inline line must carry no Stop — the composer's submit button is the one stop entry below md; it carries ${found.length}: ${row.outerHTML}`,
+  );
+  assert.equal(
+    (row.outerHTML.match(/aria-label/gi) ?? []).length,
+    0,
+    `the inline line must expose no named control at all; it reads ${row.outerHTML}`,
+  );
+});
+
+test('(b) the tab variant still carries the activity text, the Stop and the Esc hint', () => {
+  const onAbort = vi.fn();
+  const view = render(React.createElement(ActivityIndicator, { activity: ACTIVITY, onAbort }));
+  const text = view.container.textContent ?? '';
+
+  assert.ok(text.includes('Reviewing'), `the tab must name the activity; it reads "${text}"`);
+  assert.ok(text.includes('0s'), `the tab must show the elapsed time; it reads "${text}"`);
+  assert.ok(/esc/i.test(text), `the tab must keep the Esc hint; it reads "${text}"`);
+
+  const found = stopButtons(view.container);
+  assert.equal(
+    found.length,
+    1,
+    `the tab must carry exactly one Stop; it carries ${found.length}: ${view.container.innerHTML.slice(0, 400)}`,
+  );
+
+  found[0].click();
+  assert.equal(
+    onAbort.mock.calls.length,
+    1,
+    `the tab's Stop must reach the abort handler; reached ${onAbort.mock.calls.length}`,
+  );
+});
+
+test('(c) the elapsed reading advances on both variants off the one startedAt', () => {
+  const readings: string[] = [];
+  const elapsedOf = (view: { container: HTMLElement }) => {
+    const matched = (view.container.textContent ?? '').match(/\d+m \d+s|\d+s/);
+    return matched ? matched[0] : '<no elapsed reading>';
+  };
+
+  const inline = render(
+    React.createElement(ActivityIndicator, { activity: ACTIVITY, variant: 'inline' }),
+  );
+  const tab = render(React.createElement(ActivityIndicator, { activity: ACTIVITY, onAbort: () => undefined }));
+
+  const atStart = { inline: elapsedOf(inline), tab: elapsedOf(tab) };
+  readings.push(`both at ${new Date(START).toISOString()}: inline="${atStart.inline}", tab="${atStart.tab}"`);
+  assert.equal(atStart.inline, '0s', `a turn that just started must read 0s; readings: ${readings.join(' | ')}`);
+  assert.equal(atStart.tab, '0s', `a turn that just started must read 0s; readings: ${readings.join(' | ')}`);
+
+  act(() => {
+    vi.advanceTimersByTime(65_000);
+  });
+
+  const later = { inline: elapsedOf(inline), tab: elapsedOf(tab) };
+  readings.push(`both at +65s: inline="${later.inline}", tab="${later.tab}"`);
+  assert.equal(
+    later.inline,
+    '1m 5s',
+    `the inline reading must advance with the clock; readings: ${readings.join(' | ')}`,
+  );
+  assert.equal(
+    later.tab,
+    later.inline,
+    `both surfaces must read the same elapsed time for the same startedAt; readings: ${readings.join(' | ')}`,
+  );
+});
+
+test('(d) both variants play the same exit animation when the activity clears', () => {
+  const readings: string[] = [];
+
+  for (const variant of ['inline', 'tab'] as const) {
+    const view = render(
+      React.createElement(ActivityIndicator, { activity: ACTIVITY, onAbort: () => undefined, variant }),
+    );
+    const mounted = variant === 'inline' ? inlineRow(view) : view.container.firstElementChild;
+    assert.ok(mounted, `premise: the ${variant} surface must be mounted while the turn runs`);
+
+    act(() => {
+      view.rerender(
+        React.createElement(ActivityIndicator, { activity: null, onAbort: () => undefined, variant }),
+      );
+    });
+
+    const exiting = variant === 'inline' ? inlineRow(view) : view.container.firstElementChild;
+    readings.push(
+      `${variant}: at +0ms ${exiting ? 'present' : 'gone'}${exiting ? ` (class="${exiting.className}")` : ''}`,
+    );
+    assert.ok(
+      exiting,
+      `the ${variant} surface must stay mounted through its exit animation; readings: ${readings.join(' | ')}`,
+    );
+    assert.ok(
+      exiting.className.includes('chat-activity-exit'),
+      `the ${variant} surface must animate out rather than disappear; readings: ${readings.join(' | ')}`,
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(EXIT_ANIMATION_MS);
+    });
+
+    const after = variant === 'inline' ? inlineRow(view) : view.container.firstElementChild;
+    readings.push(`${variant}: at +${EXIT_ANIMATION_MS}ms ${after ? 'present' : 'gone'}`);
+    assert.equal(
+      after,
+      null,
+      `the ${variant} surface must be gone once the exit animation has run; readings: ${readings.join(' | ')}`,
+    );
+
+    view.unmount();
+  }
+});
+
+test('(e) below md the pane draws the status line at the end of the message flow', () => {
+  // The column the transcript's content-growth follow observes is the node the
+  // pane hands to `scrollContentRef`. Capturing it here is what lets the case
+  // below assert the status line is inside *that* box rather than merely inside
+  // the pane: a line rendered beside the column would scroll with the message
+  // list and still be invisible to the follow.
+  let observedColumn: HTMLDivElement | null = null;
+  const { view, pane } = renderPane(MOBILE_WIDTH, {
+    scrollContentRef: (node: HTMLDivElement | null) => {
+      observedColumn = node;
+    },
+  });
+  const row = inlineRow(view);
+  assert.ok(row, `the pane must render the inline status line below md; DOM: ${view.container.innerHTML.slice(0, 400)}`);
+
+  assert.ok(
+    pane.contains(row),
+    `the status line must live inside the scroll container, or it could not scroll with the messages; it reads ${describeInline(view)}`,
+  );
+  assert.ok(observedColumn, 'premise: the pane must hand its content column to the follow');
+  assert.ok(
+    (observedColumn as HTMLDivElement | null)?.contains(row),
+    `the status line must be inside the column the content-growth follow observes, or its growth would not be followed; it reads ${describeInline(view)}`,
+  );
+
+  const rows = Array.from(pane.querySelectorAll('[data-message-timestamp]'));
+  assert.ok(rows.length > 0, 'premise: the pane must have rendered message rows');
+  const lastRow = rows[rows.length - 1];
+  assert.ok(
+    (lastRow.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+    `the status line must come after the last message in the document; it reads ${describeInline(view)}`,
+  );
+
+  const positional = Array.from(row.classList).filter((name) => /^(absolute|fixed)$/.test(name));
+  assert.deepEqual(
+    positional,
+    [],
+    `the status line must stay in the flow — no absolute or fixed positioning; class="${row.className}"`,
+  );
+});
+
+test('(e) the tier edge is md: 767px is in the flow, 768px is the composer\'s tab', () => {
+  const narrow = renderPane(NARROW_EDGE_WIDTH);
+  assert.ok(
+    inlineRow(narrow.view),
+    `767px must still draw the in-flow status line; DOM: ${narrow.view.container.innerHTML.slice(0, 300)}`,
+  );
+  narrow.view.unmount();
+
+  const wide = renderPane(DESKTOP_WIDTH);
+  assert.equal(
+    inlineRow(wide.view),
+    null,
+    `768px must hand the status back to the composer's tab; DOM: ${wide.view.container.innerHTML.slice(0, 300)}`,
+  );
+  wide.view.unmount();
+});
+
+test('(f) from md up the pane draws no inline status line', () => {
+  const { view } = renderPane(WIDE_DESKTOP_WIDTH);
+  assert.equal(
+    inlineRow(view),
+    null,
+    `the desktop pane must not render the inline status line; DOM: ${view.container.innerHTML.slice(0, 400)}`,
+  );
+  assert.equal(
+    view.container.querySelectorAll(INLINE_SLOT).length,
+    0,
+    'exactly zero inline status lines, however they are found',
+  );
+});
+
+test('the pane reserves the floating tab\'s space only from md up', () => {
+  const readings: string[] = [];
+  const paddingOf = (className: string) => className.split(/\s+/).filter((name) => /^pb-/.test(name)).join(' ');
+
+  const mobile = renderPane(MOBILE_WIDTH);
+  const mobileIdle = renderPane(MOBILE_WIDTH, { hasActivityIndicator: false, activity: null });
+  readings.push(`mobile running: "${paddingOf(mobile.pane.className)}"`);
+  readings.push(`mobile idle: "${paddingOf(mobileIdle.pane.className)}"`);
+  assert.ok(
+    !mobile.pane.className.includes('pb-12'),
+    `below md the status line is in the flow, so nothing is reserved for a floating tab; readings: ${readings.join(' | ')}`,
+  );
+  assert.equal(
+    paddingOf(mobile.pane.className),
+    paddingOf(mobileIdle.pane.className),
+    `below md a running turn must not change the pane's bottom space at all; readings: ${readings.join(' | ')}`,
+  );
+  mobile.view.unmount();
+  mobileIdle.view.unmount();
+
+  const desktop = renderPane(WIDE_DESKTOP_WIDTH);
+  readings.push(`desktop running: "${paddingOf(desktop.pane.className)}"`);
+  assert.ok(
+    desktop.pane.className.includes('pb-12'),
+    `from md up the tab still floats over the last message, so its space is still reserved; readings: ${readings.join(' | ')}`,
+  );
+  desktop.view.unmount();
+});
+
+/* ------------------------------------------------------------------------- *
+ * The status line is growth the transcript's follow already answers
+ * ------------------------------------------------------------------------- */
+
+/**
+ * The other half of the placement decision.
+ *
+ * A status line in the flow is not enough on its own: while it sits at the end
+ * of the transcript, the reader who is at the bottom must stay there as the line
+ * arrives and as its elapsed reading widens, and the reader who has taken the
+ * scroll over must not be dragged back by it. The pane answers both by putting
+ * the line inside the content column the follow already observes, so its growth
+ * is answered by the code that answers every other growth — under the same
+ * "the user has not scrolled away" gate.
+ *
+ * jsdom lays nothing out, so this case cannot measure a row. What it does
+ * instead is take the two things the browser would report — the column is taller
+ * (declared by the fixture) and the notification that a column resized has
+ * arrived — and read what the follow wrote. The line's *presence in the observed
+ * column* is pinned by case (e) above, against the pane's own ref wiring; the
+ * two together are the claim, and neither is complete alone.
+ */
+
+const FOLLOW_SESSION_ID = 'session-a';
+
+/** Animation frames the follow deferred its write to; the case below runs them by hand. */
+let pendingFrames: FrameRequestCallback[] = [];
+
+const runFrames = () => {
+  const frames = pendingFrames;
+  pendingFrames = [];
+  for (const frame of frames) {
+    frame(0);
+  }
+};
+
+/**
+ * A scroll container whose geometry the case declares. jsdom reports
+ * scrollHeight/clientHeight as 0 and swallows every scrollTop assignment, so a
+ * fixture that did not declare them could only ever observe the trivial case.
+ *
+ * Each write records the bottom as it stood at that moment. The case has two
+ * growths in it, so the container's bottom when the reads are compared is not
+ * the bottom a write had to hit — recording both is what keeps the assertion
+ * "this write landed on the bottom" true for every write and not just the last.
+ */
+function createFollowContainer(scrollHeight: number, clientHeight: number) {
+  const element = document.createElement('div');
+  const writes: Array<{ top: number; bottom: number }> = [];
+  let height = scrollHeight;
+  let viewport = clientHeight;
+  let top = scrollHeight - clientHeight;
+
+  Object.defineProperty(element, 'scrollHeight', { get: () => height });
+  Object.defineProperty(element, 'clientHeight', { get: () => viewport });
+  Object.defineProperty(element, 'scrollTop', {
+    get: () => top,
+    set: (next: number) => {
+      top = next;
+      writes.push({ top: next, bottom: height - viewport });
+    },
+  });
+
+  return {
+    element: element as HTMLDivElement,
+    writes,
+    /** The offset a pinned viewport sits at. */
+    get bottom() {
+      return height - viewport;
+    },
+    get scrollTop() {
+      return top;
+    },
+    /** Grows the content the way a taller last row — or a status line arriving — does. */
+    grow: (delta: number) => {
+      height += delta;
+    },
+    /** Moves the viewport the way a gesture does: no write is recorded. */
+    scrollTo: (next: number) => {
+      top = next;
+    },
+  };
+}
+
+/** Stands in for the browser's ResizeObserver, which jsdom does not ship. */
+class FakeResizeObserver {
+  static latest: FakeResizeObserver | null = null;
+  readonly observed: Element[] = [];
+  private readonly callback: ResizeObserverCallback;
+
+  constructor(callback: ResizeObserverCallback) {
+    this.callback = callback;
+    FakeResizeObserver.latest = this;
+  }
+
+  observe(target: Element) {
+    this.observed.push(target);
+  }
+
+  unobserve() {}
+
+  disconnect() {
+    this.observed.length = 0;
+  }
+
+  emit() {
+    this.callback([], this as unknown as ResizeObserver);
+  }
+}
+
+const buildMessage = (index: number, timestamp: string): NormalizedMessage => ({
+  id: `m-${index}`,
+  kind: 'text',
+  role: index % 2 === 0 ? 'user' : 'assistant',
+  provider: 'claude',
+  sessionId: FOLLOW_SESSION_ID,
+  content: `message ${index}`,
+  timestamp,
+} as NormalizedMessage);
+
+/** A hydrated slot, so the session-loading effect takes its early return instead of re-fetching. */
+function createSessionStore(messagesBySession: Map<string, NormalizedMessage[]>) {
+  const slotFor = (sessionId: string) => ({
+    fetchedAt: 1,
+    status: 'idle' as const,
+    total: messagesBySession.get(sessionId)?.length ?? 0,
+    hasMore: false,
+    offset: messagesBySession.get(sessionId)?.length ?? 0,
+  });
+
+  return {
+    fetchFromServer: vi.fn(async (sessionId: string) => slotFor(sessionId)),
+    fetchMore: vi.fn(async (sessionId: string) => ({ slot: slotFor(sessionId), prependedCount: 0 })),
+    appendRealtime: vi.fn(),
+    refreshLatestFromServer: vi.fn(async (sessionId: string) => ({
+      slot: slotFor(sessionId),
+      applied: true,
+      changed: false,
+      deferred: false,
+    })),
+    setActiveSession: vi.fn(),
+    isStale: vi.fn(() => false),
+    updateStreaming: vi.fn(),
+    finalizeStreaming: vi.fn(),
+    getMessages: vi.fn((sessionId: string) => messagesBySession.get(sessionId) ?? []),
+    getSessionSlot: vi.fn((sessionId: string) => slotFor(sessionId)),
+  };
+}
+
+/** How much of the row's shape the case declares, in the pixels the browser would have reported. */
+const ROW_ARRIVAL_PX = 20;
+const ELAPSED_WIDENING_PX = 2;
+
+describe("the transcript's content-growth follow over the inline status line", () => {
+  beforeEach(() => {
+    pendingFrames = [];
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      pendingFrames.push(callback);
+      return pendingFrames.length;
+    });
+    vi.stubGlobal('cancelAnimationFrame', () => undefined);
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+    // The hook reads the session's token usage once per session; a stubbed fetch
+    // answers it without reaching the network, and this case is not about it.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        headers: { get: () => null },
+        json: async () => ({}),
+      })),
+    );
+    FakeResizeObserver.latest = null;
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * Renders the session-state hook over a resizable container with the case's
+   * content column attached to the follow, and settles the baseline layout —
+   * the session-open scroll and the attach-time resize, both drained and
+   * asserted quiet, so that every write the case reads afterwards is the follow
+   * answering the growth the case declares.
+   */
+  async function mountFollowArm(withRow: boolean) {
+    setViewportWidth(MOBILE_WIDTH);
+    const session = { id: FOLLOW_SESSION_ID } as ProjectSession;
+    const messagesBySession = new Map([
+      [FOLLOW_SESSION_ID, [buildMessage(0, '2026-01-01T00:00:00.000Z')]],
+    ]);
+    const store = createSessionStore(messagesBySession);
+
+    const { useChatSessionState } = await import('@/modules/chat/hooks/useChatSessionState');
+    const { result, rerender } = renderHook(
+      ({ session: current }: { session: ProjectSession }) =>
+        useChatSessionState({
+          isActive: true,
+          selectedProject: project,
+          selectedSession: current,
+          ws: null,
+          sendMessage: vi.fn(),
+          resetStreamingState: vi.fn(),
+          statusCheckSentAtRef: { current: new Map() },
+          lastSeqRef: { current: new Map() },
+          sessionStore: store as never,
+        }),
+      { initialProps: { session } },
+    );
+
+    const container = createFollowContainer(5000, 500);
+    const content = document.createElement('div');
+    document.body.appendChild(content);
+
+    // The status line goes where the pane puts it: as a child of the column the
+    // follow observes. Rendering it through a real root over that node is what
+    // makes the reading below something the line can affect — a line rendered
+    // anywhere else could not, whatever the follow wrote.
+    const rowView = withRow
+      ? render(
+          React.createElement(ActivityIndicator, { activity: ACTIVITY, variant: 'inline' }),
+          { container: content },
+        )
+      : null;
+
+    // The order React really commits in: the content column is the pane's child,
+    // so its ref callback runs while the pane's ref is still null, and the render
+    // below is what runs the layout effect that points the observer at it.
+    act(() => {
+      (result.current.scrollContentRef as unknown as (node: HTMLDivElement | null) => void)(content);
+    });
+    (result.current.scrollContainerRef as { current: HTMLDivElement | null }).current = container.element;
+    act(() => {
+      rerender({ session });
+    });
+
+    const observer = FakeResizeObserver.latest;
+    assert.ok(observer, 'premise: attaching the content column must install a ResizeObserver');
+    assert.deepEqual(
+      observer.observed,
+      [content, container.element],
+      'premise: the content column and the pane it scrolls in are both watched',
+    );
+
+    // The session-open scroll is a writer of its own, and it is armed late: the
+    // effect that starts it bails while the hook is still loading, so it is the
+    // store's fetch settling — a microtask, not a frame — that arms it. A fixed
+    // number of frames would therefore be enough or not depending on when that
+    // microtask lands, and a chain that re-arms every frame while the height is
+    // still changing would survive a longer one. So it is driven to completion
+    // instead: flush the pending work, drain the frames that arms, and repeat
+    // until a whole round raises nothing. Its writes would otherwise land in the
+    // windows below and be read as the follow reacting to growth that had not
+    // happened yet — the reading would then be of the wrong writer entirely.
+    let rounds = 0;
+    for (; rounds < 12; rounds += 1) {
+      await act(async () => {
+        await Promise.resolve();
+      });
+      act(() => {
+        runFrames();
+      });
+      // A pane with nowhere to scroll is held at one offset whatever a writer
+      // asks for; the fixture assigns rather than clamps, so the clamp is
+      // applied here — and the chain's own writes are what the round is about.
+      container.scrollTo(Math.min(container.scrollTop, container.bottom));
+      const quiet = container.writes.length === 0 && pendingFrames.length === 0;
+      container.writes.length = 0;
+      if (quiet) break;
+    }
+    assert.ok(
+      rounds < 12,
+      'premise: the session-open scroll must go quiet before the window below opens, not keep re-arming',
+    );
+
+    // The baseline: the follow judges a resize against the layout before it, so
+    // the attach-time layout has to be delivered once before anything is asked.
+    act(() => {
+      observer.emit();
+    });
+    act(() => {
+      runFrames();
+    });
+    container.writes.length = 0;
+
+    return { container, content, observer, rowView, result };
+  }
+
+  /** The elapsed reading advancing, as the row it belongs to re-renders in place. */
+  const ACTIVITY_WIDER: SessionActivity = { ...ACTIVITY, startedAt: START - 65_000 };
+
+  test('growth from the status line reads exactly as growth from any other row', async () => {
+    const readings: string[] = [];
+    const byArm: Record<string, Array<{ top: number; bottom: number }>> = {};
+
+    /**
+     * The three ways a reader can stand relative to the transcript, and what the
+     * line must do in each. `owned` is the one that names the intent gate
+     * directly: the gesture has been recorded, the offset has not moved yet —
+     * a state the pane really passes through, because the gesture that sets it
+     * and the growth that follows are not the same event. An implementation that
+     * scrolled the running turn's line into view regardless of who owns the
+     * pane would answer the other two arms exactly as this one does and still be
+     * wrong here, which is why the arm exists.
+     */
+    const modes = [
+      { name: 'pinned', owns: false, drifts: false, follows: true },
+      { name: 'owned', owns: true, drifts: false, follows: false },
+      { name: 'scrolled up', owns: true, drifts: true, follows: false },
+    ] as const;
+
+    for (const mode of modes) {
+      for (const withRow of [true, false]) {
+        const armName = `${mode.name}, ${withRow ? 'with' : 'without'} the status line`;
+        const { container, content, observer, rowView, result } = await mountFollowArm(withRow);
+
+        if (withRow) {
+          const row = rowView?.container.querySelector<HTMLElement>(INLINE_SLOT);
+          assert.ok(row, 'premise: the status line must have mounted inside the content column');
+          assert.ok(
+            content.contains(row),
+            'premise: the observed column must contain the status line, or its growth could not reach the follow',
+          );
+        }
+
+        if (mode.drifts) {
+          // A drag that carried the viewport off the bottom; the offset moves and
+          // no write is recorded, exactly as a gesture leaves it.
+          container.scrollTo(container.bottom - 300);
+        }
+        if (mode.owns) {
+          act(() => {
+            result.current.setIsUserScrolledUp(true);
+          });
+        }
+
+        // The line arriving: it is in the column, so the column is taller, and
+        // the browser says so.
+        container.grow(ROW_ARRIVAL_PX);
+        act(() => {
+          observer.emit();
+        });
+        act(() => {
+          runFrames();
+        });
+
+        if (withRow) {
+          const before = rowView?.container.textContent ?? '';
+          act(() => {
+            rowView?.rerender(
+              React.createElement(ActivityIndicator, {
+                activity: ACTIVITY_WIDER,
+                variant: 'inline',
+              }),
+            );
+          });
+          const after = rowView?.container.textContent ?? '';
+          assert.notEqual(
+            after,
+            before,
+            `premise: the elapsed reading must have advanced on the row the follow just answered; it still reads "${after}"`,
+          );
+        }
+
+        // ...and the reading widening is growth too, in the same row.
+        container.grow(ELAPSED_WIDENING_PX);
+        act(() => {
+          observer.emit();
+        });
+        act(() => {
+          runFrames();
+        });
+
+        const writes = [...container.writes];
+        byArm[armName] = writes;
+        readings.push(
+          `${armName}: ${writes.length} write(s) ${JSON.stringify(writes.map((write) => write.top))}`,
+        );
+
+        if (mode.follows) {
+          assert.ok(
+            writes.length > 0,
+            `a reader at the bottom must be carried down by the status line's growth; readings: ${readings.join(' | ')}`,
+          );
+          const stray = writes.filter((write) => write.top !== write.bottom);
+          assert.deepEqual(
+            stray,
+            [],
+            `every follow write must land on the bottom as it stood when the write was made; readings: ${readings.join(' | ')}`,
+          );
+        } else {
+          assert.deepEqual(
+            writes,
+            [],
+            `a reader who has taken the scroll over must not be moved by the status line — zero programmatic writes; readings: ${readings.join(' | ')}`,
+          );
+        }
+      }
+    }
+
+    for (const mode of modes) {
+      const withRow = byArm[`${mode.name}, with the status line`];
+      const withoutRow = byArm[`${mode.name}, without the status line`];
+      assert.deepEqual(
+        withRow,
+        withoutRow,
+        `the status line must not change the follow's reading: ${mode.name} with it wrote ${JSON.stringify(withRow?.map((write) => write.top))}, without it ${JSON.stringify(withoutRow?.map((write) => write.top))} — ${readings.join(' | ')}`,
+      );
+    }
+  });
+});

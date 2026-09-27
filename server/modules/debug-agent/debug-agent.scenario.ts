@@ -1,4 +1,4 @@
-import type { AnyRecord } from '@/shared/types.js';
+import type { AnyRecord, HostCloseDetail, HostLease } from '@/shared/types.js';
 import { AppError, readObjectRecord } from '@/shared/utils.js';
 
 /**
@@ -45,20 +45,93 @@ export const DEBUG_AGENT_TRANSCRIPT_MODES = ['per-row-jsonl'] as const;
 export type DebugAgentTranscriptMode = (typeof DEBUG_AGENT_TRANSCRIPT_MODES)[number];
 
 /**
- * What a step does to the transcript.
+ * What a step does to the transcript, and to the host that carries it.
  *
  * `row` appends a new row (its own uuid). `grow` rewrites the last row in place
  * and keeps its uuid, which is what makes it the same message with different
  * content rather than a second message. `wait` and `scroll` change nothing on
  * disk: they exist so a scenario can express the passage of time and a
  * follow-along intent without inventing a frame to carry them.
+ *
+ * The four host steps are the same kind of statement about a different seam.
+ * `unattended-turn` opens a run for the session with no client behind it and
+ * delivers the turn through the host — the row it writes is the turn's own user
+ * row, so the step changes the transcript as well. `keepalive-add` and
+ * `keepalive-remove` report a reason the process is held open besides a turn,
+ * and `exit` reports that the process went away. None of them names a frame or
+ * an event: they are statements about a process and a transcript, which is the
+ * whole of what this document is allowed to describe.
  */
-export const DEBUG_AGENT_OPS = ['grow', 'row', 'scroll', 'wait'] as const;
+export const DEBUG_AGENT_OPS = [
+  'exit',
+  'grow',
+  'keepalive-add',
+  'keepalive-remove',
+  'row',
+  'scroll',
+  'unattended-turn',
+  'wait',
+] as const;
 export type DebugAgentScenarioOp = (typeof DEBUG_AGENT_OPS)[number];
+
+/**
+ * The ops that act on the run's host rather than only on its transcript.
+ *
+ * A run driven with no host layer cannot execute one of these, and it must say
+ * so before it starts rather than partway through: a run that wrote half its
+ * rows and then discovered it had nowhere to report a lease would leave a
+ * transcript no reading could be attributed to. Kept as a closed set so "which
+ * steps need the host" is one fact rather than a list the engine re-derives.
+ */
+export const DEBUG_AGENT_HOST_OPS = [
+  'exit',
+  'keepalive-add',
+  'keepalive-remove',
+  'unattended-turn',
+] as const satisfies readonly DebugAgentScenarioOp[];
+export type DebugAgentHostOp = (typeof DEBUG_AGENT_HOST_OPS)[number];
+
+/** Whether one step's op needs the host layer. A type guard, so the engine's switch narrows with it. */
+export function isDebugAgentHostOp(op: DebugAgentScenarioOp): op is DebugAgentHostOp {
+  return (DEBUG_AGENT_HOST_OPS as readonly DebugAgentScenarioOp[]).includes(op);
+}
 
 /** The conversation roles a transcript row can carry in the claude dialect. */
 export const DEBUG_AGENT_ROLES = ['assistant', 'user'] as const;
 export type DebugAgentRole = (typeof DEBUG_AGENT_ROLES)[number];
+
+/**
+ * The lease kinds a scenario may report a process as held for.
+ *
+ * These two and no others: `background-task` and `monitor` are the lease kinds
+ * that describe work outliving the turn that started it, which is exactly what
+ * a keepalive is. `turn` and `resident-policy` are absent because neither is a
+ * scenario's to state — the first belongs to the turn in flight and the second
+ * to the mode the manager opened the binding in. Typed by extraction from
+ * `HostLease` rather than written out, so a lease kind renamed in the shared
+ * contract breaks this file instead of producing a lease the manager cannot
+ * interpret.
+ */
+export const DEBUG_AGENT_KEEPALIVE_KINDS = [
+  'background-task',
+  'monitor',
+] as const satisfies readonly Extract<HostLease['kind'], 'background-task' | 'monitor'>[];
+export type DebugAgentKeepaliveKind = (typeof DEBUG_AGENT_KEEPALIVE_KINDS)[number];
+
+/**
+ * How a scenario's process reports that it went away.
+ *
+ * `forced` is deliberately not expressible: it is not a driver report at all —
+ * the manager writes it when a server shutdown had to close a host out from
+ * under a driver that never settled — so a scenario asking for it would be
+ * asking for a state no process can produce.
+ */
+export const DEBUG_AGENT_EXIT_DETAILS = [
+  'oom',
+  'signal',
+  'error',
+] as const satisfies readonly Exclude<HostCloseDetail, 'forced'>[];
+export type DebugAgentExitDetail = (typeof DEBUG_AGENT_EXIT_DETAILS)[number];
 
 /**
  * One step on the scenario clock. `at` is an absolute offset in milliseconds
@@ -66,9 +139,13 @@ export type DebugAgentRole = (typeof DEBUG_AGENT_ROLES)[number];
  * that can go backwards cannot order two observations of the same file.
  */
 export type DebugAgentScenarioStep = { at: number } & (
+  | { op: 'exit'; detail: DebugAgentExitDetail }
   | { op: 'grow'; text: string }
+  | { op: 'keepalive-add'; kind: DebugAgentKeepaliveKind }
+  | { op: 'keepalive-remove'; kind: DebugAgentKeepaliveKind }
   | { op: 'row'; role: DebugAgentRole; text: string }
   | { op: 'scroll' }
+  | { op: 'unattended-turn'; text: string }
   | { op: 'wait' }
 );
 
@@ -158,7 +235,21 @@ function readStep(input: unknown, index: number): DebugAgentScenarioStep {
         text: readText(step.text, `${where}.text`),
       };
     case 'grow':
+    case 'unattended-turn':
       return { at, op, text: readText(step.text, `${where}.text`) };
+    case 'keepalive-add':
+    case 'keepalive-remove':
+      return {
+        at,
+        op,
+        kind: readClosedValue(step.kind, DEBUG_AGENT_KEEPALIVE_KINDS, `${where}.kind`),
+      };
+    case 'exit':
+      return {
+        at,
+        op,
+        detail: readClosedValue(step.detail, DEBUG_AGENT_EXIT_DETAILS, `${where}.detail`),
+      };
     default:
       // `scroll` and `wait` carry nothing: they are the two steps whose whole
       // content IS their position on the clock.
