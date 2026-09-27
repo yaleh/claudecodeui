@@ -45,6 +45,8 @@ goal_ac: AC-152
 
 **修法方向（实现者定杠杆，读数由 AC 钉死）**：让残留读数只覆盖 worktree 的 **git 可见面**。最小面是把 `.quay` 加进 `:384` 的 `skip` 集合 —— 与既有的 `.git` / `node_modules` / `dist` 同一纪律（它们都是「别人写的目录」，`:379-381` 的注释已经把这个理由写死）。若实现者选择从 `.gitignore` 派生排除面（更耐未来新增的 quay 运行时目录：`.workflow-events/`、`orchestration/`、`milestones/fast-mode-telemetry/` 同属这一类，见 `.gitignore:158-167`），亦可，但**必须**在注释里写明与 `.gitignore` / `git status --porcelain` 的关系，并**不得**碰 `:669` 的差集语义、`:679` 的断言形状、21 行夹具与两条取假形态。**不得**删掉残留守卫本身 —— 那会把 AC1 的一条读数整根拔掉，属于把判据改绿而不是改对。
 
+**改动面**：出货代码一行不动；被测文件只有 `src/shared/tests/voiceErrorClassification.test.ts` 一个，且只动 `:384` 的 `skip` 集合与紧邻解释该排除的注释（`treeSnapshot()` 的差集语义、`:679` 的断言形状、21 行夹具、两条取假形态、`:678` 与 `:680` 的 doors/预算断言都不动）。另一处是本任务自身的记录文件。
+
 **边界（不做）**：不改分类器、码串表、状态表或任何出货代码（AC-149/150 的实质交付面原样）；不改 21 行夹具与两条取假形态；**不写、不改、不删 `.quay/` 里的任何驱动文件**（只读观察；AC1 的探针文件是全程唯一的例外，且用后即删）；不改 `.gitignore`；不做真实浏览器（AC-153）；不放宽 `:680` 的 30s 预算与 `:678` 的 doors 断言；不引入子进程（`AC1` 自守面要求判据无子进程，见 `:363-372` 与 `:374-382` 的注释）。
 
 ## AC
@@ -60,5 +62,5 @@ goal_ac: AC-152
 
 ## Touches
 
-- `src/shared/tests/voiceErrorClassification.test.ts` — 只动 `:384` 的 `skip` 集合与紧邻解释该排除的注释；`treeSnapshot()` 的差集语义、`:679` 的断言形状、21 行夹具、两条取假形态、`:678`/`:680` 的 doors 与预算断言都不动。
-- `tasks/gap-voice-error-classification-residue-guard-excludes-quay-state.md` — 本任务自身（自 touch）。
+- src/shared/tests/voiceErrorClassification.test.ts
+- tasks/gap-voice-error-classification-residue-guard-excludes-quay-state.md
