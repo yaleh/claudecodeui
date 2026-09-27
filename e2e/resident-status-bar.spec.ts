@@ -204,6 +204,17 @@ function liveHost(snapshot: HostsSnapshot, sessionId: string): HostRecord | null
   return null;
 }
 
+/**
+ * How many hosts the snapshot reports as still running.
+ *
+ * Not `hosts.length`: a closed host keeps its record in the listing for a retention window, so the
+ * array's own size does not move when a process is closed and a reading taken from it would be a
+ * constant. The number that must fall when the user closes a process is this one.
+ */
+function liveHostCount(snapshot: HostsSnapshot): number {
+  return snapshot.hosts.filter((host) => host.state !== 'closed').length;
+}
+
 /** The host that most recently served one session, closed or not — the frontend's `findSessionHost`. */
 function lastHost(snapshot: HostsSnapshot, sessionId: string): HostRecord | null {
   let found: HostRecord | null = null;
@@ -623,14 +634,16 @@ test.describe('resident status bar', () => {
     ]);
     const snapshotAfterClose = await readHosts(api);
     console.log(
-      `close.request=${closeResponse.status()} hosts.beforeClose=${snapshotBeforeClose.hosts.length} `
-      + `hosts.afterClose=${snapshotAfterClose.hosts.length}`,
+      `close.request=${closeResponse.status()} hosts.beforeClose=${liveHostCount(snapshotBeforeClose)} `
+      + `hosts.afterClose=${liveHostCount(snapshotAfterClose)}`,
     );
     expect(closeResponse.status(), 'closing a live host is accepted').toBeLessThan(300);
-    // The two counts are printed rather than compared: the listing keeps a closed host's record for a
-    // retention window, so the array does not shrink and a `after < before` here would be asserting a
-    // contract the listing never made. What the close must change is the host's own reading — it stops
-    // being live, and it records who ended it — and those are the assertions below.
+    expect(
+      liveHostCount(snapshotAfterClose),
+      'closing the process must leave one fewer host running',
+    ).toBeLessThan(liveHostCount(snapshotBeforeClose));
+    // The record itself, as well as the count: a close that removed the host from the listing would
+    // satisfy the line above while throwing away the reason it ended.
     expect(
       liveHost(snapshotAfterClose, armA),
       'the host the user closed must stop being a live host for its session',
@@ -648,7 +661,8 @@ test.describe('resident status bar', () => {
     const closed = await readBar(page);
     const markAfterClose = await readMark(page, armA);
     console.log(
-      `state=${STATE_WORD[closed.uiState]} mark=${markAfterClose.shape} bar=${JSON.stringify(closed.text)} `
+      `state=${STATE_WORD[closed.uiState]} mark=${markAfterClose.shape} mark.afterClose=${markAfterClose.shape} `
+      + `bar=${JSON.stringify(closed.text)} `
       + `snapshot.state=${lastHost(snapshotAfterClose, armA)?.state ?? 'absent'} `
       + `closeReason=${lastHost(snapshotAfterClose, armA)?.closeReason ?? '(none)'} detail= via=close`,
     );
@@ -892,8 +906,10 @@ test.describe('resident status bar', () => {
     }
     // The time in a divider is the row's own timestamp, printed the way the app prints one — read off
     // the rendered sentence rather than recomputed, so this checks the *label* the trigger produced
-    // and not this file's idea of what time it was.
-    const clockOf = (text: string): string => (/(\d{1,2}:\d{2})/.exec(text) ?? ['', ''])[1];
+    // and not this file's idea of what time it was. Taken whole, meridiem included: this locale's
+    // clock is a twelve-hour one, and a pattern that stopped at the minutes would compare a template
+    // rendered with `12:10` against a sentence that says `12:10 AM`.
+    const clockOf = (text: string): string => (/(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AP]M)?)/i.exec(text) ?? ['', ''])[1];
     expect(cronDivider?.text, 'the scheduled-task divider is the shipped sentence for that trigger').toBe(
       render(cronTemplate, { time: clockOf(cronDivider?.text ?? '') }),
     );
