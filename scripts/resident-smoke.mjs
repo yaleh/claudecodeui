@@ -221,7 +221,11 @@ export function isAlive(pid) {
   }
 }
 
-/** `/proc/<pid>/environ` 拆成 `KEY=value` 表；读不到返回 null（刚 exec 完会短暂读不到）。 */
+/**
+ * `/proc/<pid>/environ` 拆成 `KEY=value` 表；读不到返回 null（刚 exec 完会短暂读不到）。
+ * @param {number} pid
+ * @returns {Record<string, string> | null}
+ */
 export function readEnviron(pid) {
   try {
     /** @type {Record<string, string>} */
@@ -241,7 +245,12 @@ export function delay(ms) {
   return new Promise((resolve) => { setTimeout(resolve, ms); });
 }
 
-/** 轮询直到谓词为真；超时抛出带上「在等什么」。 */
+/**
+ * 轮询直到谓词为真；超时抛出带上「在等什么」。
+ * @param {() => any} predicate
+ * @param {number} timeoutMs
+ * @param {string} label
+ */
 export async function waitFor(predicate, timeoutMs, label) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
@@ -303,7 +312,10 @@ export class ServerReading {
     return readEnviron(this.leaderPid);
   }
 
-  /** `/proc/<leaderPid>/environ` 的命中行，逐字打印用。 */
+  /**
+   * `/proc/<leaderPid>/environ` 的命中行，逐字打印用。
+   * @param {string[]} names
+   */
   environLines(names) {
     const environ = this.environ() ?? {};
     return names.map((name) => (name in environ ? `${name}=${environ[name]}` : `${name}=（未设置）`));
@@ -391,7 +403,10 @@ export async function bootServer({ tempRoot, label }) {
   return reading;
 }
 
-/** 打印一条原始读数行，同时返回它，便于段落正文复述。 */
+/**
+ * 打印一条原始读数行，同时返回它，便于段落正文复述。
+ * @param {string} line
+ */
 function say(line) {
   process.stdout.write(`${line}\n`);
   return line;
@@ -435,13 +450,18 @@ export async function api(port, token, method, requestPath, body) {
  * 「路由在，但这条会话现在没有活宿主」。两者都该点名，但点名必须说对是哪一种：把后者写成
  * 「AC-169 的路由没有落地」是**诬告**，会让人去查一条根本不缺的面。分界线是响应体：路由自己回的
  * 拒绝是 `{success:false, error:{code,message}}`，而路由没挂上时到不了这里（会落到 SPA catch-all）。
+ * @param {any} answer
  */
 export function refusalCode(answer) {
   const code = answer?.body?.error?.code;
   return typeof code === 'string' ? code : null;
 }
 
-/** 拆 `{ success, data }` 信封，失败时把状态与响应体一并抛出（缺面必须点名而不是静默）。 */
+/**
+ * 拆 `{ success, data }` 信封，失败时把状态与响应体一并抛出（缺面必须点名而不是静默）。
+ * @param {any} answer
+ * @param {string} label
+ */
 export function dataOf(answer, label) {
   if (!(answer.status >= 200 && answer.status < 300)) {
     throw new Error(`${label} 应答 ${answer.status}：${JSON.stringify(answer.body)}`);
@@ -496,7 +516,7 @@ export class ChatSocket {
       }
     });
     await new Promise((resolve, reject) => {
-      socket.once('open', () => resolve());
+      socket.once('open', () => resolve(undefined));
       socket.once('error', (error) => reject(error));
     });
     return chat;
@@ -507,7 +527,11 @@ export class ChatSocket {
     this.socket.send(JSON.stringify(payload));
   }
 
-  /** 面向该会话订阅：运行中的 run 会把帧推到这个 socket 上，并在订阅时回放。 */
+  /**
+   * 面向该会话订阅：运行中的 run 会把帧推到这个 socket 上，并在订阅时回放。
+   * @param {string} sessionId
+   * @param {number} [lastSeq]
+   */
   subscribe(sessionId, lastSeq = 0) {
     this.send({ type: 'chat.subscribe', sessions: [{ sessionId, lastSeq }] });
   }
@@ -550,6 +574,11 @@ export class ChatSocket {
  * `permissionMode: 'bypassPermissions'`：冒烟是无人值守的真模型调用，`default` 会把 Bash 卡在审批上。
  * 终止帧是 `kind === 'complete'`（驱动在 CLI 的 `result` 处写的那一条，逐轮一次）；`error` 帧直接
  * 抛错，把文本带出来——报错比超时有用。
+ * @param {ChatSocket} chat
+ * @param {string} sessionId
+ * @param {string} content
+ * @param {string} cwd
+ * @param {{ model?: string, timeoutMs?: number }} [options]
  */
 export async function sendTurn(chat, sessionId, content, cwd, { model, timeoutMs = 180_000 } = {}) {
   const before = chat.completes().length;
@@ -581,6 +610,10 @@ export async function sendTurn(chat, sessionId, content, cwd, { model, timeoutMs
 /**
  * 读宿主快照。AC-161/166/169 的接缝面就是它：`hosts[]` 是进程，`sessions[]` 是「该跑而没跑」。
  * 缺 `sessions[]` 就是 AC-169 没落地，点名拒绝而不是绕开。
+ * @param {number} port
+ * @param {string} token
+ * @param {string} [label]
+ * @returns {Promise<{ hosts: any[], sessions: any[] }>}
  */
 export async function readHosts(port, token, label = 'GET /api/session-hosts') {
   const data = dataOf(await api(port, token, 'GET', '/api/session-hosts'), label);
@@ -590,19 +623,27 @@ export async function readHosts(port, token, label = 'GET /api/session-hosts') {
   return { hosts: data.hosts, sessions: data.sessions };
 }
 
-/** 服务某会话的活常驻宿主，或 null。 */
+/**
+ * 服务某会话的活常驻宿主，或 null。
+ * @param {{ hosts: any[], sessions: any[] }} listing
+ * @param {string} sessionId
+ */
 export function residentHostOf(listing, sessionId) {
   return (
     listing.hosts.find(
       (host) => host.state !== 'closed'
         && host.mode === 'resident'
         && Array.isArray(host.bindings)
-        && host.bindings.some((binding) => binding.appSessionId === sessionId),
+        && host.bindings.some((/** @type {any} */ binding) => binding.appSessionId === sessionId),
     ) ?? null
   );
 }
 
-/** 该会话在 `sessions[]` 里的那一行，或 null。 */
+/**
+ * 该会话在 `sessions[]` 里的那一行，或 null。
+ * @param {{ hosts: any[], sessions: any[] }} listing
+ * @param {string} sessionId
+ */
 export function sessionStateOf(listing, sessionId) {
   return listing.sessions.find((session) => session.appSessionId === sessionId) ?? null;
 }
@@ -641,6 +682,7 @@ export function sdkVersion() {
 export function transcriptFiles(configDir) {
   /** @type {string[]} */
   const files = [];
+  /** @param {string} dir */
   const walk = (dir) => {
     /** @type {import('node:fs').Dirent[]} */
     let entries;
@@ -692,6 +734,7 @@ export function apiErrorsInTranscripts(configDir) {
   return hits;
 }
 
+/** @param {string} configDir */
 export function usageReading(configDir) {
   const files = transcriptFiles(configDir);
 
@@ -723,7 +766,10 @@ export function usageReading(configDir) {
 // 残留读数
 // ---------------------------------------------------------------------------
 
-/** 读 `/proc/<pid>/stat` 的第 4、5 个字段（ppid、pgrp）。`comm` 里可能有空格和括号，从最后一个 `)` 之后切。 */
+/**
+ * 读 `/proc/<pid>/stat` 的第 4、5 个字段（ppid、pgrp）。`comm` 里可能有空格和括号，从最后一个 `)` 之后切。
+ * @param {number} pid
+ */
 export function procStat(pid) {
   let raw;
   try {
@@ -753,7 +799,10 @@ export function ancestorPids(startPid = process.pid) {
   return seen;
 }
 
-/** `pgrep -af` 里属于本次冒烟的进程行（按临时根过滤，别人的残留不算我的，发起链也不算）。 */
+/**
+ * `pgrep -af` 里属于本次冒烟的进程行（按临时根过滤，别人的残留不算我的，发起链也不算）。
+ * @param {string} tempRoot
+ */
 export function residualProcesses(tempRoot) {
   const result = spawnSync('pgrep', ['-af', tempRoot], { encoding: 'utf8' });
   const ancestors = ancestorPids();
@@ -768,6 +817,7 @@ export function residualProcesses(tempRoot) {
  * `DATABASE_PATH=…` 环境里，argv 只是 `npx tsx … server/index.ts`），所以只 grep argv 的 pgrep
  * 对「服务漏没漏」几乎是瞎的。这条逐个读 `/proc/<pid>/cmdline` 与 `/proc/<pid>/environ`，
  * 命中的记成 `<pid> <name> (<命中的文件>)`。同理剔除发起链。
+ * @param {string} tempRoot
  */
 export function residualEnviron(tempRoot) {
   const ancestors = ancestorPids();
@@ -796,7 +846,10 @@ export function residualEnviron(tempRoot) {
   return hits;
 }
 
-/** `systemctl --user list-units` 里含本次临时根的行。 */
+/**
+ * `systemctl --user list-units` 里含本次临时根的行。
+ * @param {string} tempRoot
+ */
 export function residualScopes(tempRoot) {
   const result = spawnSync(
     'systemctl',
@@ -835,7 +888,11 @@ export function protectedPortReading() {
 // 六段
 // ---------------------------------------------------------------------------
 
-/** 记录文件里的段落正文：一行原始读数 + 一行结论。 */
+/**
+ * 记录文件里的段落正文：一行原始读数 + 一行结论。
+ * @param {string} reading
+ * @param {string} conclusion
+ */
 function sectionBody(reading, conclusion) {
   return `读数：${reading}\n结论：${conclusion}\n`;
 }
@@ -878,13 +935,19 @@ class Smoke {
      * 于是「三轮都跑到终止帧了」会读成绿。`runSmoke` 里按本机环境赋值。
      */
     this.modelId = '';
-    /** 第一段起出来、第二段继续用的那条 chat WS（三轮的终止帧数在同一条听众上）。 */
+    /**
+     * 第一段起出来、第二段继续用的那条 chat WS（三轮的终止帧数在同一条听众上）。
+     * @type {ChatSocket | null}
+     */
     this.roundChat = null;
     /** 六段之间传递的读数。 */
     this.sessionId = '';
     this.perRunSessionId = '';
+    /** @type {number | null} */
     this.firstPid = null;
+    /** @type {number | null} */
     this.newPid = null;
+    /** @type {Array<number | null>} */
     this.roundSeqs = [];
   }
 
@@ -893,7 +956,10 @@ class Smoke {
     upsertSection(this.record, title, sectionBody(reading, conclusion));
   }
 
-  /** 起一个新服务进程并接上 token（重启那一段用它）。 */
+  /**
+   * 起一个新服务进程并接上 token（重启那一段用它）。
+   * @param {string} label
+   */
   async boot(label) {
     const server = await bootServer({ tempRoot: this.tempRoot, label });
     this.servers.push(server);
@@ -907,13 +973,19 @@ class Smoke {
     return server;
   }
 
-  /** 环境读数：AC6 的命中行 + 端口。 */
+  /**
+   * 环境读数：AC6 的命中行 + 端口。
+   * @param {ServerReading} server
+   */
   isolationReading(server) {
     const lines = server.environLines(['DATABASE_PATH', 'HOST']);
     return `proc-environ[${server.leaderPid}] ${lines.join(' | ')}；port=${server.port}（≠ ${PROTECTED_PORT}）`;
   }
 
-  /** 全程收到的所有 chat 帧（含终止帧与 `token_budget` 状态帧），用量一节按它数。 */
+  /**
+   * 全程收到的所有 chat 帧（含终止帧与 `token_budget` 状态帧），用量一节按它数。
+   * @returns {Array<Record<string, any>>}
+   */
   allFrames() {
     return this.chats.flatMap((chat) => chat.frames);
   }
@@ -946,6 +1018,7 @@ class Smoke {
 
 /**
  * AC-169 的面。走不通就点名，不绕。
+ * @param {Smoke} smoke
  */
 async function assertLifecycleSurface(smoke) {
   const server = smoke.server;
@@ -975,6 +1048,7 @@ async function assertLifecycleSurface(smoke) {
  * resident」——那一条由 run entry 起出来的宿主满足）。
  *
  * 这条 chat WS 在第二段继续用：三轮的终止帧要数在**同一条**听众上，跨段共享才谈得上「恰好 3 条」。
+ * @param {Smoke} smoke
  */
 async function legCreate(smoke) {
   const server = smoke.server;
@@ -1080,6 +1154,7 @@ function roundPrompt(round) {
  *
  * 读数是**同一 pid** 与 `results=3`——两个数字取自同一次读，所以它同时证否了「三轮各起一个进程」。
  * 每轮之后都重新读一次宿主快照并记下 pid，三个 pid 的集合大小就是「是否换过进程」的直接读数。
+ * @param {Smoke} smoke
  */
 async function legThreeRounds(smoke) {
   const server = smoke.server;
@@ -1155,6 +1230,7 @@ async function legThreeRounds(smoke) {
  * `source=unattended` 这一字段**只在进程内**（`ChatRun.source` 从不上线），所以这里把它作为**推导**
  * 打印并附上推导依据：本段全程没有 `chat.send`，帧是进程自己开出来的，且触发类型是从通知帧读到的。
  * 把推导写成推导、不冒充线上字段——这正是这条记录要交给人判的地方。
+ * @param {Smoke} smoke
  */
 async function legUnattended(smoke) {
   const server = smoke.server;
@@ -1190,7 +1266,7 @@ async function legUnattended(smoke) {
   const notifySocket = new WebSocket(
     `ws://127.0.0.1:${server.port}/desktop-notifications?token=${encodeURIComponent(smoke.token)}`,
   );
-  /** @type {Array<Record<string, unknown>>} */
+  /** @type {Array<any>} */
   const notifications = [];
   let registered = false;
   notifySocket.on('message', (raw) => {
@@ -1203,7 +1279,7 @@ async function legUnattended(smoke) {
     }
   });
   await new Promise((resolve, reject) => {
-    notifySocket.once('open', () => resolve());
+    notifySocket.once('open', () => resolve(undefined));
     notifySocket.once('error', (error) => reject(error));
   });
   notifySocket.send(JSON.stringify({
@@ -1295,6 +1371,11 @@ async function legUnattended(smoke) {
       + '无人轮没开出来、或开出来但没产出帧，AC-162 没落地；缺面必须点名，不能写假的读数行。',
     );
   }
+  // `witness` 与 `attachSeq` 在同一个分支里一起赋值（见上面的循环体），所以 `witness` 非空时
+  // `attachSeq` 不可能是 null——这里只是把这条不变量讲给类型检查听，不是一条新判据。
+  if (attachSeq === null) {
+    throw new LegRefusal('拒绝运行：撞上了 witness 却没有记下 attachSeq——不可能到达的分支。');
+  }
   smoke.chats.push(witness);
 
   let terminal;
@@ -1373,6 +1454,7 @@ async function legUnattended(smoke) {
  *
  * `POST /close` 记录关闭原因并让驱动收掉输入队列（常驻进程的 stdin EOF）。读数是进程真的没了
  * （`/proc/<pid>` 消失）加上快照里逐字的 `closeReason`。
+ * @param {Smoke} smoke
  */
 async function legClose(smoke) {
   const server = smoke.server;
@@ -1416,6 +1498,7 @@ async function legClose(smoke) {
  * 停掉第一个服务进程、在**同一份**临时库上起第二个，然后读同一条会话行：未运行、原因非空。
  * 正控制是同一读里的 per-run 会话：它的 `reason` 必须是 `null`——否则「原因非空」只是「这个字段从不
  * 为空」的同义反复。
+ * @param {Smoke} smoke
  */
 async function legAfterRestart(smoke) {
   const oldServer = smoke.server;
@@ -1470,6 +1553,7 @@ async function legAfterRestart(smoke) {
  *
  * 重启后对同一条常驻会话再发一轮：新进程的 pid 必须 **≠** 第一段的 pid。等 pid 不同而不是等 pid 出现，
  * 因为「出现」对旧进程的残留也成立。
+ * @param {Smoke} smoke
  */
 async function legResend(smoke) {
   const server = smoke.server;
@@ -1505,7 +1589,10 @@ async function legResend(smoke) {
 // CLI
 // ---------------------------------------------------------------------------
 
-/** 手写 flag 解析：`--k v` 与 `--k=v` 两种都收。 */
+/**
+ * 手写 flag 解析：`--k v` 与 `--k=v` 两种都收。
+ * @param {string[]} argv
+ */
 export function parseFlags(argv) {
   /** @type {Record<string, string | undefined>} */
   const flags = {};
@@ -1528,7 +1615,10 @@ export function parseFlags(argv) {
   return flags;
 }
 
-/** `--check-record`：逐节检查，缺哪节点名哪节；齐全 exit 0。 */
+/**
+ * `--check-record`：逐节检查，缺哪节点名哪节；齐全 exit 0。
+ * @param {string} filePath
+ */
 export function runCheckRecord(filePath) {
   const missing = checkRecordFile(filePath);
   if (missing.length === 0) {
@@ -1546,6 +1636,7 @@ export function runCheckRecord(filePath) {
  * 冒烟主流程：环境与版本 ⇒ 六段 ⇒ 残留读数。
  *
  * 六段逐段落盘，所以一段失败不会抹掉前面已经写下的原始读数——记录文件里能看到走到哪、卡在哪。
+ * @param {Smoke} smoke
  */
 export async function runSmoke(smoke) {
   smoke.write(
@@ -1582,7 +1673,7 @@ export async function runSmoke(smoke) {
     .map(([key, kind, value]) => ({ key, kind, value }));
   // `ANTHROPIC_API_KEY` 必须显式 unset：调用方的 shell 里它是有值的，继承过去会让 CLI 走 API key 那条
   // 认证分支而不是 base-url + auth-token 那条。
-  envRows.push({ key: 'ANTHROPIC_API_KEY', kind: 'unset' });
+  envRows.push({ key: 'ANTHROPIC_API_KEY', kind: 'unset', value: undefined });
 
   const model = await api(server.port, smoke.token, 'POST', '/api/providers/claude/models', {
     id: smoke.modelId,
@@ -1597,6 +1688,7 @@ export async function runSmoke(smoke) {
   }
   await assertLifecycleSurface(smoke);
 
+  /** @type {Array<[string, (smoke: Smoke) => Promise<void>]>} */
   const legs = [
     ['创建常驻会话', legCreate],
     ['连续三轮', legThreeRounds],
@@ -1657,6 +1749,7 @@ export async function runSmoke(smoke) {
 
 /**
  * 主入口。守护栏先跑：护栏拒绝时**不写任何读数**，只 exit 1。
+ * @param {string[]} argv
  */
 export async function main(argv) {
   const flags = parseFlags(argv);

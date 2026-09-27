@@ -50,7 +50,10 @@ function completeRecord() {
   return SECTION_TITLES.map((title) => `## ${title}\n\n读数：\nraw\n结论：ok\n`).join('\n');
 }
 
-/** 建一个临时目录，返回 { dir, cleanup }。 */
+/**
+ * 建一个临时目录，返回 { dir, cleanup }。
+ * @param {string} prefix
+ */
 function tempDir(prefix) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   return { dir, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
