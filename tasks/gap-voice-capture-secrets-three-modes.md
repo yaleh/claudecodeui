@@ -49,17 +49,17 @@ goal_ac: AC-146
 
 ## AC
 
-- [ ] AC1 判据入口与预算：`npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice-capture-secrets.test.ts` 退出 0；判据自身零子进程、零网络、零真实监听端口；末尾打印 `elapsed-ms=<n>`，实测 < 15000（目标侧判据门 60 秒硬上限且不可调）。
-- [ ] AC2 三档 × 两 provider × 两结果的编排来自出货路径：每一次尝试把 `process.env.VOICE_CAPTURE` 的**原文**交给出货的唯一模式解析函数（打印 `resolverInput=<off|text|audio> mode=<off|text|audio>`），捕获端口与写音频端口都由出货模块的构造函数建出；`off` 档的捕获端口调用次数 === 0。另断言判据文件里没有任何手写的 `voice.capture` 行构造（行的构造点只有出货模块一个）⇒ 打印 `handRolledRow=<b>`。
-- [ ] AC3 正例：四个针族确实过了线。12 次尝试的替身 `fetchBackend` 读数逐次打印：两个 provider 各 6 次的 `init.headers.authorization` **逐字等于** `Bearer ` + 对应 key（`keySent=<b>`）；`dashscope-omni` 的 6 次 `init.body` 含 `AUDIO_BASE64` 逐字子串（`base64Sent=<b>`）；`openai-compatible` 的 6 次 multipart 体含原始 `AUDIO_BYTES` 逐字节（`rawBytesSent=<b>`）。逐条打印 `wire.<provider>.<case>.keySent/base64Sent/rawBytesSent=<b> authorizationLength=<n>`（**不**逐字打印授权头的值）。三条正例各打印总命中数，且都必须 > 0。
-- [ ] AC4 负例（日志面）：三档下注入端口与 `console` 探针收到的**全部**行对四个针族的命中数为 0；逐档打印 `mode=<m> log.lines=<n> console.lines=<n> logHits=<n> consoleHits=<n>`，并打印 `sinkHits=<n>`（两者之和）。读数名以 `AC4 ` 开头（取假形态按这一族断言）。
-- [ ] AC5 负例（捕获文件面）：`audio` 档逐个文件读字节与文件名对四个针族的命中数为 0；`text`/`off` 档 `fs.existsSync(捕获目录) === false`（目录不预建）且 `files === 0`。逐档打印 `mode=<m> files=<n> byteHits=<n> nameHits=<n> dirExists=<b>`；读数名以 `AC5 ` 开头。
-- [ ] AC6 12 行读数表：每一次尝试打印一行 `mode=<m> provider=<p> outcome=<ok|fail> captureLines=<n> files=<n> sinkHits=<n> keySent=<b>`（12 行，`sinkHits` 恒为 0）。⇒ 失败尝试与成功尝试**各有**一行读数，且两种 provider 都被走到（「只测成功」「只测一个 provider」在表上就可辨）。
-- [ ] AC7 零不是空实现（非空性）：`text`/`audio` 档每次尝试恰好 1 行 `voice.capture`（每档 4 条），`audio` 档每个成功尝试恰好落 1 个文件；`off` 档捕获行数 === 0 而 `voice.transcribe` 行数 === 尝试数（4）、`console.lines > 0`（`off` 档不注入捕获端口时日志端口照样收行）。逐档打印 `mode=<m> captureLines=<n> transcribeLines=<n> files=<n> console.lines=<n>`。
-- [ ] AC8 扫描器灵敏性（读出「扫描器不会漏」）：四个针族各塞进合成的日志行、临时文件名、临时文件内容，用**同一个**扫描函数读出 `hits > 0`；打印 `probe.<needle>=<n>`（四个值都 > 0）。⇒ 「负例为零」有正例支撑。
-- [ ] AC9 两个取假形态是**可执行**的旁证：`npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice-capture-secrets.false-forms.test.ts` 退出 0，每条**先要求未变异副本退出 0**（恒红的工装不能证明任何事），再：(`i`) `headers-into-capture` 必须让 AC4 族红；(`ii`) `base64-into-capture-row` 必须让 AC4 族红。每条打印 `mutation=<name> baseExit=0 anchorCount=1 mutantRed=<b> inTarget=[<…>] red-reason=<…> outsiderGreen=<…> mutant.rawSinkHits=<n>`，并要求 `mutant.rawSinkHits > 0`（变异真的泄漏，不是不生效）。跑完 `git status --porcelain` 里不残留 `__criterion-falsify-`。
-- [ ] AC10 既有面不退化：`server/modules/voice/tests/voice-dashscope-settings.test.ts`（AC-141 的判据，同一族 needles 的既有读数）、`voice-capture-off.test.ts`、`voice-capture-text.test.ts`、`voice-capture-audio.test.ts`、`voice.service.test.ts`、`voiceHealth.test.ts`、`voice-config.routes.test.ts`、`voiceTranscribeGaps.test.ts` 八条各退出 0；`npm run typecheck`（根 + `server/tsconfig.json` + `scripts/tsconfig.json`）与 `npm run lint` 退出 0；逐条打印退出码（不是空过）。
-- [ ] AC11 如实登记：判据输出与本任务的完成记录里写明「本条只做三档脱敏判据（日志面与捕获文件面）；判据全程用替身 fetch、注入的日志端口与临时捕获目录，未接触真实上游、未起真实进程、未读真实 `server.log`」；并写明本条对出货代码的改动面：判据在出货实现上判绿时 `shippingDelta=0`（本条只是判据），判红时唯一允许的修法是 AC9 的 reachability 条款所说的收窄点接缝改动并如实登记。
+- [x] AC1 判据入口与预算：`npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice-capture-secrets.test.ts` 退出 0；判据自身零子进程、零网络、零真实监听端口；末尾打印 `elapsed-ms=<n>`，实测 < 15000（目标侧判据门 60 秒硬上限且不可调）。
+- [x] AC2 三档 × 两 provider × 两结果的编排来自出货路径：每一次尝试把 `process.env.VOICE_CAPTURE` 的**原文**交给出货的唯一模式解析函数（打印 `resolverInput=<off|text|audio> mode=<off|text|audio>`），捕获端口与写音频端口都由出货模块的构造函数建出；`off` 档的捕获端口调用次数 === 0。另断言判据文件里没有任何手写的 `voice.capture` 行构造（行的构造点只有出货模块一个）⇒ 打印 `handRolledRow=<b>`。
+- [x] AC3 正例：四个针族确实过了线。12 次尝试的替身 `fetchBackend` 读数逐次打印：两个 provider 各 6 次的 `init.headers.authorization` **逐字等于** `Bearer ` + 对应 key（`keySent=<b>`）；`dashscope-omni` 的 6 次 `init.body` 含 `AUDIO_BASE64` 逐字子串（`base64Sent=<b>`）；`openai-compatible` 的 6 次 multipart 体含原始 `AUDIO_BYTES` 逐字节（`rawBytesSent=<b>`）。逐条打印 `wire.<provider>.<case>.keySent/base64Sent/rawBytesSent=<b> authorizationLength=<n>`（**不**逐字打印授权头的值）。三条正例各打印总命中数，且都必须 > 0。
+- [x] AC4 负例（日志面）：三档下注入端口与 `console` 探针收到的**全部**行对四个针族的命中数为 0；逐档打印 `mode=<m> log.lines=<n> console.lines=<n> logHits=<n> consoleHits=<n>`，并打印 `sinkHits=<n>`（两者之和）。读数名以 `AC4 ` 开头（取假形态按这一族断言）。
+- [x] AC5 负例（捕获文件面）：`audio` 档逐个文件读字节与文件名对四个针族的命中数为 0；`text`/`off` 档 `fs.existsSync(捕获目录) === false`（目录不预建）且 `files === 0`。逐档打印 `mode=<m> files=<n> byteHits=<n> nameHits=<n> dirExists=<b>`；读数名以 `AC5 ` 开头。
+- [x] AC6 12 行读数表：每一次尝试打印一行 `mode=<m> provider=<p> outcome=<ok|fail> captureLines=<n> files=<n> sinkHits=<n> keySent=<b>`（12 行，`sinkHits` 恒为 0）。⇒ 失败尝试与成功尝试**各有**一行读数，且两种 provider 都被走到（「只测成功」「只测一个 provider」在表上就可辨）。
+- [x] AC7 零不是空实现（非空性）：`text`/`audio` 档每次尝试恰好 1 行 `voice.capture`（每档 4 条），`audio` 档每个成功尝试恰好落 1 个文件；`off` 档捕获行数 === 0 而 `voice.transcribe` 行数 === 尝试数（4）、`console.lines > 0`（`off` 档不注入捕获端口时日志端口照样收行）。逐档打印 `mode=<m> captureLines=<n> transcribeLines=<n> files=<n> console.lines=<n>`。
+- [x] AC8 扫描器灵敏性（读出「扫描器不会漏」）：四个针族各塞进合成的日志行、临时文件名、临时文件内容，用**同一个**扫描函数读出 `hits > 0`；打印 `probe.<needle>=<n>`（四个值都 > 0）。⇒ 「负例为零」有正例支撑。
+- [x] AC9 两个取假形态是**可执行**的旁证：`npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice-capture-secrets.false-forms.test.ts` 退出 0，每条**先要求未变异副本退出 0**（恒红的工装不能证明任何事），再：(`i`) `headers-into-capture` 必须让 AC4 族红；(`ii`) `base64-into-capture-row` 必须让 AC4 族红。每条打印 `mutation=<name> baseExit=0 anchorCount=1 mutantRed=<b> inTarget=[<…>] red-reason=<…> outsiderGreen=<…> mutant.rawSinkHits=<n>`，并要求 `mutant.rawSinkHits > 0`（变异真的泄漏，不是不生效）。跑完 `git status --porcelain` 里不残留 `__criterion-falsify-`。
+- [x] AC10 既有面不退化：`server/modules/voice/tests/voice-dashscope-settings.test.ts`（AC-141 的判据，同一族 needles 的既有读数）、`voice-capture-off.test.ts`、`voice-capture-text.test.ts`、`voice-capture-audio.test.ts`、`voice.service.test.ts`、`voiceHealth.test.ts`、`voice-config.routes.test.ts`、`voiceTranscribeGaps.test.ts` 八条各退出 0；`npm run typecheck`（根 + `server/tsconfig.json` + `scripts/tsconfig.json`）与 `npm run lint` 退出 0；逐条打印退出码（不是空过）。
+- [x] AC11 如实登记：判据输出与本任务的完成记录里写明「本条只做三档脱敏判据（日志面与捕获文件面）；判据全程用替身 fetch、注入的日志端口与临时捕获目录，未接触真实上游、未起真实进程、未读真实 `server.log`」；并写明本条对出货代码的改动面：判据在出货实现上判绿时 `shippingDelta=0`（本条只是判据），判红时唯一允许的修法是 AC9 的 reachability 条款所说的收窄点接缝改动并如实登记。
 
 ## DoD
 
@@ -86,3 +86,35 @@ L_G 该轴仍暗，理由：目标层的读数是真实服务进程按环境变�
 - server/modules/voice/voice-capture.ts
 - server/modules/voice/voice.service.ts
 - tasks/gap-voice-capture-secrets-three-modes.md
+
+## 完成记录
+
+**本条做了什么。** AC-146 的判据落在两个新文件上：`server/modules/voice/tests/voice-capture-secrets.test.ts`（读数本体，导出 `collectReadings(paths)`/`collectRawSinkHits(paths)`，8 条读数 `AC2 `/`AC3 `/`AC4 `/`AC5 `/`AC6 `/`AC7 `/`AC8 `/`AC11 `，外加 `AC1 ` 的预算与门面自检）与 `server/modules/voice/tests/voice-capture-secrets.false-forms.test.ts`（两条取假形态 + AC10 的九条退出码）。判据把 `process.env.VOICE_CAPTURE` 的**原文**（`off`/`text`/`audio`）交给出货的唯一解析函数，用出货的 `createVoiceCaptureAudioSink` / 捕获端口构造函数接过目录与写文件端口，再由 `createVoiceService` 在**替身 `fetchBackend`** 下走 3 档 × 2 provider（`openai-compatible`、`dashscope-omni`）× 2 结果（404 错误体 / 良构答案）= 12 次尝试；每次尝试前清空日志收集器与捕获目录，四个本运行唯一的针族（`DASHSCOPE_KEY`、`SHARED_KEY`、`Bearer <key>`、`AUDIO_BASE64`）同时进「正例面」的替身 `(url, init)` 记录与「负例面」的注入日志端口 + `console` 探针 + 捕获目录逐文件字节/文件名扫描。
+
+**如实登记（AC11 要求的两句）。**
+- 本条**只做三档脱敏判据（日志面与捕获文件面）**；判据全程用**替身 fetch、注入的日志端口与临时捕获目录**，**未**接触真实上游、**未**起真实进程、**未**读真实 `server.log`。
+- 本条对出货代码的改动面：`shippingDelta=2` —— `server/modules/voice/voice-capture.ts` 的 `VoiceCapturePayloadInput.requestHeaders?: Record<string, string>`（收窄入参上的字段，构建器的返回字面量**不**拷贝它）与 `server/modules/voice/voice.service.ts` 的 `requestHeadersOf(init)` + 把 `requestHeaders` 接进 `recordAttempt` 载荷。这正是 AC9 的 **reachability 条款**点名的收窄点接缝改动：行由 `voice-capture.ts` 的纯函数从收窄后的入参构造，若 service 侧另加的字段不在收窄入参里，构造点会把它丢掉，取假形态必然全绿（`mutant.rawSinkHits=0`）。接缝只让**变异体**有可泄漏的东西；出货实现依旧**不把** `requestHeaders` 写进行里（AC4 在出货树上读 `logHits=0`）。
+
+**取假形态的 reachability（两次都实测 > 0）。**
+
+| 变异 | 锚点 | base | 结果 |
+|---|---|---|---|
+| `headers-into-capture` | `    model: input.model,`（`anchorCount=1`） | 退出 0 | `mutantRed=true inTarget=[AC4 the log faces carry no needle] mutant.rawSinkHits=16`，族外 `AC2 orchestration from the shipping path` 仍绿 |
+| `base64-into-capture-row` | 同上 | 退出 0 | `mutantRed=true inTarget=[AC4 the log faces carry no needle] mutant.rawSinkHits=8`，族外 `AC2 …` 仍绿 |
+
+两条变异都**只**打红 `AC4 ` 族：捕获**文件**面在两条变异下仍干净，所以族的划分是实的，不是整台工装倒了。
+
+**读数（本工作树，实测）。**
+
+| 读数 | 实测 |
+|---|---|
+| 判据本体 | `npx tsx --tsconfig server/tsconfig.json --test …voice-capture-secrets.test.ts` 退出 0；`tests 9 / pass 9 / fail 0`；`elapsed-ms=66`；`subprocess-or-socket-imports=0 []`；`readings=8/8` |
+| `wire.*` 正例 | 12 行全部 `keySent=true`（`authorizationLength` 39 / 42）；`base64Sent=true` 6 行（全部 dashscope）；`rawBytesSent=true` 6 行（全部 openai）；`keySent.total=12 base64Sent.total=6 rawBytesSent.total=6`；`sharedKey.inDefaults/inSettings/same=true length=32`；授权头的**值**从未打印 |
+| AC4 日志面 | 三档 `logHits=0 consoleHits=0 sinkHits=0`，`logFaceClean=true consoleRestored=true`；`log.lines` 4/8/8、`console.lines=1` |
+| AC5 捕获文件面 | `text`/`off`：`files=0 dirExists=false`；`audio`：`files=4 byteHits=0 nameHits=0 dirExists=true` |
+| AC6 12 行表 | 12 行、`sinkHits=0` 每行；`providers=[dashscope-omni openai-compatible] okRows=6 failRows=6` |
+| AC7 非空性 | `text`/`audio` `captureLines=4 transcribeLines=4`；`off` `captureLines=0 transcribeLines=4`；`audio` `files=4` |
+| AC8 扫描器灵敏性 | `probe.dashscope-key=3 probe.shared-key=3 probe.bearer-form=6 probe.audio-base64=2`，`probe.needle-free-line=0`；`base64.length=304 bytes.length=228` |
+| AC9/AC10 | 取假形态文件退出 0（`tests 4 / pass 4 / fail 0`）；八条既有判据退出 0（tallies 32/21/10/10/4/7/6/8）；`npm run typecheck` 0；`npm run lint` 0；树 `unchanged=true`，无 `__criterion-falsify-` 残留 |
+
+**已知不等价点（与 DoD 同）。** 替身上游收到的体是判据自己的音频与响应，不等于真实 DashScope 的信封；`console` 探针只覆盖 `info/warn/error/log/debug` 五个方法，不是对进程 stderr/子进程输出的穷举；12 次尝试只走 `dashscope-omni` 与 `openai-compatible`，`multimodal` 未被走到；`AUDIO_BASE64` 有 304 字符，塞不进单个路径分量（`NAME_MAX=255`），所以 AC8 的文件**名**面上该族按 `nameSurfaceSkipped=[audio-base64(319B)]` 记，四个 `probe.<family>` 值仍全部 > 0（另三族 3/3/6，base64 族在**内容**面上读到 2）。
