@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
 // AC-106: a transcript sitting at the bottom follows content that grows in place — the last row getting
 // taller with no new row and no store write — while a transcript the user has scrolled away from is left
@@ -648,6 +648,93 @@ const waitForAppMount = async (page: Page, evidence: PageEvidence): Promise<void
     `the app never mounted into ${APP_ROOT} across ${MOUNT_RELOADS + 1} bounded loads of the document: `
     + await readPageEvidence(page, evidence),
   );
+};
+
+/**
+ * What a document has to show before the case that navigated to it is allowed to touch it: the sidebar the
+ * case's next step clicks in, or — if the stored preference left the panel closed — the collapsed bar's own
+ * expand control.
+ *
+ * Deliberately the shell the case uses rather than `#root` with children, which `waitForAppMount` probes: a
+ * document that mounts React and is replaced a moment later is exactly the one this guard exists to notice.
+ * One constant, so a negative control can point the probe somewhere that never appears in a single edit.
+ */
+const SECOND_DOCUMENT_READY = '#sidebar-panel, [aria-label="Show sidebar"]';
+/** How long the second document is given to show it, and how many times a document that did not is replayed. */
+const SECOND_DOCUMENT_PROBE_MS = 4_000;
+const SECOND_DOCUMENT_RELOADS = 2;
+
+/**
+ * The startup guard for a navigation the describe's `beforeAll` did not make.
+ *
+ * This spec navigates twice: `beforeAll`'s `goto('/')`, and AC-110's own `goto('/')` a thousand lines later —
+ * which the case needs, because a viewport of 1440×6000 cannot be expressed through `test.use()` and the
+ * shared page was opened at the default one. The startup guard only ever wrapped the first navigation, so the
+ * second one arrived with no bound on it at all: a document that came up and was then replaced left the case
+ * waiting on a locator in a page that no longer existed, and the run was ended from outside by the 55s watchdog
+ * with nothing but `Channel closed` to read — no assertion, no page text, nothing naming the criterion.
+ *
+ * The same two pieces `beforeAll` uses, in the same order, applied to whichever document the second navigation
+ * lands on: a short bounded probe, at most `SECOND_DOCUMENT_RELOADS` bounded replays, and then this spec's own
+ * error carrying the page's text and the console's and the requests'. Nothing above the spec is touched — the
+ * watchdog is load-bearing and the ceiling above it is not this fixture's to raise.
+ */
+const settleSecondDocument = async (page: Page, evidence: PageEvidence): Promise<void> => {
+  const ready = (timeoutMs: number) =>
+    page.locator(SECOND_DOCUMENT_READY).first().waitFor({ state: 'attached', timeout: timeoutMs }).then(
+      () => true,
+      () => false,
+    );
+  for (let load = 0; load <= SECOND_DOCUMENT_RELOADS; load += 1) {
+    if (load > 0) await page.reload().catch(() => undefined);
+    if (await ready(SECOND_DOCUMENT_PROBE_MS)) return;
+  }
+  throw new Error(
+    `this run's client never settled on a document the criterion can measure on: ${SECOND_DOCUMENT_READY} did not `
+    + `appear across ${SECOND_DOCUMENT_RELOADS + 1} bounded loads of it (${SECOND_DOCUMENT_PROBE_MS}ms each): `
+    + await readPageEvidence(page, evidence),
+  );
+};
+
+/**
+ * How long the sidebar's session link is given to become clickable, and to survive its own click.
+ *
+ * Under the 55s watchdog and the 60s gate above it with room to spare: the click is the last unbounded wait in
+ * this spec's path into the transcript, so the budget it fails inside has to be small enough that the failure
+ * is reported *by this spec* rather than by a ceiling that names neither the link nor the page.
+ */
+const SESSION_LINK_CLICK_MS = 15_000;
+
+/**
+ * Opens the seeded session from the sidebar, bounded, and explained by this spec if it cannot.
+ *
+ * `locator.click()` carries no action timeout here, so on a document that is still being replaced it
+ * re-resolves its target forever — the failure this bounds is `element was detached from the DOM, retrying`
+ * for 33.5s until the watchdog ended the run from outside. `beforeAll` never had to bound it because on its
+ * document the sidebar had long settled; the second navigation is the one that arrives without that history,
+ * and the wait belongs to both. A link that never becomes clickable, and a link that keeps being detached
+ * under the click, both end as this spec's own error with the page's account attached.
+ */
+const clickSessionLink = async (page: Page, link: Locator, evidence: PageEvidence): Promise<void> => {
+  const clickable = await link
+    .waitFor({ state: 'visible', timeout: SESSION_LINK_CLICK_MS })
+    .then(() => true, () => false);
+  if (!clickable) {
+    throw new Error(
+      `the sidebar's session link never became clickable inside ${SESSION_LINK_CLICK_MS}ms, so this run's client `
+      + 'never settled on a document that stays: '
+      + await readPageEvidence(page, evidence),
+    );
+  }
+  try {
+    await link.click({ timeout: SESSION_LINK_CLICK_MS });
+  } catch (error) {
+    throw new Error(
+      `the sidebar's session link could not be clicked inside ${SESSION_LINK_CLICK_MS}ms `
+      + `(${error instanceof Error ? error.message : String(error)}): `
+      + await readPageEvidence(page, evidence),
+    );
+  }
 };
 
 /**
@@ -1924,8 +2011,9 @@ test.describe('transcript follow in a real browser', () => {
     }
     await expect(sessionLink()).toBeVisible({ timeout: 30_000 });
 
-    // Into the transcript through the sidebar's own link — never by writing the store or the URL.
-    await sessionLink().click();
+    // Into the transcript through the sidebar's own link — never by writing the store or the URL. Bounded:
+    // this is the wait that a document replaced mid-click would otherwise never leave — see `clickSessionLink`.
+    await clickSessionLink(page, sessionLink(), pageEvidence);
     await expect(page).toHaveURL(new RegExp(`/session/${SESSION_ID}$`));
     await expect(page.locator(`${PANE} .chat-message`).first()).toBeVisible({ timeout: 30_000 });
     // The initial scroll-to-bottom settles on its own; the gestures below have to start from rest.
@@ -2225,6 +2313,9 @@ test.describe('transcript follow in a real browser', () => {
     // seeded ones. It is still running — this fixes the wall clock, not the timers the app waits on.
     await page.clock.setFixedTime(new Date(seededTranscriptEndsAt() + 3_600_000));
     await page.goto('/');
+    // The second navigation of this spec, and the one the startup guard never covered — see
+    // `settleSecondDocument` for why an unguarded document here is the criterion's own red.
+    await settleSecondDocument(page, pageEvidence);
     for (let attempt = 0; attempt < 4; attempt += 1) {
       if (await sessionLink().isVisible().catch(() => false)) {
         break;
@@ -2237,7 +2328,7 @@ test.describe('transcript follow in a real browser', () => {
         // Collapsed again (or the click missed); the loop clicks once more.
       }
     }
-    await sessionLink().click();
+    await clickSessionLink(page, sessionLink(), pageEvidence);
     await expect(page).toHaveURL(new RegExp(`/session/${SESSION_ID}$`));
     await expect(page.locator(`${PANE} .chat-message`).first()).toBeVisible({ timeout: 30_000 });
     await waitForSettledPane(page);

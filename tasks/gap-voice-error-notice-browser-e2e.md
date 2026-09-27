@@ -11,10 +11,7 @@ parent: null
 children: []
 extra:
   schema: execution
-depends_on:
-  - gap-voice-error-classification-and-status-table
-  - gap-voice-error-envelope-contract
-  - gap-voice-error-messages-i18n-fallback
+depends_on: []
 goal_ac: AC-153
 ---
 ## Proposal
@@ -217,3 +214,14 @@ L_G 该轴仍暗，理由：目标层要求的「真实浏览器里各类失败�
 - **技术详情摘要的实际构造**：`<details data-testid="voice-error-details">` + `<summary data-testid="voice-error-details-summary" aria-label="Technical details" title="Technical details">`（字面量——没有语言键命名 disclosure，详见该文件里的理由）+ `<pre data-testid="voice-error-technical">` 只在展开时挂载；所以折叠态提示区的 `textContent` 是**句子本身**（关闭控件的名字在 `aria-label`/`title` 里，摘要的名字也在属性里，都不是文本节点）。
 - **替身与真实路由的偏差**：与 AC-142 的 `e2e/voice-dashscope-written.spec.ts:92-105` 同一处、同一句话——替身在**上游拒绝**时多给了一个 code（真实路由只为上游**之前**的拒绝码重发 code）。`upstreamCode` 的取值由替身造的响应体决定，不是真实上游响应体；服务端的分类/信封没有被本条判据驱动。
 - **写库方式**：`quay task edit … --body-file`（Provider ABI 的 CLI 前端，与 MCP `task_write` 同一写路径），写后用 byte diff 验证落库内容与送出的 body 逐字相同 —— 不手改任何 `- [ ]`/`- [x]` 字符。
+
+## Needs-Human
+
+**执行 2026-09-24T18:10:34.959Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=32305 server/modules/voice/tests/voice-capture-text.false-forms.test.ts passed=false end_ms=1790273323418
+- run_id：wk-prod-anchor
+- session_id：5debdf69-c242-42c2-8b34-6cc625de4671
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-error-notice-browser-e2e~wk-prod-anchor~1790273242324-15ad43.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-error-notice-browser-e2e-wk-prod-anchor.log

@@ -15,8 +15,11 @@ import {
     initializeSessionsWatcher,
     providerRegistry,
     providerRuntimeService,
+    stopClaudeSessionScopes,
+    sweepOrphanClaudeSessionScopes,
 } from '@/modules/providers/index.js';
 import { createWebSocketServer } from '@/modules/websocket/index.js';
+import { createSessionHostsRouter, sessionHostManager } from '@/modules/session-hosts/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
 
@@ -203,6 +206,12 @@ app.use('/api/browser-use', authenticateToken, browserUseRoutes);
 app.use('/api/providers', authenticateToken, providerRoutes);
 app.use('/api/scheduled-messages', authenticateToken, scheduledMessagesRoutes);
 
+// Session host listing (protected). Mounted unconditionally — unlike the debug
+// agent's control plane below, reading which processes are running is not a
+// gated surface — and over the process-wide manager, which is the same table
+// `providerRuntimeService` registers every dispatched turn in.
+app.use('/api/session-hosts', authenticateToken, createSessionHostsRouter({ sessionHostManager }));
+
 // Agent API Routes (uses API key authentication)
 app.use('/api/agent', agentRoutes);
 
@@ -287,6 +296,12 @@ const HOST = process.env.HOST || '0.0.0.0';
 const DISPLAY_HOST = getConnectableHost(HOST);
 const VITE_PORT = process.env.VITE_PORT || 5173;
 const LOCAL_SERVER_MARKER_PATH = path.join(os.homedir(), '.cloudcli', 'local-server.json');
+// How long shutdown waits for session host processes to confirm they are gone.
+// A host is a child process this server spawned, so leaving one behind outlives
+// the server that could still talk to it; the grace period is short because a
+// driver that has not answered by now is not going to, and `shutdown()` records
+// whatever it had to close itself (see `ShutdownSummary.forced`).
+const SESSION_HOST_SHUTDOWN_TIMEOUT_MS = 5_000;
 
 function getErrorCode(error: unknown): string | undefined {
     if (typeof error !== 'object' || error === null || !('code' in error)) {
@@ -354,7 +369,18 @@ async function startServer() {
         }
 
         console.log(`${terminalTextStyles.info('[INFO]')} To run in development mode with hot-module replacement, go to http://${DISPLAY_HOST}:${VITE_PORT}`);
-   
+
+        // Claude sessions now run in their own systemd scopes (see
+        // claude-session-scope.service.ts), which puts them outside this unit's cgroup: the
+        // kernel can no longer reap them along with the server, but it also means nothing
+        // collects them when the server is SIGKILLed and the shutdown path never runs. Clear
+        // those orphans before this server starts adding scopes of its own; scopes whose owning
+        // server is still alive are left untouched.
+        const sweptSessionScopes = sweepOrphanClaudeSessionScopes();
+        if (sweptSessionScopes.length > 0) {
+            console.log(`${terminalTextStyles.info('[INFO]')} Swept ${sweptSessionScopes.length} orphaned Claude session scope(s): ${sweptSessionScopes.join(', ')}`);
+        }
+
         server.listen(SERVER_PORT, HOST, async () => {
             const appInstallPath = APP_ROOT;
             await writeLocalServerMarker().catch((error) => {
@@ -387,6 +413,18 @@ async function startServer() {
         closeScheduledMessageDispatcher();
         // Clean up plugin processes on shutdown
         const shutdownRuntimeServices = async () => {
+            // Sessions are spawned into their own scopes, so they are no longer part of this
+            // unit's cgroup and nothing else here would stop them. Stop this server's own
+            // scopes before exiting; without this a stopped or restarted server leaves every
+            // session it was hosting running, where the cgroup teardown used to collect them.
+            try {
+                const stoppedSessionScopes = stopClaudeSessionScopes();
+                if (stoppedSessionScopes.length > 0) {
+                    console.log(`[Sessions] Stopped ${stoppedSessionScopes.length} Claude session scope(s)`);
+                }
+            } catch (err) {
+                console.error('[Sessions] Error stopping session scopes during shutdown:', getErrorMessage(err));
+            }
             try {
                 await browserUseService.stopAllSessions();
             } catch (err) {
@@ -396,6 +434,15 @@ async function startServer() {
                 await stopAllPlugins();
             } catch (err) {
                 console.error('[Plugins] Error stopping plugins during shutdown:', getErrorMessage(err));
+            }
+            try {
+                const hosts = await sessionHostManager.shutdown({ timeoutMs: SESSION_HOST_SHUTDOWN_TIMEOUT_MS });
+                if (hosts.closed.length > 0) {
+                    const forced = hosts.forced.length > 0 ? `, ${hosts.forced.length} forced` : '';
+                    console.log(`[Sessions] Closed ${hosts.closed.length} session host(s)${forced}`);
+                }
+            } catch (err) {
+                console.error('[Sessions] Error closing session hosts during shutdown:', getErrorMessage(err));
             }
             try {
                 await removeLocalServerMarker();

@@ -1,10 +1,27 @@
-import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import net from 'node:net';
+import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
 import { defineConfig } from '@playwright/test';
+
+import { fsAvailableBytes, resolveE2eDataDir } from './scripts/e2e-data-dir-selection.mjs';
+import {
+  ASSEMBLY_TEMP_ROOT_ENV,
+  PROBE_FILE_NAME,
+  assemblyTempCandidates,
+  planAssembly,
+} from './scripts/e2e-assembly-budget.mjs';
+
+/**
+ * This config's own directory.
+ *
+ * The file is loaded as an ES module, where `__dirname` does not exist — referencing it throws before a single test
+ * is collected, so the fallback path below has to be derived from the module's own URL instead. It is the same
+ * directory Playwright itself resolves `testDir` against, which is why the fallback and the config agree.
+ */
+const CONFIG_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * When this file started being evaluated — the first moment of the run that can be observed from here.
@@ -29,9 +46,18 @@ if (!process.env.QUAY_E2E_RUN_STARTED_AT) {
 
 // Everything the servers persist lives under one throwaway directory so the run never touches real user data.
 // Exported through the environment so worker processes (which re-evaluate this file) share the directory and the spec can put a project workspace inside it.
-const dataDir = process.env.QUAY_E2E_DATA_DIR ?? fs.mkdtempSync(path.join(os.tmpdir(), 'quay-e2e-'));
+//
+// Which directory that is — and whether there is room for it — is decided in `scripts/e2e-data-dir-selection.mjs`,
+// not by an unconditional `mkdtempSync(path.join(os.tmpdir(), …))`. `os.tmpdir()` reads `TMPDIR`, the driver's
+// environment does not set it, and so every run on this host used to land on the root filesystem whatever its
+// remaining space was: when the run did not fit, it failed as `ENOSPC` / `net::ERR_INSUFFICIENT_RESOURCES` *inside*
+// a case that was measuring something else entirely. The selection reads each candidate's filesystem at the moment
+// it chooses, prints the three numbers it chose by, and refuses to start the run when nothing has room — see the
+// module for the readings that fix its shape.
+const dataDirSelection = resolveE2eDataDir();
+const dataDir = dataDirSelection.dataDir;
 /** True only in the process that created the directory: workers re-evaluate this file with it already set. */
-const isDataDirOwner = !process.env.QUAY_E2E_DATA_DIR;
+const isDataDirOwner = !dataDirSelection.explicit;
 process.env.QUAY_E2E_DATA_DIR = dataDir;
 /**
  * ...and the same reading published, because the assignment above destroys the evidence for it: every worker
@@ -60,6 +86,60 @@ if (process.env.QUAY_E2E_DATA_DIR_OWNER === undefined) {
  * shared mutable state rather than widening anyone's tolerances.
  */
 const viteCacheDir = path.join(dataDir, 'vite-cache');
+
+/**
+ * Where this run's scratch space goes — and whether it can be prepared before the browser needs it.
+ *
+ * The data directory above was moved off `os.tmpdir()`; the rest of the run's scratch was not. Chromium's
+ * user-data directory, `tsx`'s transform cache, Node's compile cache and Playwright's own transform cache are
+ * all created under `os.tmpdir()`, which reads `TMPDIR`, which the driver's environment does not set — so
+ * every run on this host writes them onto the root filesystem, shared with the whole fleet. The criterion this
+ * config serves is bounded at 35 s for its whole leg, assembly included; when that shared filesystem is under
+ * the load a fleet puts on it, the first page load does not finish inside that budget and the leg dies in
+ * `expandProject()` with a bare `Test timeout of 35000ms exceeded` — the same failure a broken replay pair
+ * would produce, and with none of the criterion's own wording to tell them apart. Measured on this host on
+ * 2026-09-26: six concurrent runs of the criterion with `TMPDIR` unset failed 6/6 that way, and the same six
+ * with each run's scratch on the 4 TB volume passed 6/6.
+ *
+ * So the run's scratch is pointed at a directory of its own, inside the directory that was already chosen for
+ * having room, and the choice is made by `scripts/e2e-assembly-budget.mjs` under a budget so that a
+ * preparation that cannot finish is refused *here* — before any server or browser starts, naming the target —
+ * rather than surfacing later as a case that timed out for reasons it cannot see. `TMPDIR` itself is set
+ * rather than passed to the children alone: this is the same variable the whole process tree reads, and the
+ * browser is launched from it.
+ *
+ * Re-evaluation is free by construction: a worker inherits `TMPDIR` already pointed at the owner's directory,
+ * and the probe file left by the owner's warm-up is what `isWarmed` reads, so the second evaluation prepares
+ * nothing.
+ */
+const probePath = (target: string) => path.join(target, PROBE_FILE_NAME);
+const assemblyPlan = planAssembly({
+  candidates: assemblyTempCandidates({ env: process.env, dataDir }),
+  availableBytes: fsAvailableBytes,
+  isWarmed: (target) => fs.existsSync(probePath(target)),
+  warm: (target) => {
+    fs.mkdirSync(target, { recursive: true });
+    // The probe is written, not merely the directory created: a directory that exists is equally what
+    // someone else's run, or a run that died, leaves behind — "prepared" has to be about this run's own
+    // writing for a worker's re-evaluation to be able to trust it.
+    fs.writeFileSync(probePath(target), `${new Date().toISOString()} ${process.pid}\n`);
+  },
+});
+if (!assemblyPlan.ok) {
+  // Ending the run here, synchronously, for the reason the data-directory refusal gives above: on a pipe
+  // `console.error` hands the line off asynchronously, and the refusal text is the whole product of the path.
+  fs.writeSync(2, `${assemblyPlan.reason}\n`);
+  process.exit(1);
+}
+const [assemblyTarget] = assemblyPlan.targets.length > 0 ? assemblyPlan.targets : assemblyPlan.prepared;
+const assemblyReading = 'warmed' in assemblyPlan ? assemblyPlan.warmed[0] : undefined;
+process.env.TMPDIR = assemblyTarget;
+process.env[ASSEMBLY_TEMP_ROOT_ENV] = assemblyTarget;
+console.log(
+  `[e2e] assembly-scratch=${assemblyTarget} prepared=${assemblyPlan.skipped ? 'already' : 'now'}`
+    + ` elapsed-ms=${assemblyPlan.elapsedMs}`
+    + ` available-bytes=${assemblyReading?.availableBytes ?? 'n/a'}`,
+);
 
 /**
  * Asks the kernel for two free TCP ports, held at the same time so it cannot hand back the same one twice,
@@ -185,6 +265,88 @@ const RUN_SERVERS = [
 ];
 
 /**
+ * What one spec's own run is allowed to take, and what the run's ceiling is assembled from: the specs this
+ * invocation was actually asked to run, each carrying its own budget.
+ *
+ * The gate's 60s kill is what `SINGLE_SPEC_CEILING_MS` is derived against — see the block below — and it binds a
+ * *criterion*, which is one file. A full-tree `npx playwright test` is not that invocation: it is every spec in
+ * the directory, one after another, and the eleven that shipped before this task measured ~5 minutes on this
+ * host. A ceiling derived for one file applied to that run kills it mid-tree, which reads exactly like a hang —
+ * the failure mode this whole watchdog exists to make legible, arriving from the watchdog itself. So the bound is
+ * per-file and summed over the selection, and the shipped single-file value becomes the *default* every spec
+ * keeps unless it declares otherwise. Every existing invocation — one file, often narrowed further with `-g` —
+ * computes `SINGLE_SPEC_CEILING_MS` and is bounded exactly as before.
+ *
+ * The budgets are declarations, not guesses, and the reason they are a table rather than a formula is that
+ * runtime is a property of the file: a quiet spec costs a handful of seconds and one that records audio twice
+ * per viewport costs minutes. `mobile-workspace-composer-layout.spec.ts` is the only declared entry, and its
+ * budget clears its measured run with the same margin the single-file value clears voice-trim's.
+ */
+const SINGLE_SPEC_CEILING_MS = 55_000;
+/** Per-spec budgets that differ from `SINGLE_SPEC_CEILING_MS`. Keyed by basename so the rule holds from any cwd. */
+const SPEC_BUDGET_MS: Record<string, number> = {
+  'mobile-workspace-composer-layout.spec.ts': 240_000,
+};
+
+/**
+ * The flags whose value is the token *after* them, so a value can never be mistaken for a spec path. Short of
+ * listing them, `-g e2e/foo.spec.ts` would read its own grep pattern as a second file to run.
+ */
+const VALUE_TAKING_FLAGS = new Set([
+  '-g',
+  '--grep',
+  '--grep-invert',
+  '-c',
+  '--config',
+  '--reporter',
+  '--project',
+  '--workers',
+  '-j',
+  '--timeout',
+  '--global-timeout',
+  '--output',
+  '--retries',
+  '--repeat-each',
+  '--max-failures',
+  '-x',
+  '--shard',
+  '--last-failed',
+]);
+
+/** The `*.spec.ts` files inside a directory, or `[]` when it is not one. Empty rather than throwing: a ceiling is not a reason for a run to die. */
+const specFilesIn = (dir: string): string[] => {
+  try {
+    return fs.readdirSync(dir).filter((entry) => entry.endsWith('.spec.ts'));
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * The spec files this invocation names on the command line, or every spec in `testDir` when it names none.
+ *
+ * Playwright's own selection language is wider than this (globs, `--project`, `--last-failed`); the two shapes
+ * that exist in this checkout are "one file, maybe with `-g`" — what every goal criterion runs — and the bare
+ * full-tree invocation. Anything else lands in the full-tree branch, which is the generous reading.
+ */
+const selectedSpecFiles = (): string[] => {
+  const named = process.argv
+    .slice(1)
+    .filter((token, index, all) => !token.startsWith('-') && !VALUE_TAKING_FLAGS.has(all[index - 1] ?? ''))
+    .filter((token) => token.endsWith('.spec.ts'));
+  const resolved = named.flatMap((token) => {
+    const target = path.resolve(process.cwd(), token);
+    return fs.existsSync(target) && fs.statSync(target).isDirectory() ? specFilesIn(target) : [path.basename(target)];
+  });
+  return resolved.length > 0 ? resolved : specFilesIn(path.join(CONFIG_DIR, 'e2e'));
+};
+
+const RUN_CEILING_MS = selectedSpecFiles().reduce(
+  (total, file) => total + (SPEC_BUDGET_MS[file] ?? SINGLE_SPEC_CEILING_MS),
+  0,
+);
+
+/**
  * The run's own ceilings — the bounds above which nothing else in this file bounds anything.
  *
  * The gate that runs this criterion kills it at 60s and records the kill as `verdict: fail`, the same shape a
@@ -211,12 +373,14 @@ const RUN_SERVERS = [
  * ~2.9s server boot, ~0.9s vite, ~8s browser launch plus `beforeAll`, and ~12s across the five cases — ~24s in
  * total, and a run under six concurrent sibling specs measured 23.6s. `BOOT_CEILING_MS` must clear every boot
  * that is already bounded (2 × 30s webServer waits, but serially — the first expiry ends the run, so ~31s), and
- * it is 9× the quiet boot. `RUN_CEILING_MS` must clear the longest healthy run in this checkout (voice-trim,
- * ~42s) and still land its line before the gate's kill: 55s + the 2s diagnosis probe + ~0.6s of process
- * start-up puts the line on stdout at ~57.6s, ~2.4s inside 60s.
+ * it is 9× the quiet boot. `SINGLE_SPEC_CEILING_MS` must clear the longest healthy run in this checkout
+ * (voice-trim, ~42s) and still land its line before the gate's kill: 55s + the 2s diagnosis probe + ~0.6s of
+ * process start-up puts the line on stdout at ~57.6s, ~2.4s inside 60s.
+ *
+ * The run ceiling itself is the sum of the selected specs' budgets, computed above; for the one-file invocation
+ * the gate makes, that sum is `SINGLE_SPEC_CEILING_MS` and nothing about it changed.
  */
 const BOOT_CEILING_MS = 40_000;
-const RUN_CEILING_MS = 55_000;
 /** How long the watchdog waits for an answer before it calls a bound port silent. Deliberately short: this is a reading, not a wait. */
 const WATCHDOG_PROBE_MS = 2_000;
 
@@ -1022,6 +1186,58 @@ const seedMobileSendKeyWorkspace = () => {
   );
 };
 
+/** Workspace e2e/mobile-workspace-composer-layout.spec.ts reads its mobile cells in. */
+const MOBILE_LAYOUT_WORKSPACE = path.join(dataDir, 'mobile-layout-workspace');
+/** Session id that file navigates to, and the display name its header has to hold. */
+const MOBILE_LAYOUT_SESSION_ID = 'e2e-mobile-layout';
+/**
+ * The name is deliberately long.
+ *
+ * The matrix asserts that the workspace header is a single row below the breakpoint, and the row it has to hold
+ * holds this name next to the selector that replaced the tablist. A short name — every other seeded session in
+ * this file has one — would fit whether or not the header had been collapsed, so the cell that reads the header
+ * would pass against the layout it exists to rule out.
+ */
+const MOBILE_LAYOUT_SESSION_NAME = 'mobile workspace and composer layout session with a name long enough to truncate';
+
+/**
+ * Seeds the long-title session the viewport matrix's mobile cells read, in a workspace of its own.
+ *
+ * A workspace of its own for the same reason the four specs above have one: the header's dialog lists the
+ * workspaces a run has, and a session added to one already in use is a new row in lists that other specs read
+ * with unscoped locators. Placed here rather than in the spec for the reason the note above gives — the backend
+ * starts its watcher with `ignoreInitial` only after the boot scan, so a transcript written mid-run is broadcast
+ * as a session_upserted and read as "needs attention".
+ */
+const seedMobileLayoutWorkspace = () => {
+  fs.mkdirSync(MOBILE_LAYOUT_WORKSPACE, { recursive: true });
+  const transcriptDir = path.join(dataDir, '.claude', 'projects', 'mobile-layout-workspace');
+  fs.mkdirSync(transcriptDir, { recursive: true });
+  const timestamp = new Date().toISOString();
+  const records = [
+    {
+      type: 'user',
+      sessionId: MOBILE_LAYOUT_SESSION_ID,
+      cwd: MOBILE_LAYOUT_WORKSPACE,
+      timestamp,
+      message: { role: 'user', content: [{ type: 'text', text: 'open the composer for the layout matrix' }] },
+    },
+    {
+      type: 'custom-title',
+      sessionId: MOBILE_LAYOUT_SESSION_ID,
+      cwd: MOBILE_LAYOUT_WORKSPACE,
+      timestamp,
+      customTitle: MOBILE_LAYOUT_SESSION_NAME,
+    },
+  ];
+
+  fs.writeFileSync(
+    path.join(transcriptDir, `${MOBILE_LAYOUT_SESSION_ID}.jsonl`),
+    `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
+    'utf8',
+  );
+};
+
 /**
  * Fills this run's own dependency cache with a copy of the shared one, so `viteCacheDir` starts hot.
  *
@@ -1094,6 +1310,7 @@ if (isDataDirOwner) {
   seedVoiceDashscopeWorkspace();
   seedVoiceErrorMessageWorkspace();
   seedMobileSendKeyWorkspace();
+  seedMobileLayoutWorkspace();
 }
 
 export default defineConfig({

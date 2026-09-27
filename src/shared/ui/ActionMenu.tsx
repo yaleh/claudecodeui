@@ -115,11 +115,53 @@ export function ActionMenu({
     }
 
     const closeOnViewportChange = () => setMenuOpen(false);
-    window.addEventListener('resize', closeOnViewportChange);
-    window.addEventListener('scroll', closeOnViewportChange, true);
+
+    // Arm the listeners on the next frame rather than now.
+    //
+    // A menu opened from a row the sidebar's scroll container has clipped scrolls
+    // that container itself: mousedown focuses the trigger, and the browser scrolls
+    // the nearest scrollable ancestor to reveal the focused element. That scroll
+    // event is dispatched in this frame's rendering steps — before animation-frame
+    // callbacks — so a listener installed synchronously here closes the menu on the
+    // very click that opened it: a partially clipped row's first ⋯ click only
+    // flashes, and its items can never be reached. Waiting a frame lets that one
+    // scroll through while a later, genuinely user-driven scroll (or a resize)
+    // still dismisses a menu that no longer sits where it was placed.
+    //
+    // The frame is only enough while that scroll always beats it, which the browser
+    // guarantees only as long as rendering keeps up — a slow-enough render dispatches
+    // the very same scroll in a later frame, once the listener is armed, and the menu
+    // closes on the click that opened it again. So record whether the scroll was seen
+    // before the frame: when it was, the frame is all that was needed and arming can be
+    // strict, exactly as before. When it was not, the first scroll the armed listener
+    // sees may be that same opening scroll arriving late — nothing at the event level
+    // tells the two apart — so let that one through and dismiss on the next.
+    let openingScrollSeen = false;
+    const noteOpeningScroll = () => {
+      openingScrollSeen = true;
+    };
+    window.addEventListener('scroll', noteOpeningScroll, true);
+
+    let toleratedLateOpeningScroll = false;
+    const closeOnScroll = () => {
+      if (!openingScrollSeen && !toleratedLateOpeningScroll) {
+        toleratedLateOpeningScroll = true;
+        return;
+      }
+      closeOnViewportChange();
+    };
+
+    const frame = window.requestAnimationFrame(() => {
+      window.removeEventListener('scroll', noteOpeningScroll, true);
+      window.addEventListener('resize', closeOnViewportChange);
+      window.addEventListener('scroll', closeOnScroll, true);
+    });
+
     return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener('scroll', noteOpeningScroll, true);
       window.removeEventListener('resize', closeOnViewportChange);
-      window.removeEventListener('scroll', closeOnViewportChange, true);
+      window.removeEventListener('scroll', closeOnScroll, true);
     };
   }, [isOpen, portal, setMenuOpen]);
 
