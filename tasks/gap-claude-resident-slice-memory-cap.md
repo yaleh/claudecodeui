@@ -6,7 +6,7 @@ title: AC-167 常驻进程超出内存上限时只有它被杀 — 把 claude-se
   MemoryMax=注入值、MemorySwapMax=0、slice 名逐字；同 slice 下两子进程其一超限被 OOM（宿主快照
   closeReason=exited、closeDetail=oom），另一个与测试进程存活；结束后无残留 scope 且缺席读数带正对照；无
   systemd user manager 时打印原因并 exit 3；假形态（退化为直接 spawn、上限写死常量）必须红
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -221,3 +221,14 @@ $ npx oxlint <本任务改动的三个后端文件>                            E
 - 同一份日志里 `claude-sessions.test.ts` 也红成 `open-a.jsonl was opened by a scan that should have skipped it`，这是另一条已知的 fail-open 回填闸门抽签（`claude-sessions-atime-red-is-a-fail-open-backfill-marker`），与本任务的 delta 无关。
 
 结论：两条红都是舰队并发下的基建/契约级抽签，不是本任务实现缺陷。工人已正确判断「归因不出任何失败测试文件」并按协议停止重派；现按人工裁定重新排队，交给下一轮 fan-in 重跑（同一批红在不同轮次的文件集不同，属正常抽签，见 `quay-fan-in-suite-red-is-fleet-wide-redispatch-is-the-escape`）。
+
+## Needs-Human
+
+**执行 2026-09-27T10:45:10.951Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 3 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=117698 server/modules/voice/tests/voice-error-classification.false-forms.test.ts passed=false end_ms=1790505891580
+- run_id：wk-prod-anchor
+- session_id：d0cea1d3-d370-4910-a96c-611d42471587
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-resident-slice-memory-cap~wk-prod-anchor~1790505716573-c910f9.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-resident-slice-memory-cap-wk-prod-anchor.log
