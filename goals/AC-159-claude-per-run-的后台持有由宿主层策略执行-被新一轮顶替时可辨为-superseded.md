@@ -1,7 +1,7 @@
 ---
 id: AC-159
 title: Claude per-run 的后台持有由宿主层策略执行，保活理由来自 CLI 的任务事件，被新一轮顶替时可辨为 superseded
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-012
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -27,6 +27,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-09-27T03:21:34.909Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
