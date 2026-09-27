@@ -1,12 +1,19 @@
 ---
 id: GOAL-013
 title: Claude 常驻会话：进程跨轮存活、无人轮可见、忙时输入与 CLI 一致、空闲自动关闭、界面可管理
-status: draft
+status: active
 kind: goal
-origin: docs/proposals/claude-resident-sessions.md（e88175cf）。人 yale 2026-09-25
+origin: "docs/proposals/claude-resident-sessions.md（e88175cf）。人 yale 2026-09-25
   裁定：拆成两个 goal，本 goal 为 GOAL-B「Claude 常驻」，暂不激活，等
   tasks/gap-claude-resident-phase0-experiments 把 E1–E8 结论写回 proposal 后再定 AC
-  并激活；调试 agent 扩展出的常驻场景作 UI e2e 替身；不加 cloudcli 子命令
+  并激活；调试 agent 扩展出的常驻场景作 UI e2e 替身；不加 cloudcli 子命令 "
+activatedAt: 2026-09-27T04:49:41.111Z
+statusLog:
+  - at: 2026-09-27T04:49:41.111Z
+    from: draft
+    to: active
+    actor: human:yale
+    reason: 人 yale 指令：激活 GOAL-013
 ---
 ## 背景
 
