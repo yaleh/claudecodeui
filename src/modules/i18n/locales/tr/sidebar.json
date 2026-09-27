@@ -122,6 +122,16 @@
     "updateAvailable": "Güncelleme mevcut",
     "restartRequired": "Güncelleme yüklendi — uygulamak için sunucuyu yeniden başlatın"
   },
+  "running": {
+    "groupRunning": "Çalışıyor",
+    "groupResidentIdle": "Kalıcı (boşta)",
+    "close": "Kapat",
+    "closeLabel": "{{title}} kalıcı oturumunu kapat",
+    "badgeLabel": "{{n}} çalışan oturum",
+    "emptyTitle": "Çalışan oturum yok",
+    "emptyDescription": "Etkin çalışma, sağlayıcı işlerken burada görünür.",
+    "noMatchingSessions": "Bu aramayla eşleşen oturum yok."
+  },
   "search": {
     "modeProjects": "Projeler",
     "modeConversations": "Konuşmalar",
@@ -134,7 +144,10 @@
     "matches_one": "{{count}} eşleşme",
     "matches_other": "{{count}} eşleşme",
     "projectsScanned_one": "{{count}} proje tarandı",
-    "projectsScanned_other": "{{count}} proje tarandı"
+    "projectsScanned_other": "{{count}} proje tarandı",
+    "runningPlaceholder": "Çalışan oturumlarda ara...",
+    "runningTooltip": "Çalışan oturumlar",
+    "modeRunning": "Çalışıyor"
   },
   "deleteConfirmation": {
     "deleteProject": "Projeyi Kaldır",
@@ -154,8 +167,7 @@
   },
   "resizeHandle": {
     "label": "Kenar çubuğu genişliğini değiştir"
-  }
-,
+  },
   "resident": {
     "mark": {
       "unstarted": "Kalıcı oturum, çalışmıyor",

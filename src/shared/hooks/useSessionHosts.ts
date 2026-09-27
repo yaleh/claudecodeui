@@ -167,6 +167,101 @@ export function findSessionHost(
   return found;
 }
 
+/**
+ * Whether a live host is running a turn for one of the sessions it holds.
+ *
+ * Asked per *binding*, not per host, because one host can serve several sessions
+ * and only some of them can be busy: a driver that declares `multiplexedHost`
+ * puts every resident session of one provider on a single process, and a turn
+ * opened for one of them is a lease on that binding alone — the others are held
+ * open with nothing to do. A host-level rule would answer "running" for all of
+ * them the moment any one was, which is exactly the number the badge must not
+ * print: it would count a resident session between turns as one being worked on,
+ * and the two groups below could not be disjoint.
+ *
+ * The turn lease is read directly rather than through `binding.state`, which the
+ * server derives from the same list — one rule, stated once, in the place the
+ * answer is used.
+ */
+function isRunningBinding(host: SessionHostView, binding: SessionHostBindingView): boolean {
+  if (binding.leases.some((lease) => lease.kind === 'turn')) {
+    return true;
+  }
+
+  // `starting` is the moment before any lease exists: the manager holds it from
+  // the moment a process is asked for until it has answered, and the session
+  // that asked is the one the user is waiting on — the same reason
+  // `readResidentProcessState` folds it into `busy`. It is a host-level state,
+  // so it is only read while the host holds the one binding it was started for:
+  // a host is opened for a session and reused by later ones, so a shared host is
+  // never `starting`, and a rule that did not say so would make the first
+  // session's start read as every later session's too.
+  //
+  // `closing` does not count: a host on its way out has finished the work it was
+  // doing, and counting it would make the badge hold a number for a process that
+  // is already gone.
+  return host.state === 'starting' && host.bindings.length === 1;
+}
+
+/** Every `(host, binding)` pair a live host is serving, in listing order. */
+function liveBindings(
+  snapshot: SessionHostsSnapshot | null,
+): Array<{ host: SessionHostView; binding: SessionHostBindingView }> {
+  const pairs: Array<{ host: SessionHostView; binding: SessionHostBindingView }> = [];
+  for (const host of snapshot?.hosts ?? []) {
+    if (host.state === 'closed') {
+      continue;
+    }
+    for (const binding of host.bindings) {
+      pairs.push({ host, binding });
+    }
+  }
+  return pairs;
+}
+
+/**
+ * The sessions a live host is running a turn for — the sidebar badge's whole
+ * count, and the Running view's first group.
+ *
+ * Read from the host listing rather than from this page's own busy set, which is
+ * the difference the badge exists to draw: a resident process between turns is
+ * still a process, and a client-side set of in-flight turns cannot tell a
+ * session that is being worked on from one that is merely being held open. Both
+ * are "not finished", and only one of them is running.
+ *
+ * Every lifecycle mode is here, not only resident ones. A per-run session's
+ * process lives exactly as long as its turn does, so a per-run host that is busy
+ * *is* a session being worked on; excluding it would answer a narrower question
+ * than the badge asks and would silently drop the turns the view was built to
+ * show.
+ */
+export function listRunningSessionIds(snapshot: SessionHostsSnapshot | null): string[] {
+  return liveBindings(snapshot)
+    .filter(({ host, binding }) => isRunningBinding(host, binding))
+    .map(({ binding }) => binding.appSessionId);
+}
+
+/**
+ * The resident sessions held open between turns — the Running view's second
+ * group, and the sessions the badge must NOT count.
+ *
+ * Restricted to `mode === 'resident'` hosts, because "held open with nothing to
+ * do" is a state only a resident process can be in: a per-run host has no life
+ * between turns to describe, so one that is not busy is on its way out and
+ * belongs in neither group.
+ *
+ * Per binding, like the group above it: a resident host that is running a turn
+ * for one of the sessions it holds is holding every other one of them idle, and
+ * those are exactly the rows this group exists to list — a rule that skipped a
+ * busy host's bindings wholesale would hide the one row a reader most wants to
+ * close while something else is running.
+ */
+export function listResidentIdleSessionIds(snapshot: SessionHostsSnapshot | null): string[] {
+  return liveBindings(snapshot)
+    .filter(({ host, binding }) => host.mode === 'resident' && !isRunningBinding(host, binding))
+    .map(({ binding }) => binding.appSessionId);
+}
+
 /** The binding one session has on a host, or null when no live host holds it. */
 export function findBinding(
   snapshot: SessionHostsSnapshot | null,

@@ -122,6 +122,16 @@
     "updateAvailable": "업데이트 가능",
     "restartRequired": "업데이트가 설치됨 — 적용하려면 서버를 재시작하세요"
   },
+  "running": {
+    "groupRunning": "실행 중",
+    "groupResidentIdle": "상주(유휴)",
+    "close": "닫기",
+    "closeLabel": "상주 세션 {{title}} 닫기",
+    "badgeLabel": "실행 중인 세션 {{n}}개",
+    "emptyTitle": "실행 중인 세션이 없습니다",
+    "emptyDescription": "공급자가 처리하는 동안 진행 중인 작업이 여기에 표시됩니다.",
+    "noMatchingSessions": "이 검색과 일치하는 세션이 없습니다."
+  },
   "search": {
     "modeProjects": "프로젝트",
     "modeConversations": "대화",
@@ -134,7 +144,10 @@
     "matches_one": "{{count}}개 일치",
     "matches_other": "{{count}}개 일치",
     "projectsScanned_one": "프로젝트 {{count}}개 검색됨",
-    "projectsScanned_other": "프로젝트 {{count}}개 검색됨"
+    "projectsScanned_other": "프로젝트 {{count}}개 검색됨",
+    "runningPlaceholder": "실행 중인 세션 검색...",
+    "runningTooltip": "실행 중인 세션",
+    "modeRunning": "실행 중"
   },
   "deleteConfirmation": {
     "deleteProject": "프로젝트 제거",
@@ -154,8 +167,7 @@
   },
   "resizeHandle": {
     "label": "사이드바 너비 조정"
-  }
-,
+  },
   "resident": {
     "mark": {
       "unstarted": "상주 세션, 실행되지 않음",

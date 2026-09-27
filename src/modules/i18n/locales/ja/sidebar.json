@@ -138,8 +138,7 @@
   },
   "resizeHandle": {
     "label": "サイドバーの幅を変更"
-  }
-,
+  },
   "resident": {
     "mark": {
       "unstarted": "常駐セッション、未起動",
@@ -147,5 +146,20 @@
       "busy": "常駐セッション、実行中",
       "exited": "常駐プロセスが終了しました"
     }
+  },
+  "running": {
+    "groupRunning": "実行中",
+    "groupResidentIdle": "常駐（待機中）",
+    "close": "閉じる",
+    "closeLabel": "常駐セッション {{title}} を閉じる",
+    "badgeLabel": "実行中のセッション {{n}} 件",
+    "emptyTitle": "実行中のセッションはありません",
+    "emptyDescription": "プロバイダーが処理している間、進行中の作業がここに表示されます。",
+    "noMatchingSessions": "この検索に一致するセッションはありません。"
+  },
+  "search": {
+    "runningPlaceholder": "実行中のセッションを検索...",
+    "runningTooltip": "実行中のセッション",
+    "modeRunning": "実行中"
   }
 }

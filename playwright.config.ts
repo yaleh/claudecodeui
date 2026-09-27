@@ -1321,7 +1321,7 @@ if (isDataDirOwner) {
  * cannot resolve provider `debug`, and mounts no control plane. Turning the gate on for every run would put a
  * fixture-writing provider and its HTTP face in front of every other spec's server — the face is authenticated but
  * it is still a surface nothing else asked for. `selectedSpecFiles()` is the seam that keeps that from happening:
- * the selection is this invocation's own command line, so the gate opens for exactly the runs that name the spec
+ * the selection is this invocation's own command line, so the gate opens for exactly the runs that name one of the specs
  * below and the env object is byte-identical to what it was for every other selection.
  *
  * The home is a directory of its own under `dataDir`, and NOT `dataDir` itself, which it used to be. The reason is
@@ -1339,8 +1339,12 @@ if (isDataDirOwner) {
  * mode all exist regardless of where the file sits. The old comment's worry — "a home anywhere else would write
  * transcripts no listing could see" — describes a reader that no longer exists.
  */
-const DEBUG_AGENT_SPEC_FILE = 'resident-status-bar.spec.ts';
-const debugAgentFixtureHome = selectedSpecFiles().includes(DEBUG_AGENT_SPEC_FILE)
+// A list rather than one name: the fixture home is a *directory* under `dataDir`, so two specs that ask for the
+// gate share it, and each derives its own workspace beneath it. Splitting the home per spec would buy nothing —
+// the collision the block above describes is between the fixture tree and the *claude* provider's scan root, not
+// between two fixture users — and the two specs never run in one invocation, since a selection names one file.
+const DEBUG_AGENT_SPEC_FILES = ['resident-status-bar.spec.ts', 'resident-running-view.spec.ts'];
+const debugAgentFixtureHome = DEBUG_AGENT_SPEC_FILES.some((file) => selectedSpecFiles().includes(file))
   ? path.join(dataDir, 'debug-agent-home')
   : null;
 // Published to the workers because the spec has to place its fixture project *inside* this directory:
@@ -1378,7 +1382,7 @@ export default defineConfig({
         HOST: '127.0.0.1',
         DATABASE_PATH: path.join(dataDir, 'auth.db'),
         HOME: dataDir,
-        // Absent — not empty — for every selection that does not name the debug agent's spec, so the gate stays
+        // Absent — not empty — for every selection that names neither debug agent spec, so the gate stays
         // closed exactly as it does today. See `debugAgentFixtureHome` above.
         ...(debugAgentFixtureHome
           ? { DEBUG_AGENT: '1', DEBUG_AGENT_HOME: debugAgentFixtureHome }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TFunction } from 'i18next';
 
 import { api } from '@/shared/api';
+import { listRunningSessionIds, useSessionHosts } from '@/shared/hooks/useSessionHosts';
 import { useWebSocket } from '@/shared/context/WebSocketContext';
 import { subscribeToUserPreferences } from '@/shared/userSettings';
 import { getSessionTitle } from '@/shared/utils';
@@ -141,7 +142,19 @@ export function useSidebarController({
 
   const isSidebarCollapsed = !isMobile && !sidebarVisible;
   const activeSessionIds = activeSessions;
-  const runningSessionsCount = activeSessionIds.size;
+  // The badge counts what the host listing says is being worked on, not this
+  // page's own set of in-flight turns. The two are the same number for a session
+  // with a turn running, and they deliberately differ for the one case the badge
+  // exists to get right: a resident process held open between turns is in the
+  // busy-set's complement either way, but a client that only ever reads its own
+  // set has nothing to count it with. One reader for the whole page — the same
+  // store the sidebar marks and the status bar draw from — so a badge and a view
+  // built from it cannot describe one listing differently.
+  const { snapshot: sessionHostsSnapshot } = useSessionHosts();
+  const runningSessionsCount = useMemo(
+    () => listRunningSessionIds(sessionHostsSnapshot).length,
+    [sessionHostsSnapshot],
+  );
 
   useEffect(() => {
     const timer = setInterval(() => {

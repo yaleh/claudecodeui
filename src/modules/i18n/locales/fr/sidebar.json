@@ -122,6 +122,16 @@
     "updateAvailable": "Mise à jour disponible",
     "restartRequired": "Mise à jour installée — redémarrez le serveur pour l'appliquer"
   },
+  "running": {
+    "groupRunning": "En cours",
+    "groupResidentIdle": "Résidente (au repos)",
+    "close": "Fermer",
+    "closeLabel": "Fermer la session résidente {{title}}",
+    "badgeLabel": "{{n}} sessions en cours",
+    "emptyTitle": "Aucune session en cours",
+    "emptyDescription": "Le travail actif apparaîtra ici pendant qu'un fournisseur le traite.",
+    "noMatchingSessions": "Aucune session ne correspond à cette recherche."
+  },
   "search": {
     "modeProjects": "Projets",
     "modeConversations": "Conversations",
@@ -134,7 +144,10 @@
     "matches_one": "{{count}} résultat",
     "matches_other": "{{count}} résultats",
     "projectsScanned_one": "{{count}} projet analysé",
-    "projectsScanned_other": "{{count}} projets analysés"
+    "projectsScanned_other": "{{count}} projets analysés",
+    "runningPlaceholder": "Rechercher les sessions en cours...",
+    "runningTooltip": "Sessions en cours",
+    "modeRunning": "En cours"
   },
   "deleteConfirmation": {
     "deleteProject": "Supprimer le projet",
@@ -154,8 +167,7 @@
   },
   "resizeHandle": {
     "label": "Redimensionner la barre latérale"
-  }
-,
+  },
   "resident": {
     "mark": {
       "unstarted": "Session résidente, non démarrée",

@@ -122,6 +122,16 @@
     "updateAvailable": "Actualización disponible",
     "restartRequired": "Actualización instalada — reinicia el servidor para aplicarla"
   },
+  "running": {
+    "groupRunning": "En ejecución",
+    "groupResidentIdle": "Residente (inactiva)",
+    "close": "Cerrar",
+    "closeLabel": "Cerrar la sesión residente {{title}}",
+    "badgeLabel": "{{n}} sesiones en ejecución",
+    "emptyTitle": "No hay sesiones en ejecución",
+    "emptyDescription": "El trabajo activo aparecerá aquí mientras un proveedor lo procesa.",
+    "noMatchingSessions": "Ninguna sesión coincide con esta búsqueda."
+  },
   "search": {
     "modeProjects": "Proyectos",
     "modeConversations": "Conversaciones",
@@ -134,7 +144,10 @@
     "matches_one": "{{count}} coincidencia",
     "matches_other": "{{count}} coincidencias",
     "projectsScanned_one": "{{count}} proyecto examinado",
-    "projectsScanned_other": "{{count}} proyectos examinados"
+    "projectsScanned_other": "{{count}} proyectos examinados",
+    "runningPlaceholder": "Buscar sesiones en ejecución...",
+    "runningTooltip": "Sesiones en ejecución",
+    "modeRunning": "En ejecución"
   },
   "deleteConfirmation": {
     "deleteProject": "Quitar proyecto",
@@ -154,8 +167,7 @@
   },
   "resizeHandle": {
     "label": "Cambiar el ancho de la barra lateral"
-  }
-,
+  },
   "resident": {
     "mark": {
       "unstarted": "Sesión residente, no en ejecución",

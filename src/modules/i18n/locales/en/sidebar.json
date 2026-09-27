@@ -129,6 +129,16 @@
     "updateAvailable": "Update available",
     "restartRequired": "Update installed — restart the server to apply"
   },
+  "running": {
+    "groupRunning": "Running",
+    "groupResidentIdle": "Resident (idle)",
+    "close": "Close",
+    "closeLabel": "Close resident session {{title}}",
+    "badgeLabel": "{{n}} running sessions",
+    "emptyTitle": "No sessions running",
+    "emptyDescription": "Active work will appear here while a provider is processing.",
+    "noMatchingSessions": "No sessions match this search."
+  },
   "search": {
     "modeProjects": "Projects",
     "modeConversations": "Conversations",
@@ -141,7 +151,10 @@
     "matches_one": "{{count}} match",
     "matches_other": "{{count}} matches",
     "projectsScanned_one": "{{count}} project scanned",
-    "projectsScanned_other": "{{count}} projects scanned"
+    "projectsScanned_other": "{{count}} projects scanned",
+    "runningPlaceholder": "Search running sessions...",
+    "runningTooltip": "Running sessions",
+    "modeRunning": "Running"
   },
   "recent": {
     "title": "Recent conversations",
@@ -191,8 +204,7 @@
   },
   "resizeHandle": {
     "label": "Resize sidebar"
-  }
-,
+  },
   "resident": {
     "mark": {
       "unstarted": "Resident session, not running",
