@@ -1,4 +1,11 @@
 {
+  "sessionMenu": {
+    "convertToResident": "转为常驻…",
+    "convertToResidentHint": "会话在轮次之间保持运行；转换前会先请你确认。",
+    "residentConsentTitle": "把这个会话转为常驻",
+    "residentConsentConfirm": "转为常驻",
+    "residentConsentFailed": "服务端拒绝了这次转换 —— 很可能有一轮对话正在进行。"
+  },
   "projects": {
     "title": "项目",
     "newProject": "新建项目",

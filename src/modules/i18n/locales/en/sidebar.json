@@ -1,4 +1,11 @@
 {
+  "sessionMenu": {
+    "convertToResident": "Convert to resident…",
+    "convertToResidentHint": "Keep the session running between turns; asks for consent first.",
+    "residentConsentTitle": "Convert this session to resident",
+    "residentConsentConfirm": "Convert to resident",
+    "residentConsentFailed": "The server refused the conversion — a turn is probably in flight."
+  },
   "projects": {
     "title": "Projects",
     "newProject": "New Project",

@@ -410,6 +410,20 @@ export const api = {
       projectPath: string;
       initialMessage?: unknown;
     }) => post('/api/providers/sessions', payload),
+    /**
+     * Stores a session's lifecycle-mode preference.
+     *
+     * A separate call from `createSession` because the create payload carries no
+     * mode: the session gateway allocates the row and the mode is a statement
+     * about who owns the session's process, written through its own route. The
+     * server refuses a mode the session's own provider has not declared, so the
+     * caller's capability gate is a courtesy rather than the enforcement.
+     */
+    setSessionLifecycleMode: (provider: string, sessionId: string, mode: 'per-run' | 'resident') =>
+      put(
+        `/api/providers/${encodeURIComponent(provider)}/sessions/${encodeURIComponent(sessionId)}/lifecycle-mode`,
+        { mode },
+      ),
     sessionMessages: (
       sessionId: string,
       pagination: { limit?: number | null; offset?: number } = {},

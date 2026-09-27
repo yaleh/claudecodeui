@@ -12,6 +12,12 @@ import type { LLMProvider } from '@/shared/types';
 type ProviderCapabilityRow = {
   provider: LLMProvider;
   supportsSessionForking?: boolean;
+  /**
+   * The lifecycle modes the backend says this provider implements. Read as the
+   * matrix's own answer — `resident` is a value in this list, not a provider id —
+   * so a provider that gains the mode shows the affordance without a UI change.
+   */
+  lifecycleModes?: string[];
 };
 
 /**
@@ -75,6 +81,43 @@ export function useSessionForkingProviders(): Set<LLMProvider> {
         }
       }
       setProviders(forkable);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return providers;
+}
+
+/**
+ * Reports which providers can run a session as a resident process.
+ *
+ * This is the single source of truth for "does this provider get a resident
+ * affordance": the sidebar's conversion item and the composer's toggle both read
+ * it, so neither branches on a provider id. `provider-capabilities.service.ts`
+ * names the matrix as the only statement of what an integration supports, and
+ * branching on `claude` here would be the second statement.
+ *
+ * Empty until the matrix loads — the same "never offer then withdraw" rule the
+ * forking hook follows.
+ */
+export function useResidentProviders(): Set<LLMProvider> {
+  const [providers, setProviders] = useState<Set<LLMProvider>>(() => new Set());
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void loadCapabilities().then((capabilities) => {
+      if (cancelled) return;
+      const resident = new Set<LLMProvider>();
+      for (const row of Object.values(capabilities)) {
+        if (row?.lifecycleModes?.includes('resident')) {
+          resident.add(row.provider);
+        }
+      }
+      setProviders(resident);
     });
 
     return () => {
