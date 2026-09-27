@@ -2,7 +2,7 @@
 id: gap-claude-resident-running-view
 title: AC-173 真实浏览器里 Running 视图分「正在运行」与「常驻（空闲）」两组、侧栏 Running
   徽标只计正在运行的会话（徽标计入空闲常驻 ⇒ 读数 3 必须红）
-status: ready
+status: done
 labels:
   - gap
 parent: null
