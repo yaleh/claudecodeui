@@ -5,7 +5,7 @@ title: AC-176 常驻启动前检测用户级 settings 的 remoteControlAtStartup
   settings（remoteControlAtStartup=false、isolatePeerMachines=true）传给
   SDK，宿主快照只记请求值与检测到的用户 settings 值（字段名不得是生效值）；三臂假形态（检测到仍启动 / 不传 flag settings /
   把请求值当生效值）必须红
-status: todo
+status: ready
 labels:
   - gap
 parent: null
