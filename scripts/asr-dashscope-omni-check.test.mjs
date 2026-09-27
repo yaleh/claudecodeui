@@ -259,12 +259,17 @@ test('AC6: returning the raw content as the text is caught by the degradation gr
 
 // ── AC8: the error mapping ───────────────────────────────────────────────────────────────────
 
-test('AC8: collapsing the two 403s into an upstream error is caught', (t) => {
+test('AC8: filing an unenabled model as a refused credential is caught', (t) => {
+  // THE MUTATION MOVED WITH THE IMPLEMENTATION. The mapping this case falsifies used to be a
+  // status-only function in the ADAPTER; it is now `classifyUpstreamFailure` in the registry
+  // (`shared/asr/asrRegistry.ts`), so the mutation is the one rule that tells the two 403s apart —
+  // the code string the body names. Applied to the adapter the anchor no longer exists, and a case
+  // whose anchor had drifted is a case that would fail for a reason unrelated to its claim.
   control(t, {
-    name: 'a 403 no longer mapped to the credential refusal, so an unenabled model reads as an upstream fault',
-    file: ADAPTER,
-    from: "  if (status === 401 || status === 403) return 'UNAUTHORIZED';",
-    to: "  if (status === 401) return 'UNAUTHORIZED';",
+    name: 'a body naming an unenabled model filed as a refused credential, so the two 403s collapse onto one code',
+    file: REGISTRY,
+    from: "  { token: 'AccessDenied.Unpurchased', code: 'ACCOUNT_ACCESS' },",
+    to: "  { token: 'AccessDenied.Unpurchased', code: 'UNAUTHORIZED' },",
     token: 'ERROR_CODE_MISMATCH',
     names: 'error.403-unpurchased.code',
   });

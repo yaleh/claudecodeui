@@ -1,4 +1,8 @@
-import type { LLMProvider } from '@/shared/types.js';
+import type {
+  HostMode,
+  LLMProvider,
+  RuntimeProviderCapabilities,
+} from '@/shared/types.js';
 
 /**
  * Static, backend-owned description of what one provider integration supports.
@@ -34,6 +38,21 @@ type ProviderCapabilities = {
    * Whether a session's transcript can be branched into an independent one.
    */
   supportsSessionForking: boolean;
+  /**
+   * Host lifecycle modes the provider's driver implements. Every provider here
+   * is driven by the session-host manager's default per-run wrapper, which is
+   * why the whole union is `['per-run']` today; a provider with its own
+   * `IProviderHostDriver` states its own list through
+   * `declareRuntimeProviderCapabilities` instead of being added to this table,
+   * so this record stays a complete description of the `LLMProvider` union.
+   */
+  lifecycleModes: HostMode[];
+  /**
+   * Whether one process may serve several sessions at once. False for every
+   * provider in the union: the default wrapper opens one process per turn and
+   * never reuses a host, so a second binding is refused rather than multiplexed.
+   */
+  multiplexedHost: boolean;
 };
 
 /**
@@ -57,6 +76,8 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     // `forkSession` copies a transcript prefix into a new session file.
     supportsMessageEditing: true,
     supportsSessionForking: true,
+    lifecycleModes: ['per-run'],
+    multiplexedHost: false,
   },
   cursor: {
     provider: 'cursor',
@@ -70,6 +91,8 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     supportsEffort: false,
     supportsMessageEditing: false,
     supportsSessionForking: false,
+    lifecycleModes: ['per-run'],
+    multiplexedHost: false,
   },
   codex: {
     provider: 'codex',
@@ -87,6 +110,8 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     // which is how Codex's own IDE clients do it.
     supportsMessageEditing: true,
     supportsSessionForking: true,
+    lifecycleModes: ['per-run'],
+    multiplexedHost: false,
   },
   opencode: {
     provider: 'opencode',
@@ -103,8 +128,24 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     supportsEffort: true,
     supportsMessageEditing: false,
     supportsSessionForking: false,
+    lifecycleModes: ['per-run'],
+    multiplexedHost: false,
   },
 };
+
+/**
+ * Capabilities stated by providers that are not in the `LLMProvider` union.
+ *
+ * A separate store, not extra keys in `PROVIDER_CAPABILITIES`, and that
+ * separation is the point: the union-keyed table is read by routes that
+ * validate a provider id against the union first, so an entry for a
+ * CLI-less/SDK-less provider placed there would be unreachable at best and, at
+ * worst, would tempt a reader into widening `LLMProvider` to include a provider
+ * that cannot serve any user-facing request. Declarations here are made by the
+ * provider's own construction path at boot and are absent until then, which is
+ * also how a build with the provider gated off reads: no declaration, no row.
+ */
+const RUNTIME_PROVIDER_CAPABILITIES = new Map<string, RuntimeProviderCapabilities>();
 
 /**
  * Application service exposing the provider capability matrix.
@@ -116,5 +157,34 @@ export const providerCapabilitiesService = {
 
   listAllProviderCapabilities(): ProviderCapabilities[] {
     return Object.values(PROVIDER_CAPABILITIES);
+  },
+
+  /**
+   * Records the lifecycle facts of one non-union provider.
+   *
+   * Idempotent and last-write-wins: the declaration is derived from the
+   * provider's own driver, so re-declaring the same provider at a second
+   * construction point (tests build the registry more than once per process)
+   * must not fail or accumulate.
+   */
+  declareRuntimeProviderCapabilities(capabilities: RuntimeProviderCapabilities): void {
+    RUNTIME_PROVIDER_CAPABILITIES.set(capabilities.provider, {
+      ...capabilities,
+      lifecycleModes: [...capabilities.lifecycleModes],
+    });
+  },
+
+  /**
+   * Reads one non-union provider's declaration, or `undefined` when nothing
+   * declared it — either the provider is gated off in this build, or its
+   * construction path never ran.
+   */
+  getRuntimeProviderCapabilities(provider: string): RuntimeProviderCapabilities | undefined {
+    const declared = RUNTIME_PROVIDER_CAPABILITIES.get(provider);
+    if (!declared) {
+      return undefined;
+    }
+
+    return { ...declared, lifecycleModes: [...declared.lifecycleModes] };
   },
 };

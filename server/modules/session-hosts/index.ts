@@ -1,0 +1,68 @@
+// sessionHostManager: the process-wide host view. Used by the providers module's
+// `provider-runtime.service` to register every dispatched run as a per-run host,
+// by `server/index.ts` to stop every host during shutdown, and by this module's
+// criterion tests, which read hosts only through `snapshot()`.
+export { sessionHostManager, createSessionHostManager } from './session-host-manager.service.js';
+// createSessionHostsRouter: the listing face this module owns, mounted by
+// `server/index.ts` at `/api/session-hosts` over the process-wide manager, and
+// by the routes criterion over a manager it drove itself. A factory because the
+// manager is a dependency: `createApiSuccessResponse` wraps its one response.
+export { createSessionHostsRouter } from './session-hosts.routes.js';
+// CLOSED_HOST_RETENTION_MS: how long a closed host stays in `snapshot()`, so a
+// reader of the listing (and the criterion for its far edge) can place a
+// deadline on the same value the manager expires with.
+export { CLOSED_HOST_RETENTION_MS } from './session-host-manager.service.js';
+// PerRunTurnInput / SessionHostManagerOptions / OpenHostInput: the manager's own
+// call shapes, so a caller can type the turn or the host it hands over without
+// reaching into the service file.
+// BindSessionInput: the session-addressed call shape beside them — a caller with
+// an application session id lets the manager choose the process instead of
+// naming a host itself; used by providers that own their process through a host
+// driver.
+export type {
+  BindSessionInput,
+  OpenHostInput,
+  PerRunTurnInput,
+  SessionHostManager,
+  SessionHostManagerOptions,
+  ShutdownSummary,
+} from './session-host-manager.service.js';
+// HostScheduler: the deadline seam a criterion injects in place of the wall
+// clock, so the quiet ceiling and the shutdown grace period are reachable
+// without waiting them out.
+export type { HostScheduler } from './session-host-manager.service.js';
+// The two shipped policies and the ceilings they are built from, exported so a
+// reader (and the lifecycle criterion) can state a deadline from the same value
+// the manager uses rather than restating the number.
+export {
+  DEFAULT_PER_RUN_POLICY,
+  DEFAULT_RESIDENT_POLICY,
+  PER_RUN_QUIET_CEILING_MS,
+  RESIDENT_IDLE_TIMEOUT,
+} from './session-host-manager.service.js';
+// Host lifecycle read-port types: the vocabulary a consumer needs to read
+// `snapshot()` (and the shape siblings will extend with resident-mode data).
+export type {
+  HostCloseReason,
+  HostLease,
+  HostMode,
+  HostState,
+  ProcessHost,
+  SessionBinding,
+} from '@/shared/types.js';
+// HOST_CLOSE_REASONS: every close reason as a runtime value, so the lifecycle
+// criterion can assert that its cases produced all of them instead of trusting
+// its own list to match the union.
+export { HOST_CLOSE_REASONS } from '@/shared/types.js';
+// HostBindResult / HostBindErrorCode: what a `bindSession` answered, and the
+// refusal vocabulary it branches on, so a caller can tell "the session is
+// already somewhere" from "this process cannot take a second conversation".
+export type { HostBindErrorCode, HostBindResult } from '@/shared/types.js';
+// HOST_BIND_ERROR_CODES: every refusal as a runtime value, so a criterion can
+// assert each one is reachable by reading the list the manager is typed against
+// rather than a literal typed a second time.
+export { HOST_BIND_ERROR_CODES } from '@/shared/types.js';
+// LifecyclePolicy / HostCloseDetail: the policy a mode runs under and the extra
+// fact two close reasons carry, needed by any caller that injects a policy or
+// reads why an `exited` host died.
+export type { HostCloseDetail, LifecyclePolicy } from '@/shared/types.js';

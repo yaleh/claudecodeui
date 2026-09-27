@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 
 import { expect, test } from '@playwright/test';
@@ -89,7 +90,13 @@ const WRITTEN_ENVELOPE = {
 };
 
 /**
- * The refusal the double answers the second leg with, and the code that has to reach the page with it.
+ * The refusal the double answers the second leg with, and the code the page's sentence is chosen by.
+ *
+ * The transport sentence (`error`) is not what the page shows any more and this file asserts on it nowhere: the
+ * composer renders the localized sentence the code selects (see `REFUSAL_COPY`), and the code itself belongs to
+ * the folded technical-detail line another criterion owns. The field stays because it is part of the envelope
+ * the real proxy answers a refusal with, and a double that dropped it would be answering a shape the app never
+ * meets.
  *
  * WHAT IS AND IS NOT FAITHFUL HERE, stated because the difference is deliberate and a reader would otherwise
  * have to reconstruct it. The upstream condition is a credential the service refused, and the app's own
@@ -98,15 +105,48 @@ const WRITTEN_ENVELOPE = {
  * (`backendFailure(401|403)`). The CODE is where this double is one step outside the app: the real route
  * republishes a code only for the refusals that happen BEFORE the upstream is called (the container and size
  * gates), so an upstream refusal reaches the browser as a message with no code and the page would read
- * "transcribe 502". The criterion asks for the failure to be recognisable by code on the page, so this double
- * supplies the code the seam itself holds for this classification. The deviation is registered in this file's
- * own output rather than left for a reader to find.
+ * "transcribe 502". The criterion asks that a refused recognition be recognisable as the refusal it is, and the
+ * app's recognition is the code the seam classified it with, so this double supplies the code the seam itself
+ * holds for this classification. The deviation is registered in this file's own output rather than left for a
+ * reader to find.
  */
 const REFUSAL_ENVELOPE = {
   error: 'Voice backend rejected the request (check the API key).',
   code: 'UNAUTHORIZED',
 };
 const REFUSAL_STATUS = 502;
+
+/**
+ * The shipped English sentences for the refusals this leg has to tell apart, read off the disk at run time.
+ *
+ * WHY THIS FILE DOES NOT CARRY THE SENTENCE ITSELF. The copy a refusal gets is chosen from its code, so the
+ * string this leg has to expect is a function of the locale file and of the code rather than of this spec — and
+ * a copy restated here is one that stops moving when the locale does. That is not hypothetical for THIS leg: it
+ * was pinned to the transport sentence plus the bare code, a later change replaced the displayed sentence with a
+ * localized one, and the expectation stayed behind and reddened while the behaviour under test kept working.
+ * Read here instead, an edit to `/src/modules/i18n/locales/en/chat.json` moves the assertion with it.
+ *
+ * THREE SENTENCES, AND WHY ALL THREE. `REFUSAL_COPY` is the one this leg's own envelope earns, indexed by the
+ * envelope's code so that the key is named once (in the envelope) and not twice. The other two are the ones a
+ * leg must not be reading: `NO_SPEECH_DETECTED` is the class of copy a chain that reached no answer at all
+ * would show, and `unknown` is the fallback every failure outside the vocabulary lands on. "Some error is on
+ * screen" is satisfiable by either; the classification is what this leg is about, so all three are printed and
+ * taken apart.
+ *
+ * The shipped directory is the right one because the interface language is: `beforeAll`'s `addInitScript` pins
+ * the UI language to `en`, so the sentence the app renders and the sentence read here come from the same file.
+ */
+const EN_VOICE_ERRORS = (
+  JSON.parse(
+    fs.readFileSync(path.resolve(process.cwd(), 'src/modules/i18n/locales/en/chat.json'), 'utf8'),
+  ) as { voice: { errors: Record<string, string> } }
+).voice.errors;
+/** The sentence the refusal leg's own envelope selects — the code is read off the envelope rather than restated. */
+const REFUSAL_COPY = EN_VOICE_ERRORS[REFUSAL_ENVELOPE.code];
+/** The "no answer reached this recording" sentence, which the refusal leg must NOT be showing. */
+const NO_SPEECH_COPY = EN_VOICE_ERRORS.NO_SPEECH_DETECTED;
+/** The fallback sentence an unnamed failure lands on, which the refusal leg must NOT be showing either. */
+const UNKNOWN_COPY = EN_VOICE_ERRORS.unknown;
 
 /**
  * The draft the refusal leg types before it records.
@@ -206,6 +246,229 @@ const appears = async (locator: Locator, timeoutMs: number): Promise<boolean> =>
     () => true,
     () => false,
   );
+
+/**
+ * The selector this spec's startup path probes for: the account form's own username field.
+ *
+ * Named rather than inlined at the probe for one reason: the bounded-failure variant has to be able to point
+ * *this* — and nothing else — at a selector that cannot exist, and watch the probe end inside its own budget.
+ * The wizard below fills the same field, so a literal at the probe would have put the sentinel in both places.
+ */
+const ACCOUNT_FORM_PROBE = '#username';
+
+/** How long the account form's *first* appearance is given on the navigation, and on each bounded reload after it. */
+const STARTUP_PROBE_MS = 8_000;
+const STARTUP_RELOAD_PROBE_MS = 3_000;
+
+/**
+ * How long the startup probe may spend proving the form is there, reloads included.
+ *
+ * A deadline rather than a reload count, because it is the *sum* that has to stay inside the criterion's own
+ * wall clock: the bounded-failure reading asks that a probe which cannot succeed ends the run in under 30s,
+ * and that run pays the config evaluation, both servers' boot and the browser launch before the probe's first
+ * attempt even starts. Counting reloads leaves that head-room to chance; a deadline spends it.
+ */
+const STARTUP_PROBE_DEADLINE_MS = 14_000;
+
+/**
+ * How long the account wizard — both of its forms, and every re-entry after a replaced document — is given.
+ *
+ * Its own budget rather than the hook's, so exhausting it is this spec's error and not a timeout fired from
+ * outside. The three are ordered, each strictly inside the next: this budget and the probe's deadline are
+ * inside the hook's, and the hook's is inside the goal gate's 60s.
+ */
+const WIZARD_BUDGET_MS = 12_000;
+
+/** How long a single form is looked for while the wizard decides which of its two forms the document is showing. */
+const WIZARD_FORM_PROBE_MS = 1_500;
+
+/**
+ * How long this run's client is given to answer its own app entry before the criterion's startup path gives
+ * up on it.
+ *
+ * Not a guess at the slow case, but the bound that turns "the client never came up" into this spec's own red:
+ * the run already has two ceilings above it (the hook's own budget, then the goal gate's 60s), and both are
+ * *outside* the spec — an unbounded wait inside `beforeAll` would be reported by whichever of them fired
+ * first, naming neither the url nor the status.
+ */
+const CLIENT_WARM_DEADLINE_MS = 30_000;
+
+/** A dependency the optimizer serves out of this run's private cache, already rewritten to its url. */
+const OPTIMIZED_DEP_IN_TEXT = /["'](\/@fs\/[^"']*\/deps\/[^"']+\.js\?v=[0-9a-f]+)["']/;
+
+/**
+ * Takes this run's first dependency optimization out of the measurement window: the html shell, the app's
+ * entry module, and then one optimized dependency — all requested against this run's own client before any
+ * page of this run exists.
+ *
+ * The dependency request is the one that carries the proof, and it is why the step is not just "warm the
+ * cache". The imports of a transformed module are already rewritten to this run's own
+ * `/@fs/<cacheDir>/deps/<dep>.js?v=<hash>` urls, and that url only answers 200 once the optimizer has
+ * committed the bundle: while the bundle is still being built the request is held, and a url carrying a hash
+ * from a superseded run is exactly what a page receives `504 Outdated Optimize Dep` for. Vite reacts to a
+ * (re)optimization committed after it has started serving by pushing `full-reload` to every connected client
+ * (`node_modules/vite/dist/client/client.mjs`'s `case "full-reload"`), which replaces the document whole — the
+ * way this criterion lost its page *after* the account form had already rendered. So a 200 there means the
+ * page below will not race the optimizer, and the wizard the criterion drives will be driven on the document
+ * it was navigated to.
+ *
+ * The private cache is what makes the race possible at all, and it is also why the seed in
+ * `playwright.config.ts` is not enough on its own: the seed is only usable when the shared cache was written
+ * by *this* root, and when it is not, the private directory is built from scratch *while the server is
+ * already answering* — inside the measurement window. This step is where that build is paid.
+ *
+ * Why the warm-up lives here rather than in `playwright.config.ts`'s `globalSetup`, which is where this
+ * defect's proposal put it: Playwright resolves every `globalSetup` entry as a *script* — `resolveScript()`
+ * turns it into a path and the file must default-export the function — so an inline warm-up is neither
+ * type-legal nor loadable, and this task's write surface allows no new file. `beforeAll`, before
+ * `browser.newContext()`, is the earliest point inside the criterion's own startup path, and it is strictly
+ * before any page exists — the same requests the page would have made, made first.
+ *
+ * Every step is bounded, including each request: a client that accepts the connection and then never answers
+ * fails here, by name, with the url and the status, rather than waiting out a timeout further up.
+ */
+const warmClientStartup = async (clientUrl: string): Promise<number> => {
+  const startedAt = Date.now();
+  const deadline = startedAt + CLIENT_WARM_DEADLINE_MS;
+  const budgetMs = () => Math.max(1, deadline - Date.now());
+  const fetchWithin = async (url: string): Promise<Response> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), budgetMs());
+    try {
+      return await fetch(url, { signal: controller.signal });
+    } catch (error) {
+      throw new Error(
+        `the client did not answer ${url} inside the ${CLIENT_WARM_DEADLINE_MS}ms startup budget `
+        + `(${error instanceof Error ? error.message : String(error)})`,
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  const shellUrl = new URL('/', clientUrl).href;
+  const shell = await fetchWithin(shellUrl);
+  if (!shell.ok) throw new Error(`the client's shell did not load: ${shellUrl} answered HTTP ${shell.status}`);
+  await shell.text();
+
+  const entryUrl = new URL('/src/main.tsx', clientUrl).href;
+  const entry = await fetchWithin(entryUrl);
+  if (!entry.ok) throw new Error(`the app entry did not transform: ${entryUrl} answered HTTP ${entry.status}`);
+  await entry.text();
+
+  // The proof: a dependency url current for this run — re-read from the entry each attempt, because the hash a
+  // url carries is the one its writer committed, and the entry is where the current one is written.
+  let lastAnswer = 'no dependency url was ever served';
+  for (let attempt = 0; attempt < 5 && Date.now() < deadline; attempt += 1) {
+    const specifier = OPTIMIZED_DEP_IN_TEXT.exec(await (await fetchWithin(entryUrl)).text())?.[1];
+    if (!specifier) break;
+    const depUrl = new URL(specifier, clientUrl).href;
+    const dep = await fetchWithin(depUrl);
+    if (dep.ok) {
+      console.log(`[e2e] client warm-up: pre-bundle committed in ${Date.now() - startedAt}ms`);
+      return Date.now() - startedAt;
+    }
+    lastAnswer = `${depUrl} answered HTTP ${dep.status}`;
+    await dep.text().catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(
+    `this run's dependency pre-bundle never committed, so the criterion cannot drive a document that stays: `
+    + lastAnswer,
+  );
+};
+
+/**
+ * What the startup page said, kept for one purpose: a startup red has to be able to *explain* a document that
+ * was replaced instead of reporting that a wait ran out.
+ */
+const startupEvidence = {
+  consoleErrors: [] as string[],
+  failedRequests: [] as string[],
+};
+
+/** The startup page's own text plus this run's console and network evidence — what a startup red is read from. */
+const readStartupEvidence = async (page: Page): Promise<string> => {
+  const shown = await page.locator('body').innerText().catch(() => '<unreadable>');
+  const errors = startupEvidence.consoleErrors.slice(0, 5);
+  const failed = startupEvidence.failedRequests.slice(0, 5);
+  return `the page shows ${JSON.stringify(shown.slice(0, 300))}`
+    + `; console errors: ${errors.length > 0 ? errors.join(' | ') : '<none>'}`
+    + `; failed requests: ${failed.length > 0 ? failed.join(' | ') : '<none>'}`;
+};
+
+/**
+ * One pass over the account wizard, starting from whichever of its two forms the document is showing.
+ *
+ * The readback before the submit is the point of the pass. This run's dependency pre-bundle can be committed
+ * by Vite after the servers have begun answering, and Vite answers that by pushing `full-reload` to every
+ * connected client — the document is replaced whole and the SPA's state, including a half-filled form, is
+ * gone. The startup probe above covers the form's *first* appearance and nothing after it, so a replacement
+ * landing here used to be invisible: the click submitted a form that no longer had anything in it (or no
+ * longer existed), `John Doe` never appeared, and the run then died in whichever ceiling was above it.
+ * Reading the values back out of the document *before* the submit is what makes the replacement visible
+ * while it is still cheap, and the caller re-enters the pass on whatever document is current.
+ *
+ * A replacement that lands after `Create Account` is resumed rather than redone: the account exists by then,
+ * so the pass looks for the profile form first and only falls back to the credentials form when the profile
+ * step is not what the document is showing. A replacement landing between `Next` and `Complete Setup` is the
+ * one point this pass does not resume from; it ends as the caller's bounded error, with the page and console
+ * evidence, rather than as a hook timeout.
+ */
+const fillAccountWizardOnce = async (page: Page, within: () => number): Promise<void> => {
+  if (await appears(page.locator(ACCOUNT_FORM_PROBE), Math.min(WIZARD_FORM_PROBE_MS, within()))) {
+    await page.locator(ACCOUNT_FORM_PROBE).fill('e2euser', { timeout: within() });
+    await page.locator('input[type=password]').nth(0).fill('e2epassword', { timeout: within() });
+    await page.locator('input[type=password]').nth(1).fill('e2epassword', { timeout: within() });
+    const typed = await Promise.all([
+      page.locator(ACCOUNT_FORM_PROBE).inputValue({ timeout: within() }),
+      page.locator('input[type=password]').nth(0).inputValue({ timeout: within() }),
+      page.locator('input[type=password]').nth(1).inputValue({ timeout: within() }),
+    ]);
+    if (typed[0] !== 'e2euser' || typed[1] !== 'e2epassword' || typed[2] !== 'e2epassword') {
+      throw new Error(
+        'the document under the wizard was replaced between typing and submitting: the credentials read back '
+        + `as ${JSON.stringify(typed)}`,
+      );
+    }
+    await page.getByRole('button', { name: 'Create Account' }).click({ timeout: within() });
+  }
+
+  // The profile step, on the document this pass is holding. Its absence after the credentials were submitted
+  // is the other half of the same hazard: the form the click was meant to produce never arrived.
+  if (!(await appears(page.getByPlaceholder('John Doe'), WIZARD_FORM_PROBE_MS))) {
+    throw new Error('the profile form did not render on the document the account was created on');
+  }
+  await page.getByPlaceholder('John Doe').fill('E2E User', { timeout: within() });
+  await page.getByPlaceholder('john@example.com').fill('e2e@example.com', { timeout: within() });
+  await page.getByRole('button', { name: 'Next' }).click({ timeout: within() });
+  await page.getByRole('button', { name: 'Complete Setup' }).click({ timeout: within() });
+};
+
+/**
+ * Drives the account wizard to completion, re-entering it whenever the document underneath is replaced, and
+ * ends the run with this spec's own error — the page's text, this run's console errors and its failed
+ * requests — when `budgetMs` runs out instead of letting a ceiling above the hook do it.
+ */
+const submitAccountWizard = async (page: Page, budgetMs: number): Promise<void> => {
+  const deadline = Date.now() + budgetMs;
+  const within = () => Math.max(1, Math.min(WIZARD_FORM_PROBE_MS * 4, deadline - Date.now()));
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await fillAccountWizardOnce(page, within);
+      return;
+    } catch (error) {
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `the account wizard never completed on this run's document `
+          + `(${error instanceof Error ? error.message : String(error)}; ${attempt} re-entry(ies) inside `
+          + `${budgetMs}ms); ${await readStartupEvidence(page)}`,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+};
 
 /** The headers the aliyuncs stand-in answers with, so a browser-side call to that host can really complete. */
 const CORS_HEADERS: Record<string, string> = {
@@ -509,8 +772,21 @@ const recordOnce = async (page: Page) => {
 test.beforeAll(async ({ browser }) => {
   // Onboarding plus the first project load outlasts the default per-test budget, but only as far as the
   // criterion's own ceiling allows: a hook that runs longer than that is killed from outside and reports
-  // nothing, so the budget stops short of it and lets the failure above be the thing that is read.
-  test.setTimeout(40_000);
+  // nothing, so the budget stops short of it and lets the failure above be the thing that is read. Every
+  // budget this spec sets for itself — the warm-up, the probe, the wizard — is inside this one, which is why
+  // the failure that is read names a page, a url or a status instead of a timeout that fired outside the spec.
+  test.setTimeout(45_000);
+
+  // The run's own client, as playwright.config.ts declared it for this project: the url the page below
+  // navigates to relatively, so the warm-up cannot address a server some other run started.
+  const clientUrl = test.info().project.use.baseURL;
+  if (!clientUrl) {
+    throw new Error('playwright.config.ts must give this project a baseURL for the startup warm-up to address');
+  }
+  // Before `browser.newContext()` and therefore before any page of this run exists, so this run's own
+  // optimize/re-optimize is committed before the criterion's first navigation — see the helper for why that
+  // cost cannot be left inside the measurement window.
+  console.log(`[e2e] client warm-up: ${await warmClientStartup(clientUrl)}ms`);
 
   // `serviceWorkers: 'block'` is what makes the interception below possible at all, and it is not a
   // convenience: the app registers `public/sw.js`, whose fetch handler answers every request that is not
@@ -538,33 +814,43 @@ test.beforeAll(async ({ browser }) => {
 
   onboarding = await context.newPage();
 
+  // What the startup document said, kept from before its first navigation: a document that was replaced
+  // mid-wizard and a client that never rendered are the same blank page from the outside, and the console and
+  // the failed requests are what tell them apart in this spec's own failure message.
+  onboarding.on('console', (message) => {
+    if (message.type() === 'error') startupEvidence.consoleErrors.push(message.text());
+  });
+  onboarding.on('requestfailed', (request) => {
+    startupEvidence.failedRequests.push(`${request.url()} — ${request.failure()?.errorText ?? 'no error text'}`);
+  });
+
   // First run on a fresh database: create the single account, then finish onboarding. Both switches are named
   // on this navigation too, so no page in this file reads a flag an earlier one happened to write.
   await onboarding.goto('/?voiceDebug=0&voiceTrim=off');
 
   // The account form is the app's first rendered screen, which also makes it the first thing a cold Vite dev
-  // server can fail to produce. Two different blanks arrive here: a transform graph built on demand under
-  // load, and `504 Outdated Optimize Dep` on the pre-bundled dependencies, which is what a dev server answers
-  // for a moment once its dependency cache has been re-optimized underneath it. Neither throws on its own —
-  // the navigation succeeded, so nothing surfaces until the wait for the form runs out. A reload clears both,
-  // so it is retried, bounded, because this preamble is not what the criterion tests.
-  let onboarded = await appears(onboarding.locator('#username'), 8_000);
-  for (let attempt = 0; !onboarded && attempt < 3; attempt += 1) {
+  // server can fail to produce. A transform graph built on demand under load is one blank; the other is the
+  // document itself: the warm-up above has committed this run's pre-bundle, but a page can still be replaced
+  // by a later `full-reload`, and a probe that only ever asks about the form's *first* appearance cannot see
+  // the difference. Neither throws on its own — the navigation succeeded, so nothing surfaces until the wait
+  // for the form runs out. A reload clears both, so it is retried, bounded, because this preamble is not what
+  // the criterion tests; if it is still absent the probe ends here, with what the page and the run said.
+  const probeDeadline = Date.now() + STARTUP_PROBE_DEADLINE_MS;
+  let onboarded = await appears(onboarding.locator(ACCOUNT_FORM_PROBE), STARTUP_PROBE_MS);
+  while (!onboarded && Date.now() < probeDeadline) {
     await onboarding.reload();
-    onboarded = await appears(onboarding.locator('#username'), 4_000);
+    onboarded = await appears(
+      onboarding.locator(ACCOUNT_FORM_PROBE),
+      Math.min(STARTUP_RELOAD_PROBE_MS, Math.max(1, probeDeadline - Date.now())),
+    );
   }
   if (!onboarded) {
-    const shown = await onboarding.locator('body').innerText().catch(() => '<unreadable>');
-    throw new Error(`the account form never rendered; the page shows: ${JSON.stringify(shown.slice(0, 300))}`);
+    throw new Error(`the account form never rendered; ${await readStartupEvidence(onboarding)}`);
   }
-  await onboarding.locator('#username').fill('e2euser');
-  await onboarding.locator('input[type=password]').nth(0).fill('e2epassword');
-  await onboarding.locator('input[type=password]').nth(1).fill('e2epassword');
-  await onboarding.getByRole('button', { name: 'Create Account' }).click();
-  await onboarding.getByPlaceholder('John Doe').fill('E2E User');
-  await onboarding.getByPlaceholder('john@example.com').fill('e2e@example.com');
-  await onboarding.getByRole('button', { name: 'Next' }).click();
-  await onboarding.getByRole('button', { name: 'Complete Setup' }).click();
+
+  // Filled and submitted under this spec's own budget: a document replaced between typing and the submit is
+  // re-entered there rather than left to the hook's ceiling to discover.
+  await submitAccountWizard(onboarding, WIZARD_BUDGET_MS);
 
   // Indexing a session auto-registers its project, so the seeded workspace is already a project here; the
   // sidebar is the proof that the fixture really reached the backend.
@@ -628,7 +914,9 @@ test.afterAll(async () => {
       + 'selected by -g do not reload, so the masked-readback writeback rule is outside this file. One deviation '
       + 'from the real proxy is deliberate and registered here: an upstream refusal is answered by the stand-in with '
       + 'the seam\'s own UNAUTHORIZED code beside the proxy\'s message, because the real route republishes a code '
-      + 'only for the pre-upstream refusals, and the criterion asks for a semantic code on the page. The app\'s own '
+      + 'only for the pre-upstream refusals, and the criterion asks that the refusal be recognisable as the '
+      + 'classification it is — which the page answers with the sentence that code selects, the code itself being '
+      + 'the folded technical-detail line a separate criterion owns. The app\'s own '
       + 'Service Worker is blocked for this run\'s browser context, because a request a worker answers is one the '
       + 'page-level interception cannot see; a real browser runs that worker, so this run observes the app with one '
       + 'layer of its own transport absent.',
@@ -738,14 +1026,26 @@ test('AC-142 written: a proxied provider is selected in settings and the written
 });
 
 /**
- * The refusal leg: a draft is typed, the recording is refused upstream, the page says so with a code, and the
- * draft is still there — character for character — afterward.
+ * The refusal leg: a draft is typed, the recording is refused upstream, the page says so in the sentence its code
+ * selects, and the draft is still there — character for character — afterward.
  *
- * The three readings are the whole claim, and the third is what stops the second from being vacuous: "nothing
- * happened, so the draft is still there" is excluded by the error having really been shown, and "the leg
- * uploaded and got an answer" is what the count of one says.
+ * WHAT THE PAGE IS EXPECTED TO SAY, and why it is read off the locale file rather than restated here: the app
+ * turns a refusal into the sentence the shipped vocabulary has for its code, so the expectation is a function of
+ * that file. The code itself is deliberately NOT asserted here — it belongs to the folded technical-detail line
+ * a separate criterion owns, and this leg is about the sentence a user reads.
+ *
+ * The readings, and what each one stops the next from being:
+ *   · the sentence is absent before the recording and present after it — without both ends, "the sentence is on
+ *     screen" would be satisfied by a page that was already showing it and the recording would be measured by
+ *     nothing;
+ *   · the sentence is the one `UNAUTHORIZED` selects, and is neither the "no answer reached this recording"
+ *     sentence nor the fallback — three distinct strings, so a leg that read either of the other two, or
+ *     compared a string with itself, cannot pass;
+ *   · the draft survives character for character, which is only a reading because the error really was shown and
+ *     the leg really did upload exactly once — "nothing happened, so the draft is still there" is what the other
+ *     two readings exclude.
  */
-test('AC-142 refusal: a refused recognition shows an error with its code and leaves the draft untouched', async () => {
+test('AC-142 refusal: a refused recognition shows the sentence its code selects and leaves the draft untouched', async () => {
   test.setTimeout(45_000);
 
   const leg = await openLeg('refusal', '/?voiceTrim=off&voiceDebug=1', 'refused');
@@ -756,6 +1056,12 @@ test('AC-142 refusal: a refused recognition shows an error with its code and lea
   await composer(page).fill(DRAFT);
   const before = await composer(page).inputValue();
   expect(before).toBe(DRAFT);
+
+  // (a) The page's own words BEFORE the recording, read off the same page text the post-recording reading uses.
+  // This end of the pair is required to be false: the conversion is what this leg measures, and a sentence that
+  // was already there cannot be evidence of it.
+  const saidRefusal = (text: string) => text.includes(REFUSAL_COPY);
+  const beforeSaidRefusal = saidRefusal(await page.locator('body').innerText());
 
   // The provider is the one the previous leg saved, so no settings trip is needed here: the page reads health
   // on load and routes on that reading.
@@ -770,13 +1076,16 @@ test('AC-142 refusal: a refused recognition shows an error with its code and lea
     { timeout: 15_000, message: 'the recording never reached the proxy stand-in' },
   ).toBe(1);
 
-  // (a) The page's own words: an error, and the semantic code beside it — not the "no speech detected" class of
-  // copy, which is what a chain that never got an answer from anywhere would show.
-  const errorLine = page.getByText(/Transcription failed/);
+  // (b) The page's own words AFTER it: the sentence this envelope's code selects, and nothing from the two
+  // other classes. Read off the whole page rather than off the bubble alone, so the assertion is about what the
+  // page says instead of about which element happened to carry it.
+  const errorLine = page.getByText(REFUSAL_COPY);
   let shown = '<unreadable>';
+  let afterText = '<unreadable>';
   try {
     await expect(errorLine).toBeVisible({ timeout: 10_000 });
     shown = await errorLine.innerText();
+    afterText = await page.locator('body').innerText();
   } catch {
     const body = await page.locator('body').innerText().catch(() => '<unreadable>');
     throw new Error(
@@ -784,18 +1093,37 @@ test('AC-142 refusal: a refused recognition shows an error with its code and lea
         + `\n  proxy posts=${leg.proxyPosts.length}`,
     );
   }
+  const afterSaidRefusal = saidRefusal(afterText);
   const draftKept = (await composer(page).inputValue()) === DRAFT;
-  const refusalShown = shown.includes('Transcription failed') && shown.includes(REFUSAL_ENVELOPE.code);
-  console.log(`error=${refusalShown} draft-kept=${draftKept} posts=${leg.proxyPosts.length}`);
+  console.log(`before-said-unauthorized=${beforeSaidRefusal} after-said-unauthorized=${afterSaidRefusal}`);
+  console.log(
+    `copy[${REFUSAL_ENVELOPE.code}]=${JSON.stringify(REFUSAL_COPY)}`
+      + ` copy[NO_SPEECH_DETECTED]=${JSON.stringify(NO_SPEECH_COPY)}`
+      + ` copy[unknown]=${JSON.stringify(UNKNOWN_COPY)}`
+      + ` distinct=${new Set([REFUSAL_COPY, NO_SPEECH_COPY, UNKNOWN_COPY]).size}/3`,
+  );
+  console.log(
+    `draft-kept=${draftKept} posts=${leg.proxyPosts.length} aliyuncs-refusal=${leg.aliyuncsLedger.length}`,
+  );
   console.log(
     `[voice-dashscope] refusal: page-said=${JSON.stringify(shown)}`
       + ` composer=${JSON.stringify(await composer(page).inputValue())}`
       + ` run-total-posts=${leg.proxyPosts.length} (this leg's own stand-in counted every POST it answered)`,
   );
 
-  expect(shown).toContain('Transcription failed');
-  expect(shown).toContain(REFUSAL_ENVELOPE.code);
-  expect(shown).not.toContain('No speech detected');
+  // The three sentences are pairwise distinct strings, so what follows compares three different things rather
+  // than a string with itself — a locale that collapsed two of them would make the reading below vacuous.
+  expect(
+    new Set([REFUSAL_COPY, NO_SPEECH_COPY, UNKNOWN_COPY]).size,
+    'the three sentences read off the locale file are not pairwise distinct, so the reading below compares a string with itself',
+  ).toBe(3);
+  // The conversion, at both ends: absent before the recording, present after it.
+  expect(beforeSaidRefusal, 'the refusal sentence was already on the page before the recording').toBe(false);
+  expect(afterSaidRefusal).toBe(true);
+  // WHICH sentence: the one this envelope's code selects, and neither of the two it must not be.
+  expect(afterText).toContain(REFUSAL_COPY);
+  expect(afterText).not.toContain(NO_SPEECH_COPY);
+  expect(afterText).not.toContain(UNKNOWN_COPY);
   expect(draftKept).toBe(true);
   // The stand-in's own counter, this leg's: one upload, no retry behind the refusal. (The two -g legs each keep
   // their own stand-in, so this number is about this leg rather than about the file's total.)

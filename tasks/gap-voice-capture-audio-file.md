@@ -3,6 +3,7 @@ id: gap-voice-capture-audio-file
 title: audio 档把上传字节原样写成文件：行内给出路径与 sha256、目录 0700 文件 0600、多次转写逐次累积不清理、text
   档零文件零目录（AC-145）
 status: ready
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -106,3 +107,15 @@ L_G 该轴仍暗，理由：目标层的读数是真实服务进程 stdout 上�
 - server/modules/voice/tests/voice-capture-audio.test.ts (new)
 - server/modules/voice/tests/voice-capture-audio.false-forms.test.ts (new)
 - tasks/gap-voice-capture-audio-file.md
+
+## Needs-Human
+
+**执行 2026-09-24T13:33:37.178Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=27893 server/modules/voice/tests/voice-capture-text.false-forms.test.ts passed=false end_ms=1790256801449
+- run_id：wk-prod-anchor
+- session_id：dea5c1df-f4b4-43fe-8368-d7afa34400cb
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-capture-audio-file~wk-prod-anchor~1790256699219-e57e75.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-capture-audio-file-wk-prod-anchor.log

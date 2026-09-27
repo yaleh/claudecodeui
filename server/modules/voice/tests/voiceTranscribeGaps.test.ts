@@ -193,9 +193,14 @@ test('the transport ceiling reports 413 rather than 400 when it is what refused'
   assert.match(String(outcome.body.error), /File too large/);
 });
 
-test('a parser failure that is not the ceiling is still 400 and carries no code', () => {
+test('a parser failure that is not the ceiling is still 400 and carries the vocabulary code', () => {
   const outcome = postThroughRouter(new Error('Unexpected field'));
 
   assert.equal(outcome.status, 400);
-  assert.equal(outcome.body.code, undefined);
+  // The reading this test used to pin was `code === undefined`. The envelope changed with the
+  // failure-contract task: every refusal the transcription path answers now names a vocabulary
+  // member, and the malformed-upload branch names the same one the container gate does (see
+  // `MALFORMED_UPLOAD_CODE`). The status is unchanged — that half of the old reading still holds.
+  assert.equal(outcome.body.code, 'UNSUPPORTED_MIME');
+  assert.match(String(outcome.body.error), /Unexpected field/);
 });

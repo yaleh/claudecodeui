@@ -15,9 +15,12 @@ import { PaperclipIcon, MessageSquareIcon, XIcon, Loader2, ArrowUpIcon, PencilIc
 import { useVoiceInput } from '@/modules/chat/hooks/useVoiceInput';
 import { useVoiceAvailable } from '@/modules/chat/hooks/useVoiceAvailable';
 import { useSendOnEnter } from '@/modules/chat/hooks/useSendOnEnter';
+import { useComposerCompactTier } from '@/modules/chat/hooks/useComposerCompactTier';
+import { useDeviceSettings } from '@/shared/hooks/useDeviceSettings';
+import { voiceErrorMessage } from '@/modules/chat/utils/voiceErrorMessages';
 import { loadProjectIdentifiers } from '@/shared/projectIdentifiers';
 import { isVoiceDebugEnabled } from '@/shared/voiceDebug';
-import type { QueuedDraft, ScheduledMessage, SlashCommand,SessionActivity,PendingPermissionRequest,PermissionMode,ProviderModelOption } from '@/shared/types';
+import type { QueuedDraft, ScheduledMessage, SlashCommand,SessionActivity,PendingPermissionRequest,PermissionMode,ProviderModelOption,VoiceFailureReport } from '@/shared/types';
 import {
   PromptInput,
   PromptInputHeader,
@@ -41,10 +44,28 @@ import { ScheduleMessagePopover } from '@/modules/chat/composer/ScheduleMessageP
 import { ScheduledMessageList } from '@/modules/chat/composer/ScheduledMessageList';
 import ComposerModelMenu from '@/modules/chat/composer/ComposerModelMenu';
 import ComposerPermissionMenu from '@/modules/chat/composer/ComposerPermissionMenu';
+import ComposerMobileMoreMenu from '@/modules/chat/composer/ComposerMobileMoreMenu';
 
 type MentionableFile = {
   name: string;
   path: string;
+};
+
+/**
+ * Hands a node to a ref, whichever of React's shapes it is.
+ *
+ * Needed because two refs have to reach the same element: the composer's box is measured by
+ * `useComposerCompactTier`, and the form it sits on already carries react-dropzone's root ref —
+ * spread onto the form as part of `getRootProps()`, where a plain `ref=` beside the spread would be
+ * replaced by it. One callback ref can serve both, but it has to write to a ref it did not create,
+ * and a ref of unknown shape is either a function or an object with `current`.
+ */
+const assignRef = <T,>(ref: unknown, node: T | null) => {
+  if (typeof ref === 'function') {
+    (ref as (value: T | null) => void)(node);
+  } else if (ref && typeof ref === 'object') {
+    (ref as { current: T | null }).current = node;
+  }
 };
 
 type ChatComposerProps = {
@@ -209,6 +230,26 @@ export default function ChatComposer({
   // Same resolution the keydown uses, so the hint below cannot describe a key that does
   // something else on this device.
   const { sendOnEnter, touchOnly } = useSendOnEnter(sendByCtrlEnter);
+  // The window rule, read through the same hook the rest of the app uses for `md`. It stays the
+  // whole answer below the breakpoint and for the status tab below; the footer's arrangement also
+  // reads the box's own width, which is `isCompactTier` underneath.
+  const { isMobile } = useDeviceSettings();
+  // Drives the footer's layout branch below, and the replay row with it. Narrower than the desktop
+  // arrangement needs is what it means, and the box can be that narrow inside a window that is not:
+  // `md` (768px) is a rule of its own — the `sm` (640px) boundary this group used to switch on gave
+  // the 640–767px band a third arrangement — but it is not the only signal, because the sidebar
+  // takes 288px and more out of the box while the window stays wide. See the hook for the width.
+  const { containerRef, isCompactTier } = useComposerCompactTier();
+  // The dropzone's own root ref comes back out of its root props and is re-attached beside the
+  // tier hook's: the props are spread onto the form, so a `ref=` written next to the spread is
+  // silently replaced by the one inside it — which is how this hook's box went unmeasured. Both
+  // refs want the same element, and both are load-bearing (the dropzone's reaches its
+  // document-level containment checks), so the node is handed to them from one callback.
+  const { ref: dropzoneFormRef, ...dropzoneFormProps } = getRootProps();
+  const attachForm = useCallback((node: HTMLFormElement | null) => {
+    containerRef.current = node;
+    assignRef(dropzoneFormRef, node);
+  }, [containerRef, dropzoneFormRef]);
   const fileDropdownRef = useRef<HTMLDivElement | null>(null);
   const selectedFileRef = useRef<HTMLDivElement | null>(null);
   const commandMenuPosition = useMemo(() => {
@@ -252,11 +293,16 @@ export default function ChatComposer({
   const voiceAvailable = useVoiceAvailable();
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const voiceErrorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const handleVoiceError = useCallback((msg: string) => {
-    setVoiceError(msg);
+  // A failure reaches the bubble as a SENTENCE either way, but only the chain's own failures arrive
+  // as one: a recogniser refusal arrives as the fields its answer carried, and is turned into the
+  // sentence the user's language has for that code here, at the one point that knows the language.
+  // Everything below — the single timer, the one-line bubble, the shape handed to the button — is
+  // unchanged, because what the bubble shows was never the disagreement.
+  const handleVoiceError = useCallback((failure: VoiceFailureReport) => {
+    setVoiceError(typeof failure === 'string' ? failure : voiceErrorMessage(failure, t));
     if (voiceErrorTimer.current) clearTimeout(voiceErrorTimer.current);
     voiceErrorTimer.current = setTimeout(() => setVoiceError(null), 4000);
-  }, []);
+  }, [t]);
   useEffect(() => () => {
     if (voiceErrorTimer.current) clearTimeout(voiceErrorTimer.current);
   }, []);
@@ -322,7 +368,15 @@ export default function ChatComposer({
 
   return (
     <div className="chat-composer-shell relative flex-shrink-0 px-2 pb-2 pt-0 sm:px-4 sm:pb-4 md:px-4 md:pb-6">
-      {!hasPendingPermissions && (
+      {/*
+        The tab is the `md`-and-up surface: it hangs over the top edge of the input
+        and, being out of flow, over the last of the transcript. Below `md` it is
+        not rendered at all — the pane draws the same status in the message flow
+        instead (see ChatMessagesPane), and the composer's submit button is the
+        only stop entry, so the single-entry rule holds without a second control
+        to hide.
+      */}
+      {!hasPendingPermissions && !isMobile && (
         <div className="pointer-events-none absolute bottom-full left-1/2 z-10 w-[calc(100%-1rem)] max-w-[54.25rem] -translate-x-1/2 translate-y-px bg-transparent sm:w-[calc(100%-2rem)]">
           <ActivityIndicator activity={activity} onAbort={onAbortSession} isInputFocused={isInputFocused} />
         </div>
@@ -419,9 +473,12 @@ export default function ChatComposer({
           status={isLoading ? 'streaming' : 'ready'}
           className={[
             isTextareaExpanded ? 'chat-input-expanded' : '',
-            hasActivityIndicator ? 'rounded-t-none' : '',
+            // Only the tab squares the input's top corners off; below `md` there
+            // is no tab sitting there, so the box keeps its own rounding.
+            hasActivityIndicator && !isMobile ? 'rounded-t-none' : '',
           ].filter(Boolean).join(' ')}
-          {...getRootProps()}
+          {...dropzoneFormProps}
+          ref={attachForm}
         >
           {isDragActive && (
             <div className="absolute inset-0 z-50 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary/50 bg-primary/15">
@@ -481,8 +538,56 @@ export default function ChatComposer({
             />
         </PromptInputBody>
 
-        <PromptInputFooter className="flex-wrap gap-y-1">
-          <PromptInputTools className="min-w-0">
+        {/*
+          On the compact tier the replay pair gets a row of its own between the box and the footer.
+
+          It has nowhere to live inside the compact footer — that row is exactly the six controls that
+          send a message and may not wrap — so without this the arrival of a recording is what pushed
+          the footer into a second line. The row exists only while `clipSlot` holds something (a clip
+          only exists because the mic produced one), and it is the row that grows and shrinks: the
+          footer's own height and position are the same with a recording as without one. It may wrap
+          *between* its two tracks, which is the move the footer is forbidden, not this row.
+
+          One renderer, not two: the pair is drawn here on the compact tier and in the tools group on
+          the wide one, off the same `clipSlot`/`clipPlayState` the hook owns, so exactly one set of
+          replay controls is ever on screen — and therefore exactly one set in the accessibility tree.
+        */}
+        {clipSlot && isCompactTier && (
+          <div
+            data-slot="prompt-input-clip-row"
+            className="flex flex-wrap items-center gap-1 px-3 py-0.5"
+          >
+            <VoiceClipButton clips={clipSlot} state={clipPlayState} onToggle={toggleClipPlayback} />
+          </div>
+        )}
+
+        {/*
+          On the compact tier the row must never wrap: the six controls that
+          send a message stay reachable without hunting, so both groups are
+          `shrink-0` and the box is `flex-nowrap`. On the wide tier the previous
+          wrapping row is kept exactly as it was.
+
+          On the wide tier the *left group* may take a second line of its own, which is
+          what `flex-wrap` here buys. The box's own `flex-wrap` only decides where the
+          two groups go; it cannot break a group, and a group whose children may not
+          shrink (the replay pair declares `shrink-0`, and an icon button cannot go
+          below its own icon) then pushes the box's content past its edge instead of
+          moving down. Measured with the window at 768 and the sidebar open — the box
+          445px wide — one recording's pair in this group read
+          `scrollWidth 470 / clientWidth 445`: 25px of content the box would have
+          scrolled sideways, invisible without a horizontal scroll gesture. That box is
+          narrower than `COMPACT_TIER_WIDTH_PX`, so the compact tier now takes it and
+          the wrap never arises; and because the same measurement decides the boxed-in
+          wide window (a 1024px window with the sidebar open leaves a 701px box, at
+          which the pair wrapped too), the arrangement follows the box rather than the
+          window. Wrapping the group is still the move the wide tier makes if a box
+          between the threshold and the crossing ever reaches it, and it leaves every
+          reading that has no pair to fit on one line: a recording only ever arrives
+          because the mic produced one, and the two groups' placement, the 93px height
+          and the 1280 footer are unchanged without it.
+        */}
+        <PromptInputFooter className={isCompactTier ? 'flex-nowrap' : 'flex-wrap gap-y-1'}>
+          <PromptInputTools className={isCompactTier ? 'shrink-0' : 'min-w-0 flex-wrap'}>
             <PromptInputButton
               tooltip={{ content: t('input.attachFiles') }}
               onClick={openAttachmentPicker}
@@ -504,47 +609,78 @@ export default function ChatComposer({
               <VoiceUploadButton state={voiceState} onSelectFile={transcribeFile} />
             )}
 
-            {/* Right of the mic: a clip only exists because the mic produced it. */}
-            {clipSlot && (
+            {/*
+              Right of the mic: a clip only exists because the mic produced it. On the wide tier it
+              stays here, where it has always been. On the compact tier this row is exactly the six
+              controls that send a message and may not wrap, so the pair goes to a row of its own
+              instead — see the clip row between the box and the footer.
+            */}
+            {clipSlot && !isCompactTier && (
               <VoiceClipButton clips={clipSlot} state={clipPlayState} onToggle={toggleClipPlayback} />
             )}
 
-            <TokenUsageSummary usage={tokenBudget} onClick={onShowTokenUsage} />
+            {isCompactTier ? (
+              // The three controls below move behind one entry on the compact tier;
+              // that entry is the only addition to this row, so the row stays six wide.
+              <ComposerMobileMoreMenu
+                tokenBudget={tokenBudget}
+                onShowTokenUsage={onShowTokenUsage}
+                slashCommandsCount={slashCommandsCount}
+                onToggleCommandMenu={onToggleCommandMenu}
+                canSchedule={Boolean(input.trim())}
+                onScheduleMessage={onScheduleMessage}
+              />
+            ) : (
+              <>
+                <TokenUsageSummary usage={tokenBudget} onClick={onShowTokenUsage} />
 
-            <PromptInputButton
-              tooltip={{ content: t('input.showAllCommands') }}
-              onClick={onToggleCommandMenu}
-              className="relative"
-              aria-label={t('input.showAllCommands')}
-            >
-              <MessageSquareIcon />
-              {slashCommandsCount > 0 && (
-                <span
-                  className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground"
+                <PromptInputButton
+                  tooltip={{ content: t('input.showAllCommands') }}
+                  onClick={onToggleCommandMenu}
+                  className="relative"
+                  aria-label={t('input.showAllCommands')}
                 >
-                  {slashCommandsCount}
-                </span>
-              )}
-            </PromptInputButton>
+                  <MessageSquareIcon />
+                  {slashCommandsCount > 0 && (
+                    <span
+                      className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground"
+                    >
+                      {slashCommandsCount}
+                    </span>
+                  )}
+                </PromptInputButton>
 
-            {hasInput && (
-              <PromptInputButton
-                tooltip={{ content: t('input.clearInput', { defaultValue: 'Clear input' }) }}
-                onClick={onClearInput}
-                className="hidden sm:flex"
-                aria-label={t('input.clearInput', { defaultValue: 'Clear input' })}
-              >
-                <XIcon />
-              </PromptInputButton>
+                {/*
+                  Wide tier only. The compact row is exactly the six primary controls,
+                  so a seventh that appears with text would either wrap it or push
+                  send off the edge — the one thing that row may not do.
+                */}
+                {hasInput && (
+                  <PromptInputButton
+                    tooltip={{ content: t('input.clearInput', { defaultValue: 'Clear input' }) }}
+                    onClick={onClearInput}
+                    className="hidden sm:flex"
+                    aria-label={t('input.clearInput', { defaultValue: 'Clear input' })}
+                  >
+                    <XIcon />
+                  </PromptInputButton>
+                )}
+              </>
             )}
 
           </PromptInputTools>
 
-          <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
-            <ScheduleMessagePopover
-              disabled={!input.trim()}
-              onSchedule={onScheduleMessage}
-            />
+          <div className="ml-auto flex shrink-0 items-center gap-1.5 md:gap-2">
+            {/*
+              The schedule entry's desktop placement: on the compact tier it lives in the "more"
+              menu instead, which is why it is not part of the six the compact row keeps.
+            */}
+            {!isCompactTier && (
+              <ScheduleMessagePopover
+                disabled={!input.trim()}
+                onSchedule={onScheduleMessage}
+              />
+            )}
 
             <ComposerModelMenu
               effort={effort}

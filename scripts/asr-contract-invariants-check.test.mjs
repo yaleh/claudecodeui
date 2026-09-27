@@ -14,9 +14,12 @@
  *     prompt it declared it would not forward, AND it forwards an empty prompt as an empty part.
  *     The declared-unhonored case alone would not catch the second: "not sent" and "sent empty"
  *     reach the service as the same nothing.
- *   · `error-mapping` — every failure collapses onto `UPSTREAM_ERROR`. The rows that already
- *     expect that code must STAY GREEN, which is what shows the group distinguishes codes rather
- *     than reacting to any failure at all.
+ *   · `error-mapping` — every failure collapses onto one code, the classifier made a constant. The
+ *     rows that already expect that code must STAY GREEN, which is what shows the group distinguishes
+ *     codes rather than reacting to any failure at all. Those rows are the whole
+ *     `UPSTREAM_UNAVAILABLE` group — the 5xx, the 4xx that is not a credential refusal, the aborted
+ *     request, the transport that never answered and the body that is not JSON — because that member
+ *     of `AsrErrorCode` is where the transport failures were merged.
  *   · `size-layering` — the budget guard is removed, so a request past the declared maximum is
  *     sent instead of refused.
  *   · `redaction` — the adapter names the credential inside its own failure message, on its way
@@ -160,41 +163,37 @@ describe('asr-contract-invariants-check', () => {
   });
 
   it('reds error mapping on the variant that collapses every failure onto one code', () => {
+    // THE MUTATION MOVED WITH THE IMPLEMENTATION. The mapping this case falsifies used to be three
+    // literal lines in the ADAPTER — a status-only `errorCodeForStatus` — and the case mutated each
+    // of them. The implementation is now ONE classifier in the registry
+    // (`classifyUpstreamFailure`), so the equivalent mutation is to make that classifier a constant:
+    // every failure reaches the same member and nothing the body says can change it. The anchors it
+    // replaced are gone from the adapter, and a case whose anchor had drifted would fail for a reason
+    // unrelated to its claim.
     const root = treeWithMutations([
       {
-        name: 'no-unauthorized',
-        file: ADAPTER_RELATIVE,
-        find: "  if (status === 401 || status === 403) return 'UNAUTHORIZED';",
-        replace: "  if (false) return 'UNAUTHORIZED';",
-      },
-      {
-        name: 'no-rate-limited',
-        file: ADAPTER_RELATIVE,
-        find: "  if (status === 429) return 'RATE_LIMITED';",
-        replace: "  if (false) return 'RATE_LIMITED';",
-      },
-      {
-        name: 'abort-is-upstream',
-        file: ADAPTER_RELATIVE,
-        find: "      code: isAbortError(error) ? 'TIMEOUT' : 'UNREACHABLE',",
-        replace: "      code: 'UPSTREAM_ERROR',",
+        name: 'classifier-is-a-constant',
+        file: REGISTRY_RELATIVE,
+        find: '  const named = extractUpstreamCode(body);',
+        replace: "  return 'UPSTREAM_UNAVAILABLE';\n  const named = extractUpstreamCode(body);",
       },
     ]);
     const { status, stdout } = runChecker(['--root', root]);
 
     assert.notEqual(status, 0, `the board stayed green on a mutated tree:\n${stdout}`);
     assertGroupVerdict(stdout, 'FAIL', 'error-mapping');
-    assert.ok(stdout.includes('FAIL error.status-401[multimodal] observed=UPSTREAM_ERROR'), stdout);
-    assert.ok(stdout.includes('FAIL error.status-403[multimodal] observed=UPSTREAM_ERROR'), stdout);
-    assert.ok(stdout.includes('FAIL error.status-429[multimodal] observed=UPSTREAM_ERROR'), stdout);
-    assert.ok(stdout.includes('FAIL error.timeout[multimodal] observed=UPSTREAM_ERROR'), stdout);
-    assert.ok(stdout.includes('FAIL error.transport[multimodal] observed=UPSTREAM_ERROR'), stdout);
-    // The other half of the same mutation: the rows that ARE `UPSTREAM_ERROR` — and the one row
-    // that never touches the status mapper — must not red. A group that reds on every row would
-    // pass this test while measuring nothing about the mapping.
+    assert.ok(stdout.includes('FAIL error.status-401[multimodal] observed=UPSTREAM_UNAVAILABLE'), stdout);
+    assert.ok(stdout.includes('FAIL error.status-403[multimodal] observed=UPSTREAM_UNAVAILABLE'), stdout);
+    assert.ok(stdout.includes('FAIL error.status-429[multimodal] observed=UPSTREAM_UNAVAILABLE'), stdout);
+    // The other half of the same mutation: the rows that ARE `UPSTREAM_UNAVAILABLE` — the 5xx, the
+    // non-credential 4xx, the aborted request, the transport that never answered, the body that is not
+    // JSON, and the one row that never touches the classifier — must not red. A group that reds on
+    // every row would pass this test while measuring nothing about the mapping.
     assert.ok(!stdout.includes('FAIL error.status-500'), stdout);
     assert.ok(!stdout.includes('FAIL error.status-503'), stdout);
     assert.ok(!stdout.includes('FAIL error.status-400'), stdout);
+    assert.ok(!stdout.includes('FAIL error.timeout'), stdout);
+    assert.ok(!stdout.includes('FAIL error.transport'), stdout);
     assert.ok(!stdout.includes('FAIL error.body-not-json'), stdout);
     assert.ok(!stdout.includes('FAIL error.envelope-without-text'), stdout);
     assert.ok(!stdout.includes('FAIL error.transcript-arrives'), stdout);
@@ -277,21 +276,16 @@ describe('asr-contract-invariants-check', () => {
       {
         name: 'empty-registry',
         file: REGISTRY_RELATIVE,
-        find: 'const REGISTERED: readonly AsrAdapter[] = [\n'
-          + '  {\n'
-          + '    id: openaiCompatibleId,\n'
-          + '    capabilities: openaiCompatibleCapabilities,\n'
-          + "    wire: 'multipart',\n"
-          + '    transcribe: openaiCompatibleTranscribe,\n'
-          + '  },\n'
-          + '  {\n'
-          + '    id: multimodalId,\n'
-          + '    capabilities: multimodalCapabilities,\n'
-          + "    wire: 'inline-json',\n"
-          + '    transcribe: multimodalTranscribe,\n'
-          + '  },\n'
-          + '];',
-        replace: 'const REGISTERED: readonly AsrAdapter[] = [];',
+        // ANCHORED ON THE DECLARATION LINE ALONE, rather than on the rows and the `];` that closes
+        // them. The old anchor spelled out the first two rows and required the array to end straight
+        // after them, so appending a third row — with the comment that explains why its position is
+        // load-bearing — moved the anchor to zero matches and this case went red for a reason that
+        // has nothing to do with the empty registry it is about. What this case needs is a registry
+        // with no providers; the declaration line is the only text that says where that array starts,
+        // and it does not move when rows are appended to it.
+        find: 'const REGISTERED: readonly AsrAdapter[] = [\n',
+        replace: 'const REGISTERED: readonly AsrAdapter[] = [];\n'
+          + 'export const SUPERSEDED_REGISTRY: readonly AsrAdapter[] = [\n',
       },
     ]);
     const { status, stdout } = runChecker(['--root', root]);

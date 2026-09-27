@@ -5,6 +5,13 @@ import { useTranslation } from 'react-i18next';
 type TokenUsageSummaryProps = {
   usage: Record<string, unknown> | null;
   onClick?: () => void;
+  /**
+   * `button` (default) is the standalone chip in the footer, which opens the
+   * detailed panel itself. `inline` renders the same compact reading as plain
+   * text instead, for the mobile "more" menu — there the whole row opens the
+   * panel, and a button inside a menu row would nest two controls in one.
+   */
+  variant?: 'button' | 'inline';
 };
 
 const formatTokenCount = (value: number) => {
@@ -34,9 +41,11 @@ const readUsageNumber = (value: unknown) => {
 
 /**
  * Rendered by chat's ChatComposer to show the session's context-window usage
- * and open the detailed token breakdown on click.
+ * and open the detailed token breakdown on click. Its `inline` variant is
+ * rendered by ChatComposer's ComposerMobileMoreMenu, which shows the same
+ * reading inside a menu row that opens the panel itself.
  */
-function TokenUsageSummary({ usage, onClick }: TokenUsageSummaryProps) {
+function TokenUsageSummary({ usage, onClick, variant = 'button' }: TokenUsageSummaryProps) {
   const { t } = useTranslation();
   const breakdown =
     usage?.breakdown && typeof usage.breakdown === 'object'
@@ -45,6 +54,20 @@ function TokenUsageSummary({ usage, onClick }: TokenUsageSummaryProps) {
   const inputTokens = readUsageNumber(usage?.inputTokens ?? breakdown?.input);
   const outputTokens = readUsageNumber(usage?.outputTokens ?? breakdown?.output);
   const usedTokens = readUsageNumber(usage?.used) || inputTokens + outputTokens;
+
+  if (variant === 'inline') {
+    // The row around it is the control, so this is a plain reading: no nested
+    // button, and the count carries the same meaning the chip's label does.
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-xs text-muted-foreground"
+        title={t('chat:misc.tokensUsed', { count: usedTokens })}
+      >
+        <ActivityIcon className="h-3.5 w-3.5" />
+        <span className="font-medium text-foreground">{formatTokenCount(usedTokens)}</span>
+      </span>
+    );
+  }
 
   return (
     <button

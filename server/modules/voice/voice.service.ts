@@ -20,6 +20,7 @@ import type {
 import {
   baseMimeType,
   declaredAcceptsMime,
+  extractUpstreamCode,
   listProviders,
   tryResolve,
 } from '../../../shared/asr/asrRegistry.js';
@@ -335,12 +336,19 @@ function unknownProviderFailure(providerId: string, status: number): VoiceRefusa
  *     remedies, four numbers; the two upload ones are also the codes the result itself republishes.
  *
  * WHAT IT DECIDES, AND WHAT IT DOES NOT. It decides the STATUS of every failure this path returns.
- * Whether a failure also republishes its code in the result body is a separate and narrower
- * question (`VoiceServiceResult.code`), and the reading is: the PRE-UPSTREAM refusals carry their
- * codes and the rest do not. There are three of them now — the container gate, the size gate and
- * the endpoint rule (`endpointRuleRefusal`) — and each earns its code the same way, by being a
- * refusal whose remedy a client chooses between by reason rather than by status number. A failure
- * read off the transport has no such remedy and stays message-only.
+ * Whether a failure also republishes its code in the result body is a separate question, and its
+ * answer is now the wide one: EVERY failure that reaches this table was named in the vocabulary by
+ * someone — a gate in this module, or the adapter that read the transport — so the code travels
+ * with all of them rather than with the pre-upstream three alone. That is a change and not a
+ * restatement: a failure read off the transport used to be answered message-only, on the reading
+ * that its remedy was not a client's to choose between. The reading was wrong for the same reason
+ * the vocabulary exists at all: `422` and `502` are each several different remedies, and a client
+ * asked to write the sentence a user reads cannot pick between them from a number.
+ *
+ * WHAT IT STILL DOES NOT DO is name a code for a refusal that never becomes an attempt. The format
+ * gate and an unregistered provider id are refused before any adapter is asked anything, and
+ * neither has a vocabulary member to be named by — `VoiceServiceResult.code` states that scope once,
+ * for the readers of the wire.
  *
  * Exported for `server/modules/voice/tests/voice-provider-dispatch.test.ts`, which is the criterion
  * that reads the table row by row and then drives each code through this service to the status it
@@ -351,33 +359,61 @@ export const PROVIDER_ERROR_STATUS: Readonly<Record<AsrErrorCode, number>> = {
   INVALID_BASE_URL: 400,
   UNAUTHORIZED: 502,
   RATE_LIMITED: 429,
-  TIMEOUT: 504,
-  UNREACHABLE: 502,
+  ACCOUNT_ACCESS: 403,
+  QUOTA_EXHAUSTED: 429,
+  MODEL_NOT_FOUND: 404,
+  AUDIO_REJECTED: 400,
+  CONTENT_FLAGGED: 422,
   OVERSIZE: 413,
   UNSUPPORTED_MIME: 415,
   NO_SPEECH_DETECTED: 422,
-  UPSTREAM_ERROR: 502,
+  UPSTREAM_UNAVAILABLE: 502,
 };
 
 /**
  * The status one adapter failure is owed.
  *
  * The table holds every code, and one cell of it is deliberately not the last word: an
- * `UPSTREAM_ERROR` that carries the status its adapter read off the transport is answered with that
- * status instead of the table's 502. That is the reading this path has always had — a 404 from the
+ * `UPSTREAM_UNAVAILABLE` that carries the status its adapter read off the transport is answered with
+ * that status instead of the table's 502. That is the reading this path has always had — a 404 from the
  * recogniser reached the client as 404 — and it is the only code for which the status is DATA
  * rather than a constant: every other code is a meaning an adapter derived, and a meaning has one
- * number. The clause is "carries a status" rather than "is a non-2xx answer" because both adapters
- * set the field when they read the transport and leave it unset when they do not, so the presence
- * of the field is exactly the difference between "the upstream said this" and "we interpreted
- * this".
+ * number. The clause is "carries a status" rather than "is a non-2xx answer" because all three
+ * adapters set the field when they read the transport and leave it unset when they do not, so the
+ * presence of the field is exactly the difference between "the upstream said this" and "we
+ * interpreted this".
+ *
+ * WHY THIS MEMBER AND NOT THE OLDER `UPSTREAM_ERROR`. The vocabulary merged the transport failures —
+ * a 5xx, an aborted request, a transport that never connected — into `UPSTREAM_UNAVAILABLE`
+ * (`AsrErrorCode`), so this clause follows the member rather than the old name. The set of answers
+ * that pass through is unchanged: it is still "the upstream's own status, on the failures where the
+ * upstream named one".
  */
 function providerFailureStatus(failure: AsrFailure): number {
-  if (failure.code === 'UPSTREAM_ERROR' && typeof failure.status === 'number') {
+  if (failure.code === 'UPSTREAM_UNAVAILABLE' && typeof failure.status === 'number') {
     return failure.status;
   }
 
   return PROVIDER_ERROR_STATUS[failure.code];
+}
+
+/**
+ * The upstream's own code string, read off the answer this attempt kept — or `undefined`.
+ *
+ * A NAMED FUNCTION RATHER THAN AN INLINE TERNARY, and not for style: the answer is recorded by the
+ * instrumented transport, so at the point the failure branch reads it the compiler's flow analysis
+ * has seen no assignment to it in that scope and narrows the variable to `null` — the inline form
+ * would read `never` and neither compile nor describe what happens. Inside a function taking the
+ * declared type, the same expression is what it says: a null answer is an answer that does not
+ * exist, and everything else has a body to read a code out of.
+ *
+ * `null` is "there was no answer to read" — a transport that refused to connect — and a body with no
+ * code-shaped string in it is the same absence one layer down (`extractUpstreamCode`'s `undefined`).
+ * Both are answers to the same question, and the caller owes the field's ABSENCE for either, never a
+ * placeholder and never the body itself.
+ */
+function upstreamCodeOf(answer: VoiceCaptureRawReturn | null): string | undefined {
+  return answer === null ? undefined : extractUpstreamCode(answer.body);
 }
 
 /**
@@ -1027,12 +1063,25 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
         if (!result.ok) {
           // The status is the table's — or, for the one code whose adapter carries the upstream's
           // own status, the upstream's. The message is the adapter's, which names the provider the
-          // way a seam with more than one provider has to. The code is deliberately not
-          // republished here; see the table's comment. It is passed to `logAttempt` all the same,
-          // because the row's branch is decided from it — that is the one reader it has.
+          // way a seam with more than one provider has to.
+          //
+          // THE CODE TRAVELS WITH THE FAILURE. An adapter has already named its upstream's refusal
+          // in the seam's vocabulary — that is what `AsrFailure.code` IS — and dropping it here left
+          // the client with a status number it cannot tell "you said nothing" from "we could not
+          // reach the service" by. It is the same code `logAttempt` reads for the capture row, so
+          // the line, the row and the response now agree on one word for one failure instead of the
+          // first two knowing something the third did not.
+          //
+          // `upstreamCode` IS READ OFF THE ANSWER THIS ATTEMPT ALREADY KEPT, never re-asked for:
+          // `captureTransport` recorded `{ status, body }` from a clone before the adapter touched
+          // the response, for the row's sake and in every mode. The reading of it lives in
+          // `upstreamCodeOf`, which is where the two ways an upstream can name nothing are decided:
+          // no answer to read at all (a transport that refused to connect), or a body with no
+          // code-shaped string in it. Either way the field is absent rather than empty.
           const status = providerFailureStatus(result);
+          const upstreamCode = upstreamCodeOf(upstreamAnswer);
           logAttempt('fail', status, { code: result.code });
-          return { ok: false, status, error: result.message };
+          return { ok: false, status, code: result.code, upstreamCode, error: result.message };
         }
 
         // The two facts this path can read off a successful answer and nowhere else: which frozen

@@ -95,6 +95,25 @@
     },
     "technicalDetails": "技術細節"
   },
+  "voice": {
+    "errors": {
+      "ACCOUNT_ACCESS": "這個帳號無法使用這個語音服務——請確認訂閱與模型權限已生效，然後再試一次。",
+      "UNAUTHORIZED": "語音服務拒絕了它的金鑰——請在設定裡檢查語音供應方的憑證，然後再試一次。",
+      "QUOTA_EXHAUSTED": "語音服務的額度已用盡——請為帳號加值，或改用其他語音供應方。",
+      "RATE_LIMITED": "同時轉寫的請求太多——請稍候片刻再重新錄音。",
+      "MODEL_NOT_FOUND": "這個帳號用不了這個轉寫模型——請在語音供應方設定裡改用其他模型。",
+      "AUDIO_REJECTED": "服務拒絕了這段錄音——請重新錄製，或換一個音訊檔案上傳。",
+      "CONTENT_FLAGGED": "服務標記了這段錄音的內容——請檢查音訊，換一段再試。",
+      "NO_SPEECH_DETECTED": "錄音裡沒有偵測到人聲——請靠近麥克風重新錄製。",
+      "UPSTREAM_UNAVAILABLE": "語音服務目前沒有回應——請稍候片刻再試一次。",
+      "NOT_CONFIGURED": "還沒有設定語音供應方——請先在設定裡設定一個，才能轉寫錄音。",
+      "INVALID_BASE_URL": "語音供應方的服務網址無效——請在語音供應方設定裡更正。",
+      "OVERSIZE": "錄音檔太大，無法上傳——請錄一段更短的再試。",
+      "UNSUPPORTED_MIME": "不支援這種音訊格式——請換一個檔案，或用麥克風錄製。",
+      "unknown": "轉寫失敗了——請再試一次，或檢查語音供應方的設定。"
+    }
+  },
+
   "input": {
     "placeholder": "輸入 / 叫用指令，@ 選取檔案，或向 {{provider}} 提問...",
     "placeholderDefault": "輸入您的訊息...",
@@ -109,6 +128,7 @@
     },
     "clickToChangeMode": "點擊變更權限模式（或在輸入框中按 Tab）",
     "showAllCommands": "顯示所有指令",
+    "moreTools": "更多工具",
     "clearInput": "清空輸入",
     "scrollToBottom": "捲動到底部",
     "queue": {

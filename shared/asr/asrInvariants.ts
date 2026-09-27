@@ -1017,10 +1017,19 @@ function failedWith(code: AsrErrorCode): string {
 /**
  * Every way the transport can fail, and the semantic code each one must reach.
  *
- * The point of the table is that the codes DIFFER: a board whose rows all expected one code would
- * pass on an adapter that collapsed everything onto it. `status-500` and `status-400` expecting
- * the same code as each other is the same statement read the other way — the mapping has to be a
- * mapping, not a constant.
+ * THE POINT OF THE TABLE IS THAT THE CODES DIFFER — and that the differences are the ones the
+ * vocabulary draws rather than the ones the status numbers suggest. Three groups: `401`/`403` are the
+ * credential code, `429` the rate-limit code, and every other failure — the other 4xx, the 5xx, the
+ * aborted request and the transport that never answered — is `UPSTREAM_UNAVAILABLE`. A board whose
+ * rows all expected one code would pass on an adapter that collapsed everything onto it, which is
+ * what the first two groups are here to prevent.
+ *
+ * WHY THE THIRD GROUP IS ONE CODE AND NOT THREE. A 5xx, a timeout and a refused connection are one
+ * member of `AsrErrorCode` by construction: from this side of the seam the caller's remedy is the
+ * same for all of them, and the browser's direct path and the server's proxy path have to answer one
+ * upstream failure with one code. The rows are still four rather than one because each is a different
+ * SHAPE reaching the adapter — a status, an abort, a rejection, a body that is not JSON — and it is
+ * the shape, not the code, that a regression would break.
  *
  * Every row here reaches the transport, so every row spends exactly one request: the two guards
  * that refuse BEFORE the transport are the size and mime groups' subject, not this one's.
@@ -1037,12 +1046,12 @@ export function errorScenarios(wire: AsrWire): ErrorScenario[] {
     { id: 'error.status-401', step: { kind: 'json', status: 401, payload: { error: 'unauthorized' } }, expected: failedWith('UNAUTHORIZED'), detail: 'a rejected credential is its own code' },
     { id: 'error.status-403', step: { kind: 'json', status: 403, payload: { error: 'forbidden' } }, expected: failedWith('UNAUTHORIZED'), detail: 'a forbidden credential is the credential code, not a generic upstream failure' },
     { id: 'error.status-429', step: { kind: 'json', status: 429, payload: { error: 'slow down' } }, expected: failedWith('RATE_LIMITED'), detail: 'a throttled upstream is its own code, because the caller retries it differently' },
-    { id: 'error.status-500', step: { kind: 'json', status: 500, payload: { error: 'boom' } }, expected: failedWith('UPSTREAM_ERROR'), detail: 'an upstream fault is the generic upstream code' },
-    { id: 'error.status-503', step: { kind: 'json', status: 503, payload: { error: 'unavailable' } }, expected: failedWith('UPSTREAM_ERROR'), detail: 'an unavailable upstream follows the same rule as any other 5xx' },
-    { id: 'error.status-400', step: { kind: 'json', status: 400, payload: { error: 'bad request' } }, expected: failedWith('UPSTREAM_ERROR'), detail: 'a request the upstream rejects is not the credential code' },
-    { id: 'error.transport', step: { kind: 'reject', mode: 'transport' }, expected: failedWith('UNREACHABLE'), detail: 'a transport that never answered is unreachable, not a timeout' },
-    { id: 'error.timeout', step: { kind: 'reject', mode: 'timeout' }, expected: failedWith('TIMEOUT'), detail: 'an aborted request is a timeout, and is read from the abort itself' },
-    { id: 'error.body-not-json', step: { kind: 'raw', body: answers.notAnAnswer }, expected: failedWith('UPSTREAM_ERROR'), detail: 'a gateway page is neither a transcript nor a crash' },
+    { id: 'error.status-500', step: { kind: 'json', status: 500, payload: { error: 'boom' } }, expected: failedWith('UPSTREAM_UNAVAILABLE'), detail: 'an upstream fault is the upstream-unavailable code' },
+    { id: 'error.status-503', step: { kind: 'json', status: 503, payload: { error: 'unavailable' } }, expected: failedWith('UPSTREAM_UNAVAILABLE'), detail: 'an unavailable upstream follows the same rule as any other 5xx' },
+    { id: 'error.status-400', step: { kind: 'json', status: 400, payload: { error: 'bad request' } }, expected: failedWith('UPSTREAM_UNAVAILABLE'), detail: 'a request the upstream rejects is not the credential code' },
+    { id: 'error.transport', step: { kind: 'reject', mode: 'transport' }, expected: failedWith('UPSTREAM_UNAVAILABLE'), detail: 'a transport that never answered is an unavailable upstream, the same code a 5xx reaches' },
+    { id: 'error.timeout', step: { kind: 'reject', mode: 'timeout' }, expected: failedWith('UPSTREAM_UNAVAILABLE'), detail: 'an aborted request is an unavailable upstream too, and is read from the abort rather than from any status' },
+    { id: 'error.body-not-json', step: { kind: 'raw', body: answers.notAnAnswer }, expected: failedWith('UPSTREAM_UNAVAILABLE'), detail: 'a gateway page is neither a transcript nor a crash' },
     { id: 'error.envelope-without-text', step: { kind: 'json', payload: answers.empty }, expected: failedWith('NO_SPEECH_DETECTED'), detail: 'an answer carrying no text is an empty answer, not a success with empty text' },
     { id: 'error.transcript-arrives', step: { kind: 'json', payload: answers.transcript }, expected: `ok:${answers.transcriptText} requests=1`, detail: 'a well-formed answer reaches the caller as its text, in one request — on a wire whose answer carries two strings, the one the caller must receive is the wire model\'s own `transcriptText`, not whichever field happened to arrive first' },
   ];

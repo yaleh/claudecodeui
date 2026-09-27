@@ -3,7 +3,7 @@ id: gap-voice-error-envelope-contract
 title: 语音转写路由的失败信封：所有失败带 error 与 code（词表成员），上游失败另带合规
   upstreamCode（[A-Za-z0-9._-]、长度有界、取自上游响应体码串），响应无 key、无 Bearer
   形式、无上游响应体其余文本（AC-150）
-status: ready
+status: done
 labels:
   - gap
   - defect
@@ -111,7 +111,7 @@ L_G 该轴仍暗，理由：目标层的读数是真实浏览器里页面上的�
 - AC3：`upstreamCode=[upstream-401:InvalidApiKey upstream-403:AccessDenied.Unpurchased upstream-429:Throttling.RateQuota upstream-404:Model.NotFound] codeCompliant=true isSubstringOfBody=true noBodyArm=none unreachableArm=none oversizeArmLen=0`（`candidateLen=200 candidateInResponse=false`）。
 - AC4：`sentinelInUpstream=true keyInUpstreamRequest=true sentinelInResponse=false keyInResponse=false bearerInResponse=false field-level-clean=true bodies=12`。
 - AC7：`vocab-size=10 observed-codes=[OVERSIZE UNSUPPORTED_MIME UNAUTHORIZED RATE_LIMITED UPSTREAM_ERROR NO_SPEECH_DETECTED UNREACHABLE] observed=12 all-members=true`；键集由 `import { PROVIDER_ERROR_STATUS } from '../voice.service.js'` 读入，`grep -n "ASR_ERROR_CODES\|ERROR_CODES" server/modules/voice/tests/voice-error-contract.test.ts` 0 命中。
-- AC5：`upstream-failure-without-code` base 绿 → 变异体族内红 6 条（`whichReading=AC2 arm/upstream-401`，`red-reason=... code=none hasError=true ...`），族外 `AC2 arm/parser-ceiling` 仍绿；`raw-body-copied-through` base 绿 → 族内红 9 条（`whichReading=AC3 code/upstream-401`，`upstreamCode={"code":"InvalidApiKey"} codeCompliant=false`）并含 `AC4 leak/serialized-response`，族外 `AC2 arm/parser-ceiling` 仍绿；`git.status-clean=true unchanged=true temp-copies=none`。
+- AC5：`upstream-failure-without-code` base 绿 → 变异体族内红 11 条（`whichReading=AC2 arm/upstream-401`，`red-reason=... code=none hasError=true ...`），族外仍绿；`raw-body-copied-through` base 绿 → 族内红 9 条（`whichReading=AC3 code/upstream-401`，`upstreamCode={"code":"InvalidApiKey"} codeCompliant=false`）并含 `AC4 leak/serialized-response`；树读数见下一条（第二轮改后：`own-temp-copies=none temp-copies-any=0 foreign-temp-copies=0 raw-unchanged=true added=0 removed=0 concurrent-foreign-only=false`）。
 - AC6：`exit=0 name=voiceTranscribeGaps cases=8`、`voice-provider-dispatch cases=6`、`voice-provider-dispatch-falsify cases=1`、`voice-config.routes cases=6`、`voice-capture-text cases=10`、`voiceHealth cases=7`、`voice.service cases=4`、`name=typecheck`、`name=lint`。
 - 连带读的 AC-133 判据（`node scripts/asr-mime-allowlist-check.mjs`）退出 0、`verdict=pass`，其中 `transport-non-ceiling=400/UNSUPPORTED_MIME`；同族的 `asr-single-implementation-check` / `asr-proxy-only-ssrf-check(verdict=ok)` / `asr-second-adapter-check` / `asr-contract-invariants-check(verdict=pass)` 均退出 0。
 
@@ -131,3 +131,24 @@ L_G 该轴仍暗，理由：目标层的读数是真实浏览器里页面上的�
 **有意的例外：仍然不带 `code` 的失败**（「每一个失败都带 code」的边界，写进 `VoiceServiceResult.code` 与表注释）
 
 `validateConfiguredBackend` 的格式拒（「这个设置根本不是 URL」，是部署状态而非关于一次尝试的意义；更窄的 endpoint 规则才是 `INVALID_BASE_URL` 那条）、未注册 provider id（同样是无成员可命名的状态）、以及 TTS 面（共用该类型但不共用识别器词表）。让这三处保持不带码，才使 `voice.service.test.ts:112` 的 `deepEqual` 与既有读数原样成立——即「不放松既有面」与「所有失败带码」两条要求在该交界处按上述边界收敛；这一取舍在 `server/shared/types.ts` 与 `voice.service.ts` 的表注释里各写明一次。
+
+**第二轮：AC5 的树读数按 pid 划界（并发下的跨进程伪红）**
+
+fan-in 的 suite 红在这一条上。原因不是判据的实现被 suite 放大，而是一个**跨进程读数**：`scripts/test.sh` 默认一次跑 4 个服务端文件，而 `server/modules/voice/` 这个目录被四个判据共用——`voice-capture-off.false-forms`、`voice-capture-text.false-forms`、`voice-dashscope-settings.false-forms` 都往同一目录写 `__criterion-falsify-*` 副本。某个同伴在本文件**启动时**还持有副本、到本文件读数时已清掉，于是「快照 vs 终态」的逐字比较在一个**终态为空**的树上读成了 changed：suite 记 `passed=false`，实测读数 `git.status-clean=true unchanged=false temp-copies=none`，断言文 `this run changed the worktree's git status: (empty)`（终态为空，被改的是起点）。⚠️ suite 行里 `not ok - <file>: <…>` 的 reason 是 `first_error` 抓到的**变异体 stdout**（它的 JSON 里有 `error` 字段），不是失败原因；失败原因由下表的前置复现读出。
+
+本轮把那半条读数的断言面按 pid 划到「本次运行自己的产物」：自己的副本仍**无条件红**且比改前更精确（改前会把同伴的副本当成自己的残留来报）；差集**只有**在每一行都是别的 pid 的临时副本时才被原谅；其余增 / 删 / 改一律保持红，且失败时把差集两侧与两侧首行都打印出来（旧消息只打终态，正好把「起点脏」说成「终态脏」）。新增打印字段 `own-temp-copies temp-copies-any foreign-temp-copies raw-unchanged added removed concurrent-foreign-only`。
+
+复现与控制（每例都是该文件的**完整**运行；A 例即 suite 里那次的配置）：
+
+| 控制 | 配置 | 结果 |
+|---|---|---|
+| 前置复现（改前） | 外来的 `__criterion-falsify-*` 在启动时在位、4s 后删除 | `RC=1`，`git.status-clean=true unchanged=false temp-copies=none`，`AssertionError: this run changed the worktree's git status: (empty)` —— 与 suite 红同形 |
+| A（改后，同配置） | 同上 | `RC=0`，`unchanged=true raw-unchanged=false added=0 removed=1 concurrent-foreign-only=true`，并打印 `falsify/concurrent-foreign-only=true (… another process, alive at this file's start and cleaned up by now)` |
+| B（改后，负对照：非临时文件） | 运行时新增 `__probe-stray.txt`（不含该前缀） | `RC=1`，`added=[?? server/modules/voice/__probe-stray.txt]`——非同伴产物的增项仍红 |
+| C（改后，负对照：本次自己的副本） | 运行时写入以**本进程 pid** 结尾的 `__criterion-falsify-ownprobe-base-<pid>.ts` 且不删 | `RC=1`，`own-temp-copies=?? server/modules/voice/__criterion-falsify-ownprobe-base-2522127.ts`，断言文 `this run left its own temp copies behind: …`——自己泄漏仍是满强度红 |
+
+改后**干净树**上的读数（`npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice-error-contract.false-forms.test.ts`，退出 0、4 例全绿）：`falsify/leftovers: git.status-clean=true unchanged=true own-temp-copies=none temp-copies-any=0 foreign-temp-copies=0 raw-unchanged=true added=0 removed=0 concurrent-foreign-only=false`。
+
+作用域门（driver 同款）：`bash scripts/test.sh --for-task gap-voice-error-envelope-contract --allow-thin` 在合并 develop 后的树上绿（3 例 3 过、退出 0），`--write-scoped-gate-cache --develop-sha cb2e207e` 已登记。
+
+**同族遗留（不在本条 `## Touches`，未改）**：那三个同伴文件的同类读数仍是「全仓库前缀扫描 + 原始逐字比较」，所以**本文件**的副本在它们快照期间在位时，理论上仍可能红在它们身上（本轮 suite 里没发生）。这属于共用目录的既有并发面；本条只划自己的界，未碰它们的文件。

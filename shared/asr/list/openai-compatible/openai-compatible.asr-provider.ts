@@ -24,10 +24,10 @@
  */
 
 import {
+  classifyUpstreamFailure,
   declaredAcceptsMime,
   type AsrAdapter,
   type AsrCapabilities,
-  type AsrErrorCode,
   type AsrHints,
   type AsrInvocation,
   type AsrRequest,
@@ -144,15 +144,28 @@ export function filePart(bytes: Uint8Array, mimeType: string): Blob {
 
 // ── the response ─────────────────────────────────────────────────────────────────────────────
 
-/** Transport status to the semantic code the route above maps to HTTP. */
-export function errorCodeForStatus(status: number): AsrErrorCode {
-  if (status === 401 || status === 403) return 'UNAUTHORIZED';
-  if (status === 429) return 'RATE_LIMITED';
-  return 'UPSTREAM_ERROR';
-}
+/**
+ * The semantic code this answer means, read by the ONE classifier in the registry.
+ *
+ * WHY THERE IS NO LOCAL STATUS TABLE HERE ANY MORE. There used to be one — a three-line
+ * `errorCodeForStatus(status)` in this file, and a copy of it in each of the other two adapters —
+ * and the copies were the defect: a `403` whose body named a model the account has not enabled was
+ * filed as a refused credential by all three, because a status-only mapper cannot see the body. The
+ * implementation now lives where the vocabulary does (`classifyUpstreamFailure`), so an adapter that
+ * wanted a second table would have to write one on purpose.
+ */
 
 function isAbortError(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { name?: unknown }).name === 'AbortError';
+}
+
+/** A failure body, read for its evidence and never for its text: an unreadable one is empty. */
+async function readTextQuietly(response: Response): Promise<string> {
+  try {
+    return await response.text();
+  } catch {
+    return '';
+  }
 }
 
 // ── the adapter ──────────────────────────────────────────────────────────────────────────────
@@ -214,9 +227,13 @@ export async function transcribe(request: AsrRequest, invocation: AsrInvocation)
   try {
     response = await invocation.fetchImpl(wire.url, { ...wire.init, signal });
   } catch (error) {
+    // A transport that never connected and a request the invocation's deadline (or the caller's own
+    // signal) ended are ONE code here and two messages: from this side of the seam they are the same
+    // fact about the upstream (`UPSTREAM_UNAVAILABLE`), and the message is what keeps them apart for
+    // the reader.
     return {
       ok: false,
-      code: isAbortError(error) ? 'TIMEOUT' : 'UNREACHABLE',
+      code: 'UPSTREAM_UNAVAILABLE',
       message: isAbortError(error)
         ? `provider '${id}' did not answer within ${invocation.timeoutMs} ms`
         : `provider '${id}' could not be reached`,
@@ -224,9 +241,12 @@ export async function transcribe(request: AsrRequest, invocation: AsrInvocation)
   }
 
   if (!response.ok) {
+    // The body decides what the refusal MEANS and the status is the fallback; see
+    // `classifyUpstreamFailure`. Reading it here rather than from the status alone is what lets a
+    // body naming an unenabled model, an exhausted quota or a rejected key be told apart.
     return {
       ok: false,
-      code: errorCodeForStatus(response.status),
+      code: classifyUpstreamFailure(response.status, await readTextQuietly(response)),
       message: `provider '${id}' answered ${response.status}`,
       status: response.status,
     };
@@ -240,7 +260,7 @@ export async function transcribe(request: AsrRequest, invocation: AsrInvocation)
   } catch {
     return {
       ok: false,
-      code: 'UPSTREAM_ERROR',
+      code: 'UPSTREAM_UNAVAILABLE',
       message: `provider '${id}' answer was not the transcription envelope`,
     };
   }

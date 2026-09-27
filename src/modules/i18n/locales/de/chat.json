@@ -95,6 +95,25 @@
     },
     "technicalDetails": "Technische Details"
   },
+  "voice": {
+    "errors": {
+      "ACCOUNT_ACCESS": "Das Konto kann diesen Sprachdienst nicht nutzen — prüfen Sie, ob Tarif und Modellzugriff aktiv sind, und versuchen Sie es erneut.",
+      "UNAUTHORIZED": "Der Sprachdienst hat seinen Schlüssel abgelehnt — prüfen Sie die Zugangsdaten des Sprachanbieters in den Einstellungen und versuchen Sie es erneut.",
+      "QUOTA_EXHAUSTED": "Das Kontingent des Sprachdienstes ist aufgebraucht — laden Sie das Konto auf oder wechseln Sie den Sprachanbieter.",
+      "RATE_LIMITED": "Zu viele Transkriptionen gleichzeitig — warten Sie einen Moment und nehmen Sie erneut auf.",
+      "MODEL_NOT_FOUND": "Das Transkriptionsmodell ist für dieses Konto nicht verfügbar — wählen Sie in den Einstellungen des Sprachanbieters ein anderes Modell.",
+      "AUDIO_REJECTED": "Der Dienst hat diese Aufnahme abgelehnt — nehmen Sie erneut auf oder laden Sie eine andere Audiodatei hoch.",
+      "CONTENT_FLAGGED": "Der Dienst hat den Inhalt dieser Aufnahme beanstandet — prüfen Sie das Audio und versuchen Sie einen anderen Ausschnitt.",
+      "NO_SPEECH_DETECTED": "In der Aufnahme wurde keine Sprache erkannt — nehmen Sie erneut auf und sprechen Sie näher am Mikrofon.",
+      "UPSTREAM_UNAVAILABLE": "Der Sprachdienst antwortet gerade nicht — warten Sie einen Moment und versuchen Sie es erneut.",
+      "NOT_CONFIGURED": "Es ist kein Sprachanbieter eingerichtet — richten Sie einen in den Einstellungen ein, um Aufnahmen zu transkribieren.",
+      "INVALID_BASE_URL": "Die Basis-URL des Sprachanbieters ist ungültig — korrigieren Sie sie in den Einstellungen des Sprachanbieters.",
+      "OVERSIZE": "Die Aufnahme ist zu groß für den Upload — nehmen Sie einen kürzeren Ausschnitt auf und versuchen Sie es erneut.",
+      "UNSUPPORTED_MIME": "Dieses Audioformat wird nicht unterstützt — verwenden Sie eine andere Datei oder nehmen Sie über das Mikrofon auf.",
+      "unknown": "Die Transkription ist fehlgeschlagen — versuchen Sie es erneut oder prüfen Sie die Einstellungen des Sprachanbieters."
+    }
+  },
+
   "input": {
     "placeholder": "/ für Befehle, @ für Dateien eingeben oder {{provider}} etwas fragen...",
     "placeholderDefault": "Nachricht eingeben...",
@@ -109,6 +128,7 @@
     },
     "clickToChangeMode": "Klicken, um den Berechtigungsmodus zu ändern (oder Tab in der Eingabe drücken)",
     "showAllCommands": "Alle Befehle anzeigen",
+    "moreTools": "Weitere Tools",
     "clearInput": "Eingabe leeren",
     "scrollToBottom": "Nach unten scrollen",
     "queue": {

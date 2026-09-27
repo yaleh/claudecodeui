@@ -3,7 +3,7 @@ id: gap-voice-error-notice-browser-e2e
 title: 真实浏览器里 403 未开通 / 404 模型不存在 / 空答案 / 服务端 422
   各显示自己的中文文案，提示持续显示到关闭、下次录音时清除，草稿逐字保留，技术详情折叠展开后才读得到状态码与
   upstreamCode，页面上没有拼接句（AC-153）
-status: todo
+status: ready
 labels:
   - gap
   - defect
@@ -11,10 +11,7 @@ parent: null
 children: []
 extra:
   schema: execution
-depends_on:
-  - gap-voice-error-classification-and-status-table
-  - gap-voice-error-envelope-contract
-  - gap-voice-error-messages-i18n-fallback
+depends_on: []
 goal_ac: AC-153
 ---
 ## Proposal
@@ -93,16 +90,16 @@ goal_ac: AC-153
 
 ## AC
 
-- [ ] AC1 判据入口与预算：`npx playwright test e2e/voice-error-messages.spec.ts` 退出码 0，输出里四条腿与全部行为断言都 passed；同一次运行的 wall clock 打印为 `criterion-wall-ms=<n>` 且 **< 45000**（`playwright.config.ts` 的 `RUN_CEILING_MS=55000` 看门狗会 SIGKILL 整次调用，60 秒判据门再外面一层且不可调）。断言输出里**没有** `[e2e] watchdog:` 行（有即失败，打印 `watchdog-line=<b>`）。打印 `legs=<n> passed=<n> criterion-wall-ms=<n> watchdog-line=<b>`。
-- [ ] AC2 四条腿各自的文案（中文界面）：设置页选 DashScope 并填地址与 key（provider id 从 `/api/voice/health` 载荷读，不硬编码用于选择）；四条腿各驱动一次录制（腿间只改替身应答，**不重开 page**），逐腿打印 `leg=<名> status=<n> code=<信封里的 code> page-said=<…> expected=<zh-CN 的 voice.errors.<code>> equals=<b> is-chinese=<b>`，并断言 `equals` 为真、`is-chinese`（该句 ≠ 同键的 en 文案）为真。四条腿的页码文案里至少 3 句互不相同。末尾打印 `legs=4 coded=<n> distinct=<n> chinese=<n>`。
-- [ ] AC3 空 200 与服务端 422 显示同一条文案：腿 (c)（格式正确但为空的 200）与腿 (d)（服务端 422 带 `NO_SPEECH_DETECTED`）的页面文案**逐字相等**，且都等于 zh-CN 的 `voice.errors.NO_SPEECH_DETECTED`；两条腿的 code 读数一起打印（腿 (c) 走的是前端空答案支，其「code」记为 `local-empty`）。打印 `empty-200=<…> server-422=<…> equal=<b> both-equal-vocab=<b>`。
-- [ ] AC4 提示持续显示到关闭（取假形态 (1) 的正式读数）：某条腿里失败真的发生（**正对照**：提示先可见，打印 `visible-first=<b>`），`waitForTimeout` 到 4 秒之后（≥4500ms）再断言**仍然可见**且文案**逐字未变**；随后点关闭控件（可及名 = zh-CN 的 `common.buttons.close`，实测「关闭」）断言**消失**；另一条腿里先让提示出现、再开始下一次录音断言**被清除**。打印 `visible-first=<b> visible-after-4s=<b> text-unchanged=<b> closed=<b> cleared-on-next-recording=<b>`。**这一条就是「仍用 4 秒计时 ⇒ 必须红」的落点**：计时器还在时 `visible-after-4s` 必为假。
-- [ ] AC5 草稿逐字保留（取假形态 (3) 的正式读数）：录制前 `fill` 一段本轮唯一的草稿、读回逐字相等（打印 `draft-before=<…>`）；每条腿的提示真的出现之后（打印 `notice-shown=<b>`，**正对照**）再读一次，断言仍逐字相等。打印 `draft-before=<…> notice-shown=<b> draft-after=<…> drafts-kept=<n>/<n>`。
-- [ ] AC6 技术详情折叠 + 没有拼接句（取假形态 (2) 的正式读数）：某条腿里展开前断言读不到该腿的状态码数字与 `upstreamCode` 串（`collapsed-hides-code=<b>`、`collapsed-hides-upstream=<b>`），点开摘要后断言读得到（`expanded-shows-status=<b>`、`expanded-shows-upstream=<b>`），展开后的读数就是「展开前读不到」的**正对照**（缺了它，一个什么都不显示的实现在空集上也满足）。四条腿每次读 `body.innerText()`，断言全轮没有任何位置匹配 `/transcribe\s*\(?\d+/i`（`concat-hits=0`），且页面文案不等于拼接句。打印 `collapsed-hides-code=<b> collapsed-hides-upstream=<b> expanded-shows-status=<b> expanded-shows-upstream=<b> status-read=<n> upstream-read=<…> concat-hits=<n>`。
-- [ ] AC7 夹具播种与自锚（`playwright.config.ts`）：新增本条自己的种子函数、工作区、WAV 与两条 transcript，在 `isDataDirOwner` 块里挂上；WAV 在 config 求值期写并经 `process.env.QUAY_E2E_VOICE_ERROR_AUDIO` 发布。判据的会话/项目定位器锚在本条自己的会话名上（侧栏里同时存在别的 spec 播种的会话行）。打印 `audio-file=<路径> exists=<b> workspace=<路径> session-anchor=<名> own-rows=<n>`，并断言 `QUAY_E2E_DATA_DIR` **未被**外部设置（`dataDir-owner=true`）。
-- [ ] AC8 取假形态可执行：`npx vitest run src/modules/chat/tests/voiceErrorNoticePersistence.test.tsx` 退出 0；三例各自「未变异副本先绿 → 变异体在预测族里红一条并打印红的是哪一条 → 族外至少一条仍绿」，逐例指名：`four-second-timer` 红 AC4 的 `visible-after-4s`、`concat-message` 红 AC2 的等式与 AC6 的 `concat-hits`、`clear-draft-on-failure` 红 AC5 的草稿逐字断言；跑完 `git status --porcelain` 与本文件启动时逐字相同、无临时副本残留。打印 `mutation=<名> lever=<杠杆> base-green=<b> mutant-red=<b> which=<读的是哪条> outside-family-green=<b>`。**浏览器层不另造变异工装**，这一点在同一段输出里写明理由（55 秒看门狗下跑不了「基线＋三例」）。
-- [ ] AC9 既有的浏览器判据不退化（逐条打印 `exit=<n> name=<…>`，不是空过）：`npx playwright test e2e/voice-dashscope-written.spec.ts`（**含被本次改期望值的 AC-142 腿**，其草稿逐字断言、`proxyPosts === 1`、`aliyuncsLedger === []` 一条不许放松）、`npx playwright test e2e/voice-trim.spec.ts`、`npx playwright test e2e/voice-identifier-repair.spec.ts` 各退出 0；`npx vitest run src/modules/chat/tests/voiceClipPlayback.test.tsx src/modules/chat/tests/voiceInputButtonName.test.tsx src/modules/chat/tests/composerDraftScoping.test.tsx src/modules/chat/tests/voiceTranscriptRepair.test.tsx` 退出 0；`npm run typecheck`（三套）与 `npm run lint` 退出 0。被改掉期望值的每一处逐条写「原来钉什么、现在钉什么」。
-- [ ] AC10 如实登记：判据输出与本任务完成记录里写明「本条只做真实浏览器里的显示行为（四条腿各自的本地化文案、持续显示到关闭、下次录音时清除、草稿逐字保留、折叠技术详情、无拼接句、空 200 与 422 同句）与其组件层三例取假形态；未做词汇表与分类与状态表（AC-149）、代理路由信封与 `upstreamCode`（AC-150）、十二语言文案与 code→文案映射（AC-151）、直连路径同码（AC-152）、ADR-004 修订；未改 `voice.transcribe` 行形状；未联网、未跑真实 DashScope 与真机浏览器；替身伪装上游失败与真实路由的偏差与 AC-142 的 `:92-105` 同一处；`upstreamCode` 的取值由替身造的响应体决定，不是真实上游响应体」，并把实际用到的运行期词表常量名、`voice.errors` 的实际键名、关闭控件实际复用的 i18n 键、以及技术详情摘要的实际构造逐条记下来。
+- [x] AC1 判据入口与预算：`npx playwright test e2e/voice-error-messages.spec.ts` 退出码 0，输出里四条腿与全部行为断言都 passed；同一次运行的 wall clock 打印为 `criterion-wall-ms=<n>` 且 **< 45000**（`playwright.config.ts` 的 `RUN_CEILING_MS=55000` 看门狗会 SIGKILL 整次调用，60 秒判据门再外面一层且不可调）。断言输出里**没有** `[e2e] watchdog:` 行（有即失败，打印 `watchdog-line=<b>`）。打印 `legs=<n> passed=<n> criterion-wall-ms=<n> watchdog-line=<b>`。
+- [x] AC2 四条腿各自的文案（中文界面）：设置页选 DashScope 并填地址与 key（provider id 从 `/api/voice/health` 载荷读，不硬编码用于选择）；四条腿各驱动一次录制（腿间只改替身应答，**不重开 page**），逐腿打印 `leg=<名> status=<n> code=<信封里的 code> page-said=<…> expected=<zh-CN 的 voice.errors.<code>> equals=<b> is-chinese=<b>`，并断言 `equals` 为真、`is-chinese`（该句 ≠ 同键的 en 文案）为真。四条腿的页码文案里至少 3 句互不相同。末尾打印 `legs=4 coded=<n> distinct=<n> chinese=<n>`。
+- [x] AC3 空 200 与服务端 422 显示同一条文案：腿 (c)（格式正确但为空的 200）与腿 (d)（服务端 422 带 `NO_SPEECH_DETECTED`）的页面文案**逐字相等**，且都等于 zh-CN 的 `voice.errors.NO_SPEECH_DETECTED`；两条腿的 code 读数一起打印（腿 (c) 走的是前端空答案支，其「code」记为 `local-empty`）。打印 `empty-200=<…> server-422=<…> equal=<b> both-equal-vocab=<b>`。
+- [x] AC4 提示持续显示到关闭（取假形态 (1) 的正式读数）：某条腿里失败真的发生（**正对照**：提示先可见，打印 `visible-first=<b>`），`waitForTimeout` 到 4 秒之后（≥4500ms）再断言**仍然可见**且文案**逐字未变**；随后点关闭控件（可及名 = zh-CN 的 `common.buttons.close`，实测「关闭」）断言**消失**；另一条腿里先让提示出现、再开始下一次录音断言**被清除**。打印 `visible-first=<b> visible-after-4s=<b> text-unchanged=<b> closed=<b> cleared-on-next-recording=<b>`。**这一条就是「仍用 4 秒计时 ⇒ 必须红」的落点**：计时器还在时 `visible-after-4s` 必为假。
+- [x] AC5 草稿逐字保留（取假形态 (3) 的正式读数）：录制前 `fill` 一段本轮唯一的草稿、读回逐字相等（打印 `draft-before=<…>`）；每条腿的提示真的出现之后（打印 `notice-shown=<b>`，**正对照**）再读一次，断言仍逐字相等。打印 `draft-before=<…> notice-shown=<b> draft-after=<…> drafts-kept=<n>/<n>`。
+- [x] AC6 技术详情折叠 + 没有拼接句（取假形态 (2) 的正式读数）：某条腿里展开前断言读不到该腿的状态码数字与 `upstreamCode` 串（`collapsed-hides-code=<b>`、`collapsed-hides-upstream=<b>`），点开摘要后断言读得到（`expanded-shows-status=<b>`、`expanded-shows-upstream=<b>`），展开后的读数就是「展开前读不到」的**正对照**（缺了它，一个什么都不显示的实现在空集上也满足）。四条腿每次读 `body.innerText()`，断言全轮没有任何位置匹配 `/transcribe\s*\(?\d+/i`（`concat-hits=0`），且页面文案不等于拼接句。打印 `collapsed-hides-code=<b> collapsed-hides-upstream=<b> expanded-shows-status=<b> expanded-shows-upstream=<b> status-read=<n> upstream-read=<…> concat-hits=<n>`。
+- [x] AC7 夹具播种与自锚（`playwright.config.ts`）：新增本条自己的种子函数、工作区、WAV 与两条 transcript，在 `isDataDirOwner` 块里挂上；WAV 在 config 求值期写并经 `process.env.QUAY_E2E_VOICE_ERROR_AUDIO` 发布。判据的会话/项目定位器锚在本条自己的会话名上（侧栏里同时存在别的 spec 播种的会话行）。打印 `audio-file=<路径> exists=<b> workspace=<路径> session-anchor=<名> own-rows=<n>`，并断言 `QUAY_E2E_DATA_DIR` **未被**外部设置（`dataDir-owner=true`）。
+- [x] AC8 取假形态可执行：`npx vitest run src/modules/chat/tests/voiceErrorNoticePersistence.test.tsx` 退出 0；三例各自「未变异副本先绿 → 变异体在预测族里红一条并打印红的是哪一条 → 族外至少一条仍绿」，逐例指名：`four-second-timer` 红 AC4 的 `visible-after-4s`、`concat-message` 红 AC2 的等式与 AC6 的 `concat-hits`、`clear-draft-on-failure` 红 AC5 的草稿逐字断言；跑完 `git status --porcelain` 与本文件启动时逐字相同、无临时副本残留。打印 `mutation=<名> lever=<杠杆> base-green=<b> mutant-red=<b> which=<读的是哪条> outside-family-green=<b>`。**浏览器层不另造变异工装**，这一点在同一段输出里写明理由（55 秒看门狗下跑不了「基线＋三例」）。
+- [x] AC9 既有的浏览器判据不退化（逐条打印 `exit=<n> name=<…>`，不是空过）：`npx playwright test e2e/voice-dashscope-written.spec.ts`（**含被本次改期望值的 AC-142 腿**，其草稿逐字断言、`proxyPosts === 1`、`aliyuncsLedger === []` 一条不许放松）、`npx playwright test e2e/voice-trim.spec.ts`、`npx playwright test e2e/voice-identifier-repair.spec.ts` 各退出 0；`npx vitest run src/modules/chat/tests/voiceClipPlayback.test.tsx src/modules/chat/tests/voiceInputButtonName.test.tsx src/modules/chat/tests/composerDraftScoping.test.tsx src/modules/chat/tests/voiceTranscriptRepair.test.tsx` 退出 0；`npm run typecheck`（三套）与 `npm run lint` 退出 0。被改掉期望值的每一处逐条写「原来钉什么、现在钉什么」。
+- [x] AC10 如实登记：判据输出与本任务完成记录里写明「本条只做真实浏览器里的显示行为（四条腿各自的本地化文案、持续显示到关闭、下次录音时清除、草稿逐字保留、折叠技术详情、无拼接句、空 200 与 422 同句）与其组件层三例取假形态；未做词汇表与分类与状态表（AC-149）、代理路由信封与 `upstreamCode`（AC-150）、十二语言文案与 code→文案映射（AC-151）、直连路径同码（AC-152）、ADR-004 修订；未改 `voice.transcribe` 行形状；未联网、未跑真实 DashScope 与真机浏览器；替身伪装上游失败与真实路由的偏差与 AC-142 的 `:92-105` 同一处；`upstreamCode` 的取值由替身造的响应体决定，不是真实上游响应体」，并把实际用到的运行期词表常量名、`voice.errors` 的实际键名、关闭控件实际复用的 i18n 键、以及技术详情摘要的实际构造逐条记下来。
 
 ## DoD
 
@@ -131,5 +128,100 @@ L_G 该轴仍暗，理由：目标层要求的「真实浏览器里各类失败�
 - e2e/voice-trim.spec.ts
 - src/modules/chat/composer/ChatComposer.tsx
 - src/modules/chat/composer/VoiceInputButton.tsx
+- src/modules/chat/hooks/useVoiceInput.ts
 - src/modules/chat/tests/voiceErrorNoticePersistence.test.tsx (new)
+- src/modules/chat/tests/voiceErrorMessages.test.tsx
 - tasks/gap-voice-error-notice-browser-e2e.md
+
+## 完成记录
+
+### 交付面（每个文件钉什么）
+
+| 文件 | 改了什么 |
+|---|---|
+| `e2e/voice-error-messages.spec.ts`（新） | AC-153 的判据本身：`playwright.config.ts` 的 webServer 起真后端＋真 Vite，假麦克风录真 WAV，`addInitScript` 把界面语言播成 zh-CN，走完 onboarding 后在设置页选 DashScope（provider id 从 `/api/voice/health` 读）并填地址与 key；**同一个 page/context 四条腿**，腿间只改浏览器侧替身的应答；打印每条腿的 `status/code/page-said/expected/equals/is-chinese`、`legs=4 coded=4 distinct=3 chinese=4`、`empty-200/server-422` 同句、`visible-first/visible-after-4s/text-unchanged/closed/cleared-on-next-recording`、`drafts-kept=4/4 notices-shown=4/4`、`collapsed-hides-code/…/concat-hits=0`、`dataDir-owner=true`、`close-reachable: … reaches=true`、`legs=4 passed=4 criterion-wall-ms=<n> watchdog-line=<b>`。 |
+| `playwright.config.ts` | 本条自己的种子 `seedVoiceErrorMessagesWorkspace()`：工作区 `voice-error-messages-workspace`、自己的一句 utterance、**config 求值期**写 WAV 并经 `QUAY_E2E_VOICE_ERROR_AUDIO` 发布（Chromium 在浏览器启动那一刻就打开它）、`dataDir/.claude/projects/voice-error-messages-workspace/` 下两条 transcript（一条带 turn、一条带 `customTitle`），挂在 `isDataDirOwner` 块里；另把看门狗状态写进 `dataDir/watchdog-state.json`，因为 AC1 的 `watchdog-line=<b>` 是**运行器进程**打印的，spec 读不到自己的 stdout，只能读这个状态文件（`armed=true` 作正对照）。 |
+| `src/modules/chat/composer/VoiceInputButton.tsx` | 默认导出回到「只有按钮」（`{state,onToggle}`）；新增命名导出 `VoiceFailureNotice`：句子在**渲染期**按 failure 的 code 解出（`voiceErrorMessage`），关闭控件复用 `common.buttons.close`，技术详情是 `<details>/<summary>`（`<pre>` 只在展开时挂载，所以折叠态提示区文本就是句子本身）。提示**不渲染在按钮里**：composer 的 form 是 `relative overflow-hidden`（`PromptInput` 的壳，为了把高亮层裁到圆角），锚在按钮上方画出去的提示会被裁掉，关闭控件那一行正好落在 form 盒外、由聊天面板接走指针。 |
+| `src/modules/chat/composer/ChatComposer.tsx` | `voiceFailure` 存 `VoiceFailureReport` 而不是字符串；**4 秒计时器与卸载清理删除**；提示层渲染在 `chat-composer-shell`（与既有的 ActivityIndicator 同层、同为 form 的兄弟），`handleVoiceToggle` 在开始下一次录音时清除，`dismissVoiceFailure` 是关闭控件的回调。 |
+| `src/modules/chat/hooks/useVoiceInput.ts` | 本地空答案支 `onError?.('No speech detected')` → `onError?.({ status: res.status, code: 'NO_SPEECH_DETECTED' })`（**这一处由 AC3 强制**，见下）。 |
+| `e2e/voice-trim.spec.ts` | `VOICE_ERRORS` 诊断词表最后一项从字面量 `'No speech detected'` 改成读出货 `en/chat.json` 的 `voice.errors.NO_SPEECH_DETECTED`。 |
+| `src/modules/chat/tests/voiceErrorNoticePersistence.test.tsx`（新） | 取假形态三例（组件层 jsdom，驱动**出货的** `ChatComposer`）。 |
+
+### 为什么 `useVoiceInput.ts` 进了 Touches（预检读数）
+
+用 dist 的 `checkTaskAntiDrift` 在提交后的树上对 `develop...HEAD` 的实际改动集预检：
+
+- 按立案时声明的 Touches：`ok=false`，`{"type":"out-of-declared","file":"src/modules/chat/hooks/useVoiceInput.ts"}`
+- 补上那一行后：`ok=true`（9 个 glob，0 violation）
+
+这一改由 AC3 强制：「空的 200 结果与 422 显示**同一条**文案」要求本地空答案支把 `NO_SPEECH_DETECTED` 这个 **code** 交出去（而不是它今天写死的那句英文）；没有它，腿 (c) 的 `equals` 与 `is-chinese` 都必红。空答案与上游 422 是同一个条件（录到了、但没话可写），所以两支必须落到同一个词表成员上，而句子的语言归属留在显示层。
+
+### AC 读数（逐条）
+
+- **AC1** `exit=0`；`legs=4 passed=4 criterion-wall-ms=24249 watchdog-line=false`（`1 passed (24.2s)`；预算 45000，看门狗 55000）。`watchdog-line` 由 config 写下的 `watchdog-state.json` 读回：`armed=true fired=false`。
+- **AC2** 四腿各 `equals=true is-chinese=true`：
+  - `leg=account-403 status=403 code=ACCOUNT_ACCESS page-said="该账户无法使用这个语音服务——请确认订阅与模型权限已生效，然后重试。"`
+  - `leg=model-404 status=404 code=MODEL_NOT_FOUND page-said="该账户用不了这个转写模型——请在语音提供方设置里换一个模型。"`
+  - `leg=empty-200 status=200 code=local-empty page-said="录音里没有检测到人声——请靠近麦克风重新录制。"`
+  - `leg=server-422 status=422 code=NO_SPEECH_DETECTED page-said="录音里没有检测到人声——请靠近麦克风重新录制。"`
+  - `legs=4 coded=4 distinct=3 chinese=4`（三句互不相同；那一对相等即 AC3）。
+- **AC3** `empty-200="录音里没有检测到人声——请靠近麦克风重新录制。" server-422="…（逐字相同）" equal=true both-equal-vocab=true`。腿 (c) 的「code」记为 `local-empty`，因为它走的是前端空答案支，线路信封里没有 code。
+- **AC4** `visible-first=true visible-after-4s=true text-unchanged=true closed=true cleared-on-next-recording=true`。正对照 `visible-first` 先读，4 秒读数取 `waitForTimeout(≥4500)` 之后；关闭控件的可及名是 zh-CN 的 `common.buttons.close`（关闭）。另打印 `close-reachable: notice-top=468 notice-bottom=549 form-top=553 element-at-close=path reaches=true` —— 这条读数就是「提示必须画在 form 之外」的证据：提示底边 549、form 顶边 553，落在关闭控件中心的是提示自己。
+- **AC5** `drafts-kept=4/4 notices-shown=4/4`，四腿各 `draft-before="keep this failure-message draft character for character <n> <腿名>"` 与 `draft-after` 逐字相等（`draft-before` 是录制前 `fill` 进去再读回的**本轮唯一**字符串）。
+- **AC6** `collapsed-hides-code=true collapsed-hides-upstream=true expanded-shows-status=true expanded-shows-upstream=true status-read=403 upstream-read=AccessDenied.Unpurchased concat-hits=0`；四条腿每次读 `body.innerText()`，全轮没有位置匹配 `/transcribe\s*\(?\d+/i`。
+- **AC7** `audio-file=/data/scratch/yale/quay-e2e-BQeZKv/voice-error-messages-utterance.wav exists=true workspace=/data/scratch/yale/quay-e2e-BQeZKv/voice-error-messages-workspace session-anchor=voice-error-messages own-rows=1`、`dataDir-owner=true`（`QUAY_E2E_DATA_DIR` 未被外部设置 ⇒ 种子没有被跳过）。`own-rows=1` 是锚在本条自己的会话名上的侧栏行数，同一次 config 求值还写了别的 spec 的种子。
+- **AC8** `npx vitest run src/modules/chat/tests/voiceErrorNoticePersistence.test.tsx` → `Tests 3 passed (3)`：
+  - `mutation=four-second-timer lever=the pre-change timer restored in the failure handler, unmutated copy imported first base-green=true mutant-red=true which=AC4 visible-after-4s outside-family-green=true (AC4 closed-on-close-control) noticed=true`
+  - `mutation=concat-message lever=the failure handler hands the notice the chain's own concatenated sentence base-green=true mutant-red=true which=AC2 sentence-equals-code-copy + AC6 concat-hits outside-family-green=true (AC4 visible-after-4s) noticed=true`
+  - `mutation=clear-draft-on-failure lever=the failure handler clears the composer's own input through the channel it is given for it base-green=true mutant-red=true which=AC5 draft-kept outside-family-green=true (AC4 visible-after-4s) noticed=true`
+  - `[voice-error-mutation] copies-written=3 removed-now=3 leftover-in-tree=[]`；跑完 `git status --porcelain` 与该文件启动时逐字相同（`diff` 为空），目录里 0 个 `__mutation-*` 残留。
+- **AC9** 逐条（`exit=<n> name=<…>`）：
+  - `exit=0 name=npx playwright test e2e/voice-dashscope-written.spec.ts`（3 passed, 23.0s，**含被兄弟提交改过期望值的 AC-142 腿**）
+  - `exit=0 name=npx playwright test e2e/voice-trim.spec.ts`（4 passed, 39.8s）
+  - `exit=0 name=npx playwright test e2e/voice-identifier-repair.spec.ts`（1 passed, 13.8s）
+  - `exit=0 name=npx vitest run …voiceClipPlayback …voiceInputButtonName …composerDraftScoping …voiceTranscriptRepair`（4 passed）
+  - `exit=0 name=npx vitest run src/modules/chat/tests/voiceErrorNoticePersistence.test.tsx`（3 passed）
+  - `exit=0 name=npm run typecheck`（`tsc -p tsconfig.json` / `server/tsconfig.json` / `scripts/tsconfig.json` 三套各 0）
+  - `exit=0 name=npm run lint`
+  - 另：`e2e/**` 与 `playwright.config.ts` 不在任何工程 tsconfig 里，用一条 ad-hoc 命令单独验（`--strict --moduleResolution bundler --resolveJsonModule`，四个 spec ＋ config）：`exit=0`。
+- **AC10** 见下。
+
+### 联动改动：原来钉什么、现在钉什么
+
+1. **AC-142 的腿**（`e2e/voice-dashscope-written.spec.ts:748-806`）：这条腿的期望值在本条落地前已经**被兄弟提交 `38c1025c` 改到新形态**（在 develop 上，本条只验证不重改 —— 本条对该文件的 delta 为空）。原来钉：`page.getByText(/Transcription failed/)` 取气泡，`shown` 含 `'Transcription failed'`、含 `'UNAUTHORIZED'`、不含 `'No speech detected'`。现在钉：按 code 从运行期读出的出货英文句子（`en/chat.json` 的 `voice.errors`），「录音前不存在 → 录音后出现」两端，以及 `REFUSAL_ENVELOPE.code` 选中的那句与 `NO_SPEECH_DETECTED`、`unknown` 兜底三者两两不等。**没有放松任何读数结构**：草稿逐字、`proxyPosts === 1`、`aliyuncsLedger === []` 均未动（该文件的 delta 为空即可证明）。
+2. **`e2e/voice-trim.spec.ts:91-97` 的诊断词表**：原来第 4 项是字面量 `'No speech detected'`（本地空答案支当时直接交给 composer 的英文）。现在读 `src/modules/i18n/locales/en/chat.json` 的 `voice.errors.NO_SPEECH_DETECTED` = `"No speech was found in the recording — record again and speak closer to the microphone."`。三项**链自身**写死的英文（`'Recording too short'` / `'Audio file too small'` / `'Transcription failed'` / `'Microphone access denied'`）保持字面量：它们是 `useVoiceInput` 自己写的传输层失败，没有语言层拥有它们；`Transcription failed:` 那句在 `useVoiceInput.ts` 的 catch 支里仍然存在（请求**抛错**时走它），所以它不是死词。这是**诊断词表**（只在失败消息里拼一行 `app reported=…`），不是断言，也不改变徽标行为。该文件还顺手把这条从 JSON 读取写成了 `fs.readFileSync(path.resolve(process.cwd(), …))`：本包是 ESM、spec 由 Node 的 ESM 加载器求值，JSON 静态 import 需要 `with { type: 'json' }`，而本仓库没有 spec 那么写（第一版用了静态 import，运行器直接 `TypeError: Module … needs an import attribute of "type: json"`，改后正常）。
+
+3. **AC-151 的判据取提示的方式**（`src/modules/chat/tests/voiceErrorMessages.test.tsx`，其 `criterion:` 见 `goals/AC-151-每个错误码在全部语言里都有非空文案-并有兜底文案-文案不是拼接的状态句.md:7`）：这条判据的 AC4b（「出货 composer 在每种语言下都显示该语言的兜底句」）原本从**麦克风按钮**往上爬两层、取「第一个既不是按钮也不含按钮的子元素」的 `textContent` —— 那正是 `VoiceInputButton` 自己渲染气泡时的形状（`<span class="relative inline-flex">{句子}<PromptInputButton/></span>`）。本条落地后那个气泡不在了：composer 的 form 是 `relative overflow-hidden`，画在 form 里面的提示会被 form 顶边裁掉，关闭控件（提示的第一行）落在 form 盒外、由聊天面板接走指针 —— 而 AC4 要求点得动关闭控件（判据自己读 `close-reachable: … reaches=`），所以提示只能是 form 的兄弟、从 composer 自己的 shell 画出来（与它上面的 ActivityIndicator 同层）。于是 AC4b 的**取提示的方式**改到提示自己的层（`[data-testid="voice-error-notice"]`），**读数结构一条没放松**：仍是整层的全部 `textContent`、仍与 `voice.errors.unknown` **逐字相等**（不是 `includes`，所以「正确句子后面粘着传输层句子」仍是另一个字符串）、仍在该层不存在时返回 `null`（「什么都没显示」不能读成「显示了正确句子」）。这与 AC-142 的腿在本条显示形态落地时得到的处理是同一类：**只改取提示的方式与期望值，不放松读数**。`bubbleText` → `noticeSentence` 的文档注释里写明了搬家理由与那条 `close-reachable` 读数。
+   **实测（同一个文件，改前改后）**：改前 12 种语言全部 `composer-text="" equals-unknown=false`（爬到了按钮自己的图标层，读到空串）→ 该用例红；改后 12 种语言全部 `composer-text="<该语言的 voice.errors.unknown>" equals-unknown=true` → `9 passed (9)`。这一对读数同时证明新取法**不是空过**：什么都没显示时它照样红。
+
+### 取假形态的杠杆（AC8）
+
+三例用**同一根杠杆**：读出货 `src/modules/chat/composer/ChatComposer.tsx` 的源码 → 在一个锚点（`voiceFailure` 状态 + `handleVoiceError` 那 4 行）上做**一次**字符串替换（`split(anchor)` 命中数必须恰好为 1，否则抛错，避免改错文件）→ 写到同目录 `__mutation-<名>-ChatComposer.tsx` → 动态 import → 读读数 → `afterAll` 删除并断言目录里 0 个 `__mutation-*`。三根被否的杠杆：模块替身（`vi.mock`）要**再实现一遍**被测组件，读到的是替身不是出货文件；原地改留下变异树，本文件一旦崩溃就删不掉；内存克隆无法作为模块 import 到 JSX 变换里。三例都是「出货源码 + 一处锚定编辑」，别的字节不动。
+
+第 (iii) 例的形态值得记一句：composer 的草稿是**受控 prop**（`input` + `onInputChange`，真身在 `useChatComposerState`），组件能清草稿的唯一通道就是它拿到的那个回调，所以变异体走的就是那条通道（`onInputChange({target:{value:''}})`）——这正是改动前的父层 `setInput('')` 等价物。
+
+**浏览器层不另造变异工装**：一次判据运行实测 24.2-24.5 秒，`playwright.config.ts` 的看门狗在 55 秒处 SIGKILL 整次调用、60 秒判据门外再一层，跑不了「基线＋三例」；三例的可执行旁证因此在**同一个出货组件的 jsdom 层**，判据文件只读出货构建。这一点连同理由写在 AC8 的输出里（`[voice-error-mutation] registration: …`）。
+
+### 登记（AC10）
+
+本条只做**真实浏览器里的显示行为**：四条腿各自的本地化文案、提示持续显示到关闭、下次录音时清除、草稿逐字保留、折叠技术详情、无拼接句、空 200 与服务端 422 同句；以及组件层三例取假形态。**不做**：词汇表/分类函数/状态表（AC-149）、代理路由的失败信封与 `upstreamCode` 的提取（AC-150）、十二语言 `voice.errors.*` 文案与 code→文案映射（AC-151）、直连路径的分类与同码（AC-152）——本条**消费**这四条的交付面。不做 ADR-004 修订；未改 `voice.transcribe` 日志行形状；未改识别行为/提示词/模型；未做上传前静音检查、失败自动重试、「打开设置」跳转按钮；未联网、未跑真实 DashScope、未跑真机浏览器。
+
+实际用到的运行期事实，逐条记下：
+
+- **运行期词表常量**：`ASR_ERROR_CODES`（`@shared/asr/asrRegistry`），经 `voiceErrorKey`（`src/modules/chat/utils/voiceErrorMessages.ts`）映射到语言键；判据在输出里打印了常量名与映射函数的路径。
+- **`voice.errors` 的实际键名**（读出货 `zh-CN/chat.json`）：`[ACCOUNT_ACCESS,UNAUTHORIZED,QUOTA_EXHAUSTED,RATE_LIMITED,MODEL_NOT_FOUND,AUDIO_REJECTED,CONTENT_FLAGGED,NO_SPEECH_DETECTED,UPSTREAM_UNAVAILABLE,NOT_CONFIGURED,INVALID_BASE_URL,OVERSIZE,UNSUPPORTED_MIME,unknown]`（14 个）。
+- **关闭控件复用的 i18n 键**：`common.buttons.close`（zh-CN = 关闭）；没有新增任何语言键，`locales/*.json` 一个字节未动。
+- **技术详情摘要的实际构造**：`<details data-testid="voice-error-details">` + `<summary data-testid="voice-error-details-summary" aria-label="Technical details" title="Technical details">`（字面量——没有语言键命名 disclosure，详见该文件里的理由）+ `<pre data-testid="voice-error-technical">` 只在展开时挂载；所以折叠态提示区的 `textContent` 是**句子本身**（关闭控件的名字在 `aria-label`/`title` 里，摘要的名字也在属性里，都不是文本节点）。
+- **替身与真实路由的偏差**：与 AC-142 的 `e2e/voice-dashscope-written.spec.ts:92-105` 同一处、同一句话——替身在**上游拒绝**时多给了一个 code（真实路由只为上游**之前**的拒绝码重发 code）。`upstreamCode` 的取值由替身造的响应体决定，不是真实上游响应体；服务端的分类/信封没有被本条判据驱动。
+- **写库方式**：`quay task edit … --body-file`（Provider ABI 的 CLI 前端，与 MCP `task_write` 同一写路径），写后用 byte diff 验证落库内容与送出的 body 逐字相同 —— 不手改任何 `- [ ]`/`- [x]` 字符。
+
+## Needs-Human
+
+**执行 2026-09-24T18:10:34.959Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=32305 server/modules/voice/tests/voice-capture-text.false-forms.test.ts passed=false end_ms=1790273323418
+- run_id：wk-prod-anchor
+- session_id：5debdf69-c242-42c2-8b34-6cc625de4671
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-error-notice-browser-e2e~wk-prod-anchor~1790273242324-15ad43.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-error-notice-browser-e2e-wk-prod-anchor.log

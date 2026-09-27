@@ -1396,26 +1396,51 @@ export type VoiceServiceResult<TValue> =
     status: number;
     error: string;
     /**
-     * The semantic code for a refusal the caller is meant to act on differently from a generic
-     * failure, taken from the recogniser seam's own vocabulary (`AsrErrorCode`). Absent for the
-     * failures whose meaning a caller does not branch on — an unreachable backend, a rejected
-     * key.
+     * The semantic code for this failure, taken from the recogniser seam's own vocabulary
+     * (`AsrErrorCode`). EVERY FAILURE OF AN ATTEMPT CARRIES ONE, and so does every refusal of an
+     * upload that reached a gate — the three pre-request gates (container, budget, endpoint rule)
+     * always did, and the failures read off the transport now do as well: an adapter already names
+     * its upstream's refusal in the vocabulary (`UNAUTHORIZED` for a rejected key, `RATE_LIMITED`
+     * for the upstream's own limit, `UPSTREAM_UNAVAILABLE` for a 5xx, a transport that never
+     * answered and an answer that was not the service's envelope, and the finer members the answer's
+     * own body earns it: `ACCOUNT_ACCESS`, `QUOTA_EXHAUSTED`, `MODEL_NOT_FOUND`, `AUDIO_REJECTED`,
+     * `CONTENT_FLAGGED` — see `classifyUpstreamFailure`), and the route republishes
+     * that name instead of dropping it. A client that has to choose the words for "you said nothing"
+     * against "we could not reach the service" cannot do it from a status number — `422` and `502`
+     * are the same two numbers for several different remedies — and the code is the one field that
+     * survives the round trip with its meaning.
      *
-     * A BAD URL IS NO LONGER ONE OF THOSE, and the example is worth spelling out because it moved:
-     * the recogniser seam now carries an endpoint rule of its own (`AsrAdapter.allowedBaseUrl`),
-     * and the server refuses a `'proxy-only'` provider's address through it with
-     * `INVALID_BASE_URL` — the code the vocabulary has always had for that refusal. The URL that
-     * still arrives without a code is the one `validateBackendBaseUrl` cannot parse as a backend
-     * address at all, which no client can act on beyond "fix the setting".
+     * THE FAILURES STILL WITHOUT ONE, named so the rule above is read as what it is rather than as a
+     * promise the path does not keep: the format gate (`validateConfiguredBackend`), which refuses a
+     * setting that is not a URL at all — a state of the deployment rather than a meaning about an
+     * attempt, and the narrower endpoint rule above it is what carries `INVALID_BASE_URL`; a provider
+     * id nothing in the registry claims, which is the same kind of state and has no member in the
+     * vocabulary to be named by; and the TTS face, which shares this type but not the recogniser's
+     * vocabulary.
      *
-     * The route republishes it verbatim beside the message, because the three status codes this
-     * carries today (`UNSUPPORTED_MIME`, `OVERSIZE`, `INVALID_BASE_URL`) are all *pre-upstream*
-     * refusals that a client distinguishes by reason rather than by status: "this container is not
-     * accepted", "this recording is too big" and "this address is not one this recogniser may be
-     * reached at" are different user remedies, and a status number alone cannot carry which one it
-     * was across the two paths that both produce them.
+     * The route republishes it verbatim beside the message.
      */
     code?: AsrErrorCode;
+    /**
+     * The upstream's own error code, when it answered with one — the string its body used to name the
+     * failure, such as `AccessDenied.Unpurchased` or `Throttling.RateQuota`.
+     *
+     * WHAT THIS IS FOR, given `code` above already says what went wrong. `code` is the CLASSIFIED
+     * meaning, and the classification is this application's reading; `upstreamCode` is the evidence
+     * it was read from, unclassified and unlocalised. A user (or a support thread, or the folded
+     * technical detail in the UI) can compare it against the service's own error-code page, which is
+     * the only place the exact row for a failure like an expired account exists — and a code the
+     * classifier does not recognise still arrives with its evidence attached instead of being
+     * swallowed into the generic `UPSTREAM_UNAVAILABLE`.
+     *
+     * IT IS ALWAYS A SLICE OF THE UPSTREAM'S BODY (`extractUpstreamCode` guarantees that) and it is
+     * absent, never empty or invented, when the upstream named nothing, when this process never got
+     * an answer to read (a transport that refused to connect), or when the answer held no string of
+     * the shape a code has. It is a value the server read, not a value it composed — so it is also
+     * not sanitised prose, and the two rules that keep it that way (never copy the body, never
+     * truncate a candidate) are stated where it is extracted.
+     */
+    upstreamCode?: string;
   };
 
 /**
@@ -1685,4 +1710,311 @@ export type ResolvedLaunchSpec = {
   argv: string[];
   contextWindow: number;
   warnings: string[];
+};
+
+// ---------------------------
+//----------------- SESSION HOST LIFECYCLE TYPES ------------
+/**
+ * How long one host process is meant to live.
+ *
+ * `per-run` is the default for every provider: the process exists for exactly
+ * one turn, so the application has no handle on it between turns. `resident`
+ * is the Claude-only mode in which one process serves many turns, which is what
+ * `HostLease` records are for.
+ */
+export type HostMode = 'per-run' | 'resident';
+
+/**
+ * State of one `ProcessHost`.
+ *
+ * `busy` and `lingering` are the two states the default per-run wrapper can
+ * reach on its own: `busy` while the turn's `turn` lease is held, and
+ * `lingering` once that lease is gone but the run's promise has still not
+ * settled (Claude's held-stdin window, made observable for the first time).
+ * `starting`, `idle` and `closing` are reached only by a provider that owns its
+ * process lifetime through a host driver, so no default-wrapped provider ever
+ * reports them.
+ */
+export type HostState = 'starting' | 'idle' | 'busy' | 'lingering' | 'closing' | 'closed';
+
+/**
+ * Why a host process or one of its session bindings ended.
+ *
+ * One enum covers both `ProcessHost.closeReason` and
+ * `SessionBinding.detachReason` so a client renders a single vocabulary instead
+ * of two provider-shaped ones. Only `turn-complete`, `aborted` and `released`
+ * are produced by the default per-run wrapper; the remaining members are named
+ * here because the state machine they document is shared with the resident mode
+ * and with providers that implement a host driver.
+ */
+export type HostCloseReason =
+  /** The turn ended and nothing else kept the host alive. */
+  | 'turn-complete'
+  /** A held host was let go — the background work reported back or the hold hit its ceiling. */
+  | 'released'
+  /** A newer turn replaced the host a previous turn was still holding. */
+  | 'superseded'
+  /** The user stopped the turn; for a per-run host that means the process dies. */
+  | 'aborted'
+  /** The user closed the host, or deleted/archived the session it served. */
+  | 'user'
+  /** A resident host hit its inactivity ceiling. */
+  | 'idle'
+  /** The session changed between per-run and resident. */
+  | 'mode-change'
+  /** An edited message forced the conversation to restart from a truncation point. */
+  | 'rewind'
+  /** The process exited on its own or crashed. */
+  | 'exited'
+  /** The server shut down normally. */
+  | 'server-shutdown';
+
+/**
+ * Every member of `HostCloseReason`, as a runtime value.
+ *
+ * The union above is the contract; this array is the same list in a form a
+ * program can iterate, so "which reasons exist" is one fact rather than two
+ * lists that can drift apart. It is a shared definition because it has two
+ * consumers that must agree: the session-host manager derives its close
+ * decisions from reasons named here, and the lifecycle criterion asserts that
+ * every value in this array was actually produced by some case — an enumeration
+ * test that read its own literal list could pass while the union changed under
+ * it. Keep the two in the same order, and add a member to both at once.
+ */
+export const HOST_CLOSE_REASONS = [
+  'turn-complete',
+  'released',
+  'superseded',
+  'aborted',
+  'user',
+  'idle',
+  'mode-change',
+  'rewind',
+  'exited',
+  'server-shutdown',
+] as const satisfies readonly HostCloseReason[];
+
+/**
+ * The extra fact some close reasons carry.
+ *
+ * `ProcessHost.closeReason` says why a host ended; for two reasons that answer
+ * is incomplete and this names the rest. `exited` distinguishes a process the
+ * kernel killed for memory from one that died on a signal or failed on its own
+ * — the three the runtime can report. `forced` is not a driver report at all:
+ * it records that the server shut down while the driver had still not settled
+ * its `closeHost`, so the host was closed out from under it. A null
+ * `closeDetail` means the reason needs no detail (`turn-complete`, `user`, …).
+ */
+export type HostCloseDetail = 'oom' | 'signal' | 'error' | 'forced';
+
+/**
+ * The two knobs that decide when a host is closed, one set per lifecycle mode.
+ *
+ * Read by the session-host manager each time it recomputes state, so a policy is
+ * data rather than a branch on `mode`: `per-run` and `resident` differ only in
+ * the values below, which is what makes either mode testable by injecting a
+ * policy instead of a provider. The values themselves mirror
+ * `docs/proposals/claude-resident-sessions.md` §3.
+ */
+export type LifecyclePolicy = {
+  /** A new turn on the same bound session closes the host the previous turn held. */
+  supersedeOnNewTurn: boolean;
+  /** Close the host as soon as the union of its bindings' leases is empty. */
+  closeWhenLeasesEmpty: boolean;
+  /**
+   * How long a host with no `turn` lease — `lingering` under `per-run`, `idle`
+   * under `resident` — may sit before the quiet ceiling closes it. The window is
+   * counted from the binding's `lastActivityAt`, not from the last frame.
+   */
+  quietCeilingMs: number;
+};
+
+/**
+ * One reason a bound session still needs its host process.
+ *
+ * The host is kept alive while the union of its bindings' leases is non-empty,
+ * so leases — not the process — are what the close decision is computed from. A
+ * `turn` lease is held for the duration of one run; the others record work that
+ * outlives the turn that started it, which is what makes a host `lingering`
+ * rather than `closed`.
+ */
+export type HostLease =
+  | { kind: 'turn'; runId: string }
+  | { kind: 'background-task' | 'monitor'; id: string }
+  | { kind: 'cron'; id: string; recurring: boolean; expiresAt: number }
+  | { kind: 'resident-policy' };
+
+/**
+ * One application session running inside one host process.
+ *
+ * Hosts are 1:N with sessions: a per-run host always carries exactly one
+ * binding, while a multiplexing process (Codex `app-server`, `opencode serve`)
+ * carries one per conversation. `providerSessionId` is filled in from the
+ * runtime's own session-id announcement when the provider reports one, so a
+ * binding is the join point between the app id and the provider-native id.
+ */
+export type SessionBinding = {
+  appSessionId: string;
+  providerSessionId: string | null;
+  state: 'idle' | 'busy';
+  leases: HostLease[];
+  lastActivityAt: number;
+  /** Set when the binding was detached; mirrors the host's `closeReason` for that binding. */
+  detachReason: HostCloseReason | null;
+};
+
+/**
+ * Why a bind request was refused.
+ *
+ * Two refusals, and they are different failures: `session-already-bound` says
+ * the session is already somewhere (the request may have named a second host,
+ * but the session is not free), while `host-not-multiplexed` says the session is
+ * free and the *process* is what cannot take it — a host whose driver did not
+ * declare `multiplexedHost` carries one conversation and no more. Named here
+ * rather than thrown as a message because the manager's caller has to branch on
+ * which refusal it got, and a branch on prose is a branch that breaks silently.
+ */
+export type HostBindErrorCode = 'session-already-bound' | 'host-not-multiplexed';
+
+/**
+ * Every member of `HostBindErrorCode`, as a runtime value.
+ *
+ * Same contract as `HOST_CLOSE_REASONS`: the union is the definition and this
+ * array is the same list in a form a program can iterate, so a criterion that
+ * wants to prove each refusal is reachable reads the list the manager is typed
+ * against instead of a literal typed a second time. Keep the two in the same
+ * order, and add a member to both at once.
+ */
+export const HOST_BIND_ERROR_CODES = [
+  'session-already-bound',
+  'host-not-multiplexed',
+] as const satisfies readonly HostBindErrorCode[];
+
+/**
+ * The outcome of one `bindSession` request.
+ *
+ * A discriminated union rather than a thrown error because a refusal is an
+ * ordinary answer to a race — two turns arriving for one session is normal
+ * traffic, not a fault — and because the caller needs the refusal's identity,
+ * not just its message.
+ *
+ * `existingHostId` is the load-bearing half of a refusal: for
+ * `session-already-bound` it names the host that already holds the session
+ * (which is *not* necessarily the host the request was aimed at, and naming the
+ * aimed-at host instead would hide the conflict); for `host-not-multiplexed` it
+ * names the live host that could not take a second binding. Null only when a
+ * refusal has no host to point at.
+ */
+export type HostBindResult =
+  | { ok: true; hostId: string }
+  | { ok: false; code: HostBindErrorCode; existingHostId: string | null };
+
+/**
+ * One process the session-host layer knows about, in any lifecycle mode.
+ *
+ * `pid` is deliberately nullable: a runtime driven through the default per-run
+ * wrapper never reports its child's pid, and the layer records the truth
+ * (`null`) rather than inventing one. Filling it in is the job of a provider
+ * that owns its process through a host driver.
+ */
+export type ProcessHost = {
+  hostId: string;
+  provider: LLMProvider;
+  mode: HostMode;
+  state: HostState;
+  pid: number | null;
+  startedAt: number;
+  /** Keyed by application session id; see `SessionBinding`. */
+  bindings: Map<string, SessionBinding>;
+  closeReason: HostCloseReason | null;
+  /**
+   * The extra fact `closeReason` carries, or null when it carries none.
+   *
+   * Set together with `closeReason` and never before it: a host that is still
+   * open has null here, and `'forced'` appears only on a host the server closed
+   * during shutdown while its driver was still settling. Optional so a reader
+   * written against the reason alone keeps type-checking.
+   */
+  closeDetail?: HostCloseDetail | null;
+  /**
+   * When the quiet ceiling is due to close this host, on the manager's clock.
+   *
+   * Exposed because the deadline is the only evidence that a host with no
+   * `turn` lease is being *held* rather than merely not yet collected — the
+   * lifecycle criterion prints it instead of waiting for it. Null while none is
+   * armed (a `turn` lease is held, or the host is closed).
+   */
+  quietDeadlineAt?: number | null;
+  /**
+   * The instant `quietDeadlineAt` was counted from: `lastActivityAt`, or — after
+   * a re-time — the `expiresAt` of the cron lease that pushed the deadline out.
+   */
+  quietWindowStartAt?: number | null;
+};
+
+/**
+ * One turn handed to a host driver.
+ *
+ * Mirrors the command plus run options the application already passes to
+ * `IProviderRuntime.run`, so a driver receives the same inputs the default
+ * wrapper forwards to the runtime it replaces.
+ */
+export type HostTurnInput = {
+  command: string;
+  options: AnyRecord;
+};
+
+/**
+ * One live setting change for a host that is already running.
+ *
+ * Only the three settings a resident provider can change without restarting its
+ * process are modelled; anything else is a new turn's option. Applied through
+ * `IProviderHostDriver.reconfigure`, which reports whether the change took
+ * effect immediately or was deferred to the next turn.
+ */
+export type HostReconfigurePatch = {
+  model?: string;
+  effort?: string;
+  permissionMode?: string;
+};
+
+// ---------------------------
+//----------------- CHAT RUN ORIGIN + NON-UNION CAPABILITIES ------------
+/**
+ * Who asked for one provider run.
+ *
+ * `user` is a turn a human sent from a client; `scheduled` is one a timer
+ * fired (the scheduled-messages dispatcher); `unattended` is one the
+ * session-host layer opened by itself, with no request and no socket behind
+ * it. The fact is recorded on the run rather than inferred later from the
+ * absence of a connection, because "no connection" is equally true of a
+ * scheduled run — and a run opened by a host driver must be distinguishable
+ * from both.
+ *
+ * Read by `chatRunRegistry` (which stamps it at `startRun` and exposes it on
+ * the run record) and by the debug agent's host-driver criterion.
+ */
+export type ChatRunSource = 'user' | 'scheduled' | 'unattended';
+
+/**
+ * Lifecycle facts a provider states about itself at runtime.
+ *
+ * Deliberately keyed by a plain provider id string rather than by
+ * `LLMProvider`: the providers this describes include ones intentionally kept
+ * outside that union (the debug agent), and widening the union to hold them
+ * would make every exhaustive `Record<LLMProvider, …>` in the codebase claim
+ * support for a provider that has no CLI, no SDK and no user-facing entry.
+ * Declared through `providerCapabilitiesService.declareRuntimeProviderCapabilities`
+ * and read through `getRuntimeProviderCapabilities`.
+ */
+export type RuntimeProviderCapabilities = {
+  provider: string;
+  /** Lifecycle modes this provider's host driver implements. */
+  lifecycleModes: HostMode[];
+  /**
+   * Whether one process of this provider may serve several sessions at once —
+   * `IProviderHostDriver.multiplexedHost` stated as a standalone fact, so it
+   * can be read without an instance of the driver.
+   */
+  multiplexedHost: boolean;
 };

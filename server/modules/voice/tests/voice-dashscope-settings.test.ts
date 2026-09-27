@@ -31,7 +31,7 @@
  */
 
 import assert from 'node:assert/strict';
-import { readFile, readdir, mkdtemp, rm } from 'node:fs/promises';
+import { readFile, readdir, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test, { after } from 'node:test';
@@ -97,6 +97,8 @@ const REPO_ROOT = path.resolve(HERE, '../../../..');
 
 /** The shipping service module: what the readings import by default, and what the mutants copy. */
 export const SHIPPING_SERVICE_MODULE = path.join(SERVER_DIR, 'modules/voice/voice.service.ts');
+/** The directory the module lives in — the one a sibling criterion writes its temp copies into. */
+const VOICE_MODULE_DIR = path.dirname(SHIPPING_SERVICE_MODULE);
 const SHIPPING_ROUTES_MODULE = path.join(SERVER_DIR, 'modules/voice/voice.routes.ts');
 const VOICE_SETTINGS_DB_MODULE = path.join(SERVER_DIR, 'modules/database/repositories/voice-settings.db.ts');
 const DB_CONNECTION_MODULE = path.join(SERVER_DIR, 'modules/database/connection.ts');
@@ -515,7 +517,34 @@ function jsonParseOrNull(text: string): Record<string, unknown> | null {
   }
 }
 
-/** Every `.ts` file under `directory`. Dependency trees are skipped; `tests/` directories are not. */
+/**
+ * The name prefix the sibling falsify criteria give the temp copies they write INTO THIS DIRECTORY.
+ *
+ * `voice-capture-off`, `voice-capture-text` and `voice-dashscope-settings` each copy a shipping
+ * module to `server/modules/voice/__criterion-falsify-<mutation>-{base,mut}-<pid>.ts`, drive the
+ * readings against the copy, and delete it in a `finally`. Those copies are not product source and
+ * they are not this criterion's business — they are this SUITE's scratch space, and `scripts/test.sh`
+ * runs four files at a time, so one can appear and disappear inside a single scan below.
+ */
+const TEMP_COPY_PREFIX = '__criterion-falsify-';
+
+/**
+ * Every `.ts` file under `directory`. Dependency trees are skipped; `tests/` directories are not.
+ *
+ * A SIBLING CRITERION'S IN-FLIGHT TEMP COPY IS NOT COLLECTED, and that exclusion is what makes the
+ * scan a measurement rather than a race. Two things went wrong without it, and they are the same
+ * fault seen from two sides:
+ *
+ *   · the file set followed a neighbour's timing, so `files=` counted a file that has nothing to do
+ *     with the product tree and moved between two runs of the same reading;
+ *   · `readdir` and `readFile` are two different syscalls a neighbour's `rm` can land between, so a
+ *     copy that was collected and then deleted produced an `ENOENT` — which `collectReadings` reports
+ *     as `ok=false` with the failure's message, indistinguishable in shape from a real hit.
+ *
+ * Excluded BY NAME, which is the property the copy carries from the instant it is created rather
+ * than something a stat can race for. The other half of the exclusion — that a real occurrence in a
+ * real product file is still found — is the AC4(b) case's positive control, registered below.
+ */
 async function collectSourceFiles(directory: string): Promise<string[]> {
   const found: string[] = [];
   const entries = await readdir(directory, { withFileTypes: true });
@@ -528,7 +557,7 @@ async function collectSourceFiles(directory: string): Promise<string[]> {
       found.push(...(await collectSourceFiles(full)));
       continue;
     }
-    if (entry.name.endsWith('.ts')) {
+    if (entry.name.endsWith('.ts') && !entry.name.startsWith(TEMP_COPY_PREFIX)) {
       found.push(full);
     }
   }
@@ -1045,6 +1074,52 @@ export async function collectReadings(
   }
 }
 
+// ── AC4(b): the scan's exclusion of a sibling's temp copies, from both sides ───────────────────
+
+/** The reading this case holds to account, by the name the list registers it under. */
+const AC8_SCAN_READING = 'AC8 server-branch-scan';
+
+/** The `files=` figure out of the scan's measured value, or `null` when the value is not its shape. */
+function scanFileCount(value: string): number | null {
+  const match = /files=(\d+)/.exec(value);
+  return match === null ? null : Number(match[1]);
+}
+
+/** The one reading this case is about, out of a full run of the list. */
+function scanOutcome(outcomes: readonly ReadingOutcome[]): ReadingOutcome {
+  const found = outcomes.find((outcome) => outcome.name === AC8_SCAN_READING);
+  assert.ok(found !== undefined, `${AC8_SCAN_READING} did not run at all`);
+  return found;
+}
+
+/**
+ * How long after a run starts its probe copy is deleted, one value per repetition.
+ *
+ * A SINGLE DELAY WOULD ONLY SAMPLE ONE INSTANT of a ~1 s run, and the window this exclusion has to
+ * close is narrow: `collectSourceFiles` traverses the directory, then the loop reads each file it
+ * collected, so a copy deleted between those two syscalls is collected and then missing. The sweep
+ * is spread from "delete while the reading list is still opening its rig" to "delete well after the
+ * scan finished", so across the repetitions the deletion lands in every phase including the one that
+ * used to throw. Deterministic as a set, which is what "20 times, all green" is asking for.
+ */
+const AC4B_DELAYS_MS = [
+  0, 1, 2, 4, 8, 15, 25, 40, 60, 90, 130, 180, 240, 320, 420, 540, 680, 850, 1050, 1300,
+] as const;
+
+/**
+ * The positive control's file, under the git-ignored `tmp/` directory of the module directory.
+ *
+ * WHY IT IS NOT BESIDE THE MODULE. The scan skips a `__criterion-falsify-` name, so the control has
+ * to be a file the scan will COLLECT — but a stray untracked file beside the module would also be a
+ * stray line in the `git status --porcelain` of every sibling criterion sampling at that instant,
+ * which is the very cross-file artifact (a neighbour's file reported as this run's change) that this
+ * task exists to remove. `tmp/` is in `.gitignore`, so the plant is invisible to `git status` while
+ * remaining exactly what the exclusion must not swallow: a prefix-less `.ts` file under `server/`,
+ * outside any `tests/` directory, containing the provider id.
+ */
+const AC4B_POSITIVE_DIR = path.join(VOICE_MODULE_DIR, 'tmp');
+const AC4B_POSITIVE_FILE = path.join(AC4B_POSITIVE_DIR, '__stray-shipping-probe.ts');
+
 // ── the criterion, as `node:test` cases (registered only when this file is the entry point) ────
 
 const IS_ENTRY = path.resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url);
@@ -1079,6 +1154,87 @@ if (IS_ENTRY) {
       );
     });
   }
+
+  /**
+   * AC4(b): the scan neither counts a neighbour's in-flight copy nor loses a real hit because of it.
+   *
+   * THE FAULT THIS HOLDS SHUT, in the shape it was measured: `collectSourceFiles` traverses the
+   * directory and then the loop `readFile`s what it collected. A sibling criterion writing and
+   * deleting `__criterion-falsify-*.ts` in that same directory, at four-file concurrency, can be
+   * deleted between those two syscalls — and the `ENOENT` that follows reaches `collectReadings` as
+   * `ok=false` with the exception's message, which in shape is exactly what a real hit looks like.
+   * This case makes that window fire on purpose, twenty times at twenty different offsets, and the
+   * scan has to be unmoved by all of them.
+   *
+   * TWO ASSERTIONS, NOT ONE, because there are two ways to make the scan stable and only one of them
+   * is correct: dropping every non-test file would also be "stable". So the churn is followed by a
+   * POSITIVE CONTROL — a prefix-less file that really does contain the provider id — which must turn
+   * the very same reading red with `shipping-hits=1` and name it. Stability plus a live positive
+   * control is the whole claim.
+   */
+  test('AC4(b) the AC8 scan is stable under a neighbour’s temp copies and still finds a real hit', async () => {
+    const results: { delay: number; ok: boolean; value: string; files: number | null }[] = [];
+
+    for (const [index, delay] of AC4B_DELAYS_MS.entries()) {
+      const probe = path.join(VOICE_MODULE_DIR, `${TEMP_COPY_PREFIX}ac8probe-${index}.ts`);
+      await writeFile(probe, '// a sibling-shaped in-flight temp copy\n', 'utf8');
+      const [outcomes] = await Promise.all([
+        collectReadings(SHIPPING_SERVICE_MODULE),
+        (async () => {
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          await rm(probe, { force: true });
+          assert.equal(
+            await readFile(probe, 'utf8').then(() => true, () => false),
+            false,
+            `the churn probe ${probe} was not removed, so the repetition below is not the one it claims`,
+          );
+        })(),
+      ]);
+      const scan = scanOutcome(outcomes);
+      results.push({ delay, ok: scan.ok, value: scan.value, files: scanFileCount(scan.value) });
+      process.stdout.write(`ac8-churn n=${index} delay-ms=${delay} ok=${String(scan.ok)} ${scan.value}\n`);
+    }
+
+    const reds = results.filter((entry) => !entry.ok);
+    assert.deepEqual(
+      reds.map((entry) => `delay-ms=${entry.delay} measured ${entry.value}`),
+      [],
+      'a temp copy belonging to another process made the scan red; that is the shared-directory ' +
+        'artifact this exclusion exists to remove, not a hit in the product tree',
+    );
+
+    const counts = [...new Set(results.map((entry) => entry.files))];
+    process.stdout.write(
+      `ac8-churn-summary repetitions=${results.length} distinct-files-counts=${counts.length} ` +
+        `files=${counts.join(',')} all-ok=${String(reds.length === 0)}\n`,
+    );
+    assert.equal(counts.length, 1, `the scan's file count followed a neighbour's churn: ${counts.join(',')}`);
+    assert.ok(
+      counts[0] !== null && counts[0] > 0,
+      `the scan counted ${String(counts[0])} files, which is not a scan of the product tree`,
+    );
+
+    // ── the positive control: the exclusion is by NAME, not "skip anything untracked" ──────────
+    await mkdir(AC4B_POSITIVE_DIR, { recursive: true });
+    try {
+      await writeFile(AC4B_POSITIVE_FILE, "export const providerId = 'dashscope-omni';\n", 'utf8');
+      const control = scanOutcome(await collectReadings(SHIPPING_SERVICE_MODULE));
+      process.stdout.write(`ac8-positive-control ok=${String(control.ok)} ${control.value}\n`);
+      assert.equal(
+        control.ok,
+        false,
+        'a prefix-less product file containing the provider id did not red the scan: the exclusion ' +
+          `has swallowed a real hit, so the stability above is vacuous (measured ${control.value})`,
+      );
+      assert.match(control.value, /shipping-hits=1/, 'the real hit was not counted as a shipping hit');
+      assert.ok(
+        control.value.includes('__stray-shipping-probe.ts'),
+        `the red did not name the file that caused it: ${control.value}`,
+      );
+    } finally {
+      await rm(AC4B_POSITIVE_DIR, { recursive: true, force: true });
+    }
+  });
 
   after(async () => {
     if (shippingRig !== undefined) {

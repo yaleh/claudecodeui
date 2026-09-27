@@ -113,7 +113,23 @@
     "replayOriginal": "Putar asli",
     "replayTrimmed": "Putar hasil potong",
     "stopReplayOriginal": "Hentikan pemutaran asli",
-    "stopReplayTrimmed": "Hentikan pemutaran hasil potong"
+    "stopReplayTrimmed": "Hentikan pemutaran hasil potong",
+    "errors": {
+      "ACCOUNT_ACCESS": "Akun ini tidak dapat memakai layanan suara ini — pastikan paket dan akses modelnya aktif, lalu coba lagi.",
+      "UNAUTHORIZED": "Layanan suara menolak kuncinya — periksa kredensial penyedia suara di pengaturan, lalu coba lagi.",
+      "QUOTA_EXHAUSTED": "Kuota layanan suara sudah habis — isi ulang akun atau beralih ke penyedia suara lain.",
+      "RATE_LIMITED": "Terlalu banyak transkripsi sekaligus — tunggu sebentar lalu rekam lagi.",
+      "MODEL_NOT_FOUND": "Model transkripsi tidak tersedia untuk akun ini — pilih model lain di pengaturan penyedia suara.",
+      "AUDIO_REJECTED": "Layanan menolak rekaman ini — rekam ulang atau unggah berkas audio lain.",
+      "CONTENT_FLAGGED": "Layanan menandai isi rekaman ini — periksa audionya dan coba bagian lain.",
+      "NO_SPEECH_DETECTED": "Tidak ada suara yang terdeteksi di rekaman — rekam ulang sambil bicara lebih dekat ke mikrofon.",
+      "UPSTREAM_UNAVAILABLE": "Layanan suara sedang tidak merespons — tunggu sebentar lalu coba lagi.",
+      "NOT_CONFIGURED": "Belum ada penyedia suara yang dikonfigurasi — atur satu di pengaturan untuk mentranskripsi rekaman.",
+      "INVALID_BASE_URL": "URL dasar penyedia suara tidak valid — perbaiki di pengaturan penyedia suara.",
+      "OVERSIZE": "Rekaman terlalu besar untuk diunggah — rekam bagian yang lebih pendek lalu coba lagi.",
+      "UNSUPPORTED_MIME": "Format audio ini tidak didukung — coba berkas lain atau rekam dengan mikrofon.",
+      "unknown": "Transkripsi gagal — coba lagi, atau periksa pengaturan penyedia suara."
+    }
   },
   "input": {
     "placeholder": "Ketik / untuk perintah, @ untuk file, atau tanyakan apa saja kepada {{provider}}...",
@@ -131,6 +147,7 @@
     },
     "clickToChangeMode": "Klik untuk mengganti mode izin (atau tekan Tab di input)",
     "showAllCommands": "Tampilkan semua perintah",
+    "moreTools": "Alat lainnya",
     "clearInput": "Kosongkan input",
     "scrollToBottom": "Gulir ke bawah",
     "queue": {

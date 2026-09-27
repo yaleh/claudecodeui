@@ -499,14 +499,24 @@ function serverReadings(reading) {
 
   // AC3, the transport layer: a size refusal is 413, and everything else the parser can report is
   // still 400. Read together, because "413 for every parser failure" is as wrong as "400 for both".
+  // The status half is GOAL-008's reading and is unchanged; the code half moved with GOAL-011's
+  // failure contract (AC-150) — every refusal the transcription path answers now names a vocabulary
+  // member, so the control reads that the non-ceiling branch carries one AND that it is not the
+  // ceiling's `OVERSIZE`, which is the distinction this pair exists to keep.
   const ceiling = value.transportCeiling;
   const other = value.transportOther;
   const ceilingStatus = ceiling?.status === 413 && ceiling?.body?.code === 'OVERSIZE';
-  const otherStatus = other?.status === 400 && other?.body?.code === undefined;
+  const otherStatus = other?.status === 400
+    && typeof other?.body?.code === 'string'
+    && other.body.code !== 'OVERSIZE';
   if (!ceilingStatus) {
     failures.push(`AC3: the transport ceiling answered ${ceiling?.status}/${ceiling?.body?.code ?? 'no code'}, not 413/OVERSIZE`);
   }
-  if (!otherStatus) failures.push(`AC3 control: a non-ceiling parser failure answered ${other?.status}, not 400`);
+  if (!otherStatus) {
+    failures.push(
+      `AC3 control: a non-ceiling parser failure answered ${other?.status}/${other?.body?.code ?? 'no code'}, not 400/a non-OVERSIZE code`,
+    );
+  }
 
   return {
     readings: {

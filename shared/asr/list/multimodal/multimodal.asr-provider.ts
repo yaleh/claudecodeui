@@ -60,12 +60,12 @@
 import type {
   AsrAdapter,
   AsrCapabilities,
-  AsrErrorCode,
   AsrHints,
   AsrInvocation,
   AsrRequest,
   AsrResult,
 } from '../../asrRegistry.js';
+import { classifyUpstreamFailure } from '../../asrRegistry.js';
 
 /** The id this provider is registered under. */
 export const id: string = 'multimodal';
@@ -426,7 +426,7 @@ export function mergeTranscriptLines(text: string): string {
  *
  * A loop over the first candidate's text parts, and nothing else: a body that is not this envelope
  * yields the empty string, and a body that is not JSON at all throws — the caller turns the throw
- * into `UPSTREAM_ERROR`. Handing the raw response back as if it were a transcript is the shape
+ * into `UPSTREAM_UNAVAILABLE`. Handing the raw response back as if it were a transcript is the shape
  * this function exists to not have (ADR-004 §一 records the proxy path already doing exactly that
  * for the first provider); `scripts/asr-second-adapter-check.mjs` pins it with a baseline.
  *
@@ -445,12 +445,15 @@ export function readTranscriptText(responseText: string): string {
   return mergeTranscriptLines(transcript);
 }
 
-/** Transport status to the semantic code the route above maps to HTTP. */
-export function errorCodeForStatus(status: number): AsrErrorCode {
-  if (status === 401 || status === 403) return 'UNAUTHORIZED';
-  if (status === 429) return 'RATE_LIMITED';
-  return 'UPSTREAM_ERROR';
-}
+/**
+ * The semantic code this answer means, read by the ONE classifier in the registry.
+ *
+ * WHAT WAS HERE INSTEAD, and why it was the defect: a three-line `errorCodeForStatus(status)` reading
+ * only the number, copied into each of the three adapters. A `403` that named a model the account had
+ * not enabled, an `Arrearage` and an ordinary malformed request were all one code to it, because the
+ * separating evidence is in the body and a status-only mapper cannot see the body. The
+ * implementation now lives beside the vocabulary (`classifyUpstreamFailure`).
+ */
 
 function isAbortError(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { name?: unknown }).name === 'AbortError';
@@ -509,9 +512,11 @@ export async function transcribe(request: AsrRequest, invocation: AsrInvocation)
       signal,
     });
   } catch (error) {
+    // One code, two messages: a transport that never connected and a request the deadline ended are
+    // the same fact about the upstream from this side of the seam (`UPSTREAM_UNAVAILABLE`).
     return {
       ok: false,
-      code: isAbortError(error) ? 'TIMEOUT' : 'UNREACHABLE',
+      code: 'UPSTREAM_UNAVAILABLE',
       message: isAbortError(error)
         ? `provider '${id}' did not answer within ${invocation.timeoutMs} ms`
         : `provider '${id}' could not be reached`,
@@ -519,7 +524,10 @@ export async function transcribe(request: AsrRequest, invocation: AsrInvocation)
   }
 
   if (!response.ok) {
-    // The body decides whether a 400 is a credential failure; see `looksLikeInvalidApiKey`.
+    // The body decides whether a 400 is a credential failure; see `looksLikeInvalidApiKey`. It is
+    // also what the classifier reads, so the two do not disagree about the same bytes: the predicate
+    // above narrows one case to a code the classifier's own table cannot see (the key is named in the
+    // body, not in a code string), and everything else goes through `classifyUpstreamFailure`.
     const failureText = await readTextQuietly(response);
     if (response.status === 400 && looksLikeInvalidApiKey(failureText)) {
       return {
@@ -531,7 +539,7 @@ export async function transcribe(request: AsrRequest, invocation: AsrInvocation)
     }
     return {
       ok: false,
-      code: errorCodeForStatus(response.status),
+      code: classifyUpstreamFailure(response.status, failureText),
       message: `provider '${id}' answered ${response.status}`,
       status: response.status,
     };
@@ -541,7 +549,7 @@ export async function transcribe(request: AsrRequest, invocation: AsrInvocation)
   try {
     responseText = await response.text();
   } catch {
-    return { ok: false, code: 'UPSTREAM_ERROR', message: `provider '${id}' answer could not be read` };
+    return { ok: false, code: 'UPSTREAM_UNAVAILABLE', message: `provider '${id}' answer could not be read` };
   }
 
   let transcript: string;
@@ -550,7 +558,7 @@ export async function transcribe(request: AsrRequest, invocation: AsrInvocation)
   } catch {
     return {
       ok: false,
-      code: 'UPSTREAM_ERROR',
+      code: 'UPSTREAM_UNAVAILABLE',
       message: `provider '${id}' answer was not the inline generation envelope`,
     };
   }
@@ -562,7 +570,7 @@ export async function transcribe(request: AsrRequest, invocation: AsrInvocation)
     if (blockReason !== null) {
       return {
         ok: false,
-        code: 'UPSTREAM_ERROR',
+        code: 'UPSTREAM_UNAVAILABLE',
         message: `provider '${id}' did not answer with text (finishReason ${blockReason})`,
       };
     }
