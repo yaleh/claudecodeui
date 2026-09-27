@@ -5,7 +5,7 @@ title: AC-175 真实浏览器里常驻会话忙时发送直接送达 — residen
   cancel_async_message）、只在收到 command_lifecycle cancelled
   后显示「已撤回」并把该消息从记录移除且不产生一轮，started 后 [撤回] 消失改「已开始处理」，per-run 忙时仍出现
   QueuedMessageCard；三条假形态（仍本地排队 / 撤回只在前端隐藏 / 点击即标已撤回）必须红
-status: todo
+status: ready
 labels:
   - gap
 parent: null
