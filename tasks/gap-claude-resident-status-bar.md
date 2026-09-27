@@ -150,3 +150,26 @@ goal_ac: AC-172
 - `src/modules/i18n/locales/zh-CN/sidebar.json`
 - `src/modules/i18n/locales/zh-TW/sidebar.json`
 - `tasks/gap-claude-resident-status-bar.md`（自触）
+
+## 完成记录（2026-09-28）
+
+**判据（在合并 develop 后的树上重测，树 = HEAD `5dda0d51`）**：`npx playwright test e2e/resident-status-bar.spec.ts` → 退出 **0**，`4 passed`，`elapsed=30414ms`（< `SINGLE_SPEC_CEILING_MS = 55_000`）。合并前的同一条读数亦为退出 0、`elapsed=30956ms`；合并只带进 `server/modules/providers/*`、`server/modules/session-hosts/tests/*`、`server/modules/voice/*` 与两份文档，未触及本条的浏览面，故重测值与原值同形。
+
+**逐条读数（判据的原始输出行，不是转述）**
+
+- **AC1** 退出 0 / `elapsed=30414ms`。基线（本轮直跑）：`--list` 在文件不存在时退出 1、`Total: 0 tests in 0 files`；同形状的 `model-env-kind-explanations.spec.ts --list` 退出 0、`Total: 1 test in 1 file`。
+- **AC2** 四态各打印一行：`state=空闲 mark=solid bar="Resident · Idle" snapshot.state=idle closeReason= detail= via=start` / `state=运行中 mark=solid+spinner bar="Resident · Running" snapshot.state=busy … via=scenario-step` / `state=未运行 mark=hollow mark.afterClose=hollow bar="Resident · Not running (…)" snapshot.state=closed closeReason=user via=close` / `state=exited(oom) mark=exited bar="Resident process exited (oom)" snapshot.state=closed closeReason=exited detail=oom via=scenario-step`。每次切换的 `via=` 都打印。
+- **AC3** `host.leases=resident-policy:1,turn:1` 与 `ui.counts=resident-policy:1,turn:1` 两行断言相等；正控制 `counts.before=resident-policy:1` → `counts.after=monitor:1,resident-policy:1`（严格变大）；对应关系逐条打印 `界面类别 ← lease kind：Resident session ← resident-policy(1)`。
+- **AC4** `popover.address="peer-resident-status-bar" snapshot.peerName="peer-resident-status-bar" equal=true`、`copy.clipboard="peer-resident-status-bar" equalToAddress=true`、`close.request=200 hosts.beforeClose=1 hosts.afterClose=0`、`mark.afterClose=hollow`；正控制 `host.present=true host.id=host-…`。**注**：`GET /api/session-hosts` 保留已关闭宿主的记录（`state='closed'`），故 `hosts.length` 不动；判据按 AC 的语义数**存活**宿主（`state !== 'closed'`），1 → 0。
+- **AC5** `run.status=aborted`、`host.hostId.before=host-6d32ac02… host.hostId.after=host-6d32ac02… same=true`、`host.state.after=lingering`、`pid.before=(none) pid.after=(none) same=true startedAt.before=… startedAt.after=… startedAt.same=true`、`host.closeReason.after=null`。
+- **AC6** `divider="⏰ Scheduled task · 12:15 AM" trigger=cron sender=""`、`divider="✉ Cross-session message from peer-resident-status-bar · 12:15 AM" trigger=cross-session sender="peer-resident-status-bar"`；`row.text="unattended turn opened by a scheduled task" row.class=unattended isUserStyle=false`（第二条同形）；正控制 `userRow.isUserStyle=true`。
+- **AC7** 假形态 (a) 真跑过：`/tmp/ac7-mutation.diff`（状态条改读本地状态），判据退出 **1**，红落在 AC3 承重断言上，逐字 `Error: the bar counts the leases the listing reports, kind for kind` / `Expected: "resident-policy:1,turn:1"` / `Received: "resident-policy:1"`（spec `:739`）。`git checkout --` 恢复后判据回到 0。
+- **AC8** 假形态 (b) 真跑过：`/tmp/ac8-mutation.diff`（`rendersAsUser = message.type === 'user' || message.type === UNATTENDED_TURN_MESSAGE_TYPE`），判据退出 **1**，红落在 AC6 承重断言上，逐字 `Error: a turn nobody typed must not wear the user's own bubble style` / `Expected: not "user"`（spec `:923`），同一跑里 `row.class=user isUserStyle=true`。恢复后判据回到 0（`4 passed`，`elapsed=30956ms`）。
+- **AC9** 兄弟判据 `npx playwright test e2e/model-env-kind-explanations.spec.ts` → 退出 **0**，墙钟 **10776ms**（首跑退出 1，红在 `ensureSignedIn` 的登录闸门、即本条触及面之前；复跑绿，判为宿主抖动并如实登记）。收集总数：门控在位 **69 tests in 14 files**，把 `playwright.config.ts` 回退到 merge-base 后 **69 tests in 14 files**，两次数出的 69 行测试清单 `diff` 逐字相同。门控只改 `webServer.env` 的条件三元，`testDir`/`testMatch`/`testIgnore` 一律未动。
+- **AC10** `unattended.run.source=unattended seam.unwired=false`、`run.seamRefusals=0`（判据统计该次 server 日志里 `DEBUG_AGENT_RUN_SEAM_UNAVAILABLE` 的出现次数）。无人轮走的是出厂 HTTP 控制面（`server/index.ts` 注入的 `openRun`），不是 spec 内部另接的缝。
+- **AC11** 第 3 条测试绿：逐字读出货目录的 12 个 locale × `chat.json`/`sidebar.json`，缺键或空值以非 0 退出并点名文件与 key。
+- **AC12** `npm run lint` 退出 **0**（仅既有 warning）；`npm run typecheck` 退出 **0**（`tsconfig.json` + `server/tsconfig.json` + `scripts/tsconfig.json` 三条链）；`git diff --name-only $(git merge-base develop HEAD) HEAD` = **52** 个文件，全部落在 `## Touches` 内（`anti-drift-touches-check.js --worktree … --merge-target develop` → `52 actual file(s), all within declared Touches (53 glob(s))`）。本轮把 12 个此前**改了但未声明**的文件补进 `## Touches`：`debug-agent.provider.ts` / `debug-agent.routes.ts` / `debug-agent.runtime.ts` / `index.ts` / 两份 debug-agent `tests/*.test.ts` / `provider-runtime.service.ts` / `session-hosts.routes.ts` / `session-hosts-routes.test.ts` / `ChatInterface.tsx` / `useChatMessages.ts` / `src/shared/types.ts`。
+
+**范围外的一处必要根因修复**：`debug-agent.provider.ts` 的 `withMessageOrigin` 是 claude sessions face 的 Proxy，`fetchHistory` 内部用 `this.normalizeMessage` 重新归一化每一行，绑定到 target 就会绕过陷阱 ⇒ 实时帧带 `origin`、REST 历史（刷新路径）丢 `origin`，无人轮的分隔标签与发送方在刷新后归零。改为把转发的方法绑到 proxy `face` 而非 `target`。`debug-agent.host-driver.ts` 与 `provider-runtime.service.ts` 的 `RunEntry` 值透传同步放宽到 `Promise<unknown>`。
+
+**工作树读取面**：`task_write` 的提交落在主检出（`author`），故本轮按 `git merge --no-edit author` 把 ABI 写出的字节搬到 `task/<id>` 分支上，再 `git merge --no-edit develop`；合并后 `fan-in-ac-completion-gate.js --worktree …` 读 `AC 全勾（12/12）`，`scripts/test.sh --for-task gap-claude-resident-status-bar --allow-thin` 退出 **0**（`# tests 3 / # pass 3 / # fail 0`，跑的是本轮刚声明的 3 个 `*.test.ts`，证明 Touches 修订真的生效、不是拿旧清单蒙混）。
