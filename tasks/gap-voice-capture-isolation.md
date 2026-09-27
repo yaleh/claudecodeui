@@ -2,7 +2,7 @@
 id: gap-voice-capture-isolation
 title: 捕获失败的隔离：text 档打印捕获行时抛错、audio 档音频目录不可写两种情形下转写仍返回成功且返回文本逐字不变，恰好一行不含内容的
   voice.capture failed（AC-147）
-status: needs-human
+status: todo
 labels:
   - gap
 parent: null
@@ -12,6 +12,7 @@ extra:
 depends_on:
   - gap-voice-capture-mode-gate-off-fail-closed
   - gap-voice-capture-audio-file
+  - gap-voice-error-classification-ac7-vitest-child-fragile
 goal_ac: AC-147
 ---
 ## Proposal
@@ -132,3 +133,42 @@ L_G 该轴仍暗，理由：目标层的读数是真实服务进程标准输出�
 - session_id：aa525928-f360-4921-864b-1b561b37a35d
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-capture-isolation~wk-prod-anchor~1790488396306-3adff6.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-capture-isolation-wk-prod-anchor.log
+## 人工复核（2026-09-27，人 yale 指令「检查和推进」）
+
+停在 needs-human 的判词是 `server/modules/voice/tests/voice-error-classification.false-forms.test.ts` 红。核对：
+
+- 本任务自己的 `## Touches` 判据在同一份日志里都是 `passed=true`：`voice-capture-isolation.test.ts`、`voice-capture-isolation.false-forms.test.ts`。
+- 红的文件不在本任务 Touches 里，属另一个任务（AC-149 一族）的判据文件。读该文件保留的子进程日志：红在它自己的 AC7 用例，AC7 以子进程形式跑 `npx vitest run src/shared/asr/tests/asrContractInvariants.test.ts`，那一次子进程调用退出非零；而同一份 suite 日志里套件自己并发跑的 `src/shared/asr/tests/asrContractInvariants.test.ts` 在别的时刻是 `passed=true`。两次跑的是同一个文件、同一时间窗口内的舰队并发，符合"每个任务点掉一个共享资源"的已知形状（vitest 自身的依赖预打包/配置编译在高并发下的资源竞争），不是该文件本身的断言缺陷，更不是本任务的 delta。
+
+结论：红是舰队并发下的资源竞争型抽签，不在本任务的 Touches 范围内，不是本任务实现缺陷。工人已正确判断「归因不出任何失败测试文件」并按协议停止重派；现按人工裁定重新排队，交给下一轮 fan-in 重跑。
+
+## Needs-Human
+
+**执行 2026-09-27T07:34:59.081Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 3 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=117144 server/modules/voice/tests/voice-error-classification.false-forms.test.ts passed=false end_ms=1790494480750
+- run_id：wk-prod-anchor
+- session_id：e94a0cd6-64ad-4f32-9c56-f4d6ad5d8e31
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-capture-isolation~wk-prod-anchor~1790494316350-a9f8f7.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-capture-isolation-wk-prod-anchor.log
+
+## 人工复核（更正，2026-09-27 第二轮）
+
+上一条「人工复核」把这条红判成稀疏的舰队抽签、建议重新排队——**这个判断被接下来的一轮复现推翻**：重新排队后同一红以完全相同的签名（`voice-error-classification.false-forms.test.ts` 的 AC7，同一条 `asrContractInvariants.test.ts` 断言）再次出现，累计三轮无一幸免。
+
+真因已定位并立案：`gap-voice-error-classification-ac7-vitest-child-fragile`。AC7 会为 `src/shared/asr/tests/asrContractInvariants.test.ts` 额外拉起一个独立的 `npx vitest run` 子进程，与套件自己并发跑的同一文件互相超订 vitest 的 worker 池（`vitest.config.ts` 注释原文点名这个机制，并点名这份文件是堆内存最重的一份）；standalone 稳定绿，红只在舰队并发下出现。按 `quay-fan-in-suite-red-is-fleet-wide-redispatch-is-the-escape` 的例外条款——已落地的兄弟判据读全局事实 ⇒ 干净树 standalone 也红 ⇒ **重新派发对这个红无效**，需要先让 `gap-voice-error-classification-ac7-vitest-child-fragile` 落地。
+
+本任务保持 needs-human；depends_on 已加入该修复任务。修复落地后再由人或机制重新排队。
+
+## 人工复核（再更正，2026-09-27 第三轮）
+
+上一条把状态留在 `needs-human` 并加了 `depends_on` 是自相矛盾的：`depends_on` 门控的是 `ready-pool-check.ts` 的
+`todo→ready` 机械晋升扫描（`.filter((t) => t.status === TASK_STATUS.TODO && …)`），只看 `status: todo` 的任务；
+`needs-human` 根本不在这条流水线里，加在它身上的 `depends_on` 是摆设，不会被机械晋升消费，仍然要靠人手动重派——
+等于什么都没解决。
+
+改正：状态转 `todo`（不是 `ready`——修复任务 `gap-voice-error-classification-ac7-vitest-child-fragile` 还没
+`done`，现在派发只会再撞同一次红）。`depends_on` 已经指向该修复任务；`gap-claude-resident-busy-input`
+（AC-163）现在就是同一种"卡在 todo 等前置"的形状。修复落地为 `done` 后，`ready-pool-check` 的机械晋升会自动把
+本任务转 `ready`，不需要再人工干预。

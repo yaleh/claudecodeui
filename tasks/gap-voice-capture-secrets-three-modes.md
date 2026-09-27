@@ -2,7 +2,7 @@
 id: gap-voice-capture-secrets-three-modes
 title: 三档脱敏判据：off/text/audio 各一次成功与一次失败下，DashScope key、共享 backend key、Bearer
   形式与录音 base64 都不出现在任何日志行与任何捕获文件里，且它们确实过了线（正例）（AC-146）
-status: needs-human
+status: todo
 labels:
   - gap
 parent: null
@@ -13,6 +13,7 @@ depends_on:
   - gap-voice-capture-mode-gate-off-fail-closed
   - gap-voice-capture-text-payload
   - gap-voice-capture-audio-file
+  - gap-voice-error-classification-ac7-vitest-child-fragile
 goal_ac: AC-146
 ---
 ## Proposal
@@ -129,3 +130,42 @@ L_G 该轴仍暗，理由：目标层的读数是真实服务进程按环境变�
 - session_id：dad39ada-a5e2-4c8d-a0e8-0660e2cfd6c5
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-capture-secrets-three-modes~wk-prod-anchor~1790490258229-c937f6.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-capture-secrets-three-modes-wk-prod-anchor.log
+## 人工复核（2026-09-27，人 yale 指令「检查和推进」）
+
+停在 needs-human 的判词是 `server/modules/providers/tests/claude-sessions.test.ts` 红：`AssertionError: open-a.jsonl was opened by a scan that should have skipped it`。核对：
+
+- 本任务自己的 `## Touches` 判据在同一份日志里都是 `passed=true`：`voice-capture-secrets.test.ts`、`voice-capture-secrets.false-forms.test.ts`。
+- 红的用例与本任务的 delta（voice 捕获脱敏）完全无关，且逐字匹配已知记录 `claude-sessions-atime-red-is-a-fail-open-backfill-marker`：`ClaudeSessionSynchronizer.synchronize()` 的 `backfillLastActivity()` 无视游标读全表，唯一闸门 `appConfigDb.get()` 又 fail-open 吞错，一次瞬态 DB 读错误就会让被排除的 transcript 重新被读、atime 被移动，与并发负载抽签有关，不是任何任务的实现缺陷。
+
+结论：红是已知的舰队并发抽签（fail-open 闸门 + 无视游标读取），不是本任务实现缺陷。工人已正确判断「归因不出任何失败测试文件」并按协议停止重派；现按人工裁定重新排队，交给下一轮 fan-in 重跑。
+
+## Needs-Human
+
+**执行 2026-09-27T07:26:58.766Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 3 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=115890 server/modules/voice/tests/voice-error-classification.false-forms.test.ts passed=false end_ms=1790494004550
+- run_id：wk-prod-anchor
+- session_id：b95174da-7122-4934-a8bb-904980f7baf3
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-capture-secrets-three-modes~wk-prod-anchor~1790493840314-70ab8c.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-capture-secrets-three-modes-wk-prod-anchor.log
+
+## 人工复核（更正，2026-09-27 第二轮）
+
+上一条「人工复核」把这条红判成稀疏的舰队抽签、建议重新排队——**这个判断被接下来的一轮复现推翻**：重新排队后同一红以完全相同的签名（`voice-error-classification.false-forms.test.ts` 的 AC7，同一条 `asrContractInvariants.test.ts` 断言）再次出现，累计三轮无一幸免。
+
+真因已定位并立案：`gap-voice-error-classification-ac7-vitest-child-fragile`。AC7 会为 `src/shared/asr/tests/asrContractInvariants.test.ts` 额外拉起一个独立的 `npx vitest run` 子进程，与套件自己并发跑的同一文件互相超订 vitest 的 worker 池（`vitest.config.ts` 注释原文点名这个机制，并点名这份文件是堆内存最重的一份）；standalone 稳定绿，红只在舰队并发下出现。按 `quay-fan-in-suite-red-is-fleet-wide-redispatch-is-the-escape` 的例外条款——已落地的兄弟判据读全局事实 ⇒ 干净树 standalone 也红 ⇒ **重新派发对这个红无效**，需要先让 `gap-voice-error-classification-ac7-vitest-child-fragile` 落地。
+
+本任务保持 needs-human；depends_on 已加入该修复任务。修复落地后再由人或机制重新排队。
+
+## 人工复核（再更正，2026-09-27 第三轮）
+
+上一条把状态留在 `needs-human` 并加了 `depends_on` 是自相矛盾的：`depends_on` 门控的是 `ready-pool-check.ts` 的
+`todo→ready` 机械晋升扫描（`.filter((t) => t.status === TASK_STATUS.TODO && …)`），只看 `status: todo` 的任务；
+`needs-human` 根本不在这条流水线里，加在它身上的 `depends_on` 是摆设，不会被机械晋升消费，仍然要靠人手动重派——
+等于什么都没解决。
+
+改正：状态转 `todo`（不是 `ready`——修复任务 `gap-voice-error-classification-ac7-vitest-child-fragile` 还没
+`done`，现在派发只会再撞同一次红）。`depends_on` 已经指向该修复任务；`gap-claude-resident-busy-input`
+（AC-163）现在就是同一种"卡在 todo 等前置"的形状。修复落地为 `done` 后，`ready-pool-check` 的机械晋升会自动把
+本任务转 `ready`，不需要再人工干预。

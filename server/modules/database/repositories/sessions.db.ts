@@ -1,6 +1,18 @@
 import { getConnection } from '@/modules/database/connection.js';
 import { projectsDb } from '@/modules/database/repositories/projects.db.js';
+import type { HostMode } from '@/shared/types.js';
 import { normalizeProjectPath } from '@/shared/utils.js';
+
+/**
+ * Every session lifecycle mode, as a runtime value.
+ *
+ * The union (`HostMode`, in `@/shared/types.js`) is the definition; this is the
+ * same list in a form a program can iterate, which is what lets the write gate
+ * in `setSessionLifecycleMode` reject an unknown mode instead of storing it.
+ * The `satisfies` makes a member that is not a `HostMode` a compile error, so
+ * the array cannot invent a mode the rest of the app does not understand.
+ */
+const SESSION_LIFECYCLE_MODES: readonly string[] = ['per-run', 'resident'] satisfies readonly HostMode[];
 
 /**
  * Where a session's name came from, ordered lowest to highest.
@@ -58,6 +70,20 @@ type SessionRow = {
    * carried a mode for this session yet.
    */
   permission_mode: string | null;
+  /**
+   * How long this session's process is meant to live; see `HostMode`.
+   *
+   * Never NULL on a row read from the database: the column carries
+   * `DEFAULT 'per-run'`, so a row that predates it reads back as the mode it has
+   * in fact been running, and there is no "unset" state to fall back from.
+   *
+   * Optional in the type the way `transcript_name` is — a shape written against
+   * this row before the column existed stays a valid `SessionRow` — but never
+   * absent from one this repository produced. Readers that need the mode rather
+   * than the row go through `getSessionLifecycleMode`, which is where the
+   * database value is checked against the modes the app knows.
+   */
+  lifecycle_mode?: string;
   /** The app session this one was branched from; NULL unless it is a fork. */
   forked_from_session_id: string | null;
   isArchived: number;
@@ -153,7 +179,8 @@ function sessionRowColumns(prefix = ''): string {
   ${displayNameSql(prefix)} AS custom_name,
   ${displayNameSourceSql(prefix)} AS name_source,
   ${prefix}transcript_name, ${prefix}transcript_name_source,
-  ${prefix}model, ${prefix}effort, ${prefix}permission_mode, ${prefix}forked_from_session_id, ${prefix}isArchived, ${prefix}created_at, ${prefix}updated_at`;
+  ${prefix}model, ${prefix}effort, ${prefix}permission_mode, ${prefix}lifecycle_mode,
+  ${prefix}forked_from_session_id, ${prefix}isArchived, ${prefix}created_at, ${prefix}updated_at`;
 }
 
 const SESSION_ROW_COLUMNS = sessionRowColumns();
@@ -168,7 +195,7 @@ const SESSION_ROW_COLUMNS_QUALIFIED = sessionRowColumns('sessions.');
  * override, freezing the other row's reading into `custom_name`.
  */
 const SESSION_ROW_RAW_COLUMNS =
-  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, name_source, transcript_name, transcript_name_source, model, effort, permission_mode, forked_from_session_id, isArchived, created_at, updated_at';
+  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, name_source, transcript_name, transcript_name_source, model, effort, permission_mode, lifecycle_mode, forked_from_session_id, isArchived, created_at, updated_at';
 
 /**
  * SQL expression ranking one name-source expression, for the precedence CASE.
@@ -706,6 +733,62 @@ export const sessionsDb = {
        SET permission_mode = ?
        WHERE session_id = ?`
     ).run(permissionMode, sessionId).changes > 0;
+  },
+
+  /**
+   * Records the lifecycle mode one session runs under.
+   *
+   * `mode` is checked against {@link SESSION_LIFECYCLE_MODES} before the write,
+   * because the column is `TEXT` and SQLite would happily store a typo that no
+   * reader would ever match — a session silently falling back to `per-run`
+   * while the app believes the user chose `resident`. A mode outside the
+   * vocabulary is a caller bug, so it throws; that is a different failure from
+   * "the row is not there", which is the boolean.
+   *
+   * The capability check — whether the session's *provider* offers this mode at
+   * all — is deliberately not here. The capability matrix belongs to the
+   * providers module and this repository may not import it; the caller that
+   * knows the provider narrows the value first, and this is the last gate.
+   *
+   * Returns whether a row was actually updated, mirroring
+   * {@link setSessionPermissionMode}: the caller has already resolved the
+   * session, so `false` means the row went away rather than that the mode was
+   * rejected.
+   */
+  setSessionLifecycleMode(sessionId: string, mode: string): boolean {
+    if (!SESSION_LIFECYCLE_MODES.includes(mode)) {
+      throw new Error(
+        `Unknown session lifecycle mode "${mode}"; expected one of ${SESSION_LIFECYCLE_MODES.join(', ')}.`,
+      );
+    }
+
+    const db = getConnection();
+    return db.prepare(
+      `UPDATE sessions
+       SET lifecycle_mode = ?
+       WHERE session_id = ?`
+    ).run(mode, sessionId).changes > 0;
+  },
+
+  /**
+   * Reads the lifecycle mode one session runs under.
+   *
+   * The read side of {@link setSessionLifecycleMode}, and the reason callers do
+   * not have to remember that `lifecycle_mode` is optional on `SessionRow`: the
+   * answer is always a mode, never a string. A row that is not there, and a
+   * stored value this build does not recognize (a database written by a newer
+   * one), both read as `per-run` — the behavior every session had before the
+   * column existed, and the mode whose process lifetime the app can always
+   * honour. Reporting an unknown mode as a distinct value would only move the
+   * fallback decision to every caller.
+   */
+  getSessionLifecycleMode(sessionId: string): HostMode {
+    const row = getConnection()
+      .prepare(`SELECT lifecycle_mode FROM sessions WHERE session_id = ?`)
+      .get(sessionId) as { lifecycle_mode?: string | null } | undefined;
+
+    const mode = row?.lifecycle_mode;
+    return mode && SESSION_LIFECYCLE_MODES.includes(mode) ? (mode as HostMode) : 'per-run';
   },
 
   /**

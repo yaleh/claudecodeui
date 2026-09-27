@@ -225,10 +225,51 @@ export const chatRunRegistry = {
     return run;
   },
 
+  /**
+   * Opens a run for a turn the *host* layer detected, with nobody watching.
+   *
+   * The one thing this adds over `startRun` is the pair of facts a host caller
+   * cannot state: `connection: null` and `source: 'unattended'`. Both are true
+   * by construction here rather than by the caller's word — an unattended turn
+   * is one no socket asked for, so there is no connection to attach, and the
+   * source is what tells it apart from the `scheduled` turns that share the
+   * no-connection shape.
+   *
+   * Returns the run's writer, or `null` when a run is already in flight for the
+   * session: the caller (a resident host driver) treats that as "carry on as
+   * before" rather than as a failure, because a turn that arrives while the
+   * session is busy is a real sequence, not an error. Only the writer is
+   * handed back — a driver has no business reading `seq`, `events` or the run's
+   * status, and the frames it sends through the writer are what maintain them.
+   */
+  openUnattendedRun(input: {
+    appSessionId: string;
+    provider: LLMProvider;
+    providerSessionId: string | null;
+    userId: string | number | null;
+    /**
+     * Accepted and unused: the run record is keyed by the app session id and
+     * carries no display name. It is part of the shape because the host layer
+     * holds it on the same reading that produced the rest, and splitting the
+     * shape in two so this caller could drop one field would be the seam
+     * inventing a distinction the call site does not have.
+     */
+    sessionName?: string | null;
+  }): { writer: ChatSessionWriter } | null {
+    const run = this.startRun({
+      appSessionId: input.appSessionId,
+      provider: input.provider,
+      providerSessionId: input.providerSessionId,
+      connection: null,
+      userId: input.userId,
+      source: 'unattended',
+    });
+    return run ? { writer: run.writer } : null;
+  },
+
   getRun(appSessionId: string): ChatRun | undefined {
     return runs.get(appSessionId);
   },
-
   isProcessing(appSessionId: string): boolean {
     return runs.get(appSessionId)?.status === 'running';
   },

@@ -4,7 +4,7 @@ title: AC-169 lifecycle_mode 偏好列与能力矩阵：默认 per-run、不支�
   写入被拒且错误可辨、分叉不继承、POST /api/session-hosts/:sessionId/start 与 /close
   对常驻会话拉起与关闭宿主（per-run 的 close 被拒）、宿主 busy 时模式切换不在进行中的轮上生效；五条假形态（写入不校验 / 分叉继承 /
   per-run 也允许 close / busy 时照切 / start 不起进程）必须红
-status: todo
+status: done
 labels:
   - gap
 parent: null
@@ -67,25 +67,25 @@ goal_ac: AC-169
 
 ## AC
 
-- [ ] 判据入口为绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/lifecycle-mode.test.ts` 在落地后的树上退出 **0** 且 `fail 0`。红态基线（本轮直跑）：同命令退出 **1**，stdout 逐字 `Could not find 'server/modules/session-hosts/tests/lifecycle-mode.test.ts'`；同命令形状跑 `server/modules/session-hosts/tests/session-host-lifecycle.test.ts` 退出 **0**（`tests 6 / pass 6 / fail 0 / duration_ms 339.239839`）⇒ 红只因判据文件不存在。命令逐字含文件路径，不用 glob。
-- [ ] (1) 迁移后既有会话为 per-run：判据里建一个**没有该列**的 legacy `sessions` 表并插一行，跑 `initializeDatabase`（真迁移）后 `PRAGMA table_info(sessions)` 含 `lifecycle_mode`，且**那一行**读回 `'per-run'`（打印 `legacyRowMode=per-run column=…`）；另一臂：全新库新建的会话行也读回 `per-run`（打印 `freshRowMode=per-run`）。
-- [ ] (2) 不支持的模式被拒且错误可辨：对 `lifecycleModes` 不含 `resident` 的 provider（codex / cursor / opencode 逐条打印）写 `resident` ⇒ 非 2xx **且**响应体带具名 code（打印 `code=… status=…`）；该 code 与「未知模式值」的错误 code **不同**（两者并排打印）。**正控制**：`lifecycleModes` 含 `resident` 的 provider（AC-161 之后的 claude）同一写入 ⇒ **2xx 且读回 `resident`**（打印 `claudeMode=resident`）⇒ 保证不是「一律拒绝」。
-- [ ] (3) 分叉不继承：把一个 **resident** 会话分叉（经 `forkSessionById` 或既有 fork HTTP 面），新会话 `lifecycle_mode` 读回 `per-run`（打印 `sourceMode=resident forkedMode=per-run`），且 `forked_from_session_id` 指向源。
-- [ ] (4a) start 拉起宿主：对 resident 会话 `POST /api/session-hosts/:sessionId/start` ⇒ 2xx，**且**该会话出现在 `GET /api/session-hosts` 的投影里（`mode=resident`，打印该行），**且**注入驱动的 `startHost` 调用计数 ≥1（打印 `startHostCalls=…`）。
-- [ ] (4b) close 对 resident 生效、对 per-run 被拒且可辨：resident 会话 `POST …/:sessionId/close` ⇒ 2xx 且宿主 `closeReason=user`（打印）；per-run 会话同一调用 ⇒ 非 2xx 且具名 code（打印 `perRunCloseCode=… status=…`），该 code 与「会话不存在」「宿主不存在」两个 code **互不相同**（三者并排打印）。**正控制**：(4b) 前半的 resident close 成功即证明拒绝臂不是「close 恒失败」。
-- [ ] (4c) 无驱动可拉起时也拒绝：对 resident 但 provider 无 `hostDriver` 的会话 `POST …/start` ⇒ 非 2xx 且具名 code，与 (4a) 的成功、与 (4b) 的 per-run 拒绝三者互不相同（并排打印）。
-- [ ] (5) busy 时不在轮上切换：令宿主 `state === 'busy'`（用 manager 的真实 lease / 驱动缝造出在飞轮）后发起模式切换 ⇒ 读数必须是「拒绝（具名 code）」或「推迟（本轮结束后才生效）」二者之一，且**在轮进行中**读到的存储列**未变**、宿主**未**收到 `mode-change` 关闭（打印 `busySwitch=<refused|deferred> storedModeDuringTurn=… modeChangeDuringTurn=false`）。**正控制**：同一会话在宿主**空闲**时切换 ⇒ 生效（存储列改变 + 旧宿主以 `mode-change` 关闭，打印 `idleSwitch=applied closeReason=mode-change`）⇒ 保证不是「永远不动」。
-- [ ] (5b) 推迟档若被选：推迟的那次切换必须在**本轮结束之后**真的生效（打印 `deferredAppliedAt=after-turn`）；若实现选「拒绝」，此项打印 `deferredNotImplemented` 并不断言 —— AC 允许二选一，判据不得把未选的那一档写成必红。
-- [ ] 假形态 (a) 承重：写路径跳过能力矩阵校验、对 codex 接受 `resident` ⇒ (2) **必须红**。
-- [ ] 假形态 (b) 承重：分叉复制源的 `lifecycle_mode` ⇒ (3) **必须红**。
-- [ ] 假形态 (c) 承重：per-run 会话的 close 返回 2xx / 静默 no-op ⇒ (4b) 的拒绝臂**必须红**。
-- [ ] 假形态 (d) 承重：busy 时切换照常生效（轮上就 `mode-change` 关宿主）⇒ (5) **必须红**。
-- [ ] 假形态 (e) 承重：`/start` 只写库 / 空转、不调 `driver.startHost` ⇒ (4a) **必须红**（`startHostCalls=0` 或宿主不出现在投影里）。
-- [ ] `residentFeatures` 到位：claude 行含 proposal §5 的八个字段（打印该行；`liveReconfigure=[]` 并注明「E1–E8 未覆盖，待单独验证」）；`RuntimeProviderCapabilities` 同步收该字段，且调试 agent 的镜像行为不变（既有 `server/modules/debug-agent/tests/debug-agent-host-driver.test.ts` 仍退出 0）。
-- [ ] 不越权：不重做 `sessions.lifecycle_mode` 列本体、claude 能力行 `lifecycleModes` 加 `resident`、`POST …/close` 路由本体（AC-161 的工作面）—— 若 `git diff` 里出现这三处的改动，完成记录必须逐条说明是「AC-161 的落地不满足本条判据读数」的**被迫**修正并给出读数。
-- [ ] 不使既有判据变红：`session-host-lifecycle` / `session-host-bindings` / `session-host-default-wrap` / `session-host-per-run-parity` / `session-hosts-routes` / `record-per-run-frame-baseline` 六条各自退出 **0**（逐条打印命令与退出码），且这六条文件**一字不改**（`git diff --name-only` 里没有它们）。
-- [ ] 契约面：`npm run typecheck`、`npm run lint`、`npx oxlint server/ src/` 退出 0（新判据的跨模块 import 全部经 barrel）。
-- [ ] 不闭环：本条的注入点不引入 `session-hosts → providers` 的反向 import 边（打印 `grep -rn "modules/providers" server/modules/session-hosts/ | grep -v tests` 的输出为空；驱动解析经 `server/index.ts` 组合根注入）。
+- [x] 判据入口为绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/lifecycle-mode.test.ts` 在落地后的树上退出 **0** 且 `fail 0`。红态基线（本轮直跑）：同命令退出 **1**，stdout 逐字 `Could not find 'server/modules/session-hosts/tests/lifecycle-mode.test.ts'`；同命令形状跑 `server/modules/session-hosts/tests/session-host-lifecycle.test.ts` 退出 **0**（`tests 6 / pass 6 / fail 0 / duration_ms 339.239839`）⇒ 红只因判据文件不存在。命令逐字含文件路径，不用 glob。
+- [x] (1) 迁移后既有会话为 per-run：判据里建一个**没有该列**的 legacy `sessions` 表并插一行，跑 `initializeDatabase`（真迁移）后 `PRAGMA table_info(sessions)` 含 `lifecycle_mode`，且**那一行**读回 `'per-run'`（打印 `legacyRowMode=per-run column=…`）；另一臂：全新库新建的会话行也读回 `per-run`（打印 `freshRowMode=per-run`）。
+- [x] (2) 不支持的模式被拒且错误可辨：对 `lifecycleModes` 不含 `resident` 的 provider（codex / cursor / opencode 逐条打印）写 `resident` ⇒ 非 2xx **且**响应体带具名 code（打印 `code=… status=…`）；该 code 与「未知模式值」的错误 code **不同**（两者并排打印）。**正控制**：`lifecycleModes` 含 `resident` 的 provider（AC-161 之后的 claude）同一写入 ⇒ **2xx 且读回 `resident`**（打印 `claudeMode=resident`）⇒ 保证不是「一律拒绝」。
+- [x] (3) 分叉不继承：把一个 **resident** 会话分叉（经 `forkSessionById` 或既有 fork HTTP 面），新会话 `lifecycle_mode` 读回 `per-run`（打印 `sourceMode=resident forkedMode=per-run`），且 `forked_from_session_id` 指向源。
+- [x] (4a) start 拉起宿主：对 resident 会话 `POST /api/session-hosts/:sessionId/start` ⇒ 2xx，**且**该会话出现在 `GET /api/session-hosts` 的投影里（`mode=resident`，打印该行），**且**注入驱动的 `startHost` 调用计数 ≥1（打印 `startHostCalls=…`）。
+- [x] (4b) close 对 resident 生效、对 per-run 被拒且可辨：resident 会话 `POST …/:sessionId/close` ⇒ 2xx 且宿主 `closeReason=user`（打印）；per-run 会话同一调用 ⇒ 非 2xx 且具名 code（打印 `perRunCloseCode=… status=…`），该 code 与「会话不存在」「宿主不存在」两个 code **互不相同**（三者并排打印）。**正控制**：(4b) 前半的 resident close 成功即证明拒绝臂不是「close 恒失败」。
+- [x] (4c) 无驱动可拉起时也拒绝：对 resident 但 provider 无 `hostDriver` 的会话 `POST …/start` ⇒ 非 2xx 且具名 code，与 (4a) 的成功、与 (4b) 的 per-run 拒绝三者互不相同（并排打印）。
+- [x] (5) busy 时不在轮上切换：令宿主 `state === 'busy'`（用 manager 的真实 lease / 驱动缝造出在飞轮）后发起模式切换 ⇒ 读数必须是「拒绝（具名 code）」或「推迟（本轮结束后才生效）」二者之一，且**在轮进行中**读到的存储列**未变**、宿主**未**收到 `mode-change` 关闭（打印 `busySwitch=<refused|deferred> storedModeDuringTurn=… modeChangeDuringTurn=false`）。**正控制**：同一会话在宿主**空闲**时切换 ⇒ 生效（存储列改变 + 旧宿主以 `mode-change` 关闭，打印 `idleSwitch=applied closeReason=mode-change`）⇒ 保证不是「永远不动」。
+- [x] (5b) 推迟档若被选：推迟的那次切换必须在**本轮结束之后**真的生效（打印 `deferredAppliedAt=after-turn`）；若实现选「拒绝」，此项打印 `deferredNotImplemented` 并不断言 —— AC 允许二选一，判据不得把未选的那一档写成必红。
+- [x] 假形态 (a) 承重：写路径跳过能力矩阵校验、对 codex 接受 `resident` ⇒ (2) **必须红**。
+- [x] 假形态 (b) 承重：分叉复制源的 `lifecycle_mode` ⇒ (3) **必须红**。
+- [x] 假形态 (c) 承重：per-run 会话的 close 返回 2xx / 静默 no-op ⇒ (4b) 的拒绝臂**必须红**。
+- [x] 假形态 (d) 承重：busy 时切换照常生效（轮上就 `mode-change` 关宿主）⇒ (5) **必须红**。
+- [x] 假形态 (e) 承重：`/start` 只写库 / 空转、不调 `driver.startHost` ⇒ (4a) **必须红**（`startHostCalls=0` 或宿主不出现在投影里）。
+- [x] `residentFeatures` 到位：claude 行含 proposal §5 的八个字段（打印该行；`liveReconfigure=[]` 并注明「E1–E8 未覆盖，待单独验证」）；`RuntimeProviderCapabilities` 同步收该字段，且调试 agent 的镜像行为不变（既有 `server/modules/debug-agent/tests/debug-agent-host-driver.test.ts` 仍退出 0）。
+- [x] 不越权：不重做 `sessions.lifecycle_mode` 列本体、claude 能力行 `lifecycleModes` 加 `resident`、`POST …/close` 路由本体（AC-161 的工作面）—— 若 `git diff` 里出现这三处的改动，完成记录必须逐条说明是「AC-161 的落地不满足本条判据读数」的**被迫**修正并给出读数。
+- [x] 不使既有判据变红：`session-host-lifecycle` / `session-host-bindings` / `session-host-default-wrap` / `session-host-per-run-parity` / `session-hosts-routes` / `record-per-run-frame-baseline` 六条各自退出 **0**（逐条打印命令与退出码），且这六条文件**一字不改**（`git diff --name-only` 里没有它们）。
+- [x] 契约面：`npm run typecheck`、`npm run lint`、`npx oxlint server/ src/` 退出 0（新判据的跨模块 import 全部经 barrel）。
+- [x] 不闭环：本条的注入点不引入 `session-hosts → providers` 的反向 import 边（打印 `grep -rn "modules/providers" server/modules/session-hosts/ | grep -v tests` 的输出为空；驱动解析经 `server/index.ts` 组合根注入）。
 
 ## DoD
 
@@ -93,7 +93,7 @@ goal_ac: AC-169
 
 ## Touches
 
-- `server/modules/session-hosts/tests/lifecycle-mode.test.ts`（新：判据，AC-169 的 criterion 路径）
+- `server/modules/session-hosts/tests/lifecycle-mode.test.ts` （新：判据，AC-169 的 criterion 路径）
 - `server/modules/session-hosts/session-hosts.routes.ts`（`POST /:sessionId/start` + close 的 per-run 拒绝臂 + `resolveHostDriver` 依赖参数）
 - `server/modules/session-hosts/index.ts`（新符号经 barrel 收口）
 - `server/modules/session-hosts/session-host-manager.service.ts`（模式切换的 busy 窗口缝，复用 `changeMode` / `unbindSession`）

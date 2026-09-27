@@ -7,7 +7,20 @@ export { sessionHostManager, createSessionHostManager } from './session-host-man
 // `server/index.ts` at `/api/session-hosts` over the process-wide manager, and
 // by the routes criterion over a manager it drove itself. A factory because the
 // manager is a dependency: `createApiSuccessResponse` wraps its one response.
+// The same factory also serves the mode-restricted verbs (`POST
+// /:sessionId/start`, `POST /:sessionId/close`), which is why its two reader
+// seams travel with it.
 export { createSessionHostsRouter } from './session-hosts.routes.js';
+// SessionLifecycleReading / HostDriverResolver: the two dependency seams the
+// start/close verbs are constructed with. `SessionLifecycleReading` is the shape
+// the providers module's `sessionsService.readSessionLifecycle` returns (the
+// route reads a session's provider and stored mode, and must not touch the
+// database itself); `HostDriverResolver` is the driver lookup the composition
+// root supplies so this module never imports the providers module back.
+export type {
+  HostDriverResolver,
+  SessionLifecycleReading,
+} from './session-hosts.routes.js';
 // CLOSED_HOST_RETENTION_MS: how long a closed host stays in `snapshot()`, so a
 // reader of the listing (and the criterion for its far edge) can place a
 // deadline on the same value the manager expires with.
@@ -26,6 +39,17 @@ export type {
   SessionHostManager,
   SessionHostManagerOptions,
   ShutdownSummary,
+} from './session-host-manager.service.js';
+// UnattendedRunInput / UnattendedRunHandle / UnattendedRunOpener: the seam a
+// resident host driver calls when its process opens a turn nobody pushed, and
+// the shape `server/index.ts` implements over the run registry. Exported
+// because the driver types its port against them and the composition root
+// builds the opener elsewhere — neither can name them from the service file
+// without crossing a module edge this barrel exists to keep one-way.
+export type {
+  UnattendedRunHandle,
+  UnattendedRunInput,
+  UnattendedRunOpener,
 } from './session-host-manager.service.js';
 // HostScheduler: the deadline seam a criterion injects in place of the wall
 // clock, so the quiet ceiling and the shutdown grace period are reachable
@@ -62,6 +86,13 @@ export type { HostBindErrorCode, HostBindResult } from '@/shared/types.js';
 // assert each one is reachable by reading the list the manager is typed against
 // rather than a literal typed a second time.
 export { HOST_BIND_ERROR_CODES } from '@/shared/types.js';
+// LifecycleModeErrorCode / LIFECYCLE_MODE_ERROR_CODES: the refusal vocabulary of
+// the lifecycle verbs (`/start`, `/close`, the mode write). A caller branches on
+// the code, so a criterion that has to show three refusals are *mutually
+// distinguishable* reads the runtime list rather than the three values it
+// happened to produce — "distinct" stays a property of the vocabulary.
+export type { LifecycleModeErrorCode } from '@/shared/types.js';
+export { LIFECYCLE_MODE_ERROR_CODES } from '@/shared/types.js';
 // LifecyclePolicy / HostCloseDetail: the policy a mode runs under and the extra
 // fact two close reasons carry, needed by any caller that injects a policy or
 // reads why an `exited` host died.
