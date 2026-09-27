@@ -94,21 +94,16 @@ const IDLE_SOURCE = 'setInterval(()=>{},1000)';
 const CLEAN_FAILURE_SOURCE = 'process.exit(3)';
 
 /**
- * The slice name the criterion names verbatim, and the exit-3 gate for a config without one.
+ * The slice name the criterion names verbatim: the AC's literal, which is also the default the
+ * configuration resolves to.
  *
- * Placement in a named slice *is* the subject here — the victim-confining half of the
- * mechanism — so a host configured to place scopes nowhere cannot be asked this
- * question at all. That is unevaluated, not satisfied.
+ * Taken from the constant rather than from the ambient environment on purpose. What this file
+ * judges is the *wrapper*, and it judges it by injecting both caps; reading the ambient config
+ * into the injected value would make the criterion's own reading depend on the environment it is
+ * being run in, so the same file would take a different reading per host. The resolver itself is
+ * read separately, with explicit environment objects, in the first case below.
  */
-const configuredSlice = resolveResidentSliceName({});
-if (configuredSlice === null) {
-  console.error(
-    '[process-containment] CLAUDE_RESIDENT_SLICE resolves to "no slice", but this '
-    + 'criterion pins slice placement; unevaluated here (exit 3)',
-  );
-  process.exit(3);
-}
-const SLICE_NAME: string = configuredSlice;
+const SLICE_NAME: string = DEFAULT_RESIDENT_SLICE_NAME;
 
 /**
  * The availability probe, and the exit-3 gate it guards.
@@ -307,9 +302,8 @@ test.after(async () => {
 
 test('the caps and the slice come from configuration, and the wrapper puts them on the real units', async () => {
   // The criterion names the slice verbatim; the configuration is what produces it.
-  assert.equal(SLICE_NAME, DEFAULT_RESIDENT_SLICE_NAME);
   assert.equal(SLICE_NAME, 'cloudcli-resident.slice');
-  assert.equal(resolveResidentSliceName({}), 'cloudcli-resident.slice');
+  assert.equal(resolveResidentSliceName({}), SLICE_NAME);
   assert.equal(
     resolveResidentSliceName({ CLAUDE_RESIDENT_SLICE: 'another-resident.slice' }),
     'another-resident.slice',
@@ -460,25 +454,11 @@ test('a hog over the cap dies alone, its host reads exited/oom, and its sibling 
   const siblingUnit = sibling.unitName;
 
   try {
-    // (4) positive control: the reader that must read empty below is required, here,
-    // to name the live scopes — so "no residual scope" cannot be a reading that
-    // never sees anything. Named by unit rather than counted, because a child that
-    // has already exited drops off the same list. Under the falsification variant
-    // that creates no scope at all, this is where leg 2 first reds — on the reading
-    // built to catch a reader that sees nothing, not on a shape guard.
-    await waitUntil(
-      () => {
-        const live = ownScopes();
-        return hogUnit !== null && live.includes(`${hogUnit}.scope`)
-          && siblingUnit !== null && live.includes(`${siblingUnit}.scope`);
-      },
-      15_000,
-      () => `the listing to name the hog ${hogUnit} and its sibling ${siblingUnit}, saw ${JSON.stringify(ownScopes())}`,
-    );
-
     // (2) the over-limit child is reaped — with no cap on it, it allocates its
     // bounded 384 MiB and then sits there, which is what makes this a reading about
-    // the cap rather than about the workload.
+    // the cap rather than about the workload. Read first, deliberately: the
+    // falsification variant that creates no scope at all must red *here*, on "the
+    // over-limit process is not killed", rather than on a later control.
     await waitUntil(
       () => hog.child.exitCode !== null || hog.child.signalCode !== null,
       20_000,
@@ -510,6 +490,18 @@ test('a hog over the cap dies alone, its host reads exited/oom, and its sibling 
         `the journal must blame the cap for ${hogUnit}`,
       );
     }
+
+    // (4) positive control, on the same reader the emptiness reading uses: the
+    // scope of a child that is *still running* has to be named here. Without this
+    // the "no residual scope" readings could be satisfied by a reader that never
+    // sees anything — and a reader that sees nothing is what a missing scope looks
+    // like from the inside. The hog's own unit is not used: a cap-killed scope stays
+    // listed as `failed` until it is reset, so naming it would prove nothing here.
+    await waitUntil(
+      () => siblingUnit !== null && ownScopes().includes(`${siblingUnit}.scope`),
+      15_000,
+      () => `the listing to name the live sibling ${siblingUnit}, saw ${JSON.stringify(ownScopes())}`,
+    );
 
     // (3) the sibling under the same slice, and this process, are untouched.
     assert.equal(sibling.child.exitCode, null, 'the sibling must still be running');
