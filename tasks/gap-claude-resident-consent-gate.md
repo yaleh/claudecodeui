@@ -4,7 +4,7 @@ title: AC-171 真实浏览器里常驻开关须先勾选知情：新建会话开
   用户信任边界告知、未勾「我了解」发送禁用、勾选后能发送且会话
   lifecycle_mode=resident；会话菜单「转为常驻…」同门控且处理中禁用；开关只对能力矩阵含 resident 的 provider
   显示；假形态（勾选框不门控发送）必须红
-status: needs-human
+status: ready
 labels:
   - gap
 parent: null
@@ -193,3 +193,14 @@ modeAfterConvert=resident
 - session_id：f8d5360b-99ff-4a7f-baba-566350f8f56d
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-resident-consent-gate~wk-prod-anchor~1790520767356-4e5b86.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-resident-consent-gate-wk-prod-anchor.log
+
+## 人工复核（2026-09-27，人 yale 指令「检查和推进」）
+
+停在 needs-human 的判词是 `voice-capture-audio.false-forms.test.ts` 的
+`a surface this task must not have moved is red`，但同一轮 suite 日志实际有 **7 条**红
+（`reason: red: 7 failed`），第一条就是 `typecheck passed=false`，逐字点名
+`scripts/resident-smoke.mjs(225,29): error TS7006: Parameter 'pid' implicitly has an 'any' type.`——
+这正是我在这之前落地 AC-170 时引入、随后已修复（提交 `a05471a9`）的仓库级 typecheck 回归。本轮的
+六个 voice `*.false-forms.test.ts` 红全部是那个 TS7006 的连带效应（`AC6/AC7/AC10` 各自重跑
+`npm run typecheck` 并要求红集为空），不是本任务的 delta：worktree 在派工时同步的 develop 还没有
+我的修复提交。修复已在，重新排队即可（下一轮 fan-in 会先合并到含修复的 develop）。
