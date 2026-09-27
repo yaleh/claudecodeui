@@ -3,7 +3,7 @@ id: gap-voice-error-classification-ac7-vitest-child-fragile
 title: AC7 的 asrContractInvariants
   子进程在舰队并发下假红：voice-error-classification.false-forms.test.ts 拉起独立 vitest
   进程与套件自身并发跑同一文件互相超订，standalone 绿、舰队 6/11 次红，困住两个不相干任务
-status: ready
+status: done
 labels:
   - gap
   - defect
