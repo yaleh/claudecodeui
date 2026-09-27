@@ -123,10 +123,10 @@ worktree `/data/home/yale/work/claudecodeui-worktrees/gap-voice-error-notice-bro
     [AC6] driverInDelta=false evaluated=false branch=task/gap-voice-error-notice-browser-e2e-probe
     [AC6] the develop-delta assertion is NOT evaluated here: this tree is on branch task/gap-voice-error-notice-browser-e2e-probe, and that invariant is decided on task/gap-session-hosts-claude-per-run-driver. A delta that does not name server/modules/providers/list/claude/claude-per-run-host-driver.provider.ts on this branch is a sibling task's declared scope, not a violation of this criterion; the reading above is printed, not asserted.
     neighbour server/modules/providers/tests/claude-background-work.test.ts exit=0 tests=10 pass=10 fail=0
-    parity server/modules/providers/tests/passthrough-e2e … sanity: parity server/modules/providers/tests/passthrough-parity.test.ts exit=0 tests=4 pass=4 fail=0
+    parity server/modules/providers/tests/passthrough-parity.test.ts exit=0 tests=4 pass=4 fail=0
     ℹ tests 7   ℹ pass 7   ℹ fail 0   →   EXIT=0
 
-（上面 `parity` 一行是登记时的转写，原文为 `parity server/modules/providers/tests/passthrough-parity.test.ts exit=0 tests=4 pass=4 fail=0`。）转绿，且输出里有一行点明「未在此分支求值」并带分支名与理由 —— 与 AC2 要求的形状一致（AC 正文给的是「例如」，实际分支名是探测树自己的名字，因为该分支名此刻被在飞 worker 占用）。
+转绿，且输出里有一行点明「未在此分支求值」并带分支名与理由 —— 与 AC2 要求的形状一致（AC 正文给的是「例如」，实际分支名是探测树自己的名字，因为该分支名此刻被在飞 worker 占用）。
 
 ### AC3 — 负控制，三条读数把两个变量各自孤立
 
