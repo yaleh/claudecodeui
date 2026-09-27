@@ -3,7 +3,7 @@ id: gap-session-hosts-claude-per-run-driver
 title: AC-159 Claude per-run 的后台持有与顶替由宿主层策略执行：伪造 SDK 流下 result 后 lingering、新一轮
   superseded、30 分钟静默 released 且输入流被结束、后台回报 result released 且
   notifyBackgroundWorkCompleted 恰一次；claude-background-work.test.ts 不改断言照常通过
-status: needs-human
+status: todo
 labels:
   - gap
 parent: null
@@ -15,6 +15,7 @@ depends_on:
   - gap-session-hosts-lease-driven-lifecycle
   - gap-session-hosts-binding-multiplexing
   - gap-voice-falsify-copies-inside-tsc-program
+  - gap-debug-agent-ac10-reads-the-whole-branch-delta
 goal_ac: AC-159
 ---
 ## Proposal
