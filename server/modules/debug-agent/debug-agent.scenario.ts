@@ -76,8 +76,19 @@ export type DebugAgentTranscriptMode = (typeof DEBUG_AGENT_TRANSCRIPT_MODES)[num
  * could not say "this turn ended" could never place that state on the clock. It
  * writes nothing and carries nothing, because it states an end rather than a
  * row — the same reason `wait` is a step.
+ *
+ * `dequeue` and `cancel-ack` are the same shape of step for the CLI's own queue
+ * (`docs/proposals/claude-resident-sessions-experiments.md` §9.2): the first says
+ * the process took the oldest command it is holding and started it, the second
+ * that it acted on a withdrawal and dropped a command it had never started. Both
+ * carry nothing, because what they state is a moment on the clock for a queue
+ * whose commands the run was told about when they were pushed — the scenario
+ * cannot know a uuid the host minted at push time, which is exactly why the
+ * engine reads the queue rather than the document for these two.
  */
 export const DEBUG_AGENT_OPS = [
+  'cancel-ack',
+  'dequeue',
   'exit',
   'grow',
   'identity',
@@ -101,6 +112,8 @@ export type DebugAgentScenarioOp = (typeof DEBUG_AGENT_OPS)[number];
  * steps need the host" is one fact rather than a list the engine re-derives.
  */
 export const DEBUG_AGENT_HOST_OPS = [
+  'cancel-ack',
+  'dequeue',
   'exit',
   'identity',
   'keepalive-add',
@@ -180,6 +193,8 @@ export type DebugAgentExitDetail = (typeof DEBUG_AGENT_EXIT_DETAILS)[number];
  * that can go backwards cannot order two observations of the same file.
  */
 export type DebugAgentScenarioStep = { at: number } & (
+  | { op: 'cancel-ack' }
+  | { op: 'dequeue' }
   | { op: 'exit'; detail: DebugAgentExitDetail }
   | { op: 'grow'; text: string }
   | { op: 'identity'; name: string }
@@ -419,8 +434,12 @@ function readStep(input: unknown, index: number): DebugAgentScenarioStep {
         detail: readClosedValue(step.detail, DEBUG_AGENT_EXIT_DETAILS, `${where}.detail`),
       };
     default:
-      // `scroll`, `wait` and `turn-end` carry nothing: they are the three steps
-      // whose whole content IS their position on the clock.
+      // `cancel-ack`, `dequeue`, `scroll`, `wait` and `turn-end` carry nothing:
+      // they are the five steps whose whole content IS their position on the
+      // clock. Their host layer reads the queue it is holding for the command a
+      // step acts on, so a document cannot name one — nor should it: the uuid is
+      // the host's to mint, and a scenario that restated it would be a second
+      // place the two could disagree.
       return { at, op } as DebugAgentScenarioStep;
   }
 }

@@ -273,6 +273,12 @@
   }
 ,
   "resident": {
+    "pending": {
+      "annotation": "この回答の終了後に処理されます",
+      "started": "処理を開始しました",
+      "withdraw": "取り消す",
+      "withdrawn": "取り消しました"
+    },
     "statusBar": {
       "unstarted": "常駐 · 未起動（{{reason}}）",
       "idle": "常駐 · 待機中",

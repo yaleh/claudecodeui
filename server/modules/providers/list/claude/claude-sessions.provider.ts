@@ -6,6 +6,7 @@ import readline from 'node:readline';
 import type { IProviderSessions } from '@/shared/interfaces.js';
 import type {
   AnyRecord,
+  CommandLifecycleState,
   CompactionInfo,
   FetchHistoryOptions,
   FetchHistoryResult,
@@ -13,6 +14,7 @@ import type {
   SubagentActivity,
   SubagentInfo,
 } from '@/shared/types.js';
+import { COMMAND_LIFECYCLE_ROW_TYPE } from '@/shared/types.js';
 import { parseFilesInputTag } from '@/shared/image-attachments.js';
 import { prepareTranscriptMessages } from '@/shared/message-unification.js';
 import {
@@ -27,6 +29,28 @@ import { sessionsDb } from '@/modules/database/index.js';
 import { summarizeClaudeTokenUsage } from '@/modules/providers/services/provider-token-usage.service.js';
 
 const PROVIDER = 'claude';
+
+/**
+ * The command lifecycle states this build has a word for.
+ *
+ * A closed set rather than a cast: the row is an artifact an older or newer
+ * build may have written, and a state this build cannot name would reach a
+ * client as a queue entry it has no branch for — the same failure as an
+ * unknown message kind, one layer earlier where dropping it is still cheap.
+ */
+const COMMAND_LIFECYCLE_STATES: readonly CommandLifecycleState[] = [
+  'queued',
+  'started',
+  'cancelled',
+  'completed',
+];
+
+/** The state a lifecycle row names, or null when it names one this build does not know. */
+function readCommandLifecycleState(value: unknown): CommandLifecycleState | null {
+  return typeof value === 'string' && (COMMAND_LIFECYCLE_STATES as readonly string[]).includes(value)
+    ? (value as CommandLifecycleState)
+    : null;
+}
 
 /** Tokens the way the CLI writes them: 725k rather than 724,871. */
 const formatTokenCount = (tokens: number): string => {
@@ -704,6 +728,40 @@ export class ClaudeSessionsProvider implements IProviderSessions {
     const messages: NormalizedMessage[] = [];
     const ts = raw.timestamp || new Date().toISOString();
     const baseId = raw.uuid || generateMessageId('claude');
+
+    // Where one queued user message is in the CLI's own queue. This is the only
+    // place the dialect's `command_lifecycle` row becomes something a client can
+    // see, and it is deliberately here rather than in whoever writes the row:
+    // the row is the artifact and the wire shape is this function's business
+    // (ADR-003 decision 7 — a producer that built the frame itself would be a
+    // second implementation of the dialect, and the one that drifts).
+    //
+    // Both envelopes the CLI uses are accepted — a bare `command_lifecycle` row
+    // and a `system` row carrying it as its subtype — because §9.2 records the
+    // event's name but not which of the two carries it on any given build.
+    const lifecycleState =
+      raw.type === COMMAND_LIFECYCLE_ROW_TYPE ||
+      (raw.type === 'system' && raw.subtype === COMMAND_LIFECYCLE_ROW_TYPE)
+        ? readCommandLifecycleState(raw.state)
+        : null;
+    const commandUuid = typeof raw.command_uuid === 'string' && raw.command_uuid ? raw.command_uuid : null;
+    if (lifecycleState && commandUuid) {
+      // A row that names no command, or names a state this build has no word
+      // for, normalizes to nothing: the client's whole reading of a withdrawal
+      // is "which command, and where is it now", and a frame missing either
+      // half would be a queue entry no client could place or settle.
+      return [
+        createNormalizedMessage({
+          id: `${baseId}_lifecycle`,
+          sessionId,
+          timestamp: ts,
+          provider: PROVIDER,
+          kind: 'command_lifecycle',
+          commandUuid,
+          commandState: lifecycleState,
+        }),
+      ];
+    }
 
     // A compaction is the most expensive thing a long session does without
     // being asked, and neither record that describes it survives the branches

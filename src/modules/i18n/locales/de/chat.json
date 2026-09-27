@@ -286,6 +286,12 @@
   }
 ,
   "resident": {
+    "pending": {
+      "annotation": "Wird nach dieser Antwort verarbeitet",
+      "started": "Verarbeitung begonnen",
+      "withdraw": "Zurückziehen",
+      "withdrawn": "Zurückgezogen"
+    },
     "statusBar": {
       "unstarted": "Resident · Läuft nicht ({{reason}})",
       "idle": "Resident · Leerlauf",

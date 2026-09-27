@@ -3,6 +3,7 @@ import type {
   HostCloseReason,
   HostLease,
   HostMode,
+  HostQueuedInputCancelResult,
   HostReconfigurePatch,
   HostTurnInput,
   ProcessHost,
@@ -61,6 +62,33 @@ export type DebugAgentOpenRun = (input: {
 
 export type DebugAgentHostDriverDependencies = {
   openRun: DebugAgentOpenRun;
+};
+
+/**
+ * What the substitute process has been told about its own queue, as of now.
+ *
+ * The reading a criterion holds the control plane to. It is deliberately the
+ * *host's* record and not the transcript's: the rows say what the product made
+ * of a push, while these four lists say what reached the process — and a
+ * criterion that could not tell the two apart could not show that a withdrawal
+ * arrived anywhere at all.
+ *
+ * `controlResponses` is the empty list that must stay empty. The CLI answers a
+ * `cancel_async_message` with no `control_response` at any timing (E9 §9.2), so
+ * a substitute that answered one would make every downstream reading a
+ * measurement of its own fabrication. Publishing it as a list — always empty,
+ * rather than absent — is what gives the criterion something to assert against
+ * instead of the absence of a field.
+ */
+export type DebugAgentCommandQueueReading = {
+  /** Commands handed to this process that it has not started, oldest first. */
+  queued: string[];
+  /** Commands a withdrawal has named, oldest first. */
+  withdrawRequested: string[];
+  /** Commands this process has acknowledged as dropped, oldest first. */
+  withdrawn: string[];
+  /** `control_response` frames this process wrote in answer to a withdrawal. */
+  controlResponses: string[];
 };
 
 /**
@@ -126,6 +154,21 @@ export type DebugAgentTurnRunner = (
   context: ProviderRuntimeContext,
 ) => Promise<unknown>;
 
+/**
+ * The option the host layer stamps on a turn it accepted while the process was
+ * already in one.
+ *
+ * A dispatch that arrives at a busy process is a *push*, not a turn: a real CLI
+ * takes the command off its stdin and holds it in its own queue until the turn
+ * in flight ends (`docs/proposals/claude-resident-sessions-experiments.md` §9.2),
+ * so the runtime that receives one has to record the command as queued and must
+ * not run it. The mark travels on the turn's own options rather than through a
+ * verb on this object so that the answer cannot change between the moment the
+ * host decided it and the moment the runtime reads it — the dispatch is spread
+ * across an await, and a callback would be read after it.
+ */
+export const DEBUG_AGENT_BUSY_INPUT_OPTION = 'residentBusyInput';
+
 export type DebugAgentHostDriver = IProviderHostDriver & {
   readonly lifecycleModes: HostMode[];
   /** How many processes this driver has started. One, for a multiplexing driver, however many hosts are opened. */
@@ -143,6 +186,13 @@ export type DebugAgentHostDriver = IProviderHostDriver & {
    * dispatch hands whatever this resolves to straight back to whoever dispatched
    * the turn, and the debug run's reading — the numbers the control plane checks
    * against the artifact — has no other path to its reader.
+   *
+   * A dispatch that arrives while a turn is already in flight is the one case
+   * that does not run the runner at all. It is marked with
+   * {@link DEBUG_AGENT_BUSY_INPUT_OPTION} and handed on, and this layer neither
+   * submits it (which would overwrite the turn in flight and re-report activity
+   * the process did not have) nor releases a lease on its way out (the turn in
+   * flight is not this dispatch's to end).
    */
   run(
     appSessionId: string,
@@ -152,6 +202,53 @@ export type DebugAgentHostDriver = IProviderHostDriver & {
   ): Promise<unknown>;
   /** Binds the turn runner above. Called once, by the factory that built both halves. */
   setTurnRunner(runner: DebugAgentTurnRunner): void;
+  /**
+   * Records a command this process was handed and has not started yet.
+   *
+   * The substitute's queue is the host driver's, not the engine's, because the
+   * two halves of a push happen at different times: the runtime writes the
+   * command's row the moment a client sends it, while the steps that start or
+   * drop it are on the scenario's clock. Something has to hold the queue between
+   * the two, and the host layer is what a real process's queue belongs to.
+   *
+   * The uuid is the host's own — the same value `cancelQueuedInput` names and
+   * the same one the caller writes into the command's transcript row, which is
+   * what makes "the message", "the queue entry" and "the thing a withdrawal
+   * names" one object to every reader.
+   */
+  registerPushedCommand(input: { appSessionId: string; commandUuid: string }): void;
+  /**
+   * Withdraws a queued message from the process.
+   *
+   * The payload is recorded and nothing else happens: a substitute has no real
+   * process to answer, and its "answer" is the `cancel-ack` step on the
+   * scenario's clock — so this returns `unknown` rather than `withdrawn`, which
+   * is the honest reading of a request that has been written and not yet acted
+   * on. The one thing it must never do is produce a `control_response`, because
+   * there is none to produce: the CLI answers this frame with no response at any
+   * timing (`docs/proposals/claude-resident-sessions-experiments.md` §9.2), and
+   * a substitute that invented one would make the criterion it exists to serve
+   * measure its own fabrication.
+   */
+  cancelQueuedInput(appSessionId: string, messageUuid: string): Promise<HostQueuedInputCancelResult>;
+  /**
+   * Takes the oldest command out of the queue, or null when it holds none.
+   *
+   * The engine's `dequeue` step: the uuid is handed back so the engine can write
+   * the row that says the command started.
+   */
+  readOldestQueuedCommand(input: { appSessionId: string }): string | null;
+  /**
+   * Drops the command the most recent withdrawal named, or null when none is
+   * waiting to be acted on.
+   *
+   * A no-op for a run that withdrew nothing, which is what makes the same
+   * scenario document usable with and without a click: the step is on the clock
+   * either way.
+   */
+  acknowledgeCancel(input: { appSessionId: string }): string | null;
+  /** What this process has been told about its own queue, for a criterion to read back. */
+  readCommandQueue(appSessionId: string): DebugAgentCommandQueueReading;
   /**
    * Opens a turn for a session with no client behind it and returns the writer
    * its frames belong to.
@@ -235,6 +332,32 @@ export function createDebugAgentHostDriver(
   /** The turn in flight per session, as `submit` recorded it. */
   const turnByAppSession = new Map<string, HostTurnInput>();
   /**
+   * What each session's process is holding but has not started, oldest first.
+   *
+   * The process's queue, not the session's: it is filled by `registerPushedCommand`
+   * at the moment a client's command is written to the process and drained by the
+   * two steps that say the process acted on it (`dequeue`, `cancel-ack`), which
+   * run on the scenario's own clock. Nothing else may touch it — a queue that
+   * also served as the engine's scratch space could not tell a command the process
+   * still holds from one it has already started.
+   */
+  const queueByAppSession = new Map<string, string[]>();
+  /** Commands a withdrawal has named, oldest first, per session. */
+  const withdrawRequestedByAppSession = new Map<string, string[]>();
+  /** Commands this process has acknowledged as dropped, oldest first, per session. */
+  const withdrawnByAppSession = new Map<string, string[]>();
+  /**
+   * `control_response` frames this process wrote in answer to a withdrawal.
+   *
+   * Always empty, and that is the reading: the CLI answers `cancel_async_message`
+   * with no response frame at any timing (§9.2), so a substitute that invented one
+   * would be manufacturing the very evidence a criterion would use to decide
+   * whether the withdrawal worked. Kept as a list rather than left absent so the
+   * "there are none" reading is taken off the same surface as every other count
+   * this driver publishes.
+   */
+  const cancelResponsesByAppSession = new Map<string, string[]>();
+  /**
    * The one process this driver runs, once it has been started.
    *
    * A driver that declares `multiplexedHost` is stating that one process serves
@@ -297,7 +420,13 @@ export function createDebugAgentHostDriver(
     }
 
     const host = hostFor(appSessionId);
-    if (host) {
+    // Read BEFORE the runner is entered, and before anything this dispatch does:
+    // it is the state the process was in when the command arrived, which is what
+    // decides whether the command is a turn or a push. A dispatch that looked
+    // after its own writes would read the turn it just submitted.
+    const busy = turnByAppSession.has(appSessionId);
+
+    if (host && !busy) {
       await submit(host, appSessionId, turn);
     }
 
@@ -310,9 +439,16 @@ export function createDebugAgentHostDriver(
       // `/clock` answer `DEBUG_AGENT_RUN_READING_MISSING` for every resident session while the walk
       // itself completed perfectly. The `finally` still ends the unattended turn on the way out — a
       // walk that rejected must not leave a turn lease behind either.
-      return await turnRunner(appSessionId, turn, writer, context);
+      const dispatched = busy
+        ? { ...turn, options: { ...turn.options, [DEBUG_AGENT_BUSY_INPUT_OPTION]: true } }
+        : turn;
+      return await turnRunner(appSessionId, dispatched, writer, context);
     } finally {
-      if (host) {
+      // Not this dispatch's lease to release. A push arrived *inside* the turn
+      // that is running, so the lease belongs to that turn — releasing it here
+      // would draw a process the status bar reports as 运行中 while it still is,
+      // and would also leave the walk's own turn unable to end it later.
+      if (host && !busy) {
         await endUnattendedTurn({ appSessionId });
       }
     }
@@ -402,6 +538,76 @@ export function createDebugAgentHostDriver(
     if (sinkByHostId.size === 0) {
       processHandle = null;
     }
+  }
+
+  /** The list a session is indexed by, created empty on first use. */
+  function listFor(store: Map<string, string[]>, appSessionId: string): string[] {
+    const existing = store.get(appSessionId);
+    if (existing) {
+      return existing;
+    }
+
+    const created: string[] = [];
+    store.set(appSessionId, created);
+    return created;
+  }
+
+  function registerPushedCommand(input: { appSessionId: string; commandUuid: string }): void {
+    listFor(queueByAppSession, input.appSessionId).push(input.commandUuid);
+  }
+
+  async function cancelQueuedInput(
+    appSessionId: string,
+    messageUuid: string,
+  ): Promise<HostQueuedInputCancelResult> {
+    // Recorded, and nothing else. The payload is what the criterion reads back
+    // ("the click really reached the host"), and the verdict is `unknown` because
+    // that is the honest reading of a request the process has not acted on yet:
+    // the act is the scenario's `cancel-ack` step, and it is the `cancelled` row
+    // that step writes — never this call's return value — that says the command
+    // was withdrawn. No `control_response` is written here or anywhere else: the
+    // CLI sends none at any timing, so there is none to record.
+    listFor(withdrawRequestedByAppSession, appSessionId).push(messageUuid);
+    return 'unknown';
+  }
+
+  function readOldestQueuedCommand(input: { appSessionId: string }): string | null {
+    // Read AND removed: the caller is the step that says the process started this
+    // command, and a queue that kept it would hand the same command to the next
+    // `dequeue` — a second `started` row for a command that started once.
+    return listFor(queueByAppSession, input.appSessionId).shift() ?? null;
+  }
+
+  function acknowledgeCancel(input: { appSessionId: string }): string | null {
+    const requested = listFor(withdrawRequestedByAppSession, input.appSessionId).shift() ?? null;
+    if (!requested) {
+      return null;
+    }
+
+    // Dropped from the queue as well as from the pending list, because that is
+    // what "the process acted on the withdrawal" means: the command is gone from
+    // the process's hands, and a later `dequeue` must skip past it rather than
+    // start a command the user took back. A uuid that is not in the queue is still
+    // reported — the withdrawal was acted on, whatever the command's state was —
+    // but it is not an error, because the two lists are written by different
+    // callers at different times and only one of them can be the one that decided.
+    const queue = listFor(queueByAppSession, input.appSessionId);
+    const at = queue.indexOf(requested);
+    if (at >= 0) {
+      queue.splice(at, 1);
+    }
+
+    listFor(withdrawnByAppSession, input.appSessionId).push(requested);
+    return requested;
+  }
+
+  function readCommandQueue(appSessionId: string): DebugAgentCommandQueueReading {
+    return {
+      queued: [...listFor(queueByAppSession, appSessionId)],
+      withdrawRequested: [...listFor(withdrawRequestedByAppSession, appSessionId)],
+      withdrawn: [...listFor(withdrawnByAppSession, appSessionId)],
+      controlResponses: [...listFor(cancelResponsesByAppSession, appSessionId)],
+    };
   }
 
   async function openUnattendedTurn(input: {
@@ -551,5 +757,15 @@ export function createDebugAgentHostDriver(
     removeKeepalive,
     reportIdentity,
     reportExit,
+
+    // The queue half: what the process was handed and has not started, what a
+    // client asked it to take back, and what it did about that. `run` above is
+    // only half of the busy-send story — it is the write, and these are the four
+    // readings that say what became of what was written.
+    registerPushedCommand,
+    cancelQueuedInput,
+    readOldestQueuedCommand,
+    acknowledgeCancel,
+    readCommandQueue,
   };
 }

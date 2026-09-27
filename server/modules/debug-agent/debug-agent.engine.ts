@@ -4,6 +4,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type { IProviderSessions } from '@/shared/interfaces.js';
 import type {
   AnyRecord,
+  CommandLifecycleState,
   MessageOrigin,
   NormalizedMessage,
   ProviderRuntimeWriter,
@@ -20,6 +21,7 @@ import {
 } from './debug-agent.scenario.js';
 import {
   appendTranscriptRow,
+  buildCommandLifecycleRow,
   buildMessageRow,
   growRowText,
   readTranscriptLines,
@@ -111,6 +113,27 @@ export type DebugAgentHostOps = {
   endUnattendedTurn(input: { appSessionId: string }): Promise<void>;
   addKeepalive(input: { appSessionId: string; kind: DebugAgentKeepaliveKind }): Promise<void>;
   removeKeepalive(input: { appSessionId: string; kind: DebugAgentKeepaliveKind }): Promise<void>;
+  /**
+   * Takes the oldest command the process is holding that has not been started or
+   * withdrawn, and reports its uuid; null when the queue is empty.
+   *
+   * Reads AND removes: the command it names is the one the process just started,
+   * and a reader that left it in place would hand the next `dequeue` the same
+   * command twice. The uuid is the host's, which is why the engine asks for it
+   * here rather than reading it off the step — a scenario cannot name a value it
+   * never minted.
+   */
+  readOldestQueuedCommand(input: { appSessionId: string }): string | null;
+  /**
+   * Acts on the withdrawal most recently asked for: drops that command from the
+   * queue and reports its uuid, or null when nothing is waiting to be cancelled.
+   *
+   * Splitting "the withdrawal arrived" from "the process acted on it" is the
+   * point of the step: only the second one produces the `cancelled` fact, and a
+   * caller that could not place the two apart could not tell a UI that waited
+   * for the process from one that flipped the moment the button was clicked.
+   */
+  acknowledgeCancel(input: { appSessionId: string }): string | null;
   /** Reports the address the process answers to, for the popover's copy leg. */
   reportIdentity(input: { appSessionId: string; name: string }): Promise<void>;
   reportExit(input: { appSessionId: string; detail: DebugAgentExitDetail }): Promise<void>;
@@ -238,6 +261,32 @@ export async function runDebugAgentScenario(input: DebugAgentRunInput): Promise<
     forward(row);
   };
 
+  /**
+   * Writes one command's queue state and forwards the frame it normalizes to.
+   *
+   * The same row-then-frame order `appendRow` keeps, and for the same reason: a
+   * client told "this command started" before the transcript said so would be
+   * reading a live conversation whose history disagrees with it.
+   *
+   * This is the engine's ONLY way to state a queue fact, and it exists as its own
+   * helper rather than as a branch of `appendRow` because the two write different
+   * rows: a message row is a turn, and a lifecycle row is a statement about one
+   * that has not run. `buildCommandLifecycleRow` decides the latter's shape, so
+   * the dialect's field names stay in the runtime module (ADR-003 decision 4).
+   */
+  const appendCommandLifecycle = (commandUuid: string, state: CommandLifecycleState): void => {
+    const row = buildCommandLifecycleRow({
+      sessionId,
+      cwd,
+      commandUuid,
+      state,
+      timestamp: new Date().toISOString(),
+    });
+
+    appendTranscriptRow(transcriptPath, row);
+    forward(row);
+  };
+
   for (const [index, step] of scenario.steps.entries()) {
     const due = startedAt + step.at;
     const remaining = due - Date.now();
@@ -284,6 +333,30 @@ export async function runDebugAgentScenario(input: DebugAgentRunInput): Promise<
         });
         input.onDelivery?.(delivery);
         appendRow('user', step.text, origin);
+        break;
+      }
+
+      case 'dequeue': {
+        // The process took the command it had been holding and started it. What
+        // it writes is the queue's account of that and nothing else: the
+        // substitute never runs a pushed command's turn, so writing the turn's
+        // own row would be claiming output that does not exist.
+        const dequeued = requireHostOps(hostOps).readOldestQueuedCommand({ appSessionId });
+        if (dequeued) {
+          appendCommandLifecycle(dequeued, 'started');
+        }
+        break;
+      }
+
+      case 'cancel-ack': {
+        // The process acted on the withdrawal. A no-op when nothing is waiting:
+        // the step is on the clock whether or not a client ever asked, and a
+        // scenario whose document is the same for a withdrawn and a
+        // never-clicked run must not fail halfway through for the second one.
+        const cancelled = requireHostOps(hostOps).acknowledgeCancel({ appSessionId });
+        if (cancelled) {
+          appendCommandLifecycle(cancelled, 'cancelled');
+        }
         break;
       }
 

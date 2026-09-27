@@ -20,6 +20,18 @@ export const UNATTENDED_DIVIDER_MESSAGE_TYPE = 'unattended-divider';
 /** The `ChatMessage.type` of a turn nobody typed — see {@link UNATTENDED_DIVIDER_MESSAGE_TYPE}. */
 export const UNATTENDED_TURN_MESSAGE_TYPE = 'unattended';
 
+/**
+ * The `ChatMessage.type` of a message a resident process has taken but not
+ * started.
+ *
+ * Its own type rather than a `user` row with a flag, for the reason the two
+ * constants above are: this row is drawn by a different component, carries the
+ * host's own account of where the command is, and offers an action no other row
+ * has — and a renderer that had to narrow a `user` row first would be reading
+ * two facts to decide one thing.
+ */
+export const RESIDENT_PENDING_MESSAGE_TYPE = 'resident_pending';
+
 function formatToolResultContent(content: unknown): string {
   const text = typeof content === 'string' ? content : JSON.stringify(content);
   const toolUseErrorMatch = /^<tool_use_error>([\s\S]*)<\/tool_use_error>$/.exec(text.trim());
@@ -341,6 +353,27 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
     }
 
     switch (msg.kind) {
+      case 'command_lifecycle': {
+        // The process's account of a message it is holding. Only this client's
+        // own row is drawn: a `command_lifecycle` row served over REST is the
+        // process talking about a command, not a turn in the conversation, and
+        // the store already keeps those out of the transcript. What is left is
+        // the row the composer wrote when the user's send went into a live
+        // process — the message itself, plus whatever the host has said about it
+        // since (`queued`, then `started`, or gone once it was withdrawn).
+        if (!isLiveRowId(msg.id)) break;
+
+        converted.push({
+          type: RESIDENT_PENDING_MESSAGE_TYPE,
+          content: msg.content || '',
+          timestamp: msg.timestamp,
+          residentCommandUuid: msg.commandUuid ?? null,
+          residentCommandState: msg.commandState ?? 'queued',
+          ...sharedMetadata,
+        });
+        break;
+      }
+
       case 'text': {
         const content = msg.content || '';
         const images = Array.isArray(msg.images) && msg.images.length > 0 ? msg.images : undefined;

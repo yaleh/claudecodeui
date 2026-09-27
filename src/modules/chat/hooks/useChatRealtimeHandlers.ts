@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 
-import type { ServerEvent,MarkSessionIdle,MarkSessionProcessing,PendingPermissionRequest,ProjectSession,LLMProvider,NormalizedMessage } from '@/shared/types';
+import type { ServerEvent,MarkSessionIdle,MarkSessionProcessing,PendingPermissionRequest,ProjectSession,LLMProvider,NormalizedMessage,CommandLifecycleState } from '@/shared/types';
 import { showCompletionTitleIndicator } from '@/modules/chat/utils/pageTitleNotification';
 import { playChatCompletionSound, playNotificationSound } from '@/shared/utils';
 import type { SessionStore } from '@/modules/chat/hooks/useSessionStore';
@@ -23,6 +23,30 @@ const hasActionablePermissionRequests = (requests: Array<{ toolName?: unknown }>
  * around it, markdown pipeline included.
  */
 const STREAM_FLUSH_INTERVAL_MS = 100;
+
+/**
+ * The queue states this client can draw, as a value rather than only a type.
+ *
+ * The wire carries `commandState` as an unvalidated string, and the store's
+ * `applyCommandLifecycle` takes the union — so something has to narrow one to
+ * the other, and the list has to name every member
+ * {@link CommandLifecycleState} has. A frame naming a state this build has no
+ * word for normalizes to nothing rather than being guessed at: `queued` and
+ * `started` are what the withdrawal button's presence depends on, and a
+ * misspelled state treated as "not queued" would silently take the button away.
+ */
+const COMMAND_LIFECYCLE_STATES: readonly CommandLifecycleState[] = [
+  'queued',
+  'started',
+  'cancelled',
+  'completed',
+];
+
+function readCommandLifecycleState(value: unknown): CommandLifecycleState | null {
+  return typeof value === 'string' && (COMMAND_LIFECYCLE_STATES as readonly string[]).includes(value)
+    ? (value as CommandLifecycleState)
+    : null;
+}
 
 type UseChatRealtimeHandlersArgs = {
   isActive: boolean;
@@ -312,6 +336,35 @@ export function useChatRealtimeHandlers({
         if (sid) {
           settleStream(sid);
         }
+        return;
+      }
+
+      // A command the resident process is holding, and where it is now. It has
+      // no text of its own and is not a message: it is the host's answer about
+      // the one row this client is holding for it, so it updates that row
+      // instead of being appended as one of its own. A row for a command this
+      // client never drew (another client pushed it) matches nothing and is
+      // dropped, which is the same reading `withoutServedLifecycleRows` gives
+      // the same event when it comes back over REST.
+      if (msg.kind === 'command_lifecycle') {
+        const state = readCommandLifecycleState(msg.commandState);
+        if (sid && typeof msg.commandUuid === 'string' && state) {
+          sessionStore.applyCommandLifecycle(sid, { commandUuid: msg.commandUuid, state });
+        }
+        return;
+      }
+
+      // The control-plane's acknowledgement of a withdrawal. Deliberately
+      // dropped: it is not the reading either side of the wire treats as the
+      // withdrawal having happened. The client's evidence is the `cancelled`
+      // lifecycle event above — the one fact the process publishes after it has
+      // actually taken the command back — while this frame can arrive, by
+      // design, at any timing or not at all (§9.2: `cancel_async_message`
+      // receives no `control_response`). Drawing the row gone on an
+      // acknowledgement would make the UI's state a claim about a request
+      // rather than about the host's queue, and appending it as a message would
+      // put a wire verb in the transcript.
+      if (msg.kind === 'queued_input_cancel_result') {
         return;
       }
 

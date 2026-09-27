@@ -385,7 +385,30 @@ function pruneRealtimeSupersededByServer(
   });
 }
 
-function computeMerged(server: NormalizedMessage[], realtime: NormalizedMessage[]): NormalizedMessage[] {
+/**
+ * Keeps a `command_lifecycle` row out of the transcript unless this client is
+ * the one drawing it.
+ *
+ * The dialect's lifecycle rows are the process's account of a queued command —
+ * `queued`, `started`, `cancelled` — and the artifact keeps them, so they come
+ * back over REST with every other row. They are not turns: a transcript that
+ * rendered them would show "command started" as a message, and would show the
+ * withdrawn command that the user already watched disappear. The one such row
+ * the transcript does draw is this client's own live row (see
+ * `addResidentPending`), which is the user's message plus the host's state for
+ * it — and `isLiveRowId` is exactly the "this client made it" mark, because no
+ * server row is ever minted with that id.
+ */
+function withoutServedLifecycleRows(messages: NormalizedMessage[]): NormalizedMessage[] {
+  const kept = messages.filter(
+    (message) => message.kind !== 'command_lifecycle' || isLiveRowId(message.id),
+  );
+  return kept.length === messages.length ? messages : kept;
+}
+
+function computeMerged(serverSource: NormalizedMessage[], realtimeSource: NormalizedMessage[]): NormalizedMessage[] {
+  const server = withoutServedLifecycleRows(serverSource);
+  const realtime = withoutServedLifecycleRows(realtimeSource);
   if (realtime.length === 0) {
     return dedupeAdjacentAssistantEchoes(server);
   }
@@ -913,6 +936,95 @@ export function useSessionStore() {
   }, [notify]);
 
   /**
+   * Records a message this client sent into a resident process that was already
+   * in a turn.
+   *
+   * The row is a realtime row like any other — it is what makes the message
+   * appear in the record the moment it is sent, before the process has said
+   * anything about it — but its kind is `command_lifecycle`, which is the
+   * dialect's name for what it is: a command being held by a process, not a
+   * turn. The id is a live-row id, which is what tells this client's own row
+   * apart from the rows the same dialect serves back over REST.
+   *
+   * The uuid is left null. The host owns it and has not named it yet; the row
+   * picks it up from the host's own `queued` event
+   * ({@link applyCommandLifecycle}), which is also the only thing that makes the
+   * withdrawal button addressable.
+   */
+  const addResidentPending = useCallback((sessionId: string, text: string) => {
+    const slot = getSlot(sessionId);
+    const row: NormalizedMessage = {
+      id: createLiveRowId(sessionId),
+      sessionId,
+      timestamp: new Date().toISOString(),
+      provider: 'claude',
+      kind: 'command_lifecycle',
+      role: 'user',
+      content: text,
+      // Left unnamed on purpose: see above. The absent uuid is what
+      // `applyCommandLifecycle` matches the host's first `queued` event against.
+      commandState: 'queued',
+    } as NormalizedMessage;
+    slot.realtimeMessages = [...slot.realtimeMessages, row];
+    recomputeMergedIfNeeded(slot);
+    notify(sessionId);
+  }, [getSlot, notify]);
+
+  /**
+   * Applies one `command_lifecycle` event from the host to the row it is about.
+   *
+   * The first `queued` event is also the adoption: the host's uuid names *a*
+   * command, and the only row this client has that is waiting for one is the
+   * oldest of its own without a uuid — a resident session accepts one command at
+   * a time, and a process that had two in flight would have to answer which is
+   * which, which its own queue does in order. Adopting in arrival order is
+   * therefore the same order the host's queue reports.
+   *
+   * What each state does to the row's text, and why the row itself stays:
+   *
+   *  - `queued` is the only state that holds the message, because it is the only
+   *    one where the process has not taken it yet.
+   *  - `started` and `cancelled` both drop the text, and each leaves a sentence
+   *    in its place: a started command is a turn now — its own rows carry the
+   *    message, with its attachments, and a bubble here would be a second copy of
+   *    them — while a cancelled one is a message that will never run, which the
+   *    reader watched leave the queue and which has to leave the record with it.
+   *    The row stays for the second of those especially: a row that simply
+   *    vanished would leave "did that go out?" unanswerable.
+   *  - `completed` removes the row outright: the command ran, so the turn's own
+   *    rows are the record and this one has nothing left to say.
+   */
+  const applyCommandLifecycle = useCallback((
+    sessionId: string,
+    event: { commandUuid: string; state: 'queued' | 'started' | 'cancelled' | 'completed' },
+  ) => {
+    const slot = storeRef.current.get(sessionId);
+    if (!slot) return;
+
+    const rows = slot.realtimeMessages;
+    let index = rows.findIndex((row) => row.kind === 'command_lifecycle' && row.commandUuid === event.commandUuid);
+    if (index < 0 && event.commandUuid) {
+      index = rows.findIndex((row) => row.kind === 'command_lifecycle' && !row.commandUuid);
+    }
+    if (index < 0) return;
+
+    if (event.state === 'completed') {
+      slot.realtimeMessages = rows.filter((_row, at) => at !== index);
+    } else {
+      slot.realtimeMessages = [...rows];
+      slot.realtimeMessages[index] = {
+        ...rows[index],
+        content: event.state === 'queued' ? rows[index].content : '',
+        commandUuid: event.commandUuid || rows[index].commandUuid,
+        commandState: event.state,
+      };
+    }
+
+    recomputeMergedIfNeeded(slot);
+    notify(sessionId);
+  }, [notify]);
+
+  /**
    * Get merged messages for a session (for rendering).
    */
   const getMessages = useCallback((sessionId: string): NormalizedMessage[] => {
@@ -936,11 +1048,14 @@ export function useSessionStore() {
     isStale,
     updateStreaming,
     finalizeStreaming,
+    addResidentPending,
+    applyCommandLifecycle,
     getMessages,
     getSessionSlot,
   }), [
     fetchFromServer, fetchMore, appendRealtime, truncateAt, refreshLatestFromServer,
     setActiveSession, isStale, updateStreaming, finalizeStreaming,
+    addResidentPending, applyCommandLifecycle,
     getMessages, getSessionSlot,
   ]);
 }

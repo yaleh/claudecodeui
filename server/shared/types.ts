@@ -241,7 +241,8 @@ export type MessageKind =
   | 'permission_cancelled'
   | 'session_created'
   | 'history_truncated'
-  | 'task_notification';
+  | 'task_notification'
+  | 'command_lifecycle';
 
 /**
  * Event kinds added by the chat gateway layer on top of provider message kinds.
@@ -386,6 +387,19 @@ export type NormalizedMessage = {
    * the sender's absence would be inferring, not reading.
    */
   origin?: MessageOrigin;
+  /**
+   * The host-assigned uuid of the queued command a `command_lifecycle` message
+   * is about, and where that command is in the CLI's own queue.
+   *
+   * Both are set only on `kind: 'command_lifecycle'`, and they are the whole
+   * payload of it: the frame says "command <uuid> is now <state>" and nothing
+   * else, because that is all the dialect row it comes from carries. The uuid is
+   * the same value the host wrote into the transcript row for the user's message
+   * and the same one a withdrawal names, which is what lets a client hold one
+   * message and its queue state as one object.
+   */
+  commandUuid?: string;
+  commandState?: CommandLifecycleState;
   /**
    * Optional display-oriented metadata used by providers that need to expose
    * richer transcript artifacts without introducing a brand-new message kind.
@@ -2292,6 +2306,26 @@ export type HostInputPriority = 'now' | 'next' | 'later';
  * `completed` is the turn having run to its end.
  */
 export type CommandLifecycleState = 'queued' | 'started' | 'cancelled' | 'completed';
+
+/**
+ * The dialect's own name for the row that carries one command lifecycle fact.
+ *
+ * The name is the claude transcript dialect's, not this codebase's: the row is
+ * what the CLI writes into a transcript and what the host reads back off the
+ * stream, and both envelopes the CLI uses (`type: 'command_lifecycle'` and
+ * `type: 'system'` with this subtype) are spelled with it
+ * (`docs/proposals/claude-resident-sessions-experiments.md` §9.2).
+ *
+ * Exported as a value, and not as prose the producers each retype, because the
+ * string sits on both sides of the row → frame edge: the normalizer recognises
+ * the row by it, and the client-visible kind that row normalizes to carries the
+ * same name in `MessageKind`. A producer that must write the row *without*
+ * naming a frame — the debug agent is one, and its static guard forbids wire
+ * names in its own sources
+ * (`server/modules/debug-agent/tests/debug-agent-vocabulary-guard.test.ts`) —
+ * references the dialect's name here instead of embedding the literal.
+ */
+export const COMMAND_LIFECYCLE_ROW_TYPE = 'command_lifecycle';
 
 /**
  * One `command_lifecycle` event the CLI emitted for a queued user message.

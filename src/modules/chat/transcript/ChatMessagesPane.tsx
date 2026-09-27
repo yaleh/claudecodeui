@@ -9,12 +9,14 @@ import type { ChatMessage,
   ProviderModelActions,
   ProviderModelsDefinition,
   SessionActivity } from '@/shared/types';
+import { RESIDENT_PENDING_MESSAGE_TYPE } from '@/modules/chat/hooks/useChatMessages';
 import { getIntrinsicMessageKey } from '@/modules/chat/utils/messageKeys';
 import { groupConsecutiveTools, isToolGroupItem } from '@/modules/chat/utils/toolGrouping';
 import { useLazyRowObserver } from '@/modules/chat/hooks/useLazyRowObserver';
 import { useDeviceSettings } from '@/shared/hooks/useDeviceSettings';
 import LazyMessageRow from '@/modules/chat/transcript/LazyMessageRow';
 import MessageComponent from '@/modules/chat/transcript/MessageComponent';
+import PendingResidentMessage from '@/modules/chat/transcript/PendingResidentMessage';
 import ProviderSelectionEmptyState from '@/modules/chat/transcript/ProviderSelectionEmptyState';
 import ToolGroupContainer from '@/modules/chat/transcript/ToolGroupContainer';
 import LoadAllMessagesOverlay from '@/modules/chat/transcript/LoadAllMessagesOverlay';
@@ -84,6 +86,11 @@ type ChatMessagesPaneProps = {
   showRawParameters?: boolean;
   showThinking?: boolean;
   selectedProject: Project;
+  /**
+   * Asks the resident process holding this message to take it back. Absent
+   * hides the affordance rather than drawing one that would do nothing.
+   */
+  onWithdrawResidentCommand?: (message: ChatMessage) => void;
   /** Loads an already-sent message back into the composer; absent when the provider cannot re-run from a point. */
   onEditMessage?: (message: ChatMessage) => void;
   /** Branches the conversation into a new session ending at a message. */
@@ -134,6 +141,7 @@ function ChatMessagesPane({
   loadAllJustFinished,
   showLoadAllOverlay,
   createDiff,
+  onWithdrawResidentCommand,
   onEditMessage,
   onForkFromMessage,
   onLoadFullTranscript,
@@ -353,6 +361,26 @@ function ChatMessagesPane({
 
               const messagePrevMessage = prevMessage;
               prevMessage = item;
+
+              // A message a resident process is holding. Its own component,
+              // because it is not a turn: it has a state the host keeps
+              // updating, an action no other row has, and — in two of its three
+              // states — no message to draw at all.
+              if (item.type === RESIDENT_PENDING_MESSAGE_TYPE) {
+                return (
+                  <LazyMessageRow
+                    key={getMessageKey(item)}
+                    lazyRows={lazyRows}
+                    timestamp={item.timestamp}
+                    initiallyNearViewport={initiallyNearViewport}
+                  >
+                    <PendingResidentMessage
+                      message={item}
+                      onWithdraw={onWithdrawResidentCommand}
+                    />
+                  </LazyMessageRow>
+                );
+              }
 
               return (
                 <LazyMessageRow

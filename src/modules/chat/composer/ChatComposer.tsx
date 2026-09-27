@@ -397,6 +397,12 @@ export default function ChatComposer({
 
   const hasQueuedDraft = Boolean(queuedDraft);
   const canQueueDraft = isLoading && Boolean(input.trim() || attachedFiles.length > 0);
+  // The same button press, two different outcomes. For a per-run session the text waits in this
+  // client's queue until the turn ends, which is why the button becomes a queue arrow and the hint
+  // says so. For a resident session nothing waits — the process takes the message while its answer
+  // is still being written — so the button is the same one that sends, and the words around it have
+  // to say "send" rather than "queue" or they would be describing a wait that is not happening.
+  const busySendGoesToProcess = canQueueDraft && isResidentSession;
   // The switch is on but the disclosure under it has not been ticked: nothing may be sent. This is
   // what the submit button's `disabled` expression consults, and the reason the switch and the notice
   // are one control rather than two.
@@ -419,7 +425,7 @@ export default function ChatComposer({
   // Such a device is given no hint at all rather than the wrong one: the button is the only way out
   // (the queued state included, where the button has become the queue arrow), and tapping it is the
   // universal convention, so the sentence would be describing what the user already assumes.
-  const submitHint = canQueueDraft
+  const submitHint = canQueueDraft && !busySendGoesToProcess
     ? hasQueuedDraft
       ? t('input.hintText.updateQueued', { defaultValue: 'Enter to update queued message' })
       : t('input.hintText.queue', { defaultValue: 'Enter to queue your next message' })
@@ -427,9 +433,11 @@ export default function ChatComposer({
       ? t('input.hintText.enter')
       : t('input.hintText.ctrlEnter');
   const submitAriaLabel = canQueueDraft
-    ? hasQueuedDraft
-      ? t('input.queue.update', { defaultValue: 'Update queued message' })
-      : t('input.queue.sendNext', { defaultValue: 'Queue next message' })
+    ? busySendGoesToProcess
+      ? t('input.send')
+      : hasQueuedDraft
+        ? t('input.queue.update', { defaultValue: 'Update queued message' })
+        : t('input.queue.sendNext', { defaultValue: 'Queue next message' })
     : isLoading
       ? isResidentSession
         ? t('resident.stopResident')

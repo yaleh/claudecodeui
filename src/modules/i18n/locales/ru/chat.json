@@ -286,6 +286,12 @@
   }
 ,
   "resident": {
+    "pending": {
+      "annotation": "Будет обработано после этого ответа",
+      "started": "Обработка начата",
+      "withdraw": "Отозвать",
+      "withdrawn": "Отозвано"
+    },
     "statusBar": {
       "unstarted": "Резидент · Не запущен ({{reason}})",
       "idle": "Резидент · Простой",
