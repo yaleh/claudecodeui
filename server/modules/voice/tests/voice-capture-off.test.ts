@@ -215,6 +215,18 @@ type CaptureModule = {
     audio?: VoiceCaptureAudioSink;
   }) => VoiceCapturePort;
   /**
+   * The module's own audio sink, when it ships one.
+   *
+   * OPTIONAL, AND THE ABSENCE IS A READING RATHER THAN A SKIP — the same shape as the payload builder
+   * below, and read off the module under test for the same reason. The audio half of this seam (the
+   * file write, the directory, their 0700/0600) is a LATER delivery than this criterion, so "the
+   * composition root wires no audio sink" was a true registration about AC-143 and stopped being one
+   * the moment that half landed. Reading the factory off the module is what lets the AC8 registration
+   * tell "this module has no audio half" from "this module has one and the root wires it" — a
+   * sentence this file could not otherwise say about a repository that has moved on.
+   */
+  createVoiceCaptureAudioSink?: (options: { directory: string }) => VoiceCaptureAudioSink;
+  /**
    * The module's payload builder, when it ships one.
    *
    * OPTIONAL, AND THE ABSENCE IS A READING RATHER THAN A SKIP. The row's payload refinement is a
@@ -341,6 +353,22 @@ type Measurement = {
   announceSymbol: string;
   /** The composition root's own `createVoiceCapture(…)` call, as text — what it wires, and what not. */
   compositionCall: string;
+  /**
+   * Whether the module under test ships an audio sink at all, read off that module.
+   *
+   * The registration reading compares this with what the composition root's call wires, which is a
+   * statement about the two halves agreeing rather than about a fact frozen at AC-143's commit. See
+   * `CaptureModule.createVoiceCaptureAudioSink`.
+   */
+  audioSinkShipped: boolean;
+  /**
+   * The field names a row carries in `audio` mode, read off the module under test.
+   *
+   * Empty for a module that ships no audio half, and that is a reading rather than a skip — see
+   * `audioRowKeySet`, which the AC8 registration reading adds to the declared fields beside the
+   * payload builder's own key set.
+   */
+  audioRowKeys: string[];
   /**
    * The field names the module under test's payload builder produces, read off that module.
    *
@@ -487,6 +515,47 @@ function payloadKeySet(capture: CaptureModule): string[] {
   );
 }
 
+/**
+ * The field names a row carries in `audio` mode, read off the module under test — none when it ships
+ * no audio half.
+ *
+ * READ OFF THE MODULE, for the reason `payloadKeySet` is and in the same shape: the row's expected
+ * field set is the declared fields plus what THIS module's construction point produces. The audio
+ * half adds one field (`path`, where the bytes landed) that the payload builder cannot produce — the
+ * writer that decides it is not part of the builder's input, which is exactly why a row in `text`
+ * mode has no such key. A list spelled here would have to be edited in lockstep with the module and
+ * would say nothing about it.
+ *
+ * THE PROBE WRITES NOTHING: the port is built with a sink that answers an empty path and resolves an
+ * empty directory, so this measurement leaves no file, no directory, and no entry in any arm's
+ * counters. What it reads is the KEY SET of one row, which is what the expectation needs.
+ */
+function audioRowKeySet(capture: CaptureModule): string[] {
+  if (capture.createVoiceCaptureAudioSink === undefined) {
+    return [];
+  }
+  const rows: Record<string, unknown>[] = [];
+  const port = capture.createVoiceCapture({
+    mode: 'audio',
+    log: {
+      info: (message: string): void => {
+        const row = parseCaptureRow(message);
+        if (row !== null) {
+          rows.push(row);
+        }
+      },
+    },
+    audio: { resolveDirectory: (): string => '', writeAudio: (): string => '' },
+  });
+  port.recordAttempt('probe', {
+    providerId: '',
+    outcome: 'ok',
+    status: 200,
+    audio: { bytes: new Uint8Array(0), mimeType: '', fileName: '' },
+  });
+  return [...new Set(rows.flatMap((row) => Object.keys(row)))].sort();
+}
+
 /** The field names a line carries, in the order they appear (`key=value` tokens). */
 function fieldNames(line: string): string[] {
   return line
@@ -545,12 +614,18 @@ function buildSink(
         paths.databasePath,
       );
     },
-    writeAudio(directory: string, audio: VoiceCaptureAudio): void {
+    // Answers the path it wrote, as the shipped contract requires: the port puts that path in the
+    // row, so a stand-in that returned nothing would leave every audio row here without one — a
+    // difference between this rig and the deployment that would have to be explained rather than
+    // measured. The name is this rig's own (`attempt-<n>-<attempt id>`), which is the point of the
+    // sink being a seam: the port never learns the naming scheme.
+    writeAudio(directory: string, captureId: string, audio: VoiceCaptureAudio): string {
       counters.writeAudioCalls += 1;
       mkdirSync(directory, { recursive: true });
-      const target = path.join(directory, `attempt-${counters.writeAudioCalls}-${audio.fileName}`);
+      const target = path.join(directory, `attempt-${counters.writeAudioCalls}-${captureId}`);
       writeFileSync(target, audio.bytes);
       counters.written.push(target);
+      return target;
     },
   };
 }
@@ -697,6 +772,10 @@ async function measure(modules: CriterionModules, paths: TempPaths): Promise<Mea
       announceCalled: compositionRoot.includes(`${announceSymbol}(`),
       announceSymbol,
       compositionCall: callText(compositionRoot, 'createVoiceCapture') ?? '',
+      // Read off the module UNDER TEST, so a mutated copy is measured against its own sink factory.
+      audioSinkShipped: typeof capture.createVoiceCaptureAudioSink === 'function',
+      // Read off the module UNDER TEST, so a mutated copy is measured against its own audio half.
+      audioRowKeys: audioRowKeySet(capture),
       // Read off the module UNDER TEST, so a mutated copy is measured against its own builder.
       payloadFields: payloadKeySet(capture),
       lines: {
@@ -912,15 +991,22 @@ const READINGS: readonly Reading[] = [
       // prose is the claim; the figures after it are the parts of the claim this run can measure:
       //
       //   · the ROW'S FIELD SET is the AC's minimal set (`captureId`/`providerId`/`outcome`/`status`
-      //     plus the `event` marker) PLUS the key set of the module under test's own payload builder —
-      //     nothing this task does not deliver can be on it, and the payload refinement (`text` mode's
-      //     actual model, the upstream body verbatim, the result branch, the 64KB cut) is another
-      //     criterion's subject: asserted there for its CONTENTS, and read here only for its shape,
-      //     because the fields' presence on this row is what this task's change to the construction
-      //     point is. See `payloadKeySet` for why the second half is read off the module;
-      //   · the composition root wires NO AUDIO SINK, so the file write, the directory and their
-      //     permissions are not this task's shipping shape either — the sink the AC3 control arms
-      //     reach exists only inside this criterion;
+      //     plus the `event` marker) PLUS the key sets of the module under test's own construction
+      //     point — the payload builder's fields, and the field a row carries in `audio` mode —
+      //     nothing the construction point does not produce can be on it, and the payload refinement
+      //     (`text` mode's actual model, the upstream body verbatim, the result branch, the 64KB cut)
+      //     is another criterion's subject: asserted there for its CONTENTS, and read here only for
+      //     its shape, because the fields' presence on this row is what this task's change to the
+      //     construction point is. See `payloadKeySet` and `audioRowKeySet` for why both halves are
+      //     read off the module;
+      //   · WHAT THE COMPOSITION ROOT WIRES equals WHAT THE MODULE SHIPS (`audio-sink-wired` against
+      //     `audio-sink-shipped`). This term was `!audioWired` while no audio half existed, and that
+      //     is a fact about AC-143's commit rather than an invariant — the AC3 control arms reach a
+      //     sink the criterion builds either way. It was narrowed to the agreement when AC-145 landed
+      //     the audio half, in the same shape as the row's field set above: an expectation read off
+      //     the module under test follows the module, while a root that wired something the module
+      //     does not ship stays a red. The file write's CONTENTS remain out of this criterion's
+      //     scope, which is what the registration line below still says;
       //   · EVERY attempt line the run produced carries `latencyMs=0`, which is what a frozen clock
       //     looks like in the output rather than in the code; and the injected stand-in carried
       //     every attempt, so no real upstream was reached;
@@ -929,17 +1015,27 @@ const READINGS: readonly Reading[] = [
       const rows = [...measurement.arms.values()].flatMap((arm) => arm.rows);
       const rowFields = [...new Set(rows.flatMap((row) => Object.keys(row.parsed)))].sort();
       const declaredRowFields = ['captureId', 'event', 'outcome', 'providerId', 'status'];
-      // The expectation is the five declared fields PLUS the module's own payload, and reading the
-      // second half off the module is what keeps this a check rather than a second hand-kept list: the
-      // builder gains a field and this expectation follows it, while a field that appears on a row
-      // without the construction point producing it stays a red. A module with no builder makes this
-      // the five fields alone — stricter than the relaxation, never looser.
-      const expectedRowFields = [...declaredRowFields, ...measurement.payloadFields].sort();
+      // The expectation is the five declared fields PLUS everything the module under test's own
+      // construction point produces — the payload builder's keys, and the keys a row carries in
+      // `audio` mode (AC-145's `path`). Reading both off the module is what keeps this a check rather
+      // than a second hand-kept list: the construction point gains a field and this expectation
+      // follows it, while a field that appears on a row WITHOUT the construction point producing it
+      // stays a red. A module with neither half makes this the five fields alone — stricter than the
+      // relaxation, never looser.
+      const expectedRowFields = [
+        ...new Set([...declaredRowFields, ...measurement.payloadFields, ...measurement.audioRowKeys]),
+      ].sort();
       const attemptLines = [...measurement.arms.values()].flatMap((arm) => arm.attemptLines);
       const frozenClockLines = attemptLines.filter((line) => line.includes('latencyMs=0')).length;
       const backendCalls = [...measurement.arms.values()].reduce((total, arm) => total + arm.backendCalls, 0);
       const doors = openDoors();
+      // What the composition root's call WIRES, against what the module under test SHIPS. Reading the
+      // second half off the module is what keeps this a check rather than a fact about a commit: while
+      // no audio half exists the two agree at `false`, and once one lands they agree at `true` — and a
+      // root that wired a sink the module does not ship, or shipped one it never wired, is a red.
+      // (AC-145 added the audio half; see the registration prose below.)
       const audioWired = /[{,\s]audio\s*:/.test(measurement.compositionCall);
+      const audioSinkShipped = measurement.audioSinkShipped;
 
       return {
         value:
@@ -949,10 +1045,11 @@ const READINGS: readonly Reading[] = [
           `frozen clock] audio-sink-wired=${audioWired} row-fields=[${rowFields.join(' ')}] ` +
           `declared-fields=[${declaredRowFields.join(' ')}] ` +
           `payload-fields=[${measurement.payloadFields.join(' ')}] ` +
+          `audio-row-fields=[${measurement.audioRowKeys.join(' ')}] ` +
           `frozen-clock-lines=${frozenClockLines}/${attemptLines.length} double-calls=${backendCalls} ` +
-          `socket-doors=${doors.length}`,
+          `socket-doors=${doors.length} audio-sink-shipped=${audioSinkShipped}`,
         ok:
-          !audioWired &&
+          audioWired === audioSinkShipped &&
           rows.length > 0 &&
           rowFields.join(' ') === expectedRowFields.join(' ') &&
           attemptLines.length > 0 &&

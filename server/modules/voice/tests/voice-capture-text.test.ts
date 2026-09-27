@@ -564,10 +564,16 @@ async function runArm(input: {
     // The SHIPPING directory resolver, asked at the moment of a write — exactly as the port asks it.
     resolveDirectory: (): string =>
       input.capture.resolveVoiceCaptureDir(process.env.VOICE_CAPTURE_DIR, process.env.DATABASE_PATH),
-    writeAudio: (directory: string, audio: VoiceCaptureAudio): void => {
+    // Answers where it wrote, as the shipped contract requires (`writeAudio` returns the path the row
+    // then carries). Nothing reads the value here — this sink is the one the text arm must never
+    // reach — but a stand-in that did not answer would not be the shape the port is handed in
+    // production, and the control below is the arm that proves this shape can write.
+    writeAudio: (directory: string, captureId: string, audio: VoiceCaptureAudio): string => {
       writeAudioCalls += 1;
       mkdirSync(directory, { recursive: true });
-      writeFileSync(path.join(directory, audio.fileName), audio.bytes);
+      const target = path.join(directory, `${captureId}-${audio.fileName}`);
+      writeFileSync(target, audio.bytes);
+      return target;
     },
   };
 
@@ -712,10 +718,12 @@ async function measure(modules: CriterionModules): Promise<Measurement> {
       audio: {
         resolveDirectory: (): string =>
           capture.resolveVoiceCaptureDir(process.env.VOICE_CAPTURE_DIR, process.env.DATABASE_PATH),
-        writeAudio: (directory: string, audio: VoiceCaptureAudio): void => {
+        writeAudio: (directory: string, captureId: string, audio: VoiceCaptureAudio): string => {
           controlWriteCalls += 1;
           mkdirSync(directory, { recursive: true });
-          writeFileSync(path.join(directory, audio.fileName), audio.bytes);
+          const target = path.join(directory, `${captureId}-${audio.fileName}`);
+          writeFileSync(target, audio.bytes);
+          return target;
         },
       },
     });

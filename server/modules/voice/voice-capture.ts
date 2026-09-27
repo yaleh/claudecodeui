@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -218,15 +219,29 @@ export type VoiceCaptureAttempt = {
  * mode that writes nothing creates no directory anywhere, not even a configured one" a structural
  * property instead of a promise.
  *
- * The shipping implementation (the file write, its 0700/0600 permissions and the directory's
- * creation) belongs to the audio half of the same seam; a deployment that supplies no sink records
- * its attempt rows and puts nothing on disk.
+ * The shipping implementation is `createVoiceCaptureAudioSink` below: the file write, the directory's
+ * creation and the 0700/0600 they are held at. A deployment that supplies no sink still records its
+ * attempt rows and puts nothing on disk — which is what a copy of this module under a mutation, or a
+ * criterion driving `audio` mode without one, is measuring.
  */
 export type VoiceCaptureAudioSink = {
   /** Resolves the directory a recording goes into, at the moment one is actually written. */
   resolveDirectory(): string;
-  /** Writes one attempt's uploaded bytes into `directory`. */
-  writeAudio(directory: string, audio: VoiceCaptureAudio): void;
+  /**
+   * Writes one attempt's uploaded bytes into `directory` and says WHERE they landed.
+   *
+   * THE RETURN IS THE POINT. A row that named a path it did not get from the writer would be a guess
+   * about a naming scheme this side of the seam is not supposed to know, and the two would disagree
+   * the first time the sink changed how it names a file. The path is an ABSOLUTE one, because that is
+   * the only form a reader holding nothing but a log line can open.
+   *
+   * The `captureId` is the attempt's own id and not the shape of a file name: a sink that took the
+   * name from the upload instead would join a caller-chosen string into a path, which is how a
+   * recording ends up outside the directory it was meant to be kept in. `audio` carries the uploaded
+   * bytes THEMSELVES — the same `Uint8Array` the row's `sha256` is taken over — so a sink that
+   * re-encodes, truncates or wraps them writes a file the row does not describe.
+   */
+  writeAudio(directory: string, captureId: string, audio: VoiceCaptureAudio): string;
 };
 
 /**
@@ -259,6 +274,12 @@ const CAPTURE_DIRECTORY_NAME = 'voice-capture';
 
 /** Where the database lives when `DATABASE_PATH` names none — `server/load-env.ts`'s own default. */
 const DEFAULT_DATABASE_FILE = '.cloudcli/auth.db';
+
+/** The mode a recording directory is held at: owner-only, on the filesystem and not just on paper. */
+const CAPTURE_DIR_MODE = 0o700;
+
+/** The mode a recording file is held at: owner-only, for the same reason and by the same means. */
+const CAPTURE_FILE_MODE = 0o600;
 
 /**
  * The mode a raw `VOICE_CAPTURE` value names, and the warning it earns if it names none.
@@ -368,6 +389,81 @@ export function resolveVoiceCaptureDir(raw: string | undefined, databasePath: st
     ? path.join(os.homedir(), DEFAULT_DATABASE_FILE)
     : databasePath;
   return path.join(path.dirname(database), CAPTURE_DIRECTORY_NAME);
+}
+
+/**
+ * The file name one attempt's recording goes into, built from the attempt's id and NOTHING ELSE.
+ *
+ * THE UPLOAD IS THE OBVIOUS SOURCE AND THE ONE THING THAT MUST NOT BE USED. A file name carried by a
+ * request is a string the caller chose; joining it into a path is how a recording lands outside the
+ * directory it was meant to be kept in, and "the path is inside the resolved directory" has to be a
+ * property of how the name is built rather than a check someone remembers to run. `captureId` is
+ * minted by this module (see `createVoiceCapture`), so a name built from it is already safe — and the
+ * substitution below is the second lock on the same door, because `writeAudio` is a public seam whose
+ * caller may hand it any string at all.
+ *
+ * THE SUFFIX IS FIXED. Deriving it from the upload's container would put a second, weaker copy of
+ * `mime` next to the row's own field, and the two could then disagree — a file whose extension claims
+ * a container the bytes are not in. The container is in the row, where a reader can see it.
+ */
+function captureFileName(captureId: string): string {
+  return `${captureId.replace(/[^A-Za-z0-9._-]/g, '_')}.bin`;
+}
+
+/** What the shipping sink is built from: the directory its caller has already resolved. */
+export type VoiceCaptureAudioSinkOptions = {
+  /**
+   * The directory recordings go into, RESOLVED BY THE CALLER — see `resolveVoiceCaptureDir`.
+   *
+   * A path handed in rather than read here, because the environment belongs to the composition root:
+   * a sink that read `VOICE_CAPTURE_DIR` itself would be a second reader of a variable whose
+   * "read exactly once" is the property that makes the mode and the directory checkable together.
+   *
+   * THIS IS NOT THE DIRECTORY, IT IS WHERE ONE WOULD GO. Nothing is created by building the sink —
+   * see `writeAudio`, where the `mkdir` sits.
+   */
+  directory: string;
+};
+
+/**
+ * The shipping audio sink: the write, the directory's creation, and the 0700/0600 that hold afterwards.
+ *
+ * THE PERMISSIONS ARE THE REASON THIS IS NOT THREE LINES OF OBVIOUS CODE. `mkdirSync`'s and
+ * `writeFileSync`'s `mode:` is a REQUEST the kernel applies THROUGH the process's umask, so the
+ * reading an operator gets depends on a process-wide setting that has nothing to do with recordings:
+ * asked for 0600 under `umask 0o000` the file lands 0666. Each open is therefore followed by an
+ * explicit `chmod` on the same path, which is what makes the file's mode a fact about the file rather
+ * than about the shell that started the server. The `mode:` argument is kept as well, so the window
+ * between open and chmod is not a window at all in the ordinary case.
+ *
+ * A file that is overwritten is re-chmod'ed, because `writeFileSync` on an EXISTING path keeps that
+ * file's mode and would otherwise leave a file this sink did not create at whatever mode it had.
+ */
+export function createVoiceCaptureAudioSink(
+  options: VoiceCaptureAudioSinkOptions,
+): VoiceCaptureAudioSink {
+  return {
+    resolveDirectory(): string {
+      return options.directory;
+    },
+
+    writeAudio(directory: string, captureId: string, audio: VoiceCaptureAudio): string {
+      // THE DIRECTORY APPEARS HERE, on the first write that actually happens, and not when the sink
+      // was built or when the mode was resolved: a deployment in a mode that writes nothing leaves no
+      // directory behind even when one is configured, and that is a property of where this call sits.
+      mkdirSync(directory, { recursive: true, mode: CAPTURE_DIR_MODE });
+      chmodSync(directory, CAPTURE_DIR_MODE);
+
+      const target = path.join(directory, captureFileName(captureId));
+      // The bytes THEMSELVES: no encoding, no base64 round trip, no header line and no wrapper of any
+      // kind. The file has to be the recording that was transcribed, byte for byte, or it cannot be
+      // replayed and the `sha256` beside it in the row describes something else.
+      writeFileSync(target, audio.bytes, { mode: CAPTURE_FILE_MODE });
+      chmodSync(target, CAPTURE_FILE_MODE);
+
+      return target;
+    },
+  };
 }
 
 /**
@@ -569,15 +665,31 @@ export function createVoiceCapture(dependencies: VoiceCaptureDependencies): Voic
         Object.assign(row, buildVoiceCapturePayload(attempt.payload));
       }
 
+      // The audio write, and only in the mode that asked for it. The directory is resolved HERE
+      // rather than at construction, so no mode that writes nothing ever resolves one.
+      //
+      // THE WRITE COMES BEFORE THE ROW, and the order is the row's `path` field: the path a reader is
+      // handed has to be one they could have opened at the moment they read it, and a row written
+      // first would name a file that did not exist yet — or, on a write that failed, one that never
+      // existed at all. What is deferred is the ROW, not the attempt line: that one went out above,
+      // with this attempt's id, so the two things a reader sees about one attempt are still in the
+      // order the seam promises.
+      //
+      // `path` is written HERE rather than by `buildVoiceCapturePayload` because it is the one field
+      // the sink decides: the builder is a function of the narrowed input and the writer is not part
+      // of that input, which is also why a `text` deployment's rows have no `path` key at all — not
+      // an empty one, not a null one.
+      if (dependencies.mode === 'audio' && dependencies.audio !== undefined) {
+        row.path = dependencies.audio.writeAudio(
+          dependencies.audio.resolveDirectory(),
+          captureId,
+          attempt.audio,
+        );
+      }
+
       // One line, serialised once. `JSON.stringify` at the construction point rather than at the log
       // port is what keeps the row single-line and parseable no matter which port a deployment wired.
       dependencies.log.info(JSON.stringify(row));
-
-      // The audio write, and only in the mode that asked for it. The directory is resolved HERE
-      // rather than at construction, so no mode that writes nothing ever resolves one.
-      if (dependencies.mode === 'audio' && dependencies.audio !== undefined) {
-        dependencies.audio.writeAudio(dependencies.audio.resolveDirectory(), attempt.audio);
-      }
     },
   };
 }

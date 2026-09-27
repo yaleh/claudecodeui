@@ -7,7 +7,12 @@ import type { VoiceLogPort } from '@/shared/types.js';
 // knowing which provider will serve the request: the ceiling above every declared budget.
 import { listProviders } from '../../../shared/asr/asrRegistry.js';
 
-import { announceVoiceCapture, createVoiceCapture } from './voice-capture.js';
+import {
+  announceVoiceCapture,
+  createVoiceCapture,
+  createVoiceCaptureAudioSink,
+  resolveVoiceCaptureDir,
+} from './voice-capture.js';
 import { createVoiceRouter } from './voice.routes.js';
 import { createVoiceService, createVoiceSettingsService } from './voice.service.js';
 
@@ -36,6 +41,28 @@ const voiceLog: VoiceLogPort = console;
  */
 const voiceCapture = announceVoiceCapture(process.env.VOICE_CAPTURE, voiceLog);
 
+/**
+ * THE ONE READ of `VOICE_CAPTURE_DIR` in this process, and the directory every recording goes into.
+ *
+ * Read here and not inside the sink for the same reason the mode is read here: the environment
+ * belongs to the composition root, so "where do recordings go" has one answer that the deployment's
+ * own configuration produced. Both values are handed over as arguments — `resolveVoiceCaptureDir`
+ * reads no variable itself — which is what lets a criterion ask what a given pair of values means
+ * without mutating the process first.
+ *
+ * THE DEFAULT IS BESIDE THE DATABASE, so a deployment that moved its state moved its recordings with
+ * it. `DATABASE_PATH` is read here rather than reached for by a second reader of the database
+ * configuration: this file is the one place that knows both.
+ *
+ * RESOLVING IS NOT CREATING. This runs at start-up and creates nothing; the directory appears on the
+ * first recording that is actually written (see `createVoiceCaptureAudioSink`), so a deployment in
+ * `off` or `text` leaves no trace on disk even when a directory is configured for it.
+ */
+const voiceCaptureDirectory = resolveVoiceCaptureDir(
+  process.env.VOICE_CAPTURE_DIR,
+  process.env.DATABASE_PATH,
+);
+
 const DEFAULT_VOICE_TIMEOUT_MS = 300_000;
 const parsedTimeoutMs = Number(process.env.VOICE_TIMEOUT_MS);
 const voiceTimeoutMs = Number.isFinite(parsedTimeoutMs) && parsedTimeoutMs > 0
@@ -62,10 +89,18 @@ const voiceService = createVoiceService({
   // one place inside the service rather than in a ternary here: a root that omitted the port for
   // `off` would leave "the service is off" untested by the only deployment shape that matters.
   //
-  // The audio sink is deliberately not wired: the mode is resolved and gated, and a deployment that
-  // records rows puts nothing on disk until the audio half (the write, the directory, its
-  // permissions) supplies a sink. See `VoiceCaptureAudioSink`.
-  capture: createVoiceCapture({ mode: voiceCapture.mode, log: voiceLog }),
+  // The audio sink, wired into the same call as the mode it is gated by. The gate is the port's own
+  // (`recordAttempt` writes only when the mode is `audio`), and the sink is left as a dependency of
+  // the port rather than of the service, so nothing above this line knows that `audio` mode exists.
+  //
+  // It is wired for EVERY mode, `off` and `text` included, and that is deliberate: a deployment whose
+  // sink was omitted for the modes that do not use it would be testing the omission rather than the
+  // gate. The directory is resolved above and simply not reached — see `voiceCaptureDirectory`.
+  capture: createVoiceCapture({
+    mode: voiceCapture.mode,
+    log: voiceLog,
+    audio: createVoiceCaptureAudioSink({ directory: voiceCaptureDirectory }),
+  }),
   logger: voiceLog,
   fetchBackend: async (url, options) => {
     const abortController = new AbortController();

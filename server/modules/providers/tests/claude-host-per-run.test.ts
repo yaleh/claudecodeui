@@ -63,6 +63,26 @@ const DRIVER_PATH = 'server/modules/providers/list/claude/claude-per-run-host-dr
 const NEIGHBOUR_PATH = 'server/modules/providers/tests/claude-background-work.test.ts';
 /** The runtime criterion that pins the environment assembly the driver must not disturb. */
 const PARITY_PATH = 'server/modules/providers/tests/passthrough-parity.test.ts';
+/**
+ * The branch this criterion's `DRIVER_PATH`-in-the-delta invariant is decided on.
+ *
+ * That invariant — the delta this criterion reads must really be the delta that
+ * produced this tree, and that delta is the one that added the driver — is
+ * *this* criterion's own, and it is about *this* criterion's branch. The
+ * reading it was asserted from, though, is `git diff --name-only develop...HEAD`,
+ * a fact about whichever tree happens to be checked out: mechanical fan-in
+ * checks every task out on `task/<task-id>`, and after it merges `develop` the
+ * three-dot delta is exactly *that sibling's* delta, which for every task but
+ * this one is a set of files that legitimately does not mention the driver. So
+ * the assertion is scoped to the branch that owns it and, everywhere else, the
+ * reading is still printed — with the branch name and the reason — and recorded
+ * as not-applicable (`evaluated=false`) rather than silently skipped. Nothing
+ * about the invariant is relaxed on the branch that owns it; the AC3 negative
+ * control in the completion record is the worked example. Same shape as
+ * `gap-debug-agent-ac10-reads-the-whole-branch-delta` (`CRITERION_OWNER_BRANCH`
+ * in `debug-agent-host-driver.test.ts`).
+ */
+const CRITERION_OWNER_BRANCH = 'task/gap-session-hosts-claude-per-run-driver';
 /** The graded invocation, so the sub-runs read the files exactly as the criterion is read. */
 const TSX_PREFIX = ['tsx', '--tsconfig', 'server/tsconfig.json', '--test'];
 /** Every harness starts its clock here, so a reading is a statement about this instant. */
@@ -583,15 +603,38 @@ test('AC6: the criteria this one leans on are untouched and still green', () => 
   const vsDevelop = vsDevelopText === null ? null : filesOf(vsDevelopText);
   const driverExists = fs.existsSync(path.join(REPO_ROOT, DRIVER_PATH));
 
+  // Which branch's delta the driver-in-delta reading is about. `develop...HEAD`
+  // answers about the tree that is checked out, and that tree is not always this
+  // criterion's own — see `CRITERION_OWNER_BRANCH`. Read here rather than inside
+  // the assertion so the scope itself is a printed reading, not a branch test
+  // buried in an `if`.
+  const branch = gitMaybe(['rev-parse', '--abbrev-ref', 'HEAD']) ?? 'n/a';
+  const driverInDeltaEvaluated = branch === CRITERION_OWNER_BRANCH;
+
   const containsNeighbour = workingTree.includes(NEIGHBOUR_PATH) ||
     (vsDevelop ?? []).includes(NEIGHBOUR_PATH);
-  const driverInDelta = vsDevelop === null ? 'n/a' : String(vsDevelop.includes(DRIVER_PATH));
+  // The delta as the criterion sees it: the commits against develop plus the
+  // uncommitted work. The union, so "the delta does not mention the driver"
+  // cannot be reached by reading only the weaker half of it.
+  const delta = vsDevelop === null ? null : [...new Set([...workingTree, ...vsDevelop])];
+  const driverInDelta = delta === null ? 'n/a' : String(delta.includes(DRIVER_PATH));
   console.log(
     `gitDiff workingTreeFiles=${workingTree.length} ` +
       `vsDevelopFiles=${vsDevelop === null ? 'n/a' : vsDevelop.length} ` +
       `containsNeighbour=${containsNeighbour} driverExists=${driverExists} driverInDelta=${driverInDelta}`,
   );
+  console.log(
+    `[AC6] driverInDelta=${driverInDelta} evaluated=${driverInDeltaEvaluated} branch=${branch}`,
+  );
   keyLines.push(`gitDiff containsNeighbour=${containsNeighbour} driverExists=${driverExists}`);
+  if (!driverInDeltaEvaluated) {
+    console.log(
+      `[AC6] the develop-delta assertion is NOT evaluated here: this tree is on branch ${branch}, ` +
+        `and that invariant is decided on ${CRITERION_OWNER_BRANCH}. A delta that does not name ` +
+        `${DRIVER_PATH} on this branch is a sibling task's declared scope, not a violation of this ` +
+        `criterion; the reading above is printed, not asserted.`,
+    );
+  }
   assert.equal(
     containsNeighbour,
     false,
@@ -604,9 +647,13 @@ test('AC6: the criteria this one leans on are untouched and still green', () => 
   // Only when the delta has something in it: an empty answer is the degenerate
   // reading (develop already contains this branch, or nothing is committed yet),
   // and the assertion above is then the only thing that can be said about it.
-  if (vsDevelop !== null && vsDevelop.length > 0) {
+  // ...and only on the branch that owns this invariant: everywhere else the
+  // reading is a statement about the sibling task checked out here, and is
+  // printed (above) rather than asserted. `driverInDeltaEvaluated` is a printed
+  // reading, never a silent skip.
+  if (driverInDeltaEvaluated && delta !== null && delta.length > 0) {
     assert.equal(
-      vsDevelop.includes(DRIVER_PATH),
+      delta.includes(DRIVER_PATH),
       true,
       `the develop delta does not mention the driver, so it is not the delta being read: ${DRIVER_PATH}`,
     );
