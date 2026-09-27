@@ -2135,3 +2135,60 @@ export type RuntimeProviderCapabilities = {
    */
   residentFeatures?: ResidentFeatures;
 };
+
+// ---------------------------
+//--------------- BUSY INPUT: PRIORITY, LIFECYCLE, WITHDRAWAL ----------
+/**
+ * The tier a user message is written into the CLI's own command queue under.
+ *
+ * The CLI holds its own queue and the host writes into it rather than building
+ * one of its own, so "what happens to a message sent while a turn is running"
+ * is a fact about the tier, not about the server. `later` is the tier that
+ * reproduces the interactive CLI's behavior — the message waits for the turn in
+ * flight and is then run as a turn of its own, never merged into the current
+ * one and never dropped (`docs/proposals/claude-resident-sessions.md` §8).
+ *
+ * A union rather than a bare string because it is the CLI's vocabulary, not
+ * this codebase's: the SDK declares the same three values, and a host that
+ * accepted anything else would be writing a frame the process cannot honor.
+ */
+export type HostInputPriority = 'now' | 'next' | 'later';
+
+/**
+ * Where one queued user message is in the CLI's own lifecycle.
+ *
+ * `queued` and `started` are the two facts that separate "still withdrawable"
+ * from "already running"; `cancelled` is the only evidence a withdrawal worked
+ * (the CLI answers a `cancel_async_message` control frame with no
+ * `control_response` at any timing, so the queue's own account of the message is
+ * the verdict — `docs/proposals/claude-resident-sessions-experiments.md` §9.2);
+ * `completed` is the turn having run to its end.
+ */
+export type CommandLifecycleState = 'queued' | 'started' | 'cancelled' | 'completed';
+
+/**
+ * One `command_lifecycle` event the CLI emitted for a queued user message.
+ *
+ * `commandUuid` is the uuid the *host* assigned when it wrote the frame — the
+ * CLI echoes it back verbatim rather than minting one of its own (§9.2), which
+ * is what makes a pushed message and a queue entry the same object from this
+ * side. `at` is when the host read it off the stream, in host clock terms.
+ */
+export type CommandLifecycleEvent = {
+  commandUuid: string;
+  state: CommandLifecycleState;
+  at: number;
+};
+
+/**
+ * How one attempt to withdraw a queued user message ended.
+ *
+ * `withdrawn` means the CLI reported `cancelled` for that uuid, so the message
+ * will run in no turn at all. `already-started` means it did not — the message
+ * had been dequeued before the withdrawal reached the process, so it is running
+ * or has run, and the process was not disturbed. `unknown` is the honest answer
+ * for a uuid this host has no live process to withdraw from, or none it ever
+ * pushed; it is deliberately not folded into `already-started`, because "we
+ * cannot say" and "we know it is too late" are different facts.
+ */
+export type HostQueuedInputCancelResult = 'withdrawn' | 'already-started' | 'unknown';
