@@ -45,14 +45,14 @@ goal_ac: AC-170
 
 ## AC
 
-- [ ] AC1 记录文件六节齐全且机械可验：`node scripts/resident-smoke.mjs --check-record docs/proposals/claude-resident-sessions-smoke.md` 退出 **0**。六节逐字为 `创建常驻会话` / `连续三轮` / `无人轮` / `关闭` / `重启后已关闭` / `再次发送重新拉起`，每节都要有 `读数：` 与 `结论：`。红态基线本轮实测：`docs/proposals/claude-resident-sessions-smoke.md` 不存在（`grep` 报 `No such file or directory`），`--check-record` 应退出 1 并点名全部六节。
-- [ ] AC2 护栏判据绿：`node --test scripts/resident-smoke.test.mjs` 退出 **0**，至少覆盖 —— 未显式给临时 `DATABASE_PATH` / 它等于 shell 导出的真实库 / 它不在临时根下，三条各自拒绝且 CLI exit 1；端口 3001 被拒；`--check-record` 对缺节记录 exit 1 并点名缺的节、对缺 `结论：` 的节点名该节、对六节齐全记录 exit 0。
-- [ ] AC3 「只走 HTTP/WS、不加 cloudcli 子命令」是机械事实：`grep -c 'cloudcli' scripts/resident-smoke.mjs` → **0**，且驱动面只出现 `fetch(` / `new WebSocket`（打印 `grep -c -E "fetch\(|new WebSocket" scripts/resident-smoke.mjs` 与脚本实际发出的请求/帧清单）。**正控制**：同一 `cloudcli` grep 在 `scripts/resident-experiment.mjs` 上**非零** —— 该脚本确实 spawn 真 `claude` 二进制，证这条 grep 有分辨力、不是恒真。
-- [ ] AC4 六段的原始读数逐段落盘（不是转述），每段打印其证据行：`创建常驻会话` → 宿主快照出现且 `lifecycle_mode` 逐字为 `resident`；`连续三轮` → **同一 pid**、恰好 3 条 `result`（打印 `pid=<a> results=3`）；`无人轮` → 一条 `source=unattended` 的 run（打印 `seq` 与触发类型，并证明它可回放）；`关闭` → 进程退出、关闭原因逐字（打印 `closeReason=<…>`，`/proc/<a>` 消失）；`重启后已关闭` → **新**服务进程上读到该会话未运行且原因**非空**（打印 `server-old-pid` / `server-new-pid` 与原因值）；`再次发送重新拉起` → 新 pid 且 `!= <a>`（打印 `old-pid=<a> new-pid=<c>`）。**正控制**：`重启后已关闭` 的原因字段在同一读里对一个 per-run 会话为 `null`（保证该字段不是恒真）。
-- [ ] AC5 版本与成本写进记录（proposal §「风险与注意事项」：每份实验与冒烟记录写明 CLI 与 SDK 两者版本）：`docs/proposals/claude-resident-sessions-smoke.md` 里有 `claude --version` 行、SDK 版本行，以及本次真实模型的费用/用量行（逐字打印这三行的内容）。
-- [ ] AC6 不碰生产：每次起服务都打印 `tr '\0' '\n' </proc/<pid>/environ` 里临时 `DATABASE_PATH` 与 `HOST=127.0.0.1` 的**命中行**，端口 `!= 3001`；跑完 `pgrep -f` 与 `systemctl --user list-units` 无本冒烟残留（打印读数）；**:3001 全程未重启**（打印 :3001 的 pid 前后一致）。
+- [x] AC1 记录文件六节齐全且机械可验：`node scripts/resident-smoke.mjs --check-record docs/proposals/claude-resident-sessions-smoke.md` 退出 **0**。六节逐字为 `创建常驻会话` / `连续三轮` / `无人轮` / `关闭` / `重启后已关闭` / `再次发送重新拉起`，每节都要有 `读数：` 与 `结论：`。红态基线本轮实测：`docs/proposals/claude-resident-sessions-smoke.md` 不存在（`grep` 报 `No such file or directory`），`--check-record` 应退出 1 并点名全部六节。
+- [x] AC2 护栏判据绿：`node --test scripts/resident-smoke.test.mjs` 退出 **0**，至少覆盖 —— 未显式给临时 `DATABASE_PATH` / 它等于 shell 导出的真实库 / 它不在临时根下，三条各自拒绝且 CLI exit 1；端口 3001 被拒；`--check-record` 对缺节记录 exit 1 并点名缺的节、对缺 `结论：` 的节点名该节、对六节齐全记录 exit 0。
+- [x] AC3 「只走 HTTP/WS、不加 cloudcli 子命令」是机械事实：`grep -c 'cloudcli' scripts/resident-smoke.mjs` → **0**，且驱动面只出现 `fetch(` / `new WebSocket`（打印 `grep -c -E "fetch\(|new WebSocket" scripts/resident-smoke.mjs` 与脚本实际发出的请求/帧清单）。**正控制**：同一 `cloudcli` grep 在 `scripts/resident-experiment.mjs` 上**非零** —— 该脚本确实 spawn 真 `claude` 二进制，证这条 grep 有分辨力、不是恒真。
+- [x] AC4 六段的原始读数逐段落盘（不是转述），每段打印其证据行：`创建常驻会话` → 宿主快照出现且 `lifecycle_mode` 逐字为 `resident`；`连续三轮` → **同一 pid**、恰好 3 条 `result`（打印 `pid=<a> results=3`）；`无人轮` → 一条 `source=unattended` 的 run（打印 `seq` 与触发类型，并证明它可回放）；`关闭` → 进程退出、关闭原因逐字（打印 `closeReason=<…>`，`/proc/<a>` 消失）；`重启后已关闭` → **新**服务进程上读到该会话未运行且原因**非空**（打印 `server-old-pid` / `server-new-pid` 与原因值）；`再次发送重新拉起` → 新 pid 且 `!= <a>`（打印 `old-pid=<a> new-pid=<c>`）。**正控制**：`重启后已关闭` 的原因字段在同一读里对一个 per-run 会话为 `null`（保证该字段不是恒真）。
+- [x] AC5 版本与成本写进记录（proposal §「风险与注意事项」：每份实验与冒烟记录写明 CLI 与 SDK 两者版本）：`docs/proposals/claude-resident-sessions-smoke.md` 里有 `claude --version` 行、SDK 版本行，以及本次真实模型的费用/用量行（逐字打印这三行的内容）。
+- [x] AC6 不碰生产：每次起服务都打印 `tr '\0' '\n' </proc/<pid>/environ` 里临时 `DATABASE_PATH` 与 `HOST=127.0.0.1` 的**命中行**，端口 `!= 3001`；跑完 `pgrep -f` 与 `systemctl --user list-units` 无本冒烟残留（打印读数）；**:3001 全程未重启**（打印 :3001 的 pid 前后一致）。
 - [ ] AC7 **人工关卡**——冒烟验收已由人确认：`grep -q '^冒烟验收：通过' docs/proposals/claude-resident-sessions-smoke.md` 退出 **0**。该行**只能由人 yale 写入，执行者不得代写**；执行者只写 `读数：` 与 `结论：` 行。**执行者不得勾这一条。**
-- [ ] AC8 契约面与边界：`npm run lint` 退出 0；改动只落在 Touches 列出的文件上（`git diff --stat` 与 Touches 逐条对齐）；脚本跨文件 import 只取 `.mjs` 同级相对路径，不引入新的构建面。
+- [x] AC8 契约面与边界：`npm run lint` 退出 0；改动只落在 Touches 列出的文件上（`git diff --stat` 与 Touches 逐条对齐）；脚本跨文件 import 只取 `.mjs` 同级相对路径，不引入新的构建面。
 
 ## DoD
 
