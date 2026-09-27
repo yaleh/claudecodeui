@@ -1,7 +1,7 @@
 ---
 id: AC-169
 title: lifecycle_mode 与能力矩阵：默认 per-run，不支持的模式被拒绝，分叉不继承，常驻的启动与关闭可经 API 操作
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-013
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -22,6 +22,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-09-27T07:11:13.792Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
