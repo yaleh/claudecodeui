@@ -15,6 +15,7 @@ depends_on:
   - gap-session-hosts-lease-driven-lifecycle
   - gap-session-hosts-binding-multiplexing
   - gap-voice-falsify-copies-inside-tsc-program
+  - gap-debug-agent-ac10-reads-the-whole-branch-delta
 goal_ac: AC-159
 ---
 ## Proposal
