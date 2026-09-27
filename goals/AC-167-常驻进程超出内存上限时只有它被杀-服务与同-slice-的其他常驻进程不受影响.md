@@ -1,7 +1,7 @@
 ---
 id: AC-167
 title: 常驻进程超出内存上限时只有它被杀，服务与同 slice 的其他常驻进程不受影响
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-013
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -31,6 +31,11 @@ statusLog:
     to: active
     actor: human:yale
     reason: 人 yale 2026-09-27 指令：判据已按 E1–E9 结论修订，转 active
+  - at: 2026-09-27T16:01:28.467Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
