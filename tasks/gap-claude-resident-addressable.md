@@ -175,6 +175,6 @@ npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/test
 - `server/modules/session-hosts/index.ts`（barrel 收口；签名不变则不动）
 - `server/modules/providers/list/claude/claude-host-driver.provider.ts`（AC-161 落地的 resident driver；本条在其上按 §12 规则建 `extraArgs.name`、读回转录 `agent-name`、`identity` 上报；若其实际文件名不同，按实际文件登记并在完成记录里写明）
 - `server/modules/providers/list/claude/claude.provider.ts`（若需要透传 peer 名/触发类型）
-- `server/modules/providers/tests/claude-resident-addressable.test.ts`（新：判据）
+- `server/modules/providers/tests/claude-resident-addressable.test.ts` (new)（新：判据）
 - `docs/proposals/claude-resident-sessions-experiments.md`（写回跨会话到达的事件形态读数——仅当判据需要该口径时）
 - `tasks/gap-claude-resident-addressable.md`（自触）
