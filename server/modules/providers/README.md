@@ -91,6 +91,46 @@ import the service from `server/modules/providers/index.ts`.
 - `sessions` handles runtime event normalization and history fetches.
 - `sessionSynchronizer` handles file-backed session indexing into `sessionsDb`.
 
+## Resident Permissions (Claude)
+
+Claude's resident host (`list/claude/claude-host-driver.provider.ts`) holds one
+CLI across turns. Every launch is built with
+`permissionMode: 'bypassPermissions'` **and**
+`allowDangerouslySkipPermissions: true` — the SDK requires the pair together, and
+a turn nobody pushed has no client sitting there to approve a tool.
+
+Bypass is not the same as "nothing ever asks a person": the SDK still refers the
+human-facing requests to the host, so the same launch installs three callbacks.
+
+| Entry | What reaches it | Unattended answer | Attended answer |
+| --- | --- | --- | --- |
+| `canUseTool` | `AskUserQuestion` and `ExitPlanMode` (E8 read these reaching the callback *under bypass*), plus any tool the mode does not settle | `{behavior:'deny', message}` | the client's decision |
+| `onElicitation` | an MCP `elicitation/create`, which the CLI turns into a `control_request` with `subtype: 'elicitation'` (E9 §9.6) | `{action:'cancel'}` | `{action:'accept', content}` |
+| `onUserDialog` | a `request_user_dialog` control request | `{behavior:'cancelled'}` | `{behavior:'completed', result}` |
+
+"Unattended" is a live reading rather than a stored flag: no browser is connected
+(`connectedClientCount`, installed at the composition root from the websocket
+registry's own set — the driver imports nothing from `modules/websocket`, an edge
+that would close a cycle) **and** no user round is in flight. While it holds, the
+entry answers by itself with a refusal that says why (`当前无人值守…`), the
+refusal is logged on the host (`permissionReading`), a
+`permission.unattended_refused` notification goes out, and the turn ends instead
+of parking on a client that is not there.
+
+When a browser *is* connected the three entries take the **existing** per-run
+flow instead — a `permission_request` frame, `waitForToolApproval`, the client's
+own decision — so there is no second request protocol to keep in step. The
+request-shaped entries have no tool name, so their frame carries the entry name
+in `toolName` and the whole request in `input`.
+
+Switching modes mid-life is `query.setPermissionMode(<mode>)` on the running
+process; the host and its pid are untouched, and a new mode is reflected by
+`permissionReading`.
+
+`side_question` is deliberately **not** part of this surface: it travels
+host→CLI, its answer is not a refusal, and an unattended turn needs no branch for
+it. The criterion holds its own file to that — no assertion or branch for it.
+
 ## How To Add A Provider
 
 1. Add the provider id everywhere it is part of the contract.

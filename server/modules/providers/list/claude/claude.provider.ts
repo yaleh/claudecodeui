@@ -17,6 +17,7 @@ import {
   notifyRunStopped,
 } from '@/modules/notifications/index.js';
 import { sessionHostManager } from '@/modules/session-hosts/index.js';
+import { connectedClients } from '@/modules/websocket/index.js';
 import type {
   IProviderAuth,
   IProviderFork,
@@ -138,6 +139,21 @@ export class ClaudeProvider extends AbstractProvider {
         sessionName: event.sessionName,
         trigger: event.trigger,
       }),
+    /**
+     * Whether a browser is connected, read from the registry that owns the set.
+     *
+     * This is the one place both modules are in scope, which is why the driver
+     * takes the count as a port: the driver imports nothing from `modules/websocket`
+     * (an edge from it would close a cycle, and the structural reading in
+     * `claude-resident-unattended-turn.test.ts` holds the file to zero), so the
+     * registry's own set is installed here instead.
+     *
+     * Read at call time rather than captured, so the answer is the connection
+     * count when a human-facing request actually arrives — a resident turn can
+     * outlive the page that opened it, and the whole point of the reading is that
+     * nobody is watching *now*.
+     */
+    connectedClientCount: () => connectedClients.size,
   });
 
   /**

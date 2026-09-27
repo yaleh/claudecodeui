@@ -73,7 +73,15 @@ const TOOL_APPROVAL_TIMEOUT_MS = parseInt(process.env.CLAUDE_TOOL_APPROVAL_TIMEO
 // forever. The timer resets on every message, so it measures silence, not total time.
 const BG_WAIT_CEILING_MS = 30 * 60 * 1000;
 
-const TOOLS_REQUIRING_INTERACTION = new Set(['AskUserQuestion', 'ExitPlanMode']);
+/**
+ * The tools whose whole purpose is to ask the person something.
+ *
+ * Exported because the resident host has to make the same call about the same
+ * two names: it is the reading of "this tool call needs a human", and the
+ * resident interception has to agree with the per-run one about which tools
+ * those are — a second copy would be a second answer.
+ */
+export const TOOLS_REQUIRING_INTERACTION = new Set(['AskUserQuestion', 'ExitPlanMode']);
 
 // Ultracode is a session-scoped setting rather than an SDK effort level: it pairs xhigh
 // effort with standing dynamic-workflow orchestration, and the CLI only honours it when
@@ -182,6 +190,80 @@ function resolveToolApproval(requestId, decision) {
   if (resolver) {
     resolver(decision);
   }
+}
+
+/**
+ * Asks the attached client to decide one human-facing request.
+ *
+ * The protocol is the one this module has always used for a tool call — a
+ * `permission_request` frame on the run's writer, an `action_required`
+ * notification, then a wait on `waitForToolApproval` — and it is factored out
+ * rather than duplicated so a *resident* host asks the same question the same
+ * way instead of inventing a second request protocol. The resident path needs
+ * no new frame kind for elicitation or dialogs: the request travels as the
+ * frame's `input` and the caller keeps its own mapping back.
+ *
+ * Returns the client's own decision object, `{ cancelled: true }` when the wait
+ * was aborted, or `null` when it timed out — the three answers the per-run
+ * callback has always branched on, so the caller keeps its own branch and its
+ * own wording. `permission_resolved` is sent here, before an answer is handed
+ * back, for the reason it always was: a mid-run page refresh replays the run
+ * buffer, and a prompt with nothing to retract it resurrects.
+ *
+ * `onCancel` is an extra side effect for a caller that has one — the
+ * `permission_cancelled` frame is sent here either way, and both callers (the
+ * per-run callback and the resident one) have nothing to add, so its default
+ * states the optionality the body's `onCancel?.(reason)` already assumed.
+ */
+export async function requestClientToolDecision({
+  toolName,
+  input,
+  requiresInteraction,
+  requestId,
+  ws,
+  emitNotification,
+  sessionId,
+  sessionSummary,
+  signal,
+  onCancel = undefined,
+}) {
+  ws.send(createNormalizedMessage({ kind: 'permission_request', requestId, toolName, input, sessionId: sessionId || null, provider: 'claude' }));
+  emitNotification(createNotificationEvent({
+    provider: 'claude',
+    sessionId: sessionId || null,
+    kind: 'action_required',
+    code: 'permission.required',
+    meta: { toolName, sessionName: sessionSummary },
+    severity: 'warning',
+    requiresUserAction: true,
+    dedupeKey: `claude:permission:${sessionId || 'none'}:${requestId}`
+  }));
+
+  const decision = await waitForToolApproval(requestId, {
+    timeoutMs: requiresInteraction ? 0 : undefined,
+    signal,
+    metadata: {
+      // Keyed by the app session id so `chat.subscribe` can look pending
+      // approvals up directly; provider id only for legacy callers.
+      _sessionId: sessionId || null,
+      _toolName: toolName,
+      _input: input,
+      _receivedAt: new Date(),
+    },
+    onCancel: (reason) => {
+      ws.send(createNormalizedMessage({ kind: 'permission_cancelled', requestId, reason, sessionId: sessionId || null, provider: 'claude' }));
+      onCancel?.(reason);
+    }
+  });
+  if (!decision) {
+    return null;
+  }
+  if (decision.cancelled) {
+    return { cancelled: true };
+  }
+
+  ws.send(createNormalizedMessage({ kind: 'permission_resolved', requestId, sessionId: sessionId || null, provider: 'claude' }));
+  return decision;
 }
 
 // Match stored permission entries against a tool + input combo.
@@ -893,12 +975,18 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
       }]
     };
 
-    // Caveat: in 'auto' and 'bypassPermissions' modes the SDK resolves approval
-    // at the permission-mode step and skips this callback, so interactive tools
-    // (AskUserQuestion, ExitPlanMode) won't reach the UI — the classifier/bypass
-    // auto-approves them and the model acts on a generated answer. Move these
-    // tools to a PreToolUse hook (runs before the mode check) if we need them
-    // to work in those modes.
+    // In 'bypassPermissions' the mode's own answer for an ordinary tool is
+    // `allow` — but this callback is asked anyway, and it is asked about
+    // human-facing tools too. E8 measured that: under `permissionMode:
+    // bypassPermissions` an `AskUserQuestion` still reached `canUseTool` (called
+    // once, with `AskUserQuestion` as the tool name), so an interactive tool is
+    // interceptable here rather than resolved away before the callback runs. An
+    // earlier comment at this spot claimed the opposite — that the SDK resolves
+    // approval at the permission-mode step and skips the callback for interactive
+    // tools — and E8 falsifies it (`docs/proposals/claude-resident-sessions-experiments.md`
+    // §E8). The order below is what that reading buys: `requiresInteraction` is
+    // checked *first*, so the bypass branch never short-circuits a tool that
+    // needs a person.
     sdkOptions.canUseTool = async (toolName, input, context) => {
       const requiresInteraction = TOOLS_REQUIRING_INTERACTION.has(toolName);
 
@@ -923,32 +1011,16 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
       }
 
       const requestId = createRequestId();
-      ws.send(createNormalizedMessage({ kind: 'permission_request', requestId, toolName, input, sessionId: capturedSessionId || sessionId || null, provider: 'claude' }));
-      emitNotification(createNotificationEvent({
-        provider: 'claude',
+      const decision = await requestClientToolDecision({
+        toolName,
+        input,
+        requiresInteraction,
+        requestId,
+        ws,
+        emitNotification,
         sessionId: sessionId || capturedSessionId || null,
-        kind: 'action_required',
-        code: 'permission.required',
-        meta: { toolName, sessionName: sessionSummary },
-        severity: 'warning',
-        requiresUserAction: true,
-        dedupeKey: `claude:permission:${sessionId || capturedSessionId || 'none'}:${requestId}`
-      }));
-
-      const decision = await waitForToolApproval(requestId, {
-        timeoutMs: requiresInteraction ? 0 : undefined,
+        sessionSummary,
         signal: context?.signal,
-        metadata: {
-          // Keyed by the app session id so `chat.subscribe` can look pending
-          // approvals up directly; provider id only for legacy callers.
-          _sessionId: sessionId || capturedSessionId || null,
-          _toolName: toolName,
-          _input: input,
-          _receivedAt: new Date(),
-        },
-        onCancel: (reason) => {
-          ws.send(createNormalizedMessage({ kind: 'permission_cancelled', requestId, reason, sessionId: capturedSessionId || sessionId || null, provider: 'claude' }));
-        }
       });
       if (!decision) {
         return { behavior: 'deny', message: 'Permission request timed out' };
@@ -957,13 +1029,6 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
       if (decision.cancelled) {
         return { behavior: 'deny', message: 'Permission request cancelled' };
       }
-
-      // A client answered. Announce it on the run stream so the replay buffer
-      // and every other attached tab drop the prompt — resolving happens over
-      // the inbound socket only, so without this a mid-run page refresh
-      // replays the `permission_request` with nothing to retract it and the
-      // already-answered prompt resurrects.
-      ws.send(createNormalizedMessage({ kind: 'permission_resolved', requestId, sessionId: capturedSessionId || sessionId || null, provider: 'claude' }));
 
       if (decision.allow) {
         if (decision.rememberEntry && typeof decision.rememberEntry === 'string') {
