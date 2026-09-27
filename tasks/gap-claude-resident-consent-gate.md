@@ -70,6 +70,7 @@ goal_ac: AC-171
   **本条第二分句（`npm run typecheck` 退出 0）已按不变量收窄；原文逐字保留于上，审阅者可回退本收窄。**
   不可满足性证明（2026-09-27 本轮实测，读数为直跑非推断）：`npm run typecheck` = `tsc --noEmit -p tsconfig.json && tsc --noEmit -p server/tsconfig.json && tsc --noEmit -p scripts/tsconfig.json`，三环错误数 **0 / 0 / 63**，63 个全部落在 `scripts/resident-smoke.mjs` 与 `scripts/resident-smoke.test.mjs`（`scripts/tsconfig.json` 为 `allowJs + checkJs + strict`、`include: ["**/*.mjs"]`，报 TS7006/TS2339/TS2349/TS18047/TS2353…）。同一读数在 **develop 本体**上逐字相同：canonical checkout `/data/home/yale/work/claudecodeui`（HEAD `ddd8f0e1` == `git rev-parse develop`）跑 `npx tsc --noEmit -p scripts/tsconfig.json 2>&1 | grep -c "error TS"` → **63**；本工作树 `git diff --stat develop -- scripts/` → **空**（`scripts/` 与 develop 逐字节相同）。红由 `e7ab6a42`（AC-170 落地 `scripts/resident-smoke.mjs`）引入，而 AC-170 自己的 AC8 只写「`npm run lint` 退出 0」，第三环自此无主 —— 即本条的「退出 0」在 develop 上就已经不成立，与本 delta 无关。
   ⇒ 「退出 0」与本任务 DoD「只动 Touches 列出的文件；后端一行不改」**不可兼得**：唯一能让第三环变绿的动作是改 `scripts/resident-smoke.mjs`，而它不在 `## Touches` 里，一改即触发 anti-drift 的 out-of-declared（本仓库 `.quay/config.yml` 无 `anti_drift.exempt`、无 `gates:` 段，零个额外文件被允许）。故本任务能保证、且可被 falsify 的不变量是「**本 delta 不给任何一环添新错**」，逐条读法：`npx tsc --noEmit -p tsconfig.json` 退出 **0** —— 根 `include` 为 `["src","shared","vite.config.js"]`，本 delta 的 `src/` 改动一旦引入类型错误立刻非 0；`npx tsc --noEmit -p server/tsconfig.json` 退出 **0**；`npx tsc --noEmit -p scripts/tsconfig.json 2>&1 | grep -c "error TS"` = **63**（与 develop 同数；本 delta 若写进 `scripts/` 或改动其类型面即变）。
+  **`## Touches` 更正（2026-09-27 本轮，2 条，均为既有 `*.test.tsx`，非新文件）**：上面的「多写的文件须由判据强制」在本轮多出两处写入，故逐条登记其强制来源。这两处是**本任务发布的导出契约的消费者**：本任务按 Proposal §1 把 `useResidentProviders` 加进 `src/shared/hooks/useProviderCapabilities.ts`（Touches 内），`SessionOptions.tsx` 随即消费它（AC4 的实现面），而这两个测试用具把该模块**整块**替身，模块导出集一变就缺键、整个文件在 render 时抛错。frontend-module-standards 对「changing a module's public exports」明确要求先搜出每一个消费者，二者即全部消费者（`grep -rn "vi.mock('@/shared/hooks/useProviderCapabilities'" src/` 恰好只命中这两处）。诚实的另一条走法是把 `useResidentProviders` 挪出该模块（例如新开 `src/modules/sidebar/hooks/useResidentProviders.ts`），它不必改这两文件，但 (a) 与 Proposal §1 的钉法相反、(b) 仍要补一条 `## Touches` 之外的声明、(c) 让同一族的两个能力钩子分居两处；故不取。二者的写入由 AC4 强制，属**更正**声明而非以改 `## Touches` 绕过守卫。
 
 ## DoD
 
@@ -94,6 +95,8 @@ goal_ac: AC-171
 - `src/modules/i18n/locales/en/sidebar.json`
 - `src/modules/i18n/locales/zh-CN/sidebar.json`
 - `tasks/gap-claude-resident-consent-gate.md`（自触）
+- `src/modules/sidebar/tests/debugAgentIdentity.test.tsx` (widened for AC4 — it stubs the capabilities module wholesale, so the export this task added must be stubbed there too)
+- `src/modules/sidebar/tests/sessionOptionsHideSimilar.test.tsx` (widened for AC4 — same wholesale stub of the same module)
 
 ## 执行记录
 
@@ -168,3 +171,14 @@ modeAfterConvert=resident
 **判据里唯一的一处替身（spec 内已就地注明其存在与边界）。** AC4 的 `menu.disabledWhenProcessing=true`：服务端的「处理中」读的是在飞轮次注册表（`sessions.service.ts` 的 `listRunningSessions()` → `chatRunRegistry.listRunningRuns()`），只有真模型轮次在流式期间才在其中，fixture 无法让一个会话在该状态里停住。故这条腿用 `page.route` 只替 `GET /api/providers/sessions/running` 这一条**只读**应答，并立刻 `route.fallback()` 放行；菜单项的 `disabled`、`modeBefore=modeAfter`、`modeAfterConvert`、以及 AC4/AC5 的每一个能力矩阵与生命周期模式读数，全部读自真应用与真服务端。
 
 **待人工知会的一条 develop 侧缺陷（不在本任务范围内，未修）**：`e7ab6a42`（AC-170）落地的 `scripts/resident-smoke.mjs` / `scripts/resident-smoke.test.mjs` 在 `scripts/tsconfig.json`（`checkJs`）下带 63 个类型错误，使 `npm run typecheck` 在 develop 上退出 2 —— AC-170 自己的 AC8 只要求 lint，故该红自落地起无主。任何后续任务的 AC 若写「`npm run typecheck` 退出 0」都会撞上它。
+
+
+**2026-09-27 worker 轮 2 —— 只做本 delta 在兄弟面造成的红的修复；本轮判据无需改，AC 无回退。**
+
+**上一轮 exit-not-landed 的派单词只引了一条红，但 raw log 里有 9 条。** 逐条归因如下（读数取自本轮 worktree 的 `.quay/suite-logs/20260927T224218-2943719/` 各 `.out` 与 `.res`，非推断；派单词引的那条 `voice-capture-audio.false-forms.test.ts` 只是其中之一，且其真因不在它自己身上）：
+
+- **7 条与本 delta 无关，同一个 develop 侧成因**：`typecheck` 一条，加 `voice-capture-{audio,isolation,off,text}.false-forms` 与 `voice-error-{classification,contract}.false-forms` 六条。后六条**自身的设计变异臂全绿**（每条 `.out` 里 `mutantRed=true` 且 `red` 落在它自己的 AC 读数上），红的都是它们自己的「既有判据与仓闸仍然退出 0」那条腿，逐字 `+ actual - expected … + [ 'npm run typecheck' ] - []`（`voice-error-contract` 那条写作 `[ 'typecheck' ]`）。根因即 AC7 已证明的第三环：`scripts/tsconfig.json`（`allowJs + checkJs`）在 `scripts/resident-smoke.mjs` / `resident-smoke.test.mjs` 上报 **63** 个 TS 错。
+- **该红是本轮新出现的 develop 回归，不是长期基线**（这条区分决定了「重跑就好」与「等修」两种处置）：`scripts/resident-smoke.mjs` 最后一次改动是 `e7ab6a42`（`2026-09-27 22:15:57 +0800`，AC-170 落地）；同 workspace 里 `gap-claude-resident-slice-memory-cap` 的 5 份 fan-in 日志**全部早于 22:15:57**，逐份 `grep -c "not ok - typecheck"` 为 **0**，而本轮 22:42 的日志里 `__PERFILE__ typecheck passed=false`。本轮 worktree 与 canonical checkout（HEAD `ca7437c8` == `git rev-parse develop`）上 `npx tsc --noEmit -p scripts/tsconfig.json 2>&1 | grep -c "error TS"` 同为 **63**；`git diff --stat develop -- scripts/` 为空 ⇒ 与 delta 无关。active 任务中没有任何一条的 `## Touches` 含该文件 ⇒ 该回归当前**无主**（AC-170 自己的 AC8 只要 lint）。
+- **2 条是本 delta 的红，本轮已修**：`src/modules/sidebar/tests/debugAgentIdentity.test.tsx` 与 `src/modules/sidebar/tests/sessionOptionsHideSimilar.test.tsx`，逐字 `Error: [vitest] No "useResidentProviders" export is defined on the "@/shared/hooks/useProviderCapabilities" mock. Did you forget to return it from "vi.mock"?`。修法：两处整块替身各补一行 `useResidentProviders: () => new Set<string>()`（空集 ⇒ 「转为常驻…」不进这两个测试所断言的菜单，与它们原本的期待一致），并各加一行注释说明为何需要。复跑 `npx vitest run <两个文件>` 逐字 `Test Files 2 passed (2)` / `Tests 5 passed (5)`。
+
+**本轮的预期终局（如实登记，供审阅者判读）。** 本 delta 的红已清零；但上面那 7 条在 fan-in 的 `suite` 步仍会红，而 worker-driver 的 `failSuite` 对该步**没有 develop 基线豁免**（`worker-driver.js`：`sr.outcome !== "done"` ⇒ 直接 `failSuite(extractFirstFailureLine(...))`）⇒ 本轮 fan-in 仍会停在 `step=suite`，且**红不在本 delta**。要真正解锁需要一条拥有 `scripts/resident-smoke.mjs` 的任务（修那 63 个类型错，或把 `scripts/tsconfig.json` 的 `include`/`checkJs` 收到不含测试脚本的范围）；本任务按 AC7 与 DoD 不动它。
