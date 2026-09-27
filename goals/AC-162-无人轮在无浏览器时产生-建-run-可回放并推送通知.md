@@ -1,7 +1,7 @@
 ---
 id: AC-162
 title: 无人轮在无浏览器时产生、建 run、可回放并推送通知
-status: draft
+status: active
 kind: criterion
 goal: GOAL-013
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -23,4 +23,15 @@ origin: docs/proposals/claude-resident-sessions.md（e88175cf）。人 yale 2026
   proposal 阶段 0 结论（E1–E9，记录文件
   docs/proposals/claude-resident-sessions-experiments.md）修订判据；工具表无 Monitor（E9
   9.3），改后台 Bash 触发；完成是否开无人轮尚无读数，记为缺口
+activatedAt: 2026-09-27T04:55:11.863Z
+statusLog:
+  - at: 2026-09-27T04:55:11.863Z
+    from: draft
+    to: active
+    actor: human:yale
+    reason: 人 yale 2026-09-27 指令：判据已按 E1–E9 结论修订，转 active
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-09-27T04:55:11.863Z
 ---
