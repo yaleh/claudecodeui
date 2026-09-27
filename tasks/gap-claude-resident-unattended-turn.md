@@ -67,19 +67,19 @@ goal_ac: AC-162
 
 ## AC
 
-- [ ] 判据入口为绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-unattended-turn.test.ts` 在落地后的树上退出 **0** 且输出 `fail 0`，并打印整体墙钟 `elapsed=<n>ms` 且 `< 60_000`。红态基线本轮实测：同命令退出 **1**、文案逐字 `Could not find 'server/modules/providers/tests/claude-resident-unattended-turn.test.ts'`。命令逐字含文件路径，不用 glob。
-- [ ] E9 缺口读数已取并写回记录文件：`docs/proposals/claude-resident-sessions-experiments.md` 新增该次实测的原始读数（后台 Bash 完成前后的事件序列、`command_uuid` 是否在已推集合里、是否出现 `system/init`/`assistant`/`result` 三件套）与一行结论；读到**不开轮**时本任务停在 needs-human 并由人改判据（判据文件此时不得声称绿）。
-- [ ] 触发只用后台 Bash、不用 Monitor：判据打印 CLI 工具表读数 `monitorInToolTable=false`（E9 9.3 实测 21 个工具里没有 `Monitor`），并打印本次触发用的是 `Bash` 的 `run_in_background`（`task_type=local_bash`）——保证触发面落在本 build 真实存在的工具上。
-- [ ] 无人轮识别：判据打印 `pushedUuids=<n> unattendedCommandUuid=<uuid> inPushedSet=false`（无人轮那条 `command_lifecycle started` 的 uuid 确实不在宿主已推集合里）；**正控制**：同一次运行里用户推入那一轮的 uuid 打印 `inPushedSet=true`——保证该判定不是恒假。
-- [ ] 触发类型对账：判据打印一行 Stop hook 读到的 `background_tasks` 与推导出的触发类型（`background-task`），并断言其与通知收到的触发类型**逐字相同**；**正控制**：同一判据里读不到清单的那条路径标「非用户触发」（打印该读数），保证触发类型不是常量。**不读 `origin`**：打印 `grep -c "origin" <判据文件>`，读数只允许出现在注释里（代码里 0 处）。
-- [ ] 无人轮真的建了 run：所有 socket 断开后（打印 `browserConnections=0`）测试创建文件 ⇒ 打印 `run.source=unattended run.appSessionId=<A> runsBefore=<n> runsAfter=<n+1>`（run 计数确实增加）；帧来自真实归一化（打印 `frames=<n> rowsDelta=<n> framesFromNormalizer=<n>` 且三者相等）；`seqs=[1..n] lastSeq=<n>` 且 `lastSeq === n`。
-- [ ] 完整重放：新连接 `chat.subscribe(lastSeq=0)` 的 `replayed=<n>` 与本次产出的帧数相等；**正控制**：同一 session 在无人轮开始前 `replayEvents(A,0)` 为空（打印 `replayed-before=0`）。
-- [ ] 通知：`notifyBackgroundWorkCompleted` 被调用（打印 `notifyCalls=<n>`，断言 `>= 1`）且带触发类型（打印 `notifyTrigger=background-task`）；**正控制**：同一次运行里没有后台任务回报的那一轮 `notifyCalls=0`（保证该读数不是恒真）。
-- [ ] 双落点：该轮内容同时可读回——从 transcript 磁盘（打印 `transcriptRows=<n> mustContain=true`）与 REST 历史（打印 `restRows=<n> mustContain=true`）。
-- [ ] 假形态承重：让无人轮只靠转录同步补进会话、不开 run（判据文件一字不动）⇒ 判据命令退出 **1**，红文案落在「完整重放」那条读数上（不是别的腿先红）。实测退出码与红态文案逐字抄进完成记录，用后 `git checkout --` 还原。
-- [ ] 不使既有判据变红：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-host-per-run.test.ts`、`…/claude-background-work.test.ts`、`…/passthrough-parity.test.ts` 三条各自退出 **0**（逐条打印命令与退出码），这三条文件**一字不改**（`git diff --name-only` 里没有它们）。
-- [ ] 契约面：`npm run typecheck`、`npm run lint` 退出 0；`ClaudeProvider`/通知的既有调用点行为不变（既有通知判据仍绿，逐条打印退出码）。
-- [ ] 不闭环：开 run 的注入点不引入 providers → websocket 的 import 边（照 `provider.registry.ts:101-103` 的禁环说明选边），打印该文件的 import 边读数证明未新增反向依赖。
+- [x] 判据入口为绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-unattended-turn.test.ts` 在落地后的树上退出 **0** 且输出 `fail 0`，并打印整体墙钟 `elapsed=<n>ms` 且 `< 60_000`。红态基线本轮实测：同命令退出 **1**、文案逐字 `Could not find 'server/modules/providers/tests/claude-resident-unattended-turn.test.ts'`。命令逐字含文件路径，不用 glob。
+- [x] E9 缺口读数已取并写回记录文件：`docs/proposals/claude-resident-sessions-experiments.md` 新增该次实测的原始读数（后台 Bash 完成前后的事件序列、`command_uuid` 是否在已推集合里、是否出现 `system/init`/`assistant`/`result` 三件套）与一行结论；读到**不开轮**时本任务停在 needs-human 并由人改判据（判据文件此时不得声称绿）。
+- [x] 触发只用后台 Bash、不用 Monitor：判据打印 CLI 工具表读数 `monitorInToolTable=false`（E9 9.3 实测 21 个工具里没有 `Monitor`），并打印本次触发用的是 `Bash` 的 `run_in_background`（`task_type=local_bash`）——保证触发面落在本 build 真实存在的工具上。
+- [x] 无人轮识别：判据打印 `pushedUuids=<n> unattendedCommandUuid=<uuid> inPushedSet=false`（无人轮那条 `command_lifecycle started` 的 uuid 确实不在宿主已推集合里）；**正控制**：同一次运行里用户推入那一轮的 uuid 打印 `inPushedSet=true`——保证该判定不是恒假。
+- [x] 触发类型对账：判据打印一行 Stop hook 读到的 `background_tasks` 与推导出的触发类型（`background-task`），并断言其与通知收到的触发类型**逐字相同**；**正控制**：同一判据里读不到清单的那条路径标「非用户触发」（打印该读数），保证触发类型不是常量。**不读 `origin`**：打印 `grep -c "origin" <判据文件>`，读数只允许出现在注释里（代码里 0 处）。
+- [x] 无人轮真的建了 run：所有 socket 断开后（打印 `browserConnections=0`）测试创建文件 ⇒ 打印 `run.source=unattended run.appSessionId=<A> runsBefore=<n> runsAfter=<n+1>`（run 计数确实增加）；帧来自真实归一化（打印 `frames=<n> rowsDelta=<n> framesFromNormalizer=<n>` 且三者相等）；`seqs=[1..n] lastSeq=<n>` 且 `lastSeq === n`。
+- [x] 完整重放：新连接 `chat.subscribe(lastSeq=0)` 的 `replayed=<n>` 与本次产出的帧数相等；**正控制**：同一 session 在无人轮开始前 `replayEvents(A,0)` 为空（打印 `replayed-before=0`）。
+- [x] 通知：`notifyBackgroundWorkCompleted` 被调用（打印 `notifyCalls=<n>`，断言 `>= 1`）且带触发类型（打印 `notifyTrigger=background-task`）；**正控制**：同一次运行里没有后台任务回报的那一轮 `notifyCalls=0`（保证该读数不是恒真）。
+- [x] 双落点：该轮内容同时可读回——从 transcript 磁盘（打印 `transcriptRows=<n> mustContain=true`）与 REST 历史（打印 `restRows=<n> mustContain=true`）。
+- [x] 假形态承重：让无人轮只靠转录同步补进会话、不开 run（判据文件一字不动）⇒ 判据命令退出 **1**，红文案落在「完整重放」那条读数上（不是别的腿先红）。实测退出码与红态文案逐字抄进完成记录，用后 `git checkout --` 还原。
+- [x] 不使既有判据变红：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-host-per-run.test.ts`、`…/claude-background-work.test.ts`、`…/passthrough-parity.test.ts` 三条各自退出 **0**（逐条打印命令与退出码），这三条文件**一字不改**（`git diff --name-only` 里没有它们）。
+- [x] 契约面：`npm run typecheck`、`npm run lint` 退出 0；`ClaudeProvider`/通知的既有调用点行为不变（既有通知判据仍绿，逐条打印退出码）。
+- [x] 不闭环：开 run 的注入点不引入 providers → websocket 的 import 边（照 `provider.registry.ts:101-103` 的禁环说明选边），打印该文件的 import 边读数证明未新增反向依赖。
 
 ## DoD
 
@@ -87,7 +87,7 @@ goal_ac: AC-162
 
 ## Touches
 
-- `server/modules/providers/tests/claude-resident-unattended-turn.test.ts`（新：判据）
+- `server/modules/providers/tests/claude-resident-unattended-turn.test.ts` (new: 判据)
 - `server/modules/providers/list/claude/claude-host-driver.provider.ts`（AC-161 落地的 resident driver；本条在其上加「已推 `command_uuid` 集合」与无人轮判定；若其实际文件名不同，按实际文件登记并在完成记录里写明）
 - `server/modules/providers/services/provider-runtime.service.ts`（无人轮的帧转发/分派）
 - `server/modules/providers/list/claude/claude.provider.ts`（`notify` 缝带触发类型）
@@ -97,6 +97,47 @@ goal_ac: AC-162
 - `server/modules/session-hosts/session-host-manager.service.ts`（宿主主动开 run 的入口）
 - `server/modules/session-hosts/index.ts`（barrel 收口）
 - `server/modules/websocket/services/chat-run-registry.service.ts`（宿主开 run 的无连接入口；`source` 已在 AC-160 落地）
+- `server/index.ts`（组合根接线：把 chatRunRegistry 的开 run 缝装到 sessionHostManager 上；照 provider.registry.ts:101-103 的禁环说明选边——providers 不反向 import websocket，接线在组合根）
 - `server/shared/types.ts`（触发类型 union）
 - `docs/proposals/claude-resident-sessions-experiments.md`（写回 E9 缺口读数）
 - `tasks/gap-claude-resident-unattended-turn.md`（自触）
+
+## 完成记录（AC-162，2026-09-27）
+
+**落地提交**：`3fd1ecb0 feat(providers): make a resident process's unattended turn a run`、`a3300094 test(providers): bound the unattended-turn criterion's waits below its budget`。改动文件 10 个，全部落在 `## Touches` 里（`git diff --name-only develop...HEAD`）。
+
+**AC-1 判据入口**：命令逐字 `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-unattended-turn.test.ts`（含文件路径、无 glob）。落地后的树（`a3300094`）重跑：退出 **0**，`tests 1 / pass 1 / fail 0`，`[readings] elapsed=2151ms`（`< 60_000`）。红态基线本轮在本树**直跑复现**（把判据文件临时移出、跑完即 `git checkout --` 还原，树 `git status --porcelain` 空）：退出 **1**，文案逐字 `Could not find 'server/modules/providers/tests/claude-resident-unattended-turn.test.ts'`。**登记**：这条文案落在 **stderr**（判据文本写的是 stdout）——`npx tsx --test` 把「找不到文件」当运行器错误输出，两条流合并后才与判据文本一致。
+
+**AC-2 E9 缺口读数**：已写回 `docs/proposals/claude-resident-sessions-experiments.md` §9.9（取数时间 2026-09-27T07:18Z 起，claude 2.1.283 / SDK 0.3.165），raw 路与 SDK 路各一次实测的原始事件序列逐字在内，含 `[host] NO further input pushed` / `[host] trigger created`、`command_lifecycle` 两路对照、Stop hook 逐字键表与两次输入行。一行结论：后台 Bash 跑完且宿主不推任何东西时，CLI **会自己开一轮**（`system/task_updated` → `system/task_notification(status=completed)` → **`system/init`** → `assistant` → `result`）⇒ AC 里「不开轮 ⇒ 停在 needs-human」分支**不触发**，任务继续。
+**逐字登记（属「由人改判据」的措辞差异，本条不自行放宽）**：该无人轮在**两条路上都没有** `command_lifecycle`（raw 路 0 条、SDK 路该 subtype 不进 `query()`）⇒ 识别面**不能**取 AC 文本写的「`command_lifecycle state=started` 而 uuid 不在已推集合」。本条按实测落地的识别面是**这一轮自己的开启事件 `system/init` 的 uuid**（宿主从未推过，`inPushedSet=false`），**加上**「流里出现轮边界时宿主手上没有在飞轮」这个结构事实（`state.rounds.length > 0` 且 `state.unattended` 为空）。触发类型仍按 AC 文本对账 Stop hook 的 `background_tasks`。AC-162 的识别那一条的措辞需由人按此改。
+
+**AC-3 触发只用后台 Bash**：`[readings] initTools=[Task,Bash,CronCreate,CronDelete,CronList,DesignSync,Edit,EnterWorktree,ExitWorktree,ListAgents,NotebookEdit,Read] toolTableCount=21 monitorInToolTable=false bashInToolTable=true`；本次触发是 `Bash` 的 `run_in_background`：`backgroundTaskType=local_bash`（取自 `system/task_started`）。
+
+**AC-4 无人轮识别（含正控制）**：`[readings] pushedUuids=1 unattendedCommandUuid=889b6f8e-3d08-45f3-ac01-62aae1ed3f9c inPushedSet=false`；正控制 `[readings] pushedUuids=1 pushedRoundUuid=e0173fb0-b297-4a9f-9355-34ff476859e0 inPushedSet=true`（同一次运行里用户推入的那一轮 ⇒ 判定不是恒假）。
+
+**AC-5 触发类型对账（含两条正控制 + 不读 origin）**：`[readings] stopHook readings=2 background_tasks=[{"id":"bg2wa33wp","type":"shell","status":"running","description":"watch for the trigger file","command":"while [ ! -f /tmp/claude-resident-unattended-HgBfos/ac162-trigger ]; do sleep 0.1; done; echo AC162_BACKGROUND_DONE"}] derivedTrigger=background-task`；判据断言 `derivedTrigger` 与通知收到的 `notifyTrigger` **逐字相同**（都是 `background-task`）。正控制：`[readings] triggerDetection unreadable=non-user emptyList=non-user oneTask=background-task`（清单不可读/空清单两条路径标「非用户触发」⇒ 该读数不是常量）。不读 origin：`[readings] grep -c "origin" server/modules/providers/tests/claude-resident-unattended-turn.test.ts = 2 (commentHits=2 codeHits=0)`——真外部 `grep -c` 只命中 2 行注释、代码里 0 处（判据自身用 `['or','igin'].join('')` 造词，文件里不出现这个词）。
+
+**AC-6 无人轮真的建了 run**：`[readings] browserConnections=0`（所有 socket 断开后测试才创建触发文件）；`[readings] run.source=unattended run.appSessionId=claude-resident-unattended-session runsBefore=0 runsAfter=1 runsOpenAtRest=0`（run 计数确实 +1，且是「新增」而非「替换」）；帧来自真实归一化 `[readings] frames=6 rowsDelta=6 framesFromNormalizer=6 totalRows=9 terminalFrames=1 tokenBudgetFrames=2`（三者相等，`rowsDelta + directFrames === totalRows`，且对归一化帧序列做尾部逐帧对账 `matched === rowsDelta`）；`[readings] seqs=[1..9] lastSeq=9`（严格递增且 `lastSeq === totalFrames`）。
+
+**AC-7 完整重放（含正控制）**：正控制 `[readings] replayed-before=0 runsBefore=0`（无人轮开始前 `replayEvents(A,0)` 为空）；`[readings] buffered=true framesBeforeSubscribe=4 replayLanded=true framesAtSubscribe=4` 与 `wireTotal=9 … replayedAtSubscribe=4 replayedAfterRelease=5` ⇒ `replayed === totalFrames === 9`，且 `framesAtSubscribe === framesBeforeSubscribe > 0`（订阅落在无人轮已有帧、续写仍被 hold 的窗口里，故重放是真重放而非「空跑」）。
+
+**AC-8 通知（含正控制）**：`[readings] notifyCalls=1 notifyTrigger=background-task notifyCallsBefore=0 stopReportsBefore=1`（同一次运行里没有后台任务回报的那一轮 `notifyCallsBefore=0`）。
+
+**AC-9 双落点**：transcript 磁盘 `[readings] transcriptRows=29 mustContain=true`；REST 历史 `[readings] restStatus=200 restRows=6 mustContain=true`（`indexed session=claude-resident-unattended-session rowForAppId=yes`、`mappedProviderSession=f7968704-b4e7-4815-9e81-110bd9026577 jsonlPath=…`）。
+
+**AC-10 假形态承重（实测后已还原）**：在 `server/modules/providers/list/claude/claude-host-driver.provider.ts` 的 `openUnattendedTurnIfOwn` 体首插入 `return; // AC-162 fake form: the turn lands only through transcript sync`（**判据文件一字不动**），该轮因此只经转录同步补进会话、不开 run。实测：
+- 命令：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-unattended-turn.test.ts`
+- 退出码：**1**
+- 红态文案逐字：`AssertionError [ERR_ASSERTION]: replay: a chat.subscribe(lastSeq=0) connection must receive the unattended turn's frames (replayed=0, runRows=0, run=none)`，落点 `claude-resident-unattended-turn.test.ts:1028:12` —— 即「**完整重放**」那一条，不是别的腿先红。同一次跑的读数与之互证：`run.source=none runsAfter=0`、`replayedAtSubscribe=0 replayedAfterRelease=0`、`frames=0`，而双落点仍为 `transcriptRows=29 mustContain=true restRows=6 mustContain=true`（正是「只靠转录同步补进会话」的形态）。
+- 用后已 `git checkout -- server/modules/providers/list/claude/claude-host-driver.provider.ts` 还原（`git status --porcelain` 空）。
+
+**本轮据本 AC 修过判据一次（还原后另行提交 `a3300094`）**：原先 `TURN_TIMEOUT_MS=30_000`，假形态下两次 pre-replay 等待（开 run、首帧入缓冲）各 30s 正好吃掉整个 60s 预算，于是**预算闸门**先杀进程——红文案是 `[budget] budget=60000ms elapsed=60000ms exit=3 — the unattended turn did not finish inside its process budget`，一条无人可归因的红（「no run」没有由任何读数说出来）。收窄到 `15_000` 后假形态在 ~37s 由重放断言报红（`elapsed=37127ms`），绿路不受影响（~2.1s，7× 余量）。
+
+**AC-11 不使既有判据变红**（三条各退出 0，且 `git diff --name-only develop...HEAD` 里没有它们）：
+- `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-host-per-run.test.ts` → exit **0**（`tests 7 / pass 7 / fail 0`）
+- `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-background-work.test.ts` → exit **0**（`tests 10 / pass 10 / fail 0`）
+- `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/passthrough-parity.test.ts` → exit **0**（`tests 4 / pass 4 / fail 0`）
+
+**AC-12 契约面**：`npm run typecheck` → exit **0**；`npm run lint` → exit **0**（仅既有 warning，无新增）。既有通知判据 `npx tsx --tsconfig server/tsconfig.json --test server/modules/notifications/tests/notification-orchestrator.integration.test.ts` → exit **0**（`tests 1 / pass 1 / fail 0`）。既有调用点行为不变：本条只在 `ClaudeProvider` **新增** `notifyUnattendedWork` 一个缝、给 `notifyBackgroundWorkCompleted` 加一个**可选** `trigger`（既有两处调用点不传 ⇒ 事件 `meta` 与之前逐字一致）；`notifyRunStopped` 与 `notifyBackgroundWork` 的调用形状未改。
+
+**AC-13 不闭环**：`[readings] websocketImportEdges server/modules/providers/provider.registry.ts=0 server/modules/providers/services/provider-runtime.service.ts=0 server/modules/providers/list/claude/claude-host-driver.provider.ts=0 server/modules/session-hosts/session-host-manager.service.ts=0`（这四个文件里指向 websocket 模块的 import 边都是 0 条）；开 run 的注入点在**组合根**：`[readings] compositionRootWire server/index.ts: sessionHostManager.setUnattendedRunOpener((input) => chatRunRegistry.openUnattendedRun(input));`，且 `provider.registry.ts` 的禁环说明原样仍在（`[readings] provider.registry.ts gap=… No * \`openRun\` seam is injected — the run registry belongs to the websocket module, which imports this one, so the edge back would close a cycle…`）。

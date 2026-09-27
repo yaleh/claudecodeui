@@ -379,9 +379,17 @@ function openDoors(): string[] {
  * to be subprocess-free and the two clauses cannot both hold literally. `.git` and `node_modules`
  * are skipped (the latter is a symlink to the shared install), and so are the build directories,
  * which vitest and vite write on their own.
+ *
+ * `.quay` is skipped on the same discipline — it is a directory somebody else writes. It holds
+ * quay's own runtime state, which the driver rewrites while this criterion runs (`.quay/anchor.json`
+ * is a heartbeat file, `.quay/per-file-cpu-*` are its per-file account files), and it is exactly the
+ * surface `git status --porcelain` cannot see: `.gitignore` ignores `.quay/*`, re-including only the
+ * tracked `config.yml` and `profiles.yml`. Counting the driver's own writes as this run's residue
+ * reddened `AC1` on roughly one reading in five without any classifier reading ever failing; every
+ * path git can actually report is still covered by the diff below.
  */
 function treeSnapshot(): string[] {
-  const skip = new Set(['.git', 'node_modules', 'dist', 'coverage', 'artifacts', '.vite']);
+  const skip = new Set(['.git', 'node_modules', 'dist', 'coverage', 'artifacts', '.vite', '.quay']);
   const entries: string[] = [];
   const walk = (dir: string): void => {
     let children: string[];
