@@ -28,7 +28,7 @@ import type {
   IProviderSkills,
   IProviderSessions,
 } from '@/shared/interfaces.js';
-import type { LLMProvider } from '@/shared/types.js';
+import type { BackgroundWorkTrigger, LLMProvider } from '@/shared/types.js';
 
 /**
  * The background-work notification, viewed with the argument shape its module
@@ -42,12 +42,19 @@ import type { LLMProvider } from '@/shared/types.js';
  * true contract, made once here instead of at every call site — and because it
  * is only a widening, a record built from the driver's event still reaches the
  * notification unchanged.
+ *
+ * `trigger` is widened in for the same reason and is the one field that is
+ * genuinely new: the runtime's own call site has no trigger to give (it reports
+ * a held background task whose turn it already knew about), so it stays absent
+ * there and the notification records `null`. Only the resident driver, which has
+ * to work out *what* opened a turn nobody pushed, fills it.
  */
 const reportBackgroundWorkCompleted = notifyBackgroundWorkCompleted as (event: {
-  userId: string | null;
+  userId: string | number | null;
   provider: LLMProvider;
   sessionId: string | null;
   sessionName: string | null;
+  trigger?: BackgroundWorkTrigger | null;
 }) => void;
 
 /**
@@ -94,7 +101,7 @@ export class ClaudeProvider extends AbstractProvider {
    * driver reports *what* completed, and the notification layer already treats a
    * missing user as "no per-user preferences to consult".
    */
-  readonly hostDriver: IProviderHostDriver = new ClaudeResidentHostDriver({
+  readonly residentHostDriver: ClaudeResidentHostDriver = new ClaudeResidentHostDriver({
     host: sessionHostManager,
     notifyBackgroundWork: (event) =>
       reportBackgroundWorkCompleted({
@@ -111,7 +118,41 @@ export class ClaudeProvider extends AbstractProvider {
         sessionName: event.sessionName,
         stopReason: event.stopReason,
       }),
+    /**
+     * The same notification, from the turn the resident process opened by
+     * itself — the one path that can say *what* opened it.
+     *
+     * Kept as its own seam rather than widened onto `notifyBackgroundWork`
+     * because the two are not the same report: the per-run one describes work
+     * that finished after a turn this dispatch already knew about, and this one
+     * describes a turn nobody asked for. Sharing `notifyBackgroundWorkCompleted`
+     * is what makes them arrive at the client identically, which is the
+     * behaviour a user watching the session wants; carrying the trigger through
+     * is what keeps them distinguishable on the wire.
+     */
+    notifyUnattendedWork: (event) =>
+      reportBackgroundWorkCompleted({
+        userId: event.userId,
+        provider: event.provider,
+        sessionId: event.sessionId,
+        sessionName: event.sessionName,
+        trigger: event.trigger,
+      }),
   });
+
+  /**
+   * The same instance, held under its own type.
+   *
+   * `hostDriver` is the shared facet every provider mounts, so it is typed as
+   * `IProviderHostDriver` and the driver's own verbs — the busy-input readings
+   * and the withdrawal entry — are not on it. The dispatch reaches those
+   * through a structural check on the instance, which is the right reading at
+   * that layer (it must work for a provider that has no such verb) but the
+   * wrong one here: at the mount site the concrete class is known, and a second
+   * field is what says so without a cast back from the interface. Both fields
+   * are the one object, so a verb added to the class is reachable both ways.
+   */
+  readonly hostDriver: IProviderHostDriver = this.residentHostDriver;
 
   constructor() {
     super('claude');

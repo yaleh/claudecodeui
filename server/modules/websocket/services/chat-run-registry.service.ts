@@ -169,6 +169,25 @@ export const chatRunRegistry = {
   /**
    * Starts tracking a run and returns it, or `null` when a run is already in
    * progress for the session (callers must reject the duplicate send).
+   *
+   * `supersedeRunning` is the one exception, and it is not a weakening of that
+   * contract: it is how a second turn that is genuinely accepted while the
+   * first is still running gets a run of its own. A resident session has no
+   * reason to refuse a busy send — the CLI queues it and runs it as its own
+   * turn — but the run registry is keyed one run per session, so the newer turn
+   * must replace the older one *as the session's current run* or its frames
+   * would be attributed to a run that already ended its own conversation.
+   *
+   * The replaced run is not marked completed by the replacement, and that is
+   * the load-bearing half: its own turn is still running, and its terminal
+   * `complete` is written through its own writer when that turn ends
+   * (`ClaudeResidentHostDriver` sends it through the round's writer, not through
+   * whichever round was armed last). Marking it completed here would hand it to
+   * `decorateAndRecordEvent`'s exactly-one-complete rule, so the ending of a
+   * turn that was genuinely running would be dropped and every client watching
+   * the session would be left waiting on a run that never reports itself over.
+   * Status tracks the run's *own* turn; the map slot is what "the session's
+   * current run" means, and the newer run simply takes it.
    */
   startRun(input: {
     appSessionId: string;
@@ -191,9 +210,15 @@ export const chatRunRegistry = {
      * asked for — states `unattended` explicitly.
      */
     source?: ChatRunSource;
+    /**
+     * Whether an already-running run is replaced by this one instead of
+     * refusing this one. Only ever set by a caller that has established the
+     * session's provider will really run this turn concurrently — see above.
+     */
+    supersedeRunning?: boolean;
   }): ChatRun | null {
     const existing = runs.get(input.appSessionId);
-    if (existing && existing.status === 'running') {
+    if (existing && existing.status === 'running' && !input.supersedeRunning) {
       return null;
     }
 
@@ -225,10 +250,51 @@ export const chatRunRegistry = {
     return run;
   },
 
+  /**
+   * Opens a run for a turn the *host* layer detected, with nobody watching.
+   *
+   * The one thing this adds over `startRun` is the pair of facts a host caller
+   * cannot state: `connection: null` and `source: 'unattended'`. Both are true
+   * by construction here rather than by the caller's word — an unattended turn
+   * is one no socket asked for, so there is no connection to attach, and the
+   * source is what tells it apart from the `scheduled` turns that share the
+   * no-connection shape.
+   *
+   * Returns the run's writer, or `null` when a run is already in flight for the
+   * session: the caller (a resident host driver) treats that as "carry on as
+   * before" rather than as a failure, because a turn that arrives while the
+   * session is busy is a real sequence, not an error. Only the writer is
+   * handed back — a driver has no business reading `seq`, `events` or the run's
+   * status, and the frames it sends through the writer are what maintain them.
+   */
+  openUnattendedRun(input: {
+    appSessionId: string;
+    provider: LLMProvider;
+    providerSessionId: string | null;
+    userId: string | number | null;
+    /**
+     * Accepted and unused: the run record is keyed by the app session id and
+     * carries no display name. It is part of the shape because the host layer
+     * holds it on the same reading that produced the rest, and splitting the
+     * shape in two so this caller could drop one field would be the seam
+     * inventing a distinction the call site does not have.
+     */
+    sessionName?: string | null;
+  }): { writer: ChatSessionWriter } | null {
+    const run = this.startRun({
+      appSessionId: input.appSessionId,
+      provider: input.provider,
+      providerSessionId: input.providerSessionId,
+      connection: null,
+      userId: input.userId,
+      source: 'unattended',
+    });
+    return run ? { writer: run.writer } : null;
+  },
+
   getRun(appSessionId: string): ChatRun | undefined {
     return runs.get(appSessionId);
   },
-
   isProcessing(appSessionId: string): boolean {
     return runs.get(appSessionId)?.status === 'running';
   },

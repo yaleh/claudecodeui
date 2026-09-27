@@ -40,6 +40,17 @@ export type {
   SessionHostManagerOptions,
   ShutdownSummary,
 } from './session-host-manager.service.js';
+// UnattendedRunInput / UnattendedRunHandle / UnattendedRunOpener: the seam a
+// resident host driver calls when its process opens a turn nobody pushed, and
+// the shape `server/index.ts` implements over the run registry. Exported
+// because the driver types its port against them and the composition root
+// builds the opener elsewhere — neither can name them from the service file
+// without crossing a module edge this barrel exists to keep one-way.
+export type {
+  UnattendedRunHandle,
+  UnattendedRunInput,
+  UnattendedRunOpener,
+} from './session-host-manager.service.js';
 // HostScheduler: the deadline seam a criterion injects in place of the wall
 // clock, so the quiet ceiling and the shutdown grace period are reachable
 // without waiting them out.

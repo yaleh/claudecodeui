@@ -4,6 +4,8 @@ import type { WebSocket } from 'ws';
 
 import { sessionsDb } from '@/modules/database/index.js';
 import { providerModelsService, sessionsService } from '@/modules/providers/index.js';
+import { sessionHostManager } from '@/modules/session-hosts/index.js';
+import type { SessionHostManager } from '@/modules/session-hosts/index.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 import {
@@ -15,6 +17,7 @@ import {
 import type {
   AnyRecord,
   AuthenticatedWebSocketRequest,
+  HostQueuedInputCancelResult,
   LLMProvider,
   ProviderPermissionDecision,
   ProviderRuntimeWriter,
@@ -73,6 +76,31 @@ export type ProviderRuntimeGateway = {
     writer: ProviderRuntimeWriter,
   ): Promise<unknown>;
   abort(provider: LLMProvider, sessionId: string): Promise<boolean>;
+  /**
+   * Whether a turn dispatched right now would be written into a process the
+   * session's provider is already holding, rather than run as a process of its
+   * own.
+   *
+   * Optional, and read as `false` when absent, because the absent case is the
+   * behaviour every session had before busy input existed: the duplicate-send
+   * refusal is the default, and only a gateway that can answer for a live
+   * process may lift it. A gateway assembled without this verb therefore
+   * degrades to the refusal rather than losing it.
+   */
+  acceptsBusyInput?(provider: LLMProvider, sessionId: string): boolean;
+  /**
+   * Withdraws a message a busy send queued, if the provider's process has not
+   * started running it yet.
+   *
+   * Optional for the same reason, and read as `unknown` when absent: the one
+   * answer a caller must never receive is "withdrawn" from a seam that never
+   * wrote anything.
+   */
+  cancelQueuedInput?(
+    provider: LLMProvider,
+    sessionId: string,
+    messageUuid: string,
+  ): Promise<HostQueuedInputCancelResult>;
   resolveToolApproval(requestId: string, payload: ProviderPermissionDecision): void;
   getPendingApprovalsForSession(sessionId: string): unknown[];
 };
@@ -82,6 +110,24 @@ type ChatWebSocketDependencies = {
   runtime: ProviderRuntimeGateway;
   /** Test seam: replaces the default that discards a client-supplied `options.env`. */
   dropClientEnv?: (options: AnyRecord) => AnyRecord;
+  /**
+   * Where a subscription reports that a browser is now on a session.
+   *
+   * A subscription is the one client action that says "someone is watching this
+   * session", and the host layer is what has to hear it: a resident process is
+   * held across turns, so "who is attached" is a fact its lifetime is reasoned
+   * about from. The manager's `attachViewer` is deliberately *not* activity (it
+   * never moves `lastActivityAt`; see the manager's own rule), so routing it
+   * here changes nothing about when a host closes — what it changes is that the
+   * host layer is told at all.
+   *
+   * Optional, defaulting to the process-wide manager, for the same reason
+   * `dropClientEnv` is: the composition root has nothing to say about it, while
+   * a criterion that drove a manager of its own can hand that one over and see
+   * the call land on it. Narrow on purpose — this is the only verb the chat
+   * gateway has any business calling.
+   */
+  sessionHostManager?: Pick<SessionHostManager, 'attachViewer'>;
 };
 
 /** The wire protocol carries the model selection; a client-supplied `options.env` is discarded. */
@@ -225,13 +271,28 @@ async function dispatchRun(
 ): Promise<{ started: boolean; error: string | null }> {
   const provider = session.provider as LLMProvider;
 
-  const run = chatRunRegistry.startRun({
+  const startInput = {
     appSessionId: sessionId,
     provider,
     providerSessionId: session.provider_session_id,
     connection: ws,
     userId,
-  });
+  };
+
+  let run = chatRunRegistry.startRun(startInput);
+
+  // The refusal is asked first, and only then is the session asked whether it
+  // can take this turn anyway. That order is what keeps the answer correct for
+  // every provider that runs a process per turn: it never reaches the second
+  // question, so its behaviour is byte-for-byte what it was. A provider that
+  // holds one process across turns answers yes, and the turn gets a run of its
+  // own — the registry holds one run per session, so `supersedeRunning` is how
+  // the newer turn becomes the session's current one instead of being refused.
+  // Note that the first call is a pure probe: it returns null precisely when it
+  // has changed nothing, which is what makes the retry safe.
+  if (!run && dependencies.runtime.acceptsBusyInput?.(provider, sessionId)) {
+    run = chatRunRegistry.startRun({ ...startInput, supersedeRunning: true });
+  }
 
   if (!run) {
     if (ws) {
@@ -455,6 +516,71 @@ async function handleChatAbort(
 }
 
 /**
+ * Handles `chat.cancel-queued`: withdraws a message that a busy send queued in
+ * the provider's own process, before that process has started running it.
+ *
+ * The withdrawal is not the same request as `chat.abort`: aborting stops the
+ * turn that is running, while this one takes back a turn that has not started
+ * and leaves the running one alone. The address is the message, not the session
+ * — a session can have several messages queued, and only the sender knows which
+ * one it is taking back — and the id is the one the host stamped the frame with
+ * when it wrote it.
+ *
+ * The verdict is reported as it is, including `already-started`: a message the
+ * process has begun running cannot be withdrawn any more, and saying so is the
+ * honest answer. `unknown` means the seam could not carry the question at all
+ * (no live resident host, or a gateway with no withdrawal verb), which is
+ * deliberately not the same answer as "it was already running".
+ */
+async function handleChatCancelQueued(
+  ws: WebSocket,
+  data: AnyRecord,
+  dependencies: ChatWebSocketDependencies
+): Promise<void> {
+  const sessionId = readRequiredSessionId(data);
+  if (!sessionId) {
+    sendProtocolError(ws, 'SESSION_ID_REQUIRED', 'chat.cancel-queued requires a sessionId.');
+    return;
+  }
+
+  const messageUuid = typeof data.messageUuid === 'string' ? data.messageUuid.trim() : '';
+  if (!messageUuid) {
+    sendProtocolError(
+      ws,
+      'MESSAGE_UUID_REQUIRED',
+      'chat.cancel-queued requires the messageUuid of the queued message.',
+      sessionId
+    );
+    return;
+  }
+
+  // The session row is read for its provider only. No run is consulted: the
+  // message being withdrawn is by definition not the session's current run, and
+  // a withdrawal that arrived just as the run turned over is answered by the
+  // provider's queue, which is the only thing that knows what it still holds.
+  const session = sessionsDb.getSessionById(sessionId);
+  if (!session) {
+    sendProtocolError(ws, 'SESSION_NOT_FOUND', `Session "${sessionId}" was not found.`, sessionId);
+    return;
+  }
+
+  const result =
+    (await dependencies.runtime.cancelQueuedInput?.(
+      session.provider as LLMProvider,
+      sessionId,
+      messageUuid
+    )) ?? 'unknown';
+
+  sendJson(ws, {
+    kind: 'queued_input_cancel_result',
+    sessionId,
+    messageUuid,
+    result,
+    timestamp: new Date().toISOString(),
+  });
+}
+
+/**
  * Handles `chat.subscribe`: for each requested session, reports whether a run
  * is processing, re-attaches the live stream to this socket, replays missed
  * events (seq > lastSeq), and includes pending permission requests.
@@ -485,6 +611,12 @@ function handleChatSubscribe(
     const lastSeq = typeof lastSeqRaw === 'number' && Number.isFinite(lastSeqRaw)
       ? Math.max(0, Math.floor(lastSeqRaw))
       : 0;
+
+    // A browser is now on this session. Reported before anything else in the
+    // loop because it is about the session rather than about the run: a session
+    // with no run in flight has no host change to trigger, and one that does is
+    // still a session somebody is watching.
+    (dependencies.sessionHostManager ?? sessionHostManager).attachViewer(sessionId);
 
     const run = chatRunRegistry.getRun(sessionId);
     const isProcessing = chatRunRegistry.isProcessing(sessionId);
@@ -544,13 +676,14 @@ function handlePermissionResponse(data: AnyRecord, dependencies: ChatWebSocketDe
  * Inbound protocol (client to server):
  * - `chat.send`                { sessionId, content, options? }
  * - `chat.abort`               { sessionId }
+ * - `chat.cancel-queued`       { sessionId, messageUuid }
  * - `chat.subscribe`           { sessions: [{ sessionId, lastSeq? }] }
  * - `chat.permission-response` { requestId, allow, updatedInput?, message?, rememberEntry? }
  *
  * Outbound protocol (server to client): every frame is `kind`-based — either
  * a provider `NormalizedMessage` (with `seq`) or a gateway event
  * (`chat_subscribed`, `session_upserted`, `loading_progress`,
- * `protocol_error`).
+ * `queued_input_cancel_result`, `protocol_error`).
  */
 /**
  * Runs a turn for a session with no client attached.
@@ -646,6 +779,9 @@ export function handleChatConnection(
           return;
         case 'chat.abort':
           await handleChatAbort(ws, data, dependencies);
+          return;
+        case 'chat.cancel-queued':
+          await handleChatCancelQueued(ws, data, dependencies);
           return;
         case 'chat.subscribe':
           handleChatSubscribe(ws, data, dependencies);

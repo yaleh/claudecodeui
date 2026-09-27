@@ -1,7 +1,7 @@
 ---
 id: AC-162
 title: 无人轮在无浏览器时产生、建 run、可回放并推送通知
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-013
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -30,6 +30,11 @@ statusLog:
     to: active
     actor: human:yale
     reason: 人 yale 2026-09-27 指令：判据已按 E1–E9 结论修订，转 active
+  - at: 2026-09-27T08:26:43.123Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
