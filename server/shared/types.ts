@@ -1837,11 +1837,23 @@ export type LifecyclePolicy = {
  * `turn` lease is held for the duration of one run; the others record work that
  * outlives the turn that started it, which is what makes a host `lingering`
  * rather than `closed`.
+ *
+ * `inferred` marks the two held-work reasons whose *identity* a driver may have
+ * had to guess. A cron and a background task are normally named twice: by the
+ * `Stop` hook's own lists, which are the CLI's authoritative account of what it
+ * holds, and by the events the same work emits on the stream. When the first is
+ * unavailable — an older CLI, a hook that never fired — a driver can still read
+ * the second and hold the host for it, but the entry it names is its own reading
+ * rather than the CLI's; that is what this flag says, and its absence is the
+ * authoritative case (an omitted flag means "the CLI named this"). It is
+ * deliberately optional so a lease written before this distinction existed still
+ * satisfies the type, and it is confined to the two kinds a stream can describe,
+ * because `turn` and `resident-policy` are never inferred from anything.
  */
 export type HostLease =
   | { kind: 'turn'; runId: string }
-  | { kind: 'background-task' | 'monitor'; id: string }
-  | { kind: 'cron'; id: string; recurring: boolean; expiresAt: number }
+  | { kind: 'background-task' | 'monitor'; id: string; inferred?: boolean }
+  | { kind: 'cron'; id: string; recurring: boolean; expiresAt: number; inferred?: boolean }
   | { kind: 'resident-policy' };
 
 /**

@@ -4,6 +4,8 @@ import type { WebSocket } from 'ws';
 
 import { sessionsDb } from '@/modules/database/index.js';
 import { providerModelsService, sessionsService } from '@/modules/providers/index.js';
+import { sessionHostManager } from '@/modules/session-hosts/index.js';
+import type { SessionHostManager } from '@/modules/session-hosts/index.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 import {
@@ -82,6 +84,24 @@ type ChatWebSocketDependencies = {
   runtime: ProviderRuntimeGateway;
   /** Test seam: replaces the default that discards a client-supplied `options.env`. */
   dropClientEnv?: (options: AnyRecord) => AnyRecord;
+  /**
+   * Where a subscription reports that a browser is now on a session.
+   *
+   * A subscription is the one client action that says "someone is watching this
+   * session", and the host layer is what has to hear it: a resident process is
+   * held across turns, so "who is attached" is a fact its lifetime is reasoned
+   * about from. The manager's `attachViewer` is deliberately *not* activity (it
+   * never moves `lastActivityAt`; see the manager's own rule), so routing it
+   * here changes nothing about when a host closes — what it changes is that the
+   * host layer is told at all.
+   *
+   * Optional, defaulting to the process-wide manager, for the same reason
+   * `dropClientEnv` is: the composition root has nothing to say about it, while
+   * a criterion that drove a manager of its own can hand that one over and see
+   * the call land on it. Narrow on purpose — this is the only verb the chat
+   * gateway has any business calling.
+   */
+  sessionHostManager?: Pick<SessionHostManager, 'attachViewer'>;
 };
 
 /** The wire protocol carries the model selection; a client-supplied `options.env` is discarded. */
@@ -485,6 +505,12 @@ function handleChatSubscribe(
     const lastSeq = typeof lastSeqRaw === 'number' && Number.isFinite(lastSeqRaw)
       ? Math.max(0, Math.floor(lastSeqRaw))
       : 0;
+
+    // A browser is now on this session. Reported before anything else in the
+    // loop because it is about the session rather than about the run: a session
+    // with no run in flight has no host change to trigger, and one that does is
+    // still a session somebody is watching.
+    (dependencies.sessionHostManager ?? sessionHostManager).attachViewer(sessionId);
 
     const run = chatRunRegistry.getRun(sessionId);
     const isProcessing = chatRunRegistry.isProcessing(sessionId);
