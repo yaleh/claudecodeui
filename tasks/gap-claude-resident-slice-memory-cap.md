@@ -6,7 +6,7 @@ title: AC-167 常驻进程超出内存上限时只有它被杀 — 把 claude-se
   MemoryMax=注入值、MemorySwapMax=0、slice 名逐字；同 slice 下两子进程其一超限被 OOM（宿主快照
   closeReason=exited、closeDetail=oom），另一个与测试进程存活；结束后无残留 scope 且缺席读数带正对照；无
   systemd user manager 时打印原因并 exit 3；假形态（退化为直接 spawn、上限写死常量）必须红
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -257,3 +257,14 @@ $ npx oxlint <本任务改动的三个后端文件>                            E
 第三次停在 needs-human 的判词是 `server/modules/voice/tests/voice-config.routes.test.ts` 红：`[TypeError: fetch failed] { [cause]: Error: bad port }`。逐字匹配已知记录 `undici-bad-port-lottery-in-listen0-route-tests`——`app.listen(0)` 落在 undici 拒收的 18 个端口之一，约 2%/次舰队跑的抽签。不在本任务 Touches 里；standalone 复核 `exit 0`，`pass 6 / fail 0`（2.0s）。
 
 结论：普通端口抽签，重新排队。
+
+## Needs-Human
+
+**执行 2026-09-27T13:23:27.560Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 5 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=18771 server/modules/providers/tests/sessions-watcher-mode.test.ts passed=false end_ms=1790515288353
+- run_id：wk-prod-anchor
+- session_id：28de9dfa-5ea4-47ac-b481-0c369db3343d
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-resident-slice-memory-cap~wk-prod-anchor~1790515223537-4cae79.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-resident-slice-memory-cap-wk-prod-anchor.log
