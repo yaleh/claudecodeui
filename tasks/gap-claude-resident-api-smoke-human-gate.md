@@ -3,7 +3,7 @@ id: gap-claude-resident-api-smoke-human-gate
 title: AC-170 人工关卡：API 面真模型冒烟（只走 HTTP/WS 脚本，不加 cloudcli 子命令）—— 创建常驻会话 → 连续 3 轮 →
   一个无人轮 → 关闭 → 重启后读到已随重启关闭 → 再次发送重新拉起；读数写进
   docs/proposals/claude-resident-sessions-smoke.md；「冒烟验收：通过」行只由人 yale 写，执行者不得代写
-status: todo
+status: ready
 labels:
   - gap
 parent: null
