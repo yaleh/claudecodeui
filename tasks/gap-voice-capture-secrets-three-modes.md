@@ -2,7 +2,7 @@
 id: gap-voice-capture-secrets-three-modes
 title: 三档脱敏判据：off/text/audio 各一次成功与一次失败下，DashScope key、共享 backend key、Bearer
   形式与录音 base64 都不出现在任何日志行与任何捕获文件里，且它们确实过了线（正例）（AC-146）
-status: needs-human
+status: ready
 labels:
   - gap
 parent: null
@@ -199,3 +199,12 @@ AC7 修复（`gap-voice-error-classification-ac7-vitest-child-fragile`）已落�
 - session_id：05372a5b-cfe8-4b30-b828-514e78c6a883
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-capture-secrets-three-modes~wk-prod-anchor~1790511962100-48936d.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-capture-secrets-three-modes-wk-prod-anchor.log
+
+## 人工复核（2026-09-27，人 yale 指令「检查和推进」第五轮）
+
+本轮 suite 日志实际有 **2 条**红（`reason: red: 2 failed`），needs-human 判词只引了其中一条——两条都要核对，不能只看被引的那条：
+
+- `server/modules/providers/tests/sessions-watcher-mode.test.ts`：`AssertionError: the degraded watcher took 8383ms, over the 7000ms window`。standalone 复核 2 次：`exit 0`，`pass 6 / fail 0`，耗时 6021ms/6026ms——本身余量就窄（7000ms 窗口对 ~6000ms 常态只剩 14% 余量），负载下顶穿是时间预算型舰队噪声，不是断言缺陷。首次观测到这个签名。
+- `server/modules/voice/tests/voice-dashscope-settings.test.ts` 的 AC4(b)：`AssertionError: a temp copy belonging to another process made the scan red`。这是已知的 `__criterion-falsify-*` 邻居临时文件族的同类形状（见 `server-tsconfig-include-sweeps-test-scratch`）；本任务之前的一轮（`~1790486746002-6316b5.log`）已经撞过一次同一签名。standalone 复核 2 次：`exit 0`，`pass 32 / fail 0`。
+
+两条都不在本任务 `## Touches` 里，都是舰队并发下的抽签，不是本任务的 delta。结论：重新排队。
