@@ -102,6 +102,25 @@ goal_ac: AC-161
 - **契约面**：`npm run typecheck`、`npm run lint` 退出 0；改动只落在 Touches 列出的文件上（`git diff --stat` 逐条对齐；三个 per-run 族与 `claude-runtime.provider.js` 不在其中）。
 - **作用域门**：`bash scripts/test.sh --for-task gap-claude-resident-process-survival --allow-thin` 退出 0（读数 `thin`：该脚本的 awk 只取 Touches 行的**首个空白分隔字段**，而本条 Touches 的括注是全角括号且紧贴路径，故解析不到 `.test.ts`；quay 自己的 `parseTouchEntries` 会剥离该括注，anti-drift 不受影响。本行已改用半角空格分隔括注，fan-in 合并 develop 后作用域门即可真跑本判据；fan-in 的全量 suite 无论如何都会跑到它）。
 
+### 第三轮：fan-in 作用域门「假红」的根因与修复（同一棵树，工人自跑绿、fan-in 红）
+
+第二轮交付后 fan-in 在 scoped-gate 红：`AssertionError: each round is one turn request to the mock endpoint`（`4 !== 3`），而同一命令在工人 shell 里复跑四次全绿。本轮读到**那次失败留下的子进程输出**（`.quay/suite-logs/20260927T140933-3317/…claude-resident-process.test.ts.out`，MANIFEST 逐字写明「per-file child output kept from a run that did not pass」），它的读数行逐字是 `/v1/messages=4 turns=4 titleRequestsNotCounted=0`；绿跑逐字对照是 `/v1/messages=4 turns=3 titleRequestsNotCounted=1`。两次**总请求数都是 4**，差的**是哪一条被算成了轮**。
+
+**根因（已确定性复现）**：判据原来把"轮次请求"定义为 **body 里写了会话模型名**（`body.includes('"resident-custom-model"')`）。SDK 自己的辅助请求（标题与它背后的 small-model 提示）打到同一个 `/v1/messages`、同一凭证，但它*写*哪个模型名取自环境：工人 shell 里有 `ANTHROPIC_DEFAULT_HAIKU_MODEL=v4.1flash` ⇒ 它写 `v4.1flash` ⇒ 不计入 ⇒ `turns=3`；而判据真正被评分的那套 env —— driver anchor 的（与 `/proc/<anchor-pid>/environ` 逐字核对）**没有任何** `ANTHROPIC_DEFAULT_*_MODEL` ⇒ CLI 回落到**会话模型** ⇒ 该请求被算成第 4 轮 ⇒ `4 !== 3`。⇒ 判据的结论取决于**它跑在谁的 env 里**，而不取决于被交付的机制；这正是"工人绿、fan-in 红"的全部原因。
+
+复现与定位：`env -u ANTHROPIC_DEFAULT_HAIKU_MODEL -u ANTHROPIC_DEFAULT_OPUS_MODEL -u ANTHROPIC_DEFAULT_SONNET_MODEL npx tsx --tsconfig server/tsconfig.json --test …` ⇒ 逐字得到 `turns=4 titleRequestsNotCounted=0` 与 `4 !== 3`；带 `ANTHROPIC_DEFAULT_HAIKU_MODEL` 时 `turns=3`。定位用的一次性探针（打印每条 `/v1/messages` 的模型名/轮标记/体积/顶层键）读数：4 条里第 3 条是 `model=resident-custom-model r1=false r2=false r3=true len≈4027`（无 `thinking`/`context_management` 键）——即那条辅助请求，它**不带累计对话**。探针已 `git checkout` 逐字还原（`git status` 干净）。
+
+**修复**：判轮改为按**请求体带的累计用户话轮**。一轮会把此前的对话整体重发：第 1 轮带 `round one`，第 2 轮带 `round one`+`round two`，第 3 轮三句都在；三条签名按"带 1..n 且不带 n+1..3"互斥。累计对话是"这一轮"的固有形态，辅助请求**任何一条签名都不匹配**（它只带最后一句），于是结论与 env 无关。`turnRequests` 仍是三条签名之并，故 `turns=3` 的断言、失败信息与两臂假形态的读数**逐字不变**；(b)/(e) 的等待改为按第 2 轮签名（`roundRequests(…, 2).length >= 1`）——原等待 `turnRequests(...).length >= 2` 在同一根因下会被辅助请求**提前满足**，那本身就是 abort 落点不确定的来源。
+
+**本轮读数（合并 develop 后的交付树，HEAD=`9e211b17`，develop=`2107be23`）**：
+
+- 修复后判据在**两套 env 下都绿**，且逐字读数相同：agent shell（有 `ANTHROPIC_DEFAULT_HAIKU_MODEL`）⇒ `tests 7 / pass 7 / fail 0`；anchor 形态（三个 `ANTHROPIC_DEFAULT_*_MODEL` 全 unset，即 fan-in 那套）⇒ 同样 `tests 7 / pass 7 / fail 0`；两边的判据读数行都是 `endpoint: /v1/messages=4 turns=3 titleRequestsNotCounted=1`（与修复前的绿跑读数一致）。
+- 假形态仍红（同文件内经**共享读数函数**由 `assert.throws` 落实）：`[resident] fake (a) pids: 208045 -> 208485 -> 208968` → `/must run on the round-1 pid/`；`[resident] fake (b): pid=209788 -> 209788 alive=false` → `/must survive the abort/`。
+- 预算守卫：(f) 直跑子进程读到 `status=3`，(g) 全文件 `[budget] budget=60000ms elapsed=9299ms exit=0`。
+- **作用域门**：`env -u ANTHROPIC_DEFAULT_HAIKU_MODEL -u … bash scripts/test.sh --for-task gap-claude-resident-process-survival --allow-thin` 退出 **0**，读数 `__PERFILE__ duration_ms=13640 …/claude-resident-process.test.ts passed=true` —— 即**在 fan-in 那套 env 下真跑本判据并绿**（不再是 `thin`）。scoped-gate 缓存已按 `HEAD^2`（= `2107be2341dc0a513927644c8429c6e80e854f9b`）写入。
+- AC8 三条 per-run 族复跑：`claude-host-per-run` 7/7、`claude-background-work` 10/10、`passthrough-parity` 4/4；`git diff --name-only develop...HEAD` 逐条核对，delta 恰为 Touches 的 9 个代码文件，三条族与 `claude-runtime.provider.js` 均不在其中。
+- 契约面：`npm run typecheck`、`npm run lint` 退出 0。
+
 ## Touches
 
 - `server/modules/providers/list/claude/claude-host-driver.provider.ts` （新：resident driver）
