@@ -2,7 +2,7 @@
 id: gap-voice-capture-secrets-three-modes
 title: 三档脱敏判据：off/text/audio 各一次成功与一次失败下，DashScope key、共享 backend key、Bearer
   形式与录音 base64 都不出现在任何日志行与任何捕获文件里，且它们确实过了线（正例）（AC-146）
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -137,3 +137,14 @@ L_G 该轴仍暗，理由：目标层的读数是真实服务进程按环境变�
 - 红的用例与本任务的 delta（voice 捕获脱敏）完全无关，且逐字匹配已知记录 `claude-sessions-atime-red-is-a-fail-open-backfill-marker`：`ClaudeSessionSynchronizer.synchronize()` 的 `backfillLastActivity()` 无视游标读全表，唯一闸门 `appConfigDb.get()` 又 fail-open 吞错，一次瞬态 DB 读错误就会让被排除的 transcript 重新被读、atime 被移动，与并发负载抽签有关，不是任何任务的实现缺陷。
 
 结论：红是已知的舰队并发抽签（fail-open 闸门 + 无视游标读取），不是本任务实现缺陷。工人已正确判断「归因不出任何失败测试文件」并按协议停止重派；现按人工裁定重新排队，交给下一轮 fan-in 重跑。
+
+## Needs-Human
+
+**执行 2026-09-27T07:26:58.766Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 3 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=115890 server/modules/voice/tests/voice-error-classification.false-forms.test.ts passed=false end_ms=1790494004550
+- run_id：wk-prod-anchor
+- session_id：b95174da-7122-4934-a8bb-904980f7baf3
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-capture-secrets-three-modes~wk-prod-anchor~1790493840314-70ab8c.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-capture-secrets-three-modes-wk-prod-anchor.log
