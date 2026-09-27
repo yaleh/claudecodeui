@@ -3,7 +3,7 @@ id: gap-voice-error-classification-ac7-vitest-child-fragile
 title: AC7 的 asrContractInvariants
   子进程在舰队并发下假红：voice-error-classification.false-forms.test.ts 拉起独立 vitest
   进程与套件自身并发跑同一文件互相超订，standalone 绿、舰队 6/11 次红，困住两个不相干任务
-status: ready
+status: needs-human
 labels:
   - gap
   - defect
@@ -104,3 +104,14 @@ ac7-repro: iterations=5 fails=0
 综上：历史红在本机**不可复现**——如实记录，不用刀锋 cap 把它读成绿。两臂 anon 只差 153,038,848 B（0.14 GiB），而 AC7 自己的地板就有 ~3.4 GiB（它自己那张列表里的 `npm run lint`/`npm run typecheck` 才是峰值来源），任何「选一个 cap 恰好把 pre-fix 打红、放过 post-fix」的做法都是刀锋上的假分离，不是复现；而真正的机制（舰队共享 64G 上限被 16 路文件级并发交叉跨过）probe 加不到那个量级——加到了就会 OOM 掉别的 worker。等价的 falsification variant 是上表后两行：pre-fix 恰好多出一棵**活的 `vitest run` 进程树**（4 vs 2），并让 asr 条目多印一行 `cases=9`（AC7 自己真的把 spec 跑了一遍），post-fix 两者皆无。被删掉的那个进程单独实测（隔离 scope、各自 1 次）：`npx vitest run <spec>` = **1,953,497,088 B anon（1.819 GiB）/ 2,087,501,824 B peak（1.944 GiB）**，替换读数 `npx vitest list <spec>` = **301,756,416 B anon（0.281 GiB）/ 393,388,032 B peak（0.366 GiB）**——被移除的就是「舰队里同一份 spec 被并发跑第二遍」的那份载荷。
 
 **未做的事（如实声明）**：未跑全量套件、未触发 fan-in（按派单要求）；AC4 未用人工 cap 制造红。
+
+## Needs-Human
+
+**执行 2026-09-27T10:00:00.234Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=5510 server/modules/debug-agent/tests/debug-agent-gate.test.ts passed=false end_ms=1790503068294
+- run_id：wk-prod-anchor
+- session_id：a2caef7d-7c17-4b5f-8535-7ef8dffda49d
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-error-classification-ac7-vitest-child-fragile~wk-prod-anchor~1790503039105-7a5628.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-error-classification-ac7-vitest-child-fragile-wk-prod-anchor.log
