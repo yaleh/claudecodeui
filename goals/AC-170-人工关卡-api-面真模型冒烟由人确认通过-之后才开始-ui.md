@@ -16,15 +16,15 @@ origin: docs/proposals/claude-resident-sessions.md（e88175cf）。人 yale 2026
   裁定：拆成两个 goal，本 goal 为 GOAL-B「Claude 常驻」，暂不激活，等
   tasks/gap-claude-resident-phase0-experiments 把 E1–E8 结论写回 proposal 后再定 AC
   并激活；调试 agent 扩展出的常驻场景作 UI e2e 替身；不加 cloudcli 子命令
-activatedAt: 2026-09-27T05:03:23.913Z
+activatedAt: 2026-09-27T05:03:31.237Z
 statusLog:
-  - at: 2026-09-27T05:03:23.913Z
+  - at: 2026-09-27T05:03:31.237Z
     from: draft
     to: active
-    actor: goal-driver
-    reason: "triage: activate"
+    actor: human:yale
+    reason: 人 yale 2026-09-27 指令：判据已按 E1–E9 结论修订，转 active
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
-  at: 2026-09-27T05:03:23.913Z
+  at: 2026-09-27T05:03:31.236Z
 ---
