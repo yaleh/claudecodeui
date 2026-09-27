@@ -6,7 +6,7 @@ title: AC-167 常驻进程超出内存上限时只有它被杀 — 把 claude-se
   MemoryMax=注入值、MemorySwapMax=0、slice 名逐字；同 slice 下两子进程其一超限被 OOM（宿主快照
   closeReason=exited、closeDetail=oom），另一个与测试进程存活；结束后无残留 scope 且缺席读数带正对照；无
   systemd user manager 时打印原因并 exit 3；假形态（退化为直接 spawn、上限写死常量）必须红
-status: needs-human
+status: ready
 labels:
   - gap
 parent: null
@@ -268,3 +268,12 @@ $ npx oxlint <本任务改动的三个后端文件>                            E
 - session_id：28de9dfa-5ea4-47ac-b481-0c369db3343d
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-resident-slice-memory-cap~wk-prod-anchor~1790515223537-4cae79.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-resident-slice-memory-cap-wk-prod-anchor.log
+
+## 人工复核（2026-09-27，人 yale 指令「检查和推进」第六轮）
+
+第四次停在 needs-human 的判词是 `server/modules/providers/tests/sessions-watcher-mode.test.ts` 的
+`the degraded watcher took 18771ms, over the 7000ms window`——与 `gap-voice-capture-secrets-three-modes`
+撞的是同一条已知隐患：该断言窗口 `POLL_INTERVAL_MIN_MS(6000ms) + POLL_WINDOW_SLACK_MS(1000ms)`
+余量只有 14%，standalone 稳定 6021-6026ms，负载下顶到 18771ms/19846ms/8383ms 三次。已直接修复
+（提交 `b0073b99`）：`POLL_WINDOW_SLACK_MS` 提到 4000ms（窗口 10000ms），只放宽断言容差、不加
+sleep——重跑健康路径仍是 6020-6028ms（3 次复核）。不在本任务 Touches 里，重新排队。
