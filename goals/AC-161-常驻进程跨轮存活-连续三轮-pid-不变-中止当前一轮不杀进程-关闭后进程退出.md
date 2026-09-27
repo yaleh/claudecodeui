@@ -1,7 +1,7 @@
 ---
 id: AC-161
 title: 常驻进程跨轮存活：连续三轮 pid 不变，中止当前一轮不杀进程，关闭后进程退出
-status: draft
+status: active
 kind: criterion
 goal: GOAL-013
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -16,4 +16,15 @@ origin: docs/proposals/claude-resident-sessions.md（e88175cf）。人 yale 2026
   裁定：拆成两个 goal，本 goal 为 GOAL-B「Claude 常驻」，暂不激活，等
   tasks/gap-claude-resident-phase0-experiments 把 E1–E8 结论写回 proposal 后再定 AC
   并激活；调试 agent 扩展出的常驻场景作 UI e2e 替身；不加 cloudcli 子命令
+activatedAt: 2026-09-27T04:51:55.456Z
+statusLog:
+  - at: 2026-09-27T04:51:55.456Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-09-27T04:51:55.456Z
 ---

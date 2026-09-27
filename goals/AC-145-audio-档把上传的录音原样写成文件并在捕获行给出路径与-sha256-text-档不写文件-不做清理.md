@@ -1,7 +1,7 @@
 ---
 id: AC-145
 title: audio 档把上传的录音原样写成文件并在捕获行给出路径与 sha256；text 档不写文件；不做清理
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-010
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -20,6 +20,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-09-27T04:43:23.502Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
