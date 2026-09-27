@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 
 import { expect, test } from '@playwright/test';
-import type { BrowserContext, Page } from '@playwright/test';
+import type { BrowserContext, Locator, Page } from '@playwright/test';
 
 // Real Chromium against the real backend + Vite client started by playwright.config.ts (isolated data dir).
 //
@@ -40,6 +40,32 @@ const API_KEY = 'sk-e2e-voice-4b1d9e77';
 const STT_MODEL = 'whisper-large-v3-turbo';
 /** `useVoiceInput` refuses to upload a blob under 800 bytes ("Recording too short"), so the capture must outlast that floor. */
 const MIN_UPLOAD_BYTES = 800;
+
+/** The account form's own selector, probed rather than filled blindly so the preamble can name what it waited for. */
+const ACCOUNT_FORM_PROBE = '#username';
+/** How long the account form is given to render before the preamble falls back to a reload. */
+const STARTUP_PROBE_MS = 8_000;
+/** How long each reload is given, once one is needed. */
+const STARTUP_RELOAD_PROBE_MS = 4_000;
+/**
+ * The whole bounded preamble, reloads included.
+ *
+ * Bounded because this preamble is not what the criterion tests. Sibling runs of the two ceilings above it —
+ * the run watchdog ends a `browser-launch-or-cases` run at 55s, the goal gate kills at 60s — used to report a
+ * preamble that never finished as `Channel closed` and a bare `waiting for locator('#username')`, which is the
+ * same shape a broken criterion has. Adding up to well under those ceilings means a preamble that really is
+ * stuck ends here, in this spec's own words, while the command is still this run's to explain.
+ */
+const STARTUP_PROBE_DEADLINE_MS = 18_000;
+/**
+ * How long this run's client is given to answer its own app entry before the criterion's startup path gives up.
+ * The same bound the sibling specs use, for the same reason: the ceilings above are *outside* the spec, and an
+ * unbounded wait inside `beforeAll` would be reported by whichever of them fired first, naming neither the url
+ * nor the status.
+ */
+const CLIENT_WARM_DEADLINE_MS = 30_000;
+/** A dependency the optimizer serves out of this run's private cache, already rewritten to its url. */
+const OPTIMIZED_DEP_IN_TEXT = /["'](\/@fs\/[^"']*\/deps\/[^"']+\.js\?v=[0-9a-f]+)["']/;
 
 /**
  * Chromium's fake audio device, fed from the WAV playwright.config.ts wrote before the servers booted.
@@ -120,6 +146,118 @@ const wavDurationSec = (bytes: Buffer): number => {
   const bytesPerSecond = sampleRate * channels * (bits / 8);
   if (!bytesPerSecond || !dataBytes) throw new Error('not a PCM WAV with a readable data chunk');
   return dataBytes / bytesPerSecond;
+};
+
+/**
+ * Whether `locator` showed up within `timeoutMs`.
+ *
+ * The boolean rather than a thrown timeout, because the caller's decision is what to do about its absence and a
+ * caught assertion error reads as a failure that has already been reported.
+ */
+const appears = async (locator: Locator, timeoutMs: number): Promise<boolean> =>
+  locator.waitFor({ state: 'visible', timeout: timeoutMs }).then(
+    () => true,
+    () => false,
+  );
+
+/**
+ * Takes this run's first dependency optimization out of the measurement window: the html shell, the app's
+ * entry module, and then one optimized dependency — all requested against this run's own client before any
+ * page of this run exists.
+ *
+ * The dependency request is the one that carries the proof, and it is why the step is not just "warm the
+ * cache". The imports of a transformed module are already rewritten to this run's own
+ * `/@fs/<cacheDir>/deps/<dep>.js?v=<hash>` urls, and that url only answers 200 once the optimizer has
+ * committed the bundle: while the bundle is still being built the request is *held*, and a url carrying a hash
+ * from a superseded run is exactly what a page receives `504 Outdated Optimize Dep` for. This spec's own red
+ * showed what that costs when it lands inside the preamble — the page's module graph stalled behind the
+ * optimizer, the account form never rendered, and the run ended at the watchdog with `Channel closed` and a
+ * bare `waiting for locator('#username')`, with none of the criterion's own assertions ever reached. A 200
+ * here means the page below will not race the optimizer, and this run's startup cost is paid before the
+ * document it is measured against is navigated to.
+ *
+ * The seed in `playwright.config.ts` is not enough on its own here: it is only usable when the shared cache
+ * was written by *this* root, and a worktree's root is by construction a different path — so the private
+ * directory is built while the server is already answering, inside the window. This step is where that is paid.
+ *
+ * Why the warm-up lives here rather than in `playwright.config.ts`'s `globalSetup`, which is where this
+ * defect's proposal put it: Playwright resolves every `globalSetup` entry as a *script* — `resolveScript()`
+ * turns it into a path and the file must default-export the function — so an inline warm-up is neither
+ * type-legal nor loadable, and this task's write surface allows no new file. `beforeAll`, before
+ * `browser.newContext()`, is the earliest point inside the criterion's own startup path, and it is strictly
+ * before any page exists — the same requests the page would have made, made first.
+ *
+ * Every step is bounded, including each request: a client that accepts the connection and then never answers
+ * fails here, by name, with the url and the status, rather than waiting out a timeout further up.
+ */
+const warmClientStartup = async (clientUrl: string): Promise<number> => {
+  const startedAt = Date.now();
+  const deadline = startedAt + CLIENT_WARM_DEADLINE_MS;
+  const budgetMs = () => Math.max(1, deadline - Date.now());
+  const fetchWithin = async (url: string): Promise<Response> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), budgetMs());
+    try {
+      return await fetch(url, { signal: controller.signal });
+    } catch (error) {
+      throw new Error(
+        `the client did not answer ${url} inside the ${CLIENT_WARM_DEADLINE_MS}ms startup budget `
+        + `(${error instanceof Error ? error.message : String(error)})`,
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  const shellUrl = new URL('/', clientUrl).href;
+  const shell = await fetchWithin(shellUrl);
+  if (!shell.ok) throw new Error(`the client's shell did not load: ${shellUrl} answered HTTP ${shell.status}`);
+  await shell.text();
+
+  const entryUrl = new URL('/src/main.tsx', clientUrl).href;
+  const entry = await fetchWithin(entryUrl);
+  if (!entry.ok) throw new Error(`the app entry did not transform: ${entryUrl} answered HTTP ${entry.status}`);
+  await entry.text();
+
+  // The proof: a dependency url current for this run — re-read from the entry each attempt, because the hash a
+  // url carries is the one its writer committed, and the entry is where the current one is written.
+  let lastAnswer = 'no dependency url was ever served';
+  for (let attempt = 0; attempt < 5 && Date.now() < deadline; attempt += 1) {
+    const specifier = OPTIMIZED_DEP_IN_TEXT.exec(await (await fetchWithin(entryUrl)).text())?.[1];
+    if (!specifier) break;
+    const depUrl = new URL(specifier, clientUrl).href;
+    const dep = await fetchWithin(depUrl);
+    if (dep.ok) {
+      console.log(`[e2e] client warm-up: pre-bundle committed in ${Date.now() - startedAt}ms`);
+      return Date.now() - startedAt;
+    }
+    lastAnswer = `${depUrl} answered HTTP ${dep.status}`;
+    await dep.text().catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(
+    `this run's dependency pre-bundle never committed, so the criterion cannot drive a document that stays: `
+    + lastAnswer,
+  );
+};
+
+/**
+ * What the startup document said, kept for one purpose: a preamble red has to be able to *explain* a document
+ * that was replaced instead of reporting that a wait ran out.
+ */
+const startupEvidence = {
+  consoleErrors: [] as string[],
+  failedRequests: [] as string[],
+};
+
+/** The startup page's own text plus this run's console and network evidence — what a preamble red is read from. */
+const readStartupEvidence = async (page: Page): Promise<string> => {
+  const shown = await page.locator('body').innerText().catch(() => '<unreadable>');
+  const errors = startupEvidence.consoleErrors.slice(0, 5);
+  const failed = startupEvidence.failedRequests.slice(0, 5);
+  return `the page shows ${JSON.stringify(shown.slice(0, 300))}`
+    + `; console errors: ${errors.length > 0 ? errors.join(' | ') : '<none>'}`
+    + `; failed requests: ${failed.length > 0 ? failed.join(' | ') : '<none>'}`;
 };
 
 test.describe.configure({ mode: 'serial' });
@@ -210,6 +348,11 @@ test.describe('AC-115 the repair holds end to end through the voice button', () 
     recognizer = await startRecognizer();
     recognizerUrl = `http://127.0.0.1:${(recognizer.address() as AddressInfo).port}`;
 
+    // Before `browser.newContext()` and therefore before any page of this run exists, so this run's own
+    // optimize/re-optimize is committed before the criterion's first navigation — see the helper for why that
+    // cost cannot be left inside the measurement window.
+    console.log(`[e2e] client warm-up: ${await warmClientStartup(CLIENT_URL)}ms`);
+
     context = await browser.newContext({
       baseURL: CLIENT_URL,
       permissions: ['microphone'],
@@ -244,8 +387,37 @@ test.describe('AC-115 the repair holds end to end through the voice button', () 
 
     page = await context.newPage();
 
+    // What the startup document said, kept from before its first navigation: a document that was replaced
+    // mid-flow and a client that never rendered are the same blank page from the outside, and the console and
+    // the failed requests are what tell them apart in this spec's own failure message.
+    page.on('console', (message) => {
+      if (message.type() === 'error') startupEvidence.consoleErrors.push(message.text());
+    });
+    page.on('requestfailed', (request) => {
+      startupEvidence.failedRequests.push(`${request.url()} — ${request.failure()?.errorText ?? 'no error text'}`);
+    });
+
     // First run on a fresh database: create the single account, then finish onboarding.
     await page.goto('/');
+    // The account form is the app's first rendered screen, which also makes it the first thing a cold Vite dev
+    // server can fail to produce. The warm-up above has committed this run's pre-bundle, but a page can still
+    // be replaced by a later `full-reload`, and a probe that only ever asks about the form's *first* appearance
+    // cannot see the difference. Neither blank throws on its own — the navigation succeeded, so nothing
+    // surfaces until the wait for the form runs out. A reload clears both, so it is retried, bounded, because
+    // this preamble is not what the criterion tests; if it is still absent the preamble ends here, with what
+    // the page and this run's console and network said, rather than at a ceiling that names neither.
+    const probeDeadline = Date.now() + STARTUP_PROBE_DEADLINE_MS;
+    let onboarded = await appears(page.locator(ACCOUNT_FORM_PROBE), STARTUP_PROBE_MS);
+    while (!onboarded && Date.now() < probeDeadline) {
+      await page.reload();
+      onboarded = await appears(
+        page.locator(ACCOUNT_FORM_PROBE),
+        Math.min(STARTUP_RELOAD_PROBE_MS, Math.max(1, probeDeadline - Date.now())),
+      );
+    }
+    if (!onboarded) {
+      throw new Error(`the account form never rendered; ${await readStartupEvidence(page)}`);
+    }
     await page.locator('#username').fill('e2euser');
     await page.locator('input[type=password]').nth(0).fill('e2epassword');
     await page.locator('input[type=password]').nth(1).fill('e2epassword');

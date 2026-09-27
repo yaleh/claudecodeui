@@ -29,16 +29,23 @@ export {
 
 export {
   DEBUG_AGENT_DIALECTS,
+  DEBUG_AGENT_EXIT_DETAILS,
   DEBUG_AGENT_HOMES,
+  DEBUG_AGENT_HOST_OPS,
+  DEBUG_AGENT_KEEPALIVE_KINDS,
   DEBUG_AGENT_OPS,
   DEBUG_AGENT_ROLES,
   DEBUG_AGENT_SCENARIO_VERSION,
   DEBUG_AGENT_TRANSCRIPT_MODES,
+  isDebugAgentHostOp,
   loadScenario,
 } from './debug-agent.scenario.js';
 export type {
   DebugAgentDialect,
+  DebugAgentExitDetail,
   DebugAgentHome,
+  DebugAgentHostOp,
+  DebugAgentKeepaliveKind,
   DebugAgentRole,
   DebugAgentScenario,
   DebugAgentScenarioExpectations,
@@ -63,11 +70,24 @@ export { evaluateScenarioExpectations, runDebugAgentScenario } from './debug-age
 export type {
   DebugAgentFrameForwarder,
   DebugAgentGrowReading,
+  DebugAgentHostOps,
   DebugAgentRunInput,
   DebugAgentRunReading,
   DebugAgentScenarioEvaluation,
   DebugAgentStepObservation,
 } from './debug-agent.engine.js';
+
+// createDebugAgentHostDriver: the provider's process-lifetime face. Built and
+// attached by `createDebugAgentProvider`, and placed on the manager by a caller
+// that owns the session (`bindSession`/`openHost`). The criterion drives it
+// directly, which is what makes a resident, multiplexed host measurable without
+// a real process to wait on.
+export { createDebugAgentHostDriver } from './debug-agent.host-driver.js';
+export type {
+  DebugAgentHostDriver,
+  DebugAgentHostDriverDependencies,
+  DebugAgentOpenRun,
+} from './debug-agent.host-driver.js';
 
 export { createDebugAgentProvider } from './debug-agent.provider.js';
 export type {

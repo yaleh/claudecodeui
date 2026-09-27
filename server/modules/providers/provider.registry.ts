@@ -5,6 +5,7 @@ import { ClaudeSessionSynchronizer } from '@/modules/providers/list/claude/claud
 import { CodexProvider } from '@/modules/providers/list/codex/codex.provider.js';
 import { CursorProvider } from '@/modules/providers/list/cursor/cursor.provider.js';
 import { OpenCodeProvider } from '@/modules/providers/list/opencode/opencode.provider.js';
+import { providerCapabilitiesService } from '@/modules/providers/services/provider-capabilities.service.js';
 import type { IProvider } from '@/shared/interfaces.js';
 import type { LLMProvider } from '@/shared/types.js';
 import { AppError } from '@/shared/utils.js';
@@ -92,11 +93,21 @@ export const providerRegistry = {
  * What is injected is the point of the shape: the product's own normalizer
  * (`sessions`), its own frame forwarder, and an indexer pointed at the fixture
  * home instead of the user's real transcripts.
+ *
+ * `declareRuntimeCapabilities` is injected here because the capability matrix is
+ * this module's, and because the debug agent is not in `LLMProvider`: the
+ * declaration records `resident` mode and a multiplexed host against the runtime
+ * id, so the union-keyed table stays a complete description of the union. No
+ * `openRun` seam is injected — the run registry belongs to the websocket module,
+ * which imports this one, so the edge back would close a cycle; the provider
+ * states that gap rather than papering over it when an unattended turn needs it.
  */
 const debugAgentProvider = createDebugAgentProvider({
   base: providers.claude,
   forwardFrames: forwardNormalizedFrames,
   createSessionSynchronizer: (options) => new ClaudeSessionSynchronizer(options),
+  declareRuntimeCapabilities: (capabilities) =>
+    providerCapabilitiesService.declareRuntimeProviderCapabilities(capabilities),
 });
 
 if (debugAgentProvider) {

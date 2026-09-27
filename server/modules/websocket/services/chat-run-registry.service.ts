@@ -2,6 +2,7 @@ import { sessionsDb } from '@/modules/database/index.js';
 import { ChatSessionWriter } from '@/modules/websocket/services/chat-session-writer.service.js';
 import { broadcastSessionUpserted } from '@/modules/websocket/services/session-upsert-broadcast.service.js';
 import type {
+  ChatRunSource,
   LLMProvider,
   NormalizedMessage,
   RealtimeClientConnection,
@@ -22,11 +23,16 @@ type ChatRunStatus = 'running' | 'completed';
  * - `lastSeq` / `events`: the per-run event log. Every live event gets a
  *   monotonically increasing `seq` and is buffered so a reconnecting client
  *   can replay exactly the events it missed via `chat.subscribe`.
+ * - `source`: who asked for the run. Fixed at `startRun` and never rewritten,
+ *   because it describes an origin that existed before the run did; it is what
+ *   lets a run opened by the host layer (`unattended`) be told apart from one
+ *   a timer fired (`scheduled`) even though neither has a socket attached.
  */
 type ChatRun = {
   appSessionId: string;
   provider: LLMProvider;
   providerSessionId: string | null;
+  source: ChatRunSource;
   status: ChatRunStatus;
   lastSeq: number;
   events: NormalizedMessage[];
@@ -176,6 +182,15 @@ export const chatRunRegistry = {
      */
     connection: RealtimeClientConnection | null;
     userId: string | number | null;
+    /**
+     * Who asked for this run. Optional so every existing call site keeps its
+     * current meaning without being touched: a run with a connection is a
+     * `user` turn, and one without is a `scheduled` turn, which is exactly what
+     * the two production paths (`chat.send` and `runDetachedChatTurn`) already
+     * are. A caller that knows better — the host layer opening a turn nobody
+     * asked for — states `unattended` explicitly.
+     */
+    source?: ChatRunSource;
   }): ChatRun | null {
     const existing = runs.get(input.appSessionId);
     if (existing && existing.status === 'running') {
@@ -186,6 +201,7 @@ export const chatRunRegistry = {
       appSessionId: input.appSessionId,
       provider: input.provider,
       providerSessionId: input.providerSessionId,
+      source: input.source ?? (input.connection ? 'user' : 'scheduled'),
       status: 'running',
       lastSeq: 0,
       events: [],
