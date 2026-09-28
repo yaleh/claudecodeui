@@ -340,7 +340,7 @@ EXIT=0
 
 ### DoD 自证
 
-**（a）判据本体在配颟缓解后真的跑过一次，读数逐字入档** —— 见 AC3，两条独立运行（我的直跑两次 + goal gate 一次），都是浏览器层 `playwright test`，`EXIT=0`。
+**（a）判据本体在配额缓解后真的跑过一次，读数逐字入档** —— 见 AC3，两条独立运行（我的直跑两次 + goal gate 一次），都是浏览器层 `playwright test`，`EXIT=0`。
 
 **（b）源码自上次为绿以来未变的机械证据**：
 
@@ -364,7 +364,7 @@ $ sha256sum e2e/voice-error-messages.spec.ts
 c44bf412a8d0bf3415a202c83a7903353d95430f9b96ba599a3da8764bf4bd9d  e2e/voice-error-messages.spec.ts
 ```
 
-判据文件与 `e2e/ src/ server/ shared/` 在「上次为绿 → 本条 HEAD」这一段里**一个字节没动**（第四行的空集 + 第五行两侧 sha256 相同）。变的只有本条的四个交付文件加任务文件；`a273da48..a273da48` 那一段（上一次为绿自己的 delta）只有一个 task 文件。
+判据文件与 `e2e/ src/ server/ shared/` 在「上次为绿 → 本条 HEAD」这一段里**一个字节没动**（第三行的空集 + 第四、五行两侧 sha256 相同）。变的只有本条的四个交付文件加任务文件；而「上一次为绿」自己那一段（`f9c996a4..a273da48`）也只有一个 task 文件。
 
 **（c）清扫真的跑过、且不是清空父目录** —— 见 AC2 的成对读数与两条存活证据（`node-compile-cache`/`playwright-transform-cache-1004` 两个非运行租户，以及清扫前刚创建、清扫后仍在的 `quay-e2e-1oK7Vu`）。
 
