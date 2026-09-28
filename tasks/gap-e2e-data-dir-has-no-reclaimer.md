@@ -2,7 +2,7 @@
 id: gap-e2e-data-dir-has-no-reclaimer
 title: e2e 运行目录没有回收者（24h 内 1794 个 / 103G）耗尽用户配额 ⇒ 判据在启动前以 EDQUOT(errno −122)
   死、读起来像 AC-153 为假；给数据目录加有界保留（TTL + 清扫）并重测判据为绿
-status: ready
+status: needs-human
 labels:
   - gap
   - defect
@@ -379,3 +379,13 @@ c44bf412a8d0bf3415a202c83a7903353d95430f9b96ba599a3da8764bf4bd9d  e2e/voice-erro
 3. **运行路径的 2 s 预算意味着积压要靠多次运行排空**。实测一次删除 3371 文件 / 63 M 用 89 ms ⇒ 约 38k 文件/秒；2 s 约合每次运行回收 ~20 个目录，而一次运行只产生 1 个。所以排空是收敛的，但**不是**瞬时的。手动入口不设预算（AC2 的 1323 个目录用了 147166 ms）。
 4. **清扫在 `playwright.config.ts` 求值时同步执行**，因此首次遇到大积压的运行会慢最多 2 s。它排在 `resolveE2eDataDir()` 之后、任何 server 启动之前，不吃判据自己的 watchdog 预算。
 5. 本条的清扫**不递归进子目录再判断**：只对父目录下一层的 `quay-e2e-*` 做 `rmSync(recursive)`，符合选择器 `mkdtemp(join(parent, 'quay-e2e-'))` 的形态。
+## Needs-Human
+
+**执行 2026-09-28T13:36:11.152Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=18343 server/modules/providers/tests/model-gateway-end-to-end.test.ts passed=false end_ms=1790602432061
+- run_id：wk-prod-anchor
+- session_id：2d09df9e-ac0e-42dc-bd7d-894c6b3f0763
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-e2e-data-dir-has-no-reclaimer~wk-prod-anchor~1790602375970-6667e9.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-e2e-data-dir-has-no-reclaimer-wk-prod-anchor.log
