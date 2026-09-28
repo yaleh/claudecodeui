@@ -2,7 +2,7 @@
 id: gap-e2e-data-dir-has-no-reclaimer
 title: e2e 运行目录没有回收者（24h 内 1794 个 / 103G）耗尽用户配额 ⇒ 判据在启动前以 EDQUOT(errno −122)
   死、读起来像 AC-153 为假；给数据目录加有界保留（TTL + 清扫）并重测判据为绿
-status: todo
+status: ready
 labels:
   - gap
   - defect
