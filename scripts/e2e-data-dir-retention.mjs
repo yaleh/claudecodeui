@@ -61,7 +61,10 @@
  */
 
 import { readdirSync, realpathSync, rmSync, statSync } from 'node:fs';
-import { homedir as osHomedir, tmpdir as osTmpdirPath } from 'node:os';
+// No `node:os` import: the home and os-tmpdir defaults belong to `dataDirCandidates`, which already
+// resolves them itself (`scripts/e2e-data-dir-selection.mjs`). This module only forwards the caller's
+// override, so importing the same two functions here would be two names for nothing — which is
+// exactly what lint reported before this line was deleted.
 import { basename, join, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
