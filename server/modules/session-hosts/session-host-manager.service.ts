@@ -55,9 +55,49 @@ export const PER_RUN_QUIET_CEILING_MS = 30 * 60 * 1000;
  * cannot be reached by a criterion that waits on a real clock. Consumed by
  * `DEFAULT_RESIDENT_POLICY`, by `server/index.ts`'s shutdown wiring (which
  * bounds how long it waits for hosts to close), and by the lifecycle criterion,
- * which needs to place its deadline without restating the number.
+ * which needs to place its deadline without restating the number. This is the
+ * *default*: a deployment may raise or lower it through
+ * `RESIDENT_IDLE_TIMEOUT_ENV`, and a malformed value there falls back here.
  */
 export const RESIDENT_IDLE_TIMEOUT = 24 * 60 * 60 * 1000;
+
+/**
+ * The environment variable that overrides the resident idle ceiling.
+ *
+ * Milliseconds, the unit `RESIDENT_IDLE_TIMEOUT` carries. Named here rather than
+ * spelled at the read site so the entry has one address in the code that a
+ * reader can grep for; it is deliberately not exported through the module
+ * barrel, because its only in-repo consumer is this module's own criterion,
+ * which pins the public name independently.
+ *
+ * Environment rather than the settings store: the process-wide manager is built
+ * at module load (`sessionHostManager` below), before a per-user, database-backed
+ * setting could be read, and every other process-level timeout in this server
+ * (`VOICE_TIMEOUT_MS`, `CLOUDCLI_BROWSER_USE_SESSION_TTL_MS`) is configured the
+ * same way.
+ */
+const RESIDENT_IDLE_TIMEOUT_ENV = 'SESSION_HOST_RESIDENT_IDLE_TIMEOUT_MS';
+
+/**
+ * Reads the resident idle ceiling from the environment, falling back to the
+ * shipped 24 hours.
+ *
+ * The single read point for the entry: `createSessionHostManager` calls this
+ * once, to build the resident policy's default `quietCeilingMs`, so a manager's
+ * ceiling is fixed at construction and every host it opens — the ones already
+ * live and the ones to come — is measured against the same number. Malformed
+ * values (an empty string, a negative number, zero, a non-numeric string) are
+ * the default rather than an error, because a typo in a deployment's environment
+ * must not be able to leave a session process unable to come up.
+ */
+function readResidentIdleTimeoutMs(): number {
+  const raw = process.env[RESIDENT_IDLE_TIMEOUT_ENV];
+  if (raw === undefined || raw.trim() === '') {
+    return RESIDENT_IDLE_TIMEOUT;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : RESIDENT_IDLE_TIMEOUT;
+}
 
 /**
  * The policy a provider runs under when nothing binds it to one process.
@@ -83,6 +123,12 @@ export const DEFAULT_PER_RUN_POLICY: LifecyclePolicy = {
  * `resident-policy` lease is permanent, so "empty" would mean "idle". Consumed
  * by `createSessionHostManager` as its `residentPolicy` default and printed by
  * the lifecycle criterion.
+ *
+ * The ceiling here is the *shipped* default. `createSessionHostManager` replaces
+ * `quietCeilingMs` with the value `readResidentIdleTimeoutMs` reads, so a
+ * deployment that configures the entry gets a manager whose ceiling differs from
+ * this constant while the constant itself stays the 24-hour default a caller can
+ * name.
  */
 export const DEFAULT_RESIDENT_POLICY: LifecyclePolicy = {
   supersedeOnNewTurn: false,
@@ -311,7 +357,15 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
   const createHostId = options.createHostId ?? (() => `host-${randomUUID()}`);
   const createRunId = options.createRunId ?? (() => `run-${randomUUID()}`);
   const perRunPolicy: LifecyclePolicy = { ...DEFAULT_PER_RUN_POLICY, ...options.perRunPolicy };
-  const residentPolicy: LifecyclePolicy = { ...DEFAULT_RESIDENT_POLICY, ...options.residentPolicy };
+  // The idle ceiling is the one policy field a deployment configures: the entry
+  // is read here, once, and an explicit `residentPolicy` override still wins over
+  // it. The shipped per-run ceiling is untouched — the entry is about how long a
+  // resident process stays warm, not about how long a finished turn is held.
+  const residentPolicy: LifecyclePolicy = {
+    ...DEFAULT_RESIDENT_POLICY,
+    quietCeilingMs: readResidentIdleTimeoutMs(),
+    ...options.residentPolicy,
+  };
   const closedHostRetentionMs = options.closedHostRetentionMs ?? CLOSED_HOST_RETENTION_MS;
   /**
    * The unattended-run seam, held mutably because it is wired after this

@@ -1,7 +1,7 @@
 ---
 id: gap-resident-idle-timeout-not-configurable
 title: AC-181 常驻空闲超时写死为 24 小时常量、无配置入口：加配置入口，默认不变，忙宿主不被关
-status: ready
+status: done
 needs_human_cause: human-adjudication
 labels:
   - gap

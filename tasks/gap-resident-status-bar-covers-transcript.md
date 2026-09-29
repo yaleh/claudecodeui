@@ -2,7 +2,7 @@
 id: gap-resident-status-bar-covers-transcript
 title: AC-179 视口 780x493 下常驻状态条不压住对话文字：e2e 读两边界框不相交且消息块在视口内 + 非常驻正控制 +
   假形态（状态条改绝对定位盖消息）必须红 + 结构不变量
-status: ready
+status: needs-human
 needs_human_cause: human-adjudication
 labels:
   - gap
@@ -108,4 +108,16 @@ goal_ac: AC-179
 - run_id：wk-prod-anchor
 - session_id：ad43e0b1-19eb-4366-ae41-9347979753fd
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-resident-status-bar-covers-transcript~wk-prod-anchor~1790662858685-fea41b.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-resident-status-bar-covers-transcript-wk-prod-anchor.log
+
+## Needs-Human
+
+**执行 2026-09-29T07:04:18.706Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 3 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: not ok - server/modules/session-hosts/tests/resident-server-restart.test.ts:   AssertionError [ERR_ASSERTION]: the next boot swept nothing (swept=0); the orphan was not there to reap
+- run_id：wk-prod-anchor
+- session_id：fa4b2a9a-fb06-42da-9929-a904e7e28d90
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-resident-status-bar-covers-transcript~wk-prod-anchor~1790665218778-5e3bfa.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-resident-status-bar-covers-transcript-wk-prod-anchor.log
