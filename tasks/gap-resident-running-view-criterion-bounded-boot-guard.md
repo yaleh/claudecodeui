@@ -46,12 +46,12 @@ goal_ac: AC-173
 
 ## AC
 
-- [ ] AC1 有界客户端预热真实生效：`e2e/resident-running-view.spec.ts` 里有 `warmClientStartup`（或等价命名）的定义、与「任何页面之前」的调用，逐 URL 带 deadline，非 200 / 超时按 url 指名抛错。验证：`grep -n "warmClientStartup" e2e/resident-running-view.spec.ts` 同时命中定义行与调用行，且该 spec 的 typecheck `exit 0`。
-- [ ] AC2 每一次导航都走同一个有界探针：`grep -n "page\.goto(\|page\.reload(" e2e/resident-running-view.spec.ts` 的每一处行号都落在探针函数体内部，函数体外没有任何裸导航；探针耗尽预算时抛出携带页面文本与 `requestfailed` 列表的错误。验证：上述 `grep -n` 输出逐行落界 + typecheck `exit 0`。
-- [ ] AC3 有界失败的实测：把探针落点临时指向一个不可能存在的 sentinel 后，`npx playwright test e2e/resident-running-view.spec.ts` 在 **30s 内**以非零退出，且输出里带页面文本与失败请求列表；还原后该读数与还原读数一并登记。验证：两次运行的 `echo $?` 与 wall time。
-- [ ] AC4 判据在负载下连续绿：`npx playwright test e2e/resident-running-view.spec.ts` 连续 ≥5 次全部 `exit 0`，且每一次 wall < 55_000ms（一次都不触发 55s 看门狗 / 60s 门限），其中至少一次与 ≥4 份兄弟 spec 并发。验证：逐次 `echo $?` + wall time。**如实登记**：本机负载高（实测 load1 > 30），并发那一次若兄弟 spec 自己红，须点名归因，不得算到本条头上。
-- [ ] AC5 判定面未变：`git diff develop -- package.json playwright.config.ts` 为空（无 `test:e2e` / `RUN_CEILING_MS` / `BOOT_CEILING_MS` / `SINGLE_SPEC_CEILING_MS` 的增删），且 `git diff develop -- e2e/resident-running-view.spec.ts | grep -c "^-.*expect("` 为 **0**。验证：两条命令的逐字输出。
-- [ ] AC6 AC-173 的假形态仍然红（承重）：把徽标改成计入空闲常驻会话（改回读客户端忙集 `activeSessionIds.size`，或把空闲常驻宿主也计进计数），判据命令退出**非 0**，且红**落在徽标读数那条断言**上（`badge.reading=3` / `badge.reading !== 1`）。登记变异 diff、失败断言逐字、退出码；恢复后判据回到 0。验证：变异跑与还原跑的 `echo $?`。
+- [x] AC1 有界客户端预热真实生效：`e2e/resident-running-view.spec.ts` 里有 `warmClientStartup`（或等价命名）的定义、与「任何页面之前」的调用，逐 URL 带 deadline，非 200 / 超时按 url 指名抛错。验证：`grep -n "warmClientStartup" e2e/resident-running-view.spec.ts` 同时命中定义行与调用行，且该 spec 的 typecheck `exit 0`。
+- [x] AC2 每一次导航都走同一个有界探针：`grep -n "page\.goto(\|page\.reload(" e2e/resident-running-view.spec.ts` 的每一处行号都落在探针函数体内部，函数体外没有任何裸导航；探针耗尽预算时抛出携带页面文本与 `requestfailed` 列表的错误。验证：上述 `grep -n` 输出逐行落界 + typecheck `exit 0`。
+- [x] AC3 有界失败的实测：把探针落点临时指向一个不可能存在的 sentinel 后，`npx playwright test e2e/resident-running-view.spec.ts` 在 **30s 内**以非零退出，且输出里带页面文本与失败请求列表；还原后该读数与还原读数一并登记。验证：两次运行的 `echo $?` 与 wall time。
+- [x] AC4 判据在负载下连续绿：`npx playwright test e2e/resident-running-view.spec.ts` 连续 ≥5 次全部 `exit 0`，且每一次 wall < 55_000ms（一次都不触发 55s 看门狗 / 60s 门限），其中至少一次与 ≥4 份兄弟 spec 并发。验证：逐次 `echo $?` + wall time。**如实登记**：本机负载高（实测 load1 > 30），并发那一次若兄弟 spec 自己红，须点名归因，不得算到本条头上。
+- [x] AC5 判定面未变：`git diff develop -- package.json playwright.config.ts` 为空（无 `test:e2e` / `RUN_CEILING_MS` / `BOOT_CEILING_MS` / `SINGLE_SPEC_CEILING_MS` 的增删），且 `git diff develop -- e2e/resident-running-view.spec.ts | grep -c "^-.*expect("` 为 **0**。验证：两条命令的逐字输出。
+- [x] AC6 AC-173 的假形态仍然红（承重）：把徽标改成计入空闲常驻会话（改回读客户端忙集 `activeSessionIds.size`，或把空闲常驻宿主也计进计数），判据命令退出**非 0**，且红**落在徽标读数那条断言**上（`badge.reading=3` / `badge.reading !== 1`）。登记变异 diff、失败断言逐字、退出码；恢复后判据回到 0。验证：变异跑与还原跑的 `echo $?`。
 
 ## DoD
 
@@ -62,3 +62,33 @@ goal_ac: AC-173
 - e2e/resident-running-view.spec.ts
 - src/modules/sidebar/hooks/useSidebarController.ts（仅 AC6 假形态变异的临时写点，跑完还原，不进最终 diff）
 - tasks/gap-resident-running-view-criterion-bounded-boot-guard.md
+
+## 完成记录（2026-09-30）
+
+**实现**：提交 `e963c867`（本任务分支，基于 develop `d7794b71`）。只改 `e2e/resident-running-view.spec.ts`（+238 / −4）。把家族既有两杠杆搬进启动路径：`warmClientStartup(clientUrl)`（`beforeAll` 内、`browser.newContext()/newPage()` 之前；对 `/`、`/src/main.tsx`、entry 里解析出的一个本次运行优化依赖 URL 逐 URL 带 deadline 取到 200，非 200 / 超时按 url+status 指名抛错，含「客户端接了连接却不答」）与 `navigateBounded(page, projectRowLanding, 'first-load')`（该 spec 唯一导航 `page.goto('/')` 已落进探针函数体；探到夹具项目行即返回，探不到就在 14s deadline 内 `page.reload()` 重放，耗尽则带页面文本 + `requestfailed` 列表抛错）。
+
+**AC1** `grep -n "warmClientStartup" e2e/resident-running-view.spec.ts` → 定义 `:502`、调用 `:816`（定义行与调用行都命中）；`npm run typecheck` 退出 **0**（`tsconfig.json` + `server/tsconfig.json` + `scripts/tsconfig.json` 三条链）。
+
+**AC2** `grep -n "page\.goto(\|page\.reload(" e2e/resident-running-view.spec.ts` → `:637`、`:639`，两行均落在 `navigateBounded`（`:625`–`:661`）函数体内，函数体外无裸导航。探针耗尽预算时抛出的错误逐字见 AC3。
+
+**AC3**（有界失败实测）落点临时改为 `page.locator('[data-e2e-impossible-sentinel]')`：判据 `EXIT=1`，wall **24792ms**（< 30s），输出逐字 `Error: the project row for resident-running-view-workspace never rendered, so this run's client never came up to a document that stays: the page shows "CloudCLI\nStar\n13.9k\nProjects\nConversations\nCtrl\nK\nmobile-layout-workspace\n1 - ...\nresident-running-view-workspace\n5 - ...running-view-workspace\n..."; console errors: <none>; failed requests: <none>`。还原（`git checkout --`）后判据 `EXIT=0`、`elapsed=48244ms`。
+
+**AC4**（负载下连续绿；本机 load1 ≈ 30）还原后连续 6 次：`#1 EXIT=0 wall=40678ms elapsed=39636ms`、`#2 40606/39719`、`#3 40296/39419`、`#4 40735/39894`、`#5 40070/39139`、`#6 39876/38989` —— 全部 `exit 0` 且 wall < 55_000（无一看门狗 / 60s 门限）。并发一次：与 `session-filter`、`transcript-follow`、`resident-status-bar`、`resident-ui-layout` 四份兄弟 spec 同跑，**目标判据 `EXIT=0 wall=40786ms elapsed=39871ms`**。兄弟 `session-filter` / `resident-status-bar` / `resident-ui-layout` 分别 5 / 4 / 3 passed；`transcript-follow` **EXIT=1** —— **点名归因**：红是它自己的看门狗跨了单文件 55s 上限（`this run crossed its own 55000ms ceiling at 55000ms … stuck at stage "browser-launch-or-cases"`），且**无并发单独跑同样 `EXIT=1 wall=55662ms` 跨 55s 上限**；该文件不在本任务 Touches、本任务 diff 未触及，属宿主负载下的既有红，不计入本条。
+
+**AC5** `git diff develop -- package.json playwright.config.ts` → 空；`git diff develop -- e2e/resident-running-view.spec.ts | grep -c "^-.*expect("` → **0**。`git diff --stat develop` → 仅 `e2e/resident-running-view.spec.ts | 238 +++++-`（1 file，+238 −4）。
+
+**AC6**（承重假形态，逐字复现 AC-173 的变异）：
+```
+-import { listRunningSessionIds, useSessionHosts } from '@/shared/hooks/useSessionHosts';
++import { listResidentIdleSessionIds, listRunningSessionIds, useSessionHosts } from '@/shared/hooks/useSessionHosts';
+   const runningSessionsCount = useMemo(
+-    () => listRunningSessionIds(sessionHostsSnapshot).length,
++    () => listRunningSessionIds(sessionHostsSnapshot).length + listResidentIdleSessionIds(sessionHostsSnapshot).length,
+     [sessionHostsSnapshot],
+   );
+```
+判据 `EXIT=1`（wall 14919ms），红**落在徽标读数断言**上，逐字 `Error: the badge counts the sessions with a turn in flight` / `Expected: 1` / `Received: 3`（`e2e/resident-running-view.spec.ts:932`），同跑打印 `hosts.running=1 hosts.residentIdle=2 hosts.total=2 badge.reading=3`。还原后判据回到 `EXIT=0`。
+
+**守卫自身的原始输出行**：`[e2e] client warm-up: pre-bundle committed in 1386ms`；`[e2e] client startup: the project row for resident-running-view-workspace landed after 3480ms (attempt 1)`。
+
+**本仓修的是响应方式**：无界等待（`revealSession` 的 30s `waitFor`）→ 有界重放（预热 + 探针 + `page.reload()`）。触发源（宿主层 `net::ERR_NETWORK_CHANGED`，本机 docker/veth 变动）不在本仓可控范围内 —— 因此这条判据的稳定性依赖守卫，而不是依赖触发源消失。
