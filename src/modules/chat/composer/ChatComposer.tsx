@@ -413,13 +413,19 @@ export default function ChatComposer({
     setResidentEnabled((enabled) => !enabled);
     setResidentAcknowledged(false);
   }, []);
-  // Records the intent for the send path and then hands off to it unchanged. Both entry points into
-  // the composer's submit — the send button and the form's own submit — go through here, so the
-  // intent cannot be attached to one of them only.
+  // The one entry into the composer's submit. The send button is a `type="submit"` control, so a click
+  // and an Enter key press both arrive here as the form's own `submit` event; the key path is routed to
+  // the form rather than given a send of its own (see `useChatComposerState`'s keydown). Because every
+  // path shares this handler, it is also where the consent gate lives: an unticked disclosure refuses
+  // the send here, for the button and the key alike, instead of only disabling the button.
   const handleComposerSubmit = useCallback((event: Parameters<typeof onSubmit>[0]) => {
+    // The form's default action is a navigation, so it is stopped before the gate is consulted: a
+    // refused send must do nothing at all, not reload the composer to an empty page.
+    event.preventDefault();
+    if (residentGateClosed) return;
     setPendingResidentIntent(residentEnabled && residentAcknowledged);
     onSubmit(event);
-  }, [onSubmit, residentAcknowledged, residentEnabled]);
+  }, [onSubmit, residentAcknowledged, residentEnabled, residentGateClosed]);
   // Every sentence this hint can print names a keyboard key — Enter, Shift+Enter, Ctrl+Enter — and a
   // soft keyboard has none of them, so there is no wording that would be true on a touch-only device.
   // Such a device is given no hint at all rather than the wrong one: the button is the only way out

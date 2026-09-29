@@ -155,7 +155,9 @@ async function runChatSend(
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }
-    await rm(tempDirectory, { recursive: true, force: true });
+    // The aborted SDK child can still be flushing into `claude-config` for a moment; under suite
+    // concurrency that turned the teardown into ENOTEMPTY. `maxRetries` re-runs the removal on it.
+    await rm(tempDirectory, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
   }
 }
 
