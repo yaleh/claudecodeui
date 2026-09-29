@@ -228,17 +228,19 @@ function WorkspaceMain({
         onMenuClick={onMenuClick}
       />
 
-      {/* Why the Shell tab is closed to this session. Rendered as a workspace-level
-          banner rather than inside the Shell view: the view never mounts for a
-          resident session, so a notice living in it would be a notice nobody sees.
-          It is the element the disabled tab points at with `aria-describedby`. */}
+      {/* Why the Shell tab is closed to this session — not a workspace banner: every
+          other tab already shows the reason through the disabled tab's own `title`
+          and `aria-describedby`, so a sighted user on Chat has no use for it and a
+          screen reader only needs it read when it focuses that tab. Kept `sr-only`
+          rather than inside the Shell view: the view never mounts for a resident
+          session, so a notice living in it would be a notice nobody's reader reaches. */}
       {isResidentSession && (
         <p
           id={RESIDENT_SHELL_NOTICE_ID}
           data-resident-shell-notice="true"
           role="note"
           aria-label={t('tabs.shellResidentDisabledLabel')}
-          className="flex-shrink-0 border-b border-amber-500/40 bg-amber-500/5 px-3 py-1.5 text-xs text-muted-foreground md:px-4"
+          className="sr-only"
         >
           {t('tabs.shellResidentDisabled')}
         </p>
