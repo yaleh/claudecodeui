@@ -80,6 +80,8 @@ const BOOT_TIMEOUT_MS = 25_000;
 const ROUND_TIMEOUT_MS = 30_000;
 /** How long a process is given to leave after a signal. */
 const GONE_TIMEOUT_MS = 20_000;
+/** How many times the kill-then-reboot legs may be repeated when a foreign boot reaped the orphan. */
+const SWEEP_ATTEMPTS = 3;
 /** How long the scope listing is given to become empty after a sweep. */
 const SCOPE_TIMEOUT_MS = 15_000;
 
@@ -947,94 +949,125 @@ test('a stopped or killed server leaves no resident process behind, and the next
     // different process: it has work in hand and does not reach the end of its
     // turn, which is exactly the residue a real operator gets when a server is
     // killed mid-turn and exactly what nothing else collects.
-    const second = await boot();
-    const secondToken = await mintToken(databasePath, path.join(tempRoot, 'token-2'));
-    const secondChat = await connectChat(second.port, secondToken);
-    chats.push(secondChat);
+    //
+    // ## Why legs 2 and 3 are a bounded retry
+    //
+    // The sweep is HOST-WIDE by design: any server that boots reaps every scope whose owner pid is
+    // gone, not only its own predecessor's. So another server booting between this run's kill and
+    // this run's own next boot (another lane's suite, the same suite's other real-server tests)
+    // reaps the orphan first, and this boot then honestly reads `swept=0` — measured by running a
+    // sweeper alongside this file, which reproduces the signature every time. That is not a defect
+    // in the sweep. The reading this leg exists for is "a boot reaps what the kill left", so an
+    // attempt that read `swept=0` is repeated (up to SWEEP_ATTEMPTS) and at least one attempt must
+    // read `swept>=1`. A build that does no sweeping reads 0 on every attempt and stays red.
+    let second = await boot();
+    let third!: ServerReading;
+    let thirdToken = '';
+    let orphanableSession = '';
+    let killedServerPid = 0;
+    let secondPid = 0;
+    for (let attempt = 1; ; attempt += 1) {
+      const secondToken = await mintToken(databasePath, path.join(tempRoot, `token-2-${attempt}`));
+      const secondChat = await connectChat(second.port, secondToken);
+      chats.push(secondChat);
 
-    // A resident session this process has never seen, created after its boot —
-    // see the note beside the two sessions above for why the ordering matters.
-    const orphanableSession = await createSession(second.port, secondToken, 'resident, to be orphaned');
-    await storeResidentMode(second.port, secondToken, orphanableSession);
+      // A resident session this process has never seen, created after its boot —
+      // see the note beside the two sessions above for why the ordering matters.
+      orphanableSession = await createSession(second.port, secondToken, 'resident, to be orphaned');
+      await storeResidentMode(second.port, secondToken, orphanableSession);
 
-    mock.hold();
-    secondChat.socket.send(JSON.stringify({
-      type: 'chat.send',
-      sessionId: orphanableSession,
-      content: 'restart round two, held open',
-      options: { cwd: tempRoot, model: MODEL_ID, permissionMode: 'default' },
-    }));
+      mock.hold();
+      secondChat.socket.send(JSON.stringify({
+        type: 'chat.send',
+        sessionId: orphanableSession,
+        content: 'restart round two, held open',
+        options: { cwd: tempRoot, model: MODEL_ID, permissionMode: 'default' },
+      }));
 
-    const secondPid = await waitForResidentPid(
-      second.port,
-      secondToken,
-      orphanableSession,
-      ROUND_TIMEOUT_MS,
-      'the second resident host to appear with a pid',
-    );
-    // The turn has to be *in hand* before the kill, or the process is only
-    // holding a queue it could drain and this leg orphans nothing. The wait is
-    // on the request the CLI made, which is the one fact that says it is
-    // blocked on the model rather than finished: a resident process that has
-    // ended its turn is a process a graceful path could still collect.
-    try {
-      await waitFor(() => mock.heldCount() > 0, ROUND_TIMEOUT_MS, 'the in-flight turn to reach the mock endpoint');
-    } catch (error) {
-      // The two readings that say *why* nothing arrived: what the endpoint saw,
-      // and what the host layer thinks it has. Both are cheap here and nobody
-      // reading a bare timeout can reconstruct them.
-      const seen = mock.received.map((request) => request.url).join(', ');
-      const listing = await readHosts(second.port, secondToken).catch(() => null);
-      console.error(
-        `in-flight turn never reached the endpoint; it saw [${seen}]; hosts=${JSON.stringify(listing?.hosts ?? null)}\n` +
-          `server log:\n${second.logText().slice(-4000)}`,
+      secondPid = await waitForResidentPid(
+        second.port,
+        secondToken,
+        orphanableSession,
+        ROUND_TIMEOUT_MS,
+        'the second resident host to appear with a pid',
       );
-      throw error;
+      // The turn has to be *in hand* before the kill, or the process is only
+      // holding a queue it could drain and this leg orphans nothing. The wait is
+      // on the request the CLI made, which is the one fact that says it is
+      // blocked on the model rather than finished: a resident process that has
+      // ended its turn is a process a graceful path could still collect.
+      try {
+        await waitFor(() => mock.heldCount() > 0, ROUND_TIMEOUT_MS, 'the in-flight turn to reach the mock endpoint');
+      } catch (error) {
+        // The two readings that say *why* nothing arrived: what the endpoint saw,
+        // and what the host layer thinks it has. Both are cheap here and nobody
+        // reading a bare timeout can reconstruct them.
+        const seen = mock.received.map((request) => request.url).join(', ');
+        const listing = await readHosts(second.port, secondToken).catch(() => null);
+        console.error(
+          `in-flight turn never reached the endpoint; it saw [${seen}]; hosts=${JSON.stringify(listing?.hosts ?? null)}\n` +
+            `server log:\n${second.logText().slice(-4000)}`,
+        );
+        throw error;
+      }
+      assert.equal(isAlive(secondPid), true, 'the in-flight resident process was not in the process table');
+      console.log(
+        `sigkill-in-flight resident-pid=${secondPid} held-replies=${mock.heldCount()} alive=true`,
+      );
+      assert.notEqual(secondPid, firstPid, 'the restarted server reused the dead process');
+
+      const killedMarkerPid = second.serverPid();
+      assert.ok(killedMarkerPid !== null, 'the restarted server wrote no local-server marker');
+      killedServerPid = killedMarkerPid;
+
+      const killReport = second.stop('SIGKILL', secondPid);
+      const survivor = isAlive(secondPid);
+      console.log(
+        `sigkill survivor=${survivor} killed=${killReport.killed.length} spared=${killReport.spared.length} ` +
+          `server-pid=${killedServerPid} resident-pid=${secondPid}`,
+      );
+      assert.equal(survivor, true, 'the in-flight resident process did not survive the kill, so nothing was orphaned');
+
+      // ---- leg 3: the next boot reaps what the kill left behind ----
+      third = await boot();
+      thirdToken = await mintToken(databasePath, path.join(tempRoot, `token-3-${attempt}`));
+      const swept = sweptFrom(third.logText());
+      console.log(`sigkill-residue pid=${secondPid} alive-at-next-boot=${isAlive(secondPid)} swept=${swept}`);
+      if (swept === 0 && attempt < SWEEP_ATTEMPTS) {
+        // Another server's boot reaped the orphan first (see the note above leg 2). Nothing of this
+        // attempt may leak into the next: the orphan must be gone, the held turn released, the
+        // socket closed. This boot has no scopes of its own yet, so it is the next attempt's victim.
+        console.log(`sigkill-attempt ${attempt}/${SWEEP_ATTEMPTS} read swept=0; repeating with the fresh boot`);
+        await waitFor(() => !isAlive(secondPid), GONE_TIMEOUT_MS, `pid ${secondPid} to leave before the next attempt`);
+        mock.release();
+        secondChat.close();
+        second = third;
+        continue;
+      }
+      assert.ok(
+        swept >= 1,
+        `the next boot swept nothing in ${attempt} attempt(s) (swept=${swept}); the orphan was not there to reap`,
+      );
+
+      await waitFor(() => !isAlive(secondPid), GONE_TIMEOUT_MS, `pid ${secondPid} to leave after the sweep`);
+      console.log(`sigkill-reaped pid=${secondPid} alive-after-sweep=${isAlive(secondPid)}`);
+      assert.equal(isAlive(secondPid), false, `the swept process ${secondPid} is still in the process table`);
+
+      if (scopes.available) {
+        const pattern = `claudecodeui-session-${killedServerPid}-*`;
+        await waitFor(() => scopes.raw(pattern) === '', SCOPE_TIMEOUT_MS, `scope units matching ${pattern} to clear`);
+        console.log(`scopes pattern=${pattern} output=${JSON.stringify(scopes.raw(pattern))}`);
+        assert.equal(scopes.units().some((unit) => unit.includes(`-${killedServerPid}-`)), false);
+      } else {
+        console.log('systemd=false');
+      }
+
+      // The held turn belongs to a process that no longer exists; releasing it
+      // lets the socket close instead of being held open by this criterion.
+      mock.release();
+      secondChat.close();
+      break;
     }
-    assert.equal(isAlive(secondPid), true, 'the in-flight resident process was not in the process table');
-    console.log(
-      `sigkill-in-flight resident-pid=${secondPid} held-replies=${mock.heldCount()} alive=true`,
-    );
-    assert.notEqual(secondPid, firstPid, 'the restarted server reused the dead process');
-
-    const killedServerPid = second.serverPid();
-    assert.ok(killedServerPid !== null, 'the restarted server wrote no local-server marker');
-
-    const killReport = second.stop('SIGKILL', secondPid);
-    const survivor = isAlive(secondPid);
-    console.log(
-      `sigkill survivor=${survivor} killed=${killReport.killed.length} spared=${killReport.spared.length} ` +
-        `server-pid=${killedServerPid} resident-pid=${secondPid}`,
-    );
-    assert.equal(survivor, true, 'the in-flight resident process did not survive the kill, so nothing was orphaned');
-
-    // ---- leg 3: the next boot reaps what the kill left behind ----
-    const third = await boot();
-    const thirdToken = await mintToken(databasePath, path.join(tempRoot, 'token-3'));
-    const swept = sweptFrom(third.logText());
-    console.log(`sigkill-residue pid=${secondPid} alive-at-next-boot=${isAlive(secondPid)} swept=${swept}`);
-    assert.ok(
-      swept >= 1,
-      `the next boot swept nothing (swept=${swept}); the orphan was not there to reap`,
-    );
-
-    await waitFor(() => !isAlive(secondPid), GONE_TIMEOUT_MS, `pid ${secondPid} to leave after the sweep`);
-    console.log(`sigkill-reaped pid=${secondPid} alive-after-sweep=${isAlive(secondPid)}`);
-    assert.equal(isAlive(secondPid), false, `the swept process ${secondPid} is still in the process table`);
-
-    if (scopes.available) {
-      const pattern = `claudecodeui-session-${killedServerPid}-*`;
-      await waitFor(() => scopes.raw(pattern) === '', SCOPE_TIMEOUT_MS, `scope units matching ${pattern} to clear`);
-      console.log(`scopes pattern=${pattern} output=${JSON.stringify(scopes.raw(pattern))}`);
-      assert.equal(scopes.units().some((unit) => unit.includes(`-${killedServerPid}-`)), false);
-    } else {
-      console.log('systemd=false');
-    }
-
-    // The held turn belongs to a process that no longer exists; releasing it
-    // lets the socket close instead of being held open by this criterion.
-    mock.release();
-    secondChat.close();
 
     // ---- leg 4: after the restart the session is still resident, and not running ----
     const listing = await readHosts(third.port, thirdToken);
