@@ -2,7 +2,7 @@
 id: gap-resident-enter-send-bypasses-intent-and-consent-gate
 title: AC-180 Enter 键发送绕过常驻意图与知情门控：开关与勾选都开着按 Enter 落成 per-run，未勾选按 Enter 也能发出，让
   Enter 与发送按钮走同一入口
-status: todo
+status: ready
 labels:
   - gap
 parent: null
