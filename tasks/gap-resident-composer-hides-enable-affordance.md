@@ -3,6 +3,7 @@ id: gap-resident-composer-hides-enable-affordance
 title: AC-178 已常驻会话的输入区不再渲染常驻开关与知情提示：给开关加 data-resident-enable 标记、渲染门加
   !isResidentSession，e2e 双模式读数 + 正控制 + 假形态 + 结构不变量
 status: ready
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -74,3 +75,15 @@ goal_ac: AC-178
 - `src/modules/chat/tests/residentComposerEnableAffordance.test.tsx` (new)
 - `playwright.config.ts`
 - `tasks/gap-resident-composer-hides-enable-affordance.md`（自触）
+
+## Needs-Human
+
+**执行 2026-09-29T06:42:40.549Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: not ok - server/modules/session-hosts/tests/resident-server-restart.test.ts:   AssertionError [ERR_ASSERTION]: the next boot swept nothing (swept=0); the orphan was not there to reap
+- run_id：wk-prod-anchor
+- session_id：d21b265b-0dc3-4151-b7fb-2fb2ab342c64
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-resident-composer-hides-enable-affordance~wk-prod-anchor~1790663753615-0fef23.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-resident-composer-hides-enable-affordance-wk-prod-anchor.log

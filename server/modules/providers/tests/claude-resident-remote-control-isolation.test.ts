@@ -858,7 +858,50 @@ function createWriter(): ProviderRuntimeWriter {
   return { send: () => undefined, setSessionId: () => undefined, userId: 1 };
 }
 
+/**
+ * The database fact the two *production-launch* arms bring themselves.
+ *
+ * Arms (3) and (4) drive the production launch (`createSdkResidentProcess` →
+ * `buildResidentSdkOptions` → `mapCliOptionsToSDK`), and that path resolves the
+ * model library's launch spec on its way to the SDK option bag — a read of the
+ * `provider_models` table (`findCustomProviderModelByModelId`). Both arms build
+ * the launch *outside* `withRemoteControlHarness`, so they do not inherit its
+ * temp `DATABASE_PATH`: without one of their own they read whichever
+ * `database/auth.db` the checkout happens to have. On a checkout whose
+ * environment database was never migrated that file holds only `app_config`, so
+ * the read throws `no such table: provider_models` before the launch can open a
+ * host — the arm then reds on the checkout's database state rather than on the
+ * mutation it measures.
+ *
+ * This is the criterion *owning* that fact instead of inheriting it: a migrated
+ * database in a temp directory, made the ambient `DATABASE_PATH` for the run and
+ * torn down after. The checkout's own `database/auth.db` is never touched.
+ */
+async function withMigratedDatabase(run: () => Promise<void>): Promise<void> {
+  const tempDirectory = await mkdtemp(path.join(os.tmpdir(), 'claude-resident-arm-db-'));
+  const saved = process.env.DATABASE_PATH;
+  try {
+    closeConnection();
+    process.env.DATABASE_PATH = path.join(tempDirectory, 'auth.db');
+    await initializeDatabase();
+    await run();
+  } finally {
+    closeConnection();
+    if (saved === undefined) {
+      delete process.env.DATABASE_PATH;
+    } else {
+      process.env.DATABASE_PATH = saved;
+    }
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+}
+
 test('(3) 假形态 (a)：检测到开启仍照常启动 ⇒ 门的读数必须红', { timeout: 120_000 }, async () => {
+  await withMigratedDatabase(runFakeArmA);
+});
+
+/** Arm (3)'s body, run against a migrated temp database (see `withMigratedDatabase`). */
+async function runFakeArmA(): Promise<void> {
   const tempDirectory = await mkdtemp(path.join(os.tmpdir(), 'claude-resident-gate-arm-'));
   const configDir = path.join(tempDirectory, CLAUDE_CONFIG_DIR_NAME);
   const settingsPath = path.join(configDir, SETTINGS_FILE_NAME);
@@ -937,7 +980,7 @@ test('(3) 假形态 (a)：检测到开启仍照常启动 ⇒ 门的读数必须�
     }
     await rm(tempDirectory, { recursive: true, force: true });
   }
-});
+}
 
 // ---------------------------
 //----------------- FAKE ARMS (b) AND (c): THE LAUNCH AND THE SNAPSHOT ------------
@@ -961,6 +1004,11 @@ function buildLaunch(remoteControlFlags?: { remoteControlAtStartup: boolean; iso
 }
 
 test('(4) 假形态 (b)：启动时不传那两项 flag settings ⇒ 读回的读数必须红', { timeout: 60_000 }, async () => {
+  await withMigratedDatabase(runFakeArmB);
+});
+
+/** Arm (4)'s body, run against a migrated temp database (see `withMigratedDatabase`). */
+async function runFakeArmB(): Promise<void> {
   // Both levers, because the reading has to red on both of them: a build that
   // stated nothing, and a build that stated the wrong pair. A reading that only
   // checked presence would pass the second, which is the single-lever fix this
@@ -985,7 +1033,7 @@ test('(4) 假形态 (b)：启动时不传那两项 flag settings ⇒ 读回的�
   // reading — so the two throws above are about the values and not about a
   // reading that can never be satisfied.
   assertLaunchedFlags(buildLaunch({ remoteControlAtStartup: false, isolatePeerMachines: true }), 'genuine');
-});
+}
 
 test('(5) 假形态 (c)：把请求值当生效值写进快照 ⇒ 两个字段的读数必须红', { timeout: 60_000 }, async () => {
   const tempDirectory = await mkdtemp(path.join(os.tmpdir(), 'claude-resident-snapshot-arm-'));
