@@ -30,12 +30,12 @@ goal_ac: AC-180
 
 ## AC
 
-- [ ] AC1 判据绿：`npx playwright test e2e/resident-enter-send.spec.ts` 退出 0。红态基线：改代码前退出非 0，红落在 (a) 或 (b) 的读数上（该 spec 文件还不存在时的读数是 `Error: No tests found`）。
-- [ ] AC2 (a) 读数：勾选后 Enter 发送，会话 `lifecycle_mode` 逐字 `resident`，且宿主列表里该会话有 `mode` 为 `resident` 的宿主。
-- [ ] AC3 (b) 读数：未勾选时 Enter，会话总数发送前后不变，输入框内容保留。
-- [ ] AC4 (c) 正控制：开关关闭时 Enter 发送，会话为 `per-run`，证明读数不是恒 `resident`。
-- [ ] AC5 取假形态必须红（承重）：Enter 路径直接调 `handleSubmit` ⇒ AC2 的读数红；Enter 路径不看知情门控 ⇒ AC3 的读数红。每种变异先提交再变异，跑完用 `git checkout` 恢复，登记逐字失败行。
-- [ ] AC6 `npx playwright test e2e/resident-enable-consent.spec.ts` 仍退出 0；`npm run lint` 退出 0；`git diff --stat` 与 Touches 逐条对齐。
+- [x] AC1 判据绿：`npx playwright test e2e/resident-enter-send.spec.ts` 退出 0。红态基线：改代码前退出非 0，红落在 (a) 或 (b) 的读数上（该 spec 文件还不存在时的读数是 `Error: No tests found`）。
+- [x] AC2 (a) 读数：勾选后 Enter 发送，会话 `lifecycle_mode` 逐字 `resident`，且宿主列表里该会话有 `mode` 为 `resident` 的宿主。
+- [x] AC3 (b) 读数：未勾选时 Enter，会话总数发送前后不变，输入框内容保留。
+- [x] AC4 (c) 正控制：开关关闭时 Enter 发送，会话为 `per-run`，证明读数不是恒 `resident`。
+- [x] AC5 取假形态必须红（承重）：Enter 路径直接调 `handleSubmit` ⇒ AC2 的读数红；Enter 路径不看知情门控 ⇒ AC3 的读数红。每种变异先提交再变异，跑完用 `git checkout` 恢复，登记逐字失败行。
+- [x] AC6 `npx playwright test e2e/resident-enable-consent.spec.ts` 仍退出 0；`npm run lint` 退出 0；`git diff --stat` 与 Touches 逐条对齐。
 
 ## DoD
 
