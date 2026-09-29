@@ -2,7 +2,8 @@
 id: gap-npm-publish-yalehwang-cloudcli
 title: 把 fork 以 @yalehwang/cloudcli 发到 npm：改包名与仓库指向、release-it 打开 npm 发布、Release
   workflow 走 NPM_TOKEN、清掉写死的旧升级命令并反转守卫
-status: ready
+status: needs-human
+needs_human_cause: unclassified
 labels:
   - gap
 parent: null
@@ -143,3 +144,12 @@ extra:
 
 【Round 2 复验 2026-09-30】HEAD d7d94771（已含 develop）。AC1–AC7 在 post-merge head 上逐条重跑全绿：AC1 守卫 node --test scripts/release/tests/fork-release-workflows.test.mjs EXIT 0（打印 pkg.name=@yalehwang/cloudcli、npm.publish=true、auth.env=NODE_AUTH_TOKEN、legacy.upgradeCmds=0）；AC2 三处取假各自 EXIT 1 且红在对应断言、git checkout -- 还原后复绿 EXIT 0；AC3 grep -rn "@cloudcli-ai/cloudcli" server src 0 命中、scripts/test.sh --for-task gap-npm-publish-yalehwang-cloudcli --allow-thin EXIT 0（server/modules/system/tests/system.service.test.ts pass 1 / fail 0）；AC4 npm pack --dry-run --json EXIT 0（name=@yalehwang/cloudcli、unpackedSize=25074024、含 dist-server/server/modules/cli/cli.js、dist/index.html、README.md，不含 tasks/ goals/ experiments/ e2e/）；AC5 release-it --dry-run --ci --increment=patch EXIT 0（含 npm publish . --tag latest --dry-run --access public、@yalehwang/cloudcli、git push --follow-tags --set-upstream yaleh develop，无 origin）；AC6 23 文件全在 ## Touches 内、docker/ redirect-package/ CHANGELOG.md electron/ 字节不变；AC7 npm run typecheck EXIT 0、npm run lint EXIT 0（仅既有 warning）。
 【Round 2 AC8/AC9 仍为人工闸】本机无 npm 凭据（npm whoami→ENEEDAUTH、无 ~/.npmrc 与仓库 .npmrc）、gh secret list -R yaleh/claudecodeui 仍只有 RELEASE_PAT、npm view @yalehwang/cloudcli 仍 E404。正确终态仍为 needs-human：需人 yale 创建 npm Automation 令牌 → gh secret set NPM_TOKEN -R yaleh/claudecodeui → 触发 Release。
+## Needs-Human
+
+**执行 2026-09-29T23:48:05.952Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：unclassified
+- 失败步/判词：AC 未全勾（checked 7/9，剩余未勾 2）——续做只需验证并勾选 AC
+- run_id：wk-prod-anchor
+- session_id：e478e3c1-a6d0-4c80-b086-5f0c92c7dd7b
