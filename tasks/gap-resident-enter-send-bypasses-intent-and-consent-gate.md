@@ -51,3 +51,19 @@ goal_ac: AC-180
 - `src/modules/chat/hooks/useChatComposerState.ts`
 - `src/modules/chat/composer/ChatComposer.tsx`
 - `e2e/resident-enter-send.spec.ts` (new)
+
+## Evidence
+
+绿态与假形态在同一 worktree、同一 HEAD（实现提交 `75f16302`）上跑，各自跑前 `git status --porcelain` 为空。
+
+- **绿基线。** `npx playwright test e2e/resident-enter-send.spec.ts` 退出 0（3 passed）。读数：`session.lifecycle_mode=resident` + `host.resident.bindsSession=true`（AC2）；`gate.closed=true`、`sessions.before=15`→`sessions.after=15`、`composer.value="enter key gate probe"`（AC3）；`control.lifecycle_mode=per-run`（AC4）。
+- **AC5 假形态 (i)** —— Enter 路径改回直接调 `handleSubmit`：AC2 红。逐字失败行 `e2e/resident-enter-send.spec.ts:342:5  ).toBe('resident');`，读数 `Received: "per-run"`，报错 `the session a ticked Enter send is addressed to must read back as resident from the server — the key reached the send without recording the resident intent it was given`。
+- **AC5 假形态 (ii)** —— 去掉 `handleComposerSubmit` 里的 `if (residentGateClosed) return;`：AC2 仍绿，AC3 红。逐字失败行 `e2e/resident-enter-send.spec.ts:390:5  ).toEqual({ pathname: pathBefore });`，读数 `sessions.before=15`→`sessions.after=16`、`composer.value=""`、pathname 变为 `/session/a53605e8-…`。
+- **每轮变异后** `git checkout -- <file>` 恢复，恢复后 `git status --porcelain` 为空（工作树回到 HEAD）。
+- **AC6。** `npx playwright test e2e/resident-enable-consent.spec.ts` 退出 0（3 passed，按钮路径与会话菜单转换均不受影响）；`npm run lint` 退出 0；`npm run typecheck` 退出 0；`git diff develop...HEAD --stat` 恰为 Touches 的三个文件（两个前端文件 + 新增 e2e spec）。
+- **上一轮 suite not-landed 的三条红均非本 delta**（都不在 Touches 内）：`server/modules/providers/tests/claude-resident-remote-control-isolation.test.ts`（develop 恒红）、`server/modules/providers/tests/model-gateway-end-to-end.test.ts`（tmp rmdir teardown 竞态）、`server/modules/voice/tests/voice-capture-secrets.false-forms.test.ts`（其子面 `voice-dashscope-settings.test.ts` 在舰队并发下红；单独重跑 32/32 绿）。本轮未改任何后端或 voice 文件，故不重实现。
+
+## 实现
+
+- `useChatComposerState.ts` 的 `handleKeyDown`：Enter（含 Ctrl/Cmd+Enter）不再直接调 `handleSubmit`，改为 `event.currentTarget.form?.requestSubmit()`，把按键路由到表单的 `submit` 事件。
+- `ChatComposer.tsx` 的 `handleComposerSubmit`：`event.preventDefault()` 后先过 `residentGateClosed` 门控（未勾选即拒绝），再 `setPendingResidentIntent(residentEnabled && residentAcknowledged)` 并 `onSubmit(event)`。按钮是 `type="submit"` 且其 `onClick` 已 `preventDefault()`，故按钮与 Enter 都只经此唯一入口。
