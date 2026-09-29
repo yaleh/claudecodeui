@@ -1424,6 +1424,9 @@ export default defineConfig({
         HOST: '127.0.0.1',
         DATABASE_PATH: path.join(dataDir, 'auth.db'),
         HOME: dataDir,
+        // The start-up sweep stops every orphaned session scope on the host, not only this run's; a
+        // throwaway e2e server has no business reaping the operator's.
+        CLAUDE_SESSION_SCOPE_SWEEP: 'off',
         // Absent — not empty — for every selection that names neither debug agent spec, so the gate stays
         // closed exactly as it does today. See `debugAgentFixtureHome` above.
         ...(debugAgentFixtureHome
