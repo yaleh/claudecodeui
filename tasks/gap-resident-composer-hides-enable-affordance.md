@@ -122,3 +122,15 @@ goal_ac: AC-178
 helper 逐字不动，追加本条 test；本条私有常量/helper 改名 `COMPOSER_*` 以避开顶层重名，并复用 develop 的
 `createAccount`/`armScenario`/`readLifecycleMode`/`openPage`/`PANE`/`BAR`/`RUN_STARTED_AT`。
 `playwright.config.ts` 的 `DEBUG_AGENT_SPEC_FILES` 同样取并集，条目只保留一条。
+
+## Needs-Human
+
+**执行 2026-09-29T08:35:35.519Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 3 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=61701 server/modules/session-hosts/tests/resident-server-restart.test.ts passed=false end_ms=1790670827744
+- run_id：wk-prod-anchor
+- session_id：519e2785-4289-4d32-b6aa-3b0c9fc04f74
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-resident-composer-hides-enable-affordance~wk-prod-anchor~1790670699374-d7922a.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-resident-composer-hides-enable-affordance-wk-prod-anchor.log

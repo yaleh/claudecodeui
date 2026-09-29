@@ -1,7 +1,7 @@
 ---
 id: AC-180
 title: 用 Enter 键发送与点发送按钮等价：未勾选知情不能发出，勾选后落成常驻
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-013
 criterion: npx playwright test e2e/resident-enter-send.spec.ts
@@ -16,4 +16,10 @@ origin: 人 yale 2026-09-29 指令「继续。并创建必要的 AC 和 task」�
   ChatComposer.tsx 里记录常驻意图与知情门控的 handleComposerSubmit，而后者注释声称两个入口都经过它。AC-171
   只测发送按钮，所以一直读绿。
 activatedAt: 2026-09-29T03:28:20.131Z
+statusLog:
+  - at: 2026-09-29T08:33:03.011Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 ---
