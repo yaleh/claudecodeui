@@ -87,3 +87,38 @@ goal_ac: AC-178
 - session_id：d21b265b-0dc3-4151-b7fb-2fb2ab342c64
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-resident-composer-hides-enable-affordance~wk-prod-anchor~1790663753615-0fef23.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-resident-composer-hides-enable-affordance-wk-prod-anchor.log
+
+## Evidence
+
+**本轮（2026-09-29，续跑）—— 合并 develop 后逐条复验的原始输出行。**
+
+合并 develop（58 commits，含 `CLAUDE_SESSION_SCOPE_SWEEP: 'off'` 与 session-host-manager 修复）后在真浏览器、真服务上重跑：
+
+- `npx playwright test e2e/resident-ui-layout.spec.ts -g "resident session hides enable affordance"` → **exit 0**：
+  - `resident.session=a70c1e77-8ab0-45db-bc22-cad9f2508e9b` / `session.lifecycle_mode=resident`
+  - `composer.visible=true` / `pane.visible=true`
+  - `composer.switch.count=0` / `composer.notice.count=0` / `composer.checkbox.count=0`
+  - `per-run.session=2358353e-80ce-4596-95c1-d2d17512e75f` / `session.lifecycle_mode=per-run`
+  - `composer.switch.count=1` / `per-run.switch.marker="true"`
+  - `elapsed=10691ms`（< 55000）
+- `npx vitest run src/modules/chat/tests/residentComposerEnableAffordance.test.tsx` → **exit 0**（2 passed）。
+- `npm run lint` → **exit 0**；`npm run typecheck` → **exit 0**。
+
+**AC4 假形态（真跑真红）。** 变异 diff：
+
+```
+-          {canRunResident && !isResidentSession && (
++          {canRunResident && (
+```
+
+- e2e → **exit 1**，红落在 AC2 的已常驻会话读数：`composer.switch.count=1`；逐字失败行
+  `Error: a session already stored resident has nothing left for the switch to turn on, so it must not render`
+  接 `Expected: 0` / `Received: 1`（`e2e/resident-ui-layout.spec.ts:583`）。控制腿仍为 1，故红不落在 AC3。
+- 同一变异下的 vitest → **exit 1**（resident 腿红、per-run 控制腿绿），反向腿成立。
+- `git checkout -- src/modules/chat/composer/ChatComposer.tsx` 恢复后 AC1/AC5 复绿。
+
+**并集落点（DoD「若该文件已由兄弟任务创建则追加」）。** 合并 develop 时 `e2e/resident-ui-layout.spec.ts`
+与兄弟 AC-179 的 `status bar does not cover the transcript` 发生 add/add 冲突：保留 develop 的 test 与其
+helper 逐字不动，追加本条 test；本条私有常量/helper 改名 `COMPOSER_*` 以避开顶层重名，并复用 develop 的
+`createAccount`/`armScenario`/`readLifecycleMode`/`openPage`/`PANE`/`BAR`/`RUN_STARTED_AT`。
+`playwright.config.ts` 的 `DEBUG_AGENT_SPEC_FILES` 同样取并集，条目只保留一条。
