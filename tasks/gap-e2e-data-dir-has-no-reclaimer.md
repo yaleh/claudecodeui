@@ -2,7 +2,7 @@
 id: gap-e2e-data-dir-has-no-reclaimer
 title: e2e 运行目录没有回收者（24h 内 1794 个 / 103G）耗尽用户配额 ⇒ 判据在启动前以 EDQUOT(errno −122)
   死、读起来像 AC-153 为假；给数据目录加有界保留（TTL + 清扫）并重测判据为绿
-status: needs-human
+status: done
 labels:
   - gap
   - defect
@@ -389,3 +389,6 @@ c44bf412a8d0bf3415a202c83a7903353d95430f9b96ba599a3da8764bf4bd9d  e2e/voice-erro
 - session_id：2d09df9e-ac0e-42dc-bd7d-894c6b3f0763
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-e2e-data-dir-has-no-reclaimer~wk-prod-anchor~1790602375970-6667e9.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-e2e-data-dir-has-no-reclaimer-wk-prod-anchor.log
+
+
+2026-09-29: suite red was model-gateway-end-to-end fleet flake (5/5 x3 standalone green); branch merged into author as bf1d1920; reclaimer swept 1058->461 dirs (rest <6h TTL).
