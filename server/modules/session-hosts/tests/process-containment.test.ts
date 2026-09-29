@@ -106,6 +106,17 @@ const CLEAN_FAILURE_SOURCE = 'process.exit(3)';
 const SLICE_NAME: string = DEFAULT_RESIDENT_SLICE_NAME;
 
 /**
+ * Off unless `RUN_OOM_CAP_TESTS=1`. This file drives real hogs into their cap (an `oom-kill`
+ * journal record per run, indistinguishable from a real session being killed) and rewrites the
+ * memory cap of the shared resident slice while it runs, so it must not run by default.
+ * Exits before the probe below so that nothing is created or touched.
+ */
+if (process.env.RUN_OOM_CAP_TESTS !== '1') {
+  console.error('[process-containment] disabled: set RUN_OOM_CAP_TESTS=1 to run (oom-kill journal noise, touches the shared slice)');
+  process.exit(0);
+}
+
+/**
  * The availability probe, and the exit-3 gate it guards.
  *
  * Asked of a real capped run inside the slice, not of `systemctl is-system-running`:

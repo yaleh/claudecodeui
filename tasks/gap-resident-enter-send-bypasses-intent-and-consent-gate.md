@@ -3,6 +3,7 @@ id: gap-resident-enter-send-bypasses-intent-and-consent-gate
 title: AC-180 Enter 键发送绕过常驻意图与知情门控：开关与勾选都开着按 Enter 落成 per-run，未勾选按 Enter 也能发出，让
   Enter 与发送按钮走同一入口
 status: ready
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -67,3 +68,15 @@ goal_ac: AC-180
 
 - `useChatComposerState.ts` 的 `handleKeyDown`：Enter（含 Ctrl/Cmd+Enter）不再直接调 `handleSubmit`，改为 `event.currentTarget.form?.requestSubmit()`，把按键路由到表单的 `submit` 事件。
 - `ChatComposer.tsx` 的 `handleComposerSubmit`：`event.preventDefault()` 后先过 `residentGateClosed` 门控（未勾选即拒绝），再 `setPendingResidentIntent(residentEnabled && residentAcknowledged)` 并 `onSubmit(event)`。按钮是 `type="submit"` 且其 `onClick` 已 `preventDefault()`，故按钮与 Enter 都只经此唯一入口。
+
+## Needs-Human
+
+**执行 2026-09-29T05:25:19.040Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=37090 server/modules/providers/tests/claude-resident-remote-control-isolation.test.ts passed=false end_ms=1790659347066
+- run_id：wk-prod-anchor
+- session_id：0a335775-2974-4820-a21f-22924df45f97
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-resident-enter-send-bypasses-intent-and-consent-gate~wk-prod-anchor~1790659264484-3a56fa.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-resident-enter-send-bypasses-intent-and-consent-gate-wk-prod-anchor.log
