@@ -42,6 +42,7 @@ goal_ac: AC-171
 
 ## Touches
 
+- tasks/gap-resident-i18n-duplicate-key-shadows-toggle-and-notice.md
 - `src/modules/i18n/locales/en/chat.json`
 - `src/modules/i18n/locales/zh-CN/chat.json`
 - `src/modules/i18n/tests/localeDuplicateKeys.test.ts` (new)
