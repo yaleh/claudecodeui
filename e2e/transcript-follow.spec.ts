@@ -1651,11 +1651,17 @@ const runAc109Window = async (page: Page, options: {
   const buttonAppearancesInWindow = detachTrace.__scrollButtonAppearances.length;
   const completionPresent = ((await page.locator(PANE).textContent()) ?? '').includes(completionMarker);
 
-  const offsets = detachSamples.map((sample) => sample.scrollTop);
+  // The window's frames are the gesture's: the sampler is started before the gesture so that the
+  // frames either side of it are visible, but a frame taken *before* the user moved is a frame of
+  // the pane the follow was still holding, and one of those sitting a delta below the anchor is the
+  // same pre-gesture arrival the anchor exists to exclude. Cutting here makes both readings
+  // statements about what the pane did after the user took it.
+  const windowSamples = detachSamples.filter((sample) => sample.t >= anchorT);
+  const offsets = windowSamples.map((sample) => sample.scrollTop);
   const movedUpBy = offsets.length ? anchorOffset - Math.min(...offsets) : 0;
   const highestOffsetDelta = offsets.length ? Math.max(...offsets) - anchorOffset : 0;
-  const growthsInWindow = detachSamples.filter((sample, index) => (
-    index > 0 && sample.scrollHeight > detachSamples[index - 1].scrollHeight + AC109_GAP_PX
+  const growthsInWindow = windowSamples.filter((sample, index) => (
+    index > 0 && sample.scrollHeight > windowSamples[index - 1].scrollHeight + AC109_GAP_PX
   )).length;
 
   expect(
