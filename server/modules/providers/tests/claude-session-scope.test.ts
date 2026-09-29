@@ -16,6 +16,7 @@ import {
   probeSystemdUserScope,
   resetClaudeSessionScopeProbeCache,
   resolveClaudeSessionMemoryMax,
+  resolveResidentScopeSweepEnabled,
   stopClaudeSessionScopes,
   sweepOrphanClaudeSessionScopes,
 } from '@/modules/providers/index.js';
@@ -34,6 +35,15 @@ import type { SessionScopeProcess } from '@/modules/providers/index.js';
 const OOM_CAP_SKIP = process.env.RUN_OOM_CAP_TESTS === '1'
   ? false
   : 'produces oom-kill journal records; set RUN_OOM_CAP_TESTS=1 to run';
+
+/**
+ * The sweep case stops every scope on the host whose owner pid is gone, not only the ones it
+ * created, and asserts the swept set is exactly its own fixtures — so it can stop a crashed
+ * server's leftovers and fails when any exist. It runs only on request: `RUN_HOST_WIDE_SWEEP_TESTS=1`.
+ */
+const HOST_WIDE_SWEEP_SKIP = process.env.RUN_HOST_WIDE_SWEEP_TESTS === '1'
+  ? false
+  : 'sweeps every orphan scope on the host; set RUN_HOST_WIDE_SWEEP_TESTS=1 to run';
 
 /** Cap the isolation case runs under. Small enough that a hog reaches it in well under a second. */
 const ISOLATION_CAP = '64M';
@@ -402,12 +412,8 @@ test('the hook passes cwd, env and the abort signal to the real scope', async ()
   }
 });
 
-test('stopping this server\'s scopes leaves none, and sweep takes only orphans', async () => {
+test('stopping this server\'s scopes leaves none', async () => {
   assert.equal(probeSystemdUserScope(DEFAULT_CLAUDE_SESSION_MEMORY_MAX), true);
-
-  // Anything left by an earlier crashed run has a dead owner, so this is also the state the
-  // server's own start-up sweep would leave behind.
-  sweepOrphanClaudeSessionScopes();
 
   try {
     const owned = ['one', 'two', 'three'].map((suffix) =>
@@ -425,7 +431,20 @@ test('stopping this server\'s scopes leaves none, and sweep takes only orphans',
       [],
       'the stop function must leave none of this server\'s scopes on the host',
     );
+  } finally {
+    stopClaudeSessionScopes();
+    await reapStartedScopes();
+  }
+});
 
+test('sweep takes only orphans', { skip: HOST_WIDE_SWEEP_SKIP }, async () => {
+  assert.equal(probeSystemdUserScope(DEFAULT_CLAUDE_SESSION_MEMORY_MAX), true);
+
+  // Anything left by an earlier crashed run has a dead owner, so this is also the state the
+  // server's own start-up sweep would leave behind.
+  sweepOrphanClaudeSessionScopes();
+
+  try {
     // Two scopes whose owning server is gone, and one whose owner (this process) is not.
     const deadOwnerPid = reapOneProcess();
     const orphans = ['orphan-one', 'orphan-two'].map((suffix) =>
@@ -451,6 +470,15 @@ test('stopping this server\'s scopes leaves none, and sweep takes only orphans',
     stopClaudeSessionScopes();
     await reapStartedScopes();
   }
+});
+
+test('the start-up sweep is on unless CLAUDE_SESSION_SCOPE_SWEEP turns it off', () => {
+  assert.equal(resolveResidentScopeSweepEnabled({}), true);
+  assert.equal(resolveResidentScopeSweepEnabled({ CLAUDE_SESSION_SCOPE_SWEEP: '' }), true);
+  assert.equal(resolveResidentScopeSweepEnabled({ CLAUDE_SESSION_SCOPE_SWEEP: 'on' }), true);
+  assert.equal(resolveResidentScopeSweepEnabled({ CLAUDE_SESSION_SCOPE_SWEEP: 'off' }), false);
+  assert.equal(resolveResidentScopeSweepEnabled({ CLAUDE_SESSION_SCOPE_SWEEP: ' OFF ' }), false);
+  assert.equal(resolveResidentScopeSweepEnabled({ CLAUDE_SESSION_SCOPE_SWEEP: '0' }), false);
 });
 
 test('a cap kill names the cap; a non-OOM failure does not', { skip: OOM_CAP_SKIP }, async () => {

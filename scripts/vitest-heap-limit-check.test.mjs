@@ -33,6 +33,15 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+// Off unless RUN_OOM_CAP_TESTS=1: every case runs a deliberately runaway vitest fixture with no cgroup
+// cap underneath it (the check exists to prove the V8 heap limit alone stops it), so a limit that
+// fails to hold grows the fixture until the host OOM-kills whatever shares its scope — the 2026-09-25
+// incident this check was written for. It must not run by default.
+if (process.env.RUN_OOM_CAP_TESTS !== '1') {
+  console.error('[vitest-heap-limit-check] disabled: set RUN_OOM_CAP_TESTS=1 to run (runaway fixture, no cgroup cap)');
+  process.exit(0);
+}
+
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
 const CRITERION = path.join(SCRIPT_DIR, 'vitest-heap-limit-check.sh');
 const FIXTURE_PREFIX = '.vitest-heap-check.';

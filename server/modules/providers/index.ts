@@ -89,6 +89,7 @@ export {
   resolveResidentMemoryMax,
   resolveResidentSliceName,
   resolveResidentSliceMemoryMax,
+  resolveResidentScopeSweepEnabled,
   applyResidentSliceMemoryMax,
   readResidentSliceMemoryMax,
   probeSystemdUserScope,

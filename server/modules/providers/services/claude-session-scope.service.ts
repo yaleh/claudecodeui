@@ -203,6 +203,24 @@ export function resolveResidentSliceMemoryMax(
 }
 
 /**
+ * Whether a starting server should sweep orphaned session scopes, from `CLAUDE_SESSION_SCOPE_SWEEP`.
+ *
+ * On unless the value is `off` or `0` (case- and whitespace-insensitive). The sweep is host-wide:
+ * it stops every session scope whose owner pid is gone, not only the ones this server's
+ * predecessor left. That is right for the operator's own server, and wrong for a throwaway server a
+ * test, an e2e run or a soak boots on the same host, which has no business reaping anything. Those
+ * harnesses turn it off.
+ *
+ * Consumed by `server/index.ts` at start-up, and by the harnesses that set the variable.
+ */
+export function resolveResidentScopeSweepEnabled(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  const raw = (env.CLAUDE_SESSION_SCOPE_SWEEP ?? '').trim().toLowerCase();
+  return raw !== 'off' && raw !== '0';
+}
+
+/**
  * Sets the slice's `MemoryMax`, returning whether systemd accepted it.
  *
  * `systemctl --user set-property` is a transient-unit write, so it lands on the live slice the
