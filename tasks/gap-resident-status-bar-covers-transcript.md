@@ -2,7 +2,7 @@
 id: gap-resident-status-bar-covers-transcript
 title: AC-179 视口 780x493 下常驻状态条不压住对话文字：e2e 读两边界框不相交且消息块在视口内 + 非常驻正控制 +
   假形态（状态条改绝对定位盖消息）必须红 + 结构不变量
-status: needs-human
+status: ready
 needs_human_cause: human-adjudication
 labels:
   - gap

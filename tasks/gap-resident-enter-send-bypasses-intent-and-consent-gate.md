@@ -92,3 +92,15 @@ goal_ac: AC-180
 - session_id：3db02389-572e-4c24-b529-7c3dd022f9b3
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-resident-enter-send-bypasses-intent-and-consent-gate~wk-prod-anchor~1790663177790-83b985.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-resident-enter-send-bypasses-intent-and-consent-gate-wk-prod-anchor.log
+
+## Needs-Human
+
+**执行 2026-09-29T07:12:25.654Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 4 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: not ok - server/modules/voice/tests/voice-capture-secrets.false-forms.test.ts:   AssertionError [ERR_ASSERTION]: a surface this task must not have moved is red
+- run_id：wk-prod-anchor
+- session_id：ae6b1b1f-2edf-4c13-b0fa-5d8a7625f328
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-resident-enter-send-bypasses-intent-and-consent-gate~wk-prod-anchor~1790665431912-10eb21.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-resident-enter-send-bypasses-intent-and-consent-gate-wk-prod-anchor.log
