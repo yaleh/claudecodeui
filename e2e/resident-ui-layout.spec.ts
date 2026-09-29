@@ -476,6 +476,13 @@ test('status bar does not cover the transcript', async ({ browser }) => {
  * element over the Close button and requires the same `elementFromPoint` reading to go red, naming
  * it, and to recover once it is removed. The clipping mechanism (`panelInPane`) is asserted as before.
  *
+ * What this no longer proves, stated plainly: it cannot tell the popover as it was before the AC-177
+ * fix from the fixed one. Measured — with the pre-fix component and a composer squeezed by hand until
+ * the pane ended above the Close button, this reading still hit the button, because AC-179 had
+ * already moved the bar out of the scroll box and the notice was the only thing that ever stacked
+ * over the popover. What it does prove is that the button is reachable at both viewports, that a
+ * real click closes the host, and that the hit reading itself would go red if anything covered it.
+ *
  * Why a reading and not an assertion about classes. "Clipped by the scroll container" and "painted
  * under the composer" are two different defects with two different fixes, and CSS `z-index` alone
  * cannot tell them apart. So the first thing this half does is *measure*: the close button's box,
