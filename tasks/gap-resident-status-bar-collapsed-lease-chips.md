@@ -2,7 +2,7 @@
 id: gap-resident-status-bar-collapsed-lease-chips
 title: 折叠状态条按 lease kind 展开的多个 chip 造成信息过载：合并为一个计数，per-kind 明细挪入已有 popover，同步改
   AC-172 判据 readBar() 的读取时序（两条假形态承重）
-status: ready
+status: done
 labels:
   - gap
 parent: null
