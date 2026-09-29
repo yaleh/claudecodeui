@@ -2,7 +2,7 @@
 id: gap-resident-popover-close-reachable-narrow-viewport
 title: AC-177 窄视口（780x493）下常驻状态条弹层的关闭按钮必须可点：elementFromPoint 命中自身，真实点击后宿主读回
   closed；1440x900 正控制；假形态（知情提示层叠高于弹层）必须红在命中读数上
-status: ready
+status: needs-human
 needs_human_cause: human-adjudication
 labels:
   - gap
@@ -151,4 +151,16 @@ at /data/home/yale/work/claudecodeui-worktrees/gap-resident-popover-close-reacha
 - run_id：wk-prod-anchor
 - session_id：c2c3e372-a960-4fe0-80cb-396db552b2b3
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-resident-popover-close-reachable-narrow-viewport~wk-prod-anchor~1790666404774-bd7f90.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-resident-popover-close-reachable-narrow-viewport-wk-prod-anchor.log
+
+## Needs-Human
+
+**执行 2026-09-29T07:55:49.501Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 4 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: not ok - server/modules/voice/tests/voice-capture-secrets.false-forms.test.ts:   AssertionError [ERR_ASSERTION]: a surface this task must not have moved is red
+- run_id：wk-prod-anchor
+- session_id：b65c8dc3-ad98-46bf-ae3f-9dc26013214e
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-resident-popover-close-reachable-narrow-viewport~wk-prod-anchor~1790668318001-70bf61.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-resident-popover-close-reachable-narrow-viewport-wk-prod-anchor.log
