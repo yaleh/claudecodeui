@@ -16,6 +16,7 @@ import {
     initializeSessionsWatcher,
     providerRegistry,
     providerRuntimeService,
+    resolveResidentScopeSweepEnabled,
     sessionsService,
     stopClaudeSessionScopes,
     sweepOrphanClaudeSessionScopes,
@@ -464,8 +465,12 @@ async function startServer() {
         // kernel can no longer reap them along with the server, but it also means nothing
         // collects them when the server is SIGKILLed and the shutdown path never runs. Clear
         // those orphans before this server starts adding scopes of its own; scopes whose owning
-        // server is still alive are left untouched.
-        const sweptSessionScopes = sweepOrphanClaudeSessionScopes();
+        // server is still alive are left untouched. The sweep is host-wide, so a throwaway server a
+        // test, an e2e run or a soak boots turns it off (`CLAUDE_SESSION_SCOPE_SWEEP=off`) rather
+        // than reap scopes it did not create.
+        const sweptSessionScopes = resolveResidentScopeSweepEnabled()
+            ? sweepOrphanClaudeSessionScopes()
+            : [];
         if (sweptSessionScopes.length > 0) {
             console.log(`${terminalTextStyles.info('[INFO]')} Swept ${sweptSessionScopes.length} orphaned Claude session scope(s): ${sweptSessionScopes.join(', ')}`);
         }
