@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, Copy, Play, Power, RotateCcw } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
@@ -14,6 +15,16 @@ import type { SessionHostLeaseKind } from '@/shared/types';
 
 /** How long the copy control says so before returning to its resting label. */
 const COPIED_NOTICE_MS = 1500;
+
+/** The panel's own width, matching the `w-72` class it is drawn with. */
+const POPOVER_WIDTH_PX = 288;
+/** The gap between the bar and the panel below it, matching the `mt-1` it used to be laid out with. */
+const POPOVER_GAP_PX = 4;
+/** The least distance the panel keeps from the viewport's side edges once it is clamped into them. */
+const POPOVER_VIEWPORT_MARGIN_PX = 8;
+
+/** Where the panel is pinned, in viewport coordinates. */
+type PopoverAnchor = { left: number; top: number };
 
 /**
  * Formats an elapsed span the way the uptime line reads it.
@@ -74,6 +85,52 @@ export default function ResidentStatusBar({
   const [copied, setCopied] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  /**
+   * The panel, which is no longer a descendant of the bar.
+   *
+   * Kept as a ref of its own because the outside-click rule below has to treat a press inside it as
+   * inside: a portal moves the DOM node out of `rootRef`, and a containment check that only knew
+   * about the bar would read every click on the panel's own controls as a click away from it and
+   * dismiss the panel before the button's handler could run.
+   */
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  /**
+   * Where the panel is pinned, or null while it has not been placed yet.
+   *
+   * Viewport coordinates rather than the panel's own, because the panel is rendered into
+   * `document.body`: its nearest positioned ancestor is no longer the bar, so `top-full` would
+   * resolve against the page and not against the thing it describes.
+   */
+  const [anchor, setAnchor] = useState<PopoverAnchor | null>(null);
+
+  /**
+   * Pins the panel just under the bar, clamped into the viewport.
+   *
+   * Re-run on resize and on any scroll rather than only at the moment the panel opens: the bar is
+   * `sticky`, so a scroll of the transcript can move it, and a viewport change (a rotated phone, a
+   * resized window) moves it without any scroll at all.
+   */
+  const placePopover = useCallback(() => {
+    const bar = rootRef.current;
+    if (!bar) {
+      return;
+    }
+
+    const rect = bar.getBoundingClientRect();
+    const maxLeft = Math.max(
+      POPOVER_VIEWPORT_MARGIN_PX,
+      window.innerWidth - POPOVER_WIDTH_PX - POPOVER_VIEWPORT_MARGIN_PX,
+    );
+    const next: PopoverAnchor = {
+      left: Math.min(Math.max(rect.left, POPOVER_VIEWPORT_MARGIN_PX), maxLeft),
+      top: rect.bottom + POPOVER_GAP_PX,
+    };
+    // Only when it moved: a scroll handler that set a fresh object every event would re-render the
+    // whole bar (and its polled counts) on every frame of a flick.
+    setAnchor((current) => (
+      current && current.left === next.left && current.top === next.top ? current : next
+    ));
+  }, []);
 
   // Outside-click and Escape dismiss, matching the app's other popovers. Armed
   // only while open, so a closed bar costs no document listeners.
@@ -83,9 +140,11 @@ export default function ResidentStatusBar({
     }
 
     const closeOnOutsideClick = (event: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
+      const target = event.target as Node;
+      if (rootRef.current?.contains(target) || panelRef.current?.contains(target)) {
+        return;
       }
+      setIsOpen(false);
     };
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -100,6 +159,26 @@ export default function ResidentStatusBar({
       document.removeEventListener('keydown', closeOnEscape);
     };
   }, [isOpen]);
+
+  // Placement is its own effect, and its own listeners, so that closing the panel is what removes
+  // them: a single effect keyed on `isOpen` would either leave a stale anchor behind or re-arm the
+  // document listeners every time the bar was scrolled.
+  useEffect(() => {
+    if (!isOpen) {
+      setAnchor(null);
+      return;
+    }
+
+    placePopover();
+    // Capture, not bubble: the transcript scrolls inside `.chat-messages-pane`, and a scroll there
+    // does not bubble to the window.
+    window.addEventListener('resize', placePopover);
+    window.addEventListener('scroll', placePopover, true);
+    return () => {
+      window.removeEventListener('resize', placePopover);
+      window.removeEventListener('scroll', placePopover, true);
+    };
+  }, [isOpen, placePopover]);
 
   const copyAddress = useCallback(async (address: string) => {
     try {
@@ -206,66 +285,86 @@ export default function ResidentStatusBar({
         </button>
       ) : null}
 
-      {isOpen ? (
-        <div
-          role="dialog"
-          aria-label={stateText}
-          className="absolute left-0 top-full z-30 mt-1 w-72 rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-lg"
-        >
-          <div className="mb-2">
-            <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">
-              {t('resident.statusBar.address')}
-            </span>
-            <span data-resident-address="true" className="block break-all font-mono text-xs">
-              {address}
-            </span>
-          </div>
+      {/*
+        The panel is rendered into `document.body`, not here.
 
-          <div className="mb-2 flex items-center gap-2 text-[11px] text-muted-foreground">
-            <span data-resident-pid-text="true">pid {host?.pid ?? '—'}</span>
-            <span aria-hidden="true">·</span>
-            <span data-resident-uptime="true">{formatUptime(host?.startedAt, Date.now())}</span>
-          </div>
+        It used to be `absolute top-full` inside this bar, which put it inside `.chat-messages-pane`
+        — an `overflow-y-auto overflow-x-hidden` scroll container. The panel opens downward, so on a
+        short viewport (a 780x493 window with the resident disclosure open leaves the pane about a
+        hundred pixels tall) it reached past the pane's bottom edge and the part below it was
+        *clipped*: `document.elementFromPoint` at the Close button's own centre returned the
+        composer's disclosure, which is what is painted under the pane, and the button could not be
+        clicked at all. No `z-index` fixes a clip, which is why the panel leaves the box instead of
+        out-ranking the composer — it is pinned in viewport coordinates from the bar's own rect.
 
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              data-resident-copy="true"
-              disabled={!address}
-              onClick={() => void copyAddress(address)}
-              className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs transition-colors hover:bg-accent disabled:opacity-40"
-            >
-              {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-              {copied ? t('resident.statusBar.copied') : t('resident.statusBar.copyAddress')}
-            </button>
+        Rendered only once the anchor exists, so a first frame at the viewport's origin is never
+        drawn, and unconditionally removed on close so nothing is left in `document.body`.
+      */}
+      {isOpen && anchor
+        ? createPortal(
+          <div
+            ref={panelRef}
+            role="dialog"
+            aria-label={stateText}
+            style={{ left: anchor.left, top: anchor.top }}
+            className="fixed z-30 w-72 rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-lg"
+          >
+            <div className="mb-2">
+              <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">
+                {t('resident.statusBar.address')}
+              </span>
+              <span data-resident-address="true" className="block break-all font-mono text-xs">
+                {address}
+              </span>
+            </div>
 
-            <button
-              type="button"
-              data-resident-close="true"
-              onClick={() => {
-                // The popover closes only once the close went through: on a
-                // refusal the refusal is the thing the user has to read, and it
-                // is drawn inside this panel.
-                void runAction(close, sessionId).then((closed) => {
-                  if (closed) {
-                    setIsOpen(false);
-                  }
-                });
-              }}
-              className="flex items-center gap-1 rounded-md border border-red-500/40 px-2 py-1 text-xs text-red-600 transition-colors hover:bg-red-500/10 dark:text-red-400"
-            >
-              <Power className="h-3 w-3" />
-              {t('resident.statusBar.close')}
-            </button>
-          </div>
+            <div className="mb-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+              <span data-resident-pid-text="true">pid {host?.pid ?? '—'}</span>
+              <span aria-hidden="true">·</span>
+              <span data-resident-uptime="true">{formatUptime(host?.startedAt, Date.now())}</span>
+            </div>
 
-          {actionError ? (
-            <p data-resident-action-error="true" className="mt-2 text-[11px] text-red-600 dark:text-red-400">
-              {actionError}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                data-resident-copy="true"
+                disabled={!address}
+                onClick={() => void copyAddress(address)}
+                className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs transition-colors hover:bg-accent disabled:opacity-40"
+              >
+                {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                {copied ? t('resident.statusBar.copied') : t('resident.statusBar.copyAddress')}
+              </button>
+
+              <button
+                type="button"
+                data-resident-close="true"
+                onClick={() => {
+                  // The popover closes only once the close went through: on a
+                  // refusal the refusal is the thing the user has to read, and it
+                  // is drawn inside this panel.
+                  void runAction(close, sessionId).then((closed) => {
+                    if (closed) {
+                      setIsOpen(false);
+                    }
+                  });
+                }}
+                className="flex items-center gap-1 rounded-md border border-red-500/40 px-2 py-1 text-xs text-red-600 transition-colors hover:bg-red-500/10 dark:text-red-400"
+              >
+                <Power className="h-3 w-3" />
+                {t('resident.statusBar.close')}
+              </button>
+            </div>
+
+            {actionError ? (
+              <p data-resident-action-error="true" className="mt-2 text-[11px] text-red-600 dark:text-red-400">
+                {actionError}
+              </p>
+            ) : null}
+          </div>,
+          document.body,
+        )
+        : null}
     </div>
   );
 }
