@@ -468,6 +468,14 @@ test('status bar does not cover the transcript', async ({ browser }) => {
  * comes from was Playwright's own: the disclosure's `resident.notice.bypass` paragraph took the
  * click that was aimed at the popover's Close.
  *
+ * After AC-178 the interceptor above cannot be on this page: a session that is already resident no
+ * longer renders the switch or the consent notice, and this criterion's session is resident. The
+ * criterion is unchanged in what it asks (the Close button's centre must hit the button, at both
+ * viewports, and a real click must close the host); what changed is how its reading proves it can
+ * say no. The consent notice used to be the falsifier by construction, so the test now injects an
+ * element over the Close button and requires the same `elementFromPoint` reading to go red, naming
+ * it, and to recover once it is removed. The clipping mechanism (`panelInPane`) is asserted as before.
+ *
  * Why a reading and not an assertion about classes. "Clipped by the scroll container" and "painted
  * under the composer" are two different defects with two different fixes, and CSS `z-index` alone
  * cannot tell them apart. So the first thing this half does is *measure*: the close button's box,
@@ -493,8 +501,6 @@ const TRIGGER = '[data-resident-status-bar-trigger]';
 const START = '[data-resident-start]';
 const ADDRESS = '[data-resident-address]';
 const CLOSE = '[data-resident-close]';
-const COMPOSER = '.chat-composer-shell';
-const NOTICE = '[data-slot="resident-consent-notice"]';
 
 /** The two viewports the criterion names: the failing narrow one and its positive control. */
 const NARROW = { width: 780, height: 493 };
@@ -755,14 +761,12 @@ test.describe('resident ui layout', () => {
     await expect(page.locator(PANE)).toBeVisible({ timeout: 30_000 });
     await expect(page.locator(BAR)).toBeVisible({ timeout: 30_000 });
 
-    // The composer's resident disclosure, flipped on the way a user turns it on. This is what makes
-    // the composer tall enough to matter, and it is the element the report named as the interceptor —
-    // so a reading taken without it would be a reading of a different page.
-    const toggle = page.locator(`${COMPOSER} [role="switch"]`).first();
-    await toggle.waitFor({ state: 'visible', timeout: 15_000 });
-    await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-checked', 'true', { timeout: 10_000 });
-    await expect(page.locator(NOTICE)).toBeVisible({ timeout: 10_000 });
+    // No composer switch and no disclosure here, on purpose. This session is already resident, and
+    // AC-178 keeps the switch and the consent notice off a resident session's composer — the notice
+    // that used to take this pointer can no longer be on this page. The reading below therefore asks
+    // the question that outlives that fix: whatever is over the Close button's centre, is it the
+    // button. The control after the narrow reading (an element injected over the popover) is what
+    // proves the reading can still say no.
 
     // Start the process through the bar's own control, so the host this criterion closes is one the
     // product opened rather than one this file wrote.
@@ -810,10 +814,40 @@ test.describe('resident ui layout', () => {
     // The panel must have left the scroll container: with it inside, the clip above is what makes
     // the button unreachable, and a run where this is true could only be green by luck of geometry.
     expect(narrow.panelInPane, 'the panel must not be clipped by the transcript scroll container').toBe(false);
-    // The two negative readings the criterion names: the interceptor the report saw must not be what
-    // the pointer reaches, and nothing inside the composer may be either.
-    expect(narrow.hitInNotice, 'the resident disclosure must not be what the pointer reaches').toBe(false);
+    // Nothing inside the composer may take the pointer at the close button. (The consent notice is
+    // absent on a resident session — AC-178 — so it is part of this composer check, not its own.)
+    expect(narrow.noticePresent, 'AC-178: a resident session carries no consent notice').toBe(false);
     expect(narrow.hitInComposer, 'nothing in the composer may take the pointer at the close button').toBe(false);
+
+    // --- the falsifying control ------------------------------------------------------------------
+    // The reading above is only evidence if it can say no. The product state that used to make it say
+    // no (the consent notice stacked over the popover) no longer exists, so the interceptor is put
+    // there by hand: a fixed element above everything, centred on the Close button. The same
+    // `measure` must now report that the pointer does NOT reach the button, and name the injected
+    // element; once it is removed the reading must hit the button again. Without this leg a run where
+    // `elementFromPoint` had been replaced by something that always answers "the button" would pass.
+    await page.evaluate(() => {
+      const close = document.querySelector('[data-resident-close]');
+      if (!close) throw new Error('the falsifying control needs the close button on the page');
+      const box = close.getBoundingClientRect();
+      const cover = document.createElement('div');
+      cover.setAttribute('data-e2e-falsifier', 'cover');
+      cover.style.cssText =
+        `position:fixed;z-index:2147483647;left:${box.left - 8}px;top:${box.top - 8}px;`
+        + `width:${box.width + 16}px;height:${box.height + 16}px;background:transparent;`;
+      document.body.appendChild(cover);
+    });
+    const covered = await measure(page);
+    console.log(`falsifier.hit.element=${covered.hit} falsifier.hit.isClose=${String(covered.isClose)}`);
+    expect(covered.isClose, 'an element stacked over the Close button must turn the reading red').toBe(false);
+    expect(covered.hit, 'the red must land on the hit reading and name what took the pointer').toContain(
+      'data-e2e-falsifier="cover"',
+    );
+    await page.evaluate(() => {
+      document.querySelector('[data-e2e-falsifier="cover"]')?.remove();
+    });
+    const uncovered = await measure(page);
+    expect(uncovered.isClose, 'with the injected element removed the reading must hit the button again').toBe(true);
 
     // --- the positive control viewport (AC4) ----------------------------------------------------
     await page.setViewportSize(WIDE);
