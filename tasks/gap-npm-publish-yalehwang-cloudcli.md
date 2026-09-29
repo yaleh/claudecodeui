@@ -2,7 +2,7 @@
 id: gap-npm-publish-yalehwang-cloudcli
 title: 把 fork 以 @yalehwang/cloudcli 发到 npm：改包名与仓库指向、release-it 打开 npm 发布、Release
   workflow 走 NPM_TOKEN、清掉写死的旧升级命令并反转守卫
-status: todo
+status: ready
 labels:
   - gap
 parent: null
