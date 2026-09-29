@@ -48,13 +48,13 @@ goal_ac: AC-177
 
 ## AC
 
-- [ ] AC1 判据绿：`npx playwright test e2e/resident-ui-layout.spec.ts -g "close is reachable"` 退出 **0**，打印 `elapsed=<n>ms` 且 `< 55000`。红态基线本轮实测：`ls e2e/resident-ui-layout.spec.ts` → `No such file or directory`（判据文件不存在）。
-- [ ] AC2 窄视口命中（承重）：780x493 下打印 `hit.element=<…> hit.isClose=true close.box=<…>`，断言关闭按钮中心点的 `document.elementFromPoint` 就是该按钮自身；并打印 `hit.element` 不是 `[data-slot="resident-consent-notice"]`、不在 `.chat-composer-shell` 内（两条否证读数一并打印）。
-- [ ] AC3 真实点击与宿主读回：点击后 `GET /api/session-hosts` 读回该会话 `state=closed`、`closeReason=user`、该会话不再有 live host；**正控制**：点击前同一 hostId 在快照里（打印 `host.present=true`），保证「关闭后消失」不是恒真。
-- [ ] AC4 正控制视口：1440x900 下同一 `hit.isClose=true` 读数（打印 `viewport=1440x900 hit.isClose=true`，证明 AC2 的读数不是恒假）。
-- [ ] AC5 取假形态必须红（承重）：把输入区知情提示抬到弹层之上 ⇒ 判据退出非 0，**红在 elementFromPoint 命中读数那条断言上**；登记变异 diff 与逐字失败行；恢复后 AC1 复绿。
-- [ ] AC6 结构不变量：`npx vitest run src/modules/chat/tests/residentStatusBarCloseReachable.test.tsx` 退出 **0**；该文件含**反向腿**（把弹层放回裁剪容器/降层叠 ⇒ 该 vitest 红），证明它不是恒绿。
-- [ ] AC7 门控与契约：`playwright.config.ts` 的 `DEBUG_AGENT_SPEC_FILES` 含 `'resident-ui-layout.spec.ts'`，且非本 spec 选择下 `webServer.env` 逐字不变（`git diff` 只多这一项与一行注释）；`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**。
+- [x] AC1 判据绿：`npx playwright test e2e/resident-ui-layout.spec.ts -g "close is reachable"` 退出 **0**，打印 `elapsed=<n>ms` 且 `< 55000`。红态基线本轮实测：`ls e2e/resident-ui-layout.spec.ts` → `No such file or directory`（判据文件不存在）。
+- [x] AC2 窄视口命中（承重）：780x493 下打印 `hit.element=<…> hit.isClose=true close.box=<…>`，断言关闭按钮中心点的 `document.elementFromPoint` 就是该按钮自身；并打印 `hit.element` 不是 `[data-slot="resident-consent-notice"]`、不在 `.chat-composer-shell` 内（两条否证读数一并打印）。
+- [x] AC3 真实点击与宿主读回：点击后 `GET /api/session-hosts` 读回该会话 `state=closed`、`closeReason=user`、该会话不再有 live host；**正控制**：点击前同一 hostId 在快照里（打印 `host.present=true`），保证「关闭后消失」不是恒真。
+- [x] AC4 正控制视口：1440x900 下同一 `hit.isClose=true` 读数（打印 `viewport=1440x900 hit.isClose=true`，证明 AC2 的读数不是恒假）。
+- [x] AC5 取假形态必须红（承重）：把输入区知情提示抬到弹层之上 ⇒ 判据退出非 0，**红在 elementFromPoint 命中读数那条断言上**；登记变异 diff 与逐字失败行；恢复后 AC1 复绿。
+- [x] AC6 结构不变量：`npx vitest run src/modules/chat/tests/residentStatusBarCloseReachable.test.tsx` 退出 **0**；该文件含**反向腿**（把弹层放回裁剪容器/降层叠 ⇒ 该 vitest 红），证明它不是恒绿。
+- [x] AC7 门控与契约：`playwright.config.ts` 的 `DEBUG_AGENT_SPEC_FILES` 含 `'resident-ui-layout.spec.ts'`，且非本 spec 选择下 `webServer.env` 逐字不变（`git diff` 只多这一项与一行注释）；`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**。
 
 ## DoD
 
@@ -75,3 +75,61 @@ goal_ac: AC-177
 - `src/modules/chat/ChatInterface.tsx`
 - `src/modules/chat/tests/residentStatusBarCloseReachable.test.tsx` (new)（结构不变量 vitest）
 - `tasks/gap-resident-popover-close-reachable-narrow-viewport.md`（自触）
+
+## Evidence
+
+> 本轮（2026-09-29）实测读数。`hit.*` / `close.box` / `host.*` 全部是判据自身 console.log 的**原始输出行**，逐字复制，不是转述。
+
+**AC1 判据绿。** `npx playwright test e2e/resident-ui-layout.spec.ts -g "close is reachable"` → 退出 **0**，尾部 `1 passed (13.7s)`，末行 `elapsed=13889ms`（`< 55000`）。`npx playwright test e2e/resident-ui-layout.spec.ts --list` → `Total: 1 test in 1 file`。修前红态基线：`ls e2e/resident-ui-layout.spec.ts` → `No such file or directory`。
+
+**AC2 窄视口命中（780x493）。**
+
+```
+viewport=780x493 hit.element=button data-resident-close="true" hit.isClose=true close.box={"left":430,"top":202,"right":580,"bottom":228,"width":150,"height":26}
+popover.box={"left":305,"top":124,"right":593,"bottom":241,"width":288,"height":117} pane.box={"left":289,"top":86,"right":780,"bottom":128,"width":491,"height":42} composer.box={"left":289,"top":128,"right":780,"bottom":493,"width":491,"height":365} notice.box={"left":318,"top":173,"right":751,"bottom":347,"width":433,"height":174} notice.present=true panel.inPane=false popover.overlapsPaneEdge=true
+hit.inNotice=false hit.inComposer=false
+```
+
+命中元素确是关闭按钮自身；两条否证读数 `hit.inNotice=false`、`hit.inComposer=false`。`panel.inPane=false` 是命中之所以成立的原因：弹层已离开 `.chat-messages-pane` 裁剪盒（`popover.bottom=241 > pane.bottom=128`，仍在盒内时下半部会被 `overflow-y-auto overflow-x-hidden` 裁掉）。
+
+**AC3 真实点击与宿主读回。**
+
+```
+host.present=true host.id=host-9d5f130c-1ff6-400c-80c2-4c24d982da6e
+close.request=200 host.state.after=closed closeReason.after=user liveHost.after=absent
+```
+
+`host.present=true` 是正控制：同一 hostId 在点击**前**就在 `GET /api/session-hosts` 快照里，所以「关闭后 live host 消失」不是恒真。
+
+**AC4 正控制视口（1440x900）。**
+
+```
+viewport=1440x900 hit.element=button data-resident-close="true" hit.isClose=true close.box={"left":430,"top":230,"right":580,"bottom":256,"width":150,"height":26} panel.inPane=false
+```
+
+**AC5 假形态真跑真红。** 变异存于 `/tmp/mutation-ac177.diff`：把弹层从 `createPortal(…, document.body)` + `fixed` 退回修前的行内 `absolute left-0 top-full` 形状，即让它重新落回被裁剪的滚动盒——这是**机制变异**，与缺陷的真实机制一致（裁剪，非层叠）。同一条命令 → 退出 **1**：
+
+```
+viewport=780x493 hit.element=p hit.isClose=false close.box={"left":431,"top":200,"right":581,"bottom":226,"width":150,"height":26}
+popover.box={"left":306,"top":123,"right":594,"bottom":239,"width":288,"height":116} pane.box={"left":289,"top":86,"right":780,"bottom":128,"width":491,"height":42} composer.box={"left":289,"top":128,"right":780,"bottom":493,"width":491,"height":365} notice.box={"left":318,"top":173,"right":751,"bottom":347,"width":433,"height":174} notice.present=true panel.inPane=true popover.overlapsPaneEdge=true
+hit.inNotice=true hit.inComposer=true
+```
+
+红逐字落在承重的 elementFromPoint 命中断言上：
+
+```
+Error: elementFromPoint at the close button's centre returned p — panel.inPane=true popover.bottom=239 pane.bottom=128
+> 417 |     ).toBe(true);
+      |       ^
+at /data/home/yale/work/claudecodeui-worktrees/gap-resident-popover-close-reachable-narrow-viewport/e2e/resident-ui-layout.spec.ts:417:7
+```
+
+`hit.element=p` 正是 `origin` 记录的知情提示元素，`hit.inNotice=true` / `panel.inPane=true` 一并读出。恢复（`git checkout -- src/modules/chat/transcript/ResidentStatusBar.tsx`）后 AC1 复绿：`elapsed=13889ms`、退出 0；此后 `git status --porcelain` 干净。
+
+**AC6 结构不变量。** `npm run test:client -- src/modules/chat/tests/residentStatusBarCloseReachable.test.tsx` → 退出 **0**，`Test Files 1 passed (1)` / `Tests 2 passed (2)`，`Duration 638ms`。反向腿在文件内：第二条 test 用 `harness.inline`（`createPortal` 退化成原地渲染 ⇒ 弹层放回裁剪容器）把第一条 test 的两条谓词**全部翻转**（`panel.closest('.chat-messages-pane') !== null` 由 false→true，`panel.parentElement === document.body` 由 true→false）；两条若同时绿，谓词就是失效的。
+
+**AC7 门控与契约。** `git diff develop...HEAD -- playwright.config.ts` 逐字只多两行——一行注释 + `'resident-ui-layout.spec.ts',`，插在 `'resident-running-view.spec.ts',` 之后（并集语义，取的是附加而非替换）；`webServer.env` 一字未动。`npm run lint` 退出 **0**（只剩既有 warning；`categories.correctness = "error"` 未触发）。`npm run typecheck` 退出 **0**。
+
+**改动面与 Touches。** `git diff develop...HEAD --name-only` → `e2e/resident-ui-layout.spec.ts`（新）、`playwright.config.ts`、`src/modules/chat/tests/residentStatusBarCloseReachable.test.tsx`（新）、`src/modules/chat/transcript/ResidentStatusBar.tsx`。Touches 另列的三条（`ChatMessagesPane.tsx` / `ChatComposer.tsx` / `ChatInterface.tsx`）是**先量后判**的结果：读数定因是裁剪而非层叠，portal 即在不动状态条位置语义的前提下消除裁剪，故无需移动状态条、无需抬 z-index、无需改输入区。
+
+**修因（由读数判决，非猜测）。** 窄视口下 `popover.bottom=241 > pane.bottom=128`：弹层自状态条向下展开时越过 `.chat-messages-pane` 的下沿，被 `overflow-y-auto overflow-x-hidden` 裁掉下半部，`elementFromPoint` 在关闭按钮中心命中的是裁剪盒之下画着的输入区知情提示。裁剪不是层叠，z-index 救不了——所以弹层移出该盒（portal 到 `document.body`，以 `fixed` 按状态条 rect 钉住并做视口边缘钳制），而不是去和输入区比层叠。既有的外点关闭（`mousedown` outside）与 Escape 语义、以及 AC-172 已钉的 `data-resident-status-bar*` / `data-resident-close` DOM 契约都保持不变。
