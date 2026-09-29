@@ -20,9 +20,10 @@ permissions:
 # to immutable commit SHAs. The trailing comments keep the original major tag
 # visible for maintenance context.
 #
-# This is the FORK release path for yaleh/claudecodeui. It produces a GitHub
-# Release only: it does NOT publish to npm (the `@cloudcli-ai/cloudcli` scope
-# belongs to upstream siteboon) and it pushes the release commit/tag to the
+# This is the FORK release path for yaleh/claudecodeui. It cuts a GitHub Release
+# and publishes the package to npm as `@yalehwang/cloudcli`, authenticated with
+# the `NPM_TOKEN` secret (this fork is not configured for npm trusted publishing,
+# so OIDC is deliberately not used). It pushes the release commit/tag to the
 # `yaleh` remote named by .release-it.json's `git.pushRepo`, never `origin`
 # (which points at upstream siteboon/claudecodeui).
 jobs:
@@ -37,9 +38,12 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PAT }}
 
+      # `registry-url` writes an .npmrc that reads the token from NODE_AUTH_TOKEN at publish time,
+      # so the secret never lands in the workflow file or the release commit.
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 22
+          registry-url: https://registry.npmjs.org
 
       - name: git config
         run: |
@@ -66,9 +70,9 @@ jobs:
         id: release
         run: |
           # Stream subprocess output so publishing errors are visible immediately.
-          # `--no-npm.publish` is belt-and-braces on top of .release-it.json's
-          # `npm.publish: false`: even a config regression must not reach npm.
-          ARGS=(--ci --verbose --verbose --no-npm.publish "--increment=$RELEASE_INCREMENT")
+          # The npm publish is driven by .release-it.json's `npm.publish: true`;
+          # NODE_AUTH_TOKEN below is what actions/setup-node's registry-url .npmrc reads.
+          ARGS=(--ci --verbose --verbose "--increment=$RELEASE_INCREMENT")
           if [ -n "$RELEASE_NAME" ]; then
             ARGS+=("--github.releaseName=$RELEASE_NAME")
           fi
@@ -77,3 +81,4 @@ jobs:
           RELEASE_INCREMENT: ${{ inputs.increment }}
           RELEASE_NAME: ${{ inputs.release_name }}
           GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
