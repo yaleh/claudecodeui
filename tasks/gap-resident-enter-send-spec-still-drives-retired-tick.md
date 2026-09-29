@@ -2,7 +2,7 @@
 id: gap-resident-enter-send-spec-still-drives-retired-tick
 title: AC-180 的 Enter 判据仍驱动已退休的知情勾选框：重写 e2e/resident-enter-send.spec.ts
   到「开关即意图」的当前设计、收窄 AC-180 记录并清掉提交入口的过期注释
-status: ready
+status: done
 labels:
   - gap
   - defect
