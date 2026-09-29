@@ -1397,16 +1397,93 @@ const readAc109PaneWrites = (page: Page) =>
       .__ac109PaneWrites?.writes ?? []);
 
 /**
+ * The pane's geometry at the instant the user's own gesture was delivered to it.
+ *
+ * `scrollTop` here is the offset the gesture starts from, and it is correct for that role because
+ * an input event's default action — the scroll a wheel or a PageUp performs — runs *after* the
+ * event has been dispatched, so a synchronous read taken on the way through the event is the
+ * pre-scroll value. That is only true of a *blocking* listener: a passive one lets the wheel's
+ * scroll run first, and the same read then returns the offset the gesture has already moved to
+ * (measured here — a passive listener read `539 − 30` where the pane stood at `539`). The
+ * listener below is therefore registered `passive: false`, and the two halves of the case are what
+ * the flag is measured against: the wheel anchors at the pane's standing offset and the keyboard
+ * at the same one, with `movedUpBy` 30 and 402 respectively. `t` is the same clock the sampler and
+ * the write counters use, which is what lets the window cut its records at the moment the user
+ * moved.
+ */
+type Ac109InputAnchor = {
+  /** Milliseconds since the page's time origin, taken as the input was dispatched. */
+  t: number;
+  /** The gesture's starting offset — read before the input's default scroll action runs. */
+  scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
+  /** The input that anchored this window: `wheel` or `keydown`. */
+  type: string;
+};
+
+/**
+ * Anchors the window at the user's own input, rather than at the stub that set the window up.
+ *
+ * The window's claims are about what the *user's gesture* did — "the gesture moved the viewport
+ * up", "nothing moved it back while the user was holding it" — so the frame of reference has to be
+ * the gesture, not the moment a few CDP round trips earlier when the harness started reading. The
+ * reply behind this case delivers a delta every 250 ms and each delta makes the row taller by more
+ * than a hundred pixels, so a delta landing between the stub and the gesture leaves the follow
+ * legitimately holding the pane and pushing the offset *down* before the user has touched
+ * anything. Read against the stub-time offset, that arrival is indistinguishable from a gesture
+ * the app ignored: the offset the samples start from is a whole delta below the reference, which
+ * is the `-90` this window used to fail with. The arrival is not the window's behaviour, so it is
+ * measured where it belongs — before the window — and the reference is taken here.
+ *
+ * A capture-phase listener on `window` is the earliest point the input is observable at, and the
+ * first input of a window is the gesture: the case sends exactly one, and the harness aims and
+ * focuses before it does. `wheel` and `keydown` are the two the criterion covers — the same pair
+ * the case's own two halves send — and neither is re-delivered by the follow's own writes, which
+ * go through `scrollTop` and therefore never look like an input.
+ */
+const installAc109InputAnchor = (page: Page) =>
+  page.evaluate(() => {
+    const state = { anchor: null as Ac109InputAnchor | null };
+    (window as unknown as { __ac109Anchor?: typeof state }).__ac109Anchor = state;
+    for (const type of ['wheel', 'keydown']) {
+      window.addEventListener(type, () => {
+        if (state.anchor) return;
+        const pane = document.querySelector('.chat-messages-pane') as HTMLElement | null;
+        if (!pane) return;
+        state.anchor = {
+          t: performance.now(),
+          scrollTop: pane.scrollTop,
+          scrollHeight: pane.scrollHeight,
+          clientHeight: pane.clientHeight,
+          type,
+        };
+        // `passive: false` is load-bearing, not boilerplate: a passive wheel listener lets this
+        // event's own scroll run before the listener does, and `scrollTop` above would then be the
+        // offset the gesture already reached instead of the one it started from.
+      }, { capture: true, passive: false });
+    }
+  });
+
+/** The input the window was anchored at, or null if the gesture never arrived as one. */
+const readAc109InputAnchor = (page: Page) =>
+  page.evaluate(() => {
+    const state = (window as unknown as { __ac109Anchor?: { anchor: Ac109InputAnchor | null } }).__ac109Anchor;
+    return state?.anchor ?? null;
+  });
+
+/**
  * The offsets a window sampled, and the moment the gesture was dispatched in between them.
  *
  * Kept as the reading a red run needs: "a write landed" is only actionable once it is known
  * whether it landed before the gesture took effect or after it, and the frame times are what
- * say which.
+ * say which — the input anchor is the same reading one step earlier, so a red run can show what
+ * the reference was taken from as well as where the gesture landed against it.
  */
 const describeAc109Window = (
   samples: Ac109Sample[],
   writes: { value: number; t: number; frames: string[] }[],
-  gesture: { startedAt: number; endedAt: number },
+  gesture: { startedAt: number; endedAt: number; anchor?: Ac109InputAnchor | null },
   trace?: ScrollInstruments,
 ) => JSON.stringify({
   // The four geometry fields rather than the offset alone: a write whose value is past the pane's
@@ -1419,7 +1496,16 @@ const describeAc109Window = (
     Math.round(sample.clientHeight),
   ]),
   writes: writes.map((write) => ({ value: Math.round(write.value), t: Math.round(write.t), frames: write.frames })),
-  gesture: { startedAt: Math.round(gesture.startedAt), endedAt: Math.round(gesture.endedAt) },
+  gesture: {
+    startedAt: Math.round(gesture.startedAt),
+    endedAt: Math.round(gesture.endedAt),
+    // The reference the window's two offset readings were actually taken against, and the input
+    // that provided it. Without it a red run cannot say whether the baseline was the gesture's own
+    // offset or one a pre-gesture arrival had already pushed away.
+    anchor: gesture.anchor
+      ? { t: Math.round(gesture.anchor.t), scrollTop: Math.round(gesture.anchor.scrollTop), type: gesture.anchor.type }
+      : null,
+  },
   // What the page saw the user do and what it reported back. The write above is only attributable
   // once it is placed against these: an input the app had seen and not yet acted on, a report that
   // arrived after the write, or a button that mounted before it are three different defects.
@@ -1504,11 +1590,20 @@ const runAc109Window = async (page: Page, options: {
     }, { timeout: 30_000, message: `${label}: the reply never filled the pane while the follow kept it at the bottom` })
     .toBe(true);
 
-  // The baseline and the counters are taken here rather than earlier: what the window measures is
-  // the window, and a write the app made while the reply was filling the pane says nothing about
-  // whether the gesture was respected.
-  const before = await readGeometry(page);
+  // The counters are installed here rather than earlier, and the *reference* is not taken here at
+  // all: what the window measures is the window, and a write the app made while the reply was
+  // filling the pane says nothing about whether the gesture was respected. The reference is the
+  // one thing that cannot be read at this point — the probe above, the button count below, the
+  // instrument clear and the sampler start are five to six round trips between here and the
+  // gesture, and the reply delivers a delta every 250 ms, so a delta landing in that gap leaves the
+  // follow legitimately pushing the offset down before the user has touched anything. Read against
+  // this line's offset, that arrival is indistinguishable from a gesture the app ignored, which is
+  // the false red this window used to produce. The reference is therefore taken from the gesture's
+  // own input event (`installAc109InputAnchor`), and `stubOffset` is kept alongside it as the
+  // diagnostic that says how far the pane travelled between the stub and the gesture.
+  const stubOffset = (await readGeometry(page)).scrollTop;
   await installAc109PaneWriteCounter(page);
+  await installAc109InputAnchor(page);
   // The window's premise, and the reason it is asserted before the gesture rather than trusted:
   // the claims below say "this gesture took the pane and nothing gave it back", which is only a
   // statement about this gesture if the pane arrived under the follow's control. A pane that was
@@ -1529,9 +1624,27 @@ const runAc109Window = async (page: Page, options: {
   await page.waitForTimeout(AC109_DETACH_WINDOW_MS);
 
   const detachSamples = await stopAc109Sampler(page);
-  const paneWrites = await readAc109PaneWrites(page);
+  // The gesture's own frame of reference, read after the fact (it is recorded synchronously as the
+  // input is dispatched, so nothing the gesture does can move what it says). Its absence is a
+  // reading of its own rather than a reason to fall back to the stub: the gesture is delivered
+  // through the browser's input path, and a window whose gesture never arrived as an input has no
+  // reference that belongs to it.
+  const anchor = await readAc109InputAnchor(page);
+  expect(
+    anchor,
+    `${label}: the gesture has to arrive as an input event on the pane, or the window has no frame of reference of its own and its baseline would be the stub's`,
+  ).not.toBeNull();
+  // Every reading below is cut at the gesture's own input moment. `anchor.scrollTop` is the offset
+  // the user's gesture started from — the input's default scroll has not run yet when it is read —
+  // and the write records are filtered to `t >= anchor.t`, so a write the follow made *before* the
+  // user touched the pane is "before the window" rather than the window's behaviour. Both are the
+  // same defect seen from two sides: the stub is a few round trips wide, the reply fills that gap,
+  // and what happened in it says nothing about whether the gesture was respected.
+  const anchorOffset = anchor!.scrollTop;
+  const anchorT = anchor!.t;
+  const paneWrites = (await readAc109PaneWrites(page)).filter((write) => write.t >= anchorT);
   const detachTrace = await readInstruments(page);
-  const pageWrites = detachTrace.__scrollWrites;
+  const pageWrites = detachTrace.__scrollWrites.filter((write) => write.t >= anchorT);
   const buttonVisible = await page.locator(SCROLL_BUTTON).isVisible().catch(() => false);
   // The mounts seen *inside* the window: the control is rendered from the intent the pane reports,
   // so one appearing here is this gesture's detach and not a state the window inherited.
@@ -1539,8 +1652,8 @@ const runAc109Window = async (page: Page, options: {
   const completionPresent = ((await page.locator(PANE).textContent()) ?? '').includes(completionMarker);
 
   const offsets = detachSamples.map((sample) => sample.scrollTop);
-  const movedUpBy = offsets.length ? before.scrollTop - Math.min(...offsets) : 0;
-  const highestOffsetDelta = offsets.length ? Math.max(...offsets) - before.scrollTop : 0;
+  const movedUpBy = offsets.length ? anchorOffset - Math.min(...offsets) : 0;
+  const highestOffsetDelta = offsets.length ? Math.max(...offsets) - anchorOffset : 0;
   const growthsInWindow = detachSamples.filter((sample, index) => (
     index > 0 && sample.scrollHeight > detachSamples[index - 1].scrollHeight + AC109_GAP_PX
   )).length;
@@ -1559,11 +1672,11 @@ const runAc109Window = async (page: Page, options: {
   // without the offset moving — as a write.
   expect(
     highestOffsetDelta,
-    `${label}: the pane must never be moved back down while the user is holding it, against a baseline of ${Math.round(before.scrollTop)} (${describeAc109Window(detachSamples, paneWrites, { startedAt: gestureStartedAt, endedAt: gestureEndedAt }, detachTrace)})`,
+    `${label}: the pane must never be moved back down while the user is holding it, against the gesture's own baseline of ${Math.round(anchorOffset)} at t${Math.round(anchorT)} (the stub read ${Math.round(stubOffset)}; ${describeAc109Window(detachSamples, paneWrites, { startedAt: gestureStartedAt, endedAt: gestureEndedAt, anchor }, detachTrace)})`,
   ).toBeLessThanOrEqual(AC109_GAP_PX);
   expect(
     paneWrites,
-    `${label}: the pane's own offset must not be written at all while the user holds it (${describeAc109Window(detachSamples, paneWrites, { startedAt: gestureStartedAt, endedAt: gestureEndedAt }, detachTrace)})`,
+    `${label}: the pane's own offset must not be written at all while the user holds it (${describeAc109Window(detachSamples, paneWrites, { startedAt: gestureStartedAt, endedAt: gestureEndedAt, anchor }, detachTrace)})`,
   ).toEqual([]);
   expect(
     pageWrites,
