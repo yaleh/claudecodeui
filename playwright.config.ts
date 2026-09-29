@@ -1383,6 +1383,9 @@ const DEBUG_AGENT_SPEC_FILES: readonly string[] = [
   'resident-busy-send.spec.ts',
   // The running-view criterion: same provider and control plane again, so the same argument holds.
   'resident-running-view.spec.ts',
+  // The composer-layout criterion: arms two sessions off the same clock (one stored resident, one
+  // per-run) to read the switch's presence and absence in one run, so it needs the same control plane.
+  'resident-ui-layout.spec.ts',
 ];
 const debugAgentFixtureHome = selectedSpecFiles().some((file) => DEBUG_AGENT_SPEC_FILES.includes(file))
   ? path.join(dataDir, 'debug-agent-home')
