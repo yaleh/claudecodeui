@@ -49,12 +49,12 @@ goal_ac: AC-178
 
 ## AC
 
-- [ ] AC1 判据绿：`npx playwright test e2e/resident-ui-layout.spec.ts -g "resident session hides enable affordance"` 退出 **0**，打印 `elapsed=<n>ms` 且 `< 55000`。红态基线（本轮实测）：`ls e2e/resident-ui-layout.spec.ts` → `No such file or directory`。
-- [ ] AC2 已常驻会话隐藏（承重）：判据打印 `resident.session=<id>` 与 `session.lifecycle_mode=resident`——该值来自 `GET /api/session-hosts` 的 `data.sessions[].lifecycleMode`（不是客户端自造）；`page.goto('/session/<R>')` 后 `.chat-composer-shell` 内 `composer.switch.count=0`、`composer.notice.count=0`、`composer.checkbox.count=0`，三条各配 `expect(...).toBe(0)`。另打印 `composer.visible=true` 与 `pane.visible=true`，证明「0」不是空白页/未渲染的读数（否定假阳性）。
-- [ ] AC3 正控制（证明读数不是恒空）：同一次运行里 arm 的 per-run 会话 P 打印 `per-run.session=<id>` 与 `session.lifecycle_mode=per-run`，`.chat-composer-shell` 内 `composer.switch.count=1` 且该元素带 `[data-resident-enable="true"]`，配 `expect(...).toBe(1)`。AC2 的「0」与 AC3 的「1」来自**同一个选择器、同一次运行**。
-- [ ] AC4 假形态必须红（承重）：把 `ChatComposer.tsx:615` 的渲染门还原为 `canRunResident`（无论模式都渲染开关与通知）⇒ 判据退出非 0，**红在 AC2 的已常驻会话读数断言上**（`composer.switch.count` 读到 1；控制腿仍为 1，故红不落在 AC3）；登记变异 diff、逐字失败行、退出码；恢复后 AC1 复绿。
-- [ ] AC5 结构不变量（非 e2e，给 scoped gate 一条可跑文件）：`npx vitest run src/modules/chat/tests/residentComposerEnableAffordance.test.tsx` 退出 **0**；该文件**含反向腿**（把 mock 宿主快照的该会话改回 `per-run`、或把渲染门改回无条件 ⇒ 该 vitest 红），证明它不是恒绿。读数只用 `[data-resident-enable]` / `[data-slot="resident-consent-notice"]`，不用 `resident.toggle` / `resident.notice.*`（现为 `undefined`）。
-- [ ] AC6 门控与契约：`playwright.config.ts` 的 `DEBUG_AGENT_SPEC_FILES` 含 `'resident-ui-layout.spec.ts'`，且非本 spec 选择下 `webServer.env` 逐字不变（`git diff` 只多这一项与一行注释）；`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**。
+- [x] AC1 判据绿：`npx playwright test e2e/resident-ui-layout.spec.ts -g "resident session hides enable affordance"` 退出 **0**，打印 `elapsed=<n>ms` 且 `< 55000`。红态基线（本轮实测）：`ls e2e/resident-ui-layout.spec.ts` → `No such file or directory`。
+- [x] AC2 已常驻会话隐藏（承重）：判据打印 `resident.session=<id>` 与 `session.lifecycle_mode=resident`——该值来自 `GET /api/session-hosts` 的 `data.sessions[].lifecycleMode`（不是客户端自造）；`page.goto('/session/<R>')` 后 `.chat-composer-shell` 内 `composer.switch.count=0`、`composer.notice.count=0`、`composer.checkbox.count=0`，三条各配 `expect(...).toBe(0)`。另打印 `composer.visible=true` 与 `pane.visible=true`，证明「0」不是空白页/未渲染的读数（否定假阳性）。
+- [x] AC3 正控制（证明读数不是恒空）：同一次运行里 arm 的 per-run 会话 P 打印 `per-run.session=<id>` 与 `session.lifecycle_mode=per-run`，`.chat-composer-shell` 内 `composer.switch.count=1` 且该元素带 `[data-resident-enable="true"]`，配 `expect(...).toBe(1)`。AC2 的「0」与 AC3 的「1」来自**同一个选择器、同一次运行**。
+- [x] AC4 假形态必须红（承重）：把 `ChatComposer.tsx:615` 的渲染门还原为 `canRunResident`（无论模式都渲染开关与通知）⇒ 判据退出非 0，**红在 AC2 的已常驻会话读数断言上**（`composer.switch.count` 读到 1；控制腿仍为 1，故红不落在 AC3）；登记变异 diff、逐字失败行、退出码；恢复后 AC1 复绿。
+- [x] AC5 结构不变量（非 e2e，给 scoped gate 一条可跑文件）：`npx vitest run src/modules/chat/tests/residentComposerEnableAffordance.test.tsx` 退出 **0**；该文件**含反向腿**（把 mock 宿主快照的该会话改回 `per-run`、或把渲染门改回无条件 ⇒ 该 vitest 红），证明它不是恒绿。读数只用 `[data-resident-enable]` / `[data-slot="resident-consent-notice"]`，不用 `resident.toggle` / `resident.notice.*`（现为 `undefined`）。
+- [x] AC6 门控与契约：`playwright.config.ts` 的 `DEBUG_AGENT_SPEC_FILES` 含 `'resident-ui-layout.spec.ts'`，且非本 spec 选择下 `webServer.env` 逐字不变（`git diff` 只多这一项与一行注释）；`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**。
 
 ## DoD
 

@@ -7,7 +7,28 @@ labels:
   - gap
 parent: null
 children: []
-extra: {}
+extra:
+  worker_attribution: 2026-09-29 AC-181 round2 — the prior park's 'could not be
+    attributed' reason is a misattribution. Merged develop into the branch
+    (HEAD^2=005f70a3); the quoted red
+    server/modules/debug-agent/tests/debug-agent-external-write.test.ts is now
+    GREEN standalone (tests 4 / pass 4) — it was branch-lag (branch was 7
+    commits behind develop, replaying a defect develop had already fixed). Sole
+    remaining standalone red =
+    server/modules/providers/tests/claude-resident-remote-control-isolation.test.ts
+    subtests (3) 'Timed out after 20000ms waiting for the mutated build to open
+    a resident host despite the enabled user settings' and (4) SQLITE_ERROR —
+    reproduced 2/2 this round, matching the prior 3/3 record, i.e. a
+    DETERMINISTIC regression on develop, not this task's delta (subtests 1/2a/2b
+    are green, so resident launch itself is fine). claude-resident-addressable /
+    -busy-input / -unattended-turn are the known resident-family load flakes.
+    This task's own files passed in the last suite; scoped gate green;
+    anti-drift green; AC 7/7. Do NOT re-implement. The blocker is a sibling
+    criterion regression (owner gap-claude-resident-remote-control-isolation,
+    status done, last code commit b5f25751; bisect window = commits after
+    b5f25751 touching server/modules/session-hosts/ or
+    server/modules/providers/); it reds every fan-in and re-dispatch cannot
+    clear it — needs a separate repair task or human adjudication.
 goal_ac: AC-181
 ---
 ## Proposal
