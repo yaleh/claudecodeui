@@ -2,7 +2,7 @@
 id: gap-resident-enter-send-bypasses-intent-and-consent-gate
 title: AC-180 Enter 键发送绕过常驻意图与知情门控：开关与勾选都开着按 Enter 落成 per-run，未勾选按 Enter 也能发出，让
   Enter 与发送按钮走同一入口
-status: ready
+status: needs-human
 needs_human_cause: human-adjudication
 labels:
   - gap
@@ -127,4 +127,16 @@ goal_ac: AC-180
 - run_id：wk-prod-anchor
 - session_id：f290484a-6ef0-4525-83a1-d188bcd70740
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-resident-enter-send-bypasses-intent-and-consent-gate~wk-prod-anchor~1790667415753-4cc212.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-resident-enter-send-bypasses-intent-and-consent-gate-wk-prod-anchor.log
+
+## Needs-Human
+
+**执行 2026-09-29T08:03:07.264Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 7 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: not ok - server/modules/voice/tests/voice-capture-secrets.false-forms.test.ts:   AssertionError [ERR_ASSERTION]: a surface this task must not have moved is red
+- run_id：wk-prod-anchor
+- session_id：d972d2f3-419f-497e-876f-2c9a34295323
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-resident-enter-send-bypasses-intent-and-consent-gate~wk-prod-anchor~1790668750666-e79796.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-resident-enter-send-bypasses-intent-and-consent-gate-wk-prod-anchor.log
