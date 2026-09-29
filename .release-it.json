@@ -2,13 +2,14 @@
   "git": {
     "commitMessage": "chore(release): v${version}",
     "tagName": "v${version}",
-    "requireBranch": "main",
-    "requireCleanWorkingDir": true
+    "requireBranch": "develop",
+    "requireCleanWorkingDir": true,
+    "requireUpstream": false,
+    "pushRepo": "yaleh"
   },
   "npm": {
-    "publish": true,
-    "skipChecks": true,
-    "publishArgs": ["--access public", "--loglevel warn"]
+    "publish": false,
+    "skipChecks": true
   },
   "github": {
     "release": true,

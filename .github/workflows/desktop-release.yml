@@ -8,6 +8,11 @@ on:
         required: false
         type: string
 
+# The fork (yaleh/claudecodeui) ships Windows only: there is no Apple signing
+# certificate, so the macOS desktop job is gone and nothing here references the
+# Apple signing secrets or the macOS disk-image artifact. The Windows job auto-selects signed vs unsigned
+# from WINDOWS_CSC_LINK/WINDOWS_CSC_KEY_PASSWORD, and the local-server runtime is
+# built for whatever platform runs (see scripts/release/build-server-bundle.js).
 jobs:
   resolve-release:
     name: Resolve release metadata
@@ -43,88 +48,6 @@ jobs:
             echo "tag=$TAG"
             echo "server_bundle_tag=cloudcli-local-server-${TAG}"
           } >> "$GITHUB_OUTPUT"
-
-  build-macos:
-    name: Build signed macOS desktop app
-    needs: resolve-release
-    runs-on: macos-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Configure release server bundle source
-        env:
-          SERVER_BUNDLE_TAG: ${{ needs.resolve-release.outputs.server_bundle_tag }}
-        run: printf '{"releaseTag":"%s"}\n' "$SERVER_BUNDLE_TAG" > electron/server-bundle-config.json
-
-      - name: Verify macOS signing secrets are configured
-        run: |
-          test -n "$CSC_LINK"
-          test -n "$CSC_KEY_PASSWORD"
-          test -n "$APPLE_ID"
-          test -n "$APPLE_APP_SPECIFIC_PASSWORD"
-          test -n "$APPLE_TEAM_ID"
-        env:
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-
-      - name: Build signed and notarized macOS artifacts
-        run: npm run desktop:dist:mac -- --publish never
-        env:
-          CLOUDCLI_SEMANTICS_BUILD_REQUIRED: "1"
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-
-      - name: Build macOS local server bundle
-        run: node scripts/release/build-server-bundle.js
-
-      - name: Stage macOS release assets
-        run: |
-          mkdir -p desktop-release-assets server-release-assets
-          test -n "$(find release/desktop -maxdepth 1 -name '*.dmg' -print -quit)"
-          shasum -a 256 release/desktop/*.dmg > desktop-release-assets/SHASUMS256-macos.txt
-          cp release/desktop/*.dmg desktop-release-assets/
-
-          test -n "$(find release/local-server -maxdepth 1 -name 'cloudcli-local-server-*.tar.gz' -print -quit)"
-          test -n "$(find release/local-server -maxdepth 1 -name 'cloudcli-local-server-*.tar.gz.sha256' -print -quit)"
-          cp release/local-server/* server-release-assets/
-
-      - name: Upload macOS desktop assets
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: desktop-release-macos
-          path: desktop-release-assets/*
-          if-no-files-found: error
-
-      - name: Upload macOS server assets
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: server-release-macos
-          path: server-release-assets/*
-          if-no-files-found: error
 
   build-windows:
     name: Build Windows desktop app
@@ -220,7 +143,6 @@ jobs:
     name: Publish desktop release
     needs:
       - resolve-release
-      - build-macos
       - build-windows
     runs-on: ubuntu-latest
     permissions:
@@ -242,9 +164,7 @@ jobs:
 
       - name: Verify release assets
         run: |
-          test -n "$(find release/desktop -maxdepth 1 -name '*.dmg' -print -quit)"
           test -n "$(find release/desktop -maxdepth 1 -name '*.exe' -print -quit)"
-          test -f release/desktop/SHASUMS256-macos.txt
           test -f release/desktop/SHASUMS256-windows.txt
           test -n "$(find release/local-server -maxdepth 1 -name 'cloudcli-local-server-*.tar.gz' -print -quit)"
           test -n "$(find release/local-server -maxdepth 1 -name 'cloudcli-local-server-*.tar.gz.sha256' -print -quit)"
