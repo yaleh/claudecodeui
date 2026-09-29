@@ -59,6 +59,7 @@ import type { AddressInfo } from 'node:net';
 
 import WebSocket from 'ws';
 
+import { stopResidentScopes } from '@/modules/providers/index.js';
 import { RESIDENT_NOT_RUNNING_REASON } from '@/modules/session-hosts/index.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -778,6 +779,10 @@ test('a stopped or killed server leaves no resident process behind, and the next
   const scopes = readScopes();
   const mock = await startMockAnthropic();
   const booted: ServerReading[] = [];
+  // The real pid of every server this run booted. The marker file is shared across the boots, so
+  // `serverPid()` only ever names the latest one; a pid is captured at each boot instead. It is
+  // what owns the session scopes, and the only thing the cleanup below may stop.
+  const ownerPids = new Set<number>();
   const chats: ChatSocket[] = [];
 
   // The Claude CLI keeps its onboarding state next to the home directory rather
@@ -796,6 +801,10 @@ test('a stopped or killed server leaves no resident process behind, and the next
   const boot = async (): Promise<ServerReading> => {
     const server = await bootServer({ tempRoot });
     booted.push(server);
+    const ownerPid = server.serverPid();
+    if (ownerPid !== null) {
+      ownerPids.add(ownerPid);
+    }
     return server;
   };
 
@@ -1098,11 +1107,18 @@ test('a stopped or killed server leaves no resident process behind, and the next
         server.stop('SIGKILL', null);
       }
     }
-    // Anything the criterion started that is still alive is stopped by the
-    // scopes that own it — and if scopes are unavailable, by pid.
-    for (const unit of scopes.units()) {
-      spawnSync('systemctl', ['--user', 'stop', unit], { stdio: 'ignore' });
-      spawnSync('systemctl', ['--user', 'reset-failed', unit], { stdio: 'ignore' });
+    // Anything the criterion started that is still alive is stopped by the scopes that own it —
+    // and if scopes are unavailable, by pid. Only scopes owned by a server this run booted: the
+    // listing is host-wide, and stopping every `claudecodeui-session-*` unit on it also stopped the
+    // sessions of the operator's own running server.
+    for (const server of booted) {
+      const ownerPid = server.serverPid();
+      if (ownerPid !== null) {
+        ownerPids.add(ownerPid);
+      }
+    }
+    for (const ownerPid of ownerPids) {
+      stopResidentScopes(ownerPid);
     }
     await mock.close();
     await fsp.rm(tempRoot, { recursive: true, force: true });
