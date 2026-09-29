@@ -2,7 +2,7 @@
 id: gap-transcript-follow-ac109-window-baseline-race
 title: AC-109 判据偶发假红（本轮 1/3，与 driver 同形同值 −90）：窗口的参照 offset 与写记录锚在设桩之前，慢速流式的一个
   delta（≈120px）落进设桩间隙，被读成「手势没把视图上移」
-status: todo
+status: ready
 labels:
   - gap
   - defect
