@@ -7,13 +7,11 @@ import type { APIRequestContext, Browser, Page } from '@playwright/test';
 /**
  * The shipped English wording, read off the disk rather than restated here.
  *
- * Every string this spec names — the switch, the disclosure and its tick, the send button — is the app's
- * own copy, so a spec that carried its own would keep passing after the locale file changed while the
- * words a user meets did not.
+ * The switch this spec names is the app's own copy, so a spec that carried its own would keep passing after
+ * the locale file changed while the words a user meets did not.
  */
 type ChatLocale = {
-  resident: { toggle: string; notice: { acknowledge: string } };
-  input: { send: string };
+  resident: { toggle: string };
 };
 
 const enChat = JSON.parse(
@@ -30,14 +28,20 @@ const enChat = JSON.parse(
 // local state. The host half is read from the same endpoint's `hosts` array, so "a resident host really
 // exists for this session" is the process table's answer, not an inference from the switch.
 //
-// `e2e/resident-enable-consent.spec.ts` already proves the SEND BUTTON goes through the consent gate and
-// lands the session resident. That spec cannot see this defect: it only ever presses the button, while the
-// Enter path reached the send directly and skipped both the intent and the gate. This file's whole job is to
-// read those two facts off the key.
+// The switch POSITION is the whole of the intent. The consent gate that used to stand between the switch and
+// the send — and the disclosure tick that armed it — was retired by the 2026-09-29 product change
+// (`gap-resident-toggle-relocate-drop-consent-gate`), and its locale key is gone from every `chat.json`. So
+// this file drives the switch and nothing else; there is no separate tick state left for it to set.
+//
+// The two cases are the pair the reading needs. (a) is the load-bearing one: with the switch on, Enter must
+// record the resident intent through the composer's submit entry, so the server stores the session resident
+// and a resident host process holds it. (b) is the positive control: with the switch off, the same key must
+// send and land `per-run` — without it the `resident` reading above would have no resolution, since it would
+// score the same for every session. `e2e/resident-enable-consent.spec.ts` (AC-171) presses the SEND BUTTON;
+// that spec cannot see this defect, because the Enter path used to reach the send directly and skip the
+// intent the switch was showing. Reading the key is this file's whole job.
 
 const COMPOSER = '[data-slot="prompt-input-textarea"]';
-/** The composer's send button, named by the shipped label rather than by a hard-coded word. */
-const SEND_BUTTON = `button[aria-label="${enChat.input.send}"]`;
 /** The disclosure component's own slot — the marker its module declares. */
 const NOTICE = '[data-slot="resident-consent-notice"]';
 const AUTH_TOKEN_KEY = 'auth-token';
@@ -180,10 +184,6 @@ const sessionModes = async (request: APIRequestContext): Promise<Map<string, str
 const modeOf = async (request: APIRequestContext, sessionId: string) =>
   (await sessionModes(request)).get(sessionId);
 
-/** The number of session rows the server holds — the reading AC3's "会话总数不变" is a statement about. */
-const sessionTotal = async (request: APIRequestContext): Promise<number> =>
-  (await sessionHosts(request)).sessions.length;
-
 /** True while some live host holds `sessionId` under the given mode. */
 const hostHolds = async (request: APIRequestContext, sessionId: string, mode: string): Promise<boolean> => {
   const { hosts } = await sessionHosts(request);
@@ -235,10 +235,6 @@ const waitForHost = async (
 
 const composer = (page: Page) => page.locator(COMPOSER);
 
-/** The composer's send button, read the way AC3 compares the key against: `disabled` is the button's gate. */
-const submitDisabled = (page: Page) =>
-  page.locator(SEND_BUTTON).evaluate((element) => (element as HTMLButtonElement).disabled);
-
 /**
  * The seeded project's own row, whichever of the sidebar's two designs is on screen.
  *
@@ -288,12 +284,13 @@ const openComposer = async (page: Page) => {
 const residentToggle = (page: Page) => page.getByRole('switch', { name: enChat.resident.toggle });
 
 /**
- * Opens the composer and, when asked, flips the resident switch on and leaves it unticked.
+ * Opens the composer and, when asked, flips the resident switch on.
  *
- * The three legs differ only in this prefix, so it lives in one place: the switch OFF is the positive
- * control's state, the switch ON is the gate's, and the tick is what separates AC2 from AC3.
+ * The two legs differ only in this prefix, so it lives in one place: the switch OFF is the positive
+ * control's state, the switch ON is the one whose Enter send must land resident. Nothing is ticked
+ * afterwards — the switch position is the whole of the intent, so there is no separate tick to set.
  */
-const openResidentComposer = async (page: Page, { switchOn, acknowledge }: { switchOn: boolean; acknowledge?: boolean }) => {
+const openResidentComposer = async (page: Page, { switchOn }: { switchOn: boolean }) => {
   await page.goto('/');
   await openComposer(page);
 
@@ -306,9 +303,6 @@ const openResidentComposer = async (page: Page, { switchOn, acknowledge }: { swi
   ).toBeVisible({ timeout: 15_000 });
   await toggle.click();
   await expect(page.locator(NOTICE), 'opening the switch must disclose the mode in place').toBeVisible();
-  if (acknowledge) {
-    await page.getByRole('checkbox', { name: enChat.resident.notice.acknowledge }).check();
-  }
 };
 
 test.describe.configure({ mode: 'serial' });
@@ -320,10 +314,10 @@ test.beforeAll(async ({ browser }) => {
   await bootstrapAuth(browser);
 });
 
-test('AC2: Enter with the disclosure ticked allocates a resident session, and a resident host holds it', async ({ page, request }) => {
+test('AC-180 (a): Enter with the resident switch on allocates a resident session, and a resident host holds it', async ({ page, request }) => {
   await setSelectedProvider(request, RESIDENT_PROVIDER);
   await restoreSession(page, RESIDENT_PROVIDER);
-  await openResidentComposer(page, { switchOn: true, acknowledge: true });
+  await openResidentComposer(page, { switchOn: true });
 
   const textarea = composer(page);
   await textarea.fill('enter key resident probe');
@@ -337,8 +331,8 @@ test('AC2: Enter with the disclosure ticked allocates a resident session, and a 
   console.log(`session.lifecycle_mode=${createdMode}`);
   expect(
     createdMode,
-    'the session a ticked Enter send is addressed to must read back as resident from the server — the key '
-      + 'reached the send without recording the resident intent it was given',
+    'the session an Enter send addressed with the switch on must read back as resident from the server — the '
+      + 'key reached the send without recording the resident intent the switch was showing',
   ).toBe('resident');
 
   const heldByResidentHost = await waitForHost(request, createdSessionId, 'resident');
@@ -352,53 +346,7 @@ test('AC2: Enter with the disclosure ticked allocates a resident session, and a 
   ).toBe(true);
 });
 
-test('AC3: Enter with the switch on but the disclosure unticked sends nothing and keeps the draft', async ({ page, request }) => {
-  await setSelectedProvider(request, RESIDENT_PROVIDER);
-  await restoreSession(page, RESIDENT_PROVIDER);
-  await openResidentComposer(page, { switchOn: true, acknowledge: false });
-
-  const textarea = composer(page);
-  const draft = 'enter key gate probe';
-  await textarea.fill(draft);
-
-  // The premise the assertion is about: with the switch on and nothing ticked, the composer is in the one
-  // state where the consent gate is the ONLY thing that can refuse a send. An empty composer would be
-  // refused for a reason of its own and could not witness this gate.
-  const gate = await submitDisabled(page);
-  console.log(`gate.closed=${gate}`);
-  expect(gate, 'with the switch on and the box unticked the send button must be disabled').toBe(true);
-
-  const pathBefore = new URL(page.url()).pathname;
-  const totalBefore = await sessionTotal(request);
-  console.log(`sessions.before=${totalBefore}`);
-
-  await textarea.press('Enter');
-  // The send the buggy key produces is asynchronous (allocate the session, then navigate), so the
-  // unchanged readings are taken after a bound that clears that write rather than on the next frame.
-  await page.waitForTimeout(1_500);
-
-  const pathAfter = new URL(page.url()).pathname;
-  const totalAfter = await sessionTotal(request);
-  const valueAfter = await textarea.inputValue();
-  console.log(`pathname=${pathAfter}`);
-  console.log(`sessions.after=${totalAfter}`);
-  console.log(`composer.value=${JSON.stringify(valueAfter)}`);
-
-  expect(
-    { pathname: pathAfter },
-    'an unticked Enter must open no session — a send here would navigate to the new session row',
-  ).toEqual({ pathname: pathBefore });
-  expect(
-    totalAfter,
-    `an unticked Enter must not allocate a session; the server held ${totalBefore} before and ${totalAfter} after`,
-  ).toBe(totalBefore);
-  expect(
-    valueAfter,
-    'an unticked Enter must keep the draft — a send would have cleared the composer',
-  ).toBe(draft);
-});
-
-test('AC4: Enter with the switch off still sends, and lands per-run', async ({ page, request }) => {
+test('AC-180 (b) control: Enter with the resident switch off still sends, and lands per-run', async ({ page, request }) => {
   await setSelectedProvider(request, RESIDENT_PROVIDER);
   await restoreSession(page, RESIDENT_PROVIDER);
   // No switch interaction at all: this is the shape every non-resident send has always had.

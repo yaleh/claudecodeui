@@ -1211,11 +1211,11 @@ export function useChatComposerState({
         }
 
         // Both Enter bindings submit the composer form rather than calling this hook's `handleSubmit`
-        // directly. The form's own submit handler is the composer's `handleComposerSubmit`, which is
-        // the single entry that records the resident intent and enforces the consent gate in front of
-        // it; reaching `handleSubmit` from here would skip both, which is the defect this closes. The
-        // form is the one entry every path shares, so the key press is routed to it instead of being
-        // given a send of its own.
+        // directly. The form's own submit handler is the composer's `handleComposerSubmit`, the single
+        // entry that records the resident intent — the switch position is the whole of it, and nothing
+        // stands in front of the send. Reaching `handleSubmit` from here would skip that recording,
+        // which is the defect this closes. The form is the one entry every path shares, so the key
+        // press is routed to it instead of being given a send of its own.
         if ((event.ctrlKey || event.metaKey) && !event.shiftKey) {
           event.preventDefault();
           event.currentTarget.form?.requestSubmit();
