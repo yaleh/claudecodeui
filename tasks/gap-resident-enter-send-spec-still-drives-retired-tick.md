@@ -45,14 +45,14 @@ goal_ac: AC-180
 
 ## AC
 
-- [ ] AC1 判据绿：`npx playwright test e2e/resident-enter-send.spec.ts` 退出 **0**；打印 `session.lifecycle_mode=resident`、`host.resident.bindsSession=true`、`control.lifecycle_mode=per-run`。红态基线：改判据前退出非 0（红落在 :310 的勾选步骤）。
-- [ ] AC2 (a) 承重：开关打开（全程无任何勾选态）后按 Enter 发送，服务端 `GET /api/session-hosts` 读回该会话 `lifecycleMode` 逐字 `resident`，且 `hosts` 里存在 `mode=resident`、`state!=closed`、`bindings` 含该会话 id 的宿主。
-- [ ] AC3 正控制：开关关闭时按 Enter 发送，同一端点读回 `per-run`，证明 AC2 的读数不是恒 `resident`。
-- [ ] AC4 判据不再驱动已退休的闸门：`grep -nE "acknowledge|getByRole\('checkbox'\)|resident.notice.acknowledge" e2e/resident-enter-send.spec.ts` 命中 **0**。
-- [ ] AC5 假形态必须红（承重）：Enter 路径绕过记录常驻意图的单一入口（直接调 `handleSubmit`）⇒ 判据退出非 **0**，红落在 (a) 的 resident 读数上；登记变异 diff、失败断言逐字、退出码；恢复后复绿。
-- [ ] AC6 AC-180 记录已同步：`quay goal show AC-180 --json` 的 `expect`/`title` 不再含「未勾选」「勾选」字样，改为「开关打开即代表意图，Enter 与发送按钮仍是同一提交入口」；`criterion` 逐字仍为 `npx playwright test e2e/resident-enter-send.spec.ts`。
-- [ ] AC7 过期注释已清：`grep -n "consent gate" src/modules/chat/hooks/useChatComposerState.ts` 命中 **0**。
-- [ ] AC8 契约面：`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**；`git diff --name-only $(git merge-base develop HEAD) HEAD` 全部落在 `## Touches` 内。
+- [x] AC1 判据绿：`npx playwright test e2e/resident-enter-send.spec.ts` 退出 **0**；打印 `session.lifecycle_mode=resident`、`host.resident.bindsSession=true`、`control.lifecycle_mode=per-run`。红态基线：改判据前退出非 0（红落在 :310 的勾选步骤）。
+- [x] AC2 (a) 承重：开关打开（全程无任何勾选态）后按 Enter 发送，服务端 `GET /api/session-hosts` 读回该会话 `lifecycleMode` 逐字 `resident`，且 `hosts` 里存在 `mode=resident`、`state!=closed`、`bindings` 含该会话 id 的宿主。
+- [x] AC3 正控制：开关关闭时按 Enter 发送，同一端点读回 `per-run`，证明 AC2 的读数不是恒 `resident`。
+- [x] AC4 判据不再驱动已退休的闸门：`grep -nE "acknowledge|getByRole\('checkbox'\)|resident.notice.acknowledge" e2e/resident-enter-send.spec.ts` 命中 **0**。
+- [x] AC5 假形态必须红（承重）：Enter 路径绕过记录常驻意图的单一入口（直接调 `handleSubmit`）⇒ 判据退出非 **0**，红落在 (a) 的 resident 读数上；登记变异 diff、失败断言逐字、退出码；恢复后复绿。
+- [x] AC6 AC-180 记录已同步：`quay goal show AC-180 --json` 的 `expect`/`title` 不再含「未勾选」「勾选」字样，改为「开关打开即代表意图，Enter 与发送按钮仍是同一提交入口」；`criterion` 逐字仍为 `npx playwright test e2e/resident-enter-send.spec.ts`。
+- [x] AC7 过期注释已清：`grep -n "consent gate" src/modules/chat/hooks/useChatComposerState.ts` 命中 **0**。
+- [x] AC8 契约面：`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**；`git diff --name-only $(git merge-base develop HEAD) HEAD` 全部落在 `## Touches` 内。
 
 ## DoD
 
