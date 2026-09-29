@@ -3,7 +3,7 @@ id: gap-claude-resident-remote-control-isolation-arm-outside-harness
 title: AC-176 判据的假形态臂 (3)/(4) 在环境 DB 未迁移时恒红：arm (3) 不走 withRemoteControlHarness
   ⇒ createSdkResidentProcess 的 launch-spec 解析读 provider_models 抛 no such table ⇒
   宿主未注册、20s 超时；让判据自带它需要的 DB 事实
-status: needs-human
+status: done
 needs_human_cause: human-adjudication
 labels:
   - gap
