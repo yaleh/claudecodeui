@@ -42,11 +42,11 @@ extra:
 
 ## AC
 
-- [ ] AC1 结构性判据绿（新判据，承重）：`npx vitest run src/modules/chat/tests/residentStatusBarLeaseSummary.test.tsx` 退出 **0**；判据打印 `trigger.leaseKindNodes=0`（触发按钮内没有任何 `[data-lease-kind]`）、`trigger.summaryText=<合并计数文案>`、`popover.leaseKindNodes=<N>`（N = 不同 kind 数）、`popover.countSum=<M>` 且 `M === trigger.summaryCount`（合并数字等于 popover 里各 kind 计数之和）。**正控制**：把 fixture 的 lease 从 3 条改成 0 条重渲染，`trigger.summaryText` 变为空/不渲染（证明数字不是写死的常量）。**反向腿（承重）**：把 chip 渲染逻辑改回放在触发按钮内 ⇒ 该判据退出非 0，红落在 `trigger.leaseKindNodes=0` 这条断言上；恢复后复绿。
-- [ ] AC2 AC-172 已验收判据在新布局下仍然全绿：`npx playwright test e2e/resident-status-bar.spec.ts` 退出 **0**，打印 `elapsed=<n>ms` 且 `< 55000`（`playwright.config.ts` 的 `SINGLE_SPEC_CEILING_MS`）。判据自身原有的 12 条 AC 编号（AC1–AC12，对照 `gap-claude-resident-status-bar.md` 完成记录）逐条仍产出与其原始断言语义一致的读数（不要求数值逐字复现，要求断言仍成立，尤其是 AC3 的「the bar counts the leases the listing reports, kind for kind」）。
-- [ ] AC3 假形态必须红（承重）：把 `readBar()` 的「先开 popover 再读 pill」步骤去掉（其余不改），`npx playwright test e2e/resident-status-bar.spec.ts` 退出非 **0**，且红**落在原 AC3 的 kind-for-kind 断言上**（登记变异 diff、失败断言逐字、退出码）；恢复后同一命令复绿。
-- [ ] AC4 12 个 locale 补齐：`resident.statusBar.activeCount` 在 `src/modules/i18n/locales/{de,en,es,fr,id,it,ja,ko,ru,tr,zh-CN,zh-TW}/chat.json` 里都存在且非空，任一缺失以非 0 退出并点名文件（沿用既有 i18n 完整性判据的读法，见 `i18n-completeness` 相关判据或等价的一条新脚本）。
-- [ ] AC5 契约面：`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**；`git diff --name-only $(git merge-base develop HEAD) HEAD` 全部落在 `## Touches` 内。
+- [x] AC1 结构性判据绿（新判据，承重）：`npx vitest run src/modules/chat/tests/residentStatusBarLeaseSummary.test.tsx` 退出 **0**；判据打印 `trigger.leaseKindNodes=0`（触发按钮内没有任何 `[data-lease-kind]`）、`trigger.summaryText=<合并计数文案>`、`popover.leaseKindNodes=<N>`（N = 不同 kind 数）、`popover.countSum=<M>` 且 `M === trigger.summaryCount`（合并数字等于 popover 里各 kind 计数之和）。**正控制**：把 fixture 的 lease 从 3 条改成 0 条重渲染，`trigger.summaryText` 变为空/不渲染（证明数字不是写死的常量）。**反向腿（承重）**：把 chip 渲染逻辑改回放在触发按钮内 ⇒ 该判据退出非 0，红落在 `trigger.leaseKindNodes=0` 这条断言上；恢复后复绿。
+- [x] AC2 AC-172 已验收判据在新布局下仍然全绿：`npx playwright test e2e/resident-status-bar.spec.ts` 退出 **0**，打印 `elapsed=<n>ms` 且 `< 55000`（`playwright.config.ts` 的 `SINGLE_SPEC_CEILING_MS`）。判据自身原有的 12 条 AC 编号（AC1–AC12，对照 `gap-claude-resident-status-bar.md` 完成记录）逐条仍产出与其原始断言语义一致的读数（不要求数值逐字复现，要求断言仍成立，尤其是 AC3 的「the bar counts the leases the listing reports, kind for kind」）。
+- [x] AC3 假形态必须红（承重）：把 `readBar()` 的「先开 popover 再读 pill」步骤去掉（其余不改），`npx playwright test e2e/resident-status-bar.spec.ts` 退出非 **0**，且红**落在原 AC3 的 kind-for-kind 断言上**（登记变异 diff、失败断言逐字、退出码）；恢复后同一命令复绿。
+- [x] AC4 12 个 locale 补齐：`resident.statusBar.activeCount` 在 `src/modules/i18n/locales/{de,en,es,fr,id,it,ja,ko,ru,tr,zh-CN,zh-TW}/chat.json` 里都存在且非空，任一缺失以非 0 退出并点名文件（沿用既有 i18n 完整性判据的读法，见 `i18n-completeness` 相关判据或等价的一条新脚本）。
+- [x] AC5 契约面：`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**；`git diff --name-only $(git merge-base develop HEAD) HEAD` 全部落在 `## Touches` 内。
 
 ## DoD
 
