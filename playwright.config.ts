@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { defineConfig } from '@playwright/test';
 
 import { fsAvailableBytes, resolveE2eDataDir } from './scripts/e2e-data-dir-selection.mjs';
+import { reclaimDataDirs } from './scripts/e2e-data-dir-retention.mjs';
 import {
   ASSEMBLY_TEMP_ROOT_ENV,
   PROBE_FILE_NAME,
@@ -67,6 +68,37 @@ process.env.QUAY_E2E_DATA_DIR = dataDir;
  */
 if (process.env.QUAY_E2E_DATA_DIR_OWNER === undefined) {
   process.env.QUAY_E2E_DATA_DIR_OWNER = String(isDataDirOwner);
+}
+
+/**
+ * Reclaims the run directories earlier runs left behind, before this run starts writing.
+ *
+ * Every run creates a directory under the parent the selector chose and nothing used to remove it, so
+ * the parent grew at the run rate forever. Measured on this host on 2026-09-28: `~/.cache/quay-e2e-tmp`
+ * held 1794 directories / 103 GB, all created within 24 hours — and the pool is a *user quota*, not a
+ * filesystem size, so `df` still reported 3.3 TB free while writes failed with `EDQUOT` (`errno -122`).
+ * The failures landed before any test started (Playwright's own transform-cache `open`, a `copyfile` of
+ * the auth database, an `mkdtemp` of the next run's directory), which is what made a green criterion
+ * report as red for reasons none of its own assertions could name.
+ *
+ * Only the owner sweeps: a worker re-evaluates this file long after the run is under way, and its
+ * `dataDir` is the directory being protected, not one to reclaim against. The directory this run just
+ * created is excluded, so the sweep can never remove the run it is part of — and it is passed as an
+ * absolute path, which the module reduces to the name it compares against.
+ *
+ * The work is bounded (2 s by default) and never fatal: the module reports what it could not read or
+ * remove instead of throwing, because a run that died of its own housekeeping would be the defect this
+ * closes arriving from the other side. The bound drains the pool over runs rather than all at once: at
+ * the ~89 ms measured for a 3371-file directory it reclaims ~20 directories per run, against the one
+ * directory a run creates. `scripts/e2e-data-dir-retention.mjs` is the module; `npm run e2e:reclaim`
+ * is the same sweep as a manual entry, unbounded and with the byte count reported.
+ */
+if (isDataDirOwner) {
+  reclaimDataDirs({
+    parent: path.dirname(dataDir),
+    exclude: [dataDir],
+    log: (line) => console.log(line),
+  });
 }
 
 /**
