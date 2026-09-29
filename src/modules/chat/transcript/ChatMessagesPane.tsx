@@ -202,171 +202,193 @@ function ChatMessagesPane({
   const paneBottomPadding = hasActivityIndicator && !isMobile ? 'pb-12 md:pb-14' : 'pb-3 sm:pb-4';
 
   return (
-    <div
-      ref={scrollContainerRef}
-      // Focusable so the pane itself can be scrolled from the keyboard. A wheel
-      // and a touch drag are delivered to whatever is under the pointer, but
-      // PageUp and the arrow keys act on the element that has focus — without
-      // this the browser scrolls the document instead, the pane reports no
-      // `scroll` at all, and a keyboard gesture is invisible to the intent
-      // machinery that keeps a transcript the user took over where they put it.
-      // -1 rather than 0: the pane joins no tab order, it is only focusable.
-      tabIndex={-1}
-      onWheel={onWheel}
-      onTouchMove={onTouchMove}
-      className={`chat-messages-pane relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden pt-3 sm:pt-4 ${paneBottomPadding}`}
-    >
-      {/* The resident process's own status, pinned beside the export control
-          rather than inside it: it describes the session's process, so it is
-          not conditional on there being a transcript to export, and it renders
-          itself away for a session that is not resident — `empty:hidden` is
-          what keeps this wrapper from reserving a row of its own on every
-          session that has no resident process. */}
-      <div className="pointer-events-none sticky right-4 top-3 z-10 mb-2 flex justify-start empty:hidden sm:px-4">
+    // The resident process's status sits on a row of its own, *above* the scroll
+    // container rather than inside it. Inside was the wrong side of the box
+    // boundary: `.chat-messages-pane` is `overflow-y-auto`, so anything in it is
+    // clipped to the pane and scrolls with the transcript, and a bar that wrapped
+    // onto a second line pushed the first turn down by its own height while its
+    // sticky box could still come to rest over the row starting underneath it.
+    // Outside the scroll box the two cannot overlap at all: the row takes its
+    // height from the bar and the transcript begins below wherever that ends.
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* Drawn for every session, and removed by `empty:hidden` on every session
+          whose bar renders itself away (anything not stored `resident`), so a
+          non-resident transcript reserves no row of its own — the same bargain
+          the wrapper made when it lived inside the pane. */}
+      <div className="pointer-events-none flex justify-start pt-3 empty:hidden sm:px-4 sm:pt-4">
         <ResidentStatusBar
           sessionId={currentSessionId ?? selectedSession?.id ?? null}
           t={t}
         />
       </div>
-      {chatMessages.length > 0 && (
-        <div className="pointer-events-none sticky right-4 top-3 z-10 mb-2 flex justify-end sm:px-4">
-          <div className="pointer-events-auto">
-            <ChatExportMenu
-              messages={chatMessages}
-              sessionTitle={selectedSession?.summary || selectedSession?.title}
-              provider={provider}
-              selectedProject={selectedProject}
-              createDiff={createDiff}
-              onLoadFullTranscript={onLoadFullTranscript}
-            />
-          </div>
-        </div>
-      )}
-      {/* Always rendered, so the follow's observer is attached for the empty and
-          loading states too and never has to be re-attached mid-session. */}
       <div
-        ref={scrollContentRef}
-        className="mx-auto w-full max-w-[54.25rem] space-y-3 px-4 sm:space-y-4"
+        ref={scrollContainerRef}
+        // Focusable so the pane itself can be scrolled from the keyboard. A wheel
+        // and a touch drag are delivered to whatever is under the pointer, but
+        // PageUp and the arrow keys act on the element that has focus — without
+        // this the browser scrolls the document instead, the pane reports no
+        // `scroll` at all, and a keyboard gesture is invisible to the intent
+        // machinery that keeps a transcript the user took over where they put it.
+        // -1 rather than 0: the pane joins no tab order, it is only focusable.
+        tabIndex={-1}
+        onWheel={onWheel}
+        onTouchMove={onTouchMove}
+        className={`chat-messages-pane relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden pt-3 sm:pt-4 ${paneBottomPadding}`}
       >
-      {(isLoadingSessionMessages || isProcessing) && chatMessages.length === 0 ? (
-        <div className="mt-8 text-center text-gray-500 dark:text-gray-400">
-          <div className="flex items-center justify-center space-x-2">
-            <div className="h-4 w-4 animate-spin rounded-full border-b-2 border-gray-400" />
-            <p>{t('session.loading.sessionMessages')}</p>
+        {chatMessages.length > 0 && (
+          <div className="pointer-events-none sticky right-4 top-3 z-10 mb-2 flex justify-end sm:px-4">
+            <div className="pointer-events-auto">
+              <ChatExportMenu
+                messages={chatMessages}
+                sessionTitle={selectedSession?.summary || selectedSession?.title}
+                provider={provider}
+                selectedProject={selectedProject}
+                createDiff={createDiff}
+                onLoadFullTranscript={onLoadFullTranscript}
+              />
+            </div>
           </div>
-        </div>
-      ) : chatMessages.length === 0 ? (
-        <ProviderSelectionEmptyState
-          selectedSession={selectedSession}
-          currentSessionId={currentSessionId}
-          provider={provider}
-          setProvider={setProvider}
-          textareaRef={textareaRef}
-          providerModels={providerModels}
-          setProviderModel={setProviderModel}
-          providerModelCatalog={providerModelCatalog}
-          providerModelActions={providerModelActions}
-          providerModelsLoading={providerModelsLoading}
-          tasksEnabled={tasksEnabled}
-          isTaskMasterInstalled={isTaskMasterInstalled}
-          onShowAllTasks={onShowAllTasks}
-          setInput={setInput}
-        />
-      ) : (
-        <>
-          {/* Loading indicator for older messages (hide when load-all is active) */}
-          {isLoadingMoreMessages && !isLoadingAllMessages && !allMessagesLoaded && (
-            <div className="py-3 text-center text-gray-500 dark:text-gray-400">
-              <div className="flex items-center justify-center space-x-2">
-                <div className="h-4 w-4 animate-spin rounded-full border-b-2 border-gray-400" />
-                <p className="text-sm">{t('session.loading.olderMessages')}</p>
-              </div>
+        )}
+        {/* Always rendered, so the follow's observer is attached for the empty and
+            loading states too and never has to be re-attached mid-session. */}
+        <div
+          ref={scrollContentRef}
+          className="mx-auto w-full max-w-[54.25rem] space-y-3 px-4 sm:space-y-4"
+        >
+        {(isLoadingSessionMessages || isProcessing) && chatMessages.length === 0 ? (
+          <div className="mt-8 text-center text-gray-500 dark:text-gray-400">
+            <div className="flex items-center justify-center space-x-2">
+              <div className="h-4 w-4 animate-spin rounded-full border-b-2 border-gray-400" />
+              <p>{t('session.loading.sessionMessages')}</p>
             </div>
-          )}
-
-          {/* Indicator showing there are more messages to load (hide when all loaded) */}
-          {hasMoreMessages && !isLoadingMoreMessages && !allMessagesLoaded && (
-            <div className="border-b border-gray-200 py-2 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
-              {totalMessages > 0 && (
-                <span>
-                  {t('session.messages.showingOf', { shown: sessionMessagesCount, total: totalMessages })}{' '}
-                  <span className="text-xs">{t('session.messages.scrollToLoad')}</span>
-                </span>
-              )}
-            </div>
-          )}
-
-          <LoadAllMessagesOverlay
-            showLoadAllOverlay={showLoadAllOverlay}
-            isLoadingAllMessages={isLoadingAllMessages}
-            loadAllJustFinished={loadAllJustFinished}
-            totalMessages={totalMessages}
-            onLoadAllMessages={loadAllMessages}
+          </div>
+        ) : chatMessages.length === 0 ? (
+          <ProviderSelectionEmptyState
+            selectedSession={selectedSession}
+            currentSessionId={currentSessionId}
+            provider={provider}
+            setProvider={setProvider}
+            textareaRef={textareaRef}
+            providerModels={providerModels}
+            setProviderModel={setProviderModel}
+            providerModelCatalog={providerModelCatalog}
+            providerModelActions={providerModelActions}
+            providerModelsLoading={providerModelsLoading}
+            tasksEnabled={tasksEnabled}
+            isTaskMasterInstalled={isTaskMasterInstalled}
+            onShowAllTasks={onShowAllTasks}
+            setInput={setInput}
           />
+        ) : (
+          <>
+            {/* Loading indicator for older messages (hide when load-all is active) */}
+            {isLoadingMoreMessages && !isLoadingAllMessages && !allMessagesLoaded && (
+              <div className="py-3 text-center text-gray-500 dark:text-gray-400">
+                <div className="flex items-center justify-center space-x-2">
+                  <div className="h-4 w-4 animate-spin rounded-full border-b-2 border-gray-400" />
+                  <p className="text-sm">{t('session.loading.olderMessages')}</p>
+                </div>
+              </div>
+            )}
 
-          {/* Legacy message count indicator (for non-paginated view) */}
-          {!hasMoreMessages && chatMessages.length > visibleMessageCount && (
-            <div className="border-b border-gray-200 py-2 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
-              {t('session.messages.showingLast', { count: visibleMessageCount, total: chatMessages.length })} |
-              <button className="ml-1 text-blue-600 underline hover:text-blue-700" onClick={loadEarlierMessages}>
-                {t('session.messages.loadEarlier')}
-              </button>
-              {' | '}
-              <button
-                className="text-blue-600 underline hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
-                onClick={loadAllMessages}
-              >
-                {t('session.messages.loadAll')}
-              </button>
-            </div>
-          )}
+            {/* Indicator showing there are more messages to load (hide when all loaded) */}
+            {hasMoreMessages && !isLoadingMoreMessages && !allMessagesLoaded && (
+              <div className="border-b border-gray-200 py-2 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                {totalMessages > 0 && (
+                  <span>
+                    {t('session.messages.showingOf', { shown: sessionMessagesCount, total: totalMessages })}{' '}
+                    <span className="text-xs">{t('session.messages.scrollToLoad')}</span>
+                  </span>
+                )}
+              </div>
+            )}
 
-          {(() => {
-            let prevMessage: ChatMessage | null = null;
-            const rowCount = groupedVisibleMessages.length;
+            <LoadAllMessagesOverlay
+              showLoadAllOverlay={showLoadAllOverlay}
+              isLoadingAllMessages={isLoadingAllMessages}
+              loadAllJustFinished={loadAllJustFinished}
+              totalMessages={totalMessages}
+              onLoadAllMessages={loadAllMessages}
+            />
 
-            return groupedVisibleMessages.map((item, index) => {
-              // Rows near the tail mount their content on first commit so the
-              // initial scroll-to-bottom measures real heights; older rows
-              // start as placeholders and mount when scrolled toward.
-              const initiallyNearViewport = index >= rowCount - INITIAL_MOUNTED_TAIL_ROWS;
+            {/* Legacy message count indicator (for non-paginated view) */}
+            {!hasMoreMessages && chatMessages.length > visibleMessageCount && (
+              <div className="border-b border-gray-200 py-2 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                {t('session.messages.showingLast', { count: visibleMessageCount, total: chatMessages.length })} |
+                <button className="ml-1 text-blue-600 underline hover:text-blue-700" onClick={loadEarlierMessages}>
+                  {t('session.messages.loadEarlier')}
+                </button>
+                {' | '}
+                <button
+                  className="text-blue-600 underline hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                  onClick={loadAllMessages}
+                >
+                  {t('session.messages.loadAll')}
+                </button>
+              </div>
+            )}
 
-              if (isToolGroupItem(item)) {
-                const groupPrevMessage = prevMessage;
-                prevMessage = item.messages[item.messages.length - 1] || prevMessage;
+            {(() => {
+              let prevMessage: ChatMessage | null = null;
+              const rowCount = groupedVisibleMessages.length;
 
-                return (
-                  <LazyMessageRow
-                    key={`tool-group-${getMessageKey(item.messages[0])}`}
-                    lazyRows={lazyRows}
-                    timestamp={item.timestamp}
-                    initiallyNearViewport={initiallyNearViewport}
-                  >
-                    <ToolGroupContainer
-                      group={item}
-                      prevMessage={groupPrevMessage}
-                      createDiff={createDiff}
-                      getMessageKey={getMessageKey}
-                      onFileOpen={onFileOpen}
-                      onShowSettings={onShowSettings}
-                      onGrantToolPermission={onGrantToolPermission}
-                      showRawParameters={showRawParameters}
-                      showThinking={showThinking}
-                      selectedProject={selectedProject}
-                      provider={provider}
-                    />
-                  </LazyMessageRow>
-                );
-              }
+              return groupedVisibleMessages.map((item, index) => {
+                // Rows near the tail mount their content on first commit so the
+                // initial scroll-to-bottom measures real heights; older rows
+                // start as placeholders and mount when scrolled toward.
+                const initiallyNearViewport = index >= rowCount - INITIAL_MOUNTED_TAIL_ROWS;
 
-              const messagePrevMessage = prevMessage;
-              prevMessage = item;
+                if (isToolGroupItem(item)) {
+                  const groupPrevMessage = prevMessage;
+                  prevMessage = item.messages[item.messages.length - 1] || prevMessage;
 
-              // A message a resident process is holding. Its own component,
-              // because it is not a turn: it has a state the host keeps
-              // updating, an action no other row has, and — in two of its three
-              // states — no message to draw at all.
-              if (item.type === RESIDENT_PENDING_MESSAGE_TYPE) {
+                  return (
+                    <LazyMessageRow
+                      key={`tool-group-${getMessageKey(item.messages[0])}`}
+                      lazyRows={lazyRows}
+                      timestamp={item.timestamp}
+                      initiallyNearViewport={initiallyNearViewport}
+                    >
+                      <ToolGroupContainer
+                        group={item}
+                        prevMessage={groupPrevMessage}
+                        createDiff={createDiff}
+                        getMessageKey={getMessageKey}
+                        onFileOpen={onFileOpen}
+                        onShowSettings={onShowSettings}
+                        onGrantToolPermission={onGrantToolPermission}
+                        showRawParameters={showRawParameters}
+                        showThinking={showThinking}
+                        selectedProject={selectedProject}
+                        provider={provider}
+                      />
+                    </LazyMessageRow>
+                  );
+                }
+
+                const messagePrevMessage = prevMessage;
+                prevMessage = item;
+
+                // A message a resident process is holding. Its own component,
+                // because it is not a turn: it has a state the host keeps
+                // updating, an action no other row has, and — in two of its three
+                // states — no message to draw at all.
+                if (item.type === RESIDENT_PENDING_MESSAGE_TYPE) {
+                  return (
+                    <LazyMessageRow
+                      key={getMessageKey(item)}
+                      lazyRows={lazyRows}
+                      timestamp={item.timestamp}
+                      initiallyNearViewport={initiallyNearViewport}
+                    >
+                      <PendingResidentMessage
+                        message={item}
+                        onWithdraw={onWithdrawResidentCommand}
+                      />
+                    </LazyMessageRow>
+                  );
+                }
+
                 return (
                   <LazyMessageRow
                     key={getMessageKey(item)}
@@ -374,65 +396,51 @@ function ChatMessagesPane({
                     timestamp={item.timestamp}
                     initiallyNearViewport={initiallyNearViewport}
                   >
-                    <PendingResidentMessage
+                    <MessageComponent
                       message={item}
-                      onWithdraw={onWithdrawResidentCommand}
+                      prevMessage={messagePrevMessage}
+                      createDiff={createDiff}
+                      onFileOpen={onFileOpen}
+                      onShowSettings={onShowSettings}
+                      onGrantToolPermission={onGrantToolPermission}
+                      showRawParameters={showRawParameters}
+                      showThinking={showThinking}
+                      selectedProject={selectedProject}
+                      provider={provider}
+                      onEditMessage={onEditMessage}
+                      onForkFromMessage={onForkFromMessage}
                     />
                   </LazyMessageRow>
                 );
-              }
+              });
+            })()}
+          </>
+        )}
 
-              return (
-                <LazyMessageRow
-                  key={getMessageKey(item)}
-                  lazyRows={lazyRows}
-                  timestamp={item.timestamp}
-                  initiallyNearViewport={initiallyNearViewport}
-                >
-                  <MessageComponent
-                    message={item}
-                    prevMessage={messagePrevMessage}
-                    createDiff={createDiff}
-                    onFileOpen={onFileOpen}
-                    onShowSettings={onShowSettings}
-                    onGrantToolPermission={onGrantToolPermission}
-                    showRawParameters={showRawParameters}
-                    showThinking={showThinking}
-                    selectedProject={selectedProject}
-                    provider={provider}
-                    onEditMessage={onEditMessage}
-                    onForkFromMessage={onForkFromMessage}
-                  />
-                </LazyMessageRow>
-              );
-            });
-          })()}
-        </>
-      )}
+        {/*
+          The running turn's status, in the message flow and after the last row, so
+          it scrolls with the transcript and never covers a message. It is the only
+          activity surface below `md` — the composer draws no tab there — and it
+          carries no Stop, because the composer's submit button is already the one
+          stop entry on that layout.
 
-      {/*
-        The running turn's status, in the message flow and after the last row, so
-        it scrolls with the transcript and never covers a message. It is the only
-        activity surface below `md` — the composer draws no tab there — and it
-        carries no Stop, because the composer's submit button is already the one
-        stop entry on that layout.
+          Mounted for the whole time the pane is, with `activity` set to null while
+          the turn is over or a permission request has taken over the status: the
+          component owns the exit animation, and unmounting it here would cut that
+          animation short and pop the row out instead of collapsing it.
 
-        Mounted for the whole time the pane is, with `activity` set to null while
-        the turn is over or a permission request has taken over the status: the
-        component owns the exit animation, and unmounting it here would cut that
-        animation short and pop the row out instead of collapsing it.
-
-        Inside the content column on purpose — that is the box the transcript's
-        content-growth follow observes, so the row appearing and its elapsed
-        reading widening are growth the follow answers for free, under the same
-        "the user has not scrolled away" gate as every other growth.
-      */}
-      {isMobile && (
-        <ActivityIndicator
-          activity={hasActivityIndicator ? activity : null}
-          variant="inline"
-        />
-      )}
+          Inside the content column on purpose — that is the box the transcript's
+          content-growth follow observes, so the row appearing and its elapsed
+          reading widening are growth the follow answers for free, under the same
+          "the user has not scrolled away" gate as every other growth.
+        */}
+        {isMobile && (
+          <ActivityIndicator
+            activity={hasActivityIndicator ? activity : null}
+            variant="inline"
+          />
+        )}
+        </div>
       </div>
     </div>
   );
