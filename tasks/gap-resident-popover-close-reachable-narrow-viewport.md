@@ -2,7 +2,7 @@
 id: gap-resident-popover-close-reachable-narrow-viewport
 title: AC-177 窄视口（780x493）下常驻状态条弹层的关闭按钮必须可点：elementFromPoint 命中自身，真实点击后宿主读回
   closed；1440x900 正控制；假形态（知情提示层叠高于弹层）必须红在命中读数上
-status: todo
+status: ready
 labels:
   - gap
 parent: null
