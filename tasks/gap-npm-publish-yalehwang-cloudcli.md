@@ -139,3 +139,7 @@ extra:
 - `src/modules/i18n/locales/zh-CN/common.json`
 - `src/modules/i18n/locales/zh-TW/common.json`
 - `tasks/gap-npm-publish-yalehwang-cloudcli.md`
+
+
+【Round 2 复验 2026-09-30】HEAD d7d94771（已含 develop）。AC1–AC7 在 post-merge head 上逐条重跑全绿：AC1 守卫 node --test scripts/release/tests/fork-release-workflows.test.mjs EXIT 0（打印 pkg.name=@yalehwang/cloudcli、npm.publish=true、auth.env=NODE_AUTH_TOKEN、legacy.upgradeCmds=0）；AC2 三处取假各自 EXIT 1 且红在对应断言、git checkout -- 还原后复绿 EXIT 0；AC3 grep -rn "@cloudcli-ai/cloudcli" server src 0 命中、scripts/test.sh --for-task gap-npm-publish-yalehwang-cloudcli --allow-thin EXIT 0（server/modules/system/tests/system.service.test.ts pass 1 / fail 0）；AC4 npm pack --dry-run --json EXIT 0（name=@yalehwang/cloudcli、unpackedSize=25074024、含 dist-server/server/modules/cli/cli.js、dist/index.html、README.md，不含 tasks/ goals/ experiments/ e2e/）；AC5 release-it --dry-run --ci --increment=patch EXIT 0（含 npm publish . --tag latest --dry-run --access public、@yalehwang/cloudcli、git push --follow-tags --set-upstream yaleh develop，无 origin）；AC6 23 文件全在 ## Touches 内、docker/ redirect-package/ CHANGELOG.md electron/ 字节不变；AC7 npm run typecheck EXIT 0、npm run lint EXIT 0（仅既有 warning）。
+【Round 2 AC8/AC9 仍为人工闸】本机无 npm 凭据（npm whoami→ENEEDAUTH、无 ~/.npmrc 与仓库 .npmrc）、gh secret list -R yaleh/claudecodeui 仍只有 RELEASE_PAT、npm view @yalehwang/cloudcli 仍 E404。正确终态仍为 needs-human：需人 yale 创建 npm Automation 令牌 → gh secret set NPM_TOKEN -R yaleh/claudecodeui → 触发 Release。
