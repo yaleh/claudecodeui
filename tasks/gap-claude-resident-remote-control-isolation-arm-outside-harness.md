@@ -3,7 +3,8 @@ id: gap-claude-resident-remote-control-isolation-arm-outside-harness
 title: AC-176 判据的假形态臂 (3)/(4) 在环境 DB 未迁移时恒红：arm (3) 不走 withRemoteControlHarness
   ⇒ createSdkResidentProcess 的 launch-spec 解析读 provider_models 抛 no such table ⇒
   宿主未注册、20s 超时；让判据自带它需要的 DB 事实
-status: ready
+status: needs-human
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -148,3 +149,15 @@ SqliteError: no such table: provider_models
 - **该红的真因是判据内的 systemd 竞态**：子产物逐字 `sigkill survivor=true killed=4 spared=1 server-pid=4138846 resident-pid=4142725` → `sigkill-residue pid=4142725 alive-at-next-boot=false swept=0`。同树上隔离单跑同一条命令退 **0** 且读到 `alive-at-next-boot=false swept=1`——差别只在 transient scope unit 是否在下次 boot 前被 systemd 收走（`sweptFrom` 数的是 `Swept N orphaned Claude session scope(s)` 行）。suite 里该文件耗时 26280ms，隔离单跑 10022ms，即并发下的时序位移。
 - **同类先例（既有、低复现率）**：同一句判词已把兄弟任务 `gap-resident-enter-send-bypasses-intent-and-consent-gate` 连续两轮机械翻成 `needs-human`（见其 `## Needs-Human` 第二、三条，`session_id 3db02389-572e-4c24-b529-7c3dd022f9b3`），可见它不是可实现的缺陷。
 - **不可达性**：本条 delta 只新增一个 test-local 夹具（临时迁移库 + ambient `DATABASE_PATH`），不触 `session-hosts`、不触 systemd scope 生命周期、不触 `server/index.ts` 的 sweep 调用点；且 `resident-server-restart.test.ts` 的 harness 自己把 `DATABASE_PATH` 从子进程 env 里删掉并用自有临时库（`server-environ DATABASE_PATH=<temp>/auth.db`），故本条的 ambient 改动对它不可达。
+
+## Needs-Human
+
+**执行 2026-09-29T06:49:26.709Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: not ok - server/modules/session-hosts/tests/resident-server-restart.test.ts:   AssertionError [ERR_ASSERTION]: the next boot swept nothing (swept=0); the orphan was not there to reap
+- run_id：wk-prod-anchor
+- session_id：68649bf3-14d0-4333-8e7c-28937c444d83
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-resident-remote-control-isolation-arm-outside-harness~wk-prod-anchor~1790664325302-0c3672.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-resident-remote-control-isolation-arm-outside-harness-wk-prod-anchor.log
