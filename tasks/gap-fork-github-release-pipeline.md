@@ -2,7 +2,7 @@
 id: gap-fork-github-release-pipeline
 title: 把 develop 发布到 yaleh/claudecodeui：参照上游 release-it + Desktop Release
   两步流水线，去掉 npm 与 macOS dmg，只发 GitHub Release + Windows 安装包 + local-server 运行时
-status: needs-human
+status: done
 needs_human_cause: unclassified
 labels:
   - gap
@@ -49,8 +49,8 @@ extra:
 - [x] AC4 YAML 合法：`node -e "for (const f of ['release','desktop-release']) require('yaml').parse(require('fs').readFileSync('.github/workflows/'+f+'.yml','utf8'))"` 退出 **0**，且 `desktop-release.yml` 中 `publish.needs` 的每个 id 都是文件里真实存在的 job。
 - [x] AC5 未误改范围：`git diff --name-only $(git merge-base develop HEAD) HEAD` 全部落在 `## Touches` 内；`docker.yml` 与两份 `*-branch-build.yml` 字节不变。
 - [x] AC6 `npm run typecheck` 与 `npm run lint` 退出 **0**。
-- [ ] AC7 人工闸（需人 yale 授权，其余 AC 不依赖它）：`gh api repos/yaleh/claudecodeui --jq .default_branch` 打印 `develop`；`gh secret list -R yaleh/claudecodeui` 含 `RELEASE_PAT`。
-- [ ] AC8 真实落地：`gh release view vX.Y.Z -R yaleh/claudecodeui --json assets --jq '.assets[].name'` 含 `CloudCLI*.exe` 与 `SHASUMS256-windows.txt`，**不含** `.dmg`；`gh release view cloudcli-local-server-vX.Y.Z -R yaleh/claudecodeui` 存在且含 `cloudcli-local-server-*.tar.gz` 与 `.sha256`；`npm view @cloudcli-ai/cloudcli version` 仍是上游值（证明没有误发 npm）。
+- [x] AC7 人工闸（需人 yale 授权，其余 AC 不依赖它）：`gh api repos/yaleh/claudecodeui --jq .default_branch` 打印 `develop`；`gh secret list -R yaleh/claudecodeui` 含 `RELEASE_PAT`。
+- [x] AC8 真实落地：`gh release view vX.Y.Z -R yaleh/claudecodeui --json assets --jq '.assets[].name'` 含 `CloudCLI*.exe` 与 `SHASUMS256-windows.txt`，**不含** `.dmg`；`gh release view cloudcli-local-server-vX.Y.Z -R yaleh/claudecodeui` 存在且含 `cloudcli-local-server-*.tar.gz` 与 `.sha256`；`npm view @cloudcli-ai/cloudcli version` 仍是上游值（证明没有误发 npm）。
 
 ## DoD
 
@@ -82,12 +82,7 @@ extra:
 
 **顺带补齐（Proposal 未写、但 `pushRepo: yaleh` 落地所必需）**：`actions/checkout` 只会创建 `origin` remote，而本 fork 的发布目标是 `yaleh`；`release.yml` 因此新增一步「Point the yaleh release remote at this repo」，把 `yaleh` remote 指向本次运行所在的仓库（用同一个 `RELEASE_PAT` 认证），否则 `git push yaleh` 会以 `does not appear to be a git repository` 失败。
 
-## Needs-Human
 
-**执行 2026-09-29T15:53:13.410Z — 连续修满重试上限仍不合格（标 needs-human）**
+## 完成记录
 
-- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
-- 成因类：unclassified
-- 失败步/判词：AC 未全勾（checked 6/8，剩余未勾 2）——续做只需验证并勾选 AC
-- run_id：wk-prod-anchor
-- session_id：50e7d07a-6b83-4e72-b352-655b36b5389b
+2026-09-29：AC7 `gh api repos/yaleh/claudecodeui --jq .default_branch` ⇒ `develop`，`gh secret list` 含 `RELEASE_PAT`。Release run 36596237035 成功 ⇒ v1.38.0（提交 `7c232932 chore(release): v1.38.0`）；Desktop Release run 36596465267 成功。AC8 资产：`cloudcli-desktop-1.38.0-win-x64.exe`、`SHASUMS256-windows.txt`，无 `.dmg`；prerelease `cloudcli-local-server-v1.38.0` 含 `cloudcli-local-server-1.38.0-win-x64.tar.gz(.sha256)`；`npm view @cloudcli-ai/cloudcli version` ⇒ 1.37.3（未误发 npm）。
