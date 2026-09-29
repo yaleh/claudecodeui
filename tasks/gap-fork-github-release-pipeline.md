@@ -2,7 +2,7 @@
 id: gap-fork-github-release-pipeline
 title: 把 develop 发布到 yaleh/claudecodeui：参照上游 release-it + Desktop Release
   两步流水线，去掉 npm 与 macOS dmg，只发 GitHub Release + Windows 安装包 + local-server 运行时
-status: todo
+status: ready
 labels:
   - gap
 parent: null
