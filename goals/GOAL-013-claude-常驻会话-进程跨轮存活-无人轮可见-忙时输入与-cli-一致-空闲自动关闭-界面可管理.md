@@ -1,7 +1,7 @@
 ---
 id: GOAL-013
 title: Claude 常驻会话：进程跨轮存活、无人轮可见、忙时输入与 CLI 一致、空闲自动关闭、界面可管理
-status: active
+status: achieved
 kind: goal
 origin: "docs/proposals/claude-resident-sessions.md（e88175cf）。人 yale 2026-09-25
   裁定：拆成两个 goal，本 goal 为 GOAL-B「Claude 常驻」，暂不激活，等
@@ -14,6 +14,11 @@ statusLog:
     to: active
     actor: human:yale
     reason: 人 yale 指令：激活 GOAL-013
+  - at: 2026-09-29T09:51:30.312Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: all ACs achieved + sufficiency covered"
 ---
 ## 背景
 
