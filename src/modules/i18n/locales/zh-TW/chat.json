@@ -339,6 +339,7 @@
       "copyAddress": "複製位址",
       "copied": "已複製",
       "address": "位址",
+      "activeCount": "{{count}} 個活動",
       "counts": {
         "turn": "執行中的回合",
         "background-task": "背景工作",

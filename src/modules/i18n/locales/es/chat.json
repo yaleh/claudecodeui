@@ -323,6 +323,7 @@
       "copyAddress": "Copiar dirección",
       "copied": "Copiado",
       "address": "Dirección",
+      "activeCount": "{{count}} activos",
       "counts": {
         "turn": "Respuesta en curso",
         "background-task": "Tareas en segundo plano",

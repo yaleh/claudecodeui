@@ -303,6 +303,7 @@
       "copyAddress": "Adresi kopyala",
       "copied": "Kopyalandı",
       "address": "Adres",
+      "activeCount": "{{count}} etkin",
       "counts": {
         "turn": "Çalışan tur",
         "background-task": "Arka plan görevleri",

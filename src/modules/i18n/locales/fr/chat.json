@@ -305,6 +305,7 @@
       "copyAddress": "Copier l’adresse",
       "copied": "Copié",
       "address": "Adresse",
+      "activeCount": "{{count}} actifs",
       "counts": {
         "turn": "Réponse en cours",
         "background-task": "Tâches en arrière-plan",

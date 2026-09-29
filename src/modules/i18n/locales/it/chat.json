@@ -303,6 +303,7 @@
       "copyAddress": "Copia indirizzo",
       "copied": "Copiato",
       "address": "Indirizzo",
+      "activeCount": "{{count}} attivi",
       "counts": {
         "turn": "Risposta in corso",
         "background-task": "Attività in background",

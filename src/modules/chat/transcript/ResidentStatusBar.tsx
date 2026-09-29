@@ -226,6 +226,15 @@ export default function ResidentStatusBar({
     counts.set(lease.kind, (counts.get(lease.kind) ?? 0) + 1);
   }
 
+  // The collapsed bar's one number, summed from the same map the panel's per-kind
+  // chips are drawn from — so the bar cannot print a total the panel disagrees
+  // with. It replaced one chip per kind, which grew linearly with the kinds held
+  // and crowded the bar while the panel below it stayed half empty.
+  let leaseTotal = 0;
+  for (const count of counts.values()) {
+    leaseTotal += count;
+  }
+
   const stateText = processState === 'unstarted'
     ? t('resident.statusBar.unstarted', { reason: stateView.reason ?? '' })
     : processState === 'exited'
@@ -261,16 +270,21 @@ export default function ResidentStatusBar({
         <span data-resident-state-text="true" className="font-medium">
           {stateText}
         </span>
-        {[...counts.entries()].map(([kind, count]) => (
+        {/*
+          One merged number, not one chip per kind. The per-kind breakdown lives in the panel
+          below (a row of `data-lease-kind` chips), which is where the space for it is; drawing it
+          here made the bar's width scale with the number of kinds a host happened to hold. Nothing
+          is drawn for a host holding no leases, matching the old chips, which simply rendered none.
+        */}
+        {leaseTotal > 0 ? (
           <span
-            key={kind}
-            data-lease-kind={kind}
-            data-lease-count={count}
+            data-resident-lease-summary="true"
+            data-resident-lease-total={leaseTotal}
             className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
           >
-            {count} {t(`resident.statusBar.counts.${kind}`, { defaultValue: kind })}
+            {t('resident.statusBar.activeCount', { count: leaseTotal })}
           </span>
-        ))}
+        ) : null}
       </button>
 
       {processState === 'exited' || processState === 'unstarted' ? (
@@ -323,6 +337,26 @@ export default function ResidentStatusBar({
               <span aria-hidden="true">·</span>
               <span data-resident-uptime="true">{formatUptime(host?.startedAt, Date.now())}</span>
             </div>
+
+            {/*
+              The per-kind breakdown the collapsed bar no longer draws. The attributes and the
+              `counts.*` copy are unchanged from where they used to live — only the container moved
+              — so a reader that counts leases by kind reads the same pair off this panel.
+            */}
+            {counts.size > 0 ? (
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                {[...counts.entries()].map(([kind, count]) => (
+                  <span
+                    key={kind}
+                    data-lease-kind={kind}
+                    data-lease-count={count}
+                    className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                  >
+                    {count} {t(`resident.statusBar.counts.${kind}`, { defaultValue: kind })}
+                  </span>
+                ))}
+              </div>
+            ) : null}
 
             <div className="flex flex-wrap items-center gap-2">
               <button

@@ -324,6 +324,7 @@
       "copyAddress": "复制地址",
       "copied": "已复制",
       "address": "地址",
+      "activeCount": "{{count}} 个活动",
       "counts": {
         "turn": "运行中的轮次",
         "background-task": "后台任务",

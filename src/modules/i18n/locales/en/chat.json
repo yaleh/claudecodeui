@@ -403,6 +403,7 @@
       "copyAddress": "Copy address",
       "copied": "Copied",
       "address": "Address",
+      "activeCount": "{{count}} active",
       "counts": {
         "turn": "Running turn",
         "background-task": "Background tasks",

@@ -290,6 +290,7 @@
       "copyAddress": "アドレスをコピー",
       "copied": "コピーしました",
       "address": "アドレス",
+      "activeCount": "{{count}} 件アクティブ",
       "counts": {
         "turn": "実行中のターン",
         "background-task": "バックグラウンドタスク",

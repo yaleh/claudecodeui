@@ -317,6 +317,7 @@
       "copyAddress": "주소 복사",
       "copied": "복사됨",
       "address": "주소",
+      "activeCount": "{{count}}개 활성",
       "counts": {
         "turn": "실행 중인 턴",
         "background-task": "백그라운드 작업",

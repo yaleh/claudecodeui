@@ -316,9 +316,24 @@ type BarReading = {
   counts: Map<string, number>;
 };
 
-/** Everything the bar publishes, in one round trip each so a reading is one moment. */
+/**
+ * Everything the bar publishes, in one round trip each so a reading is one moment.
+ *
+ * The per-kind pills are drawn inside the popover, so reading them means opening it first: a
+ * reading taken with the panel shut counts zero pills whatever the host holds, and that is the
+ * whole point of the fake-form leg below. The panel is left however this reading found it — a
+ * caller that opens the popover itself (arm A) must still see its own click open one rather than
+ * toggle this reading's shut. The wait is for the address row rather than for a pill, because the
+ * panel is what says the reading can be taken; a host holding no leases still opens a panel.
+ */
 async function readBar(page: Page): Promise<BarReading> {
   const bar = page.locator(BAR);
+  const trigger = page.locator(TRIGGER);
+  const wasOpen = (await trigger.getAttribute('aria-expanded')) === 'true';
+  if (!wasOpen) {
+    await trigger.click();
+    await page.locator(ADDRESS).waitFor({ state: 'attached', timeout: 10_000 });
+  }
   const pills = await page.locator(LEASE_PILL).evaluateAll((nodes) =>
     nodes.map((node) => [
       node.getAttribute('data-lease-kind') ?? '',
@@ -326,7 +341,7 @@ async function readBar(page: Page): Promise<BarReading> {
     ] as [string, number]),
   );
   const counts = new Map<string, number>(pills);
-  return {
+  const reading: BarReading = {
     uiState: (await bar.getAttribute('data-resident-ui-state')) ?? '',
     hostState: (await bar.getAttribute('data-resident-host-state')) ?? '',
     hostId: (await bar.getAttribute('data-resident-host-id')) ?? '',
@@ -336,6 +351,10 @@ async function readBar(page: Page): Promise<BarReading> {
     text: (await page.locator(STATE_TEXT).innerText()).trim(),
     counts,
   };
+  if (!wasOpen) {
+    await trigger.click();
+  }
+  return reading;
 }
 
 /** The sidebar's mark for one session: its shape, its state and the exit detail when it has one. */
@@ -942,7 +961,7 @@ test.describe('resident status bar', () => {
    */
   test('every shipped locale carries the keys the bar, the mark and the dividers read', async () => {
     const required: Array<{ file: 'chat.json' | 'sidebar.json'; path: string }> = [
-      ...['unstarted', 'idle', 'busy', 'exited', 'start', 'restart', 'close', 'copyAddress', 'copied', 'address']
+      ...['unstarted', 'idle', 'busy', 'exited', 'start', 'restart', 'close', 'copyAddress', 'copied', 'address', 'activeCount']
         .map((key) => ({ file: 'chat.json' as const, path: `resident.statusBar.${key}` })),
       ...['turn', 'background-task', 'monitor', 'cron', 'resident-policy']
         .map((key) => ({ file: 'chat.json' as const, path: `resident.statusBar.counts.${key}` })),

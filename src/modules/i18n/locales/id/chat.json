@@ -394,6 +394,7 @@
       "copyAddress": "Salin alamat",
       "copied": "Disalin",
       "address": "Alamat",
+      "activeCount": "{{count}} aktif",
       "counts": {
         "turn": "Respons berjalan",
         "background-task": "Tugas latar belakang",

@@ -303,6 +303,7 @@
       "copyAddress": "Копировать адрес",
       "copied": "Скопировано",
       "address": "Адрес",
+      "activeCount": "{{count}} активных",
       "counts": {
         "turn": "Выполняемый ход",
         "background-task": "Фоновые задачи",
