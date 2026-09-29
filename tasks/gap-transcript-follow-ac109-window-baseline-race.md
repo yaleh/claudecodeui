@@ -207,7 +207,7 @@ PageUp 不再产生意图 ⇒ 意图仍「跟随」⇒ 增长把视图 pin 回�
 
 ### AC6 — 判据未被削弱（diff 证明）
 
-`git -C <worktree> diff --stat <merge-base>..HEAD`（merge-base = `a42f38c3`，即 develop）：
+`git -C <worktree> diff --stat <merge-base>..HEAD`（merge-base = `a42f38c3`，即当时的 develop）：
 
 ```
  e2e/transcript-follow.spec.ts | 151 +++++++++++++++++++++++++++++++++++++-----
@@ -233,9 +233,11 @@ PageUp 不再产生意图 ⇒ 意图仍「跟随」⇒ 增长把视图 pin 回�
 
 ### 2b — 预合并与 scoped 门
 
-- `git -C <worktree> merge --no-edit develop` → `Already up to date.`（分支从 `a42f38c3` 分出，该 sha 即当时 develop，无需合并提交）。
-- `bash <worktree>/scripts/test.sh --for-task gap-transcript-follow-ac109-window-baseline-race --allow-thin` → **exit 0**（`suite-scope-check: PASS — 1 active task(s) scanned …`；`no scoped test files for gap-transcript-follow-ac109-window-baseline-race (thin)`——本任务的 Touches 里没有 `*.test.*`，所以 scoped 门走 thin 路径；e2e 判据由 AC1 的 10 次真实跑动覆盖）。
-- scoped-gate cache 已写：`{"event":"scoped-gate-cache-written","task":"gap-transcript-follow-ac109-window-baseline-race","developSha":"a42f38c3ee324d6434e770395be141ca700fb589"}`。
+- 写账本**之前**：`git -C <worktree> merge --no-edit develop` → `Already up to date.`（分支从 `a42f38c3` 分出，该 sha 即当时 develop）。`bash <worktree>/scripts/test.sh --for-task gap-transcript-follow-ac109-window-baseline-race --allow-thin` → **exit 0**（`suite-scope-check: PASS — 1 active task(s) scanned …`；`no scoped test files for … (thin)`——本任务 Touches 里没有 `*.test.*`，scoped 门走 thin 路径；e2e 判据由 AC1 的 10 次真实跑动覆盖）。cache 按当时 develop `a42f38c3` 记了一次。
+- 本条的 `task_write`（Provider ABI）把 `tasks/gap-transcript-follow-ac109-window-baseline-race.md` 落在 checkout 侧并**推进了 develop**（`487991578e2d850d43e7d09b3d347b172b055248`），所以**再合一次、再打一次 cache**（否则 cache 的 key 不在 HEAD 里）：`git -C <worktree> merge --no-edit develop` → `Merge made by the 'ort' strategy`，只带进 `tasks/gap-transcript-follow-ac109-window-baseline-race.md`（156 insertions / 7 deletions），无冲突；分支 HEAD = `7b9439e68c419de3d1515d5db1c7259973e9f99a`。
+- 合并后重跑 `bash <worktree>/scripts/test.sh --for-task … --allow-thin` → **exit 0**（同上：`suite-scope-check: PASS`，`no scoped test files … (thin)`）。
+- 最终 scoped-gate cache：`{"event":"scoped-gate-cache-written","task":"gap-transcript-follow-ac109-window-baseline-race","developSha":"487991578e2d850d43e7d09b3d347b172b055248"}` —— 分支 HEAD `7b9439e6` 含该 develop sha。
+- 分支上的代码提交：`d2f44458`（输入锚定）、`ef6e5111`（采样集在手势处切开）、`7b9439e6`（合并 develop）。
 
 ### 轴读数
 
