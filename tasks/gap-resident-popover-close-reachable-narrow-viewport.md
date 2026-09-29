@@ -2,7 +2,8 @@
 id: gap-resident-popover-close-reachable-narrow-viewport
 title: AC-177 窄视口（780x493）下常驻状态条弹层的关闭按钮必须可点：elementFromPoint 命中自身，真实点击后宿主读回
   closed；1440x900 正控制；假形态（知情提示层叠高于弹层）必须红在命中读数上
-status: ready
+status: needs-human
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -133,3 +134,15 @@ at /data/home/yale/work/claudecodeui-worktrees/gap-resident-popover-close-reacha
 **改动面与 Touches。** `git diff develop...HEAD --name-only` → `e2e/resident-ui-layout.spec.ts`（新）、`playwright.config.ts`、`src/modules/chat/tests/residentStatusBarCloseReachable.test.tsx`（新）、`src/modules/chat/transcript/ResidentStatusBar.tsx`。Touches 另列的三条（`ChatMessagesPane.tsx` / `ChatComposer.tsx` / `ChatInterface.tsx`）是**先量后判**的结果：读数定因是裁剪而非层叠，portal 即在不动状态条位置语义的前提下消除裁剪，故无需移动状态条、无需抬 z-index、无需改输入区。
 
 **修因（由读数判决，非猜测）。** 窄视口下 `popover.bottom=241 > pane.bottom=128`：弹层自状态条向下展开时越过 `.chat-messages-pane` 的下沿，被 `overflow-y-auto overflow-x-hidden` 裁掉下半部，`elementFromPoint` 在关闭按钮中心命中的是裁剪盒之下画着的输入区知情提示。裁剪不是层叠，z-index 救不了——所以弹层移出该盒（portal 到 `document.body`，以 `fixed` 按状态条 rect 钉住并做视口边缘钳制），而不是去和输入区比层叠。既有的外点关闭（`mousedown` outside）与 Escape 语义、以及 AC-172 已钉的 `data-resident-status-bar*` / `data-resident-close` DOM 契约都保持不变。
+
+## Needs-Human
+
+**执行 2026-09-29T06:16:21.746Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: not ok - suite-watchdog: terminated by an external signal before the suite finished — see the report above
+- run_id：wk-prod-anchor
+- session_id：25ca8db4-1155-445c-84cb-49c816292790
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-resident-popover-close-reachable-narrow-viewport~wk-prod-anchor~1790662485638-6c6db2.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-resident-popover-close-reachable-narrow-viewport-wk-prod-anchor.log
