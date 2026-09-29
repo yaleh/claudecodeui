@@ -617,12 +617,25 @@ export default function ChatComposer({
             the footer because the footer is exactly the controls that send a message and may not
             wrap; and rendered only for a provider the capability matrix lists `resident` for, so the
             affordance is the matrix's answer and not this file's.
+
+            And rendered only while this session is not *already* resident. The switch is the way a
+            session becomes resident-or-kept-alive; on a session the server already stores `resident`
+            it has nothing left to turn on, and the whole disclosure (the paragraph plus the tick box)
+            would sit over a large part of the input for no action it could take. The one exit from the
+            mode is deliberate and lives elsewhere — the status bar's popover and the session menu
+            (§15.4); this file adds no second one. `isResidentSession` is the same reading the submit
+            label's resident branch already uses, so the two agree by construction.
           */}
-          {canRunResident && (
+          {canRunResident && !isResidentSession && (
             <PromptInputHeader>
               <button
                 type="button"
                 role="switch"
+                // Structural marker for the criteria that read this affordance: the switch's own
+                // `aria-label` comes from an i18n key that is currently shadowed by a duplicate
+                // top-level key, so a reader keyed on the *name* would also match the page's dark-mode
+                // switch. `data-resident-enable` is the affordance itself, addressable without the copy.
+                data-resident-enable="true"
                 aria-checked={residentEnabled}
                 aria-label={t('resident.toggle')}
                 onClick={toggleResident}
