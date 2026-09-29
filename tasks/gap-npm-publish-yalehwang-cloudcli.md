@@ -45,13 +45,13 @@ extra:
 
 ## AC
 
-- [ ] AC1 守卫绿：`node --test scripts/release/tests/fork-release-workflows.test.mjs` 退出 **0**，并打印 `pkg.name=@yalehwang/cloudcli`、`npm.publish=true`、`auth.env=NODE_AUTH_TOKEN`、`legacy.upgradeCmds=0`。
-- [ ] AC2 取假必须红（承重，逐项）：分别把 (a) `package.json` 的 `name` 改回 `@cloudcli-ai/cloudcli`、(b) `.release-it.json` 的 `npm.publish` 改回 `false`、(c) `en/common.json` 的 `npmUpgradeCommand` 改回旧包名 之后，守卫各自退出非 **0** 且红在对应断言；恢复后复绿（登记每次变异 diff、失败断言逐字、退出码）。
-- [ ] AC3 升级命令全部换新：`grep -rn "@cloudcli-ai/cloudcli" server src` 命中数为 **0**；`server/modules/system/tests/system.service.test.ts` 通过其对应的 scoped 测试命令，退出 **0**（命令以任务 Touches 内的测试文件为准，`--for-task gap-npm-publish-yalehwang-cloudcli`）。
-- [ ] AC4 打包清单正确：`npm pack --dry-run --json` 退出 **0**，其 `name` 为 `@yalehwang/cloudcli`，`files[].path` 含 `dist-server/server/modules/cli/cli.js`、`dist/index.html`、`README.md`，且不含 `tasks/`、`goals/`、`experiments/`、`e2e/`。
-- [ ] AC5 dry-run 走 npm 且不误伤：`npx release-it --dry-run --ci --increment=patch` 退出 **0**，输出含 `npm publish` 与 `@yalehwang/cloudcli`，push 目标含 `yaleh`（不是 `origin`）。
-- [ ] AC6 未越界：`git diff --name-only $(git merge-base develop HEAD) HEAD` 全部落在 `## Touches` 内；`docker/`、`redirect-package/`、`CHANGELOG.md`、`electron/` 字节不变。
-- [ ] AC7 `npm run typecheck` 与 `npm run lint` 退出 **0**。
+- [x] AC1 守卫绿：`node --test scripts/release/tests/fork-release-workflows.test.mjs` 退出 **0**，并打印 `pkg.name=@yalehwang/cloudcli`、`npm.publish=true`、`auth.env=NODE_AUTH_TOKEN`、`legacy.upgradeCmds=0`。
+- [x] AC2 取假必须红（承重，逐项）：分别把 (a) `package.json` 的 `name` 改回 `@cloudcli-ai/cloudcli`、(b) `.release-it.json` 的 `npm.publish` 改回 `false`、(c) `en/common.json` 的 `npmUpgradeCommand` 改回旧包名 之后，守卫各自退出非 **0** 且红在对应断言；恢复后复绿（登记每次变异 diff、失败断言逐字、退出码）。
+- [x] AC3 升级命令全部换新：`grep -rn "@cloudcli-ai/cloudcli" server src` 命中数为 **0**；`server/modules/system/tests/system.service.test.ts` 通过其对应的 scoped 测试命令，退出 **0**（命令以任务 Touches 内的测试文件为准，`--for-task gap-npm-publish-yalehwang-cloudcli`）。
+- [x] AC4 打包清单正确：`npm pack --dry-run --json` 退出 **0**，其 `name` 为 `@yalehwang/cloudcli`，`files[].path` 含 `dist-server/server/modules/cli/cli.js`、`dist/index.html`、`README.md`，且不含 `tasks/`、`goals/`、`experiments/`、`e2e/`。
+- [x] AC5 dry-run 走 npm 且不误伤：`npx release-it --dry-run --ci --increment=patch` 退出 **0**，输出含 `npm publish` 与 `@yalehwang/cloudcli`，push 目标含 `yaleh`（不是 `origin`）。
+- [x] AC6 未越界：`git diff --name-only $(git merge-base develop HEAD) HEAD` 全部落在 `## Touches` 内；`docker/`、`redirect-package/`、`CHANGELOG.md`、`electron/` 字节不变。
+- [x] AC7 `npm run typecheck` 与 `npm run lint` 退出 **0**。
 - [ ] AC8 人工闸（需人 yale 授权）：`gh secret list -R yaleh/claudecodeui` 含 `NPM_TOKEN`。
 - [ ] AC9 真实落地：`npm view @yalehwang/cloudcli version` 打印刚发布的版本；在干净目录 `npx --yes @yalehwang/cloudcli --version` 退出 **0** 并打印同一版本；`npm view @cloudcli-ai/cloudcli version` 仍是上游值（证明没有碰上游包）。
 
@@ -61,6 +61,57 @@ extra:
 - 用户在应用里点"升级"、CLI 打印手动升级提示、README 的安装命令，全部指向 `@yalehwang/cloudcli`，仓库面向用户的文本里不再出现会把人引向上游包的旧命令。
 - 守卫把包名、`npm.publish`、`NODE_AUTH_TOKEN`、旧命令清零四处形态钉住；取假真的跑过。
 - 只动 `## Touches` 列出的文件。
+
+## Evidence
+
+**实现**：分支 `task/gap-npm-publish-yalehwang-cloudcli`，提交 `e433af35`，23 个文件全部落在 `## Touches` 内。
+
+**AC1** `node --test scripts/release/tests/fork-release-workflows.test.mjs` → **EXIT 0**（6 tests / 6 pass），打印
+`pkg.name=@yalehwang/cloudcli`、`npm.publish=true`、`auth.env=NODE_AUTH_TOKEN`、`legacy.upgradeCmds=0`，
+另有 `requireBranch=develop`、`pushRepo=yaleh`、`macos.jobs=0`、`dmg.refs=0`。
+
+**AC2 取假（逐项；均先提交再变异，`git checkout --` 还原后复绿）**：
+- (a) `package.json` 的 `name` 改回旧值 → **EXIT 1**，红在
+  `package.json must name the fork @yalehwang/cloudcli, not the upstream @cloudcli-ai/cloudcli`（`legacy.upgradeCmds` 同步变 1）；还原后 EXIT 0。
+- (b) `.release-it.json` 的 `npm.publish` 改回 `false` → **EXIT 1**，红在
+  `npm.publish must be true: the fork publishes @yalehwang/cloudcli`；还原后 EXIT 0。
+- (c) `src/modules/i18n/locales/en/common.json` 的 `npmUpgradeCommand` 改回旧包名 → **EXIT 1**，红在
+  `the repository still tells users to install the upstream package: src/modules/i18n/locales/en/common.json (1)`
+  （`legacy.upgradeCmds=1`）；还原后 EXIT 0。
+
+**AC3** `grep -rn "@cloudcli-ai/cloudcli" server src` → **0 命中**。
+`bash scripts/test.sh --for-task gap-npm-publish-yalehwang-cloudcli --allow-thin` → **EXIT 0**
+（`__PERFILE__ server/modules/system/tests/system.service.test.ts passed=true end_ms=1790725283557`，
+`# tests 1 / # pass 1 / # fail 0`）。注：守卫 `.test.mjs` 不在 scoped 门的选择集内
+（test.sh 的 `\.test\.[jt]sx?$` 不匹配 `.mjs`），故 AC1 的守卫按它自身的 `node --test` 命令跑。
+
+**AC4** `npm run build` 后 `npm pack --dry-run --json` → **EXIT 0**，`name=@yalehwang/cloudcli`，
+`unpackedSize=25074024`；`files[].path` 含 `dist-server/server/modules/cli/cli.js`、`dist/index.html`、`README.md`；
+不含 `tasks/`、`goals/`、`experiments/`、`e2e/`。
+
+**AC5** `npx release-it --dry-run --ci --increment=patch` → **EXIT 0**，输出含
+`npm publish . --tag latest --dry-run --access public`、
+`🚀 Let's release @yalehwang/cloudcli (1.38.0...1.38.1)`、
+`git push --follow-tags --set-upstream yaleh develop`（push 行无 `origin`）。
+该命令要求 HEAD 名为 `develop`（`.release-it.json` 的 `git.requireBranch`）；worker 的 worktree HEAD 是任务分支，
+无法把 `develop` 检出到同一 worktree，故用一次性 `git clone --shared`（HEAD 命名 `develop`、内容即本任务提交、
+补 `yaleh` remote、node_modules 符号链接）跑了**原样命令**，随后删除该 clone。
+（另在任务 worktree 内以 `--git.requireBranch=<task-branch>` 覆盖跑过一次作旁证，输出同形。）
+
+**AC6** `git diff --name-only 66625fd9 HEAD` → 上述 23 个文件，全部落在 `## Touches` 内；
+`docker/`、`redirect-package/`、`CHANGELOG.md`、`electron/` 相对 merge-base **字节不变**。
+
+**AC7** `npm run typecheck` → **EXIT 0**；`npm run lint` → **EXIT 0**（仅既有 warning，无 error）。
+
+**AC8 / AC9 未满足——真堵塞点（人工闸，需人 yale 授权）**：本机无 npm 凭据
+（`npm whoami` → `ENEEDAUTH`；`~/.npmrc` 无 `_authToken`），`gh secret list -R yaleh/claudecodeui`
+只有 `RELEASE_PAT`、没有 `NPM_TOKEN`。既不能创建 npm Automation 令牌，也不能触发 `Release` 真发布。
+需人 yale 执行：`npm token create`（Automation）→ `gh secret set NPM_TOKEN -R yaleh/claudecodeui` →
+触发 `Release`（increment=patch）；之后 AC9 才可读回。
+
+按「人工闸必须是 AC」的规矩，AC8/AC9 保持未勾。配置面（AC1–AC7）全部为真；当 AC1–AC7 全绿而 AC8/AC9 未满足时，
+本任务的正确终态是 **needs-human，不是 done**。
+
 
 ## Touches
 
