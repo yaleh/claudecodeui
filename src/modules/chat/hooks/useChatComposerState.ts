@@ -1210,12 +1210,18 @@ export function useChatComposerState({
           return;
         }
 
+        // Both Enter bindings submit the composer form rather than calling this hook's `handleSubmit`
+        // directly. The form's own submit handler is the composer's `handleComposerSubmit`, which is
+        // the single entry that records the resident intent and enforces the consent gate in front of
+        // it; reaching `handleSubmit` from here would skip both, which is the defect this closes. The
+        // form is the one entry every path shares, so the key press is routed to it instead of being
+        // given a send of its own.
         if ((event.ctrlKey || event.metaKey) && !event.shiftKey) {
           event.preventDefault();
-          handleSubmit(event);
+          event.currentTarget.form?.requestSubmit();
         } else if (!event.shiftKey && !event.ctrlKey && !event.metaKey && sendOnEnter) {
           event.preventDefault();
-          handleSubmit(event);
+          event.currentTarget.form?.requestSubmit();
         }
       }
     },
@@ -1224,7 +1230,6 @@ export function useChatComposerState({
       handleCommandMenuKeyDown,
       handleFileMentionsKeyDown,
       handleHistoryKeyDown,
-      handleSubmit,
       sendOnEnter,
       showCommandMenu,
       showFileDropdown,
