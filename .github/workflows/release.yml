@@ -19,31 +19,46 @@ permissions:
 # This workflow publishes releases with write credentials, so actions are pinned
 # to immutable commit SHAs. The trailing comments keep the original major tag
 # visible for maintenance context.
+#
+# This is the FORK release path for yaleh/claudecodeui. It produces a GitHub
+# Release only: it does NOT publish to npm (the `@cloudcli-ai/cloudcli` scope
+# belongs to upstream siteboon) and it pushes the release commit/tag to the
+# `yaleh` remote named by .release-it.json's `git.pushRepo`, never `origin`
+# (which points at upstream siteboon/claudecodeui).
 jobs:
   release:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      id-token: write
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
+          ref: develop
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PAT }}
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
 
       - name: git config
         run: |
           git config user.name "${GITHUB_ACTOR}"
           git config user.email "${GITHUB_ACTOR}@users.noreply.github.com"
 
-      # Trusted publishing (OIDC) requires npm >= 11.5.1; Node 22 ships npm 10.x.
-      - name: Use an npm that supports trusted publishing
-        run: npm install -g npm@^11.5.1
+      # .release-it.json pushes with `git.pushRepo: "yaleh"`, but actions/checkout
+      # only ever creates an `origin` remote — regardless of which repo the run is
+      # in. Without a `yaleh` remote, `git push yaleh` below fails with "does not
+      # appear to be a git repository". Add (or repoint) it at this same repo,
+      # authenticated with the same PAT the checkout uses.
+      - name: Point the yaleh release remote at this repo
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+        run: |
+          REMOTE_URL="https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git"
+          git remote add yaleh "$REMOTE_URL" 2>/dev/null || git remote set-url yaleh "$REMOTE_URL"
+          git remote -v
 
       - run: npm ci
 
@@ -51,7 +66,9 @@ jobs:
         id: release
         run: |
           # Stream subprocess output so publishing errors are visible immediately.
-          ARGS=(--ci --verbose --verbose "--increment=$RELEASE_INCREMENT")
+          # `--no-npm.publish` is belt-and-braces on top of .release-it.json's
+          # `npm.publish: false`: even a config regression must not reach npm.
+          ARGS=(--ci --verbose --verbose --no-npm.publish "--increment=$RELEASE_INCREMENT")
           if [ -n "$RELEASE_NAME" ]; then
             ARGS+=("--github.releaseName=$RELEASE_NAME")
           fi
@@ -60,20 +77,3 @@ jobs:
           RELEASE_INCREMENT: ${{ inputs.increment }}
           RELEASE_NAME: ${{ inputs.release_name }}
           GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
-          NPM_CONFIG_LOGS_DIR: ${{ runner.temp }}/release-npm-logs
-
-      - name: Show npm failure details
-        if: failure() && steps.release.outcome == 'failure'
-        env:
-          NPM_CONFIG_LOGS_DIR: ${{ runner.temp }}/release-npm-logs
-        run: |
-          # Read npm's on-disk errors even if release-it truncates its console output.
-          shopt -s nullglob
-          LOGS=("$NPM_CONFIG_LOGS_DIR"/*debug*.log)
-          if [ ${#LOGS[@]} -eq 0 ]; then
-            echo "No npm debug logs were created by the release step."
-          fi
-          for LOG in "${LOGS[@]}"; do
-            echo "npm diagnostics: $(basename "$LOG")"
-            grep -E '^[0-9]+ (error|verbose (stack|exit|code))([[:space:]]|$)' "$LOG" || true
-          done
