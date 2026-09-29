@@ -42,12 +42,12 @@ extra:
 
 ## AC
 
-- [ ] AC1 静态守卫绿：`node --test scripts/release/tests/fork-release-workflows.test.mjs` 退出 **0**，并打印 `npm.publish=false`、`requireBranch=develop`、`pushRepo=yaleh`、`macos.jobs=0`、`dmg.refs=0`、`npm.steps=0`。
-- [ ] AC2 取假必须红（承重，逐项）：分别把 (a) `npm.publish` 改回 `true`、(b) `desktop-release.yml` 重新加回 `build-macos` 或 `.dmg` 断言、(c) `release.yml` 加回 `id-token: write` 之后，守卫各自退出非 **0** 且红在对应断言；恢复后复绿（登记每次变异 diff、失败断言逐字、退出码）。
-- [ ] AC3 dry-run 不触 npm：在 `develop` 上 `npx release-it --dry-run --ci --increment=patch` 退出 **0**，输出不含 `npm publish`，打印的 push 目标含 `yaleh`（不是 `origin`）。
-- [ ] AC4 YAML 合法：`node -e "for (const f of ['release','desktop-release']) require('yaml').parse(require('fs').readFileSync('.github/workflows/'+f+'.yml','utf8'))"` 退出 **0**，且 `desktop-release.yml` 中 `publish.needs` 的每个 id 都是文件里真实存在的 job。
-- [ ] AC5 未误改范围：`git diff --name-only $(git merge-base develop HEAD) HEAD` 全部落在 `## Touches` 内；`docker.yml` 与两份 `*-branch-build.yml` 字节不变。
-- [ ] AC6 `npm run typecheck` 与 `npm run lint` 退出 **0**。
+- [x] AC1 静态守卫绿：`node --test scripts/release/tests/fork-release-workflows.test.mjs` 退出 **0**，并打印 `npm.publish=false`、`requireBranch=develop`、`pushRepo=yaleh`、`macos.jobs=0`、`dmg.refs=0`、`npm.steps=0`。
+- [x] AC2 取假必须红（承重，逐项）：分别把 (a) `npm.publish` 改回 `true`、(b) `desktop-release.yml` 重新加回 `build-macos` 或 `.dmg` 断言、(c) `release.yml` 加回 `id-token: write` 之后，守卫各自退出非 **0** 且红在对应断言；恢复后复绿（登记每次变异 diff、失败断言逐字、退出码）。
+- [x] AC3 dry-run 不触 npm：在 `develop` 上 `npx release-it --dry-run --ci --increment=patch` 退出 **0**，输出不含 `npm publish`，打印的 push 目标含 `yaleh`（不是 `origin`）。
+- [x] AC4 YAML 合法：`node -e "for (const f of ['release','desktop-release']) require('yaml').parse(require('fs').readFileSync('.github/workflows/'+f+'.yml','utf8'))"` 退出 **0**，且 `desktop-release.yml` 中 `publish.needs` 的每个 id 都是文件里真实存在的 job。
+- [x] AC5 未误改范围：`git diff --name-only $(git merge-base develop HEAD) HEAD` 全部落在 `## Touches` 内；`docker.yml` 与两份 `*-branch-build.yml` 字节不变。
+- [x] AC6 `npm run typecheck` 与 `npm run lint` 退出 **0**。
 - [ ] AC7 人工闸（需人 yale 授权，其余 AC 不依赖它）：`gh api repos/yaleh/claudecodeui --jq .default_branch` 打印 `develop`；`gh secret list -R yaleh/claudecodeui` 含 `RELEASE_PAT`。
 - [ ] AC8 真实落地：`gh release view vX.Y.Z -R yaleh/claudecodeui --json assets --jq '.assets[].name'` 含 `CloudCLI*.exe` 与 `SHASUMS256-windows.txt`，**不含** `.dmg`；`gh release view cloudcli-local-server-vX.Y.Z -R yaleh/claudecodeui` 存在且含 `cloudcli-local-server-*.tar.gz` 与 `.sha256`；`npm view @cloudcli-ai/cloudcli version` 仍是上游值（证明没有误发 npm）。
 
@@ -65,3 +65,18 @@ extra:
 - `.github/workflows/desktop-release.yml`
 - `scripts/release/tests/fork-release-workflows.test.mjs` (new)
 - `tasks/gap-fork-github-release-pipeline.md`
+
+## Evidence
+
+实现与本地验证全部完成，提交在 `task/gap-fork-github-release-pipeline`。下列每条的读数见本文件 `## AC` 的勾选状态；**AC7/AC8 是人工闸**，需要人 yale 在 `yaleh/claudecodeui` 上授权后才能勾选，故保持未勾选。
+
+- AC1：`node --test scripts/release/tests/fork-release-workflows.test.mjs` 退出 0，六行读数 `npm.publish=false / requireBranch=develop / pushRepo=yaleh / macos.jobs=0 / dmg.refs=0 / npm.steps=0`。
+- AC2：四处变异逐一实测——(a) `npm.publish`→`true`、(b) `release.yml` 加回 `id-token: write`、(c) `desktop-release.yml` 加回 `build-macos` 任务、(d) 换回 `.dmg` 断言；每处各自退出 1 且红在对应断言，恢复后复绿。
+- AC3：在隔离克隆（分支名 `develop`、带 `yaleh` remote）上跑 `npx release-it --dry-run --ci --increment=patch` 退出 0，输出不含 `npm publish`，push 目标为 `yaleh`。注意：`git.requireUpstream` 必须为 `false`——release-it 内置默认是 `true`，而本 fork 的 `develop` 无 tracking 分支，用默认值会在 dry-run 一开始就 `No upstream configured for current branch` 中止（已在实现中显式置 `false`）。
+- AC4：两份 workflow YAML 均可被 `yaml` 解析；`desktop-release.yml` 的 `publish.needs` 只含 `resolve-release` 与 `build-windows`，两者都是文件里真实存在的任务。
+- AC5：`git diff --name-only $(git merge-base develop HEAD) HEAD` 为 `.release-it.json`、`.github/workflows/release.yml`、`.github/workflows/desktop-release.yml`、`scripts/release/tests/fork-release-workflows.test.mjs`；`docker.yml` 与两份 `*-branch-build.yml` 字节未变。
+- AC6：`npm run typecheck`、`npm run lint` 退出 0。
+
+**AC7/AC8 未勾选的原因（人工闸，需人 yale 授权）**：本轮只读探测 `yaleh/claudecodeui` 现状为——`default_branch` 仍是 `main`；`gh secret list` 为空（无 `RELEASE_PAT`）；仓库无任何 Release。这两条都要求人 yale 在 GitHub 仓库设置里动作（切默认分支、建 PAT secret、推送 `develop`），随后才能真正触发两条 workflow 并产出 `vX.Y.Z`，不是代码侧可以自证的事项。为避免误报完成，保持 `- [ ]`。
+
+**顺带补齐（Proposal 未写、但 `pushRepo: yaleh` 落地所必需）**：`actions/checkout` 只会创建 `origin` remote，而本 fork 的发布目标是 `yaleh`；`release.yml` 因此新增一步「Point the yaleh release remote at this repo」，把 `yaleh` remote 指向本次运行所在的仓库（用同一个 `RELEASE_PAT` 认证），否则 `git push yaleh` 会以 `does not appear to be a git repository` 失败。
