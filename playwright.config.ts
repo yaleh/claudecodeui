@@ -1383,8 +1383,9 @@ const DEBUG_AGENT_SPEC_FILES: readonly string[] = [
   'resident-busy-send.spec.ts',
   // The running-view criterion: same provider and control plane again, so the same argument holds.
   'resident-running-view.spec.ts',
-  // The composer-layout criterion: arms two sessions off the same clock (one stored resident, one
-  // per-run) to read the switch's presence and absence in one run, so it needs the same control plane.
+  // The layout criterion: same provider, same control plane and fixture home as the three above. It
+  // arms two sessions off the same clock (one stored resident, one per-run) to read both the status
+  // bar's geometry and the composer switch's presence and absence in one run, so it needs that plane.
   'resident-ui-layout.spec.ts',
 ];
 const debugAgentFixtureHome = selectedSpecFiles().some((file) => DEBUG_AGENT_SPEC_FILES.includes(file))
@@ -1425,6 +1426,9 @@ export default defineConfig({
         HOST: '127.0.0.1',
         DATABASE_PATH: path.join(dataDir, 'auth.db'),
         HOME: dataDir,
+        // The start-up sweep stops every orphaned session scope on the host, not only this run's; a
+        // throwaway e2e server has no business reaping the operator's.
+        CLAUDE_SESSION_SCOPE_SWEEP: 'off',
         // Absent — not empty — for every selection that names neither debug agent spec, so the gate stays
         // closed exactly as it does today. See `debugAgentFixtureHome` above.
         ...(debugAgentFixtureHome
