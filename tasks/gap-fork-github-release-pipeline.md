@@ -2,7 +2,8 @@
 id: gap-fork-github-release-pipeline
 title: 把 develop 发布到 yaleh/claudecodeui：参照上游 release-it + Desktop Release
   两步流水线，去掉 npm 与 macOS dmg，只发 GitHub Release + Windows 安装包 + local-server 运行时
-status: ready
+status: needs-human
+needs_human_cause: unclassified
 labels:
   - gap
 parent: null
@@ -80,3 +81,13 @@ extra:
 **AC7/AC8 未勾选的原因（人工闸，需人 yale 授权）**：本轮只读探测 `yaleh/claudecodeui` 现状为——`default_branch` 仍是 `main`；`gh secret list` 为空（无 `RELEASE_PAT`）；仓库无任何 Release。这两条都要求人 yale 在 GitHub 仓库设置里动作（切默认分支、建 PAT secret、推送 `develop`），随后才能真正触发两条 workflow 并产出 `vX.Y.Z`，不是代码侧可以自证的事项。为避免误报完成，保持 `- [ ]`。
 
 **顺带补齐（Proposal 未写、但 `pushRepo: yaleh` 落地所必需）**：`actions/checkout` 只会创建 `origin` remote，而本 fork 的发布目标是 `yaleh`；`release.yml` 因此新增一步「Point the yaleh release remote at this repo」，把 `yaleh` remote 指向本次运行所在的仓库（用同一个 `RELEASE_PAT` 认证），否则 `git push yaleh` 会以 `does not appear to be a git repository` 失败。
+
+## Needs-Human
+
+**执行 2026-09-29T15:53:13.410Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：unclassified
+- 失败步/判词：AC 未全勾（checked 6/8，剩余未勾 2）——续做只需验证并勾选 AC
+- run_id：wk-prod-anchor
+- session_id：50e7d07a-6b83-4e72-b352-655b36b5389b
