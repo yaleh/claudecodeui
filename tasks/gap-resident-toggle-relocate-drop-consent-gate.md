@@ -2,7 +2,7 @@
 id: gap-resident-toggle-relocate-drop-consent-gate
 title: 常驻开关从 composer 头部挪到新会话『Click to change model』卡片下面；ResidentConsentNotice
   的强制勾选面板改成不门控发送/转换的 Tooltip 提示，同步改写 AC-171 的 expect/title 与判据（两条假形态承重）
-status: ready
+status: done
 labels:
   - gap
 parent: null
