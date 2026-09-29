@@ -3,6 +3,7 @@ id: gap-resident-enter-send-bypasses-intent-and-consent-gate
 title: AC-180 Enter 键发送绕过常驻意图与知情门控：开关与勾选都开着按 Enter 落成 per-run，未勾选按 Enter 也能发出，让
   Enter 与发送按钮走同一入口
 status: ready
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -30,12 +31,12 @@ goal_ac: AC-180
 
 ## AC
 
-- [ ] AC1 判据绿：`npx playwright test e2e/resident-enter-send.spec.ts` 退出 0。红态基线：改代码前退出非 0，红落在 (a) 或 (b) 的读数上（该 spec 文件还不存在时的读数是 `Error: No tests found`）。
-- [ ] AC2 (a) 读数：勾选后 Enter 发送，会话 `lifecycle_mode` 逐字 `resident`，且宿主列表里该会话有 `mode` 为 `resident` 的宿主。
-- [ ] AC3 (b) 读数：未勾选时 Enter，会话总数发送前后不变，输入框内容保留。
-- [ ] AC4 (c) 正控制：开关关闭时 Enter 发送，会话为 `per-run`，证明读数不是恒 `resident`。
-- [ ] AC5 取假形态必须红（承重）：Enter 路径直接调 `handleSubmit` ⇒ AC2 的读数红；Enter 路径不看知情门控 ⇒ AC3 的读数红。每种变异先提交再变异，跑完用 `git checkout` 恢复，登记逐字失败行。
-- [ ] AC6 `npx playwright test e2e/resident-enable-consent.spec.ts` 仍退出 0；`npm run lint` 退出 0；`git diff --stat` 与 Touches 逐条对齐。
+- [x] AC1 判据绿：`npx playwright test e2e/resident-enter-send.spec.ts` 退出 0。红态基线：改代码前退出非 0，红落在 (a) 或 (b) 的读数上（该 spec 文件还不存在时的读数是 `Error: No tests found`）。
+- [x] AC2 (a) 读数：勾选后 Enter 发送，会话 `lifecycle_mode` 逐字 `resident`，且宿主列表里该会话有 `mode` 为 `resident` 的宿主。
+- [x] AC3 (b) 读数：未勾选时 Enter，会话总数发送前后不变，输入框内容保留。
+- [x] AC4 (c) 正控制：开关关闭时 Enter 发送，会话为 `per-run`，证明读数不是恒 `resident`。
+- [x] AC5 取假形态必须红（承重）：Enter 路径直接调 `handleSubmit` ⇒ AC2 的读数红；Enter 路径不看知情门控 ⇒ AC3 的读数红。每种变异先提交再变异，跑完用 `git checkout` 恢复，登记逐字失败行。
+- [x] AC6 `npx playwright test e2e/resident-enable-consent.spec.ts` 仍退出 0；`npm run lint` 退出 0；`git diff --stat` 与 Touches 逐条对齐。
 
 ## DoD
 
@@ -51,3 +52,31 @@ goal_ac: AC-180
 - `src/modules/chat/hooks/useChatComposerState.ts`
 - `src/modules/chat/composer/ChatComposer.tsx`
 - `e2e/resident-enter-send.spec.ts` (new)
+
+## Evidence
+
+绿态与假形态在同一 worktree、同一 HEAD（实现提交 `75f16302`）上跑，各自跑前 `git status --porcelain` 为空。
+
+- **绿基线。** `npx playwright test e2e/resident-enter-send.spec.ts` 退出 0（3 passed）。读数：`session.lifecycle_mode=resident` + `host.resident.bindsSession=true`（AC2）；`gate.closed=true`、`sessions.before=15`→`sessions.after=15`、`composer.value="enter key gate probe"`（AC3）；`control.lifecycle_mode=per-run`（AC4）。
+- **AC5 假形态 (i)** —— Enter 路径改回直接调 `handleSubmit`：AC2 红。逐字失败行 `e2e/resident-enter-send.spec.ts:342:5  ).toBe('resident');`，读数 `Received: "per-run"`，报错 `the session a ticked Enter send is addressed to must read back as resident from the server — the key reached the send without recording the resident intent it was given`。
+- **AC5 假形态 (ii)** —— 去掉 `handleComposerSubmit` 里的 `if (residentGateClosed) return;`：AC2 仍绿，AC3 红。逐字失败行 `e2e/resident-enter-send.spec.ts:390:5  ).toEqual({ pathname: pathBefore });`，读数 `sessions.before=15`→`sessions.after=16`、`composer.value=""`、pathname 变为 `/session/a53605e8-…`。
+- **每轮变异后** `git checkout -- <file>` 恢复，恢复后 `git status --porcelain` 为空（工作树回到 HEAD）。
+- **AC6。** `npx playwright test e2e/resident-enable-consent.spec.ts` 退出 0（3 passed，按钮路径与会话菜单转换均不受影响）；`npm run lint` 退出 0；`npm run typecheck` 退出 0；`git diff develop...HEAD --stat` 恰为 Touches 的三个文件（两个前端文件 + 新增 e2e spec）。
+- **上一轮 suite not-landed 的三条红均非本 delta**（都不在 Touches 内）：`server/modules/providers/tests/claude-resident-remote-control-isolation.test.ts`（develop 恒红）、`server/modules/providers/tests/model-gateway-end-to-end.test.ts`（tmp rmdir teardown 竞态）、`server/modules/voice/tests/voice-capture-secrets.false-forms.test.ts`（其子面 `voice-dashscope-settings.test.ts` 在舰队并发下红；单独重跑 32/32 绿）。本轮未改任何后端或 voice 文件，故不重实现。
+
+## 实现
+
+- `useChatComposerState.ts` 的 `handleKeyDown`：Enter（含 Ctrl/Cmd+Enter）不再直接调 `handleSubmit`，改为 `event.currentTarget.form?.requestSubmit()`，把按键路由到表单的 `submit` 事件。
+- `ChatComposer.tsx` 的 `handleComposerSubmit`：`event.preventDefault()` 后先过 `residentGateClosed` 门控（未勾选即拒绝），再 `setPendingResidentIntent(residentEnabled && residentAcknowledged)` 并 `onSubmit(event)`。按钮是 `type="submit"` 且其 `onClick` 已 `preventDefault()`，故按钮与 Enter 都只经此唯一入口。
+
+## Needs-Human
+
+**执行 2026-09-29T05:25:19.040Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=37090 server/modules/providers/tests/claude-resident-remote-control-isolation.test.ts passed=false end_ms=1790659347066
+- run_id：wk-prod-anchor
+- session_id：0a335775-2974-4820-a21f-22924df45f97
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-resident-enter-send-bypasses-intent-and-consent-gate~wk-prod-anchor~1790659264484-3a56fa.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-resident-enter-send-bypasses-intent-and-consent-gate-wk-prod-anchor.log

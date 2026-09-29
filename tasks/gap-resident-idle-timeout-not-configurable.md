@@ -2,6 +2,7 @@
 id: gap-resident-idle-timeout-not-configurable
 title: AC-181 常驻空闲超时写死为 24 小时常量、无配置入口：加配置入口，默认不变，忙宿主不被关
 status: ready
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -58,3 +59,15 @@ goal_ac: AC-181
 - tasks/gap-resident-idle-timeout-not-configurable.md
 - `server/modules/session-hosts/session-host-manager.service.ts`
 - `server/modules/session-hosts/tests/resident-idle-timeout-config.test.ts` (new)
+
+## Needs-Human
+
+**执行 2026-09-29T04:14:47.716Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: not ok - server/modules/debug-agent/tests/debug-agent-external-write.test.ts:   AssertionError [ERR_ASSERTION]: the criterion must be clean:
+- run_id：wk-prod-anchor
+- session_id：fc046b8b-dde5-43f3-988f-7b002808e258
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-resident-idle-timeout-not-configurable~wk-prod-anchor~1790655046091-f74ccf.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-resident-idle-timeout-not-configurable-wk-prod-anchor.log
