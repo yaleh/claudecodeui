@@ -140,3 +140,15 @@ at /data/home/yale/work/claudecodeui-worktrees/gap-resident-popover-close-reacha
 > 复跑假形态时第一次重跑红在 `revealSession`（`e2e/resident-ui-layout.spec.ts:291`）的 30s 等元素可见超时，**未**走到 417 的承重断言——这是一次建立会话的瞬态抖动（与变异无关，因为该步在任何弹层交互之前）；原样重跑即红在 417。此处如实登记，避免把「红在别处」当成「红在承重断言」。
 
 **上一轮 suite red 的归因（本轮直读证据，供人工裁定）。** 上一轮 fan-in 的 suite 判词 `not ok - suite-watchdog: terminated by an external signal before the suite finished` 来自 `scripts/test.sh` 的 `suite_abort()` 在 `$WATCHDOG_VERDICT` 为空时的分支——即 suite 进程收到**外部** SIGTERM，**不是**看门狗触发：`test.sh` 的看门狗阈值是 `max_runtime 660000ms` / `silence 240000ms`，而该轮 suite 保留的 `watchdog-trace.txt` 读数为 `max_silence_ms=12116 progress_events=33 elapsed_ms=67529`（进度健康，远未触阈），日志里也没有任何 `suite-watchdog: ABORT` 行。被取消的 153 个用例（含 `claude-resident-*` / `debug-agent-*`）是 suite 被外部终止时正在飞的子进程，不是失败用例；`# fail 1` 就是那条 watchdog 判词本身。delta 命中的本任务四个文件（e2e spec / `playwright.config.ts` / 新 vitest / `ResidentStatusBar.tsx`）都不在挂起/取消名单里，故与实现无因果。develop 随后落地的 `keep throwaway servers and host-wide tests off the operator's scopes` 正是针对「兄弟任务清理共享 scope 误伤」这类外部击杀，故本轮重跑 suite 属基建面。
+
+## Needs-Human
+
+**执行 2026-09-29T07:24:08.210Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 3 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=1113 server/modules/commands/tests/commands.test.ts passed=false end_ms=1790666440026
+- run_id：wk-prod-anchor
+- session_id：c2c3e372-a960-4fe0-80cb-396db552b2b3
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-resident-popover-close-reachable-narrow-viewport~wk-prod-anchor~1790666404774-bd7f90.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-resident-popover-close-reachable-narrow-viewport-wk-prod-anchor.log

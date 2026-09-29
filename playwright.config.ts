@@ -1383,7 +1383,7 @@ const DEBUG_AGENT_SPEC_FILES: readonly string[] = [
   'resident-busy-send.spec.ts',
   // The running-view criterion: same provider and control plane again, so the same argument holds.
   'resident-running-view.spec.ts',
-  // The narrow-viewport layout criterion: same provider, control plane and fixture home again.
+  // The layout criterion: same provider, same control plane and fixture home as the three above.
   'resident-ui-layout.spec.ts',
 ];
 const debugAgentFixtureHome = selectedSpecFiles().some((file) => DEBUG_AGENT_SPEC_FILES.includes(file))
