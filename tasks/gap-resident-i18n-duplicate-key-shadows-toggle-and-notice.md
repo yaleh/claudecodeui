@@ -2,7 +2,7 @@
 id: gap-resident-i18n-duplicate-key-shadows-toggle-and-notice
 title: AC-171 现红：chat.json 重复顶层 resident 使 resident.toggle 与 resident.notice.*
   读不到，合并重复键并加同类检查
-status: needs-human
+status: todo
 labels:
   - gap
 parent: null
