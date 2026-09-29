@@ -26,11 +26,11 @@ goal_ac: AC-171
 
 ## AC
 
-- [ ] AC1 判据绿：`npx playwright test e2e/resident-enable-consent.spec.ts` 退出 0。红态基线本轮实测：退出 1，`Error: strict mode violation: getByRole('switch') resolved to 2 elements`，`1 failed`，`2 did not run`。
-- [ ] AC2 检查文件绿：`npx vitest run src/modules/i18n/tests/localeDuplicateKeys.test.ts` 退出 0，且它对全部 12 个语言目录下所有 json 文件都做了重复键扫描（断言扫描文件数等于 `locales/*/*.json` 的实际文件数，不是固定常数）。
-- [ ] AC3 取假形态必须红（承重）：(a) 在 `en/chat.json` 再造一个顶层 `resident` 块，AC2 必须退出非 0，红落在「重复键」断言上；(b) 只合并 `en`、不合并 `zh-CN`，AC2 必须退出非 0；(c) 把 `en` 的合并撤回，AC1 必须退出非 0，红落在 `:345`。每种变异跑完恢复，登记逐字失败行。
-- [ ] AC4 正控制：`de/chat.json`（本来只有一个 `resident` 块）单独喂给同一扫描函数读绿，证明扫描不是恒红。
-- [ ] AC5 契约面：`npm run lint` 退出 0；`git diff --stat` 与 Touches 逐条对齐。
+- [x] AC1 判据绿：`npx playwright test e2e/resident-enable-consent.spec.ts` 退出 0。红态基线本轮实测：退出 1，`Error: strict mode violation: getByRole('switch') resolved to 2 elements`，`1 failed`，`2 did not run`。
+- [x] AC2 检查文件绿：`npx vitest run src/modules/i18n/tests/localeDuplicateKeys.test.ts` 退出 0，且它对全部 12 个语言目录下所有 json 文件都做了重复键扫描（断言扫描文件数等于 `locales/*/*.json` 的实际文件数，不是固定常数）。
+- [x] AC3 取假形态必须红（承重）：(a) 在 `en/chat.json` 再造一个顶层 `resident` 块，AC2 必须退出非 0，红落在「重复键」断言上；(b) 只合并 `en`、不合并 `zh-CN`，AC2 必须退出非 0；(c) 把 `en` 的合并撤回，AC1 必须退出非 0，红落在 `:345`。每种变异跑完恢复，登记逐字失败行。
+- [x] AC4 正控制：`de/chat.json`（本来只有一个 `resident` 块）单独喂给同一扫描函数读绿，证明扫描不是恒红。
+- [x] AC5 契约面：`npm run lint` 退出 0；`git diff --stat` 与 Touches 逐条对齐。
 
 ## DoD
 
@@ -46,3 +46,31 @@ goal_ac: AC-171
 - `src/modules/i18n/locales/en/chat.json`
 - `src/modules/i18n/locales/zh-CN/chat.json`
 - `src/modules/i18n/tests/localeDuplicateKeys.test.ts` (new)
+
+## Evidence
+
+逐字读数（2026-09-29，worktree `gap-resident-i18n-duplicate-key-shadows-toggle-and-notice`）。
+
+**AC1 修复后（绿）。** `npx playwright test e2e/resident-enable-consent.spec.ts` → `EXIT=0`，`3 passed (36.9s)`；spec 打印 `toggle.present=true`、`notice.copy=Before you turn on resident mode A resident session keeps a process alive between turns and runs it with bypassPermissions: tool calls are executed without asking you first for as long as the session lives. Trust boundary: that process belongs to your Unix user. Any other process running as the same Unix user can reach it and drive this session. I understand`、`gate.before=true`、`session.lifecycle_mode=resident`。
+
+**AC2（绿）。** `npx vitest run src/modules/i18n/tests/localeDuplicateKeys.test.ts` → `EXIT=0`，`Test Files 1 passed (1) / Tests 3 passed (3)`。
+
+**AC3(a) en 再造一个顶层 `resident` 块。** `EXIT=1`，红落在重复键断言：
+`AssertionError: expected [ 'en/chat.json: resident' ] to deeply equal []`
+`FAIL src/modules/i18n/tests/localeDuplicateKeys.test.ts > locale files have no duplicate keys > scans every locales/*/*.json file and finds no duplicate key in any of them`
+
+**AC3(b) 只合并 en、zh-CN 保持 develop 原状。** `EXIT=1`：
+`AssertionError: expected [ 'zh-CN/chat.json: resident' ] to deeply equal []`
+`AssertionError: zh-CN resident.toggle: expected 'undefined' to be 'string' // Object.is equality`
+`Tests 2 failed | 1 passed (3)`
+
+**AC3(c) 撤回 en 合并。** `npx playwright test e2e/resident-enable-consent.spec.ts` → `EXIT=1`：
+`Error: strict mode violation: getByRole('switch') resolved to 2 elements:`
+`at .../e2e/resident-enable-consent.spec.ts:345:5`
+`1 failed` / `2 did not run`（与 Proposal 的红态基线逐字一致）。每种变异跑完均已恢复（`git diff --stat` 为 0 行）。
+
+**AC4 正控制。** 同一 `findDuplicateKeys` 喂 `de/chat.json` → `duplicateKeys` 为 `[]`，用例 `reads a single-block locale as clean (positive control)` 绿；扫描非恒红。
+
+**AC5。** `npm run lint` → `EXIT=0`（仅既有 warning）；合并 develop 后 `git diff --stat develop..HEAD` 恰为 `en/chat.json`、`zh-CN/chat.json`、`tests/localeDuplicateKeys.test.ts` 三项，与 Touches 逐条对齐。
+
+**范围外。** 其余 10 个语言只有一个 `resident` 块、靠 `fallbackLng: 'en'` 回退，未改动；未改 spec、未改前端组件。第 2–4 类界面缺陷（弹层关闭被盖、已常驻会话仍显示开关、状态条压消息）另立 AC/任务。
