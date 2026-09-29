@@ -2,7 +2,7 @@
 id: gap-resident-composer-hides-enable-affordance
 title: AC-178 已常驻会话的输入区不再渲染常驻开关与知情提示：给开关加 data-resident-enable 标记、渲染门加
   !isResidentSession，e2e 双模式读数 + 正控制 + 假形态 + 结构不变量
-status: todo
+status: ready
 labels:
   - gap
 parent: null
