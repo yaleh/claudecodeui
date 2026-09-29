@@ -1,6 +1,17 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "ignorePatterns": ["dist/**", "dist-server/**", "node_modules/**", "public/**"],
+  // The last two are scratch the voice criteria write and delete inside single test cases while
+  // other tests run `npm run lint`. oxlint's directory walk collects such a file and then fails to
+  // open it ("Failed to open file ... No such file or directory") => lint exits 1 against a task
+  // that never wrote it. Same hazard, and same name-level exclusion, as `server/tsconfig.json`.
+  "ignorePatterns": [
+    "dist/**",
+    "dist-server/**",
+    "node_modules/**",
+    "public/**",
+    "**/__criterion-falsify-*",
+    "server/modules/voice/tmp/**"
+  ],
 
   // Rust-native plugins. oxlint's "import" plugin is the port of eslint-plugin-import-x,
   // and "react" also carries the react-hooks rules.
