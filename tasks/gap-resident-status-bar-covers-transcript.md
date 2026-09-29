@@ -2,7 +2,8 @@
 id: gap-resident-status-bar-covers-transcript
 title: AC-179 视口 780x493 下常驻状态条不压住对话文字：e2e 读两边界框不相交且消息块在视口内 + 非常驻正控制 +
   假形态（状态条改绝对定位盖消息）必须红 + 结构不变量
-status: ready
+status: needs-human
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -96,3 +97,27 @@ goal_ac: AC-179
 **结构不变量为什么读 DOM 结构而不是算样式**：jsdom 不排版也不解析 Tailwind，能读的是标记声明的结构（状态条节点到根之间的类名链）。`.chat-messages-pane` 的 `overflow-y-auto` 正是浏览器据此把它变成滚动盒的那一个类，所以「祖先链上没有滚动盒」与浏览器里「消息不可能滑到状态条下面」是同一件事：780x493 下两盒真的分开由 e2e 判据负责，vitest 只钉使它能成立的机制。
 
 **Touches 与 diff 对齐**：本轮实际写 4 个文件（`src/modules/chat/transcript/ChatMessagesPane.tsx`、`playwright.config.ts`、`e2e/resident-ui-layout.spec.ts` (new)、`src/modules/chat/tests/residentStatusBarClearsTranscript.test.tsx` (new)），全部落在 `## Touches` 内；声明而未改的 `ResidentStatusBar.tsx` / `ChatInterface.tsx` 是候选面，按上面的最小改动未动。`e2e/resident-ui-layout.spec.ts` 与 `playwright.config.ts` 的 `DEBUG_AGENT_SPEC_FILES` 与 AC-177/AC-178 共用，本条只写 `-g "status bar does not cover the transcript"` 命中的那条 test 及其 helper，未改任何既有 test 的标题与断言。
+
+## Needs-Human
+
+**执行 2026-09-29T06:22:12.783Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: # fail 0
+- run_id：wk-prod-anchor
+- session_id：ad43e0b1-19eb-4366-ae41-9347979753fd
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-resident-status-bar-covers-transcript~wk-prod-anchor~1790662858685-fea41b.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-resident-status-bar-covers-transcript-wk-prod-anchor.log
+
+## Needs-Human
+
+**执行 2026-09-29T07:04:18.706Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 3 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: not ok - server/modules/session-hosts/tests/resident-server-restart.test.ts:   AssertionError [ERR_ASSERTION]: the next boot swept nothing (swept=0); the orphan was not there to reap
+- run_id：wk-prod-anchor
+- session_id：fa4b2a9a-fb06-42da-9929-a904e7e28d90
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-resident-status-bar-covers-transcript~wk-prod-anchor~1790665218778-5e3bfa.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-resident-status-bar-covers-transcript-wk-prod-anchor.log

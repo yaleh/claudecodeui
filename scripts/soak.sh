@@ -307,6 +307,7 @@ run_drive() {
     --setenv=DATABASE_PATH="$WORK/auth.db" \
     --setenv=SERVER_PORT="$port" \
     --setenv=HOST=127.0.0.1 \
+    --setenv=CLAUDE_SESSION_SCOPE_SWEEP=off \
     --setenv=ANTHROPIC_BASE_URL="http://127.0.0.1:$mock_port" \
     --setenv=ANTHROPIC_AUTH_TOKEN=soak-token \
     --setenv=TSX_TSCONFIG_PATH=server/tsconfig.json \
