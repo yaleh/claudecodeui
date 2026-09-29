@@ -74,3 +74,14 @@ goal_ac: AC-171
 **AC5。** `npm run lint` → `EXIT=0`（仅既有 warning）；合并 develop 后 `git diff --stat develop..HEAD` 恰为 `en/chat.json`、`zh-CN/chat.json`、`tests/localeDuplicateKeys.test.ts` 三项，与 Touches 逐条对齐。
 
 **范围外。** 其余 10 个语言只有一个 `resident` 块、靠 `fallbackLng: 'en'` 回退，未改动；未改 spec、未改前端组件。第 2–4 类界面缺陷（弹层关闭被盖、已常驻会话仍显示开关、状态条压消息）另立 AC/任务。
+
+## Needs-Human
+
+**执行 2026-09-29T02:47:36.710Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: suite NOT run (refused) — [full-suite-runner] SUITE-NOT-RUN branch=resource-gate-wait ts=2026-09-29T02:47:36.555Z reason="resource gate says WAIT — => WAIT: CPU 饥饿（some avg10 >= 60）。重型测试在此负载下会超时（实测 48.8s vs 隔离 2.0s）" — no test was executed by this round
+- run_id：wk-prod-anchor
+- session_id：18f1f3da-6ef7-4842-86a4-bb1c2b4b52a0
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-resident-i18n-duplicate-key-shadows-toggle-and-notice~wk-prod-anchor~1790650039374-4a53a9.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-resident-i18n-duplicate-key-shadows-toggle-and-notice-wk-prod-anchor.log
