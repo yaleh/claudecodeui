@@ -31,7 +31,7 @@
  */
 
 import assert from 'node:assert/strict';
-import { readFile, readdir, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { readFile, readdir, mkdir, mkdtemp, rm, rmdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test, { after } from 'node:test';
@@ -529,6 +529,20 @@ function jsonParseOrNull(text: string): Record<string, unknown> | null {
 const TEMP_COPY_PREFIX = '__criterion-falsify-';
 
 /**
+ * The AC4(b) positive control's file name is `<prefix><pid>.ts`. Several processes run this file
+ * against ONE tree at once — the suite runs it directly, and each `voice-capture-*.false-forms`
+ * AC10 runs it again as a nested criterion — so a plain shared name let one process's control show
+ * up as a shipping hit in another's scan, and let one process's cleanup delete another's control.
+ */
+const STRAY_PROBE_PREFIX = '__stray-shipping-probe-';
+
+/** Whether a file is a positive control planted by a DIFFERENT process; the scan must not see it. */
+function isForeignStrayProbe(name: string): boolean {
+  const match = new RegExp(`^${STRAY_PROBE_PREFIX}(\\d+)\\.ts$`).exec(name);
+  return match !== null && Number(match[1]) !== process.pid;
+}
+
+/**
  * Every `.ts` file under `directory`. Dependency trees are skipped; `tests/` directories are not.
  *
  * A SIBLING CRITERION'S IN-FLIGHT TEMP COPY IS NOT COLLECTED, and that exclusion is what makes the
@@ -557,7 +571,11 @@ async function collectSourceFiles(directory: string): Promise<string[]> {
       found.push(...(await collectSourceFiles(full)));
       continue;
     }
-    if (entry.name.endsWith('.ts') && !entry.name.startsWith(TEMP_COPY_PREFIX)) {
+    if (
+      entry.name.endsWith('.ts') &&
+      !entry.name.startsWith(TEMP_COPY_PREFIX) &&
+      !isForeignStrayProbe(entry.name)
+    ) {
       found.push(full);
     }
   }
@@ -1118,7 +1136,7 @@ const AC4B_DELAYS_MS = [
  * outside any `tests/` directory, containing the provider id.
  */
 const AC4B_POSITIVE_DIR = path.join(VOICE_MODULE_DIR, 'tmp');
-const AC4B_POSITIVE_FILE = path.join(AC4B_POSITIVE_DIR, '__stray-shipping-probe.ts');
+const AC4B_POSITIVE_FILE = path.join(AC4B_POSITIVE_DIR, `${STRAY_PROBE_PREFIX}${process.pid}.ts`);
 
 // ── the criterion, as `node:test` cases (registered only when this file is the entry point) ────
 
@@ -1176,7 +1194,7 @@ if (IS_ENTRY) {
     const results: { delay: number; ok: boolean; value: string; files: number | null }[] = [];
 
     for (const [index, delay] of AC4B_DELAYS_MS.entries()) {
-      const probe = path.join(VOICE_MODULE_DIR, `${TEMP_COPY_PREFIX}ac8probe-${index}.ts`);
+      const probe = path.join(VOICE_MODULE_DIR, `${TEMP_COPY_PREFIX}ac8probe-${process.pid}-${index}.ts`);
       await writeFile(probe, '// a sibling-shaped in-flight temp copy\n', 'utf8');
       const [outcomes] = await Promise.all([
         collectReadings(SHIPPING_SERVICE_MODULE),
@@ -1228,11 +1246,13 @@ if (IS_ENTRY) {
       );
       assert.match(control.value, /shipping-hits=1/, 'the real hit was not counted as a shipping hit');
       assert.ok(
-        control.value.includes('__stray-shipping-probe.ts'),
+        control.value.includes(path.basename(AC4B_POSITIVE_FILE)),
         `the red did not name the file that caused it: ${control.value}`,
       );
     } finally {
-      await rm(AC4B_POSITIVE_DIR, { recursive: true, force: true });
+      // Only THIS process's control: `tmp/` is shared with every other process running this file.
+      await rm(AC4B_POSITIVE_FILE, { force: true });
+      await rmdir(AC4B_POSITIVE_DIR).catch(() => undefined); // non-empty = a neighbour's probe is in it
     }
   });
 
