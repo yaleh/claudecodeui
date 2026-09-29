@@ -48,12 +48,12 @@ goal_ac: AC-179
 
 ## AC
 
-- [ ] AC1 判据绿：`npx playwright test e2e/resident-ui-layout.spec.ts -g "status bar does not cover the transcript"` 退出 **0**，打印 `elapsed=<n>ms` 且 `< 55000`。红态基线（本轮实测）：`ls e2e/resident-ui-layout.spec.ts` → `No such file or directory`（判据文件不存在）。
-- [ ] AC2 窄视口不相交（承重）：780x493、`lifecycleMode=resident` 的会话 R、一条助手消息时，打印 `bar.box=<x,y,w,h>` / `msg.box=<x,y,w,h>` / `intersect=false` / `msg.visible=true`；断言两盒不相交（`bx1 >= mx2 || mx1 >= bx2 || by1 >= my2 || my1 >= by2` 之一成立）**且** `msg.box` 完整落在视口内（`my1 >= 0 && my2 <= innerHeight`）。`bar.box` 取自 `[data-resident-status-bar]`，`msg.box` 取自 `.chat-messages-pane` 内**最外层**的 `[data-message-timestamp]` 行（与 transcript-follow 同一条筛选：`!row.parentElement?.closest('[data-message-timestamp]')`），其 `data-message-style` 为助手类型；另打印 `bar.exists=true` 与 `msg.count=1` 证明读数不是空页面的假读数。
-- [ ] AC3 正控制（证明读法不是恒假/恒红）：同一次运行里 arm 的 per-run 会话 P 打印 `per-run.session=<id>` 与 `session.lifecycle_mode=per-run`，`[data-resident-status-bar]` 计数 `bar.exists=false`（`expect(...).toBe(0)`），同一读法下 `msg.visible=true`。AC2 的「有状态条且不相交」与 AC3 的「无状态条且消息可见」来自**同一条消息读数函数、同一次运行**。
-- [ ] AC4 假形态必须红（承重）：把状态条改回浮层（`sticky`/`absolute` 定位盖在消息上，等价于 origin 截图形态）⇒ 判据退出非 0，**红在 AC2 的边界框相交读数断言上**（`intersect=true`；控制腿 AC3 无状态条仍绿，故红不落在 AC3）；登记变异 diff、逐字失败行、退出码；恢复后 AC1 复绿。
-- [ ] AC5 结构不变量（非 e2e，给 scoped gate 一条可跑文件）：`npx vitest run src/modules/chat/tests/residentStatusBarClearsTranscript.test.tsx` 退出 **0**；该文件断言承载 `[data-resident-status-bar]` 的节点**不在** `.chat-messages-pane` 的滚动子树内（其祖先链上不存在 `overflow-y-auto` 的滚动容器），即「消息不可能滑到状态条下面」这一机制本身（按 Proposal 步 2 实际选定的最小改动写；读法只用 DOM 结构，不依赖任何 i18n 键）；**含反向腿**（把状态条放回 `.chat-messages-pane` 内 ⇒ 该 vitest 红），证明它不是恒绿。
-- [ ] AC6 门控与契约：`playwright.config.ts:1378` 的 `DEBUG_AGENT_SPEC_FILES` 含 `'resident-ui-layout.spec.ts'`，且非本 spec 选择下 `webServer.env` 逐字不变（`git diff` 只多这一项与一行注释）；AC-172 已钉的 `data-resident-status-bar*` / `data-resident-status-bar-trigger` / `data-resident-close` 契约逐字未改（`git diff` 里这些属性不出现在删除行）；`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**。
+- [x] AC1 判据绿：`npx playwright test e2e/resident-ui-layout.spec.ts -g "status bar does not cover the transcript"` 退出 **0**，打印 `elapsed=<n>ms` 且 `< 55000`。红态基线（本轮实测）：`ls e2e/resident-ui-layout.spec.ts` → `No such file or directory`（判据文件不存在）。
+- [x] AC2 窄视口不相交（承重）：780x493、`lifecycleMode=resident` 的会话 R、一条助手消息时，打印 `bar.box=<x,y,w,h>` / `msg.box=<x,y,w,h>` / `intersect=false` / `msg.visible=true`；断言两盒不相交（`bx1 >= mx2 || mx1 >= bx2 || by1 >= my2 || my1 >= by2` 之一成立）**且** `msg.box` 完整落在视口内（`my1 >= 0 && my2 <= innerHeight`）。`bar.box` 取自 `[data-resident-status-bar]`，`msg.box` 取自 `.chat-messages-pane` 内**最外层**的 `[data-message-timestamp]` 行（与 transcript-follow 同一条筛选：`!row.parentElement?.closest('[data-message-timestamp]')`），其 `data-message-style` 为助手类型；另打印 `bar.exists=true` 与 `msg.count=1` 证明读数不是空页面的假读数。
+- [x] AC3 正控制（证明读法不是恒假/恒红）：同一次运行里 arm 的 per-run 会话 P 打印 `per-run.session=<id>` 与 `session.lifecycle_mode=per-run`，`[data-resident-status-bar]` 计数 `bar.exists=false`（`expect(...).toBe(0)`），同一读法下 `msg.visible=true`。AC2 的「有状态条且不相交」与 AC3 的「无状态条且消息可见」来自**同一条消息读数函数、同一次运行**。
+- [x] AC4 假形态必须红（承重）：把状态条改回浮层（`sticky`/`absolute` 定位盖在消息上，等价于 origin 截图形态）⇒ 判据退出非 0，**红在 AC2 的边界框相交读数断言上**（`intersect=true`；控制腿 AC3 无状态条仍绿，故红不落在 AC3）；登记变异 diff、逐字失败行、退出码；恢复后 AC1 复绿。
+- [x] AC5 结构不变量（非 e2e，给 scoped gate 一条可跑文件）：`npx vitest run src/modules/chat/tests/residentStatusBarClearsTranscript.test.tsx` 退出 **0**；该文件断言承载 `[data-resident-status-bar]` 的节点**不在** `.chat-messages-pane` 的滚动子树内（其祖先链上不存在 `overflow-y-auto` 的滚动容器），即「消息不可能滑到状态条下面」这一机制本身（按 Proposal 步 2 实际选定的最小改动写；读法只用 DOM 结构，不依赖任何 i18n 键）；**含反向腿**（把状态条放回 `.chat-messages-pane` 内 ⇒ 该 vitest 红），证明它不是恒绿。
+- [x] AC6 门控与契约：`playwright.config.ts:1378` 的 `DEBUG_AGENT_SPEC_FILES` 含 `'resident-ui-layout.spec.ts'`，且非本 spec 选择下 `webServer.env` 逐字不变（`git diff` 只多这一项与一行注释）；AC-172 已钉的 `data-resident-status-bar*` / `data-resident-status-bar-trigger` / `data-resident-close` 契约逐字未改（`git diff` 里这些属性不出现在删除行）；`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**。
 
 ## DoD
 
@@ -74,3 +74,25 @@ goal_ac: AC-179
 - `src/modules/chat/tests/residentStatusBarClearsTranscript.test.tsx` (new)
 - `playwright.config.ts`
 - `tasks/gap-resident-status-bar-covers-transcript.md`（自触）
+
+## 完成记录（2026-09-29）
+
+**判据（在合并 develop 后的树上实测，树 = HEAD `cc265519`，develop `a8a8759b`）**：`npx playwright test e2e/resident-ui-layout.spec.ts -g "status bar does not cover the transcript"` → 退出 **0**，`1 passed`，打印 `elapsed=12563ms`（< `SINGLE_SPEC_CEILING_MS = 55_000`）。合并前同一命令退出 0、`elapsed=12548ms`；合并只带进兄弟任务的一份 `tasks/*.md`，未触及本条的任何浏览面。
+
+**逐条读数（判据的原始输出行，不是转述）**
+
+- **AC1** 退出 0 / `elapsed=12563ms`。红态基线（立案当轮实测）：`ls e2e/resident-ui-layout.spec.ts` → `No such file or directory`（判据文件不存在 ⇒ 必红）。
+- **AC2** 同一次读数一次取全：`resident.session.lifecycle_mode=resident` / `resident.bar.exists=true` / `resident.msg.count=1` / `resident.bar.box=305,102,459,46` / `resident.msg.box=305,207,459,87` / `resident.intersect=false` / `resident.msg.visible=true` / `resident.msg.in.pane=true` / `resident.bar.over.pane=false` / `resident.pane.box=289,148,491,162` / `resident.viewport=780x493` / `resident.rows=["user@305,125,459,66","assistant@305,207,459,87"]`。`msg.box` 取 `.chat-messages-pane` 内最外层 `[data-message-timestamp]` 行（与 transcript-follow 同一条 `!row.parentElement?.closest('[data-message-timestamp]')` 筛选），`data-message-style=assistant` 从行内 `MessageComponent` 根上读（该属性不在 `LazyMessageRow` 的外层行上）。
+- **AC3** 同一次运行、同一条消息读数函数：`per-run.session.lifecycle_mode=per-run` / `per-run.bar.exists=false`（`expect(...).toBe(0)`，另打印一行使读数可见）/ `per-run.msg.count=1` / `per-run.msg.visible=true` / `per-run.msg.in.pane=true` / `per-run.viewport=780x493`。AC2 的「有状态条且不相交」与 AC3 的「无状态条且消息可见」出自同一 `readGeometry` 与同一次运行。
+- **AC4** 假形态真跑真红（两条，各自登记变异 diff、逐字失败行、退出码）：
+  - **登记的假形态（AC 要求的「状态条改成绝对定位盖在消息上」，即 origin 截图的形态：`absolute inset-x-0 bottom-3 z-10`）** ⇒ 判据退出 **1**，红**落在 AC2 的边界框相交读数断言上**，逐字 `Error: the status bar must not overlap the message; intersect=true bar.box=305,211,459,46 msg.box=305,207,459,87`（spec `:395`）；同一跑里控制腿 `per-run.bar.exists=false` 仍绿 ⇒ 红不落在 AC3。恢复后 AC1 复绿。
+  - **补充证据（修前树上真实存在的 `sticky` 浮层形态）** ⇒ 判据退出 **1**，红在「状态条不在滚动盒内」读数上，逐字 `Error: the status bar must not be drawn inside the transcript's scroll box; bar.box=305,114,459,46 pane.box=289,86,491,224`（spec `:407`），同一跑里 `resident.intersect=false`——该形态压住的是**别的行**而不是最后一条助手消息。这正是本判据同时留下「两盒不相交」（AC 逐字要求）与「状态条不在滚动盒内」（机制上的通用伪造器）两条读数的原因：只留前者会漏掉这一类浮层。
+  - 变异施加/恢复用 `/tmp` 备份 + `sha256sum -c` 校验，未用 `git checkout --`（会抹掉当时尚未提交的实现）。
+- **AC5** `npx vitest run src/modules/chat/tests/residentStatusBarClearsTranscript.test.tsx` → 退出 **0**（2 tests）。**反向腿在跑**：把状态条放回 `.chat-messages-pane` 内 ⇒ 退出 **1**，逐字 `status-bar.scroll.ancestors=1`，case (a) 的 `the status bar must not live inside a scrolling box` 断言红——证明读数不是恒绿。scoped gate 也真选中并跑了本文件：`__PERFILE__ duration_ms=48 src/modules/chat/tests/residentStatusBarClearsTranscript.test.tsx passed=true`，`# tests 1 / # pass 1 / # fail 0`。
+- **AC6** `DEBUG_AGENT_SPEC_FILES` 含 `'resident-ui-layout.spec.ts'`；`git diff` 里 `playwright.config.ts` 只多一行注释 + 一行条目（无其它行改动）；删除行不含 `data-resident-status-bar*` / `data-resident-status-bar-trigger` / `data-resident-close*`；`ResidentStatusBar.tsx` 未被改动（`git diff --name-only | grep -c ResidentStatusBar` → 0）。`npm run lint` 退出 **0**（0 errors，仅既有 warning）；`npm run typecheck` 退出 **0**。
+
+**改动落点（与 Plan 步 2 的偏差，如实登记）**：Plan 的首选候选 (a) 是「在 `ChatInterface.tsx` 的 `<ChatMessagesPane>` 之上作为兄弟行渲染」。实际采取的是同一意图的更小改动——在 `ChatMessagesPane` 自己的根节点加一层 `flex min-h-0 flex-1 flex-col` 包住「状态条行 + 滚动盒」，状态条渲染在 `.chat-messages-pane` **之外**。断言对象（状态条不在滚动子树内）与候选 (a) 逐字一致，且不必改 `ChatInterface.tsx` 的 props 面。代价是 `ChatMessagesPane.tsx` 的 diff 因整体多一层缩进而变大（205 insertions / 195 deletions），语义改动只有两处：外层加一层、状态条行从 pane 内移到 pane 外。
+
+**结构不变量为什么读 DOM 结构而不是算样式**：jsdom 不排版也不解析 Tailwind，能读的是标记声明的结构（状态条节点到根之间的类名链）。`.chat-messages-pane` 的 `overflow-y-auto` 正是浏览器据此把它变成滚动盒的那一个类，所以「祖先链上没有滚动盒」与浏览器里「消息不可能滑到状态条下面」是同一件事：780x493 下两盒真的分开由 e2e 判据负责，vitest 只钉使它能成立的机制。
+
+**Touches 与 diff 对齐**：本轮实际写 4 个文件（`src/modules/chat/transcript/ChatMessagesPane.tsx`、`playwright.config.ts`、`e2e/resident-ui-layout.spec.ts` (new)、`src/modules/chat/tests/residentStatusBarClearsTranscript.test.tsx` (new)），全部落在 `## Touches` 内；声明而未改的 `ResidentStatusBar.tsx` / `ChatInterface.tsx` 是候选面，按上面的最小改动未动。`e2e/resident-ui-layout.spec.ts` 与 `playwright.config.ts` 的 `DEBUG_AGENT_SPEC_FILES` 与 AC-177/AC-178 共用，本条只写 `-g "status bar does not cover the transcript"` 命中的那条 test 及其 helper，未改任何既有 test 的标题与断言。
