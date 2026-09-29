@@ -2,7 +2,7 @@
 id: gap-resident-running-view-criterion-bounded-boot-guard
 title: AC-173 判据的启动阶段无界：一次渲染器侧模块加载中断（net::ERR_NETWORK_CHANGED 实测 10 连发）被拖到夹具项目行
   30s 超时记红——本族既有的有界预热+启动探针未回灌到 e2e/resident-running-view.spec.ts
-status: ready
+status: done
 labels:
   - gap
   - defect
