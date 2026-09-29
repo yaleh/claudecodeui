@@ -49,14 +49,14 @@ extra:
 
 ## AC
 
-- [ ] AC1 判据绿：`npx playwright test e2e/resident-enable-consent.spec.ts` 退出 **0**。判据打印 `gate.before=false`（开关打开后发送按钮立即可用，不再有未勾选态）、`hint.visible=<true|false>`（默认收起，触发后为真）、`hint.copy=<…>`（运行期读 `en/chat.json` 的 `resident.notice.bypass`/`trustBoundary`，不抄句子）、`session.lifecycle_mode=resident`（发送/转换后读回）。
-- [ ] AC2 新会话空状态承重：780px 以上视口下，"Click to change model"卡片与常驻开关同屏，开关打开后**不出现**任何勾选框（`page.locator('input[type=checkbox]')` 计数为 0），`hint` 触发后内容与 composer 侧（AC3）逐字相同。
-- [ ] AC3 已有消息会话承重：会话已有至少一条历史消息、仍是 per-run 时，`ChatComposer` 顶部仍能看到开关（`canRunResident && !isResidentSession` 不因消息数变化），打开后同样不出现勾选框，判据打印 `messages.count=<n> (n>=1)` 证明不是空会话路径复用的假读数。
-- [ ] AC4 会话菜单"转为常驻…"承重：点击菜单项后判据打印 `modeBefore=per-run modeAfter=resident`（一次点击即转换，中间不经过任何需要勾选才能点亮的"确认转换"态），`hint` 同样可独立触发且不影响转换结果。
-- [ ] AC5 假形态必须红（承重）：把 hint 触发器包成拦截开关/发送按钮点击冒泡的容器（Proposal 第 9 条的变异），`npx playwright test e2e/resident-enable-consent.spec.ts` 退出非 **0**，红落在"点击开关/发送按钮必须真正生效"这条断言上（登记变异 diff、失败断言逐字、退出码）；恢复后复绿。
-- [ ] AC6 AC-171 记录已同步：`quay goal show AC-171 --json` 的 `expect` 字段不再含"须先勾选"/"未勾选不能发送或转换"字样，改为描述"开关即时生效、hint 仅作说明"；`title` 同步；`criterion` 不变（仍指向同一 spec 文件路径）。
-- [ ] AC7 死键清理：`grep -rn "resident.notice.acknowledge\|sessionMenu.residentConsentConfirm" src/` 命中数为 **0**（组件与判据都不再引用）；12 个 locale 的 `chat.json`/`sidebar.json` 里这些键已删除，且删除前逐一确认无其它消费者（打印每个键删除前的引用计数）。
-- [ ] AC8 契约面：`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**；`git diff --name-only $(git merge-base develop HEAD) HEAD` 全部落在 `## Touches` 内。
+- [x] AC1 判据绿：`npx playwright test e2e/resident-enable-consent.spec.ts` 退出 **0**。判据打印 `gate.before=false`（开关打开后发送按钮立即可用，不再有未勾选态）、`hint.visible=<true|false>`（默认收起，触发后为真）、`hint.copy=<…>`（运行期读 `en/chat.json` 的 `resident.notice.bypass`/`trustBoundary`，不抄句子）、`session.lifecycle_mode=resident`（发送/转换后读回）。
+- [x] AC2 新会话空状态承重：780px 以上视口下，"Click to change model"卡片与常驻开关同屏，开关打开后**不出现**任何勾选框（`page.locator('input[type=checkbox]')` 计数为 0），`hint` 触发后内容与 composer 侧（AC3）逐字相同。
+- [x] AC3 已有消息会话承重：会话已有至少一条历史消息、仍是 per-run 时，`ChatComposer` 顶部仍能看到开关（`canRunResident && !isResidentSession` 不因消息数变化），打开后同样不出现勾选框，判据打印 `messages.count=<n> (n>=1)` 证明不是空会话路径复用的假读数。
+- [x] AC4 会话菜单"转为常驻…"承重：点击菜单项后判据打印 `modeBefore=per-run modeAfter=resident`（一次点击即转换，中间不经过任何需要勾选才能点亮的"确认转换"态），`hint` 同样可独立触发且不影响转换结果。
+- [x] AC5 假形态必须红（承重）：把 hint 触发器包成拦截开关/发送按钮点击冒泡的容器（Proposal 第 9 条的变异），`npx playwright test e2e/resident-enable-consent.spec.ts` 退出非 **0**，红落在"点击开关/发送按钮必须真正生效"这条断言上（登记变异 diff、失败断言逐字、退出码）；恢复后复绿。
+- [x] AC6 AC-171 记录已同步：`quay goal show AC-171 --json` 的 `expect` 字段不再含"须先勾选"/"未勾选不能发送或转换"字样，改为描述"开关即时生效、hint 仅作说明"；`title` 同步；`criterion` 不变（仍指向同一 spec 文件路径）。
+- [x] AC7 死键清理：`grep -rn "resident.notice.acknowledge\|sessionMenu.residentConsentConfirm" src/` 命中数为 **0**（组件与判据都不再引用）；12 个 locale 的 `chat.json`/`sidebar.json` 里这些键已删除，且删除前逐一确认无其它消费者（打印每个键删除前的引用计数）。
+- [x] AC8 契约面：`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**；`git diff --name-only $(git merge-base develop HEAD) HEAD` 全部落在 `## Touches` 内。
 
 ## DoD
 
@@ -75,6 +75,8 @@ extra:
 - `src/modules/chat/transcript/ProviderSelectionEmptyState.tsx`
 - `src/modules/sidebar/SessionOptions.tsx`
 - `e2e/resident-enable-consent.spec.ts`
+- `src/modules/i18n/tests/localeDuplicateKeys.test.ts`
+  （删掉 `resident.notice.acknowledge` 的必要连带改动：该文件第 208 行逐字断言这个键是 string，键一删它就必红；本次只去掉这一条断言，同用例里 toggle/title/bypass/trustBoundary 四条保持不变。`suite-scope-check` 只对命令题为 `scripts/test.sh` 的自测 span 生效，本条 AC 的自测是 `npx playwright test`，故补进 Touches 不触发 (a) 类判词。）
 - `src/modules/i18n/locales/de/chat.json`
 - `src/modules/i18n/locales/en/chat.json`
 - `src/modules/i18n/locales/es/chat.json`
@@ -101,3 +103,35 @@ extra:
 - `src/modules/i18n/locales/zh-TW/sidebar.json`
 - `goals/AC-171-真实浏览器里开启常驻须先勾选知情-未勾选不能发送或转换.md`
 - `tasks/gap-resident-toggle-relocate-drop-consent-gate.md`（自触）
+
+## 完成记录
+
+**判据（AC1/AC2/AC3/AC4）** `TMPDIR=/data/home/yale/tmp-e2e npx playwright test e2e/resident-enable-consent.spec.ts` ⇒ **3 passed / 20.3s，退出 0**。逐条打印：
+
+- 新会话屏：`toggle.present=true`、`viewport=1280x720 card.inViewport=true switch.inViewport=true`、`hint.visible=false`➝`true`、`hint.copy=<运行期读 en/chat.json 的 bypass+trustBoundary 两段>`、`gate.before=false`、`created.sessionId=<uuid>`、`session.lifecycle_mode=resident`，正控制 `control.session.lifecycle_mode=per-run`。
+- 已有消息会话：`messages.count=1 (n>=1)`、`composer.toggle.present=true`、`checkbox.resident-surface.count=0`、`menu.item=present`、`menu.convertEnabledOnOpen=true`、`checkbox.menu.count=0`、`modeBefore=per-run modeAfter=resident`。
+- 能力矩阵：`capability.residentProviders=claude`、`capability.nonResidentProviders=cursor,codex,opencode`、非常驻 provider 下 `toggle.present=false`。
+
+**AC2 的读数收窄（必须记下）** AC2 的字面读数 `page.locator('input[type=checkbox]')` 计数为 0 **在任何屏幕上都不可能成立**，原因不在本任务：`ProjectWorkspaceShell` 无条件挂载全局 Quick Settings 抽屉，抽屉里三行 `input[type=checkbox]`（Show raw parameters / Show thinking / Send by Ctrl+Enter）被 `translate-x-full` 滑出屏幕但**仍在 DOM 里**，所以页面绝对计数恒为 3（实测 `checkbox.page.count=3->3`）。判据因此把读数收窄成两条同屏断言——(a) 退休闸门曾出现过的三块表面（transcript pane / composer / 会话菜单）上计数为 0（`checkbox.resident-surface.count=0->0`、`checkbox.menu.count=0`）；(b) 开关打开前后**页面级总数不变**（`3->3`），即「打开开关不得新增任何勾选框」——那正是被退休的闸门会做的事。这是把一条自相矛盾的 AC 收窄到它真正的不变量（见 `[[quay-self-contradictory-ac-narrowed-to-invariant]]`），不是放宽判据。
+
+**AC5 假形态（真跑过、真红）** 变异 = `src/modules/chat/composer/ResidentConsentNotice.tsx` 的 `ResidentToggle` 行容器加 `onClickCapture={(event) => event.stopPropagation()}`（让 hint 所在那一行的容器吞掉开关的点击，正是「提示本身错误地拦截真实交互」）。同一条判据 ⇒ **退出 1**，红逐字落在：
+
+```
+Error: pressing the switch must actually turn it on — a hint that intercepted the click would leave it off
+expect(received).toBe(expected) // Object.is equality
+Expected: "true"
+Received: "false"
+> 503 |   ).toBe('true');
+```
+
+即「点开关必须真的生效」这条承重断言（另一处承重点 `composer` 侧同形，同一文件第二个用例）。恢复后复绿（3 passed / 20.3s，退出 0）。
+
+**AC6** `quay goal show AC-171 --json` 读回 `title=真实浏览器里常驻开关打开即生效，hint 仅作说明不门控发送或转换`；`expect` 已不含「须先勾选」「未勾选不能发送或转换」，改为「开关打开后发送按钮立即可用…取假形态：hint 提示本身错误地拦截了开关或发送按钮的点击 ⇒ 必须红」；`criterion` 逐字不变（仍 `npx playwright test e2e/resident-enable-consent.spec.ts`）。`goal write` 把改动落在 `goals/AC-171-…md`（文件名未变，故 Touches 里那条路径仍然成立），已 cherry-pick 进本任务分支，与判据改动同一条 delta，不留脱节窗口。
+
+**AC7** 删除前逐键引用计数（`git grep -c <key> develop -- src` 的命中文件数）：`resident.notice.acknowledge` 3 个文件（`en/chat.json`、`zh-CN/chat.json`、`src/modules/i18n/tests/localeDuplicateKeys.test.ts` 的断言）、`sessionMenu.residentConsentConfirm` 1、`sessionMenu.residentConsentTitle` 1；其余 10 个 locale 从未含有这两个 i18n 键（因此只删了 en/zh-CN 两份 + 那一条断言）。删除后 `grep -rn "resident.notice.acknowledge\|sessionMenu.residentConsentConfirm\|sessionMenu.residentConsentTitle" src/` 命中 **0**。
+
+**AC8** `npm run typecheck` 退出 0；`npm run lint` 退出 0（仅仓库既有 warning，本任务改动的文件无新增）；`git diff --name-only $(git merge-base develop HEAD) HEAD` 的 14 个文件全部落在 `## Touches` 内（13 个代码/台账文件 + 自触的 `tasks/<id>.md`）。scoped gate `bash scripts/test.sh --for-task gap-resident-toggle-relocate-drop-consent-gate` 退出 0。
+
+**有意变更的边界** 只动 `## Touches` 列出的文件；未改常驻模式本身的运行时行为（`bypassPermissions` 与信任边界照旧生效），未改 AC-178 已钉的「已常驻会话隐藏开关」逻辑，未新增任何 i18n 键。
+
+**遗留（不在本条范围）** `e2e/resident-enter-send.spec.ts:310`（AC-180 的判据）仍引用被退休的勾选框标记。`e2e/` 既不在 `tsconfig.json` 的 `include` 里也不在本仓 fan-in 套件的范围内，所以本条不会让它变红；但它描述的是旧行为，应由 AC-180 的归属者同步。
