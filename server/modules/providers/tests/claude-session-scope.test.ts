@@ -26,6 +26,15 @@ import type { SessionScopeProcess } from '@/modules/providers/index.js';
 // first instead of skipping: a silent skip on this host would leave the whole confinement story
 // unverified while the file still exited 0.
 
+/**
+ * The two cases that drive a real memory hog into its cap each leave an `oom-kill` record in the
+ * user journal, indistinguishable from a real session being killed. They run only on request:
+ * `RUN_OOM_CAP_TESTS=1`.
+ */
+const OOM_CAP_SKIP = process.env.RUN_OOM_CAP_TESTS === '1'
+  ? false
+  : 'produces oom-kill journal records; set RUN_OOM_CAP_TESTS=1 to run';
+
 /** Cap the isolation case runs under. Small enough that a hog reaches it in well under a second. */
 const ISOLATION_CAP = '64M';
 /**
@@ -286,7 +295,7 @@ test('on a host that can scope, the default options carry the hook', () => {
   assert.equal(typeof sdkOptions.spawnClaudeCodeProcess, 'function');
 });
 
-test('a session over its cap dies alone; a live sibling is untouched', async () => {
+test('a session over its cap dies alone; a live sibling is untouched', { skip: OOM_CAP_SKIP }, async () => {
   assert.equal(
     probeSystemdUserScope(ISOLATION_CAP),
     true,
@@ -444,7 +453,7 @@ test('stopping this server\'s scopes leaves none, and sweep takes only orphans',
   }
 });
 
-test('a cap kill names the cap; a non-OOM failure does not', async () => {
+test('a cap kill names the cap; a non-OOM failure does not', { skip: OOM_CAP_SKIP }, async () => {
   assert.equal(probeSystemdUserScope(ATTRIBUTION_CAP), true);
 
   const logged: string[] = [];
