@@ -12,11 +12,9 @@ import type { APIRequestContext, Browser, Page } from '@playwright/test';
  * the user is shown are the words the app ships. Same reading as `e2e/mobile-composer-send-key.spec.ts`.
  */
 type ChatLocale = {
-  resident: {
-    toggle: string;
-    notice: { title: string; bypass: string; trustBoundary: string; acknowledge: string };
-  };
+  resident: { toggle: string; notice: { title: string; bypass: string; trustBoundary: string } };
   input: { send: string };
+  providerSelection: { clickToChange: string };
 };
 
 const enChat = JSON.parse(
@@ -26,26 +24,60 @@ const enChat = JSON.parse(
 /** The menu's own words, which live in the sidebar namespace rather than chat's. */
 const enSidebar = JSON.parse(
   fs.readFileSync(path.resolve(process.cwd(), 'src/modules/i18n/locales/en/sidebar.json'), 'utf8'),
-) as { sessionMenu: { convertToResident: string; residentConsentConfirm: string } };
+) as { sessionMenu: { convertToResident: string } };
 
 // Real Chromium against the real backend + Vite client started by playwright.config.ts (isolated data dir).
 //
-// The subject is the consent gate in front of resident mode, and it is read the way a user meets it: a real
-// project from the run's own seeded HOME, a real session row in the real sidebar, and the lifecycle mode read
-// back from the server the send was addressed to. Nothing here rebuilds the mode client-side — `GET
-// /api/session-hosts` is the same projection a restart uses to find a resident session whose process it
-// dropped, so the `resident` this spec prints is the server's own stored preference and not the switch's
-// local state.
+// The subject is where the resident switch lives and what the disclosure in front of it is allowed to do. It
+// is read the way a user meets it: a real project from the run's own seeded HOME, the real new-session screen,
+// a real session row in the real sidebar, and the lifecycle mode read back from the server the send was
+// addressed to. Nothing here rebuilds the mode client-side — `GET /api/session-hosts` is the same projection
+// a restart uses to find a resident session whose process it dropped, so the `resident` this spec prints is
+// the server's own stored preference and not the switch's local state.
 //
-// The one seam is called out where it is installed: the sidebar's "is this session processing" reading in the
-// last case. Every other reading in this file — the capability matrix, the mode before and after a
-// conversion, the mode of a session nobody asked to keep running — comes from the real server.
+// Two things this file is deliberately about, because they are what the redesign turns on:
+//
+//   * the switch is on the screen *before* the first turn (under the new-session model card) and still above
+//     the input once the session has a transcript — the same affordance on both sides of that boundary;
+//   * the disclosure is a read-only hint. Nothing about it may sit between the user and the switch or the
+//     conversion: flipping the switch is the whole of the intent, and the send that follows is resident.
+//     That is what the falsifying variant recorded in the task attacks, and the `aria-checked` readings below
+//     are the assertions it reds on.
+//
+// There is no seam in this file: the capability matrix, the mode before and after a conversion, and the mode of
+// a session nobody asked to keep running all come from the real server, and the two reads that could not be
+// stated against it are called out where they would have gone.
 
 const COMPOSER = '[data-slot="prompt-input-textarea"]';
 /** The composer's send button, named by the shipped label rather than by a hard-coded word. */
 const SEND_BUTTON = `button[aria-label="${enChat.input.send}"]`;
-/** The disclosure component's own slot — the marker its module declares. */
-const NOTICE = '[data-slot="resident-consent-notice"]';
+/** The hint's trigger — the `ⓘ` on each of the three surfaces that offer the mode. */
+const HINT = '[data-slot="resident-consent-notice"]';
+/**
+ * The hint's own text.
+ *
+ * Read page-wide rather than scoped to its trigger, because the tooltip portals its content to
+ * `document.body` — it is not a descendant of anything the trigger's own container could name. Only one hint
+ * is open at a time (the others are hover-driven and the pointer is over exactly one), so the count is
+ * asserted rather than assumed.
+ */
+const HINT_CONTENT = '[data-slot="resident-hint-content"]';
+/** The resident switch itself, on whichever of its two homes is on screen. */
+const SWITCH = '[data-resident-enable="true"]';
+/** Every message row the transcript has mounted. */
+const MESSAGE = '[data-message-style]';
+/** Any checkbox at all. */
+const CHECKBOX = 'input[type=checkbox]';
+/**
+ * The surfaces that could carry the retired gate: the transcript pane, the composer, and the session menu.
+ *
+ * The criterion's "no checkbox appears" cannot be read page-wide, and the reason is not this task's to fix:
+ * `ProjectWorkspaceShell` mounts the Quick Settings drawer on every screen, and the drawer's three checkboxes
+ * (Show raw parameters / Show thinking / Send by Ctrl+Enter) are slid off-screen with it but stay in the DOM,
+ * so an absolute page-wide count is ≥3 everywhere. The reading below is therefore taken on the surfaces the
+ * gate used to live on, plus a before/after count that catches a checkbox the switch would have *added*.
+ */
+const RESIDENT_SURFACES = '.chat-messages-pane input[type=checkbox], [data-slot="prompt-input"] input[type=checkbox]';
 const AUTH_TOKEN_KEY = 'auth-token';
 /**
  * The first-paint mirror of the account's preferences.
@@ -58,8 +90,6 @@ const AUTH_TOKEN_KEY = 'auth-token';
 const PREFERENCES_MIRROR_KEY = 'user-preferences';
 const USERNAME = 'e2euser';
 const PASSWORD = 'e2epassword';
-/** The read-only endpoint the sidebar derives "processing" from. */
-const RUNNING_SESSIONS = '**/api/providers/sessions/running';
 /** The provider the account starts on, and the one every leg but the matrix leg works under. */
 const RESIDENT_PROVIDER = 'claude';
 
@@ -70,10 +100,24 @@ let workspace = '';
  *
  * The sidebar row this spec converts has to be a session the app really discovered, so it comes from the run's
  * fixture rather than from an API call: an API-created session writes a row but no transcript, and the sidebar
- * lists what the synchronizer indexed.
+ * lists what the synchronizer indexed — and the legs that read the composer's own switch need a session that
+ * really has messages in it.
  */
 const SEEDED_SESSION_ID = 'e2e-mobile-send-key';
 const SEEDED_SESSION_NAME = 'mobile-send-key';
+
+/** The signed-in token, captured once by `bootstrapAuth`. */
+let authToken = '';
+
+/**
+ * The empty state's disclosed copy, kept for the comparison the transcript leg takes.
+ *
+ * A module-level value rather than an annotation: `test.info()` is per-test, so a value recorded in the first
+ * case is invisible to the second — and the comparison across the switch's two homes is exactly what AC2 asks
+ * for. Written only by the case that reads it; a red before that case leaves it empty and the comparison on
+ * the other side fails loudly rather than silently passing on ''.
+ */
+let emptyStateHintCopy = '';
 
 /** Collapses the runs of whitespace `innerText` inserts between block elements, on both sides of a compare. */
 const normalize = (value: string) => value.replace(/\s+/g, ' ').trim();
@@ -134,9 +178,6 @@ const ensureSignedIn = async (page: Page) => {
     await expect(settings).toBeVisible({ timeout: 15_000 });
   }
 };
-
-/** The signed-in token, captured once by `bootstrapAuth`. */
-let authToken = '';
 
 const bootstrapAuth = async (browser: Browser) => {
   const context = await browser.newContext();
@@ -230,25 +271,17 @@ const waitForMode = async (
 
 const composer = (page: Page) => page.locator(COMPOSER);
 
-/** The composer's send button, mid-flight state included: `disabled` is the gate this spec is about. */
+/** The switch as this screen draws it: the composer's, the empty state's, or the menu's. */
+const switches = (page: Page, scope?: string) =>
+  page.locator(scope ? `${scope} ${SWITCH}` : SWITCH);
+
+/** The hint's trigger, scoped to the surface being read. */
+const hintTrigger = (page: Page, scope?: string) =>
+  page.locator(scope ? `${scope} ${HINT}` : HINT);
+
+/** The composer's send button, mid-flight state included: `disabled` is one of the readings this spec takes. */
 const submitDisabled = (page: Page) =>
   page.locator(SEND_BUTTON).evaluate((element) => (element as HTMLButtonElement).disabled);
-
-/**
- * Presses send and reports whether the press was accepted.
- *
- * A disabled button is not clickable, so Playwright's actionability check is the reading: it waits for the
- * button to become enabled and gives up. The press is bounded because the answer "it never became enabled" is
- * exactly one of the two outcomes being measured — an unbounded wait would report it as a timeout instead.
- */
-const attemptSend = async (page: Page): Promise<'accepted' | 'refused'> => {
-  try {
-    await page.locator(SEND_BUTTON).click({ timeout: 2_000 });
-    return 'accepted';
-  } catch {
-    return 'refused';
-  }
-};
 
 /**
  * The seeded project's own row, whichever of the sidebar's two designs is on screen.
@@ -267,7 +300,7 @@ const sessionLink = (page: Page, name: string) =>
   page.locator('a[href^="/session/"]').filter({ hasText: name });
 
 /**
- * Opens a composer bound to the seeded project, through the app's own "New Session" entry point.
+ * Puts a composer bound to the seeded project on screen.
  *
  * The composer only renders once a project is selected, and the app auto-selects only when the run seeded
  * exactly one project — this run seeds one per spec, so the selection is made the way a user makes it. Same
@@ -300,6 +333,24 @@ const openComposer = async (page: Page) => {
   await expect(textarea).toBeVisible({ timeout: 15_000 });
 };
 
+/**
+ * The new-session screen: the model card the switch was relocated under.
+ *
+ * `openComposer` only guarantees a composer; this case is about a session that does not exist yet, so the
+ * app's own "New Session" entry point is pressed when the card is not already what is on screen.
+ */
+const openNewSession = async (page: Page) => {
+  const card = page.getByText(enChat.providerSelection.clickToChange);
+  await openComposer(page);
+  if (!(await card.isVisible().catch(() => false))) {
+    await page.getByRole('button', { name: 'New Session' }).first().click().catch(() => undefined);
+  }
+  await expect(
+    card,
+    'the new-session model card is what the switch was relocated under',
+  ).toBeVisible({ timeout: 15_000 });
+};
+
 /** Expands the seeded project's session list, retrying the toggle the way the sidebar's own spec does. */
 const openWorkspace = async (page: Page) => {
   const first = sessionLink(page, SEEDED_SESSION_NAME);
@@ -316,11 +367,66 @@ const openWorkspace = async (page: Page) => {
   await expect(first).toBeVisible({ timeout: 15_000 });
 };
 
+/** Opens the seeded session itself, so the pane draws a transcript rather than the new-session card. */
+const openSeededSession = async (page: Page) => {
+  await openWorkspace(page);
+  await sessionLink(page, SEEDED_SESSION_NAME).first().click();
+  await expect(composer(page)).toBeVisible({ timeout: 15_000 });
+};
+
 /** Opens one session row's options menu and waits for its items. */
 const openSessionMenu = async (page: Page) => {
   await page.getByRole('button', { name: `Session options for ${SEEDED_SESSION_NAME}` }).click();
   await expect(page.getByRole('menuitem').first()).toBeVisible();
 };
+
+/**
+ * Opens the hint at `scope` and returns the copy it discloses, having first proved it was closed.
+ *
+ * Two readings, and both are the point: a disclosure that was always in the DOM would satisfy a copy
+ * assertion while the user saw nothing, and one that never opens would leave the copy unreadable. So the
+ * closed state is asserted first, then the open one, then the text. Returns the normalized copy so the caller
+ * can compare it against the same reading taken on another surface — the entry points are required to say the
+ * same words, and that is a property of the shipped keys rather than of any one screen.
+ */
+const openHint = async (page: Page, scope?: string): Promise<string> => {
+  const content = page.locator(HINT_CONTENT);
+  expect(
+    await content.count(),
+    'the disclosure must start collapsed: a hint that is always on screen is not the read-only tooltip it is meant to be',
+  ).toBe(0);
+  console.log('hint.visible=false');
+
+  await hintTrigger(page, scope).first().hover();
+  await expect(content, 'hovering the hint must disclose the two facts it stands for').toHaveCount(1, { timeout: 5_000 });
+  expect(await content.isVisible(), 'the disclosed text must be on screen once it has been asked for').toBe(true);
+  console.log('hint.visible=true');
+
+  const copy = normalize(await content.innerText());
+  console.log(`hint.copy=${copy}`);
+  expect(
+    copy,
+    'the hint must state what the mode does: the process runs with bypassPermissions between turns',
+  ).toContain(normalize(enChat.resident.notice.bypass));
+  expect(
+    copy,
+    'the hint must state the trust boundary: the process belongs to this Unix user, so anything else '
+      + 'running as that user can reach it',
+  ).toContain(normalize(enChat.resident.notice.trustBoundary));
+  return copy;
+};
+
+/** Whether a locator's box lies wholly inside the viewport — the reading "same screen" is taken from. */
+const inViewport = (
+  box: { x: number; y: number; width: number; height: number } | null,
+  viewport: { width: number; height: number } | null,
+) =>
+  box !== null
+  && viewport !== null
+  && box.x >= 0
+  && box.y >= 0
+  && box.x + box.width <= viewport.width
+  && box.y + box.height <= viewport.height;
 
 test.describe.configure({ mode: 'serial' });
 
@@ -331,69 +437,97 @@ test.beforeAll(async ({ browser }) => {
   await bootstrapAuth(browser);
 });
 
-test('opening the resident switch discloses the mode, gates send, and the ticked send lands resident', async ({ page, request }) => {
+test('the new-session screen carries the switch under the model card, and sending with it on lands resident', async ({ page, request }) => {
   await setSelectedProvider(request, RESIDENT_PROVIDER);
   await restoreSession(page, RESIDENT_PROVIDER);
   await page.goto('/');
-  await openComposer(page);
+  await openNewSession(page);
 
-  // ── the switch the capability matrix decides ─────────────────────────────────────────────────────────
-  const toggle = page.getByRole('switch', { name: enChat.resident.toggle });
+  // ── AC2: the model card and the switch, on one screen, before the first turn ─────────────────────────
+  const viewport = page.viewportSize();
+  expect(
+    viewport?.width ?? 0,
+    'this leg is read at a viewport the criterion requires (≥780px)',
+  ).toBeGreaterThanOrEqual(780);
+
+  const card = page.getByText(enChat.providerSelection.clickToChange);
+  const onScreen = switches(page);
   await expect(
-    toggle,
-    `${RESIDENT_PROVIDER} lists resident in its capability matrix, so the composer must offer the switch`,
-  ).toBeVisible({ timeout: 15_000 });
-  // The positive side of the matrix reading; the negative side is the next case's.
+    onScreen,
+    `${RESIDENT_PROVIDER} lists resident in its capability matrix, so the new-session screen must offer the switch — `
+      + 'and exactly one of it: the composer stands its own copy down while this screen is up',
+  ).toHaveCount(1, { timeout: 15_000 });
+  const toggle = onScreen.first();
+  expect(
+    await toggle.getAttribute('aria-label'),
+    'the switch must be named by the shipped copy, not by a hard-coded word in this spec',
+  ).toBe(enChat.resident.toggle);
   console.log('toggle.present=true');
+
+  const cardBox = await card.boundingBox();
+  const switchBox = await toggle.boundingBox();
+  const cardOnScreen = inViewport(cardBox, viewport);
+  const switchOnScreen = inViewport(switchBox, viewport);
+  console.log(
+    `viewport=${viewport?.width}x${viewport?.height} card.inViewport=${cardOnScreen} switch.inViewport=${switchOnScreen}`,
+  );
+  expect(cardOnScreen, 'the model card must be on screen with the switch, not scrolled past it').toBe(true);
+  expect(switchOnScreen, 'the switch must be on screen with the model card, not below the fold').toBe(true);
+  expect(
+    switchBox!.y,
+    'the switch must sit *below* the card it was relocated under, not above it or over it',
+  ).toBeGreaterThan(cardBox!.y + cardBox!.height - 1);
   expect(await toggle.getAttribute('aria-checked'), 'the switch starts off').toBe('false');
 
-  await toggle.click();
-
-  // ── AC2: the disclosure opens in place, and says the two things it has to say ────────────────────────
-  const notice = page.locator(NOTICE);
-  await expect(notice, 'opening the switch must disclose the mode in place, not on a later screen').toBeVisible();
-  const copy = normalize(await notice.innerText());
-  console.log('notice.visible=true');
-  console.log(`notice.copy=${copy}`);
+  // ── the disclosure is a hint, and it says the two things it has to say ───────────────────────────────
   expect(
-    copy,
-    'the disclosure must state what the mode does: the process runs with bypassPermissions between turns',
-  ).toContain(normalize(enChat.resident.notice.bypass));
-  expect(
-    copy,
-    'the disclosure must state the trust boundary: the process belongs to this Unix user, so anything else '
-      + 'running as that user can reach it',
-  ).toContain(normalize(enChat.resident.notice.trustBoundary));
+    await page.locator(HINT).count(),
+    'this screen must carry one switch and one hint; a second pair would be the composer\'s copy that was supposed to stand down',
+  ).toBe(1);
+  emptyStateHintCopy = await openHint(page);
 
-  // ── AC2, load-bearing leg: the unticked box really closes the gate ───────────────────────────────────
+  // ── AC2's second half, first reading: what is on screen *before* the switch is turned on ─────────────
+  const checkboxesBefore = await page.locator(CHECKBOX).count();
+  const onSurfacesBefore = await page.locator(RESIDENT_SURFACES).count();
+
+  // ── AC5's carrier: pressing the switch really takes effect ───────────────────────────────────────────
   //
-  // The composer is given something to send first. An empty composer's send button is disabled for a reason
-  // of its own — there is nothing to submit — and a reading taken over it could not tell the consent gate
-  // from that. With content present, the consent gate is the only thing left in `disabled`.
-  await composer(page).fill('resident consent gate probe');
+  // This is the assertion the falsifying variant recorded in the task reds on: wrap the hint so its container
+  // swallows the click on its way to the switch, and the switch stays off while looking pressed. The
+  // aria-checked reading below is what tells "the press was delivered" from "a press was attempted", and the
+  // send that follows is the end-to-end consequence of the same fact.
+  await toggle.click();
+  expect(
+    await toggle.getAttribute('aria-checked'),
+    'pressing the switch must actually turn it on — a hint that intercepted the click would leave it off',
+  ).toBe('true');
 
+  // ── AC2's second half, second reading: turning the switch on adds none ───────────────────────────────
+  const checkboxesAfter = await page.locator(CHECKBOX).count();
+  const onSurfacesAfter = await page.locator(RESIDENT_SURFACES).count();
+  console.log(`checkbox.page.count=${checkboxesBefore}->${checkboxesAfter} (the rest are the global Quick Settings drawer's)`);
+  console.log(`checkbox.resident-surface.count=${onSurfacesBefore}->${onSurfacesAfter}`);
+  expect(
+    onSurfacesAfter,
+    'the retired gate drew the only checkbox on the transcript and composer surfaces; with the switch on there must be none',
+  ).toBe(0);
+  expect(
+    checkboxesAfter,
+    'turning the switch on must not add a checkbox — that is what the retired gate did, and it is the one thing this reading can see page-wide',
+  ).toBe(checkboxesBefore);
+
+  // ── AC1: the switch being on is the whole of the intent — nothing else stands between it and the send ─
+  //
+  // The composer is given something to send first: an empty composer's send button is disabled for a reason of
+  // its own — there is nothing to submit — and a reading taken over it could not tell a gate from that.
+  await composer(page).fill('resident hint is read-only');
   const gateBefore = await submitDisabled(page);
   console.log(`gate.before=${gateBefore}`);
   expect(
     gateBefore,
-    'with the switch on and "I understand" unticked, the composer\'s send button must be disabled',
-  ).toBe(true);
+    'with the switch on, the composer must be immediately sendable: there is no acknowledgement step left to take',
+  ).toBe(false);
 
-  const pathBefore = new URL(page.url()).pathname;
-  const unacked = await attemptSend(page);
-  console.log(`send.unacked=${unacked}`);
-  console.log(`pathname=${new URL(page.url()).pathname}`);
-  expect(
-    { pathname: new URL(page.url()).pathname },
-    'an un-acknowledged send must open no session — the composer stays in the new-session state',
-  ).toEqual({ pathname: pathBefore });
-
-  await page.getByRole('checkbox', { name: enChat.resident.notice.acknowledge }).check();
-  const gateAfter = await submitDisabled(page);
-  console.log(`gate.after=${gateAfter}`);
-  expect(gateAfter, 'ticking "I understand" must open the gate').toBe(false);
-
-  // ── AC3: the send that now goes through really lands as a resident session ───────────────────────────
   await page.locator(SEND_BUTTON).click();
   await expect.poll(() => new URL(page.url()).pathname).toMatch(/^\/session\/[^/]+$/);
   const createdSessionId = new URL(page.url()).pathname.split('/').pop() as string;
@@ -403,11 +537,11 @@ test('opening the resident switch discloses the mode, gates send, and the ticked
   console.log(`session.lifecycle_mode=${createdMode}`);
   expect(
     createdMode,
-    'the session a ticked resident send is addressed to must read back as resident from the server',
+    'the session a switch-on send is addressed to must read back as resident from the server',
   ).toBe('resident');
 
-  // POSITIVE CONTROL for that reading: the same field, read the same way, for a session nobody asked to keep
-  // running. Without it, a projection that answered `resident` for every row would score the same.
+  // POSITIVE CONTROL for the mode reading: the same field, read the same way, for a session nobody asked to
+  // keep running. Without it, a projection that answered `resident` for every row would score the same.
   const control = await request.post('/api/providers/sessions', {
     headers: auth(authToken),
     data: { provider: RESIDENT_PROVIDER, projectPath: workspace, initialMessage: 'per-run control' },
@@ -422,73 +556,55 @@ test('opening the resident switch discloses the mode, gates send, and the ticked
   ).toBe('per-run');
 });
 
-test('the switch is the capability matrix\'s answer rather than a provider id', async ({ page, request }) => {
-  const rows = await providerCapabilities(request);
-  const resident = rows.filter((row) => row.lifecycleModes?.includes('resident')).map((row) => row.provider);
-  const nonResident = rows.filter((row) => !row.lifecycleModes?.includes('resident')).map((row) => row.provider);
-  console.log(`capability.residentProviders=${resident.join(',')}`);
-  console.log(`capability.nonResidentProviders=${nonResident.join(',')}`);
-  expect(resident, 'the matrix must name a resident provider, or the positive leg above proves nothing').not.toHaveLength(0);
-  expect(nonResident, 'the matrix must name a non-resident provider, or this leg has nothing to read').not.toHaveLength(0);
-
-  const other = nonResident[0];
-  await setSelectedProvider(request, other);
-
-  // The reading below is an absence, and an absence is only worth something if the answer it is the absence of
-  // has really arrived: the composer on screen is the one the matrix has already answered for.
-  const capabilitiesAnswered = page.waitForResponse(
-    (response) => new URL(response.url()).pathname === '/api/providers/capabilities',
-  );
-  await restoreSession(page, other);
-  await page.goto('/');
-  await openComposer(page);
-  await expect(composer(page), 'the composer must be on screen for its absence of a switch to mean anything').toBeVisible();
-  expect((await capabilitiesAnswered).ok(), 'the capability request the composer makes must have succeeded').toBe(true);
-
-  const switches = await page.getByRole('switch', { name: enChat.resident.toggle }).count();
-  console.log(`toggle.present=${switches > 0}`);
-  expect(
-    switches,
-    `${other} does not list resident in lifecycleModes (${JSON.stringify(
-      rows.find((row) => row.provider === other)?.lifecycleModes,
-    )}), so the composer must not offer the switch`,
-  ).toBe(0);
-});
-
-test('the session menu converts through the same disclosure, and is disabled while the session is processing', async ({ page, request }) => {
+test('a session with messages keeps the composer\'s own switch and the same hint, and one menu click converts it', async ({ page, request }) => {
   await setSelectedProvider(request, RESIDENT_PROVIDER);
-
-  // ── THE ONE SEAM IN THIS FILE ────────────────────────────────────────────────────────────────────────
-  //
-  // `GET /api/providers/sessions/running` is the read-only answer the sidebar derives "processing" from, and
-  // the server's own answer comes from the in-flight chat-run registry: a session is in it only while a real
-  // model turn is streaming, and no fixture can put it there for the length of an assertion. So this leg
-  // states the server's answer directly. It stands in for the *input* to the gate; the gate's own effect —
-  // the menu item's `disabled` attribute — and every lifecycle mode below are read from the running app and
-  // the real server. `processing` is dropped once the disabled reading has been taken, and the item's return
-  // to enabled is then a real response to the real, now-empty, list.
-  let processing = true;
-  await page.route(RUNNING_SESSIONS, async (route) => {
-    if (!processing) {
-      await route.fallback();
-      return;
-    }
-    await route.fulfill({
-      json: {
-        success: true,
-        data: {
-          sessions: [
-            { sessionId: SEEDED_SESSION_ID, provider: RESIDENT_PROVIDER, startedAt: Date.now(), lastSeq: 1 },
-          ],
-        },
-      },
-    });
-  });
 
   await restoreSession(page, RESIDENT_PROVIDER);
   await page.goto('/');
-  await openWorkspace(page);
+  await openSeededSession(page);
 
+  // ── AC3: the switch does not depend on the message count ─────────────────────────────────────────────
+  //
+  // The reading below only means anything on a session that really has a transcript: an empty one takes the
+  // new-session branch, and a green here would then be the previous case's reading taken twice.
+  await expect
+    .poll(() => page.locator(MESSAGE).count(), { timeout: 15_000 })
+    .toBeGreaterThanOrEqual(1);
+  const messages = await page.locator(MESSAGE).count();
+  console.log(`messages.count=${messages} (n>=1)`);
+  expect(
+    messages,
+    'this case must be read on a session with a transcript, not on the new-session screen',
+  ).toBeGreaterThanOrEqual(1);
+
+  const inComposer = switches(page, '.chat-composer-shell');
+  await expect(
+    inComposer,
+    'a per-run session with history must still show the switch above its input — the relocation moved one home, not this one',
+  ).toHaveCount(1, { timeout: 15_000 });
+  expect(await inComposer.first().getAttribute('aria-checked'), 'the switch starts off').toBe('false');
+  console.log('composer.toggle.present=true');
+
+  const onSurfaces = await page.locator(RESIDENT_SURFACES).count();
+  console.log(`checkbox.resident-surface.count=${onSurfaces}`);
+  expect(onSurfaces, 'the composer side must draw no checkbox either').toBe(0);
+
+  // ── AC2's other half: the same disclosure, word for word, on this side ───────────────────────────────
+  const composerCopy = await openHint(page, '.chat-composer-shell');
+  expect(
+    composerCopy,
+    'the two homes of the switch must disclose the same sentences — a shared hint is the whole reason the copy lives in chat\'s keys',
+  ).toBe(emptyStateHintCopy);
+
+  // And the second carrier for AC5: the press lands here as well, on the surface that was not relocated.
+  const toggle = inComposer.first();
+  await toggle.click();
+  expect(
+    await toggle.getAttribute('aria-checked'),
+    'pressing this switch must turn it on too — the hint sits beside it on both sides',
+  ).toBe('true');
+
+  // ── AC4: the menu converts on one click, after the hint has been read ────────────────────────────────
   const modeBefore = await modeOf(request, SEEDED_SESSION_ID);
   expect(modeBefore, `the seeded session must start per-run; the server read ${modeBefore}`).toBe('per-run');
 
@@ -500,46 +616,86 @@ test('the session menu converts through the same disclosure, and is disabled whi
   ).toBeVisible();
   console.log('menu.item=present');
 
-  const disabledWhileProcessing = await convert.evaluate((element) => (element as HTMLButtonElement).disabled);
-  console.log(`menu.disabledWhenProcessing=${disabledWhileProcessing}`);
+  // The item is usable with nothing done to it. This is the reading that stands where the retired gate used to:
+  // the old menu carried a checkbox the conversion sat disabled behind, so "offered, and enabled the moment the
+  // menu is opened" is exactly the state the removal was for. It is read before the hint below is touched, so a
+  // hint that had taken the click or a step that had to be ticked first would show up here.
+  //
+  // The mid-turn behaviour (`disabled` while the session has a live run) is deliberately not read here, and not
+  // only because no fixture can put a session in the server's in-flight registry for the length of an assertion:
+  // the running set is cleared by the subscribe ack the app itself processes on opening the session, so a seam on
+  // `GET /api/providers/sessions/running` is re-cleared before it can be read. That behaviour is covered where it
+  // can be stated directly — `src/modules/sidebar/tests/recentConversationRowActions.test.tsx` asserts the row
+  // hands `isProcessing: true` down, and SessionOptions turns that into the item's `disabled`.
+  const enabledOnOpen = await convert.isEnabled();
+  console.log(`menu.convertEnabledOnOpen=${enabledOnOpen}`);
   expect(
-    disabledWhileProcessing,
-    'a session mid-turn must not offer a conversion the server would refuse — the item stays, but unusable',
+    enabledOnOpen,
+    'the conversion must be one click from here — offered, and enabled, with nothing ticked and nothing confirmed',
   ).toBe(true);
 
-  // The session stops processing. The menu is left open: the item's state is what changes, and re-opening a
-  // menu would only re-read it. The sidebar polls the running set every 5s, so the bound clears that interval.
-  processing = false;
-  await expect
-    .poll(() => convert.isEnabled(), { timeout: 25_000 })
-    .toBe(true);
-
-  // ── AC4: the same disclosure, and the conversion it gates ────────────────────────────────────────────
-  await convert.click();
-  const notice = page.locator(NOTICE);
-  await expect(notice, 'the menu item must open the same disclosure the composer shows').toBeVisible();
-
-  const confirm = page.getByRole('button', { name: enSidebar.sessionMenu.residentConsentConfirm });
-  const blockedUntilAck = await confirm.isDisabled();
-  console.log(`convert.blockedUntilAck=${blockedUntilAck}`);
-  expect(blockedUntilAck, 'the conversion must be shut until "I understand" is ticked').toBe(true);
-
-  const blockedAttempt = await confirm
-    .click({ timeout: 2_000 })
-    .then(() => 'accepted')
-    .catch(() => 'refused');
-  const modeAfterBlockedAttempt = await modeOf(request, SEEDED_SESSION_ID);
-  console.log(`modeBefore=modeAfter=${modeAfterBlockedAttempt}`);
+  // The hint explains the mode and gates nothing. It is read the same way as the other two homes, from the
+  // menu's own header, and the conversion below runs with it open and with nothing ticked — the removal of the
+  // gate is what makes that possible at all.
+  const menuCopy = await openHint(page, '[role="menu"]');
   expect(
-    modeAfterBlockedAttempt,
-    `an un-acknowledged conversion must not reach the server (the press was ${blockedAttempt})`,
-  ).toBe(modeBefore);
+    menuCopy,
+    'the menu\'s hint is the same hint: the three entry points read the same chat keys, and a menu that drifted '
+      + 'to its own wording would be a second disclosure nobody compares',
+  ).toBe(emptyStateHintCopy);
 
-  await page.getByRole('checkbox', { name: enChat.resident.notice.acknowledge }).check();
-  await expect(confirm, 'ticking "I understand" must open the conversion').toBeEnabled();
-  await confirm.click();
+  // The menu is portaled to `document.body`, so it is outside `RESIDENT_SURFACES`; the third carrier of the
+  // retired gate is read where it used to be drawn.
+  const menuCheckboxes = await page.locator(`[role="menu"] ${CHECKBOX}`).count();
+  console.log(`checkbox.menu.count=${menuCheckboxes}`);
+  expect(
+    menuCheckboxes,
+    'the menu used to carry the conversion\'s checkbox; with the gate retired there must be none',
+  ).toBe(0);
 
+  // ── one click, and the server has it ─────────────────────────────────────────────────────────────────
+  // The item is still enabled after the hint has been read and dismissed — nothing the hint did changed what the
+  // conversion requires — so the click below is the click the user would make.
+  expect(await convert.isEnabled(), 'reading the hint must not have disabled the conversion').toBe(true);
+  await convert.click();
   const converted = await waitForMode(request, SEEDED_SESSION_ID, 'resident');
-  console.log(`modeAfterConvert=${converted}`);
-  expect(converted, 'the acknowledged conversion must reach the server').toBe('resident');
+  console.log(`modeBefore=${modeBefore} modeAfter=${converted}`);
+  expect(
+    converted,
+    'choosing the conversion must be the whole of it — no tick, no confirm step between the click and the server',
+  ).toBe('resident');
+});
+
+test('the switch is the capability matrix\'s answer rather than a provider id', async ({ page, request }) => {
+  const rows = await providerCapabilities(request);
+  const resident = rows.filter((row) => row.lifecycleModes?.includes('resident')).map((row) => row.provider);
+  const nonResident = rows.filter((row) => !row.lifecycleModes?.includes('resident')).map((row) => row.provider);
+  console.log(`capability.residentProviders=${resident.join(',')}`);
+  console.log(`capability.nonResidentProviders=${nonResident.join(',')}`);
+  expect(resident, 'the matrix must name a resident provider, or the positive legs above prove nothing').not.toHaveLength(0);
+  expect(nonResident, 'the matrix must name a non-resident provider, or this case has nothing to read').not.toHaveLength(0);
+
+  const other = nonResident[0];
+  await setSelectedProvider(request, other);
+
+  // The reading below is an absence, and an absence is only worth something if the answer it is the absence of
+  // has really arrived: the composer on screen is the one the matrix has already answered for.
+  const capabilitiesAnswered = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === '/api/providers/capabilities',
+  );
+  await restoreSession(page, other);
+  await page.goto('/');
+  await openNewSession(page);
+  expect((await capabilitiesAnswered).ok(), 'the capability request the composer makes must have succeeded').toBe(true);
+
+  // Read on the new-session screen, so both homes are in question at once: neither the card's switch nor the
+  // composer's may appear for a provider the matrix does not list.
+  const present = await switches(page).count();
+  console.log(`toggle.present=${present > 0}`);
+  expect(
+    present,
+    `${other} does not list resident in lifecycleModes (${JSON.stringify(
+      rows.find((row) => row.provider === other)?.lifecycleModes,
+    )}), so neither home of the switch may be drawn`,
+  ).toBe(0);
 });

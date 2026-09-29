@@ -31,6 +31,14 @@ import ActivityIndicator from '@/modules/chat/composer/ActivityIndicator';
  */
 const INITIAL_MOUNTED_TAIL_ROWS = 30;
 
+/**
+ * The default for `onToggleResident`, for a render that supplies no toggler.
+ *
+ * Stable rather than inline, so a render that omits the prop does not hand the switch a new
+ * function on every commit. The empty state's switch draws either way — this only makes it inert.
+ */
+const noopResidentToggle = () => {};
+
 type ChatMessagesPaneProps = {
   scrollContainerRef: RefObject<HTMLDivElement>;
   /**
@@ -67,6 +75,20 @@ type ChatMessagesPaneProps = {
   isTaskMasterInstalled: boolean | null;
   onShowAllTasks?: (() => void) | null;
   setInput: Dispatch<SetStateAction<string>>;
+  /**
+   * Whether the selected provider can hold a resident session; the empty state's switch is drawn
+   * only when it can.
+   *
+   * Optional, and absent means "cannot": a caller that does not know the capability matrix cannot
+   * claim it, and offering a switch for a provider that may refuse the mode would promise an action
+   * the server would not keep. The app's own caller always knows — it reads the same matrix — so this
+   * default exists for a standalone render, the way `sessionId`'s does on the composer.
+   */
+  canRunResident?: boolean;
+  /** Whether the next send is meant to be resident, lifted to ChatInterface so both switch homes share one value. */
+  residentEnabled?: boolean;
+  /** Flips `residentEnabled`; the composer's own switch is the other caller. */
+  onToggleResident?: () => void;
   isLoadingMoreMessages: boolean;
   hasMoreMessages: boolean;
   totalMessages: number;
@@ -128,6 +150,9 @@ function ChatMessagesPane({
   isTaskMasterInstalled,
   onShowAllTasks,
   setInput,
+  canRunResident = false,
+  residentEnabled = false,
+  onToggleResident = noopResidentToggle,
   isLoadingMoreMessages,
   hasMoreMessages,
   totalMessages,
@@ -278,6 +303,9 @@ function ChatMessagesPane({
             isTaskMasterInstalled={isTaskMasterInstalled}
             onShowAllTasks={onShowAllTasks}
             setInput={setInput}
+            canRunResident={canRunResident}
+            residentEnabled={residentEnabled}
+            onToggleResident={onToggleResident}
           />
         ) : (
           <>

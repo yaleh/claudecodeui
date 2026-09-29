@@ -23,6 +23,7 @@ import {
   LLMProviderLogo,
 } from "@/shared/ui";
 import ModelGroupList, { type ModelGroup } from "@/modules/chat/composer/ModelGroupList";
+import { ResidentToggle } from "@/modules/chat/composer/ResidentConsentNotice";
 import ModelLibraryPanel from "@/modules/chat/modals/ModelLibraryPanel";
 import { writeSelectedProvider } from '@/shared/selectedProvider';
 
@@ -63,6 +64,15 @@ type ProviderSelectionEmptyStateProps = {
   isTaskMasterInstalled: boolean | null;
   onShowAllTasks?: (() => void) | null;
   setInput: React.Dispatch<React.SetStateAction<string>>;
+  /**
+   * Whether the selected provider can hold a resident session. The switch below the model card is
+   * drawn only when it can — the capability matrix's answer, not this file's.
+   */
+  canRunResident: boolean;
+  /** Whether the next send is meant to be resident, lifted to ChatInterface so both switch homes share it. */
+  residentEnabled: boolean;
+  /** Flips `residentEnabled`; the composer's own switch above the input is the other caller. */
+  onToggleResident: () => void;
 };
 
 function getModelConfig(
@@ -100,6 +110,9 @@ export default function ProviderSelectionEmptyState({
   isTaskMasterInstalled,
   onShowAllTasks,
   setInput,
+  canRunResident,
+  residentEnabled,
+  onToggleResident,
 }: ProviderSelectionEmptyStateProps) {
   const { t } = useTranslation("chat");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -212,6 +225,23 @@ export default function ProviderSelectionEmptyState({
                 </div>
               </Card>
             </DialogTrigger>
+
+            {/*
+              The resident switch, directly under the card that picks the model.
+
+              Its home before the first turn: the composer's own copy of this switch sits above the
+              input of a session that already has a transcript, and there is no such session yet. It
+              is deliberately outside `DialogTrigger` — the card opens the model picker on any click
+              inside it, and a switch nested there would open a dialog instead of flipping.
+
+              The hint beside it explains what the mode does; it asks for nothing. Turning the switch
+              on is the whole of the intent, and the send that follows is resident.
+            */}
+            {canRunResident && (
+              <div className="mx-auto mt-3 max-w-xs">
+                <ResidentToggle enabled={residentEnabled} onToggle={onToggleResident} />
+              </div>
+            )}
 
             <DialogContent className="max-w-md overflow-hidden p-0">
               <DialogTitle>Model Selector</DialogTitle>

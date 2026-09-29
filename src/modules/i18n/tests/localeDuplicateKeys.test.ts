@@ -198,6 +198,11 @@ describe('locale files have no duplicate keys', () => {
 
   // The keys the duplicate shadowed, read back through a parser the way the app reads
   // them. Without the merge these are `undefined` and the UI shows the raw key names.
+  //
+  // The notice's acknowledge key used to be asserted here and is deliberately absent: it was
+  // the checkbox label of the consent gate that the resident-toggle relocation retired, and a
+  // test that kept requiring a key nothing renders would be asserting a screen that no longer
+  // exists. The four below are still what the switch and its hint read.
   it('exposes resident.toggle and resident.notice in en and zh-CN', () => {
     for (const locale of ['en', 'zh-CN']) {
       const chat = parsed(locale, 'chat.json');
@@ -205,7 +210,6 @@ describe('locale files have no duplicate keys', () => {
       expect(typeof chat.resident?.notice?.title, `${locale} resident.notice.title`).toBe('string');
       expect(typeof chat.resident?.notice?.bypass, `${locale} resident.notice.bypass`).toBe('string');
       expect(typeof chat.resident?.notice?.trustBoundary, `${locale} resident.notice.trustBoundary`).toBe('string');
-      expect(typeof chat.resident?.notice?.acknowledge, `${locale} resident.notice.acknowledge`).toBe('string');
     }
   });
 

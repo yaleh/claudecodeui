@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Check, Edit2, EyeOff, GitBranch, MoreHorizontal, PowerOff, Timer, Trash2, X } from 'lucide-react';
+import { Check, Edit2, EyeOff, GitBranch, Info, MoreHorizontal, PowerOff, Timer, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
-import { ActionMenu } from '@/shared/ui';
+import { ActionMenu, Tooltip } from '@/shared/ui';
 import { cn } from '@/shared/utils';
 import type { LLMProvider } from '@/shared/types';
 import { useResidentProviders, useSessionForkingProviders } from '@/shared/hooks/useProviderCapabilities';
@@ -78,17 +78,10 @@ export default function SessionOptions({
   const canFork = Boolean(onFork) && forkableProviders.has(provider) && !isProcessing;
   // The same matrix answers the resident question, through the same kind of hook.
   const residentProviders = useResidentProviders();
-  // Whether the conversion's disclosure is expanded inside this menu. It is drawn in the menu's own
-  // header rather than under the row: the row lives in a scrolling, clipped list, and a panel
-  // hanging out of it would be cut off exactly where its checkbox sits.
-  const [residentConsentOpen, setResidentConsentOpen] = useState(false);
-  // Whether "I understand" has been ticked. Cleared whenever the menu closes, so a conversion is
-  // never carried out under consent given in an earlier visit to this menu.
-  const [residentAcknowledged, setResidentAcknowledged] = useState(false);
-  // In-flight conversion, so the confirm button cannot be fired twice.
+  // In-flight conversion, so the item cannot be fired twice while the server decides.
   const [residentConverting, setResidentConverting] = useState(false);
-  // A refused conversion (a live host mid-turn, most likely). Held so the panel can say so instead of
-  // closing as if it had worked.
+  // A refused conversion (a live host mid-turn, most likely). Held so the item can say so instead of
+  // resting there as though nothing had been asked of it.
   const [residentFailed, setResidentFailed] = useState(false);
   // The session's stored lifecycle mode, read when the menu opens. The workspace's own
   // session objects carry no mode — the projects listing drops the column — so the host
@@ -101,9 +94,15 @@ export default function SessionOptions({
   // A refused change — a live host mid-turn, most likely. Held so the item can say so
   // instead of resting there as though nothing had been asked of it.
   const [residentCloseFailed, setResidentCloseFailed] = useState(false);
-  // The disclosure's sentences are chat's, not this module's: they are the same two facts the
-  // composer's notice states, and sharing the keys is what keeps the two entry points from drifting
-  // into two different disclosures. Only the menu's own wording lives in the sidebar namespace.
+  // Whether this row should offer the conversion at all: the matrix lists the provider, and the
+  // session is not already resident — converting a resident session to resident is a no-op the
+  // server answers with `changed: false`, and the way out of the mode is the item below, not this one.
+  // Read by the menu item and by the hint beside it, so the two cannot come apart. Derived, never
+  // stored: a second copy of this answer could disagree with the item it is meant to sit beside.
+  const canConvertResident = residentProviders.has(provider) && sessionLifecycleMode !== 'resident';
+  // The disclosure's sentences are chat's, not this module's: they are the same two facts the chat
+  // entry points state, and sharing the keys is what keeps the three entry points from drifting into
+  // three different disclosures. Only the menu's own wording lives in the sidebar namespace.
   const { t: tChat } = useTranslation('chat');
 
   const convertToResident = async () => {
@@ -114,8 +113,9 @@ export default function SessionOptions({
       if (!response.ok) {
         throw new Error(`Failed to convert session to resident (${response.status})`);
       }
-      setResidentConsentOpen(false);
-      setResidentAcknowledged(false);
+      // The listing is the only thing that knows this row's mode, and it has just changed: without
+      // this the menu would go on offering the conversion that has already happened.
+      setSessionLifecycleMode('resident');
     } catch (error) {
       console.error('Resident conversion failed:', error);
       setResidentFailed(true);
@@ -240,11 +240,9 @@ export default function SessionOptions({
               // fetch the listing once per row, and the answer only matters here.
               void readSessionLifecycleMode();
             } else {
-              // A closed menu takes its disclosure and its tick with it: consent is per-conversion.
-              setResidentConsentOpen(false);
-              setResidentAcknowledged(false);
+              // A closed menu takes its complaint about the last attempt with it, so a reopened
+              // menu does not report a failure the user has already moved on from.
               setResidentFailed(false);
-              // And its complaint about the last attempt, for the same reason.
               setResidentCloseFailed(false);
             }
           }}
@@ -255,40 +253,48 @@ export default function SessionOptions({
               <p className="truncate text-xs font-medium text-foreground" title={sessionName}>
                 {sessionName}
               </p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">{providerLabel} session</p>
-              {residentConsentOpen && (
-                <div
-                  data-slot="resident-consent-notice"
-                  role="group"
-                  aria-label={t('sessionMenu.residentConsentTitle')}
-                  className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-2 text-[11px] leading-4"
-                >
-                  <p className="font-medium text-foreground">{t('sessionMenu.residentConsentTitle')}</p>
-                  <p className="mt-1 text-muted-foreground">{tChat('resident.notice.bypass')}</p>
-                  <p className="mt-1 text-muted-foreground">{tChat('resident.notice.trustBoundary')}</p>
-                  <label className="mt-2 flex items-center gap-2 text-foreground">
-                    <input
-                      type="checkbox"
-                      checked={residentAcknowledged}
-                      onChange={(event) => setResidentAcknowledged(event.target.checked)}
-                      aria-label={tChat('resident.notice.acknowledge')}
-                      className="h-3.5 w-3.5 accent-primary"
-                    />
-                    <span>{tChat('resident.notice.acknowledge')}</span>
-                  </label>
-                  <button
-                    type="button"
-                    disabled={!residentAcknowledged || residentConverting}
-                    onClick={() => { void convertToResident(); }}
-                    className="mt-2 w-full rounded-md bg-primary px-2 py-1 text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              <div className="mt-0.5 flex items-center gap-1">
+                <p className="text-[11px] text-muted-foreground">{providerLabel} session</p>
+                {/*
+                  The disclosure, as a hint rather than a step.
+
+                  It sits in the header, beside the conversion item it explains, for the reason the
+                  panel it replaced did: the row lives in a scrolling, clipped list and anything
+                  hanging out of it would be cut off. It is drawn exactly when the item is offered,
+                  from the same `canConvertResident`, so an explanation of an action that is not on
+                  the menu is not left on it.
+
+                  Its markup is written out here rather than imported from the chat module's
+                  `ResidentConsentNotice`, which draws the same hint beside the chat-side switches:
+                  a feature module may not deep-import another's components, and the shared i18n keys
+                  below are what actually holds the three entry points to the same sentences.
+
+                  Nothing here gates anything. Choosing the menu item converts, there and then.
+                */}
+                {canConvertResident && (
+                  <Tooltip
+                    content={(
+                      <span
+                        data-slot="resident-hint-content"
+                        className="block max-w-xs whitespace-normal text-left leading-5"
+                      >
+                        <span className="block">{tChat('resident.notice.bypass')}</span>
+                        <span className="mt-1 block">{tChat('resident.notice.trustBoundary')}</span>
+                      </span>
+                    )}
                   >
-                    {t('sessionMenu.residentConsentConfirm')}
-                  </button>
-                  {residentFailed && (
-                    <p className="mt-1 text-red-600">{t('sessionMenu.residentConsentFailed')}</p>
-                  )}
-                </div>
-              )}
+                    <button
+                      type="button"
+                      data-slot="resident-consent-notice"
+                      aria-label={tChat('resident.notice.title')}
+                      title={tChat('resident.notice.title')}
+                      className="inline-flex items-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      <Info className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    </button>
+                  </Tooltip>
+                )}
+              </div>
             </div>
           )}
           items={[
@@ -307,21 +313,28 @@ export default function SessionOptions({
               closeOnSelect: false,
               onSelect: handleCopyAction,
             },
-            // Offered only to a session that is not already resident: converting a resident
-            // session to resident is a no-op the server answers with `changed: false`, and the
-            // way out of the mode is the item right below, not this one.
-            ...(residentProviders.has(provider) && sessionLifecycleMode !== 'resident' ? [{
+            // Offered only to a session that is not already resident — `canConvertResident` is that
+            // rule, shared with the hint beside it.
+            ...(canConvertResident ? [{
               key: 'convert-to-resident',
               label: t('sessionMenu.convertToResident'),
-              description: t('sessionMenu.convertToResidentHint'),
+              // The failure replaces the hint rather than sitting under it: the row is one line of
+              // description wide, and a refused conversion is what the user needs to read there.
+              description: residentFailed
+                ? t('sessionMenu.residentConsentFailed')
+                : t('sessionMenu.convertToResidentHint'),
               icon: Timer,
-              // The menu stays open on selection: the conversion's disclosure opens inside it, and a
-              // menu that closed here would take the checkbox the user has to tick with it.
+              // The menu stays open on selection so the item can say the conversion failed where it
+              // happened, rather than closing as though it had worked. On success the item itself is
+              // replaced by the one that closes the mode — a visible answer either way.
               closeOnSelect: false,
               // Present but unusable while a turn is in flight — the server refuses a mode change
               // under a live host, and offering the action would promise something it cannot keep.
-              disabled: isProcessing,
-              onSelect: () => setResidentConsentOpen(true),
+              disabled: isProcessing || residentConverting,
+              loading: residentConverting,
+              // One click converts. The disclosure in the header above is read-only and asks for
+              // nothing, so there is no step between choosing this and the session becoming resident.
+              onSelect: () => { void convertToResident(); },
             }] : []),
             // The way back out. The Shell tab's closure is what a resident session costs, so
             // the same menu has to be able to lift it — and the change takes effect without a

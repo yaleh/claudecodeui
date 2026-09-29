@@ -304,8 +304,7 @@
     "notice": {
       "title": "开启常驻前请知悉",
       "bypass": "常驻会话在轮次之间保留一个进程，并以 bypassPermissions 运行：只要会话还在，工具调用不会先征求你的同意。",
-      "trustBoundary": "信任边界：该进程属于你的 Unix 用户，同一 Unix 用户下的其他进程都能访问并驱动这个会话。",
-      "acknowledge": "我了解"
+      "trustBoundary": "信任边界：该进程属于你的 Unix 用户，同一 Unix 用户下的其他进程都能访问并驱动这个会话。"
     },
     "pending": {
       "annotation": "将在当前回答结束后处理",

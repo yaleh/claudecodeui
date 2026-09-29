@@ -19,7 +19,6 @@ import { useComposerCompactTier } from '@/modules/chat/hooks/useComposerCompactT
 import { useDeviceSettings } from '@/shared/hooks/useDeviceSettings';
 import { findSessionHostState, useSessionHosts } from '@/shared/hooks/useSessionHosts';
 import { useResidentProviders } from '@/shared/hooks/useProviderCapabilities';
-import { cn } from '@/shared/utils';
 import { readSelectedProvider } from '@/shared/selectedProvider';
 import { loadProjectIdentifiers } from '@/shared/projectIdentifiers';
 import { isVoiceDebugEnabled } from '@/shared/voiceDebug';
@@ -48,7 +47,7 @@ import { ScheduledMessageList } from '@/modules/chat/composer/ScheduledMessageLi
 import ComposerModelMenu from '@/modules/chat/composer/ComposerModelMenu';
 import ComposerPermissionMenu from '@/modules/chat/composer/ComposerPermissionMenu';
 import ComposerMobileMoreMenu from '@/modules/chat/composer/ComposerMobileMoreMenu';
-import ResidentConsentNotice, { setPendingResidentIntent } from '@/modules/chat/composer/ResidentConsentNotice';
+import { ResidentToggle, setPendingResidentIntent } from '@/modules/chat/composer/ResidentConsentNotice';
 
 type MentionableFile = {
   name: string;
@@ -165,6 +164,25 @@ type ChatComposerProps = {
   placeholder: string;
   isTextareaExpanded: boolean;
   sendByCtrlEnter?: boolean;
+  /**
+   * Whether the next send is meant to be resident.
+   *
+   * Lifted to ChatInterface because the switch now has two homes — this composer (for a session that
+   * already has a transcript) and the new-session empty state's model card — and both flip the same
+   * intent that the submit below records through `setPendingResidentIntent`. Optional, and absent
+   * means "off": a caller that does not own the switch cannot claim a resident send.
+   */
+  residentEnabled?: boolean;
+  /** Flips `residentEnabled`; owned by ChatInterface, so both switch homes share one value. */
+  onToggleResident?: () => void;
+  /**
+   * Whether this composer is the place for the switch.
+   *
+   * False while the new-session empty state is on screen, because that surface draws the switch
+   * itself under the model card — the two must never both draw one. Defaults true so a standalone
+   * render (the composer-affordance and layout criteria among them) keeps its switch.
+   */
+  showResidentSwitch?: boolean;
 };
 
 /**
@@ -242,6 +260,9 @@ export default function ChatComposer({
   placeholder,
   isTextareaExpanded,
   sendByCtrlEnter,
+  residentEnabled = false,
+  onToggleResident,
+  showResidentSwitch = true,
 }: ChatComposerProps) {
   const { t } = useTranslation('chat');
   /*
@@ -270,16 +291,11 @@ export default function ChatComposer({
   // rather than from a provider id — the same rule the sidebar's conversion item follows — so a
   // provider that gains the mode gets the switch without a UI change. The composer is not handed the
   // provider id, only its label, so the id comes from the same stored selection `useChatProviderState`
-  // keeps in step with the open chat.
+  // keeps in step with the open chat. The switch's own on/off state is ChatInterface's, not this
+  // component's: the new-session empty state draws the same switch under the model card, and one
+  // intent read from two places cannot be two states.
   const residentProviders = useResidentProviders();
   const canRunResident = residentProviders.has(readSelectedProvider());
-  // Whether this session is being sent as a resident one. Held here because this is where the switch
-  // the user flips lives; the send path learns the intent through `setPendingResidentIntent` at the
-  // moment of submit, and applies it to the session the send is addressed to.
-  const [residentEnabled, setResidentEnabled] = useState(false);
-  // Whether the disclosure below has been read and ticked. Turning the switch off clears it, so a
-  // session is never sent under consent given for an earlier one — and turning it back on asks again.
-  const [residentAcknowledged, setResidentAcknowledged] = useState(false);
   // Drives the footer's layout branch below, and the replay row with it. Narrower than the desktop
   // arrangement needs is what it means, and the box can be that narrow inside a window that is not:
   // `md` (768px) is a rule of its own — the `sm` (640px) boundary this group used to switch on gave
@@ -403,29 +419,20 @@ export default function ChatComposer({
   // is still being written — so the button is the same one that sends, and the words around it have
   // to say "send" rather than "queue" or they would be describing a wait that is not happening.
   const busySendGoesToProcess = canQueueDraft && isResidentSession;
-  // The switch is on but the disclosure under it has not been ticked: nothing may be sent. This is
-  // what the submit button's `disabled` expression consults, and the reason the switch and the notice
-  // are one control rather than two.
-  const residentGateClosed = canRunResident && residentEnabled && !residentAcknowledged;
-  const toggleResident = useCallback(() => {
-    // Consent is per-send, not per-session: flipping the switch either way withdraws the tick, so
-    // turning it back on asks again instead of reusing an answer given for an earlier intent.
-    setResidentEnabled((enabled) => !enabled);
-    setResidentAcknowledged(false);
-  }, []);
+  // A standalone render (the affordance criterion's, and every other test's) passes no toggle; the
+  // switch still has to draw, so it gets a stable no-op rather than a fresh closure each commit.
+  const noopResidentToggle = useCallback(() => {}, []);
   // The one entry into the composer's submit. The send button is a `type="submit"` control, so a click
   // and an Enter key press both arrive here as the form's own `submit` event; the key path is routed to
   // the form rather than given a send of its own (see `useChatComposerState`'s keydown). Because every
-  // path shares this handler, it is also where the consent gate lives: an unticked disclosure refuses
-  // the send here, for the button and the key alike, instead of only disabling the button.
+  // path shares this handler, it is also where the resident intent is recorded: the send path learns
+  // whether this send is a resident one from `setPendingResidentIntent`, and the switch position is
+  // the whole of the answer — nothing stands between the switch and the send.
   const handleComposerSubmit = useCallback((event: Parameters<typeof onSubmit>[0]) => {
-    // The form's default action is a navigation, so it is stopped before the gate is consulted: a
-    // refused send must do nothing at all, not reload the composer to an empty page.
     event.preventDefault();
-    if (residentGateClosed) return;
-    setPendingResidentIntent(residentEnabled && residentAcknowledged);
+    setPendingResidentIntent(residentEnabled);
     onSubmit(event);
-  }, [onSubmit, residentAcknowledged, residentEnabled, residentGateClosed]);
+  }, [onSubmit, residentEnabled]);
   // Every sentence this hint can print names a keyboard key — Enter, Shift+Enter, Ctrl+Enter — and a
   // soft keyboard has none of them, so there is no wording that would be true on a touch-only device.
   // Such a device is given no hint at all rather than the wrong one: the button is the only way out
@@ -613,61 +620,30 @@ export default function ChatComposer({
           <input {...getInputProps()} />
 
           {/*
-            The resident switch and, under it, the disclosure it opens. Above the box rather than in
-            the footer because the footer is exactly the controls that send a message and may not
-            wrap; and rendered only for a provider the capability matrix lists `resident` for, so the
-            affordance is the matrix's answer and not this file's.
+            The resident switch, with the disclosure as a hint beside it rather than a gate under it.
+            Above the box rather than in the footer because the footer is exactly the controls that
+            send a message and may not wrap; and rendered only for a provider the capability matrix
+            lists `resident` for, so the affordance is the matrix's answer and not this file's.
 
             And rendered only while this session is not *already* resident. The switch is the way a
             session becomes resident-or-kept-alive; on a session the server already stores `resident`
-            it has nothing left to turn on, and the whole disclosure (the paragraph plus the tick box)
-            would sit over a large part of the input for no action it could take. The one exit from the
-            mode is deliberate and lives elsewhere — the status bar's popover and the session menu
-            (§15.4); this file adds no second one. `isResidentSession` is the same reading the submit
-            label's resident branch already uses, so the two agree by construction.
+            it has nothing left to turn on, and the row would sit over part of the input for no action
+            it could take. The one exit from the mode is deliberate and lives elsewhere — the status
+            bar's popover and the session menu (§15.4); this file adds no second one.
+            `isResidentSession` is the same reading the submit label's resident branch already uses,
+            so the two agree by construction.
+
+            `showResidentSwitch` is false while the new-session empty state is on screen: that surface
+            draws the same switch under the model card, before there is a session to open, and the two
+            must never be on screen together. This is the negative half of that rule — the empty state
+            owns the switch for a session with no transcript, this composer for one that has it.
           */}
-          {canRunResident && !isResidentSession && (
+          {canRunResident && showResidentSwitch && !isResidentSession && (
             <PromptInputHeader>
-              <button
-                type="button"
-                role="switch"
-                // Structural marker for the criteria that read this affordance: the switch's own
-                // `aria-label` comes from an i18n key that is currently shadowed by a duplicate
-                // top-level key, so a reader keyed on the *name* would also match the page's dark-mode
-                // switch. `data-resident-enable` is the affordance itself, addressable without the copy.
-                data-resident-enable="true"
-                aria-checked={residentEnabled}
-                aria-label={t('resident.toggle')}
-                onClick={toggleResident}
-                className={cn(
-                  'flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-xs transition-colors',
-                  residentEnabled ? 'bg-primary/10 text-foreground' : 'text-muted-foreground hover:bg-muted',
-                )}
-              >
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    'relative h-4 w-7 shrink-0 rounded-full transition-colors',
-                    residentEnabled ? 'bg-primary' : 'bg-muted-foreground/30',
-                  )}
-                >
-                  <span
-                    className={cn(
-                      'absolute top-0.5 h-3 w-3 rounded-full bg-background transition-all',
-                      residentEnabled ? 'left-3.5' : 'left-0.5',
-                    )}
-                  />
-                </span>
-                <span>{t('resident.toggle')}</span>
-              </button>
-              {residentEnabled && (
-                <div className="mt-2">
-                  <ResidentConsentNotice
-                    acknowledged={residentAcknowledged}
-                    onAcknowledgedChange={setResidentAcknowledged}
-                  />
-                </div>
-              )}
+              <ResidentToggle
+                enabled={residentEnabled}
+                onToggle={onToggleResident ?? noopResidentToggle}
+              />
             </PromptInputHeader>
           )}
 
@@ -881,9 +857,7 @@ export default function ChatComposer({
                     ? false
                     : isTranscribing
                       ? true
-                      : residentGateClosed
-                        ? true
-                        : !input.trim() && attachedFiles.length === 0
+                      : !input.trim() && attachedFiles.length === 0
               }
               aria-label={submitAriaLabel}
               title={submitAriaLabel}

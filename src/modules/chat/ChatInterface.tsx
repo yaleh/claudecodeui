@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowDownIcon } from 'lucide-react';
 
@@ -24,6 +24,8 @@ import {
   useProcessingSessions,
   useSessionProtectionActions,
 } from '@/shared/context/SessionProtectionContext';
+import { useResidentProviders } from '@/shared/hooks/useProviderCapabilities';
+import { readSelectedProvider } from '@/shared/selectedProvider';
 import ChatMessagesPane from '@/modules/chat/transcript/ChatMessagesPane';
 import ChatComposer from '@/modules/chat/composer/ChatComposer';
 import CommandResultModal from '@/modules/chat/modals/CommandResultModal';
@@ -441,6 +443,40 @@ function ChatInterface({
   // overlapping the last message.
   const hasActivityIndicator = Boolean(sessionActivity && pendingPermissionRequests.length === 0);
 
+  /*
+   * The resident switch, held here because it now has two homes.
+   *
+   * Before a session has a transcript the switch sits under the new-session empty state's model
+   * card; once there is one it sits above the composer's input. Both flip the same intent, so the
+   * value is lifted to this component — the one ancestor both surfaces share — rather than kept
+   * inside either of them, where one could be toggled and the other would not know.
+   *
+   * `canRunResident` is read here too rather than passed down as a resolved boolean, because the
+   * empty state needs it as well as the composer does. Same matrix, same reading.
+   */
+  const residentProviders = useResidentProviders();
+  const canRunResident = residentProviders.has(readSelectedProvider());
+  // Whether the next send is meant to be resident. Not cleared when the session becomes resident:
+  // the intent it records is what made it resident, and a resident session's later sends are
+  // resident too, so the switch staying on is the honest reading rather than a stale one.
+  const [residentEnabled, setResidentEnabled] = useState(false);
+  /** Flips the switch. The position is the whole of the intent — there is no acknowledgement to record or withdraw. */
+  const toggleResident = useCallback(() => {
+    setResidentEnabled((enabled) => !enabled);
+  }, []);
+
+  // Whether the model card that owns the switch for a transcript-less session is the thing on screen.
+  // Mirrors the branch ChatMessagesPane takes to render it — no session open, nothing being sent, and
+  // no messages yet — so that the composer can stand its own switch down rather than draw a second
+  // one beside it. Derived rather than stored: two copies of this answer could disagree, and the
+  // symptom would be two switches or none.
+  const showNewSessionEmptyState =
+    chatMessages.length === 0
+    && !isLoadingSessionMessages
+    && !isProcessing
+    && !selectedSession
+    && !currentSessionId;
+
   const selectedProviderLabel =
     provider === 'cursor'
       ? t('messageTypes.cursor')
@@ -499,6 +535,9 @@ function ChatInterface({
             isTaskMasterInstalled={isTaskMasterInstalled}
             onShowAllTasks={onShowAllTasks}
             setInput={setInput}
+            canRunResident={canRunResident}
+            residentEnabled={residentEnabled}
+            onToggleResident={toggleResident}
             isLoadingMoreMessages={isLoadingMoreMessages}
             hasMoreMessages={hasMoreMessages}
             totalMessages={totalMessages}
@@ -617,6 +656,11 @@ function ChatInterface({
           placeholder={t('input.placeholder', { provider: selectedProviderLabel })}
           isTextareaExpanded={isTextareaExpanded}
           sendByCtrlEnter={sendByCtrlEnter}
+          residentEnabled={residentEnabled}
+          onToggleResident={toggleResident}
+          // The composer's switch yields to the empty state's while that surface is up. Both read the
+          // same lifted `residentEnabled`, so this only decides which of the two draws it.
+          showResidentSwitch={!showNewSessionEmptyState}
         />
         </div>
       </div>
