@@ -1,13 +1,34 @@
 ---
 id: gap-resident-idle-timeout-not-configurable
 title: AC-181 常驻空闲超时写死为 24 小时常量、无配置入口：加配置入口，默认不变，忙宿主不被关
-status: ready
+status: needs-human
 needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
 children: []
-extra: {}
+extra:
+  worker_attribution: 2026-09-29 AC-181 round2 — the prior park's 'could not be
+    attributed' reason is a misattribution. Merged develop into the branch
+    (HEAD^2=005f70a3); the quoted red
+    server/modules/debug-agent/tests/debug-agent-external-write.test.ts is now
+    GREEN standalone (tests 4 / pass 4) — it was branch-lag (branch was 7
+    commits behind develop, replaying a defect develop had already fixed). Sole
+    remaining standalone red =
+    server/modules/providers/tests/claude-resident-remote-control-isolation.test.ts
+    subtests (3) 'Timed out after 20000ms waiting for the mutated build to open
+    a resident host despite the enabled user settings' and (4) SQLITE_ERROR —
+    reproduced 2/2 this round, matching the prior 3/3 record, i.e. a
+    DETERMINISTIC regression on develop, not this task's delta (subtests 1/2a/2b
+    are green, so resident launch itself is fine). claude-resident-addressable /
+    -busy-input / -unattended-turn are the known resident-family load flakes.
+    This task's own files passed in the last suite; scoped gate green;
+    anti-drift green; AC 7/7. Do NOT re-implement. The blocker is a sibling
+    criterion regression (owner gap-claude-resident-remote-control-isolation,
+    status done, last code commit b5f25751; bisect window = commits after
+    b5f25751 touching server/modules/session-hosts/ or
+    server/modules/providers/); it reds every fan-in and re-dispatch cannot
+    clear it — needs a separate repair task or human adjudication.
 goal_ac: AC-181
 ---
 ## Proposal
@@ -70,4 +91,16 @@ goal_ac: AC-181
 - run_id：wk-prod-anchor
 - session_id：fc046b8b-dde5-43f3-988f-7b002808e258
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-resident-idle-timeout-not-configurable~wk-prod-anchor~1790655046091-f74ccf.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-resident-idle-timeout-not-configurable-wk-prod-anchor.log
+
+## Needs-Human
+
+**执行 2026-09-29T06:01:04.822Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 3 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: not ok - suite-watchdog: ABORT guard=silence reason=hung threshold_ms=240000 elapsed_ms=361675 silent_ms=245274
+- run_id：wk-prod-anchor
+- session_id：587e68f6-9369-4207-bcc5-1546d65351a8
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-resident-idle-timeout-not-configurable~wk-prod-anchor~1790661094419-c42ae3.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-resident-idle-timeout-not-configurable-wk-prod-anchor.log
