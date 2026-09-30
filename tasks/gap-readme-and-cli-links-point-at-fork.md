@@ -31,11 +31,11 @@ extra:
 
 ## AC
 
-- [ ] AC1 README 不再把用户带去上游下载/问题页：`grep -n "cloudcli.ai/download\|siteboon/claudecodeui" README.md` 的每一处命中都位于以 `> ` 开头的 fork 声明引用块内（判据打印 `readme.upstream_refs_outside_notice=0`）；`README.md` 含 `github.com/yaleh/claudecodeui/releases` 与 `github.com/yaleh/claudecodeui/issues`。
-- [ ] AC2 守卫绿：`node --test scripts/release/tests/fork-release-workflows.test.mjs` 退出 **0** 且打印上一条的读数；取假：往 README 桌面段临时加一条 `https://github.com/siteboon/claudecodeui/releases` 后该守卫退出非 **0**，红在 `readme.upstream_refs_outside_notice`；恢复后复绿（登记变异 diff、失败断言逐字、退出码）。
-- [ ] AC3 CLI 回退值：`grep -c "siteboon" server/modules/cli/cli.service.ts` 为 **0**；`bash scripts/test.sh --for-task gap-readme-and-cli-links-point-at-fork --allow-thin` 退出 **0**，`__PERFILE__` 里含 `server/modules/cli/tests/cli.service.test.ts` 且 `passed=true`；取假：把回退值改回 `siteboon` 后该测试红。
-- [ ] AC4 未越界：`git diff --name-only $(git merge-base develop HEAD) HEAD` 全部落在 `## Touches` 内；`docker/`、`redirect-package/`、`CHANGELOG.md`、`electron/` 字节不变；README 中 `cloudcli.ai/docs`、Discord、`cloudcli-ai/cloudcli-plugin-*` 链接逐字保留（`grep -c` 与 `develop` 上的值相等）。
-- [ ] AC5 `npm run typecheck` 与 `npm run lint` 退出 **0**。
+- [x] AC1 README 不再把用户带去上游下载/问题页：`grep -n "cloudcli.ai/download\|siteboon/claudecodeui" README.md` 的每一处命中都位于以 `> ` 开头的 fork 声明引用块内（判据打印 `readme.upstream_refs_outside_notice=0`）；`README.md` 含 `github.com/yaleh/claudecodeui/releases` 与 `github.com/yaleh/claudecodeui/issues`。
+- [x] AC2 守卫绿：`node --test scripts/release/tests/fork-release-workflows.test.mjs` 退出 **0** 且打印上一条的读数；取假：往 README 桌面段临时加一条 `https://github.com/siteboon/claudecodeui/releases` 后该守卫退出非 **0**，红在 `readme.upstream_refs_outside_notice`；恢复后复绿（登记变异 diff、失败断言逐字、退出码）。
+- [x] AC3 CLI 回退值：`grep -c "siteboon" server/modules/cli/cli.service.ts` 为 **0**；`bash scripts/test.sh --for-task gap-readme-and-cli-links-point-at-fork --allow-thin` 退出 **0**，`__PERFILE__` 里含 `server/modules/cli/tests/cli.service.test.ts` 且 `passed=true`；取假：把回退值改回 `siteboon` 后该测试红。
+- [x] AC4 未越界：`git diff --name-only $(git merge-base develop HEAD) HEAD` 全部落在 `## Touches` 内；`docker/`、`redirect-package/`、`CHANGELOG.md`、`electron/` 字节不变；README 中 `cloudcli.ai/docs`、Discord、`cloudcli-ai/cloudcli-plugin-*` 链接逐字保留（`grep -c` 与 `develop` 上的值相等）。
+- [x] AC5 `npm run typecheck` 与 `npm run lint` 退出 **0**。
 
 ## DoD
 
