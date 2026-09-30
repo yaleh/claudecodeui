@@ -50,6 +50,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import {
   buildPromptMessages,
   createHeldPromptStream,
+  resolveClaudeSessionTitle,
   startsBackgroundWork,
 } from '@/modules/providers/list/claude/claude-runtime.provider.js';
 import type { SessionHostManager } from '@/modules/session-hosts/index.js';
@@ -391,7 +392,30 @@ export class ClaudePerRunHostDriver implements IProviderHostDriver {
       options.cwd,
     );
     const held = createHeldPromptStream(promptMessages);
-    const queryStream = this.createQuery({ prompt: held.stream, options });
+
+    // The session's own title, when this bag names a provider session to read one
+    // from — the same handover the runtime makes on the per-run dispatch path, so
+    // the two launch sites cannot disagree about what a session answers to.
+    //
+    // The provider id is read off the option bag rather than resolved through a
+    // provider-scoped context, because this driver is handed one and has none:
+    // its options are the caller's own. A bag that names no provider session —
+    // which is every bag that has not been through a resume, including the one
+    // the criterion in `claude-host-per-run.test.ts` hands in — launches exactly
+    // as it did before, with no title at all. That is also the behaviour a
+    // session's *first* turn needs: a title handed over at creation suppresses
+    // the CLI's own title generation, so there has to be one to hand over first.
+    //
+    // The key written is the SDK's own (`title`) and not the shared builder's
+    // `sessionTitle`, because this driver hands its bag straight to `query`
+    // instead of through `mapCliOptionsToSDK`.
+    const sessionTitle = await resolveClaudeSessionTitle(
+      typeof options?.providerSessionId === 'string' ? options.providerSessionId : null,
+      typeof options?.cwd === 'string' ? options.cwd : null,
+    );
+    const queryOptions = sessionTitle ? { ...options, title: sessionTitle } : options;
+
+    const queryStream = this.createQuery({ prompt: held.stream, options: queryOptions });
 
     const run: HostRun = {
       hostId: host.hostId,

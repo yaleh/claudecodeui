@@ -17,7 +17,7 @@ import { promises as fs } from 'fs';
 import os from 'os';
 import path from 'path';
 
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { getSessionInfo, query } from '@anthropic-ai/claude-agent-sdk';
 
 import {
   appendFilesInputTag,
@@ -300,8 +300,44 @@ function matchesToolPermission(entry, toolName, input) {
   return false;
 }
 
+/**
+ * The title a session should answer to, or null to hand the CLI none.
+ *
+ * The value is the session's *own* Claude Code title — `getSessionInfo().summary`,
+ * the same reading `readSessionTitle` in `claude-rename.provider.ts` is the
+ * authority for — and deliberately not the display name this app has cached on
+ * the session row. Handing the cached name over would pin every process to a
+ * string the app invented, which is the failure this exists to remove.
+ *
+ * The title is passed from the *second* round onwards, never on the round that
+ * creates the session: the SDK skips automatic title generation entirely when a
+ * title is handed to it, so a launch that supplied one at creation would leave
+ * the session with nothing to adopt. The condition is self-limiting rather than
+ * needing a round counter — a session that has not run a full turn yet has no
+ * title to read, so `summary` is empty and none is handed over. A session with
+ * no provider id yet (a brand-new one, or one the app has never resumed) returns
+ * before touching the disk, which is every first round.
+ *
+ * A reading that throws is not a launch failure: a process started without a
+ * title is the behaviour that shipped before this, and it is still correct.
+ */
+export async function resolveClaudeSessionTitle(providerSessionId, projectPath) {
+  if (!providerSessionId || !projectPath) {
+    return null;
+  }
+
+  try {
+    const info = await getSessionInfo(providerSessionId, { dir: projectPath });
+    const summary = typeof info?.summary === 'string' ? info.summary.trim() : '';
+    return summary.length > 0 ? summary : null;
+  } catch (error) {
+    console.warn('[Claude SDK] Unable to read the session title:', error?.message ?? error);
+    return null;
+  }
+}
+
 function mapCliOptionsToSDK(options = {}) {
-  const { providerSessionId, cwd, toolsSettings, permissionMode, effort, resumeAnchorId, resumeFromScratch } = options;
+  const { providerSessionId, cwd, toolsSettings, permissionMode, effort, resumeAnchorId, resumeFromScratch, sessionTitle } = options;
 
   const sdkOptions = {};
 
@@ -375,6 +411,20 @@ function mapCliOptionsToSDK(options = {}) {
   };
 
   sdkOptions.settingSources = ['project', 'user', 'local'];
+
+  // The session's own title, handed back to the CLI so the process registers
+  // under it. The CLI keeps a ladder for a process's name and reserves
+  // `nameSource: "auto"` for a title it adopted rather than one a user typed, so
+  // this is what makes an addressable process answer to the same phrase the
+  // session already shows — instead of the directory-plus-two-characters name it
+  // derives when it is given nothing.
+  //
+  // Only the authority is handed over, never an app-side invention: the caller
+  // resolved this from the session's own transcript, and a session without a
+  // title yet hands over nothing at all (see `resolveClaudeSessionTitle`).
+  if (sessionTitle) {
+    sdkOptions.title = sessionTitle;
+  }
 
   // Anthropic's raw streaming events are opt-in: without this the SDK hands the
   // host only settled messages, so a reply reaches the client as one finished
@@ -937,9 +987,16 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
       console.warn('[Claude SDK] Unable to load provider models for effort validation:', error);
     }
 
+    // Read before the option bag is built, because the SDK takes the title as a
+    // launch option rather than after the process is up. A brand-new session has
+    // no provider id at this point, so this returns without a disk read and the
+    // round that creates the session is left to generate its own title.
+    const sessionTitle = await resolveClaudeSessionTitle(providerSessionId, options.cwd);
+
     const sdkOptions = mapCliOptionsToSDK({
       ...options,
       providerSessionId,
+      sessionTitle,
       model: resolvedModel || options.model,
       effortModels,
     });

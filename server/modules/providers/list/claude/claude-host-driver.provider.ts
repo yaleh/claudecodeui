@@ -101,6 +101,7 @@ import {
   forwardNormalizedFrames,
   mapCliOptionsToSDK,
   requestClientToolDecision,
+  resolveClaudeSessionTitle,
 } from '@/modules/providers/list/claude/claude-runtime.provider.js';
 import { resolveModelContextWindowRow } from '@/modules/providers/services/model-launch-spec.service.js';
 import type { SessionHostManager } from '@/modules/session-hosts/index.js';
@@ -1731,6 +1732,13 @@ type ResidentHostState = {
   configDir: string;
   /** True once the identity read-back has been started, so it starts only once. */
   identityReadbackStarted: boolean;
+  /**
+   * The session's own title this process was launched with, or null for none.
+   *
+   * See {@link PendingHost.launchedTitle}: it is what tells the read-back that a
+   * `derived` reading is a process mid-rewrite rather than a settled answer.
+   */
+  launchedTitle: string | null;
   /** True when this process was launched resuming an existing conversation. */
   resumed: boolean;
   sessionCreatedSent: boolean;
@@ -1778,6 +1786,16 @@ type PendingHost = {
    * the driver holds that record (see {@link ProcessHost.remoteControl}).
    */
   remoteControl: RemoteControlIsolation;
+  /**
+   * The session's own title this launch handed the CLI, or null for none.
+   *
+   * Carried to the host record because it is the one thing the address read-back
+   * cannot learn from the registry alone: a process launched *with* a title
+   * writes its entry twice — once under the derived name as it starts, once
+   * under the adopted title a moment later — so a `derived` reading on such a
+   * process is a state it is on its way out of, not its address.
+   */
+  launchedTitle: string | null;
 };
 
 /**
@@ -2064,6 +2082,7 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       pid: pending.pid,
       configDir: pending.configDir,
       identityReadbackStarted: false,
+      launchedTitle: pending.launchedTitle,
       resumed: false,
       sessionCreatedSent: false,
       assistantBudgetSent: false,
@@ -2731,13 +2750,23 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
     // buffered for `startHost` rather than dropped.
     const stopHook: StopHookSink = { state: null, buffered: [] };
 
-    // No name is handed to the CLI. In the CLI's own ladder a launch name is
-    // both the session's `agent-name` *and* its `custom-title`, i.e. the top two
-    // rungs, so passing one would pin the session's name at the moment of launch
-    // and make an app-invented address outrank the `ai-title` the session earns
-    // afterwards. The app is a wrapper around the CLI here: it does not name
-    // anything, and it reads back the name the CLI derived for the process (see
-    // `readCliSessionRegistration` and `startIdentityReadback`).
+    // No name is *invented* here. What is handed over is the session's own
+    // Claude Code title, read from the transcript the CLI itself wrote
+    // (`resolveClaudeSessionTitle`), so the process registers under
+    // `nameSource: "auto"` — the rung the CLI reserves for a title it adopted —
+    // and answers to the same phrase the session already shows instead of the
+    // directory-plus-two-characters name it derives when given nothing. The app
+    // still names nothing: it passes the authority back, never a string of its
+    // own, which is why the display name cached on the session row is not an
+    // input here.
+    //
+    // A cold start with no provider session id yet is handed nothing at all, and
+    // that is deliberate rather than incidental: the SDK suppresses its own
+    // title generation when a title is passed, so a launch that supplied one
+    // before the session had one would leave it with nothing to adopt. The
+    // read-back below (`readCliSessionRegistration`, `startIdentityReadback`)
+    // keeps its job — the process's address is still whatever the CLI registered,
+    // and is still read rather than predicted.
 
     // The permission scope, created here and not in the factory: whether a
     // request is answered from a browser or refused outright is this driver's
@@ -2752,11 +2781,19 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       lastConnectedCount: 0,
     };
 
+    // Read before the process is created, because the SDK takes the title as a
+    // launch option rather than something it can be told afterwards: a resident
+    // process holds one name for its whole life, so this is the only moment it
+    // can be handed over.
+    const providerSessionId = context.resolveProviderSessionId(appSessionId);
+    const sessionTitle = await resolveClaudeSessionTitle(providerSessionId, options.cwd);
+
     const process = await this.createProcess({
       prompt: queue.stream,
       options: {
         ...options,
-        providerSessionId: context.resolveProviderSessionId(appSessionId),
+        providerSessionId,
+        sessionTitle,
         model: resolvedModel || options.model,
         effortModels,
       },
@@ -2790,6 +2827,7 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       ledger,
       pid,
       configDir,
+      launchedTitle: sessionTitle,
       stopHook,
       permissions,
       remoteControl: {
@@ -3060,7 +3098,16 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
         return;
       }
       const registration = readCliSessionRegistration(state.configDir, pid, sessionId);
-      if (!registration?.name) {
+      // A launch that handed the session's own title over is registered twice:
+      // the entry appears under the CLI's derived name as the process starts and
+      // is rewritten when the title is adopted, which is later in the same turn.
+      // Reporting that first sighting would publish an address the process stops
+      // answering to a moment later, so on such a launch a `derived` reading is
+      // read as "not settled yet" and the poll keeps going. A launch that handed
+      // nothing over is left exactly as it was — there a derived name *is* the
+      // settled answer, and waiting on one would stall every first boot.
+      const settled = Boolean(registration?.name) && !(state.launchedTitle && registration?.nameSource === 'derived');
+      if (!settled) {
         if (Date.now() >= deadline) {
           state.sink.identity(state.appSessionId, null);
           return;
@@ -3069,7 +3116,7 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
         timer.unref?.();
         return;
       }
-      state.sink.identity(state.appSessionId, registration.name);
+      state.sink.identity(state.appSessionId, registration?.name ?? null);
     };
 
     poll();

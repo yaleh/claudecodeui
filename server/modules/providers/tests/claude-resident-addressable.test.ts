@@ -1571,20 +1571,51 @@ test('a resident session publishes the address it answers to, and a peer reaches
       `the restarted session must publish the address its new process registered ` +
         `(snapshot=${String(second.snapshotPeerName)} registry=${String(second.registryName)})`,
     );
+    // The rung the restarted process registers under, amended by
+    // `gap-claude-peer-name-follows-ai-title` (2026-09-30).
+    //
+    // This arm was originally read as `derived`, on the policy that a launch
+    // handed the CLI *no* name at all. That policy still holds for a name the
+    // app invents — and leg 1 above still reads `derived` for every session's
+    // own first boot, which is what keeps this reading falsifiable. What changed
+    // is the other half: a launch now hands back the session's *own* Claude Code
+    // title (the `summary` `getSessionInfo(providerSessionId, { dir })` reports
+    // for it), so a process launched against a session that already has one
+    // adopts it and registers `auto` — the rung the CLI reserves for a title it
+    // adopted rather than one a user typed. The app still names nothing; the
+    // assertion that it does not is the `selfWrittenNames` one below.
+    //
+    // See `docs/proposals/claude-resident-sessions.md` §12, and `goals/AC-164-*`,
+    // which already recorded that this file's old rule was due for revision.
     assert.strictEqual(
       second.registryNameSource,
-      'derived',
-      `the restarted process must be registered under a derived name too (${String(second.registryNameSource)})`,
+      'auto',
+      `the restarted process must be registered under the session's own title, not a derived label ` +
+        `(${String(second.registryNameSource)})`,
     );
     assert.deepEqual(
       second.selfWrittenNames,
       [],
       `the restarted process's transcript must hold no name the app wrote (found ${JSON.stringify(second.selfWrittenNames)})`,
     );
-    assert.strictEqual(
-      String(second.registryName).length <= String(alpha.snapshotPeerName).length,
-      true,
-      `the second name must not be longer than the first (${String(alpha.snapshotPeerName)} -> ${String(second.registryName)})`,
+    // What replaces the retired `secondNameLen <= firstNameLen` comparison.
+    //
+    // That comparison was a proxy for "the app is not re-minting this session's
+    // name on every launch, one suffix longer each time" — the `-9959ff-9959ff`
+    // shape the gap was filed for. Under the amended policy it is the wrong
+    // proxy, and not merely because a session's own title is routinely longer
+    // than the `<dirname>-<2 chars>` label it replaces: it was never the *name*
+    // that had to stay put, it was the app's right to mint one. So the invariant
+    // is stated directly, on the restarted reading, as the rule the loop above
+    // applies to the first-boot rows — the address a peer is given is never the
+    // name this app holds for the session. The restarted process answers to the
+    // title the CLI wrote for it; a launch that handed the app's cached name
+    // instead would come back byte-equal to it, and this arm is what reds.
+    assert.notStrictEqual(
+      second.registryName,
+      second.title,
+      `the restarted process must not answer to the name the app holds for the session ` +
+        `(registry=${String(second.registryName)} appName=${String(second.title)})`,
     );
     assert.strictEqual(
       String(second.snapshotPeerName).endsWith(`-${SESSION_A.slice(0, 6)}`),
