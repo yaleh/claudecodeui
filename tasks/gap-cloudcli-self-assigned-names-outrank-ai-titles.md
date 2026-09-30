@@ -293,3 +293,19 @@ server/modules/providers/tests/claude-session-title-mirror.test.ts       exit=0 
 - 失败步/判词：AC 未全勾（checked 12/13，剩余未勾 1）——续做只需验证并勾选 AC
 - run_id：wk-prod-anchor
 - session_id：f650faf3-05b7-4ce2-9de6-6d439f6912e9
+
+
+
+
+## 重启场景的实测（2026-09-30，回答人 yale「重启时 Claude Code 能否保持名称不变」）
+
+**方法**：同一会话（`fc544736-cb56-44e6-ab3a-d940dd2522b9`，cwd `/tmp/ccname-4179`）用 SDK 反复 resume，**一律不传 `name`**，每次进程起来后读 `~/.claude/sessions/<pid>.json`。前提：必须传 `pathToClaudeCodeExecutable`（App 在 `claude-runtime.provider.js:321-323` 就是这么做的，取自 `CLAUDE_CLI_PATH` 或 `claude`）；不传该选项时 SDK 会起它自带的 **2.1.165** CLI，而 App 用的是系统的 **2.1.285** —— 两者不是同一个 Claude Code，第一轮探针因此作废重做。
+
+**读数**：
+
+- 不传 `name` 时注册名 = `<cwd basename>-<2 个字符>`，`nameSource` 为 `derived`，且**每次启动重新随机**。同一会话连续 6 次重启得到 6 个不同标签：`80 / b0 / dd / e2 / f1 / b6`（唯一值 6/6）。⚠️ 我此前先测到两次逐字相同（都是 `ccname-4179-5c`），据此差点写成「跨重启逐字不变」——那是 1/256 的巧合；**这个探针必须多跑几次才有判别力**。
+- 变化的是地址，不变的是标题：同一会话的 `ai-title`（`Single-word alpha reply`）在每次重启后都还在转录里，`getSessionInfo().summary` 与 App 的 cache 都不受重启影响。**所以「会话名」跨重启是稳的，「进程地址」跨重启不稳。**
+- 代码侧解释了为什么：稳定地址是 Claude Code 自己的特性，不是 App 能造的。`vK()` 读 `getFeatureValue_SESSION_PINNED("tengu_session_stable_address", false)`，**默认 false**；打开时地址才是 `sid:<sessionId>`（`nmt`/`j8e`/`SUe`），关闭时按进程走（本机 13 个存活条目全是 `/run/user/1004/cc-socks/<pid>.sock`，**无 `sid:` 前缀 ⇒ 本机开关是关的**）。
+- `derived → auto`（把注册名换成 AI 标题）的采纳路径在代码里存在（`Sft`：`g.source==="derived"` 时 `DF(r, n, "auto")`），但 resume 路径上未观察到触发：不传消息 45s、以及真跑完一轮之后，注册名都一直是 `derived`。故**不能**指望重启后名字自动变成 AI 标题。
+
+**对人 yale 那条指令的结论**：新建会话不传 `--name` 成立；**重启会话「如果能保持名称不变就不要传」的前提不成立** —— Claude Code 保不住地址（每次重启换一个随机标签），因此不传 `--name` 的代价是每次重启换地址。按本裁定与 AC-164 修订（「不承诺跨重启不变」），正确做法仍是**不传 `--name`、读注册表里的名字**；若确实需要长期稳定的地址，那是 Claude Code 的 `tengu_session_stable_address` 开关的事，应当去要那个，而不是由 App 自造名字顶替。
