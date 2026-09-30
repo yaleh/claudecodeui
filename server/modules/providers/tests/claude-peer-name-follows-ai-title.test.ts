@@ -74,7 +74,6 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { getSessionInfo, query } from '@anthropic-ai/claude-agent-sdk';
-
 import express from 'express';
 
 import {
@@ -776,12 +775,12 @@ async function launchWithTitle(
     // A resume is expressed the way the product expresses it: handing the
     // provider session id is what `mapCliOptionsToSDK` turns into `resume`.
     providerSessionId: resumeProviderSessionId,
-  }) as Record<string, unknown>;
+  }) as unknown as Record<string, unknown>;
   options.env = env;
   options.title = title;
   delete options.spawnClaudeCodeProcess;
 
-  const held = createHeldPromptStream(await buildPromptMessages(`${marker} control round for ${label}`, undefined, undefined, context.cwd));
+  const held = createHeldPromptStream(await buildPromptMessages(`${marker} control round for ${label}`, [], [], context.cwd));
   let exited = false;
   const pump = (async () => {
     for await (const message of query({ prompt: held.stream, options } as never)) {
