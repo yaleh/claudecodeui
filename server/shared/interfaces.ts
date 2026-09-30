@@ -197,14 +197,12 @@ export interface IProviderHostDriverSink {
 // ---------------------------
 //----------------- PROVIDER SESSION RENAME INTERFACE ------------
 /**
- * Offline rename contract for one provider.
+ * Rename contract for one provider.
  *
- * A rename in this app is authoritative in the app's own database; this is the
- * second, best-effort half that records the same name in the provider's own
- * store. It exists so the name a user sets here is visible to the provider's
- * own tooling — Claude Code's resume list, its session search, and `/resume`
- * argument completion all read a session's title from the transcript, not from
- * this app.
+ * A rename is authoritative on the provider's side; this app's copy of the name
+ * is a cache of it. The name a user sets here is written to the provider's own
+ * store first, and only what the provider then reports is stored here — so the
+ * name in this app's database can never be one the provider never accepted.
  */
 export interface IProviderSessionRename {
   /**
@@ -214,9 +212,9 @@ export interface IProviderSessionRename {
    * `forkSession` takes — because providers locate a session by the directory
    * it was run in rather than by the transcript path a caller already knows.
    *
-   * Callers treat a rejection as informational, never as a failed rename: the
-   * app-side name is stored before this is called, so an implementation may
-   * reject freely and a caller must not turn that into a failed request.
+   * A rejection is a *refused* rename and is propagated to the caller, which
+   * must not store the name; a caller treats the absence of this facet, or a
+   * session the provider has nothing writable for, as a skip instead.
    */
   renameSession(input: {
     providerSessionId: string;
@@ -224,6 +222,22 @@ export interface IProviderSessionRename {
     projectPath: string;
     title: string;
   }): Promise<void>;
+
+  /**
+   * Reads back the name the provider's own tooling shows for a session.
+   *
+   * This is the other half of the cache rule: after a successful write the
+   * caller stores what this reports rather than what it asked for, so the two
+   * sides cannot drift. Optional — a provider that keeps no name of its own has
+   * nothing to report, and its callers keep the name they were given.
+   *
+   * Answers `null` when the provider has no name for the session, which is a
+   * reading and not a failure.
+   */
+  readSessionTitle?(input: {
+    providerSessionId: string;
+    projectPath: string;
+  }): Promise<string | null>;
 }
 
 // ---------------------------

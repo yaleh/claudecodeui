@@ -1,65 +1,73 @@
 /**
- * AC-164 criterion — the stable address a resident Claude process answers to,
- * and whether a copy of that address is enough to reach the process.
+ * AC-164 criterion — the address a resident Claude process answers to, and
+ * whether a copy of that address is enough to reach the process.
  *
- * A resident host holds one CLI across turns, and the CLI registers a *name* for
- * itself when it is launched with one: other sessions on the machine can address
- * it by that name. Two things follow, and both are measured here on real
- * processes (this criterion's own spawns the real `claude` binary against an
- * Anthropic-compatible mock endpoint):
+ * A resident host holds one CLI across turns, and every CLI process registers a
+ * name for itself when it starts: other sessions on the machine can address it
+ * by that name. Claude Code picks that name; **CloudCLI does not**. It used to
+ * (`--name <slug>-<id6>`, proposal §12), and that is the design this criterion
+ * was rewritten for: an app-invented name outranked the session's own `ai-title`
+ * and grew a new suffix on every restart. The app now launches the process with
+ * no name at all and *reads* the name Claude Code derived, out of the process's
+ * own registration (`~/.claude/sessions/<pid>.json`).
  *
- * 1. The address has to be *publishable*. A caller that wants to send to a
- *    resident session can only learn its address from the app, so the host
- *    snapshot's `peerName` has to be the address the process actually registers
- *    — and "actually registers" is read out of the process's own transcript
- *    (the `agent-name` entry the CLI writes), never out of the launch argument
- *    this criterion passed. A name that was requested and a name that answers
- *    are two different facts, and only the second one is an address.
- * 2. The address has to be *stable*. Renaming the session moves the name a user
+ * Three things are measured here, on real processes (this criterion spawns the
+ * real `claude` binary against an Anthropic-compatible mock endpoint):
+ *
+ * 1. The address is *the process's own*. The host snapshot's `peerName` has to
+ *    be the `name` in that process's registration file, read here by this
+ *    criterion directly off disk, and the registration's `nameSource` has to be
+ *    `derived` — the CLI's own derivation — rather than `user`, which is what a
+ *    name handed to the process through `--name` reads as.
+ * 2. The app *injects nothing*. The process's transcript must hold no
+ *    `agent-name` and no `custom-title` entry: those are the two entries a
+ *    `--name` writes (as a pair, with the same value), and a transcript that
+ *    carries one is the app having named the session after all.
+ * 3. The address *survives a rename*. Renaming the session moves the name a user
  *    sees, and the address must not move with it: a process that answered to
- *    `alpha-1a2b3c` before the rename has to answer to it after, or every copy
- *    of the address a peer is holding has been invalidated by an app-side edit.
+ *    `archguard-85` before a rename has to answer to it after, or every copy of
+ *    the address a peer is holding has been invalidated by an app-side edit.
+ *    Read as `pid` and registration `name` before and after.
  *
- * The rule that generates the address is proposal §12's, and it is restated in
- * this file rather than imported: the reading is that the driver's published
- * name is the name this rule generates, and a criterion that called the driver's
- * own function to compute the expected value would be asserting that the
- * function equals itself. The restatement is deliberately literal — lowercase,
- * every run of non-letter/non-number characters to a single `-`, ends trimmed,
- * and the first six characters of the app session id appended.
+ * The restatement rule is gone with the rule. What replaces it is the witness:
+ * the expected address is the registration file's own `name`, read by this file
+ * rather than through the driver's reader, so "the driver published what the
+ * registry says" is a claim about two independent reads and not about a function
+ * agreeing with itself.
  *
  * Three living hosts carry the readings:
- * - A and B are two named resident sessions in one database. A is the sender, B
- *   the addressee; both are launched with a `sessionSummary`, so the driver has
- *   a title to derive an address from.
- * - C is the control arm and is launched with *no* title. The same reading that
- *   is `true` for A and B — the snapshot's name is the name the process
- *   registered — has to read `false` for C, or it is not a reading at all. C is
- *   what makes the pair falsifiable inside a single unmutated run: a driver that
- *   published the requested name without checking would still read `true` for
- *   A and B, but C's arm would read `true` too, and the assertion below rejects
- *   that (`equalToSnapshot` requires the transcript to name the process *and*
- *   the snapshot to agree with it).
+ * - A and B are two resident sessions in one database. A is the sender, B the
+ *   addressee.
+ * - C is the control arm and is launched with *no* `sessionSummary`. Under the
+ *   old rule its address was uncomputable and read as `null`; under this one a
+ *   session's address does not depend on any title the app holds, so C must
+ *   publish the name its own process registered while having been told nothing.
+ *   That is what makes the pair falsifiable inside one unmutated run: a driver
+ *   that went back to computing an address from the title would publish nothing
+ *   for C, and a driver that published a name it made up would disagree with C's
+ *   registration file.
  *
  * The delivery itself is real: the mock scripts A's turn into a `SendMessage`
  * tool call whose `to` is the address this criterion read from
- * `GET /api/session-hosts` — the same REST projection a client would read —
- * and B, being a real Claude process registered under that name, opens a turn of
- * its own for the arriving message. That turn is the measured outcome: a run with
+ * `GET /api/session-hosts` — the same REST projection a client would read — and
+ * B, being a real Claude process registered under that name, opens a turn of its
+ * own for the arriving message. That turn is the measured outcome: a run with
  * `source=unattended`, a notification whose trigger names the cross-session
  * arrival rather than an unexplained turn, and frames a later subscriber can
- * replay.
+ * replay. This is the reading the task record calls load-bearing: it is the one
+ * thing a *derived* address had never been shown to do, and the whole reason
+ * dropping the app's own name is not a loss of addressability.
  *
  * Red lines:
  * - The process budget guard below kills the whole process with `exit 3` rather
  *   than failing one case, so a lifecycle that hangs is a budget kill with its
  *   own reading, as in the sibling `claude-resident-unattended-turn` criterion.
  * - Every reading is printed before anything is asserted, and the assertions
- *   start with the transcript-versus-snapshot agreement for A and B. The graded
- *   false form (the driver computes the address but does not pass it to the
- *   process) leaves both the snapshot and the transcript without a name, and the
- *   reading that has to red for that mutation is *this* one — not the rule
- *   equality, which would also red, and not a wait downstream.
+ *   start with the registration-versus-snapshot agreement for A and B. The
+ *   graded false form (the driver computes an address of its own and hands it to
+ *   the process) reds on *this* reading, because the name published and the name
+ *   the process registered are then two different strings — and it reds on the
+ *   transcript reading too, since a name handed over is a name written down.
  * - The trigger is read off the arrival as the CLI states it on the turn's own
  *   `result`. The `Stop` hook's task list is the reading for every other reason a
  *   resident process opens a turn, and it cannot see a peer message at all: a
@@ -114,12 +122,15 @@ const REPO_ROOT = path.resolve(HERE, '..', '..', '..', '..');
 /**
  * This run's own tag, and the reason it is random.
  *
- * The address a resident process registers is machine-global
- * (`~/.claude/sessions/<pid>.json`, read by every Claude process on the host),
- * and the app session id's first six characters are part of it. On a fleet
- * machine several criteria run at once, so a fixed prefix would let two of them
- * compute the same address and address each other's processes. Randomising the
- * first six characters makes each run's addresses its own.
+ * The addresses this criterion reads are machine-global — every Claude process
+ * on the host shares `~/.claude/sessions/` — and pid-keyed, so two runs of this
+ * file cannot land on each other's processes however they name their sessions.
+ * (The old reason for the tag was the opposite: the machinery this task removes
+ * built the address out of the app session id's first six characters, so two
+ * runs without distinct ids could compute the same address and address each
+ * other's processes. Path (a) deletes that entire class of collision.) What the
+ * tag still buys is that this run's session ids, and the markers its transcripts
+ * are located by, belong to this run alone.
  */
 const RUN_TAG = randomUUID().replace(/[^a-z0-9]/g, '').slice(0, 8);
 const SESSION_A = `${RUN_TAG}-a`;
@@ -128,7 +139,7 @@ const SESSION_C = `${RUN_TAG}-c`;
 
 const TITLE_A = 'AC164 Addressable Alpha';
 const TITLE_B = 'AC164 Addressable Beta';
-/** After this, the title generates a *different* slug; the address must not move. */
+/** After this the title the app holds is a different string; the address must not move. */
 const TITLE_A_RENAMED = 'AC164 Addressable Alpha Renamed';
 
 /**
@@ -202,24 +213,53 @@ const budgetGuard = setTimeout(() => {
 budgetGuard.unref();
 
 // ---------------------------------------------------------------------------
-// The rule, restated (proposal §12). Not imported: see the file comment.
+// The address, as the CLI registers it. Read here, independently.
 // ---------------------------------------------------------------------------
 
-/** The title's slug: lowercase, non-letter/non-number runs to `-`, ends trimmed. */
-function slugOf(title: string): string {
-  return title
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, '-')
-    .replace(/^-+|-+$/g, '');
-}
+/**
+ * One live Claude process, as the CLI's own registry records it.
+ *
+ * `<configDir>/sessions/<pid>.json` is the file the CLI writes for each process
+ * on the host. This criterion parses it here rather than through the driver's
+ * `readCliSessionRegistration` on purpose: the reading is that the address the
+ * app publishes is the address the process registered, and a reading that
+ * compared the driver's answer to the driver's own reader would only be saying
+ * that the reader equals itself. Two independent reads of the same file can
+ * disagree, and that disagreement is the whole point.
+ *
+ * `nameSource` is the discriminator that makes path (a) measurable at all:
+ * `derived` is the CLI's own per-process name, `user` is a name handed to the
+ * process — which is exactly what the retired `--name` argument produced.
+ */
+type CliRegistration = {
+  pid: number;
+  sessionId: string | null;
+  name: string | null;
+  nameSource: string | null;
+  messagingSocketPath: string | null;
+};
 
-/** The address the rule derives for one session, or null when the title gives none. */
-function expectedPeerName(title: string, appSessionId: string): string | null {
-  const slug = slugOf(title);
-  if (!slug) {
+function readCliRegistration(configDir: string, pid: number | null): CliRegistration | null {
+  if (pid === null) {
     return null;
   }
-  return `${slug}-${appSessionId.slice(0, 6)}`;
+  try {
+    const row = JSON.parse(readFileSync(path.join(configDir, 'sessions', `${pid}.json`), 'utf8')) as Record<
+      string,
+      unknown
+    >;
+    return {
+      pid,
+      sessionId: typeof row.sessionId === 'string' && row.sessionId ? row.sessionId : null,
+      name: typeof row.name === 'string' && row.name ? row.name : null,
+      nameSource: typeof row.nameSource === 'string' ? row.nameSource : null,
+      messagingSocketPath:
+        typeof row.messagingSocketPath === 'string' && row.messagingSocketPath ? row.messagingSocketPath : null,
+    };
+  } catch {
+    // No registration yet, or one this process cannot read. A caller polls.
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -528,20 +568,30 @@ function findTranscriptByMarker(configDir: string, marker: string): { path: stri
 }
 
 /**
- * The name the *process* registered, read out of its own transcript.
+ * Every name the *app* wrote into the process's own transcript, in row order.
  *
- * This is the independent half of the address reading: the launch argument is
- * this criterion's request, and this row is the process's answer. A process
- * launched without a name writes no such row, which is why the absence reads as
- * `null` rather than as "not yet".
+ * The two rows a `--name <value>` launch produces are a pair: the CLI records
+ * the handed-over name as the session's `agent-name` *and* as its
+ * `custom-title`. Reading both is the point — a criterion that only looked at
+ * `agent-name` would certify a build that still wrote the `custom-title` half.
+ *
+ * Under path (a) this list must be empty: the app hands the process no name at
+ * all, so the process has none of its own to write down. This is the reading the
+ * "restore `--name`" false form reds on, and it is independent of the registry
+ * read above — one is what the process says about itself, the other what the
+ * app publishes.
  */
-function transcriptAgentName(rows: Array<Record<string, unknown>>): string | null {
+function selfWrittenNames(rows: Array<Record<string, unknown>>): string[] {
+  const names: string[] = [];
   for (const row of rows) {
     if (row.type === 'agent-name' && typeof row.agentName === 'string' && row.agentName) {
-      return row.agentName;
+      names.push(row.agentName);
+    }
+    if (row.type === 'custom-title' && typeof row.customTitle === 'string' && row.customTitle) {
+      names.push(row.customTitle);
     }
   }
-  return null;
+  return names;
 }
 
 /** The input of one `SendMessage` tool call, as the process wrote it down. */
@@ -684,31 +734,34 @@ async function awaitPeerName(
   return last;
 }
 
-/** One session's identity, as the three surfaces state it. */
+/** One session's identity, as the app's projection and the process's own file state it. */
 type IdentityReading = {
   sessionId: string;
   label: string;
+  /** The title the app holds for this session, or `''` for the control arm that holds none. */
   title: string;
-  sid6: string;
-  slug: string;
-  ruleName: string | null;
   hostPid: number | null;
   hostState: string;
   /** The projection's own `providerSessionId`, printed to show it cannot be the lookup key. */
   providerSessionId: string | null;
+  /** What the app publishes as this session's address (`GET /api/session-hosts`). */
   snapshotPeerName: string | null;
+  /** The CLI's registration for this session's process, read here off disk. */
+  registration: CliRegistration | null;
+  /** Convenience copies of the registration's own fields, for printing. */
+  registryName: string | null;
+  registryNameSource: string | null;
   transcriptPath: string | null;
   transcriptFile: string | null;
   transcriptsScanned: number;
-  transcriptAgentName: string | null;
-  /** The snapshot's name agrees with the rule that was supposed to generate it. */
-  equal: boolean;
+  /** Every name the app wrote into the process's transcript; empty under path (a). */
+  selfWrittenNames: string[];
   /**
    * The address the app publishes is the address the process registered.
    *
-   * The transcript has to *name* the process for this to hold: two absences are
-   * not an agreement, and reading them as one would make the control arm and the
-   * graded false form pass.
+   * The registration has to *carry* a name for this to hold: two absences are
+   * not an agreement, and reading them as one would make the graded false form
+   * (`--name` restored, app publishes nothing) pass.
    */
   equalToSnapshot: boolean;
 };
@@ -722,30 +775,28 @@ async function readIdentity(
   marker: string,
   waitMs: number,
 ): Promise<IdentityReading> {
-  const snapshotPeerName = await awaitPeerName(apiBaseUrl, appSessionId, waitMs, `${label} identity`);
   const found = await readBinding(apiBaseUrl, appSessionId);
+  const hostPid = found?.host.pid ?? null;
+  const snapshotPeerName = await awaitPeerName(apiBaseUrl, appSessionId, waitMs, `${label} identity`);
   const located = findTranscriptByMarker(configDir, marker);
   const transcript = located.path;
-  const registered = transcript ? transcriptAgentName(readJsonLines(transcript)) : null;
-  const slug = title ? slugOf(title) : '';
-  const ruleName = title ? expectedPeerName(title, appSessionId) : null;
+  const registration = readCliRegistration(configDir, hostPid);
   return {
     sessionId: appSessionId,
     label,
     title: title ?? '',
-    sid6: appSessionId.slice(0, 6),
-    slug,
-    ruleName,
-    hostPid: found?.host.pid ?? null,
+    hostPid,
     hostState: found?.host.state ?? 'missing',
     providerSessionId: found?.binding.providerSessionId ?? null,
     snapshotPeerName,
+    registration,
+    registryName: registration?.name ?? null,
+    registryNameSource: registration?.nameSource ?? null,
     transcriptPath: transcript,
     transcriptFile: transcript ? path.basename(transcript) : null,
     transcriptsScanned: located.scanned,
-    transcriptAgentName: registered,
-    equal: Boolean(snapshotPeerName) && snapshotPeerName === ruleName,
-    equalToSnapshot: registered !== null && snapshotPeerName === registered,
+    selfWrittenNames: transcript ? selfWrittenNames(readJsonLines(transcript)) : [],
+    equalToSnapshot: Boolean(registration?.name) && snapshotPeerName === registration?.name,
   };
 }
 
@@ -898,8 +949,9 @@ async function withAddressableHarness(run: (context: Harness) => Promise<void>):
  * Sends one user turn and answers with its terminal `complete` frame.
  *
  * `sessionSummary` is passed the way the app passes it — it is the title the
- * driver derives an address from, so a turn that did not carry one would be
- * asking about a process the app never told the driver about.
+ * driver is handed along with a turn. `extraOptions` are merged in last and
+ * exist for one caller: the handed-over-name arm, which launches a process the
+ * way the retired plumbing did (a raw CLI flag carried in the option bag).
  */
 async function sendRound(
   socket: FakeSocket,
@@ -907,6 +959,7 @@ async function sendRound(
   content: string,
   sessionSummary: string | null,
   cwd: string,
+  extraOptions: Record<string, unknown> = {},
 ): Promise<Record<string, unknown>> {
   const completes = (): Array<Record<string, unknown>> =>
     socket.frames.filter((frame) => frame.kind === 'complete' && frame.sessionId === sessionId);
@@ -920,6 +973,7 @@ async function sendRound(
       model: MODEL_ID,
       permissionMode: 'bypassPermissions',
       ...(sessionSummary ? { sessionSummary } : {}),
+      ...extraOptions,
     },
   }));
   await waitFor(() => completes().length > before, TURN_TIMEOUT_MS, `round "${content.slice(0, 40)}" to complete`);
@@ -1056,37 +1110,17 @@ test('a resident session publishes the address it answers to, and a peer reaches
 
     for (const reading of [alpha, beta, control]) {
       console.log(
-        `[readings] session=${reading.label} sid6=${reading.sid6} slug=${reading.slug} ` +
-          `ruleName=${String(reading.ruleName)} snapshotPeerName=${String(reading.snapshotPeerName)} ` +
-          `equal=${reading.equal}`,
+        `[readings] session=${reading.label} hostPid=${String(reading.hostPid)} hostState=${reading.hostState} ` +
+          `registryName=${String(reading.registryName)} registryNameSource=${String(reading.registryNameSource)} ` +
+          `registrySessionId=${String(reading.registration?.sessionId ?? null)} ` +
+          `registrySocket=${reading.registration?.messagingSocketPath ? 'present' : 'absent'} ` +
+          `snapshotPeerName=${String(reading.snapshotPeerName)} equalToSnapshot=${reading.equalToSnapshot} ` +
+          `selfWrittenNames=${JSON.stringify(reading.selfWrittenNames)} titleHeldByApp=${JSON.stringify(reading.title)}`,
       );
     }
-
-    // Is the name the app publishes present in the request bodies the process
-    // sent? It must not be: the address is a registration on the CLI's own side,
-    // so a turn's payload carrying it would mean the name had become part of the
-    // conversation the model sees — a different mechanism than the one measured.
-    // Scoped to A's own requests, since another session's body legitimately names
-    // the peer it was addressed by.
-    const alphaBodies = mock.received
-      .filter((entry) => entry.body.includes('"input_schema"') && entry.body.includes(MARKER_A));
-    const nameInRequestBody = alpha.ruleName
-      ? alphaBodies.some((entry) => entry.body.includes(String(alpha.ruleName)))
-      : false;
-    console.log(
-      `[readings] session=A transcriptAgentName=${String(alpha.transcriptAgentName)} ` +
-        `equalToSnapshot=${alpha.equalToSnapshot} nameInRequestBody=${nameInRequestBody} ` +
-        `ownBodiesScanned=${alphaBodies.length}`,
-    );
-    console.log(
-      `[readings] control session=${control.label} transcriptAgentName=${String(control.transcriptAgentName)} ` +
-        `equalToSnapshot=${control.equalToSnapshot} hostPid=${String(control.hostPid)} ` +
-        `hostState=${control.hostState}`,
-    );
     console.log(
       `[readings] transcriptFile=${String(alpha.transcriptFile)} transcriptsScanned=${alpha.transcriptsScanned} ` +
-        `bindingProviderSessionId=${String(alpha.providerSessionId)} ` +
-        `hostPid=${String(alpha.hostPid)} hostState=${alpha.hostState}`,
+        `bindingProviderSessionId=${String(alpha.providerSessionId)} leg2=${legTwoMs}ms`,
     );
 
     // The tool table is a fact of the process, read off its own `system/init`:
@@ -1107,47 +1141,95 @@ test('a resident session publishes the address it answers to, and a peer reaches
     //
     // Two reasons, and the second is the load-bearing one. The address is what
     // every later leg stands on — a session with no address cannot be sent to —
-    // and the false form this criterion is graded against (the driver computes
-    // the name but never hands it to the process) has to red on *this* reading
-    // and not on a wait downstream of it. Asserting here is what puts the red on
-    // the reading the criterion names, while every wait after this point is
-    // inside the budget.
+    // and the false form this criterion is graded against (the driver goes back
+    // to computing `<slug>-<id6>` and handing it over) has to red on *this*
+    // reading and not on a wait downstream of it. Asserting here is what puts
+    // the red on the reading the criterion names, while every wait after this
+    // point is inside the budget.
+    //
+    // The reading is deliberately a comparison of two independent reads: the
+    // app's own REST projection (`snapshotPeerName`) against the CLI's registry
+    // file, parsed in this file by `readCliRegistration`. Nothing here calls the
+    // driver's reader, so "the app publishes what the process registered" cannot
+    // be satisfied by a reader agreeing with itself.
     // ---------------------------------------------------------------------
     assert.strictEqual(
       alpha.equalToSnapshot,
       true,
       `the app must publish the address the process registered, and the process must have registered one ` +
-        `(snapshot=${String(alpha.snapshotPeerName)} transcript=${String(alpha.transcriptAgentName)} ` +
-        `providerSessionId=${String(alpha.providerSessionId)})`,
+        `(snapshot=${String(alpha.snapshotPeerName)} registry=${String(alpha.registryName)} ` +
+        `registryNameSource=${String(alpha.registryNameSource)} providerSessionId=${String(alpha.providerSessionId)})`,
     );
     assert.strictEqual(
       beta.equalToSnapshot,
       true,
-      `the second named session must publish the address it registered too ` +
-        `(snapshot=${String(beta.snapshotPeerName)} transcript=${String(beta.transcriptAgentName)} ` +
-        `providerSessionId=${String(beta.providerSessionId)})`,
+      `the second resident session must publish the address it registered too ` +
+        `(snapshot=${String(beta.snapshotPeerName)} registry=${String(beta.registryName)} ` +
+        `registryNameSource=${String(beta.registryNameSource)} providerSessionId=${String(beta.providerSessionId)})`,
+    );
+    // AC2: the name the process carries is the CLI's own (`derived`), not one
+    // handed to it — a `--name` launch reads `user` here, even when the value is
+    // byte-identical to what a derivation would have produced. This is the
+    // assertion that separates "the app happens to publish the right string"
+    // from "the app did not name the process at all".
+    assert.strictEqual(
+      alpha.registryNameSource,
+      'derived',
+      `the process must be registered under a name the CLI derived for it, not one it was handed ` +
+        `(registryNameSource=${String(alpha.registryNameSource)} registryName=${String(alpha.registryName)})`,
+    );
+    assert.strictEqual(beta.registryNameSource, 'derived', `the second process must read \`derived\` as well (${String(beta.registryNameSource)})`);
+    // AC2, the other half: the app writes nothing into the process's own file.
+    // The two rows a handed-over name produces are `agent-name` and
+    // `custom-title`, and an empty list is the statement that neither is there.
+    assert.deepEqual(
+      alpha.selfWrittenNames,
+      [],
+      `the app must not write a name into the process's transcript (found ${JSON.stringify(alpha.selfWrittenNames)})`,
+    );
+    // AC5: the record the address was read from is *this* conversation's record.
+    // The registry is keyed by pid, and pids are recycled on a busy host, so "the
+    // names matched" would mean nothing if the file were some other process's.
+    // The check is against a third read of this criterion's own: the transcript
+    // it located by A's private marker, whose file name *is* the conversation id
+    // the CLI assigned. The registry entry has to name that same conversation.
+    const transcriptConversationId = alpha.transcriptFile?.replace(/\.jsonl$/, '') ?? null;
+    assert.notStrictEqual(
+      alpha.registration?.sessionId,
+      null,
+      'the registry entry the address was read from must carry the conversation id',
     );
     assert.strictEqual(
-      alpha.snapshotPeerName,
-      alpha.ruleName,
-      `the published address must be the one the rule derives (${String(alpha.snapshotPeerName)} !== ${String(alpha.ruleName)})`,
+      alpha.registration?.sessionId,
+      transcriptConversationId,
+      `the registry entry must name the conversation whose transcript this criterion found ` +
+        `(registry=${String(alpha.registration?.sessionId)} transcript=${String(transcriptConversationId)})`,
     );
+    assert.notStrictEqual(
+      alpha.registration?.messagingSocketPath,
+      null,
+      'the registry entry must carry the socket the address resolves to, or the address is not reachable',
+    );
+    // The pollution shape itself, read on the published address: CloudCLI's
+    // suffix was the app session id's first six characters appended to a slug.
+    // A derived name is the CLI's and has no such tail.
     assert.strictEqual(
-      beta.snapshotPeerName,
-      beta.ruleName,
-      `the published address must be the one the rule derives (${String(beta.snapshotPeerName)} !== ${String(beta.ruleName)})`,
+      String(alpha.snapshotPeerName).endsWith(`-${SESSION_A.slice(0, 6)}`),
+      false,
+      `the published address must not carry the app-side suffix shape (${String(alpha.snapshotPeerName)})`,
     );
-    assert.strictEqual(alpha.transcriptAgentName, alpha.ruleName, 'the process\'s own transcript must name it under the derived address');
-    // The control arm: a host launched with no title must read as having no
-    // address, and the reading must say so through the snapshot/transcript pair
-    // rather than through the absence of the rule name alone. Its process has to
-    // be there for that to mean anything — a dead host publishes no address for
-    // the same reason the false form does, and the two readings must not be
-    // allowed to agree by accident.
+    // The control arm, re-expressed for path (a). It is no longer "a host with
+    // no title has no address" — under (a) a session's address does not depend
+    // on any title the app holds, and this host was launched with none. So the
+    // control now reads the *opposite* way: a titleless session still publishes
+    // the address its own process registered, which is what makes the pair
+    // falsifiable — a driver that went back to deriving the address from a title
+    // would publish nothing here, and one that invented a name would disagree
+    // with this process's registry file.
     assert.notStrictEqual(
       control.hostPid,
       null,
-      'the control session must be served by a live process, or its absent address says nothing',
+      'the control session must be served by a live process, or its address says nothing',
     );
     assert.notStrictEqual(
       control.hostState,
@@ -1156,12 +1238,84 @@ test('a resident session publishes the address it answers to, and a peer reaches
     );
     assert.strictEqual(
       control.equalToSnapshot,
-      false,
-      `a host launched with no address must not read as agreeing with one ` +
-        `(snapshot=${String(control.snapshotPeerName)} transcript=${String(control.transcriptAgentName)})`,
+      true,
+      `a titleless resident session must still publish the address its process registered ` +
+        `(snapshot=${String(control.snapshotPeerName)} registry=${String(control.registryName)} ` +
+        `registryNameSource=${String(control.registryNameSource)})`,
     );
-    assert.strictEqual(control.snapshotPeerName, null, 'the control host must publish no address');
-    assert.strictEqual(nameInRequestBody, false, `the address must not reach the model as conversation (scanned ${alphaBodies.length} of A's own requests)`);
+    assert.strictEqual(
+      control.registryNameSource,
+      'derived',
+      `the control's process must be registered under a derived name too (${String(control.registryNameSource)})`,
+    );
+
+    // ---------------------------------------------------------------------
+    // Leg 2b — the control that makes every reading above falsifiable.
+    //
+    // Three readings have now come out one way: no name in the transcript,
+    // `derived` in the registry, an address the app read rather than made up. A
+    // reading that can only ever come out that way measures nothing, so this leg
+    // runs the *same* three readings on the *same* session with one variable
+    // changed: the process is launched with a name handed to it, through the
+    // very option the retired plumbing used (`extraArgs.name` → the CLI's
+    // `--name`). Everything else — the session row, the transcript, the config
+    // dir, the driver, the projection — is what it was for C a moment ago.
+    //
+    // All three have to flip. If they do not, the assertions above are reading
+    // the harness rather than the behaviour: a `--name` that left `derived` in
+    // the registry would mean the registry is not where the name came from, and
+    // a `--name` that wrote nothing into the transcript would mean the
+    // transcript is not where a handed-over name is recorded.
+    // ---------------------------------------------------------------------
+    const HANDED_OVER_NAME = `${RUN_TAG}-handed-over`;
+    const hostOfC = (await readHosts(apiBaseUrl)).find(
+      (host) => host.state !== 'closed' && (host.bindings ?? []).some((b) => b.appSessionId === SESSION_C),
+    );
+    assert.ok(hostOfC, 'the control session must still be served by an open host before the handed-over-name arm');
+    const controlFirstPid = hostOfC.pid;
+    sessionHostManager.closeHost(hostOfC.hostId, 'user');
+    await waitFor(
+      () => controlFirstPid === null || !existsSync(`/proc/${controlFirstPid}`),
+      10_000,
+      'the control session\'s first process to be gone before the handed-over-name launch',
+    );
+    const namedBoot = await sendRound(socket, SESSION_C, `${MARKER_C}BOOT first turn`, null, cwd, {
+      extraArgs: { name: HANDED_OVER_NAME },
+    });
+    const handedOver = await readIdentity(apiBaseUrl, configDir, 'C-named', SESSION_C, null, MARKER_C, IDENTITY_TIMEOUT_MS);
+    console.log(
+      `[readings] handed-over session=${handedOver.label} requested=${HANDED_OVER_NAME} ` +
+        `exit=${String(namedBoot.exitCode)} registryName=${String(handedOver.registryName)} ` +
+        `registryNameSource=${String(handedOver.registryNameSource)} ` +
+        `snapshotPeerName=${String(handedOver.snapshotPeerName)} ` +
+        `selfWrittenNames=${JSON.stringify(handedOver.selfWrittenNames)}`,
+    );
+    assert.strictEqual(
+      handedOver.registryNameSource,
+      'user',
+      `a name handed to the process must register as the user's, not as the CLI's own derivation ` +
+        `(registryNameSource=${String(handedOver.registryNameSource)})`,
+    );
+    assert.strictEqual(
+      handedOver.registryName,
+      HANDED_OVER_NAME,
+      `the registry must carry the name that was handed over (${String(handedOver.registryName)})`,
+    );
+    assert.strictEqual(
+      handedOver.selfWrittenNames.length > 0 && handedOver.selfWrittenNames.every((name) => name === HANDED_OVER_NAME),
+      true,
+      `a handed-over name must show up in the process's own transcript — both rows of it ` +
+        `(found ${JSON.stringify(handedOver.selfWrittenNames)})`,
+    );
+    // And the address the app publishes follows the handed-over name here,
+    // because it is reading the registry: one more statement that the projection
+    // has no name of its own to fall back on.
+    assert.strictEqual(
+      handedOver.snapshotPeerName,
+      HANDED_OVER_NAME,
+      `the projection must publish whatever the process registered, including a handed-over name ` +
+        `(${String(handedOver.snapshotPeerName)})`,
+    );
     assert.strictEqual(sendMessageInToolTable, true, 'a process that can be addressed must have been handed the tool that addresses');
     assert.strictEqual(monitorInToolTable, false, 'the tool table is the process\'s own, so a tool it lacks must read absent');
 
@@ -1194,7 +1348,7 @@ test('a resident session publishes the address it answers to, and a peer reaches
     // ---------------------------------------------------------------------
     const addressFromRest = await awaitPeerName(apiBaseUrl, SESSION_B, IDENTITY_TIMEOUT_MS, 'B address for the send');
     console.log(`[readings] addressSource=GET /api/session-hosts peerName=${String(addressFromRest)}`);
-    assert.strictEqual(addressFromRest, beta.ruleName, `the projected address must be B's own (${String(addressFromRest)})`);
+    assert.strictEqual(addressFromRest, beta.registryName, `the projected address must be B's own registered name (${String(addressFromRest)} !== ${String(beta.registryName)})`);
     // The address a client would copy is the address the send is aimed at: the
     // mock is handed this value and nothing else, so the `to` in the tool call
     // below can only have come from here.
@@ -1305,7 +1459,7 @@ test('a resident session publishes the address it answers to, and a peer reaches
     // ---------------------------------------------------------------------
     assert.strictEqual(pidBefore !== null && pidBefore === pidAfter, true, `the rename must not move the process (${String(pidBefore)} -> ${String(pidAfter)})`);
     assert.strictEqual(nameBefore !== null && nameBefore === nameAfter, true, `the rename must not move the address (${String(nameBefore)} -> ${String(nameAfter)})`);
-    assert.strictEqual(afterRename.snapshotPeerName, alpha.ruleName, 'the address after the rename must still be the one the original title derived');
+    assert.strictEqual(afterRename.snapshotPeerName, alpha.registryName, 'the address after the rename must still be the one the CLI registered for the process');
     assert.strictEqual(userTurnRun?.source, 'user', 'a turn the app was asked for must be a user run, not the host layer\'s');
     assert.strictEqual(
       notifyBeforeDelivery,
@@ -1328,6 +1482,98 @@ test('a resident session publishes the address it answers to, and a peer reaches
     assert.ok(replayed > 0, `a subscriber attaching mid-turn must be handed the turn's frames (replayed=${replayed})`);
     assert.strictEqual(replayed, produced, `the subscriber must end up with every frame the turn produced (${replayed} !== ${produced})`);
     assert.strictEqual(framesBeforeSubscribe, replayedAtSubscribe, `the subscribe must hand over exactly what was buffered when it attached (${replayedAtSubscribe} !== ${framesBeforeSubscribe})`);
+
+    // ---------------------------------------------------------------------
+    // Leg 5 — a restart does not grow the name.
+    //
+    // This is the shape the task record measured on 2026-09-30 and filed the gap
+    // for: a resident session came back from a restart as
+    // `<slug>-<id6>-<id6>`, because the name the app had stored was fed back in
+    // as the *seed* for the next name. Path (a) removes the mechanism at its
+    // root — the app hands the process nothing on either launch — so the two
+    // readings here have to move together: the name the app holds for the
+    // session is not rewritten by a launch, and the name the second process
+    // registers is not longer than the first one's.
+    //
+    // The two registered names are *allowed* to differ. A fresh process gets a
+    // fresh name from the CLI's own derivation, and that is the CLI's business;
+    // what must not happen is one launch inheriting the previous launch's name
+    // and appending to it. So the assertion is about length and shape, never
+    // about equality — asserting equality would be asserting the CLI's
+    // derivation, which this criterion has no business constraining.
+    // ---------------------------------------------------------------------
+    const storedNameBefore = sessionsDb.getSessionById(SESSION_A)?.custom_name ?? null;
+    const hostOfA = (await readHosts(apiBaseUrl)).find(
+      (host) => host.state !== 'closed' && (host.bindings ?? []).some((b) => b.appSessionId === SESSION_A),
+    );
+    assert.ok(hostOfA, 'A must still be served by an open host before the restart leg');
+    const firstPid = hostOfA.pid;
+    sessionHostManager.closeHost(hostOfA.hostId, 'user');
+    await waitFor(
+      () => firstPid === null || !existsSync(`/proc/${firstPid}`),
+      10_000,
+      'A\'s first process to be gone before the restart',
+    );
+    // The same user action the DoD walks: the process ended, a message is sent,
+    // and the session comes back on a new process.
+    const secondBoot = await bootResidentSession(socket, SESSION_A, MARKER_A, TITLE_A_RENAMED, cwd, 'A-restart');
+    const second = await readIdentity(apiBaseUrl, configDir, 'A2', SESSION_A, TITLE_A_RENAMED, MARKER_A, IDENTITY_TIMEOUT_MS);
+    const storedNameAfter = sessionsDb.getSessionById(SESSION_A)?.custom_name ?? null;
+    const restartMs = Date.now() - STARTED_AT;
+    console.log(
+      `[readings] restart firstPid=${String(firstPid)} secondPid=${String(second.hostPid)} ` +
+        `exit=${String(secondBoot.frame.exitCode)} attempts=${secondBoot.attempts} ` +
+        `firstName=${String(alpha.snapshotPeerName)} secondName=${String(second.registryName)} ` +
+        `secondNameSource=${String(second.registryNameSource)} secondSelfWritten=${JSON.stringify(second.selfWrittenNames)} ` +
+        `firstNameLen=${String(alpha.snapshotPeerName).length} secondNameLen=${String(second.registryName).length} ` +
+        `storedNameBefore=${JSON.stringify(storedNameBefore)} storedNameAfter=${JSON.stringify(storedNameAfter)} ` +
+        `elapsed=${restartMs}ms`,
+    );
+    assert.strictEqual(
+      second.hostPid !== null && second.hostPid !== firstPid,
+      true,
+      `the restart leg must read a *second* process (${String(firstPid)} -> ${String(second.hostPid)})`,
+    );
+    // The reading the gap was filed for: the name the app holds for the session
+    // is the same string before and after a launch. Nothing the driver does on
+    // the way up may touch it — under the false form the injected name becomes
+    // the stored name, and a restart makes it longer than the launch before it.
+    assert.strictEqual(
+      storedNameAfter,
+      storedNameBefore,
+      `a resident launch must not rewrite the name the app holds (${JSON.stringify(storedNameBefore)} -> ${JSON.stringify(storedNameAfter)})`,
+    );
+    assert.strictEqual(
+      storedNameAfter?.includes(`-${SESSION_A.slice(0, 6)}`),
+      false,
+      `the stored name must not carry the app-side suffix shape (${JSON.stringify(storedNameAfter)})`,
+    );
+    assert.strictEqual(
+      second.equalToSnapshot,
+      true,
+      `the restarted session must publish the address its new process registered ` +
+        `(snapshot=${String(second.snapshotPeerName)} registry=${String(second.registryName)})`,
+    );
+    assert.strictEqual(
+      second.registryNameSource,
+      'derived',
+      `the restarted process must be registered under a derived name too (${String(second.registryNameSource)})`,
+    );
+    assert.deepEqual(
+      second.selfWrittenNames,
+      [],
+      `the restarted process's transcript must hold no name the app wrote (found ${JSON.stringify(second.selfWrittenNames)})`,
+    );
+    assert.strictEqual(
+      String(second.registryName).length <= String(alpha.snapshotPeerName).length,
+      true,
+      `the second name must not be longer than the first (${String(alpha.snapshotPeerName)} -> ${String(second.registryName)})`,
+    );
+    assert.strictEqual(
+      String(second.snapshotPeerName).endsWith(`-${SESSION_A.slice(0, 6)}`),
+      false,
+      `the restarted address must not carry the accumulated suffix shape (${String(second.snapshotPeerName)})`,
+    );
 
     const measured = Date.now() - STARTED_AT;
     console.log(`[readings] elapsed=${measured}ms`);

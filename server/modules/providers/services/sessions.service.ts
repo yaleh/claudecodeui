@@ -97,18 +97,44 @@ async function removeFileIfExists(filePath: string): Promise<boolean> {
 }
 
 /**
- * Writes one rename through to the provider's own store, best-effort.
+ * Why a rename had nothing to write, when it had nothing to write.
  *
- * A rename in this app is stored in the app's database first and written to the
- * provider's store second, so nothing here is allowed to fail the request: the
- * name the user sees has already changed by the time this runs.
+ * Each of these is a complete answer rather than a failure: the session's name
+ * simply does not live anywhere the provider keeps names. They are distinguished
+ * from each other only for the log line, so a caller that gets one back stores
+ * the name it was given.
+ */
+type RenameSkipReason = 'no-writable-title' | 'no-transcript' | 'transcript-gone';
+
+/**
+ * What the provider's own store did with one rename.
+ *
+ * `written` carries the name the provider reports *after* the write — Claude
+ * Code's own answer to "what is this session called now" — which is what the
+ * caller stores. It is `null` for a provider that keeps a writable title but
+ * cannot report one back, and the caller falls back to the requested title.
+ */
+type RenameWriteback =
+  | { outcome: 'skipped'; reason: RenameSkipReason }
+  | { outcome: 'written'; reportedName: string | null };
+
+/**
+ * Writes one rename through to the provider's own store, then reads back what
+ * that store now calls the session.
+ *
+ * The provider owns the name; the copy this app keeps is a cache of it, so the
+ * order here is the whole point: the write happens first and a **rejection
+ * propagates**. A rename Claude Code refused must not be stored, because a cache
+ * that holds a name its source never accepted is worse than no cache — nothing
+ * downstream ever corrects it (the reader prefers the stored override, so no
+ * later transcript scan can bring the two back together).
  *
  * Skipped — silently, because each case is a complete answer rather than a
- * failure — when the provider keeps no writable title, when the row has no
- * transcript yet (an app-created session whose first run has not produced a
- * file), and when the file the row points at is gone. A rejection from the
- * provider is logged and swallowed for the same reason: surfacing it would make
- * a disk problem look like a rejected rename.
+ * failure — when the provider keeps no writable title (codex), when the row has
+ * no transcript yet (an app-created session whose first run has not produced a
+ * file), and when the file the row points at is gone. A skip means there was
+ * nothing to disagree with, so the caller stores the name it was handed; a
+ * rejection means there was, so it does not.
  *
  * The file is checked here rather than left to the provider because providers
  * locate the transcript themselves from the session's working directory; a row
@@ -124,35 +150,42 @@ async function writeRenameToProviderTranscript(
     jsonl_path: string | null;
   },
   title: string,
-): Promise<void> {
+): Promise<RenameWriteback> {
+  const rename = providerRegistry.resolveProvider(session.provider).rename;
+  if (!rename) {
+    return { outcome: 'skipped', reason: 'no-writable-title' };
+  }
+
+  const transcriptPath = session.jsonl_path;
+  if (!transcriptPath || !session.provider_session_id) {
+    return { outcome: 'skipped', reason: 'no-transcript' };
+  }
+
   try {
-    const rename = providerRegistry.resolveProvider(session.provider).rename;
-    if (!rename) {
-      return;
-    }
+    await fsp.stat(transcriptPath);
+  } catch {
+    return { outcome: 'skipped', reason: 'transcript-gone' };
+  }
 
-    const transcriptPath = session.jsonl_path;
-    if (!transcriptPath || !session.provider_session_id) {
-      return;
-    }
+  const providerSessionId = session.provider_session_id;
+  const projectPath = session.project_path ?? '';
+  await rename.renameSession({ providerSessionId, projectPath, title });
 
-    try {
-      await fsp.stat(transcriptPath);
-    } catch {
-      return;
-    }
-
-    await rename.renameSession({
-      providerSessionId: session.provider_session_id,
-      projectPath: session.project_path ?? '',
-      title,
-    });
+  if (!rename.readSessionTitle) {
+    return { outcome: 'written', reportedName: null };
+  }
+  let reportedName: string | null = null;
+  try {
+    reportedName = await rename.readSessionTitle({ providerSessionId, projectPath });
   } catch (error) {
+    // The write landed; only the read-back did not. That is a reason to keep the
+    // title we were handed, not to fail a rename the provider accepted.
     console.warn(
-      `[sessions] could not write the rename of session "${session.session_id}" back to the "${session.provider}" store:`,
+      `[sessions] could not read the name of session "${session.session_id}" back from the "${session.provider}" store:`,
       error,
     );
   }
+  return { outcome: 'written', reportedName };
 }
 
 /**
@@ -736,15 +769,21 @@ export const sessionsService = {
   /**
    * Renames one session by id without requiring the caller to pass provider.
    *
+   * The provider's own store is written first and a rejection from it fails the
+   * request: the name a session has belongs to Claude Code, and this app's copy
+   * of it is a cache. Storing a name the provider refused would leave the two
+   * sides permanently disagreeing, because nothing downstream re-reads the
+   * transcript over an explicit override.
+   *
+   * What is then stored is what the provider *reports*, not what was asked for
+   * (`getSessionInfo(...).summary`). A provider that keeps no writable title is
+   * a skip rather than a rejection, and the requested name is stored — there is
+   * nothing on the other side for it to disagree with.
+   *
    * The new name is announced like any other session change: a rename made on
    * one client has to appear on the others without them refetching, and the
    * `session_upserted` delta is the same one the on-disk watcher sends when a
    * transcript renames a session by itself.
-   *
-   * Order is deliberate: the database write and its broadcast happen first, and
-   * the provider's own copy of the name is written afterwards, best-effort. The
-   * reverse order has the worse failure — a provider store that carries the new
-   * name while this app, and so the user, still shows the old one.
    */
   async renameSessionById(
     sessionId: string,
@@ -758,10 +797,39 @@ export const sessionsService = {
       });
     }
 
-    sessionsDb.updateSessionCustomName(sessionId, summary);
+    const writeback = await writeRenameToProviderTranscript(session, summary).catch((error: unknown) => {
+      console.warn(
+        `[sessions] the "${session.provider}" store refused the rename of session "${sessionId}":`,
+        error,
+      );
+      throw new AppError(
+        `The "${session.provider}" store did not accept the new name for session "${sessionId}".`,
+        {
+          code: 'SESSION_RENAME_NOT_ACCEPTED',
+          statusCode: 502,
+          details: { provider: session.provider, reason: error instanceof Error ? error.message : String(error) },
+        },
+      );
+    });
+    if (writeback.outcome === 'skipped') {
+      console.log(
+        `[sessions] rename of session "${sessionId}" had nothing to write to the "${session.provider}" store (${writeback.reason})`,
+      );
+    }
+    const storedName = writeback.outcome === 'written' ? writeback.reportedName ?? summary : summary;
+    if (storedName !== summary) {
+      // The provider accepted the write and then answered with a different
+      // name. Its answer is the one that stands — that is what "cache" means —
+      // but a disagreement is worth a line, because it is the shape of a rename
+      // that quietly did not take.
+      console.warn(
+        `[sessions] the "${session.provider}" store reports session "${sessionId}" as "${storedName}" after a rename to "${summary}"; storing the provider's answer`,
+      );
+    }
+
+    sessionsDb.updateSessionCustomName(sessionId, storedName);
     await broadcastSessionUpserted(sessionId);
-    await writeRenameToProviderTranscript(session, summary);
-    return { sessionId, summary };
+    return { sessionId, summary: storedName };
   },
 
   /**

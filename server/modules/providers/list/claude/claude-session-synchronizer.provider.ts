@@ -141,7 +141,20 @@ function foldTitleEntry(
       return state;
     }
     const name = typeof entry.customTitle === 'string' ? entry.customTitle : undefined;
-    return name?.trim() ? { ...state, manual: name } : state;
+    if (!name?.trim()) {
+      return state;
+    }
+    // The same split as `agent-name`, and for the same reason: a `--name` writes
+    // `custom-title` *as well as* `agent-name`, with the identical value
+    // (measured: 2748 of 2749 transcripts carrying an `agent-name` carry a
+    // `custom-title` equal to it). Only the `agent-name` half was routed, so a
+    // legacy row's address still reached the `manual` rung through this branch —
+    // above `ai` — and would have outranked the `ai-title` anyway. A real rename
+    // (an app rename, or a CLI `/rename`) is not shaped like this app's own
+    // address, so it keeps the `manual` rung.
+    return isSelfAssignedSessionName(name, appSessionId)
+      ? { ...state, selfAssigned: name }
+      : { ...state, manual: name };
   }
 
   if (type === 'ai-title') {

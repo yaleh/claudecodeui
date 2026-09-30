@@ -73,7 +73,7 @@
  */
 import { spawn as nodeSpawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { Writable } from 'node:stream';
@@ -85,7 +85,6 @@ import {
   ClaudePerRunHostDriver,
   type ClaudeBackgroundWorkEvent,
 } from '@/modules/providers/list/claude/claude-per-run-host-driver.provider.js';
-import { stripSelfAssignedSuffix } from '@/modules/database/index.js';
 import { createNotificationEvent, notifyUserIfEnabled } from '@/modules/notifications/index.js';
 import {
   TOOLS_REQUIRING_INTERACTION,
@@ -815,46 +814,13 @@ export function deriveBackgroundWorkTrigger(
   return 'non-user';
 }
 
-/**
- * The SendMessage address a resident process is launched under.
- *
- * `claude-resident-sessions.md` §12 states the rule: the process's title, slugged,
- * with the first six characters of the conversation's app session id appended —
- * app-side rather than provider-side because the app id is known *before* the
- * process starts (the provider id is minted by the CLI at launch, so a name
- * derived from it could not be handed to the CLI as a launch argument), and
- * because it is the id every other part of this app already has in hand.
- *
- * The slug keeps letters and digits in any script and joins runs of anything
- * else with a single `-`, which is what makes the rule total rather than
- * English-only: this app's titles are frequently Chinese, and the CLI takes a
- * name verbatim (measured: `-n, --name` accepts Chinese and spaces as written).
- * A title with no letter or digit in it at all yields `null`, which is the
- * honest answer — there is nothing to build a stable address out of — and not an
- * empty or numeric name that would collide with every other untitled session.
- */
-export function residentPeerName(title: unknown, appSessionId: string): string | null {
-  if (typeof title !== 'string') {
-    return null;
-  }
-  // The title handed in is the conversation's display name, and once this app has
-  // launched the session even once that display name *is* the address it handed
-  // the CLI: the CLI writes `--name` back as the session's title and the reader
-  // reads it out again. Feeding the address back in as the title is what made it
-  // grow another `-<id6>` on every relaunch, so any trailing copies of *this*
-  // session's own suffix are peeled off before the slug is built. The address
-  // this returns is then the one the first launch derived from the same title,
-  // byte for byte, however many times the session has been restarted.
-  const base = stripSelfAssignedSuffix(title, appSessionId);
-  const slug = base
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, '-')
-    .replace(/^-+|-+$/g, '');
-  if (!slug) {
-    return null;
-  }
-  return `${slug}-${appSessionId.slice(0, 6)}`;
-}
+// The address a resident process answers to used to be *computed* here and
+// handed to the CLI as `--name`. That is gone: in the CLI's ladder a launch name
+// is both the session's `agent-name` and its `custom-title`, so writing one
+// pinned the session's name at launch, let a CloudCLI-invented address outrank
+// an `ai-title` the session had earned, and grew another `-<id6>` on every
+// restart. The app no longer names anything; it reads the name the CLI derived
+// for the process, in `readCliSessionRegistration` below.
 
 /**
  * How long a launched process is given to state its own name, and how often it
@@ -1086,70 +1052,79 @@ export function readLaunchedRemoteControlSettings(
 }
 
 /**
- * The `agent-name` entry a Claude CLI has written for itself, or null.
+ * One live Claude CLI process, as the CLI's own registry describes it.
  *
- * The transcript is the only place this name is legible: the CLI registers the
- * address on its own side, and the name is deliberately absent from every
- * `/v1/messages` body it sends (measured), so nothing on the wire carries it and
- * no frame reports it. The file is located by session id across the config
- * directory's project buckets rather than by recomputing the bucket name,
- * because the bucket is the CLI's own encoding of the working directory — a rule
- * this file does not own and should not have a second copy of.
- *
- * A malformed line is skipped rather than fatal: a transcript being appended to
- * while it is read has a partial final line by construction, and that is not a
- * reason to miss the entry that is already on disk.
- *
- * The *last* entry is the answer, not the first: the CLI appends a fresh
- * `agent-name` on every launch that carries `--name`, so an earlier entry is the
- * address of a previous launch. Reading the first one made the identity guard
- * compare this launch's address against an older one's, which is why a session
- * that had ever been restarted reported "a different address than it was
- * launched with" and published a NULL `peerName` — the stable SendMessage
- * address AC-164 promises was empty on exactly the sessions that had been
- * restarted.
- *
- * Exported for `claude-session-name-authority.test.ts`, which pins the
- * newest-entry rule against a transcript holding several launches' addresses;
- * the driver itself is the only production caller.
+ * Only the fields this driver has a use for are modelled; the file carries more
+ * (`startedAt`, `tmux`, `peerFeatures`, …) and unmodelled keys are ignored
+ * rather than rejected.
  */
-export function readTranscriptAgentName(configDir: string, providerSessionId: string): string | null {
-  const projects = join(configDir, 'projects');
-  let buckets: string[];
+export type ClaudeCliSessionRegistration = {
+  pid: number;
+  sessionId: string | null;
+  /** The address other sessions reach this process at, or null when it has none. */
+  name: string | null;
+  /** Who chose that name: `derived` (the CLI itself) or `user` (a person). */
+  nameSource: string | null;
+  /** The socket the address resolves to; its presence is what makes it reachable. */
+  messagingSocketPath: string | null;
+};
+
+/**
+ * The name a live Claude CLI process registered for itself, from the CLI's own
+ * registry.
+ *
+ * `~/.claude/sessions/<pid>.json` is the record the CLI writes for each process
+ * on the host: the `name` other sessions address it by, the `nameSource` that
+ * says who chose it (`derived` for the CLI's own per-process name, `user` for a
+ * name a person set), the provider `sessionId` and the `messagingSocketPath` the
+ * address resolves to. It is the *only* reading of the address that is the CLI's
+ * own: this app no longer hands the process a name, so there is nothing on its
+ * side to compare a requested name against, and — unlike the old arrangement —
+ * nothing the app wrote that could show up in the transcript instead.
+ *
+ * Keyed by pid, because that is how the CLI keys it and because a fresh process
+ * derives a fresh name: the record for *this* process is the one under this
+ * process's pid. A file that names a different `sessionId` than the conversation
+ * this host is running is treated as absent — pids are recycled on a busy host,
+ * and a stale record must not hand this binding an address that answers for
+ * somebody else.
+ *
+ * A missing or unparseable file is `null`, not an error: the process writes it
+ * at startup, so a caller polls rather than assuming the first read is final.
+ */
+export function readCliSessionRegistration(
+  configDir: string,
+  pid: number,
+  providerSessionId?: string | null,
+): ClaudeCliSessionRegistration | null {
+  let raw: string;
   try {
-    buckets = readdirSync(projects);
+    raw = readFileSync(join(configDir, 'sessions', `${pid}.json`), 'utf8');
   } catch {
-    // No transcript yet, or a config directory this process cannot see.
+    // No registry entry yet, or a registry this process cannot see.
     return null;
   }
-
-  for (const bucket of buckets) {
-    let raw: string;
-    try {
-      raw = readFileSync(join(projects, bucket, `${providerSessionId}.jsonl`), 'utf8');
-    } catch {
-      continue;
-    }
-    let registered: string | null = null;
-    for (const line of raw.split('\n')) {
-      if (!line.trim()) {
-        continue;
-      }
-      let row: AnyRecord;
-      try {
-        row = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      if (row?.type === 'agent-name' && typeof row.agentName === 'string' && row.agentName) {
-        // Keep scanning: a later entry is a later launch's address.
-        registered = row.agentName;
-      }
-    }
-    return registered;
+  let row: AnyRecord;
+  try {
+    row = JSON.parse(raw);
+  } catch {
+    return null;
   }
-
-  return null;
+  if (typeof row?.pid !== 'number' || row.pid !== pid) {
+    return null;
+  }
+  const sessionId = typeof row.sessionId === 'string' && row.sessionId ? row.sessionId : null;
+  if (providerSessionId && sessionId && sessionId !== providerSessionId) {
+    return null;
+  }
+  return {
+    pid,
+    sessionId,
+    name: typeof row.name === 'string' && row.name ? row.name : null,
+    nameSource: typeof row.nameSource === 'string' ? row.nameSource : null,
+    messagingSocketPath:
+      typeof row.messagingSocketPath === 'string' && row.messagingSocketPath ? row.messagingSocketPath : null,
+  };
 }
 
 /**
@@ -1727,15 +1702,15 @@ type ResidentHostState = {
   /** Provider-native session id, captured once from the stream. */
   providerSessionId: string | null;
   /**
-   * The address this process was launched under, or null when none was computed.
+   * The pid of the process this host holds, when the spawn hook reported one.
    *
-   * Held because the read-back has to be measured against the name that was
-   * asked for rather than against whatever the transcript happens to say: a
-   * process that registered a different name than the one it was launched with
-   * has not answered to the address a caller was given, and reporting the
-   * transcript's word for it would publish an address that does not work.
+   * It is the key to the CLI's own registry (`~/.claude/sessions/<pid>.json`),
+   * which is where the process's address is read from: this app no longer hands
+   * the CLI a name, so the pid is the only handle it has on the name the CLI
+   * derived for itself. Null when the driver could not observe a pid, in which
+   * case no address can be read and the binding reports none.
    */
-  peerName: string | null;
+  pid: number | null;
   /**
    * Where this process's CLI keeps its state, as the process itself was told.
    *
@@ -1766,13 +1741,13 @@ type PendingHost = {
   /** The hook ledger built for this process, carried over with the queue. */
   ledger: BackgroundWorkLedger;
   /**
-   * What this process was launched with, decided before the spawn because both
-   * are launch facts: the name handed to the CLI, and the directory the
-   * read-back of that name has to look in. Carried here rather than recomputed
-   * at adoption because the option bag they were derived from belongs to the
-   * turn that started the process, which `startHost` never sees.
+   * The process's pid, and the directory its CLI keeps state in — both read
+   * facts for the address read-back, both settled before `openHost` adopts the
+   * host. Carried here rather than recomputed at adoption because the config dir
+   * is derived from the environment the child was actually launched under, which
+   * `startHost` never sees.
    */
-  peerName: string | null;
+  pid: number | null;
   configDir: string;
   /** The one slot this process's `Stop` hook can reach before its host exists. */
   stopHook: StopHookSink;
@@ -2029,7 +2004,7 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       resultTimes: [],
       sessionStateChanged: 0,
       providerSessionId: null,
-      peerName: pending.peerName,
+      pid: pending.pid,
       configDir: pending.configDir,
       identityReadbackStarted: false,
       resumed: false,
@@ -2699,15 +2674,13 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
     // buffered for `startHost` rather than dropped.
     const stopHook: StopHookSink = { state: null, buffered: [] };
 
-    // The address is a launch argument, so it is decided before the spawn and
-    // travels in the option bag the factory reads. `residentPeerName` owns the
-    // rule; the title it reads is the conversation's own summary, which is the
-    // name the user sees and the same field the stopped-run report already uses.
-    const peerName = residentPeerName(options.sessionSummary, appSessionId);
-    // Absent rather than empty when there is no name: a `name` flag with nothing
-    // in it is not the same statement as no flag, and the CLI would be asked to
-    // register an empty address.
-    const launchArgs = peerName ? { extraArgs: { name: peerName } } : {};
+    // No name is handed to the CLI. In the CLI's own ladder a launch name is
+    // both the session's `agent-name` *and* its `custom-title`, i.e. the top two
+    // rungs, so passing one would pin the session's name at the moment of launch
+    // and make an app-invented address outrank the `ai-title` the session earns
+    // afterwards. The app is a wrapper around the CLI here: it does not name
+    // anything, and it reads back the name the CLI derived for the process (see
+    // `readCliSessionRegistration` and `startIdentityReadback`).
 
     // The permission scope, created here and not in the factory: whether a
     // request is answered from a browser or refused outright is this driver's
@@ -2726,7 +2699,6 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       prompt: queue.stream,
       options: {
         ...options,
-        ...launchArgs,
         providerSessionId: context.resolveProviderSessionId(appSessionId),
         model: resolvedModel || options.model,
         effortModels,
@@ -2749,12 +2721,17 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       },
     });
 
+    // The pid is the key to the CLI's own registry, so it is resolved once and
+    // shared: the pending host carries it for the address read-back, and
+    // `openHost` records it on the binding.
+    const pid = await this.resolvePid(process);
+
     this.pending = {
       queue,
       process,
       modelContextWindow: resolveModelContextWindowRow('claude', resolvedModel || options.model),
       ledger,
-      peerName,
+      pid,
       configDir,
       stopHook,
       permissions,
@@ -2774,7 +2751,7 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       mode: 'resident',
       appSessionId,
       driver: this,
-      pid: await this.resolvePid(process),
+      pid,
     });
 
     const state = this.hosts.get(host.hostId);
@@ -2988,24 +2965,22 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
   }
 
   /**
-   * Reads the address back out of the process and reports it, or reports none.
+   * Reads the process's address out of the CLI's own registry and reports it.
    *
-   * A launch flag is a request, not a fact: handing the CLI a name does not by
-   * itself prove the process is reachable at it, and a binding that published
-   * the requested name on faith would be advertising an address nobody has
-   * checked. What is checked is the process's own registration — the `agent-name`
-   * entry it writes into its transcript — and the only two outcomes reported are
-   * that entry agreeing with what was requested, or a stated `null`. A name that
-   * differs is reported as `null` rather than as itself, because the address a
-   * caller was handed is the requested one and that is the one that does not
-   * work; the disagreement is logged rather than swallowed, and the transcript's
-   * own word is never published as if it were the requested address.
+   * The app does not name the process, so there is no requested name to compare
+   * a reading against — the address is simply whatever the CLI registered, read
+   * back from `~/.claude/sessions/<pid>.json`. That is still a *checked* reading
+   * rather than a prediction: the file is keyed by pid and carries the provider
+   * `sessionId`, so a record that names another conversation is refused (see
+   * `readCliSessionRegistration`), and an entry that never appears inside the
+   * budget is reported as `null` rather than guessed at.
    *
-   * Called once per host, at the first message that names the provider session,
-   * which is the earliest moment the transcript has a known filename. The poll
-   * is bounded and unref'd: the entry is written at startup, so a process that
-   * has not produced it within the budget has not registered an address, and a
-   * driver must not hold the event loop open waiting for one that is not coming.
+   * Called once per host, at the first message that names the provider session —
+   * the earliest point at which the process is far enough along to have written
+   * its registry entry — and once per host only. The poll is bounded and
+   * unref'd: the entry is written at startup, so a process that has not produced
+   * it within the budget has not registered an address, and a driver must not
+   * hold the event loop open waiting for one that is not coming.
    */
   private startIdentityReadback(state: ResidentHostState, sessionId: string): void {
     if (state.identityReadbackStarted) {
@@ -3013,11 +2988,11 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
     }
     state.identityReadbackStarted = true;
 
-    const expected = state.peerName;
-    if (!expected) {
-      // Launched with no name: there is no address to read back, and reporting
-      // `null` now is a statement — "this binding has no address" — rather than
-      // the absence a binding that was never asked about would show.
+    const pid = state.pid;
+    if (pid === null) {
+      // No pid was observed, so the registry cannot be addressed at all:
+      // reporting `null` is a statement — "this binding has no address" — rather
+      // than the absence a binding that was never asked about would show.
       state.sink.identity(state.appSessionId, null);
       return;
     }
@@ -3027,25 +3002,17 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       if (state.closed) {
         return;
       }
-      const registered = readTranscriptAgentName(state.configDir, sessionId);
-      if (registered === null) {
+      const registration = readCliSessionRegistration(state.configDir, pid, sessionId);
+      if (!registration?.name) {
         if (Date.now() >= deadline) {
+          state.sink.identity(state.appSessionId, null);
           return;
         }
         const timer = setTimeout(poll, CLAUDE_RESIDENT_IDENTITY_POLL_MS);
         timer.unref?.();
         return;
       }
-      if (registered !== expected) {
-        console.error('[ClaudeResidentHostDriver] Resident process registered a different address than it was launched with', {
-          appSessionId: state.appSessionId,
-          launched: expected,
-          registered,
-        });
-        state.sink.identity(state.appSessionId, null);
-        return;
-      }
-      state.sink.identity(state.appSessionId, expected);
+      state.sink.identity(state.appSessionId, registration.name);
     };
 
     poll();

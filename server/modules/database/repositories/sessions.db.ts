@@ -207,13 +207,15 @@ const SESSION_ROW_RAW_COLUMNS =
 /**
  * Whether `name` is one of the addresses this app assigned to a session.
  *
- * The resident host driver builds its launch address as
- * `slug(title) + '-' + appSessionId.slice(0, 6)` (see `residentPeerName` in the
- * Claude host driver), and the CLI writes whatever `--name` it is handed into
- * the transcript twice: as the session's `agent-name` *and* as its
- * `custom-title`. The title it slugs is the session's own display name, so a
- * relaunch folds the previous address into the next one and a transcript can
- * hold the same `-<id6>` two, three or four times over.
+ * History: the resident host driver used to build a launch address as
+ * `slug(title) + '-' + appSessionId.slice(0, 6)` and hand it to the CLI as
+ * `--name`. The app no longer names anything — the CLI derives the name of the
+ * process itself and the app only reads it — but the shape is still on disk in
+ * every transcript an older build wrote, and the CLI wrote it back twice: as
+ * the session's `agent-name` *and* as its `custom-title`. The title it slugged
+ * was the session's own display name, so a relaunch folded the previous address
+ * into the next one and a transcript can hold the same `-<id6>` two, three or
+ * four times over.
  *
  * Two readings, strongest first:
  *
@@ -253,18 +255,16 @@ export function isSelfAssignedSessionName(
 /**
  * `name` with any trailing copies of this app's address suffix removed.
  *
- * A display name that has been through `residentPeerName` more than once carries
- * the session's `-<id6>` two, three or four times over (`a-b-edb5ea-edb5ea`).
- * Peeling them is what stops a polluted name being used as the seed for the next
- * address — the accumulation a relaunched resident session used to suffer — and
- * what lets the session-name migration recover the name a row had before an
- * older build wrote its address over it. A name that does not end in *this*
- * session's own suffix is returned unchanged, so a title that merely ends in six
- * hex-looking letters (`facade`, `decade`) is left alone.
+ * A display name that went through the old launch-address builder more than once
+ * carries the session's `-<id6>` two, three or four times over
+ * (`a-b-edb5ea-edb5ea`). Peeling them is what lets the session-name migration
+ * recover the name a row had before an older build wrote its address over it. A
+ * name that does not end in *this* session's own suffix is returned unchanged,
+ * so a title that merely ends in six hex-looking letters (`facade`, `decade`) is
+ * left alone.
  *
- * Consumers: `residentPeerName` in the Claude host driver (it peels before it
- * slugs) and the session-name migration. Both import it through
- * `@/modules/database/index.js`.
+ * Consumers: the session-name migration (`reclassifySelfAssignedSessionNames`).
+ * It imports this through `@/modules/database/index.js`.
  */
 export function stripSelfAssignedSuffix(name: string, appSessionId: string): string {
   const suffix = `-${appSessionId.slice(0, 6)}`;
