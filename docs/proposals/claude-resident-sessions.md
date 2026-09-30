@@ -100,7 +100,7 @@ SDK 类型落后于 CLI：`scheduled_task_fire`、`side_question`、`peer_messag
 1. 所有 provider 的活跃进程由同一个宿主层管理，共用一套状态机、保活理由、关闭原因和列表接口。
 2. per-run 纳入宿主层后，现有行为和测试不变。
 3. 常驻会话中，`CronCreate`、`ScheduleWakeup`、`Monitor`、后台任务能跨多轮、跨用户消息持续工作。
-4. 常驻会话存活期间有**稳定**的 SendMessage 地址，界面可以复制。
+4. 常驻会话存活期间有**稳定**的 SendMessage 地址，界面可以复制。⚠️ **2026-09-30 按人 yale 裁定改写**：地址不再由 App 自造，改为**读** Claude Code 自己给进程的派生名，因此不再跨重启固定——见 §12 的修订块。
 5. 无人值守触发的轮次（cron、Monitor 通知、跨会话消息）能执行，并出现在聊天记录中。
 6. 用户能看到哪些会话在常驻、为什么还活着，并能手动关闭。
 7. 长期不活动的常驻会话自动关闭；常驻进程失控时只杀它自己，不连累服务和别的会话。
@@ -151,7 +151,7 @@ type SessionBinding = {
   state: 'idle' | 'busy';
   leases: HostLease[];              // 见 §3
   lastActivityAt: number;
-  peerName: string | null;          // 可寻址时的 SendMessage 地址
+  peerName: string | null;          // 可寻址时的 SendMessage 地址（2026-09-30 起读自 CLI 注册表，非 App 自造）
   detachReason: HostCloseReason | null;
 };
 ```
@@ -257,7 +257,7 @@ residentFeatures?: {
   interruptKeepsProcess: boolean;
   liveReconfigure: ('model' | 'effort' | 'permissionMode')[];
   unattendedTurns: boolean;          // cron、wakeup、跨会话消息
-  addressable: boolean;              // 有稳定的 SendMessage 地址
+  addressable: boolean;              // 有可读的 SendMessage 地址（不承诺跨重启不变，见 §12）
   inputWhileBusy: boolean;           // 忙时输入直达进程（原则 6）
   cancelQueuedInput: boolean;        // 尚未出队的输入可撤回（cancel_async_message）
   authoritativeLeases: boolean;      // 保活理由来自 CLI 的事件与清单，而非推测
@@ -396,8 +396,16 @@ E9 实测这条清单路径可靠：`claude` 2.1.282 下 **Stop hook 每轮都�
 
 ### 12. 身份与寻址
 
-- 通过 `extraArgs: { name: '<标题 slug>-<会话 ID 前 6 位>' }` 给常驻进程一个稳定的 peer 名，driver 以 `identity` 事件把它上报到绑定的 `peerName`。标题变化时不改名，名字在进程生命周期内固定。**E6 实测：`-n, --name <name>` 是合法旗标，中文与空格被原样接受**（本地转录里 `agent-name` / `custom-title` 与设定值逐字一致，含 `实验会话 中文 空格`）。⚠️ 但这个名字**不进 `/v1/messages` 请求体**——driver 判定它是否生效只能读本地转录（`<configDir>/projects/<slug>/<session>.jsonl` 里的 `agent-name` 记录），读请求体是看不出来的。
-- 会话菜单新增"复制 SendMessage 地址"，仅当绑定存活且 `addressable` 时可用。
+> **2026-09-30 修订（人 yale 裁定）——本节原第一条的 `extraArgs.name` 方案已作废，下面的正文与代码草图按修订后读。**
+>
+> 裁定逐字：「冲突是什么？CloudCLI 不要自己加戏就好；不要干扰 Claude Code 的行为。」同日更早一条逐字：「优先明确 Claude Code 的机制并遵循。在会话名称这方面（尤其是 resident session），把 CloudCLI 看作 Claude Code 的轻量 wrapper。……CloudCLI 中存储的会话名称应看作是 Claude Code 中的会话名称的 cache。」
+>
+> **⇒ 常驻启动不再传 `--name`。** 原方案给进程自造 `<标题 slug>-<会话 ID 前 6 位>` 当地址，但在 Claude Code 里 `--name` 不是寻址的旁路通道：它同时是该会话 `custom-title` 与 `agent-name` 两条**最高档**的名字，一旦写入就把名字钉死在启动那一刻，Claude Code 之后对 `ai-title` 的修订再也显示不出来。实测（2026-09-30，`~/.claude/sessions/*.json`）：App 起的常驻进程一律 `nameSource: 'user'`，没传 `--name` 的进程一律 `nameSource: 'derived'`。所以「给自己一个地址」与「不干扰 Claude Code 的命名」是同一个槽位上的两件事，按裁定取后者。第二档出路（`--name` 取 Claude Code 已有的名字）同样出局：它仍然钉死名字，仍然改 Claude Code 的行为。
+>
+> **地址从「算」改为「读」**：Claude Code 本来就给每个进程自己起名（`derived`，形如 `claudecodeui-74`／`quay-fd`／`archguard-85`，每进程一个新值），且同一条注册表记录带 `sessionId` 与 `messagingSocketPath`，足以把 app 会话映射到地址。**代价**：地址不再可预测、也不再跨重启固定——那是 Claude Code 自己的语义，本提案不再承诺更多；`AC-164` 的承诺已随之修订（见 `goals/AC-164-*.md`）。**承重假设仍未验证**：另一个会话用 `derived` 名 `SendMessage` 能否送达——AC-164 只证明过 `user` 名可达，实现在此之前必须先量。
+>
+> 原第一条保留为历史：通过 `extraArgs: { name: '<标题 slug>-<会话 ID 前 6 位>' }` 给常驻进程一个稳定的 peer 名，driver 以 `identity` 事件上报到绑定的 `peerName`；标题变化时不改名。**E6 实测：`-n, --name <name>` 是合法旗标，中文与空格被原样接受**（本地转录里 `agent-name` / `custom-title` 与设定值逐字一致）。⚠️ 但这个名字**不进 `/v1/messages` 请求体**——判定只能读本地转录（`<configDir>/projects/<slug>/<session>.jsonl` 里的 `agent-name`），读请求体看不出来。
+- 会话菜单新增"复制 SendMessage 地址"，仅当绑定存活且 `addressable` 时可用。地址按上款**读自 Claude Code 的进程注册名**，不是 App 自造的名字。
 - 会话详情显示 pid、peer 名、启动时间、内存（读 scope 的 `memory.current`）、状态和保活理由。这些数据来自统一的宿主接口。
 - 在 Shell 标签页执行 `claude --resume` 会让同一会话多出第二个写入者。因此**常驻会话不支持 Shell 标签页**：只按 `lifecycle_mode` 判断，与进程是否存活无关，也不提供强行打开。关闭常驻模式后恢复可用。
 
