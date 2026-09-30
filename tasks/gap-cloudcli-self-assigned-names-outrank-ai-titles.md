@@ -1,7 +1,8 @@
 ---
 id: gap-cloudcli-self-assigned-names-outrank-ai-titles
 title: 会话命名权归人工与 Claude Code：CloudCLI 自赋名不得压过 AI title、不得自行赋名、且跨重启幂等
-status: ready
+status: needs-human
+needs_human_cause: unclassified
 labels:
   - gap
   - defect
@@ -177,3 +178,13 @@ server/modules/providers/tests/claude-session-title-mirror.test.ts        exit=0
 2. **保留地址形状、改 AC2 的取证口径**：按 Claude Code 的 `summary`（`getSessionInfo`/`listSessions`）判定一致性，并补一步「常驻启动后由 App 经 Claude Code 接口把会话名写回它自己的名字」——这正是裁定里「CloudCLI 要修改会话名，应使用 Claude Code 的接口」的字面落地，可把 `summary` 拉回与 App 一致。
 
 在裁定给出之前，本分支不落地：AC2 与 AC10 保持未勾（机械上也不可能 10/10），下面的 scoped-gate 缓存只是记录本轮「按现有代码」的绿读数。
+
+## Needs-Human
+
+**执行 2026-09-30T04:26:28.648Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：unclassified
+- 失败步/判词：AC 未全勾（checked 7/10，剩余未勾 3）——续做只需验证并勾选 AC
+- run_id：wk-prod-anchor
+- session_id：cb625e93-b02c-4e9f-a154-a8a67c995f31
