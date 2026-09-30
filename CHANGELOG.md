@@ -3,6 +3,27 @@
 All notable changes to CloudCLI UI will be documented in this file.
 
 
+## [1.38.1](https://github.com/yaleh/claudecodeui/compare/v1.38.0...v1.38.1) (2026-09-30)
+
+### New Features
+
+* **release:** publish the fork as @yalehwang/cloudcli on npm ([e433af3](https://github.com/yaleh/claudecodeui/commit/e433af35fc8f8728ec6fe35d2c738f95e604c366))
+
+### Bug Fixes
+
+* **e2e:** drive the Enter criterion off the switch, not the retired consent tick ([b154753](https://github.com/yaleh/claudecodeui/commit/b1547537cfe55feda78ae260a121e2955ab26f7b))
+
+### CI/CD
+
+* drop Discord release notification (upstream webhook, not configured on fork) ([e3bdfa4](https://github.com/yaleh/claudecodeui/commit/e3bdfa48e18fd095d120893099c2a7d7bb3cdeb2))
+* **release:** pass GITHUB_TOKEN to npm ci so @vscode/ripgrep's download is not rate-limited ([98cd614](https://github.com/yaleh/claudecodeui/commit/98cd6141239bfe8bb3baf63c3389aa2729a4ecd6))
+
+### Tests
+
+* **e2e:** anchor the AC-109 detach window at the gesture's own input moment ([d2f4445](https://github.com/yaleh/claudecodeui/commit/d2f44458fac40e32ed70954c891d570eac5f28c8))
+* **e2e:** bound the resident-running-view startup path ([e963c86](https://github.com/yaleh/claudecodeui/commit/e963c8674b94d67b35c7103026a09d69e3596dca))
+* **e2e:** cut the AC-109 window's frames at the gesture's own input moment ([ef6e511](https://github.com/yaleh/claudecodeui/commit/ef6e511177bf7410dbcde405f9754c3233ff7100))
+
 ## [1.38.0](https://github.com/yaleh/claudecodeui/compare/v1.37.3...v1.38.0) (2026-09-29)
 
 ### New Features
