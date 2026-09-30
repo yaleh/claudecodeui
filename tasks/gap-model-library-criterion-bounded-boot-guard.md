@@ -3,7 +3,7 @@ id: gap-model-library-criterion-bounded-boot-guard
 title: AC-027 判据的启动阶段无界：宿主网络抖动打断渲染器在途模块加载（net::ERR_NETWORK_CHANGED 实测 10
   连发）后，:80 的登录字段填充无预算，被拖到 55s 看门狗记红——本族既有的有界预热+启动探针未回灌到
   e2e/model-library.spec.ts
-status: todo
+status: ready
 labels:
   - gap
   - defect
