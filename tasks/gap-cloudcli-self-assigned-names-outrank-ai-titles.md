@@ -367,3 +367,24 @@ AC1–AC8、AC11–AC13 不重取：本轮改动只落在上述两个判据文�
 - `npm run lint` → exit 0（仅既有 warning）
 
 **⇒ 本任务 13/13 AC 已勾、`execute->done` 门可过，可直接重派落地。**
+
+## 落地与生产复查（2026-09-30，DoD 第 5 条）
+
+**落地**：driver 机械 fan-in `560e1af6`。fan-in 轨迹第二轮 `merge-develop → anti-drift → typecheck → ac-precheck → suite-end ok=True (220s) → anti-drift-land → ac-gate → ff` 全绿（第一轮 `suite-end ok=False` 就是那条 typecheck 红，已由 `7362011c` 修掉）。实现 `9bf287b3` 与修复 `7362011c` 均已在 develop。
+
+**重建 + 重启**：`npm run build` exit 0（产物 14:52/14:53）；安全重启走 `~/.ccui-restart/restart-3001-unit.sh --delay 90`（把自己重起为独立 transient unit，脱离 `claudecodeui-server.service` 的 cgroup）。VERDICT **OK**：MainPID `533938 → 2577190`，listener pid `534003 → 2578273`，`GET /health`+`GET /` = 200/200，`Restart=on-failure`、`NRestarts=0`。新 bundle 载入可证：产物 14:53 生成、服务 14:55:40 起；`readCliSessionRegistration` 5 处、`residentPeerName` 0 处。
+
+**DoD 第 5 条的读数（重启后，`:3001` 由新 pid 服务且 `/health=200` 之后取的）**：
+
+- **迁移前 → 后**：`agent 1538 → 1527`、`ai 108 → 110`、`derived 21 → 33`、`null 1317`、`manual 4`。⇒ **14 行被重定级**（12 行落 `derived`、2 行落 `ai`），与重启前实测的「带自造地址形状的行 = 14」逐字相符；`agent` 净 −11 = −14 + 3 行新进的 quay 角色名。
+- **仍带 App 自造地址形状（`<任意前缀>-<本行 app 会话 id 前 6 位>`）的行 = 0**（重启前 14）。
+- `grep -c "registered a different address" server.log` = **9**，未增长（旧代码停跑后不再产生）。
+- `agent` 那 1527 行仍是 **quay driver** 的 `-n <role>` 角色名，不在本任务范围（裁定已界定）。
+
+**行为面的端到端读数（比档位更直接）**：
+
+- `GET /api/session-hosts` 的两个宿主**都有非空 `peerName`**，且值逐字等于 `~/.claude/sessions/<pid>.json` 的 `name`：`435981 → quay-d3`、`4038061 → claudecodeui-83`（同记录带 `sessionId` 与 `messagingSocketPath`）。⇒ 之前「重启过的宿主 `peerName` 恒 `null`」的症状消失。
+- 两个宿主进程的注册名 `nameSource` 均为 **`derived`**（`entrypoint: sdk-ts`，即 CloudCLI 起且**未传 `--name`**），而全机存活进程里 **`nameSource: 'user'` 的数量 = 0** —— 重启前那是 7 个（CloudCLI 的常驻进程全在 `user` 档，名字带累加后缀）。
+- 两者启动于 15:09:59 / 15:33:04，均在 14:55:40 重启之后 ⇒ 确系新代码所起。
+
+**结论：本任务的 DoD 五条读数全部取到，行为与档位两侧均符合裁定（CloudCLI 不自赋名、名字读自 Claude Code）。**
