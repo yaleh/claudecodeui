@@ -68,7 +68,7 @@ extra:
 - [x] **(a) 的承重读数（AC-164 从未量过的那个）**：另一个会话用 CLI 自己派生的 `derived` 名 `SendMessage`，真的送达并让对方产出一轮（`source=unattended`、触发类型 `cross-session-message`、可 `chat.subscribe(lastSeq=0)` 完整回放）。**假形态**：把地址换成一个不存在的名字 ⇒ 必须红。⚠️ 本条不通过则 (a) 不成立，必须先量。
 - [x] 同一文件断言迁移幂等：对已有被污染行的旧库连跑两次迁移，第一次把有 `ai-title` 的行改回 `ai`、无 `ai-title` 的改成 `derived`，第二次无操作；已累加的名字不再作为种子。
 - [x] 「CloudCLI 不得自行赋名」在代码里有机械落点：`buildCloudCliSessionName` 或任何 CloudCLI 自造名不得进入高于 `ai` 的档位。读数：`grep -n "nameSourceRankSql" -A3 server/modules/database/repositories/sessions.db.ts` 与档位断言。
-- [ ] **占位名是过渡态，且永不当地址**（人 yale 2026-09-30 补充裁定）：新建会话后 `transcript_name_source` 必须由 `derived` 转成 `ai`、显示名等于 Claude Code 的 `ai-title`。**正控制**：Claude Code 从未给出标题的会话里占位名必须**保留**（不许把「换掉」实现成「清空」）。**假形态**：让占位名进入高于 `ai` 的档位 ⇒ 必须红。另断言 `GET /api/session-hosts` 的 `peerName` 在任何情况下都**不等于** App 的 `derived` 占位名。⚠️ 这条是**回归守卫**：2026-09-30 在 :3001 实测占位名只活约 2 秒（`a8257068`：04:43:47 落 `derived` ⇒ 04:43:49 换成 `ai-title` `Server 目录 ts 文件统计`，侧栏/聊天头/标签页三处一致），而 (a) 下 `peerName` 只可能读自 CLI 注册表 —— 今天两条都已成立，加它是防回归，不是待修缺陷。
+- [x] **占位名是过渡态，且永不当地址**（人 yale 2026-09-30 补充裁定）：新建会话后 `transcript_name_source` 必须由 `derived` 转成 `ai`、显示名等于 Claude Code 的 `ai-title`。**正控制**：Claude Code 从未给出标题的会话里占位名必须**保留**（不许把「换掉」实现成「清空」）。**假形态**：让占位名进入高于 `ai` 的档位 ⇒ 必须红。另断言 `GET /api/session-hosts` 的 `peerName` 在任何情况下都**不等于** App 的 `derived` 占位名。⚠️ 这条是**回归守卫**：2026-09-30 在 :3001 实测占位名只活约 2 秒（`a8257068`：04:43:47 落 `derived` ⇒ 04:43:49 换成 `ai-title` `Server 目录 ts 文件统计`，侧栏/聊天头/标签页三处一致），而 (a) 下 `peerName` 只可能读自 CLI 注册表 —— 今天两条都已成立，加它是防回归，不是待修缺陷。
 - [x] 人 yale 的三条逐字裁定都存在于本任务记录中（机械读数：本文件内存在三个裁定小节）；任一缺席时本任务不得 done。
 - [x] 既有判据逐条退出 0 且文件未改：`claude-session-title-source.test.ts`、`claude-host-per-run.test.ts`、`claude-background-work.test.ts`、`session-hosts-routes.test.ts`、`sessions-name-source.integration.test.ts`、`session-rename-route.test.ts`、`claude-session-title-corpus.test.ts`、`claude-session-title-mirror.test.ts`。逐条打印命令与退出码。**`claude-resident-addressable.test.ts` 不在此列**（见下条）。
 - [x] `claude-resident-addressable.test.ts` 随出路 (a) 修订并退 0：它现有内容逐字重述了被本裁定作废的规则（`expectedPeerName(title,id) = slug(title)+'-'+id.slice(0,6)`，断言投影与转录都等于它、且转录里必须有一条 `agent-name`），在 (a) 下必红。修订后的断言改为「不传 `--name`、投影读自 CLI 注册表、`derived` 名可达」。同时 `goals/AC-164-*.md` 的 `expect` 已按裁定改写（登记人 2026-09-30 经 `quay goal write --expect` 落盘）。
@@ -309,3 +309,29 @@ server/modules/providers/tests/claude-session-title-mirror.test.ts       exit=0 
 - `derived → auto`（把注册名换成 AI 标题）的采纳路径在代码里存在（`Sft`：`g.source==="derived"` 时 `DF(r, n, "auto")`），但 resume 路径上未观察到触发：不传消息 45s、以及真跑完一轮之后，注册名都一直是 `derived`。故**不能**指望重启后名字自动变成 AI 标题。
 
 **对人 yale 那条指令的结论**：新建会话不传 `--name` 成立；**重启会话「如果能保持名称不变就不要传」的前提不成立** —— Claude Code 保不住地址（每次重启换一个随机标签），因此不传 `--name` 的代价是每次重启换地址。按本裁定与 AC-164 修订（「不承诺跨重启不变」），正确做法仍是**不传 `--name`、读注册表里的名字**；若确实需要长期稳定的地址，那是 Claude Code 的 `tengu_session_stable_address` 开关的事，应当去要那个，而不是由 App 自造名字顶替。
+
+## Evidence（worker 2026-09-30，round 4：只余 AC9，补判据并勾选）
+
+**本轮只做一件事。** AC9 是上一轮残留的唯一未勾项，且它自述为**回归守卫**（「今天两条都已成立，加它是防回归，不是待修缺陷」）。故本轮**不动产品代码**——只把该条要的机械读数写进本任务自己的判据文件，逐条取绿，再勾选。
+
+### AC9 的四条读数（全部实测）
+
+- **占位名让位于 `ai-title`。** 新增 `claude-session-name-authority.test.ts` 例「a session opens on the app placeholder and gives it up to the title Claude Code writes」。夹具走**产品自己的**占位名入口 `sessionsService.createAppSession('claude', ws, 'count the typescript files under the server directory')`（不由测试自造字符串——测试自造的名字可能与产品已不再遵守的规则相符），先断言库内显示名 = `count the typescript files`、`name_source='derived'`；再接上 provider 会话 id、写入含 `ai-title` 的转录、`synchronizeFile` ⇒ 显示名 = `Archguard 架构分析`、`source='ai'`。
+- **正控制：Claude Code 从未给出标题 ⇒ 占位名原样留下**（「换掉」不得实现成「清空/覆盖」）。例「a session Claude Code never titles keeps the placeholder rather than losing its name」：同一入口建会话，转录只有 CLI 开头的两条簿记行（无标题、也无首条消息）⇒ 显示名逐字仍是那个占位名、`source='derived'`。**该控制已验可红**：把同步器「行已有名字就保留它」那条分支拿掉、并让兜底路径走无条件写读列（`transcriptReading` 改 `true`）⇒ **exit 1**，红在该例：`actual {name:'Untitled Claude Session'}` vs `expected {name:'summarise the failing integration'}`。跑完已 `git checkout --` 还原。
+- **假形态：占位名进入高于 `ai` 的档位 ⇒ 必须红。** 两处落点：(i) 新例「a placeholder filed in the override column still gives way to the title」——pre-split 形状，占位名躺在 override 列，而读取侧 `COALESCE(custom_name, transcript_name)` 无条件先读它，即「高于一切档位」；(ii) 档位表判据补 `derived` 档一对（守 + 正控制），使「占位名的档位在 `ai` 之下」也成为机械读数。**假形态实跑**：把 `writeTranscriptName` 里清除非人工 override 的 CASE 改成不清（`THEN NULL` → `THEN custom_name`）⇒ **exit 1**，首条红即该新例：`actual {name:'count the typescript files', source:'ai'}` vs `expected {name:'Archguard 架构分析', source:'ai'}`——占位名把标题挡在了后面。跑完已还原，`git status` 干净。
+- **`peerName` 永不是 App 侧给会话的名字。** 在 `claude-resident-addressable.test.ts` 的 AC5 腿补一条断言：对 A/B/C 三条读数逐条比对 `GET /api/session-hosts` 的 `peerName` 与库内该会话的显示名（`sessionsDb.getSessionById(…).custom_name`，含在判据自身视角下「无标题」的 C，其库内名是 `AC164 Addressable Control`）——三者两两不等。该腿连同新增断言 **exit 0**。
+
+### 诚实声明（本条第四款的可证伪性）
+
+第三款的假形态（占位名压过 `ai`）已如实跑为红；但第四款「`peerName` ≠ App 名」在本产品的历史形态下**本来就不可能相等**：退休的 `residentPeerName(title, id)` 产出的是 `slug(title)+'-'+id6`，带后缀，任何版本都不会与显示名逐字相同。故这条是**守**，不是测过的缺陷——其自然的假形态（投影回落到 App 自算名）经实跑确实会红，但红的落点在**同一腿上更早的** `equalToSnapshot` 断言（读数：`snapshot=AC164 Addressable Alpha registry=claude-resident-addressable-4lkxm3-2c registryNameSource=derived`），新加的这条是同一规则的另一句显式陈述。如实登记，不声称它是独立取证的。
+
+### 判据文件的最终读数
+
+```
+npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-session-name-authority.test.ts    exit=0  tests=16 pass=16 fail=0   （上一轮 13 例 → 本轮 16 例）
+npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-addressable.test.ts      exit=0  tests=1  pass=1  fail=0
+```
+
+AC1–AC8、AC11–AC13 不重取：本轮改动只落在上述两个判据文件内，未触任何产品代码，故它们上一轮逐条打印的读数在本树上原样成立（其中 AC11 的八个既有文件、AC13 的 `claude-resident-addressable.test.ts` 都在本轮的最终树上重跑过或未受影响）。`docs/proposals/claude-resident-sessions.md` §12 已含占位名的裁定与「永不当地址」一句（上一轮落盘），本轮无需改文档。
+
+**`## Needs-Human` 段**：本节由 `quay task edit --body-file` 写入（Provider ABI，与 `task_write` 同一条存储写入路径），写后已回读比对——两段 `## Needs-Human` 与三段裁定小节逐字保留，只有 AC 那一行的方框由 `[ ]` 变为 `[x]`。
