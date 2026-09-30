@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
 // AC-027: real Chromium against the real backend + Vite client (playwright.config.ts, isolated data dir).
 // The model is created only through the Settings UI; the only stub is the LLM gateway the model points at,
@@ -39,6 +39,226 @@ const carriedToken = (hit: GatewayHit): boolean =>
  */
 const namedModel = (hit: GatewayHit): boolean => hit.body.includes(MODEL.id);
 
+// ── the startup guard ────────────────────────────────────────────────────────────────────────────────────────
+//
+// This spec's startup path, bounded. Measured 2026-09-30 on the tree this task was filed against: one transient
+// interruption of the app's in-flight module requests — Chromium's `net::ERR_NETWORK_CHANGED`, ten in one burst —
+// left the document with a module graph that never executed. React never mounted, and the only wait that could have
+// noticed was unbounded: `playwright.config.ts` sets no `actionTimeout`, so `beforeAll`'s
+// `page.locator('#username').fill(...)` had no budget of its own and was still waiting at 55s, when
+// playwright.config.ts's watchdog SIGKILLed the run — `watchdog-state.json` recorded `ceiling crossed at
+// 55005ms`, all three cases read zero, and the trace showed only the burst.
+//
+// The trigger is outside this repository (a host-level network-change notification). What is inside it is the
+// *response*: the same interruption must cost a bounded replay, not an unbounded wait. The two levers are the ones
+// this repo's sibling specs already carry — a bounded client warm-up and a bounded navigation probe, both taken
+// from `e2e/session-filter.spec.ts` / `e2e/transcript-follow.spec.ts`. Neither is invented here.
+//
+// What the guard may **not** do is decide anything for the three cases. It replays a navigation and fails loudly
+// when it cannot land; it never treats "not landed" as "good enough". Written the other way — probe times out,
+// carry on — each case would wait out its own budget on a blank document and the run would still cross the gate's
+// 60s, which is what this task's bounded-failure reading measures.
+
+/** A dependency the optimizer serves out of this run's private cache, already rewritten to its url. */
+const OPTIMIZED_DEP_IN_TEXT = /["'](\/@fs\/[^"']*\/deps\/[^"']+\.js\?v=[0-9a-f]+)["']/;
+
+/**
+ * How long this run's own client is given to answer its app entry before the startup path gives up on it.
+ *
+ * The run already has two ceilings above it (playwright.config.ts's watchdog, then the goal gate's 60s) and both
+ * are *outside* this spec — an unbounded wait here would be reported by whichever fired first, naming neither the
+ * url nor the status.
+ */
+const CLIENT_WARM_DEADLINE_MS = 30_000;
+
+/**
+ * Takes this run's first dependency optimization out of the measurement window: the html shell, the app's entry
+ * module, and then one optimized dependency — all requested against this run's own client before any page of this
+ * run exists.
+ *
+ * The dependency request is the one that carries the proof, and it is why the step is not just "warm the cache".
+ * The imports of a transformed module are already rewritten to this run's own
+ * `/@fs/<cacheDir>/deps/<dep>.js?v=<hash>` urls, and that url only answers 200 once the optimizer has committed
+ * the bundle: while the bundle is still being built the request is held, and a url carrying a hash from a
+ * superseded run is exactly what a page receives `504 Outdated Optimize Dep` for. Vite answers a re-optimization
+ * committed after it began serving by pushing `full-reload` to every connected client, which replaces the document
+ * whole — another way this criterion has lost a page mid-flight. A 200 there means the page below will not race
+ * the optimizer.
+ *
+ * `beforeAll`, before `browser.newPage()`, is the earliest point inside the criterion's own startup path, and it is
+ * strictly before any page exists — the same requests the page would have made, made first. It is here rather than
+ * in playwright.config.ts's `globalSetup` because Playwright resolves every `globalSetup` entry as a *script* (a
+ * path that must default-export the function), so an inline warm-up there is neither type-legal nor loadable, and
+ * this task's write surface allows no new file.
+ *
+ * Every step is bounded, including each request: a client that accepts the connection and then never answers fails
+ * here, by name, with the url and the status, rather than waiting out a timeout further up.
+ */
+const warmClientStartup = async (clientUrl: string): Promise<number> => {
+  const startedAt = Date.now();
+  const deadline = startedAt + CLIENT_WARM_DEADLINE_MS;
+  const budgetMs = () => Math.max(1, deadline - Date.now());
+  const fetchWithin = async (url: string): Promise<Response> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), budgetMs());
+    try {
+      return await fetch(url, { signal: controller.signal });
+    } catch (error) {
+      throw new Error(
+        `the client did not answer ${url} inside the ${CLIENT_WARM_DEADLINE_MS}ms startup budget `
+        + `(${error instanceof Error ? error.message : String(error)})`,
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  const shellUrl = new URL('/', clientUrl).href;
+  const shell = await fetchWithin(shellUrl);
+  if (!shell.ok) throw new Error(`the client's shell did not load: ${shellUrl} answered HTTP ${shell.status}`);
+  await shell.text();
+
+  const entryUrl = new URL('/src/main.tsx', clientUrl).href;
+  const entry = await fetchWithin(entryUrl);
+  if (!entry.ok) throw new Error(`the app entry did not transform: ${entryUrl} answered HTTP ${entry.status}`);
+  await entry.text();
+
+  // The proof: a dependency url current for this run — re-read from the entry each attempt, because the hash a url
+  // carries is the one its writer committed, and the entry is where the current one is written.
+  let lastAnswer = 'no dependency url was ever served';
+  for (let attempt = 0; attempt < 5 && Date.now() < deadline; attempt += 1) {
+    const specifier = OPTIMIZED_DEP_IN_TEXT.exec(await (await fetchWithin(entryUrl)).text())?.[1];
+    if (!specifier) break;
+    const depUrl = new URL(specifier, clientUrl).href;
+    const dep = await fetchWithin(depUrl);
+    if (dep.ok) {
+      console.log(`[e2e] client warm-up: pre-bundle committed in ${Date.now() - startedAt}ms`);
+      return Date.now() - startedAt;
+    }
+    lastAnswer = `${depUrl} answered HTTP ${dep.status}`;
+    await dep.text().catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(
+    `this run's dependency pre-bundle never committed, so the criterion cannot drive a document that stays: `
+    + lastAnswer,
+  );
+};
+
+/** Whether `locator` showed up within `timeoutMs`. */
+const appears = async (locator: Locator, timeoutMs: number): Promise<boolean> =>
+  locator.waitFor({ state: 'visible', timeout: timeoutMs }).then(
+    () => true,
+    () => false,
+  );
+
+/** How long the landing of a navigation's *first* attempt is given on its own, before the guard starts replaying. */
+const STARTUP_PROBE_MS = 8_000;
+/** How long each bounded replay's landing is given. Shorter than the first: a replay is a re-ask, not a cold boot. */
+const STARTUP_RELOAD_PROBE_MS = 3_000;
+/** How long one navigation's single rpc to its server is given, before the guard treats it as a failed landing. */
+const NAVIGATION_PROBE_MS = 8_000;
+
+/**
+ * How long the startup probe may spend proving a navigation landed, replays included.
+ *
+ * A deadline rather than a replay count, because it is the *sum* that has to stay inside the criterion's own wall
+ * clock: the bounded-failure reading asks that a probe which cannot succeed ends the whole run in under 30s, and
+ * that run pays the config evaluation, both servers' boot and the browser launch before the probe's first attempt
+ * even starts. Counting replays leaves that head-room to chance; a deadline spends it.
+ */
+const STARTUP_PROBE_DEADLINE_MS = 14_000;
+
+/**
+ * What the startup page said, kept for one purpose: a startup red has to *explain* a document that was pulled out
+ * from under the navigation instead of reporting that a wait ran out.
+ */
+const startupEvidence = {
+  consoleErrors: [] as string[],
+  failedRequests: [] as string[],
+};
+
+/** The startup page's own text plus this run's console and network evidence — what a startup red is read from. */
+const readStartupEvidence = async (page: Page): Promise<string> => {
+  const shown = await page.locator('body').innerText().catch(() => '<unreadable>');
+  const errors = startupEvidence.consoleErrors.slice(0, 5);
+  const failed = startupEvidence.failedRequests.slice(0, 5);
+  return `the page shows ${JSON.stringify(shown.slice(0, 300))}`
+    + `; console errors: ${errors.length > 0 ? errors.join(' | ') : '<none>'}`
+    + `; failed requests: ${failed.length > 0 ? failed.join(' | ') : '<none>'}`;
+};
+
+/**
+ * What a guarded navigation is expected to land on — and how the guard names it when it never lands.
+ *
+ * `present` and `label` are functions rather than values because both are read at attempt time: the locator has to
+ * be re-created against whatever document is current *now*, after a replay has replaced the one the navigation
+ * started on.
+ */
+type StartupLanding = {
+  /** Names this landing in the guard's own error, so a red says which document never came up. */
+  readonly label: () => string;
+  /** Whether the landing is on screen right now, within `budgetMs`. */
+  readonly present: (budgetMs: number) => Promise<boolean>;
+};
+
+/**
+ * The one place this spec navigates — every `page.goto`/`page.reload` in this file is inside this function, which
+ * is what makes "every navigation is guarded" a property of the file rather than a habit of its call sites.
+ *
+ * `kind` names the navigation's first attempt: `'goto'` loads `/` afresh (the two landings that must return to the
+ * app root — the fresh database's account form in `beforeAll`, and the cleanup navigation in `afterAll`), while
+ * `'reload'` re-asks for whatever document is current (the two `reload()` calls in the cases). Every replay after
+ * the first attempt is a `reload` regardless: a replay is a re-ask, not a second cold boot.
+ *
+ * One pass is: navigate, then probe the landing with a short budget. A landing that does not arrive has the
+ * navigation replayed — a fresh document, which is exactly what recovers from in-flight module requests that were
+ * interrupted once — and the probe repeated, until the deadline. When the deadline is spent the guard throws with
+ * the page's own text and this run's failed-request list, never silently continuing: a probe that cannot land must
+ * end the run here, with a cause, rather than let three cases time out one after another on a document with nothing
+ * in it.
+ *
+ * The navigation itself is bounded too, and a navigation that times out is treated as a landing that did not arrive
+ * rather than as an error of its own — a document that never finishes loading and a document that loads without
+ * ever mounting are the same failure from here, and both end at the same named error.
+ */
+const navigateBounded = async (
+  page: Page,
+  landing: StartupLanding,
+  kind: 'goto' | 'reload',
+): Promise<void> => {
+  const startedAt = Date.now();
+  const deadline = startedAt + STARTUP_PROBE_DEADLINE_MS;
+  const budgetMs = () => Math.max(1, deadline - Date.now());
+  let navigationFailure: string | null = null;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      if (attempt === 1 && kind === 'goto') {
+        await page.goto('/', { timeout: Math.min(NAVIGATION_PROBE_MS, budgetMs()) });
+      } else {
+        await page.reload({ timeout: Math.min(NAVIGATION_PROBE_MS, budgetMs()) });
+      }
+      navigationFailure = null;
+    } catch (error) {
+      navigationFailure = error instanceof Error ? error.message : String(error);
+    }
+    const landingBudget = Math.min(attempt === 1 ? STARTUP_PROBE_MS : STARTUP_RELOAD_PROBE_MS, budgetMs());
+    if (await landing.present(landingBudget)) {
+      console.log(
+        `[e2e] client startup: ${landing.label()} landed after ${Date.now() - startedAt}ms (attempt ${attempt})`,
+      );
+      return;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `${landing.label()} never rendered, so this run's client never came up to a document that stays`
+        + `${navigationFailure === null ? '' : ` (the navigation itself failed: ${navigationFailure})`}`
+        + `: ${await readStartupEvidence(page)}`,
+      );
+    }
+  }
+};
+
 test.describe.serial('model library in a real browser', () => {
   let page: Page;
   let gateway: http.Server;
@@ -54,6 +274,41 @@ test.describe.serial('model library in a real browser', () => {
     await expect(page.getByText('Model library')).toBeVisible();
   };
 
+  /**
+   * What the fresh database's first navigation must land on: the account form's own username field.
+   *
+   * Named rather than inlined because the bounded-failure reading (AC3) has to point *this*, and nothing else, at
+   * a selector that cannot exist and watch the guard end inside its own budget — pointing it at a sentinel leaves
+   * the form the onboarding below fills untouched, so the reading isolates the guard from the criterion.
+   */
+  const ACCOUNT_FORM_PROBE = '#username';
+
+  /** What the first navigation must land on: the fresh database's own account form. */
+  const ACCOUNT_FORM_LANDING: StartupLanding = {
+    label: () => `the account form (${ACCOUNT_FORM_PROBE})`,
+    present: (budgetMs) => appears(page.locator(ACCOUNT_FORM_PROBE), budgetMs),
+  };
+
+  /**
+   * What every later navigation must land on: the app shell's Settings button. Chosen over anything the cases
+   * themselves assert on because the shell's first paint renders it before any of this spec's own data — a landing
+   * here proves the document mounted, which is the property the guard is about, and not that a particular leg's
+   * fixture happened to arrive.
+   */
+  const APP_SHELL_LANDING: StartupLanding = {
+    label: () => 'the app shell (Settings button)',
+    present: (budgetMs) => appears(page.getByRole('button', { name: 'Settings' }).first(), budgetMs),
+  };
+
+  /**
+   * Whether this run's client ever came up far enough for the cases to have created anything.
+   *
+   * Set only once `beforeAll` has finished onboarding, because the cleanup in `afterAll` deletes a model that only
+   * the cases can have created: with `beforeAll` failed there is no model to leave behind, and replaying the
+   * guard's whole budget a second time in the cleanup would double a bounded failure's wall clock for no reading.
+   */
+  let clientCameUp = false;
+
   test.beforeAll(async ({ browser }) => {
     gateway = http.createServer((request, response) => {
       const chunks: Buffer[] = [];
@@ -68,15 +323,35 @@ test.describe.serial('model library in a real browser', () => {
     await new Promise<void>((resolve) => gateway.listen(0, '127.0.0.1', resolve));
     gatewayUrl = `http://127.0.0.1:${(gateway.address() as AddressInfo).port}`;
 
+    // This run's own client, as playwright.config.ts declared it for this project: the url the page below is
+    // navigated to relatively, so the warm-up cannot address a server some other run started.
+    const clientUrl = test.info().project.use.baseURL;
+    if (!clientUrl) {
+      throw new Error('playwright.config.ts must give this project a baseURL for the startup warm-up to address');
+    }
+    // Before any page of this run exists, so this run's optimize/re-optimize is over before the criterion's first
+    // navigation — see the helper for why the cost cannot be left inside the measurement window.
+    await warmClientStartup(clientUrl);
+
     page = await browser.newPage();
     page.on('response', (response) => {
       if (response.url().includes('/api/')) {
         response.text().then((text) => responseBodies.push(text)).catch(() => {});
       }
     });
+    // What the page said, kept for one purpose: the startup guard has to be able to *explain* a document that was
+    // pulled out from under a navigation instead of reporting that a wait ran out. Registered before the first
+    // navigation, or the burst that matters would not be in the evidence.
+    page.on('console', (message) => {
+      if (message.type() === 'error') startupEvidence.consoleErrors.push(message.text());
+    });
+    page.on('requestfailed', (request) => {
+      startupEvidence.failedRequests.push(`${request.url()} — ${request.failure()?.errorText ?? 'no error text'}`);
+    });
 
-    // First run on a fresh database: create the single account, then finish onboarding.
-    await page.goto('/');
+    // First run on a fresh database: create the single account, then finish onboarding. The navigation is the
+    // guard's, not this hook's — it lands on the account form or it ends the run with the page's own evidence.
+    await navigateBounded(page, ACCOUNT_FORM_LANDING, 'goto');
     await page.locator('#username').fill('e2euser');
     await page.locator('input[type=password]').nth(0).fill('e2epassword');
     await page.locator('input[type=password]').nth(1).fill('e2epassword');
@@ -89,6 +364,8 @@ test.describe.serial('model library in a real browser', () => {
     // session-filter transcripts before the server boots, and the boot scan that indexes them auto-registers
     // their project, so the "Choose Your Project" empty state never renders here — anchoring on it is a race.
     await expect(page.getByRole('button', { name: 'Settings' }).first()).toBeVisible({ timeout: 15_000 });
+    // The shell is up and the account exists, so the cases below can create the model the cleanup must remove.
+    clientCameUp = true;
   });
 
   test.afterAll(async () => {
@@ -98,9 +375,12 @@ test.describe.serial('model library in a real browser', () => {
     // itself would report a number whose shortfall against the ceiling is the part it could not observe.
     console.log(`criterion-wall-ms=${Date.now() - Number(process.env.QUAY_E2E_RUN_STARTED_AT)}`);
 
-    // Leave no model behind, whatever the tests did.
+    // Leave no model behind, whatever the tests did — but only when the client ever came up far enough that the
+    // cases could have created one; see `clientCameUp`. The navigation is guarded like every other, because a
+    // document the app's own client replaced underneath this cleanup would otherwise hang here with no budget.
     try {
-      await page.goto('/');
+      if (!clientCameUp) return;
+      await navigateBounded(page, APP_SHELL_LANDING, 'goto');
       await openModelsPage();
       const remove = page.getByRole('button', { name: `Delete ${MODEL.name}` });
       if (await remove.count()) {
@@ -138,7 +418,7 @@ test.describe.serial('model library in a real browser', () => {
   });
 
   test('after a reload the secret is only shown as set and its value is nowhere to be found', async () => {
-    await page.reload();
+    await navigateBounded(page, APP_SHELL_LANDING, 'reload');
     await openModelsPage();
     await page.getByRole('button', { name: `Edit ${MODEL.name}` }).click();
 
@@ -158,7 +438,7 @@ test.describe.serial('model library in a real browser', () => {
 
   test('the model is selectable in the composer and the gateway receives the request with its token', async () => {
     await page.keyboard.press('Escape');
-    await page.reload();
+    await navigateBounded(page, APP_SHELL_LANDING, 'reload');
     const workspace = path.join(process.env.QUAY_E2E_DATA_DIR!, 'workspace');
     fs.mkdirSync(workspace, { recursive: true });
     await page.getByTitle('Create new project').click();
