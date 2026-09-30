@@ -2,7 +2,8 @@
 id: gap-desktop-local-server-bundle-url-points-at-fork
 title: 桌面版 Local 运行时的默认下载地址写死上游 siteboon：fork 发布的桌面包选 Local 模式会 404，改指 yaleh 并重发
   v1.38.1 桌面包
-status: ready
+status: needs-human
+needs_human_cause: unclassified
 labels:
   - gap
   - defect
@@ -66,3 +67,13 @@ extra:
 **一处实现说明（Proposal 未写，但让 `npm run typecheck` 保持绿所必需）**：`electron/` 不属于任何 tsc project——根 `tsconfig.json` 只 include `src`/`shared`/`vite.config.js`，`server/tsconfig.json` 是 `checkJs:false` 且不 include 它。测试若**静态** import `electron/serverInstaller.js`，`scripts/tsconfig.json` 的 `checkJs:true` 会把该文件拉进程序，冒出约 20 条与本次无关的存量 strict 错误（`TS7006 Parameter ... implicitly has an 'any' type` / `TS18046 'error' is of type 'unknown'` / `TS2810` …），`npm run typecheck` 立刻红。故测试改用 `await import(new URL('../../../electron/serverInstaller.js', import.meta.url).href)` 按 URL 动态载入：类型检查器不解析非字面量 specifier，该文件留在程序之外，而生产侧改动仍只有 Proposal 说的那一处字面量。
 
 **AC6 未勾选的原因（人工闸，非代码侧可自证）**：`gh workflow run desktop-release.yml -R yaleh/claudecodeui --ref develop -f tag=v1.38.1`、`gh release view v1.38.1 --json assets`、以及 `curl` 运行时资产打印 200，都要求本次改动先经 fan-in 落到 `develop` 并推到 `yaleh`。为避免误报完成，AC6 保持未勾选；AC1–AC5 全绿而 AC6 未绿时，本条的正确终态是 `needs-human`，由人 yale 触发发布后再勾选。
+
+## Needs-Human
+
+**执行 2026-09-30T04:12:02.642Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：unclassified
+- 失败步/判词：AC 未全勾（checked 5/6，剩余未勾 1）——续做只需验证并勾选 AC
+- run_id：wk-prod-anchor
+- session_id：1c7c8a39-d560-4fe7-81ef-411ece1ed5f7
