@@ -113,11 +113,20 @@ const MOCK_AI_TITLE = `AC171 Title ${RUN_TAG}`;
 const APP_CACHED_NAME = `AC171 App Cached ${RUN_TAG}`;
 /** The arbitrary title the suppression control hands to a brand-new session. */
 const SUPPRESSION_TITLE = `AC171 Suppressed ${RUN_TAG}`;
+/**
+ * A title handed to a session that has *already* adopted one.
+ *
+ * The design accepts that adoption freezes: the first handover is persisted as a
+ * `custom-title`, which outranks the `ai-title` below it, so a later resume that
+ * offers a different string must not move the name. This is that string.
+ */
+const LATER_TITLE = `AC171 Later ${RUN_TAG}`;
 
 const MARKER_NEW = `AC171-N-${RUN_TAG}`;
 const MARKER_RESIDENT = `AC171-R-${RUN_TAG}`;
 const MARKER_SUPPRESSION = `AC171-S-${RUN_TAG}`;
 const MARKER_APPNAME = `AC171-A-${RUN_TAG}`;
+const MARKER_FREEZE = `AC171-F-${RUN_TAG}`;
 
 /** A model entry, not a built-in name: only a custom entry's env reaches the spawn. */
 const MODEL_ID = `peer-name-custom-model-${RUN_TAG}`;
@@ -749,6 +758,7 @@ async function launchWithTitle(
   marker: string,
   label: string,
   title: string,
+  resumeProviderSessionId: string | null = null,
 ): Promise<RoundReading & { providerSessionId: string | null }> {
   const bucket = context.mock.openRound(label);
   const watch = watchRegistrations(context.configDir, registrationPids(context.configDir));
@@ -763,6 +773,9 @@ async function launchWithTitle(
     model: MODEL_ID,
     permissionMode: 'bypassPermissions',
     toolsSettings: { allowedTools: [], disallowedTools: [], skipPermissions: true },
+    // A resume is expressed the way the product expresses it: handing the
+    // provider session id is what `mapCliOptionsToSDK` turns into `resume`.
+    providerSessionId: resumeProviderSessionId,
   }) as Record<string, unknown>;
   options.env = env;
   options.title = title;
@@ -977,6 +990,69 @@ test('a session hands its own Claude Code title to the CLI, and answers to it', 
       adopted.registration?.pid,
       `the later round must be a new process for the reading to be about a launch ` +
         `(${String(adopted.registration?.pid)} -> ${String(third.registration?.pid)})`,
+    );
+
+    // ---------------------------------------------------------------------
+    // Leg 3b — the freeze, located where it actually is.
+    //
+    // The task this criterion belongs to says the name "freezes at the first
+    // adoption", and the reading below is what that turns out to mean. The same
+    // conversation is resumed with a title it has never had. Two things could
+    // have happened, and only one of them does:
+    //
+    //   - The *ladder* could have taken the new string. It does not: the first
+    //     handover persisted a `custom-title`, which outranks the `ai-title`
+    //     beneath it, so the transcript still carries exactly the title the
+    //     session adopted.
+    //   - The *registry* could have stayed where adoption put it regardless of
+    //     what it was handed. It does not either — the process registers the
+    //     string it was handed, because that is what being handed a title means.
+    //
+    // So the freeze is in the app's *input*, not in Claude Code's behaviour: the
+    // app re-reads `getSessionInfo().summary` every round, that reading stopped
+    // moving at adoption, and therefore every later handover offers the same
+    // string and the name stands still. The design accepts this rather than
+    // engineering a refresh, because refreshing would mean the app calling
+    // `renameSession` on its own initiative — naming a process on no human's
+    // instruction. Both halves are asserted, so the next reader learns where the
+    // stability comes from instead of inferring a guarantee Claude Code does not
+    // give.
+    // ---------------------------------------------------------------------
+    const frozen = await launchWithTitle(context, MARKER_FREEZE, 'freeze-leg', LATER_TITLE, providerSessionId);
+    console.log(
+      `[readings] control=freeze-leg path=direct-launch resumed=${String(providerSessionId)} ` +
+        `handedOver=${JSON.stringify(LATER_TITLE)} registered=${JSON.stringify(frozen.registration?.name)} ` +
+        `nameSource=${JSON.stringify(frozen.registration?.nameSource)} ` +
+        `customTitles=${JSON.stringify(frozen.customTitles)}`,
+    );
+    assert.strictEqual(
+      frozen.registration?.name,
+      LATER_TITLE,
+      `a process handed a title registers it — the registry is not what freezes ` +
+        `(registered=${JSON.stringify(frozen.registration?.name)} handedOver=${JSON.stringify(LATER_TITLE)})`,
+    );
+    assert.strictEqual(
+      frozen.customTitles.includes(LATER_TITLE),
+      false,
+      `a title offered after adoption must not reach the ladder, where the adopted ` +
+        `custom-title already outranks it (customTitles=${JSON.stringify(frozen.customTitles)})`,
+    );
+    assert.deepEqual(
+      frozen.customTitles,
+      adopted.customTitles,
+      `the ladder must still hold exactly what adoption put there ` +
+        `(before=${JSON.stringify(adopted.customTitles)} after=${JSON.stringify(frozen.customTitles)})`,
+    );
+    const summaryAfterLaterTitle = await readSessionSummary(providerSessionId, cwd, configDir);
+    console.log(
+      `[readings] control=freeze-leg summaryAfterLaterTitle=${JSON.stringify(summaryAfterLaterTitle)} ` +
+        `adopted=${JSON.stringify(summaryBeforeAdoption)}`,
+    );
+    assert.strictEqual(
+      summaryAfterLaterTitle,
+      summaryBeforeAdoption,
+      `the reading the app hands over must be the frozen one — this is the whole of the freeze ` +
+        `(${JSON.stringify(summaryBeforeAdoption)} -> ${JSON.stringify(summaryAfterLaterTitle)})`,
     );
 
     // ---------------------------------------------------------------------
