@@ -82,3 +82,16 @@ extra:
 - src/modules/chat/hooks/useChatComposerState.ts
 - docs/proposals/claude-resident-sessions.md
 - tasks/gap-cloudcli-self-assigned-names-outrank-ai-titles.md
+
+
+## Evidence（worker 2026-09-30）
+
+**本任务卡在人证一关（AC7）：未做实现，故 AC1–AC6、AC8–AC10 一律未勾。** AC7 要求人 yale 就出路 (a)/(b)/(c) 给出逐字裁定。截至本次派发，该裁定在任务记录、`docs/proposals/claude-resident-sessions.md` §12、`adr/`、gate-events 中均不存在（已逐处查过）。任务的 Plan 第 1 步把「先定出路并留痕」排在判据文件之前，故裁定落地前动手实现，等同于替人猜设计——故不实现。
+
+**为什么不能直接实现（供裁定者用）：** 其一，现有 `server/modules/providers/tests/claude-session-title-mirror.test.ts` 逐字断言转录里 `agent-name`（值 `The Agent That Owns This`）→ 库内 `name_source='agent'`（rank 3），而该文件被 AC8 钉死「未改且退 0」；`claude-session-title-corpus.test.ts` 同样以 CLI 阶梯 `agentName || customTitle || aiTitle || …` 为基准。所以修法不能是「把转录里的 agent-name 一律降档」。其二，要在不碰这两条的前提下让 ai-title 压过 CloudCLI 自赋名（AC1），同步器必须能区分「CloudCLI 自己写的 agent-name」与「真正的 agent-name」；任务书未给这个判别式，且它与出路强耦合：(a) 常驻不再传 `--name`（新会话不再有自赋名，只剩历史行待迁移）；(b) `--name` 取 Claude Code 侧最高优先名（自赋名与 ai-title 同串，二者不再相争）；(c) 保留 `<slug>-<id6>` 形状（需要判别式，且直接违反原则 2，必须人裁定）。其三，AC3（名字里 id6 只出现 1 次）读起来只与 (c) 的形状相容，而 (c) 未经裁定不可实施——AC3 与 AC7 因此互相咬合。
+
+**建议（供裁量，非实施）：** 出路 (b) 同时满足三条原则且不牺牲 AC-164 的稳定寻址——`--name` 取该会话在 Claude Code 侧的最高优先名（人工名 > ai-title），不加自造后缀；两个同名会话的区分改由 id 承担。历史污染行按「转录名等于 `<任意前缀>-<本 app 会话 id 前 6 位>`」的形状在迁移里回落到 ai（有 ai-title）或 derived（无）。若 yale 选 (a)，需连带把 AC-164 的「稳定 SendMessage 地址」产品承诺一并修订。
+
+**裁定行（必须由人 yale 逐字写，执行者不得代写；建议格式）：** `出路裁定（yale，2026-09-30）：…`
+
+**与出路无关、本次已核实的旁证：** `nameSourceRankSql` 为 `agent=3 / manual=2 / ai=1 / else=0`（`server/modules/database/repositories/sessions.db.ts:207-209`）；同步器阶梯 `agent > manual > ai > derived`（`claude-session-synchronizer.provider.ts:533-546`）；`buildCloudCliSessionName`（`services/sessions.service.ts:78-81`）落 `derived`，今日已低于 `ai`，即 AC6 的「档位」部分当前成立。附带症状三（`readTranscriptAgentName` 取文件里第一条，`claude-host-driver.provider.ts:1096-1129`）与出路无关，是纯缺陷，但它的判据（AC4）要求落在本任务同一份新判据文件、且被 AC8 保护的 `claude-resident-addressable.test.ts` 也读同一路径，故一并留待裁定后实现。本轮 `scripts/test.sh --for-task … --allow-thin` 因分支无 delta 判 thin、exited 0；未写 scoped-gate 缓存——人证未过时该轮按设计走 exited-not-landed，fan-in 不会被 spawn。
