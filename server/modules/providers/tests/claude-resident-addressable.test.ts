@@ -1218,6 +1218,23 @@ test('a resident session publishes the address it answers to, and a peer reaches
       false,
       `the published address must not carry the app-side suffix shape (${String(alpha.snapshotPeerName)})`,
     );
+    // The other half of the same rule, and the one the three rows above are
+    // graded on: whatever the app displays for a session — the placeholder it
+    // made up while waiting for a title, or the title itself — the address is
+    // never it. An address is something a *peer* types, and a display name is a
+    // value this app is free to revise; the moment the two are the same string,
+    // the app has gone back to naming a process it does not own. Read against
+    // the row rather than against the title handed in, because the control
+    // session's stored name is the one the app would show.
+    for (const reading of [alpha, beta, control]) {
+      const displayedName = sessionsDb.getSessionById(reading.sessionId)?.custom_name ?? null;
+      assert.notStrictEqual(
+        reading.snapshotPeerName,
+        displayedName,
+        `the published address must never be the app-side name for the session ` +
+          `(${reading.label}: address=${String(reading.snapshotPeerName)} displayed=${String(displayedName)})`,
+      );
+    }
     // The control arm, re-expressed for path (a). It is no longer "a host with
     // no title has no address" — under (a) a session's address does not depend
     // on any title the app holds, and this host was launched with none. So the
