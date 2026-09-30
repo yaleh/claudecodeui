@@ -231,3 +231,11 @@ AC-1 的判据在合并后的树上仍绿、`elapsed=11226ms < 60_000`；AC-7 �
 - `server/modules/providers/tests/claude-resident-addressable.test.ts` (new)（新：判据）
 - `docs/proposals/claude-resident-sessions-experiments.md`（写回跨会话到达的事件形态读数——仅当判据需要该口径时）
 - `tasks/gap-claude-resident-addressable.md`（自触）
+
+## 修订（2026-09-30，人 yale 裁定）
+
+本任务认证的 AC-164 承诺已改写：原承诺「宿主快照 `peerName` 等于按 proposal §12 规则（标题 slug-会话 ID 前 6 位）生成的名字」**作废**。人 yale 2026-09-30 裁定逐字「CloudCLI 不要自己加戏就好；不要干扰 Claude Code 的行为」⇒ 常驻启动不再传 `--name`，地址改为**读** Claude Code 自己给进程的派生名（`~/.claude/sessions/<pid>.json` 的 `name`，`nameSource=derived`），不再承诺跨重启不变。
+
+- 本任务完成时认证的是**已作废**的那条承诺；其判据文件 `server/modules/providers/tests/claude-resident-addressable.test.ts` 仍逐字重述旧规则（`expectedPeerName(title,id) = slug(title) + '-' + id.slice(0,6)`），须由 `tasks/gap-cloudcli-self-assigned-names-outrank-ai-titles` 随出路 (a) 一并修订。
+- `goals/AC-164-*.md` 的 `expect` / `title` / `origin` 已同步改写；`goals/GOAL-013-*.md` 的退出条件亦已标注修订。
+- 本节的标题行保留原文，作为「当时认证的是什么」的历史记录。
