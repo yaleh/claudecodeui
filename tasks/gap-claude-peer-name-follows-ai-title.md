@@ -82,3 +82,16 @@ extra:
 - server/modules/providers/tests/claude-resident-addressable.test.ts
 - docs/proposals/claude-resident-sessions.md
 - tasks/gap-claude-peer-name-follows-ai-title.md
+
+
+**本轮执行记录（2026-09-30，第二轮续跑）**：上一轮 fan-in 在 `step=suite` 红于本判据的
+`a handed-over title registers as adopted (null)` —— 红的是**判据自身的读数窗口，不是产品**。真因（实测）：
+控制臂 `launchWithTitle` 在 `result` 上 `break` 后立刻 `held.release()`，而 CLI 会在进程退出时删掉
+`<CLAUDE_CONFIG_DIR>/sessions/<pid>.json`；该文件只在进程存活期内存在，负载下（那次 suite 期间
+loadavg 10–30）可以在两次 50ms 轮询之间整个来去 ⇒ `captured=[]`，而 `registration ?? null` 让
+「没读到注册」与「压根没传标题」在断言上完全同形。修法：控制臂把回合驱动到底且**不关 stdin**，
+`result` 落地之后再扫注册表（进程对自己名字的每一次写入都发生在首轮结束之前 ⇒ 读到的是终态），
+然后才 `release()`；泵的错误也不再被 `.catch` 吞掉，改为读数里的 `launchFailure`。复验：6/6 绿
+（其中 3 次在 loadavg ~70，比红的那次 suite 更重），scoped gate 退出 0（本判据 +
+`claude-resident-addressable.test.ts` 同绿）。产品代码、断言与各臂本轮未改，故上一轮已取的读数、
+DoD 四条与「既有判据逐条退 0」仍然有效。
