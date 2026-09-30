@@ -249,6 +249,7 @@ server/modules/providers/tests/claude-session-title-mirror.test.ts       exit=0 
 - **AC12** `npm run typecheck` → **exit 0**（`tsconfig.json` + `server/tsconfig.json` + `scripts/tsconfig.json` 三条链）；`npm run lint` → **exit 0**，输出仅既有 warning；本分支改动的 12 个文件在 lint 输出里零命中，唯一命中本任务 Touches 的是 `src/modules/chat/hooks/useChatComposerState.ts` 的既有 warning（该文件本分支未改，不在 `develop...HEAD` 的 delta 里）。
 - **AC13 未勾**：本条要的是**落地后**在生产实例上的复查（`~/.cloudcli/auth.db` 的档位分布 + `server.log` 的计数），而本分支尚未落地（fan-in 未跑），落地前不可能取得该读数，故不预勾。为让落地后的复查有比对基准，先记落地前基线（2026-09-30 实测）：`select transcript_name_source, count(*) from sessions group by 1` = `agent 1528 / null 1317 / ai 107 / derived 21 / manual 4`；`grep -c "registered a different address" server.log` = **9**。
 
+**声明修正（anti-drift）**：`anti-drift-touches-check` 在 `develop...HEAD` 的 12 个文件上报 **`out-of-declared: task wrote server/shared/interfaces.ts (matches no declared Touches glob)`**（HARD FAIL，无 waiver）。该文件承载 AC4 强制的契约改动：`IProviderSessionRename` 的语义从「App 侧权威、provider 侧 best-effort」翻转为「provider 侧权威、本 App 的副本是它的 cache」，并新增可选 `readSessionTitle` 回读（消费者三处：`claude-rename.provider.ts`、`services/sessions.service.ts`、本任务判据）；接口声明所在文件无法另置。原 `## Touches` 漏列，现补 `- server/shared/interfaces.ts (AC4：…)` 一行（不改 Touches 以绕过守卫：这是补声明，不是放宽）。复查：`ANTI-DRIFT OK: task … — 12 actual file(s), all within declared Touches (14 glob(s))`。
 **范围界定（重申裁定后复测那条）**：`transcript_name_source='agent'` 的 1528 行绝大多数来自 **quay driver** 的 `-n <role>`（`.quay/profiles.yml`），不是 CloudCLI 写的。本任务只让 CloudCLI 自己不再注入、并迁移历史行；driver 侧的角色名不在本任务范围内。
 
 ## Needs-Human
