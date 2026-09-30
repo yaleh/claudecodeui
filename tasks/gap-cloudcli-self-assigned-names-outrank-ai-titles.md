@@ -1,7 +1,7 @@
 ---
 id: gap-cloudcli-self-assigned-names-outrank-ai-titles
 title: 会话命名权归人工与 Claude Code：CloudCLI 自赋名不得压过 AI title、不得自行赋名、且跨重启幂等
-status: ready
+status: needs-human
 needs_human_cause: unclassified
 labels:
   - gap
@@ -261,3 +261,13 @@ server/modules/providers/tests/claude-session-title-mirror.test.ts       exit=0 
 - 失败步/判词：AC 未全勾（checked 7/10，剩余未勾 3）——续做只需验证并勾选 AC
 - run_id：wk-prod-anchor
 - session_id：cb625e93-b02c-4e9f-a154-a8a67c995f31
+
+## Needs-Human
+
+**执行 2026-09-30T05:09:15.289Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 3 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：unclassified
+- 失败步/判词：AC 未全勾（checked 12/13，剩余未勾 1）——续做只需验证并勾选 AC
+- run_id：wk-prod-anchor
+- session_id：f650faf3-05b7-4ce2-9de6-6d439f6912e9
