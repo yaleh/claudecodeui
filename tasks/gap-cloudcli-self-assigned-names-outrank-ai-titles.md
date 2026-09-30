@@ -90,6 +90,7 @@ extra:
 - server/modules/providers/list/claude/claude-session-synchronizer.provider.ts
 - server/modules/providers/list/claude/claude-rename.provider.ts
 - server/modules/providers/services/sessions.service.ts
+- server/shared/interfaces.ts (AC4：rename 以 provider 为准、App 侧是 cache；IProviderSessionRename 新增可选 readSessionTitle 回读)
 - server/modules/database/repositories/sessions.db.ts
 - server/modules/database/schema.ts
 - server/modules/database/migrations.ts
