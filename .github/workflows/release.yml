@@ -64,7 +64,12 @@ jobs:
           git remote add yaleh "$REMOTE_URL" 2>/dev/null || git remote set-url yaleh "$REMOTE_URL"
           git remote -v
 
-      - run: npm ci
+      - name: Install dependencies
+        run: npm ci
+        env:
+          # @vscode/ripgrep downloads its binary from GitHub in postinstall; anonymous requests
+          # are rate-limited (403), same reason desktop-release.yml passes a token here.
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Release
         id: release
