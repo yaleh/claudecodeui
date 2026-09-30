@@ -20,6 +20,10 @@
  *   5. `desktop-release.yml` builds Windows only. There is no Apple signing certificate, so a
  *      re-added `build-macos` job makes `publish.needs` wait on a job that can never go green, and
  *      a re-added `.dmg` assertion fails the publish step on an asset nobody built.
+ *   6. `README.md` sends every download/issue/release link to the fork. Upstream's own services
+ *      (docs site, Cloud, Discord, plugin template) are named verbatim and kept, but a navigable
+ *      link to `github.com/siteboon/claudecodeui` outside the fork-notice blockquote would take a
+ *      fork user to upstream's builds and issue tracker.
  *
  * This is a static guard, not an integration test: it reads the files and asserts the shape. It
  * cannot prove the pipeline runs (that is the task's human-gated AC), only that the decisions have
@@ -29,7 +33,7 @@
  * assertions, so a red run still shows which reading was wrong:
  *
  *   pkg.name=@yalehwang/cloudcli  npm.publish=true  auth.env=NODE_AUTH_TOKEN  legacy.upgradeCmds=0
- *   requireBranch=develop  pushRepo=yaleh  macos.jobs=0  dmg.refs=0
+ *   requireBranch=develop  pushRepo=yaleh  macos.jobs=0  dmg.refs=0  readme.upstream_refs_outside_notice=0
  */
 
 import assert from 'node:assert/strict';
@@ -58,12 +62,14 @@ const PKG_JSON = 'package.json';
 const RELEASE_IT_JSON = '.release-it.json';
 const RELEASE_YML = '.github/workflows/release.yml';
 const DESKTOP_YML = '.github/workflows/desktop-release.yml';
+const README = 'README.md';
 
 /** @type {Record<string, any>} */
 const pkg = JSON.parse(read(PKG_JSON));
 const releaseItText = read(RELEASE_IT_JSON);
 const releaseYml = read(RELEASE_YML);
 const desktopYml = read(DESKTOP_YML);
+const readmeText = read(README);
 
 /** @type {Record<string, any>} */
 const releaseIt = JSON.parse(releaseItText);
@@ -97,6 +103,19 @@ const macosJobs = Object.entries(desktopJobs).filter(([id, job]) => {
 }).length;
 
 const dmgRefs = (desktopYml.match(/\.dmg/g) ?? []).length;
+
+// A README line that navigates the reader to upstream's download page or repository. The
+// `siteboon%2Fclaudecodeui` spelling inside the Trendshift badge URL is deliberately NOT matched:
+// it is an encoded badge target, not a link a reader can follow to the upstream repo.
+const UPSTREAM_README_REF = /cloudcli\.ai\/download|siteboon\/claudecodeui/;
+
+// Every such line must sit inside the fork-notice blockquote (a line starting with `> `), the one
+// place allowed to name upstream. A reference outside it points a fork user at upstream's builds
+// and issue tracker instead of the fork's.
+const readmeUpstreamRefsOutsideNotice = readmeText
+  .split('\n')
+  .filter((line) => UPSTREAM_README_REF.test(line))
+  .filter((line) => !line.startsWith('> ')).length;
 
 /**
  * Repo-relative prefixes the upgrade-command scan does NOT cover, each for a reason. Documented
@@ -159,6 +178,7 @@ console.log(`requireBranch=${requireBranch}`);
 console.log(`pushRepo=${pushRepo}`);
 console.log(`macos.jobs=${macosJobs}`);
 console.log(`dmg.refs=${dmgRefs}`);
+console.log(`readme.upstream_refs_outside_notice=${readmeUpstreamRefsOutsideNotice}`);
 
 // ── the assertions ──────────────────────────────────────────────────────────
 
@@ -227,6 +247,16 @@ test('desktop-release.yml drops the macOS build', () => {
   assert.doesNotMatch(desktopYml, /secrets\.CSC_LINK\b/, 'desktop-release.yml must not reference the macOS signing certificate');
   assert.doesNotMatch(desktopYml, /secrets\.CSC_KEY_PASSWORD\b/, 'desktop-release.yml must not reference the macOS certificate password');
   assert.doesNotMatch(desktopYml, /APPLE_/, 'desktop-release.yml must not reference Apple notarization secrets');
+});
+
+test('README points every upstream-repo reference at the fork notice', () => {
+  assert.equal(
+    readmeUpstreamRefsOutsideNotice,
+    0,
+    'README names upstream outside the fork-notice blockquote, so a fork user is sent to upstream downloads/issues',
+  );
+  assert.match(readmeText, /github\.com\/yaleh\/claudecodeui\/releases/, 'README must link the fork GitHub Releases');
+  assert.match(readmeText, /github\.com\/yaleh\/claudecodeui\/issues/, 'README must link the fork issue tracker');
 });
 
 test('desktop-release.yml publish.needs only names real jobs', () => {
