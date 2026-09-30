@@ -2,7 +2,7 @@
 id: gap-voice-capture-criterion-hardened-root
 title: 判据自造判据世界：AC-148 的 scripts/voice-capture-process-check.mjs 在部署方 .env 钉住
   VOICE_CAPTURE 的检出里仍产出「未设置」那一半读数（旁证同步容忍 .git 是目录）
-status: ready
+status: done
 labels:
   - gap
   - defect
