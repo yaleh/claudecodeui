@@ -28,8 +28,9 @@
  *
  * WHAT THE TWO MUTATIONS ARE, AND WHY THEY ARE SHAPED THIS WAY.
  *
- *   `assembly-not-wired` deletes the one line that hands the capture port to the service —
- *   `capture: createVoiceCapture({ mode: voiceCapture.mode, log: voiceLog }),`. The port is
+ *   `assembly-not-wired` deletes the one place that hands the capture port to the service —
+ *   `capture: createVoiceCapture({ ... }),`, whose argument object the audio tier later grew (AC-145
+ *   added the `audio` sink), so the anchor below is the whole multi-line property. The port is
  *   optional, so the service still transcribes and the start-up line is still printed; only
  *   `capture.lines` moves, 1 → 0.
  *
@@ -54,9 +55,11 @@
  * `.git` IS REMOVED FROM THE COPY, and that is a safety measure rather than tidiness. In a worktree
  * `.git` is not a directory but an 88-byte pointer file holding the absolute path of the real git
  * directory; hard-linked into the copy it is a live wire into this checkout's git state, so any git
- * command run from the copy would write into the real worktree's administrative files. The
- * criterion needs no git — it boots a server, mints a token and makes one HTTP request — so the
- * wire is cut.
+ * command run from the copy would write into the real worktree's administrative files. In the
+ * PRIMARY checkout `.git` is a plain directory, so the removal must say `recursive: true`: a
+ * `force`-only `rmSync` on a directory throws `ERR_FS_EISDIR`, which is exactly how this control was
+ * red in the primary checkout (and it then leaked the copy). The criterion needs no git — it boots a
+ * server, mints a token and makes one HTTP request — so the wire is cut, in either shape.
  *
  * ONE READING IS TAKEN OUT OF THE PICTURE. `DATABASE_PATH` is deleted from the criterion's
  * environment here, so its `real-db-untouched` reading is trivially true and the mutant's red is
@@ -116,9 +119,21 @@ const ANNOUNCING_CALL =
 const NON_ANNOUNCING_MODE =
   "const voiceCapture = { mode: process.env.VOICE_CAPTURE === 'text' ? 'text' : 'off' };";
 
-/** The one place the capture port is handed to the service, newline included so the line goes too. */
+/**
+ * The one place the capture port is handed to the service, newline included so the line goes too.
+ *
+ * The property is the whole multi-line value, not a single line: the audio tier (AC-145) grew the
+ * argument object an `audio` sink, so an anchor naming the old single-line form matches nothing and
+ * the mutation would silently leave the tree green while the case reported "red after mutation".
+ * `substituteOnce` asserts the site count first, so a future reshape fails loudly here rather than
+ * as an unattributable red.
+ */
 const CAPTURE_INJECTION =
-  '  capture: createVoiceCapture({ mode: voiceCapture.mode, log: voiceLog }),\n';
+  '  capture: createVoiceCapture({\n' +
+  '    mode: voiceCapture.mode,\n' +
+  '    log: voiceLog,\n' +
+  '    audio: createVoiceCaptureAudioSink({ directory: voiceCaptureDirectory }),\n' +
+  '  }),\n';
 
 /**
  * @typedef {object} Mutation
@@ -207,13 +222,17 @@ function attributableEntries(status) {
 /**
  * Hard-links the checkout into a throwaway tree and cuts the `.git` wire. See the header.
  *
+ * `recursive: true` is the whole point: in the primary checkout `.git` is a directory, and
+ * `rmSync` without it throws `ERR_FS_EISDIR` before the case has run (leaking the copy). In a
+ * worktree `.git` is a pointer file, which the same call removes just as well.
+ *
  * @returns {string} the copy's root
  */
 function buildCopy() {
   const copyRoot = mkdtempSync(join(tmpdir(), COPY_PREFIX));
   const copied = spawnSync('cp', ['-al', `${REPO_ROOT}/.`, copyRoot], { encoding: 'utf8' });
   assert.equal(copied.status, 0, `cp -al ${REPO_ROOT} failed: ${copied.stderr}`);
-  rmSync(join(copyRoot, '.git'), { force: true });
+  rmSync(join(copyRoot, '.git'), { force: true, recursive: true });
   return copyRoot;
 }
 

@@ -38,12 +38,25 @@
  *   node scripts/voice-capture-process-check.mjs [--root <dir>] [--keep]
  *
  *   --root <dir>  the checkout whose `server/index.ts` is judged (default: this script's own repo)
- *   --keep        keep the run directory (debugging); its path is printed either way
+ *   --keep        keep the run directory (debugging — the run directory only; the hardened copy is
+ *                 always removed). Its path is printed either way.
+ *
+ * THE OBJECT JUDGED IS A HARDENED COPY OF `--root`, NOT `--root` ITSELF. Running the child straight
+ * out of `--root` made this criterion's verdict depend on the deployer's own `.env`: `server/load-env.ts`
+ * fills every key the child's environment does not already carry, so a `.env` naming `VOICE_CAPTURE`
+ * made "the variable is unset" unimplementable and the criterion bailed out with `EMPTY_READING` — a
+ * verdict about the instrument's preconditions wearing the shape of a verdict about the implementation.
+ * So the object judged is a one-time hard-link copy made BESIDE `--root` (same filesystem by
+ * construction), with `.git` and `.env` left out; the child's world is then one this criterion defines.
+ * `--root` itself is only ever READ. `env-file-in-root` / `env-file-pins-voice-capture` record what it
+ * carried, `judged-root` / `judged-root-env-file` / `hardened-root-removed` record the copy, and the
+ * copy is removed on EVERY exit.
  *
  * EXIT CODES. 0 = every reading is the expected one. 1 = at least one is not, and each failing one
- * is named on stdout. 2 = the measurement could not be made at all (no tsx under `--root`, a server
- * that never came up, a `.env` that pins `VOICE_CAPTURE`) — a distinct outcome on purpose, because
- * "could not measure" must not read as "measured, and the property failed".
+ * is named on stdout. 2 = the measurement could not be made at all (no tsx under `--root`, a hardened
+ * copy that could not be built, a server that never came up) — a distinct outcome on purpose, because
+ * "could not measure" must not read as "measured, and the property failed". A `.env` pinning
+ * `VOICE_CAPTURE` is a READING (`env-file-pins-voice-capture=true`), never an exit.
  */
 
 import { spawn, spawnSync } from 'node:child_process';
@@ -100,6 +113,26 @@ const READY_MARKER = 'CloudCLI Server - Ready';
 
 /** This criterion's own wall-clock budget — well under the gate's unraisable 60 s. */
 const WALL_BUDGET_MS = 45_000;
+
+/**
+ * The prefix of the hardened copy the two runs are judged in, made BESIDE `--root`.
+ *
+ * Beside, not under `os.tmpdir()`: the copy is built with `cp -al`, hard links need one filesystem,
+ * and `--root`'s own directory is on that filesystem by construction. (Measured trap: a checkout
+ * under `/data` and a `/tmp` under `/` fail with `Invalid cross-device link`.) The leading dot keeps
+ * it out of a casual listing; the name makes it unmistakable when one is left behind.
+ */
+const HARDENED_ROOT_PREFIX = '.voice-capture-process-check-';
+
+/**
+ * The entries that must NOT be carried into the hardened copy.
+ *
+ * `.env` is the whole point: `server/load-env.ts` would otherwise fill the child's environment from
+ * the deployer's file, and the unset half of this criterion would then be measuring the deployment.
+ * `.git` is a live wire in a worktree — an 88-byte pointer file holding the real git directory's
+ * path — and no part of this criterion needs it.
+ */
+const HARDENED_ROOT_SKIP = new Set(['.git', '.env']);
 
 const STARTUP_TIMEOUT_MS = 40_000;
 const SHUTDOWN_GRACE_MS = 5_000;
@@ -505,13 +538,66 @@ function stopChild(child) {
 }
 
 /**
+ * Builds the hardened copy of `--root` the two runs are actually judged in.
+ *
+ * A hard-link copy (`cp -al`) of every top-level entry except `.git` and `.env`, made in a sibling
+ * directory of `--root` so the copy and the original sit on one filesystem by construction. Nothing
+ * writes INTO the copy: `cp -al` gives the copy's files the originals' inodes, so an in-place write
+ * would reach back through the link into the deployer's checkout. The child only reads and executes.
+ *
+ * @param {string} root
+ * @returns {string} the copy's path
+ */
+function hardenRoot(root) {
+  const copyRoot = fs.mkdtempSync(path.join(path.dirname(root), HARDENED_ROOT_PREFIX));
+  for (const entry of fs.readdirSync(root)) {
+    if (HARDENED_ROOT_SKIP.has(entry)) continue;
+    const linked = spawnSync('cp', ['-al', path.join(root, entry), path.join(copyRoot, entry)], {
+      encoding: 'utf8',
+    });
+    if (linked.status !== 0) {
+      throw new Error(
+        `could not hard-link ${entry} from ${root} into the hardened root ${copyRoot} ` +
+          `(cp exited ${String(linked.status)}): ${linked.stderr || '<no stderr>'}`,
+      );
+    }
+  }
+  return copyRoot;
+}
+
+/**
+ * Removes a hardened copy, reporting whether it is gone rather than assuming the delete worked.
+ *
+ * @param {string} copyRoot
+ * @returns {boolean}
+ */
+function removeHardenedRoot(copyRoot) {
+  try {
+    fs.rmSync(copyRoot, { recursive: true, force: true });
+  } catch {
+    return false;
+  }
+  return !fs.existsSync(copyRoot);
+}
+
+/**
+ * Is there a `.env` directly under this root? A reading, not a branch.
+ *
+ * @param {string} root
+ * @returns {'present' | 'absent'}
+ */
+function envFileState(root) {
+  return fs.existsSync(path.join(root, '.env')) ? 'present' : 'absent';
+}
+
+/**
  * Does `<root>/.env` pin `VOICE_CAPTURE`?
  *
  * `server/load-env.ts` fills in every key the process environment does not already carry, so a
- * `.env` naming this variable makes "the variable is unset" unimplementable from the outside: the
- * second run would read the file's value and report a capture row nobody asked for. That is an
- * environment this criterion cannot measure in, and saying so — rather than printing a red about
- * the implementation — is the difference between "the property failed" and "the reading was empty".
+ * `.env` naming this variable would make "the variable is unset" unimplementable — IF the child were
+ * run out of `<root>`. It is not: the runs happen in a hardened copy that carries no `.env`, so this
+ * is reported as the reading `env-file-pins-voice-capture` and never decides the exit code. The
+ * reader learns what the deployer's checkout carried; the measurement is unaffected by it.
  *
  * @param {string} root
  * @returns {boolean}
@@ -591,6 +677,8 @@ async function main() {
   /** @type {string[]} */
   const failures = [];
   lines.push(reading('root', root));
+  lines.push(reading('env-file-in-root', envFileState(root)));
+  lines.push(reading('env-file-pins-voice-capture', dotEnvPinsCaptureMode(root)));
   lines.push(reading('run-dir', runDir));
   lines.push(reading('child-home', home));
   lines.push(reading('child-db', databasePath));
@@ -598,24 +686,33 @@ async function main() {
   lines.push(reading('child-db-in-run-dir', databasePath.startsWith(runDir)));
   lines.push(reading('real-db', inheritedDatabasePath ?? '<none>'));
 
-  if (dotEnvPinsCaptureMode(root)) {
+  // The one precondition that is genuinely about the instrument: without tsx under `--root` no real
+  // service process can start at all. Checked against `--root` itself (not the copy) so the reason
+  // names the checkout the caller pointed at.
+  const tsxUnderRoot = path.join(root, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+  if (!fs.existsSync(tsxUnderRoot)) {
     fs.rmSync(runDir, { recursive: true, force: true });
-    process.stdout.write(
-      `EMPTY_READING — ${path.join(root, '.env')} sets VOICE_CAPTURE, so the unset half of this criterion ` +
-        'cannot be produced: server/load-env.ts would hand the child the file\'s value, and a zero-capture-lines ' +
-        'reading would then be about this environment rather than about the implementation. Remove the line (or ' +
-        'point --root at a checkout without it) and rerun.\n',
+    process.stderr.write(
+      `voice-capture-process-check: could not make the measurement happen — tsx is not installed under --root: ${tsxUnderRoot}\n`,
     );
     return 2;
   }
 
   let double = null;
+  let judgedRoot = null;
+  let hardenedRootRemoved = false;
+  /** @type {Error | null} */
+  let couldNotMeasure = null;
   try {
+    judgedRoot = hardenRoot(root);
+    lines.push(reading('judged-root', judgedRoot));
+    lines.push(reading('judged-root-env-file', envFileState(judgedRoot)));
+
     double = await startDouble(DOUBLE_BODY);
     const doubleUrl = guardedTarget(double.url);
     const servicePort = await reserveFreePort();
 
-    const textRun = await runOnce({ root, mode: 'text', home, databasePath, tokenFile, doubleUrl, servicePort, doubleRequests: double.requests });
+    const textRun = await runOnce({ root: judgedRoot, mode: 'text', home, databasePath, tokenFile, doubleUrl, servicePort, doubleRequests: double.requests });
     const textRow = readRowFields(textRun.captureRows);
     lines.push(reading('startup.text.count', textRun.startupTextCount));
     lines.push(reading('startup.text.line', textRun.startupLine));
@@ -653,7 +750,7 @@ async function main() {
       failures.push('http.text.exact is false: the HTTP answer does not carry the double\'s text verbatim');
     }
 
-    const unsetRun = await runOnce({ root, mode: null, home, databasePath, tokenFile, doubleUrl, servicePort, doubleRequests: double.requests });
+    const unsetRun = await runOnce({ root: judgedRoot, mode: null, home, databasePath, tokenFile, doubleUrl, servicePort, doubleRequests: double.requests });
     lines.push(reading('unset.captureLines', unsetRun.captureRows.length));
     lines.push(reading('unset.startup.line', unsetRun.startupLine));
     lines.push(reading('unset.startupTextLines', unsetRun.startupTextCount));
@@ -680,14 +777,20 @@ async function main() {
       failures.push(`unset.double.requests is ${unsetRun.doubleRequests.length}, expected exactly 1`);
     }
   } catch (error) {
+    couldNotMeasure = error instanceof Error ? error : new Error(String(error));
+  } finally {
+    // EITHER exit — success, a red reading, "could not measure", or a throw — leaves no copy behind.
     if (double !== null) await double.close().catch(() => {});
+    if (judgedRoot !== null) hardenedRootRemoved = removeHardenedRoot(judgedRoot);
+  }
+
+  if (couldNotMeasure !== null) {
     fs.rmSync(runDir, { recursive: true, force: true });
     process.stderr.write(
-      `voice-capture-process-check: could not make the measurement happen — ${error instanceof Error ? error.message : String(error)}\n`,
+      `voice-capture-process-check: could not make the measurement happen — ${couldNotMeasure.message}\n`,
     );
     return 2;
   }
-  await double.close().catch(() => {});
 
   const sourceImports = countOwnSourceTokens();
   const hosts = [...guardedHosts].sort();
@@ -740,6 +843,7 @@ async function main() {
   lines.push(reading('real-db-idle-waited-ms', movedDuringRun ? idleWaitedMs : 0));
   lines.push(reading('real-db-churn', churn));
   lines.push(reading('real-db-untouched', realDbUntouched));
+  lines.push(reading('hardened-root-removed', hardenedRootRemoved));
   lines.push(reading('service-source-imports', sourceImports));
   lines.push(reading('hosts', hosts.join(',')));
   lines.push(reading('real-upstream-calls', nonLoopbackDepartures));
