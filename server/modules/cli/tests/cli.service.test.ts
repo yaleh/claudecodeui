@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { CliEnvironment, CliOutput } from '@/shared/types.js';
+import type { CliEnvironment, CliOutput, CliPackageMetadata } from '@/shared/types.js';
 
 import { createCliService } from '../cli.service.js';
 
-function createHarness() {
+function createHarness(
+  packageMetadata: CliPackageMetadata = {
+    version: '1.2.3',
+    homepage: 'https://cloudcli.example',
+    bugsUrl: 'https://cloudcli.example/issues',
+  },
+) {
   const logMessages: string[] = [];
   const errorMessages: string[] = [];
   const environment: CliEnvironment = {};
@@ -19,11 +25,7 @@ function createHarness() {
     applicationRoot: '/application',
     defaultDatabasePath: '/home/user/.cloudcli/auth.db',
     homeDirectory: '/home/user',
-    packageMetadata: {
-      version: '1.2.3',
-      homepage: 'https://cloudcli.example',
-      bugsUrl: 'https://cloudcli.example/issues',
-    },
+    packageMetadata,
     environment,
     fileSystem: {
       pathExists: () => false,
@@ -85,4 +87,16 @@ test('returns a failure code for an unknown command without exiting the process'
 
   assert.equal(exitCode, 1);
   assert.match(harness.errorMessages[0], /Unknown command: unknown/);
+});
+
+test('help text falls back to the fork repository when package metadata is missing', async () => {
+  // No homepage/bugsUrl: the help text must use its own fallbacks, not the upstream repository.
+  const harness = createHarness({ version: '1.2.3' });
+
+  const exitCode = await harness.service.run(['help']);
+
+  assert.equal(exitCode, 0);
+  const helpText = harness.logMessages.join('\n');
+  assert.match(helpText, /yaleh\/claudecodeui/, 'the missing-metadata fallback must name the fork repository');
+  assert.doesNotMatch(helpText, /siteboon/, 'the missing-metadata fallback must not name upstream siteboon');
 });
