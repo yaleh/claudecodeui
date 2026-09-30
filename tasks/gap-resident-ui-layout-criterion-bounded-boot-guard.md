@@ -47,12 +47,12 @@ goal_ac: AC-177
 
 ## AC
 
-- [ ] AC1 有界客户端预热真实生效：`e2e/resident-ui-layout.spec.ts` 里有 `warmClientStartup`（或等价命名）的定义、与「任何页面之前」的调用，逐 URL 带 deadline，非 200 / 超时按 url 指名抛错。验证：`grep -n "warmClientStartup" e2e/resident-ui-layout.spec.ts` 同时命中定义行与调用行，且 `npx playwright test e2e/resident-ui-layout.spec.ts --list` 退出 **0** 并列出三个用例（该文件不在 `tsconfig` 的 `include` 里，typecheck 对它恒为空读数，故以 Playwright 自身加载为准）。
-- [ ] AC2 每一次导航都走同一个有界探针：`grep -n "page\.goto(\|page\.reload(" e2e/resident-ui-layout.spec.ts` 的每一处行号都落在 `navigateBounded`（或等价探针）函数体内部，函数体外没有任何裸导航；探针耗尽预算时抛出携带页面文本与 `requestfailed` 列表的错误。验证：上述 `grep -n` 输出逐行落界（应恰为探针函数体内的 4 处）+ `--list` 退出 **0**。
-- [ ] AC3 有界失败的实测：把探针落点临时指向一个不可能存在的 sentinel 后，`npx playwright test e2e/resident-ui-layout.spec.ts -g "close is reachable"` 在 **30s 内**以非零退出，且输出里带页面文本与失败请求列表；还原后该读数与还原读数一并登记。验证：两次运行的 `echo $?` 与 wall time。
-- [ ] AC4 判据在负载下连续绿：`npx playwright test e2e/resident-ui-layout.spec.ts -g "close is reachable"` 连续 ≥5 次全部 `exit 0`，且每一次 wall < 55_000ms（一次都不触发 55s 看门狗 / 60s 门限），其中至少一次与 ≥4 份兄弟 spec 并发。验证：逐次 `echo $?` + wall time。**如实登记**：本机负载高（实测 load1 > 30），并发那一次若兄弟 spec 自己红，须点名归因，不得算到本条头上。
-- [ ] AC5 判定面未变：`git diff develop -- package.json playwright.config.ts` 为空（无 `test:e2e` / `RUN_CEILING_MS` / `BOOT_CEILING_MS` / `SINGLE_SPEC_CEILING_MS` 的增删），且 `git diff develop -- e2e/resident-ui-layout.spec.ts | grep -c "^-.*expect("` 为 **0**。验证：两条命令的逐字输出。
-- [ ] AC6 守卫不是静默放行（承重的负控制）：把探针改成「探不到就当已就绪继续跑」后，判据命令退出**非 0**（AC-177 用例在空白页上等满自己的 30s `expect`，整轮越过 55s spec 上限 / 60s 门限）；登记失败读数（越限的 wall、看门狗 / 门限行逐字）；恢复后判据回绿。验证：变异跑与还原跑的 `echo $?` + wall。
+- [x] AC1 有界客户端预热真实生效：`e2e/resident-ui-layout.spec.ts` 里有 `warmClientStartup`（或等价命名）的定义、与「任何页面之前」的调用，逐 URL 带 deadline，非 200 / 超时按 url 指名抛错。验证：`grep -n "warmClientStartup" e2e/resident-ui-layout.spec.ts` 同时命中定义行与调用行，且 `npx playwright test e2e/resident-ui-layout.spec.ts --list` 退出 **0** 并列出三个用例（该文件不在 `tsconfig` 的 `include` 里，typecheck 对它恒为空读数，故以 Playwright 自身加载为准）。
+- [x] AC2 每一次导航都走同一个有界探针：`grep -n "page\.goto(\|page\.reload(" e2e/resident-ui-layout.spec.ts` 的每一处行号都落在 `navigateBounded`（或等价探针）函数体内部，函数体外没有任何裸导航；探针耗尽预算时抛出携带页面文本与 `requestfailed` 列表的错误。验证：上述 `grep -n` 输出逐行落界（应恰为探针函数体内的 4 处）+ `--list` 退出 **0**。
+- [x] AC3 有界失败的实测：把探针落点临时指向一个不可能存在的 sentinel 后，`npx playwright test e2e/resident-ui-layout.spec.ts -g "close is reachable"` 在 **30s 内**以非零退出，且输出里带页面文本与失败请求列表；还原后该读数与还原读数一并登记。验证：两次运行的 `echo $?` 与 wall time。
+- [x] AC4 判据在负载下连续绿：`npx playwright test e2e/resident-ui-layout.spec.ts -g "close is reachable"` 连续 ≥5 次全部 `exit 0`，且每一次 wall < 55_000ms（一次都不触发 55s 看门狗 / 60s 门限），其中至少一次与 ≥4 份兄弟 spec 并发。验证：逐次 `echo $?` + wall time。**如实登记**：本机负载高（实测 load1 > 30），并发那一次若兄弟 spec 自己红，须点名归因，不得算到本条头上。
+- [x] AC5 判定面未变：`git diff develop -- package.json playwright.config.ts` 为空（无 `test:e2e` / `RUN_CEILING_MS` / `BOOT_CEILING_MS` / `SINGLE_SPEC_CEILING_MS` 的增删），且 `git diff develop -- e2e/resident-ui-layout.spec.ts | grep -c "^-.*expect("` 为 **0**。验证：两条命令的逐字输出。
+- [x] AC6 守卫不是静默放行（承重的负控制）：把探针改成「探不到就当已就绪继续跑」后，判据命令退出**非 0**（AC-177 用例在空白页上等满自己的 30s `expect`，整轮越过 55s spec 上限 / 60s 门限）；登记失败读数（越限的 wall、看门狗 / 门限行逐字）；恢复后判据回绿。验证：变异跑与还原跑的 `echo $?` + wall。
 
 ## DoD
 
@@ -62,3 +62,32 @@ goal_ac: AC-177
 
 - e2e/resident-ui-layout.spec.ts
 - tasks/gap-resident-ui-layout-criterion-bounded-boot-guard.md
+
+## Completion record
+
+修法：把 `e2e/resident-running-view.spec.ts` 的两个既有杠杆移植进 `e2e/resident-ui-layout.spec.ts` —— 有界客户端预热 `warmClientStartup`（worker 内一次性惰性 promise，任何 `context.newPage()` 之前）与单一有界导航探针 `navigateBounded(page, url, landing, kind)`；文件里 4 处 `page.goto` 全部改为经探针导航。判据命令、60s 门限、`SINGLE_SPEC_CEILING_MS=55_000`、三个用例的 `expect` 一字未改（AC5 机械证明）；不加 `retries`、不开 `reuseExistingServer`、不 stub、不 skip。本仓修掉的是**响应方式**（无界等待 → 有界重放）；触发源（宿主层 `net::ERR_NETWORK_CHANGED`，本机 docker/veth / 网络变更通知）不在本仓可控范围内 —— 该判据的稳定性因此依赖守卫，不依赖触发源消失。
+
+AC1 机械读数：`grep -n warmClientStartup e2e/resident-ui-layout.spec.ts` 命中定义行 330 与调用行 391（包装器内的 `warmClientStartup(clientUrl)`），另有两处「任何页面之前」的调用：532（`openPage` 顶部，早于 `browser.newContext`）、1000（AC-177 describe 的 `beforeAll`，早于 `newContext`）。`npx playwright test e2e/resident-ui-layout.spec.ts --list` 退出 0，列出 3 个用例（575 / 1029 / 1242）。
+
+AC2 机械读数：`grep -n "page\.goto(\|page\.reload(" e2e/resident-ui-layout.spec.ts` 恰 2 行 —— 500（`page.goto(url, …)`）与 502（`page.reload(…)`）—— 均在 `navigateBounded` 函数体（487–523）内，函数体外无任何裸导航。**如实登记**：该 grep 是 **2** 行（探针内每个原语一次），不是 4 行；本案的「4 处」是被守卫的 4 个导航调用点（`navigateBounded(` 于 555 / 1015 / 1280 / 1320）。探针耗尽预算时抛出的错误携带页面文本与该轮 `requestfailed` 列表（见 AC3/AC6 的逐字错误行）。
+
+AC3 有界失败：把 AC-177 `beforeAll` 的落点临时换成不可能出现的 sentinel（`[data-sentinel-never-mounts]`）后，`npx playwright test e2e/resident-ui-layout.spec.ts -g "close is reachable"` → EXIT=1，WALL=21993ms（<30s），错误逐字 `the project row for resident-ui-layout-workspace never rendered, so this run's client never came up to a document that stays: the page shows "CloudCLI\\nStar\\n13.9k\\nProjects\\n…"; console errors: <none>; failed requests: <none>`。还原后 EXIT=0，WALL=11758ms。
+
+AC4 负载下连续绿（判据命令，逐次读数）：
+
+| 次 | 形态 | exit | wall |
+|---|---|---|---|
+| 1 | 单独 | 0 | 12299ms |
+| 2 | 单独 | 0 | 11474ms |
+| 3 | 单独 | 0 | 11595ms |
+| 4 | 单独 | 0 | 11666ms |
+| 5 | 单独 | 0 | 11418ms |
+| 6 | 与 4 份兄弟 spec 并发（load1≈28–31） | 0 | 12549ms |
+
+并发那一次同时跑 `resident-running-view`（3 passed）、`session-filter`（5 passed）、`transcript-follow`（rc=1）、`voice-error-messages`（1 passed）。**归因**：`transcript-follow` 的红是它自己的 55s 单文件看门狗越限（日志逐字 `[e2e] watchdog: this run crossed its own 55000ms ceiling at 55001ms and is ending here with exit 1 at 55004ms — stuck at stage "browser-launch-or-cases"`），发生于 5 路并发之下，属兄弟 spec 自身预算 + 宿主负载，不是本任务 delta（本任务只改 `e2e/resident-ui-layout.spec.ts`）；判据本身在同负载下绿。
+
+AC5 判定面未变：`git diff develop -- package.json playwright.config.ts` 为空；`git diff develop -- e2e/resident-ui-layout.spec.ts | grep -c "^-.*expect("` = 0。
+
+AC6 守卫不是静默放行：把探针耗尽路径由 `throw` 改为「探不到就当已就绪继续跑」（`return`），并注入触发源（`serviceWorkers: 'block'` + `page.route('**/src/main.tsx*', r => r.abort('failed'))`，等价于一次模块加载中断）后 → EXIT=1，WALL=51637ms，失败形式是**裸** `TimeoutError: locator.waitFor: Timeout 30000ms exceeded`（落在 `e2e/resident-ui-layout.spec.ts:951` 的 `revealSession`），无归因。同一注入下保留守卫（`throw`）→ EXIT=1，WALL=21829ms，错误带页面文本与失败请求列表：`the project row for resident-ui-layout-workspace never rendered, …: the page shows ""; console errors: Failed to load resource: net::ERR_FAILED …; failed requests: http://127.0.0.1:12189/src/main.tsx — net::ERR_FAILED | …`。还原后 EXIT=0，WALL=11758ms。**如实登记两点**：(a) 该负控制只在**空白页**下才咬人 —— 在健康客户端上单独做「静默继续」变异是 no-op 绿（sentinel 落点 + 静默继续仍绿，因为用例自身的真实选择器是兜底），故负控制必须连同触发源一起注入；(b) 注入时必须 `serviceWorkers: 'block'`：Playwright 的 `page.route` 不拦截 Service Worker 发起的取，`public/sw.js` 的 network-first 分支会把被 abort 的 entry 从网络重新取回，否则注入被 SW 救活、变异仍绿。
+
+DoD：真落地的裁决（driver 下一轮 goal-gate 重跑该判据翻绿并写入 `.quay/gate-events.jsonl`）由 driver 完成；本轮登记的是判据本身的逐次读数（AC4 表）与三处变异/还原读数（AC3 / AC6）。
