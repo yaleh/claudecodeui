@@ -2,7 +2,7 @@
 id: gap-cloudcli-self-assigned-names-outrank-ai-titles
 title: 会话命名权归人工与 Claude Code：CloudCLI 自赋名不得压过 AI title、不得自行赋名、且跨重启幂等
 status: ready
-needs_human_cause: unclassified
+needs_human_cause: human-adjudication
 labels:
   - gap
   - defect
@@ -335,3 +335,35 @@ npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/cl
 AC1–AC8、AC11–AC13 不重取：本轮改动只落在上述两个判据文件内，未触任何产品代码，故它们上一轮逐条打印的读数在本树上原样成立（其中 AC11 的八个既有文件、AC13 的 `claude-resident-addressable.test.ts` 都在本轮的最终树上重跑过或未受影响）。`docs/proposals/claude-resident-sessions.md` §12 已含占位名的裁定与「永不当地址」一句（上一轮落盘），本轮无需改文档。
 
 **`## Needs-Human` 段**：本节由 `quay task edit --body-file` 写入（Provider ABI，与 `task_write` 同一条存储写入路径），写后已回读比对——两段 `## Needs-Human` 与三段裁定小节逐字保留，只有 AC 那一行的方框由 `[ ]` 变为 `[x]`。
+
+## Needs-Human
+
+**执行 2026-09-30T06:11:00.943Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 4 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: not ok - server/modules/voice/tests/voice-capture-audio.false-forms.test.ts:   AssertionError [ERR_ASSERTION]: a surface this task must not have moved is red
+- run_id：wk-prod-anchor
+- session_id：4c61f4bc-5430-40b0-919a-68cd67fc968d
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-cloudcli-self-assigned-names-outrank-ai-titles~wk-prod-anchor~1790748426795-bb77d9.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-cloudcli-self-assigned-names-outrank-ai-titles-wk-prod-anchor.log
+
+
+## Evidence（登记人 2026-09-30，清掉挡住落地的那条红）
+
+**上一轮 park 的 suite 红是真的、可归因的，而且已经修掉。** 判词点的是 `step=suite: not ok - server/modules/voice/tests/voice-capture-audio.false-forms.test.ts: AssertionError: a surface this task must not have moved is red`，当轮共 8 条红，但 **8 条同根**：
+
+- **根因（唯一）**：`server/modules/providers/tests/claude-session-name-authority.test.ts:644` 的 `TS2345: Argument of type '"derived"' is not assignable to parameter of type '"manual"'`。`registerAppSession` 的第三个参数被写死成字面量 `'manual'`，而函数体是 `nameSource ?? 'derived'`（写死与实现不符），新加的「占位名落在 override 列仍要让位给标题」一例传的是 `'derived'`。
+- **其余 7 条是它的下游，不是独立缺陷**：`voice-capture-off` 自己的判词就写着 `AC6 FAIL :: npm run typecheck (exit=2) | sig: …claude-session-name-authority.test.ts(644,54)`；另两条 `a surface this task must not have moved is red` 与三条 mutant 臂，都是「基线已被 typecheck 打红」的连带。
+
+**修复**：分支 `task/gap-cloudcli-self-assigned-names-outrank-ai-titles` 上 `7362011c` —— 参数类型改为 DB 导出的 `SessionNameSource`（`derived | self-assigned | ai | manual | agent`）。**一处类型注解，产品代码未动。**
+
+**修后读数（全部在本分支的 worktree 上实测）**：
+
+- `npm run typecheck` → **exit 0**（tsconfig + server + scripts 三条链）
+- 本任务判据 `claude-session-name-authority.test.ts` → **16/16，exit 0**
+- `scripts/test.sh --for-task … --allow-thin` → **exit 0**，`__PERFILE__ … passed=true` ×2
+- 被点名的那三条 voice 判据逐条重跑：`voice-capture-off` 4/4、`voice-capture-audio` 6/6、`voice-capture-secrets` 4/4，**全部 exit 0** ⇒ 那 7 条确系连带
+- `npm run lint` → exit 0（仅既有 warning）
+
+**⇒ 本任务 13/13 AC 已勾、`execute->done` 门可过，可直接重派落地。**
