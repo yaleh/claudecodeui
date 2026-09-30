@@ -55,21 +55,22 @@ extra:
 8. **假形态与反回归**：各条假形态必须红；AC8 列表内除 `claude-resident-addressable.test.ts` 外的既有判据逐条不退。
 
 ## AC
+> round 3（2026-09-30，出路 (a) 已实现）
 
 > 上一轮 7/10 的勾选是在**出路 (c) 的分支**上取得的，而 (c) 已被裁定排除、该分支不得落地 ⇒ 那些勾选一律作废，本节全部重开为未勾。（其中 AC5/AC6 的 (c) 实现可复用，但读数必须在 (a) 的树上重取。）
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-session-name-authority.test.ts` 退出 0，且断言：转录含 `ai-title` + 一条 CloudCLI 自赋名时，库里的显示名是 **ai-title**、`name_source` 为 `ai`；**正控制**同一夹具去掉 `ai-title` 时显示名落到自赋名（证明该读数不是恒取 ai）；**假形态**把阶梯改回 `agent` 优先 ⇒ 必须红。
-- [ ] **(a) 的核心**：常驻启动不向 CLI 传任何名字。读数：判据起一个真实常驻会话后，其转录里**没有本进程写入的** `agent-name`／`custom-title`（历史条目不计），且 `~/.claude/sessions/<pid>.json` 的 `nameSource` 是 `derived` 而不是 `user`；**正控制**：对同一夹具里人工 `/rename` 过的会话，同一读数必须读到 `user`／`custom-title`（证明该断言不是恒不出现）。**假形态**：把 `--name` 加回去 ⇒ 必须红。
-- [ ] 名字不再随重启增长：对同一 app 会话**连续两次**常驻启动（关进程 → 再发消息），两次显示名都不含 CloudCLI 自造后缀，且第二次**不比第一次长**。**假形态**：恢复 `residentPeerName` 入 `--name` ⇒ 第二次必须红（这就是 2026-09-30 实测的 `-9959ff-9959ff` 形状）。
-- [ ] 人工名最高且必须经 Claude Code 落地（cache 模型）：`renameSessionById` 之后，Claude Code 自己的接口（SDK `getSessionInfo(sessionId).summary`）返回人工名，且 App 库内 `custom_name` 与之逐字相等。**假形态**：让 App 先落库、provider 写回失败也照样保留 ⇒ 必须红。
-- [ ] 地址是**读来的**，不是算出来的：`GET /api/session-hosts` 的 `peerName` 逐字等于 `~/.claude/sessions/<pid>.json` 的 `name`（同一记录带 `sessionId`／`messagingSocketPath`）。**正控制**：对在跑的常驻进程该值非 `null`。**假形态**：让投影回落到 App 自算的 `<slug>-<id6>` ⇒ 必须红。
-- [ ] **(a) 的承重读数（AC-164 从未量过的那个）**：另一个会话用 CLI 自己派生的 `derived` 名 `SendMessage`，真的送达并让对方产出一轮（`source=unattended`、触发类型 `cross-session-message`、可 `chat.subscribe(lastSeq=0)` 完整回放）。**假形态**：把地址换成一个不存在的名字 ⇒ 必须红。⚠️ 本条不通过则 (a) 不成立，必须先量。
-- [ ] 同一文件断言迁移幂等：对已有被污染行的旧库连跑两次迁移，第一次把有 `ai-title` 的行改回 `ai`、无 `ai-title` 的改成 `derived`，第二次无操作；已累加的名字不再作为种子。
-- [ ] 「CloudCLI 不得自行赋名」在代码里有机械落点：`buildCloudCliSessionName` 或任何 CloudCLI 自造名不得进入高于 `ai` 的档位。读数：`grep -n "nameSourceRankSql" -A3 server/modules/database/repositories/sessions.db.ts` 与档位断言。
-- [ ] 人 yale 的两条逐字裁定都存在于本任务记录中（机械读数：本文件内存在两个裁定小节）；任一缺席时本任务不得 done。
-- [ ] 既有判据逐条退出 0 且文件未改：`claude-session-title-source.test.ts`、`claude-host-per-run.test.ts`、`claude-background-work.test.ts`、`session-hosts-routes.test.ts`、`sessions-name-source.integration.test.ts`、`session-rename-route.test.ts`、`claude-session-title-corpus.test.ts`、`claude-session-title-mirror.test.ts`。逐条打印命令与退出码。**`claude-resident-addressable.test.ts` 不在此列**（见下条）。
-- [ ] `claude-resident-addressable.test.ts` 随出路 (a) 修订并退 0：它现有内容逐字重述了被本裁定作废的规则（`expectedPeerName(title,id) = slug(title)+'-'+id.slice(0,6)`，断言投影与转录都等于它、且转录里必须有一条 `agent-name`），在 (a) 下必红。修订后的断言改为「不传 `--name`、投影读自 CLI 注册表、`derived` 名可达」。同时 `goals/AC-164-*.md` 的 `expect` 已按裁定改写（登记人 2026-09-30 经 `quay goal write --expect` 落盘）。
-- [ ] `npm run typecheck` 退出 0（三条链）且 `npm run lint` 退出 0（仅既有 warning）。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-session-name-authority.test.ts` 退出 0，且断言：转录含 `ai-title` + 一条 CloudCLI 自赋名时，库里的显示名是 **ai-title**、`name_source` 为 `ai`；**正控制**同一夹具去掉 `ai-title` 时显示名落到自赋名（证明该读数不是恒取 ai）；**假形态**把阶梯改回 `agent` 优先 ⇒ 必须红。
+- [x] **(a) 的核心**：常驻启动不向 CLI 传任何名字。读数：判据起一个真实常驻会话后，其转录里**没有本进程写入的** `agent-name`／`custom-title`（历史条目不计），且 `~/.claude/sessions/<pid>.json` 的 `nameSource` 是 `derived` 而不是 `user`；**正控制**：对同一夹具里人工 `/rename` 过的会话，同一读数必须读到 `user`／`custom-title`（证明该断言不是恒不出现）。**假形态**：把 `--name` 加回去 ⇒ 必须红。
+- [x] 名字不再随重启增长：对同一 app 会话**连续两次**常驻启动（关进程 → 再发消息），两次显示名都不含 CloudCLI 自造后缀，且第二次**不比第一次长**。**假形态**：恢复 `residentPeerName` 入 `--name` ⇒ 第二次必须红（这就是 2026-09-30 实测的 `-9959ff-9959ff` 形状）。
+- [x] 人工名最高且必须经 Claude Code 落地（cache 模型）：`renameSessionById` 之后，Claude Code 自己的接口（SDK `getSessionInfo(sessionId).summary`）返回人工名，且 App 库内 `custom_name` 与之逐字相等。**假形态**：让 App 先落库、provider 写回失败也照样保留 ⇒ 必须红。
+- [x] 地址是**读来的**，不是算出来的：`GET /api/session-hosts` 的 `peerName` 逐字等于 `~/.claude/sessions/<pid>.json` 的 `name`（同一记录带 `sessionId`／`messagingSocketPath`）。**正控制**：对在跑的常驻进程该值非 `null`。**假形态**：让投影回落到 App 自算的 `<slug>-<id6>` ⇒ 必须红。
+- [x] **(a) 的承重读数（AC-164 从未量过的那个）**：另一个会话用 CLI 自己派生的 `derived` 名 `SendMessage`，真的送达并让对方产出一轮（`source=unattended`、触发类型 `cross-session-message`、可 `chat.subscribe(lastSeq=0)` 完整回放）。**假形态**：把地址换成一个不存在的名字 ⇒ 必须红。⚠️ 本条不通过则 (a) 不成立，必须先量。
+- [x] 同一文件断言迁移幂等：对已有被污染行的旧库连跑两次迁移，第一次把有 `ai-title` 的行改回 `ai`、无 `ai-title` 的改成 `derived`，第二次无操作；已累加的名字不再作为种子。
+- [x] 「CloudCLI 不得自行赋名」在代码里有机械落点：`buildCloudCliSessionName` 或任何 CloudCLI 自造名不得进入高于 `ai` 的档位。读数：`grep -n "nameSourceRankSql" -A3 server/modules/database/repositories/sessions.db.ts` 与档位断言。
+- [x] 人 yale 的两条逐字裁定都存在于本任务记录中（机械读数：本文件内存在两个裁定小节）；任一缺席时本任务不得 done。
+- [x] 既有判据逐条退出 0 且文件未改：`claude-session-title-source.test.ts`、`claude-host-per-run.test.ts`、`claude-background-work.test.ts`、`session-hosts-routes.test.ts`、`sessions-name-source.integration.test.ts`、`session-rename-route.test.ts`、`claude-session-title-corpus.test.ts`、`claude-session-title-mirror.test.ts`。逐条打印命令与退出码。**`claude-resident-addressable.test.ts` 不在此列**（见下条）。
+- [x] `claude-resident-addressable.test.ts` 随出路 (a) 修订并退 0：它现有内容逐字重述了被本裁定作废的规则（`expectedPeerName(title,id) = slug(title)+'-'+id.slice(0,6)`，断言投影与转录都等于它、且转录里必须有一条 `agent-name`），在 (a) 下必红。修订后的断言改为「不传 `--name`、投影读自 CLI 注册表、`derived` 名可达」。同时 `goals/AC-164-*.md` 的 `expect` 已按裁定改写（登记人 2026-09-30 经 `quay goal write --expect` 落盘）。
+- [x] `npm run typecheck` 退出 0（三条链）且 `npm run lint` 退出 0（仅既有 warning）。
 - [ ] 落地后实测复查：`sqlite3 ~/.cloudcli/auth.db "select transcript_name_source, count(*) from sessions group by 1"` 里 `agent` 档不再增长；`grep -c "registered a different address" server.log` 不再增长；新增的 `agent-name` 条目里不再出现 `<slug>-<id6>` 形状。
 
 ## DoD
@@ -212,6 +213,42 @@ server/modules/providers/tests/claude-session-title-mirror.test.ts        exit=0
 在裁定给出之前，本分支不落地：AC2 与 AC10 保持未勾（机械上也不可能 10/10），下面的 scoped-gate 缓存只是记录本轮「按现有代码」的绿读数。
 
 **⇒ 本轮已由上文 `## 人 yale 的第二次裁定` 收口：取第 1 项、(a)。** 本节的二选一已不再悬置；下面那段 park 记录保留为历史（其归因结论——suite 红但指不出文件——与出路无关，仍待实现者遇到时自行归因）。
+
+
+## Evidence（worker 2026-09-30，round 3：出路 (a) 实现完成，AC 12/13）
+
+**实现**：`9bf287b3`（常驻不再自赋名，地址读自 CLI 注册表）＋ `f3a96618`（`docs/proposals/claude-resident-sessions.md` §12 随裁定改写）。`git diff --name-only develop...HEAD` 共 12 个文件，逐个都在 `## Touches` 内。
+
+**本轮各条读数（全部实测，命令与退出码逐条打印）**
+
+- **AC1** `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-session-name-authority.test.ts` → **exit 0，13/13**。夹了 `ai-title` + 一条 CloudCLI 自赋地址时显示名 = ai-title、`name_source='ai'`；**正控制**同一夹具去掉 `ai-title` ⇒ 落到地址、`source='self-assigned'`。**假形态**：把判别式 `isSelfAssignedSessionName(name, appSessionId)` 换成 `false`（自赋名回到 `agent` 档，即修复前的阶梯）⇒ **3 红**，首个是「an injected address does not outrank the ai-title of the session it was injected into」（:240）。跑完已 `git checkout --` 还原，`git status` 干净。
+- **AC2**（(a) 的核心）`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-addressable.test.ts` → **exit 0**，单例 5297ms。读数：A/B/C 三个**真**进程 `registryNameSource=derived`、`selfWrittenNames=[]`（本进程没写过 `agent-name`/`custom-title`）、`equalToSnapshot=true`、注册表记录带 `sessionId` 与 `messagingSocketPath`。**正控制（leg 2b）**：对无标题的 C 交一个名启动（`extraArgs:{name}`，即被退休的那条接线的机制）⇒ `registryNameSource=user`、`selfWrittenNames=["c7c048dc-handed-over","c7c048dc-handed-over"]` —— 正是 `--name` 成对写 `agent-name`+`custom-title` 的实测形状。**假形态**：在常驻启动的 options 上注入 `extraArgs:{name:'<id6>-<id6>'}` ⇒ **红**，首条断言「the process must be registered under a name the CLI derived for it, not one it was handed (registryNameSource=user registryName=63baa7-63baa7)」（:1175）；已还原。
+- **AC3** 同一判据 leg 5（关进程 → 再发消息）：`firstPid=1935636 → secondPid=1937765`（确为第二个进程）、`firstNameLen=37 secondNameLen=37`、`secondNameSource=derived`、`secondSelfWritten=[]`、`storedNameBefore=storedNameAfter="AC164 Addressable Alpha Renamed"`。两条 `derived` 名互不相同（CLI 每进程一值，`…-c2` → `…-c7`）但**等长**，且都不以 `-<SESSION_A 前 6 位>` 结尾 ⇒ 不再累加后缀。假形态与 AC2 同一处注入。
+- **AC4** 同判据文件两例：「a rename lands in Claude Code, and the app stores the name Claude Code reports」——`renameSessionById` 之后 Claude Code **自己的**接口 `getSessionInfo(uuid,{dir}).summary` 逐字等于人工名，且库内行 `{name, source:'manual'}` 与之一致；**假形态**「a rename Claude Code refuses is not stored at all」——CLI 拒绝（转录不存在）时 `assert.rejects`，库里**没有**留下那个名字（仍是 `{name:'first prompt', source:'derived'}`）⇒ cache 不会持有 Claude Code 未接受过的名字。
+- **AC5** 判据 leg 2 / leg 4：`GET /api/session-hosts` 的 `peerName` 逐字等于 `~/.claude/sessions/<pid>.json` 的 `name`（`equalToSnapshot=true`）；正控制为该值非 `null`（三个进程都非空）。**假形态**：在 `startIdentityReadback` 里给投影名补一段 App 自造后缀（`<name>-<id6>`）⇒ **红**：「the app must publish the address the process registered, and the process must have registered one (snapshot=…-um5xdp-5d-9da164 registry=…-um5xdp-5d …)」（:1156）；已还原。
+- **AC6**（(a) 的承重读数，AC-164 从未量过的那条）判据 leg 4：`addressSource=GET /api/session-hosts peerName=claude-resident-addressable-<tag>-eb`—— 这是一个 **`derived`** 名 —— ⇒ `sentTo` 与它逐字相等、`delivered=true`、`run.source=unattended`、`notifyTrigger=cross-session-message`、`runsAfter=runsBefore+1`、`chat.subscribe(lastSeq=0)` 回放 `replayed=9 produced=9`（订阅前后的控制：`replayed-before=0`、`replayedAtSubscribe=framesBeforeSubscribe=4`）。**假形态**：把发送地址换成一个不存在的名字 ⇒ **红**，CLI 原话 `No agent named '…-no-such-process' is reachable.`、`delivered=false`、B 侧不开 run；已还原。
+- **AC7** 同判据文件「the migration re-files rows named after an address, and its second run is a no-op」：第一次把有 `ai-title` 的行重定级为 `ai`、无 `ai-title` 的为 `derived`，第二次 0 变更（幂等）；累加过的名字不作为重算种子。
+- **AC8** `grep -n "nameSourceRankSql" -A3 server/modules/database/repositories/sessions.db.ts` → `(CASE … WHEN 'agent' THEN 4 WHEN 'manual' THEN 3 WHEN 'ai' THEN 2 WHEN 'self-assigned' THEN 1 ELSE 0 END)`。CloudCLI 自造名只落 `self-assigned`(1) / `derived`(0)，都在 `ai`(2) 之下；档位断言在同判据文件「the rank table keeps every CloudCLI-made source below a real title」。
+- **AC9** 本记录含两个逐字裁定小节：`## 人 yale 的裁定（2026-09-30，逐字）` 与 `## 人 yale 的第二次裁定（2026-09-30，逐字）`。本次写入只动 `## AC` 的方框并追加本节，两个裁定小节逐字保留（写后已回读比对）。
+- **AC10** 八个文件逐个独立进程（本轮在最终树上重取）：
+
+```
+server/modules/providers/tests/claude-session-title-source.test.ts       exit=0 pass=8  fail=0
+server/modules/providers/tests/claude-host-per-run.test.ts               exit=0 pass=7  fail=0
+server/modules/providers/tests/claude-background-work.test.ts            exit=0 pass=10 fail=0
+server/modules/session-hosts/tests/session-hosts-routes.test.ts          exit=0 pass=5  fail=0
+server/modules/database/tests/sessions-name-source.integration.test.ts   exit=0 pass=12 fail=0
+server/modules/providers/tests/session-rename-route.test.ts              exit=0 pass=4  fail=0
+server/modules/providers/tests/claude-session-title-corpus.test.ts       exit=0 pass=2  fail=0
+server/modules/providers/tests/claude-session-title-mirror.test.ts       exit=0 pass=8  fail=0
+```
+
+  `git diff --stat develop...HEAD -- <上述八个文件>` 为空 ⇒「文件未改」成立。`claude-resident-addressable.test.ts` 不在本列（随出路 (a) 修订，见下条）。
+- **AC11** `claude-resident-addressable.test.ts` 已按 (a) 重写并退 0（读数见 AC2/AC3/AC5/AC6）：重述旧规则的那段被删，改为「读 `<CLAUDE_CONFIG_DIR>/sessions/<pid>.json` 作证 + 投影与注册表逐字相等 + 进程自己没写过名」；`goals/AC-164-常驻进程有稳定的-sendmessage-地址-…md` 的 `title` 与 `expect` 已按裁定改写（`expect` 逐字含「App 不传 `--name`…`nameSource` 为 `derived`；宿主快照的 `peerName` 逐字等于该注册表记录里的 `name`（读来的，不是 App 算出来的），不承诺跨重启不变…取假形态：让投影回落到 App 自造的 `<slug>-<id6>` ⇒ 必须红」，与本轮实测的假形态一致）。
+- **AC12** `npm run typecheck` → **exit 0**（`tsconfig.json` + `server/tsconfig.json` + `scripts/tsconfig.json` 三条链）；`npm run lint` → **exit 0**，输出仅既有 warning；本分支改动的 12 个文件在 lint 输出里零命中，唯一命中本任务 Touches 的是 `src/modules/chat/hooks/useChatComposerState.ts` 的既有 warning（该文件本分支未改，不在 `develop...HEAD` 的 delta 里）。
+- **AC13 未勾**：本条要的是**落地后**在生产实例上的复查（`~/.cloudcli/auth.db` 的档位分布 + `server.log` 的计数），而本分支尚未落地（fan-in 未跑），落地前不可能取得该读数，故不预勾。为让落地后的复查有比对基准，先记落地前基线（2026-09-30 实测）：`select transcript_name_source, count(*) from sessions group by 1` = `agent 1528 / null 1317 / ai 107 / derived 21 / manual 4`；`grep -c "registered a different address" server.log` = **9**。
+
+**范围界定（重申裁定后复测那条）**：`transcript_name_source='agent'` 的 1528 行绝大多数来自 **quay driver** 的 `-n <role>`（`.quay/profiles.yml`），不是 CloudCLI 写的。本任务只让 CloudCLI 自己不再注入、并迁移历史行；driver 侧的角色名不在本任务范围内。
 
 ## Needs-Human
 
