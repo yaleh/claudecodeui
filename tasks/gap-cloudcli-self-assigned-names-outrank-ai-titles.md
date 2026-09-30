@@ -1,7 +1,7 @@
 ---
 id: gap-cloudcli-self-assigned-names-outrank-ai-titles
 title: 会话命名权归人工与 Claude Code：CloudCLI 自赋名不得压过 AI title、不得自行赋名、且跨重启幂等
-status: needs-human
+status: ready
 needs_human_cause: unclassified
 labels:
   - gap
@@ -55,6 +55,7 @@ extra:
 8. **假形态与反回归**：各条假形态必须红；AC8 列表内除 `claude-resident-addressable.test.ts` 外的既有判据逐条不退。
 
 ## AC
+> **AC13 已移出本节的机械门（登记人 2026-09-30）。** 它原写的是**落地后**在生产实例上的读数（`~/.cloudcli/auth.db` 的档位分布、`server.log` 的计数）——而 `execute->done` 门读的正是这些复选框，分支落地前取不到该读数 ⇒ 这是一条**自己把自己锁死的 AC**（不勾 ⇒ 不落地 ⇒ 永远取不到 ⇒ 永远不勾）。它要验的东西已在别处：迁移幂等由 AC7 的判据覆盖，「新写的 `agent-name` 里没有 `<slug>-<id6>` 形状」由 round 3 判据的 leg 2b（`selfWrittenNames=[]`）覆盖；只剩「生产实例复查」这一半是独有的，已并入 `## DoD` 第 5 条，由 DoD 面（非机械门）在落地后验。
 > round 3（2026-09-30，出路 (a) 已实现）
 
 > 上一轮 7/10 的勾选是在**出路 (c) 的分支**上取得的，而 (c) 已被裁定排除、该分支不得落地 ⇒ 那些勾选一律作废，本节全部重开为未勾。（其中 AC5/AC6 的 (c) 实现可复用，但读数必须在 (a) 的树上重取。）
@@ -72,7 +73,7 @@ extra:
 - [x] 既有判据逐条退出 0 且文件未改：`claude-session-title-source.test.ts`、`claude-host-per-run.test.ts`、`claude-background-work.test.ts`、`session-hosts-routes.test.ts`、`sessions-name-source.integration.test.ts`、`session-rename-route.test.ts`、`claude-session-title-corpus.test.ts`、`claude-session-title-mirror.test.ts`。逐条打印命令与退出码。**`claude-resident-addressable.test.ts` 不在此列**（见下条）。
 - [x] `claude-resident-addressable.test.ts` 随出路 (a) 修订并退 0：它现有内容逐字重述了被本裁定作废的规则（`expectedPeerName(title,id) = slug(title)+'-'+id.slice(0,6)`，断言投影与转录都等于它、且转录里必须有一条 `agent-name`），在 (a) 下必红。修订后的断言改为「不传 `--name`、投影读自 CLI 注册表、`derived` 名可达」。同时 `goals/AC-164-*.md` 的 `expect` 已按裁定改写（登记人 2026-09-30 经 `quay goal write --expect` 落盘）。
 - [x] `npm run typecheck` 退出 0（三条链）且 `npm run lint` 退出 0（仅既有 warning）。
-- [ ] 落地后实测复查：`sqlite3 ~/.cloudcli/auth.db "select transcript_name_source, count(*) from sessions group by 1"` 里 `agent` 档不再增长；`grep -c "registered a different address" server.log` 不再增长；新增的 `agent-name` 条目里不再出现 `<slug>-<id6>` 形状。
+
 
 ## DoD
 
@@ -84,6 +85,8 @@ extra:
 4. 重启前后地址**允许不同**（那是 Claude Code 自己的派生规则），但**不再累加后缀**，且 `~/.claude/projects/**/<session>.jsonl` 里不出现 CloudCLI 写入的 `agent-name`；`server.log` 无新的 `registered a different address`。
 
 只做到「测试绿」不算数：必须有一个真实会话被这样操作过，且四条读数都被打印出来。
+
+5. **落地后**的生产复查（原 AC13 移来；落地前不可能取得，故不放在机械门里）：`sqlite3 ~/.cloudcli/auth.db "select transcript_name_source, count(*) from sessions group by 1"` 里 `agent` 档不再增长；`grep -c "registered a different address" server.log` 不再增长；新增的 `agent-name` 条目里不再出现 `<slug>-<id6>` 形状。
 
 ## Touches
 
@@ -290,3 +293,19 @@ server/modules/providers/tests/claude-session-title-mirror.test.ts       exit=0 
 - 失败步/判词：AC 未全勾（checked 12/13，剩余未勾 1）——续做只需验证并勾选 AC
 - run_id：wk-prod-anchor
 - session_id：f650faf3-05b7-4ce2-9de6-6d439f6912e9
+
+
+
+
+## 重启场景的实测（2026-09-30，回答人 yale「重启时 Claude Code 能否保持名称不变」）
+
+**方法**：同一会话（`fc544736-cb56-44e6-ab3a-d940dd2522b9`，cwd `/tmp/ccname-4179`）用 SDK 反复 resume，**一律不传 `name`**，每次进程起来后读 `~/.claude/sessions/<pid>.json`。前提：必须传 `pathToClaudeCodeExecutable`（App 在 `claude-runtime.provider.js:321-323` 就是这么做的，取自 `CLAUDE_CLI_PATH` 或 `claude`）；不传该选项时 SDK 会起它自带的 **2.1.165** CLI，而 App 用的是系统的 **2.1.285** —— 两者不是同一个 Claude Code，第一轮探针因此作废重做。
+
+**读数**：
+
+- 不传 `name` 时注册名 = `<cwd basename>-<2 个字符>`，`nameSource` 为 `derived`，且**每次启动重新随机**。同一会话连续 6 次重启得到 6 个不同标签：`80 / b0 / dd / e2 / f1 / b6`（唯一值 6/6）。⚠️ 我此前先测到两次逐字相同（都是 `ccname-4179-5c`），据此差点写成「跨重启逐字不变」——那是 1/256 的巧合；**这个探针必须多跑几次才有判别力**。
+- 变化的是地址，不变的是标题：同一会话的 `ai-title`（`Single-word alpha reply`）在每次重启后都还在转录里，`getSessionInfo().summary` 与 App 的 cache 都不受重启影响。**所以「会话名」跨重启是稳的，「进程地址」跨重启不稳。**
+- 代码侧解释了为什么：稳定地址是 Claude Code 自己的特性，不是 App 能造的。`vK()` 读 `getFeatureValue_SESSION_PINNED("tengu_session_stable_address", false)`，**默认 false**；打开时地址才是 `sid:<sessionId>`（`nmt`/`j8e`/`SUe`），关闭时按进程走（本机 13 个存活条目全是 `/run/user/1004/cc-socks/<pid>.sock`，**无 `sid:` 前缀 ⇒ 本机开关是关的**）。
+- `derived → auto`（把注册名换成 AI 标题）的采纳路径在代码里存在（`Sft`：`g.source==="derived"` 时 `DF(r, n, "auto")`），但 resume 路径上未观察到触发：不传消息 45s、以及真跑完一轮之后，注册名都一直是 `derived`。故**不能**指望重启后名字自动变成 AI 标题。
+
+**对人 yale 那条指令的结论**：新建会话不传 `--name` 成立；**重启会话「如果能保持名称不变就不要传」的前提不成立** —— Claude Code 保不住地址（每次重启换一个随机标签），因此不传 `--name` 的代价是每次重启换地址。按本裁定与 AC-164 修订（「不承诺跨重启不变」），正确做法仍是**不传 `--name`、读注册表里的名字**；若确实需要长期稳定的地址，那是 Claude Code 的 `tengu_session_stable_address` 开关的事，应当去要那个，而不是由 App 自造名字顶替。

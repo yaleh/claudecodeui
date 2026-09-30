@@ -5,14 +5,7 @@
 </div>
 
 <p align="center">
- <a href="https://cloudcli.ai">CloudCLI Cloud</a> · <a href="https://cloudcli.ai/docs">Dokümantasyon</a> · <a href="https://discord.gg/buxwujPNRE">Discord</a> · <a href="https://github.com/siteboon/claudecodeui/issues">Sorun Bildir</a> · <a href="../CONTRIBUTING.md">Katkıda Bulun</a>
-</p>
-
-<p align="center">
- <a href="https://cloudcli.ai"><img src="https://img.shields.io/badge/☁️_CloudCLI_Cloud-Hemen_Dene-0066FF?style=for-the-badge" alt="CloudCLI Cloud"></a>
- <a href="https://discord.gg/buxwujPNRE"><img src="https://img.shields.io/badge/Discord-Toplulu%C4%9Fa%20Kat%C4%B1l-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord'a Katıl"></a>
- <br><br>
- <a href="https://trendshift.io/repositories/15586" target="_blank"><img src="https://trendshift.io/api/badge/repositories/15586" alt="siteboon%2Fclaudecodeui | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+ <a href="https://cloudcli.ai/docs">Dokümantasyon</a> · <a href="https://github.com/siteboon/claudecodeui/issues">Sorun Bildir</a> · <a href="../CONTRIBUTING.md">Katkıda Bulun</a>
 </p>
 
 <div align="right"><i><a href="../README.md">English</a> · <a href="./README.ru.md">Русский</a> · <a href="./README.de.md">Deutsch</a> · <a href="./README.ko.md">한국어</a> · <a href="./README.zh-CN.md">简体中文</a> · <a href="./README.zh-TW.md">繁體中文</a> · <a href="./README.ja.md">日本語</a> · <b>Türkçe</b></i></div>
@@ -224,7 +217,6 @@ Evet, kendin barındırdığında. CloudCLI UI, Claude Code'un yerel olarak kull
 ## Topluluk ve Destek
 
 - **[Dokümantasyon](https://cloudcli.ai/docs)** — kurulum, yapılandırma, özellikler ve sorun giderme
-- **[Discord](https://discord.gg/buxwujPNRE)** — yardım al ve diğer kullanıcılarla tanış
 - **[GitHub Issues](https://github.com/siteboon/claudecodeui/issues)** — hata raporları ve özellik istekleri
 - **[Katkı Rehberi](../CONTRIBUTING.md)** — projeye nasıl katkıda bulunulur
 
@@ -249,8 +241,6 @@ CloudCLI UI — (https://cloudcli.ai).
 - **[TaskMaster AI](https://github.com/eyaltoledano/claude-task-master)** *(İsteğe Bağlı)* — AI destekli proje yönetimi ve görev planlama
 
 
-### Sponsorlar
-- [Siteboon — AI destekli web sitesi oluşturucu](https://siteboon.ai)
 ---
 
 <div align="center">
