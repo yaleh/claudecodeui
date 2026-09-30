@@ -95,3 +95,23 @@ extra:
 **裁定行（必须由人 yale 逐字写，执行者不得代写；建议格式）：** `出路裁定（yale，2026-09-30）：…`
 
 **与出路无关、本次已核实的旁证：** `nameSourceRankSql` 为 `agent=3 / manual=2 / ai=1 / else=0`（`server/modules/database/repositories/sessions.db.ts:207-209`）；同步器阶梯 `agent > manual > ai > derived`（`claude-session-synchronizer.provider.ts:533-546`）；`buildCloudCliSessionName`（`services/sessions.service.ts:78-81`）落 `derived`，今日已低于 `ai`，即 AC6 的「档位」部分当前成立。附带症状三（`readTranscriptAgentName` 取文件里第一条，`claude-host-driver.provider.ts:1096-1129`）与出路无关，是纯缺陷，但它的判据（AC4）要求落在本任务同一份新判据文件、且被 AC8 保护的 `claude-resident-addressable.test.ts` 也读同一路径，故一并留待裁定后实现。本轮 `scripts/test.sh --for-task … --allow-thin` 因分支无 delta 判 thin、exited 0；未写 scoped-gate 缓存——人证未过时该轮按设计走 exited-not-landed，fan-in 不会被 spawn。
+
+
+
+
+## 人 yale 的裁定（2026-09-30，逐字）
+
+「优先明确 Claude Code 的机制并遵循。在会话名称这方面（尤其是 resident session），把 CloudCLI 看作 Claude Code 的轻量 wrapper。即使是人工修改会话名，CloudCLI 的作用也应看作是调用 Claude Code 相应接口修改 Claude Code 中的会话名称。CloudCLI 中存储的会话名称应看作是 Claude Code 中的会话名称的 cache。」
+
+本节即为上文 AC 所要求的「人 yale 的逐字裁定」行，其存在即满足该条 AC 的前半；实现仍须满足其余各条。
+
+## 裁定后的复测（2026-09-30，全部为实测读数）
+
+1. **Claude Code 有权威的「这个会话叫什么」接口，本仓库一个都没用。** SDK 暴露 `getSessionInfo(sessionId, { dir })` 与 `listSessions({ dir })`，返回的 `SDKSessionInfo.summary` 文档逐字写着「Display title for the session: custom title, auto-generated summary, or first prompt」（`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts:3579-3610`）。注意这条阶梯里**没有 agent name**；而 App 自己实现的阶梯是 CLI 的**会话内显示**阶梯（`agentName || customTitle || aiTitle || …`）。读数：`grep -rn "getSessionInfo\|listSessions" server/ src/ scripts/` 的命中全部属于 browser-use 与宿主路由的注入式 reader，**没有一处读 Claude Code 的会话名**。
+2. **App 的 cache 目前是忠实的 ⇒ 缺陷在源头，不在 cache。** 实测：对 app 会话 `edb5ead0` 与 `cbcdc20d`，Claude Code 自己的 `summary` 返回的正是 App 显示的那个累加地址（`archguard-架构分析-edb5ea-edb5ea`、`author-develop-分支发布到-github-cbcdc2-cbcdc2`），`customTitle` 同值。⇒ **上文出路的 (c)（App 侧把自赋名降档显示）被本裁定排除**：那会让 App 与 Claude Code 不一致，正是本裁定禁止的。可选的只剩 (a) 不自赋名与 (b) 自赋名等于 Claude Code 已有的名字。
+3. **正控制：人工改名这条路已经是通的。** 会话 `6e20c900`：库 `custom_name = Restart Web Server`、`name_source = manual`，而 Claude Code 的 `summary` 也是 `"Restart Web Server"` —— 两边逐字一致，写回走的是 SDK 的 `renameSession`。⇒ 原则 2 的机制本身是好的，坏的只有 CloudCLI 自己注入的 `--name`。
+4. **`agent` 档实际上不携带独立信息。** 语料里含 `agent-name` 的转录共 2749 条，其中「最后一条 `custom-title` ≠ `agent-name`」的只有 **1** 条（就是上一条那个 `/rename` 形状）——因为 `--name` 成对写这两条。⇒ App 阶梯事实上等于「把启动旗标读成最高优先名」，而那个旗标正是 CloudCLI 自己写的。
+5. **cache 的写入次序与「cache」模型相反。** `renameSessionById`（`server/modules/providers/services/sessions.service.ts:749-765`）先写 SQLite、再广播、**最后**才 best-effort 写回 provider，而 `writeRenameToProviderTranscript`（同文件 `:118`）把 provider 的拒绝**记录后吞掉**（其 docstring 逐字：nothing here is allowed to fail the request），之后**不回读** Claude Code。⇒ cache 可以长期持有 Claude Code 从未接受过的名字，且因为读取侧 `COALESCE(custom_name, transcript_name)` 无条件优先 `custom_name`，这个错名不会被任何后续同步纠正。缓存纪律应为「写穿成功后再落库」或「落库后回读校验」。
+6. **一个仍在的缺口：Claude Code 侧的改名盖不过 App 侧的覆盖。** 同步器每次都会重读转录（`claude-session-synchronizer.provider.ts:392-397` 逐字：a name that is not re-read is a name that goes stale），但人工在 CLI 里 `/rename` 出来的名字会落在 `transcript_name`/`manual`，而 `custom_name` 无条件压过它 ⇒ App 会继续显示自己那份更旧的覆盖名。按本裁定，这时应以 Claude Code 为准。
+
+以上 1/5/6 是本裁定新增的范围（缓存来源、缓存写入纪律、覆盖与来源冲突），实现时若认为超出原 10 条 AC，请先登记再决定是否补 AC。
