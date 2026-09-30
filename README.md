@@ -10,19 +10,40 @@
 > scope is maintained elsewhere and is **not** built from this repository.
 
 <p align="center">
- <a href="https://cloudcli.ai">CloudCLI Cloud</a> · <a href="https://cloudcli.ai/docs">Documentation</a> · <a href="https://discord.gg/buxwujPNRE">Discord</a> · <a href="https://github.com/yaleh/claudecodeui/issues">Bug Reports</a> · <a href="CONTRIBUTING.md">Contributing</a>
+ <a href="https://github.com/yaleh/claudecodeui/releases">Releases</a> · <a href="https://github.com/yaleh/claudecodeui/issues">Bug Reports</a> · <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
-<p align="center">
- <a href="https://cloudcli.ai"><img src="https://img.shields.io/badge/☁️_CloudCLI_Cloud-Try_Now-0066FF?style=for-the-badge" alt="CloudCLI Cloud"></a>
- <a href="https://discord.gg/buxwujPNRE"><img src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join our Discord"></a>
- <br><br>
- <a href="https://trendshift.io/repositories/15586" target="_blank"><img src="https://trendshift.io/api/badge/repositories/15586" alt="siteboon%2Fclaudecodeui | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-</p>
-
-<div align="right"><i><b>English</b> · <a href="./docs/README.ru.md">Русский</a> · <a href="./docs/README.de.md">Deutsch</a> · <a href="./docs/README.ko.md">한국어</a> · <a href="./docs/README.zh-CN.md">简体中文</a> · <a href="./docs/README.zh-TW.md">繁體中文</a> · <a href="./docs/README.ja.md">日本語</a> · <a href="./docs/README.tr.md">Türkçe</a></i></div>
+<div align="right"><i><b>English</b> · <a href="./docs/README.ru.md">Русский</a> · <a href="./docs/README.de.md">Deutsch</a> · <a href="./docs/README.ko.md">한국어</a> · <a href="./docs/README.zh-CN.md">简体中文</a> · <a href="./docs/README.zh-TW.md">繁體中文</a> · <a href="./docs/README.ja.md">日本語</a> · <a href="./docs/README.tr.md">Türkçe</a></i><br><sub>The translations follow the upstream README and do not cover the fork-specific sections below.</sub></div>
 
 ---
+
+## What this fork adds
+
+The fork diverged from upstream at `v1.37.3` (commit `fd424f3f`). Since then it has taken about 2,200 non-merge commits and roughly 930 changed files (about +208k / −2k lines). Around 350 of those commits are product code; the rest is the task ledger, tests, experiments and documentation that drive the fork's development loop. Upstream's 20 commits made after the split — for example multi-select session deletion, theme-follows-system, a Czech translation and the GPT-6 model entries — are **not** merged.
+
+**Resident sessions.** A session can be kept running as a long-lived Claude process instead of starting one per message. Turn the *Keep this session running (resident)* switch on under the model card of a new chat, or convert an existing session from its menu; the trade-offs are shown in a tooltip and do not block sending. Around it:
+- a status bar with per-session marks, a configurable idle ceiling, and a sidebar view that separates turns in flight from held-open residents;
+- input sent to a busy resident session goes to the process (and can be withdrawn until it starts) instead of a local queue, and the process has a stable `SendMessage` address;
+- the three human-facing permission prompts are intercepted, held-work reasons are reconciled from the Stop hook and the stream, and a bypass launch is refused when your user settings enable Remote Control;
+- turns nobody typed (unattended turns of a resident process) are recorded as runs, and the Shell tab is closed for resident sessions.
+
+**Session-host layer.** Session lifecycle now runs through a host layer with lease-driven policies (`GET /api/session-hosts`), 1:N session binding, restart-residue sweeping, resident caps read from config, and an out-of-memory fact a host can read. Each Claude session can be capped inside its own systemd scope, and the session watcher picks its mechanism per root and backs off when polling.
+
+**Voice input.** Server-stored per-user voice settings, a pluggable recogniser registry (an inline-only multimodal adapter is the second recogniser), silence trimming, capture failures isolated from transcription, and health checks that read the user's effective config.
+
+**Chat and composer.** The composer footer decides its layout from the box's own width; the send key is scoped to the device's input capabilities; the running turn is drawn inline on narrow screens; the live session name is shown everywhere, taking Claude's `ai-title` into account (also shown in `/cost`); the permission mode is stored with each send instead of in the browser.
+
+**Sidebar and projects.** A draggable sidebar width, forked sessions grouped by lineage with branch marks, and a per-project session-name filter.
+
+**Launch profiles and models.** A Profiles settings tab and a composer profile select; the model list explains every environment row kind, including unset ones.
+
+**Performance.** The `dist` bundle and SPA entry are served gzip/brotli-compressed.
+
+**Debug agent.** A gated scenario-driven debug agent for resident host states, turn origins and the run seam. When it is off it is structurally absent.
+
+**Engineering.** Playwright end-to-end specs, strict-TypeScript-checked `scripts/` with tests, and a test runner with liveness watchdogs. Work is tracked as task and goal records under `tasks/`, `goals/` and `adr/`.
+
+**Releases.** GitHub Releases plus an npm package, built by the workflows in `.github/workflows/` (see [Releasing](#releasing)).
 
 ## Screenshots
 
@@ -53,37 +74,29 @@
 </tr>
 </table>
 
-
-
 </div>
 
 ## Features
 
-- **Responsive Design** - Works seamlessly across desktop, tablet, and mobile so you can also use Agents from mobile 
+- **Responsive Design** - Works seamlessly across desktop, tablet, and mobile so you can also use Agents from mobile
 - **Interactive Chat Interface** - Built-in chat interface for seamless communication with the Agents
+- **Resident Sessions** - Keep a Claude session running across turns, with a status bar and idle ceiling
 - **Integrated Shell Terminal** - Direct access to the Agents CLI through built-in shell functionality
 - **File Explorer** - Interactive file tree with syntax highlighting and live editing
-- **Git Explorer** - View, stage and commit your changes. You can also switch branches 
+- **Git Explorer** - View, stage and commit your changes. You can also switch branches
+- **Voice Input** - Dictate prompts through a configurable speech recogniser
 - **Browser Use** - Open browser sessions for web research, testing, and agent-driven browser tasks
-- **Session Management** - Resume conversations, manage multiple sessions, and track history
-- **Plugin System** - Extend CloudCLI with custom plugins — add new tabs, backend services, and integrations. [Build your own →](https://github.com/cloudcli-ai/cloudcli-plugin-starter)
+- **Session Management** - Resume conversations, manage multiple sessions, group forks by lineage, and filter by name per project
+- **Launch Profiles** - Save and pick launch configurations from the composer
+- **Plugin System** - Extend the app with custom plugins — add new tabs, backend services, and integrations. [Build your own →](https://github.com/cloudcli-ai/cloudcli-plugin-starter)
 - **TaskMaster AI Integration** *(Optional)* - Advanced project management with AI-powered task planning, PRD parsing, and workflow automation
 - **Model Compatibility** - Works with Claude and GPT model families (the full list of supported models is available at runtime via `GET /api/providers/:provider/models`)
 
-
 ## Quick Start
 
-### CloudCLI Cloud (Recommended)
+### npm
 
-The fastest way to get started — no local setup required. Get a fully managed, containerized development environment accessible from the web, mobile app, API, or your favorite IDE.
-
-**[Get started with CloudCLI Cloud](https://cloudcli.ai)**
-
-### Self-Hosted (Open source)
-
-#### npm
-
-Try CloudCLI UI instantly with **npx** (requires **Node.js** v22+):
+Try it instantly with **npx** (requires **Node.js** v22+):
 
 ```
 npx @yalehwang/cloudcli
@@ -98,9 +111,9 @@ cloudcli
 
 Open `http://localhost:3001` — all your existing sessions are discovered automatically.
 
-Visit the **[documentation →](https://cloudcli.ai/docs)** for full configuration options, PM2, remote server setup and more.
+For general configuration, PM2 and remote-server setup, the [upstream documentation](https://cloudcli.ai/docs) is a useful reference; where it differs from this README, this README wins for the fork.
 
-#### Docker Sandboxes (Experimental)
+### Docker Sandboxes (Experimental)
 
 Run agents in isolated sandboxes with hypervisor-level isolation. Starts Claude Code by default. Requires the [`sbx` CLI](https://docs.docker.com/ai/sandboxes/get-started/).
 
@@ -110,38 +123,22 @@ npx @yalehwang/cloudcli@latest sandbox ~/my-project
 
 Supports Claude Code and Codex. See the [sandbox docs](docker/) for setup and advanced options.
 
-### Desktop Companion App
+> **Note:** the sandbox images (`docker.io/cloudcliai/sandbox:*`) are upstream's and install upstream’s published CloudCLI package, so what runs *inside* the sandbox is upstream's build, not this fork. This fork does not publish its own images yet.
 
-CloudCLI Desktop is an optional native companion for CloudCLI Cloud and Local CloudCLI. It ships from this repository's GitHub Releases and keeps CloudCLI available from your menu bar or tray.
+### Desktop App
 
-- **[Windows installer](https://github.com/yaleh/claudecodeui/releases)** · **[GitHub Releases and checksums](https://github.com/yaleh/claudecodeui/releases)** — the only desktop build currently published; there is no macOS version
+CloudCLI Desktop is an optional native app that keeps the UI available from your tray. It ships from this repository's [GitHub Releases](https://github.com/yaleh/claudecodeui/releases) together with checksums. **Only a Windows installer is published; there is no macOS or Linux build.**
 
-Use it to open CloudCLI Cloud environments, switch between local and remote workspaces, and copy mobile/browser URLs. To work locally, choose **Local CloudCLI** in the desktop app; it will use your running local server or start one for you.
+Choose **Local CloudCLI** in the desktop app to use your running local server or have it start one for you. The first time, it downloads a matching local-server runtime from this repository's `cloudcli-local-server-<version>` pre-release.
 
+## Releasing
 
----
+Releases are cut from the `develop` branch by two manually triggered workflows in `.github/workflows/`:
 
-## Which option is right for you?
+1. **Release** — bumps the version with release-it, updates `CHANGELOG.md`, tags `vX.Y.Z`, creates the GitHub Release, and publishes `@yalehwang/cloudcli` to npm (needs the `RELEASE_PAT` and `NPM_TOKEN` repository secrets).
+2. **Desktop Release** — run with the new tag to build the Windows installer and the local-server runtime and attach them to that release.
 
-CloudCLI UI is the open source UI layer that powers CloudCLI Cloud. You can self-host it on your own machine, run it in a Docker sandbox for isolation, or use CloudCLI Cloud for a fully managed environment.
-
-| | Self-Hosted (npm) | Self-Hosted (Docker Sandbox) *(Experimental)* | CloudCLI Cloud |
-|---|---|---|---|
-| **Best for** | Local agent sessions on your own machine | Isolated agents with web/mobile IDE | Teams who want agents in the cloud |
-| **How you access it** | Browser via `[yourip]:port` | Browser via `localhost:port` | Browser, any IDE, REST API, n8n |
-| **Setup** | `npx @yalehwang/cloudcli` | `npx @yalehwang/cloudcli@latest sandbox ~/project` | No setup required |
-| **Isolation** | Runs on your host | Hypervisor-level sandbox (microVM) | Full cloud isolation |
-| **Machine needs to stay on** | Yes | Yes | No |
-| **Mobile access** | Any browser on your network | Any browser on your network | Any device |
-| **Desktop companion** | Optional. Choose Local CloudCLI | Optional. Choose Local CloudCLI | Optional. Opens cloud environments |
-| **Agents supported** | Claude Code, Cursor CLI, Codex | Claude Code, Codex | Claude Code, Cursor CLI, Codex |
-| **File explorer and Git** | Yes | Yes | Yes |
-| **MCP configuration** | Synced with `~/.claude` | Managed via UI | Managed via UI |
-| **REST API** | Yes | Yes | Yes |
-| **Team sharing** | No | No | Yes |
-| **Platform cost** | Free, open source | Free, open source | Starts at €7/month |
-
-> All options use your own AI subscriptions (Claude, Cursor, etc.) — CloudCLI provides the environment, not the AI.
+`docker.yml` and the branch-build workflows are inherited from upstream; `docker.yml` targets upstream's Docker Hub account and should not be run from this fork.
 
 ---
 
@@ -166,11 +163,15 @@ To use Claude Code's full functionality, you'll need to manually enable tools:
 
 **Recommended approach**: Start with basic tools enabled and add more as needed. You can always adjust these settings later.
 
+### Resident sessions and permissions
+
+A resident session runs one long-lived Claude process that can hold work between your messages. It runs with the same operating-system user and trust boundary as the server, and the permission prompts it would otherwise show are intercepted by the UI. Only enable it for projects and machines you trust.
+
 ---
 
 ## Plugins
 
-CloudCLI has a plugin system that lets you add custom tabs with their own frontend UI and optional Node.js backend. Install plugins from git repos directly in **Settings > Plugins**, or build your own.
+The plugin system lets you add custom tabs with their own frontend UI and optional Node.js backend. Install plugins from git repos directly in **Settings > Plugins**, or build your own. The plugins below are third-party projects from the wider ecosystem.
 
 ### Available Plugins
 
@@ -190,9 +191,8 @@ CloudCLI has a plugin system that lets you add custom tabs with their own fronte
 
 **[Plugin Starter Template →](https://github.com/cloudcli-ai/cloudcli-plugin-starter)** — fork this repo to create your own plugin. It includes a working example with frontend rendering, live context updates, and RPC communication to a backend server.
 
-**[Plugin Documentation →](https://cloudcli.ai/docs/plugin-overview)** — full guide to the plugin API, manifest format, security model, and more.
-
 ---
+
 ## FAQ
 
 <details>
@@ -200,36 +200,35 @@ CloudCLI has a plugin system that lets you add custom tabs with their own fronte
 
 Claude Code Remote Control lets you send messages to a session already running in your local terminal. Your machine has to stay on, your terminal has to stay open, and sessions time out after roughly 10 minutes without a network connection.
 
-CloudCLI UI and CloudCLI Cloud extend Claude Code rather than sit alongside it — your MCP servers, permissions, settings, and sessions are the exact same ones Claude Code uses natively. Nothing is duplicated or managed separately.
+This UI extends Claude Code rather than sitting alongside it — your MCP servers, permissions, settings, and sessions are the exact same ones Claude Code uses natively. Nothing is duplicated or managed separately.
 
-Here's what that means in practice:
+In practice:
 
-- **All your sessions, not just one** — CloudCLI UI auto-discovers every session from your `~/.claude` folder. Remote Control only exposes the single active session to make it available in the Claude mobile app.
-- **Your settings are your settings** — MCP servers, tool permissions, and project config you change in CloudCLI UI are written directly to your Claude Code config and take effect immediately, and vice versa.
+- **All your sessions, not just one** — every session from your `~/.claude` folder is discovered automatically. Remote Control only exposes the single active session to the Claude mobile app.
+- **Your settings are your settings** — MCP servers, tool permissions, and project config you change here are written directly to your Claude Code config and take effect immediately, and vice versa.
 - **Works with more agents** — Claude Code, Cursor CLI and Codex, not just Claude Code.
 - **Full UI, not just a chat window** — file explorer, Git integration, MCP management, and a shell terminal are all built in.
-- **CloudCLI Cloud runs in the cloud** — close your laptop, the agent keeps running. No terminal to babysit, no machine to keep awake.
 
 </details>
 
 <details>
 <summary>Do I need to pay for an AI subscription separately?</summary>
 
-Yes. CloudCLI provides the environment, not the AI. You bring your own Claude, Cursor, or Codex subscription. CloudCLI Cloud starts at €7/month for the hosted environment on top of that.
+Yes. This project provides the environment, not the AI. You bring your own Claude, Cursor, or Codex subscription.
 
 </details>
 
 <details>
-<summary>Can I use CloudCLI UI on my phone?</summary>
+<summary>Can I use it on my phone?</summary>
 
-Yes. For self-hosted, run the server on your machine and open `[yourip]:port` in any browser on your network. For CloudCLI Cloud, open it from any device — no VPN, no port forwarding, no setup. A native app is also in the works.
+Yes. Run the server on your machine and open `[yourip]:port` in any browser on your network.
 
 </details>
 
 <details>
 <summary>Will changes I make in the UI affect my local Claude Code setup?</summary>
 
-Yes, for self-hosted. CloudCLI UI reads from and writes to the same `~/.claude` config that Claude Code uses natively. MCP servers you add via the UI show up in Claude Code immediately and vice versa.
+Yes. The UI reads from and writes to the same `~/.claude` config that Claude Code uses natively. MCP servers you add via the UI show up in Claude Code immediately and vice versa.
 
 </details>
 
@@ -237,8 +236,6 @@ Yes, for self-hosted. CloudCLI UI reads from and writes to the same `~/.claude` 
 
 ## Community & Support
 
-- **[Documentation](https://cloudcli.ai/docs)** — installation, configuration, features, and troubleshooting
-- **[Discord](https://discord.gg/buxwujPNRE)** — get help and connect with other users
 - **[GitHub Issues](https://github.com/yaleh/claudecodeui/issues)** — bug reports and feature requests
 - **[Contributing Guide](CONTRIBUTING.md)** — how to contribute to the project
 
@@ -247,8 +244,6 @@ Yes, for self-hosted. CloudCLI UI reads from and writes to the same `~/.claude` 
 GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later) — see [LICENSE](LICENSE) for the full text, including additional terms under Section 7.
 
 This project is open source and free to use, modify, and distribute under the AGPL-3.0-or-later license. If you modify this software and run it as a network service, you must make your modified source code available to users of that service.
-
-CloudCLI UI - (https://cloudcli.ai).
 
 ## Acknowledgments
 
@@ -262,9 +257,6 @@ CloudCLI UI - (https://cloudcli.ai).
 - **[CodeMirror](https://codemirror.net/)** - Advanced code editor
 - **[TaskMaster AI](https://github.com/eyaltoledano/claude-task-master)** *(Optional)* - AI-powered project management and task planning
 
-
-### Sponsors
-- [Siteboon - AI powered website builder](https://siteboon.ai)
 ---
 
 <div align="center">

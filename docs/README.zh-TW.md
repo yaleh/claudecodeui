@@ -5,14 +5,7 @@
 </div>
 
 <p align="center">
- <a href="https://cloudcli.ai">CloudCLI Cloud</a> · <a href="https://cloudcli.ai/docs">文件</a> · <a href="https://discord.gg/buxwujPNRE">Discord</a> · <a href="https://github.com/siteboon/claudecodeui/issues">Bug 回報</a> · <a href="../CONTRIBUTING.md">貢獻指南</a>
-</p>
-
-<p align="center">
- <a href="https://cloudcli.ai"><img src="https://img.shields.io/badge/☁️_CloudCLI_Cloud-Try_Now-0066FF?style=for-the-badge" alt="CloudCLI Cloud"></a>
- <a href="https://discord.gg/buxwujPNRE"><img src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="加入 Discord 社群"></a>
- <br><br>
- <a href="https://trendshift.io/repositories/15586" target="_blank"><img src="https://trendshift.io/api/badge/repositories/15586" alt="siteboon%2Fclaudecodeui | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+ <a href="https://cloudcli.ai/docs">文件</a> · <a href="https://github.com/siteboon/claudecodeui/issues">Bug 回報</a> · <a href="../CONTRIBUTING.md">貢獻指南</a>
 </p>
 
 <div align="right"><i><a href="../README.md">English</a> · <a href="./README.ru.md">Русский</a> · <a href="./README.de.md">Deutsch</a> · <a href="./README.ko.md">한국어</a> · <a href="./README.zh-CN.md">简体中文</a> · <b>繁體中文</b> · <a href="./README.ja.md">日本語</a> · <a href="./README.tr.md">Türkçe</a></i></div>
@@ -218,7 +211,6 @@ CloudCLI UI 與 CloudCLI Cloud 是對 Claude Code 的擴充，而非旁觀 — M
 ## 社群與支援
 
 - **[文件](https://cloudcli.ai/docs)** — 安裝、設定、功能與疑難排解指南
-- **[Discord](https://discord.gg/buxwujPNRE)** — 取得協助並與社群交流
 - **[GitHub Issues](https://github.com/siteboon/claudecodeui/issues)** — 回報 Bug 與建議功能
 - **[貢獻指南](../CONTRIBUTING.md)** — 如何參與專案貢獻
 
@@ -240,8 +232,6 @@ GNU Affero 通用公共授權條款 v3.0 或更高版本 (AGPL-3.0-or-later) —
 - **[CodeMirror](https://codemirror.net/)** — 進階程式碼編輯器
 - **[TaskMaster AI](https://github.com/eyaltoledano/claude-task-master)** *(選用)* — AI 驅動的專案管理與任務規劃
 
-### 贊助商
-- [Siteboon - AI powered website builder](https://siteboon.ai)
 ---
 
 <div align="center">

@@ -5,14 +5,7 @@
 </div>
 
 <p align="center">
- <a href="https://cloudcli.ai">CloudCLI Cloud</a> · <a href="https://cloudcli.ai/docs">문서</a> · <a href="https://discord.gg/buxwujPNRE">Discord</a> · <a href="https://github.com/siteboon/claudecodeui/issues">버그 신고</a> · <a href="../CONTRIBUTING.md">기여 안내</a>
-</p>
-
-<p align="center">
- <a href="https://cloudcli.ai"><img src="https://img.shields.io/badge/☁️_CloudCLI_Cloud-Try_Now-0066FF?style=for-the-badge" alt="CloudCLI Cloud"></a>
- <a href="https://discord.gg/buxwujPNRE"><img src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord 커뮤니티"></a>
- <br><br>
- <a href="https://trendshift.io/repositories/15586" target="_blank"><img src="https://trendshift.io/api/badge/repositories/15586" alt="siteboon%2Fclaudecodeui | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+ <a href="https://cloudcli.ai/docs">문서</a> · <a href="https://github.com/siteboon/claudecodeui/issues">버그 신고</a> · <a href="../CONTRIBUTING.md">기여 안내</a>
 </p>
 
 <div align="right"><i><a href="../README.md">English</a> · <a href="./README.ru.md">Русский</a> · <a href="./README.de.md">Deutsch</a> · <b>한국어</b> · <a href="./README.zh-CN.md">简体中文</a> · <a href="./README.zh-TW.md">繁體中文</a> · <a href="./README.ja.md">日本語</a> · <a href="./README.tr.md">Türkçe</a></i></div>
@@ -218,7 +211,6 @@ CloudCLI UI와 CloudCLI Cloud는 Claude Code를 확장하며 별도로 존재하
 ## 커뮤니티 및 지원
 
 - **[문서](https://cloudcli.ai/docs)** — 설치, 구성, 기능, 문제 해결 안내
-- **[Discord](https://discord.gg/buxwujPNRE)** — 도움 및 커뮤니티 참여
 - **[GitHub Issues](https://github.com/siteboon/claudecodeui/issues)** — 버그 보고 및 기능 요청
 - **[기여 안내](../CONTRIBUTING.md)** — 프로젝트 참여 방법
 
@@ -240,8 +232,6 @@ GNU General Public License v3.0 - 자세한 내용은 [LICENSE](../LICENSE) 파�
 - **[CodeMirror](https://codemirror.net/)** - 고급 코드 에디터
 - **[TaskMaster AI](https://github.com/eyaltoledano/claude-task-master)** *(선택사항)* - AI 기반 프로젝트 관리 및 작업 계획
 
-### 스폰서
-- [Siteboon - AI powered website builder](https://siteboon.ai)
 ---
 
 <div align="center">
