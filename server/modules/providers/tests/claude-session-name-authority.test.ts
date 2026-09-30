@@ -16,6 +16,7 @@ import {
   sessionsDb,
   stripSelfAssignedSuffix,
 } from '@/modules/database/index.js';
+import type { SessionNameSource } from '@/modules/database/index.js';
 import { readCliSessionRegistration } from '@/modules/providers/list/claude/claude-host-driver.provider.js';
 import { ClaudeSessionSynchronizer } from '@/modules/providers/list/claude/claude-session-synchronizer.provider.js';
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
@@ -181,7 +182,7 @@ async function writeTranscriptFor(
 const registerAppSession = (
   workspacePath: string,
   name?: string,
-  nameSource?: 'manual',
+  nameSource?: SessionNameSource,
   providerSessionId = PROVIDER_SESSION_ID,
 ): string => {
   sessionsDb.createSession(
