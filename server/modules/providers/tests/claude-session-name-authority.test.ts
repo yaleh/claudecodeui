@@ -178,9 +178,14 @@ async function writeTranscriptFor(
  * address ends in its first six characters — so every fixture below has to be
  * built from the id the row actually got rather than from a constant.
  */
-const registerAppSession = (workspacePath: string, name?: string, nameSource?: 'manual'): string => {
+const registerAppSession = (
+  workspacePath: string,
+  name?: string,
+  nameSource?: 'manual',
+  providerSessionId = PROVIDER_SESSION_ID,
+): string => {
   sessionsDb.createSession(
-    PROVIDER_SESSION_ID,
+    providerSessionId,
     'claude',
     workspacePath,
     name,
@@ -189,7 +194,7 @@ const registerAppSession = (workspacePath: string, name?: string, nameSource?: '
     null,
     nameSource ?? 'derived',
   );
-  const row = sessionsDb.getSessionByProviderSessionId(PROVIDER_SESSION_ID);
+  const row = sessionsDb.getSessionByProviderSessionId(providerSessionId);
   assert.ok(row, 'the session the fixture registers must be readable back');
   return row.session_id;
 };
@@ -535,6 +540,127 @@ test('the migration re-files rows named after an address, and its second run is 
   });
 });
 
+// ---------------------------------------------------------------------------
+// AC9: the placeholder a session opens with is a stopgap, and never an address
+// ---------------------------------------------------------------------------
+
+/**
+ * The app's own placeholder rule, restated: the first four words of the first
+ * message. `sessionsService.createAppSession` is what applies it, so the
+ * fixtures below go through that call rather than writing the string in
+ * themselves — a placeholder the test invented could agree with a rule the app
+ * no longer follows.
+ */
+const PLACEHOLDER_MESSAGE = 'count the typescript files under the server directory';
+const PLACEHOLDER = 'count the typescript files';
+const SECOND_PLACEHOLDER_MESSAGE = 'summarise the failing integration';
+const SECOND_PLACEHOLDER = 'summarise the failing integration';
+const PLACEHOLDER_PROVIDER_ID = 'claude-name-authority-placeholder-1';
+const SECOND_PLACEHOLDER_PROVIDER_ID = 'claude-name-authority-placeholder-2';
+
+/** The name the app displays for one of its own rows, and where that came from. */
+const displayNameOf = (appSessionId: string): { name: string | null; source: string | null } => {
+  const row = sessionsDb.getSessionById(appSessionId);
+  return { name: row?.custom_name ?? null, source: row?.name_source ?? null };
+};
+
+test('a session opens on the app placeholder and gives it up to the title Claude Code writes', async () => {
+  await withClaudeHome(async ({ workspacePath }) => {
+    await withIsolatedDatabase(async () => {
+      // The path a brand-new chat takes: the row is minted before any provider
+      // run, carrying the app's guess at the name, and the provider's own
+      // conversation id is attached when the runtime announces it.
+      const created = sessionsService.createAppSession('claude', workspacePath, PLACEHOLDER_MESSAGE);
+      assert.deepEqual(
+        displayNameOf(created.sessionId),
+        { name: PLACEHOLDER, source: 'derived' },
+        'the placeholder must be the name a session opens with, and filed as a reading',
+      );
+
+      const transcriptPath = path.join(workspacePath, `${PLACEHOLDER_PROVIDER_ID}.jsonl`);
+      await writeFile(
+        transcriptPath,
+        [
+          ...headLines(PLACEHOLDER_PROVIDER_ID, workspacePath, PLACEHOLDER_MESSAGE),
+          transcriptLine(PLACEHOLDER_PROVIDER_ID, workspacePath, { type: 'ai-title', aiTitle: TITLE }),
+          '',
+        ].join('\n'),
+        'utf8',
+      );
+      sessionsDb.assignProviderSessionId(created.sessionId, PLACEHOLDER_PROVIDER_ID);
+
+      await new ClaudeSessionSynchronizer().synchronizeFile(transcriptPath);
+
+      // The stopgap's whole job: it is what the session is called until Claude
+      // Code names it, and not one scan longer.
+      assert.deepEqual(displayNameOf(created.sessionId), { name: TITLE, source: 'ai' });
+    });
+  });
+});
+
+test('a session Claude Code never titles keeps the placeholder rather than losing its name', async () => {
+  await withClaudeHome(async ({ workspacePath }) => {
+    await withIsolatedDatabase(async () => {
+      const created = sessionsService.createAppSession('claude', workspacePath, SECOND_PLACEHOLDER_MESSAGE);
+      assert.deepEqual(displayNameOf(created.sessionId), {
+        name: SECOND_PLACEHOLDER,
+        source: 'derived',
+      });
+
+      // A transcript the CLI has opened and nothing more: no title, and no
+      // prompt yet either — the window in which the placeholder is the only
+      // name the session has.
+      const transcriptPath = path.join(workspacePath, `${SECOND_PLACEHOLDER_PROVIDER_ID}.jsonl`);
+      await writeFile(
+        transcriptPath,
+        `${headLines(SECOND_PLACEHOLDER_PROVIDER_ID, workspacePath).slice(0, 2).join('\n')}\n`,
+        'utf8',
+      );
+      sessionsDb.assignProviderSessionId(created.sessionId, SECOND_PLACEHOLDER_PROVIDER_ID);
+
+      await new ClaudeSessionSynchronizer().synchronizeFile(transcriptPath);
+
+      // "Replaced" must not have been implemented as "cleared": a transcript
+      // that names its session nowhere is not evidence that the name it had is
+      // gone, so the placeholder survives the scan verbatim.
+      assert.deepEqual(displayNameOf(created.sessionId), {
+        name: SECOND_PLACEHOLDER,
+        source: 'derived',
+      });
+    });
+  });
+});
+
+test('a placeholder filed in the override column still gives way to the title', async () => {
+  await withClaudeHome(async ({ workspacePath, transcriptPath }) => {
+    await withIsolatedDatabase(async () => {
+      // The shape a pre-split build left behind: the placeholder sits in the
+      // override column, which the reader takes ahead of every rung — a rung
+      // above `ai` in everything but name. The title has to clear it, or the
+      // stopgap becomes permanent and the session is stuck on the app's guess
+      // for as long as it exists. (The control that keeps this clearing honest
+      // is the case above it: a name the user chose lives in the same column,
+      // and the same scan has to leave that one alone.)
+      registerAppSession(workspacePath, PLACEHOLDER, 'derived');
+      assert.deepEqual(storedName(), { name: PLACEHOLDER, source: 'derived' });
+
+      await writeFile(
+        transcriptPath,
+        [
+          ...headLines(PROVIDER_SESSION_ID, workspacePath),
+          transcriptLine(PROVIDER_SESSION_ID, workspacePath, { type: 'ai-title', aiTitle: TITLE }),
+          '',
+        ].join('\n'),
+        'utf8',
+      );
+
+      await new ClaudeSessionSynchronizer().synchronizeFile(transcriptPath);
+
+      assert.deepEqual(storedName(), { name: TITLE, source: 'ai' });
+    });
+  });
+});
+
 test('peeling the address stops at this session, so a six-hex-letter word survives', () => {
   const appSessionId = 'aaaaaaaa-1111-2222-3333-444455556666';
   assert.strictEqual(
@@ -586,6 +712,30 @@ test('the rank table keeps every CloudCLI-made source below a real title', async
         { name: replaced?.custom_name ?? null, source: replaced?.name_source ?? null },
         { name: TITLE, source: 'ai' },
         'an ai-title must displace a self-assigned name',
+      );
+
+      // The placeholder's own rung, through the same pair of doors. It is the
+      // name the app makes up for a session that has none yet, so it sits by
+      // definition below a name the session earned — the guard and its control
+      // are here as well as above because "below `ai`" is a claim about this
+      // rung specifically, and a table that put the placeholder on top would
+      // pass the self-assigned pair unchanged.
+      sessionsDb.createSession('rank-placeholder', 'claude', projectPath, TITLE, undefined, undefined, null, 'ai');
+      sessionsDb.createSession('rank-placeholder', 'claude', projectPath, PLACEHOLDER, undefined, undefined, null, 'derived');
+      const keptFromPlaceholder = sessionsDb.getSessionByProviderSessionId('rank-placeholder');
+      assert.deepEqual(
+        { name: keptFromPlaceholder?.custom_name ?? null, source: keptFromPlaceholder?.name_source ?? null },
+        { name: TITLE, source: 'ai' },
+        'the placeholder must not displace an ai-title',
+      );
+
+      sessionsDb.createSession('rank-placeholder-control', 'claude', projectPath, PLACEHOLDER, undefined, undefined, null, 'derived');
+      sessionsDb.createSession('rank-placeholder-control', 'claude', projectPath, TITLE, undefined, undefined, null, 'ai');
+      const replacedPlaceholder = sessionsDb.getSessionByProviderSessionId('rank-placeholder-control');
+      assert.deepEqual(
+        { name: replacedPlaceholder?.custom_name ?? null, source: replacedPlaceholder?.name_source ?? null },
+        { name: TITLE, source: 'ai' },
+        'an ai-title must displace the placeholder',
       );
     } finally {
       await rm(projectPath, { recursive: true, force: true });
