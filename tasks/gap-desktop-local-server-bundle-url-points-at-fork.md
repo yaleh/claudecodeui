@@ -31,11 +31,11 @@ extra:
 
 ## AC
 
-- [ ] AC1 默认地址指向 fork：`node --test scripts/release/tests/server-installer-bundle-url.test.mjs` 退出 **0**，并打印 `bundle.default.host=github.com/yaleh/claudecodeui`、`bundle.default.upstream_refs=0`、`bundle.env_override=honored`；`grep -c siteboon electron/serverInstaller.js` 为 **0**。
-- [ ] AC2 取假必须红：把 `DEFAULT_BUNDLE_BASE_URL` 改回 `siteboon/claudecodeui` 后上面的测试退出非 **0**，红在 `bundle.default.upstream_refs` 那条断言；把 `CLOUDCLI_SERVER_BUNDLE_URL` 覆盖分支拿掉后同样红在 `env_override` 断言；恢复后复绿（登记变异 diff、失败断言逐字、退出码）。
-- [ ] AC3 URL 形状不变：测试对 `new ServerInstaller({version:'1.38.1', platform:'win32', arch:'x64', bundleReleaseTag:'cloudcli-local-server-v1.38.1'}).getBundleUrl()` 断言其等于 `https://github.com/yaleh/claudecodeui/releases/download/cloudcli-local-server-v1.38.1/cloudcli-local-server-1.38.1-win-x64.tar.gz`（只换了仓库段，文件名与 tag 段与现状逐字一致）。
-- [ ] AC4 未越界：`git diff --name-only $(git merge-base develop HEAD) HEAD` 全部落在 `## Touches` 内；`scripts/release/build-server-bundle.js` 与三份 workflow 字节不变。
-- [ ] AC5 `npm run typecheck` 与 `npm run lint` 退出 **0**。
+- [x] AC1 默认地址指向 fork：`node --test scripts/release/tests/server-installer-bundle-url.test.mjs` 退出 **0**，并打印 `bundle.default.host=github.com/yaleh/claudecodeui`、`bundle.default.upstream_refs=0`、`bundle.env_override=honored`；`grep -c siteboon electron/serverInstaller.js` 为 **0**。
+- [x] AC2 取假必须红：把 `DEFAULT_BUNDLE_BASE_URL` 改回 `siteboon/claudecodeui` 后上面的测试退出非 **0**，红在 `bundle.default.upstream_refs` 那条断言；把 `CLOUDCLI_SERVER_BUNDLE_URL` 覆盖分支拿掉后同样红在 `env_override` 断言；恢复后复绿（登记变异 diff、失败断言逐字、退出码）。
+- [x] AC3 URL 形状不变：测试对 `new ServerInstaller({version:'1.38.1', platform:'win32', arch:'x64', bundleReleaseTag:'cloudcli-local-server-v1.38.1'}).getBundleUrl()` 断言其等于 `https://github.com/yaleh/claudecodeui/releases/download/cloudcli-local-server-v1.38.1/cloudcli-local-server-1.38.1-win-x64.tar.gz`（只换了仓库段，文件名与 tag 段与现状逐字一致）。
+- [x] AC4 未越界：`git diff --name-only $(git merge-base develop HEAD) HEAD` 全部落在 `## Touches` 内；`scripts/release/build-server-bundle.js` 与三份 workflow 字节不变。
+- [x] AC5 `npm run typecheck` 与 `npm run lint` 退出 **0**。
 - [ ] AC6 真实落地（合入 `develop` 并推送 `yaleh` 之后）：触发 `Desktop Release`（`gh workflow run desktop-release.yml -R yaleh/claudecodeui --ref develop -f tag=v1.38.1`）成功；`gh release view v1.38.1 -R yaleh/claudecodeui --json assets` 含 `cloudcli-desktop-1.38.1-win-x64.exe` 与 `SHASUMS256-windows.txt`；`curl -sIL -o /dev/null -w '%{http_code}' https://github.com/yaleh/claudecodeui/releases/download/cloudcli-local-server-v1.38.1/cloudcli-local-server-1.38.1-win-x64.tar.gz` 打印 **200**。
 
 ## DoD
@@ -49,3 +49,20 @@ extra:
 - `electron/serverInstaller.js`
 - `scripts/release/tests/server-installer-bundle-url.test.mjs` (new)
 - `tasks/gap-desktop-local-server-bundle-url-points-at-fork.md`
+
+## Evidence
+
+实现与本地验证完成，提交在 `task/gap-desktop-local-server-bundle-url-points-at-fork`（`fix(desktop): point the local-server bundle default at the fork`）。下面每条的读数见本文件 `## AC` 的勾选状态；**AC6 是人工闸**，需要合入 `develop` 并推送 `yaleh` 后触发 `Desktop Release` 才能勾选，故保持未勾选。
+
+- AC1：`node --test scripts/release/tests/server-installer-bundle-url.test.mjs` 退出 **0**，三行读数逐字为 `bundle.default.host=github.com/yaleh/claudecodeui`、`bundle.default.upstream_refs=0`、`bundle.env_override=honored`；`grep -c siteboon electron/serverInstaller.js` 打印 `0`（退出 1 = 无命中行）。
+- AC2：两处取假在最终形态（`035e0bb8`）上各自实测——
+  (a) 把 `DEFAULT_BUNDLE_BASE_URL` 改回 `https://github.com/siteboon/claudecodeui/releases/download`（`1 file changed, 1 insertion(+), 1 deletion(-)`）：测试退出 **1**，`✖ the default bundle address points at the fork, not upstream`，失败断言逐字 `AssertionError [ERR_ASSERTION]: the upstream org siteboon still survives in electron/serverInstaller.js or the default URL (2 reference(s))` / `2 !== 0`；读数翻成 `bundle.default.host=github.com/siteboon/claudecodeui`、`bundle.default.upstream_refs=2`。
+  (b) 把构造器默认值改成恒等于 `bundleBaseUrl = DEFAULT_BUNDLE_BASE_URL`（即删掉 `CLOUDCLI_SERVER_BUNDLE_URL` 覆盖分支，同样 `1 file changed, 1 insertion(+), 1 deletion(-)`）：测试退出 **1**，`✖ CLOUDCLI_SERVER_BUNDLE_URL still overrides the default`，失败断言逐字 `AssertionError [ERR_ASSERTION]: the environment override must win over the default base URL` / `+ 'ignored' - 'honored'`；读数翻成 `bundle.env_override=ignored`。
+  两次都 `git checkout -- electron/serverInstaller.js` 复原，复原后复绿（退出 **0**）且 `git status --porcelain` 为空。
+- AC3：同一测试的第三个 case 断言 `new ServerInstaller({version:'1.38.1', platform:'win32', arch:'x64', bundleReleaseTag:'cloudcli-local-server-v1.38.1'}).getBundleUrl()` 逐字等于 `https://github.com/yaleh/claudecodeui/releases/download/cloudcli-local-server-v1.38.1/cloudcli-local-server-1.38.1-win-x64.tar.gz`（只换仓库段，tag 段与文件名与现状逐字一致）。
+- AC4：`git diff --name-only $(git merge-base develop HEAD) HEAD` 为 `electron/serverInstaller.js` 与 `scripts/release/tests/server-installer-bundle-url.test.mjs`，均落在 Touches 内；`scripts/release/build-server-bundle.js`、`.github/workflows/desktop-release.yml`、`desktop-windows-branch-build.yml`、`desktop-macos-branch-build.yml` 相对 merge-base 的 `git diff --quiet` 各退出 **0**（逐字节未变）。
+- AC5：`npm run typecheck` 退出 **0**（root + server + scripts 三环）；`npm run lint` 退出 **0**（仅存量 warning，无一条指向本次改动的两个文件）。
+
+**一处实现说明（Proposal 未写，但让 `npm run typecheck` 保持绿所必需）**：`electron/` 不属于任何 tsc project——根 `tsconfig.json` 只 include `src`/`shared`/`vite.config.js`，`server/tsconfig.json` 是 `checkJs:false` 且不 include 它。测试若**静态** import `electron/serverInstaller.js`，`scripts/tsconfig.json` 的 `checkJs:true` 会把该文件拉进程序，冒出约 20 条与本次无关的存量 strict 错误（`TS7006 Parameter ... implicitly has an 'any' type` / `TS18046 'error' is of type 'unknown'` / `TS2810` …），`npm run typecheck` 立刻红。故测试改用 `await import(new URL('../../../electron/serverInstaller.js', import.meta.url).href)` 按 URL 动态载入：类型检查器不解析非字面量 specifier，该文件留在程序之外，而生产侧改动仍只有 Proposal 说的那一处字面量。
+
+**AC6 未勾选的原因（人工闸，非代码侧可自证）**：`gh workflow run desktop-release.yml -R yaleh/claudecodeui --ref develop -f tag=v1.38.1`、`gh release view v1.38.1 --json assets`、以及 `curl` 运行时资产打印 200，都要求本次改动先经 fan-in 落到 `develop` 并推到 `yaleh`。为避免误报完成，AC6 保持未勾选；AC1–AC5 全绿而 AC6 未绿时，本条的正确终态是 `needs-human`，由人 yale 触发发布后再勾选。
