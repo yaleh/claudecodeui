@@ -1,7 +1,7 @@
 ---
 id: gap-cloudcli-self-assigned-names-outrank-ai-titles
 title: 会话命名权归人工与 Claude Code：CloudCLI 自赋名不得压过 AI title、不得自行赋名、且跨重启幂等
-status: todo
+status: ready
 labels:
   - gap
   - defect
