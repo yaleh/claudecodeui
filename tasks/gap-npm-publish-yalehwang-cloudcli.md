@@ -2,7 +2,7 @@
 id: gap-npm-publish-yalehwang-cloudcli
 title: 把 fork 以 @yalehwang/cloudcli 发到 npm：改包名与仓库指向、release-it 打开 npm 发布、Release
   workflow 走 NPM_TOKEN、清掉写死的旧升级命令并反转守卫
-status: needs-human
+status: done
 needs_human_cause: unclassified
 labels:
   - gap
@@ -53,8 +53,8 @@ extra:
 - [x] AC5 dry-run 走 npm 且不误伤：`npx release-it --dry-run --ci --increment=patch` 退出 **0**，输出含 `npm publish` 与 `@yalehwang/cloudcli`，push 目标含 `yaleh`（不是 `origin`）。
 - [x] AC6 未越界：`git diff --name-only $(git merge-base develop HEAD) HEAD` 全部落在 `## Touches` 内；`docker/`、`redirect-package/`、`CHANGELOG.md`、`electron/` 字节不变。
 - [x] AC7 `npm run typecheck` 与 `npm run lint` 退出 **0**。
-- [ ] AC8 人工闸（需人 yale 授权）：`gh secret list -R yaleh/claudecodeui` 含 `NPM_TOKEN`。
-- [ ] AC9 真实落地：`npm view @yalehwang/cloudcli version` 打印刚发布的版本；在干净目录 `npx --yes @yalehwang/cloudcli --version` 退出 **0** 并打印同一版本；`npm view @cloudcli-ai/cloudcli version` 仍是上游值（证明没有碰上游包）。
+- [x] AC8 人工闸（需人 yale 授权）：`gh secret list -R yaleh/claudecodeui` 含 `NPM_TOKEN`。
+- [x] AC9 真实落地：`npm view @yalehwang/cloudcli version` 打印刚发布的版本；在干净目录 `npx --yes @yalehwang/cloudcli --version` 退出 **0** 并打印同一版本；`npm view @cloudcli-ai/cloudcli version` 仍是上游值（证明没有碰上游包）。
 
 ## DoD
 
@@ -144,12 +144,7 @@ extra:
 
 【Round 2 复验 2026-09-30】HEAD d7d94771（已含 develop）。AC1–AC7 在 post-merge head 上逐条重跑全绿：AC1 守卫 node --test scripts/release/tests/fork-release-workflows.test.mjs EXIT 0（打印 pkg.name=@yalehwang/cloudcli、npm.publish=true、auth.env=NODE_AUTH_TOKEN、legacy.upgradeCmds=0）；AC2 三处取假各自 EXIT 1 且红在对应断言、git checkout -- 还原后复绿 EXIT 0；AC3 grep -rn "@cloudcli-ai/cloudcli" server src 0 命中、scripts/test.sh --for-task gap-npm-publish-yalehwang-cloudcli --allow-thin EXIT 0（server/modules/system/tests/system.service.test.ts pass 1 / fail 0）；AC4 npm pack --dry-run --json EXIT 0（name=@yalehwang/cloudcli、unpackedSize=25074024、含 dist-server/server/modules/cli/cli.js、dist/index.html、README.md，不含 tasks/ goals/ experiments/ e2e/）；AC5 release-it --dry-run --ci --increment=patch EXIT 0（含 npm publish . --tag latest --dry-run --access public、@yalehwang/cloudcli、git push --follow-tags --set-upstream yaleh develop，无 origin）；AC6 23 文件全在 ## Touches 内、docker/ redirect-package/ CHANGELOG.md electron/ 字节不变；AC7 npm run typecheck EXIT 0、npm run lint EXIT 0（仅既有 warning）。
 【Round 2 AC8/AC9 仍为人工闸】本机无 npm 凭据（npm whoami→ENEEDAUTH、无 ~/.npmrc 与仓库 .npmrc）、gh secret list -R yaleh/claudecodeui 仍只有 RELEASE_PAT、npm view @yalehwang/cloudcli 仍 E404。正确终态仍为 needs-human：需人 yale 创建 npm Automation 令牌 → gh secret set NPM_TOKEN -R yaleh/claudecodeui → 触发 Release。
-## Needs-Human
 
-**执行 2026-09-29T23:48:05.952Z — 连续修满重试上限仍不合格（标 needs-human）**
+## 完成记录
 
-- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
-- 成因类：unclassified
-- 失败步/判词：AC 未全勾（checked 7/9，剩余未勾 2）——续做只需验证并勾选 AC
-- run_id：wk-prod-anchor
-- session_id：e478e3c1-a6d0-4c80-b086-5f0c92c7dd7b
+2026-09-30：AC8 `gh secret list -R yaleh/claudecodeui` 含 `NPM_TOKEN`（人 yale 自行写入）。首次 Release run 36664310481 红在 `npm ci`（@vscode/ripgrep 匿名下载 GitHub 被限流 403，未到发布步，无 tag、无 npm 副作用）⇒ `release.yml` 的 `npm ci` 补 `GITHUB_TOKEN`（`98cd6141`）。重试 run 36664470242 成功 ⇒ v1.38.1，日志 `+ @yalehwang/cloudcli@1.38.1`。AC9：`npm view @yalehwang/cloudcli` ⇒ version 1.38.1、bin.cloudcli、maintainer yalehwang；干净目录 `npx --yes @yalehwang/cloudcli --version` 退出 0 并打印 `1.38.1`；`npm view @cloudcli-ai/cloudcli version` ⇒ 1.37.3（未碰上游包）。
