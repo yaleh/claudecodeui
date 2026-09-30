@@ -226,28 +226,36 @@ function readAllRegistrations(configDir: string): CliRegistration[] {
  */
 function watchRegistrations(configDir: string, seenPids: number[]): {
   captured: CliRegistration[];
+  sweep: () => void;
   stop: () => Promise<void>;
 } {
   const captured: CliRegistration[] = [];
   let watching = true;
+
+  /** One pass over the registry, folded into `captured` with last-state-wins. */
+  const sweep = (): void => {
+    for (const row of readAllRegistrations(configDir)) {
+      if (seenPids.includes(row.pid) || !row.name) {
+        continue;
+      }
+      const index = captured.findIndex((existing) => existing.pid === row.pid);
+      if (index === -1) {
+        captured.push(row);
+      } else {
+        captured[index] = row;
+      }
+    }
+  };
+
   const loop = (async () => {
     while (watching) {
-      for (const row of readAllRegistrations(configDir)) {
-        if (seenPids.includes(row.pid) || !row.name) {
-          continue;
-        }
-        const index = captured.findIndex((existing) => existing.pid === row.pid);
-        if (index === -1) {
-          captured.push(row);
-        } else {
-          captured[index] = row;
-        }
-      }
+      sweep();
       await sleep(50);
     }
   })();
   return {
     captured,
+    sweep,
     stop: async () => {
       watching = false;
       await loop;
@@ -751,6 +759,13 @@ async function runMeasuredRound(
  * not resolve — which is the point of the change being graded — so the control
  * builds its options the way both launch paths do (`mapCliOptionsToSDK`), adds
  * the one key, and reads the same registry and the same transcript.
+ *
+ * The launch is held open across the reading — the same hold the product keeps
+ * for the same reason (`createHeldPromptStream`), driven here until the process
+ * is actually read rather than until a fixed delay expires. The registry file is
+ * the CLI's, written as the process starts and deleted as it exits, so a launch
+ * that let go of its input at the `result` would race the reader against a file
+ * that only exists for the length of the turn.
  */
 async function launchWithTitle(
   context: Harness,
@@ -782,14 +797,42 @@ async function launchWithTitle(
 
   const held = createHeldPromptStream(await buildPromptMessages(`${marker} control round for ${label}`, [], [], context.cwd));
   let exited = false;
+  let launchFailure: string | null = null;
   const pump = (async () => {
+    // Consumed to the end of the stream rather than broken at the `result`: the
+    // input iterable stays pending until `release()` below, which is what keeps
+    // the CLI — and the registration file it deletes on its way out — alive
+    // until this launch has been read.
     for await (const message of query({ prompt: held.stream, options } as never)) {
       if ((message as { type?: string }).type === 'result') {
         exited = true;
-        break;
       }
     }
-  })().catch(() => { exited = true; });
+  })().catch((error: unknown) => {
+    // Recorded, never swallowed: a launch that failed to reach its `result` has
+    // to say so in the reading, or it reaches the assertions as a `null` that
+    // reads exactly like a build that handed over nothing.
+    launchFailure = error instanceof Error ? error.message : String(error);
+  });
+
+  // The turn is driven to its end with stdin still open — no `release()` yet.
+  //
+  // This is what makes the registry reading a causal one instead of a race. The
+  // CLI writes `sessions/<pid>.json` as it starts and deletes it as it exits,
+  // and a direct launch is short enough that the file can come and go inside one
+  // poll of the watcher above on a loaded host. Waiting for the `result` first
+  // and only then sweeping is sound in the other direction too: every write a
+  // process makes about its own name happens before its first turn ends, so the
+  // state read here is the settled one and not an intermediate.
+  await waitFor(() => exited || launchFailure !== null, TURN_TIMEOUT_MS, `${label} to reach its result`);
+  // Swept on a loop rather than read once, because the CLI rewrites this file
+  // more than once and a single read can land on a torn one. The process is
+  // still held, so the wait is bounded by the file being written at all and not
+  // by how long the process happens to live.
+  await waitFor(() => {
+    watch.sweep();
+    return watch.captured.length > 0;
+  }, READ_TIMEOUT_MS, `${label} registration`);
 
   held.release();
   await Promise.race([pump, sleep(5_000)]);
@@ -816,7 +859,7 @@ async function launchWithTitle(
     `[readings] control=${label} path=direct-launch handedOver=${JSON.stringify(title)} ` +
       `providerSessionId=${String(providerSessionId)} titleGenRequests=${reading.titleGenRequests} ` +
       `aiTitles=${JSON.stringify(reading.aiTitles)} customTitles=${JSON.stringify(reading.customTitles)} ` +
-      `registration=${JSON.stringify(registration)}`,
+      `launchFailure=${JSON.stringify(launchFailure)} registration=${JSON.stringify(registration)}`,
   );
   return reading;
 }
