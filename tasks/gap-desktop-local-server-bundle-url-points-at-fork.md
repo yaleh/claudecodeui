@@ -2,7 +2,7 @@
 id: gap-desktop-local-server-bundle-url-points-at-fork
 title: 桌面版 Local 运行时的默认下载地址写死上游 siteboon：fork 发布的桌面包选 Local 模式会 404，改指 yaleh 并重发
   v1.38.1 桌面包
-status: needs-human
+status: done
 needs_human_cause: unclassified
 labels:
   - gap
@@ -37,7 +37,7 @@ extra:
 - [x] AC3 URL 形状不变：测试对 `new ServerInstaller({version:'1.38.1', platform:'win32', arch:'x64', bundleReleaseTag:'cloudcli-local-server-v1.38.1'}).getBundleUrl()` 断言其等于 `https://github.com/yaleh/claudecodeui/releases/download/cloudcli-local-server-v1.38.1/cloudcli-local-server-1.38.1-win-x64.tar.gz`（只换了仓库段，文件名与 tag 段与现状逐字一致）。
 - [x] AC4 未越界：`git diff --name-only $(git merge-base develop HEAD) HEAD` 全部落在 `## Touches` 内；`scripts/release/build-server-bundle.js` 与三份 workflow 字节不变。
 - [x] AC5 `npm run typecheck` 与 `npm run lint` 退出 **0**。
-- [ ] AC6 真实落地（合入 `develop` 并推送 `yaleh` 之后）：触发 `Desktop Release`（`gh workflow run desktop-release.yml -R yaleh/claudecodeui --ref develop -f tag=v1.38.1`）成功；`gh release view v1.38.1 -R yaleh/claudecodeui --json assets` 含 `cloudcli-desktop-1.38.1-win-x64.exe` 与 `SHASUMS256-windows.txt`；`curl -sIL -o /dev/null -w '%{http_code}' https://github.com/yaleh/claudecodeui/releases/download/cloudcli-local-server-v1.38.1/cloudcli-local-server-1.38.1-win-x64.tar.gz` 打印 **200**。
+- [x] AC6 真实落地（合入 `develop` 并推送 `yaleh` 之后）：触发 `Desktop Release`（`gh workflow run desktop-release.yml -R yaleh/claudecodeui --ref develop -f tag=v1.38.1`）成功；`gh release view v1.38.1 -R yaleh/claudecodeui --json assets` 含 `cloudcli-desktop-1.38.1-win-x64.exe` 与 `SHASUMS256-windows.txt`；`curl -sIL -o /dev/null -w '%{http_code}' https://github.com/yaleh/claudecodeui/releases/download/cloudcli-local-server-v1.38.1/cloudcli-local-server-1.38.1-win-x64.tar.gz` 打印 **200**。
 
 ## DoD
 
@@ -68,12 +68,7 @@ extra:
 
 **AC6 未勾选的原因（人工闸，非代码侧可自证）**：`gh workflow run desktop-release.yml -R yaleh/claudecodeui --ref develop -f tag=v1.38.1`、`gh release view v1.38.1 --json assets`、以及 `curl` 运行时资产打印 200，都要求本次改动先经 fan-in 落到 `develop` 并推到 `yaleh`。为避免误报完成，AC6 保持未勾选；AC1–AC5 全绿而 AC6 未绿时，本条的正确终态是 `needs-human`，由人 yale 触发发布后再勾选。
 
-## Needs-Human
 
-**执行 2026-09-30T04:12:02.642Z — 连续修满重试上限仍不合格（标 needs-human）**
+## 完成记录
 
-- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
-- 成因类：unclassified
-- 失败步/判词：AC 未全勾（checked 5/6，剩余未勾 1）——续做只需验证并勾选 AC
-- run_id：wk-prod-anchor
-- session_id：1c7c8a39-d560-4fe7-81ef-411ece1ed5f7
+2026-09-30：修复合入 develop 后先跑 Release（run 36675718326）得 v1.38.2（桌面包必须来自含修复的提交，v1.38.1 不满足）；再触发 Desktop Release（run 36675857167，tag=v1.38.2）成功。AC6：`gh release view v1.38.2` 资产 = `cloudcli-desktop-1.38.2-win-x64.exe`、`SHASUMS256-windows.txt`；`curl -sIL` 打印 http_code=200 于 `https://github.com/yaleh/claudecodeui/releases/download/cloudcli-local-server-v1.38.2/cloudcli-local-server-1.38.2-win-x64.tar.gz`。旁注：同一次 Release 也把 `@yalehwang/cloudcli@1.38.2` 发到 npm，发布日志 `+ @yalehwang/cloudcli@1.38.2` 后约 8 分钟 registry 才可见（元数据同步延迟，不是发布失败）。
