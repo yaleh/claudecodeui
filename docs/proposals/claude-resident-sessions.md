@@ -396,17 +396,13 @@ E9 实测这条清单路径可靠：`claude` 2.1.282 下 **Stop hook 每轮都�
 
 ### 12. 身份与寻址
 
-- 通过 `extraArgs: { name: '<标题 slug>-<会话 ID 前 6 位>' }` 给常驻进程一个稳定的 peer 名，driver 以 `identity` 事件把它上报到绑定的 `peerName`。标题变化时不改名，名字在进程生命周期内固定。**E6 实测：`-n, --name <name>` 是合法旗标，中文与空格被原样接受**（本地转录里 `agent-name` / `custom-title` 与设定值逐字一致，含 `实验会话 中文 空格`）。⚠️ 但这个名字**不进 `/v1/messages` 请求体**——driver 判定它是否生效只能读本地转录（`<configDir>/projects/<slug>/<session>.jsonl` 里的 `agent-name` 记录），读请求体是看不出来的。
-- **2026-09-30 修订（人 yale 裁定后）——本节承诺与裁定之间的冲突，尚未解决。** 裁定逐字：「优先明确 Claude Code 的机制并遵循。在会话名称这方面（尤其是 resident session），把 CloudCLI 看作 Claude Code 的轻量 wrapper。即使是人工修改会话名，CloudCLI 的作用也应看作是调用 Claude Code 相应接口修改 Claude Code 中的会话名称。CloudCLI 中存储的会话名称应看作是 Claude Code 中的会话名称的 cache。」裁定同时**逐字排除出路 (c)**（App 侧把自赋地址降档显示、接受与 Claude Code 列表名不一致），只剩 (a) 不自赋名 与 (b) 自赋名等于 Claude Code 已有的名字。
+**2026-09-30 重写（人 yale 裁定后取 (a)：CloudCLI 不自赋名）。** 下面这段取代了原先「`extraArgs: { name: '<标题 slug>-<会话 ID 前 6 位>' }`」的承诺；那条规则已从产品里整条移除，`residentPeerName` 不再存在。
 
-  **本分支当前实现的是 (c)，因此按裁定不得落地。** 它做的三件事是：(1) 转录阶梯新增一档 `self-assigned`，排在 `ai` 之下、`derived` 之上，判别式锚定「该行自己的 app 会话 id 前六位」；(2) `residentPeerName` 在 slug 之前剥掉尾部**本会话**后缀的重复（锚定 id，不会误伤 `facade` 这类六位十六进制样式的词），于是「拿上一次的输出当输入」得到逐字相同的地址，重启不再累加；(3) `readTranscriptAgentName` 取最后一条 `agent-name`（原来取第一条 ⇒ 只要重启过就必然与本次启动名不等）。这些读数本身都是真的（判据见 `server/modules/providers/tests/claude-session-name-authority.test.ts`），但它们合起来正是 (c)：App 显示 `ai-title`，而 Claude Code 侧那份 `summary`（SDK `getSessionInfo` / `listSessions`，阶梯为 `customTitle || summary || firstPrompt`，不含 agent name）仍是那条地址——不一致，被裁定禁止。
-
-  **为什么 (a)/(b) 也落不了地：本任务的 AC2 与 AC8 在「排除 (c)」的前提下互斥。**
-  - **AC8** 把 `server/modules/providers/tests/claude-resident-addressable.test.ts` 钉死为「未改且退 0」。该文件把本节的规则**逐字重述**在 `expectedPeerName(title,id) = slug(title) + '-' + id.slice(0,6)`（:217-223），并断言 `GET /api/session-hosts` 的 `peerName`、以及进程自己写进转录的 `agent-name`，都等于这条重述（:1131-1140）。⇒ 常驻进程**必须**被 `--name` 成 `<slug>-<id6>`。
-  - **AC2** 要求人工改名后「Claude Code 侧列出的名字也是人工名」，取证两条路任选：按 CLI 阶梯读转录（该阶梯把 `agentName` 排在 `customTitle` 之上），或「证明 `--name` 不再压过它」。⇒ `--name` **必须不**带自造后缀。
-  - 两条同时成立是不可能的。走 (a)（不传 `--name`）则进程不注册 `agent-name`，该文件 `equalToSnapshot`（:1116）与 `alpha.transcriptAgentName === alpha.ruleName`（:1140）必红；走 (b)（`--name` = 会话自己的名字）则 `alpha.snapshotPeerName === alpha.ruleName`（:1131）必红。AC3（「名字里会话 id 前 6 位只出现 1 次」）同理只有 (c) 的形状能逐字满足。
-
-  **因此需要一次人裁定，二选一**：(i) 让 AC-164 的判据随选定出路修订——即解除 AC8 对该文件的「未改」约束、连同本节与 AC-164 的「稳定 SendMessage 地址」承诺一起改写，然后按 (a) 或 (b) 实现；(ii) 保留 `<slug>-<id6>` 地址形状，但把 AC2 的取证改为按 Claude Code 的 `summary` 判定，并补上「常驻启动后由 App 经 Claude Code 接口把会话名写回它自己的名字」这一步——那一步正是「CloudCLI 要修改会话名，应使用 Claude Code 的接口」的字面落地，能把 `summary` 拉回与 App 一致。在本节被改写或裁定给出之前，本文件对「稳定的 peer 名」的承诺与裁定的原则 2 不能同时成立。
+- 常驻启动**不向 CLI 传任何名字**：没有 `--name`，也没有等价的 `extraArgs.name`。理由是逐帧可量的：CLI 的显示阶梯是 `agent-name` > `custom-title` > `ai-title` > 首条消息，而 `--name` **同时**写成 `agent-name` 与 `custom-title` 两条（实测：带 `agent-name` 的转录里 2748/2749 条同时带一条等值的 `custom-title`），落库档位又是 `agent`/`manual` 两档高于 `ai` ⇒ 启动瞬间就钉死一个 App 自造的名字，会话随后挣到的 `ai-title` 再也翻不上来（本机实测：1513/1643 行显示名只来自 35 个自造串）。
+- **地址是读来的，不是算出来的。** 绑定的 `peerName` 取自 Claude Code 自己的进程注册表 `<CLAUDE_CONFIG_DIR>/sessions/<pid>.json` 的 `name`；同一记录里的 `sessionId`（用于拒绝 pid 复用带来的陈旧文件）与 `messagingSocketPath`（地址可达的依据）一并校验（`readCliSessionRegistration`，由 `startIdentityReadback` 在每条宿主上读一次，超时读不到就报 `null` 而不是猜）。注册名的 `nameSource` 因此是 `derived`（CLI 自己的派生名），而不是 `user`（有人把名字交给过它）。
+- **地址在进程生命周期内固定。** App 里改名只改 Claude Code 侧的会话名（`IProviderSessionRename`，见 §14 与 `## 裁定后的复测` 第 5 条），进程与它的注册名都不动。**重启会得到一个新的派生名**——那是 Claude Code 自己的派生规则，CloudCLI 不干预，也不再拿上一次的名字当种子（旧实现正是因此每次重启多一截 `-<id6>`，实测形状 `-9959ff-9959ff`）。
+- **`derived` 名的可达性已实测**，这是 (a) 的承重读数：另一个会话向它 `SendMessage`，对方真的产出一轮（`source=unattended`、触发 `cross-session-message`、`chat.subscribe(lastSeq=0)` 完整回放）。判据：`server/modules/providers/tests/claude-resident-addressable.test.ts`。该判据同时带一条**交名启动**的正控制（同一个会话、只改这一处：把名字交给进程 ⇒ 注册表读 `user`、转录里成对写下那个名字），因此「把 `--name` 加回去」的假形态会红在 `derived`→`user`、转录里的自写名、以及地址尾部的 `<id6>` 形状三处。
+- 历史读数（E6，仍为真但已不使用）：`-n, --name <name>` 是合法旗标，中文与空格被原样接受；该名字**不进** `/v1/messages` 请求体，所以「是否生效」只能读进程自己的记录——(a) 下读的是进程注册表，不是转录。
 - 会话菜单新增"复制 SendMessage 地址"，仅当绑定存活且 `addressable` 时可用。
 - 会话详情显示 pid、peer 名、启动时间、内存（读 scope 的 `memory.current`）、状态和保活理由。这些数据来自统一的宿主接口。
 - 在 Shell 标签页执行 `claude --resume` 会让同一会话多出第二个写入者。因此**常驻会话不支持 Shell 标签页**：只按 `lifecycle_mode` 判断，与进程是否存活无关，也不提供强行打开。关闭常驻模式后恢复可用。
