@@ -1,7 +1,7 @@
 ---
 id: gap-readme-and-cli-links-point-at-fork
 title: README 的桌面版下载/Releases/Issues 链接与 CLI 帮助回退值仍指向上游：改指 yaleh 并加守卫，保留上游自有服务链接
-status: todo
+status: ready
 labels:
   - gap
 parent: null
