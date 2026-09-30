@@ -79,6 +79,7 @@ extra:
 ## Touches
 
 - server/shared/interfaces.ts
+- server/shared/types.ts
 - server/modules/providers/list/claude/claude-host-driver.provider.ts
 - server/modules/providers/services/provider-runtime.service.ts
 - server/modules/session-hosts/session-hosts.routes.ts
