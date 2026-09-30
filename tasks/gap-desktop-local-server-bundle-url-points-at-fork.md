@@ -2,7 +2,7 @@
 id: gap-desktop-local-server-bundle-url-points-at-fork
 title: 桌面版 Local 运行时的默认下载地址写死上游 siteboon：fork 发布的桌面包选 Local 模式会 404，改指 yaleh 并重发
   v1.38.1 桌面包
-status: todo
+status: ready
 labels:
   - gap
   - defect
