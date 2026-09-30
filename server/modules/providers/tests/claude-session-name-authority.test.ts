@@ -4,9 +4,15 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { getConnection } from '@/modules/database/connection.js';
-import { closeConnection, initializeDatabase, isSelfAssignedSessionName, projectsDb, sessionsDb } from '@/modules/database/index.js';
-import { runMigrations } from '@/modules/database/migrations.js';
+import {
+  closeConnection,
+  getConnection,
+  initializeDatabase,
+  isSelfAssignedSessionName,
+  projectsDb,
+  runMigrations,
+  sessionsDb,
+} from '@/modules/database/index.js';
 import {
   readTranscriptAgentName,
   residentPeerName,
@@ -390,6 +396,7 @@ test('the migration re-files rows named after an address, and its second run is 
       // Second run: every row has left the `agent`-plus-address combination the
       // predicate selects on, so this must change nothing at all.
       runMigrations(getConnection());
+
       assert.deepEqual(read(withTitle), { name: 'archguard-架构分析', source: 'ai' });
       assert.deepEqual(read(withoutTitle), { name: 'hello-there', source: 'derived' });
     });

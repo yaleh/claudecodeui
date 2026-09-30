@@ -1,4 +1,8 @@
 export { initializeDatabase } from '@/modules/database/init-db.js';
+// runMigrations: the chain behind initializeDatabase, exported so a criterion in
+// another module can drive migrations against a database it built by hand. The
+// module boundary rule is why it is here rather than imported by file path.
+export { runMigrations } from '@/modules/database/migrations.js';
 export { closeConnection, getConnection, getDatabasePath } from '@/modules/database/connection.js';
 export { apiKeysDb } from '@/modules/database/repositories/api-keys.js';
 export { appConfigDb } from '@/modules/database/repositories/app-config.js';

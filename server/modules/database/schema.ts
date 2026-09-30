@@ -139,11 +139,14 @@ CREATE TABLE IF NOT EXISTS sessions (
     -- the override and \`transcript_name\` the reading.
     custom_name TEXT,
     -- Where \`custom_name\` came from: 'derived' (the first visible message or
-    -- the history fallback), 'ai' (the title Claude writes into the transcript
-    -- itself) or 'manual' (a rename through the app). Upserts only ever move a
-    -- name up that order, so the column is what keeps a provider rescan from
-    -- undoing a rename.
-    name_source TEXT DEFAULT 'derived',    -- The name this session's provider transcript gives it, kept apart from
+    -- the history fallback), 'self-assigned' (an address this app handed the
+    -- CLI as \`--name\` and an older build left in the override column), 'ai'
+    -- (the title Claude writes into the transcript itself) or 'manual' (a
+    -- rename through the app). Upserts only ever move a name up that order, so
+    -- the column is what keeps a provider rescan from undoing a rename.
+    name_source TEXT DEFAULT 'derived',
+
+    -- The name this session's provider transcript gives it, kept apart from
     -- \`custom_name\` because the two answer different questions: this one is
     -- re-read on every sync (Claude revises its own title, and a CLI \`/rename\`
     -- can append one at any time), while \`custom_name\` only ever changes when
