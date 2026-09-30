@@ -3,6 +3,18 @@
 All notable changes to CloudCLI UI will be documented in this file.
 
 
+## [1.38.2](https://github.com/yaleh/claudecodeui/compare/v1.38.1...v1.38.2) (2026-09-30)
+
+### Bug Fixes
+
+* **desktop:** point the local-server bundle default at the fork ([035e0bb](https://github.com/yaleh/claudecodeui/commit/035e0bb89c242535b3e47d0c7272e3cd63426931))
+* point README and CLI help links at the fork ([cf19214](https://github.com/yaleh/claudecodeui/commit/cf192141116a23383db5df583642d1a992ca328c))
+
+### Documentation
+
+* **resident:** 写明 App 侧占位名是过渡显示值，永远不是 SendMessage 地址 ([447bc60](https://github.com/yaleh/claudecodeui/commit/447bc60027abdd5736848ad6daa4ab029fd7452a))
+* **resident:** 常驻地址不再由 App 自造，改为读 Claude Code 的进程派生名 ([a6e0719](https://github.com/yaleh/claudecodeui/commit/a6e0719248bd6488c918a4951eb66b001b362749))
+
 ## [1.38.1](https://github.com/yaleh/claudecodeui/compare/v1.38.0...v1.38.1) (2026-09-30)
 
 ### New Features
