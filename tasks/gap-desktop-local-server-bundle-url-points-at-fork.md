@@ -19,7 +19,7 @@ extra:
 
 **证据（本轮直读）**：
 1. `electron/serverInstaller.js:17`：`const DEFAULT_BUNDLE_BASE_URL = 'https://github.com/siteboon/claudecodeui/releases/download';`，`:37` 的 `bundleBaseUrl = process.env.CLOUDCLI_SERVER_BUNDLE_URL || DEFAULT_BUNDLE_BASE_URL` 是唯一的覆盖口，需要用户自己设环境变量，普通用户不会设。
-2. `getBundleUrl()`（`:65-`）拼出 `${bundleBaseUrl}/${bundleReleaseTag}/cloudcli-local-server-${version}-${platform}-${arch}.tar.gz`。`desktop-release.yml` 把 `electron/server-bundle-config.json` 写成 `{"releaseTag":"cloudcli-local-server-<tag>"}`，所以 fork 的 `v1.38.0` exe 会请求 `https://github.com/siteboon/claudecodeui/releases/download/cloudcli-local-server-v1.38.0/cloudcli-local-server-1.38.0-win-x64-x64.tar.gz`——上游没有这个 tag ⇒ 404，Local 模式起不来。
+2. `getBundleUrl()`（`:65-`）拼出 `${bundleBaseUrl}/${bundleReleaseTag}/cloudcli-local-server-${version}-${platform}-${arch}.tar.gz`。`desktop-release.yml` 把 `electron/server-bundle-config.json` 写成 `{"releaseTag":"cloudcli-local-server-<tag>"}`，所以 fork 的 `v1.38.0` exe 会请求 `https://github.com/siteboon/claudecodeui/releases/download/cloudcli-local-server-v1.38.0/cloudcli-local-server-1.38.0-win-x64.tar.gz`——上游没有这个 tag ⇒ 404，Local 模式起不来。
 3. fork 侧的资产是存在的：`gh release view cloudcli-local-server-v1.38.0 -R yaleh/claudecodeui` 有 `cloudcli-local-server-1.38.0-win-x64.tar.gz(.sha256)`。即数据在 fork，地址却指上游。
 4. 仓库里另有 3 处引用该机制：`electron/localServer.js`、`.github/workflows/desktop-release.yml`、`desktop-windows-branch-build.yml`、`desktop-macos-branch-build.yml`——workflow 侧只写 `server-bundle-config.json`，不含仓库地址。
 
