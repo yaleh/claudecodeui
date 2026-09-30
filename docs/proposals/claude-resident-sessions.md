@@ -396,14 +396,14 @@ E9 实测这条清单路径可靠：`claude` 2.1.282 下 **Stop hook 每轮都�
 
 ### 12. 身份与寻址
 
-**2026-09-30 重写（人 yale 两条裁定后取 (a)：CloudCLI 不自赋名）。** 本节取代原先「`extraArgs: { name: '<标题 slug>-<会话 ID 前 6 位>' }`」的承诺；那条规则已从产品里整条移除，`residentPeerName` 不再存在。裁定逐字：「冲突是什么？CloudCLI 不要自己加戏就好；不要干扰 Claude Code 的行为。」与同日更早一条：「优先明确 Claude Code 的机制并遵循。在会话名称这方面（尤其是 resident session），把 CloudCLI 看作 Claude Code 的轻量 wrapper。……CloudCLI 中存储的会话名称应看作是 Claude Code 中的会话名称的 cache。」
+**2026-09-30 重写（人 yale 三条裁定后取 (a)：CloudCLI 不自赋名）。** 本节取代原先「`extraArgs: { name: '<标题 slug>-<会话 ID 前 6 位>' }`」的承诺；那条规则已从产品里整条移除，`residentPeerName` 不再存在。裁定逐字：「冲突是什么？CloudCLI 不要自己加戏就好；不要干扰 Claude Code 的行为。」与同日更早一条：「优先明确 Claude Code 的机制并遵循。在会话名称这方面（尤其是 resident session），把 CloudCLI 看作 Claude Code 的轻量 wrapper。……CloudCLI 中存储的会话名称应看作是 Claude Code 中的会话名称的 cache。」第三条裁定（同日晚，针对 App 侧占位名）逐字：「正常情况下，这个名字应当只显示几秒，然后被 Claude Code 生成的名字换掉。我不指望用这个 derived 收发消息。」⇒ 占位名保留，但必须是过渡态、且永远不得作为地址。
 
 - 常驻启动**不向 CLI 传任何名字**：没有 `--name`，也没有等价的 `extraArgs.name`。理由是逐帧可量的：CLI 的显示阶梯是 `agent-name` > `custom-title` > `ai-title` > 首条消息，而 `--name` **同时**写成 `agent-name` 与 `custom-title` 两条（实测：带 `agent-name` 的转录里 2748/2749 条同时带一条等值的 `custom-title`），落库档位又是 `agent`/`manual` 两档高于 `ai` ⇒ 启动瞬间就钉死一个 App 自造的名字，会话随后挣到的 `ai-title` 再也翻不上来（本机实测：1513/1643 行显示名只来自 35 个自造串）。第二档出路（`--name` 取 Claude Code 已有的名字）同样出局：它仍然钉死名字，仍然改 Claude Code 的行为。
 - **地址是读来的，不是算出来的。** 绑定的 `peerName` 取自 Claude Code 自己的进程注册表 `<CLAUDE_CONFIG_DIR>/sessions/<pid>.json` 的 `name`；同一记录里的 `sessionId`（用于拒绝 pid 复用带来的陈旧文件）与 `messagingSocketPath`（地址可达的依据）一并校验（`readCliSessionRegistration`，由 `startIdentityReadback` 在每条宿主上读一次，超时读不到就报 `null` 而不是猜）。注册名的 `nameSource` 因此是 `derived`（CLI 自己的派生名），而不是 `user`（有人把名字交给过它）。**实测（2026-09-30，`~/.claude/sessions/*.json`）**：App 起的常驻进程一律 `nameSource: 'derived'`，交名启动（`--name`／`extraArgs.name`）的进程一律 `'user'`。
 - **地址在进程生命周期内固定，但不跨重启固定。** App 里改名只改 Claude Code 侧的会话名（`IProviderSessionRename`，见 §14 与 `## 裁定后的复测` 第 5 条），进程与它的注册名都不动。重启会得到一个新的派生名——那是 Claude Code 自己的派生规则，本提案不再承诺更多；也不再拿上一次的名字当种子（旧实现正是因此每次重启多一截 `-<id6>`，实测形状 `-9959ff-9959ff`）。**代价**：地址不再可预测；`AC-164` 的承诺已随之修订（见 `goals/AC-164-*.md`）。
 - **`derived` 名的可达性已实测**（上文「承重假设仍未验证」一句随之作废），这是 (a) 的承重读数：另一个会话向它 `SendMessage`，对方真的产出一轮（`source=unattended`、触发 `cross-session-message`、`chat.subscribe(lastSeq=0)` 完整回放）。判据：`server/modules/providers/tests/claude-resident-addressable.test.ts`。该判据同时带一条**交名启动**的正控制（同一个会话、只改这一处：把名字交给进程 ⇒ 注册表读 `user`、转录里成对写下那个名字），因此「把 `--name` 加回去」的假形态会红在 `derived`→`user`、转录里的自写名、以及地址尾部的 `<id6>` 形状三处。
 - 历史读数（E6，仍为真但已不使用）：`-n, --name <name>` 是合法旗标，中文与空格被原样接受（本地转录里 `agent-name` / `custom-title` 与设定值逐字一致）；但该名字**不进** `/v1/messages` 请求体，所以「是否生效」只能读进程自己的记录——(a) 下读的是进程注册表，不是转录。
-- 会话菜单新增"复制 SendMessage 地址"，仅当绑定存活且 `addressable` 时可用。地址按上款**读自 Claude Code 的进程注册名**，不是 App 自造的名字。
+- 会话菜单新增"复制 SendMessage 地址"，仅当绑定存活且 `addressable` 时可用。地址按上款**读自 Claude Code 的进程注册名**，既不是 App 自造的 `<slug>-<id6>`，也**不是** App 在会话尚无名字时的那个占位名（`buildCloudCliSessionName`，落库为 `derived`）——占位名是显示用的过渡值，Claude Code 自己的标题一到就换掉（2026-09-30 实测约 2 秒），它永远不是地址。人 yale 2026-09-30 补充裁定逐字：「正常情况下，这个名字应当只显示几秒，然后被 Claude Code 生成的名字换掉。我不指望用这个 derived 收发消息。」
 - 会话详情显示 pid、peer 名、启动时间、内存（读 scope 的 `memory.current`）、状态和保活理由。这些数据来自统一的宿主接口。
 - 在 Shell 标签页执行 `claude --resume` 会让同一会话多出第二个写入者。因此**常驻会话不支持 Shell 标签页**：只按 `lifecycle_mode` 判断，与进程是否存活无关，也不提供强行打开。关闭常驻模式后恢复可用。
 
