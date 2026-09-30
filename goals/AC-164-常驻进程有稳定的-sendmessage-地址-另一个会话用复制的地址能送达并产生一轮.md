@@ -1,6 +1,6 @@
 ---
 id: AC-164
-title: 常驻进程有稳定的 SendMessage 地址，另一个会话用复制的地址能送达并产生一轮
+title: 常驻进程有可读的 SendMessage 地址（读自 Claude Code 的进程派生名，非 App 自造），另一个会话用该地址能送达并产生一轮
 status: achieved
 kind: criterion
 goal: GOAL-013
