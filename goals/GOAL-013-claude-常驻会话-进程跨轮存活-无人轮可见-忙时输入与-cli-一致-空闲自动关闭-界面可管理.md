@@ -20,6 +20,7 @@ statusLog:
     actor: goal-driver
     reason: "I2: all ACs achieved + sufficiency covered"
 ---
+
 ## 背景
 
 per-run 模式下每轮一个 claude 进程，CronCreate 最多触发一次、周期大于 30 分钟不触发、用户一说话就丢；ScheduleWakeup 大于 30 分钟不触发；SendMessage 的 peer 名与 socket 每个进程都变；空闲会话没有进程，不可寻址。提案 docs/proposals/claude-resident-sessions.md 给 Claude 增加常驻模式：进程在两轮之间不退出，stdin 由服务端握着，所有输入推进同一个进程。
@@ -32,7 +33,7 @@ per-run 模式下每轮一个 claude 进程，CronCreate 最多触发一次、�
 - 无人轮（cron、后台任务回报、跨会话消息；E9 读到 CLI 工具表里没有 Monitor）由 manager 开 run，来源为 unattended，无连接也记录，可回放，并推送通知。
 - 忙时输入与 CLI 一致：不拒绝、不在服务端排队，立即写入进程，归入 CLI 实际给出的那一轮。
 - 默认 bypassPermissions 启动；无人值守时 AskUserQuestion 与 ExitPlanMode 自动拒绝并通知。
-- 稳定的 SendMessage 地址（extraArgs.name）。
+- ~~稳定的 SendMessage 地址（`extraArgs.name`）~~ ⟪2026-09-30 人 yale 裁定修订⟫ 改为**读 Claude Code 自己给进程的派生名**（`~/.claude/sessions/<pid>.json`，`nameSource=derived`）；App 不再传 `--name`，也不承诺地址跨重启不变。原条款把「自造地址」与「不干扰 Claude Code 命名」当成两件事，实为同一个槽位。
 - 空闲关闭（24 小时，可配置；cron 保活理由最长 7 天；浏览器停留不算活动）。
 - 服务停止与被杀后的关闭与启动清扫；重启后不自动恢复，下一次发送重新拉起。
 - 进程层：复用并推广 tasks/gap-claude-session-cgroup-scope 的 scope 服务，给常驻进程单进程上限与 slice 总上限（数值来自实验 E7）。
@@ -52,7 +53,7 @@ per-run 模式下每轮一个 claude 进程，CronCreate 最多触发一次、�
 - AC-161 常驻进程跨轮存活，中止不杀进程，关闭后进程退出。
 - AC-162 无人轮在无浏览器时产生、建 run、可回放并通知。
 - AC-163 忙时输入与 CLI 一致（基准来自实验 E2/E3 与人的确认）。
-- AC-164 稳定的 SendMessage 地址可被另一会话使用并产生一轮。
+- AC-164 的 SendMessage 地址可被另一会话使用并产生一轮 —— 承诺已于 2026-09-30 修订为「地址读自 CLI 派生名」，其判据文件仍重述旧规则，须由 tasks/gap-cloudcli-self-assigned-names-outrank-ai-titles 一并修订。
 - AC-165 空闲关闭：有 cron 时不在空闲超时处关闭，浏览器停留不阻止关闭。
 - AC-166 服务停止或被杀后无残留，重启后显示已随重启关闭，下一次发送重新拉起。
 - AC-167 超出内存上限时只有该常驻进程被杀。
