@@ -1,7 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 
-import { appConfigDb, sessionsDb, type SessionNameSource } from '@/modules/database/index.js';
+import { appConfigDb, isSelfAssignedSessionName, sessionsDb, type SessionNameSource } from '@/modules/database/index.js';
 import {
   buildLookupMap,
   extractFirstValidJsonlData,
@@ -50,14 +50,20 @@ type TranscriptTitle = {
  * until the whole window has been read: an `agent-name` may sit either side of
  * an `ai-title`, and only the last entry of each type is the one the CLI would
  * display.
+ *
+ * `selfAssigned` is split out of `agent` at fold time rather than at ladder
+ * time so a window holding nothing but an address this app minted does not count
+ * as a complete answer: the `ai-title` it must not outrank may sit in the other
+ * window, and the reader has to go and look. See `isSelfAssignedSessionName`.
  */
 type TranscriptTitles = {
   agent: string | null;
   manual: string | null;
   ai: string | null;
+  selfAssigned: string | null;
 };
 
-const NO_TITLES: TranscriptTitles = { agent: null, manual: null, ai: null };
+const NO_TITLES: TranscriptTitles = { agent: null, manual: null, ai: null, selfAssigned: null };
 
 /**
  * The prompt blocks Claude writes that are not what the user typed: a slash
@@ -104,11 +110,16 @@ const hasAnyTitle = (titles: TranscriptTitles): boolean =>
  * replaced, not the session's name. An entry that belongs to another session —
  * a subagent transcript repeats its parent's entries under its own id — is
  * dropped rather than allowed to name this one.
+ *
+ * An `agent-name` this app minted (`--name`) is routed to `selfAssigned` instead
+ * of `agent`, so it lands on its own rung of the ladder rather than at the top
+ * of it; see `TranscriptTitles` for why the split happens here.
  */
 function foldTitleEntry(
   state: TranscriptTitles,
   entry: Record<string, unknown>,
   sessionId: string,
+  appSessionId?: string | null,
 ): TranscriptTitles {
   const type = typeof entry.type === 'string' ? entry.type : undefined;
 
@@ -117,7 +128,12 @@ function foldTitleEntry(
       return state;
     }
     const name = typeof entry.agentName === 'string' ? entry.agentName : undefined;
-    return name?.trim() ? { ...state, agent: name } : state;
+    if (!name?.trim()) {
+      return state;
+    }
+    return isSelfAssignedSessionName(name, appSessionId)
+      ? { ...state, selfAssigned: name }
+      : { ...state, agent: name };
   }
 
   if (type === 'custom-title') {
@@ -394,7 +410,15 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
     // so a name that is not re-read is a name that goes stale. The read is two
     // bounded windows, so this costs the same for a session that has been named
     // for months as for one being discovered now.
-    const transcriptTitle = await this.extractSessionTitle(filePath, parsed.sessionId);
+    //
+    // The row's id goes with the read so the ladder can tell an address this app
+    // minted (`--name`, always suffixed with this row's own id) apart from an
+    // `agent-name` a real agent chose.
+    const transcriptTitle = await this.extractSessionTitle(
+      filePath,
+      parsed.sessionId,
+      existingSession?.session_id
+    );
     if (transcriptTitle) {
       return {
         ...parsed,
@@ -493,13 +517,14 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
    */
   private async extractSessionTitle(
     filePath: string,
-    sessionId: string
+    sessionId: string,
+    appSessionId?: string | null
   ): Promise<TranscriptTitle | undefined> {
     const tail = await readTranscriptWindow<TranscriptTitles>(filePath, {
       from: 'tail',
       maxBytes: TRANSCRIPT_TITLE_TAIL_MAX_WINDOW_BYTES,
       initial: NO_TITLES,
-      fold: (state, entry) => foldTitleEntry(state, entry, sessionId),
+      fold: (state, entry) => foldTitleEntry(state, entry, sessionId, appSessionId),
       isComplete: hasAnyTitle,
     });
 
@@ -514,7 +539,7 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
           maxBytes: TRANSCRIPT_TITLE_HEAD_MAX_WINDOW_BYTES,
           initial: { titles: NO_TITLES, firstPrompt: null },
           fold: (state, entry) => ({
-            titles: foldTitleEntry(state.titles, entry, sessionId),
+            titles: foldTitleEntry(state.titles, entry, sessionId, appSessionId),
             firstPrompt: state.firstPrompt ?? readPromptEntry(entry) ?? null,
           }),
           // A title outranks the prompt, so either answer ends the read.
@@ -530,6 +555,13 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
     // transcript entry type at all (0 of 1282 transcripts in the corpus this
     // was measured against carry one — it is session metadata the CLI keeps
     // elsewhere), so there is nothing in a transcript for a rung to read.
+    //
+    // `selfAssigned` is the one rung that is *not* the CLI's. The CLI prints the
+    // address this app handed it through `--name`, but that address is a launch
+    // flag the app invented, not a name the session earned, so it sits below the
+    // session's own titles and only above the inferred first prompt. Ranking it
+    // where the CLI does is what let a `--name` outrank the `ai-title` of a
+    // session that had a real name of its own.
     if (titles.agent) {
       return { name: titles.agent, source: 'agent' };
     }
@@ -538,6 +570,9 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
     }
     if (titles.ai) {
       return { name: titles.ai, source: 'ai' };
+    }
+    if (titles.selfAssigned) {
+      return { name: titles.selfAssigned, source: 'self-assigned' };
     }
 
     // Below the titles the CLI falls back to the session id; the app has a

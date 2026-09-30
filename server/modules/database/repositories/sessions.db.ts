@@ -32,8 +32,15 @@ const SESSION_LIFECYCLE_MODES: readonly string[] = ['per-run', 'resident'] satis
  * of a reading and the `name_source` of an override are drawn from this same
  * scale, so `agent` on a reading outranks `ai` on another reading, and a
  * reading never displaces an override — see `writeTranscriptName`.
+ *
+ * `self-assigned` sits *between* `ai` and `derived`: it is the address this app
+ * itself handed the CLI as a launch flag, which the CLI writes back as the
+ * session's `agent-name` and `custom-title`. It is a name the app invented, not
+ * one the session earned, so it never outranks a real title — see
+ * {@link isSelfAssignedSessionName} for how one is told apart from an
+ * `agent-name` an *agent* chose.
  */
-export type SessionNameSource = 'derived' | 'ai' | 'manual' | 'agent';
+export type SessionNameSource = 'derived' | 'self-assigned' | 'ai' | 'manual' | 'agent';
 
 type SessionRow = {
   session_id: string;
@@ -198,6 +205,77 @@ const SESSION_ROW_RAW_COLUMNS =
   'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, name_source, transcript_name, transcript_name_source, model, effort, permission_mode, lifecycle_mode, forked_from_session_id, isArchived, created_at, updated_at';
 
 /**
+ * Whether `name` is one of the addresses this app assigned to a session.
+ *
+ * The resident host driver builds its launch address as
+ * `slug(title) + '-' + appSessionId.slice(0, 6)` (see `residentPeerName` in the
+ * Claude host driver), and the CLI writes whatever `--name` it is handed into
+ * the transcript twice: as the session's `agent-name` *and* as its
+ * `custom-title`. The title it slugs is the session's own display name, so a
+ * relaunch folds the previous address into the next one and a transcript can
+ * hold the same `-<id6>` two, three or four times over.
+ *
+ * Two readings, strongest first:
+ *
+ * - With the app session id in hand (the steady state — the row exists and the
+ *   transcript is already linked to it) the test is exact: the name ends in the
+ *   id of the very row it is stored on. An `agent-name` a real agent picked
+ *   cannot end in that id, so it is never mistaken for one of ours.
+ * - Without it (a transcript that has not been linked to an app row yet) the
+ *   fallback is the minted shape: a trailing `-` and exactly six lowercase hex
+ *   characters. App session ids are UUIDs, so every address this app ever minted
+ *   has that shape, and the cost of the fallback being wrong is bounded — a
+ *   genuine `agent-name` that happens to end that way ranks below an `ai-title`
+ *   instead of above it, which is the same side of the line the guard wants.
+ *
+ * Consumers: the Claude session synchronizer uses it to keep such a reading off
+ * the top rung of the title ladder, and the session-name migration uses it to
+ * reclassify rows an older build polluted. Both import it through
+ * `@/modules/database/index.js`.
+ */
+export function isSelfAssignedSessionName(
+  name: string | null | undefined,
+  appSessionId?: string | null
+): boolean {
+  if (!name) {
+    return false;
+  }
+  const lowered = name.toLowerCase();
+  if (appSessionId) {
+    const suffix = `-${appSessionId.slice(0, 6)}`.toLowerCase();
+    if (suffix.length > 1 && lowered.endsWith(suffix)) {
+      return true;
+    }
+  }
+  return /-[0-9a-f]{6}$/.test(lowered);
+}
+
+/**
+ * `name` with any trailing copies of this app's address suffix removed.
+ *
+ * A display name that has been through `residentPeerName` more than once carries
+ * the session's `-<id6>` two, three or four times over (`a-b-edb5ea-edb5ea`).
+ * Peeling them is what stops a polluted name being used as the seed for the next
+ * address — the accumulation a relaunched resident session used to suffer — and
+ * what lets the session-name migration recover the name a row had before an
+ * older build wrote its address over it. A name that does not end in *this*
+ * session's own suffix is returned unchanged, so a title that merely ends in six
+ * hex-looking letters (`facade`, `decade`) is left alone.
+ *
+ * Consumers: `residentPeerName` in the Claude host driver (it peels before it
+ * slugs) and the session-name migration. Both import it through
+ * `@/modules/database/index.js`.
+ */
+export function stripSelfAssignedSuffix(name: string, appSessionId: string): string {
+  const suffix = `-${appSessionId.slice(0, 6)}`;
+  let base = name;
+  while (base.length > suffix.length && base.toLowerCase().endsWith(suffix.toLowerCase())) {
+    base = base.slice(0, -suffix.length);
+  }
+  return base;
+}
+
+/**
  * SQL expression ranking one name-source expression, for the precedence CASE.
  *
  * Anything unrecognized — including the NULL a row can still carry — ranks as
@@ -205,7 +283,7 @@ const SESSION_ROW_RAW_COLUMNS =
  * indexer inferred.
  */
 function nameSourceRankSql(sourceSql: string): string {
-  return `(CASE ${sourceSql} WHEN 'agent' THEN 3 WHEN 'manual' THEN 2 WHEN 'ai' THEN 1 ELSE 0 END)`;
+  return `(CASE ${sourceSql} WHEN 'agent' THEN 4 WHEN 'manual' THEN 3 WHEN 'ai' THEN 2 WHEN 'self-assigned' THEN 1 ELSE 0 END)`;
 }
 
 /**

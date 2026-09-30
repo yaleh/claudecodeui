@@ -18,7 +18,11 @@ export type {
   QueuedSessionMessageRecord,
   SessionDraftRecord,
 } from '@/modules/database/repositories/session-drafts.db.js';
-export { sessionsDb } from '@/modules/database/repositories/sessions.db.js';
+export {
+  isSelfAssignedSessionName,
+  sessionsDb,
+  stripSelfAssignedSuffix,
+} from '@/modules/database/repositories/sessions.db.js';
 export type { SessionNameHiddenByFilterJson, SessionNameSource, SessionNameVisibility } from '@/modules/database/repositories/sessions.db.js';
 export { userDb } from '@/modules/database/repositories/users.js';
 // userPreferencesDb: used by the User module to persist the settings that used to live in browser localStorage.

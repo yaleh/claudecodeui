@@ -85,6 +85,7 @@ import {
   ClaudePerRunHostDriver,
   type ClaudeBackgroundWorkEvent,
 } from '@/modules/providers/list/claude/claude-per-run-host-driver.provider.js';
+import { stripSelfAssignedSuffix } from '@/modules/database/index.js';
 import { createNotificationEvent, notifyUserIfEnabled } from '@/modules/notifications/index.js';
 import {
   TOOLS_REQUIRING_INTERACTION,
@@ -836,7 +837,16 @@ export function residentPeerName(title: unknown, appSessionId: string): string |
   if (typeof title !== 'string') {
     return null;
   }
-  const slug = title
+  // The title handed in is the conversation's display name, and once this app has
+  // launched the session even once that display name *is* the address it handed
+  // the CLI: the CLI writes `--name` back as the session's title and the reader
+  // reads it out again. Feeding the address back in as the title is what made it
+  // grow another `-<id6>` on every relaunch, so any trailing copies of *this*
+  // session's own suffix are peeled off before the slug is built. The address
+  // this returns is then the one the first launch derived from the same title,
+  // byte for byte, however many times the session has been restarted.
+  const base = stripSelfAssignedSuffix(title, appSessionId);
+  const slug = base
     .toLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, '-')
     .replace(/^-+|-+$/g, '');
@@ -1089,8 +1099,21 @@ export function readLaunchedRemoteControlSettings(
  * A malformed line is skipped rather than fatal: a transcript being appended to
  * while it is read has a partial final line by construction, and that is not a
  * reason to miss the entry that is already on disk.
+ *
+ * The *last* entry is the answer, not the first: the CLI appends a fresh
+ * `agent-name` on every launch that carries `--name`, so an earlier entry is the
+ * address of a previous launch. Reading the first one made the identity guard
+ * compare this launch's address against an older one's, which is why a session
+ * that had ever been restarted reported "a different address than it was
+ * launched with" and published a NULL `peerName` — the stable SendMessage
+ * address AC-164 promises was empty on exactly the sessions that had been
+ * restarted.
+ *
+ * Exported for `claude-session-name-authority.test.ts`, which pins the
+ * newest-entry rule against a transcript holding several launches' addresses;
+ * the driver itself is the only production caller.
  */
-function readTranscriptAgentName(configDir: string, providerSessionId: string): string | null {
+export function readTranscriptAgentName(configDir: string, providerSessionId: string): string | null {
   const projects = join(configDir, 'projects');
   let buckets: string[];
   try {
@@ -1107,6 +1130,7 @@ function readTranscriptAgentName(configDir: string, providerSessionId: string): 
     } catch {
       continue;
     }
+    let registered: string | null = null;
     for (const line of raw.split('\n')) {
       if (!line.trim()) {
         continue;
@@ -1118,9 +1142,11 @@ function readTranscriptAgentName(configDir: string, providerSessionId: string): 
         continue;
       }
       if (row?.type === 'agent-name' && typeof row.agentName === 'string' && row.agentName) {
-        return row.agentName;
+        // Keep scanning: a later entry is a later launch's address.
+        registered = row.agentName;
       }
     }
+    return registered;
   }
 
   return null;

@@ -1,5 +1,8 @@
+import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
+
 import { Database } from 'better-sqlite3';
 
+import { isSelfAssignedSessionName, stripSelfAssignedSuffix } from '@/modules/database/repositories/sessions.db.js';
 import {
   APP_CONFIG_TABLE_SCHEMA_SQL,
   LAST_SCANNED_AT_SQL,
@@ -510,6 +513,126 @@ const splitSessionTranscriptNameColumns = (db: Database): void => {
 };
 
 /**
+ * Bytes of a transcript's tail the reclassification reads when it asks whether
+ * the session still holds an `ai-title`.
+ */
+const RECLASSIFY_AI_TITLE_TAIL_BYTES = 512 * 1024;
+
+/**
+ * Whether the transcript at `jsonlPath` still holds an `ai-title` entry.
+ *
+ * Only the tail is read, and only for a substring. The question the migration
+ * asks is which side of the title ladder a polluted row belonged on, and the CLI
+ * rewrites its title entries at the end of the file — so a title that survived
+ * is a title in the tail window. A transcript that cannot be read answers
+ * `false`: the caller then falls back to `derived`, which is the rung a name
+ * with nothing behind it deserves.
+ */
+const transcriptHoldsAiTitle = (jsonlPath: string | null): boolean => {
+  if (!jsonlPath) {
+    return false;
+  }
+  let handle: number;
+  try {
+    handle = openSync(jsonlPath, 'r');
+  } catch {
+    return false;
+  }
+  try {
+    const size = fstatSync(handle).size;
+    const length = Math.min(size, RECLASSIFY_AI_TITLE_TAIL_BYTES);
+    const buffer = Buffer.alloc(length);
+    readSync(handle, buffer, 0, length, size - length);
+    return buffer.toString('utf8').includes('"type":"ai-title"');
+  } catch {
+    return false;
+  } finally {
+    closeSync(handle);
+  }
+};
+
+/**
+ * Re-files the rows an older build named after this app's own resident address.
+ *
+ * Until `self-assigned` existed, the address the host driver handed the CLI as
+ * `--name` was read back out of the transcript on the `agent` rung — the top of
+ * the ladder, above any `ai-title` the session had earned — and stored as the
+ * session's name. This migration files those rows back where they belong: a row
+ * whose transcript still holds an `ai-title` goes to `ai`, one whose transcript
+ * holds none goes to `derived`. The accumulated `-<id6>` repeats an older build
+ * folded into the name are peeled off as it moves, so the next launch derives
+ * its address from the name underneath rather than from its own last output.
+ *
+ * Idempotent by its predicate rather than by a version marker: it selects only
+ * rows still sitting on `agent` with a self-assigned name, and the update takes
+ * every one of them off that combination, so a second run selects nothing. That
+ * is also what makes it safe to run on every startup — a row an old build wrote
+ * after this shipped is repaired by the next startup rather than left behind.
+ */
+const reclassifySelfAssignedSessionNames = (db: Database): void => {
+  const rows = db
+    .prepare(
+      `SELECT session_id AS sessionId,
+              transcript_name AS transcriptName,
+              custom_name AS customName,
+              name_source AS nameSource,
+              transcript_name_source AS transcriptNameSource,
+              jsonl_path AS jsonlPath
+         FROM sessions
+        WHERE name_source = 'agent' OR transcript_name_source = 'agent'`
+    )
+    .all() as Array<{
+    sessionId: string;
+    transcriptName: string | null;
+    customName: string | null;
+    nameSource: string | null;
+    transcriptNameSource: string | null;
+    jsonlPath: string | null;
+  }>;
+
+  const readings: Array<{ sessionId: string; name: string; source: string }> = [];
+  const overrides: Array<{ sessionId: string; name: string; source: string }> = [];
+
+  for (const row of rows) {
+    const candidate =
+      row.transcriptNameSource === 'agent'
+        ? { name: row.transcriptName, into: readings }
+        : row.nameSource === 'agent'
+          ? { name: row.customName, into: overrides }
+          : null;
+    if (!candidate?.name || !isSelfAssignedSessionName(candidate.name, row.sessionId)) {
+      continue;
+    }
+    candidate.into.push({
+      sessionId: row.sessionId,
+      name: stripSelfAssignedSuffix(candidate.name, row.sessionId),
+      // A title the transcript still carries is what the session was called; a
+      // transcript that carries none leaves only the first prompt, which the
+      // next scan derives for itself.
+      source: transcriptHoldsAiTitle(row.jsonlPath) ? 'ai' : 'derived',
+    });
+  }
+
+  const writeReading = db.prepare(
+    `UPDATE sessions SET transcript_name = @name, transcript_name_source = @source WHERE session_id = @sessionId`
+  );
+  const writeOverride = db.prepare(
+    `UPDATE sessions SET custom_name = @name, name_source = @source WHERE session_id = @sessionId`
+  );
+  for (const row of readings) {
+    writeReading.run(row);
+  }
+  for (const row of overrides) {
+    writeOverride.run(row);
+  }
+  if (readings.length + overrides.length > 0) {
+    console.log(
+      `Running migration: Re-filing ${readings.length + overrides.length} session(s) named after a CloudCLI resident address`
+    );
+  }
+};
+
+/**
  * Adds the `model` column that records which model each session runs with.
  *
  * Left NULL for pre-existing rows on purpose: the model resolver falls back to
@@ -758,6 +881,9 @@ export const runMigrations = (db: Database) => {
     addSessionNameSourceColumn(db);
     // Likewise after the rebuild, and after the name_source column it reads.
     splitSessionTranscriptNameColumns(db);
+    // After the split, because it files a reading back onto the rungs the split
+    // created — and after every rebuild, because it reads the name columns.
+    reclassifySelfAssignedSessionNames(db);
     // And again after that rebuild: it copies an explicit column list, so a
     // lifecycle_mode added before it would be dropped along with the old table
     // and every existing session would come back with the column missing.

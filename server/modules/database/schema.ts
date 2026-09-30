@@ -143,8 +143,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     -- itself) or 'manual' (a rename through the app). Upserts only ever move a
     -- name up that order, so the column is what keeps a provider rescan from
     -- undoing a rename.
-    name_source TEXT DEFAULT 'derived',
-    -- The name this session's provider transcript gives it, kept apart from
+    name_source TEXT DEFAULT 'derived',    -- The name this session's provider transcript gives it, kept apart from
     -- \`custom_name\` because the two answer different questions: this one is
     -- re-read on every sync (Claude revises its own title, and a CLI \`/rename\`
     -- can append one at any time), while \`custom_name\` only ever changes when
@@ -160,6 +159,12 @@ CREATE TABLE IF NOT EXISTS sessions (
     -- publish such a ladder, which is also why it stays separate from
     -- \`name_source\`: 'manual' there means the user renamed it *in this app*,
     -- a claim the transcript cannot make.
+    --
+    -- 'self-assigned' is the app's own rung: the address CloudCLI handed the CLI
+    -- as \`--name\`, which the CLI writes back into the transcript as both
+    -- \`agent-name\` and \`custom-title\`. It is a name the app invented rather
+    -- than one the session earned, so it ranks below 'ai' and above 'derived' —
+    -- see \`SessionNameSource\`.
     transcript_name_source TEXT,
     project_path TEXT,
     jsonl_path TEXT,
