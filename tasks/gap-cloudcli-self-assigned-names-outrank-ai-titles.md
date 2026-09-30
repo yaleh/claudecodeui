@@ -67,7 +67,8 @@ extra:
 - [x] **(a) 的承重读数（AC-164 从未量过的那个）**：另一个会话用 CLI 自己派生的 `derived` 名 `SendMessage`，真的送达并让对方产出一轮（`source=unattended`、触发类型 `cross-session-message`、可 `chat.subscribe(lastSeq=0)` 完整回放）。**假形态**：把地址换成一个不存在的名字 ⇒ 必须红。⚠️ 本条不通过则 (a) 不成立，必须先量。
 - [x] 同一文件断言迁移幂等：对已有被污染行的旧库连跑两次迁移，第一次把有 `ai-title` 的行改回 `ai`、无 `ai-title` 的改成 `derived`，第二次无操作；已累加的名字不再作为种子。
 - [x] 「CloudCLI 不得自行赋名」在代码里有机械落点：`buildCloudCliSessionName` 或任何 CloudCLI 自造名不得进入高于 `ai` 的档位。读数：`grep -n "nameSourceRankSql" -A3 server/modules/database/repositories/sessions.db.ts` 与档位断言。
-- [x] 人 yale 的两条逐字裁定都存在于本任务记录中（机械读数：本文件内存在两个裁定小节）；任一缺席时本任务不得 done。
+- [ ] **占位名是过渡态，且永不当地址**（人 yale 2026-09-30 补充裁定）：新建会话后 `transcript_name_source` 必须由 `derived` 转成 `ai`、显示名等于 Claude Code 的 `ai-title`。**正控制**：Claude Code 从未给出标题的会话里占位名必须**保留**（不许把「换掉」实现成「清空」）。**假形态**：让占位名进入高于 `ai` 的档位 ⇒ 必须红。另断言 `GET /api/session-hosts` 的 `peerName` 在任何情况下都**不等于** App 的 `derived` 占位名。⚠️ 这条是**回归守卫**：2026-09-30 在 :3001 实测占位名只活约 2 秒（`a8257068`：04:43:47 落 `derived` ⇒ 04:43:49 换成 `ai-title` `Server 目录 ts 文件统计`，侧栏/聊天头/标签页三处一致），而 (a) 下 `peerName` 只可能读自 CLI 注册表 —— 今天两条都已成立，加它是防回归，不是待修缺陷。
+- [x] 人 yale 的三条逐字裁定都存在于本任务记录中（机械读数：本文件内存在三个裁定小节）；任一缺席时本任务不得 done。
 - [x] 既有判据逐条退出 0 且文件未改：`claude-session-title-source.test.ts`、`claude-host-per-run.test.ts`、`claude-background-work.test.ts`、`session-hosts-routes.test.ts`、`sessions-name-source.integration.test.ts`、`session-rename-route.test.ts`、`claude-session-title-corpus.test.ts`、`claude-session-title-mirror.test.ts`。逐条打印命令与退出码。**`claude-resident-addressable.test.ts` 不在此列**（见下条）。
 - [x] `claude-resident-addressable.test.ts` 随出路 (a) 修订并退 0：它现有内容逐字重述了被本裁定作废的规则（`expectedPeerName(title,id) = slug(title)+'-'+id.slice(0,6)`，断言投影与转录都等于它、且转录里必须有一条 `agent-name`），在 (a) 下必红。修订后的断言改为「不传 `--name`、投影读自 CLI 注册表、`derived` 名可达」。同时 `goals/AC-164-*.md` 的 `expect` 已按裁定改写（登记人 2026-09-30 经 `quay goal write --expect` 落盘）。
 - [x] `npm run typecheck` 退出 0（三条链）且 `npm run lint` 退出 0（仅既有 warning）。
@@ -251,6 +252,24 @@ server/modules/providers/tests/claude-session-title-mirror.test.ts       exit=0 
 
 **声明修正（anti-drift）**：`anti-drift-touches-check` 在 `develop...HEAD` 的 12 个文件上报 **`out-of-declared: task wrote server/shared/interfaces.ts (matches no declared Touches glob)`**（HARD FAIL，无 waiver）。该文件承载 AC4 强制的契约改动：`IProviderSessionRename` 的语义从「App 侧权威、provider 侧 best-effort」翻转为「provider 侧权威、本 App 的副本是它的 cache」，并新增可选 `readSessionTitle` 回读（消费者三处：`claude-rename.provider.ts`、`services/sessions.service.ts`、本任务判据）；接口声明所在文件无法另置。原 `## Touches` 漏列，现补 `- server/shared/interfaces.ts (AC4：…)` 一行（不改 Touches 以绕过守卫：这是补声明，不是放宽）。复查：`ANTI-DRIFT OK: task … — 12 actual file(s), all within declared Touches (14 glob(s))`。
 **范围界定（重申裁定后复测那条）**：`transcript_name_source='agent'` 的 1528 行绝大多数来自 **quay driver** 的 `-n <role>`（`.quay/profiles.yml`），不是 CloudCLI 写的。本任务只让 CloudCLI 自己不再注入、并迁移历史行；driver 侧的角色名不在本任务范围内。
+
+## 人 yale 的补充裁定（2026-09-30，逐字）—— App 侧占位名
+
+「正常情况下，这个名字应当只显示几秒，然后被 Claude Code 生成的名字换掉。我不指望用这个 derived 收发消息。」
+
+**⇒ 结论：`buildCloudCliSessionName` 的占位名保留，不删。** 它是「Claude Code 还没给出名字」时的过渡显示名，两条硬要求随之成立：
+
+1. **必须是过渡态**：Claude Code 自己的名字（`ai-title`）一到就换掉它。实测（2026-09-30 04:43，本机 :3001，新会话 `a8257068`）：`04:43:47` 落库 `derived` 占位名 `请统计 server 目录下一共有多少个 ts`（首条消息前 4 个词）⇒ `04:43:48` 用户消息进转录 ⇒ `04:43:49` 换成 `ai-title` 的 `Server 目录 ts 文件统计`，`transcript_name_source` 由 `derived` 变 `ai`；侧栏、聊天头、标签页三处一致。**占位名存活约 2 秒**，今天的行为已符合本条。
+2. **永远不得作为地址**：`peerName` / 「复制 SendMessage 地址」在任何情况下都不得回落到这个占位名。占位名是显示用的临时值，不是进程地址。
+
+**⚠️ 术语消歧（登记人，已向人确认）**：「derived」在这件事里是两个不同的东西，本节的裁定**只**针对前者：
+
+| | 是什么 | 谁给的 | 裁定效果 |
+|---|---|---|---|
+| App 侧 `derived` | `buildCloudCliSessionName` 的占位显示名 | CloudCLI | 保留、必须过渡、不得当地址（本节） |
+| CLI 侧 `derived` | 进程注册名 `~/.claude/sessions/<pid>.json` 的 `name`，形如 `claudecodeui-74` | Claude Code | **不受本条豁免**：AC6 的承重读数（另一个会话用这个 `derived` 名 `SendMessage` 能否送达）仍必须量 |
+
+人 2026-09-30 确认「我不指望用这个 derived 收发消息」指的是 **App 侧占位名**，不是 CLI 进程名 ⇒ AC6 与 AC-164 的承诺按上文照旧。
 
 ## Needs-Human
 
