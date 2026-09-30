@@ -45,12 +45,12 @@ AC-027 的判据（`npm run test:e2e -- e2e/model-library.spec.ts`）本轮在 H
 
 ## AC
 
-- [ ] AC1 有界客户端预热就位：`e2e/model-library.spec.ts` 内定义 `warmClientStartup(clientUrl)`（按 URL 逐个有界等待客户端模块系统可用，超时抛出且错误文本含该 url 与状态），并在该 spec 首个页面之前调用。验证：`grep -n "warmClientStartup" e2e/model-library.spec.ts` 同时命中定义行与调用行；`npm run typecheck` 退出 0（本仓 `typecheck` 不覆盖 `e2e/` —— 该 spec 的编译正确性由判据运行本身的 Playwright 转译保证，故以 AC4 的连续绿为准，逐字登记这一限制）。
-- [ ] AC2 每一次导航都走同一个有界探针：`grep -n "page\.goto(\|page\.reload(" e2e/model-library.spec.ts` 的每一处行号都落在探针函数体内部，函数体外没有任何裸导航；探针耗尽预算时抛出携带页面文本与 `requestfailed` 列表的错误。验证：上述 `grep -n` 输出逐行落界（并给出探针函数的起止行号作对照）。
-- [ ] AC3 有界失败的实测：把探针落点临时指向一个不可能存在的 sentinel 后，判据命令在 **30s 内**以非零退出，且输出里带页面文本与失败请求列表；还原后该读数与还原读数一并登记。验证：两次运行的 `echo $?` 与 wall time。
-- [ ] AC4 判据在负载下连续绿：判据命令连续 ≥5 次全部 `exit 0`，且每一次 wall < 55_000ms（一次都不触发 55s 看门狗 / 60s 门限），其中至少一次与 ≥4 份兄弟 spec 并发。验证：逐次 `echo $?` + wall time。**如实登记**：本机负载高（实测 load1 > 19），并发那一次若兄弟 spec 自己红，须点名归因，不得算到本条头上。
-- [ ] AC5 判定面未变：`git diff develop -- package.json playwright.config.ts` 为空（无 `test:e2e` / `RUN_CEILING_MS` / `BOOT_CEILING_MS` / `SINGLE_SPEC_CEILING_MS` 的增删），且 `git diff develop -- e2e/model-library.spec.ts | grep -c "^-.*expect("` 为 **0**。验证：两条命令的逐字输出。
-- [ ] AC6 AC-027 的假形态仍然红（承重）：把 `src/modules/chat/modals/ModelEnvEditor.tsx` 里存储 secret 的 `secret-set-badge` 遮蔽去掉（让已存 secret 的值可被读回），判据命令退出**非 0**，且红**落在第二条腿的 secret 断言**上（`:146` 的 `secret-set-badge` 可见 或 `:147` 的 `toHaveValue('')`）。登记变异 diff、失败断言逐字、退出码；恢复后判据回到 `exit 0`。
+- [x] AC1 有界客户端预热就位：`e2e/model-library.spec.ts` 内定义 `warmClientStartup(clientUrl)`（按 URL 逐个有界等待客户端模块系统可用，超时抛出且错误文本含该 url 与状态），并在该 spec 首个页面之前调用。验证：`grep -n "warmClientStartup" e2e/model-library.spec.ts` 同时命中定义行与调用行；`npm run typecheck` 退出 0（本仓 `typecheck` 不覆盖 `e2e/` —— 该 spec 的编译正确性由判据运行本身的 Playwright 转译保证，故以 AC4 的连续绿为准，逐字登记这一限制）。
+- [x] AC2 每一次导航都走同一个有界探针：`grep -n "page\.goto(\|page\.reload(" e2e/model-library.spec.ts` 的每一处行号都落在探针函数体内部，函数体外没有任何裸导航；探针耗尽预算时抛出携带页面文本与 `requestfailed` 列表的错误。验证：上述 `grep -n` 输出逐行落界（并给出探针函数的起止行号作对照）。
+- [x] AC3 有界失败的实测：把探针落点临时指向一个不可能存在的 sentinel 后，判据命令在 **30s 内**以非零退出，且输出里带页面文本与失败请求列表；还原后该读数与还原读数一并登记。验证：两次运行的 `echo $?` 与 wall time。
+- [x] AC4 判据在负载下连续绿：判据命令连续 ≥5 次全部 `exit 0`，且每一次 wall < 55_000ms（一次都不触发 55s 看门狗 / 60s 门限），其中至少一次与 ≥4 份兄弟 spec 并发。验证：逐次 `echo $?` + wall time。**如实登记**：本机负载高（实测 load1 > 19），并发那一次若兄弟 spec 自己红，须点名归因，不得算到本条头上。
+- [x] AC5 判定面未变：`git diff develop -- package.json playwright.config.ts` 为空（无 `test:e2e` / `RUN_CEILING_MS` / `BOOT_CEILING_MS` / `SINGLE_SPEC_CEILING_MS` 的增删），且 `git diff develop -- e2e/model-library.spec.ts | grep -c "^-.*expect("` 为 **0**。验证：两条命令的逐字输出。
+- [x] AC6 AC-027 的假形态仍然红（承重）：把 `src/modules/chat/modals/ModelEnvEditor.tsx` 里存储 secret 的 `secret-set-badge` 遮蔽去掉（让已存 secret 的值可被读回），判据命令退出**非 0**，且红**落在第二条腿的 secret 断言**上（`:146` 的 `secret-set-badge` 可见 或 `:147` 的 `toHaveValue('')`）。登记变异 diff、失败断言逐字、退出码；恢复后判据回到 `exit 0`。
 
 ## DoD
 
@@ -64,3 +64,15 @@ AC-027 的判据（`npm run test:e2e -- e2e/model-library.spec.ts`）本轮在 H
 - e2e/model-library.spec.ts
 - src/modules/chat/modals/ModelEnvEditor.tsx（仅 AC6 假形态变异的临时写点，跑完还原，不进最终 diff）
 - tasks/gap-model-library-criterion-bounded-boot-guard.md
+
+## 完成记录（2026-09-30，branch `task/gap-model-library-criterion-bounded-boot-guard`，commit `19165b66`）
+
+代码 delta 只有 `e2e/model-library.spec.ts`（`git diff develop --stat` 排除 `tasks/`/`goals/`）：287 insertions / 7 deletions；`src/`、`server/` 最终 diff 为空（AC6 的变异已还原）。
+
+- **AC1** — `grep -n "warmClientStartup" e2e/model-library.spec.ts` → `97:const warmClientStartup …`（定义）+ `334: await warmClientStartup(clientUrl);`（调用，在 `browser.newPage()` 之前）。`npm run typecheck` exit 0（日志 `/tmp/ac027-typecheck.log`）。局限如实登记：本仓 `typecheck` 的 include 不含 `e2e/`（`tsc -p tsconfig.json && server/tsconfig.json && scripts/tsconfig.json`），`lint` 亦不扫 `e2e/`（`oxlint src/ server/ scripts/ shared/`）⇒ 该 spec 的编译正确性由判据运行之时 Playwright 的转译保证，以 AC4 的连续绿为准。
+- **AC2** — `grep -n "page\.goto(\|page\.reload(" e2e/model-library.spec.ts` → 只有两处：`237`（`page.goto('/')`）与 `239`（`page.reload()`），都在 `navigateBounded` 函数体（`225`–`260`）内；函数体外无裸导航。探针耗尽 `STARTUP_PROBE_DEADLINE_MS=14_000ms` 时抛出的错误携带 `readStartupEvidence(page)`：页面文本 + console errors（前 5）+ `requestfailed` 列表（前 5）—— AC3 逐字见下。
+- **AC3** — 把 `ACCOUNT_FORM_PROBE` 临时改成不可存在的 sentinel `#username-sentinel-that-cannot-exist`：`exit=1`，`wall=22356ms`（< 30_000ms），日志 `/tmp/ac027-ac3-sentinel.log`；错误逐字：``Error: the account form (#username-sentinel-that-cannot-exist) never rendered, so this run's client never came up to a document that stays (the navigation itself failed: page.reload: Timeout 237ms exceeded. …): the page shows ""; console errors: Failed to load resource: the server responded with a status of 401 (Unauthorized) | … ; failed requests: <none>``（页面文本与失败请求列表两个字段都在错误文本里）。还原（diff 为空）后：`exit=0`，`wall=17381ms`，`3 passed (16.7s)`，日志 `/tmp/ac027-ac3-restored.log`。
+- **AC4** — 连续 5 次：`17695 / 17834 / 22334 / 18650 / 18733 ms`，全部 `exit=0`，`3 passed`，均 < 55_000ms（日志 `/tmp/ac027-ac4-run{1..5}.log`）。并发一次：`model-library exit=0 wall=18514ms 3 passed`，与 4 份兄弟 spec（`session-filter` / `transcript-follow` / `mobile-composer-send-key` / `sidebar-resize`）同时起跑（日志 `/tmp/ac027-conc-model-library.log`，5 路并发总 wall 55484ms）。**兄弟点名归因（不算到本条）**：并发那次 `mobile-composer-send-key`（exit=1, 11147ms）与 `sidebar-resize`（exit=1, 11126ms）各自红在 5000ms 的 `expect(locator).toBeVisible()` / `element(s) not found`，单独重跑均 `exit=0`（36881ms / 32360ms）⇒ 并发下的宿主资源争用；`transcript-follow` 并发与单独重跑均 `exit=1`（55s watchdog，`stuck at stage "browser-launch-or-cases"`），单独重跑时 load1 已升至 71.8，且其文件与本分支逐字相同（`git diff develop -- e2e/transcript-follow.spec.ts` 为空）⇒ 与 develop 同源的既有重载红，非本条。
+- **AC5** — `git diff develop -- package.json playwright.config.ts` 输出 0 行（空）；`git diff develop -- e2e/model-library.spec.ts | grep -c "^-.*expect("` = `0`。
+- **AC6** — 变异（写点 `src/modules/chat/modals/ModelEnvEditor.tsx`，`toEditorRows` 内）：`secretStored: row.kind === 'secret'` → `secretStored: false`（即去掉 secret 掩码/已设置徽标；与 `tasks/gap-model-library-browser-e2e.md:51` 记录的假变体 B 同一手法）。判据 `exit=1`，`wall=19754ms`，红落在第二条腿的 secret 断言（逐字）：``Error: expect(locator).toBeVisible() failed`` / ``Locator: getByTestId('model-env-row').filter({ has: locator('input[value="ANTHROPIC_AUTH_TOKEN"]') }).getByTestId('secret-set-badge')`` / ``Error: element(s) not found``；`1 failed`（case 2），另两条 pass。日志 `/tmp/ac027-ac6-mutation.log`。还原（`git checkout -- src/modules/chat/modals/ModelEnvEditor.tsx`，`git diff --stat` 为空）后：`exit=0`，`wall=17273ms`，`3 passed (16.5s)`，日志 `/tmp/ac027-ac6-restored.log`。
+- **触发源与「响应」定位** — 触发源（宿主 `net::ERR_NETWORK_CHANGED` 打断渲染器在途模块加载）在仓库之外；本条修的是**响应**：无界等待 → 有界重放 + 可归因失败，两个杠杆（`warmClientStartup` 预热 + `navigateBounded` 单点导航探针）均取自 `e2e/session-filter.spec.ts` / `e2e/transcript-follow.spec.ts`，未新造、未弱化任何断言。未认领的 `ERR_UNSAFE_PORT` 机制（`freePortPair()` 的 `listen(0)` 可能落进 Chromium 屏蔽端口段）仍可能极低频地把该判据记红 —— 本条按 AC5 未改端口选择，只登记。
