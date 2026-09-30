@@ -265,10 +265,17 @@ app.use('/api/scheduled-messages', authenticateToken, scheduledMessagesRoutes);
 // mounts belongs to `providerRegistry`. The host module cannot import either
 // (the providers module already imports it, so the edge back would close a
 // cycle), which makes this the composition root the wiring belongs to.
+//
+// The start seam is here for the same reason and is the one that carries work:
+// opening a resident process needs a launch options bag assembled from the
+// session row and the model settings the providers layer recorded, so the route
+// reaches it through `providerRuntimeService` instead of assembling one itself.
 app.use('/api/session-hosts', authenticateToken, createSessionHostsRouter({
     sessionHostManager,
     readSession: (sessionId) => sessionsService.readSessionLifecycle(sessionId),
     resolveHostDriver: (provider) => providerRegistry.resolveProvider(provider).hostDriver ?? null,
+    startResidentSession: (provider, sessionId) =>
+      providerRuntimeService.startResidentSession(provider, sessionId),
     // The listing's second half: every visible session, so a resident one whose
     // process a restart dropped still appears — with `running: false` and the
     // derived reason — instead of vanishing with its host. The mode is read off

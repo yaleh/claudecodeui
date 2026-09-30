@@ -11,6 +11,7 @@ import type {
   HostBindErrorCode,
   HostMode,
   HostQueuedInputCancelResult,
+  HostResidentStartResult,
   HostTurnInput,
   LLMProvider,
   ProcessHost,
@@ -79,6 +80,25 @@ type ProviderRuntimeServiceDependencies = {
    * singleton.
    */
   sessionHostManager: SessionHostManager;
+  /**
+   * The launch options a resident session's *next* turn would have carried.
+   *
+   * The load-bearing half of an on-demand start: a cold launch has no turn to
+   * take its options from, and the process still has to come up in the session's
+   * project directory and under the model/effort/permission mode the user last
+   * sent — otherwise the button would open a process that answers the next turn
+   * differently from the one the conversation has been running under. It belongs
+   * to *this* layer and not to `session-hosts`, which is the module that asks:
+   * the two sources (the session row's `project_path`, the values
+   * `providerModelsService` recorded on every send) are this module's neighbours,
+   * while the host module's boundary is to read no session store and import no
+   * provider registry.
+   *
+   * A dependency rather than a direct call for the same reason
+   * `resolveSessionLifecycleMode` is one: a criterion that drives the dispatch
+   * against its own manager must not need a database to answer it.
+   */
+  resolveResidentLaunchOptions(provider: LLMProvider, sessionId: string): Promise<AnyRecord>;
 };
 
 const defaultDependencies: ProviderRuntimeServiceDependencies = {
@@ -90,7 +110,44 @@ const defaultDependencies: ProviderRuntimeServiceDependencies = {
   getProviderModels: (provider) => providerModelsService.getProviderModels(provider),
   resolveSessionLifecycleMode: (sessionId) => sessionsDb.getSessionLifecycleMode(sessionId),
   sessionHostManager: processWideSessionHostManager,
+  resolveResidentLaunchOptions: (provider, sessionId) => defaultResidentLaunchOptions(provider, sessionId),
 };
+
+/**
+ * The options a resident session's next turn would launch under, with no turn.
+ *
+ * Assembled from the same two sources the websocket dispatch reads when a person
+ * sends a message, so a process opened by the [Start] control comes up the way
+ * the next turn would have brought it up: `cwd`/`projectPath` off the session row
+ * (the CLI is spawned in one and file tools resolve against the other, and
+ * neither has a client to supply it here), and `model`/`effort`/`permissionMode`
+ * from the values `providerModelsService` recorded on the last send.
+ *
+ * The provider-native session id is deliberately absent. It is not a client
+ * option in the first place — every launch resolves it through the runtime
+ * context — and the resident driver injects it itself, so stating it here would
+ * be a second spelling of one fact rather than a missing one.
+ *
+ * A session whose row cannot be read still gets a launch: the project path is
+ * simply omitted and the CLI runs where the server does, which is the answer for
+ * a session that was never given one. Refusing to start over a display detail
+ * would be the worse trade.
+ */
+async function defaultResidentLaunchOptions(
+  provider: LLMProvider,
+  sessionId: string,
+): Promise<AnyRecord> {
+  const projectPath = sessionsDb.getSessionById(sessionId)?.project_path ?? null;
+  const selection = await providerModelsService.resolveSessionModel(provider, { sessionId });
+
+  return {
+    sessionId,
+    ...(projectPath ? { cwd: projectPath, projectPath } : {}),
+    model: selection.model,
+    effort: selection.effort ?? undefined,
+    permissionMode: selection.permissionMode ?? undefined,
+  };
+}
 
 /**
  * The resident turn entry a host driver may carry, beyond `IProviderHostDriver`.
@@ -436,6 +493,47 @@ export function createProviderRuntimeService(
       } catch {
         return null;
       }
+    },
+
+    /**
+     * Opens one session's own resident process, with no turn behind it.
+     *
+     * The dispatch the on-demand [Start] control reaches through the host
+     * module's HTTP face, and the reason it lives here: the launch needs an
+     * options bag assembled from this layer's own sources and a runtime context
+     * built from the resolved provider, neither of which the caller has. What
+     * this method does *not* decide is whether the session should be started —
+     * the caller has already established that it is resident and that its
+     * provider mounts a driver — nor whether the driver can be asked at all,
+     * which is the caller's branch (the `startResidentSession` capability check
+     * in `session-hosts.routes.ts`).
+     *
+     * It throws rather than answering a refusal value, because every reason it
+     * can fail is the caller's to report and each carries a sentence the user
+     * needs: a driver that vanished between the caller's check and this call, a
+     * launch the driver's own gate refused (Remote Control), a process that came
+     * up but was never adopted. The caller turns the throw into its named
+     * `LIFECYCLE_MODE_HOST_UNAVAILABLE` refusal with the message kept verbatim —
+     * the difference between "nothing was started" and "nothing was started
+     * because <this>" is the whole value of the answer.
+     */
+    async startResidentSession(
+      providerName: LLMProvider,
+      sessionId: string,
+    ): Promise<HostResidentStartResult> {
+      const provider = dependencies.resolveProvider(providerName);
+      const driver = provider.hostDriver;
+      const start = driver?.startResidentSession;
+      if (!driver || typeof start !== 'function') {
+        throw new Error(
+          `Provider "${providerName}" mounts no driver that can start a session's resident process on demand.`,
+        );
+      }
+
+      return start.call(driver, sessionId, {
+        options: await dependencies.resolveResidentLaunchOptions(providerName, sessionId),
+        context: createRuntimeContext(provider),
+      });
     },
 
     async abort(providerName: LLMProvider, sessionId: string): Promise<boolean> {

@@ -6,6 +6,7 @@ import type {
   HostCloseReason,
   HostLease,
   HostMode,
+  HostResidentStartResult,
   LifecycleModeErrorCode,
   LLMProvider,
   ProcessHost,
@@ -126,6 +127,31 @@ export type SessionLifecycleReading = {
 export type HostDriverResolver = (provider: LLMProvider) => IProviderHostDriver | null;
 
 /**
+ * Opens one session's own resident process, without a turn.
+ *
+ * A dependency for the same reason {@link HostDriverResolver} is one, one step
+ * further along: starting a resident process needs a launch options bag and a
+ * provider runtime context, and both are assembled from facts this module does
+ * not own — the session row's project path and the model/effort/permission mode
+ * the user last sent, read by the `providers` layer, which already imports this
+ * module and so cannot be imported back. `server/index.ts` supplies the real one
+ * over `providerRuntimeService.startResidentSession`.
+ *
+ * Only meaningful together with a driver that implements
+ * `IProviderHostDriver.startResidentSession`; a caller that has the seam but a
+ * driver without the verb must not call it (see the start route's branch), since
+ * a driver that cannot be asked would otherwise have its options assembled and
+ * thrown away.
+ *
+ * Rejects rather than answering a refusal value: every failure it can report is
+ * one the route turns into its own named refusal with the sentence kept.
+ */
+export type ResidentSessionStarter = (
+  provider: LLMProvider,
+  appSessionId: string,
+) => Promise<HostResidentStartResult>;
+
+/**
  * What a session's own row says about whether a host *should* be serving it.
  *
  * The listing needs one fact the host layer cannot hold: a session's stored
@@ -212,17 +238,22 @@ export const RESIDENT_NOT_RUNNING_REASON =
  *
  * `/start` is that restriction's mirror image. A resident session's process is
  * opened lazily — on the first turn, or when the user asks for it here — so the
- * route resolves the driver and hands the session to `bindSession`, which is
- * the manager's own "put this session on a process" entry point rather than a
- * second way to open one. Both mode-restricted verbs answer with a named
- * `LifecycleModeErrorCode` in the body, so a client tells "this session is not
- * resident" from "there is no such session" from "nothing is running for it"
- * without reading prose.
+ * route resolves the driver and asks it for the session's *own* process, through
+ * the injected {@link ResidentSessionStarter} that assembles the launch's options
+ * (see `IProviderHostDriver.startResidentSession`). A driver that cannot be asked
+ * for one — it never implemented the verb, or the composition root wired no
+ * starter — falls back to `bindSession`, the manager's "put this session on a
+ * process" entry point, which is the right answer for a multiplexing provider
+ * whose live process really can adopt the session. Both mode-restricted verbs
+ * answer with a named `LifecycleModeErrorCode` in the body, so a client tells
+ * "this session is not resident" from "there is no such session" from "nothing
+ * is running for it" without reading prose.
  */
 export function createSessionHostsRouter({
   sessionHostManager,
   readSession,
   resolveHostDriver,
+  startResidentSession,
   listSessions,
 }: {
   sessionHostManager: SessionHostManager;
@@ -238,6 +269,8 @@ export function createSessionHostsRouter({
   readSession?: (appSessionId: string) => SessionLifecycleReading | null;
   /** See {@link HostDriverResolver}; absent means "no provider has a driver". */
   resolveHostDriver?: HostDriverResolver;
+  /** See {@link ResidentSessionStarter}; absent means the start route binds instead. */
+  startResidentSession?: ResidentSessionStarter;
   /** See {@link SessionReader}; absent means the listing reports no sessions. */
   listSessions?: SessionReader;
 }) {
@@ -283,7 +316,10 @@ export function createSessionHostsRouter({
    * `session-already-bound` refusal: "start" is a request for a state, and the
    * state is already the one asked for. The manager would refuse the second bind
    * (the binding index is single-writer), which is the right answer to a second
-   * *bind* and the wrong answer to a second *start*.
+   * *bind* and the wrong answer to a second *start*. The driver's own on-demand
+   * verb holds the same rule on the other side of the seam, so a session that
+   * acquired a host between this check and the launch is answered with that host
+   * rather than getting a second process.
    */
   router.post(
     '/:sessionId/start',
@@ -336,6 +372,52 @@ export function createSessionHostsRouter({
           409,
           'LIFECYCLE_MODE_HOST_UNAVAILABLE',
           `Provider "${session.provider}" mounts no host driver, so session "${sessionId}" cannot be started.`,
+        );
+        return;
+      }
+
+      // A resident start opens the session's *own* process, which is the
+      // question `bindSession` cannot answer: that verb asks which live process
+      // can take the conversation, and its answer for a driver that declares
+      // `multiplexedHost === false` is a refusal as soon as any other host of the
+      // provider is alive — while with none alive it falls through to
+      // `openHost`, where the same driver throws because a resident host is
+      // brought up by a launch and not by a record. So the entry is the driver's
+      // own on-demand verb, reached through the injected seam that assembles its
+      // launch options.
+      //
+      // Both halves are required: a driver that never implemented the verb
+      // cannot be asked, and the seam that would assemble its options has
+      // nothing to hand it. That combination keeps the binding path below live
+      // for every provider whose process really can adopt a session — a
+      // multiplexing driver, and the fake drivers criteria mount here.
+      if (startResidentSession && typeof driver.startResidentSession === 'function') {
+        let started: HostResidentStartResult;
+        try {
+          started = await startResidentSession(session.provider, sessionId);
+        } catch (error) {
+          // Nothing was started, and the reason is the useful part: a launch the
+          // driver's own gate refused, or a process that could not be adopted.
+          // The code stays the lifecycle one a client branches on (the same
+          // trade the binding path below makes), and the driver's sentence
+          // travels verbatim in the message rather than being replaced by
+          // "failed".
+          sendRefusal(
+            response,
+            409,
+            'LIFECYCLE_MODE_HOST_UNAVAILABLE',
+            `Session "${sessionId}" could not be started (${errorMessage(error)}).`,
+          );
+          return;
+        }
+
+        response.json(
+          createApiSuccessResponse({
+            hostId: started.hostId,
+            sessionId,
+            mode: 'resident' satisfies HostMode,
+            pid: started.pid,
+          }),
         );
         return;
       }
@@ -472,6 +554,18 @@ function sendRefusal(
  */
 function routeParameter(value: string | string[]): string {
   return Array.isArray(value) ? (value[0] ?? '') : value;
+}
+
+/**
+ * The sentence from a rejected start, whatever was thrown.
+ *
+ * A refusal's message is the only part of it a user can act on, so a non-`Error`
+ * rejection is stringified rather than dropped: the alternative — a generic
+ * "could not be started" — would leave the caller knowing nothing it did not
+ * already know from the status code.
+ */
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /**

@@ -5,7 +5,7 @@ title: 常驻状态条的 [启动]/[重新启动] 对真实 claude 会话恒不�
   driver.startHost 抛 opened-without-a-process；前端又把整个响应吞掉（sessionHosts.start 不读
   response.ok，actionError 只渲染在已关闭的 popover 内）⇒ 用户只看到点了没反应。修法：driver 加可选
   startResidentSession + providers 层组装冷启动 options + 路由换入口 + 前端如实就地报错
-status: ready
+status: done
 labels:
   - gap
   - defect
@@ -65,10 +65,10 @@ extra:
 
 ## AC
 
-- [ ] AC1 真实 driver 的按需启动：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-ondemand-start.test.ts` 退出 0；`fail 0`。读数：在**已有一个 claude 常驻宿主存活**（同 provider 同 mode、`multiplexedHost === false`）的前提下对**第二个**会话调按需启动 ⇒ 成功、`snapshot()` 里宿主数 **+1**、新宿主的 `bindings` 含第二个会话、`pid` 等于注入假进程给的 pid（并排打印两行）。**正控制**：同一会话重复调用是幂等成功（同一 `hostId`、宿主数不再涨）。**假形态**：把入口改回 `bindSession` ⇒ 必须红，且红在「宿主数未 +1 / 抛 `host-not-multiplexed`」这条读数上。
-- [ ] AC2 路由层：`npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/resident-ondemand-start-route.test.ts` 退出 0；`fail 0`。读数：`POST /api/session-hosts/:sessionId/start` 在 AC1 的前提下返回 **200**，且该会话在随后 `GET /api/session-hosts` 的投影里 `running === true`（打印该行）；同时**逐条复跑**既有三条拒绝并并排打印其 code，要求互不相同：per-run 会话 409 `LIFECYCLE_MODE_NOT_RESIDENT`、provider 无 driver 409 `LIFECYCLE_MODE_HOST_UNAVAILABLE`、不存在 404 `SESSION_NOT_FOUND`。**假形态**同上：入口改回 `bindSession` ⇒ 必红在 200 那条断言上。
-- [ ] AC3 前端不吞拒绝、且收起态可见：`npx vitest run src/modules/chat/tests/residentStatusBarStartRefusal.test.tsx` 退出 0。读数：服务端回 409（`success:false`，`message` 为具名那句）时，**popover 未打开**的状态条上 `[data-resident-action-error]` 的 `textContent` **逐字包含**该 message，且 `data-resident-ui-state` 仍为 `unstarted`、`[data-resident-start]` 仍在（并排打印）。**正控制**：服务端回 200、listing 随后变为 running 时，不出现错误文本且 `[data-resident-start]` 消失。**假形态**：把 `sessionHosts.start` 的 `response.ok`/`readApiJson` 检查删掉 ⇒ 必须红在「错误文本不存在」这条断言上。
-- [ ] AC4 不回归：`npx vitest run src/modules/chat/tests/residentStatusBarLeaseSummary.test.tsx src/modules/chat/tests/residentStatusBarCloseReachable.test.tsx src/modules/chat/tests/residentComposerEnableAffordance.test.tsx` 与 `npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/lifecycle-mode.test.ts server/modules/session-hosts/tests/session-host-bindings.test.ts` 全部退出 0（AC-169/AC-158/AC-172 的既有读数一条不掉）；`npm run typecheck` 与 `npm run lint` 退出 0，读数写进完成记录。
+- [x] AC1 真实 driver 的按需启动：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-ondemand-start.test.ts` 退出 0；`fail 0`。读数：在**已有一个 claude 常驻宿主存活**（同 provider 同 mode、`multiplexedHost === false`）的前提下对**第二个**会话调按需启动 ⇒ 成功、`snapshot()` 里宿主数 **+1**、新宿主的 `bindings` 含第二个会话、`pid` 等于注入假进程给的 pid（并排打印两行）。**正控制**：同一会话重复调用是幂等成功（同一 `hostId`、宿主数不再涨）。**假形态**：把入口改回 `bindSession` ⇒ 必须红，且红在「宿主数未 +1 / 抛 `host-not-multiplexed`」这条读数上。
+- [x] AC2 路由层：`npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/resident-ondemand-start-route.test.ts` 退出 0；`fail 0`。读数：`POST /api/session-hosts/:sessionId/start` 在 AC1 的前提下返回 **200**，且该会话在随后 `GET /api/session-hosts` 的投影里 `running === true`（打印该行）；同时**逐条复跑**既有三条拒绝并并排打印其 code，要求互不相同：per-run 会话 409 `LIFECYCLE_MODE_NOT_RESIDENT`、provider 无 driver 409 `LIFECYCLE_MODE_HOST_UNAVAILABLE`、不存在 404 `SESSION_NOT_FOUND`。**假形态**同上：入口改回 `bindSession` ⇒ 必红在 200 那条断言上。
+- [x] AC3 前端不吞拒绝、且收起态可见：`npx vitest run src/modules/chat/tests/residentStatusBarStartRefusal.test.tsx` 退出 0。读数：服务端回 409（`success:false`，`message` 为具名那句）时，**popover 未打开**的状态条上 `[data-resident-action-error]` 的 `textContent` **逐字包含**该 message，且 `data-resident-ui-state` 仍为 `unstarted`、`[data-resident-start]` 仍在（并排打印）。**正控制**：服务端回 200、listing 随后变为 running 时，不出现错误文本且 `[data-resident-start]` 消失。**假形态**：把 `sessionHosts.start` 的 `response.ok`/`readApiJson` 检查删掉 ⇒ 必须红在「错误文本不存在」这条断言上。
+- [x] AC4 不回归：`npx vitest run src/modules/chat/tests/residentStatusBarLeaseSummary.test.tsx src/modules/chat/tests/residentStatusBarCloseReachable.test.tsx src/modules/chat/tests/residentComposerEnableAffordance.test.tsx` 与 `npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/lifecycle-mode.test.ts server/modules/session-hosts/tests/session-host-bindings.test.ts` 全部退出 0（AC-169/AC-158/AC-172 的既有读数一条不掉）；`npm run typecheck` 与 `npm run lint` 退出 0，读数写进完成记录。
 
 ## DoD
 
@@ -79,6 +79,7 @@ extra:
 ## Touches
 
 - server/shared/interfaces.ts
+- server/shared/types.ts
 - server/modules/providers/list/claude/claude-host-driver.provider.ts
 - server/modules/providers/services/provider-runtime.service.ts
 - server/modules/session-hosts/session-hosts.routes.ts
@@ -90,3 +91,54 @@ extra:
 - server/modules/session-hosts/tests/resident-ondemand-start-route.test.ts (new)
 - src/modules/chat/tests/residentStatusBarStartRefusal.test.tsx (new)
 - tasks/gap-resident-ondemand-start-uses-bind-session.md
+
+## 完成记录
+
+**改动（本分支）**
+
+- 实现 `3123e563`：`server/shared/types.ts`（`HostResidentLaunch` = `options` + provider 侧 `context`；`HostResidentStartResult` = `hostId` + 可空 `pid`）、`server/shared/interfaces.ts`（`IProviderHostDriver` 加**可选** `startResidentSession?`，注释写明与 `multiplexedHost` 正交、options 由调用方组装）、`claude-host-driver.provider.ts`（按需启动动词**复用**既有 `startResidentHost`，只多一条「空队列 + 无 round + 无 writer」入口，没有第二份 launch 代码）、`provider-runtime.service.ts`（`defaultResidentLaunchOptions` 从会话行取 `cwd/projectPath`、从 `providerModelsService.resolveSessionModel` 取 `model/effort/permissionMode`，**故意不填** `providerSessionId` 让 driver 注入 → `sdkOptions.resume`；公开 `startResidentSession(provider, sessionId)`）、`session-hosts.routes.ts`（`/start` 换入口到注入缝，三条拒绝与「已运行 ⇒ 200」幂等语义逐条保留，**保留** `bindSession` 回落）、`server/index.ts`（组合根注入缝）、`src/shared/api.ts`（start/close 经 `readApiJson`）、`ResidentStatusBar.tsx`（`actionError` 移出 portal 落到状态条本体第二行；新增 `startPending` → `data-resident-start-pending` + `disabled`）。
+- 判据 `41b12fb8`：`claude-resident-ondemand-start.test.ts`(AC1)、`resident-ondemand-start-route.test.ts`(AC2)、`residentStatusBarStartRefusal.test.tsx`(AC3)。
+
+**AC1 读数**（真 `ClaudeResidentHostDriver` + 注入假进程 pid 4242；`tests 3 / pass 3 / fail 0`）
+
+```
+ondemand-start refusal#1 entry=bindSession liveHost=1 code=host-not-multiplexed liveHosts=1 spawns=1
+ondemand-start refusal#2 entry=bindSession liveHost=0 liveHosts=0 spawns=0 message="Resident host host-807ef3d9-… was opened without a process; a resident host is started by the driver's run entry."
+ondemand-start before hostId=host-72db413c-… mode=resident provider=claude pid=4242 state=busy bindings=[ac1-ondemand-held]
+ondemand-start after  hostId=host-2cf91a5a-… mode=resident provider=claude pid=4242 state=idle bindings=[ac1-ondemand-second]
+ondemand-start idempotent hostId=host-2cf91a5a-… pid=4242 liveHosts=2 spawns=2
+ondemand-start cold-start hostId=host-7f98a05b-… mode=resident provider=claude pid=4242 state=idle bindings=[ac1-ondemand-cold]
+```
+
+AC1 假形态（driver 入口改回 `bindSession`，`git checkout --` 复原）：腿 (2) 红在 `Error: bindSession refused: host-not-multiplexed`（`claude-host-driver.provider.ts:1939`），腿 (3) 红在 `Resident host … was opened without a process`（`startHost:2012` ← `openHost` ← `bindSession:919`），腿 (1) 仍绿 —— 即红在 AC1 具名的那两条读数上。
+
+**AC2 读数**（`tests 2 / pass 2 / fail 0`）
+
+```
+ondemand-route start status=200 data={"hostId":"host-02172ba3-…","sessionId":"ondemand-route-resident","mode":"resident","pid":4242} message=""
+ondemand-route listing row {"appSessionId":"ondemand-route-resident","provider":"claude","lifecycleMode":"resident","running":true,"reason":null}
+ondemand-route host hostId=host-02172ba3-… pid=4242 state=idle mode=resident
+ondemand-route launch cwd=/data/scratch/yale/ondemand-start-route-LRIaV6 model=default keys=[sessionId,cwd,projectPath,model,effort,permissionMode]
+ondemand-route idempotent status=200 hostId=host-02172ba3-… launches=1 spawns=1
+ondemand-route refusals perRun=409/LIFECYCLE_MODE_NOT_RESIDENT noDriver=409/LIFECYCLE_MODE_HOST_UNAVAILABLE unknown=404/SESSION_NOT_FOUND
+```
+
+AC2 假形态（`/start` 的按需分支关掉 ⇒ 入口回到 `bindSession`）：`start status=500 data=null message="Internal server error"`，`console.error` 的因果行逐字 `Error: Resident host host-3b4c8914-… was opened without a process; a resident host is started by the driver's run entry.`，断言 `actual: 500 / expected: 200` —— 红在 AC2 具名的 200 断言上，且成因可归因（不是裸数字）。
+
+**AC3 读数**（`2 passed`）
+
+```
+resident-start-refusal pending data-resident-start-pending=true disabled=true
+resident-start-refusal refused status=409 message="Session "session-start-refused" is stored as "per-run"; only a resident session can be started on demand." uiState=unstarted pending=false
+resident-start-refusal control status=200 uiState=idle startControl=absent
+```
+
+AC3 假形态（删掉 `api.sessionHosts.start` 的 `readApiJson`）：红在 `the refusal must be readable with the popover shut`（Expected true / Received null），正控制臂仍绿 —— 即红的正是 AC3 具名的「错误文本不存在」那条。两条读数都打印于断言之前（假形态下也留下现场）。
+
+**AC4 读数**：`npx vitest run` 三个前端文件 `Test Files 3 passed / Tests 6 passed`；`npx tsx --test` 服务端两个文件 `tests 15 / pass 15 / fail 0`（其中 `(4a) start really starts the injected driver and the host appears in the listing` 即 `bindSession` 回落臂，仍绿）；`npm run typecheck` 退出 0（三份 tsconfig）；`npm run lint` 退出 0（两个新判据文件零 finding）。
+
+**如实登记的三件事**
+
+1. **AC2 的 driver 是判据自建的替身，不是生产类**。`boundaries/dependencies` 把「`session-hosts` 侧 import `list/claude/claude-host-driver.provider.ts`」判为 error（该文件在 providers 模块之外的所有引用都为 0，providers barrel 也不 re-export 它），所以本文件**不能**用真 driver。Proposal §5「必须用真实 `ClaudeResidentHostDriver`」由 AC1 满足（AC1 逐字用真类 + 既有 `createProcess` 缝，并量到两条原始拒绝）。AC2 的替身只保留路由正确性与该条假形态共同依赖的那一条性质：**常驻宿主由一次 launch 起来，不是由一条记录起来**（`startHost` 只在它自己的按需动词设了 pending 时接管，其余入口拒绝 —— 这正是真 driver 抛 `opened without a process` 的规则，AC1 逐字量过）。替身的其余成员是 `lifecycle-mode.test.ts` 已有的空实现形状。此限制写在 AC2 文件头。
+2. **`src/shared/hooks/useSessionHosts.ts` 只改了文档注释**。吞咽点确实在 `api.ts`（`sessionHosts.start/close` 返回裸 `Response`），hook 的 `.ok` 从来没被读过；Touches 里列出该文件是因为它那句注释（「`readApiJson` 是唯一把拒绝变成 throw 的地方」）在改动前与代码不符。
+3. **两条判据都得先给自己造世界**：AC1 把 Remote Control 的 user-settings 读指向自建临时根、并自建并迁移一份 DB（`resolveModelLaunchSpec` 会查 model 目录，裸 runner 上会 `SQLITE_ERROR`）；AC2 跑在自己的 `DATABASE_PATH` 上，并逐字镜像组合根的错误中间件（含 `details` 与 `console.error`），这条镜像正是假形态那 500 能被归因的原因。
