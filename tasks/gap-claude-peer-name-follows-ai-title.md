@@ -55,7 +55,8 @@ extra:
 - [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-peer-name-follows-ai-title.test.ts` 退出 0，且断言：新建会话跑满一轮（**首轮不传标题**）⇒ 转录里**有 `ai-title`**（证明生成没被抑制）。**假形态**：首轮就传 ⇒ 必须红。
 - [x] 同一文件：第二轮起传 `title = getSessionInfo().summary` ⇒ 注册表 `nameSource === "auto"` 且 `name` 逐字等于该 `summary`。**正控制**：不传的那条腿必须仍是 `derived` 且名字 ≠ 标题（证明该读数不是恒真）。**假形态**：把传入值换成 App 缓存的显示名 ⇒ 必须红。
 - [x] 同一文件断言安全绳：采纳之后转录里的 `custom-title`（若有）与 `ai-title` **逐字相等**。**假形态**：人为把两者错开 ⇒ 必须红。
-- [x] 同一文件断言「冻结」是**已登记的行为**而非意外：第二次 resume 传入一个**不同**的标题 ⇒ 注册名逐字等于**这次传入的新串**（注册表不冻结），该新串**不进阶梯**（`custom-title` 序列与采纳时逐元素相同），且再读 `getSessionInfo().summary` 仍是首次采纳值 —— App 每轮交出去的就是这个值，名字因此在产品里停住。断言里写明这是裁定接受的行为。**（本条原文写的是「注册名仍等于首次采纳的值」，实测被推翻**：注册名跟随当次传入的串，真正冻住的是阶梯与 `summary`。见 `docs/proposals/claude-resident-sessions.md` §12 的更正段。）\n- [x] 两条路径各一条腿并打印 `path=per-run|resident`：per-run 与常驻各自的启动调用点都被覆盖。
+- [x] 同一文件断言「冻结」是**已登记的行为**而非意外：第二次 resume 传入一个**不同**的标题 ⇒ 注册名逐字等于**这次传入的新串**（注册表不冻结），该新串**不进阶梯**（`custom-title` 序列与采纳时逐元素相同），且再读 `getSessionInfo().summary` 仍是首次采纳值 —— App 每轮交出去的就是这个值，名字因此在产品里停住。断言里写明这是裁定接受的行为。**（本条原文写的是「注册名仍等于首次采纳的值」，实测被推翻**：注册名跟随当次传入的串，真正冻住的是阶梯与 `summary`。见 `docs/proposals/claude-resident-sessions.md` §12 的更正段。）
+- [x] 两条路径各一条腿并打印 `path=per-run|resident`：per-run 与常驻各自的启动调用点都被覆盖。
 - [x] 既有判据逐条退 0：`claude-session-name-authority.test.ts`、`claude-resident-addressable.test.ts`、`claude-host-per-run.test.ts`、`claude-background-work.test.ts`、`claude-session-title-source.test.ts`、`session-rename-route.test.ts`。逐条打印命令与退出码。**（原文另有「且文件未改」，实测只对其中五个成立**：`claude-resident-addressable.test.ts` 必须改 —— 本任务把常驻路径的注册名从 `derived` 改成 `auto`，该文件重启腿里两条断言写的正是旧行为，已按新行为重写（`nameSource === 'auto'`、注册名 ≠ App 显示名），其余断言未动，文件仍退 0。）
 - [x] `npm run typecheck` 三条链退出 0；`npm run lint` 退出 0（仅既有 warning）。
 
