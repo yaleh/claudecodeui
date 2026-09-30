@@ -4,6 +4,11 @@
  <p>A desktop and mobile UI for <a href="https://docs.anthropic.com/en/docs/claude-code">Claude Code</a>, <a href="https://docs.cursor.com/en/cli/overview">Cursor CLI</a>, and <a href="https://developers.openai.com/codex">Codex</a>.<br>Use it locally or remotely to view your active projects and sessions from everywhere.</p>
 </div>
 
+> **This repository is a fork of [siteboon/claudecodeui](https://github.com/siteboon/claudecodeui).**
+> It is published to npm as [`@yalehwang/cloudcli`](https://www.npmjs.com/package/@yalehwang/cloudcli).
+> Every install command below pulls this fork — the upstream CloudCLI package under the `@cloudcli-ai`
+> scope is maintained elsewhere and is **not** built from this repository.
+
 <p align="center">
  <a href="https://cloudcli.ai">CloudCLI Cloud</a> · <a href="https://cloudcli.ai/docs">Documentation</a> · <a href="https://discord.gg/buxwujPNRE">Discord</a> · <a href="https://github.com/siteboon/claudecodeui/issues">Bug Reports</a> · <a href="CONTRIBUTING.md">Contributing</a>
 </p>
@@ -81,13 +86,13 @@ The fastest way to get started — no local setup required. Get a fully managed,
 Try CloudCLI UI instantly with **npx** (requires **Node.js** v22+):
 
 ```
-npx @cloudcli-ai/cloudcli
+npx @yalehwang/cloudcli
 ```
 
 Or install **globally** for regular use:
 
 ```
-npm install -g @cloudcli-ai/cloudcli
+npm install -g @yalehwang/cloudcli
 cloudcli
 ```
 
@@ -100,7 +105,7 @@ Visit the **[documentation →](https://cloudcli.ai/docs)** for full configurati
 Run agents in isolated sandboxes with hypervisor-level isolation. Starts Claude Code by default. Requires the [`sbx` CLI](https://docs.docker.com/ai/sandboxes/get-started/).
 
 ```
-npx @cloudcli-ai/cloudcli@latest sandbox ~/my-project
+npx @yalehwang/cloudcli@latest sandbox ~/my-project
 ```
 
 Supports Claude Code and Codex. See the [sandbox docs](docker/) for setup and advanced options.
@@ -126,7 +131,7 @@ CloudCLI UI is the open source UI layer that powers CloudCLI Cloud. You can self
 |---|---|---|---|
 | **Best for** | Local agent sessions on your own machine | Isolated agents with web/mobile IDE | Teams who want agents in the cloud |
 | **How you access it** | Browser via `[yourip]:port` | Browser via `localhost:port` | Browser, any IDE, REST API, n8n |
-| **Setup** | `npx @cloudcli-ai/cloudcli` | `npx @cloudcli-ai/cloudcli@latest sandbox ~/project` | No setup required |
+| **Setup** | `npx @yalehwang/cloudcli` | `npx @yalehwang/cloudcli@latest sandbox ~/project` | No setup required |
 | **Isolation** | Runs on your host | Hypervisor-level sandbox (microVM) | Full cloud isolation |
 | **Machine needs to stay on** | Yes | Yes | No |
 | **Mobile access** | Any browser on your network | Any browser on your network | Any device |
