@@ -1,8 +1,8 @@
 ---
 id: gap-cloudcli-self-assigned-names-outrank-ai-titles
 title: 会话命名权归人工与 Claude Code：CloudCLI 自赋名不得压过 AI title、不得自行赋名、且跨重启幂等
-status: ready
-needs_human_cause: unclassified
+status: needs-human
+needs_human_cause: human-adjudication
 labels:
   - gap
   - defect
@@ -335,3 +335,15 @@ npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/cl
 AC1–AC8、AC11–AC13 不重取：本轮改动只落在上述两个判据文件内，未触任何产品代码，故它们上一轮逐条打印的读数在本树上原样成立（其中 AC11 的八个既有文件、AC13 的 `claude-resident-addressable.test.ts` 都在本轮的最终树上重跑过或未受影响）。`docs/proposals/claude-resident-sessions.md` §12 已含占位名的裁定与「永不当地址」一句（上一轮落盘），本轮无需改文档。
 
 **`## Needs-Human` 段**：本节由 `quay task edit --body-file` 写入（Provider ABI，与 `task_write` 同一条存储写入路径），写后已回读比对——两段 `## Needs-Human` 与三段裁定小节逐字保留，只有 AC 那一行的方框由 `[ ]` 变为 `[x]`。
+
+## Needs-Human
+
+**执行 2026-09-30T06:11:00.943Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 4 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: not ok - server/modules/voice/tests/voice-capture-audio.false-forms.test.ts:   AssertionError [ERR_ASSERTION]: a surface this task must not have moved is red
+- run_id：wk-prod-anchor
+- session_id：4c61f4bc-5430-40b0-919a-68cd67fc968d
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-cloudcli-self-assigned-names-outrank-ai-titles~wk-prod-anchor~1790748426795-bb77d9.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-cloudcli-self-assigned-names-outrank-ai-titles-wk-prod-anchor.log
