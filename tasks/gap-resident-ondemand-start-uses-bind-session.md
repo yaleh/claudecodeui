@@ -74,6 +74,8 @@ extra:
 
 真浏览器里对一个 claude 常驻会话点状态条的 [启动]：**真的开出该会话自己的常驻进程** —— `GET /api/session-hosts` 读回该会话 `running: true`、新 pid、`bindings` 含该会话，且这台机器上**同时还有别的 claude 常驻宿主**（这正是今天必 409 的场景，也是本条与「碰巧只有一个宿主」的区别所在）。失败时（per-run / provider 无 driver / 会话不存在 / driver 拒绝）拒绝原因**逐字出现在收起态的状态条上**，用户不需要点开 popover 才能知道为什么。回归面：AC-169、AC-158、AC-172 的既有判据逐条重跑仍绿，`npm run typecheck`、`npm run lint` 绿，改动只落在 Touches 列出的文件上（`git diff --stat` 逐条对齐）。新判据必须有分辨力，且这一点要**实测**而不是声称：把路由入口改回 `bindSession` ⇒ AC1/AC2 必红；删掉 `sessionHosts.start` 的响应检查 ⇒ AC3 必红；两条反向读数都写进完成记录。
 
+- 该轴仍暗，理由：本条是入口选错 + 前端吞咽的缺陷修复，不引入新的架构面，L_D/L_G 两组读数均未量，不编造数值。
+
 ## Touches
 
 - server/shared/interfaces.ts
