@@ -405,7 +405,7 @@ E9 实测这条清单路径可靠：`claude` 2.1.282 下 **Stop hook 每轮都�
 > **地址从「算」改为「读」**：Claude Code 本来就给每个进程自己起名（`derived`，形如 `claudecodeui-74`／`quay-fd`／`archguard-85`，每进程一个新值），且同一条注册表记录带 `sessionId` 与 `messagingSocketPath`，足以把 app 会话映射到地址。**代价**：地址不再可预测、也不再跨重启固定——那是 Claude Code 自己的语义，本提案不再承诺更多；`AC-164` 的承诺已随之修订（见 `goals/AC-164-*.md`）。**承重假设仍未验证**：另一个会话用 `derived` 名 `SendMessage` 能否送达——AC-164 只证明过 `user` 名可达，实现在此之前必须先量。
 >
 > 原第一条保留为历史：通过 `extraArgs: { name: '<标题 slug>-<会话 ID 前 6 位>' }` 给常驻进程一个稳定的 peer 名，driver 以 `identity` 事件上报到绑定的 `peerName`；标题变化时不改名。**E6 实测：`-n, --name <name>` 是合法旗标，中文与空格被原样接受**（本地转录里 `agent-name` / `custom-title` 与设定值逐字一致）。⚠️ 但这个名字**不进 `/v1/messages` 请求体**——判定只能读本地转录（`<configDir>/projects/<slug>/<session>.jsonl` 里的 `agent-name`），读请求体看不出来。
-- 会话菜单新增"复制 SendMessage 地址"，仅当绑定存活且 `addressable` 时可用。地址按上款**读自 Claude Code 的进程注册名**，不是 App 自造的名字。
+- 会话菜单新增"复制 SendMessage 地址"，仅当绑定存活且 `addressable` 时可用。地址按上款**读自 Claude Code 的进程注册名**，既不是 App 自造的 `<slug>-<id6>`，也**不是** App 在会话尚无名字时的那个占位名（`buildCloudCliSessionName`，落库为 `derived`）——占位名是显示用的过渡值，Claude Code 自己的标题一到就换掉（2026-09-30 实测约 2 秒），它永远不是地址。人 yale 2026-09-30 补充裁定逐字：「正常情况下，这个名字应当只显示几秒，然后被 Claude Code 生成的名字换掉。我不指望用这个 derived 收发消息。」
 - 会话详情显示 pid、peer 名、启动时间、内存（读 scope 的 `memory.current`）、状态和保活理由。这些数据来自统一的宿主接口。
 - 在 Shell 标签页执行 `claude --resume` 会让同一会话多出第二个写入者。因此**常驻会话不支持 Shell 标签页**：只按 `lifecycle_mode` 判断，与进程是否存活无关，也不提供强行打开。关闭常驻模式后恢复可用。
 
