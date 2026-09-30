@@ -84,6 +84,26 @@ export default function ResidentStatusBar({
   const [isOpen, setIsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  /**
+   * True while a [start] request is in flight.
+   *
+   * The one thing the bar could not say before: opening a resident process spawns
+   * a CLI, and a control that looks identical before and during that wait is how
+   * a slow start and a refused one both read as "nothing happened". It is
+   * published as `data-resident-start-pending` rather than folded into
+   * `data-resident-ui-state`, which is the *server's* reading of the process — a
+   * third value there would make a client-side wait indistinguishable from a host
+   * state a reader is entitled to trust.
+   */
+  const [startPending, setStartPending] = useState(false);
+  /**
+   * The bar itself, which is the row of controls rather than the whole element.
+   *
+   * The root below it also carries the refusal line, and the popover is pinned
+   * under the *controls*: anchoring on the root would move the panel down by the
+   * height of an error that appeared after it opened.
+   */
+  const controlRowRef = useRef<HTMLDivElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   /**
    * The panel, which is no longer a descendant of the bar.
@@ -111,7 +131,7 @@ export default function ResidentStatusBar({
    * resized window) moves it without any scroll at all.
    */
   const placePopover = useCallback(() => {
-    const bar = rootRef.current;
+    const bar = controlRowRef.current;
     if (!bar) {
       return;
     }
@@ -251,52 +271,86 @@ export default function ResidentStatusBar({
       data-resident-close-reason={host?.closeReason ?? ''}
       data-resident-close-detail={host?.closeDetail ?? ''}
       data-resident-pid={host?.pid ?? ''}
-      className={cn(
-        'pointer-events-auto relative inline-flex items-center gap-2 rounded-lg border px-2 py-1 text-xs shadow-sm',
-        processState === 'exited'
-          ? 'border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300'
-          : 'border-border/60 bg-card/95 text-foreground',
-      )}
+      // A column, so the refusal below is a second line of this row rather than a
+      // floating box: the row is above the scroll container and takes its height
+      // from what is in it, which is what keeps the transcript starting below
+      // whatever the bar has to say. With nothing to report this is one child and
+      // therefore exactly the height the old single-row element was.
+      className="flex flex-col items-start gap-1"
     >
-      <button
-        type="button"
-        data-resident-status-bar-trigger="true"
-        aria-haspopup="dialog"
-        aria-expanded={isOpen}
-        aria-label={stateText}
-        onClick={() => setIsOpen((open) => !open)}
-        className="flex items-center gap-2 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-accent/60"
+      <div
+        ref={controlRowRef}
+        className={cn(
+          'pointer-events-auto relative inline-flex items-center gap-2 rounded-lg border px-2 py-1 text-xs shadow-sm',
+          processState === 'exited'
+            ? 'border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300'
+            : 'border-border/60 bg-card/95 text-foreground',
+        )}
       >
-        <span data-resident-state-text="true" className="font-medium">
-          {stateText}
-        </span>
-        {/*
-          One merged number, not one chip per kind. The per-kind breakdown lives in the panel
-          below (a row of `data-lease-kind` chips), which is where the space for it is; drawing it
-          here made the bar's width scale with the number of kinds a host happened to hold. Nothing
-          is drawn for a host holding no leases, matching the old chips, which simply rendered none.
-        */}
-        {leaseTotal > 0 ? (
-          <span
-            data-resident-lease-summary="true"
-            data-resident-lease-total={leaseTotal}
-            className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
-          >
-            {t('resident.statusBar.activeCount', { count: leaseTotal })}
-          </span>
-        ) : null}
-      </button>
-
-      {processState === 'exited' || processState === 'unstarted' ? (
         <button
           type="button"
-          data-resident-start="true"
-          onClick={() => void runAction(start, sessionId)}
-          className="flex items-center gap-1 rounded-md border border-border/60 px-1.5 py-0.5 font-medium transition-colors hover:bg-accent/60"
+          data-resident-status-bar-trigger="true"
+          aria-haspopup="dialog"
+          aria-expanded={isOpen}
+          aria-label={stateText}
+          onClick={() => setIsOpen((open) => !open)}
+          className="flex items-center gap-2 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-accent/60"
         >
-          {processState === 'exited' ? <RotateCcw className="h-3 w-3" /> : <Play className="h-3 w-3" />}
-          {processState === 'exited' ? t('resident.statusBar.restart') : t('resident.statusBar.start')}
+          <span data-resident-state-text="true" className="font-medium">
+            {stateText}
+          </span>
+          {/*
+            One merged number, not one chip per kind. The per-kind breakdown lives in the panel
+            below (a row of `data-lease-kind` chips), which is where the space for it is; drawing it
+            here made the bar's width scale with the number of kinds a host happened to hold. Nothing
+            is drawn for a host holding no leases, matching the old chips, which simply rendered none.
+          */}
+          {leaseTotal > 0 ? (
+            <span
+              data-resident-lease-summary="true"
+              data-resident-lease-total={leaseTotal}
+              className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
+            >
+              {t('resident.statusBar.activeCount', { count: leaseTotal })}
+            </span>
+          ) : null}
         </button>
+
+        {processState === 'exited' || processState === 'unstarted' ? (
+          <button
+            type="button"
+            data-resident-start="true"
+            data-resident-start-pending={startPending ? 'true' : 'false'}
+            disabled={startPending}
+            onClick={() => {
+              setStartPending(true);
+              void runAction(start, sessionId).finally(() => setStartPending(false));
+            }}
+            className="flex items-center gap-1 rounded-md border border-border/60 px-1.5 py-0.5 font-medium transition-colors hover:bg-accent/60 disabled:opacity-50"
+          >
+            {processState === 'exited' ? <RotateCcw className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+            {processState === 'exited' ? t('resident.statusBar.restart') : t('resident.statusBar.start')}
+          </button>
+        ) : null}
+      </div>
+
+      {/*
+        Outside the popover, deliberately.
+
+        This used to be the panel's last child, which meant the one place a refusal could be read was
+        a panel that only exists while it is open — so a start refused with the popover shut (the
+        normal case: the [start] control is on the collapsed bar) rendered its message into a node
+        that was never mounted. It is drawn here instead, under the controls, where it is visible in
+        both states; `data-resident-action-error` is the same attribute, so a reader that already
+        looked for it finds the same text.
+      */}
+      {actionError ? (
+        <p
+          data-resident-action-error="true"
+          className="max-w-prose rounded-md border border-red-500/40 bg-red-500/10 px-2 py-1 text-[11px] text-red-700 dark:text-red-300"
+        >
+          {actionError}
+        </p>
       ) : null}
 
       {/*
@@ -376,7 +430,7 @@ export default function ResidentStatusBar({
                 onClick={() => {
                   // The popover closes only once the close went through: on a
                   // refusal the refusal is the thing the user has to read, and it
-                  // is drawn inside this panel.
+                  // is drawn on the bar below this panel rather than inside it.
                   void runAction(close, sessionId).then((closed) => {
                     if (closed) {
                       setIsOpen(false);
@@ -389,12 +443,6 @@ export default function ResidentStatusBar({
                 {t('resident.statusBar.close')}
               </button>
             </div>
-
-            {actionError ? (
-              <p data-resident-action-error="true" className="mt-2 text-[11px] text-red-600 dark:text-red-400">
-                {actionError}
-              </p>
-            ) : null}
           </div>,
           document.body,
         )

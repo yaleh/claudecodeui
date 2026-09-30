@@ -67,6 +67,13 @@
  * why `run` brings the process up *before* asking for the host record: the
  * record is opened knowing the real pid rather than backfilling it later.
  *
+ * The same launch is reachable with no turn at all, through
+ * {@link ClaudeResidentHostDriver.startResidentSession}: a user asking for the
+ * process before sending anything is asking for the state `run` would have
+ * produced, and the only thing missing is the messages. Both entries share one
+ * launch path, so "started by the button" and "started by the first turn" cannot
+ * come up under different gates or different options.
+ *
  * Consumed by `ClaudeProvider`, which mounts it as `IProvider.hostDriver`, and by
  * the criterion in `tests/claude-resident-process.test.ts`, which drives it
  * against the real `claude` binary.
@@ -109,6 +116,8 @@ import type {
   HostLease,
   HostQueuedInputCancelResult,
   HostReconfigurePatch,
+  HostResidentLaunch,
+  HostResidentStartResult,
   HostTurnInput,
   LLMProvider,
   ProcessHost,
@@ -1890,6 +1899,54 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       host: options.host,
       notify: options.notifyBackgroundWork,
     });
+  }
+
+  /**
+   * Opens this session's own resident process, with no turn behind it.
+   *
+   * The entry the on-demand [Start] control needs, and the one this driver's
+   * absence made unreachable: a fresh resident session cannot be placed through
+   * `bindSession` (this driver declares `multiplexedHost = false`, so any live
+   * claude host refuses the second conversation) and cannot be placed through
+   * `openHost` either (`startHost` throws when there is no process, and a resident
+   * process is brought up by `run`). This is that launch with the turn left out.
+   *
+   * It reuses {@link startResidentHost} rather than growing a second launch path:
+   * the Remote Control gate, the model resolution, the ledger, the `Stop` hook,
+   * the permission scope, the spawn and the `openHost` are all turn-independent,
+   * and the only thing a cold start does differently is seed the input queue with
+   * nothing. The host is therefore left holding one binding, no round and no
+   * writer — `idle` with the resident policy's quiet ceiling armed, which is
+   * exactly what "started, nothing asked of it yet" should read as. Every read of
+   * `state.writer`/`state.context` is null-safe (they are only ever dereferenced
+   * through `?.` or a round that armed them), which is what makes a host with no
+   * round safe to leave running.
+   *
+   * Idempotent by the same rule the route applies: a session that already has a
+   * live host answers with that host, so a second start is a success that spawns
+   * nothing.
+   */
+  async startResidentSession(
+    appSessionId: string,
+    launch: HostResidentLaunch,
+  ): Promise<HostResidentStartResult> {
+    const existing = this.liveStateFor(appSessionId);
+    if (existing) {
+      return { hostId: existing.hostId, pid: existing.pid };
+    }
+
+    // No messages and no command: the queue is what the process reads from, and
+    // an empty one is a process that is up and waiting rather than one that has
+    // been given work. `options` is the caller's assembled bag (see
+    // `HostResidentLaunch`) — this file never reads a session row to build one.
+    const state = await this.startResidentHost(
+      appSessionId,
+      [],
+      { command: '', options: launch.options },
+      launch.context,
+    );
+
+    return { hostId: state.hostId, pid: state.pid };
   }
 
   /**

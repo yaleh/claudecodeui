@@ -2156,6 +2156,46 @@ export type HostTurnInput = {
 };
 
 /**
+ * What a driver needs to open one session's own process with no turn behind it.
+ *
+ * A cold start on demand has no turn to carry these, and they cannot be derived
+ * by the session-host layer: the launch options are the ones the session's *next*
+ * turn would have carried (`cwd`/`projectPath` off the session row, the stored
+ * model/effort/permissionMode), and the context is the provider-scoped lookup bag
+ * a runtime is normally handed for one run. Both are assembled by the caller that
+ * owns those sources — the providers layer — and passed in whole, because the
+ * host layer's boundary is to read no session row of its own and to import no
+ * provider registry (see the `HostDriverResolver` reasoning in
+ * `session-hosts.routes.ts`).
+ *
+ * Separate from {@link HostTurnInput} deliberately rather than reusing it with an
+ * empty `command`: a turn's options describe work the client asked for, these
+ * describe the process that work will land in, and a driver that read one as the
+ * other would write a turn nobody sent.
+ */
+export type HostResidentLaunch = {
+  /** The options the session's next turn would launch under; assembled by the caller. */
+  options: AnyRecord;
+  /** The provider-scoped lookups (session-id mapping, model catalogue) the launch needs. */
+  context: ProviderRuntimeContext;
+};
+
+/**
+ * What a driver answers when asked to open a session's own resident process.
+ *
+ * `pid` is nullable for the same reason {@link ProcessHost.pid} is: a driver that
+ * cannot read its child's pid records the truth rather than a stand-in. `hostId`
+ * is the manager's record id, which is what a client addresses the process by —
+ * it is answered rather than assumed because the manager, not the driver, decides
+ * it, and a driver that already had a live host for the session returns *that*
+ * host's id rather than opening a second process.
+ */
+export type HostResidentStartResult = {
+  hostId: string;
+  pid: number | null;
+};
+
+/**
  * One live setting change for a host that is already running.
  *
  * Only the three settings a resident provider can change without restarting its
