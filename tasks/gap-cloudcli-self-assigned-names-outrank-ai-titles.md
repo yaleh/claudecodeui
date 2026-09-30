@@ -55,6 +55,7 @@ extra:
 8. **假形态与反回归**：各条假形态必须红；AC8 列表内除 `claude-resident-addressable.test.ts` 外的既有判据逐条不退。
 
 ## AC
+> **AC13 已移出本节的机械门（登记人 2026-09-30）。** 它原写的是**落地后**在生产实例上的读数（`~/.cloudcli/auth.db` 的档位分布、`server.log` 的计数）——而 `execute->done` 门读的正是这些复选框，分支落地前取不到该读数 ⇒ 这是一条**自己把自己锁死的 AC**（不勾 ⇒ 不落地 ⇒ 永远取不到 ⇒ 永远不勾）。它要验的东西已在别处：迁移幂等由 AC7 的判据覆盖，「新写的 `agent-name` 里没有 `<slug>-<id6>` 形状」由 round 3 判据的 leg 2b（`selfWrittenNames=[]`）覆盖；只剩「生产实例复查」这一半是独有的，已并入 `## DoD` 第 5 条，由 DoD 面（非机械门）在落地后验。
 > round 3（2026-09-30，出路 (a) 已实现）
 
 > 上一轮 7/10 的勾选是在**出路 (c) 的分支**上取得的，而 (c) 已被裁定排除、该分支不得落地 ⇒ 那些勾选一律作废，本节全部重开为未勾。（其中 AC5/AC6 的 (c) 实现可复用，但读数必须在 (a) 的树上重取。）
@@ -72,7 +73,7 @@ extra:
 - [x] 既有判据逐条退出 0 且文件未改：`claude-session-title-source.test.ts`、`claude-host-per-run.test.ts`、`claude-background-work.test.ts`、`session-hosts-routes.test.ts`、`sessions-name-source.integration.test.ts`、`session-rename-route.test.ts`、`claude-session-title-corpus.test.ts`、`claude-session-title-mirror.test.ts`。逐条打印命令与退出码。**`claude-resident-addressable.test.ts` 不在此列**（见下条）。
 - [x] `claude-resident-addressable.test.ts` 随出路 (a) 修订并退 0：它现有内容逐字重述了被本裁定作废的规则（`expectedPeerName(title,id) = slug(title)+'-'+id.slice(0,6)`，断言投影与转录都等于它、且转录里必须有一条 `agent-name`），在 (a) 下必红。修订后的断言改为「不传 `--name`、投影读自 CLI 注册表、`derived` 名可达」。同时 `goals/AC-164-*.md` 的 `expect` 已按裁定改写（登记人 2026-09-30 经 `quay goal write --expect` 落盘）。
 - [x] `npm run typecheck` 退出 0（三条链）且 `npm run lint` 退出 0（仅既有 warning）。
-- [ ] 落地后实测复查：`sqlite3 ~/.cloudcli/auth.db "select transcript_name_source, count(*) from sessions group by 1"` 里 `agent` 档不再增长；`grep -c "registered a different address" server.log` 不再增长；新增的 `agent-name` 条目里不再出现 `<slug>-<id6>` 形状。
+
 
 ## DoD
 
@@ -84,6 +85,8 @@ extra:
 4. 重启前后地址**允许不同**（那是 Claude Code 自己的派生规则），但**不再累加后缀**，且 `~/.claude/projects/**/<session>.jsonl` 里不出现 CloudCLI 写入的 `agent-name`；`server.log` 无新的 `registered a different address`。
 
 只做到「测试绿」不算数：必须有一个真实会话被这样操作过，且四条读数都被打印出来。
+
+5. **落地后**的生产复查（原 AC13 移来；落地前不可能取得，故不放在机械门里）：`sqlite3 ~/.cloudcli/auth.db "select transcript_name_source, count(*) from sessions group by 1"` 里 `agent` 档不再增长；`grep -c "registered a different address" server.log` 不再增长；新增的 `agent-name` 条目里不再出现 `<slug>-<id6>` 形状。
 
 ## Touches
 
