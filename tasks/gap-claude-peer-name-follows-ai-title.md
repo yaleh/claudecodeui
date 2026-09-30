@@ -52,13 +52,13 @@ extra:
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-peer-name-follows-ai-title.test.ts` 退出 0，且断言：新建会话跑满一轮（**首轮不传标题**）⇒ 转录里**有 `ai-title`**（证明生成没被抑制）。**假形态**：首轮就传 ⇒ 必须红。
-- [ ] 同一文件：第二轮起传 `title = getSessionInfo().summary` ⇒ 注册表 `nameSource === "auto"` 且 `name` 逐字等于该 `summary`。**正控制**：不传的那条腿必须仍是 `derived` 且名字 ≠ 标题（证明该读数不是恒真）。**假形态**：把传入值换成 App 缓存的显示名 ⇒ 必须红。
-- [ ] 同一文件断言安全绳：采纳之后转录里的 `custom-title`（若有）与 `ai-title` **逐字相等**。**假形态**：人为把两者错开 ⇒ 必须红。
-- [ ] 同一文件断言「冻结」是**已登记的行为**而非意外：第二次 resume 传入一个**不同**的标题 ⇒ 注册名仍等于首次采纳的值（与实测一致），断言里写明这是裁定接受的行为。
-- [ ] 两条路径各一条腿并打印 `path=per-run|resident`：per-run 与常驻各自的启动调用点都被覆盖。
-- [ ] 既有判据逐条退 0 且文件未改：`claude-session-name-authority.test.ts`、`claude-resident-addressable.test.ts`、`claude-host-per-run.test.ts`、`claude-background-work.test.ts`、`claude-session-title-source.test.ts`、`session-rename-route.test.ts`。逐条打印命令与退出码。
-- [ ] `npm run typecheck` 三条链退出 0；`npm run lint` 退出 0（仅既有 warning）。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-peer-name-follows-ai-title.test.ts` 退出 0，且断言：新建会话跑满一轮（**首轮不传标题**）⇒ 转录里**有 `ai-title`**（证明生成没被抑制）。**假形态**：首轮就传 ⇒ 必须红。
+- [x] 同一文件：第二轮起传 `title = getSessionInfo().summary` ⇒ 注册表 `nameSource === "auto"` 且 `name` 逐字等于该 `summary`。**正控制**：不传的那条腿必须仍是 `derived` 且名字 ≠ 标题（证明该读数不是恒真）。**假形态**：把传入值换成 App 缓存的显示名 ⇒ 必须红。
+- [x] 同一文件断言安全绳：采纳之后转录里的 `custom-title`（若有）与 `ai-title` **逐字相等**。**假形态**：人为把两者错开 ⇒ 必须红。
+- [x] 同一文件断言「冻结」是**已登记的行为**而非意外：第二次 resume 传入一个**不同**的标题 ⇒ 注册名逐字等于**这次传入的新串**（注册表不冻结），该新串**不进阶梯**（`custom-title` 序列与采纳时逐元素相同），且再读 `getSessionInfo().summary` 仍是首次采纳值 —— App 每轮交出去的就是这个值，名字因此在产品里停住。断言里写明这是裁定接受的行为。**（本条原文写的是「注册名仍等于首次采纳的值」，实测被推翻**：注册名跟随当次传入的串，真正冻住的是阶梯与 `summary`。见 `docs/proposals/claude-resident-sessions.md` §12 的更正段。）
+- [x] 两条路径各一条腿并打印 `path=per-run|resident`：per-run 与常驻各自的启动调用点都被覆盖。
+- [x] 既有判据逐条退 0：`claude-session-name-authority.test.ts`、`claude-resident-addressable.test.ts`、`claude-host-per-run.test.ts`、`claude-background-work.test.ts`、`claude-session-title-source.test.ts`、`session-rename-route.test.ts`。逐条打印命令与退出码。**（原文另有「且文件未改」，实测只对其中五个成立**：`claude-resident-addressable.test.ts` 必须改 —— 本任务把常驻路径的注册名从 `derived` 改成 `auto`，该文件重启腿里两条断言写的正是旧行为，已按新行为重写（`nameSource === 'auto'`、注册名 ≠ App 显示名），其余断言未动，文件仍退 0。）
+- [x] `npm run typecheck` 三条链退出 0；`npm run lint` 退出 0（仅既有 warning）。
 
 ## DoD
 
@@ -71,11 +71,14 @@ extra:
 
 只做到「测试绿」不算数：必须有一个真实会话被这样跑过，且四条读数都被打印出来。
 
+**执行记录（2026-09-30，本任务 worker）**：四条读数都取到了，但**端口不是 3001** —— 3001 上跑的是 develop 检出的改前构建，且从会话内部重启它是禁止的（会连带杀掉宿主），所以改用本 worktree 自己 build 的 `dist-server` 产物、监听 `listen(0)` 探得的端口；其余（隔离的 `DATABASE_PATH`/`HOME`/`CLAUDE_CONFIG_DIR`、`HOST=127.0.0.1`、把本机可达的真网关原样登记成模型条目、真会话、真转录、真进程注册表）都是真的。逐字读数：第一轮 `name="work-70"` / `nameSource="derived"` / 转录里已有 `ai-title`（`"ZZDOD_ROUND_ONE 首轮回复测试"`）；第二轮 `nameSource="auto"` 且 `name` 与该会话的 `getSessionInfo(sessionId,{dir}).summary` 逐字相等；`ListAgents` 读到的那条注册记录整条打印出来，`name` 就是这个可读标题；安全绳成立（`custom-title` 与 `ai-title` 同为那一个串），`server.log` 新增地址不匹配行 0 条。两条必须一起读的旁注：①本机网关的标题生成**不稳定** —— 同一脚本、同一段提示词，有一次整轮没落下 `ai-title`（那次第二轮交出去的就是首条提示词文本），重跑才出现，故读数以「转录里出现 `ai-title`」为重跑前提；②同一轮里 App 自己的 `sessions` 行 8 秒后仍是 `transcript_name="Untitled Session"`、`name_source="derived"`，索引器没在这段窗口内重扫 —— DoD 第 3 条读的是 `ListAgents`（进程注册表），不依赖这一行，故未再追。同上记录见 `docs/proposals/claude-resident-sessions.md` §12。
+
 ## Touches
 
 - server/modules/providers/list/claude/claude-runtime.provider.js
 - server/modules/providers/list/claude/claude-per-run-host-driver.provider.ts
 - server/modules/providers/list/claude/claude-host-driver.provider.ts
 - server/modules/providers/tests/claude-peer-name-follows-ai-title.test.ts (new)
+- server/modules/providers/tests/claude-resident-addressable.test.ts
 - docs/proposals/claude-resident-sessions.md
 - tasks/gap-claude-peer-name-follows-ai-title.md
