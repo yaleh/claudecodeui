@@ -6,6 +6,8 @@ import type {
   HostCloseReason,
   HostLease,
   HostReconfigurePatch,
+  HostResidentLaunch,
+  HostResidentStartResult,
   HostTurnInput,
   LLMProvider,
   McpScope,
@@ -144,6 +146,33 @@ export interface IProviderHostDriver {
    * provider that declares it and refuses the second binding otherwise.
    */
   readonly multiplexedHost?: boolean;
+  /**
+   * Opens *this session's own* resident process, with no turn behind it.
+   *
+   * Orthogonal to {@link multiplexedHost}, which governs **reuse** — whether one
+   * process may serve several sessions — and says nothing about how a process for
+   * one session is opened. The two are in fact needed together: a driver that
+   * declares `false` is exactly the driver the manager's `bindSession` cannot
+   * place a cold session on (there is no live process that may take a second
+   * conversation, and there is no process for this session yet), so a caller
+   * asked to start one must have this verb rather than the binding one.
+   *
+   * Optional, and absent means "this driver cannot be asked for a process": the
+   * caller falls back to the manager's `bindSession`, which is the right answer
+   * for a multiplexing provider whose live process really can adopt the session,
+   * and the safe answer for a driver that never implemented this. Implementations
+   * must be idempotent — a session that already has a live host answers with that
+   * host rather than opening a second process for it — because "start" is a
+   * request for a state, not for a spawn.
+   *
+   * `launch` carries the options and the provider context, assembled by the
+   * caller: the driver neither reads a session row nor decides what the session's
+   * next turn would have launched with (see {@link HostResidentLaunch}).
+   */
+  startResidentSession?(
+    appSessionId: string,
+    launch: HostResidentLaunch,
+  ): Promise<HostResidentStartResult>;
 }
 
 /**

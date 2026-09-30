@@ -348,7 +348,9 @@ export type UseSessionHostsResult = {
  * The verbs re-read the snapshot on success so a caller's next render already
  * sees the state its own request produced; on failure they re-throw the server's
  * refusal (a session that is not resident, a session that does not exist) so a
- * caller can show it rather than silently doing nothing.
+ * caller can show it rather than silently doing nothing. Nothing is checked here
+ * — `readApiJson` inside `api.sessionHosts` is what turns a refusal into a throw,
+ * and the re-read below it simply does not run when one was thrown.
  */
 export function useSessionHosts(): UseSessionHostsResult {
   const store = useSyncExternalStore(subscribe, readState, readState);

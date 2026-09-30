@@ -402,12 +402,23 @@ export const api = {
   // and the two verbs that ask for one to start or stop existing. The listing is
   // the only place a client can learn a session's stored lifecycle mode, since
   // the session rows do not carry it.
+  //
+  // The two verbs unwrap their envelope through `readApiJson` instead of handing
+  // the bare `Response` back, so a refusal *throws* with the server's own code
+  // and sentence. That is the whole difference between a user seeing why the
+  // process did not start and a user seeing nothing at all: a caller that has to
+  // remember to check `response.ok` before reading the body is a caller that can
+  // forget, and these two did. Both resolve to `void` because "it resolved" is
+  // the entire contract a caller needs — the effect it asked for arrives through
+  // the next `list`, not through this payload.
   sessionHosts: {
     list: () => get('/api/session-hosts'),
-    start: (sessionId: string) =>
-      post(`/api/session-hosts/${encodeURIComponent(sessionId)}/start`),
-    close: (sessionId: string) =>
-      post(`/api/session-hosts/${encodeURIComponent(sessionId)}/close`),
+    start: async (sessionId: string): Promise<void> => {
+      await readApiJson(await post(`/api/session-hosts/${encodeURIComponent(sessionId)}/start`));
+    },
+    close: async (sessionId: string): Promise<void> => {
+      await readApiJson(await post(`/api/session-hosts/${encodeURIComponent(sessionId)}/close`));
+    },
   },
 
   // Provider (coding agent) endpoints — models, capabilities, sessions, MCP, skills.

@@ -5,7 +5,7 @@ title: 常驻状态条的 [启动]/[重新启动] 对真实 claude 会话恒不�
   driver.startHost 抛 opened-without-a-process；前端又把整个响应吞掉（sessionHosts.start 不读
   response.ok，actionError 只渲染在已关闭的 popover 内）⇒ 用户只看到点了没反应。修法：driver 加可选
   startResidentSession + providers 层组装冷启动 options + 路由换入口 + 前端如实就地报错
-status: ready
+status: done
 labels:
   - gap
   - defect
