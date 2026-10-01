@@ -2,7 +2,8 @@
 id: gap-activity-heartbeat-server-frames
 title: AC-182 服务端没有业务心跳帧：加每进程 bootId+rev 的 activity.heartbeat 节拍（出厂 5s/15s，重启换
   bootId，被杀即停帧）
-status: ready
+status: needs-human
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -135,3 +136,15 @@ git checkout -- server/modules/websocket/services/activity-heartbeat.service.ts
 - server/modules/websocket/tests/activity-heartbeat.process.test.ts (new)
 - server/modules/session-hosts/tests/per-run-frame-scenarios.ts
 - tasks/gap-activity-heartbeat-server-frames.md
+
+## Needs-Human
+
+**执行 2026-10-01T14:49:54.813Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=85740 server/modules/session-hosts/tests/resident-server-restart.test.ts passed=false end_ms=1790865972852
+- run_id：wk-prod-anchor
+- session_id：9f028e49-03d2-4d3b-9ec7-f0c5b4ba20f2
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-activity-heartbeat-server-frames~wk-prod-anchor~1790865791385-b9a79e.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-activity-heartbeat-server-frames-wk-prod-anchor.log
