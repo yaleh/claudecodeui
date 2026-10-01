@@ -1,7 +1,8 @@
 ---
 id: gap-chat-subscribe-cursor-needs-run-identity
 title: WS 重连的补发游标跨 run 错位：服务端 seq 每个 run 从 1 重来而客户端 lastSeq 只增不减，同一会话第 2 个回合起重订阅补不回帧
-status: ready
+status: needs-human
+needs_human_cause: human-adjudication
 labels:
   - gap
   - defect
@@ -166,3 +167,15 @@ run 1 实时帧数                  5                 5
 1. `server/modules/providers/tests/claude-resident-unattended-turn.test.ts` —— **本任务改动所致，已修。** `decorateAndRecordEvent` 现在给每个记录行同时盖 `runId`，而该用例的 `frameProjection`（把注册表给 normalizer 帧加的装饰去掉后再比对 normalizer 自己的输出）只删了 `seq`/`sessionId`/`actualSessionId`；于是 `matchedNormalizerTail` 的逐帧 JSON 比对在第一个字段就不等，读数 `framesFromNormalizer=0` 而 `rowsDelta=6`，断言 `matched === rowsDelta` 红。修法：在 `frameProjection` 里照删 `runId`——它和 `seq` 一样是注册表铸造的字段（`startRun` 里 `randomUUID()`），normalizer 从不产出它，所以去掉它才是把行还原成 normalizer 自己的帧，正是该函数既有的职责；只补一个被删字段名，**没有**放宽任何断言、**没有**改成「忽略整帧」。修前单跑读数 `frames=6 rowsDelta=6 framesFromNormalizer=0`（红），修后 `framesFromNormalizer=6`、`ℹ tests 1 / ℹ pass 1 / ℹ fail 0`（EXIT=0）。该文件因此补进 Touches。
 
 2. `server/modules/debug-agent/tests/debug-agent-external-write.test.ts` —— **与本任务无关，是负载下抖动的假红。** 单跑该文件 4/4 通过、EXIT=0；失败断言依赖一个 6000ms 轮询时钟的观测窗口（`(ii)` 窗口内是否收到新 upsert、`(iii)` 观察者是否在写之后读到 `change` 行），全量套件 16 并发下抖动。本任务改动不触及 debug-agent：那里的 `runId` 是 debug-agent 引擎自己的回合租约 id（`debug-agent.engine.ts`），与注册表 `runId` 机制无交集。
+
+## Needs-Human
+
+**执行 2026-10-01T11:35:03.299Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: not ok - server/modules/debug-agent/tests/debug-agent-external-write.test.ts:   AssertionError [ERR_ASSERTION]: the criterion must be clean:
+- run_id：wk-prod-anchor
+- session_id：b3e9e5f0-371c-401c-b56a-9492a55fa5b6
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-chat-subscribe-cursor-needs-run-identity~wk-prod-anchor~1790854268622-132898.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-chat-subscribe-cursor-needs-run-identity-wk-prod-anchor.log
