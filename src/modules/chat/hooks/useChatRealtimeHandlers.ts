@@ -117,23 +117,43 @@ export function useChatRealtimeHandlers({
   isActiveRef.current = isActive;
 
   /**
-   * The text each session's reply has streamed so far, and that session's
-   * pending flush timer.
+   * The text each stream block has streamed so far, plus the timestamp of the
+   * block's first frame, keyed by session — and, when the server named a block,
+   * by that block too.
    *
-   * Keyed by session and never shared. One socket carries the deltas of every
-   * running session interleaved, so a single buffer holds two replies' text at
-   * once and whichever row is flushed from it receives both; a bucket per
-   * session is what makes one session's deltas unable to reach another
-   * session's row.
+   * Never shared. One socket carries the deltas of every running session
+   * interleaved, so a single buffer holds two replies' text at once and
+   * whichever row is flushed from it receives both; a bucket per session is
+   * what makes one session's deltas unable to reach another session's row.
+   *
+   * Within a session the bucket is per *block*, because a turn is more than one
+   * stream: a reply that leads with text, calls a tool, and then says something
+   * else arrives as two blocks with the tool's own frames between them. One
+   * bucket for the turn would concatenate the two segments into a single row —
+   * the tool call and the second segment both gone — while a bucket per block
+   * leaves each segment its own row, which is what the block the server named
+   * each frame after says they are. Frames the server did not key (any provider
+   * that does not publish blocks) fall back to one bucket per session, exactly
+   * the accumulation this used to do.
    *
    * Every session accumulates here, not only the one on screen. A reply nobody
-   * is watching still has to fold into a single row — the deltas of a turn are
-   * one message, and the row is what that turn *is* — and the bucket is also
+   * is watching still has to fold into a single row — the deltas of a block are
+   * one message, and the row is what that block *is* — and the bucket is also
    * what carries its text across a view change in either direction: the reader
    * may switch into a reply mid-flight, or away from one.
    */
-  const streamBuffersRef = useRef(new Map<string, string>());
+  const streamBuffersRef = useRef(new Map<string, { blockKey?: string; timestamp?: string; text: string }>());
   const streamFlushTimersRef = useRef(new Map<string, number>());
+  /**
+   * Which buckets a session's next flush still has to write, in arrival order.
+   *
+   * A flush writes every bucket a session touched since the last one, not just
+   * the block whose delta scheduled it: the blocks of a turn stream back to
+   * back, so a timer armed by the first block can fire while the second is
+   * already accumulating, and it has to write both or the second would sit
+   * unflushed until its own delta happened to re-arm the timer.
+   */
+  const streamDirtyBucketsRef = useRef(new Map<string, Set<string>>());
 
   // Keep the latest pending-permission snapshot available to the websocket
   // listener so back-to-back permission events can dedupe and re-arm the
@@ -146,14 +166,26 @@ export function useChatRealtimeHandlers({
 
   useEffect(() => {
     /**
-     * Write a session's accumulated text into the row that session is
-     * streaming into, and drop its pending flush.
+     * The bucket one session's frames for one block accumulate in.
      *
-     * `updateStreaming` is handed the text of the turn *so far* and selects the
-     * row by session and kind, so a flush reuses the row the previous flush
-     * made rather than adding one. That reuse is the whole fix: a background
-     * session's reply is one row at any moment, no matter how many frames it
-     * arrived in.
+     * A keyed block gets its own bucket, so two blocks of the same turn never
+     * share text; an unkeyed frame keeps the session's own bucket, which is the
+     * whole accumulation when the server publishes no blocks at all. The NUL
+     * separator cannot occur in either id, so no blockKey can be read as a
+     * different session's bucket.
+     */
+    const bucketKeyFor = (sessionId: string, blockKey?: string) =>
+      blockKey ? `${sessionId}\u0000${blockKey}` : sessionId;
+
+    /**
+     * Write every dirty bucket of a session into the row it is streaming into,
+     * and drop that session's pending flush.
+     *
+     * `updateStreaming` is handed the text of the block *so far* and selects the
+     * row by block (or by session, when the block is unnamed), so a flush reuses
+     * the row the previous flush made rather than adding one. That reuse is the
+     * whole fix: a background session's reply is one row per block at any
+     * moment, no matter how many frames it arrived in.
      */
     const flushStreamBuffer = (sessionId: string) => {
       const timer = streamFlushTimersRef.current.get(sessionId);
@@ -161,17 +193,27 @@ export function useChatRealtimeHandlers({
         clearTimeout(timer);
         streamFlushTimersRef.current.delete(sessionId);
       }
+      const dirty = streamDirtyBucketsRef.current.get(sessionId);
+      if (!dirty || dirty.size === 0) {
+        return;
+      }
       // Read the text here rather than closing over it, so a flush that fires
       // after the turn settled — its pending timer outliving it — finds an
       // empty bucket and is a no-op instead of writing a stale body.
-      const accumulated = streamBuffersRef.current.get(sessionId);
-      if (!accumulated) {
-        return;
+      for (const bucketKey of dirty) {
+        const bucket = streamBuffersRef.current.get(bucketKey);
+        if (!bucket || !bucket.text) {
+          continue;
+        }
+        if (sessionId === activeViewSessionIdRef.current) {
+          accumulatedStreamRef.current = bucket.text;
+        }
+        sessionStore.updateStreaming(sessionId, bucket.text, provider, {
+          blockKey: bucket.blockKey,
+          timestamp: bucket.timestamp,
+        });
       }
-      if (sessionId === activeViewSessionIdRef.current) {
-        accumulatedStreamRef.current = accumulated;
-      }
-      sessionStore.updateStreaming(sessionId, accumulated, provider);
+      dirty.clear();
     };
 
     /**
@@ -180,7 +222,7 @@ export function useChatRealtimeHandlers({
      * The viewed session keeps flushing on the parent's timer ref, because that
      * is the handle the parent clears when the view moves on; every other
      * session is out of the parent's sight and gets a timer of its own. Both
-     * callbacks read the session's bucket, so a timer that outlives its turn
+     * callbacks read the session's buckets, so a timer that outlives its turn
      * cannot write anything stale.
      */
     const scheduleStreamFlush = (sessionId: string) => {
@@ -202,25 +244,54 @@ export function useChatRealtimeHandlers({
       }, STREAM_FLUSH_INTERVAL_MS));
     };
 
-    const accumulateStreamDelta = (sessionId: string, text: string) => {
-      const accumulated = (streamBuffersRef.current.get(sessionId) ?? '') + text;
-      streamBuffersRef.current.set(sessionId, accumulated);
+    const accumulateStreamDelta = (
+      sessionId: string,
+      text: string,
+      blockKey?: string,
+      timestamp?: string,
+    ) => {
+      const bucketKey = bucketKeyFor(sessionId, blockKey);
+      const existing = streamBuffersRef.current.get(bucketKey);
+      const bucket = {
+        blockKey,
+        // The block's own clock is the one it started on. Keeping it means the
+        // row does not jump to the bottom of the transcript on every flush —
+        // and stays adjacent to the persisted echo of the same reply, which is
+        // what lets the echo collapse into it.
+        timestamp: existing?.timestamp ?? timestamp,
+        text: (existing?.text ?? '') + text,
+      };
+      streamBuffersRef.current.set(bucketKey, bucket);
+
+      let dirty = streamDirtyBucketsRef.current.get(sessionId);
+      if (!dirty) {
+        dirty = new Set();
+        streamDirtyBucketsRef.current.set(sessionId, dirty);
+      }
+      dirty.add(bucketKey);
+
       if (sessionId === activeViewSessionIdRef.current) {
         // Mirror of the viewed session's turn, kept for the parent that reads
         // and clears it when the view moves on.
-        accumulatedStreamRef.current = accumulated;
+        accumulatedStreamRef.current = bucket.text;
       }
       scheduleStreamFlush(sessionId);
     };
 
     /**
-     * The turn is over. Write its last text into the row, settle the row in
+     * The block is over. Write its last text into the row, settle the row in
      * place — the id it settles with is the id the transcript keys it by, so
      * this must not mint a new one — and forget the bucket.
+     *
+     * Settled by block, not by session: a turn's later block may already be
+     * streaming by the time an earlier one ends, and a session-wide settle
+     * would close the wrong row.
      */
-    const settleStream = (sessionId: string) => {
+    const settleStream = (sessionId: string, blockKey?: string) => {
       flushStreamBuffer(sessionId);
-      streamBuffersRef.current.delete(sessionId);
+      const bucketKey = bucketKeyFor(sessionId, blockKey);
+      streamBuffersRef.current.delete(bucketKey);
+      streamDirtyBucketsRef.current.get(sessionId)?.delete(bucketKey);
       if (sessionId === activeViewSessionIdRef.current) {
         accumulatedStreamRef.current = '';
         if (streamTimerRef.current !== null) {
@@ -228,7 +299,7 @@ export function useChatRealtimeHandlers({
           streamTimerRef.current = null;
         }
       }
-      sessionStore.finalizeStreaming(sessionId);
+      sessionStore.finalizeStreaming(sessionId, { blockKey });
     };
 
     const handleEvent = (msg: ServerEvent) => {
@@ -324,17 +395,22 @@ export function useChatRealtimeHandlers({
       /*  Provider NormalizedMessage handling                            */
       /* -------------------------------------------------------------- */
 
-      // --- Streaming: accumulate per session, one row per turn ---
+      // --- Streaming: accumulate per block, one row per block ---
       if (msg.kind === 'stream_delta') {
         const text = (msg.content as string) || '';
         if (!text || !sid) return;
-        accumulateStreamDelta(sid, text);
+        accumulateStreamDelta(
+          sid,
+          text,
+          typeof msg.blockKey === 'string' ? msg.blockKey : undefined,
+          typeof msg.timestamp === 'string' ? msg.timestamp : undefined,
+        );
         return;
       }
 
       if (msg.kind === 'stream_end') {
         if (sid) {
-          settleStream(sid);
+          settleStream(sid, typeof msg.blockKey === 'string' ? msg.blockKey : undefined);
         }
         return;
       }

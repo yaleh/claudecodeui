@@ -34,6 +34,16 @@ export type SessionSlot = {
   serverMessages: NormalizedMessage[];
   realtimeMessages: NormalizedMessage[];
   merged: NormalizedMessage[];
+  /**
+   * The block a streamed row belongs to, by the id the row ended up carrying.
+   *
+   * A block's live row starts life under a `live:…` id and is handed over, when
+   * its settled record arrives, to that record's own id (`<uuid>_0`). The
+   * transcript keys the row by `blockKey`, so the identity has to survive the
+   * handover and the refresh that later reclaims the realtime row by id — by
+   * then the row that carried it is gone, and this map is the only record left.
+   */
+  blockKeyByRowId: Map<string, string>;
   /** @internal Cache-invalidation refs for computeMerged */
   _lastServerRef: NormalizedMessage[];
   _lastRealtimeRef: NormalizedMessage[];
@@ -65,6 +75,7 @@ function createEmptySlot(): SessionSlot {
     total: 0,
     hasMore: false,
     offset: 0,
+    blockKeyByRowId: new Map(),
     // `undefined` means "no page has reported usage for this session yet", and
     // every consumer distinguishes that from a reported `null`. Initialising it
     // to `null` made the two indistinguishable, so a provider whose history
@@ -327,23 +338,72 @@ function dedupeAdjacentAssistantEchoes(merged: NormalizedMessage[]): NormalizedM
 }
 
 /**
+ * Moves each streamed block's identity onto the persisted row that replaces it.
+ *
+ * The realtime row that carried the `blockKey` is about to be reclaimed by id,
+ * and the history read that reclaims it never stamps one (a transcript row has
+ * no live stream to belong to). So the key is copied from the block map onto
+ * the server row here, while the store still holds both halves of the join. A
+ * new array is returned only when something was actually carried, so a refresh
+ * that changed nothing leaves the record objects — and their memoized
+ * projections — alone.
+ */
+function withBlockKeysCarriedOntoServer(
+  serverMessages: NormalizedMessage[],
+  blockKeyByRowId: Map<string, string>,
+): NormalizedMessage[] {
+  if (blockKeyByRowId.size === 0) {
+    return serverMessages;
+  }
+
+  let changed = false;
+  const carried = serverMessages.map((message) => {
+    if (message.blockKey) {
+      return message;
+    }
+    const blockKey = blockKeyByRowId.get(message.id);
+    if (!blockKey) {
+      return message;
+    }
+    changed = true;
+    return { ...message, blockKey };
+  });
+
+  return changed ? carried : serverMessages;
+}
+
+/**
  * After a server refresh, drop only the realtime rows the persisted transcript
  * already owns. Anything not yet on disk (common right after `complete`, while
  * JSONL indexing lags) stays in `realtimeMessages` so the chat pane never
  * flashes the empty "Continue your conversation" state.
+ *
+ * `blockKeyByRowId` is both read and written here: a realtime row that is about
+ * to be dropped is the last place its block's identity exists, so it is
+ * recorded before the drop and carried onto the server row that superseded it.
  */
 function pruneRealtimeSupersededByServer(
   serverMessages: NormalizedMessage[],
   realtimeMessages: NormalizedMessage[],
-): NormalizedMessage[] {
+  blockKeyByRowId: Map<string, string>,
+): { serverMessages: NormalizedMessage[]; realtimeMessages: NormalizedMessage[] } {
+  for (const message of realtimeMessages) {
+    if (message.blockKey && !blockKeyByRowId.has(message.id)) {
+      blockKeyByRowId.set(message.id, message.blockKey);
+    }
+  }
+
   if (realtimeMessages.length === 0) {
-    return realtimeMessages;
+    return {
+      serverMessages: withBlockKeysCarriedOntoServer(serverMessages, blockKeyByRowId),
+      realtimeMessages,
+    };
   }
 
   const serverIds = new Set(serverMessages.map((message) => message.id));
   const reconciledRealtimeMessages = removeOptimisticUserEchoes(serverMessages, realtimeMessages);
 
-  return reconciledRealtimeMessages.filter((message) => {
+  const nextRealtimeMessages = reconciledRealtimeMessages.filter((message) => {
     if (serverIds.has(message.id)) {
       return false;
     }
@@ -383,6 +443,11 @@ function pruneRealtimeSupersededByServer(
 
     return true;
   });
+
+  return {
+    serverMessages: withBlockKeysCarriedOntoServer(serverMessages, blockKeyByRowId),
+    realtimeMessages: nextRealtimeMessages,
+  };
 }
 
 /**
@@ -602,10 +667,14 @@ async function refreshLatestSlotFromServer(
   slot.offset = nextServerMessages.length;
   slot.hasMore = nextHasMore;
   slot.fetchedAt = Date.now();
-  slot.realtimeMessages = pruneRealtimeSupersededByServer(
+  ({
+    serverMessages: slot.serverMessages,
+    realtimeMessages: slot.realtimeMessages,
+  } = pruneRealtimeSupersededByServer(
     slot.serverMessages,
     slot.realtimeMessages,
-  );
+    slot.blockKeyByRowId,
+  ));
   recomputeMergedIfNeeded(slot);
 
   return { applied: true, changed: true, deferred: false };
@@ -679,10 +748,14 @@ export function useSessionStore() {
         slot.offset = (requestOptions.offset ?? 0) + data.messages.length;
         slot.fetchedAt = Date.now();
         slot.status = 'idle';
-        slot.realtimeMessages = pruneRealtimeSupersededByServer(
+        ({
+          serverMessages: slot.serverMessages,
+          realtimeMessages: slot.realtimeMessages,
+        } = pruneRealtimeSupersededByServer(
           slot.serverMessages,
           slot.realtimeMessages,
-        );
+          slot.blockKeyByRowId,
+        ));
         recomputeMergedIfNeeded(slot);
         if (data.tokenUsage !== undefined) {
           slot.tokenUsage = data.tokenUsage;
@@ -819,12 +892,43 @@ export function useSessionStore() {
     notify(sessionId);
   }, [notify]);
 
+  /**
+   * Adds one realtime row to the record.
+   *
+   * A block-keyed assistant `text` row is not added but *settles in place* when
+   * this client is already streaming that same block: the server's terminal text
+   * frame is the whole block's text, so appending it would draw the reply twice —
+   * once as the live row still accumulating, once as the frame that just ended
+   * it — with whatever tool row arrived between them keeping the two apart. The
+   * live row is rewritten into the server's frame (its id, its text, its
+   * timestamp), which is the same join the persisted row makes on the next
+   * refresh, so the block is one row in all three states.
+   */
   const appendRealtime = useCallback((sessionId: string, msg: NormalizedMessage) => {
     const slot = getSlot(sessionId);
     const normalizedMessage =
       msg.sessionId === sessionId
         ? msg
         : { ...msg, sessionId };
+
+    if (normalizedMessage.blockKey && normalizedMessage.kind === 'text' && normalizedMessage.role === 'assistant') {
+      const liveIndex = slot.realtimeMessages.findIndex(
+        m => m.blockKey === normalizedMessage.blockKey && m.kind === 'stream_delta',
+      );
+      if (liveIndex >= 0) {
+        const settled: NormalizedMessage = {
+          ...normalizedMessage,
+          blockKey: normalizedMessage.blockKey,
+        };
+        slot.realtimeMessages = [...slot.realtimeMessages];
+        slot.realtimeMessages[liveIndex] = settled;
+        slot.blockKeyByRowId.set(settled.id, settled.blockKey as string);
+        recomputeMergedIfNeeded(slot);
+        notify(sessionId);
+        return;
+      }
+    }
+
     let updated = [...slot.realtimeMessages, normalizedMessage];
     if (updated.length > MAX_REALTIME_MESSAGES) {
       updated = updated.slice(-MAX_REALTIME_MESSAGES);
@@ -884,8 +988,50 @@ export function useSessionStore() {
    * re-minting it, so a second turn must not find the first one's row here and
    * write over the reply it just finished.
    */
-  const updateStreaming = useCallback((sessionId: string, accumulatedText: string, msgProvider: LLMProvider) => {
+  const updateStreaming = useCallback((
+    sessionId: string,
+    accumulatedText: string,
+    msgProvider: LLMProvider,
+    opts: { blockKey?: string; timestamp?: string } = {},
+  ) => {
     const slot = getSlot(sessionId);
+    const { blockKey, timestamp } = opts;
+
+    if (blockKey) {
+      // A block that already settled must not be reopened by a straggling delta:
+      // the terminal text frame is the block's whole content, and resurrecting
+      // the live row here would put a second copy of it beside the settled one.
+      const settled = slot.realtimeMessages.find(m => m.blockKey === blockKey);
+      if (settled && settled.kind !== 'stream_delta') {
+        return;
+      }
+      const existing = settled ?? null;
+      const msg: NormalizedMessage = {
+        ...existing,
+        id: existing?.id ?? createLiveRowId(sessionId),
+        blockKey,
+        sessionId,
+        // The block keeps the timestamp of its first frame. Re-stamping it on
+        // every flush is what made the live row sort *after* the persisted echo
+        // of the same reply, leaving the two non-adjacent (a tool row between
+        // them) and so uncollapsible by the adjacent-echo pass.
+        timestamp: existing?.timestamp ?? timestamp ?? new Date().toISOString(),
+        provider: msgProvider,
+        kind: 'stream_delta',
+        content: accumulatedText,
+      };
+      slot.realtimeMessages = [...slot.realtimeMessages];
+      if (existing) {
+        slot.realtimeMessages[slot.realtimeMessages.findIndex(m => m.id === existing.id)] = msg;
+      } else {
+        slot.realtimeMessages.push(msg);
+      }
+      slot.blockKeyByRowId.set(msg.id, blockKey);
+      recomputeMergedIfNeeded(slot);
+      notify(sessionId);
+      return;
+    }
+
     const existingIndex = slot.realtimeMessages.findIndex(m => m.kind === 'stream_delta' && isLiveRowId(m.id));
     const existing = existingIndex >= 0 ? slot.realtimeMessages[existingIndex] : null;
     const msg: NormalizedMessage = {
@@ -918,10 +1064,13 @@ export function useSessionStore() {
    * the top — a jump the user sees and nothing reports. Settling the row in
    * place is what keeps the node it is drawn into.
    */
-  const finalizeStreaming = useCallback((sessionId: string) => {
+  const finalizeStreaming = useCallback((sessionId: string, opts: { blockKey?: string } = {}) => {
     const slot = storeRef.current.get(sessionId);
     if (!slot) return;
-    const idx = slot.realtimeMessages.findIndex(m => m.kind === 'stream_delta' && isLiveRowId(m.id));
+    const { blockKey } = opts;
+    const idx = blockKey
+      ? slot.realtimeMessages.findIndex(m => m.blockKey === blockKey && m.kind === 'stream_delta')
+      : slot.realtimeMessages.findIndex(m => m.kind === 'stream_delta' && isLiveRowId(m.id));
     if (idx >= 0) {
       const stream = slot.realtimeMessages[idx];
       slot.realtimeMessages = [...slot.realtimeMessages];

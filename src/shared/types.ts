@@ -361,6 +361,18 @@ export type ChatMessage = {
    */
   transcriptAnchorId?: string;
   /**
+   * Identity of the stream block this message belongs to, carried onto the
+   * rendered row so the transcript keys it by the block rather than by the row
+   * id that changes when it settles.
+   *
+   * The store's stream id (`live:…`) is the client's own and the settled record
+   * has the server's (`<uuid>_0`); a React key derived from either re-keys the
+   * row on the frame it settles, which is an unmount on a pane pinned to the
+   * bottom. Keying by the block keeps one node across streaming → settled →
+   * persisted. See `getIntrinsicMessageKey`.
+   */
+  blockKey?: string;
+  /**
    * Set on the optimistic echo of a message being sent as a replacement for an
    * already-sent one, naming the anchor it replaces. Local to this client.
    */
@@ -492,6 +504,21 @@ type QuestionOption = {
 /** A provider-agnostic transcript event as normalized by the backend adapters, with all kind-specific fields kept flat; it is the shape the session store holds and that chat converts into ChatMessage for rendering, so treat it as the wire contract rather than a view model. */
 export type NormalizedMessage = {
   id: string;
+  /**
+   * Identity of the stream block a *live* frame belongs to, as
+   * `<message.id>:<index>` (the server declaration is the source of the shape;
+   * treat the value as opaque).
+   *
+   * Set on the Claude frames forwarded off a live run — the `stream_delta`
+   * fragments, the `stream_end` that closes the block, and the settled
+   * `text`/`thinking`/`tool_use` record that block becomes all carry the same
+   * value. It is what lets the store fold a block's fragments onto the single
+   * row they settle into, instead of guessing by text equality and adjacency.
+   *
+   * Provider history reads never set it, so its presence is also the signal
+   * that a row came off the wire rather than out of the transcript.
+   */
+  blockKey?: string;
   /**
    * The provider's own id for the transcript row behind this message, when the
    * provider has stable per-row identity (today: Claude). Sent back as the

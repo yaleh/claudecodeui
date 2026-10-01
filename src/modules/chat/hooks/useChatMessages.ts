@@ -332,6 +332,10 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
       // afresh on every read, which would make the key *less* stable than the
       // content-derived one below, not more.
       ...(isLiveRowId(msg.id) ? { id: msg.id } : {}),
+      // The block this row is one state of, when it has one. It outlives both
+      // the live id above and the settled id a replaced row takes, so it — not
+      // the row id — is what the transcript's key is derived from.
+      blockKey: msg.blockKey,
       displayText: msg.displayText,
       commandName: msg.commandName,
       commandMessage: msg.commandMessage,
