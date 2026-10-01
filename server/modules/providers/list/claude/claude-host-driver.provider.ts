@@ -1908,6 +1908,25 @@ type ResidentTitleMirror = {
   mirrored: string | null;
   /** The pending settle-window timer, or null when none is armed. */
   timer: ReturnType<typeof setTimeout> | null;
+  /**
+   * True while a window is armed or one of its reads is in flight.
+   *
+   * The window is opened from every stream message, so without this a busy turn
+   * would start a read per message: the flag makes the message a *prompt* to open
+   * a window rather than a new window, and keeps the read cost at one poll per
+   * interval for the window's whole life.
+   */
+  open: boolean;
+  /**
+   * True once a window has been opened for the turn in flight.
+   *
+   * The trigger moved off the `result` and onto the stream, where messages are
+   * frequent; this is what holds the cost to *one* window per turn. It is cleared
+   * at each `result`, so the next turn opens its own window at its own first
+   * message — the old per-turn cadence, opened early enough to catch a title that
+   * lands while the turn is still running.
+   */
+  openedForTurn: boolean;
 };
 
 /**
@@ -2152,7 +2171,7 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       pid: pending.pid,
       configDir: pending.configDir,
       projectPath: pending.projectPath,
-      titleMirror: { lastSeen: null, mirrored: null, timer: null },
+      titleMirror: { lastSeen: null, mirrored: null, timer: null, open: false, openedForTurn: false },
       identityReadbackStarted: false,
       launchedTitle: pending.launchedTitle,
       resumed: false,
@@ -3209,6 +3228,7 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       clearTimeout(state.titleMirror.timer);
       state.titleMirror.timer = null;
     }
+    state.titleMirror.open = false;
   }
 
   /**
@@ -3247,28 +3267,48 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
    * correct, and re-mirroring would be this driver naming a process a human or
    * the launch had already named.
    *
-   * The window is re-opened at every turn's `result` because that is when the
-   * CLI's title generation lands, and a window that finds nothing spends itself
-   * rather than polling for the life of the host.
+   * Called from every stream message, but a window is opened *once per turn* —
+   * at the turn's first message, and not again until the next turn's `result`
+   * clears the per-turn latch. That cadence is the old one (a window every turn)
+   * with the opening moved off the `result` and onto the stream, where the title
+   * it is waiting for actually lands: measured on a live session, the CLI writes
+   * its `ai-title` row early in the first turn — before the first assistant
+   * message — so a window that waited for the `result` left the sidebar's
+   * readable name and the address peers dial apart for the whole first turn
+   * (362 s on the session that filed this). Opening at the turn's first message
+   * costs the same reads as opening at its `result` (one bounded window per turn)
+   * and moves the address as soon as the title has settled.
+   *
+   * A window that finds nothing spends itself rather than polling for the life of
+   * the host, and a message that arrives while one is open does not restart it —
+   * otherwise a busy turn would buy a read per message instead of one poll per
+   * interval.
    */
   private scheduleTitleMirror(state: ResidentHostState): void {
     if (state.closed || state.launchedTitle !== null || state.titleMirror.mirrored !== null) {
       return;
     }
-    this.stopTitleMirror(state);
+    if (state.titleMirror.open || state.titleMirror.openedForTurn) {
+      return;
+    }
+    state.titleMirror.open = true;
+    state.titleMirror.openedForTurn = true;
 
     const deadline = Date.now() + CLAUDE_RESIDENT_TITLE_MIRROR_WINDOW_MS;
     const poll = (): void => {
       state.titleMirror.timer = null;
       if (state.closed || state.titleMirror.mirrored !== null) {
+        state.titleMirror.open = false;
         return;
       }
       void this.readSettledTitle(state).then((title) => {
         if (state.closed || state.titleMirror.mirrored !== null) {
+          state.titleMirror.open = false;
           return;
         }
         if (title !== null && title === state.titleMirror.lastSeen) {
           this.mirrorResidentTitle(state, title);
+          state.titleMirror.open = false;
           return;
         }
         // A null read is "no generated title in the transcript", not a value to
@@ -3282,6 +3322,11 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
           const timer = setTimeout(poll, CLAUDE_RESIDENT_TITLE_MIRROR_POLL_MS);
           timer.unref?.();
           state.titleMirror.timer = timer;
+        } else {
+          // The window is spent. `open` goes false so a later turn can open a
+          // fresh one; `openedForTurn` stays set, so the rest of *this* turn does
+          // not re-poll for a title it already spent a full window on.
+          state.titleMirror.open = false;
         }
       });
     };
@@ -3948,15 +3993,22 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
     // actively being used.
     state.sink.activity(state.appSessionId);
 
+    // A title can land while a turn is still running: the CLI writes its
+    // `ai-title` row early in the first turn, before the first assistant message.
+    // So every message is a prompt to open the settle window that mirrors a
+    // generated title onto the process's registered name — a message arriving
+    // while a window is open is not a second window, and a turn opens only one
+    // (see {@link scheduleTitleMirror}).
+    this.scheduleTitleMirror(state);
+
     if (message?.type !== 'result') {
       return;
     }
 
     state.resultTimes.push(Date.now());
-    // A turn just ended, which is when the CLI's title generation lands: open the
-    // settle window that mirrors a freshly generated title onto the process's
-    // registered name (see {@link scheduleTitleMirror}).
-    this.scheduleTitleMirror(state);
+    // The turn that just ended is over for windowing too: the *next* turn opens
+    // its own window at its own first message.
+    state.titleMirror.openedForTurn = false;
     // Every queued frame whose turn in flight has now ended gets its write-timing
     // reading closed out here, at the only moment both timestamps exist.
     for (const input of state.queuedInputs) {

@@ -40,6 +40,15 @@ export type { ProviderWatchPath } from './services/sessions-watcher.service.js';
 // experiment than the one it names.
 export { readActiveWatcherModes } from './services/sessions-watcher.service.js';
 export type { WatcherMode } from './services/sessions-watcher.service.js';
+// createClaudeTurnTracker: the Turn Tracker facade. Consumed by the turn-phase
+// criterion (`claude-turn-phase.test.ts`), which feeds captured SDK frame
+// sequences and asserts the phase each real signal produces; a future activity
+// aggregator reads it to say what a session is doing without a local clock.
+// TurnPhase / TurnState are the criterion's own vocabulary — it types its
+// intermediate readings with them so an assertion cannot pass against a phase
+// this module never produces.
+export { createClaudeTurnTracker } from './services/claude-turn-phase.service.js';
+export type { TurnPhase, TurnState } from './services/claude-turn-phase.service.js';
 export { providerRegistry } from './provider.registry.js';
 // providerRoutes: the module's HTTP face. Mounted by `server/index.ts`, and by
 // the lifecycle-mode criterion, which has to drive the real

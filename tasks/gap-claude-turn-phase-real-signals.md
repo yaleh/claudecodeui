@@ -1,7 +1,7 @@
 ---
 id: gap-claude-turn-phase-real-signals
 title: AC-186 回合阶段与工具名来自真实信号：新增按会话的 Turn Tracker（thinking/writing/tool/等待权限/压缩/idle）
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -35,20 +35,38 @@ goal_ac: AC-186
 6. **取假形态**（先提交再变异，`git checkout -- <file>` 恢复，登记变异 diff、逐字失败行与恢复命令）：(i) 把 tool 的结束条件从「配对的 `tool_result`」改成「下一条 `assistant` 消息」⇒ AC4 的配对用例必须红；(ii) 把状态从按 `sessionId` 的 Map 改成模块级单例 ⇒ AC9 的串扰用例必须红。
 7. `npx tsc --noEmit -p server/tsconfig.json` 与 `npm run lint` 均退出 0；`git diff --stat` 与 `## Touches` 逐条对齐。
 
+### AC11 取假形态记录（两次变异均已 `git checkout --` 恢复，分支上无残留）
+
+初始提交：`cea23b7d feat(providers): add per-session Claude Turn Tracker (AC-186)`。
+
+**(i) tool 结束条件改成「下一条 assistant 消息」**——`assistant` 分支开头插入「若 `phase === 'tool'` 则离开 tool」（9 行），并让 `user` 分支在 id 校验后直接 `return`，`tool_result` 不再结束 tool。
+
+- 变异 diff（`git diff server/modules/providers/services/claude-turn-phase.service.ts`）：
+  - `assistant` 分支：`+ // MUTANT (i): the next assistant message ends the tool.` + `+ const state = stateFor(sessionId);` + `+ if (state.phase === 'tool') { state.phase = state.phaseBeforeTool; state.phaseBeforeTool = 'idle'; state.toolName = null; state.toolDurationMs = null; state.pendingToolUseId = null; }`（原 `const state = stateFor(sessionId);` 相应下移）；
+  - `user` 分支：`+ // MUTANT (i): a tool_result no longer ends the tool.` + `+ return;`。
+- 逐字失败行：`✖ AC4 tool is named from the tool_use block and ends only on its paired tool_result (1.842498ms)` / `AssertionError [ERR_ASSERTION]: a following assistant message must not end the tool` / `actual: 'thinking', expected: 'tool'`（同因另红 AC5、AC9 与「the captured turn ends idle」三例；`pass 7 / fail 4`）。
+- 恢复命令：`git checkout -- server/modules/providers/services/claude-turn-phase.service.ts`，随后判据 `pass 11 / fail 0`。
+
+**(ii) 状态改成模块级单例**——模块级新增一份共享 `SessionTurn`，`stateFor` 与 `getTurn` 都忽略 `sessionId`。
+
+- 变异 diff：`+ // MUTANT (ii): one module-level state shared by every tracker instance.` + `+ const MUTANT_SHARED_STATE: SessionTurn = createSessionTurn();`，`stateFor` 改为 `(_sessionId) => MUTANT_SHARED_STATE`，`getTurn` 改读 `MUTANT_SHARED_STATE`。
+- 逐字失败行：`✖ AC9 two sessions fed interleaved frames never read each other (0.224255ms)` / `AssertionError [ERR_ASSERTION]: session A reads its own phase` / `actual: 'tool', expected: 'writing'`（同因另红 AC3×2、AC10 与「the captured turn ends idle」四例；`pass 6 / fail 5`）。
+- 恢复命令：`git checkout -- server/modules/providers/services/claude-turn-phase.service.ts`，随后判据 `pass 11 / fail 0`。
+
 ## AC
 
-- [ ] AC1 判据绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-turn-phase.test.ts` 退出 0。红态基线：实现前该文件不存在或红。
-- [ ] AC2 thinking 来自真实信号（正控制）：喂入 `system/thinking_tokens` 帧后 `getTurn(id).phase === 'thinking'`。
-- [ ] AC3 writing 来自真实信号：喂入 `stream_event`+`content_block_delta`（文本增量）后 phase 为 `'writing'`。
-- [ ] AC4 tool 与 toolName，配对才结束（承重）：喂入带 `name` 的 `tool_use` 后 phase 为 `'tool'`、`toolName` 等于该 `name`；同一 `id` 的 `tool_result` **到达前**仍为 `'tool'`，**到达后** phase 不再是 `'tool'`。反向判据：结束条件改成「下一条 `assistant` 消息」时，这一条必须红。
-- [ ] AC5 等待权限：`permission_request` ⇒ `'awaitingPermission'`；`permission_resolved` ⇒ 恢复到请求前的阶段（夹具里请求前是 `'tool'`，断言恢复后仍为 `'tool'`，不是 idle）。
-- [ ] AC6 压缩：`system/compact_boundary` ⇒ `'compacting'`。
-- [ ] AC7 回合结束回空闲：回合的 `result` 帧 ⇒ `'idle'`，且 `toolName` 清空。
-- [ ] AC8 无 tool_progress 不编造耗时：整段夹具没有 `tool_progress`，`getTurn` 的耗时字段恒为 `null`（不是本地时钟算出来的数）。
-- [ ] AC9 并发会话不串扰（承重）：两个 sessionId 交错喂入不同阶段，各自读回的 phase/toolName 互不影响；改成模块级单例时这一条必须红。
-- [ ] AC10 子代理帧不改主线：带 `parent_tool_use_id`（非 null）的 `tool_use`/`tool_result` 帧到达前后，主线的 phase 与 toolName 不变。
-- [ ] AC11 取假形态必须红（承重）：(i) tool 结束条件改成下一条 assistant 消息 ⇒ AC4 红；(ii) 状态改成模块级单例 ⇒ AC9 红。逐条记录变异 diff、逐字失败行与恢复命令。
-- [ ] AC12 静态门：`npx tsc --noEmit -p server/tsconfig.json` 与 `npm run lint` 均退出 0；`git diff --stat` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）。
+- [x] AC1 判据绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-turn-phase.test.ts` 退出 0。红态基线：实现前该文件不存在或红。
+- [x] AC2 thinking 来自真实信号（正控制）：喂入 `system/thinking_tokens` 帧后 `getTurn(id).phase === 'thinking'`。
+- [x] AC3 writing 来自真实信号：喂入 `stream_event`+`content_block_delta`（文本增量）后 phase 为 `'writing'`。
+- [x] AC4 tool 与 toolName，配对才结束（承重）：喂入带 `name` 的 `tool_use` 后 phase 为 `'tool'`、`toolName` 等于该 `name`；同一 `id` 的 `tool_result` **到达前**仍为 `'tool'`，**到达后** phase 不再是 `'tool'`。反向判据：结束条件改成「下一条 `assistant` 消息」时，这一条必须红。
+- [x] AC5 等待权限：`permission_request` ⇒ `'awaitingPermission'`；`permission_resolved` ⇒ 恢复到请求前的阶段（夹具里请求前是 `'tool'`，断言恢复后仍为 `'tool'`，不是 idle）。
+- [x] AC6 压缩：`system/compact_boundary` ⇒ `'compacting'`。
+- [x] AC7 回合结束回空闲：回合的 `result` 帧 ⇒ `'idle'`，且 `toolName` 清空。
+- [x] AC8 无 tool_progress 不编造耗时：整段夹具没有 `tool_progress`，`getTurn` 的耗时字段恒为 `null`（不是本地时钟算出来的数）。
+- [x] AC9 并发会话不串扰（承重）：两个 sessionId 交错喂入不同阶段，各自读回的 phase/toolName 互不影响；改成模块级单例时这一条必须红。
+- [x] AC10 子代理帧不改主线：带 `parent_tool_use_id`（非 null）的 `tool_use`/`tool_result` 帧到达前后，主线的 phase 与 toolName 不变。
+- [x] AC11 取假形态必须红（承重）：(i) tool 结束条件改成下一条 assistant 消息 ⇒ AC4 红；(ii) 状态改成模块级单例 ⇒ AC9 红。逐条记录变异 diff、逐字失败行与恢复命令。
+- [x] AC12 静态门：`npx tsc --noEmit -p server/tsconfig.json` 与 `npm run lint` 均退出 0；`git diff --stat` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）。
 
 ## DoD
 
