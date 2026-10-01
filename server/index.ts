@@ -16,6 +16,7 @@ import {
     initializeSessionsWatcher,
     providerRegistry,
     providerRuntimeService,
+    readClaudeSessionOccupancy,
     resolveResidentScopeSweepEnabled,
     sessionsService,
     stopClaudeSessionScopes,
@@ -288,7 +289,17 @@ app.use('/api/session-hosts', authenticateToken, createSessionHostsRouter({
         appSessionId: session.session_id,
         provider: session.provider as LLMProvider,
         mode: (session.lifecycle_mode ?? 'per-run') as HostMode,
+        // The provider's own id, which is the only key the CLI's registry knows
+        // this conversation by — a background job is filed under it, never under
+        // the app's session id. `null` for a session the provider has not named
+        // yet, which simply has no occupancy to look up.
+        providerSessionId: session.provider_session_id ?? null,
       })),
+    // The listing's third fact, and the one this server does not own: which of
+    // these conversations a Claude Code background job is holding. Read whole,
+    // once, per request — `readClaudeSessionOccupancy` scans the CLI's registry
+    // directory a single time however many sessions the list above holds.
+    readSessionOccupancy: () => readClaudeSessionOccupancy(),
 }));
 
 // Agent API Routes (uses API key authentication)

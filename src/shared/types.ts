@@ -787,6 +787,35 @@ export type SessionHostStateView = {
   running: boolean;
   /** Why a resident session has no process, or null when the question does not apply. */
   reason: string | null;
+  /**
+   * The Claude Code background job holding this conversation, or null.
+   *
+   * Optional in the type even though the server always sends it, for the reason
+   * `transcript_name` is optional on a session row: existing literals — the
+   * sibling tests that build a snapshot to double `useSessionHosts` — predate
+   * the field and mean "nothing is holding this". The server's own contract is
+   * the stronger one: `session-hosts-routes.test.ts` asserts the key is on every
+   * row it sends, so a client reads `undefined` only from a hand-built snapshot,
+   * never from the wire.
+   */
+  occupiedBy?: SessionOccupiedBy | null;
+};
+
+/**
+ * The Claude Code background job occupying one conversation.
+ *
+ * What the composer needs to explain itself, and the whole of it: `jobId` is the
+ * handle `claude stop` takes, and `pid` is the process behind it. Shape-for-shape
+ * with the server's `SessionOccupiedBy` in `session-hosts.routes.ts`.
+ *
+ * Nothing here is the reason the session is read-only — that is the mere
+ * presence of the value. A session the *user* is running elsewhere and one some
+ * other agent left running are the same situation from this app's side: it
+ * cannot resume the conversation, so it must not offer to.
+ */
+export type SessionOccupiedBy = {
+  jobId: string;
+  pid: number;
 };
 
 /** The `GET /api/session-hosts` payload: the hosts, and the state of every session. */
