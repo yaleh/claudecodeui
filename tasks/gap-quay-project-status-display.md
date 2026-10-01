@@ -34,10 +34,10 @@ extra:
 
 ## AC
 
-- [ ] `npm run typecheck` 退出码 0。
-- [ ] 新增的后端窄测试(`server/modules/quay/tests/`)退出码 0,覆盖:(a) `detectQuayConfig` 对 `.quay/config.yml` 存在/不存在两种输入返回正确结果;(b) `runQuayCommand` 对不在白名单内的命令拒绝执行并返回错误,而不会实际 spawn 子进程;(c) `getQuaySnapshot` 对同一 projectId 的两次并发调用只触发一次底层子进程调用(验证 in-flight 去重),且 TTL 内重复调用不重新 spawn。
-- [ ] 新增的前端窄测试(`src/modules/quay/tests/`、`src/modules/sidebar/tests/`)退出码 0,覆盖:(a) `QuayIndicator` 按 `hasQuayConfig` 及 driver 状态渲染正确的图标/颜色变体,`hasQuayConfig=false` 时不渲染;(b) `shouldShowQuayTab` 门控逻辑(含「tab 不可见时自动切回 chat」的 useEffect 行为);(c) `QuayPanel` 对 loading/error/not-configured/loaded 四种状态分别渲染正确内容。
-- [ ] 后端路由层确认:`runQuayCommand` 的调用点(grep `server/modules/quay/`)不存在任何非白名单参数被拼进 `execFile` 调用的路径——即没有一条代码路径能让前端请求触发 `task create/edit/check`、`driver start/stop`、`gate run`、`promote/retreat` 等写命令。
+- [x] `npm run typecheck` 退出码 0。
+- [x] 新增的后端窄测试(`server/modules/quay/tests/`)退出码 0,覆盖:(a) `detectQuayConfig` 对 `.quay/config.yml` 存在/不存在两种输入返回正确结果;(b) `runQuayCommand` 对不在白名单内的命令拒绝执行并返回错误,而不会实际 spawn 子进程;(c) `getQuaySnapshot` 对同一 projectId 的两次并发调用只触发一次底层子进程调用(验证 in-flight 去重),且 TTL 内重复调用不重新 spawn。
+- [x] 新增的前端窄测试(`src/modules/quay/tests/`、`src/modules/sidebar/tests/`)退出码 0,覆盖:(a) `QuayIndicator` 按 `hasQuayConfig` 及 driver 状态渲染正确的图标/颜色变体,`hasQuayConfig=false` 时不渲染;(b) `shouldShowQuayTab` 门控逻辑(含「tab 不可见时自动切回 chat」的 useEffect 行为);(c) `QuayPanel` 对 loading/error/not-configured/loaded 四种状态分别渲染正确内容。
+- [x] 后端路由层确认:`runQuayCommand` 的调用点(grep `server/modules/quay/`)不存在任何非白名单参数被拼进 `execFile` 调用的路径——即没有一条代码路径能让前端请求触发 `task create/edit/check`、`driver start/stop`、`gate run`、`promote/retreat` 等写命令。
 
 ## DoD
 
@@ -52,14 +52,23 @@ extra:
 - server/modules/quay/quay.module.ts (new)
 - server/modules/quay/index.ts (new)
 - server/modules/quay/tests/quay.service.test.ts (new)
+- server/modules/projects/services/projects-with-sessions-fetch.service.ts
+- server/index.ts
 - src/modules/sidebar/QuayIndicator.tsx (new)
 - src/modules/sidebar/SidebarProjectItem.tsx
 - src/modules/sidebar/utils/sidebarProjectFormatting.ts
+- src/modules/sidebar/tests/QuayIndicator.test.tsx (new)
 - src/modules/quay/index.ts (new)
 - src/modules/quay/QuayPanel.tsx (new)
 - src/modules/quay/hooks/useQuayStatus.ts (new)
+- src/modules/quay/hooks/useQuayTabVisibility.ts (new)
 - src/modules/quay/tests/QuayPanel.test.tsx (new)
+- src/modules/quay/tests/quayTabVisibility.test.tsx (new)
 - src/modules/project-workspace/WorkspaceMain.tsx
+- src/modules/project-workspace/WorkspaceTabs.tsx
+- src/modules/project-workspace/WorkspaceHeader.tsx
+- src/modules/project-workspace/WorkspaceTitle.tsx
+- src/modules/project-workspace/hooks/useProjectsState.ts
 - src/shared/api.ts
 - src/shared/types.ts
 - tasks/gap-quay-project-status-display.md (self-touch)
