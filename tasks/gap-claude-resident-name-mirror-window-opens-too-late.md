@@ -2,7 +2,7 @@
 id: gap-claude-resident-name-mirror-window-opens-too-late
 title: resident peer 注册名的镜像开窗时机太晚：只在回合 result 时才尝试，首轮进行期间 CloudCLI 显示名与可达地址长期不一致
   —— 改为转录出现已定稿 ai-title 即可发帧（先测飞行中控制帧是否生效）
-status: ready
+status: done
 labels:
   - gap
   - defect
