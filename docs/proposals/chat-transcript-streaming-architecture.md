@@ -171,6 +171,8 @@ end note
 
 ## 4. 线协议
 
+> **状态：暂缓（2026-10-01 裁定）。** 本节的 `seq` / `offset` / 订阅 / 快照协议不会现在实施：没有观察到必须靠它们才能解决的失败（重复渲染已由 `blockKey` 结构性消除，见 §11.1），且 §11.3 的 4 个决定尚未裁定。唯一已验证、已单独立项的协议问题是游标跨 run 错位，见任务 `gap-chat-subscribe-cursor-needs-run-identity`。出现实证后再回到本节。
+
 ```plantuml
 @startuml
 title 线协议：事件与快照
@@ -285,6 +287,8 @@ S -> V : 同一 key, 位置不变, 内容相同 → 视觉无变化
 ---
 
 ## 6. 时序：切走再切回 / 断线重连
+
+> **状态：暂缓（2026-10-01 裁定）。** 本节的 `seq` / `offset` / 订阅 / 快照协议不会现在实施：没有观察到必须靠它们才能解决的失败（重复渲染已由 `blockKey` 结构性消除，见 §11.1），且 §11.3 的 4 个决定尚未裁定。唯一已验证、已单独立项的协议问题是游标跨 run 错位，见任务 `gap-chat-subscribe-cursor-needs-run-identity`。出现实证后再回到本节。
 
 ```plantuml
 @startuml
@@ -586,3 +590,10 @@ end note
 - 离开会话时，被查看会话的待 flush 被丢弃，下次 flush 要等下一个 delta 或结算；每会话的 flush 定时器在卸载时不清理（`useChatSessionState.ts` / `useChatRealtimeHandlers.ts:495`）。
 - `appendRealtime` 的 500 行上限会静默丢掉最老的乐观行或 live 行（`useSessionStore.ts:832`）。
 - 乐观用户消息的 id（`local_*`）从不发给服务端；对账靠“文本 + 5 分钟窗口”的启发式。SDK 的 `SDKUserMessage` 类型允许带 `uuid`，常驻路径也确实会盖一个，**但它是否落进 JSONL 没有核实**（驱动里的注释只说 SDK 消息流不回显它）。
+
+### 11.7 裁定与落地（2026-10-01）
+
+- 服务端 `blockKey`（`gap-claude-stream-frames-carry-block-key`）已完成并合并。
+- 客户端按 `blockKey` 归约（`gap-chat-stream-block-join-by-key`）已立项，其验收即 `echoSeparatedByToolRow.test.tsx` 里的 3 个红用例。
+- 协议层整体**暂缓**（§4、§6 已标注）。其中一个已验证的小缺陷单独立项：`gap-chat-subscribe-cursor-needs-run-identity`（给 run 加 `runId`，客户端游标改为 `{runId, seq}`，不改 `seq` 作用域；注册表层面已用探针验证：客户端游标 5 来自 run 1，run 2 只有 3 帧，`replayEvents` 返回空，浏览器里的真实断线重连未复现）。
+- 其它 provider（codex / cursor / opencode）暂不处理。
