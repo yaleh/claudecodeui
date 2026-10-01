@@ -1,7 +1,7 @@
 ---
 id: gap-host-snapshot-failure-unknown-degradation
 title: AC-189 宿主快照轮询失败降级为未知：状态栏与侧栏标记不再保留上一次 busy，成功即恢复
-status: needs-human
+status: ready
 needs_human_cause: human-adjudication
 labels:
   - gap
