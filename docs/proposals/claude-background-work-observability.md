@@ -5,6 +5,8 @@
 - 范围：仅 Claude Code（resident 与 per-run 两条路径）；其它 provider 不在范围内
 - 关联：`docs/proposals/claude-resident-sessions.md`（§15.3 状态栏、§15.6 分隔线）、`docs/proposals/chat-transcript-streaming-architecture.md`（文本流式渲染）、`server/modules/providers/list/claude/claude-host-driver.provider.ts`、`src/modules/chat/transcript/ResidentStatusBar.tsx`、`src/modules/chat/tools/SubagentPanel.tsx`
 
+> **后续（2026-10-01）：** 本文的 Task 模型已被纳入更大的统一设计 `docs/proposals/claude-session-activity-dock.md`（加入真实性/心跳、计划任务、入站消息、控制通道与单一活动坞）。per-run 是否推送 `task_*` 已在其中实测（形态一致）。
+
 > 图用 PlantUML 写成。本机没有渲染器，**图未渲染校验**，提交前请在能渲染的环境里过一遍。
 > 标注“实测”的来自本次对真实 SDK 的运行（`@anthropic-ai/claude-agent-sdk` 0.3.165，CLI 2.1.165）；标注“读代码”的来自只读调查，未运行。
 
