@@ -2,7 +2,7 @@
 id: gap-claude-resident-name-live-mirror
 title: resident 会话的 peer 注册名按已定稿的 ai-title 做活体镜像：经 rename_session
   控制帧改注册名，不重启、不臆造、只镜像一次
-status: ready
+status: done
 labels:
   - gap
   - defect
