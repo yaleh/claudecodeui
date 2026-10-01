@@ -1,7 +1,7 @@
 ---
 id: AC-190
 title: 人工关卡：在真实部署上停掉或杀掉服务端，由人确认坞显示连接中断且不再显示 Thinking
-status: draft
+status: active
 kind: criterion
 goal: GOAL-014
 criterion: test "$(grep -c '^- 人工验收 GOAL-014：accepted'
@@ -16,4 +16,15 @@ origin: docs/proposals/claude-session-activity-dock.md（§0.1 人的裁定、§
   夹具调研）。人 yale 2026-10-01 裁定：心跳 5 秒且 15 秒判定不可达；新增控制动词与 cancel-queued
   都做归属校验；取消计划任务不做控件；历史里的 isMeta 行显示与对等方目录本期不纳入。 经验：人工关卡必须是一条带可运行判据的 AC，写成 DoD
   散文会被机械 fan-in 绕过。
+activatedAt: 2026-10-01T13:46:57.741Z
+statusLog:
+  - at: 2026-10-01T13:46:57.741Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-01T13:46:57.741Z
 ---
