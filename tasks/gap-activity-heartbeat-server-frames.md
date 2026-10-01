@@ -30,14 +30,82 @@ goal_ac: AC-182
 
 ## AC
 
-- [ ] AC1 判据绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/activity-heartbeat.process.test.ts` 退出 0。红态基线：实现前该文件不存在或红。
-- [ ] AC2 节拍（正控制，承重）：在缩短后的 N 个节拍周期内，同一已订阅 socket 读到不少于 N-1 条 `activity.heartbeat`，每条同时含 `bootId` 与 `rev`（帧里 `rev` 不变也照发）。
-- [ ] AC3 bootId 进程内稳定：同一进程内，hello 帧与全部心跳帧的 `bootId` 两两相等。
-- [ ] AC4 被杀即静默：`SIGKILL` 服务端进程后，该 socket 收到 close，且此后计时窗口内读到 0 条帧（含 `activity.heartbeat`）。
-- [ ] AC5 重启换 bootId：再起一个进程并订阅，其 `bootId` 与第一个进程的 `bootId` 不相等。
-- [ ] AC6 出货默认值：同一文件第二条用例直接 `import` 实现导出的出厂常量并断言心跳 = 5000、判定不可达 = 15000；且服务端在 hello（`chat_subscribed`）或快照帧里把这两个值宣告给客户端（断言帧里字段等于这两个常量）。
-- [ ] AC7 取假形态必须红（承重）：(i) `bootId` 每次心跳都变 ⇒ AC3 红；(ii) 重启沿用同一 `bootId` ⇒ AC5 红；(iii) 只在 `rev` 变化时才发 ⇒ AC2 红。逐条记录变异 diff、逐字失败行与恢复命令。
-- [ ] AC8 静态门：`npx tsc --noEmit -p server/tsconfig.json` 与 `npm run lint` 均退出 0；`git diff --stat` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）。
+- [x] AC1 判据绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/activity-heartbeat.process.test.ts` 退出 0。红态基线：实现前该文件不存在或红。
+- [x] AC2 节拍（正控制，承重）：在缩短后的 N 个节拍周期内，同一已订阅 socket 读到不少于 N-1 条 `activity.heartbeat`，每条同时含 `bootId` 与 `rev`（帧里 `rev` 不变也照发）。
+- [x] AC3 bootId 进程内稳定：同一进程内，hello 帧与全部心跳帧的 `bootId` 两两相等。
+- [x] AC4 被杀即静默：`SIGKILL` 服务端进程后，该 socket 收到 close，且此后计时窗口内读到 0 条帧（含 `activity.heartbeat`）。
+- [x] AC5 重启换 bootId：再起一个进程并订阅，其 `bootId` 与第一个进程的 `bootId` 不相等。
+- [x] AC6 出货默认值：同一文件第二条用例直接 `import` 实现导出的出厂常量并断言心跳 = 5000、判定不可达 = 15000；且服务端在 hello（`chat_subscribed`）或快照帧里把这两个值宣告给客户端（断言帧里字段等于这两个常量）。
+- [x] AC7 取假形态必须红（承重）：(i) `bootId` 每次心跳都变 ⇒ AC3 红；(ii) 重启沿用同一 `bootId` ⇒ AC5 红；(iii) 只在 `rev` 变化时才发 ⇒ AC2 红。逐条记录变异 diff、逐字失败行与恢复命令。
+- [x] AC8 静态门：`npx tsc --noEmit -p server/tsconfig.json` 与 `npm run lint` 均退出 0；`git diff --stat` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）。
+
+### AC7 变异记录（先提交 `56b0833d` 再变异；逐字失败行如下）
+
+**(i) `bootId` 每次心跳现算 ⇒ AC3 红。** 变异（`activity-heartbeat.service.ts` 的 `buildActivityHeartbeat`）：
+
+```
+-  const { bootId, rev } = activityAnnouncement(sessionId);
++  const { rev } = activityAnnouncement(sessionId);
++  const bootId = randomUUID();
+```
+
+逐字失败行：
+
+```
+AssertionError [ERR_ASSERTION]: the hello and the heartbeats disagree about the boot id: ["4c1e247c-d33b-4682-98ed-b4c4089f9bfe","25f48a03-e81e-4554-9a94-ab811ebfb648","865410a8-fff3-4c13-83e4-357d09af5efe","d4c2665a-462d-4473-aa3f-2a822d454873","79874947-69fb-4add-88fe-2071bbd9f8ed","c70273ca-783a-41b8-8df4-bc842a13bca1"]
+```
+
+（数组逐次运行内容不同：它是 hello 加 5 条心跳各自现算出的 6 个不同 id。）
+
+**(ii) 重启沿用同一 `bootId`（落盘再读回）⇒ AC5 红。** 变异：
+
+```
+-const BOOT_ID = randomUUID();
++const BOOT_ID = (() => {
++  try {
++    return readFileSync('/tmp/ac182-bootid-probe', 'utf8');
++  } catch {
++    const id = randomUUID();
++    writeFileSync('/tmp/ac182-bootid-probe', id);
++    return id;
++  }
++})();
+```
+
+逐字失败行：
+
+```
+AssertionError [ERR_ASSERTION]: the restarted process reused the first process bootId, so a client cannot see the restart
+```
+
+**(iii) 只在 `rev` 变化时才发 ⇒ AC2 红。** 变异（`attachActivityHeartbeat` 的 `sendFrame`）：
+
+```
++  let lastRev: number | undefined;
+   const sendFrame = () => {
+     if (ws.readyState !== WS_OPEN_STATE) {
+       stopBeat();
+       return;
+     }
++    if (buildActivityHeartbeat(sessionId).rev === lastRev) {
++      return;
++    }
++    lastRev = buildActivityHeartbeat(sessionId).rev;
+```
+
+（本任务 `rev` 是会话级常量，故除首帧外全被吞掉。）
+
+逐字失败行：
+
+```
+AssertionError [ERR_ASSERTION]: read 1 activity.heartbeat frame(s) over 5 beat periods; expected at least 4
+```
+
+三条的恢复命令相同，恢复后 `git status --porcelain` 干净、判据重跑 2/2 绿（`EXIT=0`）：
+
+```
+git checkout -- server/modules/websocket/services/activity-heartbeat.service.ts
+```
 
 ## DoD
 
