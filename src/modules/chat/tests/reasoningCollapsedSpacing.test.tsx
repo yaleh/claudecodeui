@@ -24,6 +24,12 @@ import { Reasoning, ReasoningContent, ReasoningTrigger } from '@/modules/chat/tr
  * collapsing container bears none, and the gap is borne by the clipped layer inside
  * it. The geometry that a margin really disappears (36px → 20px) is the browser
  * probe's job, not a unit test's.
+ *
+ * The two cases are split so that they redden independently, which is what stops
+ * one one-way change from satisfying both: (a) is the collapse leg (the container
+ * must not reserve the gap) and (b) is the do-not-over-correct leg (the gap must
+ * still exist when open). Deleting the 16px outright passes (a) and fails (b);
+ * leaving it on the collapsing container passes (b) and fails (a).
  */
 
 /** A vertical margin/padding utility on any element: `mt-4`, `py-2`, `-mt-1`, `space-y-3`. */
@@ -100,7 +106,7 @@ test('(a) collapsed: the collapsing container bears no vertical spacing, and the
   );
 });
 
-test('(b) open: the 16px trigger-to-body gap is preserved, inside the clip layer', () => {
+test('(b) open: the 16px trigger-to-body gap is preserved', () => {
   const view = renderReasoning(true);
   const grid = collapsingGrid(view);
 
@@ -121,10 +127,18 @@ test('(b) open: the 16px trigger-to-body gap is preserved, inside the clip layer
     'premise: the collapsed content must follow the trigger in the document, or their gap is not the one under test',
   );
 
-  const clip = clipLayer(grid);
-  const gapBearers = Array.from(clip.querySelectorAll<HTMLElement>('*')).filter(has16pxGap);
+  /*
+   * Deliberately asks only that the gap *exists* somewhere in the collapsing
+   * container's subtree — not where in it the gap sits. Where it sits is case
+   * (a)'s question. If this case also pinned the location it would go red with
+   * (a) on any implementation that leaves the 16px on the collapsing container,
+   * and the pair would stop reddening independently: the defect "(a) is red ⇒
+   * the expanded state is intact" is exactly what the independence is for.
+   */
+  const region = [grid, ...Array.from(grid.querySelectorAll<HTMLElement>('*'))];
+  const gapBearers = region.filter(has16pxGap);
   assert.ok(
     gapBearers.length > 0,
-    `the expanded trigger-to-body gap must survive the fix: a 16px step must be borne inside the overflow-hidden clip layer so it collapses with the body; the clip layer contains ${JSON.stringify(Array.from(clip.querySelectorAll<HTMLElement>('*')).map((el) => el.className))}`,
+    `the expanded trigger-to-body gap must survive the fix: an open Reasoning must still bear a 16px vertical step in its collapsing container; the container carries ${JSON.stringify(region.map((el) => el.className))}`,
   );
 });
