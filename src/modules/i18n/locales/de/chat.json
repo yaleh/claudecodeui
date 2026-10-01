@@ -297,6 +297,7 @@
       "idle": "Resident · Leerlauf",
       "busy": "Resident · Läuft",
       "exited": "Resident-Prozess beendet ({{detail}})",
+      "unknown": "Resident · Status unbekannt",
       "start": "Starten",
       "restart": "Neu starten",
       "close": "Resident-Prozess schließen",

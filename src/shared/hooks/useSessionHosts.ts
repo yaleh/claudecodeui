@@ -64,10 +64,14 @@ async function readSnapshot(): Promise<void> {
     emit({ snapshot: body.data ?? { hosts: [], sessions: [] }, error: null, loading: false });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    // The previous snapshot is kept: a single failed poll is not evidence that
-    // every process went away, and clearing the marks on a blip would make the
-    // UI claim a host has stopped when nothing said so. Re-emitting the same
-    // message would re-render every subscriber for nothing, so it is not.
+    // The previous snapshot is kept *as data* — a single failed poll is not
+    // evidence that every process went away, and throwing the listing out would
+    // make the next successful read rebuild it from nothing. It is not kept as
+    // the *reading*, though: the `error` on this state is what
+    // `readResidentProcessState` folds into `unknown`, so a consumer sees "not
+    // known" rather than the stale word the kept snapshot would otherwise
+    // repeat. Re-emitting the same message would re-render every subscriber for
+    // nothing, so it is not.
     if (message !== state.error) {
       emit({ ...state, error: message, loading: false });
     }
@@ -298,12 +302,17 @@ export const RESIDENT_MARK_SHAPES: Record<ResidentProcessState, string> = {
   idle: 'solid',
   busy: 'solid+spinner',
   exited: 'exited',
+  // Neither a spinner nor a solid dot: a busy-looking mark for a state nothing
+  // has confirmed is the exact "pretending to think" this vocabulary exists to
+  // stop. It is drawn as an outline of its own so it cannot be read as `idle`'s
+  // solid dot or `unstarted`'s plain hollow either.
+  unknown: 'unknown',
 };
 
 /**
  * The UI's word for the state a host is in, or `unstarted` when there is no host.
  *
- * The host's own state machine has six members and the UI has four, so the two
+ * The host's own state machine has six members and the UI has five, so the two
  * have to be reconciled somewhere; this is the only place that happens, and
  * every reader of a process state goes through it. A closed host is kept out of
  * "is it running" but not out of "what happened to it": its `closeReason` is the
@@ -311,11 +320,28 @@ export const RESIDENT_MARK_SHAPES: Record<ResidentProcessState, string> = {
  * and one whose process died on its own, which keeps the exited state until
  * something restarts it.
  *
+ * `lastReadFailed` is the poll's *own* result, not the host's, and it is folded
+ * in here rather than checked by each consumer so the mark and the bar cannot
+ * disagree about it. When the last read threw, the snapshot on hand is the one
+ * from before it — a host that was `busy` a moment ago — and reporting that word
+ * as if it were current is a claim nothing is backing: the endpoint that would
+ * have said the turn ended is exactly the one that failed. So every host state
+ * reads as `unknown` until a read succeeds, at which point the real word returns
+ * on the next render. The parameter is optional and defaults to false, so the
+ * many existing callers and fakes that pass only a host keep their reading.
+ *
  * Total by construction: `idle`, `lingering` and `closing` all land on `idle`,
  * because in none of them is a turn in flight. A lease held open by background
  * work is exactly the case that must not read as busy.
  */
-export function readResidentProcessState(host: SessionHostView | null): ResidentProcessState {
+export function readResidentProcessState(
+  host: SessionHostView | null,
+  lastReadFailed = false,
+): ResidentProcessState {
+  if (lastReadFailed) {
+    return 'unknown';
+  }
+
   if (!host) {
     return 'unstarted';
   }

@@ -80,7 +80,7 @@ export default function ResidentStatusBar({
   sessionId: string | null;
   t: TFunction;
 }) {
-  const { snapshot, start, close } = useSessionHosts();
+  const { snapshot, error, start, close } = useSessionHosts();
   const [isOpen, setIsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -233,7 +233,10 @@ export default function ResidentStatusBar({
 
   const host = findSessionHost(snapshot, sessionId);
   const binding = findBinding(snapshot, sessionId);
-  const processState = readResidentProcessState(host);
+  // The poll's own failure is folded into the *shared* translation, not checked
+  // here: the mark beside the session reads the same `error` through the same
+  // function, so the bar and the mark cannot disagree about a read that failed.
+  const processState = readResidentProcessState(host, error !== null);
   const address = binding?.peerName ?? '';
 
   // Counted from the leases the host reports and nothing else, so the reading

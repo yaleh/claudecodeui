@@ -297,6 +297,7 @@
       "idle": "Residente · Inattivo",
       "busy": "Residente · In esecuzione",
       "exited": "Il processo residente è terminato ({{detail}})",
+      "unknown": "Residente · Stato sconosciuto",
       "start": "Avvia",
       "restart": "Riavvia",
       "close": "Chiudi il processo residente",

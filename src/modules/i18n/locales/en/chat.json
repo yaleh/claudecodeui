@@ -396,6 +396,7 @@
       "idle": "Resident · Idle",
       "busy": "Resident · Running",
       "exited": "Resident process exited ({{detail}})",
+      "unknown": "Resident · State unknown",
       "start": "Start",
       "restart": "Restart",
       "close": "Close resident process",

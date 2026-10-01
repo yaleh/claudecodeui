@@ -388,6 +388,7 @@
       "idle": "Residen · Idle",
       "busy": "Residen · Berjalan",
       "exited": "Proses residen telah berakhir ({{detail}})",
+      "unknown": "Residen · Status tidak diketahui",
       "start": "Mulai",
       "restart": "Mulai Ulang",
       "close": "Tutup proses residen",

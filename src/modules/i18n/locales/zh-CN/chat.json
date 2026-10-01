@@ -317,6 +317,7 @@
       "idle": "常驻 · 空闲",
       "busy": "常驻 · 运行中",
       "exited": "常驻进程已退出（{{detail}}）",
+      "unknown": "常驻 · 状态未知",
       "start": "启动",
       "restart": "重启",
       "close": "关闭常驻进程",
