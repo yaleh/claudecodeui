@@ -364,6 +364,20 @@ export type NormalizedMessage = {
    * has to survive a reload — never a value this app synthesized.
    */
   transcriptAnchorId?: string;
+  /**
+   * Identity of the stream block a *live* frame belongs to, as `<message.id>:<index>`.
+   *
+   * Set only on frames forwarded off a live Claude run — the `stream_delta`
+   * fragments, the `stream_end` that closes the block, and the settled
+   * `text`/`thinking`/`tool_use` record that block becomes all carry the same
+   * value. That is what lets a client fold the streaming fragments onto the row
+   * they settle into instead of guessing by text equality and adjacency.
+   *
+   * Opaque to clients: never parse it. Provider history reads never set it — a
+   * transcript row has no live stream to belong to — so its presence is also the
+   * signal that a frame came off the wire rather than out of the file.
+   */
+  blockKey?: string;
   sessionId: string;
   timestamp: string;
   provider: LLMProvider;

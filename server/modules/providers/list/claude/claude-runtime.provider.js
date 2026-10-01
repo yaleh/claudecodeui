@@ -576,6 +576,154 @@ export function isSubagentPromptEcho(message) {
 }
 
 /**
+ * Per-writer bookkeeping for the block a live stream is currently inside.
+ *
+ * The live frames of one assistant message carry no identity that connects them
+ * to the transcript row they settle into: a `stream_delta` is keyed only by the
+ * SDK's random frame id, and the settled block-level `assistant` record names no
+ * index at all. The join key is assembled here — `<message.id>:<index>` — out of
+ * the Anthropic streaming envelope the normalizer throws away:
+ * `message_start` names the message id, `content_block_start` names the index of
+ * the block being opened, `content_block_stop` closes it, and `message_stop` ends
+ * the message.
+ *
+ * Keyed by the *writer*, not stored on the provider, because
+ * `forwardNormalizedFrames` is the one exit the per-run and resident paths share
+ * and the writer is the only handle both reach that also bounds the state's
+ * lifetime. Keeping it off `ClaudeSessionsProvider` is required, not stylistic:
+ * that normalizer also serves history reads, so a tracker living there would
+ * stamp history rows with whatever block a concurrent live run happened to have
+ * open.
+ *
+ * Scope is `(sessionId, parentToolUseId)`: a subagent's stream events travel with
+ * a `parent_tool_use_id`, and one session's frames must never read another's open
+ * block.
+ */
+const streamBlockTrackers = new WeakMap();
+
+/** The scope key one session + subagent pair's open block is tracked under. */
+function blockScopeKey(sessionId, parentToolUseId) {
+  return `${sessionId ?? ''}\u0000${parentToolUseId ?? ''}`;
+}
+
+/** The open-block tracker for one writer, created on first use. */
+function blockTrackerFor(writer) {
+  let tracker = streamBlockTrackers.get(writer);
+  if (!tracker) {
+    tracker = new Map();
+    streamBlockTrackers.set(writer, tracker);
+  }
+  return tracker;
+}
+
+/** The Anthropic streaming event inside an SDK frame, or null for a settled record. */
+function readStreamingEvent(rawMessage) {
+  return rawMessage?.type === 'stream_event' ? rawMessage.event : null;
+}
+
+/**
+ * Folds one SDK frame into a writer's open-block state and returns the
+ * `blockKey` the frames it normalizes to should carry, if any.
+ *
+ * The key is read before the frame's own close takes effect on purpose: the
+ * settled `assistant` record that ends a block arrives *before* the
+ * `content_block_stop` that closes it (measured against SDK 0.3.165), so the
+ * block those frames belong to is still the open one when they are ranked.
+ *
+ * @param {Object} params
+ * @param {Object} params.writer - Run writer the state is scoped to
+ * @param {string|null} params.sessionId - Session the event belongs to
+ * @param {string|null} params.parentToolUseId - Subagent the event belongs to, when any
+ * @param {Object} params.rawMessage - SDK frame, after transformMessage
+ * @returns {string|null} `"<message.id>:<index>"`, or null when no block is open
+ */
+function trackStreamBlock({ writer, sessionId, parentToolUseId, rawMessage }) {
+  // The tracker is keyed by the writer, so a caller with no writer (a headless
+  // replay, say) simply gets no key rather than a shared global one.
+  if (!writer || (typeof writer !== 'object' && typeof writer !== 'function')) {
+    return null;
+  }
+
+  const tracker = blockTrackerFor(writer);
+  const scopeKey = blockScopeKey(sessionId, parentToolUseId);
+  const open = tracker.get(scopeKey) || null;
+  const keyFor = (index) => (
+    open && typeof open.messageId === 'string' && Number.isInteger(index)
+      ? `${open.messageId}:${index}`
+      : null
+  );
+
+  const event = readStreamingEvent(rawMessage);
+
+  // A settled record is not a streaming event: only the block-level `assistant`
+  // message is a candidate, and it is assigned to whichever block is still open.
+  // An `assistant` arriving with nothing open is a record this state knows no
+  // block for, so it carries no key rather than inheriting the last one.
+  if (!event) {
+    return rawMessage?.type === 'assistant' ? keyFor(open?.index) : null;
+  }
+
+  switch (event.type) {
+    case 'message_start': {
+      const messageId = event.message?.id;
+      tracker.set(scopeKey, {
+        messageId: typeof messageId === 'string' ? messageId : null,
+        index: null,
+      });
+      return null;
+    }
+    case 'content_block_start': {
+      if (open) {
+        open.index = Number.isInteger(event.index) ? event.index : null;
+      }
+      return null;
+    }
+    case 'content_block_delta':
+      return keyFor(open?.index);
+    case 'content_block_stop': {
+      const key = keyFor(open?.index);
+      // Close only after the closing `stream_end` has been ranked with this
+      // block's key.
+      if (open) {
+        open.index = null;
+      }
+      return key;
+    }
+    case 'message_stop': {
+      // The message is over; drop its entry so a finished conversation leaves
+      // nothing behind for the next one — or the next test — to read.
+      tracker.delete(scopeKey);
+      return null;
+    }
+    default:
+      return null;
+  }
+}
+
+/**
+ * The frame kinds that carry a block's identity: the streaming fragments, the
+ * `stream_end` that closes the block, and the settled record the block becomes.
+ * Anything else a normalizer may emit for the same event stays unkeyed.
+ */
+const BLOCK_KEYED_KINDS = new Set(['stream_delta', 'stream_end', 'text', 'thinking', 'tool_use']);
+
+/**
+ * Counts the sessions/subagents a writer still has an open block tracked for.
+ *
+ * Exposed for the providers module's tests: "the state does not leak" is a claim
+ * about this bookkeeping, and the only way a case can assert it directly is to
+ * read the bookkeeping — a tracker that kept every finished message's entry
+ * would still hand out correct keys and look green from the wire alone.
+ *
+ * @param {Object} writer - Run writer whose tracker is inspected
+ * @returns {number} Number of live scope entries, zero once every message has stopped
+ */
+export function countOpenStreamBlocks(writer) {
+  const tracker = streamBlockTrackers.get(writer);
+  return tracker ? tracker.size : 0;
+}
+
+/**
  * Hands every normalized frame of one SDK message to the run writer, in order.
  *
  * This is the seam the partial-stream path rests on: the normalizer decides what
@@ -591,6 +739,12 @@ export function isSubagentPromptEcho(message) {
  * subagent's own prompt echo is dropped rather than stacked as a second user
  * bubble (see {@link isSubagentPromptEcho}).
  *
+ * Frames of the block this event belongs to are stamped with that block's
+ * `blockKey` (see {@link trackStreamBlock}) — the streaming fragments, the
+ * closing `stream_end`, and the settled record alike. The key is assigned to
+ * `msg.blockKey` rather than baked into the normalizer so the history reads that
+ * share that normalizer can never carry one.
+ *
  * @param {Object} params
  * @param {Object} params.transformedMessage - SDK message, after transformMessage
  * @param {string|null} params.sessionId - Session the frames belong to
@@ -598,6 +752,13 @@ export function isSubagentPromptEcho(message) {
  * @param {Object} params.writer - Run writer (the socket connection); only its `send(message)` is used
  */
 export function forwardNormalizedFrames({ transformedMessage, sessionId, normalizeMessage, writer }) {
+  const blockKey = trackStreamBlock({
+    writer,
+    sessionId,
+    parentToolUseId: transformedMessage?.parentToolUseId,
+    rawMessage: transformedMessage,
+  });
+
   const normalized = normalizeMessage(transformedMessage, sessionId);
   for (const msg of normalized) {
     // Preserve parentToolUseId from SDK wrapper for subagent tool grouping
@@ -606,6 +767,9 @@ export function forwardNormalizedFrames({ transformedMessage, sessionId, normali
     }
     if (isSubagentPromptEcho(msg)) {
       continue;
+    }
+    if (blockKey && BLOCK_KEYED_KINDS.has(msg.kind)) {
+      msg.blockKey = blockKey;
     }
     writer.send(msg);
   }
