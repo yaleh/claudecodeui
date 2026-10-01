@@ -2,7 +2,7 @@
 id: gap-chat-stream-block-join-by-key
 title: 助手首段文本被渲染两次（流式 live 行 + 服务端行，中间隔着工具行）：客户端按 blockKey 一块一实体归约，live
   块就地被终态帧替换、渲染 key 全程稳定
-status: todo
+status: ready
 labels:
   - gap
   - defect
