@@ -2,7 +2,7 @@
 id: gap-activity-heartbeat-server-frames
 title: AC-182 服务端没有业务心跳帧：加每进程 bootId+rev 的 activity.heartbeat 节拍（出厂 5s/15s，重启换
   bootId，被杀即停帧）
-status: todo
+status: ready
 needs_human_cause: human-adjudication
 labels:
   - gap
