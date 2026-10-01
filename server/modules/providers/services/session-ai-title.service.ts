@@ -251,8 +251,37 @@ export async function readSessionAiTitle(sessionId: string): Promise<string | nu
   // provider id; for those the two ids are equal anyway.
   const providerSessionId = row.provider_session_id ?? row.session_id;
 
+  return readTranscriptAiTitle(row.jsonl_path, providerSessionId);
+}
+
+/**
+ * Reads the newest `ai-title` a transcript holds for `providerSessionId`, or
+ * null when the transcript carries none.
+ *
+ * This is the transcript-addressed half of {@link readSessionAiTitle}, split out
+ * for the caller that already holds the file: the resident host driver reads the
+ * title of the process it is holding straight out of the transcript the CLI is
+ * writing, and resolving that path through a session row would make a live
+ * reading wait on a scan that may not have reached the file yet.
+ *
+ * The value is Claude's own generated title, verbatim, and nothing else: the
+ * fold keeps only `ai-title` entries belonging to this session (see
+ * {@link readAiTitleEntry}), so a transcript with no generated title answers
+ * null rather than the caller's ladder falling through to a prompt or a display
+ * name. That distinction is the whole contract — a caller that mirrors this
+ * value into something a person reads must never be handed a title Claude did
+ * not write.
+ */
+export async function readTranscriptAiTitle(
+  transcriptPath: string | null,
+  providerSessionId: string,
+): Promise<string | null> {
+  if (!transcriptPath) {
+    return null;
+  }
+
   const readFrom = (from: TranscriptWindowEnd, maxBytes: number) =>
-    readTranscriptWindow<string | null>(row.jsonl_path!, {
+    readTranscriptWindow<string | null>(transcriptPath, {
       from,
       maxBytes,
       initial: null,

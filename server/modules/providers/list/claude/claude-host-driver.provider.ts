@@ -104,6 +104,7 @@ import {
   resolveClaudeSessionTitle,
 } from '@/modules/providers/list/claude/claude-runtime.provider.js';
 import { resolveModelContextWindowRow } from '@/modules/providers/services/model-launch-spec.service.js';
+import { readTranscriptAiTitle } from '@/modules/providers/services/session-ai-title.service.js';
 import type { SessionHostManager } from '@/modules/session-hosts/index.js';
 import type { IProviderHostDriver, IProviderHostDriverSink } from '@/shared/interfaces.js';
 import type {
@@ -1730,6 +1731,17 @@ type ResidentHostState = {
    * reading something that never reached the process.
    */
   configDir: string;
+  /**
+   * The working directory this process was launched in, or null when the turn
+   * stated none.
+   *
+   * Kept for the same reason `configDir` is: it is the other half of the path to
+   * this process's transcript (see `claudeProjectTranscriptPath`), and the title
+   * mirror reads that transcript directly rather than through a session row.
+   */
+  projectPath: string | null;
+  /** See {@link ResidentTitleMirror}. */
+  titleMirror: ResidentTitleMirror;
   /** True once the identity read-back has been started, so it starts only once. */
   identityReadbackStarted: boolean;
   /**
@@ -1766,6 +1778,8 @@ type PendingHost = {
    */
   pid: number | null;
   configDir: string;
+  /** The working directory this process was launched in, or null when none was stated. */
+  projectPath: string | null;
   /** The one slot this process's `Stop` hook can reach before its host exists. */
   stopHook: StopHookSink;
   /**
@@ -1839,6 +1853,62 @@ async function stopResidentTurn(queryStream: ClaudeResidentQuery): Promise<void>
     // stop, so there is nothing left for the caller to branch on.
   }
 }
+
+// ------------------------- The live peer-name mirror -------------------------
+
+/**
+ * How often a resident host re-reads its transcript for a settled title, and how
+ * long the settle window after one turn lasts.
+ *
+ * The window is bounded rather than open-ended: a process whose session never
+ * earns an `ai-title` must not cost a transcript read every few hundred
+ * milliseconds for the whole life of the host, so a turn that produces no title
+ * spends its window and stops, and the next turn opens a fresh one.
+ */
+const CLAUDE_RESIDENT_TITLE_MIRROR_POLL_MS = 300;
+const CLAUDE_RESIDENT_TITLE_MIRROR_WINDOW_MS = 20_000;
+
+/**
+ * The transcript path the CLI files `providerSessionId` under, given the launch
+ * working directory.
+ *
+ * The CLI names a project directory by replacing every character outside
+ * `[a-zA-Z0-9-]` of the session's working directory with a hyphen, so
+ * `/home/me/work` files under `-home-me-work`. That encoding is the CLI's own
+ * (the fork path and the token-usage resolver both rely on it), which is why the
+ * path is computed here rather than read back from a session row: a host holding
+ * a live process has been writing for seconds, while the row's `jsonl_path` is
+ * filled by a scan that may not have reached the file yet.
+ */
+function claudeProjectTranscriptPath(
+  configDir: string,
+  projectPath: string,
+  providerSessionId: string,
+): string {
+  const encodedProjectDir = projectPath.replace(/[^a-zA-Z0-9-]/g, '-');
+  return join(configDir, 'projects', encodedProjectDir, `${providerSessionId}.jsonl`);
+}
+
+/**
+ * What one host has read of its session's generated title, and what it did with
+ * it.
+ *
+ * `lastSeen` is the previous observation's value, which is what turns "read the
+ * title" into "read the *settled* title": the frame goes out only when a value
+ * repeats, so a title still being written, or a first draft the CLI later
+ * replaces, is not mistaken for the finished one. `mirrored` is the value
+ * already written into the registry, and its presence is what makes the frame a
+ * one-time act — a host that has mirrored never mirrors again, however many
+ * times the CLI appends the same title afterwards.
+ */
+type ResidentTitleMirror = {
+  /** The `ai-title` read at the previous observation, or null. */
+  lastSeen: string | null;
+  /** The title already written into the registry, or null while none has. */
+  mirrored: string | null;
+  /** The pending settle-window timer, or null when none is armed. */
+  timer: ReturnType<typeof setTimeout> | null;
+};
 
 /**
  * Owns the process lifetime of Claude's `resident` hosts.
@@ -2081,6 +2151,8 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       providerSessionId: null,
       pid: pending.pid,
       configDir: pending.configDir,
+      projectPath: pending.projectPath,
+      titleMirror: { lastSeen: null, mirrored: null, timer: null },
       identityReadbackStarted: false,
       launchedTitle: pending.launchedTitle,
       resumed: false,
@@ -2280,6 +2352,7 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       return;
     }
     state.closed = true;
+    this.stopTitleMirror(state);
 
     // Every round still waiting has lost the process that was going to answer it;
     // the close is that answer, and an unattended turn still open loses the same
@@ -2827,6 +2900,7 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       ledger,
       pid,
       configDir,
+      projectPath: typeof options.cwd === 'string' && options.cwd ? options.cwd : null,
       launchedTitle: sessionTitle,
       stopHook,
       permissions,
@@ -3120,6 +3194,151 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
     };
 
     poll();
+  }
+
+  /**
+   * Cancels a settle window in flight.
+   *
+   * Called wherever the host stops being live — a close, a process exit — so the
+   * poll cannot fire against a state whose process is gone. The mirror value
+   * already written is left alone: it is a fact about what was sent, not about
+   * whether more will be.
+   */
+  private stopTitleMirror(state: ResidentHostState): void {
+    if (state.titleMirror.timer) {
+      clearTimeout(state.titleMirror.timer);
+      state.titleMirror.timer = null;
+    }
+  }
+
+  /**
+   * Opens a settle window that mirrors this session's generated title into the
+   * process's registered name, once the title has stopped moving.
+   *
+   * The address this fixes is the one `ListAgents` and `SendMessage` use:
+   * `~/.claude/sessions/<pid>.json`'s `name`, which the CLI derives from the
+   * working directory plus two random characters and keeps for the process's
+   * whole life. A resident process is launched with no title when the session has
+   * none yet — deliberately, because a title handed over at creation suppresses
+   * the CLI's own generation — so the readable title the session earns a moment
+   * later never reaches the registry, and every peer keeps addressing it by the
+   * machine-shaped name. The `rename_session` control frame is the one verb that
+   * moves it without restarting the process (the SDK's `Query` has no method for
+   * it; see {@link ClaudeResidentProcess.writeRaw}).
+   *
+   * Three rules, each one an invariant rather than a preference:
+   *
+   * - **Never before the title exists.** The frame is built only from a value
+   *   read out of the transcript's own `ai-title` entries, so a title that has
+   *   not been written cannot be sent. This is not politeness: a rename sent
+   *   before generation makes the CLI skip generating a title at all (measured:
+   *   the pre-renamed arm's transcript carries `custom-title` rows and zero
+   *   `ai-title` rows), so an early frame would destroy the very title it was
+   *   trying to mirror.
+   * - **Mirror, never invent.** The string is the transcript's `ai-title`
+   *   verbatim — no ladder rung, no display name, no placeholder. A transcript
+   *   with no generated title leaves this silent rather than naming the process
+   *   after its first prompt.
+   * - **Once.** `titleMirror.mirrored` latches on the first frame, so the CLI
+   *   appending the same title on later rounds does not write a second one.
+   *
+   * A process launched *with* a title is skipped outright: the CLI adopted that
+   * title at startup (`nameSource: "auto"`), so there is nothing derived to
+   * correct, and re-mirroring would be this driver naming a process a human or
+   * the launch had already named.
+   *
+   * The window is re-opened at every turn's `result` because that is when the
+   * CLI's title generation lands, and a window that finds nothing spends itself
+   * rather than polling for the life of the host.
+   */
+  private scheduleTitleMirror(state: ResidentHostState): void {
+    if (state.closed || state.launchedTitle !== null || state.titleMirror.mirrored !== null) {
+      return;
+    }
+    this.stopTitleMirror(state);
+
+    const deadline = Date.now() + CLAUDE_RESIDENT_TITLE_MIRROR_WINDOW_MS;
+    const poll = (): void => {
+      state.titleMirror.timer = null;
+      if (state.closed || state.titleMirror.mirrored !== null) {
+        return;
+      }
+      void this.readSettledTitle(state).then((title) => {
+        if (state.closed || state.titleMirror.mirrored !== null) {
+          return;
+        }
+        if (title !== null && title === state.titleMirror.lastSeen) {
+          this.mirrorResidentTitle(state, title);
+          return;
+        }
+        // A null read is "no generated title in the transcript", not a value to
+        // remember: the title already seen stays the one a later equal read has
+        // to match, so a round that happened not to write one cannot reset the
+        // settle test.
+        if (title !== null) {
+          state.titleMirror.lastSeen = title;
+        }
+        if (Date.now() < deadline) {
+          const timer = setTimeout(poll, CLAUDE_RESIDENT_TITLE_MIRROR_POLL_MS);
+          timer.unref?.();
+          state.titleMirror.timer = timer;
+        }
+      });
+    };
+
+    poll();
+  }
+
+  /**
+   * Reads the newest `ai-title` this process's transcript holds, or null.
+   *
+   * The transcript is located from the two facts the host already carries — the
+   * config directory the child was launched under and its working directory —
+   * plus the provider session id the stream named. A host that has not yet seen
+   * a session id, or was launched with no working directory, has no transcript to
+   * read and answers null.
+   */
+  private async readSettledTitle(state: ResidentHostState): Promise<string | null> {
+    const providerSessionId = state.providerSessionId;
+    if (!providerSessionId || !state.projectPath) {
+      return null;
+    }
+    const transcriptPath = claudeProjectTranscriptPath(state.configDir, state.projectPath, providerSessionId);
+    return readTranscriptAiTitle(transcriptPath, providerSessionId);
+  }
+
+  /**
+   * Writes the `rename_session` control frame that moves the process's registered
+   * name onto `title`, and latches the mirror so it is written once.
+   *
+   * The frame is recorded before the write, like every other control frame this
+   * host sends, so a criterion reading what the driver wrote holds the bytes even
+   * if the process dies mid-write. A process with no raw-write seam (a scripted
+   * stream, a substituted factory) simply does not mirror: the reading is "this
+   * host wrote nothing", which is true, rather than a claim about a frame that
+   * never left.
+   */
+  private mirrorResidentTitle(state: ResidentHostState, title: string): void {
+    const writeRaw = state.process.writeRaw;
+    if (typeof writeRaw !== 'function') {
+      return;
+    }
+    const requestId = randomUUID();
+    const frame: AnyRecord = {
+      type: 'control_request',
+      request_id: requestId,
+      request: {
+        subtype: 'rename_session',
+        title,
+        // `host` is the source the CLI lands as `user`; `auto` is its internal
+        // lane for titles it adopted itself and is not reachable from here.
+        source: 'host',
+        session_id: state.providerSessionId,
+      },
+    };
+    state.controlFrames.push({ at: Date.now(), requestId, frame });
+    writeRaw.call(state.process, frame);
+    state.titleMirror.mirrored = title;
   }
 
   /**
@@ -3608,6 +3827,7 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       return;
     }
     state.closed = true;
+    this.stopTitleMirror(state);
 
     const error = state.loopError ?? new Error('The resident Claude process ended before the turn did.');
     for (const round of state.rounds.splice(0)) {
@@ -3733,6 +3953,10 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
     }
 
     state.resultTimes.push(Date.now());
+    // A turn just ended, which is when the CLI's title generation lands: open the
+    // settle window that mirrors a freshly generated title onto the process's
+    // registered name (see {@link scheduleTitleMirror}).
+    this.scheduleTitleMirror(state);
     // Every queued frame whose turn in flight has now ended gets its write-timing
     // reading closed out here, at the only moment both timestamps exist.
     for (const input of state.queuedInputs) {

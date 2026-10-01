@@ -226,13 +226,28 @@ function readAllRegistrations(configDir: string): CliRegistration[] {
  */
 function watchRegistrations(configDir: string, seenPids: number[]): {
   captured: CliRegistration[];
+  first: CliRegistration[];
   sweep: () => void;
   stop: () => Promise<void>;
 } {
   const captured: CliRegistration[] = [];
+  /**
+   * The *first* state each pid was seen in, which is not the one `captured` keeps.
+   *
+   * The two readings answer different questions. `captured` answers "where did
+   * this process's name end up", which is what a launch that adopts a title
+   * needs; `first` answers "what did it register as it started", which is what a
+   * launch that hands nothing over needs. They stopped being the same string the
+   * moment a resident process could be renamed *during its first turn* by the
+   * live title mirror (`gap-claude-resident-name-live-mirror`): the process is
+   * still launched under the CLI's derived name, and the registry file is
+   * rewritten a moment later in the same turn. Reading only the last state would
+   * report that later rewrite as what the launch registered.
+   */
+  const first: CliRegistration[] = [];
   let watching = true;
 
-  /** One pass over the registry, folded into `captured` with last-state-wins. */
+  /** One pass over the registry: `first` once per pid, `captured` last-state-wins. */
   const sweep = (): void => {
     for (const row of readAllRegistrations(configDir)) {
       if (seenPids.includes(row.pid) || !row.name) {
@@ -241,6 +256,7 @@ function watchRegistrations(configDir: string, seenPids: number[]): {
       const index = captured.findIndex((existing) => existing.pid === row.pid);
       if (index === -1) {
         captured.push(row);
+        first.push(row);
       } else {
         captured[index] = row;
       }
@@ -255,6 +271,7 @@ function watchRegistrations(configDir: string, seenPids: number[]): {
   })();
   return {
     captured,
+    first,
     sweep,
     stop: async () => {
       watching = false;
@@ -690,6 +707,11 @@ type RoundReading = {
   frame: Record<string, unknown>;
   providerSessionId: string | null;
   registration: CliRegistration | null;
+  /**
+   * The registration as the process *started* — the state a launch handed nothing
+   * to registers in. See `watchRegistrations`.
+   */
+  launchRegistration: CliRegistration | null;
   aiTitles: string[];
   customTitles: string[];
   agentNames: string[];
@@ -725,6 +747,8 @@ async function runMeasuredRound(
   const providerSessionId = transcriptFile ? path.basename(transcriptFile, '.jsonl') : null;
   const registration = registrationFor(watch.captured, providerSessionId, label);
 
+  const launchRegistration = registrationFor(watch.first, providerSessionId, label);
+
   let titles = titleRows(transcriptFile ? readJsonLines(transcriptFile) : []);
   if (titles.aiTitles.length === 0 && titles.customTitles.length === 0) {
     await sleep(1_500);
@@ -735,6 +759,7 @@ async function runMeasuredRound(
     frame,
     providerSessionId,
     registration,
+    launchRegistration,
     aiTitles: titles.aiTitles,
     customTitles: titles.customTitles,
     agentNames: titles.agentNames,
@@ -850,6 +875,7 @@ async function launchWithTitle(
     frame: { exitCode: exited ? 0 : null },
     providerSessionId,
     registration,
+    launchRegistration: registrationFor(watch.first, providerSessionId, label),
     aiTitles: titles.aiTitles,
     customTitles: titles.customTitles,
     agentNames: titles.agentNames,
@@ -1107,11 +1133,26 @@ test('a session hands its own Claude Code title to the CLI, and answers to it', 
     // ---------------------------------------------------------------------
     const residentFirst = await runMeasuredRound(context, SESSION_RESIDENT, MARKER_RESIDENT, 'resident-boot');
     assert.notStrictEqual(residentFirst.providerSessionId, null, 'the resident boot must reach a session');
+    // The claim is about the *launch*: it is handed no title, so the process
+    // starts under the CLI's derived name. Read off `launchRegistration`, not
+    // `registration`: since `gap-claude-resident-name-live-mirror` a resident
+    // process's registry name can be rewritten *during its first turn* — that is
+    // precisely what that task adds — so the last state of the same turn is no
+    // longer the state the launch registered. The regression this guards is a
+    // build that hands a title over at creation (leg 1c's suppression shape); the
+    // process would then start under `auto`, which `launchRegistration` still
+    // reads.
+    console.log(
+      `[readings] round=resident-boot launchNameSource=${JSON.stringify(residentFirst.launchRegistration?.nameSource)} ` +
+        `launchName=${JSON.stringify(residentFirst.launchRegistration?.name)} ` +
+        `postTurnNameSource=${JSON.stringify(residentFirst.registration?.nameSource)} ` +
+        `postTurnName=${JSON.stringify(residentFirst.registration?.name)}`,
+    );
     assert.strictEqual(
-      residentFirst.registration?.nameSource,
+      residentFirst.launchRegistration?.nameSource,
       'derived',
       `a resident session's own first launch hands over no title either ` +
-        `(${JSON.stringify(residentFirst.registration)})`,
+        `(${JSON.stringify(residentFirst.launchRegistration)})`,
     );
     sessionsDb.assignProviderSessionId(SESSION_RESIDENT, residentFirst.providerSessionId as string);
     const residentSummary = await readSessionSummary(residentFirst.providerSessionId as string, cwd, configDir);
