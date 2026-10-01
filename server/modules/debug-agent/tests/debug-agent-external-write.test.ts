@@ -57,7 +57,15 @@ import { appendTranscriptRow, buildMessageRow, readTranscriptRows } from '../deb
  *      polling period, and only then appends.
  * (ii) Demand a NEW upsert after the append, inside an observation window at
  *      least as wide as the worst case. The window is a SAFE UPPER BOUND, never a
- *      lower bound: nothing here asserts that delivery takes that long.
+ *      lower bound: nothing here asserts that delivery takes that long. It is
+ *      derived from the observer's OWN measured latency — the load step times a
+ *      write against the observer's own line and the delivery window is built
+ *      from that measurement plus the observer's own polling period and flush
+ *      debounce, printed on every run (see `deriveDeliveryWindowMs`). The wait is
+ *      coupled to (iii)'s evidence, not to the first upsert of any session: a
+ *      stale flush from the load or readiness phase can arrive before this file's
+ *      own change is even polled, and ending the wait on it is what produced the
+ *      2026-10-01 lane red (`(ii) … first at +209ms` beside `(iii) change=0`).
  * (iii) POSITIVE CONTROL: the observer's own log line naming THIS file with a
  *      `change` event, after the append. Without it, "an upsert arrived" cannot
  *      be attributed to the observer, and a build that wrote the database
@@ -133,12 +141,24 @@ const FLUSH_DEBOUNCE_MS = 500;
 /** The drain's silence requirement — strictly more than one polling period. */
 const DRAIN_SILENCE_MS = 6_500;
 /**
- * The observation window: deliberately wider than the worst case (one polling
- * period plus the flush debounce) so the criterion covers it. The latencies this
- * run actually measures are printed and sit far below it; a criterion that
- * asserted a lower bound here would be a different and wrong one.
+ * The delivery leg's own window, derived from the observer's OWN measured
+ * latency — never from a number picked here.
+ *
+ * The measurement is the load step's: `armObservedFixture` times a file write
+ * (`armDebugAgentScenario`) against the observer's own line for it, which is the
+ * same class of event the external write produces (a row appended to a file
+ * under the observer's root) and so is the observer's own reading of how long it
+ * currently takes to notice one. The window is that measurement PLUS one full
+ * polling period — the write lands at an arbitrary phase of the observer's own
+ * clock, so the first poll after it can be a whole period away — PLUS the
+ * observer's own flush debounce, because the upsert that follows the line is
+ * debounced by it. It is a SAFE UPPER BOUND: nothing asserts that delivery takes
+ * this long, and the measured value is printed on every run. (The window this
+ * replaces was `8_000` — one polling period plus two seconds somebody picked.)
  */
-const OBSERVATION_WINDOW_MS = 8_000;
+function deriveDeliveryWindowMs(measuredLineLatencyMs: number): number {
+  return POLL_INTERVAL_MS + Math.max(measuredLineLatencyMs, 0) + FLUSH_DEBOUNCE_MS;
+}
 /** The false form of the same window, used by the falsification reading below. */
 const SHORT_WINDOW_MS = 1_000;
 const SHORT_WINDOW_TRIALS = 3;
@@ -237,8 +257,14 @@ const OBSERVER_LINE = /Session synchronization triggered by (add|change) event f
  * demonstration rather than a report of bad luck. It exits the child before any
  * of (i)–(iv) is taken, which is the honest place for it: today's red never
  * reached a delivery assertion either.
+ *
+ * `drop-write` is the delivery leg's own falsification arm, and it is the one
+ * the lane reading asked for: the observer is LEFT in the loop through the load
+ * and the drain, and is closed the instant the external write is on disk — so
+ * the write is never reported by it. The positive arm in the same run is green,
+ * which is what makes this a two-way control on (iii) rather than a report.
  */
-type ChildMode = 'external-write' | 'external-write-native' | 'bypass' | 'unobserved-load';
+type ChildMode = 'external-write' | 'external-write-native' | 'bypass' | 'drop-write' | 'unobserved-load';
 
 /** One `session_upserted` as it reached a connected client. */
 type UpsertReading = { at: number; sessionId: string | null; providerSessionId: string | null };
@@ -335,7 +361,17 @@ type ExternalWriteReading = {
   };
   /** (ii) — what arrived after the append, and how long it took. */
   delivery: {
+    /** The window this run derived from the observer's own measured latency. */
     windowMs: number;
+    /** The measurement the window was derived from — the load step's own latency. */
+    measuredLineLatencyMs: number;
+    /**
+     * Whether the observer's own `change` line for THIS file had been logged by
+     * the time the terminal wait ended. The wait is coupled to it, so this is the
+     * reading that says the window closed on the criterion's OWN evidence rather
+     * than on a stale upsert from an earlier phase.
+     */
+    changeLineArrived: boolean;
     newUpserts: number;
     deliveryMs: number | null;
     upsertsSinceAppend: UpsertReading[];
@@ -504,6 +540,67 @@ function appendExternally(transcriptPath: string, input: { sessionId: string; cw
  */
 function observerLineFor(lines: CapturedLine[], filePath: string, since: number): ObserverLine | null {
   return readObserverLines(lines).find((line) => line.at >= since && line.text.includes(filePath)) ?? null;
+}
+
+/**
+ * The observer's own `change` line naming this file, logged at or after `since`.
+ *
+ * This is the (iii) evidence and nothing else: the delivery leg's terminal wait
+ * is coupled to a line of THIS shape, because a `change` is what an append to an
+ * existing file produces and an `add` for this file could only be the load
+ * event. `since` is the write, so a line the observer logged for the load — or
+ * for the readiness sentinel — can never be read as evidence about the write.
+ */
+function changeLineFor(lines: CapturedLine[], filePath: string, since: number): ObserverLine | null {
+  return (
+    readObserverLines(lines).find(
+      (line) => line.at >= since && line.eventType === 'change' && line.text.includes(filePath),
+    ) ?? null
+  );
+}
+
+/**
+ * The delivery leg's terminal wait, coupled to the criterion's OWN evidence.
+ *
+ * The wait this replaces returned on the first upsert of ANY session
+ * (`waitForUpsertAfter`). Under load that is not the write's delivery: the
+ * watcher debounces its flush (`PROJECTS_UPDATE_DEBOUNCE_MS = 500`, capped at
+ * `PROJECTS_UPDATE_MAX_WAIT_MS = 2000`) and defers it entirely while a refresh is
+ * in flight, so an upsert the LOAD or the readiness handshake queued can land
+ * after the drain has settled on silence. The lane reading is exactly that
+ * shape: `[delivery (ii)] 1 new upsert(s) … first at +209ms` next to
+ * `[control (iii)] add=1 change=0`. 209ms is a quarter of the observer's own
+ * flush debounce and three percent of its polling period, so it cannot be this
+ * file's own poll-detected change (measured at ~5.4s in every green run beside
+ * it); it is a stale flush, and the arm stopped waiting on it.
+ *
+ * So this wait ends only when BOTH halves of the criterion's evidence are on the
+ * record — the observer's own `change` line for this file after the write, and a
+ * new upsert — or when `windowMs` elapses. It never sleeps a fixed number: the
+ * deadline is the derived upper bound, and this loop returns the moment the
+ * evidence is complete. In the `bypass` and `drop-write` arms the line never
+ * comes, so the loop runs to the deadline and the verdict below reads the zeros
+ * honestly.
+ */
+async function waitForDeliveryEvidence(
+  upserts: UpsertReading[],
+  sinceAppend: number,
+  transcriptPath: string,
+  appendAt: number,
+  windowMs: number,
+): Promise<{ changeLineArrived: boolean; upsertArrived: boolean; waitedMs: number }> {
+  const startedAt = Date.now();
+  for (;;) {
+    const changeLineArrived = changeLineFor(captured, transcriptPath, appendAt) !== null;
+    const upsertArrived = upserts.length > sinceAppend;
+    const waitedMs = Date.now() - startedAt;
+
+    if ((changeLineArrived && upsertArrived) || waitedMs >= windowMs) {
+      return { changeLineArrived, upsertArrived, waitedMs };
+    }
+
+    await delay(Math.min(50, windowMs - waitedMs));
+  }
 }
 
 /**
@@ -717,10 +814,11 @@ async function indexTranscript(filePath: string): Promise<string | null> {
  * The trials are armed the moment the external write is on disk and run *beside*
  * the arm's own terminal wait, not behind it. They are three sub-second windows
  * against a six-second polling clock, so the wait they would otherwise queue
- * behind (`OBSERVATION_WINDOW_MS`, or the delivery it is waiting for) is longer
- * than all three of them together: overlapping them costs neither a reading nor
- * an assertion — every trial still appends, still waits out `SHORT_WINDOW_MS`,
- * and the criterion still has to come back not-delivered at least once.
+ * behind (the derived delivery window, or the delivery it is waiting for) is
+ * longer than all three of them together: overlapping them costs neither a
+ * reading nor an assertion — every trial still appends, still waits out
+ * `SHORT_WINDOW_MS`, and the criterion still has to come back not-delivered at
+ * least once.
  */
 async function runShortWindowTrials(
   armed: ArmedDebugAgentScenario,
@@ -820,7 +918,13 @@ async function readExternalWrite(mode: ChildMode): Promise<ExternalWriteReading>
   // attempt rather than a wager on where the walk had got to. See
   // `awaitObserverReadiness`.
   const readiness = await awaitObserverReadiness(sentinel);
-  const { armed, attempts, observedOn, observedEvent } = await armObservedFixture(projectPath);
+  const {
+    armed,
+    attempts,
+    observedOn,
+    observedEvent,
+    latencyMs: measuredLineLatencyMs,
+  } = await armObservedFixture(projectPath);
 
   const drain = await drainObserver(connection.upserts);
 
@@ -833,8 +937,8 @@ async function readExternalWrite(mode: ChildMode): Promise<ExternalWriteReading>
     text: APPENDED_TEXT,
   });
 
-  const observerClosed = mode === 'bypass';
-  if (observerClosed) {
+  const observerClosed = mode === 'bypass' || mode === 'drop-write';
+  if (mode === 'bypass') {
     // Bypassing the gateway: the observer leaves the loop entirely and the row is
     // indexed straight into the database. No file event, no flush, no broadcast —
     // only the file and the database move.
@@ -842,7 +946,20 @@ async function readExternalWrite(mode: ChildMode): Promise<ExternalWriteReading>
     await indexTranscript(armed.transcriptPath);
   }
 
-  const windowMs = OBSERVATION_WINDOW_MS;
+  if (mode === 'drop-write') {
+    // The delivery leg's own falsification: the observer was in the loop through
+    // the load and the drain — both of those readings are real — and leaves it
+    // the instant the write is on disk, so the write's file event is dropped. The
+    // criterion has to come back with a zero `change` count for this file, and
+    // the positive arm in the same run has to stay green; a criterion that could
+    // only ever report one of those is the one this task replaces.
+    await closeSessionsWatcher();
+  }
+
+  // The window is derived from the observer's OWN measured latency — the load
+  // step's own write→line measurement, taken this run — and its arithmetic is
+  // printed below. See `deriveDeliveryWindowMs`.
+  const windowMs = deriveDeliveryWindowMs(measuredLineLatencyMs);
   const sinceAppend = connection.upserts.length;
 
   // AC3's false form is armed here, before the terminal wait rather than after
@@ -851,7 +968,13 @@ async function readExternalWrite(mode: ChildMode): Promise<ExternalWriteReading>
   // these appends cannot be announced — which is what that arm asserts.
   const trialResults = runShortWindowTrials(armed, connection.upserts);
 
-  await waitForUpsertAfter(connection.upserts, sinceAppend, windowMs);
+  const deliveryEvidence = await waitForDeliveryEvidence(
+    connection.upserts,
+    sinceAppend,
+    armed.transcriptPath,
+    appendAt,
+    windowMs,
+  );
 
   const upsertsSinceAppend = connection.upserts.slice(sinceAppend);
   const firstNew = upsertsSinceAppend[0];
@@ -907,7 +1030,14 @@ async function readExternalWrite(mode: ChildMode): Promise<ExternalWriteReading>
       loadToAppendMs: drain.loadUpsertAt === null ? null : appendAt - drain.loadUpsertAt,
       observerClosed,
     },
-    delivery: { windowMs, newUpserts: upsertsSinceAppend.length, deliveryMs, upsertsSinceAppend },
+    delivery: {
+      windowMs,
+      measuredLineLatencyMs,
+      changeLineArrived: deliveryEvidence.changeLineArrived,
+      newUpserts: upsertsSinceAppend.length,
+      deliveryMs,
+      upsertsSinceAppend,
+    },
     positiveControl: {
       changeLinesForThisFile: forThisFile.filter((line) => line.eventType === 'change').length,
       changeLinesAfterAppend: forThisFile.filter((line) => line.eventType === 'change' && line.at >= appendAt).length,
@@ -1092,6 +1222,7 @@ function describe(reading: ExternalWriteReading): string {
     `[drain (i)] ${drain.upsertsObserved} upsert(s) observed; silence ${drain.silenceMs}ms (> one polling period ${POLL_INTERVAL_MS}ms); settled after ${drain.tookMs}ms`,
     `[append] at +${append.loadToAppendMs}ms after the load upsert; observerClosed=${append.observerClosed}`,
     `[delivery (ii)] ${delivery.newUpserts} new upsert(s) in a ${delivery.windowMs}ms window; first at +${delivery.deliveryMs}ms`,
+    `[delivery window] ${delivery.windowMs}ms = poll ${POLL_INTERVAL_MS}ms + observer's own measured line latency ${delivery.measuredLineLatencyMs}ms + flush debounce ${FLUSH_DEBOUNCE_MS}ms — the observer's own clock, widened by the observer's own measurement. The wait ended on ${delivery.changeLineArrived ? "the observer's own `change` line for this file" : 'the deadline, with no `change` line for this file'}`,
     `[control (iii)] add=${positiveControl.addLinesForThisFile} change=${positiveControl.changeLinesForThisFile} (after the write: ${positiveControl.changeLinesAfterAppend})`,
     `[history (iv)] ${history.count} message(s), total ${history.total}; appended content present: ${history.containsAppended}; seed present: ${history.containsSeed}`,
     `[false window] ${windowFalsification.windowMs}ms -> ${JSON.stringify(windowFalsification.trials)}`,
@@ -1108,6 +1239,7 @@ if (process.env[PROBE_VAR] === '1') {
     mode !== 'external-write' &&
     mode !== 'external-write-native' &&
     mode !== 'bypass' &&
+    mode !== 'drop-write' &&
     mode !== 'unobserved-load'
   ) {
     throw new Error(`unknown probe mode ${JSON.stringify(mode)}`);
@@ -1118,7 +1250,7 @@ if (process.env[PROBE_VAR] === '1') {
 } else {
   // Every arm is started together. Each is almost entirely waiting on a 6s clock
   // of one kind or another, so running them concurrently costs the suite one arm's
-  // wall clock instead of four, and they share nothing — separate scratch HOME,
+  // wall clock instead of five, and they share nothing — separate scratch HOME,
   // separate database, separate observer. `unobservedLoad` is the falsification
   // arm: it reds, and it must red in the load step's own windows, so it stays
   // concurrent rather than serialised behind a passing arm.
@@ -1126,6 +1258,7 @@ if (process.env[PROBE_VAR] === '1') {
     externalWrite: runChild('external-write'),
     externalWriteNative: runChild('external-write-native'),
     bypass: runChild('bypass'),
+    dropWrite: runChild('drop-write'),
     unobservedLoad: runChild('unobserved-load'),
   };
   registerCriteria(runs);
@@ -1135,6 +1268,7 @@ function registerCriteria(runs: {
   externalWrite: Promise<ChildRun>;
   externalWriteNative: Promise<ChildRun>;
   bypass: Promise<ChildRun>;
+  dropWrite: Promise<ChildRun>;
   unobservedLoad: Promise<ChildRun>;
 }): void {
   test('an external write reaches the client through the file observer, and the criterion drains the load event first', async () => {
@@ -1267,16 +1401,35 @@ function registerCriteria(runs: {
       'the blind criterion is clean here too — the next arm is what shows what that is worth',
     );
 
-    // The window is an upper bound: this run must never be read as "delivery
-    // takes 8 seconds". The measured latency is printed, and asserted only to be
-    // INSIDE the window — never to be at least anything.
+    // The window is an upper bound DERIVED from the observer's own measured
+    // latency (see `deriveDeliveryWindowMs`): this run must never be read as
+    // "delivery takes N seconds". The measured latency is printed on every run,
+    // and asserted only to be INSIDE the window — never to be at least anything.
     assert.ok(
-      reading.delivery.deliveryMs !== null && reading.delivery.deliveryMs <= OBSERVATION_WINDOW_MS,
-      `delivery must land inside the window (got ${reading.delivery.deliveryMs}ms of ${OBSERVATION_WINDOW_MS}ms)`,
+      reading.delivery.deliveryMs !== null && reading.delivery.deliveryMs <= reading.delivery.windowMs,
+      `delivery must land inside the run's own derived window (got ${reading.delivery.deliveryMs}ms of ${reading.delivery.windowMs}ms)`,
+    );
+    // ... and the window must BE the derivation, not a constant: the observer's
+    // own clock widened by the observer's own measurement, recomputable from the
+    // printed reading. This is what stops a later "fix" from swapping in a bigger
+    // number that has nothing to do with what the observer actually did.
+    assert.equal(
+      reading.delivery.windowMs,
+      deriveDeliveryWindowMs(reading.delivery.measuredLineLatencyMs),
+      "the printed window must be the arithmetic the criterion declares, computed from the observer's own measurement",
     );
     assert.ok(
-      OBSERVATION_WINDOW_MS >= POLL_INTERVAL_MS + 1_000,
-      'the window must cover one polling period plus the flush debounce',
+      reading.delivery.windowMs >= LOAD_WINDOW_FLOOR_MS,
+      'the derived window must still cover one polling period plus the flush debounce',
+    );
+    // The wait must have ended on the criterion's OWN evidence — the observer's
+    // `change` line for this file — and not on a stale upsert from the load or
+    // readiness phase. That stale-upsert ending is the lane red this task fixes:
+    // `(ii) … first at +209ms` beside `(iii) add=1 change=0`.
+    assert.equal(
+      reading.delivery.changeLineArrived,
+      true,
+      "the delivery wait must have ended on the observer's own `change` line for this file, not on an upsert from an earlier phase",
     );
 
     // ---- AC3's false form: the same observation with a window too small ----
@@ -1332,8 +1485,8 @@ function registerCriteria(runs: {
     assert.deepEqual(verdict.failures, [], `the criterion must be clean:\n${verdict.failures.join('\n')}`);
     assert.deepEqual(verdict.blindFailures, [], 'the blind criterion is clean here too');
     assert.ok(
-      reading.delivery.deliveryMs !== null && reading.delivery.deliveryMs <= OBSERVATION_WINDOW_MS,
-      `delivery must land inside the window (got ${reading.delivery.deliveryMs}ms of ${OBSERVATION_WINDOW_MS}ms)`,
+      reading.delivery.deliveryMs !== null && reading.delivery.deliveryMs <= reading.delivery.windowMs,
+      `delivery must land inside the run's own derived window (got ${reading.delivery.deliveryMs}ms of ${reading.delivery.windowMs}ms)`,
     );
 
     // ---- what is deliberately NOT asserted here ----
@@ -1387,6 +1540,58 @@ function registerCriteria(runs: {
       reading.positiveControl.changeLinesAfterAppend,
       0,
       'and the observer may not have logged the write it never saw',
+    );
+  });
+
+  // AC5's two-way control on the delivery leg, and the arm the lane reading
+  // asked for. The `bypass` arm above closes the observer BEFORE the write and
+  // reds on (ii) and (iii) together, so its red on (iii) is not distinguishable
+  // from "no upsert arrived". This arm keeps the observer in the loop through
+  // the load and the drain — those readings are real — and drops it the instant
+  // the write is on disk. The upsert may or may not still arrive (a stale flush
+  // from the load phase can land), but the observer's own `change` line for THIS
+  // file cannot: the wait runs to its derived deadline with `changeLineArrived`
+  // false, and the criterion reds on (iii). The positive arm in this same run is
+  // green through the same `evaluateCriterion`, so the red is a property of the
+  // dropped frame rather than of a criterion that can only ever say one thing.
+  test('the drop-the-write falsification reds on (iii) while the positive arm in the same run stays green', async () => {
+    const reading = requireReading(await runs.dropWrite, 'drop-write');
+    console.log(describe(reading));
+
+    assert.equal(
+      reading.append.observerClosed,
+      true,
+      'this arm must take the observer out of the loop at the write itself',
+    );
+    // The wait is coupled to the observer's own line, so its ending is a reading:
+    // here the deadline fired with no line, which is what makes the (iii) below a
+    // demonstrated red rather than an upsert that happened not to arrive.
+    assert.equal(
+      reading.delivery.changeLineArrived,
+      false,
+      'the observer was closed at the write, so its own `change` line for this file can never arrive',
+    );
+    assert.equal(
+      reading.positiveControl.changeLinesAfterAppend,
+      0,
+      'and no `change` line for this file may follow the write it was closed under',
+    );
+
+    const verdict = evaluateCriterion(reading);
+    assert.ok(
+      verdict.failures.some((failure) => failure.startsWith('(iii)')),
+      `the criterion must fail on (iii) when the observer cannot report the write; failures were ${JSON.stringify(verdict.failures)}`,
+    );
+
+    // The positive half of the two-way control, in the same run and through the
+    // same `evaluateCriterion`: with the observer in the loop the criterion is
+    // green. A criterion that could not go red on (iii) here would be the vacuous
+    // one this task removes.
+    const restored = requireReading(await runs.externalWrite, 'external-write');
+    assert.deepEqual(
+      evaluateCriterion(restored).failures,
+      [],
+      'the positive arm in the same run must be green, or the red above proves nothing',
     );
   });
 
