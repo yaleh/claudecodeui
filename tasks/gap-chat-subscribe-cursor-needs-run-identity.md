@@ -40,15 +40,15 @@ extra:
 
 ## AC
 
-- [ ] 服务端注册表用例复现并钉住该缺陷：同一会话先 run 1 发 5 帧、再 run 2 发 3 帧，用 run 1 的 `runId` 与游标 5 调回放 ⇒ 返回 run 2 的 **3 帧**（`seq` 1、2、3）；用 run 2 的 `runId` 与 `lastSeq=1` ⇒ 返回 `seq` 2、3；**不带 `runId`** ⇒ 与现状一致（`seq > lastSeq`）。放在 `server/modules/websocket/tests/chat-run-registry.test.ts`：`npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-run-registry.test.ts` 退出码 0。
-- [ ] 同一个 run 的所有实时帧 `runId` 相同，不同 run 的 `runId` 不同；`complete` 帧也带。独立用例，退出码 0。
-- [ ] 订阅路径用例（沿用 `chat-edit-send` / `chat-permission-mode` 测试里驱动 `chat.subscribe` 的方式）：`chat_subscribed` 应答带当前 run 的 `runId`；订阅带过期 `runId` ⇒ 应答之后补发的帧从该 run 的第一帧起；带当前 `runId` ⇒ 只补发 `seq > lastSeq`；完全不带 ⇒ 与现状一致。独立用例，退出码 0。
-- [ ] 客户端用例（`src/modules/chat/tests/replayCursorAcrossRuns.test.tsx`，本任务新建）：游标在 run 变化时被覆盖（run 2 的第一帧 `seq=1` 把游标从 `{run1, 5}` 改成 `{run2, 1}`，修复前这一帧被「只增不减」吞掉）；`chat.subscribe` 消息里带 `runId`；收到 `runId` 不同的 `chat_subscribed` 时游标复位；没有 `runId` 的帧与应答走旧逻辑、行为不变。`npx vitest run src/modules/chat/tests/replayCursorAcrossRuns.test.tsx` 退出码 0。
-- [ ] 抗假变体真跑并如实登记：(i) 把服务端回放里「`runId` 不同则从 0」去掉 ⇒ 注册表用例变红；(ii) 客户端把「`runId` 变化时覆盖」改回 `max` ⇒ 客户端用例变红。每个变体用 `git checkout -- <file>` 还原后复跑全绿，完成记录贴出各自的红。
-- [ ] 既有用例全绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-edit-send.test.ts server/modules/websocket/tests/chat-permission-mode.test.ts server/modules/session-hosts/tests/session-host-per-run-parity.test.ts` 退出码 0，以及 `npx vitest run src/modules/chat/tests/permissionPromptReplay.test.tsx` 退出码 0。若帧夹具里有对整帧 `deepEqual` 的断言，因多了 `runId` 而需要同步时，**只允许把 `runId` 加进期望**，不得放宽到忽略整个字段。
-- [ ] `npm run typecheck` 退出码 0、`npm run lint` 退出码 0。
-- [ ] `server/modules/websocket/README.md` 的「Per-run event log」一节写明 `runId` 与回放规则；`grep -c runId server/modules/websocket/README.md` 大于 0。
-- [ ] `git diff develop --name-only` 的全部改动都落在 Touches 内。
+- [x] 服务端注册表用例复现并钉住该缺陷：同一会话先 run 1 发 5 帧、再 run 2 发 3 帧，用 run 1 的 `runId` 与游标 5 调回放 ⇒ 返回 run 2 的 **3 帧**（`seq` 1、2、3）；用 run 2 的 `runId` 与 `lastSeq=1` ⇒ 返回 `seq` 2、3；**不带 `runId`** ⇒ 与现状一致（`seq > lastSeq`）。放在 `server/modules/websocket/tests/chat-run-registry.test.ts`：`npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-run-registry.test.ts` 退出码 0。
+- [x] 同一个 run 的所有实时帧 `runId` 相同，不同 run 的 `runId` 不同；`complete` 帧也带。独立用例，退出码 0。
+- [x] 订阅路径用例（沿用 `chat-edit-send` / `chat-permission-mode` 测试里驱动 `chat.subscribe` 的方式）：`chat_subscribed` 应答带当前 run 的 `runId`；订阅带过期 `runId` ⇒ 应答之后补发的帧从该 run 的第一帧起；带当前 `runId` ⇒ 只补发 `seq > lastSeq`；完全不带 ⇒ 与现状一致。独立用例，退出码 0。
+- [x] 客户端用例（`src/modules/chat/tests/replayCursorAcrossRuns.test.tsx`，本任务新建）：游标在 run 变化时被覆盖（run 2 的第一帧 `seq=1` 把游标从 `{run1, 5}` 改成 `{run2, 1}`，修复前这一帧被「只增不减」吞掉）；`chat.subscribe` 消息里带 `runId`；收到 `runId` 不同的 `chat_subscribed` 时游标复位；没有 `runId` 的帧与应答走旧逻辑、行为不变。`npx vitest run src/modules/chat/tests/replayCursorAcrossRuns.test.tsx` 退出码 0。
+- [x] 抗假变体真跑并如实登记：(i) 把服务端回放里「`runId` 不同则从 0」去掉 ⇒ 注册表用例变红；(ii) 客户端把「`runId` 变化时覆盖」改回 `max` ⇒ 客户端用例变红。每个变体用 `git checkout -- <file>` 还原后复跑全绿，完成记录贴出各自的红。
+- [x] 既有用例全绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-edit-send.test.ts server/modules/websocket/tests/chat-permission-mode.test.ts server/modules/session-hosts/tests/session-host-per-run-parity.test.ts` 退出码 0，以及 `npx vitest run src/modules/chat/tests/permissionPromptReplay.test.tsx` 退出码 0。若帧夹具里有对整帧 `deepEqual` 的断言，因多了 `runId` 而需要同步时，**只允许把 `runId` 加进期望**，不得放宽到忽略整个字段。
+- [x] `npm run typecheck` 退出码 0、`npm run lint` 退出码 0。
+- [x] `server/modules/websocket/README.md` 的「Per-run event log」一节写明 `runId` 与回放规则；`grep -c runId server/modules/websocket/README.md` 大于 0。
+- [x] `git diff develop --name-only` 的全部改动都落在 Touches 内。
 
 ## DoD
 
@@ -73,6 +73,87 @@ L_G 该轴仍暗，理由：同上；判定面由本任务自己的 AC 承担，
 - src/modules/chat/ChatInterface.tsx
 - src/modules/chat/hooks/useChatRealtimeHandlers.ts
 - src/modules/chat/hooks/useChatSessionState.ts
+- src/modules/chat/utils/replayCursor.ts (new)
 - server/modules/websocket/tests/chat-run-registry.test.ts
 - src/modules/chat/tests/replayCursorAcrossRuns.test.tsx (new)
+- server/modules/session-hosts/tests/per-run-frame-scenarios.ts
 - tasks/gap-chat-subscribe-cursor-needs-run-identity.md
+
+## 完成记录
+
+**结论：缺陷成立，已按 Proposal 的加法修掉，未走否证分支。**
+
+实现提交 `c61e42bc`（父 = develop 尖 `284e149a`）。改动 12 个文件（+618/−35），其中 2 个新增：`src/modules/chat/utils/replayCursor.ts`（4 个纯函数，游标的读/写/应答复位/订阅取形）、`src/modules/chat/tests/replayCursorAcrossRuns.test.tsx`。机制即 Proposal 的 5 条，逐字落地：`startRun` 铸 `runId`；`decorateAndRecordEvent` 逐帧盖 `seq` + `runId`（`complete` 也不例外）；`chat_subscribed` 应答在 `run` 存在时带 `runId`；`replayEvents(sessionId, lastSeq, runId?)` 在「带 `runId` 且与当前 run 不同」时 `effectiveAfterSeq = 0`，否则 `afterSeq`；客户端游标在 `runId` 变化时**覆盖**而非取 max，订阅时带上 `runId`，应答 `runId` 不同则复位为 `{runId, seq: 0}`。**不带 `runId` 的帧、订阅与应答，三条路径逐字未变**（`readReplayCursor` 把裸数字游标抬成 `{runId: null, seq}`，`subscribeTargetFor` 只在有 `runId` 时才写这个字段）。
+
+### 逐条 AC 读数
+
+**AC1 / AC2 / AC3 / AC6（服务端）** —— `npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-run-registry.test.ts server/modules/websocket/tests/chat-edit-send.test.ts server/modules/websocket/tests/chat-permission-mode.test.ts server/modules/session-hosts/tests/session-host-per-run-parity.test.ts`
+
+```
+EXIT=0   ℹ tests 31   ℹ pass 31   ℹ fail 0
+```
+
+AC1 的三条腿（过期 `runId` + 游标 5 ⇒ run 2 的 `seq` 1、2、3；当前 `runId` + `lastSeq=1` ⇒ 2、3；不带 `runId` ⇒ 空/与现状一致）、AC2 的逐帧 `runId`（含 `complete`、且下一 run 的 `runId` 不同）、AC3 的「应答带 `runId` + 只补发应答之后的帧」都在这一次运行里。
+
+**AC4 / AC6（客户端）** —— `./node_modules/.bin/vitest run src/modules/chat/tests/replayCursorAcrossRuns.test.tsx src/modules/chat/tests/permissionPromptReplay.test.tsx`
+
+```
+EXIT=0   Test Files 2 passed (2)   Tests 8 passed (8)
+```
+
+（其中 AC4 自己 6 条、`permissionPromptReplay` 2 条。）
+
+AC6 里唯一需要同步的既有夹具是 `server/modules/session-hosts/tests/per-run-frame-scenarios.ts` 的 `UNSTABLE_FRAME_FIELDS`：那个文件的文档写的就是「四把 forge 证明不稳的字段只能加在这里，并附上迫使它加入的那次读数」，`runId` 与 `id` 同因（每个 run 一次 `randomUUID()`）。只加了字段名 `'runId'` 与一条理由注释，没有放宽任何断言，也没有 `deepEqual` 被改成忽略整帧。
+
+**AC5（抗假变体，真跑）**
+
+(i) 去掉服务端回放的「`runId` 不同则从 0」：
+
+```
+$ npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-run-registry.test.ts
+ℹ tests 12   ℹ pass 10   ℹ fail 2        EXIT=1
+✖ a cursor recorded against an earlier run replays the current run from its start
+    AssertionError: + actual []  - expected [ 1, 2, 3 ]     (chat-run-registry.test.ts:376)
+✖ chat.subscribe names the current run in the ack and replays from a stale run's first frame
+    AssertionError: + actual []  - expected [ 1, 2, 3 ]     (chat-run-registry.test.ts:460)
+```
+
+`git checkout -- server/modules/websocket/services/chat-run-registry.service.ts` 后复跑：`ℹ tests 12 / ℹ pass 12 / ℹ fail 0`，EXIT=0。
+
+(ii) 客户端把「`runId` 变化时覆盖」改回 `max`：
+
+```
+$ ./node_modules/.bin/vitest run src/modules/chat/tests/replayCursorAcrossRuns.test.tsx
+Test Files 1 failed (1)   Tests 1 failed | 5 passed (6)   EXIT=1
+✖ a frame from a new run replaces the cursor instead of being folded into its high-water mark
+    AssertionError: { runId: 'run-2', + seq: 5  /  - seq: 1 }    (replayCursorAcrossRuns.test.tsx:137)
+```
+
+`git checkout -- src/modules/chat/utils/replayCursor.ts` 后复跑：`Tests 6 passed (6)`，EXIT=0。
+
+**AC7** —— `npm run typecheck` EXIT=0；`npm run lint` EXIT=0（只有仓库既有的 warning，无 error；`grep -c error` 命中的那一行是文件名 `voice-error-contract.test.ts`，不是诊断）。
+
+**AC8** —— `grep -c runId server/modules/websocket/README.md` = **6**（> 0）。「Per-run event log」一节写明逐帧 `runId`，并写明 `seq` 是**每 run** 计数、第 2 个及以后的回合从 1 重来；紧随其后的一节把回放规则的三条分支（`runId` 相同/不同/缺省）与应答里的 `runId`、`lastSeq` 写在一起。
+
+**AC9** —— `git diff develop --name-only` 的 12 个文件全部落在 Touches 内。本轮把两个此前漏声明的文件补进了 Touches：`src/modules/chat/utils/replayCursor.ts (new)`（新抽出的游标规则模块）与 `server/modules/session-hosts/tests/per-run-frame-scenarios.ts`（AC6 迫使同步的不稳字段表）。
+
+### DoD
+
+**(a) 未做真实浏览器读数。** 没有尝试 `page.context().setOffline()` 那条路，理由**不是**「做不出来」，而是判定面不匹配：本任务修的是**服务端回放规则 + 客户端游标**，而浏览器里要制造「run 2 进行中断线」，前提是让这条会话真的开起第 2 个 run，即一个真实 provider 回合（claude / cursor 都没有 runtime 级伪造，见 `provider-runtime-fake-seams-per-provider`），成本与本条的判定面不成比例。浏览器里的真实断线重连**至今未被复现**。
+
+**(b) 替代物：服务端层面的真实 socket 测试（DoD(b) 明确允许的那一种），不是注册表单测。** 真 HTTP server + 真 `WebSocketServer` + 真网关 `handleChatConnection`，真 `ws` 客户端经真 TCP 端口连接；两个 run 由真注册表 `startRun` → `ChatSessionWriter` → `decorateAndRecordEvent` 的同一路径产出帧（唯一不真的只有「谁来发起这个 run」——没有 provider runtime）。客户端在 run 1 上收到 5 帧（游标 = 5）后断开，run 2 在无人观看时产出 3 帧，重连后客户端把**自己手里的**旧游标（`lastSeq: 5` + run 1 的 `runId`）发回去。同一支脚本跑两臂——HEAD，与把「`runId` 不同则从 0」删掉的那棵树（= 修复前行为）：
+
+```
+                          HEAD(修复后)   删掉 runId 规则(修复前)
+run 1 实时帧数                  5                 5
+断线时客户端游标                 5                 5
+重连应答 runId              run2 的           run2 的
+重连应答 lastSeq                3                 3
+补发帧 seq                 [1, 2, 3]            []          ← 修复前补不回
+同 run 游标(lastSeq=1)      [2, 3]            [2, 3]
+旧客户端(不带 runId)            []                []
+```
+
+同一支脚本、同一个场景，只动那一条规则：**修复前补发 0 帧，修复后补发 run 2 已产出的 3 帧**。DoD(a) 要求同时登记的三个读数齐备：断线时 run 2 已产出 **3** 帧、重连时 `chat_subscribed` 应答 `lastSeq=3` / `runId=run2`、客户端订阅里带 `lastSeq=5` / `runId=run1`。`lastSeq=1`/`runId=run2` 那条腿（[2,3]）是同一支脚本里的**正控制**——证明读数不是「一律返回空」。变体臂还原（`git checkout`）后在同一条真实 socket 路径上复跑，读数回到 `[1, 2, 3]`。
+
+**(c)** 本记录只声称：**同一会话第 2 个及以后的 run 中、断线重连后补发恢复**。**不声称「流式文本不会丢」**——工具行靠 REST 刷新、带 `blockKey` 的终态帧带全文这两条既有兜底没有被本任务改动，也不在本任务的判定面内。
