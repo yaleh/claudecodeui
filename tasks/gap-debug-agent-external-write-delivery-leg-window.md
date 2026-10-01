@@ -50,14 +50,14 @@ extra:
 
 ## AC
 
-- [ ] 机制读数先行：在同一台机、同一个 worktree 上并排打印 lane 内 child 输出与单跑两读，逐行给出轮询臂的 `[readiness]`/`[load]`/`[drain (i)]`/`[delivery (ii)]`/`[control (iii)]` 五行，并指出 (iii) 的正控制行被哪一段延迟推出窗口（源码引用 + 实测读数）。退出码 0。⛔ 「单跑是绿的」不算读数。
-- [ ] 修法只用观察者自己的时钟：delivery 腿的窗口或正控制取点必须由观察者**自身实测**的延迟推导（或把「读到事件」与「索引完成」分开），且判据输出的窗口值能读出它是怎么算出来的；⛔ 不得只是把窗口换成一个与观察者时钟无关的更大常数（例如直接写 30000）。
-- [ ] 等强：`npx tsx --tsconfig server/tsconfig.json --test server/modules/debug-agent/tests/debug-agent-external-write.test.ts` 退出码 0、`fail 0`，且六行读数齐备——(i) 静默 > 一个轮询周期、(ii) 写入后新 upsert ≥ 1、(iii) 写入后该文件的 `change` 行 > 0、(iv) REST 重取含追加内容、(load) 装载事件由观察者自己的 `add` 行宣告、(readiness) 就绪证据来自观察者自己。缺项时逐条打印实际值。
-- [ ] 负控制（抗假臂仍红）：同一次运行里 `bypass` 臂打印 `[criterion] failures=[...]` 同时含 (ii) 与 (iii)，且同一臂 `[blind criterion] failures=[]`（盲判据仍绿）。⛔ 若改造后 bypass 臂变绿，本任务不成立、如实登记为否证。
-- [ ] 双向对照（能取假 + 能取真）：除 bypass 臂外，另给一次「人为丢帧」读数——让观察者在该次写入后不再能报告它（例如写入后立即 `closeSessionsWatcher()`，或把匹配路径换成不存在的路径）⇒ (iii) 必须红；同一次运行的正向臂必须绿。⛔ 只有正向绿、没有反向红 ⇒ 判据空转。
-- [ ] 受载复跑：在本机受载条件下（至少 `--test-concurrency=8` 的同批并发，或复现 lane 形状的构造）复跑该文件仍 `fail 0` 退出码 0，并登记两读的墙钟与 (iii) 行读数。
-- [ ] `npm run typecheck` 退出码 0、`npm run lint` 退出码 0。
-- [ ] 改动全部落在 Touches 内：`git diff develop --name-only` 的每个文件都在 Touches 里；**Touches 里多声明的文件若最终没动，必须从 Touches 删掉并在完成记录里写明理由**（anti-drift 只查「实际 ⊆ 声明」，多声明不算违规，但完成记录要与实际相符）。
+- [x] 机制读数先行：在同一台机、同一个 worktree 上并排打印 lane 内 child 输出与单跑两读，逐行给出轮询臂的 `[readiness]`/`[load]`/`[drain (i)]`/`[delivery (ii)]`/`[control (iii)]` 五行，并指出 (iii) 的正控制行被哪一段延迟推出窗口（源码引用 + 实测读数）。退出码 0。⛔ 「单跑是绿的」不算读数。
+- [x] 修法只用观察者自己的时钟：delivery 腿的窗口或正控制取点必须由观察者**自身实测**的延迟推导（或把「读到事件」与「索引完成」分开），且判据输出的窗口值能读出它是怎么算出来的；⛔ 不得只是把窗口换成一个与观察者时钟无关的更大常数（例如直接写 30000）。
+- [x] 等强：`npx tsx --tsconfig server/tsconfig.json --test server/modules/debug-agent/tests/debug-agent-external-write.test.ts` 退出码 0、`fail 0`，且六行读数齐备——(i) 静默 > 一个轮询周期、(ii) 写入后新 upsert ≥ 1、(iii) 写入后该文件的 `change` 行 > 0、(iv) REST 重取含追加内容、(load) 装载事件由观察者自己的 `add` 行宣告、(readiness) 就绪证据来自观察者自己。缺项时逐条打印实际值。
+- [x] 负控制（抗假臂仍红）：同一次运行里 `bypass` 臂打印 `[criterion] failures=[...]` 同时含 (ii) 与 (iii)，且同一臂 `[blind criterion] failures=[]`（盲判据仍绿）。⛔ 若改造后 bypass 臂变绿，本任务不成立、如实登记为否证。
+- [x] 双向对照（能取假 + 能取真）：除 bypass 臂外，另给一次「人为丢帧」读数——让观察者在该次写入后不再能报告它（例如写入后立即 `closeSessionsWatcher()`，或把匹配路径换成不存在的路径）⇒ (iii) 必须红；同一次运行的正向臂必须绿。⛔ 只有正向绿、没有反向红 ⇒ 判据空转。
+- [x] 受载复跑：在本机受载条件下（至少 `--test-concurrency=8` 的同批并发，或复现 lane 形状的构造）复跑该文件仍 `fail 0` 退出码 0，并登记两读的墙钟与 (iii) 行读数。
+- [x] `npm run typecheck` 退出码 0、`npm run lint` 退出码 0。
+- [x] 改动全部落在 Touches 内：`git diff develop --name-only` 的每个文件都在 Touches 里；**Touches 里多声明的文件若最终没动，必须从 Touches 删掉并在完成记录里写明理由**（anti-drift 只查「实际 ⊆ 声明」，多声明不算违规，但完成记录要与实际相符）。
 
 ## DoD
 
@@ -75,7 +75,6 @@ L_G 该轴仍暗，理由：同上；判定面由本任务自己的 AC 承担（
 ## Touches
 
 - server/modules/debug-agent/tests/debug-agent-external-write.test.ts
-- server/modules/providers/services/sessions-watcher.service.ts
 - tasks/gap-debug-agent-external-write-delivery-leg-window.md
 
-（第二条只在读数指向「那行日志的时机本身是错的」时才动；动它必须先在完成记录里给出独立理由与等强负控制，⛔ 不为让判据变绿而改产品行为。）
+（`server/modules/providers/services/sessions-watcher.service.ts` 原先声明在 Touches 里，但按 AC8 已删去：它只在「读数指向那行日志的时机本身是错的」时才动，而本次读数指向的是**判据自己的等待结构**——`waitForUpsertAfter` 在**首个任意 session 的 upsert** 上就返回，早于本文件自己那条被轮询发现的 `change` 行。`onUpdate()` 里 `:728` 的 `await synchronizeProviderFile()` 与 `:733` 的 `console.log` 的先后本身是对的（索引完成才宣告），且 (iii) 要的正是「观察者自己那条 change 行出现在写入之后」；选 (a) 修法后，量得的「写入 → 观察者自己那行」延迟**本身就包含**索引那一段，窗口按它推导即已覆盖。故未改产品代码。）
