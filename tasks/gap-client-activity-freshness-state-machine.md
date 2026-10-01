@@ -1,7 +1,7 @@
 ---
 id: gap-client-activity-freshness-state-machine
 title: AC-183 客户端新鲜度状态机：没有新鲜证据就降级为不可达，bootId 变化丢弃本地假设，不可达时计时冻结
-status: todo
+status: ready
 labels:
   - gap
 parent: null
