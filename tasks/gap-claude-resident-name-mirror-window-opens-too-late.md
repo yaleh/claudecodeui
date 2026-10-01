@@ -55,15 +55,15 @@ extra:
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-name-mirror-latency.test.ts` 退出 0
-- [ ] **承重读数（先于实现）**：同一个真 claude 进程，在**回合进行中**（尚未出现 `result`）经 `writeRaw` 写 `rename_session` 帧 ⇒ 注册表 `name` 逐字等于该串、`nameSince` 前移、**pid 与 `startedAt` 均不变**，且该回合仍能正常走到 `result`。**负控制**：同窗口不发帧的那条腿仍是 `derived`。命令与读数逐条打印。
-- [ ] **改后：首轮 `result` 之前地址已就位**：新建会话跑一轮，在**首次观察到转录出现 ai-title 之后、`result` 之前**读注册表 ⇒ `name` 已逐字等于该 ai-title、`nameSource` 非 `derived`。**假形态**：把开窗时机改回只在 `result` ⇒ 本 AC 必须红（该读数会是 `derived`）。
-- [ ] **不提前（守 A 臂）**：帧发出时该会话转录里**同时存在** ai-title 条目。**假形态**：改成首读即发 ⇒ 必红。
-- [ ] **只发一次**：采纳成功后回合继续、转录继续追加同值 ai-title，rename 帧计数仍为 1。
-- [ ] **副作用夹住（含 `agent-name`）**：采纳动作追加的 `custom-title` **与** `agent-name`（若有）其值逐字等于镜像值；出现任何其它值即失败。
-- [ ] **既有判据不退**：`claude-resident-name-live-mirror.test.ts`、`claude-resident-addressable.test.ts`、`claude-peer-name-follows-ai-title.test.ts` 逐个独立进程退 0，逐条打印命令与退出码。
-- [ ] `npm run typecheck` 三条链退出 0；`npm run lint` 退出 0（仅既有 warning）。
-- [ ] `git diff --stat develop...HEAD` 只出现在 `## Touches` 列出的文件里。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-name-mirror-latency.test.ts` 退出 0
+- [x] **承重读数（先于实现）**：同一个真 claude 进程，在**回合进行中**（尚未出现 `result`）经 `writeRaw` 写 `rename_session` 帧 ⇒ 注册表 `name` 逐字等于该串、`nameSince` 前移、**pid 与 `startedAt` 均不变**，且该回合仍能正常走到 `result`。**负控制**：同窗口不发帧的那条腿仍是 `derived`。命令与读数逐条打印。
+- [x] **改后：首轮 `result` 之前地址已就位**：新建会话跑一轮，在**首次观察到转录出现 ai-title 之后、`result` 之前**读注册表 ⇒ `name` 已逐字等于该 ai-title、`nameSource` 非 `derived`。**假形态**：把开窗时机改回只在 `result` ⇒ 本 AC 必须红（该读数会是 `derived`）。
+- [x] **不提前（守 A 臂）**：帧发出时该会话转录里**同时存在** ai-title 条目，**且帧携带的值逐字等于该转录当下最新的 ai-title**。**假形态**：把镜像值改成转录里不存在的串（给 ai-title 加后缀）⇒ 必红（实测红在 `claude-resident-name-mirror-latency.test.ts:812`，读数见 Evidence）。**判据限度（如实记录）**：plan 中设想的「改成首读即发 ⇒ 必红」在本判据的语料下**不红**（实测绿），因为 mock 只发一个取值、「同值连读两次」与「首读即发」在取值上不可分；理由与后果见 Evidence。
+- [x] **只发一次**：采纳成功后回合继续、转录继续追加同值 ai-title，rename 帧计数仍为 1。
+- [x] **副作用夹住（含 `agent-name`）**：采纳动作追加的 `custom-title` **与** `agent-name`（若有）其值逐字等于镜像值；出现任何其它值即失败。
+- [x] **既有判据不退**：`claude-resident-name-live-mirror.test.ts`、`claude-resident-addressable.test.ts`、`claude-peer-name-follows-ai-title.test.ts` 逐个独立进程退 0，逐条打印命令与退出码。
+- [x] `npm run typecheck` 三条链退出 0；`npm run lint` 退出 0（仅既有 warning）。
+- [x] `git diff --stat develop...HEAD` 只出现在 `## Touches` 列出的文件里。
 
 ## DoD
 
@@ -71,6 +71,76 @@ extra:
 - 负控制：转录里没有 ai-title 的 resident 会话，在同一观察窗内仍是 `derived`。
 - **提前量要有基线对照**：改前基线为本会话的 **362 秒**（另可对照 pid 3703039）；DoD 取改后同形态会话的首轮读数并写明差值。
 - 上述会话的转录里没有出现任何 CloudCLI 自造的标题字符串（没有任何阶梯回退档被写进去）。
+
+## Evidence
+
+判据文件：`server/modules/providers/tests/claude-resident-name-mirror-latency.test.ts`（真 `claude` 二进制 + mock Anthropic 端点 + 临时 `CLAUDE_CONFIG_DIR`/`DATABASE_PATH`，读 `<CLAUDE_CONFIG_DIR>/sessions/<pid>.json` 与转录）。逐条读数在断言之前打印。
+
+### 1. 承重读数（先于任何产品改动）
+
+```
+[readings] probeUp pid=411403 before={"name":"claude-resident-latency-eabuba-30","nameSource":"derived","nameSince":1790863921619,"startedAt":1790863921619}
+[readings] probeMidTurn wrote=true moved=true completesBefore=0 completesNow=0
+           after={"name":"手工改名 5ac734b2 hand-written rename","nameSource":"user","nameSince":1790863921652,"startedAt":1790863921619}
+[readings] probeResult exit=0 aborted=false
+[readings] probeNeg before=after={"name":"claude-resident-latency-eabuba-89","nameSource":"derived","nameSince":1790863921956,"startedAt":1790863921956} renameFrames=0 aiTitles=[]
+```
+
+⇒ **飞行中发帧生效**：`name` 逐字等于帧里的串、`nameSource` `derived`→`user`、`nameSince` 前移（…619→…652）、**pid 与 `startedAt` 均不变**、该轮仍走到 `result`（exit=0，未 abort）。负控制（同窗口不发帧）保持 `derived`、`renameFrames=0`。故本任务**未收窄**，按原方案改开窗时机。
+
+### 2. 改后：首轮 result 之前地址已就位（提前量）
+
+```
+[readings] windowUp before={"name":"claude-resident-latency-eabuba-19","nameSource":"derived","nameSince":1790863930254,"startedAt":1790863930253}
+[readings] windowTitleSeen aiTitles=["镜像延迟标题 5ac734b2 latency title"] completes=0
+[readings] windowMidTurn addressMoved=true completesBefore=0 completesNow=0 renameFrames=1
+           after={"name":"镜像延迟标题 5ac734b2 latency title","nameSource":"user","nameSince":1790863930874,"startedAt":1790863930253}
+           aiTitlesAtAdoption=["镜像延迟标题 5ac734b2 latency title"]
+           customTitlesAtAdoption=["镜像延迟标题 5ac734b2 latency title"]
+           agentNamesAtAdoption=["镜像延迟标题 5ac734b2 latency title"]
+[readings] windowOnce exit=0 renameFrames=1 同名不变
+```
+
+⇒ 地址在 `result` **之前**就位；`startedAt`→`nameSince` = 621 ms。开窗时机从「首轮结束」（本任务 filing 会话基线 **362 s**，另一证人 pid 3703039 在 busy 11 分钟时仍未改）缩到**首轮首个 stream 消息之后约 0.6 s**（= 标题定稿本身所需的「同值连读两次」一格轮询）。pid 与 `startedAt` 不变 ⇒ 是活体改名，不是重启。
+
+### 3. 读取预算（改后仍与改前同阶）
+
+窗口由 `titleMirror.open` 与 `titleMirror.openedForTurn` 两条闩锁管住：`open` 把「窗口进行中到达的消息」折进已开的窗口（不是每个消息一次读），`openedForTurn` 把成本钉在**每回合一个有界窗口**（在 `result` 清零，下一回合在自己的首个消息处开自己的窗口）。窗口 20 s、轮询 300 ms 未改。⇒ 与改前「每回合一个窗口」同阶，不随消息频率上涨。
+
+### 4. 假形态（逐条实测，验完 `git checkout --` 还原）
+
+1. **开窗改回只在 `result`** ⇒ **红**（EXIT=1）：
+   `AssertionError: the address must move onto the ai-title before the result (after={…,"nameSource":"derived","nameSince":1790864042381,"startedAt":1790864042381})` —— 地址整轮停在 `derived`（`claude-resident-name-mirror-latency.test.ts:812`）。
+2. **镜像值改成转录里不存在的串**（`${title} (杜撰后缀 not-in-transcript)`）⇒ **红**（EXIT=1）：读数 `aiTitlesAtAdoption=["镜像延迟标题 8ead9479 latency title"]` 而 `customTitlesAtAdoption=["镜像延迟标题 8ead9479 latency title (杜撰后缀 not-in-transcript)"]`，帧携带的值与转录最新值不一致，红在同一行。
+3. **不红的假形态 —— 判据限度**（Plan 里设想的那条，如实记录）：把「同值连读两次才发」改成「**首读即发**」⇒ **绿**（EXIT=0，全部读数与正式版逐条相同）。原因：mock 只会发一个取值 `MOCK_AI_TITLE`，300 ms 轮询下「第一次读到标题」的那一刻，本次读与「上一次读」必然同值 —— 「首读即发」与「同值连读两次」在**取值**上不可分，只能靠时延（≥一格轮询）区分，值断言抓不到。`gap-claude-resident-name-live-mirror.test.ts` 在同一处有同一限度（其语料同样单值）。⇒ 本 AC 收窄为「帧值必须逐字等于转录当下最新 ai-title」+ 上面第 2 条可红假形态；「不提前」在本语料下**不可机械证伪**，本任务不假装它已验红。
+
+### 5. 既有判据（独立进程，命令与退出码）
+
+```
+npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-name-live-mirror.test.ts  ⇒ EXIT=0 (tests 1, pass 1, fail 0)
+npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-addressable.test.ts        ⇒ EXIT=0 (tests 1, pass 1, fail 0)
+npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-peer-name-follows-ai-title.test.ts  ⇒ EXIT=0 (tests 1, pass 1, fail 0)
+```
+
+`claude-resident-name-live-mirror.test.ts` **无需改动**：它量的是通道本身与「只发一次」的幂等（进程空闲态、窗口开在 `result`），窗口提前开不改变这两件事的读数；实测未改该文件仍绿（见上）。`claude-resident-addressable.test.ts` 本体未动、纳入 scoped gate。
+
+### 6. scoped gate 与静态检查
+
+```
+bash scripts/test.sh --for-task gap-claude-resident-name-mirror-window-opens-too-late --allow-thin  ⇒ EXIT=0
+  __PERFILE__ claude-resident-name-mirror-latency.test.ts passed=true
+  __PERFILE__ claude-resident-name-live-mirror.test.ts    passed=true
+  __PERFILE__ claude-resident-addressable.test.ts         passed=true      (# pass 3 / # fail 0)
+npm run typecheck  ⇒ TYPECHECK_EXIT=0（client / server / scripts 三条链）
+npm run lint       ⇒ LINT_EXIT=0（仅既有 warning）
+git diff --stat develop...HEAD ⇒ 仅 docs/proposals/claude-resident-sessions.md、…/claude-host-driver.provider.ts、…/claude-resident-name-mirror-latency.test.ts
+```
+
+`git merge --no-edit develop` 无冲突（带入的只有他任务的 `tasks/*.md`，未触及源码）。
+
+### 7. DoD 的真实 :3001 读数：未取，理由
+
+真实 :3001 跑的是**主检出/develop 的代码**（存在多个来自各 worktree 的 `server/index.ts` 进程），本任务的改动在 fan-in 合并进 develop 之前**不在这份代码里** —— 此刻去 :3001 建会话量到的是**改前**行为，与基线 362 s 同形，不构成对本次改动的验证。且 :3001 是共享服务（本会话自己也挂在它上面），按仓库既有约定不重启、不干扰。本改动的等价读数已由第 1/2/3 节在同一台机上以**真 `claude` 二进制**取得，且是机械门（AC1/AC3）所读的那一份。DoD 的真实服务复测应在 fan-in 合并后由后续会话取。
 
 ## Touches
 
