@@ -1571,27 +1571,50 @@ test('a resident session publishes the address it answers to, and a peer reaches
       `the restarted session must publish the address its new process registered ` +
         `(snapshot=${String(second.snapshotPeerName)} registry=${String(second.registryName)})`,
     );
-    // The rung the restarted process registers under, amended by
-    // `gap-claude-peer-name-follows-ai-title` (2026-09-30).
+    // The rung the restarted process registers under.
     //
-    // This arm was originally read as `derived`, on the policy that a launch
-    // handed the CLI *no* name at all. That policy still holds for a name the
-    // app invents — and leg 1 above still reads `derived` for every session's
-    // own first boot, which is what keeps this reading falsifiable. What changed
-    // is the other half: a launch now hands back the session's *own* Claude Code
-    // title (the `summary` `getSessionInfo(providerSessionId, { dir })` reports
-    // for it), so a process launched against a session that already has one
-    // adopts it and registers `auto` — the rung the CLI reserves for a title it
-    // adopted rather than one a user typed. The app still names nothing; the
-    // assertion that it does not is the `selfWrittenNames` one below.
+    // This arm originally read `derived`, on the policy that a launch handed the
+    // CLI *no* name at all. `gap-claude-peer-name-follows-ai-title`
+    // (2026-09-30) amended it to `auto` on the belief that this fixture's
+    // session already had a Claude Code title by the time it restarted, so the
+    // launch handed it back and the process adopted it. **That belief does not
+    // hold for this fixture, and the correct reading is the original one.**
+    // `gap-claude-peer-name-title-guard` (2026-10-01) measured why:
     //
-    // See `docs/proposals/claude-resident-sessions.md` §12, and `goals/AC-164-*`,
-    // which already recorded that this file's old rule was due for revision.
+    // - The mock endpoint answers every non-agent request with prose
+    //   (`textStream('aux ok')` below), so the CLI never parses a title out of
+    //   it and this run's transcripts hold no `ai-title` at all.
+    // - The leg-3 rename above did not put one there either: it went through the
+    //   app's own path, which refused it and said so —
+    //   `[sessions] rename of session "894efd93-a" had nothing to write to the
+    //   "claude" store (no-transcript)`, because this harness never populated
+    //   the row's `jsonl_path`. So no `custom-title` was written either, and the
+    //   `AC164 Addressable Alpha Renamed` that leg reads back is the *requested*
+    //   string the service stores when the provider has nothing to report —
+    //   not a title the CLI ever saw.
+    //
+    // With no `ai-title` and no `custom-title`, the only value the pre-guard
+    // code could hand over was `getSessionInfo().summary`'s last rung: this
+    // session's first prompt verbatim. That is the defect
+    // `gap-claude-peer-name-title-guard` removes — a launch that hands a
+    // fallback over makes the CLI write it as a `custom-title`, which the app
+    // reads as `manual` and which therefore outranks the `ai-title` the session
+    // may later earn. `auto` here was that handover, so this arm asserted it.
+    //
+    // Under the guard a session with no title is handed nothing and the CLI
+    // derives its own name — leg 1 above reads `derived` for the same reason on
+    // every session's first boot, and this arm now reds on the fallback
+    // handover instead of requiring it. A session that genuinely has a title
+    // still registers `auto`; that is measured where a title really exists, in
+    // `claude-peer-name-follows-ai-title.test.ts` (resident cold start) and in
+    // `claude-peer-name-title-guard.test.ts` (the positive control).
+    //
+    // See `docs/proposals/claude-resident-sessions.md` §12 and `goals/AC-164-*`.
     assert.strictEqual(
       second.registryNameSource,
-      'auto',
-      `the restarted process must be registered under the session's own title, not a derived label ` +
-        `(${String(second.registryNameSource)})`,
+      'derived',
+      `a session with no title of its own must be restarted under the CLI's derived label, not under a ` +
+        `ladder fallback the app handed over (${String(second.registryNameSource)})`,
     );
     assert.deepEqual(
       second.selfWrittenNames,
@@ -1609,8 +1632,9 @@ test('a resident session publishes the address it answers to, and a peer reaches
     // is stated directly, on the restarted reading, as the rule the loop above
     // applies to the first-boot rows — the address a peer is given is never the
     // name this app holds for the session. The restarted process answers to the
-    // title the CLI wrote for it; a launch that handed the app's cached name
-    // instead would come back byte-equal to it, and this arm is what reds.
+    // name the CLI registered for it, whichever rung that is; a launch that
+    // handed the app's cached name instead would come back byte-equal to it, and
+    // this arm is what reds.
     assert.notStrictEqual(
       second.registryName,
       second.title,

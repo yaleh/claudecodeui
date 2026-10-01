@@ -303,20 +303,39 @@ function matchesToolPermission(entry, toolName, input) {
 /**
  * The title a session should answer to, or null to hand the CLI none.
  *
- * The value is the session's *own* Claude Code title — `getSessionInfo().summary`,
- * the same reading `readSessionTitle` in `claude-rename.provider.ts` is the
- * authority for — and deliberately not the display name this app has cached on
- * the session row. Handing the cached name over would pin every process to a
- * string the app invented, which is the failure this exists to remove.
+ * The value is the session's *own* Claude Code title and deliberately not the
+ * display name this app has cached on the session row. Handing the cached name
+ * over would pin every process to a string the app invented, which is the
+ * failure this exists to remove.
+ *
+ * **It has to be a title, not the reading `summary` hands back.** `summary` is
+ * the SDK's ladder over the transcript — `customTitle || aiTitle ||
+ * lastPrompt || summaryHint || firstPrompt` — so it answers a question nobody
+ * asked here: every session has a value, because the last rung is the session's
+ * first prompt verbatim. A session that has not been named yet therefore reads
+ * back as something that looks like a title, gets handed to the CLI, and the CLI
+ * adopts it as a `custom-title`. That is worse than handing nothing over: a
+ * `custom-title` is a rung the app reads as an override, so it outranks the
+ * `ai-title` and the session is frozen under its own first prompt —
+ * `getSessionInfo().summary` then returns the frozen string forever, and every
+ * later round re-hands it. Measured on one machine: 18 of 522 sessions in 48
+ * hours had an `ai-title`; the other 504 would each have frozen their first
+ * prompt.
+ *
+ * `customTitle` is the rung that means "this session has a title": the SDK
+ * compiles it as `customTitle || aiTitle`, so it is set by a generated title and
+ * by a `/rename` alike, and undefined when the ladder falls through to a prompt.
+ * That is the rung `readSessionTitle` names as its authority, and it is what a
+ * renamed session has too, so a human's word still travels.
  *
  * The title is passed from the *second* round onwards, never on the round that
- * creates the session: the SDK skips automatic title generation entirely when a
- * title is handed to it, so a launch that supplied one at creation would leave
- * the session with nothing to adopt. The condition is self-limiting rather than
- * needing a round counter — a session that has not run a full turn yet has no
- * title to read, so `summary` is empty and none is handed over. A session with
- * no provider id yet (a brand-new one, or one the app has never resumed) returns
- * before touching the disk, which is every first round.
+ * creates the session, because the SDK skips automatic title generation entirely
+ * when a title is handed to it: a launch that supplied one at creation would
+ * leave the session with nothing to adopt. That falls out of the same gate
+ * rather than needing a round counter — the round that creates a session is the
+ * round a title is being generated for, so there is none to read yet. A session
+ * with no provider id (brand-new, or never resumed by this app) returns before
+ * touching the disk, which is every first round.
  *
  * A reading that throws is not a launch failure: a process started without a
  * title is the behaviour that shipped before this, and it is still correct.
@@ -328,8 +347,8 @@ export async function resolveClaudeSessionTitle(providerSessionId, projectPath) 
 
   try {
     const info = await getSessionInfo(providerSessionId, { dir: projectPath });
-    const summary = typeof info?.summary === 'string' ? info.summary.trim() : '';
-    return summary.length > 0 ? summary : null;
+    const title = typeof info?.customTitle === 'string' ? info.customTitle.trim() : '';
+    return title.length > 0 ? title : null;
   } catch (error) {
     console.warn('[Claude SDK] Unable to read the session title:', error?.message ?? error);
     return null;
