@@ -3,7 +3,7 @@ id: gap-claude-resident-shell-tab-criterion-bounded-boot-guard
 title: AC-174 判据的启动阶段无界：本族既有的有界预热+启动探针未回灌到 e2e/resident-shell-tab.spec.ts——一次页面期
   Vite 依赖冷预构建/模块图中断被拖成夹具会话行 30s 超时记红（并伴随共享 e2e boot 越过 webServer.timeout=30_000
   的负载假红）
-status: ready
+status: needs-human
 labels:
   - gap
   - defect
@@ -90,3 +90,14 @@ goal_ac: AC-174
 **boot 那一条**：本轮全部运行（5 连绿 + 1 并发 + AC3/AC6 变异跑）**均未复发** `Error: Timed out waiting 30000ms from config.webServer.`（逐日志 `grep` 无命中），也无 `[e2e] watchdog:` 行。若在后续轮次复发，按 Proposal 的登记归因宿主负载，不栽本任务。
 
 **本仓修的是响应方式**：无界等待（一次无预算 `page.goto(/session/:id)` + 20s `waitFor`）→ 有界重放（`beforeAll` 预热 + 12s 有界探针 + `page.reload()` 重放）。触发源（本次运行自己的 Vite 依赖冷预构建 / 模块图在页面期被重优化打断）不在本仓可控范围内 —— 因此这条判据的稳定性依赖守卫，而不是依赖触发源消失。
+
+## Needs-Human
+
+**执行 2026-10-01T19:08:05.742Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: not ok - suite-watchdog: terminated by an external signal before the suite finished — see the report above
+- run_id：wk-prod-anchor
+- session_id：f0203af9-7688-4ccc-98f8-d1a2e5539b53
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-resident-shell-tab-criterion-bounded-boot-guard~wk-prod-anchor~1790881644801-fca3da.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-resident-shell-tab-criterion-bounded-boot-guard-wk-prod-anchor.log
