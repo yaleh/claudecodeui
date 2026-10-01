@@ -223,10 +223,16 @@ describe('a block-keyed segment whose settled frame has a tool row after it', ()
     act(() => { view.result.current.appendRealtime(SID, toolRow('srv-tool2', 800)); });
 
     const rows = view.result.current.getMessages(SID);
+    const segments = rowsWithText(rows, SEGMENT);
     assert.equal(
-      rowsWithText(rows, SEGMENT).length,
+      segments.length,
       1,
       `the segment must be one row, got: ${describeOrder(rows)}`,
+    );
+    assert.equal(
+      segments[0].id,
+      'srv-seg1',
+      `the survivor must be the settled frame's row, got: ${describeOrder(rows)}`,
     );
   });
 
