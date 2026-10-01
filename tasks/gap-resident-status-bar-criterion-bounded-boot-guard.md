@@ -2,7 +2,7 @@
 id: gap-resident-status-bar-criterion-bounded-boot-guard
 title: AC-172 判据的启动阶段无界：一次页面期 Vite 依赖冷预构建把应用的模块图整批打断（trace 里 10 个模块响应状态 -1、整轮无
   /api/*），被拖成夹具项目行 30s 超时记红——本族既有的有界预热+启动探针未回灌到 e2e/resident-status-bar.spec.ts
-status: todo
+status: ready
 labels:
   - gap
   - defect
