@@ -391,11 +391,15 @@ test('a subscribed session is beaten with activity.heartbeat, and a killed serve
     // Wait for the beat to prove itself, then read what it proved. The window is
     // generously longer than N periods so a slow boot cannot turn into a missing
     // beat; the floor is still N-1, so a server that skipped beats stays red.
+    //
+    // The wait is deliberately non-throwing: whichever way it ends, the reading
+    // below is the verdict, so a server that never beats fails with the frame
+    // count the criterion is about rather than with a bare timeout.
     await waitFor(
       () => heartbeatsOf(chat).length >= BEATS,
       BEAT_MS * (BEATS + 4),
       `${BEATS} activity.heartbeat frames`,
-    );
+    ).catch(() => undefined);
     const beats = heartbeatsOf(chat);
     assert.ok(
       beats.length >= BEAT_FLOOR,
