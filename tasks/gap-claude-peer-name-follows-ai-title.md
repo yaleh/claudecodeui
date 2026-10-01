@@ -1,7 +1,8 @@
 ---
 id: gap-claude-peer-name-follows-ai-title
 title: peer 名跟随 Claude Code 的 ai-title：启动时把会话自己的标题交给 CLI，注册名落 nameSource=auto
-status: ready
+status: needs-human
+needs_human_cause: human-adjudication
 labels:
   - gap
   - defect
@@ -95,3 +96,14 @@ loadavg 10–30）可以在两次 50ms 轮询之间整个来去 ⇒ `captured=[]
 （其中 3 次在 loadavg ~70，比红的那次 suite 更重），scoped gate 退出 0（本判据 +
 `claude-resident-addressable.test.ts` 同绿）。产品代码、断言与各臂本轮未改，故上一轮已取的读数、
 DoD 四条与「既有判据逐条退 0」仍然有效。
+## Needs-Human
+
+**执行 2026-09-30T12:57:37.977Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=57392 server/modules/session-hosts/tests/resident-server-restart.test.ts passed=false end_ms=1790772950198
+- run_id：wk-prod-anchor
+- session_id：2e87fd69-80aa-42ce-9153-49900d402f30
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-peer-name-follows-ai-title~wk-prod-anchor~1790772818021-64bf63.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-peer-name-follows-ai-title-wk-prod-anchor.log
