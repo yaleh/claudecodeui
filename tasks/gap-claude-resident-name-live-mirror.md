@@ -117,8 +117,8 @@ CloudCLI **已有这条管道**，不是要新开：`ClaudeResidentProcess.write
 - server/modules/providers/list/claude/claude-host-driver.provider.ts
 - server/modules/providers/services/session-ai-title.service.ts
 - server/modules/providers/tests/claude-resident-name-live-mirror.test.ts (new)（判据：真 claude 二进制 + 临时 CLAUDE_CONFIG_DIR，读 sessions/<pid>.json 与转录）
-- server/modules/providers/tests/claude-peer-name-follows-ai-title.test.ts（改为读启动时的注册快照：镜像上线后该会话首轮即被改名，末次快照不再停在 derived）
-- server/modules/providers/tests/claude-resident-addressable.test.ts（AC7 的既有判据，未改动，纳入 scoped gate 覆盖）
+- server/modules/providers/tests/claude-peer-name-follows-ai-title.test.ts （修改：改读启动时的注册快照；镜像上线后该会话首轮即被改名，末次快照不再停在 derived）
+- server/modules/providers/tests/claude-resident-addressable.test.ts （AC7 的既有判据，本体未改动，纳入 scoped gate 覆盖）
 - tasks/gap-claude-resident-name-live-mirror.md
 
 ## Evidence
@@ -130,3 +130,13 @@ CloudCLI **已有这条管道**，不是要新开：`ClaudeResidentProcess.write
 - 语料：194 个带 ai-title 的转录中，值变过的 = 1（第 2 轮，`f55089be`）；`3973c352` 148 轮 49 条同值。
 - 活体注册表抽样：`quay-bb`/`quay-ec`/`archguard-85`/`tailscale-64` 均 `derived`；
   `system specs query`/`list visible claude code sessions`/`oom-kill journal noise reduction` 均 `bg`+`auto`。
+
+## 完成记录
+
+- 判据实测（2026-10-01，真 claude 二进制 + 临时 `CLAUDE_CONFIG_DIR`）：
+  - 正向：`renameFrames=1`，注册名 `derived` → `user` 且逐字等于 ai-title，`nameSince 1790846998107 → 1790846998513`，
+    pid `2982334` 全程不变，转录 `ai-title` ×2 同值、`custom-title` 逐字等于镜像值。
+  - 幂等：第二轮后 `renameFramesBefore=1 → renameFramesAfter=1`，注册名与 `nameSince` 不变。
+  - 负控制：8s 窗内 `renameFrames=0`、转录 `ai-title=[]`，注册名保持 `derived`，pid 不变。
+- 既有判据：`claude-resident-addressable.test.ts`（1 passed / 0 failed）与
+  `claude-peer-name-follows-ai-title.test.ts`（1 passed / 0 failed）单独跑均绿，并已并入 `## Touches` 以便 scoped gate 覆盖。
