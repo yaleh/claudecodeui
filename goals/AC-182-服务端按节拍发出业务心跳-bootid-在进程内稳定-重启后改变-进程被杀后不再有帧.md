@@ -1,7 +1,7 @@
 ---
 id: AC-182
 title: 服务端按节拍发出业务心跳：bootId 在进程内稳定、重启后改变、进程被杀后不再有帧
-status: draft
+status: active
 kind: criterion
 goal: GOAL-014
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -17,4 +17,15 @@ origin: docs/proposals/claude-session-activity-dock.md（§0.1 人的裁定、§
   夹具调研）。人 yale 2026-10-01 裁定：心跳 5 秒且 15 秒判定不可达；新增控制动词与 cancel-queued
   都做归属校验；取消计划任务不做控件；历史里的 isMeta 行显示与对等方目录本期不纳入。 实测 2026-10-01：现状服务端只有 WS 协议级
   ping（30 秒，浏览器 JS 看不到），客户端没有任何办法知道服务端是否还活着。
+activatedAt: 2026-10-01T13:37:55.980Z
+statusLog:
+  - at: 2026-10-01T13:37:55.980Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-01T13:37:55.980Z
 ---
