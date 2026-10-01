@@ -95,14 +95,14 @@ CloudCLI **已有这条管道**，不是要新开：`ClaudeResidentProcess.write
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-name-live-mirror.test.ts` 退出 0
-- [ ] **正向**：真 claude 二进制 + 临时 `CLAUDE_CONFIG_DIR`，跑满一轮让转录落下 `ai-title`；**同一个值连续读到两次之后**，`<CLAUDE_CONFIG_DIR>/sessions/<pid>.json` 的 `name` 逐字等于该 ai-title，`nameSince` 前移，且 **pid 在整个过程中不变**（证明是活体，不是重启）。
-- [ ] **不臆造（负控制）**：转录里没有 `ai-title` 的会话，在同样的观察窗内注册名保持 `derived`，且**发出的 rename 帧计数 == 0**。
-- [ ] **不提前（守 A 臂）**：采纳成功时，该会话转录里**同时存在** `ai-title` 条目（证明帧是在标题已生成之后才发的）。**假形态**：把「连续两次」改成「首读即发」⇒ 本 AC 必须红。
-- [ ] **只发一次（幂等）**：采纳成功后转录继续追加同值 ai-title，rename 帧计数仍为 1。
-- [ ] **副作用夹住**：采纳动作追加的 `custom-title` 条目（若有）其值逐字等于镜像值；出现任何其它值即失败。
-- [ ] **既有判据不退**：`claude-resident-addressable.test.ts` 与 `claude-peer-name-follows-ai-title.test.ts` 同绿（scoped gate 退出 0）。
-- [ ] `git diff --stat develop...HEAD` 只出现在 `## Touches` 列出的文件里。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-name-live-mirror.test.ts` 退出 0
+- [x] **正向**：真 claude 二进制 + 临时 `CLAUDE_CONFIG_DIR`，跑满一轮让转录落下 `ai-title`；**同一个值连续读到两次之后**，`<CLAUDE_CONFIG_DIR>/sessions/<pid>.json` 的 `name` 逐字等于该 ai-title，`nameSince` 前移，且 **pid 在整个过程中不变**（证明是活体，不是重启）。
+- [x] **不臆造（负控制）**：转录里没有 `ai-title` 的会话，在同样的观察窗内注册名保持 `derived`，且**发出的 rename 帧计数 == 0**。
+- [x] **不提前（守 A 臂）**：采纳成功时，该会话转录里**同时存在** `ai-title` 条目（证明帧是在标题已生成之后才发的）。**假形态**：把「连续两次」改成「首读即发」⇒ 本 AC 必须红。
+- [x] **只发一次（幂等）**：采纳成功后转录继续追加同值 ai-title，rename 帧计数仍为 1。
+- [x] **副作用夹住**：采纳动作追加的 `custom-title` 条目（若有）其值逐字等于镜像值；出现任何其它值即失败。
+- [x] **既有判据不退**：`claude-resident-addressable.test.ts` 与 `claude-peer-name-follows-ai-title.test.ts` 同绿（scoped gate 退出 0）。
+- [x] `git diff --stat develop...HEAD` 只出现在 `## Touches` 列出的文件里。
 
 ## DoD
 
@@ -117,6 +117,8 @@ CloudCLI **已有这条管道**，不是要新开：`ClaudeResidentProcess.write
 - server/modules/providers/list/claude/claude-host-driver.provider.ts
 - server/modules/providers/services/session-ai-title.service.ts
 - server/modules/providers/tests/claude-resident-name-live-mirror.test.ts (new)（判据：真 claude 二进制 + 临时 CLAUDE_CONFIG_DIR，读 sessions/<pid>.json 与转录）
+- server/modules/providers/tests/claude-peer-name-follows-ai-title.test.ts（改为读启动时的注册快照：镜像上线后该会话首轮即被改名，末次快照不再停在 derived）
+- server/modules/providers/tests/claude-resident-addressable.test.ts（AC7 的既有判据，未改动，纳入 scoped gate 覆盖）
 - tasks/gap-claude-resident-name-live-mirror.md
 
 ## Evidence
