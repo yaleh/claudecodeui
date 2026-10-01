@@ -1,7 +1,7 @@
 ---
 id: AC-186
 title: 回合阶段与工具名来自真实信号：thinking、writing、tool、等待权限、压缩，回合结束回到空闲
-status: draft
+status: active
 kind: criterion
 goal: GOAL-014
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -19,4 +19,15 @@ origin: docs/proposals/claude-session-activity-dock.md（§0.1 人的裁定、§
   都做归属校验；取消计划任务不做控件；历史里的 isMeta 行显示与对等方目录本期不纳入。 调查 2026-10-01：服务端对 Claude
   从不发带文本的 status 帧，statusText 恒为空，标签是按已用时间轮换的
   Thinking、Processing、Analyzing，不携带信息；实测一次运行有 215 条 thinking_tokens，服务端目前忽略它们。
+activatedAt: 2026-10-01T13:41:32.077Z
+statusLog:
+  - at: 2026-10-01T13:41:32.077Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-01T13:41:32.076Z
 ---
