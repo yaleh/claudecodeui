@@ -372,11 +372,18 @@ const NAVIGATION_PROBE_MS = 8_000;
  *
  * A deadline rather than a replay count, because it is the *sum* that has to stay inside the criterion's
  * own wall clock: the bounded-failure reading asks that a probe which cannot succeed ends the whole run
- * in under 30s, and that run pays the config evaluation, both servers' boot and the browser launch before
+ * in under 30s, and that run pays the config evaluation, both servers' boot, the browser launch and this
+ * spec's own `beforeAll` (the bounded warm-up plus the onboarding wizard `bootstrapAuth` drives) before
  * the probe's first attempt even starts. Counting replays leaves that head-room to chance; a deadline
  * spends it.
+ *
+ * The value is derived from *this* spec's measured pre-probe overhead, not copied. The sibling specs that
+ * carry this guard create their account over the API, so their pre-probe cost is the boot and the launch;
+ * this one runs the three-screen onboarding, which measured 10.2s quiet and 16.0s loaded here (wall minus
+ * the case's own duration, `e2e/resident-shell-tab`). 12s keeps the sum under the 30s the bounded-failure
+ * reading asks for across that range, and still fits the first 8s landing probe plus one full 3s replay.
  */
-const STARTUP_PROBE_DEADLINE_MS = 14_000;
+const STARTUP_PROBE_DEADLINE_MS = 12_000;
 
 /**
  * What the startup page said, kept for one purpose: a startup red has to *explain* a document that was
