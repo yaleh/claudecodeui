@@ -1,7 +1,7 @@
 ---
 id: gap-claude-turn-phase-real-signals
 title: AC-186 回合阶段与工具名来自真实信号：新增按会话的 Turn Tracker（thinking/writing/tool/等待权限/压缩/idle）
-status: ready
+status: done
 labels:
   - gap
 parent: null

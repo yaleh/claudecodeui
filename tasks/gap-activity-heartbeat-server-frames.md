@@ -2,7 +2,8 @@
 id: gap-activity-heartbeat-server-frames
 title: AC-182 服务端没有业务心跳帧：加每进程 bootId+rev 的 activity.heartbeat 节拍（出厂 5s/15s，重启换
   bootId，被杀即停帧）
-status: ready
+status: needs-human
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -115,10 +116,35 @@ git checkout -- server/modules/websocket/services/activity-heartbeat.service.ts
 - 心跳帧与 hello 帧走 websocket 模块自己的公共面；新增服务不在模块外被深引（遵守 `.agents/skills/backend-module-standards/SKILL.md`）。
 - 只动 `## Touches` 列出的文件；若实现确实需要动别的文件，先把该文件加进 `## Touches` 再写。
 
+## Evidence — 本轮 suite 红的两处真因（均已在本分支修复）
+
+上一轮 fan-in 的 suite 以 `suite-watchdog: ABORT guard=silence reason=hung threshold_ms=240000 silent_ms=240906` 收场，而本任务判据文件本身 2/2 绿。用保留日志 `.quay/suite-logs/<ts>-<pid>/` 里「有 `.out`、无 `.res`」的子进程定位到两个未被看门狗归因的挂死，并读出三个真因。
+
+**(1) 挂死＝本任务实现的心跳定时器未 `unref`。** `chat-run-registry.test.ts` 与 `session-host-per-run-parity.test.ts` 都用进程内 `EventEmitter` 假 socket 订阅、且从不发 `close`，于是 `setInterval` 把子进程的事件循环一直吊着：用例全绿后进程仍不退出，整文件被看门狗判 hung（400 秒级）。修法：`activity-heartbeat.service.ts` 定时器加 `timer.unref()`（真实服务端本就由 listening socket 吊住，节拍不该是进程「活着」的理由）。读数：`timeout 90 npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-run-registry.test.ts` 修前 `EXIT=124`（12 绿后挂死），修后 `EXIT=0`（3.2s，12/12）。
+
+**(2) 断言红＝hello 新增字段打穿 AC-155 的逐字节帧 parity。** `session-host-per-run-parity.test.ts` 的 AC4 把 live 帧与 `fixtures/per-run-frame-baseline.json`（录制于 host wrapper 之前、provenance 禁重录）逐字节比，`bootId`/`rev`/`heartbeatIntervalMs`/`unreachableAfterMs` 是基线不可能持有的键。修法沿用 per-run identity 任务当年处理 `runId` 的同一处：把这组 activity 公告字段加进 `per-run-frame-scenarios.ts` 的 `UNSTABLE_FRAME_FIELDS`（`bootId` 本就是每进程随机，其余三项属同一公告组），并在 parity 驱动 `runScenario` 里把节拍钉到 600s，使 liveness 帧不会落进被测运行序列（与该文件既有「静音无关广播」同理）。读数：该文件修前 AC4 红且整文件挂死，修后 5/5 绿、进程正常退出（约 4s）。
+
+**(3) 非本任务。** 同一次 suite 里 `claude-resident-addressable` / `claude-resident-unattended-turn` 两条 providers 侧红是 60s 进程预算到点被杀（`budget=60000ms elapsed=60023ms exit=3`），不在 `## Touches` 内，属既有 resident 家族负载抖动。
+
+修复后本任务判据 `activity-heartbeat.process.test.ts` 2/2 绿、`EXIT=0`；`npx tsc --noEmit -p server/tsconfig.json` 与 `npm run lint` 均 `EXIT=0`。
+
 ## Touches
 
 - server/modules/websocket/services/activity-heartbeat.service.ts (new)
 - server/modules/websocket/index.ts
 - server/modules/websocket/services/chat-websocket.service.ts
 - server/modules/websocket/tests/activity-heartbeat.process.test.ts (new)
+- server/modules/session-hosts/tests/per-run-frame-scenarios.ts
 - tasks/gap-activity-heartbeat-server-frames.md
+
+## Needs-Human
+
+**执行 2026-10-01T14:49:54.813Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=85740 server/modules/session-hosts/tests/resident-server-restart.test.ts passed=false end_ms=1790865972852
+- run_id：wk-prod-anchor
+- session_id：9f028e49-03d2-4d3b-9ec7-f0c5b4ba20f2
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-activity-heartbeat-server-frames~wk-prod-anchor~1790865791385-b9a79e.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-activity-heartbeat-server-frames-wk-prod-anchor.log

@@ -22,14 +22,14 @@ goal_ac: AC-189
 
 ## AC
 
-- [ ] AC1 判据绿：`npx vitest run src/modules/chat/tests/hostSnapshotFailure.test.ts` 退出 0。红态基线：实现前 `test -f src/modules/chat/tests/hostSnapshotFailure.test.ts` → absent（或存在但降级断言红）。
-- [ ] AC2 失败降级（承重）：假 fetch 第一次成功返回一个 `busy` resident 宿主 ⇒ 状态栏 `data-resident-ui-state` 与侧栏标记 `data-resident-state` 同时为 `busy`；第二次轮询失败（fetch reject，或 `response.ok=false` 的 `{success:false,...}` 信封）⇒ **同一次渲染**里两处同时变为 `unknown`，且两处都不是 `busy`。
-- [ ] AC3 成功即恢复：第三次轮询成功返回 `idle` 宿主 ⇒ 两处同时回到 `idle`（不停在 `unknown`）。
-- [ ] AC4 两处恒等：三个相位里同时读状态栏与标记，两处属性值逐相位相等（`busy`/`busy`、`unknown`/`unknown`、`idle`/`idle`），证明两处读同一状态而不是各自判定。
-- [ ] AC5 公共结果形状不变：`UseSessionHostsResult` 不新增必填成员；`npm run typecheck` 退出 0，且既有 `vi.mock('@/shared/hooks/useSessionHosts')` 的返回字面量无需改动（`git diff --name-status develop...HEAD` 不含那三个测试文件）。
-- [ ] AC6 取假形态必须红：先提交实现，再把降级去掉（两个消费者回到 `readResidentProcessState(host)`、不把失败折进读数；等价于恢复「失败保留旧快照」的阅读路径）⇒ AC2 的降级断言逐字红；登记变异 diff、逐字失败行与 `git checkout --` 恢复命令，恢复后 `git status` 干净。
-- [ ] AC7 i18n 完整：`resident.statusBar.unknown` 在全部 12 个语言包（`src/modules/i18n/locales/{de,en,es,fr,id,it,ja,ko,ru,tr,zh-CN,zh-TW}/chat.json`）都存在且非空；判据文件内一个用例逐包断言 `missing === []`（`console.log` 出检查数与 missing 数）。
-- [ ] AC8 静态门：`npm run typecheck` 与 `npm run lint` 均退出 0；`git diff --name-status develop...HEAD` 只出现在 Touches 列出的文件里（新增文件用 ASCII `(new)`）。
+- [x] AC1 判据绿：`npx vitest run src/modules/chat/tests/hostSnapshotFailure.test.ts` 退出 0。红态基线：实现前 `test -f src/modules/chat/tests/hostSnapshotFailure.test.ts` → absent（或存在但降级断言红）。
+- [x] AC2 失败降级（承重）：假 fetch 第一次成功返回一个 `busy` resident 宿主 ⇒ 状态栏 `data-resident-ui-state` 与侧栏标记 `data-resident-state` 同时为 `busy`；第二次轮询失败（fetch reject，或 `response.ok=false` 的 `{success:false,...}` 信封）⇒ **同一次渲染**里两处同时变为 `unknown`，且两处都不是 `busy`。
+- [x] AC3 成功即恢复：第三次轮询成功返回 `idle` 宿主 ⇒ 两处同时回到 `idle`（不停在 `unknown`）。
+- [x] AC4 两处恒等：三个相位里同时读状态栏与标记，两处属性值逐相位相等（`busy`/`busy`、`unknown`/`unknown`、`idle`/`idle`），证明两处读同一状态而不是各自判定。
+- [x] AC5 公共结果形状不变：`UseSessionHostsResult` 不新增必填成员；`npm run typecheck` 退出 0，且既有 `vi.mock('@/shared/hooks/useSessionHosts')` 的返回字面量无需改动（`git diff --name-status develop...HEAD` 不含那三个测试文件）。
+- [x] AC6 取假形态必须红：先提交实现，再把降级去掉（两个消费者回到 `readResidentProcessState(host)`、不把失败折进读数；等价于恢复「失败保留旧快照」的阅读路径）⇒ AC2 的降级断言逐字红；登记变异 diff、逐字失败行与 `git checkout --` 恢复命令，恢复后 `git status` 干净。
+- [x] AC7 i18n 完整：`resident.statusBar.unknown` 在全部 12 个语言包（`src/modules/i18n/locales/{de,en,es,fr,id,it,ja,ko,ru,tr,zh-CN,zh-TW}/chat.json`）都存在且非空；判据文件内一个用例逐包断言 `missing === []`（`console.log` 出检查数与 missing 数）。
+- [x] AC8 静态门：`npm run typecheck` 与 `npm run lint` 均退出 0；`git diff --name-status develop...HEAD` 只出现在 Touches 列出的文件里（新增文件用 ASCII `(new)`）。
 
 ## DoD
 
