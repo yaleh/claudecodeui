@@ -88,7 +88,7 @@ export type ProviderModelActions = {
 //----------------- PROJECTS AND SESSIONS ------------
 
 /** Identifies the workspace pane the user is looking at; plugin panes are namespaced by plugin id. */
-export type AppTab = 'chat' | 'files' | 'shell' | 'git' | 'tasks' | 'browser' | `plugin:${string}`;
+export type AppTab = 'chat' | 'files' | 'shell' | 'git' | 'tasks' | 'quay' | 'browser' | `plugin:${string}`;
 
 /** A message queued to be sent to a session at a future time. */
 export type ScheduledMessage = {
@@ -144,6 +144,70 @@ type ProjectTaskmasterInfo = {
   [key: string]: unknown;
 };
 
+//----------------- QUAY STATUS ------------
+
+/** Four-state quay driver reading; `not-configured` means the project has no `.quay/config.yml`. */
+export type QuayDriverState = 'running' | 'idle' | 'stale' | 'not-configured';
+
+/** Driver summary attached to a Tier-2 quay snapshot and rendered by the panel header. */
+export type QuayDriverSummary = {
+  state: QuayDriverState;
+  alive: boolean;
+  running: boolean;
+  lastRecordAt: string | null;
+};
+
+/** Task counts read from `quay task list --json`; the panel shows the status breakdown. */
+export type QuayTaskCounts = {
+  total: number;
+  byStatus: Record<string, number>;
+  ready: number;
+  needsHuman: number;
+  done: number;
+};
+
+/** Goal counts read from `quay goal list --json`. */
+export type QuayGoalCounts = {
+  total: number;
+  achieved: number;
+};
+
+/** ADR counts read from `quay adr list --json`. */
+export type QuayAdrCounts = {
+  total: number;
+};
+
+/** Issue counts read from `quay config validate --json`. */
+export type QuayConfigIssueCounts = {
+  total: number;
+  errors: number;
+};
+
+/** Tier-2 read-only snapshot of one project's quay state, rendered by `QuayPanel`. */
+export type QuaySnapshot = {
+  projectId: string;
+  projectPath: string;
+  generatedAt: string;
+  /** True when the snapshot was served from the backend's TTL cache rather than a fresh CLI pass. */
+  cached: boolean;
+  driver: QuayDriverSummary | null;
+  tasks: QuayTaskCounts | null;
+  goals: QuayGoalCounts | null;
+  adrs: QuayAdrCounts | null;
+  configIssues: QuayConfigIssueCounts | null;
+  /** Non-fatal per-command failures; the panel surfaces them instead of hiding a partial read. */
+  warnings: string[];
+};
+
+/** Tier-1 reading returned by `GET /api/quay/:projectId/status`. */
+export type QuayProjectStatus = {
+  projectId: string;
+  projectPath: string;
+  hasQuayConfig: boolean;
+};
+
+// ---------------------------
+
 // After the projectName → projectId migration the backend no longer returns a
 // folder-derived `name` string. Projects are now addressed everywhere by the
 // DB-assigned `projectId` (primary key in the `projects` table), and the UI
@@ -160,6 +224,8 @@ export type Project = {
   /** Per-project rules (regex sources, case-insensitive, unanchored) that hide sessions by name; null/absent means none. */
   sessionFilter?: { hide: string[] } | null;
   taskmaster?: ProjectTaskmasterInfo;
+  /** Tier-1 quay reading attached by the projects listing; drives the sidebar badge and the Quay tab. */
+  hasQuayConfig?: boolean;
   [key: string]: unknown;
 };
 

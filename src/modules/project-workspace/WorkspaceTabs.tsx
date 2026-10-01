@@ -1,4 +1,4 @@
-import { MessageSquare, Terminal, Folder, GitBranch, ClipboardCheck, MonitorPlay, ChevronDown, type LucideIcon } from 'lucide-react';
+import { MessageSquare, Terminal, Folder, GitBranch, ClipboardCheck, Activity, MonitorPlay, ChevronDown, type LucideIcon } from 'lucide-react';
 import { Fragment, useId, useState } from 'react';
 import type { Dispatch, KeyboardEvent, SetStateAction } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -11,6 +11,8 @@ type WorkspaceTabsProps = {
   activeTab: AppTab;
   setActiveTab: Dispatch<SetStateAction<AppTab>>;
   shouldShowTasksTab: boolean;
+  /** Optional so a caller that only knows about Tasks/Browser keeps compiling; absent means "no Quay tab". */
+  shouldShowQuayTab?: boolean;
   shouldShowBrowserTab: boolean;
   /**
    * Whether the selected session asked to run as a resident process. A resident
@@ -110,14 +112,21 @@ const TASKS_TAB: BuiltInTabSource = {
   icon: ClipboardCheck,
 };
 
+const QUAY_TAB: BuiltInTabSource = {
+  id: 'quay',
+  labelKey: 'tabs.quay',
+  icon: Activity,
+};
+
 /**
  * The single source of truth for the workspace view list: the four built-in tabs,
  * the conditionally enabled Browser/Tasks tabs and every enabled plugin tab, each
  * carrying its already-translated label. Both the desktop pill bar and the mobile
  * selector read it, so neither can drift into a second copy of the list.
  */
-function useWorkspaceTabDefinitions({ shouldShowTasksTab, shouldShowBrowserTab }: {
+function useWorkspaceTabDefinitions({ shouldShowTasksTab, shouldShowQuayTab, shouldShowBrowserTab }: {
   shouldShowTasksTab: boolean;
+  shouldShowQuayTab: boolean;
   shouldShowBrowserTab: boolean;
 }): { tabs: WorkspaceTabDefinition[]; builtInCount: number } {
   const { t } = useTranslation();
@@ -127,6 +136,7 @@ function useWorkspaceTabDefinitions({ shouldShowTasksTab, shouldShowBrowserTab }
     ...BASE_TABS,
     ...(shouldShowBrowserTab ? [BROWSER_TAB] : []),
     ...(shouldShowTasksTab ? [TASKS_TAB] : []),
+    ...(shouldShowQuayTab ? [QUAY_TAB] : []),
   ];
 
   const builtInTabs: BuiltInTab[] = builtInSources.map((tab) => ({
@@ -163,11 +173,12 @@ export default function WorkspaceTabs({
   activeTab,
   setActiveTab,
   shouldShowTasksTab,
+  shouldShowQuayTab = false,
   shouldShowBrowserTab,
   isResidentSession = false,
 }: WorkspaceTabsProps) {
   const { t } = useTranslation();
-  const { tabs, builtInCount } = useWorkspaceTabDefinitions({ shouldShowTasksTab, shouldShowBrowserTab });
+  const { tabs, builtInCount } = useWorkspaceTabDefinitions({ shouldShowTasksTab, shouldShowQuayTab, shouldShowBrowserTab });
   // The sentence the disabled Shell tab points at. Read here so the `title` and the
   // notice element WorkspaceMain renders cannot disagree: both are this key.
   const residentShellNotice = t('tabs.shellResidentDisabled');
@@ -243,11 +254,12 @@ export function CollapsedWorkspaceSelector({
   activeTab,
   setActiveTab,
   shouldShowTasksTab,
+  shouldShowQuayTab = false,
   shouldShowBrowserTab,
   isResidentSession = false,
 }: WorkspaceTabsProps) {
   const { t } = useTranslation();
-  const { tabs } = useWorkspaceTabDefinitions({ shouldShowTasksTab, shouldShowBrowserTab });
+  const { tabs } = useWorkspaceTabDefinitions({ shouldShowTasksTab, shouldShowQuayTab, shouldShowBrowserTab });
   // The same sentence the desktop pill carries: the dialog is the only way to reach
   // the Shell view on a narrow screen, so it has to close the view for the same
   // reason and say the same thing.

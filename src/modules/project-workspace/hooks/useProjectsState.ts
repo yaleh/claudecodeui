@@ -119,6 +119,7 @@ const projectsHaveChanges = (
       nextProject.displayName !== prevProject.displayName ||
       nextProject.fullPath !== prevProject.fullPath ||
       Boolean(nextProject.isStarred) !== Boolean(prevProject.isStarred) ||
+      Boolean(nextProject.hasQuayConfig) !== Boolean(prevProject.hasQuayConfig) ||
       serialize(nextProject.sessionMeta) !== serialize(prevProject.sessionMeta) ||
       serialize(nextProject.sessions) !== serialize(prevProject.sessions) ||
       serialize(nextProject.taskmaster) !== serialize(prevProject.taskmaster)
@@ -325,6 +326,7 @@ const projectFromRegistration = (project: Project): Project => ({
   fullPath: project.fullPath || project.path || '',
   displayName: project.displayName,
   isStarred: project.isStarred,
+  hasQuayConfig: project.hasQuayConfig,
   sessions: project.sessions ?? [],
   sessionMeta: project.sessionMeta ?? { hasMore: false, total: countLoadedProjectSessions(project) },
   taskmaster: project.taskmaster,
@@ -352,7 +354,7 @@ const removeSessionFromProject = (project: Project, sessionIdToDelete: string): 
   return updatedProject;
 };
 
-const VALID_TABS: Set<string> = new Set(['chat', 'files', 'shell', 'git', 'tasks', 'browser']);
+const VALID_TABS: Set<string> = new Set(['chat', 'files', 'shell', 'git', 'tasks', 'quay', 'browser']);
 
 const isValidTab = (tab: string): tab is AppTab => {
   return VALID_TABS.has(tab) || tab.startsWith('plugin:');
@@ -1149,7 +1151,7 @@ export function useProjectsState({
       clearSessionAttention(session.id);
       setSelectedSession(session);
 
-      if (activeTab === 'tasks' || activeTab === 'browser') {
+      if (activeTab === 'tasks' || activeTab === 'quay' || activeTab === 'browser') {
         setActiveTab('chat');
       }
 
