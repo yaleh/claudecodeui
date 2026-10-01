@@ -1,7 +1,7 @@
 ---
 id: AC-183
 title: 客户端新鲜度状态机：没有新鲜证据就降级为不可达，bootId 变化丢弃本地假设，不可达时计时冻结
-status: draft
+status: active
 kind: criterion
 goal: GOAL-014
 criterion: npx vitest run src/modules/chat/tests/activityFreshness.test.ts
@@ -17,4 +17,15 @@ origin: docs/proposals/claude-session-activity-dock.md（§0.1 人的裁定、§
   processingSessions 只有
   complete、protocol_error、空闲应答和成功的轮询能清除条目，服务端宕机时都不会发生，ActivityIndicator
   用本地时钟一直计时，聊天模块不读 isConnected。
+activatedAt: 2026-10-01T13:38:41.403Z
+statusLog:
+  - at: 2026-10-01T13:38:41.403Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-01T13:38:41.403Z
 ---
