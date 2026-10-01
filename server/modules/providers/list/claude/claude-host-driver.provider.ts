@@ -80,7 +80,7 @@
  */
 import { spawn as nodeSpawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { Writable } from 'node:stream';
@@ -1136,6 +1136,127 @@ export function readCliSessionRegistration(
     messagingSocketPath:
       typeof row.messagingSocketPath === 'string' && row.messagingSocketPath ? row.messagingSocketPath : null,
   };
+}
+
+/**
+ * A Claude Code background job that is holding a conversation, as the CLI's own
+ * registry describes it.
+ *
+ * `jobId` is the handle `claude stop` / `claude attach` take (the CLI's short id
+ * for the job); `pid` is the live process. Both are carried so the refusal can
+ * name the exact command the user has to run.
+ */
+export type ClaudeBackgroundSessionOwner = {
+  pid: number;
+  jobId: string;
+  name: string | null;
+};
+
+/**
+ * Whether a registry row's process is still the process that wrote it.
+ *
+ * A registry file outlives a process that died without cleaning up, and pids are
+ * recycled on a busy host, so "a signal can be delivered to that pid" is not
+ * enough. Where `/proc` is readable the row's `procStart` (the process's start
+ * time in clock ticks, field 22 of `/proc/<pid>/stat`) is compared as well; where
+ * it is not, the signal probe alone decides. `EPERM` means the process exists
+ * under another user, which is alive.
+ */
+function isRegistryProcessAlive(pid: number, procStart: string | null): boolean {
+  try {
+    process.kill(pid, 0);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EPERM') {
+      return false;
+    }
+  }
+  if (!procStart) {
+    return true;
+  }
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    // The command name is parenthesised and may itself contain spaces or
+    // parentheses, so the fields are counted from the last `)`.
+    const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+    // Field 22 overall; the slice starts at field 3.
+    return fields[19] === procStart;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * The live Claude Code background job holding a conversation, or null.
+ *
+ * Claude Code refuses to resume a session that a background job (`claude --bg`,
+ * the agents view) is running — the child exits with code 1 and says so only on
+ * stderr — so a resident launch has to ask before it spawns one that cannot
+ * live. The CLI's registry marks those processes `kind: "bg"`; this app's own
+ * processes register as `interactive` and are never reported. A job that was
+ * detached from a terminal (`←` in `claude attach`) keeps running and keeps its
+ * row, so detaching does not free the session; only `claude stop` does.
+ *
+ * Unreadable or unparseable rows are skipped, not errors: the registry is
+ * another process's file, and one malformed row must not hide a real owner.
+ */
+export function findBackgroundSessionOwner(
+  configDir: string,
+  providerSessionId: string | null | undefined,
+): ClaudeBackgroundSessionOwner | null {
+  if (!providerSessionId) {
+    return null;
+  }
+  let files: string[];
+  try {
+    files = readdirSync(join(configDir, 'sessions'));
+  } catch {
+    return null;
+  }
+  for (const file of files) {
+    if (!file.endsWith('.json')) {
+      continue;
+    }
+    let row: AnyRecord;
+    try {
+      row = JSON.parse(readFileSync(join(configDir, 'sessions', file), 'utf8'));
+    } catch {
+      continue;
+    }
+    if (row?.kind !== 'bg' || row.sessionId !== providerSessionId || typeof row.pid !== 'number') {
+      continue;
+    }
+    if (!isRegistryProcessAlive(row.pid, typeof row.procStart === 'string' ? row.procStart : null)) {
+      continue;
+    }
+    return {
+      pid: row.pid,
+      jobId: typeof row.jobId === 'string' && row.jobId ? row.jobId : providerSessionId.slice(0, 8),
+      name: typeof row.name === 'string' && row.name ? row.name : null,
+    };
+  }
+  return null;
+}
+
+/**
+ * The refusal to resume a conversation a background job is holding.
+ *
+ * Thrown from the resident launch before any process exists, for the same reason
+ * the Remote Control gate throws: the run has no room for an answer, and the
+ * dispatch already handles a rejected run. `code` and `owner` are fields so a
+ * caller branches on values; `message` is the sentence the user reads.
+ */
+export class ClaudeSessionOccupiedError extends Error {
+  readonly code = 'session-occupied';
+  readonly owner: ClaudeBackgroundSessionOwner;
+
+  constructor(owner: ClaudeBackgroundSessionOwner) {
+    super(
+      `该会话正由 Claude Code 后台任务占用（job ${owner.jobId}，pid ${owner.pid}），CloudCLI 无法接管。` +
+        `请先执行 \`claude stop ${owner.jobId}\` 停止它后重试，或 fork 该会话。`,
+    );
+    this.name = 'ClaudeSessionOccupiedError';
+    this.owner = owner;
+  }
 }
 
 /**
@@ -2820,6 +2941,15 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
     // "what this driver last said about this session", and a user who turned
     // Remote Control off and started again must not keep reading the old no.
     this.refusals.delete(appSessionId);
+
+    // The occupancy gate: a conversation a Claude Code background job is running
+    // cannot be resumed (the CLI exits 1 on stderr, which this app drops), so
+    // the launch is refused before anything is built or spawned. Asked of the
+    // CLI's own registry, the same one `readCliSessionRegistration` reads.
+    const occupant = findBackgroundSessionOwner(configDir, context.resolveProviderSessionId(appSessionId));
+    if (occupant) {
+      throw new ClaudeSessionOccupiedError(occupant);
+    }
 
     const resolvedModel = await context.resolveResumeModel(appSessionId, options.model);
     let effortModels: unknown;
