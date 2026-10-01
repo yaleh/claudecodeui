@@ -46,13 +46,13 @@ DIV.not-prose (思考块整块)                   h=36   = 20 + 16
 
 ## AC
 
-- [ ] **类契约（jsdom）**：新增 `src/modules/chat/tests/reasoningCollapsedSpacing.test.tsx`，渲染 `open=false` 的 `Reasoning`，断言「挂在会收起的那层元素（`data-state="closed"` 的 grid 容器）上的垂直外边距类集合为空」，且 16px 的间隔位于其内部 `overflow-hidden` 包裹层之内（而不是在它自己身上）。该断言在 develop 上必须为**红**（当前 `mt-4` 正挂在该层）。`npx vitest run src/modules/chat/tests/reasoningCollapsedSpacing.test.tsx` 退出码 0。
-- [ ] **展开态未被削弱，且可独立反红**：同一文件断言 `open=true` 时 trigger 与思考正文之间仍保留 16px 的间隔（落在收起盒子内部）。此用例与上一条必须能**分别**反红——上一条红时它仍绿。
-- [ ] **抗假变体真跑**：把修复回退（把 `mt-4` 放回 `CollapsibleContent` 的 `className`）⇒ 第一条变红而第二条仍绿；还原后全绿。完成记录贴出两次运行的实际输出与退出码。
-- [ ] **既有相关用例全绿**：`npx vitest run src/modules/chat/tests/` 退出码 0。
-- [ ] `npm run typecheck` 退出码 0；`npm run lint`（`oxlint src/ server/ scripts/ shared/`）退出码 0。
-- [ ] **浏览器取证（几何，真实 app）**：在真实 app 里量一个收起态思考块所在 `.chat-message` 行的 `getBoundingClientRect().height`，登记**三个读数**：(i) 修前该行高度（预期 36px），(ii) 修后同一行高度（预期 20px），(iii) 同一行 trigger 自身的 `h`（预期恒为 20px，证明降掉的是死 margin、不是标签）。⛔ 三个读数缺任何一个这条取证不成立；⛔ 必须写明取证用的会话 id 与滚动位置（转写是虚拟化的，按 `.chat-message` 行数做判据会失真）。修前读数即为该仪器的正控制——只有它读到 36px，修后的 20px 才不是惰性读数。
-- [ ] `git diff develop --name-only` 的全部改动都落在 Touches 内。
+- [x] **类契约（jsdom）**：新增 `src/modules/chat/tests/reasoningCollapsedSpacing.test.tsx`，渲染 `open=false` 的 `Reasoning`，断言「挂在会收起的那层元素（`data-state="closed"` 的 grid 容器）上的垂直外边距类集合为空」，且 16px 的间隔位于其内部 `overflow-hidden` 包裹层之内（而不是在它自己身上）。该断言在 develop 上必须为**红**（当前 `mt-4` 正挂在该层）。`npx vitest run src/modules/chat/tests/reasoningCollapsedSpacing.test.tsx` 退出码 0。
+- [x] **展开态未被削弱，且可独立反红**：同一文件断言 `open=true` 时 trigger 与思考正文之间仍保留 16px 的间隔（落在收起盒子内部）。此用例与上一条必须能**分别**反红——上一条红时它仍绿。
+- [x] **抗假变体真跑**：把修复回退（把 `mt-4` 放回 `CollapsibleContent` 的 `className`）⇒ 第一条变红而第二条仍绿；还原后全绿。完成记录贴出两次运行的实际输出与退出码。
+- [x] **既有相关用例全绿**：`npx vitest run src/modules/chat/tests/` 退出码 0。
+- [x] `npm run typecheck` 退出码 0；`npm run lint`（`oxlint src/ server/ scripts/ shared/`）退出码 0。
+- [x] **浏览器取证（几何，真实 app）**：在真实 app 里量一个收起态思考块所在 `.chat-message` 行的 `getBoundingClientRect().height`，登记**三个读数**：(i) 修前该行高度（预期 36px），(ii) 修后同一行高度（预期 20px），(iii) 同一行 trigger 自身的 `h`（预期恒为 20px，证明降掉的是死 margin、不是标签）。⛔ 三个读数缺任何一个这条取证不成立；⛔ 必须写明取证用的会话 id 与滚动位置（转写是虚拟化的，按 `.chat-message` 行数做判据会失真）。修前读数即为该仪器的正控制——只有它读到 36px，修后的 20px 才不是惰性读数。
+- [x] `git diff develop --name-only` 的全部改动都落在 Touches 内。
 
 ## DoD
 
@@ -68,6 +68,113 @@ DIV.not-prose (思考块整块)                   h=36   = 20 + 16
 
 L_D 该轴仍暗，理由：本条是前端间距缺陷，不产出数据/文档语义轴上的量化读数。
 L_G 该轴仍暗，理由：同上；判定面由本任务自己的 AC 承担，不新增 goal 判据。
+
+## 完成记录
+
+**结论：16px 死 margin 挂在常驻的高度动画容器上。** 改动两处：`Reasoning.tsx` 去掉挂在那层上的 `mt-4`、把 16px 挪进 `overflow-hidden` 层内部的 `div.pt-4`；新增 `src/modules/chat/tests/reasoningCollapsedSpacing.test.tsx`。共享原语 `src/shared/ui/Collapsible.tsx` 未动。树 = 合并 develop `0621d582` 后的 `d15a7cfe`。
+
+### AC1 —— 类契约判据翻绿
+
+```
+$ npx vitest run src/modules/chat/tests/reasoningCollapsedSpacing.test.tsx
+ ✓ src/modules/chat/tests/reasoningCollapsedSpacing.test.tsx (2 tests) 32ms
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+EXIT=0
+```
+
+### AC2 / AC3 —— 两条用例分别反红（三臂实测）
+
+三个臂各跑一次同一个文件。臂 2 = `git checkout develop -- src/modules/chat/transcript/Reasoning.tsx`（即把 `mt-4` 放回 `CollapsibleContent` 的 `className`，这正是 develop 的实现）；臂 3 = 把 16px 整个删掉（去掉内层 `pt-4` 包裹，其余同修复树）。每臂跑完都以 `git checkout HEAD -- <file>` 还原。
+
+```
+臂 1  修复树        : ✓(a) ✓(b)   EXIT=0   Tests 2 passed (2)
+臂 2  develop       : ×(a) ✓(b)   EXIT=1   Tests 1 failed | 1 passed (2)
+   × (a) collapsed: the collapsing container bears no vertical spacing, and the gap sits inside the clip layer
+     → … it carries ["mt-4"] (class="grid transition-[grid-template-rows] duration-200 ease-out grid-rows-[0fr] mt-4 text-sm text-muted-foreground")
+臂 3  16px 删干净    : ✓(a) ×(b)   EXIT=1   Tests 1 failed | 1 passed (2)
+   × (b) open: the 16px trigger-to-body gap is preserved
+     → … an open Reasoning must still bear a 16px vertical step in its collapsing container;
+        the container carries ["grid … grid-rows-[1fr] text-sm text-muted-foreground","overflow-hidden"]
+```
+
+臂 2 红 (a) 而 (b) 仍绿、臂 3 红 (b) 而 (a) 仍绿 ⇒「收起态不再白占 16px」与「展开态仍有 16px」各自独立可反红，单向改动拿不到满分（只删 16px 过不了臂 3 那关，只把 `mt-4` 留在原地过不了臂 2 那关）。
+
+首版 (b) 额外要求 16px 落在 clip 层内部，导致臂 2 两条一起红、独立性丧失；已改为只要求「收起盒子的子树里仍有 16px 垂直步进」（位置归 (a) 管），见 `d15a7cfe`。这一改正是被上面的臂 2 实测逼出来的。
+
+### AC4 —— 既有相关用例
+
+```
+$ npx vitest run src/modules/chat/tests/
+ Test Files  58 passed (58)
+      Tests  410 passed (410)
+EXIT=0
+```
+
+### AC5 —— typecheck / lint
+
+```
+$ npm run typecheck
+EXIT=0
+$ npx oxlint src/ server/ scripts/ shared/
+EXIT=0   （输出 4 条既有 warning，均不在本条文件：useGitHubStars.ts / SidebarProjectItem.tsx / agent.routes.ts / message-unification.test.ts）
+```
+
+### AC6 —— 浏览器取证（三个读数）
+
+**环境。** 隔离实例上的真实 app：真服务端（`npx tsx server/index.ts`，`HOME` 与 `DATABASE_PATH` 指向本次 run 的私有 dataDir）+ 真 Vite/Tailwind 客户端 + 真 Chromium，即仓库自带的 e2e harness；几何量的是 `getBoundingClientRect()`，间距从 `getComputedStyle()` 读。
+
+**与 DoD(d) 里那句 «:3001» 的出入，如实登记：** 没有在 :3001 上取。那个实例是常驻共享、JWT 保护的，它的客户端包要重打包并重启才会带修复——而重启 :3001 是本机规约明确禁止的（会话自己就挂在它上面）。修前臂改在同一隔离实例上取：`git checkout develop -- src/modules/chat/transcript/Reasoning.tsx` 后重跑同一探针，**同一夹具、同一会话、同一滚动位置，唯一变量是那一个文件**——这比「换一个 app 实例再比一次」更严，正控制的语义（只有修前那一臂读到 36px）完整保留。
+
+**会话与位置。** 会话 id `e2e-reasoning-spacing`（URL `/session/e2e-reasoning-spacing`），滚动位置 `scrollTop = 0`。取证前 `scrollIntoViewIfNeeded()`，读数当场取自已挂载的目标行——没有被虚拟化裁掉（DoD(d) 要求写明的那一点）。夹具有一段 user 记录 + **两条连续的 assistant 记录**，待测的是第二条：`isGrouped` 为真 ⇒ 该行没有头像/名字表头、`shouldShowAssistantCopyControl` 因 `isThinking` 为假、页脚也不渲染，于是整行只有收起态的思考块，**行高即块高**，16px 全部体现在行高差上。
+
+```
+(i)  修前，同一行 .chat-message.assistant.grouped  h=36
+     grid: h=0  marginTop=16px  paddingTop=0px  data-state=closed
+     class="grid transition-[grid-template-rows] duration-200 ease-out grid-rows-[0fr] mt-4 text-sm text-muted-foreground"
+     链：button 20 → div.not-prose 36 → div.w-full 36 → div.w-full 36 → .chat-message 36
+
+(ii) 修后，同一行                                    h=20
+     grid: h=0  marginTop=0px   paddingTop=0px  data-state=closed
+     class="grid transition-[grid-template-rows] duration-200 ease-out grid-rows-[0fr] text-sm text-muted-foreground"
+     链：button 20 → div.not-prose 20 → div.w-full 20 → div.w-full 20 → .chat-message 20
+
+(iii) trigger 自身 h：修前 20、修后 20（两臂同为 20）
+      两臂的 trigger 文本都是 "Thought for a few seconds"
+```
+
+`grid` 的 `marginTop` 从修前的实读 `16px` 变成修后的 `0px`：这台仪器在这个实例上是活的（同一个读数在 jsdom 里是常数惰性值，在浏览器里不是），而 (i) 就是它的正控制——**只有修前那一臂读到 36px，修后的 20px 才不是惰性读数**。三臂的 trigger 恒为 20px，证明降掉的是那 16px 死 margin，不是把标签一起削了。
+
+（探针是临时 spec + 临时 config 改动，取完已 `rm` / `git checkout HEAD --` 还原，`git status` 干净；上面两次运行的 `npx playwright test e2e/tmp-reasoning-spacing.spec.ts --workers=1` 各自 11.1s / 11.3s 通过。）
+
+### AC7 —— 改动范围
+
+```
+$ git diff develop --name-only
+src/modules/chat/tests/reasoningCollapsedSpacing.test.tsx
+src/modules/chat/transcript/Reasoning.tsx
+```
+
+两条都在 Touches 内。
+
+### DoD(c) —— 范围隔离，逐条
+
+其余四处 `CollapsibleContent` 用法都**没有传 `className`**，因此不携带任何 margin、不受本条影响；据此本条**不需要**碰共享原语：
+
+- `src/modules/chat/tools/PlanDisplay.tsx:84` —— 裸 `<CollapsibleContent>`，无 `className`
+- `src/modules/chat/tools/PlanDisplay.tsx:110` —— 同上
+- `src/modules/chat/tools/CollapsibleSection.tsx:90` —— 同上
+- `src/modules/chat/tools/CollapsibleDisplay.tsx:77` —— 同上
+
+```
+$ git diff develop -- src/shared/ui/Collapsible.tsx | wc -l
+0
+```
+
+### 落地产物
+
+- `src/modules/chat/transcript/Reasoning.tsx` —— `ReasoningContent` 去掉 `CollapsibleContent` 上的 `mt-4`，16px 由 clip 层内部的 `div.pt-4` 承担（含注释说明为何不能挂在那层上）
+- `src/modules/chat/tests/reasoningCollapsedSpacing.test.tsx`（新）—— (a) 收起态类契约 + (b) 展开态不削弱，两条独立可反红
 
 ## Touches
 
