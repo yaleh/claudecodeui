@@ -47,12 +47,12 @@ goal_ac: AC-172
 
 ## AC
 
-- [ ] AC1 有界客户端预热真实生效：`e2e/resident-status-bar.spec.ts` 里有 `warmClientStartup`（或等价命名）的定义与「任何页面之前」的调用，逐 URL 带 deadline，非 200 / 超时按 url 指名抛错。验证：`grep -n "warmClientStartup" e2e/resident-status-bar.spec.ts` 同时命中定义行与调用行，且 `npm run typecheck` 退出 0。
-- [ ] AC2 启动导航走有界探针：`grep -n "page\.goto(\|page\.reload(" e2e/resident-status-bar.spec.ts` 里**启动**那一次（原 `:554`）落在探针函数体内部；`:793` / `:877` 两处故意重连保持原样并逐行说明为何不搬。探针耗尽预算时抛出携带页面文本与 `requestfailed` 列表的错误。验证：`grep -n` 输出逐行落界 + typecheck 退出 0。
-- [ ] AC3 有界失败的实测：把探针落点临时指向一个不可能存在的 sentinel 后，`npx playwright test e2e/resident-status-bar.spec.ts` 在 **30s 内**以非零退出，且输出里带页面文本与失败请求列表；还原后该读数与还原读数一并登记。验证：两次运行的 `echo $?` 与 wall time。
-- [ ] AC4 判据在负载下连续绿：`npx playwright test e2e/resident-status-bar.spec.ts` 连续 ≥5 次全部 `exit 0`，且每一次 wall < 55_000ms（一次都不触发 55s 看门狗 / 60s 门限），其中至少一次与 ≥4 份兄弟 spec 并发。验证：逐次 `echo $?` + wall time。**如实登记**：本机负载高（本轮实测 load1 ≈ 10.5–13），并发那一次若兄弟 spec 自己红，须点名归因，不得算到本条头上。
-- [ ] AC5 判定面未变：`git diff develop -- package.json playwright.config.ts` 为空；`git diff develop -- e2e/resident-status-bar.spec.ts | grep -c "^-.*expect("` 为 **0**；判据命令 `npx playwright test e2e/resident-status-bar.spec.ts` 与 AC 记录里 `criterion:` 逐字一致。验证：三条命令的逐字输出。
-- [ ] AC6 AC-172 的两条假形态仍然红（承重）：(i) 把状态条改成读本地状态而不读宿主接口（场景切换状态后读数不再跟随宿主）⇒ 判据退出**非 0**，红落在四态那条断言上；(ii) 把无人轮渲染成用户消息样式（`isUserStyle` 为真 / 去掉 `unattended` 行类）⇒ 判据退出**非 0**，红落在无人轮那条断言上。两条都登记变异 diff、失败断言逐字、退出码；恢复后判据回到 0。验证：两次变异跑与两次还原跑的 `echo $?`。
+- [x] AC1 有界客户端预热真实生效：`e2e/resident-status-bar.spec.ts` 里有 `warmClientStartup`（或等价命名）的定义与「任何页面之前」的调用，逐 URL 带 deadline，非 200 / 超时按 url 指名抛错。验证：`grep -n "warmClientStartup" e2e/resident-status-bar.spec.ts` 同时命中定义行与调用行，且 `npm run typecheck` 退出 0。
+- [x] AC2 启动导航走有界探针：`grep -n "page\.goto(\|page\.reload(" e2e/resident-status-bar.spec.ts` 里**启动**那一次（原 `:554`）落在探针函数体内部；`:793` / `:877` 两处故意重连保持原样并逐行说明为何不搬。探针耗尽预算时抛出携带页面文本与 `requestfailed` 列表的错误。验证：`grep -n` 输出逐行落界 + typecheck 退出 0。
+- [x] AC3 有界失败的实测：把探针落点临时指向一个不可能存在的 sentinel 后，`npx playwright test e2e/resident-status-bar.spec.ts` 在 **30s 内**以非零退出，且输出里带页面文本与失败请求列表；还原后该读数与还原读数一并登记。验证：两次运行的 `echo $?` 与 wall time。
+- [x] AC4 判据在负载下连续绿：`npx playwright test e2e/resident-status-bar.spec.ts` 连续 ≥5 次全部 `exit 0`，且每一次 wall < 55_000ms（一次都不触发 55s 看门狗 / 60s 门限），其中至少一次与 ≥4 份兄弟 spec 并发。验证：逐次 `echo $?` + wall time。**如实登记**：本机负载高（本轮实测 load1 ≈ 10.5–13），并发那一次若兄弟 spec 自己红，须点名归因，不得算到本条头上。
+- [x] AC5 判定面未变：`git diff develop -- package.json playwright.config.ts` 为空；`git diff develop -- e2e/resident-status-bar.spec.ts | grep -c "^-.*expect("` 为 **0**；判据命令 `npx playwright test e2e/resident-status-bar.spec.ts` 与 AC 记录里 `criterion:` 逐字一致。验证：三条命令的逐字输出。
+- [x] AC6 AC-172 的两条假形态仍然红（承重）：(i) 把状态条改成读本地状态而不读宿主接口（场景切换状态后读数不再跟随宿主）⇒ 判据退出**非 0**，红落在四态那条断言上；(ii) 把无人轮渲染成用户消息样式（`isUserStyle` 为真 / 去掉 `unattended` 行类）⇒ 判据退出**非 0**，红落在无人轮那条断言上。两条都登记变异 diff、失败断言逐字、退出码；恢复后判据回到 0。验证：两次变异跑与两次还原跑的 `echo $?`。
 
 ## DoD
 
@@ -62,3 +62,29 @@ goal_ac: AC-172
 
 - e2e/resident-status-bar.spec.ts
 - tasks/gap-resident-status-bar-criterion-bounded-boot-guard.md
+
+## 完成记录（2026-10-01）
+
+**实现**：提交 `b57428a1`（本任务分支，基于 develop `26e80987`）。只改 `e2e/resident-status-bar.spec.ts`（+248 / −4）。把家族既有两杠杆搬进启动路径：`warmClientStartup(clientUrl)`（`beforeAll` 内、`browser.newContext()/newPage()` 之前；对 `/`、`/src/main.tsx`、entry 里解析出的一个本次运行优化依赖 URL 逐 URL 带 deadline 取到 200，非 200 / 超时按 url+status 指名抛错，含「客户端接了连接却不答」）与 `navigateBounded(page, projectRowLanding, 'first-load')`（该 spec 的启动导航 `page.goto('/')` 已落进探针函数体；探到夹具项目行即返回，探不到就在 14s deadline 内 `page.reload()` 重放，耗尽则带页面文本 + `requestfailed` 列表抛错）。`:1034` / `:1121` 两处故意重连保持原样，各加一行说明为何不搬。
+
+**AC1** `grep -n "warmClientStartup" e2e/resident-status-bar.spec.ts` → 定义 `:487`、调用 `:757`（定义行与调用行都命中）；`npm run typecheck` 退出 **0**（`tsconfig.json` + `server/tsconfig.json` + `scripts/tsconfig.json` 三条链）。
+
+**AC2** `grep -n "page\.goto(\|page\.reload(" e2e/resident-status-bar.spec.ts` → `:623`（`goto('/')`）、`:625`（探针内的 replay `reload()`）落在 `navigateBounded`（`:611`–`:646`）函数体内；函数体外只剩 `:1034`、`:1121` 两处故意重连，均带「deliberately not moved behind `navigateBounded`」逐行说明。探针耗尽预算时抛出的错误逐字见 AC3。typecheck 退出 0。
+
+**AC3**（有界失败实测）落点临时改为 `page.locator('[data-startup-probe-sentinel-never-renders]')`：判据 `EXIT=1`，wall **22327ms**（< 30s），输出逐字 `Error: the project row for resident-status-bar-workspace never rendered, so this run's client never came up to a document that stays (the navigation itself failed: page.reload: Timeout 189ms exceeded. …): the page shows ""; console errors: <none>; failed requests: <none>`。还原（`git checkout --`）后判据 `EXIT=0`、wall **32034ms**（另一次确认 `EXIT=0`、wall 31920ms）。
+
+**AC4**（负载下连续绿；本机 load1 ≈ 10.9–13.2）还原后连续 5 次：`#1 EXIT=0 wall=31824ms`、`#2 32152ms`、`#3 31991ms`、`#4 32131ms`、`#5 32610ms` —— 全部 `exit 0` 且 wall < 55_000（无一看门狗 / 60s 门限）。并发一次：与 `resident-running-view`、`resident-ui-layout`、`session-filter`、`transcript-follow` 四份兄弟 spec 同跑，**目标判据 `EXIT=0 wall=32458ms`（4 passed）**。兄弟 `running-view` / `ui-layout` / `session-filter` 分别 3 / 3 / 5 passed；`transcript-follow` **EXIT=1**（wall=55296ms）—— **点名归因**：红是它自己的断言 `e2e/transcript-follow.spec.ts:3108`（`a whole row arriving while pinned keeps the pane at the bottom`，逐字 `row 0 has to arrive taller than the pane it arrives in …`），且**无并发单独跑同样 `EXIT=1 wall=54494ms`**；该文件不在本任务 Touches、本任务 diff 未触及，属宿主负载下的既有红，不计入本条。
+
+**AC5** `git diff develop -- package.json playwright.config.ts` → 空；`git diff develop -- e2e/resident-status-bar.spec.ts | grep -c "^-.*expect("` → **0**；`git diff --stat develop` → 仅 `e2e/resident-status-bar.spec.ts | 248 ++++…`（1 file，+248 −4）；判据命令逐字 `npx playwright test e2e/resident-status-bar.spec.ts`，与 `goals/AC-172-*.md` 的 `criterion:` 一致。
+
+**AC6**（承重假形态，逐字复现 AC-172 的两条臂）：
+
+(i) 状态条加一个本地镜像（`localStateEcho`，由自身 start/close 写入、永不从 `GET /api/session-hosts` 刷新），`processState = localStateEcho.get(sessionId) ?? readResidentProcessState(host)`；diff 见 `/tmp/ac6-sb-armA.diff`。判据 `EXIT=1`（wall **26128ms**），红**落在四态那条断言**上，逐字 `Error: expect(locator).toHaveAttribute(expected) failed` / `Expected: "busy"` / `Received: "idle"`（`e2e/resident-status-bar.spec.ts:976`），同跑打印 `data-resident-host-state="busy"` 而 `data-resident-ui-state="idle"`。
+
+(ii) `rendersAsUser = message.type === 'user' || message.type === UNATTENDED_TURN_MESSAGE_TYPE`；diff 见 `/tmp/ac6-sb-armB.diff`。判据 `EXIT=1`（wall **32575ms**），红**落在无人轮那条断言**上，逐字 `Error: a turn nobody typed must not wear the user's own bubble style` / `Expected: not "user"`，同跑打印 `row.class=user isUserStyle=true`（两条无人轮）。
+
+两臂还原（`git checkout --`）后判据回到 `EXIT=0`、wall 31877ms。
+
+**守卫自身的原始输出行**：`[e2e] client warm-up: pre-bundle committed in 1433ms`；`[e2e] client startup: the project row for resident-status-bar-workspace landed after 2195ms (attempt 1)`。
+
+**本仓修的是响应方式**：无界等待（`revealSession` 的 30s `waitFor`）→ 有界重放（预热 + 探针 + `page.reload()`）。触发源（本次运行自己的 Vite 依赖冷预构建 / 重优化）由 `seedViteCache()` 在共享缓存无效时的静默降级决定，不在本仓可控范围内 —— 预热把这个代价移出测量窗口，因此这条判据的稳定性依赖守卫，而不是依赖触发源消失。本任务**不**改四态语义、**不**回退 `gap-claude-resident-status-bar` 已落对的断言（四个用例的 `expect` 一字未改由 AC5 机械证明）。
