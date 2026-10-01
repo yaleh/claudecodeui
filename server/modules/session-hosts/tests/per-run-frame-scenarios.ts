@@ -79,6 +79,10 @@ export const MID_STREAM_LAST_SEQ = 1;
  * - `id`: minted per frame as `<kind>_<randomUUID()>` by
  *   `createNormalizedMessage` when the provider row carries no id of its own,
  *   which none of the forged streams do.
+ * - `runId`: the run registry mints one `randomUUID()` per run and stamps it on
+ *   every frame that run emits, so no two drives of a scenario can carry the
+ *   same value — the same instability as `id`, for the same reason (a fresh
+ *   random id per run), on a field the per-run identity work added.
  *
  * `kind` and `seq` are never dropped, and no whole frame is ever dropped:
  * frame count and order are compared strictly, one frame at a time. Any further
@@ -86,7 +90,7 @@ export const MID_STREAM_LAST_SEQ = 1;
  * with the reading that forced it — the recorder refuses to write a baseline it
  * cannot reproduce byte for byte.
  */
-export const UNSTABLE_FRAME_FIELDS = ['id', 'timestamp'] as const;
+export const UNSTABLE_FRAME_FIELDS = ['id', 'timestamp', 'runId'] as const;
 
 export function projectFrame(frame: Frame): Frame {
   const projected: Frame = {};

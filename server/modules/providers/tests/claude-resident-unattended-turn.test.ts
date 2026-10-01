@@ -493,15 +493,19 @@ function getJson(url: string): Promise<{ status: number; body: string }> {
  * A canonical projection of one frame, for comparing a recorded row against the
  * normalizer's output.
  *
- * The registry decorates every recorded row with the app session id and its
- * `seq`; those are the only fields the run log adds, so removing them leaves the
- * normalizer's own frame — which is what the comparison is about.
+ * The registry decorates every recorded row with the app session id, its `seq`
+ * and the `runId` of the run that owns that `seq`; those are the only fields the
+ * run log adds, so removing them leaves the normalizer's own frame — which is
+ * what the comparison is about. `runId` is registry bookkeeping like `seq`
+ * (minted by `startRun`, never emitted by the normalizer), so it is stripped
+ * here for the same reason and not because the frame's payload changed.
  */
 function frameProjection(frame: Record<string, unknown>): string {
   const copy: Record<string, unknown> = { ...frame };
   delete copy.seq;
   delete copy.sessionId;
   delete copy.actualSessionId;
+  delete copy.runId;
   return JSON.stringify(Object.entries(copy).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 }
 

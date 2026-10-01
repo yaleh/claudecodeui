@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { sessionsDb } from '@/modules/database/index.js';
 import { ChatSessionWriter } from '@/modules/websocket/services/chat-session-writer.service.js';
 import { broadcastSessionUpserted } from '@/modules/websocket/services/session-upsert-broadcast.service.js';
@@ -20,6 +22,11 @@ type ChatRunStatus = 'running' | 'completed';
  * - `status`: drives `chat_subscribed.isProcessing`, prevents double sends
  *   into the same session, and guards the synthetic-complete fallback in the
  *   chat handler (only emitted when a runtime died without completing).
+ * - `runId`: opaque identity for this run, minted once in `startRun`. `seq` is
+ *   numbered per run, so it is the `runId` that tells a reconnecting client
+ *   whether its cursor still belongs to the run now in flight: the same id
+ *   means `seq > lastSeq`, a different one means the cursor predates this run
+ *   and replay must start at its first event.
  * - `lastSeq` / `events`: the per-run event log. Every live event gets a
  *   monotonically increasing `seq` and is buffered so a reconnecting client
  *   can replay exactly the events it missed via `chat.subscribe`.
@@ -30,6 +37,7 @@ type ChatRunStatus = 'running' | 'completed';
  */
 type ChatRun = {
   appSessionId: string;
+  runId: string;
   provider: LLMProvider;
   providerSessionId: string | null;
   source: ChatRunSource;
@@ -83,7 +91,8 @@ function evictRunLater(appSessionId: string): void {
  * Responsibilities:
  * 1. Remap `sessionId` (and `actualSessionId` on `complete`) to the stable
  *    app session id — provider-native ids never leave the backend.
- * 2. Assign the next `seq` so clients can detect/replay gaps.
+ * 2. Assign the next `seq` so clients can detect/replay gaps, and stamp the
+ *    run's `runId` so a client can tell which run that `seq` belongs to.
  * 3. Buffer the event for `chat.subscribe` replay.
  * 4. Flip the run to `completed` when the terminal `complete` event passes by.
  */
@@ -102,6 +111,7 @@ function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): Norma
     ...message,
     sessionId: run.appSessionId,
     seq: run.lastSeq,
+    runId: run.runId,
   };
 
   if (message.kind === 'complete') {
@@ -224,6 +234,7 @@ export const chatRunRegistry = {
 
     const run: ChatRun = {
       appSessionId: input.appSessionId,
+      runId: randomUUID(),
       provider: input.provider,
       providerSessionId: input.providerSessionId,
       source: input.source ?? (input.connection ? 'user' : 'scheduled'),
@@ -341,16 +352,24 @@ export const chatRunRegistry = {
   /**
    * Returns buffered events with `seq` greater than `afterSeq` for replay.
    *
+   * `runId` is the run the caller's `afterSeq` was recorded against. `seq` is
+   * numbered per run, so a cursor recorded against a *different* run than the
+   * one currently in flight means nothing here: `afterSeq` is ignored and the
+   * run replays from its first event. A matching `runId`, or none at all (a
+   * client that predates run ids, or an internal caller), keeps the plain
+   * `seq > afterSeq` rule.
+   *
    * An empty array with `run.lastSeq > afterSeq` not covered by the buffer
    * means the buffer was truncated; the client should refresh over REST.
    */
-  replayEvents(appSessionId: string, afterSeq: number): NormalizedMessage[] {
+  replayEvents(appSessionId: string, afterSeq: number, runId?: string): NormalizedMessage[] {
     const run = runs.get(appSessionId);
     if (!run) {
       return [];
     }
 
-    return run.events.filter((event) => typeof event.seq === 'number' && event.seq > afterSeq);
+    const effectiveAfterSeq = runId !== undefined && runId !== run.runId ? 0 : afterSeq;
+    return run.events.filter((event) => typeof event.seq === 'number' && event.seq > effectiveAfterSeq);
   },
 
   /**

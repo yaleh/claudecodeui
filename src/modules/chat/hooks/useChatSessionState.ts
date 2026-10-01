@@ -2,8 +2,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { MutableRefObject } from 'react';
 
 import { api } from '@/shared/api';
-import type { MarkSessionIdle, SessionActivityMap,Project,ProjectSession,LLMProvider,NormalizedMessage,ChatMessage,DiffCalculator } from '@/shared/types';
+import type { MarkSessionIdle, SessionActivityMap,Project,ProjectSession,LLMProvider,NormalizedMessage,ChatMessage,DiffCalculator,ChatReplayCursorMap } from '@/shared/types';
 import type { SessionStore } from '@/modules/chat/hooks/useSessionStore';
+import { subscribeTargetFor } from '@/modules/chat/utils/replayCursor';
 import { SESSION_MESSAGES_PAGE_SIZE } from '@/modules/chat/utils/sessionMessagePagination';
 import { createMessageHistoryRefreshCoordinator } from '@/modules/chat/utils/messageHistoryRefreshCoordinator';
 import { createCachedDiffCalculator } from '@/modules/chat/utils/messageTransforms';
@@ -160,8 +161,8 @@ type UseChatSessionStateArgs = {
   resetStreamingState: () => void;
   /** When each session's `chat.subscribe` was last sent; guards stale idle acks. */
   statusCheckSentAtRef: MutableRefObject<Map<string, number>>;
-  /** Highest live seq observed per session; sent as `lastSeq` on subscribe. */
-  lastSeqRef: MutableRefObject<Map<string, number>>;
+  /** Per-session replay cursor; sent as `lastSeq` (plus `runId`) on subscribe. */
+  lastSeqRef: MutableRefObject<ChatReplayCursorMap>;
   sessionStore: SessionStore;
 };
 
@@ -1260,10 +1261,7 @@ export function useChatSessionState({
     statusCheckSentAtRef.current.set(selectedSession.id, Date.now());
     sendMessage({
       type: 'chat.subscribe',
-      sessions: [{
-        sessionId: selectedSession.id,
-        lastSeq: lastSeqRef.current.get(selectedSession.id) ?? 0,
-      }],
+      sessions: [subscribeTargetFor(selectedSession.id, lastSeqRef.current.get(selectedSession.id))],
     });
   }, [lastSeqRef, selectedProject, selectedSession, sendMessage, statusCheckSentAtRef, ws]);
 

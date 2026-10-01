@@ -140,8 +140,14 @@ flowchart TD
 
 1. **Unified envelope**: every server-to-client frame carries a `kind` — either a provider `NormalizedMessage` kind or a gateway kind (`chat_subscribed`, `session_upserted`, `loading_progress`, `protocol_error`). There is no second `type`-based protocol.
 2. **Unified terminal lifecycle**: every provider run ends with exactly one `complete` message built by `createCompleteMessage()` (`server/shared/utils.ts`): `{ kind: "complete", sessionId, actualSessionId, exitCode, success, aborted }`. The chat handler emits a synthetic `complete` for runs that crash or get aborted, and the run registry drops duplicate completes.
-3. **Per-run event log**: every live event gets a monotonically increasing `seq`. `chat.subscribe { sessions: [{ sessionId, lastSeq }] }` re-attaches the live stream to the requesting socket (any provider, not just Claude) and replays events with `seq > lastSeq`. If the buffer no longer covers `lastSeq`, the client refreshes over REST.
-4. `chat_subscribed` includes `isProcessing` (replaces `check-session-status`) and `pendingPermissions` (replaces `get-pending-permissions`).
+3. **Per-run event log**: every live event gets a monotonically increasing `seq` **and** the `runId` of the run that produced it. `seq` is numbered per run, not per session, so it restarts at 1 on a session's second and later turns. `runId` is what lets a reconnecting client say which run its cursor belongs to.
+4. **Subscription replay**: `chat.subscribe { sessions: [{ sessionId, lastSeq, runId? }] }` re-attaches the live stream to the requesting socket (any provider, not just Claude) and replays missed events. The replay rule turns on `runId`:
+   - `runId` matches the current run (or is omitted): replay events with `seq > lastSeq`.
+   - `runId` differs from the current run: the client's `lastSeq` was recorded against an earlier run and means nothing here, so the current run replays from its first event.
+   - `runId` omitted by an older client: unchanged `seq > lastSeq` behavior.
+
+   The `chat_subscribed` ack carries the current run's `runId` (omitted when no run is in flight) and `lastSeq`, so a client can reset its cursor when the run changed. If the buffer no longer covers `lastSeq`, the client refreshes over REST.
+5. `chat_subscribed` includes `isProcessing` (replaces `check-session-status`) and `pendingPermissions` (replaces `get-pending-permissions`).
 
 ## `/shell` Terminal Flow
 

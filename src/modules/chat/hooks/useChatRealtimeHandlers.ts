@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 
-import type { ServerEvent,MarkSessionIdle,MarkSessionProcessing,PendingPermissionRequest,ProjectSession,LLMProvider,NormalizedMessage,CommandLifecycleState } from '@/shared/types';
+import type { ServerEvent,ChatReplayCursorMap,MarkSessionIdle,MarkSessionProcessing,PendingPermissionRequest,ProjectSession,LLMProvider,NormalizedMessage,CommandLifecycleState } from '@/shared/types';
+import { reconcileReplayCursorOnAck, recordReplayCursor } from '@/modules/chat/utils/replayCursor';
 import { showCompletionTitleIndicator } from '@/modules/chat/utils/pageTitleNotification';
 import { playChatCompletionSound, playNotificationSound } from '@/shared/utils';
 import type { SessionStore } from '@/modules/chat/hooks/useSessionStore';
@@ -60,12 +61,14 @@ type UseChatRealtimeHandlersArgs = {
   streamTimerRef: MutableRefObject<number | null>;
   accumulatedStreamRef: MutableRefObject<string>;
   /**
-   * Highest live `seq` observed per session. Essential for reconnect catch-up:
-   * `chat.subscribe` sends this value as `lastSeq` so the server replays only
-   * the events this client actually missed. Written here on every sequenced
-   * frame; read wherever a `chat.subscribe` is sent (session open, reconnect).
+   * The replay cursor observed per session: which run this client's `seq` count
+   * belongs to, and how far into it. Essential for reconnect catch-up:
+   * `chat.subscribe` sends the cursor's `lastSeq` — and its `runId`, when the
+   * cursor has one — so the server replays only the events this client actually
+   * missed. Written here on every sequenced frame and on every `chat_subscribed`
+   * ack; read wherever a `chat.subscribe` is sent (session open, reconnect).
    */
-  lastSeqRef: MutableRefObject<Map<string, number>>;
+  lastSeqRef: MutableRefObject<ChatReplayCursorMap>;
   /** When each session's `chat.subscribe` was last sent; guards stale idle acks. */
   statusCheckSentAtRef: MutableRefObject<Map<string, number>>;
   onSessionProcessing?: MarkSessionProcessing;
@@ -310,12 +313,17 @@ export function useChatRealtimeHandlers({
       const activeViewSessionId = activeViewSessionIdRef.current;
       const sid = (typeof msg.sessionId === 'string' && msg.sessionId) || activeViewSessionId;
 
-      // Record replay progress for every sequenced live event.
+      // Record replay progress for every sequenced live event. The cursor is
+      // run-aware: a frame from a run other than the stored one replaces the
+      // cursor rather than being folded into its high-water mark — `seq`
+      // restarts at 1 on a session's later turns, so keeping the older, larger
+      // number would make the new run's early frames look like ones already
+      // seen.
       if (sid && typeof msg.seq === 'number') {
-        const known = lastSeqRef.current.get(sid) ?? 0;
-        if (msg.seq > known) {
-          lastSeqRef.current.set(sid, msg.seq);
-        }
+        lastSeqRef.current.set(
+          sid,
+          recordReplayCursor(lastSeqRef.current.get(sid), { runId: msg.runId, seq: msg.seq }),
+        );
       }
 
       switch (msg.kind) {
@@ -337,6 +345,15 @@ export function useChatRealtimeHandlers({
           // Ack for chat.subscribe: authoritative processing state plus any
           // pending tool-permission prompts for the run.
           if (!sid) return;
+
+          // The ack names the run the server is on. A cursor recorded against a
+          // different run is stale the moment this arrives — the server is
+          // about to replay the acknowledged run from its start, and the seq
+          // carried over would suppress exactly the events that replay is for.
+          const reconciledCursor = reconcileReplayCursorOnAck(lastSeqRef.current.get(sid), msg);
+          if (reconciledCursor !== undefined) {
+            lastSeqRef.current.set(sid, reconciledCursor);
+          }
 
           if (msg.isProcessing) {
             onSessionProcessing?.(sid);

@@ -612,6 +612,12 @@ function handleChatSubscribe(
       ? Math.max(0, Math.floor(lastSeqRaw))
       : 0;
 
+    // The run the client's `lastSeq` was recorded against, if it tracks run
+    // ids. Omitted by clients that predate them (and by any client that has
+    // seen no run yet), which keeps the plain `seq > lastSeq` replay rule.
+    const runIdRaw = (target as AnyRecord).runId;
+    const requestedRunId = typeof runIdRaw === 'string' && runIdRaw.length > 0 ? runIdRaw : undefined;
+
     // A browser is now on this session. Reported before anything else in the
     // loop because it is about the session rather than about the run: a session
     // with no run in flight has no host change to trigger, and one that does is
@@ -631,21 +637,28 @@ function handleChatSubscribe(
     // Claude runtime, so they can be looked up directly.
     const pendingPermissions = dependencies.runtime.getPendingApprovalsForSession(sessionId);
 
-    sendJson(ws, {
+    // The ack names the run the server is currently on, so the client can
+    // reset a cursor that was recorded against an earlier run. Omitted when no
+    // run is in flight — there is no run identity to report.
+    const ack: AnyRecord = {
       kind: 'chat_subscribed',
       sessionId,
       isProcessing,
       lastSeq: run?.lastSeq ?? 0,
       pendingPermissions,
       timestamp: new Date().toISOString(),
-    });
+    };
+    if (run) {
+      ack.runId = run.runId;
+    }
+    sendJson(ws, ack);
 
     // Replay only for RUNNING runs, strictly after the ack. Completed runs
     // are fully persisted to the provider transcript and served over REST —
     // replaying them (e.g. after a page reload where the client's lastSeq is
     // 0) would duplicate messages the history fetch already returned.
     if (isProcessing) {
-      for (const event of chatRunRegistry.replayEvents(sessionId, lastSeq)) {
+      for (const event of chatRunRegistry.replayEvents(sessionId, lastSeq, requestedRunId)) {
         sendJson(ws, event);
       }
     }

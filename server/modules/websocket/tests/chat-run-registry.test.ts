@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -6,6 +7,7 @@ import test from 'node:test';
 
 import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
+import { handleChatConnection } from '@/modules/websocket/services/chat-websocket.service.js';
 import { connectedClients } from '@/modules/websocket/services/websocket-state.service.js';
 
 /**
@@ -19,6 +21,19 @@ class FakeConnection {
   send(data: string): void {
     this.frames.push(JSON.parse(data) as Record<string, unknown>);
   }
+}
+
+/** A socket the chat gateway can drive: an EventEmitter with the `ws` surface. */
+function createFakeSocket() {
+  const socket = new EventEmitter() as EventEmitter & {
+    readyState: number;
+    frames: Array<Record<string, unknown>>;
+    send: (data: string) => void;
+  };
+  socket.readyState = 1;
+  socket.frames = [];
+  socket.send = (data: string) => socket.frames.push(JSON.parse(data) as Record<string, unknown>);
+  return socket;
 }
 
 async function withIsolatedDatabase(runTest: () => void | Promise<void>): Promise<void> {
@@ -311,3 +326,155 @@ test('startRun rejects a second concurrent run for the same session', async () =
     assert.ok(third);
   });
 });
+
+/**
+ * Two turns of the same session, each with its own per-run `seq` space: run 1
+ * streams five frames and completes, run 2 streams three. Returns both runs so
+ * a case can replay against either one's identity.
+ */
+function seedTwoRuns(sessionId: string): {
+  firstRun: NonNullable<ReturnType<typeof chatRunRegistry.startRun>>;
+  secondRun: NonNullable<ReturnType<typeof chatRunRegistry.startRun>>;
+} {
+  const firstRun = chatRunRegistry.startRun({
+    appSessionId: sessionId,
+    provider: 'claude',
+    providerSessionId: null,
+    connection: null,
+    userId: null,
+  });
+  assert.ok(firstRun);
+  for (let i = 1; i <= 5; i += 1) {
+    firstRun.writer.send({ kind: 'stream_delta', provider: 'claude', sessionId: 'native', content: `run1-${i}` });
+  }
+  firstRun.writer.send({ kind: 'complete', provider: 'claude', sessionId: 'native', exitCode: 0 });
+
+  const secondRun = chatRunRegistry.startRun({
+    appSessionId: sessionId,
+    provider: 'claude',
+    providerSessionId: null,
+    connection: null,
+    userId: null,
+  });
+  assert.ok(secondRun);
+  for (let i = 1; i <= 3; i += 1) {
+    secondRun.writer.send({ kind: 'stream_delta', provider: 'claude', sessionId: 'native', content: `run2-${i}` });
+  }
+
+  return { firstRun, secondRun };
+}
+
+test('a cursor recorded against an earlier run replays the current run from its start', async () => {
+  await withIsolatedDatabase(() => {
+    sessionsDb.createAppSession('app-run-replay', 'claude', '/workspace/demo');
+    const { firstRun, secondRun } = seedTwoRuns('app-run-replay');
+
+    // The client's cursor is the high-water mark of run 1 (seq 5), which says
+    // nothing about run 2 — whose own numbering started over at 1. Carrying it
+    // over would suppress exactly the frames the client missed.
+    const staleCursor = chatRunRegistry.replayEvents('app-run-replay', 5, firstRun.runId);
+    assert.deepEqual(staleCursor.map((event) => event.seq), [1, 2, 3]);
+    assert.deepEqual(staleCursor.map((event) => event.content), ['run2-1', 'run2-2', 'run2-3']);
+
+    // A cursor recorded against the run actually in flight keeps the plain
+    // `seq > lastSeq` rule.
+    const currentCursor = chatRunRegistry.replayEvents('app-run-replay', 1, secondRun.runId);
+    assert.deepEqual(currentCursor.map((event) => event.seq), [2, 3]);
+
+    // No `runId` at all is an older client: behavior is unchanged, so a stale
+    // seq of 5 replays nothing from run 2.
+    assert.deepEqual(chatRunRegistry.replayEvents('app-run-replay', 5), []);
+    assert.deepEqual(
+      chatRunRegistry.replayEvents('app-run-replay', 0).map((event) => event.seq),
+      [1, 2, 3],
+    );
+  });
+});
+
+test('every live frame of a run carries that run\'s id, complete included', async () => {
+  await withIsolatedDatabase(() => {
+    sessionsDb.createAppSession('app-run-identity', 'claude', '/workspace/demo');
+    const connection = new FakeConnection();
+    const run = chatRunRegistry.startRun({
+      appSessionId: 'app-run-identity',
+      provider: 'claude',
+      providerSessionId: null,
+      connection,
+      userId: null,
+    });
+    assert.ok(run);
+    assert.equal(typeof run.runId, 'string');
+    assert.ok(run.runId.length > 0);
+
+    run.writer.send({ kind: 'stream_delta', provider: 'claude', sessionId: 'native', content: 'a' });
+    run.writer.send({ kind: 'text', provider: 'claude', sessionId: 'native', content: 'b' });
+    run.writer.send({ kind: 'complete', provider: 'claude', sessionId: 'native', exitCode: 0 });
+
+    assert.equal(connection.frames.length, 3);
+    // The terminal `complete` is stamped like every other frame, which is what
+    // lets a client reconcile its cursor at the end of a turn.
+    assert.deepEqual(connection.frames.map((frame) => frame.kind), ['stream_delta', 'text', 'complete']);
+    assert.deepEqual(
+      connection.frames.map((frame) => frame.runId),
+      [run.runId, run.runId, run.runId],
+    );
+
+    // The session's next turn is a different run, hence a different identity.
+    const nextRun = chatRunRegistry.startRun({
+      appSessionId: 'app-run-identity',
+      provider: 'claude',
+      providerSessionId: null,
+      connection: null,
+      userId: null,
+    });
+    assert.ok(nextRun);
+    assert.notEqual(nextRun.runId, run.runId);
+  });
+});
+
+test('chat.subscribe names the current run in the ack and replays from a stale run\'s first frame', async () => {
+  await withIsolatedDatabase(async () => {
+    sessionsDb.createAppSession('app-run-sub', 'claude', '/workspace/demo');
+    const { firstRun, secondRun } = seedTwoRuns('app-run-sub');
+
+    const socket = createFakeSocket();
+    handleChatConnection(
+      socket as never,
+      { user: { id: 1 } } as never,
+      {
+        runtime: { getPendingApprovalsForSession: () => [] } as never,
+        sessionHostManager: { attachViewer: () => {} } as never,
+      },
+    );
+    const handleMessage = socket.listeners('message')[0] as (raw: string) => Promise<void>;
+    const subscribe = async (target: Record<string, unknown>) => {
+      socket.frames = [];
+      await handleMessage(JSON.stringify({ type: 'chat.subscribe', sessions: [target] }));
+    };
+
+    // A cursor carried over from the run before this one: the ack names run 2,
+    // and the replay starts at run 2's first frame rather than honoring seq 5.
+    await subscribe({ sessionId: 'app-run-sub', lastSeq: 5, runId: firstRun.runId });
+    const staleAck = socket.frames.find((frame) => frame.kind === 'chat_subscribed');
+    assert.equal(staleAck?.runId, secondRun.runId);
+    assert.deepEqual(
+      socket.frames.filter((frame) => frame.kind === 'stream_delta').map((frame) => frame.seq),
+      [1, 2, 3],
+    );
+
+    // The run the cursor belongs to: plain `seq > lastSeq`.
+    await subscribe({ sessionId: 'app-run-sub', lastSeq: 1, runId: secondRun.runId });
+    const currentAck = socket.frames.find((frame) => frame.kind === 'chat_subscribed');
+    assert.equal(currentAck?.runId, secondRun.runId);
+    assert.deepEqual(
+      socket.frames.filter((frame) => frame.kind === 'stream_delta').map((frame) => frame.seq),
+      [2, 3],
+    );
+
+    // An older client omits `runId`: unchanged behavior, so a stale seq of 5
+    // still replays nothing.
+    await subscribe({ sessionId: 'app-run-sub', lastSeq: 5 });
+    assert.deepEqual(socket.frames.filter((frame) => frame.kind === 'stream_delta'), []);
+  });
+});
+
