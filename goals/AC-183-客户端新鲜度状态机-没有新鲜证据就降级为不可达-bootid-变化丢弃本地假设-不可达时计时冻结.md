@@ -1,7 +1,7 @@
 ---
 id: AC-183
 title: 客户端新鲜度状态机：没有新鲜证据就降级为不可达，bootId 变化丢弃本地假设，不可达时计时冻结
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-014
 criterion: npx vitest run src/modules/chat/tests/activityFreshness.test.ts
@@ -24,6 +24,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-01T14:30:21.760Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
