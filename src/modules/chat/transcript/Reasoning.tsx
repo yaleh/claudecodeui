@@ -187,11 +187,20 @@ export type ReasoningContentProps = {
 /** Body of Reasoning, used by MessageComponent. */
 export const ReasoningContent = React.memo<ReasoningContentProps>(
   ({ className, children, ...props }) => (
-    <CollapsibleContent
-      className={cn('mt-4 text-sm text-muted-foreground', className)}
-      {...props}
-    >
-      {children}
+    <CollapsibleContent className={cn('text-sm text-muted-foreground', className)} {...props}>
+      {/*
+       * The 16px gap between the trigger and the body lives *inside* the collapse
+       * box, on the layer `CollapsibleContent` clips with `overflow-hidden`.
+       *
+       * `CollapsibleContent` is a permanently mounted, height-animated element: when
+       * closed it only drives `grid-rows-[0fr]` and lets the clipped inner layer
+       * collapse to zero height — the element itself never unmounts. A `margin` (or
+       * `padding`) on that element therefore does not collapse with the height and
+       * keeps reserving its 16px while closed, turning a 20px label into a 36px row.
+       * Padding on the clipped layer is inside the zero-height box, so it collapses
+       * with it, and when open it reproduces the exact same 16px gap.
+       */}
+      <div className="pt-4">{children}</div>
     </CollapsibleContent>
   )
 );
