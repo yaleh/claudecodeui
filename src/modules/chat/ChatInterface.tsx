@@ -9,6 +9,7 @@ import { MarkdownWorkspaceContext } from '@/modules/chat/context/MarkdownWorkspa
 import { api } from '@/shared/api';
 import type {
   ChatMessage,
+  ChatReplayCursorMap,
   Project,
   ProjectSession,
   SessionEstablishedContext,
@@ -20,6 +21,7 @@ import { useChatSessionState } from '@/modules/chat/hooks/useChatSessionState';
 import { useChatRealtimeHandlers } from '@/modules/chat/hooks/useChatRealtimeHandlers';
 import { useChatComposerState } from '@/modules/chat/hooks/useChatComposerState';
 import { useSessionStore } from '@/modules/chat/hooks/useSessionStore';
+import { subscribeTargetFor } from '@/modules/chat/utils/replayCursor';
 import {
   useProcessingSessions,
   useSessionProtectionActions,
@@ -86,10 +88,12 @@ function ChatInterface({
   // When each session's `chat.subscribe` was last sent; idle acks older than
   // a later local request are discarded as stale.
   const statusCheckSentAtRef = useRef(new Map<string, number>());
-  // Highest live `seq` observed per session. Written by the realtime handler
-  // on every sequenced frame, read whenever a `chat.subscribe` is sent so the
-  // server replays only the events this client actually missed.
-  const lastSeqRef = useRef(new Map<string, number>());
+  // Per-session replay cursor: which run this client's `seq` count belongs to,
+  // and how far into it. Written by the realtime handler on every sequenced
+  // frame and every `chat_subscribed` ack; read whenever a `chat.subscribe` is
+  // sent so the server replays only the events this client actually missed —
+  // and, when the run changed underneath the cursor, replays from the start.
+  const lastSeqRef = useRef<ChatReplayCursorMap>(new Map());
   // The processing map as of the last commit, for the callbacks below that are
   // subscribed once and must not be resubscribed when a turn starts or ends.
   // Synced in an effect rather than during render: a render-time write to a ref
@@ -290,10 +294,7 @@ function ChatInterface({
     statusCheckSentAtRef.current.set(selectedSession.id, Date.now());
     sendMessage({
       type: 'chat.subscribe',
-      sessions: [{
-        sessionId: selectedSession.id,
-        lastSeq: lastSeqRef.current.get(selectedSession.id) ?? 0,
-      }],
+      sessions: [subscribeTargetFor(selectedSession.id, lastSeqRef.current.get(selectedSession.id))],
     });
   }, [isActive, requestLatestMessages, selectedProject, selectedSession, sendMessage]);
 

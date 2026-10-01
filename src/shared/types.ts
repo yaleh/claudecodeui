@@ -251,8 +251,37 @@ export type ServerEvent = {
   type?: string;
   sessionId?: string;
   seq?: number;
+  /** Identity of the run `seq` belongs to; see `NormalizedMessage.runId`. */
+  runId?: string;
   [key: string]: unknown;
 };
+
+/**
+ * One session's `chat.subscribe` replay cursor: the run the client last saw
+ * (`runId`) and the highest `seq` it observed for that run.
+ *
+ * `seq` is numbered per run by the server, so a cursor is only meaningful for
+ * the run it was recorded against. `runId` is what distinguishes "my `lastSeq`
+ * is still good for your current run" (send it back unchanged) from "my
+ * `lastSeq` is from an earlier run and means nothing to you" (send the new
+ * run's id, or reset to seq 0). `runId` is `null` when no run id has been seen
+ * — a server that does not publish them — in which case `seq` keeps its old
+ * only-increasing, per-session meaning.
+ */
+export type ChatReplayCursor = {
+  runId: string | null;
+  seq: number;
+};
+
+/**
+ * The per-session replay cursors a chat view keeps, shared between the realtime
+ * handler that records them and the `chat.subscribe` sites that read them.
+ *
+ * A value is either a `ChatReplayCursor` or a bare `seq` number: the bare
+ * number is the seq-only cursor a server without run ids produces, and reads go
+ * through `readReplayCursor` so callers never branch on the form.
+ */
+export type ChatReplayCursorMap = Map<string, ChatReplayCursor | number>;
 
 
 // ---------------------------
@@ -557,6 +586,14 @@ export type NormalizedMessage = {
    * REST history messages do not carry it.
    */
   seq?: number;
+  /**
+   * Identity of the run this live event's `seq` belongs to. Because `seq` is
+   * numbered per run, this is what lets a reconnecting client tell whether its
+   * stored cursor still describes the run now in flight — a frame whose
+   * `runId` differs from the stored one restarts the cursor. REST history
+   * messages do not carry it.
+   */
+  runId?: string;
 
   // kind-specific fields (flat for simplicity)
   role?: 'user' | 'assistant';

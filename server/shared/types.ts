@@ -389,6 +389,15 @@ export type NormalizedMessage = {
    * the live events they missed across websocket reconnects.
    */
   seq?: number;
+  /**
+   * Identity of the run a live event's `seq` belongs to, assigned by the chat
+   * run registry when the run starts. `seq` is numbered per run, so a client
+   * that reconnects into a *different* run than the one its `lastSeq` was
+   * recorded against must start over from that run's first event — this is the
+   * value that lets it say which run its cursor is good for. History messages
+   * loaded over REST do not carry it.
+   */
+  runId?: string;
   role?: 'user' | 'assistant';
   content?: string;
   /**
