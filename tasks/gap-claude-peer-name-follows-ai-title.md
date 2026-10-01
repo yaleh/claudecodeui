@@ -1,7 +1,7 @@
 ---
 id: gap-claude-peer-name-follows-ai-title
 title: peer 名跟随 Claude Code 的 ai-title：启动时把会话自己的标题交给 CLI，注册名落 nameSource=auto
-status: needs-human
+status: ready
 needs_human_cause: human-adjudication
 labels:
   - gap
@@ -107,3 +107,16 @@ DoD 四条与「既有判据逐条退 0」仍然有效。
 - session_id：2e87fd69-80aa-42ce-9153-49900d402f30
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-peer-name-follows-ai-title~wk-prod-anchor~1790772818021-64bf63.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-peer-name-follows-ai-title-wk-prod-anchor.log
+
+
+## 归因（登记人 2026-10-01）—— 这条红不是本任务的
+
+本轮 park 的判词点名 `server/modules/session-hosts/tests/resident-server-restart.test.ts`。它是**已知的套件并发假红**，三条证据：
+
+1. **子进程真读数**（套件留存产物 `server__…__resident-server-restart.test.ts.out`）：`sigkill-residue pid=366604 alive-at-next-boot=false swept=1`、`sigkill-reaped pid=366604 alive-after-sweep=false` ⇒ **sweep 这一环是成功的**。红的是「重启后常驻宿主 30s 没回来」（`waitForResidentPid`，该文件 `:707`），即那条假红的**第二副面孔**（第一副是 `swept=0`）。
+2. **同一句话在无关 delta 上出现过**：2026-09-29T16:35Z 在一个**纯前端** delta 上——同一条消息、同一断言位置、`swept=1`、时长同为 ~57s。故这一副面孔不需要宿主驱动有任何改动就能发生。
+3. **本任务在常驻启动路径上只加了约 1ms**：新增的每轮 `getSessionInfo(...).summary` 实测中位 **1.0ms**（五次 3.4 / 1.1 / 1.0 / 0.9 / 0.9）。单跑该判据整例 8.4s、重启段 7074ms、等待预算 30000ms ⇒ 三个数量级的余量。
+
+**本轮复验**（在本分支上，已合并最新 develop）：该判据**单跑 exit 0**（1/1，8.4s，重启 `elapsed-ms=7074`，`distinct=true alive=true running=true`）；本任务自己的判据 exit 0（1/1）；`npm run typecheck` 三条链 exit 0。
+
+⇒ 归因为**非本 delta 的假红**，按惯例出路是重派（redispatch），不重新实现。
