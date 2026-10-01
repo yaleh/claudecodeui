@@ -26,17 +26,30 @@ goal_ac: AC-183
 4. 取假形态（先提交再变异，`git checkout -- <file>` 恢复，登记逐字失败行）：(i) `getElapsedMs` 改回 `Date.now() - startedAt` ⇒ AC7 冻结用例必须红；(ii) `onFrame` 忽略 `bootId` 变化、不丢弃本地假设 ⇒ AC6 重启用例必须红；(iii) 把 unreachable 判定改成永远 fresh（判定定时器不降级）⇒ AC3 迁移用例必须红。
 5. `npx vitest run src/modules/chat/tests/activityFreshness.test.ts` 绿；`npm run typecheck` 与 `npm run lint` 绿；`git diff --stat` 与 `## Touches` 逐条对齐。
 
+## 完成记录（worker，2026-10-01）
+
+实现 `src/modules/chat/utils/activityFreshness.ts`（纯工厂 `createActivityFreshness(deps?)`，无可变全局；`liveness`/`bootId`/`rev`/`asOf`/`staleAfter`/`turnStartedAt`/`turnIsLocal` 均为每次调用私有）。判据 `src/modules/chat/tests/activityFreshness.test.ts`：`npx vitest run src/modules/chat/tests/activityFreshness.test.ts` → 6 passed，退出 0。
+
+DoD 的本地时钟证明：`awk '/const getElapsedMs = /,/^  };$/' src/modules/chat/utils/activityFreshness.ts | grep -n 'Date.now\|deps.now'` → 0 命中；全文件仅第 89 行注入默认时钟 `now: () => Date.now()`（deps 接缝）。冻结是「已用时间计算路径里不出现本地时钟」的直接后果，不是额外分支。
+
+取假形态（逐条先提交再变异，`git checkout -- src/modules/chat/utils/activityFreshness.ts` 恢复；现已还原、`git status` 干净）：
+- (i) `getElapsedMs` 改回 `Date.now() - turnStartedAt` ⇒ AC7 红：`Expected values to be strictly equal: 7000 !== 17000`（`activityFreshness.test.ts:116`）。
+- (ii) `const bootIdentityChanged = frame.bootId !== bootId;` 改成 `= false;`（忽略 bootId 变化）⇒ AC6 红：`9000 !== null`（`activityFreshness.test.ts:100`，本地进行中假设未被丢弃）。
+- (iii) 判定定时器回调删去 `liveness = 'unreachable';` ⇒ AC3 红：`+ 'fresh' - 'unreachable'`（`activityFreshness.test.ts:53`）。
+
+静态门：`npm run typecheck` 退出 0；`npm run lint` 退出 0（仅仓库既有 warning）。`git diff --name-status develop...HEAD` 恰为两个新增文件（ASCII `(new)`），与 `## Touches` 前两条对齐。
+
 ## AC
 
-- [ ] AC1 判据绿：`npx vitest run src/modules/chat/tests/activityFreshness.test.ts` 退出 0。红态基线：实现前该文件不存在或红。
-- [ ] AC2 没有证据即降级：全新状态（未收到任何帧）为 unreachable；收到任一帧后 `getLiveness() === 'fresh'`（同一用例断言两个读数）。
-- [ ] AC3 阈值边界（承重）：在服务端宣告的 `staleAfter` 内推进 `staleAfter - 1` 毫秒仍为 fresh，再推进 1 毫秒（到达阈值处）进入 unreachable。
-- [ ] AC4 恢复：进入 unreachable 后，任一帧到达即回到 fresh。
-- [ ] AC5 close 立即不可达：不推进阈值时钟，`onSocketClose()` 调用后立即为 unreachable。
-- [ ] AC6 bootId 变化丢弃假设（承重）：先建立携带本地进行中假设的状态（如本地打标一个回合），再送入 `bootId` 与已存不同、且其所带快照为另一种状态的帧；断言本地假设被丢弃、读数完全以该帧所带快照为准。
-- [ ] AC7 不可达期间计时冻结（承重）：unreachable 期间，间隔推进墙钟后两次读 `getElapsedMs()` 相等，且等于 `asOf - turn.startedAt`（不是本地时钟自增）。
-- [ ] AC8 取假形态必须红：改为永远 fresh ⇒ AC3 红；(ii) 忽略 bootId 变化 ⇒ AC6 红；(iii) 已用时间改回本地时钟（`Date.now() - startedAt`）⇒ AC7 红。逐条登记变异 diff、逐字失败行与恢复命令。
-- [ ] AC9 静态门：`npm run typecheck` 与 `npm run lint` 均退出 0；`git diff --stat` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）。
+- [x] AC1 判据绿：`npx vitest run src/modules/chat/tests/activityFreshness.test.ts` 退出 0。红态基线：实现前该文件不存在或红。
+- [x] AC2 没有证据即降级：全新状态（未收到任何帧）为 unreachable；收到任一帧后 `getLiveness() === 'fresh'`（同一用例断言两个读数）。
+- [x] AC3 阈值边界（承重）：在服务端宣告的 `staleAfter` 内推进 `staleAfter - 1` 毫秒仍为 fresh，再推进 1 毫秒（到达阈值处）进入 unreachable。
+- [x] AC4 恢复：进入 unreachable 后，任一帧到达即回到 fresh。
+- [x] AC5 close 立即不可达：不推进阈值时钟，`onSocketClose()` 调用后立即为 unreachable。
+- [x] AC6 bootId 变化丢弃假设（承重）：先建立携带本地进行中假设的状态（如本地打标一个回合），再送入 `bootId` 与已存不同、且其所带快照为另一种状态的帧；断言本地假设被丢弃、读数完全以该帧所带快照为准。
+- [x] AC7 不可达期间计时冻结（承重）：unreachable 期间，间隔推进墙钟后两次读 `getElapsedMs()` 相等，且等于 `asOf - turn.startedAt`（不是本地时钟自增）。
+- [x] AC8 取假形态必须红：改为永远 fresh ⇒ AC3 红；(ii) 忽略 bootId 变化 ⇒ AC6 红；(iii) 已用时间改回本地时钟（`Date.now() - startedAt`）⇒ AC7 红。逐条登记变异 diff、逐字失败行与恢复命令。
+- [x] AC9 静态门：`npm run typecheck` 与 `npm run lint` 均退出 0；`git diff --stat` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）。
 
 ## DoD
 

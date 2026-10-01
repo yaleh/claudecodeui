@@ -1,7 +1,7 @@
 ---
 id: AC-188
 title: 真实浏览器：页面上只有一个活动坞，旧的活动页签与 resident 状态栏的忙闲字样不再存在，各处状态一致
-status: draft
+status: active
 kind: criterion
 goal: GOAL-014
 criterion: npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-188"
@@ -14,4 +14,15 @@ origin: docs/proposals/claude-session-activity-dock.md（§0.1 人的裁定、§
   都做归属校验；取消计划任务不做控件；历史里的 isMeta 行显示与对等方目录本期不纳入。 调查
   2026-10-01：现状有四个互不相干的忙来源（processingSessions、/api/session-hosts
   轮询、发送按钮、侧栏），可以互相矛盾。
+activatedAt: 2026-10-01T14:07:21.519Z
+statusLog:
+  - at: 2026-10-01T14:07:21.519Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-01T14:07:21.519Z
 ---
