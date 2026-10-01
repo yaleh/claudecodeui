@@ -168,6 +168,13 @@ export function attachActivityHeartbeat(ws: WebSocket, sessionId: string): () =>
   };
 
   const timer = setInterval(sendFrame, resolveActivityHeartbeatConfig().intervalMs);
+  // The beat is a liveness signal, not a reason for the process to stay alive.
+  // A real server is already held open by its listening socket; unref'ing this
+  // timer means a shutting-down server is never kept up by a beat nobody can
+  // receive, and — the case that matters for the criteria — a test that drives
+  // the gateway with an in-process socket surface and never emits `close` can
+  // still exit once its own work is done instead of hanging on a live interval.
+  timer.unref();
 
   function stopBeat(): void {
     clearInterval(timer);
