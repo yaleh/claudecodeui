@@ -1,7 +1,7 @@
 ---
 id: gap-claude-peer-name-title-guard
 title: peer 名只在会话真有标题时才交给 CLI：阶梯兜底值不得被冻进 manual 档
-status: todo
+status: ready
 labels:
   - gap
   - defect
