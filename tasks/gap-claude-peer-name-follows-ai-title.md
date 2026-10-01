@@ -1,7 +1,7 @@
 ---
 id: gap-claude-peer-name-follows-ai-title
 title: peer 名跟随 Claude Code 的 ai-title：启动时把会话自己的标题交给 CLI，注册名落 nameSource=auto
-status: needs-human
+status: ready
 needs_human_cause: human-adjudication
 labels:
   - gap
