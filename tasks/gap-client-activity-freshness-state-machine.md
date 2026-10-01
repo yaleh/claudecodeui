@@ -24,7 +24,9 @@ goal_ac: AC-183
 2. 实现 `src/modules/chat/utils/activityFreshness.ts`：导出纯工厂 `createActivityFreshness(deps?)` 与其帧/状态类型。内部状态：`liveness`、`bootId`、`rev`、`asOf`、`turn.startedAt`、`staleAfter`。`onFrame(frame)`：若帧 `bootId` 与已存不同则以该帧快照为准、丢弃一切本地进行中假设；置 fresh、记录 `asOf`/`turn`/`staleAfter`，并按 `staleAfter` 重排判定定时器。定时器到点（阈值内无帧）⇒ unreachable。`onSocketClose()` ⇒ 立即 unreachable 并清定时器。`getElapsedMs()` = `asOf - turn.startedAt`（无进行中回合时为 null），冻结由「计算里不出现本地时钟」自然得到。时间与定时器经 `deps` 注入（默认取全局 `Date.now` / `setTimeout` / `clearTimeout`），使判据可纯测。
 3. 判据逐条覆盖 AC2–AC7 的迁移与边界：初值、任一帧后 fresh、阈值前 1ms 仍 fresh / 阈值处 unreachable、恢复、close 立即、bootId 变化丢弃假设、不可达期间两次读 elapsed 相等。
 4. 取假形态（先提交再变异，`git checkout -- <file>` 恢复，登记逐字失败行）：(i) `getElapsedMs` 改回 `Date.now() - startedAt` ⇒ AC7 冻结用例必须红；(ii) `onFrame` 忽略 `bootId` 变化、不丢弃本地假设 ⇒ AC6 重启用例必须红；(iii) 把 unreachable 判定改成永远 fresh（判定定时器不降级）⇒ AC3 迁移用例必须红。
-5. `npx vitest run src/modules/chat/tests/activityFreshness.test.ts` 绿；`npm run typecheck` 与 `npm run lint` 绿；`git diff --stat` 与 `## 完成记录（worker，2026-10-01）
+5. `npx vitest run src/modules/chat/tests/activityFreshness.test.ts` 绿；`npm run typecheck` 与 `npm run lint` 绿；`git diff --stat` 与 `## Touches` 逐条对齐。
+
+## 完成记录（worker，2026-10-01）
 
 实现 `src/modules/chat/utils/activityFreshness.ts`（纯工厂 `createActivityFreshness(deps?)`，无可变全局；`liveness`/`bootId`/`rev`/`asOf`/`staleAfter`/`turnStartedAt`/`turnIsLocal` 均为每次调用私有）。判据 `src/modules/chat/tests/activityFreshness.test.ts`：`npx vitest run src/modules/chat/tests/activityFreshness.test.ts` → 6 passed，退出 0。
 
@@ -36,8 +38,6 @@ DoD 的本地时钟证明：`awk '/const getElapsedMs = /,/^  };$/' src/modules/
 - (iii) 判定定时器回调删去 `liveness = 'unreachable';` ⇒ AC3 红：`+ 'fresh' - 'unreachable'`（`activityFreshness.test.ts:53`）。
 
 静态门：`npm run typecheck` 退出 0；`npm run lint` 退出 0（仅仓库既有 warning）。`git diff --name-status develop...HEAD` 恰为两个新增文件（ASCII `(new)`），与 `## Touches` 前两条对齐。
-
-## Touches` 逐条对齐。
 
 ## AC
 
