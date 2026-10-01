@@ -13,23 +13,28 @@ import type { NormalizedMessage } from '@/shared/types';
  * `text` frame and once from the row this client streamed it into. Both vanish
  * into one on a page reload, so only the incremental path produces the pair.
  *
- * Why the existing collapse misses it: `dedupeAdjacentAssistantEchoes` only
- * folds rows that are *adjacent* in merged order. Merged order is by timestamp,
- * and the two timestamps come from two clocks — the server stamps a `text` frame
- * and the `tool_use` frame that follows it when it normalizes them, while the
- * live row is re-stamped with the *client's* wall clock on every flush, the last
- * of which is the settle that follows `stream_end`. The live row is therefore
- * newer than the tool row whenever the tool row was stamped before the client's
- * settle ran, which is the ordinary case (the tool_use frame is already on its
- * way when the client settles). The merged order is then
- * `[echo, tool, live]`, and nothing adjacent matches.
+ * The three shapes below are driven by *block-keyed* frames — the server names
+ * the block each streaming fragment, the block's own settled `text` frame, and
+ * the `stream_end` that closes it with the same opaque `blockKey`. That name is
+ * what the store joins on: the block buffers as one entity, the settled frame
+ * *replaces* its client row in place, and the persisted row a refresh brings in
+ * under the same id inherits the name, so the block is one row in all three
+ * states and no text-equality guess is involved.
+ *
+ * What the old path did — and still does for any frame the server did not name —
+ * is reproduced by the `it.fails` cases: the live row was re-stamped with the
+ * client's clock on every flush, so its last stamp was newer than the tool row
+ * the server had already sent, merged order became `[echo, tool, live]`, and
+ * `dedupeAdjacentAssistantEchoes` — which only folds *adjacent* rows — matched
+ * nothing. Those cases are kept, marked as failing, so that the day the
+ * unkeyed providers (codex / cursor / opencode, and any older server) get a
+ * block identity the gap turns red and is not quietly forgotten.
  *
  * Every case drives the store through its own public methods with `Date` pinned,
  * so each states the one ordering it is about instead of racing a real clock.
- * The first, second and third are the defect (red today); the last two are the
- * controls that must stay as they are after any fix: the same words in the
- * adjacent order already collapse, and two different turns that read the same
- * are two replies.
+ * The two controls at the end must hold before and after any fix: the same
+ * words in the adjacent order already collapse, and two different turns that
+ * read the same are two replies.
  */
 
 const sessionMessages = vi.fn();
@@ -45,6 +50,10 @@ vi.mock('@/shared/api', () => ({
 
 const SID = 'session-1';
 const SEGMENT = 'the opening segment';
+/** The server's name for the turn's first content block; opaque to the client. */
+const BLOCK_ONE = 'msg-1:0';
+/** A second block of the same turn — same message id, next index. */
+const BLOCK_TWO = 'msg-1:1';
 const BASE = Date.parse('2026-01-01T00:00:00.000Z');
 
 const at = (offsetMs: number) => new Date(BASE + offsetMs).toISOString();
@@ -64,13 +73,14 @@ const userRow = (id: string, offsetMs: number) => msg({
   transcriptAnchorId: `anchor-${id}`,
 });
 
-/** The server's `text` frame (or persisted row) for an assistant segment. */
-const echoRow = (id: string, content: string, offsetMs: number) => msg({
+/** The server's settled `text` frame (or persisted row) for a block. */
+const echoRow = (id: string, content: string, offsetMs: number, blockKey?: string) => msg({
   id,
   kind: 'text',
   role: 'assistant',
   content,
   timestamp: at(offsetMs),
+  ...(blockKey ? { blockKey } : {}),
 });
 
 const toolRow = (id: string, offsetMs: number) => msg({
@@ -89,6 +99,10 @@ const historyOf = (messages: NormalizedMessage[]) => ({
 
 const rowsWithText = (rows: NormalizedMessage[], content: string) =>
   rows.filter((row) => row.kind !== 'tool_use' && row.content === content && row.role !== 'user');
+
+/** The assistant rows the transcript would draw, in order, whatever they say. */
+const assistantRows = (rows: NormalizedMessage[]) =>
+  rows.filter((row) => row.kind !== 'tool_use' && row.role !== 'user');
 
 const describeOrder = (rows: NormalizedMessage[]) =>
   rows.map((row) => `${row.kind}:${row.id}`).join(' → ');
@@ -130,54 +144,82 @@ async function freshStore() {
 type StoreView = Awaited<ReturnType<typeof freshStore>>;
 
 /**
- * The frame order of a real turn, as captured off the socket:
- * `stream_delta`s → `text` → `stream_end` → `tool_use`, with the client's
- * settle (`stream_end`) running at `settleAt`.
+ * One block-keyed turn, in the order the frames reach the store:
  *
- *   t=0              first delta flush mints the live row
- *   t=text.ts        the server's `text` frame lands as a realtime row
- *   t=settleAt       settle: the final flush re-stamps the live row, then it
- *                    flips to `text` (what `settleStream` does)
- *   after            the `tool_use` frame lands, carrying the server's stamp
+ *   t=firstDeltaAt   a delta flush mints the block's live row, stamped with the
+ *                    frame's own (server) timestamp
+ *   t=terminalAt     the settled `text` frame for that block — its own id, its
+ *                    own timestamp, the same `blockKey` — replaces the row
+ *   t=settleAt       `stream_end`: a straggling flush must not resurrect the
+ *                    block, and the settle finds it already settled
+ *
+ * The client's settle is placed *after* the tool frame's stamp on purpose: that
+ * is the frame order the defect needs, and it is the ordinary one, because the
+ * server's tool frame is already on its way when `stream_end` runs.
  */
-function runSegmentThenTool(view: StoreView, opts: { echoAt: number; toolAt: number; settleAt: number }) {
+function streamBlock(view: StoreView, opts: {
+  blockKey: string;
+  segment: string;
+  terminalId: string;
+  terminalAt: number;
+  settleAt: number;
+}) {
   const store = view.result.current;
-  vi.setSystemTime(BASE);
-  act(() => { store.updateStreaming(SID, SEGMENT, 'claude'); });
 
-  act(() => { store.appendRealtime(SID, echoRow('srv-seg1', SEGMENT, opts.echoAt)); });
+  vi.setSystemTime(BASE);
+  act(() => {
+    store.updateStreaming(SID, opts.segment, 'claude', {
+      blockKey: opts.blockKey,
+      timestamp: at(0),
+    });
+  });
+
+  act(() => {
+    store.appendRealtime(SID, echoRow(opts.terminalId, opts.segment, opts.terminalAt, opts.blockKey));
+  });
 
   vi.setSystemTime(BASE + opts.settleAt);
   act(() => {
-    store.updateStreaming(SID, SEGMENT, 'claude');
-    store.finalizeStreaming(SID);
+    store.updateStreaming(SID, opts.segment, 'claude', {
+      blockKey: opts.blockKey,
+      timestamp: at(opts.settleAt),
+    });
+    store.finalizeStreaming(SID, { blockKey: opts.blockKey });
   });
-
-  act(() => { store.appendRealtime(SID, toolRow('srv-tool1', opts.toolAt)); });
 }
 
-describe('a settled live row whose server echo has a tool row between them', () => {
-  it('draws the segment once when the tool row was stamped before the client settled', async () => {
+describe('a block-keyed segment whose settled frame has a tool row after it', () => {
+  it('draws the segment once, under the settled frame\'s own id', async () => {
     const view = await freshStore();
-
-    // Server stamps: text at +640, tool at +641. Client settles at +700, so the
-    // live row's last stamp (+700) is newer than the tool row's (+641).
-    runSegmentThenTool(view, { echoAt: 640, toolAt: 641, settleAt: 700 });
+    streamBlock(view, { blockKey: BLOCK_ONE, segment: SEGMENT, terminalId: 'srv-seg1', terminalAt: 640, settleAt: 700 });
+    act(() => { view.result.current.appendRealtime(SID, toolRow('srv-tool1', 641)); });
 
     const rows = view.result.current.getMessages(SID);
+    const segments = rowsWithText(rows, SEGMENT);
     assert.equal(
-      rowsWithText(rows, SEGMENT).length,
+      segments.length,
       1,
       `the segment must be one row, got: ${describeOrder(rows)}`,
     );
+    // Count alone would also be satisfied by the live row surviving and the
+    // settled frame being dropped. The survivor has to be the settled frame's
+    // row, which is the id the persisted transcript row will carry.
+    assert.equal(
+      segments[0].id,
+      'srv-seg1',
+      `the survivor must be the settled frame's row, got: ${describeOrder(rows)}`,
+    );
+    assert.equal(
+      segments[0].blockKey,
+      BLOCK_ONE,
+      'the survivor must still carry the block it is one state of',
+    );
   });
 
-  it('draws the segment once when the live row lands between two tool rows', async () => {
+  it('draws the segment once when the settled row lands between two tool rows', async () => {
     const view = await freshStore();
-
-    // The shape seen after switching away and back: the tool rows of the same
-    // reply straddle the live row's stamp.
-    runSegmentThenTool(view, { echoAt: 640, toolAt: 641, settleAt: 700 });
+    streamBlock(view, { blockKey: BLOCK_ONE, segment: SEGMENT, terminalId: 'srv-seg1', terminalAt: 640, settleAt: 700 });
+    act(() => { view.result.current.appendRealtime(SID, toolRow('srv-tool1', 641)); });
     act(() => { view.result.current.appendRealtime(SID, toolRow('srv-tool2', 800)); });
 
     const rows = view.result.current.getMessages(SID);
@@ -188,12 +230,182 @@ describe('a settled live row whose server echo has a tool row between them', () 
     );
   });
 
-  it('draws the segment once when a server refresh brings the echo and the tool row in', async () => {
+  it('draws the segment once when a server refresh brings the settled frame and the tool row in', async () => {
     const view = await freshStore();
     const store = view.result.current;
 
     // No realtime `text` frame at all: the client only streamed the segment, and
     // the persisted copy arrives through a tail refresh (the switch-back path).
+    vi.setSystemTime(BASE);
+    act(() => {
+      store.updateStreaming(SID, SEGMENT, 'claude', { blockKey: BLOCK_ONE, timestamp: at(0) });
+    });
+    vi.setSystemTime(BASE + 700);
+    act(() => {
+      store.updateStreaming(SID, SEGMENT, 'claude', { blockKey: BLOCK_ONE, timestamp: at(700) });
+      store.finalizeStreaming(SID, { blockKey: BLOCK_ONE });
+    });
+
+    sessionMessages.mockResolvedValue(historyOf([
+      userRow('u1', -1000),
+      echoRow('srv-seg1', SEGMENT, 640),
+      toolRow('srv-tool1', 641),
+    ]));
+    await act(async () => {
+      await store.fetchFromServer(SID, { limit: 20, offset: 0 });
+    });
+
+    const rows = store.getMessages(SID);
+    assert.equal(
+      rowsWithText(rows, SEGMENT).length,
+      1,
+      `the segment must be one row, got: ${describeOrder(rows)}`,
+    );
+  });
+});
+
+describe('a block-keyed turn that says two things', () => {
+  it('keeps the block\'s first-delta timestamp across flushes and takes the settled frame\'s on handover', async () => {
+    const view = await freshStore();
+    const store = view.result.current;
+
+    vi.setSystemTime(BASE + 500);
+    act(() => {
+      store.updateStreaming(SID, 'he', 'claude', { blockKey: BLOCK_ONE, timestamp: at(10) });
+    });
+    const opened = rowsWithText(store.getMessages(SID), 'he')[0];
+    assert.equal(opened.timestamp, at(10), 'the row is stamped with the block\'s first frame');
+
+    // A later flush carries a later frame stamp. The block's clock is the one it
+    // opened on; re-stamping here is what used to push the row past the tool row.
+    vi.setSystemTime(BASE + 600);
+    act(() => {
+      store.updateStreaming(SID, SEGMENT, 'claude', { blockKey: BLOCK_ONE, timestamp: at(600) });
+    });
+    const flushed = rowsWithText(store.getMessages(SID), SEGMENT)[0];
+    assert.equal(flushed.timestamp, at(10), 'a flush must not re-stamp the block');
+
+    // The settled frame is the block's own record, so its clock takes over.
+    act(() => {
+      store.appendRealtime(SID, echoRow('srv-seg1', SEGMENT, 640, BLOCK_ONE));
+    });
+    const settled = rowsWithText(store.getMessages(SID), SEGMENT)[0];
+    assert.equal(settled.id, 'srv-seg1');
+    assert.equal(settled.timestamp, at(640), 'the handover takes the settled frame\'s timestamp');
+  });
+
+  it('draws a tool row between the two blocks as its own row, and the blocks as two', async () => {
+    const view = await freshStore();
+    const store = view.result.current;
+
+    vi.setSystemTime(BASE + 100);
+    act(() => {
+      store.updateStreaming(SID, 'the opening segment', 'claude', { blockKey: BLOCK_ONE, timestamp: at(10) });
+    });
+    act(() => {
+      store.appendRealtime(SID, echoRow('srv-seg1', 'the opening segment', 640, BLOCK_ONE));
+    });
+    act(() => { store.appendRealtime(SID, toolRow('srv-tool1', 641)); });
+
+    vi.setSystemTime(BASE + 800);
+    act(() => {
+      store.updateStreaming(SID, 'the closing segment', 'claude', { blockKey: BLOCK_TWO, timestamp: at(800) });
+    });
+    act(() => {
+      store.appendRealtime(SID, echoRow('srv-seg2', 'the closing segment', 810, BLOCK_TWO));
+    });
+
+    const rows = store.getMessages(SID);
+    assert.equal(rowsWithText(rows, 'the opening segment').length, 1, describeOrder(rows));
+    assert.equal(rowsWithText(rows, 'the closing segment').length, 1, describeOrder(rows));
+    const ids = assistantRows(rows).map((row) => row.id);
+    assert.equal(ids.length, 2, `two blocks are two rows, got: ${describeOrder(rows)}`);
+    assert.notEqual(ids[0], ids[1], 'the two blocks must not share a row identity');
+  });
+
+  it('does not fold two blocks of one turn that read the same', async () => {
+    const view = await freshStore();
+    const store = view.result.current;
+
+    vi.setSystemTime(BASE + 100);
+    act(() => {
+      store.updateStreaming(SID, 'same words', 'claude', { blockKey: BLOCK_ONE, timestamp: at(10) });
+    });
+    vi.setSystemTime(BASE + 200);
+    act(() => {
+      store.updateStreaming(SID, 'same words', 'claude', { blockKey: BLOCK_TWO, timestamp: at(110) });
+    });
+
+    // Settle both, so the pair reaches the adjacency pass as two assistant text
+    // rows with identical content — the shape a text-equality collapse would
+    // happily fold into one, deleting a segment the reader watched arrive.
+    act(() => { store.finalizeStreaming(SID, { blockKey: BLOCK_ONE }); });
+    act(() => { store.finalizeStreaming(SID, { blockKey: BLOCK_TWO }); });
+
+    const rows = store.getMessages(SID);
+    assert.equal(
+      rowsWithText(rows, 'same words').length,
+      2,
+      `two named blocks are two rows however alike they read, got: ${describeOrder(rows)}`,
+    );
+  });
+});
+
+describe('the same shapes on frames the server did not key', () => {
+  /**
+   * The pre-fix frame path, verbatim: one live row per session, re-stamped with
+   * the client's clock on every flush, settled by `stream_end`. Kept as the
+   * failing baseline for the providers that still publish no block.
+   */
+  function runSegmentThenTool(view: StoreView, opts: { echoAt: number; toolAt: number; settleAt: number }) {
+    const store = view.result.current;
+    vi.setSystemTime(BASE);
+    act(() => { store.updateStreaming(SID, SEGMENT, 'claude'); });
+
+    act(() => { store.appendRealtime(SID, echoRow('srv-seg1', SEGMENT, opts.echoAt)); });
+
+    vi.setSystemTime(BASE + opts.settleAt);
+    act(() => {
+      store.updateStreaming(SID, SEGMENT, 'claude');
+      store.finalizeStreaming(SID);
+    });
+
+    act(() => { store.appendRealtime(SID, toolRow('srv-tool1', opts.toolAt)); });
+  }
+
+  it.fails('KNOWN GAP: without a block key the segment is still drawn twice', async () => {
+    const view = await freshStore();
+
+    // Server stamps: text at +640, tool at +641. Client settles at +700, so the
+    // live row's last stamp (+700) is newer than the tool row's (+641).
+    runSegmentThenTool(view, { echoAt: 640, toolAt: 641, settleAt: 700 });
+
+    const rows = view.result.current.getMessages(SID);
+    assert.equal(
+      rowsWithText(rows, SEGMENT).length,
+      1,
+      `KNOWN GAP (codex / cursor / opencode publish no blockKey): got: ${describeOrder(rows)}`,
+    );
+  });
+
+  it.fails('KNOWN GAP: without a block key the live row still lands between two tool rows', async () => {
+    const view = await freshStore();
+
+    runSegmentThenTool(view, { echoAt: 640, toolAt: 641, settleAt: 700 });
+    act(() => { view.result.current.appendRealtime(SID, toolRow('srv-tool2', 800)); });
+
+    const rows = view.result.current.getMessages(SID);
+    assert.equal(
+      rowsWithText(rows, SEGMENT).length,
+      1,
+      `KNOWN GAP (codex / cursor / opencode publish no blockKey): got: ${describeOrder(rows)}`,
+    );
+  });
+
+  it.fails('KNOWN GAP: without a block key a refresh still brings the echo in beside the live row', async () => {
+    const view = await freshStore();
+    const store = view.result.current;
+
     vi.setSystemTime(BASE);
     act(() => { store.updateStreaming(SID, SEGMENT, 'claude'); });
     vi.setSystemTime(BASE + 700);
@@ -215,7 +427,7 @@ describe('a settled live row whose server echo has a tool row between them', () 
     assert.equal(
       rowsWithText(rows, SEGMENT).length,
       1,
-      `the segment must be one row, got: ${describeOrder(rows)}`,
+      `KNOWN GAP (codex / cursor / opencode publish no blockKey): got: ${describeOrder(rows)}`,
     );
   });
 });
@@ -224,9 +436,11 @@ describe('controls that must hold before and after any fix', () => {
   it('already collapses the same pair when no tool row sits between them', async () => {
     const view = await freshStore();
 
-    // Tool row stamped after the client's settle: merged order is
-    // `[echo, live, tool]`, adjacent, which the existing rule folds.
-    runSegmentThenTool(view, { echoAt: 640, toolAt: 800, settleAt: 700 });
+    // A block-keyed turn, but the tool row is stamped after the block settled:
+    // merged order is `[echo, live, tool]`, adjacent, which the existing rule
+    // folds even without the block join.
+    streamBlock(view, { blockKey: BLOCK_ONE, segment: SEGMENT, terminalId: 'srv-seg1', terminalAt: 640, settleAt: 700 });
+    act(() => { view.result.current.appendRealtime(SID, toolRow('srv-tool1', 800)); });
 
     const rows = view.result.current.getMessages(SID);
     assert.equal(

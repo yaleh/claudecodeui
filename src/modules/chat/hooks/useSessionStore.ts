@@ -301,8 +301,13 @@ function dedupeAdjacentAssistantEchoes(merged: NormalizedMessage[]): NormalizedM
         const ps = (prev.content || '').trim();
         return ps.length > 0 && ps === (m.content || '').trim();
       })();
+      // Two rows the server named are two blocks, however alike they read: a
+      // turn that says the same words twice is two segments, and folding them
+      // would silently delete one. Only rows the server did not name (a
+      // provider with no blocks, or a history read) fall back to text equality.
+      const sameBlock = !prev.blockKey || !m.blockKey || prev.blockKey === m.blockKey;
 
-      if ((streamsIntoEcho || echoesIntoStream || echoesSettled) && sameReply) {
+      if ((streamsIntoEcho || echoesIntoStream || echoesSettled) && sameReply && sameBlock) {
         // One reply drawn twice: the row this client streamed the turn into,
         // and the server's persisted echo of it. Which of the two survives is
         // not a detail — the transcript keys a row by the store id it carries
@@ -314,19 +319,27 @@ function dedupeAdjacentAssistantEchoes(merged: NormalizedMessage[]): NormalizedM
         // the browser clamps the offset, and the reader sees the transcript jump.
         // The client's row is therefore the survivor — the echo still supplies
         // its fields, being the persisted record, but not its identity.
+        //
+        // The block identity rides along with the survivor whatever else it
+        // takes from the other side: it is the transcript's key, and a collapse
+        // that dropped it would re-key the row on the very refresh this exists
+        // to keep the row through.
+        const carryingBlockKey = (survivor: NormalizedMessage, source: NormalizedMessage): NormalizedMessage =>
+          survivor.blockKey || !source.blockKey ? survivor : { ...survivor, blockKey: source.blockKey };
+
         if (isLiveRowId(prev.id)) {
           // A row still streaming is not settled by the echo; its own
           // `stream_end` settles it, and settling it here would leave
           // `updateStreaming` with no row to find and a second one to mint.
-          out[out.length - 1] = streamsIntoEcho ? prev : { ...m, id: prev.id };
+          out[out.length - 1] = streamsIntoEcho ? prev : carryingBlockKey({ ...m, id: prev.id }, prev);
           continue;
         }
         if (isLiveRowId(m.id)) {
-          out[out.length - 1] = m;
+          out[out.length - 1] = carryingBlockKey(m, prev);
           continue;
         }
         if (streamsIntoEcho) {
-          out[out.length - 1] = m;
+          out[out.length - 1] = carryingBlockKey(m, prev);
           continue;
         }
         continue;

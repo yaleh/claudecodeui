@@ -42,13 +42,21 @@ const FLUSH_BUDGET_MS = 500;
 // Module scope, so the handler's effect is not rebound by a new object identity.
 const selectedSession = { id: VIEWED_SESSION } as ProjectSession;
 
-const delta = (sessionId: string, content: string): ServerEvent => ({
+const delta = (sessionId: string, content: string, blockKey?: string): ServerEvent => ({
   kind: 'stream_delta',
   sessionId,
   content,
+  // A real delta frame carries its own stamp; the store keeps the block's first
+  // one. Pinned so the two sessions' rows do not sort against a live clock.
+  timestamp: '2026-01-01T00:00:00.000Z',
+  ...(blockKey ? { blockKey } : {}),
 });
 
-const streamEnd = (sessionId: string): ServerEvent => ({ kind: 'stream_end', sessionId });
+const streamEnd = (sessionId: string, blockKey?: string): ServerEvent => ({
+  kind: 'stream_end',
+  sessionId,
+  ...(blockKey ? { blockKey } : {}),
+});
 
 const renderChat = () => {
   let listener: ((event: ServerEvent) => void) | null = null;
@@ -149,5 +157,48 @@ describe('a reply streaming in a session the reader is not viewing', () => {
     const viewedRows = rowsOf(sessionStore, VIEWED_SESSION);
     assert.equal(viewedRows.length, 1, 'the viewed session is one row too');
     assert.equal(viewedRows[0].content, 'first reply', "the viewed session's row holds only its own text");
+  });
+
+  it('keeps each block its own row when two sessions interleave block-keyed frames', () => {
+    const { dispatch, sessionStore } = renderChat();
+
+    dispatch(delta(OTHER_SESSION, 'theirs ', 'b:0'));
+    dispatch(delta(VIEWED_SESSION, 'one ', 'a:0'));
+    dispatch(delta(OTHER_SESSION, 'reply', 'b:0'));
+    dispatch(delta(VIEWED_SESSION, 'two', 'a:1'));
+    act(() => { vi.advanceTimersByTime(FLUSH_BUDGET_MS); });
+
+    const viewedRows = rowsOf(sessionStore, VIEWED_SESSION);
+    assert.equal(viewedRows.length, 2, 'two blocks of one turn are two rows');
+    assert.deepEqual(
+      viewedRows.map((row) => row.content),
+      ['one ', 'two'],
+      "each block holds its own segment, not the other block's",
+    );
+    assert.notEqual(
+      viewedRows[0].blockKey,
+      viewedRows[1].blockKey,
+      'the two rows are distinct blocks',
+    );
+
+    const otherRows = rowsOf(sessionStore, OTHER_SESSION);
+    assert.equal(otherRows.length, 1, 'the other session is one row for its one block');
+    assert.equal(otherRows[0].content, 'theirs reply', "the other session's row holds only its own text");
+  });
+
+  it('settles only the block its stream_end names', () => {
+    const { dispatch, sessionStore } = renderChat();
+
+    dispatch(delta(OTHER_SESSION, 'first ', 'b:0'));
+    dispatch(delta(OTHER_SESSION, 'second', 'b:1'));
+    act(() => { vi.advanceTimersByTime(FLUSH_BUDGET_MS); });
+    dispatch(streamEnd(OTHER_SESSION, 'b:0'));
+
+    const rows = rowsOf(sessionStore, OTHER_SESSION);
+    assert.equal(rows.length, 2, 'the settle must not add or drop a block');
+    assert.equal(rows[0].kind, 'text', 'the named block settles');
+    assert.equal(rows[0].content, 'first ');
+    assert.equal(rows[1].kind, 'stream_delta', 'the block the frame did not name keeps streaming');
+    assert.equal(rows[1].content, 'second');
   });
 });

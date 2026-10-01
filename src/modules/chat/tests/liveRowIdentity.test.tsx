@@ -168,3 +168,67 @@ describe('the row a turn is streamed into', () => {
     assert.notEqual(rows[1].id, firstTurnId, 'the second turn must not reuse the settled row');
   });
 });
+
+/**
+ * The row id above is the store's identity for a turn; the *transcript's* key is
+ * a different thing (`getIntrinsicMessageKey` over the projected `ChatMessage`),
+ * and for a block-keyed turn it has to stay the same across the three states the
+ * store passes a block through:
+ *
+ *   1. streaming  — the live row, under the client's own `live:…` id;
+ *   2. settled    — the same row after the server's `text` frame replaced it, so
+ *                   it now carries the server's `<uuid>_0` id;
+ *   3. persisted  — the row a refresh brings in under that same server id, with
+ *                   the block key carried onto it by the store's reconciliation.
+ *
+ * A key that changes between any two of these is an unmount followed by a mount
+ * on a pane pinned to the bottom — the scroll jump this whole change exists to
+ * stop. The block key is the only field common to all three, so it is asserted
+ * directly rather than inferred from the row ids, which are *meant* to differ.
+ */
+describe('the key the transcript derives for a block-keyed turn', () => {
+  const BLOCK = 'msg-9:0';
+  const BLOCK_STREAM_AT = '2026-01-01T00:00:02.000Z';
+  const BLOCK_ECHO = msg({
+    ...SERVER_ECHO,
+    blockKey: BLOCK,
+  });
+
+  it('is the same while streaming, after the settled frame replaces it, and after the refresh', async () => {
+    const { normalizedToChatMessages } = await import('@/modules/chat/hooks/useChatMessages');
+    const { getIntrinsicMessageKey } = await import('@/modules/chat/utils/messageKeys');
+    const view = await loadedStore();
+    const store = view.result.current;
+
+    const keyOfOnlyAssistantRow = (): string | null => {
+      const converted = normalizedToChatMessages(store.getMessages(SID));
+      const assistant = converted.filter((message) => message.type === 'assistant');
+      assert.equal(assistant.length, 1, 'the turn must be one assistant row at every state');
+      return getIntrinsicMessageKey(assistant[0]);
+    };
+
+    // 1. streaming.
+    act(() => {
+      store.updateStreaming(SID, 'he', 'claude', { blockKey: BLOCK, timestamp: BLOCK_STREAM_AT });
+    });
+    const streamingKey = keyOfOnlyAssistantRow();
+    assert.ok(streamingKey, 'the transcript must be able to key the row');
+
+    // 2. the settled frame for the block replaces the live row in place.
+    act(() => { store.appendRealtime(SID, BLOCK_ECHO); });
+    assert.equal(
+      assistantRows(store.getMessages(SID))[0].id,
+      SERVER_ECHO.id,
+      'the settled frame is the row\'s identity from here on',
+    );
+    assert.equal(keyOfOnlyAssistantRow(), streamingKey, 'settling must not re-key the row');
+
+    // 3. the refresh brings the persisted row in under that id, without a key of
+    //    its own — the store carries the block onto it.
+    sessionMessages.mockResolvedValue(historyOf([USER_ROW, SERVER_ECHO]));
+    await act(async () => {
+      await store.refreshLatestFromServer(SID, { limit: 20 });
+    });
+    assert.equal(keyOfOnlyAssistantRow(), streamingKey, 'the refresh must not re-key the row');
+  });
+});
