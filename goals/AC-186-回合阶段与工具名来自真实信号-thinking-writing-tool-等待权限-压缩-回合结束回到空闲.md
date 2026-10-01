@@ -1,7 +1,7 @@
 ---
 id: AC-186
 title: 回合阶段与工具名来自真实信号：thinking、writing、tool、等待权限、压缩，回合结束回到空闲
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-014
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -26,6 +26,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-01T14:40:01.494Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
