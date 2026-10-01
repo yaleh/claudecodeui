@@ -2,7 +2,7 @@
 id: gap-reasoning-collapsed-content-retains-top-margin
 title: 收起的思考块白占 16px：CollapsibleContent 是常驻的高度动画元素（收起只塌高度、不卸载），ReasoningContent
   把 mt-4 挂在它身上 ⇒ 20px 的标签被撑成 36px 的行
-status: ready
+status: done
 labels:
   - gap
   - defect
