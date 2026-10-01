@@ -41,12 +41,12 @@ goal_ac: AC-174
 
 ## AC
 
-- [ ] AC1 有界客户端预热真实生效：`e2e/resident-shell-tab.spec.ts` 里有 `warmClientStartup`（或等价命名）的定义与「任何页面之前」的调用，逐 URL 带 deadline，非 200 / 超时按 url 指名抛错。验证：`grep -n "warmClientStartup" e2e/resident-shell-tab.spec.ts` 同时命中定义行与调用行，且 `npm run typecheck` 退出 0。
-- [ ] AC2 启动导航走有界探针：`grep -n "page\.goto(\|page\.reload(" e2e/resident-shell-tab.spec.ts` 的每一处都落在探针函数体内部（或为 `ensureSignedIn` 内部既有、已解释的重试导航），函数体外无裸启动导航；探针耗尽预算时抛出携带页面文本与 `requestfailed` 列表的错误。验证：上述 `grep -n` 输出逐行落界 + `npm run typecheck` 退出 0。
-- [ ] AC3 有界失败的实测：把探针落点临时指向一个不可能存在的 sentinel 后，`npx playwright test e2e/resident-shell-tab.spec.ts` 在 **30s 内**以非零退出，且输出里带页面文本与失败请求列表；还原后该读数与还原读数一并登记。验证：两次运行的 `echo $?` 与 wall time。
-- [ ] AC4 判据在负载下连续绿：`npx playwright test e2e/resident-shell-tab.spec.ts` 连续 ≥5 次全部 `exit 0`，且每一次 wall < 55_000ms（一次都不触发 55s 看门狗 / 60s 门限），其中至少一次与 ≥4 份兄弟 spec 并发。验证：逐次 `echo $?` + wall time。**如实登记**：本机负载高（本轮 load1 远超 10），并发那一次若兄弟 spec 自己红，须点名归因，不得算到本条头上。
-- [ ] AC5 判定面未变：`git diff develop -- package.json playwright.config.ts` 为空；`git diff develop -- e2e/resident-shell-tab.spec.ts | grep -c "^-.*expect("` 为 **0**；判据命令 `npx playwright test e2e/resident-shell-tab.spec.ts` 与 AC 记录 `criterion:` 逐字一致。验证：三条命令的逐字输出。
-- [ ] AC6 AC-174 的假形态仍然红（承重）：把禁用改成**按进程是否存活**判定（读 `GET /api/session-hosts` 的 host 存在性，或等价地把判定挂在「有没有 live host」上）⇒ 判据命令退出**非 0**，且红**落在 `shellTab.disabled === true` 那条断言**上（常驻但未运行时 Shell 仍可用）。登记变异 diff、失败断言逐字、退出码；恢复后判据回到 0。验证：变异跑与还原跑的 `echo $?`。
+- [x] AC1 有界客户端预热真实生效：`e2e/resident-shell-tab.spec.ts` 里有 `warmClientStartup`（或等价命名）的定义与「任何页面之前」的调用，逐 URL 带 deadline，非 200 / 超时按 url 指名抛错。验证：`grep -n "warmClientStartup" e2e/resident-shell-tab.spec.ts` 同时命中定义行与调用行，且 `npm run typecheck` 退出 0。
+- [x] AC2 启动导航走有界探针：`grep -n "page\.goto(\|page\.reload(" e2e/resident-shell-tab.spec.ts` 的每一处都落在探针函数体内部（或为 `ensureSignedIn` 内部既有、已解释的重试导航），函数体外无裸启动导航；探针耗尽预算时抛出携带页面文本与 `requestfailed` 列表的错误。验证：上述 `grep -n` 输出逐行落界 + `npm run typecheck` 退出 0。
+- [x] AC3 有界失败的实测：把探针落点临时指向一个不可能存在的 sentinel 后，`npx playwright test e2e/resident-shell-tab.spec.ts` 在 **30s 内**以非零退出，且输出里带页面文本与失败请求列表；还原后该读数与还原读数一并登记。验证：两次运行的 `echo $?` 与 wall time。
+- [x] AC4 判据在负载下连续绿：`npx playwright test e2e/resident-shell-tab.spec.ts` 连续 ≥5 次全部 `exit 0`，且每一次 wall < 55_000ms（一次都不触发 55s 看门狗 / 60s 门限），其中至少一次与 ≥4 份兄弟 spec 并发。验证：逐次 `echo $?` + wall time。**如实登记**：本机负载高（本轮 load1 远超 10），并发那一次若兄弟 spec 自己红，须点名归因，不得算到本条头上。
+- [x] AC5 判定面未变：`git diff develop -- package.json playwright.config.ts` 为空；`git diff develop -- e2e/resident-shell-tab.spec.ts | grep -c "^-.*expect("` 为 **0**；判据命令 `npx playwright test e2e/resident-shell-tab.spec.ts` 与 AC 记录 `criterion:` 逐字一致。验证：三条命令的逐字输出。
+- [x] AC6 AC-174 的假形态仍然红（承重）：把禁用改成**按进程是否存活**判定（读 `GET /api/session-hosts` 的 host 存在性，或等价地把判定挂在「有没有 live host」上）⇒ 判据命令退出**非 0**，且红**落在 `shellTab.disabled === true` 那条断言**上（常驻但未运行时 Shell 仍可用）。登记变异 diff、失败断言逐字、退出码；恢复后判据回到 0。验证：变异跑与还原跑的 `echo $?`。
 
 ## DoD
 
@@ -57,3 +57,34 @@ goal_ac: AC-174
 - `e2e/resident-shell-tab.spec.ts`
 - `src/modules/project-workspace/WorkspaceMain.tsx`（仅 AC6 假形态变异的临时写点，跑完还原，不进最终 diff）
 - `tasks/gap-claude-resident-shell-tab-criterion-bounded-boot-guard.md`（自触）
+
+## 完成记录（2026-10-02）
+
+**AC1** `grep -n "warmClientStartup" e2e/resident-shell-tab.spec.ts` → 定义 `:305`、调用 `:590`（定义行与调用行都命中）；`npm run typecheck` 退出 **0**（`tsconfig.json` + `server/tsconfig.json` + `scripts/tsconfig.json` 三条链）。预热落在 `beforeAll` 内、`bootstrapAuth(browser)` 之前（即 `browser.newContext()`/`newPage()` 之前），逐 URL 带 deadline，非 200 / 超时按 url+status 指名抛错。
+
+**AC2** `grep -n "page\.goto(\|page\.reload(" e2e/resident-shell-tab.spec.ts` → `:443`、`:445` 落在 `navigateBounded` 函数体内；`:486` 是 `ensureSignedIn` 内部既有、已解释的重试导航。函数体外无裸启动导航；`npm run typecheck` 退出 **0**。探针耗尽预算时抛出的错误逐字见 AC3（带页面文本 + `requestfailed` 列表）。
+
+**AC3**（有界失败实测）落点临时改为 `page.locator('[data-ac3-sentinel-never-mounts]')`：判据 `EXIT=1`，wall **24016ms**（< 30s），输出逐字含 `Error: the sentinel landing for e2e-mobile-send-key never rendered, so this run's client never came up to a document that stays: the page shows "CloudCLI\nStar\n…"; console errors: Failed to load resource: the server responded with a status of 403 () | …; failed requests: http://127.0.0.1:30661/api/file-tree/projects/…/files?respectGitignore=true — net::ERR_ABORTED | …`。还原后判据回到 `EXIT=0 wall=18776ms elapsed=18063ms`。
+（注：初版探针 deadline 沿用兄弟的 14_000ms，同样 sentinel 下 wall=**30404ms**，**越过 30s**——本 spec 的 `beforeAll` 付三屏 onboarding，兄弟用 API 建号不付。故按本 spec 实测的 pre-probe 开销（quiet 10.2s / loaded 16.0s）把 `STARTUP_PROBE_DEADLINE_MS` 定为 **12_000**：第二跑 24016ms 落在界内，且仍装得下 8s 首次探针 + 一次完整 3s 重放。这是对 plan 里「如 14s」的按本 spec 取值，机制未变。）
+
+**AC4**（负载下连续绿；本轮 load1 ≈ 9.7–14.5）还原后连续 5 次：`#1 EXIT=0 wall=18776ms elapsed=18063ms`、`#2 18269/17534`、`#3 18398/17694`、`#4 18087/17390`、`#5 18215/17480` —— 全部 `exit 0` 且 wall < 55_000（无一看门狗 / 60s 门限）。并发一次：与 `resident-running-view`、`resident-status-bar`、`resident-ui-layout`、`session-filter` 四份兄弟 spec 同跑，**目标判据 `EXIT=0 wall=20669ms`**。兄弟 `resident-running-view` / `resident-status-bar` / `session-filter` 各 `exit 0`；`resident-ui-layout` **EXIT=1** —— **点名归因**：红是它自己的有界守卫判定页面未起（逐字 `page.reload: Timeout 5480ms exceeded` + `net::ERR_NETWORK_CHANGED`），发生在 5 路并发 + 宿主 `net::ERR_NETWORK_CHANGED` 之下，该文件不在本任务 Touches、本任务 diff 未触及，属宿主负载/网络下的既有形态，不计入本条。
+
+**AC5** `git diff develop -- package.json playwright.config.ts` → 空；`git diff develop -- e2e/resident-shell-tab.spec.ts | grep -c "^-.*expect("` → **0**；判据命令逐字 `npx playwright test e2e/resident-shell-tab.spec.ts`，与 AC 记录一致（本次全部运行即此命令，未改判据命令）。`git diff --stat develop` → 仅 `e2e/resident-shell-tab.spec.ts`（1 file）。
+
+**AC6**（承重假形态）把 `WorkspaceMain.tsx` 的判定由「存的 `lifecycle_mode`」临时改为「`GET /api/session-hosts` 里有没有 live host」：
+
+```
+-        const row = body.data?.sessions?.find((entry) => entry.appSessionId === selectedSessionId);
+-        setLifecycleMode({ sessionId: selectedSessionId, mode: row?.lifecycleMode ?? 'per-run' });
++        const hasLiveHost = (body.data?.hosts ?? []).some((host) =>
++          (host.bindings ?? []).some((binding) => binding.appSessionId === selectedSessionId));
++        setLifecycleMode({ sessionId: selectedSessionId, mode: hasLiveHost ? 'resident' : 'per-run' });
+```
+
+判据 `EXIT=1`（wall 35252ms），红**落在 `shellTab.disabled === true` 那条断言**上，逐字 `Error: a resident session must close the Shell tab — and this session has no live process, so a reading that asked whether one exists would say the opposite` / `Expected: true` / `Received: false`（`e2e/resident-shell-tab.spec.ts:684`），同跑打印 `shellTab.disabled=false`、`hosts.forSession=0`。`git checkout -- src/modules/project-workspace/WorkspaceMain.tsx` 还原后判据回到 `EXIT=0`。
+
+**守卫自身的原始输出行**：`[e2e] client warm-up: pre-bundle committed in 3422ms`；`[e2e] client startup: the Shell tab for e2e-mobile-send-key landed after 1525ms (attempt 1)`。
+
+**boot 那一条**：本轮全部运行（5 连绿 + 1 并发 + AC3/AC6 变异跑）**均未复发** `Error: Timed out waiting 30000ms from config.webServer.`（逐日志 `grep` 无命中），也无 `[e2e] watchdog:` 行。若在后续轮次复发，按 Proposal 的登记归因宿主负载，不栽本任务。
+
+**本仓修的是响应方式**：无界等待（一次无预算 `page.goto(/session/:id)` + 20s `waitFor`）→ 有界重放（`beforeAll` 预热 + 12s 有界探针 + `page.reload()` 重放）。触发源（本次运行自己的 Vite 依赖冷预构建 / 模块图在页面期被重优化打断）不在本仓可控范围内 —— 因此这条判据的稳定性依赖守卫，而不是依赖触发源消失。
