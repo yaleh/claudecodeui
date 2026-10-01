@@ -1,7 +1,7 @@
 ---
 id: gap-debug-agent-external-write-delivery-leg-window
 title: AC-125 判据的送达腿窗口只按轮询时钟推导，lane 内正控制行晚于窗口 ⇒ 全舰队 fan-in 假红（该文件第三次咬人）
-status: ready
+status: done
 labels:
   - gap
   - defect
