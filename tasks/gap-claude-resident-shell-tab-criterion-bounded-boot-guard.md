@@ -60,9 +60,11 @@ goal_ac: AC-174
 
 ## 完成记录（2026-10-02）
 
-**AC1** `grep -n "warmClientStartup" e2e/resident-shell-tab.spec.ts` → 定义 `:305`、调用 `:590`（定义行与调用行都命中）；`npm run typecheck` 退出 **0**（`tsconfig.json` + `server/tsconfig.json` + `scripts/tsconfig.json` 三条链）。预热落在 `beforeAll` 内、`bootstrapAuth(browser)` 之前（即 `browser.newContext()`/`newPage()` 之前），逐 URL 带 deadline，非 200 / 超时按 url+status 指名抛错。
+> 行号以**最终分支文件**为准（`e5452cd4` 把探针 deadline 的说明扩写了 7 行；AC3/AC6 的变异跑发生在那次提交**之前**，故其报出的断言行号比最终文件低 7）。
 
-**AC2** `grep -n "page\.goto(\|page\.reload(" e2e/resident-shell-tab.spec.ts` → `:443`、`:445` 落在 `navigateBounded` 函数体内；`:486` 是 `ensureSignedIn` 内部既有、已解释的重试导航。函数体外无裸启动导航；`npm run typecheck` 退出 **0**。探针耗尽预算时抛出的错误逐字见 AC3（带页面文本 + `requestfailed` 列表）。
+**AC1** `grep -n "warmClientStartup" e2e/resident-shell-tab.spec.ts` → 定义 `:305`、调用 `:597`（定义行与调用行都命中）；`npm run typecheck` 退出 **0**（`tsconfig.json` + `server/tsconfig.json` + `scripts/tsconfig.json` 三条链）。预热落在 `beforeAll` 内、`bootstrapAuth(browser)` 之前（即 `browser.newContext()`/`newPage()` 之前），逐 URL 带 deadline，非 200 / 超时按 url+status 指名抛错。
+
+**AC2** `grep -n "page\.goto(\|page\.reload(" e2e/resident-shell-tab.spec.ts` → `:450`、`:452` 落在 `navigateBounded`（`:437`–）函数体内；`:493` 是 `ensureSignedIn` 内部既有、已解释的重试导航。函数体外无裸启动导航；`npm run typecheck` 退出 **0**。探针耗尽预算时抛出的错误逐字见 AC3（带页面文本 + `requestfailed` 列表）。
 
 **AC3**（有界失败实测）落点临时改为 `page.locator('[data-ac3-sentinel-never-mounts]')`：判据 `EXIT=1`，wall **24016ms**（< 30s），输出逐字含 `Error: the sentinel landing for e2e-mobile-send-key never rendered, so this run's client never came up to a document that stays: the page shows "CloudCLI\nStar\n…"; console errors: Failed to load resource: the server responded with a status of 403 () | …; failed requests: http://127.0.0.1:30661/api/file-tree/projects/…/files?respectGitignore=true — net::ERR_ABORTED | …`。还原后判据回到 `EXIT=0 wall=18776ms elapsed=18063ms`。
 （注：初版探针 deadline 沿用兄弟的 14_000ms，同样 sentinel 下 wall=**30404ms**，**越过 30s**——本 spec 的 `beforeAll` 付三屏 onboarding，兄弟用 API 建号不付。故按本 spec 实测的 pre-probe 开销（quiet 10.2s / loaded 16.0s）把 `STARTUP_PROBE_DEADLINE_MS` 定为 **12_000**：第二跑 24016ms 落在界内，且仍装得下 8s 首次探针 + 一次完整 3s 重放。这是对 plan 里「如 14s」的按本 spec 取值，机制未变。）
@@ -81,7 +83,7 @@ goal_ac: AC-174
 +        setLifecycleMode({ sessionId: selectedSessionId, mode: hasLiveHost ? 'resident' : 'per-run' });
 ```
 
-判据 `EXIT=1`（wall 35252ms），红**落在 `shellTab.disabled === true` 那条断言**上，逐字 `Error: a resident session must close the Shell tab — and this session has no live process, so a reading that asked whether one exists would say the opposite` / `Expected: true` / `Received: false`（`e2e/resident-shell-tab.spec.ts:684`），同跑打印 `shellTab.disabled=false`、`hosts.forSession=0`。`git checkout -- src/modules/project-workspace/WorkspaceMain.tsx` 还原后判据回到 `EXIT=0`。
+判据 `EXIT=1`（wall 35252ms），红**落在 `shellTab.disabled === true` 那条断言**上，逐字 `Error: a resident session must close the Shell tab — and this session has no live process, so a reading that asked whether one exists would say the opposite` / `Expected: true` / `Received: false`。变异跑报的断言行号 `:684`（最终文件为 `:691`，`settled.disabled` 读数在 `:688`；差 7 行 = deadline 说明那次提交）。同跑打印 `shellTab.disabled=false`、`hosts.forSession=0`。`git checkout -- src/modules/project-workspace/WorkspaceMain.tsx` 还原后判据回到 `EXIT=0`。
 
 **守卫自身的原始输出行**：`[e2e] client warm-up: pre-bundle committed in 3422ms`；`[e2e] client startup: the Shell tab for e2e-mobile-send-key landed after 1525ms (attempt 1)`。
 
