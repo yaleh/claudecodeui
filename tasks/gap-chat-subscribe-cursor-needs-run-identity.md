@@ -77,6 +77,7 @@ L_G 该轴仍暗，理由：同上；判定面由本任务自己的 AC 承担，
 - server/modules/websocket/tests/chat-run-registry.test.ts
 - src/modules/chat/tests/replayCursorAcrossRuns.test.tsx (new)
 - server/modules/session-hosts/tests/per-run-frame-scenarios.ts
+- server/modules/providers/tests/claude-resident-unattended-turn.test.ts
 - tasks/gap-chat-subscribe-cursor-needs-run-identity.md
 
 ## 完成记录
@@ -135,7 +136,7 @@ Test Files 1 failed (1)   Tests 1 failed | 5 passed (6)   EXIT=1
 
 **AC8** —— `grep -c runId server/modules/websocket/README.md` = **6**（> 0）。「Per-run event log」一节写明逐帧 `runId`，并写明 `seq` 是**每 run** 计数、第 2 个及以后的回合从 1 重来；紧随其后的一节把回放规则的三条分支（`runId` 相同/不同/缺省）与应答里的 `runId`、`lastSeq` 写在一起。
 
-**AC9** —— `git diff develop --name-only` 的 12 个文件全部落在 Touches 内。本轮把两个此前漏声明的文件补进了 Touches：`src/modules/chat/utils/replayCursor.ts (new)`（新抽出的游标规则模块）与 `server/modules/session-hosts/tests/per-run-frame-scenarios.ts`（AC6 迫使同步的不稳字段表）。
+**AC9** —— `git diff develop --name-only` 的全部文件都落在 Touches 内。本轮把三个此前漏声明的文件补进了 Touches：`src/modules/chat/utils/replayCursor.ts (new)`（新抽出的游标规则模块）、`server/modules/session-hosts/tests/per-run-frame-scenarios.ts`（AC6 迫使同步的不稳字段表），以及 `server/modules/providers/tests/claude-resident-unattended-turn.test.ts`（见下「全量套件红」）。
 
 ### DoD
 
@@ -157,3 +158,11 @@ run 1 实时帧数                  5                 5
 同一支脚本、同一个场景，只动那一条规则：**修复前补发 0 帧，修复后补发 run 2 已产出的 3 帧**。DoD(a) 要求同时登记的三个读数齐备：断线时 run 2 已产出 **3** 帧、重连时 `chat_subscribed` 应答 `lastSeq=3` / `runId=run2`、客户端订阅里带 `lastSeq=5` / `runId=run1`。`lastSeq=1`/`runId=run2` 那条腿（[2,3]）是同一支脚本里的**正控制**——证明读数不是「一律返回空」。变体臂还原（`git checkout`）后在同一条真实 socket 路径上复跑，读数回到 `[1, 2, 3]`。
 
 **(c)** 本记录只声称：**同一会话第 2 个及以后的 run 中、断线重连后补发恢复**。**不声称「流式文本不会丢」**——工具行靠 REST 刷新、带 `blockKey` 的终态帧带全文这两条既有兜底没有被本任务改动，也不在本任务的判定面内。
+
+### 全量套件红的两条读数（本轮）
+
+全量套件（fan-in suite）红两条，逐条归因如下；两条都不是「判定面」问题，一条是本任务改动所致、已修，另一条与本任务无关。
+
+1. `server/modules/providers/tests/claude-resident-unattended-turn.test.ts` —— **本任务改动所致，已修。** `decorateAndRecordEvent` 现在给每个记录行同时盖 `runId`，而该用例的 `frameProjection`（把注册表给 normalizer 帧加的装饰去掉后再比对 normalizer 自己的输出）只删了 `seq`/`sessionId`/`actualSessionId`；于是 `matchedNormalizerTail` 的逐帧 JSON 比对在第一个字段就不等，读数 `framesFromNormalizer=0` 而 `rowsDelta=6`，断言 `matched === rowsDelta` 红。修法：在 `frameProjection` 里照删 `runId`——它和 `seq` 一样是注册表铸造的字段（`startRun` 里 `randomUUID()`），normalizer 从不产出它，所以去掉它才是把行还原成 normalizer 自己的帧，正是该函数既有的职责；只补一个被删字段名，**没有**放宽任何断言、**没有**改成「忽略整帧」。修前单跑读数 `frames=6 rowsDelta=6 framesFromNormalizer=0`（红），修后 `framesFromNormalizer=6`、`ℹ tests 1 / ℹ pass 1 / ℹ fail 0`（EXIT=0）。该文件因此补进 Touches。
+
+2. `server/modules/debug-agent/tests/debug-agent-external-write.test.ts` —— **与本任务无关，是负载下抖动的假红。** 单跑该文件 4/4 通过、EXIT=0；失败断言依赖一个 6000ms 轮询时钟的观测窗口（`(ii)` 窗口内是否收到新 upsert、`(iii)` 观察者是否在写之后读到 `change` 行），全量套件 16 并发下抖动。本任务改动不触及 debug-agent：那里的 `runId` 是 debug-agent 引擎自己的回合租约 id（`debug-agent.engine.ts`），与注册表 `runId` 机制无交集。
