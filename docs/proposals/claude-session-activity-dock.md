@@ -1,6 +1,6 @@
 # Claude 会话「活动」的统一架构：一个真实、持续、可操作的底部活动坞
 
-- 状态：analysis + design（只做调查、实测与架构讨论，未改业务代码、未立 task）
+- 状态：proposal（2026-10-01 人已裁定 4 项，见 §0.1；补充实测进行中，见 §9；goal / task 尚未建立）
 - 日期：2026-10-01
 - 范围：仅 Claude Code（resident 与 per-run 两条路径）；其它 provider 不在范围内
 - 扩展自：`docs/proposals/claude-background-work-observability.md`（本文把它的 Task 实体纳入更大的“会话活动”模型，并补上控制面、计划任务、入站消息与真实性）
@@ -26,6 +26,35 @@
 2. “假”的根源不是某个 bug，而是**活动的真相被拆在四个互不联系的来源里，且没有任何一个携带“我还活着”的证据**。修法必须包含一个**客户端可见的心跳/新鲜度**，并把“连接中断”作为一等状态，而不是继续沿用本地时钟。
 3. 这件事可以**分层交付**，其中“真实性”（诚实地显示连接中断，不再假装在思考）是一条独立、小、风险低、可最先落地的线。
 4. 控制面应当与 `chat.cancel-queued` 同构，但要修它的两个弱点：没有请求关联、没有会话归属校验。
+
+---
+
+## 0.1 人的裁定（yale，2026-10-01）
+
+1. **心跳与新鲜度**：服务端每 **5 秒**发一次业务心跳，客户端 **15 秒**没有任何帧即判定不可达。两个数字可接受，实现上做成可配置的默认值。
+2. **控制动词的归属校验**：新增的“杀东西”类动词（`chat.stop-task`、`chat.background-task`）**必须带归属校验**；并**顺带给既有的 `chat.cancel-queued` 补齐**同样的校验与请求关联（`requestId`）。
+3. **cron / ScheduleWakeup 的取消**：**不做单独的 UI 控件**。接受“只能请模型调用 `CronDelete`”这一间接语义，由用户在输入框里用文本下达；坞对计划只做**只读展示**，取消的结果以 Stop hook 的 `session_crons` 变化反映。
+4. **本期不纳入**：`isMeta` 行在历史里的显示（对等会话消息、cron/唤醒的提示词行）；对等方目录/收件箱。
+
+### 由此得到的范围
+
+**纳入本期**
+
+- 真实性：心跳、`bootId`/`rev`、连接状态、发送超时提示、不再本地编造计时（P0）。
+- 回合的真实阶段与工具名，取代轮换文案（P1）。
+- Activity Aggregator、REST 快照与 WS 推送（P2）。
+- 单一活动坞：并入 `ActivityIndicator` 与 `ResidentStatusBar` 的忙闲部分；侧栏运行视图读同一来源（P3）。
+- Task 的可观测（含 Workflow、Monitor）与控制：停止、单任务转后台（P4）。
+- 计划（cron / 唤醒）的**只读**展示（P5 的一部分）。
+- Monitor 事件在转写**投影层**折叠成一行，历史不变（P6）。
+- 对 `cancel-queued` 的规整（请求关联 + 归属校验）。
+
+**不纳入本期（非目标）**
+
+- 取消计划任务的专用控件；历史里的 `isMeta` 行显示；对等方目录。
+- 入站对等消息的**实时**可见（坞里的“队列中/已送达”）：依赖 §9 里对 JSONL 追尾时序的实测，**待实测后再裁定是否纳入**，在此之前按“不纳入”处理。
+- 出站 `SendMessage` / `ListAgents` 的专用工具卡：**未裁定**，默认不纳入。
+- 其它 provider。
 
 ---
 
@@ -457,9 +486,9 @@ title 活动坞（展开态）线框：桌面与移动共用同一数据，布�
 
 ### 4.7 计划任务（cron / ScheduleWakeup）
 
-- **来源**：`CronCreate` 的 `tool_use.input`（表达式、提示词）加其 `tool_result`（“Scheduled recurring job <id> (…)”）；`ScheduleWakeup` 的 `tool_use.input`（延迟、提示词）加其 `tool_result`（“Next wakeup scheduled for HH:MM:SS (in Ns)”）；`CronDelete`；以及 Stop hook 的 `session_crons` 作为**权威校准**。现有的 `inferHeldWork` 只处理 `CronCreate/CronDelete`，需要补上 `ScheduleWakeup`。
-- **nextFireAt**：cron 由表达式计算；唤醒由工具结果里的绝对时间给出。**cron 表达式的完整语法与时区**需要核实（实测只用了“每分钟”）。
-- **取消**：SDK 没有“删除 cron”的控制请求（核对类型联合里没有）。可行做法是**向模型发一条用户消息让它调用 `CronDelete`**——这是“请求”而不是“控制”，结果以 Stop hook 的 `session_crons` 变化确认。是否接受这种间接语义，需要裁定（见 §6）。
+- **来源（§9 已实测）**：Stop hook 的 `session_crons` 是**完整且权威**的计划清单，每项形如 `{id, schedule, recurring, prompt}`——**`ScheduleWakeup` 也出现在里面**，被表示成一条 `recurring:false` 的一次性 cron（`schedule` 是绝对分钟，例如 `"58 20 * * *"`），触发后从清单里消失。它只在**回合结束时**触发，所以回合进行中新建的计划要靠 `CronCreate` / `ScheduleWakeup` 的 `tool_result`（“Scheduled recurring job <id> (Every 2 minutes) … Auto-expires after 7 days”、“Next wakeup scheduled for 20:58:00 (in 115s)”）先行显示，回合结束后由 Stop hook 校准。现有的 `inferHeldWork` 只处理 `CronCreate/CronDelete`，需要补上 `ScheduleWakeup`，更好的做法是以 Stop hook 为准。
+- **nextFireAt**：由 `schedule`（5 段 cron 表达式）计算，唤醒也是同一形态。**粒度是分钟**：请求 60 秒后的唤醒，实际是“in 115s”（取到下一个整分钟）。cron 自动 **7 天过期**，且是**会话级**（进程退出即消失）。多个计划落在同一分钟时可能合并成一个回合（实测：一次 cron 与一次唤醒同在 20:58:00，只出现了一次 `init`）。表达式的更多语法与时区仍未测。
+- **取消**（**已裁定，§0.1-3**）：SDK 没有“删除 cron”的控制请求（核对类型联合里没有）。**不提供控件**；用户在输入框里用文本请模型调用 `CronDelete`，结果以 Stop hook 的 `session_crons` 变化在坞里反映。坞对计划只读。
 - **触发标注**：见 §4.8。
 
 ### 4.8 回合来源：Trigger Resolver
@@ -500,8 +529,9 @@ end
 
 - **peer / task-notification 可以确定**（JSONL 里有 `origin`），不必等 `result`。
 - **cron / 唤醒只能推断**：该行没有 `origin`，靠“提示词文本 + 计划表 + 时间容差”匹配，置信度标 `inferred`。
-- **前提（未验证）**：JSONL 的 user 行在 `system/init` 到达前已经写入、且服务端能在毫秒级读到。这是整个方案对时序的依赖，需要实测。
-- **队列中的消息**：`queue-operation enqueue` 在**消息入队时**就已写入 JSONL，所以 Inbox Tracker 可以在回合开始之前、甚至忙时就看到“有一条来自 X 的消息在排队”。同样**依赖追尾的延迟**，需实测。
+- **时序（§9 已实测）**：行的**时间戳**早于 `init`（`enqueue`→`dequeue`→`user` 在 `init` 之前 2–60 ms 写入），但**文件里读得到它要再等约 60–125 ms**（`init` 到达时立刻读，一行都没有）。所以 Resolver 不能在 `init` 时同步读，必须**轮询等待**（建议 30 ms 间隔、总预算约 500 ms）；等待期间回合来源显示为“判定中”。
+- **cron/唤醒的判别条件（已实测）**：该 user 行 `isMeta:true`、**无 `origin`**、内容**等于**计划表里某项的 `prompt`——而 `prompt` 在 Stop hook 的 `session_crons` 里现成可得，匹配不再是猜测。对照：任务通知行有 `origin:{kind:"task-notification"}`；人类输入行没有 `isMeta`。
+- **队列中的消息**：`queue-operation enqueue` 在入队时写入，**忙时也在其时间戳之后约 130 ms 内可读**（实测：回合进行中到达的任务通知，其 `enqueue` 行在 ~100 ms 内可见）。所以“有一条消息在排队”**可以**在回合开始前显示。**注意：只用任务通知、cron、人类输入这三类行测过；真正的对等会话消息（`<cross-session-message>`）没有测。**
 
 ### 4.9 入站 SendMessage
 
@@ -548,18 +578,23 @@ end
 @enduml
 ```
 
+**实测修正（§9）**：
+
+- `stopTask(taskId)` **对已结束或不存在的任务也静默 resolve，不报错、不发事件**；对运行中的任务，约 100 ms 后出现 `task_updated{killed}` + `task_notification{stopped}`。所以 SDK **不能告诉我们“任务不存在”**，服务端必须**自己校验 taskId 是否在 Task 表里且未终结**，并以事件作为确认、限时等待。
+- **前台工具在被转后台之前不是任务**：前台 `Bash` 没有 `task_started`；`backgroundTasks(toolUseId)` 返回 `true` 的同时才出现 `task_started`（同一时刻）与 `task_updated{is_backgrounded:true}`，工具结果变成 “Command was manually backgrounded by user with ID: …”，回合继续，之后 `task_notification` 触发新的无人回合。对没有匹配前台工具的 `toolUseId`（例如那条工具已被拒绝）返回 `false`。因此 **`chat.background-task` 的寻址对象是“正在运行的前台 tool_use”（来自 Turn Tracker），不是 Task**，校验也应针对 Turn Tracker 里未配对的 `tool_use`。
+
 动词（草案）：
 
 | 动词 | 语义 | 备注 |
 |---|---|---|
 | `chat.stop-task` | `Query.stopTask(taskId)` | 终态由 `task_notification(stopped)` 确认；对已结束的任务应返回 `unknown-task` 而不是静默成功 |
-| `chat.background-task` | `Query.backgroundTasks(toolUseId)` | **只暴露带 `toolUseId` 的单任务版本**；不带参数会把所有前台任务一起转后台，易误伤 |
+| `chat.background-task` | `Query.backgroundTasks(toolUseId)` | **只暴露带 `toolUseId` 的单工具版本**（目标是运行中的前台 tool_use，不是 Task）；不带参数会把所有前台任务一起转后台，易误伤；`false` 表示没有匹配的前台工具 |
 | `chat.abort`（已有） | 中断本回合 | 保持；连接中断时在 UI 上置灰并说明 |
 | `chat.cancel-queued`（已有） | 撤回排队的用户输入 | 补 `requestId` 与归属校验，作为同族动词一并规整 |
 
 细节：
 
-- **归属校验**是新增的：现有 WS 处理函数除 `chat.send` / `chat.edit-send` 外都不用 `userId`。这个应用看起来是单租户、在 WS 升级时鉴权，但新的“杀东西”的动词不应继续沿用“没有校验”的先例。需要裁定最小做法（见 §6）。
+- **归属校验**是新增的：现有 WS 处理函数除 `chat.send` / `chat.edit-send` 外都不用 `userId`。这个应用看起来是单租户、在 WS 升级时鉴权，但新的“杀东西”的动词不应继续沿用“没有校验”的先例。**已裁定（§0.1-2）**：新动词必须带归属校验，并顺带给 `cancel-queued` 补齐同样的校验与 `requestId`。具体校验函数的形态（例如统一的 `assertSessionAccess`）留给实现提案。
 - **时限**：类型化的 `Query` 动词自己没有超时，必须 `Promise.race`，否则一个不返回的 `stopTask` 会挂住 WS 处理函数（分发器会把错误吞成 `INTERNAL_ERROR`）。
 - **能力矩阵**：`ResidentFeatures` 新增 `stopTask`、`backgroundTask`，**默认 false**，实测（E 系列）后再开。
 - **类型化调用优于手写 `writeRaw` 帧**：`stopTask` 会 resolve/reject，不像 `cancel_async_message` 那样没有应答、只能靠流事实。
@@ -576,7 +611,9 @@ end
 
 ---
 
-## 6. 需要先裁定的设计问题
+## 6. 设计问题与裁定状态
+
+> 2026-10-01 已裁定：第 1、2、3、4、8 项，见 §0.1。第 5 项（JSONL 追尾时序）已实测：可行但须轮询等待，见 §4.8 与 §9。第 6 项（per-run）已由“持有输入流”的实测覆盖事件形态，仍未用仓库真实运行时验证。第 7 项（`paused`）**未能复现**，见 §9。
 
 1. **新鲜度阈值与心跳频率**：5 秒心跳、15 秒判定不可达是否可以接受？是否要在移动网络/后台标签页放宽？
 2. **取消 cron/唤醒的语义**：没有直接控制请求，只能“请模型调用 `CronDelete`”。这是请求而非命令——是否接受，还是只展示、不提供取消？
@@ -615,3 +652,64 @@ end
 - `isMeta` 行在**实时流**里是否带标记没有核实（代码注释说技能正文不带）。
 - per-run 的真实持有逻辑下 `task_*` 的时序没有测（本次用的是字符串 prompt，结果被 stdin 关闭杀掉）。
 - 线协议与字段名仅是草案；没有做体积或兼容性评估。
+
+---
+
+## 9. 补充实测记录（2026-10-01，裁定之后）
+
+环境：真实 SDK 0.3.165 / CLI 2.1.165，流式输入，`cwd` 为 `/tmp` 下的独立目录；每次运行后删除脚本与它在 `~/.claude/projects` 下留的会话。**每项只测了一次，没有做重复或负载下的测量。**
+
+### 9.1 Stop hook 与计划清单
+
+在 `options.hooks.Stop` 里捕获输入，创建 `*/2 * * * *` 的 cron 与 60 秒的唤醒后：
+
+```
+session_crons: [
+  {id:"5c79b8ae", schedule:"*/2 * * * *", recurring:true,  prompt:"cron-fired"},
+  {id:"7263511e", schedule:"58 20 * * *", recurring:false, prompt:"wake-fired"}   ← ScheduleWakeup
+]
+```
+
+- 唤醒触发后，下一次 Stop hook 的清单里只剩 cron；两者同在 20:58:00 到点时只出现一次 `init`。
+- `CronCreate` 的结果文本含 “Session-only … Auto-expires after 7 days. Use CronDelete to cancel sooner.”；`CronList` 的结果文本是每行 `<id> — <人话描述> (recurring|one-shot) [session-only]: <prompt>`。
+- 后台任务运行中时，Stop hook 的 `background_tasks` 是 `[{id, type:"shell", status:"running", description, command}]`；任务被停止后的下一次 Stop hook 里消失。
+- Stop hook 在回合末、`result` 之前触发。
+
+### 9.2 JSONL 追尾时序（对应 §6.5）
+
+在每个 `system/init` 到达时记录当前行数，之后每 30 ms 轮询文件，看新行何时可读：
+
+| 回合来源 | 行的时间戳相对 `init` | 文件里首次可读 |
+|---|---|---|
+| 人类输入（3 次） | 早 2–15 ms（`enqueue`→`dequeue`→`user`） | `init` 后 **92–122 ms** |
+| 任务通知（3 次，`origin.kind:"task-notification"`） | 早 8–65 ms | `init` 后 **62–122 ms** |
+| cron（`* * * * *`，1 次） | 早 2–7 ms，`user` 行 `isMeta:true`、**无 `origin`**、内容 `cron-fired` | `init` 后 **123 ms** |
+
+- 第一轮里在 `init` 到达时**立即同步读一次**，三次都读不到新行——与上面一致：写入有约 100 ms 的落盘延迟。
+- 忙时到达的通知，其 `enqueue` 行在其时间戳后约 130 ms 内可读。
+- **未测**：真正的对等会话消息（`<cross-session-message>`）；高负载下的延迟；非本地文件系统。
+
+### 9.3 `stopTask` / `backgroundTasks`
+
+- `q.stopTask(taskId)`（运行中的后台 Bash）：resolve；约 100 ms 后 `task_updated{status:"killed"}` + `task_notification{status:"stopped"}`。
+- `q.stopTask(同一个已停止的 id)`、`q.stopTask("nonexistent1")`：**都静默 resolve，没有任何事件。**
+- `q.backgroundTasks(toolUseId)`，目标是运行中的前台 `Bash`（`python3 -c "import time; time.sleep(20)"`）：返回 `true`；同一时刻出现 `task_started{task_type:"local_bash"}` 与 `task_updated{patch:{is_backgrounded:true}}`；工具结果变为 “Command was manually backgrounded by user with ID: …”；回合继续并正常结束；任务结束后 `task_notification{completed}` 引出一个新的无人回合。
+- `q.backgroundTasks(toolUseId)` 当该工具已被 CLI 拒绝（没有前台任务）：返回 `false`。
+- 顺带发现：**CLI 会拒绝前台的 `sleep N; …` 命令**（“Blocked: sleep 25 followed by …”），所以测试里的长前台命令要换成别的形态。
+
+### 9.4 `paused` —— 未能复现
+
+两次尝试：`permissionMode:'default'`，`canUseTool` 回调里对子代理的 Bash 挂住 9 秒；其中第二次还设了 `settingSources:[]`。结果：**`canUseTool` 从未被调用**（连主代理的 `Agent` 工具和子代理的 `touch` 命令都没有触发），命令直接执行，`task_updated` 里没有出现 `paused`。本机的托管或默认设置看起来对这些工具默认放行。**§1.4 的推断（`paused` ＝ 等权限）仍然只是推断。** 复现需要一个不放行这些工具的环境，或另找触发 `paused` 的路径。
+
+### 9.5 其它读数
+
+- 子代理的 `task_progress` 在这次短运行里只带 `description`（“Running Run echo command”），**没有 `usage`**；上一轮较长的子代理运行里带了 `usage` 与 `last_tool_name`。节奏不固定。
+- 后台子代理被启动、运行、完成的整个过程里，转写里它的内部 `Bash`（带 `parent_tool_use_id`）与文本照常到达，与 §1.2 一致。
+
+### 9.6 仍未验证
+
+- `paused`（见 9.4）。
+- 真正的对等会话消息在 JSONL 里的出现时序（9.2）。
+- cron 表达式的更多语法、时区、7 天过期的实际行为。
+- 仓库真实 per-run 运行时下的 `task_*` 时序（只验证了“持有输入流”的形态）。
+- `stopTask` 对 Monitor、Workflow、子代理任务的行为（只测了后台 Bash）。
