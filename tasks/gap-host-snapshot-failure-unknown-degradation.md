@@ -2,6 +2,7 @@
 id: gap-host-snapshot-failure-unknown-degradation
 title: AC-189 宿主快照轮询失败降级为未知：状态栏与侧栏标记不再保留上一次 busy，成功即恢复
 status: ready
+needs_human_cause: human-adjudication
 labels:
   - gap
 parent: null
@@ -60,3 +61,15 @@ goal_ac: AC-189
 - src/modules/i18n/locales/zh-CN/chat.json
 - src/modules/i18n/locales/zh-TW/chat.json
 - tasks/gap-host-snapshot-failure-unknown-degradation.md
+
+## Needs-Human
+
+**执行 2026-10-01T14:58:52.126Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 成因类：human-adjudication
+- 失败步/判词：step=suite: not ok - server/modules/voice/tests/voice-capture-secrets.false-forms.test.ts:   AssertionError [ERR_ASSERTION]: a surface this task must not have moved is red
+- run_id：wk-prod-anchor
+- session_id：0f15dcb5-089e-40bb-923b-840e8b5a0b86
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-host-snapshot-failure-unknown-degradation~wk-prod-anchor~1790866044959-1e33ef.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-host-snapshot-failure-unknown-degradation-wk-prod-anchor.log
