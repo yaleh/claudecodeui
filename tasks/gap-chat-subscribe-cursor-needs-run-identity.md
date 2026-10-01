@@ -1,7 +1,7 @@
 ---
 id: gap-chat-subscribe-cursor-needs-run-identity
 title: WS 重连的补发游标跨 run 错位：服务端 seq 每个 run 从 1 重来而客户端 lastSeq 只增不减，同一会话第 2 个回合起重订阅补不回帧
-status: todo
+status: ready
 needs_human_cause: human-adjudication
 labels:
   - gap
