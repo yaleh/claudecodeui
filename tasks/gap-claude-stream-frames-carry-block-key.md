@@ -2,7 +2,7 @@
 id: gap-claude-stream-frames-carry-block-key
 title: Claude 实时流式帧缺块级身份：stream_delta / stream_end 与终态 text 帧之间没有可连接的
   blockKey，客户端只能靠文本相等去猜
-status: ready
+status: done
 labels:
   - gap
 parent: null
