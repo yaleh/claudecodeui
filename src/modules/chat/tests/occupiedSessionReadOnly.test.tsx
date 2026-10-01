@@ -452,9 +452,8 @@ test('AC5: a held session is read-only, and the next poll after the release rest
     `and the one command that releases it; got: ${noticeText}`,
   );
 
-  assert.equal(
-    startControl(container),
-    null,
+  assert.ok(
+    startControl(container) === null,
     'the status bar offers nothing to start: a launch for a held session can only be refused',
   );
 
@@ -504,9 +503,13 @@ test('AC5: a held session is read-only, and the next poll after the release rest
     harness.listingRequests > requestsBeforeRelease,
     'the tick really re-read the listing — without this the restore below could be a local default',
   );
-  assert.equal(
-    textarea(container),
-    nodeBeforeRelease,
+  // `assert.ok(x === y)` rather than `assert.equal(x, y)` for every assertion whose operands are DOM
+  // nodes: a failing `assert.equal` hands the node to the reporter as `actual`, and serializing a
+  // React-rendered element walks its fiber tree — the mutation run does not fail, it grows to tens of
+  // gigabytes and hangs. The boolean form asserts the identical thing and fails with the sentence
+  // below, which is what AC6 needs to read.
+  assert.ok(
+    textarea(container) === nodeBeforeRelease,
     'the restore happens in the same mounted tree: the very node that was disabled is the one that came back',
   );
   assert.equal(
@@ -514,7 +517,10 @@ test('AC5: a held session is read-only, and the next poll after the release rest
     false,
     'the input is usable again as soon as the holder is gone, with no reload',
   );
-  assert.equal(occupiedNotice(container), null, 'and the notice goes with the state it describes');
+  assert.ok(
+    occupiedNotice(container) === null,
+    'and the notice goes with the state it describes',
+  );
   assert.ok(
     startControl(container),
     'the status bar offers [Start] again — the control the refusal had hidden',
