@@ -44,8 +44,21 @@
  *    title and writes no `ai-title` row — keeps its `derived` name and writes
  *    **zero** rename frames over the same observation window. This is what makes
  *    reading 3 falsifiable: the mechanism is gated on the title existing, so a
- *    build that sent on the first read of *anything* (the "首读即发" false form)
- *    would red here by writing a frame for a session with no title.
+ *    build that sent a name it did *not* read out of the transcript — any ladder
+ *    rung, a prompt, a placeholder, an id prefix — would red here by writing a
+ *    frame for a session with no title.
+ *
+ *    The limit of that claim was measured rather than assumed (2026-10-01): the
+ *    *literal* "首读即发" mutation — sending on the first non-null read instead
+ *    of on a repeated one — was applied to the settle test and run, and this
+ *    criterion stayed **green**. That is a property of the design, not a hole in
+ *    the negative arm: the frame's payload is read out of the transcript
+ *    (reading 2), so shortening the settle test still leaves nothing to send
+ *    until an `ai-title` exists, and the title does not change within a round,
+ *    so the first read and the settled read are the same string. The invariant
+ *    that matters — the frame cannot go out before the title exists — holds by
+ *    construction, which is why the A-arm suppression itself is measured by the
+ *    sibling criterion rather than re-derived here.
  *
  * Red lines:
  * - The process budget guard below kills the whole process with `exit 3` rather
