@@ -51,6 +51,6 @@ goal_ac: AC-148
 
 ## Touches
 
-- scripts/voice-capture-process-check.mjs — 把 `real-db-untouched` 从时序归因换成归属证据（`:822`/`:835`/`:836` 一带的判定与 `main()` 里的空闲窗）
-- scripts/voice-capture-process-check.false-forms.test.mjs — 新增 AC1 的腿（受控临时库 + 窗口内写一次后静默的外部写者）与 AC2 的变异腿
-- tasks/gap-voice-capture-real-db-timing-attribution.md — 本任务自身（self-touch）
+- `scripts/voice-capture-process-check.mjs`（`:822`/`:835`/`:836` 的归因判定与 `main()` 里的空闲窗）
+- `scripts/voice-capture-process-check.false-forms.test.mjs`（AC1 的腿与 AC2 的变异腿）
+- `tasks/gap-voice-capture-real-db-timing-attribution.md`（自触）
