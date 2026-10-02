@@ -2,7 +2,7 @@
 id: gap-claude-runtime-per-run-occupied-session-gate
 title: 非 resident 每轮运行也拒绝被 Claude Code 后台任务占用的会话：先把 claude-runtime.provider.js
   迁成 TS（行为不变的独立一步），再在 queryClaudeSDK 里加占用检查
-status: ready
+status: done
 labels:
   - gap
 parent: null
