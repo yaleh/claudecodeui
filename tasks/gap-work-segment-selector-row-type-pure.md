@@ -1,7 +1,7 @@
 ---
 id: gap-work-segment-selector-row-type-pure
 title: AC-202 段选择器 groupWorkSegments() 的边界是行类型的纯函数且流式下不变
-status: needs-human
+status: ready
 labels:
   - gap
 parent: null

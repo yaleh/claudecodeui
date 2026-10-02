@@ -98,3 +98,14 @@ extra:
 - src/modules/i18n/locales/zh-CN/chat.json
 - src/modules/i18n/locales/zh-TW/chat.json
 - tasks/gap-occupied-session-read-only-mode.md
+
+## Needs-Human
+
+**执行 2026-10-01T18:05:03.513Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: not ok - suite-watchdog: terminated by an external signal before the suite finished — see the report above
+- run_id：wk-prod-anchor
+- session_id：275ccf22-2fbd-4289-a0dd-c786fe615435
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-occupied-session-read-only-mode~wk-prod-anchor~1790877855224-b4716f.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-occupied-session-read-only-mode-wk-prod-anchor.log
