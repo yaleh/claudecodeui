@@ -315,8 +315,11 @@ function processTree(rootPid) {
 }
 
 /**
- * Records every handle in this process tree that points at the inherited database (or a sibling
- * SQLite keeps beside it — `-journal`, `-wal`, `-shm`).
+ * Records every handle in this process tree that points at the inherited database. A handle on
+ * ANY `<db>-<suffix>` sibling counts too: SQLite keeps its rollback journal / WAL beside the
+ * database, and a child that opened the database has one of those open at the same time (measured:
+ * `auth.db` and `auth.db-journal`). The prefix rule is deliberately the whole family rather than a
+ * hardcoded list, so a journal mode this criterion has never seen still counts.
  *
  * Called while the real service child is known to be alive, so what it reports is a live handle
  * rather than a guess about one. Only `process.pid`'s own tree is read; a pid or fd that vanishes
