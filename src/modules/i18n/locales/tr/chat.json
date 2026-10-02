@@ -220,6 +220,10 @@
       "live": "Canlı",
       "paused": "Duraklatıldı"
     },
+    "dock": {
+      "idleLabel": "Boşta",
+      "toggle": "Kalıcı süreç ayrıntıları"
+    },
     "elapsed": {
       "seconds": "{{count}}s",
       "minutesSeconds": "{{minutes}}d {{seconds}}s",

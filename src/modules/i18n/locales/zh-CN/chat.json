@@ -234,6 +234,10 @@
       "live": "Live",
       "paused": "Paused"
     },
+    "dock": {
+      "idleLabel": "空闲",
+      "toggle": "常驻进程详情"
+    },
     "elapsed": {
       "seconds": "{{count}}s",
       "minutesSeconds": "{{minutes}}m {{seconds}}s",

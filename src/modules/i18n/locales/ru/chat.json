@@ -220,6 +220,10 @@
       "live": "В сети",
       "paused": "Приостановлен"
     },
+    "dock": {
+      "idleLabel": "Простой",
+      "toggle": "Сведения о резидентном процессе"
+    },
     "elapsed": {
       "seconds": "{{count}}с",
       "minutesSeconds": "{{minutes}}м {{seconds}}с",

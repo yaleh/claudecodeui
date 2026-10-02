@@ -262,6 +262,10 @@
       "live": "Live",
       "paused": "Paused"
     },
+    "dock": {
+      "idleLabel": "Idle",
+      "toggle": "Resident process details"
+    },
     "elapsed": {
       "seconds": "{{count}}s",
       "minutesSeconds": "{{minutes}}m {{seconds}}s",

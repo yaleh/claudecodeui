@@ -256,6 +256,10 @@
       "live": "進行中",
       "paused": "已暫停"
     },
+    "dock": {
+      "idleLabel": "閒置",
+      "toggle": "常駐程序詳情"
+    },
     "elapsed": {
       "seconds": "{{count}} 秒",
       "minutesSeconds": "{{minutes}} 分 {{seconds}} 秒",

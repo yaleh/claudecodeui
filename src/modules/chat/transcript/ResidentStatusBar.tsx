@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { useCallback, useState } from 'react';
 import { Check, Copy, Play, Power, RotateCcw } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
@@ -8,30 +7,16 @@ import {
   findSessionHost,
   findSessionHostState,
   findSessionOccupancy,
-  readResidentProcessState,
   useSessionHosts,
 } from '@/shared/hooks/useSessionHosts';
-import { cn } from '@/shared/utils';
-import type { SessionHostLeaseKind } from '@/shared/types';
 
 /** How long the copy control says so before returning to its resting label. */
 const COPIED_NOTICE_MS = 1500;
 
-/** The panel's own width, matching the `w-72` class it is drawn with. */
-const POPOVER_WIDTH_PX = 288;
-/** The gap between the bar and the panel below it, matching the `mt-1` it used to be laid out with. */
-const POPOVER_GAP_PX = 4;
-/** The least distance the panel keeps from the viewport's side edges once it is clamped into them. */
-const POPOVER_VIEWPORT_MARGIN_PX = 8;
-
-/** Where the panel is pinned, in viewport coordinates. */
-type PopoverAnchor = { left: number; top: number };
-
 /**
  * Formats an elapsed span the way the uptime line reads it.
  *
- * Coarse on purpose: this is a "since when" hint beside a pid, not a stopwatch,
- * and the bar re-renders on every poll, so seconds would redraw constantly.
+ * Coarse on purpose: this is a "since when" hint beside a pid, not a stopwatch.
  */
 function formatUptime(startedAt: number | undefined, now: number): string {
   if (!startedAt) {
@@ -52,29 +37,30 @@ function formatUptime(startedAt: number | undefined, now: number): string {
 }
 
 /**
- * The resident status bar and its popover.
+ * The resident process's own facts, as the activity dock's expanded panel.
  *
- * Rendered by chat's ChatMessagesPane above the transcript, pinned the way the
- * export control is. It draws one thing the transcript cannot: the state of the
- * process behind the conversation — which is not a message, so it must not
- * scroll away with the turns it is describing.
+ * This used to be a status bar with a life of its own above the transcript. It
+ * drew three things: a busy/idle word for the process, a count of the leases the
+ * host was holding, and the process's identity and lifecycle controls. The first
+ * two were a *second* answer to "is this session working" — read off a one-second
+ * `/api/session-hosts` poll while the activity dock read the server's own frames —
+ * and two answers to one question is how a page comes to say "idle" in one place
+ * and "busy" in another. They are gone. What the session is doing is the dock's
+ * collapsed row, from the dock's one source, and this panel carries only the part
+ * the dock cannot know: the address of the process holding the conversation, its
+ * pid, and the controls that start, restart and close it.
  *
- * It reports the same state word as the sidebar's mark, from the same reading
- * (`readResidentProcessState`), and publishes the pair as data attributes: the
- * visible sentence says what the user reads, and `data-resident-ui-state` says
- * the same thing in the UI's own vocabulary, so the mark and the bar can be
- * compared without parsing copy. Nothing is rendered at all for a session that
- * is not stored `resident`, which is what keeps the bar off every other
- * session's transcript.
+ * Every fact here comes from `GET /api/session-hosts` — the address, the pid and
+ * the close reason included. There is no local mirror of any of them, which is
+ * deliberate: this panel's whole subject is a process it does not own, and a
+ * cached copy would be able to disagree with the process. The two controls that
+ * change that process (`start`, `close`) go through the same hook, so their
+ * effect arrives the same way.
  *
- * Every fact it shows comes from `GET /api/session-hosts` — the address, the
- * pid, the lease counts and the close reason included. There is no local mirror
- * of any of them, which is deliberate: this bar's whole subject is a process it
- * does not own, and a cached copy would be able to disagree with the process.
- * The two controls that change that process (`start`, `close`) go through the
- * same hook, so their effect arrives the same way.
+ * Nothing is rendered for a session that is not stored `resident`, so a
+ * non-resident session's dock has no panel body to show even if it asked for one.
  */
-export default function ResidentStatusBar({
+export default function ResidentPanel({
   sessionId,
   t,
 }: {
@@ -82,124 +68,18 @@ export default function ResidentStatusBar({
   t: TFunction;
 }) {
   const { snapshot, error, start, close } = useSessionHosts();
-  const [isOpen, setIsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   /**
    * True while a [start] request is in flight.
    *
-   * The one thing the bar could not say before: opening a resident process spawns
-   * a CLI, and a control that looks identical before and during that wait is how
-   * a slow start and a refused one both read as "nothing happened". It is
-   * published as `data-resident-start-pending` rather than folded into
-   * `data-resident-ui-state`, which is the *server's* reading of the process — a
-   * third value there would make a client-side wait indistinguishable from a host
-   * state a reader is entitled to trust.
+   * Opening a resident process spawns a CLI, and a control that looks identical
+   * before and during that wait is how a slow start and a refused one both read
+   * as "nothing happened". It is published as `data-resident-start-pending` on
+   * the control itself rather than folded into anything else, so a client-side
+   * wait can never be mistaken for a host state a reader is entitled to trust.
    */
   const [startPending, setStartPending] = useState(false);
-  /**
-   * The bar itself, which is the row of controls rather than the whole element.
-   *
-   * The root below it also carries the refusal line, and the popover is pinned
-   * under the *controls*: anchoring on the root would move the panel down by the
-   * height of an error that appeared after it opened.
-   */
-  const controlRowRef = useRef<HTMLDivElement | null>(null);
-  const rootRef = useRef<HTMLDivElement | null>(null);
-  /**
-   * The panel, which is no longer a descendant of the bar.
-   *
-   * Kept as a ref of its own because the outside-click rule below has to treat a press inside it as
-   * inside: a portal moves the DOM node out of `rootRef`, and a containment check that only knew
-   * about the bar would read every click on the panel's own controls as a click away from it and
-   * dismiss the panel before the button's handler could run.
-   */
-  const panelRef = useRef<HTMLDivElement | null>(null);
-  /**
-   * Where the panel is pinned, or null while it has not been placed yet.
-   *
-   * Viewport coordinates rather than the panel's own, because the panel is rendered into
-   * `document.body`: its nearest positioned ancestor is no longer the bar, so `top-full` would
-   * resolve against the page and not against the thing it describes.
-   */
-  const [anchor, setAnchor] = useState<PopoverAnchor | null>(null);
-
-  /**
-   * Pins the panel just under the bar, clamped into the viewport.
-   *
-   * Re-run on resize and on any scroll rather than only at the moment the panel opens: the bar is
-   * `sticky`, so a scroll of the transcript can move it, and a viewport change (a rotated phone, a
-   * resized window) moves it without any scroll at all.
-   */
-  const placePopover = useCallback(() => {
-    const bar = controlRowRef.current;
-    if (!bar) {
-      return;
-    }
-
-    const rect = bar.getBoundingClientRect();
-    const maxLeft = Math.max(
-      POPOVER_VIEWPORT_MARGIN_PX,
-      window.innerWidth - POPOVER_WIDTH_PX - POPOVER_VIEWPORT_MARGIN_PX,
-    );
-    const next: PopoverAnchor = {
-      left: Math.min(Math.max(rect.left, POPOVER_VIEWPORT_MARGIN_PX), maxLeft),
-      top: rect.bottom + POPOVER_GAP_PX,
-    };
-    // Only when it moved: a scroll handler that set a fresh object every event would re-render the
-    // whole bar (and its polled counts) on every frame of a flick.
-    setAnchor((current) => (
-      current && current.left === next.left && current.top === next.top ? current : next
-    ));
-  }, []);
-
-  // Outside-click and Escape dismiss, matching the app's other popovers. Armed
-  // only while open, so a closed bar costs no document listeners.
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    const closeOnOutsideClick = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (rootRef.current?.contains(target) || panelRef.current?.contains(target)) {
-        return;
-      }
-      setIsOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsOpen(false);
-      }
-    };
-
-    document.addEventListener('mousedown', closeOnOutsideClick);
-    document.addEventListener('keydown', closeOnEscape);
-    return () => {
-      document.removeEventListener('mousedown', closeOnOutsideClick);
-      document.removeEventListener('keydown', closeOnEscape);
-    };
-  }, [isOpen]);
-
-  // Placement is its own effect, and its own listeners, so that closing the panel is what removes
-  // them: a single effect keyed on `isOpen` would either leave a stale anchor behind or re-arm the
-  // document listeners every time the bar was scrolled.
-  useEffect(() => {
-    if (!isOpen) {
-      setAnchor(null);
-      return;
-    }
-
-    placePopover();
-    // Capture, not bubble: the transcript scrolls inside `.chat-messages-pane`, and a scroll there
-    // does not bubble to the window.
-    window.addEventListener('resize', placePopover);
-    window.addEventListener('scroll', placePopover, true);
-    return () => {
-      window.removeEventListener('resize', placePopover);
-      window.removeEventListener('scroll', placePopover, true);
-    };
-  }, [isOpen, placePopover]);
 
   const copyAddress = useCallback(async (address: string) => {
     try {
@@ -234,10 +114,6 @@ export default function ResidentStatusBar({
 
   const host = findSessionHost(snapshot, sessionId);
   const binding = findBinding(snapshot, sessionId);
-  // The poll's own failure is folded into the *shared* translation, not checked
-  // here: the mark beside the session reads the same `error` through the same
-  // function, so the bar and the mark cannot disagree about a read that failed.
-  const processState = readResidentProcessState(host, error !== null);
   const address = binding?.peerName ?? '';
 
   // A background job holds this session, so the resident process is not ours to
@@ -246,87 +122,55 @@ export default function ResidentStatusBar({
   // shown in the composer, on the surface the user is actually typing into.
   const occupied = findSessionOccupancy(snapshot, sessionId) !== null;
 
-  // Counted from the leases the host reports and nothing else, so the reading
-  // and the published sentence cannot come apart: a kind absent from the
-  // listing is absent from both. The kinds are not enumerated here — iterating
-  // the leases is what makes this a reading rather than a second declaration of
-  // the host layer's vocabulary.
-  const counts = new Map<SessionHostLeaseKind, number>();
-  for (const lease of binding?.leases ?? []) {
-    counts.set(lease.kind, (counts.get(lease.kind) ?? 0) + 1);
-  }
-
-  // The collapsed bar's one number, summed from the same map the panel's per-kind
-  // chips are drawn from — so the bar cannot print a total the panel disagrees
-  // with. It replaced one chip per kind, which grew linearly with the kinds held
-  // and crowded the bar while the panel below it stayed half empty.
-  let leaseTotal = 0;
-  for (const count of counts.values()) {
-    leaseTotal += count;
-  }
-
-  const stateText = processState === 'unstarted'
-    ? t('resident.statusBar.unstarted', { reason: stateView.reason ?? '' })
-    : processState === 'exited'
-      ? t('resident.statusBar.exited', { detail: host?.closeDetail ?? '' })
-      : t(`resident.statusBar.${processState}`);
+  // The process is gone (or was never started), so there is something to start.
+  // Read off the record rather than off a busy/idle word: the panel no longer has
+  // one, and the control's own condition is the only thing it needs.
+  const hostAlive = host !== null && host.state !== 'closed';
+  const lastReadFailed = error !== null;
 
   return (
     <div
-      ref={rootRef}
-      data-resident-status-bar="true"
-      data-resident-ui-state={processState}
-      data-resident-host-state={host?.state ?? 'absent'}
-      data-resident-host-id={host?.hostId ?? ''}
-      data-resident-close-reason={host?.closeReason ?? ''}
-      data-resident-close-detail={host?.closeDetail ?? ''}
-      data-resident-pid={host?.pid ?? ''}
-      // A column, so the refusal below is a second line of this row rather than a
-      // floating box: the row is above the scroll container and takes its height
-      // from what is in it, which is what keeps the transcript starting below
-      // whatever the bar has to say. With nothing to report this is one child and
-      // therefore exactly the height the old single-row element was.
-      className="flex flex-col items-start gap-1"
+      data-resident-panel="true"
+      className="w-72 max-w-full rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-lg"
     >
-      <div
-        ref={controlRowRef}
-        className={cn(
-          'pointer-events-auto relative inline-flex items-center gap-2 rounded-lg border px-2 py-1 text-xs shadow-sm',
-          processState === 'exited'
-            ? 'border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300'
-            : 'border-border/60 bg-card/95 text-foreground',
-        )}
-      >
+      <div className="mb-2">
+        <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">
+          {t('resident.statusBar.address')}
+        </span>
+        <span data-resident-address="true" className="block break-all font-mono text-xs">
+          {address}
+        </span>
+      </div>
+
+      {/*
+        The pid, and nothing about what the process is *doing*.
+
+        A state word stood here too — the host's own `busy` / `idle` / `exited` —
+        and it is exactly what this consolidation took off the page. It was the
+        second answer to "is this session working", it was read off the same
+        one-second poll as the lease counts, and the answer a reader needs is the
+        dock's, from the server's own frames. The pid is the part only this panel
+        can give: which process, not what it is up to.
+      */}
+      <div className="mb-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+        <span data-resident-pid-text="true">pid {host?.pid ?? '—'}</span>
+        <span aria-hidden="true">·</span>
+        <span data-resident-uptime="true">{formatUptime(host?.startedAt, Date.now())}</span>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
-          data-resident-status-bar-trigger="true"
-          aria-haspopup="dialog"
-          aria-expanded={isOpen}
-          aria-label={stateText}
-          onClick={() => setIsOpen((open) => !open)}
-          className="flex items-center gap-2 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-accent/60"
+          data-resident-copy="true"
+          disabled={!address}
+          onClick={() => void copyAddress(address)}
+          className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs transition-colors hover:bg-accent disabled:opacity-40"
         >
-          <span data-resident-state-text="true" className="font-medium">
-            {stateText}
-          </span>
-          {/*
-            One merged number, not one chip per kind. The per-kind breakdown lives in the panel
-            below (a row of `data-lease-kind` chips), which is where the space for it is; drawing it
-            here made the bar's width scale with the number of kinds a host happened to hold. Nothing
-            is drawn for a host holding no leases, matching the old chips, which simply rendered none.
-          */}
-          {leaseTotal > 0 ? (
-            <span
-              data-resident-lease-summary="true"
-              data-resident-lease-total={leaseTotal}
-              className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
-            >
-              {t('resident.statusBar.activeCount', { count: leaseTotal })}
-            </span>
-          ) : null}
+          {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+          {copied ? t('resident.statusBar.copied') : t('resident.statusBar.copyAddress')}
         </button>
 
-        {!occupied && (processState === 'exited' || processState === 'unstarted') ? (
+        {!occupied && (!hostAlive || lastReadFailed) ? (
           <button
             type="button"
             data-resident-start="true"
@@ -336,127 +180,40 @@ export default function ResidentStatusBar({
               setStartPending(true);
               void runAction(start, sessionId).finally(() => setStartPending(false));
             }}
-            className="flex items-center gap-1 rounded-md border border-border/60 px-1.5 py-0.5 font-medium transition-colors hover:bg-accent/60 disabled:opacity-50"
+            className="flex items-center gap-1 rounded-md border border-border/60 px-2 py-1 font-medium transition-colors hover:bg-accent/60 disabled:opacity-50"
           >
-            {processState === 'exited' ? <RotateCcw className="h-3 w-3" /> : <Play className="h-3 w-3" />}
-            {processState === 'exited' ? t('resident.statusBar.restart') : t('resident.statusBar.start')}
+            {host?.closeReason === 'exited' ? <RotateCcw className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+            {host?.closeReason === 'exited' ? t('resident.statusBar.restart') : t('resident.statusBar.start')}
           </button>
         ) : null}
+
+        <button
+          type="button"
+          data-resident-close="true"
+          onClick={() => {
+            void runAction(close, sessionId);
+          }}
+          className="flex items-center gap-1 rounded-md border border-red-500/40 px-2 py-1 text-xs text-red-600 transition-colors hover:bg-red-500/10 dark:text-red-400"
+        >
+          <Power className="h-3 w-3" />
+          {t('resident.statusBar.close')}
+        </button>
       </div>
 
       {/*
-        Outside the popover, deliberately.
-
-        This used to be the panel's last child, which meant the one place a refusal could be read was
-        a panel that only exists while it is open — so a start refused with the popover shut (the
-        normal case: the [start] control is on the collapsed bar) rendered its message into a node
-        that was never mounted. It is drawn here instead, under the controls, where it is visible in
-        both states; `data-resident-action-error` is the same attribute, so a reader that already
-        looked for it finds the same text.
+        The refusal is drawn under the controls rather than inside a popover that
+        only exists while it is open: a start refused with the panel shut is the
+        normal case, and a message rendered into a node that was never mounted is
+        a message the user never reads.
       */}
       {actionError ? (
         <p
           data-resident-action-error="true"
-          className="max-w-prose rounded-md border border-red-500/40 bg-red-500/10 px-2 py-1 text-[11px] text-red-700 dark:text-red-300"
+          className="mt-2 max-w-prose rounded-md border border-red-500/40 bg-red-500/10 px-2 py-1 text-[11px] text-red-700 dark:text-red-300"
         >
           {actionError}
         </p>
       ) : null}
-
-      {/*
-        The panel is rendered into `document.body`, not here.
-
-        It used to be `absolute top-full` inside this bar, which put it inside `.chat-messages-pane`
-        — an `overflow-y-auto overflow-x-hidden` scroll container. The panel opens downward, so on a
-        short viewport (a 780x493 window with the resident disclosure open leaves the pane about a
-        hundred pixels tall) it reached past the pane's bottom edge and the part below it was
-        *clipped*: `document.elementFromPoint` at the Close button's own centre returned the
-        composer's disclosure, which is what is painted under the pane, and the button could not be
-        clicked at all. No `z-index` fixes a clip, which is why the panel leaves the box instead of
-        out-ranking the composer — it is pinned in viewport coordinates from the bar's own rect.
-
-        Rendered only once the anchor exists, so a first frame at the viewport's origin is never
-        drawn, and unconditionally removed on close so nothing is left in `document.body`.
-      */}
-      {isOpen && anchor
-        ? createPortal(
-          <div
-            ref={panelRef}
-            role="dialog"
-            aria-label={stateText}
-            style={{ left: anchor.left, top: anchor.top }}
-            className="fixed z-30 w-72 rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-lg"
-          >
-            <div className="mb-2">
-              <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">
-                {t('resident.statusBar.address')}
-              </span>
-              <span data-resident-address="true" className="block break-all font-mono text-xs">
-                {address}
-              </span>
-            </div>
-
-            <div className="mb-2 flex items-center gap-2 text-[11px] text-muted-foreground">
-              <span data-resident-pid-text="true">pid {host?.pid ?? '—'}</span>
-              <span aria-hidden="true">·</span>
-              <span data-resident-uptime="true">{formatUptime(host?.startedAt, Date.now())}</span>
-            </div>
-
-            {/*
-              The per-kind breakdown the collapsed bar no longer draws. The attributes and the
-              `counts.*` copy are unchanged from where they used to live — only the container moved
-              — so a reader that counts leases by kind reads the same pair off this panel.
-            */}
-            {counts.size > 0 ? (
-              <div className="mb-2 flex flex-wrap items-center gap-2">
-                {[...counts.entries()].map(([kind, count]) => (
-                  <span
-                    key={kind}
-                    data-lease-kind={kind}
-                    data-lease-count={count}
-                    className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
-                  >
-                    {count} {t(`resident.statusBar.counts.${kind}`, { defaultValue: kind })}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                data-resident-copy="true"
-                disabled={!address}
-                onClick={() => void copyAddress(address)}
-                className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs transition-colors hover:bg-accent disabled:opacity-40"
-              >
-                {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                {copied ? t('resident.statusBar.copied') : t('resident.statusBar.copyAddress')}
-              </button>
-
-              <button
-                type="button"
-                data-resident-close="true"
-                onClick={() => {
-                  // The popover closes only once the close went through: on a
-                  // refusal the refusal is the thing the user has to read, and it
-                  // is drawn on the bar below this panel rather than inside it.
-                  void runAction(close, sessionId).then((closed) => {
-                    if (closed) {
-                      setIsOpen(false);
-                    }
-                  });
-                }}
-                className="flex items-center gap-1 rounded-md border border-red-500/40 px-2 py-1 text-xs text-red-600 transition-colors hover:bg-red-500/10 dark:text-red-400"
-              >
-                <Power className="h-3 w-3" />
-                {t('resident.statusBar.close')}
-              </button>
-            </div>
-          </div>,
-          document.body,
-        )
-        : null}
     </div>
   );
 }

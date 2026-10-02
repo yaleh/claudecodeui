@@ -213,6 +213,10 @@
       "live": "Live",
       "paused": "Paused"
     },
+    "dock": {
+      "idleLabel": "待機中",
+      "toggle": "常駐プロセスの詳細"
+    },
     "elapsed": {
       "seconds": "{{count}}s",
       "minutesSeconds": "{{minutes}}m {{seconds}}s",

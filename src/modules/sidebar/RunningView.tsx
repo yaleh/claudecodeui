@@ -2,11 +2,8 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { Activity, Moon, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
-import {
-  listResidentIdleSessionIds,
-  listRunningSessionIds,
-  useSessionHosts,
-} from '@/shared/hooks/useSessionHosts';
+import { classifyRunningSessions, useSessionHosts } from '@/shared/hooks/useSessionHosts';
+import { useBusySessionIdSet } from '@/shared/context/SessionProtectionContext';
 import type { Project } from '@/shared/types';
 
 /**
@@ -21,11 +18,14 @@ import type { Project } from '@/shared/types';
  * only the first group, so a view that drew them as one list would contradict
  * the number a reader just saw.
  *
- * Both groups come from `GET /api/session-hosts` through the page's one shared
- * snapshot, the same store the badge and the sidebar marks read. Nothing here
- * consults the client's own set of in-flight turns: that set cannot see a
- * resident host between turns at all, so a view built from it could not draw the
- * second group, and a view built from both would let the two disagree.
+ * The two groups come from the two sources each of them is actually about. Which
+ * sessions are *running* is the server-authoritative activity the rest of the
+ * page reads — the activity dock's own `SessionActivity` membership and the
+ * composer's stop entry are the same set — so the view can never lag the dock by
+ * a poll interval and say "running" about a turn the dock has already seen end.
+ * Which resident sessions are merely *held open* comes from the
+ * `GET /api/session-hosts` listing, which is the only face that knows a process
+ * exists between turns; that listing is not consulted for busy/idle at all.
  *
  * The rows are the view's own and not `SidebarProjectList`'s, because the second
  * group's rows carry a control — closing the held process — that a project row
@@ -59,8 +59,16 @@ export default function RunningView({ projects, searchQuery, t }: RunningViewPro
   const { snapshot, close } = useSessionHosts();
   const [closeError, setCloseError] = useState<string | null>(null);
 
-  const runningIds = listRunningSessionIds(snapshot);
-  const residentIdleIds = listResidentIdleSessionIds(snapshot);
+  // The busy side is the page's one activity reading — the same `SessionActivity`
+  // membership the activity dock and the composer's stop entry draw from — and the
+  // listing below it only names the resident processes held open between turns.
+  // Reading busy/idle off the one-second host poll here is what let the view and
+  // the dock disagree for a beat after a turn ended; see `classifyRunningSessions`.
+  const busySessionIds = useBusySessionIdSet();
+  const { running: runningIds, residentIdle: residentIdleIds } = useMemo(
+    () => classifyRunningSessions(busySessionIds, snapshot),
+    [busySessionIds, snapshot],
+  );
 
   // `sessionId -> display name`, built once per project list. The host listing
   // names sessions by id only — it is the host layer's view, not the sessions' —

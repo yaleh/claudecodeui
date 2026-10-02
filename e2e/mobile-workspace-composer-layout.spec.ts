@@ -336,8 +336,16 @@ type CellReading = {
   tools: Box;
   right: Box;
   clipRow: Box;
-  inlineActivity: Box;
-  tabActivity: Box;
+  /**
+   * The one activity dock, read at each of its two mount sites.
+   *
+   * `dockInTranscript` is the pane's copy (below `md`) and `dockInComposer` is the
+   * composer's (from `md` up). They used to be two different components with two
+   * different markers — a tab-shaped strip and a compact in-flow line — and these
+   * two boxes are how this file still reads *which mount site* drew the one dock.
+   */
+  dockInTranscript: Box;
+  dockInComposer: Box;
   clipButtons: { label: string | null; inClipRow: boolean; inTools: boolean; box: Box }[];
   stopNames: string[];
   tablists: number;
@@ -381,8 +389,8 @@ const readCell = (page: Page): Promise<CellReading> =>
       tools: box(tools),
       right: box(right),
       clipRow: box(clipRow),
-      inlineActivity: box(document.querySelector('[data-slot="chat-activity-inline"]')),
-      tabActivity: box(document.querySelector('.chat-activity-tab')),
+      dockInTranscript: box(document.querySelector('.chat-messages-pane [data-activity-dock]')),
+      dockInComposer: box(document.querySelector('.chat-composer-shell [data-activity-dock]')),
       clipButtons: clipButtonList.map((b) => ({
         label: b.getAttribute('aria-label'),
         inClipRow: clipRow ? clipRow.contains(b) : false,
@@ -415,7 +423,7 @@ const describeReading = (label: string, cell: CellReading): string =>
   `${label}\n  header=${JSON.stringify(cell.header)} (max ${MOBILE_HEADER_MAX}) padTop=${cell.headerPaddingTop} (mobile ${MOBILE_HEADER_PADDING_TOP} / desktop ${DESKTOP_HEADER_PADDING_TOP})` +
   `\n  footer=${JSON.stringify(cell.footer)} (max height ${MOBILE_FOOTER_MAX})` +
   `\n  tools=${JSON.stringify(cell.tools)} right=${JSON.stringify(cell.right)}` +
-  `\n  clipRow=${JSON.stringify(cell.clipRow)} inlineActivity=${JSON.stringify(cell.inlineActivity)} tabActivity=${JSON.stringify(cell.tabActivity)}` +
+  `\n  clipRow=${JSON.stringify(cell.clipRow)} dockInTranscript=${JSON.stringify(cell.dockInTranscript)} dockInComposer=${JSON.stringify(cell.dockInComposer)}` +
   `\n  clipButtons=${JSON.stringify(cell.clipButtons)}` +
   `\n  visible stop names=${JSON.stringify(cell.stopNames)} tablists=${cell.tablists}` +
   `\n  collapsed=${JSON.stringify(cell.collapsedTrigger)} ${JSON.stringify(cell.collapsedText)}` +
@@ -892,18 +900,18 @@ for (const viewport of MOBILE_VIEWPORTS) {
         // The premise: the frame was delivered *and* the app acted on it. A frame that never arrived looks exactly
         // like a state that was never entered, and every assertion below would then be read off an idle page.
         expect(delivered, `@${width} running: the status frame has to reach an open chat socket`).toBeGreaterThan(0);
-        await expect(page.locator('[data-slot="chat-activity-inline"]')).toBeVisible({ timeout: 10_000 });
+        await expect(page.locator('.chat-messages-pane [data-activity-dock]')).toBeVisible({ timeout: 10_000 });
         await page.waitForTimeout(300);
 
         const cell = await readCell(page);
         logCell(`@${width} running`, cell);
         expectReading(cell.stopNames.length === 1, `@${width} running: exactly one visible and named interrupt control`, cell);
         expectReading(
-          cell.tabActivity === null || cell.tabActivity.width === 0,
-          `@${width} running: the desktop tab-status control must not be rendered at this width`,
+          cell.dockInComposer === null || cell.dockInComposer.width === 0,
+          `@${width} running: the composer's mount site for the dock must not be used at this width`,
           cell,
         );
-        expectReading(cell.inlineActivity !== null && cell.inlineActivity.height > 0, `@${width} running: the inline activity row must be the one that is shown`, cell);
+        expectReading(cell.dockInTranscript !== null && cell.dockInTranscript.height > 0, `@${width} running: the transcript's mount site must be the one that draws the dock`, cell);
         expectReading(noOverflow(cell), `@${width} running: the footer must not scroll sideways`, cell);
         expectReading(oneRow(cell), `@${width} running: the footer's two control groups must still be one row`, cell);
       } finally {
@@ -1085,16 +1093,18 @@ for (const viewport of DESKTOP_VIEWPORTS) {
         const delivered = await injectStatusFrame(page, DESKTOP_SESSION);
         console.log(`[layout] @${width} running: status frame delivered to ${delivered} chat socket(s)`);
         expect(delivered, `@${width} running: the status frame has to reach an open chat socket`).toBeGreaterThan(0);
-        // `.first()` on purpose: the reading below is `querySelector('.chat-activity-tab')`, the first match, so
-        // the premise and the reading address the same element (the baseline's markup put the class on the tab's
-        // Stop as well, where a strict locator fails on a duplicate instead of measuring the surface).
-        await expect(page.locator('.chat-activity-tab').first()).toBeVisible({ timeout: 10_000 });
+        // The premise and the reading address the same element: the composer's own mount
+        // site for the one dock. A strict locator would now also be defensible — the
+        // legacy markup put a second, identically-classed node on the tab's Stop, and
+        // that duplicate is exactly what the consolidation removed — but `.first()` is
+        // kept so the two locators below cannot drift apart.
+        await expect(page.locator('.chat-composer-shell [data-activity-dock]').first()).toBeVisible({ timeout: 10_000 });
         await page.waitForTimeout(300);
 
         const cell = await readCell(page);
         logCell(`@${width} running`, cell);
-        expectReading(cell.inlineActivity === null, `@${width} running: the inline activity row the mobile layout uses must not appear here`, cell);
-        expectReading(cell.tabActivity !== null && cell.tabActivity.width > 0, `@${width} running: the tab status must be the running indicator here`, cell);
+        expectReading(cell.dockInTranscript === null, `@${width} running: the transcript's mount site the mobile layout uses must not be drawn here`, cell);
+        expectReading(cell.dockInComposer !== null && cell.dockInComposer.width > 0, `@${width} running: the composer's mount site must be the running indicator here`, cell);
         // The desktop keeps both controls: the tab's own Stop and the composer's. The mobile cells assert the
         // opposite count, and this is the reading that keeps the two widths honest about each other.
         expectReading(cell.stopNames.length === 2, `@${width} running: the desktop keeps the tab's Stop and the composer's`, cell);

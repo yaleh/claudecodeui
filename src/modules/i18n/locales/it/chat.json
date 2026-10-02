@@ -220,6 +220,10 @@
       "live": "Attivo",
       "paused": "In pausa"
     },
+    "dock": {
+      "idleLabel": "Inattivo",
+      "toggle": "Dettagli del processo residente"
+    },
     "elapsed": {
       "seconds": "{{count}}s",
       "minutesSeconds": "{{minutes}}m {{seconds}}s",
