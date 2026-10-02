@@ -57,6 +57,11 @@
  * copy that could not be built, a server that never came up) — a distinct outcome on purpose, because
  * "could not measure" must not read as "measured, and the property failed". A `.env` pinning
  * `VOICE_CAPTURE` is a READING (`env-file-pins-voice-capture=true`), never an exit.
+ *
+ * The real-database reading is ATTRIBUTED, not inferred from timing: it is false only when this
+ * process's own tree was observed (via `/proc`) holding the inherited database, so a run that ends
+ * in "could not measure" but carries that evidence is still exit 1 — the property failed whatever
+ * else the run did.
  */
 
 import { spawn, spawnSync } from 'node:child_process';
@@ -139,19 +144,22 @@ const SHUTDOWN_GRACE_MS = 5_000;
 const MINT_TIMEOUT_MS = 30_000;
 
 /**
- * How much of the wall budget the idle-control window must leave unspent.
+ * Every handle this criterion's own process tree was observed holding on the inherited database.
  *
- * The window is not given a length of its own: it runs until the inherited database moves on its
- * own, and it is bounded only by what is left of this criterion's budget minus this reserve. A
- * fixed length would have to be either long enough to cover the longest gap between two writes by
- * whoever else is holding that database — measured here as high as 12 s — or short enough to stay
- * inside the budget; spending the budget is the honest way to have both, and the reserve keeps the
- * final readings and the exit inside it.
+ * WHY OWNERSHIP AND NOT TIMING. `mtimeMs` before versus after says the file MOVED, not WHO moved
+ * it, and on this host the deployer's own server holds that database open and writes it every
+ * couple of seconds. Timing cannot separate this criterion's writes from the deployer's either: a
+ * child that inherited `DATABASE_PATH` writes for the few seconds it lives and then goes quiet,
+ * which is the SAME shape as an external writer that happens to fall silent — so an idle window,
+ * however long, can never prove the write was ours. Ownership can be read directly instead: while
+ * a child is alive, `/proc` is asked which handles this process and its descendants hold, and a
+ * write is this criterion's own only when one of those handles IS the inherited database. The
+ * deployer's server is not in this process's tree, so its handles are not seen — the distinction
+ * timing could not make.
+ *
+ * @type {string[]}
  */
-const IDLE_PROOF_RESERVE_MS = 3_000;
-
-/** How often the idle-control window re-reads the inherited database's mtime. */
-const IDLE_PROOF_POLL_MS = 250;
+const realDbOpeners = [];
 
 /** Escape sequences a forced-colour environment would wrap every line in. */
 const ANSI_PATTERN = /\u001b\[[0-9;]*[A-Za-z]/g;
@@ -229,6 +237,123 @@ function mtimeOf(filePath) {
     return fs.statSync(filePath).mtimeMs;
   } catch {
     return null;
+  }
+}
+
+/**
+ * A path's canonical form, for comparing a `/proc/<pid>/fd` link against a path the caller named.
+ *
+ * Symlinks and relative spellings resolve to one string; a path that does not exist yet (a
+ * `-wal` sibling, say) falls back to a plain resolution rather than vanishing from the comparison.
+ *
+ * @param {string} filePath
+ * @returns {string}
+ */
+function canonicalPath(filePath) {
+  try {
+    return fs.realpathSync(filePath);
+  } catch {
+    return path.resolve(filePath);
+  }
+}
+
+/**
+ * The direct children of a pid, across every one of its tasks.
+ *
+ * `/proc/<pid>/task/<tid>/children` is the cheap kernel-side listing (no full `/proc` sweep); a
+ * task that exits between the readdir and the read is skipped rather than failing the scan.
+ *
+ * @param {number} pid
+ * @returns {number[]}
+ */
+function childPids(pid) {
+  /** @type {number[]} */
+  const children = [];
+  /** @type {string[]} */
+  let tasks;
+  try {
+    tasks = fs.readdirSync(`/proc/${pid}/task`);
+  } catch {
+    return children;
+  }
+  for (const tid of tasks) {
+    let text;
+    try {
+      text = fs.readFileSync(`/proc/${pid}/task/${tid}/children`, 'utf8').trim();
+    } catch {
+      continue;
+    }
+    if (text === '') continue;
+    for (const token of text.split(/\s+/)) {
+      const parsed = Number(token);
+      if (Number.isInteger(parsed) && parsed > 0) children.push(parsed);
+    }
+  }
+  return children;
+}
+
+/**
+ * This process and every descendant of it, read from `/proc`.
+ *
+ * The tree is walked from `process.pid`, never from "every pid on the host": the deployer's own
+ * server holds the inherited database open while a session is active, and a scan that saw its
+ * handles would be attributing the operator's traffic to the criterion.
+ *
+ * @param {number} rootPid
+ * @returns {Set<number>}
+ */
+function processTree(rootPid) {
+  const tree = new Set();
+  const pending = [rootPid];
+  while (pending.length > 0) {
+    const pid = pending.pop();
+    if (pid === undefined || tree.has(pid)) continue;
+    tree.add(pid);
+    for (const child of childPids(pid)) pending.push(child);
+  }
+  return tree;
+}
+
+/**
+ * Records every handle in this process tree that points at the inherited database. A handle on
+ * ANY `<db>-<suffix>` sibling counts too: SQLite keeps its rollback journal / WAL beside the
+ * database, and a child that opened the database has one of those open at the same time (measured:
+ * `auth.db` and `auth.db-journal`). The prefix rule is deliberately the whole family rather than a
+ * hardcoded list, so a journal mode this criterion has never seen still counts.
+ *
+ * Called while the real service child is known to be alive, so what it reports is a live handle
+ * rather than a guess about one. Only `process.pid`'s own tree is read; a pid or fd that vanishes
+ * mid-scan is skipped, never reported.
+ *
+ * @param {string | undefined} dbPath the inherited `DATABASE_PATH`, when one was set
+ */
+function recordRealDbOpeners(dbPath) {
+  if (dbPath === undefined) return;
+  const canonicalDb = canonicalPath(dbPath);
+  for (const pid of processTree(process.pid)) {
+    /** @type {string[]} */
+    let fds;
+    try {
+      fds = fs.readdirSync(`/proc/${pid}/fd`);
+    } catch {
+      continue;
+    }
+    for (const fd of fds) {
+      let link;
+      try {
+        link = fs.readlinkSync(`/proc/${pid}/fd/${fd}`);
+      } catch {
+        continue;
+      }
+      // A socket, pipe or anon inode has no path to compare; only absolute paths can be the db.
+      if (!link.startsWith('/')) continue;
+      const target = link.endsWith(' (deleted)') ? link.slice(0, -' (deleted)'.length) : link;
+      const canonicalTarget = canonicalPath(target);
+      const isDb = canonicalTarget === canonicalDb || canonicalTarget.startsWith(`${canonicalDb}-`);
+      if (!isDb) continue;
+      const evidence = `pid ${pid} fd ${fd} -> ${target}`;
+      if (!realDbOpeners.includes(evidence)) realDbOpeners.push(evidence);
+    }
   }
 }
 
@@ -327,6 +452,7 @@ function reserveFreePort() {
  * @property {string} doubleUrl
  * @property {number} servicePort
  * @property {DoubleRequest[]} doubleRequests the double's cumulative log, for per-run attribution
+ * @property {string | undefined} realDatabasePath the inherited database, watched for this tree's handles
  */
 
 /**
@@ -404,6 +530,11 @@ async function runOnce(options) {
         ),
     );
 
+    // The child is up NOW, so this is the moment its handles can be read. A child that inherited
+    // the deployer's DATABASE_PATH has an open handle on it here (the server opens its SQLite
+    // connection eagerly at boot); a child that did not, does not.
+    recordRealDbOpeners(options.realDatabasePath);
+
     // AFTER the process is up: a database the server has never booted carries no `jwt_secret` row,
     // and mint-token deliberately refuses to invent one.
     const mintArgs = [
@@ -451,6 +582,8 @@ async function runOnce(options) {
       doubleRequests: options.doubleRequests.slice(requestsBefore),
     };
   } finally {
+    // One last look while the child is still alive, covering a run that threw before the request.
+    recordRealDbOpeners(options.realDatabasePath);
     await stopChild(child);
   }
 }
@@ -712,7 +845,7 @@ async function main() {
     const doubleUrl = guardedTarget(double.url);
     const servicePort = await reserveFreePort();
 
-    const textRun = await runOnce({ root: judgedRoot, mode: 'text', home, databasePath, tokenFile, doubleUrl, servicePort, doubleRequests: double.requests });
+    const textRun = await runOnce({ root: judgedRoot, mode: 'text', home, databasePath, tokenFile, doubleUrl, servicePort, doubleRequests: double.requests, realDatabasePath: inheritedDatabasePath });
     const textRow = readRowFields(textRun.captureRows);
     lines.push(reading('startup.text.count', textRun.startupTextCount));
     lines.push(reading('startup.text.line', textRun.startupLine));
@@ -750,7 +883,7 @@ async function main() {
       failures.push('http.text.exact is false: the HTTP answer does not carry the double\'s text verbatim');
     }
 
-    const unsetRun = await runOnce({ root: judgedRoot, mode: null, home, databasePath, tokenFile, doubleUrl, servicePort, doubleRequests: double.requests });
+    const unsetRun = await runOnce({ root: judgedRoot, mode: null, home, databasePath, tokenFile, doubleUrl, servicePort, doubleRequests: double.requests, realDatabasePath: inheritedDatabasePath });
     lines.push(reading('unset.captureLines', unsetRun.captureRows.length));
     lines.push(reading('unset.startup.line', unsetRun.startupLine));
     lines.push(reading('unset.startupTextLines', unsetRun.startupTextCount));
@@ -784,7 +917,11 @@ async function main() {
     if (judgedRoot !== null) hardenedRootRemoved = removeHardenedRoot(judgedRoot);
   }
 
-  if (couldNotMeasure !== null) {
+  // "Could not measure" is exit 2 ONLY when nothing was measured. Ownership evidence is a
+  // measurement, and it is the one this reading is about: if this process tree was seen holding the
+  // inherited database, the property AC-148 exists to protect was violated whatever else the run
+  // did or failed to do — so that stays a verdict (the red emitted below), not an exit 2.
+  if (couldNotMeasure !== null && realDbOpeners.length === 0) {
     fs.rmSync(runDir, { recursive: true, force: true });
     process.stderr.write(
       `voice-capture-process-check: could not make the measurement happen — ${couldNotMeasure.message}\n`,
@@ -792,57 +929,42 @@ async function main() {
     return 2;
   }
 
+  if (couldNotMeasure !== null) {
+    // One line, so a multi-line child error (mint-token's usage block) cannot fracture the readings.
+    lines.push(reading('run-incomplete', couldNotMeasure.message.replace(/\s+/g, ' ').slice(0, 200)));
+  }
+
   const sourceImports = countOwnSourceTokens();
   const hosts = [...guardedHosts].sort();
 
   /**
-   * Did anything other than this criterion write that file?
+   * Was the inherited database OPENED BY THIS TREE?
    *
-   * The raw reading AC1 names — `mtimeMs` before versus after — answers "did the file move", not
-   * "did WE move it", and on a host where another process holds that database open the two are not
-   * the same question. The observed case is this repository's own live server, which touches its
-   * `auth.db` every couple of seconds while a session is active; on such a host the raw comparison
-   * is a coin flip, and a criterion that reds on the deployer's traffic is not measuring the
-   * implementation.
-   *
-   * So the movement is ATTRIBUTED rather than assumed. When the file moved during this criterion's
-   * window, it is then watched while this criterion does nothing at all: movement there is movement
-   * this criterion cannot have caused, and the reading is decided on that. A file that moved only
-   * while this criterion was running, and held still the moment it stopped, is the one shape the
-   * raw reading is actually about — that is `criterion-only`, and it stays red.
-   *
-   * The window is polled rather than one fixed sleep because the external writer is bursty: a
-   * single same-length window can land entirely inside a gap, and the gaps here are longer than the
-   * run. It exits at the first movement, so on a host with a live writer the attribution costs about
-   * a second, and on a quiet host the whole control is skipped because there was nothing to
-   * attribute. When there is something to attribute and the writer has gone quiet, it spends
-   * whatever is left of the budget rather than guessing a length — see `IDLE_PROOF_RESERVE_MS`.
+   * `mtimeMs` before versus after answers "did the file move", not "did WE move it", and on a host
+   * where another process holds that database open the two are not the same question: the observed
+   * case is this repository's own live server, which touches its `auth.db` every couple of seconds
+   * while a session is active. Timing cannot tell a write this criterion caused from one it did
+   * not — a child that inherited `DATABASE_PATH` writes for the few seconds it lives and then goes
+   * quiet, which is the same shape as an external writer that happens to go quiet, so waiting for
+   * movement after the run proves nothing about ownership. The movement is therefore ATTRIBUTED by
+   * the handles this process tree was seen holding (`realDbOpeners`, read from `/proc` while the
+   * children were alive), and a write is this criterion's own only when one of those handles is the
+   * inherited database. `mtimeBefore`/`mtimeAfter` are still reported, as the raw movement, but they
+   * decide nothing.
    */
   const realDbAfter = inheritedDatabasePath === undefined ? null : mtimeOf(inheritedDatabasePath);
   const movedDuringRun = realDbBefore !== realDbAfter;
-  const idleDeadline = startedAt + WALL_BUDGET_MS - IDLE_PROOF_RESERVE_MS;
-  let idleMtime = realDbAfter;
-  let idleWaitedMs = 0;
-  if (movedDuringRun && inheritedDatabasePath !== undefined) {
-    const idleStartedAt = Date.now();
-    while (Date.now() < idleDeadline) {
-      await new Promise((resolve) => setTimeout(resolve, IDLE_PROOF_POLL_MS));
-      idleMtime = mtimeOf(inheritedDatabasePath);
-      idleWaitedMs = Date.now() - idleStartedAt;
-      if (idleMtime !== realDbAfter) break;
-    }
-  }
-  const movedWhileIdle = idleMtime !== null && idleMtime !== realDbAfter;
-  const realDbUntouched = !movedDuringRun || movedWhileIdle;
-  const churn = !movedDuringRun ? 'none-observed' : movedWhileIdle ? 'external' : 'criterion-only';
+  const openedByTree = realDbOpeners.length > 0;
+  const realDbUntouched = !openedByTree;
+  const churn = openedByTree ? 'criterion-only' : movedDuringRun ? 'external' : 'none-observed';
 
   const elapsedMs = Date.now() - startedAt;
   lines.push(reading('real-db-before-ms', realDbBefore));
   lines.push(reading('real-db-after-ms', realDbAfter));
-  lines.push(reading('real-db-idle-ms', movedWhileIdle ? idleMtime : null));
-  lines.push(reading('real-db-idle-waited-ms', movedDuringRun ? idleWaitedMs : 0));
   lines.push(reading('real-db-churn', churn));
   lines.push(reading('real-db-untouched', realDbUntouched));
+  lines.push(reading('real-db-opened-by-tree', openedByTree));
+  lines.push(reading('real-db-openers', openedByTree ? realDbOpeners.join(' | ') : 'none'));
   lines.push(reading('hardened-root-removed', hardenedRootRemoved));
   lines.push(reading('service-source-imports', sourceImports));
   lines.push(reading('hosts', hosts.join(',')));
@@ -852,9 +974,9 @@ async function main() {
 
   if (!realDbUntouched) {
     failures.push(
-      `real-db-untouched is false: ${String(inheritedDatabasePath)} changed while this ran and held still for ` +
-        `${idleWaitedMs} ms afterwards, so the write is this criterion's own — a child inherited ` +
-        'DATABASE_PATH instead of the run\'s own',
+      `real-db-untouched is false: this criterion's own process tree was holding ` +
+        `${String(inheritedDatabasePath)} open (${realDbOpeners.join(' | ')}), so the database was ` +
+        'reached from this run — a child inherited DATABASE_PATH instead of the run\'s own',
     );
   }
   if (sourceImports !== 0) {
