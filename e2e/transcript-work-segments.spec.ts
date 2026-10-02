@@ -173,6 +173,32 @@ type SegmentState = {
   members: { timestamp: string | null; text: string }[];
 };
 
+type SegmentTitle = {
+  /** The run's current action, as the collapsed header renders it. */
+  action: string;
+  /** How many rows the header says the run absorbed. */
+  count: number;
+  /** The run's elapsed span in milliseconds, as the header carries it. */
+  elapsedMs: number;
+};
+
+/**
+ * Reads the three readings off every work-segment header — the run's current action, the number of rows it
+ * absorbed and its elapsed span — straight from the header's own render, never recomputed here. Used by the
+ * AC-208 reading below to check the collapsed transcript actually draws a title derived from each segment.
+ */
+const readSegmentTitles = (page: Page) =>
+  page.evaluate((): SegmentTitle[] =>
+    Array.from(document.querySelectorAll('[data-work-segment-key]')).map((seg) => {
+      const header = seg.querySelector('.chat-message.work-segment');
+      return {
+        action: header?.querySelector('[data-work-segment-action]')?.textContent?.trim() ?? '',
+        count: Number(header?.getAttribute('data-work-segment-count')),
+        elapsedMs: Number(header?.getAttribute('data-work-segment-elapsed-ms')),
+      };
+    }),
+  );
+
 /** Reads every work segment's expanded state from the DOM, members and all. */
 const readSegments = (page: Page) =>
   page.evaluate((): SegmentState[] =>
@@ -219,6 +245,34 @@ test.describe('work segment density and search expand', () => {
     const headers = page.locator(`${PANE} [data-work-segment-key] > .chat-message.work-segment > button[aria-expanded]`);
     const headerCount = await headers.count();
     expect(headerCount, 'the fixture draws three work segments').toBe(3);
+
+    // ── Reading (iii, AC-208): the collapsed header names its run — action, count and elapsed. ───────────
+    // The fixture is three runs of 7, 8 and 5 members, one second apart (see `seedWorkSegmentTranscript`), so
+    // the three readings are pinned by the data: counts {5,7,8}; every span multi-second; and each run titled
+    // by its own LAST member — the two thinking-terminated runs read "Thinking", the Bash-terminated one
+    // "Bash". Reading them off the collapsed headers is the browser evidence that the title is derived from
+    // the segment rather than a constant string, which is exactly what unit greens alone could not show.
+    const titles = await readSegmentTitles(page);
+    expect(titles, 'the fixture draws three oriented work segments').toHaveLength(3);
+    expect(
+      titles.map((title) => title.count).sort((a, b) => a - b),
+      'each header count is its run’s member count (7, 8 and 5 in the fixture)',
+    ).toEqual([5, 7, 8]);
+    for (const title of titles) {
+      expect(title.action, 'the header names the run’s current action').not.toBe('');
+      expect(
+        title.elapsedMs,
+        `a multi-second run must report a non-zero span, got ${title.elapsedMs}ms for a ${title.count}-row run`,
+      ).toBeGreaterThanOrEqual(4_000);
+    }
+    const titleByCount = new Map(titles.map((title) => [title.count, title]));
+    expect(titleByCount.get(8)?.action, 'the run ending on a Bash call is titled by that call').toBe('Bash');
+    expect(titleByCount.get(7)?.action, 'a run ending on a thinking row is titled by that row').toBe('Thinking');
+    expect(titleByCount.get(5)?.action, 'the second thinking-terminated run reads the same way').toBe('Thinking');
+    expect(
+      new Set(titles.map((title) => title.action)).size,
+      'the action is derived per run, not one constant across every header',
+    ).toBeGreaterThan(1);
 
     // (i)'s positive control: open every segment, so the member rows merging withheld are all on screen. A
     // member draws the same height open as it would unmerged, so this is the unmerged density — and it is what
