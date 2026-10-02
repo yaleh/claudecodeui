@@ -48,10 +48,27 @@ const PX_LIMIT = 556;
 
 /** Signs in, creating the account on the first run of the fixture database. */
 const ensureSignedIn = async (page: Page) => {
+  // The app shell. Loaded here rather than through a bare `goto` + a long locator wait: a first document whose
+  // module graph is holed (a dependency re-optimization the page raced, or the service worker's claim landing
+  // mid-load) stays blank until something reloads it, and a locator with nothing under it just waits out its
+  // ceiling. Bounded reloads, then a named failure — the discipline e2e/transcript-follow.spec.ts settled on.
+  const shellReady = () =>
+    page
+      .locator('button:has-text("Create Account"), button:has-text("Settings"), #username')
+      .first()
+      .waitFor({ state: 'visible', timeout: 8_000 })
+      .then(() => true, () => false);
+
   await page.goto('/');
+  let ready = await shellReady();
+  for (let attempt = 0; !ready && attempt < 3; attempt += 1) {
+    await page.reload().catch(() => undefined);
+    ready = await shellReady();
+  }
+  if (!ready) throw new Error('the app shell never rendered; the page had no Create Account / Settings / #username');
+
   const createAccount = page.getByRole('button', { name: 'Create Account' });
   const settings = page.getByRole('button', { name: 'Settings' }).first();
-  await expect(createAccount.or(settings).or(page.locator('#username')).first()).toBeVisible({ timeout: 30_000 });
   if (await createAccount.count()) {
     await page.locator('#username').fill('e2euser');
     await page.locator('input[type=password]').nth(0).fill('e2epassword');
@@ -69,6 +86,39 @@ const ensureSignedIn = async (page: Page) => {
     await expect(settings).toBeVisible({ timeout: 15_000 });
   }
 };
+
+/**
+ * Fetches the client's entry and its pre-bundled dependency before the page does, so the first navigation does
+ * not race Vite's optimizer. The same warm-up e2e/transcript-follow.spec.ts performs, kept compact.
+ */
+const OPTIMIZED_DEP_IN_TEXT = /from\s+"(\/node_modules\/\.vite\/deps\/[^"]+)"/;
+const warmClientStartup = async (clientUrl: string): Promise<void> => {
+  const deadline = Date.now() + 20_000;
+  const fetchWithin = async (url: string): Promise<Response> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), Math.max(1, deadline - Date.now()));
+    try {
+      return await fetch(url, { signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  const shell = await fetchWithin(new URL('/', clientUrl).href);
+  await shell.text();
+  const entry = await fetchWithin(new URL('/src/main.tsx', clientUrl).href);
+  const specifier = OPTIMIZED_DEP_IN_TEXT.exec(await entry.text())?.[1];
+  if (specifier) {
+    // A 200 here means the page below will not race the optimizer; the body is drained so the socket closes.
+    const dep = await fetchWithin(new URL(specifier, clientUrl).href);
+    await dep.text().catch(() => undefined);
+  }
+};
+
+/** Lets the app's service worker finish claiming the first document, so the measured navigation is not the load it holes. */
+const settleServiceWorker = (page: Page) =>
+  page
+    .waitForFunction(() => navigator.serviceWorker.controller !== null, undefined, { timeout: 10_000 })
+    .catch(() => undefined);
 
 type Density = { rows: number; heightPx: number };
 
@@ -144,16 +194,13 @@ test.describe('work segment density and search expand', () => {
   // a second boot and, worse, a second sign-in on a fresh context — the flakiest part of the fixture.
   test('AC-207 collapsed density is under half the unmerged baseline, and a sidebar search hit opens its segment', async ({ page }) => {
     await page.setViewportSize(VIEWPORT);
+    const clientUrl = test.info().project.use.baseURL;
+    if (!clientUrl) throw new Error('playwright.config.ts must give this project a baseURL for the startup warm-up');
+    await warmClientStartup(clientUrl);
     await ensureSignedIn(page);
+    await settleServiceWorker(page);
     await page.goto(`/session/${SESSION_ID}`);
     await page.locator(`${PANE} ${ROW}`).first().waitFor({ state: 'visible', timeout: 30_000 });
-
-    // The segment's own header button — a direct child of the header record. Scoped this tightly because an
-    // expanded member's own reasoning block exposes an `aria-expanded` trigger of its own, and an unscoped
-    // `[aria-expanded]` locator would toggle those instead of opening the next segment.
-    const headers = page.locator(`${PANE} [data-work-segment-key] > .chat-message.work-segment > button[aria-expanded]`);
-    const headerCount = await headers.count();
-    expect(headerCount, 'the fixture draws three work segments').toBe(3);
 
     // ── Reading (i): the default, nothing expanded. ──────────────────────────────────────────────────────
     const collapsed = await settledDensity(page);
@@ -165,6 +212,13 @@ test.describe('work segment density and search expand', () => {
       collapsed.heightPx,
       `the collapsed transcript measured ${collapsed.heightPx}px over ${collapsed.rows} rows`,
     ).toBeLessThan(PX_LIMIT);
+
+    // The segment's own header button — a direct child of the header record. Scoped this tightly because an
+    // expanded member's own reasoning block exposes an `aria-expanded` trigger of its own, and an unscoped
+    // `[aria-expanded]` locator would toggle those instead of opening the next segment.
+    const headers = page.locator(`${PANE} [data-work-segment-key] > .chat-message.work-segment > button[aria-expanded]`);
+    const headerCount = await headers.count();
+    expect(headerCount, 'the fixture draws three work segments').toBe(3);
 
     // (i)'s positive control: open every segment, so the member rows merging withheld are all on screen. A
     // member draws the same height open as it would unmerged, so this is the unmerged density — and it is what
