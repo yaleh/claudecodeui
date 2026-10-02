@@ -84,7 +84,7 @@ goal_ac: AC-173
 
 ## 完成记录
 
-worker：quay per-task worker，branch `task/gap-ac173-ledger-red-is-uncommitted-composer-wip`。本条 **verification-only**：不新增/修改任何实现、判据、宿主配置一个字节；下面的读数全部是本条在**自己的隔离 worktree** 上现测的（除显式标注「立案读数」者）。
+worker：quay per-task worker，branch `task/gap-ac173-ledger-red-is-uncommitted-composer-wip`。本条 **verification-only**：不新增/修改任何实现、判据、宿主配置一个字节；下面的读数全部是本条在**自己的隔离 worktree** 上现测的（除显式标注「立案读数」者）。⚠️ 本条 worker 运行期间，主检出那份未提交 WIP 的**作者一直在编辑它**（见 §4/§5/§8 的带时刻读数），故凡涉及主检出或台账的读数都附**观测时刻**。
 
 ### 0. 隔离 worktree（开工时 = AC1 的前提）
 
@@ -95,12 +95,12 @@ provision = bash /data/home/yale/.claude/plugins/cache/quay/quay/0.11.0/scripts/
             → "fork-point PASS — HEAD contains develop (939dc130…)"
             → node_modules → /data/home/yale/work/claudecodeui/node_modules（symlink）
             → worktree-include: 无声明（WARNING nothing declared, nothing copied）
-【开工时】git -C <worktree> rev-parse HEAD     = 939dc1300258a8f2b9a039dfd6f037245ab33d1f
-【开工时】git -C <worktree> rev-parse develop  = 939dc1300258a8f2b9a039dfd6f037245ab33d1f   （起点 = develop，逐字相等）
-【开工时】git -C <worktree> status --porcelain = （空）
+【开工 14:12:30Z】git -C <worktree> rev-parse HEAD     = 939dc1300258a8f2b9a039dfd6f037245ab33d1f
+【开工 14:12:30Z】git -C <worktree> rev-parse develop  = 939dc1300258a8f2b9a039dfd6f037245ab33d1f   （起点 = develop，逐字相等）
+【开工 14:12:30Z】git -C <worktree> status --porcelain = （空）
 ```
 
-（终态见 §7 —— 开工后 `task_write` 的交付提交落在 develop 上，worktree 再按 step 2b(i) fast-forward 到它。）
+（终态见 §7/§8 —— 开工后 `task_write` 的交付提交落在 develop 上，worktree 再按 step 2b(i) fast-forward 到它。）
 
 注（与立案读数的差异，显式登记）：立案时 develop = `0faf62fa`；本条开工时 develop 已前进到 `939dc130`（`git reflog` 显示两条 `tasks: gap-ac173-…` 的 task_write / promotion 提交），故净检出起点取 `939dc130`。
 
@@ -183,7 +183,7 @@ elapsed=45302ms
 
 ### 2. AC2 归因读数（现测复现，附权威墙钟换算）
 
-**(a) 台账尾巴 —— 现测，`gate-events.jsonl` 里 AC-173 `gate=goal` 共 646 条，最后三条逐字：**
+**(a) 台账尾巴 —— 现测（观测时刻 `2026-10-02T14:15Z`），`gate-events.jsonl` 里 AC-173 `gate=goal` 共 646 条，最后三条逐字：**
 
 ```
 2026-10-02T13:43:56.051Z  goal-cli  verdict=pass  acceptance passed (exit 0)
@@ -191,7 +191,7 @@ elapsed=45302ms
 2026-10-02T13:57:23.642Z  goal-cli  verdict=fail  acceptance failed (exit 1) — [WebServer] [BABEL] Note: …（490 chars of stderr omitted）
 ```
 
-（复现命令：`grep '"item_id":"AC-173","pipeline_id":"AC-173","gate":"goal"' .quay/gate-events.jsonl | tail -3`。）
+（复现命令：`grep '"item_id":"AC-173","pipeline_id":"AC-173","gate":"goal"' .quay/gate-events.jsonl | tail -3`。⚠️ 本条 worker 运行期间该尾巴又前进了一条 —— 见 §5。）
 
 **(b) trace.zip —— 仍存活，本条现测解包重读，读数与立案逐字一致。** 路径与解包命令（任何人可复现）：
 
@@ -242,7 +242,7 @@ HMR  [vite] hot updated: …/ChatComposer.tsx   t=32484.418ms  ->  2026-10-02T13
 
 **⚠️ 显式登记（AC2 的「不可复现」条款）**：本条 dispatch 时，台账尾巴三条、`trace.zip`、以及该跑的 network 分片**全部仍可复现**，故**不需要**「同机制假变异」替代路径；本节的每一条都是本条现测读出，未照抄立案冒充现测（数值恰好一致，已注明「现测」）。
 
-**⚠️ 另一处与立案读数的差异（显式登记）**：立案读数（Proposal 第 (2) 条）称 `ChatComposer.tsx` 「此刻仍是语法错的」`(816:31)`。本条开工后该文件被**其作者**继续保存（现测 mtime 先 `2026-10-02 22:14:12 +0800`、再 `22:15:26 +0800`），其中一次保存之后 `@babel/parser`（plugins `typescript`,`jsx`）对该文件实测 **PARSE_OK** —— 即「boot 期语法错」这一形态在本条现测时已不再成立。这正是把归因钉在**运行期 HMR**（trace 里那条 HMR+pageError+轮询停摆）而不是「语法错」上的理由：两种形态都源自同一份未提交 WIP 的作者保存，随作者的编辑而变。
+**⚠️ 另一处与立案读数的差异（显式登记）**：立案读数（Proposal 第 (2) 条）称 `ChatComposer.tsx` 「此刻仍是语法错的」`(816:31)`。本条开工后该文件被**其作者**继续保存（现测 mtime 先 `2026-10-02 22:14:12 +0800`、后 `22:15:26 +0800`），其中一次保存之后 `@babel/parser`（plugins `typescript`,`jsx`）对该文件实测 **PARSE_OK** —— 即「boot 期语法错」这一形态在本条现测时已不再成立。这正是把归因钉在**运行期 HMR**（trace 里那条 HMR+pageError+轮询停摆）而不是「语法错」上的理由：两种形态都源自同一份未提交 WIP 的作者保存，随作者的编辑而变。
 
 ### 3. AC3 无归属读数（现测，逐字）
 
@@ -264,18 +264,36 @@ gap-activity-dock-human-gate.md                      status=needs-human goal_ac=
 
 ### 4. AC4 承重面未被本条触碰（现测）
 
-- **本条交付提交的 delta**：`task_write` 的交付提交（`dfdabd73 tasks: gap-ac173-ledger-red-is-uncommitted-composer-wip task_write by cli:2447791`）只动 `tasks/gap-ac173-ledger-red-is-uncommitted-composer-wip.md` 一个文件 —— 现测 `git -C <worktree> log --name-only --oneline 939dc130..develop` 的每一项都只有该文件；无 `src/**`、`e2e/**`、`server/**`、`playwright.config.ts`。该提交按 `task_write` 的 branch-aware 行为**直接落在 develop 上**，故按 step 2b(i) 把 develop 合入本 worktree（现测 fast-forward `939dc130..dfdabd73`）后，`git -C <worktree> diff --name-only develop..HEAD` = **空** —— 空集 ⊆ {`tasks/<本条 id>.md`}，即「只含本条任务文件」以 `develop..HEAD` 的形式成立（差异已由该提交本身承载并已在 develop 上）。
-- **未 stash / 未回退 / 未 checkout**：`git -C /data/home/yale/work/claudecodeui stash list` = 空；主检出 `git reflog -5` 只有 promotion / task_write 提交（`939dc130 … todo→ready`、`6d01a16b … task_write by cli`、`0faf62fa merge develop: Fast-forward`），无本 worker 对源码的写操作。
-- **主检出未提交文件集合**：**逐字相同**于本条启动时（同样的 11 个 ` M ` 路径 + 同样的 11 个 `?? ` 路径，逐条同名同序）。
-- **⚠️ 显式登记（不变量改写）**：AC4 字面要求 `git diff --stat` 与**立案快照**逐字相同（立案 = 10 个已改文件 / `674 insertions / 62 deletions`）。该字面条件在本条开工时**已不成立**（开工读数 = 11 个已改文件 / `714 insertions / 62 deletions`），且在本条运行期间**被其作者继续改动**（worker 结束时 = 11 个已改文件 / `719 insertions / 62 deletions`；`src/modules/chat/composer/ChatComposer.tsx` mtime `22:14:12 +0800` → `22:15:26 +0800`，两次都晚于本 worker 启动、且本 worker 未向主检出发出任何写命令）。⇒ 按**不变量**登记：**文件集合逐字不变；内容增量的漂移完全来自该 WIP 作者在其进行中的编辑，本 worker 对主检出零写入**。⛔ 本条未 stash / 未 `git checkout --` / 未编辑任何 `src/**`、`e2e/**`、`server/**`、`playwright.config.ts`（本 worker 的全部写操作只在 `/data/home/yale/work/claudecodeui-worktrees/gap-ac173-ledger-red-is-uncommitted-composer-wip` 与 `/data/scratch/yale/` 下）。
+- **本条交付提交的 delta**：本条的每一次 `task_write` 交付提交只动 `tasks/gap-ac173-ledger-red-is-uncommitted-composer-wip.md` 一个文件 —— 现测 `git -C <worktree> log --name-only --oneline 939dc130..develop` 的**每一项都只有该文件**（`dfdabd73`、`f484e0c2`、以及含本段的提交）；无 `src/**`、`e2e/**`、`server/**`、`playwright.config.ts`。该提交按 `task_write` 的 branch-aware 行为**直接落在 develop 上**，故按 step 2b(i) 把 develop 合入本 worktree（现测 fast-forward `939dc130 → dfdabd73 → f484e0c2`）后，`git -C <worktree> diff --name-only develop..HEAD` = **空** —— 空集 ⊆ {`tasks/<本条 id>.md`}，即「只含本条任务文件」以 `develop..HEAD` 的形式成立（差异已由该提交本身承载并已在 develop 上）。
+- **未 stash / 未回退 / 未 checkout**：`git -C /data/home/yale/work/claudecodeui stash list` = 空；主检出 `git reflog` 只有 promotion / task_write 提交（`939dc130 … todo→ready`、`6d01a16b … task_write by cli`），无本 worker 对源码的写操作。
+- **主检出未提交文件集合（三个时刻，同一份 WIP，作者在编辑）**：
 
-### 5. AC5 如实登记
+```
+【开工 14:12:44Z】 M 11 条 + ?? 11 条 = 22 条；git diff --stat = 11 files changed, 714 insertions(+), 62 deletions(-)
+【中检 14:17:06Z】 M 11 条 + ?? 11 条 = 22 条；git diff --stat = 11 files changed, 719 insertions(+), 62 deletions(-)
+【定稿 14:24:0xZ】 M 13 条 + ?? 11 条 = 24 条；git diff --stat = 13 files changed, 721 insertions(+), 66 deletions(-)
+                   新增两条 M：src/modules/sidebar/SidebarContent.tsx、src/shared/ui/ScrollArea.tsx
+```
 
-**台账尾巴仍是 fail** —— 现测（worker 完成前）AC-173 `gate=goal` 的最后一条仍是 `2026-10-02T13:57:23.642Z verdict=fail acceptance failed (exit 1)`，其后**没有任何**新的 AC-173 goal 事件（共 646 条，最后三条见 §2(a)）。本条**不把它写成已通过**。
+- **⚠️ 显式登记（不变量改写）**：AC4 字面要求 `git status --porcelain` 与 `git diff --stat` 与**立案快照**逐字相同（立案 = 10 个已改文件 / `674 insertions / 62 deletions`）。该字面条件在本条开工时**已不成立**（开工 = 11 条 M / `714 / 62`），且在本条运行期间**被其作者持续改动**（定稿 = 13 条 M / `721 / 66`；`src/modules/chat/composer/ChatComposer.tsx` mtime `22:14:12 +0800` → `22:15:26 +0800`，两次都晚于本 worker 启动）。⇒ 按**不变量**登记：**本 worker 对主检出零写入** —— 本 worker 发出的写命令只作用于 `/data/home/yale/work/claudecodeui-worktrees/gap-ac173-ledger-red-is-uncommitted-composer-wip`、`/data/scratch/yale/` 与任务 store；`git stash list` 空、`git reflog` 无本 worker 的运算，未 `git checkout --`、未编辑任何 `src/**`、`e2e/**`、`server/**`、`playwright.config.ts`。**文件集合的增量与内容的漂移全部来自该 WIP 作者在其进行中的编辑**（旁证：本条开工时那份 WIP 的语法错在开工后仍被作者改动，`22:14:12` 之后 `@babel/parser` 实测已 PARSE_OK）。
 
-与本条净检出直跑读数并列（§1）：`EXIT=0`、`3 passed (45.2s)`、`elapsed=45302ms`、`shared.perBinding=1 shared.perHost=2 badge.reading=1`、`hosts.running=1 hosts.residentIdle=2 hosts.total=2 badge.reading=1`。⇒ **台账的 fail 是环境事件（未提交 WIP 在运行期被 HMR 推崩页面），不是 AC-173 的承诺退化**；且本条的绿是**浏览器层、出货命令本体、净检出**上跑出来的，非组件层/jsdom 的绿，非「净树绿」替代。
+### 5. AC5 如实登记（两个时刻的读数都在，按序列登记）
 
-driver 独立复核时若台账尾巴已转 pass，请以当轮 `gate-events.jsonl` 读数与转绿时刻为准替换本段（本条 worker 只能登记它完成时刻的读数）。
+**本条 worker 观测到台账时，尾巴是 fail；本条定稿前它转成了 pass。两个读数逐字都在：**
+
+```
+2026-10-02T13:43:56.051Z  goal-cli  verdict=pass  acceptance passed (exit 0)
+2026-10-02T13:50:34.230Z  goal-cli  verdict=pass  acceptance passed (exit 0)
+2026-10-02T13:57:23.642Z  goal-cli  verdict=fail  acceptance failed (exit 1)   ← 立案所指的那条红
+2026-10-02T14:17:38.950Z  goal-cli  verdict=pass  acceptance passed (exit 0)   ← 转绿
+```
+
+- **观测时刻 `2026-10-02T14:15Z`（本条开工后、AC1 直跑之后）**：AC-173 `gate=goal` 共 646 条，最后一条是 `13:57:23.642Z verdict=fail` ⇒ **当时台账尾巴仍是 fail**。本条**没有把它写成已通过**。
+- **观测时刻 `2026-10-02T14:23Z`（定稿前复核）**：尾部新增 `2026-10-02T14:17:38.950Z goal-cli verdict=pass reason="acceptance passed (exit 0)"` ⇒ **转绿时刻 = `2026-10-02T14:17:38.950Z`，当轮读数 = `acceptance passed (exit 0)`**（该条 payload 不带 `criterionHash`，本条 worker 无法从台账断定它跑在哪个 checkout，故只登记读数本身，不外推）。
+
+与本条净检出直跑读数并列（§1）：`EXIT=0`、`3 passed (45.2s)`、`elapsed=45302ms`、`shared.perBinding=1 shared.perHost=2 badge.reading=1`、`hosts.running=1 hosts.residentIdle=2 hosts.total=2 badge.reading=1`。⇒ **`13:57:23.642Z` 那条 fail 是环境事件（未提交 WIP 在运行期被 HMR 推崩页面），不是 AC-173 的承诺退化**；本条与 `14:17:38.950Z` 的转绿一致。本条 worker 不可能在 `14:17:38.950Z` 之前见证它，故两段读数并列登记。
+
+且本条的绿是**浏览器层、出货命令本体、净检出**上跑出来的，非组件层/jsdom 的绿，非「净树绿」替代。
 
 ### 6. 判法（可机械复用）
 
@@ -287,16 +305,22 @@ remedy（归该 composer 布局 WIP 的作者，不在本条交付面内）：�
 
 ```
 【开工】  git -C <worktree> rev-parse HEAD    = 939dc1300258a8f2b9a039dfd6f037245ab33d1f
-【task_write 交付提交】= dfdabd736a6dad4fb313e10343469732ffe08729
-                        "tasks: gap-ac173-ledger-red-is-uncommitted-composer-wip task_write by cli:2447791"
-                        （落在 develop 上；`git log --name-only 939dc130..develop` 每一项只有本条任务文件）
-【step 2b(i) merge】   git -C <worktree> merge --no-edit develop
-                        → "Updating 939dc130..dfdabd73  Fast-forward"（1 file changed, 204 insertions(+), 5 deletions(-)）
-【合并后】git -C <worktree> rev-parse HEAD    = dfdabd736a6dad4fb313e10343469732ffe08729
-【合并后】git -C <worktree> rev-parse develop = dfdabd736a6dad4fb313e10343469732ffe08729   （HEAD == develop）
+【task_write 交付提交 #1】= dfdabd736a6dad4fb313e10343469732ffe08729
+                            "tasks: gap-ac173-ledger-red-is-uncommitted-composer-wip task_write by cli:2447791"
+【step 2b(i) merge #1】    → "Updating 939dc130..dfdabd73  Fast-forward"（1 file changed, 204 insertions(+), 5 deletions(-)）
+【task_write 交付提交 #2】= f484e0c2a55fd7f50adc9ba7a165f796012c861f（记录 §4 交付提交 delta / §7 终态）
+【step 2b(i) merge #2】    → "Updating dfdabd73..f484e0c2  Fast-forward"（1 file changed, 26 insertions(+), 6 deletions(-)）
+【本条所有交付提交】= `git -C <worktree> log --name-only --oneline 939dc130..develop` 每一项都只有
+                      tasks/gap-ac173-ledger-red-is-uncommitted-composer-wip.md（无 src/e2e/server/playwright.config.ts）
+【合并后】git -C <worktree> rev-parse HEAD    = f484e0c2a55fd7f50adc9ba7a165f796012c861f
+【合并后】git -C <worktree> rev-parse develop = f484e0c2a55fd7f50adc9ba7a165f796012c861f   （HEAD == develop）
 【合并后】git -C <worktree> status --porcelain = （空）
 【合并后】git -C <worktree> diff --name-only develop..HEAD = （空）
-【合并后】worktree 内任务文件的 AC 勾选数 = 5（`grep -c '^- \[x\] AC' tasks/gap-ac173-…md`，fan-in 的 ac-precheck 读的就是它）
+【合并后】worktree 内任务文件的 AC 勾选数 = 5 / 未勾选 0（fan-in 的 ac-precheck 读的就是它）
+【scoped 门】bash scripts/test.sh --for-task gap-ac173-… --allow-thin → EXIT=0
+              "suite-scope-check: PASS — 2 active task(s) scanned…"、"no scoped test files for gap-ac173-… (thin)"
+【scoped 门缓存】node …/worker-driver.js --write-scoped-gate-cache → {"event":"scoped-gate-cache-written",
+              "developSha":"f484e0c2a55fd7f50adc9ba7a165f796012c861f","cacheFile":"…/.quay/scoped-gate-cache.json"}
 ```
 
-本提交（含本节）本身也是一次 `task_write`，其 delta 同样只有 `tasks/gap-ac173-ledger-red-is-uncommitted-composer-wip.md`；它落 develop 后本 worker 会再按 step 2b(i) 合一次 develop，终态同上（`HEAD == develop`、`diff develop..HEAD` 空、任务文件勾选数为 5）。
+含本节的这第三次 `task_write` 同样只动 `tasks/gap-ac173-ledger-red-is-uncommitted-composer-wip.md`；它落 develop 后本 worker 会再按 step 2b(i) 合一次 develop，终态同上（`HEAD == develop`、`diff develop..HEAD` 空、勾选数 5），scoped 门缓存按当时的 develop sha 重写一次。
