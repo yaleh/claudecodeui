@@ -26,8 +26,17 @@ const VIEWPORT = { width: 780, height: 493 };
 
 /** The chat pane, the same anchor transcript-follow and the other resident specs know the session by. */
 const PANE = '.chat-messages-pane';
-/** The status bar's own DOM contract (AC-172), read and never written by this file. */
-const BAR = '[data-resident-status-bar]';
+/**
+ * The resident status surface this file reads, and never writes.
+ *
+ * It used to be the status bar's own root (AC-172's DOM contract). `ad1bb63a` consolidated the resident
+ * status bar into the activity dock and retired that root, so the reading addresses the dock — the same
+ * surface AC-177 and AC-178 re-anchored to. The dock is drawn for exactly the sessions the bar was drawn
+ * for (`persistWhenIdle`, the resident-only gate the bar had), so the two legs below still separate by
+ * the one fact they always did. See `readGeometry` for what is asked of this box now that the dock hangs
+ * over the transcript's bottom edge by design.
+ */
+const BAR = '[data-activity-dock]';
 /** One message row. The criterion reads the outermost ones only; see `readGeometry`. */
 const ROW = '[data-message-timestamp]';
 
@@ -188,11 +197,17 @@ type RowReading = { style: string; box: Box };
  * which "the bar's box does not touch the message's box" is a statement about the drawn transcript rather
  * than about a rect the pane clips.
  *
- * `barOverPane` is the same relation asked of the scroll container itself — whether the bar is drawn
- * inside the box the transcript scrolls in. It is the reading that catches a bar put back on the wrong
- * side of that boundary: a bar drawn inside the pane can sit over a row the message reading happens to
- * miss (the top of the transcript, which is where a sticky bar comes to rest), while a bar outside the
- * pane cannot reach any row at all.
+ * `barOverRows` is the same relation asked of the rows themselves rather than of the scroll container:
+ * every outermost row the bar's box overlaps, which has to be none. It replaced the pane-box reading
+ * (`barOverPane`) this file used to assert, because that boundary stopped existing. `ad1bb63a` mounted
+ * the dock the status bar was merged into `absolute bottom-full`, so it hangs over the pane's bottom
+ * edge on purpose — the pane's box is no longer what separates "over the conversation" from "beside it",
+ * and a leg requiring the bar to stay outside it has no satisfiable world left (measured: the dock's box
+ * `305,314,459,32` against the pane's `289,57,491,289`). What the boundary was *for* survives one level
+ * down: a bar drawn inside the scroll box comes to rest over rows the transcript drew — the top of it,
+ * where the retired sticky bar sat — and still reds here, while a bar hanging below the last row reaches
+ * none of them. The pane's box is still taken and still printed: `msgInPane` below needs it, and
+ * `bar.over.pane` is reported so a red says which of the two relations moved.
  */
 const readGeometry = (page: Page) =>
   page.evaluate((selectors: { pane: string; bar: string; row: string; styled: string }) => {
@@ -243,8 +258,13 @@ const readGeometry = (page: Page) =>
         msg && paneBox
           && msg.x >= paneBox.x && msg.y >= paneBox.y && msg.x2 <= paneBox.x2 && msg.y2 <= paneBox.y2,
       ),
-      // Whether the bar is drawn inside the scroll container — the boundary the fix moved it across.
+      // Whether the bar is drawn inside the scroll container. Reported, not asserted on the resident arm:
+      // the consolidated dock is mounted to hang over the pane's bottom edge on purpose, so this is true
+      // by design there. The control arm still asserts it, where there is no bar to be inside anything.
       barOverPane: overlaps(barBox, paneBox),
+      // The load-bearing boundary, asked of the rows rather than of the container: the outermost rows the
+      // bar's box overlaps. Empty on both arms; non-empty if the bar is put back inside the scroll box.
+      barOverRows: rows.filter((row) => overlaps(barBox, row.box)),
       viewport,
     };
   }, { pane: PANE, bar: BAR, row: ROW, styled: '[data-message-style]' });
@@ -252,6 +272,10 @@ const readGeometry = (page: Page) =>
 /** A box as the criterion prints it: `x,y,w,h`, rounded, or a named absence. */
 const formatBox = (box: Box | null): string =>
   box ? `${Math.round(box.x)},${Math.round(box.y)},${Math.round(box.w)},${Math.round(box.h)}` : '<none>';
+
+/** A set of rows as the criterion prints it: `style@x,y,w,h` each, so a red names the rows it caught. */
+const describeRows = (rows: RowReading[]): string[] =>
+  rows.map((row) => `${row.style}@${formatBox(row.box)}`);
 
 /** Prints one arm's whole reading, so the assertions below are readable against what was seen. */
 const printReading = (label: string, reading: Awaited<ReturnType<typeof readGeometry>>): void => {
@@ -262,12 +286,11 @@ const printReading = (label: string, reading: Awaited<ReturnType<typeof readGeom
   console.log(`${label}.msg.visible=${reading.msgVisible}`);
   console.log(`${label}.msg.in.pane=${reading.msgInPane}`);
   console.log(`${label}.bar.over.pane=${reading.barOverPane}`);
+  console.log(`${label}.bar.over.rows=${JSON.stringify(describeRows(reading.barOverRows))}`);
   console.log(`${label}.msg.count=${reading.count}`);
   console.log(`${label}.pane.box=${formatBox(reading.pane)}`);
   console.log(`${label}.viewport=${reading.viewport.width}x${reading.viewport.height}`);
-  console.log(
-    `${label}.rows=${JSON.stringify(reading.rows.map((row) => `${row.style}@${formatBox(row.box)}`))}`,
-  );
+  console.log(`${label}.rows=${JSON.stringify(describeRows(reading.rows))}`);
 };
 
 /* ── the startup guard ────────────────────────────────────────────────────────────────────────
@@ -565,10 +588,14 @@ const openSession = async (page: Page, sessionId: string): Promise<void> => {
 /**
  * AC-179: the resident status bar must not be drawn over the conversation it describes.
  *
+ * The surface read below is the activity dock (`[data-activity-dock]`) — the root `BAR` addresses and the
+ * one `ad1bb63a` consolidated the bar into. It is drawn for exactly the sessions the bar was drawn for,
+ * so the pair of legs still separates by the one fact it always did.
+ *
  * Two legs, one run, one reading function. The resident leg is the load-bearing reading — at 780x493, with one
  * assistant message on screen, the bar's bounding box and that message's bounding box must not overlap,
  * the message's box must lie entirely inside the viewport *and* inside the transcript's own box, and the
- * bar's box must not overlap the scroll container's at all. The per-run leg is the control that keeps
+ * bar's box must not overlap any row the pane drew. The per-run leg is the control that keeps
  * the first from being satisfied by a reading that can only ever say "no bar": the same function, on the
  * same fixture, must find no bar at all — and the same message visible.
  */
@@ -655,13 +682,17 @@ test('status bar does not cover the transcript', async ({ browser }) => {
       `the message must be entirely inside the viewport; msg.box=${formatBox(msgBox)} `
         + `viewport=${residentReading.viewport.width}x${residentReading.viewport.height}`,
     ).toBe(true);
-    // The same relation asked of the scroll container: a bar drawn inside it can come to rest over a row
-    // the message reading above does not happen to select, so the boundary itself is asserted too.
+    // The same relation asked of the rows rather than of the scroll container: a bar drawn inside the
+    // pane comes to rest over rows the message reading above does not happen to select (the top of the
+    // transcript, where the retired sticky bar sat), so every outermost row is asked, not just the last
+    // assistant one. This replaced the pane-box reading — the consolidated dock hangs over the pane's
+    // bottom edge by design, so "the bar is outside the pane's box" is not a world this product has.
     expect(
-      residentReading.barOverPane,
-      `the status bar must not be drawn inside the transcript's scroll box; `
-        + `bar.box=${formatBox(barBox)} pane.box=${formatBox(residentReading.pane)}`,
-    ).toBe(false);
+      residentReading.barOverRows,
+      `the status bar must not be drawn over any row of the transcript; `
+        + `bar.box=${formatBox(barBox)} overlapped=${JSON.stringify(describeRows(residentReading.barOverRows))} `
+        + `pane.box=${formatBox(residentReading.pane)} rows=${JSON.stringify(describeRows(residentReading.rows))}`,
+    ).toEqual([]);
 
     // ── AC3: the per-run control — no bar at all, same reading ─────────────────────────────────
     //
@@ -773,8 +804,8 @@ test('status bar does not cover the transcript', async ({ browser }) => {
 /**
  * The control that opens the resident panel, and the surface that panel is drawn in.
  *
- * `ad1bb63a` merged the resident status bar into the activity dock: the bar's own trigger
- * (`[data-resident-status-bar-trigger]`) and its dialog root are gone, and the dock publishes the
+ * `ad1bb63a` merged the resident status bar into the activity dock: the bar's own trigger attribute
+ * and its dialog root are gone, and the dock publishes the
  * equivalent pair — `[data-activity-dock-toggle="true"]` for the control (rendered only while
  * `persistWhenIdle` is true, which is exactly the resident-only gate the old bar had) and
  * `[data-activity-dock-panel="true"]` wrapping `ResidentPanel`, whose own root is
