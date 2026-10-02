@@ -123,16 +123,26 @@ const installMatchMedia = () => {
   })) as unknown as typeof window.matchMedia;
 };
 
-const INLINE_SLOT = '[data-slot="chat-activity-inline"]';
+/**
+ * The dock's one marker.
+ *
+ * The two surfaces this file used to tell apart — the composer's tab-shaped
+ * strip and the transcript's compact in-flow line — are one component behind one
+ * attribute now. Which *mount site* draws it is still a real question, and it is
+ * answered by where the marker sits: inside the pane's scroll column below `md`,
+ * in the composer from `md` up. What is no longer possible is for the two to be
+ * two different things: there is no second slot to find and no variant to pick.
+ */
+const DOCK = '[data-activity-dock]';
 const PANE_SELECTOR = '.chat-messages-pane';
 
-const inlineRow = (view: { container: HTMLElement }) =>
-  view.container.querySelector<HTMLElement>(INLINE_SLOT);
+const dockIn = (view: { container: HTMLElement }) =>
+  view.container.querySelector<HTMLElement>(DOCK);
 
-/** What the inline line reads, or a named absence — a case that finds nothing must say so, not print "undefined". */
-const describeInline = (view: { container: HTMLElement }) => {
-  const row = inlineRow(view);
-  return row ? `<${row.tagName.toLowerCase()} class="${row.className}">${row.textContent ?? ''}` : '<no inline status line>';
+/** What the dock reads, or a named absence — a case that finds nothing must say so, not print "undefined". */
+const describeDock = (view: { container: HTMLElement }) => {
+  const row = dockIn(view);
+  return row ? `<${row.tagName.toLowerCase()} class="${row.className}">${row.textContent ?? ''}` : '<no activity dock>';
 };
 
 const paneOf = (view: { container: HTMLElement }) =>
@@ -235,7 +245,11 @@ afterEach(() => {
 /** Every accessible button whose name says stop, inside a subtree — the reading the criterion counts. */
 const stopButtons = (root: HTMLElement) => within(root).queryAllByRole('button', { name: /stop/i });
 
-test('(a) the inline variant reads as the tab does, minus the Stop', () => {
+test('(a) a dock with no abort handler reads the activity and offers no control', () => {
+  // The reading below `md`: the pane mounts the same dock the composer does, but
+  // hands it no interrupt handler, because that layout's one stop entry is the
+  // composer's own submit. A dock that drew a control anyway would be a second
+  // one, and that is the count this case exists to keep at zero.
   const onAbort = vi.fn();
   const { connection, push } = makeConnection();
   const view = render(
@@ -243,32 +257,31 @@ test('(a) the inline variant reads as the tab does, minus the Stop', () => {
       activity: ACTIVITY,
       sessionId: SESSION_ID,
       connection,
-      onAbort,
-      variant: 'inline',
     }),
   );
   push(subscribedFrame());
-  const row = inlineRow(view);
-  assert.ok(row, `the inline variant must render a status line (${INLINE_SLOT}); DOM: ${view.container.innerHTML.slice(0, 400)}`);
+  const row = dockIn(view);
+  assert.ok(row, `the dock must render a status line (${DOCK}); DOM: ${view.container.innerHTML.slice(0, 400)}`);
 
   const text = row.textContent ?? '';
-  assert.ok(text.includes('Reviewing'), `the inline line must name the activity; it reads "${text}"`);
-  assert.ok(text.includes('0s'), `the inline line must show the elapsed time; it reads "${text}"`);
+  assert.ok(text.includes('Reviewing'), `the dock must name the activity; it reads "${text}"`);
+  assert.ok(text.includes('0s'), `the dock must show the elapsed time; it reads "${text}"`);
 
   const found = stopButtons(row);
   assert.equal(
     found.length,
     0,
-    `the inline line must carry no Stop — the composer's submit button is the one stop entry below md; it carries ${found.length}: ${row.outerHTML}`,
+    `a dock handed no abort handler must carry no Stop — the composer's submit button is the one stop entry below md; it carries ${found.length}: ${row.outerHTML}`,
   );
   assert.equal(
     (row.outerHTML.match(/aria-label/gi) ?? []).length,
     0,
-    `the inline line must expose no named control at all; it reads ${row.outerHTML}`,
+    `with no abort handler and no resident panel the dock must expose no named control at all; it reads ${row.outerHTML}`,
   );
+  assert.equal(onAbort.mock.calls.length, 0, 'and nothing it draws can call one');
 });
 
-test('(b) the tab variant still carries the activity text, the Stop and the Esc hint', () => {
+test('(b) the dock handed an abort handler carries the activity text, the Stop and the Esc hint', () => {
   const onAbort = vi.fn();
   const { connection, push } = makeConnection();
   const view = render(
@@ -305,7 +318,7 @@ test('(c) the elapsed reading follows the server clock and ignores the local one
 
   const { connection, push } = makeConnection();
   const inline = render(
-    React.createElement(ActivityIndicator, { activity: ACTIVITY, sessionId: SESSION_ID, connection, variant: 'inline' }),
+    React.createElement(ActivityIndicator, { activity: ACTIVITY, sessionId: SESSION_ID, connection }),
   );
   const tab = render(
     React.createElement(ActivityIndicator, { activity: ACTIVITY, sessionId: SESSION_ID, connection, onAbort: () => undefined }),
@@ -348,49 +361,45 @@ test('(c) the elapsed reading follows the server clock and ignores the local one
   );
 });
 
-test('(d) both variants play the same exit animation when the activity clears', () => {
+test('(d) the dock plays its exit animation when the activity clears', () => {
   const readings: string[] = [];
 
-  for (const variant of ['inline', 'tab'] as const) {
-    const view = render(
-      React.createElement(ActivityIndicator, { activity: ACTIVITY, onAbort: () => undefined, variant }),
-    );
-    const mounted = variant === 'inline' ? inlineRow(view) : view.container.firstElementChild;
-    assert.ok(mounted, `premise: the ${variant} surface must be mounted while the turn runs`);
+  const view = render(
+    React.createElement(ActivityIndicator, { activity: ACTIVITY, onAbort: () => undefined }),
+  );
+  const mounted = dockIn(view);
+  assert.ok(mounted, 'premise: the dock must be mounted while the turn runs');
 
-    act(() => {
-      view.rerender(
-        React.createElement(ActivityIndicator, { activity: null, onAbort: () => undefined, variant }),
-      );
-    });
-
-    const exiting = variant === 'inline' ? inlineRow(view) : view.container.firstElementChild;
-    readings.push(
-      `${variant}: at +0ms ${exiting ? 'present' : 'gone'}${exiting ? ` (class="${exiting.className}")` : ''}`,
+  act(() => {
+    view.rerender(
+      React.createElement(ActivityIndicator, { activity: null, onAbort: () => undefined }),
     );
-    assert.ok(
-      exiting,
-      `the ${variant} surface must stay mounted through its exit animation; readings: ${readings.join(' | ')}`,
-    );
-    assert.ok(
-      exiting.className.includes('chat-activity-exit'),
-      `the ${variant} surface must animate out rather than disappear; readings: ${readings.join(' | ')}`,
-    );
+  });
 
-    act(() => {
-      vi.advanceTimersByTime(EXIT_ANIMATION_MS);
-    });
+  const exiting = dockIn(view);
+  readings.push(`at +0ms ${exiting ? 'present' : 'gone'}${exiting ? ` (class="${exiting.className}")` : ''}`);
+  assert.ok(
+    exiting,
+    `the dock must stay mounted through its exit animation; readings: ${readings.join(' | ')}`,
+  );
+  assert.ok(
+    exiting.className.includes('chat-activity-exit'),
+    `the dock must animate out rather than disappear; readings: ${readings.join(' | ')}`,
+  );
 
-    const after = variant === 'inline' ? inlineRow(view) : view.container.firstElementChild;
-    readings.push(`${variant}: at +${EXIT_ANIMATION_MS}ms ${after ? 'present' : 'gone'}`);
-    assert.equal(
-      after,
-      null,
-      `the ${variant} surface must be gone once the exit animation has run; readings: ${readings.join(' | ')}`,
-    );
+  act(() => {
+    vi.advanceTimersByTime(EXIT_ANIMATION_MS);
+  });
 
-    view.unmount();
-  }
+  const after = dockIn(view);
+  readings.push(`at +${EXIT_ANIMATION_MS}ms ${after ? 'present' : 'gone'}`);
+  assert.equal(
+    after,
+    null,
+    `the dock must be gone once the exit animation has run; readings: ${readings.join(' | ')}`,
+  );
+
+  view.unmount();
 });
 
 test('(e) below md the pane draws the status line at the end of the message flow', () => {
@@ -405,17 +414,17 @@ test('(e) below md the pane draws the status line at the end of the message flow
       observedColumn = node;
     },
   });
-  const row = inlineRow(view);
+  const row = dockIn(view);
   assert.ok(row, `the pane must render the inline status line below md; DOM: ${view.container.innerHTML.slice(0, 400)}`);
 
   assert.ok(
     pane.contains(row),
-    `the status line must live inside the scroll container, or it could not scroll with the messages; it reads ${describeInline(view)}`,
+    `the status line must live inside the scroll container, or it could not scroll with the messages; it reads ${describeDock(view)}`,
   );
   assert.ok(observedColumn, 'premise: the pane must hand its content column to the follow');
   assert.ok(
     (observedColumn as HTMLDivElement | null)?.contains(row),
-    `the status line must be inside the column the content-growth follow observes, or its growth would not be followed; it reads ${describeInline(view)}`,
+    `the status line must be inside the column the content-growth follow observes, or its growth would not be followed; it reads ${describeDock(view)}`,
   );
 
   const rows = Array.from(pane.querySelectorAll('[data-message-timestamp]'));
@@ -423,7 +432,7 @@ test('(e) below md the pane draws the status line at the end of the message flow
   const lastRow = rows[rows.length - 1];
   assert.ok(
     (lastRow.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
-    `the status line must come after the last message in the document; it reads ${describeInline(view)}`,
+    `the status line must come after the last message in the document; it reads ${describeDock(view)}`,
   );
 
   const positional = Array.from(row.classList).filter((name) => /^(absolute|fixed)$/.test(name));
@@ -437,14 +446,14 @@ test('(e) below md the pane draws the status line at the end of the message flow
 test('(e) the tier edge is md: 767px is in the flow, 768px is the composer\'s tab', () => {
   const narrow = renderPane(NARROW_EDGE_WIDTH);
   assert.ok(
-    inlineRow(narrow.view),
+    dockIn(narrow.view),
     `767px must still draw the in-flow status line; DOM: ${narrow.view.container.innerHTML.slice(0, 300)}`,
   );
   narrow.view.unmount();
 
   const wide = renderPane(DESKTOP_WIDTH);
   assert.equal(
-    inlineRow(wide.view),
+    dockIn(wide.view),
     null,
     `768px must hand the status back to the composer's tab; DOM: ${wide.view.container.innerHTML.slice(0, 300)}`,
   );
@@ -454,12 +463,12 @@ test('(e) the tier edge is md: 767px is in the flow, 768px is the composer\'s ta
 test('(f) from md up the pane draws no inline status line', () => {
   const { view } = renderPane(WIDE_DESKTOP_WIDTH);
   assert.equal(
-    inlineRow(view),
+    dockIn(view),
     null,
     `the desktop pane must not render the inline status line; DOM: ${view.container.innerHTML.slice(0, 400)}`,
   );
   assert.equal(
-    view.container.querySelectorAll(INLINE_SLOT).length,
+    view.container.querySelectorAll(DOCK).length,
     0,
     'exactly zero inline status lines, however they are found',
   );
@@ -715,7 +724,7 @@ describe("the transcript's content-growth follow over the inline status line", (
     // anywhere else could not, whatever the follow wrote.
     const rowView = withRow
       ? render(
-          React.createElement(ActivityIndicator, { activity: ACTIVITY, variant: 'inline' }),
+          React.createElement(ActivityIndicator, { activity: ACTIVITY }),
           { container: content },
         )
       : null;
@@ -812,7 +821,7 @@ describe("the transcript's content-growth follow over the inline status line", (
         const { container, content, observer, rowView, result } = await mountFollowArm(withRow);
 
         if (withRow) {
-          const row = rowView?.container.querySelector<HTMLElement>(INLINE_SLOT);
+          const row = rowView?.container.querySelector<HTMLElement>(DOCK);
           assert.ok(row, 'premise: the status line must have mounted inside the content column');
           assert.ok(
             content.contains(row),
@@ -847,7 +856,6 @@ describe("the transcript's content-growth follow over the inline status line", (
             rowView?.rerender(
               React.createElement(ActivityIndicator, {
                 activity: ACTIVITY_WIDER,
-                variant: 'inline',
               }),
             );
           });

@@ -7,7 +7,7 @@ import type { TFunction } from 'i18next';
 import { createElement } from 'react';
 import { afterEach, beforeEach, describe, it, vi } from 'vitest';
 
-import ResidentStatusBar from '@/modules/chat/transcript/ResidentStatusBar';
+import ResidentPanel from '@/modules/chat/transcript/ResidentStatusBar';
 import { ResidentMark } from '@/modules/sidebar';
 import type { SessionHostsSnapshot } from '@/shared/types';
 
@@ -16,28 +16,35 @@ import type { SessionHostsSnapshot } from '@/shared/types';
  *
  * The store (`useSessionHosts`) keeps the last snapshot when a poll throws — which
  * is right, the listing is not evidence that every process went away — but for as
- * long as it did, both consumers went on reporting the *state word* from that
- * stale snapshot. A server that had died therefore left the status bar and the
- * sidebar mark saying `busy` about a process nobody could see: the "pretending to
- * think" this vocabulary exists to prevent, on the snapshot leg. The fix folds the
- * read's own failure into the ONE shared translation (`readResidentProcessState`),
- * so both consumers read `unknown` while the read is failing and the real word
- * again the moment a read succeeds.
+ * long as it did, its consumers went on reporting the *state word* from that stale
+ * snapshot. A server that had died therefore left the page saying `busy` about a
+ * process nobody could see: the "pretending to think" this vocabulary exists to
+ * prevent, on the snapshot leg. The fix folds the read's own failure into the ONE
+ * shared translation (`readResidentProcessState`), so a consumer reads `unknown`
+ * while the read is failing and the real word again the moment a read succeeds.
+ *
+ * There used to be two consumers of that word — the status bar and the sidebar
+ * mark — and this file read both, asserting they published the same thing in each
+ * phase. The status bar is gone (AC-188: its busy/idle word was a second answer to
+ * a question the activity dock already answers from the server's own frames), so
+ * the mark is the reader now. The second half of the old reading is kept, in the
+ * direction that still means something: there must be **no other** published state
+ * word for the panel to disagree with. That is read directly — the dock's resident
+ * panel is rendered here too, and it is asserted to publish none of the words it
+ * used to.
  *
  * This file drives the REAL store, not a mock of it. `vi.mock` of the hook is what
  * the sibling criteria use, and it would make this criterion vacuous: the whole
  * subject is what the hook's `error` does to the reading, and a hand-written fake
  * would be this file grading its own answer. Instead `fetch` is stubbed with a
  * scripted queue — busy succeeds, the next poll rejects, idle succeeds — and the
- * poll's 1-second beat is driven with fake timers. The two consumers are rendered
- * together, and their published attributes (`data-resident-ui-state` on the bar,
- * `data-resident-state` on the mark) are read in each of the three phases.
+ * poll's 1-second beat is driven with fake timers.
  *
  * Falsification (run by the implementer, recorded in the completion record): the
  * fix's only moving part is the second argument to `readResidentProcessState`.
- * Reverting both consumers to `readResidentProcessState(host)` restores the
- * pre-fix reading, and the phase-2 assertions below fail: the bar and the mark
- * both stay `busy` instead of reading `unknown`.
+ * Reverting the mark to `readResidentProcessState(host)` restores the pre-fix
+ * reading, and the phase-2 assertions below fail: the mark stays `busy` instead of
+ * reading `unknown`.
  */
 
 const SESSION_ID = 'session-snapshot-failure';
@@ -141,11 +148,23 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-/** The bar's published UI state, or null when the bar did not render. */
-function barState(): string | null {
-  const bar = document.querySelector('[data-resident-status-bar]');
-  return bar?.getAttribute('data-resident-ui-state') ?? null;
-}
+/**
+ * Every state word the resident surface used to publish about the *process*.
+ *
+ * None of them may exist any more: the mark in the sidebar is the one place the
+ * process's own state is published, and a second one — in the dock's panel or
+ * anywhere else — is exactly the disagreement AC-188 removed.
+ */
+const REMOVED_STATE_MARKERS = [
+  '[data-resident-status-bar]',
+  '[data-resident-ui-state]',
+  '[data-resident-state-text]',
+  '[data-resident-host-state-text]',
+  '[data-resident-lease-summary]',
+  '[data-resident-lease-total]',
+  '[data-lease-kind]',
+  '[data-lease-count]',
+] as const;
 
 /** The sidebar mark's published state, or null when the mark did not render. */
 function markState(): string | null {
@@ -185,7 +204,7 @@ describe('a host-snapshot poll that fails degrades both readers to unknown', () 
       createElement(
         'div',
         null,
-        createElement(ResidentStatusBar, { sessionId: SESSION_ID, t }),
+        createElement(ResidentPanel, { sessionId: SESSION_ID, t }),
         createElement(ResidentMark, { sessionId: SESSION_ID, t }),
       ),
     );
@@ -194,10 +213,9 @@ describe('a host-snapshot poll that fails degrades both readers to unknown', () 
     // without any timer. `advance(0)` flushes it and fires no interval tick.
     await advance(0);
 
-    const phase1 = { bar: barState(), mark: markState() };
-    console.log(`host-snapshot-failure phase1.busy bar=${phase1.bar} mark=${phase1.mark}`);
-    assert.equal(phase1.bar, 'busy', 'a successful poll reporting a busy host reads busy on the bar');
-    assert.equal(phase1.mark, 'busy', 'and the same reading reaches the sidebar mark');
+    const phase1 = { mark: markState() };
+    console.log(`host-snapshot-failure phase1.busy mark=${phase1.mark}`);
+    assert.equal(phase1.mark, 'busy', 'a successful poll reporting a busy host reads busy on the mark');
     assert.equal(
       document.querySelector('[data-resident-mark]')?.getAttribute('data-resident-mark'),
       'solid+spinner',
@@ -208,12 +226,10 @@ describe('a host-snapshot poll that fails degrades both readers to unknown', () 
     // own failure must fold the state word to `unknown` in the SAME render.
     await advance(1000);
 
-    const phase2 = { bar: barState(), mark: markState() };
-    console.log(`host-snapshot-failure phase2.failed bar=${phase2.bar} mark=${phase2.mark}`);
-    assert.equal(phase2.bar, 'unknown', 'a failed poll must not keep the bar on the stale busy word');
-    assert.equal(phase2.mark, 'unknown', 'nor the mark: one failed read, one word, in both readers');
-    assert.notEqual(phase2.bar, 'busy', 'the bar is not allowed to claim busy with no live reading behind it');
-    assert.notEqual(phase2.mark, 'busy', 'nor the mark');
+    const phase2 = { mark: markState() };
+    console.log(`host-snapshot-failure phase2.failed mark=${phase2.mark}`);
+    assert.equal(phase2.mark, 'unknown', 'a failed poll must not keep the mark on the stale busy word');
+    assert.notEqual(phase2.mark, 'busy', 'the mark is not allowed to claim busy with no live reading behind it');
     assert.equal(
       document.querySelector('[data-resident-spinner]'),
       null,
@@ -228,20 +244,23 @@ describe('a host-snapshot poll that fails degrades both readers to unknown', () 
     // One beat later a poll succeeds again, and the real word returns at once.
     await advance(1000);
 
-    const phase3 = { bar: barState(), mark: markState() };
-    console.log(`host-snapshot-failure phase3.recovered bar=${phase3.bar} mark=${phase3.mark}`);
-    assert.equal(phase3.bar, 'idle', 'a successful poll restores the true state on the bar');
-    assert.equal(phase3.mark, 'idle', 'and on the mark — it does not stay stuck at unknown');
+    const phase3 = { mark: markState() };
+    console.log(`host-snapshot-failure phase3.recovered mark=${phase3.mark}`);
+    assert.equal(phase3.mark, 'idle', 'a successful poll restores the true state on the mark');
 
-    // Equivalence across every phase: the two attributes are equal each time, which is
-    // what proves both readers consult one reading rather than deciding for themselves.
-    for (const [phase, reading] of Object.entries({ phase1, phase2, phase3 })) {
-      assert.equal(
-        reading.bar,
-        reading.mark,
-        `the bar and the mark must publish the same state in ${phase}`,
-      );
-    }
+    // The other half: there is no second word on the page for the mark to agree or
+    // disagree with. The panel is rendered beside it throughout every phase above, so
+    // this is read on a tree that really did have the chance to publish one.
+    const resurrected = REMOVED_STATE_MARKERS.filter(
+      (marker) => document.querySelector(marker) !== null,
+    );
+    console.log(`host-snapshot-failure removedStateMarkers=${JSON.stringify(resurrected)}`);
+    assert.deepEqual(
+      resurrected,
+      [],
+      'the resident panel must publish no process-state word of its own; the mark is the one reader, '
+        + 'and a second one is how the page comes to say two things about one host',
+    );
 
     assert.equal(
       harness.script.length,

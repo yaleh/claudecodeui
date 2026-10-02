@@ -1,7 +1,7 @@
 ---
 id: AC-188
 title: 真实浏览器：页面上只有一个活动坞，旧的活动页签与 resident 状态栏的忙闲字样不再存在，各处状态一致
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-014
 criterion: npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-188"
@@ -21,6 +21,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-02T08:39:28.199Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"

@@ -247,6 +247,10 @@
       "live": "En vivo",
       "paused": "En pausa"
     },
+    "dock": {
+      "idleLabel": "Inactivo",
+      "toggle": "Detalles del proceso residente"
+    },
     "elapsed": {
       "seconds": "{{count}}s",
       "minutesSeconds": "{{minutes}}m {{seconds}}s",

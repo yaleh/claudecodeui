@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TFunction } from 'i18next';
 
 import { api } from '@/shared/api';
-import { listRunningSessionIds, useSessionHosts } from '@/shared/hooks/useSessionHosts';
+import { useBusySessionIdSet } from '@/shared/context/SessionProtectionContext';
 import { useWebSocket } from '@/shared/context/WebSocketContext';
 import { subscribeToUserPreferences } from '@/shared/userSettings';
 import { getSessionTitle } from '@/shared/utils';
@@ -142,19 +142,15 @@ export function useSidebarController({
 
   const isSidebarCollapsed = !isMobile && !sidebarVisible;
   const activeSessionIds = activeSessions;
-  // The badge counts what the host listing says is being worked on, not this
-  // page's own set of in-flight turns. The two are the same number for a session
-  // with a turn running, and they deliberately differ for the one case the badge
-  // exists to get right: a resident process held open between turns is in the
-  // busy-set's complement either way, but a client that only ever reads its own
-  // set has nothing to count it with. One reader for the whole page — the same
-  // store the sidebar marks and the status bar draw from — so a badge and a view
-  // built from it cannot describe one listing differently.
-  const { snapshot: sessionHostsSnapshot } = useSessionHosts();
-  const runningSessionsCount = useMemo(
-    () => listRunningSessionIds(sessionHostsSnapshot).length,
-    [sessionHostsSnapshot],
-  );
+  // The badge counts the server-authoritative activity the whole page reads: the
+  // same `SessionActivity` membership the activity dock draws its state from and
+  // the Running view draws its first group from. It used to count the `turn`
+  // leases in the one-second host listing, which is a *slower* answer to the same
+  // question — a turn the server had already announced as over stayed counted for
+  // up to a poll interval, and for that beat the badge contradicted the dock. One
+  // reading, so a badge, a view and a dock cannot describe one turn differently.
+  const busySessionIds = useBusySessionIdSet();
+  const runningSessionsCount = useMemo(() => busySessionIds.size, [busySessionIds]);
 
   useEffect(() => {
     const timer = setInterval(() => {

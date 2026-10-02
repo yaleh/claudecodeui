@@ -13,15 +13,22 @@ import type * as SessionHostsModule from '@/shared/hooks/useSessionHosts';
 import type { SessionHostsSnapshot } from '@/shared/types';
 
 /**
- * The frontend half of the on-demand start: what the bar does with a refusal.
+ * The frontend half of the on-demand start: what the resident surface does with a refusal.
  *
  * The claim this file holds is narrow and entirely local. When the server refuses
- * a [start], the refusal must be *readable* — on the collapsed bar, with the
- * popover shut, which is the only state the [start] control is ever used from —
- * and the bar must go on saying the session is unstarted, because it is. Before
+ * a [start], the refusal must be *readable* — on the surface the control is
+ * pressed from, without anything else having to be opened first — and the surface
+ * must go on showing that the session has no process, because it has none. Before
  * the fix the request was issued and its answer was thrown away: the verb returned
  * a bare `Response` nobody inspected, so a 409 and a 200 were the same event and
  * the refusal was rendered, at best, into a panel that was not mounted.
+ *
+ * The surface is the activity dock's expanded panel now (see
+ * `ActivityIndicator`), which is always drawn open — the dock owns the collapsed
+ * row, and a reader reaches the panel by opening *it*. So the readings below are
+ * about the panel body itself, and "the refusal did not have to open anything" is
+ * a fact about where the paragraph is drawn rather than a claim about a popover
+ * this file would have to keep shut.
  *
  * The verb under test is the real one. `useSessionHosts` is mocked — it is a
  * module-scope poller with no test seam, and the two sibling criteria mock it for
@@ -41,18 +48,18 @@ import type { SessionHostsSnapshot } from '@/shared/types';
  *
  *   (1) the refusal: with a 409 in flight and then answered, the control reports
  *       the wait (`data-resident-start-pending`), the server's sentence appears
- *       verbatim in `[data-resident-action-error]` while the popover is closed,
- *       `data-resident-ui-state` is still `unstarted`, and `[data-resident-start]`
- *       is still there to press again.
+ *       verbatim in `[data-resident-action-error]`, the panel still reports no
+ *       process (`pid —`), and `[data-resident-start]` is still there to press
+ *       again.
  *   (2) the positive control: a 200 produces no refusal text, and once the listing
- *       says the session is running the control is gone. Without this arm the first
- *       one would also pass against a bar that rendered an error paragraph
- *       unconditionally.
+ *       says the session is running the control is gone and the panel reports the
+ *       host's own pid. Without this arm the first one would also pass against a
+ *       surface that rendered an error paragraph unconditionally.
  *
  * Falsification (run and recorded in the completion record): with `readApiJson`
  * removed from `api.sessionHosts.start` — the pre-fix shape, where the response is
  * awaited and discarded — arm (1) reds on the error paragraph being absent: a 409
- * is no longer a throw, so nothing reaches the bar's handler.
+ * is no longer a throw, so nothing reaches the surface's handler.
  */
 
 const SESSION_ID = 'session-start-refused';
@@ -104,7 +111,7 @@ vi.mock('@/shared/hooks/useSessionHosts', async (importOriginal) => {
   };
 });
 
-const ResidentStatusBar = (await import('@/modules/chat/transcript/ResidentStatusBar')).default;
+const ResidentPanel = (await import('@/modules/chat/transcript/ResidentStatusBar')).default;
 
 /** A listing where the session is stored resident and nothing is running for it. */
 function unstartedListing(): SessionHostsSnapshot {
@@ -199,19 +206,26 @@ function say(line: string): void {
   console.log(`resident-start-refusal ${line}`);
 }
 
-function renderBar() {
-  return render(createElement(ResidentStatusBar, { sessionId: SESSION_ID, t }));
+function renderPanel() {
+  return render(createElement(ResidentPanel, { sessionId: SESSION_ID, t }));
 }
 
-/** The [start] control, which only an unstarted or exited session offers. */
+/** The [start] control, which only a session with no live process offers. */
 function startControl(container: HTMLElement): HTMLButtonElement {
   const control = container.querySelector('[data-resident-start]');
-  assert.ok(control, 'the bar must offer [start] for a resident session with nothing running');
+  assert.ok(control, 'the panel must offer [start] for a resident session with nothing running');
   return control as HTMLButtonElement;
 }
 
-function stateAttribute(container: HTMLElement): string | null {
-  return container.querySelector('[data-resident-status-bar]')?.getAttribute('data-resident-ui-state') ?? null;
+/**
+ * The pid the panel prints — the listing's own reading of which process holds the
+ * session, and the one fact that moves when a start succeeds. It replaces the
+ * `data-resident-ui-state` word this file used to read: the panel has no busy/idle
+ * word of its own any more, and the pid is a stronger reading of the same state
+ * because it cannot be produced by the component's own vocabulary.
+ */
+function pidReading(container: HTMLElement): string {
+  return (container.querySelector('[data-resident-pid-text]')?.textContent ?? '').trim();
 }
 
 /** Lets every pending microtask and the timer queue run, inside React's act. */
@@ -245,19 +259,14 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('the resident bar and an on-demand start', () => {
-  it('shows the server\'s refusal on the collapsed bar and stays unstarted', async () => {
+describe('the resident panel and an on-demand start', () => {
+  it('shows the server\'s refusal on the panel and keeps reporting no process', async () => {
     harness.snapshot = unstartedListing();
     const gate = deferred();
     harness.response = gate.promise;
 
-    const { container } = renderBar();
+    const { container } = renderPanel();
     const control = startControl(container);
-    assert.equal(
-      document.querySelector('[role="dialog"]'),
-      null,
-      'the premise: a start is pressed from the collapsed bar, with the popover shut',
-    );
 
     fireEvent.click(control);
     assert.equal(
@@ -281,17 +290,12 @@ describe('the resident bar and an on-demand start', () => {
     const error = container.querySelector('[data-resident-action-error]');
     say(
       `refused status=409 message="${error?.textContent ?? ''}" ` +
-      `uiState=${stateAttribute(container)} pending=${control.dataset.residentStartPending}`,
+      `pid="${pidReading(container)}" pending=${control.dataset.residentStartPending}`,
     );
 
-    assert.ok(error, 'the refusal must be readable with the popover shut');
+    assert.ok(error, 'the refusal must be readable where the control was pressed');
     assert.equal(error.textContent, REFUSAL_MESSAGE, 'and the server\'s sentence must travel verbatim');
-    assert.equal(
-      document.querySelector('[role="dialog"]'),
-      null,
-      'the refusal did not have to open the popover to be seen',
-    );
-    assert.equal(stateAttribute(container), 'unstarted', 'nothing started, so the bar still says so');
+    assert.equal(pidReading(container), 'pid —', 'nothing started, so the panel still reports no process');
     assert.ok(
       container.querySelector('[data-resident-start]'),
       'and the control is still there to press again',
@@ -307,7 +311,7 @@ describe('the resident bar and an on-demand start', () => {
     harness.snapshot = unstartedListing();
     harness.response = acceptedResponse();
 
-    const { container, rerender } = renderBar();
+    const { container, rerender } = renderPanel();
     fireEvent.click(startControl(container));
     await settle();
 
@@ -324,15 +328,15 @@ describe('the resident bar and an on-demand start', () => {
     // The listing the next render reads is the one the server would publish once the host is up.
     // Given to the bar, not proven by it — see the file header.
     harness.snapshot = runningListing();
-    rerender(createElement(ResidentStatusBar, { sessionId: SESSION_ID, t }));
+    rerender(createElement(ResidentPanel, { sessionId: SESSION_ID, t }));
 
-    assert.equal(stateAttribute(container), 'idle', 'the bar reads the running host as idle');
+    assert.equal(pidReading(container), `pid ${STARTED_PID}`, 'the panel reports the host the listing names');
     assert.equal(
       container.querySelector('[data-resident-start]'),
       null,
       'a session that is already running offers nothing to start',
     );
-    say(`control status=200 uiState=${stateAttribute(container)} startControl=${container.querySelector('[data-resident-start]') === null ? 'absent' : 'present'}`);
+    say(`control status=200 pid="${pidReading(container)}" startControl=${container.querySelector('[data-resident-start]') === null ? 'absent' : 'present'}`);
     assertOneStartRequest();
   });
 });
