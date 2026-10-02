@@ -53,11 +53,25 @@ Expected: visible / Timeout: 30000ms / Error: element(s) not found
 
 ## AC
 
-- [ ] `npx playwright test e2e/resident-busy-send.spec.ts` 退出码 0、输出含 `3 passed`、墙钟 < 55_000ms、无 `skipped`。
-- [ ] `grep -n "data-resident-status-bar\|data-resident-ui-state" e2e/resident-busy-send.spec.ts` → 0 命中；`grep -n "const BAR = " e2e/resident-busy-send.spec.ts` 读回 `'[data-activity-dock]'`；`grep -n "data-activity-state" e2e/resident-busy-send.spec.ts` 命中 `:625` 与 `:737` 且属性值为 `in-turn`。
-- [ ] 同一次运行 stdout 逐条读到：`resident.queuedCard=0`、`resident.row.annotationKey=resident.pending.annotation`、`withdraw.visibleBefore=true`、`click.dispatched=true`、`ui.withdrawnBeforeEvent=false`、`ui.withdrawnAfterEvent=true`、`row.presentAfter=false`、`turnsAfterWithdraw=0`、`beforeStarted.withdrawButton>=1`、`afterStarted.withdrawButton=0`、`afterStarted.annotationKey=resident.pending.started`、`perRun.queuedCard=1`。
-- [ ] `grep -rn "data-resident-status-bar\|data-resident-ui-state" src/ --include=*.tsx --include=*.ts | grep -v /tests/` → 0 命中（证明换的是量具，不是往生产补回死标记）。
+- [x] `npx playwright test e2e/resident-busy-send.spec.ts` 退出码 0、输出含 `3 passed`、墙钟 < 55_000ms、无 `skipped`。
+- [x] `grep -n "data-resident-status-bar\|data-resident-ui-state" e2e/resident-busy-send.spec.ts` → 0 命中；`grep -n "const BAR = " e2e/resident-busy-send.spec.ts` 读回 `'[data-activity-dock]'`；`grep -n "data-activity-state" e2e/resident-busy-send.spec.ts` 命中 `:625` 与 `:737` 且属性值为 `in-turn`。
+- [x] 同一次运行 stdout 逐条读到：`resident.queuedCard=0`、`resident.row.annotationKey=resident.pending.annotation`、`withdraw.visibleBefore=true`、`click.dispatched=true`、`ui.withdrawnBeforeEvent=false`、`ui.withdrawnAfterEvent=true`、`row.presentAfter=false`、`turnsAfterWithdraw=0`、`beforeStarted.withdrawButton>=1`、`afterStarted.withdrawButton=0`、`afterStarted.annotationKey=resident.pending.started`、`perRun.queuedCard=1`。
+- [x] `grep -rn "data-resident-status-bar\|data-resident-ui-state" src/ --include=*.tsx --include=*.ts | grep -v /tests/` → 0 命中（证明换的是量具，不是往生产补回死标记）。
 
 ## DoD
 
 换锚后的 `e2e/resident-busy-send.spec.ts` 起真 Chromium + 真后端 + 调试 agent 的常驻替身，真的让三个会话各自处于忙，真的推入消息并按 AC 的 (1)-(4) 逐条读出；判据命令在落地后的树上按原命令重跑，退出 0、墙钟 < 55s、`3 passed`。三条假形态仍须有分辨力：常驻仍本地排队 ⇒ (1) 红；撤回只在前端隐藏 ⇒ (2) 红（场景零 `cancel_async_message`）；点击即标已撤回 ⇒ (2) 红（未收到 `cancelled` 就读到「已撤回」）。完成后 AC-175 在驱动器下一轮以 `goal_ac: AC-175` 独立复跑时由红翻绿。**不**以「文件改了/测试存在」收工——读数必须是 `3 passed` 及其 stdout 逐行。
+
+## Notes
+
+换锚三处（`:80` 的 `BAR`、`:625`/`:737` 的忙态属性），断言语义零改动。判据在落地树上按原命令重跑：`3 passed`，exit 0，墙钟 37034ms < 55_000ms，AC 列的 12 条 stdout 读数逐条命中。
+
+**承重控制（本轮实测）**：把三处锚还原成已退役的 `[data-resident-status-bar]` / `data-resident-ui-state` 后重跑 → exit 1，红落在 `:624` `locator('[data-resident-status-bar]')`（element(s) not found），与立案记录的签名逐字相同 ⇒ 红可归因于旧锚，新锚正是让它翻绿的那一处（判据不是恒真）。
+
+**三条假形态（本轮实测，逐条变异后还原）**：
+
+- (b) 撤回只在前端隐藏：`ChatInterface.tsx:399` 的 `handleWithdrawResidentCommand` 改为不发 `chat.cancel-queued` → exit 1，红落在 `:677` `cancelPayloads >= 1`（「the click must reach the process that holds the command」），同 run `resident.queuedCard=0` 仍正确读出 ⇒ 场景零 `cancel_async_message` 必红。
+- (c) 点击即标已撤回：`useChatRealtimeHandlers.ts:471` 那条被显式丢弃的 `queued_input_cancel_result` ack 改为直接 `applyCommandLifecycle(…, 'cancelled')` → exit 1，红落在 `:691` `withdrawnBeforeEvent === 0`，读数 `ui.withdrawnBeforeEvent=true` ⇒ 未收到 `cancelled` 就读到「已撤回」必红。
+- (a) 常驻仍本地排队：本轮未做端到端变异（`busySendGoesToProcess` 只决定按钮文案，不是路由；诚实记下未完成）。该读数在同一次绿跑里有阳性对照：`perRun.queuedCard=1` 证明计数法在同 run 能数到卡，故 `resident.queuedCard=0` 即「常驻没走浏览器队列」。
+
+（三处变异均已 `git checkout --` 还原：落地树 = 提交 a6a9ed26，工作区干净。）

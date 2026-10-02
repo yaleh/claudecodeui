@@ -11,6 +11,7 @@ import {
   announceVoiceCapture,
   createVoiceCapture,
   createVoiceCaptureAudioSink,
+  resolveInstanceSalt,
   resolveVoiceCaptureDir,
 } from './voice-capture.js';
 import { createVoiceRouter } from './voice.routes.js';
@@ -63,6 +64,19 @@ const voiceCaptureDirectory = resolveVoiceCaptureDir(
   process.env.DATABASE_PATH,
 );
 
+/**
+ * The instant this process came up, for the one figure the attempt ids rest on.
+ *
+ * `Date.now()` AT MODULE EVALUATION is the closest this side has to "when did this instance start":
+ * the composition root is evaluated once, at start-up, and the salt below is a function of THIS
+ * value. Paired with the pid (see `resolveInstanceSalt`), it names the INSTANCE rather than the
+ * machine, so a restart — even one the kernel hands the same recycled pid — gets a new salt and
+ * therefore a new family of attempt ids. Read here rather than inside the capture module for the same
+ * reason the mode and the directory are: the composition root is the one reader of the process's own
+ * identity, and the factory is handed the token it should mint ids from.
+ */
+const voiceStartedAtMs = Date.now();
+
 const DEFAULT_VOICE_TIMEOUT_MS = 300_000;
 const parsedTimeoutMs = Number(process.env.VOICE_TIMEOUT_MS);
 const voiceTimeoutMs = Number.isFinite(parsedTimeoutMs) && parsedTimeoutMs > 0
@@ -99,6 +113,9 @@ const voiceService = createVoiceService({
   capture: createVoiceCapture({
     mode: voiceCapture.mode,
     log: voiceLog,
+    // The instance salt, derived from THIS process's own identity and read once: the id it produces
+    // is what keeps one run's recordings from colliding with a previous run's. See `voice-capture.ts`.
+    instanceSalt: resolveInstanceSalt(process.pid, voiceStartedAtMs),
     audio: createVoiceCaptureAudioSink({ directory: voiceCaptureDirectory }),
   }),
   logger: voiceLog,

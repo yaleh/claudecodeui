@@ -1,12 +1,18 @@
 ---
 id: GOAL-016
 title: 对话流把一次工作的碎片折成一条可展开的记录：折叠态零信息丢失，展开态跨滚动与段增长保持，导出与搜索不掉内容
-status: active
+status: achieved
 kind: goal
 origin: 设计讨论 2026-10-02（人 yale 逐轮裁定：缺省折叠且结束时不动、标题=当前动作+计数+耗时、段内不保留同名工具 xN
   层、锚点内容不敏感）。现状实证：真实会话可视区一个回合 24 行 / 1112px（thinking 8×36px、工具
   6×60px）；既有的同名工具合并层作用域太窄，且段内不再保留。
 activatedAt: 2026-10-01T16:36:03.248Z
+statusLog:
+  - at: 2026-10-02T11:51:16.907Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: all ACs achieved + sufficiency covered"
 ---
 把一次「干活」在转写流里折成一条可展开的记录：折叠态只留一行会持续更新的标题，展开后逐层看到被合并的每一步。
 

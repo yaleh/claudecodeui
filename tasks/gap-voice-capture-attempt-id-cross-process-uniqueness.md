@@ -1,7 +1,7 @@
 ---
 id: gap-voice-capture-attempt-id-cross-process-uniqueness
 title: 语音捕获 attempt id 跨进程唯一（实例盐+序号）且写文件独占创建、重名让位：重启不得覆盖既有录音
-status: ready
+status: done
 labels:
   - gap
   - defect

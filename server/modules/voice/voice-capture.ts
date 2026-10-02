@@ -414,6 +414,36 @@ export function resolveVoiceCaptureDir(raw: string | undefined, databasePath: st
 }
 
 /**
+ * The per-process-instance token an attempt id carries, derived from the process and NOT read here.
+ *
+ * THE INPUTS ARE ARGUMENTS, for the same reason `resolveVoiceCaptureDir`'s are: the composition root
+ * is the one reader of the process's own identity, and a resolver that read `process.pid` itself could
+ * not be asked what a given pair of values means without starting a process first. The root passes
+ * `process.pid` and the instant the process came up, and this function only MIXES them.
+ *
+ * WHY BOTH INPUTS ARE NEEDED. A pid alone is not an instance: the kernel recycles pids, so two runs
+ * minutes apart can carry the same one and would then mint the same id — the exact restart collision
+ * this task removes. A start time alone is not either: two processes can start in the same millisecond.
+ * Together they name an instance, and the pair is hashed rather than concatenated because a
+ * concatenation is not injective (`pid=1,start=x2` and `pid=1x,start=2` would render alike) and the
+ * output is a fixed-width token whose length does not grow with the clock.
+ *
+ * RENDERED BASE36, which is what makes the token usable inside a file name: the digits are
+ * `[0-9a-z]`, all of which `captureFileName` leaves untouched, so the id survives the path-safe
+ * substitution unchanged rather than being rewritten on its way to disk.
+ *
+ * SHIPPED BY THIS MODULE rather than by `server/shared/`, because it is the id scheme's own detail and
+ * the id scheme lives here: a token defined in a shared module would be a name the composition root
+ * and this factory both import from a third place, which is one more seam for the two to drift apart
+ * across. The composition root and the criterion that measures the cross-process property both call
+ * THIS function, so neither can spell the derivation themselves.
+ */
+export function resolveInstanceSalt(pid: number, startedAtMs: number): string {
+  const digest = createHash('sha256').update(`${Math.trunc(pid)}:${Math.trunc(startedAtMs)}`).digest();
+  return BigInt(`0x${digest.subarray(0, 6).toString('hex')}`).toString(36);
+}
+
+/**
  * The file name one attempt's recording goes into, built from the attempt's id and NOTHING ELSE.
  *
  * THE UPLOAD IS THE OBVIOUS SOURCE AND THE ONE THING THAT MUST NOT BE USED. A file name carried by a
@@ -430,6 +460,50 @@ export function resolveVoiceCaptureDir(raw: string | undefined, databasePath: st
  */
 function captureFileName(captureId: string): string {
   return `${captureId.replace(/[^A-Za-z0-9._-]/g, '_')}.bin`;
+}
+
+/**
+ * Writes one recording WITHOUT EVER DESTROYING A FILE THAT IS ALREADY THERE, and returns where it
+ * actually landed.
+ *
+ * THE OPEN IS `wx`, and that is the whole mechanism: `O_EXCL` makes the create and the existence
+ * check one indivisible step, so a file that exists at the moment of the open is refused rather than
+ * truncated. A read-then-write ("does it exist? no → write") would have a window between the two in
+ * which another process — the previous instance, a second one — creates the same path, and the write
+ * would clobber it while believing the path was free. The kernel's own flag is the only form of this
+ * that has no window.
+ *
+ * ON `EEXIST` THE WRITER GIVES WAY RATHER THAN THROWING. The id scheme (`resolveInstanceSalt`) makes
+ * a collision across instances vanishingly unlikely, but "unlikely" is not "never" — a clock that
+ * stepped backwards, a replayed id, a manually placed file — and the two available behaviours are not
+ * symmetric. Throwing here would take the whole `recordAttempt` call down with it, so a recording
+ * that could not find a free name would also destroy the ROW that names the attempt: the operator
+ * would lose the index entry for a real transcription, which is worse than losing the bytes and is
+ * exactly the failure `voice-capture-isolation` exists to forbid. So the writer walks `-2`, `-3`, …
+ * until an open succeeds, and the caller — see `writeAudio` — returns THAT path, so the row names the
+ * file that was actually written rather than the name that was refused. The sentinel that was already
+ * there is left untouched, which is the property this function exists for.
+ */
+function writeExclusive(directory: string, fileName: string, bytes: Uint8Array): string {
+  const extension = path.extname(fileName);
+  const stem = fileName.slice(0, fileName.length - extension.length);
+
+  for (let ordinal = 1; ; ordinal += 1) {
+    const target = path.join(
+      directory,
+      ordinal === 1 ? fileName : `${stem}-${ordinal}${extension}`,
+    );
+    try {
+      // The bytes THEMSELVES, and exclusively. See this function's header for why the flag is here
+      // rather than a prior existence check.
+      writeFileSync(target, bytes, { flag: 'wx', mode: CAPTURE_FILE_MODE });
+      return target;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+        throw error;
+      }
+    }
+  }
 }
 
 /** What the shipping sink is built from: the directory its caller has already resolved. */
@@ -476,11 +550,11 @@ export function createVoiceCaptureAudioSink(
       mkdirSync(directory, { recursive: true, mode: CAPTURE_DIR_MODE });
       chmodSync(directory, CAPTURE_DIR_MODE);
 
-      const target = path.join(directory, captureFileName(captureId));
-      // The bytes THEMSELVES: no encoding, no base64 round trip, no header line and no wrapper of any
-      // kind. The file has to be the recording that was transcribed, byte for byte, or it cannot be
-      // replayed and the `sha256` beside it in the row describes something else.
-      writeFileSync(target, audio.bytes, { mode: CAPTURE_FILE_MODE });
+      // The exclusive create and the give-way naming are `writeExclusive`'s; what comes back is the
+      // path the bytes actually landed at, so a collision reads as the `-2` suffix on the row rather
+      // than as a file this write silently overwrote. See that function for why the guard is the
+      // kernel's `O_EXCL` rather than a prior existence check.
+      const target = writeExclusive(directory, captureFileName(captureId), audio.bytes);
       chmodSync(target, CAPTURE_FILE_MODE);
 
       return target;
@@ -639,6 +713,23 @@ export type VoiceCaptureDependencies = {
   mode: VoiceCaptureMode;
   log: VoiceLogPort;
   /**
+   * The token that makes an attempt id unique ACROSS PROCESS INSTANCES, not merely within one.
+   *
+   * RESOLVED BY THE COMPOSITION ROOT AND HANDED IN, never read here — the module reads no `process`
+   * for the same reason it reads no environment: the root is the one place that knows which process
+   * instance it is, and a factory that reached for `process.pid` itself would be a second reader of a
+   * fact whose "read once at start-up" is what makes the ids checkable. See `resolveInstanceSalt`,
+   * which is the pure function the root calls and this criterion shares.
+   *
+   * WHY IT IS REQUIRED AND NOT DEFAULTED. The id this factory mints names a file that OUTLIVES the
+   * process (see `resolveVoiceCaptureDir`), so an id that is unique only within one process is an id
+   * that collides with a previous run's the moment the deployment restarts — and the collision
+   * overwrites a recording. A default would let a caller omit the one field the whole seam rests on
+   * and get the pre-fix behaviour silently, which is the defect rather than a fallback; the field is
+   * therefore required, and the only shipping caller is the composition root.
+   */
+  instanceSalt: string;
+  /**
    * The audio half of the seam, when this deployment has one.
    *
    * Absent means `audio` mode records its attempt rows and writes nothing to disk. That is this
@@ -652,9 +743,18 @@ export type VoiceCaptureDependencies = {
 /**
  * Builds the recording port for one resolved mode.
  *
- * The id is minted from a per-port sequence, so the three facts a recording rests on hold without a
- * clock, a random source, or a hash of the upload: two attempts never share an id, an id is stable
- * once minted, and the SAME id appears on the attempt line and in the row.
+ * THE ID IS TWO SCOPES STAPLED TOGETHER, and both are load-bearing. The `instanceSalt` names the
+ * PROCESS INSTANCE, so two runs of the same deployment — a restart — mint different ids and therefore
+ * different file names even if their in-process sequences agree; the sequence names the attempt WITHIN
+ * that instance, so two attempts in one run never share one. A single scope would fail on the other's
+ * side of a restart: a sequence alone collides the moment the process comes up again (the defect this
+ * replaces), and a salt alone would collide between two attempts of one run. The composition root
+ * supplies the salt (see the field on `VoiceCaptureDependencies`) and this factory mints the sequence,
+ * so neither half is spelled twice.
+ *
+ * The three facts a recording rests on still hold without a clock, a random source or a hash of the
+ * upload: two attempts never share an id, an id is stable once minted, and the SAME id appears on the
+ * attempt line and in the row.
  *
  * `recordAttempt` is the single place a row is ever built. A second construction point — in the
  * service, in a route, in a test — would be a second answer to "what is in a capture row", and the
@@ -667,7 +767,7 @@ export function createVoiceCapture(dependencies: VoiceCaptureDependencies): Voic
     mode: dependencies.mode,
     newAttemptId(): string {
       sequence += 1;
-      return `${dependencies.mode}-${sequence}`;
+      return `${dependencies.mode}-${dependencies.instanceSalt}-${sequence.toString(36)}`;
     },
     recordAttempt(captureId: string, attempt: VoiceCaptureAttempt): void {
       // The row: the fields that name the attempt, and the payload when this attempt carries one. The

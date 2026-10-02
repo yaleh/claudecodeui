@@ -76,10 +76,12 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { copyFile, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { pathToFileURL } from 'node:url';
 
 import {
   collectReadings,
@@ -145,8 +147,26 @@ type MutationCase = {
 const GATE = "      if (dependencies.mode === 'audio' && dependencies.audio !== undefined) {";
 const MKDIR = '      mkdirSync(directory, { recursive: true, mode: CAPTURE_DIR_MODE });';
 const CHMOD_DIR = '      chmodSync(directory, CAPTURE_DIR_MODE);';
-const WRITE = '      writeFileSync(target, audio.bytes, { mode: CAPTURE_FILE_MODE });';
+/**
+ * The shipping write line, re-anchored to the exclusive create this task introduced.
+ *
+ * The former anchor (`writeFileSync(target, audio.bytes, …)`) was the literal call at the write site;
+ * the write now lives inside `writeExclusive`, whose bytes parameter is `bytes` rather than
+ * `audio.bytes`, and the open carries `flag: 'wx'`. The mutations below still rewrite THIS one line,
+ * so the anchor has to name the line as it now reads — and it is still unique (the only `'wx'` open in
+ * the module). This is the "re-anchor the shipped-write anchor" cost the proposal registered.
+ */
+const WRITE = "      writeFileSync(target, bytes, { flag: 'wx', mode: CAPTURE_FILE_MODE });";
 const CHMOD_FILE = '      chmodSync(target, CAPTURE_FILE_MODE);';
+
+/**
+ * The instance-salt segment of the id expression, the ONE anchor the legacy-id case removes.
+ *
+ * Kept as a contiguous substring of `` `${dependencies.mode}-${dependencies.instanceSalt}-${…}` `` so
+ * the mutation is a single deletion rather than a rewrite of the whole return, and so it occurs
+ * exactly once. See `legacy-attempt-id` below.
+ */
+const INSTANCE_SALT_SEGMENT = '${dependencies.instanceSalt}-';
 
 const CASES: readonly MutationCase[] = [
   {
@@ -178,8 +198,8 @@ const CASES: readonly MutationCase[] = [
       {
         anchor: WRITE,
         replacement:
-          '      writeFileSync(target, audio.bytes.subarray(0, audio.bytes.length >> 1), ' +
-          '{ mode: CAPTURE_FILE_MODE });',
+          '      writeFileSync(target, bytes.subarray(0, bytes.length >> 1), ' +
+          "{ flag: 'wx', mode: CAPTURE_FILE_MODE });",
       },
     ],
     expects: [
@@ -210,8 +230,8 @@ const CASES: readonly MutationCase[] = [
       {
         anchor: WRITE,
         replacement:
-          "      writeFileSync(target, Buffer.from(audio.bytes.toString('base64'), 'utf8'), " +
-          '{ mode: CAPTURE_FILE_MODE });',
+          "      writeFileSync(target, Buffer.from(bytes.toString('base64'), 'utf8'), " +
+          "{ flag: 'wx', mode: CAPTURE_FILE_MODE });",
       },
     ],
     expects: [
@@ -239,7 +259,7 @@ const CASES: readonly MutationCase[] = [
       // AC names cannot be separated from the shipping one and this is the reachable replacement.
       { anchor: MKDIR, replacement: '      mkdirSync(directory, { recursive: true });' },
       { anchor: CHMOD_DIR, replacement: '' },
-      { anchor: WRITE, replacement: '      writeFileSync(target, audio.bytes);' },
+      { anchor: WRITE, replacement: '      writeFileSync(target, bytes);' },
       { anchor: CHMOD_FILE, replacement: '' },
     ],
     expects: [
@@ -408,6 +428,196 @@ for (const mutation of CASES) {
   });
 }
 
+// ── AC1: the attempt id is unique ACROSS PROCESSES, measured with two real children ─────────────
+
+/** One child process's answer: the id it minted and where its bytes landed. */
+type ChildAnswer = { id: string; path: string };
+
+/** The whole cross-process reading. */
+type CrossProcessReading = {
+  first: ChildAnswer;
+  second: ChildAnswer;
+  /** Whether the two children minted different ids — the property this task adds. */
+  idsDistinct: boolean;
+  /** Whether their bytes landed in different files: "each can be a name that does not overwrite". */
+  pathsDistinct: boolean;
+  /** Whether each file holds its OWN child's bytes, so neither write clobbered the other. */
+  filesIntact: boolean;
+  /** The two payloads, so the reader can see which bytes each file is expected to hold. */
+  payloads: { first: string; second: string };
+};
+
+/**
+ * The child program, as TEXT, importing the module under test by URL.
+ *
+ * THE SPECIFIER IS `file:///-ABSOLUTE`, not a bare path: the child lives in a temp directory of its
+ * own, so a relative import cannot reach the module, and a `file:` URL is what an ESM importer
+ * resolves from anywhere. The module under test is passed in, so the SAME child program measures the
+ * shipping module and a mutant.
+ *
+ * THE CHILD GOES THROUGH THE ASSEMBLY PATH, not through a stubbed one: it calls the shipping
+ * `resolveInstanceSalt` with its OWN `process.pid` and `Date.now()`, builds the shipping port with
+ * that salt, mints one id, and writes one recording through the shipping sink. That is the shape the
+ * composition root wires, minus the router — so what the parent compares is two REAL process
+ * instances' ids, which is the only way to see the pre-fix collision (the proposal's registered
+ * criterion hole: two ports in ONE process were already distinct under the old sequence-only scheme).
+ */
+function crossProcessChildSource(modulePath: string): string {
+  const specifier = JSON.stringify(pathToFileURL(modulePath).href);
+  return [
+    `import { createVoiceCapture, createVoiceCaptureAudioSink, resolveInstanceSalt } from ${specifier};`,
+    `const [dir, payload] = process.argv.slice(2);`,
+    `const bytes = Buffer.from(payload, 'utf8');`,
+    `const lines = [];`,
+    `const port = createVoiceCapture({`,
+    `  mode: 'audio',`,
+    `  log: { info: (message) => lines.push(message) },`,
+    `  instanceSalt: resolveInstanceSalt(process.pid, Date.now()),`,
+    `  audio: createVoiceCaptureAudioSink({ directory: dir }),`,
+    `});`,
+    `const id = port.newAttemptId();`,
+    `port.recordAttempt(id, {`,
+    `  providerId: 'child',`,
+    `  outcome: 'ok',`,
+    `  status: 200,`,
+    `  audio: { bytes, mimeType: 'audio/webm', fileName: 'c.webm' },`,
+    `  payload: {`,
+    `    model: 'm',`,
+    `    baseUrl: 'https://voice.example/v1',`,
+    `    audio: { bytes, mimeType: 'audio/webm', fileName: 'c.webm' },`,
+    `    upstream: null,`,
+    `    requestSent: false,`,
+    `    reading: { ok: true, text: '' },`,
+    `  },`,
+    `});`,
+    `const row = lines`,
+    `  .map((line) => { try { return JSON.parse(line); } catch { return null; } })`,
+    `  .find((parsed) => parsed && parsed.event === 'voice.capture');`,
+    `process.stdout.write(JSON.stringify({ id, path: row ? row.path : null }) + '\\n');`,
+  ].join('\n');
+}
+
+/** Runs one child against `modulePath`, writing into `directory`, and reads its answer off stdout. */
+function runCrossProcessChild(
+  modulePath: string,
+  scriptDir: string,
+  directory: string,
+  payload: string,
+  tag: string,
+): ChildAnswer {
+  const scriptPath = path.join(scriptDir, `cross-process-child-${tag}-${process.pid}.ts`);
+  writeFileSync(scriptPath, crossProcessChildSource(modulePath), 'utf8');
+
+  // `NODE_TEST_CONTEXT` deleted for the same reason `runCommand` deletes it: a child that inherits it
+  // would run in the parent's context rather than as its own process, and the whole reading is about
+  // two SEPARATE processes.
+  const environment = { ...process.env };
+  delete environment.NODE_TEST_CONTEXT;
+  const output = execFileSync('npx', ['tsx', scriptPath, directory, payload], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    env: environment,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    maxBuffer: 8 * 1024 * 1024,
+  });
+
+  let answer: ChildAnswer | null = null;
+  for (const line of output.split('\n')) {
+    try {
+      const parsed = JSON.parse(line) as { id?: unknown; path?: unknown };
+      if (parsed !== null && typeof parsed === 'object' && typeof parsed.id === 'string') {
+        answer = { id: parsed.id, path: typeof parsed.path === 'string' ? parsed.path : '' };
+      }
+    } catch {
+      // Not this child's answer line; the child prints exactly one, but tsx may add its own output.
+    }
+  }
+  if (answer === null) {
+    throw new Error(`the cross-process child printed no answer; stdout was: ${output}`);
+  }
+  return answer;
+}
+
+/**
+ * Drives two REAL children against one module, into one shared directory, and reports what happened.
+ *
+ * THE TWO PAYLOADS DIFFER, so "each file holds its own child's bytes" is a comparison that can fail
+ * if one write landed where the other's did. The temp tree is this run's own and is removed in the
+ * `finally`, so AC9's cleanliness reading is unaffected.
+ */
+function measureCrossProcess(modulePath: string): CrossProcessReading {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'voice-cross-process-'));
+  try {
+    const directory = path.join(root, 'recordings');
+    mkdirSync(directory, { recursive: true });
+    const payloads = { first: `child-one-${process.pid}`, second: `child-two-${process.pid}` };
+    const first = runCrossProcessChild(modulePath, root, directory, payloads.first, 'one');
+    const second = runCrossProcessChild(modulePath, root, directory, payloads.second, 'two');
+    const bytesAt = (answer: ChildAnswer): Buffer =>
+      answer.path !== '' && existsSync(answer.path) ? readFileSync(answer.path) : Buffer.alloc(0);
+    return {
+      first,
+      second,
+      idsDistinct: first.id !== second.id,
+      pathsDistinct: first.path !== '' && first.path !== second.path,
+      filesIntact:
+        bytesAt(first).equals(Buffer.from(payloads.first, 'utf8')) &&
+        bytesAt(second).equals(Buffer.from(payloads.second, 'utf8')),
+      payloads,
+    };
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test('AC1 two real processes mint distinct attempt ids that do not overwrite each other', () => {
+  const reading = measureCrossProcess(SHIPPING_CAPTURE_MODULE);
+  process.stdout.write(
+    `reading AC1 cross-process = p1-id=${reading.first.id} p2-id=${reading.second.id} ` +
+      `idsDistinct=${String(reading.idsDistinct)} pathsDistinct=${String(reading.pathsDistinct)} ` +
+      `filesIntact=${String(reading.filesIntact)} p1-path=${reading.first.path} p2-path=${reading.second.path}\n`,
+  );
+  assert.notEqual(
+    reading.first.id,
+    reading.second.id,
+    'two process instances minted the SAME attempt id: an id unique only within a process is what ' +
+      'makes a restart overwrite a recording that outlives it',
+  );
+  assert.ok(reading.pathsDistinct, 'the two processes wrote to the same path');
+  assert.ok(reading.filesIntact, 'a recording did not survive byte for byte across the two processes');
+});
+
+test('AC1/legacy-attempt-id: dropping the instance salt collides two REAL processes', () => {
+  const source = readFileSync(SHIPPING_CAPTURE_MODULE, 'utf8');
+  const occurrences = source.split(INSTANCE_SALT_SEGMENT).length - 1;
+  assert.equal(
+    occurrences,
+    1,
+    `the instance-salt anchor occurs ${occurrences} times in the shipping module; the case names one site`,
+  );
+
+  const mutantPath = path.join(VOICE_DIR, `${TEMP_PREFIX}legacy-attempt-id-${process.pid}.ts`);
+  try {
+    writeFileSync(mutantPath, source.replace(INSTANCE_SALT_SEGMENT, ''), 'utf8');
+    const reading = measureCrossProcess(mutantPath);
+    process.stdout.write(
+      `falsify/legacy-attempt-id = mutant-p1-id=${reading.first.id} ` +
+        `mutant-p2-id=${reading.second.id} collided=${String(!reading.idsDistinct)}\n`,
+    );
+    // The false form the proposal registered: with the salt gone, both processes read `audio-1`, which
+    // is exactly what the real criterion above would red on. This is the positive control that says
+    // the AC1 reading is measuring the salt rather than two processes that happen to differ anyway.
+    assert.equal(
+      reading.first.id,
+      reading.second.id,
+      'the mutation was expected to make the two processes mint the SAME id, but they differed: the ' +
+        'AC1 criterion may be green for a reason other than the instance salt',
+    );
+  } finally {
+    rmSync(mutantPath, { force: true });
+  }
+});
+
 // ── AC8's exit codes: the surfaces this task must not have moved ───────────────────────────────
 
 /**
@@ -547,6 +757,50 @@ test('AC8 the seven criteria and the repository gates still exit 0', () => {
     true,
     'AC-143`s criterion no longer counts the mode variable on a boundary, so this task DID have to ' +
       'narrow that count and the registration above is wrong',
+  );
+});
+
+// ── AC3/AC4: the criteria this task must not have moved ────────────────────────────────────────
+
+/**
+ * The four criteria this task's AC3 and AC4 name, by path.
+ *
+ * AC3 asks that the three behaviours that were already delivered are not regressed — zero files for
+ * `off`/`text` and the row's fields (AC-143), the 0700/0600 permissions and the byte-identical upload
+ * (AC-145), and the row's id equal to its `voice.transcribe` line's (AC-144). AC4 asks that a recorder
+ * which cannot record still leaves the transcription alone and prints exactly one content-free
+ * failure line (AC-147). Each is its own criterion file; this runs them as subprocesses and reads
+ * their EXIT CODES, so a surface this task moved is a red here rather than a sentence.
+ */
+const REGRESSION_CRITERIA = [
+  'server/modules/voice/tests/voice-capture-off.test.ts',
+  'server/modules/voice/tests/voice-capture-text.test.ts',
+  'server/modules/voice/tests/voice-capture-audio.test.ts',
+  'server/modules/voice/tests/voice-capture-isolation.test.ts',
+];
+
+test('AC3/AC4 the named regression criteria still exit 0', () => {
+  const outcomes: CommandOutcome[] = REGRESSION_CRITERIA.map((file) =>
+    runCommand('npx', ['tsx', '--tsconfig', 'server/tsconfig.json', '--test', file], true),
+  );
+
+  for (const outcome of outcomes) {
+    const tally =
+      outcome.cases === null
+        ? 'cases=n/a'
+        : `cases=${outcome.cases}${outcome.cases > 0 ? '' : ' (NOTHING RAN)'}`;
+    process.stdout.write(`AC3/AC4 exit=${outcome.exitCode} ${tally} :: ${outcome.command}\n`);
+  }
+
+  assert.deepEqual(
+    outcomes.filter((outcome) => outcome.exitCode !== 0).map((outcome) => outcome.command),
+    [],
+    'a criterion this task must not have moved is red',
+  );
+  assert.deepEqual(
+    outcomes.filter((outcome) => outcome.cases === null || outcome.cases === 0).map((outcome) => outcome.command),
+    [],
+    'a criterion that exits 0 having run no cases is a vacuous pass, not a green one',
   );
 });
 
