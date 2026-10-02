@@ -38,15 +38,15 @@ goal_ac: AC-187
 
 ## AC
 
-- [ ] AC1 判据绿：`npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-187"` 退出 0，`--list` 列出该用例。红态基线：实现前该选择红（用例不存在）。
-- [ ] AC2 阶段序（真实浏览器读数）：调试 agent 场景推进中，`[data-activity-dock]` 依次读到 thinking、tool、writing、idle 四个阶段。逐步打印 `dock.phase` 与 `dock.text` 原始读数。
-- [ ] AC3 文案=阶段（承重）：`thinking`/`writing` 阶段读到的坞文案等于该阶段在 `en` locale 文件里的对应键值；`tool` 阶段文案含工具名 `Bash`。打印读到的文案与期望的 locale 键值逐条对照。
-- [ ] AC4 同一阶段内 6 秒不轮换（承重）：在稳定阶段（取 `tool` 阶段）内**连续 6 秒每秒读一次**（≥6 个读数，跨度 ≥5000ms），逐字相等。打印 `dock.stable.samples=[…]`。**变异**：把 `label` 改回按已用时间轮换 ⇒ 本 AC 必须红。
-- [ ] AC5 回合结束坞收起：场景走到 `result`/idle 后，`[data-activity-dock]` 不再渲染（或 `data-activity-state` 为 idle 且坞不可见）。打印 `dock.afterTurn=…`。
-- [ ] AC6 其它场景不被改变（边界）：新增的调试 agent op 不改变既有 op 语义 —— `npx tsx --tsconfig server/tsconfig.json --test server/modules/debug-agent/tests/debug-agent-frames.test.ts` 退出 0；`server/modules/debug-agent/tests/debug-agent-vocabulary-guard.test.ts` 退出 0（调试 agent 仍只写方言行）。打印两次调用的结论。
-- [ ] AC7 墙钟：用例体实测 ≤ `20_000`ms（打印 `dock.wall=…ms`），整次调用在 55s/60s 闸内退出 0。
-- [ ] AC8 取假形态必须红（承重）：(i) `label` 改回按已用时间轮换 ⇒ AC4 红；(ii) 阶段来源改回本地 `statusText`/本地时钟 ⇒ AC3 的 `Bash` 读数红。逐条记录变异 diff、逐字失败行与恢复命令；任一条没红按「判据有洞」处理，先补判据。
-- [ ] AC9 静态门与登记：`npm run typecheck`、`npm run lint`、`npx tsc --noEmit -p server/tsconfig.json`、`npx vitest run src/modules/chat/tests/`（坞用例）均退出 0；`'activity-dock-truthful.spec.ts'` 在 `DEBUG_AGENT_SPEC_FILES` 内（AC-184 登记，本处只读确认）；`git diff --stat` 只落在 `## Touches` 列出的文件上（新增文件用 ASCII `(new)`）。
+- [x] AC1 判据绿：`npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-187"` 退出 0，`--list` 列出该用例。红态基线：实现前该选择红（用例不存在）。
+- [x] AC2 阶段序（真实浏览器读数）：调试 agent 场景推进中，`[data-activity-dock]` 依次读到 thinking、tool、writing、idle 四个阶段。逐步打印 `dock.phase` 与 `dock.text` 原始读数。
+- [x] AC3 文案=阶段（承重）：`thinking`/`writing` 阶段读到的坞文案等于该阶段在 `en` locale 文件里的对应键值；`tool` 阶段文案含工具名 `Bash`。打印读到的文案与期望的 locale 键值逐条对照。
+- [x] AC4 同一阶段内 6 秒不轮换（承重）：在稳定阶段（取 `tool` 阶段）内**连续 6 秒每秒读一次**（≥6 个读数，跨度 ≥5000ms），逐字相等。打印 `dock.stable.samples=[…]`。**变异**：把 `label` 改回按已用时间轮换 ⇒ 本 AC 必须红。
+- [x] AC5 回合结束坞收起：场景走到 `result`/idle 后，`[data-activity-dock]` 不再渲染（或 `data-activity-state` 为 idle 且坞不可见）。打印 `dock.afterTurn=…`。
+- [x] AC6 其它场景不被改变（边界）：新增的调试 agent op 不改变既有 op 语义 —— `npx tsx --tsconfig server/tsconfig.json --test server/modules/debug-agent/tests/debug-agent-frames.test.ts` 退出 0；`server/modules/debug-agent/tests/debug-agent-vocabulary-guard.test.ts` 退出 0（调试 agent 仍只写方言行）。打印两次调用的结论。
+- [x] AC7 墙钟：用例体实测 ≤ `20_000`ms（打印 `dock.wall=…ms`），整次调用在 55s/60s 闸内退出 0。
+- [x] AC8 取假形态必须红（承重）：(i) `label` 改回按已用时间轮换 ⇒ AC4 红；(ii) 阶段来源改回本地 `statusText`/本地时钟 ⇒ AC3 的 `Bash` 读数红。逐条记录变异 diff、逐字失败行与恢复命令；任一条没红按「判据有洞」处理，先补判据。
+- [x] AC9 静态门与登记：`npm run typecheck`、`npm run lint`、`npx tsc --noEmit -p server/tsconfig.json`、`npx vitest run src/modules/chat/tests/`（坞用例）均退出 0；`'activity-dock-truthful.spec.ts'` 在 `DEBUG_AGENT_SPEC_FILES` 内（AC-184 登记，本处只读确认）；`git diff --stat` 只落在 `## Touches` 列出的文件上（新增文件用 ASCII `(new)`）。
 
 ## DoD
 
@@ -69,8 +69,11 @@ goal_ac: AC-187
 - server/modules/providers/provider.registry.ts
 - server/modules/providers/index.ts
 - server/modules/providers/list/claude/claude-runtime.provider.ts
+- server/modules/websocket/services/activity-heartbeat.service.ts
+- server/shared/types.ts
 - src/modules/chat/utils/activityDockView.ts
 - src/modules/chat/composer/ActivityIndicator.tsx
+- src/modules/chat/hooks/useActivityFreshness.ts
 - src/modules/chat/transcript/ChatMessagesPane.tsx
 - src/modules/chat/composer/ChatComposer.tsx
 - src/shared/types.ts
