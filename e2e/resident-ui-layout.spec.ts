@@ -1249,6 +1249,15 @@ test('resident session hides enable affordance', async ({ browser }) => {
     throw new Error('playwright.config.ts must give this project a baseURL');
   }
 
+  // The positive signal this criterion waits on. The status bar that used to draw it was merged into
+  // the activity dock, and the dock's own toggle is the equivalent resident-only surface: it renders
+  // only while `persistWhenIdle` is true, and `persistWhenIdle` is `isResidentSession`, read from the
+  // same host snapshot the composer's render gate reads. The next line deliberately shadows the
+  // module-level `BAR`: the assertion text at the "mode arrived" wait below, and the AC-177 / AC-179
+  // arms that still address the shared constant, stay byte-for-byte as they were, while only this
+  // arm's positive signal is re-anchored onto the merged dock.
+  const BAR = '[data-activity-dock-toggle="true"]';
+
   // The workspace sits inside the fixture home: the control plane writes only under `DEBUG_AGENT_HOME`
   // and refuses a `projectPath` outside it, and the transcripts it arms land under that home's own
   // `.claude/projects`, which no other provider's scan reads.
@@ -1284,18 +1293,21 @@ test('resident session hides enable affordance', async ({ browser }) => {
       'first-load',
     );
     await expect(page.locator(PANE), 'the pane must open for the resident arm').toBeVisible({ timeout: 30_000 });
-    // The positive signal that the page has this session's mode: the bar renders only for a session its
-    // own host snapshot reads `resident` — the same `findSessionHostState` the composer's gate reads.
+    // The positive signal that the page has this session's mode: the dock's toggle draws only for a
+    // session its own host snapshot reads `resident` — the same `findSessionHostState` the composer's
+    // render gate reads.
     await expect(page.locator(BAR), 'a resident session must draw the bar that proves the mode arrived')
       .toBeVisible({ timeout: 30_000 });
 
     const paneVisible = await page.locator(PANE).isVisible();
     const resident = await readComposer(page);
+    const residentDockToggleCount = await page.locator(BAR).count();
     console.log(`composer.visible=${resident.composerVisible}`);
     console.log(`pane.visible=${paneVisible}`);
     console.log(`composer.switch.count=${resident.switchCount}`);
     console.log(`composer.notice.count=${resident.noticeCount}`);
     console.log(`composer.checkbox.count=${resident.checkboxCount}`);
+    console.log(`dockToggle.count=${residentDockToggleCount}`);
     expect(resident.composerVisible, 'the zero counts below must be a rendered composer, not a blank page').toBe(true);
     expect(paneVisible, 'and a rendered transcript pane beside it').toBe(true);
     expect(
@@ -1307,6 +1319,10 @@ test('resident session hides enable affordance', async ({ browser }) => {
       'the disclosure lives inside the switch, so it goes with it rather than sitting over the input',
     ).toBe(0);
     expect(resident.checkboxCount, 'and its tick box with it').toBe(0);
+    expect(
+      residentDockToggleCount,
+      'the arm must actually draw the dock toggle the positive signal waited on, or that wait proved nothing',
+    ).toBe(1);
 
     // ── AC3: the per-run control — the same selector, the same run, finds the switch ───────────
     const perRunMode = await readLifecycleMode(api, perRunId);
@@ -1329,11 +1345,13 @@ test('resident session hides enable affordance', async ({ browser }) => {
     await expect(page.locator(`${COMPOSER_SHELL} ${COMPOSER_ENABLE}`)).toHaveCount(1, { timeout: 30_000 });
 
     const control = await readComposer(page);
+    const controlDockToggleCount = await page.locator(BAR).count();
     const marker = await page.locator(`${COMPOSER_SHELL} ${COMPOSER_ENABLE}`).first().getAttribute('data-resident-enable');
     console.log(`per-run.composer.visible=${control.composerVisible}`);
     console.log(`composer.switch.count=${control.switchCount}`);
     console.log(`composer.notice.count=${control.noticeCount}`);
     console.log(`composer.checkbox.count=${control.checkboxCount}`);
+    console.log(`dockToggle.count=${controlDockToggleCount}`);
     console.log(`per-run.switch.marker=${JSON.stringify(marker)}`);
     expect(
       control.switchCount,
@@ -1343,6 +1361,10 @@ test('resident session hides enable affordance', async ({ browser }) => {
       marker,
       'and the element found is the composer\'s own switch, carrying the marker it publishes',
     ).toBe('true');
+    expect(
+      controlDockToggleCount,
+      'the per-run arm must not draw the resident-only dock toggle, so the re-anchored signal discriminates',
+    ).toBe(0);
   } finally {
     await context.close();
     await api.dispose();
