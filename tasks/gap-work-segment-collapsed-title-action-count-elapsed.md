@@ -1,7 +1,7 @@
 ---
 id: gap-work-segment-collapsed-title-action-count-elapsed
 title: AC-208 折叠行标题：当前动作+计数+耗时三读数从 segment 派生、随段尾增长更新、结束后定格不自动展开
-status: todo
+status: ready
 labels:
   - gap
 parent: null
