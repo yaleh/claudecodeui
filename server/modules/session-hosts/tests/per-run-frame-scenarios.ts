@@ -67,11 +67,19 @@ export const BARRIER_CONTENT = 'parity barri.er omega';
  */
 export const MID_STREAM_LAST_SEQ = 1;
 
+/**
+ * The beat the driver pins for a scenario, in milliseconds.
+ *
+ * Long enough that no drive can live to see one: the comparison is about the
+ * frames a run lifecycle accounts for, and a liveness beat is not one of them.
+ */
+const PARITY_HEARTBEAT_INTERVAL_MS = 600_000;
+
 // ---------------------------
 //----------------- FRAME PROJECTION ------------
 /**
- * Fields dropped before comparison, each because the *provider process cannot
- * make it stable* — never to make a comparison pass:
+ * Fields dropped before comparison, each because the frozen baseline and a live
+ * run cannot be made to agree on it — never to make a comparison pass:
  *
  * - `timestamp`: minted from the wall clock by `createNormalizedMessage` (and
  *   by the gateway's own `protocol_error` / `chat_subscribed` frames), so two
@@ -83,6 +91,14 @@ export const MID_STREAM_LAST_SEQ = 1;
  *   every frame that run emits, so no two drives of a scenario can carry the
  *   same value — the same instability as `id`, for the same reason (a fresh
  *   random id per run), on a field the per-run identity work added.
+ * - `bootId`, `rev`, `heartbeatIntervalMs`, `unreachableAfterMs`: the activity
+ *   announcement the websocket module spreads onto the `chat_subscribed` hello.
+ *   The baseline is a recording of a tree that predates that announcement — and
+ *   it must stay one, because its provenance (AC5) is "recorded before the host
+ *   wrapper" and the recorder refuses to rewrite a fixture on a tree that
+ *   carries the wrapper — so no baseline frame can hold these keys, and they
+ *   are dropped as the one group the announcement added. `bootId` is in any
+ *   case a per-process `randomUUID()`, the same instability as `runId`.
  *
  * `kind` and `seq` are never dropped, and no whole frame is ever dropped:
  * frame count and order are compared strictly, one frame at a time. Any further
@@ -90,7 +106,15 @@ export const MID_STREAM_LAST_SEQ = 1;
  * with the reading that forced it — the recorder refuses to write a baseline it
  * cannot reproduce byte for byte.
  */
-export const UNSTABLE_FRAME_FIELDS = ['id', 'timestamp', 'runId'] as const;
+export const UNSTABLE_FRAME_FIELDS = [
+  'id',
+  'timestamp',
+  'runId',
+  'bootId',
+  'rev',
+  'heartbeatIntervalMs',
+  'unreachableAfterMs',
+] as const;
 
 export function projectFrame(frame: Frame): Frame {
   const projected: Frame = {};
@@ -573,6 +597,7 @@ export async function runScenario(
   const sessionId = sessionIdFor(provider, scenario);
   const root = await mkdtemp(path.join(os.tmpdir(), `parity-${provider}-${scenario}-`));
   const previousDatabasePath = process.env.DATABASE_PATH;
+  const previousHeartbeatInterval = process.env.ACTIVITY_HEARTBEAT_INTERVAL_MS;
   const gate = createCodexGate();
   const forge = createForge(provider, root, gate);
   const socket = createFakeSocket();
@@ -580,6 +605,14 @@ export async function runScenario(
 
   closeConnection();
   process.env.DATABASE_PATH = path.join(root, 'parity.db');
+  // The activity beat is a liveness frame, not a run frame. Like the unrelated
+  // `session_upserted` broadcasts muted in `connectSocket`, it must not land in
+  // the sequence under measurement: a `replay` drive that outran the shipped
+  // beat would otherwise pick up an `activity.heartbeat` frame no run lifecycle
+  // accounts for. Pushing the beat past any scenario's wall clock keeps the
+  // comparison about run frames only. The override is a shipped knob, so this
+  // still drives the production gateway.
+  process.env.ACTIVITY_HEARTBEAT_INTERVAL_MS = String(PARITY_HEARTBEAT_INTERVAL_MS);
   await initializeDatabase();
   const userId = Number(userDb.createUser('parity', 'parity').id);
 
@@ -647,6 +680,11 @@ export async function runScenario(
       delete process.env.DATABASE_PATH;
     } else {
       process.env.DATABASE_PATH = previousDatabasePath;
+    }
+    if (previousHeartbeatInterval === undefined) {
+      delete process.env.ACTIVITY_HEARTBEAT_INTERVAL_MS;
+    } else {
+      process.env.ACTIVITY_HEARTBEAT_INTERVAL_MS = previousHeartbeatInterval;
     }
     await rm(root, { recursive: true, force: true });
   }
