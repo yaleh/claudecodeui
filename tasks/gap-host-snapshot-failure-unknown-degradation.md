@@ -1,7 +1,7 @@
 ---
 id: gap-host-snapshot-failure-unknown-degradation
 title: AC-189 宿主快照轮询失败降级为未知：状态栏与侧栏标记不再保留上一次 busy，成功即恢复
-status: needs-human
+status: ready
 needs_human_cause: human-adjudication
 labels:
   - gap
@@ -83,4 +83,15 @@ goal_ac: AC-189
 - run_id：wk-prod-anchor
 - session_id：ea064de0-3bca-46e4-8b65-aebcd5097e92
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-host-snapshot-failure-unknown-degradation~wk-prod-anchor~1790876577594-c47c22.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-host-snapshot-failure-unknown-degradation-wk-prod-anchor.log
+
+## Needs-Human
+
+**执行 2026-10-02T02:49:35.428Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 4 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: not ok - server/modules/providers/tests/claude-resident-name-mirror-latency.test.ts:   AssertionError [ERR_ASSERTION]: the probe process must offer a raw write seam to write the frame to
+- run_id：wk-prod-anchor
+- session_id：953700ad-c694-49c8-82e5-75e54ca5629b
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-host-snapshot-failure-unknown-degradation~wk-prod-anchor~1790909144137-67b067.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-host-snapshot-failure-unknown-degradation-wk-prod-anchor.log
