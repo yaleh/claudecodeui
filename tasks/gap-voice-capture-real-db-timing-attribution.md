@@ -2,7 +2,7 @@
 id: gap-voice-capture-real-db-timing-attribution
 title: AC-148 判据的 real-db-untouched 用「窗口内动过 + 空闲期不再动」作时序归因：外部写者（:3001
   生产服务）在窗口内写一次、随后静默超过剩余预算，判据就把它记在自己账上红掉（跨 9 天 11 次；strace 全程 0 次触碰真库）
-status: todo
+status: ready
 labels:
   - gap
   - defect
