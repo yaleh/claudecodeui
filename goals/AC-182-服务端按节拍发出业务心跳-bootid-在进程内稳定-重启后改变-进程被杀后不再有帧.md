@@ -1,7 +1,7 @@
 ---
 id: AC-182
 title: 服务端按节拍发出业务心跳：bootId 在进程内稳定、重启后改变、进程被杀后不再有帧
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-014
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -24,6 +24,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-02T03:05:50.796Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
