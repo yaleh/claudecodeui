@@ -209,6 +209,14 @@
       "computing": "Computing",
       "reasoning": "Reasoning"
     },
+    "phases": {
+      "thinking": "考えています",
+      "writing": "書いています",
+      "tool": "{{tool}} を実行中",
+      "toolGeneric": "ツールを実行中",
+      "compacting": "圧縮中",
+      "awaitingPermission": "承認待ち"
+    },
     "state": {
       "live": "Live",
       "paused": "Paused"

@@ -230,6 +230,14 @@
       "computing": "Computing",
       "reasoning": "Reasoning"
     },
+    "phases": {
+      "thinking": "생각 중",
+      "writing": "작성 중",
+      "tool": "{{tool}} 실행 중",
+      "toolGeneric": "도구 실행 중",
+      "compacting": "압축 중",
+      "awaitingPermission": "승인 대기 중"
+    },
     "state": {
       "live": "Live",
       "paused": "Paused"

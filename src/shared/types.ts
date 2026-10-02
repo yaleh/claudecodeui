@@ -327,6 +327,23 @@ export type ActivityConnection = {
  */
 export type ActivityDockState = 'hidden' | 'in-turn' | 'unreachable' | 'send-failed';
 
+/**
+ * What a running turn is doing, as the server's own frame reduction reports it.
+ *
+ * Each member names the *signal* that produced it — a thinking-token estimate, an
+ * in-flight text delta, an outstanding tool call — so the dock can say what is
+ * happening from evidence rather than from a local clock. It mirrors the
+ * server-side `TurnPhase` one for one; the client never derives a phase of its
+ * own. `idle` is the absence of a turn.
+ */
+export type ActivityPhase =
+  | 'idle'
+  | 'thinking'
+  | 'writing'
+  | 'tool'
+  | 'awaitingPermission'
+  | 'compacting';
+
 // ---------------------------
 
 //----------------- REALTIME TRANSPORT ------------

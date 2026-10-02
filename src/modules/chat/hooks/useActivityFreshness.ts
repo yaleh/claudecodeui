@@ -22,7 +22,7 @@
 import { useContext, useEffect, useReducer, useRef } from 'react';
 
 import WebSocketContext from '@/shared/context/WebSocketContext';
-import type { ActivityConnection, ServerEvent } from '@/shared/types';
+import type { ActivityConnection, ActivityPhase, ServerEvent } from '@/shared/types';
 import {
   createActivityFreshness,
   type ActivityFreshness,
@@ -39,6 +39,10 @@ export type ActivityFreshnessReading = {
   hasTurnAnchor: boolean;
   /** True when a liveness channel exists at all; without one no unreachability can be claimed. */
   wired: boolean;
+  /** The phase the server last reported for this session's turn; `idle` when none. */
+  phase: ActivityPhase;
+  /** The pending tool's name while `phase` is `tool`, else null. */
+  toolName: string | null;
 };
 
 /** One session's machine plus the last threshold the server announced. */
@@ -46,7 +50,28 @@ type MachineSlot = {
   sessionId: string | null | undefined;
   machine: ActivityFreshness;
   staleAfter: number | null;
+  /** The server's last reported phase for this session; survives a silence, like the elapsed. */
+  phase: ActivityPhase;
+  toolName: string | null;
 };
+
+/** Every phase the server may report, so an unrecognised value is ignored rather than drawn. */
+const ACTIVITY_PHASES: ReadonlySet<string> = new Set<ActivityPhase>([
+  'idle',
+  'thinking',
+  'writing',
+  'tool',
+  'awaitingPermission',
+  'compacting',
+]);
+
+/** The phase one frame carries, or null when it reports none this build knows. */
+const readPhase = (value: unknown): ActivityPhase | null =>
+  typeof value === 'string' && ACTIVITY_PHASES.has(value) ? (value as ActivityPhase) : null;
+
+/** The tool name one frame carries, or null. Only meaningful alongside a `tool` phase. */
+const readToolName = (value: unknown): string | null =>
+  typeof value === 'string' && value.length > 0 ? value : null;
 
 /** A server time reading from either an ISO string or an epoch-milliseconds number. */
 const parseServerTime = (value: unknown): number | null => {
@@ -108,6 +133,9 @@ export const useActivityFreshness = (
       // Born with whatever the page last heard, so a surface that mounts mid-conversation is not
       // blind to every beat until the next hello (see `lastAnnouncedStaleAfter`).
       staleAfter: lastAnnouncedStaleAfter,
+      // Nothing has reported a phase for this session yet; `idle` is the honest start.
+      phase: 'idle',
+      toolName: null,
     };
   }
   const slot = slotRef.current;
@@ -145,6 +173,11 @@ export const useActivityFreshness = (
         const turn = event.isProcessing === true ? { startedAt: carriedStart } : { startedAt: null };
 
         machine.onFrame({ bootId, rev, asOf, staleAfter: slot.staleAfter, turn });
+        // The hello carries the session's phase as of subscribe time. Absent on
+        // every server that predates the field, which must not blank a phase a
+        // heartbeat already delivered.
+        slot.phase = readPhase(event.phase) ?? slot.phase;
+        slot.toolName = readToolName(event.toolName);
         forceRender();
         return;
       }
@@ -163,6 +196,11 @@ export const useActivityFreshness = (
           asOf,
           staleAfter: slot.staleAfter,
         });
+        // The beat is where a phase change arrives: the server reduces the raw
+        // frame stream and stamps the result onto every beat, so a browser reads
+        // what the turn is really doing without a clock of its own.
+        slot.phase = readPhase(event.phase) ?? slot.phase;
+        slot.toolName = readToolName(event.toolName);
         forceRender();
       }
     };
@@ -195,5 +233,7 @@ export const useActivityFreshness = (
     elapsedMs: slot.machine.getElapsedMs(),
     hasTurnAnchor: snapshot.turnStartedAt !== null,
     wired,
+    phase: slot.phase,
+    toolName: slot.toolName,
   };
 };

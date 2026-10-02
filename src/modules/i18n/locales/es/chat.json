@@ -243,6 +243,14 @@
       "computing": "Calculando",
       "reasoning": "Razonando"
     },
+    "phases": {
+      "thinking": "Pensando",
+      "writing": "Escribiendo",
+      "tool": "Ejecutando {{tool}}",
+      "toolGeneric": "Ejecutando una herramienta",
+      "compacting": "Compactando",
+      "awaitingPermission": "Esperando aprobación"
+    },
     "state": {
       "live": "En vivo",
       "paused": "En pausa"

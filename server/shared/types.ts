@@ -2391,6 +2391,22 @@ export type CommandLifecycleState = 'queued' | 'started' | 'cancelled' | 'comple
 export const COMMAND_LIFECYCLE_ROW_TYPE = 'command_lifecycle';
 
 /**
+ * The claude dialect's own names for the two content blocks a tool call is made
+ * of: the `tool_use` block an assistant row carries, and the `tool_result` block
+ * the paired user row answers it with.
+ *
+ * Exported for the same reason {@link COMMAND_LIFECYCLE_ROW_TYPE} is: the
+ * strings sit on the row → frame edge, and a producer that is forbidden from
+ * naming a frame in its own sources — the debug agent is one, and its static
+ * guard rejects the literals `tool_use` / `tool_result` outright
+ * (`server/modules/debug-agent/tests/debug-agent-vocabulary-guard.test.ts`) —
+ * references the dialect's name here rather than embedding the literal. The
+ * normalizer recognises the blocks by these same strings.
+ */
+export const CLAUDE_TOOL_USE_BLOCK_TYPE = 'tool_use';
+export const CLAUDE_TOOL_RESULT_BLOCK_TYPE = 'tool_result';
+
+/**
  * The option the chat transport stamps on every turn it dispatches, marking the
  * dispatch as one whose `command` is a message somebody composed.
  *

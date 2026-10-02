@@ -218,6 +218,14 @@
       "computing": "Calcul",
       "reasoning": "Raisonnement"
     },
+    "phases": {
+      "thinking": "Réflexion",
+      "writing": "Rédaction",
+      "tool": "Exécution de {{tool}}",
+      "toolGeneric": "Exécution d'un outil",
+      "compacting": "Compactage",
+      "awaitingPermission": "En attente d'approbation"
+    },
     "state": {
       "live": "En direct",
       "paused": "En pause"

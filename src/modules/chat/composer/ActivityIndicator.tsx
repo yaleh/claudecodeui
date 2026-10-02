@@ -36,15 +36,22 @@ type ActivityIndicatorProps = {
   persistWhenIdle?: boolean;
 };
 
-const ACTION_KEYS = [
-  'claudeStatus.actions.thinking',
-  'claudeStatus.actions.processing',
-  'claudeStatus.actions.analyzing',
-  'claudeStatus.actions.working',
-  'claudeStatus.actions.computing',
-  'claudeStatus.actions.reasoning',
-];
-const DEFAULT_ACTION_WORDS = ['Thinking', 'Processing', 'Analyzing', 'Working', 'Computing', 'Reasoning'];
+/**
+ * The English fallback for each phase label key — the value used only when a
+ * locale file is missing the key. Kept beside the keys so a key added above
+ * without a fallback is visible in one place.
+ */
+const PHASE_LABEL_FALLBACKS: Record<string, string> = {
+  'claudeStatus.phases.thinking': 'Thinking',
+  'claudeStatus.phases.writing': 'Writing',
+  'claudeStatus.phases.tool': 'Running {{tool}}',
+  'claudeStatus.phases.toolGeneric': 'Running a tool',
+  'claudeStatus.phases.compacting': 'Compacting',
+  'claudeStatus.phases.awaitingPermission': 'Waiting for approval',
+};
+/** The word for a running turn whose phase the server has not reported. */
+const WORKING_FALLBACK_KEY = 'claudeStatus.actions.working';
+const WORKING_FALLBACK_WORD = 'Working';
 const EXIT_ANIMATION_MS = 220;
 
 /**
@@ -73,8 +80,11 @@ const EXIT_ANIMATION_MS = 220;
  * pid, and the controls that start, restart and close it) is the dock's expanded
  * panel, and what it said about *activity* is this dock's one reading.
  *
- * Records `data-activity-dock` / `data-activity-state` (and the server-derived
- * `data-activity-elapsed-ms`) for the browser criterion.
+ * Records `data-activity-dock` / `data-activity-state` / `data-activity-phase`
+ * (and the server-derived `data-activity-elapsed-ms`) for the browser criterion.
+ * The phase and the running label are the same reading: both come from the phase
+ * the server reduced, so a reader that checks either one is checking that source
+ * rather than two independent claims.
  */
 export default function ActivityIndicator({
   activity,
@@ -124,6 +134,8 @@ export default function ActivityIndicator({
     wired: freshness.wired,
     hasAbort: Boolean(onAbort),
     sendFailed,
+    phase: freshness.phase,
+    toolName: freshness.toolName,
   });
 
   // `hidden` — nothing to say and nothing to hold open — is the only state that
@@ -138,6 +150,9 @@ export default function ActivityIndicator({
   const dockAttributes = {
     'data-activity-dock': '',
     'data-activity-state': state,
+    // The phase the server reported, published verbatim so a reader can tell
+    // *what* the turn is doing from the same source the label is drawn from.
+    'data-activity-phase': dock.phase,
     ...(dock.elapsedMs === null ? {} : { 'data-activity-elapsed-ms': String(dock.elapsedMs) }),
   } as const;
 
@@ -153,15 +168,25 @@ export default function ActivityIndicator({
   const isUnreachable = state === 'unreachable';
   const isSendFailed = state === 'send-failed';
   const isIdle = state === 'idle';
-  const actionWords = ACTION_KEYS.map((key, i) => t(key, { defaultValue: DEFAULT_ACTION_WORDS[i] }));
-  const rotatingWord = actionWords[Math.floor((elapsedSeconds ?? 0) / 4) % actionWords.length];
+  // The running label comes from the *phase the server reported*, not from
+  // elapsed time: a turn on an unknown phase falls back to a fixed word (or the
+  // provider's own status line), and the same phase always says the same thing
+  // for as long as it lasts.
+  const phaseLabel = dock.phaseLabelKey === null
+    ? null
+    : t(dock.phaseLabelKey, {
+        tool: dock.toolName ?? '',
+        defaultValue: PHASE_LABEL_FALLBACKS[dock.phaseLabelKey] ?? dock.phase,
+      });
   const label = isSendFailed
     ? t('claudeStatus.sendFailed.title', { defaultValue: 'Send failed · server not responding' })
     : isUnreachable
       ? t('claudeStatus.unreachable.title', { defaultValue: 'Connection lost · reconnecting…' })
       : isIdle
         ? t('claudeStatus.dock.idleLabel', { defaultValue: 'Idle' })
-        : (renderedActivity?.statusText || rotatingWord).replace(/\.+$/, '');
+        : (phaseLabel
+          ?? renderedActivity?.statusText
+          ?? t(WORKING_FALLBACK_KEY, { defaultValue: WORKING_FALLBACK_WORD })).replace(/\.+$/, '');
   const sendFailedReason = t('claudeStatus.sendFailed.reason', {
     defaultValue: 'The message was not sent. Your draft is still in the box — try again.',
   });
@@ -176,15 +201,19 @@ export default function ActivityIndicator({
    * sentence when it cannot. The failed send is its own sentence with the way
    * out beside it — the draft the user still has, and the button that sends it.
    */
-  const labelNode = isSendFailed ? (
-    <span className="font-medium">
-      {label}
-      <span className="text-muted-foreground/70"> · {sendFailedReason}</span>
+  const labelNode = (
+    <span data-activity-label="true">
+      {isSendFailed ? (
+        <span className="font-medium">
+          {label}
+          <span className="text-muted-foreground/70"> · {sendFailedReason}</span>
+        </span>
+      ) : isUnreachable || isIdle ? (
+        <span className="font-medium">{label}</span>
+      ) : (
+        <Shimmer className="font-medium">{`${label}…`}</Shimmer>
+      )}
     </span>
-  ) : isUnreachable || isIdle ? (
-    <span className="font-medium">{label}</span>
-  ) : (
-    <Shimmer className="font-medium">{`${label}…`}</Shimmer>
   );
 
   const surfaceClassName = [

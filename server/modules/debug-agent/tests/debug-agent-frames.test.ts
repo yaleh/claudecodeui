@@ -7,9 +7,15 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { initializeDatabase } from '@/modules/database/index.js';
-import { providerRegistry, providerRuntimeService, sessionsService } from '@/modules/providers/index.js';
+import {
+  forwardNormalizedFrames,
+  providerRegistry,
+  providerRuntimeService,
+  readSessionTurn,
+  sessionsService,
+} from '@/modules/providers/index.js';
 import { WS_OPEN_STATE, chatRunRegistry } from '@/modules/websocket/index.js';
-import type { LLMProvider, NormalizedMessage } from '@/shared/types.js';
+import type { AnyRecord, LLMProvider, NormalizedMessage, ProviderRuntimeWriter } from '@/shared/types.js';
 
 import {
   DEBUG_AGENT_PROVIDER_ID,
@@ -19,7 +25,15 @@ import {
   type DebugAgentScenario,
   type DebugAgentScenarioEvaluation,
 } from '../index.js';
-import { readTranscriptLines, readTranscriptRows } from '../debug-agent.runtime.js';
+import {
+  buildTextDeltaRow,
+  buildThinkingTokensRow,
+  buildToolResultRow,
+  buildToolUseRow,
+  buildTurnResultRow,
+  readTranscriptLines,
+  readTranscriptRows,
+} from '../debug-agent.runtime.js';
 
 /**
  * The criterion for ADR-003 decision 4: a debug agent run must write a real-shaped
@@ -583,5 +597,57 @@ function registerCriteria(): void {
       rmSync(openScratch, { recursive: true, force: true });
       rmSync(closedScratch, { recursive: true, force: true });
     }
+  });
+
+  /**
+   * The turn-phase steps, driven through the product's own row → frame edge.
+   *
+   * This is the fast, server-side half of AC-187's chain: the runtime builders
+   * above write the rows a phase is reduced from, `forwardNormalizedFrames` is
+   * the one seam both the real run loop and the debug agent use, and the phase
+   * the dock later speaks for is read back with the same accessor the activity
+   * frames use. No child process and no database: the reduction is pure, so the
+   * reading is the reduction's own.
+   */
+  test('the phase steps drive a session through thinking, tool, writing and idle', () => {
+    const provider = providerRegistry.resolveProvider('claude');
+    const normalizeMessage = provider.sessions.normalizeMessage.bind(provider.sessions);
+    const sessionId = `phase-probe-${process.pid}`;
+    const cwd = '/tmp/phase-probe';
+    const timestamp = new Date().toISOString();
+    const toolUseId = 'phase-probe-tool';
+    const sent: unknown[] = [];
+    const writer = {
+      send: (message: unknown) => {
+        sent.push(message);
+      },
+    } as unknown as ProviderRuntimeWriter;
+
+    const feed = (row: AnyRecord): void => {
+      forwardNormalizedFrames({ transformedMessage: row, sessionId, normalizeMessage, writer });
+    };
+    const phase = () => readSessionTurn(sessionId);
+
+    assert.equal(phase().phase, 'idle', 'a session the forwarder has not seen reads idle');
+
+    feed(buildThinkingTokensRow({ sessionId, cwd, timestamp, uuid: 'p1', parentUuid: null }));
+    assert.equal(phase().phase, 'thinking', 'a thinking-token estimate is the thinking phase');
+
+    feed(buildToolUseRow({ sessionId, cwd, timestamp, uuid: 'p2', parentUuid: null, toolUseId, name: 'Bash' }));
+    assert.equal(phase().phase, 'tool', 'a pending tool call is the tool phase');
+    assert.equal(phase().toolName, 'Bash', 'the tool phase names the tool the row carried');
+
+    feed(buildToolResultRow({ sessionId, cwd, timestamp, uuid: 'p3', parentUuid: null, toolUseId, text: 'done' }));
+    feed(buildTextDeltaRow({ sessionId, cwd, timestamp, uuid: 'p4', parentUuid: null, text: 'writing' }));
+    assert.equal(phase().phase, 'writing', 'the paired result leaves the tool phase, and a text delta is writing');
+    assert.equal(phase().toolName, null, 'no tool remains pending once its result has arrived');
+
+    feed(buildTurnResultRow({ sessionId, cwd, timestamp, uuid: 'p5', parentUuid: null }));
+    assert.equal(phase().phase, 'idle', 'the turn record returns the session to idle');
+
+    assert.ok(
+      sent.length >= 3,
+      `the phase rows must reach the writer as frames (got ${sent.length})`,
+    );
   });
 }

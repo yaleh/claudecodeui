@@ -91,14 +91,17 @@ const PARITY_HEARTBEAT_INTERVAL_MS = 600_000;
  *   every frame that run emits, so no two drives of a scenario can carry the
  *   same value — the same instability as `id`, for the same reason (a fresh
  *   random id per run), on a field the per-run identity work added.
- * - `bootId`, `rev`, `heartbeatIntervalMs`, `unreachableAfterMs`: the activity
- *   announcement the websocket module spreads onto the `chat_subscribed` hello.
- *   The baseline is a recording of a tree that predates that announcement — and
- *   it must stay one, because its provenance (AC5) is "recorded before the host
- *   wrapper" and the recorder refuses to rewrite a fixture on a tree that
- *   carries the wrapper — so no baseline frame can hold these keys, and they
- *   are dropped as the one group the announcement added. `bootId` is in any
- *   case a per-process `randomUUID()`, the same instability as `runId`.
+ * - `bootId`, `rev`, `heartbeatIntervalMs`, `unreachableAfterMs`, `phase`,
+ *   `toolName`: the activity announcement the websocket module spreads onto the
+ *   `chat_subscribed` hello. The baseline is a recording of a tree that predates
+ *   that announcement — and it must stay one, because its provenance (AC5) is
+ *   "recorded before the host wrapper" and the recorder refuses to rewrite a
+ *   fixture on a tree that carries the wrapper — so no baseline frame can hold
+ *   these keys, and they are dropped as the group the announcement added.
+ *   `bootId` is in any case a per-process `randomUUID()`, the same instability
+ *   as `runId`; `phase`/`toolName` are the turn-phase reading the announcement
+ *   later grew (the fields a browser's activity dock renders), which likewise no
+ *   pre-announcement baseline frame can carry.
  *
  * `kind` and `seq` are never dropped, and no whole frame is ever dropped:
  * frame count and order are compared strictly, one frame at a time. Any further
@@ -114,6 +117,8 @@ export const UNSTABLE_FRAME_FIELDS = [
   'rev',
   'heartbeatIntervalMs',
   'unreachableAfterMs',
+  'phase',
+  'toolName',
 ] as const;
 
 export function projectFrame(frame: Frame): Frame {

@@ -216,6 +216,14 @@
       "computing": "Berechnet",
       "reasoning": "Schlussfolgert"
     },
+    "phases": {
+      "thinking": "Denkt nach",
+      "writing": "Schreibt",
+      "tool": "Führt {{tool}} aus",
+      "toolGeneric": "Führt ein Tool aus",
+      "compacting": "Komprimiert",
+      "awaitingPermission": "Wartet auf Freigabe"
+    },
     "state": {
       "live": "Live",
       "paused": "Pausiert"

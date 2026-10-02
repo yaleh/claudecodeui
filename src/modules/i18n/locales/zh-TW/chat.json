@@ -252,6 +252,14 @@
       "computing": "運算中",
       "reasoning": "推理中"
     },
+    "phases": {
+      "thinking": "思考中",
+      "writing": "撰寫中",
+      "tool": "正在執行 {{tool}}",
+      "toolGeneric": "正在執行工具",
+      "compacting": "正在壓縮",
+      "awaitingPermission": "等待授權"
+    },
     "state": {
       "live": "進行中",
       "paused": "已暫停"

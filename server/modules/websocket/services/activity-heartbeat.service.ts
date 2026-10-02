@@ -2,6 +2,10 @@ import { randomUUID } from 'node:crypto';
 
 import type { WebSocket } from 'ws';
 
+import {
+  readSessionTurn,
+  type TurnPhase,
+} from '@/modules/providers/index.js';
 import { WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 
 /**
@@ -101,13 +105,23 @@ export function activityAnnouncement(sessionId: string): {
   rev: number;
   heartbeatIntervalMs: number;
   unreachableAfterMs: number;
+  /** The phase the session's turn is in, as the frame forwarder last reduced it. */
+  phase: TurnPhase;
+  /** The pending tool's name while `phase` is `tool`, else null. */
+  toolName: string | null;
 } {
   const { intervalMs, unreachableAfterMs } = resolveActivityHeartbeatConfig();
+  // The phase is read from the providers module's own reduction of the raw frame
+  // stream — the same reading the client's dock renders. It is not derived here:
+  // this module transports the answer, it does not compute one.
+  const turn = readSessionTurn(sessionId);
   return {
     bootId: BOOT_ID,
     rev: revisionForSession(sessionId),
     heartbeatIntervalMs: intervalMs,
     unreachableAfterMs,
+    phase: turn.phase,
+    toolName: turn.toolName,
   };
 }
 
@@ -117,14 +131,18 @@ function buildActivityHeartbeat(sessionId: string): {
   sessionId: string;
   bootId: string;
   rev: number;
+  phase: TurnPhase;
+  toolName: string | null;
   timestamp: string;
 } {
-  const { bootId, rev } = activityAnnouncement(sessionId);
+  const { bootId, rev, phase, toolName } = activityAnnouncement(sessionId);
   return {
     kind: 'activity.heartbeat',
     sessionId,
     bootId,
     rev,
+    phase,
+    toolName,
     timestamp: new Date().toISOString(),
   };
 }
