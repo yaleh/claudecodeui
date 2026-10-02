@@ -109,7 +109,7 @@ AC 逐字要求的 `intersect`（`:676`）/ `msgVisible`（`:681`）/ `perRunBar
 
 **实测读数（逐次，全部为判据 stdout 的原始行，几何由 `getBoundingClientRect` 同一时刻一次取全）。**
 
-绿跑 ×4（本工作树，`-g "status bar does not cover the transcript"`，命令逐字未改），每次 `EXIT=0` / `1 passed`：
+绿跑 ×5（本工作树，`-g "status bar does not cover the transcript"`，命令逐字未改），每次 `EXIT=0` / `1 passed`：
 
 | 次 | `elapsed=` | resident `bar.box` | resident `msg.box` | `intersect` | `msg.visible` | `msg.in.pane` | `bar.over.pane` | **`bar.over.rows`** | per-run 坞计数 | per-run `bar.over.rows` |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -117,8 +117,9 @@ AC 逐字要求的 `intersect`（`:676`）/ `msgVisible`（`:681`）/ `perRunBar
 | 换锚后 2 | `13094ms` | `305,314,459,32` | `305,219,459,87` | false | true | true | true | `[]` | 0 | `[]` |
 | 换锚后 3 | `12826ms` | `305,316,459,32` | `305,195,459,87` | false | true | true | true | `[]` | 0 | `[]` |
 | merge develop 后 | `12852ms` | `305,314,459,32` | `305,195,459,87` | false | true | true | true | `[]` | 0 | `[]` |
+| tick 入树后（末次、提交态） | `12879ms` | `305,313,459,32` | `305,219,459,87` | false | true | true | true | `[]` | 0 (`bar.exists=false`) | `[]` |
 
-四次 `elapsed` 全部 < `SINGLE_SPEC_CEILING_MS = 55_000`。绿跑原始行（merge 后那一次，逐字）：
+五次 `elapsed` 全部 < `SINGLE_SPEC_CEILING_MS = 55_000`；末次的 `git status --porcelain` 为空，即跑在与 Touches 逐条对齐的**提交态**上。绿跑原始行（merge 后那一次，逐字）：
 
 ```
 resident.bar.exists=true
