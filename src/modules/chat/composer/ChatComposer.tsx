@@ -10,7 +10,7 @@ import type {
   RefObject,
   TouchEvent,
 } from 'react';
-import { PaperclipIcon, MessageSquareIcon, XIcon, Loader2, ArrowUpIcon, PencilIcon } from 'lucide-react';
+import { PaperclipIcon, MessageSquareIcon, XIcon, Loader2, ArrowUpIcon, PencilIcon, Lock, Copy, Check } from 'lucide-react';
 
 import { useActivityFreshness } from '@/modules/chat/hooks/useActivityFreshness';
 import { useVoiceInput } from '@/modules/chat/hooks/useVoiceInput';
@@ -18,7 +18,7 @@ import { useVoiceAvailable } from '@/modules/chat/hooks/useVoiceAvailable';
 import { useSendOnEnter } from '@/modules/chat/hooks/useSendOnEnter';
 import { useComposerCompactTier } from '@/modules/chat/hooks/useComposerCompactTier';
 import { useDeviceSettings } from '@/shared/hooks/useDeviceSettings';
-import { findSessionHostState, useSessionHosts } from '@/shared/hooks/useSessionHosts';
+import { findSessionHostState, findSessionOccupancy, useSessionHosts } from '@/shared/hooks/useSessionHosts';
 import { useResidentProviders } from '@/shared/hooks/useProviderCapabilities';
 import { readSelectedProvider } from '@/shared/selectedProvider';
 import { loadProjectIdentifiers } from '@/shared/projectIdentifiers';
@@ -50,6 +50,9 @@ import ComposerModelMenu from '@/modules/chat/composer/ComposerModelMenu';
 import ComposerPermissionMenu from '@/modules/chat/composer/ComposerPermissionMenu';
 import ComposerMobileMoreMenu from '@/modules/chat/composer/ComposerMobileMoreMenu';
 import { ResidentToggle, setPendingResidentIntent } from '@/modules/chat/composer/ResidentConsentNotice';
+
+/** How long the occupied notice's copy control says "copied" before returning to its label. */
+const RELEASE_COPIED_NOTICE_MS = 1500;
 
 type MentionableFile = {
   name: string;
@@ -282,6 +285,47 @@ export default function ChatComposer({
   const isResidentSession = sessionId
     ? findSessionHostState(hostsSnapshot, sessionId)?.lifecycleMode === 'resident'
     : false;
+  /*
+   * The Claude Code background job holding this conversation, if any.
+   *
+   * The conversation is not this app's to resume while the job runs: the CLI
+   * exits 1 on a resume it cannot honour and says so only on stderr, which this
+   * app drops, so the alternative to this state is a send that fails with
+   * `Resident process exited (error)` after the user has typed. Read-only, and
+   * read-only for as long as the job lives — the poll below picks the release up
+   * without a reload, so nothing here is latched.
+   *
+   * The same reading gates the send path (`useChatComposerState`), which is what
+   * makes this a state rather than a painted-over control: a disabled textarea
+   * is a hint, and a form can be submitted from a script or a stale handler even
+   * while its input is disabled.
+   */
+  const occupiedBy = findSessionOccupancy(hostsSnapshot, sessionId);
+  const isOccupied = occupiedBy !== null;
+  /** The command that frees the conversation, shown verbatim so it can be copied or typed. */
+  const releaseCommand = occupiedBy ? `claude stop ${occupiedBy.jobId}` : '';
+  const [copiedReleaseCommand, setCopiedReleaseCommand] = useState(false);
+
+  /**
+   * Puts the release command on the clipboard, and says so for a moment.
+   *
+   * The command is on screen as text as well, so a refused clipboard — an
+   * insecure origin, a browser policy, jsdom — costs the user nothing: it is
+   * still selectable. That is why the failure is swallowed rather than turned
+   * into a second notice beside the one already explaining the state.
+   */
+  const copyReleaseCommand = useCallback(async (): Promise<void> => {
+    if (!releaseCommand) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(releaseCommand);
+      setCopiedReleaseCommand(true);
+      window.setTimeout(() => setCopiedReleaseCommand(false), RELEASE_COPIED_NOTICE_MS);
+    } catch {
+      // See above: nothing to report, and the command remains visible.
+    }
+  }, [releaseCommand]);
   // Same resolution the keydown uses, so the hint below cannot describe a key that does
   // something else on this device.
   const { sendOnEnter, touchOnly } = useSendOnEnter(sendByCtrlEnter);
@@ -597,6 +641,60 @@ export default function ChatComposer({
           frequentCommands={frequentCommands}
         />
 
+        {/*
+          Why this conversation is read-only, and the one command that changes that.
+
+          A conversation a Claude Code background job is running cannot be resumed:
+          the CLI exits 1 and says so only on stderr, which this app drops, so the
+          send path would report `Resident process exited (error)` after the user
+          had already typed. Saying it here, before anything is typed, is the whole
+          point — the composer is disabled and this is the reason, not a refusal
+          that arrives once the user has committed to a message.
+
+          The command is drawn as text beside the sentence, not only inside it: the
+          sentence is translated and the command is not, and a user who would rather
+          type it than copy it needs it verbatim. `data-occupied-job-id` and
+          `data-occupied-pid` publish the same two facts structurally, so a reader
+          (or a criterion) can compare them with the listing that produced them
+          without parsing copy.
+
+          It disappears with `occupiedBy`: the poll behind `useSessionHosts` re-reads
+          the listing every second, so the moment the job is stopped this notice, the
+          disabled input and the status bar's Start button all come back together —
+          no reload, and no local "dismissed" flag that could outlive the state it
+          describes.
+        */}
+        {occupiedBy && (
+          <div
+            data-slot="occupied-session-notice"
+            data-occupied-job-id={occupiedBy.jobId}
+            data-occupied-pid={occupiedBy.pid}
+            className="mx-auto mb-2 flex max-w-[54.25rem] flex-wrap items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-foreground"
+          >
+            <Lock className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+            <span data-occupied-notice-text="true" className="min-w-0 flex-1">
+              {t('resident.occupied.notice', { jobId: occupiedBy.jobId, pid: occupiedBy.pid })}
+            </span>
+            <code
+              data-occupied-release-command="true"
+              className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px]"
+            >
+              {releaseCommand}
+            </code>
+            <button
+              type="button"
+              data-occupied-copy-command="true"
+              onClick={() => void copyReleaseCommand()}
+              className="flex shrink-0 items-center gap-1 rounded-md border border-border/60 px-2 py-1 font-medium transition-colors hover:bg-accent/60"
+            >
+              {copiedReleaseCommand ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+              {copiedReleaseCommand
+                ? t('resident.occupied.copied')
+                : t('resident.occupied.copyCommand')}
+            </button>
+          </div>
+        )}
+
         <PromptInput
           onSubmit={handleComposerSubmit as (event: FormEvent<HTMLFormElement>) => void}
           status={isLoading ? 'streaming' : 'ready'}
@@ -692,6 +790,12 @@ export default function ChatComposer({
               onBlur={() => onInputFocusChange?.(false)}
               onInput={onTextareaInput}
               placeholder={placeholder}
+              // Read-only while a Claude Code background job holds the
+              // conversation: there is no turn this input could start, and the
+              // notice above it says so. `disabled` rather than `readOnly`
+              // because the state is not the user's draft to edit — nothing here
+              // can be sent until the job is stopped.
+              disabled={isOccupied}
             />
         </PromptInputBody>
 
@@ -884,7 +988,7 @@ export default function ChatComposer({
                     ? false
                     : isTranscribing
                       ? true
-                      : !input.trim() && attachedFiles.length === 0
+                      : isOccupied || (!input.trim() && attachedFiles.length === 0)
               }
               aria-label={submitAriaLabel}
               title={isLoading && !canQueueDraft && stopUnreachable ? stopUnreachableReason ?? submitAriaLabel : submitAriaLabel}

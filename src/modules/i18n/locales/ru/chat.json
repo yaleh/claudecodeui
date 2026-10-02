@@ -294,6 +294,11 @@
       "withdraw": "Отозвать",
       "withdrawn": "Отозвано"
     },
+    "occupied": {
+      "notice": "Эта сессия занята фоновой задачей Claude Code (job {{jobId}}, pid {{pid}}). Выполните `claude stop {{jobId}}`, чтобы освободить её, или сделайте fork сессии.",
+      "copyCommand": "Скопировать команду",
+      "copied": "Скопировано"
+    },
     "statusBar": {
       "unstarted": "Резидент · Не запущен ({{reason}})",
       "idle": "Резидент · Простой",

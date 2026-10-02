@@ -294,6 +294,11 @@
       "withdraw": "Geri çek",
       "withdrawn": "Geri çekildi"
     },
+    "occupied": {
+      "notice": "Bu oturum bir Claude Code arka plan işi tarafından tutuluyor (job {{jobId}}, pid {{pid}}). Serbest bırakmak için `claude stop {{jobId}}` çalıştırın veya oturumu fork'layın.",
+      "copyCommand": "Komutu kopyala",
+      "copied": "Kopyalandı"
+    },
     "statusBar": {
       "unstarted": "Kalıcı · Çalışmıyor ({{reason}})",
       "idle": "Kalıcı · Boşta",

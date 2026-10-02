@@ -170,7 +170,15 @@ describe('html export', () => {
 
     // The fenced block became real markup; the fence characters are gone.
     expect(html).toContain('<code');
-    expect(html).not.toContain('```js');
+    // Read the rendered TEXT, not the raw bytes. The row-addressability contract
+    // (AC-206) publishes each row's `getIntrinsicMessageKey` as `data-message-key`,
+    // and for a row with no id that key is the content-preview fallback — so the
+    // assistant's own text, fence and all, appears inside an attribute. An
+    // attribute is not the reader's view of the message; what must stay true is
+    // that no fence reaches the rendered text.
+    const rendered = document.createElement('div');
+    rendered.innerHTML = html;
+    expect(rendered.textContent).not.toContain('```js');
   });
 
   it('escapes a session title that contains markup', async () => {

@@ -86,6 +86,14 @@ export { ClaudeSessionsProvider } from './list/claude/claude-sessions.provider.j
 // broadcast test, which needs the real indexer to put an ai-title on a row
 // before asserting the delta that carries it.
 export { ClaudeSessionSynchronizer } from './list/claude/claude-session-synchronizer.provider.js';
+// readClaudeSessionOccupancy: which conversations a Claude Code background job
+// is holding, read whole in one scan of the CLI's own registry. `server/index.ts`
+// wires it into the host listing's occupancy seam — the host module cannot reach
+// it itself, since providers already imports that one and the edge back would
+// close a cycle — and the host-listing criterion points the same reader at a
+// registry it owns to count the scans.
+export { readClaudeSessionOccupancy } from './list/claude/claude-host-driver.provider.js';
+export type { ClaudeSessionOccupancy } from './list/claude/claude-host-driver.provider.js';
 
 // Resident scoping: `mapCliOptionsToSDK` installs the spawn hook that puts every
 // resident session in its own capped systemd scope inside the shared resident

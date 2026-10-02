@@ -315,6 +315,11 @@
       "withdraw": "Retirar",
       "withdrawn": "Retirado"
     },
+    "occupied": {
+      "notice": "Esta sesión está ocupada por una tarea en segundo plano de Claude Code (job {{jobId}}, pid {{pid}}). Ejecuta `claude stop {{jobId}}` para liberarla, o haz un fork de la sesión.",
+      "copyCommand": "Copiar comando",
+      "copied": "Copiado"
+    },
     "statusBar": {
       "unstarted": "Residente · No en ejecución ({{reason}})",
       "idle": "Residente · Inactivo",

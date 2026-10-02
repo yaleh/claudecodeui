@@ -294,6 +294,11 @@
       "withdraw": "Ritira",
       "withdrawn": "Ritirato"
     },
+    "occupied": {
+      "notice": "Questa sessione è occupata da un job in background di Claude Code (job {{jobId}}, pid {{pid}}). Esegui `claude stop {{jobId}}` per liberarla, oppure fai un fork della sessione.",
+      "copyCommand": "Copia comando",
+      "copied": "Copiato"
+    },
     "statusBar": {
       "unstarted": "Residente · Non in esecuzione ({{reason}})",
       "idle": "Residente · Inattivo",

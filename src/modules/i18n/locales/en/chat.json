@@ -394,6 +394,11 @@
       "withdraw": "Withdraw",
       "withdrawn": "Withdrawn"
     },
+    "occupied": {
+      "notice": "This session is held by a Claude Code background job (job {{jobId}}, pid {{pid}}). Run `claude stop {{jobId}}` to release it, or fork the session.",
+      "copyCommand": "Copy command",
+      "copied": "Copied"
+    },
     "statusBar": {
       "unstarted": "Resident · Not running ({{reason}})",
       "idle": "Resident · Idle",
