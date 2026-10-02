@@ -49,6 +49,7 @@ message.type === 'error' ? t('messageTypes.error')
 ## Touches
 
 - src/modules/chat/transcript/MessageComponent.tsx
+- src/modules/i18n/locales/*/chat.json
 - src/shared/ui/LLMProviderLogo.tsx
 - src/modules/sidebar/utils/sidebarProjectFormatting.ts
 - src/modules/chat/tests/debug-agent-message-header-identity.test.tsx (new)
@@ -73,7 +74,9 @@ message.type === 'error' ? t('messageTypes.error')
   Claude/Codex/Cursor/OpenCode 同为专名，故各语言同值，且与 `LLMProviderLogo` 的
   `aria-label="Debug Agent"` 逐字相同，这正是 AC3 逐语言比较要求的不变量。
 - **其它门**：`npm run typecheck` exit 0；`npm run lint` exit 0（本任务改动的文件零 finding）；
-  `bash scripts/test.sh --for-task gap-debug-agent-message-header-falls-through-to-claude --allow-thin` 绿。
+  `bash scripts/test.sh --for-task gap-debug-agent-message-header-falls-through-to-claude --allow-thin` 绿
+  （`__PERFILE__ … debug-agent-message-header-identity.test.tsx passed=true`，`# tests 1 / # pass 1 / # fail 0`，
+  exit 0；这份门只跑 Touches 里的 `*.test.*`，typecheck/lint 不在其中，故上面两条另行跑过）。
 - **DoD 的实机腿：已尝试，未取得该读数，据实登记（不声称做过）。** 在本 worktree 里跑了真实
   浏览器 + 真实 server 的调试 agent e2e：`npx playwright test e2e/resident-status-bar.spec.ts`
   （4 passed），另用一份临时探针 spec（跑完即删）驱动 `resident-busy-send` 的两个调试会话并逐行
@@ -89,3 +92,6 @@ message.type === 'error' ? t('messageTypes.error')
   （`selectedProviderLabel`，用于"选择一个项目"空态）。它同样会被 `useChatProviderState` 在打开
   会话时写入的 `selectedSession.__provider`（调试会话即 `'debug'`）喂到，但只在 `!selectedProject`
   时渲染——而调试会话总归属于某个 fixture 项目——且不在本任务 Touches/AC 面内，故按范围留给后续。
+- **Touches 补登（ABI）**：`src/modules/i18n/locales/*/chat.json` 是 AC4 强制的新增写入面（12 个
+  locale 各一行 key），首版 Touches 只声明了四个文件，会让 fan-in 的 anti-drift 把 12 个 locale
+  文件判成 `out-of-declared`（HARD FAIL）。故经 ABI 补一条 glob（`*` 匹配单层路径，覆盖 12 个目录）。
