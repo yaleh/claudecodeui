@@ -127,3 +127,42 @@ test('a realtime row without a string id is passed through, not fatal', () => {
   });
   assert.deepEqual(removeOptimisticUserEchoes([persisted], [localEcho]), []);
 });
+
+test('a retried send is retired by the persisted echo the socket delivers', () => {
+  // The shape a failed send and its retry produce: the optimistic row is minted
+  // at the first (never-delivered) attempt, and the persisted echo of the
+  // accepted retry arrives as a *realtime* row — pushed over the socket before
+  // the REST history page carries it. Only the persisted row may remain; drawn
+  // side by side, the same message twice is exactly what a retry must not do.
+  const local = createUserMessage('local_retry', '2026-10-02T09:50:24.375Z', {
+    content: 'the retried text',
+  });
+  const socketEcho = createUserMessage('6915f537_text_0', '2026-10-02T09:50:25.655Z', {
+    content: 'the retried text',
+  });
+
+  assert.deepEqual(removeOptimisticUserEchoes([], [local, socketEcho]), [socketEcho]);
+});
+
+test('two real same-text sends with one persisted echo keep the unpaired row', () => {
+  // One-to-one, and it holds across both candidate lists: a persisted echo
+  // retires exactly one optimistic row. The second genuine send of the same
+  // words — a different message the user actually sent — has no echo of its own
+  // and must survive, or a legitimate repeat would silently disappear. The echo
+  // here is in the realtime list, so this also proves a local row is never
+  // retired by another local row.
+  const firstLocal = createUserMessage('local_first', '2026-10-02T09:50:24.000Z', {
+    content: 'ok',
+  });
+  const secondLocal = createUserMessage('local_second', '2026-10-02T09:50:26.000Z', {
+    content: 'ok',
+  });
+  const persisted = createUserMessage('claude_first', '2026-10-02T09:50:24.500Z', {
+    content: 'ok',
+  });
+
+  assert.deepEqual(
+    removeOptimisticUserEchoes([], [firstLocal, secondLocal, persisted]),
+    [secondLocal, persisted],
+  );
+});
