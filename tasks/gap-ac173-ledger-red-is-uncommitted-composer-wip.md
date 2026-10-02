@@ -6,7 +6,7 @@ title: "AC-173 判据在净检出（HEAD 0faf62fa = develop）直跑为绿（3 p
   useWebSocket must be used within a WebSocketProvider），GET
   /api/providers/sessions/running 轮询自 13:57:08.888Z 起停摆 ⇒ 徽标恒读
   0。verification-only 归因入档（remedy 归该 WIP 作者：改到可编译并提交／勿在判据运行期保存）"
-status: todo
+status: ready
 labels:
   - gap
   - defect
