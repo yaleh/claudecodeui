@@ -1,7 +1,7 @@
 ---
 id: gap-work-segment-export-forced-expand
 title: AC-206 导出路径强制展开且逐行内容与合并前等价
-status: ready
+status: done
 labels:
   - gap
 parent: null
