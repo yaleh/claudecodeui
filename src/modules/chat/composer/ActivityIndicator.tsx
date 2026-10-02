@@ -31,6 +31,11 @@ type ActivityIndicatorProps = {
   isInputFocused?: boolean;
   /** Defaults to `tab`, the composer's surface; the transcript's status line asks for `inline`. */
   variant?: ActivityIndicatorVariant;
+  /**
+   * True when the last send was never taken. The dock then reports the failure
+   * instead of drawing nothing — the state that replaced the old silent drop.
+   */
+  sendFailed?: boolean;
 };
 
 const ACTION_KEYS = [
@@ -73,6 +78,7 @@ export default function ActivityIndicator({
   onAbort,
   isInputFocused = false,
   variant = 'tab',
+  sendFailed = false,
 }: ActivityIndicatorProps) {
   const { t } = useTranslation('chat');
   const freshness = useActivityFreshness(sessionId, connection);
@@ -98,16 +104,22 @@ export default function ActivityIndicator({
     return () => clearTimeout(timer);
   }, [activity, renderedActivity]);
 
+  // A failed send must be reportable the moment it is known. While the turn is
+  // real (`activity` present) the exit animation's last frame is the better
+  // reading; with no turn at all there is nothing to animate out of, so the
+  // failed-send state takes the live prop rather than the exiting render.
+  const dockActivity = sendFailed ? activity : renderedActivity;
   const dock = deriveActivityDockView({
-    activity: renderedActivity,
+    activity: dockActivity,
     liveness: freshness.liveness,
     elapsedMs: freshness.elapsedMs,
     hasTurnAnchor: freshness.hasTurnAnchor,
     wired: freshness.wired,
     hasAbort: Boolean(onAbort),
+    sendFailed,
   });
 
-  if (!renderedActivity || dock.state === 'hidden') return null;
+  if ((!dockActivity && !sendFailed) || dock.state === 'hidden') return null;
 
   const dockAttributes = {
     'data-activity-dock': '',
@@ -125,21 +137,38 @@ export default function ActivityIndicator({
       : t('claudeStatus.elapsed.minutesSeconds', { minutes, seconds, defaultValue: '{{minutes}}m {{seconds}}s' });
 
   const isUnreachable = dock.state === 'unreachable';
+  const isSendFailed = dock.state === 'send-failed';
   const actionWords = ACTION_KEYS.map((key, i) => t(key, { defaultValue: DEFAULT_ACTION_WORDS[i] }));
   const rotatingWord = actionWords[Math.floor((elapsedSeconds ?? 0) / 4) % actionWords.length];
-  const label = isUnreachable
-    ? t('claudeStatus.unreachable.title', { defaultValue: 'Connection lost · reconnecting…' })
-    : (renderedActivity.statusText || rotatingWord).replace(/\.+$/, '');
+  const label = isSendFailed
+    ? t('claudeStatus.sendFailed.title', { defaultValue: 'Send failed · server not responding' })
+    : isUnreachable
+      ? t('claudeStatus.unreachable.title', { defaultValue: 'Connection lost · reconnecting…' })
+      : (renderedActivity?.statusText || rotatingWord).replace(/\.+$/, '');
+  const sendFailedReason = t('claudeStatus.sendFailed.reason', {
+    defaultValue: 'The message was not sent. Your draft is still in the box — try again.',
+  });
   const stopReason = dock.stopReasonKey === null
     ? null
     : t(dock.stopReasonKey, { defaultValue: 'Stop is unavailable while the server is unreachable' });
 
   const animationClassName = isExiting ? 'chat-activity-exit' : 'chat-activity-enter';
 
-  /** The label's own pixels: a shimmered word while a turn runs, a plain sentence when it cannot. */
-  const labelNode = isUnreachable
-    ? <span className="font-medium">{label}</span>
-    : <Shimmer className="font-medium">{`${label}…`}</Shimmer>;
+  /**
+   * The label's own pixels: a shimmered word while a turn runs, a plain
+   * sentence when it cannot. The failed send is its own sentence with the way
+   * out beside it — the draft the user still has, and the button that sends it.
+   */
+  const labelNode = isSendFailed ? (
+    <span className="font-medium">
+      {label}
+      <span className="text-muted-foreground/70"> · {sendFailedReason}</span>
+    </span>
+  ) : isUnreachable ? (
+    <span className="font-medium">{label}</span>
+  ) : (
+    <Shimmer className="font-medium">{`${label}…`}</Shimmer>
+  );
 
   if (variant === 'inline') {
     // In the message flow by construction: no absolute or fixed positioning, so

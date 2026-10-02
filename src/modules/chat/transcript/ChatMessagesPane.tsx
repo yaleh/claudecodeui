@@ -60,6 +60,8 @@ type ChatMessagesPaneProps = {
    * turn's data, not a second account of it.
    */
   activity?: SessionActivity | null;
+  /** True when the last send was never delivered; the inline status line reports it. */
+  sendFailed?: boolean;
   chatMessages: ChatMessage[];
   selectedSession: ProjectSession | null;
   currentSessionId: string | null;
@@ -135,6 +137,7 @@ function ChatMessagesPane({
   isProcessing = false,
   hasActivityIndicator = false,
   activity = null,
+  sendFailed = false,
   chatMessages,
   selectedSession,
   currentSessionId,
@@ -523,6 +526,7 @@ function ChatMessagesPane({
             activity={hasActivityIndicator ? activity : null}
             sessionId={currentSessionId ?? selectedSession?.id ?? null}
             variant="inline"
+            sendFailed={sendFailed}
           />
         )}
         </div>

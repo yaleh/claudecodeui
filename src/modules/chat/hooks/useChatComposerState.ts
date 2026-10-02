@@ -14,8 +14,9 @@ import { useDropzone } from 'react-dropzone';
 import { api } from '@/shared/api';
 import { PROVIDER_PERMISSION_PREFERENCE_KEYS } from '@/shared/constants';
 import { readUserPreference } from '@/shared/userSettings';
-import type { CommandModalPayload, CostCommandData, HelpCommandData, MarkSessionProcessing, ModelCommandData, QueuedDraft, SessionActivityMap, StatusCommandData,QueuedSendOptions,ChatAttachment,ChatMessage,PendingPermissionRequest,PermissionMode,SessionEstablishedContext,Project,ProjectSession,LLMProvider,SlashCommand } from '@/shared/types';
+import type { CommandModalPayload, CostCommandData, HelpCommandData, MarkSessionIdle, MarkSessionProcessing, ModelCommandData, QueuedDraft, ServerEvent, SessionActivityMap, StatusCommandData,QueuedSendOptions,ChatAttachment,ChatMessage,PendingPermissionRequest,PermissionMode,SessionEstablishedContext,Project,ProjectSession,LLMProvider,SlashCommand } from '@/shared/types';
 import { grantClaudeToolPermission } from '@/modules/chat/utils/chatPermissions';
+import { createSendDelivery, type SendDelivery } from '@/modules/chat/utils/sendDelivery';
 import {
   clearQueuedMessage,
   hydrateChatDrafts,
@@ -52,8 +53,29 @@ type UseChatComposerStateArgs = {
   canAbortSession: boolean;
   tokenBudget: Record<string, unknown> | null;
   sendMessage: (message: unknown) => void;
+  /**
+   * Whether the app's socket is open right now. A closed socket cannot carry
+   * the send at all, so the composer fails the send at once instead of arming a
+   * deadline for an answer that cannot come. Defaults to connected (fail-open):
+   * a caller that does not report the socket is not thereby disconnected.
+   */
+  isConnected?: boolean;
   sendByCtrlEnter?: boolean;
   onSessionProcessing?: MarkSessionProcessing;
+  /**
+   * Clears the local "processing" mark for a session. The send path marks a
+   * turn before the frame leaves the socket (the indicator must react at once),
+   * so a send that is never taken has to take that mark back — otherwise the
+   * dock keeps claiming a turn the server never started.
+   */
+  onSessionIdle?: MarkSessionIdle;
+  /**
+   * Subscribes to every server frame, so the send path can hear the answer to
+   * the message it just sent. The first frame the server addresses to the
+   * session is the delivery's acknowledgement; silence past the deadline is
+   * the failure.
+   */
+  subscribe?: (listener: (event: ServerEvent) => void) => () => void;
   /**
    * Invoked with the freshly allocated session id when the user sends the
    * first message of a brand-new conversation. The backend allocates the id
@@ -65,7 +87,20 @@ type UseChatComposerStateArgs = {
   onFileOpen?: (filePath: string, diffInfo?: unknown) => void;
   onShowSettings?: () => void;
   scrollToBottom: () => void;
-  addMessage: (msg: ChatMessage) => void;
+  /**
+   * Appends an optimistic row to the transcript. Returns the store row id it
+   * was written under when the transcript store owns ids, so the send path can
+   * take the row back if the send is never delivered; callers that render a
+   * list without ids may return nothing.
+   */
+  addMessage: (msg: ChatMessage) => string | null | void;
+  /**
+   * Hides a row the send path added optimistically, because the send it stood
+   * for was not delivered. Pair with {@link restoreUserTurn} on the retry.
+   */
+  markUserTurnUndelivered?: (id: string) => void;
+  /** Puts a hidden optimistic row back on screen when its message is retried. */
+  restoreUserTurn?: (id: string) => void;
   /**
    * Records a message handed to a resident process that has not started it yet.
    *
@@ -194,13 +229,18 @@ export function useChatComposerState({
   canAbortSession,
   tokenBudget,
   sendMessage,
+  isConnected = true,
   sendByCtrlEnter,
   onSessionProcessing,
+  onSessionIdle,
+  subscribe,
   onSessionEstablished,
   onFileOpen,
   onShowSettings,
   scrollToBottom,
   addMessage,
+  markUserTurnUndelivered,
+  restoreUserTurn,
   addResidentPending,
   setIsUserScrolledUp,
   setPendingPermissionRequests,
@@ -246,6 +286,47 @@ export function useChatComposerState({
   const [fileErrors, setFileErrors] = useState<Map<string, string>>(new Map());
   const [isTextareaExpanded, setIsTextareaExpanded] = useState(false);
   const [commandModalPayload, setCommandModalPayload] = useState<CommandModalPayload | null>(null);
+
+  /**
+   * Whether the last send was never taken — the dock reports it in place of a
+   * turn. Kept as state rather than derived from the delivery ref because the
+   * machine settles outside React and the surface has to redraw when it does.
+   */
+  const [sendFailed, setSendFailed] = useState(false);
+  // The one in-flight send whose acknowledgement (or deadline) is still being
+  // awaited. Only ever one: a second submit while a send is unresolved is
+  // ignored, so an answer can be attributed to the frame that produced it.
+  const pendingDeliveryRef = useRef<{ sessionId: string; delivery: SendDelivery } | null>(null);
+  // The optimistic row a failed send left behind, so its retry re-shows the same
+  // row instead of adding a second one for the same text.
+  const undeliveredTurnRef = useRef<{ id: string; text: string } | null>(null);
+
+  // The server's answer to the send that is in flight. Any frame it addresses
+  // to the session is the acknowledgement — it proves the socket is two-way and
+  // the frame the send handed it was received. A `protocol_error` is the other
+  // answer: the server read the send and refused it, so the send failed even
+  // though frames are arriving. Frames for other sessions, and the synthetic
+  // reconnect marker this client mints itself, prove nothing about this send.
+  useEffect(() => {
+    if (!subscribe) {
+      return undefined;
+    }
+    return subscribe((event) => {
+      const pending = pendingDeliveryRef.current;
+      if (!pending || pending.delivery.getPhase() !== 'sending') return;
+      if (!event.kind || event.kind === 'websocket_reconnected') return;
+      if (event.sessionId !== pending.sessionId) return;
+      if (event.kind === 'protocol_error') {
+        pending.delivery.fail();
+        return;
+      }
+      pending.delivery.ack();
+    });
+  }, [subscribe]);
+
+  useEffect(() => () => {
+    pendingDeliveryRef.current?.delivery.dispose();
+  }, []);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inputHighlightRef = useRef<HTMLDivElement>(null);
@@ -706,6 +787,14 @@ export function useChatComposerState({
         return;
       }
 
+      // A send is already awaiting its answer. Its text has not been cleared
+      // from the box (that happens only once the server takes it), so a second
+      // submit would duplicate the same message and steal the first one's
+      // acknowledgement — the send path is therefore closed until it settles.
+      if (pendingDeliveryRef.current?.delivery.getPhase() === 'sending') {
+        return;
+      }
+
       // Whether this send is going to a process that is already running.
       //
       // Read before anything is uploaded, because it decides whether the message
@@ -945,6 +1034,21 @@ export function useChatComposerState({
         ...(editingAnchorId ? { replacesAnchorId: editingAnchorId } : {}),
       };
 
+      // The socket is not open: the frame cannot leave this client, so the send
+      // has already failed and there is nothing to wait for. Declared now — no
+      // local turn mark, no optimistic row, and the draft stays exactly where
+      // the user typed it. The deadline below is for the other case: a socket
+      // that looks open and then says nothing back.
+      if (isConnected === false) {
+        setSendFailed(true);
+        return;
+      }
+
+      // The optimistic row this send stands for, when the transcript store owns
+      // ids. A send that is never delivered takes it back; a retry of the same
+      // text re-shows it instead of minting a second row for one message.
+      let optimisticRowId: string | null = null;
+
       // A message handed to a running process is not a turn yet: it is a command
       // the process is holding, and what the transcript has to show about it is
       // the host's own account of where it is. So it enters the record as the
@@ -954,12 +1058,23 @@ export function useChatComposerState({
       // the host said something else about it.
       if (busySendToResidentProcess) {
         addResidentPending?.(targetSessionId, messageContent);
+      } else if (undeliveredTurnRef.current && undeliveredTurnRef.current.text === currentInput) {
+        // The retry of a send that was never delivered. The row is already in
+        // the transcript, hidden; put it back rather than mint a second one —
+        // the transcript's user-turn dedupe pairs one local row with one
+        // persisted turn, so two local rows for one message would leave one of
+        // them permanently unretired and drawn beside the other.
+        restoreUserTurn?.(undeliveredTurnRef.current.id);
+        optimisticRowId = undeliveredTurnRef.current.id;
+        undeliveredTurnRef.current = null;
       } else {
-        addMessage(userMessage);
+        const addedRowId = addMessage(userMessage);
+        optimisticRowId = typeof addedRowId === 'string' ? addedRowId : null;
       }
       // Mark this request as processing in the per-session activity map (the
       // single source of truth the indicator derives from). The id is always
-      // concrete at this point — no pending placeholder exists anymore.
+      // concrete at this point — no pending placeholder exists anymore. A send
+      // that is never delivered takes this mark back in its settle handler.
       onSessionProcessing?.(targetSessionId, {
         statusText: null,
         canInterrupt: true,
@@ -968,10 +1083,49 @@ export function useChatComposerState({
       setIsUserScrolledUp(false);
       setTimeout(() => scrollToBottom(), 100);
 
+      // The draft scope this message was typed in. Captured here, at send time,
+      // rather than read when the send settles: a brand-new chat is navigated
+      // to its session *during* the send, so by the time an answer arrives the
+      // composer may already be bound to a different scope. The clear belongs to
+      // the scope the text was typed in, or it leaves that scope holding the
+      // message and wipes the new session's fresh box instead.
+      const sentDraftScope = draftScopeRef.current;
+
+      /**
+       * The composer state a *delivered* message leaves behind: recorded in the
+       * input history, removed from the box. Deferred out of the optimistic path
+       * on purpose — a send the server never took must leave the draft where the
+       * user typed it, or "try again" costs them the whole message.
+       */
+      const commitSentComposerState = () => {
+        recordSentMessage(currentInput, targetSessionId);
+        // The box itself is cleared only while it still shows the scope the
+        // message came from; a scope that has moved on (a new chat) already
+        // shows its own, empty draft.
+        if (draftScopeRef.current === sentDraftScope) {
+          setInput('');
+          inputValueRef.current = '';
+        }
+        // The stored draft of the sent scope is always retired — this is the
+        // half the old, synchronous clear performed, and deferring it must not
+        // leave the typed-in scope holding a message that has been delivered.
+        if (sentDraftScope) {
+          writeDraftText(sentDraftScope, '');
+        }
+        resetCommandMenuState();
+        setAttachedFiles([]);
+        setFileErrors(new Map());
+        setIsTextareaExpanded(false);
+
+        if (textareaRef.current) {
+          textareaRef.current.style.height = 'auto';
+        }
+      };
+
       // One message shape for every provider. The backend resolves the
       // provider, project path, and provider-native resume id from the
       // session row; `options` only carries composer-level preferences.
-      sendMessage({
+      const sendFrame = {
         // Replacing an already-sent message is its own frame: it changes the
         // shape of the conversation, so it gets validated separately and can
         // report why it was refused.
@@ -983,28 +1137,48 @@ export function useChatComposerState({
           ...(queuedSubmission?.options ?? buildSendOptions(messageContent)),
           attachments: uploadedAttachments,
         },
+      };
+
+      if (busySendToResidentProcess) {
+        // The process is already in a turn and takes the command itself, so the
+        // message has left the composer whatever the process later says about
+        // it; there is no delivery to await.
+        sendMessage(sendFrame);
+        setEditingAnchorId(null);
+        commitSentComposerState();
+        return;
+      }
+
+      // Watch this send to its answer. The first frame the server addresses to
+      // the session settles it delivered — the composer clears and the marked
+      // turn stands. The deadline with nothing said settles it failed — the
+      // draft stays, the optimistic row is hidden, the local processing mark is
+      // taken back, and the dock reports the failure instead of a turn.
+      const delivery = createSendDelivery({
+        onSettle: (phase) => {
+          if (pendingDeliveryRef.current?.delivery === delivery) {
+            pendingDeliveryRef.current = null;
+          }
+          if (phase === 'delivered') {
+            setSendFailed(false);
+            undeliveredTurnRef.current = null;
+            commitSentComposerState();
+            return;
+          }
+          setSendFailed(true);
+          onSessionIdle?.(targetSessionId);
+          if (optimisticRowId) {
+            markUserTurnUndelivered?.(optimisticRowId);
+            undeliveredTurnRef.current = { id: optimisticRowId, text: currentInput };
+          }
+        },
       });
+      pendingDeliveryRef.current = { sessionId: targetSessionId, delivery };
+      setSendFailed(false);
+      delivery.begin();
+
+      sendMessage(sendFrame);
       setEditingAnchorId(null);
-
-      // Recorded under the (possibly just-allocated) session id, so the first
-      // message of a new chat lands in the history of the session the user is
-      // navigated to. Queued drafts were recorded when they were queued; the
-      // consecutive-duplicate check keeps this second call a no-op.
-      recordSentMessage(currentInput, targetSessionId);
-      setInput('');
-      inputValueRef.current = '';
-      resetCommandMenuState();
-      setAttachedFiles([]);
-      setFileErrors(new Map());
-      setIsTextareaExpanded(false);
-
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto';
-      }
-
-      if (draftScopeRef.current) {
-        writeDraftText(draftScopeRef.current, '');
-      }
     },
     [
       selectedSession,
@@ -1014,8 +1188,10 @@ export function useChatComposerState({
       editingAnchorId,
       executeCommand,
       hostsSnapshot,
+      isConnected,
       isLoading,
       onSessionProcessing,
+      onSessionIdle,
       onSessionEstablished,
       provider,
       recordSentMessage,
@@ -1025,6 +1201,8 @@ export function useChatComposerState({
       sendMessage,
       sessionKey,
       addMessage,
+      markUserTurnUndelivered,
+      restoreUserTurn,
       setIsUserScrolledUp,
       slashCommands,
     ],
@@ -1364,6 +1542,11 @@ export function useChatComposerState({
     input,
     setInput,
     draftScope,
+    /**
+     * True when the last send was never delivered. The composer's dock reports
+     * it in place of a turn while the draft waits to be retried.
+     */
+    sendFailed,
     editingAnchorId,
     beginEditMessage,
     cancelEditMessage,

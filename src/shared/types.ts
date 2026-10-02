@@ -321,9 +321,11 @@ export type ActivityConnection = {
  *
  * `hidden` means the dock is not drawn at all; `in-turn` means fresh evidence of
  * a running turn; `unreachable` means the client has a turn to talk about but no
- * fresh evidence the server is still there.
+ * fresh evidence the server is still there; `send-failed` means a send was never
+ * taken — the socket was gone or no answer came inside the deadline — so there
+ * is deliberately no turn to speak about, only the failure to report.
  */
-export type ActivityDockState = 'hidden' | 'in-turn' | 'unreachable';
+export type ActivityDockState = 'hidden' | 'in-turn' | 'unreachable' | 'send-failed';
 
 // ---------------------------
 

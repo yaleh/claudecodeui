@@ -263,6 +263,11 @@
     "unreachable": {
       "title": "Conexión perdida · reconectando…",
       "stopReason": "Detener no está disponible mientras el servidor no responde"
+    },
+    "sendFailed": {
+      "title": "Error al enviar · el servidor no responde",
+      "reason": "El mensaje no se envió. El borrador sigue en el cuadro; inténtalo de nuevo.",
+      "retry": "Reenviar"
     }
   },
   "projectSelection": {

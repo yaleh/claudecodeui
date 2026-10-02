@@ -74,7 +74,7 @@ function ChatInterface({
   onShowAllTasks,
 }: ChatInterfaceProps) {
   const { tasksEnabled, isTaskMasterInstalled } = useTasksSettings();
-  const { subscribe } = useWebSocket();
+  const { subscribe, isConnected } = useWebSocket();
   const { t } = useTranslation('chat');
   const processingSessions = useProcessingSessions();
   const {
@@ -142,6 +142,8 @@ function ChatInterface({
   const {
     chatMessages,
     addMessage,
+    markUserTurnUndelivered,
+    restoreUserTurn,
     sessionActivity,
     isProcessing,
     canAbortSession,
@@ -247,6 +249,7 @@ function ChatInterface({
     beginEditMessage,
     cancelEditMessage,
     draftScope,
+    sendFailed,
   } = useChatComposerState({
     selectedProject,
     selectedSession,
@@ -261,13 +264,28 @@ function ChatInterface({
     canAbortSession,
     tokenBudget,
     sendMessage,
+    // A closed socket cannot carry the send, so the composer has to know: it
+    // fails such a send at once rather than arming a deadline for an answer
+    // that cannot arrive.
+    isConnected,
     sendByCtrlEnter,
     onSessionProcessing,
+    // The send path marks a turn before the frame leaves the socket, so it needs
+    // the other half of that pair: a send the server never took takes the mark
+    // back, or the dock keeps claiming a turn that was never started.
+    onSessionIdle,
+    // The answer to the send that is in flight arrives as a socket frame; the
+    // composer listens for the first one the server addresses to the session.
+    subscribe,
     onSessionEstablished: handleSessionEstablished,
     onFileOpen,
     onShowSettings,
     scrollToBottom,
     addMessage,
+    // A send that was never delivered hides the row it added; its retry puts the
+    // same row back rather than minting a second one for one message.
+    markUserTurnUndelivered,
+    restoreUserTurn,
     // The composer hands a message to a resident process through the same store
     // the live `command_lifecycle` events land in, so the row it writes is the
     // row those events update — one object per held command, not two halves
@@ -521,6 +539,7 @@ function ChatInterface({
             isProcessing={isProcessing}
             hasActivityIndicator={hasActivityIndicator}
             activity={sessionActivity}
+            sendFailed={sendFailed}
             chatMessages={chatMessages}
             selectedSession={selectedSession}
             currentSessionId={currentSessionId}
@@ -588,6 +607,7 @@ function ChatInterface({
           handlePermissionDecision={handlePermissionDecision}
           handleGrantToolPermission={handleGrantToolPermission}
           activity={sessionActivity}
+          sendFailed={sendFailed}
           isLoading={isProcessing}
           onAbortSession={handleAbortSession}
           permissionMode={permissionMode}

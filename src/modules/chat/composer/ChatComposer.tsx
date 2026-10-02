@@ -84,6 +84,8 @@ type ChatComposerProps = {
   ) => void;
   handleGrantToolPermission: (suggestion: { entry: string; toolName: string }) => { success: boolean };
   activity: SessionActivity | null;
+  /** True when the last send was never delivered; the dock reports it instead of a turn. */
+  sendFailed?: boolean;
   isLoading: boolean;
   onAbortSession: () => void;
   permissionMode: PermissionMode;
@@ -200,6 +202,7 @@ export default function ChatComposer({
   handlePermissionDecision,
   handleGrantToolPermission,
   activity,
+  sendFailed = false,
   isLoading,
   onAbortSession,
   permissionMode,
@@ -469,6 +472,7 @@ export default function ChatComposer({
     hasTurnAnchor: freshness.hasTurnAnchor,
     wired: freshness.wired,
     hasAbort: true,
+    sendFailed,
   });
   const stopUnreachable = composerDock.state === 'unreachable';
   const stopUnreachableReason = composerDock.stopReasonKey === null
@@ -538,6 +542,7 @@ export default function ChatComposer({
             sessionId={sessionId}
             onAbort={onAbortSession}
             isInputFocused={isInputFocused}
+            sendFailed={sendFailed}
           />
         </div>
       )}

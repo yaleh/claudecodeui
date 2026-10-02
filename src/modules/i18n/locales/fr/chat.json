@@ -237,6 +237,11 @@
     "unreachable": {
       "title": "Connexion perdue · reconnexion…",
       "stopReason": "Arrêt indisponible tant que le serveur est injoignable"
+    },
+    "sendFailed": {
+      "title": "Échec de l'envoi · le serveur ne répond pas",
+      "reason": "Le message n'a pas été envoyé. Le brouillon est toujours dans le champ — réessayez.",
+      "retry": "Renvoyer"
     }
   },
   "projectSelection": {

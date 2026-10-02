@@ -235,6 +235,11 @@
     "unreachable": {
       "title": "Bağlantı kesildi · yeniden bağlanıyor…",
       "stopReason": "Sunucuya ulaşılamadığı sürece durdurma kullanılamaz"
+    },
+    "sendFailed": {
+      "title": "Gönderilemedi · sunucu yanıt vermiyor",
+      "reason": "Mesaj gönderilemedi. Taslak kutuda duruyor — tekrar deneyin.",
+      "retry": "Yeniden gönder"
     }
   },
   "projectSelection": {

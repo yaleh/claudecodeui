@@ -105,6 +105,28 @@ const TITLE = 'Activity dock truthfulness — a turn held open';
 const SEED_USER_TEXT = 'seeded user turn for the activity-dock criterion';
 const WALK_TURN_TEXT = 'the turn the process is still writing';
 
+/** The composer's box, the same anchor the resident specs type into. */
+const TEXTAREA = '[data-slot="prompt-input-textarea"]';
+/** The message this criterion types, fails to send, then retries. */
+const DRAFT = 'the draft a send to an unreachable server must not eat';
+
+/**
+ * Every state that means "a turn is running". The failed-send reading must be
+ * none of them — and, because the list names states this build does not draw
+ * yet, it is a statement about the shape of the answer rather than about one
+ * literal string: a dock that later grows a `thinking` state cannot quietly
+ * start reporting failures as thinking.
+ */
+const IN_TURN_STATES = new Set([
+  'sending',
+  'thinking',
+  'writing',
+  'tool',
+  'awaitingPermission',
+  'compacting',
+  'in-turn',
+]);
+
 /**
  * One resident process, walked into a running turn and held there.
  *
@@ -251,7 +273,13 @@ const readFrames = (page: Page): Promise<Array<Record<string, unknown>>> =>
 
 /** The partition the app's own socket is put behind, toggled by the case below. */
 type Partition = {
-  mode: 'pass' | 'drop' | 'reject';
+  /**
+   * `pass` forwards both directions; `drop` forwards page-to-server but drops
+   * server-to-page; `silence` drops both while leaving the socket open, so the
+   * client cannot reach the server and hears nothing back; `reject` closes the
+   * socket outright.
+   */
+  mode: 'pass' | 'drop' | 'silence' | 'reject';
   closeLive: () => void;
 };
 
@@ -268,10 +296,15 @@ async function installPartition(page: Page, partition: Partition): Promise<void>
       void ws.close({ code: 1006 });
     };
     // Manual forwarding in both directions: once a handler is registered on a side,
-    // nothing is forwarded automatically. Page-to-server is always forwarded (the
-    // client must still be able to subscribe); server-to-page is dropped mid-partition.
+    // nothing is forwarded automatically. `drop` keeps the client's own frames
+    // flowing (it must still be able to subscribe) while silencing the server;
+    // `silence` is the fully cut-off reading, where neither side hears the other
+    // — for a send, "the server never got it", not "the server answered and the
+    // answer was lost".
     ws.onMessage((message) => {
-      server.send(message);
+      if (partition.mode !== 'silence') {
+        server.send(message);
+      }
     });
     server.onMessage((message) => {
       if (partition.mode === 'pass') {
@@ -429,6 +462,96 @@ test.describe('activity dock truthfulness', () => {
 
     const wall = Date.now() - startedAt;
     console.log(`dock.wall=${wall}ms`);
+    expect(wall, 'the case body must land inside its own budget').toBeLessThanOrEqual(20_000);
+  });
+
+  test('AC-185 a send the server never takes fails, keeps the draft, and retries without duplicating the user row', async () => {
+    const startedAt = Date.now();
+
+    // Open the session. Not inherited from the case above: this one is selected
+    // on its own (`-g "AC-185"`), and it must set up everything it reads.
+    await revealSession(page, workspaceName, sessionId);
+    await sessionRow(page, sessionId).click();
+    await expect(page.locator(PANE)).toBeVisible({ timeout: 30_000 });
+
+    // The app's socket is cut off from the server in both directions — nothing
+    // this client sends reaches it, nothing it says comes back — while the
+    // socket itself stays open. Kept open on purpose: the send path can tell at
+    // a glance whether the socket is open, so a *closed* socket would take the
+    // immediate-failure branch and this criterion's own deadline would never be
+    // the thing under test. Here the deadline is what has to fire.
+    partition.mode = 'silence';
+
+    const textarea = page.locator(TEXTAREA);
+    await textarea.fill(DRAFT);
+    const draftBeforeSend = await textarea.inputValue();
+    expect(draftBeforeSend, 'the draft is really in the box before the send').toBe(DRAFT);
+
+    const sendLabel = String(localeKey(LOCALE, 'input.send'));
+    const sendButton = page.locator(FORM).getByRole('button', { name: sendLabel });
+
+    const sentAt = Date.now();
+    await sendButton.click();
+
+    // (i) The dock stops claiming a turn inside the send deadline and reports the
+    //     failure, in the shipped wording, with the dock element itself present.
+    await expect(page.locator(DOCK)).toHaveAttribute('data-activity-state', 'send-failed', { timeout: 5_000 });
+    const after = await readDock(page);
+    const latencyMs = Date.now() - sentAt;
+    console.log(`send.state.afterSend=${after.state}`);
+    console.log(`send.text.afterSend=${JSON.stringify(after.text)}`);
+    console.log(`send.latency=${latencyMs}ms`);
+    expect(after.state, 'a send the server never took is not a turn').toBe('send-failed');
+    expect(
+      IN_TURN_STATES.has(after.state),
+      `the failed-send reading is not one of the in-turn states (got ${after.state})`,
+    ).toBe(false);
+    expect(after.text.length, 'the dock is present and says something — not an absent dock').toBeGreaterThan(0);
+    const failureTitle = String(localeKey(LOCALE, 'claudeStatus.sendFailed.title'));
+    const failureReason = String(localeKey(LOCALE, 'claudeStatus.sendFailed.reason'));
+    console.log(`send.failureText=${JSON.stringify(failureTitle)}`);
+    expect(
+      after.text.includes(failureTitle) || after.text.includes(failureReason),
+      `the dock must carry the shipped failure wording; text was ${JSON.stringify(after.text)}`,
+    ).toBe(true);
+
+    // (ii) The draft is byte-for-byte what the user typed, read off the input.
+    const draftAfterSend = await textarea.inputValue();
+    console.log(`draft.beforeSend=${JSON.stringify(draftBeforeSend)}`);
+    console.log(`draft.afterSend=${JSON.stringify(draftAfterSend)}`);
+    expect(draftAfterSend, 'a failed send leaves the draft in the box, not in a store behind an empty box').toBe(DRAFT);
+
+    // (iii) Restore the channel; the retry must reach the server, and its user
+    //       row must be the same one — the failed attempt's, not a second copy.
+    const framesBeforeRelease = (await readFrames(page)).length;
+    partition.mode = 'pass';
+    const releasedAt = Date.now();
+    await expect.poll(
+      async () => (await readFrames(page)).length,
+      { timeout: 5_000, message: 'server frames must reach the page again after the partition is released' },
+    ).toBeGreaterThan(framesBeforeRelease);
+
+    await sendButton.click();
+
+    // The server took it: the running-sessions registry — the same in-memory
+    // registry the app polls to derive "processing" — lists the session again.
+    await expect.poll(async () => {
+      const response = await api.get('/api/providers/sessions/running');
+      const body = await response.json().catch(() => null);
+      const sessions = (body?.data?.sessions ?? []) as Array<{ sessionId?: string }>;
+      return sessions.some((session) => session.sessionId === sessionId);
+    }, { timeout: 5_000, message: 'the retried chat.send must be accepted by the server' }).toBe(true);
+    console.log(`send.retry.acceptedAfterMs=${Date.now() - releasedAt}ms`);
+
+    const userRows = await page.locator(`${PANE} .chat-message[data-message-style="user"]`).evaluateAll(
+      (rows, text) => rows.filter((row) => (row.textContent ?? '').includes(text)).length,
+      DRAFT,
+    );
+    console.log(`transcript.userRows=${JSON.stringify([userRows])}`);
+    expect(userRows, 'the retried text is exactly one user row, never two').toBe(1);
+
+    const wall = Date.now() - startedAt;
+    console.log(`send.wall=${wall}ms`);
     expect(wall, 'the case body must land inside its own budget').toBeLessThanOrEqual(20_000);
   });
 

@@ -207,6 +207,64 @@ describe('the activity dock under a partition', () => {
     assert.equal(onAbort.mock.calls.length, 0, 'a disabled stop must not fire');
   });
 
+  test('a failed send is a state of its own, and a live turn is never relabelled by it', () => {
+    const readings: string[] = [];
+
+    // Nothing is running and the send failed: the dock speaks the failure. This
+    // is the reading the browser criterion takes — and the one a retained local
+    // "processing" mark would keep out of reach.
+    const failedView = render(
+      React.createElement(ActivityIndicator, {
+        activity: null,
+        sessionId: SESSION_ID,
+        connection: makeConnection().connection,
+        sendFailed: true,
+      }),
+    );
+    const failedDock = dockOf(failedView);
+    const failedState = failedDock.getAttribute('data-activity-state');
+    const failedText = failedDock.textContent ?? '';
+    const failedHits = SIX_WORDS.filter((word) => failedText.includes(word));
+    readings.push(`send-failed: state=${failedState} text="${failedText}" hits=${JSON.stringify(failedHits)}`);
+    assert.equal(
+      failedState,
+      'send-failed',
+      `a failed send with no turn must publish its own state; readings: ${readings.join(' | ')}`,
+    );
+    assert.ok(
+      failedText.trim().length > 0,
+      `the failed-send dock must say something, not draw an empty element; readings: ${readings.join(' | ')}`,
+    );
+    assert.ok(
+      failedText.includes(enChat.claudeStatus.sendFailed.title),
+      `the dock must carry the shipped failure wording; readings: ${readings.join(' | ')}`,
+    );
+    assert.deepEqual(
+      failedHits,
+      [],
+      `a failed send is not a turn: no rotating action word may appear; readings: ${readings.join(' | ')}`,
+    );
+
+    // A session the local table still reports as running is NOT relabelled: the
+    // turn reading wins, so keeping the send-time mark (the defect) leaves the
+    // dock claiming a turn instead of reporting the failure.
+    const markedView = render(
+      React.createElement(ActivityIndicator, {
+        activity: ACTIVITY,
+        sessionId: SESSION_ID,
+        connection: makeConnection().connection,
+        sendFailed: true,
+      }),
+    );
+    const markedState = dockOf(markedView).getAttribute('data-activity-state');
+    readings.push(`retained-mark: state=${markedState}`);
+    assert.notEqual(
+      markedState,
+      'send-failed',
+      `a retained processing mark must keep the dock off the failed-send state; readings: ${readings.join(' | ')}`,
+    );
+  });
+
   test('recovery: a frame after the partition returns the dock to the turn, with the clock carried forward', () => {
     const readings: string[] = [];
     const { connection, push } = makeConnection();
