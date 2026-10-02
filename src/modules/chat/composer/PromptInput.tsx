@@ -96,7 +96,16 @@ export const PromptInputTextarea = React.forwardRef<
     ref={ref}
     data-slot="prompt-input-textarea"
     className={cn(
-      'chat-input-placeholder block max-h-[40vh] w-full resize-none overflow-y-auto bg-transparent px-4 py-2 text-sm leading-6 text-foreground placeholder-muted-foreground/50 focus:outline-none sm:max-h-[300px]',
+      // The height cap is the only thing bounding a draft's growth: `resizeTextarea` writes an
+      // inline height straight from `scrollHeight` and caps nothing itself. `sm:max-h-[300px]`
+      // alone therefore handed a 330px-tall landscape viewport a 300px textarea — 91% of the
+      // screen — and with the footer under it the submit button was pushed past the bottom edge,
+      // where `html,body{overflow:hidden}` made it unreachable. The `min()` keeps the desktop's
+      // 300px exactly (45vh reaches 300px at 667px of viewport, and this branch starts at 640px of
+      // *width*) while a short viewport gets a cap it can afford. `vh` rather than `dvh` on
+      // purpose: an unsupported unit drops the whole declaration, which would remove the cap and
+      // restore the bug, whereas `vh` is merely conservative.
+      'chat-input-placeholder block max-h-[40vh] w-full resize-none overflow-y-auto bg-transparent px-4 py-2 text-sm leading-6 text-foreground placeholder-muted-foreground/50 focus:outline-none sm:max-h-[min(300px,45vh)]',
       className
     )}
     {...props}

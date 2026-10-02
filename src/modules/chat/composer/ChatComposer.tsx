@@ -335,7 +335,7 @@ export default function ChatComposer({
   // The window rule, read through the same hook the rest of the app uses for `md`. It stays the
   // whole answer below the breakpoint and for the status tab below; the footer's arrangement also
   // reads the box's own width, which is `isCompactTier` underneath.
-  const { isMobile } = useDeviceSettings();
+  const { isMobile, isShortViewport } = useDeviceSettings();
   // Whether the composer offers the resident switch at all. Read from the backend capability matrix
   // rather than from a provider id — the same rule the sidebar's conversion item follows — so a
   // provider that gains the mode gets the switch without a UI change. The composer is not handed the
@@ -350,7 +350,12 @@ export default function ChatComposer({
   // `md` (768px) is a rule of its own — the `sm` (640px) boundary this group used to switch on gave
   // the 640–767px band a third arrangement — but it is not the only signal, because the sidebar
   // takes 288px and more out of the box while the window stays wide. See the hook for the width.
-  const { containerRef, isCompactTier } = useComposerCompactTier();
+  //
+  // `areToolsInline` is the height tier's answer: a viewport too short to spend a row on the
+  // controls, inside a box wide enough to hold them beside the input instead. It follows the box's
+  // measurement, so it is false on the first render and in any environment that cannot measure —
+  // see the hook for why that is the safe direction to be wrong in.
+  const { containerRef, isCompactTier, areToolsInline } = useComposerCompactTier();
   // The dropzone's own root ref comes back out of its root props and is re-attached beside the
   // tier hook's: the props are spread onto the form, so a `ref=` written next to the spread is
   // silently replaced by the one inside it — which is how this hook's box went unmeasured. Both
@@ -525,17 +530,43 @@ export default function ChatComposer({
         : t('input.stop')
       : t('input.send');
 
+  // The replay pair's own row, drawn on the compact tier only — the wide tier keeps the pair in the
+  // tools group. Held as a value rather than written inline because the inline-tools tier mounts it
+  // in a different column: under the textarea instead of after the box. One renderer that moves is
+  // what keeps exactly one set of replay controls on screen, and therefore exactly one set in the
+  // accessibility tree, at every width and every height.
+  const clipRow = clipSlot && isCompactTier ? (
+    <div
+      data-slot="prompt-input-clip-row"
+      className="flex flex-wrap items-center gap-1 px-3 py-0.5"
+    >
+      <VoiceClipButton clips={clipSlot} state={clipPlayState} onToggle={toggleClipPlayback} />
+    </div>
+  ) : null;
+
   return (
-    <div className="chat-composer-shell relative flex-shrink-0 px-2 pb-2 pt-0 sm:px-4 sm:pb-4 md:px-4 md:pb-6">
+    <div
+      className={[
+        'chat-composer-shell relative flex-shrink-0 pt-0',
+        // `md:pb-6` is 24px of empty space under the input. On a 900px-tall desktop that is
+        // invisible; on a 330px-tall landscape viewport it is 7% of the screen spent on nothing, so
+        // the short tier takes the compact padding instead. The branch replaces the other rather
+        // than layering on it, so no cascade order is being relied on.
+        isShortViewport ? 'px-2 pb-1.5' : 'px-2 pb-2 sm:px-4 sm:pb-4 md:px-4 md:pb-6',
+      ].join(' ')}
+    >
       {/*
-        The tab is the `md`-and-up surface: it hangs over the top edge of the input
-        and, being out of flow, over the last of the transcript. Below `md` it is
-        not rendered at all — the pane draws the same status in the message flow
-        instead (see ChatMessagesPane), and the composer's submit button is the
-        only stop entry, so the single-entry rule holds without a second control
-        to hide.
+        The tab is the surface for a viewport with room above the input: it hangs over
+        the top edge of the input and, being out of flow, over the last of the
+        transcript. Below `md`, and on a viewport too short to give up the line it
+        covers, it is not rendered at all — the pane draws the same status in the
+        message flow instead (see ChatMessagesPane), and the composer's submit button
+        is the only stop entry, so the single-entry rule holds without a second
+        control to hide. Height is the second reason and not a restatement of the
+        first: a landscape phone is 844px wide, so the width rule alone would float
+        this tab over a transcript that is only ~130px tall.
       */}
-      {!hasPendingPermissions && !isMobile && (
+      {!hasPendingPermissions && !isMobile && !isShortViewport && (
         <div className="pointer-events-none absolute bottom-full left-1/2 z-10 w-[calc(100%-1rem)] max-w-[54.25rem] -translate-x-1/2 translate-y-px bg-transparent sm:w-[calc(100%-2rem)]">
           <ActivityIndicator
             activity={activity}
@@ -706,9 +737,25 @@ export default function ChatComposer({
           status={isLoading ? 'streaming' : 'ready'}
           className={[
             isTextareaExpanded ? 'chat-input-expanded' : '',
-            // Only the tab squares the input's top corners off; below `md` there
-            // is no tab sitting there, so the box keeps its own rounding.
-            hasActivityIndicator && !isMobile ? 'rounded-t-none' : '',
+            // Only the tab squares the input's top corners off; below `md`, and on a short
+            // viewport where the tab is not drawn either, there is nothing sitting there, so the
+            // box keeps its own rounding. Same condition as the tab's own render above.
+            hasActivityIndicator && !isMobile && !isShortViewport ? 'rounded-t-none' : '',
+            // The controls are drawn beside the input rather than under it: two tracks, the input's
+            // taking the slack and the controls' sized by their own content, with `items-end` on
+            // the input's last line — where a send button is looked for.
+            //
+            // A grid rather than a row, because not every child of this form is a column of it. A
+            // session that is not already resident draws the switch's row above the input, and in a
+            // flex row that row is simply the first column: it took the width the input was meant
+            // to have (the input measured 0px) and the controls sat where the input should have
+            // been. Wrapping was tried and is not enough — a wrapping row decides its lines from
+            // the items' *content* sizes before it shrinks anything, so a wide enough control
+            // cluster moved the input onto a line of its own and the arrangement silently became
+            // the stacked one while still reporting `display: flex`. A grid has no such arithmetic:
+            // the header spans both tracks (see below) and the second row is the input and the
+            // controls whatever either of them measures.
+            areToolsInline ? 'grid grid-cols-[minmax(0,1fr)_auto] items-end' : '',
           ].filter(Boolean).join(' ')}
           {...dropzoneFormProps}
           ref={attachForm}
@@ -730,7 +777,7 @@ export default function ChatComposer({
           )}
 
           {attachedFiles.length > 0 && (
-            <PromptInputHeader>
+            <PromptInputHeader className={areToolsInline ? 'col-span-full pt-1' : undefined}>
               <div className="rounded-xl bg-muted/40 p-2">
                 <div className="flex flex-wrap gap-2">
                   {attachedFiles.map((file, index) => (
@@ -768,7 +815,10 @@ export default function ChatComposer({
             owns the switch for a session with no transcript, this composer for one that has it.
           */}
           {canRunResident && showResidentSwitch && !isResidentSession && (
-            <PromptInputHeader>
+            // `col-span-full` gives this row a line of its own above the input's, and `pt-1`
+            // rather than the primitive's `pt-3` trims what that line costs: on a 330px screen the
+            // 8px between it and the input is 2.4% of the transcript.
+            <PromptInputHeader className={areToolsInline ? 'col-span-full pt-1' : undefined}>
               <ResidentToggle
                 enabled={residentEnabled}
                 onToggle={onToggleResident ?? noopResidentToggle}
@@ -776,7 +826,13 @@ export default function ChatComposer({
             </PromptInputHeader>
           )}
 
-          <PromptInputBody>
+          {/*
+            `min-w-0` is the load-bearing half: the track is already allowed to shrink
+            (`minmax(0, 1fr)` on the form), but a grid item's own automatic minimum is its content,
+            which would put the floor back. The body still stacks its own children — the textarea,
+            and the replay row when the tier moves it in here.
+          */}
+          <PromptInputBody className={areToolsInline ? 'flex min-w-0 flex-col' : undefined}>
             <div ref={inputHighlightRef} aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden rounded-xl">
               <div className="chat-input-placeholder block w-full whitespace-pre-wrap break-words px-4 py-2 text-sm leading-6 text-transparent">
                 {renderInputWithMentions(input)}
@@ -796,6 +852,13 @@ export default function ChatComposer({
               onBlur={() => onInputFocusChange?.(false)}
               onInput={onTextareaInput}
               placeholder={placeholder}
+              // Tighter than the class cap while the controls share this row: the row's height is
+              // the textarea's own, so a long draft would spend the transcript's budget to grow.
+              // An inline style rather than another class because the class cap carries `sm:`,
+              // and a variant sorts after a bare utility — a plain `max-h-*` would lose to it.
+              // Only `maxHeight` is written here, so the `height` `resizeTextarea` sets on the
+              // element is never touched by React's style diffing.
+              style={areToolsInline ? { maxHeight: 'min(300px,30vh)' } : undefined}
               // Read-only while a Claude Code background job holds the
               // conversation: there is no turn this input could start, and the
               // notice above it says so. `disabled` rather than `readOnly`
@@ -803,6 +866,11 @@ export default function ChatComposer({
               // can be sent until the job is stopped.
               disabled={isOccupied}
             />
+            {/* Inline tier only: the row below is a sibling of this body, and the form is a row on
+                that tier, so a sibling here would become a third column of its own. It moves into
+                this column instead, under the textarea, where it costs the input height rather than
+                a full-width row across the composer. */}
+            {areToolsInline && clipRow}
         </PromptInputBody>
 
         {/*
@@ -818,15 +886,10 @@ export default function ChatComposer({
           One renderer, not two: the pair is drawn here on the compact tier and in the tools group on
           the wide one, off the same `clipSlot`/`clipPlayState` the hook owns, so exactly one set of
           replay controls is ever on screen — and therefore exactly one set in the accessibility tree.
+          The draw itself is the `clipRow` value above, which the inline-tools tier mounts inside the
+          body instead of here.
         */}
-        {clipSlot && isCompactTier && (
-          <div
-            data-slot="prompt-input-clip-row"
-            className="flex flex-wrap items-center gap-1 px-3 py-0.5"
-          >
-            <VoiceClipButton clips={clipSlot} state={clipPlayState} onToggle={toggleClipPlayback} />
-          </div>
-        )}
+        {!areToolsInline && clipRow}
 
         {/*
           On the compact tier the row must never wrap: the six controls that
@@ -853,7 +916,17 @@ export default function ChatComposer({
           because the mic produced one, and the two groups' placement, the 93px height
           and the 1280 footer are unchanged without it.
         */}
-        <PromptInputFooter className={isCompactTier ? 'flex-nowrap' : 'flex-wrap gap-y-1'}>
+        <PromptInputFooter
+          className={[
+            isCompactTier ? 'flex-nowrap' : 'flex-wrap gap-y-1',
+            // Beside the input rather than under it: the divider moves from the top edge to the
+            // leading edge and the vertical padding goes — the row it used to need was the whole
+            // point of moving it. Its width is the grid's `auto` track, which is what the content
+            // measures. These override the primitive's own `border-t`/`py-2`/`px-3`, which `cn`
+            // inside `PromptInputFooter` resolves in this string's favour by putting it last.
+            areToolsInline ? 'border-l border-t-0 py-0 pl-2 pr-1' : '',
+          ].filter(Boolean).join(' ')}
+        >
           <PromptInputTools className={isCompactTier ? 'shrink-0' : 'min-w-0 flex-wrap'}>
             <PromptInputButton
               tooltip={{ content: t('input.attachFiles') }}

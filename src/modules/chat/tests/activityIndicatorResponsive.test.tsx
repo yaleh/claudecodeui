@@ -109,6 +109,19 @@ const setViewportWidth = (width: number) => {
   Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: width });
 };
 
+/**
+ * The second signal the same hook reads. jsdom's own window is 768px tall — the tall tier — so a
+ * case that does not set this keeps reading the surface it read before the height tier existed.
+ */
+const setViewportHeight = (height: number) => {
+  Object.defineProperty(window, 'innerHeight', { configurable: true, writable: true, value: height });
+};
+
+/** A phone held sideways: 844px clears `md`, and 330px is a real landscape height with browser chrome. */
+const LANDSCAPE_WIDTH = 844;
+const LANDSCAPE_HEIGHT = 330;
+const TALL_HEIGHT = 900;
+
 /** jsdom ships no media queries; the device rule under test is the width one. */
 const installMatchMedia = () => {
   window.matchMedia = ((query: string) => ({
@@ -207,8 +220,13 @@ const paneProps = (overrides: Partial<React.ComponentProps<typeof ChatMessagesPa
   ...overrides,
 });
 
-const renderPane = (width: number, overrides: Partial<React.ComponentProps<typeof ChatMessagesPane>> = {}) => {
+const renderPane = (
+  width: number,
+  overrides: Partial<React.ComponentProps<typeof ChatMessagesPane>> = {},
+  height: number = TALL_HEIGHT,
+) => {
   setViewportWidth(width);
+  setViewportHeight(height);
   // The real preferences owner, not a stub: a message row reads the voice
   // preference to decide whether to offer its speak control, and a stub would
   // be a second implementation of what the row is entitled to read.
@@ -458,6 +476,40 @@ test('(e) the tier edge is md: 767px is in the flow, 768px is the composer\'s ta
     `768px must hand the status back to the composer's tab; DOM: ${wide.view.container.innerHTML.slice(0, 300)}`,
   );
   wide.view.unmount();
+});
+
+test('(e) height decides the surface too: a short viewport keeps the status in the flow at 844px', () => {
+  // The width rule alone hands a landscape phone the composer's floating tab, because 844px clears
+  // `md` — and the pane it would hang over is about 130px tall, so the tab covers the last of the
+  // only few lines the reader has. Height is the second rule, and this is its cell.
+  const short = renderPane(LANDSCAPE_WIDTH, {}, LANDSCAPE_HEIGHT);
+  const row = dockIn(short.view);
+  assert.ok(
+    row,
+    `844x${LANDSCAPE_HEIGHT} must draw the in-flow status line; DOM: ${short.view.container.innerHTML.slice(0, 300)}`,
+  );
+  const positional = Array.from(row.classList).filter((name) => /^(absolute|fixed)$/.test(name));
+  assert.deepEqual(
+    positional,
+    [],
+    `the short viewport's status line must stay in the flow — no absolute or fixed positioning; class="${row.className}"`,
+  );
+  // And the space the floating tab would have needed is not reserved for a tab that is not drawn.
+  assert.equal(
+    Array.from(short.pane.classList).includes('pb-12'),
+    false,
+    `a pane that carries the line itself must not also reserve the tab's space; class="${short.pane.className}"`,
+  );
+  short.view.unmount();
+
+  // The other cell of the same edge: the same width, tall enough to afford the tab, keeps it.
+  const tall = renderPane(LANDSCAPE_WIDTH, {}, TALL_HEIGHT);
+  assert.equal(
+    dockIn(tall.view),
+    null,
+    `844x${TALL_HEIGHT} must hand the status back to the composer's tab; DOM: ${tall.view.container.innerHTML.slice(0, 300)}`,
+  );
+  tall.view.unmount();
 });
 
 test('(f) from md up the pane draws no inline status line', () => {

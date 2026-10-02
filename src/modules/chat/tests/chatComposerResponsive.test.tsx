@@ -133,6 +133,19 @@ const setViewportWidth = (width: number) => {
   Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: width });
 };
 
+/**
+ * The second signal the same hook reads. jsdom's own window is 768px tall, which is the tall tier,
+ * so a case that does not set this keeps reading exactly the layout it read before the height tier
+ * existed — and the one case below that does set it is the only one that can reach the new one.
+ */
+const setViewportHeight = (height: number) => {
+  Object.defineProperty(window, 'innerHeight', { configurable: true, writable: true, value: height });
+};
+
+/** A phone held sideways: wide enough for `md`, and the height that makes the tier apply. */
+const LANDSCAPE_WIDTH = 844;
+const LANDSCAPE_HEIGHT = 330;
+
 const FOOTER_SELECTOR = '[data-slot="prompt-input-footer"]';
 /** The footer's left control group — the one whose own wrapping permission is read below. */
 const TOOLS_SELECTOR = '[data-slot="prompt-input-tools"]';
@@ -364,9 +377,16 @@ const paneProps = (overrides: Partial<React.ComponentProps<typeof ChatMessagesPa
  * Returned as an element rather than a render result, so a case can build the pair in
  * either state: a turn running, or a permission request holding the status.
  */
-const turnElement = (width: number, { pendingPermissionRequests = [] as PendingPermissionRequest[] } = {}) => {
+const turnElement = (
+  width: number,
+  {
+    pendingPermissionRequests = [] as PendingPermissionRequest[],
+    height = 900,
+  } = {},
+) => {
   injectMatchMediaOnce();
   setViewportWidth(width);
+  setViewportHeight(height);
   const activity = RUNNING_ACTIVITY;
   const hasActivityIndicator = pendingPermissionRequests.length === 0;
   const composerProps = { ...baseProps(), activity, isLoading: true, pendingPermissionRequests };
@@ -380,7 +400,10 @@ const turnElement = (width: number, { pendingPermissionRequests = [] as PendingP
   );
 };
 
-const renderTurn = (width: number, options: { pendingPermissionRequests?: PendingPermissionRequest[] } = {}) => {
+const renderTurn = (
+  width: number,
+  options: { pendingPermissionRequests?: PendingPermissionRequest[]; height?: number } = {},
+) => {
   const view = render(turnElement(width, options));
   const footer = view.container.querySelector<HTMLElement>(FOOTER_SELECTOR);
   assert.ok(footer, `the composer must render a footer (${FOOTER_SELECTOR})`);
@@ -665,17 +688,20 @@ test('(g) a clip leaves exactly one accessible replay control per track, in each
   }
 });
 
-test('(h) a running turn offers one stop entry below md and two from md up, and the one below md is the composer\'s own submit', () => {
+test('(h) a running turn offers one stop entry below md and on a short viewport, and two only on the wide tall one', () => {
   const readings: string[] = [];
 
   for (const tier of [
-    // Below `md` the status is the transcript's line, which carries no control, so the
-    // composer's submit is the one entry. From `md` up the tab still carries its own,
-    // which is the reading this change had to leave alone.
-    { label: 'narrow (390px)', width: MOBILE_WIDTH, stops: 1, outsideForm: 0, inlineLine: true },
-    { label: 'wide (1280px)', width: DESKTOP_WIDTH, stops: 2, outsideForm: 1, inlineLine: false },
+    // Wherever the status is the transcript's line it carries no control, so the composer's
+    // submit is the one entry. The tab keeps its own only where it is drawn — from `md` up
+    // AND on a viewport tall enough to give up the line it covers. The third cell is the
+    // height half of that rule: 844px wide clears `md`, so a width-only reading would hand
+    // this viewport the two-entry arrangement, and the tab would sit over a ~130px transcript.
+    { label: 'narrow (390px)', width: MOBILE_WIDTH, height: 900, stops: 1, outsideForm: 0, inlineLine: true },
+    { label: 'short and wide (844x330)', width: LANDSCAPE_WIDTH, height: LANDSCAPE_HEIGHT, stops: 1, outsideForm: 0, inlineLine: true },
+    { label: 'wide and tall (1280px)', width: DESKTOP_WIDTH, height: 900, stops: 2, outsideForm: 1, inlineLine: false },
   ]) {
-    const { view, footer } = renderTurn(tier.width);
+    const { view, footer } = renderTurn(tier.width, { height: tier.height });
     const form = view.container.querySelector('form[data-slot="prompt-input"]');
     assert.ok(
       form,
