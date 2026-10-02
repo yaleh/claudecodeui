@@ -1,7 +1,7 @@
 ---
 id: gap-goal-016-collapsed-title-rule
 title: GOAL-016 充分性补口：折叠行标题的「当前动作+计数+耗时」规则无 AC 覆盖，提议新增 AC-208
-status: todo
+status: ready
 labels:
   - gap
 parent: null
