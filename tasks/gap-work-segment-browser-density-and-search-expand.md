@@ -34,15 +34,15 @@ goal_ac: AC-207
 
 ## AC
 
-- [ ] AC1 判据绿：`npx playwright test e2e/transcript-work-segments.spec.ts -g "AC-207"` 退出 0。红态基线（本轮实测）：spec 不存在，`.quay/gate-events.jsonl` 同一判据读数是 `Error: No tests found`；spec 内的用例标题必须含 `AC-207`（判据命令就是 `-g "AC-207"`）。
-- [ ] AC2（读数 i，承重）缺省折叠密度降到基线一半以下：同一命令退出 0，且用例内断言可视区 `.chat-message` 挂载数 `< 12` 且夹具回合总高 `< 556`；四个常量（基线 24 / 1112、阈值 12 / 556）逐字写在 spec 的常量声明里，基线出处（一回合 24 行 / 1112px）写在旁的注释里。
-- [ ] AC3（读数 i 的正控制，承重）阈值真的分得开，不是对任何输入都成立：同一夹具在**合并关闭**（一行一块）下量得的行数 / 高度 `>= 基线`（`>= 24` 行 / `>= 1112px`）—— 用假形态 (a) 的瞬态测量把这条读数落盘（spec 内的可切换分支，或变异记录里的实测两列）。没有这条，`< 12 / < 556` 在「夹具本来就没几行」时也会绿，读数 (i) 是空话（对照 `zero-claim-criterion-needs-positive-controls`）。
-- [ ] AC4（读数 ii，承重）搜索命中折叠段内成员后该段自动展开且成员可见：同一命令退出 0，且断言 (a) 命中成员行在 DOM；(b) 其 `rect` 完整落在 `.chat-messages-pane` 视口内（`top >= paneTop && bottom <= paneBottom`）；(c) 局部正控制：夹具里另一条**不含命中**的段仍处于折叠态（其成员行不在 DOM），证明展开由命中驱动，不是「全部展开」。
-- [ ] AC5（读数 ii 的非空正控制，承重）命中确实落在段内非首成员：断言夹具那条唯一短语位于某段 `members[1..]`（⛔ 不是 `members[0]`），且该段 `members.length >= 3`；否则「精确匹配失败、就近落到段行」的病态根本不会出现，读数 (ii) 是空话。
-- [ ] AC6 取假形态必须红（承重；先提交实现与判据，再逐条变异；逐条记录变异 diff、逐字失败行与 `git checkout -- <file>` 恢复命令）：(a) 把段合并改回「一行一块」（段选择器不再折叠工作段）⇒ AC2 红（行数 / 高度回到基线以上）；(b) 关掉搜索命中自动展开（面板不再把命中段的锚点加入展开集合）⇒ AC4 红，且失败方向必须是「段仍未展开 / 命中成员不在 DOM」，不得是别的腿先红。
-- [ ] AC7 spec 已登记且夹具来源记录在案：`grep -n "transcript-work-segments.spec.ts" playwright.config.ts` 命中 `DEBUG_AGENT_SPEC_FILES` 数组内一条；spec 内逐字记录「夹具来自 seed 的 claude JSONL；debug-agent 场景方言（`row` 闭合集只有 `role` + `text`）写不出 thinking / tool_use 行，故两条读数不归因于该门」。
-- [ ] AC8 判据预算：判据安静态整跑墙钟（含 server + vite 启动）实测并记录，**明显低于目标门 60s 硬顶**（先例 `unattributable-60s-criterion-kill-is-a-hang-not-a-slowdown`）；两个读数共享一次服务启动（一个 `-g "AC-207"` 用例，或 serial describe 的 `beforeAll`），不各起一次服务。
-- [ ] AC9 静态门：`npm run typecheck` 与 `npm run lint` 均退出 0；`git diff --stat` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`；注解与路径之间留空格且注解置于行尾 —— 贴着的注释会让 scoped gate 的 `print $1` 吞掉文件名）。
+- [x] AC1 判据绿：`npx playwright test e2e/transcript-work-segments.spec.ts -g "AC-207"` 退出 0。红态基线（本轮实测）：spec 不存在，`.quay/gate-events.jsonl` 同一判据读数是 `Error: No tests found`；spec 内的用例标题必须含 `AC-207`（判据命令就是 `-g "AC-207"`）。
+- [x] AC2（读数 i，承重）缺省折叠密度降到基线一半以下：同一命令退出 0，且用例内断言可视区 `.chat-message` 挂载数 `< 12` 且夹具回合总高 `< 556`；四个常量（基线 24 / 1112、阈值 12 / 556）逐字写在 spec 的常量声明里，基线出处（一回合 24 行 / 1112px）写在旁的注释里。
+- [x] AC3（读数 i 的正控制，承重）阈值真的分得开，不是对任何输入都成立：同一夹具在**合并关闭**（一行一块）下量得的行数 / 高度 `>= 基线`（`>= 24` 行 / `>= 1112px`）—— 用假形态 (a) 的瞬态测量把这条读数落盘（spec 内的可切换分支，或变异记录里的实测两列）。没有这条，`< 12 / < 556` 在「夹具本来就没几行」时也会绿，读数 (i) 是空话（对照 `zero-claim-criterion-needs-positive-controls`）。
+- [x] AC4（读数 ii，承重）搜索命中折叠段内成员后该段自动展开且成员可见：同一命令退出 0，且断言 (a) 命中成员行在 DOM；(b) 其 `rect` 完整落在 `.chat-messages-pane` 视口内（`top >= paneTop && bottom <= paneBottom`）；(c) 局部正控制：夹具里另一条**不含命中**的段仍处于折叠态（其成员行不在 DOM），证明展开由命中驱动，不是「全部展开」。
+- [x] AC5（读数 ii 的非空正控制，承重）命中确实落在段内非首成员：断言夹具那条唯一短语位于某段 `members[1..]`（⛔ 不是 `members[0]`），且该段 `members.length >= 3`；否则「精确匹配失败、就近落到段行」的病态根本不会出现，读数 (ii) 是空话。
+- [x] AC6 取假形态必须红（承重；先提交实现与判据，再逐条变异；逐条记录变异 diff、逐字失败行与 `git checkout -- <file>` 恢复命令）：(a) 把段合并改回「一行一块」（段选择器不再折叠工作段）⇒ AC2 红（行数 / 高度回到基线以上）；(b) 关掉搜索命中自动展开（面板不再把命中段的锚点加入展开集合）⇒ AC4 红，且失败方向必须是「段仍未展开 / 命中成员不在 DOM」，不得是别的腿先红。
+- [x] AC7 spec 已登记且夹具来源记录在案：`grep -n "transcript-work-segments.spec.ts" playwright.config.ts` 命中 `DEBUG_AGENT_SPEC_FILES` 数组内一条；spec 内逐字记录「夹具来自 seed 的 claude JSONL；debug-agent 场景方言（`row` 闭合集只有 `role` + `text`）写不出 thinking / tool_use 行，故两条读数不归因于该门」。
+- [x] AC8 判据预算：判据安静态整跑墙钟（含 server + vite 启动）实测并记录，**明显低于目标门 60s 硬顶**（先例 `unattributable-60s-criterion-kill-is-a-hang-not-a-slowdown`）；两个读数共享一次服务启动（一个 `-g "AC-207"` 用例，或 serial describe 的 `beforeAll`），不各起一次服务。
+- [x] AC9 静态门：`npm run typecheck` 与 `npm run lint` 均退出 0；`git diff --stat` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`；注解与路径之间留空格且注解置于行尾 —— 贴着的注释会让 scoped gate 的 `print $1` 吞掉文件名）。
 
 ## DoD
 
@@ -59,3 +59,17 @@ goal_ac: AC-207
 - e2e/transcript-work-segments.spec.ts (new)
 - playwright.config.ts
 - tasks/gap-work-segment-browser-density-and-search-expand.md
+
+## Evidence
+
+判据读数（安静态整跑 `npx playwright test e2e/transcript-work-segments.spec.ts -g "AC-207"`，墙钟 15s/16s，含 server + vite 启动；一个用例承载两条读数，共享一次服务启动，AC8）：
+- 读数 i（缺省折叠，无展开）：`.chat-message` 挂载 7 行 / 回合总高 410px，断言 `< 12` 与 `< 556` 均通过（AC2）。
+- 读数 i 正控制（把三段全部展开 ⇒ 与合并关闭同形的逐行渲染）：27 行 / 1287px，断言 `>= 24` 与 `>= 1112` 均通过 ⇒ 阈值确实把折叠态与逐行态分开（AC3）。
+- 读数 ii（真实侧栏 conversations 搜索）：输入夹具唯一短语 → 真实 SSE 返回结果 → 点击结果 → 命中段 `message-assistant-seg-tool-4`（8 成员）自动展开，命中短语位于 `members[1]`（≥1）且成员数 ≥3；命中成员行在 DOM、其 `rect` 完整落在 `.chat-messages-pane` 视口内；另两段保持折叠（成员行 0）（AC4/AC5）。
+- 固定视口 1280×1200；三次重复运行读数完全一致（7/410、27/1287）。
+
+AC6 假形态（先提交实现与判据 b0c23a9d / e2449885，再逐条变异，跑完即恢复）：
+- (a) 段选择器改回一行一块：`src/modules/chat/utils/workSegments.ts` 的 `groupWorkSegments` 首行插入 `return messages;`（+3 行，diff 见 `/tmp/ac207runs/mut-a.diff`）。失败行逐字：``Error: the collapsed transcript drew 20 rows at height 954px`` / `Expected: < 12` / `Received: 20`（spec `:210`）⇒ AC2 红（行数回到基线以上）。恢复：`git checkout -- src/modules/chat/utils/workSegments.ts`；恢复后 `git status --porcelain` 对该文件为空，判据重新绿。
+- (b) 关掉搜索命中自动展开：`src/modules/chat/transcript/ChatMessagesPane.tsx` 的命中展开 effect 首行插入 `return;`（+3 行，diff 见 `/tmp/ac207runs/mut-b.diff`）。失败行逐字：``Error: the segment holding the search hit never opened`` / `Expected: > 0` / `Received: 0`（spec `:275`，poll 20s 超时）⇒ AC4 红，失败方向为「段仍未展开 / 命中成员不在 DOM」；同一次运行的密度读数 7/410 与 27/1287 仍通过，证明红的是 AC4 这条腿而非别的腿先红。恢复：`git checkout -- src/modules/chat/transcript/ChatMessagesPane.tsx`；恢复后文件干净、判据重新绿。
+
+静态门：`npm run typecheck` 退出 0；`npm run lint` 退出 0（仅仓库既有 warning）。`git diff --stat`（merge-base..HEAD）三条与 `## Touches` 逐条对齐。develop 已并入（`git merge --no-edit develop`，无冲突），合入后判据复跑仍绿；scoped gate `scripts/test.sh --for-task gap-work-segment-browser-density-and-search-expand --allow-thin` 退出 0（thin：本任务 Touches 无 `*.test.*`，scoped 文件集为空），并已写入 scoped-gate 缓存（develop sha b080450b）。
