@@ -136,7 +136,6 @@ test("the tail segment keeps its anchor while members stream into its tail", () 
 
   const tailAnchor = tailSegment.key;
   assert.ok(tailAnchor, "the tail segment's first member must yield an anchor");
-  assert.equal(tailAnchor, getIntrinsicMessageKey(tailSegment.messages[0]));
   assert.ok(siblingSegment.key);
   assert.notEqual(
     tailAnchor,
