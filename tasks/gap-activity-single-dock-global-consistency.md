@@ -2,7 +2,7 @@
 id: gap-activity-single-dock-global-consistency
 title: AC-188 真实浏览器：页面上只有一个活动坞、旧活动页签/内联行不再存在、resident
   状态栏忙闲与租约计数并入坞，坞/侧栏运行视图/发送停止态各处一致（桌面+移动）
-status: ready
+status: done
 labels:
   - gap
 parent: null
