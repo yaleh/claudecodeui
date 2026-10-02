@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { memo, useCallback, useMemo } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import type { Dispatch, Ref, RefObject, SetStateAction } from 'react';
 
 import type { ChatMessage,
@@ -11,14 +11,14 @@ import type { ChatMessage,
   SessionActivity } from '@/shared/types';
 import { RESIDENT_PENDING_MESSAGE_TYPE } from '@/modules/chat/hooks/useChatMessages';
 import { getIntrinsicMessageKey } from '@/modules/chat/utils/messageKeys';
-import { groupConsecutiveTools, isToolGroupItem } from '@/modules/chat/utils/toolGrouping';
+import { groupWorkSegments, isWorkSegment } from '@/modules/chat/utils/workSegments';
 import { useLazyRowObserver } from '@/modules/chat/hooks/useLazyRowObserver';
 import { useDeviceSettings } from '@/shared/hooks/useDeviceSettings';
 import LazyMessageRow from '@/modules/chat/transcript/LazyMessageRow';
 import MessageComponent from '@/modules/chat/transcript/MessageComponent';
 import PendingResidentMessage from '@/modules/chat/transcript/PendingResidentMessage';
 import ProviderSelectionEmptyState from '@/modules/chat/transcript/ProviderSelectionEmptyState';
-import ToolGroupContainer from '@/modules/chat/transcript/ToolGroupContainer';
+import WorkSegmentRecord from '@/modules/chat/transcript/WorkSegmentRecord';
 import LoadAllMessagesOverlay from '@/modules/chat/transcript/LoadAllMessagesOverlay';
 import ChatExportMenu from '@/modules/chat/transcript/ChatExportMenu';
 import ResidentStatusBar from '@/modules/chat/transcript/ResidentStatusBar';
@@ -184,9 +184,33 @@ function ChatMessagesPane({
   const { isMobile } = useDeviceSettings();
   const lazyRows = useLazyRowObserver(scrollContainerRef);
   const groupedVisibleMessages = useMemo(
-    () => groupConsecutiveTools(visibleMessages, Boolean(showThinking)),
-    [visibleMessages, showThinking],
+    () => groupWorkSegments(visibleMessages),
+    [visibleMessages],
   );
+
+  // Which work segments are open, keyed by the segment's anchor key. Held here —
+  // in the pane's own React state — and not inside `WorkSegmentRecord`, whose
+  // instances unmount whenever their `LazyMessageRow` scrolls out of the viewport:
+  // an open segment has to stay open when its row leaves and comes back, while a
+  // fresh pane mount has to start from nothing. State in either wrong place fails
+  // one of those two readings (module scope survives the remount; the record's own
+  // state dies with the row), which is why the empty set lives at exactly this
+  // level and nowhere shorter- or longer-lived.
+  const [expandedSegmentKeys, setExpandedSegmentKeys] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  );
+
+  const toggleSegment = useCallback((segmentKey: string, next: boolean) => {
+    setExpandedSegmentKeys((current) => {
+      const updated = new Set(current);
+      if (next) {
+        updated.add(segmentKey);
+      } else {
+        updated.delete(segmentKey);
+      }
+      return updated;
+    });
+  }, []);
 
   // Stable, deterministic keys for the messages rendered this pass.
   //
@@ -205,7 +229,7 @@ function ChatMessagesPane({
       keys.set(message, seen === 0 ? intrinsicKey : `${intrinsicKey}__${seen}`);
     };
     for (const item of groupedVisibleMessages) {
-      if (isToolGroupItem(item)) {
+      if (isWorkSegment(item)) {
         item.messages.forEach(assign);
       } else {
         assign(item);
@@ -219,6 +243,30 @@ function ChatMessagesPane({
       messageKeyMap.get(message) ?? getIntrinsicMessageKey(message) ?? 'message-generated',
     [messageKeyMap],
   );
+
+  // The transcript row that precedes each message, repaired for the segment path.
+  //
+  // `MessageComponent` reads it only to decide whether a row is visually grouped
+  // with the one above it. Rows a segment absorbed must keep the same predecessor
+  // they had as free rows — the member before them, or the row before the segment
+  // for its first member — so a member's own shape is the same inside a segment as
+  // out of one.
+  const prevMessageFor = useMemo(() => {
+    const predecessors = new WeakMap<ChatMessage, ChatMessage | null>();
+    let previous: ChatMessage | null = null;
+    for (const item of groupedVisibleMessages) {
+      if (isWorkSegment(item)) {
+        for (const member of item.messages) {
+          predecessors.set(member, previous);
+          previous = member;
+        }
+      } else {
+        predecessors.set(item, previous);
+        previous = item;
+      }
+    }
+    return predecessors;
+  }, [groupedVisibleMessages]);
 
   // Below `md` the running turn is drawn in the message flow, so nothing has to
   // be kept clear for a floating tab and the pane keeps its ordinary bottom
@@ -356,67 +404,61 @@ function ChatMessagesPane({
               </div>
             )}
 
-            {(() => {
-              let prevMessage: ChatMessage | null = null;
-              const rowCount = groupedVisibleMessages.length;
+            {groupedVisibleMessages.map((item, index) => {
+              // Rows near the tail mount their content on first commit so the
+              // initial scroll-to-bottom measures real heights; older rows
+              // start as placeholders and mount when scrolled toward.
+              const initiallyNearViewport = index >= groupedVisibleMessages.length - INITIAL_MOUNTED_TAIL_ROWS;
 
-              return groupedVisibleMessages.map((item, index) => {
-                // Rows near the tail mount their content on first commit so the
-                // initial scroll-to-bottom measures real heights; older rows
-                // start as placeholders and mount when scrolled toward.
-                const initiallyNearViewport = index >= rowCount - INITIAL_MOUNTED_TAIL_ROWS;
+              // One run of adjacent work rows. Drawn as a single collapsible
+              // record inside a LazyMessageRow, so the whole run — header and
+              // members together — leaves and returns as one row. The pane wraps
+              // it in an addressable `data-work-segment-key` box whose value is
+              // the same anchor key as the React key, which is also the
+              // timestamp the lazy row publishes as its placeholder anchor.
+              if (isWorkSegment(item)) {
+                const segmentKey = item.key ?? getMessageKey(item.messages[0]);
+                const anchorTimestamp = item.messages[0]?.timestamp;
 
-                if (isToolGroupItem(item)) {
-                  const groupPrevMessage = prevMessage;
-                  prevMessage = item.messages[item.messages.length - 1] || prevMessage;
-
-                  return (
-                    <LazyMessageRow
-                      key={`tool-group-${getMessageKey(item.messages[0])}`}
-                      lazyRows={lazyRows}
-                      timestamp={item.timestamp}
-                      initiallyNearViewport={initiallyNearViewport}
-                    >
-                      <ToolGroupContainer
-                        group={item}
-                        prevMessage={groupPrevMessage}
-                        createDiff={createDiff}
-                        getMessageKey={getMessageKey}
-                        onFileOpen={onFileOpen}
-                        onShowSettings={onShowSettings}
-                        onGrantToolPermission={onGrantToolPermission}
-                        showRawParameters={showRawParameters}
-                        showThinking={showThinking}
-                        selectedProject={selectedProject}
-                        provider={provider}
+                return (
+                  <LazyMessageRow
+                    key={segmentKey}
+                    lazyRows={lazyRows}
+                    timestamp={anchorTimestamp}
+                    initiallyNearViewport={initiallyNearViewport}
+                  >
+                    <div data-work-segment-key={segmentKey}>
+                      <WorkSegmentRecord
+                        segment={item}
+                        expanded={expandedSegmentKeys.has(segmentKey)}
+                        onToggle={(next) => toggleSegment(segmentKey, next)}
+                        renderMember={(message) => (
+                          <MessageComponent
+                            message={message}
+                            prevMessage={prevMessageFor.get(message) ?? null}
+                            createDiff={createDiff}
+                            onFileOpen={onFileOpen}
+                            onShowSettings={onShowSettings}
+                            onGrantToolPermission={onGrantToolPermission}
+                            showRawParameters={showRawParameters}
+                            showThinking={showThinking}
+                            selectedProject={selectedProject}
+                            provider={provider}
+                            onEditMessage={onEditMessage}
+                            onForkFromMessage={onForkFromMessage}
+                          />
+                        )}
                       />
-                    </LazyMessageRow>
-                  );
-                }
+                    </div>
+                  </LazyMessageRow>
+                );
+              }
 
-                const messagePrevMessage = prevMessage;
-                prevMessage = item;
-
-                // A message a resident process is holding. Its own component,
-                // because it is not a turn: it has a state the host keeps
-                // updating, an action no other row has, and — in two of its three
-                // states — no message to draw at all.
-                if (item.type === RESIDENT_PENDING_MESSAGE_TYPE) {
-                  return (
-                    <LazyMessageRow
-                      key={getMessageKey(item)}
-                      lazyRows={lazyRows}
-                      timestamp={item.timestamp}
-                      initiallyNearViewport={initiallyNearViewport}
-                    >
-                      <PendingResidentMessage
-                        message={item}
-                        onWithdraw={onWithdrawResidentCommand}
-                      />
-                    </LazyMessageRow>
-                  );
-                }
-
+              // A message a resident process is holding. Its own component,
+              // because it is not a turn: it has a state the host keeps
+              // updating, an action no other row has, and — in two of its three
+              // states — no message to draw at all.
+              if (item.type === RESIDENT_PENDING_MESSAGE_TYPE) {
                 return (
                   <LazyMessageRow
                     key={getMessageKey(item)}
@@ -424,24 +466,38 @@ function ChatMessagesPane({
                     timestamp={item.timestamp}
                     initiallyNearViewport={initiallyNearViewport}
                   >
-                    <MessageComponent
+                    <PendingResidentMessage
                       message={item}
-                      prevMessage={messagePrevMessage}
-                      createDiff={createDiff}
-                      onFileOpen={onFileOpen}
-                      onShowSettings={onShowSettings}
-                      onGrantToolPermission={onGrantToolPermission}
-                      showRawParameters={showRawParameters}
-                      showThinking={showThinking}
-                      selectedProject={selectedProject}
-                      provider={provider}
-                      onEditMessage={onEditMessage}
-                      onForkFromMessage={onForkFromMessage}
+                      onWithdraw={onWithdrawResidentCommand}
                     />
                   </LazyMessageRow>
                 );
-              });
-            })()}
+              }
+
+              return (
+                <LazyMessageRow
+                  key={getMessageKey(item)}
+                  lazyRows={lazyRows}
+                  timestamp={item.timestamp}
+                  initiallyNearViewport={initiallyNearViewport}
+                >
+                  <MessageComponent
+                    message={item}
+                    prevMessage={prevMessageFor.get(item) ?? null}
+                    createDiff={createDiff}
+                    onFileOpen={onFileOpen}
+                    onShowSettings={onShowSettings}
+                    onGrantToolPermission={onGrantToolPermission}
+                    showRawParameters={showRawParameters}
+                    showThinking={showThinking}
+                    selectedProject={selectedProject}
+                    provider={provider}
+                    onEditMessage={onEditMessage}
+                    onForkFromMessage={onForkFromMessage}
+                  />
+                </LazyMessageRow>
+              );
+            })}
           </>
         )}
 
@@ -465,6 +521,7 @@ function ChatMessagesPane({
         {isMobile && (
           <ActivityIndicator
             activity={hasActivityIndicator ? activity : null}
+            sessionId={currentSessionId ?? selectedSession?.id ?? null}
             variant="inline"
           />
         )}

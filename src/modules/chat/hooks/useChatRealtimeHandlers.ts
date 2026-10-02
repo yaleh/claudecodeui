@@ -381,6 +381,17 @@ export function useChatRealtimeHandlers({
           return;
         }
 
+        // The server's liveness beat for a subscribed session. A control frame,
+        // not a message: it carries no `id` and is not part of the transcript.
+        // Its only reader is the activity freshness state machine
+        // (`useActivityFreshness`), which subscribes to the same socket on its
+        // own and never touches the message store. Appending it here would put a
+        // wire verb in the transcript — and, because a merge assumes every row
+        // has a string `id`, it would poison the merge for the rest of the
+        // session (the `startsWith` crash this guard exists to prevent).
+        case 'activity.heartbeat':
+          return;
+
         case 'protocol_error': {
           console.error('[Chat] Protocol error:', msg.code, msg.error);
           if (sid) {

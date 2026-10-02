@@ -246,6 +246,10 @@
     },
     "providers": {
       "assistant": "Assistant"
+    },
+    "unreachable": {
+      "title": "연결 끊김 · 재연결 중…",
+      "stopReason": "서버에 연결할 수 없어 중지할 수 없습니다"
     }
   },
   "projectSelection": {
@@ -297,8 +301,7 @@
     "failed": "전송되지 않음 — {{reason}}",
     "cancel": "예약 취소",
     "dismiss": "실패 알림 닫기"
-  }
-,
+  },
   "resident": {
     "pending": {
       "annotation": "현재 답변이 끝난 후 처리됩니다",

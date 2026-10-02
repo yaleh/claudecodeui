@@ -1,7 +1,7 @@
 ---
 id: AC-184
 title: 真实浏览器：服务端不可达时坞显示连接中断，不再出现 Thinking，计时冻结，停止按钮置灰并说明，恢复后回到真实状态
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-014
 criterion: npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-184"
@@ -25,6 +25,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-02T04:40:21.448Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
