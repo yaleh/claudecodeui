@@ -1,7 +1,7 @@
 ---
 id: gap-work-segment-expansion-survives-unmount
 title: AC-204 展开态跨 LazyMessageRow 卸载保持，重新挂载回到缺省折叠
-status: ready
+status: done
 labels:
   - gap
 parent: null
