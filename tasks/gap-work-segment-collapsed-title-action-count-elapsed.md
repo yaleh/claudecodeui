@@ -13,6 +13,8 @@ depends_on:
   - gap-work-segment-lossless-expand-set-equality
 goal_ac: AC-208
 ---
+## Proposal
+
 <!-- dedup-ref --> 机制去重读数（本轮立案时实测，2026-10-02）：`grep -rn "^goal_ac: *AC-208" tasks/*.md` → 0 命中；机制词扫描（`折叠行标题` / `workSegmentCollapsedTitle` / `workSegmentTitle` / `当前动作`）只命中 `gap-goal-016-collapsed-title-rule` —— 那是 GOAL-016 的充分性提案任务（它提议并催生了 AC-208），其 frontmatter 无 `goal_ac` 字段，驱动侧按 goal_ac 计数看不到它，AC-208 仍无 todo/ready/needs-human 任务认领。同轴 AC-202..AC-207 的六条执行任务都已 `done` 且各自带 `goal_ac: AC-20X`。⇒ 本条是 AC-208 的 goal_ac 认领执行任务，不是既有提案任务的重复。
 
 **现状读数（2026-10-02，读代码）。** 段层已由同轴兄弟出货并合入 develop：`src/modules/chat/utils/workSegments.ts`（纯选择器，AC-202）与 `src/modules/chat/transcript/WorkSegmentRecord.tsx`（段记录组件，AC-203）都在。但 `grep -rn "workSegmentTitle\|buildWorkSegmentTitle" src/` → 0 命中：折叠头今天没有「当前动作 / 计数 / 耗时」三读数，也没有随流式增长更新或结束定格。判据文件 `src/modules/chat/tests/workSegmentCollapsedTitle.test.tsx` 不存在 —— `npx vitest run src/modules/chat/tests/workSegmentCollapsedTitle.test.tsx` 的读数是 `No test files found, exiting with code 1`（AC-208 的 `expect` 逐字记的红态基线）。
