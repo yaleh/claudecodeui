@@ -1,7 +1,7 @@
 ---
 id: gap-work-segment-lossless-expand-set-equality
 title: AC-203 段记录折叠态零信息丢失：展开全部段后的行键集合与合并前逐键相等
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -107,4 +107,15 @@ goal_ac: AC-203
 - run_id：wk-prod-anchor
 - session_id：a0c05f2e-0d5b-4e8b-b76e-b8bdc042067b
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-work-segment-lossless-expand-set-equality~wk-prod-anchor~1790909919140-da4cdd.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-work-segment-lossless-expand-set-equality-wk-prod-anchor.log
+
+## Needs-Human
+
+**执行 2026-10-02T03:34:02.639Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 3 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: not ok - server/modules/providers/tests/claude-resident-name-mirror-latency.test.ts:   AssertionError [ERR_ASSERTION]: the probe process must offer a raw write seam to write the frame to
+- run_id：wk-prod-anchor
+- session_id：75b88763-2122-4522-964c-28d198c9de0f
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-work-segment-lossless-expand-set-equality~wk-prod-anchor~1790911844791-285102.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-work-segment-lossless-expand-set-equality-wk-prod-anchor.log
