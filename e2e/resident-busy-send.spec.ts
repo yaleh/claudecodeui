@@ -76,8 +76,8 @@ const PANE = '.chat-messages-pane';
 /** The composer's form. The submit button is inside it; the floating activity tab is not. */
 const FORM = 'form[data-slot="prompt-input"]';
 const TEXTAREA = '[data-slot="prompt-input-textarea"]';
-/** The status bar, whose state attribute says the process is mid-turn. */
-const BAR = '[data-resident-status-bar]';
+/** The activity dock, whose state attribute says the process is mid-turn. */
+const BAR = '[data-activity-dock]';
 
 /** The browser's own queue, drawn above the composer. */
 const QUEUED_CARD = '[data-queued-message-card]';
@@ -622,7 +622,7 @@ test.describe('resident busy send', () => {
 
     await openSession(page, workspaceName, withdrawnSessionId);
     await expect(page.locator(BAR)).toBeVisible({ timeout: 30_000 });
-    await expect(page.locator(BAR)).toHaveAttribute('data-resident-ui-state', 'busy', { timeout: 20_000 });
+    await expect(page.locator(BAR)).toHaveAttribute('data-activity-state', 'in-turn', { timeout: 20_000 });
 
     // The composer's own account of the two facts its branch is chosen by — busy, and resident —
     // read off the label it publishes rather than from a variable this file cannot see.
@@ -734,7 +734,7 @@ test.describe('resident busy send', () => {
 
     // ---- the command the process takes --------------------------------------------------------
     await openSession(page, workspaceName, startedSessionId);
-    await expect(page.locator(BAR)).toHaveAttribute('data-resident-ui-state', 'busy', { timeout: 20_000 });
+    await expect(page.locator(BAR)).toHaveAttribute('data-activity-state', 'in-turn', { timeout: 20_000 });
     await expect(composerButton(page, chatKey('resident.stopResident'))).toHaveCount(1, { timeout: 20_000 });
 
     await page.locator(TEXTAREA).fill(DRAFT_STARTED);
