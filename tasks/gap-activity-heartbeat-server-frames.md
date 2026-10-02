@@ -181,3 +181,14 @@ git checkout -- server/modules/websocket/services/activity-heartbeat.service.ts
 - session_id：6db2c5a6-be9c-4bd9-94d1-8163f8d2b97e
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-activity-heartbeat-server-frames~wk-prod-anchor~1790876473586-f2bb43.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-activity-heartbeat-server-frames-wk-prod-anchor.log
+
+## Needs-Human
+
+**执行 2026-10-02T02:17:03.661Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 6 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=61304 server/modules/session-hosts/tests/resident-server-restart.test.ts passed=false end_ms=1790907346445
+- run_id：wk-prod-anchor
+- session_id：77d5648d-c34c-4ede-b02e-784bcbc0e0d5
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-activity-heartbeat-server-frames~wk-prod-anchor~1790907232648-17c81a.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-activity-heartbeat-server-frames-wk-prod-anchor.log
