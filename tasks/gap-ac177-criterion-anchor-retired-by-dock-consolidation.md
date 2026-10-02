@@ -7,7 +7,7 @@ title: AC-177 判据（窄视口常驻弹层关闭按钮可点）的读数锚 [d
   [data-activity-dock] / [data-activity-dock-toggle] /
   [data-resident-panel]，并按合并后的展开面板重排「先展开面板再点起停控件」，同时把结构性恒真的 hitInComposer
   收窄到输入表单
-status: ready
+status: done
 labels:
   - gap
   - defect
