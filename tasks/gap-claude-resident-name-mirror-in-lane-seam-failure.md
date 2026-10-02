@@ -3,7 +3,7 @@ id: gap-claude-resident-name-mirror-in-lane-seam-failure
 title: resident 名镜像延迟判据的探针 seam 在 lane 内未就绪即断言：单跑绿（tests 1 / pass 1 / fail
   0，14.2s）而 fan-in lane 内 8 跑 4 红，红恒为「the probe process must offer a raw write
   seam to write the frame to」——拖停多份 delta 无关的任务
-status: todo
+status: ready
 labels:
   - gap
   - defect
