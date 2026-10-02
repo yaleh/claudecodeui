@@ -86,7 +86,7 @@ goal_ac: AC-173
 
 worker：quay per-task worker，branch `task/gap-ac173-ledger-red-is-uncommitted-composer-wip`。本条 **verification-only**：不新增/修改任何实现、判据、宿主配置一个字节；下面的读数全部是本条在**自己的隔离 worktree** 上现测的（除显式标注「立案读数」者）。
 
-### 0. 隔离 worktree（AC1 的前提）
+### 0. 隔离 worktree（开工时 = AC1 的前提）
 
 ```
 worktree  = /data/home/yale/work/claudecodeui-worktrees/gap-ac173-ledger-red-is-uncommitted-composer-wip
@@ -95,10 +95,12 @@ provision = bash /data/home/yale/.claude/plugins/cache/quay/quay/0.11.0/scripts/
             → "fork-point PASS — HEAD contains develop (939dc130…)"
             → node_modules → /data/home/yale/work/claudecodeui/node_modules（symlink）
             → worktree-include: 无声明（WARNING nothing declared, nothing copied）
-git -C <worktree> rev-parse HEAD      = 939dc1300258a8f2b9a039dfd6f037245ab33d1f
-git -C <worktree> rev-parse develop   = 939dc1300258a8f2b9a039dfd6f037245ab33d1f   （起点 = develop，逐字相等）
-git -C <worktree> status --porcelain  = （空）
+【开工时】git -C <worktree> rev-parse HEAD     = 939dc1300258a8f2b9a039dfd6f037245ab33d1f
+【开工时】git -C <worktree> rev-parse develop  = 939dc1300258a8f2b9a039dfd6f037245ab33d1f   （起点 = develop，逐字相等）
+【开工时】git -C <worktree> status --porcelain = （空）
 ```
+
+（终态见 §7 —— 开工后 `task_write` 的交付提交落在 develop 上，worktree 再按 step 2b(i) fast-forward 到它。）
 
 注（与立案读数的差异，显式登记）：立案时 develop = `0faf62fa`；本条开工时 develop 已前进到 `939dc130`（`git reflog` 显示两条 `tasks: gap-ac173-…` 的 task_write / promotion 提交），故净检出起点取 `939dc130`。
 
@@ -262,8 +264,8 @@ gap-activity-dock-human-gate.md                      status=needs-human goal_ac=
 
 ### 4. AC4 承重面未被本条触碰（现测）
 
-- **本条交付提交的 delta**：`git -C <worktree> diff --name-only develop..HEAD` = 仅 `tasks/gap-ac173-ledger-red-is-uncommitted-composer-wip.md`（本条的 AC 勾选 + 完成记录）；无 `src/**`、`e2e/**`、`server/**`、`playwright.config.ts`。
-- **未 stash / 未回退 / 未 checkout**：`git -C /data/home/yale/work/claudecodeui stash list` = 空；主检出 `git reflog -5` 只有 promotion / task_write 提交（`939dc130 … todo→ready`、`6d01a16b … task_write by cli`、`0faf62fa merge develop: Fast-forward`），无本 worker 的写操作。
+- **本条交付提交的 delta**：`task_write` 的交付提交（`dfdabd73 tasks: gap-ac173-ledger-red-is-uncommitted-composer-wip task_write by cli:2447791`）只动 `tasks/gap-ac173-ledger-red-is-uncommitted-composer-wip.md` 一个文件 —— 现测 `git -C <worktree> log --name-only --oneline 939dc130..develop` 的每一项都只有该文件；无 `src/**`、`e2e/**`、`server/**`、`playwright.config.ts`。该提交按 `task_write` 的 branch-aware 行为**直接落在 develop 上**，故按 step 2b(i) 把 develop 合入本 worktree（现测 fast-forward `939dc130..dfdabd73`）后，`git -C <worktree> diff --name-only develop..HEAD` = **空** —— 空集 ⊆ {`tasks/<本条 id>.md`}，即「只含本条任务文件」以 `develop..HEAD` 的形式成立（差异已由该提交本身承载并已在 develop 上）。
+- **未 stash / 未回退 / 未 checkout**：`git -C /data/home/yale/work/claudecodeui stash list` = 空；主检出 `git reflog -5` 只有 promotion / task_write 提交（`939dc130 … todo→ready`、`6d01a16b … task_write by cli`、`0faf62fa merge develop: Fast-forward`），无本 worker 对源码的写操作。
 - **主检出未提交文件集合**：**逐字相同**于本条启动时（同样的 11 个 ` M ` 路径 + 同样的 11 个 `?? ` 路径，逐条同名同序）。
 - **⚠️ 显式登记（不变量改写）**：AC4 字面要求 `git diff --stat` 与**立案快照**逐字相同（立案 = 10 个已改文件 / `674 insertions / 62 deletions`）。该字面条件在本条开工时**已不成立**（开工读数 = 11 个已改文件 / `714 insertions / 62 deletions`），且在本条运行期间**被其作者继续改动**（worker 结束时 = 11 个已改文件 / `719 insertions / 62 deletions`；`src/modules/chat/composer/ChatComposer.tsx` mtime `22:14:12 +0800` → `22:15:26 +0800`，两次都晚于本 worker 启动、且本 worker 未向主检出发出任何写命令）。⇒ 按**不变量**登记：**文件集合逐字不变；内容增量的漂移完全来自该 WIP 作者在其进行中的编辑，本 worker 对主检出零写入**。⛔ 本条未 stash / 未 `git checkout --` / 未编辑任何 `src/**`、`e2e/**`、`server/**`、`playwright.config.ts`（本 worker 的全部写操作只在 `/data/home/yale/work/claudecodeui-worktrees/gap-ac173-ledger-red-is-uncommitted-composer-wip` 与 `/data/scratch/yale/` 下）。
 
@@ -280,3 +282,21 @@ driver 独立复核时若台账尾巴已转 pass，请以当轮 `gate-events.jso
 **未提交 WIP 在判据运行期被 Vite HMR 推崩正在跑的页面 ⇒ 台账红 ≠ 被判定 AC 的回归。** 判别三步：(i) 看失败跑自己的 `trace.zip` 里有没有 `[vite] hot updated: <出问题文件>` + 紧随的 `pageError`；(ii) 看页面自己的轮询/心跳请求序列在崩点之后是否停摆（本条：`GET /api/providers/sessions/running` 5s 等距序列在 `13:57:08.888Z` 后缺拍）；(iii) 在**净检出**上用**出货命令本体**直跑一次，绿 ⇒ 红是环境事件，归该 WIP 的作者去把它改到可编译并提交（或至少别在判据运行期保存它）。
 
 remedy（归该 composer 布局 WIP 的作者，不在本条交付面内）：把那份未提交 WIP 改到可编译并提交，或在其编辑期不要触发出货判据的运行；本 worker 不 stash、不回退、不编辑该作者正在改的活 WIP。
+
+### 7. 交付提交与 worktree 终态（现测）
+
+```
+【开工】  git -C <worktree> rev-parse HEAD    = 939dc1300258a8f2b9a039dfd6f037245ab33d1f
+【task_write 交付提交】= dfdabd736a6dad4fb313e10343469732ffe08729
+                        "tasks: gap-ac173-ledger-red-is-uncommitted-composer-wip task_write by cli:2447791"
+                        （落在 develop 上；`git log --name-only 939dc130..develop` 每一项只有本条任务文件）
+【step 2b(i) merge】   git -C <worktree> merge --no-edit develop
+                        → "Updating 939dc130..dfdabd73  Fast-forward"（1 file changed, 204 insertions(+), 5 deletions(-)）
+【合并后】git -C <worktree> rev-parse HEAD    = dfdabd736a6dad4fb313e10343469732ffe08729
+【合并后】git -C <worktree> rev-parse develop = dfdabd736a6dad4fb313e10343469732ffe08729   （HEAD == develop）
+【合并后】git -C <worktree> status --porcelain = （空）
+【合并后】git -C <worktree> diff --name-only develop..HEAD = （空）
+【合并后】worktree 内任务文件的 AC 勾选数 = 5（`grep -c '^- \[x\] AC' tasks/gap-ac173-…md`，fan-in 的 ac-precheck 读的就是它）
+```
+
+本提交（含本节）本身也是一次 `task_write`，其 delta 同样只有 `tasks/gap-ac173-ledger-red-is-uncommitted-composer-wip.md`；它落 develop 后本 worker 会再按 step 2b(i) 合一次 develop，终态同上（`HEAD == develop`、`diff develop..HEAD` 空、任务文件勾选数为 5）。
