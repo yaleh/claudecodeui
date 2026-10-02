@@ -2,7 +2,7 @@
 id: gap-ac173-badge-source-mismatch-after-dock-consolidation
 title: AC-173 判据红：坞合并把徽标与 Running 组的读数源从宿主列表 turn 租约换成会话活动集，调试 agent
   时钟回合点不亮它——waitForBadge 8s 内恒读 0（命令逐字未改，坏的是读数源）
-status: todo
+status: ready
 labels:
   - gap
   - defect
