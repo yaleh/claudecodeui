@@ -2,7 +2,7 @@
 id: gap-activity-dock-truthful-criterion-bounded-boot-guard
 title: e2e/activity-dock-truthful.spec.ts 是本族唯一没有有界启动守卫的 spec：无界启动让
   AC-185/AC-187/AC-188 的判据在负载下死在启动形态（GOAL-014 记 done-unresolved）
-status: todo
+status: ready
 labels:
   - gap
   - defect
