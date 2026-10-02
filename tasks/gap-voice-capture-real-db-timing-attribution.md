@@ -36,11 +36,11 @@ goal_ac: AC-148
 
 ## AC
 
-- [ ] AC1 `node --test scripts/voice-capture-process-check.false-forms.test.mjs` 新增一条腿**确定性**复现本缺陷：把判据的 `DATABASE_PATH` 指到一个受控临时库，另起一个辅助写者在该判据的运行窗口内写它一次、随后静默到空闲截止之后（复刻 08-01/08-11 的相位），断言判据 exit 0 且 AC-148 真正点名的读数逐条不变。**今天这条腿必须红**：在未修的本判据上跑，它给出 exit 1 且 `check.failure` 是 `real-db-untouched is false`。
-- [ ] AC2 负控制（不许靠删读数通过）：把 `scripts/voice-capture-process-check.mjs:356` 的 `childEnv.DATABASE_PATH = options.databasePath;` 去掉（子进程于是继承部署方的 `DATABASE_PATH`），AC1 的那条腿必须**非 0** 退出，且失败文本来自归属证据（点名是自己的子进程用了真库），不是时序推断。
-- [ ] AC3 `node scripts/voice-capture-process-check.mjs` 在 :3001（PID 3092737）活着并正在写真库的主机上连续 5 次 exit 0；每次读数里 `real-db` 指向该库、`real-db-untouched=true`、`service-source-imports=0`、`real-upstream-calls=0`。
-- [ ] AC4 判据点名的读数逐条不变：`startup.text.count=1`、`startup.text.line=voice.capture mode=text`、`capture.lines=1`、`upstream.exact=true`、`double.requests=1`、`double.path=/audio/transcriptions`、`http.status=200`、`unset.captureLines=0`、`unset.startup.line=voice.capture mode=off`、`unset.double.requests=1`、`check.failures=0`。
-- [ ] AC5 出货面零改动：`git diff --stat -- server/ src/ shared/` 为空。
+- [x] AC1 `node --test scripts/voice-capture-process-check.false-forms.test.mjs` 新增一条腿**确定性**复现本缺陷：把判据的 `DATABASE_PATH` 指到一个受控临时库，另起一个辅助写者在该判据的运行窗口内写它一次、随后静默到空闲截止之后（复刻 08-01/08-11 的相位），断言判据 exit 0 且 AC-148 真正点名的读数逐条不变。**今天这条腿必须红**：在未修的本判据上跑，它给出 exit 1 且 `check.failure` 是 `real-db-untouched is false`。
+- [x] AC2 负控制（不许靠删读数通过）：把 `scripts/voice-capture-process-check.mjs:356` 的 `childEnv.DATABASE_PATH = options.databasePath;` 去掉（子进程于是继承部署方的 `DATABASE_PATH`），AC1 的那条腿必须**非 0** 退出，且失败文本来自归属证据（点名是自己的子进程用了真库），不是时序推断。
+- [x] AC3 `node scripts/voice-capture-process-check.mjs` 在 :3001（PID 3092737）活着并正在写真库的主机上连续 5 次 exit 0；每次读数里 `real-db` 指向该库、`real-db-untouched=true`、`service-source-imports=0`、`real-upstream-calls=0`。
+- [x] AC4 判据点名的读数逐条不变：`startup.text.count=1`、`startup.text.line=voice.capture mode=text`、`capture.lines=1`、`upstream.exact=true`、`double.requests=1`、`double.path=/audio/transcriptions`、`http.status=200`、`unset.captureLines=0`、`unset.startup.line=voice.capture mode=off`、`unset.double.requests=1`、`check.failures=0`。
+- [x] AC5 出货面零改动：`git diff --stat -- server/ src/ shared/` 为空。
 
 ## DoD
 
@@ -51,6 +51,18 @@ goal_ac: AC-148
 
 ## Touches
 
-- `scripts/voice-capture-process-check.mjs`（`:822`/`:835`/`:836` 的归因判定与 `main()` 里的空闲窗）
-- `scripts/voice-capture-process-check.false-forms.test.mjs`（AC1 的腿与 AC2 的变异腿）
-- `tasks/gap-voice-capture-real-db-timing-attribution.md`（自触）
+- `scripts/voice-capture-process-check.mjs` （`:822`/`:835`/`:836` 的归因判定与 `main()` 里的空闲窗）
+- `scripts/voice-capture-process-check.false-forms.test.mjs` （AC1 的腿与 AC2 的变异腿）
+- `tasks/gap-voice-capture-real-db-timing-attribution.md` （自触）
+
+## Notes
+
+**实现。** `scripts/voice-capture-process-check.mjs`：`real-db-untouched` 从时序归因改为**归属**读数 —— 子进程存活期间读 `/proc/<pid>/fd`，只扫**本进程及其后代**；命中继承来的 `DATABASE_PATH`（或它的 `-wal`/`-shm`/`-journal`）才判 false，`:3001` 不在本进程树里故它的句柄看不见。新增读数 `real-db-opened-by-tree`、`real-db-openers`；`real-db-churn` 改为 `criterion-only`（有归属证据）/`external`（动过但无归属证据）/`none-observed`；`IDLE_PROOF_*` 空闲窗整体删除。运行窗读到「could not measure」但已有归属证据 → exit 1（属性已被测量并违反），无证据仍是 exit 2。`scripts/voice-capture-process-check.false-forms.test.mjs`：AC1 腿（受控真库 + 窗口内写一次后静默的外部写者 ⇒ exit 0）与 AC2 腿（删 `childEnv.DATABASE_PATH = options.databasePath;` ⇒ exit 1 且失败来自归属证据）。
+
+**AC3 五次读数**（`DATABASE_PATH=/data/home/yale/.cloudcli/auth.db`，:3001 PID 3092737 持有该库，2026-10-02）：5/5 exit 0，每次 `real-db-untouched=true`、`real-db-opened-by-tree=false`、`service-source-imports=0`、`real-upstream-calls=0`、`check.failures=0`；`real-db-churn` 依次 = external(4094ms) / external(4140ms) / none-observed(3999ms) / external(4133ms) / none-observed(4026ms)。
+
+**DoD 并行采样（第 1 次运行）。** 旁路采样器每 150ms 读一次真库 `mtimeMs`，14s 内观测到 5 个不同值：`t=0 → 1790930914062.3362`、`t=151 → 1790930918638.3198`、`t=2406 → 1790930920893.3115`、`t=8268 → 1790930926683.2908`、`t=8418 → 1790930926896.29`（t 为相对采样起点的 ms）。判据本次 `real-db-before-ms=1790930918638.3198`、`real-db-after-ms=1790930920893.3115` ⇒ 采样器独立证明真库在这次判据的运行窗口里确实被外部写过至少一次，同时判据 exit 0 —— 「外部写者活着并且真的写了」与「判据绿」同时成立，不是等它静默之后才测。**未修版本的复现（本轮直接测量）**：`DATABASE_PATH=/data/home/yale/.cloudcli/auth.db node scripts/voice-capture-process-check.mjs` → exit 1、`real-db-churn=criterion-only`、`real-db-untouched=false`、`real-db-idle-waited-ms=38308`。
+
+**旁证测试基建修正（同一 Touches 文件内）**：`buildCopy` 的副本根改到检出的兄弟目录（本机 `/tmp` 在 `/dev/vda2`、检出在 `/dev/vdb`，`cp -al` 逐条 `Invalid cross-device link`，判据自己的 `HARDENED_ROOT_PREFIX` 已记为同一坑）；`readReadings` 的键正则放宽以读到大写键（`unset.captureLines` 等 AC-148 点名的读数此前读不到）。
+
+**scoped gate 的形状（上游限制，登记）**：`scripts/test.sh` 的 `--for-task` 文件集过滤器是 `\.test\.[jt]sx?$`，**不匹配 `.mjs`**，故本条 scoped gate 读到 `no scoped test files for gap-voice-capture-real-db-timing-attribution (thin)`、exit 0 —— 这是本仓对 `scripts/**/*.test.mjs` 的既有性质，不是本条的改动（`test.sh` 不在本条 Touches，按规矩不动它）。两条腿的真实证据是直接跑 `node --test scripts/voice-capture-process-check.false-forms.test.mjs` = 5/5 绿；`.mjs` 的类型面由 `npx tsc --noEmit -p scripts/tsconfig.json`（exit 0）覆盖，fan-in 全量 suite 的 typecheck stage 会再跑一次。

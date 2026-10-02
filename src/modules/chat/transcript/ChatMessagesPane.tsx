@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import type { Dispatch, Ref, RefObject, SetStateAction } from 'react';
 
 import type { ChatMessage,
@@ -12,6 +12,7 @@ import type { ChatMessage,
 import { RESIDENT_PENDING_MESSAGE_TYPE } from '@/modules/chat/hooks/useChatMessages';
 import { getIntrinsicMessageKey } from '@/modules/chat/utils/messageKeys';
 import { groupWorkSegments, isWorkSegment } from '@/modules/chat/utils/workSegments';
+import { findSearchTargetIndex } from '@/modules/chat/utils/searchTargetLocator';
 import { useLazyRowObserver } from '@/modules/chat/hooks/useLazyRowObserver';
 import { useDeviceSettings } from '@/shared/hooks/useDeviceSettings';
 import { findSessionHostState, useSessionHosts } from '@/shared/hooks/useSessionHosts';
@@ -256,6 +257,58 @@ function ChatMessagesPane({
       messageKeyMap.get(message) ?? getIntrinsicMessageKey(message) ?? 'message-generated',
     [messageKeyMap],
   );
+
+  /**
+   * Opens the segment a sidebar search hit landed inside.
+   *
+   * The search jump resolves its target against the loaded transcript and scrolls
+   * to the row carrying the target's timestamp. A hit that fell on a member of a
+   * run is a member of a *collapsed* segment by default, so that row is not in the
+   * DOM and the jump can only settle on the segment's own anchor — leaving the
+   * matched content hidden behind the very collapse the jump was meant to reveal.
+   *
+   * The pane is the host because it already receives both the session (which
+   * carries `__searchTargetSnippet`) and the grouped rows, and because the
+   * expanded set lives here. Resolving the hit is the same pure locator the jump
+   * itself uses, so the pane and the scroller cannot disagree about which row the
+   * hit is on; the segment that owns that row is then opened, and only that one.
+   */
+  const searchTargetSnippet = (selectedSession as Record<string, unknown> | null)?.__searchTargetSnippet;
+  const searchTargetTimestamp = (selectedSession as Record<string, unknown> | null)?.__searchTargetTimestamp;
+  useEffect(() => {
+    if (typeof searchTargetSnippet !== 'string' || searchTargetSnippet.length === 0) {
+      return;
+    }
+    const targetIndex = findSearchTargetIndex(visibleMessages, {
+      snippet: searchTargetSnippet,
+      timestamp: typeof searchTargetTimestamp === 'string' ? searchTargetTimestamp : undefined,
+    });
+    if (targetIndex < 0) {
+      return;
+    }
+    const targetMessage = visibleMessages[targetIndex];
+    for (const item of groupedVisibleMessages) {
+      if (!isWorkSegment(item) || !item.messages.includes(targetMessage)) {
+        continue;
+      }
+      const segmentKey = item.key ?? getMessageKey(item.messages[0]);
+      setExpandedSegmentKeys((current) => {
+        if (current.has(segmentKey)) {
+          return current;
+        }
+        const updated = new Set(current);
+        updated.add(segmentKey);
+        return updated;
+      });
+      break;
+    }
+  }, [
+    searchTargetSnippet,
+    searchTargetTimestamp,
+    visibleMessages,
+    groupedVisibleMessages,
+    getMessageKey,
+  ]);
 
   // The transcript row that precedes each message, repaired for the segment path.
   //

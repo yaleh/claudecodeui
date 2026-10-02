@@ -1270,6 +1270,125 @@ const seedMobileLayoutWorkspace = () => {
   );
 };
 
+/** Workspace e2e/transcript-work-segments.spec.ts opens; its own directory so no other spec picks this session up. */
+const WORK_SEGMENT_WORKSPACE = path.join(dataDir, 'work-segment-workspace');
+/** Session id that spec addresses, and the display name it looks its sidebar row up by. */
+const WORK_SEGMENT_SESSION_ID = 'e2e-work-segment';
+const WORK_SEGMENT_SESSION_NAME = 'work-segment';
+/**
+ * The one phrase the spec searches for.
+ *
+ * It is deliberately longer than the 80 characters `searchTargetLocator.normalizeSearchSnippet` keeps, and it
+ * is a single run of plain letters and spaces, so the fragment the sidebar search hands back survives JSON
+ * encoding byte-for-byte inside the tool call's input. The phrase is written into two places on purpose: the
+ * hidden tool call's input (a segment member, where the hit has to land) and the assistant's closing text (a
+ * text row the conversation search — which only indexes `text` blocks — can actually find). The member comes
+ * first in file order, so the locator resolves the hit to the member, not to the text row that quotes it.
+ */
+const WORK_SEGMENT_HIT_PHRASE =
+  'The quick brown fox jumps over the lazy dog near the riverbank at dawn while the beacon glows amber';
+
+/**
+ * Seeds the transcript e2e/transcript-work-segments.spec.ts measures, here rather than from the spec itself.
+ *
+ * Same reason as every seed above: the backend scans ~/.claude/projects at boot and only then starts its file
+ * watcher with `ignoreInitial`, so a transcript written while the test runs is picked up by the watcher and
+ * broadcast as a session_upserted instead of being indexed quietly.
+ *
+ * The shape is one turn of work. A user prompt, then three maximal runs of thinking/tool rows separated by
+ * short assistant text rows, then a closing assistant row. Written one part per JSONL record, so every row
+ * carries a timestamp of its own — the transcript's search jump locates a row by timestamp alone, and a run
+ * whose members shared one would leave the jump unable to tell the hit apart from the segment's anchor. The
+ * runs are 7, 8 and 5 members (20 work rows); with the four text rows that is 24 rows before any merging,
+ * and the collapsed default draws 3 segment headers plus those 4 text rows.
+ *
+ * This is a plain-claude fixture and NOT a debug-agent one. The debug seam's scenario dialect is a closed set
+ * whose `row` only carries `{role, text}` — it cannot express a thinking or tool-use row — while a work
+ * segment's members are exactly those row types. There is no way to build this fixture through that gate, so
+ * the two readings below must not be attributed to it; §Debug-agent gate below registers the spec for a
+ * different reason (see its own comment).
+ */
+const seedWorkSegmentTranscript = () => {
+  fs.mkdirSync(WORK_SEGMENT_WORKSPACE, { recursive: true });
+  const transcriptDir = path.join(dataDir, '.claude', 'projects', 'work-segment-workspace');
+  fs.mkdirSync(transcriptDir, { recursive: true });
+
+  const startedAt = Date.now();
+  let tick = 0;
+  let parentUuid: string | null = null;
+  const records: Record<string, unknown>[] = [];
+
+  const append = (role: 'user' | 'assistant', part: Record<string, unknown>) => {
+    const uuid = `e2e-work-segment-${tick}`;
+    records.push({
+      type: role,
+      uuid,
+      parentUuid,
+      sessionId: WORK_SEGMENT_SESSION_ID,
+      cwd: WORK_SEGMENT_WORKSPACE,
+      // One second apart, so a row's timestamp names exactly one row.
+      timestamp: new Date(startedAt + tick * 1_000).toISOString(),
+      message: { role, content: [part] },
+    });
+    parentUuid = uuid;
+    tick += 1;
+  };
+
+  const prompt = (text: string) => append('user', { type: 'text', text });
+  const thinking = (text: string) => append('assistant', { type: 'thinking', thinking: text });
+  const bash = (id: string, command: string) =>
+    append('assistant', { type: 'tool_use', id, name: 'Bash', input: { command } });
+  const say = (text: string) => append('assistant', { type: 'text', text });
+
+  prompt('Show me the release notes for the work segment browser.');
+
+  // First run: 7 members, no hit.
+  thinking('Scanning the notes directory.');
+  bash('seg-tool-1', 'ls -la notes/');
+  thinking('Listing the note files it found.');
+  bash('seg-tool-2', 'wc -l notes/release-notes.md');
+  thinking('Counting the lines to size the read.');
+  bash('seg-tool-3', 'head -n 20 notes/release-notes.md');
+  thinking('Reading the opening of the notes.');
+
+  say('First pass complete.');
+
+  // Second run: 8 members; the hit is the second member (a tool call whose input carries the phrase).
+  bash('seg-tool-4', 'cat notes/index.txt');
+  bash('seg-tool-5', `grep -n "${WORK_SEGMENT_HIT_PHRASE}" notes/release-notes.md`);
+  thinking('The grep found the passage I was looking for.');
+  bash('seg-tool-6', 'sed -n 40,60p notes/release-notes.md');
+  thinking('Reading the surrounding section.');
+  bash('seg-tool-7', 'tail -n 15 notes/release-notes.md');
+  thinking('Checking the closing lines.');
+  bash('seg-tool-8', 'sort notes/release-notes.md | uniq | head');
+
+  say('Second pass complete.');
+
+  // Third run: 5 members, no hit.
+  thinking('Summarising what the notes contain.');
+  bash('seg-tool-9', 'grep -c TODO notes/release-notes.md');
+  thinking('Counting the open items.');
+  bash('seg-tool-10', 'grep -n FIXME notes/release-notes.md');
+  thinking('Listing the fixes still pending.');
+
+  say(WORK_SEGMENT_HIT_PHRASE);
+
+  records.push({
+    type: 'custom-title',
+    sessionId: WORK_SEGMENT_SESSION_ID,
+    cwd: WORK_SEGMENT_WORKSPACE,
+    timestamp: new Date(startedAt + tick * 1_000).toISOString(),
+    customTitle: WORK_SEGMENT_SESSION_NAME,
+  });
+
+  fs.writeFileSync(
+    path.join(transcriptDir, `${WORK_SEGMENT_SESSION_ID}.jsonl`),
+    `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
+    'utf8',
+  );
+};
+
 /**
  * Fills this run's own dependency cache with a copy of the shared one, so `viteCacheDir` starts hot.
  *
@@ -1343,6 +1462,7 @@ if (isDataDirOwner) {
   seedVoiceErrorMessageWorkspace();
   seedMobileSendKeyWorkspace();
   seedMobileLayoutWorkspace();
+  seedWorkSegmentTranscript();
 }
 
 /**
@@ -1392,6 +1512,12 @@ const DEBUG_AGENT_SPEC_FILES: readonly string[] = [
   // enough to watch a degrade inside the 60s gate. That override is applied to the server env below,
   // for this selection only; every other selection keeps the shipped 5000/15000.
   'activity-dock-truthful.spec.ts',
+  // The work-segment density/search criterion. It is listed here because the criterion's contract asks for
+  // the registration; it does NOT read the seam's fixture. Its transcript is a plain-claude seed (see the
+  // work-segment seed above), because the seam's `row` vocabulary is `{role, text}` and cannot express the
+  // thinking/tool rows a work segment is made of. So neither of that spec's readings is evidence about this
+  // gate — the entry only pins that fact alongside the gate it is deliberately not using.
+  'transcript-work-segments.spec.ts',
 ];
 const debugAgentFixtureHome = selectedSpecFiles().some((file) => DEBUG_AGENT_SPEC_FILES.includes(file))
   ? path.join(dataDir, 'debug-agent-home')
