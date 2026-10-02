@@ -3,7 +3,7 @@ id: gap-claude-resident-shell-tab-criterion-bounded-boot-guard
 title: AC-174 判据的启动阶段无界：本族既有的有界预热+启动探针未回灌到 e2e/resident-shell-tab.spec.ts——一次页面期
   Vite 依赖冷预构建/模块图中断被拖成夹具会话行 30s 超时记红（并伴随共享 e2e boot 越过 webServer.timeout=30_000
   的负载假红）
-status: needs-human
+status: todo
 labels:
   - gap
   - defect
