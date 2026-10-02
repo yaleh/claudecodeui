@@ -1,7 +1,7 @@
 ---
 id: gap-activity-dock-phase-truthful
 title: AC-187 真实浏览器：坞文案来自真实阶段（thinking→tool(Bash)→writing→idle）、同一阶段 6 秒不轮换、回合末收起
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -98,3 +98,13 @@ goal_ac: AC-187
 - src/modules/i18n/locales/tr/chat.json
 - server/modules/session-hosts/tests/per-run-frame-scenarios.ts
 - tasks/gap-activity-dock-phase-truthful.md（自触）
+## Needs-Human
+
+**执行 2026-10-02T10:27:05.762Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: not ok - server/modules/voice/tests/voice-capture-audio.false-forms.test.ts:   AssertionError [ERR_ASSERTION]: this run changed the worktree's git status: (empty)
+- run_id：wk-prod-anchor
+- session_id：fa87fa92-7730-437d-bc86-d50af910a8e3
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-activity-dock-phase-truthful~wk-prod-anchor~1790936635200-beb2a8.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-activity-dock-phase-truthful-wk-prod-anchor.log
