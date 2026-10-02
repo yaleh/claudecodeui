@@ -5,6 +5,7 @@ import type {
   Project,
   ProjectSession,
   ProjectSortOrder,
+  QuayDriverState,
   SessionWithProvider,
   SettingsProject,
 } from '@/shared/types';
@@ -188,6 +189,30 @@ export const getTaskIndicatorStatus = (
   }
 
   return 'not-configured';
+};
+
+/**
+ * Resolves the sidebar Quay indicator's state.
+ *
+ * Tier 1 (`hasQuayConfig`) decides whether the badge exists at all; the driver
+ * reading is only known for a project whose snapshot has been fetched, so an
+ * absent snapshot leaves a configured project at `idle` rather than inventing a
+ * running/stale state the sidebar never observed.
+ */
+export const getQuayIndicatorStatus = (
+  project: Project,
+  quayStatus: { driver?: { state?: QuayDriverState } } | null,
+): QuayDriverState => {
+  if (!project.hasQuayConfig) {
+    return 'not-configured';
+  }
+
+  const driverState = quayStatus?.driver?.state;
+  if (driverState === 'running' || driverState === 'stale' || driverState === 'idle') {
+    return driverState;
+  }
+
+  return 'idle';
 };
 
 export const normalizeProjectForSettings = (project: Project): SettingsProject => {

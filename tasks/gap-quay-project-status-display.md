@@ -1,7 +1,7 @@
 ---
 id: gap-quay-project-status-display
 title: quay 项目状态展示(CloudCLI 侧边栏徽标 + 项目面板,CLI 子进程路线)
-status: ready
+status: done
 labels:
   - gap
 parent: null
