@@ -5,7 +5,7 @@ title: AC-175 判据的「忙」读数锚 [data-resident-status-bar] / data-resi
   在首条「会话忙」等待 30s 超时（element(s) not found）记红——把该 spec 的三处读数换锚到合并后的
   [data-activity-dock] + data-activity-state="in-turn"，判据的
   QueuedMessageCard/标注/撤回三态/per-run 正控制逐条保留
-status: todo
+status: ready
 labels:
   - gap
   - defect
