@@ -343,7 +343,14 @@ async function readBadge(page: Page): Promise<BadgeReading> {
   };
 }
 
-/** The badge read until `done` accepts it: the store's own one-second interval is the wait. */
+/**
+ * The badge read until `done` accepts it.
+ *
+ * The wait is the page's own refresh of the running-session set — the five-second poll of
+ * `GET /api/providers/sessions/running` behind `SessionProtectionContext` — so the budget below has to outlast
+ * one such poll. It is not the host listing's one-second poll: since the dock consolidation the badge reads the
+ * activity source, not the listing.
+ */
 async function waitForBadge(
   page: Page,
   done: (reading: BadgeReading) => boolean,
@@ -921,13 +928,16 @@ test.describe('resident running view', () => {
     // which is the reachable shape in which all three readings differ: badge 1, hosts.running 1, hosts.total 2.
     console.log(`shape.premise=3 resident sessions, 3 hosts; shape.measured=1 per-run host (the turn in flight) + 1 multiplexed resident host (both idle sessions) = ${liveHosts(twoHosts).length} hosts, and the union of the two groups carries all ${liveHosts(twoHosts).flatMap((host) => host.bindings).length} held sessions`);
     console.log(`badge.text=${JSON.stringify(badge.text)} badge.label=${JSON.stringify(badge.label)}`);
-    // Why the number is the host listing's and not this page's own set of in-flight turns: nothing was typed
-    // here. The only turn in the process was opened by the control plane's clock, so the client's set is empty
-    // by construction — and the badge is not. Printed, not asserted: the frames are evidence for a reader, while
-    // the falsifier is the equality below, which a badge driven by this page's own set could not satisfy.
+    // Why the number is this page's own set of in-flight turns, and not the host listing beside it: since the
+    // dock consolidation the Running view and its badge read the same server-authoritative activity the activity
+    // dock and the composer's stop entry read — the run registry behind `GET /api/providers/sessions/running`,
+    // which this page polls — and the host listing keeps only the resident-idle group. Nothing was typed here, so
+    // no socket frame carries the turn: the number arrives over the poll, which is exactly the source the product
+    // uses. Printed, not asserted: the frames are evidence for a reader, while the falsifier is the equality below,
+    // which a badge driven by this page's own typing could not satisfy.
     const frames = await socketFrames(page);
     const streamFrames = frames.filter((frame) => String(frame?.kind ?? '').startsWith('stream'));
-    console.log(`badge.source=hosts (socket frames seen=${frames.length}, of them stream frames=${streamFrames.length})`);
+    console.log(`badge.source=runningSessions poll (socket frames seen=${frames.length}, of them stream frames=${streamFrames.length})`);
 
     expect(badge.reading, 'the badge counts the sessions with a turn in flight').toBe(hostsRunning.length);
     expect(hostsRunning.length, 'exactly one turn is in flight').toBe(1);
