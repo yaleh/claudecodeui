@@ -2,7 +2,7 @@
 id: gap-resident-server-restart-budget-shorter-than-its-three-boots
 title: AC-166 判据的 BUDGET_MS=60s 装不下它自己庇护的三次启动（3×BOOT_TIMEOUT_MS 25s =
   75s）：负载下「慢但成功」的启动序列必然撞进程级 kill（exit 3），而该红不指名任何用例
-status: ready
+status: todo
 labels:
   - gap
 parent: null
