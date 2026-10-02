@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useActivityFreshness } from '@/modules/chat/hooks/useActivityFreshness';
+import { deriveActivityDockView } from '@/modules/chat/utils/activityDockView';
 import { Shimmer } from '@/shared/ui';
-import type { SessionActivity } from '@/shared/types';
+import type { ActivityConnection, SessionActivity } from '@/shared/types';
 
 /**
  * Which surface the indicator draws. `tab` is the tab-shaped strip that hangs
@@ -17,6 +19,13 @@ type ActivityIndicatorVariant = 'tab' | 'inline';
 
 type ActivityIndicatorProps = {
   activity: SessionActivity | null;
+  /** The session whose liveness this dock reports; frames for other sessions are ignored. */
+  sessionId?: string | null;
+  /**
+   * Test seam: an in-memory liveness channel. Production omits it and the dock
+   * reads the app's own socket through `WebSocketContext`.
+   */
+  connection?: ActivityConnection | null;
   /** The tab's interrupt affordance; ignored by `inline`, which never carries one. */
   onAbort?: () => void;
   isInputFocused?: boolean;
@@ -36,11 +45,16 @@ const DEFAULT_ACTION_WORDS = ['Thinking', 'Processing', 'Analyzing', 'Working', 
 const EXIT_ANIMATION_MS = 220;
 
 /**
- * Minimal response-in-progress indicator, in the spirit of the inline status
- * lines in Claude Code / Codex / OpenCode: a shimmering activity label, the
- * elapsed time, and — on the tab — an interrupt affordance. Rendered only while
- * the viewed session has an entry in the processing map; it disappears the
- * instant that entry is removed.
+ * The activity dock: one honest reading of what a session is doing.
+ *
+ * It is the surface that replaced the rotating `Thinking…` label. Two things
+ * decide what it says — the client's local "this session is processing" table,
+ * and the freshness of the server's own frames (via `useActivityFreshness`).
+ * When the server stops proving it is there, the dock stops speaking for it:
+ * the state becomes `unreachable`, the elapsed reading freezes at the server's
+ * last `asOf`, and the stop control is disabled with a visible reason instead of
+ * being silently dropped. The six rotating action words never appear in that
+ * state, in any locale.
  *
  * The `tab` variant is rendered by chat's ChatComposer above the input, so the
  * user can see and interrupt the in-flight turn without leaving the composer.
@@ -48,18 +62,23 @@ const EXIT_ANIMATION_MS = 220;
  * message list below `md`, where the tab would cover the messages it floats
  * over; it deliberately carries no Stop, because the composer's submit button
  * is already the one stop entry on that layout.
+ *
+ * Records `data-activity-dock` / `data-activity-state` (and the server-derived
+ * `data-activity-elapsed-ms`) for the browser criterion.
  */
 export default function ActivityIndicator({
   activity,
+  sessionId,
+  connection,
   onAbort,
   isInputFocused = false,
   variant = 'tab',
 }: ActivityIndicatorProps) {
   const { t } = useTranslation('chat');
+  const freshness = useActivityFreshness(sessionId, connection);
   const [renderedActivity, setRenderedActivity] = useState<SessionActivity | null>(activity);
   const [isExiting, setIsExiting] = useState(false);
-  const startedAt = renderedActivity?.startedAt ?? null;
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const stopReasonId = useId();
 
   useEffect(() => {
     if (activity) {
@@ -79,26 +98,48 @@ export default function ActivityIndicator({
     return () => clearTimeout(timer);
   }, [activity, renderedActivity]);
 
-  useEffect(() => {
-    if (startedAt === null) return;
-    const update = () => setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
-    update();
-    const timer = setInterval(update, 1000);
-    return () => clearInterval(timer);
-  }, [startedAt]);
+  const dock = deriveActivityDockView({
+    activity: renderedActivity,
+    liveness: freshness.liveness,
+    elapsedMs: freshness.elapsedMs,
+    hasTurnAnchor: freshness.hasTurnAnchor,
+    wired: freshness.wired,
+    hasAbort: Boolean(onAbort),
+  });
 
-  if (!renderedActivity) return null;
+  if (!renderedActivity || dock.state === 'hidden') return null;
 
+  const dockAttributes = {
+    'data-activity-dock': '',
+    'data-activity-state': dock.state,
+    ...(dock.elapsedMs === null ? {} : { 'data-activity-elapsed-ms': String(dock.elapsedMs) }),
+  } as const;
+
+  const elapsedSeconds = dock.elapsedSeconds;
+  const minutes = elapsedSeconds === null ? 0 : Math.floor(elapsedSeconds / 60);
+  const seconds = elapsedSeconds === null ? 0 : elapsedSeconds % 60;
+  const elapsedLabel = elapsedSeconds === null
+    ? null
+    : minutes < 1
+      ? t('claudeStatus.elapsed.seconds', { count: seconds, defaultValue: '{{count}}s' })
+      : t('claudeStatus.elapsed.minutesSeconds', { minutes, seconds, defaultValue: '{{minutes}}m {{seconds}}s' });
+
+  const isUnreachable = dock.state === 'unreachable';
   const actionWords = ACTION_KEYS.map((key, i) => t(key, { defaultValue: DEFAULT_ACTION_WORDS[i] }));
-  const label = (renderedActivity.statusText || actionWords[Math.floor(elapsedSeconds / 4) % actionWords.length])
-    .replace(/\.+$/, '');
+  const rotatingWord = actionWords[Math.floor((elapsedSeconds ?? 0) / 4) % actionWords.length];
+  const label = isUnreachable
+    ? t('claudeStatus.unreachable.title', { defaultValue: 'Connection lost · reconnecting…' })
+    : (renderedActivity.statusText || rotatingWord).replace(/\.+$/, '');
+  const stopReason = dock.stopReasonKey === null
+    ? null
+    : t(dock.stopReasonKey, { defaultValue: 'Stop is unavailable while the server is unreachable' });
 
-  const minutes = Math.floor(elapsedSeconds / 60);
-  const seconds = elapsedSeconds % 60;
-  const elapsedLabel = minutes < 1
-    ? t('claudeStatus.elapsed.seconds', { count: seconds, defaultValue: '{{count}}s' })
-    : t('claudeStatus.elapsed.minutesSeconds', { minutes, seconds, defaultValue: '{{minutes}}m {{seconds}}s' });
   const animationClassName = isExiting ? 'chat-activity-exit' : 'chat-activity-enter';
+
+  /** The label's own pixels: a shimmered word while a turn runs, a plain sentence when it cannot. */
+  const labelNode = isUnreachable
+    ? <span className="font-medium">{label}</span>
+    : <Shimmer className="font-medium">{`${label}…`}</Shimmer>;
 
   if (variant === 'inline') {
     // In the message flow by construction: no absolute or fixed positioning, so
@@ -107,11 +148,14 @@ export default function ActivityIndicator({
     return (
       <div
         data-slot="chat-activity-inline"
+        {...dockAttributes}
         className={`flex items-center gap-2 px-1 py-1.5 text-xs text-muted-foreground ${animationClassName}`}
       >
         <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary" aria-hidden />
-        <Shimmer className="font-medium">{`${label}…`}</Shimmer>
-        <span className="tabular-nums text-muted-foreground/60">{elapsedLabel}</span>
+        {labelNode}
+        {elapsedLabel !== null && (
+          <span className="tabular-nums text-muted-foreground/60">{elapsedLabel}</span>
+        )}
       </div>
     );
   }
@@ -124,28 +168,43 @@ export default function ActivityIndicator({
   ].join(' ');
 
   return (
-    <div className={`pointer-events-none bg-transparent ${animationClassName}`}>
+    <div className={`pointer-events-none bg-transparent ${animationClassName}`} {...dockAttributes}>
       <div className="flex items-end justify-between gap-2">
         <div className={`${tabSurfaceClassName} gap-2`}>
           <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary" aria-hidden />
-          <Shimmer className="font-medium">{`${label}…`}</Shimmer>
-          <span className="tabular-nums text-muted-foreground/60">{elapsedLabel}</span>
+          {labelNode}
+          {elapsedLabel !== null && (
+            <span className="tabular-nums text-muted-foreground/60">{elapsedLabel}</span>
+          )}
         </div>
 
-        {renderedActivity.canInterrupt && onAbort && (
+        {dock.showStop && onAbort && (
           <button
             type="button"
             onClick={onAbort}
-            className={`${tabSurfaceClassName} pointer-events-auto gap-1.5 text-muted-foreground hover:bg-card hover:text-destructive`}
+            disabled={dock.stopDisabled}
+            aria-disabled={dock.stopDisabled || undefined}
+            aria-describedby={stopReason === null ? undefined : stopReasonId}
+            title={stopReason ?? t('claudeStatus.stop', { defaultValue: 'Stop' })}
+            className={`${tabSurfaceClassName} pointer-events-auto gap-1.5 text-muted-foreground hover:bg-card hover:text-destructive disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-card disabled:hover:text-muted-foreground`}
             aria-label={t('claudeStatus.stop', { defaultValue: 'Stop' })}
           >
+
             <svg className="h-2.5 w-2.5 fill-current" viewBox="0 0 24 24" aria-hidden>
               <rect x="5" y="5" width="14" height="14" rx="2" />
             </svg>
             <span>{t('claudeStatus.stop', { defaultValue: 'Stop' })}</span>
-            <kbd className="inline-block rounded border border-border/60 px-1 text-[10px] text-muted-foreground/70">
-              esc
-            </kbd>
+            {stopReason === null ? (
+              <kbd className="inline-block rounded border border-border/60 px-1 text-[10px] text-muted-foreground/70">
+                esc
+              </kbd>
+            ) : (
+              // The reason is drawn, not just described: a greyed control with no
+              // visible explanation is the silent drop this state exists to replace.
+              <span id={stopReasonId} className="text-[10px] font-normal text-muted-foreground/70">
+                {stopReason}
+              </span>
+            )}
           </button>
         )}
       </div>

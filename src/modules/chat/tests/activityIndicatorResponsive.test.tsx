@@ -11,11 +11,13 @@ import ChatMessagesPane from '@/modules/chat/transcript/ChatMessagesPane';
 import { UiPreferencesProvider } from '@/shared/context/UiPreferencesContext';
 import enChat from '@/modules/i18n/locales/en/chat.json';
 import type {
+  ActivityConnection,
   ChatMessage,
   NormalizedMessage,
   Project,
   ProjectSession,
   ProviderModelActions,
+  ServerEvent,
   SessionActivity,
 } from '@/shared/types';
 
@@ -55,6 +57,52 @@ const ACTIVITY: SessionActivity = {
   canInterrupt: true,
   startedAt: START,
 };
+
+/** The session these cases report on; the dock ignores frames for any other id. */
+const SESSION_ID = 'session-a';
+
+/**
+ * An in-memory liveness channel, so a case can hand the dock frames without a
+ * socket. The elapsed reading now comes from what the server says (`asOf`) and
+ * not from the local clock, so a case that wants a number to read must send one.
+ */
+const makeConnection = () => {
+  const listeners = new Set<(event: ServerEvent) => void>();
+  const connection: ActivityConnection = {
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    isConnected: true,
+  };
+  const push = (event: ServerEvent) => {
+    act(() => {
+      for (const listener of [...listeners]) listener(event);
+    });
+  };
+  return { connection, push };
+};
+
+/** A hello frame for the running turn, with the threshold the server would announce. */
+const subscribedFrame = (timestamp = START, overrides: Partial<ServerEvent> = {}): ServerEvent => ({
+  kind: 'chat_subscribed',
+  sessionId: SESSION_ID,
+  isProcessing: true,
+  bootId: 'boot-1',
+  rev: 1,
+  unreachableAfterMs: 60_000,
+  timestamp: new Date(timestamp).toISOString(),
+  ...overrides,
+});
+
+/** A bare heartbeat that advances the server's `asOf` without changing the turn. */
+const heartbeatFrame = (timestamp: number): ServerEvent => ({
+  kind: 'activity.heartbeat',
+  sessionId: SESSION_ID,
+  bootId: 'boot-1',
+  rev: 1,
+  timestamp: new Date(timestamp).toISOString(),
+});
 
 /** The signal both surfaces read for the tier (`useDeviceSettings`). */
 const setViewportWidth = (width: number) => {
@@ -189,9 +237,17 @@ const stopButtons = (root: HTMLElement) => within(root).queryAllByRole('button',
 
 test('(a) the inline variant reads as the tab does, minus the Stop', () => {
   const onAbort = vi.fn();
+  const { connection, push } = makeConnection();
   const view = render(
-    React.createElement(ActivityIndicator, { activity: ACTIVITY, onAbort, variant: 'inline' }),
+    React.createElement(ActivityIndicator, {
+      activity: ACTIVITY,
+      sessionId: SESSION_ID,
+      connection,
+      onAbort,
+      variant: 'inline',
+    }),
   );
+  push(subscribedFrame());
   const row = inlineRow(view);
   assert.ok(row, `the inline variant must render a status line (${INLINE_SLOT}); DOM: ${view.container.innerHTML.slice(0, 400)}`);
 
@@ -214,7 +270,11 @@ test('(a) the inline variant reads as the tab does, minus the Stop', () => {
 
 test('(b) the tab variant still carries the activity text, the Stop and the Esc hint', () => {
   const onAbort = vi.fn();
-  const view = render(React.createElement(ActivityIndicator, { activity: ACTIVITY, onAbort }));
+  const { connection, push } = makeConnection();
+  const view = render(
+    React.createElement(ActivityIndicator, { activity: ACTIVITY, sessionId: SESSION_ID, connection, onAbort }),
+  );
+  push(subscribedFrame());
   const text = view.container.textContent ?? '';
 
   assert.ok(text.includes('Reviewing'), `the tab must name the activity; it reads "${text}"`);
@@ -236,38 +296,55 @@ test('(b) the tab variant still carries the activity text, the Stop and the Esc 
   );
 });
 
-test('(c) the elapsed reading advances on both variants off the one startedAt', () => {
+test('(c) the elapsed reading follows the server clock and ignores the local one', () => {
   const readings: string[] = [];
   const elapsedOf = (view: { container: HTMLElement }) => {
     const matched = (view.container.textContent ?? '').match(/\d+m \d+s|\d+s/);
     return matched ? matched[0] : '<no elapsed reading>';
   };
 
+  const { connection, push } = makeConnection();
   const inline = render(
-    React.createElement(ActivityIndicator, { activity: ACTIVITY, variant: 'inline' }),
+    React.createElement(ActivityIndicator, { activity: ACTIVITY, sessionId: SESSION_ID, connection, variant: 'inline' }),
   );
-  const tab = render(React.createElement(ActivityIndicator, { activity: ACTIVITY, onAbort: () => undefined }));
+  const tab = render(
+    React.createElement(ActivityIndicator, { activity: ACTIVITY, sessionId: SESSION_ID, connection, onAbort: () => undefined }),
+  );
+
+  // A threshold far past the window below, so the local-clock step cannot degrade the dock and the
+  // reading it produces is about the clock source alone.
+  push(subscribedFrame(START, { unreachableAfterMs: 600_000 }));
 
   const atStart = { inline: elapsedOf(inline), tab: elapsedOf(tab) };
   readings.push(`both at ${new Date(START).toISOString()}: inline="${atStart.inline}", tab="${atStart.tab}"`);
-  assert.equal(atStart.inline, '0s', `a turn that just started must read 0s; readings: ${readings.join(' | ')}`);
-  assert.equal(atStart.tab, '0s', `a turn that just started must read 0s; readings: ${readings.join(' | ')}`);
+  assert.equal(atStart.inline, '0s', `a turn the server just anchored must read 0s; readings: ${readings.join(' | ')}`);
+  assert.equal(atStart.tab, '0s', `a turn the server just anchored must read 0s; readings: ${readings.join(' | ')}`);
 
+  // Time passing on the client is not evidence of anything: with no frame, the reading holds.
   act(() => {
     vi.advanceTimersByTime(65_000);
   });
+  const afterClock = { inline: elapsedOf(inline), tab: elapsedOf(tab) };
+  readings.push(`both after a 65s local-clock step: inline="${afterClock.inline}", tab="${afterClock.tab}"`);
+  assert.equal(
+    afterClock.inline,
+    '0s',
+    `the elapsed reading must not be driven by the client's clock; readings: ${readings.join(' | ')}`,
+  );
 
+  // A server frame does move it: the reading is the server's own `asOf` minus the turn's anchor.
+  push(heartbeatFrame(START + 65_000));
   const later = { inline: elapsedOf(inline), tab: elapsedOf(tab) };
-  readings.push(`both at +65s: inline="${later.inline}", tab="${later.tab}"`);
+  readings.push(`both at server +65s: inline="${later.inline}", tab="${later.tab}"`);
   assert.equal(
     later.inline,
     '1m 5s',
-    `the inline reading must advance with the clock; readings: ${readings.join(' | ')}`,
+    `the inline reading must advance with the server's clock; readings: ${readings.join(' | ')}`,
   );
   assert.equal(
     later.tab,
     later.inline,
-    `both surfaces must read the same elapsed time for the same startedAt; readings: ${readings.join(' | ')}`,
+    `both surfaces must read the same server-derived elapsed time; readings: ${readings.join(' | ')}`,
   );
 });
 
@@ -706,8 +783,8 @@ describe("the transcript's content-growth follow over the inline status line", (
     return { container, content, observer, rowView, result };
   }
 
-  /** The elapsed reading advancing, as the row it belongs to re-renders in place. */
-  const ACTIVITY_WIDER: SessionActivity = { ...ACTIVITY, startedAt: START - 65_000 };
+  /** The status text changing, as the row it belongs to re-renders in place. */
+  const ACTIVITY_WIDER: SessionActivity = { ...ACTIVITY, statusText: 'Finalizing' };
 
   test('growth from the status line reads exactly as growth from any other row', async () => {
     const readings: string[] = [];

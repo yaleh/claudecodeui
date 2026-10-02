@@ -301,6 +301,30 @@ export type SessionActivitySnapshot = {
   startedAt?: number;
 };
 
+/**
+ * The liveness channel the activity dock reads: the app socket's frames plus
+ * its own connection flag.
+ *
+ * Deliberately transport-shaped rather than a socket: production supplies the
+ * `WebSocketContext` value, while a unit test can hand the dock an in-memory
+ * source and drive every migration without a real network. `isConnected` is the
+ * socket's own reading, not proof of a server — only a frame is.
+ */
+export type ActivityConnection = {
+  subscribe: (listener: (event: ServerEvent) => void) => () => void;
+  isConnected: boolean;
+};
+
+/**
+ * Which surface the activity dock is showing, as published on
+ * `[data-activity-dock]`'s `data-activity-state`.
+ *
+ * `hidden` means the dock is not drawn at all; `in-turn` means fresh evidence of
+ * a running turn; `unreachable` means the client has a turn to talk about but no
+ * fresh evidence the server is still there.
+ */
+export type ActivityDockState = 'hidden' | 'in-turn' | 'unreachable';
+
 // ---------------------------
 
 //----------------- REALTIME TRANSPORT ------------
@@ -891,7 +915,7 @@ export type SessionHostsSnapshot = {
 };
 
 /**
- * The four things a resident process can be doing, as the UI names it.
+ * The five things a resident process can be doing, as the UI names it.
  *
  * Named for what a reader can act on rather than for the host's own six-member
  * state, two of which (`starting`, `closing`) describe a transition no control
@@ -900,8 +924,14 @@ export type SessionHostsSnapshot = {
  * the host's words are translated into these — so the mark beside a session's
  * name and the sentence in its status bar cannot describe one process
  * differently.
+ *
+ * `unknown` is not a host state: no listing ever reports it. It is what the one
+ * translation returns when the *read itself* failed, so the last snapshot's word
+ * is not repeated as if it were current. A dead endpoint must not let the UI go
+ * on saying `busy` about a process nobody can see; the successful read that
+ * follows restores the real word immediately.
  */
-export type ResidentProcessState = 'unstarted' | 'idle' | 'busy' | 'exited';
+export type ResidentProcessState = 'unstarted' | 'idle' | 'busy' | 'exited' | 'unknown';
 
 /** Discriminator on NormalizedMessage naming which kind of transcript event it carries — plain text, tool use or result, thinking, stream delta or end, error, completion, status, permission request/resolution/cancellation, session creation, interactive prompt, or task notification. */
 type MessageKind =

@@ -274,6 +274,10 @@
     },
     "providers": {
       "assistant": "Asisten"
+    },
+    "unreachable": {
+      "title": "Koneksi terputus · menyambung ulang…",
+      "stopReason": "Hentikan tidak tersedia selama server tidak dapat dijangkau"
     }
   },
   "projectSelection": {
@@ -374,8 +378,7 @@
     "tokensLabel_other": "token",
     "escClosesModal": "Esc menutup modal.",
     "close": "Tutup"
-  }
-,
+  },
   "resident": {
     "pending": {
       "annotation": "Akan diproses setelah jawaban ini selesai",
@@ -393,6 +396,7 @@
       "idle": "Residen · Idle",
       "busy": "Residen · Berjalan",
       "exited": "Proses residen telah berakhir ({{detail}})",
+      "unknown": "Residen · Status tidak diketahui",
       "start": "Mulai",
       "restart": "Mulai Ulang",
       "close": "Tutup proses residen",

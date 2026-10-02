@@ -3,7 +3,7 @@ id: gap-activity-heartbeat-frame-crashes-realtime-merge
 title: AC-175 判据红（跨任务回归）：服务端 activity.heartbeat 控制帧无 id，被聊天实时处理当成消息塞进 realtime
   行，removeOptimisticUserEchoes 对 message.id.startsWith 抛 TypeError 中止整次
   merge，cancelled 生命周期事件因此永不渲染「已撤回」——修法两条腿（实时处理不接收非消息帧 + 合并对无 id 行免疫）+ 两腿负控制
-status: ready
+status: done
 labels:
   - gap
   - defect
@@ -47,12 +47,12 @@ goal_ac: AC-175
 
 ## AC
 
-- [ ] AC1 判据绿：`npx playwright test e2e/resident-busy-send.spec.ts` 退出 **0**（含 `e2e/resident-busy-send.spec.ts:696` 那条 `Expected: 1 / Received: 0` 断言通过），且同一次运行的页面 console 捕获里不再出现该 `startsWith` TypeError。红态基线（本轮直跑）：退出 1、`1 failed`、`spec:696`。
-- [ ] AC2 帧被忽略（腿 1）：`npx vitest run src/modules/chat/tests/chatRealtimeIgnoresActivityHeartbeat.test.tsx` 退出 0——经 `handleEvent` 喂一条 `{ kind: 'activity.heartbeat', sessionId, bootId, rev, timestamp }`，断言聊天存储 realtime 行数与喂之前**逐字相同**；正控制：同形状喂一条真消息，行数 +1（证明读数非恒空）。
-- [ ] AC3 合并免疫（腿 2，承重）：`npx vitest run src/modules/chat/tests/sessionMessageReconciliation.test.ts` 退出 0——`removeOptimisticUserEchoes([], [{ id: undefined, …合法字段 }])` 不抛，且该行被原样放过；对照腿：同形状、`id: 'local_…'` 的乐观回显仍被正常退休。
-- [ ] AC4 负控制（两腿各自承重，先提交再变异、逐条登记 diff 与逐字失败行、`git checkout --` 还原）：(a) 只还原腿 1（心跳帧仍进存储）⇒ AC1 红于 `spec:696` 且 console 重现 TypeError；(b) 只还原腿 2（无 id 行仍使 `removeOptimisticUserEchoes` 抛）⇒ 同红。逐条证明单独失效任一腿都不能让判据绿。
-- [ ] AC5 无回归：`npx vitest run src/modules/chat/tests/` 全绿；`npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/session-host-per-run-parity.test.ts` 退出 0（per-run 忙时逐帧契约未改窄）。
-- [ ] AC6 静态门：`npm run typecheck` 与 `npm run lint` 均退出 0。
+- [x] AC1 判据绿：`npx playwright test e2e/resident-busy-send.spec.ts` 退出 **0**（含 `e2e/resident-busy-send.spec.ts:696` 那条 `Expected: 1 / Received: 0` 断言通过），且同一次运行的页面 console 捕获里不再出现该 `startsWith` TypeError。红态基线（本轮直跑）：退出 1、`1 failed`、`spec:696`。
+- [x] AC2 帧被忽略（腿 1）：`npx vitest run src/modules/chat/tests/chatRealtimeIgnoresActivityHeartbeat.test.tsx` 退出 0——经 `handleEvent` 喂一条 `{ kind: 'activity.heartbeat', sessionId, bootId, rev, timestamp }`，断言聊天存储 realtime 行数与喂之前**逐字相同**；正控制：同形状喂一条真消息，行数 +1（证明读数非恒空）。
+- [x] AC3 合并免疫（腿 2，承重）：`npx vitest run src/modules/chat/tests/sessionMessageReconciliation.test.ts` 退出 0——`removeOptimisticUserEchoes([], [{ id: undefined, …合法字段 }])` 不抛，且该行被原样放过；对照腿：同形状、`id: 'local_…'` 的乐观回显仍被正常退休。
+- [x] AC4 负控制（两腿各自承重，先提交再变异、逐条登记 diff 与逐字失败行、`git checkout --` 还原）：(a) 只还原腿 1（心跳帧仍进存储）⇒ AC1 红于 `spec:696` 且 console 重现 TypeError；(b) 只还原腿 2（无 id 行仍使 `removeOptimisticUserEchoes` 抛）⇒ 同红。逐条证明单独失效任一腿都不能让判据绿。
+- [x] AC5 无回归：`npx vitest run src/modules/chat/tests/` 全绿；`npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/session-host-per-run-parity.test.ts` 退出 0（per-run 忙时逐帧契约未改窄）。
+- [x] AC6 静态门：`npm run typecheck` 与 `npm run lint` 均退出 0。
 
 ## DoD
 

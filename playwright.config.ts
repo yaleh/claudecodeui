@@ -1387,10 +1387,19 @@ const DEBUG_AGENT_SPEC_FILES: readonly string[] = [
   // arms two sessions off the same clock (one stored resident, one per-run) to read both the status
   // bar's geometry and the composer switch's presence and absence in one run, so it needs that plane.
   'resident-ui-layout.spec.ts',
+  // The activity-dock truthfulness criterion: same provider and control plane again, and it needs one
+  // extra thing from this selection — a server whose heartbeat beat and silence threshold are short
+  // enough to watch a degrade inside the 60s gate. That override is applied to the server env below,
+  // for this selection only; every other selection keeps the shipped 5000/15000.
+  'activity-dock-truthful.spec.ts',
 ];
 const debugAgentFixtureHome = selectedSpecFiles().some((file) => DEBUG_AGENT_SPEC_FILES.includes(file))
   ? path.join(dataDir, 'debug-agent-home')
   : null;
+// The criterion that watches the dock degrade needs to see the server's beat and its silence budget
+// inside one gate. Only this selection shortens them, and only on the *server*: the client reads the
+// numbers the server announces in its hello, so the spec itself carries no threshold literal.
+const shortenActivityHeartbeat = selectedSpecFiles().includes('activity-dock-truthful.spec.ts');
 // Published to the workers because the spec has to place its fixture project *inside* this directory:
 // the control plane refuses a `projectPath` outside the fixture home, and the spec process does not
 // inherit the server's own `DEBUG_AGENT_HOME`. Empty — not absent — for every other selection, which
@@ -1433,6 +1442,11 @@ export default defineConfig({
         // closed exactly as it does today. See `debugAgentFixtureHome` above.
         ...(debugAgentFixtureHome
           ? { DEBUG_AGENT: '1', DEBUG_AGENT_HOME: debugAgentFixtureHome }
+          : {}),
+        // Sub-second beat and threshold, for the activity-dock criterion's selection only. The
+        // shipped defaults (5000/15000) are the product's and are untouched everywhere else.
+        ...(shortenActivityHeartbeat
+          ? { ACTIVITY_HEARTBEAT_INTERVAL_MS: '300', ACTIVITY_UNREACHABLE_AFTER_MS: '900' }
           : {}),
       },
     },

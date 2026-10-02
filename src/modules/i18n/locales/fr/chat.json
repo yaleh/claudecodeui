@@ -114,7 +114,6 @@
       "unknown": "La transcription a échoué — réessayez ou vérifiez les réglages du fournisseur de voix."
     }
   },
-
   "input": {
     "placeholder": "Tapez / pour les commandes, @ pour les fichiers, ou posez une question à {{provider}}...",
     "placeholderDefault": "Tapez votre message...",
@@ -234,6 +233,10 @@
     },
     "providers": {
       "assistant": "Assistant"
+    },
+    "unreachable": {
+      "title": "Connexion perdue · reconnexion…",
+      "stopReason": "Arrêt indisponible tant que le serveur est injoignable"
     }
   },
   "projectSelection": {
@@ -285,8 +288,7 @@
     "failed": "Non envoyé — {{reason}}",
     "cancel": "Annuler le message programmé",
     "dismiss": "Masquer l'avis d'échec"
-  }
-,
+  },
   "resident": {
     "pending": {
       "annotation": "Sera traité après cette réponse",
@@ -304,6 +306,7 @@
       "idle": "Résident · Au repos",
       "busy": "Résident · En cours d’exécution",
       "exited": "Le processus résident s’est arrêté ({{detail}})",
+      "unknown": "Résident · État inconnu",
       "start": "Démarrer",
       "restart": "Redémarrer",
       "close": "Fermer le processus résident",

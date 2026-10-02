@@ -113,7 +113,6 @@
       "unknown": "Die Transkription ist fehlgeschlagen — versuchen Sie es erneut oder prüfen Sie die Einstellungen des Sprachanbieters."
     }
   },
-
   "input": {
     "placeholder": "/ für Befehle, @ für Dateien eingeben oder {{provider}} etwas fragen...",
     "placeholderDefault": "Nachricht eingeben...",
@@ -232,6 +231,10 @@
     },
     "providers": {
       "assistant": "Assistent"
+    },
+    "unreachable": {
+      "title": "Verbindung verloren · Neuverbindung…",
+      "stopReason": "Stopp ist nicht verfügbar, solange der Server nicht erreichbar ist"
     }
   },
   "projectSelection": {
@@ -283,8 +286,7 @@
     "failed": "Nicht gesendet – {{reason}}",
     "cancel": "Geplante Nachricht abbrechen",
     "dismiss": "Fehlerhinweis ausblenden"
-  }
-,
+  },
   "resident": {
     "pending": {
       "annotation": "Wird nach dieser Antwort verarbeitet",
@@ -302,6 +304,7 @@
       "idle": "Resident · Leerlauf",
       "busy": "Resident · Läuft",
       "exited": "Resident-Prozess beendet ({{detail}})",
+      "unknown": "Resident · Status unbekannt",
       "start": "Starten",
       "restart": "Neu starten",
       "close": "Resident-Prozess schließen",

@@ -31,7 +31,7 @@ import { Tooltip } from '@/shared/ui';
  * check a rendered row against.
  */
 export default function ResidentMark({ sessionId, t }: { sessionId: string; t: TFunction }) {
-  const { snapshot } = useSessionHosts();
+  const { snapshot, error } = useSessionHosts();
   const state = findSessionHostState(snapshot, sessionId);
 
   if (state?.lifecycleMode !== 'resident') {
@@ -39,10 +39,17 @@ export default function ResidentMark({ sessionId, t }: { sessionId: string; t: T
   }
 
   const host = findSessionHost(snapshot, sessionId);
-  const processState = readResidentProcessState(host);
+  // The same fold the status bar makes, through the same function: a failed read
+  // reads as `unknown` in both places, from one translation of one store.
+  const processState = readResidentProcessState(host, error !== null);
   const shape = RESIDENT_MARK_SHAPES[processState];
   const label = t(`resident.mark.${processState}`, {
-    defaultValue: processState === 'exited' ? 'Resident process exited' : 'Resident session',
+    defaultValue:
+      processState === 'exited'
+        ? 'Resident process exited'
+        : processState === 'unknown'
+          ? 'Resident state unknown'
+          : 'Resident session',
   });
 
   return (
@@ -66,6 +73,14 @@ export default function ResidentMark({ sessionId, t }: { sessionId: string; t: T
               aria-hidden="true"
             />
           </span>
+        ) : processState === 'unknown' ? (
+          // Not the busy spinner and not the idle solid dot: an unconfirmed state
+          // must not wear either shape. A muted outline says "no reading" without
+          // claiming a process is running or stopped.
+          <span
+            aria-hidden="true"
+            className="h-2 w-2 rounded-full border border-dashed border-amber-500"
+          />
         ) : (
           <span
             aria-hidden="true"

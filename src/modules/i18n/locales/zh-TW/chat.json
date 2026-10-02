@@ -113,7 +113,6 @@
       "unknown": "轉寫失敗了——請再試一次，或檢查語音供應方的設定。"
     }
   },
-
   "input": {
     "placeholder": "輸入 / 叫用指令，@ 選取檔案，或向 {{provider}} 提問...",
     "placeholderDefault": "輸入您的訊息...",
@@ -268,6 +267,10 @@
     },
     "providers": {
       "assistant": "助理"
+    },
+    "unreachable": {
+      "title": "連線中斷 · 正在重連…",
+      "stopReason": "伺服器無法連線時無法停止"
     }
   },
   "projectSelection": {
@@ -319,8 +322,7 @@
     "failed": "未傳送 — {{reason}}",
     "cancel": "取消排程訊息",
     "dismiss": "關閉失敗提示"
-  }
-,
+  },
   "resident": {
     "pending": {
       "annotation": "將在目前回答結束後處理",
@@ -338,6 +340,7 @@
       "idle": "常駐 · 閒置",
       "busy": "常駐 · 執行中",
       "exited": "常駐行程已結束（{{detail}}）",
+      "unknown": "常駐 · 狀態未知",
       "start": "啟動",
       "restart": "重新啟動",
       "close": "關閉常駐行程",

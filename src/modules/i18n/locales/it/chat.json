@@ -113,7 +113,6 @@
       "unknown": "La trascrizione non è riuscita — riprova o controlla le impostazioni del fornitore vocale."
     }
   },
-
   "input": {
     "placeholder": "Digita / per i comandi, @ per i file, o chiedi qualcosa a {{provider}}...",
     "placeholderDefault": "Scrivi il tuo messaggio...",
@@ -232,6 +231,10 @@
     },
     "providers": {
       "assistant": "Assistente"
+    },
+    "unreachable": {
+      "title": "Connessione persa · riconnessione…",
+      "stopReason": "Interrompi non è disponibile finché il server è irraggiungibile"
     }
   },
   "projectSelection": {
@@ -283,8 +286,7 @@
     "failed": "Non inviato — {{reason}}",
     "cancel": "Annulla messaggio programmato",
     "dismiss": "Ignora l'avviso di errore"
-  }
-,
+  },
   "resident": {
     "pending": {
       "annotation": "Verrà gestito al termine di questa risposta",
@@ -302,6 +304,7 @@
       "idle": "Residente · Inattivo",
       "busy": "Residente · In esecuzione",
       "exited": "Il processo residente è terminato ({{detail}})",
+      "unknown": "Residente · Stato sconosciuto",
       "start": "Avvia",
       "restart": "Riavvia",
       "close": "Chiudi il processo residente",

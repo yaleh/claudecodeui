@@ -113,7 +113,6 @@
       "unknown": "Deşifre başarısız oldu — yeniden deneyin veya ses sağlayıcısı ayarlarını kontrol edin."
     }
   },
-
   "input": {
     "placeholder": "Komutlar için /, dosyalar için @ yaz ya da {{provider}}'a her şeyi sor...",
     "placeholderDefault": "Mesajını yaz...",
@@ -232,6 +231,10 @@
     },
     "providers": {
       "assistant": "Asistan"
+    },
+    "unreachable": {
+      "title": "Bağlantı kesildi · yeniden bağlanıyor…",
+      "stopReason": "Sunucuya ulaşılamadığı sürece durdurma kullanılamaz"
     }
   },
   "projectSelection": {
@@ -283,8 +286,7 @@
     "failed": "Gönderilmedi — {{reason}}",
     "cancel": "Zamanlanmış mesajı iptal et",
     "dismiss": "Hata bildirimini kapat"
-  }
-,
+  },
   "resident": {
     "pending": {
       "annotation": "Bu yanıt bittikten sonra işlenecek",
@@ -302,6 +304,7 @@
       "idle": "Kalıcı · Boşta",
       "busy": "Kalıcı · Çalışıyor",
       "exited": "Kalıcı süreç sonlandı ({{detail}})",
+      "unknown": "Kalıcı · Durum bilinmiyor",
       "start": "Başlat",
       "restart": "Yeniden Başlat",
       "close": "Kalıcı süreci kapat",

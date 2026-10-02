@@ -1,7 +1,7 @@
 ---
 id: gap-host-snapshot-failure-unknown-degradation
 title: AC-189 宿主快照轮询失败降级为未知：状态栏与侧栏标记不再保留上一次 busy，成功即恢复
-status: ready
+status: done
 needs_human_cause: human-adjudication
 labels:
   - gap
@@ -94,4 +94,15 @@ goal_ac: AC-189
 - run_id：wk-prod-anchor
 - session_id：953700ad-c694-49c8-82e5-75e54ca5629b
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-host-snapshot-failure-unknown-degradation~wk-prod-anchor~1790909144137-67b067.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-host-snapshot-failure-unknown-degradation-wk-prod-anchor.log
+
+## Needs-Human
+
+**执行 2026-10-02T04:25:24.449Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 5 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=7175 server/modules/debug-agent/tests/debug-agent-gate.test.ts passed=false end_ms=1790914972851
+- run_id：wk-prod-anchor
+- session_id：ee41a3c1-5d9d-4074-afe6-14f8f107d63e
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-host-snapshot-failure-unknown-degradation~wk-prod-anchor~1790914931431-b3040e.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-host-snapshot-failure-unknown-degradation-wk-prod-anchor.log

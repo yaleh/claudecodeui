@@ -12,6 +12,7 @@ import type {
 } from 'react';
 import { PaperclipIcon, MessageSquareIcon, XIcon, Loader2, ArrowUpIcon, PencilIcon, Lock, Copy, Check } from 'lucide-react';
 
+import { useActivityFreshness } from '@/modules/chat/hooks/useActivityFreshness';
 import { useVoiceInput } from '@/modules/chat/hooks/useVoiceInput';
 import { useVoiceAvailable } from '@/modules/chat/hooks/useVoiceAvailable';
 import { useSendOnEnter } from '@/modules/chat/hooks/useSendOnEnter';
@@ -35,6 +36,7 @@ import {
 } from '@/modules/chat/composer/PromptInput';
 import CommandMenu from '@/modules/chat/composer/CommandMenu';
 import ActivityIndicator from '@/modules/chat/composer/ActivityIndicator';
+import { deriveActivityDockView } from '@/modules/chat/utils/activityDockView';
 import ComposerAttachment from '@/modules/chat/composer/ComposerAttachment';
 import VoiceInputButton, { VoiceFailureNotice } from '@/modules/chat/composer/VoiceInputButton';
 import VoiceUploadButton from '@/modules/chat/composer/VoiceUploadButton';
@@ -455,6 +457,24 @@ export default function ChatComposer({
   const hasPendingPermissions = pendingPermissionRequests.length > 0;
   const hasActivityIndicator = Boolean(activity && !hasPendingPermissions);
 
+  // The composer's stop entry reads the same liveness the dock does: a greyed
+  // submit and a greyed dock control are one story about one unreachable server,
+  // not two. `isLoading` alone would leave the submit live while the dock said
+  // the connection was gone.
+  const freshness = useActivityFreshness(sessionId);
+  const composerDock = deriveActivityDockView({
+    activity,
+    liveness: freshness.liveness,
+    elapsedMs: freshness.elapsedMs,
+    hasTurnAnchor: freshness.hasTurnAnchor,
+    wired: freshness.wired,
+    hasAbort: true,
+  });
+  const stopUnreachable = composerDock.state === 'unreachable';
+  const stopUnreachableReason = composerDock.stopReasonKey === null
+    ? null
+    : t(composerDock.stopReasonKey, { defaultValue: 'Stop is unavailable while the server is unreachable' });
+
   const hasQueuedDraft = Boolean(queuedDraft);
   const canQueueDraft = isLoading && Boolean(input.trim() || attachedFiles.length > 0);
   // The same button press, two different outcomes. For a per-run session the text waits in this
@@ -513,7 +533,12 @@ export default function ChatComposer({
       */}
       {!hasPendingPermissions && !isMobile && (
         <div className="pointer-events-none absolute bottom-full left-1/2 z-10 w-[calc(100%-1rem)] max-w-[54.25rem] -translate-x-1/2 translate-y-px bg-transparent sm:w-[calc(100%-2rem)]">
-          <ActivityIndicator activity={activity} onAbort={onAbortSession} isInputFocused={isInputFocused} />
+          <ActivityIndicator
+            activity={activity}
+            sessionId={sessionId}
+            onAbort={onAbortSession}
+            isInputFocused={isInputFocused}
+          />
         </div>
       )}
 
@@ -956,7 +981,9 @@ export default function ChatComposer({
               }
               disabled={
                 isLoading
-                  ? false
+                  ? canQueueDraft
+                    ? false
+                    : stopUnreachable
                   : isRecording
                     ? false
                     : isTranscribing
@@ -964,7 +991,7 @@ export default function ChatComposer({
                       : isOccupied || (!input.trim() && attachedFiles.length === 0)
               }
               aria-label={submitAriaLabel}
-              title={submitAriaLabel}
+              title={isLoading && !canQueueDraft && stopUnreachable ? stopUnreachableReason ?? submitAriaLabel : submitAriaLabel}
               className="h-10 w-10 sm:h-10 sm:w-10"
             >
               {isTranscribing ? (
