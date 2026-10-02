@@ -26,7 +26,7 @@ export const AskUserQuestionPanel: React.FC<PermissionPanelProps> = ({
   const [mounted, setMounted] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const otherInputRef = useRef<HTMLInputElement>(null);
+  const otherInputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     requestAnimationFrame(() => setMounted(true));
@@ -44,6 +44,23 @@ export const AskUserQuestionPanel: React.FC<PermissionPanelProps> = ({
       otherInputRef.current?.focus();
     }
   }, [otherActive, currentStep]);
+
+  /**
+   * Grows the "Other" box to fit what has been typed into it.
+   *
+   * The control is a textarea so a long answer wraps instead of scrolling sideways under the `Enter` hint, and a
+   * textarea does not grow on its own — without this it would show one line and hide the rest behind a scrollbar.
+   * `height = 'auto'` has to come first: `scrollHeight` never reports less than the height already set, so
+   * measuring without clearing it could only ever grow the box, never shrink it back.
+   *
+   * Keyed on the text, the step and whether the box is open, because any of the three can change what it holds.
+   */
+  useEffect(() => {
+    const el = otherInputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [otherTexts, currentStep, otherActive]);
 
   const toggleOption = useCallback((qIdx: number, label: string, multiSelect: boolean) => {
     setSelections(prev => {
@@ -100,8 +117,9 @@ export const AskUserQuestionPanel: React.FC<PermissionPanelProps> = ({
 
   // Keyboard handler for number keys and navigation
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    // Don't capture keys when typing in the "Other" input
-    if (e.target instanceof HTMLInputElement) return;
+    // Don't capture keys when typing in the "Other" box — including the textarea it is now, so a digit typed into
+    // an answer cannot also toggle the option with that number behind the user's back.
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
     const q = questions[currentStep];
     if (!q) return;
@@ -315,13 +333,19 @@ export const AskUserQuestionPanel: React.FC<PermissionPanelProps> = ({
             {isOtherOn && (
               <div className="pl-[30px] pr-0.5">
                 <div className="relative">
-                  <input
+                  {/*
+                    A textarea, not an input: an `<input type="text">` cannot wrap, so a long answer stayed on one
+                    line and scrolled sideways. Enter still advances (that contract is unchanged); Shift+Enter is
+                    left to the browser so a multi-line answer is possible at all. `pr-14` reserves the room the
+                    `Enter` hint below occupies — without it the hint sits on top of the answer's last characters.
+                  */}
+                  <textarea
                     ref={otherInputRef}
-                    type="text"
+                    rows={1}
                     value={otherTexts.get(currentStep) || ''}
                     onChange={(e) => setOtherText(currentStep, e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
+                      if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
                         if (isLast) handleSubmit();
                         else setCurrentStep(s => s + 1);
@@ -330,9 +354,10 @@ export const AskUserQuestionPanel: React.FC<PermissionPanelProps> = ({
                       e.stopPropagation();
                     }}
                     placeholder={t('chat:misc.typeAnswer')}
-                    className="w-full rounded-lg border-0 bg-gray-50 px-3 py-1.5 text-[13px] text-gray-900 outline-none ring-1 ring-gray-200 transition-shadow duration-200 placeholder:text-gray-400 focus:ring-2 focus:ring-blue-400 dark:bg-gray-900/60 dark:text-gray-100 dark:ring-gray-700 dark:placeholder:text-gray-600 dark:focus:ring-blue-500"
+                    className="block max-h-32 w-full resize-none overflow-y-auto rounded-lg border-0 bg-gray-50 py-1.5 pl-3 pr-14 text-[13px] text-gray-900 outline-none ring-1 ring-gray-200 transition-shadow duration-200 placeholder:text-gray-400 focus:ring-2 focus:ring-blue-400 dark:bg-gray-900/60 dark:text-gray-100 dark:ring-gray-700 dark:placeholder:text-gray-600 dark:focus:ring-blue-500"
                   />
-                  <kbd className="absolute right-2 top-1/2 -translate-y-1/2 rounded border border-gray-200 bg-gray-100 px-1 py-0.5 font-mono text-[9px] text-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-600">
+                  {/* Pinned to the bottom-right of the wrapper so it tracks the last line as the box grows. */}
+                  <kbd className="absolute bottom-1.5 right-2 rounded border border-gray-200 bg-gray-100 px-1 py-0.5 font-mono text-[9px] text-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-600">
                     Enter
                   </kbd>
                 </div>
