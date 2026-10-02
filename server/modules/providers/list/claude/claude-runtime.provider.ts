@@ -39,7 +39,14 @@ import {
 import { resolveModelContextWindowRow, resolveModelLaunchSpec } from '@/modules/providers/services/model-launch-spec.service.js';
 import { resolveContextWindow } from '@/modules/providers/services/launch-spec.service.js';
 import { createClaudeSessionScopeSpawn } from '@/modules/providers/services/claude-session-scope.service.js';
-import { applyLaunchSpecEnv, createCompleteMessage, createNormalizedMessage } from '@/shared/utils.js';
+import {
+  ClaudeSessionOccupiedError,
+  applyLaunchSpecEnv,
+  createCompleteMessage,
+  createNormalizedMessage,
+  findBackgroundSessionOwner,
+  resolveClaudeConfigDir,
+} from '@/shared/utils.js';
 import type {
   AnyRecord,
   ProviderModelsDefinition,
@@ -90,6 +97,21 @@ type ToolApprovalResolver = ((decision: AnyRecord | null) => void) & {
 
 const activeSessions = new Map<string, ActiveClaudeSession>();
 const pendingToolApprovals = new Map<string, ToolApprovalResolver>();
+
+/**
+ * The SDK query factory every run creates its process through.
+ *
+ * Held in a module-level binding rather than calling the SDK's `query` directly,
+ * so the providers module's tests can substitute a counting double and observe
+ * whether a query was created at all — the reading the per-run occupancy gate
+ * turns on, where "refused before any process exists" is only meaningful if a
+ * refused run really created none. Production never assigns it; it stays the
+ * SDK's own `query`.
+ *
+ * Consumed by `queryClaudeSDK` (both the first attempt and the hooks-retry) and
+ * by `claude-per-run-occupied-session.test.ts`.
+ */
+export const claudeQueryFactory: { current: typeof query } = { current: query };
 // Sessions cancelled via abort-session. The abort handler already sent the
 // terminal `complete` (aborted: true) to the client, so the run loop must not
 // emit a second one when its generator winds down.
@@ -1268,6 +1290,27 @@ async function queryClaudeSDK(
   let queryInstance: ClaudeQuery | null = null;
 
   try {
+    // The occupancy gate: a conversation a Claude Code background job is running
+    // cannot be resumed — the CLI exits 1 and says so only on stderr, which this
+    // path drops — so the run is refused here, before the option bag is built or
+    // a query is created. It is the same reader and the same refusal the resident
+    // launch uses (see `findBackgroundSessionOwner`), so both server paths answer
+    // "occupied" with one sentence. The throw stays inside this `try` on purpose:
+    // the `catch` below turns it into the run's own error frame plus terminal
+    // complete, which is the exit every other launch failure already takes, so
+    // the user reads the refusal rather than an opaque `exited with code 1`.
+    //
+    // Asked only when this turn would really resume. A brand-new conversation
+    // (no provider session id) and a turn explicitly starting over
+    // (`resumeFromScratch`) share no session with any background job, so neither
+    // can be about one.
+    if (providerSessionId && !options.resumeFromScratch) {
+      const occupant = findBackgroundSessionOwner(resolveClaudeConfigDir(), providerSessionId);
+      if (occupant) {
+        throw new ClaudeSessionOccupiedError(occupant);
+      }
+    }
+
     const resolvedModel = await context.resolveResumeModel(sessionId, options.model);
     let effortModels = CLAUDE_PREDEFINED_MODELS;
     try {
@@ -1394,7 +1437,7 @@ async function queryClaudeSDK(
     let heldPrompt = createHeldPromptStream(promptMessages);
     releasePromptStream = heldPrompt.release;
     try {
-      queryInstance = query({
+      queryInstance = claudeQueryFactory.current({
         prompt: heldPrompt.stream,
         options: sdkOptions
       } as unknown as Parameters<typeof query>[0]);
@@ -1407,7 +1450,7 @@ async function queryClaudeSDK(
       heldPrompt.release();
       heldPrompt = createHeldPromptStream(promptMessages);
       releasePromptStream = heldPrompt.release;
-      queryInstance = query({
+      queryInstance = claudeQueryFactory.current({
         prompt: heldPrompt.stream,
         options: sdkOptions
       } as unknown as Parameters<typeof query>[0]);

@@ -80,8 +80,7 @@
  */
 import { spawn as nodeSpawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { readdirSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Writable } from 'node:stream';
 
@@ -128,7 +127,13 @@ import type {
   RemoteControlIsolation,
   SessionBinding,
 } from '@/shared/types.js';
-import { createCompleteMessage, createNormalizedMessage } from '@/shared/utils.js';
+import {
+  ClaudeSessionOccupiedError,
+  createCompleteMessage,
+  createNormalizedMessage,
+  findBackgroundSessionOwner,
+  resolveClaudeConfigDir,
+} from '@/shared/utils.js';
 
 /**
  * The notification record builder, viewed with the argument shape it really takes.
@@ -847,18 +852,9 @@ export function deriveBackgroundWorkTrigger(
 export const CLAUDE_RESIDENT_IDENTITY_BUDGET_MS = 5_000;
 const CLAUDE_RESIDENT_IDENTITY_POLL_MS = 50;
 
-/**
- * The config directory the CLI this driver spawns will write its transcript to.
- *
- * Read from the host's own environment rather than from the turn's option bag,
- * because the launch builder builds the child's environment from `process.env`
- * and ignores any `env` the caller supplied — so the bag is not what the process
- * was given, and reading it would be reading a value that never reached the CLI.
- */
-function resolveClaudeConfigDir(): string {
-  const fromEnv = process.env.CLAUDE_CONFIG_DIR;
-  return fromEnv && fromEnv.trim() ? fromEnv : join(homedir(), '.claude');
-}
+// `resolveClaudeConfigDir` now lives in `server/shared/utils.ts`: the per-run
+// runtime resolves the same directory for its own occupancy gate, so the one
+// definition is shared rather than copied.
 
 // ------------------------- The Remote Control gate -------------------------
 //
@@ -1138,235 +1134,14 @@ export function readCliSessionRegistration(
   };
 }
 
-/**
- * A Claude Code background job that is holding a conversation, as the CLI's own
- * registry describes it.
- *
- * `jobId` is the handle `claude stop` / `claude attach` take (the CLI's short id
- * for the job); `pid` is the live process. Both are carried so the refusal can
- * name the exact command the user has to run.
- */
-export type ClaudeBackgroundSessionOwner = {
-  pid: number;
-  jobId: string;
-  name: string | null;
-};
-
-/**
- * Whether a registry row's process is still the process that wrote it.
- *
- * A registry file outlives a process that died without cleaning up, and pids are
- * recycled on a busy host, so "a signal can be delivered to that pid" is not
- * enough. Where `/proc` is readable the row's `procStart` (the process's start
- * time in clock ticks, field 22 of `/proc/<pid>/stat`) is compared as well; where
- * it is not, the signal probe alone decides. `EPERM` means the process exists
- * under another user, which is alive.
- */
-function isRegistryProcessAlive(pid: number, procStart: string | null): boolean {
-  try {
-    process.kill(pid, 0);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'EPERM') {
-      return false;
-    }
-  }
-  if (!procStart) {
-    return true;
-  }
-  try {
-    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
-    // The command name is parenthesised and may itself contain spaces or
-    // parentheses, so the fields are counted from the last `)`.
-    const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
-    // Field 22 overall; the slice starts at field 3.
-    return fields[19] === procStart;
-  } catch {
-    return true;
-  }
-}
-
-/**
- * Lists the files of one directory.
- *
- * A parameter of the readers below rather than a direct call, for one reason:
- * the host listing is polled once a second, and "one directory scan per request,
- * however many conversations the listing holds" is a property that a
- * per-conversation implementation would silently lose. A criterion can only
- * count the scans if it can see them.
- */
-export type ClaudeSessionRegistryLister = (sessionsDirectory: string) => string[];
-
-/** The real directory listing, and the default every reader here is built on. */
-const listSessionRegistryFiles: ClaudeSessionRegistryLister = (sessionsDirectory) =>
-  readdirSync(sessionsDirectory);
-
-/**
- * One parsed registry row, and the conversation it holds.
- *
- * The judgement is separated from the scan so the two readers below cannot
- * disagree about what an owner is. It answers with the row's *own* session id
- * rather than being told which id to look for, which is what lets a whole-table
- * reader key its table a row at a time instead of re-running the comparison
- * once per candidate.
- */
-type ClaudeRegistryOccupant = { sessionId: string; owner: ClaudeBackgroundSessionOwner };
-
-/**
- * Whether one parsed row is a live background job, and if so for which
- * conversation.
- *
- * `kind: "bg"` is the CLI's own mark for the agents view and `claude --bg`;
- * this app's resident processes register as `interactive` and are never an
- * owner. The pid has to be *the process that wrote the row* — see
- * {@link isRegistryProcessAlive} — because a registry file outlives a process
- * that died without cleaning up.
- *
- * `jobId` is the handle `claude stop` takes. The CLI writes one, but a row
- * without it still identifies the job well enough to name a command, so the
- * session id's first eight characters stand in for it — which is also the shape
- * the CLI prints as the short job id.
- */
-function readRegistryOccupantRow(row: AnyRecord): ClaudeRegistryOccupant | null {
-  if (row?.kind !== 'bg' || typeof row.sessionId !== 'string' || !row.sessionId) {
-    return null;
-  }
-  if (typeof row.pid !== 'number') {
-    return null;
-  }
-  if (!isRegistryProcessAlive(row.pid, typeof row.procStart === 'string' ? row.procStart : null)) {
-    return null;
-  }
-  return {
-    sessionId: row.sessionId,
-    owner: {
-      pid: row.pid,
-      jobId: typeof row.jobId === 'string' && row.jobId ? row.jobId : row.sessionId.slice(0, 8),
-      name: typeof row.name === 'string' && row.name ? row.name : null,
-    },
-  };
-}
-
-/**
- * The whole registry read once: every live background job, keyed by the
- * conversation it holds.
- *
- * Unreadable or unparseable rows are skipped, not errors: the registry is
- * another process's file, and one malformed row must not hide a real owner.
- * Where two rows claim the same conversation the first one wins, which is what
- * the single-conversation scan this replaced did — the registry is written one
- * file per process, so a duplicate means a recycled pid whose old file was never
- * cleaned up, and the row that sorts first is as good an answer as the other.
- */
-function scanSessionRegistry(
-  configDir: string,
-  listFiles: ClaudeSessionRegistryLister,
-): Map<string, ClaudeBackgroundSessionOwner> {
-  const occupants = new Map<string, ClaudeBackgroundSessionOwner>();
-  let files: string[];
-  try {
-    files = listFiles(join(configDir, 'sessions'));
-  } catch {
-    return occupants;
-  }
-  for (const file of files) {
-    if (!file.endsWith('.json')) {
-      continue;
-    }
-    let row: AnyRecord;
-    try {
-      row = JSON.parse(readFileSync(join(configDir, 'sessions', file), 'utf8'));
-    } catch {
-      continue;
-    }
-    const occupant = readRegistryOccupantRow(row);
-    if (!occupant || occupants.has(occupant.sessionId)) {
-      continue;
-    }
-    occupants.set(occupant.sessionId, occupant.owner);
-  }
-  return occupants;
-}
-
-/**
- * The live Claude Code background job holding a conversation, or null.
- *
- * Claude Code refuses to resume a session that a background job (`claude --bg`,
- * the agents view) is running — the child exits with code 1 and says so only on
- * stderr — so a resident launch has to ask before it spawns one that cannot
- * live. A job that was detached from a terminal (`←` in `claude attach`) keeps
- * running and keeps its row, so detaching does not free the session; only
- * `claude stop` does.
- */
-export function findBackgroundSessionOwner(
-  configDir: string,
-  providerSessionId: string | null | undefined,
-): ClaudeBackgroundSessionOwner | null {
-  if (!providerSessionId) {
-    return null;
-  }
-  return scanSessionRegistry(configDir, listSessionRegistryFiles).get(providerSessionId) ?? null;
-}
-
-/**
- * The two facts the outside world is owed about an occupied conversation.
- *
- * Not the whole {@link ClaudeBackgroundSessionOwner}: the job's display name is
- * the refusal's business, and the listing's row is a client contract that says
- * exactly what a client can act on — the handle to stop the job with, and the
- * process to look at.
- */
-export type ClaudeSessionOccupancy = {
-  jobId: string;
-  pid: number;
-};
-
-/**
- * Every conversation a Claude Code background job is holding on this host, keyed
- * by session id.
- *
- * Read from the registry the CLI this app spawns would write to: the config
- * directory is resolved here rather than taken as a parameter, exactly as
- * `startResidentHost` resolves it, because the child's environment is built from
- * `process.env` and this is the directory the process would really register in.
- *
- * One scan for the whole answer, which is the shape the host listing needs: it
- * asks once per request for every session it is about to report, and it is
- * polled once a second. The `configDir` / `listFiles` parameters exist so a
- * criterion can point the same reader at a registry it owns and count the scans;
- * production callers pass neither.
- */
-export function readClaudeSessionOccupancy(
-  configDir: string = resolveClaudeConfigDir(),
-  listFiles: ClaudeSessionRegistryLister = listSessionRegistryFiles,
-): Map<string, ClaudeSessionOccupancy> {
-  const occupancy = new Map<string, ClaudeSessionOccupancy>();
-  for (const [sessionId, owner] of scanSessionRegistry(configDir, listFiles)) {
-    occupancy.set(sessionId, { jobId: owner.jobId, pid: owner.pid });
-  }
-  return occupancy;
-}
-
-/**
- * The refusal to resume a conversation a background job is holding.
- *
- * Thrown from the resident launch before any process exists, for the same reason
- * the Remote Control gate throws: the run has no room for an answer, and the
- * dispatch already handles a rejected run. `code` and `owner` are fields so a
- * caller branches on values; `message` is the sentence the user reads.
- */
-export class ClaudeSessionOccupiedError extends Error {
-  readonly code = 'session-occupied';
-  readonly owner: ClaudeBackgroundSessionOwner;
-
-  constructor(owner: ClaudeBackgroundSessionOwner) {
-    super(
-      `该会话正由 Claude Code 后台任务占用（job ${owner.jobId}，pid ${owner.pid}），CloudCLI 无法接管。` +
-        `请先执行 \`claude stop ${owner.jobId}\` 停止它后重试，或 fork 该会话。`,
-    );
-    this.name = 'ClaudeSessionOccupiedError';
-    this.owner = owner;
-  }
-}
+// The occupancy registry readers and their refusal now live in `server/shared`,
+// because the per-run runtime refuses the same occupied session the resident
+// launch does. `findBackgroundSessionOwner` / `ClaudeSessionOccupiedError` are
+// imported below for this driver's own launch gate; these two are re-exported
+// so the providers barrel (`readClaudeSessionOccupancy`, `ClaudeSessionOccupancy`)
+// keeps resolving unchanged.
+export { readClaudeSessionOccupancy } from '@/shared/utils.js';
+export type { ClaudeSessionOccupancy } from '@/shared/types.js';
 
 /**
  * What the CLI's own `Stop` hook has said about the work it is holding.

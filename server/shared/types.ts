@@ -2416,3 +2416,57 @@ export type CommandLifecycleEvent = {
  * cannot say" and "we know it is too late" are different facts.
  */
 export type HostQueuedInputCancelResult = 'withdrawn' | 'already-started' | 'unknown';
+
+// ---------------------------
+//----------------- CLAUDE SESSION REGISTRY TYPES ------------
+/**
+ * A Claude Code background job that is holding a conversation, as the CLI's own
+ * registry describes it.
+ *
+ * `jobId` is the handle `claude stop` / `claude attach` take (the CLI's short id
+ * for the job); `pid` is the live process. Both are carried so the refusal can
+ * name the exact command the user has to run.
+ *
+ * Consumed by the shared `findBackgroundSessionOwner` reader, by the Claude
+ * resident host driver (which refuses to resume the conversation this names —
+ * resident launch) and by the Claude per-run runtime (same refusal on the
+ * per-run path). Both launch paths share this one definition so there is never a
+ * second answer to "is this conversation occupied".
+ */
+export type ClaudeBackgroundSessionOwner = {
+  pid: number;
+  jobId: string;
+  name: string | null;
+};
+
+/**
+ * The two facts the outside world is owed about an occupied conversation.
+ *
+ * Not the whole {@link ClaudeBackgroundSessionOwner}: the job's display name is
+ * the refusal's business, and the host listing's row is a client contract that
+ * says exactly what a client can act on — the handle to stop the job with, and
+ * the process to look at.
+ *
+ * Consumed by the shared `readClaudeSessionOccupancy` reader, by the Claude host
+ * listing that reports it to clients, and re-exported through the providers
+ * barrel for `server/index.ts`.
+ */
+export type ClaudeSessionOccupancy = {
+  jobId: string;
+  pid: number;
+};
+
+/**
+ * Lists the files of one session-registry directory.
+ *
+ * A parameter of the registry readers rather than a direct call, for one reason:
+ * the host listing is polled once a second, and "one directory scan per request,
+ * however many conversations the listing holds" is a property that a
+ * per-conversation implementation would silently lose. A criterion can only
+ * count the scans if it can see them.
+ *
+ * Consumed by `scanSessionRegistry` and `readClaudeSessionOccupancy` in
+ * `server/shared/utils.ts`; production callers pass the real listing, and a
+ * criterion passes a counting one.
+ */
+export type ClaudeSessionRegistryLister = (sessionsDirectory: string) => string[];
