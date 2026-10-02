@@ -85,8 +85,28 @@ const SWEEP_ATTEMPTS = 3;
 /** How long the scope listing is given to become empty after a sweep. */
 const SCOPE_TIMEOUT_MS = 15_000;
 
-/** The process-level budget. See `guard` — and see AC7 for why it is a function. */
-const BUDGET_MS = 60_000;
+/**
+ * The process-level budget, in milliseconds. See `guard` — and see AC7 for why it
+ * is a function.
+ *
+ * Its value is the arithmetic the AC1 test asserts: the three `boot()` calls at
+ * their `BOOT_TIMEOUT_MS` deadline (3 x 25_000 = 75_000), plus one round
+ * (30_000), one gone-wait (20_000) and one scope-wait (15_000) — a floor of
+ * 140_000ms — plus headroom for module load, the mock endpoint, HTTP round trips
+ * and the sweep retries.
+ *
+ * It used to be a bare 60_000, which the three boots alone (75_000) already
+ * exceeded: on 2026-10-02 a run whose servers had each reached
+ * `CloudCLI Server - Ready` was killed at the 60s boundary with `exit=3` because
+ * the budget, not the boot, was too small — and a process-level kill names no
+ * `node:test` case, which is why that red could not be attributed.
+ *
+ * Deliberately NOT written as a function of the deadline constants: a budget that
+ * equals its own derivation could never fail AC1, and AC1 is the invariant that
+ * stops this regressing. Keeping the budget an independent value is what lets the
+ * AC1 assertion catch a deadline outgrowing it.
+ */
+const BUDGET_MS = 240_000;
 /** The wall clock starts at import, so `elapsed` covers module load as well as the legs. */
 const STARTED_AT = Date.now();
 
@@ -112,6 +132,55 @@ const budgetTimer = setTimeout(() => {
 }, BUDGET_MS);
 // Unref'd so the guard cannot itself hold the process open once the legs finish.
 budgetTimer.unref();
+
+// ------------------------------------------------------- budget invariant (AC1/AC2)
+
+/**
+ * AC1 — the load-bearing invariant: the process budget must not be smaller than
+ * the sum of the step deadlines it shelters.
+ *
+ * The three `boot()` calls below each wait up to `BOOT_TIMEOUT_MS`; on top of
+ * those run one round, one gone-wait and one scope-wait, each at its own
+ * deadline. Summed, that is 140_000ms. A `BUDGET_MS` below that kills a run whose
+ * legs merely approached (but did not exceed) their per-step deadlines — a
+ * slowdown mis-read as a hang, with `process.exit(3)` naming no case.
+ *
+ * The relation is asserted, not commented: hardcoding the budget back to 60_000,
+ * or growing any deadline past the budget, reds this named case.
+ */
+test('AC1: the process budget is not smaller than the sum of its step deadlines', () => {
+  const floorMs = 3 * BOOT_TIMEOUT_MS + ROUND_TIMEOUT_MS + GONE_TIMEOUT_MS + SCOPE_TIMEOUT_MS;
+  assert.ok(
+    BUDGET_MS >= floorMs,
+    `BUDGET_MS (${BUDGET_MS}ms) is below the sum of its step deadlines (${floorMs}ms): a ` +
+      'load-slowed-but-successful boot sequence would be killed by the process guard (exit 3) ' +
+      'instead of running to completion, and node:test would name no failing case',
+  );
+});
+
+/**
+ * AC2 — the positive control for AC1: the budget must actually shelter the worst
+ * case AC1 sums, not merely outnumber it.
+ *
+ * The same three-boot ceiling is fed to `guard` as an elapsed time — the way a
+ * real run that burned every deadline would arrive there. It must answer 0
+ * (finish), while a run genuinely past the budget must still answer 3, so a
+ * change that grows and shrinks every constant together cannot satisfy AC1 by
+ * moving both sides of the inequality.
+ */
+test('AC2: a run at every step deadline still finishes inside the budget (guard answers 0)', () => {
+  const worstCaseMs = 3 * BOOT_TIMEOUT_MS + ROUND_TIMEOUT_MS + GONE_TIMEOUT_MS + SCOPE_TIMEOUT_MS;
+  assert.equal(
+    guard({ elapsedMs: worstCaseMs, budgetMs: BUDGET_MS }),
+    0,
+    `a run that burned every step deadline (${worstCaseMs}ms) was still killed at ${BUDGET_MS}ms`,
+  );
+  assert.equal(
+    guard({ elapsedMs: BUDGET_MS + 1, budgetMs: BUDGET_MS }),
+    3,
+    'the guard no longer answers 3 for a run that is genuinely over budget',
+  );
+});
 
 // ---------------------------------------------------------------- mock endpoint
 
