@@ -70,7 +70,7 @@ goal_ac: AC-190
 - **AC4**（正控制，有分辨力）：删去样本里「计时不再前进」一句 —— 删前 `exit=0`、删后 `exit=1`，stderr 逐字 `缺项：人要读到的第三件事「计时不再前进」 —— 小节里找不到 「计时不再前进」`；两次读数由测试本体的 `[正控制]` 行打印。
 - **AC5**（前置读数落盘）：提案 §11.1 逐字三行 —— 取数时本树 sha `01efe5f0`；`tasks/gap-activity-dock-unreachable-degradation.md` → `status: done`；`tasks/gap-activity-single-dock-global-consistency.md` → `status: done`。
 - **AC6**（不可代劳是机械事实）：`grep -c '^- 人工验收 GOAL-014：accepted' docs/proposals/claude-session-activity-dock.md` → **0**；`grep -nE 'writeFile|appendFile|createWriteStream|writeSync' scripts/activity-dock-human-gate.mjs` → **0 命中**（第一版把这条正则抄进了脚本注释，命中了自己一行，已删）。
-- **AC7**（契约面）：`npm run lint` → exit **0**；`npm run typecheck` → exit **0**（`scripts/tsconfig.json` 覆盖 `**/*.mjs`）；`git diff --stat develop...HEAD` 只列 Touches 的三个文件（提案一份 + 两个新脚本），`tasks/gap-activity-dock-human-gate.md` 由 ABI 提交、落在 diff 之外。
+- **AC7**（契约面）：`npm run lint` → exit **0**；`npm run typecheck` → exit **0**（`scripts/tsconfig.json` 覆盖 `**/*.mjs`）；`git diff --stat develop...HEAD` 逐条列出 **4 个**改动文件，与 Touches 的四条**一一对齐**（提案一份、两个新脚本、`tasks/gap-activity-dock-human-gate.md`）—— 任务文件由 ABI 提交后，其 `- [x]` 勾选与本完成记录一起经 `task_write` 落在 develop 侧，随后并回本分支，因此它确实在 diff 里。
 
 **本轮有意未做的**
 
