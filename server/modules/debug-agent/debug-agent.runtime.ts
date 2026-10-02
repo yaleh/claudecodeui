@@ -188,6 +188,56 @@ export function appendTranscriptRow(filePath: string, row: AnyRecord): void {
 }
 
 /**
+ * Writes the row a prompt somebody typed becomes, and hands the row back so its
+ * caller can forward the frame it normalizes to.
+ *
+ * This is the ONE writer of a typed turn's row, and it exists because the run
+ * that answers a typed turn walks a scenario rather than producing the prompt:
+ * the engine's `row` steps write what the scenario says, and nothing in the walk
+ * has ever seen the text the person sent. Without this row the prompt lives only
+ * in the client that typed it — the live view shows it and a reload loses it,
+ * because a transcript that never recorded it is what the REST read returns.
+ *
+ * No `origin`, and that is the whole difference from a turn the host layer
+ * opened: the field answers "what started this turn", and a turn a person typed
+ * was started by that person rather than by anything the scenario could name (see
+ * {@link DebugAgentMessageRowInput.origin}). Omitting it is what makes the two
+ * kinds of row differ on disk rather than only in a reader's interpretation.
+ *
+ * The parent link is read from disk at the moment of the write, exactly as the
+ * engine's own append does, so the row chains onto whatever the transcript holds
+ * right now instead of onto whatever a caller believed it held.
+ *
+ * An empty prompt writes nothing and returns null: there is no text to record,
+ * and a row with no content would be a message the person never sent. The caller
+ * is expected to have nothing to forward in that case either.
+ */
+export function appendTypedTurnRow(input: {
+  transcriptPath: string;
+  sessionId: string;
+  cwd: string;
+  text: string;
+}): AnyRecord | null {
+  if (input.text.trim().length === 0) {
+    return null;
+  }
+
+  const parent = readTranscriptShape(input.transcriptPath).lastRow;
+  const row = buildMessageRow({
+    sessionId: input.sessionId,
+    cwd: input.cwd,
+    role: 'user',
+    text: input.text,
+    uuid: crypto.randomUUID(),
+    parentUuid: typeof parent?.uuid === 'string' ? parent.uuid : null,
+    timestamp: new Date().toISOString(),
+  });
+
+  appendTranscriptRow(input.transcriptPath, row);
+  return row;
+}
+
+/**
  * Replaces the last row of a transcript with whatever `grow` returns, keeping
  * the replaced row's uuid.
  *

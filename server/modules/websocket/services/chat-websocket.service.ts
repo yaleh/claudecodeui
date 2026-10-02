@@ -18,6 +18,7 @@ import {
   normalizeAttachmentDescriptors,
   type ChatAttachmentDescriptor,
 } from '@/shared/image-attachments.js';
+import { CHAT_TURN_OPTION } from '@/shared/types.js';
 import type {
   AnyRecord,
   AuthenticatedWebSocketRequest,
@@ -359,6 +360,14 @@ async function dispatchRun(
     sessionId,
     cwd: clientOptions.cwd ?? session.project_path ?? undefined,
     projectPath: session.project_path ?? clientOptions.projectPath,
+    // This dispatch's `command` is a message somebody composed — typed now, or
+    // scheduled earlier and fired by the timer below. Marked here and not left
+    // to the runtime to infer, because the runtime cannot: an internal driver
+    // reaching the same entry passes the same option keys with a *label* in
+    // `command`, and a provider that records the prompt it was handed (the
+    // debug agent, whose "process" runs a scenario instead of a CLI that would
+    // write the row itself) has no other way to tell the two apart.
+    [CHAT_TURN_OPTION]: true,
   };
 
   let failure: string | null = null;

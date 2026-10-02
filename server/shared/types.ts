@@ -2391,6 +2391,33 @@ export type CommandLifecycleState = 'queued' | 'started' | 'cancelled' | 'comple
 export const COMMAND_LIFECYCLE_ROW_TYPE = 'command_lifecycle';
 
 /**
+ * The option the chat transport stamps on every turn it dispatches, marking the
+ * dispatch as one whose `command` is a message somebody composed.
+ *
+ * A provider runtime receives turns from more than one place. The chat transport
+ * is the one that carries a person's message: `chat-websocket.service.ts` builds
+ * the options bag for every `chat.send` / `chat.edit-send`, and for the detached
+ * turns a scheduled message fires. Everything else that reaches a runtime — the
+ * debug agent's own control plane driving an armed scenario, a launch-option
+ * probe — carries a *label* in `command` rather than a message, and must not be
+ * recorded as though somebody had sent it.
+ *
+ * Stated by the transport rather than inferred by the reader, because the two
+ * dispatch shapes are otherwise identical: the runtime sees the same entry, the
+ * same option keys, and (in the debug agent's case) the same session, and only
+ * the sender knows which of the two it is. A provider that writes a turn's own
+ * row — the debug agent is the one that does, since its "process" runs a
+ * scenario rather than a CLI that would record the prompt itself — reads this
+ * flag to decide whether the command is worth recording.
+ *
+ * Absent means "not a chat turn", so a dispatch from an internal driver writes
+ * no user row by default. The direction matters: manufacturing a user row out of
+ * a driver's label invents a message nobody sent, while failing to write one for
+ * a chat turn is the gap this flag exists to close.
+ */
+export const CHAT_TURN_OPTION = 'chatTurn';
+
+/**
  * One `command_lifecycle` event the CLI emitted for a queued user message.
  *
  * `commandUuid` is the uuid the *host* assigned when it wrote the frame — the
