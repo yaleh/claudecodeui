@@ -98,3 +98,13 @@ goal_ac: AC-203
 读数：同上命令 → `Test Files 1 failed (1) / Tests 1 failed | 3 skipped (4)`，exit 1。
 逐字失败行：`src/modules/chat/tests/workSegmentLossless.test.tsx:120:10`，差集 `- "message-assistant-block-k4"`（段成员数组少一条，k4 整条丢失）。
 恢复：`git checkout -- src/modules/chat/utils/workSegments.ts`；恢复后整文件 green（`Tests 4 passed (4)`），`git status --porcelain` 空。
+## Needs-Human
+
+**执行 2026-10-02T03:01:41.383Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: not ok - server/modules/providers/tests/claude-resident-name-mirror-latency.test.ts:   AssertionError [ERR_ASSERTION]: the probe process must offer a raw write seam to write the frame to
+- run_id：wk-prod-anchor
+- session_id：a0c05f2e-0d5b-4e8b-b76e-b8bdc042067b
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-work-segment-lossless-expand-set-equality~wk-prod-anchor~1790909919140-da4cdd.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-work-segment-lossless-expand-set-equality-wk-prod-anchor.log
