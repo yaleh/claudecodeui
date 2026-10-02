@@ -1,7 +1,7 @@
 ---
 id: gap-work-segment-anchor-stable
 title: AC-205 段锚点跨尾部增长稳定：尾部追加不改键与展开态，两条失稳边界记录在案
-status: ready
+status: done
 labels:
   - gap
 parent: null

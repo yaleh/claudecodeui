@@ -14,6 +14,8 @@ type WorkspaceHeaderProps = {
   selectedProject: Project;
   selectedSession: ProjectSession | null;
   shouldShowTasksTab: boolean;
+  /** Optional so a caller that only knows about Tasks/Browser keeps compiling; absent means "no Quay tab". */
+  shouldShowQuayTab?: boolean;
   shouldShowBrowserTab: boolean;
   /**
    * The selected session's stored lifecycle mode, resolved by WorkspaceMain.
@@ -37,6 +39,7 @@ export default function WorkspaceHeader({
   selectedProject,
   selectedSession,
   shouldShowTasksTab,
+  shouldShowQuayTab = false,
   shouldShowBrowserTab,
   isResidentSession,
   isMobile,
@@ -112,6 +115,7 @@ export default function WorkspaceHeader({
           selectedProject={selectedProject}
           selectedSession={selectedSession}
           shouldShowTasksTab={shouldShowTasksTab}
+          shouldShowQuayTab={shouldShowQuayTab}
         />
       </div>
 
@@ -120,6 +124,7 @@ export default function WorkspaceHeader({
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           shouldShowTasksTab={shouldShowTasksTab}
+          shouldShowQuayTab={shouldShowQuayTab}
           shouldShowBrowserTab={shouldShowBrowserTab}
           isResidentSession={isResidentSession}
         />
@@ -141,6 +146,7 @@ export default function WorkspaceHeader({
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
                 shouldShowTasksTab={shouldShowTasksTab}
+                shouldShowQuayTab={shouldShowQuayTab}
                 shouldShowBrowserTab={shouldShowBrowserTab}
                 isResidentSession={isResidentSession}
               />
