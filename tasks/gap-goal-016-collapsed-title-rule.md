@@ -74,13 +74,13 @@ depends_on:
 ## AC
 
 - [x] AC1 人已裁定「给裁定人的两个选项」之一，裁定结论记入本任务 `## Resolution`；选 2 则本任务撤回，不得派发。
-- [ ] AC2（若裁定选 1）新增 `goals/AC-208-*.md` 记录存在，`criterion` 逐字为 `npx vitest run src/modules/chat/tests/workSegmentCollapsedTitle.test.tsx`、`goal: GOAL-016`，且 GOAL-016 的 `## 退出条件` 小节新增一行 `- AC-208 …`（经授权的 goal 写入路径，⛔ 非本 agent）。
-- [ ] AC3（若裁定选 1）实施后判据绿：`npx vitest run src/modules/chat/tests/workSegmentCollapsedTitle.test.tsx` 退出 0。红态基线（本轮实测）：该文件不存在，同一命令读数是 `No test files found, exiting with code 1`。
-- [ ] AC4（读数 i）三读数齐备且非退化：`-t "collapsed title carries action, count and elapsed"` 退出 0 —— 折叠头对固定夹具段（≥3 成员，含 thinking / 工具 / 子代理容器）同时暴露 a) 当前动作 = 段内**末成员**的动作标签（与成员自身既有渲染同一口径），b) 计数 = 段内成员数，c) 耗时 ≥ 0；三者都从 segment 派生，不是常量。
-- [ ] AC5（读数 ii）随执行更新：`-t "title tracks the growing segment while collapsed"` 退出 0 —— 向段尾逐条追加成员（≥3 次），每次在**未展开**的折叠头上：计数 +1、当前动作跟到新末成员、耗时非递减。
-- [ ] AC6（读数 iii）结束时不动：`-t "title freezes and stays collapsed at end of run"` 退出 0 —— 末成员 streaming 结束后标题三读数定格（再多渲染若干轮不变），折叠态保持折叠、不自动展开。
-- [ ] AC7 取假形态必须红（承重；先提交实现与判据，再逐条变异，逐条记录变异 diff、逐字失败行与 `git checkout -- <file>` 恢复命令）：(a) 标题三读数之一写成常量 ⇒ AC4 红；(b) 标题只在挂载时算一次、不随 segment 变化重算 ⇒ AC5 红；(c) 段停止增长时自动展开、或结束后耗时继续累加 ⇒ AC6 红。三条都必须真的红过并落记录。
-- [ ] AC8 静态门：`npm run typecheck` 与 `npm run lint` 均退出 0；`git diff --stat` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）。
+- [x] AC2（若裁定选 1）新增 `goals/AC-208-*.md` 记录存在，`criterion` 逐字为 `npx vitest run src/modules/chat/tests/workSegmentCollapsedTitle.test.tsx`、`goal: GOAL-016`，且 GOAL-016 的 `## 退出条件` 小节新增一行 `- AC-208 …`（经授权的 goal 写入路径，⛔ 非本 agent）。
+- [x] AC3（若裁定选 1）实施后判据绿：`npx vitest run src/modules/chat/tests/workSegmentCollapsedTitle.test.tsx` 退出 0。红态基线（本轮实测）：该文件不存在，同一命令读数是 `No test files found, exiting with code 1`。
+- [x] AC4（读数 i）三读数齐备且非退化：`-t "collapsed title carries action, count and elapsed"` 退出 0 —— 折叠头对固定夹具段（≥3 成员，含 thinking / 工具 / 子代理容器）同时暴露 a) 当前动作 = 段内**末成员**的动作标签（与成员自身既有渲染同一口径），b) 计数 = 段内成员数，c) 耗时 ≥ 0；三者都从 segment 派生，不是常量。
+- [x] AC5（读数 ii）随执行更新：`-t "title tracks the growing segment while collapsed"` 退出 0 —— 向段尾逐条追加成员（≥3 次），每次在**未展开**的折叠头上：计数 +1、当前动作跟到新末成员、耗时非递减。
+- [x] AC6（读数 iii）结束时不动：`-t "title freezes and stays collapsed at end of run"` 退出 0 —— 末成员 streaming 结束后标题三读数定格（再多渲染若干轮不变），折叠态保持折叠、不自动展开。
+- [x] AC7 取假形态必须红（承重；先提交实现与判据，再逐条变异，逐条记录变异 diff、逐字失败行与 `git checkout -- <file>` 恢复命令）：(a) 标题三读数之一写成常量 ⇒ AC4 红；(b) 标题只在挂载时算一次、不随 segment 变化重算 ⇒ AC5 红；(c) 段停止增长时自动展开、或结束后耗时继续累加 ⇒ AC6 红。三条都必须真的红过并落记录。
+- [x] AC8 静态门：`npm run typecheck` 与 `npm run lint` 均退出 0；`git diff --stat` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）。
 
 ## DoD
 
@@ -95,3 +95,65 @@ depends_on:
 - `src/modules/chat/transcript/WorkSegmentRecord.tsx`（折叠头接上该规则；该文件由同轴 AC-203 任务创建，人裁定 AC-208 时须与 `gap-work-segment-lossless-expand-set-equality` 的 Touches 对齐）
 - `src/modules/chat/tests/workSegmentCollapsedTitle.test.tsx` (new)（AC-208 判据）
 - tasks/gap-goal-016-collapsed-title-rule.md
+
+## Evidence
+
+实现与判据已先在 `task/gap-goal-016-collapsed-title-rule` 上提交（`e18c57e8`），随后逐条取假形态；每条都由对应读数的 `-t` 用例判红，逐条 `git checkout -- <file>` 恢复。
+
+**AC7(a) 标题动作写成常量**（`src/modules/chat/utils/workSegmentTitle.ts`）
+
+变异 diff：
+```
+-  return { action: getMemberActionLabel(last), count: messages.length, elapsedMs };
++  return { action: 'Work', count: messages.length, elapsedMs };
+```
+
+读数：`npx vitest run src/modules/chat/tests/workSegmentCollapsedTitle.test.tsx -t "collapsed title carries action, count and elapsed"` → `Test Files 1 failed (1) / Tests 1 failed | 2 skipped (3)`，exit 1。
+逐字失败行：`src/modules/chat/tests/workSegmentCollapsedTitle.test.tsx:107:10` —— `AssertionError: the title action must be the last member’s own label`。
+恢复：`git checkout -- src/modules/chat/utils/workSegmentTitle.ts`；恢复后同命令 green（`Tests 1 passed | 2 skipped (3)`），`git status --porcelain` 对该文件干净。
+
+**AC7(b) 标题只在挂载时算一次**（`src/modules/chat/transcript/WorkSegmentRecord.tsx`）
+
+变异 diff：
+```
+-import { Fragment } from 'react';
++import { Fragment, useMemo } from 'react';
+@@
+-  const title = buildWorkSegmentTitle(segment);
++  const title = useMemo(() => buildWorkSegmentTitle(segment), []);
+```
+
+读数：`npx vitest run src/modules/chat/tests/workSegmentCollapsedTitle.test.tsx -t "title tracks the growing segment while collapsed"` → `Test Files 1 failed (1) / Tests 1 failed | 2 skipped (3)`，exit 1。
+逐字失败行：`src/modules/chat/tests/workSegmentCollapsedTitle.test.tsx:158:12` —— `AssertionError: count must grow to 2 on append 1`。
+恢复：`git checkout -- src/modules/chat/transcript/WorkSegmentRecord.tsx`；恢复后同命令 green，该文件 porcelain 干净。
+
+**AC7(c) 结束后耗时继续累加**（`src/modules/chat/utils/workSegmentTitle.ts`）
+
+变异 diff：
+```
+-  const elapsedMs = Math.max(0, toEpochMs(last.timestamp) - toEpochMs(messages[0].timestamp));
++  const elapsedMs = Math.max(0, Date.now() - toEpochMs(messages[0].timestamp));
+```
+
+读数：`npx vitest run src/modules/chat/tests/workSegmentCollapsedTitle.test.tsx -t "title freezes and stays collapsed at end of run"` → `Test Files 1 failed (1) / Tests 1 failed | 2 skipped (3)`，exit 1。
+逐字失败行：`src/modules/chat/tests/workSegmentCollapsedTitle.test.tsx:195:12` —— `AssertionError: the settled run’s span must be its members’ span`。
+恢复：`git checkout -- src/modules/chat/utils/workSegmentTitle.ts`；恢复后同命令 green，该文件 porcelain 干净。
+
+**AC7(c) 段停止增长时自动展开**（`src/modules/chat/transcript/WorkSegmentRecord.tsx`）
+
+变异 diff：
+```
+-        aria-expanded={expanded}
++        aria-expanded={expanded || !segment.messages[segment.messages.length - 1]?.isStreaming}
+```
+
+读数：`npx vitest run src/modules/chat/tests/workSegmentCollapsedTitle.test.tsx -t "title freezes and stays collapsed at end of run"` → `Test Files 1 failed (1) / Tests 1 failed | 2 skipped (3)`，exit 1。
+逐字失败行：`src/modules/chat/tests/workSegmentCollapsedTitle.test.tsx:212:14` —— `AssertionError: a settled run must not auto-expand (round 0)`。
+恢复：`git checkout -- src/modules/chat/transcript/WorkSegmentRecord.tsx`；恢复后整文件 green（`Tests 3 passed (3)`），`git status --porcelain` 空。
+
+**AC3/AC8 读数**
+
+- `npx vitest run src/modules/chat/tests/workSegmentCollapsedTitle.test.tsx` → `Test Files 1 passed (1) / Tests 3 passed (3)`，exit 0。
+- 同轴回归：`workSegmentLossless` / `workSegmentGrouping` / `workSegmentAnchorStability` / `workSegmentExpansionPersistence` / `transcriptExportWorkSegments` → `Test Files 5 passed (5) / Tests 25 passed (25)`。
+- `npm run typecheck` → exit 0；`npm run lint` → exit 0（仅既有 warning）。
+- `git diff --name-status develop...HEAD` → `A src/modules/chat/tests/workSegmentCollapsedTitle.test.tsx`、`M src/modules/chat/transcript/WorkSegmentRecord.tsx`、`A src/modules/chat/utils/workSegmentTitle.ts`，与 `## Touches` 逐条对齐（无额外文件）。
