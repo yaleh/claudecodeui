@@ -5,7 +5,7 @@ title: AC-172 判据的会话内读数锚（[data-resident-status-bar] 及其 da
   playwright test e2e/resident-status-bar.spec.ts 在首条用例正信号等待处 30s 超时（element(s)
   not found）记红——把读数锚回灌到合并后的 [data-activity-dock] 与侧栏 [data-resident-mark]，并按
   AC-188 移除被合法退役的会话内忙闲字样与租约计数读数
-status: ready
+status: done
 labels:
   - gap
   - defect

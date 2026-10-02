@@ -1,15 +1,15 @@
 /**
- * The resident status bar, its sidebar mark and the popover's two verbs — read off a real browser
- * against a real server, driven by the debug agent's own scenario clock.
+ * The resident dock's process panel, its sidebar mark and the panel's two verbs — read off a real
+ * browser against a real server, driven by the debug agent's own scenario clock.
  *
  * What this file is *for*. The feature is a surface that describes a process the page does not own:
- * four states, a lease count, an address, and one row style for a turn nobody typed. Every one of
- * those is a comparison — the bar against the sidebar, the UI's count against the listing's, the
- * label against the locale file, the divider against the trigger that produced it — and a comparison
- * is only evidence when both sides were read from somewhere that could have disagreed. So nothing
- * here is asserted against a value this file also wrote: the states come from `GET
- * /api/session-hosts`, the copy comes from the platform clipboard, the labels come from the shipped
- * locale JSON, and the rows come from the transcript the server wrote.
+ * four states, an address, and one row style for a turn nobody typed. Every one of those is a
+ * comparison — the sidebar mark against the listing, the address the panel prints against the one
+ * the listing publishes, the label against the locale file, the divider against the trigger that
+ * produced it — and a comparison is only evidence when both sides were read from somewhere that
+ * could have disagreed. So nothing here is asserted against a value this file also wrote: the states
+ * come from `GET /api/session-hosts`, the copy comes from the platform clipboard, the labels come
+ * from the shipped locale JSON, and the rows come from the transcript the server wrote.
  *
  * Why the debug agent. The alternative is a real `claude` process, and a criterion that needs one is
  * a criterion that cannot run where the binary is absent. `POST /api/debug-agent/clock` walks a
@@ -26,10 +26,10 @@
  * only it carries (which run opened the unattended turn, and whether the seam that opens runs is
  * wired).
  *
- * Two arms, one session each, because the popover's Close and the walk's `exit` cannot both be last:
- * arm A carries the identity, the popover, the copy and the close; arm B carries the walk, the
- * counts, the abort and the transcript rows. Splitting them is not a convenience — an arm that both
- * closed a host and expected it to exit would be reading the second half of its own first half.
+ * Two arms, one session each, because the panel's Close and the walk's `exit` cannot both be last:
+ * arm A carries the identity, the panel, the copy and the close; arm B carries the walk, the abort
+ * and the transcript rows. Splitting them is not a convenience — an arm that both closed a host and
+ * expected it to exit would be reading the second half of its own first half.
  */
 
 import fs from 'node:fs';
@@ -59,9 +59,19 @@ const ALL_LOCALES = fs.readdirSync(LOCALES_ROOT, { withFileTypes: true })
 
 /** The chat pane, the same anchor transcript-follow uses to know the session actually opened. */
 const PANE = '.chat-messages-pane';
-const BAR = '[data-resident-status-bar]';
-const TRIGGER = '[data-resident-status-bar-trigger]';
-const STATE_TEXT = '[data-resident-state-text]';
+/**
+ * The merged activity dock, and the toggle that expands its resident process panel.
+ *
+ * The status bar this file used to address was folded into the dock: the dock's root is the surface a
+ * reader now sees, and its toggle is the only way the panel's own facts — the address, the pid and
+ * the two verbs — become reachable. The dock also publishes `data-activity-state`, an *activity* word
+ * (`idle` / `working`, from the server's own frames) that is deliberately not read here: what this
+ * criterion measures the process by is the four-state mark in the sidebar, not the dock's activity.
+ */
+const BAR = '[data-activity-dock]';
+const TRIGGER = '[data-activity-dock-toggle="true"]';
+const PANEL = '[data-resident-panel]';
+const PID_TEXT = '[data-resident-pid-text]';
 const START = '[data-resident-start]';
 const ADDRESS = '[data-resident-address]';
 const COPY = '[data-resident-copy]';
@@ -69,7 +79,6 @@ const CLOSE = '[data-resident-close]';
 const MARK = '[data-resident-mark]';
 const DIVIDER = '[data-unattended-divider]';
 const UNATTENDED_ROW = '[data-unattended-row]';
-const LEASE_PILL = '[data-lease-kind]';
 
 /** The account this run creates. Any name works; it is the same one for both arms. */
 const USERNAME = 'resident-status-bar-e2e';
@@ -243,23 +252,6 @@ function uiStateOf(host: HostRecord | null): string {
   return 'idle';
 }
 
-/** One kind's lease count on a binding, as a plain map. */
-function leaseCounts(binding: HostBinding | null): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const lease of binding?.leases ?? []) {
-    counts.set(lease.kind, (counts.get(lease.kind) ?? 0) + 1);
-  }
-  return counts;
-}
-
-/** A count map printed as `kind:count` pairs, ordered so two readings of one state print one string. */
-function describeCounts(counts: Map<string, number>): string {
-  return [...counts.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([kind, count]) => `${kind}:${count}`)
-    .join(',') || '(none)';
-}
-
 // ---------------------------------------------------------------------------------------------
 // Locale reading. The copy a reader sees is never written down in this file: it is read from the
 // shipped JSON and substituted into, so a criterion cannot pass against a sentence only it knows.
@@ -292,69 +284,37 @@ function render(template: string, params: Record<string, string> = {}): string {
 }
 
 const chatLocale = (locale: string) => readLocaleFile(locale, 'chat.json');
-const sidebarLocale = (locale: string) => readLocaleFile(locale, 'sidebar.json');
-
-/** The shipped sentence for one status-bar state, in the page's own locale. */
-function statusBarText(state: string, params: Record<string, string> = {}): string {
-  const template = readKey(chatLocale(LOCALE), `resident.statusBar.${state}`);
-  if (typeof template !== 'string') throw new Error(`en/chat.json has no resident.statusBar.${state}`);
-  return render(template, params);
-}
 
 // ---------------------------------------------------------------------------------------------
 // The page.
 // ---------------------------------------------------------------------------------------------
 
-type BarReading = {
-  uiState: string;
-  hostState: string;
-  hostId: string;
-  closeReason: string;
-  closeDetail: string;
-  pid: string;
-  text: string;
-  counts: Map<string, number>;
-};
+/**
+ * Opens the dock's resident panel if it is shut, and leaves it open.
+ *
+ * The panel is mounted only while the dock's toggle says so, so every reading of the process's own
+ * facts — the address, the pid — begins here. Idempotent by design: a caller that opened the panel
+ * itself (arm A) must see its own click open one, not have this helper toggle it shut.
+ */
+async function openPanel(page: Page): Promise<void> {
+  const trigger = page.locator(TRIGGER);
+  await trigger.waitFor({ state: 'visible', timeout: 15_000 });
+  if ((await trigger.getAttribute('aria-expanded')) === 'true') {
+    return;
+  }
+  await trigger.click();
+  await page.locator(PANEL).waitFor({ state: 'attached', timeout: 10_000 });
+}
 
 /**
- * Everything the bar publishes, in one round trip each so a reading is one moment.
+ * The pid line, as the panel prints it.
  *
- * The per-kind pills are drawn inside the popover, so reading them means opening it first: a
- * reading taken with the panel shut counts zero pills whatever the host holds, and that is the
- * whole point of the fake-form leg below. The panel is left however this reading found it — a
- * caller that opens the popover itself (arm A) must still see its own click open one rather than
- * toggle this reading's shut. The wait is for the address row rather than for a pill, because the
- * panel is what says the reading can be taken; a host holding no leases still opens a panel.
+ * The only process fact this file still reads off the dock: what the process *is* — the four states —
+ * is the sidebar mark's, and the dock's own `data-activity-state` answers a different question.
  */
-async function readBar(page: Page): Promise<BarReading> {
-  const bar = page.locator(BAR);
-  const trigger = page.locator(TRIGGER);
-  const wasOpen = (await trigger.getAttribute('aria-expanded')) === 'true';
-  if (!wasOpen) {
-    await trigger.click();
-    await page.locator(ADDRESS).waitFor({ state: 'attached', timeout: 10_000 });
-  }
-  const pills = await page.locator(LEASE_PILL).evaluateAll((nodes) =>
-    nodes.map((node) => [
-      node.getAttribute('data-lease-kind') ?? '',
-      Number(node.getAttribute('data-lease-count') ?? '0'),
-    ] as [string, number]),
-  );
-  const counts = new Map<string, number>(pills);
-  const reading: BarReading = {
-    uiState: (await bar.getAttribute('data-resident-ui-state')) ?? '',
-    hostState: (await bar.getAttribute('data-resident-host-state')) ?? '',
-    hostId: (await bar.getAttribute('data-resident-host-id')) ?? '',
-    closeReason: (await bar.getAttribute('data-resident-close-reason')) ?? '',
-    closeDetail: (await bar.getAttribute('data-resident-close-detail')) ?? '',
-    pid: (await bar.getAttribute('data-resident-pid')) ?? '',
-    text: (await page.locator(STATE_TEXT).innerText()).trim(),
-    counts,
-  };
-  if (!wasOpen) {
-    await trigger.click();
-  }
-  return reading;
+async function readPanel(page: Page): Promise<{ pid: string }> {
+  await openPanel(page);
+  return { pid: (await page.locator(PID_TEXT).innerText()).trim() };
 }
 
 /** The sidebar's mark for one session: its shape, its state and the exit detail when it has one. */
@@ -385,6 +345,9 @@ const projectRow = (page: Page, workspaceName: string): Locator =>
   page.getByRole('button', { name: new RegExp(`^${workspaceName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`) }).first();
 
 const sessionRow = (page: Page, sessionId: string): Locator => page.locator(`a[href="/session/${sessionId}"]`).first();
+
+/** The sidebar mark for one session, as a locator — the row a four-state wait is addressed through. */
+const markOf = (page: Page, sessionId: string): Locator => sessionRow(page, sessionId).locator(MARK);
 
 /** Expands the fixture project until the session's row is on screen. Bounded, and never silent. */
 async function revealSession(page: Page, workspaceName: string, sessionId: string): Promise<void> {
@@ -806,34 +769,37 @@ test.describe('resident status bar', () => {
    *
    * Ordered so the close is the last thing that happens to arm A's host: its address can only be read
    * once the scenario has reported one, and its mark can only be read as "hollow" once the host is
-   * gone. Both are read through the surfaces a user reads — the popover's own text and the sidebar's
-   * mark — while the values they are compared against come from the listing this page also polls.
+   * gone. Both are read through the surfaces a user reads — the dock panel's own text and the
+   * sidebar's mark — while the values they are compared against come from the listing this page also
+   * polls.
    */
   test('the popover reports the address the listing publishes, copies it, and closes the process', async () => {
     await revealSession(page, workspaceName, armA);
     await sessionRow(page, armA).click();
     await expect(page.locator(PANE)).toBeVisible({ timeout: 30_000 });
+    // The dock's collapsed row is the resident-only positive signal: it draws for a session its own
+    // host snapshot reads `resident`, the same gate the panel body uses.
     await expect(page.locator(BAR)).toBeVisible({ timeout: 30_000 });
+    await openPanel(page);
 
-    // Start through the bar's own control, so the state this arm walks into is one the product
-    // produced rather than one this file wrote.
-    const beforeStart = await readBar(page);
-    expect(beforeStart.uiState, 'a resident session with no host must read as not running').toBe('unstarted');
+    // Start through the panel's own control, so the state this arm walks into is one the product
+    // produced rather than one this file wrote. The four-state reading is the sidebar mark's now.
+    const beforeStart = await readMark(page, armA);
+    expect(beforeStart.state, 'a resident session with no host must read as not running').toBe('unstarted');
     await page.locator(START).click();
-    await expect(page.locator(BAR)).toHaveAttribute('data-resident-ui-state', 'idle', { timeout: 15_000 });
+    await expect(markOf(page, armA)).toHaveAttribute('data-resident-state', 'idle', { timeout: 15_000 });
 
-    const started = await readBar(page);
+    const started = await readMark(page, armA);
     const snapshotAtStart = await readHosts(api);
     const startState = uiStateOf(lastHost(snapshotAtStart, armA));
     console.log(
-      `state=${STATE_WORD[started.uiState]} mark=${MARK_SHAPES[started.uiState]} bar=${JSON.stringify(started.text)} `
+      `state=${STATE_WORD[started.state]} mark=${MARK_SHAPES[started.state]} `
       + `snapshot.state=${liveHost(snapshotAtStart, armA)?.state ?? 'absent'} closeReason= detail= via=start`,
     );
-    expect(started.uiState, 'the bar and the listing must agree about the started process').toBe(startState);
-    expect(started.text, 'the bar reads its sentence from the shipped locale').toBe(statusBarText('idle'));
-    expect(started.uiState, 'the mark is the shape §15.1 pins for this state').toBe('idle');
+    expect(started.state, 'the mark and the listing must agree about the started process').toBe(startState);
+    expect(started.shape, 'the mark draws the shape §15.1 pins for this state').toBe(MARK_SHAPES.idle);
 
-    // Fired without awaiting: the walk blocks until its last offset, and the popover is read while it
+    // Fired without awaiting: the walk blocks until its last offset, and the panel is read while it
     // is in flight. Awaiting here would mean reading a state the walk had already left.
     // Reduced to a settled value rather than left as a bare promise: if an assertion below fails
     // while the walk is still in flight, `afterAll` disposes the request context under it, and a
@@ -847,19 +813,19 @@ test.describe('resident status bar', () => {
       }))
       .catch((error: unknown) => ({ ok: false, status: -1, body: { failed: String(error) } }));
 
-    await page.locator(TRIGGER).click();
+    // The panel was opened above and stays open; the scenario's identity step runs at the walk's own
+    // zero, so the address arrives with it.
     await expect(page.locator(ADDRESS)).toBeVisible({ timeout: 10_000 });
-    // The scenario's identity step runs at the walk's own zero, so the address arrives with it.
     await expect(page.locator(ADDRESS)).not.toBeEmpty({ timeout: 10_000 });
 
     const address = (await page.locator(ADDRESS).innerText()).trim();
     const snapshotAtAddress = await readHosts(api);
     const peerName = liveBinding(snapshotAtAddress, armA)?.peerName ?? null;
     console.log(
-      `popover.address=${JSON.stringify(address)} snapshot.peerName=${JSON.stringify(peerName)} `
+      `panel.address=${JSON.stringify(address)} snapshot.peerName=${JSON.stringify(peerName)} `
       + `equal=${String(address === peerName && address.length > 0)}`,
     );
-    expect(address, 'the popover must show the address the listing publishes, not a second one').toBe(peerName);
+    expect(address, 'the panel must show the address the listing publishes, not a second one').toBe(peerName);
     expect(address.length, 'an empty address would make the equality above vacuous').toBeGreaterThan(0);
 
     await page.locator(COPY).click();
@@ -884,7 +850,7 @@ test.describe('resident status bar', () => {
     const snapshotBeforeClose = await readHosts(api);
     const hostBeforeClose = liveHost(snapshotBeforeClose, armA);
     console.log(`host.present=${String(hostBeforeClose !== null)} host.id=${hostBeforeClose?.hostId ?? '(none)'}`);
-    expect(hostBeforeClose, 'the popover was opened over a process, so a live host must exist').not.toBeNull();
+    expect(hostBeforeClose, 'the panel was opened over a process, so a live host must exist').not.toBeNull();
 
     const [closeResponse] = await Promise.all([
       page.waitForResponse((response) => response.url().endsWith(`/api/session-hosts/${armA}/close`)),
@@ -915,41 +881,33 @@ test.describe('resident status bar', () => {
       'the record must say the user is why it closed',
     ).toBe('user');
 
-    await expect(page.locator(BAR)).toHaveAttribute('data-resident-ui-state', 'unstarted', { timeout: 15_000 });
-    const closed = await readBar(page);
-    const markAfterClose = await readMark(page, armA);
+    await expect(markOf(page, armA)).toHaveAttribute('data-resident-state', 'unstarted', { timeout: 15_000 });
+    const closed = await readMark(page, armA);
     console.log(
-      `state=${STATE_WORD[closed.uiState]} mark=${markAfterClose.shape} mark.afterClose=${markAfterClose.shape} `
-      + `bar=${JSON.stringify(closed.text)} `
+      `state=${STATE_WORD[closed.state]} mark=${MARK_SHAPES[closed.state]} mark.afterClose=${closed.shape} `
       + `snapshot.state=${lastHost(snapshotAfterClose, armA)?.state ?? 'absent'} `
       + `closeReason=${lastHost(snapshotAfterClose, armA)?.closeReason ?? '(none)'} detail= via=close`,
     );
-    expect(closed.uiState, 'a process the user closed is back to not running').toBe('unstarted');
-    expect(markAfterClose.shape, 'the mark for a session nobody started is the hollow one').toBe(
-      MARK_SHAPES.unstarted,
-    );
-    expect(closed.text, 'the not-running sentence carries the reason the listing gives').toBe(
-      statusBarText('unstarted', {
-        reason: readSessionState(snapshotAfterClose, armA)?.reason ?? '',
-      }),
-    );
+    expect(closed.state, 'a process the user closed is back to not running').toBe('unstarted');
+    expect(closed.shape, 'the mark for a session nobody started is the hollow one').toBe(MARK_SHAPES.unstarted);
   });
 
   /**
-   * The state walk, the lease counts, the abort and the unattended rows — arm B.
+   * The state walk, the abort and the unattended rows — arm B.
    *
    * One clock carries all four readings because they are four views of one process: the state is what
-   * the lease set derives, the count is that same set, the abort is what happens to one of those
-   * leases, and the rows are what the turns that held them wrote.
+   * the host's lease set derives, the abort is what happens to one of those leases, and the rows are
+   * what the turns that held them wrote.
    */
-  test('the walk drives all four states, the counts track the leases, and stopping leaves the process', async () => {
+  test('the walk drives all four states, and stopping leaves the process', async () => {
     await revealSession(page, workspaceName, armB);
     await sessionRow(page, armB).click();
     await expect(page.locator(PANE)).toBeVisible({ timeout: 30_000 });
     await expect(page.locator(BAR)).toBeVisible({ timeout: 30_000 });
+    await openPanel(page);
 
     await page.locator(START).click();
-    await expect(page.locator(BAR)).toHaveAttribute('data-resident-ui-state', 'idle', { timeout: 15_000 });
+    await expect(markOf(page, armB)).toHaveAttribute('data-resident-state', 'idle', { timeout: 15_000 });
 
     // Every debug-agent response this run sees, so the seam reading below counts what the wire said
     // rather than what this file expected it to say.
@@ -973,57 +931,27 @@ test.describe('resident status bar', () => {
       .catch((error: unknown) => ({ ok: false, status: -1, body: { failed: String(error) } }));
 
     // --- the first turn opens: 运行中 ------------------------------------------------------------
-    await expect(page.locator(BAR)).toHaveAttribute('data-resident-ui-state', 'busy', { timeout: 10_000 });
-    const busy = await readBar(page);
+    await expect(markOf(page, armB)).toHaveAttribute('data-resident-state', 'busy', { timeout: 10_000 });
+    const busy = await readMark(page, armB);
     const snapshotBusy = await readHosts(api);
     const busyHost = liveHost(snapshotBusy, armB);
     console.log(
-      `state=${STATE_WORD[busy.uiState]} mark=${MARK_SHAPES[busy.uiState]} bar=${JSON.stringify(busy.text)} `
+      `state=${STATE_WORD[busy.state]} mark=${MARK_SHAPES[busy.state]} `
       + `snapshot.state=${busyHost?.state ?? 'absent'} closeReason= detail= via=scenario-step`,
     );
-    expect(busy.uiState, 'a turn in flight is the running state').toBe('busy');
-    expect(busy.uiState, 'the bar and the listing must agree while a turn is in flight').toBe(uiStateOf(busyHost));
-    expect(busy.uiState, 'the mark is the shape §15.1 pins for this state').toBe('busy');
-    expect((await readMark(page, armB)).shape, 'the sidebar draws the same state as the bar').toBe(
-      MARK_SHAPES.busy,
-    );
-    console.log(
-      `host.leases=${describeCounts(leaseCounts(liveBinding(snapshotBusy, armB)))} `
-      + `ui.counts=${describeCounts(busy.counts)}`,
-    );
-    expect(
-      describeCounts(busy.counts),
-      'the bar counts the leases the listing reports, kind for kind',
-    ).toBe(describeCounts(leaseCounts(liveBinding(snapshotBusy, armB))));
+    expect(busy.state, 'a turn in flight is the running state').toBe('busy');
+    expect(busy.state, 'the mark and the listing must agree while a turn is in flight').toBe(uiStateOf(busyHost));
+    expect(busy.shape, 'the mark is the shape §15.1 pins for this state').toBe(MARK_SHAPES.busy);
 
-    // --- the turn ends: 空闲, and the count this arm measures the keepalive against -------------
-    await expect(page.locator(BAR)).toHaveAttribute('data-resident-ui-state', 'idle', { timeout: 10_000 });
-    const idle = await readBar(page);
+    // --- the turn ends: 空闲 -----------------------------------------------------------------
+    await expect(markOf(page, armB)).toHaveAttribute('data-resident-state', 'idle', { timeout: 10_000 });
+    const idle = await readMark(page, armB);
     const snapshotIdle = await readHosts(api);
     console.log(
-      `state=${STATE_WORD[idle.uiState]} mark=${MARK_SHAPES[idle.uiState]} bar=${JSON.stringify(idle.text)} `
+      `state=${STATE_WORD[idle.state]} mark=${MARK_SHAPES[idle.state]} `
       + `snapshot.state=${liveHost(snapshotIdle, armB)?.state ?? 'absent'} closeReason= detail= via=scenario-step`,
     );
-    expect(idle.text, 'the idle sentence is the shipped one for this locale').toBe(statusBarText('idle'));
-    expect(idle.counts.size, 'a turn that ended must not leave its kind behind').toBeLessThan(busy.counts.size);
-    const countsBefore = await readCountReading(page, snapshotIdle, armB);
-    console.log(`界面类别 ← lease kind：${countsBefore.mapping}`);
-    console.log(`counts.before=${describeCounts(countsBefore.counts)}`);
-
-    // --- one more reason to stay open: the count must grow, and only by that reason -------------
-    await expect
-      .poll(async () => (await readBar(page)).counts.has('monitor'), { timeout: 10_000 })
-      .toBe(true);
-    await expect
-      .poll(async () => describeCounts((await readBar(page)).counts), { timeout: 10_000 })
-      .not.toBe(describeCounts(countsBefore.counts));
-    const snapshotAfterKeepalive = await readHosts(api);
-    const countsAfter = await readCountReading(page, snapshotAfterKeepalive, armB);
-    console.log(`counts.after=${describeCounts(countsAfter.counts)}`);
-    expect(
-      totalOf(countsAfter.counts),
-      'adding one keepalive must raise the count the bar shows and the count the listing reports',
-    ).toBeGreaterThan(totalOf(countsBefore.counts));
+    expect(idle.state, 'the mark and the listing must agree between turns').toBe(uiStateOf(liveHost(snapshotIdle, armB)));
 
     // The page is reloaded here, and only for this: a document open before the run started was never
     // attached to it, and an unattached socket is never told how the run ended. Reloading subscribes
@@ -1033,11 +961,10 @@ test.describe('resident status bar', () => {
     // navigation, and the bounded `toBeVisible` on the next lines already caps how long it may take.
     await page.reload();
     await expect(page.locator(PANE)).toBeVisible({ timeout: 30_000 });
-    await expect(page.locator(BAR)).toHaveAttribute('data-resident-ui-state', 'busy', { timeout: 15_000 });
+    await expect(markOf(page, armB)).toHaveAttribute('data-resident-state', 'busy', { timeout: 15_000 });
 
     // --- stopping the turn leaves the process running: the abort ---------------------------------
-    const barBeforeAbort = await readBar(page);
-    const abortHostId = barBeforeAbort.hostId;
+    const panelBeforeAbort = await readPanel(page);
     const snapshotBeforeAbort = await readHosts(api);
     const hostBeforeAbort = liveHost(snapshotBeforeAbort, armB);
     const stopLabel = readKey(chatLocale(LOCALE), 'resident.stopResident');
@@ -1055,25 +982,23 @@ test.describe('resident status bar', () => {
     console.log(
       `run.status=aborted host.hostId.before=${hostBeforeAbort?.hostId ?? '(none)'} `
       + `host.hostId.after=${hostAfterAbort?.hostId ?? '(none)'} `
-      + `same=${String(hostBeforeAbort?.hostId === hostAfterAbort?.hostId && abortHostId === hostAfterAbort?.hostId)}`,
+      + `same=${String(hostBeforeAbort?.hostId === hostAfterAbort?.hostId)}`,
     );
-    const barAfterAbort = await readBar(page);
-    const sameHost = hostBeforeAbort?.hostId === hostAfterAbort?.hostId && abortHostId === hostAfterAbort?.hostId;
+    const panelAfterAbort = await readPanel(page);
     console.log(
       `host.state.after=${hostAfterAbort?.state ?? '(none)'} pid.before=${hostBeforeAbort?.pid ?? '(none)'} `
       + `pid.after=${hostAfterAbort?.pid ?? '(none)'} same=${String(hostBeforeAbort?.pid === hostAfterAbort?.pid)} `
       // The debug fixture is a clock walk over a file, so its host carries no OS pid and the line above
       // reads `(none)` twice — true, and worth nothing on its own. The readings that make "the same
       // process is still here" falsifiable are the ones below: the host record's own identity and birth
-      // stamp, and the pid the *bar* shows a reader, must all be unchanged by a stopped turn.
+      // stamp, and the pid the *panel* shows a reader, must all be unchanged by a stopped turn.
       + `startedAt.before=${hostBeforeAbort?.startedAt ?? '(none)'} startedAt.after=${hostAfterAbort?.startedAt ?? '(none)'} `
       + `startedAt.same=${String(hostBeforeAbort?.startedAt === hostAfterAbort?.startedAt)} `
-      + `bar.pid.before=${JSON.stringify(barBeforeAbort.pid)} bar.pid.after=${JSON.stringify(barAfterAbort.pid)} `
+      + `panel.pid.before=${JSON.stringify(panelBeforeAbort.pid)} panel.pid.after=${JSON.stringify(panelAfterAbort.pid)} `
       + `host.closeReason.after=${JSON.stringify(hostAfterAbort?.closeReason ?? null)}`,
     );
     expect(hostBeforeAbort, 'the turn was stopped inside a live process, so one must exist').not.toBeNull();
     expect(hostAfterAbort?.hostId, 'stopping a turn must not replace the process').toBe(hostBeforeAbort?.hostId);
-    expect(sameHost, 'the bar must still be pointed at the process the turn was stopped in').toBe(true);
     expect(hostAfterAbort?.pid, 'stopping a turn must not restart the process').toBe(hostBeforeAbort?.pid);
     expect(hostAfterAbort?.startedAt, 'the process the turn was stopped in must not be a new one').toBe(
       hostBeforeAbort?.startedAt,
@@ -1084,23 +1009,20 @@ test.describe('resident status bar', () => {
     expect(hostAfterAbort?.closeReason ?? null, 'a stopped turn must not close the host').toBeNull();
 
     // --- the process exits on its own: exited(oom) -----------------------------------------------
-    await expect(page.locator(BAR)).toHaveAttribute('data-resident-ui-state', 'exited', { timeout: 15_000 });
-    const exited = await readBar(page);
+    await expect(markOf(page, armB)).toHaveAttribute('data-resident-state', 'exited', { timeout: 15_000 });
+    const exitedMark = await readMark(page, armB);
     const snapshotExited = await readHosts(api);
     const exitedHost = lastHost(snapshotExited, armB);
     console.log(
-      `state=${STATE_WORD.exited} mark=${MARK_SHAPES.exited} bar=${JSON.stringify(exited.text)} `
+      `state=${STATE_WORD[exitedMark.state]} mark=${MARK_SHAPES[exitedMark.state]} `
       + `snapshot.state=${exitedHost?.state ?? 'absent'} closeReason=${exitedHost?.closeReason ?? '(none)'} `
       + `detail=${exitedHost?.closeDetail ?? '(none)'} via=scenario-step`,
     );
+    expect(exitedMark.state, 'the mark and the listing must agree about the exited process').toBe(uiStateOf(exitedHost));
     expect(exitedHost?.closeReason, 'the walked process ended on its own').toBe('exited');
     expect(exitedHost?.closeDetail, 'the exit detail the scenario stated must survive to the listing').toBe('oom');
-    expect(exited.text, 'the exited sentence carries the detail the listing publishes').toBe(
-      statusBarText('exited', { detail: exitedHost?.closeDetail ?? '' }),
-    );
-    const exitedMark = await readMark(page, armB);
     expect(exitedMark.shape, 'the sidebar draws the exited shape').toBe(MARK_SHAPES.exited);
-    expect(exitedMark.detail, 'the mark carries the same exit detail as the bar').toBe('oom');
+    expect(exitedMark.detail, 'the mark carries the same exit detail the listing publishes').toBe('oom');
 
     page.off('response', recordTraffic);
     const clockBReading = await clockB;
@@ -1259,47 +1181,6 @@ async function readHosts(api: APIRequestContext): Promise<HostsSnapshot> {
     throw new Error(`GET /api/session-hosts answered ${response.status()}: ${JSON.stringify(body)}`);
   }
   return { hosts: body?.data?.hosts ?? [], sessions: body?.data?.sessions ?? [] };
-}
-
-/** One session's stored state, or null. */
-function readSessionState(snapshot: HostsSnapshot, sessionId: string): SessionRecord | null {
-  return snapshot.sessions.find((session) => session.appSessionId === sessionId) ?? null;
-}
-
-/** The sum of a count map — the one number a "grew" assertion is about. */
-function totalOf(counts: Map<string, number>): number {
-  let total = 0;
-  for (const count of counts.values()) total += count;
-  return total;
-}
-
-/**
- * The bar's counts, beside the listing's, with the mapping between a lease kind and the pill a
- * reader sees spelled out for every kind present.
- *
- * Returns the bar's own map: the mapping is printed, not asserted, because "which pill a kind is
- * drawn as" is decided by the shipped locale's `counts` keys, and the assertion that matters — that
- * both sides agree kind for kind — is made by the caller against the same map.
- */
-async function readCountReading(
-  page: Page,
-  snapshot: HostsSnapshot,
-  sessionId: string,
-): Promise<{ counts: Map<string, number>; mapping: string }> {
-  const bar = await readBar(page);
-  const host = leaseCounts(liveBinding(snapshot, sessionId));
-  const mapping = [...bar.counts.keys()]
-    .sort()
-    .map((kind) => {
-      const label = readKey(chatLocale(LOCALE), `resident.statusBar.counts.${kind}`);
-      return `${String(label ?? kind)} ← ${kind}(${host.get(kind) ?? 0})`;
-    })
-    .join('; ');
-  expect(
-    describeCounts(bar.counts),
-    'the bar counts the leases the listing reports, kind for kind',
-  ).toBe(describeCounts(host));
-  return { counts: bar.counts, mapping };
 }
 
 /**
