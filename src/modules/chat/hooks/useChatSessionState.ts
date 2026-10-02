@@ -530,6 +530,25 @@ export function useChatSessionState({
   const [pendingUserMessage, setPendingUserMessage] = useState<ChatMessage | null>(null);
   const flushedPendingUserMessageRef = useRef<ChatMessage | null>(null);
 
+  /**
+   * Optimistic user rows whose send was never delivered, by store row id.
+   *
+   * A row the composer added at send time but the server never took is not part
+   * of the conversation: it stays in the store — so a retry can re-show it
+   * rather than mint a duplicate — but it is left out of the transcript until
+   * then. The id is the one `addMessage` handed back, which is the same row the
+   * retry puts back with {@link restoreUserTurn}.
+   */
+  const [undeliveredUserIds, setUndeliveredUserIds] = useState<readonly string[]>([]);
+
+  const markUserTurnUndelivered = useCallback((id: string) => {
+    setUndeliveredUserIds((previous) => (previous.includes(id) ? previous : [...previous, id]));
+  }, []);
+
+  const restoreUserTurn = useCallback((id: string) => {
+    setUndeliveredUserIds((previous) => (previous.includes(id) ? previous.filter((rowId) => rowId !== id) : previous));
+  }, []);
+
   // Hidden Chat tabs keep collecting realtime rows without re-rendering the
   // CSS-hidden tree. Activation itself renders once and reads the latest cache.
   const activeSessionForStore = isActive ? activeSessionId : null;
@@ -565,30 +584,44 @@ export function useChatSessionState({
 
   const storeMessages = activeSessionId ? sessionStore.getMessages(activeSessionId) : NO_MESSAGES;
 
+  // A row whose send was never delivered is withheld from the transcript — it is
+  // not a turn the conversation has. The store keeps it so a retry can re-show
+  // the same row; this is the only place it is hidden.
+  const visibleStoreMessages = useMemo(
+    () => (undeliveredUserIds.length === 0
+      ? storeMessages
+      : storeMessages.filter((message) => !undeliveredUserIds.includes(message.id))),
+    [storeMessages, undeliveredUserIds],
+  );
+
   const chatMessages = useMemo(() => {
-    const all = normalizedToChatMessages(storeMessages);
+    const all = normalizedToChatMessages(visibleStoreMessages);
     // Show pending user message when no session data exists yet (new session, pre-backend-response)
     if (pendingUserMessage && all.length === 0) {
       return [pendingUserMessage];
     }
     return all;
-  }, [storeMessages, pendingUserMessage]);
+  }, [visibleStoreMessages, pendingUserMessage]);
 
   /* ---------------------------------------------------------------- */
   /*  addMessage                                                       */
   /* ---------------------------------------------------------------- */
 
-  const addMessage = useCallback((msg: ChatMessage) => {
+  const addMessage = useCallback((msg: ChatMessage): string | null => {
     if (!activeSessionId) {
-      // No session yet — show as pending until the backend creates one
+      // No session yet — show as pending until the backend creates one. An
+      // unaddressed row has no store id to hand back, so a send that added it
+      // cannot take it back; the composer falls back to leaving it in place.
       setPendingUserMessage(msg);
-      return;
+      return null;
     }
     const prov = readSelectedProvider();
     const normalized = chatMessageToNormalized(msg, activeSessionId, prov);
     if (normalized) {
       sessionStore.appendRealtime(activeSessionId, normalized);
+      return normalized.id;
     }
+    return null;
   }, [activeSessionId, sessionStore]);
 
   // Mirrors the state into a ref so the two deferred scroll-to-bottom timers
@@ -1710,6 +1743,8 @@ export function useChatSessionState({
   return {
     chatMessages,
     addMessage,
+    markUserTurnUndelivered,
+    restoreUserTurn,
     sessionActivity,
     isProcessing,
     canAbortSession,

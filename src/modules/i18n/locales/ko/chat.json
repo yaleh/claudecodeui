@@ -18,6 +18,7 @@
     "claude": "Claude",
     "cursor": "Cursor",
     "codex": "Codex",
+    "debug": "Debug Agent",
     "opencode": "OpenCode"
   },
   "tools": {
@@ -233,6 +234,10 @@
       "live": "Live",
       "paused": "Paused"
     },
+    "dock": {
+      "idleLabel": "대기 중",
+      "toggle": "상주 프로세스 세부 정보"
+    },
     "elapsed": {
       "seconds": "{{count}}s",
       "minutesSeconds": "{{minutes}}m {{seconds}}s",
@@ -250,6 +255,11 @@
     "unreachable": {
       "title": "연결 끊김 · 재연결 중…",
       "stopReason": "서버에 연결할 수 없어 중지할 수 없습니다"
+    },
+    "sendFailed": {
+      "title": "전송 실패 · 서버 응답 없음",
+      "reason": "메시지가 전송되지 않았습니다. 초안은 입력창에 남아 있습니다. 다시 시도하세요.",
+      "retry": "다시 보내기"
     }
   },
   "projectSelection": {

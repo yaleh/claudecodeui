@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 
-import { render } from '@testing-library/react';
+import { act, fireEvent, render } from '@testing-library/react';
 import i18next from 'i18next';
 import React from 'react';
 import { initReactI18next } from 'react-i18next';
 import { afterEach, beforeEach, test, vi } from 'vitest';
 
+import ActivityIndicator from '@/modules/chat/composer/ActivityIndicator';
 import ChatMessagesPane from '@/modules/chat/transcript/ChatMessagesPane';
 import { UiPreferencesProvider } from '@/shared/context/UiPreferencesContext';
 import enChat from '@/modules/i18n/locales/en/chat.json';
@@ -18,52 +19,66 @@ import type {
 } from '@/shared/types';
 
 /**
- * The status bar must not be reachable by the transcript's scroll.
+ * The resident surface is not the transcript's.
  *
- * The reported symptom was a resident status bar drawn over the conversation it
- * describes, and the mechanism was where the bar *lived*: inside the transcript's
- * scrolling box, pinned with `sticky`, so the messages scrolled underneath it and
- * a bar that wrapped onto a second line came to rest over the row below. That is
- * a fact about the DOM tree, so it is read here rather than only in the browser:
- * the node carrying `[data-resident-status-bar]` is asserted to have no scrolling
- * box on its ancestor chain — it is not inside `.chat-messages-pane`, the element
- * the `overflow-y-auto` tier is written on — which is the arrangement under which
- * no message can ever pass behind it.
+ * The status bar used to be a row of its own above the transcript's scroll
+ * container: the transcript reserved space for it, and whether it was inside or
+ * outside the `overflow-y-auto` box was a real question with a real symptom — a
+ * bar inside the box scrolled with the messages and came to rest over the row
+ * below it. The bar is gone; the resident facts are the activity dock's expanded
+ * panel, and the dock has its own mount sites. So the reading this file holds is
+ * the structural half of that move, stated on a resident session:
  *
- * jsdom parses no Tailwind and scrolls nothing, so what this can read is the
- * structure the markup declares: the classes on the elements between the bar and
- * the document root. That is the same rule the browser lays out (the class is
- * what makes the pane the scroll container), which is why the reading is stated
- * over classes and not over computed styles jsdom cannot produce. Whether the
- * boxes really end up apart at 780x493 is the browser probe's job
- * (`e2e/resident-ui-layout.spec.ts`); this case is the mechanism that makes it so.
+ *   - the **transcript** carries no resident surface at all — no bar, no address,
+ *     no pid, no busy/idle word — so there is no row above the messages for one,
+ *     and nothing inside the pane for the scroll to carry over a row;
+ *   - and the very same selectors **do** match the panel the dock draws, which is
+ *     what keeps the first reading from passing against a page that simply
+ *     dropped the resident surface.
  *
- * The second case is the reverse leg: the same reading, on the same rendered
- * tree, with the bar put back inside the pane. It has to report the pane — a
- * reading that answered "no scrolling ancestor" for both arrangements would be a
- * constant, and the first case would pass against the very markup it was written
- * to rule out.
+ * Both arms are read on real rendered trees — the pane with its own props, and
+ * the dock with the flag a resident session sets — and neither is asserted
+ * against a value this file also wrote.
+ *
+ * jsdom parses no Tailwind and lays nothing out, so whether the panel is really
+ * reachable by a pointer at 780x493 is the browser probe's job
+ * (`e2e/activity-dock-truthful.spec.ts -g "AC-188"` opens it on a real page);
+ * this case is the structure that makes it so.
  */
 
 const RESIDENT_SESSION_ID = 'session-resident';
 
-/** The pane's own selector, and the class the scroll tier is written with (`overflow-y-auto`). */
+/** The pane's own selector. */
 const PANE_SELECTOR = '.chat-messages-pane';
-const SCROLL_CLASS = 'overflow-y-auto';
-/** The bar's own DOM contract (AC-172), read and never written by this file. */
-const BAR_SELECTOR = '[data-resident-status-bar]';
 
 /**
- * The `GET /api/session-hosts` answer the bar renders from: one resident session,
- * held by one idle host.
+ * Every marker the resident surface used to put on the page, and the identity and
+ * lifecycle markers the dock's panel still carries. The first list must not match
+ * inside the transcript; the second must match inside the dock.
+ */
+const ACTIVITY_MARKERS = [
+  '[data-resident-status-bar]',
+  '[data-resident-ui-state]',
+  '[data-resident-state-text]',
+  '[data-resident-lease-summary]',
+  '[data-lease-kind]',
+] as const;
+const PANEL_MARKERS = [
+  '[data-resident-address]',
+  '[data-resident-pid-text]',
+  '[data-resident-copy]',
+  '[data-resident-close]',
+] as const;
+
+/**
+ * The `GET /api/session-hosts` answer the panel renders from: one resident
+ * session, held by one idle host.
  *
  * Built inside `vi.hoisted` because the mock below is hoisted above the imports
  * and would otherwise read this before it exists. Only the hook is replaced —
- * `findSessionHost`, `findSessionHostState` and `readResidentProcessState` are the
- * real ones, run against this snapshot — so the answer the bar draws itself from
- * is the same code path the page runs, and a case that changed the snapshot's
- * shape (a session not stored `resident`, a closed host) would change what the
- * component does for the same reason it would in the browser.
+ * `findSessionHost`, `findSessionHostState` and `findBinding` are the real ones,
+ * run against this snapshot — so the answer the panel draws itself from is the
+ * same code path the page runs.
  */
 const { snapshot } = vi.hoisted(() => {
   const appSessionId = 'session-resident';
@@ -197,42 +212,26 @@ const renderPane = () => {
   );
   const pane = view.container.querySelector<HTMLElement>(PANE_SELECTOR);
   assert.ok(pane, `the pane must render its scroll container (${PANE_SELECTOR})`);
-  const bar = view.container.querySelector<HTMLElement>(BAR_SELECTOR);
-  assert.ok(
-    bar,
-    `the bar must render for a resident session, or the reading below would be about nothing; DOM: `
-      + view.container.innerHTML.slice(0, 600),
+  return { view, pane };
+};
+
+/** The dock as a resident session draws it, with its panel opened. */
+const renderOpenDock = () => {
+  const view = render(
+    React.createElement(ActivityIndicator, {
+      activity: null,
+      sessionId: RESIDENT_SESSION_ID,
+      persistWhenIdle: true,
+    }),
   );
-  return { view, pane, bar };
-};
-
-/**
- * The scrolling boxes between a node and the document root.
- *
- * The chain is walked rather than queried with `closest`, because the question is
- * not "is there a scrolling ancestor" but "which one" — the failure message has to
- * name it. Both halves of the pane's own rule are read: the class that makes it
- * scroll (`overflow-y-auto`), and the pane's own selector, so a bar put back
- * inside the pane is reported even if the class were ever renamed out from under
- * this file.
- */
-const scrollAncestorsOf = (node: Element): Element[] => {
-  const found: Element[] = [];
-  for (let element = node.parentElement; element !== null; element = element.parentElement) {
-    if (element.classList.contains(SCROLL_CLASS) || element.matches(PANE_SELECTOR)) {
-      found.push(element);
-    }
-  }
-  return found;
-};
-
-/** The ancestor chain as `tag.class` readings, so a failure says what the arrangement was. */
-const ancestorChainOf = (node: Element): string[] => {
-  const chain: string[] = [];
-  for (let element = node.parentElement; element !== null; element = element.parentElement) {
-    chain.push(`${element.tagName.toLowerCase()}.${element.className || '(no class)'}`);
-  }
-  return chain;
+  const toggle = view.container.querySelector<HTMLElement>('[data-activity-dock-toggle]');
+  assert.ok(toggle, 'premise: the resident dock must offer the disclosure that opens its panel');
+  act(() => {
+    fireEvent.click(toggle);
+  });
+  const panel = view.container.querySelector<HTMLElement>('[data-activity-dock-panel]');
+  assert.ok(panel, 'premise: the disclosure must open the panel');
+  return { view, panel };
 };
 
 beforeEach(() => {
@@ -254,51 +253,43 @@ await i18next.use(initReactI18next).init({
   react: { useSuspense: false },
 });
 
-test('(a) the status bar has no scrolling box on its ancestor chain', () => {
-  const { view, pane, bar } = renderPane();
-  const chain = ancestorChainOf(bar);
-  const scrollAncestors = scrollAncestorsOf(bar);
+test('(a) a resident transcript carries no resident surface of its own', () => {
+  const { view, pane } = renderPane();
 
-  console.log(`status-bar.ancestors=${JSON.stringify(chain)}`);
-  console.log(`status-bar.scroll.ancestors=${scrollAncestors.length}`);
+  const found = ACTIVITY_MARKERS.filter((marker) => pane.querySelector(marker) !== null);
+  console.log(`transcript.residentMarkers=${JSON.stringify(found)}`);
+  assert.deepEqual(
+    found,
+    [],
+    'the transcript must carry no resident surface — not a bar, not a busy/idle word, not a lease count; '
+      + `the dock is where those live, and the pane found ${JSON.stringify(found)}`,
+  );
 
-  assert.equal(
-    scrollAncestors.length,
-    0,
-    `the status bar must not live inside a scrolling box — that is what lets a message slide behind it; `
-      + `its scroll ancestors are ${JSON.stringify(scrollAncestors.map((element) => element.className))}, `
-      + `its chain is ${JSON.stringify(chain)}`,
+  // And nothing outside the pane either: the row the bar used to occupy is not merely
+  // re-parented somewhere else in this tree.
+  const outside = ACTIVITY_MARKERS.filter(
+    (marker) => view.container.querySelector(marker) !== null && pane.querySelector(marker) === null,
   );
-  assert.equal(
-    pane.contains(bar),
-    false,
-    `the status bar must not be a descendant of ${PANE_SELECTOR}; its chain is ${JSON.stringify(chain)}`,
-  );
+  console.log(`transcript.outsideResidentMarkers=${JSON.stringify(outside)}`);
+  assert.deepEqual(outside, [], 'the resident surface must not be drawn anywhere in the transcript tree');
   view.unmount();
 });
 
-test('(b) reverse leg: put the bar back inside the pane and the same reading reports it', () => {
-  const { view, pane, bar } = renderPane();
+test('(b) the same markers do match the dock\'s panel, so (a) is not a reading of a dropped surface', () => {
+  const { view, panel } = renderOpenDock();
 
-  // The arrangement the fix replaced: the bar back inside the transcript's own
-  // scroll container, which is where a `sticky` bar comes to rest over a row.
-  pane.insertBefore(bar, pane.firstChild);
-
-  const scrollAncestors = scrollAncestorsOf(bar);
-  console.log(`reverse.status-bar.scroll.ancestors=${JSON.stringify(scrollAncestors.map((element) => element.className))}`);
-
-  assert.equal(
-    scrollAncestors.length,
-    1,
-    'the reading has to notice the bar put back inside the scroll container, or case (a) would pass '
-      + 'against the very arrangement it rules out; it read '
-      + `${JSON.stringify(scrollAncestors.map((element) => element.className))}`,
+  const missing = PANEL_MARKERS.filter((marker) => panel.querySelector(marker) === null);
+  console.log(`dock.panelMarkers.missing=${JSON.stringify(missing)}`);
+  assert.deepEqual(
+    missing,
+    [],
+    'the identity and lifecycle controls must exist somewhere — the dock\'s panel — or the absence in (a) '
+      + `would be satisfied by deleting the resident surface rather than merging it; missing ${JSON.stringify(missing)}`,
   );
   assert.equal(
-    scrollAncestors[0],
-    pane,
-    `the scrolling ancestor reported must be the pane itself; it read ${scrollAncestors[0]?.className}`,
+    (panel.textContent ?? '').includes('4242'),
+    true,
+    `the panel must carry the host's own pid; it reads ${JSON.stringify(panel.textContent)}`,
   );
-  assert.equal(pane.contains(bar), true, 'the bar is a descendant of the pane in this arrangement');
   view.unmount();
 });

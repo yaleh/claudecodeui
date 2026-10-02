@@ -1592,6 +1592,11 @@ export default defineConfig({
         // one `node_modules/.vite` the worktree symlinks share, and a re-optimization there 504s whatever
         // another run already has in flight — the failure this whole file's comment above describes.
         VITE_CACHE_DIR: viteCacheDir,
+        // The client's send deadline, shortened for the dock criterion's selection only. The spec fails a send
+        // while the server is silent and reads the failure inside its own 5s budget, so the shipped 5s deadline
+        // would sit exactly on that budget's edge; the criterion carries no deadline literal of its own, it
+        // reads what the client was built with here. Every other selection keeps the shipped 5000ms.
+        ...(shortenActivityHeartbeat ? { VITE_SEND_DELIVERY_TIMEOUT_MS: '600' } : {}),
       },
     },
   ],

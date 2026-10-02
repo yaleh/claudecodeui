@@ -64,6 +64,23 @@ const parseServerTime = (value: unknown): number | null => {
 const positiveNumber = (value: unknown): number | null =>
   typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
 
+/**
+ * The last silence budget a server announced, shared by every machine this page builds.
+ *
+ * Only the `chat_subscribed` hello carries the budget; a bare heartbeat does not. A machine is
+ * born when its surface *mounts*, and a surface can mount long after the hello that would have
+ * taught it: moving between the dock's two mount sites — the composer's from `md` up, the
+ * transcript's below it, which is what a rotated phone or a resized window does — builds a fresh
+ * machine with no hello behind it. That machine would then drop every heartbeat it ever receives
+ * (there is no threshold to judge them against), read `unreachable` for as long as it lives, and
+ * say so about a server that is beating at it once every `ACTIVITY_HEARTBEAT_INTERVAL_MS`.
+ *
+ * The budget is a property of the *server*, not of the surface that happened to hear it, so the
+ * last announced value is remembered here and adopted by a machine that has not heard a hello
+ * yet. A later hello overwrites it, which is what keeps a restarted server's new budget honest.
+ */
+let lastAnnouncedStaleAfter: number | null = null;
+
 export const useActivityFreshness = (
   sessionId?: string | null,
   connection?: ActivityConnection | null,
@@ -85,7 +102,13 @@ export const useActivityFreshness = (
     // A navigation to another session starts from no evidence again: the old
     // machine's timers are dropped so they cannot fire against an unused slot.
     slotRef.current?.machine.dispose();
-    slotRef.current = { sessionId, machine: createActivityFreshness(), staleAfter: null };
+    slotRef.current = {
+      sessionId,
+      machine: createActivityFreshness(),
+      // Born with whatever the page last heard, so a surface that mounts mid-conversation is not
+      // blind to every beat until the next hello (see `lastAnnouncedStaleAfter`).
+      staleAfter: lastAnnouncedStaleAfter,
+    };
   }
   const slot = slotRef.current;
 
@@ -107,6 +130,7 @@ export const useActivityFreshness = (
         const announced = positiveNumber(event.unreachableAfterMs);
         if (announced !== null) {
           slot.staleAfter = announced;
+          lastAnnouncedStaleAfter = announced;
         }
         if (slot.staleAfter === null) return;
 

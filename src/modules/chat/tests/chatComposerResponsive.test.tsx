@@ -265,12 +265,21 @@ const openMoreMenu = (view: ReturnType<typeof render>) => {
   return view.getByRole('menu');
 };
 
-/* ── one running turn, two surfaces, and the stop entries it offers ───────── */
+/* ── one running turn, one dock, and the stop entries it offers ───────────── */
 
 /** A fixed clock, so the turn's elapsed reading is a number the cases can name. */
 const START = Date.parse('2026-01-01T00:00:00.000Z');
-/** The pane's inline status line, as the message-flow surface is addressed in the DOM. */
-const INLINE_ACTIVITY_SLOT = '[data-slot="chat-activity-inline"]';
+/**
+ * The dock's one marker, wherever it is mounted.
+ *
+ * The composer's tab and the transcript's compact line used to be addressed by
+ * two selectors, and the pair of cases below read which of them existed at which
+ * width. They are one component behind one attribute now; what still differs by
+ * width is the *mount site*, which the position assertions below read instead.
+ */
+const ACTIVITY_DOCK = '[data-activity-dock]';
+/** The transcript's scroll container, so "the dock's other mount site" can be addressed. */
+const PANE_SELECTOR = '.chat-messages-pane';
 
 /**
  * The turn both cases are about: running, and interruptible — so the tab surface
@@ -703,17 +712,17 @@ test('(h) a running turn offers one stop entry below md and two from md up, and 
       `the surviving entry must be the composer's submit control, not a same-named second one; readings: ${readings.join(' | ')}`,
     );
     assert.ok(
-      outsideForm.every((button) => button.className.includes('chat-activity-tab')),
-      `every stop entry outside the submit must be the activity tab's, so the wide reading is the existing pair and not a stray control; readings: ${readings.join(' | ')}`,
+      outsideForm.every((button) => button.closest(ACTIVITY_DOCK) !== null),
+      `every stop entry outside the submit must be the dock's, so the wide reading is the existing pair and not a stray control; readings: ${readings.join(' | ')}`,
     );
 
     // The turn is still *shown* on the tier with one stop entry: it is the control that is
     // absent from that surface, not the status. Without this the narrow count above would
     // read the same for a pane that drew no status at all.
     assert.equal(
-      view.container.querySelector(INLINE_ACTIVITY_SLOT) !== null,
+      view.container.querySelector(`${PANE_SELECTOR} ${ACTIVITY_DOCK}`) !== null,
       tier.inlineLine,
-      `the transcript's status line must be the surface below md and only below md; readings: ${readings.join(' | ')}`,
+      `the dock must be in the transcript below md and only below md; readings: ${readings.join(' | ')}`,
     );
     assert.equal(
       within(footer).queryAllByRole('button', { name: /stop/i }).length,
@@ -746,19 +755,13 @@ test('(i) a pending permission request takes the status over: neither tier draws
       `premise: the pending request must be on screen at ${tier.label}, or the absences below are about nothing`,
     );
 
-    const tab = view.container.querySelector('.chat-activity-tab');
-    const line = view.container.querySelector(INLINE_ACTIVITY_SLOT);
-    readings.push(`${tier.label}: tab=${tab ? 'present' : 'absent'}, status line=${line ? 'present' : 'absent'}`);
+    const dock = view.container.querySelector(ACTIVITY_DOCK);
+    readings.push(`${tier.label}: dock=${dock ? 'present' : 'absent'}`);
 
     assert.equal(
-      tab,
+      dock,
       null,
-      `the request's own surface must replace the tab, never sit beside it; readings: ${readings.join(' | ')}`,
-    );
-    assert.equal(
-      line,
-      null,
-      `the request's own surface must replace the transcript's status line too; readings: ${readings.join(' | ')}`,
+      `the request's own surface must replace the dock, on either mount site; readings: ${readings.join(' | ')}`,
     );
 
     view.unmount();

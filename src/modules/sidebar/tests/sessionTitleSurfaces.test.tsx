@@ -5,6 +5,7 @@ import React, { useEffect } from 'react';
 import { beforeEach, test, vi } from 'vitest';
 
 import WebSocketContext from '@/shared/context/WebSocketContext';
+import { SessionProtectionProvider } from '@/shared/context/SessionProtectionContext';
 import type {
   ArchivedSessionListItem,
   RecentConversationListItem,
@@ -82,11 +83,21 @@ const emit = (event: ServerEvent) => {
   });
 };
 
+/**
+ * The two providers the controller reads.
+ *
+ * The socket is where its events arrive. The session-protection provider is where
+ * the *running* count comes from: the sidebar's badge counts the page's one
+ * activity reading, not the host listing's turn leases, so the controller is a
+ * consumer of that context exactly as `Sidebar` is. A tree without it is a tree
+ * the controller cannot run in — which is the throw this wrapper exists to
+ * answer, and the reason the production `Sidebar` uses the same hook.
+ */
 const wrapper = ({ children }: { children: React.ReactNode }) => (
   <WebSocketContext.Provider
     value={{ ws: null, sendMessage: () => {}, subscribe, isConnected: true }}
   >
-    {children}
+    <SessionProtectionProvider>{children}</SessionProtectionProvider>
   </WebSocketContext.Provider>
 );
 

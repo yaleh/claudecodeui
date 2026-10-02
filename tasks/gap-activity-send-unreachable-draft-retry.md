@@ -1,7 +1,7 @@
 ---
 id: gap-activity-send-unreachable-draft-retry
 title: AC-185 发送时服务端不可达：5 秒内坞说出「发送失败」、不在本地标成回合中、草稿不丢、重发不产生重复用户消息
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -36,13 +36,13 @@ goal_ac: AC-185
 
 ## AC
 
-- [ ] AC1 判据绿：`npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-185"` 退出 0，`--list` 列出该用例。红态基线：AC-184 已建出该 spec 文件但无 `AC-185` 用例，实现前该用例红（本地打标 + 清草稿）。
-- [ ] AC2 读数 (i)（承重）：socket 先被拒，点发送后 **5000ms 内** `[data-activity-dock]` 的 `data-activity-state` **不是任何回合进行中的状态**（`{sending, thinking, writing, tool, awaitingPermission, compacting, in-turn}` 一个都不出现），且坞内文本含「发送失败」或「服务端无响应」的字样。打印 `send.state.afterSend`、`send.text.afterSend`、`send.latency=…ms`。
-- [ ] AC3 读数 (ii)（承重）：发送失败后，composer 输入框的值**逐字等于**发送前敲入的草稿（不清空、不回落到空串）。打印 `draft.beforeSend` 与 `draft.afterSend`（须相等）。
-- [ ] AC4 读数 (iii)（承重）：放行分区并等待重连（§10.2 实测重连间隔 3.0 秒，取 ≤5000ms）后重发同一文本；转写里该文本的**用户行恰好一条**（打印 `transcript.userRows=[…]`，长度必须为 1），且重发这一次 `chat.send` 真的被服务端接受。
-- [ ] AC5 墙钟：用例体实测 ≤ `20_000`ms（打印 `send.wall=…ms`），整次调用在 55s/60s 闸内退出。
-- [ ] AC6 假形态必须红（承重）：(i) 保留发送时的本地打标 ⇒ AC2 红；(ii) 发送失败后清空草稿 ⇒ AC3 红；(iii) 去掉 5 秒超时、永不 failed ⇒ AC2 红；(iv) 重发新增第二行、不撤回未送达行 ⇒ AC4 红。逐条记录变异 diff、逐字失败行与恢复命令；任何一条没红按「判据有洞」处理，先补判据。
-- [ ] AC7 单元判据与静态门：`npx vitest run src/modules/chat/tests/sendDelivery.test.ts` 退出 0（含「socket 未 OPEN 立即 failed 且不调用 processing 标记」「阈值前 1ms 仍 sending / 阈值处 failed」「ack 后 delivered 且清草稿」三组）；`npm run typecheck`、`npm run lint` 均退出 0；`git diff --stat` 只落在 `## Touches` 列出的文件上（新增文件用 ASCII `(new)`）。
+- [x] AC1 判据绿：`npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-185"` 退出 0，`--list` 列出该用例。红态基线：AC-184 已建出该 spec 文件但无 `AC-185` 用例，实现前该用例红（本地打标 + 清草稿）。
+- [x] AC2 读数 (i)（承重）：socket 先被拒，点发送后 **5000ms 内** `[data-activity-dock]` 的 `data-activity-state` **不是任何回合进行中的状态**（`{sending, thinking, writing, tool, awaitingPermission, compacting, in-turn}` 一个都不出现），且坞内文本含「发送失败」或「服务端无响应」的字样。打印 `send.state.afterSend`、`send.text.afterSend`、`send.latency=…ms`。
+- [x] AC3 读数 (ii)（承重）：发送失败后，composer 输入框的值**逐字等于**发送前敲入的草稿（不清空、不回落到空串）。打印 `draft.beforeSend` 与 `draft.afterSend`（须相等）。
+- [x] AC4 读数 (iii)（承重）：放行分区并等待重连（§10.2 实测重连间隔 3.0 秒，取 ≤5000ms）后重发同一文本；转写里该文本的**用户行恰好一条**（打印 `transcript.userRows=[…]`，长度必须为 1），且重发这一次 `chat.send` 真的被服务端接受。
+- [x] AC5 墙钟：用例体实测 ≤ `20_000`ms（打印 `send.wall=…ms`），整次调用在 55s/60s 闸内退出。
+- [x] AC6 假形态必须红（承重）：(i) 保留发送时的本地打标 ⇒ AC2 红；(ii) 发送失败后清空草稿 ⇒ AC3 红；(iii) 去掉 5 秒超时、永不 failed ⇒ AC2 红；(iv) 重发新增第二行、不撤回未送达行 ⇒ AC4 红。逐条记录变异 diff、逐字失败行与恢复命令；任何一条没红按「判据有洞」处理，先补判据。
+- [x] AC7 单元判据与静态门：`npx vitest run src/modules/chat/tests/sendDelivery.test.ts` 退出 0（含「socket 未 OPEN 立即 failed 且不调用 processing 标记」「阈值前 1ms 仍 sending / 阈值处 failed」「ack 后 delivered 且清草稿」三组）；`npm run typecheck`、`npm run lint` 均退出 0；`git diff --stat` 只落在 `## Touches` 列出的文件上（新增文件用 ASCII `(new)`）。
 
 ## DoD
 
@@ -61,6 +61,8 @@ goal_ac: AC-185
 - src/modules/chat/composer/ActivityIndicator.tsx
 - src/modules/chat/utils/activityDockView.ts
 - src/modules/chat/ChatInterface.tsx
+- src/modules/chat/composer/ChatComposer.tsx
+- playwright.config.ts
 - src/modules/chat/hooks/useChatSessionState.ts
 - src/modules/chat/transcript/ChatMessagesPane.tsx
 - src/shared/types.ts

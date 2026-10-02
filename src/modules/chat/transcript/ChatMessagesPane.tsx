@@ -15,6 +15,7 @@ import { groupWorkSegments, isWorkSegment } from '@/modules/chat/utils/workSegme
 import { findSearchTargetIndex } from '@/modules/chat/utils/searchTargetLocator';
 import { useLazyRowObserver } from '@/modules/chat/hooks/useLazyRowObserver';
 import { useDeviceSettings } from '@/shared/hooks/useDeviceSettings';
+import { findSessionHostState, useSessionHosts } from '@/shared/hooks/useSessionHosts';
 import LazyMessageRow from '@/modules/chat/transcript/LazyMessageRow';
 import MessageComponent from '@/modules/chat/transcript/MessageComponent';
 import PendingResidentMessage from '@/modules/chat/transcript/PendingResidentMessage';
@@ -22,7 +23,6 @@ import ProviderSelectionEmptyState from '@/modules/chat/transcript/ProviderSelec
 import WorkSegmentRecord from '@/modules/chat/transcript/WorkSegmentRecord';
 import LoadAllMessagesOverlay from '@/modules/chat/transcript/LoadAllMessagesOverlay';
 import ChatExportMenu from '@/modules/chat/transcript/ChatExportMenu';
-import ResidentStatusBar from '@/modules/chat/transcript/ResidentStatusBar';
 import ActivityIndicator from '@/modules/chat/composer/ActivityIndicator';
 
 /**
@@ -61,6 +61,8 @@ type ChatMessagesPaneProps = {
    * turn's data, not a second account of it.
    */
   activity?: SessionActivity | null;
+  /** True when the last send was never delivered; the inline status line reports it. */
+  sendFailed?: boolean;
   chatMessages: ChatMessage[];
   selectedSession: ProjectSession | null;
   currentSessionId: string | null;
@@ -136,6 +138,7 @@ function ChatMessagesPane({
   isProcessing = false,
   hasActivityIndicator = false,
   activity = null,
+  sendFailed = false,
   chatMessages,
   selectedSession,
   currentSessionId,
@@ -183,6 +186,16 @@ function ChatMessagesPane({
   // pane's status line and the composer's tab can never both be on screen or
   // both be absent: one breakpoint decides which surface carries the turn.
   const { isMobile } = useDeviceSettings();
+  // Whether this session is held by a resident process, read from the same shared
+  // snapshot the dock's panel reads. It decides one thing here: whether the
+  // transcript's dock keeps its collapsed entry point between turns (see
+  // `ActivityIndicator`'s `persistWhenIdle`) — the facts themselves are the
+  // panel's, not this component's.
+  const { snapshot: sessionHostsSnapshot } = useSessionHosts();
+  const activeSessionId = currentSessionId ?? selectedSession?.id ?? null;
+  const isResidentSession = activeSessionId
+    ? findSessionHostState(sessionHostsSnapshot, activeSessionId)?.lifecycleMode === 'resident'
+    : false;
   const lazyRows = useLazyRowObserver(scrollContainerRef);
   const groupedVisibleMessages = useMemo(
     () => groupWorkSegments(visibleMessages),
@@ -328,25 +341,12 @@ function ChatMessagesPane({
   const paneBottomPadding = hasActivityIndicator && !isMobile ? 'pb-12 md:pb-14' : 'pb-3 sm:pb-4';
 
   return (
-    // The resident process's status sits on a row of its own, *above* the scroll
-    // container rather than inside it. Inside was the wrong side of the box
-    // boundary: `.chat-messages-pane` is `overflow-y-auto`, so anything in it is
-    // clipped to the pane and scrolls with the transcript, and a bar that wrapped
-    // onto a second line pushed the first turn down by its own height while its
-    // sticky box could still come to rest over the row starting underneath it.
-    // Outside the scroll box the two cannot overlap at all: the row takes its
-    // height from the bar and the transcript begins below wherever that ends.
+    // The resident process's facts used to sit on a row of their own, *above* the
+    // scroll container, in a status bar of their own. They live in the dock's
+    // expanded panel now — the dock is this pane's own status surface below `md`,
+    // so the facts are one tap from the row that says what the session is doing —
+    // and the row they used to occupy is gone with the bar.
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* Drawn for every session, and removed by `empty:hidden` on every session
-          whose bar renders itself away (anything not stored `resident`), so a
-          non-resident transcript reserves no row of its own — the same bargain
-          the wrapper made when it lived inside the pane. */}
-      <div className="pointer-events-none flex justify-start pt-3 empty:hidden sm:px-4 sm:pt-4">
-        <ResidentStatusBar
-          sessionId={currentSessionId ?? selectedSession?.id ?? null}
-          t={t}
-        />
-      </div>
       <div
         ref={scrollContainerRef}
         // Focusable so the pane itself can be scrolled from the keyboard. A wheel
@@ -574,8 +574,9 @@ function ChatMessagesPane({
         {isMobile && (
           <ActivityIndicator
             activity={hasActivityIndicator ? activity : null}
-            sessionId={currentSessionId ?? selectedSession?.id ?? null}
-            variant="inline"
+            sessionId={activeSessionId}
+            sendFailed={sendFailed}
+            persistWhenIdle={isResidentSession}
           />
         )}
         </div>

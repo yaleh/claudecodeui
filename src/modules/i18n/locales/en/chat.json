@@ -18,6 +18,7 @@
     "claude": "Claude",
     "cursor": "Cursor",
     "codex": "Codex",
+    "debug": "Debug Agent",
     "opencode": "OpenCode"
   },
   "tools": {
@@ -261,6 +262,10 @@
       "live": "Live",
       "paused": "Paused"
     },
+    "dock": {
+      "idleLabel": "Idle",
+      "toggle": "Resident process details"
+    },
     "elapsed": {
       "seconds": "{{count}}s",
       "minutesSeconds": "{{minutes}}m {{seconds}}s",
@@ -278,6 +283,11 @@
     "unreachable": {
       "title": "Connection lost · reconnecting…",
       "stopReason": "Stop is unavailable while the server is unreachable"
+    },
+    "sendFailed": {
+      "title": "Send failed · server not responding",
+      "reason": "The message was not sent. Your draft is still in the box — try again.",
+      "retry": "Retry"
     }
   },
   "projectSelection": {

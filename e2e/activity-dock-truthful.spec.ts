@@ -44,6 +44,7 @@ import {
   test,
   type APIRequestContext,
   type Locator,
+  type BrowserContext,
   type Page,
 } from '@playwright/test';
 
@@ -105,6 +106,28 @@ const TITLE = 'Activity dock truthfulness — a turn held open';
 const SEED_USER_TEXT = 'seeded user turn for the activity-dock criterion';
 const WALK_TURN_TEXT = 'the turn the process is still writing';
 
+/** The composer's box, the same anchor the resident specs type into. */
+const TEXTAREA = '[data-slot="prompt-input-textarea"]';
+/** The message this criterion types, fails to send, then retries. */
+const DRAFT = 'the draft a send to an unreachable server must not eat';
+
+/**
+ * Every state that means "a turn is running". The failed-send reading must be
+ * none of them — and, because the list names states this build does not draw
+ * yet, it is a statement about the shape of the answer rather than about one
+ * literal string: a dock that later grows a `thinking` state cannot quietly
+ * start reporting failures as thinking.
+ */
+const IN_TURN_STATES = new Set([
+  'sending',
+  'thinking',
+  'writing',
+  'tool',
+  'awaitingPermission',
+  'compacting',
+  'in-turn',
+]);
+
 /**
  * One resident process, walked into a running turn and held there.
  *
@@ -126,15 +149,20 @@ const SCENARIO = {
   expect: { rows: { delta: 1 }, content: { mustContain: [SEED_USER_TEXT, WALK_TURN_TEXT] } },
 };
 
-/** Reads one shipped locale key, or undefined. */
-function localeKey(locale: string, keyPath: string): unknown {
+/** Reads one shipped locale key out of one namespace file, or undefined. */
+function localeKeyIn(locale: string, file: string, keyPath: string): unknown {
   const parsed = JSON.parse(
-    fs.readFileSync(path.join(LOCALES_ROOT, locale, 'chat.json'), 'utf8'),
+    fs.readFileSync(path.join(LOCALES_ROOT, locale, file), 'utf8'),
   ) as Record<string, unknown>;
   return keyPath.split('.').reduce<unknown>(
     (node, segment) => (typeof node === 'object' && node !== null ? (node as Record<string, unknown>)[segment] : undefined),
     parsed,
   );
+}
+
+/** Reads one shipped `chat` key, or undefined. */
+function localeKey(locale: string, keyPath: string): unknown {
+  return localeKeyIn(locale, 'chat.json', keyPath);
 }
 
 const projectRow = (page: Page, workspaceName: string): Locator =>
@@ -182,8 +210,12 @@ async function readDock(page: Page): Promise<DockReading> {
 
 const wordsHit = (text: string): string[] => ACTION_WORDS.filter((word) => text.includes(word));
 
-async function createAccount(api: APIRequestContext): Promise<string> {
-  const register = await api.post('/api/auth/register', { data: { username: USERNAME, password: PASSWORD } });
+async function createAccount(
+  api: APIRequestContext,
+  username: string = USERNAME,
+  password: string = PASSWORD,
+): Promise<string> {
+  const register = await api.post('/api/auth/register', { data: { username, password } });
   const registered = await register.json().catch(() => null);
   if (typeof registered?.token === 'string') {
     await api.post('/api/user/complete-onboarding', {
@@ -191,10 +223,10 @@ async function createAccount(api: APIRequestContext): Promise<string> {
     });
     return registered.token;
   }
-  const login = await api.post('/api/auth/login', { data: { username: USERNAME, password: PASSWORD } });
+  const login = await api.post('/api/auth/login', { data: { username, password } });
   const loggedIn = await login.json().catch(() => null);
   if (typeof loggedIn?.token !== 'string') {
-    throw new Error(`could not sign in as ${USERNAME}: ${register.status()} ${JSON.stringify(registered)}`);
+    throw new Error(`could not sign in as ${username}: ${register.status()} ${JSON.stringify(registered)}`);
   }
   return loggedIn.token;
 }
@@ -202,8 +234,9 @@ async function createAccount(api: APIRequestContext): Promise<string> {
 async function armScenario(
   api: APIRequestContext,
   projectPath: string,
+  scenario: unknown = SCENARIO,
 ): Promise<{ sessionId: string }> {
-  const response = await api.post('/api/debug-agent/scenarios', { data: { projectPath, scenario: SCENARIO } });
+  const response = await api.post('/api/debug-agent/scenarios', { data: { projectPath, scenario } });
   const body = await response.json().catch(() => null);
   if (!response.ok()) throw new Error(`arming failed (${response.status()}): ${JSON.stringify(body)}`);
   const sessionId = body?.data?.sessionId;
@@ -251,7 +284,13 @@ const readFrames = (page: Page): Promise<Array<Record<string, unknown>>> =>
 
 /** The partition the app's own socket is put behind, toggled by the case below. */
 type Partition = {
-  mode: 'pass' | 'drop' | 'reject';
+  /**
+   * `pass` forwards both directions; `drop` forwards page-to-server but drops
+   * server-to-page; `silence` drops both while leaving the socket open, so the
+   * client cannot reach the server and hears nothing back; `reject` closes the
+   * socket outright.
+   */
+  mode: 'pass' | 'drop' | 'silence' | 'reject';
   closeLive: () => void;
 };
 
@@ -268,10 +307,15 @@ async function installPartition(page: Page, partition: Partition): Promise<void>
       void ws.close({ code: 1006 });
     };
     // Manual forwarding in both directions: once a handler is registered on a side,
-    // nothing is forwarded automatically. Page-to-server is always forwarded (the
-    // client must still be able to subscribe); server-to-page is dropped mid-partition.
+    // nothing is forwarded automatically. `drop` keeps the client's own frames
+    // flowing (it must still be able to subscribe) while silencing the server;
+    // `silence` is the fully cut-off reading, where neither side hears the other
+    // — for a send, "the server never got it", not "the server answered and the
+    // answer was lost".
     ws.onMessage((message) => {
-      server.send(message);
+      if (partition.mode !== 'silence') {
+        server.send(message);
+      }
     });
     server.onMessage((message) => {
       if (partition.mode === 'pass') {
@@ -328,6 +372,7 @@ test.describe('activity dock truthfulness', () => {
 
   test.afterAll(async () => {
     await page?.close();
+
     await api?.dispose();
   });
 
@@ -432,10 +477,593 @@ test.describe('activity dock truthfulness', () => {
     expect(wall, 'the case body must land inside its own budget').toBeLessThanOrEqual(20_000);
   });
 
+  test('AC-185 a send the server never takes fails, keeps the draft, and retries without duplicating the user row', async () => {
+    const startedAt = Date.now();
+
+    // Open the session. Not inherited from the case above: this one is selected
+    // on its own (`-g "AC-185"`), and it must set up everything it reads.
+    await revealSession(page, workspaceName, sessionId);
+    await sessionRow(page, sessionId).click();
+    await expect(page.locator(PANE)).toBeVisible({ timeout: 30_000 });
+
+    // The app's socket is cut off from the server in both directions — nothing
+    // this client sends reaches it, nothing it says comes back — while the
+    // socket itself stays open. Kept open on purpose: the send path can tell at
+    // a glance whether the socket is open, so a *closed* socket would take the
+    // immediate-failure branch and this criterion's own deadline would never be
+    // the thing under test. Here the deadline is what has to fire.
+    partition.mode = 'silence';
+
+    const textarea = page.locator(TEXTAREA);
+    await textarea.fill(DRAFT);
+    const draftBeforeSend = await textarea.inputValue();
+    expect(draftBeforeSend, 'the draft is really in the box before the send').toBe(DRAFT);
+
+    const sendLabel = String(localeKey(LOCALE, 'input.send'));
+    const sendButton = page.locator(FORM).getByRole('button', { name: sendLabel });
+
+    const sentAt = Date.now();
+    await sendButton.click();
+
+    // (i) The dock stops claiming a turn inside the send deadline and reports the
+    //     failure, in the shipped wording, with the dock element itself present.
+    await expect(page.locator(DOCK)).toHaveAttribute('data-activity-state', 'send-failed', { timeout: 5_000 });
+    const after = await readDock(page);
+    const latencyMs = Date.now() - sentAt;
+    console.log(`send.state.afterSend=${after.state}`);
+    console.log(`send.text.afterSend=${JSON.stringify(after.text)}`);
+    console.log(`send.latency=${latencyMs}ms`);
+    expect(after.state, 'a send the server never took is not a turn').toBe('send-failed');
+    expect(
+      IN_TURN_STATES.has(after.state),
+      `the failed-send reading is not one of the in-turn states (got ${after.state})`,
+    ).toBe(false);
+    expect(after.text.length, 'the dock is present and says something — not an absent dock').toBeGreaterThan(0);
+    const failureTitle = String(localeKey(LOCALE, 'claudeStatus.sendFailed.title'));
+    const failureReason = String(localeKey(LOCALE, 'claudeStatus.sendFailed.reason'));
+    console.log(`send.failureText=${JSON.stringify(failureTitle)}`);
+    expect(
+      after.text.includes(failureTitle) || after.text.includes(failureReason),
+      `the dock must carry the shipped failure wording; text was ${JSON.stringify(after.text)}`,
+    ).toBe(true);
+
+    // (ii) The draft is byte-for-byte what the user typed, read off the input.
+    const draftAfterSend = await textarea.inputValue();
+    console.log(`draft.beforeSend=${JSON.stringify(draftBeforeSend)}`);
+    console.log(`draft.afterSend=${JSON.stringify(draftAfterSend)}`);
+    expect(draftAfterSend, 'a failed send leaves the draft in the box, not in a store behind an empty box').toBe(DRAFT);
+
+    // (iii) Restore the channel; the retry must reach the server, and its user
+    //       row must be the same one — the failed attempt's, not a second copy.
+    const framesBeforeRelease = (await readFrames(page)).length;
+    partition.mode = 'pass';
+    const releasedAt = Date.now();
+    await expect.poll(
+      async () => (await readFrames(page)).length,
+      { timeout: 5_000, message: 'server frames must reach the page again after the partition is released' },
+    ).toBeGreaterThan(framesBeforeRelease);
+
+    await sendButton.click();
+
+    // The server took it: the running-sessions registry — the same in-memory
+    // registry the app polls to derive "processing" — lists the session again.
+    await expect.poll(async () => {
+      const response = await api.get('/api/providers/sessions/running');
+      const body = await response.json().catch(() => null);
+      const sessions = (body?.data?.sessions ?? []) as Array<{ sessionId?: string }>;
+      return sessions.some((session) => session.sessionId === sessionId);
+    }, { timeout: 5_000, message: 'the retried chat.send must be accepted by the server' }).toBe(true);
+    console.log(`send.retry.acceptedAfterMs=${Date.now() - releasedAt}ms`);
+
+    const userRows = await page.locator(`${PANE} .chat-message[data-message-style="user"]`).evaluateAll(
+      (rows, text) => rows.filter((row) => (row.textContent ?? '').includes(text)).length,
+      DRAFT,
+    );
+    console.log(`transcript.userRows=${JSON.stringify([userRows])}`);
+    expect(userRows, 'the retried text is exactly one user row, never two').toBe(1);
+
+    const wall = Date.now() - startedAt;
+    console.log(`send.wall=${wall}ms`);
+    expect(wall, 'the case body must land inside its own budget').toBeLessThanOrEqual(20_000);
+  });
+
   test('the run ends inside the ceiling the goal gate kills at', async () => {
     const runStartedAt = Number(process.env.QUAY_E2E_RUN_STARTED_AT);
     const elapsed = Date.now() - runStartedAt;
     console.log(`elapsed=${elapsed}ms`);
     expect(elapsed, 'the whole invocation, measured from the config\'s own start').toBeLessThan(55_000);
+  });
+});
+
+/* =============================================================================================
+ * AC-188 — the page's *one* activity dock, and the one answer about a session
+ * =============================================================================================
+ *
+ * The family's other cases (AC-184, AC-185) are about what one dock says when the
+ * server stops answering. This one is about there being one dock at all, and about
+ * the three surfaces that used to answer "is this session working" separately —
+ * the dock, the sidebar's running view (and the badge above it) and the composer's
+ * send/stop button — answering it the same way, from the same source, at the same
+ * instant.
+ *
+ * What the page looked like before. Activity was drawn on **four** unrelated
+ * sources: a tab-shaped strip hanging off the composer (only from `md` up), a
+ * compact line at the end of the transcript (only below `md`), the resident status
+ * bar's own busy/idle word and lease counts, and the sidebar's running count —
+ * the last two read from a one-second `/api/session-hosts` poll. Each pair could
+ * disagree, and one pair reliably did: a turn that ends is announced to the page
+ * at once and observed by the listing up to a beat later, so for that beat the
+ * dock said idle while the sidebar still counted the session as running.
+ *
+ * What is read here, and why each reading can fail:
+ *
+ *   - **counts.** One `[data-activity-dock]` per viewport, and zero matches for the
+ *     two markers the old surfaces published (`.chat-activity-tab`, the
+ *     `chat-activity-inline` slot). A build that kept the old mount beside the new
+ *     one reads 2, or reads a legacy marker — and neither is reachable by hiding
+ *     anything with CSS, because both are counts of what exists.
+ *   - **the resident surface.** On a resident session: zero matches for the
+ *     busy/idle word and the lease counts, and non-zero readings for the address,
+ *     the pid and the lifecycle controls inside the dock's expanded panel. The
+ *     second half is what separates "merged into the dock" from "deleted".
+ *   - **agreement.** While the turn is open, and then repeatedly across the window
+ *     *after* `turn-end` — the window in which the old poll-driven sidebar lagged —
+ *     the dock's state, the sidebar's running group membership and the composer's
+ *     stop state are read in one sample each. No sample may show the dock idle
+ *     while either of the other two says busy.
+ *
+ * Both viewports, each read once. The window is switched with `setViewportSize`,
+ * which is the signal the app itself reads (`useDeviceSettings` watches `resize`),
+ * so the same page really does re-render its narrow tier rather than a second
+ * context standing in for it.
+ *
+ * The turn is the debug agent's, for the same reason the rest of this file uses
+ * it: there is no way to make a session read "processing" from outside without a
+ * real run. `unattended-turn` opens one with no client behind it and `turn-end`
+ * closes it, so the moment the turn stops being real is a moment this file places
+ * on the clock rather than waits for.
+ */
+
+/** The locale the second scenario's copy is read from — the same one the page is seeded with. */
+const CONSOLIDATION_TITLE = 'Activity dock consolidation — one dock, one answer';
+const CONSOLIDATION_WALK_TEXT = 'the turn the consolidated dock reports';
+const CONSOLIDATION_USER = 'activity-dock-consolidation-e2e';
+const CONSOLIDATION_PASSWORD = 'activity-dock-consolidation-e2e-pass';
+
+/**
+ * The turn, opened and then ended on a known beat.
+ *
+ * `turn-end` releases the host's turn lease at 5.0s and the walk ends at 5.5s. The walk
+ * itself is only part of what `await clock` costs — the control plane takes several
+ * seconds to pick the request up behind this run's page loads, which is why the offsets
+ * here are shorter than the wall clock the case body is allowed. That ordering is the whole point: the
+ * activity the page reads says "over" half a second before the one-second host
+ * poll could have observed the lease go, which is the window AC-188 exists to
+ * close.
+ */
+const CONSOLIDATION_SCENARIO = {
+  version: 1,
+  dialect: 'claude',
+  home: 'gate',
+  transcript: { mode: 'per-row-jsonl' },
+  seed: { title: CONSOLIDATION_TITLE, userText: SEED_USER_TEXT, lifecycleMode: 'resident' },
+  steps: [
+    { at: 0, op: 'unattended-turn', text: CONSOLIDATION_WALK_TEXT, trigger: 'cron' },
+    { at: 5_000, op: 'turn-end' },
+    { at: 5_500, op: 'wait' },
+  ],
+  expect: { rows: { delta: 1 }, content: { mustContain: [SEED_USER_TEXT, CONSOLIDATION_WALK_TEXT] } },
+};
+
+/** The two markers the pre-consolidation surfaces published. Neither may match anything. */
+const LEGACY_MARKERS = ['.chat-activity-tab', '[data-slot="chat-activity-inline"]'] as const;
+
+/**
+ * Every marker the resident status bar published about *activity*.
+ *
+ * A second busy/idle word and a count of the leases a host was holding are both a
+ * second answer to the dock's question, and the page must carry neither. The
+ * address/pid/close markers are deliberately **not** in this list: they survive,
+ * in the dock's panel, and the criterion reads them there.
+ */
+const RESIDENT_ACTIVITY_MARKERS = [
+  '[data-resident-status-bar]',
+  '[data-resident-ui-state]',
+  '[data-resident-state-text]',
+  '[data-resident-lease-summary]',
+  '[data-resident-lease-total]',
+  '[data-lease-kind]',
+  '[data-lease-count]',
+] as const;
+
+const DOCK_TOGGLE = '[data-activity-dock-toggle]';
+const DOCK_PANEL = '[data-activity-dock-panel]';
+const RUNNING_GROUP = '[data-running-group="running"]';
+
+/** One sample of the three surfaces, taken as close to simultaneously as a page allows. */
+type ConsistencySample = {
+  dock: string;
+  sidebar: boolean;
+  send: string;
+};
+
+const inTurn = (state: string): boolean => IN_TURN_STATES.has(state);
+
+/** Everything one viewport's reading is made of. */
+type ViewportReading = {
+  name: string;
+  docks: number;
+  legacy: string[];
+  residentActivityMarkers: string[];
+  panel: { start: number; close: number; address: number; pid: number; copy: number };
+  turn: ConsistencySample;
+  afterTurn: ConsistencySample[];
+  afterTurnIdle: ConsistencySample;
+};
+
+/**
+ * Opens the Running view on one page, whichever layout that page is.
+ *
+ * From `md` up the sidebar is on screen and its running toggle is one press away; below it
+ * the sidebar lives in a drawer the header's menu button opens. Both are the app's own
+ * controls, pressed the way a user would press them — nothing here reaches into state.
+ */
+async function ensureRunningView(page: Page, tooltip: string): Promise<void> {
+  if ((await page.locator(RUNNING_GROUP).count()) > 0) return;
+
+  const escapedTooltip = tooltip.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const toggle = page.locator(`button[aria-label="${escapedTooltip}"]:visible`);
+  const menu = page.locator('.pwa-menu-button');
+  console.log(
+    `cb.runningView toggle=${await toggle.count()} anyToggle=${await page.locator(`button[aria-label="${escapedTooltip}"]`).count()} `
+    + `menu=${await menu.count()} menuVisible=${await page.locator('.pwa-menu-button:visible').count()}`,
+  );
+
+  // Below `md` the sidebar is a closed drawer: its contents are in the DOM but `invisible`,
+  // so the header's menu button is the way in. The button is the app's own control, pressed
+  // the way a user presses it.
+  if ((await page.locator('.pwa-menu-button:visible').count()) > 0) {
+    await page.locator('.pwa-menu-button:visible').first().click({ timeout: 5_000 }).catch(() => undefined);
+    await page.waitForTimeout(400);
+  }
+
+  console.log(`cb.runningView afterDrawer toggle=${await toggle.count()}`);
+  if ((await toggle.count()) > 0) {
+    await toggle.first().click({ timeout: 5_000 }).catch(() => undefined);
+  }
+  await page.waitForTimeout(250);
+  console.log(`cb.runningView afterClick groups=${await page.locator(RUNNING_GROUP).count()}`);
+
+  await expect.poll(
+    async () => page.locator(RUNNING_GROUP).count(),
+    { timeout: 10_000, message: `the Running view must open on this page (${tooltip})` },
+  ).toBeGreaterThan(0);
+}
+
+/** One sample: the dock's state, whether the sidebar counts this session as running, and the submit's label. */
+async function sample(page: Page, sessionId: string, sendLabel: string): Promise<ConsistencySample> {
+  const group = page.locator(RUNNING_GROUP);
+  const groups = await group.count();
+  const sidebar = groups > 0
+    ? (await group.locator(`[data-running-session="${sessionId}"]`).count()) > 0
+    : false;
+  if (process.env.AC188_DEBUG) {
+    console.log(
+      `cb.sample groups=${groups} views=${await page.locator('[data-running-view]').count()} `
+      + `rows=${await page.locator('[data-running-session]').count()} `
+      + `badges=${await page.locator('[data-running-badge]').count()} sidebar=${sidebar}`,
+    );
+  }
+  const escaped = sendLabel.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  // The locator addresses the *send* label, so finding it is the send state and its
+  // absence is the stop state — the composer swaps one accessible name for the other,
+  // and the reading is of the control the user would actually press.
+  const submit = page.locator(`${FORM} button[aria-label="${escaped}"]`);
+  const send = (await submit.count()) > 0 ? 'send' : 'stop';
+  return {
+    dock: (await page.locator(DOCK).first().getAttribute('data-activity-state')) ?? '',
+    sidebar,
+    send,
+  };
+}
+
+// The file-level `test.describe.configure({ mode: 'serial' })` above already covers this
+// describe; Playwright refuses a second, nested assignment to the enclosing scope.
+test.describe('activity dock consolidation', () => {
+  let page: Page;
+  let context: BrowserContext;
+  let mobileContext: BrowserContext;
+  let api: APIRequestContext;
+  let workspaceName = '';
+  let sessionId = '';
+  let sendLabel = '';
+  let runningTooltip = '';
+
+  test.beforeAll(async ({ browser }) => {
+    const clientUrl = test.info().project.use.baseURL;
+    if (!clientUrl) throw new Error('playwright.config.ts must give this project a baseURL');
+    const fixtureHome = process.env.QUAY_E2E_DEBUG_AGENT_HOME;
+    if (!fixtureHome) throw new Error('playwright.config.ts must publish QUAY_E2E_DEBUG_AGENT_HOME');
+
+    const workspace = path.join(fixtureHome, 'activity-dock-consolidation-workspace');
+    workspaceName = path.basename(workspace);
+
+    sendLabel = String(localeKey(LOCALE, 'input.send'));
+    runningTooltip = String(localeKeyIn(LOCALE, 'sidebar.json', 'search.runningTooltip'));
+
+    const bootstrap = await request.newContext({ baseURL: clientUrl });
+    const token = await createAccount(bootstrap, CONSOLIDATION_USER, CONSOLIDATION_PASSWORD);
+    await bootstrap.dispose();
+    api = await request.newContext({ baseURL: clientUrl, extraHTTPHeaders: { Authorization: `Bearer ${token}` } });
+
+    ({ sessionId } = await armScenario(api, workspace));
+
+    // The two form factors get their own contexts, because the *emulation* is part of the
+    // form factor for this app: below `md` the sidebar is a drawer whose open control is a
+    // touch target, and a page that claims to be a phone only by its width does not behave
+    // like one. `isMobile`/`hasTouch` are the same pair the repository's own mobile layout
+    // criterion uses.
+    const seedAccount = ({ key, value, language }: { key: string; value: string; language: string }) => {
+      window.localStorage.setItem(key, value);
+      window.localStorage.setItem('userLanguage', language);
+    };
+
+    context = await browser.newContext({ baseURL: clientUrl, viewport: { width: 1280, height: 800 } });
+    await context.addInitScript(seedAccount, { key: 'auth-token', value: token, language: LOCALE });
+    page = await context.newPage();
+
+    mobileContext = await browser.newContext({
+      baseURL: clientUrl,
+      viewport: { width: 390, height: 844 },
+      hasTouch: true,
+      isMobile: true,
+    });
+    await mobileContext.addInitScript(seedAccount, { key: 'auth-token', value: token, language: LOCALE });
+    await page.goto('/');
+    await page.waitForLoadState('domcontentloaded');
+  });
+
+  test.afterAll(async () => {
+    await page?.close();
+    await mobileContext?.close().catch(() => undefined);
+    await api?.dispose();
+  });
+
+  test('AC-188 one dock, no legacy surface, and one answer across the dock, the sidebar and the send button', async () => {
+    const startedAt = Date.now();
+    const mark = (what: string) => console.log(`ac188.step ${what} @${Date.now() - startedAt}ms`);
+
+    // Phase one, before any process exists: the session is stored resident, so the dock
+    // is already on screen in its idle reading with its panel holding the resident
+    // facts — including the [start] control, which only exists while nothing is running.
+    await revealSession(page, workspaceName, sessionId);
+    await sessionRow(page, sessionId).click();
+    await expect(page.locator(PANE)).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(DOCK)).toHaveAttribute('data-activity-state', 'idle', { timeout: 20_000 });
+    mark('dock-idle');
+
+    await expect(page.locator(DOCK_TOGGLE)).toBeVisible({ timeout: 10_000 });
+    await page.locator(DOCK_TOGGLE).click();
+    await expect(page.locator(DOCK_PANEL)).toBeVisible({ timeout: 10_000 });
+    const startControl = await page.locator(`${DOCK_PANEL} [data-resident-start]`).count();
+    const closeControl = await page.locator(`${DOCK_PANEL} [data-resident-close]`).count();
+    const copyControl = await page.locator(`${DOCK_PANEL} [data-resident-copy]`).count();
+    const addressNode = await page.locator(`${DOCK_PANEL} [data-resident-address]`).count();
+    const pidNode = await page.locator(`${DOCK_PANEL} [data-resident-pid-text]`).count();
+    const panel = { start: startControl, close: closeControl, copy: copyControl, address: addressNode, pid: pidNode };
+    console.log(`resident.panel.controls=${JSON.stringify(panel)}`);
+    await page.locator(DOCK_TOGGLE).click();
+    await expect(page.locator(DOCK_PANEL)).toHaveCount(0);
+    mark('panel-read');
+
+    // The process comes up through the same verb the panel's own control calls, and the
+    // turn is then opened *before* either page subscribes to the session. A page already
+    // watching it would learn about the run from the client's five-second sync of the run
+    // registry, leaving almost no window to read the open turn in; subscribing afterwards
+    // puts the fact in the `chat_subscribed` hello, where the server states it directly.
+    await startResidentProcess(api, sessionId);
+    await expect.poll(
+      async () => {
+        const response = await api.get('/api/session-hosts');
+        const body = await response.json().catch(() => null);
+        const hosts = (body?.data?.hosts ?? []) as Array<{
+          state?: string;
+          bindings?: Array<{ appSessionId?: string }>;
+        }>;
+        return hosts.some(
+          (host) => host.state !== 'closed'
+            && (host.bindings ?? []).some((binding) => binding.appSessionId === sessionId),
+        );
+      },
+      { timeout: 20_000, message: 'the resident process must be up before the turn is opened' },
+    ).toBe(true);
+    mark('host-up');
+
+    const clock = fireClock(api, sessionId);
+
+    /*
+     * The window in which two sources can be caught disagreeing.
+     *
+     * The turn has just been opened on the server: the host layer reports its `turn`
+     * lease immediately, and the page above has not been told yet — it subscribed before
+     * the turn existed, so it learns about the run from the client's periodic sync of the
+     * run registry, which is a five-second beat. So for a few seconds this page says
+     * "nothing is running" while the *process* is demonstrably mid-turn.
+     *
+     * That is exactly the shape a second, poll-driven source produces: a sidebar reading
+     * the one-second host listing lights up here, while the dock — reading the server's
+     * own activity — does not. The reading below is therefore not about which side is
+     * right (both are honest about different things) but about whether the page speaks
+     * with one voice. One source, one answer: every sample must agree.
+     */
+    await ensureRunningView(page, runningTooltip);
+
+    // The mobile page is opened *now*, alongside the sampling below rather than after it:
+    // it must subscribe after the turn was opened on the server (that is what puts
+    // `isProcessing` in its hello) and nothing about it depends on the samples.
+    const mobileReady = (async () => {
+      const target = await mobileContext.newPage();
+      await target.goto(`/session/${sessionId}`);
+      await target.waitForLoadState('domcontentloaded');
+      await expect(target.locator(PANE)).toBeVisible({ timeout: 30_000 });
+      return target;
+    })();
+
+    const openWindow: ConsistencySample[] = [];
+    for (let i = 0; i < 8; i += 1) {
+      openWindow.push(await sample(page, sessionId, sendLabel));
+      await page.waitForTimeout(70);
+    }
+    console.log(`consistency.turnOpen=${JSON.stringify(openWindow)}`);
+    mark('turn-open-window');
+
+    // Asserted here, before the long wait for the turn to end: a build with a second,
+    // poll-driven busy/idle source fails on this reading, and a criterion should say so
+    // where the evidence is, not after eight more seconds of unrelated waiting.
+    expect(
+      openWindow.filter((s) => !inTurn(s.dock) && (s.sidebar || s.send === 'stop')),
+      'while the turn is opening, no sample may show the dock at rest while the sidebar or the send button says busy',
+    ).toEqual([]);
+
+    // Two pages, one per viewport, each created after the turn is open so each gets its own
+    // hello. Separate pages rather than one resized twice: `setViewportSize` across the
+    // breakpoint moves the app's tier, and moving it back leaves the sidebar collapsed —
+    // a state the reading below would then be taken in for reasons that have nothing to do
+    // with the dock. Each page keeps the form factor it was opened in.
+    await page.goto(`/session/${sessionId}`);
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator(PANE)).toBeVisible({ timeout: 30_000 });
+
+    // Both pages address the session by its route rather than by clicking through the
+    // sidebar: the row a click would reach is inside a drawer below `md`, and driving the
+    // drawer would put a second interaction between this criterion and what it reads. The
+    // sidebar is still read below — for the running group — through its own controls.
+    const mobile = await mobileReady;
+    mark('pages-open');
+
+    const tiers = [
+      { name: 'desktop', width: 1280, page },
+      { name: 'mobile', width: 390, page: mobile },
+    ] as const;
+
+    for (const tier of tiers) {
+      console.log(`ac188.tier ${tier.name} entering`);
+      await ensureRunningView(tier.page, runningTooltip);
+      console.log(`ac188.tier ${tier.name} runningViewReady groups=${await tier.page.locator(RUNNING_GROUP).count()}`);
+      // The turn's own reading: the dock reports the server's `isProcessing` from the hello
+      // this page subscribed with, so there is no poll to wait out.
+      console.log(`ac188.tier ${tier.name} dockState=${await tier.page.locator(DOCK).first().getAttribute('data-activity-state')}`);
+      await expect(tier.page.locator(DOCK)).toHaveAttribute('data-activity-state', 'in-turn', { timeout: 10_000 });
+    }
+    mark('turn-open');
+
+    const readings: ViewportReading[] = [];
+    for (const tier of tiers) {
+      const docks = await tier.page.locator(DOCK).count();
+      const legacy = (await Promise.all(
+        LEGACY_MARKERS.map(async (marker) => ((await tier.page.locator(marker).count()) > 0 ? marker : '')),
+      )).filter(Boolean);
+      const residentActivityMarkers = (await Promise.all(
+        RESIDENT_ACTIVITY_MARKERS.map(async (marker) => ((await tier.page.locator(marker).count()) > 0 ? marker : '')),
+      )).filter(Boolean);
+
+      const turn = await sample(tier.page, sessionId, sendLabel);
+      console.log(
+        `dock.count.${tier.name}=${docks} legacy.tab=${legacy.includes('.chat-activity-tab') ? 1 : 0} `
+        + `legacy.inline=${legacy.includes('[data-slot="chat-activity-inline"]') ? 1 : 0} `
+        + `resident.activityMarkers=${JSON.stringify(residentActivityMarkers)}`,
+      );
+      console.log(`consistency.turn.${tier.name}=${JSON.stringify(turn)}`);
+
+      readings.push({ name: tier.name, docks, legacy, residentActivityMarkers, panel, turn, afterTurn: [] });
+    }
+    mark('turn-read');
+
+    // The turn is over on the server. `turn-end` released the host's lease when the walk
+    // reached it, and this returns once the walk has run out.
+    const outcome = await clock;
+    expect(outcome.ok, `the walk must complete: ${JSON.stringify(outcome)}`).toBe(true);
+    mark('walk-done');
+
+    // And the page is told, by the one frame that states it: a fresh `chat_subscribed`, whose
+    // `isProcessing` is the server's own answer for the session at that instant. Reading the
+    // end off the client's periodic sync of the run registry instead would make this window a
+    // measurement of that sync's five-second beat rather than of the surfaces agreeing.
+    await Promise.all([page, mobile].map(async (target) => {
+      await target.goto(`/session/${sessionId}`);
+      await target.waitForLoadState('domcontentloaded');
+      await expect(target.locator(PANE)).toBeVisible({ timeout: 30_000 });
+      await ensureRunningView(target, runningTooltip);
+    }));
+    await expect(page.locator(DOCK)).toHaveAttribute('data-activity-state', 'idle', { timeout: 20_000 });
+    const endedAt = Date.now();
+    mark('turn-closed');
+
+    for (const reading of readings) {
+      const target = reading.name === 'desktop' ? page : mobile;
+      const samples: ConsistencySample[] = [];
+      for (let i = 0; i < 8; i += 1) {
+        samples.push(await sample(target, sessionId, sendLabel));
+        await target.waitForTimeout(55);
+      }
+      reading.afterTurn = samples;
+      console.log(`consistency.afterTurn.${reading.name}=${JSON.stringify(samples)}`);
+      // The window the agreement is about: 8 samples at 55ms span ~0.5s, taken the moment
+      // the dock reads idle — the interval in which a surface on a slower clock would still
+      // be saying busy.
+      console.log(`consistency.afterTurn.window.${reading.name}=${Date.now() - endedAt}ms`);
+    }
+    mark('sampled');
+
+    // ---- the claims -------------------------------------------------------------------------
+    for (const reading of readings) {
+      const tier = reading.name;
+
+      // AC2 — one dock, on this viewport, while the turn is open.
+      expect(reading.docks, `${tier}: exactly one [data-activity-dock] must exist`).toBe(1);
+
+      // AC3 — the two markers the old surfaces published match nothing at all. Not hidden: absent.
+      expect(
+        reading.legacy,
+        `${tier}: the old tab class and the inline slot must not match anything`,
+      ).toEqual([]);
+
+      // AC4 — the resident surface's own activity word and lease counts are gone from the page...
+      expect(
+        reading.residentActivityMarkers,
+        `${tier}: the resident surface must publish no busy/idle word and no lease count`,
+      ).toEqual([]);
+      // ...and the facts it carried are reachable in the dock's panel, which is what makes it
+      // a merge rather than a deletion.
+      expect(reading.panel.start, `${tier}: the panel still offers [start] while no process is up`).toBeGreaterThan(0);
+      expect(reading.panel.close, `${tier}: the panel still offers [close]`).toBeGreaterThan(0);
+      expect(reading.panel.copy, `${tier}: the panel still offers [copy]`).toBeGreaterThan(0);
+      expect(reading.panel.address, `${tier}: the panel still shows the address`).toBeGreaterThan(0);
+      expect(reading.panel.pid, `${tier}: the panel still shows the pid`).toBeGreaterThan(0);
+
+      // AC5 — three surfaces, one sample, one answer.
+      expect(inTurn(reading.turn.dock), `${tier}: the dock must read in-turn while the turn is open`).toBe(true);
+      expect(reading.turn.sidebar, `${tier}: the sidebar must count the session as running`).toBe(true);
+      expect(reading.turn.send, `${tier}: the submit must be the stop entry`).toBe('stop');
+
+      // AC6 — and after the turn: no sample in the window may show the dock idle while
+      // either other surface still says busy.
+      const disagreements = reading.afterTurn.filter((s) => !inTurn(s.dock) && (s.sidebar || s.send === 'stop'));
+      expect(
+        disagreements,
+        `${tier}: no reading may show the dock idle while the sidebar or the send button still says busy`,
+      ).toEqual([]);
+
+      const settled = reading.afterTurn[reading.afterTurn.length - 1];
+      expect(inTurn(settled.dock), `${tier}: the dock settles on its idle reading`).toBe(false);
+      expect(settled.sidebar, `${tier}: and the sidebar stops counting the session`).toBe(false);
+      expect(settled.send, `${tier}: and the submit is the send entry again`).toBe('send');
+    }
+
+    await mobile.close();
+
+    const wall = Date.now() - startedAt;
+    console.log(`dock.wall=${wall}ms`);
+    expect(wall, 'the case body must land inside its own budget').toBeLessThanOrEqual(20_000);
   });
 });

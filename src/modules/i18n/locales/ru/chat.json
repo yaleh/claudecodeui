@@ -17,7 +17,8 @@
     "tool": "Инструмент",
     "claude": "Claude",
     "cursor": "Cursor",
-    "codex": "Codex"
+    "codex": "Codex",
+    "debug": "Debug Agent"
   },
   "tools": {
     "settings": "Настройки инструмента",
@@ -219,6 +220,10 @@
       "live": "В сети",
       "paused": "Приостановлен"
     },
+    "dock": {
+      "idleLabel": "Простой",
+      "toggle": "Сведения о резидентном процессе"
+    },
     "elapsed": {
       "seconds": "{{count}}с",
       "minutesSeconds": "{{minutes}}м {{seconds}}с",
@@ -235,6 +240,11 @@
     "unreachable": {
       "title": "Соединение потеряно · переподключение…",
       "stopReason": "Остановка недоступна, пока сервер недосягаем"
+    },
+    "sendFailed": {
+      "title": "Не удалось отправить · сервер не отвечает",
+      "reason": "Сообщение не отправлено. Черновик остался в поле — попробуйте снова.",
+      "retry": "Отправить снова"
     }
   },
   "projectSelection": {

@@ -47,6 +47,16 @@ export type ActivityDockInput = {
    * line does not, so it never draws a stop and can never report one disabled.
    */
   hasAbort: boolean;
+  /**
+   * True when the last send was never taken — the socket was gone, or no answer
+   * came back inside the send deadline. It only speaks while there is no turn
+   * to speak about: a session the local table still reports as running has a
+   * turn, and that reading is what the dock owes the user. This is also what
+   * makes the failure honest — a retained "processing" mark (the defect this
+   * state exists to replace) leaves the turn branch in force and the dock never
+   * reaches here.
+   */
+  sendFailed?: boolean;
 };
 
 /** The dock's decision: which state to publish and what the controls may do. */
@@ -73,6 +83,16 @@ const HIDDEN: ActivityDockView = {
   stopReasonKey: null,
 };
 
+/** The failed-send reading: a state of its own, and deliberately no turn. */
+const SEND_FAILED: ActivityDockView = {
+  state: 'send-failed',
+  elapsedMs: null,
+  elapsedSeconds: null,
+  showStop: false,
+  stopDisabled: false,
+  stopReasonKey: null,
+};
+
 /** The elapsed fields both visible states share. */
 const elapsedFields = (elapsedMs: number | null) => {
   const elapsed = elapsedMs !== null && Number.isFinite(elapsedMs) && elapsedMs >= 0 ? elapsedMs : null;
@@ -86,12 +106,15 @@ const elapsedFields = (elapsedMs: number | null) => {
  * Decide what the dock shows. Pure: same input, same output, no clock of its own.
  */
 export const deriveActivityDockView = (input: ActivityDockInput): ActivityDockView => {
-  const { activity, liveness, elapsedMs, hasTurnAnchor, wired, hasAbort } = input;
+  const { activity, liveness, elapsedMs, hasTurnAnchor, wired, hasAbort, sendFailed = false } = input;
   const elapsed = elapsedFields(elapsedMs);
 
   // Nothing to speak about: no local turn and no anchor the server ever confirmed.
+  // A send that was never taken is the one thing there is to say in that void —
+  // reporting the failure is the honest reading, not staying silent as the old
+  // indicator did while the message was already gone.
   if (activity === null && !hasTurnAnchor) {
-    return HIDDEN;
+    return sendFailed ? SEND_FAILED : HIDDEN;
   }
 
   // A wired dock with no fresh evidence reports the connection, not the turn. The

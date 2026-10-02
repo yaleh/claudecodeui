@@ -17,7 +17,8 @@
     "tool": "工具",
     "claude": "Claude",
     "cursor": "Cursor",
-    "codex": "Codex"
+    "codex": "Codex",
+    "debug": "Debug Agent"
   },
   "tools": {
     "settings": "工具設定",
@@ -255,6 +256,10 @@
       "live": "進行中",
       "paused": "已暫停"
     },
+    "dock": {
+      "idleLabel": "閒置",
+      "toggle": "常駐程序詳情"
+    },
     "elapsed": {
       "seconds": "{{count}} 秒",
       "minutesSeconds": "{{minutes}} 分 {{seconds}} 秒",
@@ -271,6 +276,11 @@
     "unreachable": {
       "title": "連線中斷 · 正在重連…",
       "stopReason": "伺服器無法連線時無法停止"
+    },
+    "sendFailed": {
+      "title": "傳送失敗 · 伺服器無回應",
+      "reason": "訊息未送出，草稿仍保留在輸入框，請重試。",
+      "retry": "重送"
     }
   },
   "projectSelection": {

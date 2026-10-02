@@ -17,7 +17,8 @@
     "tool": "Strumento",
     "claude": "Claude",
     "cursor": "Cursor",
-    "codex": "Codex"
+    "codex": "Codex",
+    "debug": "Debug Agent"
   },
   "tools": {
     "settings": "Impostazioni strumento",
@@ -219,6 +220,10 @@
       "live": "Attivo",
       "paused": "In pausa"
     },
+    "dock": {
+      "idleLabel": "Inattivo",
+      "toggle": "Dettagli del processo residente"
+    },
     "elapsed": {
       "seconds": "{{count}}s",
       "minutesSeconds": "{{minutes}}m {{seconds}}s",
@@ -235,6 +240,11 @@
     "unreachable": {
       "title": "Connessione persa · riconnessione…",
       "stopReason": "Interrompi non è disponibile finché il server è irraggiungibile"
+    },
+    "sendFailed": {
+      "title": "Invio non riuscito · il server non risponde",
+      "reason": "Il messaggio non è stato inviato. La bozza è ancora nel campo: riprova.",
+      "retry": "Reinvia"
     }
   },
   "projectSelection": {

@@ -17,7 +17,8 @@
     "tool": "ツール",
     "claude": "Claude",
     "cursor": "Cursor",
-    "codex": "Codex"
+    "codex": "Codex",
+    "debug": "Debug Agent"
   },
   "tools": {
     "settings": "ツール設定",
@@ -212,6 +213,10 @@
       "live": "Live",
       "paused": "Paused"
     },
+    "dock": {
+      "idleLabel": "待機中",
+      "toggle": "常駐プロセスの詳細"
+    },
     "elapsed": {
       "seconds": "{{count}}s",
       "minutesSeconds": "{{minutes}}m {{seconds}}s",
@@ -228,6 +233,11 @@
     "unreachable": {
       "title": "接続が切れました · 再接続中…",
       "stopReason": "サーバーに接続できないため停止できません"
+    },
+    "sendFailed": {
+      "title": "送信に失敗 · サーバーが応答しません",
+      "reason": "メッセージは送信されませんでした。下書きは入力欄に残っています。もう一度お試しください。",
+      "retry": "再送"
     }
   },
   "message": {

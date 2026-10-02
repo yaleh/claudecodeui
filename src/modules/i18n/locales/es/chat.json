@@ -18,6 +18,7 @@
     "claude": "Claude",
     "cursor": "Cursor",
     "codex": "Codex",
+    "debug": "Debug Agent",
     "opencode": "OpenCode"
   },
   "tools": {
@@ -246,6 +247,10 @@
       "live": "En vivo",
       "paused": "En pausa"
     },
+    "dock": {
+      "idleLabel": "Inactivo",
+      "toggle": "Detalles del proceso residente"
+    },
     "elapsed": {
       "seconds": "{{count}}s",
       "minutesSeconds": "{{minutes}}m {{seconds}}s",
@@ -263,6 +268,11 @@
     "unreachable": {
       "title": "Conexión perdida · reconectando…",
       "stopReason": "Detener no está disponible mientras el servidor no responde"
+    },
+    "sendFailed": {
+      "title": "Error al enviar · el servidor no responde",
+      "reason": "El mensaje no se envió. El borrador sigue en el cuadro; inténtalo de nuevo.",
+      "retry": "Reenviar"
     }
   },
   "projectSelection": {

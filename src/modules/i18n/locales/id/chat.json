@@ -18,6 +18,7 @@
     "claude": "Claude",
     "cursor": "Cursor",
     "codex": "Codex",
+    "debug": "Debug Agent",
     "opencode": "OpenCode"
   },
   "tools": {
@@ -261,6 +262,10 @@
       "live": "Aktif",
       "paused": "Dijeda"
     },
+    "dock": {
+      "idleLabel": "Menganggur",
+      "toggle": "Detail proses resident"
+    },
     "elapsed": {
       "seconds": "{{count}} dtk",
       "minutesSeconds": "{{minutes}} mnt {{seconds}} dtk",
@@ -278,6 +283,11 @@
     "unreachable": {
       "title": "Koneksi terputus · menyambung ulang…",
       "stopReason": "Hentikan tidak tersedia selama server tidak dapat dijangkau"
+    },
+    "sendFailed": {
+      "title": "Gagal mengirim · server tidak merespons",
+      "reason": "Pesan tidak terkirim. Draf masih ada di kotak — coba lagi.",
+      "retry": "Kirim ulang"
     }
   },
   "projectSelection": {

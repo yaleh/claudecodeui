@@ -17,7 +17,8 @@
     "tool": "Araç",
     "claude": "Claude",
     "cursor": "Cursor",
-    "codex": "Codex"
+    "codex": "Codex",
+    "debug": "Debug Agent"
   },
   "tools": {
     "settings": "Araç Ayarları",
@@ -219,6 +220,10 @@
       "live": "Canlı",
       "paused": "Duraklatıldı"
     },
+    "dock": {
+      "idleLabel": "Boşta",
+      "toggle": "Kalıcı süreç ayrıntıları"
+    },
     "elapsed": {
       "seconds": "{{count}}s",
       "minutesSeconds": "{{minutes}}d {{seconds}}s",
@@ -235,6 +240,11 @@
     "unreachable": {
       "title": "Bağlantı kesildi · yeniden bağlanıyor…",
       "stopReason": "Sunucuya ulaşılamadığı sürece durdurma kullanılamaz"
+    },
+    "sendFailed": {
+      "title": "Gönderilemedi · sunucu yanıt vermiyor",
+      "reason": "Mesaj gönderilemedi. Taslak kutuda duruyor — tekrar deneyin.",
+      "retry": "Yeniden gönder"
     }
   },
   "projectSelection": {
