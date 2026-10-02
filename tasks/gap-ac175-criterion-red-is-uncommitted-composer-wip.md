@@ -4,7 +4,7 @@ title: AC-175 判据在净检出上直跑为绿（3 passed），台账红由主�
   造成：ChatComposer.tsx 用了 cn(...) 未导入 ⇒ ReferenceError 崩掉聊天面板，判据首条「打开会话」30s
   超时——verification-only 归因入档，钉住「未提交 WIP 崩 ≠ AC-175 回归」（remedy：随该 WIP 提交 import {
   cn } from '@/shared/utils'）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
