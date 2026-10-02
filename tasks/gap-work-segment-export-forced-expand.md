@@ -34,12 +34,12 @@ goal_ac: AC-206
 
 ## AC
 
-- [ ] AC1 判据绿：`npx vitest run src/modules/chat/tests/transcriptExportWorkSegments.test.tsx` 退出 0。红态基线（本轮实测 2026-10-02）：该文件不存在，同一命令读数是 `No test files found, exiting with code 1`。
-- [ ] AC2（承重）导出 HTML 的行键集合与合并前逐键相等：`npx vitest run src/modules/chat/tests/transcriptExportWorkSegments.test.tsx -t "the exported document keeps every pre-merge row key"` 退出 0 —— `buildTranscriptExport('html', …)` 的 HTML 里 `data-message-key` 取值集合与 `new Set(messages.map(getIntrinsicMessageKey))` 排序后 `deepEqual` 相等；差集（少一行）与并集之外的多余键（段头造键）都必须为空。
-- [ ] AC3（承重，AC2 的非空正控制）夹具真的经过一段多成员段：`-t "the fixture actually contains a multi-member work segment"` 退出 0 —— 断言 `groupWorkSegments(夹具)` 产出至少一段 `members.length >= 3`，其中同时含 thinking 行与工具调用行，且段外存在非成员行；没有这条，AC2 在「选择器其实没折叠任何东西」时也会绿，(ii) 就是空话（对照 zero-claim-criterion-needs-positive-controls）。
-- [ ] AC4（承重）假形态必须红（先提交实现与判据，再逐条变异；逐条记录变异 diff、逐字失败行与 `git checkout -- <file>` 恢复命令）：(a) 去掉导出态的强制展开（让段在导出渲染里按折叠走，展开位为假）⇒ 段内成员键从 HTML 消失 ⇒ AC2 红；(b) `renderMember` 只渲染首成员 / 漏掉尾成员 ⇒ AC2 红。变异必须落在导出文档真正消费的那处推导（段渲染的展开位或成员遍历）。
-- [ ] AC5（承重）段头不造键：`-t "the segment header contributes no row key"` 退出 0 —— 导出的 `data-message-key` 集合里不存在任何不在夹具键集合里的值（把 AC2 的「不许多」半边单独钉一次），并断言段头元素本身不带 `data-message-key`。
-- [ ] AC6 静态门：`npm run typecheck` 与 `npm run lint` 均退出 0；`git diff --stat` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）。
+- [x] AC1 判据绿：`npx vitest run src/modules/chat/tests/transcriptExportWorkSegments.test.tsx` 退出 0。红态基线（本轮实测 2026-10-02）：该文件不存在，同一命令读数是 `No test files found, exiting with code 1`。
+- [x] AC2（承重）导出 HTML 的行键集合与合并前逐键相等：`npx vitest run src/modules/chat/tests/transcriptExportWorkSegments.test.tsx -t "the exported document keeps every pre-merge row key"` 退出 0 —— `buildTranscriptExport('html', …)` 的 HTML 里 `data-message-key` 取值集合与 `new Set(messages.map(getIntrinsicMessageKey))` 排序后 `deepEqual` 相等；差集（少一行）与并集之外的多余键（段头造键）都必须为空。
+- [x] AC3（承重，AC2 的非空正控制）夹具真的经过一段多成员段：`-t "the fixture actually contains a multi-member work segment"` 退出 0 —— 断言 `groupWorkSegments(夹具)` 产出至少一段 `members.length >= 3`，其中同时含 thinking 行与工具调用行，且段外存在非成员行；没有这条，AC2 在「选择器其实没折叠任何东西」时也会绿，(ii) 就是空话（对照 zero-claim-criterion-needs-positive-controls）。
+- [x] AC4（承重）假形态必须红（先提交实现与判据，再逐条变异；逐条记录变异 diff、逐字失败行与 `git checkout -- <file>` 恢复命令）：(a) 去掉导出态的强制展开（让段在导出渲染里按折叠走，展开位为假）⇒ 段内成员键从 HTML 消失 ⇒ AC2 红；(b) `renderMember` 只渲染首成员 / 漏掉尾成员 ⇒ AC2 红。变异必须落在导出文档真正消费的那处推导（段渲染的展开位或成员遍历）。
+- [x] AC5（承重）段头不造键：`-t "the segment header contributes no row key"` 退出 0 —— 导出的 `data-message-key` 集合里不存在任何不在夹具键集合里的值（把 AC2 的「不许多」半边单独钉一次），并断言段头元素本身不带 `data-message-key`。
+- [x] AC6 静态门：`npm run typecheck` 与 `npm run lint` 均退出 0；`git diff --stat` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）。
 
 ## DoD
 
@@ -53,4 +53,5 @@ goal_ac: AC-206
 
 - src/modules/chat/export/TranscriptExportDocument.tsx
 - src/modules/chat/tests/transcriptExportWorkSegments.test.tsx (new)
+- src/modules/chat/tests/transcriptExport.test.tsx
 - tasks/gap-work-segment-export-forced-expand.md
