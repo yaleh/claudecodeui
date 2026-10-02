@@ -124,7 +124,7 @@ const SELF_MODULE = fileURLToPath(import.meta.url);
 const STARTED_AT = Date.now();
 
 /** How many readings this file measures. A deleted reading is a red, not a shorter list. */
-const READINGS_EXPECTED = 9;
+const READINGS_EXPECTED = 10;
 
 // ── the fixtures ──────────────────────────────────────────────────────────────────────────────
 
@@ -184,6 +184,16 @@ const SENTINEL_BYTES = Buffer.from(`sentinel-${RUN_TAG}:${'s'.repeat(32)}`, 'utf
 /** The row fields AC6 requires on every capture row, so "zero files" is not "no rows either". */
 const REQUIRED_ROW_FIELDS = ['captureId', 'providerId', 'mime', 'bytes', 'sha256'] as const;
 
+/**
+ * The instance salt every arm's port is built with.
+ *
+ * A LITERAL HERE, because the arms are about the WRITE rather than about how the salt is derived —
+ * the cross-process derivation has its own criterion in the falsifying file, where a real `tsx` child
+ * calls the shipping `resolveInstanceSalt`. A fixed token still exercises the id SHAPE this task adds
+ * (`<mode>-<salt>-<sequence>`), which is what the arm's file names below now carry.
+ */
+const INJECTED_SALT = 'criterion';
+
 // ── the contract between this file and a mutated copy ─────────────────────────────────────────
 
 /** The modules under test. Absent means the shipping one. */
@@ -203,6 +213,8 @@ type CaptureModule = {
   createVoiceCapture(dependencies: {
     mode: VoiceCaptureResolution['mode'];
     log: VoiceLogPort;
+    /** The instance token the shipping factory now requires; this criterion supplies its own. */
+    instanceSalt: string;
     audio?: VoiceCaptureAudioSink;
   }): VoiceCapturePort;
   resolveVoiceCaptureDir(raw: string | undefined, databasePath: string | undefined): string;
@@ -268,6 +280,33 @@ type Arm = {
   calls: number;
 };
 
+/**
+ * The never-overwrite reading: an attempt whose preferred file name was ALREADY TAKEN.
+ *
+ * `preferred` is the name the sink would have used, learned by asking the shipping sink for it in a
+ * scratch directory rather than by spelling the naming scheme here — the criterion would then be
+ * about a format it had guessed. The sentinel is placed at that name with DIFFERENT bytes, so
+ * "the new file is a different name" and "the old bytes are still there" are two independent readings.
+ */
+type Collision = {
+  /** The attempt id the port minted, read off the port rather than assumed. */
+  id: string;
+  /** The name the sink prefers for `id`, learned from a scratch write. */
+  preferred: string;
+  /** Where the row says the bytes landed. */
+  newPath: string;
+  /** Whether the sentinel at `preferred` still holds the bytes this criterion put there. */
+  sentinelIntact: boolean;
+  /** Whether the row's path is a DIFFERENT name from the one the sentinel occupies. */
+  nameChanged: boolean;
+  /** Whether the row's path lies inside the directory. */
+  pathUnderDir: boolean;
+  /** Whether the file at the row's path holds the upload byte for byte. */
+  bytesEqual: boolean;
+  /** Whether a sha256 recomputed from that file equals the row's `sha256`. */
+  shaMatch: boolean;
+};
+
 /** Everything the readings need, measured once. */
 type Measurement = {
   audio: Arm;
@@ -275,6 +314,8 @@ type Measurement = {
   text: Arm;
   off: Arm;
   default: Arm;
+  /** The collision arm: one attempt into a directory where its preferred name already exists. */
+  collision: Collision;
   /** The three pure calls AC2 makes with ARGUMENTS, taken before any arm touches the environment. */
   resolve: {
     parent: string;
@@ -547,7 +588,12 @@ async function runArm(input: {
   // The SHIPPING port constructor, handed the mode the SHIPPING resolver answered with — so the gate
   // the service applies is the one the deployment's own wiring would reach, not a shape built here.
   const resolution = input.capture.resolveVoiceCaptureMode(input.mode);
-  const port = input.capture.createVoiceCapture({ mode: resolution.mode, log, audio: sink });
+  const port = input.capture.createVoiceCapture({
+    mode: resolution.mode,
+    log,
+    instanceSalt: INJECTED_SALT,
+    audio: sink,
+  });
   // Annotated with the shipped contract, so a factory whose surface drifted reds here rather than at
   // the first reading that reads a field off a result.
   const service: VoiceService = input.createService({
@@ -604,6 +650,85 @@ async function runArm(input: {
     },
     sentinelBody: existsSync(sentinelPath) ? readFileSync(sentinelPath) : null,
     calls,
+  };
+}
+
+// ── the collision arm ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Drives ONE attempt whose preferred file name is already taken, and reports what survived.
+ *
+ * THE PORT IS BUILT HERE rather than run through the service, because the reading is about the row's
+ * `path` under a name the service cannot be told in advance: the service mints the id internally, and
+ * this arm has to place the sentinel at the name that id implies BEFORE the write. Building the port
+ * and calling `recordAttempt` with the id the port itself minted keeps the shipping construction
+ * point on the path — this is the same `createVoiceCapture` a deployment wires, with a known salt.
+ *
+ * THE PREFERRED NAME IS LEARNED, NOT SPELLED. The scratch write below asks the SHIPPING sink what
+ * name it would choose for this id, so the sentinel lands on the real collision point even if the
+ * naming scheme changes; a criterion that hard-coded `audio-<salt>-1.bin` would keep passing after
+ * the scheme moved and would be measuring its own guess.
+ */
+function runCollision(capture: CaptureModule, root: string): Collision {
+  const directory = path.join(root, 'recordings');
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+
+  const lines: string[] = [];
+  const log: VoiceLogPort = {
+    info: (message: string): void => {
+      lines.push(message);
+    },
+  };
+  const port = capture.createVoiceCapture({
+    mode: 'audio',
+    log,
+    instanceSalt: INJECTED_SALT,
+    audio: capture.createVoiceCaptureAudioSink({ directory }),
+  });
+
+  const id = port.newAttemptId();
+
+  // The preferred name, learned from a scratch write of the SAME id, then the scratch tree is removed
+  // so nothing but the sentinel and the real recording remain inside this arm's root.
+  const probeDir = mkdtempSync(path.join(root, 'probe-'));
+  const preferred = path.basename(
+    capture.createVoiceCaptureAudioSink({ directory: probeDir }).writeAudio(probeDir, id, AUDIO),
+  );
+  rmSync(probeDir, { recursive: true, force: true });
+
+  // The sentinel: the preferred name, DIFFERENT bytes. Its invariance is the whole point.
+  const sentinelPath = path.join(directory, preferred);
+  writeFileSync(sentinelPath, SENTINEL_BYTES, { mode: 0o600 });
+
+  port.recordAttempt(id, {
+    providerId: 'collision',
+    outcome: 'ok',
+    status: 200,
+    audio: AUDIO,
+    payload: {
+      model: DEFAULTS.sttModel,
+      baseUrl: DEFAULTS.baseUrl,
+      audio: AUDIO,
+      upstream: null,
+      requestSent: false,
+      reading: { ok: true, text: '' },
+    },
+  });
+
+  const row = lines.map((line) => parseCaptureRow(line)).find((parsed) => parsed !== null) ?? null;
+  const newPath = row === null ? '' : fieldString(row, 'path');
+  const sentinel = existsSync(sentinelPath) ? readFileSync(sentinelPath) : null;
+  const written = newPath !== '' && existsSync(newPath) ? readFileSync(newPath) : Buffer.alloc(0);
+
+  return {
+    id,
+    preferred,
+    newPath,
+    sentinelIntact: sentinel !== null && sentinel.equals(SENTINEL_BYTES),
+    nameChanged: newPath !== '' && path.basename(newPath) !== preferred,
+    pathUnderDir: isUnder(directory, newPath),
+    bytesEqual: written.equals(AUDIO_BYTES),
+    shaMatch: row !== null && sha256Hex(written) === fieldString(row, 'sha256'),
   };
 }
 
@@ -790,12 +915,17 @@ async function measure(modules: CriterionModules): Promise<Measurement> {
     const deletionCall = new RegExp(['unlink', 'Sync', '|rm', 'Sync', '|fs\\.rm\\(', '|rmdir', 'Sync'].join(''));
     const noDeleteCall = !shippable.some((source) => deletionCall.test(source));
 
+    // ── the collision arm: one attempt whose preferred name is already occupied. It runs LAST so it
+    // cannot perturb the arms above, and through the same `capture` module a mutation case copies.
+    const collision = runCollision(capture, path.join(stash, 'collision'));
+
     return {
       audio,
       repeat,
       text,
       off,
       default: defaultArm,
+      collision,
       resolve: resolveProbe,
       root: {
         envDirReads: countToken(root, 'process.env.VOICE_CAPTURE_DIR'),
@@ -972,6 +1102,32 @@ const READINGS: readonly Reading[] = [
           repeat.sentinelBody !== null &&
           repeat.sentinelBody.equals(SENTINEL_BYTES) &&
           measurement.noDeleteCall,
+      };
+    },
+  },
+  // ── AC2 (this task): an occupied preferred name is given way to, never overwritten ─────────────
+  {
+    name: 'AC2 collision never overwrites',
+    run: (measurement) => {
+      const { collision } = measurement;
+      return {
+        value:
+          `sentinel-intact=${String(collision.sentinelIntact)} new-path=${collision.newPath} ` +
+          `preferred=${collision.preferred} id=${collision.id} ` +
+          `nameChanged=${String(collision.nameChanged)} ` +
+          `pathUnderDir=${String(collision.pathUnderDir)} ` +
+          `bytesEqual=${String(collision.bytesEqual)} shaMatch=${String(collision.shaMatch)}`,
+        ok:
+          // The sentinel: the file that was already at the preferred name still holds the bytes this
+          // criterion put there, so the write gave way instead of truncating it.
+          collision.sentinelIntact &&
+          // The new recording: a DIFFERENT name, inside the directory, holding the upload byte for
+          // byte, with a sha256 recomputed from the file equal to the row's own field — the row names
+          // the file that was actually written rather than the name that was refused.
+          collision.nameChanged &&
+          collision.pathUnderDir &&
+          collision.bytesEqual &&
+          collision.shaMatch,
       };
     },
   },
