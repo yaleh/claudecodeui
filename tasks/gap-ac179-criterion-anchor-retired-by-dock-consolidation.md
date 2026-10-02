@@ -2,7 +2,7 @@
 id: gap-ac179-criterion-anchor-retired-by-dock-consolidation
 title: AC-179 判据读数锚 [data-resident-status-bar] 被活动坞合并退役，判据死在正信号等待 30s 超时；换锚到
   [data-activity-dock] 并把恒真的「状态条不在滚动盒内」腿改写成行级读数
-status: ready
+status: done
 labels:
   - gap
   - defect
