@@ -79,7 +79,7 @@ export function useComposerCompactTier(): ComposerCompactTier {
   // The viewport signals, read through the same hook the rest of the app uses for `md`. Both are
   // needed here: the width decides whether the row's controls fit side by side, the height whether
   // the row may be spent at all.
-  const { isMobile, isShortViewport } = useDeviceSettings();
+  const { isMobile, isShortTouchViewport } = useDeviceSettings();
   const containerRef = useRef<HTMLFormElement | null>(null);
   // The box's last measured width, or null while it has never been measured. State rather than a
   // value read during render because the box can change without the window changing — opening the
@@ -114,11 +114,11 @@ export function useComposerCompactTier(): ComposerCompactTier {
   // for it. An unmeasured box stays stacked for the same reason it stays on the window rule above:
   // the first render must not draw an arrangement the box turns out not to have room for, and the
   // observer's first measurement arrives before anything is painted.
-  const areToolsInline = isShortViewport && boxFitsInlineTools;
+  const areToolsInline = isShortTouchViewport && boxFitsInlineTools;
 
   return {
     containerRef,
-    isCompactTier: isMobile || isShortViewport || boxIsNarrow,
+    isCompactTier: isMobile || isShortTouchViewport || boxIsNarrow,
     areToolsInline,
   };
 }

@@ -335,7 +335,7 @@ export default function ChatComposer({
   // The window rule, read through the same hook the rest of the app uses for `md`. It stays the
   // whole answer below the breakpoint and for the status tab below; the footer's arrangement also
   // reads the box's own width, which is `isCompactTier` underneath.
-  const { isMobile, isShortViewport } = useDeviceSettings();
+  const { isMobile, isShortTouchViewport } = useDeviceSettings();
   // Whether the composer offers the resident switch at all. Read from the backend capability matrix
   // rather than from a provider id — the same rule the sidebar's conversion item follows — so a
   // provider that gains the mode gets the switch without a UI change. The composer is not handed the
@@ -552,7 +552,7 @@ export default function ChatComposer({
         // invisible; on a 330px-tall landscape viewport it is 7% of the screen spent on nothing, so
         // the short tier takes the compact padding instead. The branch replaces the other rather
         // than layering on it, so no cascade order is being relied on.
-        isShortViewport ? 'px-2 pb-1.5' : 'px-2 pb-2 sm:px-4 sm:pb-4 md:px-4 md:pb-6',
+        isShortTouchViewport ? 'px-2 pb-1.5' : 'px-2 pb-2 sm:px-4 sm:pb-4 md:px-4 md:pb-6',
       ].join(' ')}
     >
       {/*
@@ -562,11 +562,12 @@ export default function ChatComposer({
         covers, it is not rendered at all — the pane draws the same status in the
         message flow instead (see ChatMessagesPane), and the composer's submit button
         is the only stop entry, so the single-entry rule holds without a second
-        control to hide. Height is the second reason and not a restatement of the
-        first: a landscape phone is 844px wide, so the width rule alone would float
-        this tab over a transcript that is only ~130px tall.
+        control to hide. The short tier is the second reason and not a restatement of
+        the first: a landscape phone is 844px wide, so the width rule alone would float
+        this tab over a transcript that is only ~130px tall — and that tier is a short
+        viewport on a touch-only device, so a short desktop *window* keeps the tab.
       */}
-      {!hasPendingPermissions && !isMobile && !isShortViewport && (
+      {!hasPendingPermissions && !isMobile && !isShortTouchViewport && (
         <div className="pointer-events-none absolute bottom-full left-1/2 z-10 w-[calc(100%-1rem)] max-w-[54.25rem] -translate-x-1/2 translate-y-px bg-transparent sm:w-[calc(100%-2rem)]">
           <ActivityIndicator
             activity={activity}
@@ -740,7 +741,7 @@ export default function ChatComposer({
             // Only the tab squares the input's top corners off; below `md`, and on a short
             // viewport where the tab is not drawn either, there is nothing sitting there, so the
             // box keeps its own rounding. Same condition as the tab's own render above.
-            hasActivityIndicator && !isMobile && !isShortViewport ? 'rounded-t-none' : '',
+            hasActivityIndicator && !isMobile && !isShortTouchViewport ? 'rounded-t-none' : '',
             // The controls are drawn beside the input rather than under it: two tracks, the input's
             // taking the slack and the controls' sized by their own content, with `items-end` on
             // the input's last line — where a send button is looked for.

@@ -185,12 +185,15 @@ function ChatMessagesPane({
   // The same two signals ChatComposer reads for the tab it draws, so the pane's
   // status line and the composer's tab can never both be on screen or both be
   // absent: one pair of rules decides which surface carries the turn. Width is
-  // the `md` (768px) rule; height is the second, and not a restatement of it —
-  // a landscape phone is 844px wide, so the width rule alone would float the
-  // composer's tab over a transcript this pane has left about 130px tall.
-  const { isMobile, isShortViewport } = useDeviceSettings();
+  // the `md` (768px) rule; the short tier is the second, and not a restatement of
+  // it — a landscape phone is 844px wide, so the width rule alone would float the
+  // composer's tab over a transcript this pane has left about 130px tall. The tier
+  // is a short viewport *on a touch-only device*; both halves matter, and the second
+  // one is why a short desktop window keeps this pane's status on the composer's
+  // floating tab.
+  const { isMobile, isShortTouchViewport } = useDeviceSettings();
   /** Whether this pane is the surface that carries the turn, rather than the composer's floating tab. */
-  const isInlineDock = isMobile || isShortViewport;
+  const isInlineDock = isMobile || isShortTouchViewport;
   // Whether this session is held by a resident process, read from the same shared
   // snapshot the dock's panel reads. It decides one thing here: whether the
   // transcript's dock keeps its collapsed entry point between turns (see

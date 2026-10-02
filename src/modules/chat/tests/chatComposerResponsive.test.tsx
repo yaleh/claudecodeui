@@ -116,22 +116,39 @@ beforeEach(() => {
  * way of the narrow-layout cases below only by width, exactly as it is in a browser.
  */
 const installMatchMedia = () => {
-  window.matchMedia = ((query: string) => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addEventListener: () => undefined,
-    removeEventListener: () => undefined,
-    addListener: () => undefined,
-    removeListener: () => undefined,
-    dispatchEvent: () => false,
-  })) as unknown as typeof window.matchMedia;
+  window.matchMedia = ((query: string) => {
+    const isTouchQuery = query === TOUCH_ONLY_QUERY;
+    return {
+      // Live, like a real MediaQueryList: the device is set per case, after this double is built.
+      get matches() {
+        return isTouchQuery ? device.touchOnly : false;
+      },
+      media: query,
+      onchange: null,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => false,
+    };
+  }) as unknown as typeof window.matchMedia;
 };
 
 /** The signal the composer itself reads (`useDeviceSettings`), so a renamed source of truth fails the cases below. */
 const setViewportWidth = (width: number) => {
   Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: width });
 };
+
+/**
+ * The device the render is on, which the short tier reads beside the height.
+ *
+ * The double below answers the device query from here and "no" to everything else. It has to answer
+ * it at all: a double that said "no" to every query would leave the tier unreachable, and the cell
+ * that asserts the short tier's single stop entry would then be reading the wide arrangement while
+ * claiming to read the short one.
+ */
+const device = { touchOnly: false };
+const TOUCH_ONLY_QUERY = '(pointer: coarse) and (hover: none)';
 
 /**
  * The second signal the same hook reads. jsdom's own window is 768px tall, which is the tall tier,
@@ -382,11 +399,13 @@ const turnElement = (
   {
     pendingPermissionRequests = [] as PendingPermissionRequest[],
     height = 900,
+    touchOnly = false,
   } = {},
 ) => {
   injectMatchMediaOnce();
   setViewportWidth(width);
   setViewportHeight(height);
+  device.touchOnly = touchOnly;
   const activity = RUNNING_ACTIVITY;
   const hasActivityIndicator = pendingPermissionRequests.length === 0;
   const composerProps = { ...baseProps(), activity, isLoading: true, pendingPermissionRequests };
@@ -402,7 +421,7 @@ const turnElement = (
 
 const renderTurn = (
   width: number,
-  options: { pendingPermissionRequests?: PendingPermissionRequest[]; height?: number } = {},
+  options: { pendingPermissionRequests?: PendingPermissionRequest[]; height?: number; touchOnly?: boolean } = {},
 ) => {
   const view = render(turnElement(width, options));
   const footer = view.container.querySelector<HTMLElement>(FOOTER_SELECTOR);
@@ -698,10 +717,10 @@ test('(h) a running turn offers one stop entry below md and on a short viewport,
     // height half of that rule: 844px wide clears `md`, so a width-only reading would hand
     // this viewport the two-entry arrangement, and the tab would sit over a ~130px transcript.
     { label: 'narrow (390px)', width: MOBILE_WIDTH, height: 900, stops: 1, outsideForm: 0, inlineLine: true },
-    { label: 'short and wide (844x330)', width: LANDSCAPE_WIDTH, height: LANDSCAPE_HEIGHT, stops: 1, outsideForm: 0, inlineLine: true },
+    { label: 'short and wide (844x330, touch)', width: LANDSCAPE_WIDTH, height: LANDSCAPE_HEIGHT, touchOnly: true, stops: 1, outsideForm: 0, inlineLine: true },
     { label: 'wide and tall (1280px)', width: DESKTOP_WIDTH, height: 900, stops: 2, outsideForm: 1, inlineLine: false },
   ]) {
-    const { view, footer } = renderTurn(tier.width, { height: tier.height });
+    const { view, footer } = renderTurn(tier.width, { height: tier.height, touchOnly: tier.touchOnly });
     const form = view.container.querySelector('form[data-slot="prompt-input"]');
     assert.ok(
       form,

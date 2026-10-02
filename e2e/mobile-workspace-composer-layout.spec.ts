@@ -1132,6 +1132,106 @@ for (const viewport of SHORT_VIEWPORTS) {
   });
 }
 
+/**
+ * The control the short tier shipped without, and the reason it had to be added.
+ *
+ * The tier was first written as "the viewport is short", full stop. That is true of a phone in landscape and
+ * equally true of a desktop window with DevTools docked to the bottom, and the second one was handed the phone's
+ * layout: the composer's keyboard hint — a row a touch device never draws, because it is hidden at every width —
+ * stayed visible and went into the footer's single row, where `basis-full` means nothing, taking 467px of an
+ * 866px composer and leaving the input **138px**. Every landscape cell in this file passed throughout, because
+ * every one of them emulates a touch device.
+ *
+ * So this cell is the same height as the landscape cells and the opposite device. Its premises are the point: the
+ * viewport really is short, so the height half of the tier IS satisfied, and the pointer really is fine, so the
+ * device half is the only thing holding the tier off. Without them the cell would pass against a build that
+ * dropped the height rule entirely.
+ */
+const SHORT_DESKTOP_VIEWPORT = { width: 1440, height: 450 };
+/** The input width the phone layout left behind: asserted against, so a return to it fails here by number. */
+const CRUSHED_INPUT_WIDTH = 138;
+/** What a 1440-wide composer's input column measures when the arrangement is the desktop's. */
+const MIN_DESKTOP_INPUT_WIDTH = 400;
+
+test.describe('short viewport on a mouse-and-keyboard device', () => {
+  test.use({ viewport: SHORT_DESKTOP_VIEWPORT, hasTouch: false, isMobile: false });
+
+  test(`@${SHORT_DESKTOP_VIEWPORT.width}x${SHORT_DESKTOP_VIEWPORT.height} — a short desktop window keeps the desktop arrangement`, async ({ browser }) => {
+    test.setTimeout(90_000);
+    const { context, page } = await openCell(browser, {
+      ...SHORT_DESKTOP_VIEWPORT,
+      touch: false,
+      language: MOBILE_LANGUAGE,
+      session: MOBILE_SESSION,
+    });
+    try {
+      await settleComposer(page, SHORT_DESKTOP_VIEWPORT.width);
+      await expectDeclaredWidth(await readCell(page), SHORT_DESKTOP_VIEWPORT.width);
+
+      const cell = await readCell(page);
+      logCell(`@${SHORT_DESKTOP_VIEWPORT.width}x${SHORT_DESKTOP_VIEWPORT.height} short desktop`, cell);
+
+      const touchOnly = await page.evaluate(
+        () => window.matchMedia('(pointer: coarse) and (hover: none)').matches,
+      );
+      expectReading(
+        cell.innerHeight === SHORT_DESKTOP_VIEWPORT.height && cell.innerHeight < SHORT_TIER_MAX_HEIGHT_PX,
+        `@short desktop: premise — the viewport must really be ${SHORT_DESKTOP_VIEWPORT.height}px tall and under the ${SHORT_TIER_MAX_HEIGHT_PX}px tier, or the height half of the rule is not being tested`,
+        cell,
+      );
+      expectReading(
+        touchOnly === false,
+        `@short desktop: premise — the pointer must really be fine, or the device half is not the thing holding the tier off`,
+        cell,
+      );
+
+      // The arrangement itself: the desktop's, not the phone's.
+      expectReading(
+        cell.composerIsRow === false,
+        `@short desktop: the composer must keep the desktop's stacked arrangement — the controls under the input, not beside it`,
+        cell,
+      );
+      expectReading(
+        cell.textarea !== null && cell.textarea.width >= MIN_DESKTOP_INPUT_WIDTH,
+        `@short desktop: the input must keep its desktop width (>=${MIN_DESKTOP_INPUT_WIDTH}px) — the phone layout left it ${CRUSHED_INPUT_WIDTH}px, which is what this cell exists to catch; it is ${cell.textarea ? Math.round(cell.textarea.width) : 'none'}px`,
+        cell,
+      );
+      // The branch, not a bound: 8px is the desktop branch's padding and 4px is the short tier's.
+      expectReading(
+        cell.headerPaddingTop === DESKTOP_HEADER_PADDING_TOP,
+        `@short desktop: the header must keep the desktop branch's padding (${DESKTOP_HEADER_PADDING_TOP}), not the short tier's`,
+        cell,
+      );
+      expectReading(noOverflow(cell), `@short desktop: the footer must not scroll sideways`, cell);
+
+      // Where the status goes, read on a running turn. An idle session that is not resident draws no
+      // status at all, so asserting the mount site on the reading above would assert the placement of
+      // a thing that was never going to be there — the same mistake this file's landscape cells each
+      // had to be corrected for. The frame goes in last so it cannot move the readings above: it
+      // turns the submit button into a Stop and the composer into a different control.
+      const delivered = await injectStatusFrame(page, MOBILE_SESSION);
+      expect(delivered, `@short desktop: the status frame has to reach an open chat socket`).toBeGreaterThan(0);
+      await expect(page.locator('.chat-composer-shell [data-activity-dock]')).toBeVisible({ timeout: 10_000 });
+      await page.waitForTimeout(300);
+
+      const running = await readCell(page);
+      logCell(`@${SHORT_DESKTOP_VIEWPORT.width}x${SHORT_DESKTOP_VIEWPORT.height} short desktop + running`, running);
+      expectReading(
+        running.dockInComposer !== null && running.dockInComposer.width > 0,
+        `@short desktop: the status must stay the composer's floating tab — the pane's in-flow line is the short tier's surface, and this window is short but is not the tier`,
+        running,
+      );
+      expectReading(
+        running.dockInTranscript === null || running.dockInTranscript.width === 0,
+        `@short desktop: the pane's in-flow line must not be drawn on a short mouse-and-keyboard window`,
+        running,
+      );
+    } finally {
+      await context.close();
+    }
+  });
+});
+
 /* ------------------------------------------------------------------------------------------------------------
  * Desktop cells: the breakpoint's other side, where the header is never collapsed and the footer is read on both tiers
  * --------------------------------------------------------------------------------------------------------- */

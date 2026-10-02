@@ -163,18 +163,35 @@ const setViewportHeight = (height: number) => {
 const TALL_HEIGHT = 900;
 const LANDSCAPE_HEIGHT = 330;
 
-/** jsdom implements no media queries; the double answers "no" to all of them, a keyboard device. */
+/**
+ * The device the render is on.
+ *
+ * The short tier is read from the viewport's height *and* the device, so a double that answered
+ * "no" to everything would leave the tier unreachable and every case below passing for a reason
+ * none of them declares — including the cases that assert the tier is NOT taken, which are only
+ * meaningful when the device is one the tier applies to. `renderComposer` sets it per case, and the
+ * `matches` getter reads it live, as a real `MediaQueryList` does.
+ */
+const device = { touchOnly: false };
+const TOUCH_ONLY_QUERY = '(pointer: coarse) and (hover: none)';
+
+/** jsdom implements no media queries; the double answers the device query and "no" to the rest. */
 const installMatchMedia = () => {
-  window.matchMedia = ((query: string) => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addEventListener: () => undefined,
-    removeEventListener: () => undefined,
-    addListener: () => undefined,
-    removeListener: () => undefined,
-    dispatchEvent: () => false,
-  })) as unknown as typeof window.matchMedia;
+  window.matchMedia = ((query: string) => {
+    const isTouchQuery = query === TOUCH_ONLY_QUERY;
+    return {
+      get matches() {
+        return isTouchQuery ? device.touchOnly : false;
+      },
+      media: query,
+      onchange: null,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => false,
+    };
+  }) as unknown as typeof window.matchMedia;
 };
 
 let matchMediaInstalled = false;
@@ -322,6 +339,12 @@ type RenderOptions = {
   /** The window height the render sees. Defaults to the tall tier, which is jsdom's own window. */
   viewportHeight?: number;
   /**
+   * The device the render sees. Defaults to a mouse-and-keyboard one, which is what the width cases
+   * were written against; the short-tier cases set it, because a short *window* on a desktop is
+   * deliberately not the tier and a case that forgot this would pass for the wrong reason.
+   */
+  touchOnly?: boolean;
+  /**
    * The box's measured width, or null for a box that cannot be measured — the jsdom default, and
    * what an element that has not been laid out reports.
    */
@@ -339,6 +362,7 @@ type RenderOptions = {
 const renderComposer = ({
   viewport,
   viewportHeight = TALL_HEIGHT,
+  touchOnly = false,
   boxWidth,
   withObserver = true,
   clip = null,
@@ -347,6 +371,7 @@ const renderComposer = ({
   injectMatchMediaOnce();
   setViewportWidth(viewport);
   setViewportHeight(viewportHeight);
+  device.touchOnly = touchOnly;
   if (boxWidth === null) {
     // The box reports 0, which is what "not laid out yet" looks like.
     installBoxWidth(0);
@@ -641,6 +666,7 @@ test('(h) a short viewport with a box wide enough draws the controls beside the 
   const { footer, form } = renderComposer({
     viewport: DESKTOP_WIDTH,
     viewportHeight: LANDSCAPE_HEIGHT,
+    touchOnly: true,
     boxWidth: INLINE_TOOLS_MIN_BOX_PX,
     clip: CLIP_PAIR,
   });
@@ -682,6 +708,7 @@ test('(i) one pixel under the threshold, and the stacked arrangement is kept', (
   const { form } = renderComposer({
     viewport: DESKTOP_WIDTH,
     viewportHeight: LANDSCAPE_HEIGHT,
+    touchOnly: true,
     boxWidth: INLINE_TOOLS_MIN_BOX_PX - 1,
   });
 
@@ -692,19 +719,40 @@ test('(i) one pixel under the threshold, and the stacked arrangement is kept', (
   );
 });
 
-test('(j) a tall viewport keeps the stacked arrangement however wide the box is', () => {
-  // The desktop regression guard. Height alone decides this tier, and a tall window is not short
-  // whatever its width — the arrangement the whole suite read before this tier existed.
+test('(j) a tall touch viewport keeps the stacked arrangement however wide the box is', () => {
+  // One half of the tier's guard, and the device is set on purpose: with a mouse the case would
+  // pass for the device half alone and say nothing about the height. A touch device with the height
+  // to spare keeps the arrangement the whole suite read before this tier existed.
   const { form } = renderComposer({
     viewport: DESKTOP_WIDTH,
     viewportHeight: TALL_HEIGHT,
+    touchOnly: true,
     boxWidth: BOX_WITH_SIDEBAR_CLOSED,
   });
 
   assert.deepEqual(
     readInlineRow(form),
     { formIsRow: false, bodyTakesSlack: false, footerDividerMoved: false },
-    `a ${TALL_HEIGHT}px-tall viewport must keep the stacked arrangement; ${describeInlineRow(form)}`,
+    `a ${TALL_HEIGHT}px-tall touch viewport must keep the stacked arrangement; ${describeInlineRow(form)}`,
+  );
+});
+
+test('(j) a short window on a mouse-and-keyboard device is not the tier either', () => {
+  // The other half, and the one that shipped broken: DevTools docked to the bottom leaves a desktop
+  // window 450px tall, and the phone's inline row taken there put the composer's keyboard hint — a
+  // row a touch device never draws, because it is hidden at every width — into the footer's line,
+  // where it took 467px of an 866px composer and left the input 138px wide.
+  const { form } = renderComposer({
+    viewport: 1440,
+    viewportHeight: 450,
+    touchOnly: false,
+    boxWidth: 866,
+  });
+
+  assert.deepEqual(
+    readInlineRow(form),
+    { formIsRow: false, bodyTakesSlack: false, footerDividerMoved: false },
+    `a short window on a mouse device must keep the desktop arrangement; ${describeInlineRow(form)}`,
   );
 });
 
@@ -716,6 +764,7 @@ test('(k) an unmeasured box leaves a short viewport stacked, and the clip row wh
   const { form } = renderComposer({
     viewport: DESKTOP_WIDTH,
     viewportHeight: LANDSCAPE_HEIGHT,
+    touchOnly: true,
     boxWidth: null,
     withObserver: false,
     clip: CLIP_PAIR,

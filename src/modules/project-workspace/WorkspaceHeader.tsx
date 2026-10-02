@@ -50,7 +50,7 @@ export default function WorkspaceHeader({
   // Read here rather than taken as a prop beside `isMobile`, which arrives threaded through
   // ProjectWorkspaceShell, ProjectMainRegion and WorkspaceMain: this header is the only consumer on
   // that path, so a prop would widen three signatures to carry one padding decision.
-  const { isShortViewport } = useDeviceSettings({ trackPWA: false });
+  const { isShortTouchViewport } = useDeviceSettings({ trackPWA: false });
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -115,11 +115,11 @@ export default function WorkspaceHeader({
     <header
       className={cn(
         'pwa-header-safe flex flex-shrink-0 items-center gap-2 border-b border-border/60 bg-background/95 backdrop-blur-sm',
-        // The short tier is a viewport with the width of a desktop and the height of a phone, so
-        // `md:py-2` would spend 16px of a 330px screen on padding alone — and it is read here
+        // The short tier is a touch-only device with the width of a desktop and the height of a
+        // phone, so `md:py-2` would spend 16px of a 330px screen on padding alone. It is read here
         // rather than threaded down as a prop, because the four components between the route and
         // this header have no other use for it.
-        isShortViewport ? 'px-2 py-1' : 'px-3 py-1.5 md:gap-3 md:px-4 md:py-2',
+        isShortTouchViewport ? 'px-2 py-1' : 'px-3 py-1.5 md:gap-3 md:px-4 md:py-2',
       )}
     >
       <div className="flex min-w-0 flex-1 items-center gap-2 md:max-w-[min(34%,24rem)] md:flex-[1_1_18rem]">

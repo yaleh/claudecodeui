@@ -122,10 +122,20 @@ const LANDSCAPE_WIDTH = 844;
 const LANDSCAPE_HEIGHT = 330;
 const TALL_HEIGHT = 900;
 
-/** jsdom ships no media queries; the device rule under test is the width one. */
+/**
+ * The device the render is on. The short tier reads this beside the height, so the double has to
+ * answer it: one that said "no" to every query would leave the tier unreachable and the cell below
+ * that asserts where the short tier puts the dock would be reading the tall arrangement instead.
+ */
+const device = { touchOnly: false };
+const TOUCH_ONLY_QUERY = '(pointer: coarse) and (hover: none)';
+
+/** jsdom ships no media queries; the width rule is `innerWidth`, and this is the device rule. */
 const installMatchMedia = () => {
   window.matchMedia = ((query: string) => ({
-    matches: false,
+    get matches() {
+      return query === TOUCH_ONLY_QUERY ? device.touchOnly : false;
+    },
     media: query,
     onchange: null,
     addEventListener: () => undefined,
@@ -224,9 +234,11 @@ const renderPane = (
   width: number,
   overrides: Partial<React.ComponentProps<typeof ChatMessagesPane>> = {},
   height: number = TALL_HEIGHT,
+  touchOnly: boolean = false,
 ) => {
   setViewportWidth(width);
   setViewportHeight(height);
+  device.touchOnly = touchOnly;
   // The real preferences owner, not a stub: a message row reads the voice
   // preference to decide whether to offer its speak control, and a stub would
   // be a second implementation of what the row is entitled to read.
@@ -482,7 +494,7 @@ test('(e) height decides the surface too: a short viewport keeps the status in t
   // The width rule alone hands a landscape phone the composer's floating tab, because 844px clears
   // `md` — and the pane it would hang over is about 130px tall, so the tab covers the last of the
   // only few lines the reader has. Height is the second rule, and this is its cell.
-  const short = renderPane(LANDSCAPE_WIDTH, {}, LANDSCAPE_HEIGHT);
+  const short = renderPane(LANDSCAPE_WIDTH, {}, LANDSCAPE_HEIGHT, true);
   const row = dockIn(short.view);
   assert.ok(
     row,
@@ -503,7 +515,7 @@ test('(e) height decides the surface too: a short viewport keeps the status in t
   short.view.unmount();
 
   // The other cell of the same edge: the same width, tall enough to afford the tab, keeps it.
-  const tall = renderPane(LANDSCAPE_WIDTH, {}, TALL_HEIGHT);
+  const tall = renderPane(LANDSCAPE_WIDTH, {}, TALL_HEIGHT, true);
   assert.equal(
     dockIn(tall.view),
     null,
