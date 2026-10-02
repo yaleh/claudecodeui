@@ -1,7 +1,7 @@
 ---
 id: gap-work-segment-browser-density-and-search-expand
 title: AC-207 真实浏览器：缺省折叠态密度降到基线一半以下，且搜索命中折叠段内成员自动展开
-status: ready
+status: done
 labels:
   - gap
 parent: null
