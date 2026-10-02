@@ -383,6 +383,11 @@
       "withdraw": "Tarik kembali",
       "withdrawn": "Ditarik kembali"
     },
+    "occupied": {
+      "notice": "Sesi ini sedang dipegang oleh tugas latar belakang Claude Code (job {{jobId}}, pid {{pid}}). Jalankan `claude stop {{jobId}}` untuk melepaskannya, atau fork sesi ini.",
+      "copyCommand": "Salin perintah",
+      "copied": "Disalin"
+    },
     "statusBar": {
       "unstarted": "Residen · Tidak berjalan ({{reason}})",
       "idle": "Residen · Idle",

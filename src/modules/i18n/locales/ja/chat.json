@@ -279,6 +279,11 @@
       "withdraw": "取り消す",
       "withdrawn": "取り消しました"
     },
+    "occupied": {
+      "notice": "このセッションは Claude Code のバックグラウンドジョブに占有されています（job {{jobId}}、pid {{pid}}）。`claude stop {{jobId}}` で停止するか、セッションを fork してください。",
+      "copyCommand": "コマンドをコピー",
+      "copied": "コピーしました"
+    },
     "statusBar": {
       "unstarted": "常駐 · 未起動（{{reason}}）",
       "idle": "常駐 · 待機中",
