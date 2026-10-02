@@ -29,12 +29,12 @@ goal_ac: AC-208
 
 ## AC
 
-- [ ] AC1 判据绿：`npx vitest run src/modules/chat/tests/workSegmentCollapsedTitle.test.tsx` 退出 0。红态基线（本轮实测）：该文件不存在，同一命令读数是 `No test files found, exiting with code 1`；三个用例标题必须能让 AC2/AC3/AC4 各以 `-t "<标题>"` 单独命中。
-- [ ] AC2（读数 i，承重）三读数齐备且非退化：`npx vitest run src/modules/chat/tests/workSegmentCollapsedTitle.test.tsx -t "collapsed title carries action, count and elapsed"` 退出 0 —— 对固定夹具段（≥3 成员），折叠头同时暴露 a) 当前动作 = 段内**末成员**的动作标签（与成员自身既有渲染同一口径），b) 计数 = 段内成员数，c) 耗时 ≥ 0；三者都从 segment 派生，不是常量。
-- [ ] AC3（读数 ii，承重）随执行更新：同一文件 `-t "title tracks the growing segment while collapsed"` 退出 0 —— 向段尾逐条追加成员（≥3 次），每次在**未展开**的折叠头上：计数 +1、当前动作跟到新末成员、耗时非递减。
-- [ ] AC4（读数 iii，承重）结束时定格且不自动展开：同一文件 `-t "title freezes and stays collapsed at end of run"` 退出 0 —— 末成员 streaming 结束后标题三读数定格（再多渲染若干轮不变），折叠态保持折叠、不自动展开。
-- [ ] AC5 取假形态必须红（承重；先提交实现与判据，再逐条变异；逐条记录变异 diff、逐字失败行与恢复命令）：(a) 标题三读数之一写成常量 ⇒ AC2 红；(b) 标题只在挂载时算一次、不随 segment 变化重算 ⇒ AC3 红；(c) 段停止增长时自动展开、或结束后耗时继续累加 ⇒ AC4 红。三条都必须真的红过并落记录，恢复后判据重新绿、`git status --porcelain` 对该文件干净。
-- [ ] AC6 静态门：`npm run typecheck` 与 `npm run lint` 均退出 0；`git diff --stat` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`，注解与路径之间留空格且置于行尾）。
+- [x] AC1 判据绿：`npx vitest run src/modules/chat/tests/workSegmentCollapsedTitle.test.tsx` 退出 0。红态基线（本轮实测）：该文件不存在，同一命令读数是 `No test files found, exiting with code 1`；三个用例标题必须能让 AC2/AC3/AC4 各以 `-t "<标题>"` 单独命中。
+- [x] AC2（读数 i，承重）三读数齐备且非退化：`npx vitest run src/modules/chat/tests/workSegmentCollapsedTitle.test.tsx -t "collapsed title carries action, count and elapsed"` 退出 0 —— 对固定夹具段（≥3 成员），折叠头同时暴露 a) 当前动作 = 段内**末成员**的动作标签（与成员自身既有渲染同一口径），b) 计数 = 段内成员数，c) 耗时 ≥ 0；三者都从 segment 派生，不是常量。
+- [x] AC3（读数 ii，承重）随执行更新：同一文件 `-t "title tracks the growing segment while collapsed"` 退出 0 —— 向段尾逐条追加成员（≥3 次），每次在**未展开**的折叠头上：计数 +1、当前动作跟到新末成员、耗时非递减。
+- [x] AC4（读数 iii，承重）结束时定格且不自动展开：同一文件 `-t "title freezes and stays collapsed at end of run"` 退出 0 —— 末成员 streaming 结束后标题三读数定格（再多渲染若干轮不变），折叠态保持折叠、不自动展开。
+- [x] AC5 取假形态必须红（承重；先提交实现与判据，再逐条变异；逐条记录变异 diff、逐字失败行与恢复命令）：(a) 标题三读数之一写成常量 ⇒ AC2 红；(b) 标题只在挂载时算一次、不随 segment 变化重算 ⇒ AC3 红；(c) 段停止增长时自动展开、或结束后耗时继续累加 ⇒ AC4 红。三条都必须真的红过并落记录，恢复后判据重新绿、`git status --porcelain` 对该文件干净。
+- [x] AC6 静态门：`npm run typecheck` 与 `npm run lint` 均退出 0；`git diff --stat` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`，注解与路径之间留空格且置于行尾）。
 
 ## DoD
 
@@ -48,4 +48,36 @@ goal_ac: AC-208
 - src/modules/chat/utils/workSegmentTitle.ts (new)
 - src/modules/chat/transcript/WorkSegmentRecord.tsx
 - src/modules/chat/tests/workSegmentCollapsedTitle.test.tsx (new)
+- e2e/transcript-work-segments.spec.ts
 - tasks/gap-work-segment-collapsed-title-action-count-elapsed.md
+
+## Notes
+
+**交付已由同轴兄弟落盘。** 本任务三件套（规则 `workSegmentTitle.ts`、接线 `WorkSegmentRecord.tsx`、判据 `workSegmentCollapsedTitle.test.tsx`）在 develop 上已由 commit `e18c57e8`（task `gap-goal-016-collapsed-title-rule`）出货，本分支相对 develop 的代码增量因此只有 DoD 要求的真实浏览器读数（`e2e/transcript-work-segments.spec.ts`）。三个已落盘文件保留在 `## Touches` 作为本任务声明的范围；anti-drift 是单向判定（actual diff ⊆ declared Touches），故声明未变的文件不会红。
+
+**AC5 取假形态（逐条实测，先跑后 `git checkout -- <file>` 恢复；每条恢复后 `git status --porcelain` 对该文件干净、判据重新绿）。**
+
+(a) 任一读数写成常量 —— 变异：
+```
+-  return { action: getMemberActionLabel(last), count: messages.length, elapsedMs };
++  return { action: 'Work', count: messages.length, elapsedMs };
+```
+AC2 红：`AssertionError: the title action must be the last member’s own label`（workSegmentCollapsedTitle.test.tsx:107）。
+
+(b) 标题只在挂载时算一次 —— 变异：
+```
+-  const title = buildWorkSegmentTitle(segment);
++  const title = useMemo(() => buildWorkSegmentTitle(segment), []);
+```
+AC3 红：`AssertionError: count must grow to 2 on append 1`（:158）。
+
+(c) 结束后耗时继续累加 —— 变异：
+```
+-  const elapsedMs = Math.max(0, toEpochMs(last.timestamp) - toEpochMs(messages[0].timestamp));
++  const elapsedMs = Math.max(0, Date.now() - toEpochMs(messages[0].timestamp));
+```
+AC4 红：`AssertionError: the settled run’s span must be its members’ span`（:195）。
+
+**DoD 真实落地读数。** `npx playwright test e2e/transcript-work-segments.spec.ts`（真实 Chromium + 真实后端 + Vite，隔离 data-dir）1 passed（14.1s）：三个折叠头分别渲染 count `{5, 7, 8}`（= 夹具三段 7/8/5 成员）、耗时各 ≥ 4000ms（非零多秒）、当前动作取末成员 —— Bash 结尾的 8 人段读 `Bash`，两条 thinking 结尾段读 `Thinking`，且动作不全相同（常量文案不能过）。
+
+**静态门。** `npm run typecheck` 退出 0；`npm run lint` 退出 0（仅存量 warning，无 error）。
