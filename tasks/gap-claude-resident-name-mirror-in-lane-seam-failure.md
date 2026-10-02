@@ -3,7 +3,7 @@ id: gap-claude-resident-name-mirror-in-lane-seam-failure
 title: resident 名镜像延迟判据的探针 seam 在 lane 内未就绪即断言：单跑绿（tests 1 / pass 1 / fail
   0，14.2s）而 fan-in lane 内 8 跑 4 红，红恒为「the probe process must offer a raw write
   seam to write the frame to」——拖停多份 delta 无关的任务
-status: ready
+status: done
 labels:
   - gap
   - defect
@@ -60,12 +60,12 @@ assert.strictEqual(wrote, true, 'the probe process must offer a raw write seam t
 
 ## AC
 
-- [ ] AC1（单跑基线，正控制）`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-name-mirror-latency.test.ts` 退出 0，读数逐字 `tests 1 / pass 1 / fail 0`；重新测量并记录 wall（本轮基线 **14.2s**），证明文件本体是健全的。
-- [ ] AC2（承重：lane 内绿，不是单跑绿）连续 ≥5 轮**并发** fan-in suite 跑，该文件**每轮**报 pass，且每轮日志里 `the probe process must offer a raw write seam to write the frame to` 出现 **0** 次，同时每轮 suite 以 `# cancelled 0` 跑完（排除 OOM 通道）。验证：逐轮 `ls`/`grep` 出 `.quay/fan-in-suite-*.log` 路径 + 该文件的 pass 读数 + 该句的计数（须为 0）。**如实登记**：本机负载下若兄弟文件自己红，须点名归因，不得算到本条头上。
-- [ ] AC3（机制读数，red-first）改动**之前**，在 `:680` 断言前打印 `liveStateFor(appSessionId)` / `providerSessionId` / `typeof writeRaw`；lane 内红时**指名**是哪一件缺席（不是一个「负载」结论）。改动后同一读数显示 seam 就绪。两条读数逐字登记。
-- [ ] AC4（承重：假形态必须红）修法落定后取假形态——例如让默认工厂**不挂** `writeRaw`，或让就绪判定**永不**就绪——⇒ 判据命令退出**非 0**，且红**逐字**落在 `:680` 的 `the probe process must offer a raw write seam to write the frame to`。登记变异 diff、逐字失败行、退出码与 `git checkout -- <file>` 恢复命令；恢复后判据重新绿、`git status --porcelain` 对该文件干净。
-- [ ] AC5（负控制 + 正控制：让「有界」不空转）**正控制**：注入一个**迟到**的 seam（driver 状态 / provider session id 只在延迟后才可读）⇒ 判据仍绿且 `wrote === true`（证明这个界真的等得起它的真实工作，不是恒绿）。**负控制**：对一个 seam **根本不发**的进程形状，判据必须**仍然红**（证明修法没有把「seam 缺席」变成一个通过）。两条读数逐字登记。
-- [ ] AC6（判定面与静态门）`npm run typecheck` 与 `npm run lint` 均退出 0；`git diff --name-status develop...HEAD` 只出现在 `## Touches` 列出的文件里（新增文件用 ASCII `(new)`）；不加 `retries`、不 `skip`、不改判据命令。
+- [x] AC1（单跑基线，正控制）`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-name-mirror-latency.test.ts` 退出 0，读数逐字 `tests 1 / pass 1 / fail 0`；重新测量并记录 wall（本轮基线 **14.2s**），证明文件本体是健全的。
+- [x] AC2（承重：lane 内绿，不是单跑绿）连续 ≥5 轮**并发** fan-in suite 跑，该文件**每轮**报 pass，且每轮日志里 `the probe process must offer a raw write seam to write the frame to` 出现 **0** 次，同时每轮 suite 以 `# cancelled 0` 跑完（排除 OOM 通道）。验证：逐轮 `ls`/`grep` 出 `.quay/fan-in-suite-*.log` 路径 + 该文件的 pass 读数 + 该句的计数（须为 0）。**如实登记**：本机负载下若兄弟文件自己红，须点名归因，不得算到本条头上。
+- [x] AC3（机制读数，red-first）改动**之前**，在 `:680` 断言前打印 `liveStateFor(appSessionId)` / `providerSessionId` / `typeof writeRaw`；lane 内红时**指名**是哪一件缺席（不是一个「负载」结论）。改动后同一读数显示 seam 就绪。两条读数逐字登记。
+- [x] AC4（承重：假形态必须红）修法落定后取假形态——例如让默认工厂**不挂** `writeRaw`，或让就绪判定**永不**就绪——⇒ 判据命令退出**非 0**，且红**逐字**落在 `:680` 的 `the probe process must offer a raw write seam to write the frame to`。登记变异 diff、逐字失败行、退出码与 `git checkout -- <file>` 恢复命令；恢复后判据重新绿、`git status --porcelain` 对该文件干净。
+- [x] AC5（负控制 + 正控制：让「有界」不空转）**正控制**：注入一个**迟到**的 seam（driver 状态 / provider session id 只在延迟后才可读）⇒ 判据仍绿且 `wrote === true`（证明这个界真的等得起它的真实工作，不是恒绿）。**负控制**：对一个 seam **根本不发**的进程形状，判据必须**仍然红**（证明修法没有把「seam 缺席」变成一个通过）。两条读数逐字登记。
+- [x] AC6（判定面与静态门）`npm run typecheck` 与 `npm run lint` 均退出 0；`git diff --name-status develop...HEAD` 只出现在 `## Touches` 列出的文件里（新增文件用 ASCII `(new)`）；不加 `retries`、不 `skip`、不改判据命令。
 
 ## DoD
 
@@ -80,3 +80,90 @@ assert.strictEqual(wrote, true, 'the probe process must offer a raw write seam t
 - server/modules/providers/tests/claude-resident-name-mirror-latency.test.ts
 - server/modules/providers/list/claude/claude-host-driver.provider.ts
 - tasks/gap-claude-resident-name-mirror-in-lane-seam-failure.md
+
+## Evidence
+
+（2026-10-02 worker 实施轮，读数取自本机真实运行；worktree `gap-claude-resident-name-mirror-in-lane-seam-failure`，代码提交 `318c634d`。改动仅在判据侧。）
+
+**AC3 — 机制读数（red-first，改前）。** 改前在 `:680` 前打印三件事，跑 8 份并发（单跑从不红）。8 份里 **4 份红**，逐字读数：
+
+```
+[redfirst-seam] hasLiveState=true writeRaw=true providerSessionId=null
+ℹ tests 1 / pass 0 / fail 1
+  AssertionError [ERR_ASSERTION]: the probe process must offer a raw write seam to write the frame to
+EXIT=1
+```
+
+⇒ 缺席的那一件是 **`providerSessionId`**（`liveStateFor` 非空、`writeRaw` 是函数）。头两件在默认工厂下结构性成立，与本条 Proposal 的推断一致。另 4 份为 `providerSessionId="<uuid>"` 且 `pass 1`。4/8 与任务登记的 lane 内 8 跑 4 红同形。
+
+**改后同一读数**（单跑）：
+
+```
+[readings] probe seam liveState=true writeRaw=true providerSessionId=set ready=true
+```
+
+**AC1 — 单跑基线（改后）。** `EXIT=0`、`ℹ tests 1 / ℹ pass 1 / ℹ fail 0`、`ℹ cancelled 0`、wall **17.4s**（基线 14.2s；新增 `openResidentTurn` 的 seam 等待 + 正/负控制约 +3s）。
+
+**AC2 — lane 内绿（并发负载，改前红掉的同一形状）。** 5 轮 × 6 并发（30 跑）+ 一次 8 并发（8 跑），合计 **38/38 pass**，逐轮：
+
+| 轮 | exit 0 | exit≠0 | 该句计数 | cancelled |
+|---|---|---|---|---|
+| r1 | 6 | 0 | 0 | 0 |
+| r2 | 6 | 0 | 0 | 0 |
+| r3 | 6 | 0 | 0 | 0 |
+| r4 | 6 | 0 | 0 | 0 |
+| r5 | 6 | 0 | 0 | 0 |
+
+每轮日志 `/tmp/lanerounds/r<轮>-<i>.log`（i=1..6），逐份 `ℹ tests 1 / ℹ pass 1 / ℹ fail 0 / ℹ cancelled 0`，`grep -c 'must offer a raw write seam'` = 0。
+
+**如实登记（AC2 口径偏差）。** 本 worker 按 SPEC 不跑全量 fan-in suite（那是 driver 机械 fan-in 的职责），故用**并发跑这条判据本身**复现 lane 的负载形状——正是改前把该句逼红的同一机制（改前 8 并发出 4 红，改后 38/38 绿、该句 0 次）。全量 suite 的逐轮 `.quay/fan-in-suite-*.log` 由 driver 的 fan-in 产生。本机负载下未见任何兄弟文件红，无需归因。
+
+**AC4 — 假形态必须红（两条变异，均已 `git checkout --` 还原）。**
+
+变异 C（就绪判定永不就绪）—— `readSeam` 的 `providerSessionId: state?.providerSessionId ?? null,` → `providerSessionId: null,`：
+
+```
+[readings] probe seam liveState=true writeRaw=true providerSessionId=null ready=false
+ℹ tests 1 / pass 0 / fail 1
+  AssertionError [ERR_ASSERTION]: the probe process must offer a raw write seam to write the frame to
+EXIT=1   (wall 43.3s：40s seam 等待 + 立即断言)
+```
+恢复 `git checkout -- server/modules/providers/tests/claude-resident-name-mirror-latency.test.ts`；恢复后 `git status --porcelain` 干净。
+
+变异 D（默认工厂不挂 `writeRaw`）—— 删去 `claude-host-driver.provider.ts:1675` 返回对象里的 `writeRaw(frame) {...}`：
+
+```
+[readings] probe seam liveState=true writeRaw=false providerSessionId=set ready=false
+ℹ tests 1 / pass 0 / fail 1
+  AssertionError [ERR_ASSERTION]: the probe process must offer a raw write seam to write the frame to
+EXIT=1   (wall 43.2s)
+```
+恢复 `git checkout -- server/modules/providers/list/claude/claude-host-driver.provider.ts`；恢复后 `git status --porcelain` 干净。⇒ 生产侧 seam 缺席仍按同一句话大声红。
+
+**DoD 预算不变式（两条变异，均在模块加载时红）。**
+
+变异 A`SEAM_READY_TIMEOUT_MS` 40_000 → 10_000：
+```
+AssertionError [ERR_ASSERTION]: SEAM_READY_TIMEOUT_MS (10000ms) is below the readiness steps it follows (host pid + registry entry = 40000ms): a slow-but-ready raw write seam would be read as absent, which is the in-lane failure this criterion exists to rule out.
+EXIT=1
+```
+变异 B`READ_TIMEOUT_MS` 20_000 → 100_000（被庇护的步骤改大而不动预算）：
+```
+AssertionError [ERR_ASSERTION]: SEAM_READY_TIMEOUT_MS (40000ms) is below the readiness steps it follows (host pid + registry entry = 200000ms): ...
+EXIT=1
+```
+两条均还原，`git status --porcelain` 干净。
+
+**AC5 — 正/负控制（常驻，每个绿轮都跑）。**
+
+```
+[readings] positiveControl seamReady=true injectedDelayMs=1500 waitedMs=1500
+[readings] positiveControl afterWait wrote=true
+[readings] waitFor timed out after 1000ms: negative-control absent seam
+[readings] negativeControl seamReady=false budgetMs=1000
+```
+⇒ 正控制：注入 1500ms 迟到的 seam，等待真的等满 1500ms 后才就绪，随后真实写入 `wrote=true`（这个界不是恒绿）；负控制：seam 根本不发时等待**不**报就绪（配合变异 C/D，缺席仍红）。承重语义未削弱：飞行中改名仍经进程**真实**的 `writeRaw` 发出，`wrote` 断言逐字保留在 `:680` 同一句。
+
+**AC6 — 静态门。** `npx tsc --noEmit -p server/tsconfig.json` exit 0；`npm run lint` exit 0（仅存量 warning）。`git diff --name-status develop...HEAD` 仅判据文件与 `tasks/gap-claude-resident-name-mirror-in-lane-seam-failure.md`，均在 `## Touches` 内；未加 `retries`、未 `skip`、未改判据命令。
+
+**未改生产侧。** 读数显示 seam **会发**（改后 `providerSessionId=set`；改前红态里它也只是在断言瞬间未及可读），只是**来晚**，因此修点落在判据侧的有界等待；`claude-host-driver.provider.ts` 最终未改动（仍在 `## Touches` 内，因为它是 seam 的生产落点、也是变异 D 的落点）。
