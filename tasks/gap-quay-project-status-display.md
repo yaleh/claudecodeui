@@ -72,3 +72,13 @@ extra:
 - src/shared/api.ts
 - src/shared/types.ts
 - tasks/gap-quay-project-status-display.md (self-touch)
+## Needs-Human
+
+**执行 2026-10-01T18:02:27.105Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: not ok - suite-watchdog: terminated by an external signal before the suite finished — see the report above
+- run_id：wk-prod-anchor
+- session_id：dc306ba1-0b90-4a8f-8429-654e24014e9b
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-quay-project-status-display~wk-prod-anchor~1790877701023-ef8b7f.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-quay-project-status-display-wk-prod-anchor.log

@@ -323,6 +323,7 @@ the verdict naming the missing item and carrying the actual argv on the same lin
 | `QUAY_VITEST_HEAP_MB` | `4352` | layer 1 — the per-worker V8 heap ceiling in `vitest.config.ts`; `off` (or `0`) adds no `--max-old-space-size` at all, which is the unguarded control `--falsify` needs |
 | `QUAY_MEMORY_MAX` | `24G` | layer 2 — the cgroup `MemoryMax` applied by `scripts/with-memory-cap.sh`; `off` runs uncapped |
 | `QUAY_MEMORY_UNIT` | per-run name | the scope name `scripts/test.sh` gives that cap, so an OOM can be found in the user journal |
+| `QUAY_TEST_SYSTEMD_RUN_LIMITS` | `24G` (set by `start-drivers-scoped.sh`; the **plugin's** own default is `6G`) | the cap the **full-suite runner** puts on its own scope — see [the full-suite runner's own scope](#the-full-suite-runners-own-scope-the-6g-default) |
 | `QUAY_HEAP_CHECK_SKIP_CLEANUP` | unset | test-only: leaves the check script's fixtures on disk so its `夹具残留` verdict branch is reachable. Not a production knob |
 
 An unusable `QUAY_VITEST_HEAP_MB` (neither a positive number nor `off`) warns on stderr and falls
@@ -657,8 +658,40 @@ on the drivers' own scope would not count the tests they spawn. The shared paren
 | Piece | Where | What |
 |---|---|---|
 | `quay-fleet.slice` | `~/.config/systemd/user/quay-fleet.slice` (outside the repo) | `MemoryHigh=48G` throttles first, `MemoryMax=64G` kills, `MemorySwapMax=0` |
-| `scripts/start-drivers-scoped.sh` | this repo | starts `start-drivers.js` under `--slice=quay-fleet.slice`, exports `QUAY_MEMORY_SLICE`; refuses to start if the slice has no `MemoryMax` or drivers already run for this root |
+| `scripts/start-drivers-scoped.sh` | this repo | starts `start-drivers.js` under `--slice=quay-fleet.slice`, exports `QUAY_MEMORY_SLICE` and `QUAY_TEST_SYSTEMD_RUN_LIMITS`; refuses to start if the slice has no `MemoryMax` or drivers already run for this root |
 | `scripts/with-memory-cap.sh` | this repo | honours `QUAY_MEMORY_SLICE`: each per-test scope keeps its own 24G cap **and** counts toward the fleet ceiling |
+
+### The full-suite runner's own scope: the 6G default
+
+The ceiling above does **not** cover the full-suite runner, and the reason is the same non-nesting
+rule that made a slice necessary in the first place. The runner (`plugin/scripts/full-suite-runner.*`)
+wraps the whole suite in its own `systemd-run --user --scope`, created from inside the driver's
+cgroup, so it lands in `app.slice` rather than in `quay-fleet.slice` — the fleet ceiling never backs
+it, and the only thing bounding it is its own cap:
+
+```js
+var DEFAULT_SYSTEMD_RUN_LIMITS = { memoryMax: "6G", cpuQuota: "", tasksMax: "" };
+```
+
+6G is below what the suite needs, and the failure is silent in the way that matters. The server phase
+runs **163** per-file `node --test` processes, **16** at a time (the clamp above), and several of the
+heaviest spawn a real `claude` CLI — measured **306–433MB** RSS each on this host, against a
+`6GiB / 16 = 384MiB` per-slot budget. When the scope is exhausted the kernel kills it, `test.sh`
+prints `not ok - suite-watchdog: terminated by an external signal before the suite finished`, and
+**no failing test file is named** — so the driver's attribution step reports "suite red could not be
+attributed to any failing test file" and parks the task at `needs-human`. Since fan-in is the only
+path by which a task can land, one cap stalls the whole board.
+
+Read the witness, which is not the exit code: the scope unit reports `Result=oom-kill`, and the
+runner writes its own cap to `.quay/suite-cgroup-evidence.txt`
+(`limits_applied=1 memoryMax=6G`). Also check the run's `watchdog-trace.txt` — a real guard fire
+leaves a `suite-watchdog: ABORT …` line, this kill does not.
+
+`start-drivers-scoped.sh` therefore exports `QUAY_TEST_SYSTEMD_RUN_LIMITS` (default
+`MemoryMax=24G`) beside `QUAY_MEMORY_SLICE`, so **both wrappers around the one suite agree**: 24G is
+already what `scripts/with-memory-cap.sh` budgets for it (`QUAY_MEMORY_MAX`). It must be in the
+**anchor's** environment, because the suite is spawned from the driver that inherits it — changing it
+requires restarting the drivers, not just re-running a test.
 
 The numbers are provisional. Read `memory.peak` of the slice after a day of real use and re-set them;
 the largest single pane peak seen before this was 26G. The host is shared (kai, tom, vince, zhengji
