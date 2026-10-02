@@ -67,9 +67,13 @@ depends_on:
 
 （本 agent ⛔ 不写 goal-store、⛔ 不翻任何状态、⛔ 不改 `goals/*.md`；本任务的产品是提案，不是状态变更。）
 
+## Resolution
+
+人于 2026-10-02 裁定采纳选项 1：新增 `goals/AC-208-*.md`（`goal: GOAL-016`，`criterion` 逐字为 `npx vitest run src/modules/chat/tests/workSegmentCollapsedTitle.test.tsx`）并把它加进 GOAL-016 的 `## 退出条件`；本任务随后可被派发实现。裁定结论：采纳 AC-208。红态为预期起点（该判据文件尚不存在，命令现读数为 `No test files found, exiting with code 1`）。
+
 ## AC
 
-- [ ] AC1 人已裁定「给裁定人的两个选项」之一，裁定结论记入本任务 `## Resolution`；选 2 则本任务撤回，不得派发。
+- [x] AC1 人已裁定「给裁定人的两个选项」之一，裁定结论记入本任务 `## Resolution`；选 2 则本任务撤回，不得派发。
 - [ ] AC2（若裁定选 1）新增 `goals/AC-208-*.md` 记录存在，`criterion` 逐字为 `npx vitest run src/modules/chat/tests/workSegmentCollapsedTitle.test.tsx`、`goal: GOAL-016`，且 GOAL-016 的 `## 退出条件` 小节新增一行 `- AC-208 …`（经授权的 goal 写入路径，⛔ 非本 agent）。
 - [ ] AC3（若裁定选 1）实施后判据绿：`npx vitest run src/modules/chat/tests/workSegmentCollapsedTitle.test.tsx` 退出 0。红态基线（本轮实测）：该文件不存在，同一命令读数是 `No test files found, exiting with code 1`。
 - [ ] AC4（读数 i）三读数齐备且非退化：`-t "collapsed title carries action, count and elapsed"` 退出 0 —— 折叠头对固定夹具段（≥3 成员，含 thinking / 工具 / 子代理容器）同时暴露 a) 当前动作 = 段内**末成员**的动作标签（与成员自身既有渲染同一口径），b) 计数 = 段内成员数，c) 耗时 ≥ 0；三者都从 segment 派生，不是常量。
