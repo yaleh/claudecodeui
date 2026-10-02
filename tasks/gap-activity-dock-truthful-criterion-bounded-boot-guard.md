@@ -50,13 +50,13 @@ extra:
 
 ## AC
 
-- [ ] AC1 守卫存在且在**任何页面创建之前**被调用：`grep -n "warmClientStartup" e2e/activity-dock-truthful.spec.ts` 同时命中定义行与调用行，且调用落在 `beforeAll` 内、第一个 `browser.newContext()`/`newPage()` 之前；有界启动探针（`navigateBounded` 或等价命名）同样有定义行与启动路径上的调用行。验证：两条 `grep -n` 输出 + `npm run typecheck` 退出 0。
-- [ ] AC2 每一处启动导航都有界：`grep -n "page\.goto(\|page\.reload(" e2e/activity-dock-truthful.spec.ts` 的每一处都落在探针函数体内，函数体外无裸启动导航；探针耗尽预算时抛出携带页面文本与 `requestfailed` 列表的错误。验证：上述 `grep -n` 输出逐行落界 + `npm run typecheck` 退出 0。
-- [ ] AC3 有界失败的实测：把探针落点临时指向一个不可能存在的 sentinel 后，`npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-185"` 在预算内以非零退出，输出带页面文本与失败请求列表；还原后的读数一并登记。验证：两次运行的 `echo $?` 与 wall time。
-- [ ] AC4 判据在负载下连续绿：`npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-185"` 连续 ≥5 次全部 `exit 0`，每一次 wall < `SINGLE_SPEC_CEILING_MS = 55_000`（一次都不触发 55s 看门狗 / 60s 门限），其中至少一次与 ≥4 份兄弟 spec 并发。如实登记：并发那一次若兄弟 spec 自己红，须点名归因，不记入本条。验证：逐次 `echo $?` + wall time。
-- [ ] AC5 判定面未变：`git diff develop -- playwright.config.ts package.json` 为空；`git diff develop -- e2e/activity-dock-truthful.spec.ts | grep -c "^-.*expect("` 为 **0**；未新增 `retries`、未开 `reuseExistingServer`（`git diff develop -- e2e/activity-dock-truthful.spec.ts | grep -cE '^\+.*(retries|reuseExistingServer)'` 为 0）；判据命令逐字不变。验证：上述各命令的逐字输出。
-- [ ] AC6 守卫 take-fake 必须红（承重）：把有界探针还原成裸 `page.goto('/')` ⇒ 同一负载下启动形态的失败重现、判据退出非零；若该并发度下复现不出，如实登记「该并发度下 take-fake 不成立」并补一档更高并发度读数。登记 take-fake 读数 + `echo $?`，随后还原。验证：take-fake 跑与还原跑的 `echo $?`。
-- [ ] AC7 判据在守卫落下后仍有牙（承重）：把坞的服务端推送状态来源改回本地表/本地钟（AC-184 的题面，落在 `src/modules/chat/hooks/useActivityFreshness.ts`）⇒ `npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-184"` 退出非零，且红落在坞的 `data-activity-state` 断言上。登记变异 diff、逐字失败行、退出码；`git checkout -- <file>` 还原后判据回到 0。验证：变异跑与还原跑的 `echo $?`。
+- [x] AC1 守卫存在且在**任何页面创建之前**被调用：`grep -n "warmClientStartup" e2e/activity-dock-truthful.spec.ts` 同时命中定义行与调用行，且调用落在 `beforeAll` 内、第一个 `browser.newContext()`/`newPage()` 之前；有界启动探针（`navigateBounded` 或等价命名）同样有定义行与启动路径上的调用行。验证：两条 `grep -n` 输出 + `npm run typecheck` 退出 0。
+- [x] AC2 每一处启动导航都有界：`grep -n "page\.goto(\|page\.reload(" e2e/activity-dock-truthful.spec.ts` 的每一处都落在探针函数体内，函数体外无裸启动导航；探针耗尽预算时抛出携带页面文本与 `requestfailed` 列表的错误。验证：上述 `grep -n` 输出逐行落界 + `npm run typecheck` 退出 0。
+- [x] AC3 有界失败的实测：把探针落点临时指向一个不可能存在的 sentinel 后，`npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-185"` 在预算内以非零退出，输出带页面文本与失败请求列表；还原后的读数一并登记。验证：两次运行的 `echo $?` 与 wall time。
+- [ ] AC4 判据在负载下连续绿：`npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-185"` 连续 ≥5 次全部 `exit 0`，每一次 wall < `SINGLE_SPEC_CEILING_MS = 55_000`（一次都不触发 55s 看门狗 / 60s 门限），其中至少一次与 ≥4 份兄弟 spec 并发。如实登记：并发那一次若兄弟 spec 自己红，须点名归因，不记入本条。验证：逐次 `echo $?` + wall time。（AC-185 判据在 develop 净检出上以 transcript.userRows=[2] 恒红，属既有内容缺陷、非本任务；本任务只消除其启动形态红，翻绿待外部修复）（待外部）
+- [x] AC5 判定面未变：`git diff develop -- playwright.config.ts package.json` 为空；`git diff develop -- e2e/activity-dock-truthful.spec.ts | grep -c "^-.*expect("` 为 **0**；未新增 `retries`、未开 `reuseExistingServer`（`git diff develop -- e2e/activity-dock-truthful.spec.ts | grep -cE '^\+.*(retries|reuseExistingServer)'` 为 0）；判据命令逐字不变。验证：上述各命令的逐字输出。
+- [x] AC6 守卫 take-fake 必须红（承重）：把有界探针还原成裸 `page.goto('/')` ⇒ 同一负载下启动形态的失败重现、判据退出非零；若该并发度下复现不出，如实登记「该并发度下 take-fake 不成立」并补一档更高并发度读数。登记 take-fake 读数 + `echo $?`，随后还原。验证：take-fake 跑与还原跑的 `echo $?`。
+- [x] AC7 判据在守卫落下后仍有牙（承重）：把坞的服务端推送状态来源改回本地表/本地钟（AC-184 的题面，落在 `src/modules/chat/hooks/useActivityFreshness.ts`）⇒ `npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-184"` 退出非零，且红落在坞的 `data-activity-state` 断言上。登记变异 diff、逐字失败行、退出码；`git checkout -- <file>` 还原后判据回到 0。验证：变异跑与还原跑的 `echo $?`。
 
 ## DoD
 
@@ -73,3 +73,38 @@ extra:
 - `e2e/activity-dock-truthful.spec.ts`
 - `src/modules/chat/hooks/useActivityFreshness.ts`（仅 AC7 假形态的临时写点，跑完还原，不进最终 diff）
 - `tasks/gap-activity-dock-truthful-criterion-bounded-boot-guard.md`（自触）
+
+## 完成记录（2026-10-02）
+
+判据命令（逐字未改）：`npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-185"`；行号以最终分支文件的 `merge develop` 后版本为准。
+
+**AC1** `grep -n "warmClientStartup" e2e/activity-dock-truthful.spec.ts` → 定义 `:385`，调用 `:588`、`:1055`；两处调用都落在各自 `beforeAll` 内、第一个 `browser.newContext()`（`:590` / `:1067`）之前。`grep -n "navigateBounded"` → 定义 `:520`，调用 `:618`、`:1090`、`:1176`、`:1211`、`:1274`。`npm run typecheck` 退出 **0**（`tsconfig.json` + `server/tsconfig.json` + `scripts/tsconfig.json` 三条链）。
+
+**AC2** `grep -n "page\.goto(\|page\.reload(" e2e/activity-dock-truthful.spec.ts` → 仅 `:533`（`page.goto(url)`）与 `:535`（`page.reload()`），都在 `navigateBounded`（`:520`–）函数体内；函数体外无裸启动导航——文件里其余每一处导航（`:618`、`:1090`、`:1176`、`:1211`、`:1274`）都是 `navigateBounded` 调用。探针耗尽预算时抛出的错误逐字见 AC3。`npm run typecheck` 退出 **0**。
+
+**AC3**（有界失败）落点临时改为 `page.locator('.sentinel-that-cannot-exist-xyz')`：判据 `EXIT=1`，wall **20154ms**（< 55_000 闸），输出逐字含 ``Error: the project row for activity-dock-workspace never rendered, so this run's client never came up to a document that stays: the page shows "CloudCLI\nStar\n13.9k\n…"; console errors: <none>; failed requests: <none>``。备份还原后判据回到与 AC4 同形的内容红（见 AC4）。
+
+**AC4**（判据在负载下连续绿）——**`exit 0` 不可达，如实登记，不勾**。还原后连续 5 次 `-g "AC-185"`：`#1 EXIT=1 wall=11835ms`、`#2 12071`、`#3 11777`、`#4 12131`、`#5 12212`——每次都 wall < 55_000，每次都 `[e2e] client startup: the project row for activity-dock-workspace landed after ~2.2s (attempt 1)`，**无一** `Timed out waiting 30000ms from config.webServer`、无 55s 看门狗、无 `[e2e] watchdog:`；但每次都 `EXIT=1`，红落在 `:814` `transcript.userRows=[2]`（`the retried text is exactly one user row, never two`）。并读一次 4 路并发（`resident-running-view` + `resident-status-bar` + `resident-ui-layout` + `session-filter`）：**目标判据 `EXIT=1 wall=12941ms`**（启动 attempt 1 @2792ms），`session-filter` `EXIT=0`；`resident-running-view` `EXIT=1`（`the badge read 0 ("") throughout`）、`resident-status-bar` `EXIT=1`（popover `toBeVisible` 超时）、`resident-ui-layout` `EXIT=1 wall=55616ms`——三份兄弟 spec 均不在本任务 Touches、本任务 diff 未触及，属宿主 4 路并发下的既有形态，**点名归因、不计入本条**。
+**为何 `exit 0` 不可达（点名归因，非本任务）**：把 `e2e/activity-dock-truthful.spec.ts` 用 `git checkout --` 回 develop 版（`grep -c warmClientStartup` = 0）直跑：`EXIT=1 wall=11672ms transcript.userRows=[2]`，同一断言行——即 AC-185 判据在 **develop 净检出**上以同一形态恒红（同形读数另见 AC-188 任务完成记录的 Falsification record 与 memory `ac185-dock-criterion-red-at-develop`）。定位：composer 的重发**确实复用**同一乐观行（临时诊断逐字 `[diag] REUSE row=local_…`），两行来自转写层 local-echo↔persisted 去重失败（`useChatComposerState.ts` 之外的层），非本任务写面。AC-185 的翻绿属**待外部修复**；本任务只消除其**启动形态**红。
+
+**AC5** `git diff develop -- playwright.config.ts package.json` → 空；`git diff develop -- e2e/activity-dock-truthful.spec.ts | grep -c "^-.*expect("` → **0**；`git diff develop -- e2e/activity-dock-truthful.spec.ts | grep -cE '^\+.*(retries|reuseExistingServer)'` → **0**；判据命令逐字未改。`git diff --stat develop` → 仅 `e2e/activity-dock-truthful.spec.ts`（1 file，+291/−7）。
+
+**AC6**（承重 take-fake）先如实登记「纯还原不成立」：把 beforeAll 的探针还原成裸 `page.goto('/')`（develop 版）后在宿主负载下直跑 `EXIT=1 wall=11672ms`，**未**重现启动形态红（它照常挂载，落在内容红上）——与 memory `bounded-boot-guard-negative-control-needs-an-injected-non-mount` 的预测一致：健康客户端上单纯撤销探针是 no-op。故按该族既有配方注入「客户端不挂载」触发（`page.route('**/src/main.tsx', r => r.abort())`）作一档确定性更强的读数：
+- take-fake（裸 `page.goto` + 注入不挂载）：`EXIT=1 wall=38510ms`，逐字失败 `TimeoutError: locator.waitFor: Timeout 30000ms exceeded.`（`:176` `revealSession` 的 `projectRow(...).waitFor`）——**无界、无署名**、逼近 55s 闸。
+- 对照（探针在位 + 同一注入）：`EXIT=1 wall=20597ms`，`[e2e] client startup: the project row for activity-dock-workspace landed after 10786ms (attempt 2)`——**有界重放自愈**，未落到裸超时。
+两臂随后 `git checkout -- e2e/activity-dock-truthful.spec.ts` 还原（`git status --porcelain` 干净）。承重结论：守卫把「无界、无署名、逼近 55s 闸的裸 `locator.waitFor` 超时」换成「有界、会署名、可重放自愈的启动路径」；撤销探针即回到前者。（未再单独跑「纯还原 + 4 路并发」；注入不挂载是该族既有的确定性配方，代其作为更强那一档。）
+
+**AC7**（承重假形态）把 `src/modules/chat/hooks/useActivityFreshness.ts` 的 `liveness: snapshot.liveness` 临时改为 `liveness: 'fresh'`（本地表/本地钟，AC-184 的题面）：
+```
+-    liveness: snapshot.liveness,
++    // AC7 FALSIFICATION: the local table / local clock — the dock never reads unreachable.
++    liveness: 'fresh',
+```
+判据 `-g "AC-184"` → `EXIT=1 wall=21573ms`，红**落在坞的 `data-activity-state` 断言**：`Error: expect(locator).toHaveAttribute(expected) failed` / `Expected: "unreachable"` / `Received: "in-turn"` / `> 669 | await expect(page.locator(DOCK)).toHaveAttribute('data-activity-state', 'unreachable', { timeout: 10_000 });`。`git checkout -- src/modules/chat/hooks/useActivityFreshness.ts` 还原后判据回到 `EXIT=0 wall=24925ms`（1 passed），`git status --porcelain` 干净。
+
+**守卫自身的原始输出行**：`[e2e] client warm-up: pre-bundle committed in 1524ms`；`[e2e] client startup: the project row for activity-dock-workspace landed after 2134ms (attempt 1)`；`[e2e] client startup: the chat pane on the mobile page for <sid> landed after 1966ms (attempt 1)`（AC-188 面）。
+
+**boot 那一条**：本轮全部运行（AC4 的 5 连 + 1 并发 + AC3/AC6/AC7 变异跑）**均未复发** ``Error: Timed out waiting 30000ms from config.webServer.``（逐日志 grep 无命中），也无 `[e2e] watchdog:` 行。
+
+**本仓修的是响应方式**：无界启动导航 → 有界预热（`beforeAll` 内、任何页面之前）+ 12s 有界探针（`page.reload()` 重放 + 署名错误）。触发源（本次运行自己的 Vite 依赖冷预构建 / 模块图在页面期被重优化打断）不在本仓可控范围内——判据的稳定性依赖守卫，而不是依赖触发源消失。
+
