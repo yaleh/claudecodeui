@@ -1,7 +1,7 @@
 ---
 id: gap-work-segment-lossless-expand-set-equality
 title: AC-203 段记录折叠态零信息丢失：展开全部段后的行键集合与合并前逐键相等
-status: needs-human
+status: todo
 labels:
   - gap
 parent: null
