@@ -740,6 +740,15 @@ test('status bar does not cover the transcript', async ({ browser }) => {
  * over the popover. What it does prove is that the button is reachable at both viewports, that a
  * real click closes the host, and that the hit reading itself would go red if anything covered it.
  *
+ * Where the reading is anchored now, and why that is all that moved. `ad1bb63a` consolidated the
+ * resident status bar into the activity dock and re-pointed two specs; this one was left addressing
+ * markers that no longer exist, so its first positive wait timed out and nothing was ever measured.
+ * The product guarantee is untouched — the same `ResidentPanel` still publishes Start / Address /
+ * Copy / Close, and the close still goes through the same host-manager route — so the repair is on
+ * the instrument: the dock root and its toggle for the surfaces, the panel's own root for the popover
+ * anchor, an expanded-panel-first ordering (the controls are inside the panel now), and the Start
+ * control's disappearance for the readiness signal the retired state attribute used to give.
+ *
  * Why a reading and not an assertion about classes. "Clipped by the scroll container" and "painted
  * under the composer" are two different defects with two different fixes, and CSS `z-index` alone
  * cannot tell them apart. So the first thing this half does is *measure*: the close button's box,
@@ -761,7 +770,20 @@ test('status bar does not cover the transcript', async ({ browser }) => {
  * Close is finally clicked.
  * ═══════════════════════════════════════════════════════════════════════════════════════════════ */
 
-const TRIGGER = '[data-resident-status-bar-trigger]';
+/**
+ * The control that opens the resident panel, and the surface that panel is drawn in.
+ *
+ * `ad1bb63a` merged the resident status bar into the activity dock: the bar's own trigger
+ * (`[data-resident-status-bar-trigger]`) and its dialog root are gone, and the dock publishes the
+ * equivalent pair — `[data-activity-dock-toggle="true"]` for the control (rendered only while
+ * `persistWhenIdle` is true, which is exactly the resident-only gate the old bar had) and
+ * `[data-activity-dock-panel="true"]` wrapping `ResidentPanel`, whose own root is
+ * `[data-resident-panel="true"]`. This is a re-anchoring of the reading, not a product change: the
+ * Start / Address / Close controls the criterion clicks are the same ones, published by the same
+ * component, now inside the dock's expanded panel.
+ */
+const TRIGGER = '[data-activity-dock-toggle="true"]';
+const PANEL = '[data-resident-panel="true"]';
 const START = '[data-resident-start]';
 const ADDRESS = '[data-resident-address]';
 const CLOSE = '[data-resident-close]';
@@ -906,9 +928,20 @@ function measure(page: Page): Promise<Reading> {
     };
 
     const close = document.querySelector('[data-resident-close]');
-    const popover = close?.closest('[role="dialog"]') ?? null;
+    // The panel's root is `[data-resident-panel="true"]` since the dock consolidation: the popover is
+    // no longer an ARIA dialog, it is this panel rendered inside the dock's expanded body.
+    const popover = close?.closest('[data-resident-panel="true"]') ?? null;
     const pane = document.querySelector('.chat-messages-pane');
-    const composer = document.querySelector('.chat-composer-shell');
+    // The composer's own input form, not the whole `.chat-composer-shell`.
+    //
+    // This is the reading's discrimination, so it has to name the surface that can actually take the
+    // pointer away from the Close button. After the consolidation the dock *is* drawn inside
+    // `.chat-composer-shell` (the shell is the root at ChatComposer, and the dock is an
+    // `absolute bottom-full` layer within it), so asking whether the hit landed anywhere in the shell
+    // answers "yes" by construction — a red that could never be green. The form (`PromptInput`'s
+    // `<form>`) is the input area proper: if it ever stacked over the Close button the hit would land
+    // on a descendant of it, which is the defect this leg is here to catch.
+    const composer = document.querySelector('.chat-composer-shell form');
     const notice = document.querySelector('[data-slot="resident-consent-notice"]');
     const closeBox = rect(close);
     const hitEl = closeBox
@@ -1027,8 +1060,14 @@ test.describe('resident ui layout', () => {
   });
 
   test('the popover close is reachable at a narrow viewport and closes the process', async () => {
+    // The resident surface this criterion reads. The status bar that used to draw it was merged into
+    // the activity dock (`ad1bb63a`), so the dock's own root is what has to be on screen before
+    // anything below is measured. This deliberately shadows the module-level `BAR`: the AC-179 arm
+    // still addresses the shared constant, and only this criterion's reading is re-anchored.
+    const BAR = '[data-activity-dock]';
+
     // The failing viewport, set before the session is opened so the transcript, the composer and
-    // the bar are all laid out at it — the state the report was taken in.
+    // the dock are all laid out at it — the state the report was taken in.
     await page.setViewportSize(NARROW);
     await revealSession(page, workspaceName, sessionId);
     await sessionRow(page, sessionId).click();
@@ -1042,17 +1081,27 @@ test.describe('resident ui layout', () => {
     // button. The control after the narrow reading (an element injected over the popover) is what
     // proves the reading can still say no.
 
-    // Start the process through the bar's own control, so the host this criterion closes is one the
+    // The panel first, the controls inside it second. The consolidation moved the resident controls
+    // into the dock's expanded body (`persistWhenIdle && panelOpen`), so there is no Start to click
+    // until the panel is open. `panelOpen` is component state, not a derived value, so clicking Start
+    // and walking the clock below do not close it again.
+    await page.locator(TRIGGER).click();
+    await expect(page.locator(PANEL)).toBeVisible({ timeout: 10_000 });
+
+    // Start the process through the panel's own control, so the host this criterion closes is one the
     // product opened rather than one this file wrote.
     await page.locator(START).click();
-    await expect(page.locator(BAR)).toHaveAttribute('data-resident-ui-state', 'idle', { timeout: 15_000 });
+    // The readiness signal, replacing the state attribute the retired status bar used to publish: the
+    // Start control is drawn only while this session has no live host, so its disappearance is the
+    // same "the process is up" fact that attribute carried. A bounded wait on the DOM, never a
+    // `waitForTimeout` — a sleep here would turn the race it is meant to close back into a race.
+    await expect(page.locator(START)).toHaveCount(0, { timeout: 15_000 });
 
-    // The walk, awaited before the popover is read: `identity` runs at its own zero, and the one
+    // The walk, awaited before the panel is read: `identity` runs at its own zero, and the one
     // second that follows is short enough to sit inside the budget.
     const clock = await api.post('/api/debug-agent/clock', { data: { sessionId } });
     expect(clock.ok(), `the scenario walk must complete: ${clock.status()}`).toBe(true);
 
-    await page.locator(TRIGGER).click();
     await expect(page.locator(ADDRESS)).toBeVisible({ timeout: 10_000 });
     await expect(page.locator(ADDRESS)).not.toBeEmpty({ timeout: 10_000 });
     const address = (await page.locator(ADDRESS).innerText()).trim();
@@ -1121,6 +1170,7 @@ test.describe('resident ui layout', () => {
       document.querySelector('[data-e2e-falsifier="cover"]')?.remove();
     });
     const uncovered = await measure(page);
+    console.log(`uncovered.isClose=${String(uncovered.isClose)}`);
     expect(uncovered.isClose, 'with the injected element removed the reading must hit the button again').toBe(true);
 
     // --- the positive control viewport (AC4) ----------------------------------------------------
