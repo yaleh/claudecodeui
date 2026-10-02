@@ -59,6 +59,12 @@ goal_ac: AC-187
 - 遵守 `.agents/skills/backend-module-standards/SKILL.md`（server/）与 `.agents/skills/frontend-module-standards/SKILL.md`（src/）。
 - 只动 `## Touches` 列出的文件；若实现确实需要动别的文件，先把该文件加进 `## Touches` 再写。
 
+## Evidence — 本轮 suite 红的真因（已在本分支修复）
+
+上一轮 fan-in 的 suite 以单文件红收场：`server/modules/session-hosts/tests/session-host-per-run-parity.test.ts` 的 AC4（与 `fixtures/per-run-frame-baseline.json` 逐字节比帧）。真因是本条把 `phase`/`toolName` 合进 `activityAnnouncement`（`server/modules/websocket/services/activity-heartbeat.service.ts`），该公告经 `chat-websocket.service.ts` 展开到 `chat_subscribed` hello 帧；而 AC-155 的基线录制于 host wrapper 之前、provenance 禁重录，不可能持有这两个键。保留日志（`.quay/suite-logs/20261002T180717-1886218/…per-run-parity.test.ts.out`）逐字失败行：`claude/replay: frame differs at #0: baseline {…"pendingPermissions":[]} live {…"pendingPermissions":[],"phase":"idle","toolName":null}`。
+
+修法沿用同族任务 `gap-activity-heartbeat-server-frames` 处理 `bootId`/`rev`/`heartbeatIntervalMs`/`unreachableAfterMs` 的同一处：把这组 activity 公告字段加进 `server/modules/session-hosts/tests/per-run-frame-scenarios.ts` 的 `UNSTABLE_FRAME_FIELDS`。读数：修前该文件 4/5（AC4 红，`EXIT=1`），修后 5/5 绿、`EXIT=0`。
+
 ## Touches
 
 - e2e/activity-dock-truthful.spec.ts
@@ -90,4 +96,5 @@ goal_ac: AC-187
 - src/modules/i18n/locales/id/chat.json
 - src/modules/i18n/locales/ru/chat.json
 - src/modules/i18n/locales/tr/chat.json
+- server/modules/session-hosts/tests/per-run-frame-scenarios.ts
 - tasks/gap-activity-dock-phase-truthful.md（自触）
