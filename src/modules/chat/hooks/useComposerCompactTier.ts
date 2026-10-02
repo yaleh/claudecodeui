@@ -22,6 +22,27 @@ import { useDeviceSettings } from '@/shared/hooks/useDeviceSettings';
  */
 export const COMPACT_TIER_WIDTH_PX = 800;
 
+/**
+ * The box width, in CSS pixels, at or above which a short viewport may draw the composer's controls
+ * *beside* the input instead of below it.
+ *
+ * The two axes are not symmetric on a phone held sideways. Height is what is scarce — the measured
+ * budget at 844x330 was a 57px header, a 147px composer and 126px left for the transcript — while
+ * width is abundant: the same viewport hands the composer a 763px box, and the six controls the
+ * compact row carries measure 254px of it including their gaps. Stacking them costs the transcript
+ * a whole row (57px, ~17% of the screen) to buy nothing, so on this tier they move up beside the
+ * input and the row's height becomes the textarea's own.
+ *
+ * 480 is the floor rather than the target: it leaves 254px of controls and a still-usable ~200px of
+ * input inside it. Below that — the sidebar open on the same landscape phone, where the box falls to
+ * roughly 500px and can go narrower still — the stacked arrangement is kept, because a squeezed
+ * input is worse than a squeezed transcript for the user who opened the panel on purpose.
+ *
+ * Read by `useComposerCompactTier` below and by the hook's own test, which takes both of its
+ * threshold cells from this one value.
+ */
+export const INLINE_TOOLS_MIN_BOX_PX = 480;
+
 /** The box to measure, and the arrangement the caller draws for it. */
 type ComposerCompactTier = {
   /**
@@ -35,6 +56,11 @@ type ComposerCompactTier = {
   containerRef: MutableRefObject<HTMLFormElement | null>;
   /** True when the footer must take the compact arrangement. */
   isCompactTier: boolean;
+  /**
+   * True when the controls may be drawn beside the input rather than below it: a viewport too short
+   * to spend a row on them, inside a box wide enough to hold both.
+   */
+  areToolsInline: boolean;
 };
 
 /**
@@ -50,8 +76,10 @@ type ComposerCompactTier = {
  * the structure the window rule alone produced.
  */
 export function useComposerCompactTier(): ComposerCompactTier {
-  // The viewport signal, read through the same hook the rest of the app uses for `md`.
-  const { isMobile } = useDeviceSettings();
+  // The viewport signals, read through the same hook the rest of the app uses for `md`. Both are
+  // needed here: the width decides whether the row's controls fit side by side, the height whether
+  // the row may be spent at all.
+  const { isMobile, isShortViewport } = useDeviceSettings();
   const containerRef = useRef<HTMLFormElement | null>(null);
   // The box's last measured width, or null while it has never been measured. State rather than a
   // value read during render because the box can change without the window changing — opening the
@@ -80,6 +108,17 @@ export function useComposerCompactTier(): ComposerCompactTier {
   }, []);
 
   const boxIsNarrow = boxWidth !== null && boxWidth > 0 && boxWidth < COMPACT_TIER_WIDTH_PX;
+  const boxFitsInlineTools = boxWidth !== null && boxWidth >= INLINE_TOOLS_MIN_BOX_PX;
 
-  return { containerRef, isCompactTier: isMobile || boxIsNarrow };
+  // A short viewport takes the inline row only once the box has been measured and is wide enough
+  // for it. An unmeasured box stays stacked for the same reason it stays on the window rule above:
+  // the first render must not draw an arrangement the box turns out not to have room for, and the
+  // observer's first measurement arrives before anything is painted.
+  const areToolsInline = isShortViewport && boxFitsInlineTools;
+
+  return {
+    containerRef,
+    isCompactTier: isMobile || isShortViewport || boxIsNarrow,
+    areToolsInline,
+  };
 }

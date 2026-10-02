@@ -235,7 +235,17 @@ export default function SidebarContent({
         t={t}
       />
 
-      <ScrollArea className="flex-1 overflow-y-auto overscroll-contain md:px-1.5 md:py-2">
+      <ScrollArea
+        className="flex-1 overflow-y-auto overscroll-contain md:px-1.5 md:py-2"
+        // Room for the project header, which `SidebarProjectItem` pins to the top of this same
+        // scrollport. Everything below it that the browser scrolls to — a session row reached by
+        // Tab, and the controls inside that row, since focus lands on the row's own buttons too —
+        // would otherwise come to rest underneath an opaque header. Scroll padding is set on the
+        // viewport precisely because it covers every descendant; a scroll margin on the rows would
+        // cover only the rows. The value is the header's own height (a `p-2` row carrying a title
+        // and a path, measured at 52px) rounded up.
+        viewportClassName="scroll-pt-14"
+      >
         {showConversationSearch ? (
           isSearching && !conversationResults ? (
             <div className="px-4 py-12 text-center md:py-8">

@@ -155,6 +155,53 @@ const DESKTOP_VIEWPORTS = [
  */
 const COMPACT_TIER_WIDTH_PX = 800;
 
+/**
+ * The viewport *height* below which the layout takes the short tier, mirrored from `SHORT_VIEWPORT_MAX_HEIGHT_PX` in
+ * `src/shared/hooks/useDeviceSettings.ts`.
+ *
+ * Restated rather than imported for the same reason as the width above: a drift in the constant becomes a reading in
+ * this file instead of moving every cell with it.
+ */
+const SHORT_TIER_MAX_HEIGHT_PX = 480;
+/**
+ * The header's computed top padding on the short tier.
+ *
+ * A third value rather than either side of the 768 pair above, and it is asserted for the same reason that pair is:
+ * `MOBILE_HEADER_MAX` is a bound, and a bound cannot see which CSS branch produced the number. This is the branch.
+ */
+const SHORT_HEADER_PADDING_TOP = '4px';
+/**
+ * The share of the viewport the transcript has to keep on the short tier.
+ *
+ * Measured before the tier existed: 126px of 330, which is 38%. The bar sits above that and below what the
+ * arrangement delivers, so it is a reading about the shape rather than about a rounding.
+ *
+ * The two readings it has to clear are not the same number, and the difference is a child of the form rather than
+ * a viewport: a session that is not already resident draws the switch's row above the input, and that row is worth
+ * roughly a tenth of the viewport. The fixture session is one of those, so this cell reads 52%; the same
+ * arrangement on a session that is already resident reads 63%. The bar is set under the first because the reading
+ * has to hold for the sessions that exist, and the cell's log line carries the number so a drift shows up there.
+ */
+const MIN_TRANSCRIPT_SHARE = 0.5;
+/**
+ * The narrowest the input may be squeezed to on the short tier before "beside the controls" has stopped being
+ * true. Set below anything the measured viewports produce (the narrowest is ~186px at 844 with the sidebar open)
+ * and far above the 0px a collapsed column reports, which is the failure it exists to name.
+ */
+const MIN_INPUT_WIDTH = 120;
+/**
+ * The landscape phone viewports.
+ *
+ * Kept out of `MOBILE_VIEWPORTS` on purpose: every cell in that loop asserts the *mobile* header padding and the
+ * mobile workspace selector, and these viewports are neither — 667 and 844 both clear the composer's `sm` boundary,
+ * and 844 clears `md` as well, so the markup is the desktop's and only the height is a phone's. That combination is
+ * the whole reason the short tier exists, and no existing loop in this file contains it.
+ */
+const SHORT_VIEWPORTS = [
+  { width: 667, height: 375 },
+  { width: 844, height: 330 },
+];
+
 /** The box the composer is handed, or null when no footer was found. */
 const footerBoxWidth = (cell: CellReading): number | null => cell.footer?.clientWidth ?? null;
 
@@ -330,12 +377,24 @@ type FooterBox = BoxRect & { clientWidth: number; scrollWidth: number };
 
 type CellReading = {
   innerWidth: number;
+  /** The viewport's other axis. Read for the short tier, and printed so a cell that meant to be short can prove it was. */
+  innerHeight: number;
   header: Box;
   headerPaddingTop: string | null;
   footer: FooterBox | null;
   tools: Box;
   right: Box;
   clipRow: Box;
+  /** The transcript's scroll container: the box every other reading on this page is paid for out of. */
+  pane: Box;
+  /** The input's own column. Read because "beside" is a claim about this box giving up width to the controls. */
+  body: Box;
+  /** The input, with the cap that bounds a draft's growth — the only thing bounding it, since JS writes its height. */
+  textarea: (BoxRect & { maxHeight: string | null; scrollHeight: number }) | null;
+  /** The composer's own submit control: the one stop entry below `md`, and the control a long draft pushed off-screen. */
+  submit: Box;
+  /** Whether the composer's own form is laid out as a row, with the controls beside the input rather than under it. */
+  composerIsRow: boolean;
   /**
    * The one activity dock, read at each of its two mount sites.
    *
@@ -374,6 +433,11 @@ const readCell = (page: Page): Promise<CellReading> =>
     const tools = document.querySelector('[data-slot="prompt-input-tools"]');
     const right = footer?.querySelector('div.ml-auto') ?? null;
     const clipRow = document.querySelector('[data-slot="prompt-input-clip-row"]');
+    const form = document.querySelector('form[data-slot="prompt-input"]') as HTMLFormElement | null;
+    const pane = document.querySelector('.chat-messages-pane');
+    const body = document.querySelector('[data-slot="prompt-input-body"]');
+    const textarea = document.querySelector('[data-slot="prompt-input-textarea"]') as HTMLTextAreaElement | null;
+    const submit = form?.querySelector('button[type="submit"]') ?? null;
     const collapsed = header?.querySelector('[aria-haspopup="dialog"]') ?? null;
     const modelButton = document.querySelector('button[aria-label="Select model and reasoning effort"]');
     const modelSpan = modelButton?.querySelector('span.truncate');
@@ -381,6 +445,18 @@ const readCell = (page: Page): Promise<CellReading> =>
 
     return {
       innerWidth: window.innerWidth,
+      innerHeight: window.innerHeight,
+      pane: box(pane),
+      body: box(body),
+      textarea: textarea
+        ? { maxHeight: getComputedStyle(textarea).maxHeight, scrollHeight: textarea.scrollHeight, ...box(textarea)! }
+        : null,
+      submit: box(submit),
+      // The arrangement is named for what it looks like — the controls beside the input — and the
+      // mechanism is a grid, not a flex row: the form has a child that is a line of its own (the
+      // resident switch, on any session that is not already resident), and a flex row seats that
+      // child as its first *column*, taking the width the input was meant to have.
+      composerIsRow: form ? getComputedStyle(form).display === 'grid' : false,
       header: box(header),
       headerPaddingTop: header ? getComputedStyle(header).paddingTop : null,
       footer: footer
@@ -553,7 +629,9 @@ const logCell = (label: string, cell: CellReading): void => {
       ` sameRow=${oneRow(cell)} stacked=${stacked(cell)}` +
       ` stops=${cell.stopNames.length}${JSON.stringify(cell.stopNames)}` +
       ` clipRow=${cell.clipRow ? `${cell.clipRow.top}..${cell.clipRow.bottom}` : 'none'}` +
-      ` tablists=${cell.tablists} innerWidth=${cell.innerWidth}`,
+      ` tablists=${cell.tablists} innerWidth=${cell.innerWidth} innerHeight=${cell.innerHeight}` +
+      ` pane=${cell.pane?.height ?? 'none'}px row=${cell.composerIsRow} body=${JSON.stringify(cell.body)}` +
+      ` ta=${JSON.stringify(cell.textarea)} submit=${JSON.stringify(cell.submit)}`,
   );
 };
 
@@ -914,6 +992,139 @@ for (const viewport of MOBILE_VIEWPORTS) {
         expectReading(cell.dockInTranscript !== null && cell.dockInTranscript.height > 0, `@${width} running: the transcript's mount site must be the one that draws the dock`, cell);
         expectReading(noOverflow(cell), `@${width} running: the footer must not scroll sideways`, cell);
         expectReading(oneRow(cell), `@${width} running: the footer's two control groups must still be one row`, cell);
+      } finally {
+        await context.close();
+      }
+    });
+  });
+}
+
+/* ------------------------------------------------------------------------------------------------------------
+ * Short cells: a phone held sideways, where the chrome that fits a desktop does not fit the screen
+ * --------------------------------------------------------------------------------------------------------- */
+
+for (const viewport of SHORT_VIEWPORTS) {
+  const { width, height } = viewport;
+
+  test.describe(`short viewport (landscape phone) @${width}x${height}`, () => {
+    test.use({ viewport: { width, height }, hasTouch: true, isMobile: true });
+
+    test(`@${width}x${height} — controls beside the input, and the transcript keeps the screen`, async ({ browser }) => {
+      test.setTimeout(90_000);
+      const { context, page } = await openCell(browser, { ...viewport, touch: true, language: MOBILE_LANGUAGE, session: MOBILE_SESSION });
+      try {
+        await settleComposer(page, width);
+        await expectDeclaredWidth(await readCell(page), width);
+
+        const cell = await readCell(page);
+        logCell(`@${width}x${height} short`, cell);
+
+        // Premises, without which every reading below could be of some other layout. The height one matters most:
+        // if the viewport were taller than the tier, the composer would still be the stacked one and this cell
+        // would be measuring the arrangement it was written to distinguish itself from.
+        expectReading(cell.innerHeight === height, `@${width}x${height}: premise — the viewport must really be ${height} tall`, cell);
+        expectReading(
+          cell.innerHeight < SHORT_TIER_MAX_HEIGHT_PX,
+          `@${width}x${height}: premise — ${height} has to be under the ${SHORT_TIER_MAX_HEIGHT_PX}px tier, or this cell reads the tall layout`,
+          cell,
+        );
+        expectReading(
+          width >= 640,
+          `@${width}x${height}: premise — the composer must be past \`sm\`, or the textarea's cap is the narrow one and the cap reading below is about a different rule`,
+          cell,
+        );
+
+        // The branch rather than a bound: 4px is the short tier's own padding and neither value of the 768 pair, so
+        // a header that took the desktop branch at a short viewport fails here and nowhere else in the file.
+        expectReading(
+          cell.headerPaddingTop === SHORT_HEADER_PADDING_TOP,
+          `@${width}x${height}: the header must carry the short tier's own top padding (${SHORT_HEADER_PADDING_TOP}), not either side of the 768 pair`,
+          cell,
+        );
+
+        // The arrangement: one row, the input leading it, and both control groups still sharing a line inside it.
+        expectReading(cell.composerIsRow, `@${width}x${height}: the composer must lay its controls beside the input, not under it`, cell);
+        expectReading(oneRow(cell), `@${width}x${height}: the row's two control groups must still be one row`, cell);
+        expectReading(noOverflow(cell), `@${width}x${height}: the footer must not scroll sideways`, cell);
+        // "Beside" is two claims, and the width one is the load-bearing half. Position alone passes against a
+        // column that collapsed to nothing: the first draft of this cell asserted only `left`, and it went green
+        // in a browser where the input was 0px wide because a form child that is a row of its own — the resident
+        // switch, which only a session that is not already resident draws — had taken the slack as a flex item.
+        // A floor on the input's width is what makes a stray column fail as itself rather than as a control that
+        // happens to sit to its right.
+        expectReading(
+          cell.textarea !== null && cell.footer !== null && cell.textarea.left < cell.footer.left,
+          `@${width}x${height}: the input must be to the left of the controls — the reading that distinguishes "beside" from "under"`,
+          cell,
+        );
+        expectReading(
+          cell.textarea !== null && cell.textarea.width >= MIN_INPUT_WIDTH,
+          `@${width}x${height}: the input must still be a usable column (>=${MIN_INPUT_WIDTH}px) after the controls take theirs — it is ${cell.textarea ? Math.round(cell.textarea.width) : 'none'}px, and a form child that became a column of the row instead of a line of its own is what collapses it`,
+          cell,
+        );
+
+        // The point of the whole tier: the transcript's share of a viewport this short.
+        const share = cell.pane ? cell.pane.height / cell.innerHeight : 0;
+        expectReading(
+          share >= MIN_TRANSCRIPT_SHARE,
+          `@${width}x${height}: the transcript must keep at least ${Math.round(MIN_TRANSCRIPT_SHARE * 100)}% of the viewport; it kept ${Math.round(share * 100)}% (${cell.pane?.height ?? 'none'}px of ${cell.innerHeight})`,
+          cell,
+        );
+
+        // The regression this tier was measured for. Before it, a 20-line draft grew the input to its 300px
+        // `sm:` cap, the composer reached 116% of the viewport, and the submit button sat past the bottom edge
+        // with `html,body{overflow:hidden}` making it unreachable. Nothing above would catch that: it takes a draft.
+        await page.locator('[data-slot="prompt-input-textarea"]').fill(
+          Array.from({ length: 20 }, (_, index) => `draft line ${index + 1}`).join('\n'),
+        );
+        await page.waitForTimeout(400);
+        const drafted = await readCell(page);
+        logCell(`@${width}x${height} short + 20-line draft`, drafted);
+
+        expectReading(
+          drafted.submit !== null && drafted.submit.bottom <= drafted.innerHeight,
+          `@${width}x${height}: with a 20-line draft the submit button must stay inside the viewport — it ends at ${drafted.submit?.bottom ?? 'none'} of ${drafted.innerHeight}`,
+          drafted,
+        );
+        expectReading(
+          drafted.textarea !== null && drafted.textarea.height <= 0.45 * drafted.innerHeight + 1,
+          `@${width}x${height}: the draft must be capped to a share of the viewport (<=45%), not to the desktop's 300px — it is ${drafted.textarea?.height ?? 'none'}px of ${drafted.innerHeight}`,
+          drafted,
+        );
+        expectReading(
+          drafted.textarea !== null && drafted.textarea.scrollHeight > drafted.textarea.height,
+          `@${width}x${height}: premise — the draft has to overflow the capped box, or the cap was never reached and the two readings above are about a short draft`,
+          drafted,
+        );
+        expectReading(
+          drafted.pane !== null && drafted.pane.height / drafted.innerHeight >= 0.4,
+          `@${width}x${height}: even a full draft must leave the transcript 40% of the viewport; it left ${Math.round(((drafted.pane?.height ?? 0) / drafted.innerHeight) * 100)}%`,
+          drafted,
+        );
+
+        // Where the status goes on this tier. It takes a running turn to read at all — an idle session that is
+        // not resident draws no status, so asserting the mount site on the idle reading above would be asserting
+        // the absence of a thing that was never going to be there (which is exactly how the first draft of this
+        // cell failed). The frame is injected last so it cannot move the draft readings above: it turns the
+        // submit into a Stop and the composer into a different control.
+        await page.locator('[data-slot="prompt-input-textarea"]').fill('');
+        const delivered = await injectStatusFrame(page, MOBILE_SESSION);
+        expect(delivered, `@${width}x${height}: the status frame has to reach an open chat socket`).toBeGreaterThan(0);
+        await expect(page.locator('.chat-messages-pane [data-activity-dock]')).toBeVisible({ timeout: 10_000 });
+        await page.waitForTimeout(300);
+
+        const running = await readCell(page);
+        logCell(`@${width}x${height} short + running`, running);
+        expectReading(
+          running.dockInTranscript !== null && running.dockInTranscript.height > 0,
+          `@${width}x${height}: the transcript's mount site must be the one drawing the status — the floating tab would hang over a transcript this short`,
+          running,
+        );
+        expectReading(
+          running.dockInComposer === null || running.dockInComposer.width === 0,
+          `@${width}x${height}: the composer's floating tab must not be drawn on a viewport this short`,
+          running,
+        );
       } finally {
         await context.close();
       }

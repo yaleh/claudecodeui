@@ -8,7 +8,7 @@ import { initReactI18next } from 'react-i18next';
 import { afterEach, beforeEach, test, vi } from 'vitest';
 
 import ChatComposer from '@/modules/chat/composer/ChatComposer';
-import { COMPACT_TIER_WIDTH_PX } from '@/modules/chat/hooks/useComposerCompactTier';
+import { COMPACT_TIER_WIDTH_PX, INLINE_TOOLS_MIN_BOX_PX } from '@/modules/chat/hooks/useComposerCompactTier';
 import enChat from '@/modules/i18n/locales/en/chat.json';
 import type { VoiceClipSlot } from '@/shared/types';
 
@@ -34,6 +34,7 @@ import type { VoiceClipSlot } from '@/shared/types';
 
 /** The box the composer arranges in. */
 const FORM_SELECTOR = 'form[data-slot="prompt-input"]';
+const BODY_SELECTOR = '[data-slot="prompt-input-body"]';
 const FOOTER_SELECTOR = '[data-slot="prompt-input-footer"]';
 /** The left control group: where the replay pair lives on the wide tier. */
 const TOOLS_SELECTOR = '[data-slot="prompt-input-tools"]';
@@ -146,6 +147,21 @@ const installObserver = () => {
 const setViewportWidth = (width: number) => {
   Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: width });
 };
+
+/**
+ * The signal the composer reads for the *height* rule.
+ *
+ * jsdom's own window is 1024x768, which is the tall tier — so every case that does not call this
+ * keeps the arrangement it had before the height tier existed, and the cases below that do call it
+ * are the only ones that can reach the new one.
+ */
+const setViewportHeight = (height: number) => {
+  Object.defineProperty(window, 'innerHeight', { configurable: true, writable: true, value: height });
+};
+
+/** A viewport tall enough that nothing about it is short, and one of each landscape phone's heights. */
+const TALL_HEIGHT = 900;
+const LANDSCAPE_HEIGHT = 330;
 
 /** jsdom implements no media queries; the double answers "no" to all of them, a keyboard device. */
 const installMatchMedia = () => {
@@ -264,9 +280,47 @@ const describeArrangement = (footer: Element) => {
   return `${JSON.stringify(readFooter(footer))} controls: ${names}`;
 };
 
+/**
+ * What the height tier's arrangement is, read from the structure the CSS then lays out.
+ *
+ * Three readings, one branch each: the form becomes the row, the body takes the slack the footer
+ * gave up, and the footer's divider moves from the top edge to the leading edge. A composer that
+ * drew the controls beside the input without moving the divider would read the first and not the
+ * last, and that is not a state this component has — so a cell that asserts only one of them would
+ * pass against a half-applied arrangement.
+ *
+ * The form's own reading is the grid, not a `flex-row`, and that is not a style preference: a
+ * session that is not already resident draws the switch's row above the input, and in a flex row
+ * that row is simply the first column — it took the input's width (0px measured) and the controls
+ * sat where the input should have been. A wrapping row is worse, not better: it breaks its lines
+ * from the items' *content* sizes before shrinking anything, so a wide enough control cluster moved
+ * the input onto a line of its own and the arrangement became the stacked one while still reporting
+ * `display: flex`. Both of those are one class token away from the arrangement this case reads, so
+ * the tokens are what it asserts.
+ */
+const readInlineRow = (form: HTMLFormElement) => {
+  const body = form.querySelector<HTMLElement>(BODY_SELECTOR);
+  const footer = form.querySelector<HTMLElement>(FOOTER_SELECTOR);
+  return {
+    formIsRow: form.classList.contains('grid')
+      && form.classList.contains('grid-cols-[minmax(0,1fr)_auto]')
+      && form.classList.contains('items-end'),
+    bodyTakesSlack: body !== null
+      && body.classList.contains('min-w-0')
+      && body.classList.contains('flex-col'),
+    footerDividerMoved: footer !== null
+      && footer.classList.contains('border-l')
+      && footer.classList.contains('border-t-0'),
+  };
+};
+
+const describeInlineRow = (form: HTMLFormElement) => JSON.stringify(readInlineRow(form));
+
 type RenderOptions = {
   /** The window width the render sees. */
   viewport: number;
+  /** The window height the render sees. Defaults to the tall tier, which is jsdom's own window. */
+  viewportHeight?: number;
   /**
    * The box's measured width, or null for a box that cannot be measured — the jsdom default, and
    * what an element that has not been laid out reports.
@@ -282,9 +336,17 @@ type RenderOptions = {
   dropzoneRef?: MutableRefObject<HTMLFormElement | null>;
 };
 
-const renderComposer = ({ viewport, boxWidth, withObserver = true, clip = null, dropzoneRef }: RenderOptions) => {
+const renderComposer = ({
+  viewport,
+  viewportHeight = TALL_HEIGHT,
+  boxWidth,
+  withObserver = true,
+  clip = null,
+  dropzoneRef,
+}: RenderOptions) => {
   injectMatchMediaOnce();
   setViewportWidth(viewport);
+  setViewportHeight(viewportHeight);
   if (boxWidth === null) {
     // The box reports 0, which is what "not laid out yet" looks like.
     installBoxWidth(0);
@@ -569,5 +631,104 @@ test('(g) the box is measured even when the dropzone’s root props carry a ref 
     dropzoneRef.current,
     form,
     'the dropzone\'s own root ref must still reach the form it was handed',
+  );
+});
+
+test('(h) a short viewport with a box wide enough draws the controls beside the input', () => {
+  // The tier this file did not have until now: height. A landscape phone is 844px wide, so the
+  // width rules hand it a desktop box — and ~330px tall, so the row the footer occupies is 17% of
+  // the screen. Beside the input it costs nothing, because the input is already that tall.
+  const { footer, form } = renderComposer({
+    viewport: DESKTOP_WIDTH,
+    viewportHeight: LANDSCAPE_HEIGHT,
+    boxWidth: INLINE_TOOLS_MIN_BOX_PX,
+    clip: CLIP_PAIR,
+  });
+
+  assert.deepEqual(
+    readInlineRow(form),
+    { formIsRow: true, bodyTakesSlack: true, footerDividerMoved: true },
+    `a ${LANDSCAPE_HEIGHT}px-tall viewport with a ${INLINE_TOOLS_MIN_BOX_PX}px box must draw the
+     controls beside the input; ${describeInlineRow(form)}`,
+  );
+  assert.equal(
+    readFooter(footer).compact,
+    true,
+    `the row beside the input is still the compact six-control row; ${describeArrangement(footer)}`,
+  );
+  // The clip row leaves the flow between the box and the footer, because on this tier a sibling of
+  // the body would become a third column of the form's row.
+  assert.equal(
+    form.querySelector<HTMLElement>(BODY_SELECTOR)?.querySelector(CLIP_ROW_SELECTOR) !== null,
+    true,
+    'the replay row must move inside the body on the inline tier, not sit between two columns',
+  );
+  assert.equal(
+    form.querySelectorAll(CLIP_ROW_SELECTOR).length,
+    1,
+    'the replay row must still be drawn exactly once — moving it must not add a second copy',
+  );
+  assert.equal(
+    clipButtonsIn(form),
+    2,
+    'both tracks of the recording must still be reachable from their new column',
+  );
+});
+
+test('(i) one pixel under the threshold, and the stacked arrangement is kept', () => {
+  // The fallback the tier is built around: below it the sidebar is open (or the viewport is
+  // narrow), the box is too small for both, and a squeezed input is worse for the user who opened
+  // the panel on purpose than a squeezed transcript.
+  const { form } = renderComposer({
+    viewport: DESKTOP_WIDTH,
+    viewportHeight: LANDSCAPE_HEIGHT,
+    boxWidth: INLINE_TOOLS_MIN_BOX_PX - 1,
+  });
+
+  assert.deepEqual(
+    readInlineRow(form),
+    { formIsRow: false, bodyTakesSlack: false, footerDividerMoved: false },
+    `a box of ${INLINE_TOOLS_MIN_BOX_PX - 1}px must keep the stacked arrangement; ${describeInlineRow(form)}`,
+  );
+});
+
+test('(j) a tall viewport keeps the stacked arrangement however wide the box is', () => {
+  // The desktop regression guard. Height alone decides this tier, and a tall window is not short
+  // whatever its width — the arrangement the whole suite read before this tier existed.
+  const { form } = renderComposer({
+    viewport: DESKTOP_WIDTH,
+    viewportHeight: TALL_HEIGHT,
+    boxWidth: BOX_WITH_SIDEBAR_CLOSED,
+  });
+
+  assert.deepEqual(
+    readInlineRow(form),
+    { formIsRow: false, bodyTakesSlack: false, footerDividerMoved: false },
+    `a ${TALL_HEIGHT}px-tall viewport must keep the stacked arrangement; ${describeInlineRow(form)}`,
+  );
+});
+
+test('(k) an unmeasured box leaves a short viewport stacked, and the clip row where it was', () => {
+  // Same direction as case (e): the first render cannot know the box will fit, so it draws the
+  // arrangement that is safe when it does not. The observer's first measurement arrives before
+  // anything is painted, so this is a shape the user never sees — but it is the shape a render
+  // without a `ResizeObserver` keeps, and it must not be the inline one.
+  const { form } = renderComposer({
+    viewport: DESKTOP_WIDTH,
+    viewportHeight: LANDSCAPE_HEIGHT,
+    boxWidth: null,
+    withObserver: false,
+    clip: CLIP_PAIR,
+  });
+
+  assert.deepEqual(
+    readInlineRow(form),
+    { formIsRow: false, bodyTakesSlack: false, footerDividerMoved: false },
+    `an unmeasured box must keep the stacked arrangement; ${describeInlineRow(form)}`,
+  );
+  assert.equal(
+    form.querySelector<HTMLElement>(BODY_SELECTOR)?.querySelector(CLIP_ROW_SELECTOR),
+    null,
+    'the replay row must stay between the box and the footer while the arrangement is stacked',
   );
 });

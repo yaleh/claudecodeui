@@ -2,6 +2,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useDeviceSettings } from '@/shared/hooks/useDeviceSettings';
 import type { AppTab, Project, ProjectSession } from '@/shared/types';
 import { cn } from '@/shared/utils';
 import MobileMenuButton from '@/modules/project-workspace/MobileMenuButton';
@@ -46,6 +47,10 @@ export default function WorkspaceHeader({
   onMenuClick,
 }: WorkspaceHeaderProps) {
   const { t } = useTranslation();
+  // Read here rather than taken as a prop beside `isMobile`, which arrives threaded through
+  // ProjectWorkspaceShell, ProjectMainRegion and WorkspaceMain: this header is the only consumer on
+  // that path, so a prop would widen three signatures to carry one padding decision.
+  const { isShortViewport } = useDeviceSettings({ trackPWA: false });
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -107,7 +112,16 @@ export default function WorkspaceHeader({
   };
 
   return (
-    <header className="pwa-header-safe flex flex-shrink-0 items-center gap-2 border-b border-border/60 bg-background/95 px-3 py-1.5 backdrop-blur-sm md:gap-3 md:px-4 md:py-2">
+    <header
+      className={cn(
+        'pwa-header-safe flex flex-shrink-0 items-center gap-2 border-b border-border/60 bg-background/95 backdrop-blur-sm',
+        // The short tier is a viewport with the width of a desktop and the height of a phone, so
+        // `md:py-2` would spend 16px of a 330px screen on padding alone — and it is read here
+        // rather than threaded down as a prop, because the four components between the route and
+        // this header have no other use for it.
+        isShortViewport ? 'px-2 py-1' : 'px-3 py-1.5 md:gap-3 md:px-4 md:py-2',
+      )}
+    >
       <div className="flex min-w-0 flex-1 items-center gap-2 md:max-w-[min(34%,24rem)] md:flex-[1_1_18rem]">
         {isMobile && <MobileMenuButton onMenuClick={onMenuClick} />}
         <WorkspaceTitle

@@ -182,10 +182,15 @@ function ChatMessagesPane({
   selectedProject,
 }: ChatMessagesPaneProps) {
   const { t } = useTranslation('chat');
-  // The same `md` (768px) signal ChatComposer reads for the tab it draws, so the
-  // pane's status line and the composer's tab can never both be on screen or
-  // both be absent: one breakpoint decides which surface carries the turn.
-  const { isMobile } = useDeviceSettings();
+  // The same two signals ChatComposer reads for the tab it draws, so the pane's
+  // status line and the composer's tab can never both be on screen or both be
+  // absent: one pair of rules decides which surface carries the turn. Width is
+  // the `md` (768px) rule; height is the second, and not a restatement of it —
+  // a landscape phone is 844px wide, so the width rule alone would float the
+  // composer's tab over a transcript this pane has left about 130px tall.
+  const { isMobile, isShortViewport } = useDeviceSettings();
+  /** Whether this pane is the surface that carries the turn, rather than the composer's floating tab. */
+  const isInlineDock = isMobile || isShortViewport;
   // Whether this session is held by a resident process, read from the same shared
   // snapshot the dock's panel reads. It decides one thing here: whether the
   // transcript's dock keeps its collapsed entry point between turns (see
@@ -334,11 +339,11 @@ function ChatMessagesPane({
     return predecessors;
   }, [groupedVisibleMessages]);
 
-  // Below `md` the running turn is drawn in the message flow, so nothing has to
-  // be kept clear for a floating tab and the pane keeps its ordinary bottom
-  // space. From `md` up the tab still hangs over the last message, so the space
-  // it was always given is still reserved — same value as before this change.
-  const paneBottomPadding = hasActivityIndicator && !isMobile ? 'pb-12 md:pb-14' : 'pb-3 sm:pb-4';
+  // Wherever the running turn is drawn in the message flow, nothing has to be
+  // kept clear for a floating tab and the pane keeps its ordinary bottom space.
+  // Everywhere else the tab still hangs over the last message, so the space it
+  // was always given is still reserved — same value as before this change.
+  const paneBottomPadding = hasActivityIndicator && !isInlineDock ? 'pb-12 md:pb-14' : 'pb-3 sm:pb-4';
 
   return (
     // The resident process's facts used to sit on a row of their own, *above* the
@@ -557,9 +562,10 @@ function ChatMessagesPane({
         {/*
           The running turn's status, in the message flow and after the last row, so
           it scrolls with the transcript and never covers a message. It is the only
-          activity surface below `md` — the composer draws no tab there — and it
-          carries no Stop, because the composer's submit button is already the one
-          stop entry on that layout.
+          activity surface wherever the composer draws no tab — below `md`, and on a
+          viewport too short to give up the line the tab would cover — and it carries
+          no Stop, because the composer's submit button is already the one stop entry
+          on those layouts.
 
           Mounted for the whole time the pane is, with `activity` set to null while
           the turn is over or a permission request has taken over the status: the
@@ -571,7 +577,7 @@ function ChatMessagesPane({
           reading widening are growth the follow answers for free, under the same
           "the user has not scrolled away" gate as every other growth.
         */}
-        {isMobile && (
+        {isInlineDock && (
           <ActivityIndicator
             activity={hasActivityIndicator ? activity : null}
             sessionId={activeSessionId}
