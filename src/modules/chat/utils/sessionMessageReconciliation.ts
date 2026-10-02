@@ -103,7 +103,15 @@ export function removeOptimisticUserEchoes(
   const claimedServerIds = new Set<string>();
 
   return realtimeMessages.filter((message) => {
-    if (!message.id.startsWith('local_')) {
+    // A row with no string id is not one of this client's optimistic echoes:
+    // only this client mints the `local_` / `live:` ids, so a row without one
+    // did not come from here and cannot be an echo of anything. Pass it through
+    // untouched. The guard is also what keeps a malformed realtime row (a
+    // control frame that reached the store, a partial frame) from aborting the
+    // whole merge: `id.startsWith` on an absent id throws, and the throw
+    // escapes `computeMerged`, so one bad row would freeze every later refresh
+    // of the session.
+    if (typeof message.id !== 'string' || !message.id.startsWith('local_')) {
       return true;
     }
 

@@ -99,3 +99,31 @@ test('a replacement echo survives a kept turn that repeats its text', () => {
   const persisted = [...kept, userRow('persisted', 'continue', '2026-01-01T00:00:25.000Z')];
   assert.deepEqual(removeOptimisticUserEchoes(persisted, [echo]), []);
 });
+
+test('a realtime row without a string id is passed through, not fatal', () => {
+  // A control frame that carries no `id` (the server's `activity.heartbeat`)
+  // reached the store. It is not this client's optimistic echo, so it is left
+  // alone — and, crucially, reading its id must not throw: the exception would
+  // escape `computeMerged` and freeze every later merge of the session.
+  const idless = {
+    id: undefined,
+    sessionId: 'session-1',
+    timestamp: '2026-07-28T20:30:21.000Z',
+    provider: 'claude',
+    kind: 'text',
+    role: 'user',
+    content: '',
+  } as unknown as NormalizedMessage;
+
+  assert.deepEqual(removeOptimisticUserEchoes([], [idless]), [idless]);
+
+  // Control: the same shape carrying a `local_` id is still reconciled — the
+  // pass-through above is the absent id, not a filter that stopped matching.
+  const localEcho = createUserMessage('local_echo', '2026-07-28T20:30:21.000Z', {
+    content: 'hello',
+  });
+  const persisted = createUserMessage('claude_echo', '2026-07-28T20:30:26.000Z', {
+    content: 'hello',
+  });
+  assert.deepEqual(removeOptimisticUserEchoes([persisted], [localEcho]), []);
+});
