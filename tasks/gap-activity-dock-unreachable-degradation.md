@@ -2,7 +2,7 @@
 id: gap-activity-dock-unreachable-degradation
 title: AC-184 活动坞在服务端不可达时不再撒谎：真实浏览器里经 app 自己的 socket 分区读到 unreachable、不再出现
   Thinking、计时冻结、停止置灰并说明、放行后回到真实状态
-status: ready
+status: done
 labels:
   - gap
 parent: null
