@@ -66,12 +66,12 @@ Expected: visible   Timeout: 30000ms   Error: element(s) not found
 
 ## AC
 
-- [ ] AC1 判据翻绿：`npx playwright test e2e/resident-ui-layout.spec.ts -g "status bar does not cover the transcript"` 退出 **0**（命令逐字不改），且用例自报 `elapsed=NNNNms` < 55_000（不触发 `SINGLE_SPEC_CEILING_MS`）。验证：`echo $?` + stdout 的 `1 passed` 与 `elapsed=` 两行逐字登记（本轮探针读数：`elapsed=13467ms`）。
-- [ ] AC2 读数锚不再指向退役标记：AC-179 用例区间内 `[data-resident-status-bar]` 命中数 = **0**。验证：`awk 'NR>=575 && NR<=780' e2e/resident-ui-layout.spec.ts | grep -c 'data-resident-status-bar'` = 0，且 `sed -n '575,780p' e2e/resident-ui-layout.spec.ts | grep -c 'data-activity-dock'` ≥ 1（两条命令逐字输出登记）。
-- [ ] AC3 AC 逐字要求的三条承重断言一字未改：`intersect` / `msgVisible` / `perRunBarCount` 三条断言的文本（含各自的失败消息串）逐字保留。验证：`git diff develop -- e2e/resident-ui-layout.spec.ts | grep -c '^-.*the status bar must not overlap the message'` = **0**、`… | grep -c '^-.*the message must be entirely inside the viewport'` = **0**、`… | grep -c '^-.*an ordinary session must draw no status bar'` = **0**（三条命令的逐字输出 + 计数 0）。⚠️ 本条**不**要求整份 diff 的 `^-.*expect(` 计数为 0 —— 被替换的机制腿本身就是一行 `expect(`，这是本条明确授权的改动，须在完成记录里如实写明换掉的是哪一条、换成什么。
-- [ ] AC4 新机制腿有区分力（承重，防「新的腿恒真」的假绿）：行级读数在绿跑下的实测值出现在完成记录里；且负控制二（滚动盒内的形态）下该读数**翻红**。验证：一次绿跑的 `printReading` 原始行（pane 内最外层行集 + 坞盒 + 行级相交读数）+ 负控制二的逐字失败行。
-- [ ] AC5 负控制一（AC 逐字要求的假形态）红在相交读数上：把坞改成绝对定位盖在消息上 ⇒ 判据退出非 0，**红落在 `intersect` 那条断言上**（逐字含 `intersect=true` 与两盒读数）；控制腿（per-run）无坞仍绿，故红不落在控制腿。验证：变异 diff、逐字失败行、`echo $?`；还原后 AC1 复绿。
-- [ ] AC6 两臂对照 + 不碰邻居：同一次运行的 stdout 里 resident 臂坞计数 = **1**、per-run 臂 = **0**；`npx playwright test e2e/resident-ui-layout.spec.ts --list` 退出 **0** 且仍列出 **3** 个用例、三个标题逐字未变；生产代码里 `data-resident-status-bar` 命中数仍为 **0**（`grep -rn … src/ server/ shared/ | grep -v '/tests/'`）；`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**。
+- [x] AC1 判据翻绿：`npx playwright test e2e/resident-ui-layout.spec.ts -g "status bar does not cover the transcript"` 退出 **0**（命令逐字不改），且用例自报 `elapsed=NNNNms` < 55_000（不触发 `SINGLE_SPEC_CEILING_MS`）。验证：`echo $?` + stdout 的 `1 passed` 与 `elapsed=` 两行逐字登记（本轮探针读数：`elapsed=13467ms`）。
+- [x] AC2 读数锚不再指向退役标记：AC-179 用例区间内 `[data-resident-status-bar]` 命中数 = **0**。验证：`awk 'NR>=575 && NR<=780' e2e/resident-ui-layout.spec.ts | grep -c 'data-resident-status-bar'` = 0，且 `sed -n '575,780p' e2e/resident-ui-layout.spec.ts | grep -c 'data-activity-dock'` ≥ 1（两条命令逐字输出登记）。
+- [x] AC3 AC 逐字要求的三条承重断言一字未改：`intersect` / `msgVisible` / `perRunBarCount` 三条断言的文本（含各自的失败消息串）逐字保留。验证：`git diff develop -- e2e/resident-ui-layout.spec.ts | grep -c '^-.*the status bar must not overlap the message'` = **0**、`… | grep -c '^-.*the message must be entirely inside the viewport'` = **0**、`… | grep -c '^-.*an ordinary session must draw no status bar'` = **0**（三条命令的逐字输出 + 计数 0）。⚠️ 本条**不**要求整份 diff 的 `^-.*expect(` 计数为 0 —— 被替换的机制腿本身就是一行 `expect(`，这是本条明确授权的改动，须在完成记录里如实写明换掉的是哪一条、换成什么。
+- [x] AC4 新机制腿有区分力（承重，防「新的腿恒真」的假绿）：行级读数在绿跑下的实测值出现在完成记录里；且负控制二（滚动盒内的形态）下该读数**翻红**。验证：一次绿跑的 `printReading` 原始行（pane 内最外层行集 + 坞盒 + 行级相交读数）+ 负控制二的逐字失败行。
+- [x] AC5 负控制一（AC 逐字要求的假形态）红在相交读数上：把坞改成绝对定位盖在消息上 ⇒ 判据退出非 0，**红落在 `intersect` 那条断言上**（逐字含 `intersect=true` 与两盒读数）；控制腿（per-run）无坞仍绿，故红不落在控制腿。验证：变异 diff、逐字失败行、`echo $?`；还原后 AC1 复绿。
+- [x] AC6 两臂对照 + 不碰邻居：同一次运行的 stdout 里 resident 臂坞计数 = **1**、per-run 臂 = **0**；`npx playwright test e2e/resident-ui-layout.spec.ts --list` 退出 **0** 且仍列出 **3** 个用例、三个标题逐字未变；生产代码里 `data-resident-status-bar` 命中数仍为 **0**（`grep -rn … src/ server/ shared/ | grep -v '/tests/'`）；`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**。
 
 ## DoD
 
@@ -89,3 +89,122 @@ Expected: visible   Timeout: 30000ms   Error: element(s) not found
 
 - e2e/resident-ui-layout.spec.ts
 - tasks/gap-ac179-criterion-anchor-retired-by-dock-consolidation.md（自触）
+
+
+## 完成记录
+
+**这一次红的性质（如实登记）：不是产品修复，是「量具跟着产品走」的收尾。** AC-179 的产品保证——常驻坞的边界框不与助手消息行相交、消息完整在视口内、per-run 会话不画它——本轮实测仍成立（下面每一次绿跑的 `intersect=false` / `msg.visible=true` / per-run 计数 0）。失效的是判据的**量具**，两处：
+
+1. 正信号锚 `[data-resident-status-bar]` 在 `ad1bb63a`（`activity dock: one dock, one source, one answer`）把常驻状态条并进活动坞时被整体退役，该合并随 `e3f86d82` 于 `2026-10-02 08:29:56Z` 进 develop。本工作树净检出上直接重跑判据即复现：`EXIT=1`，wall 36.2s，死在**正信号等待**处，一个几何读数都没取到——逐字 `Error: a resident session must draw the bar this reading is about` / `expect(locator).toBeVisible() failed` / `Locator: locator('[data-resident-status-bar]')` / `Expected: visible   Timeout: 30000ms   Error: element(s) not found` / `at e2e/resident-ui-layout.spec.ts:620:8`。
+2. 该用例自加的机制腿 `barOverPane`（`overlaps(barBox, paneBox)`）对合并后的坞**恒真**：坞由 `ChatComposer.tsx:537` 渲染在 `pointer-events-none absolute bottom-full left-1/2 z-10 …` 的包装里，`absolute bottom-full` 的语义就是「悬在输入框上沿之上、盖住 transcript 的末尾」，这是合并时**有意**的设计。本工作树实测 `resident.bar.over.pane=true`（坞 `305,314,459,32` vs pane `289,57,491,289`），留着这条腿判据没有可满足的世界。
+
+**改了什么（最小充分，不发明新机制、不往生产里补死契约）。** 只动 `e2e/resident-ui-layout.spec.ts`：
+
+- 模块级 `const BAR`（`:39`）由退役的 `'[data-resident-status-bar]'` 改为 `'[data-activity-dock]'`——与 AC-177（`:1098`）、AC-178（`:1340`）换锚后读的是同一个根；那两条用例各自用局部 `const BAR` 遮蔽模块级常量，本次改动**没有**碰到它们。
+- 换掉的那一条 `expect(` 是 `:660`–`:664` 的 `expect(residentReading.barOverPane, 'the status bar must not be drawn inside the transcript's scroll box; …').toBe(false)`，换成行级读数 `expect(residentReading.barOverRows, 'the status bar must not be drawn over any row of the transcript; …').toEqual([])`（`:691`）。`barOverRows` 由**同一次** `page.evaluate` 里的 `getBoundingClientRect` 一次取全：`rows.filter((row) => overlaps(barBox, row.box))`，即 pane 内**每一条**最外层消息行（不止最后一条助手行）与坞盒相交的集合。`barOverPane` 读数本体保留（`:264`）并继续由 `printReading` 打印（`:288`），但**不再在 resident 臂上断言**——它现在是「坞按设计悬在 pane 底边上」的取证行；per-run 控制臂上那条 `expect(perRunReading.barOverPane, …).toBe(false)`（`:729`）一字未动。
+- 该用例的两处文档注释同步改写；`barOverRows` 之上新增 `describeRows` 打印助手。
+- 退役标记的**悼词**按角色改写、不再复现标识符字面量：文件里唯一提到它的散文（AC-177 常量块：「the bar's own trigger attribute and its dialog root are gone」）已去掉 `[data-resident-status-bar-trigger]` 字面量。这一步是必需的，不是顺手：AC2 的验证区间 `575..780` 与这条散文重叠，不改写则该 grep 会命中悼词本身。
+
+AC 逐字要求的 `intersect`（`:676`）/ `msgVisible`（`:681`）/ `perRunBarCount`（`:708`）三条承重断言的文本与失败消息串**一字未改**；`--list` 三个用例标题一字未改。
+
+**实测读数（逐次，全部为判据 stdout 的原始行，几何由 `getBoundingClientRect` 同一时刻一次取全）。**
+
+绿跑 ×4（本工作树，`-g "status bar does not cover the transcript"`，命令逐字未改），每次 `EXIT=0` / `1 passed`：
+
+| 次 | `elapsed=` | resident `bar.box` | resident `msg.box` | `intersect` | `msg.visible` | `msg.in.pane` | `bar.over.pane` | **`bar.over.rows`** | per-run 坞计数 | per-run `bar.over.rows` |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 换锚后 1 | `13086ms` | `305,314,459,32` | `305,219,459,87` | false | true | true | true | `[]` | 0 (`bar.exists=false`) | `[]` |
+| 换锚后 2 | `13094ms` | `305,314,459,32` | `305,219,459,87` | false | true | true | true | `[]` | 0 | `[]` |
+| 换锚后 3 | `12826ms` | `305,316,459,32` | `305,195,459,87` | false | true | true | true | `[]` | 0 | `[]` |
+| merge develop 后 | `12852ms` | `305,314,459,32` | `305,195,459,87` | false | true | true | true | `[]` | 0 | `[]` |
+
+四次 `elapsed` 全部 < `SINGLE_SPEC_CEILING_MS = 55_000`。绿跑原始行（merge 后那一次，逐字）：
+
+```
+resident.bar.exists=true
+resident.bar.box=305,314,459,32
+resident.msg.box=305,195,459,87
+resident.intersect=false
+resident.msg.visible=true
+resident.msg.in.pane=true
+resident.bar.over.pane=true
+resident.bar.over.rows=[]
+resident.msg.count=1
+resident.pane.box=289,57,491,289
+resident.viewport=780x493
+resident.rows=["user@305,113,459,66","assistant@305,195,459,87"]
+per-run.bar.exists=false
+per-run.bar.over.pane=false
+per-run.bar.over.rows=[]
+per-run.pane.box=289,57,491,253
+elapsed=12852ms
+  1 passed (12.8s)
+```
+
+**两臂对照（AC6 / AC4 的区分力证据）：** 同一次运行里 resident 臂坞计数 = **1**（`resident.bar.exists=true`、`[data-activity-dock]` 解析到 1 个元素），per-run 臂 = **0**（`per-run.bar.exists=false`，另有一行 `per-run.bar.exists=false` 来自 `per-run.bar.exists=${perRunBarCount > 0}`）。不是「两臂都空」的假绿。
+
+**负控制一（AC 逐字要求的假形态：坞绝对定位盖在消息上）——真跑、真红，红落在 `intersect`。** 变异（`/tmp/ac179-negctl/ChatComposer.tsx.orig` 备份，原 `sha256=65886fb840a4bc286adc0b1374befd21742b9df64da7761dd5420a3222218a7e`）：
+
+```diff
+--- a/src/modules/chat/composer/ChatComposer.tsx
++++ b/src/modules/chat/composer/ChatComposer.tsx
+@@ -536,7 +536,7 @@ export default function ChatComposer({
+       {!hasPendingPermissions && !isMobile && (
+-        <div className="pointer-events-none absolute bottom-full left-1/2 z-10 w-[calc(100%-1rem)] max-w-[54.25rem] -translate-x-1/2 translate-y-px bg-transparent sm:w-[calc(100%-2rem)]">
++        <div className="pointer-events-none absolute bottom-full left-1/2 z-10 w-[calc(100%-1rem)] max-w-[54.25rem] -translate-x-1/2 -translate-y-[100px] bg-transparent sm:w-[calc(100%-2rem)]">
+```
+
+`echo $?` = **1**。读数：`resident.bar.box=305,215,459,32` / `resident.msg.box=305,219,459,87` / **`resident.intersect=true`** / `resident.msg.visible=true` / `resident.msg.in.pane=true` / `resident.bar.over.rows=["assistant@305,219,459,87"]`。失败逐字（红落在相交读数上）：
+
+```
+    Error: the status bar must not overlap the message; intersect=true bar.box=305,215,459,32 msg.box=305,219,459,87
+    Expected: false
+    Received: true
+    > 679 |     ).toBe(false);
+        at …/e2e/resident-ui-layout.spec.ts:679:7
+  1 failed
+```
+
+红**没有**落在控制腿（per-run 臂无坞，该断言在其之前根本不参与）。还原：`cp /tmp/ac179-negctl/ChatComposer.tsx.orig …` + `sha256sum -c` → `OK`，`git status --porcelain` 该文件为空；随后 AC1 复绿（上表第 2、3 次）。
+
+**负控制二（证明新的行级腿不是恒真：把条放回 pane 的滚动子树内、悬在行上）——真跑、真红，红落在新的行级读数上，而 `intersect` 仍为 false。** 变异（`/tmp/ac179-negctl/ChatMessagesPane.tsx.orig` 备份，原 `sha256=6a94df431eefcc1ad753b824008b6d78b17d8d665319b944967ac4dcd7885831`）：把坞从 composer 的悬停位**移进** `.chat-messages-pane` 的滚动子树，`sticky top-14` 使其在滚动盒内悬在首行上；同时关掉 composer 那一份以免重合（同一次变异内的两处，`ChatComposer.tsx` 的 `!hasPendingPermissions` 前加 `false &&`）：
+
+```diff
+--- a/src/modules/chat/transcript/ChatMessagesPane.tsx
++++ b/src/modules/chat/transcript/ChatMessagesPane.tsx
+@@ -361,6 +361,14 @@ function ChatMessagesPane({
+         className={`chat-messages-pane relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden pt-3 sm:pt-4 ${paneBottomPadding}`}
+       >
++        <div className="pointer-events-none sticky top-14 z-20">
++          <ActivityIndicator
++            activity={hasActivityIndicator ? activity : null}
++            sessionId={activeSessionId}
++            sendFailed={sendFailed}
++            persistWhenIdle={isResidentSession}
++          />
++        </div>
+         {chatMessages.length > 0 && (
+```
+
+`echo $?` = **1**。读数（关键一对）：**`resident.intersect=false`**（坞 `289,128,491,32` vs 助手行 `305,227,459,87` 不相交）而 **`resident.bar.over.rows=["user@305,145,459,66"]`**——该形态压住的是**别的行**（首行 user），正是上一轮留下这条腿的原因。失败逐字（红落在新的行级读数上）：
+
+```
+    Error: the status bar must not be drawn over any row of the transcript; bar.box=289,128,491,32 overlapped=["user@305,145,459,66"] pane.box=289,57,491,289 rows=["user@305,145,459,66","assistant@305,227,459,87"]
+    - Expected  -  1
+    + Received  + 13
+    > 695 |     ).toEqual([]);
+        at …/e2e/resident-ui-layout.spec.ts:695:7
+  1 failed
+```
+
+即：若只留 `intersect` 腿，这个「画在滚动盒里、悬在行上」的形态会**通过**；新的行级腿把它抓死。附带一条实测：该形态下 `resident.bar.over.pane=true`，故若沿用旧的 pane 盒腿，它也会红——但那条腿在合并后的产品上对**合法**的坞恒真（见上），所以它不能被留下；新的腿既能否证该形态、又对合法的坞恒真为空。还原：两次 `cp … .orig` + 两次 `sha256sum -c` 均 `OK`，`git status --porcelain` **整树为空**；随后 AC1 复绿（上表第 3、4 次）。两次变异施加/恢复全程用 `/tmp` 备份 + `sha256sum -c`，**未**使用 `git checkout --`。
+
+**机械核查（逐条命令与输出）。**
+
+- AC2：`awk 'NR>=575 && NR<=780' e2e/resident-ui-layout.spec.ts | grep -c 'data-resident-status-bar'` = **0**；`sed -n '575,780p' e2e/resident-ui-layout.spec.ts | grep -c 'data-activity-dock'` = **1**。
+- AC3：`git diff develop -- e2e/resident-ui-layout.spec.ts | grep -c '^-.*the status bar must not overlap the message'` = **0**；`… '^-.*the message must be entirely inside the viewport'` = **0**；`… '^-.*an ordinary session must draw no status bar'` = **0**。
+- AC6：`grep -rn 'data-resident-status-bar' --include=*.tsx --include=*.ts src/ server/ shared/ | grep -v '/tests/' | wc -l` = **0**（生产代码里没有补回死契约）；`npx playwright test e2e/resident-ui-layout.spec.ts --list` `EXIT=0`，`Total: 3 tests in 1 file`，三条标题逐字未变（`:602:1 › status bar does not cover the transcript`、`:1093:3 › resident ui layout › the popover close is reachable at a narrow viewport and closes the process`、`:1323:1 › resident session hides enable affordance`）；`npm run lint` `EXIT=0`；`npm run typecheck` `EXIT=0`（tsconfig + server + scripts 三份）。
+- 范围：`git diff develop --name-only` = 只有 `e2e/resident-ui-layout.spec.ts`；与 Touches 逐条对齐。scoped 门 `bash scripts/test.sh --for-task gap-ac179-criterion-anchor-retired-by-dock-consolidation --allow-thin` `EXIT=0`（thin：scoped 门不覆盖 `e2e/*.spec.ts`，故本条的自测就是判据本身）。
+- 未越界：AC-175（`e2e/resident-busy-send.spec.ts`）由 develop 上已 done 的 `gap-ac175-…` 认领，本条未碰；AC-177 / AC-178 的用例与其 `-g` 标题未碰；未改判据命令 / `SINGLE_SPEC_CEILING_MS` / `retries` / `skip`。
+
+**DoD 的落地判定：** 单文件判据在 55s 内自己结束（四次实测 12.8–13.1s，打印墙钟，非被看门狗或 60s 闸门外部击杀）；判据跑在真浏览器 + 真服务上（真 `GET /api/session-hosts` 读回 `lifecycleMode=resident`、debug-agent scenario 驱动，未拉起真 claude）。台账侧的翻绿由 driver 的下一轮 goal-gate 完成。
