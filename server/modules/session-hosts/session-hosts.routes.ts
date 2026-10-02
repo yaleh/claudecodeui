@@ -96,7 +96,54 @@ type SessionHostStateView = {
    * and whose absence between turns means nothing.
    */
   reason: string | null;
+  /**
+   * The Claude Code background job holding this conversation, or null.
+   *
+   * The key is on *every* row, per-run sessions included, because the two halves
+   * of this listing are read by different clients: `running`/`reason` are about
+   * the process this server owns, and this is about a process it does not. A
+   * per-run session can be occupied just as a resident one can, and the read-only
+   * state it implies is the same — so the field is never absent, only null.
+   */
+  occupiedBy: SessionOccupiedBy | null;
 };
+
+/**
+ * The Claude Code background job occupying one conversation, as the listing
+ * reports it.
+ *
+ * Exactly the two facts a client acts on: `jobId` is the handle `claude stop`
+ * takes, and `pid` is the process behind it, so a reader can say *what* to stop
+ * as well as *that* something has to be. The job's display name is deliberately
+ * not here — the server's own refusal carries it, and a listing row is a
+ * contract the client renders rather than a copy of the CLI's registry row.
+ *
+ * Mirrored in `src/shared/types.ts` as `SessionOccupiedBy`, which is the same
+ * shape under the same name for the browser.
+ */
+export type SessionOccupiedBy = {
+  jobId: string;
+  pid: number;
+};
+
+/**
+ * Reads which conversations a Claude Code background job is holding.
+ *
+ * A dependency rather than an import, for the reason {@link SessionReader} is
+ * one: the CLI's registry is the `providers` layer's business, and that module
+ * already imports this one, so reaching for it here would close a cycle.
+ * `server/index.ts` supplies the real reader.
+ *
+ * Batch, not per-session, and that is the point of the shape: this route is
+ * polled once a second, and the answer costs one scan of the registry directory.
+ * A reader asked once per row would scan it once per row. It is called exactly
+ * once per request, whatever the listing holds — including when it holds nothing,
+ * so "one scan per request" is a property of the route rather than of the data.
+ *
+ * A conversation the reader knows nothing about is simply absent from the map:
+ * absence and `null` say the same thing, so there is no second value to invent.
+ */
+export type SessionOccupancyReader = () => Map<string, SessionOccupiedBy>;
 
 /**
  * What one route needs to know about a session, and nothing else.
@@ -164,6 +211,17 @@ export type SessionHostStateReading = {
   appSessionId: string;
   provider: LLMProvider;
   mode: HostMode;
+  /**
+   * The provider's own id for this conversation, or null/absent when it has none.
+   *
+   * This is the key an occupancy reading is looked up by: the CLI's registry
+   * files a background job under the conversation the *provider* knows, and the
+   * app's session id never appears in one. Optional rather than required so a
+   * reader that reports sessions for a criterion which never mentions a provider
+   * id still typechecks — the route treats an absent value exactly as a null one,
+   * and a session with no provider id simply has no occupancy to look up.
+   */
+  providerSessionId?: string | null;
 };
 
 /**
@@ -255,6 +313,7 @@ export function createSessionHostsRouter({
   resolveHostDriver,
   startResidentSession,
   listSessions,
+  readSessionOccupancy,
 }: {
   sessionHostManager: SessionHostManager;
   /**
@@ -273,6 +332,13 @@ export function createSessionHostsRouter({
   startResidentSession?: ResidentSessionStarter;
   /** See {@link SessionReader}; absent means the listing reports no sessions. */
   listSessions?: SessionReader;
+  /**
+   * See {@link SessionOccupancyReader}; absent means no session is reported as
+   * occupied — the same fail-open shape `listSessions` has, and honest for the
+   * same reason: a router mounted without the seam was told about no provider,
+   * so it has nothing to read an occupancy from.
+   */
+  readSessionOccupancy?: SessionOccupancyReader;
 }) {
   const router = express.Router();
 
@@ -295,8 +361,22 @@ export function createSessionHostsRouter({
       }
     }
 
+    // One scan of the CLI's registry for the whole response, asked for before
+    // the rows are projected and never asked again inside the loop: this route is
+    // polled once a second, and a per-row reader would scan the directory once per
+    // row. It is asked unconditionally — a listing with no session to report still
+    // costs exactly one scan, which is what makes "one per request" a property of
+    // the route rather than of whatever the database happens to hold.
+    //
+    // A session is looked up only when it is Claude's and has a provider id:
+    // the registry is Claude's, and a row with no provider session id has no
+    // conversation for a job to be holding. That is a lookup guard, not a claim
+    // that only resident sessions can be occupied — a per-run session can be, and
+    // the read-only state it implies is the same.
+    const occupancy = readSessionOccupancy?.() ?? null;
+
     const sessions = (listSessions?.() ?? []).map((session) =>
-      toSessionHostStateView(session, running),
+      toSessionHostStateView(session, running, occupancy),
     );
 
     response.json(createApiSuccessResponse({ hosts: hosts.map(toHostView), sessions }));
@@ -618,8 +698,10 @@ function toHostView(host: ProcessHost): HostView {
 function toSessionHostStateView(
   session: SessionHostStateReading,
   running: Set<string>,
+  occupancy: Map<string, SessionOccupiedBy> | null,
 ): SessionHostStateView {
   const isRunning = running.has(session.appSessionId);
+  const providerSessionId = session.providerSessionId ?? null;
 
   return {
     appSessionId: session.appSessionId,
@@ -627,6 +709,10 @@ function toSessionHostStateView(
     lifecycleMode: session.mode,
     running: isRunning,
     reason: !isRunning && session.mode === 'resident' ? RESIDENT_NOT_RUNNING_REASON : null,
+    occupiedBy:
+      session.provider === 'claude' && providerSessionId
+        ? occupancy?.get(providerSessionId) ?? null
+        : null,
   };
 }
 

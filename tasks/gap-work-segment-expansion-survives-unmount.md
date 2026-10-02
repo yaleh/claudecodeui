@@ -32,12 +32,12 @@ goal_ac: AC-204
 
 ## AC
 
-- [ ] AC1 判据绿：`npx vitest run src/modules/chat/tests/workSegmentExpansionPersistence.test.tsx` 退出 0。红态基线（本轮实测）：该文件不存在，同一命令读数是 `No test files found, exiting with code 1`。
-- [ ] AC2（读数 i，承重）跨卸载保持：`npx vitest run src/modules/chat/tests/workSegmentExpansionPersistence.test.tsx -t "expansion survives the row leaving the viewport"` 退出 0 —— 展开后驱动段行 far，断言成员行不在 DOM（卸载真的发生）、且 `LazyMessageRow` 的占位元素（按 `data-message-timestamp` 寻址）仍在；再驱动 near，断言该段仍是展开态、成员行集合与展开时逐键相等。
-- [ ] AC3（读数 i 的正控制，承重）卸载确实由驱动触发：同上文件 `-t "member content is mounted before the far transition"` 退出 0 —— 在 fire far **之前**断言成员行已在 DOM；没有这条，(i) 的「消失」可能对任何输入都成立（恒定真），(i) 就是空话。
-- [ ] AC4（读数 ii，承重）重挂回到缺省折叠：`-t "a fresh pane mount starts every segment collapsed"` 退出 0 —— 同一夹具 `unmount()` 后重新 `render()`，断言该段成员行挂载数为 0，且折叠头暴露的成员计数等于夹具段成员数（缺省是折叠，不是记住上次）。
-- [ ] AC5（读数 iii）假形态必须红（承重；先提交实现与判据，再逐条变异；逐条记录变异 diff、逐字失败行与 `git checkout -- <file>` 恢复命令）：(a) 把展开态改回 `WorkSegmentRecord` 内部的 `useState`（pane 不再持集合）⇒ AC2 红，且失败方向必须是「滚回后该段丢了展开」；(b) 把缺省值改成展开（空集合改成全集）⇒ AC4 红；(c) 把展开态搬进模块级 `Map`（跨 pane 挂载存活）⇒ AC4 红 —— (c) 是读数 (ii) 的分辨力负控制，证明 AC4 读的是 pane 级状态而不是「有没有保存」。
-- [ ] AC6 静态门：`npm run typecheck` 与 `npm run lint` 均退出 0；`git diff --stat` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）。
+- [x] AC1 判据绿：`npx vitest run src/modules/chat/tests/workSegmentExpansionPersistence.test.tsx` 退出 0。红态基线（本轮实测）：该文件不存在，同一命令读数是 `No test files found, exiting with code 1`。
+- [x] AC2（读数 i，承重）跨卸载保持：`npx vitest run src/modules/chat/tests/workSegmentExpansionPersistence.test.tsx -t "expansion survives the row leaving the viewport"` 退出 0 —— 展开后驱动段行 far，断言成员行不在 DOM（卸载真的发生）、且 `LazyMessageRow` 的占位元素（按 `data-message-timestamp` 寻址）仍在；再驱动 near，断言该段仍是展开态、成员行集合与展开时逐键相等。
+- [x] AC3（读数 i 的正控制，承重）卸载确实由驱动触发：同上文件 `-t "member content is mounted before the far transition"` 退出 0 —— 在 fire far **之前**断言成员行已在 DOM；没有这条，(i) 的「消失」可能对任何输入都成立（恒定真），(i) 就是空话。
+- [x] AC4（读数 ii，承重）重挂回到缺省折叠：`-t "a fresh pane mount starts every segment collapsed"` 退出 0 —— 同一夹具 `unmount()` 后重新 `render()`，断言该段成员行挂载数为 0，且折叠头暴露的成员计数等于夹具段成员数（缺省是折叠，不是记住上次）。
+- [x] AC5（读数 iii）假形态必须红（承重；先提交实现与判据，再逐条变异；逐条记录变异 diff、逐字失败行与 `git checkout -- <file>` 恢复命令）：(a) 把展开态改回 `WorkSegmentRecord` 内部的 `useState`（pane 不再持集合）⇒ AC2 红，且失败方向必须是「滚回后该段丢了展开」；(b) 把缺省值改成展开（空集合改成全集）⇒ AC4 红；(c) 把展开态搬进模块级 `Map`（跨 pane 挂载存活）⇒ AC4 红 —— (c) 是读数 (ii) 的分辨力负控制，证明 AC4 读的是 pane 级状态而不是「有没有保存」。
+- [x] AC6 静态门：`npm run typecheck` 与 `npm run lint` 均退出 0；`git diff --stat` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）。
 
 ## DoD
 

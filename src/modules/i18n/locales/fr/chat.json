@@ -294,6 +294,11 @@
       "withdraw": "Retirer",
       "withdrawn": "Retiré"
     },
+    "occupied": {
+      "notice": "Cette session est occupée par une tâche d'arrière-plan de Claude Code (job {{jobId}}, pid {{pid}}). Exécutez `claude stop {{jobId}}` pour la libérer, ou forkez la session.",
+      "copyCommand": "Copier la commande",
+      "copied": "Copié"
+    },
     "statusBar": {
       "unstarted": "Résident · Non démarré ({{reason}})",
       "idle": "Résident · Au repos",

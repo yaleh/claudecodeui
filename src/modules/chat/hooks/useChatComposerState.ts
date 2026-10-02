@@ -31,7 +31,7 @@ import { useInputHistory } from '@/modules/chat/hooks/useInputHistory';
 import { useSendOnEnter } from '@/modules/chat/hooks/useSendOnEnter';
 import { useSlashCommands } from '@/modules/chat/hooks/useSlashCommands';
 import { consumePendingResidentIntent } from '@/modules/chat/composer/ResidentConsentNotice';
-import { findSessionHostState, useSessionHosts } from '@/shared/hooks/useSessionHosts';
+import { findSessionHostState, findSessionOccupancy, useSessionHosts } from '@/shared/hooks/useSessionHosts';
 
 type UseChatComposerStateArgs = {
   selectedProject: Project | null;
@@ -693,6 +693,19 @@ export function useChatComposerState({
         return;
       }
 
+      // A Claude Code background job holds this session: the transcript is
+      // being written by a process this composer has no handle on, so a message
+      // sent from here would land in a conversation that is already owned. The
+      // disabled input and the hidden Start/Restart button state the same thing,
+      // but they are UI the user can walk around (a keyboard submit, a queued
+      // voice transcript, an edit-and-resend); the refusal has to live here too,
+      // on the one path every send funnels through, or the guard is only as
+      // wide as the surface that happens to render it. Releasing the job on the
+      // CLI side clears the row on the next poll and the same call goes through.
+      if (sessionKey && findSessionOccupancy(hostsSnapshot, sessionKey)) {
+        return;
+      }
+
       // Whether this send is going to a process that is already running.
       //
       // Read before anything is uploaded, because it decides whether the message
@@ -1000,6 +1013,7 @@ export function useChatComposerState({
       currentSessionId,
       editingAnchorId,
       executeCommand,
+      hostsSnapshot,
       isLoading,
       onSessionProcessing,
       onSessionEstablished,
