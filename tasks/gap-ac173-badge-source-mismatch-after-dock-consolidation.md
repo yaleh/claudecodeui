@@ -62,14 +62,14 @@ Error: the badge to light up for the turn — the badge read 0 ("") throughout
 
 ## AC
 
-- [ ] AC1 判据翻绿：`npx playwright test e2e/resident-running-view.spec.ts` 退出 0，`3 passed`，并打印整体墙钟 `elapsed=<n>ms` < `SINGLE_SPEC_CEILING_MS = 55_000`（命令逐字不改）。红态基线：本轮 EXIT=1、`waitForBadge` 恒读 0（见 Proposal）。
-- [ ] AC2 根因由探针判定、不靠推断：登记「该回合存活期内 `GET /api/providers/sessions/running` 的原始返回」与「`GET /api/session-hosts` 里该会话的 turn 租约」两条读数，据以指明是候选 1（接缝没登记）还是候选 2（轮询窗口错过）。
-- [ ] AC3 徽标与两组读数同源且与 AC 一致：同一跑打印 `hosts.running=1 badge.reading=1 group.running.count=1 group.residentIdle.count=2`，且 `badge.reading !== hosts.total`；读数源与产品实际使用的那份源一致（若改锚，完成记录如实登记旧/新锚）。
-- [ ] AC4 第二组 [关闭] 仍成立：`close.request=200`、`hosts.beforeClose>hosts.afterClose`、`group.residentIdle.count.after` 变小、`badge.reading.after` 不变；正控制：被关会话关闭前在快照里、第一组行数不变。
-- [ ] AC5 假形态臂仍红（承重）：徽标计入空闲常驻 ⇒ 命令退出非 0，红落在 `badge.reading === 1`（读数 3）上；登记变异 diff、逐字失败行、退出码；还原后回到 0。
-- [ ] AC6 判定面未变：spec 里 `:932` / `:935` 两条承重断言的文本逐字未改（`git diff` 的 `^-.*expect(` 对这两条为 0），且 `git diff develop -- playwright.config.ts package.json` 为空（无 `SINGLE_SPEC_CEILING_MS`/`RUN_CEILING_MS`/`test:e2e` 改动）。
-- [ ] AC7 契约面：`npm run lint` 退出 0；`npm run typecheck` 退出 0；`npx playwright test --list` 收集总数与改动前逐字相同（打印前后两个数）；`git diff --stat` 与 Touches 逐条对齐。
-- [ ] AC8 取证文字如实：spec `:924-930` 的注释与 `badge.source=…` 那行 print 改成与合并后事实一致（不再声称徽标不是由页面自身集合驱动），若与实际不符则登记新读数；⛔ 只改取证文字/print，不动任何 `expect`。
+- [x] AC1 判据翻绿：`npx playwright test e2e/resident-running-view.spec.ts` 退出 0，`3 passed`，并打印整体墙钟 `elapsed=<n>ms` < `SINGLE_SPEC_CEILING_MS = 55_000`（命令逐字不改）。红态基线：本轮 EXIT=1、`waitForBadge` 恒读 0（见 Proposal）。
+- [x] AC2 根因由探针判定、不靠推断：登记「该回合存活期内 `GET /api/providers/sessions/running` 的原始返回」与「`GET /api/session-hosts` 里该会话的 turn 租约」两条读数，据以指明是候选 1（接缝没登记）还是候选 2（轮询窗口错过）。
+- [x] AC3 徽标与两组读数同源且与 AC 一致：同一跑打印 `hosts.running=1 badge.reading=1 group.running.count=1 group.residentIdle.count=2`，且 `badge.reading !== hosts.total`；读数源与产品实际使用的那份源一致（若改锚，完成记录如实登记旧/新锚）。
+- [x] AC4 第二组 [关闭] 仍成立：`close.request=200`、`hosts.beforeClose>hosts.afterClose`、`group.residentIdle.count.after` 变小、`badge.reading.after` 不变；正控制：被关会话关闭前在快照里、第一组行数不变。
+- [x] AC5 假形态臂仍红（承重）：徽标计入空闲常驻 ⇒ 命令退出非 0，红落在 `badge.reading === 1`（读数 3）上；登记变异 diff、逐字失败行、退出码；还原后回到 0。
+- [x] AC6 判定面未变：spec 里 `:932` / `:935` 两条承重断言的文本逐字未改（`git diff` 的 `^-.*expect(` 对这两条为 0），且 `git diff develop -- playwright.config.ts package.json` 为空（无 `SINGLE_SPEC_CEILING_MS`/`RUN_CEILING_MS`/`test:e2e` 改动）。
+- [x] AC7 契约面：`npm run lint` 退出 0；`npm run typecheck` 退出 0；`npx playwright test --list` 收集总数与改动前逐字相同（打印前后两个数）；`git diff --stat` 与 Touches 逐条对齐。
+- [x] AC8 取证文字如实：spec `:924-930` 的注释与 `badge.source=…` 那行 print 改成与合并后事实一致（不再声称徽标不是由页面自身集合驱动），若与实际不符则登记新读数；⛔ 只改取证文字/print，不动任何 `expect`。
 
 ## DoD
 
@@ -87,9 +87,52 @@ Error: the badge to light up for the turn — the badge read 0 ("") throughout
 - server/modules/debug-agent/debug-agent.host-driver.ts
 - server/modules/debug-agent/debug-agent.engine.ts
 - server/modules/debug-agent/debug-agent.provider.ts
+- server/index.ts
 - tasks/gap-ac173-badge-source-mismatch-after-dock-consolidation.md（自触）
 
 若探针把修法定到别处（例如需要动 `chatRunRegistry` 的登记入口或前端运行源），按实际写点扩展 Touches 并在任务里说明；Touches 须与实际写点逐条对齐。
 
+### Touches 校准说明（本轮实际写点）
+
+本轮实际只写了两个文件：`e2e/resident-running-view.spec.ts`（仅取证文字/print）与 `server/index.ts`（控制面的 `driveScenario` 接缝）。Proposal 里列的三个 `server/modules/debug-agent/*.ts` **未被改动**：探针把根因定在「控制面派发的 per-run 回合没在 run registry 里登记」（候选 1），而登记入口就在组合根——控制面 `driveScenario` 正是「派发这个回合的传输层」的替身，真实 per-run 聊天回合的 run 也由传输层（`chat-websocket.service.ts` 的 `chatRunRegistry.startRun`）而不是 provider/module 内部打开。故按规则把 `server/index.ts` 加进 Touches，未动的三个文件保留在表内以标明「曾评估、未改」。
+
 ## 完成记录
 
+**红态基线（判据原文，工作树干净）**：`npx playwright test e2e/resident-running-view.spec.ts` → EXIT=1，`3 passed` 未达，失败 `resident-running-view.spec.ts:863`（8.1s），逐字 `Error: the badge to light up for the turn — the badge read 0 ("") throughout` at `waitForBadge (…:360:11)` / `…:912:19`。同一跑读数：`residents.running=0 residentIdle=2`、`start.idleA/B=200`，`waitForHosts(:904)` 已收敛后 `:912` 恒 0。
+
+**AC2 探针判定（不猜，两读数逐字）**：在 `waitForHosts` 收敛（`:904`）之后、`waitForBadge`（`:912`）之前，对 `GET /api/providers/sessions/running` 连打 20 次（8s，400ms 间隔），全部逐字 `{"sessions":[]}`（`samples=20 first={"sessions":[]} last={"sessions":[]}`）；同一时刻 `GET /api/session-hosts` 里该会话的 binding 租约逐字 `PROBE.inFlightTurnLease=[{"kind":"turn","runId":"run-adb46b8c-5395-40c1-a1b5-0d5605960742"}]`（`hosts.running=1 hosts.residentIdle=2 hosts.total=2`）。⇒ **候选 1：夹具接缝没登记**（`chatRunRegistry.listRunningRuns()` 在该回合存活期内根本没有这个会话），**不是候选 2 轮询窗口**（20 次采样无一次非空，5s 轮询窗口无从「错过」一个从未出现过的登记）。这也闭合了 Proposal 里 `08:36Z pass` 的疑点：registry 从不登记该回合 ⇒ 那次绿只能是合并尚未在 goal-sweep 的 checkout 生效（`e3f86d82` 08:29:56Z 落地后 goal-sweep 的引用尚未推进），而非「恰好没抖」；`ad1bb63a` 把徽标换成 busy 集即为其唯一因。
+
+**根因**：`ad1bb63a`（activity dock 合并）把侧栏 Running 徽标与第一组换成页面那份 server-authoritative 活动源（`GET /api/providers/sessions/running` → `chatRunRegistry.listRunningRuns()`）。而调试 agent 控制面的 `driveScenario` 把 per-run 场景回合直接交给 `providerRuntimeService.run`，**没有像真实 per-run 聊天回合的传输层那样先开一个 run**（`chat-websocket.service.ts` 先 `chatRunRegistry.startRun` 再 `runtime.run(run.writer)`）。于是该回合只作为宿主租约存在：宿主列表读到「在跑」，活动源的每个读者（活动坞、Running 视图、徽标）读到「没在跑」。
+
+**修法（候选 1，最小；未发明新机制）**：`server/index.ts` 的 `driveScenario` 在派发前，当会话存储模式为 `per-run` 时经 `chatRunRegistry.openUnattendedRun(...)` 开一个 run——与宿主层 `setDebugAgentOpenRun` 用的是同一条 opener；并把时钟自身的 writer 与 run 的 writer 用一个新的 `teeWriter` 并接（时钟的答案仍报它这一走收到的帧 `frames.length`，而 run 的终帧 `complete` 经 run writer 结束该 run）。`resident` 会话不动：其 run 由走内的 `unattended-turn` 步经宿主层 opener 自行打开，此处预开会把那一步的 run 抢走。前端/产品代码一字未改（「一个源」方向保持）。
+
+**AC1（连续 ≥5 次全绿，逐次退出码与 `elapsed`）**：判据命令逐字 `npx playwright test e2e/resident-running-view.spec.ts`。
+- run1 `exit=0 3 passed elapsed=41577ms`
+- run2 `exit=0 3 passed elapsed=35634ms`
+- run3 `exit=0 3 passed elapsed=35726ms`
+- run4 `exit=0 3 passed elapsed=35306ms`
+- run5 `exit=0 3 passed elapsed=35634ms`
+全部 `< SINGLE_SPEC_CEILING_MS = 55_000`，单文件判据自行结束（非看门狗/60s 闸门击杀）。
+
+**AC3（同源读数，同一跑）**：`hosts.running=1 hosts.residentIdle=2 hosts.total=2 badge.reading=1`；`badge.text="1" badge.label="1 running sessions"`；`group.running.count=1 group.residentIdle.count=2`；`badge.source=runningSessions poll (socket frames seen=13, of them stream frames=0)`；`1 !== 2`（`badge.reading !== hosts.total`）。**锚未改**：判据期望读数仍来自 `GET /api/session-hosts` 的 turn 租约（`hostsRunning`），产品的读数源仍是 busy 集（`SessionActivity`）——本条未改锚，两项在修后同源一致，故登记为「锚不变，源由夹具接缝补齐」。
+
+**AC4（关闭臂，同一跑）**：`close.request=200`；`hosts.beforeClose=2 hosts.afterClose=1`（−1）；`group.residentIdle.count.after=0`（< 2）；`group.running.count.after=1`（不变）；`badge.reading.after=1`（= `badge.reading.before=1`）；`hosts.listing.after` 里被关会话 `f2e024a5:idle:[]`（宿主 `closed`）、第一组所在 per-run 宿主仍 `host=… state=busy … [1c06f33b:busy:[turn]]`（正控制：被关会话关闭前在 `deviceof :1000` 快照内、第一组行数不变）；第二组行尾 hint 回落 `running.noMatchingSessions`。
+
+**AC5（假形态真跑真红，承重）**：临时变异 `src/modules/sidebar/hooks/useSidebarController.ts`——徽标改为「live 宿主持有的所有 binding 数」（即计入空闲常驻）：新增 `import { useSessionHosts } …`，并把 `const runningSessionsCount = useMemo(() => busySessionIds.size, …)` 换成 `useMemo(() => (fakeHostSnapshot?.hosts ?? []).filter(h => h.state !== 'closed').flatMap(h => h.bindings).length, [fakeHostSnapshot])`。判据（`-g "the badge and the two groups follow"`）→ **EXIT=1**，读数 `hosts.running=1 hosts.residentIdle=2 hosts.total=2 badge.reading=3`，失败逐字：
+```
+Error: the badge counts the sessions with a turn in flight
+expect(received).toBe(expected) // Object.is equality
+Received: 3
+   942 |     expect(badge.reading, 'the badge counts the sessions with a turn in flight').toBe(hostsRunning.length);
+```
+（行号 942 为加了取证文字后的漂移，文本即原 `:932` 那条）——读数 3，红落在徽标读数承重断言上。**已用 `git checkout --` 还原**，还原后连跑 5 次全绿（见 AC1）。
+
+**AC6（判定面未变）**：`git diff -U0 -- e2e/resident-running-view.spec.ts | grep -E "^[-+].*expect\\("` → 空（两条承重断言文本逐字未改，仅行号随取证文字漂移）；`git diff develop -- playwright.config.ts package.json` → 空。
+
+**AC7（契约面）**：`npm run lint` EXIT=0（仅既有 warning）；`npm run typecheck` EXIT=0；`npx playwright test --list` → 改动后 `Total: 91 tests in 23 files`，stash 掉本轮改动后 → `Total: 91 tests in 23 files`（前后逐字相同）；`git diff --stat` = `e2e/resident-running-view.spec.ts` + `server/index.ts`，与 Touches（本条实际写点）逐条对齐。
+
+**AC8（取证文字如实）**：spec 原 `badge.source=hosts (…)` 那行改为 `badge.source=runningSessions poll (socket frames seen=…, of them stream frames=…)`，并重写其上方注释，如实说明修后徽标读的是页面自身那份活动集（由 `GET /api/providers/sessions/running` 轮询驱动），不再是宿主列表；`waitForBadge` 的 doc 注释同步从「宿主列表 1s 轮询」改为「running-session 集 5s 轮询」。仅改注释/print，未动任何 `expect`。
+
+**回归旁证（非本判据）**：`e2e/resident-ui-layout.spec.ts`（唯一另一个对 per-run 会话走时钟的 spec）→ `3 passed` EXIT=0；`e2e/resident-status-bar.spec.ts`（resident 臂共享控制面）→ `4 passed` EXIT=0。resident 臂因生命周期门被原样旁路（`writer` 不变），行为逐字不变。
+
+**最终交付面**：`server/index.ts`（控制面 per-run 派发开 run + `teeWriter`）、`e2e/resident-running-view.spec.ts`（取证文字）。⛔ 未改判据命令 / 未改承重 `expect` / 未加 `retries`/`skip` / 未改上限 / 未删假形态臂 / 未把产品退回读宿主列表。
