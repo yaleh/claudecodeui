@@ -51,18 +51,18 @@ Expected: visible   Timeout: 30000ms   Error: element(s) not found
 
 ⇒ 保证成立、锚可换、判据能在 55s 预算内翻绿；两臂计数证明新锚有区分力（不是「两臂都空」的假绿）。
 
-**修法（最小充分，不发明新机制）。** 把 AC-178 用例（`e2e/resident-ui-layout.spec.ts:1242` 起）的「模式已到达」正信号，从退役的 `[data-resident-status-bar]` 换成合并后坞里等价的那一个：`[data-activity-dock-toggle="true"]` —— `ActivityIndicator.tsx:240` 以 `persistWhenIdle` 门控该按钮，而 `persistWhenIdle === isResidentSession`（`ChatComposer.tsx:546`），与旧状态条「只对已常驻会话渲染」是同一个读法，且它与渲染门读的是同一个 `findSessionHostState`。该用例对 `BAR` 的引用只有 `:1289` **一处**（逐行核对过：`:1242`–`:1352` 区间内不再有第二个 `BAR`），故取**外科式**改法：给 AC-178 的读数一个自己的常量（如 `RESIDENT_SURFACE`），**不动**共享的 `const BAR`（`:30`）。理由：AC-179 的用例还按 `BAR` + `data-resident-ui-state` 寻址、AC-177 的用例按 `[data-resident-status-bar-trigger]` 寻址，那两个标记同样已退役，但属各自 AC 的范围；改共享常量会连带改变它们的红形态（从「元素不存在」变成「属性不存在」），反倒给兄弟立案轮添乱。断言面一字不改（见 AC3）。
+**修法（最小充分，不发明新机制）。** 把 AC-178 用例（`e2e/resident-ui-layout.spec.ts:1242` 起）的「模式已到达」正信号，从退役的 `[data-resident-status-bar]` 换成合并后坞里等价的那一个：`[data-activity-dock-toggle="true"]` —— `ActivityIndicator.tsx:240` 以 `persistWhenIdle` 门控该按钮，而 `persistWhenIdle === isResidentSession`（`ChatComposer.tsx:546`），与旧状态条「只对已常驻会话渲染」是同一个读法，且它与渲染门读的是同一个 `findSessionHostState`。该用例对 `BAR` 的引用只有 `:1289` **一处**（逐行核对过：`:1242`–`:1352` 区间内不再有第二个 `BAR`），故取**外科式**改法：**不动**共享的 `const BAR`（`:30`）。实现上给该用例一个局部 `const BAR`（值即 `[data-activity-dock-toggle="true"]`）遮蔽模块级常量：这样「模式已到达」那一条 `expect` 的**文本逐字不改**（AC3 的 `git diff … | grep -c '^-.*expect('` = 0 由它保证），而 AC-179 / AC-177 仍按各自退役标记寻址、红形态不变、属各自 AC 的范围。断言面一字不改（见 AC3）。
 
 **非目标。** 不改判据命令、不改 60s 门限与 `SINGLE_SPEC_CEILING_MS = 55_000`；不加 `retries`、不 skip、不 stub；不复活旧状态条、**不**为兼容旧标记往生产代码里补一个 `data-resident-status-bar`（那会把一次「量具跟着产品走」的收尾变成往生产里加回死契约）；不修 AC-177 / AC-179 / AC-175（`e2e/resident-busy-send.spec.ts:80` 同因的那条红）。
 
 ## AC
 
-- [ ] AC1 判据翻绿：`npx playwright test e2e/resident-ui-layout.spec.ts -g "resident session hides enable affordance"` 退出 **0**（命令逐字不改），且该用例自报的 `elapsed=NNNNms` < 55_000（不触发 `SINGLE_SPEC_CEILING_MS`）。验证：`echo $?` + 用例 stdout 的 `1 passed` 与 `elapsed=` 两行逐字登记。
-- [ ] AC2 读数锚不再指向退役标记：AC-178 用例区间内 `[data-resident-status-bar]` 命中数 = **0**；该用例的「模式已到达」正信号实测读 `[data-activity-dock-toggle="true"]`。验证：`awk 'NR>=1242 && NR<=1360' e2e/resident-ui-layout.spec.ts | grep -c 'data-resident-status-bar'` = 0，且 `sed -n '1242,1360p' e2e/resident-ui-layout.spec.ts | grep -c 'data-activity-dock-toggle'` ≥ 1（两条命令逐字输出登记）。
-- [ ] AC3 两臂断言面一字未改：`resident` 臂 `composer.switch.count` / `composer.notice.count` / `composer.checkbox.count` 三条 = 0、`per-run` 臂 `composer.switch.count` = 1 且 `per-run.switch.marker="true"` 的 `expect` 逐字保留；`git diff develop -- e2e/resident-ui-layout.spec.ts | grep -c '^-.*expect('` = **0**。验证：该 grep 的逐字输出 + 一次运行 stdout 的 `composer.switch.count=` / `composer.notice.count=` / `composer.checkbox.count=` / `per-run.switch.marker=` 四行。
-- [ ] AC4 替换锚有区分力（承重的两臂对照，防「新锚恒空」的假绿）：同一选择器在两臂的实测计数为 `resident` = **1**、`per-run` = **0**（本轮探针读数，见 Proposal），新读数以两臂对照写进用例并登记。验证：运行 stdout 的两行 `dockToggle.count` 读数（实现为两臂各自的计数打印或一条两臂对照 `expect`，两者皆可，只要两臂读数都出现在完成记录里）。
-- [ ] AC5 负控制（红必须落在正信号这一条读数上）：把正信号锚临时改回任一不存在于生产的标记（如 `[data-resident-status-bar]`）后，判据必红且红在正信号等待处（30s 超时、`element(s) not found`），还原后回绿。验证：两次运行的 `echo $?` + 失败行逐字（含超时毫秒与 `Locator:` 行）一并登记。
-- [ ] AC6 只认领 AC-178 的范围：不改 AC-177（`-g "close is reachable"`）与 AC-179（`-g "status bar does not cover the transcript"`）命中的 test 标题与其断言。验证：`npx playwright test e2e/resident-ui-layout.spec.ts --list` 退出 **0** 且仍列出 **3** 个用例、标题逐字未变，且 `git diff develop -- e2e/resident-ui-layout.spec.ts | grep -c '^[-+].*test('` = **0**。
+- [x] AC1 判据翻绿：`npx playwright test e2e/resident-ui-layout.spec.ts -g "resident session hides enable affordance"` 退出 **0**（命令逐字不改），且该用例自报的 `elapsed=NNNNms` < 55_000（不触发 `SINGLE_SPEC_CEILING_MS`）。验证：`echo $?` + 用例 stdout 的 `1 passed` 与 `elapsed=` 两行逐字登记。
+- [x] AC2 读数锚不再指向退役标记：AC-178 用例区间内 `[data-resident-status-bar]` 命中数 = **0**；该用例的「模式已到达」正信号实测读 `[data-activity-dock-toggle="true"]`。验证：`awk 'NR>=1242 && NR<=1360' e2e/resident-ui-layout.spec.ts | grep -c 'data-resident-status-bar'` = 0，且 `sed -n '1242,1360p' e2e/resident-ui-layout.spec.ts | grep -c 'data-activity-dock-toggle'` ≥ 1（两条命令逐字输出登记）。
+- [x] AC3 两臂断言面一字未改：`resident` 臂 `composer.switch.count` / `composer.notice.count` / `composer.checkbox.count` 三条 = 0、`per-run` 臂 `composer.switch.count` = 1 且 `per-run.switch.marker="true"` 的 `expect` 逐字保留；`git diff develop -- e2e/resident-ui-layout.spec.ts | grep -c '^-.*expect('` = **0**。验证：该 grep 的逐字输出 + 一次运行 stdout 的 `composer.switch.count=` / `composer.notice.count=` / `composer.checkbox.count=` / `per-run.switch.marker=` 四行。
+- [x] AC4 替换锚有区分力（承重的两臂对照，防「新锚恒空」的假绿）：同一选择器在两臂的实测计数为 `resident` = **1**、`per-run` = **0**（本轮探针读数，见 Proposal），新读数以两臂对照写进用例并登记。验证：运行 stdout 的两行 `dockToggle.count` 读数（实现为两臂各自的计数打印或一条两臂对照 `expect`，两者皆可，只要两臂读数都出现在完成记录里）。
+- [x] AC5 负控制（红必须落在正信号这一条读数上）：把正信号锚临时改回任一不存在于生产的标记（如 `[data-resident-status-bar]`）后，判据必红且红在正信号等待处（30s 超时、`element(s) not found`），还原后回绿。验证：两次运行的 `echo $?` + 失败行逐字（含超时毫秒与 `Locator:` 行）一并登记。
+- [x] AC6 只认领 AC-178 的范围：不改 AC-177（`-g "close is reachable"`）与 AC-179（`-g "status bar does not cover the transcript"`）命中的 test 标题与其断言。验证：`npx playwright test e2e/resident-ui-layout.spec.ts --list` 退出 **0** 且仍列出 **3** 个用例、标题逐字未变，且 `git diff develop -- e2e/resident-ui-layout.spec.ts | grep -c '^[-+].*test('` = **0**。
 
 ## DoD
 
@@ -72,3 +72,14 @@ Expected: visible   Timeout: 30000ms   Error: element(s) not found
 
 - e2e/resident-ui-layout.spec.ts
 - tasks/gap-ac178-criterion-anchor-retired-by-dock-consolidation.md
+
+## 完成记录
+
+**这一次红的性质（如实登记）：不是产品修复，是「量具跟着产品走」的收尾。** AC-178 的产品保证 —— `ChatComposer.tsx:770` 的渲染门 `canRunResident && showResidentSwitch && !isResidentSession`（自 `f8382b78` 起逐字未动）—— 本轮实测仍成立：resident 臂 `composer.switch.count=0 / notice=0 / checkbox=0`，per-run 臂 `composer.switch.count=1 / marker="true"`。失效的只是判据用来确认「模式已到达」的正信号锚：旧标记 `[data-resident-status-bar]` 在 `ad1bb63a` 被并进活动坞时退役，而该提交只回灌了 `activity-dock-truthful` 与 `mobile-workspace-composer-layout` 两份 spec。本条的改动只把 AC-178 这条用例的读数锚换到合并后坞里等价的 `[data-activity-dock-toggle="true"]`（`persistWhenIdle === isResidentSession`，与渲染门读同一个 `findSessionHostState`），断言文本与 AC-177 / AC-179 的用例一字未动。
+
+**实测读数（逐次）：**
+
+- 绿 run 1：`EXIT=0`，`1 passed (10.7s)`，`elapsed=10712ms`；resident 臂 `composer.switch.count=0 / composer.notice.count=0 / composer.checkbox.count=0`、`dockToggle.count=1`；per-run 臂 `composer.switch.count=1`、`per-run.switch.marker="true"`、`dockToggle.count=0`。
+- 绿 run 2（还原锚后复跑）：`EXIT=0`，`1 passed (23.4s)`，`elapsed=23434ms`；两臂读数同上（resident `dockToggle.count=1` / per-run `dockToggle.count=0`）。两次 `elapsed` 均 < 55_000。
+- 负控制（把局部锚临时改成 `[data-resident-status-bar]`）：`EXIT=1`，红落在正信号等待处，逐字 `Error: a resident session must draw the bar that proves the mode arrived` / `expect(locator).toBeVisible() failed` / `Locator: locator('[data-resident-status-bar]')` / `Timeout: 30000ms` / `Error: element(s) not found`；随后还原 → run 2 回绿。
+- 机械核查：`awk 'NR>=1242 && NR<=1360' … | grep -c 'data-resident-status-bar'` = 0；`sed -n '1242,1360p' … | grep -c 'data-activity-dock-toggle'` = 1；`git diff develop -- e2e/resident-ui-layout.spec.ts | grep -c '^-.*expect('` = 0；`… | grep -c '^[-+].*test('` = 0；`npx playwright test e2e/resident-ui-layout.spec.ts --list` = `EXIT=0`，3 个用例标题逐字未变。
