@@ -3,7 +3,7 @@ id: gap-activity-send-retry-duplicates-user-row
 title: AC-185 重发产生两条同文用户消息：转写层 optimistic local-echo 未被 persisted echo 退休（判据
   e2e/activity-dock-truthful.spec.ts:814 transcript.userRows=[2]），GOAL-014 记
   done-unresolved
-status: ready
+status: done
 labels:
   - gap
   - defect
