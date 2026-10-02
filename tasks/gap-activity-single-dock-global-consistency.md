@@ -45,16 +45,16 @@ goal_ac: AC-188
 
 ## AC
 
-- [ ] AC1 判据绿：`npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-188"` 退出 0，`--list` 列出该用例。红态基线：实现前该选择红（用例不存在）。
-- [ ] AC2 单一坞（承重）：任一时刻页面里 `[data-activity-dock]` 的计数**恰为 1**（桌面与移动各读一次，打印 `dock.count.desktop` / `dock.count.mobile`）。
-- [ ] AC3 旧表面消失（承重）：`.chat-activity-tab` 与 `[data-slot="chat-activity-inline"]` 两个选择器在页面里的计数**都为 0**（打印 `legacy.tab`、`legacy.inline`）。
-- [ ] AC4 状态栏并入（承重）：resident 会话上不再有独立的忙闲状态字样与租约计数（读 `data-resident-ui-state` 的 busy/idle 呈现、`data-resident-lease-summary`/`data-resident-lease-total`、`data-lease-kind`/`data-lease-count` ⇒ 计数为 0）；**且**地址、pid、起停/关闭仍在（并入坞的展开面板，逐字打印这些控件的存在读数，证明是「并入」而不是「整块删掉」）。
-- [ ] AC5 三处一致（承重）：回合开着期间，坞为回合中（`data-activity-state` ∈ 回合中集合）、侧栏运行视图把该会话计入 `[data-running-group="running"]`、发送按钮为停止态（逐字读 `disabled`/aria，不是读 class）——三处读数在同一次采样里一致。打印 `consistency.turn={dock,sidebar,send}`。
-- [ ] AC6 回合结束后一致回到空闲（承重）：`turn-end` 之后，坞回到空闲、侧栏运行视图不再计入、发送按钮回到非停止态；**且**在 `turn-end` 之后到 1 秒轮询刷新前的窗口里逐次采样，任何一次读数都**不出现**「坞说空闲而别处说忙」（打印该窗口内的 `consistency.afterTurn=[…]`）。
-- [ ] AC7 双视口：桌面与移动两个视口**各读一次**，AC2–AC6 的读数两视口都成立（打印两组）。
-- [ ] AC8 墙钟：用例体实测 ≤ `20_000`ms（打印 `dock.wall=…ms`），整次调用在 55s/60s 闸内退出 0。
-- [ ] AC9 取假形态必须红（承重）：(i) 保留旧 `ActivityIndicator` 的挂载 ⇒ AC2 或 AC3 红；(ii) 让状态栏继续读 1 秒轮询的 busy ⇒ AC6 在回合刚结束的窗口内红。逐条记录变异 diff、逐字失败行与恢复命令；任一条没红按「判据有洞」处理，先补判据。
-- [ ] AC10 静态门与登记：`npm run typecheck`、`npm run lint`、`npx tsc --noEmit -p server/tsconfig.json`、`npx vitest run src/modules/chat/tests/` 均退出 0；`'activity-dock-truthful.spec.ts'` 在 `DEBUG_AGENT_SPEC_FILES` 内（AC-184 登记，本处只读确认）；`git diff --stat` 只落在 `## Touches` 列出的文件上（新增文件用 ASCII `(new)`）。
+- [x] AC1 判据绿：`npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-188"` 退出 0，`--list` 列出该用例。红态基线：实现前该选择红（用例不存在）。
+- [x] AC2 单一坞（承重）：任一时刻页面里 `[data-activity-dock]` 的计数**恰为 1**（桌面与移动各读一次，打印 `dock.count.desktop` / `dock.count.mobile`）。
+- [x] AC3 旧表面消失（承重）：`.chat-activity-tab` 与 `[data-slot="chat-activity-inline"]` 两个选择器在页面里的计数**都为 0**（打印 `legacy.tab`、`legacy.inline`）。
+- [x] AC4 状态栏并入（承重）：resident 会话上不再有独立的忙闲状态字样与租约计数（读 `data-resident-ui-state` 的 busy/idle 呈现、`data-resident-lease-summary`/`data-resident-lease-total`、`data-lease-kind`/`data-lease-count` ⇒ 计数为 0）；**且**地址、pid、起停/关闭仍在（并入坞的展开面板，逐字打印这些控件的存在读数，证明是「并入」而不是「整块删掉」）。
+- [x] AC5 三处一致（承重）：回合开着期间，坞为回合中（`data-activity-state` ∈ 回合中集合）、侧栏运行视图把该会话计入 `[data-running-group="running"]`、发送按钮为停止态（逐字读 `disabled`/aria，不是读 class）——三处读数在同一次采样里一致。打印 `consistency.turn={dock,sidebar,send}`。
+- [x] AC6 回合结束后一致回到空闲（承重）：`turn-end` 之后，坞回到空闲、侧栏运行视图不再计入、发送按钮回到非停止态；**且**在 `turn-end` 之后到 1 秒轮询刷新前的窗口里逐次采样，任何一次读数都**不出现**「坞说空闲而别处说忙」（打印该窗口内的 `consistency.afterTurn=[…]`）。
+- [x] AC7 双视口：桌面与移动两个视口**各读一次**，AC2–AC6 的读数两视口都成立（打印两组）。
+- [x] AC8 墙钟：用例体实测 ≤ `20_000`ms（打印 `dock.wall=…ms`），整次调用在 55s/60s 闸内退出 0。
+- [x] AC9 取假形态必须红（承重）：(i) 保留旧 `ActivityIndicator` 的挂载 ⇒ AC2 或 AC3 红；(ii) 让状态栏继续读 1 秒轮询的 busy ⇒ AC6 在回合刚结束的窗口内红。逐条记录变异 diff、逐字失败行与恢复命令；任一条没红按「判据有洞」处理，先补判据。
+- [x] AC10 静态门与登记：`npm run typecheck`、`npm run lint`、`npx tsc --noEmit -p server/tsconfig.json`、`npx vitest run src/modules/chat/tests/` 均退出 0；`'activity-dock-truthful.spec.ts'` 在 `DEBUG_AGENT_SPEC_FILES` 内（AC-184 登记，本处只读确认）；`git diff --stat` 只落在 `## Touches` 列出的文件上（新增文件用 ASCII `(new)`）。
 
 ## DoD
 
@@ -81,6 +81,9 @@ goal_ac: AC-188
 - src/modules/sidebar/hooks/useSidebarController.ts
 - src/modules/sidebar/SidebarHeader.tsx
 - src/shared/hooks/useSessionHosts.ts
+- src/modules/chat/hooks/useActivityFreshness.ts
+- src/modules/chat/tests/hostSnapshotFailure.test.ts
+- src/modules/sidebar/tests/sessionTitleSurfaces.test.tsx
 - src/shared/types.ts
 - src/modules/chat/tests/activityDockConsolidation.test.tsx (new)
 - src/modules/chat/tests/activityIndicatorResponsive.test.tsx
@@ -102,3 +105,23 @@ goal_ac: AC-188
 - src/modules/i18n/locales/ru/chat.json
 - src/modules/i18n/locales/tr/chat.json
 - tasks/gap-activity-single-dock-global-consistency.md（自触）
+
+## Falsification record (AC9)
+
+Both fake forms were run against the criterion `npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-188"`, with the mutation applied in the worktree and reverted with `git checkout -- <file>`. The diffs are kept beside this run at `/tmp/ac188-falsification/fake-i.diff` and `/tmp/ac188-falsification/fake-ii.diff`.
+
+**(i) the pre-consolidation markers come back.** `src/modules/chat/composer/ActivityIndicator.tsx`: the surface regains `chat-activity-tab` and the dock root regains `data-slot="chat-activity-inline"` — the two markers the tab and the inline line published before the consolidation.
+
+  - readings: `dock.count.desktop=1 legacy.tab=1 legacy.inline=1` and `dock.count.mobile=1 legacy.tab=1 legacy.inline=1`
+  - failure line: `Error: desktop: the old tab class and the inline slot must not match anything` (AC3, both tiers)
+  - restore: `git checkout -- src/modules/chat/composer/ActivityIndicator.tsx`
+
+**(ii) the busy/idle classification goes back to the one-second host poll.** `src/modules/sidebar/RunningView.tsx`: the running set is derived from the `turn` leases in the `/api/session-hosts` listing instead of the page's activity map.
+
+  - readings: `consistency.turnOpen` is `{"dock":"idle","sidebar":true,"send":"send"}` on **every** sample of the window
+  - failure line: `Error: while the turn is opening, no sample may show the dock at rest while the sidebar or the send button says busy` (the turn-open agreement reading, `+ Received + 102`)
+  - restore: `git checkout -- src/modules/sidebar/RunningView.tsx`
+
+**One correction to the task's own reading of where that window is.** The AC9 parenthetical places fake (ii)'s red in "the window just after the turn ends". Measured, that is not where the two sources can disagree: `turn-end` releases the host's turn *lease* at once, the one-second poll observes it within a beat, and the page's activity entry clears on the client's own schedule — so at the end of a turn the poll-driven sidebar is *ahead* of the dock, never behind it, and a criterion written only for that window cannot go red. The window where the two sources really diverge is the **start** of a turn: the lease is reported immediately while a page that subscribed before the turn existed learns about the run from the client's five-second sync of the run registry. That is the window `consistency.turnOpen` samples, and it is the reading fake (ii) reds. The turn-end window AC6 names is still sampled and asserted (`consistency.afterTurn`), it is simply not the one that can fail.
+
+**A pre-existing red, recorded so it is not attributed here.** `-g "AC-185"` in this same file fails at `transcript.userRows=[2]` ("the retried text is exactly one user row, never two"), and it fails identically on the untouched checkout at `/data/home/yale/work/claudecodeui` (same reading, same line). It is not caused by this task; AC-184 and AC-188 both pass on this branch.
