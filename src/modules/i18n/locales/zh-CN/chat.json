@@ -312,6 +312,11 @@
       "withdraw": "撤回",
       "withdrawn": "已撤回"
     },
+    "occupied": {
+      "notice": "该会话正由 Claude Code 后台任务占用（job {{jobId}}，pid {{pid}}）。请先执行 `claude stop {{jobId}}` 停止它，或 fork 该会话。",
+      "copyCommand": "复制命令",
+      "copied": "已复制"
+    },
     "statusBar": {
       "unstarted": "常驻 · 未运行（{{reason}}）",
       "idle": "常驻 · 空闲",

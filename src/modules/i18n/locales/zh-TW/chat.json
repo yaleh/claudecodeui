@@ -328,6 +328,11 @@
       "withdraw": "撤回",
       "withdrawn": "已撤回"
     },
+    "occupied": {
+      "notice": "此工作階段正由 Claude Code 背景工作占用（job {{jobId}}，pid {{pid}}）。請先執行 `claude stop {{jobId}}` 停止它，或 fork 此工作階段。",
+      "copyCommand": "複製指令",
+      "copied": "已複製"
+    },
     "statusBar": {
       "unstarted": "常駐 · 未執行（{{reason}}）",
       "idle": "常駐 · 閒置",
