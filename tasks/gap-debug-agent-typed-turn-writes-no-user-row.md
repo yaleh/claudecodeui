@@ -1,7 +1,7 @@
 ---
 id: gap-debug-agent-typed-turn-writes-no-user-row
 title: 调试 agent：用户打字发出的回合不落 user 行，实时所见与 REST 重取分叉（AC-124 判据面漏掉该路径）
-status: ready
+status: done
 labels:
   - gap
 parent: null

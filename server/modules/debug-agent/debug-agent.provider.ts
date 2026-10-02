@@ -1,4 +1,5 @@
 import type { IProvider, IProviderRuntime, IProviderSessions, IProviderSessionSynchronizer } from '@/shared/interfaces.js';
+import { CHAT_TURN_OPTION } from '@/shared/types.js';
 import type {
   LLMProvider,
   MessageOrigin,
@@ -22,6 +23,7 @@ import {
   type DebugAgentOpenRun,
 } from './debug-agent.host-driver.js';
 import {
+  appendTypedTurnRow,
   buildCommandLifecycleRow,
   readArmedDebugAgentScenario,
   type ArmedDebugAgentScenario,
@@ -277,6 +279,50 @@ function createDebugAgentRuntime(
       // when the pushed command's own arrival may already have changed it.
       if (options[DEBUG_AGENT_BUSY_INPUT_OPTION] === true) {
         return acceptPushedCommand({ armed, writer, context, forwardFrames, hostDriver });
+      }
+
+      // The turn's own prompt, written before the walk it starts.
+      //
+      // A typed turn reaches this entry with the person's text as `command`, and
+      // the run it starts walks the scenario — which writes what the scenario
+      // says and has never seen that text. So the row the prompt becomes has to
+      // be written here, by the one component that both holds the text and knows
+      // a turn is what it is. Before the walk rather than after: the row is on
+      // disk before any frame is forwarded (`appendTypedTurnRow` writes
+      // synchronously, and the forward below is the very next statement), and the
+      // engine reads the transcript's `before` shape when it starts, so the
+      // prompt is part of the artifact the scenario's expectations are measured
+      // against rather than an extra row its `expect.rows.delta` never counted.
+      //
+      // The frame is forwarded for the same reason the engine forwards every row
+      // it writes: the run's own client renders from frames, so a row that
+      // reached only the disk would make the live conversation and the history
+      // the reload reads two different conversations — the divergence this agent
+      // exists to reproduce and must not manufacture itself.
+      //
+      // Only a turn the chat transport dispatched carries a message. The other
+      // dispatches this entry serves are drivers naming a walk — the control
+      // plane's clock advance is one, and it reaches this same entry with the
+      // same option keys — so the flag is what tells "somebody composed this
+      // text" apart from "a driver named this run". Absent means the latter: a
+      // label recorded as a user row would be a message nobody sent, while the
+      // missing row this reads for is the one thing the flag is for.
+      if (options[CHAT_TURN_OPTION] === true) {
+        const row = appendTypedTurnRow({
+          transcriptPath: armed.transcriptPath,
+          sessionId: armed.providerSessionId,
+          cwd: armed.projectPath,
+          text: command,
+        });
+
+        if (row) {
+          forwardFrames({
+            transformedMessage: row,
+            sessionId: armed.providerSessionId,
+            normalizeMessage: context.normalizeMessage,
+            writer,
+          });
+        }
       }
 
       // Where this run's frames ended up. It starts as the caller's writer and
