@@ -64,3 +64,14 @@ AC7 三个假形态：先提交实现（`ce9a832e`），再逐条变异，每条
   expected 同前加 `'message-assistant-block-tail'`。变异 diff：`.../mutation-c.diff`。
 
 恢复后 `git status --porcelain` 为空，AC1 判据 10/10 绿（`red-a/b/c.txt` 为三条红态原文）。
+
+## Needs-Human
+
+**执行 2026-10-01T17:36:17.740Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: not ok - suite-watchdog: terminated by an external signal before the suite finished — see the report above
+- run_id：wk-prod-anchor
+- session_id：5abaead6-762b-46e0-b7dc-5dd6e276e401
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-work-segment-selector-row-type-pure~wk-prod-anchor~1790876124744-3b0908.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-work-segment-selector-row-type-pure-wk-prod-anchor.log
