@@ -2,7 +2,7 @@
 id: gap-occupied-session-read-only-mode
 title: 被 Claude Code 后台任务占用的会话进入只读模式：/session-hosts 会话视图带 occupiedBy，前端禁用发送并给出
   claude stop 提示，解除占用后自动恢复
-status: todo
+status: ready
 labels:
   - gap
 parent: null
