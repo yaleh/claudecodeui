@@ -64,14 +64,14 @@ Expected: visible   Timeout: 30000ms   Error: element(s) not found
 
 ## AC
 
-- [ ] AC1 判据翻绿：`npx playwright test e2e/resident-ui-layout.spec.ts -g "close is reachable"` 退出 **0**，1 个用例通过，stdout 的 `elapsed=NNNNms` < 55_000。验证：`echo $?` + `1 passed` + `elapsed=` 三行逐字登记（红态基线见 Proposal：1 failed / `:1036` `element(s) not found`）。
-- [ ] AC2 AC-177 用例不再指向退役锚或结构上恒真的读数：AC-177 用例区间（约 `:1029`–`:1170`）内 `grep -c 'data-resident-status-bar\|data-resident-ui-state\|role="dialog"'` = **0**（注释行亦不得出现）；同区间 `grep -c 'data-activity-dock\|data-resident-panel'` ≥ 1；且 `measure` 的 composer 选择器为 `.chat-composer-shell form`。验证：三条命令逐字输出。
-- [ ] AC3 没有回补死契约：生产代码 `grep -rn 'data-resident-status-bar\|data-resident-ui-state' src/ --include=*.tsx --include=*.ts | grep -v /tests/` 输出为**空**。验证：该命令逐字输出为空。
-- [ ] AC4 承重读数两视口都成立：窄视口 780×493 下 `hit.isClose=true`、`panel.inPane=false`、`notice.present=false`；正控制 1440×900 下 `hit.isClose=true`；真实点击后 `GET /api/session-hosts` 读回该宿主 `state=closed`、`closeReason=user`、不再是 live host。验证：一次绿 run 的 `hit.isClose=` / `panel.inPane=` / `close.request=` / `host.state.after=` / `closeReason.after=` / `liveHost.after=` 打印行。
-- [ ] AC5 承重假形态仍然红（逐字保留）：注入 `data-e2e-falsifier="cover"` 覆盖关闭按钮中心 ⇒ `falsifier.hit.isClose=false` 且 `falsifier.hit.element` 含 `data-e2e-falsifier="cover"`；移除后 `uncovered.isClose=true`。验证：绿 run 的这三行打印 + `git diff develop -- e2e/resident-ui-layout.spec.ts | grep -c '^-.*data-e2e-falsifier'` = 0。
-- [ ] AC6 只认领 AC-177 的范围：不改 AC-178（`-g "resident session hides enable affordance"`）与 AC-179（`-g "status bar does not cover the transcript"`）命中的 test 标题与其断言。验证：`npx playwright test e2e/resident-ui-layout.spec.ts --list` 退出 0 且仍列出 3 个用例、标题逐字未变；`git diff develop -- e2e/resident-ui-layout.spec.ts | grep -c '^[-+].*test('` = 0。
-- [ ] AC7 启动期有界守卫未被削弱：`warmClientStartup` / `navigateBounded` / `STARTUP_PROBE_DEADLINE_MS` 仍在，且绿 run stdout 出现 `[e2e] client warm-up:` 与 `[e2e] client startup: … landed after` 两行。验证：两条打印逐字登记 + `git diff develop -- e2e/resident-ui-layout.spec.ts | grep -cE '^-.*(navigateBounded|warmClientStartup)'` = 0。
-- [ ] AC8 边界：`git diff develop -- package.json playwright.config.ts` 为空；spec diff 不新增 `test.skip` / `retries`；`npm run typecheck` 退出 0。
+- [x] AC1 判据翻绿：`npx playwright test e2e/resident-ui-layout.spec.ts -g "close is reachable"` 退出 **0**，1 个用例通过，stdout 的 `elapsed=NNNNms` < 55_000。验证：`echo $?` + `1 passed` + `elapsed=` 三行逐字登记（红态基线见 Proposal：1 failed / `:1036` `element(s) not found`）。
+- [x] AC2 AC-177 用例不再指向退役锚或结构上恒真的读数：AC-177 用例区间（约 `:1029`–`:1170`）内 `grep -c 'data-resident-status-bar\|data-resident-ui-state\|role="dialog"'` = **0**（注释行亦不得出现）；同区间 `grep -c 'data-activity-dock\|data-resident-panel'` ≥ 1；且 `measure` 的 composer 选择器为 `.chat-composer-shell form`。验证：三条命令逐字输出。
+- [x] AC3 没有回补死契约：生产代码 `grep -rn 'data-resident-status-bar\|data-resident-ui-state' src/ --include=*.tsx --include=*.ts | grep -v /tests/` 输出为**空**。验证：该命令逐字输出为空。
+- [x] AC4 承重读数两视口都成立：窄视口 780×493 下 `hit.isClose=true`、`panel.inPane=false`、`notice.present=false`；正控制 1440×900 下 `hit.isClose=true`；真实点击后 `GET /api/session-hosts` 读回该宿主 `state=closed`、`closeReason=user`、不再是 live host。验证：一次绿 run 的 `hit.isClose=` / `panel.inPane=` / `close.request=` / `host.state.after=` / `closeReason.after=` / `liveHost.after=` 打印行。
+- [x] AC5 承重假形态仍然红（逐字保留）：注入 `data-e2e-falsifier="cover"` 覆盖关闭按钮中心 ⇒ `falsifier.hit.isClose=false` 且 `falsifier.hit.element` 含 `data-e2e-falsifier="cover"`；移除后 `uncovered.isClose=true`。验证：绿 run 的这三行打印 + `git diff develop -- e2e/resident-ui-layout.spec.ts | grep -c '^-.*data-e2e-falsifier'` = 0。
+- [x] AC6 只认领 AC-177 的范围：不改 AC-178（`-g "resident session hides enable affordance"`）与 AC-179（`-g "status bar does not cover the transcript"`）命中的 test 标题与其断言。验证：`npx playwright test e2e/resident-ui-layout.spec.ts --list` 退出 0 且仍列出 3 个用例、标题逐字未变；`git diff develop -- e2e/resident-ui-layout.spec.ts | grep -c '^[-+].*test('` = 0。
+- [x] AC7 启动期有界守卫未被削弱：`warmClientStartup` / `navigateBounded` / `STARTUP_PROBE_DEADLINE_MS` 仍在，且绿 run stdout 出现 `[e2e] client warm-up:` 与 `[e2e] client startup: … landed after` 两行。验证：两条打印逐字登记 + `git diff develop -- e2e/resident-ui-layout.spec.ts | grep -cE '^-.*(navigateBounded|warmClientStartup)'` = 0。
+- [x] AC8 边界：`git diff develop -- package.json playwright.config.ts` 为空；spec diff 不新增 `test.skip` / `retries`；`npm run typecheck` 退出 0。
 
 ## DoD
 
@@ -86,4 +86,31 @@ L_D：该轴仍暗，理由：本任务只把一条 AC 判据的读数锚跟着�
 
 ## 完成记录
 
-（待执行者填写）
+**这一次红的性质（如实）**：**不是产品修复**。AC-177 的产品保证——窄视口下展开面板里的关闭按钮可点（`elementFromPoint` 命中其自身）、真实点击后宿主读回 `closed` / `closeReason=user`、不再是 live host——自 `7b0e553d` / `e0a601b8` 起就成立，本任务**一行生产代码未改**（`git diff --name-only develop` 只有 `e2e/resident-ui-layout.spec.ts` 一个文件；AC3 机械证明 `src/` 下退役标记计数为 0）。失效的是判据的**量具**：`ad1bb63a` 把常驻状态条并进活动坞，退役了 `[data-resident-status-bar]` / `[data-resident-status-bar-trigger]` / `data-resident-ui-state`，弹层也不再是 ARIA dialog（改挂 `[data-resident-panel="true"]`），而那次提交只回灌了 `activity-dock-truthful` 与 `mobile-workspace-composer-layout` 两份 spec——本 spec 因此死在首条正信号等待上（`:1036`，`element(s) not found`），一个读数都没取到。本轮只把读数锚与展开顺序跟着产品走。
+
+**唯一一处「不只是换锚」的改动，以及它为什么是必须的**：`measure` 的 `hitInComposer` 从 `.chat-composer-shell` 收窄到 `.chat-composer-shell form`。合并后坞（及其展开面板）就渲染在该外壳之内（`ChatComposer` 的根即 `.chat-composer-shell`，坞是其中 `absolute bottom-full` 的一层），故整壳口径恒为 true、`expect(hitInComposer).toBe(false)` 结构性必红。收窄到输入表单后语义不变（表单若盖住关闭按钮，`elementFromPoint` 命中的会是其后代 ⇒ 仍能红），断言文本逐字未改，**不是删断言换绿**。
+
+**AC1 —— 判据翻绿**：`npx playwright test e2e/resident-ui-layout.spec.ts -g "close is reachable"` → `PIPE_EXIT=0`、`1 passed`、`elapsed=11227ms`（< 55_000）。merge develop（`bb71e9a0`）后复测同样绿（`1 passed (11.2s)`）；合并前为 `elapsed=17211ms`。两次都没有用 `retries` / `skip` / `waitForTimeout`。
+
+**AC4 + AC5 —— 同一次绿 run 的逐字打印**：
+
+```
+viewport=780x493 hit.element=button data-resident-close="true" hit.isClose=true
+hit.inNotice=false hit.inComposer=false
+notice.present=false panel.inPane=false popover.overlapsPaneEdge=true
+falsifier.hit.element=div data-e2e-falsifier="cover" falsifier.hit.isClose=false
+uncovered.isClose=true
+viewport=1440x900 hit.element=button data-resident-close="true" hit.isClose=true panel.inPane=false
+host.present=true host.id=host-2ed1875d-861f-41bd-b1c1-39b1581fb935
+close.request=200 host.state.after=closed closeReason.after=user liveHost.after=absent
+```
+
+`git diff develop -- e2e/resident-ui-layout.spec.ts | grep -c '^-.*data-e2e-falsifier'` = 0（假形态三处断言逐字未动；本轮只为「移除后恢复」这条腿补了一行 `console.log`，没有删改任何断言）。
+
+**AC2 / AC3 / AC6 / AC7 / AC8 —— 机械读数**：
+
+- **AC2**：AC-177 用例体（`:1062`–`:1219`）内 `data-resident-status-bar|data-resident-ui-state|role="dialog"` = **0**（注释行亦为 0）；`data-activity-dock|data-resident-panel` = **1**；`querySelector('.chat-composer-shell form')` 出现 1 处。按 AC 原文的 `:1029`–`:1170` 切片复测同为 **0 / 1**。
+- **AC3**：`grep -rn 'data-resident-status-bar\|data-resident-ui-state' src/ --include=*.tsx --include=*.ts | grep -v /tests/` → **空（0 行）**——没有为旧标记回补死契约。
+- **AC6**：`npx playwright test e2e/resident-ui-layout.spec.ts --list` 退出 0，仍列出 **3** 个用例且标题逐字未变（`status bar does not cover the transcript` / `the popover close is reachable at a narrow viewport and closes the process` / `resident session hides enable affordance`）；`git diff develop -- e2e/resident-ui-layout.spec.ts | grep -c '^[-+].*test('` = **0**（AC-178 / AC-179 的 test 与断言未被触碰；AC-177 用例内**局部遮蔽** `BAR`，模块级共享 `BAR` 原样保留给 AC-179）。
+- **AC7**：`warmClientStartup` / `navigateBounded` / `STARTUP_PROBE_DEADLINE_MS` 仍在（14 处引用）；绿 run stdout 出现 `[e2e] client warm-up: pre-bundle committed in 1781ms` 与 `[e2e] client startup: the project row for resident-ui-layout-workspace landed after 2335ms (attempt 1)`；`git diff develop -- e2e/resident-ui-layout.spec.ts | grep -cE '^-.*(navigateBounded|warmClientStartup)'` = **0**。
+- **AC8**：`git diff develop -- package.json playwright.config.ts` 为**空**；spec diff 不新增 `test.skip` / `retries`（计数 0）；`npm run typecheck` 退出 **0**（merge develop 后复测仍 0）。
