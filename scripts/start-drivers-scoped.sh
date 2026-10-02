@@ -12,14 +12,29 @@
 # scopes would sit outside the ceiling. `OOMPolicy=continue` keeps one OOM-killed worker from
 # stopping the whole scope (systemd's default for a scope would be to stop it).
 #
+# `QUAY_TEST_SYSTEMD_RUN_LIMITS` is the second half of the same idea, for the full-suite runner. That
+# runner wraps the whole suite in its OWN `systemd-run --scope`, whose cap comes from the plugin's
+# `DEFAULT_SYSTEMD_RUN_LIMITS` = 6G unless overridden. That scope is created by the runner, so it
+# lands in `app.slice` and NOT in the fleet slice above — the fleet ceiling does not back it, and its
+# own 6G is the only thing bounding it. 6G is below what the suite needs: the server phase runs 163
+# per-file `node --test` processes, 16 at a time, several of which spawn a real `claude` CLI
+# (~300-430MB each measured) — so the scope is OOM-killed ~33s in and the suite reports
+# "terminated by an external signal before the suite finished". The driver cannot attribute that to
+# any file, so EVERY fan-in parks its task at needs-human and no task can ever land. 24G is the value
+# scripts/with-memory-cap.sh already budgets for this same suite (QUAY_MEMORY_MAX), so the two
+# wrappers around one suite now agree instead of disagreeing by 4x.
+#
 # Env:
-#   QUAY_MEMORY_SLICE   slice to run under (default quay-fleet.slice)
-#   QUAY_PLUGIN_DIR     quay plugin dir holding scripts/dist/start-drivers.js
-#                       (default: newest release under ~/.claude/plugins/cache/quay/quay/)
+#   QUAY_MEMORY_SLICE              slice to run under (default quay-fleet.slice)
+#   QUAY_TEST_SYSTEMD_RUN_LIMITS   cap the full-suite runner puts on its own scope
+#                                  (default MemoryMax=24G; the plugin's own default is 6G)
+#   QUAY_PLUGIN_DIR                quay plugin dir holding scripts/dist/start-drivers.js
+#                                  (default: newest release under ~/.claude/plugins/cache/quay/quay/)
 set -eu
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SLICE="${QUAY_MEMORY_SLICE:-quay-fleet.slice}"
+SUITE_LIMITS="${QUAY_TEST_SYSTEMD_RUN_LIMITS:-MemoryMax=24G}"
 
 if [ -z "${QUAY_PLUGIN_DIR:-}" ]; then
   base="$HOME/.claude/plugins/cache/quay/quay"
@@ -43,7 +58,8 @@ if pgrep -u "$(id -u)" -f "driver-anchor.js __anchor --root $ROOT_DIR" >/dev/nul
 fi
 
 UNIT="quay-drivers-$(basename "$ROOT_DIR")-$(date +%s)"
-echo "start-drivers-scoped: $UNIT.scope in $SLICE (MemoryMax=$max)"
+echo "start-drivers-scoped: $UNIT.scope in $SLICE (MemoryMax=$max, full-suite scope $SUITE_LIMITS)"
 exec systemd-run --user --scope --quiet --unit="$UNIT" --slice="$SLICE" -p OOMPolicy=continue -- \
   env QUAY_MEMORY_SLICE="$SLICE" \
+      QUAY_TEST_SYSTEMD_RUN_LIMITS="$SUITE_LIMITS" \
   node "$QUAY_PLUGIN_DIR/scripts/dist/start-drivers.js" --root "$ROOT_DIR" "$@"
