@@ -49,6 +49,12 @@ export type { WatcherMode } from './services/sessions-watcher.service.js';
 // this module never produces.
 export { createClaudeTurnTracker } from './services/claude-turn-phase.service.js';
 export type { TurnPhase, TurnState } from './services/claude-turn-phase.service.js';
+// readSessionTurn: the live phase of one session's turn, as the frame forwarder
+// last reduced it. Consumed by the websocket module's activity heartbeat, which
+// stamps it onto the activity frames a browser reads — the providers module owns
+// the reduction, the websocket module owns the transport, and this is the one
+// edge between them.
+export { readSessionTurn } from './list/claude/claude-runtime.provider.js';
 export { providerRegistry } from './provider.registry.js';
 // providerRoutes: the module's HTTP face. Mounted by `server/index.ts`, and by
 // the lifecycle-mode criterion, which has to drive the real

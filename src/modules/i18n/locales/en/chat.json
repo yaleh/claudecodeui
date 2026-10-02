@@ -258,6 +258,14 @@
       "computing": "Computing",
       "reasoning": "Reasoning"
     },
+    "phases": {
+      "thinking": "Thinking",
+      "writing": "Writing",
+      "tool": "Running {{tool}}",
+      "toolGeneric": "Running a tool",
+      "compacting": "Compacting",
+      "awaitingPermission": "Waiting for approval"
+    },
     "state": {
       "live": "Live",
       "paused": "Paused"

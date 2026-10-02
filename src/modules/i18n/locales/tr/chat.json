@@ -216,6 +216,14 @@
       "computing": "Hesaplıyor",
       "reasoning": "Mantık yürütüyor"
     },
+    "phases": {
+      "thinking": "Düşünüyor",
+      "writing": "Yazıyor",
+      "tool": "{{tool}} çalıştırılıyor",
+      "toolGeneric": "Bir araç çalıştırılıyor",
+      "compacting": "Sıkıştırılıyor",
+      "awaitingPermission": "Onay bekleniyor"
+    },
     "state": {
       "live": "Canlı",
       "paused": "Duraklatıldı"

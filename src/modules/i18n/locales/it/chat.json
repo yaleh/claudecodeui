@@ -216,6 +216,14 @@
       "computing": "Calcolo",
       "reasoning": "Ragionamento"
     },
+    "phases": {
+      "thinking": "Elaborazione",
+      "writing": "Scrittura",
+      "tool": "Esecuzione di {{tool}}",
+      "toolGeneric": "Esecuzione di uno strumento",
+      "compacting": "Compattazione",
+      "awaitingPermission": "In attesa di approvazione"
+    },
     "state": {
       "live": "Attivo",
       "paused": "In pausa"

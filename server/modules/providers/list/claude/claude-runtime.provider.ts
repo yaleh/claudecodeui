@@ -39,6 +39,7 @@ import {
 import { resolveModelContextWindowRow, resolveModelLaunchSpec } from '@/modules/providers/services/model-launch-spec.service.js';
 import { resolveContextWindow } from '@/modules/providers/services/launch-spec.service.js';
 import { createClaudeSessionScopeSpawn } from '@/modules/providers/services/claude-session-scope.service.js';
+import { createClaudeTurnTracker } from '@/modules/providers/services/claude-turn-phase.service.js';
 import {
   ClaudeSessionOccupiedError,
   applyLaunchSpecEnv,
@@ -53,6 +54,7 @@ import type {
   ProviderRuntimeContext,
   ProviderRuntimeWriter,
 } from '@/shared/types.js';
+import type { TurnState } from '@/modules/providers/services/claude-turn-phase.service.js';
 
 /** The SDK query instance behind one run: the only handle that can interrupt it. */
 type ClaudeQuery = Query;
@@ -835,6 +837,31 @@ export function countOpenStreamBlocks(writer: ProviderRuntimeWriter): number {
 }
 
 /**
+ * The session turn tracker this module feeds from the forwarder below.
+ *
+ * Module-level and singleton on purpose: the phase belongs to the *server*, not
+ * to one run, because the frames that read it back (`activity-heartbeat.service`)
+ * are sent on a timer that outlives any single run's writer. State is still keyed
+ * per session inside the tracker, so two sessions cannot read each other's phase.
+ *
+ * It lives here rather than in a service of its own because this file already
+ * owns the one seam both the real run loop and the debug agent's rows cross
+ * (`forwardNormalizedFrames`), and the tracker is that seam's reading — see
+ * `claude-turn-phase.service.ts` for the reduction itself.
+ */
+const turnTracker = createClaudeTurnTracker();
+
+/**
+ * The phase a session's turn is in, as the last frame through the forwarder left it.
+ *
+ * A session the forwarder has never seen reads `idle`, which is the honest answer:
+ * nothing has told this process the session is doing anything.
+ */
+export function readSessionTurn(sessionId: string): TurnState {
+  return turnTracker.getTurn(sessionId);
+}
+
+/**
  * Hands every normalized frame of one SDK message to the run writer, in order.
  *
  * This is the seam the partial-stream path rests on: the normalizer decides what
@@ -868,6 +895,16 @@ export function forwardNormalizedFrames({ transformedMessage, sessionId, normali
   normalizeMessage: (raw: unknown, sessionId: string | null) => AnyRecord[];
   writer: ProviderRuntimeWriter;
 }): void {
+  // Fold the raw frame into the session's turn phase before it is normalized.
+  // This is the one seam both the real run loop and the debug agent's rows pass
+  // through, and it is the only place that sees the signals the normalizer drops
+  // on purpose (`system/thinking_tokens` normalizes to nothing). The phase it
+  // records is read back by the activity frames (`activity-heartbeat.service.ts`),
+  // which is how a browser learns what a running turn is *actually* doing.
+  if (sessionId) {
+    turnTracker.observe(sessionId, transformedMessage);
+  }
+
   const blockKey = trackStreamBlock({
     writer,
     sessionId,

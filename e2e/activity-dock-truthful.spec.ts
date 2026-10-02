@@ -106,6 +106,15 @@ const TITLE = 'Activity dock truthfulness — a turn held open';
 const SEED_USER_TEXT = 'seeded user turn for the activity-dock criterion';
 const WALK_TURN_TEXT = 'the turn the process is still writing';
 
+// The AC-187 phase criterion's own account and fixture. Kept separate from the
+// case above: `-g "AC-187"` selects only that case, so it seeds its own session
+// rather than relying on one the other describe armed.
+const PHASE_USERNAME = 'activity-dock-phase-e2e';
+const PHASE_PASSWORD = 'activity-dock-phase-e2e-pass';
+const PHASE_TITLE = 'Activity dock phase truthfulness — a turn with phases';
+const PHASE_SEED_TEXT = 'seeded user turn for the phase criterion';
+const PHASE_WALK_TEXT = 'the phased turn the walk writes';
+
 /** The composer's box, the same anchor the resident specs type into. */
 const TEXTAREA = '[data-slot="prompt-input-textarea"]';
 /** The message this criterion types, fails to send, then retries. */
@@ -1345,6 +1354,215 @@ test.describe('activity dock consolidation', () => {
     }
 
     await mobile.close();
+
+    const wall = Date.now() - startedAt;
+    console.log(`dock.wall=${wall}ms`);
+    expect(wall, 'the case body must land inside its own budget').toBeLessThanOrEqual(20_000);
+  });
+});
+
+/* =============================================================================================
+ * AC-187 — the dock's words come from the real phase of a real turn
+ * =============================================================================================
+ *
+ * The family's other cases are about what the dock says when the *transport*
+ * fails. This one is about the source of the words themselves. The dock used to
+ * pick one of six rotating adjectives from a local clock — `actionWords[floor(
+ * elapsedSeconds / 4) % 6]` — so the same running turn said a different thing
+ * every four seconds and said nothing at all about what was actually happening.
+ *
+ * Here a real debug-agent turn walks a real signal sequence: it thinks, it calls
+ * `Bash`, the call returns, it writes, the turn ends. The server reduces those
+ * raw rows to a phase (AC-186's tracker), stamps the phase onto the activity
+ * frames it already beats (AC-182's heartbeat), and the dock draws the locale's
+ * word for that phase — with the tool's own name, which no clock and no lookup
+ * table could produce. The shape this case pins, in one run:
+ *
+ *   - the phases arrive in order, thinking -> tool -> writing -> idle;
+ *   - the label equals the locale's value for the phase (and names `Bash`);
+ *   - six seconds inside the tool phase say the SAME thing six times; and
+ *   - when the turn ends, the dock stops claiming a turn.
+ *
+ * The criterion is the `-g "AC-187"` selection, which runs this describe's hooks
+ * (and no other describe's): the page is opened here, after this selection's own
+ * warm-up.
+ */
+
+/** The tool the turn calls; the dock must read this name off the server's frames. */
+const PHASE_TOOL_NAME = 'Bash';
+/** Six seconds of wall clock, sampled once a second — the stability window. */
+const PHASE_STABLE_STEP_MS = 1_000;
+
+/** One phase reading off the dock: its state, the phase it publishes, and its label. */
+type PhaseReading = { state: string; phase: string; label: string };
+
+/** Reads the dock's phase, state and running label (the shimmer's ellipsis stripped). */
+async function readPhaseDock(page: Page): Promise<PhaseReading> {
+  const dock = page.locator(DOCK).first();
+  const state = (await dock.getAttribute('data-activity-state')) ?? '';
+  const phase = (await dock.getAttribute('data-activity-phase')) ?? '';
+  const labelEl = dock.locator('[data-activity-label]');
+  const raw = (await labelEl.count()) > 0 ? await labelEl.first().innerText() : '';
+  return { state, phase, label: raw.replace(/[…]+$/, '').replace(/\.+$/, '').trim() };
+}
+
+/** The shipped `chat` value for a phase, with `{{tool}}` filled in. */
+function phaseLabel(locale: string, key: string, tool?: string): string {
+  const value = String(localeKey(locale, `claudeStatus.phases.${key}`));
+  return tool === undefined ? value : value.replace('{{tool}}', tool);
+}
+
+/**
+ * The phase walk: one unattended turn whose raw rows carry each signal the dock
+ * must speak for. The tool phase is held for ~8s so the six-second stability
+ * window fits wholly inside it, and the thinking phase is held long enough that
+ * a client subscribing a beat after the walk starts still lands inside it.
+ */
+const PHASE_SCENARIO = {
+  version: 1,
+  dialect: 'claude',
+  home: 'gate',
+  transcript: { mode: 'per-row-jsonl' },
+  seed: { title: PHASE_TITLE, userText: PHASE_SEED_TEXT, lifecycleMode: 'resident' },
+  steps: [
+    { at: 0, op: 'unattended-turn', text: PHASE_WALK_TEXT, trigger: 'cron' },
+    { at: 400, op: 'thinking-tokens' },
+    { at: 5_000, op: 'tool-call', name: PHASE_TOOL_NAME },
+    { at: 12_000, op: 'tool-result', text: `${PHASE_TOOL_NAME} finished` },
+    { at: 12_100, op: 'text-delta', text: 'now writing the answer' },
+    { at: 13_500, op: 'turn-result' },
+    { at: 14_000, op: 'turn-end' },
+  ],
+  expect: { rows: { delta: 6 }, content: { mustContain: [PHASE_WALK_TEXT, PHASE_TOOL_NAME] } },
+};
+
+test.describe('activity dock phase truthfulness', () => {
+  let page: Page;
+  let api: APIRequestContext;
+  let workspaceName = '';
+  let sessionId = '';
+
+  test.beforeAll(async ({ browser }) => {
+    const clientUrl = test.info().project.use.baseURL;
+    if (!clientUrl) throw new Error('playwright.config.ts must give this project a baseURL');
+    const fixtureHome = process.env.QUAY_E2E_DEBUG_AGENT_HOME;
+    if (!fixtureHome) throw new Error('playwright.config.ts must publish QUAY_E2E_DEBUG_AGENT_HOME');
+    if (!process.env.QUAY_E2E_RUN_STARTED_AT) throw new Error('playwright.config.ts must publish QUAY_E2E_RUN_STARTED_AT');
+
+    const workspace = path.join(fixtureHome, 'activity-dock-phase-workspace');
+    workspaceName = path.basename(workspace);
+
+    const bootstrap = await request.newContext({ baseURL: clientUrl });
+    const token = await createAccount(bootstrap, PHASE_USERNAME, PHASE_PASSWORD);
+    await bootstrap.dispose();
+    api = await request.newContext({ baseURL: clientUrl, extraHTTPHeaders: { Authorization: `Bearer ${token}` } });
+
+    ({ sessionId } = await armScenario(api, workspace, PHASE_SCENARIO));
+    await startResidentProcess(api, sessionId);
+
+    await warmClientStartup(clientUrl);
+
+    const context = await browser.newContext({ baseURL: clientUrl });
+    await context.addInitScript(
+      ({ key, value, language }: { key: string; value: string; language: string }) => {
+        window.localStorage.setItem(key, value);
+        window.localStorage.setItem('userLanguage', language);
+      },
+      { key: 'auth-token', value: token, language: LOCALE },
+    );
+
+    page = await context.newPage();
+    page.on('console', (message) => {
+      if (message.type() === 'error') console.log(`[e2e] page console error: ${message.text()}`);
+    });
+    await navigateBounded(page, '/', {
+      label: () => `the project row for ${workspaceName}`,
+      present: (budgetMs) => appears(projectRow(page, workspaceName), budgetMs),
+    }, 'first-load');
+  });
+
+  test.afterAll(async () => {
+    await page?.close();
+    await api?.dispose();
+  });
+
+  test('AC-187 the dock speaks the real phase: thinking, Bash, writing, idle — and holds still inside a phase', async () => {
+    const startedAt = Date.now();
+    // Fire the walk first, so the subscribe below lands while the turn is running
+    // and the thinking phase is still on the clock (it is held until 6.5s).
+    const clock = fireClock(api, sessionId);
+
+    await revealSession(page, workspaceName, sessionId);
+    await sessionRow(page, sessionId).click();
+    await expect(page.locator(PANE)).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(DOCK)).toBeVisible({ timeout: 20_000 });
+
+    // (i) thinking — the positive control that the label is the locale's word for
+    //     the phase, not an empty string and not a rotated adjective.
+    await expect(page.locator(DOCK)).toHaveAttribute('data-activity-phase', 'thinking', { timeout: 15_000 });
+    const thinking = await readPhaseDock(page);
+    const expectedThinking = phaseLabel(LOCALE, 'thinking');
+    console.log(`dock.phase.thinking=${JSON.stringify({ state: thinking.state, phase: thinking.phase, label: thinking.label })}`);
+    console.log(`dock.phase.thinking.expected=${JSON.stringify(expectedThinking)}`);
+    expect(thinking.state, 'the thinking phase is a running turn').toBe('in-turn');
+    expect(thinking.label, 'the label is the locale word for the thinking phase').toBe(expectedThinking);
+
+    // (ii) tool — the label names the tool the turn actually called.
+    await expect(page.locator(DOCK)).toHaveAttribute('data-activity-phase', 'tool', { timeout: 15_000 });
+    const tool = await readPhaseDock(page);
+    const expectedTool = phaseLabel(LOCALE, 'tool', PHASE_TOOL_NAME);
+    console.log(`dock.phase.tool=${JSON.stringify({ state: tool.state, phase: tool.phase, label: tool.label })}`);
+    console.log(`dock.phase.tool.expected=${JSON.stringify(expectedTool)}`);
+    expect(tool.label, 'the tool phase label names the pending tool').toContain(PHASE_TOOL_NAME);
+    expect(tool.label, 'the tool phase label is the locale value for the tool phase').toBe(expectedTool);
+
+    // (iii) stability — six seconds inside one phase say the same thing.
+    const samples: PhaseReading[] = [tool];
+    for (let step = 1; step <= 6; step += 1) {
+      await page.waitForTimeout(PHASE_STABLE_STEP_MS);
+      samples.push(await readPhaseDock(page));
+    }
+    const phases = samples.map((sample) => sample.phase);
+    const labels = samples.map((sample) => sample.label);
+    const spanMs = PHASE_STABLE_STEP_MS * 6;
+    console.log(`dock.stable.span=${spanMs}ms`);
+    console.log(`dock.stable.samples=${JSON.stringify(labels)}`);
+    console.log(`dock.stable.phases=${JSON.stringify(phases)}`);
+    expect(spanMs, 'the stability window covers at least five seconds').toBeGreaterThanOrEqual(5_000);
+    expect(samples.length, 'at least six readings').toBeGreaterThanOrEqual(6);
+    expect(new Set(phases), `every reading lands in the tool phase; phases were ${JSON.stringify(phases)}`).toEqual(new Set(['tool']));
+    expect(new Set(labels), `the label must not rotate while the phase holds; readings were ${JSON.stringify(labels)}`).toEqual(new Set([expectedTool]));
+
+    // (iv) writing — the phase moves on, and the label follows it.
+    await expect(page.locator(DOCK)).toHaveAttribute('data-activity-phase', 'writing', { timeout: 10_000 });
+    const writing = await readPhaseDock(page);
+    const expectedWriting = phaseLabel(LOCALE, 'writing');
+    console.log(`dock.phase.writing=${JSON.stringify({ state: writing.state, phase: writing.phase, label: writing.label })}`);
+    console.log(`dock.phase.writing.expected=${JSON.stringify(expectedWriting)}`);
+    expect(writing.label, 'the label is the locale word for the writing phase').toBe(expectedWriting);
+
+    // (v) the turn ends. The walk's own terminal record already returned the
+    //     server's phase to idle; the client's *turn* reading is refreshed the
+    //     same way AC-188 settles it — a fresh subscribe, whose `isProcessing` is
+    //     the server's answer for the session at that instant. The ack the page
+    //     then holds must not claim a running turn.
+    const outcome = await clock;
+    expect(outcome.ok, `the walk must complete: ${JSON.stringify(outcome)}`).toBe(true);
+
+    await navigateBounded(page, `/session/${sessionId}`, {
+      label: () => `the chat pane after the phased turn closed for ${sessionId}`,
+      present: (budgetMs) => appears(page.locator(PANE), budgetMs),
+    }, 'first-load');
+    await expect(page.locator(PANE)).toBeVisible({ timeout: 30_000 });
+
+    await expect(page.locator(DOCK)).toHaveAttribute('data-activity-state', 'idle', { timeout: 20_000 });
+    const afterTurn = await readPhaseDock(page);
+    console.log(`dock.afterTurn=${JSON.stringify(afterTurn)}`);
+    expect(
+      IN_TURN_STATES.has(afterTurn.state),
+      `after the turn the dock must not read a running state (got ${afterTurn.state})`,
+    ).toBe(false);
+    expect(afterTurn.phase, 'the phase the dock reports after the turn is idle').toBe('idle');
 
     const wall = Date.now() - startedAt;
     console.log(`dock.wall=${wall}ms`);

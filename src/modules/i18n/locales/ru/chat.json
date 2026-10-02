@@ -216,6 +216,14 @@
       "computing": "Вычисляет",
       "reasoning": "Рассуждает"
     },
+    "phases": {
+      "thinking": "Обдумывание",
+      "writing": "Запись",
+      "tool": "Выполняется {{tool}}",
+      "toolGeneric": "Выполняется инструмент",
+      "compacting": "Сжатие",
+      "awaitingPermission": "Ожидание подтверждения"
+    },
     "state": {
       "live": "В сети",
       "paused": "Приостановлен"

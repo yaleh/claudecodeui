@@ -20,7 +20,7 @@
  * `src/modules/chat/tests/activityDockUnreachable.test.tsx`.
  */
 
-import type { ActivityDockState, SessionActivity } from '@/shared/types';
+import type { ActivityDockState, ActivityPhase, SessionActivity } from '@/shared/types';
 import type { ActivityLiveness } from '@/modules/chat/utils/activityFreshness';
 
 /** The i18n key (chat namespace) that explains why the stop is unavailable. */
@@ -57,6 +57,14 @@ export type ActivityDockInput = {
    * reaches here.
    */
   sendFailed?: boolean;
+  /**
+   * The phase the server last reported for this session's turn, or null/absent
+   * when no server ever reported one. The dock never derives a phase itself —
+   * this is a passthrough of the server's own frame reduction.
+   */
+  phase?: ActivityPhase | null;
+  /** The pending tool's name while `phase` is `tool`; null otherwise. */
+  toolName?: string | null;
 };
 
 /** The dock's decision: which state to publish and what the controls may do. */
@@ -72,7 +80,43 @@ export type ActivityDockView = {
   stopDisabled: boolean;
   /** i18n key explaining a disabled stop; null when the stop is operable. */
   stopReasonKey: string | null;
+  /** The phase the dock speaks for; `idle` when the server reported none. */
+  phase: ActivityPhase;
+  /** The pending tool's name, or null. Only meaningful while `phase` is `tool`. */
+  toolName: string | null;
+  /**
+   * The chat-namespace i18n key for the phase's label, or null when the phase has
+   * no running label (`idle`, or a server that reported no phase). The label is a
+   * function of the phase alone — never of elapsed time.
+   */
+  phaseLabelKey: string | null;
 };
+
+/**
+ * The label key for one phase, or null when the phase has no running word.
+ *
+ * A `tool` phase with a name gets the `{{tool}}` key; without one it falls back
+ * to the plain phase word rather than rendering a dangling placeholder.
+ */
+export function activityPhaseLabelKey(
+  phase: ActivityPhase,
+  toolName: string | null,
+): string | null {
+  switch (phase) {
+    case 'thinking':
+      return 'claudeStatus.phases.thinking';
+    case 'writing':
+      return 'claudeStatus.phases.writing';
+    case 'tool':
+      return toolName === null ? 'claudeStatus.phases.toolGeneric' : 'claudeStatus.phases.tool';
+    case 'compacting':
+      return 'claudeStatus.phases.compacting';
+    case 'awaitingPermission':
+      return 'claudeStatus.phases.awaitingPermission';
+    default:
+      return null;
+  }
+}
 
 const HIDDEN: ActivityDockView = {
   state: 'hidden',
@@ -81,6 +125,9 @@ const HIDDEN: ActivityDockView = {
   showStop: false,
   stopDisabled: false,
   stopReasonKey: null,
+  phase: 'idle',
+  toolName: null,
+  phaseLabelKey: null,
 };
 
 /** The failed-send reading: a state of its own, and deliberately no turn. */
@@ -91,6 +138,9 @@ const SEND_FAILED: ActivityDockView = {
   showStop: false,
   stopDisabled: false,
   stopReasonKey: null,
+  phase: 'idle',
+  toolName: null,
+  phaseLabelKey: null,
 };
 
 /** The elapsed fields both visible states share. */
@@ -106,8 +156,26 @@ const elapsedFields = (elapsedMs: number | null) => {
  * Decide what the dock shows. Pure: same input, same output, no clock of its own.
  */
 export const deriveActivityDockView = (input: ActivityDockInput): ActivityDockView => {
-  const { activity, liveness, elapsedMs, hasTurnAnchor, wired, hasAbort, sendFailed = false } = input;
+  const {
+    activity,
+    liveness,
+    elapsedMs,
+    hasTurnAnchor,
+    wired,
+    hasAbort,
+    sendFailed = false,
+    phase = 'idle',
+    toolName = null,
+  } = input;
   const elapsed = elapsedFields(elapsedMs);
+  // The phase the server reported, carried onto every view so the dock can
+  // publish it verbatim — the label and the `data-activity-phase` attribute then
+  // come from one source instead of two.
+  const phaseFields = {
+    phase: phase ?? 'idle',
+    toolName: phase === 'tool' ? toolName : null,
+    phaseLabelKey: activityPhaseLabelKey(phase ?? 'idle', toolName),
+  } as const;
 
   // Nothing to speak about: no local turn and no anchor the server ever confirmed.
   // A send that was never taken is the one thing there is to say in that void —
@@ -127,6 +195,7 @@ export const deriveActivityDockView = (input: ActivityDockInput): ActivityDockVi
       showStop: hasAbort,
       stopDisabled: hasAbort,
       stopReasonKey: hasAbort ? UNREACHABLE_STOP_REASON_KEY : null,
+      ...phaseFields,
     };
   }
 
@@ -137,5 +206,6 @@ export const deriveActivityDockView = (input: ActivityDockInput): ActivityDockVi
     showStop: hasAbort && (activity?.canInterrupt ?? true),
     stopDisabled: false,
     stopReasonKey: null,
+    ...phaseFields,
   };
 };

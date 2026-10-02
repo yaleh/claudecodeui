@@ -3,7 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import type { AnyRecord, CommandLifecycleState, MessageOrigin } from '@/shared/types.js';
-import { COMMAND_LIFECYCLE_ROW_TYPE } from '@/shared/types.js';
+import {
+  CLAUDE_TOOL_RESULT_BLOCK_TYPE,
+  CLAUDE_TOOL_USE_BLOCK_TYPE,
+  COMMAND_LIFECYCLE_ROW_TYPE,
+} from '@/shared/types.js';
 import { AppError, readObjectRecord } from '@/shared/utils.js';
 
 import { getDebugAgentProjectsRoot } from './debug-agent.gate.js';
@@ -78,6 +82,162 @@ export function buildMessageRow(input: DebugAgentMessageRowInput): AnyRecord {
       role: input.role,
       content: [{ type: 'text', text: input.text }],
     },
+  };
+}
+
+/**
+ * Builds the claude dialect's thinking-token estimate row.
+ *
+ * It carries no `message`: on the wire this is the `system`/`thinking_tokens`
+ * signal a turn emits while the model is still reasoning, and — like the real
+ * SDK record — it is a statement about the turn rather than a transcript row, so
+ * the product's normalizer drops it. It is written here because the debug agent
+ * describes what the CLI *writes*, and the phase a browser reads is reduced from
+ * that row by the frame forwarder — this module names no frame.
+ */
+export function buildThinkingTokensRow(input: {
+  sessionId: string;
+  cwd: string;
+  timestamp: string;
+  uuid: string;
+  parentUuid: string | null;
+}): AnyRecord {
+  return {
+    type: 'system',
+    subtype: 'thinking_tokens',
+    uuid: input.uuid,
+    parentUuid: input.parentUuid,
+    sessionId: input.sessionId,
+    cwd: input.cwd,
+    timestamp: input.timestamp,
+  };
+}
+
+/**
+ * Builds the assistant row whose single content block is a pending tool call.
+ *
+ * The block's type is the dialect's own name, referenced through the shared
+ * constant rather than spelled here — the vocabulary guard rejects the literal
+ * in this module (ADR-003 decision 7), exactly as it does for a frame kind. The
+ * `id` is what a later result row pairs with, and the `name` is the tool the
+ * dock reads.
+ */
+export function buildToolUseRow(input: {
+  sessionId: string;
+  cwd: string;
+  timestamp: string;
+  uuid: string;
+  parentUuid: string | null;
+  toolUseId: string;
+  name: string;
+}): AnyRecord {
+  return {
+    type: 'assistant',
+    uuid: input.uuid,
+    parentUuid: input.parentUuid,
+    sessionId: input.sessionId,
+    cwd: input.cwd,
+    timestamp: input.timestamp,
+    message: {
+      role: 'assistant',
+      content: [
+        {
+          type: CLAUDE_TOOL_USE_BLOCK_TYPE,
+          id: input.toolUseId,
+          name: input.name,
+          input: {},
+        },
+      ],
+    },
+  };
+}
+
+/**
+ * Builds the user row whose single content block is the paired tool result.
+ *
+ * `tool_use_id` is what moves the turn off the tool phase: the reducer pairs it
+ * with the `tool_use` block's id and only then lets the turn continue.
+ */
+export function buildToolResultRow(input: {
+  sessionId: string;
+  cwd: string;
+  timestamp: string;
+  uuid: string;
+  parentUuid: string | null;
+  toolUseId: string;
+  text: string;
+}): AnyRecord {
+  return {
+    type: 'user',
+    uuid: input.uuid,
+    parentUuid: input.parentUuid,
+    sessionId: input.sessionId,
+    cwd: input.cwd,
+    timestamp: input.timestamp,
+    message: {
+      role: 'user',
+      content: [
+        {
+          type: CLAUDE_TOOL_RESULT_BLOCK_TYPE,
+          tool_use_id: input.toolUseId,
+          content: input.text,
+        },
+      ],
+    },
+  };
+}
+
+/**
+ * Builds the partial-assistant stream event that carries a text delta.
+ *
+ * This is the one row whose whole content is a fragment of a message still being
+ * written: the product's normalizer turns it into the in-place transcript growth
+ * a client renders, and the reducer reads the same delta as the `writing` phase.
+ */
+export function buildTextDeltaRow(input: {
+  sessionId: string;
+  cwd: string;
+  timestamp: string;
+  uuid: string;
+  parentUuid: string | null;
+  text: string;
+}): AnyRecord {
+  return {
+    type: 'stream_event',
+    uuid: input.uuid,
+    parentUuid: input.parentUuid,
+    sessionId: input.sessionId,
+    cwd: input.cwd,
+    timestamp: input.timestamp,
+    event: {
+      type: 'content_block_delta',
+      index: 0,
+      delta: { type: 'text_delta', text: input.text },
+    },
+  };
+}
+
+/**
+ * Builds the turn's terminal record — the row that says the turn is over.
+ *
+ * It is deliberately the dialect's own shape and nothing more; the reducer reads
+ * it as "this turn has ended" and returns the session to `idle`.
+ */
+export function buildTurnResultRow(input: {
+  sessionId: string;
+  cwd: string;
+  timestamp: string;
+  uuid: string;
+  parentUuid: string | null;
+}): AnyRecord {
+  return {
+    type: 'result',
+    subtype: 'success',
+    uuid: input.uuid,
+    parentUuid: input.parentUuid,
+    sessionId: input.sessionId,
+    cwd: input.cwd,
+    timestamp: input.timestamp,
   };
 }
 

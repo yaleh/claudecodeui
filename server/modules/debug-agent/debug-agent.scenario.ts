@@ -96,7 +96,18 @@ export const DEBUG_AGENT_OPS = [
   'keepalive-remove',
   'row',
   'scroll',
+  // The turn-phase steps. Each writes the one claude dialect row that carries a
+  // signal the product's frame forwarder reduces into a phase — a thinking-token
+  // estimate, a pending tool call, its paired result, a partial text delta, and
+  // the turn's own terminal record. They name the SIGNAL, never a frame: what a
+  // client sees is what the normalizer makes of the row, exactly as for every
+  // step above.
+  'text-delta',
+  'thinking-tokens',
+  'tool-call',
+  'tool-result',
   'turn-end',
+  'turn-result',
   'unattended-turn',
   'wait',
 ] as const;
@@ -202,7 +213,12 @@ export type DebugAgentScenarioStep = { at: number } & (
   | { op: 'keepalive-remove'; kind: DebugAgentKeepaliveKind }
   | { op: 'row'; role: DebugAgentRole; text: string }
   | { op: 'scroll' }
+  | { op: 'text-delta'; text: string }
+  | { op: 'thinking-tokens' }
+  | { op: 'tool-call'; name: string }
+  | { op: 'tool-result'; text: string }
   | { op: 'turn-end' }
+  | { op: 'turn-result' }
   | {
       op: 'unattended-turn';
       text: string;
@@ -394,7 +410,13 @@ function readStep(input: unknown, index: number): DebugAgentScenarioStep {
         text: readText(step.text, `${where}.text`),
       };
     case 'grow':
+    case 'text-delta':
+    case 'tool-result':
       return { at, op, text: readText(step.text, `${where}.text`) };
+    case 'tool-call':
+      return { at, op, name: readText(step.name, `${where}.name`) };
+    // `thinking-tokens` and `turn-result` carry nothing: their whole content IS
+    // their position on the clock, the same shape as `wait` and `turn-end` below.
     case 'unattended-turn': {
       // Absent and null both read as "no cause stated", which is the one value
       // the closed set below does not have to contain: the trigger is what the

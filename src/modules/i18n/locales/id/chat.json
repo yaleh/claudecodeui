@@ -258,6 +258,14 @@
       "computing": "Menghitung",
       "reasoning": "Menalar"
     },
+    "phases": {
+      "thinking": "Berpikir",
+      "writing": "Menulis",
+      "tool": "Menjalankan {{tool}}",
+      "toolGeneric": "Menjalankan alat",
+      "compacting": "Memadatkan",
+      "awaitingPermission": "Menunggu persetujuan"
+    },
     "state": {
       "live": "Aktif",
       "paused": "Dijeda"

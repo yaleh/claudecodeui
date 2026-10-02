@@ -23,6 +23,11 @@ import {
   appendTranscriptRow,
   buildCommandLifecycleRow,
   buildMessageRow,
+  buildTextDeltaRow,
+  buildThinkingTokensRow,
+  buildToolResultRow,
+  buildToolUseRow,
+  buildTurnResultRow,
   growRowText,
   readTranscriptLines,
   readTranscriptShape,
@@ -274,6 +279,32 @@ export async function runDebugAgentScenario(input: DebugAgentRunInput): Promise<
    * that has not run. `buildCommandLifecycleRow` decides the latter's shape, so
    * the dialect's field names stay in the runtime module (ADR-003 decision 4).
    */
+  /**
+   * Writes one dialect row and forwards the frame it normalizes to, chaining it
+   * onto the row currently on disk.
+   *
+   * The same row-then-frame order `appendRow` keeps. It exists so the turn-phase
+   * steps below state their row shapes through the runtime builders — where the
+   * dialect's field names live — rather than growing `appendRow`'s text-only
+   * shape into something it was never meant to be.
+   */
+  const appendDialectRow = (build: (parentUuid: string | null) => AnyRecord): void => {
+    const parent = readTranscriptShape(transcriptPath).lastRow;
+    const row = build(typeof parent?.uuid === 'string' ? parent.uuid : null);
+    appendTranscriptRow(transcriptPath, row);
+    forward(row);
+  };
+
+  /**
+   * The `tool_use` id of the call still awaiting its result, or null.
+   *
+   * A tool result pairs with the call it answers by id, so the id is minted here
+   * — where the call is written — rather than named by the scenario: a document
+   * that restated it would be a second place the two could disagree, and the
+   * id is the engine's to mint exactly as a command's uuid is the host's.
+   */
+  let pendingToolUseId: string | null = null;
+
   const appendCommandLifecycle = (commandUuid: string, state: CommandLifecycleState): void => {
     const row = buildCommandLifecycleRow({
       sessionId,
@@ -395,6 +426,63 @@ export async function runDebugAgentScenario(input: DebugAgentRunInput): Promise<
         // addresses the message by that id.
         const grown = rewriteLastTranscriptRow(transcriptPath, (row) => growRowText(row, step.text));
         forward(grown);
+        break;
+      }
+
+      case 'thinking-tokens': {
+        // The turn has started reasoning. The row carries no message content —
+        // it is the estimate signal itself, and the forwarder reduces it to the
+        // turn's `thinking` phase.
+        const timestamp = new Date().toISOString();
+        appendDialectRow((parentUuid) => buildThinkingTokensRow({
+          sessionId, cwd, timestamp, uuid: crypto.randomUUID(), parentUuid,
+        }));
+        break;
+      }
+
+      case 'tool-call': {
+        // A pending tool call. The id is minted here and remembered so the
+        // `tool-result` step below answers *this* call and no other.
+        const toolUseId = crypto.randomUUID();
+        const timestamp = new Date().toISOString();
+        appendDialectRow((parentUuid) => buildToolUseRow({
+          sessionId, cwd, timestamp, uuid: crypto.randomUUID(), parentUuid, toolUseId, name: step.name,
+        }));
+        pendingToolUseId = toolUseId;
+        break;
+      }
+
+      case 'tool-result': {
+        // The answer to the pending call. A no-op when nothing is pending: the
+        // step is on the clock whether or not a call preceded it, and a result
+        // with no call to pair with would be a row the reducer correctly ignores.
+        if (pendingToolUseId !== null) {
+          const toolUseId = pendingToolUseId;
+          const timestamp = new Date().toISOString();
+          appendDialectRow((parentUuid) => buildToolResultRow({
+            sessionId, cwd, timestamp, uuid: crypto.randomUUID(), parentUuid, toolUseId, text: step.text,
+          }));
+          pendingToolUseId = null;
+        }
+        break;
+      }
+
+      case 'text-delta': {
+        // A fragment of the message the turn is writing out.
+        const timestamp = new Date().toISOString();
+        appendDialectRow((parentUuid) => buildTextDeltaRow({
+          sessionId, cwd, timestamp, uuid: crypto.randomUUID(), parentUuid, text: step.text,
+        }));
+        break;
+      }
+
+      case 'turn-result': {
+        // The turn's own terminal record: the signal that returns the session to
+        // `idle`. It writes no message content and carries nothing.
+        const timestamp = new Date().toISOString();
+        appendDialectRow((parentUuid) => buildTurnResultRow({
+          sessionId, cwd, timestamp, uuid: crypto.randomUUID(), parentUuid,
+        }));
         break;
       }
 
