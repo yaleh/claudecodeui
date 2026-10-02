@@ -62,12 +62,20 @@
  * server, mints a token and makes one HTTP request — so the wire is cut, in either shape.
  *
  * ONE READING IS TAKEN OUT OF THE PICTURE. `DATABASE_PATH` is deleted from the criterion's
- * environment here, so its `real-db-untouched` reading is trivially true and the mutant's red is
- * attributable to the named reading and nothing else. That reading is about a file this control
- * does not own — the deployer's live database, which this repository's own running server writes to
- * — and a case that reds because the operator's traffic happened to land inside its window would be
- * reporting on the host rather than on its mutation. The criterion measures it, under the real
- * inherited value, on its own runs.
+ * environment for the two MUTATION cases above, so its `real-db-untouched` reading is trivially
+ * true and the mutant's red is attributable to the named reading and nothing else. That reading is
+ * about a file this control does not own — the deployer's live database, which this repository's own
+ * running server writes to — and a case that reds because the operator's traffic happened to land
+ * inside its window would be reporting on the host rather than on its mutation. The criterion
+ * measures it, under the real inherited value, on its own runs.
+ *
+ * THE ATTRIBUTION CASES OWN A DATABASE ON PURPOSE. The two cases below (`real-db attribution` and
+ * its negative control) point `DATABASE_PATH` at a database THIS control creates and HOLDS OPEN for
+ * the whole run — the deployer's server, reproduced as a foreign holder that is not in the
+ * criterion's process tree. That is the whole discriminator: the reading must be false only when
+ * the criterion's OWN tree holds the file, so a foreign holder that writes once and then goes quiet
+ * (the shape that used to red the criterion) has to stay green, and a child that inherits the
+ * criterion's own `DATABASE_PATH` has to red with evidence naming the handle, not the clock.
  *
  * THE CHECKOUT IS READ BEFORE AND AFTER. AC5 asks that the worktree's `git status --porcelain` be
  * empty once the copies are gone. Every case asserts the invariant that makes that meaningful — no
@@ -83,15 +91,27 @@
  */
 
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import Database from 'better-sqlite3';
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '..');
+
+/**
+ * Where throwaway copies and controlled databases are built — BESIDE the checkout, never under
+ * `os.tmpdir()`.
+ *
+ * `cp -al` needs hard links, hard links need one filesystem, and this host measures `/tmp` on
+ * `/dev/vda2` while the checkout is on `/dev/vdb`, so a copy root under `/tmp` fails with
+ * `Invalid cross-device link` on every entry. A sibling of the checkout is on the checkout's own
+ * filesystem by construction — the same lesson the criterion's own `HARDENED_ROOT_PREFIX` carries.
+ */
+const SCRATCH_ROOT = dirname(REPO_ROOT);
 
 const CRITERION_REL = join('scripts', 'voice-capture-process-check.mjs');
 const MODULE_REL = join('server', 'modules', 'voice', 'voice.module.ts');
@@ -110,6 +130,51 @@ const COULD_NOT_MEASURE_RETRIES = 2;
 
 /** A prefix unique to this process, so a concurrent run in another worktree is not read as litter. */
 const COPY_PREFIX = `voice-capture-false-forms-${process.pid}-`;
+
+/** A prefix unique to this process for the controlled databases the attribution cases own. */
+const CONTROLLED_DB_PREFIX = `voice-capture-real-db-${process.pid}-`;
+
+/**
+ * How long an attribution case waits for the criterion to spawn its first child before giving up.
+ *
+ * The child is the signal that the write can land inside the criterion's before/after window: it
+ * appears only after the criterion has read the inherited database's `mtimeMs` once, and the second
+ * read is still two real server boots away. A wall-clock delay would be a guess (a loaded host makes
+ * the first boot take seconds); a child appearing is the criterion's own progress, read from
+ * `/proc`, and it is already the thing an ownership scan watches.
+ */
+const CHILD_SIGNAL_TIMEOUT_MS = 30_000;
+
+/** How often the wait above re-reads the criterion's children. */
+const CHILD_SIGNAL_POLL_MS = 20;
+
+/**
+ * The one line the criterion uses to give a child the run's own database.
+ *
+ * The negative control deletes it, so the child then inherits whatever `DATABASE_PATH` the
+ * criterion itself was started with — the leak AC-148 exists to exclude.
+ */
+const CRITERION_DB_ANCHOR = '  childEnv.DATABASE_PATH = options.databasePath;\n';
+
+/**
+ * AC-148's own readings, read off the criterion's stdout for the attribution cases.
+ *
+ * This is the invariant an attribution change must not disturb: whatever the real-database reading
+ * is decided by, these eleven readings still have to come out exactly as AC-148 names them.
+ */
+const AC148_READINGS = {
+  'startup.text.count': '1',
+  'startup.text.line': 'voice.capture mode=text',
+  'capture.lines': '1',
+  'upstream.exact': 'true',
+  'double.requests': '1',
+  'double.path': '/audio/transcriptions',
+  'http.status': '200',
+  'unset.captureLines': '0',
+  'unset.startup.line': 'voice.capture mode=off',
+  'unset.double.requests': '1',
+  'check.failures': '0',
+};
 
 /** The statement that resolves the mode AND announces it — the only announcement in the process. */
 const ANNOUNCING_CALL =
@@ -229,7 +294,7 @@ function attributableEntries(status) {
  * @returns {string} the copy's root
  */
 function buildCopy() {
-  const copyRoot = mkdtempSync(join(tmpdir(), COPY_PREFIX));
+  const copyRoot = mkdtempSync(join(SCRATCH_ROOT, COPY_PREFIX));
   const copied = spawnSync('cp', ['-al', `${REPO_ROOT}/.`, copyRoot], { encoding: 'utf8' });
   assert.equal(copied.status, 0, `cp -al ${REPO_ROOT} failed: ${copied.stderr}`);
   rmSync(join(copyRoot, '.git'), { force: true, recursive: true });
@@ -260,26 +325,38 @@ function mutate(copyRoot, mutation) {
 }
 
 /**
- * Runs the criterion against a copy, re-attempting only the "could not measure" exit.
+ * The environment every criterion invocation is given.
  *
- * @param {string} copyRoot
- * @returns {{ status: number | null, stdout: string, stderr: string, attempts: number }}
+ * `DATABASE_PATH` is DELETED, not set: the inherited database is not this control's to measure, and
+ * leaving it in would let the deployer's traffic decide whether a mutation looks red. The
+ * attribution cases below set it explicitly, to a database this control owns.
+ *
+ * @returns {Record<string, string>}
  */
-function runCriterion(copyRoot) {
+function baseEnv() {
   /** @type {Record<string, string>} */
   const env = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined) env[key] = value;
   }
   env.FORCE_COLOR = '0';
-  // See the header: the inherited database is not this control's to measure, and leaving it in
-  // would let the deployer's traffic decide whether a mutation looks red.
   delete env.DATABASE_PATH;
   // Node treats a set NO_COLOR beside FORCE_COLOR as a contradiction and warns on every start;
   // FORCE_COLOR=0 is the instruction that has to win here, so the other one is removed.
   delete env.NO_COLOR;
   // The runner sets this for processes it starts; the criterion drives real servers of its own.
   delete env.NODE_TEST_CONTEXT;
+  return env;
+}
+
+/**
+ * Runs the criterion against a copy, re-attempting only the "could not measure" exit.
+ *
+ * @param {string} copyRoot
+ * @returns {{ status: number | null, stdout: string, stderr: string, attempts: number }}
+ */
+function runCriterion(copyRoot) {
+  const env = baseEnv();
 
   let attempts = 0;
   /** @type {import('node:child_process').SpawnSyncReturns<string> | undefined} */
@@ -310,7 +387,9 @@ function runCriterion(copyRoot) {
 function readReadings(stdout) {
   const readings = new Map();
   for (const line of stdout.split('\n')) {
-    const match = /^([a-z][a-z0-9.-]*)=(.*)$/.exec(line);
+    // Keys start lowercase but may carry uppercase inside (`unset.captureLines`), so the tail of the
+    // pattern is case-insensitive — AC-148 names readings whose second segment is capitalised.
+    const match = /^([a-z][a-zA-Z0-9.-]*)=(.*)$/.exec(line);
     if (match) readings.set(match[1], match[2]);
   }
   return readings;
@@ -396,6 +475,268 @@ for (const mutation of MUTATIONS) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// The real-database reading's attribution (gap-voice-capture-real-db-timing-attribution)
+//
+// `real-db-untouched` used to be decided by WHEN the file moved: a file that moved during the run
+// and then held still was charged to the criterion. On a host where the deployer's live server
+// holds that database, an external write followed by a quiet spell has exactly that shape, so a
+// foreign writer reds the criterion ~cross-days. The reading is now decided by WHO held the file:
+// the handles this process's own tree is seen holding (`/proc`), which a foreign holder is not in.
+// These two cases pin both directions.
+// ---------------------------------------------------------------------------
+
+/**
+ * @param {number} ms
+ * @returns {Promise<void>}
+ */
+function sleepMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Direct children of a pid, read from `/proc` (the same signal the criterion's scan uses).
+ *
+ * @param {number} pid
+ * @returns {number[]}
+ */
+function procChildren(pid) {
+  /** @type {number[]} */
+  const children = [];
+  /** @type {string[]} */
+  let tasks;
+  try {
+    tasks = readdirSync(`/proc/${pid}/task`);
+  } catch {
+    return children;
+  }
+  for (const tid of tasks) {
+    try {
+      const text = readFileSync(`/proc/${pid}/task/${tid}/children`, 'utf8').trim();
+      if (text === '') continue;
+      for (const token of text.split(/\s+/)) children.push(Number(token));
+    } catch {
+      // The task exited between the readdir and the read; it has no children to report.
+    }
+  }
+  return children;
+}
+
+/**
+ * A REAL SQLite database this control OWNS and holds open for a whole criterion run.
+ *
+ * Held open on purpose: the deployer's server is a foreign process with the database open, so the
+ * control has to reproduce a foreign holder that is NOT in the criterion's tree. A scan that
+ * charged any holder to the criterion would flag this one; a scan that reads only the criterion's
+ * own tree (the fix) does not.
+ *
+ * A valid database, not a touched text file: the negative control makes the criterion's own child
+ * inherit this path, so the child has to be able to OPEN it as SQLite (the property under test is
+ * that it should not be there at all — a crash on a malformed file would hide that behind a
+ * boot failure). The foreign write is a real INSERT through the held connection, which keeps the
+ * file well-formed while still moving its `mtime`.
+ *
+ * @returns {{ dir: string, dbPath: string, holder: Database.Database }}
+ */
+function makeControlledDb() {
+  const dir = mkdtempSync(join(SCRATCH_ROOT, CONTROLLED_DB_PREFIX));
+  const dbPath = join(dir, 'auth.db');
+  const holder = new Database(dbPath);
+  holder.exec('CREATE TABLE external_writer (note TEXT)');
+  return { dir, dbPath, holder };
+}
+
+/**
+ * Records one foreign write to a controlled database through its held connection.
+ *
+ * @param {Database.Database} holder
+ * @param {string} note
+ */
+function foreignWrite(holder, note) {
+  holder.prepare('INSERT INTO external_writer (note) VALUES (?)').run(note);
+}
+
+/**
+ * Runs the criterion against a copy with `DATABASE_PATH` pointed at `dbPath`, invoking `onChild`
+ * once the run has demonstrably begun (its first child appeared) — before the criterion's final
+ * `mtimeMs` read, so a write from `onChild` lands inside the window.
+ *
+ * @param {string} copyRoot
+ * @param {string} dbPath
+ * @param {() => void} onChild
+ * @returns {Promise<{ status: number | null, stdout: string, stderr: string, sawChild: boolean, attempts: number }>}
+ */
+async function runCriterionWithDb(copyRoot, dbPath, onChild) {
+  /** @type {{ status: number | null, stdout: string, stderr: string, sawChild: boolean, attempts: number } | null} */
+  let last = null;
+  for (let attempt = 1; attempt <= COULD_NOT_MEASURE_RETRIES + 1; attempt += 1) {
+    const env = baseEnv();
+    env.DATABASE_PATH = dbPath;
+    const child = spawn(process.execPath, [join(copyRoot, CRITERION_REL), '--root', copyRoot], {
+      cwd: copyRoot,
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    /** @type {Buffer[]} */
+    const out = [];
+    /** @type {Buffer[]} */
+    const err = [];
+    child.stdout?.on('data', (chunk) => out.push(/** @type {Buffer} */ (chunk)));
+    child.stderr?.on('data', (chunk) => err.push(/** @type {Buffer} */ (chunk)));
+    const done = new Promise((resolve) => child.on('close', (code) => resolve(code)));
+
+    const criterionPid = child.pid;
+    let sawChild = false;
+    const deadline = Date.now() + CHILD_SIGNAL_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      if (criterionPid !== undefined && procChildren(criterionPid).length > 0) {
+        sawChild = true;
+        break;
+      }
+      if (child.exitCode !== null) break;
+      await sleepMs(CHILD_SIGNAL_POLL_MS);
+    }
+    // Only after the run has begun; a write before the criterion's first read would not move the
+    // window at all, and the caller's own assertion on `real-db-churn` would report that miss.
+    if (sawChild) onChild();
+
+    const status = await done;
+    last = {
+      status,
+      stdout: Buffer.concat(out).toString('utf8'),
+      stderr: Buffer.concat(err).toString('utf8'),
+      sawChild,
+      attempts: attempt,
+    };
+    if (status !== 2 || attempt > COULD_NOT_MEASURE_RETRIES) return last;
+  }
+  if (last === null) throw new Error('the criterion was never run');
+  return last;
+}
+
+/**
+ * Deletes the line that hands the child the run's own database, so the child inherits the
+ * criterion's `DATABASE_PATH`. Replaces the file rather than writing in place — `cp -al` gave it
+ * the checkout's inode.
+ *
+ * @param {string} copyRoot
+ */
+function mutateCriterionToInheritRealDb(copyRoot) {
+  const target = join(copyRoot, CRITERION_REL);
+  const pristine = readFileSync(target, 'utf8');
+  const sites = pristine.split(CRITERION_DB_ANCHOR).length - 1;
+  assert.equal(
+    sites,
+    1,
+    `child-inherits-real-db: the anchor occurs ${sites} times in ${CRITERION_REL}, expected exactly 1 — ` +
+      'the criterion changed shape under this control',
+  );
+  const mutated = pristine.split(CRITERION_DB_ANCHOR).join('');
+  assert.notEqual(mutated, pristine, 'child-inherits-real-db: the mutation changed nothing');
+
+  rmSync(target);
+  writeFileSync(target, mutated);
+
+  assert.equal(
+    readFileSync(join(REPO_ROOT, CRITERION_REL), 'utf8'),
+    pristine,
+    'child-inherits-real-db: the mutation reached the checkout through the hard link',
+  );
+}
+
+test('AC-148 real-db attribution: a foreign one-shot writer is not charged to the criterion', async () => {
+  const { dir, dbPath, holder } = makeControlledDb();
+  const copyRoot = buildCopy();
+  try {
+    let wrote = false;
+    const result = await runCriterionWithDb(copyRoot, dbPath, () => {
+      foreignWrite(holder, 'external-write');
+      wrote = true;
+    });
+    const readings = readReadings(result.stdout);
+    const failures = readFailures(result.stdout);
+
+    assert.equal(
+      result.status,
+      0,
+      `the criterion exited ${result.status} (attempts=${result.attempts}) on a foreign one-shot write — ` +
+        'the timing attribution is still red on the operator\'s traffic\n' +
+        `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+    );
+    assert.equal(wrote, true, 'the foreign writer never fired');
+    assert.equal(readings.get('real-db'), dbPath, `real-db reads ${String(readings.get('real-db'))}, expected ${dbPath}`);
+    assert.equal(
+      readings.get('real-db-churn'),
+      'external',
+      'the foreign write did not land inside the criterion\'s window (churn is not external)',
+    );
+    assert.equal(readings.get('real-db-untouched'), 'true', 'a foreign holder was charged to the criterion');
+    assert.equal(readings.get('real-db-opened-by-tree'), 'false', 'the criterion opened a database it does not own');
+    assert.deepEqual(failures, [], `the criterion failed for some other reason: ${JSON.stringify(failures)}`);
+    for (const [key, value] of Object.entries(AC148_READINGS)) {
+      assert.equal(readings.get(key), value, `${key} reads ${String(readings.get(key))}, expected ${value}`);
+    }
+  } finally {
+    holder.close();
+    rmSync(copyRoot, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('AC-148 negative control: a child that inherits the real database reds on OWNERSHIP, not timing', async () => {
+  const { dir, dbPath, holder } = makeControlledDb();
+  const copyRoot = buildCopy();
+  try {
+    const base = await runCriterionWithDb(copyRoot, dbPath, () => foreignWrite(holder, 'external-write-before'));
+    assert.equal(
+      base.status,
+      0,
+      `child-inherits-real-db: the UNMUTATED copy exited ${base.status} (attempts=${base.attempts}) — without ` +
+        `this half the mutant's red would prove nothing\nstdout:\n${base.stdout}\nstderr:\n${base.stderr}`,
+    );
+
+    mutateCriterionToInheritRealDb(copyRoot);
+    const mutant = await runCriterionWithDb(copyRoot, dbPath, () => foreignWrite(holder, 'external-write-after'));
+    const readings = readReadings(mutant.stdout);
+    const failures = readFailures(mutant.stdout);
+
+    assert.equal(
+      mutant.status,
+      1,
+      `child-inherits-real-db: the mutated copy exited ${mutant.status} (attempts=${mutant.attempts}), expected 1\n` +
+        `stdout:\n${mutant.stdout}\nstderr:\n${mutant.stderr}`,
+    );
+    assert.equal(
+      readings.get('real-db-opened-by-tree'),
+      'true',
+      'the criterion did not see its own child holding the inherited database',
+    );
+    assert.ok(
+      String(readings.get('real-db-openers')).includes(dbPath),
+      `real-db-openers does not name the inherited database: ${String(readings.get('real-db-openers'))}`,
+    );
+    const ownership = failures.find((failure) => namesReading(failure, 'real-db-untouched'));
+    assert.ok(ownership, `no check.failure names real-db-untouched: ${JSON.stringify(failures)}`);
+    assert.ok(
+      ownership.includes('process tree was holding'),
+      `the red is not ownership evidence: ${ownership}`,
+    );
+    assert.ok(
+      !ownership.includes('held still') && !ownership.includes('changed while this ran'),
+      `the red is still timing inference, not ownership: ${ownership}`,
+    );
+
+    process.stdout.write(
+      `mutation=child-inherits-real-db baseExit=${base.status} mutantRed=${mutant.status === 1} ` +
+        'whichReading=real-db-untouched\n',
+    );
+  } finally {
+    holder.close();
+    rmSync(copyRoot, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('AC5 the controls leave the checkout exactly as they found it', () => {
   const trackedNow = gitStatus(true);
   const statusNow = gitStatus();
@@ -411,6 +752,8 @@ test('AC5 the controls leave the checkout exactly as they found it', () => {
     'the checkout reports an entry this control could have produced',
   );
 
-  const leftovers = readdirSync(tmpdir()).filter((name) => name.startsWith(COPY_PREFIX));
-  assert.deepEqual(leftovers, [], 'a throwaway copy survived the run');
+  const leftovers = readdirSync(SCRATCH_ROOT).filter(
+    (name) => name.startsWith(COPY_PREFIX) || name.startsWith(CONTROLLED_DB_PREFIX),
+  );
+  assert.deepEqual(leftovers, [], 'a throwaway copy or controlled database survived the run');
 });
