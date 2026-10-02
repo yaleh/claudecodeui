@@ -10,7 +10,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import cors from 'cors';
 
 import { AppError, findApplicationRoot, getModuleDirectory, IS_PLATFORM, terminalTextStyles } from '@/shared/utils.js';
-import type { HostMode, LLMProvider } from '@/shared/types.js';
+import type { HostMode, LLMProvider, ProviderRuntimeWriter } from '@/shared/types.js';
 import {
     closeSessionsWatcher,
     initializeSessionsWatcher,
@@ -311,6 +311,29 @@ app.use('/api/agent', agentRoutes);
 
 app.use('/api/voice', authenticateToken, voiceRoutes);
 
+/**
+ * A writer that hands every frame to both sinks.
+ *
+ * The control plane's per-run dispatch has two readers of the same walk: the
+ * clock's own writer, whose collected frames are what its answer reports, and the
+ * run's writer, which is what makes the turn a run and whose terminal frame ends
+ * it. A writer cannot be two things, so it is two things here rather than one of
+ * the two silently losing the frames.
+ */
+const teeWriter = (
+    first: ProviderRuntimeWriter,
+    second: ProviderRuntimeWriter,
+): ProviderRuntimeWriter => ({
+    send(data: unknown): void {
+        first.send(data);
+        second.send(data);
+    },
+    setSessionId(sessionId: string): void {
+        first.setSessionId?.(sessionId);
+        second.setSessionId?.(sessionId);
+    },
+});
+
 // The debug agent's dev-only control plane (ADR-003 decision 3, face 3). The
 // gate decides *at mount time*: while it is closed nothing is attached at this
 // path, so there is no layer for a request to reach — a handler answering "403"
@@ -327,11 +350,45 @@ if (mountDebugAgentControlPlane(app, authenticateToken)) {
     registerDebugAgentControlPlaneRoutes({
         driveScenario: ({ sessionId, cwd, projectPath, writer }) => {
             const provider = providerRegistry.resolveProvider(DEBUG_AGENT_PROVIDER_ID);
+
+            // A turn the clock dispatches for a `per-run` session is a run, by the
+            // same route a real per-run chat turn is: the transport that dispatches
+            // the turn opens it (`chat-websocket.service.ts` calls
+            // `chatRunRegistry.startRun` and then `runtime.run` with the run's own
+            // writer). The control plane stands in for that transport, so without
+            // this the turn exists only as a host lease — visible to the host
+            // listing, and to nothing that answers "who is being worked on right
+            // now" from the run registry. Every reader the dock consolidation left
+            // asks the registry that question: the activity dock, the sidebar's
+            // Running view and its badge.
+            //
+            // Only for `per-run`. A resident session's turn opens its own run from
+            // inside the walk — the `unattended-turn` step reaches the same opener
+            // through the host layer — and opening one here would take that step's
+            // run away from it.
+            const lifecycleMode = sessionsDb.getSessionLifecycleMode(sessionId);
+            const run = lifecycleMode === 'resident'
+                ? null
+                : chatRunRegistry.openUnattendedRun({
+                    provider: DEBUG_AGENT_PROVIDER_ID as LLMProvider,
+                    appSessionId: sessionId,
+                    // For an armed scenario the fixture rows carry the app session
+                    // id as their own, so the provider-native id is the app id —
+                    // passed rather than left null so the run's id mapping is
+                    // written exactly as a real turn's would be.
+                    providerSessionId: sessionId,
+                    // A turn nobody's socket asked for has no user to report to and
+                    // no conversation title to carry: the session is already named
+                    // by the fixture.
+                    userId: null,
+                    sessionName: null,
+                });
+
             return providerRuntimeService.run(
                 provider.id,
                 'debug agent control plane',
                 { sessionId, cwd, projectPath },
-                writer,
+                run ? teeWriter(writer, run.writer) : writer,
             );
         },
         resolveProvider: () => providerRegistry.resolveProvider(DEBUG_AGENT_PROVIDER_ID),
