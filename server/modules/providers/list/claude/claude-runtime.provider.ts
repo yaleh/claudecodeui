@@ -17,7 +17,7 @@ import { promises as fs } from 'fs';
 import os from 'os';
 import path from 'path';
 
-import { getSessionInfo, query } from '@anthropic-ai/claude-agent-sdk';
+import { getSessionInfo, query, type Query } from '@anthropic-ai/claude-agent-sdk';
 
 import {
   appendFilesInputTag,
@@ -39,20 +39,89 @@ import {
 import { resolveModelContextWindowRow, resolveModelLaunchSpec } from '@/modules/providers/services/model-launch-spec.service.js';
 import { resolveContextWindow } from '@/modules/providers/services/launch-spec.service.js';
 import { createClaudeSessionScopeSpawn } from '@/modules/providers/services/claude-session-scope.service.js';
-import { applyLaunchSpecEnv, createCompleteMessage, createNormalizedMessage } from '@/shared/utils.js';
+import {
+  ClaudeSessionOccupiedError,
+  applyLaunchSpecEnv,
+  createCompleteMessage,
+  createNormalizedMessage,
+  findBackgroundSessionOwner,
+  resolveClaudeConfigDir,
+} from '@/shared/utils.js';
+import type {
+  AnyRecord,
+  ProviderModelsDefinition,
+  ProviderRuntimeContext,
+  ProviderRuntimeWriter,
+} from '@/shared/types.js';
 
-const activeSessions = new Map();
-const pendingToolApprovals = new Map();
+/** The SDK query instance behind one run: the only handle that can interrupt it. */
+type ClaudeQuery = Query;
+
+/**
+ * The run writer this module is handed, viewed with the socket-swap verb the
+ * reconnect path uses.
+ *
+ * The shared {@link ProviderRuntimeWriter} is the exit contract the run loop
+ * needs; a client that reconnects mid-run hands over a writer that also carries
+ * `updateWebSocket`, and the optional member keeps this a widening of that
+ * contract rather than a second one.
+ */
+type ClaudeRunWriter = ProviderRuntimeWriter & {
+  updateWebSocket?(rawWs: unknown): void;
+};
+
+/** One live SDK run, as the process map holds it. */
+type ActiveClaudeSession = {
+  instance: ClaudeQuery;
+  startTime: number;
+  status: 'active' | 'aborted';
+  writer: ClaudeRunWriter | null;
+  /** Closes the held stdin stream so the CLI can exit; absent until it exists. */
+  releaseInput?: (() => void) | null;
+};
+
+/**
+ * A pending tool-approval waiter.
+ *
+ * The extra fields are the metadata `getPendingApprovalsForSession` replays a
+ * pending prompt from, attached to the resolver so one map holds the wait and
+ * the facts a reconnecting client needs.
+ */
+type ToolApprovalResolver = ((decision: AnyRecord | null) => void) & {
+  _sessionId?: string | null;
+  _toolName?: string;
+  _input?: unknown;
+  _context?: unknown;
+  _receivedAt?: Date;
+};
+
+const activeSessions = new Map<string, ActiveClaudeSession>();
+const pendingToolApprovals = new Map<string, ToolApprovalResolver>();
+
+/**
+ * The SDK query factory every run creates its process through.
+ *
+ * Held in a module-level binding rather than calling the SDK's `query` directly,
+ * so the providers module's tests can substitute a counting double and observe
+ * whether a query was created at all — the reading the per-run occupancy gate
+ * turns on, where "refused before any process exists" is only meaningful if a
+ * refused run really created none. Production never assigns it; it stays the
+ * SDK's own `query`.
+ *
+ * Consumed by `queryClaudeSDK` (both the first attempt and the hooks-retry) and
+ * by `claude-per-run-occupied-session.test.ts`.
+ */
+export const claudeQueryFactory: { current: typeof query } = { current: query };
 // Sessions cancelled via abort-session. The abort handler already sent the
 // terminal `complete` (aborted: true) to the client, so the run loop must not
 // emit a second one when its generator winds down.
-const abortedSessionIds = new Set();
+const abortedSessionIds = new Set<string>();
 // Query instances interrupted because a newer run took over their session id
 // (see addSession). Their run loops must stay silent on wind-down: the map
 // entry, the abort flag, and all client-facing events belong to the new run.
-const supersededInstances = new WeakSet();
+const supersededInstances = new WeakSet<object>();
 
-const TOOL_APPROVAL_TIMEOUT_MS = parseInt(process.env.CLAUDE_TOOL_APPROVAL_TIMEOUT_MS, 10) || 55000;
+const TOOL_APPROVAL_TIMEOUT_MS = parseInt(process.env.CLAUDE_TOOL_APPROVAL_TIMEOUT_MS as string, 10) || 55000;
 
 // How long background work is allowed to keep running after a turn ends. This drives
 // two halves of the same behaviour:
@@ -89,7 +158,11 @@ export const TOOLS_REQUIRING_INTERACTION = new Set(['AskUserQuestion', 'ExitPlan
 // selection is translated back into the two options the SDK actually understands here.
 const ULTRACODE_SDK_EFFORT = 'xhigh';
 
-function resolveClaudeEffort(model, effort, modelsDefinition = CLAUDE_PREDEFINED_MODELS) {
+function resolveClaudeEffort(
+  model: string | null | undefined,
+  effort: string | null | undefined,
+  modelsDefinition: ProviderModelsDefinition = CLAUDE_PREDEFINED_MODELS,
+): string | undefined {
   const selectedModel = modelsDefinition?.OPTIONS?.find((option) => option.value === model) || null;
   const allowedEfforts = selectedModel?.effort?.values
     ?.map((value) => value.value) || [];
@@ -104,7 +177,7 @@ function resolveClaudeEffort(model, effort, modelsDefinition = CLAUDE_PREDEFINED
  * @param {Object} sdkOptions - SDK options being built
  * @param {string|undefined} resolvedEffort - Catalog-validated effort selection
  */
-function applyClaudeEffort(sdkOptions, resolvedEffort) {
+function applyClaudeEffort(sdkOptions: AnyRecord, resolvedEffort: string | undefined): void {
   if (!resolvedEffort) {
     return;
   }
@@ -122,27 +195,38 @@ function applyClaudeEffort(sdkOptions, resolvedEffort) {
   };
 }
 
-function createRequestId() {
+function createRequestId(): string {
   if (typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }
   return crypto.randomBytes(16).toString('hex');
 }
 
-function waitForToolApproval(requestId, options = {}) {
+/** The options one tool-approval wait is armed with. */
+type ToolApprovalOptions = {
+  timeoutMs?: number;
+  signal?: AbortSignal | null;
+  onCancel?: (reason: string) => void;
+  metadata?: AnyRecord | null;
+};
+
+function waitForToolApproval(
+  requestId: string,
+  options: ToolApprovalOptions = {},
+): Promise<AnyRecord | null> {
   const { timeoutMs = TOOL_APPROVAL_TIMEOUT_MS, signal, onCancel, metadata } = options;
 
   return new Promise(resolve => {
     let settled = false;
 
-    const finalize = (decision) => {
+    const finalize = (decision: AnyRecord | null) => {
       if (settled) return;
       settled = true;
       cleanup();
       resolve(decision);
     };
 
-    let timeout;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
 
     const cleanup = () => {
       pendingToolApprovals.delete(requestId);
@@ -174,7 +258,7 @@ function waitForToolApproval(requestId, options = {}) {
       signal.addEventListener('abort', abortHandler, { once: true });
     }
 
-    const resolver = (decision) => {
+    const resolver: ToolApprovalResolver = (decision) => {
       finalize(decision);
     };
     // Attach metadata for getPendingApprovalsForSession lookup
@@ -185,7 +269,7 @@ function waitForToolApproval(requestId, options = {}) {
   });
 }
 
-function resolveToolApproval(requestId, decision) {
+function resolveToolApproval(requestId: string, decision: AnyRecord | null): void {
   const resolver = pendingToolApprovals.get(requestId);
   if (resolver) {
     resolver(decision);
@@ -226,8 +310,19 @@ export async function requestClientToolDecision({
   sessionSummary,
   signal,
   onCancel = undefined,
-}) {
-  ws.send(createNormalizedMessage({ kind: 'permission_request', requestId, toolName, input, sessionId: sessionId || null, provider: 'claude' }));
+}: {
+  toolName: string;
+  input: unknown;
+  requiresInteraction: boolean;
+  requestId: string;
+  ws: ProviderRuntimeWriter | null;
+  emitNotification: (event: AnyRecord) => void;
+  sessionId: string | null;
+  sessionSummary: string | null;
+  signal?: AbortSignal | null;
+  onCancel?: (reason: string) => void;
+}): Promise<AnyRecord | null> {
+  ws!.send(createNormalizedMessage({ kind: 'permission_request', requestId, toolName, input, sessionId: sessionId || null, provider: 'claude' }));
   emitNotification(createNotificationEvent({
     provider: 'claude',
     sessionId: sessionId || null,
@@ -237,7 +332,7 @@ export async function requestClientToolDecision({
     severity: 'warning',
     requiresUserAction: true,
     dedupeKey: `claude:permission:${sessionId || 'none'}:${requestId}`
-  }));
+  } as unknown as Parameters<typeof createNotificationEvent>[0]));
 
   const decision = await waitForToolApproval(requestId, {
     timeoutMs: requiresInteraction ? 0 : undefined,
@@ -251,7 +346,7 @@ export async function requestClientToolDecision({
       _receivedAt: new Date(),
     },
     onCancel: (reason) => {
-      ws.send(createNormalizedMessage({ kind: 'permission_cancelled', requestId, reason, sessionId: sessionId || null, provider: 'claude' }));
+      ws!.send(createNormalizedMessage({ kind: 'permission_cancelled', requestId, reason, sessionId: sessionId || null, provider: 'claude' }));
       onCancel?.(reason);
     }
   });
@@ -262,7 +357,7 @@ export async function requestClientToolDecision({
     return { cancelled: true };
   }
 
-  ws.send(createNormalizedMessage({ kind: 'permission_resolved', requestId, sessionId: sessionId || null, provider: 'claude' }));
+  ws!.send(createNormalizedMessage({ kind: 'permission_resolved', requestId, sessionId: sessionId || null, provider: 'claude' }));
   return decision;
 }
 
@@ -270,7 +365,7 @@ export async function requestClientToolDecision({
 // This only supports exact tool names and the Bash(command:*) shorthand
 // used by the UI; it intentionally does not implement full glob semantics,
 // introduced to stay consistent with the UI's "Allow rule" format.
-function matchesToolPermission(entry, toolName, input) {
+function matchesToolPermission(entry: string | null | undefined, toolName: string | null | undefined, input: unknown): boolean {
   if (!entry || !toolName) {
     return false;
   }
@@ -286,8 +381,8 @@ function matchesToolPermission(entry, toolName, input) {
 
     if (typeof input === 'string') {
       command = input.trim();
-    } else if (input && typeof input === 'object' && typeof input.command === 'string') {
-      command = input.command.trim();
+    } else if (input && typeof input === 'object' && typeof (input as AnyRecord).command === 'string') {
+      command = (input as AnyRecord).command.trim();
     }
 
     if (!command) {
@@ -340,7 +435,10 @@ function matchesToolPermission(entry, toolName, input) {
  * A reading that throws is not a launch failure: a process started without a
  * title is the behaviour that shipped before this, and it is still correct.
  */
-export async function resolveClaudeSessionTitle(providerSessionId, projectPath) {
+export async function resolveClaudeSessionTitle(
+  providerSessionId: string | null | undefined,
+  projectPath: string | null | undefined,
+): Promise<string | null> {
   if (!providerSessionId || !projectPath) {
     return null;
   }
@@ -350,15 +448,15 @@ export async function resolveClaudeSessionTitle(providerSessionId, projectPath) 
     const title = typeof info?.customTitle === 'string' ? info.customTitle.trim() : '';
     return title.length > 0 ? title : null;
   } catch (error) {
-    console.warn('[Claude SDK] Unable to read the session title:', error?.message ?? error);
+    console.warn('[Claude SDK] Unable to read the session title:', (error as Error)?.message ?? error);
     return null;
   }
 }
 
-function mapCliOptionsToSDK(options = {}) {
+function mapCliOptionsToSDK(options: AnyRecord = {}): AnyRecord {
   const { providerSessionId, cwd, toolsSettings, permissionMode, effort, resumeAnchorId, resumeFromScratch, sessionTitle } = options;
 
-  const sdkOptions = {};
+  const sdkOptions: AnyRecord = {};
 
   // Forward all host env vars (e.g. ANTHROPIC_BASE_URL) to the subprocess.
   // Since SDK 0.2.113, options.env replaces process.env instead of overlaying it.
@@ -488,8 +586,13 @@ function mapCliOptionsToSDK(options = {}) {
  * @param {Object} writer - WebSocket writer for reconnect support
  * @param {Function} releaseInput - Closes the held stdin stream so the CLI can exit
  */
-function addSession(sessionId, queryInstance, writer = null, releaseInput = null) {
-  const existing = activeSessions.get(sessionId);
+function addSession(
+  sessionId: string | null,
+  queryInstance: ClaudeQuery,
+  writer: ClaudeRunWriter | null = null,
+  releaseInput: (() => void) | null = null,
+): void {
+  const existing = activeSessions.get(sessionId as string);
   // A different live instance under the same key means an earlier run was
   // superseded without being stopped (e.g. an abort that raced run setup and
   // found nothing to interrupt). Overwriting it here would strand its
@@ -501,16 +604,16 @@ function addSession(sessionId, queryInstance, writer = null, releaseInput = null
     existing && existing.status === 'active' && existing.instance && existing.instance !== queryInstance
   );
   if (superseding) {
-    supersededInstances.add(existing.instance);
+    supersededInstances.add(existing!.instance);
     Promise.resolve()
-      .then(() => existing.instance.interrupt())
+      .then(() => existing!.instance.interrupt())
       .catch((error) => {
         console.error(`Error interrupting superseded run for session ${sessionId}:`, error?.message || error);
       });
-    existing.releaseInput?.();
+    existing!.releaseInput?.();
   }
   const carried = superseding ? null : existing;
-  activeSessions.set(sessionId, {
+  activeSessions.set(sessionId as string, {
     instance: queryInstance,
     startTime: carried?.startTime || Date.now(),
     status: 'active',
@@ -524,7 +627,7 @@ function addSession(sessionId, queryInstance, writer = null, releaseInput = null
  * Removes a session from the active sessions map
  * @param {string} sessionId - Session identifier
  */
-function removeSession(sessionId) {
+function removeSession(sessionId: string): void {
   activeSessions.delete(sessionId);
 }
 
@@ -533,7 +636,7 @@ function removeSession(sessionId) {
  * @param {string} sessionId - Session identifier
  * @returns {Object|undefined} Session data or undefined
  */
-function getSession(sessionId) {
+function getSession(sessionId: string): ActiveClaudeSession | undefined {
   return activeSessions.get(sessionId);
 }
 
@@ -541,7 +644,7 @@ function getSession(sessionId) {
  * Gets all active session IDs
  * @returns {Array<string>} Array of active session IDs
  */
-function getAllSessions() {
+function getAllSessions(): string[] {
   return Array.from(activeSessions.keys());
 }
 
@@ -550,7 +653,7 @@ function getAllSessions() {
  * @param {Object} sdkMessage - SDK message object
  * @returns {Object} Transformed message ready for WebSocket
  */
-function transformMessage(sdkMessage) {
+function transformMessage(sdkMessage: AnyRecord): AnyRecord {
   // Extract parent_tool_use_id for subagent tool grouping
   if (sdkMessage.parent_tool_use_id) {
     return {
@@ -571,7 +674,7 @@ function transformMessage(sdkMessage) {
  * @param {Object} message - Normalized message about to be sent to the client
  * @returns {boolean}
  */
-export function isSubagentPromptEcho(message) {
+export function isSubagentPromptEcho(message: AnyRecord): boolean {
   return Boolean(message?.parentToolUseId) && message.role === 'user' && message.kind === 'text';
 }
 
@@ -599,25 +702,28 @@ export function isSubagentPromptEcho(message) {
  * a `parent_tool_use_id`, and one session's frames must never read another's open
  * block.
  */
-const streamBlockTrackers = new WeakMap();
+/** The block one writer's stream is currently inside, under one scope key. */
+type OpenStreamBlock = { messageId: string | null; index: number | null };
+
+const streamBlockTrackers = new WeakMap<ProviderRuntimeWriter, Map<string, OpenStreamBlock>>();
 
 /** The scope key one session + subagent pair's open block is tracked under. */
-function blockScopeKey(sessionId, parentToolUseId) {
+function blockScopeKey(sessionId: string | null | undefined, parentToolUseId: string | null | undefined): string {
   return `${sessionId ?? ''}\u0000${parentToolUseId ?? ''}`;
 }
 
 /** The open-block tracker for one writer, created on first use. */
-function blockTrackerFor(writer) {
+function blockTrackerFor(writer: ProviderRuntimeWriter): Map<string, OpenStreamBlock> {
   let tracker = streamBlockTrackers.get(writer);
   if (!tracker) {
-    tracker = new Map();
+    tracker = new Map<string, OpenStreamBlock>();
     streamBlockTrackers.set(writer, tracker);
   }
   return tracker;
 }
 
 /** The Anthropic streaming event inside an SDK frame, or null for a settled record. */
-function readStreamingEvent(rawMessage) {
+function readStreamingEvent(rawMessage: AnyRecord | null | undefined): AnyRecord | null {
   return rawMessage?.type === 'stream_event' ? rawMessage.event : null;
 }
 
@@ -637,7 +743,12 @@ function readStreamingEvent(rawMessage) {
  * @param {Object} params.rawMessage - SDK frame, after transformMessage
  * @returns {string|null} `"<message.id>:<index>"`, or null when no block is open
  */
-function trackStreamBlock({ writer, sessionId, parentToolUseId, rawMessage }) {
+function trackStreamBlock({ writer, sessionId, parentToolUseId, rawMessage }: {
+  writer: ProviderRuntimeWriter | null | undefined;
+  sessionId: string | null | undefined;
+  parentToolUseId: string | null | undefined;
+  rawMessage: AnyRecord | null | undefined;
+}): string | null {
   // The tracker is keyed by the writer, so a caller with no writer (a headless
   // replay, say) simply gets no key rather than a shared global one.
   if (!writer || (typeof writer !== 'object' && typeof writer !== 'function')) {
@@ -647,7 +758,7 @@ function trackStreamBlock({ writer, sessionId, parentToolUseId, rawMessage }) {
   const tracker = blockTrackerFor(writer);
   const scopeKey = blockScopeKey(sessionId, parentToolUseId);
   const open = tracker.get(scopeKey) || null;
-  const keyFor = (index) => (
+  const keyFor = (index: unknown) => (
     open && typeof open.messageId === 'string' && Number.isInteger(index)
       ? `${open.messageId}:${index}`
       : null
@@ -718,7 +829,7 @@ const BLOCK_KEYED_KINDS = new Set(['stream_delta', 'stream_end', 'text', 'thinki
  * @param {Object} writer - Run writer whose tracker is inspected
  * @returns {number} Number of live scope entries, zero once every message has stopped
  */
-export function countOpenStreamBlocks(writer) {
+export function countOpenStreamBlocks(writer: ProviderRuntimeWriter): number {
   const tracker = streamBlockTrackers.get(writer);
   return tracker ? tracker.size : 0;
 }
@@ -751,7 +862,12 @@ export function countOpenStreamBlocks(writer) {
  * @param {Function} params.normalizeMessage - Provider normalizer, `(raw, sessionId) => NormalizedMessage[]`
  * @param {Object} params.writer - Run writer (the socket connection); only its `send(message)` is used
  */
-export function forwardNormalizedFrames({ transformedMessage, sessionId, normalizeMessage, writer }) {
+export function forwardNormalizedFrames({ transformedMessage, sessionId, normalizeMessage, writer }: {
+  transformedMessage: AnyRecord;
+  sessionId: string | null;
+  normalizeMessage: (raw: unknown, sessionId: string | null) => AnyRecord[];
+  writer: ProviderRuntimeWriter;
+}): void {
   const blockKey = trackStreamBlock({
     writer,
     sessionId,
@@ -775,22 +891,29 @@ export function forwardNormalizedFrames({ transformedMessage, sessionId, normali
   }
 }
 
-function readNumber(value) {
+function readNumber(value: unknown): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
 /**
- * @typedef {Object} TokenBudget
- * @property {number} used
- * @property {number} total
- * @property {number} inputTokens
- * @property {number} outputTokens
- * @property {number} [cacheReadTokens]
- * @property {number} [cacheCreationTokens]
- * @property {number} [cacheTokens]
- * @property {{ input: number, output: number }} breakdown
+ * The context-window budget one message reports.
+ *
+ * `used` is `inputTokens + outputTokens` where `inputTokens` folds in the
+ * cache-read and cache-creation halves of the prompt, and `total` is the
+ * selected model entry's context window — the same two numbers the composer
+ * counter renders.
  */
+type TokenBudget = {
+  used: number;
+  total: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  cacheTokens?: number;
+  breakdown: { input: number; output: number };
+};
 
 /**
  * Builds a context-window budget from an Anthropic-shaped usage payload.
@@ -801,7 +924,7 @@ function readNumber(value) {
  * @param {number|string} [profileContextWindow] - Selected model entry's CLAUDE_CODE_MAX_CONTEXT_TOKENS row
  * @returns {TokenBudget} Token budget object
  */
-function buildTokenBudget(messageUsage, profileContextWindow) {
+function buildTokenBudget(messageUsage: AnyRecord, profileContextWindow?: number | string): TokenBudget {
   const directInputTokens = readNumber(messageUsage.input_tokens ?? messageUsage.inputTokens);
   const cacheCreationTokens = readNumber(messageUsage.cache_creation_input_tokens ?? messageUsage.cacheCreationInputTokens ?? messageUsage.cacheCreationTokens);
   const cacheReadTokens = readNumber(messageUsage.cache_read_input_tokens ?? messageUsage.cacheReadInputTokens ?? messageUsage.cacheReadTokens);
@@ -835,7 +958,7 @@ function buildTokenBudget(messageUsage, profileContextWindow) {
  * @param {number|string} [profileContextWindow] - Selected model entry's CLAUDE_CODE_MAX_CONTEXT_TOKENS row
  * @returns {TokenBudget|null} Token budget object or null
  */
-function extractTokenBudget(sdkMessage, profileContextWindow) {
+function extractTokenBudget(sdkMessage: AnyRecord | null | undefined, profileContextWindow?: number | string): TokenBudget | null {
   if (!sdkMessage || typeof sdkMessage !== 'object') {
     return null;
   }
@@ -880,7 +1003,7 @@ function extractTokenBudget(sdkMessage, profileContextWindow) {
  * @param {number|string} [profileContextWindow] - Selected model entry's CLAUDE_CODE_MAX_CONTEXT_TOKENS row
  * @returns {TokenBudget|null} Token budget object or null
  */
-function extractCumulativeTokenBudget(sdkMessage, profileContextWindow) {
+function extractCumulativeTokenBudget(sdkMessage: AnyRecord | null | undefined, profileContextWindow?: number | string): TokenBudget | null {
   if (!sdkMessage || typeof sdkMessage !== 'object' || sdkMessage.type !== 'result') {
     return null;
   }
@@ -939,7 +1062,7 @@ const DEFERRED_WORK_TOOLS = new Set(['Monitor', 'ScheduleWakeup', 'CronCreate', 
  * @param {number|string} [profileContextWindow] - Selected model entry's CLAUDE_CODE_MAX_CONTEXT_TOKENS row
  * @returns {boolean} True when the message launches work that outlives the turn
  */
-export function startsBackgroundWork(sdkMessage) {
+export function startsBackgroundWork(sdkMessage: AnyRecord): boolean {
   const content = sdkMessage?.message?.content;
   if (!Array.isArray(content)) {
     return false;
@@ -986,7 +1109,7 @@ export function startsBackgroundWork(sdkMessage) {
  * identically whether the turn is driven from here or from a host, and the only
  * way to guarantee that is to run the same builder rather than a second copy.
  */
-export async function buildPromptMessages(command, images, files, cwd) {
+export async function buildPromptMessages(command: string, images: unknown, files: unknown, cwd: string): Promise<AnyRecord[]> {
   const promptWithFiles = appendFilesInputTag(command, files);
   const content = normalizeImageDescriptors(images).length === 0
     ? promptWithFiles
@@ -1018,9 +1141,9 @@ export async function buildPromptMessages(command, images, files, cwd) {
  * the thing that keeps the CLI alive past a turn's `result` is this hold, so the
  * driver must use the same hold this runtime uses rather than inventing one.
  */
-export function createHeldPromptStream(messages) {
-  let release;
-  const held = new Promise((resolve) => { release = resolve; });
+export function createHeldPromptStream(messages: AnyRecord[]): { stream: AsyncIterable<AnyRecord>; release: () => void } {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
 
   const stream = (async function* () {
     for (const message of messages) {
@@ -1038,7 +1161,7 @@ export function createHeldPromptStream(messages) {
  * @param {string} cwd - Current working directory for project-specific configs
  * @returns {Object|null} MCP servers object or null if none found
  */
-async function loadMcpConfig(cwd) {
+async function loadMcpConfig(cwd: string | null | undefined): Promise<AnyRecord | null> {
   try {
     const claudeConfigPath = path.join(os.homedir(), '.claude.json');
 
@@ -1057,7 +1180,7 @@ async function loadMcpConfig(cwd) {
       const configContent = await fs.readFile(claudeConfigPath, 'utf8');
       claudeConfig = JSON.parse(configContent);
     } catch (error) {
-      console.error('Failed to parse ~/.claude.json:', error.message);
+      console.error('Failed to parse ~/.claude.json:', (error as Error).message);
       return null;
     }
 
@@ -1085,7 +1208,7 @@ async function loadMcpConfig(cwd) {
     }
     return mcpServers;
   } catch (error) {
-    console.error('Error loading MCP config:', error.message);
+    console.error('Error loading MCP config:', (error as Error).message);
     return null;
   }
 }
@@ -1098,7 +1221,12 @@ async function loadMcpConfig(cwd) {
  * @param {Object} context - Provider-scoped model, session, and auth lookups
  * @returns {Promise<void>}
  */
-async function queryClaudeSDK(command, options = {}, ws, context) {
+async function queryClaudeSDK(
+  command: string,
+  options: AnyRecord = {},
+  ws: ProviderRuntimeWriter,
+  context: ProviderRuntimeContext,
+): Promise<void> {
   const { sessionId, sessionSummary } = options;
   // Callers pass the stable app session id; the SDK only understands the
   // provider-native id recorded on the session row.
@@ -1111,18 +1239,18 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
   // the provider-native id once captured (legacy/direct API callers).
   const sessionKey = () => sessionId || capturedSessionId || null;
 
-  const emitNotification = (event) => {
+  const emitNotification = (event: AnyRecord) => {
     notifyUserIfEnabled({
       userId: ws?.userId || null,
       writer: ws,
       event
-    });
+    } as unknown as Parameters<typeof notifyUserIfEnabled>[0]);
   };
 
   // Closes the held stdin stream so the CLI can wind down. Replaced once the
   // stream exists; the finally block calls it no matter how the run ends.
   let releasePromptStream = () => {};
-  let idleReleaseTimer = null;
+  let idleReleaseTimer: ReturnType<typeof setTimeout> | null = null;
   // The client is told the turn is over as soon as `result` lands, even though
   // the process lingers, so the UI never waits out the idle hold.
   let turnCompleteSent = false;
@@ -1159,9 +1287,30 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
 
   // Hoisted above the try so the catch's cleanup can tell whether this run
   // still owns the activeSessions entry (or was superseded by a newer run).
-  let queryInstance = null;
+  let queryInstance: ClaudeQuery | null = null;
 
   try {
+    // The occupancy gate: a conversation a Claude Code background job is running
+    // cannot be resumed — the CLI exits 1 and says so only on stderr, which this
+    // path drops — so the run is refused here, before the option bag is built or
+    // a query is created. It is the same reader and the same refusal the resident
+    // launch uses (see `findBackgroundSessionOwner`), so both server paths answer
+    // "occupied" with one sentence. The throw stays inside this `try` on purpose:
+    // the `catch` below turns it into the run's own error frame plus terminal
+    // complete, which is the exit every other launch failure already takes, so
+    // the user reads the refusal rather than an opaque `exited with code 1`.
+    //
+    // Asked only when this turn would really resume. A brand-new conversation
+    // (no provider session id) and a turn explicitly starting over
+    // (`resumeFromScratch`) share no session with any background job, so neither
+    // can be about one.
+    if (providerSessionId && !options.resumeFromScratch) {
+      const occupant = findBackgroundSessionOwner(resolveClaudeConfigDir(), providerSessionId);
+      if (occupant) {
+        throw new ClaudeSessionOccupiedError(occupant);
+      }
+    }
+
     const resolvedModel = await context.resolveResumeModel(sessionId, options.model);
     let effortModels = CLAUDE_PREDEFINED_MODELS;
     try {
@@ -1197,7 +1346,7 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
     sdkOptions.hooks = {
       Notification: [{
         matcher: '',
-        hooks: [async (input) => {
+        hooks: [async (input: AnyRecord) => {
           const message = typeof input?.message === 'string' ? input.message : 'Claude requires your attention.';
           // Notifications are app-facing, so they carry the app session id.
           emitNotification(createNotificationEvent({
@@ -1209,7 +1358,7 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
             severity: 'warning',
             requiresUserAction: true,
             dedupeKey: `claude:hook:notification:${sessionId || capturedSessionId || 'none'}:${message}`
-          }));
+          } as unknown as Parameters<typeof createNotificationEvent>[0]));
           return {};
         }]
       }]
@@ -1227,7 +1376,7 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
     // §E8). The order below is what that reading buys: `requiresInteraction` is
     // checked *first*, so the bypass branch never short-circuits a tool that
     // needs a person.
-    sdkOptions.canUseTool = async (toolName, input, context) => {
+    sdkOptions.canUseTool = async (toolName: string, input: unknown, context: AnyRecord) => {
       const requiresInteraction = TOOLS_REQUIRING_INTERACTION.has(toolName);
 
       if (!requiresInteraction) {
@@ -1235,14 +1384,14 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
           return { behavior: 'allow', updatedInput: input };
         }
 
-        const isDisallowed = (sdkOptions.disallowedTools || []).some(entry =>
+        const isDisallowed = (sdkOptions.disallowedTools || []).some((entry: string) =>
           matchesToolPermission(entry, toolName, input)
         );
         if (isDisallowed) {
           return { behavior: 'deny', message: 'Tool disallowed by settings' };
         }
 
-        const isAllowed = (sdkOptions.allowedTools || []).some(entry =>
+        const isAllowed = (sdkOptions.allowedTools || []).some((entry: string) =>
           matchesToolPermission(entry, toolName, input)
         );
         if (isAllowed) {
@@ -1288,23 +1437,23 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
     let heldPrompt = createHeldPromptStream(promptMessages);
     releasePromptStream = heldPrompt.release;
     try {
-      queryInstance = query({
+      queryInstance = claudeQueryFactory.current({
         prompt: heldPrompt.stream,
         options: sdkOptions
-      });
+      } as unknown as Parameters<typeof query>[0]);
     } catch (hookError) {
       // Older/newer SDK versions may not accept hook shapes yet.
       // Keep notification behavior operational via runtime events even if hook registration fails.
-      console.warn('Failed to initialize Claude query with hooks, retrying without hooks:', hookError?.message || hookError);
+      console.warn('Failed to initialize Claude query with hooks, retrying without hooks:', (hookError as Error)?.message || hookError);
       delete sdkOptions.hooks;
       // Discard the abandoned stream and build a fresh one for the retry.
       heldPrompt.release();
       heldPrompt = createHeldPromptStream(promptMessages);
       releasePromptStream = heldPrompt.release;
-      queryInstance = query({
+      queryInstance = claudeQueryFactory.current({
         prompt: heldPrompt.stream,
         options: sdkOptions
-      });
+      } as unknown as Parameters<typeof query>[0]);
     }
 
     // Track the query instance for abort capability
@@ -1314,7 +1463,7 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
 
     // Process streaming messages
     console.log('Starting async generator loop for session:', capturedSessionId || 'NEW');
-    for await (const message of queryInstance) {
+    for await (const message of queryInstance as AsyncIterable<AnyRecord>) {
       // Capture session ID from first message
       if (message.session_id && !capturedSessionId) {
 
@@ -1323,7 +1472,7 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
 
         // Set session ID on writer
         if (ws.setSessionId && typeof ws.setSessionId === 'function') {
-          ws.setSessionId(capturedSessionId);
+          ws.setSessionId(capturedSessionId as string);
         }
 
         // Send session-created event only once for sessions with nothing to resume
@@ -1416,7 +1565,7 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
 
     // A superseded run winds down silently: the map entry, the abort flag,
     // and all client-facing events belong to the run that replaced it.
-    const superseded = supersededInstances.has(queryInstance);
+    const superseded = supersededInstances.has(queryInstance!);
 
     // Send the terminal completion event — skipped for aborted runs, whose
     // terminal `complete` (aborted: true) was already sent by abort-session, and
@@ -1446,7 +1595,7 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
       removeSession(sessionKey());
     }
 
-    if (supersededInstances.has(queryInstance)) {
+    if (supersededInstances.has(queryInstance!)) {
       // Interrupted because a newer run took over this session id; that run
       // owns the abort flag and all further client-facing events.
       return;
@@ -1463,7 +1612,7 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
     const installed = await context.isProviderInstalled();
     const errorContent = !installed
       ? 'Claude Code is not installed. Please install it first: https://docs.anthropic.com/en/docs/claude-code'
-      : error.message;
+      : (error as Error).message;
 
     // Send error to WebSocket, then the terminal complete. A run that already
     // reported completion and then failed during its post-turn hold still
@@ -1495,7 +1644,7 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
  * @param {string} sessionId - Session identifier
  * @returns {boolean} True if session was aborted, false if not found
  */
-async function abortClaudeSDKSession(sessionId) {
+async function abortClaudeSDKSession(sessionId: string): Promise<boolean> {
   const session = getSession(sessionId);
 
   if (!session) {
@@ -1537,7 +1686,7 @@ async function abortClaudeSDKSession(sessionId) {
  * @param {string} sessionId - Session identifier
  * @returns {boolean} True if session is active
  */
-function isClaudeSDKSessionActive(sessionId) {
+function isClaudeSDKSessionActive(sessionId: string): boolean | undefined {
   const session = getSession(sessionId);
   return session && session.status === 'active';
 }
@@ -1546,7 +1695,7 @@ function isClaudeSDKSessionActive(sessionId) {
  * Gets all active SDK session IDs
  * @returns {Array<string>} Array of active session IDs
  */
-function getActiveClaudeSDKSessions() {
+function getActiveClaudeSDKSessions(): string[] {
   return getAllSessions();
 }
 
@@ -1555,8 +1704,8 @@ function getActiveClaudeSDKSessions() {
  * @param {string} sessionId - The session ID
  * @returns {Array} Array of pending permission request objects
  */
-function getPendingApprovalsForSession(sessionId) {
-  const pending = [];
+function getPendingApprovalsForSession(sessionId: string): AnyRecord[] {
+  const pending: AnyRecord[] = [];
   for (const [requestId, resolver] of pendingToolApprovals.entries()) {
     if (resolver._sessionId === sessionId) {
       pending.push({
@@ -1579,7 +1728,7 @@ function getPendingApprovalsForSession(sessionId) {
  * @param {Object} newRawWs - The new raw WebSocket connection
  * @returns {boolean} True if writer was successfully reconnected
  */
-function reconnectSessionWriter(sessionId, newRawWs) {
+function reconnectSessionWriter(sessionId: string, newRawWs: unknown): boolean {
   const session = getSession(sessionId);
   if (!session?.writer?.updateWebSocket) return false;
   session.writer.updateWebSocket(newRawWs);

@@ -306,6 +306,7 @@
       "idle": "Résident · Au repos",
       "busy": "Résident · En cours d’exécution",
       "exited": "Le processus résident s’est arrêté ({{detail}})",
+      "unknown": "Résident · État inconnu",
       "start": "Démarrer",
       "restart": "Redémarrer",
       "close": "Fermer le processus résident",

@@ -325,6 +325,7 @@
       "idle": "Residente · Inactivo",
       "busy": "Residente · En ejecución",
       "exited": "El proceso residente finalizó ({{detail}})",
+      "unknown": "Residente · Estado desconocido",
       "start": "Iniciar",
       "restart": "Reiniciar",
       "close": "Cerrar el proceso residente",

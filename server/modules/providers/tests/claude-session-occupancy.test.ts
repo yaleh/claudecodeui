@@ -10,7 +10,7 @@ import {
   ClaudeSessionOccupiedError,
   findBackgroundSessionOwner,
   readClaudeSessionOccupancy,
-} from '@/modules/providers/list/claude/claude-host-driver.provider.js';
+} from '@/shared/utils.js';
 
 /**
  * A conversation a Claude Code background job is running cannot be resumed, so

@@ -304,6 +304,7 @@
       "idle": "Kalıcı · Boşta",
       "busy": "Kalıcı · Çalışıyor",
       "exited": "Kalıcı süreç sonlandı ({{detail}})",
+      "unknown": "Kalıcı · Durum bilinmiyor",
       "start": "Başlat",
       "restart": "Yeniden Başlat",
       "close": "Kalıcı süreci kapat",
