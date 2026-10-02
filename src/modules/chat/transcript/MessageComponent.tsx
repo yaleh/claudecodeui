@@ -332,7 +332,14 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                           ? t('messageTypes.codex')
                           : provider === 'opencode'
                               ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
-                              : t('messageTypes.claude'))}
+                              // A debug agent's replies are synthetic, and the mark beside this
+                              // name already says so. Without a branch of its own the chain named
+                              // them "Claude" — asserting a provenance the message does not have,
+                              // which is worse than a missing name and undetectable by a reader.
+                              // The fallback below stays for ids this build cannot name at all.
+                              : provider === 'debug'
+                                ? t('messageTypes.debug')
+                                : t('messageTypes.claude'))}
               </div>
             </div>
           )}
