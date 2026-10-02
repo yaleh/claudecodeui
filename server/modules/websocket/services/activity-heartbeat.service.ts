@@ -1,0 +1,194 @@
+import { randomUUID } from 'node:crypto';
+
+import type { WebSocket } from 'ws';
+
+import { WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
+
+/**
+ * The two shipped timings for the business heartbeat, in milliseconds.
+ *
+ * These are the one place the shipped numbers live. A client is told both at
+ * subscribe time (the `chat_subscribed` hello) and the server then beats at the
+ * interval it announced, so a criterion that wants the shipped defaults reads
+ * these constants instead of re-typing 5000 / 15000.
+ *
+ * The beat is what a browser can see: the process already has a protocol-level
+ * `ping` (see `attachWebSocketHeartbeat`), but that is invisible to page
+ * JavaScript, so it cannot tell a client whether the server is still there. The
+ * unreachable threshold is deliberately a small multiple of the interval, so a
+ * client that stops hearing frames can degrade after a few missed beats rather
+ * than after one slow tick.
+ */
+export const ACTIVITY_HEARTBEAT_INTERVAL_MS = 5_000;
+export const ACTIVITY_UNREACHABLE_AFTER_MS = 15_000;
+
+/**
+ * The identity of the running process, generated once when this module is
+ * loaded.
+ *
+ * A client uses it as "which server am I talking to": the value is stable for
+ * the whole life of the process, and a different value means the server was
+ * restarted, so every local "in progress" assumption has to be discarded. It is
+ * deliberately a module constant and not a per-frame or per-connection value —
+ * an id that changed between two frames would report a restart that never
+ * happened.
+ */
+const BOOT_ID = randomUUID();
+
+/**
+ * Session-level activity revision, one monotonic counter per session.
+ *
+ * A revision is the session's activity version: it stays put while nothing
+ * about the session changes, which is exactly the case the heartbeat exists to
+ * cover — the beat proves liveness even when there is nothing new to say, so
+ * the same revision is carried frame after frame. Nothing in this module
+ * advances it; the frames that do belong to the activity snapshot/patch
+ * protocol. Every session is seeded on first sight, so the hello and every
+ * subsequent heartbeat for one session report the same number.
+ */
+const activityRevisions = new Map<string, number>();
+
+/**
+ * Reads the two shipped timings, applying the environment overrides a
+ * process-level criterion uses to shorten the beat.
+ *
+ * The overrides exist so a criterion can watch several beats inside a test
+ * budget; production leaves both unset and gets the shipped numbers. They are
+ * read per call rather than captured at load so a caller that supplies its own
+ * environment gets an answer about that environment. A non-positive or
+ * unparsable value is ignored rather than accepted, because a zero interval
+ * would spin the timer.
+ */
+export function resolveActivityHeartbeatConfig(
+  env: NodeJS.ProcessEnv = process.env,
+): { intervalMs: number; unreachableAfterMs: number } {
+  return {
+    intervalMs: readPositiveInt(env.ACTIVITY_HEARTBEAT_INTERVAL_MS, ACTIVITY_HEARTBEAT_INTERVAL_MS),
+    unreachableAfterMs: readPositiveInt(env.ACTIVITY_UNREACHABLE_AFTER_MS, ACTIVITY_UNREACHABLE_AFTER_MS),
+  };
+}
+
+function readPositiveInt(raw: string | undefined, fallback: number): number {
+  if (raw === undefined) {
+    return fallback;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/** The revision a session's activity is currently at, seeding it on first sight. */
+function revisionForSession(sessionId: string): number {
+  const known = activityRevisions.get(sessionId);
+  if (known !== undefined) {
+    return known;
+  }
+  activityRevisions.set(sessionId, 0);
+  return 0;
+}
+
+/**
+ * The activity fields a client is handed when it subscribes: who this server
+ * is, the session's current activity revision, and the two timings the server
+ * will use.
+ *
+ * Exported for this module's chat gateway, which spreads these onto the
+ * `chat_subscribed` hello. The heartbeat frames it starts here are built from
+ * exactly this state, so the hello and every frame that follows agree about the
+ * boot id, the revision, and the beat.
+ */
+export function activityAnnouncement(sessionId: string): {
+  bootId: string;
+  rev: number;
+  heartbeatIntervalMs: number;
+  unreachableAfterMs: number;
+} {
+  const { intervalMs, unreachableAfterMs } = resolveActivityHeartbeatConfig();
+  return {
+    bootId: BOOT_ID,
+    rev: revisionForSession(sessionId),
+    heartbeatIntervalMs: intervalMs,
+    unreachableAfterMs,
+  };
+}
+
+/** The `activity.heartbeat` frame for one session, built from the current state. */
+function buildActivityHeartbeat(sessionId: string): {
+  kind: 'activity.heartbeat';
+  sessionId: string;
+  bootId: string;
+  rev: number;
+  timestamp: string;
+} {
+  const { bootId, rev } = activityAnnouncement(sessionId);
+  return {
+    kind: 'activity.heartbeat',
+    sessionId,
+    bootId,
+    rev,
+    timestamp: new Date().toISOString(),
+  };
+}
+
+/** One running beat: the stop function, keyed by the session it belongs to. */
+const heartbeatsBySocket = new WeakMap<WebSocket, Map<string, () => void>>();
+
+/**
+ * Starts the business heartbeat for one subscribed session on one socket, and
+ * returns the function that stops it.
+ *
+ * Exported for this module's chat gateway: `chat.subscribe` is the one message
+ * that says "a browser is now on this session", and it is the only place the
+ * beat is armed. A socket that subscribes to the same session twice gets the
+ * beat it is already running rather than a second one, so a page that reloads
+ * and re-sends `chat.subscribe` does not double its own frame rate. The beat
+ * also stops on the socket's own `close`/`error`, so a dead client leaves no
+ * timer behind.
+ */
+export function attachActivityHeartbeat(ws: WebSocket, sessionId: string): () => void {
+  const bySession = heartbeatsBySocket.get(ws) ?? new Map<string, () => void>();
+  heartbeatsBySocket.set(ws, bySession);
+
+  const alreadyRunning = bySession.get(sessionId);
+  if (alreadyRunning) {
+    return alreadyRunning;
+  }
+
+  const sendFrame = () => {
+    if (ws.readyState !== WS_OPEN_STATE) {
+      stopBeat();
+      return;
+    }
+    try {
+      ws.send(JSON.stringify(buildActivityHeartbeat(sessionId)));
+    } catch {
+      // A socket that throws on send is one the close/error path would have
+      // handled anyway; stop here so the timer cannot outlive it.
+      stopBeat();
+    }
+  };
+
+  const timer = setInterval(sendFrame, resolveActivityHeartbeatConfig().intervalMs);
+  // The beat is a liveness signal, not a reason for the process to stay alive.
+  // A real server is already held open by its listening socket; unref'ing this
+  // timer means a shutting-down server is never kept up by a beat nobody can
+  // receive, and — the case that matters for the criteria — a test that drives
+  // the gateway with an in-process socket surface and never emits `close` can
+  // still exit once its own work is done instead of hanging on a live interval.
+  timer.unref();
+
+  function stopBeat(): void {
+    clearInterval(timer);
+    bySession.delete(sessionId);
+    if (bySession.size === 0) {
+      heartbeatsBySocket.delete(ws);
+    }
+    ws.off('close', stopBeat);
+    ws.off('error', stopBeat);
+  }
+
+  ws.on('close', stopBeat);
+  ws.on('error', stopBeat);
+  bySession.set(sessionId, stopBeat);
+
+  return stopBeat;
+}

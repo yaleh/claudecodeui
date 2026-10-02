@@ -6,6 +6,10 @@ import { sessionsDb } from '@/modules/database/index.js';
 import { providerModelsService, sessionsService } from '@/modules/providers/index.js';
 import { sessionHostManager } from '@/modules/session-hosts/index.js';
 import type { SessionHostManager } from '@/modules/session-hosts/index.js';
+import {
+  activityAnnouncement,
+  attachActivityHeartbeat,
+} from '@/modules/websocket/services/activity-heartbeat.service.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 import {
@@ -640,18 +644,29 @@ function handleChatSubscribe(
     // The ack names the run the server is currently on, so the client can
     // reset a cursor that was recorded against an earlier run. Omitted when no
     // run is in flight — there is no run identity to report.
+    // The hello also carries the activity contract: which process this is
+    // (`bootId`), the session's current activity revision, and the two timings
+    // the heartbeat below will use. A client that compares `bootId` across
+    // reconnects can tell a restart from a hiccup, and it can degrade to
+    // "unreachable" when no frame arrives inside the announced threshold —
+    // neither is possible from the invisible protocol-level ping.
     const ack: AnyRecord = {
       kind: 'chat_subscribed',
       sessionId,
       isProcessing,
       lastSeq: run?.lastSeq ?? 0,
       pendingPermissions,
+      ...activityAnnouncement(sessionId),
       timestamp: new Date().toISOString(),
     };
     if (run) {
       ack.runId = run.runId;
     }
     sendJson(ws, ack);
+
+    // A browser is now watching this session, so the server starts proving it
+    // is still alive on the beat it just announced.
+    attachActivityHeartbeat(ws, sessionId);
 
     // Replay only for RUNNING runs, strictly after the ack. Completed runs
     // are fully persisted to the provider transcript and served over REST —
@@ -695,8 +710,8 @@ function handlePermissionResponse(data: AnyRecord, dependencies: ChatWebSocketDe
  *
  * Outbound protocol (server to client): every frame is `kind`-based — either
  * a provider `NormalizedMessage` (with `seq`) or a gateway event
- * (`chat_subscribed`, `session_upserted`, `loading_progress`,
- * `queued_input_cancel_result`, `protocol_error`).
+ * (`chat_subscribed`, `activity.heartbeat`, `session_upserted`,
+ * `loading_progress`, `queued_input_cancel_result`, `protocol_error`).
  */
 /**
  * Runs a turn for a session with no client attached.
