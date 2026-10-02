@@ -16,6 +16,7 @@ import {
     initializeSessionsWatcher,
     providerRegistry,
     providerRuntimeService,
+    readClaudeSessionOccupancy,
     resolveResidentScopeSweepEnabled,
     sessionsService,
     stopClaudeSessionScopes,
@@ -34,6 +35,7 @@ import {
     validateApiKey,
 } from './modules/auth/index.js';
 import { taskmasterRoutes } from './modules/taskmaster/index.js';
+import { quayRoutes } from './modules/quay/index.js';
 import { commandsRoutes } from './modules/commands/index.js';
 import { settingsRoutes } from './modules/settings/index.js';
 import { createSystemModule } from './modules/system/index.js';
@@ -228,6 +230,9 @@ app.use('/api/worktrees', authenticateToken, worktreesRoutes);
 // TaskMaster API Routes (protected)
 app.use('/api/taskmaster', authenticateToken, taskmasterRoutes);
 
+// Quay display API Routes (protected, read-only)
+app.use('/api/quay', authenticateToken, quayRoutes);
+
 // Commands API Routes (protected)
 app.use('/api/commands', authenticateToken, commandsRoutes);
 
@@ -288,7 +293,17 @@ app.use('/api/session-hosts', authenticateToken, createSessionHostsRouter({
         appSessionId: session.session_id,
         provider: session.provider as LLMProvider,
         mode: (session.lifecycle_mode ?? 'per-run') as HostMode,
+        // The provider's own id, which is the only key the CLI's registry knows
+        // this conversation by — a background job is filed under it, never under
+        // the app's session id. `null` for a session the provider has not named
+        // yet, which simply has no occupancy to look up.
+        providerSessionId: session.provider_session_id ?? null,
       })),
+    // The listing's third fact, and the one this server does not own: which of
+    // these conversations a Claude Code background job is holding. Read whole,
+    // once, per request — `readClaudeSessionOccupancy` scans the CLI's registry
+    // directory a single time however many sessions the list above holds.
+    readSessionOccupancy: () => readClaudeSessionOccupancy(),
 }));
 
 // Agent API Routes (uses API key authentication)

@@ -292,6 +292,11 @@
       "withdraw": "Zurückziehen",
       "withdrawn": "Zurückgezogen"
     },
+    "occupied": {
+      "notice": "Diese Sitzung wird von einem Claude-Code-Hintergrundjob belegt (Job {{jobId}}, pid {{pid}}). Führe `claude stop {{jobId}}` aus, um ihn zu beenden, oder forke die Sitzung.",
+      "copyCommand": "Befehl kopieren",
+      "copied": "Kopiert"
+    },
     "statusBar": {
       "unstarted": "Resident · Läuft nicht ({{reason}})",
       "idle": "Resident · Leerlauf",

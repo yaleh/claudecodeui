@@ -1,7 +1,7 @@
 ---
 id: gap-work-segment-anchor-stable
 title: AC-205 段锚点跨尾部增长稳定：尾部追加不改键与展开态，两条失稳边界记录在案
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -30,13 +30,13 @@ goal_ac: AC-205
 
 ## AC
 
-- [ ] AC1 判据绿：`npx vitest run src/modules/chat/tests/workSegmentAnchorStability.test.ts` 退出 0。红态基线（本轮实测）：该文件不存在，`.quay/gate-events.jsonl` 里同一目标级判据 4 次读数是 `No test files found, exiting with code 1`。
-- [ ] AC2（读数 i，承重）尾部追加不改键、不改展开态：`npx vitest run src/modules/chat/tests/workSegmentAnchorStability.test.ts -t "the tail segment keeps its anchor while members stream into its tail"` 退出 0 —— 对同一夹具逐条追加成员到 tail 段尾部（≥3 次，每次重新求值），每次断言 (a) 该段锚点逐字相等、(b) `expandedAnchors.has(anchor)` 仍为真；(c) 局部正控制：兄弟段锚点也不变但两者锚点互不相等。
-- [ ] AC3（读数 ii，承重）锚点 = 首成员行内键，追加顺序与次数无关：`-t "the anchor is the first member's intrinsic key"` 退出 0 —— 断言锚点 === `getIntrinsicMessageKey(segment.members[0])`；同一首成员、以不同顺序与不同条数追加 ⇒ 锚点不变。(d) 正控制：夹具首成员必须带稳定身份字段（`blockKey` / `id` / `toolId` 之一，断言它非空），使 `getIntrinsicMessageKey` 走身份分支而非文件末尾的 `content-preview` 兜底分支 —— 否则 (ii) 对内容敏感，是一条空话。
-- [ ] AC4（边界 a，记录在案的失稳，承重）加载更老一页后顶段重锚、展开态丢：`-t "loading an older page re-anchors the top segment and loses its expansion"` 退出 0 —— 用**真实出货**的 `mergeOlderServerPage(cached, older)` 造「历史窗口头部被裁后再加载更多」，其更老一页的尾部成员与顶段首成员相邻（中间无终止行）；重新求值后断言 (a) 顶段锚点变了、(b) 旧锚点已不在当前锚点集合里（= 展开态丢，断言方向就是「会丢」）、(c) 正控制：下方未被触及的另一条段锚点不变、展开集合仍命中它。
-- [ ] AC5（边界 b，记录在案的失稳，承重）回声去重折掉终止行 ⇒ 两段合并 ⇒ 后段锚点消失、展开态丢：`-t "echo dedup folds the terminator and loses the second segment's expansion"` 退出 0 —— 折叠后的列表必须由**真实去重路径**取得（`useSessionStore` 公有方法，`dedupeAdjacentAssistantEchoes` 模块私有；夹具照 `src/modules/chat/tests/adjacentEchoCollapse.test.tsx` 的 `loadedStore()/refreshFromServer()`），⛔ 不得在测试里手写去重。断言 (a) 折叠前夹具确实是两段、那条重复正文行在两段之间且确实是终止行；(b) 折叠后段数少一（真的合并）；(c) 后段旧锚点不再出现（展开态丢）。(d) 若实测该真实路径对该夹具**不产生合并**（终止行没有被移走），以实测为准把「会丢」钉在真实失稳形态上，并在 DoD 附上子产物读数 —— 不得为了迎合本条描述伪造一个不存在的合并。
-- [ ] AC6 取假形态必须红（承重；先提交实现与判据，再逐条变异；逐条记录变异 diff、逐字失败行与 `git checkout -- <file>` 恢复命令）：(a) 锚点 = 首成员键 + 末成员键拼接 ⇒ 尾部追加后锚点变 ⇒ AC2 红；(b) 锚点把成员计数并进去 ⇒ 追加后锚点变 ⇒ AC2 红；(c) 锚点聚合成员内容（全体成员正文的哈希）⇒ 尾部成员的流式正文改变聚合 ⇒ AC2 红。变异必须落在**读数真正消费的那处推导**（AC-202 出货的段身份，或 AC-204 面板 `data-work-segment-key` 的来源），逐条记录被变异的文件与行号。
-- [ ] AC7 静态门：`npm run typecheck` 与 `npm run lint` 均退出 0；`git diff --stat` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）。
+- [x] AC1 判据绿：`npx vitest run src/modules/chat/tests/workSegmentAnchorStability.test.ts` 退出 0。红态基线（本轮实测）：该文件不存在，`.quay/gate-events.jsonl` 里同一目标级判据 4 次读数是 `No test files found, exiting with code 1`。
+- [x] AC2（读数 i，承重）尾部追加不改键、不改展开态：`npx vitest run src/modules/chat/tests/workSegmentAnchorStability.test.ts -t "the tail segment keeps its anchor while members stream into its tail"` 退出 0 —— 对同一夹具逐条追加成员到 tail 段尾部（≥3 次，每次重新求值），每次断言 (a) 该段锚点逐字相等、(b) `expandedAnchors.has(anchor)` 仍为真；(c) 局部正控制：兄弟段锚点也不变但两者锚点互不相等。
+- [x] AC3（读数 ii，承重）锚点 = 首成员行内键，追加顺序与次数无关：`-t "the anchor is the first member's intrinsic key"` 退出 0 —— 断言锚点 === `getIntrinsicMessageKey(segment.members[0])`；同一首成员、以不同顺序与不同条数追加 ⇒ 锚点不变。(d) 正控制：夹具首成员必须带稳定身份字段（`blockKey` / `id` / `toolId` 之一，断言它非空），使 `getIntrinsicMessageKey` 走身份分支而非文件末尾的 `content-preview` 兜底分支 —— 否则 (ii) 对内容敏感，是一条空话。
+- [x] AC4（边界 a，记录在案的失稳，承重）加载更老一页后顶段重锚、展开态丢：`-t "loading an older page re-anchors the top segment and loses its expansion"` 退出 0 —— 用**真实出货**的 `mergeOlderServerPage(cached, older)` 造「历史窗口头部被裁后再加载更多」，其更老一页的尾部成员与顶段首成员相邻（中间无终止行）；重新求值后断言 (a) 顶段锚点变了、(b) 旧锚点已不在当前锚点集合里（= 展开态丢，断言方向就是「会丢」）、(c) 正控制：下方未被触及的另一条段锚点不变、展开集合仍命中它。
+- [x] AC5（边界 b，记录在案的失稳，承重）回声去重折掉终止行 ⇒ 两段合并 ⇒ 后段锚点消失、展开态丢：`-t "echo dedup folds the terminator and loses the second segment's expansion"` 退出 0 —— 折叠后的列表必须由**真实去重路径**取得（`useSessionStore` 公有方法，`dedupeAdjacentAssistantEchoes` 模块私有；夹具照 `src/modules/chat/tests/adjacentEchoCollapse.test.tsx` 的 `loadedStore()/refreshFromServer()`），⛔ 不得在测试里手写去重。断言 (a) 折叠前夹具确实是两段、那条重复正文行在两段之间且确实是终止行；(b) 折叠后段数少一（真的合并）；(c) 后段旧锚点不再出现（展开态丢）。(d) 若实测该真实路径对该夹具**不产生合并**（终止行没有被移走），以实测为准把「会丢」钉在真实失稳形态上，并在 DoD 附上子产物读数 —— 不得为了迎合本条描述伪造一个不存在的合并。
+- [x] AC6 取假形态必须红（承重；先提交实现与判据，再逐条变异；逐条记录变异 diff、逐字失败行与 `git checkout -- <file>` 恢复命令）：(a) 锚点 = 首成员键 + 末成员键拼接 ⇒ 尾部追加后锚点变 ⇒ AC2 红；(b) 锚点把成员计数并进去 ⇒ 追加后锚点变 ⇒ AC2 红；(c) 锚点聚合成员内容（全体成员正文的哈希）⇒ 尾部成员的流式正文改变聚合 ⇒ AC2 红。变异必须落在**读数真正消费的那处推导**（AC-202 出货的段身份，或 AC-204 面板 `data-work-segment-key` 的来源），逐条记录被变异的文件与行号。
+- [x] AC7 静态门：`npm run typecheck` 与 `npm run lint` 均退出 0；`git diff --stat` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）。
 
 ## DoD
 
@@ -46,6 +46,23 @@ goal_ac: AC-205
 - 三个假形态都真的红过，且 `git checkout -- <file>` 恢复后判据重新绿、`git status --porcelain` 对该文件干净。
 - 判据文件是 `.ts`（与目标级判据 `.../workSegmentAnchorStability.test.ts` 同名同扩展名）；需要 React 时用 `React.createElement`，不改名成 `.tsx`。
 - 只动 `## Touches` 列出的文件；若实现确实需要动别的文件（例如给段身份补一个对外读数），先把该文件加进 `## Touches` 再写。
+
+### AC6 变异证据（逐条：变异 diff、逐字失败行、恢复命令）
+
+变异目标：`src/modules/chat/utils/workSegments.ts:65`（`groupWorkSegments` 内段身份的推导 `key: getIntrinsicMessageKey(message)` —— 正是读数真正消费的那处）。三条都先提交实现与判据（commit `5cf6e495` / `90fa3ffe`）再变异。
+
+- (a) 首末成员键拼接 —— diff：
+  `- key: getIntrinsicMessageKey(message)`
+  `+ key: \`${getIntrinsicMessageKey(message)}::${getIntrinsicMessageKey(members[members.length - 1])}\``
+  逐字失败行：`AssertionError: append #1 must not re-mint the tail anchor`，位置 `src/modules/chat/tests/workSegmentAnchorStability.test.ts:170:12`。
+  恢复：`git checkout -- src/modules/chat/utils/workSegments.ts`
+- (b) 成员计数入键 —— diff：`+ key: \`${getIntrinsicMessageKey(message)}#${members.length}\``；逐字失败行同上（`...:170:12`，`append #1 must not re-mint the tail anchor`）；恢复命令同上。
+- (c) 成员正文聚合入键 —— diff：`+ key: \`${getIntrinsicMessageKey(message)}@${members.map((member) => member.content ?? '').join('~')}\``；逐字失败行同上（`...:170:12`，`append #1 must not re-mint the tail anchor`）；恢复命令同上。
+- 三条恢复后：`npx vitest run src/modules/chat/tests/workSegmentAnchorStability.test.ts` 重新绿（4 passed），`git status --porcelain -- src/modules/chat/utils/workSegments.ts` 为空。
+
+### AC5 机制读数（实测，附 AC5(d) 子产物）
+
+实测：`dedupeAdjacentAssistantEchoes` 只把相邻的一对折成**一行**，终止行始终留一行，因此它单独**不会**让两段合并（对全部 2^6 个 tool/text 小列表 × 3 条流式文本的穷举探针 0 命中）。真正把充当终止行的重复正文行移走、使两段合并的真实路径，是同一 store 的助手回声调和 `pruneRealtimeSupersededByServer` → `isAssistantTextEchoedInSameTurnOnServer`：客户端实时持有的回复副本在服务端同一回合已有持久副本时被剪除。读数经 `useSessionStore` 公有方法（`appendRealtime` / `fetchFromServer`）驱动，未在测试里手写去重，夹具形状照 `adjacentEchoCollapse.test.tsx`。实测读数：折叠前 3 段（含一条未被触及的正控制段），折叠后 2 段（真的合并，段数少一），后段旧锚点不再命中展开集合、正控制段锚点与展开态保持。
 
 ## Touches
 

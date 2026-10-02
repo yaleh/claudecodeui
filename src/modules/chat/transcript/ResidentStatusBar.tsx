@@ -7,6 +7,7 @@ import {
   findBinding,
   findSessionHost,
   findSessionHostState,
+  findSessionOccupancy,
   readResidentProcessState,
   useSessionHosts,
 } from '@/shared/hooks/useSessionHosts';
@@ -239,6 +240,12 @@ export default function ResidentStatusBar({
   const processState = readResidentProcessState(host, error !== null);
   const address = binding?.peerName ?? '';
 
+  // A background job holds this session, so the resident process is not ours to
+  // start: the launch is refused server-side, and a control that can only fail
+  // is worse than no control. The refusal's reason and its release command are
+  // shown in the composer, on the surface the user is actually typing into.
+  const occupied = findSessionOccupancy(snapshot, sessionId) !== null;
+
   // Counted from the leases the host reports and nothing else, so the reading
   // and the published sentence cannot come apart: a kind absent from the
   // listing is absent from both. The kinds are not enumerated here — iterating
@@ -319,7 +326,7 @@ export default function ResidentStatusBar({
           ) : null}
         </button>
 
-        {processState === 'exited' || processState === 'unstarted' ? (
+        {!occupied && (processState === 'exited' || processState === 'unstarted') ? (
           <button
             type="button"
             data-resident-start="true"

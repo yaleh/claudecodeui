@@ -112,6 +112,39 @@ const NEGATIVE_WINDOW_MS = 8_000;
 const BOOT_ATTEMPTS = 3;
 
 /**
+ * How long the raw-write seam is given to become observable.
+ *
+ * The seam is three conditions at once — the driver's live state for the
+ * session, a raw write channel on its process, and the provider session id —
+ * and the last of them (the id, captured from the process's own stream) is what
+ * arrives after the process is up. The probe reads the seam only *after* the
+ * host pid and the registry entry it already waits on, each `READ_TIMEOUT_MS`,
+ * so two of that same step is the budget the invariant below enforces: at least
+ * the steps the seam follows, with a stream hop of the same order for the id.
+ *
+ * Taken as two readiness steps, this is not a hand-picked sleep: the value is
+ * checked against the steps it shelters at module load (`SEAM_READY_TIMEOUT_MS`
+ * vs `READ_TIMEOUT_MS`), so shrinking it below the work that must precede it —
+ * or the exact defect this task fixes, asserting before the seam can be
+ * observed — is a red, not a comment.
+ */
+const SEAM_READY_TIMEOUT_MS = 40_000;
+
+/**
+ * The probe's pre-assertion readiness ladder, in the order it is climbed: the
+ * host pid, then the registry entry, then the seam. A run that reached the
+ * assertion has waited at most this long before it; the ladder must fit the
+ * process budget below or a load-slowed-but-successful boot is killed by the
+ * guard (exit 3) instead of reporting a case failure.
+ */
+const READINESS_LADDER_MS = READ_TIMEOUT_MS + READ_TIMEOUT_MS + SEAM_READY_TIMEOUT_MS;
+
+/** How long the positive control hides an already-ready seam before releasing it. */
+const POSITIVE_CONTROL_DELAY_MS = 1_500;
+/** How long the negative control watches a seam that never appears. */
+const NEGATIVE_CONTROL_WAIT_MS = 1_000;
+
+/**
  * The process budget, enforced by the process rather than by node:test's own
  * per-case timeout, so a lifecycle that hangs is its own reading.
  */
@@ -119,6 +152,30 @@ const BUDGET_MS = Number(process.env.CLAUDE_RESIDENT_LATENCY_BUDGET_MS ?? '') > 
   ? Number(process.env.CLAUDE_RESIDENT_LATENCY_BUDGET_MS)
   : 240_000;
 const STARTED_AT = Date.now();
+
+/**
+ * Budget invariants — asserted, not described (the shape
+ * `gap-resident-server-restart-budget-shorter-than-its-three-boots` applied to
+ * its three boots, here applied to the probe's own readiness ladder).
+ *
+ * They run at module load, so a budget that is smaller than the steps it
+ * shelters reds before any case starts rather than letting the in-lane race
+ * silently return: a seam budget below the two steps that must precede it would
+ * read a slow-but-ready seam as absent (this task's own defect), and a process
+ * budget below the ladder would kill a load-slowed-but-successful run with
+ * `exit 3` and name no case.
+ */
+assert.ok(
+  SEAM_READY_TIMEOUT_MS >= READ_TIMEOUT_MS + READ_TIMEOUT_MS,
+  `SEAM_READY_TIMEOUT_MS (${SEAM_READY_TIMEOUT_MS}ms) is below the readiness steps it follows ` +
+    `(host pid + registry entry = ${READ_TIMEOUT_MS + READ_TIMEOUT_MS}ms): a slow-but-ready raw write seam ` +
+    `would be read as absent, which is the in-lane failure this criterion exists to rule out.`,
+);
+assert.ok(
+  BUDGET_MS > READINESS_LADDER_MS,
+  `BUDGET_MS (${BUDGET_MS}ms) is not longer than the probe's readiness ladder (${READINESS_LADDER_MS}ms): ` +
+    `a load-slowed-but-successful boot would be killed by the process guard (exit 3) before the seam is read.`,
+);
 
 const budgetGuard = setTimeout(() => {
   console.error(
@@ -553,15 +610,94 @@ type DriverInternals = {
   liveStateFor(appSessionId: string): { process: ClaudeResidentProcess; providerSessionId: string | null } | null;
 };
 
+/** The three conditions the raw-write seam needs, read in one pass. */
+type SeamReading = {
+  /** The driver holds live state for the session (it has adopted the process). */
+  liveState: boolean;
+  /** The process offers the raw write channel the rename frame goes out on. */
+  writeRaw: boolean;
+  /** The provider session id the frame must carry, or null while it is not yet readable. */
+  providerSessionId: string | null;
+};
+
+/** The driver's live state for a session, or null when it has no process. */
+function rawSeamState(appSessionId: string): { process: ClaudeResidentProcess; providerSessionId: string | null } | null {
+  return (residentDriver() as unknown as DriverInternals).liveStateFor(appSessionId);
+}
+
+/**
+ * Reads the three seam conditions as they stand right now, without waiting.
+ *
+ * Printed before the assertion so a failure names *which* condition is absent:
+ * the provider session id is captured from the process's own stream and arrives
+ * one hop behind the registry entry the probe already waits on, so it is the
+ * one that can still be null at the instant the frame is written.
+ */
+function readSeam(appSessionId: string): SeamReading {
+  const state = rawSeamState(appSessionId);
+  return {
+    liveState: state !== null,
+    writeRaw: typeof state?.process?.writeRaw === 'function',
+    providerSessionId: state?.providerSessionId ?? null,
+  };
+}
+
+/** Whether a reading means the seam can be written through right now. */
+function seamReady(reading: SeamReading): boolean {
+  return reading.liveState && reading.writeRaw && reading.providerSessionId !== null;
+}
+
+/**
+ * The criterion's own seam reader. Swappable so the controls below can inject a
+ * seam that is slow to appear (positive: the wait must outlast it) or that
+ * never appears (negative: the wait must not invent it). The real reader is
+ * {@link readSeam}; nothing but this criterion's own wait and write go through
+ * it, so a swap cannot change how the driver handles the turn.
+ */
+let seamReader: (appSessionId: string) => SeamReading = readSeam;
+
+/**
+ * Waits, within a budget, for the raw-write seam to become observable.
+ *
+ * This is the readiness step the probe was missing: the host pid and the
+ * registry entry say the process is up, but the provider session id it must
+ * write the rename frame with is read off the process's stream and can lag
+ * both. On a quiet machine the lag is ~0 and the old immediate read was always
+ * lucky; under lane load the window opens and the seam reads as absent. The
+ * budget is `SEAM_READY_TIMEOUT_MS`, asserted at module load to cover the steps
+ * it follows.
+ *
+ * A timeout is *not* answered here: the caller's own assertion must still fail
+ * loudly on the same sentence when the seam is genuinely absent.
+ */
+async function waitForSeamReady(appSessionId: string, timeoutMs: number, label: string): Promise<boolean> {
+  return waitFor(() => seamReady(seamReader(appSessionId)), timeoutMs, label);
+}
+
+/** Prints the three seam conditions, so a red names which one is absent. */
+function logSeam(label: string, appSessionId: string): void {
+  const reading = readSeam(appSessionId);
+  console.log(
+    `[readings] ${label} seam liveState=${reading.liveState} writeRaw=${reading.writeRaw} ` +
+      `providerSessionId=${reading.providerSessionId === null ? 'null' : 'set'}`,
+  );
+}
+
 /**
  * Writes one `rename_session` frame by hand through the process's own raw-write
  * seam — the exact bytes {@link ClaudeResidentHostDriver} would write — so the
  * load-bearing question ("does the CLI honor a rename while a turn is running?")
  * is answered about the channel, independently of when the product opens its
  * window. Returns whether a live process with a write seam was there to write to.
+ *
+ * The readiness predicate is the same `seamReady` the bounded wait polls, so a
+ * seam that never becomes ready fails the same way here as it would there.
  */
 function writeRawRename(appSessionId: string, title: string): boolean {
-  const state = (residentDriver() as unknown as DriverInternals).liveStateFor(appSessionId);
+  if (!seamReady(seamReader(appSessionId))) {
+    return false;
+  }
+  const state = rawSeamState(appSessionId);
   const writeRaw = state?.process.writeRaw;
   if (!state || typeof writeRaw !== 'function' || !state.providerSessionId) {
     return false;
@@ -641,6 +777,19 @@ async function openResidentTurn(
     }
     const pid = hostPid(sessionId) as number;
     await waitFor(() => readRegistration(configDir, pid) !== null, READ_TIMEOUT_MS, `${label} registry entry`);
+    // The seam is the last readiness step. The pid says the process is up and
+    // the registry row says the CLI has written itself down, but neither says
+    // the provider session id the rename frame must carry has been read off the
+    // process's stream yet. Wait for it within its own budget (asserted at
+    // module load to cover the steps it follows); a timeout is deliberately not
+    // answered here — the caller's own assertion must still fail on the same
+    // sentence when the seam is genuinely absent.
+    const seamUp = await waitForSeamReady(sessionId, SEAM_READY_TIMEOUT_MS, `${label} raw write seam`);
+    const seam = readSeam(sessionId);
+    console.log(
+      `[readings] ${label} seam liveState=${seam.liveState} writeRaw=${seam.writeRaw} ` +
+        `providerSessionId=${seam.providerSessionId === null ? 'null' : 'set'} ready=${seamUp}`,
+    );
     return { pid, before: readRegistration(configDir, pid), exits };
   }
 }
@@ -674,8 +823,12 @@ test('a resident session can be renamed mid-turn, and its mirror moves the addre
     );
     assert.notStrictEqual(probe.before?.nameSource, null, 'the probe process must register an address');
 
-    // The turn is held open by the gate, so no `result` can exist yet.
+    // The turn is held open by the gate, so no `result` can exist yet. The
+    // reading is printed before the assertion so that, if the seam is ever
+    // absent again, the failure names which of the three conditions is missing
+    // rather than only that the write did not go out.
     const completesBefore = completes(socket, SESSION_PROBE).length;
+    logSeam('probe', SESSION_PROBE);
     const wrote = writeRawRename(SESSION_PROBE, PROBE_TITLE);
     assert.strictEqual(wrote, true, 'the probe process must offer a raw write seam to write the frame to');
     const moved = await waitFor(
@@ -907,6 +1060,54 @@ test('a resident session can be renamed mid-turn, and its mirror moves the addre
       true,
       `later rounds must not append an unclamped agent-name (agentNames=${JSON.stringify(titlesAfterSecond.agentNames)})`,
     );
+
+    // ---------------------------------------------------------------------
+    // AC5 — the bound is neither always-green nor always-red.
+    // ---------------------------------------------------------------------
+    // Positive control: hide a seam that is really ready for
+    // POSITIVE_CONTROL_DELAY_MS. A wait that did not actually wait would answer
+    // false at once and the real write below would fail; the wait holding until
+    // the delay passes and the write then succeeding is what proves the bound
+    // outlasts its work. The session behind the injected gate is the live
+    // window session, so the driver underneath is the real one.
+    {
+      const real = seamReader;
+      const started = Date.now();
+      const gateUntil = started + POSITIVE_CONTROL_DELAY_MS;
+      seamReader = (id) => (Date.now() < gateUntil
+        ? { liveState: false, writeRaw: false, providerSessionId: null }
+        : real(id));
+      try {
+        const ready = await waitForSeamReady(SESSION_WINDOW, SEAM_READY_TIMEOUT_MS, 'positive-control delayed seam');
+        const waited = Date.now() - started;
+        console.log(
+          `[readings] positiveControl seamReady=${ready} injectedDelayMs=${POSITIVE_CONTROL_DELAY_MS} waitedMs=${waited}`,
+        );
+        assert.strictEqual(ready, true, 'the bounded seam wait must outlast an injected late seam');
+        const lateWrote = writeRawRename(SESSION_WINDOW, PROBE_TITLE);
+        console.log(`[readings] positiveControl afterWait wrote=${lateWrote}`);
+        assert.strictEqual(lateWrote, true, 'the real seam must be writable once the bounded wait has held');
+      } finally {
+        seamReader = real;
+      }
+    }
+
+    // Negative control: a seam that never appears must not be reported ready.
+    // With the reader forced absent, the wait must time out and answer false,
+    // so the fix cannot turn "no seam" into a pass. (Its production form — a
+    // process shape that never emits the id — reds at the probe assertion; the
+    // mutation reading is in `## Evidence`.)
+    {
+      const real = seamReader;
+      seamReader = () => ({ liveState: false, writeRaw: false, providerSessionId: null });
+      try {
+        const ready = await waitForSeamReady(SESSION_PROBE, NEGATIVE_CONTROL_WAIT_MS, 'negative-control absent seam');
+        console.log(`[readings] negativeControl seamReady=${ready} budgetMs=${NEGATIVE_CONTROL_WAIT_MS}`);
+        assert.strictEqual(ready, false, 'a seam that never appears must not be reported ready');
+      } finally {
+        seamReader = real;
+      }
+    }
 
     const measured = Date.now() - STARTED_AT;
     console.log(`[readings] elapsed=${measured}ms`);

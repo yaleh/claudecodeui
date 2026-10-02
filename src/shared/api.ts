@@ -239,6 +239,11 @@ export const api = {
     put(`/api/projects/${encodeURIComponent(projectId)}/session-filter`, { hide }),
   projectTaskmaster: (projectId: string) =>
     get(`/api/projects/${encodeURIComponent(projectId)}/taskmaster`),
+  // Quay display endpoints (read-only). `refresh` bypasses the backend's TTL cache.
+  quayStatus: (projectId: string) =>
+    get(`/api/quay/${encodeURIComponent(projectId)}/status`),
+  quaySnapshot: (projectId: string, { refresh = false }: { refresh?: boolean } = {}) =>
+    get(`/api/quay/${encodeURIComponent(projectId)}/snapshot${refresh ? '?refresh=1' : ''}`),
   renameProject: (projectId: string, displayName: string) =>
     put(`/api/projects/${projectId}/rename`, { displayName }),
   restoreProject: (projectId: string) =>

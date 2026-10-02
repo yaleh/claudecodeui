@@ -5,8 +5,9 @@ import type { TFunction } from 'i18next';
 import { Button } from '@/shared/ui';
 import { cn } from '@/shared/utils';
 import type { LLMProvider, MCPServerStatus, Project, ProjectSession, SessionWithProvider } from '@/shared/types';
-import { getTaskIndicatorStatus } from '@/modules/sidebar/utils/sidebarProjectFormatting';
+import { getQuayIndicatorStatus, getTaskIndicatorStatus } from '@/modules/sidebar/utils/sidebarProjectFormatting';
 import TaskIndicator from '@/modules/sidebar/TaskIndicator';
+import QuayIndicator from '@/modules/sidebar/QuayIndicator';
 import SidebarProjectSessions from '@/modules/sidebar/SidebarProjectSessions';
 import { useCompactSidebar } from '@/modules/sidebar/hooks/useCompactSidebar';
 
@@ -107,6 +108,7 @@ function SidebarProjectItem({
   const sessionCountDisplay = getSessionCountDisplay(project, sessions);
   const sessionCountLabel = `${sessionCountDisplay} session${totalSessionCount === 1 ? '' : 's'}`;
   const taskStatus = getTaskIndicatorStatus(project, mcpServerStatus);
+  const quayStatus = getQuayIndicatorStatus(project, null);
   const mobileRenameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -219,13 +221,20 @@ function SidebarProjectItem({
                     <>
                       <div className="flex min-w-0 flex-1 items-center justify-between">
                         <h3 className="truncate text-sm font-normal text-foreground">{project.displayName}</h3>
-                        {tasksEnabled && (
-                          <TaskIndicator
-                            status={taskStatus}
+                        <div className="ml-2 flex flex-shrink-0 items-center gap-1">
+                          <QuayIndicator
+                            hasQuayConfig={Boolean(project.hasQuayConfig)}
+                            status={quayStatus}
                             size="xs"
-                            className="ml-2 hidden flex-shrink-0 md:inline-flex"
                           />
-                        )}
+                          {tasksEnabled && (
+                            <TaskIndicator
+                              status={taskStatus}
+                              size="xs"
+                              className="hidden md:inline-flex"
+                            />
+                          )}
+                        </div>
                       </div>
                       <p className="text-xs text-muted-foreground">{sessionCountLabel}</p>
                     </>
@@ -369,8 +378,16 @@ function SidebarProjectItem({
                 </div>
               ) : (
                 <div>
-                  <div className="truncate text-sm font-normal text-foreground" title={project.displayName}>
-                    {project.displayName}
+                  <div className="flex min-w-0 items-center gap-1">
+                    <span className="truncate text-sm font-normal text-foreground" title={project.displayName}>
+                      {project.displayName}
+                    </span>
+                    <QuayIndicator
+                      hasQuayConfig={Boolean(project.hasQuayConfig)}
+                      status={quayStatus}
+                      size="xs"
+                      className="flex-shrink-0"
+                    />
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {sessionCountDisplay}

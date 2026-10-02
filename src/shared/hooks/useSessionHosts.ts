@@ -8,6 +8,7 @@ import type {
   SessionHostStateView,
   SessionHostView,
   SessionHostsSnapshot,
+  SessionOccupiedBy,
 } from '@/shared/types';
 
 /**
@@ -294,6 +295,31 @@ export function findSessionHostState(
   appSessionId: string,
 ): SessionHostStateView | null {
   return snapshot?.sessions.find((session) => session.appSessionId === appSessionId) ?? null;
+}
+
+/**
+ * The background job holding one conversation, or null when it is free.
+ *
+ * The single reading behind every read-only affordance on the page — the
+ * composer's disabled input and its notice, the status bar's missing Start
+ * button, the send path's refusal — so those three cannot disagree about which
+ * sessions are held. It is `null` for a snapshot that has not arrived yet, which
+ * is the fail-open direction on purpose: nothing has said the session is
+ * occupied, and a composer that disabled itself while the first poll was in
+ * flight would be unusable on every page load.
+ *
+ * Read through `findSessionHostState` rather than off the array, so a session
+ * the listing does not mention at all (a brand-new one, before its row reaches
+ * the listing) answers null instead of throwing.
+ */
+export function findSessionOccupancy(
+  snapshot: SessionHostsSnapshot | null,
+  appSessionId: string | null,
+): SessionOccupiedBy | null {
+  if (!appSessionId) {
+    return null;
+  }
+  return findSessionHostState(snapshot, appSessionId)?.occupiedBy ?? null;
 }
 
 /** The shape drawn for each process state — the marks §15.1 of the proposal pins. */

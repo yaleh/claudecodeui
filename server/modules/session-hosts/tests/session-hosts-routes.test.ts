@@ -22,9 +22,11 @@
  * about any provider's CLI — the four runtime files are untouched.
  */
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { createHmac } from 'node:crypto';
 import { once } from 'node:events';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { readdirSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -63,7 +65,7 @@ delete process.env.VITE_IS_PLATFORM;
 const { closeConnection, getConnection, initializeDatabase } = await import('@/modules/database/index.js');
 const { authenticateToken } = await import('@/modules/auth/index.js');
 const { chatRunRegistry } = await import('@/modules/websocket/index.js');
-const { createProviderRuntimeService } = await import('@/modules/providers/index.js');
+const { createProviderRuntimeService, readClaudeSessionOccupancy } = await import('@/modules/providers/index.js');
 const {
   CLOSED_HOST_RETENTION_MS,
   createSessionHostManager,
@@ -291,11 +293,29 @@ type ServerContext = {
   token: string;
 };
 
+/**
+ * One row of the listing's `sessions` half, as it arrives on the wire.
+ *
+ * `occupiedBy` is written out as required — not `?` — because the contract this
+ * criterion reads is that the key is on every row: a client branching on
+ * "is this session occupied" has no third state to handle, and an omitted key
+ * would make it read `undefined` where the server meant "nobody holds it".
+ */
+type SessionViewReading = {
+  appSessionId: string;
+  provider: string;
+  lifecycleMode: string;
+  running: boolean;
+  reason: string | null;
+  occupiedBy: { jobId: string; pid: number } | null;
+};
+
 type ListingReading = {
   status: number;
   contentType: string;
   body: Record<string, unknown>;
   hosts: HostViewReading[];
+  sessions: SessionViewReading[];
 };
 
 /**
@@ -335,6 +355,15 @@ function addUser(id: number, username: string): string {
 async function withServer(
   sessionHostManager: SessionHostManager,
   run: (context: ServerContext) => Promise<void>,
+  /**
+   * The router's other seams, mounted the way `server/index.ts` mounts them.
+   *
+   * A parameter rather than a constant so the occupancy cases can wire the real
+   * registry reader (pointed at a registry the criterion owns) into the real
+   * route: the property under test is that the *route* asks it once per request,
+   * which is not observable from a reader the criterion drives by hand.
+   */
+  routerOptions: Partial<Parameters<typeof createSessionHostsRouter>[0]> = {},
 ): Promise<void> {
   const previousDatabasePath = process.env.DATABASE_PATH;
   const tempDirectory = await mkdtemp(path.join(os.tmpdir(), 'session-hosts-routes-'));
@@ -346,7 +375,7 @@ async function withServer(
 
   const app = express();
   app.use(express.json());
-  app.use('/api/session-hosts', authenticateToken, createSessionHostsRouter({ sessionHostManager }));
+  app.use('/api/session-hosts', authenticateToken, createSessionHostsRouter({ sessionHostManager, ...routerOptions }));
   app.use((error: unknown, _request: ExpressRequest, response: ExpressResponse, _next: NextFunction) => {
     if (error instanceof AppError) {
       response.status(error.statusCode).json({
@@ -400,13 +429,14 @@ async function getListing(
 
   const response = await fetch(`${context.baseUrl}${route}`, { headers });
   const body = (await response.json()) as Record<string, unknown>;
-  const data = body.data as { hosts?: HostViewReading[] } | undefined;
+  const data = body.data as { hosts?: HostViewReading[]; sessions?: SessionViewReading[] } | undefined;
 
   return {
     status: response.status,
     contentType: response.headers.get('content-type') ?? '',
     body,
     hosts: data?.hosts ?? [],
+    sessions: data?.sessions ?? [],
   };
 }
 
@@ -612,5 +642,285 @@ test('AC7: a manager that never dispatched a turn lists nothing', async () => {
     assert.equal(listing.status, 200);
     assert.equal(listing.body.success, true);
     assert.equal(listing.hosts.length, 0);
+  });
+});
+
+// ---------------------------
+//----------------- (6) OCCUPANCY ------------
+/**
+ * The session row's own contract on the wire.
+ *
+ * Sorted and compared as a whole, like `HOST_VIEW_KEYS`: the reading this
+ * criterion has to make is "every row carries `occupiedBy`", and a subset check
+ * would be satisfied by a projection that carried it on the occupied rows only.
+ */
+const SESSION_VIEW_KEYS = [
+  'appSessionId',
+  'lifecycleMode',
+  'occupiedBy',
+  'provider',
+  'reason',
+  'running',
+];
+
+/** The app session ids the occupancy cases list, and what each one is there to prove. */
+const OCCUPIED_APP_SESSION = 'occupancy-held';
+const FREE_APP_SESSION = 'occupancy-free';
+const CODEX_APP_SESSION = 'occupancy-codex';
+const UNNAMED_APP_SESSION = 'occupancy-unnamed';
+
+/** The provider's own ids, which is the only key the CLI's registry knows a conversation by. */
+const OCCUPIED_PROVIDER_SESSION = '11111111-2222-3333-4444-555555555555';
+const FREE_PROVIDER_SESSION = '99999999-8888-7777-6666-555555555555';
+
+/**
+ * A registry directory this criterion owns, plus a live process for its rows to
+ * name.
+ *
+ * The reader under test is the shipping one — `readClaudeSessionOccupancy` —
+ * with two things swapped: the directory it reads (the developer's real
+ * `~/.claude` is nobody's fixture) and the directory lister, wrapped so the
+ * criterion can count the scans. Everything between those two — the row
+ * judgement, the liveness probe, the projection to `{jobId, pid}` — is the code
+ * the server runs.
+ */
+async function withRegistry(
+  run: (input: {
+    configDir: string;
+    livePid: number;
+    write: (name: string, row: unknown) => Promise<void>;
+    /** How many times the route has listed the registry directory so far. */
+    scans: () => number;
+    /** The reader the route is mounted over: the real one, counting its scans. */
+    readOccupancy: () => Map<string, { jobId: string; pid: number }>;
+  }) => Promise<void>,
+): Promise<void> {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), 'session-hosts-occupancy-'));
+  await mkdir(path.join(configDir, 'sessions'));
+  const child = spawn('sleep', ['30'], { stdio: 'ignore' });
+  let scans = 0;
+  try {
+    const livePid = child.pid as number;
+    await run({
+      configDir,
+      livePid,
+      scans: () => scans,
+      write: (name, row) =>
+        writeFile(
+          path.join(configDir, 'sessions', name),
+          typeof row === 'string' ? row : JSON.stringify(row),
+        ),
+      readOccupancy: () =>
+        readClaudeSessionOccupancy(configDir, (directory: string) => {
+          scans += 1;
+          return readdirSync(directory);
+        }),
+    });
+  } finally {
+    child.kill('SIGKILL');
+    await rm(configDir, { recursive: true, force: true });
+  }
+}
+
+/** The `procStart` of a live process, which is what tells its pid from a recycled one. */
+async function procStartOf(pid: number): Promise<string> {
+  const stat = await readFile(`/proc/${pid}/stat`, 'utf8');
+  // The command name is parenthesised and may contain spaces, so the fields are
+  // counted from the last `)` — the same rule the reader itself uses.
+  return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
+}
+
+/**
+ * The four rows the occupancy cases list, as the composition root would build
+ * them: an app session id for the client, a provider id for the registry.
+ *
+ * The codex row deliberately carries the *occupied* provider session id. Session
+ * ids are UUIDs and a collision is not plausible in production, but the gate that
+ * keeps a codex row out of a Claude registry read is a rule, and a rule with no
+ * case it can fail is not being tested: this is the row that goes non-null if the
+ * projection ever drops its `provider === 'claude'` guard.
+ */
+const occupancySessions = () => [
+  {
+    appSessionId: OCCUPIED_APP_SESSION,
+    provider: 'claude' as const,
+    mode: 'resident' as const,
+    providerSessionId: OCCUPIED_PROVIDER_SESSION,
+  },
+  {
+    appSessionId: FREE_APP_SESSION,
+    provider: 'claude' as const,
+    mode: 'per-run' as const,
+    providerSessionId: FREE_PROVIDER_SESSION,
+  },
+  {
+    appSessionId: CODEX_APP_SESSION,
+    provider: 'codex' as const,
+    mode: 'per-run' as const,
+    providerSessionId: OCCUPIED_PROVIDER_SESSION,
+  },
+  {
+    appSessionId: UNNAMED_APP_SESSION,
+    provider: 'claude' as const,
+    mode: 'per-run' as const,
+    providerSessionId: null,
+  },
+];
+
+const sessionRow = (listing: ListingReading, appSessionId: string): SessionViewReading => {
+  const row = listing.sessions.find((session) => session.appSessionId === appSessionId);
+  assert.ok(row, `the listing must report ${appSessionId}`);
+  return row;
+};
+
+test('AC1/AC2: every session row carries occupiedBy, and it is the holder or null', async () => {
+  const { sessionHostManager } = createHostLayer([]);
+
+  await withRegistry(async ({ livePid, write, readOccupancy }) => {
+    const procStart = await procStartOf(livePid);
+    // The holder, and the negative control beside it: the free conversation has a
+    // row too, but the pid in it is not the process that wrote it.
+    await write('held.json', {
+      pid: livePid,
+      sessionId: OCCUPIED_PROVIDER_SESSION,
+      kind: 'bg',
+      jobId: '04fda72d',
+      procStart,
+      name: 'nightly sweep',
+    });
+    await write('free.json', {
+      pid: livePid,
+      sessionId: FREE_PROVIDER_SESSION,
+      kind: 'bg',
+      jobId: 'ffffffff',
+      procStart: `${procStart}0`,
+    });
+
+    await withServer(
+      sessionHostManager,
+      async (context) => {
+        const listing = await getListing(context);
+        assert.equal(listing.status, 200);
+        assert.equal(
+          listing.sessions.length,
+          4,
+          'the four rows below are the whole reading; an empty list would make every '
+            + 'occupancy assertion below vacuous',
+        );
+
+        for (const row of listing.sessions) {
+          assert.deepEqual(
+            Object.keys(row).sort(),
+            SESSION_VIEW_KEYS,
+            `${row.appSessionId}: occupiedBy is on every row, whatever the row is`,
+          );
+        }
+
+        const held = sessionRow(listing, OCCUPIED_APP_SESSION);
+        const free = sessionRow(listing, FREE_APP_SESSION);
+        console.log(
+          `held=${JSON.stringify(held.occupiedBy)} free=${JSON.stringify(free.occupiedBy)} `
+            + `codex=${JSON.stringify(sessionRow(listing, CODEX_APP_SESSION).occupiedBy)} `
+            + `unnamed=${JSON.stringify(sessionRow(listing, UNNAMED_APP_SESSION).occupiedBy)}`,
+        );
+
+        assert.deepEqual(
+          held.occupiedBy,
+          { jobId: '04fda72d', pid: livePid },
+          'the held conversation names the live background job, and nothing else',
+        );
+        // The pair in the same response, so "occupied" cannot be a constant: one
+        // row answers with a holder and the row beside it answers null.
+        assert.equal(
+          free.occupiedBy,
+          null,
+          'a registry row whose pid is no longer the process that wrote it is not a holder',
+        );
+        assert.equal(
+          sessionRow(listing, CODEX_APP_SESSION).occupiedBy,
+          null,
+          'the registry is Claude\'s: a codex session is not occupied by a Claude job, even when the '
+            + 'provider id it happens to carry is the one a job holds',
+        );
+        assert.equal(
+          sessionRow(listing, UNNAMED_APP_SESSION).occupiedBy,
+          null,
+          'a session the provider has not named yet has no conversation for a job to hold',
+        );
+      },
+      { listSessions: occupancySessions, readSessionOccupancy: readOccupancy },
+    );
+  });
+});
+
+test('AC3: one GET scans the registry directory once, and the next GET re-reads it', async () => {
+  const { sessionHostManager } = createHostLayer([]);
+
+  await withRegistry(async ({ livePid, write, scans, readOccupancy }) => {
+    const procStart = await procStartOf(livePid);
+    const held = {
+      pid: livePid,
+      sessionId: OCCUPIED_PROVIDER_SESSION,
+      kind: 'bg',
+      jobId: '04fda72d',
+      procStart,
+    };
+    await write('held.json', held);
+
+    // Filler rows, so a per-session scan would have to show up: the listing below
+    // reports four sessions and the registry holds five rows.
+    for (const suffix of ['a', 'b', 'c', 'd']) {
+      await write(`filler-${suffix}.json`, { ...held, sessionId: `filler-${suffix}`, jobId: `job-${suffix}` });
+    }
+
+    await withServer(
+      sessionHostManager,
+      async (context) => {
+        const before = scans();
+        const first = await getListing(context);
+        const afterFirst = scans();
+        console.log(
+          `first-scans=${afterFirst - before} sessions=${first.sessions.length} `
+            + `occupied=${JSON.stringify(sessionRow(first, OCCUPIED_APP_SESSION).occupiedBy)}`,
+        );
+
+        assert.equal(
+          afterFirst - before,
+          1,
+          'one request lists the registry directory exactly once, however many sessions it reports',
+        );
+        assert.deepEqual(
+          sessionRow(first, OCCUPIED_APP_SESSION).occupiedBy,
+          { jobId: '04fda72d', pid: livePid },
+          'the scan that was counted is the scan that produced this row',
+        );
+
+        // A second request scans again rather than answering from a cache: the
+        // count moves by exactly one, never by zero.
+        const second = await getListing(context);
+        const afterSecond = scans();
+        assert.equal(afterSecond - afterFirst, 1, 'every request re-reads; nothing is memoised');
+        assert.deepEqual(sessionRow(second, OCCUPIED_APP_SESSION).occupiedBy, { jobId: '04fda72d', pid: livePid });
+
+        // The holder lets go — `claude stop <jobId>` is the real version of this
+        // edit, and what the layer above sees is the same: the row stops being a
+        // live background job holding this conversation.
+        await write('held.json', { ...held, pid: 2 ** 22 + 12345 });
+        const third = await getListing(context);
+        const afterThird = scans();
+        console.log(
+          `after-release-scans=${afterThird - afterSecond} `
+            + `occupied=${JSON.stringify(sessionRow(third, OCCUPIED_APP_SESSION).occupiedBy)}`,
+        );
+
+        assert.equal(afterThird - afterSecond, 1, 'the release is read by a fresh scan, not by a cache');
+        assert.equal(
+          sessionRow(third, OCCUPIED_APP_SESSION).occupiedBy,
+          null,
+          'the next poll after the holder went away reports the conversation as free again',
+        );
+      },
+      { listSessions: occupancySessions, readSessionOccupancy: readOccupancy },
+    );
   });
 });
