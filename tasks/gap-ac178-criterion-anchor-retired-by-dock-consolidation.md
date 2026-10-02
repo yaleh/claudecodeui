@@ -3,7 +3,7 @@ id: gap-ac178-criterion-anchor-retired-by-dock-consolidation
 title: AC-178 判据的「模式已到达」正信号锚 [data-resident-status-bar] 被活动坞合并 ad1bb63a
   退役，判据在正信号等待处 30s 超时记红——把 AC-178 的读数锚回灌到合并后的
   [data-activity-dock-toggle]（渲染门本身未失效）
-status: ready
+status: done
 labels:
   - gap
   - defect
