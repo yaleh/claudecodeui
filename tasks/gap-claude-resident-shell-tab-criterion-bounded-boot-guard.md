@@ -112,3 +112,14 @@ goal_ac: AC-174
 - session_id：25ffd624-b7f3-4c47-b5a3-ad374c4e6bb4
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-resident-shell-tab-criterion-bounded-boot-guard~wk-prod-anchor~1790909635714-854343.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-resident-shell-tab-criterion-bounded-boot-guard-wk-prod-anchor.log
+
+## Needs-Human
+
+**执行 2026-10-02T03:29:40.520Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 4 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: not ok - server/modules/providers/tests/claude-resident-name-mirror-latency.test.ts:   AssertionError [ERR_ASSERTION]: the probe process must offer a raw write seam to write the frame to
+- run_id：wk-prod-anchor
+- session_id：da92f5dd-528d-456c-bbcd-c61095aec239
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-claude-resident-shell-tab-criterion-bounded-boot-guard~wk-prod-anchor~1790911585838-dcc821.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-claude-resident-shell-tab-criterion-bounded-boot-guard-wk-prod-anchor.log

@@ -45,15 +45,15 @@ GOAL-014 里已认领的两条是**不同机制**，本条不重复它们：`gap
 
 ## AC
 
-- [ ] AC1 判据绿：`npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-184"` 退出 0，`--list` 列出该用例。红态基线：实现前 `ls e2e/activity-dock-truthful.spec.ts` → `No such file or directory`。
-- [ ] AC2 读数 (i)：分区**前** `[data-activity-dock]` 的 `data-activity-state` 是一个回合中状态（≠ `unreachable`），且坞内文本含回合进行中的证据。打印 `dock.state.before` 与 `dock.text.before` 两条原始读数。
-- [ ] AC3 读数 (ii)：阈值之后 `[data-activity-dock]` 的 `data-activity-state` 为 `unreachable`，且坞内文本**不含**六词中的任何一个（`Thinking` / `Processing` / `Analyzing` / `Working` / `Computing` / `Reasoning`，以及它们在 12 个 locale 文件里的取值）。打印 `dock.state.after` 与命中的词表（空才算过）。
-- [ ] AC4 读数 (iii)：间隔 **≥1000ms** 的两次读数，坞内已用时间文本**逐字相等**。打印两次读数与实测间隔 `dock.frozen.gap=…ms`、`dock.frozen.samples=[…]`。
-- [ ] AC5 读数 (iv)：停止控件在该状态下 `disabled`（逐字读 `disabled` 属性，不是读 class），且说明文字非空（打印 `dock.stop.disabled` 与 `dock.stop.reason`）；composer 的停止入口同时不可点。
-- [ ] AC6 读数 (v)：放行分区后**一个重连周期内**（§10.2 实测重连间隔 3.0 秒，取 ≤5000ms）回到回合中状态（`data-activity-state` ≠ `unreachable`），且已用时间由快照推算 —— 打印 `dock.recovered.elapsed` 与「若从重连时刻重新计时会得到的值」两个读数，断言前者不是后者。
-- [ ] AC7 墙钟：用例体实测 ≤ `20_000`ms（打印 `dock.wall=…ms`），整次调用在 55s/60s 闸内退出。
-- [ ] AC8 假形态必须红（承重）：(i) 坞仍读本地 `processingSessions` 与本地计时器 ⇒ AC3 与 AC4 红；(ii) 冻结改回本地自增 ⇒ AC4 红；(iii) unreachable 时停止控件不禁用 ⇒ AC5 红。逐条记录变异 diff、逐字失败行与恢复命令；任何一条没红按「判据有洞」处理，先补判据。
-- [ ] AC9 登记与静态门：`grep -n "'activity-dock-truthful.spec.ts'" playwright.config.ts` 命中 `DEBUG_AGENT_SPEC_FILES` 数组内，且缩短阈值只由该 spec 的选择注入（其他选择读到的服务端仍是出货默认值 —— 打印两种选择下的读数）；`npm run typecheck`、`npm run lint`、`npx vitest run src/modules/chat/tests/activityDockUnreachable.test.tsx` 均退出 0；`git diff --stat` 只落在 `## Touches` 列出的文件上（新增文件用 ASCII `(new)`）。
+- [x] AC1 判据绿：`npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-184"` 退出 0，`--list` 列出该用例。红态基线：实现前 `ls e2e/activity-dock-truthful.spec.ts` → `No such file or directory`。
+- [x] AC2 读数 (i)：分区**前** `[data-activity-dock]` 的 `data-activity-state` 是一个回合中状态（≠ `unreachable`），且坞内文本含回合进行中的证据。打印 `dock.state.before` 与 `dock.text.before` 两条原始读数。
+- [x] AC3 读数 (ii)：阈值之后 `[data-activity-dock]` 的 `data-activity-state` 为 `unreachable`，且坞内文本**不含**六词中的任何一个（`Thinking` / `Processing` / `Analyzing` / `Working` / `Computing` / `Reasoning`，以及它们在 12 个 locale 文件里的取值）。打印 `dock.state.after` 与命中的词表（空才算过）。
+- [x] AC4 读数 (iii)：间隔 **≥1000ms** 的两次读数，坞内已用时间文本**逐字相等**。打印两次读数与实测间隔 `dock.frozen.gap=…ms`、`dock.frozen.samples=[…]`。
+- [x] AC5 读数 (iv)：停止控件在该状态下 `disabled`（逐字读 `disabled` 属性，不是读 class），且说明文字非空（打印 `dock.stop.disabled` 与 `dock.stop.reason`）；composer 的停止入口同时不可点。
+- [x] AC6 读数 (v)：放行分区后**一个重连周期内**（§10.2 实测重连间隔 3.0 秒，取 ≤5000ms）回到回合中状态（`data-activity-state` ≠ `unreachable`），且已用时间由快照推算 —— 打印 `dock.recovered.elapsed` 与「若从重连时刻重新计时会得到的值」两个读数，断言前者不是后者。
+- [x] AC7 墙钟：用例体实测 ≤ `20_000`ms（打印 `dock.wall=…ms`），整次调用在 55s/60s 闸内退出。
+- [x] AC8 假形态必须红（承重）：(i) 坞仍读本地 `processingSessions` 与本地计时器 ⇒ AC3 与 AC4 红；(ii) 冻结改回本地自增 ⇒ AC4 红；(iii) unreachable 时停止控件不禁用 ⇒ AC5 红。逐条记录变异 diff、逐字失败行与恢复命令；任何一条没红按「判据有洞」处理，先补判据。
+- [x] AC9 登记与静态门：`grep -n "'activity-dock-truthful.spec.ts'" playwright.config.ts` 命中 `DEBUG_AGENT_SPEC_FILES` 数组内，且缩短阈值只由该 spec 的选择注入（其他选择读到的服务端仍是出货默认值 —— 打印两种选择下的读数）；`npm run typecheck`、`npm run lint`、`npx vitest run src/modules/chat/tests/activityDockUnreachable.test.tsx` 均退出 0；`git diff --stat` 只落在 `## Touches` 列出的文件上（新增文件用 ASCII `(new)`）。
 
 ## DoD
 
@@ -72,6 +72,7 @@ GOAL-014 里已认领的两条是**不同机制**，本条不重复它们：`gap
 - `src/modules/chat/composer/ChatComposer.tsx`
 - `src/modules/chat/transcript/ChatMessagesPane.tsx`
 - `src/shared/types.ts`
+- `src/modules/chat/hooks/useActivityFreshness.ts` (new)
 - `src/modules/chat/utils/activityDockView.ts` (new)
 - `src/modules/chat/tests/activityDockUnreachable.test.tsx` (new)
 - `src/modules/chat/tests/activityIndicatorResponsive.test.tsx`
@@ -88,3 +89,16 @@ GOAL-014 里已认领的两条是**不同机制**，本条不重复它们：`gap
 - `src/modules/i18n/locales/ru/chat.json`
 - `src/modules/i18n/locales/tr/chat.json`
 - `tasks/gap-activity-dock-unreachable-degradation.md`（自触）
+
+## 完成记录（worker，2026-10-02）
+
+实现：`src/modules/chat/utils/activityDockView.ts`（纯选择器：state / 已用时间 / 停止可否操作）；`src/modules/chat/hooks/useActivityFreshness.ts`（把 AC-183 的状态机接到 app 自己的 socket：`chat_subscribed` hello 与 `activity.heartbeat` 心跳是唯一的新鲜证据；阈值用服务端在 hello 里宣告的 `unreachableAfterMs`；同一 bootId 下重连沿用它已锚定的回合起点，所以时钟是**续**不是重启；provider 帧的 `timestamp` 是消息产生时刻、不是服务端此刻，故意不计）。`ActivityIndicator` 发布 `data-activity-dock` / `data-activity-state` / `data-activity-elapsed-ms`；`ChatComposer` 的 submit-as-stop 与坞同一个读数、同一句话；12 个 locale 各加 `claudeStatus.unreachable.{title,stopReason}`。`playwright.config.ts` 把 spec 登进 `DEBUG_AGENT_SPEC_FILES`，并只在**本次选择**给服务端注入 `ACTIVITY_HEARTBEAT_INTERVAL_MS=300` / `ACTIVITY_UNREACHABLE_AFTER_MS=900`（出货默认 5000/15000 未动）。
+
+判据绿（`npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-184"`，整次 23.1s，用例体 14.5s）：`dock.state.before=in-turn`、`dock.text.before="Thinking… 0s Stop esc"`、`dock.composer.stop.enabled.before=true`；`dock.shipped.intervalMs=5000`、`dock.shipped.unreachableAfterMs=15000`、`dock.server.unreachableAfterMs=900`；分区后 `dock.state.after=unreachable`、`dock.words.hit=[]`；`dock.frozen.gap=3110ms`、`dock.frozen.samples=["0s","0s"]`；`dock.stop.disabled=true`、`dock.stop.reason="Stop is unavailable while the server is unreachable"`、`dock.composer.stop.disabled=true`；放行后 `dock.recovered.elapsed=6611ms`（restart-would-be=0ms，gap=3149ms）`after=3324ms`；`dock.wall=14514ms`。`--list` 列出该用例。
+
+静态门：`npm run typecheck` 退出 0；`npm run lint` 退出 0（仅仓库既有 warning）；`npx vitest run src/modules/chat/tests/activityDockUnreachable.test.tsx` 2 passed（连同 `activityIndicatorResponsive.test.tsx` 共 11 passed）。
+
+取假形态（逐条先提交（75a06bff）再变异，`git checkout -- <file>` 恢复；现已还原、`git status --porcelain` 为空）：
+- (iii) `activityDockView.ts`：`-      stopDisabled: hasAbort,` → `+      stopDisabled: false,` ⇒ AC5 红：`e2e/activity-dock-truthful.spec.ts:392` `Error: expect(locator).toBeDisabled() failed / Expected: disabled / Received: enabled`。恢复：`git checkout -- src/modules/chat/utils/activityDockView.ts`。
+- (ii) `useActivityFreshness.ts`：`-    elapsedMs: slot.machine.getElapsedMs(),` → `+    elapsedMs: snapshot.turnStartedAt === null ? null : Date.now() - snapshot.turnStartedAt,` ⇒ AC4 红：`e2e/activity-dock-truthful.spec.ts:388` `Error: the elapsed reading must not advance while unreachable / Expected: "1s" / Received: "2s"`（`dock.frozen.samples=["1s","2s"]`）。恢复：`git checkout -- src/modules/chat/hooks/useActivityFreshness.ts`。
+- (i) 坞仍读本地表与本地钟：在 (ii) 之上再加 `-    liveness: snapshot.liveness,` → `+    liveness: 'fresh',` ⇒ AC3 红：`e2e/activity-dock-truthful.spec.ts:373` `Error: expect(locator).toHaveAttribute(expected) failed / Expected: "unreachable" / Received: "in-turn"`（本地计时那一路的 AC4 红已由 (ii) 单独证得）。恢复：`git checkout -- src/modules/chat/hooks/useActivityFreshness.ts`。
