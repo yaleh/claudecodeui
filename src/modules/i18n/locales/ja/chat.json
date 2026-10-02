@@ -113,7 +113,6 @@
       "unknown": "文字起こしに失敗しました — もう一度お試しいただくか、音声プロバイダーの設定を確認してください。"
     }
   },
-
   "input": {
     "placeholder": "/ でコマンド、@ でファイル指定、または {{provider}} に何でも聞いてください...",
     "placeholderDefault": "メッセージを入力...",
@@ -225,6 +224,10 @@
     },
     "providers": {
       "assistant": "Assistant"
+    },
+    "unreachable": {
+      "title": "接続が切れました · 再接続中…",
+      "stopReason": "サーバーに接続できないため停止できません"
     }
   },
   "message": {
@@ -270,8 +273,7 @@
     "failed": "未送信 — {{reason}}",
     "cancel": "予約を取り消す",
     "dismiss": "失敗の通知を閉じる"
-  }
-,
+  },
   "resident": {
     "pending": {
       "annotation": "この回答の終了後に処理されます",

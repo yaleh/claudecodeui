@@ -259,6 +259,10 @@
     },
     "providers": {
       "assistant": "Asistente"
+    },
+    "unreachable": {
+      "title": "Conexión perdida · reconectando…",
+      "stopReason": "Detener no está disponible mientras el servidor no responde"
     }
   },
   "projectSelection": {
@@ -303,8 +307,7 @@
     "failed": "No enviado — {{reason}}",
     "cancel": "Cancelar mensaje programado",
     "dismiss": "Descartar el aviso de fallo"
-  }
-,
+  },
   "resident": {
     "pending": {
       "annotation": "Se procesará al terminar esta respuesta",

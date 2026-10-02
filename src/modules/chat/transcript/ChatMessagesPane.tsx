@@ -465,6 +465,7 @@ function ChatMessagesPane({
         {isMobile && (
           <ActivityIndicator
             activity={hasActivityIndicator ? activity : null}
+            sessionId={currentSessionId ?? selectedSession?.id ?? null}
             variant="inline"
           />
         )}

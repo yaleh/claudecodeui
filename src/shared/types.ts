@@ -301,6 +301,30 @@ export type SessionActivitySnapshot = {
   startedAt?: number;
 };
 
+/**
+ * The liveness channel the activity dock reads: the app socket's frames plus
+ * its own connection flag.
+ *
+ * Deliberately transport-shaped rather than a socket: production supplies the
+ * `WebSocketContext` value, while a unit test can hand the dock an in-memory
+ * source and drive every migration without a real network. `isConnected` is the
+ * socket's own reading, not proof of a server — only a frame is.
+ */
+export type ActivityConnection = {
+  subscribe: (listener: (event: ServerEvent) => void) => () => void;
+  isConnected: boolean;
+};
+
+/**
+ * Which surface the activity dock is showing, as published on
+ * `[data-activity-dock]`'s `data-activity-state`.
+ *
+ * `hidden` means the dock is not drawn at all; `in-turn` means fresh evidence of
+ * a running turn; `unreachable` means the client has a turn to talk about but no
+ * fresh evidence the server is still there.
+ */
+export type ActivityDockState = 'hidden' | 'in-turn' | 'unreachable';
+
 // ---------------------------
 
 //----------------- REALTIME TRANSPORT ------------
