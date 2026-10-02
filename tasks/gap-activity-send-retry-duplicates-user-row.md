@@ -3,7 +3,7 @@ id: gap-activity-send-retry-duplicates-user-row
 title: AC-185 重发产生两条同文用户消息：转写层 optimistic local-echo 未被 persisted echo 退休（判据
   e2e/activity-dock-truthful.spec.ts:814 transcript.userRows=[2]），GOAL-014 记
   done-unresolved
-status: ready
+status: done
 labels:
   - gap
   - defect
@@ -28,11 +28,13 @@ extra:
 
 **为什么现在才浮出来（归因，不是本任务造成）。** 该判据以前在任何断言之前就死在 `Timed out waiting 30000ms from config.webServer`，因为 `e2e/activity-dock-truthful.spec.ts` 没有有界启动守卫。守卫已落地（`gap-activity-dock-truthful-criterion-bounded-boot-guard`，status done，2026-10-02T09:16Z；spec 现有 `warmClientStartup`×4、`navigateBounded`×6）。守卫没有造成这个缺陷，它只是移除了掩盖缺陷的那层东西。同一份 spec 的 AC-188 落守卫后已翻 achieved，说明守卫本身有效 —— AC-185 是那个**还剩下真实缺陷**的。
 
-**机制（读代码定位，读的是提交路径与合并路径）。**
+**机制（诊断读数钉死，非猜测）。** 判据红态下在 `computeMerged` / `removeOptimisticUserEchoes` 加临时诊断，逐字读数：
 
-- **重发路径** `src/modules/chat/hooks/useChatComposerState.ts`：发送失败时 `markUserTurnUndelivered(optimisticRowId)` 并把 `undeliveredTurnRef.current = { id: optimisticRowId, text: currentInput }`（约 :1170-1173）；重发时命中 `undeliveredTurnRef.current.text === currentInput` 分支，`restoreUserTurn?.(...)` 把**同一个** row id 放回来、复用 `undeliveredTurnRef.current.id`，**不**新增第二行（约 :1061-1069）。所以失败那次发送与它的重发，在客户端只对应**一条** optimistic local user row。
-- **合并路径** `src/modules/chat/hooks/useSessionStore.ts` 的 `computeMerged` → `pruneRealtimeSupersededByServer` → `removeOptimisticUserEchoes(serverMessages, realtimeMessages)`（`src/modules/chat/utils/sessionMessageReconciliation.ts:99`）。该谓词只在 `typeof message.id === 'string' && message.id.startsWith('local_')`（:114）**且** `findServerEchoForLocalUser` 按 fingerprint（text / images / files 计数，:13-33）在时间窗内（文本 5 分钟，:59-61）、且在 `firstEligibleIndex = message.replacesAfterRowCount ?? 0` 之后（:57），并且一对一（`claimedServerIds`，:103/:123）找到匹配时，才把 local 行退休。
-- 因此判据数到的两行 = **未被退休的 optimistic local echo** + **同文 persisted server 行**。配对谓词是嫌疑面；实现者须用一次诊断读数把确切原因钉死（候选接缝：local 行的 id 前缀与「只认 `local_`」的守卫；local 行的 `replacesAfterRowCount`；首发（失败）时间与重发被接受时间之间的时间窗；被隐藏/放回的行的表示形式）。
+`[DIAG-MERGE-IN] {"server":[],"realtime":[{"id":"local_1790934624375_duagna",...},{"id":"6915f537-e4c8-43a4-881d-691484dff17d_text_0",...}]}`
+`[DIAG-RECON] {"localId":"local_1790934624375_duagna","matched":null,"serverCandidates":[]}`
+
+- 重发路径把**同一条** optimistic local row 放回（`useChatComposerState.ts` 的 `restoreUserTurn` + 复用 `undeliveredTurnRef.current.id`），客户端只有一条 local 行 —— 这一点实现是对的。
+- 合并路径 `removeOptimisticUserEchoes(serverMessages, realtimeMessages)` **只在 `serverMessages`（REST 历史页）里找 echo**；而服务端把用户自己的 persisted turn 先经 socket 推回来，它落在 `realtimeMessages` 里（id 形如 `<uuid>_text_0`，非 `local_`）。诊断读数里 `server: []`、echo 就在 realtime 里 ⇒ 配对谓词看不到它，optimistic local 行永不退休，与它的 persisted 副本并排画出两行。**修的是这个配对谓词。**
 
 **不是重复（去重读数）。** `task_get gap-activity-send-retry-duplicates-user-row` → not found；`task_list search "duplicate user message" / "local-echo" / "userRows" / "retry duplicates" / "transcript dedup" / "persisted echo"` → **0 命中**。本仓已有三条**白纸黑字把这一格让出去**的旁证，无一条认领此修复：`gap-activity-send-unreachable-draft-retry`（AC-185 实现，status done）明写「两行来自转写层 local-echo↔persisted 去重失败…**非本任务写面**」，其 AC4 已记 `transcript.userRows=[2]`；`gap-activity-dock-truthful-criterion-bounded-boot-guard`（status done）在 AC4 明写「AC-185 判据…以 `transcript.userRows=[2]` 恒红，属既有内容缺陷、非本任务…翻绿**待外部修复**」；`gap-activity-single-dock-global-consistency`（AC-188）Falsification record 把同一条登记为与本任务无关的既存红。⇒ 无认领者、无重复。
 
@@ -52,13 +54,13 @@ extra:
 
 ## AC
 
-- [ ] AC1 判据绿：`npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-185"` 退出 0；stdout `transcript.userRows=[1]`；整次调用落在 `SINGLE_SPEC_CEILING_MS = 55_000` 内。红态基线（2026-10-02 直跑）：退出 1、`transcript.userRows=[2]`、红落在 :814。
-- [ ] AC2 断言逐字未改（承重）：分支文件里含逐字行 `expect(userRows, 'the retried text is exactly one user row, never two').toBe(1);`（`grep -c` = 1），且 `git diff develop -- e2e/activity-dock-truthful.spec.ts | grep -c "^-.*toBe(1)"` 为 **0**；无 skip、无 `retries`、无弱化。
-- [ ] AC3 生产修复 + 单元判据：`npx vitest run src/modules/chat/tests/sessionMessageReconciliation.test.ts` 退出 0，且含一条重发形状新例（首发时刻的 local 行 + 重发被接受时刻的 persisted echo ⇒ local 被退休），并含**正控制**：两条真实不同的同文 local 发送、只有一条 persisted echo ⇒ 第二条 local 留存。
-- [ ] AC4 正控制 —— 重复行断言**能**失败（承重）：对生产代码施加「重新造出重复」的变异后，`-g "AC-185"` 在 :814 红、`Received: 2`；逐字登记变异 diff / 失败行 / 退出码，随后 `git checkout -- <file>` 还原。证明该断言不是恒真的空洞判据。
-- [ ] AC5 假形态必须红（承重）：施加「只在视图层隐藏 / 按文本折叠同文用户行」的假修后必须失败 —— 或判据仍红（DOM 节点计数仍为 2），或 AC3 的一对一单元用例红（两次合法同文发送必须都渲染）。逐字登记变异 diff / 读数，随后还原。
-- [ ] AC6 无回归 + 静态门：`npx vitest run src/modules/chat/tests/` 退出 0；`npm run typecheck`、`npm run lint` 均退出 0。
-- [ ] AC7 对齐：`git diff --stat` 只触及 `## Touches` 列出的文件；变异写点已还原（`git status --porcelain` 除本任务文件外为空）。
+- [x] AC1 判据绿：`npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-185"` 退出 0；stdout `transcript.userRows=[1]`；整次调用落在 `SINGLE_SPEC_CEILING_MS = 55_000` 内。红态基线（2026-10-02 直跑）：退出 1、`transcript.userRows=[2]`、红落在 :814。修后直跑：`1 passed (10.9s)`、`transcript.userRows=[1]`、`send.wall=1731ms`。
+- [x] AC2 断言逐字未改（承重）：分支文件里含逐字行 `expect(userRows, 'the retried text is exactly one user row, never two').toBe(1);`（`grep -c` = 1），且 `git diff develop -- e2e/activity-dock-truthful.spec.ts | grep -c "^-.*toBe(1)"` 为 **0**；无 skip、无 `retries`、无弱化。
+- [x] AC3 生产修复 + 单元判据：`npx vitest run src/modules/chat/tests/sessionMessageReconciliation.test.ts` 退出 0，且含一条重发形状新例（首发时刻的 local 行 + 重发被接受时刻的 persisted echo ⇒ local 被退休），并含**正控制**：两条真实不同的同文 local 发送、只有一条 persisted echo ⇒ 第二条 local 留存。8/8 通过。
+- [x] AC4 正控制 —— 重复行断言**能**失败（承重）：对生产代码施加「重新造出重复」的变异后，`-g "AC-185"` 在 :814 红、`Received: 2`；逐字登记变异 diff / 失败行 / 退出码，随后 `git checkout -- <file>` 还原。证明该断言不是恒真的空洞判据。
+- [x] AC5 假形态必须红（承重）：施加「只在视图层隐藏 / 按文本折叠同文用户行」的假修后必须失败 —— 或判据仍红（DOM 节点计数仍为 2），或 AC3 的一对一单元用例红（两次合法同文发送必须都渲染）。逐字登记变异 diff / 读数，随后还原。
+- [x] AC6 无回归 + 静态门：`npx vitest run src/modules/chat/tests/` 退出 0（71 files / 465 tests）；`npm run typecheck`、`npm run lint` 均退出 0。
+- [x] AC7 对齐：`git diff --stat` 只触及 `## Touches` 列出的文件；变异写点已还原（`git status --porcelain` 除本任务文件外为空）。
 
 ## DoD
 
@@ -71,8 +73,17 @@ extra:
 ## Touches
 
 - src/modules/chat/utils/sessionMessageReconciliation.ts
-- src/modules/chat/hooks/useChatComposerState.ts
-- src/modules/chat/hooks/useChatSessionState.ts
-- src/modules/chat/hooks/useSessionStore.ts
 - src/modules/chat/tests/sessionMessageReconciliation.test.ts
 - tasks/gap-activity-send-retry-duplicates-user-row.md
+
+## Evidence
+
+诊断（红态，临时，已删）：`[DIAG-MERGE-IN] {"server":[],"realtime":[{local_...},{6915f537-...-text_0}]}` / `[DIAG-RECON] {"matched":null,"serverCandidates":[]}` ⇒ echo 在 realtime，配对谓词只扫 serverMessages。
+
+修复：`removeOptimisticUserEchoes` 现对两类候选各做一次一对一配对 —— REST 历史页行（保留 `replacesAfterRowCount` 索引地板，供 edit-replacement）与 realtime 里已是 persisted 的行（`local_`/`live:` 行被排除，optimistic 行绝不互相退休）。`claimedServerIds` 跨两表统一，一对一成立。
+
+AC4 变异（逐字，已还原）：在 `removeOptimisticUserEchoes` 顶部加 `return realtimeMessages;`（关闭退休）⇒ `-g "AC-185"` 退出 1、`transcript.userRows=[2]`、:818 红 `Expected: 1 / Received: 2`。
+
+AC5 假修（逐字，已还原）：删去两处 `claimedServerIds.add(...)`（按文本折叠，破坏一对一）⇒ `-g "AC-185"` 退出 0、`transcript.userRows=[1]`（骗过判据），但 `sessionMessageReconciliation.test.ts` 红 2：`matches optimistic attachment turns to persisted turns one-to-one` 与 `two real same-text sends with one persisted echo keep the unpaired row` ⇒ 一对一单元控制承重。
+
+还原证据：`git status --porcelain` 各变异后为空（仅最终两文件在 diff 中）。
