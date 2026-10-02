@@ -1,7 +1,7 @@
 ---
 id: gap-activity-send-unreachable-draft-retry
 title: AC-185 发送时服务端不可达：5 秒内坞说出「发送失败」、不在本地标成回合中、草稿不丢、重发不产生重复用户消息
-status: ready
+status: done
 labels:
   - gap
 parent: null
