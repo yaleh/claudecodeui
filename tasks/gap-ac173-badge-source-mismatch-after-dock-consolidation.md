@@ -116,7 +116,7 @@ Error: the badge to light up for the turn — the badge read 0 ("") throughout
 
 **AC3（同源读数，同一跑）**：`hosts.running=1 hosts.residentIdle=2 hosts.total=2 badge.reading=1`；`badge.text="1" badge.label="1 running sessions"`；`group.running.count=1 group.residentIdle.count=2`；`badge.source=runningSessions poll (socket frames seen=13, of them stream frames=0)`；`1 !== 2`（`badge.reading !== hosts.total`）。**锚未改**：判据期望读数仍来自 `GET /api/session-hosts` 的 turn 租约（`hostsRunning`），产品的读数源仍是 busy 集（`SessionActivity`）——本条未改锚，两项在修后同源一致，故登记为「锚不变，源由夹具接缝补齐」。
 
-**AC4（关闭臂，同一跑）**：`close.request=200`；`hosts.beforeClose=2 hosts.afterClose=1`（−1）；`group.residentIdle.count.after=0`（< 2）；`group.running.count.after=1`（不变）；`badge.reading.after=1`（= `badge.reading.before=1`）；`hosts.listing.after` 里被关会话 `f2e024a5:idle:[]`（宿主 `closed`）、第一组所在 per-run 宿主仍 `host=… state=busy … [1c06f33b:busy:[turn]]`（正控制：被关会话关闭前在 `deviceof :1000` 快照内、第一组行数不变）；第二组行尾 hint 回落 `running.noMatchingSessions`。
+**AC4（关闭臂，同一跑）**：`close.request=200`；`hosts.beforeClose=2 hosts.afterClose=1`（−1）；`group.residentIdle.count.after=0`（< 2）；`group.running.count.after=1`（不变）；`badge.reading.after=1`（= `badge.reading.before=1`）；`hosts.listing.after` 里被关会话 `f2e024a5` 的 binding 读 `idle:[]`（宿主 `closed`）、第一组所在 per-run 宿主仍 `state=busy … [1c06f33b:busy:[turn]]`（正控制：被关会话关闭前在 `beforeCloseHosts` 快照内、第一组行数不变）；第二组行尾 hint 回落 `running.noMatchingSessions`。
 
 **AC5（假形态真跑真红，承重）**：临时变异 `src/modules/sidebar/hooks/useSidebarController.ts`——徽标改为「live 宿主持有的所有 binding 数」（即计入空闲常驻）：新增 `import { useSessionHosts } …`，并把 `const runningSessionsCount = useMemo(() => busySessionIds.size, …)` 换成 `useMemo(() => (fakeHostSnapshot?.hosts ?? []).filter(h => h.state !== 'closed').flatMap(h => h.bindings).length, [fakeHostSnapshot])`。判据（`-g "the badge and the two groups follow"`）→ **EXIT=1**，读数 `hosts.running=1 hosts.residentIdle=2 hosts.total=2 badge.reading=3`，失败逐字：
 ```
@@ -127,7 +127,7 @@ Received: 3
 ```
 （行号 942 为加了取证文字后的漂移，文本即原 `:932` 那条）——读数 3，红落在徽标读数承重断言上。**已用 `git checkout --` 还原**，还原后连跑 5 次全绿（见 AC1）。
 
-**AC6（判定面未变）**：`git diff -U0 -- e2e/resident-running-view.spec.ts | grep -E "^[-+].*expect\\("` → 空（两条承重断言文本逐字未改，仅行号随取证文字漂移）；`git diff develop -- playwright.config.ts package.json` → 空。
+**AC6（判定面未变）**：`git diff -U0 -- e2e/resident-running-view.spec.ts | grep -E "^[-+].*expect\("` → 空（两条承重断言文本逐字未改，仅行号随取证文字漂移）；`git diff develop -- playwright.config.ts package.json` → 空。
 
 **AC7（契约面）**：`npm run lint` EXIT=0（仅既有 warning）；`npm run typecheck` EXIT=0；`npx playwright test --list` → 改动后 `Total: 91 tests in 23 files`，stash 掉本轮改动后 → `Total: 91 tests in 23 files`（前后逐字相同）；`git diff --stat` = `e2e/resident-running-view.spec.ts` + `server/index.ts`，与 Touches（本条实际写点）逐条对齐。
 
