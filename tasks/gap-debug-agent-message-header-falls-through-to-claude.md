@@ -1,7 +1,7 @@
 ---
 id: gap-debug-agent-message-header-falls-through-to-claude
 title: 调试 agent 的消息头 provider 名落穿为 Claude（头像已是 Debug Agent，名字不是）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
