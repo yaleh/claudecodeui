@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { expect, test } from '@playwright/test';
-import type { APIRequestContext, Browser, Page } from '@playwright/test';
+import type { APIRequestContext, Browser, Locator, Page } from '@playwright/test';
 
 /**
  * The instant this criterion's `npx playwright test` invocation began.
@@ -248,6 +248,230 @@ const waitForResidentShell = async (
   return { disabled, activeTab: active };
 };
 
+/* ── the bounded startup guard ──────────────────────────────────────────────── */
+//
+// This is the member of the resident family that was left without a startup guard: its startup path is
+// a single unbounded navigation to the seeded session (the `navigateBounded` call in the case below),
+// whose only waits are the fixture's session row and the Shell tab. When this run's own Vite dependency
+// optimizer commits a re-optimization inside the page's window, the in-flight module graph is
+// interrupted, the document is replaced under the navigation, and the case times out on a page that
+// never mounted — reported as a bare locator timeout that names neither the url nor the status.
+//
+// The trigger (this run's own dependency optimization) is decided by the cache, not by this file. What
+// is inside it is the *response*: a bounded client warm-up and a bounded navigation probe, the two
+// levers the sibling specs already carry (`e2e/resident-running-view.spec.ts`,
+// `e2e/resident-status-bar.spec.ts`). Neither is invented here.
+//
+// The guard replays a navigation and fails loudly when it cannot land; it never treats "not landed" as
+// "good enough". Written the other way — probe times out, carry on — the case would wait out its own
+// budget on a blank document and the run would still cross the gate's 60s, which is what this task's
+// bounded-failure reading measures.
+
+/** A dependency the optimizer serves out of this run's private cache, already rewritten to its url. */
+const OPTIMIZED_DEP_IN_TEXT = /["'](\/@fs\/[^"']*\/deps\/[^"']+\.js\?v=[0-9a-f]+)["']/;
+
+/**
+ * How long this run's own client is given to answer its app entry before the startup path gives up on it.
+ *
+ * The run already has two ceilings above it (playwright.config.ts's watchdog, then the goal gate's 60s)
+ * and both are *outside* this spec — an unbounded wait here would be reported by whichever fired first,
+ * naming neither the url nor the status.
+ */
+const CLIENT_WARM_DEADLINE_MS = 30_000;
+
+/**
+ * Takes this run's first dependency optimization out of the measurement window: the html shell, the app's
+ * entry module, and then one optimized dependency — all requested against this run's own client before
+ * any page of this run exists.
+ *
+ * The dependency request is the one that carries the proof, and it is why the step is not just "warm the
+ * cache". The imports of a transformed module are already rewritten to this run's own
+ * `/@fs/<cacheDir>/deps/<dep>.js?v=<hash>` urls, and that url only answers 200 once the optimizer has
+ * committed the bundle: while the bundle is still being built the request is held, and a url carrying a
+ * hash from a superseded run is exactly what a page receives `504 Outdated Optimize Dep` for. Vite
+ * answers a re-optimization committed after it began serving by pushing `full-reload` to every connected
+ * client, which replaces the document whole — the way this criterion has lost a page mid-flight. A 200
+ * there means the page below will not race the optimizer.
+ *
+ * `beforeAll`, before `browser.newContext()`/`newPage()`, is the earliest point inside the criterion's
+ * own startup path, and it is strictly before any page exists — the same requests the page would have
+ * made, made first. It is here rather than in playwright.config.ts's `globalSetup` because Playwright
+ * resolves every `globalSetup` entry as a *script* (a path that must default-export the function), so an
+ * inline warm-up there is neither type-legal nor loadable, and this task's write surface allows no new file.
+ *
+ * Every step is bounded, including each request: a client that accepts the connection and then never
+ * answers fails here, by name, with the url and the status, rather than waiting out a timeout further up.
+ */
+const warmClientStartup = async (clientUrl: string): Promise<number> => {
+  const startedAt = Date.now();
+  const deadline = startedAt + CLIENT_WARM_DEADLINE_MS;
+  const budgetMs = () => Math.max(1, deadline - Date.now());
+  const fetchWithin = async (url: string): Promise<Response> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), budgetMs());
+    try {
+      return await fetch(url, { signal: controller.signal });
+    } catch (error) {
+      throw new Error(
+        `the client did not answer ${url} inside the ${CLIENT_WARM_DEADLINE_MS}ms startup budget `
+        + `(${error instanceof Error ? error.message : String(error)})`,
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  const shellUrl = new URL('/', clientUrl).href;
+  const shell = await fetchWithin(shellUrl);
+  if (!shell.ok) throw new Error(`the client's shell did not load: ${shellUrl} answered HTTP ${shell.status}`);
+  await shell.text();
+
+  const entryUrl = new URL('/src/main.tsx', clientUrl).href;
+  const entry = await fetchWithin(entryUrl);
+  if (!entry.ok) throw new Error(`the app entry did not transform: ${entryUrl} answered HTTP ${entry.status}`);
+  await entry.text();
+
+  // The proof: a dependency url current for this run — re-read from the entry each attempt, because the
+  // hash a url carries is the one its writer committed, and the entry is where the current one is written.
+  let lastAnswer = 'no dependency url was ever served';
+  for (let attempt = 0; attempt < 5 && Date.now() < deadline; attempt += 1) {
+    const specifier = OPTIMIZED_DEP_IN_TEXT.exec(await (await fetchWithin(entryUrl)).text())?.[1];
+    if (!specifier) break;
+    const depUrl = new URL(specifier, clientUrl).href;
+    const dep = await fetchWithin(depUrl);
+    if (dep.ok) {
+      console.log(`[e2e] client warm-up: pre-bundle committed in ${Date.now() - startedAt}ms`);
+      return Date.now() - startedAt;
+    }
+    lastAnswer = `${depUrl} answered HTTP ${dep.status}`;
+    await dep.text().catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(
+    `this run's dependency pre-bundle never committed, so the criterion cannot drive a document that stays: `
+    + lastAnswer,
+  );
+};
+
+/** Whether `locator` showed up within `timeoutMs`. */
+const appears = async (locator: Locator, timeoutMs: number): Promise<boolean> =>
+  locator.waitFor({ state: 'visible', timeout: timeoutMs }).then(
+    () => true,
+    () => false,
+  );
+
+/** How long the landing of the *first* navigation is given on its own, before the guard starts replaying. */
+const STARTUP_PROBE_MS = 8_000;
+/** How long each bounded replay's landing is given. Shorter than the first: a replay is a re-ask, not a cold boot. */
+const STARTUP_RELOAD_PROBE_MS = 3_000;
+/** How long one navigation's single rpc to its server is given, before the guard treats it as a failed landing. */
+const NAVIGATION_PROBE_MS = 8_000;
+
+/**
+ * How long the startup probe may spend proving a navigation landed, replays included.
+ *
+ * A deadline rather than a replay count, because it is the *sum* that has to stay inside the criterion's
+ * own wall clock: the bounded-failure reading asks that a probe which cannot succeed ends the whole run
+ * in under 30s, and that run pays the config evaluation, both servers' boot, the browser launch and this
+ * spec's own `beforeAll` (the bounded warm-up plus the onboarding wizard `bootstrapAuth` drives) before
+ * the probe's first attempt even starts. Counting replays leaves that head-room to chance; a deadline
+ * spends it.
+ *
+ * The value is derived from *this* spec's measured pre-probe overhead, not copied. The sibling specs that
+ * carry this guard create their account over the API, so their pre-probe cost is the boot and the launch;
+ * this one runs the three-screen onboarding, which measured 10.2s quiet and 16.0s loaded here (wall minus
+ * the case's own duration, `e2e/resident-shell-tab`). 12s keeps the sum under the 30s the bounded-failure
+ * reading asks for across that range, and still fits the first 8s landing probe plus one full 3s replay.
+ */
+const STARTUP_PROBE_DEADLINE_MS = 12_000;
+
+/**
+ * What the startup page said, kept for one purpose: a startup red has to *explain* a document that was
+ * pulled out from under the navigation instead of reporting that a wait ran out.
+ */
+const startupEvidence = {
+  consoleErrors: [] as string[],
+  failedRequests: [] as string[],
+};
+
+/** The startup page's own text plus this run's console and network evidence — what a startup red is read from. */
+const readStartupEvidence = async (page: Page): Promise<string> => {
+  const shown = await page.locator('body').innerText().catch(() => '<unreadable>');
+  const errors = startupEvidence.consoleErrors.slice(0, 5);
+  const failed = startupEvidence.failedRequests.slice(0, 5);
+  return `the page shows ${JSON.stringify(shown.slice(0, 300))}`
+    + `; console errors: ${errors.length > 0 ? errors.join(' | ') : '<none>'}`
+    + `; failed requests: ${failed.length > 0 ? failed.join(' | ') : '<none>'}`;
+};
+
+/**
+ * What a guarded navigation is expected to land on — and how the guard names it when it never lands.
+ *
+ * `present` and `label` are functions rather than values because both are read at attempt time: the label
+ * carries the run's own session, and the locator has to be re-created against whatever document is
+ * current *now*, after a replay has replaced the one the navigation started on.
+ */
+type StartupLanding = {
+  /** Names this landing in the guard's own error, so a red says which document never came up. */
+  readonly label: () => string;
+  /** Whether the landing is on screen right now, within `budgetMs`. */
+  readonly present: (budgetMs: number) => Promise<boolean>;
+};
+
+/**
+ * The one place this spec's *startup* navigation is made. `ensureSignedIn` above has its own retried
+ * navigation to the app root — the harness's first navigation, already bounded and explained at its own
+ * definition — and it stays as it is; every other navigation in this file is the guarded call below.
+ *
+ * One pass is: navigate, then probe the landing with a short budget. A landing that does not arrive has
+ * the navigation replayed — a fresh document, which is exactly what recovers from in-flight module
+ * requests that were interrupted once — and the probe repeated, until the deadline. When the deadline is
+ * spent the guard throws with the page's own text and this run's failed-request list, never silently
+ * continuing: a probe that cannot land must end the run here, with a cause, rather than let the case time
+ * out on a document with nothing in it.
+ *
+ * The navigation itself is bounded too, and a navigation that times out is treated as a landing that did
+ * not arrive rather than as an error of its own — a document that never finishes loading and a document
+ * that loads without ever mounting are the same failure from here, and both end at the same named error.
+ */
+const navigateBounded = async (
+  page: Page,
+  url: string,
+  landing: StartupLanding,
+  kind: 'first-load' | 'replay',
+): Promise<void> => {
+  const startedAt = Date.now();
+  const deadline = startedAt + STARTUP_PROBE_DEADLINE_MS;
+  const budgetMs = () => Math.max(1, deadline - Date.now());
+  let navigationFailure: string | null = null;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      if (attempt === 1 && kind === 'first-load') {
+        await page.goto(url, { timeout: Math.min(NAVIGATION_PROBE_MS, budgetMs()) });
+      } else {
+        await page.reload({ timeout: Math.min(NAVIGATION_PROBE_MS, budgetMs()) });
+      }
+      navigationFailure = null;
+    } catch (error) {
+      navigationFailure = error instanceof Error ? error.message : String(error);
+    }
+    const landingBudget = Math.min(attempt === 1 ? STARTUP_PROBE_MS : STARTUP_RELOAD_PROBE_MS, budgetMs());
+    if (await landing.present(landingBudget)) {
+      console.log(
+        `[e2e] client startup: ${landing.label()} landed after ${Date.now() - startedAt}ms (attempt ${attempt})`,
+      );
+      return;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `${landing.label()} never rendered, so this run's client never came up to a document that stays`
+        + `${navigationFailure === null ? '' : ` (the navigation itself failed: ${navigationFailure})`}`
+        + `: ${await readStartupEvidence(page)}`,
+      );
+    }
+  }
+};
+
 /* ── the harness the resident family's specs share ───────────────────────────── */
 
 /**
@@ -365,7 +589,12 @@ test.describe.configure({ mode: 'serial' });
 test.beforeAll(async ({ browser }) => {
   // Onboarding is the expensive part of a fresh database and happens once for the file.
   test.setTimeout(120_000);
+  const clientUrl = test.info().project.use.baseURL;
+  if (!clientUrl) throw new Error('playwright.config.ts must give this project a baseURL');
   workspace = path.join(process.env.QUAY_E2E_DATA_DIR!, WORKSPACE_DIR_BASENAME);
+  // Before any page of this run exists, so this run's own optimize/re-optimize is over before the guarded
+  // navigation below — see `warmClientStartup` for why that cost cannot be left inside the window.
+  await warmClientStartup(clientUrl);
   await bootstrapAuth(browser);
 });
 
@@ -395,7 +624,24 @@ test('a resident session closes the Shell tab, and closing the mode reopens it',
   expect(perRunMode, 'the seeded session must read per-run before the control below is worth anything').toBe('per-run');
 
   await restoreSession(page);
-  await page.goto(`/session/${SEEDED_SESSION_ID}`);
+  // The page's console and network evidence is registered before the guarded navigation, so the burst
+  // that matters — this run's interrupted module requests — is inside the red the guard throws.
+  page.on('console', (message) => {
+    if (message.type() === 'error') {
+      startupEvidence.consoleErrors.push(message.text());
+      console.log(`[e2e] page console error: ${message.text()}`);
+    }
+  });
+  page.on('requestfailed', (request) => {
+    startupEvidence.failedRequests.push(`${request.url()} — ${request.failure()?.errorText ?? 'no error text'}`);
+  });
+  // The one startup navigation is the guard's — it lands on the Shell tab or it ends the run with the
+  // page's own text and this run's failed-request list. `ensureSignedIn`'s retried navigation to the app
+  // root is the harness's own, already bounded and explained at its definition.
+  await navigateBounded(page, `/session/${SEEDED_SESSION_ID}`, {
+    label: () => `the Shell tab for ${SEEDED_SESSION_ID}`,
+    present: (budgetMs) => appears(shellTab(page), budgetMs),
+  }, 'first-load');
   await expect(shellTab(page), 'the workspace must offer its Shell tab for a selected session').toBeVisible({ timeout: 20_000 });
 
   const perRunDisabled = await tabDisabled(shellTab(page));
