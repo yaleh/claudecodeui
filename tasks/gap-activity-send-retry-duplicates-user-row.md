@@ -45,7 +45,7 @@ extra:
 3. **单元判据。** 在 `src/modules/chat/tests/sessionMessageReconciliation.test.ts` 增一条重发形状：一条 local 行（首发/失败时刻）+ 一条 persisted echo（重发被接受时刻），文本相等 ⇒ local 行被退休（realtime 结果为空）。同文件**正控制**：两条真实不同的同文 local 发送、只有一条 persisted echo ⇒ 第二条 local 行留存（一对一未被破坏）。
 4. **判据绿。** `npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-185"` 退出 0，stdout `transcript.userRows=[1]`，:814 断言逐字未改地通过。
 5. **正控制（承重，证明断言不空）。** 变异生产代码**重新造出**重复（强制重发走 `addMessage` 新造一行 / 关掉 echo 退休）⇒ 判据在 :814 红、`Received: 2`。逐字登记变异 diff / 失败行 / 退出码，再还原。
-6. **假形态（承重，明确失败的修法必须红）。** 施加「骗过计数」的假修：只在视图层/ CSS 隐藏或按文本折叠同文用户行 ⇒ **必须红** —— 要么判据仍红（413 计数的是 DOM 节点的数量，隐藏不减少），要么第 3 步的一对一单元用例红（两次合法的同文发送必须都渲染）。逐字登记变异 diff / 读数，再还原。
+6. **假形态（承重，明确失败的修法必须红）。** 施加「骗过计数」的假修：只在视图层/ CSS 隐藏或按文本折叠同文用户行 ⇒ **必须红** —— 要么判据仍红（判据计数的是 DOM 节点的数量，隐藏不减少），要么第 3 步的一对一单元用例红（两次合法的同文发送必须都渲染）。逐字登记变异 diff / 读数，再还原。
 7. **断言零改动证明。** 分支文件里逐字含 `expect(userRows, 'the retried text is exactly one user row, never two').toBe(1);`（`grep -c` = 1）；`git diff develop -- e2e/activity-dock-truthful.spec.ts | grep -c "^-.*toBe(1)"` = 0。
 8. **静态门与回归。** `npx vitest run src/modules/chat/tests/` 退出 0；`npm run typecheck`、`npm run lint` 均退出 0。
 9. **对齐。** `git diff --stat` 只落在 `## Touches` 列出的文件上；变异写点在最终 diff 前已还原；完成后把 `## Touches` 收窄到真正写过的文件。
