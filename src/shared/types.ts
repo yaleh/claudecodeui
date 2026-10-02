@@ -1073,6 +1073,25 @@ export type ToolGroupItem = {
   preview: string;
 };
 
+/**
+ * A synthetic transcript entry standing for one run of adjacent work rows — the
+ * thinking, tool-call and subagent-container rows the work-segment selector
+ * (`groupWorkSegments`) absorbs — identified by its `_isWorkSegment` flag.
+ *
+ * The run is held verbatim: unlike {@link ToolGroupItem} it does not fold
+ * same-name tool calls into an xN layer, so `messages.length` is the run's real
+ * row count. `key` is the first member's intrinsic key (`getIntrinsicMessageKey`),
+ * which is what gives the segment an identity independent of the streaming tail.
+ */
+export type WorkSegment = {
+  _isWorkSegment: true;
+  key: string | null;
+  messages: ChatMessage[];
+};
+
+/** One entry of a transcript that has been through the work-segment selector: either a row no segment absorbed, or a {@link WorkSegment} standing in for a run of absorbed rows. */
+export type WorkSegmentListItem = ChatMessage | WorkSegment;
+
 /** One line of a rendered file diff, marked 'added' or 'removed', with its text and line number. */
 export type DiffLine = {
   type: 'added' | 'removed';
