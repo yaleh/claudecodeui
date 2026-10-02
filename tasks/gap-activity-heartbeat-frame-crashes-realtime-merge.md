@@ -3,7 +3,7 @@ id: gap-activity-heartbeat-frame-crashes-realtime-merge
 title: AC-175 判据红（跨任务回归）：服务端 activity.heartbeat 控制帧无 id，被聊天实时处理当成消息塞进 realtime
   行，removeOptimisticUserEchoes 对 message.id.startsWith 抛 TypeError 中止整次
   merge，cancelled 生命周期事件因此永不渲染「已撤回」——修法两条腿（实时处理不接收非消息帧 + 合并对无 id 行免疫）+ 两腿负控制
-status: ready
+status: done
 labels:
   - gap
   - defect
