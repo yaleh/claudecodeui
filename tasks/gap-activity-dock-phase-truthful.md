@@ -1,7 +1,7 @@
 ---
 id: gap-activity-dock-phase-truthful
 title: AC-187 真实浏览器：坞文案来自真实阶段（thinking→tool(Bash)→writing→idle）、同一阶段 6 秒不轮换、回合末收起
-status: todo
+status: ready
 labels:
   - gap
 parent: null
