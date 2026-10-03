@@ -1,7 +1,7 @@
 ---
 id: AC-196
 title: 停止任务：处理函数校验会话、归属与任务，限时，以 task_notification 为确认
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-015
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -26,6 +26,11 @@ statusLog:
     to: active
     actor: goal-cli
     reason: ""
+  - at: 2026-10-03T17:56:07.654Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: not-evaluated
   reason: no judge configured
