@@ -2,7 +2,7 @@
 id: gap-ac175-criterion-bounded-boot-guard
 title: AC-175 判据的启动阶段无界：宿主网络抖动把应用在途模块整批打断（net::ERR_NETWORK_CHANGED 实测 10
   连发）被拖到夹具项目行 30s 超时记红——把本族既有的有界预热+启动探针回灌到 e2e/resident-busy-send.spec.ts
-status: ready
+status: done
 labels:
   - gap
   - defect
