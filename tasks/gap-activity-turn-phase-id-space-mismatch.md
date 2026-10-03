@@ -2,7 +2,7 @@
 id: gap-activity-turn-phase-id-space-mismatch
 title: 心跳永远报 phase=idle：回合相位 tracker 按 provider session id 写入、按 app session id
   读取（回合中文案恒为 Working… 且无计时）
-status: ready
+status: done
 labels:
   - gap
   - defect
