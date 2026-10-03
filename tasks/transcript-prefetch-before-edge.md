@@ -1,7 +1,7 @@
 ---
 id: transcript-prefetch-before-edge
 title: AC-216 向上滚动在窗口边缘之前预取：触发点距边缘约两屏，每页 ≥50 条，前插锚点保持
-status: todo
+status: ready
 labels:
   - gap
 parent: null
