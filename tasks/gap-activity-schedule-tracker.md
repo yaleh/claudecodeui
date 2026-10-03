@@ -49,17 +49,17 @@ goal_ac: AC-192
 
 ## AC
 
-- [ ] AC1 判据绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-activity-schedules.test.ts` 退出 **0**，stdout `fail 0`。
-- [ ] AC2 cron 与唤醒都建表：Stop hook 清单里 `recurring:true` 的项 `kind==='cron'`、`recurring:false` 的项 `kind==='wakeup'`；`getSchedules` 两项都在，`scheduleId`/`prompt`/`spec` 逐字段等于清单。
-- [ ] AC3 nextFireAt 由 5 段表达式算出：`"*/2 * * * *"`、`"58 20 * * *"`、`"* * * * *"` 三个表达式在给定基准分钟上得到正确的下一分钟（断言 epoch ms 落在整分钟上，秒/毫秒为 0）。
-- [ ] AC4 粒度是分钟：请求 60 秒后的唤醒，其 `tool_result` 文本 “in 115s” 解析后 `nextFireAt` 落在整分钟；断言不是秒级精度。
-- [ ] AC5 回合进行中先由工具结果显示：喂 `CronCreate` 的 `tool_result`（含 id 与 “Every 2 minutes”）与 `ScheduleWakeup` 的 `tool_result`（含 “in 115s”）后，`getSchedules` 立即出现 `source:'tool-call'` 的项（此时还没有 Stop hook）。
-- [ ] AC6 回合结束由 Stop hook 校准：随后 `reconcileStopHook` 用权威清单覆盖，`source` 变为 `'stop-hook'`，`spec` 变为清单里的绝对分钟表达式。
-- [ ] AC7 触发后消失：唤醒触发后下一次 Stop hook 清单里没有该项 ⇒ `getSchedules` 不再含它（整条覆盖的删除路径）。
-- [ ] AC8 cron 带 7 天过期：`expiresAt - 创建时刻 === 7 天`（与 `CRON_MAX_AGE_MS` 同值）；唤醒一次性项同样带 `expiresAt`。
-- [ ] AC9 同一分钟两个计划各自存在：两个计划落在同一分钟 ⇒ 表里两条独立项（不被合并）。
-- [ ] AC10 假形态有分辨力：(1) 忽略 `ScheduleWakeup` 的变体 ⇒ 唤醒用例读数红；(2) 不被 Stop hook 校准的变体 ⇒ 触发后消失用例读数红。两臂各复用主用例读数函数，打印绿/红读数证明主断言不是恒真。
-- [ ] AC11 契约面：`npm run typecheck`、`npm run lint`、`npm run build` 各退出 0；改动只落在 Touches 列出的文件上（`git diff --stat develop...HEAD` 逐条对齐）。
+- [x] AC1 判据绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-activity-schedules.test.ts` 退出 **0**，stdout `fail 0`。
+- [x] AC2 cron 与唤醒都建表：Stop hook 清单里 `recurring:true` 的项 `kind==='cron'`、`recurring:false` 的项 `kind==='wakeup'`；`getSchedules` 两项都在，`scheduleId`/`prompt`/`spec` 逐字段等于清单。
+- [x] AC3 nextFireAt 由 5 段表达式算出：`"*/2 * * * *"`、`"58 20 * * *"`、`"* * * * *"` 三个表达式在给定基准分钟上得到正确的下一分钟（断言 epoch ms 落在整分钟上，秒/毫秒为 0）。
+- [x] AC4 粒度是分钟：请求 60 秒后的唤醒，其 `tool_result` 文本 “in 115s” 解析后 `nextFireAt` 落在整分钟；断言不是秒级精度。
+- [x] AC5 回合进行中先由工具结果显示：喂 `CronCreate` 的 `tool_result`（含 id 与 “Every 2 minutes”）与 `ScheduleWakeup` 的 `tool_result`（含 “in 115s”）后，`getSchedules` 立即出现 `source:'tool-call'` 的项（此时还没有 Stop hook）。
+- [x] AC6 回合结束由 Stop hook 校准：随后 `reconcileStopHook` 用权威清单覆盖，`source` 变为 `'stop-hook'`，`spec` 变为清单里的绝对分钟表达式。
+- [x] AC7 触发后消失：唤醒触发后下一次 Stop hook 清单里没有该项 ⇒ `getSchedules` 不再含它（整条覆盖的删除路径）。
+- [x] AC8 cron 带 7 天过期：`expiresAt - 创建时刻 === 7 天`（与 `CRON_MAX_AGE_MS` 同值）；唤醒一次性项同样带 `expiresAt`。
+- [x] AC9 同一分钟两个计划各自存在：两个计划落在同一分钟 ⇒ 表里两条独立项（不被合并）。
+- [x] AC10 假形态有分辨力：(1) 忽略 `ScheduleWakeup` 的变体 ⇒ 唤醒用例读数红；(2) 不被 Stop hook 校准的变体 ⇒ 触发后消失用例读数红。两臂各复用主用例读数函数，打印绿/红读数证明主断言不是恒真。
+- [x] AC11 契约面：`npm run typecheck`、`npm run lint`、`npm run build` 各退出 0；改动只落在 Touches 列出的文件上（`git diff --stat develop...HEAD` 逐条对齐）。
 
 ## DoD
 
