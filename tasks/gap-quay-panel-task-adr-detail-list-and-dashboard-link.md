@@ -1,7 +1,7 @@
 ---
 id: gap-quay-panel-task-adr-detail-list-and-dashboard-link
 title: Quay 面板补全任务/ADR 明细列表并接通 dashboard 外链
-status: todo
+status: ready
 labels:
   - gap
 parent: null
