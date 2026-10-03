@@ -25,6 +25,23 @@ export type QuayCommandRunner = (
   options: { timeoutMs: number },
 ) => Promise<QuayCommandResult>;
 
+/**
+ * The injected read-only filesystem boundary for quay's carrier files (the suite
+ * state and the two JSONL histories). It exposes only byte-range and whole-file
+ * *reads*, so the panel can never write through it, and every path is joined
+ * under the project root by the service rather than accepted from a request. The
+ * byte-range read is what lets `readCarrierFileTail` stream a bounded window from
+ * the end of a multi-megabyte history instead of materialising the whole file.
+ */
+export type QuayFileReader = {
+  /** Byte length of the file, or `null` when it does not exist or cannot be stat-ed. */
+  size(filePath: string): Promise<number | null>;
+  /** Reads up to `length` bytes starting at byte `position`, decoded as UTF-8; shorter near EOF. */
+  readChunk(filePath: string, position: number, length: number): Promise<string>;
+  /** Reads a small file fully as UTF-8 text; used only for the tiny suite-state JSON. */
+  readText(filePath: string): Promise<string>;
+};
+
 /** Driver summary rendered by the sidebar badge and the Tier-2 panel header. */
 export type QuayDriverState = 'running' | 'idle' | 'stale';
 
@@ -59,15 +76,81 @@ export type QuayTaskCounts = {
   recent: QuayListItem[];
 };
 
+/** Goal counts read from `quay goal list --json`; the panel shows the stage breakdown. */
 export type QuayGoalCounts = {
   total: number;
   achieved: number;
+  /** Per-status grouping plus the most recent goals, for the panel's "Stage goals" card. */
+  breakdown: QuayGoalBreakdown;
+};
+
+/**
+ * Stage-goals card payload: how many goals sit in each status the CLI reports,
+ * plus the most recently updated goals as display rows.
+ */
+export type QuayGoalBreakdown = {
+  /** Counts keyed by the CLI's own status string (`active`/`achieved`/`draft`/`superseded`/…). */
+  byStatus: Record<string, number>;
+  /** Up to `QUAY_RECENT_LIST_LIMIT` goals, most recently updated first. */
+  recent: QuayListItem[];
 };
 
 export type QuayAdrCounts = {
   total: number;
   /** Up to `QUAY_RECENT_LIST_LIMIT` ADRs, most recently updated first. */
   recent: QuayListItem[];
+};
+
+/**
+ * Current full-suite reading from `.quay/full-suite-state.json`, rendered as the
+ * "current" half of the Tests card. `null` means no run state is on disk — a
+ * normal "nothing running" state, never a warning.
+ */
+export type QuaySuiteState = {
+  state: string;
+  runner: string | null;
+  scope: string | null;
+  /** ISO timestamp the run started, as the carrier file stores it. */
+  startedAt: string | null;
+  /** Unix epoch **seconds** the run finished, as the carrier file stores it. */
+  finishedAt: number | null;
+  durationMs: number | null;
+  laneCount: number | null;
+  commit: string | null;
+  taskId: string | null;
+  runId: string | null;
+};
+
+/** One history round projected from `.quay/verification-round.jsonl`; the heavy per-file detail is dropped. */
+export type QuayTestRoundSummary = {
+  round: number;
+  startedAt: string | null;
+  durationMs: number | null;
+  pass: number | null;
+  fail: number | null;
+  tests: number | null;
+  state: string;
+};
+
+/** Tests card payload: the current run (if any) plus the most recent history rounds. */
+export type QuayTestsSummary = {
+  current: QuaySuiteState | null;
+  recentRounds: QuayTestRoundSummary[];
+};
+
+/** One fan-in attempt projected from `.quay/worker-outcome.jsonl`. */
+export type QuayFanInAttemptSummary = {
+  task: string;
+  outcome: string;
+  /** Lock acquisition as Unix epoch **seconds** (quay's own unit); the panel converts to ms. */
+  lockAcquireEpoch: number | null;
+  /** Lock release as Unix epoch **seconds**; `null` when the attempt never released the lock. */
+  lockReleaseEpoch: number | null;
+};
+
+/** Fan-in card payload: the most recent mechanical fan-in attempts across all tasks. */
+export type QuayFanInSummary = {
+  recent: QuayFanInAttemptSummary[];
 };
 
 export type QuayConfigIssueCounts = {
@@ -91,6 +174,10 @@ export type QuaySnapshot = {
   goals: QuayGoalCounts | null;
   adrs: QuayAdrCounts | null;
   configIssues: QuayConfigIssueCounts | null;
+  /** Tests card: the current suite run plus recent history rounds, read from `.quay/` carrier files. */
+  tests: QuayTestsSummary;
+  /** Fan-in card: recent mechanical fan-in attempts, read from `.quay/worker-outcome.jsonl`. */
+  fanIn: QuayFanInSummary;
   /**
    * Link to quay's own `quay serve` dashboard, when a live web service is
    * reported for this project. `null` when no dashboard is running — an absent
@@ -140,6 +227,8 @@ type QuayServiceDependencies = {
   fileExists(filePath: string): boolean;
   resolveProjectPathById(projectId: string): string | null;
   runCommand: QuayCommandRunner;
+  /** Read-only filesystem boundary for the `.quay/` carrier files behind the Tests and Fan-in cards. */
+  readFile: QuayFileReader;
   now(): number;
   /** How long a Tier-2 snapshot stays fresh; requests inside the window reuse it. */
   snapshotTtlMs: number;
@@ -233,12 +322,207 @@ function summarizeGoals(value: unknown): QuayGoalCounts | null {
     return null;
   }
 
-  const achieved = value.filter((goal) => asRecord(goal)?.status === 'achieved').length;
-  return { total: value.length, achieved };
+  const byStatus: Record<string, number> = {};
+  for (const goal of value) {
+    const status = typeof asRecord(goal)?.status === 'string' ? (asRecord(goal)?.status as string) : 'unknown';
+    byStatus[status] = (byStatus[status] ?? 0) + 1;
+  }
+
+  return {
+    total: value.length,
+    achieved: byStatus.achieved ?? 0,
+    breakdown: { byStatus, recent: summarizeRecentItems(value) },
+  };
 }
 
 function summarizeAdrs(value: unknown): QuayAdrCounts | null {
   return Array.isArray(value) ? { total: value.length, recent: summarizeRecentItems(value) } : null;
+}
+
+/** Reads a non-empty string field from an untyped JSON record, or `null`. */
+function readNullableString(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+/** Reads a finite number field from an untyped JSON record, or `null` for absent/non-numeric values. */
+function readNullableNumber(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === 'string' && value.trim() !== '') {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+  return null;
+}
+
+/** Carrier files read under the project's `.quay/` directory by the Tests and Fan-in cards. */
+const QUAY_SUITE_STATE_FILE = 'full-suite-state.json';
+const QUAY_ROUND_HISTORY_FILE = 'verification-round.jsonl';
+const QUAY_WORKER_OUTCOME_FILE = 'worker-outcome.jsonl';
+
+/**
+ * Bytes read per step when streaming a carrier file's tail. 64 KiB holds ten
+ * lines of every carrier here except the per-file round history (whose lines run
+ * tens of KB); there the window doubles a couple of times, still a few hundred KB
+ * against a 16 MB file — never the whole file.
+ */
+const CARRIER_TAIL_WINDOW_BYTES = 64 * 1024;
+
+/** Number of JSONL records a tail window currently holds, ignoring a possibly split leading line and blank segments. */
+function countTailRecords(text: string, hasPartialLeadingLine: boolean): number {
+  const lines = text.split('\n');
+  if (hasPartialLeadingLine) {
+    lines.shift();
+  }
+  return lines.filter((line) => line.trim() !== '').length;
+}
+
+/**
+ * Streams the last `maxLines` newline-delimited JSON records out of a carrier
+ * file without materialising the whole file: it reads a bounded byte window from
+ * the end through the injected reader and, when that window holds too few
+ * complete lines, doubles the window and re-reads. A 16 MB round history
+ * therefore costs a few hundred KB of reads rather than 16 MB, and the read is a
+ * byte-range read rather than a whole-file `readFile`.
+ *
+ * Malformed lines (a torn tail, a non-JSON record) are skipped, so a partially
+ * written file degrades to fewer rows instead of failing the whole snapshot.
+ */
+export async function readCarrierFileTail(
+  reader: QuayFileReader,
+  filePath: string,
+  maxLines: number,
+): Promise<unknown[]> {
+  if (maxLines <= 0) {
+    return [];
+  }
+
+  const size = await reader.size(filePath);
+  if (size === null || size <= 0) {
+    return [];
+  }
+
+  let windowBytes = Math.min(CARRIER_TAIL_WINDOW_BYTES, size);
+  let text = '';
+  let start = 0;
+  // Grow the trailing window until it holds maxLines records (a non-zero start
+  // can split one leading line in half, which countTailRecords drops).
+  for (;;) {
+    start = Math.max(0, size - windowBytes);
+    text = await reader.readChunk(filePath, start, size - start);
+    if (start === 0 || countTailRecords(text, true) >= maxLines) {
+      break;
+    }
+    windowBytes *= 2;
+  }
+
+  const lines = text.split('\n');
+  if (start > 0) {
+    lines.shift();
+  }
+
+  return lines
+    .filter((line) => line.trim() !== '')
+    .slice(-maxLines)
+    .flatMap((line) => {
+      try {
+        return [JSON.parse(line) as unknown];
+      } catch {
+        return [];
+      }
+    });
+}
+
+/** Projects a parsed `full-suite-state.json` body; `null` when it carries no usable `state` string. */
+function summarizeSuiteState(value: unknown): QuaySuiteState | null {
+  const record = asRecord(value);
+  const state = record ? readNullableString(record.state) : null;
+  if (!record || !state) {
+    return null;
+  }
+
+  return {
+    state,
+    runner: readNullableString(record.runner),
+    scope: readNullableString(record.scope),
+    startedAt: readNullableString(record.startedAt),
+    finishedAt: readNullableNumber(record.finishedAt),
+    durationMs: readNullableNumber(record.durationMs),
+    laneCount: readNullableNumber(record.laneCount),
+    commit: readNullableString(record.commit),
+    taskId: readNullableString(record.taskId),
+    runId: readNullableString(record.runId),
+  };
+}
+
+/**
+ * Reads `.quay/full-suite-state.json` and projects it to the Tests card's
+ * "current" reading. A missing or unparseable file reads as `null` — the same
+ * "nothing is running" state as a dashboard with no suite — so it is never
+ * recorded as a warning.
+ */
+export async function readCurrentSuiteState(
+  reader: QuayFileReader,
+  filePath: string,
+): Promise<QuaySuiteState | null> {
+  let text: string;
+  try {
+    text = await reader.readText(filePath);
+  } catch {
+    return null;
+  }
+
+  try {
+    return summarizeSuiteState(JSON.parse(text) as unknown);
+  } catch {
+    return null;
+  }
+}
+
+/** Projects round-history records to the panel's summary; the heavy `perFile` detail is deliberately dropped. */
+function summarizeTestRounds(value: unknown): QuayTestRoundSummary[] {
+  return asArray(value).flatMap((item) => {
+    const record = asRecord(item);
+    const state = record ? readNullableString(record.state) : null;
+    if (!record || !state) {
+      return [];
+    }
+
+    return [
+      {
+        round: readCount(record.round),
+        startedAt: readNullableString(record.startedAt),
+        durationMs: readNullableNumber(record.durationMs),
+        pass: readNullableNumber(record.pass),
+        fail: readNullableNumber(record.fail),
+        tests: readNullableNumber(record.tests),
+        state,
+      },
+    ];
+  });
+}
+
+/** Keeps only the tasks whose outcome record carries a `mechanical_fan_in` block, projected to the Fan-in card's fields. */
+function summarizeFanInAttempts(value: unknown): QuayFanInAttemptSummary[] {
+  return asArray(value).flatMap((item) => {
+    const record = asRecord(item);
+    const fanIn = record ? asRecord(record.mechanical_fan_in) : null;
+    const task = record ? readNullableString(record.task) : null;
+    const outcome = fanIn ? readNullableString(fanIn.outcome) : null;
+    if (!task || !outcome) {
+      return [];
+    }
+
+    return [
+      {
+        task,
+        outcome,
+        lockAcquireEpoch: readNullableNumber(fanIn?.lockAcquireEpoch),
+        lockReleaseEpoch: readNullableNumber(fanIn?.lockReleaseEpoch),
+      },
+    ];
+  });
 }
 
 /**
@@ -391,6 +675,29 @@ export function createQuayService(dependencies: QuayServiceDependencies) {
     const configIssues = summarizeConfigIssues(await readJson(['config', 'validate', '--json']));
     const dashboardUrl = summarizeDashboardUrl(await readJsonQuietly(['server', 'status', '--json']));
 
+    // The Tests and Fan-in cards read quay's own carrier files under the trusted
+    // project root — never a path from the request. A missing file is a normal
+    // empty reading, so these reads never push a warning.
+    const quayDir = path.join(projectPath, '.quay');
+    const currentSuite = await readCurrentSuiteState(
+      dependencies.readFile,
+      path.join(quayDir, QUAY_SUITE_STATE_FILE),
+    );
+    const recentRounds = summarizeTestRounds(
+      await readCarrierFileTail(
+        dependencies.readFile,
+        path.join(quayDir, QUAY_ROUND_HISTORY_FILE),
+        QUAY_RECENT_LIST_LIMIT,
+      ),
+    );
+    const fanInAttempts = summarizeFanInAttempts(
+      await readCarrierFileTail(
+        dependencies.readFile,
+        path.join(quayDir, QUAY_WORKER_OUTCOME_FILE),
+        QUAY_RECENT_LIST_LIMIT,
+      ),
+    );
+
     return {
       projectId,
       projectPath,
@@ -401,6 +708,8 @@ export function createQuayService(dependencies: QuayServiceDependencies) {
       goals,
       adrs,
       configIssues,
+      tests: { current: currentSuite, recentRounds },
+      fanIn: { recent: fanInAttempts },
       dashboardUrl,
       warnings,
     };

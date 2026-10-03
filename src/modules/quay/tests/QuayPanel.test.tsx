@@ -27,9 +27,43 @@ const SNAPSHOT: QuaySnapshot = {
       { id: 'gap-task-b', title: 'Task B', status: 'done' },
     ],
   },
-  goals: { total: 2, achieved: 1 },
+  goals: {
+    total: 3,
+    achieved: 1,
+    breakdown: {
+      byStatus: { achieved: 1, active: 2 },
+      recent: [
+        { id: 'GOAL-3', title: 'Third goal', status: 'active' },
+        { id: 'GOAL-1', title: 'First goal', status: 'achieved' },
+      ],
+    },
+  },
   adrs: { total: 3, recent: [{ id: 'ADR-001', title: 'First decision', status: 'accepted' }] },
   configIssues: { total: 0, errors: 0 },
+  tests: {
+    current: {
+      state: 'green',
+      runner: 'inner',
+      scope: 'worktree',
+      startedAt: '2026-10-01T23:00:00.000Z',
+      finishedAt: 1790986890,
+      durationMs: 196837,
+      laneCount: 127,
+      commit: '8ae18cf39e1ec22b62bc3312532340eefd8677d2',
+      taskId: 'gap-x',
+      runId: 'r1',
+    },
+    recentRounds: [
+      { round: 469, startedAt: '2026-10-01T23:00:00.000Z', durationMs: 100000, pass: 310, fail: 0, tests: 310, state: 'green' },
+      { round: 470, startedAt: '2026-10-01T23:10:00.000Z', durationMs: 195593, pass: 308, fail: 2, tests: 310, state: 'red' },
+    ],
+  },
+  fanIn: {
+    recent: [
+      { task: 'gap-task-a', outcome: 'landed', lockAcquireEpoch: 1790986800, lockReleaseEpoch: 1790987016 },
+      { task: 'gap-task-b', outcome: 'failed', lockAcquireEpoch: 1790987100, lockReleaseEpoch: null },
+    ],
+  },
   dashboardUrl: DASHBOARD_URL,
   warnings: [],
 };
@@ -118,4 +152,51 @@ test('QuayPanel renders an empty state for each detail list when the recents are
   assert.match(getByTestId('quay-panel-recent-adrs-empty').textContent ?? '', /No ADRs reported/);
   assert.equal(container.querySelector('[data-testid="quay-panel-recent-tasks-row"]'), null);
   assert.equal(container.querySelector('[data-testid="quay-panel-recent-adrs-row"]'), null);
+});
+
+test('QuayPanel renders the Stage goals, Tests and Fan-in cards with the snapshot data', () => {
+  const { getByTestId, container } = renderView({ status: 'loaded', snapshot: SNAPSHOT }, null);
+
+  // Stage goals: one row per recent goal, each carrying the status and a progress bar.
+  const goalRows = getByTestId('quay-panel-stage-goals-list').querySelectorAll('[data-testid="quay-panel-stage-goals-row"]');
+  assert.equal(goalRows.length, 2);
+  assert.match(goalRows[0]?.textContent ?? '', /GOAL-3/);
+  assert.match(getByTestId('quay-panel-stage-goals-counts').textContent ?? '', /active/);
+  const goalBars = getByTestId('quay-panel-stage-goals-list').querySelectorAll('[data-testid="quay-panel-stage-goals-bar"]');
+  assert.equal(goalBars.length, 2);
+  assert.ok(Array.from(goalBars).every((bar) => bar.querySelector('div') !== null));
+
+  // Tests: the current reading plus one timeline rect per recent round.
+  assert.match(getByTestId('quay-panel-tests-current').textContent ?? '', /green/);
+  assert.equal(
+    getByTestId('quay-panel-tests-timeline').querySelectorAll('[data-testid="quay-panel-tests-timeline-rect"]').length,
+    2,
+  );
+
+  // Fan-in: one rect per attempt that carries a lock epoch, plus the recent task rows.
+  assert.equal(
+    getByTestId('quay-panel-fanin-timeline').querySelectorAll('[data-testid="quay-panel-fanin-timeline-rect"]').length,
+    2,
+  );
+  const fanInRows = getByTestId('quay-panel-fanin-list').querySelectorAll('[data-testid="quay-panel-fanin-row"]');
+  assert.equal(fanInRows.length, 2);
+  assert.match(fanInRows[0]?.textContent ?? '', /gap-task-b/);
+  assert.match(container.textContent ?? '', /landed/);
+});
+
+test('QuayPanel renders empty states for the Stage goals, Tests and Fan-in cards', () => {
+  const emptySnapshot: QuaySnapshot = {
+    ...SNAPSHOT,
+    goals: { total: 0, achieved: 0, breakdown: { byStatus: {}, recent: [] } },
+    tests: { current: null, recentRounds: [] },
+    fanIn: { recent: [] },
+  };
+  const { getByTestId, container } = renderView({ status: 'loaded', snapshot: emptySnapshot }, null);
+
+  assert.match(getByTestId('quay-panel-stage-goals-empty').textContent ?? '', /No goals reported/);
+  assert.match(getByTestId('quay-panel-tests-current-empty').textContent ?? '', /No suite running/);
+  assert.match(getByTestId('quay-panel-tests-timeline-empty').textContent ?? '', /No suite rounds/);
+  assert.match(getByTestId('quay-panel-fanin-timeline-empty').textContent ?? '', /No fan-in attempts/);
+  assert.equal(container.querySelector('[data-testid="quay-panel-stage-goals-row"]'), null);
+  assert.equal(container.querySelector('[data-testid="quay-panel-fanin-row"]'), null);
 });

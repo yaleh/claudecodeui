@@ -175,10 +175,20 @@ export type QuayTaskCounts = {
   recent: QuayListItem[];
 };
 
-/** Goal counts read from `quay goal list --json`. */
+/** Goal counts read from `quay goal list --json`; the panel shows the status breakdown and recent goals. */
 export type QuayGoalCounts = {
   total: number;
   achieved: number;
+  /** Per-status grouping plus the most recently updated goals, for the "Stage goals" card. */
+  breakdown: QuayGoalBreakdown;
+};
+
+/** Stage-goals card payload: goal counts per status, plus the recent goals as display rows. */
+export type QuayGoalBreakdown = {
+  /** Counts keyed by the CLI's own status string (`active`/`achieved`/`draft`/`superseded`/…). */
+  byStatus: Record<string, number>;
+  /** Up to ten goals, most recently updated first. */
+  recent: QuayListItem[];
 };
 
 /** ADR counts read from `quay adr list --json`; `recent` feeds the "ADRs" list. */
@@ -194,6 +204,54 @@ export type QuayConfigIssueCounts = {
   errors: number;
 };
 
+/** Current full-suite reading from `.quay/full-suite-state.json`; `null` means no run state is on disk. */
+export type QuaySuiteState = {
+  state: string;
+  runner: string | null;
+  scope: string | null;
+  /** ISO timestamp the run started, as the carrier file stores it. */
+  startedAt: string | null;
+  /** Unix epoch **seconds** the run finished, as the carrier file stores it. */
+  finishedAt: number | null;
+  durationMs: number | null;
+  laneCount: number | null;
+  commit: string | null;
+  taskId: string | null;
+  runId: string | null;
+};
+
+/** One history round from `.quay/verification-round.jsonl`; the heavy per-file detail is dropped. */
+export type QuayTestRoundSummary = {
+  round: number;
+  startedAt: string | null;
+  durationMs: number | null;
+  pass: number | null;
+  fail: number | null;
+  tests: number | null;
+  state: string;
+};
+
+/** Tests card payload: the current run (if any) plus the most recent history rounds. */
+export type QuayTestsSummary = {
+  current: QuaySuiteState | null;
+  recentRounds: QuayTestRoundSummary[];
+};
+
+/** One fan-in attempt from `.quay/worker-outcome.jsonl`. */
+export type QuayFanInAttemptSummary = {
+  task: string;
+  outcome: string;
+  /** Lock acquisition as Unix epoch **seconds** (quay's own unit); the panel converts to ms. */
+  lockAcquireEpoch: number | null;
+  /** Lock release as Unix epoch **seconds**; `null` when the attempt never released the lock. */
+  lockReleaseEpoch: number | null;
+};
+
+/** Fan-in card payload: the most recent mechanical fan-in attempts across all tasks. */
+export type QuayFanInSummary = {
+  recent: QuayFanInAttemptSummary[];
+};
+
 /** Tier-2 read-only snapshot of one project's quay state, rendered by `QuayPanel`. */
 export type QuaySnapshot = {
   projectId: string;
@@ -206,6 +264,10 @@ export type QuaySnapshot = {
   goals: QuayGoalCounts | null;
   adrs: QuayAdrCounts | null;
   configIssues: QuayConfigIssueCounts | null;
+  /** Tests card: the current suite run plus recent history rounds, read from `.quay/` carrier files. */
+  tests: QuayTestsSummary;
+  /** Fan-in card: recent mechanical fan-in attempts, read from `.quay/worker-outcome.jsonl`. */
+  fanIn: QuayFanInSummary;
   /**
    * Link to quay's own `quay serve` dashboard when a live web service is
    * reported; `null` when no dashboard is running (a normal state, not an error).
