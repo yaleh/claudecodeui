@@ -42,6 +42,14 @@ type ParsedTaskNotification = {
   status: string;
   summary: string;
   result: string;
+  /** The `<task-id>` a Monitor event reports on, or `''` when the block carries none. */
+  taskId: string;
+  /**
+   * The `<event>` body when the block is a Monitor event, or `undefined` for a
+   * background-agent notification. Its presence — not the text — is what marks
+   * the row as a Monitor event; an empty `<event></event>` is still one.
+   */
+  event: string | undefined;
 };
 
 type ToolResultSource = NormalizedMessage['toolResult'] | NormalizedMessage | null;
@@ -61,6 +69,19 @@ type CachedMessageProjection = {
 const projectionCache = new WeakMap<NormalizedMessage, CachedMessageProjection>();
 
 /**
+ * Reads the trimmed body of the first `<tag>…</tag>` in a notification block,
+ * or `null` when the block carries no such tag.
+ *
+ * A distinct `null` (rather than an empty string) is load-bearing: whether a
+ * Monitor event block has an `<event>` at all is what makes it a Monitor event,
+ * and an empty event body must not read the same as no event body.
+ */
+function readTaggedValue(content: string, tag: string): string | null {
+  const match = new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`).exec(content);
+  return match ? match[1].trim() : null;
+}
+
+/**
  * Parses a background-agent `<task-notification>` block.
  *
  * The harness injects these as user-role messages when a background task stops.
@@ -69,6 +90,10 @@ const projectionCache = new WeakMap<NormalizedMessage, CachedMessageProjection>(
  * not match, so the whole raw XML block leaked through as plain user text.
  * Fields are extracted independently so the block renders as an assistant
  * notification plus, when present, the agent's markdown result.
+ *
+ * A Monitor event is the same envelope with an `<event>` where a background
+ * agent's `<result>` would be; its `<task-id>` and `<event>` are read here so
+ * the projection can group and draw it, while the raw rows stay untouched.
  */
 function parseTaskNotification(content: string): ParsedTaskNotification | null {
   if (!content.trimStart().startsWith('<task-notification>')) {
@@ -93,6 +118,8 @@ function parseTaskNotification(content: string): ParsedTaskNotification | null {
     status: statusMatch?.[1]?.trim() || 'completed',
     summary: summaryMatch?.[1]?.trim() || 'Background task finished',
     result,
+    taskId: readTaggedValue(content, 'task-id') ?? '',
+    event: readTaggedValue(content, 'event') ?? undefined,
   };
 }
 
@@ -416,12 +443,27 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
             // Parse task notifications
             const taskNotif = parseTaskNotification(content);
             if (taskNotif) {
+              // A Monitor event is a notification that carries an `<event>`
+              // body. It is annotated rather than collapsed here: this
+              // projection stays lossless (one row per source row), and the
+              // folding into one row is `collapseMonitorEventRows`'s job so
+              // that search and export, which read this projection raw, still
+              // see every event.
+              const isMonitorEvent = taskNotif.event !== undefined;
               converted.push({
                 type: 'assistant',
                 content: taskNotif.summary,
                 timestamp: msg.timestamp,
                 isTaskNotification: true,
                 taskStatus: taskNotif.status,
+                ...(isMonitorEvent
+                  ? {
+                      isMonitorEvent: true,
+                      monitorTaskId: taskNotif.taskId,
+                      monitorEvent: taskNotif.event,
+                      monitorDescription: taskNotif.summary,
+                    }
+                  : {}),
                 ...sharedMetadata,
               });
               // Render the agent's result as a normal assistant message so its
@@ -527,6 +569,9 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
         break;
 
       case 'task_notification':
+        // A normalized `task_notification` carries only a status and a summary
+        // (Codex's `status_note`), never the raw `<event>` of a Monitor event,
+        // so it has no Monitor fields to add here.
         converted.push({
           type: 'assistant',
           content: msg.summary || 'Background task update',
@@ -613,4 +658,86 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
   }
 
   return converted;
+}
+
+/** The one event body the run's status is read from. */
+const MONITOR_TIMEOUT = /Monitor timed out/;
+
+/**
+ * Whether a row is a member of a foldable Monitor run — a projected Monitor
+ * event that names the task it reports on. The task id is the grouping key and
+ * nothing else is consulted: text equality is deliberately not one, because two
+ * different tasks can publish byte-identical events.
+ */
+function isFoldableMonitorRow(row: ChatMessage): boolean {
+  return row.isMonitorEvent === true && typeof row.monitorTaskId === 'string' && row.monitorTaskId !== '';
+}
+
+/**
+ * Folds the maximal runs of adjacent Monitor events for one task into a single
+ * row each, leaving every other row where it was.
+ *
+ * Used by `useChatSessionState` to build both the rendered transcript and the
+ * search target's projection, so an index into one is an index into the other;
+ * it is applied there and nowhere else, because every other caller of
+ * {@link normalizedToChatMessages} needs the raw, unfolded rows.
+ *
+ * A run is a longest consecutive stretch of rows that are Monitor events and
+ * share one non-empty `monitorTaskId`. Anything else ends it: an ordinary row,
+ * a Monitor event with no task id, and a Monitor event for a different task are
+ * all boundaries — so events never merge across a gap and never merge across
+ * task ids. The single row a run becomes carries the description, the count and
+ * the events themselves, and is marked `'stopped'` when any event reports a
+ * monitor timeout.
+ *
+ * This is a projection of the rows it is given, so it never mutates them or the
+ * array: a caller that needs the raw, unfolded rows keeps the
+ * {@link normalizedToChatMessages} output instead.
+ */
+export function collapseMonitorEventRows(rows: ChatMessage[]): ChatMessage[] {
+  const collapsed: ChatMessage[] = [];
+  let run: ChatMessage[] = [];
+  let runTaskId = '';
+
+  const flushRun = () => {
+    if (run.length === 0) return;
+    const first = run[0];
+    const events = run.map((row) => String(row.monitorEvent ?? ''));
+    collapsed.push({
+      // The run's first row supplies the shared metadata — id, blockKey,
+      // timestamp, and the description — while the collapse fields below say
+      // what the row now stands for.
+      ...first,
+      type: 'assistant',
+      isTaskNotification: true,
+      isMonitorCollapse: true,
+      monitorTaskId: runTaskId,
+      monitorDescription: first.monitorDescription,
+      monitorEventCount: events.length,
+      monitorEvents: events,
+      monitorStatus: events.some((event) => MONITOR_TIMEOUT.test(event))
+        ? 'stopped'
+        : 'completed',
+    });
+    run = [];
+    runTaskId = '';
+  };
+
+  for (const row of rows) {
+    if (isFoldableMonitorRow(row)) {
+      if (run.length > 0 && row.monitorTaskId === runTaskId) {
+        run.push(row);
+      } else {
+        flushRun();
+        runTaskId = String(row.monitorTaskId);
+        run = [row];
+      }
+    } else {
+      flushRun();
+      collapsed.push(row);
+    }
+  }
+  flushRun();
+
+  return collapsed;
 }

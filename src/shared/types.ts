@@ -611,6 +611,43 @@ export type ChatMessage = {
   compact?: CompactionInfo;
   /** The summary that compaction produced, folded into the row above rather than left loose. */
   compactSummary?: string;
+  /**
+   * Set on the row the projection makes for one Monitor event — a
+   * `<task-notification>` whose body carries an `<event>` rather than a
+   * background agent's `<result>`.
+   *
+   * Its presence, together with a non-empty {@link monitorTaskId}, is the only
+   * thing `collapseMonitorEventRows` groups by; an ordinary notification (no
+   * `<event>`) and a row with no task id are both boundaries, never members of
+   * a run. The event body itself lives in {@link monitorEvent}.
+   */
+  isMonitorEvent?: boolean;
+  /**
+   * The `<task-id>` a Monitor event reports on — the one grouping key a run is
+   * built from. Empty when the notification carried no id, which is what keeps
+   * such a row from ever being folded into a run.
+   */
+  monitorTaskId?: string;
+  /** The `<event>` body one Monitor event carried, before any folding. */
+  monitorEvent?: string;
+  /** The notification's `<summary>`, drawn as the collapsed row's description. */
+  monitorDescription?: string;
+  /**
+   * Set on the single row a run of adjacent Monitor events folds into. The
+   * renderer draws this row in place of the individual events, which stay in
+   * {@link monitorEvents} for the expandable list.
+   */
+  isMonitorCollapse?: boolean;
+  /** How many Monitor events the collapsed row stands for. */
+  monitorEventCount?: number;
+  /** Every event body in the run, in arrival order, for the collapsed row's expandable list. */
+  monitorEvents?: string[];
+  /**
+   * Whether the run a collapsed row stands for contains a Monitor timeout.
+   * `'stopped'` drives the row's timed-out styling, which is deliberately not
+   * the error styling: a stopped monitor is a thing that ended, not a failure.
+   */
+  monitorStatus?: 'stopped' | 'completed';
   isSubagentContainer?: boolean;
   /** The agent this row spawned, when it spawned one. Its presence is what makes a row a subagent container. */
   subagent?: SubagentInfo;

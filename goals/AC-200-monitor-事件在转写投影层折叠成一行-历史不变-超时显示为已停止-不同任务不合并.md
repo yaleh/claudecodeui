@@ -1,7 +1,7 @@
 ---
 id: AC-200
 title: Monitor 事件在转写投影层折叠成一行：历史不变，超时显示为已停止，不同任务不合并
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-015
 criterion: npx vitest run src/modules/chat/tests/monitorEventCollapse.test.ts
@@ -22,6 +22,11 @@ statusLog:
     to: active
     actor: goal-cli
     reason: ""
+  - at: 2026-10-03T18:03:06.417Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: not-evaluated
   reason: no judge configured
