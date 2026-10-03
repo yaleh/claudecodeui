@@ -2,7 +2,7 @@
 id: gap-ac200-monitor-event-projection-collapse
 title: AC-200 Monitor 事件在转写投影层折叠成一行：同一 task-id 连续事件折叠（描述 +
   事件个数，可展开），非折叠投影仍含全部原始行，超时显示已停止非错误，不同 task-id / 跨断隔不合并
-status: todo
+status: ready
 labels:
   - gap
 parent: null
