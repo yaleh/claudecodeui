@@ -7,8 +7,10 @@ import { SCRIPTS, normalize } from './scripts.mts';
 import { REPO_NAMES } from '../s1/run.mts';
 
 const RW = process.env.REWRITE === '1'; // 补充 1：读 rewrite.jsonl，臂名 a2/r/r0/gr 对应 a/b/b0/gb
-const N = RW ? { a: 'a2', b: 'r', b0: 'r0', c: '', ga: '', gb: 'gr' } : { a: 'a', b: 'b', b0: 'b0', c: 'c', ga: 'ga', gb: 'gb' };
-const rows: any[] = readFileSync(new URL(RW ? './rewrite.jsonl' : './drafts.jsonl', import.meta.url), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+const TEST = process.env.TESTARM ?? 'r'; // REWRITE=1 时的被测臂：r（纯文本）或 rj（JSON）
+const N = RW ? { a: 'a2', b: TEST, b0: TEST + '0', c: '', ga: '', gb: TEST === 'rj' ? 'gj' : 'gr' } : { a: 'a', b: 'b', b0: 'b0', c: 'c', ga: 'ga', gb: 'gb' };
+const readJsonl = (f: string): any[] => { try { return readFileSync(new URL(f, import.meta.url), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } };
+const rows: any[] = RW ? [...readJsonl('./rewrite.jsonl'), ...readJsonl('./rewrite-json.jsonl')] : readJsonl('./drafts.jsonl');
 const asr: any[] = readFileSync(new URL('./asr.jsonl', import.meta.url), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
 const byId = Object.fromEntries(SCRIPTS.map((s) => [s.id, s]));
 const FILE = /[A-Za-z_][\w-]*(?:\.[\w-]+)*\.(?:ts|tsx|js|jsx|mjs|cjs|json|md|css|html|sql|sh|yml|yaml)(?![\w])/g;
@@ -34,10 +36,10 @@ const mark = (ok: boolean) => (ok ? 'PASS' : 'FAIL');
 
 function summarize(arm: string) {
   const rs = armRows(arm); const sc = rs.map(scoreRow);
-  const upd = rs.flatMap((r) => r.updates); const incr = RW ? upd.filter((u) => u.empty !== undefined) : upd.filter((u) => u.parsed !== undefined);
+  const upd = rs.flatMap((r) => r.updates); const incr = upd.filter((u) => u.empty !== undefined || u.parsed !== undefined);
   return {
     arm, runs: rs.length, recall: mean(sc.map((x) => x.recall)), leak: mean(sc.map((x) => x.leak)), early: mean(sc.map((x) => x.early)), ident: mean(sc.map((x) => x.ident)),
-    unknownRate: mean(sc.map((x) => +(x.unknown.length > 0))), opValid: incr.length ? mean(incr.map((u) => RW ? +(u.status === 200 && !u.empty) : +(u.parsed && u.valid))) : NaN,
+    unknownRate: mean(sc.map((x) => +(x.unknown.length > 0))), opValid: incr.length ? mean(incr.map((u) => (u.parsed !== undefined && u.valid === undefined ? +u.parsed : RW && u.empty !== undefined ? +(u.status === 200 && !u.empty) : +(u.parsed && u.valid)))) : NaN,
     updP50: q(upd.map((u) => u.ms), 0.5), updP90: q(upd.map((u) => u.ms), 0.9), updates: upd.length,
     cmdLeak: mean(sc.flatMap((x) => x.forb.filter((f) => f.f.kind === 'command').map((f) => +f.hit))),
     nearmiss: mean(sc.flatMap((x) => x.items.filter((i) => i.i.kind === 'nearmiss').map((i) => +i.ok))),
@@ -61,11 +63,11 @@ if (mode === 'show') {
     const x = scoreRow(r); console.log(`\n=== ${r.arm} ${r.voice} ${r.script} rep${r.rep}  recall ${pct(x.recall)} leak ${pct(x.leak)}  missed: ${x.items.filter((i) => !i.ok).map((i) => i.i.id)}  leaked: ${x.forb.filter((f) => f.hit).map((f) => f.f.id)}  unknown: ${x.unknown}\n${r.final}`);
   }
 } else if (mode === 'sample') {
-  let seed = RW ? 20261004 : 20261003; const rnd = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 2 ** 32);
-  const pool = rows.filter((r) => (RW ? ['a2', 'r', 'r0'] : ['a', 'b', 'b0', 'c']).includes(r.arm));
+  let seed = RW ? 20261005 : 20261003; const rnd = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 2 ** 32);
+  const pool = rows.filter((r) => (RW ? ['a2', 'r', 'rj', 'rj0'] : ['a', 'b', 'b0', 'c']).includes(r.arm));
   // 每个脚本 6 份：a、b、b0、c 各一份 + 两份轮转的额外臂；全局每臂 ≥ 7 份、每脚本 6 份（audit.md：每臂 ≥ 6、每脚本 ≥ 4）。
-  const ARMS = RW ? ['a2', 'r', 'r0'] : ['a', 'b', 'b0', 'c']; const pick: any[] = [];
-  SCRIPTS.forEach((sc, si) => { const arms = RW ? ['r', 'r', 'r0', 'r0', 'a2', 'a2'].map((x, i) => (si % 2 === 0 ? x : ['r0', 'r', 'a2', 'r', 'a2', 'r0'][i])) : [...ARMS, ARMS[(si * 2) % 4], ARMS[(si * 2 + 1) % 4]];
+  const ARMS = RW ? ['a2', 'r', 'rj', 'rj0'] : ['a', 'b', 'b0', 'c']; const pick: any[] = [];
+  SCRIPTS.forEach((sc, si) => { const arms = RW ? ['r', 'r', 'rj', 'rj', 'rj0', 'rj0', 'a2', 'a2'] : [...ARMS, ARMS[(si * 2) % 4], ARMS[(si * 2 + 1) % 4]];
     for (const arm of arms) { const c = pool.filter((r) => r.arm === arm && r.script === sc.id && !pick.includes(r)); pick.push(c[Math.floor(rnd() * c.length)]); } });
   const out = pick.map((r, k) => ({ k, arm: r.arm, voice: r.voice, script: r.script, rep: r.rep, final: r.final, mech: (({ items, forb, unknown, ...m }) => ({ ...m, items: Object.fromEntries(items.map((i: any) => [i.i.id, i.ok])), forb: Object.fromEntries(forb.map((f: any) => [f.f.id, f.hit])), unknown }))(scoreRow(r)) }));
   writeFileSync(RW ? '/tmp/s2rw-audit-in.json' : '/tmp/s2-audit-in.json', JSON.stringify(out, null, 1)); console.log(`wrote ${out.length} samples; arms ${JSON.stringify(Object.fromEntries(ARMS.map((a) => [a, out.filter((o) => o.arm === a).length])))}; scripts ${JSON.stringify(Object.fromEntries(SCRIPTS.map((s) => [s.id, out.filter((o) => o.script === s.id).length])))}`);
@@ -74,7 +76,7 @@ if (mode === 'show') {
   const raw = SCRIPTS.map((s) => scoreRow({ script: s.id, final: s.units.map((u) => u.text).join('\n') }));
   console.log(`raw-script (negative control): recall ${pct(mean(raw.map((x) => x.recall)))} leak ${pct(mean(raw.map((x) => x.leak)))}\n`);
   const S: Record<string, ReturnType<typeof summarize>> = {};
-  for (const arm of (RW ? ['a2', 'r', 'r0', 'gr'] : ['a', 'b', 'b0', 'c', 'ga', 'gb'])) { if (!armRows(arm).length) continue; S[arm] = summarize(arm); const x = S[arm];
+  for (const arm of (RW ? ['a2', 'r', 'r0', 'gr', 'rj', 'rj0', 'gj'] : ['a', 'b', 'b0', 'c', 'ga', 'gb'])) { if (!armRows(arm).length) continue; S[arm] = summarize(arm); const x = S[arm];
     console.log(`${arm.padEnd(3)} runs=${x.runs}  recall ${pct(x.recall)}  leak ${pct(x.leak)}  early ${pct(x.early)}  ident ${pct(x.ident)}  unknown-name ${pct(x.unknownRate)}  opValid ${pct(x.opValid)}  upd p50/p90 ${x.updP50}/${x.updP90}ms  cmdLeak ${pct(x.cmdLeak)}  nearmiss ${pct(x.nearmiss)}`); }
   const a = S[N.a], b = S[N.b], b0 = S[N.b0], gb = S[N.gb];
   if (b && a) {
