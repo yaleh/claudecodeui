@@ -1,7 +1,7 @@
 ---
 id: AC-192
 title: 计划表：由 Stop hook 的 session_crons 与工具结果得到 cron 与唤醒，计算下次触发，触发后消失
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-015
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -26,6 +26,11 @@ statusLog:
     to: active
     actor: goal-cli
     reason: ""
+  - at: 2026-10-03T17:42:24.835Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: not-evaluated
   reason: no judge configured
