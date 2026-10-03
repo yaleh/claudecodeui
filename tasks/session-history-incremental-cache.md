@@ -1,7 +1,7 @@
 ---
 id: session-history-incremental-cache
 title: AC-211 服务端历史缓存增量化：转录追加只解析新增尾部，结果与全量解析相等
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -27,10 +27,10 @@ goal_ac: AC-211
 
 ## AC
 
-- [ ] AC1 判据绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/session-history-incremental-cache.test.ts` 退出 0。红态基线：测试文件不存在。
-- [ ] AC2 取假形态必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行与恢复命令）：(a) 追加后仍整文件解析 ⇒ 字节计数断言红；(b) 增量并入但不重做跨边界的工具结果折叠 ⇒ 深度相等红；(c) 前缀被改写后仍返回旧缓存 ⇒ 回落断言红。
-- [ ] AC3 既有行为不变：`npx tsx --tsconfig server/tsconfig.json --test "server/modules/providers/tests/*.test.ts"` 中与 session history、sessions.service、provider.routes 相关的既有用例全部保持绿，写下运行的文件清单。
-- [ ] AC4 `npm run typecheck` 与 `npm run lint` 退出 0；`git diff --stat` 与 `## Touches` 逐条对齐。
+- [x] AC1 判据绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/session-history-incremental-cache.test.ts` 退出 0。红态基线：测试文件不存在。
+- [x] AC2 取假形态必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行与恢复命令）：(a) 追加后仍整文件解析 ⇒ 字节计数断言红；(b) 增量并入但不重做跨边界的工具结果折叠 ⇒ 深度相等红；(c) 前缀被改写后仍返回旧缓存 ⇒ 回落断言红。
+- [x] AC3 既有行为不变：`npx tsx --tsconfig server/tsconfig.json --test "server/modules/providers/tests/*.test.ts"` 中与 session history、sessions.service、provider.routes 相关的既有用例全部保持绿，写下运行的文件清单。
+- [x] AC4 `npm run typecheck` 与 `npm run lint` 退出 0；`git diff --stat` 与 `## Touches` 逐条对齐。
 
 ## DoD
 
@@ -45,3 +45,16 @@ goal_ac: AC-211
 - server/modules/providers/list/claude/claude-sessions.provider.ts
 - server/modules/providers/tests/session-history-incremental-cache.test.ts (new)
 - tasks/session-history-incremental-cache.md
+
+## Evidence
+
+worker 实测 2026-10-04（实现提交 8f7a2642）：
+
+- AC1：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/session-history-incremental-cache.test.ts` 退出 0（tests 5 / pass 5 / fail 0）。
+- AC2 假形态（先提交实现再变异，逐条 `git checkout -- server/modules/providers/list/claude/claude-sessions.provider.ts` 恢复；恢复后复跑判据 5 pass）：
+  - (a) 追加后仍整文件解析：变异 `readClaudeTranscriptRows` 的 resume 守卫为 `false && context?.previous && …`。失败行逐字：`AssertionError [ERR_ASSERTION]: expected <= 518 bytes parsed, got 919`（追加 454 字节，实读 919 = 整文件）。
+  - (b) 增量并入但不重做跨边界折叠：变异为 resumed 读取时跳过 `fetchHistory` 的 toolResult 折叠。失败行逐字：`AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal`（增量结果 vs 全量对照臂）。
+  - (c) 前缀被改写后仍返回旧缓存：变异为跳过 `resumeClaudeTranscript` 的前缀 digest 比对。失败行逐字：`AssertionError [ERR_ASSERTION]: a prefix rewrite must re-parse the whole file`（actual 211，expected 644）。
+- AC3 既有行为不变，运行的文件清单：session-history-cache.service.test.ts、sessions.service.test.ts、sessions-details.test.ts、provider.routes.test.ts、provider-attachment-history.test.ts、claude-sessions.test.ts、codex-sessions.test.ts（70 pass / 0 fail）；opencode-sessions.test.ts、claude-compaction.test.ts、claude-background-work.test.ts、claude-subagent-echo.test.ts、session-fork.test.ts、provider-runtime.service.test.ts、provider-token-usage.service.test.ts、session-synchronizer-coalescing.test.ts（52 pass / 0 fail）。
+- AC4：`npx tsc --noEmit -p server/tsconfig.json` 退出 0；`npm run lint` 退出 0；`git diff --stat develop...HEAD` 仅列 Touches 三文件（claude-sessions.provider.ts、session-history-cache.service.ts、session-history-incremental-cache.test.ts）。
+- scoped 门：`bash scripts/test.sh --for-task session-history-incremental-cache --allow-thin` 退出 0。

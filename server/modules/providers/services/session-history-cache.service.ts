@@ -14,10 +14,11 @@ import type { FetchHistoryResult } from '@/shared/types.js';
  *
  * Entries are keyed by app session id and validated with one `stat` per
  * request against the transcript file's identity (path + mtime + size), so
- * only the first read after the file changes pays the parse. Anything that
- * rewrites history (a new turn, an edit, a rewind, a fork) touches the file
- * and invalidates naturally; no explicit invalidation hooks exist or are
- * needed.
+ * only the first read after the file changes pays the parse. A reader that can
+ * resume from a byte offset leaves a token on its entry (`resume`) and is
+ * handed it back through a per-load context on the next reload, so a plain
+ * append re-parses only the new tail; anything else (truncation, rewrite,
+ * mtime backwards) makes the reader fall back and it re-parses the file whole.
  *
  * Only history readers that read `jsonl_path` itself may use this cache —
  * callers pass `transcriptPath: null` for providers whose messages live
@@ -31,6 +32,12 @@ type CacheEntry = {
   /** File size in bytes; doubles as the entry's cost against the byte budget. */
   size: number;
   full: FetchHistoryResult;
+  /**
+   * Opaque parse state the reader returned for `full`, handed back to it on the
+   * next reload so a plain append can resume from the previous offset. Absent
+   * when the reader cannot resume.
+   */
+  resume?: unknown;
 };
 
 type GetFullHistoryArgs = {
@@ -40,6 +47,34 @@ type GetFullHistoryArgs = {
   /** Loads the complete transcript (`limit: null, offset: 0`) from the provider. */
   loadFull: () => Promise<FetchHistoryResult>;
 };
+
+/**
+ * Per-session scratch the cache publishes around one full read.
+ *
+ * `getFullHistory` installs one immediately before calling the reader's
+ * `loadFull`, and removes it once the read settles. A reader that can resume
+ * from a byte offset calls `takeHistoryLoadContext(sessionId)` to read
+ * `previous` (the parse state the entry being replaced carried) and to publish
+ * the state its own parse produced on `producedResume`. Readers that cannot
+ * resume ignore it, and a read that did not go through the cache finds none.
+ */
+export type HistoryLoadContext = {
+  previous: { resume: unknown; size: number; mtimeMs: number } | null;
+  producedResume: unknown;
+};
+
+const loadContexts = new Map<string, HistoryLoadContext>();
+
+/**
+ * Returns the in-flight load context for `sessionId`, or null when no cache
+ * reload is in flight for it.
+ *
+ * Consumed by `claude-sessions.provider`'s history reader. The returned object
+ * is live: a reader hands its resume token back by assigning `producedResume`.
+ */
+export function takeHistoryLoadContext(sessionId: string): HistoryLoadContext | null {
+  return loadContexts.get(sessionId) ?? null;
+}
 
 /**
  * A transcript entry's heap cost is roughly the file it was parsed from, so
@@ -115,17 +150,34 @@ export function createSessionHistoryCache(
         return pending;
       }
 
-      const load = loadFull().then((full) => {
-        entries.delete(sessionId);
-        entries.set(sessionId, {
-          transcriptPath,
-          mtimeMs: stat.mtimeMs,
-          size: stat.size,
-          full,
+      // The reader sees the entry being replaced (its resume, size and mtime)
+      // and can publish the state its own parse produced. Installed before the
+      // load starts and removed once it settles, so a reader invoked outside
+      // the cache — a direct provider read — finds nothing and parses whole.
+      const context: HistoryLoadContext = {
+        previous: cached
+          ? { resume: cached.resume, size: cached.size, mtimeMs: cached.mtimeMs }
+          : null,
+        producedResume: undefined,
+      };
+      loadContexts.set(sessionId, context);
+
+      const load = loadFull()
+        .then((full) => {
+          entries.delete(sessionId);
+          entries.set(sessionId, {
+            transcriptPath,
+            mtimeMs: stat.mtimeMs,
+            size: stat.size,
+            full,
+            resume: context.producedResume,
+          });
+          evictOverBudget();
+          return full;
+        })
+        .finally(() => {
+          loadContexts.delete(sessionId);
         });
-        evictOverBudget();
-        return full;
-      });
       pendingLoads.set(sessionId, load);
       try {
         return await load;

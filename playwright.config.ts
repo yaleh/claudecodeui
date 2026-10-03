@@ -409,6 +409,11 @@ const RUN_CEILING_MS = selectedSpecFiles().reduce(
  * (voice-trim, ~42s) and still land its line before the gate's kill: 55s + the 2s diagnosis probe + ~0.6s of
  * process start-up puts the line on stdout at ~57.6s, ~2.4s inside 60s.
  *
+ * The 0.6s config-evaluation-and-seeding reading is re-measured when a new seed is added, because a seeding
+ * stage that grew could push a run's start past the ceilings above. Adding `seedTranscriptJumpTranscript` (a
+ * 1200-turn, 1.66 MB JSONL) measured, as the median of 7 fresh config evaluations on 2026-10-04: 0.465s without
+ * it, 0.472s with it — a ~7ms delta, against the 2s the seed task budgets for this stage.
+ *
  * The run ceiling itself is the sum of the selected specs' budgets, computed above; for the one-file invocation
  * the gate makes, that sum is `SINGLE_SPEC_CEILING_MS` and nothing about it changed.
  */
@@ -715,6 +720,111 @@ const seedTranscriptFollowTranscript = () => {
 
   fs.writeFileSync(
     path.join(transcriptDir, `${TRANSCRIPT_FOLLOW_SESSION_ID}.jsonl`),
+    `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
+    'utf8',
+  );
+};
+
+/** Workspace the long-session seed owns; its own directory so no other spec's project list picks this session up. */
+const TRANSCRIPT_JUMP_WORKSPACE = path.join(dataDir, 'transcript-jump-workspace');
+/** Session id the long-session criteria address, and the display name they look its sidebar row up by. */
+const TRANSCRIPT_JUMP_SESSION_ID = 'e2e-transcript-jump';
+const TRANSCRIPT_JUMP_SESSION_NAME = 'transcript-jump';
+/** User turns the fixture carries — far past the "longer than the first screen" premise of GOAL-017's criteria. */
+const TRANSCRIPT_JUMP_TURNS = 1200;
+/**
+ * The displayed number of the first of the two adjacent user turns that share one millisecond.
+ *
+ * 1-indexed, matching the row text ("Turn 600. …"): the 600th turn and the 601st are the tie. The smoke spec
+ * reads the pair back and asserts one timestamp with two ids.
+ */
+const TRANSCRIPT_JUMP_TIE_TURN = 600;
+
+/**
+ * Seeds the long transcript e2e/transcript-long-session-seed.spec.ts measures, here rather than from a spec.
+ *
+ * Same reason as every seed above: the backend scans ~/.claude/projects at boot and only then starts its file
+ * watcher with `ignoreInitial`, so a transcript written while a test runs is picked up by the watcher and
+ * broadcast as a session_upserted instead of being indexed quietly.
+ *
+ * One user turn draws FOUR rows: the prompt, the assistant's reply text, an assistant thinking row, and an
+ * assistant tool call whose `tool_result` is carried back on the call (a separate record, which the history
+ * reader folds into its call rather than drawing a second time — see `prepareTranscriptMessages`). That density
+ * is deliberate. `total` from `GET /api/providers/sessions/:id/messages` is 4 × turns = 4800, exactly the floor
+ * the smoke spec asserts and the mutation AC breaks by lowering the turn count. A sparse cadence (the "every
+ * 7th tool / every 50th thinking" shape) draws only ~2.2 rows per turn — ~2600 at this turn count — which cannot
+ * clear a 4800 floor, so here every turn carries the work rows and the floor is met by construction.
+ *
+ * Turns are 1-indexed in the row text, and the 600th and 601st carry the same millisecond so a same-instant
+ * locator has a real tie to find; their ids stay distinct, which is what lets the criterion tell "same instant"
+ * apart from "same row". The file is a real Claude JSONL, indexed by the backend's own synchronizer — no request
+ * is stubbed. Bodies are plain paragraphs (no code blocks, no images) so nothing reflows after the first paint.
+ */
+const seedTranscriptJumpTranscript = () => {
+  fs.mkdirSync(TRANSCRIPT_JUMP_WORKSPACE, { recursive: true });
+  const transcriptDir = path.join(dataDir, '.claude', 'projects', 'transcript-jump-workspace');
+  fs.mkdirSync(transcriptDir, { recursive: true });
+
+  const startedAt = Date.now();
+  const paragraph = 'The transcript keeps a short paragraph here so no late reflow moves a measurement. ';
+  const records: Record<string, unknown>[] = [];
+  let parentUuid: string | null = null;
+  let tick = 0;
+
+  /** One JSONL record. `timestampOverride` is how the tie pair shares a millisecond without sharing an id. */
+  const append = (
+    role: 'user' | 'assistant',
+    content: Record<string, unknown>[],
+    timestampOverride?: string,
+  ) => {
+    const uuid = `e2e-transcript-jump-${tick}`;
+    const timestamp = timestampOverride ?? new Date(startedAt + tick * 1_000).toISOString();
+    records.push({
+      type: role,
+      uuid,
+      parentUuid,
+      sessionId: TRANSCRIPT_JUMP_SESSION_ID,
+      cwd: TRANSCRIPT_JUMP_WORKSPACE,
+      timestamp,
+      message: { role, content },
+    });
+    parentUuid = uuid;
+    tick += 1;
+    return timestamp;
+  };
+
+  let tieTimestamp: string | null = null;
+  for (let turn = 0; turn < TRANSCRIPT_JUMP_TURNS; turn += 1) {
+    const display = turn + 1;
+    // The tie: the 601st turn's prompt reuses the 600th's millisecond. Its uuid — and so its message id — is
+    // still its own, which is the whole of what the criterion reads.
+    const userTimestamp = display === TRANSCRIPT_JUMP_TIE_TURN + 1 && tieTimestamp !== null
+      ? tieTimestamp
+      : new Date(startedAt + tick * 1_000).toISOString();
+    append('user', [{ type: 'text', text: `Turn ${display}. ${paragraph}` }], userTimestamp);
+    if (display === TRANSCRIPT_JUMP_TIE_TURN) {
+      tieTimestamp = userTimestamp;
+    }
+
+    const toolId = `e2e-transcript-jump-tool-${display}`;
+    append('assistant', [
+      { type: 'text', text: `Reply ${display}. ${paragraph}` },
+      { type: 'thinking', thinking: `Considering turn ${display} before answering.` },
+      { type: 'tool_use', id: toolId, name: 'Bash', input: { command: `echo turn-${display}` } },
+    ]);
+    append('user', [{ type: 'tool_result', tool_use_id: toolId, content: `turn-${display} output` }]);
+  }
+
+  records.push({
+    type: 'custom-title',
+    sessionId: TRANSCRIPT_JUMP_SESSION_ID,
+    cwd: TRANSCRIPT_JUMP_WORKSPACE,
+    timestamp: new Date(startedAt + tick * 1_000).toISOString(),
+    customTitle: TRANSCRIPT_JUMP_SESSION_NAME,
+  });
+
+  fs.writeFileSync(
+    path.join(transcriptDir, `${TRANSCRIPT_JUMP_SESSION_ID}.jsonl`),
     `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
     'utf8',
   );
@@ -1456,6 +1566,7 @@ if (isDataDirOwner) {
   seedViteCache(viteCacheDir);
   seedSessionFilterTranscripts();
   seedTranscriptFollowTranscript();
+  seedTranscriptJumpTranscript();
   seedVoiceIdentifierWorkspace();
   seedVoiceTrimWorkspace();
   seedVoiceDashscopeWorkspace();

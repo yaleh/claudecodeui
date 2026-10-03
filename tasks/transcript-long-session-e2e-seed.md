@@ -1,7 +1,7 @@
 ---
 id: transcript-long-session-e2e-seed
 title: e2e 种子：一个 ≥1000 用户轮次、含同毫秒轮次与工具行的长会话，供 GOAL-017 的四条真实浏览器判据共用
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -23,10 +23,10 @@ GOAL-017 的 AC-213 至 AC-216 都要在真实浏览器里面对一个「远长�
 
 ## AC
 
-- [ ] AC1 冒烟绿：`npx playwright test e2e/transcript-long-session-seed.spec.ts -g "AC-seed"` 退出 0。红态基线：spec 文件不存在，playwright 报 No tests found。
-- [ ] AC2 取假形态必须红：(a) 把轮次数降到 24 ⇒ total 断言红；(b) 把第 601 轮的 timestamp 改成不同毫秒 ⇒ 同毫秒断言红。逐条记录变异 diff 与逐字失败行，恢复后重新绿。
-- [ ] AC3 `npm run typecheck` 与 `npm run lint` 退出 0；`git diff --stat` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）。
-- [ ] AC4 冷启动预算：加上该种子后，一次 `npx playwright test e2e/transcript-follow.spec.ts` 的配置求值加种子阶段耗时增量 ≤ 2s（读 playwright.config.ts 头注释里记录的静默基线，写下实测前后读数）。
+- [x] AC1 冒烟绿：`npx playwright test e2e/transcript-long-session-seed.spec.ts -g "AC-seed"` 退出 0。红态基线：spec 文件不存在，playwright 报 No tests found。
+- [x] AC2 取假形态必须红：(a) 把轮次数降到 24 ⇒ total 断言红；(b) 把第 601 轮的 timestamp 改成不同毫秒 ⇒ 同毫秒断言红。逐条记录变异 diff 与逐字失败行，恢复后重新绿。
+- [x] AC3 `npm run typecheck` 与 `npm run lint` 退出 0；`git diff --stat` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）。
+- [x] AC4 冷启动预算：加上该种子后，一次 `npx playwright test e2e/transcript-follow.spec.ts` 的配置求值加种子阶段耗时增量 ≤ 2s（读 playwright.config.ts 头注释里记录的静默基线，写下实测前后读数）。
 
 ## DoD
 
