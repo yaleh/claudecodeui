@@ -857,6 +857,47 @@ export type NormalizedMessage = {
 
 // ---------------------------
 
+//----------------- SESSION TURN OUTLINE ------------
+
+/**
+ * One user turn in a session's outline, as `GET /api/providers/sessions/:id/outline`
+ * reports it.
+ *
+ * The outline is the navigation rail's index of a conversation: every user
+ * prompt, in transcript order, including the parts a client has never loaded.
+ * `index` is the turn's *absolute* position in the full normalized history —
+ * the subscript of the message in the same array the paginated messages route
+ * slices — so it is stable when new turns are appended to the end; a tail
+ * offset would move for every already-drawn turn on each append.
+ */
+export type SessionTurnOutlineTurn = {
+  /** `transcriptAnchorId` when the provider has one, else the synthesized message id. */
+  id: string;
+  /** Absolute 0-based subscript of this message in the full normalized history. */
+  index: number;
+  /** The provider transcript row's timestamp. */
+  timestamp: string;
+  /** The first ~80 characters of the turn's text, with line breaks flattened to spaces. */
+  preview: string;
+};
+
+/**
+ * The full outline response: the number of normalized messages in the session
+ * (`total`, identical to the paginated messages route's `total`) and every user
+ * turn found within them.
+ *
+ * Mirrored by the backend service's own return shape in
+ * `server/modules/providers/services/sessions.service.ts`; the two trees keep
+ * separate copies of the shared declaration so the server build never pulls the
+ * browser's React/i18next types.
+ */
+export type SessionTurnOutline = {
+  total: number;
+  turns: SessionTurnOutlineTurn[];
+};
+
+// ---------------------------
+
 //----------------- COMMAND LIFECYCLE ------------
 
 /**
