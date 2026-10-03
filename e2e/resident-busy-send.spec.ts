@@ -73,7 +73,7 @@ const ALL_LOCALES = fs.readdirSync(LOCALES_ROOT, { withFileTypes: true })
 
 /** The chat pane, the same anchor transcript-follow uses to know the session actually opened. */
 const PANE = '.chat-messages-pane';
-/** The composer's form. The submit button is inside it; the floating activity tab is not. */
+/** The composer's form. The submit button is inside it; the status line lives in the transcript. */
 const FORM = 'form[data-slot="prompt-input"]';
 const TEXTAREA = '[data-slot="prompt-input-textarea"]';
 /** The activity dock, whose state attribute says the process is mid-turn. */
@@ -242,9 +242,11 @@ function chatKey(keyPath: string): string {
 /**
  * The composer's submit button, addressed by the label it actually carries.
  *
- * Scoped to the form on purpose: the floating activity tab is a sibling of the form inside the same
- * composer shell and its abort control can carry the same word ("Stop"), so a search that started at
- * the shell would match two buttons and prove nothing about which one was pressed.
+ * Scoped to the form on purpose: the composer's shell also holds controls that can carry a
+ * similar word, so a search that started at the shell could match more than the submit and prove
+ * nothing about which one was pressed. The activity tab that used to be the second "Stop" beside
+ * it is gone — the submit is the one stop entry — but the form scoping keeps this locator
+ * unambiguous by construction rather than by a count that could drift.
  */
 function composerButton(page: Page, label: string): Locator {
   const escaped = label.replace(/\\/g, '\\\\').replace(/"/g, '\\"');

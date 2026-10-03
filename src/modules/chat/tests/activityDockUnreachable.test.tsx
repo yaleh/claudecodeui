@@ -122,16 +122,14 @@ afterEach(() => {
 });
 
 describe('the activity dock under a partition', () => {
-  test('unreachable: the six words are gone, the clock is frozen, and the stop is disabled with a reason', () => {
+  test('unreachable: the six words are gone, the clock is frozen, and the dock offers no interrupt control', () => {
     const readings: string[] = [];
-    const onAbort = vi.fn();
     const { connection, push } = makeConnection();
     const view = render(
       React.createElement(ActivityIndicator, {
         activity: ACTIVITY,
         sessionId: SESSION_ID,
         connection,
-        onAbort,
       }),
     );
 
@@ -188,23 +186,24 @@ describe('the activity dock under a partition', () => {
       `the elapsed text must read the same across local time; readings: ${readings.join(' | ')}`,
     );
 
-    // The stop stays on screen, disabled, with a non-empty reason.
-    const stop = within(dock).getByRole('button', { name: /stop/i });
-    const reason = stop.getAttribute('title') ?? '';
-    readings.push(`stop: disabled=${stop.hasAttribute('disabled')} reason="${reason}"`);
-    assert.ok(
-      stop.hasAttribute('disabled'),
-      `the stop must carry the disabled attribute while unreachable; readings: ${readings.join(' | ')}`,
+    // The dock has no interrupt control at all any more, on any tier: the composer's
+    // submit button is the one stop entry. What the unreachable state still owes the
+    // reader is the connection's own sentence — asserted above, where the frozen
+    // elapsed and the absence of the six words are read. (The main button's disabled
+    // state and its visible reason are pinned in `chatComposerResponsive.test.tsx`,
+    // on the control that actually carries them.)
+    const stops = within(dock).queryAllByRole('button', { name: /stop/i });
+    readings.push(`stop controls in the dock=${stops.length}`);
+    assert.equal(
+      stops.length,
+      0,
+      `the dock must carry no interrupt control — the composer's submit is the one stop entry; readings: ${readings.join(' | ')}`,
     );
-    assert.ok(
-      reason.trim().length > 0,
-      `the disabled stop must explain itself; readings: ${readings.join(' | ')}`,
+    assert.equal(
+      (dock.outerHTML.match(/aria-label/gi) ?? []).length,
+      0,
+      `the dock must expose no named control at all; readings: ${readings.join(' | ')}`,
     );
-    assert.ok(
-      text.includes(enChat.claudeStatus.unreachable.stopReason),
-      `the reason must be visible in the dock's text; readings: ${readings.join(' | ')}`,
-    );
-    assert.equal(onAbort.mock.calls.length, 0, 'a disabled stop must not fire');
   });
 
   test('a failed send is a state of its own, and a live turn is never relabelled by it', () => {
@@ -273,7 +272,6 @@ describe('the activity dock under a partition', () => {
         activity: ACTIVITY,
         sessionId: SESSION_ID,
         connection,
-        onAbort: () => undefined,
       }),
     );
 

@@ -365,7 +365,6 @@ function HeldSessionView({
         onTextareaPaste={composerState.handlePaste}
         onTextareaScrollSync={composerState.syncInputOverlayScroll}
         onTextareaInput={composerState.handleTextareaInput}
-        isInputFocused={composerState.isInputFocused}
         onInputFocusChange={composerState.handleInputFocusChange}
         placeholder="Ask anything"
         isTextareaExpanded={composerState.isTextareaExpanded}

@@ -7,6 +7,7 @@ import { initReactI18next } from 'react-i18next';
 import { afterEach, beforeEach, describe, test, vi } from 'vitest';
 
 import ActivityIndicator from '@/modules/chat/composer/ActivityIndicator';
+import ChatComposer from '@/modules/chat/composer/ChatComposer';
 import ChatMessagesPane from '@/modules/chat/transcript/ChatMessagesPane';
 import { UiPreferencesProvider } from '@/shared/context/UiPreferencesContext';
 import enChat from '@/modules/i18n/locales/en/chat.json';
@@ -22,19 +23,20 @@ import type {
 } from '@/shared/types';
 
 /**
- * The running turn's status has two surfaces and one story.
+ * The running turn's status is one surface at every viewport.
  *
- * From `md` up it is the tab-shaped indicator the composer hangs off the input's
+ * From `md` up it used to be a tab-shaped strip the composer hung off the input's
  * top edge — floating, and therefore over the transcript, which is why the pane
- * reserved space for it. Below `md` that tab is not rendered at all: the status
- * moves into the message flow as a compact line at the end of the list, so it can
- * never cover a message, and it carries no Stop — the composer's submit button is
- * the one stop entry on that layout.
+ * reserved space for it — and below `md` a compact line at the end of the list.
+ * Those were two mount sites for one component, and the pair could disagree. They
+ * are one surface now: an in-flow status line at the end of the message flow, at
+ * every width and height, carrying no control of its own. The composer's submit
+ * button is the one stop entry on every tier.
  *
  * jsdom parses no Tailwind and lays nothing out, so what these cases read is what
- * the DOM can answer: which surface exists at which width, what each surface
- * contains, where the inline line sits in the document, and which classes the
- * pane's padding is built from. The tier is switched by the signal the components
+ * the DOM can answer: which surface exists at which width, what it contains,
+ * where the inline line sits in the document, and which classes the pane's
+ * padding is built from. The tier is switched by the signal the components
  * themselves read — `window.innerWidth` against the `md` boundary — so an
  * implementation that switched on some other signal would take the same branch
  * here and these cases would pass against a second copy of the rule. That the real
@@ -124,8 +126,7 @@ const TALL_HEIGHT = 900;
 
 /**
  * The device the render is on. The short tier reads this beside the height, so the double has to
- * answer it: one that said "no" to every query would leave the tier unreachable and the cell below
- * that asserts where the short tier puts the dock would be reading the tall arrangement instead.
+ * answer it: one that said "no" to every query would leave the tier unreachable.
  */
 const device = { touchOnly: false };
 const TOUCH_ONLY_QUERY = '(pointer: coarse) and (hover: none)';
@@ -151,10 +152,9 @@ const installMatchMedia = () => {
  *
  * The two surfaces this file used to tell apart — the composer's tab-shaped
  * strip and the transcript's compact in-flow line — are one component behind one
- * attribute now. Which *mount site* draws it is still a real question, and it is
- * answered by where the marker sits: inside the pane's scroll column below `md`,
- * in the composer from `md` up. What is no longer possible is for the two to be
- * two different things: there is no second slot to find and no variant to pick.
+ * attribute now, and one mount site: the pane's scroll column. What is no longer
+ * possible is for the two to be two different things: there is no second slot to
+ * find and no variant to pick.
  */
 const DOCK = '[data-activity-dock]';
 const PANE_SELECTOR = '.chat-messages-pane';
@@ -252,6 +252,99 @@ const renderPane = (
   return { view, pane };
 };
 
+/**
+ * The composer's own props, only as far as a render with no transcript beside it
+ * needs them. This case reads only whether the composer's subtree contains a
+ * dock — the composer no longer knows the surface exists.
+ */
+const composerProps = () => ({
+  pendingPermissionRequests: [],
+  handlePermissionDecision: () => undefined,
+  handleGrantToolPermission: () => ({ success: true }),
+  activity: ACTIVITY,
+  isLoading: true,
+  onAbortSession: () => undefined,
+  permissionMode: 'default',
+  availablePermissionModes: ['default'],
+  onSelectPermissionMode: () => undefined,
+  providerLabel: 'Claude',
+  effort: 'medium',
+  availableEffortOptions: [{ value: 'low' }, { value: 'medium' }, { value: 'high' }],
+  onSelectEffort: () => undefined,
+  model: 'claude-sonnet-4-5-20250929',
+  availableModelOptions: [{ value: 'claude-sonnet-4-5-20250929', label: 'claude-sonnet-4-5-20250929' }],
+  onSelectModel: () => undefined,
+  modelsLoading: false,
+  tokenBudget: null,
+  onShowTokenUsage: () => undefined,
+  slashCommandsCount: 0,
+  onToggleCommandMenu: () => undefined,
+  hasInput: false,
+  onClearInput: () => undefined,
+  onSubmit: () => undefined,
+  isDragActive: false,
+  queuedDraft: null,
+  isEditingSentMessage: false,
+  onCancelEditMessage: () => undefined,
+  scheduledMessages: [],
+  onScheduleMessage: () => undefined,
+  onCancelScheduledMessage: () => undefined,
+  onEditQueuedDraft: () => undefined,
+  onDeleteQueuedDraft: () => undefined,
+  attachedFiles: [],
+  onRemoveAttachment: () => undefined,
+  fileErrors: new Map<string, string>(),
+  showFileDropdown: false,
+  filteredFiles: [],
+  selectedFileIndex: 0,
+  onSelectFile: () => undefined,
+  filteredCommands: [],
+  selectedCommandIndex: 0,
+  onCommandSelect: () => undefined,
+  onCloseCommandMenu: () => undefined,
+  isCommandMenuOpen: false,
+  frequentCommands: [],
+  getRootProps: () => ({}),
+  getInputProps: () => ({}),
+  openAttachmentPicker: () => undefined,
+  inputHighlightRef: { current: null },
+  renderInputWithMentions: () => null,
+  textareaRef: { current: null },
+  input: '',
+  onVoiceTranscript: () => undefined,
+  scope: 'session-a',
+  projectId: null,
+  isActive: true,
+  onInputChange: () => undefined,
+  onTextareaClick: () => undefined,
+  onTextareaKeyDown: () => undefined,
+  onTextareaPaste: () => undefined,
+  onTextareaScrollSync: () => undefined,
+  onTextareaInput: () => undefined,
+  placeholder: 'Ask anything',
+  isTextareaExpanded: false,
+});
+
+const renderComposer = (width: number) => {
+  setViewportWidth(width);
+  setViewportHeight(TALL_HEIGHT);
+  device.touchOnly = false;
+  return render(
+    <UiPreferencesProvider>
+      <ChatComposer {...(composerProps() as React.ComponentProps<typeof ChatComposer>)} />
+    </UiPreferencesProvider>,
+  );
+};
+
+// The real voice hooks ask the backend whether a provider is configured; the
+// composer render below is about the status surface, not the mic, so the two
+// hooks are doubled the way the composer's own responsive file doubles them.
+vi.mock('@/modules/chat/hooks/useVoiceAvailable', () => ({ useVoiceAvailable: () => false }));
+vi.mock('@/shared/voiceDebug', () => ({
+  isVoiceDebugEnabled: () => false,
+  isVoiceTrimEnabled: () => false,
+}));
+
 await i18next.use(initReactI18next).init({
   lng: 'en',
   fallbackLng: 'en',
@@ -265,6 +358,8 @@ await i18next.use(initReactI18next).init({
 beforeEach(() => {
   installMatchMedia();
   setViewportWidth(WIDE_DESKTOP_WIDTH);
+  setViewportHeight(TALL_HEIGHT);
+  device.touchOnly = false;
   vi.useFakeTimers({ now: START });
 });
 
@@ -275,12 +370,11 @@ afterEach(() => {
 /** Every accessible button whose name says stop, inside a subtree — the reading the criterion counts. */
 const stopButtons = (root: HTMLElement) => within(root).queryAllByRole('button', { name: /stop/i });
 
-test('(a) a dock with no abort handler reads the activity and offers no control', () => {
-  // The reading below `md`: the pane mounts the same dock the composer does, but
-  // hands it no interrupt handler, because that layout's one stop entry is the
-  // composer's own submit. A dock that drew a control anyway would be a second
-  // one, and that is the count this case exists to keep at zero.
-  const onAbort = vi.fn();
+test('(a) the status line reads the activity and the elapsed time, and offers no control', () => {
+  // At every viewport the running turn is drawn the same way: an in-flow line
+  // that carries no interrupt control, because the composer's submit is the one
+  // stop entry. A dock that drew a control anyway would be a second one, and that
+  // is the count this case exists to keep at zero.
   const { connection, push } = makeConnection();
   const view = render(
     React.createElement(ActivityIndicator, {
@@ -294,158 +388,37 @@ test('(a) a dock with no abort handler reads the activity and offers no control'
   assert.ok(row, `the dock must render a status line (${DOCK}); DOM: ${view.container.innerHTML.slice(0, 400)}`);
 
   const text = row.textContent ?? '';
-  assert.ok(text.includes('Reviewing'), `the dock must name the activity; it reads "${text}"`);
-  assert.ok(text.includes('0s'), `the dock must show the elapsed time; it reads "${text}"`);
+  assert.ok(text.includes('Reviewing'), `the status line must name the activity; it reads "${text}"`);
+  assert.ok(text.includes('0s'), `the status line must show the elapsed time; it reads "${text}"`);
 
   const found = stopButtons(row);
   assert.equal(
     found.length,
     0,
-    `a dock handed no abort handler must carry no Stop — the composer's submit button is the one stop entry below md; it carries ${found.length}: ${row.outerHTML}`,
+    `no status line may carry a Stop — the composer's submit button is the one stop entry; it carries ${found.length}: ${row.outerHTML}`,
   );
   assert.equal(
     (row.outerHTML.match(/aria-label/gi) ?? []).length,
     0,
-    `with no abort handler and no resident panel the dock must expose no named control at all; it reads ${row.outerHTML}`,
-  );
-  assert.equal(onAbort.mock.calls.length, 0, 'and nothing it draws can call one');
-});
-
-test('(b) the dock handed an abort handler carries the activity text, the Stop and the Esc hint', () => {
-  const onAbort = vi.fn();
-  const { connection, push } = makeConnection();
-  const view = render(
-    React.createElement(ActivityIndicator, { activity: ACTIVITY, sessionId: SESSION_ID, connection, onAbort }),
-  );
-  push(subscribedFrame());
-  const text = view.container.textContent ?? '';
-
-  assert.ok(text.includes('Reviewing'), `the tab must name the activity; it reads "${text}"`);
-  assert.ok(text.includes('0s'), `the tab must show the elapsed time; it reads "${text}"`);
-  assert.ok(/esc/i.test(text), `the tab must keep the Esc hint; it reads "${text}"`);
-
-  const found = stopButtons(view.container);
-  assert.equal(
-    found.length,
-    1,
-    `the tab must carry exactly one Stop; it carries ${found.length}: ${view.container.innerHTML.slice(0, 400)}`,
-  );
-
-  found[0].click();
-  assert.equal(
-    onAbort.mock.calls.length,
-    1,
-    `the tab's Stop must reach the abort handler; reached ${onAbort.mock.calls.length}`,
+    `the status line must expose no named control at all; it reads ${row.outerHTML}`,
   );
 });
 
-test('(c) the elapsed reading follows the server clock and ignores the local one', () => {
-  const readings: string[] = [];
-  const elapsedOf = (view: { container: HTMLElement }) => {
-    const matched = (view.container.textContent ?? '').match(/\d+m \d+s|\d+s/);
-    return matched ? matched[0] : '<no elapsed reading>';
-  };
-
-  const { connection, push } = makeConnection();
-  const inline = render(
-    React.createElement(ActivityIndicator, { activity: ACTIVITY, sessionId: SESSION_ID, connection }),
-  );
-  const tab = render(
-    React.createElement(ActivityIndicator, { activity: ACTIVITY, sessionId: SESSION_ID, connection, onAbort: () => undefined }),
-  );
-
-  // A threshold far past the window below, so the local-clock step cannot degrade the dock and the
-  // reading it produces is about the clock source alone.
-  push(subscribedFrame(START, { unreachableAfterMs: 600_000 }));
-
-  const atStart = { inline: elapsedOf(inline), tab: elapsedOf(tab) };
-  readings.push(`both at ${new Date(START).toISOString()}: inline="${atStart.inline}", tab="${atStart.tab}"`);
-  assert.equal(atStart.inline, '0s', `a turn the server just anchored must read 0s; readings: ${readings.join(' | ')}`);
-  assert.equal(atStart.tab, '0s', `a turn the server just anchored must read 0s; readings: ${readings.join(' | ')}`);
-
-  // Time passing on the client is not evidence of anything: with no frame, the reading holds.
-  act(() => {
-    vi.advanceTimersByTime(65_000);
-  });
-  const afterClock = { inline: elapsedOf(inline), tab: elapsedOf(tab) };
-  readings.push(`both after a 65s local-clock step: inline="${afterClock.inline}", tab="${afterClock.tab}"`);
-  assert.equal(
-    afterClock.inline,
-    '0s',
-    `the elapsed reading must not be driven by the client's clock; readings: ${readings.join(' | ')}`,
-  );
-
-  // A server frame does move it: the reading is the server's own `asOf` minus the turn's anchor.
-  push(heartbeatFrame(START + 65_000));
-  const later = { inline: elapsedOf(inline), tab: elapsedOf(tab) };
-  readings.push(`both at server +65s: inline="${later.inline}", tab="${later.tab}"`);
-  assert.equal(
-    later.inline,
-    '1m 5s',
-    `the inline reading must advance with the server's clock; readings: ${readings.join(' | ')}`,
-  );
-  assert.equal(
-    later.tab,
-    later.inline,
-    `both surfaces must read the same server-derived elapsed time; readings: ${readings.join(' | ')}`,
-  );
-});
-
-test('(d) the dock plays its exit animation when the activity clears', () => {
-  const readings: string[] = [];
-
-  const view = render(
-    React.createElement(ActivityIndicator, { activity: ACTIVITY, onAbort: () => undefined }),
-  );
-  const mounted = dockIn(view);
-  assert.ok(mounted, 'premise: the dock must be mounted while the turn runs');
-
-  act(() => {
-    view.rerender(
-      React.createElement(ActivityIndicator, { activity: null, onAbort: () => undefined }),
-    );
-  });
-
-  const exiting = dockIn(view);
-  readings.push(`at +0ms ${exiting ? 'present' : 'gone'}${exiting ? ` (class="${exiting.className}")` : ''}`);
-  assert.ok(
-    exiting,
-    `the dock must stay mounted through its exit animation; readings: ${readings.join(' | ')}`,
-  );
-  assert.ok(
-    exiting.className.includes('chat-activity-exit'),
-    `the dock must animate out rather than disappear; readings: ${readings.join(' | ')}`,
-  );
-
-  act(() => {
-    vi.advanceTimersByTime(EXIT_ANIMATION_MS);
-  });
-
-  const after = dockIn(view);
-  readings.push(`at +${EXIT_ANIMATION_MS}ms ${after ? 'present' : 'gone'}`);
-  assert.equal(
-    after,
-    null,
-    `the dock must be gone once the exit animation has run; readings: ${readings.join(' | ')}`,
-  );
-
-  view.unmount();
-});
-
-test('(e) below md the pane draws the status line at the end of the message flow', () => {
+test('(b) from md up the pane draws the status line at the end of the message flow, in the flow', () => {
   // The column the transcript's content-growth follow observes is the node the
   // pane hands to `scrollContentRef`. Capturing it here is what lets the case
-  // below assert the status line is inside *that* box rather than merely inside
-  // the pane: a line rendered beside the column would scroll with the message
-  // list and still be invisible to the follow.
+  // assert the status line is inside *that* box rather than merely inside the
+  // pane: a line rendered beside the column would scroll with the message list
+  // and still be invisible to the follow. This is the desktop reading — the
+  // former tab's viewport — and the same shape is asserted for every tier below.
   let observedColumn: HTMLDivElement | null = null;
-  const { view, pane } = renderPane(MOBILE_WIDTH, {
+  const { view, pane } = renderPane(WIDE_DESKTOP_WIDTH, {
     scrollContentRef: (node: HTMLDivElement | null) => {
       observedColumn = node;
     },
   });
   const row = dockIn(view);
-  assert.ok(row, `the pane must render the inline status line below md; DOM: ${view.container.innerHTML.slice(0, 400)}`);
+  assert.ok(row, `the desktop pane must render the inline status line; DOM: ${view.container.innerHTML.slice(0, 400)}`);
 
   assert.ok(
     pane.contains(row),
@@ -473,98 +446,167 @@ test('(e) below md the pane draws the status line at the end of the message flow
   );
 });
 
-test('(e) the tier edge is md: 767px is in the flow, 768px is the composer\'s tab', () => {
-  const narrow = renderPane(NARROW_EDGE_WIDTH);
-  assert.ok(
-    dockIn(narrow.view),
-    `767px must still draw the in-flow status line; DOM: ${narrow.view.container.innerHTML.slice(0, 300)}`,
-  );
-  narrow.view.unmount();
-
-  const wide = renderPane(DESKTOP_WIDTH);
+test('(c) the desktop composer subtree holds no activity dock', () => {
+  const view = renderComposer(WIDE_DESKTOP_WIDTH);
+  const shell = view.container.querySelector<HTMLElement>('.chat-composer-shell');
+  assert.ok(shell, 'premise: the composer must render its shell (so the reading is about a render that happened)');
   assert.equal(
-    dockIn(wide.view),
-    null,
-    `768px must hand the status back to the composer's tab; DOM: ${wide.view.container.innerHTML.slice(0, 300)}`,
-  );
-  wide.view.unmount();
-});
-
-test('(e) height decides the surface too: a short viewport keeps the status in the flow at 844px', () => {
-  // The width rule alone hands a landscape phone the composer's floating tab, because 844px clears
-  // `md` — and the pane it would hang over is about 130px tall, so the tab covers the last of the
-  // only few lines the reader has. Height is the second rule, and this is its cell.
-  const short = renderPane(LANDSCAPE_WIDTH, {}, LANDSCAPE_HEIGHT, true);
-  const row = dockIn(short.view);
-  assert.ok(
-    row,
-    `844x${LANDSCAPE_HEIGHT} must draw the in-flow status line; DOM: ${short.view.container.innerHTML.slice(0, 300)}`,
-  );
-  const positional = Array.from(row.classList).filter((name) => /^(absolute|fixed)$/.test(name));
-  assert.deepEqual(
-    positional,
-    [],
-    `the short viewport's status line must stay in the flow — no absolute or fixed positioning; class="${row.className}"`,
-  );
-  // And the space the floating tab would have needed is not reserved for a tab that is not drawn.
-  assert.equal(
-    Array.from(short.pane.classList).includes('pb-12'),
-    false,
-    `a pane that carries the line itself must not also reserve the tab's space; class="${short.pane.className}"`,
-  );
-  short.view.unmount();
-
-  // The other cell of the same edge: the same width, tall enough to afford the tab, keeps it.
-  const tall = renderPane(LANDSCAPE_WIDTH, {}, TALL_HEIGHT, true);
-  assert.equal(
-    dockIn(tall.view),
-    null,
-    `844x${TALL_HEIGHT} must hand the status back to the composer's tab; DOM: ${tall.view.container.innerHTML.slice(0, 300)}`,
-  );
-  tall.view.unmount();
-});
-
-test('(f) from md up the pane draws no inline status line', () => {
-  const { view } = renderPane(WIDE_DESKTOP_WIDTH);
-  assert.equal(
-    dockIn(view),
-    null,
-    `the desktop pane must not render the inline status line; DOM: ${view.container.innerHTML.slice(0, 400)}`,
+    shell.querySelectorAll(DOCK).length,
+    0,
+    `the composer must draw no status surface of its own; DOM: ${shell.innerHTML.slice(0, 400)}`,
   );
   assert.equal(
     view.container.querySelectorAll(DOCK).length,
     0,
-    'exactly zero inline status lines, however they are found',
+    'exactly zero docks, however they are found',
   );
 });
 
-test('the pane reserves the floating tab\'s space only from md up', () => {
+test('(d) the status line plays its exit animation when the activity clears, at either tier', () => {
+  // The component owns the collapse, not the pane's mount decision: the line is
+  // mounted for the whole time the pane is, and `activity` going null is what
+  // animates it out. The reading is the same at a phone width and a desktop one —
+  // there is no second surface whose teardown could differ.
+  const readings: string[] = [];
+
+  for (const width of [MOBILE_WIDTH, WIDE_DESKTOP_WIDTH]) {
+    setViewportWidth(width);
+    const view = render(
+      React.createElement(ActivityIndicator, { activity: ACTIVITY }),
+    );
+    const mounted = dockIn(view);
+    assert.ok(mounted, `premise: the status line must be mounted while the turn runs (${width}px)`);
+
+    act(() => {
+      view.rerender(React.createElement(ActivityIndicator, { activity: null }));
+    });
+
+    const exiting = dockIn(view);
+    readings.push(`${width}px at +0ms ${exiting ? 'present' : 'gone'}${exiting ? ` (class="${exiting.className}")` : ''}`);
+    assert.ok(
+      exiting,
+      `the status line must stay mounted through its exit animation; readings: ${readings.join(' | ')}`,
+    );
+    assert.ok(
+      exiting.className.includes('chat-activity-exit'),
+      `the status line must animate out rather than disappear; readings: ${readings.join(' | ')}`,
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(EXIT_ANIMATION_MS);
+    });
+
+    const after = dockIn(view);
+    readings.push(`${width}px at +${EXIT_ANIMATION_MS}ms ${after ? 'present' : 'gone'}`);
+    assert.equal(
+      after,
+      null,
+      `the status line must be gone once the exit animation has run; readings: ${readings.join(' | ')}`,
+    );
+
+    view.unmount();
+  }
+});
+
+test('(e) the elapsed reading follows the server clock and ignores the local one', () => {
+  const readings: string[] = [];
+  const elapsedOf = (view: { container: HTMLElement }) => {
+    const matched = (view.container.textContent ?? '').match(/\d+m \d+s|\d+s/);
+    return matched ? matched[0] : '<no elapsed reading>';
+  };
+
+  const { connection, push } = makeConnection();
+  const view = render(
+    React.createElement(ActivityIndicator, { activity: ACTIVITY, sessionId: SESSION_ID, connection }),
+  );
+
+  // A threshold far past the window below, so the local-clock step cannot degrade the dock and the
+  // reading it produces is about the clock source alone.
+  push(subscribedFrame(START, { unreachableAfterMs: 600_000 }));
+
+  const atStart = elapsedOf(view);
+  readings.push(`at ${new Date(START).toISOString()}: "${atStart}"`);
+  assert.equal(atStart, '0s', `a turn the server just anchored must read 0s; readings: ${readings.join(' | ')}`);
+
+  // Time passing on the client is not evidence of anything: with no frame, the reading holds.
+  act(() => {
+    vi.advanceTimersByTime(65_000);
+  });
+  const afterClock = elapsedOf(view);
+  readings.push(`after a 65s local-clock step: "${afterClock}"`);
+  assert.equal(
+    afterClock,
+    '0s',
+    `the elapsed reading must not be driven by the client's clock; readings: ${readings.join(' | ')}`,
+  );
+
+  // A server frame does move it: the reading is the server's own `asOf` minus the turn's anchor.
+  push(heartbeatFrame(START + 65_000));
+  const later = elapsedOf(view);
+  readings.push(`at server +65s: "${later}"`);
+  assert.equal(
+    later,
+    '1m 5s',
+    `the reading must advance with the server's clock; readings: ${readings.join(' | ')}`,
+  );
+});
+
+test('(e) the tier no longer changes where the status line is drawn', () => {
+  // Every viewport now draws the same surface. A build that kept the tab for any
+  // width or height would show a dock in the composer's shell, or none in the
+  // pane, in one of these cells — so each cell reads both.
+  const readings: string[] = [];
+
+  const cells = [
+    { label: 'mobile', width: MOBILE_WIDTH, height: TALL_HEIGHT, touchOnly: false },
+    { label: 'narrow edge (767)', width: NARROW_EDGE_WIDTH, height: TALL_HEIGHT, touchOnly: false },
+    { label: 'desktop edge (768)', width: DESKTOP_WIDTH, height: TALL_HEIGHT, touchOnly: false },
+    { label: 'wide desktop', width: WIDE_DESKTOP_WIDTH, height: TALL_HEIGHT, touchOnly: false },
+    { label: 'short landscape', width: LANDSCAPE_WIDTH, height: LANDSCAPE_HEIGHT, touchOnly: true },
+  ] as const;
+
+  for (const cell of cells) {
+    const { view, pane } = renderPane(cell.width, {}, cell.height, cell.touchOnly);
+    const row = dockIn(view);
+    readings.push(`${cell.label}: dock=${row ? 'in the pane' : 'absent'}`);
+    assert.ok(
+      row,
+      `the status line must be in the pane at ${cell.label}; DOM: ${view.container.innerHTML.slice(0, 300)}`,
+    );
+    assert.ok(pane.contains(row), `the status line must be inside the scroll container at ${cell.label}`);
+    const positional = Array.from(row.classList).filter((name) => /^(absolute|fixed)$/.test(name));
+    assert.deepEqual(positional, [], `the status line must stay in the flow at ${cell.label}; class="${row.className}"`);
+    // And nothing is reserved for a floating tab that is not drawn.
+    assert.equal(
+      Array.from(pane.classList).includes('pb-12'),
+      false,
+      `a pane that carries the line itself must not also reserve the tab's space; class="${pane.className}"`,
+    );
+    view.unmount();
+  }
+});
+
+test('the pane\'s bottom space no longer depends on the turn', () => {
   const readings: string[] = [];
   const paddingOf = (className: string) => className.split(/\s+/).filter((name) => /^pb-/.test(name)).join(' ');
 
-  const mobile = renderPane(MOBILE_WIDTH);
-  const mobileIdle = renderPane(MOBILE_WIDTH, { hasActivityIndicator: false, activity: null });
-  readings.push(`mobile running: "${paddingOf(mobile.pane.className)}"`);
-  readings.push(`mobile idle: "${paddingOf(mobileIdle.pane.className)}"`);
-  assert.ok(
-    !mobile.pane.className.includes('pb-12'),
-    `below md the status line is in the flow, so nothing is reserved for a floating tab; readings: ${readings.join(' | ')}`,
-  );
-  assert.equal(
-    paddingOf(mobile.pane.className),
-    paddingOf(mobileIdle.pane.className),
-    `below md a running turn must not change the pane's bottom space at all; readings: ${readings.join(' | ')}`,
-  );
-  mobile.view.unmount();
-  mobileIdle.view.unmount();
-
-  const desktop = renderPane(WIDE_DESKTOP_WIDTH);
-  readings.push(`desktop running: "${paddingOf(desktop.pane.className)}"`);
-  assert.ok(
-    desktop.pane.className.includes('pb-12'),
-    `from md up the tab still floats over the last message, so its space is still reserved; readings: ${readings.join(' | ')}`,
-  );
-  desktop.view.unmount();
+  for (const width of [MOBILE_WIDTH, NARROW_EDGE_WIDTH, DESKTOP_WIDTH, WIDE_DESKTOP_WIDTH]) {
+    const running = renderPane(width);
+    const idle = renderPane(width, { hasActivityIndicator: false, activity: null });
+    readings.push(`@${width} running: "${paddingOf(running.pane.className)}" idle: "${paddingOf(idle.pane.className)}"`);
+    assert.equal(
+      paddingOf(running.pane.className),
+      paddingOf(idle.pane.className),
+      `a running turn must not change the pane's bottom space at any width; readings: ${readings.join(' | ')}`,
+    );
+    assert.equal(
+      running.pane.className.includes('pb-12'),
+      false,
+      `the tab's reserved space must be gone at every width; readings: ${readings.join(' | ')}`,
+    );
+    running.view.unmount();
+    idle.view.unmount();
+  }
 });
 
 /* ------------------------------------------------------------------------- *
@@ -580,13 +622,15 @@ test('the pane reserves the floating tab\'s space only from md up', () => {
  * scroll over must not be dragged back by it. The pane answers both by putting
  * the line inside the content column the follow already observes, so its growth
  * is answered by the code that answers every other growth — under the same
- * "the user has not scrolled away" gate.
+ * "the user has not scrolled away" gate. The arm is run at a phone width and at a
+ * desktop one, because the line is one surface on both and neither may be the
+ * only one the follow answers.
  *
  * jsdom lays nothing out, so this case cannot measure a row. What it does
  * instead is take the two things the browser would report — the column is taller
  * (declared by the fixture) and the notification that a column resized has
  * arrived — and read what the follow wrote. The line's *presence in the observed
- * column* is pinned by case (e) above, against the pane's own ref wiring; the
+ * column* is pinned by case (b) above, against the pane's own ref wiring; the
  * two together are the claim, and neither is complete alone.
  */
 
@@ -753,8 +797,8 @@ describe("the transcript's content-growth follow over the inline status line", (
    * asserted quiet, so that every write the case reads afterwards is the follow
    * answering the growth the case declares.
    */
-  async function mountFollowArm(withRow: boolean) {
-    setViewportWidth(MOBILE_WIDTH);
+  async function mountFollowArm(withRow: boolean, width: number) {
+    setViewportWidth(width);
     const session = { id: FOLLOW_SESSION_ID } as ProjectSession;
     const messagesBySession = new Map([
       [FOLLOW_SESSION_ID, [buildMessage(0, '2026-01-01T00:00:00.000Z')]],
@@ -861,120 +905,110 @@ describe("the transcript's content-growth follow over the inline status line", (
 
   test('growth from the status line reads exactly as growth from any other row', async () => {
     const readings: string[] = [];
-    const byArm: Record<string, Array<{ top: number; bottom: number }>> = {};
-
-    /**
-     * The three ways a reader can stand relative to the transcript, and what the
-     * line must do in each. `owned` is the one that names the intent gate
-     * directly: the gesture has been recorded, the offset has not moved yet —
-     * a state the pane really passes through, because the gesture that sets it
-     * and the growth that follows are not the same event. An implementation that
-     * scrolled the running turn's line into view regardless of who owns the
-     * pane would answer the other two arms exactly as this one does and still be
-     * wrong here, which is why the arm exists.
-     */
     const modes = [
       { name: 'pinned', owns: false, drifts: false, follows: true },
       { name: 'owned', owns: true, drifts: false, follows: false },
       { name: 'scrolled up', owns: true, drifts: true, follows: false },
     ] as const;
 
-    for (const mode of modes) {
-      for (const withRow of [true, false]) {
-        const armName = `${mode.name}, ${withRow ? 'with' : 'without'} the status line`;
-        const { container, content, observer, rowView, result } = await mountFollowArm(withRow);
+    for (const width of [MOBILE_WIDTH, WIDE_DESKTOP_WIDTH]) {
+      const byArm: Record<string, Array<{ top: number; bottom: number }>> = {};
 
-        if (withRow) {
-          const row = rowView?.container.querySelector<HTMLElement>(DOCK);
-          assert.ok(row, 'premise: the status line must have mounted inside the content column');
-          assert.ok(
-            content.contains(row),
-            'premise: the observed column must contain the status line, or its growth could not reach the follow',
-          );
-        }
+      for (const mode of modes) {
+        for (const withRow of [true, false]) {
+          const armName = `@${width} ${mode.name}, ${withRow ? 'with' : 'without'} the status line`;
+          const { container, content, observer, rowView, result } = await mountFollowArm(withRow, width);
 
-        if (mode.drifts) {
-          // A drag that carried the viewport off the bottom; the offset moves and
-          // no write is recorded, exactly as a gesture leaves it.
-          container.scrollTo(container.bottom - 300);
-        }
-        if (mode.owns) {
-          act(() => {
-            result.current.setIsUserScrolledUp(true);
-          });
-        }
-
-        // The line arriving: it is in the column, so the column is taller, and
-        // the browser says so.
-        container.grow(ROW_ARRIVAL_PX);
-        act(() => {
-          observer.emit();
-        });
-        act(() => {
-          runFrames();
-        });
-
-        if (withRow) {
-          const before = rowView?.container.textContent ?? '';
-          act(() => {
-            rowView?.rerender(
-              React.createElement(ActivityIndicator, {
-                activity: ACTIVITY_WIDER,
-              }),
+          if (withRow) {
+            const row = rowView?.container.querySelector<HTMLElement>(DOCK);
+            assert.ok(row, 'premise: the status line must have mounted inside the content column');
+            assert.ok(
+              content.contains(row),
+              'premise: the observed column must contain the status line, or its growth could not reach the follow',
             );
+          }
+
+          if (mode.drifts) {
+            // A drag that carried the viewport off the bottom; the offset moves and
+            // no write is recorded, exactly as a gesture leaves it.
+            container.scrollTo(container.bottom - 300);
+          }
+          if (mode.owns) {
+            act(() => {
+              result.current.setIsUserScrolledUp(true);
+            });
+          }
+
+          // The line arriving: it is in the column, so the column is taller, and
+          // the browser says so.
+          container.grow(ROW_ARRIVAL_PX);
+          act(() => {
+            observer.emit();
           });
-          const after = rowView?.container.textContent ?? '';
-          assert.notEqual(
-            after,
-            before,
-            `premise: the elapsed reading must have advanced on the row the follow just answered; it still reads "${after}"`,
-          );
-        }
+          act(() => {
+            runFrames();
+          });
 
-        // ...and the reading widening is growth too, in the same row.
-        container.grow(ELAPSED_WIDENING_PX);
-        act(() => {
-          observer.emit();
-        });
-        act(() => {
-          runFrames();
-        });
+          if (withRow) {
+            const before = rowView?.container.textContent ?? '';
+            act(() => {
+              rowView?.rerender(
+                React.createElement(ActivityIndicator, {
+                  activity: ACTIVITY_WIDER,
+                }),
+              );
+            });
+            const after = rowView?.container.textContent ?? '';
+            assert.notEqual(
+              after,
+              before,
+              `premise: the elapsed reading must have advanced on the row the follow just answered; it still reads "${after}"`,
+            );
+          }
 
-        const writes = [...container.writes];
-        byArm[armName] = writes;
-        readings.push(
-          `${armName}: ${writes.length} write(s) ${JSON.stringify(writes.map((write) => write.top))}`,
-        );
+          // ...and the reading widening is growth too, in the same row.
+          container.grow(ELAPSED_WIDENING_PX);
+          act(() => {
+            observer.emit();
+          });
+          act(() => {
+            runFrames();
+          });
 
-        if (mode.follows) {
-          assert.ok(
-            writes.length > 0,
-            `a reader at the bottom must be carried down by the status line's growth; readings: ${readings.join(' | ')}`,
-          );
-          const stray = writes.filter((write) => write.top !== write.bottom);
-          assert.deepEqual(
-            stray,
-            [],
-            `every follow write must land on the bottom as it stood when the write was made; readings: ${readings.join(' | ')}`,
-          );
-        } else {
-          assert.deepEqual(
-            writes,
-            [],
-            `a reader who has taken the scroll over must not be moved by the status line — zero programmatic writes; readings: ${readings.join(' | ')}`,
-          );
+          const writes = [...container.writes];
+          byArm[armName] = writes;
+          readings.push(`${armName}: ${writes.length} write(s) ${JSON.stringify(writes.map((write) => write.top))}`);
+
+          if (mode.follows) {
+            assert.ok(
+              writes.length > 0,
+              `a reader at the bottom must be carried down by the status line's growth; readings: ${readings.join(' | ')}`,
+            );
+            const stray = writes.filter((write) => write.top !== write.bottom);
+            assert.deepEqual(
+              stray,
+              [],
+              `every follow write must land on the bottom as it stood when the write was made; readings: ${readings.join(' | ')}`,
+            );
+          } else {
+            assert.deepEqual(
+              writes,
+              [],
+              `a reader who has taken the scroll over must not be moved by the status line — zero programmatic writes; readings: ${readings.join(' | ')}`,
+            );
+          }
         }
       }
-    }
 
-    for (const mode of modes) {
-      const withRow = byArm[`${mode.name}, with the status line`];
-      const withoutRow = byArm[`${mode.name}, without the status line`];
-      assert.deepEqual(
-        withRow,
-        withoutRow,
-        `the status line must not change the follow's reading: ${mode.name} with it wrote ${JSON.stringify(withRow?.map((write) => write.top))}, without it ${JSON.stringify(withoutRow?.map((write) => write.top))} — ${readings.join(' | ')}`,
-      );
+      for (const mode of modes) {
+        const withRow = byArm[`@${width} ${mode.name}, with the status line`];
+        const withoutRow = byArm[`@${width} ${mode.name}, without the status line`];
+        assert.deepEqual(
+          withRow,
+          withoutRow,
+          `the status line must not change the follow's reading at ${width}px, ${mode.name}: with it wrote ${JSON.stringify(withRow?.map((write) => write.top))}, without it ${JSON.stringify(withoutRow?.map((write) => write.top))} — ${readings.join(' | ')}`,
+        );
+      }
     }
   });
 });

@@ -152,7 +152,6 @@ describe('one dock, and one classification of the session', () => {
         activity: ACTIVITY,
         sessionId: SESSION_ID,
         connection,
-        onAbort: () => undefined,
       }),
     );
     push(subscribedFrame(true));

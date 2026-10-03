@@ -7,7 +7,8 @@
  * The criterion here is that a real browser, on a real server and a real app,
  * stops saying that: after the app's own socket is partitioned the dock reads
  * `unreachable`, the six action words are gone, the elapsed time is frozen at
- * the server's last `asOf`, and both stop entries are disabled with a reason —
+ * the server's last `asOf`, and the composer's one stop entry is disabled with a
+ * reason —
  * and that a released partition returns it to a *continued*, not restarted,
  * reading of the turn.
  *
@@ -198,22 +199,23 @@ type DockReading = {
   text: string;
   elapsedMs: string | null;
   elapsedText: string | null;
-  stopDisabled: boolean;
-  stopReason: string;
+  /**
+   * How many interrupt controls the dock subtree offers. It must be zero at every
+   * viewport: the dock reports, and the composer's submit button is the one stop
+   * entry, so a count here is the duplicate this surface no longer draws.
+   */
+  stopCount: number;
 };
 
 async function readDock(page: Page): Promise<DockReading> {
   const dock = page.locator(DOCK).first();
   const text = (await dock.innerText()).trim().replace(/\s+/g, ' ');
-  const stop = dock.locator('button').first();
-  const hasStop = (await stop.count()) > 0;
   return {
     state: (await dock.getAttribute('data-activity-state')) ?? '',
     text,
     elapsedMs: await dock.getAttribute('data-activity-elapsed-ms'),
     elapsedText: text.match(/\d+m \d+s|\d+s/)?.[0] ?? null,
-    stopDisabled: hasStop ? (await stop.getAttribute('disabled')) !== null : false,
-    stopReason: hasStop ? ((await stop.getAttribute('title')) ?? '') : '',
+    stopCount: await dock.locator('button').count(),
   };
 }
 
@@ -693,21 +695,25 @@ test.describe('activity dock truthfulness', () => {
     expect(sampleB.elapsedText, 'the elapsed reading must not advance while unreachable').toBe(sampleA.elapsedText);
     expect(sampleB.elapsedMs).toBe(sampleA.elapsedMs);
 
-    // (iv) Both stop entries are disabled with a reason: the dock's own, and the composer's.
-    await expect(page.locator(DOCK).locator('button').first()).toBeDisabled();
+    // (iv) The dock draws no interrupt control of its own — the composer's submit
+    //      button is the one stop entry — and that button is disabled with a reason
+    //      the reader can see. The dock itself still says the connection is lost.
+    const unreachableTitle = String(localeKey(LOCALE, 'claudeStatus.unreachable.title'));
     const unreachableStopReason = String(localeKey(LOCALE, 'claudeStatus.unreachable.stopReason'));
-    console.log(`dock.stop.disabled=${after.stopDisabled}`);
-    console.log(`dock.stop.reason=${JSON.stringify(after.stopReason)}`);
-    expect(after.stopDisabled, 'the dock stop carries the disabled attribute').toBe(true);
-    expect(after.stopReason.trim().length, 'the disabled stop explains itself').toBeGreaterThan(0);
-    expect(after.text).toContain(unreachableStopReason);
+    console.log(`dock.stop.count=${after.stopCount}`);
+    console.log(`dock.text.unreachable=${JSON.stringify(after.text)}`);
+    expect(after.stopCount, 'the dock must carry no interrupt control — the composer submit is the one stop entry').toBe(0);
+    expect(after.text).toContain(unreachableTitle);
 
     // The composer's own stop carries a different label for a resident session
     // (`input.stop` vs `resident.stopResident`), so this reads the control by role
-    // and name inside the form — the tab's stop is a sibling of the form, not in it.
+    // and name inside the form — the only control offering a stop now.
     await expect(composerStop).toBeDisabled();
+    const composerStopTitle = (await composerStop.getAttribute('title')) ?? '';
     console.log(`dock.composer.stop.label=${JSON.stringify(await composerStop.getAttribute('aria-label'))}`);
     console.log(`dock.composer.stop.disabled=${(await composerStop.getAttribute('disabled')) !== null}`);
+    console.log(`dock.composer.stop.title=${JSON.stringify(composerStopTitle)}`);
+    expect(composerStopTitle, 'the disabled stop must explain itself').toContain(unreachableStopReason);
 
     // (v) Close the socket and refuse reconnects, then release: the next reconnect
     //     within one cycle (~3s) restores the turn, and the clock is *continued*.

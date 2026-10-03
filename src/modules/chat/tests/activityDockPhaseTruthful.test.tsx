@@ -129,7 +129,6 @@ describe('the activity dock speaks the server phase', () => {
         activity: ACTIVITY,
         sessionId: SESSION_ID,
         connection,
-        onAbort: () => undefined,
       }),
     );
 
@@ -174,7 +173,6 @@ describe('the activity dock speaks the server phase', () => {
         activity: ACTIVITY,
         sessionId: SESSION_ID,
         connection,
-        onAbort: () => undefined,
       }),
     );
 
@@ -216,7 +214,6 @@ describe('the activity dock speaks the server phase', () => {
         activity: null,
         sessionId: SESSION_ID,
         connection: makeConnection().connection,
-        onAbort: () => undefined,
       }),
     );
 

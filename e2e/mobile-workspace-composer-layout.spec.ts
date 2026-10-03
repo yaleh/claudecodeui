@@ -391,17 +391,17 @@ type CellReading = {
   body: Box;
   /** The input, with the cap that bounds a draft's growth — the only thing bounding it, since JS writes its height. */
   textarea: (BoxRect & { maxHeight: string | null; scrollHeight: number }) | null;
-  /** The composer's own submit control: the one stop entry below `md`, and the control a long draft pushed off-screen. */
+  /** The composer's own submit control: the one stop entry at every width, and the control a long draft pushed off-screen. */
   submit: Box;
   /** Whether the composer's own form is laid out as a row, with the controls beside the input rather than under it. */
   composerIsRow: boolean;
   /**
-   * The one activity dock, read at each of its two mount sites.
+   * The one activity dock, read at both candidate mount sites.
    *
-   * `dockInTranscript` is the pane's copy (below `md`) and `dockInComposer` is the
-   * composer's (from `md` up). They used to be two different components with two
-   * different markers — a tab-shaped strip and a compact in-flow line — and these
-   * two boxes are how this file still reads *which mount site* drew the one dock.
+   * `dockInTranscript` is the pane's copy — the only one drawn, at every viewport.
+   * `dockInComposer` is read too, and must stay empty: the composer used to hang a
+   * tab-shaped strip off the input from `md` up, and these two boxes are how this
+   * file reads that the second mount site is gone rather than merely unused.
    */
   dockInTranscript: Box;
   dockInComposer: Box;
@@ -1117,12 +1117,12 @@ for (const viewport of SHORT_VIEWPORTS) {
         logCell(`@${width}x${height} short + running`, running);
         expectReading(
           running.dockInTranscript !== null && running.dockInTranscript.height > 0,
-          `@${width}x${height}: the transcript's mount site must be the one drawing the status — the floating tab would hang over a transcript this short`,
+          `@${width}x${height}: the transcript's line must be drawing the status — the composer has no status surface of its own at any viewport`,
           running,
         );
         expectReading(
           running.dockInComposer === null || running.dockInComposer.width === 0,
-          `@${width}x${height}: the composer's floating tab must not be drawn on a viewport this short`,
+          `@${width}x${height}: the composer must draw no status surface`,
           running,
         );
       } finally {
@@ -1211,19 +1211,19 @@ test.describe('short viewport on a mouse-and-keyboard device', () => {
       // turns the submit button into a Stop and the composer into a different control.
       const delivered = await injectStatusFrame(page, MOBILE_SESSION);
       expect(delivered, `@short desktop: the status frame has to reach an open chat socket`).toBeGreaterThan(0);
-      await expect(page.locator('.chat-composer-shell [data-activity-dock]')).toBeVisible({ timeout: 10_000 });
+      await expect(page.locator('.chat-messages-pane [data-activity-dock]')).toBeVisible({ timeout: 10_000 });
       await page.waitForTimeout(300);
 
       const running = await readCell(page);
       logCell(`@${SHORT_DESKTOP_VIEWPORT.width}x${SHORT_DESKTOP_VIEWPORT.height} short desktop + running`, running);
       expectReading(
-        running.dockInComposer !== null && running.dockInComposer.width > 0,
-        `@short desktop: the status must stay the composer's floating tab — the pane's in-flow line is the short tier's surface, and this window is short but is not the tier`,
+        running.dockInTranscript !== null && running.dockInTranscript.width > 0,
+        `@short desktop: the status must be the pane's in-flow line — the composer's floating tab is gone at every viewport, this one included`,
         running,
       );
       expectReading(
-        running.dockInTranscript === null || running.dockInTranscript.width === 0,
-        `@short desktop: the pane's in-flow line must not be drawn on a short mouse-and-keyboard window`,
+        running.dockInComposer === null || running.dockInComposer.width === 0,
+        `@short desktop: the composer must draw no floating tab`,
         running,
       );
     } finally {
@@ -1394,7 +1394,7 @@ for (const viewport of DESKTOP_VIEWPORTS) {
       }
     });
 
-    test(`@${width} running — the tab status and the composer's Stop, both where they belong`, async ({ browser }) => {
+    test(`@${width} running — the one status line and the composer's one Stop`, async ({ browser }) => {
       test.setTimeout(90_000);
       const { context, page } = await openCell(browser, { ...viewport, touch: false, language: MOBILE_LANGUAGE, session: DESKTOP_SESSION });
       try {
@@ -1404,21 +1404,21 @@ for (const viewport of DESKTOP_VIEWPORTS) {
         const delivered = await injectStatusFrame(page, DESKTOP_SESSION);
         console.log(`[layout] @${width} running: status frame delivered to ${delivered} chat socket(s)`);
         expect(delivered, `@${width} running: the status frame has to reach an open chat socket`).toBeGreaterThan(0);
-        // The premise and the reading address the same element: the composer's own mount
-        // site for the one dock. A strict locator would now also be defensible — the
-        // legacy markup put a second, identically-classed node on the tab's Stop, and
-        // that duplicate is exactly what the consolidation removed — but `.first()` is
-        // kept so the two locators below cannot drift apart.
-        await expect(page.locator('.chat-composer-shell [data-activity-dock]').first()).toBeVisible({ timeout: 10_000 });
+        await expect(page.locator('.chat-messages-pane [data-activity-dock]').first()).toBeVisible({ timeout: 10_000 });
         await page.waitForTimeout(300);
 
         const cell = await readCell(page);
         logCell(`@${width} running`, cell);
-        expectReading(cell.dockInTranscript === null, `@${width} running: the transcript's mount site the mobile layout uses must not be drawn here`, cell);
-        expectReading(cell.dockInComposer !== null && cell.dockInComposer.width > 0, `@${width} running: the composer's mount site must be the running indicator here`, cell);
-        // The desktop keeps both controls: the tab's own Stop and the composer's. The mobile cells assert the
-        // opposite count, and this is the reading that keeps the two widths honest about each other.
-        expectReading(cell.stopNames.length === 2, `@${width} running: the desktop keeps the tab's Stop and the composer's`, cell);
+        // The status is the pane's in-flow line here too, and the composer draws no dock:
+        // the desktop used to be the one viewport where a second, floating surface carried
+        // the status, and this is the reading that keeps it from coming back.
+        expectReading(
+          cell.dockInTranscript !== null && cell.dockInTranscript.width > 0,
+          `@${width} running: the status must be the pane's in-flow line on the desktop too`,
+          cell,
+        );
+        expectReading(cell.dockInComposer === null, `@${width} running: the composer must draw no floating tab`, cell);
+        expectReading(cell.stopNames.length === 1, `@${width} running: the composer's submit is the one stop entry`, cell);
         expectFooterBoxTier(width, compactFooter, cell);
         expectDesktopFooterOverflow(width, cell);
         expectDesktopFooterRow(width, cell);

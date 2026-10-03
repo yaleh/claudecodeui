@@ -35,7 +35,6 @@ import {
   PromptInputSubmit,
 } from '@/modules/chat/composer/PromptInput';
 import CommandMenu from '@/modules/chat/composer/CommandMenu';
-import ActivityIndicator from '@/modules/chat/composer/ActivityIndicator';
 import { deriveActivityDockView } from '@/modules/chat/utils/activityDockView';
 import ComposerAttachment from '@/modules/chat/composer/ComposerAttachment';
 import VoiceInputButton, { VoiceFailureNotice } from '@/modules/chat/composer/VoiceInputButton';
@@ -154,7 +153,6 @@ type ChatComposerProps = {
   onTextareaPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
   onTextareaScrollSync: (target: HTMLTextAreaElement) => void;
   onTextareaInput: (event: FormEvent<HTMLTextAreaElement>) => void;
-  isInputFocused?: boolean;
   onInputFocusChange?: (focused: boolean) => void;
   /**
    * The session this composer is writing into, or null when none is open yet.
@@ -262,7 +260,6 @@ export default function ChatComposer({
   onTextareaPaste,
   onTextareaScrollSync,
   onTextareaInput,
-  isInputFocused = false,
   onInputFocusChange,
   sessionId = null,
   placeholder,
@@ -332,10 +329,11 @@ export default function ChatComposer({
   // Same resolution the keydown uses, so the hint below cannot describe a key that does
   // something else on this device.
   const { sendOnEnter, touchOnly } = useSendOnEnter(sendByCtrlEnter);
-  // The window rule, read through the same hook the rest of the app uses for `md`. It stays the
-  // whole answer below the breakpoint and for the status tab below; the footer's arrangement also
-  // reads the box's own width, which is `isCompactTier` underneath.
-  const { isMobile, isShortTouchViewport } = useDeviceSettings();
+  // The window rule for the shell's bottom padding on a short touch viewport. The
+  // status surface used to read `isMobile` beside it to decide which side of the
+  // composer hung the tab; the pane's in-flow line is the only surface now, so the
+  // width half has no reader here.
+  const { isShortTouchViewport } = useDeviceSettings();
   // Whether the composer offers the resident switch at all. Read from the backend capability matrix
   // rather than from a provider id — the same rule the sidebar's conversion item follows — so a
   // provider that gains the mode gets the switch without a UI change. The composer is not handed the
@@ -461,10 +459,6 @@ export default function ChatComposer({
     voiceToggle();
   }, [voiceToggle]);
 
-  // Hide the thinking/status bar while any permission request is pending
-  const hasPendingPermissions = pendingPermissionRequests.length > 0;
-  const hasActivityIndicator = Boolean(activity && !hasPendingPermissions);
-
   // The composer's stop entry reads the same liveness the dock does: a greyed
   // submit and a greyed dock control are one story about one unreachable server,
   // not two. `isLoading` alone would leave the submit live while the dock said
@@ -529,6 +523,16 @@ export default function ChatComposer({
         ? t('resident.stopResident')
         : t('input.stop')
       : t('input.send');
+  // The Esc hint used to sit in the dock's own Stop control. With that control gone
+  // the global Escape listener's key is named on the one stop entry that remains —
+  // the composer's submit button — so the hint survives the tab's removal. While the
+  // server is unreachable the reason replaces the plain hint, but the key is still
+  // named: Escape is handled globally and keeps working when the button does not.
+  const submitTitle = isLoading && !canQueueDraft
+    ? stopUnreachable
+      ? `${submitAriaLabel} (Esc) — ${stopUnreachableReason ?? ''}`.trim()
+      : `${submitAriaLabel} (Esc)`
+    : submitAriaLabel;
 
   // The replay pair's own row, drawn on the compact tier only — the wide tier keeps the pair in the
   // tools group. Held as a value rather than written inline because the inline-tools tier mounts it
@@ -555,30 +559,6 @@ export default function ChatComposer({
         isShortTouchViewport ? 'px-2 pb-1.5' : 'px-2 pb-2 sm:px-4 sm:pb-4 md:px-4 md:pb-6',
       ].join(' ')}
     >
-      {/*
-        The tab is the surface for a viewport with room above the input: it hangs over
-        the top edge of the input and, being out of flow, over the last of the
-        transcript. Below `md`, and on a viewport too short to give up the line it
-        covers, it is not rendered at all — the pane draws the same status in the
-        message flow instead (see ChatMessagesPane), and the composer's submit button
-        is the only stop entry, so the single-entry rule holds without a second
-        control to hide. The short tier is the second reason and not a restatement of
-        the first: a landscape phone is 844px wide, so the width rule alone would float
-        this tab over a transcript that is only ~130px tall — and that tier is a short
-        viewport on a touch-only device, so a short desktop *window* keeps the tab.
-      */}
-      {!hasPendingPermissions && !isMobile && !isShortTouchViewport && (
-        <div className="pointer-events-none absolute bottom-full left-1/2 z-10 w-[calc(100%-1rem)] max-w-[54.25rem] -translate-x-1/2 translate-y-px bg-transparent sm:w-[calc(100%-2rem)]">
-          <ActivityIndicator
-            activity={activity}
-            sessionId={sessionId}
-            onAbort={onAbortSession}
-            isInputFocused={isInputFocused}
-            sendFailed={sendFailed}
-          />
-        </div>
-      )}
-
       {/*
         The failure notice, drawn from the shell rather than from inside the mic button that raised it.
 
@@ -737,10 +717,9 @@ export default function ChatComposer({
           status={isLoading ? 'streaming' : 'ready'}
           className={[
             isTextareaExpanded ? 'chat-input-expanded' : '',
-            // Only the tab squares the input's top corners off; below `md`, and on a short
-            // viewport where the tab is not drawn either, there is nothing sitting there, so the
-            // box keeps its own rounding. Same condition as the tab's own render above.
-            hasActivityIndicator && !isMobile && !isShortTouchViewport ? 'rounded-t-none' : '',
+            // Nothing hangs off the input's top edge any more — the status is the
+            // pane's in-flow line — so the box keeps its own rounding at every
+            // viewport.
             // The controls are drawn beside the input rather than under it: two tracks, the input's
             // taking the slack and the controls' sized by their own content, with `items-end` on
             // the input's last line — where a send button is looked for.
@@ -1070,7 +1049,7 @@ export default function ChatComposer({
                       : isOccupied || (!input.trim() && attachedFiles.length === 0)
               }
               aria-label={submitAriaLabel}
-              title={isLoading && !canQueueDraft && stopUnreachable ? stopUnreachableReason ?? submitAriaLabel : submitAriaLabel}
+              title={submitTitle}
               className="h-10 w-10 sm:h-10 sm:w-10"
             >
               {isTranscribing ? (

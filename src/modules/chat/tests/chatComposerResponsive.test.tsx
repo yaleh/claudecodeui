@@ -10,6 +10,7 @@ import ChatComposer from '@/modules/chat/composer/ChatComposer';
 import ChatMessagesPane from '@/modules/chat/transcript/ChatMessagesPane';
 import enChat from '@/modules/i18n/locales/en/chat.json';
 import { UiPreferencesProvider } from '@/shared/context/UiPreferencesContext';
+import WebSocketContext from '@/shared/context/WebSocketContext';
 import type {
   ChatMessage,
   PendingPermissionRequest,
@@ -707,20 +708,20 @@ test('(g) a clip leaves exactly one accessible replay control per track, in each
   }
 });
 
-test('(h) a running turn offers one stop entry below md and on a short viewport, and two only on the wide tall one', () => {
+test('(h) a running turn offers exactly one stop entry on every tier, and it is the composer submit', () => {
   const readings: string[] = [];
 
   for (const tier of [
-    // Wherever the status is the transcript's line it carries no control, so the composer's
-    // submit is the one entry. The tab keeps its own only where it is drawn — from `md` up
-    // AND on a viewport tall enough to give up the line it covers. The third cell is the
-    // height half of that rule: 844px wide clears `md`, so a width-only reading would hand
-    // this viewport the two-entry arrangement, and the tab would sit over a ~130px transcript.
-    { label: 'narrow (390px)', width: MOBILE_WIDTH, height: 900, stops: 1, outsideForm: 0, inlineLine: true },
-    { label: 'short and wide (844x330, touch)', width: LANDSCAPE_WIDTH, height: LANDSCAPE_HEIGHT, touchOnly: true, stops: 1, outsideForm: 0, inlineLine: true },
-    { label: 'wide and tall (1280px)', width: DESKTOP_WIDTH, height: 900, stops: 2, outsideForm: 1, inlineLine: false },
+    // The status is the transcript's own in-flow line at every viewport now, and it
+    // carries no control: the composer's submit is the one stop entry, on the phone,
+    // on the short landscape viewport, and on the desktop alike. The old arrangement
+    // gave the wide tall viewport a second Stop on a tab the composer hung over the
+    // transcript; this matrix is what keeps that second entry from coming back.
+    { label: 'narrow (390px)', width: MOBILE_WIDTH, height: 900, touchOnly: false },
+    { label: 'short and wide (844x330, touch)', width: LANDSCAPE_WIDTH, height: LANDSCAPE_HEIGHT, touchOnly: true },
+    { label: 'wide and tall (1280px)', width: DESKTOP_WIDTH, height: 900, touchOnly: false },
   ]) {
-    const { view, footer } = renderTurn(tier.width, { height: tier.height, touchOnly: tier.touchOnly });
+    const { view } = renderTurn(tier.width, { height: tier.height, touchOnly: tier.touchOnly });
     const form = view.container.querySelector('form[data-slot="prompt-input"]');
     assert.ok(
       form,
@@ -729,7 +730,7 @@ test('(h) a running turn offers one stop entry below md and on a short viewport,
 
     const stops = stopButtons(view.container);
     // The submit button is the one stop entry that lives inside the composer's own form;
-    // anything else offering a stop is a second surface's control.
+    // anything else offering a stop would be a second surface's control.
     const inForm = stops.filter((button) => form.contains(button));
     const outsideForm = stops.filter((button) => !form.contains(button));
     readings.push(
@@ -738,48 +739,108 @@ test('(h) a running turn offers one stop entry below md and on a short viewport,
 
     assert.equal(
       stops.length,
-      tier.stops,
-      `each tier must offer ${tier.stops} stop entr${tier.stops === 1 ? 'y' : 'ies'}; readings: ${readings.join(' | ')}`,
-    );
-    assert.equal(
-      outsideForm.length,
-      tier.outsideForm,
-      `the tab's own stop must exist exactly from md up; readings: ${readings.join(' | ')}`,
+      1,
+      `every tier must offer exactly one stop entry; readings: ${readings.join(' | ')}`,
     );
     assert.equal(
       inForm.length,
       1,
-      `the composer's own submit must be one of them on every tier; readings: ${readings.join(' | ')}`,
+      `the composer's own submit must be that entry on every tier; readings: ${readings.join(' | ')}`,
     );
     assert.equal(
       inForm[0]?.getAttribute('aria-label'),
       enChat.input.stop,
       `the surviving entry must be the composer's submit control, not a same-named second one; readings: ${readings.join(' | ')}`,
     );
-    assert.ok(
-      outsideForm.every((button) => button.closest(ACTIVITY_DOCK) !== null),
-      `every stop entry outside the submit must be the dock's, so the wide reading is the existing pair and not a stray control; readings: ${readings.join(' | ')}`,
+    assert.equal(
+      outsideForm.length,
+      0,
+      `no surface behind the submit may offer a stop any more; readings: ${readings.join(' | ')}`,
     );
 
-    // The turn is still *shown* on the tier with one stop entry: it is the control that is
-    // absent from that surface, not the status. Without this the narrow count above would
-    // read the same for a pane that drew no status at all.
+    // The turn is still *shown* on every tier: the status is the pane's line and the
+    // composer draws no dock. Without this the count above would read the same for a
+    // page that showed the turn nowhere.
     assert.equal(
       view.container.querySelector(`${PANE_SELECTOR} ${ACTIVITY_DOCK}`) !== null,
-      tier.inlineLine,
-      `the dock must be in the transcript below md and only below md; readings: ${readings.join(' | ')}`,
+      true,
+      `the pane must draw the status line at ${tier.label}; readings: ${readings.join(' | ')}`,
     );
     assert.equal(
-      within(footer).queryAllByRole('button', { name: /stop/i }).length,
+      view.container.querySelector(`.chat-composer-shell ${ACTIVITY_DOCK}`),
+      null,
+      `the composer must draw no status surface at ${tier.label}; readings: ${readings.join(' | ')}`,
+    );
+    assert.equal(
+      view.container.querySelectorAll(ACTIVITY_DOCK).length,
       1,
-      `the composer must keep exactly one stop entry of its own at ${tier.label}; readings: ${readings.join(' | ')}`,
+      `exactly one dock on the page at ${tier.label}; readings: ${readings.join(' | ')}`,
     );
 
     view.unmount();
   }
 });
 
-test('(i) a pending permission request takes the status over: neither tier draws an activity surface', () => {
+test('(i) the surviving stop entry names the Esc key and keeps its accessible name', () => {
+  // The Esc hint used to live on the tab's own Stop. It survives the tab's removal
+  // on the one control that still stops the turn, and the accessible name a reader
+  // finds the button by is unchanged.
+  const { view } = renderTurn(DESKTOP_WIDTH, { height: 900 });
+  const submit = within(view.container).getByRole('button', { name: enChat.input.stop });
+
+  assert.equal(
+    submit.getAttribute('aria-label'),
+    enChat.input.stop,
+    `the stop entry's accessible name must be unchanged; it reads ${JSON.stringify(submit.getAttribute('aria-label'))}`,
+  );
+  const title = submit.getAttribute('title') ?? '';
+  assert.ok(
+    /esc/i.test(title),
+    `the stop entry's tooltip must name the Escape key; it reads ${JSON.stringify(title)}`,
+  );
+  view.unmount();
+});
+
+test('(j) unreachable: the one stop entry is disabled and says why', () => {
+  // With the server gone the composer's stop entry is greyed, and the reason is
+  // visible on the control itself — the read the dock used to carry, moved onto the
+  // control that now owns the stop. The pane still shows the connection's sentence.
+  const unreachable = {
+    ws: null,
+    sendMessage: () => undefined,
+    subscribe: () => () => undefined,
+    isConnected: false,
+  };
+  const view = render(
+    <WebSocketContext.Provider value={unreachable as never}>
+      {turnElement(DESKTOP_WIDTH, { height: 900 })}
+    </WebSocketContext.Provider>,
+  );
+
+  const submit = within(view.container).getByRole('button', { name: enChat.input.stop });
+  const title = submit.getAttribute('title') ?? '';
+  const readings = `disabled=${submit.hasAttribute('disabled')} title=${JSON.stringify(title)}`;
+  assert.ok(
+    submit.hasAttribute('disabled'),
+    `the stop must be disabled while the server is unreachable; readings: ${readings}`,
+  );
+  assert.ok(
+    title.includes(enChat.claudeStatus.unreachable.stopReason),
+    `the disabled stop must carry a visible reason; readings: ${readings}`,
+  );
+  assert.equal(
+    view.container.querySelectorAll(ACTIVITY_DOCK).length,
+    1,
+    `the pane's status line is still the one surface, reading the connection; readings: ${readings}`,
+  );
+  assert.ok(
+    (view.container.textContent ?? '').includes(enChat.claudeStatus.unreachable.title),
+    `the status line must say the connection is lost; readings: ${readings}`,
+  );
+  view.unmount();
+});
+
+test('(k) a pending permission request takes the status over: neither tier draws an activity surface', () => {
   // Read on a pair rendered with the request already on screen, so the status belongs to
   // the request from the first commit and the case holds that the two never coexist — no
   // clock, and no exit animation to wait out. That those surfaces do exist while the turn

@@ -43,8 +43,10 @@ export type ActivityDockInput = {
    */
   wired: boolean;
   /**
-   * True when this surface owns an interrupt handler. The tab does; the inline
-   * line does not, so it never draws a stop and can never report one disabled.
+   * True when this surface owns an interrupt handler. No dock surface does any
+   * more — the composer's submit button is the one stop entry at every viewport —
+   * but the composer still reads `stopReasonKey` off this view to explain its own
+   * disabled stop, so the flag survives for that consumer.
    */
   hasAbort: boolean;
   /**
@@ -74,10 +76,6 @@ export type ActivityDockView = {
   elapsedMs: number | null;
   /** Whole seconds of `elapsedMs`, for the elapsed label; null when unknown. */
   elapsedSeconds: number | null;
-  /** Whether the dock draws a stop control at all for this state. */
-  showStop: boolean;
-  /** Whether that control must be disabled (unreachable only, today). */
-  stopDisabled: boolean;
   /** i18n key explaining a disabled stop; null when the stop is operable. */
   stopReasonKey: string | null;
   /** The phase the dock speaks for; `idle` when the server reported none. */
@@ -122,8 +120,6 @@ const HIDDEN: ActivityDockView = {
   state: 'hidden',
   elapsedMs: null,
   elapsedSeconds: null,
-  showStop: false,
-  stopDisabled: false,
   stopReasonKey: null,
   phase: 'idle',
   toolName: null,
@@ -135,8 +131,6 @@ const SEND_FAILED: ActivityDockView = {
   state: 'send-failed',
   elapsedMs: null,
   elapsedSeconds: null,
-  showStop: false,
-  stopDisabled: false,
   stopReasonKey: null,
   phase: 'idle',
   toolName: null,
@@ -186,14 +180,12 @@ export const deriveActivityDockView = (input: ActivityDockInput): ActivityDockVi
   }
 
   // A wired dock with no fresh evidence reports the connection, not the turn. The
-  // stop stays on screen where this surface owns one, so it says "I cannot reach
-  // the server" with a greyed control rather than silently dropping the affordance.
+  // reason a stop cannot be used is still published, because the composer's own
+  // stop entry reads it to explain its disabled state.
   if (wired && liveness === 'unreachable') {
     return {
       state: 'unreachable',
       ...elapsed,
-      showStop: hasAbort,
-      stopDisabled: hasAbort,
       stopReasonKey: hasAbort ? UNREACHABLE_STOP_REASON_KEY : null,
       ...phaseFields,
     };
@@ -203,8 +195,6 @@ export const deriveActivityDockView = (input: ActivityDockInput): ActivityDockVi
   return {
     state: 'in-turn',
     ...elapsed,
-    showStop: hasAbort && (activity?.canInterrupt ?? true),
-    stopDisabled: false,
     stopReasonKey: null,
     ...phaseFields,
   };

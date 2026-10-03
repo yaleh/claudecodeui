@@ -14,7 +14,6 @@ import { getIntrinsicMessageKey } from '@/modules/chat/utils/messageKeys';
 import { groupWorkSegments, isWorkSegment } from '@/modules/chat/utils/workSegments';
 import { findSearchTargetIndex } from '@/modules/chat/utils/searchTargetLocator';
 import { useLazyRowObserver } from '@/modules/chat/hooks/useLazyRowObserver';
-import { useDeviceSettings } from '@/shared/hooks/useDeviceSettings';
 import LazyMessageRow from '@/modules/chat/transcript/LazyMessageRow';
 import MessageComponent from '@/modules/chat/transcript/MessageComponent';
 import PendingResidentMessage from '@/modules/chat/transcript/PendingResidentMessage';
@@ -51,13 +50,18 @@ type ChatMessagesPaneProps = {
   isLoadingSessionMessages: boolean;
   /** True while the viewed session has an active provider run in flight. */
   isProcessing?: boolean;
-  /** True while ChatComposer's floating activity/stop tab is rendered above the input. */
+  /**
+   * Whether the turn's status is the pane's to draw: true while a run is in
+   * flight and no permission request has taken the status over. The pane uses it
+   * only to decide whether the status line is handed `activity` or `null`; the
+   * line is always mounted, so its exit animation always owns the collapse.
+   */
   hasActivityIndicator?: boolean;
   /**
-   * The running turn's activity, drawn below `md` as an in-flow status line at
-   * the end of the message list. Passed rather than re-derived: the pane already
-   * receives `hasActivityIndicator` for its bottom padding, and this is the same
-   * turn's data, not a second account of it.
+   * The running turn's activity, drawn as the in-flow status line at the end of
+   * the message list. Passed rather than re-derived: the pane already receives
+   * `hasActivityIndicator`, and this is the same turn's data, not a second account
+   * of it.
    */
   activity?: SessionActivity | null;
   /** True when the last send was never delivered; the inline status line reports it. */
@@ -181,18 +185,6 @@ function ChatMessagesPane({
   selectedProject,
 }: ChatMessagesPaneProps) {
   const { t } = useTranslation('chat');
-  // The same two signals ChatComposer reads for the tab it draws, so the pane's
-  // status line and the composer's tab can never both be on screen or both be
-  // absent: one pair of rules decides which surface carries the turn. Width is
-  // the `md` (768px) rule; the short tier is the second, and not a restatement of
-  // it — a landscape phone is 844px wide, so the width rule alone would float the
-  // composer's tab over a transcript this pane has left about 130px tall. The tier
-  // is a short viewport *on a touch-only device*; both halves matter, and the second
-  // one is why a short desktop window keeps this pane's status on the composer's
-  // floating tab.
-  const { isMobile, isShortTouchViewport } = useDeviceSettings();
-  /** Whether this pane is the surface that carries the turn, rather than the composer's floating tab. */
-  const isInlineDock = isMobile || isShortTouchViewport;
   const activeSessionId = currentSessionId ?? selectedSession?.id ?? null;
   const lazyRows = useLazyRowObserver(scrollContainerRef);
   const groupedVisibleMessages = useMemo(
@@ -332,12 +324,6 @@ function ChatMessagesPane({
     return predecessors;
   }, [groupedVisibleMessages]);
 
-  // Wherever the running turn is drawn in the message flow, nothing has to be
-  // kept clear for a floating tab and the pane keeps its ordinary bottom space.
-  // Everywhere else the tab still hangs over the last message, so the space it
-  // was always given is still reserved — same value as before this change.
-  const paneBottomPadding = hasActivityIndicator && !isInlineDock ? 'pb-12 md:pb-14' : 'pb-3 sm:pb-4';
-
   return (
     // The resident process's facts used to sit on a row of their own, *above* the
     // scroll container, in a status bar of their own. They live in the dock's
@@ -357,7 +343,7 @@ function ChatMessagesPane({
         tabIndex={-1}
         onWheel={onWheel}
         onTouchMove={onTouchMove}
-        className={`chat-messages-pane relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden pt-3 sm:pt-4 ${paneBottomPadding}`}
+        className="chat-messages-pane relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-3 pt-3 sm:pb-4 sm:pt-4"
       >
         {chatMessages.length > 0 && (
           <div className="pointer-events-none sticky right-4 top-3 z-10 mb-2 flex justify-end sm:px-4">
@@ -555,10 +541,9 @@ function ChatMessagesPane({
         {/*
           The running turn's status, in the message flow and after the last row, so
           it scrolls with the transcript and never covers a message. It is the only
-          activity surface wherever the composer draws no tab — below `md`, and on a
-          viewport too short to give up the line the tab would cover — and it carries
-          no Stop, because the composer's submit button is already the one stop entry
-          on those layouts.
+          activity surface at every viewport now: the composer's floating tab is
+          gone, and it carries no Stop, because the composer's submit button is the
+          one stop entry at every width and height.
 
           Mounted for the whole time the pane is, with `activity` set to null while
           the turn is over or a permission request has taken over the status: the
@@ -570,13 +555,11 @@ function ChatMessagesPane({
           reading widening are growth the follow answers for free, under the same
           "the user has not scrolled away" gate as every other growth.
         */}
-        {isInlineDock && (
-          <ActivityIndicator
-            activity={hasActivityIndicator ? activity : null}
-            sessionId={activeSessionId}
-            sendFailed={sendFailed}
-          />
-        )}
+        <ActivityIndicator
+          activity={hasActivityIndicator ? activity : null}
+          sessionId={activeSessionId}
+          sendFailed={sendFailed}
+        />
         </div>
       </div>
     </div>

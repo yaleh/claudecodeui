@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useActivityFreshness } from '@/modules/chat/hooks/useActivityFreshness';
@@ -15,9 +15,6 @@ type ActivityIndicatorProps = {
    * reads the app's own socket through `WebSocketContext`.
    */
   connection?: ActivityConnection | null;
-  /** The dock's interrupt affordance. Absent on the transcript's surface, which carries none. */
-  onAbort?: () => void;
-  isInputFocused?: boolean;
   /**
    * True when the last send was never taken. The dock then reports the failure
    * instead of drawing nothing — the state that replaced the old silent drop.
@@ -54,13 +51,18 @@ const EXIT_ANIMATION_MS = 220;
  * reader that counts docks counts one and a reader that looks for the old
  * markers finds none.
  *
+ * Every viewport draws it the same way now: an in-flow status line at the end of
+ * the message list, with no interrupt affordance of its own. The tab that hung
+ * off the composer's top edge from `md` up used to carry its own Stop and its own
+ * Esc hint; both are gone, and the composer's submit button is the one stop
+ * entry at every width and height. This surface only reports.
+ *
  * Two things decide what it says — the client's local "this session is
  * processing" table, and the freshness of the server's own frames (via
  * `useActivityFreshness`). When the server stops proving it is there, the dock
  * stops speaking for it: the state becomes `unreachable`, the elapsed reading
- * freezes at the server's last `asOf`, and the stop control is disabled with a
- * visible reason instead of being silently dropped. The six rotating action
- * words never appear in that state, in any locale.
+ * freezes at the server's last `asOf`, and the label says the connection is
+ * lost. The six rotating action words never appear in that state, in any locale.
  *
  * The dock answers one question — what is this session doing — and nothing else.
  * A resident session's own facts (the address of the process, its pid, and the
@@ -81,15 +83,12 @@ export default function ActivityIndicator({
   activity,
   sessionId,
   connection,
-  onAbort,
-  isInputFocused = false,
   sendFailed = false,
 }: ActivityIndicatorProps) {
   const { t } = useTranslation('chat');
   const freshness = useActivityFreshness(sessionId, connection);
   const [renderedActivity, setRenderedActivity] = useState<SessionActivity | null>(activity);
   const [isExiting, setIsExiting] = useState(false);
-  const stopReasonId = useId();
 
   useEffect(() => {
     if (activity) {
@@ -114,13 +113,16 @@ export default function ActivityIndicator({
   // reading; with no turn at all there is nothing to animate out of, so the
   // failed-send state takes the live prop rather than the exiting render.
   const dockActivity = sendFailed ? activity : renderedActivity;
+  // This surface owns no interrupt handler: the composer's submit button is the
+  // one stop entry at every viewport, so the view can never draw a stop and never
+  // reports one disabled. `hasAbort` is fixed false rather than derived.
   const dock = deriveActivityDockView({
     activity: dockActivity,
     liveness: freshness.liveness,
     elapsedMs: freshness.elapsedMs,
     hasTurnAnchor: freshness.hasTurnAnchor,
     wired: freshness.wired,
-    hasAbort: Boolean(onAbort),
+    hasAbort: false,
     sendFailed,
     phase: freshness.phase,
     toolName: freshness.toolName,
@@ -175,9 +177,6 @@ export default function ActivityIndicator({
   const sendFailedReason = t('claudeStatus.sendFailed.reason', {
     defaultValue: 'The message was not sent. Your draft is still in the box — try again.',
   });
-  const stopReason = dock.stopReasonKey === null
-    ? null
-    : t(dock.stopReasonKey, { defaultValue: 'Stop is unavailable while the server is unreachable' });
 
   const animationClassName = isExiting ? 'chat-activity-exit' : 'chat-activity-enter';
 
@@ -201,64 +200,23 @@ export default function ActivityIndicator({
     </span>
   );
 
-  const surfaceClassName = [
-    'chat-activity-dock-surface inline-flex h-8 items-center gap-2 rounded-lg border bg-card px-3 text-xs transition-all duration-200',
-    isInputFocused
-      ? 'border-primary/30 shadow-[0_-1px_2px_hsl(var(--foreground)/0.08),1px_0_2px_hsl(var(--foreground)/0.06),-1px_0_2px_hsl(var(--foreground)/0.06)]'
-      : 'border-border/50 shadow-[0_-1px_1px_hsl(var(--foreground)/0.04),1px_0_1px_hsl(var(--foreground)/0.03),-1px_0_1px_hsl(var(--foreground)/0.03)]',
-  ].join(' ');
+  const surfaceClassName =
+    'chat-activity-dock-surface inline-flex h-8 items-center gap-2 rounded-lg border border-border/50 bg-card px-3 text-xs shadow-[0_-1px_1px_hsl(var(--foreground)/0.04),1px_0_1px_hsl(var(--foreground)/0.03),-1px_0_1px_hsl(var(--foreground)/0.03)] transition-all duration-200';
 
   return (
     <div className={`pointer-events-none bg-transparent ${animationClassName}`} {...dockAttributes}>
       {/*
-        The collapsed row. The surface is a plain element, not a control: it says
-        what is happening, and the two things a reader can *do* — stop the turn,
-        open the resident panel — are the buttons beside it. That ordering is
-        load-bearing for a reader that addresses "the dock's first button" as the
-        interrupt affordance.
+        The status line. The surface is a plain element, not a control: it says
+        what is happening, and the only thing a reader can *do* about it is the
+        composer's own submit button, which now carries the stop at every width.
       */}
-      <div className="flex items-end justify-between gap-2">
-        <div className={surfaceClassName} data-activity-dock-surface="true">
-          <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary" aria-hidden />
-          {labelNode}
-          {elapsedLabel !== null && (
-            <span className="tabular-nums text-muted-foreground/60">{elapsedLabel}</span>
-          )}
-        </div>
-
-        <div className="pointer-events-auto flex items-end gap-2">
-          {dock.showStop && onAbort && (
-            <button
-              type="button"
-              onClick={onAbort}
-              disabled={dock.stopDisabled}
-              aria-disabled={dock.stopDisabled || undefined}
-              aria-describedby={stopReason === null ? undefined : stopReasonId}
-              title={stopReason ?? t('claudeStatus.stop', { defaultValue: 'Stop' })}
-              className={`${surfaceClassName} gap-1.5 text-muted-foreground hover:text-destructive disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-muted-foreground`}
-              aria-label={t('claudeStatus.stop', { defaultValue: 'Stop' })}
-            >
-              <svg className="h-2.5 w-2.5 fill-current" viewBox="0 0 24 24" aria-hidden>
-                <rect x="5" y="5" width="14" height="14" rx="2" />
-              </svg>
-              <span>{t('claudeStatus.stop', { defaultValue: 'Stop' })}</span>
-              {stopReason === null ? (
-                <kbd className="inline-block rounded border border-border/60 px-1 text-[10px] text-muted-foreground/70">
-                  esc
-                </kbd>
-              ) : (
-                // The reason is drawn, not just described: a greyed control with no
-                // visible explanation is the silent drop this state exists to replace.
-                <span id={stopReasonId} className="text-[10px] font-normal text-muted-foreground/70">
-                  {stopReason}
-                </span>
-              )}
-            </button>
-          )}
-
-        </div>
+      <div className={surfaceClassName} data-activity-dock-surface="true">
+        <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary" aria-hidden />
+        {labelNode}
+        {elapsedLabel !== null && (
+          <span className="tabular-nums text-muted-foreground/60">{elapsedLabel}</span>
+        )}
       </div>
-
     </div>
   );
 }
