@@ -1,7 +1,7 @@
 ---
 id: AC-191
 title: Task 归约：由真实帧序得到任务表，含嵌套、Workflow、Monitor 超时、前台转后台、Stop hook 校准，重放幂等
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-015
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -29,6 +29,11 @@ statusLog:
     to: active
     actor: goal-cli
     reason: ""
+  - at: 2026-10-03T17:03:59.155Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: not-evaluated
   reason: no judge configured
