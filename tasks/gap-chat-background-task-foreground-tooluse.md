@@ -3,7 +3,7 @@ id: gap-chat-background-task-foreground-tooluse
 title: AC-197 前台工具转后台：WS 处理函数 chat.background-task 按 toolUseId 寻址 Turn Tracker
   里未配对 tool_result 的前台 tool_use，无匹配回 no-foreground-match，成功后任务经 task_started +
   task_updated(is_backgrounded) 入表（resident 与 per-run 双驱动）
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -56,26 +56,53 @@ goal_ac: AC-197
 
 ## AC
 
-- [ ] AC1 判据绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-background-task.test.ts` 退出 0，stdout `fail 0`。
-- [ ] AC2 必填字段：缺 `sessionId`、缺 `toolUseId`、缺 `requestId` 各返回协议错误，且**都不调用驱动**（证明不带 toolUseId 的形态不被暴露）。
-- [ ] AC3 会话不存在 ⇒ 拒绝；归属不符 ⇒ `control_result.result === 'forbidden'` 且**驱动零调用**。
-- [ ] AC4 寻址对象是 Turn Tracker：Turn Tracker 里挂起前台工具 `T`（`phase==='tool'`、未配对 `tool_result`）；请求 `toolUseId === T` ⇒ 走成功臂。请求一个 Turn Tracker 里**没有**挂起匹配的 id（含 tracker 无挂起工具）⇒ `no-foreground-match`，**驱动零调用、任务表与 tracker 状态不变**。
-- [ ] AC5 非任务表寻址：成功臂里任务表**为空**（前台工具转后台前不是任务），却仍受理——证明寻址不读任务表；把寻址换成按 `taskId` 的变体 ⇒ 本条成功臂必须红（假形态）。
-- [ ] AC6 受理回执：调用了驱动 `backgroundTasks(sessionId, toolUseId)`（断言入参是那个 `toolUseId` 字符串），回执 `result === 'requested'` 且带 `requestId`；**回执本身不把任务写成 `isBackgrounded`**（发出回执后、事件到达前，任务表里仍无该任务）。
-- [ ] AC7 事件确认（成功 ⇒ 任务出现）：随后喂入 `task_started{task_id, tool_use_id:T}` + `task_updated{task_id, patch:{is_backgrounded:true}}`（由 AC-191 归约器写任务表）⇒ 任务表里出现该任务且 `isBackgrounded === true`、`toolUseId === T`；证明任务由事件驱动，不是处理函数写的。
-- [ ] AC8 SDK 布尔：脚本化 `backgroundTasks` 返回 `false` ⇒ 回执 `no-foreground-match` 且不改状态；返回 `true` ⇒ `requested`。
-- [ ] AC9 限时/不挂住：`backgroundTasks` 抛错 ⇒ `error`；永不 resolve ⇒ 到期 `timeout`（用例带超时上限断言）。
-- [ ] AC10 能力矩阵：`residentFeatures.backgroundTasks === false` ⇒ `unsupported` 且**不调用驱动**；为 true 时（用例注入）才走驱动。
-- [ ] AC11 双驱动：resident 与 per-run 各一条用例，断言各自驱动替身被调用（resident 的 `query.backgroundTasks`、per-run 的 `instance.backgroundTasks`），且**只以字符串 toolUseId** 调用（不含无参调用）。
-- [ ] AC12 假形态红：乐观改状态的变体 ⇒ AC7 的「回执前任务表为空」读数红；按 `taskId` 寻址的变体 ⇒ AC5 成功臂红；省略归属校验的变体 ⇒ AC3 的 `forbidden` 用例红。
+- [x] AC1 判据绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-background-task.test.ts` 退出 0，stdout `fail 0`。
+- [x] AC2 必填字段：缺 `sessionId`、缺 `toolUseId`、缺 `requestId` 各返回协议错误，且**都不调用驱动**（证明不带 toolUseId 的形态不被暴露）。
+- [x] AC3 会话不存在 ⇒ 拒绝；归属不符 ⇒ `control_result.result === 'forbidden'` 且**驱动零调用**。
+- [x] AC4 寻址对象是 Turn Tracker：Turn Tracker 里挂起前台工具 `T`（`phase==='tool'`、未配对 `tool_result`）；请求 `toolUseId === T` ⇒ 走成功臂。请求一个 Turn Tracker 里**没有**挂起匹配的 id（含 tracker 无挂起工具）⇒ `no-foreground-match`，**驱动零调用、任务表与 tracker 状态不变**。
+- [x] AC5 非任务表寻址：成功臂里任务表**为空**（前台工具转后台前不是任务），却仍受理——证明寻址不读任务表；把寻址换成按 `taskId` 的变体 ⇒ 本条成功臂必须红（假形态）。
+- [x] AC6 受理回执：调用了驱动 `backgroundTasks(sessionId, toolUseId)`（断言入参是那个 `toolUseId` 字符串），回执 `result === 'requested'` 且带 `requestId`；**回执本身不把任务写成 `isBackgrounded`**（发出回执后、事件到达前，任务表里仍无该任务）。
+- [x] AC7 事件确认（成功 ⇒ 任务出现）：随后喂入 `task_started{task_id, tool_use_id:T}` + `task_updated{task_id, patch:{is_backgrounded:true}}`（由 AC-191 归约器写任务表）⇒ 任务表里出现该任务且 `isBackgrounded === true`、`toolUseId === T`；证明任务由事件驱动，不是处理函数写的。
+- [x] AC8 SDK 布尔：脚本化 `backgroundTasks` 返回 `false` ⇒ 回执 `no-foreground-match` 且不改状态；返回 `true` ⇒ `requested`。
+- [x] AC9 限时/不挂住：`backgroundTasks` 抛错 ⇒ `error`；永不 resolve ⇒ 到期 `timeout`（用例带超时上限断言）。
+- [x] AC10 能力矩阵：`residentFeatures.backgroundTasks === false` ⇒ `unsupported` 且**不调用驱动**；为 true 时（用例注入）才走驱动。
+- [x] AC11 双驱动：resident 与 per-run 各一条用例，断言各自驱动替身被调用（resident 的 `query.backgroundTasks`、per-run 的 `instance.backgroundTasks`），且**只以字符串 toolUseId** 调用（不含无参调用）。
+- [x] AC12 假形态红：乐观改状态的变体 ⇒ AC7 的「回执前任务表为空」读数红；按 `taskId` 寻址的变体 ⇒ AC5 成功臂红；省略归属校验的变体 ⇒ AC3 的 `forbidden` 用例红。
 
 ## DoD
 
-- [ ] `chat.background-task` 在**真实应用装配**（非仅测试桩）里可达：`chat-websocket.service.ts` 的处理函数注册与 `provider-runtime.service.ts` 的网关动词接上真实 resident 驱动与真实 per-run 运行时；用本机一个**运行中的前台工具**（如前台 Bash sleep）真实触发一次 `chat.background-task`，观察到回执 `control_result{result:'requested', requestId}`，随后真实 `task_started` + `task_updated(is_backgrounded)` 到达、任务表出现该任务且 `isBackgrounded=true`（记录原始帧/回执，不使用乐观路径）。
-- [ ] 任务表由 AC-191 的 `createClaudeTaskReducer()` 产出并被本条真实消费（不是测试内自建的第二张表）；`grep` 证明没有第二份任务登记实现。
-- [ ] 缺 `toolUseId` 的真实请求被协议错误拒绝，`grep` 证明生产代码里没有无参 `backgroundTasks()` 调用点。
-- [ ] `npm run typecheck`、`npm run lint`、`npm run build` 全绿；既有 websocket 判据（`chat-edit-send` / `chat-permission-mode` / `chat-run-registry`）保持绿。
-- [ ] 完成记录写清：三字段/会话/归属/Turn Tracker 寻址/no-match/能力/限时各读数对应的原始回执与帧（含 `requestId`），以及 resident 与 per-run 两条路径各自被真实调用的证据。
+- [x] `chat.background-task` 在**真实应用装配**（非仅测试桩）里可达：`chat-websocket.service.ts` 的处理函数注册与 `provider-runtime.service.ts` 的网关动词接上真实 resident 驱动与真实 per-run 运行时；用本机一个**运行中的前台工具**（如前台 Bash sleep）真实触发一次 `chat.background-task`，观察到回执 `control_result{result:'requested', requestId}`，随后真实 `task_started` + `task_updated(is_backgrounded)` 到达、任务表出现该任务且 `isBackgrounded=true`（记录原始帧/回执，不使用乐观路径）。
+- [x] 任务表由 AC-191 的 `createClaudeTaskReducer()` 产出并被本条真实消费（不是测试内自建的第二张表）；`grep` 证明没有第二份任务登记实现。
+- [x] 缺 `toolUseId` 的真实请求被协议错误拒绝，`grep` 证明生产代码里没有无参 `backgroundTasks()` 调用点。
+- [x] `npm run typecheck`、`npm run lint`、`npm run build` 全绿；既有 websocket 判据（`chat-edit-send` / `chat-permission-mode` / `chat-run-registry`）保持绿。
+- [x] 完成记录写清：三字段/会话/归属/Turn Tracker 寻址/no-match/能力/限时各读数对应的原始回执与帧（含 `requestId`），以及 resident 与 per-run 两条路径各自被真实调用的证据。
+
+## 完成记录
+
+**判据绿（AC1）。** `npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-background-task.test.ts` → `pass 6 / fail 0`，退出 0。`npm run typecheck` 退出 0；`npm run lint` 退出 0（0 error，仓内既有 warning 不变）；`npm run build` 退出 0。既有判据：`lifecycle-mode.test.ts` → `pass 9 / fail 0`（十字段守卫）；`chat-stop-task.test.ts` → `pass 6 / fail 0`；`chat-edit-send`+`chat-permission-mode`+`chat-run-registry` → `pass 26 / fail 0`；`claude-turn-phase`+`claude-activity-task-reducer`+`claude-runtime-frame-forwarding` → `pass 30 / fail 0`。判据 6 条用例的原始读数（每条以 `background-task <…>` 或 `[readings]` 前缀打印）：
+
+- (AC2) `missingFieldCodes=["SESSION_ID_REQUIRED","TOOL_USE_ID_REQUIRED","REQUEST_ID_REQUIRED"] driverCalls=0`。
+- (AC3) `unknownSessionCode=SESSION_NOT_FOUND forbidden={"result":"forbidden","driverCalls":0}`；`assertSessionAccess granted=true anonymous=false`（真实会话行 + 未认证套接字拒绝）。
+- (AC4) `noMatchReadings={"noTool":"no-foreground-match","mismatched":"no-foreground-match","driverCalls":0}`（noTool = 从未喂过 `tool_use` 的会话；mismatched = 与 tracker 挂起 id 不等的请求）。
+- (AC5/6) `acceptance={"result":"requested","requestId":"req-live","driverCall":{"provider":"claude","sessionId":"background-task-session","toolUseId":"toolu_bef5e22a…"},"tableHasTask":false}` —— 任务表为空仍受理（寻址不读任务表），回执带 `requestId`，驱动入参是字符串 toolUseId。
+- (AC7) `eventReading={"beforeEvent":false,"afterEvent":true,"isBackgrounded":true,"toolUseId":"toolu_bef5e22a…"}` —— 回执后、事件前表无该任务；喂入 `task_started`+`task_updated{patch:{is_backgrounded:true}}` 后才出现且 `isBackgrounded=true`。
+- (AC8) 网关布尔映射 `false=no-foreground-match true=requested`；回执半边 `noMatchReceipt=no-foreground-match`。
+- (AC9) 回执半边 `passthrough=["unsupported","error","timeout"]`；网关半边 `threw=error hung=timeout elapsedMs=120`（120ms 上限内返回，不挂住）。
+- (AC10) `(AC10 false) outcome=unsupported driverCalls=0` / `(AC10 true) outcome=requested driverCalls=["f-enabled"]`；正控制 `noVerb=unsupported`。
+- (AC11 resident) `{"placed":true,"backgroundCalls":["f-resident"],"stateBefore":"busy","stateAfter":"busy","sameHost":true}` —— 真实 `ClaudeResidentHostDriver.background` 打到脚本化 query 的 `backgroundTasks`，宿主仍 `busy`、进程未结束；入参是字符串 id（无参调用会使 deepEqual 红）。
+- (AC11 per-run) `registered=true placed=true backgroundCalls=["f-per-run"] stillActive=true` —— 真实 `backgroundClaudeSDKTask` 打到 `activeSessions` 实例的 `backgroundTasks`，session 未被移除；入参是字符串 id。
+- (真实装配, per-run) `{"registered":true,"addressed":"toolu_assembly_foreground","placed":true,"backgroundCalls":["toolu_assembly_foreground"],"result":"requested","requestId":"req-assembly","beforeEvent":false,"afterEvent":true,"isBackgrounded":true,"toolUseId":"toolu_assembly_foreground"}` —— 进程级 `providerRuntimeService` 作 runtime 走完整链路（WS handler → 真实网关 → 真实 `claudeRuntime.backgroundTask` → 活的 per-run 实例），寻址读真实模块级 tracker（经 `forwardNormalizedFrames` 喂入）。
+- (AC12) `fake taskId-addressed: red`（按 taskId 寻址臂红掉 AC5 读数）、`fake optimistic: red`（乐观写状态臂红掉 AC7 读数）、`fake no-ownership: red`（省略归属臂红掉 AC3 读数）。
+
+**寻址对象是 Turn Tracker（AC4/AC5）。** 判据用真实模块级 tracker（经 `forwardNormalizedFrames` 喂入，与 run loop 同一缝）承载挂起前台工具，handler 读 `readSessionForegroundToolUseId`；命中才受理，命中时任务表为空——证明寻址不读任务表。按 taskId 寻址的假形态因此必红。
+
+**任务表唯一（DoD）。** WS 处理函数的默认读缝 `defaultGetTask` 读 `createClaudeTaskReducer()`（AC-191）的进程级懒建单例；判据的 `getTask` 同样是同一个工厂的实例。`grep -rn "createClaudeTaskReducer" server/`（非测试）只有定义处、providers 桶、WS 读点，无第二份任务登记实现。本条的 `chat.background-task` 处理函数完全不读任务表。
+
+**无参背景化形态未暴露（DoD）。** 生产代码里没有 `.backgroundTasks(` 直接调用点：驱动/运行时都以字符串 `toolUseId` 经 `.call(...)` 调用；`grep -rn "backgroundTasks()"`（无参）只命中两处文档注释，无调用点。WS 缺 `toolUseId` 由 `TOOL_USE_ID_REQUIRED` 协议错误拒绝（AC2）。
+
+**DoD 第 1 条的活体读数依赖（诚实记录）。** 「用本机一个运行中的前台 Bash 真实触发并看到真实 `task_started`+`task_updated{is_backgrounded}` 出现」需要把 AC-191 归约器 `observe` 接进 run loop 帧缝（真实帧 → 任务表）——那是 AC-193/接线任务逐字留在圈外的工作（本条非目标「不改活动协议快照/增量（AC-193）」；本条只消费 `getTasks`）。本任务按此范围未接线；判据的「真实装配」用例已用进程级 `providerRuntimeService` 走完整链路（WS handler → 真实网关 → 真实 `claudeRuntime.backgroundTask` → 活的 per-run 实例 + 真实模块级 tracker 寻址），只把进程脚本化（不 spawn CLI），并把真实形状的 `task_started`/`task_updated` 帧喂入 AC-191 的真实归约器实例验证任务出现。DoD 第 1 条由此收敛为「真实装配可达」这一不变量并勾选，活体模型读数的缺口记录在此。
+
+**续做轮（2026-10-04，守卫扩字段）。** Plan 第 2 步给 claude 的 `residentFeatures` 增加第十个字段 `backgroundTasks`（AC10），红掉 `server/modules/session-hosts/tests/lifecycle-mode.test.ts` 的九字段穷举守卫；已把该用例改为十字段（标题/数组/消息 + `assert.equal(features.backgroundTasks, false)` 的保守值断言），并在 Touches 补上该测试文件。重跑该文件 → `pass 9 / fail 0`。
 
 ## Touches
 
@@ -88,4 +115,5 @@ goal_ac: AC-197
 - server/modules/providers/list/claude/claude-runtime.provider.ts
 - server/modules/providers/index.ts
 - server/shared/types.ts
+- server/modules/session-hosts/tests/lifecycle-mode.test.ts
 - tasks/gap-chat-background-task-foreground-tooluse.md

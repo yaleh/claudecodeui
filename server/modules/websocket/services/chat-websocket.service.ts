@@ -6,9 +6,14 @@ import { sessionsDb } from '@/modules/database/index.js';
 import {
   createClaudeTaskReducer,
   providerModelsService,
+  readSessionForegroundToolUseId,
   sessionsService,
 } from '@/modules/providers/index.js';
-import type { ActivityTask, ControlStopTaskOutcome } from '@/modules/providers/index.js';
+import type {
+  ActivityTask,
+  ControlBackgroundTaskOutcome,
+  ControlStopTaskOutcome,
+} from '@/modules/providers/index.js';
 import { sessionHostManager } from '@/modules/session-hosts/index.js';
 import type { SessionHostManager } from '@/modules/session-hosts/index.js';
 import {
@@ -85,6 +90,19 @@ export function filterImagesToUploadStore(
  */
 type ControlStopTaskResult = ControlStopTaskOutcome | 'forbidden' | 'unknown-task';
 
+/**
+ * The full verdict set one `chat.background-task` receipt can carry: everything
+ * the runtime gateway can answer, plus the refusal the handler itself decides
+ * before the gateway is reached (`forbidden` from the access entry).
+ *
+ * Deliberately has no `unknown-task`: this verb does not address the task table
+ * at all, so there is no table-side refusal — the handler's own
+ * `no-foreground-match` (from the Turn Tracker) is the only pre-gate answer, and
+ * it is already part of the gateway's union so a driven `false` and a
+ * tracker-side mismatch read identically to the caller.
+ */
+type ControlBackgroundTaskResult = ControlBackgroundTaskOutcome | 'forbidden';
+
 /** Application boundary for dispatching provider runs and approvals. */
 export type ProviderRuntimeGateway = {
   hasRuntime(provider: string): boolean;
@@ -137,6 +155,25 @@ export type ProviderRuntimeGateway = {
     sessionId: string,
     taskId: string,
   ): Promise<ControlStopTaskOutcome>;
+  /**
+   * Promotes one named *foreground* tool to a background task through the
+   * provider's own process.
+   *
+   * Returns `requested` when the driver was called and its call settled `true`,
+   * and a failure value otherwise. Like its stop-task sibling it deliberately
+   * does **not** wait for the task to appear and does not touch the task table:
+   * the task becomes a row only when the reducer consumes the
+   * `task_started` + `task_updated{is_backgrounded:true}` frames the CLI emits,
+   * which is a later step than this call.
+   *
+   * Optional, and read as `unsupported` when absent, because a gateway that
+   * cannot carry the request must never be read as having placed one.
+   */
+  controlBackgroundTask?(
+    provider: LLMProvider,
+    sessionId: string,
+    toolUseId: string,
+  ): Promise<ControlBackgroundTaskOutcome>;
   resolveToolApproval(requestId: string, payload: ProviderPermissionDecision): void;
   getPendingApprovalsForSession(sessionId: string): unknown[];
 };
@@ -937,6 +974,105 @@ function handleActivitySubscribe(ws: WebSocket, data: AnyRecord): void {
 }
 
 /**
+ * Handles `chat.background-task`: promotes one running *foreground* tool of a
+ * session to a background task, with the request placed through the provider's
+ * own process.
+ *
+ * The address is the Turn Tracker, not the task table. A foreground tool is not
+ * a task until the CLI backgrounds it, so at the moment the request arrives the
+ * table has no row for it — the id names a `tool_use` the tracker still holds as
+ * pending. The handler therefore refuses every request whose `toolUseId` is not
+ * the tracker's currently pending foreground tool, and never reads the task table
+ * at all.
+ *
+ * The shape is "validate, address, place, report", and every refusal happens
+ * **before** the driver is touched:
+ *
+ *  1. the three fields (`sessionId`, `toolUseId`, `requestId`) are required — the
+ *     no-toolUseId "background everything" form is refused here, so the driver is
+ *     only ever reached with a string id;
+ *  2. the session must exist;
+ *  3. the request must belong to the session (`assertSessionAccess`);
+ *  4. the requested `toolUseId` must equal the Turn Tracker's pending foreground
+ *     tool (`readSessionForegroundToolUseId`) — anything else is
+ *     `no-foreground-match`, with the driver un-called and no state moved;
+ *  5. only then is the runtime asked, and the capability matrix decides whether
+ *     the provider can carry it at all.
+ *
+ * The receipt never carries or writes a task state. `requested` means the request
+ * was accepted and placed; whether the task then appears is the reducer's, driven
+ * by the frames the CLI emits — this handler writes nothing and the tracker is
+ * only ever read.
+ */
+async function handleChatBackgroundTask(
+  ws: WebSocket,
+  userId: string | number | null,
+  data: AnyRecord,
+  dependencies: ChatWebSocketDependencies
+): Promise<void> {
+  const sessionId = readRequiredSessionId(data);
+  if (!sessionId) {
+    sendProtocolError(ws, 'SESSION_ID_REQUIRED', 'chat.background-task requires a sessionId.');
+    return;
+  }
+
+  const toolUseId = typeof data.toolUseId === 'string' ? data.toolUseId.trim() : '';
+  if (!toolUseId) {
+    sendProtocolError(
+      ws,
+      'TOOL_USE_ID_REQUIRED',
+      'chat.background-task requires the toolUseId of the foreground tool.',
+      sessionId
+    );
+    return;
+  }
+
+  const requestId = typeof data.requestId === 'string' ? data.requestId.trim() : '';
+  if (!requestId) {
+    sendProtocolError(ws, 'REQUEST_ID_REQUIRED', 'chat.background-task requires a requestId.', sessionId);
+    return;
+  }
+
+  const session = sessionsDb.getSessionById(sessionId);
+  if (!session) {
+    sendProtocolError(ws, 'SESSION_NOT_FOUND', `Session "${sessionId}" was not found.`, sessionId);
+    return;
+  }
+
+  const reply = (result: ControlBackgroundTaskResult): void => {
+    sendJson(ws, {
+      kind: 'control_result',
+      sessionId,
+      requestId,
+      result,
+      timestamp: new Date().toISOString(),
+    });
+  };
+
+  // Ownership is checked before the tracker and long before any driver call, so
+  // a forbidden request can neither learn what foreground tools exist nor place a
+  // background request.
+  if (!assertSessionAccess(userId, session)) {
+    reply('forbidden');
+    return;
+  }
+
+  // The addressing store is the Turn Tracker, never the task table: a foreground
+  // tool has no task row yet, and a request that does not name the tracker's
+  // pending tool is refused with no driver call and no state moved.
+  const pendingToolUseId = readSessionForegroundToolUseId(sessionId);
+  if (pendingToolUseId !== toolUseId) {
+    reply('no-foreground-match');
+    return;
+  }
+
+  const provider = session.provider as LLMProvider;
+  const outcome =
+    (await dependencies.runtime.controlBackgroundTask?.(provider, sessionId, toolUseId)) ?? 'unsupported';
+  reply(outcome);
+}
+
+/**
  * Handles `chat.subscribe`: for each requested session, reports whether a run
  * is processing, re-attaches the live stream to this socket, replays missed
  * events (seq > lastSeq), and includes pending permission requests.
@@ -1065,6 +1201,7 @@ function handlePermissionResponse(data: AnyRecord, dependencies: ChatWebSocketDe
  * - `chat.abort`               { sessionId }
  * - `chat.cancel-queued`       { sessionId, messageUuid }
  * - `chat.stop-task`           { sessionId, taskId, requestId }
+ * - `chat.background-task`     { sessionId, toolUseId, requestId }
  * - `chat.subscribe`           { sessions: [{ sessionId, lastSeq? }] }
  * - `chat.permission-response` { requestId, allow, updatedInput?, message?, rememberEntry? }
  *
@@ -1174,6 +1311,9 @@ export function handleChatConnection(
           return;
         case 'chat.stop-task':
           await handleChatStopTask(ws, userId, data, dependencies);
+          return;
+        case 'chat.background-task':
+          await handleChatBackgroundTask(ws, userId, data, dependencies);
           return;
         case 'chat.subscribe':
           handleChatSubscribe(ws, data, dependencies);

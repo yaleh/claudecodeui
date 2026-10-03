@@ -79,6 +79,22 @@ export type ClaudeTurnTracker = {
   observe(sessionId: string, message: unknown): void;
   observePermission(sessionId: string, event: TurnPermissionEvent): void;
   getTurn(sessionId: string): TurnState;
+  /**
+   * The `tool_use.id` of the session's currently pending foreground tool, or
+   * `null`.
+   *
+   * A foreground tool is pending from the `tool_use` block that emitted it until
+   * its paired `tool_result` arrives (or the turn's `result` clears the turn):
+   * exactly the window in which the CLI can still be asked to background it.
+   * This is the addressing seam AC-197's `chat.background-task` reads — a
+   * background request names a `toolUseId` and is accepted only when it equals
+   * this value, which is what makes the request address a *running foreground
+   * tool* rather than a row in the task table (a foreground tool is not a task
+   * until the CLI backgrounds it). Exporting the pending id is deliberate: the
+   * task table cannot answer this question, and a handler that tried to would
+   * be reading the wrong store.
+   */
+  getPendingToolUseId(sessionId: string): string | null;
 };
 
 /** The internal reduction per session; the pairing ids never leave this file. */
@@ -302,5 +318,9 @@ export function createClaudeTurnTracker(): ClaudeTurnTracker {
     return { phase: state.phase, toolName: state.toolName, toolDurationMs: state.toolDurationMs };
   };
 
-  return { observe, observePermission, getTurn };
+  const getPendingToolUseId = (sessionId: string): string | null => {
+    return sessions.get(sessionId)?.pendingToolUseId ?? null;
+  };
+
+  return { observe, observePermission, getTurn, getPendingToolUseId };
 }

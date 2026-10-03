@@ -7,6 +7,12 @@ export { providerRuntimeService, createProviderRuntimeService } from './services
 // control handler types its pass-through against the one union rather than
 // restating it, and so the criterion can name each arm's expected value.
 export type { ControlStopTaskOutcome } from './services/provider-runtime.service.js';
+// ControlBackgroundTaskOutcome: the answer the runtime gateway's background-task
+// verb gives (`requested` / `no-foreground-match` / `unsupported` / `timeout` /
+// `error`). Exported for the same reasons as its stop-task sibling: the websocket
+// `chat.background-task` handler types its pass-through against this one union,
+// and AC-197's criterion names each arm's expected value.
+export type { ControlBackgroundTaskOutcome } from './services/provider-runtime.service.js';
 
 // providerModelsService: used by Commands to list models and resolve the active session model.
 export { providerModelsService } from './services/provider-models.service.js';
@@ -127,6 +133,13 @@ export {
   reconcileSessionHeldWork,
   setActivityChangeNotifier,
 } from './list/claude/claude-runtime.provider.js';
+// readSessionForegroundToolUseId: the `tool_use.id` of the session's currently
+// pending foreground tool, or null. Companion to `readSessionTurn` over the same
+// Turn Tracker, and the addressing seam AC-197's `chat.background-task` reads —
+// the handler accepts a background request only when the requested toolUseId
+// equals this, because a foreground tool is not yet a task in the task table.
+// Consumed by the websocket module's chat handler and by AC-197's criterion.
+export { readSessionForegroundToolUseId } from './list/claude/claude-runtime.provider.js';
 export { providerRegistry } from './provider.registry.js';
 // providerRoutes: the module's HTTP face. Mounted by `server/index.ts`, and by
 // the lifecycle-mode criterion, which has to drive the real
@@ -189,6 +202,7 @@ export type {
 export { CLAUDE_PREDEFINED_MODELS } from './list/claude/claude-models.provider.js';
 export {
   abortClaudeSDKSession,
+  backgroundClaudeSDKTask,
   claudeQueryFactory,
   getActiveClaudeSDKSessions,
   queryClaudeSDK,

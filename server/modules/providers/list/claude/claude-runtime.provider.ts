@@ -953,6 +953,21 @@ export function readSessionTurn(sessionId: string): TurnState {
 }
 
 /**
+ * The `tool_use.id` of a session's currently pending foreground tool, or `null`.
+ *
+ * Companion to {@link readSessionTurn} over the same module-level tracker, and
+ * the addressing seam AC-197's `chat.background-task` reads: the control handler
+ * accepts a background request only when the requested `toolUseId` equals this,
+ * which is what makes the request address a *running foreground tool* rather
+ * than a row in the task table (a foreground tool is not a task until the CLI
+ * backgrounds it). Consumed by the websocket module's chat handler and by AC-197's
+ * criterion (`server/modules/websocket/tests/chat-background-task.test.ts`).
+ */
+export function readSessionForegroundToolUseId(sessionId: string): string | null {
+  return turnTracker.getPendingToolUseId(sessionId);
+}
+
+/**
  * Hands every normalized frame of one SDK message to the run writer, in order.
  *
  * This is the seam the partial-stream path rests on: the normalizer decides what
@@ -1885,6 +1900,40 @@ async function stopClaudeSDKTask(sessionId: string, taskId: string): Promise<boo
 }
 
 /**
+ * Turns one named *foreground* tool of a per-run Claude process into a background
+ * task.
+ *
+ * The per-run twin of the resident driver's `background`, and deliberately *not*
+ * `abortClaudeSDKSession`: backgrounding asks the SDK to promote the named
+ * foreground `tool_use` to a background task and leaves the turn, the run and the
+ * held stdin in place — the turn keeps running and the tool keeps running, only
+ * now detached. The held input is therefore never released and the session is
+ * never removed; the run keeps going.
+ *
+ * The SDK's own boolean is the whole answer and it is consumed as-is: `true` when
+ * the process agrees the named `toolUseId` was a foreground tool it has now
+ * backgrounded, `false` when it does not (or the session has no live query, or
+ * the query exposes no `backgroundTasks` verb). The caller — the runtime
+ * gateway — maps `false` to `no-foreground-match`, so a `false` here is read as
+ * "there was no matching foreground tool", never as a placed request. Whether the
+ * task then *appears* in the task table is the reducer's business: it is written
+ * from the `task_started` + `task_updated{is_backgrounded:true}` frames the CLI
+ * emits, never from this call's return.
+ *
+ * @param {string} sessionId - App session identifier
+ * @param {string} toolUseId - The foreground tool's `tool_use.id`
+ * @returns {Promise<boolean>} Whether the SDK reported a matching foreground tool
+ */
+async function backgroundClaudeSDKTask(sessionId: string, toolUseId: string): Promise<boolean> {
+  const session = getSession(sessionId);
+  const background = session?.instance?.backgroundTasks;
+  if (!session || typeof background !== 'function') {
+    return false;
+  }
+  return (await background.call(session.instance, toolUseId)) === true;
+}
+
+/**
  * Checks if an SDK session is currently active
  * @param {string} sessionId - Session identifier
  * @returns {boolean} True if session is active
@@ -1942,10 +1991,11 @@ function reconnectSessionWriter(sessionId: string, newRawWs: unknown): boolean {
 export const claudeRuntime = {
   run: queryClaudeSDK,
   abort: abortClaudeSDKSession,
-  // The per-run control-plane verb `provider-runtime.service` reaches through
-  // `IProvider.runtime`; it is read structurally (as an optional method) so the
-  // shared runtime interface is not widened for one provider's capability.
+  // The per-run control-plane verbs `provider-runtime.service` reaches through
+  // `IProvider.runtime`; they are read structurally (as optional methods) so the
+  // shared runtime interface is not widened for one provider's capabilities.
   stopTask: stopClaudeSDKTask,
+  backgroundTask: backgroundClaudeSDKTask,
   permissions: {
     resolve: resolveToolApproval,
     listPending: getPendingApprovalsForSession,
@@ -1957,6 +2007,7 @@ export {
   queryClaudeSDK,
   abortClaudeSDKSession,
   stopClaudeSDKTask,
+  backgroundClaudeSDKTask,
   isClaudeSDKSessionActive,
   getActiveClaudeSDKSessions,
   resolveToolApproval,
