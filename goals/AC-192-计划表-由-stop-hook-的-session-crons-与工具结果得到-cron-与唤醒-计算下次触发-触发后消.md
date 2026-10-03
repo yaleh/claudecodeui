@@ -1,7 +1,7 @@
 ---
 id: AC-192
 title: 计划表：由 Stop hook 的 session_crons 与工具结果得到 cron 与唤醒，计算下次触发，触发后消失
-status: draft
+status: active
 kind: criterion
 goal: GOAL-015
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -19,4 +19,15 @@ origin: docs/proposals/claude-session-activity-dock.md（§0.1 人的裁定、§
   事件在投影层折叠成一行；历史里的 isMeta 行显示与对等方目录本期不纳入。 实测 2026-10-01：CronCreate 与
   ScheduleWakeup 都没有 task_* 事件，Stop hook 的 session_crons 是完整权威的清单，现有
   inferHeldWork 只处理 CronCreate 与 CronDelete。
+activatedAt: 2026-10-03T15:51:27.133Z
+statusLog:
+  - at: 2026-10-03T15:51:27.133Z
+    from: draft
+    to: active
+    actor: goal-cli
+    reason: ""
+fidelity:
+  verdict: not-evaluated
+  reason: no judge configured
+  at: 2026-10-03T15:51:27.132Z
 ---
