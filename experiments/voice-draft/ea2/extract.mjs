@@ -18,7 +18,7 @@ for (const f of readdirSync(ROOT).filter((x) => x.endsWith('.jsonl'))) {
     if (e.type === 'assistant') { if (t) last += (last ? '\n\n' : '') + t; continue; }
     if (e.type !== 'user' || e.isMeta || !t) continue; turn++;
     if (HUMAN.has(`${e.promptSource ?? ''}|${e.entrypoint ?? ''}`) && !MACHINE.test(t.trimStart()) && last) {
-      const own = t.replace(/<pasted_content[\s\S]*?<\/pasted_content>/g, ' ').replace(/```[\s\S]*?```/g, ' ').replace(/`/g, '').trim(); const prev = last.slice(-WINDOW);
+      const own = t.replace(/<pasted_content[\s\S]*?<\/pasted_content>/g, ' ').replace(/<pasted_content[\s\S]*$/g, ' ').replace(/```[\s\S]*?```/g, ' ').replace(/```[\s\S]*$/g, ' ').replace(/<\/?[A-Za-z][^>\n]*>/g, ' ').replace(/`/g, '').trim(); const prev = last.slice(-WINDOW);
       if (own.length >= 8 && own.length <= 200) { const terms = [...new Set(own.match(TERM) ?? [])].filter((x) => x.length >= 3 || /\d/.test(x)); const lo = prev.toLowerCase(); const inPrev = terms.filter((x) => lo.includes(x.toLowerCase()) && !/^\d$/.test(x));
         if (inPrev.length) cand.push({ id: `${f.slice(0, 8)}-${turn}`, session: f.slice(0, 8), ts: e.timestamp, prev, reply: own, terms, inPrev }); } }
     last = ''; } }
