@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -27,6 +28,7 @@ import {
 } from '@/shared/utils.js';
 import { sessionsDb } from '@/modules/database/index.js';
 import { summarizeClaudeTokenUsage } from '@/modules/providers/services/provider-token-usage.service.js';
+import { takeHistoryLoadContext } from '@/modules/providers/services/session-history-cache.service.js';
 
 const PROVIDER = 'claude';
 
@@ -374,6 +376,243 @@ async function readTranscriptRows(jsonlPath: string, providerSessionId: string):
   return rows;
 }
 
+/**
+ * Bytes at the parse boundary hashed so a rewrite under an append is caught.
+ *
+ * A transcript is append-only in normal use, so comparing the bytes just before
+ * where the previous parse stopped against their recorded digest separates the
+ * two: an append leaves them untouched, an edit or rewind replaces them.
+ */
+const PREFIX_CHECKSUM_WINDOW_BYTES = 4096;
+
+/**
+ * Everything a later Claude history read needs to resume from where an earlier
+ * one stopped instead of re-reading and re-parsing the whole JSONL file.
+ *
+ * Held by the session history cache on the entry it belongs to and handed back
+ * through that cache's per-load context. `rows` are the rows parsed for
+ * `[0, offset)` before branch dropping, so the resuming read re-runs every
+ * downstream step — superseded-branch pruning, tool-result folding, sorting —
+ * over the complete row set and cannot drift from a full parse.
+ */
+type ClaudeTranscriptResume = {
+  /** Path the offset and rows were read from; a different path invalidates it. */
+  transcriptPath: string;
+  /** Byte offset just past the last complete line consumed. */
+  offset: number;
+  /** Rows parsed for `[0, offset)`, in file order. */
+  rows: AnyRecord[];
+  /** Bytes of the boundary window those `rows` were validated against. */
+  windowBytes: number;
+  /** Digest of the boundary window, to detect a rewrite under an append. */
+  prefixChecksum: string;
+};
+
+function isClaudeTranscriptResume(value: unknown): value is ClaudeTranscriptResume {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const resume = value as Partial<ClaudeTranscriptResume>;
+  return typeof resume.transcriptPath === 'string'
+    && typeof resume.offset === 'number'
+    && Array.isArray(resume.rows)
+    && typeof resume.windowBytes === 'number'
+    && typeof resume.prefixChecksum === 'string';
+}
+
+/**
+ * Bytes of the transcript file the most recent history read parsed, reset at
+ * the start of each read.
+ *
+ * Exposed for `session-history-incremental-cache.test.ts`, which asserts an
+ * append parses only the appended tail; production never reads it.
+ */
+let transcriptParseBytes = 0;
+
+/** Bytes parsed by the most recent Claude history read (see `transcriptParseBytes`). */
+export function getClaudeTranscriptParseBytes(): number {
+  return transcriptParseBytes;
+}
+
+/** Parses one JSONL line, keeping only rows this session owns. */
+function parseTranscriptLine(line: string, providerSessionId: string): AnyRecord | null {
+  const text = line.endsWith('\r') ? line.slice(0, -1) : line;
+  if (!text.trim()) {
+    return null;
+  }
+  try {
+    const entry = JSON.parse(text) as AnyRecord;
+    return entry.sessionId === providerSessionId ? entry : null;
+  } catch {
+    // A row can be half-written while the CLI is streaming into the file.
+    return null;
+  }
+}
+
+function digestPrefixWindow(bytes: Buffer): string {
+  return createHash('sha1').update(bytes).digest('hex');
+}
+
+/** Reads and digests the `PREFIX_CHECKSUM_WINDOW_BYTES` before `offset`. */
+async function readPrefixChecksum(
+  jsonlPath: string,
+  offset: number,
+): Promise<{ windowBytes: number; checksum: string }> {
+  const windowBytes = Math.min(offset, PREFIX_CHECKSUM_WINDOW_BYTES);
+  if (windowBytes === 0) {
+    return { windowBytes: 0, checksum: digestPrefixWindow(Buffer.alloc(0)) };
+  }
+
+  const handle = await fsp.open(jsonlPath, 'r');
+  try {
+    const window = Buffer.allocUnsafe(windowBytes);
+    await handle.read(window, 0, windowBytes, offset - windowBytes);
+    return { windowBytes, checksum: digestPrefixWindow(window) };
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * Reads the bytes after `fromOffset` and parses only the lines among them.
+ *
+ * Complete lines (ending in `\n`) are consumed and counted in
+ * `transcriptParseBytes`. Bytes after the last newline are returned as
+ * `trailingRows` when they already parse, but are deliberately left unconsumed,
+ * so a row the CLI is still writing is re-read once complete rather than lost
+ * or double-counted on the next append.
+ */
+async function readTranscriptRowsFrom(
+  jsonlPath: string,
+  providerSessionId: string,
+  priorRows: AnyRecord[],
+  fromOffset: number,
+): Promise<{ rows: AnyRecord[]; offset: number; trailingRows: AnyRecord[] }> {
+  const handle = await fsp.open(jsonlPath, 'r');
+  let tail: Buffer;
+  try {
+    const stat = await handle.stat();
+    const length = Math.max(0, stat.size - fromOffset);
+    tail = Buffer.allocUnsafe(length);
+    if (length > 0) {
+      await handle.read(tail, 0, length, fromOffset);
+    }
+  } finally {
+    await handle.close();
+  }
+  transcriptParseBytes += tail.length;
+
+  const rows = priorRows.slice();
+  const lastNewline = tail.lastIndexOf(0x0a);
+  if (lastNewline !== -1) {
+    for (const line of tail.subarray(0, lastNewline).toString('utf8').split('\n')) {
+      const entry = parseTranscriptLine(line, providerSessionId);
+      if (entry) {
+        rows.push(entry);
+      }
+    }
+  }
+
+  const trailingRows: AnyRecord[] = [];
+  const trailing = (lastNewline === -1 ? tail : tail.subarray(lastNewline + 1)).toString('utf8');
+  if (trailing.trim()) {
+    const entry = parseTranscriptLine(trailing, providerSessionId);
+    if (entry) {
+      trailingRows.push(entry);
+    }
+  }
+
+  const offset = lastNewline === -1 ? fromOffset : fromOffset + lastNewline + 1;
+  return { rows, offset, trailingRows };
+}
+
+/**
+ * Resumes a Claude history read from a cached parse state, or returns null when
+ * the file is not a clean append and the caller must re-parse it whole.
+ *
+ * The append checks, in order: same path; the file did not shrink; its mtime
+ * did not move backward; and the bytes just before the previous offset still
+ * digest to the recorded checksum — an edit or rewind rewrites them, an append
+ * does not.
+ */
+async function resumeClaudeTranscript(
+  jsonlPath: string,
+  providerSessionId: string,
+  previous: { resume: unknown; size: number; mtimeMs: number },
+): Promise<{ rows: AnyRecord[]; resume: ClaudeTranscriptResume } | null> {
+  const prior = previous.resume as ClaudeTranscriptResume;
+  if (prior.transcriptPath !== jsonlPath) {
+    return null;
+  }
+
+  let stat;
+  try {
+    stat = await fsp.stat(jsonlPath);
+  } catch {
+    return null;
+  }
+  if (!stat.isFile() || stat.size <= prior.offset || stat.mtimeMs < previous.mtimeMs) {
+    return null;
+  }
+
+  const boundary = await readPrefixChecksum(jsonlPath, prior.offset);
+  if (boundary.checksum !== prior.prefixChecksum) {
+    return null;
+  }
+
+  const tail = await readTranscriptRowsFrom(jsonlPath, providerSessionId, prior.rows, prior.offset);
+  const next = await readPrefixChecksum(jsonlPath, tail.offset);
+  return {
+    rows: [...tail.rows, ...tail.trailingRows],
+    resume: {
+      transcriptPath: jsonlPath,
+      offset: tail.offset,
+      rows: tail.rows,
+      windowBytes: next.windowBytes,
+      prefixChecksum: next.checksum,
+    },
+  };
+}
+
+/**
+ * Reads a Claude transcript through the session history cache's per-load
+ * context: parsing only the appended tail when the file grew by append, and
+ * publishing the parse state the cache entry should carry.
+ *
+ * Returns the rows the history pipeline should normalize (consumed rows plus a
+ * valid trailing line still being written) and the resume state for the next read.
+ */
+async function readClaudeTranscriptRows(
+  sessionId: string,
+  jsonlPath: string,
+  providerSessionId: string,
+): Promise<{ rows: AnyRecord[]; resume: ClaudeTranscriptResume }> {
+  transcriptParseBytes = 0;
+  const context = takeHistoryLoadContext(sessionId);
+
+  if (context?.previous && isClaudeTranscriptResume(context.previous.resume)) {
+    const resumed = await resumeClaudeTranscript(jsonlPath, providerSessionId, context.previous);
+    if (resumed) {
+      context.producedResume = resumed.resume;
+      return resumed;
+    }
+  }
+
+  const full = await readTranscriptRowsFrom(jsonlPath, providerSessionId, [], 0);
+  const boundary = await readPrefixChecksum(jsonlPath, full.offset);
+  const resume: ClaudeTranscriptResume = {
+    transcriptPath: jsonlPath,
+    offset: full.offset,
+    rows: full.rows,
+    windowBytes: boundary.windowBytes,
+    prefixChecksum: boundary.checksum,
+  };
+  if (context) {
+    context.producedResume = resume;
+  }
+  return { rows: [...full.rows, ...full.trailingRows], resume };
+}
+
 /** True for a row the user typed, as opposed to a tool result or an injected note. */
 function isUserPromptRow(row: AnyRecord): boolean {
   if (row.type !== 'user' || row.isMeta === true || row.isCompactSummary === true) {
@@ -462,9 +701,11 @@ async function getSessionMessages(
 
     const projectDir = path.dirname(jsonLPath);
 
-    const messages = dropSupersededPromptBranches(
-      await readTranscriptRows(jsonLPath, providerSessionId),
-    );
+    // Served through the history cache with a resume state, an append parses
+    // only the new tail; every read still re-runs the full pipeline below over
+    // the complete row set, so the result cannot drift from a whole-file parse.
+    const transcript = await readClaudeTranscriptRows(sessionId, jsonLPath, providerSessionId);
+    const messages = dropSupersededPromptBranches(transcript.rows);
 
     const agentIds = new Set<string>();
     for (const message of messages) {
