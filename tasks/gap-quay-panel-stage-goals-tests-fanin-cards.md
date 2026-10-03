@@ -49,10 +49,10 @@ extra:
 
 ## AC
 
-- [ ] `npm run typecheck` 退出码 0。
-- [ ] 后端新增/更新的窄测试(`server/modules/quay/tests/`)退出码 0,覆盖:(a) `readCarrierFileTail` 对一个人工构造的多行 fixture 文件只返回最近 N 条,且不会把整个文件读入一次性字符串(用一个远大于 N 行的 fixture 验证,断言调用耗时/内存级别的代理指标,或直接检查实现确实是按块读取而不是 `fs.readFileSync` 全量——测试里可以 mock 底层读取接口断言调用方式);(b) `readCurrentSuiteState` 对文件存在/不存在两种情况返回正确结果,不存在时不抛错;(c) Tests/Fan-in 两个新字段在对应 fixture 下投影字段正确(不包含 `perFile` 全量)。
-- [ ] 前端新增/更新的窄测试(`src/modules/quay/tests/`)退出码 0,覆盖:(a) `TimelineBar` 组件对一组区间 fixture 渲染出对应数量的 `<rect>`,且每个 `<rect>` 的 x 位置随区间时间单调变化(不要求像素级精确匹配,只要求相对顺序正确);(b) `QuayPanel` 的 Stage goals/Tests/Fan-in 区块在对应 snapshot 字段为空/有值两种情况下分别渲染空态和内容。
-- [ ] 真实数据核对:在本机对 claudecodeui 自身跑 `quay goal list --json`,与面板 Stage goals 区块的计数手工核对一致;读 `.quay/full-suite-state.json`/`.quay/verification-round.jsonl` 最后几行/`.quay/worker-outcome.jsonl` 最后几行,与面板 Tests/Fan-in 区块展示的最近几条记录字段级核对一致(记录在 DoD)。
+- [x] `npm run typecheck` 退出码 0。
+- [x] 后端新增/更新的窄测试(`server/modules/quay/tests/`)退出码 0,覆盖:(a) `readCarrierFileTail` 对一个人工构造的多行 fixture 文件只返回最近 N 条,且不会把整个文件读入一次性字符串(用一个远大于 N 行的 fixture 验证,断言调用耗时/内存级别的代理指标,或直接检查实现确实是按块读取而不是 `fs.readFileSync` 全量——测试里可以 mock 底层读取接口断言调用方式);(b) `readCurrentSuiteState` 对文件存在/不存在两种情况返回正确结果,不存在时不抛错;(c) Tests/Fan-in 两个新字段在对应 fixture 下投影字段正确(不包含 `perFile` 全量)。
+- [x] 前端新增/更新的窄测试(`src/modules/quay/tests/`)退出码 0,覆盖:(a) `TimelineBar` 组件对一组区间 fixture 渲染出对应数量的 `<rect>`,且每个 `<rect>` 的 x 位置随区间时间单调变化(不要求像素级精确匹配,只要求相对顺序正确);(b) `QuayPanel` 的 Stage goals/Tests/Fan-in 区块在对应 snapshot 字段为空/有值两种情况下分别渲染空态和内容。
+- [x] 真实数据核对:在本机对 claudecodeui 自身跑 `quay goal list --json`,与面板 Stage goals 区块的计数手工核对一致;读 `.quay/full-suite-state.json`/`.quay/verification-round.jsonl` 最后几行/`.quay/worker-outcome.jsonl` 最后几行,与面板 Tests/Fan-in 区块展示的最近几条记录字段级核对一致(记录在 DoD)。
 
 ## DoD
 
