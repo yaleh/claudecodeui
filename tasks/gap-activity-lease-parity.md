@@ -2,7 +2,7 @@
 id: gap-activity-lease-parity
 title: AC-195 租约推导并行对照：由 Task 表与 Schedule 表推出的租约与
   observeHeldWorkEvent+reconcileHeldWork 逐帧相等，行为不变
-status: ready
+status: done
 labels:
   - gap
 parent: null
