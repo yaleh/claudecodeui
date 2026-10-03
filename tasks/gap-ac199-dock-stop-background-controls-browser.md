@@ -10,6 +10,10 @@ children: []
 extra:
   schema: execution
 goal_ac: AC-199
+depends_on:
+  - gap-activity-dock-background-browser
+  - gap-chat-stop-task-event-confirmed
+  - gap-chat-background-task-foreground-tooluse
 ---
 ## Proposal
 
