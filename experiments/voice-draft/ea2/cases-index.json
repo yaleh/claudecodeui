@@ -1,0 +1,491 @@
+{
+ "rule": {
+  "WINDOW": 8000,
+  "PER_SESSION": 3,
+  "TAKE": 60,
+  "SEED": 20261007
+ },
+ "candidates": 177,
+ "cases": [
+  {
+   "id": "1dc1a198-11",
+   "ts": "2026-09-21T15:05",
+   "prevChars": 4347,
+   "replyChars": 71,
+   "terms": 4,
+   "termsInPrev": 4
+  },
+  {
+   "id": "016f1328-15",
+   "ts": "2026-09-21T04:50",
+   "prevChars": 1381,
+   "replyChars": 32,
+   "terms": 1,
+   "termsInPrev": 1
+  },
+  {
+   "id": "19e7df6b-6",
+   "ts": "2026-09-22T13:37",
+   "prevChars": 965,
+   "replyChars": 26,
+   "terms": 2,
+   "termsInPrev": 2
+  },
+  {
+   "id": "1d4fe2c7-7",
+   "ts": "2026-09-22T14:36",
+   "prevChars": 1672,
+   "replyChars": 67,
+   "terms": 6,
+   "termsInPrev": 2
+  },
+  {
+   "id": "19e7df6b-16",
+   "ts": "2026-09-22T14:51",
+   "prevChars": 2376,
+   "replyChars": 25,
+   "terms": 1,
+   "termsInPrev": 1
+  },
+  {
+   "id": "8d676d34-4",
+   "ts": "2026-09-24T09:31",
+   "prevChars": 2090,
+   "replyChars": 32,
+   "terms": 2,
+   "termsInPrev": 2
+  },
+  {
+   "id": "ff4ef0bb-5",
+   "ts": "2026-09-22T08:09",
+   "prevChars": 4128,
+   "replyChars": 86,
+   "terms": 4,
+   "termsInPrev": 2
+  },
+  {
+   "id": "8e45901a-11",
+   "ts": "2026-09-25T03:04",
+   "prevChars": 960,
+   "replyChars": 86,
+   "terms": 3,
+   "termsInPrev": 2
+  },
+  {
+   "id": "1d4fe2c7-10",
+   "ts": "2026-09-22T14:56",
+   "prevChars": 3720,
+   "replyChars": 10,
+   "terms": 1,
+   "termsInPrev": 1
+  },
+  {
+   "id": "fff32ef8-15",
+   "ts": "2026-09-25T06:18",
+   "prevChars": 1263,
+   "replyChars": 53,
+   "terms": 3,
+   "termsInPrev": 1
+  },
+  {
+   "id": "d8738b93-6",
+   "ts": "2026-09-21T06:41",
+   "prevChars": 1588,
+   "replyChars": 18,
+   "terms": 1,
+   "termsInPrev": 1
+  },
+  {
+   "id": "1d179b43-26",
+   "ts": "2026-09-20T07:57",
+   "prevChars": 870,
+   "replyChars": 44,
+   "terms": 3,
+   "termsInPrev": 3
+  },
+  {
+   "id": "0c61ddd0-3",
+   "ts": "2026-09-25T00:57",
+   "prevChars": 421,
+   "replyChars": 10,
+   "terms": 1,
+   "termsInPrev": 1
+  },
+  {
+   "id": "8d676d34-11",
+   "ts": "2026-09-24T10:51",
+   "prevChars": 1564,
+   "replyChars": 17,
+   "terms": 1,
+   "termsInPrev": 1
+  },
+  {
+   "id": "f0cc3206-13",
+   "ts": "2026-09-21T04:07",
+   "prevChars": 1546,
+   "replyChars": 41,
+   "terms": 2,
+   "termsInPrev": 2
+  },
+  {
+   "id": "f0cc3206-4",
+   "ts": "2026-09-21T03:40",
+   "prevChars": 958,
+   "replyChars": 88,
+   "terms": 6,
+   "termsInPrev": 1
+  },
+  {
+   "id": "765377f9-6",
+   "ts": "2026-09-24T10:41",
+   "prevChars": 1766,
+   "replyChars": 40,
+   "terms": 2,
+   "termsInPrev": 2
+  },
+  {
+   "id": "fff32ef8-2",
+   "ts": "2026-09-25T01:12",
+   "prevChars": 1673,
+   "replyChars": 75,
+   "terms": 4,
+   "termsInPrev": 3
+  },
+  {
+   "id": "05b66a9f-4",
+   "ts": "2026-09-23T03:16",
+   "prevChars": 5063,
+   "replyChars": 82,
+   "terms": 5,
+   "termsInPrev": 5
+  },
+  {
+   "id": "6e20c900-24",
+   "ts": "2026-09-22T14:20",
+   "prevChars": 876,
+   "replyChars": 35,
+   "terms": 2,
+   "termsInPrev": 1
+  },
+  {
+   "id": "cc4a837b-6",
+   "ts": "2026-09-21T14:08",
+   "prevChars": 1909,
+   "replyChars": 25,
+   "terms": 4,
+   "termsInPrev": 4
+  },
+  {
+   "id": "27c7f470-2",
+   "ts": "2026-09-29T03:37",
+   "prevChars": 959,
+   "replyChars": 32,
+   "terms": 4,
+   "termsInPrev": 3
+  },
+  {
+   "id": "940de84f-28",
+   "ts": "2026-09-20T14:43",
+   "prevChars": 2443,
+   "replyChars": 20,
+   "terms": 1,
+   "termsInPrev": 1
+  },
+  {
+   "id": "0de96728-2",
+   "ts": "2026-09-21T14:01",
+   "prevChars": 3264,
+   "replyChars": 89,
+   "terms": 2,
+   "termsInPrev": 2
+  },
+  {
+   "id": "af2c7ec4-3",
+   "ts": "2026-09-22T22:35",
+   "prevChars": 1268,
+   "replyChars": 144,
+   "terms": 12,
+   "termsInPrev": 8
+  },
+  {
+   "id": "05b66a9f-6",
+   "ts": "2026-09-23T03:22",
+   "prevChars": 2129,
+   "replyChars": 66,
+   "terms": 2,
+   "termsInPrev": 1
+  },
+  {
+   "id": "982ba1b5-4",
+   "ts": "2026-09-20T02:31",
+   "prevChars": 517,
+   "replyChars": 45,
+   "terms": 4,
+   "termsInPrev": 2
+  },
+  {
+   "id": "05b66a9f-3",
+   "ts": "2026-09-22T22:35",
+   "prevChars": 1268,
+   "replyChars": 144,
+   "terms": 12,
+   "termsInPrev": 8
+  },
+  {
+   "id": "af690528-2",
+   "ts": "2026-09-21T02:07",
+   "prevChars": 3717,
+   "replyChars": 116,
+   "terms": 5,
+   "termsInPrev": 1
+  },
+  {
+   "id": "c7a8f99c-2",
+   "ts": "2026-09-21T07:16",
+   "prevChars": 1172,
+   "replyChars": 71,
+   "terms": 6,
+   "termsInPrev": 6
+  },
+  {
+   "id": "a2832242-2",
+   "ts": "2026-09-21T15:27",
+   "prevChars": 3026,
+   "replyChars": 199,
+   "terms": 7,
+   "termsInPrev": 6
+  },
+  {
+   "id": "671cee8f-30",
+   "ts": "2026-09-20T09:03",
+   "prevChars": 3870,
+   "replyChars": 77,
+   "terms": 1,
+   "termsInPrev": 1
+  },
+  {
+   "id": "c8e2cc9f-6",
+   "ts": "2026-09-22T00:47",
+   "prevChars": 3134,
+   "replyChars": 94,
+   "terms": 1,
+   "termsInPrev": 1
+  },
+  {
+   "id": "671cee8f-27",
+   "ts": "2026-09-20T08:43",
+   "prevChars": 55,
+   "replyChars": 171,
+   "terms": 9,
+   "termsInPrev": 3
+  },
+  {
+   "id": "c8e2cc9f-2",
+   "ts": "2026-09-21T23:14",
+   "prevChars": 2741,
+   "replyChars": 24,
+   "terms": 1,
+   "termsInPrev": 1
+  },
+  {
+   "id": "b9cf67e5-2",
+   "ts": "2026-09-24T15:22",
+   "prevChars": 2086,
+   "replyChars": 79,
+   "terms": 6,
+   "termsInPrev": 5
+  },
+  {
+   "id": "94c430cc-6",
+   "ts": "2026-09-21T11:37",
+   "prevChars": 5057,
+   "replyChars": 71,
+   "terms": 2,
+   "termsInPrev": 2
+  },
+  {
+   "id": "0de96728-5",
+   "ts": "2026-09-21T14:50",
+   "prevChars": 728,
+   "replyChars": 19,
+   "terms": 1,
+   "termsInPrev": 1
+  },
+  {
+   "id": "1d179b43-28",
+   "ts": "2026-09-20T08:42",
+   "prevChars": 1569,
+   "replyChars": 61,
+   "terms": 6,
+   "termsInPrev": 6
+  },
+  {
+   "id": "94c430cc-4",
+   "ts": "2026-09-21T09:28",
+   "prevChars": 6395,
+   "replyChars": 114,
+   "terms": 2,
+   "termsInPrev": 1
+  },
+  {
+   "id": "1d179b43-29",
+   "ts": "2026-09-20T08:45",
+   "prevChars": 431,
+   "replyChars": 30,
+   "terms": 2,
+   "termsInPrev": 1
+  },
+  {
+   "id": "8d676d34-16",
+   "ts": "2026-09-24T11:09",
+   "prevChars": 2000,
+   "replyChars": 89,
+   "terms": 2,
+   "termsInPrev": 1
+  },
+  {
+   "id": "62658b44-11",
+   "ts": "2026-09-24T13:50",
+   "prevChars": 2964,
+   "replyChars": 37,
+   "terms": 1,
+   "termsInPrev": 1
+  },
+  {
+   "id": "180d7013-10",
+   "ts": "2026-09-25T03:02",
+   "prevChars": 958,
+   "replyChars": 30,
+   "terms": 2,
+   "termsInPrev": 2
+  },
+  {
+   "id": "dac38618-3",
+   "ts": "2026-09-21T13:15",
+   "prevChars": 4401,
+   "replyChars": 88,
+   "terms": 5,
+   "termsInPrev": 5
+  },
+  {
+   "id": "940de84f-23",
+   "ts": "2026-09-20T14:20",
+   "prevChars": 4161,
+   "replyChars": 57,
+   "terms": 3,
+   "termsInPrev": 2
+  },
+  {
+   "id": "602311f5-2",
+   "ts": "2026-09-21T08:18",
+   "prevChars": 3223,
+   "replyChars": 157,
+   "terms": 10,
+   "termsInPrev": 7
+  },
+  {
+   "id": "fff32ef8-10",
+   "ts": "2026-09-25T03:02",
+   "prevChars": 958,
+   "replyChars": 30,
+   "terms": 2,
+   "termsInPrev": 2
+  },
+  {
+   "id": "1dc1a198-6",
+   "ts": "2026-09-21T14:33",
+   "prevChars": 2528,
+   "replyChars": 74,
+   "terms": 3,
+   "termsInPrev": 2
+  },
+  {
+   "id": "765377f9-5",
+   "ts": "2026-09-24T09:48",
+   "prevChars": 1424,
+   "replyChars": 85,
+   "terms": 5,
+   "termsInPrev": 5
+  },
+  {
+   "id": "c8e2cc9f-12",
+   "ts": "2026-09-22T02:20",
+   "prevChars": 3779,
+   "replyChars": 50,
+   "terms": 2,
+   "termsInPrev": 2
+  },
+  {
+   "id": "27c7f470-3",
+   "ts": "2026-09-29T03:38",
+   "prevChars": 968,
+   "replyChars": 28,
+   "terms": 4,
+   "termsInPrev": 4
+  },
+  {
+   "id": "af2c7ec4-6",
+   "ts": "2026-09-22T23:17",
+   "prevChars": 3099,
+   "replyChars": 56,
+   "terms": 6,
+   "termsInPrev": 5
+  },
+  {
+   "id": "651146bb-2",
+   "ts": "2026-09-21T02:49",
+   "prevChars": 8000,
+   "replyChars": 38,
+   "terms": 3,
+   "termsInPrev": 3
+  },
+  {
+   "id": "0de96728-3",
+   "ts": "2026-09-21T14:05",
+   "prevChars": 2703,
+   "replyChars": 59,
+   "terms": 3,
+   "termsInPrev": 3
+  },
+  {
+   "id": "82a51cbf-7",
+   "ts": "2026-09-21T15:57",
+   "prevChars": 4671,
+   "replyChars": 134,
+   "terms": 4,
+   "termsInPrev": 4
+  },
+  {
+   "id": "1dc1a198-4",
+   "ts": "2026-09-21T14:25",
+   "prevChars": 1849,
+   "replyChars": 42,
+   "terms": 2,
+   "termsInPrev": 1
+  },
+  {
+   "id": "671cee8f-33",
+   "ts": "2026-09-20T09:08",
+   "prevChars": 3114,
+   "replyChars": 188,
+   "terms": 8,
+   "termsInPrev": 8
+  },
+  {
+   "id": "8e45901a-4",
+   "ts": "2026-09-25T01:28",
+   "prevChars": 2237,
+   "replyChars": 11,
+   "terms": 1,
+   "termsInPrev": 1
+  },
+  {
+   "id": "1d4fe2c7-6",
+   "ts": "2026-09-22T14:34",
+   "prevChars": 2539,
+   "replyChars": 24,
+   "terms": 1,
+   "termsInPrev": 1
+  }
+ ]
+}
