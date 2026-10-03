@@ -47,12 +47,12 @@ goal_ac: AC-175
 
 ## AC
 
-- [ ] AC1 有界客户端预热真实生效：`e2e/resident-busy-send.spec.ts` 里有 `warmClientStartup`（或等价命名）的定义、与「任何页面之前」的调用（`beforeAll` 内、`browser.newPage()` 之前），逐 URL 带 deadline，非 200 / 超时按 url 指名抛错。验证：`grep -n "warmClientStartup" e2e/resident-busy-send.spec.ts` 同时命中定义行与调用行，且证据贴在完成记录里；该 spec 的 typecheck `exit 0`。
-- [ ] AC2 每一次导航都走同一个有界探针：`grep -n "page\.goto(\|page\.reload(" e2e/resident-busy-send.spec.ts` 的每一处行号都落在探针函数体内部，函数体外没有任何裸导航；探针耗尽预算时抛出携带页面文本与 `requestfailed` 列表的错误。验证：上述 `grep -n` 输出逐行落界 + typecheck `exit 0`。
-- [ ] AC3 有界失败的实测：把探针落点临时指向一个不可能存在的 sentinel 后，`npx playwright test e2e/resident-busy-send.spec.ts` 在 **30s 内**以非零退出，且输出里带页面文本与失败请求列表；还原后该读数与还原读数一并登记。验证：两次运行的 `echo $?` 与 wall time。
-- [ ] AC4 判据在负载下连续绿：`npx playwright test e2e/resident-busy-send.spec.ts` 连续 ≥5 次全部 `exit 0`，且每一次 wall < 55_000ms（一次都不触发 55s 看门狗 / 60s 门限），其中至少一次与 ≥4 份兄弟 spec 并发。验证：逐次 `echo $?` + wall time。**如实登记**：本机负载高（实测 swap 14.4/15G、load1 > 13），并发那一次若兄弟 spec 自己红，须点名归因，不得算到本条头上。
-- [ ] AC5 判定面未变：`git diff develop -- package.json playwright.config.ts` 为空（无 `test:e2e` / `RUN_CEILING_MS` / `BOOT_CEILING_MS` / `SINGLE_SPEC_CEILING_MS` 的增删），且 `git diff develop -- e2e/resident-busy-send.spec.ts | grep -c "^-.*expect("` 为 **0**。验证：两条命令的逐字输出。
-- [ ] AC6 AC-175 的红形态仍可复现（承重负控制）：在本条自己的隔离 worktree 上，把 `revealSession` 的项目行落点临时改成一个不可能存在的 sentinel（或把 `projectRow` 的 workspaceName 改成错名），判据退出**非 0** 且红**落在启动探针那条错误**（带页面文本 + 失败请求列表），而不是三条用例各自超时；登记变异 diff、失败逐字、退出码；恢复后判据回到 0。验证：变异跑与还原跑的 `echo $?`。
+- [x] AC1 有界客户端预热真实生效：`e2e/resident-busy-send.spec.ts` 里有 `warmClientStartup`（或等价命名）的定义、与「任何页面之前」的调用（`beforeAll` 内、`browser.newPage()` 之前），逐 URL 带 deadline，非 200 / 超时按 url 指名抛错。验证：`grep -n "warmClientStartup" e2e/resident-busy-send.spec.ts` 同时命中定义行与调用行，且证据贴在完成记录里；该 spec 的 typecheck `exit 0`。
+- [x] AC2 每一次导航都走同一个有界探针：`grep -n "page\.goto(\|page\.reload(" e2e/resident-busy-send.spec.ts` 的每一处行号都落在探针函数体内部，函数体外没有任何裸导航；探针耗尽预算时抛出携带页面文本与 `requestfailed` 列表的错误。验证：上述 `grep -n` 输出逐行落界 + typecheck `exit 0`。
+- [x] AC3 有界失败的实测：把探针落点临时指向一个不可能存在的 sentinel 后，`npx playwright test e2e/resident-busy-send.spec.ts` 在 **30s 内**以非零退出，且输出里带页面文本与失败请求列表；还原后该读数与还原读数一并登记。验证：两次运行的 `echo $?` 与 wall time。
+- [x] AC4 判据在负载下连续绿：`npx playwright test e2e/resident-busy-send.spec.ts` 连续 ≥5 次全部 `exit 0`，且每一次 wall < 55_000ms（一次都不触发 55s 看门狗 / 60s 门限），其中至少一次与 ≥4 份兄弟 spec 并发。验证：逐次 `echo $?` + wall time。**如实登记**：本机负载高（实测 swap 14.4/15G、load1 > 13），并发那一次若兄弟 spec 自己红，须点名归因，不得算到本条头上。
+- [x] AC5 判定面未变：`git diff develop -- package.json playwright.config.ts` 为空（无 `test:e2e` / `RUN_CEILING_MS` / `BOOT_CEILING_MS` / `SINGLE_SPEC_CEILING_MS` 的增删），且 `git diff develop -- e2e/resident-busy-send.spec.ts | grep -c "^-.*expect("` 为 **0**。验证：两条命令的逐字输出。
+- [x] AC6 AC-175 的红形态仍可复现（承重负控制）：在本条自己的隔离 worktree 上，把 `revealSession` 的项目行落点临时改成一个不可能存在的 sentinel（或把 `projectRow` 的 workspaceName 改成错名），判据退出**非 0** 且红**落在启动探针那条错误**（带页面文本 + 失败请求列表），而不是三条用例各自超时；登记变异 diff、失败逐字、退出码；恢复后判据回到 0。验证：变异跑与还原跑的 `echo $?`。
 
 ## DoD
 
@@ -62,3 +62,32 @@ goal_ac: AC-175
 
 - e2e/resident-busy-send.spec.ts
 - tasks/gap-ac175-criterion-bounded-boot-guard.md
+
+## 完成记录（2026-10-03）
+
+**实现**：提交 `506b06a5`（本任务分支 `task/gap-ac175-criterion-bounded-boot-guard`，基于 develop `84014b0b`，已合 develop `01209a9d` → `84b0e6c4`）。只改 `e2e/resident-busy-send.spec.ts`（+241 / −3）。把本族既有两杠杆搬进启动路径：`warmClientStartup(clientUrl)`（`beforeAll` 内、`browser.newContext()/newPage()` 之前；对 `/`、`/src/main.tsx`、entry 里解析出的一个本次运行优化依赖 URL 逐 URL 带 deadline 取到 200，非 200 / 超时按 url+status 指名抛错，含「客户端接了连接却不答」）与 `navigateBounded(page, projectRowLanding, 'first-load')`（该 spec 唯一导航 `page.goto('/')` 已落进探针函数体；探到夹具项目行即返回，探不到就在 14s deadline 内 `page.reload()` 重放，耗尽则带页面文本 + `requestfailed` 列表抛错）。
+
+**AC1** `grep -n "warmClientStartup" e2e/resident-busy-send.spec.ts` → 定义 `:416`、调用 `:805`（调用在 `browser.newContext()` `:807` 之前，因之在 `newPage()` 之前）；该 spec 独立 typecheck（`npx tsc --noEmit --strict --skipLibCheck ... e2e/resident-busy-send.spec.ts`）退出 **0**；`npm run typecheck` 退出 **0**（`tsconfig.json` + `server/tsconfig.json` + `scripts/tsconfig.json` 三条链）。
+
+**AC2** `grep -n "page\.goto(\|page\.reload(" e2e/resident-busy-send.spec.ts` → `:551`、`:553`，两行均落在 `navigateBounded`（`:539`–`:574`）函数体内，函数体外无裸导航。探针耗尽预算时抛出的错误逐字见 AC3/AC6。
+
+**AC3**（有界失败实测）探针落点临时改为 `page.locator('#__ac175-ac3-impossible-sentinel__')`：判据 `EXIT=1`，wall **22753ms**（< 30s），输出逐字 `Error: the project row for resident-busy-send-workspace never rendered, so this run's client never came up to a document that stays: the page shows "CloudCLI\nStar\nProjects\nConversations\nCtrl\nK\nmobile-layout-workspace\n1 - ...obile-layout-workspace\nmobile-send-key-workspace\n1 - ...ile-send-key-workspace\nresident-busy-send-workspace\n3 - ...nt-busy-send-workspace\nsession-filter-workspace\n7 - ...ssion-filter-workspace\ntranscript-follow-workspace\n1 - "; console errors: Failed to load resource: the server responded with a status of 403 () | (×5); failed requests: <none>`。还原后判据 `EXIT=0`、wall=37457ms、`elapsed=36494ms`。
+
+**AC4**（负载下连续绿；本机负载高）还原后连续 5 次：`#1 EXIT=0 wall=40290ms elapsed=39295ms`、`#2 37408`、`#3 36818`、`#4 46251`、`#5 38414` —— 全部 `exit 0` 且 wall < 55_000（无一看门狗 / 60s 门限）。并发一次：与 `session-filter`、`transcript-follow`、`resident-running-view`、`resident-status-bar` 四份兄弟 spec 同跑（5 路并发），**目标判据 `EXIT=0 wall=43606ms elapsed=42647ms`**。兄弟 `session-filter` / `resident-running-view` / `resident-status-bar` 分别 5 / 3 / 4 passed；`transcript-follow` **EXIT=1** —— **点名归因**：红是它自己的看门狗跨了单文件 55s 上限（`this run crossed its own 55000ms ceiling at 55001ms and is ending here with exit 1 at 55003ms — stuck at stage "browser-launch-or-cases"`，7 个用例里 5 个已 pass）；该文件不在本任务 Touches、本任务 diff 未触及，属宿主负载（本次 5 路并发）下的既有红，不计入本条。
+
+**AC5** `git diff develop -- package.json playwright.config.ts` → 空；`git diff develop -- e2e/resident-busy-send.spec.ts | grep -c "^-.*expect("` → **0**。合 develop `01209a9d` 后复测同样为 0 / 空。
+
+**AC6**（承重负控制）把探针落点 `projectRow` 的 workspaceName 实参改成错名（模板串 `${workspaceName}-ac6-no-such-fixture`）：
+```
+-      present: (budgetMs) => appears(projectRow(page, workspaceName), budgetMs),
++      present: (budgetMs) => appears(projectRow(page, `${workspaceName}-ac6-no-such-fixture`), budgetMs),
+```
+判据 `EXIT=1`（wall 25400ms），红**落在启动探针那条错误**上，逐字 `Error: the project row for resident-busy-send-workspace never rendered, so this run's client never came up to a document that stays (the navigation itself failed: page.reload: Timeout 178ms exceeded. ... ): the page shows ""; console errors: Failed to load resource: the server responded with a status of 403 () | (×5); failed requests: <none>`，且同轮 `grep -c "Timeout 30000ms exceeded"` = **0**（不是三条用例各自超时）。还原后判据回到 `EXIT=0`、wall=37090ms。
+
+**合 develop 后复跑**：`git merge develop`（`01209a9d`）→ `84b0e6c4`；merge 未触及本 spec（`git diff 506b06a5 HEAD --name-only | grep -c resident-busy-send.spec.ts` = 0）；复跑判据 `EXIT=0`、wall=37378ms、`elapsed=36561ms`。
+
+**守卫自身的原始输出行**：`[e2e] client warm-up: pre-bundle committed in 1254ms`；`[e2e] client startup: the project row for resident-busy-send-workspace landed after 2860ms (attempt 1)`。
+
+**scoped 门**：`bash scripts/test.sh --for-task gap-ac175-criterion-bounded-boot-guard --allow-thin` → `no scoped test files for gap-ac175-criterion-bounded-boot-guard (thin)`，退出 0（Touches 的 `e2e/*.spec.ts` 不匹配门的 `*.test.*` 过滤，故为 thin）。
+
+**本仓修的是响应方式**：无界等待（`revealSession` 的 30s `waitFor`）→ 有界重放（预热 + 探针 + `page.reload()`）。触发源（宿主层 `net::ERR_NETWORK_CHANGED`，本机 docker/veth 变动）不在本仓可控范围内 —— 因此这条判据的稳定性依赖守卫，而不是依赖触发源消失。
