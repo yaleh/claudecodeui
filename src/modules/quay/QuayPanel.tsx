@@ -3,6 +3,7 @@ import { Activity, AlertTriangle, ExternalLink, Info, Loader2, RefreshCw } from 
 import type { QuayDriverState, QuayListItem, QuaySnapshot } from '@/shared/types';
 import { cn } from '@/shared/utils';
 import type { QuayPanelView } from '@/modules/quay/hooks/useQuayStatus';
+import TimelineBar from '@/modules/quay/TimelineBar';
 
 type QuayPanelProps = {
   projectId: string;
@@ -31,6 +32,27 @@ const DRIVER_CLASSES: Record<QuayDriverState, string> = {
   'not-configured': 'bg-gray-100 text-gray-600 dark:bg-gray-900 dark:text-gray-400',
 };
 
+/** Colour dot per suite/fan-in state, matching the timeline palette in `TimelineBar`. */
+const STATE_DOT_CLASSES: Record<string, string> = {
+  green: 'bg-green-500',
+  landed: 'bg-green-500',
+  red: 'bg-red-500',
+  failed: 'bg-red-500',
+  'exited-not-landed': 'bg-amber-500',
+};
+const DEFAULT_DOT_CLASS = 'bg-gray-400';
+
+/**
+ * Coarse goal completion percentage for the Stage goals progress bar. `quay goal
+ * list --json` carries no completion ratio, so the bar is a status-derived
+ * visual aid only — the status text next to it is authoritative.
+ */
+const GOAL_STATUS_PERCENT: Record<string, number> = {
+  achieved: 100,
+  superseded: 100,
+  active: 50,
+};
+
 function formatTimestamp(value: string | null): string {
   if (!value) {
     return 'never';
@@ -40,19 +62,34 @@ function formatTimestamp(value: string | null): string {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
-/** One summary tile: a label and a value, used for the panel's count row. */
-function SummaryCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <div className="rounded-lg border border-border/60 bg-card px-3 py-2">
-      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className="text-lg font-semibold text-foreground">{value}</div>
-      {hint && <div className="text-[11px] text-muted-foreground">{hint}</div>}
-    </div>
-  );
+/** Formats a millisecond duration for the Tests card, tolerating a missing value. */
+function formatDuration(durationMs: number | null): string {
+  if (durationMs === null) {
+    return '—';
+  }
+  if (durationMs < 1000) {
+    return `${durationMs} ms`;
+  }
+
+  const seconds = Math.round(durationMs / 1000);
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
-/**
- * One read-only detail list (tasks or ADRs): a header, then either rows of
+/** Parses an ISO timestamp to epoch milliseconds, or `null` when absent/unparseable. */
+function toEpochMs(value: string | null): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+/** One read-only detail list (tasks or ADRs): a header, then either rows of
  * id/title/status or an explicit empty-state line. Rows are display-only — quay
  * has no per-entity page to link to, so there is nothing to click.
  */
@@ -95,11 +132,189 @@ function DetailList({
   );
 }
 
+/** Task ledger card: task counts, the status breakdown and the recent-tasks list in one card. */
+function TaskLedger({ tasks }: { tasks: QuaySnapshot['tasks'] }) {
+  const statuses = Object.entries(tasks?.byStatus ?? {}).sort((a, b) => b[1] - a[1]);
+  const recent = tasks?.recent ?? [];
+
+  return (
+    <section data-testid="quay-panel-task-ledger">
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Task ledger</h3>
+      <p className="mb-2 text-[11px] text-muted-foreground" data-testid="quay-panel-task-ledger-counts">
+        {tasks?.total ?? 0} tasks · {tasks?.ready ?? 0} ready · {tasks?.needsHuman ?? 0} needs human ·{' '}
+        {tasks?.done ?? 0} done
+      </p>
+      {statuses.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No tasks reported.</p>
+      ) : (
+        <ul className="space-y-1" data-testid="quay-panel-tasks-by-status">
+          {statuses.map(([status, count]) => (
+            <li key={status} className="flex items-center justify-between rounded border border-border/40 px-2 py-1 text-xs">
+              <span className="text-foreground">{status}</span>
+              <span className="font-medium text-muted-foreground">{count}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="mt-3">
+        <DetailList title="Recent tasks" items={recent} emptyText="No tasks reported." testId="quay-panel-recent-tasks" />
+      </div>
+    </section>
+  );
+}
+
+/** Stage goals card: a status breakdown plus one row per recent goal, each with a flat progress bar. */
+function StageGoals({ goals }: { goals: QuaySnapshot['goals'] }) {
+  const statuses = Object.entries(goals?.breakdown.byStatus ?? {}).sort((a, b) => b[1] - a[1]);
+  const recent = goals?.breakdown.recent ?? [];
+
+  return (
+    <section data-testid="quay-panel-stage-goals">
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Stage goals</h3>
+      {statuses.length > 0 && (
+        <p className="mb-2 text-[11px] text-muted-foreground" data-testid="quay-panel-stage-goals-counts">
+          {statuses.map(([status, count]) => `${count} ${status}`).join(' · ')}
+        </p>
+      )}
+      {recent.length === 0 ? (
+        <p className="text-xs text-muted-foreground" data-testid="quay-panel-stage-goals-empty">
+          No goals reported.
+        </p>
+      ) : (
+        <ul className="space-y-2" data-testid="quay-panel-stage-goals-list">
+          {recent.map((goal) => (
+            <li
+              key={goal.id}
+              className="rounded border border-border/40 px-2 py-1.5"
+              data-testid="quay-panel-stage-goals-row"
+            >
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="shrink-0 font-mono text-[11px] text-foreground">{goal.id}</span>
+                <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">{goal.status}</span>
+              </div>
+              <div className="mt-0.5 truncate text-[11px] text-muted-foreground" title={goal.title}>
+                {goal.title}
+              </div>
+              <div className="mt-1 h-1.5 w-full overflow-hidden rounded bg-muted" data-testid="quay-panel-stage-goals-bar">
+                <div className="h-full rounded bg-primary" style={{ width: `${GOAL_STATUS_PERCENT[goal.status] ?? 0}%` }} />
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** Tests card: the current suite reading plus a timeline of the recent history rounds. */
+function TestsCard({ tests }: { tests: QuaySnapshot['tests'] }) {
+  const current = tests?.current ?? null;
+  const rounds = tests?.recentRounds ?? [];
+  // Chronological: the reader returns the most recent N in file order, so the
+  // timeline's x-axis runs oldest → newest left to right.
+  const ranges = rounds.flatMap((round) => {
+    const startMs = toEpochMs(round.startedAt);
+    if (startMs === null) {
+      return [];
+    }
+
+    return [
+      {
+        startMs,
+        endMs: startMs + (round.durationMs ?? 0),
+        state: round.state,
+        label: `Round ${round.round}: ${round.state} (${round.pass ?? '?'} pass / ${round.fail ?? '?'} fail)`,
+      },
+    ];
+  });
+
+  return (
+    <section data-testid="quay-panel-tests">
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tests</h3>
+      {current ? (
+        <div className="flex flex-wrap items-center gap-2 text-xs" data-testid="quay-panel-tests-current">
+          <span className={cn('h-2 w-2 shrink-0 rounded-full', STATE_DOT_CLASSES[current.state] ?? DEFAULT_DOT_CLASS)} />
+          <span className="font-medium text-foreground">{current.state}</span>
+          {current.runner && <span className="text-muted-foreground">· {current.runner}</span>}
+          {current.scope && <span className="text-muted-foreground">· {current.scope}</span>}
+          {current.laneCount !== null && <span className="text-muted-foreground">· {current.laneCount} lanes</span>}
+          {current.durationMs !== null && <span className="text-muted-foreground">· {formatDuration(current.durationMs)}</span>}
+          {current.commit && (
+            <span className="font-mono text-[11px] text-muted-foreground" data-testid="quay-panel-tests-current-commit">
+              {current.commit.slice(0, 7)}
+            </span>
+          )}
+          {current.taskId && (
+            <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground" title={current.taskId}>
+              {current.taskId}
+            </span>
+          )}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground" data-testid="quay-panel-tests-current-empty">
+          No suite running
+        </p>
+      )}
+      <div className="mt-2">
+        <TimelineBar ranges={ranges} emptyText="No suite rounds recorded." testId="quay-panel-tests-timeline" />
+      </div>
+    </section>
+  );
+}
+
+/** Fan-in card: a timeline of recent lock windows plus the last five task/outcome rows. */
+function FanInCard({ fanIn }: { fanIn: QuaySnapshot['fanIn'] }) {
+  const attempts = fanIn?.recent ?? [];
+  // The carrier stores the lock epochs in Unix seconds; the timeline works in ms.
+  const ranges = attempts.flatMap((attempt) => {
+    if (attempt.lockAcquireEpoch === null) {
+      return [];
+    }
+
+    const startMs = attempt.lockAcquireEpoch * 1000;
+    const endMs = attempt.lockReleaseEpoch === null ? startMs : attempt.lockReleaseEpoch * 1000;
+    return [
+      {
+        startMs,
+        endMs: Math.max(endMs, startMs),
+        state: attempt.outcome,
+        label: `${attempt.task}: ${attempt.outcome}`,
+      },
+    ];
+  });
+  // Newest first for the text list, even though the timeline reads left to right.
+  const recentAttempts = attempts.slice(-5).reverse();
+
+  return (
+    <section data-testid="quay-panel-fanin">
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Fan-in</h3>
+      <TimelineBar ranges={ranges} emptyText="No fan-in attempts recorded." testId="quay-panel-fanin-timeline" />
+      {recentAttempts.length > 0 && (
+        <ul className="mt-2 space-y-1" data-testid="quay-panel-fanin-list">
+          {recentAttempts.map((attempt, index) => (
+            <li
+              key={`${attempt.task}-${index}`}
+              className="flex items-center gap-2 rounded border border-border/40 px-2 py-1 text-xs"
+              data-testid="quay-panel-fanin-row"
+            >
+              <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground" title={attempt.task}>
+                {attempt.task}
+              </span>
+              <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">{attempt.outcome}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 /**
  * Rendered by WorkspaceMain as the Quay tab. Shows a read-only snapshot of the
- * selected project's quay state: summary counts, the driver reading, and the
- * task status breakdown, with a manual refresh and a link out to quay's own
- * dashboard. It never mutates quay state.
+ * selected project's quay state: the task ledger, stage goals, the current test
+ * suite plus its recent rounds, recent fan-in attempts, the driver reading and
+ * the ADR list — with a manual refresh and a link out to quay's own dashboard.
+ * It never mutates quay state.
  */
 export default function QuayPanel({ projectId, view, onRefresh, dashboardUrl = null }: QuayPanelProps) {
   if (view.status === 'not-configured') {
@@ -157,10 +372,6 @@ function LoadedQuayPanel({
   dashboardUrl: string | null;
 }) {
   const driverState: QuayDriverState = snapshot.driver?.state ?? 'not-configured';
-  const taskStatuses = Object.entries(snapshot.tasks?.byStatus ?? {}).sort((a, b) => b[1] - a[1]);
-  // `?? []` also covers a backend that predates the detail lists, so the panel
-  // falls back to the empty state instead of rendering `undefined.length`.
-  const recentTasks = snapshot.tasks?.recent ?? [];
   const recentAdrs = snapshot.adrs?.recent ?? [];
 
   return (
@@ -203,30 +414,11 @@ function LoadedQuayPanel({
         </div>
       </div>
 
-      <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-        <SummaryCard label="Tasks" value={String(snapshot.tasks?.total ?? 0)} hint={`${snapshot.tasks?.ready ?? 0} ready`} />
-        <SummaryCard label="Needs human" value={String(snapshot.tasks?.needsHuman ?? 0)} />
-        <SummaryCard label="Done" value={String(snapshot.tasks?.done ?? 0)} />
-        <SummaryCard label="Goals" value={String(snapshot.goals?.total ?? 0)} hint={`${snapshot.goals?.achieved ?? 0} achieved`} />
-        <SummaryCard label="ADRs" value={String(snapshot.adrs?.total ?? 0)} />
-      </div>
-
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <section>
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tasks by status</h3>
-          {taskStatuses.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No tasks reported.</p>
-          ) : (
-            <ul className="space-y-1">
-              {taskStatuses.map(([status, count]) => (
-                <li key={status} className="flex items-center justify-between rounded border border-border/40 px-2 py-1 text-xs">
-                  <span className="text-foreground">{status}</span>
-                  <span className="font-medium text-muted-foreground">{count}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        <TaskLedger tasks={snapshot.tasks} />
+        <StageGoals goals={snapshot.goals} />
+        <TestsCard tests={snapshot.tests} />
+        <FanInCard fanIn={snapshot.fanIn} />
 
         <section>
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Driver</h3>
@@ -247,16 +439,13 @@ function LoadedQuayPanel({
             </div>
           </dl>
         </section>
-      </div>
 
-      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
         <DetailList
-          title="Recent tasks"
-          items={recentTasks}
-          emptyText="No tasks reported."
-          testId="quay-panel-recent-tasks"
+          title={`ADRs (${snapshot.adrs?.total ?? 0})`}
+          items={recentAdrs}
+          emptyText="No ADRs reported."
+          testId="quay-panel-recent-adrs"
         />
-        <DetailList title="ADRs" items={recentAdrs} emptyText="No ADRs reported." testId="quay-panel-recent-adrs" />
       </div>
 
       {snapshot.warnings.length > 0 && (
