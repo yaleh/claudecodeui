@@ -1,7 +1,7 @@
 ---
 id: AC-193
 title: 活动协议：REST 快照加 WS 增量，带 rev，晚加入者先快照后增量，rev 不连续即重拉
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-015
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -22,6 +22,11 @@ statusLog:
     to: active
     actor: goal-cli
     reason: ""
+  - at: 2026-10-03T17:04:02.190Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: not-evaluated
   reason: no judge configured
