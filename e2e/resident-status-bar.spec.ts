@@ -1130,8 +1130,11 @@ test.describe('resident status bar', () => {
     const required: Array<{ file: 'chat.json' | 'sidebar.json'; path: string }> = [
       ...['unstarted', 'idle', 'busy', 'exited', 'start', 'restart', 'close', 'copyAddress', 'copied', 'address', 'activeCount']
         .map((key) => ({ file: 'chat.json' as const, path: `resident.statusBar.${key}` })),
-      ...['turn', 'background-task', 'monitor', 'cron', 'resident-policy']
-        .map((key) => ({ file: 'chat.json' as const, path: `resident.statusBar.counts.${key}` })),
+      ...['label', 'aria']
+        .map((key) => ({ file: 'chat.json' as const, path: `resident.badge.${key}` })),
+      ...['running', 'stopped', 'exited', 'unknown']
+        .map((key) => ({ file: 'chat.json' as const, path: `resident.badge.state.${key}` })),
+      { file: 'chat.json', path: 'resident.backgroundTasks.count' },
       ...['cron', 'crossSession', 'backgroundTask', 'unknown']
         .map((key) => ({ file: 'chat.json' as const, path: `resident.divider.${key}` })),
       { file: 'chat.json', path: 'resident.stopResident' },
