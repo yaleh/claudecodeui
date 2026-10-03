@@ -68,6 +68,25 @@ export type {
   TaskOrigin,
   TaskState,
 } from './services/claude-activity-task-reducer.service.js';
+// createClaudeScheduleTracker: the Schedule Tracker facade. Consumed by the
+// schedule criterion (`claude-activity-schedules.test.ts`), which drives it with
+// captured `CronCreate`/`ScheduleWakeup` tool results and Stop hook
+// `session_crons` snapshots and asserts the plan table each real signal
+// produces; a future activity aggregator and the REST/WS schedule surface read
+// it instead of the host driver's keep-alive lease ledger. ActivitySchedule /
+// ScheduleKind / ScheduleSource / SessionCronEntry / ClaudeScheduleTracker /
+// ClaudeScheduleTrackerOptions are the criterion's own vocabulary — it types
+// its readings with them so an assertion cannot pass against a shape this
+// module never produces.
+export { createClaudeScheduleTracker } from './services/claude-activity-schedules.service.js';
+export type {
+  ActivitySchedule,
+  ClaudeScheduleTracker,
+  ClaudeScheduleTrackerOptions,
+  ScheduleKind,
+  ScheduleSource,
+  SessionCronEntry,
+} from './services/claude-activity-schedules.service.js';
 // readSessionTurn: the live phase of one session's turn, as the frame forwarder
 // last reduced it. Consumed by the websocket module's activity heartbeat, which
 // stamps it onto the activity frames a browser reads — the providers module owns
