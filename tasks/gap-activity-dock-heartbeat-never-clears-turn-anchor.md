@@ -71,3 +71,21 @@ machine.onFrame({ bootId, rev, asOf, staleAfter: slot.staleAfter });   // 没有
 - `src/modules/chat/tests/activityDockUnreachable.test.tsx`
 - `server/modules/websocket/services/activity-heartbeat.service.ts`
 - `tasks/gap-activity-dock-heartbeat-never-clears-turn-anchor.md`
+
+## 完成记录
+
+**AC5 真部署独立复验（2026-10-03 14:30–14:38 CST，由非执行者复跑，全程未刷新页面）**
+
+复验前先发现交付时的 `:3001` **跑的不是含修复的包**：交付部署的入口 chunk 是 `dist/assets/index-C1fMtsnH.js`（11:58:13 构建），而修复提交 `873f91d2` 的时间是 **12:02:26** —— 部署比修复早 4 分钟；在该包上复跑仍读到 `data-activity-state="in-turn"` / `phase="idle"` / `elapsed="25002"`（回复已渲染）。所以先重建再复验：
+
+- `npm run build`（exit 0，20.7s）→ 新入口 chunk `dist/assets/index-DK6AqfVU.js`；页面实际加载 `/assets/index-DK6AqfVU.js`（`hasOldChunk: false`）。
+- `systemctl --user restart claudecodeui-server.service` → 14:30:38 起，`/api/auth/status` HTTP 200，服务端 pid 2209686。
+
+**两段都拍到的读数**（页面内按秒采样 `document.querySelector('[data-activity-dock]')` 的 `data-activity-state`）：
+
+- 会话 `d1295254`（首条消息「先运行 `sleep 20`，然后只回复收到G」）：**06:37:16–06:37:37 为 `in-turn`** —— 回合进行中坞确实在场，正控制成立，排除「坞压根不出现」的空过；**06:37:38 起为 ABSENT**，与助手回复「收到G」出现的**同一次采样**；06:37:38–06:37:55 保持 ABSENT，再不回来。
+- 会话 `0607f253`（普通首条消息）：发送后约 5 秒采样即已在 DOM 中找不到 `[data-activity-dock]`，回复「收到F」已渲染。
+
+**结论**：回合结束的**同一秒**坞即退场，不需要刷新；同一动作在修复前的读数是 4m55s 仍卡在 `in-turn`。修复在真实部署上成立，AC5 的 `[x]` 现有可复现读数支撑。
+
+**遗留观察（未立案，供后续判断）**：上述 `d1295254` 轮里，回合进行中坞自报的是 `data-activity-phase="idle"` 且 `data-activity-elapsed-ms=null`（20 秒 `sleep` 工具调用期间持续如此），而不是 `tool` / 一个非空计时。不排除是采样时机或心跳相位滞后的假象；若属实，则是「回合中文案与计时」那一族（AC-186/AC-187 已 done）的另一个洞，与本条根因无关。
