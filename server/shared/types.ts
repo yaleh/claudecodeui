@@ -2312,6 +2312,17 @@ export type ResidentFeatures = {
   inputWhileBusy: boolean;
   /** Input that has not yet been dequeued can be withdrawn. */
   cancelQueuedInput: boolean;
+  /**
+   * A running *foreground* tool can be promoted to a background task without
+   * ending the turn or the process (the SDK's `Query.backgroundTasks`).
+   *
+   * Unmeasured against a live resident process, so it states `false` — the same
+   * conservative default `cancelQueuedInput` and `authoritativeLeases` take. The
+   * value is what the background-task control plane reads before it reaches any
+   * driver: a `false` is answered `unsupported` rather than risking a verb the
+   * resident control channel has not been shown to carry.
+   */
+  backgroundTasks: boolean;
   /** The reasons keeping the process alive come from the CLI's own events, not from inference. */
   authoritativeLeases: boolean;
   /** Reserved: reachability through the provider's own remote-control bridge. */

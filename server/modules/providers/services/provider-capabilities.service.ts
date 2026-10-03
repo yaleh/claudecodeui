@@ -9,12 +9,13 @@ import type {
  * The resident-feature matrix, extended with the control-plane verbs this
  * module is the single source of truth for.
  *
- * `ResidentFeatures` is the shared vocabulary and is deliberately not edited
- * here — this task's write surface is the capability service. A resident verb
- * that a control handler reads (AC-196's `stopTask`) is therefore stated as an
- * extension of the shared shape rather than by moving the shape itself, so a
- * reader still asks the one matrix and the frontend's `ResidentFeatures`
- * contract is untouched.
+ * `stopTask` is stated as an extension of the shared `ResidentFeatures` shape
+ * rather than by moving the shape itself: it is a verb AC-196's control handler
+ * reads and nothing in the frontend's contract does, so the shared vocabulary
+ * stays the frontend's. `backgroundTasks` is the counter-example — it was
+ * promoted into `ResidentFeatures` itself (AC-197) because it describes the
+ * resident process rather than one control verb's private seam, and the matrix
+ * still is the single place its value is stated.
  */
 type ResidentFeatureMatrix = ResidentFeatures & {
   /**
@@ -144,6 +145,14 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
       // live resident process, so it stays off until it is measured — the same
       // conservative default `cancelQueuedInput` and `authoritativeLeases` take.
       stopTask: false, // not covered by E1–E8
+      // The SDK's `Query.backgroundTasks` verb, which the 2026-10-01 foreground-
+      // Bash capture observed answering both `true` (a matching foreground tool)
+      // and `false` (not) — but the *resident* control channel's wiring of that
+      // verb was never exercised by E1–E8, so it stays off until it is measured.
+      // The background-task control plane reads this before any driver: `false`
+      // answers `unsupported`, and only a criterion that injects `true` reaches
+      // the driver. Same conservative default the other unmeasured verbs take.
+      backgroundTasks: false, // not covered by E1–E8
       remoteControl: false, // reserved; forced off for resident processes (§9)
     },
   },
