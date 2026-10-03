@@ -20,7 +20,8 @@ const NUM: [RegExp, string][] = [
   [/第二条/g, '第2条'], [/第三条/g, '第3条'], [/三条/g, '3条'], [/四条/g, '4条'],
 ];
 export function normalize(s: string): string {
-  let t = s.replace(/[`*\s]/g, '');
+  // v2（取数后修复的缺陷 A）：换行先变成句号再去空白，否则条目之间的否定语境会串到下一条，既少算泄漏也误伤召回。
+  let t = s.replace(/\n+/g, '。').replace(/[`*\s]/g, '');
   for (const [re, to] of NUM) t = t.replace(re, to);
   return t;
 }
@@ -133,7 +134,7 @@ const L2: Script = {
     { id: 'I6', kind: 'negation', ok: (t) => near(t, /失败/, /保留(旧|原)(名字|名称|标题)/, 25) && new RegExp(`不(要)?(弹|显示|提示|报)${S}{0,6}(报错|错误)`).test(t) },
     { id: 'I7', kind: 'number', ok: (t) => near(t, /15(个)?(字|汉字)/, /最多|不超过|上限/, 12) },
     { id: 'I8', kind: 'nearmiss', ok: (t) => near(t, /旧标题/, /保持原样|不改|不用|不动|保留|先不/, 30) },
-    { id: 'I9', kind: 'deictic', ok: (t) => new RegExp(`(只|仅)${S}{0,8}(会话列表|左侧)`).test(t) && new RegExp(`(不(要)?(动|改)|别动)${S}{0,12}(顶部|聊天页面)`).test(t) },
+    { id: 'I9', kind: 'deictic', ok: (t) => new RegExp(`(只|仅)${S}{0,8}(会话列表|左侧)`).test(t) && new RegExp(`(不(要)?(动|改|修改|改动|碰)|别(动|改))${S}{0,12}(顶部|聊天页面)`).test(t) },
   ],
   forbidden: [
     { id: 'F1', kind: 'retract', hit: (t) => active(t, /每一轮[^。；\n]{0,12}(重新)?生成/) },
