@@ -412,6 +412,30 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
     return host && binding ? { host, binding } : null;
   }
 
+  /**
+   * Stamps the instant the manager starts counting a held-work lease.
+   *
+   * Only `background-task` and `monitor` carry `since`: `turn` is held for the
+   * length of one run, which the run registry already times, and `cron` has its
+   * own `expiresAt`. A driver-supplied instant wins, then a still-present lease
+   * for the same key keeps its original one — {@link addLease} replaces rather
+   * than appends, so a driver that reports the same hold twice does not restart
+   * the clock — and a genuinely new hold is stamped with the manager's own
+   * clock, which is what makes the reading reproducible in tests.
+   */
+  function withLeaseSince(lease: HostLease, at: number, previous?: HostLease): HostLease {
+    if (lease.kind !== 'background-task' && lease.kind !== 'monitor') {
+      return lease;
+    }
+    const carried =
+      typeof lease.since === 'number'
+        ? lease.since
+        : previous && (previous.kind === 'background-task' || previous.kind === 'monitor')
+          ? previous.since
+          : undefined;
+    return { ...lease, since: carried ?? at };
+  }
+
   /** Identifies a lease for replacement: a binding holds at most one per (kind, id). */
   function leaseKey(lease: HostLease): string {
     switch (lease.kind) {
@@ -674,7 +698,11 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
 
     const { host, binding } = found;
     const key = leaseKey(lease);
-    binding.leases = [...binding.leases.filter((existing) => leaseKey(existing) !== key), lease];
+    const previous = binding.leases.find((existing) => leaseKey(existing) === key);
+    binding.leases = [
+      ...binding.leases.filter((existing) => leaseKey(existing) !== key),
+      withLeaseSince(lease, now(), previous),
+    ];
     binding.lastActivityAt = now();
     deriveState(host, binding, null);
     return true;

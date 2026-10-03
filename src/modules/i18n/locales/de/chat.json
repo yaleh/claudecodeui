@@ -339,14 +339,7 @@
       "copyAddress": "Adresse kopieren",
       "copied": "Kopiert",
       "address": "Adresse",
-      "activeCount": "{{count}} aktiv",
-      "counts": {
-        "turn": "Laufende Antwort",
-        "background-task": "Hintergrundaufgaben",
-        "monitor": "Überwachungen",
-        "cron": "Geplante Aufgaben",
-        "resident-policy": "Resident-Sitzung"
-      }
+      "activeCount": "{{count}} aktiv"
     },
     "divider": {
       "cron": "⏰ Geplante Aufgabe · {{time}}",
@@ -354,6 +347,14 @@
       "backgroundTask": "📡 Überwachungsbenachrichtigung · {{time}}",
       "unknown": "Nicht vom Benutzer ausgelöst"
     },
-    "stopResident": "Diese Antwort stoppen (Prozess und geplante Aufgaben bleiben erhalten)"
+    "stopResident": "Diese Antwort stoppen (Prozess und geplante Aufgaben bleiben erhalten)",
+    "backgroundTasks": {
+      "title": "Hintergrundaufgaben",
+      "genericLabel": "Hintergrundaufgabe",
+      "monitorLabel": "Monitor",
+      "unknown": "Status der Hintergrundaufgabe unbekannt",
+      "lastNotification": "Letzte Benachrichtigung vor {{elapsed}}",
+      "count": "{{n}} Aufgaben"
+    }
   }
 }

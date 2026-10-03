@@ -879,12 +879,15 @@ export type CommandLifecycleState = 'queued' | 'started' | 'cancelled' | 'comple
  * What started a turn nobody typed.
  *
  * A closed set, and the ONLY one: the divider the transcript draws before such
- * a turn, the lease a host is held for and the copy the status bar shows all
- * have to name the same three causes, so the names come from the server's own
- * declaration and the client narrows to them rather than spelling its own list.
- * `background-task` and `cron` are the two host leases that describe work
- * outliving a turn; the third is a message another session sent, which is why
- * it — and only it — carries a sender.
+ * a turn and the lease a host is held for both take their names from the
+ * server's own declaration, so the client narrows to these rather than spelling
+ * its own list. `background-task` and `cron` are the two turn origins that
+ * describe work outliving a turn; the third is a message another session sent,
+ * which is why it — and only it — carries a sender. A third held-work lease
+ * kind, `monitor`, is not a turn origin and so is not here: it names held work
+ * on the host, and the background-task strip is the surface that reports held
+ * work rather than a turn's cause. The resident status bar that used to echo
+ * this set is retired with its counts.
  */
 export type MessageOriginTrigger = 'background-task' | 'cron' | 'cross-session';
 
@@ -906,11 +909,20 @@ export type MessageOrigin = {
 
 //----------------- SESSION HOSTS ------------
 
-/** One reason a resident process is being kept alive. */
+/**
+ * One reason a resident process is being kept alive.
+ *
+ * `since` is on the two held-work kinds and is required here because the
+ * server's listing projection always fills it: it is the epoch-ms instant the
+ * manager began holding the lease, and it is the only input the background-task
+ * strip's elapsed reading has — the work's own internal progress is not
+ * observable and is deliberately not reported. `cron` has its own `expiresAt`
+ * instead; `turn` and `resident-policy` carry no clock.
+ */
 export type SessionHostLease =
   | { kind: 'turn'; runId: string }
-  | { kind: 'background-task'; id: string }
-  | { kind: 'monitor'; id: string }
+  | { kind: 'background-task'; id: string; since: number }
+  | { kind: 'monitor'; id: string; since: number }
   | { kind: 'cron'; id: string; recurring: boolean; expiresAt: number }
   | { kind: 'resident-policy' };
 

@@ -360,14 +360,7 @@
       "copyAddress": "复制地址",
       "copied": "已复制",
       "address": "地址",
-      "activeCount": "{{count}} 个活动",
-      "counts": {
-        "turn": "运行中的轮次",
-        "background-task": "后台任务",
-        "monitor": "监视器",
-        "cron": "定时任务",
-        "resident-policy": "常驻会话"
-      }
+      "activeCount": "{{count}} 个活动"
     },
     "divider": {
       "cron": "⏰ 定时任务 · {{time}}",
@@ -375,6 +368,14 @@
       "backgroundTask": "📡 监视器通知 · {{time}}",
       "unknown": "非用户发起"
     },
-    "stopResident": "停止本次回答（进程与定时任务继续）"
+    "stopResident": "停止本次回答（进程与定时任务继续）",
+    "backgroundTasks": {
+      "title": "后台任务",
+      "genericLabel": "后台任务",
+      "monitorLabel": "监视器",
+      "unknown": "后台任务状态未知",
+      "lastNotification": "最近一次通知 {{elapsed}} 前",
+      "count": "{{n}} 个任务"
+    }
   }
 }

@@ -1923,10 +1923,20 @@ export type LifecyclePolicy = {
  * deliberately optional so a lease written before this distinction existed still
  * satisfies the type, and it is confined to the two kinds a stream can describe,
  * because `turn` and `resident-policy` are never inferred from anything.
+ *
+ * `since` is when the manager recorded the lease — the instant the hold began,
+ * which is the only fact a reader needs to report how long the work has been
+ * outstanding. It is written by `addLease`, not by the driver that reports the
+ * lease: a driver states *that* it is holding work for an id and has no reason
+ * to know when the manager started counting, while the manager is the one place
+ * every lease passes through. Optional here so a driver's own request type keeps
+ * compiling; the listing projection fills it for both members, so a client
+ * always reads a number. `cron` carries its own schedule (`expiresAt`) and is
+ * deliberately not given one.
  */
 export type HostLease =
   | { kind: 'turn'; runId: string }
-  | { kind: 'background-task' | 'monitor'; id: string; inferred?: boolean }
+  | { kind: 'background-task' | 'monitor'; id: string; since?: number; inferred?: boolean }
   | { kind: 'cron'; id: string; recurring: boolean; expiresAt: number; inferred?: boolean }
   | { kind: 'resident-policy' };
 

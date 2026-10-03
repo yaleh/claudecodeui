@@ -716,13 +716,28 @@ function toSessionHostStateView(
   };
 }
 
-/** Projects one session on a host. Leases are copied by `snapshot()` already. */
+/**
+ * Projects one session on a host. Leases are copied by `snapshot()` already.
+ *
+ * The held-work leases are re-projected so `since` is guaranteed on the wire.
+ * `addLease` stamps it, but the projection is where the client's contract is
+ * fixed, and a reader that has to branch on whether the field arrived would be
+ * reading a shape that varies — so an absent instant falls back to the binding's
+ * own `lastActivityAt`, which is the instant the manager last touched it and is
+ * never later than the hold. `cron` and the two lifetime kinds pass through
+ * untouched: `cron` carries its own schedule and the others carry no clock.
+ */
 function toBindingView(binding: SessionBinding): BindingView {
   return {
     appSessionId: binding.appSessionId,
     providerSessionId: binding.providerSessionId,
     state: binding.state,
-    leases: binding.leases,
+    leases: binding.leases.map((lease) => {
+      if (lease.kind !== 'background-task' && lease.kind !== 'monitor') {
+        return lease;
+      }
+      return { ...lease, since: typeof lease.since === 'number' ? lease.since : binding.lastActivityAt };
+    }),
     lastActivityAt: binding.lastActivityAt,
     peerName: binding.peerName,
   };

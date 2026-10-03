@@ -375,14 +375,7 @@
       "copyAddress": "複製位址",
       "copied": "已複製",
       "address": "位址",
-      "activeCount": "{{count}} 個活動",
-      "counts": {
-        "turn": "執行中的回合",
-        "background-task": "背景工作",
-        "monitor": "監視器",
-        "cron": "排程工作",
-        "resident-policy": "常駐工作階段"
-      }
+      "activeCount": "{{count}} 個活動"
     },
     "divider": {
       "cron": "⏰ 排程工作 · {{time}}",
@@ -390,6 +383,14 @@
       "backgroundTask": "📡 監視器通知 · {{time}}",
       "unknown": "非使用者發起"
     },
-    "stopResident": "停止本次回覆（行程與排程工作繼續）"
+    "stopResident": "停止本次回覆（行程與排程工作繼續）",
+    "backgroundTasks": {
+      "title": "背景任務",
+      "genericLabel": "背景任務",
+      "monitorLabel": "監視器",
+      "unknown": "背景任務狀態未知",
+      "lastNotification": "最近一次通知 {{elapsed}} 前",
+      "count": "{{n}} 個任務"
+    }
   }
 }

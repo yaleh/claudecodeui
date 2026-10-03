@@ -439,14 +439,7 @@
       "copyAddress": "Copy address",
       "copied": "Copied",
       "address": "Address",
-      "activeCount": "{{count}} active",
-      "counts": {
-        "turn": "Running turn",
-        "background-task": "Background tasks",
-        "monitor": "Monitors",
-        "cron": "Scheduled tasks",
-        "resident-policy": "Resident session"
-      }
+      "activeCount": "{{count}} active"
     },
     "divider": {
       "cron": "⏰ Scheduled task · {{time}}",
@@ -454,6 +447,14 @@
       "backgroundTask": "📡 Monitor notification · {{time}}",
       "unknown": "Not user-initiated"
     },
-    "stopResident": "Stop this answer (process and scheduled tasks stay)"
+    "stopResident": "Stop this answer (process and scheduled tasks stay)",
+    "backgroundTasks": {
+      "title": "Background tasks",
+      "genericLabel": "Background task",
+      "monitorLabel": "Monitor",
+      "unknown": "Background task state unknown",
+      "lastNotification": "Last notification {{elapsed}} ago",
+      "count": "{{n}} tasks"
+    }
   }
 }

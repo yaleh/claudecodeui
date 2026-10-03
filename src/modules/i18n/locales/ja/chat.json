@@ -326,14 +326,7 @@
       "copyAddress": "アドレスをコピー",
       "copied": "コピーしました",
       "address": "アドレス",
-      "activeCount": "{{count}} 件アクティブ",
-      "counts": {
-        "turn": "実行中のターン",
-        "background-task": "バックグラウンドタスク",
-        "monitor": "モニター",
-        "cron": "スケジュールタスク",
-        "resident-policy": "常駐セッション"
-      }
+      "activeCount": "{{count}} 件アクティブ"
     },
     "divider": {
       "cron": "⏰ スケジュールタスク · {{time}}",
@@ -341,6 +334,14 @@
       "backgroundTask": "📡 モニター通知 · {{time}}",
       "unknown": "ユーザー操作ではありません"
     },
-    "stopResident": "この回答を停止（プロセスとスケジュールタスクは継続）"
+    "stopResident": "この回答を停止（プロセスとスケジュールタスクは継続）",
+    "backgroundTasks": {
+      "title": "バックグラウンドタスク",
+      "genericLabel": "バックグラウンドタスク",
+      "monitorLabel": "モニター",
+      "unknown": "バックグラウンドタスクの状態は不明です",
+      "lastNotification": "最後の通知は {{elapsed}} 前",
+      "count": "{{n}} 件のタスク"
+    }
   }
 }
