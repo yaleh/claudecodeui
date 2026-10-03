@@ -1,7 +1,7 @@
 ---
 id: AC-200
 title: Monitor 事件在转写投影层折叠成一行：历史不变，超时显示为已停止，不同任务不合并
-status: draft
+status: active
 kind: criterion
 goal: GOAL-015
 criterion: npx vitest run src/modules/chat/tests/monitorEventCollapse.test.ts
@@ -15,4 +15,15 @@ origin: docs/proposals/claude-session-activity-dock.md（§0.1 人的裁定、§
   事件在投影层折叠成一行；历史里的 isMeta 行显示与对等方目录本期不纳入。 实测 2026-10-01：Monitor 的每个事件都是一条排队的
   task-notification 用户行，既进转写又触发一个无人回合；超时表现为 task_updated(killed) 加
   task_notification(stopped)。
+activatedAt: 2026-10-03T15:51:46.819Z
+statusLog:
+  - at: 2026-10-03T15:51:46.819Z
+    from: draft
+    to: active
+    actor: goal-cli
+    reason: ""
+fidelity:
+  verdict: not-evaluated
+  reason: no judge configured
+  at: 2026-10-03T15:51:46.819Z
 ---
