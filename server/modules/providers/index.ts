@@ -2,6 +2,11 @@ export { sessionSynchronizerService } from './services/session-synchronizer.serv
 export { providerSkillsService } from './services/skills.service.js';
 export { providerMcpService } from './services/mcp.service.js';
 export { providerRuntimeService, createProviderRuntimeService } from './services/provider-runtime.service.js';
+// ControlStopTaskOutcome: the answer the runtime gateway's stop-task verb gives
+// (`requested` / `unsupported` / `timeout` / `error`). Exported so the websocket
+// control handler types its pass-through against the one union rather than
+// restating it, and so the criterion can name each arm's expected value.
+export type { ControlStopTaskOutcome } from './services/provider-runtime.service.js';
 
 // providerModelsService: used by Commands to list models and resolve the active session model.
 export { providerModelsService } from './services/provider-models.service.js';
@@ -122,6 +127,28 @@ export { ClaudeSessionSynchronizer } from './list/claude/claude-session-synchron
 // registry it owns to count the scans.
 export { readClaudeSessionOccupancy } from './list/claude/claude-host-driver.provider.js';
 export type { ClaudeSessionOccupancy } from './list/claude/claude-host-driver.provider.js';
+// The resident driver and the per-run runtime verbs, for AC-196's criterion
+// (`server/modules/websocket/tests/chat-stop-task.test.ts`). That criterion
+// lives in the websocket module — the control verb's home — and has to drive the
+// real resident driver against a scripted query and the real per-run runtime
+// against a scripted instance, so the shapes and verbs it needs are exported
+// here rather than reached through a provider's internal path: the module
+// boundary lint and the backend module standards both require cross-module
+// access to go through this barrel.
+export { ClaudeResidentHostDriver } from './list/claude/claude-host-driver.provider.js';
+export type {
+  ClaudeResidentProcess,
+  ClaudeResidentProcessFactory,
+  ClaudeResidentQuery,
+} from './list/claude/claude-host-driver.provider.js';
+export { CLAUDE_PREDEFINED_MODELS } from './list/claude/claude-models.provider.js';
+export {
+  abortClaudeSDKSession,
+  claudeQueryFactory,
+  getActiveClaudeSDKSessions,
+  queryClaudeSDK,
+  stopClaudeSDKTask,
+} from './list/claude/claude-runtime.provider.js';
 
 // Resident scoping: `mapCliOptionsToSDK` installs the spawn hook that puts every
 // resident session in its own capped systemd scope inside the shared resident
