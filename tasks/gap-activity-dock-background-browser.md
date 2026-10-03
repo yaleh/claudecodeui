@@ -2,7 +2,7 @@
 id: gap-activity-dock-background-browser
 title: AC-194 真实浏览器：活动坞按 Task/Schedule 实体列出任务与计划（服务端接线 + 调试 agent 场景 + 客户端面板 +
   卡片读 Task），状态不刷新即变化，重载由快照恢复，计划只读
-status: ready
+status: done
 labels:
   - gap
 parent: null
