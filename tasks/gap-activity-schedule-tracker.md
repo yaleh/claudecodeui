@@ -1,7 +1,7 @@
 ---
 id: gap-activity-schedule-tracker
 title: AC-192 计划表：由 Stop hook 的 session_crons 与工具结果得到 cron 与唤醒，计算下次触发，触发后消失
-status: todo
+status: ready
 labels:
   - gap
 parent: null
