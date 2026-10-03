@@ -5,7 +5,7 @@ title: AC-172 判据的 test 3 i18n 键表仍要求已退役的 resident.statusB
   60 条 missing，npx playwright test e2e/resident-status-bar.spec.ts 在 test 3 处红（2
   passed / 1 failed / 1 did not run）；把 required 键表对齐当前出货面（胶囊 resident.badge.* +
   resident.backgroundTasks.count），删退役的 counts 家族
-status: ready
+status: done
 labels:
   - gap
   - defect
