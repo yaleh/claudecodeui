@@ -2,7 +2,7 @@
 id: gap-activity-task-reducer
 title: AC-191 Task 归约器：由 2026-10-01 真实帧序得到任务表（嵌套 / Workflow / Monitor 超时 / 前台转后台
   / Stop hook 校准），重放幂等
-status: todo
+status: ready
 labels:
   - gap
 parent: null
