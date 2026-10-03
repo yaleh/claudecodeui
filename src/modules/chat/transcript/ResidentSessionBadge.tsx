@@ -5,13 +5,13 @@ import { AlertTriangle, ChevronDown } from 'lucide-react';
 
 import ResidentPanel from '@/modules/chat/transcript/ResidentStatusBar';
 import {
-  findBackgroundTaskLeases,
   findSessionHost,
   findSessionHostState,
   readResidentProcessState,
   useSessionHosts,
 } from '@/shared/hooks/useSessionHosts';
 import type { ResidentProcessState } from '@/shared/types';
+import { findBackgroundTaskLeases } from '@/shared/utils';
 
 /** The panel's width in CSS pixels: `w-72`, which `ResidentPanel` sets on its own root. */
 const PANEL_WIDTH_PX = 288;

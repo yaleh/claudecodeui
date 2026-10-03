@@ -4,7 +4,6 @@ import { api, readApiJson } from '@/shared/api';
 import type {
   ResidentProcessState,
   SessionHostBindingView,
-  SessionHostLease,
   SessionHostLeaseKind,
   SessionHostStateView,
   SessionHostView,
@@ -246,38 +245,6 @@ export function findBinding(
 /** How many leases of one kind a binding holds. */
 export function countLeases(binding: SessionHostBindingView | null, kind: SessionHostLeaseKind): number {
   return binding ? binding.leases.filter((lease) => lease.kind === kind).length : 0;
-}
-
-/**
- * The held-work leases on one session's live host, in listing order.
- *
- * "Held work" is the two lease kinds that outlive the turn that started them —
- * a background task and a monitor — and the whole set the background-task strip
- * draws and the resident pill counts. Read off the same `findBinding` every
- * other host reading uses, so the strip and the pill cannot disagree about how
- * many there are, and off the *listing* rather than the transcript: the work is
- * a fact about the process the host layer holds, and the transcript only knows
- * it if a model happened to write it down.
- *
- * A session with no live host has no held work and answers with an empty list —
- * not null — because the caller's next question is always "how many", and "no
- * host" and "a host holding nothing" have the same answer to it.
- */
-export function findBackgroundTaskLeases(
-  snapshot: SessionHostsSnapshot | null,
-  appSessionId: string | null,
-): Array<Extract<SessionHostLease, { kind: 'background-task' | 'monitor' }>> {
-  if (!appSessionId) {
-    return [];
-  }
-  const binding = findBinding(snapshot, appSessionId);
-  if (!binding) {
-    return [];
-  }
-  return binding.leases.filter(
-    (lease): lease is Extract<SessionHostLease, { kind: 'background-task' | 'monitor' }> =>
-      lease.kind === 'background-task' || lease.kind === 'monitor',
-  );
 }
 
 /**

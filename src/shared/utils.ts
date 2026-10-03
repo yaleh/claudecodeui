@@ -1,7 +1,7 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
-import type { Project, ProjectSession } from '@/shared/types';
+import type { Project, ProjectSession, SessionHostLease, SessionHostsSnapshot } from '@/shared/types';
 
 //----------------- DEPLOYMENT MODE ------------
 
@@ -223,3 +223,47 @@ export const getPageTitle = (
   const displayName = selectedProject?.displayName?.trim();
   return displayName ? `${displayName} - ${DEFAULT_PAGE_TITLE}` : DEFAULT_PAGE_TITLE;
 };
+
+// ---------------------------
+
+//----------------- SESSION HOST HELD WORK ------------
+
+/**
+ * The held-work leases on one session's live host, in listing order.
+ *
+ * "Held work" is the two lease kinds that outlive the turn that started them —
+ * a background task and a monitor — and is the whole set the background-task
+ * strip draws and the resident pill counts. Derived from the `snapshot` argument
+ * rather than a hook so both readers share one implementation and neither adds
+ * an export to the hook module (a second export there would red every test that
+ * mocks the hook wholesale). Read off the *listing*, not the transcript: the
+ * work is a fact about the process the host layer holds, and the transcript only
+ * knows it if a model happened to write it down.
+ *
+ * A session with no live host — or no session at all — has no held work and
+ * answers with an empty list, not null: the caller's next question is always
+ * "how many", and "no host" and "a host holding nothing" answer it the same way.
+ */
+export function findBackgroundTaskLeases(
+  snapshot: SessionHostsSnapshot | null,
+  appSessionId: string | null,
+): Array<Extract<SessionHostLease, { kind: 'background-task' | 'monitor' }>> {
+  if (!snapshot || !appSessionId) {
+    return [];
+  }
+  for (const host of snapshot.hosts) {
+    // A closed host keeps its bindings as the record of who it was serving, so
+    // treating one as live would report work no process is holding any more.
+    if (host.state === 'closed') {
+      continue;
+    }
+    const binding = host.bindings.find((candidate) => candidate.appSessionId === appSessionId);
+    if (binding) {
+      return binding.leases.filter(
+        (lease): lease is Extract<SessionHostLease, { kind: 'background-task' | 'monitor' }> =>
+          lease.kind === 'background-task' || lease.kind === 'monitor',
+      );
+    }
+  }
+  return [];
+}

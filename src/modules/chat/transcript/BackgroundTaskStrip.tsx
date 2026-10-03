@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import {
-  findBackgroundTaskLeases,
-  useSessionHosts,
-} from '@/shared/hooks/useSessionHosts';
+import { useSessionHosts } from '@/shared/hooks/useSessionHosts';
 import type { ChatMessage, SessionHostLease } from '@/shared/types';
+import { findBackgroundTaskLeases } from '@/shared/utils';
 
 /** The two held-work lease kinds this strip draws, as one alias. */
 type HeldWorkLease = Extract<SessionHostLease, { kind: 'background-task' | 'monitor' }>;
