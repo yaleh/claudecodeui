@@ -6,6 +6,7 @@ import {
   readSessionTurn,
   type TurnPhase,
 } from '@/modules/providers/index.js';
+import { readActivityRevision } from '@/modules/websocket/services/activity-protocol.service.js';
 import { WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 
 /**
@@ -36,21 +37,12 @@ export const ACTIVITY_UNREACHABLE_AFTER_MS = 15_000;
  * deliberately a module constant and not a per-frame or per-connection value —
  * an id that changed between two frames would report a restart that never
  * happened.
- */
-const BOOT_ID = randomUUID();
-
-/**
- * Session-level activity revision, one monotonic counter per session.
  *
- * A revision is the session's activity version: it stays put while nothing
- * about the session changes, which is exactly the case the heartbeat exists to
- * cover — the beat proves liveness even when there is nothing new to say, so
- * the same revision is carried frame after frame. Nothing in this module
- * advances it; the frames that do belong to the activity snapshot/patch
- * protocol. Every session is seeded on first sight, so the hello and every
- * subsequent heartbeat for one session report the same number.
+ * Exported because the activity protocol's snapshot carries the same id: the
+ * store reads this one constant rather than minting its own, so a heartbeat
+ * frame and a snapshot can never disagree about which process produced them.
  */
-const activityRevisions = new Map<string, number>();
+export const BOOT_ID = randomUUID();
 
 /**
  * Reads the two shipped timings, applying the environment overrides a
@@ -80,14 +72,17 @@ function readPositiveInt(raw: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-/** The revision a session's activity is currently at, seeding it on first sight. */
+/**
+ * The revision a session's activity is currently at, read from the activity
+ * protocol's single revision source.
+ *
+ * The heartbeat does not own the counter — it reads the store's, seeding a
+ * session on first sight exactly as the store's `revision` does — so a beat and a
+ * snapshot always carry the same number for a session, and the protocol's
+ * `recordChange` is the one thing that can move it.
+ */
 function revisionForSession(sessionId: string): number {
-  const known = activityRevisions.get(sessionId);
-  if (known !== undefined) {
-    return known;
-  }
-  activityRevisions.set(sessionId, 0);
-  return 0;
+  return readActivityRevision(sessionId);
 }
 
 /**
