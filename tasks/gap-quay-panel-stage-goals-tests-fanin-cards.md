@@ -63,6 +63,7 @@ extra:
 ## Touches
 
 - server/modules/quay/quay.service.ts
+- server/modules/quay/quay.module.ts
 - server/modules/quay/tests/quay.service.test.ts
 - src/modules/quay/QuayPanel.tsx
 - src/modules/quay/TimelineBar.tsx (new)
