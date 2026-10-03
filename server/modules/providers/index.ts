@@ -87,6 +87,21 @@ export type {
   ScheduleSource,
   SessionCronEntry,
 } from './services/claude-activity-schedules.service.js';
+// deriveHeldWorkLeases: the Lease Deriver facade — projects the Task table
+// (AC-191) and Schedule table (AC-192) into the resident path's held-work
+// leases, beside the driver's own path rather than replacing it. Consumed by
+// the lease-parity criterion (`claude-activity-lease-parity.test.ts`), which
+// feeds one frame sequence into the live driver and into the two reducers and
+// compares the two lease sets frame by frame; nothing in production reads it
+// yet (convergence is a later task). HeldWorkLeaseInput / LeaseDeriverMutations
+// are the criterion's own vocabulary — it types its readings with them so an
+// assertion cannot pass against a shape this module never produces, and builds
+// its false-form arms through the documented mutation seam.
+export { deriveHeldWorkLeases } from './services/claude-activity-lease-deriver.service.js';
+export type {
+  HeldWorkLeaseInput,
+  LeaseDeriverMutations,
+} from './services/claude-activity-lease-deriver.service.js';
 // readSessionTurn: the live phase of one session's turn, as the frame forwarder
 // last reduced it. Consumed by the websocket module's activity heartbeat, which
 // stamps it onto the activity frames a browser reads — the providers module owns
