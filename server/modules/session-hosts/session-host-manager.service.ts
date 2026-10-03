@@ -750,6 +750,13 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
    * would be worse than a missing one; hence the refusal to invent one when no
    * live binding is found, and the driver's rule of reporting only names it
    * read back from the process itself.
+   *
+   * The driver may report it more than once over a host's life: the startup read,
+   * then a re-read once a title-adoption frame moves the process's registered
+   * name. This verb overwrites, so the projection follows the process's own
+   * registry rather than freezing the first reading it was handed — a name the
+   * process no longer answers to is exactly the stale address this write exists
+   * to prevent.
    */
   function recordIdentity(appSessionId: string, peerName: string | null): boolean {
     const found = findBinding(appSessionId);

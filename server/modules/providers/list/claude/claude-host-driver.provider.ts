@@ -1750,6 +1750,17 @@ type ResidentHostState = {
   /** True once the identity read-back has been started, so it starts only once. */
   identityReadbackStarted: boolean;
   /**
+   * The last address this host published through `sink.identity`, or null for none.
+   *
+   * The address is read back more than once over a host's life — once at startup,
+   * and again after the title mirror moves the process's registered name — so the
+   * last value is kept to publish only a *change*. Writing the same value twice
+   * would tell the manager the address moved when it did not, and a re-read that
+   * finds nothing (the rename frame never landed, or landed late) must leave the
+   * address where the last successful read put it rather than blank it.
+   */
+  reportedIdentity: string | null;
+  /**
    * The session's own title this process was launched with, or null for none.
    *
    * See {@link PendingHost.launchedTitle}: it is what tells the read-back that a
@@ -2178,6 +2189,7 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       projectPath: pending.projectPath,
       titleMirror: { lastSeen: null, mirrored: null, timer: null, open: false, openedForTurn: false },
       identityReadbackStarted: false,
+      reportedIdentity: null,
       launchedTitle: pending.launchedTitle,
       resumed: false,
       sessionCreatedSent: false,
@@ -3179,10 +3191,14 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
    *
    * Called once per host, at the first message that names the provider session —
    * the earliest point at which the process is far enough along to have written
-   * its registry entry — and once per host only. The poll is bounded and
-   * unref'd: the entry is written at startup, so a process that has not produced
-   * it within the budget has not registered an address, and a driver must not
-   * hold the event loop open waiting for one that is not coming.
+   * its registry entry. It is the *startup* read rather than the whole story: a
+   * launch handed no title settles on the CLI's derived name here, and the title
+   * mirror moves that name later in the same turn, so
+   * {@link refreshIdentityAfterRename} reads it back again once the frame is out.
+   * The poll is bounded and unref'd: the entry is written at startup, so a
+   * process that has not produced it within the budget has not registered an
+   * address, and a driver must not hold the event loop open waiting for one that
+   * is not coming.
    */
   private startIdentityReadback(state: ResidentHostState, sessionId: string): void {
     if (state.identityReadbackStarted) {
@@ -3195,7 +3211,7 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       // No pid was observed, so the registry cannot be addressed at all:
       // reporting `null` is a statement — "this binding has no address" — rather
       // than the absence a binding that was never asked about would show.
-      state.sink.identity(state.appSessionId, null);
+      this.publishIdentity(state, null);
       return;
     }
 
@@ -3216,14 +3232,93 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       const settled = Boolean(registration?.name) && !(state.launchedTitle && registration?.nameSource === 'derived');
       if (!settled) {
         if (Date.now() >= deadline) {
-          state.sink.identity(state.appSessionId, null);
+          this.publishIdentity(state, null);
           return;
         }
         const timer = setTimeout(poll, CLAUDE_RESIDENT_IDENTITY_POLL_MS);
         timer.unref?.();
         return;
       }
-      state.sink.identity(state.appSessionId, registration?.name ?? null);
+      this.publishIdentity(state, registration?.name ?? null);
+    };
+
+    poll();
+  }
+
+  /**
+   * Publishes an address reading to the manager, and only when it moved.
+   *
+   * `recordIdentity` is the projection's only writer (see
+   * `session-host-manager.service.ts`), and it treats "the process stated its
+   * name" as a fact worth recording. The address is read more than once over a
+   * host's life, so the same value can be offered twice — the startup read's
+   * answer, then a re-read's — and a value that did not move is not news. `null`
+   * is publishable when it differs (a host with no address at all), so a bounded
+   * read that finds nothing settles the binding to "no address" rather than
+   * leaving a stale one; but it can never *blank* an address a previous read
+   * established, because a re-read that times out publishes nothing.
+   */
+  private publishIdentity(state: ResidentHostState, value: string | null): void {
+    if (state.reportedIdentity === value) {
+      return;
+    }
+    state.reportedIdentity = value;
+    state.sink.identity(state.appSessionId, value);
+  }
+
+  /**
+   * Re-reads the process's registered address after the title mirror moved it.
+   *
+   * A cold-start launch registers under the CLI's derived name and settles there
+   * (see {@link startIdentityReadback}), and the `rename_session` frame that
+   * {@link mirrorResidentTitle} writes is the one event that moves it: the CLI
+   * rewrites `~/.claude/sessions/<pid>.json` when it adopts the title. Without a
+   * read here the projection keeps the startup snapshot for the process's whole
+   * life, so every peer is handed the machine-shaped name long after the registry
+   * stopped answering to it — the stale-address defect this pass exists for.
+   *
+   * The re-read is a bounded poll, not a watcher, and it is *armed by the frame*
+   * rather than run for the life of the host. The registry rewrite is
+   * asynchronous — the frame's bytes are out before the CLI has processed them —
+   * so a single read would race it, and the window is the startup read's own
+   * shape (50 ms interval, one budget) because it is the same kind of wait: the
+   * entry is coming, or it is not. A watcher would instead pay a read per turn
+   * forever for an event that happens at most once per process.
+   *
+   * The value published is the registry's, never the title the frame carried:
+   * the criterion that guards this reads the file for itself, and "we sent this
+   * string" is a prediction, not a reading. `derived` is still read as "not yet"
+   * — the adoption has not landed — so a frame the CLI never processed leaves the
+   * last honest reading in place instead of publishing a value nobody registered.
+   */
+  private refreshIdentityAfterRename(state: ResidentHostState): void {
+    const pid = state.pid;
+    const sessionId = state.providerSessionId;
+    if (state.closed || pid === null) {
+      return;
+    }
+
+    const deadline = Date.now() + CLAUDE_RESIDENT_IDENTITY_BUDGET_MS;
+    const poll = (): void => {
+      if (state.closed) {
+        return;
+      }
+      const registration = readCliSessionRegistration(state.configDir, pid, sessionId);
+      // The CLI adopts the mirrored title as a name it did not derive itself
+      // (`nameSource: "user"`), which is what "the rewrite landed" reads as. The
+      // derived name it may still be showing is the pre-frame value, not the
+      // answer; leaving it unpublished keeps `publishIdentity`'s dedup from even
+      // considering it.
+      const adopted = Boolean(registration?.name) && registration?.nameSource !== 'derived';
+      if (adopted) {
+        this.publishIdentity(state, registration?.name ?? null);
+        return;
+      }
+      if (Date.now() >= deadline) {
+        return;
+      }
+      const timer = setTimeout(poll, CLAUDE_RESIDENT_IDENTITY_POLL_MS);
+      timer.unref?.();
     };
 
     poll();
@@ -3376,6 +3471,13 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
    * stream, a substituted factory) simply does not mirror: the reading is "this
    * host wrote nothing", which is true, rather than a claim about a frame that
    * never left.
+   *
+   * The frame is what moves the registered name, so the same write arms the
+   * *re-read* of it: the projection this frame exists to correct is refreshed
+   * from the registry once the CLI has processed the frame (see
+   * {@link refreshIdentityAfterRename}). Arming it here rather than on a timer
+   * keeps the two in one place — a path that writes the rename is a path that
+   * owes the projection a re-read.
    */
   private mirrorResidentTitle(state: ResidentHostState, title: string): void {
     const writeRaw = state.process.writeRaw;
@@ -3398,6 +3500,7 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
     state.controlFrames.push({ at: Date.now(), requestId, frame });
     writeRaw.call(state.process, frame);
     state.titleMirror.mirrored = title;
+    this.refreshIdentityAfterRename(state);
   }
 
   /**
