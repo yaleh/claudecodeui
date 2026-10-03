@@ -62,6 +62,7 @@ extra:
 
 - tasks/gap-background-task-surface-absent-in-session-view.md (self-touch)
 - src/shared/types.ts
+- server/shared/types.ts
 - server/modules/session-hosts/session-host-manager.service.ts
 - server/modules/session-hosts/session-hosts.routes.ts
 - server/modules/session-hosts/tests/backgroundTaskLeaseSince.test.ts (new)
