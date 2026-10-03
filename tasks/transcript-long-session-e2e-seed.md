@@ -1,7 +1,7 @@
 ---
 id: transcript-long-session-e2e-seed
 title: e2e 种子：一个 ≥1000 用户轮次、含同毫秒轮次与工具行的长会话，供 GOAL-017 的四条真实浏览器判据共用
-status: todo
+status: ready
 labels:
   - gap
 parent: null
