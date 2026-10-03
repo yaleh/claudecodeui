@@ -6,6 +6,30 @@ import type {
 } from '@/shared/types.js';
 
 /**
+ * The resident-feature matrix, extended with the control-plane verbs this
+ * module is the single source of truth for.
+ *
+ * `ResidentFeatures` is the shared vocabulary and is deliberately not edited
+ * here — this task's write surface is the capability service. A resident verb
+ * that a control handler reads (AC-196's `stopTask`) is therefore stated as an
+ * extension of the shared shape rather than by moving the shape itself, so a
+ * reader still asks the one matrix and the frontend's `ResidentFeatures`
+ * contract is untouched.
+ */
+type ResidentFeatureMatrix = ResidentFeatures & {
+  /**
+   * Whether a resident process can stop one named background task without
+   * ending its turn or its process.
+   *
+   * Default `false` and set `true` only where a driver was measured to hold the
+   * verb — the same "unmeasured means unsupported" discipline
+   * `cancelQueuedInput` follows. A `false` here is what the stop-task control
+   * plane answers `unsupported` for, before it reaches any driver.
+   */
+  stopTask?: boolean;
+};
+
+/**
  * Static, backend-owned description of what one provider integration supports.
  *
  * The frontend renders its composer UI (permission mode picker, image upload,
@@ -71,7 +95,7 @@ type ProviderCapabilities = {
    * `resident` — see `ResidentFeatures` for why an unmeasured field reads
    * `false` rather than the expected value.
    */
-  residentFeatures?: ResidentFeatures;
+  residentFeatures?: ResidentFeatureMatrix;
 };
 
 /**
@@ -115,6 +139,11 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
       inputWhileBusy: true, // E2
       cancelQueuedInput: false, // not covered by E1–E8
       authoritativeLeases: false, // not covered by E1–E8
+      // The SDK's `Query.stopTask` exists (it is in the measured method list in
+      // `claude-host-driver.provider.ts`), but E1–E8 never exercised it against a
+      // live resident process, so it stays off until it is measured — the same
+      // conservative default `cancelQueuedInput` and `authoritativeLeases` take.
+      stopTask: false, // not covered by E1–E8
       remoteControl: false, // reserved; forced off for resident processes (§9)
     },
   },

@@ -1753,6 +1753,35 @@ async function abortClaudeSDKSession(sessionId: string): Promise<boolean> {
 }
 
 /**
+ * Stops one named background task a per-run Claude process is running.
+ *
+ * The per-run twin of the resident driver's `stopTask`, and deliberately *not*
+ * `abortClaudeSDKSession`: a stop asks the SDK to end the named task and leaves
+ * the turn, the run and the held stdin alone, while aborting ends all of them.
+ * The held input is therefore never released and the session is never removed —
+ * the run keeps going, and only the task is asked to end.
+ *
+ * Returns `true` when a live per-run session's query was really asked, and
+ * `false` when there is no such session or its query exposes no stop verb. As in
+ * the resident path, a `true` is only "the request landed": whether the task
+ * really stopped is read from the task table's `stopped`, which the
+ * `task_notification(stopped)` frame drives.
+ *
+ * @param {string} sessionId - App session identifier
+ * @param {string} taskId - The background task the SDK named
+ * @returns {Promise<boolean>} Whether the request was placed on a live process
+ */
+async function stopClaudeSDKTask(sessionId: string, taskId: string): Promise<boolean> {
+  const session = getSession(sessionId);
+  const stop = session?.instance?.stopTask;
+  if (!session || typeof stop !== 'function') {
+    return false;
+  }
+  await stop.call(session.instance, taskId);
+  return true;
+}
+
+/**
  * Checks if an SDK session is currently active
  * @param {string} sessionId - Session identifier
  * @returns {boolean} True if session is active
@@ -1810,6 +1839,10 @@ function reconnectSessionWriter(sessionId: string, newRawWs: unknown): boolean {
 export const claudeRuntime = {
   run: queryClaudeSDK,
   abort: abortClaudeSDKSession,
+  // The per-run control-plane verb `provider-runtime.service` reaches through
+  // `IProvider.runtime`; it is read structurally (as an optional method) so the
+  // shared runtime interface is not widened for one provider's capability.
+  stopTask: stopClaudeSDKTask,
   permissions: {
     resolve: resolveToolApproval,
     listPending: getPendingApprovalsForSession,
@@ -1820,6 +1853,7 @@ export const claudeRuntime = {
 export {
   queryClaudeSDK,
   abortClaudeSDKSession,
+  stopClaudeSDKTask,
   isClaudeSDKSessionActive,
   getActiveClaudeSDKSessions,
   resolveToolApproval,

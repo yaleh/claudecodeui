@@ -2,7 +2,7 @@
 id: gap-chat-stop-task-event-confirmed
 title: AC-196 停止任务：WS 处理函数 chat.stop-task 校验会话/归属/任务表，限时，以
   task_notification(stopped) 为确认（resident 与 per-run 双驱动）
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -94,6 +94,8 @@ goal_ac: AC-196
 
 **DoD 第 1 条的活体读数依赖（诚实记录）。** 「用本机 resident 会话真实触发」并看到真实 `task_notification(stopped)` 让表变 `stopped`，需要任务表被实时帧填充；把归约器 `observe` 接进 run loop 帧缝是 AC-193 逐字留给「接线任务」的工作（AC-193 非目标：「不接进 run loop 把真实帧喂进存储（那是接线任务）」），且被本条非目标「不改活动协议快照/增量（AC-193）」覆盖。本任务按此范围未接线，因此在接线落地前，真实 resident 会话触发 `chat.stop-task` 会在任务表校验步返回 `unknown-task`；接线完成后同一路径无需改动即可返回 `requested`（网关/驱动/回执链已由判据的真实装配用例证明）。DoD 第 1 条由此收敛为「真实装配可达」这一不变量并勾选，活体读数的缺口记录在此。
 
+**续做轮（2026-10-04，fan-in suite-red 修复）。** 上一轮 fan-in 在 `server/modules/session-hosts/tests/lifecycle-mode.test.ts` 红：`claude declares the eight resident features…` 断言 claude 的 `residentFeatures` 恰为八个字段。本条按 Plan 第 2 步给 `residentFeatures` 增了第九个字段 `stopTask`（AC9），该穷举守卫因此需要同步扩到九字段。已把该用例改为九字段（标题/数组/消息 + `assert.equal(features.stopTask, false)` 的保守值断言），并在 Touches 补上该测试文件。重跑 `lifecycle-mode.test.ts` → `pass 9 / fail 0`；`chat-stop-task.test.ts` → `pass 6 / fail 0`；`npm run typecheck` 退出 0。
+
 ## Touches
 
 - server/modules/websocket/services/chat-websocket.service.ts
@@ -103,4 +105,5 @@ goal_ac: AC-196
 - server/modules/providers/list/claude/claude-host-driver.provider.ts
 - server/modules/providers/list/claude/claude-runtime.provider.ts
 - server/modules/providers/index.ts
+- server/modules/session-hosts/tests/lifecycle-mode.test.ts
 - tasks/gap-chat-stop-task-event-confirmed.md

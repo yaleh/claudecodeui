@@ -50,15 +50,15 @@ goal_ac: AC-200
 
 ## AC
 
-- [ ] AC1 判据绿：`npx vitest run src/modules/chat/tests/monitorEventCollapse.test.ts` 退出 **0**，stdout 无用例 `fail`。
-- [ ] AC2 折叠成一行：同一 `task-id` 的连续 Monitor 事件行 ⇒ 输出 **1** 行，带描述、`monitorEventCount === N`、`monitorEvents.length === N`（按序全部事件正文）。
-- [ ] AC3 原始投影无损：同一输入下 `normalizedToChatMessages(messages)`（非折叠）仍含**全部原始行**（行数/顺序等于未改动前），且未改动入参数组（`NormalizedMessage[]` 不变）。
-- [ ] AC4 超时非错误：段内含 `Monitor timed out` ⇒ 折叠行 `monitorStatus === 'stopped'` 且 `type !== 'error'`；不误判为 `completed`。
-- [ ] AC5 不同任务不合并：两个不同 `task-id`（正文相同）的事件 ⇒ 输出 **2** 行，各自 `monitorTaskId` 正确。
-- [ ] AC6 断隔不跨：同一 `task-id` 的两段之间夹一条其它消息 ⇒ 输出 **2** 行（不跨隔合并）。
-- [ ] AC7 假形态红：按 `content` 文本相等的变体折叠函数，对 AC5 的输入并成 **1** 行 ⇒ 「不同 `task-id` 不合并」读数红；两臂复用同一读数函数并打印绿/红读数。
-- [ ] AC8 渲染可展开：`npx vitest run src/modules/chat/tests/monitorEventCollapseRender.test.tsx` 退出 0；折叠行渲染出描述与计数，存在可展开的事件列表入口；停止态不渲染红色 error 头像。
-- [ ] AC9 契约面：`npm run typecheck`、`npm run lint`、`npm run build:client` 各退出 0；改动只落在 Touches（`git diff --stat develop...HEAD` 逐条对齐）；既有 chat 投影用例保持绿。
+- [x] AC1 判据绿：`npx vitest run src/modules/chat/tests/monitorEventCollapse.test.ts` 退出 **0**，stdout 无用例 `fail`。
+- [x] AC2 折叠成一行：同一 `task-id` 的连续 Monitor 事件行 ⇒ 输出 **1** 行，带描述、`monitorEventCount === N`、`monitorEvents.length === N`（按序全部事件正文）。
+- [x] AC3 原始投影无损：同一输入下 `normalizedToChatMessages(messages)`（非折叠）仍含**全部原始行**（行数/顺序等于未改动前），且未改动入参数组（`NormalizedMessage[]` 不变）。
+- [x] AC4 超时非错误：段内含 `Monitor timed out` ⇒ 折叠行 `monitorStatus === 'stopped'` 且 `type !== 'error'`；不误判为 `completed`。
+- [x] AC5 不同任务不合并：两个不同 `task-id`（正文相同）的事件 ⇒ 输出 **2** 行，各自 `monitorTaskId` 正确。
+- [x] AC6 断隔不跨：同一 `task-id` 的两段之间夹一条其它消息 ⇒ 输出 **2** 行（不跨隔合并）。
+- [x] AC7 假形态红：按 `content` 文本相等的变体折叠函数，对 AC5 的输入并成 **1** 行 ⇒ 「不同 `task-id` 不合并」读数红；两臂复用同一读数函数并打印绿/红读数。
+- [x] AC8 渲染可展开：`npx vitest run src/modules/chat/tests/monitorEventCollapseRender.test.tsx` 退出 0；折叠行渲染出描述与计数，存在可展开的事件列表入口；停止态不渲染红色 error 头像。
+- [x] AC9 契约面：`npm run typecheck`、`npm run lint`、`npm run build:client` 各退出 0；改动只落在 Touches（`git diff --stat develop...HEAD` 逐条对齐）；既有 chat 投影用例保持绿。
 
 ## DoD
 
