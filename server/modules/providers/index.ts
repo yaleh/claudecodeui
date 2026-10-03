@@ -49,6 +49,25 @@ export type { WatcherMode } from './services/sessions-watcher.service.js';
 // this module never produces.
 export { createClaudeTurnTracker } from './services/claude-turn-phase.service.js';
 export type { TurnPhase, TurnState } from './services/claude-turn-phase.service.js';
+// createClaudeTaskReducer: the Task Reducer facade. Consumed by the task-reducer
+// criterion (`claude-activity-task-reducer.test.ts`), which feeds captured SDK
+// frame sequences and a Stop hook snapshot and asserts the task table each real
+// signal produces; a future activity aggregator and the REST/WS task surface read
+// it instead of the lease ledger's bare ids. ActivityTask / TaskKind / TaskState /
+// TaskOrigin / BackgroundTaskSummary / ClaudeTaskReducer are the criterion's own
+// vocabulary — it types its readings with them so an assertion cannot pass against
+// a shape this module never produces. `mapUpdatedStatus` is exported so the
+// criterion's false-form arm can build a `killed → failed` variant that delegates
+// every other status to the real table rather than restating it.
+export { createClaudeTaskReducer, mapUpdatedStatus } from './services/claude-activity-task-reducer.service.js';
+export type {
+  ActivityTask,
+  BackgroundTaskSummary,
+  ClaudeTaskReducer,
+  TaskKind,
+  TaskOrigin,
+  TaskState,
+} from './services/claude-activity-task-reducer.service.js';
 // readSessionTurn: the live phase of one session's turn, as the frame forwarder
 // last reduced it. Consumed by the websocket module's activity heartbeat, which
 // stamps it onto the activity frames a browser reads — the providers module owns
