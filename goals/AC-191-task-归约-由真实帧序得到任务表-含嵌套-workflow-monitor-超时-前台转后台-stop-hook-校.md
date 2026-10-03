@@ -1,7 +1,7 @@
 ---
 id: AC-191
 title: Task 归约：由真实帧序得到任务表，含嵌套、Workflow、Monitor 超时、前台转后台、Stop hook 校准，重放幂等
-status: draft
+status: active
 kind: criterion
 goal: GOAL-015
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -22,4 +22,15 @@ origin: docs/proposals/claude-session-activity-dock.md（§0.1 人的裁定、§
   事件在投影层折叠成一行；历史里的 isMeta 行显示与对等方目录本期不纳入。 实测 2026-10-01：SDK 推送完整的
   task_started、task_updated、task_progress、task_notification，服务端只读 task_id
   增删租约，其余全部丢弃。
+activatedAt: 2026-10-03T15:51:26.236Z
+statusLog:
+  - at: 2026-10-03T15:51:26.236Z
+    from: draft
+    to: active
+    actor: goal-cli
+    reason: ""
+fidelity:
+  verdict: not-evaluated
+  reason: no judge configured
+  at: 2026-10-03T15:51:26.235Z
 ---
