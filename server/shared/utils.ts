@@ -477,6 +477,54 @@ export function sliceTailPage<T>(
   };
 }
 
+/**
+ * Slices a symmetric window around one located item, by absolute subscript.
+ *
+ * This is the read contract for "load the neighborhood of message X": the
+ * caller resolves `X` to its subscript in the same oldest-first array
+ * `sliceTailPage` slices, then asks for `before` items on either side and
+ * `after` items on the other. `match` is a predicate rather than an index so the
+ * id-matching rule stays with the caller (a transcript may identify a row by its
+ * provider anchor or by its synthesized id), while the boundary arithmetic —
+ * the part every caller must get identically right — stays here.
+ *
+ * Unlike a tail offset, `startIndex`/`total` are *absolute*: they are the
+ * subscripts in the full array, so appending newer items to the end never moves
+ * an already-read window. The result is `null` when `match` finds nothing, which
+ * is what lets a caller answer "not found" instead of falling back to the
+ * newest page.
+ */
+export function sliceAroundIndex<T>(
+  items: T[],
+  match: (item: T) => boolean,
+  before: number,
+  after: number,
+): {
+  page: T[];
+  startIndex: number;
+  total: number;
+  hasMoreBefore: boolean;
+  hasMoreAfter: boolean;
+} | null {
+  const total = items.length;
+  const index = items.findIndex(match);
+
+  if (index < 0) {
+    return null;
+  }
+
+  const start = Math.max(0, index - Math.max(0, before));
+  const end = Math.min(total, index + Math.max(0, after) + 1);
+
+  return {
+    page: items.slice(start, end),
+    startIndex: start,
+    total,
+    hasMoreBefore: start > 0,
+    hasMoreAfter: end < total,
+  };
+}
+
 // ---------------------------
 //----------------- MCP CONFIG PARSING UTILITIES ------------
 /**
