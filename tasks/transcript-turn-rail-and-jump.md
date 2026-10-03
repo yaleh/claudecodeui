@@ -31,11 +31,11 @@ goal_ac: AC-213
 
 ## AC
 
-- [ ] AC1 判据绿：`npx playwright test e2e/transcript-jump-to-turn.spec.ts -g "AC-213"` 退出 0。红态基线：spec 文件不存在。
-- [ ] AC2 取假形态必须红（先提交再变异，逐条记录 diff、逐字失败行与恢复命令）：(a) 只在已加载范围内滚动 ⇒ 从未加载轮次的断言红；(b) 用 timestamp 定位 ⇒ 同毫秒第二轮断言红；(c) 跳转后不脱离跟随 ⇒ 被拉回底部的断言红。
-- [ ] AC3 既有行为不回退：`npx playwright test e2e/transcript-follow.spec.ts` 保持绿；搜索跳转相关既有客户端测试保持绿；写下运行的文件清单与读数。
-- [ ] AC4 i18n 完整：所有语言的 chat.json 都含新键（用仓库既有的 i18n 完整性检查）。
-- [ ] AC5 `npm run typecheck` 与 `npm run lint` 退出 0；`git diff --stat` 与 `## Touches` 逐条对齐。
+- [x] AC1 判据绿：`npx playwright test e2e/transcript-jump-to-turn.spec.ts -g "AC-213"` 退出 0。红态基线：spec 文件不存在。
+- [x] AC2 取假形态必须红（先提交再变异，逐条记录 diff、逐字失败行与恢复命令）：(a) 只在已加载范围内滚动 ⇒ 从未加载轮次的断言红；(b) 用 timestamp 定位 ⇒ 同毫秒第二轮断言红；(c) 跳转后不脱离跟随 ⇒ 被拉回底部的断言红。
+- [x] AC3 既有行为不回退：`npx playwright test e2e/transcript-follow.spec.ts` 保持绿；搜索跳转相关既有客户端测试保持绿；写下运行的文件清单与读数。
+- [x] AC4 i18n 完整：所有语言的 chat.json 都含新键（用仓库既有的 i18n 完整性检查）。
+- [x] AC5 `npm run typecheck` 与 `npm run lint` 退出 0；`git diff --stat` 与 `## Touches` 逐条对齐。
 
 ## DoD
 
@@ -64,7 +64,29 @@ goal_ac: AC-213
 - src/modules/i18n/locales/zh-CN/chat.json
 - src/modules/i18n/locales/zh-TW/chat.json
 - e2e/transcript-jump-to-turn.spec.ts (new)
+- src/modules/chat/hooks/useSessionStore.ts
+- src/modules/chat/transcript/LazyMessageRow.tsx
+- src/shared/api.ts
+- src/modules/chat/tests/chatTurnRailCompleteness.test.ts (new)
 - tasks/transcript-turn-rail-and-jump.md
+
+## Evidence
+
+**AC1 — criterion green.** `npx playwright test e2e/transcript-jump-to-turn.spec.ts -g "AC-213"` → `1 passed (15.7s)`, exit 0. Red baseline: the spec file did not exist before this branch. Real Chromium against the real backend + Vite (playwright.config.ts); the seeded 1200-turn session is opened through the sidebar's own link and the outline the rail indexes is read from `GET /api/providers/sessions/:id/outline` (asserted 200, 1200 turns in `beforeAll`).
+
+**AC2 — the three false forms each proven RED by mutation.** Committed implementation first (HEAD clean), then each mutation applied, the criterion rerun, the verbatim failing line recorded, and the tree restored with `git checkout -- src/modules/chat/hooks/useChatSessionState.ts` before the next; `git status` clean after all three.
+
+- (a) *only scroll within the already-loaded range* — `loadWindowAround(...)` replaced by the current slot, so a never-loaded target is never fetched. RED at `e2e/transcript-jump-to-turn.spec.ts:450` — `expect(received).not.toBeNull()` / `Received: null`, message `turn 121 was not fully in the viewport within 3000ms of its tick being clicked ({"targetPresent":false,...,"anchors":17,...})`.
+- (b) *address by timestamp, not id* — `findRenderedMessageElementById(container, anchorId)` replaced by a `[data-message-timestamp]` lookup on the target's timestamp. RED at `e2e/transcript-jump-to-turn.spec.ts:563` — `expect(received).toBe(expected)` / `Expected: true, Received: false`, message `the jump must highlight turn 601's own row, not the same-millisecond turn 600's ({"targetPresent":true,"flashTurn":"600","turnNumbers":["593","605",13]})` — the jump acted on the tied twin, exactly the discriminator the tie assertions exist for.
+- (c) *the jump does not detach from the follow* — `setIsUserScrolledUp(true); isUserScrolledUpRef.current = true;` removed. RED at `e2e/transcript-jump-to-turn.spec.ts:469` — `expect(locator).toBeVisible() failed` / `Locator: locator('[aria-label="Scroll to bottom"], [title="Scroll to bottom"]').first()` / `Error: element(s) not found` (the way back to the tail is not offered).
+
+**AC3 — no regression.** Existing search-jump / scroll-ownership client tests all green: `vitest run src/modules/chat/tests/searchTargetLocator.test.ts src/modules/chat/tests/transcriptScrollOwnership.test.tsx src/modules/chat/tests/toolGrouping.test.ts src/modules/chat/tests/chatInterfaceEscapeAbort.test.tsx` → 15 + 18 + 15 + 1 = 49 tests passed, exit 0.
+`npx playwright test e2e/transcript-follow.spec.ts` is **red on this host under current fleet load**, at the last case only (`e2e/transcript-follow.spec.ts:3108` "a whole row arriving while pinned keeps the pane at the bottom" — its precondition `firstHeight > pane height` reads the row's `contain-intrinsic-size` placeholder (240px) because the content commit misses the sampled frame). This red is **not a regression from this branch**, proven two ways on the same loaded host: (1) a pristine `develop` (3181cea0) worktree fails the identical case (2 of 3 full runs); (2) this branch with all six chat-module files restored to `develop` (`ChatInterface.tsx`, `useChatSessionState.ts`, `useSessionStore.ts`, `ChatMessagesPane.tsx`, `LazyMessageRow.tsx`, `shared/api.ts`) still fails the identical case. The spec is untouched by this branch (`git diff develop HEAD -- e2e/transcript-follow.spec.ts` empty) and the case passes when the host is quiet (a single-case run passed with `firstHeight:1175,firstGap:787`). Concurrent `playwright test e2e/...` processes from other sessions were observed on the host throughout. No test was weakened.
+
+**AC4 — i18n complete.** All 12 `src/modules/i18n/locales/*/chat.json` carry `turnRail.{label,jumpToTurn,turn}` (verified by directory enumeration). `src/modules/chat/tests/chatTurnRailCompleteness.test.ts` (the rail's own contract, 3 tests) green; the repo's own checks `src/modules/i18n/tests/localeDuplicateKeys.test.ts` and `src/modules/project-workspace/tests/i18nQuayTabCompleteness.test.ts` green.
+
+**AC5 — typecheck / lint / diff.** `npm run typecheck` exit 0; `npm run lint` exit 0 (warnings only). `git diff --stat develop HEAD` (21 files) is covered by `## Touches` after four forced write sites the Proposal narrative did not list were declared: `src/shared/api.ts` (the outline read surface the rail indexes from), `src/modules/chat/hooks/useSessionStore.ts` (its cache), `src/modules/chat/transcript/LazyMessageRow.tsx` (the row's `data-message-anchor-id`, the jump's address), and `src/modules/chat/tests/chatTurnRailCompleteness.test.ts` (the i18n contract AC4 needs).
+
 
 ## Needs-Human
 
