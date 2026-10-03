@@ -19,7 +19,7 @@ import type {
   NormalizedMessage,
   ProcessHost,
 } from '@/shared/types.js';
-import { AppError, sliceTailPage } from '@/shared/utils.js';
+import { AppError, sliceAroundIndex, sliceTailPage } from '@/shared/utils.js';
 
 type CreateAppSessionResult = {
   sessionId: string;
@@ -72,6 +72,81 @@ type SessionDetails = {
     isArchived: boolean;
   } | null;
 };
+
+/**
+ * One user turn in a session's outline, as the navigation read surface returns
+ * it. Frontend mirror of the same declaration in `src/shared/types.ts`
+ * (`SessionTurnOutline` / `SessionTurnOutlineTurn`), kept here so the server
+ * build never reaches into the browser's type tree.
+ *
+ * `index` is the turn's absolute subscript in the full normalized history —
+ * the array the paginated messages route slices — so it does not move when new
+ * turns are appended.
+ */
+type SessionTurnOutlineTurn = {
+  /** `transcriptAnchorId` when the provider has one, else the synthesized message id. */
+  id: string;
+  /** Absolute 0-based subscript of this message in the full normalized history. */
+  index: number;
+  /** The provider transcript row's timestamp. */
+  timestamp: string;
+  /** The first ~80 characters of the turn's text, line breaks flattened to spaces. */
+  preview: string;
+};
+
+/** The outline response: the paginated `total` plus every user turn within it. */
+type SessionTurnOutline = {
+  total: number;
+  turns: SessionTurnOutlineTurn[];
+};
+
+/**
+ * A window of messages taken around one located message, as the read surface
+ * returns it. Frontend mirror of the same declaration in `src/shared/types.ts`
+ * (`SessionMessageWindow`), kept here so the server build never reaches into the
+ * browser's type tree.
+ *
+ * `startIndex` and `total` are absolute subscripts in the full normalized
+ * history — the same array the paginated messages route slices — so a window
+ * read before an append still names the same positions after it, unlike a tail
+ * offset. The two `hasMore*` flags say whether the window is cut off at that
+ * edge.
+ */
+type SessionMessageWindow = {
+  messages: NormalizedMessage[];
+  /** Absolute 0-based subscript of `messages[0]` in the full normalized history. */
+  startIndex: number;
+  /** The full history's length, identical to the paginated route's `total`. */
+  total: number;
+  /** Whether a message older than `messages[0]` exists before the window. */
+  hasMoreBefore: boolean;
+  /** Whether a message newer than the last window message exists after it. */
+  hasMoreAfter: boolean;
+};
+
+/**
+ * Longest preview one outline turn carries. The rail shows a line or two of the
+ * turn's opening — never the whole prompt — so the response stays small for a
+ * session with thousands of turns.
+ */
+const OUTLINE_PREVIEW_MAX_CHARS = 80;
+
+/**
+ * Flattens one user turn's text into the single-line preview the rail draws:
+ * every run of whitespace (the line breaks a multi-line prompt is written with
+ * included) becomes one space, then the result is trimmed and cut to the cap.
+ *
+ * A missing or empty content is the empty string — an image-only turn has a
+ * place in the outline but no text to preview.
+ */
+function buildTurnPreview(content: string | undefined): string {
+  if (!content) {
+    return '';
+  }
+
+  return content.replace(/\s+/g, ' ').trim().slice(0, OUTLINE_PREVIEW_MAX_CHARS);
+}
+
 
 const MAX_CLOUDCLI_SESSION_NAME_WORDS = 4;
 
@@ -607,6 +682,161 @@ export const sessionsService = {
         sessionId,
       })),
     };
+  },
+
+  /**
+   * Returns a window of messages centered on one message id.
+   *
+   * The id is resolved against the *same* full normalized history `fetchHistory`
+   * pages over (claude/codex through the stat-validated transcript cache; Cursor
+   * and OpenCode through their own full read) and by the same identity rule the
+   * outline uses: the provider's own `transcriptAnchorId` when present, else the
+   * synthesized message id. That makes both an outline turn id and the id of a
+   * non-user message addressable, which is what lets a client load the
+   * neighborhood of a turn it has never fetched.
+   *
+   * Unlike the `offset` page, `startIndex`/`total` are absolute subscripts, so
+   * the window does not move when newer messages are appended. An id that is not
+   * present is an explicit `MESSAGE_NOT_FOUND` refusal — never a fall back to the
+   * newest page, which would silently answer a different question.
+   */
+  async fetchWindowAround(
+    sessionId: string,
+    options: { aroundId: string; before: number; after: number },
+  ): Promise<SessionMessageWindow> {
+    const session = sessionsDb.getSessionById(sessionId);
+    if (!session) {
+      throw new AppError(`Session "${sessionId}" was not found.`, {
+        code: 'SESSION_NOT_FOUND',
+        statusCode: 404,
+      });
+    }
+
+    // A session with no provider transcript cannot contain the id; say so rather
+    // than answer with an empty — or, worse, the newest — page.
+    if (!session.provider_session_id) {
+      throw new AppError(
+        `No message with id "${options.aroundId}" was found in session "${sessionId}".`,
+        { code: 'MESSAGE_NOT_FOUND', statusCode: 404 },
+      );
+    }
+
+    const provider = session.provider as LLMProvider;
+    const providerSessions = providerRegistry.resolveProvider(provider).sessions;
+    const providerSessionId = session.provider_session_id;
+    const projectPath = session.project_path ?? '';
+
+    // Same cache split as `fetchHistory`: only the providers whose history reader
+    // parses `jsonl_path` itself may use the stat-validated cache.
+    const transcriptPath = provider === 'claude' || provider === 'codex'
+      ? session.jsonl_path
+      : null;
+    const loadFull = () => providerSessions.fetchHistory(sessionId, {
+      limit: null,
+      offset: 0,
+      projectPath,
+      providerSessionId,
+    });
+    const fullHistory = await sessionHistoryCache.getFullHistory({
+      sessionId,
+      transcriptPath,
+      loadFull,
+    });
+    const full = fullHistory ?? await loadFull();
+
+    const located = sliceAroundIndex(
+      full.messages,
+      (message) => (message.transcriptAnchorId ?? message.id) === options.aroundId,
+      options.before,
+      options.after,
+    );
+
+    if (!located) {
+      throw new AppError(
+        `No message with id "${options.aroundId}" was found in session "${sessionId}".`,
+        { code: 'MESSAGE_NOT_FOUND', statusCode: 404 },
+      );
+    }
+
+    return {
+      messages: located.page.map((message) => ({ ...message, sessionId })),
+      startIndex: located.startIndex,
+      total: located.total,
+      hasMoreBefore: located.hasMoreBefore,
+      hasMoreAfter: located.hasMoreAfter,
+    };
+  },
+
+  /**
+   * Returns every user turn of a session in absolute order, for the navigation
+   * rail.
+   *
+   * The turns are read from the *same* full normalized history the paginated
+   * messages route serves: claude/codex through the stat-validated transcript
+   * cache, so an outline costs no extra parse and — the point of the shared
+   * read — its `total` is identical to the page's; Cursor and OpenCode, whose
+   * file stat says nothing about where their messages live, through their own
+   * full read. `index` is the message's subscript in that full array, so it is
+   * stable across an append, unlike a tail offset.
+   *
+   * A turn's id prefers the provider's own stable anchor (`transcriptAnchorId`)
+   * and falls back to the synthesized message id, which keeps the two
+   * same-millisecond turns of one transcript distinct instead of letting a
+   * timestamp stand in for identity.
+   */
+  async fetchOutline(sessionId: string): Promise<SessionTurnOutline> {
+    const session = sessionsDb.getSessionById(sessionId);
+    if (!session) {
+      throw new AppError(`Session "${sessionId}" was not found.`, {
+        code: 'SESSION_NOT_FOUND',
+        statusCode: 404,
+      });
+    }
+
+    // App-created sessions that never produced a provider transcript yet have
+    // no turns to outline.
+    if (!session.provider_session_id) {
+      return { total: 0, turns: [] };
+    }
+
+    const provider = session.provider as LLMProvider;
+    const providerSessions = providerRegistry.resolveProvider(provider).sessions;
+    const providerSessionId = session.provider_session_id;
+    const projectPath = session.project_path ?? '';
+
+    // Same split as `fetchHistory`: only the providers whose history reader
+    // parses `jsonl_path` itself may use the cache.
+    const transcriptPath = provider === 'claude' || provider === 'codex'
+      ? session.jsonl_path
+      : null;
+    const loadFull = () => providerSessions.fetchHistory(sessionId, {
+      limit: null,
+      offset: 0,
+      projectPath,
+      providerSessionId,
+    });
+    const fullHistory = await sessionHistoryCache.getFullHistory({
+      sessionId,
+      transcriptPath,
+      loadFull,
+    });
+    const full = fullHistory ?? await loadFull();
+
+    const turns: SessionTurnOutlineTurn[] = [];
+    full.messages.forEach((message, index) => {
+      if (message.kind !== 'text' || message.role !== 'user') {
+        return;
+      }
+
+      turns.push({
+        id: message.transcriptAnchorId ?? message.id,
+        index,
+        timestamp: message.timestamp,
+        preview: buildTurnPreview(message.content),
+      });
+    });
+
+    return { total: full.total, turns };
   },
 
   /**

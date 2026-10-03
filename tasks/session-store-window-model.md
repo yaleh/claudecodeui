@@ -1,7 +1,7 @@
 ---
 id: session-store-window-model
 title: AC-212 session store 用绝对序号窗口取代后缀模型：贴尾/脱离、实时消息缓冲、窗口内存上限
-status: todo
+status: ready
 labels:
   - gap
 parent: null

@@ -1,7 +1,7 @@
 ---
 id: session-window-around-id-endpoint
 title: AC-210 按消息 id 取前后窗口：返回窗口、startIndex、total 与双向 hasMore，追加后稳定
-status: todo
+status: done
 labels:
   - gap
 parent: null
@@ -25,10 +25,10 @@ goal_ac: AC-210
 
 ## AC
 
-- [ ] AC1 判据绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/session-window-around.test.ts` 退出 0。红态基线：测试文件不存在。
-- [ ] AC2 取假形态必须红（先提交再变异，逐条记录 diff、逐字失败行与恢复命令）：(a) 用 total-offset 的尾部偏移实现且追加后不重算 startIndex ⇒ 稳定性断言红；(b) 未知 id 静默回落最新页 ⇒ 未找到断言红。
-- [ ] AC3 既有 limit/offset 行为不变：同一夹具上改造前后各取三个页（offset 0、中段、最老），逐条深度相等，并写下比较方式。
-- [ ] AC4 `npm run typecheck` 与 `npm run lint` 退出 0；`git diff --stat` 与 `## Touches` 逐条对齐。
+- [x] AC1 判据绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/session-window-around.test.ts` 退出 0。红态基线：测试文件不存在。（实测 7/7 pass，exit 0）
+- [x] AC2 取假形态必须红（先提交再变异，逐条记录 diff、逐字失败行与恢复命令）：(a) 用 total-offset 的尾部偏移实现且追加后不重算 startIndex ⇒ 稳定性断言红；(b) 未知 id 静默回落最新页 ⇒ 未找到断言红。（两条变异均在绿提交 b8e01877 上施加、运行、`git checkout --` 还原；diff、失败行与恢复命令逐字记在判据文件头 `## Recorded mutation probes (AC2)`）
+- [x] AC3 既有 limit/offset 行为不变：同一夹具上改造前后各取三个页（offset 0、中段、最老），逐条深度相等，并写下比较方式。（判据对 offset 0 / 中段 / 最老 / 越界 + 缺省读各取一页，与未改动的 `sliceTailPage(full.messages, limit, offset)` 逐条 `assert.deepEqual`；比较方式写在判据头 `## How the untouched-path claim is compared (AC3)`；`sliceTailPage` 本体未被本任务改动）
+- [x] AC4 `npm run typecheck` 与 `npm run lint` 退出 0；`git diff --stat` 与 `## Touches` 逐条对齐。（typecheck exit 0；lint exit 0，仅剩 194 条既有 warning；diff 恰为 Touches 的 4 个改动文件 + 新增判据文件）
 
 ## DoD
 

@@ -1,7 +1,7 @@
 ---
 id: session-turn-outline-endpoint
 title: AC-209 用户轮次大纲接口：返回 total 与每个用户轮次的 id、绝对序号、时间戳、摘要
-status: ready
+status: done
 labels:
   - gap
 parent: null

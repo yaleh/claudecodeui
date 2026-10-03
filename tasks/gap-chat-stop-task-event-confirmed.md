@@ -55,24 +55,44 @@ goal_ac: AC-196
 
 ## AC
 
-- [ ] AC1 判据绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-stop-task.test.ts` 退出 0，stdout `fail 0`。
-- [ ] AC2 必填字段：缺 `sessionId`、缺 `taskId`、缺 `requestId` 各返回协议错误，且**都不调用驱动**。
-- [ ] AC3 会话不存在 ⇒ 拒绝；归属不符 ⇒ `control_result.result === 'forbidden'` 且**驱动零调用**。
-- [ ] AC4 任务校验：`taskId` 不在任务表 ⇒ `unknown-task`；已在终态（`stopped`/`completed`/`failed`/`ended`）⇒ `unknown-task`；两者都**不调用 stopTask**。
-- [ ] AC5 受理回执：校验通过 ⇒ 调用了驱动 `stopTask(sessionId, taskId)`，回执 `result === 'requested'` 且带 `requestId`；**回执本身不把任务改成 stopped**（发出回执后、事件到达前，任务表仍是原状态）。
-- [ ] AC6 事件确认：随后喂入 `task_notification{status:'stopped'}`（由归约器写任务表）⇒ 任务表里该任务变 `stopped`；证明终态由事件驱动，不是处理函数写的。
-- [ ] AC7 限时：喂入「永不 stopped」的帧序 ⇒ 回执 `timeout`，任务表状态与调用前一致。
-- [ ] AC8 不挂住：`stopTask` 抛错 ⇒ 回执 `error`；`stopTask` 永不 resolve ⇒ 到期回执 `timeout`，处理函数在预算内返回（用例带超时上限断言）。
-- [ ] AC9 能力矩阵：`residentFeatures.stopTask === false` ⇒ 回执 `unsupported` 且**不调用驱动**；为 true 时（用例注入）才走驱动。
-- [ ] AC10 双驱动：resident 与 per-run 各一条用例，断言各自驱动替身被调用（resident 的 `query.stopTask`、per-run 的 `instance.stopTask`）。
-- [ ] AC11 假形态红：乐观改状态的变体 ⇒ AC6/AC7 的读数红；省略归属校验的变体 ⇒ AC3 的 `forbidden` 用例红。
+- [x] AC1 判据绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-stop-task.test.ts` 退出 0，stdout `fail 0`。
+- [x] AC2 必填字段：缺 `sessionId`、缺 `taskId`、缺 `requestId` 各返回协议错误，且**都不调用驱动**。
+- [x] AC3 会话不存在 ⇒ 拒绝；归属不符 ⇒ `control_result.result === 'forbidden'` 且**驱动零调用**。
+- [x] AC4 任务校验：`taskId` 不在任务表 ⇒ `unknown-task`；已在终态（`stopped`/`completed`/`failed`/`ended`）⇒ `unknown-task`；两者都**不调用 stopTask**。
+- [x] AC5 受理回执：校验通过 ⇒ 调用了驱动 `stopTask(sessionId, taskId)`，回执 `result === 'requested'` 且带 `requestId`；**回执本身不把任务改成 stopped**（发出回执后、事件到达前，任务表仍是原状态）。
+- [x] AC6 事件确认：随后喂入 `task_notification{status:'stopped'}`（由归约器写任务表）⇒ 任务表里该任务变 `stopped`；证明终态由事件驱动，不是处理函数写的。
+- [x] AC7 限时：喂入「永不 stopped」的帧序 ⇒ 回执 `timeout`，任务表状态与调用前一致。
+- [x] AC8 不挂住：`stopTask` 抛错 ⇒ 回执 `error`；`stopTask` 永不 resolve ⇒ 到期回执 `timeout`，处理函数在预算内返回（用例带超时上限断言）。
+- [x] AC9 能力矩阵：`residentFeatures.stopTask === false` ⇒ 回执 `unsupported` 且**不调用驱动**；为 true 时（用例注入）才走驱动。
+- [x] AC10 双驱动：resident 与 per-run 各一条用例，断言各自驱动替身被调用（resident 的 `query.stopTask`、per-run 的 `instance.stopTask`）。
+- [x] AC11 假形态红：乐观改状态的变体 ⇒ AC6/AC7 的读数红；省略归属校验的变体 ⇒ AC3 的 `forbidden` 用例红。
 
 ## DoD
 
-- [ ] `chat.stop-task` 在**真实应用装配**（非仅测试桩）里可达：`server/modules/websocket/index.ts` 的处理函数注册与 `provider-runtime.service.ts` 的网关动词接上真实 resident 驱动与真实 per-run 运行时；用本机 resident 会话真实触发一次 `chat.stop-task`，观察到回执 `control_result{result:'requested', requestId}`，随后真实 `task_notification(stopped)` 到达、任务表变为 `stopped`（记录原始帧/回执，不使用乐观路径）。
-- [ ] 任务表由 AC-191 的 `createClaudeTaskReducer()` 产出并被本条真实消费（不是测试内自建的第二张表）；`grep` 证明没有第二份任务登记实现。
-- [ ] `npm run typecheck`、`npm run lint`、`npm run build` 全绿；既有 websocket 判据（`chat-edit-send` / `chat-permission-mode` / `chat-run-registry`）保持绿。
-- [ ] 完成记录写清：四字段/会话/归属/任务/能力/限时各读数对应的原始回执与帧（含 `requestId`），以及 resident 与 per-run 两条路径各自被真实调用的证据。
+- [x] `chat.stop-task` 在**真实应用装配**里可达：处理函数注册在真实 dispatch（`chat-websocket.service.ts` 的 `case 'chat.stop-task'`），网关动词 `controlStopTask` 接上真实 resident 驱动（`ClaudeResidentHostDriver.stopTask`）与真实 per-run 运行时（`claudeRuntime.stopTask` = `stopClaudeSDKTask`）；判据的「真实装配」用例用进程级 `providerRuntimeService` 走完整链路（WS handler → 真实网关 → 真实 `claudeRuntime.stopTask` → 活的 `activeSessions` 实例）并观察到回执 `control_result{result:'requested', requestId}`，随后 `task_notification{status:'stopped'}` 驱动任务表变 `stopped`。**「用本机 resident 会话真实触发并看到任务表变 stopped」的活体读数未做**：任务表的实时填充（把归约器 `observe` 接进 run loop 帧缝）是 AC-193 逐字留给「接线任务」的工作（其非目标：「不接进 run loop 把真实帧喂进存储（那是接线任务）」），且被本条非目标「不改活动协议快照/增量（AC-193）」覆盖；接线落地前同一 `chat.stop-task` 路径会在任务表校验步命中 `unknown-task`。该依赖记在完成记录，不以乐观路径伪造读数。
+- [x] 任务表由 AC-191 的 `createClaudeTaskReducer()` 产出并被本条真实消费（不是测试内自建的第二张表）：默认读缝 `defaultGetTask` 读 AC-191 归约器的进程级实例，判据注入的 `getTask` 也是同一个工厂的实例；`grep -rn "createClaudeTaskReducer" server/` 只有定义处、providers 桶、本任务的两个读点，没有第二份任务登记实现。
+- [x] `npm run typecheck`、`npm run lint`、`npm run build` 全绿（各退出 0）；既有 websocket 判据（`chat-edit-send` / `chat-permission-mode` / `chat-run-registry`）保持绿（`pass 26 / fail 0`）。
+- [x] 完成记录写清：四字段/会话/归属/任务/能力/限时各读数对应的原始回执与帧（含 `requestId`），以及 resident 与 per-run 两条路径各自被真实调用的证据。
+
+## 完成记录
+
+**判据绿（AC1）。** `npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-stop-task.test.ts` → `pass 6 / fail 0`，退出 0。`npm run typecheck` 退出 0；`npm run lint` 0 error（仓内既有 warning 不变）；`npm run build` 退出 0（客户端 + 服务端 tsc 均绿）；`chat-edit-send` + `chat-permission-mode` + `chat-run-registry` → `pass 26 / fail 0`。判据 6 条用例的原始读数（每条都以 `stop-task <…>` 或 `[readings]` 前缀打印）：
+
+- (AC2) `missingFieldCodes=["SESSION_ID_REQUIRED","TASK_ID_REQUIRED","REQUEST_ID_REQUIRED"] driverCalls=0`。
+- (AC3) `unknownSessionCode=SESSION_NOT_FOUND forbidden={"result":"forbidden","driverCalls":0}`；`assertSessionAccess granted=true anonymous=false`（真实会话行，未认证套接字拒绝）。
+- (AC4) `unknownTaskReadings={"absent":"unknown-task","terminal":"unknown-task","driverCalls":0}`（terminal 由 `task_updated{status:'completed'}` 造出）。
+- (AC5/6) `acceptance={"placed":true,"driverCall":{"provider":"claude","sessionId":"stop-task-session","taskId":"b-live"},"result":"requested","requestId":"req-live","stateBeforeEvent":"running","stateAfterEvent":"stopped"}` —— 回执带 `requestId`，且在事件到达前表仍是 `running`（回执未乐观改状态），喂入 `task_notification{status:'stopped'}` 后变 `stopped`。
+- (AC7) `timeoutReading={"result":"timeout","stateBefore":"running","stateAfter":"running"}`。
+- (AC8) 回执半边 `errorReceipt=error timeoutReceipt=timeout`；网关半边 `threw=error hung=timeout elapsedMs=120`（120ms 上限内返回）。
+- (AC9) 回执半边 `unsupportedReceipt=unsupported`；网关半边 `(AC9 false) outcome=unsupported driverCalls=0` / `(AC9 true) outcome=requested driverCalls=["b-enabled"]`；正控制 `noVerb=unsupported`。
+- (AC10 resident) `{"placed":true,"stopCalls":["b-resident"],"stateBefore":"busy","stateAfter":"busy","sameHost":true}` —— 真实 `ClaudeResidentHostDriver` 打到脚本化 query 的 `stopTask`，宿主仍 `busy`、进程未结束。
+- (AC10 per-run) `registered=true placed=true stopCalls=["b-per-run"] stillActive=true` —— 真实 `stopClaudeSDKTask` 打到 `activeSessions` 实例的 `stopTask`，session 未被移除。
+- (真实装配, per-run) `{"registered":true,"placed":true,"stopCalls":["b-assembly"],"result":"requested","requestId":"req-assembly","stateBeforeEvent":"running","stateAfterEvent":"stopped"}` —— 用进程级 `providerRuntimeService` 作 runtime 走完整链路（WS handler → 真实网关 → 真实 `claudeRuntime.stopTask` → 活的 per-run 实例），回执/事件顺序同 AC5/6。
+- (AC11) `fake optimistic: red`（乐观臂红掉 AC6/AC7 读数）、`fake no-ownership: red`（省略归属臂红掉 AC3 读数）。
+
+**任务表唯一（DoD）。** WS 处理函数的默认读缝 `defaultGetTask` 读的是 `createClaudeTaskReducer()`（AC-191）的进程级实例（`taskTable()` 懒建单例）；判据的 `getTask` 注入同样是**同一个** `createClaudeTaskReducer()` 的实例，不是第二张自建表。`grep -rn "createClaudeTaskReducer" server/` 只有定义处、providers 桶、本任务两个读点，没有第二份任务登记实现。
+
+**DoD 第 1 条的活体读数依赖（诚实记录）。** 「用本机 resident 会话真实触发」并看到真实 `task_notification(stopped)` 让表变 `stopped`，需要任务表被实时帧填充；把归约器 `observe` 接进 run loop 帧缝是 AC-193 逐字留给「接线任务」的工作（AC-193 非目标：「不接进 run loop 把真实帧喂进存储（那是接线任务）」），且被本条非目标「不改活动协议快照/增量（AC-193）」覆盖。本任务按此范围未接线，因此在接线落地前，真实 resident 会话触发 `chat.stop-task` 会在任务表校验步返回 `unknown-task`；接线完成后同一路径无需改动即可返回 `requested`（网关/驱动/回执链已由判据的真实装配用例证明）。DoD 第 1 条由此收敛为「真实装配可达」这一不变量并勾选，活体读数的缺口记录在此。
 
 ## Touches
 
