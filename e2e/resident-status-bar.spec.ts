@@ -557,9 +557,11 @@ type StartupLanding = {
 };
 
 /**
- * The one place this spec's *startup* navigation is made. The two `page.reload()` calls further down are this
- * criterion's deliberate reconnects (see their own comments) — readings taken from a document that started from
- * nothing — and are deliberately left as they are; this guard covers the first navigation only.
+ * The one place this spec makes a navigation whose landing it has to wait on: the startup load (`kind: 'first-load'`)
+ * and the two deliberate reconnects further down (`kind: 'replay'`). The reconnects are readings taken from a
+ * document that started from nothing, and they are held to the same bound for the same reason — a document pulled
+ * out from under a navigation must end the run here, with a cause, rather than let the case below time out on a
+ * page that never mounted.
  *
  * One pass is: navigate, then probe the landing with a short budget. A landing that does not arrive has the
  * navigation replayed — a fresh document, which is exactly what recovers from in-flight module requests that were
@@ -747,9 +749,9 @@ test.describe('resident status bar', () => {
       startupEvidence.failedRequests.push(`${request.url()} — ${request.failure()?.errorText ?? 'no error text'}`);
     });
 
-    // The one *startup* navigation this spec makes is the guard's — it lands on the fixture project row or it ends
+    // The first navigation this spec makes is the guard's — it lands on the fixture project row or it ends
     // the run with the page's own text and this run's failed-request list. `revealSession` below then expands the
-    // row. The two `page.reload()` calls further down are deliberate reconnects and stay unguarded (see their own
+    // row. The two deliberate reloads further down are reconnects and go through the same guard (see their own
     // comments).
     const projectRowLanding: StartupLanding = {
       label: () => `the project row for ${workspaceName}`,
@@ -957,10 +959,21 @@ test.describe('resident status bar', () => {
     // The page is reloaded here, and only for this: a document open before the run started was never
     // attached to it, and an unattached socket is never told how the run ended. Reloading subscribes
     // to a run already in flight, which is exactly the state a user returning to a working session is
-    // in — the reading below is the one that user gets. Deliberately *not* moved behind
-    // `navigateBounded`: this is a reading (a reconnect to a run in flight), not the startup
-    // navigation, and the bounded `toBeVisible` on the next lines already caps how long it may take.
-    await page.reload();
+    // in — the reading below is the one that user gets. It goes through `navigateBounded` like the
+    // startup load: a host-level network blip (netlink / docker-veth churn, outside this repository)
+    // during the reload can interrupt the document's in-flight module requests and leave the app
+    // unmounted, and an unbounded wait on the pane would read that as a product failure. The guard
+    // replays the reload — a fresh document is what recovers from an interrupted load — or ends the
+    // run naming the page text and the requests that failed.
+    //
+    // The landing is the pane, never the mark: the pane's mount is the document's own, so a replay
+    // that lands here says the client came up. A product that drew the wrong *state* must still fail
+    // the mark assertion below, which is what the mutation reading this criterion carries depends on.
+    const paneLanding: StartupLanding = {
+      label: () => `the chat pane after reconnecting to ${armB}`,
+      present: (budgetMs) => appears(page.locator(PANE), budgetMs),
+    };
+    await navigateBounded(page, paneLanding, 'replay');
     await expect(page.locator(PANE)).toBeVisible({ timeout: 30_000 });
     await expect(markOf(page, armB)).toHaveAttribute('data-resident-state', 'busy', { timeout: 15_000 });
 
@@ -1038,10 +1051,10 @@ test.describe('resident status bar', () => {
     expect(seamRefusals, 'a run that reaches this reading had its seam wired').toBe(0);
 
     // --- the transcript rows, read after a load that started from nothing ------------------------
-    // Like the reload above, a deliberate reconnect that is part of the measurement, not the startup
-    // navigation: `navigateBounded` guards only the first load, and the bounded `toBeVisible` below
-    // caps this one.
-    await page.reload();
+    // Like the reload above: a deliberate reconnect that is part of the measurement rather than the
+    // startup load, held to the same bounded replay so a host-level blip during the reload cannot turn
+    // a document that never mounted into a red on the transcript rows below.
+    await navigateBounded(page, paneLanding, 'replay');
     await expect(page.locator(PANE)).toBeVisible({ timeout: 30_000 });
     // The pane mounts before its transcript does, so the rows below are awaited rather than read on
     // the next line: `toBeVisible` on the pane says the container is up, and a row count read against
