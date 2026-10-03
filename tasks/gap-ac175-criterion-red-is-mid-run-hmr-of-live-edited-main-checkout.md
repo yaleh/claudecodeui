@@ -5,7 +5,7 @@ title: "AC-175 判据 2026-10-03T09:28:13.036Z 那拍的红由主检出未提交
   within a WebSocketProvider ⇒ cancelled 帧未被处理 ⇒ waitForLifecycle 30s
   超时）——verification-only 归因入档：净树直跑 3 passed / exit 0，台账前五拍连续 pass；remedy 归该 WIP
   作者（勿在判据运行期保存主检出）"
-status: todo
+status: ready
 labels:
   - gap
   - defect
