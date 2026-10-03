@@ -926,6 +926,28 @@ export type SessionMessageWindow = {
   hasMoreAfter: boolean;
 };
 
+/**
+ * One messages read, in either of the route's two shapes.
+ *
+ * `limit`/`offset` is the tail page: `offset` counts back from the newest message,
+ * so it moves for already-loaded rows whenever a turn is appended. `around` is the
+ * id-anchored window read the {@link SessionMessageWindow} response describes:
+ * the server returns `[max(0, X - before), min(total, X + after + 1))` around the
+ * message whose `transcriptAnchorId ?? id` equals `around`. When `around` is
+ * present the server ignores `limit`/`offset` on purpose — the two shapes answer
+ * different questions and honoring both would make them fight over one slice.
+ *
+ * Kept as one type because the session store picks the shape per call, and used
+ * by `src/shared/api.ts` to build the request URL.
+ */
+export type SessionMessagesQuery = {
+  limit?: number | null;
+  offset?: number;
+  around?: string;
+  before?: number;
+  after?: number;
+};
+
 // ---------------------------
 
 //----------------- COMMAND LIFECYCLE ------------
