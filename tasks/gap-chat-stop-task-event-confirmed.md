@@ -76,11 +76,11 @@ goal_ac: AC-196
 
 ## Touches
 
-- `server/modules/websocket/services/chat-websocket.service.ts` — 新增 `chat.stop-task` dispatch case、`handleChatStopTask`、归属入口与 `control_result` 回执。
-- `server/modules/websocket/tests/chat-stop-task.test.ts` (new) — AC-196 全文读数 + 两条假形态臂。
-- `server/modules/providers/services/provider-runtime.service.ts` — 网关新增 `controlStopTask`，resident/per-run 分叉 + 限时。
-- `server/modules/providers/services/provider-capabilities.service.ts` — `ResidentFeatures.stopTask`，默认 false。
-- `server/modules/providers/list/claude/claude-host-driver.provider.ts` — `ClaudeResidentQuery.stopTask?` 声明 + resident 驱动 `stopTask` + 方法清单注释更新。
-- `server/modules/providers/list/claude/claude-runtime.provider.ts` — per-run `stopClaudeSDKTask` 导出与 `claudeRuntime` 挂载。
-- `server/modules/providers/index.ts` — 若需从桶导出新增类型/句柄（stopTask 相关），补导出与消费者注释。
-- `tasks/gap-chat-stop-task-event-confirmed.md` — 本任务自身（self-touch）。
+- server/modules/websocket/services/chat-websocket.service.ts
+- server/modules/websocket/tests/chat-stop-task.test.ts (new)
+- server/modules/providers/services/provider-runtime.service.ts
+- server/modules/providers/services/provider-capabilities.service.ts
+- server/modules/providers/list/claude/claude-host-driver.provider.ts
+- server/modules/providers/list/claude/claude-runtime.provider.ts
+- server/modules/providers/index.ts
+- tasks/gap-chat-stop-task-event-confirmed.md
