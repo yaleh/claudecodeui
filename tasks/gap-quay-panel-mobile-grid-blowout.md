@@ -22,9 +22,9 @@ extra:
 
 ## AC
 
-- [ ] `npm run typecheck` 退出码 0。
-- [ ] `src/modules/quay/QuayPanel.tsx` 第 214、252 行(或改动后的对应行)两处网格的 className 都包含 `grid-cols-1`(配合 `md:grid-cols-2`),新增一条窄测试对源文件内容做字符串/AST 级断言,防止以后又漏掉 base 列数——退出码 0。
-- [ ] 新增一条真实浏览器 e2e 断言(复用仓库现成的 playwright 真机模式,而非 jsdom——jsdom 不做真实的 CSS Grid 轨道尺寸计算,测不出这类问题):在 390px 宽视口下打开一个有 quay 配置的项目、切到 Quay tab,断言 `[data-testid="quay-panel-recent-tasks"]`(以及同一网格里的兄弟区块)的 `getBoundingClientRect().width` 不超过视口宽度(允许审 scrollbar 误差的小量),且该元素所在的最近 `overflow-hidden`/`overflow-y-auto` 祖先容器的 `scrollWidth` 不超过视口宽度——退出码 0,且这条测试在修复前必须红(用本任务记录的 2943.53px 复现基线核对)。
+- [x] `npm run typecheck` 退出码 0。
+- [x] `src/modules/quay/QuayPanel.tsx` 第 214、252 行(或改动后的对应行)两处网格的 className 都包含 `grid-cols-1`(配合 `md:grid-cols-2`),新增一条窄测试对源文件内容做字符串/AST 级断言,防止以后又漏掉 base 列数——退出码 0。
+- [x] 新增一条真实浏览器 e2e 断言(复用仓库现成的 playwright 真机模式,而非 jsdom——jsdom 不做真实的 CSS Grid 轨道尺寸计算,测不出这类问题):在 390px 宽视口下打开一个有 quay 配置的项目、切到 Quay tab,断言 `[data-testid="quay-panel-recent-tasks"]`(以及同一网格里的兄弟区块)的 `getBoundingClientRect().width` 不超过视口宽度(允许审 scrollbar 误差的小量),且该元素所在的最近 `overflow-hidden`/`overflow-y-auto` 祖先容器的 `scrollWidth` 不超过视口宽度——退出码 0,且这条测试在修复前必须红(用本任务记录的 2943.53px 复现基线核对)。
 
 ## DoD
 
