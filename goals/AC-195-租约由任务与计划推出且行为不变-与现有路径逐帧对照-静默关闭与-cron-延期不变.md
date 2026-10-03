@@ -1,7 +1,7 @@
 ---
 id: AC-195
 title: 租约由任务与计划推出且行为不变：与现有路径逐帧对照，静默关闭与 cron 延期不变
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-015
 criterion: '[ -f
@@ -33,6 +33,11 @@ statusLog:
     to: active
     actor: goal-cli
     reason: ""
+  - at: 2026-10-03T18:23:02.704Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: not-evaluated
   reason: no judge configured
