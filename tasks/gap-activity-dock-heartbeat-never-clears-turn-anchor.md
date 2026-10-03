@@ -1,7 +1,7 @@
 ---
 id: gap-activity-dock-heartbeat-never-clears-turn-anchor
 title: 活动坞卡在 Working…：心跳帧从不携带 turn 快照，本地回合锚点永不清除（新建会话首条消息必现，刷新才消失）
-status: ready
+status: done
 labels:
   - gap
   - defect
