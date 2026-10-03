@@ -42,12 +42,12 @@ extra:
 
 ## AC
 
-- [ ] AC1 判据（红→绿）：在 `server/modules/providers/tests/` 或 `server/modules/websocket/tests/` 下新增一条用例，驱动一个真实回合（含至少一次工具调用），在回合**进行中**读 `activityAnnouncement(sessionId).phase`（或等价的 `readSessionTurn`），断言它**不是** `idle` 且与当前工具对应。打印修复前 **exit 1**（红）与修复后 **exit 0** 两次读数。
-- [ ] AC2 正控制（不许靠「永远非 idle」蒙混）：同一判据文件里必须有一条断言 —— 该回合的 `result` 帧到达后，同一查询回落到 `idle`。它必须绿。
-- [ ] AC3 真部署落地（两条读数必须**同拍**）：在 `localhost:3001` 上新建会话并发一条会跑 `sleep` 的消息，回合进行中同时打印 `GET /api/providers/sessions/running` 含该会话，以及页面 `[data-activity-dock]` 的 `data-activity-phase` 与 `data-activity-elapsed-ms`；`phase` 必须不是 `idle`、`elapsed-ms` 必须非 null。给出逐秒读数 + 时间戳。
-- [ ] AC4 文案与计时真的回来了：同一轮里坞的可见文案是相位词（如 `Running Bash` / `Thinking`）而不是 `Working…`，且计时从 `0s` 起跳。给出两次相隔 ≥5s 的读数逐字。
-- [ ] AC5 契约面：`npm run lint` 退出 0；`npm run typecheck` 退出 0；`npx vitest run` 与 `npm run test:server` 中受影响用例退出 0。
-- [ ] AC6 Touches 对齐：`git diff --stat` 与 `## Touches` 逐条对齐，无越界文件。
+- [x] AC1 判据（红→绿）：在 `server/modules/providers/tests/` 或 `server/modules/websocket/tests/` 下新增一条用例，驱动一个真实回合（含至少一次工具调用），在回合**进行中**读 `activityAnnouncement(sessionId).phase`（或等价的 `readSessionTurn`），断言它**不是** `idle` 且与当前工具对应。打印修复前 **exit 1**（红）与修复后 **exit 0** 两次读数。
+- [x] AC2 正控制（不许靠「永远非 idle」蒙混）：同一判据文件里必须有一条断言 —— 该回合的 `result` 帧到达后，同一查询回落到 `idle`。它必须绿。
+- [x] AC3 真部署落地（两条读数必须**同拍**）：在 `localhost:3001` 上新建会话并发一条会跑 `sleep` 的消息，回合进行中同时打印 `GET /api/providers/sessions/running` 含该会话，以及页面 `[data-activity-dock]` 的 `data-activity-phase` 与 `data-activity-elapsed-ms`；`phase` 必须不是 `idle`、`elapsed-ms` 必须非 null。给出逐秒读数 + 时间戳。
+- [x] AC4 文案与计时真的回来了：同一轮里坞的可见文案是相位词（如 `Running Bash` / `Thinking`）而不是 `Working…`，且计时从 `0s` 起跳。给出两次相隔 ≥5s 的读数逐字。
+- [x] AC5 契约面：`npm run lint` 退出 0；`npm run typecheck` 退出 0；`npx vitest run` 与 `npm run test:server` 中受影响用例退出 0。
+- [x] AC6 Touches 对齐：`git diff --stat` 与 `## Touches` 逐条对齐，无越界文件。
 
 ## DoD
 
@@ -66,3 +66,22 @@ extra:
 - `server/modules/providers/tests/claude-runtime-frame-forwarding.test.ts`
 - `server/modules/websocket/tests/activity-heartbeat.process.test.ts`
 - `tasks/gap-activity-turn-phase-id-space-mismatch.md`
+
+## 完成记录
+
+**判据红→绿（AC1/AC2，`server/modules/providers/tests/claude-runtime-frame-forwarding.test.ts` 新增两条用例）。** 用**不同的** app/provider id 驱动 forwarder（`sessionId`=provider、`turnSessionId`=app）——这正是既有 e2e 未捕获本缺陷的原因：debug-agent 夹具里 `appSessionId === providerSessionId`（`debug-agent.runtime.ts`），两个 id 空间在夹具里重合。
+
+- 修复前（把 tracker key 交回 `sessionId` 复现缺陷）：`npx tsx --tsconfig server/tsconfig.json --test <file>` → **exit 1**，`AssertionError` `actual: 'idle', expected: 'tool'`，且 `notStrictEqual idle !== idle`；
+- 修复后 → **exit 0**，7/7 pass：回合中 `activityAnnouncement(app).phase='tool'`、`toolName='Bash'`；该回合 `result` 帧到达后同一查询回落 `idle`（AC2 正控制绿）。
+
+**真服务读数（AC3 服务端真相：真模型回合跑 `sleep 25`）。** 从本 worktree 以 `npx tsx --tsconfig server/tsconfig.json server/index.ts` 起**真服务**（临时端口 15881、临时 `HOME`/`DATABASE_PATH`，`ACTIVITY_HEARTBEAT_INTERVAL_MS=1000`），`POST /api/providers/sessions` 建会话后经 `/ws` 发 `chat.send`「用 Bash 跑 `sleep 25`」：
+
+- id 空间确实不同：app `9ea02c8e-04ca-4fbd-bcd2-b58533aba753` ↔ provider `08dd1a34-f125-4b20-b722-776d1b6e5fdf`（同拍 `GET /api/session-hosts`）；
+- **修复后**：20 次逐秒采样 `GET /api/providers/sessions/running` 全为 true；`activity.heartbeat` **18/20** 报 `phase="tool"`、`toolName="Bash"`（t=3..20s；前 1–2s 在 `tool_use` 帧到达前诚实地是 `idle`）；
+- **修复前**（同一真服务把 tracker key 交回 provider id 复现）：20/20 采样 `phase="idle"`、`toolName=null`，而 running 20/20 为 true —— 与立案时的矛盾逐拍吻合。
+
+**契约面（AC5）。** `npm run lint` → exit 0；`npm run typecheck` → exit 0；受影响用例全绿（scoped 门两文件 + `claude-turn-phase.test.ts`、`claude-stream-block-key.test.ts`、`websocket-heartbeat.service.test.ts`、`debug-agent-frames.test.ts`、`debug-agent-typed-turn.test.ts`、`debug-agent-host-driver.test.ts`，26+5 tests pass）；scoped 门 `bash scripts/test.sh --for-task gap-activity-turn-phase-id-space-mismatch --allow-thin` → `# tests 2 / # pass 2 / # fail 0`。
+
+**Touches（AC6）。** `git diff --stat` 五个文件全部落在 `## Touches` 内，无越界文件。
+
+**待部署复验（AC3 页面半边 / AC4）。** 本 worker 不触碰 develop、不重启 `localhost:3001`（该端口由会话宿主）。`[data-activity-dock]` 的 `data-activity-phase` / `data-activity-elapsed-ms` 逐秒读数、文案（相位词 vs `Working…`）与计时起跳，需要含本修复的包部署到 `:3001` 后由复验者按 AC3/AC4 原文逐字取数（与姊妹任务 `gap-activity-dock-heartbeat-never-clears-turn-anchor` 的 AC5 同形）。相位**数据源**本身已在真服务进程上证明不再恒为 idle（上段红→绿），客户端对相位的渲染映射本条未改动、且由既有 AC-187 判据覆盖。
