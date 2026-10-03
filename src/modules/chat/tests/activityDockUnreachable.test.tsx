@@ -86,11 +86,14 @@ const subscribedFrame = (overrides: Partial<ServerEvent> = {}): ServerEvent => (
   ...overrides,
 });
 
-const heartbeatFrame = (timestamp: number): ServerEvent => ({
+const heartbeatFrame = (timestamp: number, phase?: string): ServerEvent => ({
   kind: 'activity.heartbeat',
   sessionId: SESSION_ID,
   bootId: 'boot-1',
   rev: 1,
+  // A beat carries the server's reduced phase; a beat without one is a bare
+  // liveness ping that says nothing about the turn (a server that predates it).
+  ...(phase === undefined ? {} : { phase }),
   timestamp: new Date(timestamp).toISOString(),
 });
 
@@ -99,6 +102,14 @@ const dockOf = (view: { container: HTMLElement }) => {
   assert.ok(dock, `the dock must be on screen (${DOCK}); DOM: ${view.container.innerHTML.slice(0, 400)}`);
   return dock;
 };
+
+/** The dock's published state, or `absent` when there is no dock element at all. */
+const dockStateOf = (view: { container: HTMLElement }): string =>
+  view.container.querySelector<HTMLElement>(DOCK)?.getAttribute('data-activity-state') ?? 'absent';
+
+/** The dock's published server-derived elapsed, or null when it publishes none. */
+const dockElapsedOf = (view: { container: HTMLElement }): string | null =>
+  view.container.querySelector<HTMLElement>(DOCK)?.getAttribute('data-activity-elapsed-ms') ?? null;
 
 /** Six seconds of local time, far past any server frame this case sends. */
 const LOCAL_STEP_MS = 6_000;
@@ -306,6 +317,140 @@ describe('the activity dock under a partition', () => {
       elapsed,
       0,
       `a clock restarted at recovery would read 0; readings: ${readings.join(' | ')}`,
+    );
+  });
+});
+
+/*
+ * The turn a hello opened, and the beat that ends it.
+ *
+ * A page that subscribes while a turn is running learns the turn from the
+ * `chat_subscribed` hello (`isProcessing`), which pins the dock's elapsed anchor.
+ * The turn then ends while the page watches: the server reduces the turn's own
+ * frames and stamps `phase: "idle"` onto the next `activity.heartbeat`. That beat
+ * is the only evidence a live page gets that the turn is over — there is no new
+ * socket message and no re-subscribe — so it has to be the frame that clears the
+ * anchor. These cases pin that, and the control that keeps the fix from being a
+ * deletion of the anchoring path.
+ */
+
+describe('the activity dock when the server ends the turn', () => {
+  // AC1: the beat clears the anchor. A hello pins a running turn; the server's own
+  // idle report takes it back — no reload, no re-subscribe.
+  test('AC1 an idle heartbeat clears the anchor a hello pinned: the dock leaves in-turn', () => {
+    const readings: string[] = [];
+    const { connection, push } = makeConnection();
+    // The local table has already forgotten the turn, so the anchor is the only
+    // claim left standing — exactly the state the deployed defect was stuck in.
+    const view = render(
+      React.createElement(ActivityIndicator, {
+        activity: null,
+        sessionId: SESSION_ID,
+        connection,
+      }),
+    );
+
+    push(subscribedFrame());
+    readings.push(`after hello: state=${dockStateOf(view)} elapsed=${dockElapsedOf(view)}`);
+    assert.equal(
+      dockStateOf(view),
+      'in-turn',
+      `the hello's isProcessing must pin a running turn; readings: ${readings.join(' | ')}`,
+    );
+
+    push(heartbeatFrame(START + 5_000, 'idle'));
+    readings.push(`after idle beat: state=${dockStateOf(view)} elapsed=${dockElapsedOf(view)}`);
+    assert.notEqual(
+      dockStateOf(view),
+      'in-turn',
+      `the server's own idle report must end the turn; readings: ${readings.join(' | ')}`,
+    );
+    assert.equal(
+      dockStateOf(view),
+      'absent',
+      `with no turn there is nothing for the dock to draw; readings: ${readings.join(' | ')}`,
+    );
+  });
+
+  // AC2: the positive control. The fix connects the clearing path; it must not be
+  // "never pin an anchor at all", which would pass AC1 trivially.
+  test('AC2 control: a hello that opens a turn and hears no idle beat stays in-turn', () => {
+    const readings: string[] = [];
+    const { connection, push } = makeConnection();
+    const view = render(
+      React.createElement(ActivityIndicator, {
+        activity: null,
+        sessionId: SESSION_ID,
+        connection,
+      }),
+    );
+
+    push(subscribedFrame());
+    readings.push(`after hello: state=${dockStateOf(view)}`);
+    assert.equal(
+      dockStateOf(view),
+      'in-turn',
+      `the hello must still pin a turn — the clearing path must not delete the anchoring; readings: ${readings.join(' | ')}`,
+    );
+
+    // A running phase is confirmation, not an ending: the turn is carried forward.
+    push(heartbeatFrame(START + 5_000, 'thinking'));
+    readings.push(`after running beat: state=${dockStateOf(view)}`);
+    assert.equal(
+      dockStateOf(view),
+      'in-turn',
+      `a running phase must carry the turn forward, not end it; readings: ${readings.join(' | ')}`,
+    );
+  });
+
+  // AC3: the clock stops with the turn. Two idle beats five seconds apart must not
+  // move the elapsed reading — the defect was exactly this number climbing once a
+  // second against a server that had already said the turn was over.
+  test('AC3 after the server reports idle the elapsed reading stops growing', () => {
+    const readings: string[] = [];
+    const { connection, push } = makeConnection();
+    const view = render(
+      React.createElement(ActivityIndicator, {
+        activity: null,
+        sessionId: SESSION_ID,
+        connection,
+      }),
+    );
+
+    push(subscribedFrame());
+    const open = dockStateOf(view);
+    readings.push(`open: state=${open} elapsed=${dockElapsedOf(view)}`);
+    assert.equal(open, 'in-turn', `premise: the hello pins a running turn; readings: ${readings.join(' | ')}`);
+
+    // The first beat after the turn ended. The defect advanced the clock here.
+    push(heartbeatFrame(START + 5_000, 'idle'));
+    const first = dockElapsedOf(view);
+    const firstState = dockStateOf(view);
+    readings.push(`idle@0s: state=${firstState} elapsed=${first}`);
+
+    // Five seconds and a second idle beat later, the reading must be unchanged.
+    act(() => {
+      vi.advanceTimersByTime(5_000);
+    });
+    push(heartbeatFrame(START + 10_000, 'idle'));
+    const second = dockElapsedOf(view);
+    const secondState = dockStateOf(view);
+    readings.push(`idle@5s: state=${secondState} elapsed=${second}`);
+
+    assert.notEqual(
+      firstState,
+      'in-turn',
+      `the server's idle report must end the turn before the clock is read; readings: ${readings.join(' | ')}`,
+    );
+    assert.equal(
+      second,
+      first,
+      `the elapsed reading must not grow after the server reported idle; readings: ${readings.join(' | ')}`,
+    );
+    assert.equal(
+      second,
+      null,
+      `an ended turn owes no elapsed reading at all; readings: ${readings.join(' | ')}`,
     );
   });
 });

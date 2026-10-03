@@ -11,7 +11,13 @@
  * carry the activity contract count as evidence; provider messages do not,
  * because a replayed message's `timestamp` is when it was produced, not when
  * the server last spoke, and folding it in would move the elapsed anchor
- * backwards. The silence threshold is the one the server announced
+ * backwards. Both gateway frames carry a turn reading, and both are folded in:
+ * the hello states `isProcessing`, and a beat states the reduced `phase`, whose
+ * `idle` is the absence of a turn. A beat is therefore the frame that ends one —
+ * a hello that opened a turn is not left pinned by every beat that follows it.
+ * A beat that omits the phase is the exception: it says nothing about the turn
+ * and only advances the clock, which is what servers predating the field send.
+ * The silence threshold is the one the server announced
  * (`unreachableAfterMs`) — never a client constant.
  *
  * Used by chat's `ActivityIndicator` and `ChatComposer`; the decision it feeds
@@ -190,16 +196,42 @@ export const useActivityFreshness = (
         const asOf = parseServerTime(event.timestamp);
         if (asOf === null) return;
 
-        machine.onFrame({
-          bootId: typeof event.bootId === 'string' ? event.bootId : '',
-          rev: typeof event.rev === 'number' ? event.rev : 0,
-          asOf,
-          staleAfter: slot.staleAfter,
-        });
+        const bootId = typeof event.bootId === 'string' ? event.bootId : '';
         // The beat is where a phase change arrives: the server reduces the raw
         // frame stream and stamps the result onto every beat, so a browser reads
         // what the turn is really doing without a clock of its own.
-        slot.phase = readPhase(event.phase) ?? slot.phase;
+        const reportedPhase = readPhase(event.phase);
+        const snapshot = machine.getSnapshot();
+
+        // The beat is also the frame that can *end* a turn, and this is the mapping
+        // that makes it: the server's `idle` is the absence of a turn, so a beat
+        // carrying it must clear the anchor a `chat_subscribed` hello pinned.
+        // Without a turn snapshot on the beat the anchor outlives the turn — only a
+        // boot-identity change or the next hello could ever drop it — and the dock
+        // counts a finished turn up forever after a turn the client watched begin.
+        // A running phase is the same evidence the other way: it confirms the turn
+        // and carries its anchor forward, so the clock continues rather than
+        // restarting at the beat that happened to deliver it. A beat that reports no
+        // known phase asserts no turn state at all (a server that predates the field),
+        // which is what leaves a bare heartbeat's elapsed reading untouched.
+        const turn = reportedPhase === null
+          ? undefined
+          : reportedPhase === 'idle'
+            ? { startedAt: null }
+            : {
+                // Carry the anchor across a beat only while the same server process
+                // is in force; a new boot identity voids the turn that process began.
+                startedAt: snapshot.bootId === bootId ? (snapshot.turnStartedAt ?? asOf) : asOf,
+              };
+
+        machine.onFrame({
+          bootId,
+          rev: typeof event.rev === 'number' ? event.rev : 0,
+          asOf,
+          staleAfter: slot.staleAfter,
+          ...(turn === undefined ? {} : { turn }),
+        });
+        slot.phase = reportedPhase ?? slot.phase;
         slot.toolName = readToolName(event.toolName);
         forceRender();
       }
