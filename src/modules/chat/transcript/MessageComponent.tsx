@@ -295,6 +295,54 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
             </details>
           )}
         </div>
+      ) : message.isMonitorCollapse ? (
+        /*
+         * A run of Monitor events for one task: one line that says what is
+         * being watched and how many events it produced, with the events
+         * themselves folded into the disclosure below. A stopped monitor reads
+         * as ended (amber), never as an error — it is a thing that finished, not
+         * a thing that failed.
+         */
+        <div
+          className="w-full"
+          data-monitor-collapse="true"
+          data-monitor-task-id={message.monitorTaskId}
+          data-monitor-count={message.monitorEventCount ?? 0}
+          data-monitor-status={message.monitorStatus}
+        >
+          <div className="flex items-center gap-2 py-0.5">
+            <span
+              className={`inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full ${
+                message.monitorStatus === 'stopped'
+                  ? 'bg-amber-400 dark:bg-amber-500'
+                  : 'bg-green-400 dark:bg-green-500'
+              }`}
+            />
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              {`📡 ${message.monitorDescription || t('chat:misc.monitorEvents', 'Monitor events')} · ${t('chat:misc.monitorEventsCount', { count: message.monitorEventCount ?? 0 })}`}
+            </span>
+            {message.monitorStatus === 'stopped' && (
+              <span className="text-xs text-amber-600 dark:text-amber-400">
+                {t('chat:misc.monitorStopped', 'Timed out / stopped')}
+              </span>
+            )}
+          </div>
+          <details className="ml-3.5 mt-0.5">
+            <summary className="cursor-pointer text-xs text-gray-500 hover:text-foreground dark:text-gray-400">
+              {t('chat:misc.monitorEvents', 'Monitor events')}
+            </summary>
+            <ul className="mt-1 space-y-0.5">
+              {(message.monitorEvents ?? []).map((event, index) => (
+                <li
+                  key={index}
+                  className="whitespace-pre-wrap break-words font-mono text-xs text-gray-500 dark:text-gray-400"
+                >
+                  {event}
+                </li>
+              ))}
+            </ul>
+          </details>
+        </div>
       ) : message.isTaskNotification ? (
         /* Compact task notification on the left */
         <div className="w-full">

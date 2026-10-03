@@ -12,7 +12,7 @@ import {
 } from '@/modules/chat/utils/sessionMessagePagination';
 import { createMessageHistoryRefreshCoordinator } from '@/modules/chat/utils/messageHistoryRefreshCoordinator';
 import { createCachedDiffCalculator } from '@/modules/chat/utils/messageTransforms';
-import { normalizedToChatMessages } from '@/modules/chat/hooks/useChatMessages';
+import { collapseMonitorEventRows, normalizedToChatMessages } from '@/modules/chat/hooks/useChatMessages';
 import { findSearchTargetIndex, resolveSearchWindowSize } from '@/modules/chat/utils/searchTargetLocator';
 import { readSelectedProvider } from '@/shared/selectedProvider';
 import type { SearchTarget } from '@/modules/chat/utils/searchTargetLocator';
@@ -605,7 +605,10 @@ export function useChatSessionState({
   );
 
   const chatMessages = useMemo(() => {
-    const all = normalizedToChatMessages(visibleStoreMessages);
+    // Monitor events fold into one row per task on the render path only; the
+    // projection underneath stays lossless so search, export and anchors still
+    // see every raw event.
+    const all = collapseMonitorEventRows(normalizedToChatMessages(visibleStoreMessages));
     // Show pending user message when no session data exists yet (new session, pre-backend-response)
     if (pendingUserMessage && all.length === 0) {
       return [pendingUserMessage];
@@ -1539,8 +1542,10 @@ export function useChatSessionState({
       // Resolve the target against the loaded transcript rather than the DOM.
       // The store is the freshest source here: the `fetchFromServer` above has
       // landed but `chatMessages` is from the render that scheduled this effect.
+      // The same fold is composed here so an index into this list is an index
+      // into the rendered rows.
       const messagesForSearch = activeSessionIdRef.current
-        ? normalizedToChatMessages(sessionStore.getMessages(activeSessionIdRef.current))
+        ? collapseMonitorEventRows(normalizedToChatMessages(sessionStore.getMessages(activeSessionIdRef.current)))
         : chatMessages;
       const targetIndex = findSearchTargetIndex(messagesForSearch, target);
       if (targetIndex < 0) {
