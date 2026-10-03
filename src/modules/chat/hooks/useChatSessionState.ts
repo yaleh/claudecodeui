@@ -5,7 +5,11 @@ import { api } from '@/shared/api';
 import type { MarkSessionIdle, SessionActivityMap,Project,ProjectSession,LLMProvider,NormalizedMessage,ChatMessage,DiffCalculator,ChatReplayCursorMap } from '@/shared/types';
 import type { SessionStore } from '@/modules/chat/hooks/useSessionStore';
 import { subscribeTargetFor } from '@/modules/chat/utils/replayCursor';
-import { SESSION_MESSAGES_PAGE_SIZE } from '@/modules/chat/utils/sessionMessagePagination';
+import {
+  OLDER_MESSAGES_PAGE_SIZE,
+  planOlderPagePrefetch,
+  SESSION_MESSAGES_PAGE_SIZE,
+} from '@/modules/chat/utils/sessionMessagePagination';
 import { createMessageHistoryRefreshCoordinator } from '@/modules/chat/utils/messageHistoryRefreshCoordinator';
 import { createCachedDiffCalculator } from '@/modules/chat/utils/messageTransforms';
 import { normalizedToChatMessages } from '@/modules/chat/hooks/useChatMessages';
@@ -390,7 +394,13 @@ export function useChatSessionState({
   }, []);
   const isLoadingMoreRef = useRef(false);
   const allMessagesLoadedRef = useRef(false);
-  const topLoadLockRef = useRef(false);
+  /**
+   * The scroll position an older-page fetch was armed at, or null when none is in flight or
+   * pending. Held as the position rather than a bare flag so the release can be "the anchor
+   * restore moved the viewport back down past where the fetch started" — a flag released on a
+   * fixed threshold would stall on a pane whose prepended page is shorter than the prefetch band.
+   */
+  const topLoadLockRef = useRef<number | null>(null);
   const pendingScrollRestoreRef = useRef<ScrollRestoreState | null>(null);
   const pendingInitialScrollRef = useRef(true);
   const messagesOffsetRef = useRef(0);
@@ -450,7 +460,7 @@ export function useChatSessionState({
     setSearchTarget(null);
     wasNearTopRef.current = false;
     searchScrollActiveRef.current = false;
-    topLoadLockRef.current = false;
+    topLoadLockRef.current = null;
     pendingScrollRestoreRef.current = null;
     pendingInitialScrollRef.current = true;
     lastLoadedSessionKeyRef.current = null;
@@ -1077,7 +1087,7 @@ export function useChatSessionState({
 
       try {
         const result = await sessionStore.fetchMore(selectedSession.id, {
-          limit: SESSION_MESSAGES_PAGE_SIZE,
+          limit: OLDER_MESSAGES_PAGE_SIZE,
           canRequest: () => (
             isActiveRef.current
             && activeSessionIdRef.current === selectedSession.id
@@ -1105,7 +1115,7 @@ export function useChatSessionState({
         }
 
         pendingScrollRestoreRef.current = scrollRestoreState;
-        setVisibleMessageCount((prev) => prev + SESSION_MESSAGES_PAGE_SIZE);
+        setVisibleMessageCount((prev) => prev + OLDER_MESSAGES_PAGE_SIZE);
         if (!slot.hasMore) {
           allMessagesLoadedRef.current = true;
           setAllMessagesLoaded(true);
@@ -1164,13 +1174,23 @@ export function useChatSessionState({
     }
 
     if (!allMessagesLoadedRef.current) {
-      if (!scrolledNearTop) { topLoadLockRef.current = false; return; }
-      if (topLoadLockRef.current) {
-        if (container.scrollTop > 20) topLoadLockRef.current = false;
+      // The prefetch arms a couple of screens above the top edge, so a steady scroll up has
+      // the next page in hand before the viewport reaches the loaded rows — the absolute
+      // `scrollTop < 100` it replaces only asked once the blank above the rows was already
+      // on screen. The armed position holds a second request for the same arrival and is
+      // released by the anchor restore the completed prepend lands with.
+      const prefetchPlan = planOlderPagePrefetch({
+        scrollTop: container.scrollTop,
+        clientHeight: container.clientHeight,
+        armedAtScrollTop: topLoadLockRef.current,
+      });
+      if (prefetchPlan === 'release') {
+        topLoadLockRef.current = null;
         return;
       }
+      if (prefetchPlan === 'hold') return;
       const didLoad = await loadOlderMessages(container);
-      if (didLoad) topLoadLockRef.current = true;
+      if (didLoad) topLoadLockRef.current = container.scrollTop;
     }
   }, [hasMoreMessages, isActive, isNearBottom, loadOlderMessages]);
 
@@ -1229,7 +1249,7 @@ export function useChatSessionState({
 
     pendingInitialScrollRef.current = true;
     setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
-    topLoadLockRef.current = false;
+    topLoadLockRef.current = null;
     pendingScrollRestoreRef.current = null;
     wasNearTopRef.current = false;
     // A doubled baseline would outlive its transcript: this hook keeps its pane

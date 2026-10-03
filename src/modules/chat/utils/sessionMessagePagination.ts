@@ -2,6 +2,55 @@ import type { NormalizedMessage } from '@/shared/types';
 
 export const SESSION_MESSAGES_PAGE_SIZE = 20;
 
+/**
+ * Rows requested per *older*-page fetch — the page size for the upward path only.
+ *
+ * Deliberately separate from {@link SESSION_MESSAGES_PAGE_SIZE}: that constant sizes the
+ * latest/first page, whose single-page shape AC-110 pins on the pane it opens on, while this
+ * one sizes the pages the window-edge prefetch below asks for. Sharing one number would couple
+ * the two criteria and move the first screen out from under AC-110.
+ *
+ * 50 is the criterion's own floor. It is also wider than one full desktop screen of the seeded
+ * transcript's rows, so a single prefetch refills the band it was armed from and a steady
+ * scroll does not become a request per wheel tick.
+ */
+export const OLDER_MESSAGES_PAGE_SIZE = 50;
+
+/**
+ * How many viewport heights from the top edge the upward prefetch arms at.
+ *
+ * The trigger used to be the absolute `scrollTop < 100` — the user had already reached the edge
+ * before a page was asked for, so a steady scroll ran into the blank above the loaded rows.
+ * Measured in heights rather than pixels, the lead tracks the pane itself: two screens on a
+ * short window and on a tall one alike.
+ */
+export const OLDER_PAGE_PREFETCH_VIEWPORTS = 2;
+
+/** What the upward path should do at one reported scroll position — see {@link planOlderPagePrefetch}. */
+export type OlderPagePrefetchPlan = 'trigger' | 'hold' | 'release';
+
+/**
+ * Decides what `handleScroll` should do at the pane's current position.
+ *
+ * `trigger` asks for an older page once the viewport is within {@link OLDER_PAGE_PREFETCH_VIEWPORTS}
+ * heights of the top. While a fetch is in flight or pending, the position it was armed at is the
+ * reference: anything at or above it is `hold` (a repeat of the same arrival), and only the
+ * position the completed prepend's anchor restore leaves *below* it is `release`, which re-arms
+ * the next gesture up. Pure so the trigger distance and the hold can be tested without a DOM.
+ */
+export function planOlderPagePrefetch(input: {
+  scrollTop: number;
+  clientHeight: number;
+  /** The position an in-flight or pending older-page fetch was armed at, or null when idle. */
+  armedAtScrollTop: number | null;
+}): OlderPagePrefetchPlan {
+  if (input.armedAtScrollTop !== null) {
+    return input.scrollTop > input.armedAtScrollTop ? 'release' : 'hold';
+  }
+  const prefetchBand = OLDER_PAGE_PREFETCH_VIEWPORTS * input.clientHeight;
+  return input.scrollTop > prefetchBand ? 'release' : 'trigger';
+}
+
 export type SessionMessagesRequestOptions = {
   limit?: number | null;
   offset?: number;
