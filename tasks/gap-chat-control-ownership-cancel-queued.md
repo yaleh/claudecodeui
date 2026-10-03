@@ -57,6 +57,7 @@ goal_ac: AC-198
 - server/modules/websocket/tests/chat-control-ownership.test.ts (new)
 - server/modules/websocket/tests/chat-edit-send.test.ts
 - server/modules/websocket/tests/chat-permission-mode.test.ts
+- server/modules/providers/tests/claude-resident-busy-input.test.ts （AC-163 判据，也是 chat.cancel-queued 的真实客户端：该动词现在必填 requestId，本文件的 requestWithdrawal 须同步补上）
 - src/modules/chat/ChatInterface.tsx
 - tasks/gap-chat-control-ownership-cancel-queued.md
 
@@ -76,3 +77,12 @@ goal_ac: AC-198
 - 假形态实测（AC7）：临时把 cancel-queued 的 `accessEntry(dependencies)(userId, session)` 换成 `if (false)`，criterion 转红——`AssertionError: an unauthorized request must answer forbidden (got withdrawn)`；`chat.cancel-queued must go through the shared entry exactly once`；forbidden 臂 `cancel:"withdrawn"` / `entryCalls:2` / cancel driver 1。恢复后转绿（3/3 pass）。
 - 邻接控制动词回归：`chat-stop-task.test.ts` + `chat-background-task.test.ts` 一并跑，30 tests / 30 pass / 0 fail。
 - 类型：`tsc -p server/tsconfig.json` 与 `tsc -p tsconfig.json` 均 exit 0；`oxlint` 改动文件 exit 0（仅存量 memoization warning）。
+
+**兄弟判据回归修复（2026-10-04，本轮）。** `chat.cancel-queued` 必填 `requestId` 后，既有 AC-163 判据
+`server/modules/providers/tests/claude-resident-busy-input.test.ts` 的 `requestWithdrawal` 仍按旧协议发
+（无 `requestId`），网关以 `REQUEST_ID_REQUIRED` 拒绝、不再回 `queued_input_cancel_result`，于是该文件在
+全量 suite 转红（`__PERFILE_KIND__ kind=assert`，读数 `cancelControlFrame=null` / `cancelResult=no-verdict-frame`）。
+它不在本任务原 `## Touches` 内，**scoped 门看不见它**（[[scoped-gate-file-set-is-touches-test-bullets-only]]）。
+修复 = 给该客户端补上 `requestId: withdraw-<messageUuid>`（与前端 `ChatInterface.tsx` 同一契约），并把该文件
+写进 `## Touches`。单跑该文件 1/1 绿：`cancelControlFrame={"type":"control_request","request":{"subtype":"cancel_async_message",...}}`、
+`cancelResult=withdrawn`、`command_lifecycle.state=cancelled`、`textInAnyTurn=false`。
