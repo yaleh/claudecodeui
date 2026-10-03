@@ -46,14 +46,14 @@ locales.checked=12 keys.perLocale=25 missing=60
 
 ## AC
 
-- [ ] AC1 判据翻绿：`npx playwright test e2e/resident-status-bar.spec.ts` 退出 **0**，4 个用例全过（stdout `4 passed`），且 `elapsed=NNNNms` < 55_000。验证：`echo $?` + `4 passed` + `elapsed=` 三行逐字登记（红态基线见 Proposal：EXIT=1 / `2 passed` `1 failed` `1 did not run` / `:1154` missing=60）。
-- [ ] AC2 required 键表不再含已退役键：`grep -n 'resident.statusBar.counts' e2e/resident-status-bar.spec.ts` 输出为**空**（注释行亦不得出现）。验证：该命令逐字输出为空。
-- [ ] AC3 required 键表覆盖当前出货面：`grep -n 'resident.badge\|resident.backgroundTasks.count' e2e/resident-status-bar.spec.ts` 命中 test 3 的 required 列表（≥ 2 行）。验证：`grep -n` 输出逐字。
-- [ ] AC4 键表承重（负控制）：把 `en/chat.json` 里一个仍在 required 的键（如 `resident.badge.label`）临时删掉 ⇒ test 3 退出**非 0**、`missing` 里出现该键；还原后 `missing=0`。两次的 `echo $?` 与失败逐字一并登记。验证：绿 run 的 `missing=0` 行 + 负控制读数。
-- [ ] AC5 两条承重假形态仍然红：(i) 把侧栏标记 / 胶囊的状态源改成**本地镜像**（场景切换状态后不再跟随 `GET /api/session-hosts`）⇒ 判据退出**非 0**，红落在四态那条读数（`toHaveAttribute('data-resident-state', …)`）上；(ii) 把无人轮渲染成用户消息样式 ⇒ 判据退出**非 0**，红落在无人轮那条断言（`a turn nobody typed must not wear the user's own bubble style`）上。两条都登记变异 diff、失败断言逐字、退出码；恢复后判据回 0。验证：两次变异跑与两次还原跑的 `echo $?`。
-- [ ] AC6 幸存读数未删弱：spec 里「停止只中止一轮、进程仍在」（`stopping a turn must not replace the process`）、地址复制（`data-resident-copy`）、关闭常驻进程（`data-resident-close`）、无人轮分隔标签 / 发送方 / 非用户样式这些断言**逐字保留**（只允许锚替换，不允许删除或放宽）。验证：四条 `grep -c` 均 ≥ 1，逐字登记。
-- [ ] AC7 边界：`git diff develop -- package.json playwright.config.ts` 为空；spec diff 不新增 `test.skip` / `retries`；`npx playwright test e2e/resident-status-bar.spec.ts --list` 仍列出 **4** 个用例；`npm run typecheck` 退出 0。
-- [ ] AC8 记录如实：`goals/AC-172-*.md` 的 body 新增日期化修订记录，逐字点名 `65bebd99` 与 `f27f9a84`；`bash /data/home/yale/.claude/plugins/cache/quay/quay/0.10.0/bin/quay goal show AC-172 --root /data/home/yale/work/claudecodeui` 的 `criterion` 逐字不变、`status: achieved`、`goal: GOAL-013`。验证：三条命令逐字输出。
+- [x] AC1 判据翻绿：`npx playwright test e2e/resident-status-bar.spec.ts` 退出 **0**，4 个用例全过（stdout `4 passed`），且 `elapsed=NNNNms` < 55_000。验证：`echo $?` + `4 passed` + `elapsed=` 三行逐字登记（红态基线见 Proposal：EXIT=1 / `2 passed` `1 failed` `1 did not run` / `:1154` missing=60）。
+- [x] AC2 required 键表不再含已退役键：`grep -n 'resident.statusBar.counts' e2e/resident-status-bar.spec.ts` 输出为**空**（注释行亦不得出现）。验证：该命令逐字输出为空。
+- [x] AC3 required 键表覆盖当前出货面：`grep -n 'resident.badge\|resident.backgroundTasks.count' e2e/resident-status-bar.spec.ts` 命中 test 3 的 required 列表（≥ 2 行）。验证：`grep -n` 输出逐字。
+- [x] AC4 键表承重（负控制）：把 `en/chat.json` 里一个仍在 required 的键（如 `resident.badge.label`）临时删掉 ⇒ test 3 退出**非 0**、`missing` 里出现该键；还原后 `missing=0`。两次的 `echo $?` 与失败逐字一并登记。验证：绿 run 的 `missing=0` 行 + 负控制读数。
+- [x] AC5 两条承重假形态仍然红：(i) 把侧栏标记 / 胶囊的状态源改成**本地镜像**（场景切换状态后不再跟随 `GET /api/session-hosts`）⇒ 判据退出**非 0**，红落在四态那条读数（`toHaveAttribute('data-resident-state', …)`）上；(ii) 把无人轮渲染成用户消息样式 ⇒ 判据退出**非 0**，红落在无人轮那条断言（`a turn nobody typed must not wear the user's own bubble style`）上。两条都登记变异 diff、失败断言逐字、退出码；恢复后判据回 0。验证：两次变异跑与两次还原跑的 `echo $?`。
+- [x] AC6 幸存读数未删弱：spec 里「停止只中止一轮、进程仍在」（`stopping a turn must not replace the process`）、地址复制（`data-resident-copy`）、关闭常驻进程（`data-resident-close`）、无人轮分隔标签 / 发送方 / 非用户样式这些断言**逐字保留**（只允许锚替换，不允许删除或放宽）。验证：四条 `grep -c` 均 ≥ 1，逐字登记。
+- [x] AC7 边界：`git diff develop -- package.json playwright.config.ts` 为空；spec diff 不新增 `test.skip` / `retries`；`npx playwright test e2e/resident-status-bar.spec.ts --list` 仍列出 **4** 个用例；`npm run typecheck` 退出 0。
+- [x] AC8 记录如实：`goals/AC-172-*.md` 的 body 新增日期化修订记录，逐字点名 `65bebd99` 与 `f27f9a84`；`bash /data/home/yale/.claude/plugins/cache/quay/quay/0.10.0/bin/quay goal show AC-172 --root /data/home/yale/work/claudecodeui` 的 `criterion` 逐字不变、`status: achieved`、`goal: GOAL-013`。验证：三条命令逐字输出。
 
 ## DoD
 
