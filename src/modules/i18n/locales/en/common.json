@@ -25,6 +25,7 @@
     "tasks": "Tasks",
     "browser": "Browser",
     "computer": "Computer",
+    "quay": "Quay",
     "shellResidentDisabled": "Shell is unavailable for resident sessions. Close resident mode to use it.",
     "shellResidentDisabledLabel": "Shell unavailable for resident sessions"
   },

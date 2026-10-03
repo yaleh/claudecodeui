@@ -25,6 +25,7 @@
     "tasks": "Задачи",
     "browser": "Browser",
     "computer": "Компьютер",
+    "quay": "Quay",
     "shellResidentDisabled": "Shell недоступен для резидентных сессий. Закройте резидентный режим, чтобы использовать его.",
     "shellResidentDisabledLabel": "Shell недоступен для резидентных сессий"
   },

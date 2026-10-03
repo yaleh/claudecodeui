@@ -25,6 +25,7 @@
     "tasks": "Tugas",
     "browser": "Browser",
     "computer": "Komputer",
+    "quay": "Quay",
     "shellResidentDisabled": "Shell tidak tersedia untuk sesi residen. Tutup mode residen untuk menggunakannya.",
     "shellResidentDisabledLabel": "Shell tidak tersedia untuk sesi residen"
   },

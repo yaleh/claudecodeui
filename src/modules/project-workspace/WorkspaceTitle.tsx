@@ -39,7 +39,7 @@ function getTabTitle(
   }
 
   if (activeTab === 'quay' && shouldShowQuayTab) {
-    return 'quay';
+    return t('tabs.quay');
   }
 
   if (activeTab === 'browser') {

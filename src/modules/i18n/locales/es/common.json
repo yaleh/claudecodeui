@@ -25,6 +25,7 @@
     "tasks": "Tareas",
     "browser": "Navegador",
     "computer": "Equipo",
+    "quay": "Quay",
     "shellResidentDisabled": "Shell no está disponible para las sesiones residentes. Cierra el modo residente para usarlo.",
     "shellResidentDisabledLabel": "Shell no disponible para sesiones residentes"
   },

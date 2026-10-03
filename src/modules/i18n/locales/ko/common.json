@@ -25,6 +25,7 @@
     "tasks": "작업",
     "browser": "Browser",
     "computer": "Computer",
+    "quay": "Quay",
     "shellResidentDisabled": "상주 세션에서는 Shell을 사용할 수 없습니다. 상주 모드를 종료하면 사용할 수 있습니다.",
     "shellResidentDisabledLabel": "상주 세션에서는 Shell을 사용할 수 없습니다"
   },

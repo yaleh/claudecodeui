@@ -25,6 +25,7 @@
     "tasks": "Görevler",
     "browser": "Browser",
     "computer": "Bilgisayar",
+    "quay": "Quay",
     "shellResidentDisabled": "Shell kalıcı oturumlarda kullanılamaz. Kullanmak için kalıcı modu kapatın.",
     "shellResidentDisabledLabel": "Kalıcı oturumlarda Shell kullanılamaz"
   },

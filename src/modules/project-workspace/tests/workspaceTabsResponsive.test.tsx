@@ -10,6 +10,7 @@ import { test, vi } from 'vitest';
 import type { AppTab, Project } from '@/shared/types';
 import enCommon from '@/modules/i18n/locales/en/common.json';
 import WorkspaceHeader from '@/modules/project-workspace/WorkspaceHeader';
+import WorkspaceTabs from '@/modules/project-workspace/WorkspaceTabs';
 
 /**
  * The mobile header used to stack "menu + title" over a horizontally scrolling
@@ -364,5 +365,44 @@ test('desktop keyboard: End moves focus and selection to the last tab, Home retu
     firstTab.getAttribute('aria-selected'),
     'true',
     `Home must select the first tab; aria-selected values were ${JSON.stringify(tabs.map((tab) => tab.getAttribute('aria-selected')))}`,
+  );
+});
+
+// The Quay workspace view is offered from `tabs.quay`. When that key is missing, react-i18next
+// renders the key verbatim, which is how the tab shipped showing the literal `tabs.quay`. This
+// reads the tab's accessible name (its `aria-label`, which mirrors its visible text) and pins it
+// to a real label from the translation table.
+test('the Quay tab is labelled from tabs.quay, never the bare literal "tabs.quay"', () => {
+  render(
+    <WorkspaceTabs
+      activeTab="quay"
+      setActiveTab={() => {}}
+      shouldShowTasksTab={false}
+      shouldShowQuayTab
+      shouldShowBrowserTab={false}
+    />,
+  );
+
+  const quayTab = document.querySelector('[data-workspace-tab="quay"]');
+  assert.ok(
+    quayTab,
+    `the Quay tab must render when shouldShowQuayTab is set; tabs rendered were ${JSON.stringify(
+      Array.from(document.querySelectorAll('[data-workspace-tab]')).map((el) => el.getAttribute('data-workspace-tab')),
+    )}`,
+  );
+
+  const label = accessibleName(quayTab);
+  // The English bundle must not itself hold the raw key, or the two assertions below would both
+  // pass over a tab that still shows the defect.
+  assert.notEqual(enCommon.tabs.quay, 'tabs.quay', 'the en bundle must carry a real label for tabs.quay');
+  assert.notEqual(
+    label,
+    'tabs.quay',
+    `the Quay tab must not show the raw key; its name was ${JSON.stringify(label)}`,
+  );
+  assert.equal(
+    label,
+    enCommon.tabs.quay,
+    `the Quay tab must be labelled from tabs.quay; its name was ${JSON.stringify(label)}`,
   );
 });

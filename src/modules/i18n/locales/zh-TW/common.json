@@ -25,6 +25,7 @@
     "tasks": "任務",
     "browser": "瀏覽器",
     "computer": "電腦",
+    "quay": "Quay",
     "shellResidentDisabled": "常駐工作階段不支援 Shell，關閉常駐模式後即可使用",
     "shellResidentDisabledLabel": "常駐工作階段的 Shell 分頁無法使用"
   },

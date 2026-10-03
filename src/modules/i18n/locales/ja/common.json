@@ -25,6 +25,7 @@
     "tasks": "タスク",
     "browser": "Browser",
     "computer": "Computer",
+    "quay": "Quay",
     "shellResidentDisabled": "常駐セッションでは Shell を利用できません。常駐モードを解除すると利用できます。",
     "shellResidentDisabledLabel": "常駐セッションでは Shell を利用できません"
   },
