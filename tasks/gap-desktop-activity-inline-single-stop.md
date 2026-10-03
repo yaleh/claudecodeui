@@ -1,7 +1,7 @@
 ---
 id: gap-desktop-activity-inline-single-stop
 title: 桌面端执行状态并入消息流末尾、去掉 composer 上沿 tab 及其 Stop，与移动端统一；主 Stop 按钮是唯一停止入口（底部快捷键提示行不动）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
