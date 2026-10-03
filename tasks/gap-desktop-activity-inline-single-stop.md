@@ -20,10 +20,10 @@ extra:
 - 任何视口宽度与高度，运行状态都只渲染为 `ChatMessagesPane` 消息内容末尾的流内状态行（脉冲点、活动文本、elapsed）；`ChatComposer` 不再渲染悬浮 tab。`isInlineDock` 分支删除而非改成常量，因此「状态行与 tab 不会同时出现或同时缺席」不再依赖两处条件对齐。
 - 删除桌面专属的配套处理：`ChatComposer` 的绝对定位外层与 `rounded-t-none` 条件；`ChatMessagesPane` 的 `hasActivityIndicator && !isInlineDock ? 'pb-12 md:pb-14'` 分支，底部留白恒为 `pb-3 sm:pb-4`。`hasActivityIndicator` 仍用来决定传给状态行的是 `activity` 还是 `null`（权限请求出现时继续隐藏，退出动画仍由组件自持）。
 - `ActivityIndicator` 删除 Stop 按钮及其专属物：`onAbort`、`stopReasonId`、`stopReason`、`isInputFocused` 阴影分支；`activityDockView.ts` 里 `showStop`/`stopDisabled`/`stopReasonKey` 只有在 `ChatComposer`（`composerDock.stopReasonKey`，`:483`）等其他消费者也不再读取时才退役，先 grep 全部消费者再删，不得破坏主按钮在 `unreachable` 状态下已有的禁用与可见原因。
-- Esc 中止由 `ChatInterface.tsx:345` 的全局键盘处理持有，不依赖 `ActivityIndicator` 是否挂载；Esc 提示迁到主停止按钮的 `title`（形如「Stop (Esc)」），`aria-label` 保持 `input.stop`/`resident.stopResident` 不变，按名字找按钮的既有读数不受影响。
+- Esc 中止由 `ChatInterface.tsx:345` 的全局 capture 阶段键盘监听持有（`canAbortSession` 为真时按 Esc 无条件调用 `handleAbortSession`），不依赖 `ActivityIndicator` 是否挂载，本任务**不改它的行为**；Esc 提示迁到主停止按钮的 `title`（形如「Stop (Esc)」），`aria-label` 保持 `input.stop`/`resident.stopResident` 不变，按名字找按钮的既有读数不受影响。
 - 断连读数不丢：`unreachable` 时状态行写着「Connection lost · reconnecting…」，主按钮保持既有的禁用与原因展示。本任务用测试钉住这一点，而不是默认成立。
 
-不做：不改底部快捷键提示行（`submitHint` 那一行及其 `touchOnly`/`lg` 显隐规则）；不改发送、排队、中止的业务行为；不改 `sessionActivity` 的产生方式、WebSocket 协议与服务端；不碰 header、录音回放与 footer 的其它布局；`docs/proposals/mobile-workspace-and-composer-layout.md` 目前是未跟踪文件，不在 worktree 内，不作为本任务的改动面（其目标 6 与第 5 节矩阵的更新另行随该文件入库时处理）。
+不做：不改底部快捷键提示行（`submitHint` 那一行及其 `touchOnly`/`lg` 显隐规则）；不改发送、排队、中止的业务行为（含上述 Esc 监听）；不改 `sessionActivity` 的产生方式、WebSocket 协议与服务端；不碰 header、录音回放与 footer 的其它布局；`docs/proposals/mobile-workspace-and-composer-layout.md` 目前是未跟踪文件，不在 worktree 内，不作为本任务的改动面（其目标 6 与第 5 节矩阵的更新另行随该文件入库时处理）。
 
 实施规范：按 `.agents/skills/frontend-module-standards/SKILL.md`（`@/` 导入、导出组件消费者注释随消费者变化更新、被删 prop 的所有调用点同步清理、不留死导出）。
 
@@ -33,7 +33,7 @@ extra:
 - [ ] `npx vitest run src/modules/chat/tests/chatComposerResponsive.test.tsx` 退出码 0：把 composer 与 pane 一并渲染，桌面档与移动档的可访问性视图里可访问名含 Stop 的按钮恰好 1 个且为 `PromptInputSubmit`；存在 pending 权限请求时两档均不渲染普通活动状态；主停止按钮 `title` 含 `Esc`、`aria-label` 与改动前一致；`unreachable` 状态下主按钮禁用且原因可见（断言实际读数）。
 - [ ] 底部留白：桌面档 `hasActivityIndicator=true` 时 pane 内容底部间距不含 `pb-12`/`md:pb-14`；`grep -nE 'pb-12|md:pb-14' src/modules/chat/transcript/ChatMessagesPane.tsx` 无命中（退出码 1）。
 - [ ] 悬浮 tab 彻底退役：`grep -nE 'isInlineDock|chat-activity-tab|rounded-t-none' src/modules/chat/composer/ChatComposer.tsx src/modules/chat/transcript/ChatMessagesPane.tsx src/modules/chat/composer/ActivityIndicator.tsx` 无命中（退出码 1）；`grep -n 'onAbort' src/modules/chat/composer/ActivityIndicator.tsx` 无命中（退出码 1）。
-- [ ] Esc 仍能中止且与 tab 无关：新增或保留一个用例，在**不挂载 `ActivityIndicator`** 的桌面档 `ChatInterface` 中，运行中按 Esc 触发一次 `handleAbortSession`，输入框内的 Esc 行为（关闭命令菜单、文件提及）不被抢占（读 `ChatInterface.tsx:345` 现有守卫的实际行为并打印）。
+- [ ] Esc 中止与 tab 无关：新增或保留一个用例，桌面档渲染 `ChatInterface`（此时页面上没有悬浮 tab），`canAbortSession` 为真时按一次 Esc，`handleAbortSession` 恰被调用 1 次；`canAbortSession` 为假时按 Esc 调用 0 次。该用例钉住 `ChatInterface.tsx:345` 现有监听的行为，不改变它（对照：`git diff develop -- src/modules/chat/ChatInterface.tsx` 不含对该 `useEffect` 的改动行）。
 - [ ] 跟随不回归：`npx vitest run src/modules/chat/tests/transcriptScrollOwnership.test.tsx src/modules/chat/tests/messageStreamEnd.test.tsx` 退出码 0；并在 `activityIndicatorResponsive.test.tsx` 新增桌面档用例——状态行挂载与 elapsed 更新时，用户在底部则继续贴底，用户已上滚离底则零次程序化写 `scrollTop`。
 - [ ] 同类测试同步：`npx vitest run src/modules/chat/tests/activityDockConsolidation.test.tsx src/modules/chat/tests/activityDockUnreachable.test.tsx src/modules/chat/tests/activityDockPhaseTruthful.test.tsx` 退出码 0（凡点击 dock 内 Stop 的断言已改为点击主按钮，读数含义不变）。
 - [ ] `npx vitest run src/modules/chat` 退出码 0；`npm run typecheck` 与 `npm run lint` 退出码均为 0。
