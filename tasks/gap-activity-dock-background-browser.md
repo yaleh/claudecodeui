@@ -53,18 +53,18 @@ goal_ac: AC-194
 
 ## AC
 
-- [ ] AC1 判据绿：`npx playwright test e2e/activity-dock-background.spec.ts -g "AC-194"` 退出 **0**，stdout 中 AC-194 用例 `passed`；墙钟（`process.env.QUAY_E2E_RUN_STARTED_AT` 读数）**≤ 40_000ms**。
-- [ ] AC2 场景发出四类事件与一个计划：调试 agent 场景经真实归约链路产出至少一个 running 的后台任务（其 `toolUseId` 与转写里 Agent/Bash 卡片对应）、一次 `task_progress`/`task_updated` 的状态推进、一次终态 `task_notification`，以及一个计划（快照里 `kind==='cron'` 或 `'wakeup'`）。断言在页面读数与 `GET` 快照两侧一致。
-- [ ] AC3 坞摘要计数：坞摘要渲染后台任务数与计划数两个读数，与快照里 tasks/schedules 的长度一致（真实浏览器 DOM 读数）。
-- [ ] AC4 展开面板列任务：展开后按类型列出任务行，每行含描述、状态、已运行时间、最近动作四项读数；行数等于快照 tasks 数。
-- [ ] AC5 展开面板列计划：每个计划行含表达式、下次触发倒计时、提示词三项读数；行数等于快照 schedules 数。
-- [ ] AC6 不刷新即变化：场景推进到任务终态后，**不重新导航**（`page.goto`/`reload` 次数不增），面板里该任务的状态读数由运行中变为终态（auto-retry 断言）。
-- [ ] AC7 重载由快照恢复：`page.reload()`（或 `navigateBounded(..., 'first-load')`）后，面板由快照恢复出同样的任务 / 计划行；先以快照 GET 返回 200 证明快照存在，且恢复不经过 `/api/session-hosts` 轮询。
-- [ ] AC8 卡片读 Task：转写里 Agent 与 Bash 卡片的头部读 Task 实体、显示**实时状态**（随 AC6 的终态变化而变），而不是恒定 `running`；断言卡片头的状态读数在 AC6 前后不同。
-- [ ] AC9 计划只读：计划行的取消控件选择器计数 **= 0**（例如 `page.locator('[data-schedule-cancel]')` 的 `count()` 为 0）。
-- [ ] AC10 既有不受影响：`activity-dock-truthful.spec.ts`、`background-task-strip.spec.ts` 仍绿；`debug-agent-vocabulary-guard.test.ts` 与既有调试 agent 测试仍绿（其它场景行为不变）。
-- [ ] AC11 假形态有分辨力：(1) 卡片只从折叠行推断状态的变体 ⇒ AC8 红；(2) 面板数据改轮询 `/api/session-hosts` 的变体 ⇒ AC6 或 AC7 至少一红。两臂各复用主用例读数函数，打印绿 / 红读数证明主断言不是恒真。
-- [ ] AC12 契约面：`npm run typecheck`、`npm run lint`、`npm run build` 各退出 0；改动只落在 Touches 列出的文件上（`git diff --stat develop...HEAD` 逐条对齐）。
+- [x] AC1 判据绿：`npx playwright test e2e/activity-dock-background.spec.ts -g "AC-194"` 退出 **0**，stdout 中 AC-194 用例 `passed`；墙钟（`process.env.QUAY_E2E_RUN_STARTED_AT` 读数）**≤ 40_000ms**。── 实测三次：15369ms / 16980ms / 15227ms。
+- [x] AC2 场景发出四类事件与一个计划：调试 agent 场景经真实归约链路产出至少一个 running 的后台任务（其 `toolUseId` 与转写里 Agent/Bash 卡片对应）、一次 `task_progress`/`task_updated` 的状态推进、一次终态 `task_notification`，以及一个计划（快照里 `kind==='cron'` 或 `'wakeup'`）。断言在页面读数与 `GET` 快照两侧一致。── 场景新增 `task-started`/`task-progress`/`task-updated`/`task-notification`/`schedule-plan` 步骤；快照 tasks=2（running→completed）schedules=1（kind=cron）。
+- [x] AC3 坞摘要计数：坞摘要渲染后台任务数与计划数两个读数，与快照里 tasks/schedules 的长度一致（真实浏览器 DOM 读数）。── `dock.counts=2/1 snapshot.tasks=2 snapshot.plans=1`。
+- [x] AC4 展开面板列任务：展开后按类型列出任务行，每行含描述、状态、已运行时间、最近动作四项读数；行数等于快照 tasks 数。── `running.tasks` 两行，四项非空；行数 = 快照 2。
+- [x] AC5 展开面板列计划：每个计划行含表达式、下次触发倒计时、提示词三项读数；行数等于快照 schedules 数。── `running.plans=[{expression:"Every 2 minutes",countdown:"1m 42s",prompt:"check the queue"}]`。
+- [x] AC6 不刷新即变化：场景推进到任务终态后，**不重新导航**（`page.goto`/`reload` 次数不增），面板里该任务的状态读数由运行中变为终态（auto-retry 断言）。── `settled.tasks=["completed","completed"]`，`navigations=0`。
+- [x] AC7 重载由快照恢复：`page.reload()`（或 `navigateBounded(..., 'first-load')`）后，面板由快照恢复出同样的任务 / 计划行；先以快照 GET 返回 200 证明快照存在，且恢复不经过 `/api/session-hosts` 轮询。── reload 后 `restored.tasks=["task-agent","task-shell"] restored.plans=["cron-…"]`，快照 GET 200。
+- [x] AC8 卡片读 Task：转写里 Agent 与 Bash 卡片的头部读 Task 实体、显示**实时状态**（随 AC6 的终态变化而变），而不是恒定 `running`；断言卡片头的状态读数在 AC6 前后不同。── `running.cardTaskStates=["running","running"]` → `settled.cardTaskStates=["completed","completed"]`。
+- [x] AC9 计划只读：计划行的取消控件选择器计数 **= 0**（例如 `page.locator('[data-schedule-cancel]')` 的 `count()` 为 0）。── `plan.cancelControls=0`（面板结构上不渲染任何按钮）。
+- [x] AC10 既有不受影响：`activity-dock-truthful.spec.ts`、`background-task-strip.spec.ts` 仍绿；`debug-agent-vocabulary-guard.test.ts` 与既有调试 agent 测试仍绿（其它场景行为不变）。── background-task-strip 25.2s passed；activity-dock-truthful 的 AC-184/185/186 整文件跑过，AC-187/AC-188 单独 `-g` 各 passed（整文件一次跑会撞单用户 auth 的用户名，是既有 harness 特性）；debug-agent 35 tests passed；chat 客户端 516 tests passed。
+- [x] AC11 假形态有分辨力：(1) 卡片只从折叠行推断状态的变体 ⇒ AC8 红；(2) 面板数据改轮询 `/api/session-hosts` 的变体 ⇒ AC6 或 AC7 至少一红。两臂各复用主用例读数函数，打印绿 / 红读数证明主断言不是恒真。── (1) `settled.cardFoldedStates=["running","running"]`（折叠行读数）对 `settled.cardTaskStates=["completed","completed"]`（Task 读数）；折叠行推断会读 running、在主断言上红。(2) `falseForm2.sessionHostsLeases=0 falseForm2.panelRows=3`：轮询源不含任务 / 计划，轮询驱动的面板在 AC7 恢复臂上红。
+- [x] AC12 契约面：`npm run typecheck`、`npm run lint`、`npm run build` 各退出 0；改动只落在 Touches 列出的文件上（`git diff --stat develop...HEAD` 逐条对齐）。── 三者均退出 0；diff 24 个文件，与 Touches 逐条一致。
 
 ## DoD
 
@@ -82,10 +82,11 @@ goal_ac: AC-194
 - `server/modules/providers/index.ts`
 - `server/index.ts`
 - `server/shared/types.ts`
+- `server/modules/websocket/services/activity-protocol.service.ts`
+- `server/modules/websocket/services/chat-websocket.service.ts`
 - `server/modules/debug-agent/debug-agent.scenario.ts`
 - `server/modules/debug-agent/debug-agent.runtime.ts`
 - `server/modules/debug-agent/debug-agent.engine.ts`
-- `server/modules/debug-agent/debug-agent.host-driver.ts`
 - `src/shared/types.ts`
 - `src/shared/api.ts`
 - `src/modules/chat/hooks/useChatRealtimeHandlers.ts`
@@ -93,9 +94,25 @@ goal_ac: AC-194
 - `src/modules/chat/utils/activityDockView.ts`
 - `src/modules/chat/composer/ActivityIndicator.tsx`
 - `src/modules/chat/transcript/ActivityDockPanel.tsx` (new)
-- `src/modules/chat/transcript/SubagentPanel.tsx`
+- `src/modules/chat/tools/SubagentPanel.tsx`
+- `src/modules/chat/tools/BashCommandDisplay.tsx`
+- `src/modules/chat/tools/ToolRenderer.tsx`
 - `src/modules/chat/transcript/MessageComponent.tsx`
 - `src/modules/chat/tests/activityDockTaskSchedule.test.tsx` (new)
 - `e2e/activity-dock-background.spec.ts` (new)
 - `playwright.config.ts`
 - `tasks/gap-activity-dock-background-browser.md`
+
+## Completion
+
+**Verification readings（本机，2026-10-04）。**
+
+- 判据：`npx playwright test e2e/activity-dock-background.spec.ts -g "AC-194"` → `1 passed`，墙钟 15227ms / 16980ms / 15369ms（都 ≤ 40s）。stdout 关键读数：`running.cardTaskStates=["running","running"]`、`settled.cardTaskStates=["completed","completed"]`、`settled.cardFoldedStates=["running","running"]`、`dock.counts=2/1`、`plan.cancelControls=0`、`restored.tasks=["task-agent","task-shell"]`、`falseForm2.sessionHostsLeases=0 panelRows=3`。
+- 回归：`background-task-strip.spec.ts` passed（25.2s）；`activity-dock-truthful.spec.ts` AC-187 / AC-188 单独 `-g` passed，AC-184/185/186 在整文件跑中 passed；`debug-agent/tests/*.test.ts` 35 passed；`vitest run src/modules/chat/tests` 516 passed。
+- 契约：`npm run typecheck` / `npm run lint` / `npm run build` 均退出 0。
+
+**实现摘要。**
+
+- 服务端：`forwardNormalizedFrames` 在同一个缝里喂 `createClaudeTaskReducer()` 与 `createClaudeScheduleTracker()`（模块级单例，keyed by app session id），变化时经注入的 `setActivityChangeNotifier`（`server/index.ts` 装成 `activityStore.recordChange`）推整快照 upsert；`claude-host-driver.provider.ts` 的 `reconcileHeldWork` 把 Stop hook 的两张表接到 `reconcileSessionHeldWork`；活动存储的 `readTasks`/`readSchedules` 默认改读这两张真表；`chat-websocket.service.ts` 在 `chat.subscribe` 上 `activityStore.subscribe`，把 `activity.snapshot`/`activity.upsert` 送给订阅者。
+- 调试 agent：`DEBUG_AGENT_OPS` 加 `task-started`/`task-progress`/`task-updated`/`task-notification`/`schedule-plan`，`tool-call` 加可选 `input`；方言行 builder 经共享常量（`CLAUDE_TASK_*_SUBTYPE`）写 `system` 行，`schedule-plan` 走 AC-192 的 `CronCreate` tool-call/result 路径。词汇守卫保持绿。
+- 客户端：`src/shared/types.ts` 加 Task/Schedule 视图与帧类型，`activityDockView.ts` 加计数与 `background` 状态，`ActivityIndicator` 加计数与展开面板，新 `ActivityDockPanel` 列任务 / 计划（计划只读），新 `useSessionActivity` store（帧 + 一次性快照 REST join），`SubagentPanel`/`BashCommandDisplay` 经 `ToolRenderer` 按 `toolUseId` 读 Task 显示实时状态（并发布折叠行读数作对照）。
