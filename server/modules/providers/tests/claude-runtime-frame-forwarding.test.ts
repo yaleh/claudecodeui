@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ClaudeSessionsProvider, forwardNormalizedFrames } from '@/modules/providers/index.js';
+import { ClaudeSessionsProvider, forwardNormalizedFrames, readSessionTurn } from '@/modules/providers/index.js';
+import { activityAnnouncement } from '@/modules/websocket/index.js';
 
 // The run loop's SDK message handler used to inline the whole "normalize this
 // SDK event, carry the wrapper's parentToolUseId, drop the subagent prompt echo,
@@ -125,4 +126,95 @@ test("a frame's own parentToolUseId is not overwritten by the wrapper's", () => 
   });
 
   assert.equal(writer.frames[0].parentToolUseId, 'toolu_inner');
+});
+
+// ---------------------------------------------------------------------------
+// gap-activity-turn-phase-id-space-mismatch (AC1/AC2)
+//
+// The turn tracker used to be fed the id the *normalizer* addresses the run by
+// (the provider-native id the SDK reports) while the activity frames read it
+// back with the **app session id** the browser subscribes with. Two id spaces,
+// one Map: every read missed and answered `idle`, so the dock stayed on the
+// fallback `Working…` label with no timer for a turn that was really running.
+// The two cases below pin the fixed contract — the tracker is keyed by the app
+// session id — with a distinct provider id in play so a regression that keys by
+// `sessionId` again reds the first case instead of passing on a coincidence.
+// ---------------------------------------------------------------------------
+
+/** The app session id the activity frames read the turn back under. */
+const APP_SESSION_ID = 'app-session-frame-forwarding-1';
+/** The provider-native id the run's frames are routed by; deliberately different. */
+const PROVIDER_SESSION_ID = 'provider-session-frame-forwarding-1';
+
+/** An `assistant` message carrying the `tool_use` block that starts a tool phase. */
+function toolUseFrame(id: string, name: string): Frame {
+  return {
+    type: 'assistant',
+    message: { role: 'assistant', content: [{ type: 'tool_use', id, name, input: {} }] },
+    uuid: `u-tool-${id}`,
+    session_id: PROVIDER_SESSION_ID,
+  };
+}
+
+test('the turn phase is readable under the app session id while the turn runs (AC1)', () => {
+  const writer = recordingWriter();
+
+  // A real turn with a tool call: the run loop hands the forwarder the provider
+  // id for routing/normalization but the app id for the phase key.
+  forwardNormalizedFrames({
+    transformedMessage: toolUseFrame('toolu_ff_1', 'Bash'),
+    sessionId: PROVIDER_SESSION_ID,
+    turnSessionId: APP_SESSION_ID,
+    normalizeMessage: () => [],
+    writer,
+  });
+
+  // The reading the activity heartbeat transports to the browser.
+  const announcement = activityAnnouncement(APP_SESSION_ID);
+  assert.notEqual(
+    announcement.phase,
+    'idle',
+    'the heartbeat reported idle for a running turn — the phase was written under a different id space than it is read under',
+  );
+  assert.equal(announcement.phase, 'tool', `the phase is ${announcement.phase}, not the running tool`);
+  assert.equal(announcement.toolName, 'Bash', 'the pending tool name did not survive the read');
+
+  // The same read through the tracker's own facade, so the two entry points AC1
+  // names cannot disagree: a run keyed by the provider id would answer `idle`
+  // here and leave the raw tracking key non-idle.
+  const raw = readSessionTurn(APP_SESSION_ID);
+  assert.equal(raw.phase, 'tool');
+  assert.equal(raw.toolName, 'Bash');
+});
+
+test('the phase falls back to idle when the turn’s result arrives (AC2)', () => {
+  const writer = recordingWriter();
+
+  forwardNormalizedFrames({
+    transformedMessage: toolUseFrame('toolu_ff_2', 'Bash'),
+    sessionId: PROVIDER_SESSION_ID,
+    turnSessionId: APP_SESSION_ID,
+    normalizeMessage: () => [],
+    writer,
+  });
+  assert.equal(
+    readSessionTurn(APP_SESSION_ID).phase,
+    'tool',
+    'precondition: the turn is not in the tool phase, so the fallback below would be vacuous',
+  );
+
+  forwardNormalizedFrames({
+    transformedMessage: { type: 'result', subtype: 'success', session_id: PROVIDER_SESSION_ID },
+    sessionId: PROVIDER_SESSION_ID,
+    turnSessionId: APP_SESSION_ID,
+    normalizeMessage: () => [],
+    writer,
+  });
+
+  assert.equal(
+    activityAnnouncement(APP_SESSION_ID).phase,
+    'idle',
+    'the result frame did not return the same query to idle — the tracker reports a turn that has ended',
+  );
+  assert.equal(readSessionTurn(APP_SESSION_ID).phase, 'idle');
 });

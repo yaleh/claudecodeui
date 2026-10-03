@@ -114,6 +114,13 @@ export function activityAnnouncement(sessionId: string): {
   // The phase is read from the providers module's own reduction of the raw frame
   // stream — the same reading the client's dock renders. It is not derived here:
   // this module transports the answer, it does not compute one.
+  //
+  // `sessionId` here is the **app session id** a client subscribes with, and the
+  // providers module must have fed the tracker under that same id. A tracker fed
+  // the provider-native id instead would miss on every read and answer `idle`
+  // for a running turn (gap-activity-turn-phase-id-space-mismatch); the fix for
+  // that lives at the write seam (`forwardNormalizedFrames`'s `turnSessionId`),
+  // not here — this module has only the app id and no provider id to translate to.
   const turn = readSessionTurn(sessionId);
   return {
     bootId: BOOT_ID,

@@ -844,6 +844,14 @@ export function countOpenStreamBlocks(writer: ProviderRuntimeWriter): number {
  * are sent on a timer that outlives any single run's writer. State is still keyed
  * per session inside the tracker, so two sessions cannot read each other's phase.
  *
+ * It is keyed by the **app session id** — the stable id a browser subscribes with
+ * and the activity heartbeat transports under (`activity-heartbeat.service.ts` →
+ * `readSessionTurn`). The forwarder feeds it under that same id (`turnSessionId`),
+ * which is what lets a read find the phase of a turn that is genuinely running
+ * instead of missing on every frame and reporting `idle`. See
+ * `forwardNormalizedFrames` for why the routing id and the tracked id are not the
+ * same value on the real run loop.
+ *
  * It lives here rather than in a service of its own because this file already
  * owns the one seam both the real run loop and the debug agent's rows cross
  * (`forwardNormalizedFrames`), and the tracker is that seam's reading — see
@@ -883,15 +891,31 @@ export function readSessionTurn(sessionId: string): TurnState {
  * `msg.blockKey` rather than baked into the normalizer so the history reads that
  * share that normalizer can never carry one.
  *
+ * The turn tracker is fed under `turnSessionId` — the *stable app session id* —
+ * and not under `sessionId`. Those are two different id spaces: `sessionId` is
+ * whatever id the normalizer and the run writer address the run by (on the real
+ * run loop that is the provider-native id the SDK reports), while the activity
+ * frames read the phase back under the **app session id** the browser
+ * subscribes with (`activity-heartbeat.service.ts` → `readSessionTurn`). Feeding
+ * the tracker the provider id while reading it with the app id meant every read
+ * missed and reported `idle` for a turn that was genuinely running, which is why
+ * the dock stayed on the fallback `Working…` label and never timed. Keying the
+ * tracker by the app id is the one id space both ends already share; a caller
+ * that only has a provider-native id (a legacy/direct API caller with no app
+ * session) falls back to it, and the reader has no app id to read it with then
+ * either.
+ *
  * @param {Object} params
  * @param {Object} params.transformedMessage - SDK message, after transformMessage
- * @param {string|null} params.sessionId - Session the frames belong to
+ * @param {string|null} params.sessionId - Id the frames are routed/normalized under
+ * @param {string|null} [params.turnSessionId] - Stable app session id the turn phase is keyed by; defaults to `sessionId`
  * @param {Function} params.normalizeMessage - Provider normalizer, `(raw, sessionId) => NormalizedMessage[]`
  * @param {Object} params.writer - Run writer (the socket connection); only its `send(message)` is used
  */
-export function forwardNormalizedFrames({ transformedMessage, sessionId, normalizeMessage, writer }: {
+export function forwardNormalizedFrames({ transformedMessage, sessionId, turnSessionId, normalizeMessage, writer }: {
   transformedMessage: AnyRecord;
   sessionId: string | null;
+  turnSessionId?: string | null;
   normalizeMessage: (raw: unknown, sessionId: string | null) => AnyRecord[];
   writer: ProviderRuntimeWriter;
 }): void {
@@ -901,8 +925,9 @@ export function forwardNormalizedFrames({ transformedMessage, sessionId, normali
   // on purpose (`system/thinking_tokens` normalizes to nothing). The phase it
   // records is read back by the activity frames (`activity-heartbeat.service.ts`),
   // which is how a browser learns what a running turn is *actually* doing.
-  if (sessionId) {
-    turnTracker.observe(sessionId, transformedMessage);
+  const trackedSessionId = turnSessionId ?? sessionId;
+  if (trackedSessionId) {
+    turnTracker.observe(trackedSessionId, transformedMessage);
   }
 
   const blockKey = trackStreamBlock({
@@ -1523,13 +1548,22 @@ async function queryClaudeSDK(
 
       // Transform and normalize message via adapter
       const transformedMessage = transformMessage(message);
+      // Id the frames are routed by: the provider-native id once the SDK has
+      // revealed it, so a `session_created` event and the frames that follow it
+      // agree.
       const sid = capturedSessionId || sessionId || null;
+      // Id the turn phase is keyed by: the *app session id* the activity
+      // heartbeat reads back with. `sessionId` is that id (callers pass the
+      // stable app session id); a legacy/direct API caller with none falls back
+      // to the provider id, which is all it has.
+      const turnSessionId = sessionId || capturedSessionId || null;
 
       // Normalize this SDK event and hand each resulting frame to the writer.
       // The loop is extracted so the seam itself is covered by a fake-writer test.
       forwardNormalizedFrames({
         transformedMessage,
         sessionId: sid,
+        turnSessionId,
         normalizeMessage: context.normalizeMessage,
         writer: ws
       });

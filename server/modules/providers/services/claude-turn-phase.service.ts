@@ -24,6 +24,15 @@
  * State is per tracker instance and keyed by session id, so two sessions fed
  * interleaved frames cannot read each other's phase. A module-level singleton
  * would pass every single-session test and fail exactly the cross-talk one.
+ *
+ * **The key is the app session id, and every edge must agree on it.** A caller
+ * that observes under one id space and reads under another gets a fresh `idle`
+ * record on every read (`getTurn` answers `idle` for an unknown key) — a turn
+ * that is genuinely running would be reported as not running, with no error. On
+ * the real run loop the provider-native id the SDK reports is *not* the id the
+ * activity frames read back under, so the forwarder feeds this reducer the app
+ * session id explicitly (`forwardNormalizedFrames`'s `turnSessionId`); see that
+ * seam for the two ids and why they differ.
  */
 
 /**

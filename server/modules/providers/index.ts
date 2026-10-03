@@ -53,7 +53,10 @@ export type { TurnPhase, TurnState } from './services/claude-turn-phase.service.
 // last reduced it. Consumed by the websocket module's activity heartbeat, which
 // stamps it onto the activity frames a browser reads — the providers module owns
 // the reduction, the websocket module owns the transport, and this is the one
-// edge between them.
+// edge between them. It is keyed by the **app session id** (the id a client
+// subscribes with), because that is the one id space the heartbeat has; the
+// forwarder feeds the tracker under the same id (`turnSessionId`) so a running
+// turn is not reported as `idle`.
 export { readSessionTurn } from './list/claude/claude-runtime.provider.js';
 export { providerRegistry } from './provider.registry.js';
 // providerRoutes: the module's HTTP face. Mounted by `server/index.ts`, and by
