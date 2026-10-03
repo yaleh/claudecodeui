@@ -2,13 +2,19 @@
 id: gap-goal-017-exit-clause-nonregression-ac
 title: GOAL-017 退出条件第 9 条（AC-106..111 与 GOAL-016 折叠不变量保持为绿）无在域 AC
   覆盖：提议新增一条把该回归门机械化的 AC，并登记两处范围欠账，交人裁定
-status: todo
+status: needs-human
 labels:
   - gap
 parent: null
 children: []
 extra:
   schema: execution
+  needs_human_cause: human-adjudication
+  park_reason: 跟进提案（GOAL-017 充分性判官 verdict=insufficient，自 2026-10-03T16:34:11.861Z
+    未变，见 .quay/goal-sufficiency-followup.json / goal-round.jsonl round
+    456）：GOAL-017 退出条件第 9 条（AC-106..111 与 GOAL-016 折叠不变量保持为绿）无在域 AC
+    覆盖。本任务只提议新增一条回归门 AC（暂记 AC-217）+ 登记两处范围欠账；须人裁定后由被授权的 goal 写入路径落地。本 agent 不改
+    goals/*.md、不改任何 GOAL/AC 状态。
 ---
 ## Proposal
 
