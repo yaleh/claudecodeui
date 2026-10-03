@@ -1,7 +1,7 @@
 ---
 id: gap-quay-panel-stage-goals-tests-fanin-cards
 title: Quay 面板补齐 Stage goals/Task ledger/Tests/Fan-in 四张卡(镶同款数据源)
-status: todo
+status: ready
 labels:
   - gap
 parent: null
