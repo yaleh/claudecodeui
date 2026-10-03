@@ -39,13 +39,13 @@ goal_ac: AC-198
 
 ## AC
 
-- [ ] `test -f server/modules/websocket/tests/chat-control-ownership.test.ts` 退出 0（判据文件落地）。
-- [ ] 判据逐字命令全绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-control-ownership.test.ts server/modules/websocket/tests/chat-edit-send.test.ts server/modules/websocket/tests/chat-permission-mode.test.ts`。
-- [ ] 新用例断言：cancel-queued 回执带 requestId（`frame.requestId === <sent>`）。
-- [ ] 新用例断言：归属不符 ⇒ `result === 'forbidden'` 且 runtime stub 的 `cancelQueuedInput` 调用次数为 0。
-- [ ] 新用例断言：三者（stop-task / background-task / cancel-queued）都命中同一注入入口（计数 spy 各 1 次）。
-- [ ] 既有 chat-edit-send 与 chat-permission-mode 保持绿；若因多了 requestId 字段需同步，只把字段加进期望，不得放宽成忽略整个字段。
-- [ ] 假形态实测：临时移除 cancel-queued 的归属校验，ownership 用例出现红（留输出），恢复后转绿。
+- [x] `test -f server/modules/websocket/tests/chat-control-ownership.test.ts` 退出 0（判据文件落地）。
+- [x] 判据逐字命令全绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-control-ownership.test.ts server/modules/websocket/tests/chat-edit-send.test.ts server/modules/websocket/tests/chat-permission-mode.test.ts`。
+- [x] 新用例断言：cancel-queued 回执带 requestId（`frame.requestId === <sent>`）。
+- [x] 新用例断言：归属不符 ⇒ `result === 'forbidden'` 且 runtime stub 的 `cancelQueuedInput` 调用次数为 0。
+- [x] 新用例断言：三者（stop-task / background-task / cancel-queued）都命中同一注入入口（计数 spy 各 1 次）。
+- [x] 既有 chat-edit-send 与 chat-permission-mode 保持绿；若因多了 requestId 字段需同步，只把字段加进期望，不得放宽成忽略整个字段。
+- [x] 假形态实测：临时移除 cancel-queued 的归属校验，ownership 用例出现红（留输出），恢复后转绿。
 
 ## DoD
 
@@ -61,3 +61,18 @@ goal_ac: AC-198
 - tasks/gap-chat-control-ownership-cancel-queued.md
 
 归属入口的落点若与 `chat-websocket.service.ts` 不同（AC-196 另有裁定，例如放到 `server/modules/sessions/` 的公开面），实现时把那个具体模块文件一并写进本段。
+
+## Evidence
+
+判据（2026-10-04，worktree 实测）：
+
+- `npx tsx --tsconfig server/tsconfig.json --test` 三文件：18 tests / 18 pass / 0 fail。
+- 读数（criterion 自带 `say` 行）：
+  - AC3 `granted={"kind":"queued_input_cancel_result","requestId":"<uuid>","messageUuid":"msg-owned","result":"withdrawn","driverCalls":1}`
+  - AC4 `denied={"result":"forbidden","requestId":"<uuid>","driverCalls":0}`（生产入口，匿名 socket）
+  - AC2 `missingRequestIdCode=REQUEST_ID_REQUIRED`
+  - AC5 `{"stopCalls":1,"backgroundCalls":1,"cancelCalls":1,"total":3}`（三者命中同一注入入口各 1 次）
+  - AC5 forbidden `{"results":{"stop":"forbidden","background":"forbidden","cancel":"forbidden"},"entryCalls":3,"drivers":{"stop":0,"background":0,"cancel":0}}`
+- 假形态实测（AC7）：临时把 cancel-queued 的 `accessEntry(dependencies)(userId, session)` 换成 `if (false)`，criterion 转红——`AssertionError: an unauthorized request must answer forbidden (got withdrawn)`；`chat.cancel-queued must go through the shared entry exactly once`；forbidden 臂 `cancel:"withdrawn"` / `entryCalls:2` / cancel driver 1。恢复后转绿（3/3 pass）。
+- 邻接控制动词回归：`chat-stop-task.test.ts` + `chat-background-task.test.ts` 一并跑，30 tests / 30 pass / 0 fail。
+- 类型：`tsc -p server/tsconfig.json` 与 `tsc -p tsconfig.json` 均 exit 0；`oxlint` 改动文件 exit 0（仅存量 memoization warning）。
