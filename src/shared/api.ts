@@ -3,6 +3,7 @@ import {
   getStoredAuthToken,
   storeAuthToken,
 } from '@/shared/authToken';
+import type { SessionMessagesQuery } from '@/shared/types';
 import { IS_PLATFORM } from '@/shared/utils';
 import type { VoiceConfig } from '@/shared/voiceConfig';
 import { readVoiceConfig, voiceConfigHeaders, whenVoiceConfigReady } from '@/shared/voiceConfig';
@@ -150,15 +151,22 @@ const del = withBody('DELETE');
 // `EventSource` and `XMLHttpRequest` need a bare URL.
 
 /**
- * Persisted messages for one session. Omitting `limit` requests the whole
- * transcript; passing one always pairs it with an explicit offset so automatic
- * refreshes can never accidentally become an unbounded transcript request.
+ * Persisted messages for one session, in either of the route's two shapes.
+ *
+ * Omitting `limit` requests the whole transcript; passing one always pairs it with
+ * an explicit offset so automatic refreshes can never accidentally become an
+ * unbounded transcript request. When `around` is set the URL is the id-anchored
+ * window read instead (`?around=<id>&before=B&after=A`) and `limit`/`offset` are
+ * dropped, matching the server's own precedence.
  */
 export const sessionMessagesUrl = (
   sessionId: string,
-  { limit = null, offset = 0 }: { limit?: number | null; offset?: number } = {},
+  { limit = null, offset = 0, around, before, after }: SessionMessagesQuery = {},
 ): string => {
   const base = `/api/providers/sessions/${encodeURIComponent(sessionId)}/messages`;
+  if (around !== undefined) {
+    return `${base}${query({ around, before, after })}`;
+  }
   return limit === null || limit === undefined
     ? base
     : `${base}${query({ limit, offset: offset ?? 0 })}`;
@@ -467,9 +475,9 @@ export const api = {
       ),
     sessionMessages: (
       sessionId: string,
-      pagination: { limit?: number | null; offset?: number } = {},
+      read: SessionMessagesQuery = {},
       options: ApiRequestOptions = {},
-    ) => get(sessionMessagesUrl(sessionId, pagination), options),
+    ) => get(sessionMessagesUrl(sessionId, read), options),
     sessionTokenUsage: (sessionId: string) =>
       get(`/api/providers/sessions/${encodeURIComponent(sessionId)}/token-usage`),
     sessionActiveModel: (provider: string, sessionId: string) =>
