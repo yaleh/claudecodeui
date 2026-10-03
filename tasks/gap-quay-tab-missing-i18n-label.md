@@ -1,7 +1,7 @@
 ---
 id: gap-quay-tab-missing-i18n-label
 title: Quay tab 缺 i18n 翻译键且标题用裸字符串字面量
-status: todo
+status: ready
 labels:
   - gap
   - defect
