@@ -73,7 +73,7 @@ goal_ac: AC-201
 - **AC4**（正控制，有分辨力）：删去 GOAL-015 样本里「最近动作」一句 —— 删前 `exit=0`、删后 `exit=1`，stderr 逐字 `缺项：步骤二「读坞里的描述/状态/最近动作」 —— 小节里找不到 「最近动作」`；两次读数由测试本体的 `[GOAL-015 正控制]` 行打印。
 - **AC5**（前置读数落盘）：提案 §12.1 逐字五行 —— 取数时本树 sha `ca7f50e7`；`tasks/gap-activity-dock-background-browser.md` → `status: done`；`tasks/gap-chat-stop-task-event-confirmed.md` → `status: done`；`tasks/gap-chat-background-task-foreground-tooluse.md` → `status: done`；`tasks/gap-ac199-dock-stop-background-controls-browser.md` → `status: done`。
 - **AC6**（不可代劳是机械事实）：`grep -c '^- 人工验收 GOAL-015：accepted' docs/proposals/claude-session-activity-dock.md` → **0**；`grep -nE 'writeFile|appendFile|createWriteStream|writeSync' scripts/activity-dock-human-gate.mjs` → **0 命中**（脚本只有 `fs.existsSync` / `fs.readFileSync`）。
-- **AC7**（契约面）：`npm run lint` → exit **0**（仅既有 warning，无 error）；`npm run typecheck` → exit **0**（`scripts/tsconfig.json` 覆盖 `**/*.mjs`）；`git diff --stat develop...HEAD` 逐条列出 Touches 的四条（提案一份、两个脚本、`tasks/gap-activity-dock-background-human-gate.md` —— 任务文件由 ABI 提交）。
+- **AC7**（契约面）：`npm run lint` → exit **0**（仅既有 warning，无 error）；`npm run typecheck` → exit **0**（`scripts/tsconfig.json` 覆盖 `**/*.mjs`）；`git diff --stat develop...HEAD` 列出三个文件 —— `docs/proposals/claude-session-activity-dock.md` / `scripts/activity-dock-human-gate.mjs` / `scripts/activity-dock-human-gate.test.mjs`，全部落在 Touches 内，无越界改动；任务文件 `tasks/gap-activity-dock-background-human-gate.md` 由 ABI（`task_write`）提交在 develop 侧，故不出现在该三段 diff 里。
 
 **本轮有意未做的**
 
