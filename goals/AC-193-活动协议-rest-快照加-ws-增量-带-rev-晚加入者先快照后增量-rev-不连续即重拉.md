@@ -1,7 +1,7 @@
 ---
 id: AC-193
 title: 活动协议：REST 快照加 WS 增量，带 rev，晚加入者先快照后增量，rev 不连续即重拉
-status: draft
+status: active
 kind: criterion
 goal: GOAL-015
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -15,4 +15,15 @@ origin: docs/proposals/claude-session-activity-dock.md（§0.1 人的裁定、§
   裁定：新增控制动词与 cancel-queued 做归属校验；取消计划任务不做控件，由用户用文本请模型调 CronDelete，坞对计划只读；Monitor
   事件在投影层折叠成一行；历史里的 isMeta 行显示与对等方目录本期不纳入。 设计 2026-10-01：推送与快照必须同源；现状是 1 秒轮询
   /api/session-hosts，隐藏标签页即停，短命任务可能整个错过。
+activatedAt: 2026-10-03T15:51:28.019Z
+statusLog:
+  - at: 2026-10-03T15:51:28.019Z
+    from: draft
+    to: active
+    actor: goal-cli
+    reason: ""
+fidelity:
+  verdict: not-evaluated
+  reason: no judge configured
+  at: 2026-10-03T15:51:28.019Z
 ---
