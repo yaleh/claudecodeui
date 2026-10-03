@@ -414,6 +414,8 @@ function countingDriver(openRun: DebugAgentOpenRun): {
     readOldestQueuedCommand: (input) => inner.readOldestQueuedCommand(input),
     acknowledgeCancel: (input) => inner.acknowledgeCancel(input),
     readCommandQueue: (appSessionId) => inner.readCommandQueue(appSessionId),
+    stopTask: (appSessionId, taskId) => inner.stopTask(appSessionId, taskId),
+    background: (appSessionId, toolUseId) => inner.background(appSessionId, toolUseId),
   };
 
   return {

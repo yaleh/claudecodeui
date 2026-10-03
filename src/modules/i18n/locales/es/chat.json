@@ -268,7 +268,9 @@
     "stop": "Detener",
     "controls": {
       "stopGeneration": "Detener generación",
-      "pressEscToStop": "Pulsa Esc en cualquier momento para detener"
+      "pressEscToStop": "Pulsa Esc en cualquier momento para detener",
+      "stopTask": "Detener tarea",
+      "backgroundTool": "Mover a segundo plano"
     },
     "providers": {
       "assistant": "Asistente"

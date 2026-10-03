@@ -16,6 +16,14 @@ type SubagentPanelProps = {
   onFileOpen?: (filePath: string, diffInfo?: unknown) => void;
   createDiff: (oldStr: string, newStr: string) => DiffLine[];
   selectedProject?: Project | null;
+  /**
+   * The lifecycle state of the Task entity this card launched, read by the
+   * card's `tool_use` id (AC-194). When present it is the header's status — the
+   * card reads the backend's task table rather than inferring running/done from
+   * whether a result row happens to be folded in. Absent (no task yet, or a
+   * provider without a task table) falls back to the transcript's own reading.
+   */
+  taskState?: string | null;
 };
 
 /**
@@ -105,6 +113,7 @@ export const SubagentPanel = memo(({
   onFileOpen,
   createDiff,
   selectedProject,
+  taskState = null,
 }: SubagentPanelProps) => {
   // Collapsed by default: an agent is a summary of work, and its detail is
   // only wanted on demand.
@@ -121,6 +130,15 @@ export const SubagentPanel = memo(({
 
   const entries = activity ?? [];
   const status = subagent?.status ?? (toolResult ? 'completed' : 'running');
+  // The Task entity's state is the header's status when the card has one: it is
+  // a fact about the backend's task table, not an inference from whether a
+  // result row is present. `running` is the only non-terminal word; every other
+  // state is drawn as itself.
+  const headerState = taskState ?? status;
+  // True while the header should pulse: a task the entity reports as running, or
+  // (no entity) the transcript's own running status.
+  const headerRunning = headerState === 'running';
+  const headerFailed = headerState === 'failed';
   const toolCount = entries.filter((entry) => entry.kind === 'tool').length;
   // Claude names its agent presets (Explore, Plan); Codex has none, so the
   // neutral label carries and the assigned nickname shows alongside it.
@@ -135,7 +153,10 @@ export const SubagentPanel = memo(({
   const hiddenCount = entries.length - visibleEntries.length;
 
   return (
-    <div className="my-1 border-l-2 border-l-purple-500 py-0.5 pl-3 dark:border-l-purple-400">
+    <div
+      data-card-folded-status={status}
+      className="my-1 border-l-2 border-l-purple-500 py-0.5 pl-3 dark:border-l-purple-400"
+    >
       <button
         type="button"
         aria-expanded={isOpen}
@@ -154,16 +175,24 @@ export const SubagentPanel = memo(({
         {nickname && (
           <span className="flex-shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground/70">{nickname}</span>
         )}
-        <span className={cn('ml-auto flex flex-shrink-0 items-center gap-1 text-[11px]', STATUS_STYLES[status])}>
-          {status === 'running' ? (
+        <span
+          {...(taskState !== null ? { 'data-card-task-state': taskState } : {})}
+          className={cn('ml-auto flex flex-shrink-0 items-center gap-1 text-[11px]', STATUS_STYLES[status])}
+        >
+          {headerRunning ? (
             <>
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-purple-500 dark:bg-purple-400" />
               running
             </>
-          ) : status === 'failed' ? (
+          ) : headerFailed ? (
             <>
               <CircleAlert className="h-3 w-3" />
               failed
+            </>
+          ) : taskState !== null ? (
+            <>
+              <CircleCheck className="h-3 w-3" />
+              {headerState}
             </>
           ) : (
             <>

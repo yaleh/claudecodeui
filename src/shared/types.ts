@@ -403,7 +403,7 @@ export type ActivityConnection = {
  * taken — the socket was gone or no answer came inside the deadline — so there
  * is deliberately no turn to speak about, only the failure to report.
  */
-export type ActivityDockState = 'hidden' | 'in-turn' | 'unreachable' | 'send-failed';
+export type ActivityDockState = 'hidden' | 'in-turn' | 'unreachable' | 'send-failed' | 'background';
 
 /**
  * What a running turn is doing, as the server's own frame reduction reports it.
@@ -421,6 +421,78 @@ export type ActivityPhase =
   | 'tool'
   | 'awaitingPermission'
   | 'compacting';
+
+//----------------- BACKGROUND WORK (TASKS / SCHEDULES) ------------
+
+/** The kind of work a background task represents, mirroring the server's `TaskKind`. */
+export type ActivityTaskKind = 'subagent' | 'shell' | 'monitor' | 'workflow' | 'other';
+
+/**
+ * A background task's lifecycle state, mirroring the server's `TaskState`.
+ *
+ * `stopped` is not `failed`: it is a task ended by a stop, and `ended` is one the
+ * Stop hook stopped naming with no stated cause. Both are terminal.
+ */
+export type ActivityTaskState = 'running' | 'blocked' | 'completed' | 'failed' | 'stopped' | 'ended';
+
+/**
+ * One row of a session's task table, as the activity snapshot carries it.
+ *
+ * The shape is the server's `ActivityTask` (AC-191) transported verbatim; the
+ * client renders it and never derives a state of its own. Optional fields are
+ * absent (not `undefined`-valued) when the frames never supplied them.
+ */
+export type ActivityTaskView = {
+  taskId: string;
+  kind: ActivityTaskKind;
+  state: ActivityTaskState;
+  /** The `tool_use` block that launched this task, for joining a transcript card. */
+  toolUseId?: string;
+  parentTaskId?: string;
+  isBackgrounded: boolean;
+  workflowName?: string;
+  /** The latest progress description — a workflow's current step label. */
+  stepLabel?: string;
+  description: string;
+  summary?: string;
+  endReason?: 'unknown';
+  origin: 'sdk-event' | 'stop-hook-snapshot';
+  startedAt?: number;
+  endedAt?: number;
+};
+
+/** One row of a session's schedule table, as the activity snapshot carries it. */
+export type ActivityScheduleView = {
+  scheduleId: string;
+  kind: 'cron' | 'wakeup';
+  /** The cron expression (authoritative) or the CLI's human description (provisional). */
+  spec: string;
+  recurring: boolean;
+  prompt?: string;
+  /** The next fire instant, minute-granular epoch ms; absent when unevaluable. */
+  nextFireAt?: number;
+  expiresAt?: number;
+  source: 'tool-call' | 'stop-hook';
+  toolUseId?: string;
+};
+
+/**
+ * A whole activity snapshot as it arrives over the socket: the store's
+ * `activity.snapshot` (sent to a joiner before any change) or an
+ * `activity.upsert` (the whole thing again, on every revision). Both carry the
+ * same fields — the client replaces its picture rather than applying a delta.
+ */
+export type ActivitySnapshotFrame = {
+  kind: 'activity.snapshot' | 'activity.upsert';
+  sessionId: string;
+  bootId: string;
+  rev: number;
+  asOf: number;
+  /** The server's turn projection; the dock reads its phase through the heartbeat. */
+  turn: unknown;
+  tasks: ActivityTaskView[];
+  schedules: ActivityScheduleView[];
+};
 
 // ---------------------------
 

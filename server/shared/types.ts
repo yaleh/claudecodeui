@@ -2312,6 +2312,17 @@ export type ResidentFeatures = {
   inputWhileBusy: boolean;
   /** Input that has not yet been dequeued can be withdrawn. */
   cancelQueuedInput: boolean;
+  /**
+   * A running *foreground* tool can be promoted to a background task without
+   * ending the turn or the process (the SDK's `Query.backgroundTasks`).
+   *
+   * Unmeasured against a live resident process, so it states `false` — the same
+   * conservative default `cancelQueuedInput` and `authoritativeLeases` take. The
+   * value is what the background-task control plane reads before it reaches any
+   * driver: a `false` is answered `unsupported` rather than risking a verb the
+   * resident control channel has not been shown to carry.
+   */
+  backgroundTasks: boolean;
   /** The reasons keeping the process alive come from the CLI's own events, not from inference. */
   authoritativeLeases: boolean;
   /** Reserved: reachability through the provider's own remote-control bridge. */
@@ -2415,6 +2426,24 @@ export const COMMAND_LIFECYCLE_ROW_TYPE = 'command_lifecycle';
  */
 export const CLAUDE_TOOL_USE_BLOCK_TYPE = 'tool_use';
 export const CLAUDE_TOOL_RESULT_BLOCK_TYPE = 'tool_result';
+
+/**
+ * The claude dialect's four `system` subtypes a background task's lifecycle is
+ * carried by: the task table's reducer (AC-191,
+ * `claude-activity-task-reducer.service.ts`) reads each one off the raw frame.
+ *
+ * Exported for the same reason {@link COMMAND_LIFECYCLE_ROW_TYPE} is: the strings
+ * sit on the row → frame edge, and a producer forbidden from naming a frame in
+ * its own sources — the debug agent, whose static guard lists `task_notification`
+ * as a forbidden wire literal
+ * (`server/modules/debug-agent/tests/debug-agent-vocabulary-guard.test.ts`) —
+ * references the dialect's name here instead of embedding the literal. The
+ * reducer recognises the frames by these same strings.
+ */
+export const CLAUDE_TASK_STARTED_SUBTYPE = 'task_started';
+export const CLAUDE_TASK_PROGRESS_SUBTYPE = 'task_progress';
+export const CLAUDE_TASK_UPDATED_SUBTYPE = 'task_updated';
+export const CLAUDE_TASK_NOTIFICATION_SUBTYPE = 'task_notification';
 
 /**
  * The option the chat transport stamps on every turn it dispatches, marking the

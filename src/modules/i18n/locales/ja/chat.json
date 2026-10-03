@@ -233,7 +233,9 @@
     },
     "controls": {
       "stopGeneration": "Stop Generation",
-      "pressEscToStop": "Press Esc anytime to stop"
+      "pressEscToStop": "Press Esc anytime to stop",
+      "stopTask": "タスクを停止",
+      "backgroundTool": "バックグラウンドへ"
     },
     "providers": {
       "assistant": "Assistant"

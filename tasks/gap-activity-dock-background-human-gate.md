@@ -2,7 +2,7 @@
 id: gap-activity-dock-background-human-gate
 title: AC-201 人工关卡：在真实 resident 会话里启动后台子代理与 Monitor，从坞里看到并停止、读到 stopped；验收行写进提案
   §12，只由人写
-status: todo
+status: needs-human
 labels:
   - gap
 parent: null
@@ -42,13 +42,13 @@ goal_ac: AC-201
 
 ## AC
 
-- [ ] AC1 AC-201 判据仍为红态（正确态：人未验收）：`test "$(grep -c '^- 人工验收 GOAL-015：accepted' docs/proposals/claude-session-activity-dock.md)" -ge 1` 退出 **1**，stderr 逐字 `GOAL-015 人工验收尚未记录：…`。执行者不得代写那一行。
-- [ ] AC2 记录小节机械可验：`node scripts/activity-dock-human-gate.mjs --gate goal015 --check-record docs/proposals/claude-session-activity-dock.md` 退出 **0**。小节须含四步人工动作、三条人要读到的读数（`描述`/`状态`/`最近动作`；`由 SDK 的通知`变为 `stopped`；前台长命令`转后台`）、人证行格式 `- 人工验收 GOAL-015：accepted <人> <日期>`（内联呈现）与「只由人写」声明。
-- [ ] AC3 护栏判据绿且非回归：`node --test scripts/activity-dock-human-gate.test.mjs` 退出 **0**；GOAL-014 既有用例保持绿，GOAL-015 覆盖缺文件 / 缺小节 / 缺任一项三种红态（各 exit 1 并点名）与「小节齐全但人证行缺失仍 exit 0 且打印 `人证行：absent`」一态。
-- [ ] AC4 正控制（有分辨力，不是恒真）：把样本记录 §12 里的一句必需要点（例如「最近动作」）删去，`--gate goal015 --check-record` 必须 exit 1 并点名该缺失；打印删前 exit 0、删后 exit 1 两次读数。
-- [ ] AC5 前置读数落盘：§12 里有本树 sha（`git rev-parse --short HEAD`）与四条 sibling（AC-194/196/197/199）的落地状态读数（打印该四行逐字）。
-- [ ] AC6 人工关卡不可代劳是机械事实：交付时 `grep -c '^- 人工验收 GOAL-015：accepted' docs/proposals/claude-session-activity-dock.md` → **0**；且 `grep -nE 'writeFile|appendFile|createWriteStream|writeSync' scripts/activity-dock-human-gate.mjs` → **0 命中**（脚本里不存在把该行写进文件的代码路径）。
-- [ ] AC7 契约面：`npm run lint` 退出 0、`npm run typecheck` 退出 0；改动只落在 Touches 列出的文件上（`git diff --stat develop...HEAD` 与 Touches 逐条对齐）。
+- [x] AC1 AC-201 判据仍为红态（正确态：人未验收）：`test "$(grep -c '^- 人工验收 GOAL-015：accepted' docs/proposals/claude-session-activity-dock.md)" -ge 1` 退出 **1**，stderr 逐字 `GOAL-015 人工验收尚未记录：…`。执行者不得代写那一行。
+- [x] AC2 记录小节机械可验：`node scripts/activity-dock-human-gate.mjs --gate goal015 --check-record docs/proposals/claude-session-activity-dock.md` 退出 **0**。小节须含四步人工动作、三条人要读到的读数（`描述`/`状态`/`最近动作`；`由 SDK 的通知`变为 `stopped`；前台长命令`转后台`）、人证行格式 `- 人工验收 GOAL-015：accepted <人> <日期>`（内联呈现）与「只由人写」声明。
+- [x] AC3 护栏判据绿且非回归：`node --test scripts/activity-dock-human-gate.test.mjs` 退出 **0**；GOAL-014 既有用例保持绿，GOAL-015 覆盖缺文件 / 缺小节 / 缺任一项三种红态（各 exit 1 并点名）与「小节齐全但人证行缺失仍 exit 0 且打印 `人证行：absent`」一态。
+- [x] AC4 正控制（有分辨力，不是恒真）：把样本记录 §12 里的一句必需要点（例如「最近动作」）删去，`--gate goal015 --check-record` 必须 exit 1 并点名该缺失；打印删前 exit 0、删后 exit 1 两次读数。
+- [x] AC5 前置读数落盘：§12 里有本树 sha（`git rev-parse --short HEAD`）与四条 sibling（AC-194/196/197/199）的落地状态读数（打印该四行逐字）。
+- [x] AC6 人工关卡不可代劳是机械事实：交付时 `grep -c '^- 人工验收 GOAL-015：accepted' docs/proposals/claude-session-activity-dock.md` → **0**；且 `grep -nE 'writeFile|appendFile|createWriteStream|writeSync' scripts/activity-dock-human-gate.mjs` → **0 命中**（脚本里不存在把该行写进文件的代码路径）。
+- [x] AC7 契约面：`npm run lint` 退出 0、`npm run typecheck` 退出 0；改动只落在 Touches 列出的文件上（`git diff --stat develop...HEAD` 与 Touches 逐条对齐）。
 
 ## DoD
 
@@ -58,6 +58,29 @@ goal_ac: AC-201
 - 前置读数（本树 sha + 四条 sibling 落地状态）已落盘，不是转述。
 - **AC1 保持红、AC2–AC7 绿时，本任务的正确终态是 `needs-human`，不是 `done`。** 那一行只能由人 yale 在真实 resident 会话里走完四步、读到三条读数之后写；执行者代写即为造假 —— 判据会因那一行翻绿，但它不是执行者的产物，一旦代写，人工关卡就失去了它作为人证的意义。
 - 不给本任务加 （待外部） 后缀（AC-201 逐字：不得给本条的待办加 （待外部） 后缀）。
+
+## 完成记录
+
+**执行 2026-10-04（取数树 sha `ca7f50e7` 之上）—— 机械面全绿，AC1 保持红（正确态），终态 needs-human（不是 done）**
+
+本条不写产品代码：后台工作的可见与可控分别由 AC-191…AC-200 落地。本轮只建取证通道 —— 提案 §12 的人工验收记录、按关卡取材的只读 `--check-record` 校验脚本（`--gate goal014|goal015`）、以及扩展后的护栏判据。**人证行未写**（`grep -c '^- 人工验收 GOAL-015：accepted'` → 0），执行者不得代写。
+
+**逐条复验（本轮直跑，读数不是推断）**
+
+- **AC1**（判据仍为红态，正确态）：`test "$(grep -c '^- 人工验收 GOAL-015：accepted' docs/proposals/claude-session-activity-dock.md)" -ge 1` → exit **1**，stderr 逐字 `GOAL-015 人工验收尚未记录：docs/proposals/claude-session-activity-dock.md 里没有 "- 人工验收 GOAL-015：accepted" 行`；`grep -c` 读数 **0**。
+- **AC2**（记录小节机械可验）：`node scripts/activity-dock-human-gate.mjs --gate goal015 --check-record docs/proposals/claude-session-activity-dock.md` → exit **0**，stdout 逐字 `记录合格：docs/proposals/claude-session-activity-dock.md 人工验收小节齐全且无模板泄漏；人证行：absent`。§12.2/§12.3 含四步动作与三条读数（`描述`/`状态`/`最近动作`；`由 SDK 的通知`变为 `stopped`；前台长命令`转后台`成为`后台任务`），§12.4 内联给出人证行格式与「只由人写」声明。
+- **AC3**（护栏判据绿且非回归）：`node --test scripts/activity-dock-human-gate.test.mjs` → exit **0**，`tests 24 / pass 24 / fail 0`；GOAL-014 既有 11 例全绿，GOAL-015 覆盖缺文件、缺小节、缺任一条读数（三条各删一次）三态红，`人证行：absent` 与 `人证行：present` 两态绿，GOAL-015 前缀行首模板泄漏一态红。
+- **AC4**（正控制，有分辨力）：删去 GOAL-015 样本里「最近动作」一句 —— 删前 `exit=0`、删后 `exit=1`，stderr 逐字 `缺项：步骤二「读坞里的描述/状态/最近动作」 —— 小节里找不到 「最近动作」`；两次读数由测试本体的 `[GOAL-015 正控制]` 行打印。
+- **AC5**（前置读数落盘）：提案 §12.1 逐字五行 —— 取数时本树 sha `ca7f50e7`；`tasks/gap-activity-dock-background-browser.md` → `status: done`；`tasks/gap-chat-stop-task-event-confirmed.md` → `status: done`；`tasks/gap-chat-background-task-foreground-tooluse.md` → `status: done`；`tasks/gap-ac199-dock-stop-background-controls-browser.md` → `status: done`。
+- **AC6**（不可代劳是机械事实）：`grep -c '^- 人工验收 GOAL-015：accepted' docs/proposals/claude-session-activity-dock.md` → **0**；`grep -nE 'writeFile|appendFile|createWriteStream|writeSync' scripts/activity-dock-human-gate.mjs` → **0 命中**（脚本只有 `fs.existsSync` / `fs.readFileSync`）。
+- **AC7**（契约面）：`npm run lint` → exit **0**（仅既有 warning，无 error）；`npm run typecheck` → exit **0**（`scripts/tsconfig.json` 覆盖 `**/*.mjs`）；`git diff --stat develop...HEAD` 列出三个文件 —— `docs/proposals/claude-session-activity-dock.md` / `scripts/activity-dock-human-gate.mjs` / `scripts/activity-dock-human-gate.test.mjs`，全部落在 Touches 内，无越界改动；任务文件 `tasks/gap-activity-dock-background-human-gate.md` 由 ABI（`task_write`）提交在 develop 侧，故不出现在该三段 diff 里。
+
+**本轮有意未做的**
+
+- 未写人证行（那一行的格式见提案 §12.4）：它只能由人 yale 在真实 resident 会话里走完 §12.2 的四步、读到 §12.3 的三条读数之后写；执行者代写即为造假 —— 判据会因此翻绿，但它不是人的产物。
+- 未给本任务加 （待外部） 后缀（AC-201 逐字禁止）。
+
+**为什么终态是 needs-human**：AC1 的红是**正确态**（人未验收），AC2–AC7 是执行者能交付的全部机械面；AC-201 要等人写下那一行才会翻绿，所以本任务现在**不是 done**，也不该被机械翻成 done。分支保持在可 ff 的形状；人证写完后可再走一次 fan-in 落地。
 
 ## Touches
 

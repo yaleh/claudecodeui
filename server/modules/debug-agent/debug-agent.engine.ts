@@ -23,6 +23,10 @@ import {
   appendTranscriptRow,
   buildCommandLifecycleRow,
   buildMessageRow,
+  buildTaskNotificationRow,
+  buildTaskProgressRow,
+  buildTaskStartedRow,
+  buildTaskUpdatedRow,
   buildTextDeltaRow,
   buildThinkingTokensRow,
   buildToolResultRow,
@@ -203,6 +207,18 @@ export type DebugAgentRunReading = {
 };
 
 /**
+ * The `task_updated.status` words that settle a task.
+ *
+ * The words are the dialect's own (`killed` is the one the CLI emits after a
+ * stop; the reducer maps it to `stopped`). A patch with any of these has ended
+ * the task and is stamped with an end instant; a patch with any other word
+ * (`running`, `paused`) is a live update and carries none. Kept as a set rather
+ * than restating the reducer's terminal-state mapping, because this list is
+ * about the FRAME's vocabulary (`status`), not the table's (`state`).
+ */
+const TERMINAL_TASK_STATUSES: ReadonlySet<string> = new Set(['completed', 'failed', 'killed', 'stopped']);
+
+/**
  * Runs one armed scenario.
  *
  * The clock is absolute: `steps[].at` is milliseconds from the start of the run,
@@ -304,6 +320,17 @@ export async function runDebugAgentScenario(input: DebugAgentRunInput): Promise<
    * id is the engine's to mint exactly as a command's uuid is the host's.
    */
   let pendingToolUseId: string | null = null;
+
+  /**
+   * The `tool_use` id of the most recent tool call, kept until the next call.
+   *
+   * Distinct from {@link pendingToolUseId}, which the paired result consumes: a
+   * `task-started` step joins its task to the card that launched it by that id,
+   * and the card is drawn from a call whose result may never arrive (a
+   * backgrounded task has no result until it finishes). Cleared only by the next
+   * call, so a task step names the call that is still on screen.
+   */
+  let lastToolUseId: string | null = null;
 
   const appendCommandLifecycle = (commandUuid: string, state: CommandLifecycleState): void => {
     const row = buildCommandLifecycleRow({
@@ -447,8 +474,81 @@ export async function runDebugAgentScenario(input: DebugAgentRunInput): Promise<
         const timestamp = new Date().toISOString();
         appendDialectRow((parentUuid) => buildToolUseRow({
           sessionId, cwd, timestamp, uuid: crypto.randomUUID(), parentUuid, toolUseId, name: step.name,
+          toolInput: step.input,
         }));
         pendingToolUseId = toolUseId;
+        lastToolUseId = toolUseId;
+        break;
+      }
+
+      case 'task-started': {
+        // The task whose card this join is for is whichever call is still on
+        // screen (`lastToolUseId`), never a value the document names: the id is
+        // the engine's to mint, and a scenario that restated it would be a
+        // second place the two could disagree.
+        const timestamp = new Date().toISOString();
+        appendDialectRow((parentUuid) => buildTaskStartedRow({
+          sessionId, cwd, timestamp, uuid: crypto.randomUUID(), parentUuid,
+          taskId: step.taskId, taskType: step.taskType, description: step.description,
+          toolUseId: lastToolUseId, startedAt: Date.now(),
+        }));
+        break;
+      }
+
+      case 'task-progress': {
+        const timestamp = new Date().toISOString();
+        appendDialectRow((parentUuid) => buildTaskProgressRow({
+          sessionId, cwd, timestamp, uuid: crypto.randomUUID(), parentUuid,
+          taskId: step.taskId, description: step.description,
+        }));
+        break;
+      }
+
+      case 'task-updated': {
+        // A patch that marks a task backgrounded states no end instant: the task
+        // is still running, and stamping `ended_at` would make the dock compute
+        // its elapsed from a finish that has not happened. Only a patch whose
+        // status is terminal settles the task, so only that one carries an end.
+        const timestamp = new Date().toISOString();
+        appendDialectRow((parentUuid) => buildTaskUpdatedRow({
+          sessionId, cwd, timestamp, uuid: crypto.randomUUID(), parentUuid,
+          taskId: step.taskId, status: step.status,
+          ...(step.isBackgrounded === true ? { isBackgrounded: true } : {}),
+          ...(TERMINAL_TASK_STATUSES.has(step.status) ? { endedAt: Date.now() } : {}),
+        }));
+        break;
+      }
+
+      case 'task-notification': {
+        const timestamp = new Date().toISOString();
+        appendDialectRow((parentUuid) => buildTaskNotificationRow({
+          sessionId, cwd, timestamp, uuid: crypto.randomUUID(), parentUuid,
+          taskId: step.taskId, status: step.status, summary: step.summary, endedAt: Date.now(),
+        }));
+        break;
+      }
+
+      case 'schedule-plan': {
+        // A plan is not a task: it has no lifecycle events of its own. The
+        // reducer reads it from a `CronCreate` call and its paired result, so
+        // the step writes both rows — the call (carrying the expression and the
+        // prompt on its input) and the result (whose text names the job id and
+        // the CLI's human description). The id is minted here; the result text
+        // states the job id the next Stop hook would name, which is what makes
+        // the provisional row and the authoritative one the same key.
+        const toolUseId = crypto.randomUUID();
+        const jobId = `cron-${toolUseId.slice(0, 8)}`;
+        const timestamp = new Date().toISOString();
+        appendDialectRow((parentUuid) => buildToolUseRow({
+          sessionId, cwd, timestamp, uuid: crypto.randomUUID(), parentUuid, toolUseId,
+          name: 'CronCreate',
+          toolInput: { cron: step.expression, prompt: step.prompt, recurring: true },
+        }));
+        appendDialectRow((parentUuid) => buildToolResultRow({
+          sessionId, cwd, timestamp: new Date().toISOString(), uuid: crypto.randomUUID(), parentUuid,
+          toolUseId,
+          text: `Scheduled recurring job ${jobId} (${step.human}). Auto-expires after 7 days.`,
+        }));
         break;
       }
 

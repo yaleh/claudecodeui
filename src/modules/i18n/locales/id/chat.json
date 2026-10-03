@@ -283,7 +283,9 @@
     "stop": "Hentikan",
     "controls": {
       "stopGeneration": "Hentikan Generasi",
-      "pressEscToStop": "Tekan Esc kapan saja untuk menghentikan"
+      "pressEscToStop": "Tekan Esc kapan saja untuk menghentikan",
+      "stopTask": "Hentikan tugas",
+      "backgroundTool": "Pindah ke latar belakang"
     },
     "providers": {
       "assistant": "Asisten"

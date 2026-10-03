@@ -99,6 +99,7 @@ import {
   extractTokenBudget,
   forwardNormalizedFrames,
   mapCliOptionsToSDK,
+  reconcileSessionHeldWork,
   requestClientToolDecision,
   resolveClaudeSessionTitle,
 } from '@/modules/providers/list/claude/claude-runtime.provider.js';
@@ -294,6 +295,21 @@ export type ClaudeResidentQuery = AsyncIterable<AnyRecord> & {
    * "not placed" rather than throwing.
    */
   stopTask?(taskId: string): Promise<void>;
+  /**
+   * Promotes the named *foreground* tool to a background task, leaving the turn
+   * in flight and the process up (the SDK's own `Query.backgroundTasks`).
+   *
+   * Deliberately takes the `toolUseId` as a required string: the SDK method's
+   * parameter is optional (its no-arg form backgrounds *every* foreground tool),
+   * and AC-197 exposes only the single-task form — calling it with no id would
+   * background tools the caller never named. The SDK's boolean is returned as-is;
+   * `false` means the process held no matching foreground tool.
+   *
+   * Optional like the other live verbs so a criterion can hand in a scripted
+   * stream: a stream that exposes no verb makes the driver's `background` answer
+   * "not placed" rather than throwing.
+   */
+  backgroundTasks?(toolUseId: string): Promise<boolean>;
 };
 
 /**
@@ -312,8 +328,8 @@ export type ClaudeResidentProcess = {
    * The SDK's `Query` interface exposes no verb for most of
    * `SDKControlRequestInner` — `cancel_async_message` among them (measured: the
    * `Query` methods are interrupt / setPermissionMode / setModel /
-   * setMaxThinkingTokens / applyFlagSettings / stopTask / streamInput /
-   * rewindFiles, and nothing else) — so a control frame the SDK has no method
+   * setMaxThinkingTokens / applyFlagSettings / stopTask / backgroundTasks /
+   * streamInput / rewindFiles, and nothing else) — so a control frame the SDK has no method
    * for is reachable only by writing the stream-json line itself, which is
    * exactly how the protocol's behavior was measured in the first place
    * (`docs/proposals/claude-resident-sessions-experiments.md` §9).
@@ -2318,6 +2334,36 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
   }
 
   /**
+   * Promotes one named *foreground* tool the resident process is running to a
+   * background task.
+   *
+   * This is the SDK's own `Query.backgroundTasks`, not an interrupt and not a
+   * stop: the turn in flight keeps running, the process keeps running, and the
+   * named foreground tool is detached so the turn may continue past it. The verb
+   * is called with the `toolUseId` always supplied — the no-argument form the SDK
+   * also accepts (background *everything*) is deliberately never reached, so a
+   * caller cannot background tools it did not name.
+   *
+   * The SDK's boolean is returned as-is: `true` when the live process agreed the
+   * id was a foreground tool it has now backgrounded, `false` when this session
+   * has no live resident process, its query exposes no `backgroundTasks` verb, or
+   * the process held no matching foreground tool. A `false` is "there was no
+   * matching foreground tool to place on", never a claim one was backgrounded.
+   * Whether the task subsequently appears in the task table is the reducer's
+   * business — it is driven by the `task_started` +
+   * `task_updated{is_backgrounded:true}` frames the CLI emits, never by this
+   * call's return.
+   */
+  async background(appSessionId: string, toolUseId: string): Promise<boolean> {
+    const state = this.liveStateFor(appSessionId);
+    const background = state?.process.query.backgroundTasks;
+    if (!state || typeof background !== 'function') {
+      return false;
+    }
+    return (await background.call(state.process.query, toolUseId)) === true;
+  }
+
+  /**
    * Applies a live setting change where the SDK has a verb for it, and defers
    * everything else to the next turn.
    *
@@ -2729,6 +2775,16 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       state.tasksAuthoritative = true;
       this.settleBackgroundTasks(state, tasksFromStopList(tasks));
     }
+
+    // The same firing feeds the activity dock's two read models (AC-194's wiring
+    // leg), under the app session id the forwarder keys them by. Each list is
+    // authoritative only when present, which the callee re-checks (`undefined`
+    // is a no-op per kind) — the lease ledger and the read models must never
+    // disagree about a list the CLI did not name.
+    reconcileSessionHeldWork(state.appSessionId, {
+      backgroundTasks: tasks,
+      sessionCrons: crons,
+    });
   }
 
   /**

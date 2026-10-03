@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useActivityFreshness } from '@/modules/chat/hooks/useActivityFreshness';
+import { useSessionActivity } from '@/modules/chat/hooks/useSessionActivity';
 import { deriveActivityDockView } from '@/modules/chat/utils/activityDockView';
+import ActivityDockPanel from '@/modules/chat/transcript/ActivityDockPanel';
+import type { ForegroundTool } from '@/modules/chat/hooks/useActivityControls';
 import { Shimmer } from '@/shared/ui';
 import type { ActivityConnection, SessionActivity } from '@/shared/types';
 
@@ -20,6 +23,12 @@ type ActivityIndicatorProps = {
    * instead of drawing nothing — the state that replaced the old silent drop.
    */
   sendFailed?: boolean;
+  /**
+   * The running foreground tool, read off the loaded transcript by the caller
+   * (the pane already holds the messages). Absent draws no foreground row in the
+   * expanded panel, which is what a session with no pending `tool_use` has.
+   */
+  foregroundTool?: ForegroundTool | null;
 };
 
 /**
@@ -84,11 +93,14 @@ export default function ActivityIndicator({
   sessionId,
   connection,
   sendFailed = false,
+  foregroundTool = null,
 }: ActivityIndicatorProps) {
   const { t } = useTranslation('chat');
   const freshness = useActivityFreshness(sessionId, connection);
+  const { tasks, schedules } = useSessionActivity(sessionId);
   const [renderedActivity, setRenderedActivity] = useState<SessionActivity | null>(activity);
   const [isExiting, setIsExiting] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
 
   useEffect(() => {
     if (activity) {
@@ -126,6 +138,8 @@ export default function ActivityIndicator({
     sendFailed,
     phase: freshness.phase,
     toolName: freshness.toolName,
+    taskCount: tasks.length,
+    scheduleCount: schedules.length,
   });
 
   // `hidden` — nothing to say — draws nothing at all, for every session. A resident
@@ -157,6 +171,8 @@ export default function ActivityIndicator({
 
   const isUnreachable = state === 'unreachable';
   const isSendFailed = state === 'send-failed';
+  const isBackground = state === 'background';
+  const showCounts = dock.taskCount > 0 || dock.scheduleCount > 0;
   // The running label comes from the *phase the server reported*, not from
   // elapsed time: a turn on an unknown phase falls back to a fixed word (or the
   // provider's own status line), and the same phase always says the same thing
@@ -171,9 +187,13 @@ export default function ActivityIndicator({
     ? t('claudeStatus.sendFailed.title', { defaultValue: 'Send failed · server not responding' })
     : isUnreachable
       ? t('claudeStatus.unreachable.title', { defaultValue: 'Connection lost · reconnecting…' })
-      : (phaseLabel
-        ?? renderedActivity?.statusText
-        ?? t(WORKING_FALLBACK_KEY, { defaultValue: WORKING_FALLBACK_WORD })).replace(/\.+$/, '');
+      : isBackground
+        // No turn to speak about, but the session is holding work: the dock says
+        // so from the snapshot's counts, and the panel lists them.
+        ? t('claudeStatus.background.title', { defaultValue: 'Background work' })
+        : (phaseLabel
+          ?? renderedActivity?.statusText
+          ?? t(WORKING_FALLBACK_KEY, { defaultValue: WORKING_FALLBACK_WORD })).replace(/\.+$/, '');
   const sendFailedReason = t('claudeStatus.sendFailed.reason', {
     defaultValue: 'The message was not sent. Your draft is still in the box — try again.',
   });
@@ -192,7 +212,7 @@ export default function ActivityIndicator({
           {label}
           <span className="text-muted-foreground/70"> · {sendFailedReason}</span>
         </span>
-      ) : isUnreachable ? (
+      ) : isUnreachable || isBackground ? (
         <span className="font-medium">{label}</span>
       ) : (
         <Shimmer className="font-medium">{`${label}…`}</Shimmer>
@@ -205,17 +225,56 @@ export default function ActivityIndicator({
 
   return (
     <div className={`pointer-events-none bg-transparent ${animationClassName}`} {...dockAttributes}>
-      {/*
-        The status line. The surface is a plain element, not a control: it says
-        what is happening, and the only thing a reader can *do* about it is the
-        composer's own submit button, which now carries the stop at every width.
-      */}
-      <div className={surfaceClassName} data-activity-dock-surface="true">
-        <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary" aria-hidden />
-        {labelNode}
-        {elapsedLabel !== null && (
-          <span className="tabular-nums text-muted-foreground/60">{elapsedLabel}</span>
+      <div className="relative inline-flex flex-col items-start">
+        {/* The expanded background panel floats above the dock, so opening it
+            never pushes the transcript. It is a pure reader of the session's
+            activity snapshot — see `ActivityDockPanel`. */}
+        {panelOpen && (
+          <div className="absolute bottom-full left-0 z-20 mb-1">
+            {/* The panel's controls go by the same liveness reading this dock
+                renders from — one machine, so the buttons can never disagree
+                with the state the row is drawn under. */}
+            <ActivityDockPanel
+              sessionId={sessionId}
+              liveness={freshness.liveness}
+              foregroundTool={foregroundTool}
+            />
+          </div>
         )}
+        {/*
+          The status line. The surface is a plain element, not a control: it says
+          what is happening, and the only thing a reader can *do* about it is the
+          composer's own submit button, which now carries the stop at every width.
+        */}
+        <div className={surfaceClassName} data-activity-dock-surface="true">
+          <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary" aria-hidden />
+          {labelNode}
+          {elapsedLabel !== null && (
+            <span className="tabular-nums text-muted-foreground/60">{elapsedLabel}</span>
+          )}
+          {/*
+            The background counts, read straight off the snapshot: how many tasks
+            and how many plans the session holds. The whole summary is the toggle
+            that opens the panel that lists them; nothing here is a control over
+            the work itself.
+          */}
+          {showCounts && (
+            <button
+              type="button"
+              data-activity-dock-toggle="true"
+              aria-expanded={panelOpen}
+              onClick={() => setPanelOpen((open) => !open)}
+              className="pointer-events-auto flex flex-shrink-0 items-center gap-2 rounded px-1 tabular-nums text-muted-foreground/80 transition-colors hover:bg-foreground/5 hover:text-foreground"
+            >
+              <span data-activity-task-count={dock.taskCount} title={t('claudeStatus.background.tasks', { defaultValue: 'Background tasks' })}>
+                {dock.taskCount} {dock.taskCount === 1 ? 'task' : 'tasks'}
+              </span>
+              <span data-activity-schedule-count={dock.scheduleCount} title={t('claudeStatus.background.plans', { defaultValue: 'Plans' })}>
+                {dock.scheduleCount} {dock.scheduleCount === 1 ? 'plan' : 'plans'}
+              </span>
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

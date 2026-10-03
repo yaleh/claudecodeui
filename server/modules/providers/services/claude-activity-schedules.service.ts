@@ -87,6 +87,17 @@ export type ActivitySchedule = {
   /** The auto-expiry instant (creation + {@link CRON_MAX_AGE_MS}). */
   expiresAt?: number;
   source: ScheduleSource;
+  /**
+   * The SDK `tool_use_id` a provisional (`source:'tool-call'`) row was built
+   * from, for a `CronCreate` whose authoritative id only the result text names.
+   *
+   * Carried **beside** `scheduleId`, not instead of it: AC-192's contract keeps
+   * `scheduleId` equal to the CLI's own job id (the id the next Stop hook names),
+   * while the lease-derivation parity path (AC-195) needs the `tool_use_id` the
+   * driver's `inferHeldWork` keys its inferred lease by. A `source:'stop-hook'`
+   * row never carries this field — the CLI has named the id by then.
+   */
+  toolUseId?: string;
 };
 
 /**
@@ -349,6 +360,7 @@ type SessionSchedule = {
   nextFireAt?: number;
   expiresAt?: number;
   source: ScheduleSource;
+  toolUseId?: string;
 };
 
 /** One session's state: the table, plus the `tool_use` pairing pending its result. */
@@ -375,6 +387,9 @@ function materialize(record: SessionSchedule): ActivitySchedule {
   if (record.expiresAt !== undefined) {
     out.expiresAt = record.expiresAt;
   }
+  if (record.toolUseId !== undefined) {
+    out.toolUseId = record.toolUseId;
+  }
   return out;
 }
 
@@ -389,6 +404,7 @@ function materialize(record: SessionSchedule): ActivitySchedule {
  */
 function applyCronCreateResult(
   state: SessionState,
+  toolUseId: string,
   input: Record<string, unknown> | null,
   text: string,
   nowMs: number,
@@ -411,6 +427,10 @@ function applyCronCreateResult(
     recurring,
     source: 'tool-call',
     expiresAt: nowMs + CRON_MAX_AGE_MS,
+    // The lease-parity path keys an inferred cron lease by the SDK `tool_use_id`
+    // (the driver's `inferHeldWork` does), so the provisional row carries it
+    // beside the CLI id the result text named.
+    toolUseId,
   };
   if (typeof input?.prompt === 'string') {
     record.prompt = input.prompt;
@@ -453,6 +473,7 @@ function applyWakeupResult(
     recurring: false,
     source: 'tool-call',
     expiresAt: nowMs + CRON_MAX_AGE_MS,
+    toolUseId,
   };
   if (typeof input?.prompt === 'string') {
     record.prompt = input.prompt;
@@ -547,7 +568,7 @@ export function createClaudeScheduleTracker(
       }
       const text = toolResultText(toolResult);
       if (call.name === 'CronCreate') {
-        applyCronCreateResult(state, call.input, text, now());
+        applyCronCreateResult(state, toolUseId, call.input, text, now());
       } else if (call.name === 'ScheduleWakeup') {
         if (!options.ignoreWakeupTools) {
           applyWakeupResult(state, toolUseId, call.input, text, now());

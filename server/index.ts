@@ -19,6 +19,7 @@ import {
     readClaudeSessionOccupancy,
     resolveResidentScopeSweepEnabled,
     sessionsService,
+    setActivityChangeNotifier,
     stopClaudeSessionScopes,
     sweepOrphanClaudeSessionScopes,
 } from '@/modules/providers/index.js';
@@ -181,6 +182,15 @@ setDebugAgentOpenRun((input) =>
         sessionName: null,
     })?.writer ?? null,
 );
+
+// The activity-change tick: the run loop's Task and Schedule reducers change
+// under frames, and a change has to advance the activity store's revision so a
+// subscribed browser is pushed a whole-snapshot `activity.upsert`. The store
+// belongs to the websocket module and the reducers to the providers module, so
+// the tick is installed here, where both are in scope — the same one-way
+// injection the run-opener seams above use, and the reason the providers module
+// exposes a setter rather than importing the store back.
+setActivityChangeNotifier((sessionId) => activityStore.recordChange(sessionId));
 
 app.use(cors({ exposedHeaders: ['X-Refreshed-Token', 'X-Auth-Error'] }));
 app.use(express.json({

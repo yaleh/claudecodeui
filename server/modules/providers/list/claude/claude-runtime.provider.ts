@@ -41,6 +41,16 @@ import { resolveContextWindow } from '@/modules/providers/services/launch-spec.s
 import { createClaudeSessionScopeSpawn } from '@/modules/providers/services/claude-session-scope.service.js';
 import { createClaudeTurnTracker } from '@/modules/providers/services/claude-turn-phase.service.js';
 import {
+  createClaudeTaskReducer,
+  type ActivityTask,
+  type BackgroundTaskSummary,
+} from '@/modules/providers/services/claude-activity-task-reducer.service.js';
+import {
+  createClaudeScheduleTracker,
+  type ActivitySchedule,
+  type SessionCronEntry,
+} from '@/modules/providers/services/claude-activity-schedules.service.js';
+import {
   ClaudeSessionOccupiedError,
   applyLaunchSpecEnv,
   createCompleteMessage,
@@ -860,6 +870,79 @@ export function countOpenStreamBlocks(writer: ProviderRuntimeWriter): number {
 const turnTracker = createClaudeTurnTracker();
 
 /**
+ * The two per-session read models the activity dock's background half is built
+ * from: the Task table (AC-191) and the Schedule table (AC-192).
+ *
+ * Module-level and singleton for the same reason `turnTracker` is: they are the
+ * *server's* account of what a session is holding, and the frames that read them
+ * back (the activity protocol's snapshot and upserts) outlive any single run.
+ * Both are fed at the one seam every run — real and debug — already crosses
+ * (`forwardNormalizedFrames` below), so a scenario's rows and a real SDK frame
+ * take the identical path into them. State is keyed per session inside each
+ * reducer, so two sessions cannot read each other's tables.
+ */
+const taskReducer = createClaudeTaskReducer();
+const scheduleTracker = createClaudeScheduleTracker();
+
+/**
+ * The revision tick the activity protocol is told about when a task or a
+ * schedule actually changes.
+ *
+ * Injected rather than imported because the protocol's store lives in the
+ * websocket module, which imports this one (its heartbeat reads `readSessionTurn`)
+ * — importing it back would close a cycle. `server/index.ts`, which holds both,
+ * installs the tick at boot: `(sessionId) => activityStore.recordChange(sessionId)`.
+ * Until something is installed a change is simply not announced, which is what a
+ * headless criterion that drives the forwarder directly wants.
+ */
+let activityChangeNotifier: ((sessionId: string) => void) | null = null;
+
+/** Installs the process-wide activity-change tick, or clears it with `null`. */
+export function setActivityChangeNotifier(notifier: ((sessionId: string) => void) | null): void {
+  activityChangeNotifier = notifier;
+}
+
+/** The Task table for one session, as the Task Reducer holds it. */
+export function readSessionTasks(sessionId: string): ActivityTask[] {
+  return taskReducer.getTasks(sessionId);
+}
+
+/** The Schedule table for one session, as the Schedule Tracker holds it. */
+export function readSessionSchedules(sessionId: string): ActivitySchedule[] {
+  return scheduleTracker.getSchedules(sessionId);
+}
+
+/**
+ * Reconciles both tables against a `Stop` hook firing's snapshot.
+ *
+ * The hook's two lists are each authoritative only when present: an absent key is
+ * the CLI saying nothing about that kind, not saying it holds none (the same rule
+ * the host driver's `reconcileHeldWork` applies to its lease ledger). A caller
+ * passes the raw hook input and this decides; `undefined` is a no-op for that
+ * kind.
+ */
+export function reconcileSessionHeldWork(
+  sessionId: string,
+  input: { backgroundTasks?: unknown; sessionCrons?: unknown },
+): void {
+  if (!sessionId) {
+    return;
+  }
+  if (Array.isArray(input.backgroundTasks)) {
+    taskReducer.reconcileStopHook(sessionId, input.backgroundTasks as BackgroundTaskSummary[]);
+  }
+  if (Array.isArray(input.sessionCrons)) {
+    scheduleTracker.reconcileStopHook(sessionId, input.sessionCrons as SessionCronEntry[]);
+  }
+  activityChangeNotifier?.(sessionId);
+}
+
+/** A stable signature of a table, for "did this frame change anything" without a clock. */
+function activitySignature(tasks: ActivityTask[], schedules: ActivitySchedule[]): string {
+  return JSON.stringify([tasks, schedules]);
+}
+
+/**
  * The phase a session's turn is in, as the last frame through the forwarder left it.
  *
  * A session the forwarder has never seen reads `idle`, which is the honest answer:
@@ -867,6 +950,21 @@ const turnTracker = createClaudeTurnTracker();
  */
 export function readSessionTurn(sessionId: string): TurnState {
   return turnTracker.getTurn(sessionId);
+}
+
+/**
+ * The `tool_use.id` of a session's currently pending foreground tool, or `null`.
+ *
+ * Companion to {@link readSessionTurn} over the same module-level tracker, and
+ * the addressing seam AC-197's `chat.background-task` reads: the control handler
+ * accepts a background request only when the requested `toolUseId` equals this,
+ * which is what makes the request address a *running foreground tool* rather
+ * than a row in the task table (a foreground tool is not a task until the CLI
+ * backgrounds it). Consumed by the websocket module's chat handler and by AC-197's
+ * criterion (`server/modules/websocket/tests/chat-background-task.test.ts`).
+ */
+export function readSessionForegroundToolUseId(sessionId: string): string | null {
+  return turnTracker.getPendingToolUseId(sessionId);
 }
 
 /**
@@ -928,6 +1026,26 @@ export function forwardNormalizedFrames({ transformedMessage, sessionId, turnSes
   const trackedSessionId = turnSessionId ?? sessionId;
   if (trackedSessionId) {
     turnTracker.observe(trackedSessionId, transformedMessage);
+
+    // The two background read models are fed here too, at the same seam, under
+    // the same id. They are deliberately not folded into the turn tracker: a
+    // task outlives the turn that started it, and the dock reads it between
+    // turns. A frame that actually moved either table ticks the activity
+    // protocol, which is what pushes a whole-snapshot upsert to the browser
+    // without a reload.
+    const before = activitySignature(
+      taskReducer.getTasks(trackedSessionId),
+      scheduleTracker.getSchedules(trackedSessionId),
+    );
+    taskReducer.observe(trackedSessionId, transformedMessage);
+    scheduleTracker.observe(trackedSessionId, transformedMessage);
+    const after = activitySignature(
+      taskReducer.getTasks(trackedSessionId),
+      scheduleTracker.getSchedules(trackedSessionId),
+    );
+    if (before !== after) {
+      activityChangeNotifier?.(trackedSessionId);
+    }
   }
 
   const blockKey = trackStreamBlock({
@@ -1782,6 +1900,40 @@ async function stopClaudeSDKTask(sessionId: string, taskId: string): Promise<boo
 }
 
 /**
+ * Turns one named *foreground* tool of a per-run Claude process into a background
+ * task.
+ *
+ * The per-run twin of the resident driver's `background`, and deliberately *not*
+ * `abortClaudeSDKSession`: backgrounding asks the SDK to promote the named
+ * foreground `tool_use` to a background task and leaves the turn, the run and the
+ * held stdin in place — the turn keeps running and the tool keeps running, only
+ * now detached. The held input is therefore never released and the session is
+ * never removed; the run keeps going.
+ *
+ * The SDK's own boolean is the whole answer and it is consumed as-is: `true` when
+ * the process agrees the named `toolUseId` was a foreground tool it has now
+ * backgrounded, `false` when it does not (or the session has no live query, or
+ * the query exposes no `backgroundTasks` verb). The caller — the runtime
+ * gateway — maps `false` to `no-foreground-match`, so a `false` here is read as
+ * "there was no matching foreground tool", never as a placed request. Whether the
+ * task then *appears* in the task table is the reducer's business: it is written
+ * from the `task_started` + `task_updated{is_backgrounded:true}` frames the CLI
+ * emits, never from this call's return.
+ *
+ * @param {string} sessionId - App session identifier
+ * @param {string} toolUseId - The foreground tool's `tool_use.id`
+ * @returns {Promise<boolean>} Whether the SDK reported a matching foreground tool
+ */
+async function backgroundClaudeSDKTask(sessionId: string, toolUseId: string): Promise<boolean> {
+  const session = getSession(sessionId);
+  const background = session?.instance?.backgroundTasks;
+  if (!session || typeof background !== 'function') {
+    return false;
+  }
+  return (await background.call(session.instance, toolUseId)) === true;
+}
+
+/**
  * Checks if an SDK session is currently active
  * @param {string} sessionId - Session identifier
  * @returns {boolean} True if session is active
@@ -1839,10 +1991,11 @@ function reconnectSessionWriter(sessionId: string, newRawWs: unknown): boolean {
 export const claudeRuntime = {
   run: queryClaudeSDK,
   abort: abortClaudeSDKSession,
-  // The per-run control-plane verb `provider-runtime.service` reaches through
-  // `IProvider.runtime`; it is read structurally (as an optional method) so the
-  // shared runtime interface is not widened for one provider's capability.
+  // The per-run control-plane verbs `provider-runtime.service` reaches through
+  // `IProvider.runtime`; they are read structurally (as optional methods) so the
+  // shared runtime interface is not widened for one provider's capabilities.
   stopTask: stopClaudeSDKTask,
+  backgroundTask: backgroundClaudeSDKTask,
   permissions: {
     resolve: resolveToolApproval,
     listPending: getPendingApprovalsForSession,
@@ -1854,6 +2007,7 @@ export {
   queryClaudeSDK,
   abortClaudeSDKSession,
   stopClaudeSDKTask,
+  backgroundClaudeSDKTask,
   isClaudeSDKSessionActive,
   getActiveClaudeSDKSessions,
   resolveToolApproval,

@@ -4,17 +4,23 @@ import type { WebSocket } from 'ws';
 
 import { sessionsDb } from '@/modules/database/index.js';
 import {
-  createClaudeTaskReducer,
   providerModelsService,
+  readSessionForegroundToolUseId,
+  readSessionTasks,
   sessionsService,
 } from '@/modules/providers/index.js';
-import type { ActivityTask, ControlStopTaskOutcome } from '@/modules/providers/index.js';
+import type {
+  ActivityTask,
+  ControlBackgroundTaskOutcome,
+  ControlStopTaskOutcome,
+} from '@/modules/providers/index.js';
 import { sessionHostManager } from '@/modules/session-hosts/index.js';
 import type { SessionHostManager } from '@/modules/session-hosts/index.js';
 import {
   activityAnnouncement,
   attachActivityHeartbeat,
 } from '@/modules/websocket/services/activity-heartbeat.service.js';
+import { activityStore } from '@/modules/websocket/services/activity-protocol.service.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 import {
@@ -84,6 +90,19 @@ export function filterImagesToUploadStore(
  */
 type ControlStopTaskResult = ControlStopTaskOutcome | 'forbidden' | 'unknown-task';
 
+/**
+ * The full verdict set one `chat.background-task` receipt can carry: everything
+ * the runtime gateway can answer, plus the refusal the handler itself decides
+ * before the gateway is reached (`forbidden` from the access entry).
+ *
+ * Deliberately has no `unknown-task`: this verb does not address the task table
+ * at all, so there is no table-side refusal — the handler's own
+ * `no-foreground-match` (from the Turn Tracker) is the only pre-gate answer, and
+ * it is already part of the gateway's union so a driven `false` and a
+ * tracker-side mismatch read identically to the caller.
+ */
+type ControlBackgroundTaskResult = ControlBackgroundTaskOutcome | 'forbidden';
+
 /** Application boundary for dispatching provider runs and approvals. */
 export type ProviderRuntimeGateway = {
   hasRuntime(provider: string): boolean;
@@ -136,6 +155,25 @@ export type ProviderRuntimeGateway = {
     sessionId: string,
     taskId: string,
   ): Promise<ControlStopTaskOutcome>;
+  /**
+   * Promotes one named *foreground* tool to a background task through the
+   * provider's own process.
+   *
+   * Returns `requested` when the driver was called and its call settled `true`,
+   * and a failure value otherwise. Like its stop-task sibling it deliberately
+   * does **not** wait for the task to appear and does not touch the task table:
+   * the task becomes a row only when the reducer consumes the
+   * `task_started` + `task_updated{is_backgrounded:true}` frames the CLI emits,
+   * which is a later step than this call.
+   *
+   * Optional, and read as `unsupported` when absent, because a gateway that
+   * cannot carry the request must never be read as having placed one.
+   */
+  controlBackgroundTask?(
+    provider: LLMProvider,
+    sessionId: string,
+    toolUseId: string,
+  ): Promise<ControlBackgroundTaskOutcome>;
   resolveToolApproval(requestId: string, payload: ProviderPermissionDecision): void;
   getPendingApprovalsForSession(sessionId: string): unknown[];
 };
@@ -143,6 +181,21 @@ export type ProviderRuntimeGateway = {
 type ChatWebSocketDependencies = {
   /** Central dispatcher for every provider SDK/CLI runtime. */
   runtime: ProviderRuntimeGateway;
+  /**
+   * The single access entry every control verb shares (AC-196's
+   * `chat.stop-task`, AC-197's `chat.background-task`, and AC-198's reworked
+   * `chat.cancel-queued`).
+   *
+   * Defaults to this module's own {@link assertSessionAccess}. The seam exists
+   * so a criterion can hand over a counting spy and observe that all three
+   * verbs go through the *same* entry, rather than each handler carrying a check
+   * of its own — the asymmetry that let `chat.cancel-queued` ship with no
+   * ownership check while its siblings had one.
+   */
+  assertSessionAccess?: (
+    userId: string | number | null,
+    session: ReturnType<typeof sessionsDb.getSessionById>,
+  ) => boolean;
   /** Test seam: replaces the default that discards a client-supplied `options.env`. */
   dropClientEnv?: (options: AnyRecord) => AnyRecord;
   /**
@@ -185,27 +238,6 @@ type ChatWebSocketDependencies = {
   stopTaskConfirmPollMs?: number;
 };
 
-/**
- * The process-wide task table the stop-task verb reads.
- *
- * It is the reducer AC-191 built — the same `getTasks(sessionId)` shape the
- * activity aggregator will read — and it is instantiated here rather than
- * re-implemented, so there is exactly one task-registration mechanism. It is
- * empty until the frame forwarder feeds it (`observe`), which is the activity
- * protocol's job; the control verb's contract is to read whatever the one table
- * holds, never to invent a second one.
- */
-let claudeTaskTable: ReturnType<typeof createClaudeTaskReducer> | null = null;
-function taskTable(): ReturnType<typeof createClaudeTaskReducer> {
-  // Built on first read rather than at module load: the factory is reached
-  // through the providers barrel, and instantiating it while this module's own
-  // import graph is still evaluating can run the reducer before its module's
-  // helpers are installed. A lazy singleton has the same lifetime and none of
-  // that ordering hazard.
-  claudeTaskTable ??= createClaudeTaskReducer();
-  return claudeTaskTable;
-}
-
 const DEFAULT_STOP_TASK_CONFIRM_TIMEOUT_MS = 5_000;
 const DEFAULT_STOP_TASK_CONFIRM_POLL_MS = 25;
 
@@ -221,9 +253,20 @@ const TERMINAL_TASK_STATES: ReadonlySet<ActivityTask['state']> = new Set<Activit
   'ended',
 ]);
 
-/** The default task-table reader: one row out of the process-wide reducer table. */
+/**
+ * The default task-table reader: one row out of the providers module's own
+ * reducer table.
+ *
+ * It reads `readSessionTasks` — the process-wide singleton the frame forwarder
+ * feeds (`forwardNormalizedFrames` → `taskReducer.observe`) — and deliberately
+ * does not build a second reducer here. A private instance would be empty for
+ * the whole life of the process, so the stop-task verb would answer
+ * `unknown-task` for every request against a session whose tasks the dock is
+ * already drawing from that same reduction — the control plane and the surface
+ * must read one table, or the verb's verdict is about the wrong one.
+ */
 function defaultGetTask(sessionId: string, taskId: string): { state: ActivityTask['state'] } | null {
-  const task = taskTable().getTasks(sessionId).find((candidate) => candidate.taskId === taskId);
+  const task = readSessionTasks(sessionId).find((candidate) => candidate.taskId === taskId);
   return task ? { state: task.state } : null;
 }
 
@@ -249,6 +292,21 @@ export function assertSessionAccess(
   _session: ReturnType<typeof sessionsDb.getSessionById>,
 ): boolean {
   return userId !== null && userId !== undefined && `${userId}`.trim().length > 0;
+}
+
+/**
+ * The access entry a control handler must call: the injected seam when one was
+ * provided, the process default otherwise.
+ *
+ * Every control verb resolves it here rather than reaching for the module
+ * function directly, so an injected entry sees all of them. That is the seam
+ * AC-198's criterion reads to prove the three verbs share one entry rather than
+ * each carrying an inline check.
+ */
+function accessEntry(
+  dependencies: ChatWebSocketDependencies,
+): (userId: string | number | null, session: ReturnType<typeof sessionsDb.getSessionById>) => boolean {
+  return dependencies.assertSessionAccess ?? assertSessionAccess;
 }
 
 /** The wire protocol carries the model selection; a client-supplied `options.env` is discarded. */
@@ -660,9 +718,20 @@ async function handleChatAbort(
  * honest answer. `unknown` means the seam could not carry the question at all
  * (no live resident host, or a gateway with no withdrawal verb), which is
  * deliberately not the same answer as "it was already running".
+ *
+ * The shape matches its two control siblings (`chat.stop-task`,
+ * `chat.background-task`): the three fields are required, the session must
+ * exist, the request must belong to it through the shared {@link accessEntry},
+ * and only then is the driver reached. A forbidden request answers with the
+ * same receipt kind (the frontend drops this kind as a control frame; changing
+ * it would make the client append it as an ordinary message) carrying
+ * `result: 'forbidden'` and places no withdrawal. `requestId` was added here so
+ * a caller can correlate the receipt with the request it sent, which is what
+ * lets the ownership refusal be told apart from an unrelated frame.
  */
 async function handleChatCancelQueued(
   ws: WebSocket,
+  userId: string | number | null,
   data: AnyRecord,
   dependencies: ChatWebSocketDependencies
 ): Promise<void> {
@@ -683,13 +752,40 @@ async function handleChatCancelQueued(
     return;
   }
 
-  // The session row is read for its provider only. No run is consulted: the
-  // message being withdrawn is by definition not the session's current run, and
-  // a withdrawal that arrived just as the run turned over is answered by the
-  // provider's queue, which is the only thing that knows what it still holds.
+  const requestId = typeof data.requestId === 'string' ? data.requestId.trim() : '';
+  if (!requestId) {
+    sendProtocolError(ws, 'REQUEST_ID_REQUIRED', 'chat.cancel-queued requires a requestId.', sessionId);
+    return;
+  }
+
+  // The session row is read for its provider and for the access check. No run
+  // is consulted: the message being withdrawn is by definition not the session's
+  // current run, and a withdrawal that arrived just as the run turned over is
+  // answered by the provider's queue, which is the only thing that knows what it
+  // still holds.
   const session = sessionsDb.getSessionById(sessionId);
   if (!session) {
     sendProtocolError(ws, 'SESSION_NOT_FOUND', `Session "${sessionId}" was not found.`, sessionId);
+    return;
+  }
+
+  const reply = (result: HostQueuedInputCancelResult | 'forbidden'): void => {
+    sendJson(ws, {
+      kind: 'queued_input_cancel_result',
+      sessionId,
+      messageUuid,
+      requestId,
+      result,
+      timestamp: new Date().toISOString(),
+    });
+  };
+
+  // Ownership is checked through the same entry the stop-task and
+  // background-task verbs use, and before any driver call, so a forbidden
+  // request can neither withdraw a queued message nor reach the provider's
+  // queue at all.
+  if (!accessEntry(dependencies)(userId, session)) {
+    reply('forbidden');
     return;
   }
 
@@ -700,13 +796,7 @@ async function handleChatCancelQueued(
       messageUuid
     )) ?? 'unknown';
 
-  sendJson(ws, {
-    kind: 'queued_input_cancel_result',
-    sessionId,
-    messageUuid,
-    result,
-    timestamp: new Date().toISOString(),
-  });
+  reply(result);
 }
 
 /** Waits `ms`, never longer than the caller still has left. */
@@ -817,7 +907,9 @@ async function handleChatStopTask(
 
   // Ownership is checked before the task table and long before any driver call,
   // so a forbidden request can neither learn what tasks exist nor place a stop.
-  if (!assertSessionAccess(userId, session)) {
+  // Resolved through the shared entry (and therefore through the injected seam)
+  // so all three control verbs are observed on the one check.
+  if (!accessEntry(dependencies)(userId, session)) {
     reply('forbidden');
     return;
   }
@@ -845,6 +937,194 @@ async function handleChatStopTask(
     dependencies.stopTaskConfirmPollMs ?? DEFAULT_STOP_TASK_CONFIRM_POLL_MS,
   );
   reply(settled ? 'requested' : 'timeout');
+}
+
+/**
+ * The per-socket activity-protocol subscriptions, so a socket that subscribes to
+ * the same session twice is left with one feed and a dead socket leaves none.
+ *
+ * Mirrors the heartbeat's own bookkeeping: the subscription is keyed by the
+ * session on the socket that opened it, and its unsubscribe is dropped on the
+ * socket's close/error.
+ */
+const activityFeedsBySocket = new WeakMap<WebSocket, Map<string, () => void>>();
+
+/**
+ * Subscribes one socket to the activity protocol's frames for one session.
+ *
+ * The store hands the joiner its current snapshot the instant it subscribes
+ * (`activity.snapshot`, whole — every field, tasks and schedules included) and
+ * a whole-snapshot `activity.upsert` on every `recordChange` after that. That is
+ * what lets the client draw the background panel from a snapshot on first load
+ * and then watch it change without a reload or a poll — the two readings AC-194
+ * turns on. A session already fed on this socket is left alone so a re-sent
+ * `activity.subscribe` does not double the frame rate.
+ *
+ * Reached only through {@link handleActivitySubscribe}, never through
+ * `chat.subscribe`: the run's frame sequence is a frozen contract, and the
+ * `activity.snapshot` this hands a joiner is a frame that contract does not
+ * carry (see the comment in `handleChatSubscribe`).
+ */
+function attachActivityFeed(ws: WebSocket, sessionId: string): void {
+  const bySession = activityFeedsBySocket.get(ws) ?? new Map<string, () => void>();
+  activityFeedsBySocket.set(ws, bySession);
+  if (bySession.has(sessionId)) {
+    return;
+  }
+
+  const sendFrame = (frame: unknown): void => {
+    if (ws.readyState !== WS_OPEN_STATE) {
+      return;
+    }
+    try {
+      sendJson(ws, frame);
+    } catch {
+      // A socket that throws on send is one the close/error path would have
+      // handled anyway; the feed is dropped with it.
+    }
+  };
+
+  const unsubscribe = activityStore.subscribe(sessionId, sendFrame);
+
+  const stopFeed = (): void => {
+    unsubscribe();
+    bySession.delete(sessionId);
+    if (bySession.size === 0) {
+      activityFeedsBySocket.delete(ws);
+    }
+    ws.off('close', stopFeed);
+    ws.off('error', stopFeed);
+  };
+
+  ws.on('close', stopFeed);
+  ws.on('error', stopFeed);
+  bySession.set(sessionId, stopFeed);
+}
+
+/**
+ * Handles `activity.subscribe`: starts feeding this socket the activity
+ * protocol's frames for one session.
+ *
+ * It is deliberately its own verb rather than a side effect of `chat.subscribe`.
+ * A `chat.subscribe` reply is the run's frame sequence, and that sequence is a
+ * frozen contract: the per-run frame-parity criterion
+ * (`session-host-per-run-parity.test.ts`, AC-155) compares it against a baseline
+ * recorded on the tree that predates the session-host layer and flags any added
+ * frame as a regression. Attaching the feed there injected an `activity.snapshot`
+ * frame into that stream and red the criterion; splitting the verb keeps the run
+ * stream byte-stable for a client (or a criterion) that never asks for activity,
+ * and makes the subscription an explicit opt-in for a client that wants the
+ * task/schedule panel. The reply is the store's own contract: a whole
+ * `activity.snapshot` for the joiner first, then a whole-snapshot
+ * `activity.upsert` per change.
+ */
+function handleActivitySubscribe(ws: WebSocket, data: AnyRecord): void {
+  const sessionId = readRequiredSessionId(data);
+  if (!sessionId) {
+    sendProtocolError(ws, 'INVALID_SESSION_ID', 'activity.subscribe requires a sessionId');
+    return;
+  }
+  attachActivityFeed(ws, sessionId);
+}
+
+/**
+ * Handles `chat.background-task`: promotes one running *foreground* tool of a
+ * session to a background task, with the request placed through the provider's
+ * own process.
+ *
+ * The address is the Turn Tracker, not the task table. A foreground tool is not
+ * a task until the CLI backgrounds it, so at the moment the request arrives the
+ * table has no row for it — the id names a `tool_use` the tracker still holds as
+ * pending. The handler therefore refuses every request whose `toolUseId` is not
+ * the tracker's currently pending foreground tool, and never reads the task table
+ * at all.
+ *
+ * The shape is "validate, address, place, report", and every refusal happens
+ * **before** the driver is touched:
+ *
+ *  1. the three fields (`sessionId`, `toolUseId`, `requestId`) are required — the
+ *     no-toolUseId "background everything" form is refused here, so the driver is
+ *     only ever reached with a string id;
+ *  2. the session must exist;
+ *  3. the request must belong to the session (`assertSessionAccess`);
+ *  4. the requested `toolUseId` must equal the Turn Tracker's pending foreground
+ *     tool (`readSessionForegroundToolUseId`) — anything else is
+ *     `no-foreground-match`, with the driver un-called and no state moved;
+ *  5. only then is the runtime asked, and the capability matrix decides whether
+ *     the provider can carry it at all.
+ *
+ * The receipt never carries or writes a task state. `requested` means the request
+ * was accepted and placed; whether the task then appears is the reducer's, driven
+ * by the frames the CLI emits — this handler writes nothing and the tracker is
+ * only ever read.
+ */
+async function handleChatBackgroundTask(
+  ws: WebSocket,
+  userId: string | number | null,
+  data: AnyRecord,
+  dependencies: ChatWebSocketDependencies
+): Promise<void> {
+  const sessionId = readRequiredSessionId(data);
+  if (!sessionId) {
+    sendProtocolError(ws, 'SESSION_ID_REQUIRED', 'chat.background-task requires a sessionId.');
+    return;
+  }
+
+  const toolUseId = typeof data.toolUseId === 'string' ? data.toolUseId.trim() : '';
+  if (!toolUseId) {
+    sendProtocolError(
+      ws,
+      'TOOL_USE_ID_REQUIRED',
+      'chat.background-task requires the toolUseId of the foreground tool.',
+      sessionId
+    );
+    return;
+  }
+
+  const requestId = typeof data.requestId === 'string' ? data.requestId.trim() : '';
+  if (!requestId) {
+    sendProtocolError(ws, 'REQUEST_ID_REQUIRED', 'chat.background-task requires a requestId.', sessionId);
+    return;
+  }
+
+  const session = sessionsDb.getSessionById(sessionId);
+  if (!session) {
+    sendProtocolError(ws, 'SESSION_NOT_FOUND', `Session "${sessionId}" was not found.`, sessionId);
+    return;
+  }
+
+  const reply = (result: ControlBackgroundTaskResult): void => {
+    sendJson(ws, {
+      kind: 'control_result',
+      sessionId,
+      requestId,
+      result,
+      timestamp: new Date().toISOString(),
+    });
+  };
+
+  // Ownership is checked before the tracker and long before any driver call, so
+  // a forbidden request can neither learn what foreground tools exist nor place a
+  // background request. Resolved through the shared entry (and therefore through
+  // the injected seam) so all three control verbs are observed on the one check.
+  if (!accessEntry(dependencies)(userId, session)) {
+    reply('forbidden');
+    return;
+  }
+
+  // The addressing store is the Turn Tracker, never the task table: a foreground
+  // tool has no task row yet, and a request that does not name the tracker's
+  // pending tool is refused with no driver call and no state moved.
+  const pendingToolUseId = readSessionForegroundToolUseId(sessionId);
+  if (pendingToolUseId !== toolUseId) {
+    reply('no-foreground-match');
+    return;
+  }
+
+  const provider = session.provider as LLMProvider;
+  const outcome =
+    (await dependencies.runtime.controlBackgroundTask?.(provider, sessionId, toolUseId)) ?? 'unsupported';
+  reply(outcome);
 }
 
 /**
@@ -931,6 +1211,13 @@ function handleChatSubscribe(
     // is still alive on the beat it just announced.
     attachActivityHeartbeat(ws, sessionId);
 
+    // The activity feed is deliberately NOT attached here: a `chat.subscribe`
+    // reply is the run's frame sequence, and attaching the feed would inject an
+    // `activity.snapshot` frame into it. That sequence is a frozen contract (the
+    // per-run frame-parity criterion compares it against a pre-wrapper baseline
+    // and forbids any added frame), so the activity feed has its own opt-in —
+    // `activity.subscribe` — handled below.
+
     // Replay only for RUNNING runs, strictly after the ack. Completed runs
     // are fully persisted to the provider transcript and served over REST —
     // replaying them (e.g. after a page reload where the client's lastSeq is
@@ -967,8 +1254,9 @@ function handlePermissionResponse(data: AnyRecord, dependencies: ChatWebSocketDe
  * Inbound protocol (client to server):
  * - `chat.send`                { sessionId, content, options? }
  * - `chat.abort`               { sessionId }
- * - `chat.cancel-queued`       { sessionId, messageUuid }
+ * - `chat.cancel-queued`       { sessionId, messageUuid, requestId }
  * - `chat.stop-task`           { sessionId, taskId, requestId }
+ * - `chat.background-task`     { sessionId, toolUseId, requestId }
  * - `chat.subscribe`           { sessions: [{ sessionId, lastSeq? }] }
  * - `chat.permission-response` { requestId, allow, updatedInput?, message?, rememberEntry? }
  *
@@ -1074,13 +1362,19 @@ export function handleChatConnection(
           await handleChatAbort(ws, data, dependencies);
           return;
         case 'chat.cancel-queued':
-          await handleChatCancelQueued(ws, data, dependencies);
+          await handleChatCancelQueued(ws, userId, data, dependencies);
           return;
         case 'chat.stop-task':
           await handleChatStopTask(ws, userId, data, dependencies);
           return;
+        case 'chat.background-task':
+          await handleChatBackgroundTask(ws, userId, data, dependencies);
+          return;
         case 'chat.subscribe':
           handleChatSubscribe(ws, data, dependencies);
+          return;
+        case 'activity.subscribe':
+          handleActivitySubscribe(ws, data);
           return;
         case 'chat.permission-response':
           handlePermissionResponse(data, dependencies);

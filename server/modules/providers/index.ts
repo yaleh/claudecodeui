@@ -7,6 +7,12 @@ export { providerRuntimeService, createProviderRuntimeService } from './services
 // control handler types its pass-through against the one union rather than
 // restating it, and so the criterion can name each arm's expected value.
 export type { ControlStopTaskOutcome } from './services/provider-runtime.service.js';
+// ControlBackgroundTaskOutcome: the answer the runtime gateway's background-task
+// verb gives (`requested` / `no-foreground-match` / `unsupported` / `timeout` /
+// `error`). Exported for the same reasons as its stop-task sibling: the websocket
+// `chat.background-task` handler types its pass-through against this one union,
+// and AC-197's criterion names each arm's expected value.
+export type { ControlBackgroundTaskOutcome } from './services/provider-runtime.service.js';
 
 // providerModelsService: used by Commands to list models and resolve the active session model.
 export { providerModelsService } from './services/provider-models.service.js';
@@ -92,6 +98,21 @@ export type {
   ScheduleSource,
   SessionCronEntry,
 } from './services/claude-activity-schedules.service.js';
+// deriveHeldWorkLeases: the Lease Deriver facade — projects the Task table
+// (AC-191) and Schedule table (AC-192) into the resident path's held-work
+// leases, beside the driver's own path rather than replacing it. Consumed by
+// the lease-parity criterion (`claude-activity-lease-parity.test.ts`), which
+// feeds one frame sequence into the live driver and into the two reducers and
+// compares the two lease sets frame by frame; nothing in production reads it
+// yet (convergence is a later task). HeldWorkLeaseInput / LeaseDeriverMutations
+// are the criterion's own vocabulary — it types its readings with them so an
+// assertion cannot pass against a shape this module never produces, and builds
+// its false-form arms through the documented mutation seam.
+export { deriveHeldWorkLeases } from './services/claude-activity-lease-deriver.service.js';
+export type {
+  HeldWorkLeaseInput,
+  LeaseDeriverMutations,
+} from './services/claude-activity-lease-deriver.service.js';
 // readSessionTurn: the live phase of one session's turn, as the frame forwarder
 // last reduced it. Consumed by the websocket module's activity heartbeat, which
 // stamps it onto the activity frames a browser reads — the providers module owns
@@ -101,6 +122,24 @@ export type {
 // forwarder feeds the tracker under the same id (`turnSessionId`) so a running
 // turn is not reported as `idle`.
 export { readSessionTurn } from './list/claude/claude-runtime.provider.js';
+// The Task and Schedule read models, as the run loop holds them (AC-194's
+// wiring leg). `readSessionTasks` / `readSessionSchedules` are what the activity
+// protocol's snapshot carries, `reconcileSessionHeldWork` is what the Stop hook
+// feeds, and `setActivityChangeNotifier` is the tick the composition root
+// installs so a task or schedule change pushes an `activity.upsert` frame.
+export {
+  readSessionSchedules,
+  readSessionTasks,
+  reconcileSessionHeldWork,
+  setActivityChangeNotifier,
+} from './list/claude/claude-runtime.provider.js';
+// readSessionForegroundToolUseId: the `tool_use.id` of the session's currently
+// pending foreground tool, or null. Companion to `readSessionTurn` over the same
+// Turn Tracker, and the addressing seam AC-197's `chat.background-task` reads —
+// the handler accepts a background request only when the requested toolUseId
+// equals this, because a foreground tool is not yet a task in the task table.
+// Consumed by the websocket module's chat handler and by AC-197's criterion.
+export { readSessionForegroundToolUseId } from './list/claude/claude-runtime.provider.js';
 export { providerRegistry } from './provider.registry.js';
 // providerRoutes: the module's HTTP face. Mounted by `server/index.ts`, and by
 // the lifecycle-mode criterion, which has to drive the real
@@ -163,6 +202,7 @@ export type {
 export { CLAUDE_PREDEFINED_MODELS } from './list/claude/claude-models.provider.js';
 export {
   abortClaudeSDKSession,
+  backgroundClaudeSDKTask,
   claudeQueryFactory,
   getActiveClaudeSDKSessions,
   queryClaudeSDK,

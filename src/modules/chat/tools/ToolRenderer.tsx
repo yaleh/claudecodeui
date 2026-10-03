@@ -30,6 +30,13 @@ type ToolRendererProps = {
   rawToolInput?: string;
   /** Lifecycle the provider reported, when it reports one. Overrides the result-based inference. */
   toolStatus?: string;
+  /**
+   * The lifecycle state of the Task entity this tool call launched, read by the
+   * call's `tool_use` id (AC-194). Wins over the result-based status where the
+   * card supports it (a background shell), so a running task is not painted from
+   * a folded row.
+   */
+  taskState?: string | null;
 };
 
 function getToolCategory(toolName: string): string {
@@ -87,6 +94,7 @@ export const ToolRenderer: React.FC<ToolRendererProps> = memo(({
   showRawParameters = false,
   rawToolInput,
   toolStatus: reportedStatus,
+  taskState = null,
 }) => {
   const config = getToolConfig(toolName);
   const displayConfig: any = mode === 'input' ? config.input : config.result;
@@ -143,6 +151,8 @@ export const ToolRenderer: React.FC<ToolRendererProps> = memo(({
         // Commands stay collapsed by default — including failures; the status
         // badge marks errors and the output expands via the chevron.
         defaultOpen={false}
+        foldedStatus={toolStatus}
+        taskState={taskState}
       />
     );
   }

@@ -1,4 +1,6 @@
 import {
+  readSessionSchedules,
+  readSessionTasks,
   readSessionTurn,
   type TurnState,
 } from '@/modules/providers/index.js';
@@ -81,9 +83,16 @@ export type ActivityStoreOptions = {
   bootId?: string;
   /** The session's turn state. Defaults to the providers module's live reduction. */
   readTurn?: (sessionId: string) => TurnState;
-  /** The session's task projection. Defaults to an empty list (its producer is AC-191). */
+  /**
+   * The session's task projection. Defaults to the providers module's live Task
+   * table (the run loop's reducer, AC-191 → AC-194's wiring leg); a criterion
+   * injects its own.
+   */
   readTasks?: (sessionId: string) => readonly unknown[];
-  /** The session's schedule projection. Defaults to an empty list (its producer is AC-192). */
+  /**
+   * The session's schedule projection. Defaults to the providers module's live
+   * Schedule table (AC-192 → AC-194's wiring leg); a criterion injects its own.
+   */
   readSchedules?: (sessionId: string) => readonly unknown[];
 };
 
@@ -181,8 +190,8 @@ function createStore(options: ActivityStoreOptions): ActivityStoreWithRevisions 
       rev,
       asOf: now(),
       turn: { ...readTurnState(sessionId) },
-      tasks: [...(readTasks ? readTasks(sessionId) : [])],
-      schedules: [...(readSchedules ? readSchedules(sessionId) : [])],
+      tasks: [...(readTasks ? readTasks(sessionId) : readSessionTasks(sessionId))],
+      schedules: [...(readSchedules ? readSchedules(sessionId) : readSessionSchedules(sessionId))],
     };
   }
 

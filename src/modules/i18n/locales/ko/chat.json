@@ -255,7 +255,9 @@
     "stop": "중지",
     "controls": {
       "stopGeneration": "Stop Generation",
-      "pressEscToStop": "Press Esc anytime to stop"
+      "pressEscToStop": "Press Esc anytime to stop",
+      "stopTask": "작업 중지",
+      "backgroundTool": "백그라운드로 이동"
     },
     "providers": {
       "assistant": "Assistant"

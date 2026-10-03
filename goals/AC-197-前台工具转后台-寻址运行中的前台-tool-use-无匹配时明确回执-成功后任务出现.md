@@ -1,7 +1,7 @@
 ---
 id: AC-197
 title: 前台工具转后台：寻址运行中的前台 tool_use，无匹配时明确回执，成功后任务出现
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-015
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -24,6 +24,11 @@ statusLog:
     to: active
     actor: goal-cli
     reason: ""
+  - at: 2026-10-03T19:27:41.611Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: not-evaluated
   reason: no judge configured

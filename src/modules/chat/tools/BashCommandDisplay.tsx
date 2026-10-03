@@ -15,6 +15,21 @@ type BashCommandDisplayProps = {
   isError?: boolean;
   status?: ToolStatus;
   defaultOpen?: boolean;
+  /**
+   * The transcript's own reading of the command's lifecycle, published as a
+   * second attribute so a reader can compare it with the Task entity's state.
+   * The two differ exactly where a background shell's task outlives its result
+   * row — the discrimination AC-194's false-form arm turns on.
+   */
+  foldedStatus?: ToolStatus;
+  /**
+   * The lifecycle state of the Task entity this command launched, read by the
+   * card's `tool_use` id (AC-194). When present it is the header's status — the
+   * command row reads the backend's task table rather than showing `running`
+   * forever because no result row was ever folded in. Absent falls back to the
+   * transcript's own status.
+   */
+  taskState?: string | null;
 };
 
 /**
@@ -33,12 +48,18 @@ export const BashCommandDisplay: React.FC<BashCommandDisplayProps> = ({
   isError = false,
   status,
   defaultOpen = false,
+  foldedStatus,
+  taskState = null,
 }) => {
   const { t } = useTranslation();
   const trimmedOutput = (output || '').replace(/\s+$/, '');
   const hasOutput = trimmedOutput.length > 0;
   const outputLineCount = hasOutput ? trimmedOutput.split('\n').length : 0;
-  const isRunning = status === 'running';
+  // The header's running reading comes from the Task entity when the card has
+  // one (AC-194): a background shell carries a task whose state the entity
+  // updates, so the row is not painted `running` forever just because no result
+  // was folded in. Without an entity the transcript's own status is used.
+  const isRunning = taskState !== null ? taskState === 'running' || taskState === 'blocked' : status === 'running';
   // `open` is raised by an effect once output arrives (below). A document is
   // rendered without effects, so it would show every command and no output.
   const isExporting = useIsExportingTranscript();
@@ -75,6 +96,7 @@ export const BashCommandDisplay: React.FC<BashCommandDisplayProps> = ({
 
   return (
     <div
+      data-card-folded-status={foldedStatus ?? status ?? 'running'}
       className={cn(
         'group/cmd overflow-hidden rounded-lg border bg-muted/40 backdrop-blur-sm transition-all duration-200',
         isError ? 'border-red-500/30' : 'border-border/60',
@@ -124,7 +146,20 @@ export const BashCommandDisplay: React.FC<BashCommandDisplayProps> = ({
         {isRunning && (
           <span className="h-2.5 w-2.5 flex-shrink-0 animate-spin rounded-full border-[1.5px] border-muted-foreground/30 border-t-emerald-400" />
         )}
-        {status && status !== 'running' && <ToolStatusBadge status={status} className="flex-shrink-0" />}
+        {/* The Task entity's state, when this command launched one (AC-194). Read
+            by `toolUseId` from the activity snapshot; the row's state changes when
+            the task does, without the result having to arrive. */}
+        {taskState !== null && (
+          <span
+            data-card-task-state={taskState}
+            className="flex-shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground/80"
+          >
+            {taskState}
+          </span>
+        )}
+        {taskState === null && status && status !== 'running' && (
+          <ToolStatusBadge status={status} className="flex-shrink-0" />
+        )}
         {!open && hasOutput && !isRunning && (
           <span className="flex-shrink-0 text-[10px] tabular-nums text-muted-foreground/70 transition-opacity group-hover/cmd:opacity-0">
             {outputLineCount} {outputLineCount === 1 ? 'line' : 'lines'}

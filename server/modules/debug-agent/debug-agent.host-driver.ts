@@ -250,6 +250,29 @@ export type DebugAgentHostDriver = IProviderHostDriver & {
   /** What this process has been told about its own queue, for a criterion to read back. */
   readCommandQueue(appSessionId: string): DebugAgentCommandQueueReading;
   /**
+   * Accepts a stop request for one named background task, leaving the turn and
+   * the process alone.
+   *
+   * The debug substitute has no real process to signal, and — deliberately — no
+   * frame to invent: the task's terminal event is the scenario's own
+   * `task-notification` step on the clock, and this verb's whole job is to
+   * report that the substitute received the request. That is exactly what the
+   * control plane's `requested` receipt means, so it resolves `true` for every
+   * request that reached it — the address was already validated by the control
+   * handler before this verb was called.
+   */
+  stopTask(appSessionId: string, taskId: string): Promise<boolean>;
+  /**
+   * Accepts a background request for one named foreground tool, leaving the turn
+   * and the process alone.
+   *
+   * The mirror of {@link stopTask} for `chat.background-task`: the two frames a
+   * backgrounding produces (`task_started` + `task_updated{is_backgrounded}`)
+   * are the scenario's steps, and this verb reports only that the substitute
+   * received the request. Resolves `true` for every request that reached it.
+   */
+  background(appSessionId: string, toolUseId: string): Promise<boolean>;
+  /**
    * Opens a turn for a session with no client behind it and returns the writer
    * its frames belong to.
    *
@@ -601,6 +624,26 @@ export function createDebugAgentHostDriver(
     return requested;
   }
 
+  /**
+   * The substitute's stop verb: it accepts.
+   *
+   * Nothing is signalled and nothing is written, on purpose. The task's terminal
+   * event is the scenario's own `task-notification` step on the clock — that is
+   * what makes "the click does not change the row; the event does" a reading a
+   * criterion can take — and this verb's whole job is to report that the request
+   * reached the substitute, which is what the control plane's `requested`
+   * receipt means. The address was already validated by the control handler
+   * (`task` in the table and not terminal), so this does not re-check it.
+   */
+  async function stopTask(_appSessionId: string, _taskId: string): Promise<boolean> {
+    return true;
+  }
+
+  /** The substitute's background verb: it accepts. See {@link stopTask}. */
+  async function background(_appSessionId: string, _toolUseId: string): Promise<boolean> {
+    return true;
+  }
+
   function readCommandQueue(appSessionId: string): DebugAgentCommandQueueReading {
     return {
       queued: [...listFor(queueByAppSession, appSessionId)],
@@ -767,5 +810,13 @@ export function createDebugAgentHostDriver(
     readOldestQueuedCommand,
     acknowledgeCancel,
     readCommandQueue,
+
+    // The control-plane half: the two requests a person can place against the
+    // work a session is holding. Both accept — the events they are confirmed by
+    // are the scenario's own steps on the clock (see the interface docs), which
+    // is what lets the criterion read "the click changed nothing; the event
+    // did".
+    stopTask,
+    background,
   };
 }

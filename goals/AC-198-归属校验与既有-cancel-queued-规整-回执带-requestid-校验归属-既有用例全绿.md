@@ -1,7 +1,7 @@
 ---
 id: AC-198
 title: 归属校验与既有 cancel-queued 规整：回执带 requestId，校验归属，既有用例全绿
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-015
 criterion: '[ -f server/modules/websocket/tests/chat-control-ownership.test.ts ]
@@ -32,6 +32,11 @@ statusLog:
     to: active
     actor: goal-cli
     reason: ""
+  - at: 2026-10-03T20:00:16.697Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: not-evaluated
   reason: no judge configured

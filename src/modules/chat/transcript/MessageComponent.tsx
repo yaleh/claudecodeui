@@ -6,6 +6,7 @@ import type { TFunction } from 'i18next';
 import type { ChatMessage, ClaudePermissionSuggestion, PermissionGrantResult, LLMProvider,DiffLine,Project,MessageOrigin } from '@/shared/types';
 import { formatUsageLimitText, stripProposedPlanEnvelope } from '@/modules/chat/utils/chatFormatting';
 import { ToolRenderer, ToolErrorDisplay, SubagentPanel, shouldHideToolResult } from '@/modules/chat/tools';
+import { useTaskByToolUseId } from '@/modules/chat/hooks/useSessionActivity';
 import { LLMProviderLogo } from '@/shared/ui';
 import { Reasoning, ReasoningContent, ReasoningTrigger } from '@/modules/chat/transcript/Reasoning';
 import ChatMessageImages from '@/modules/chat/transcript/ChatMessageImages';
@@ -92,6 +93,12 @@ function readDividerLabel(
  */
 const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, showRawParameters, showThinking, selectedProject, provider, onEditMessage, onForkFromMessage }: MessageComponentProps) => {
   const { t } = useTranslation('chat');
+  // The Task entity this row's tool call launched, read by the call's
+  // `tool_use` id from the session's activity snapshot (AC-194). A tool row with
+  // no task (or before any frame arrives) answers null and the card falls back to
+  // the transcript's own status.
+  const cardTask = useTaskByToolUseId(message.isToolUse ? message.toolId : null);
+  const cardTaskState = cardTask?.state ?? null;
   const isGrouped = prevMessage && prevMessage.type === message.type &&
     ((prevMessage.type === 'assistant') ||
       (prevMessage.type === 'user') ||
@@ -405,6 +412,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                 onFileOpen={onFileOpen}
                 createDiff={createDiff}
                 selectedProject={selectedProject}
+                taskState={cardTaskState}
               />
             ) : message.isToolUse ? (
               <>
@@ -429,6 +437,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                     showRawParameters={showRawParameters}
                     rawToolInput={typeof message.toolInput === 'string' ? message.toolInput : undefined}
                     toolStatus={message.toolStatus}
+                    taskState={cardTaskState}
                   />
                 )}
 

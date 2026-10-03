@@ -33,6 +33,20 @@ import ChatMessagesPane from '@/modules/chat/transcript/ChatMessagesPane';
 import ChatComposer from '@/modules/chat/composer/ChatComposer';
 import CommandResultModal from '@/modules/chat/modals/CommandResultModal';
 
+/**
+ * A request id for a control frame.
+ *
+ * `crypto.randomUUID` is only exposed in secure contexts, and this app can be
+ * opened over plain HTTP on a LAN address, so the fallback keeps the withdrawal
+ * path working there rather than throwing before the frame is sent.
+ */
+function newControlRequestId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 type ChatInterfaceProps = {
   isActive: boolean;
   selectedProject: Project | null;
@@ -417,6 +431,9 @@ function ChatInterface({
       type: 'chat.cancel-queued',
       sessionId: targetSessionId,
       messageUuid: commandUuid,
+      // The gateway requires it: without a requestId the withdrawal is refused
+      // with a protocol error before it can reach the queue.
+      requestId: newControlRequestId(),
     });
   }, [currentSessionId, selectedSession?.id, sendMessage]);
 

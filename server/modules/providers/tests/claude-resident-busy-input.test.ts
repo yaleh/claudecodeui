@@ -595,6 +595,10 @@ async function requestWithdrawal(
     type: 'chat.cancel-queued',
     sessionId: SESSION_ID,
     messageUuid,
+    // The gateway requires a request id on this verb (AC-198's rework): without
+    // one the withdrawal is refused with REQUEST_ID_REQUIRED before it reaches
+    // the queue, so a real client always sends one and so must this one.
+    requestId: `withdraw-${messageUuid}`,
   }));
   await waitFor(
     () => socket.frames.slice(before).some((frame) => frame.kind === 'queued_input_cancel_result'),

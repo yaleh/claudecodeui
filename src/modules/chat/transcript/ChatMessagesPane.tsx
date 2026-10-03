@@ -14,6 +14,7 @@ import { getIntrinsicMessageKey } from '@/modules/chat/utils/messageKeys';
 import { groupWorkSegments, isWorkSegment } from '@/modules/chat/utils/workSegments';
 import { findSearchTargetIndex } from '@/modules/chat/utils/searchTargetLocator';
 import { useLazyRowObserver } from '@/modules/chat/hooks/useLazyRowObserver';
+import { findPendingForegroundTool } from '@/modules/chat/hooks/useActivityControls';
 import LazyMessageRow from '@/modules/chat/transcript/LazyMessageRow';
 import MessageComponent from '@/modules/chat/transcript/MessageComponent';
 import TranscriptTurnRail from '@/modules/chat/transcript/TranscriptTurnRail';
@@ -202,6 +203,15 @@ function ChatMessagesPane({
   const groupedVisibleMessages = useMemo(
     () => groupWorkSegments(visibleMessages),
     [visibleMessages],
+  );
+
+  // The running foreground tool the dock can move to the background. Read off
+  // the whole loaded transcript rather than the visible window: an unpaired
+  // `tool_use` the reader has scrolled past is still the tool the server is
+  // holding, and the dock's control must address that one.
+  const foregroundTool = useMemo(
+    () => findPendingForegroundTool(chatMessages),
+    [chatMessages],
   );
 
   // Which work segments are open, keyed by the segment's anchor key. Held here —
@@ -583,6 +593,7 @@ function ChatMessagesPane({
           activity={hasActivityIndicator ? activity : null}
           sessionId={activeSessionId}
           sendFailed={sendFailed}
+          foregroundTool={foregroundTool}
         />
         </div>
       </div>

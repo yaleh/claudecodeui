@@ -240,7 +240,9 @@
     },
     "controls": {
       "stopGeneration": "Interrompi generazione",
-      "pressEscToStop": "Premi Esc in qualsiasi momento per interrompere"
+      "pressEscToStop": "Premi Esc in qualsiasi momento per interrompere",
+      "stopTask": "Interrompi attività",
+      "backgroundTool": "Sposta in background"
     },
     "providers": {
       "assistant": "Assistente"
