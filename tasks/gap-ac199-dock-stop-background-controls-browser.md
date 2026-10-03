@@ -2,7 +2,7 @@
 id: gap-ac199-dock-stop-background-controls-browser
 title: AC-199 真实浏览器：坞里停止任务与把前台工具转后台，点击不乐观改状态、事件到达才变
   stopped；已结束任务无停止按钮；连接中断两按钮置灰（调试 agent 控制缝 + 坞控件 + e2e）
-status: ready
+status: todo
 labels:
   - gap
 parent: null
