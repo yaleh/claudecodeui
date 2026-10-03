@@ -1,7 +1,7 @@
 ---
 id: transcript-global-scrollbar-track
 title: AC-214 自绘全局滚动条：滑块位置 = 整段历史中的消息序号位置，可拖动、可点击、可键盘操作，拖动只对最终位置取页
-status: todo
+status: ready
 labels:
   - gap
 parent: null
