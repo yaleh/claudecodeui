@@ -1,7 +1,7 @@
 ---
 id: AC-196
 title: 停止任务：处理函数校验会话、归属与任务，限时，以 task_notification 为确认
-status: draft
+status: active
 kind: criterion
 goal: GOAL-015
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -19,4 +19,15 @@ origin: docs/proposals/claude-session-activity-dock.md（§0.1 人的裁定、§
   事件在投影层折叠成一行；历史里的 isMeta 行显示与对等方目录本期不纳入。 实测 2026-10-01：q.stopTask 对运行中任务约 100
   毫秒后出现 killed 与 stopped 通知；对已结束或不存在的 id 静默成功、没有任何事件。驱动现有的窄类型
   ClaudeResidentQuery 没有声明 stopTask。
+activatedAt: 2026-10-03T15:51:35.460Z
+statusLog:
+  - at: 2026-10-03T15:51:35.460Z
+    from: draft
+    to: active
+    actor: goal-cli
+    reason: ""
+fidelity:
+  verdict: not-evaluated
+  reason: no judge configured
+  at: 2026-10-03T15:51:35.460Z
 ---
