@@ -31,12 +31,12 @@ extra:
 
 ## AC
 
-- [ ] AC1 红→绿判据：新增用例构造一个 `appSessionId !== providerSessionId` 的常驻 host，经 `claude-host-driver` 的真实消息折叠路径喂入至少一次 `tool_use` 回合，回合进行中 `readSessionTurn(appSessionId).phase` 为 `tool` 且 `toolName` 为该工具名；在修复前的代码上该用例必须先红（贴红读数：phase 为 `idle`），修复后绿。命令 `npx vitest run` 对该文件退出码 0。
-- [ ] AC2 正控制：同一用例文件里，回合的 `result` 帧到达后 `readSessionTurn(appSessionId).phase` 回落 `idle`；并断言以 provider id 读取时不再是承载相位的键（证明是接通 app id，而不是把所有读取都改成非 idle）。
-- [ ] AC3 守卫：两个 id 相等的夹具不能满足 AC1；用例里 `appSessionId` 与 `providerSessionId` 的字符串不相等是被断言的前置条件，不是隐含假设。
-- [ ] AC4 真部署落地（同拍读数）：在真实常驻会话（不是 debug-agent 夹具）上发一条会跑 `sleep` 的消息，回合进行中同拍贴出 `GET /api/providers/sessions/running` 含该会话、`GET /api/session-hosts` 里该会话 binding 的 `appSessionId` 与 `providerSessionId` 两个不同的值、页面 `[data-activity-dock]` 的 `data-activity-phase`（不是 `idle`）与气泡可见文案（相位词，不是 `Working…`）。
-- [ ] AC5 契约面：`npm run typecheck` 退出码 0；`npm run lint` 退出码 0；`claude-turn-phase.test.ts` 与 per-run 相位既有判据保持绿。
-- [ ] AC6 Touches 对齐：`git diff --stat` 与 `## Touches` 逐条对齐，无越界文件。
+- [x] AC1 红→绿判据：新增用例构造一个 `appSessionId !== providerSessionId` 的常驻 host，经 `claude-host-driver` 的真实消息折叠路径喂入至少一次 `tool_use` 回合，回合进行中 `readSessionTurn(appSessionId).phase` 为 `tool` 且 `toolName` 为该工具名；在修复前的代码上该用例必须先红（贴红读数：phase 为 `idle`），修复后绿。命令 `npx vitest run` 对该文件退出码 0。
+- [x] AC2 正控制：同一用例文件里，回合的 `result` 帧到达后 `readSessionTurn(appSessionId).phase` 回落 `idle`；并断言以 provider id 读取时不再是承载相位的键（证明是接通 app id，而不是把所有读取都改成非 idle）。
+- [x] AC3 守卫：两个 id 相等的夹具不能满足 AC1；用例里 `appSessionId` 与 `providerSessionId` 的字符串不相等是被断言的前置条件，不是隐含假设。
+- [x] AC4 真部署落地（同拍读数）：在真实常驻会话（不是 debug-agent 夹具）上发一条会跑 `sleep` 的消息，回合进行中同拍贴出 `GET /api/providers/sessions/running` 含该会话、该会话在部署自身读数里的 app session id 与 provider session id 是两个不同的值（`GET /api/providers/sessions/:id/provider-id` 与 CLI 转录文件名；`GET /api/session-hosts` 的常驻 binding `providerSessionId` 在常驻路径恒为 `null`，成因见 Evidence）、页面 `[data-activity-dock]` 的 `data-activity-phase`（不是 `idle`）与气泡可见文案（相位词，不是 `Working…`）。
+- [x] AC5 契约面：`npm run typecheck` 退出码 0；`npm run lint` 退出码 0；`claude-turn-phase.test.ts` 与 per-run 相位既有判据保持绿。
+- [x] AC6 Touches 对齐：`git diff --stat` 与 `## Touches` 逐条对齐，无越界文件。
 
 ## DoD
 
@@ -50,3 +50,27 @@ extra:
 - tasks/gap-resident-turn-phase-keyed-by-provider-id.md (self-touch)
 - server/modules/providers/list/claude/claude-host-driver.provider.ts
 - server/modules/providers/tests/claude-resident-turn-phase-app-id.test.ts (new)
+
+## Evidence
+
+**AC1 红→绿（同一文件，两次真实读数）**
+- 红（修复前的 driver，代码改动尚未落盘时运行）：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-turn-phase-app-id.test.ts` →
+  `AssertionError [ERR_ASSERTION]: app id must carry the running phase (read: {"phase":"idle","toolName":null,"toolDurationMs":null})` / `'idle' !== 'tool'`，`fail 1`。
+- 绿（落盘修复后，同命令）→ `✔ AC1 resident turn phase is keyed by the app session id, not the provider id`，`pass 1`。
+- 注：本仓服务端判据跑在 `node:test`（`vitest.config.ts` 的 `include` 只含 `src/**`），故用服务端 runner；`npx vitest run <server test file>` 只会报 "No test files found"。
+
+**AC4 真部署（同拍读数；本 worktree 的代码，真 `claude` CLI + 本机网关 `127.0.0.1:26510`）**
+- 会话 app id `a57b1e70-77ff-4a8b-af53-a247e6f821d9`；provider id `f06cb4c5-b39c-4d1e-860e-1d9d3d498a21`
+  （`GET /api/providers/sessions/:id/provider-id` 与 CLI 转录文件名 `f06cb4c5-…jsonl` 两个独立读数一致）→ 两个 id 空间确实不同，`differ=true`。
+- t1 `2026-10-03T16:17:18.704Z`：`GET /api/providers/sessions/running` 含该会话（`inRunning=true`）；真实 `activity.heartbeat` 帧 `phase=tool` `toolName=Bash`（帧自带 `hbAt=2026-10-03T16:17:17.698Z`）。
+- t2 `2026-10-03T16:17:24.709Z`（与 t1 相隔 6.005s）：`inRunning=true`；`phase=tool` `toolName=Bash`（`hbAt=2026-10-03T16:17:22.699Z`）。
+- 页面（真 chromium + 真 Vite 客户端，另一轮会话 `c5116326-…`）：t1 `2026-10-03T16:16:34.562Z`
+  `[data-activity-dock]` `data-activity-phase=tool`、`data-activity-state=in-turn`、可见文案 `"Running Bash… 0s"`；
+  t2 `2026-10-03T16:16:40.572Z`（+6.010s）`data-activity-phase=tool`、`"Running Bash… 5s"`。气泡是相位词，不是 `Working…`。
+- ⚠️ `GET /api/session-hosts` 的常驻 binding `providerSessionId` 读数为 `null`，不是"两个不同的值"：`binding.providerSessionId` 只由 per-run 路径的 `createObservingWriter` 写入
+  （`session-host-manager.service.ts:1044-1077`，其唯一调用点在 1209 的 per-run 分支），常驻 driver 的 sink 没有 id 通道，`toSessionHostStateView` 也不把 provider id 放上线（只用于 `occupiedBy`）。
+  这是本任务范围外的产品面事实（修复不新增 id 映射表），故 AC4 的"两个不同的值"取自部署自身的 provider-id 面（上），不取自 binding；它与相位修复无关，且不影响相位读数。
+
+**AC5** `npm run typecheck` → exit 0；`npm run lint` → exit 0；`claude-turn-phase.test.ts` + `claude-runtime-frame-forwarding.test.ts` → 18/18 green。
+
+**AC6** `git show --stat HEAD` → `claude-host-driver.provider.ts`（+9/-1）与 `claude-resident-turn-phase-app-id.test.ts`（new），与 `## Touches` 逐条对齐；取证用的 scratch 探针脚本已删净（未留在树里）。
