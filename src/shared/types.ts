@@ -157,6 +157,13 @@ export type QuayDriverSummary = {
   lastRecordAt: string | null;
 };
 
+/** One row of the panel's per-entity detail list; only the fields the panel renders. */
+export type QuayListItem = {
+  id: string;
+  title: string;
+  status: string;
+};
+
 /** Task counts read from `quay task list --json`; the panel shows the status breakdown. */
 export type QuayTaskCounts = {
   total: number;
@@ -164,6 +171,8 @@ export type QuayTaskCounts = {
   ready: number;
   needsHuman: number;
   done: number;
+  /** Up to ten tasks, most recently updated first, rendered as the "Recent tasks" list. */
+  recent: QuayListItem[];
 };
 
 /** Goal counts read from `quay goal list --json`. */
@@ -172,9 +181,11 @@ export type QuayGoalCounts = {
   achieved: number;
 };
 
-/** ADR counts read from `quay adr list --json`. */
+/** ADR counts read from `quay adr list --json`; `recent` feeds the "ADRs" list. */
 export type QuayAdrCounts = {
   total: number;
+  /** Up to ten ADRs, most recently updated first. Empty when quay reports none. */
+  recent: QuayListItem[];
 };
 
 /** Issue counts read from `quay config validate --json`. */
@@ -195,6 +206,11 @@ export type QuaySnapshot = {
   goals: QuayGoalCounts | null;
   adrs: QuayAdrCounts | null;
   configIssues: QuayConfigIssueCounts | null;
+  /**
+   * Link to quay's own `quay serve` dashboard when a live web service is
+   * reported; `null` when no dashboard is running (a normal state, not an error).
+   */
+  dashboardUrl: string | null;
   /** Non-fatal per-command failures; the panel surfaces them instead of hiding a partial read. */
   warnings: string[];
 };

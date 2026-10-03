@@ -1,6 +1,6 @@
 import { Activity, AlertTriangle, ExternalLink, Info, Loader2, RefreshCw } from 'lucide-react';
 
-import type { QuayDriverState, QuaySnapshot } from '@/shared/types';
+import type { QuayDriverState, QuayListItem, QuaySnapshot } from '@/shared/types';
 import { cn } from '@/shared/utils';
 import type { QuayPanelView } from '@/modules/quay/hooks/useQuayStatus';
 
@@ -48,6 +48,50 @@ function SummaryCard({ label, value, hint }: { label: string; value: string; hin
       <div className="text-lg font-semibold text-foreground">{value}</div>
       {hint && <div className="text-[11px] text-muted-foreground">{hint}</div>}
     </div>
+  );
+}
+
+/**
+ * One read-only detail list (tasks or ADRs): a header, then either rows of
+ * id/title/status or an explicit empty-state line. Rows are display-only — quay
+ * has no per-entity page to link to, so there is nothing to click.
+ */
+function DetailList({
+  title,
+  items,
+  emptyText,
+  testId,
+}: {
+  title: string;
+  items: QuayListItem[];
+  emptyText: string;
+  testId: string;
+}) {
+  return (
+    <section>
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
+      {items.length === 0 ? (
+        <p className="text-xs text-muted-foreground" data-testid={`${testId}-empty`}>
+          {emptyText}
+        </p>
+      ) : (
+        <ul className="space-y-1" data-testid={testId}>
+          {items.map((item) => (
+            <li
+              key={item.id}
+              className="flex items-center gap-2 rounded border border-border/40 px-2 py-1 text-xs"
+              data-testid={`${testId}-row`}
+            >
+              <span className="shrink-0 font-mono text-[11px] text-foreground">{item.id}</span>
+              <span className="min-w-0 flex-1 truncate text-muted-foreground" title={item.title}>
+                {item.title}
+              </span>
+              <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">{item.status}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -114,6 +158,10 @@ function LoadedQuayPanel({
 }) {
   const driverState: QuayDriverState = snapshot.driver?.state ?? 'not-configured';
   const taskStatuses = Object.entries(snapshot.tasks?.byStatus ?? {}).sort((a, b) => b[1] - a[1]);
+  // `?? []` also covers a backend that predates the detail lists, so the panel
+  // falls back to the empty state instead of rendering `undefined.length`.
+  const recentTasks = snapshot.tasks?.recent ?? [];
+  const recentAdrs = snapshot.adrs?.recent ?? [];
 
   return (
     <div className="flex h-full flex-col overflow-y-auto p-4" data-testid="quay-panel-loaded">
@@ -199,6 +247,16 @@ function LoadedQuayPanel({
             </div>
           </dl>
         </section>
+      </div>
+
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <DetailList
+          title="Recent tasks"
+          items={recentTasks}
+          emptyText="No tasks reported."
+          testId="quay-panel-recent-tasks"
+        />
+        <DetailList title="ADRs" items={recentAdrs} emptyText="No ADRs reported." testId="quay-panel-recent-adrs" />
       </div>
 
       {snapshot.warnings.length > 0 && (

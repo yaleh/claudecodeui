@@ -31,9 +31,9 @@ function createDependencies(overrides: Partial<ServiceDependencies> = {}): Servi
 function createFixtureRunner(counter: { calls: number }): QuayCommandRunner {
   const responses: Record<string, unknown> = {
     'task list --json': [
-      { id: 'a', status: 'ready' },
-      { id: 'b', status: 'done' },
-      { id: 'c', status: 'needs-human' },
+      { id: 'a', title: 'Task A', status: 'ready', updatedAt: 300 },
+      { id: 'b', title: 'Task B', status: 'done', updatedAt: 100 },
+      { id: 'c', title: 'Task C', status: 'needs-human', updatedAt: 200 },
     ],
     'goal list --json': [{ id: 'GOAL-1', status: 'achieved' }, { id: 'GOAL-2', status: 'pending' }],
     'adr list --json': [],
@@ -43,6 +43,9 @@ function createFixtureRunner(counter: { calls: number }): QuayCommandRunner {
       last_record_ts: '2026-01-01T00:00:00.000Z',
     },
     'config validate --json': [{ severity: 'error', field: 'loop.board', message: 'missing' }],
+    'server status --json': {
+      services: [{ name: 'web', host: '172.28.0.1', port: 3651, liveness: { alive: true } }],
+    },
   };
 
   return async (_cwd: string, args: readonly string[]): Promise<QuayCommandResult> => {
@@ -114,6 +117,11 @@ test('runQuayCommand executes a whitelisted read-only command', async () => {
   assert.deepEqual(seen, [[PROJECT_PATH, 'adr', 'list', '--json']]);
   assert.equal(isReadOnlyQuayCommand(['driver', 'status', '--kind', 'promotion', '--json']), true);
   assert.equal(isReadOnlyQuayCommand(['driver', 'status', '--json']), false);
+  // The dashboard URL probe is a read-only verb on the whitelist, and only in
+  // its exact spelling: an extra argument must still be refused.
+  assert.equal(isReadOnlyQuayCommand(['server', 'status', '--json']), true);
+  assert.equal(isReadOnlyQuayCommand(['server', 'status']), false);
+  assert.equal(isReadOnlyQuayCommand(['server', 'start']), false);
 });
 
 test('getQuaySnapshot deduplicates concurrent calls and reuses a fresh snapshot', async () => {
@@ -130,7 +138,7 @@ test('getQuaySnapshot deduplicates concurrent calls and reuses a fresh snapshot'
     service.getQuaySnapshot('project-1'),
   ]);
 
-  const perPassCommands = 5; // task + goal + adr + driver + config
+  const perPassCommands = 6; // task + goal + adr + driver + config + server
   assert.equal(counter.calls, perPassCommands, 'two concurrent calls spawn the CLI once per command');
   assert.equal(first, second, 'the in-flight promise is shared, not recomputed');
 
@@ -142,11 +150,18 @@ test('getQuaySnapshot deduplicates concurrent calls and reuses a fresh snapshot'
     ready: 1,
     needsHuman: 1,
     done: 1,
+    // Most recently updated first: a(300) → c(200) → b(100).
+    recent: [
+      { id: 'a', title: 'Task A', status: 'ready' },
+      { id: 'c', title: 'Task C', status: 'needs-human' },
+      { id: 'b', title: 'Task B', status: 'done' },
+    ],
   });
   assert.deepEqual(first.goals, { total: 2, achieved: 1 });
-  assert.deepEqual(first.adrs, { total: 0 });
+  assert.deepEqual(first.adrs, { total: 0, recent: [] });
   assert.deepEqual(first.configIssues, { total: 1, errors: 1 });
   assert.equal(first.driver?.state, 'running');
+  assert.equal(first.dashboardUrl, 'http://172.28.0.1:3651/');
 
   // A call inside the TTL window is served from cache — no new subprocess.
   const cached = await service.getQuaySnapshot('project-1');
@@ -188,4 +203,109 @@ test('getQuaySnapshot keeps the findings of a command that signals via its exit 
 test('getQuaySnapshot returns null for an unknown project', async () => {
   const service = createQuayService(createDependencies());
   assert.equal(await service.getQuaySnapshot('missing'), null);
+});
+
+test('getQuaySnapshot leaves dashboardUrl null and warns nothing when no live web service answers', async () => {
+  const cases: Array<{ name: string; serverResult: QuayCommandResult }> = [
+    {
+      name: 'web service reported but not alive',
+      serverResult: {
+        ok: true,
+        code: 0,
+        stdout: JSON.stringify({
+          services: [{ name: 'web', host: '127.0.0.1', port: 3651, liveness: { alive: false } }],
+        }),
+        stderr: '',
+      },
+    },
+    {
+      name: 'no web service entry',
+      serverResult: {
+        ok: true,
+        code: 0,
+        stdout: JSON.stringify({
+          services: [{ name: 'control', host: '127.0.0.1', port: 21353, liveness: { alive: true } }],
+        }),
+        stderr: '',
+      },
+    },
+    {
+      name: 'server status command failed',
+      serverResult: { ok: false, code: null, stdout: '', stderr: '', error: 'spawn quay ENOENT' },
+    },
+  ];
+
+  for (const scenario of cases) {
+    const service = createQuayService(createDependencies({
+      runCommand: async (_cwd: string, args: readonly string[]): Promise<QuayCommandResult> =>
+        (args.join(' ') === 'server status --json'
+          ? scenario.serverResult
+          : { ok: true, code: 0, stdout: '[]', stderr: '' }),
+    }));
+
+    const snapshot = await service.getQuaySnapshot('project-1');
+    assert.equal(snapshot?.dashboardUrl, null, scenario.name);
+    assert.deepEqual(snapshot?.warnings, [], `${scenario.name}: an absent dashboard is not a warning`);
+  }
+});
+
+test('getQuaySnapshot caps the recent lists and orders them most-recent-first', async () => {
+  const makeItems = (prefix: string, count: number) =>
+    Array.from({ length: count }, (_item, index) => ({
+      id: `${prefix}-${String(index).padStart(2, '0')}`,
+      title: `${prefix} ${index}`,
+      status: 'done',
+      // Distinct timestamps so recency — not source order — decides the ranking.
+      updatedAt: index,
+    }));
+
+  const service = createQuayService(createDependencies({
+    runCommand: async (_cwd: string, args: readonly string[]): Promise<QuayCommandResult> => {
+      const key = args.join(' ');
+      if (key === 'task list --json') {
+        return { ok: true, code: 0, stdout: JSON.stringify(makeItems('T', 12)), stderr: '' };
+      }
+      if (key === 'adr list --json') {
+        return { ok: true, code: 0, stdout: JSON.stringify(makeItems('ADR', 12)), stderr: '' };
+      }
+      return { ok: true, code: 0, stdout: '[]', stderr: '' };
+    },
+  }));
+
+  const snapshot = await service.getQuaySnapshot('project-1');
+  assert.ok(snapshot);
+
+  // 12 items, updatedAt 0..11 → the ten newest, newest first.
+  const expectedIds = (prefix: string) =>
+    Array.from({ length: 10 }, (_item, index) => `${prefix}-${String(11 - index).padStart(2, '0')}`);
+
+  assert.deepEqual(snapshot.tasks?.recent.map((item) => item.id), expectedIds('T'));
+  assert.deepEqual(snapshot.adrs?.recent.map((item) => item.id), expectedIds('ADR'));
+  assert.equal(snapshot.tasks?.recent.length, 10);
+  assert.equal(snapshot.adrs?.recent.length, 10);
+  // The counts still describe the whole array, not just the capped recent slice.
+  assert.equal(snapshot.tasks?.total, 12);
+  assert.equal(snapshot.adrs?.total, 12);
+});
+
+test('getQuaySnapshot breaks a recency tie by id so the recent order is deterministic', async () => {
+  const service = createQuayService(createDependencies({
+    runCommand: async (_cwd: string, args: readonly string[]): Promise<QuayCommandResult> => {
+      if (args.join(' ') === 'task list --json') {
+        return {
+          ok: true,
+          code: 0,
+          stdout: JSON.stringify([
+            { id: 'zzz', title: 'Z', status: 'ready', updatedAt: 5 },
+            { id: 'aaa', title: 'A', status: 'ready', updatedAt: 5 },
+          ]),
+          stderr: '',
+        };
+      }
+      return { ok: true, code: 0, stdout: '[]', stderr: '' };
+    },
+  }));
+
+  const snapshot = await service.getQuaySnapshot('project-1');
+  assert.deepEqual(snapshot?.tasks?.recent.map((item) => item.id), ['aaa', 'zzz']);
 });

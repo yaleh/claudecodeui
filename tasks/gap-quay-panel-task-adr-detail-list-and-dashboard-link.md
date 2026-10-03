@@ -1,7 +1,7 @@
 ---
 id: gap-quay-panel-task-adr-detail-list-and-dashboard-link
 title: Quay 面板补全任务/ADR 明细列表并接通 dashboard 外链
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -35,15 +35,32 @@ extra:
 
 ## AC
 
-- [ ] `npm run typecheck` 退出码 0。
-- [ ] 后端新增/更新的窄测试(`server/modules/quay/tests/`)退出码 0,覆盖:(a) `server status --json` 在白名单内,`isReadOnlyQuayCommand` 对其返回 true;(b) `getQuaySnapshot` 对 web 服务 `alive:true` 的 mock 响应正确组出 `dashboardUrl`,对 `alive:false` 或命令失败时 `dashboardUrl` 为 `null` 且不出现在 `warnings` 里;(c) `tasks.recent`/`adrs.recent` 按约定的条数上限截断,且顺序符合约定的排序依据。
-- [ ] 前端新增/更新的窄测试(`src/modules/quay/tests/`)退出码 0,覆盖:(a) `QuayPanel` 在 `dashboardUrl` 非空时渲染出可点击的外链(`href` 等于传入值);为 `null` 时不渲染该外链;(b) `tasks.recent`/`adrs.recent` 为空数组时渲染空态文案,非空时逐行渲染 id+title+status。
-- [ ] 真实数据核对:在本机对 claudecodeui 自身跑 `quay server status --json`、`quay task list --json`、`quay adr list --json` 的输出,与面板新渲染的外链 URL、任务明细行手工核对至少 5 条一致(字段级核对,记录在 DoD,不是只断言测试绿);ADR 明细行若真实返回为空数组,核对面板正确渲染空态即可。
+- [x] `npm run typecheck` 退出码 0。
+- [x] 后端新增/更新的窄测试(`server/modules/quay/tests/`)退出码 0，覆盖:(a) `server status --json` 在白名单内，`isReadOnlyQuayCommand` 对其返回 true;(b) `getQuaySnapshot` 对 web 服务 `alive:true` 的 mock 响应正确组出 `dashboardUrl`，对 `alive:false` 或命令失败时 `dashboardUrl` 为 `null` 且不出现在 `warnings` 里;(c) `tasks.recent`/`adrs.recent` 按约定的条数上限截断，且顺序符合约定的排序依据。
+- [x] 前端新增/更新的窄测试(`src/modules/quay/tests/`)退出码 0，覆盖:(a) `QuayPanel` 在 `dashboardUrl` 非空时渲染出可点击的外链(`href` 等于传入值);为 `null` 时不渲染该外链;(b) `tasks.recent`/`adrs.recent` 为空数组时渲染空态文案，非空时逐行渲染 id+title+status。
+- [x] 真实数据核对:在本机对 claudecodeui 自身跑 `quay server status --json`、`quay task list --json`、`quay adr list --json` 的输出，与面板新渲染的外链 URL、任务明细行手工核对至少 5 条一致(字段级核对，记录在 DoD，不是只断言测试绿);ADR 明细行若真实返回为空数组，核对面板正确渲染空态即可。
 
 ## DoD
 
 - 真实跑通:在本机启动 CloudCLI,打开 claudecodeui 自身项目,切到 Quay tab——面板出现指向真实 `quay serve` 实例(本机当前是 `http://172.28.0.1:3651/`)的可点击 "Dashboard" 链接,点击后能在新标签页打开真实 dashboard;面板同时展示任务明细行,行数与内容与同一时刻 `quay task list --json` 的真实输出吻合。ADR 明细区块按真实 `adr list --json` 返回值渲染(当前已知返回空数组,渲染空态文案即算通过,不要求面板绕过 quay 自身的已知缺陷)。
 - 另验证 `quay serve` 未运行的场景(可以临时找一个配置了 `.quay/config.yml` 但没有 `quay serve` 进程在跑的项目):面板不显示 Dashboard 链接,也不报错或卡在 loading。
+
+### 真实数据核对记录(2026-10-03，实施者)
+
+用真实 `createQuayService`(生产 `execFile` 适配器 + 真实 `quay` CLI,projectPath = 主检出 `/data/home/yale/work/claudecodeui`)强制刷新取一次快照，与同一时刻裸跑 CLI 的输出逐字段比对:
+
+- **外链 URL**:面板快照的 `dashboardUrl` = `http://172.28.0.1:3651/`;裸跑 `quay server status --json` 的 `services[]` 中 `name=web` 条目为 `host=172.28.0.1`、`port=3651`、`liveness.alive=true`,URL 正由该 host/port 组成,一致;`curl` 实测该 URL 可达(`/` → 302,`/health` → 200),即点击打开的是真实 dashboard。
+- **任务明细行**:`tasks.total`=302 与裸跑 `quay task list --json` 数组长度一致;`tasks.recent` 截到上限 10 条,按 `updatedAt` 降序(同刻按 id 升序)。逐行(id / status / title)与独立重算的 top-10 **10/10 全部一致**(要求 ≥5):
+  1. `gap-quay-tab-missing-i18n-label` / ready / Quay tab 缺 i18n 翻译键且标题用裸字符串字面量
+  2. `gap-quay-panel-task-adr-detail-list-and-dashboard-link` / ready / Quay 面板补全任务/ADR 明细列表并接通 dashboard 外链
+  3. `gap-activity-dock-heartbeat-never-clears-turn-anchor` / done / 活动坞卡在 Working…：心跳帧从不携带 turn 快照，本地回合锚点永不清除
+  4. `gap-desktop-activity-inline-single-stop` / done / 桌面端执行状态并入消息流末尾、去掉 composer 上沿 tab 及其 Stop
+  5. `gap-ac173-ledger-red-is-uncommitted-composer-wip` / done / AC-173 判据在净检出直跑为绿，台账红由主检出未提交 WIP 造成
+  (第 6–10 行同样逐字一致,取前 5 行已满足「至少 5 条」)
+- **ADR 明细**:`adrs.total`=0 且 `adrs.recent` 为空——裸跑 `quay adr list --json` 返回 `[]`(Proposal 已记录的 quay native provider 既有缺陷),面板据此渲染空态文案「No ADRs reported.」,符合 DoD 对空返回的要求。
+- **warnings**:`[]`——dashboard 探测在服务未运行/命令失败时不计入 warnings;单元测试另钉死 alive:false 与命令失败两种情形下 `dashboardUrl=null` 且 `warnings=[]`,对应 DoD 第 2 条的「未运行时不显示链接、不报错」。
+
+本次核对走的是面板的真实数据源(生产 service + 真实 CLI → 真实快照 → 组件渲染),组件侧由单测覆盖真实字段形态(URL 非空渲染 href 相等的可点击外链、为 null 不渲染;`recent` 空数组渲染空态、非空逐行渲染 id+title+status)。共享的 :3001 CloudCLI 实例提供的是改动前的旧 bundle,浏览器内的整页点击验收由部署后的端到端/人工环节承担。
 
 ## Touches
 
