@@ -1,7 +1,7 @@
 ---
 id: AC-198
 title: 归属校验与既有 cancel-queued 规整：回执带 requestId，校验归属，既有用例全绿
-status: draft
+status: active
 kind: criterion
 goal: GOAL-015
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -18,4 +18,15 @@ origin: docs/proposals/claude-session-activity-dock.md（§0.1 人的裁定、§
   事件在投影层折叠成一行；历史里的 isMeta 行显示与对等方目录本期不纳入。 调查 2026-10-01：除 chat.send 与
   chat.edit-send 外没有哪个 WS 处理函数使用 userId；chat.cancel-queued 只做 getSessionById
   且没有请求关联。
+activatedAt: 2026-10-03T15:51:40.509Z
+statusLog:
+  - at: 2026-10-03T15:51:40.509Z
+    from: draft
+    to: active
+    actor: goal-cli
+    reason: ""
+fidelity:
+  verdict: not-evaluated
+  reason: no judge configured
+  at: 2026-10-03T15:51:40.509Z
 ---
