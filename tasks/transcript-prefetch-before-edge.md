@@ -25,10 +25,10 @@ goal_ac: AC-216
 
 ## AC
 
-- [ ] AC1 判据绿：`npx playwright test e2e/transcript-prefetch.spec.ts -g "AC-216"` 退出 0。红态基线：spec 文件不存在。
-- [ ] AC2 取假形态必须红（先提交再变异，逐条记录 diff、逐字失败行与恢复命令）：(a) 页大小改大但触发点仍为 scrollTop<100 ⇒ (b) 断言红；(b) 预取但前插后不做锚点恢复 ⇒ (d) 断言红。
-- [ ] AC3 既有跟随不回退：`npx playwright test e2e/transcript-follow.spec.ts` 保持绿（AC-106 至 AC-111），逐字写下读数。
-- [ ] AC4 `npm run typecheck` 与 `npm run lint` 退出 0；`git diff --stat` 与 `## Touches` 逐条对齐。
+- [x] AC1 判据绿：`npx playwright test e2e/transcript-prefetch.spec.ts -g "AC-216"` 退出 0。红态基线：spec 文件不存在。
+- [x] AC2 取假形态必须红（先提交再变异，逐条记录 diff、逐字失败行与恢复命令）：(a) 页大小改大但触发点仍为 scrollTop<100 ⇒ (b) 断言红；(b) 预取但前插后不做锚点恢复 ⇒ (d) 断言红。
+- [x] AC3 既有跟随不回退：`npx playwright test e2e/transcript-follow.spec.ts` 保持绿（AC-106 至 AC-111），逐字写下读数。
+- [x] AC4 `npm run typecheck` 与 `npm run lint` 退出 0；`git diff --stat` 与 `## Touches` 逐条对齐。
 
 ## DoD
 
@@ -43,3 +43,28 @@ goal_ac: AC-216
 - src/modules/chat/tests/prefetchTrigger.test.ts (new)
 - e2e/transcript-prefetch.spec.ts (new)
 - tasks/transcript-prefetch-before-edge.md
+
+## Evidence
+
+### 判据读数（AC-216；真实 Chromium + 真实滚轮 + 真实服务；多轮读数一致）
+- 视口 1200×460，pane clientHeight 200 ⇒ 预取带 = 2 × 200 = 400px。
+- 开屏：scrollTop 1525（在带外，1525 > 400，故下面这次取页只能是滚轮引起的）、rows 15。
+- 首次向上取页（真实 wheel）：scrollTop 339、clientHeight 200、limit 50、offset 20 ⇒ 339 > 100（未到边缘）且 339 ≤ 402（在带内）。
+- 取页后 rows 15 → 52（+37 行）：种子每 4 条消息折叠成 ~3 行渲染，50 条消息画 ~37 行，旧 20 条页只画 ~15 行。
+- 锚点恢复：drift 0.00px；并且记录到应用自己对 pane scrollTop 的写入一次（value 5711）—— 是应用 `writeScrollTop` 的写，浏览器 scroll anchoring 不走 JS setter，故该写证明恢复确实运行。
+- 一次连续滚动只有 1 次 older 取页请求（offset 20 唯一，无重复）。
+
+### 触发点/页大小取值依据
+- 触发带取 2 个视口高度（`OLDER_PAGE_PREFETCH_VIEWPORTS = 2`）：实测在 clientHeight 200 时于 scrollTop 339 触发，早于边缘 100 约 240px，且该页取完前不再重复触发。
+- 每页取 50（`OLDER_MESSAGES_PAGE_SIZE = 50`）：与 latest/首屏页 `SESSION_MESSAGES_PAGE_SIZE = 20` 解耦。原因见实测——AC-110 断言首屏恰为 20 行（合并后读数 `rowsBeforePrepend:20` 仍成立），故本任务只提升「向上加载」这条路径的页；把共享常量改成 50 会把首屏顶到 50 行而红掉 AC-110，且 Touches 不含该 spec。50 满足 AC 的 ≥50 下限。
+
+### AC2 变异（先提交再变异；基线提交 995a934f）
+(a) 触发点退回绝对 100：diff —— `sessionMessagePagination.ts` 中 `const prefetchBand = OLDER_PAGE_PREFETCH_VIEWPORTS * input.clientHeight;` 改为 `const prefetchBand = 100;`。逐字失败行：`Error: the older page must be asked for before the viewport reaches the top edge, not at it (asked at scrollTop 99)`（`Expected: > 100` / `Received: 99`，`e2e/transcript-prefetch.spec.ts:336`）。恢复：`git -C <worktree> checkout -- src/modules/chat/utils/sessionMessagePagination.ts`。
+(b) 前插后不做锚点恢复：diff —— `useChatSessionState.ts` 中 `pendingScrollRestoreRef.current = scrollRestoreState;` 改为 `void scrollRestoreState;`。逐字失败行：`Error: the prepend must re-place the viewport with the anchor restore — no pane write was made after the fetch at t8826 (writes [])`（`Expected: > 0` / `Received: 0`，`e2e/transcript-prefetch.spec.ts:419`）。恢复：`git -C <worktree> checkout -- src/modules/chat/hooks/useChatSessionState.ts`。
+说明：(b) 下 drift 读数为 0.00px —— Chromium 自身的 scroll anchoring 会替应用把行按住，故 drift 单读不足以分辨；判据因此同时要求「应用自己 write 过 pane 偏移」，该读在 (b) 下为空 `[]` 而红。
+
+### AC3 既有跟随读数
+`npx playwright test e2e/transcript-follow.spec.ts`：AC-106 / AC-107 / AC-111 / AC-110 / AC-108 / AC-109 全部 ✓（一轮 6 passed）。另一处非 AC 用例 `a whole row arriving while pinned keeps the pane at the bottom` 在负载轮先红（首帧 row 3 尚未长到 >pane），单跑复现即绿 —— 既有负载抖动，非本改动路径。AC-110 逐字读数：`rowsBeforePrepend:20`、`rowsAfterPrepend:24`、`scrollTopAfterRestore:880`、`driftPx:0`、`downwardWritesInWindow:0`。
+
+### AC4
+`npm run typecheck` exit 0；`npm run lint` exit 0；`git diff --stat 7432b31f..HEAD` 只列 Touches 的 4 个源文件（第 5 项本任务文件由 task_write 提交）。
