@@ -4081,6 +4081,15 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
     if (frameWriter && context) {
       forwardNormalizedFrames({
         transformedMessage: transformResidentMessage(message),
+        // The frames are routed by the provider-native id (`sessionId`), but the
+        // turn phase has to be keyed by the **app session id**: the activity
+        // heartbeat reads it back with the id the browser subscribes with
+        // (`activity-heartbeat.service.ts` → `readSessionTurn`), and on the
+        // resident path those are two different id spaces. Without this the
+        // tracker is fed the provider id while every reader uses the app id, so
+        // every read misses and answers `idle` for a turn that is really running.
+        // Same seam, same reason, as the per-run path in `claude-runtime.provider.ts`.
+        turnSessionId: state.appSessionId,
         sessionId,
         normalizeMessage: context.normalizeMessage,
         writer: frameWriter,

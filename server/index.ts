@@ -22,7 +22,7 @@ import {
     stopClaudeSessionScopes,
     sweepOrphanClaudeSessionScopes,
 } from '@/modules/providers/index.js';
-import { chatRunRegistry, createWebSocketServer } from '@/modules/websocket/index.js';
+import { activityStore, chatRunRegistry, createActivityRouter, createWebSocketServer } from '@/modules/websocket/index.js';
 import { createSessionHostsRouter, sessionHostManager } from '@/modules/session-hosts/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
@@ -305,6 +305,12 @@ app.use('/api/session-hosts', authenticateToken, createSessionHostsRouter({
     // directory a single time however many sessions the list above holds.
     readSessionOccupancy: () => readClaudeSessionOccupancy(),
 }));
+
+// The activity protocol's REST read port (protected). A late-joining client asks
+// for a session's current activity snapshot here before it starts hearing socket
+// frames; the snapshot shares its boot id and revision with the heartbeat frames
+// on the same session, because both read the one process-wide `activityStore`.
+app.use('/api/sessions', authenticateToken, createActivityRouter({ activityStore }));
 
 // Agent API Routes (uses API key authentication)
 app.use('/api/agent', agentRoutes);

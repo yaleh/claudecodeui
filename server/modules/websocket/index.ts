@@ -11,6 +11,23 @@ export {
   activityAnnouncement,
   attachActivityHeartbeat,
 } from './services/activity-heartbeat.service.js';
+// The activity protocol's storage face and its read port. `activityStore` is the
+// process-wide instance the server mounts and the heartbeat reads its revision
+// from, so a client's snapshot and its heartbeat always agree about `rev`.
+// `createActivityStore` / `createActivityRouter` are the seams the criterion
+// (`server/modules/websocket/tests/activity-protocol.test.ts`) and
+// `server/index.ts` use; the types are the contract those consumers type against.
+export {
+  createActivityStore,
+  activityStore,
+  type ActivityStore,
+  type ActivityStoreOptions,
+  type ActivityProtocolSnapshot,
+  type ActivityProtocolFrame,
+  type ActivityProtocolFrameKind,
+  type ActivityFrameListener,
+} from './services/activity-protocol.service.js';
+export { createActivityRouter } from './services/activity.routes.js';
 export { chatRunRegistry } from './services/chat-run-registry.service.js';
 // Consumed by the providers module's sessions watcher, which announces the
 // sessions it (re)indexed from disk through the same builder the chat gateway
