@@ -1,7 +1,7 @@
 ---
 id: session-window-around-id-endpoint
 title: AC-210 按消息 id 取前后窗口：返回窗口、startIndex、total 与双向 hasMore，追加后稳定
-status: ready
+status: done
 labels:
   - gap
 parent: null
