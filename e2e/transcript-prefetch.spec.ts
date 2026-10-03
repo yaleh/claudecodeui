@@ -76,14 +76,12 @@ const installHistoryRequestRecorder = () => {
         const limit = Number(limitParam);
         if (pane && Number.isFinite(limit)) {
           const paneTop = pane.getBoundingClientRect().top;
-          // The same anchor `captureScrollRestoreState` picks — the first row whose bottom is at
-          // or below the pane's top — but narrowed to rows carrying their timestamp, so it can be
-          // found again after the prepend. `.chat-message` is MessageComponent's own element.
+          const rows = Array.from(pane.querySelectorAll('[data-message-timestamp]')) as HTMLElement[];
+          // The same anchor `captureScrollRestoreState` picks — the first row whose bottom is at or
+          // below the pane's top — narrowed to rows carrying their timestamp so the row can be found
+          // again after the prepend. `.chat-message` is MessageComponent's own element.
           const anchor = (Array.from(pane.querySelectorAll('.chat-message[data-message-timestamp]')) as HTMLElement[]).find(
             (element) => element.getBoundingClientRect().bottom >= paneTop,
-          );
-          const rows = (Array.from(pane.querySelectorAll('[data-message-timestamp]')) as HTMLElement[]).filter(
-            (row) => !row.parentElement?.closest('[data-message-timestamp]'),
           );
           state.requests.push({
             t: Math.round(performance.now()),
@@ -92,7 +90,7 @@ const installHistoryRequestRecorder = () => {
             scrollTop: pane.scrollTop,
             clientHeight: pane.clientHeight,
             scrollHeight: pane.scrollHeight,
-            rows: rows.length,
+            rows: rows.filter((row) => !row.parentElement?.closest('[data-message-timestamp]')).length,
             anchorStamp: anchor?.getAttribute('data-message-timestamp') ?? null,
             anchorOffset: anchor ? anchor.getBoundingClientRect().top - paneTop : null,
           });
@@ -213,7 +211,7 @@ const readHistoryRequests = (page: Page): Promise<HistoryRequest[]> =>
 const readRowOffset = (page: Page, stamp: string) =>
   page.evaluate((target) => {
     const pane = document.querySelector('.chat-messages-pane') as HTMLElement;
-    const row = (Array.from(pane.querySelectorAll('.chat-message')) as HTMLElement[]).find(
+    const row = (Array.from(pane.querySelectorAll('.chat-message[data-message-timestamp]')) as HTMLElement[]).find(
       (node) => node.getAttribute('data-message-timestamp') === target,
     );
     return row ? row.getBoundingClientRect().top - pane.getBoundingClientRect().top : null;
@@ -256,6 +254,49 @@ const pointAtPane = async (page: Page) => {
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
 };
 
+/** One assignment to an element's `scrollTop`, as it was made. */
+type PaneWrite = { value: number; t: number; isPane: boolean };
+
+/**
+ * Records every assignment to `scrollTop` on any element, tagged with whether it was the transcript
+ * pane. Installed before the wheel, so the write the prepend's anchor restore makes is caught.
+ *
+ * The setter keeps its own descriptor and calls through to it, so the write is counted without
+ * being altered. A wheel, a key and the browser's own scroll anchoring never go through a JS setter,
+ * so a recorded pane write is one the *app* made — which is what separates the app's restore from
+ * the browser silently holding the row on its own.
+ */
+const installPaneWriteRecorder = () => {
+  const state: { writes: PaneWrite[] } = { writes: [] };
+  (window as unknown as { __paneWrites?: typeof state }).__paneWrites = state;
+  const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
+  if (descriptor?.get && descriptor?.set) {
+    Object.defineProperty(Element.prototype, 'scrollTop', {
+      configurable: true,
+      enumerable: descriptor.enumerable,
+      get(this: Element) {
+        return descriptor.get!.call(this);
+      },
+      set(this: Element, value: number) {
+        state.writes.push({
+          value,
+          t: Math.round(performance.now()),
+          isPane: this.classList?.contains('chat-messages-pane') ?? false,
+        });
+        descriptor.set!.call(this, value);
+      },
+    });
+  }
+};
+
+/** The `scrollTop` writes the app has made, oldest first. */
+const readPaneWrites = (page: Page): Promise<PaneWrite[]> =>
+  page.evaluate(() =>
+    JSON.parse(JSON.stringify(
+      (window as unknown as { __paneWrites?: { writes: PaneWrite[] } }).__paneWrites?.writes ?? [],
+    )) as PaneWrite[],
+  );
+
 test.describe.configure({ timeout: 120_000 });
 
 test.describe('transcript prefetch before the edge', () => {
@@ -270,6 +311,7 @@ test.describe('transcript prefetch before the edge', () => {
     // below), so no history request can be in flight before this point, and every request the wheel
     // causes is recorded.
     await page.evaluate(installHistoryRequestRecorder);
+    await page.evaluate(installPaneWriteRecorder);
     await pointAtPane(page);
 
     // The premise the wheel's reading rests on, asserted rather than assumed: the first screen
@@ -352,9 +394,12 @@ test.describe('transcript prefetch before the edge', () => {
       `the prepend must draw at least half a page of new rows (${openedRows} → ${rowsAfter})`,
     ).toBeGreaterThanOrEqual(PAGE_FLOOR / 2);
 
-    // 3. The anchored row did not move: the prepend shifted everything above it, and the restore
-    //    put the row back. This is the reading the "prefetch without the anchor restore" variant
-    //    turns red — without it the row drops by the whole prepended height.
+    // 3. The anchored row did not move, and the app's own restore is what kept it. Chromium anchors
+    //    the offset itself when content above the viewport changes, so the drift alone does not say
+    //    which mechanism acted — the write does. The app writes the pane's offset through
+    //    `scrollTop` (never the browser's silent anchoring), so a pane write after the fetch was
+    //    issued is the restore running. The "prefetch without the anchor restore" variant makes no
+    //    such write and turns the second assertion red.
     expect(first.anchorStamp, 'the request must have been made with a row on screen to anchor on').not.toBeNull();
     expect(first.anchorOffset, 'the anchored row must have a measured offset').not.toBeNull();
     const anchorAfter = await readRowOffset(page, first.anchorStamp!);
@@ -364,6 +409,14 @@ test.describe('transcript prefetch before the edge', () => {
       drift,
       `the prepend must leave the anchored row where it was (offset ${first.anchorOffset} → ${anchorAfter}, drift ${drift}px)`,
     ).toBeLessThanOrEqual(DRIFT_PX);
+
+    const paneWrites = (await readPaneWrites(page)).filter((write) => write.isPane && write.t >= first.t);
+    console.log(`AC-216 restore drift=${drift.toFixed(2)}px paneWrites=${JSON.stringify(paneWrites.map((write) => ({ value: Math.round(write.value), t: write.t })))}`);
+    expect(
+      paneWrites.length,
+      `the prepend must re-place the viewport with the anchor restore — no pane write was made after the fetch at t${first.t} `
+      + `(writes ${JSON.stringify(paneWrites)})`,
+    ).toBeGreaterThan(0);
 
     // 4. One request per arrival: a page is never asked for twice, which is the shape a trigger
     //    that re-fired while its own request was in flight would take.
