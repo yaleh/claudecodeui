@@ -88,4 +88,4 @@ machine.onFrame({ bootId, rev, asOf, staleAfter: slot.staleAfter });   // 没有
 
 **结论**：回合结束的**同一秒**坞即退场，不需要刷新；同一动作在修复前的读数是 4m55s 仍卡在 `in-turn`。修复在真实部署上成立，AC5 的 `[x]` 现有可复现读数支撑。
 
-**遗留观察（未立案，供后续判断）**：上述 `d1295254` 轮里，回合进行中坞自报的是 `data-activity-phase="idle"` 且 `data-activity-elapsed-ms=null`（20 秒 `sleep` 工具调用期间持续如此），而不是 `tool` / 一个非空计时。不排除是采样时机或心跳相位滞后的假象；若属实，则是「回合中文案与计时」那一族（AC-186/AC-187 已 done）的另一个洞，与本条根因无关。
+**遗留观察已查实，并另案立案。** 上述 `d1295254` 轮里「回合进行中坞自报 `phase=idle` 且 `elapsed-ms=null`」不是采样假象 —— 在 `64a1762b`（`sleep 30`）上做了 26 秒逐秒对拍：`GET /api/providers/sessions/running` **每一拍都是 `true`**，而每一条 `activity.heartbeat` 的 `phase` **每一拍都是 `"idle"`**；坞自报 `data-activity-state="in-turn"` / `phase="idle"` / `elapsed-ms=null`。根因是相位 tracker **写入方用 provider session id**（`claude-runtime.provider.ts` 的 `const sid = capturedSessionId || sessionId || null`）、**读取方用 app session id**（心跳的 `readSessionTurn(sessionId)`），两个 id 空间不同，查询永远落空 → 永远 idle；id 对读数 `64a1762b-…` ↔ `f8df8def-…`（`/api/session-hosts`）。已另立 `gap-activity-turn-phase-id-space-mismatch`。**本条修复不受影响**：`in-turn` 的显示判据不看 phase，PHASE2 那 26 秒里 `state` 一直是 `in-turn`，回合结束才退场。
