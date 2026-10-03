@@ -867,7 +867,12 @@ const activityFeedsBySocket = new WeakMap<WebSocket, Map<string, () => void>>();
  * what lets the client draw the background panel from a snapshot on first load
  * and then watch it change without a reload or a poll — the two readings AC-194
  * turns on. A session already fed on this socket is left alone so a re-sent
- * `chat.subscribe` does not double the frame rate.
+ * `activity.subscribe` does not double the frame rate.
+ *
+ * Reached only through {@link handleActivitySubscribe}, never through
+ * `chat.subscribe`: the run's frame sequence is a frozen contract, and the
+ * `activity.snapshot` this hands a joiner is a frame that contract does not
+ * carry (see the comment in `handleChatSubscribe`).
  */
 function attachActivityFeed(ws: WebSocket, sessionId: string): void {
   const bySession = activityFeedsBySocket.get(ws) ?? new Map<string, () => void>();
@@ -903,6 +908,32 @@ function attachActivityFeed(ws: WebSocket, sessionId: string): void {
   ws.on('close', stopFeed);
   ws.on('error', stopFeed);
   bySession.set(sessionId, stopFeed);
+}
+
+/**
+ * Handles `activity.subscribe`: starts feeding this socket the activity
+ * protocol's frames for one session.
+ *
+ * It is deliberately its own verb rather than a side effect of `chat.subscribe`.
+ * A `chat.subscribe` reply is the run's frame sequence, and that sequence is a
+ * frozen contract: the per-run frame-parity criterion
+ * (`session-host-per-run-parity.test.ts`, AC-155) compares it against a baseline
+ * recorded on the tree that predates the session-host layer and flags any added
+ * frame as a regression. Attaching the feed there injected an `activity.snapshot`
+ * frame into that stream and red the criterion; splitting the verb keeps the run
+ * stream byte-stable for a client (or a criterion) that never asks for activity,
+ * and makes the subscription an explicit opt-in for a client that wants the
+ * task/schedule panel. The reply is the store's own contract: a whole
+ * `activity.snapshot` for the joiner first, then a whole-snapshot
+ * `activity.upsert` per change.
+ */
+function handleActivitySubscribe(ws: WebSocket, data: AnyRecord): void {
+  const sessionId = readRequiredSessionId(data);
+  if (!sessionId) {
+    sendProtocolError(ws, 'INVALID_SESSION_ID', 'activity.subscribe requires a sessionId');
+    return;
+  }
+  attachActivityFeed(ws, sessionId);
 }
 
 /**
@@ -989,10 +1020,12 @@ function handleChatSubscribe(
     // is still alive on the beat it just announced.
     attachActivityHeartbeat(ws, sessionId);
 
-    // ...and starts feeding it the session's activity snapshot and any change to
-    // it: the task/schedule panel is drawn from these whole-snapshot frames, not
-    // from the session-hosts poll.
-    attachActivityFeed(ws, sessionId);
+    // The activity feed is deliberately NOT attached here: a `chat.subscribe`
+    // reply is the run's frame sequence, and attaching the feed would inject an
+    // `activity.snapshot` frame into it. That sequence is a frozen contract (the
+    // per-run frame-parity criterion compares it against a pre-wrapper baseline
+    // and forbids any added frame), so the activity feed has its own opt-in —
+    // `activity.subscribe` — handled below.
 
     // Replay only for RUNNING runs, strictly after the ack. Completed runs
     // are fully persisted to the provider transcript and served over REST —
@@ -1144,6 +1177,9 @@ export function handleChatConnection(
           return;
         case 'chat.subscribe':
           handleChatSubscribe(ws, data, dependencies);
+          return;
+        case 'activity.subscribe':
+          handleActivitySubscribe(ws, data);
           return;
         case 'chat.permission-response':
           handlePermissionResponse(data, dependencies);

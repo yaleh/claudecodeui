@@ -23,8 +23,9 @@
  * session id down through the transcript renderer.
  */
 
-import { useEffect, useSyncExternalStore } from 'react';
+import { useContext, useEffect, useSyncExternalStore } from 'react';
 
+import WebSocketContext from '@/shared/context/WebSocketContext';
 import { fetchSessionActivity } from '@/shared/api';
 import type { ActivityScheduleView, ActivityTaskView } from '@/shared/types';
 
@@ -138,9 +139,30 @@ function ensureSnapshotFetched(sessionId?: string | null): void {
 
 /** The session's background-work view, re-rendering the caller when a frame arrives. */
 export function useSessionActivity(sessionId?: string | null): SessionActivityView {
+  // The context is read directly rather than through `useWebSocket` (the same
+  // seam `useActivityFreshness` uses) so a unit test can render a reader with no
+  // provider: with no socket there is simply nothing to ask.
+  const contextConnection = useContext(WebSocketContext);
+  const sendMessage = contextConnection?.sendMessage;
+  const isConnected = contextConnection?.isConnected ?? false;
+
   useEffect(() => {
     ensureSnapshotFetched(sessionId);
   }, [sessionId]);
+
+  // Ask the server to start pushing this session's activity frames. The verb is
+  // its own — deliberately not `chat.subscribe` — because a `chat.subscribe`
+  // reply is the run's frame sequence, which the per-run frame-parity criterion
+  // pins against a frozen baseline and forbids adding frames to; the server
+  // attaches this feed only on `activity.subscribe`. Re-sent whenever the socket
+  // reports itself connected, so a reconnect re-arms the feed instead of leaving
+  // the panel frozen on its last snapshot.
+  useEffect(() => {
+    if (!sessionId || !isConnected || !sendMessage) {
+      return;
+    }
+    sendMessage({ type: 'activity.subscribe', sessionId });
+  }, [sessionId, isConnected, sendMessage]);
 
   return useSyncExternalStore(
     subscribe,
