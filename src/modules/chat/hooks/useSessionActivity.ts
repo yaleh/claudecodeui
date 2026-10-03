@@ -121,13 +121,19 @@ function ensureSnapshotFetched(sessionId?: string | null): void {
     return;
   }
   snapshotFetched.add(sessionId);
-  void fetchSessionActivity(sessionId)
-    .then((frame) => {
-      if (frame) {
-        applyActivityFrame(frame);
-      }
-    })
-    .catch(() => undefined);
+  // Wrapped in try/catch as well as `.catch`: a document without `fetch` (a unit render) throws
+  // synchronously out of the request constructor, which a promise `.catch` never sees.
+  try {
+    void fetchSessionActivity(sessionId)
+      .then((frame) => {
+        if (frame) {
+          applyActivityFrame(frame);
+        }
+      })
+      .catch(() => undefined);
+  } catch {
+    // No transport here; the socket's own `activity.snapshot` remains the primary path.
+  }
 }
 
 /** The session's background-work view, re-rendering the caller when a frame arrives. */

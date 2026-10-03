@@ -16,13 +16,14 @@
  *     state moves when the task does — not from whether a result row happens to be folded in;
  *   - a plan row renders no cancel control (selector count zero, by construction).
  *
- * Why the reload mid-walk. The control plane's clock opens a *per-run* run whose writer has no socket
- * attached at open time (`openUnattendedRun` starts with `connection: null`), so a page that
- * subscribed *before* the walk does not receive its transcript frames live. A reload while the run is
- * still in flight re-subscribes, attaches the socket, and replays/fetches the rows written so far —
- * which is how the cards and their running task states come on screen. Everything after that (the
- * terminal upserts) arrives live, which is exactly the reading AC-194's "changes without a reload"
- * pins. The reload is before the measured window; the window itself sees no navigation.
+ * Why the session is opened after the clock. The control plane's clock opens a *per-run* run whose writer
+ * has no socket attached at open time (`openUnattendedRun` starts with `connection: null`), so a page that
+ * subscribed *before* the walk does not receive its transcript frames live. Opening the session after the
+ * clock has started makes the subscribe land while the run is in flight, so the socket attaches and the
+ * client replays/fetches the rows written so far — which is how the cards and their running task states
+ * come on screen. Everything after that (the terminal upserts) arrives live, which is exactly the reading
+ * AC-194's "changes without a reload" pins. The measured window opens after the session is open and sees
+ * no navigation.
  */
 
 import path from 'node:path';
@@ -55,11 +56,13 @@ const TASK_SHELL = 'task-shell';
 /**
  * The background-work walk.
  *
- * A `Task` call and a `Bash` call become the two transcript cards; each is followed by a `task-started`
- * that joins the task to the call's `tool_use` id (minted by the engine, never named here). A
- * `CronCreate` call/result pair becomes the plan. The two tasks start early and settle late (7s / 7.5s)
- * so there is a wide window in which the panel and the cards read `running` before the terminal frames
- * arrive — the window the "changes without a reload" arm reads across. The walk writes nine rows.
+ * A `Task` call and a `Bash` call become the two transcript cards, each separated from its neighbours by an
+ * assistant text row so it renders inline as a singleton rather than being folded into a collapsed work
+ * segment; each is followed by a `task-started` that joins the task to the call's `tool_use` id (minted by
+ * the engine, never named here). A `CronCreate` call/result pair becomes the plan. The two tasks start
+ * early and settle late (7s / 7.5s) so there is a wide window in which the panel and the cards read
+ * `running` before the terminal frames arrive — the window the "changes without a reload" arm reads
+ * across. The walk writes eleven rows.
  */
 const SCENARIO = {
   version: 1,
@@ -71,15 +74,17 @@ const SCENARIO = {
     { at: 0, op: 'tool-call', name: 'Task' },
     { at: 300, op: 'task-started', taskId: TASK_AGENT, taskType: 'local_agent', description: 'Explore the repo' },
     { at: 600, op: 'task-progress', taskId: TASK_AGENT, description: 'reading files' },
-    { at: 900, op: 'tool-call', name: 'Bash' },
+    { at: 800, op: 'row', role: 'assistant', text: 'Started the exploration agent.' },
+    { at: 1_000, op: 'tool-call', name: 'Bash' },
     { at: 1_200, op: 'task-started', taskId: TASK_SHELL, taskType: 'local_bash', description: 'Long build' },
-    { at: 1_500, op: 'schedule-plan', expression: '*/2 * * * *', human: 'Every 2 minutes', prompt: 'check the queue' },
+    { at: 1_400, op: 'row', role: 'assistant', text: 'And a background build.' },
+    { at: 1_600, op: 'schedule-plan', expression: '*/2 * * * *', human: 'Every 2 minutes', prompt: 'check the queue' },
     { at: 2_000, op: 'wait' },
-    { at: 7_000, op: 'task-updated', taskId: TASK_AGENT, status: 'completed' },
-    { at: 7_500, op: 'task-notification', taskId: TASK_SHELL, status: 'completed', summary: 'build done' },
-    { at: 9_000, op: 'wait' },
+    { at: 3_600, op: 'task-updated', taskId: TASK_AGENT, status: 'completed' },
+    { at: 3_800, op: 'task-notification', taskId: TASK_SHELL, status: 'completed', summary: 'build done' },
+    { at: 4_400, op: 'wait' },
   ],
-  expect: { rows: { delta: 9 }, content: { mustContain: [SEED_USER_TEXT] } },
+  expect: { rows: { delta: 11 }, content: { mustContain: [SEED_USER_TEXT] } },
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -246,19 +251,23 @@ test.describe('activity dock background', () => {
       { key: 'auth-token', value: token },
     );
     page = await context.newPage();
+    page.on('pageerror', (error) => console.log(`[e2e] pageerror: ${error.message}`));
+    page.on('console', (message) => {
+      if (message.type() === 'error') console.log(`[e2e] console.error: ${message.text()}`);
+    });
     page.on('framenavigated', (frame) => {
       if (frame === page.mainFrame()) navigations += 1;
     });
 
     // The first load lands on the sidebar; a cold Vite optimize can replace the document whole, so one
-    // bounded reload covers that replay without turning "not landed" into a pass.
+    // bounded reload covers that replay without turning "not landed" into a pass. The session row is
+    // revealed but *not* opened here: the test opens it after the clock starts, so the subscribe that
+    // mounts the session view lands while the run is already in flight and attaches the live stream.
     await page.goto('/');
     if (!(await projectRow(page, workspaceName).waitFor({ state: 'visible', timeout: 25_000 }).then(() => true, () => false))) {
       await page.reload();
     }
     await revealSession(page, workspaceName, sessionId);
-    await sessionRow(page, sessionId).click();
-    await expect(page.locator(PANE)).toBeVisible({ timeout: 30_000 });
   });
 
   test.afterAll(async () => {
@@ -273,29 +282,41 @@ test.describe('activity dock background', () => {
     // awaited at the very end, for the one fact only it carries — that the walk completed.
     const clock = api
       .post('/api/debug-agent/clock', { data: { sessionId } })
-      .then(async (response) => ({ ok: response.ok(), status: response.status(), body: (await response.json().catch(() => null)) as { success?: boolean } | null }))
+      .then(async (response) => {
+        const body = (await response.json().catch(() => null)) as { success?: boolean; error?: unknown } | null;
+        console.log(`clock.status=${response.status()} clock.body=${JSON.stringify(body).slice(0, 400)}`);
+        return { ok: response.ok(), status: response.status(), body };
+      })
       .catch((error: unknown) => ({ ok: false, status: -1, body: { failed: String(error) } }));
 
-    // Let the walk write the two cards and the plan, then reload to attach to the run in flight so the
-    // transcript rows (and the running task states) come on screen. The reload is *before* the measured
-    // window; from here on the panel and the cards must move with the frames alone.
-    await page.waitForTimeout(2_600);
-    await page.reload();
+    // Let the run open and write its first rows, then open the session: the subscribe that mounts the
+    // view lands while the run is in flight, so the socket attaches and the client replays/fetches the
+    // rows written so far. This is before the measured window; from here on the panel and the cards must
+    // move with the frames alone.
+    await page.waitForTimeout(500);
+    await sessionRow(page, sessionId).click();
     await expect(page.locator(PANE)).toBeVisible({ timeout: 30_000 });
 
-    // AC: the two cards and the plan are on the page, running.
-    await expect(page.locator(CARD_TASK_STATE)).toHaveCount(2, { timeout: 25_000 });
+    // The transcript renders each card inline: an assistant text row separates the calls, so no two work
+    // rows are adjacent and each is a singleton rather than a folded work segment.
+    const preSnapshot = await readActivitySnapshot(api, sessionId);
+    console.log(`diag.snapshot.status=${preSnapshot.status} snapshot.tasks=${preSnapshot.snapshot?.tasks?.length} snapshot.plans=${preSnapshot.snapshot?.schedules?.length}`);
+    console.log(`diag.dockToggleCount=${await page.locator(DOCK_TOGGLE).count()} diag.cardCount=${await page.locator(CARD_TASK_STATE).count()} diag.foldedCount=${await page.locator(CARD_FOLDED_STATUS).count()}`);
+
+    // The cards and the plan come on screen as the run streams; the dock's counter makes the panel
+    // reachable.
     await expect(page.locator(DOCK_TOGGLE)).toBeVisible({ timeout: 25_000 });
     await page.locator(DOCK_TOGGLE).click();
     await expect(page.locator(PANEL)).toBeVisible({ timeout: 15_000 });
     await expect(page.locator(TASK_ROW)).toHaveCount(2, { timeout: 15_000 });
     await expect(page.locator(SCHEDULE_ROW)).toHaveCount(1, { timeout: 15_000 });
+    await expect(page.locator(CARD_TASK_STATE)).toHaveCount(2, { timeout: 8_000 });
 
     const running = await readPanel(page);
     const runningCards = await readCardTaskStates(page);
     console.log(`running.tasks=${JSON.stringify(running.tasks)}`);
     console.log(`running.plans=${JSON.stringify(running.plans)}`);
-    console.log(`running.cardTaskStates=${JSON.stringify(runningCards)}`);
+    console.log(`running.cardTaskStates=${JSON.stringify(runningCards)} at +${Date.now() - runStartedAt}ms`);
     expect(running.tasks.map((task) => task.state).sort()).toEqual(['running', 'running']);
     expect(runningCards, 'the cards must read the running task states before the terminal frames').toEqual(['running', 'running']);
 
@@ -333,6 +354,7 @@ test.describe('activity dock background', () => {
     navigations = 0;
     await expect(page.locator(`${TASK_ROW}[data-task-state="completed"]`)).toHaveCount(2, { timeout: 20_000 });
     const settled = await readPanel(page);
+    await expect(page.locator(CARD_TASK_STATE)).toHaveCount(2, { timeout: 8_000 });
     const settledCards = await readCardTaskStates(page);
     console.log(`settled.tasks=${JSON.stringify(settled.tasks.map((task) => task.state))} settled.cards=${JSON.stringify(settledCards)}`);
     expect(settled.tasks.map((task) => task.state).sort()).toEqual(['completed', 'completed']);
@@ -348,7 +370,7 @@ test.describe('activity dock background', () => {
     expect(runningCards, 'the card headers must have been running before the terminal frames').not.toEqual(settledCards);
     expect(foldedStates.every((value) => value === 'running'), 'the folded-row reading must still be running').toBe(true);
 
-    // --- AC7: a reload restores the panel from the snapshot -------------------------------------
+    // --- AC7: a fresh load restores the panel from the snapshot ---------------------------------
     const beforeReload = await readPanel(page);
     await page.reload();
     await expect(page.locator(PANE)).toBeVisible({ timeout: 30_000 });
