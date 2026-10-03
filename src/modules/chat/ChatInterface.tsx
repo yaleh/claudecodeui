@@ -18,6 +18,7 @@ import type {
 import { useChatProviderState } from '@/modules/chat/hooks/useChatProviderState';
 import { useScheduledMessages } from '@/modules/chat/composer/useScheduledMessages';
 import { useChatSessionState } from '@/modules/chat/hooks/useChatSessionState';
+import { useTurnNavigation } from '@/modules/chat/hooks/useTurnNavigation';
 import { useChatRealtimeHandlers } from '@/modules/chat/hooks/useChatRealtimeHandlers';
 import { useChatComposerState } from '@/modules/chat/hooks/useChatComposerState';
 import { useSessionStore } from '@/modules/chat/hooks/useSessionStore';
@@ -187,6 +188,7 @@ function ChatInterface({
     scrollToBottomAndReset,
     handleScroll,
     requestLatestMessages,
+    jumpToMessage,
   } = useChatSessionState({
     isActive,
     selectedProject,
@@ -201,6 +203,17 @@ function ChatInterface({
     statusCheckSentAtRef,
     lastSeqRef,
     sessionStore,
+  });
+
+  // The turn navigation rail's index, its current-turn reading, and the jump it
+  // shares with the sidebar search — all addressed by transcript anchor id.
+  const { turns: turnRailTurns, currentTurnId, jumpToTurn } = useTurnNavigation({
+    isActive,
+    sessionId: currentSessionId ?? selectedSession?.id ?? null,
+    sessionStore,
+    chatMessages,
+    scrollContainerRef,
+    jumpToMessage,
   });
 
   // Brand-new conversation: the composer allocated a stable session id via
@@ -599,6 +612,9 @@ function ChatInterface({
             onEditMessage={supportsMessageEditing && !isProcessing ? beginEditMessage : undefined}
             onForkFromMessage={supportsSessionForking ? handleForkFromMessage : undefined}
             onLoadFullTranscript={loadFullTranscript}
+            turnRailTurns={turnRailTurns}
+            turnRailCurrentId={currentTurnId}
+            onJumpToTurn={jumpToTurn}
           />
         </MarkdownWorkspaceContext.Provider>
 

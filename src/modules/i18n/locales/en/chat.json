@@ -462,5 +462,10 @@
       "lastNotification": "Last notification {{elapsed}} ago",
       "count": "{{n}} tasks"
     }
+  },
+  "turnRail": {
+    "label": "Conversation turns",
+    "jumpToTurn": "Jump to turn {{n}}",
+    "turn": "Turn {{n}}"
   }
 }

@@ -358,5 +358,10 @@
       "lastNotification": "Son bildirim {{elapsed}} önce",
       "count": "{{n}} görev"
     }
+  },
+  "turnRail": {
+    "label": "Konuşma turları",
+    "jumpToTurn": "{{n}}. tura git",
+    "turn": "Tur {{n}}"
   }
 }

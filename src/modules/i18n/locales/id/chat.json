@@ -450,5 +450,10 @@
       "lastNotification": "Notifikasi terakhir {{elapsed}} lalu",
       "count": "{{n}} tugas"
     }
+  },
+  "turnRail": {
+    "label": "Giliran percakapan",
+    "jumpToTurn": "Lompat ke giliran {{n}}",
+    "turn": "Giliran {{n}}"
   }
 }

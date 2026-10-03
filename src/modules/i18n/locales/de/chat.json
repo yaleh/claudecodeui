@@ -358,5 +358,10 @@
       "lastNotification": "Letzte Benachrichtigung vor {{elapsed}}",
       "count": "{{n}} Aufgaben"
     }
+  },
+  "turnRail": {
+    "label": "Gesprächsrunden",
+    "jumpToTurn": "Zu Runde {{n}} springen",
+    "turn": "Runde {{n}}"
   }
 }

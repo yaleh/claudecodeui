@@ -345,5 +345,10 @@
       "lastNotification": "最後の通知は {{elapsed}} 前",
       "count": "{{n}} 件のタスク"
     }
+  },
+  "turnRail": {
+    "label": "会話のターン",
+    "jumpToTurn": "ターン {{n}} へ移動",
+    "turn": "ターン {{n}}"
   }
 }

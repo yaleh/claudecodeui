@@ -1,7 +1,7 @@
 ---
 id: transcript-turn-rail-and-jump
 title: AC-213 轮次导航轨道与跳转：点击任一轮（含从未加载的）落在视口内，复用并取代搜索跳转的全量拉取
-status: ready
+status: done
 labels:
   - gap
 parent: null

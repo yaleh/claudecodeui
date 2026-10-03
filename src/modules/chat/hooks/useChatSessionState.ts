@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { MutableRefObject } from 'react';
 
 import { api } from '@/shared/api';
-import type { MarkSessionIdle, SessionActivityMap,Project,ProjectSession,LLMProvider,NormalizedMessage,ChatMessage,DiffCalculator,ChatReplayCursorMap } from '@/shared/types';
+import type { MarkSessionIdle, SessionActivityMap,Project,ProjectSession,LLMProvider,NormalizedMessage,ChatMessage,DiffCalculator,ChatReplayCursorMap,SessionTurnOutline } from '@/shared/types';
 import type { SessionStore } from '@/modules/chat/hooks/useSessionStore';
 import { subscribeTargetFor } from '@/modules/chat/utils/replayCursor';
 import {
@@ -29,6 +29,16 @@ const SEARCH_TARGET_CONTEXT_MESSAGES = 20;
  */
 const SEARCH_SCROLL_RETRIES = 20;
 const SEARCH_SCROLL_RETRY_DELAY_MS = 150;
+
+/**
+ * How many messages are loaded on each side of a jump target.
+ *
+ * Bounded on purpose: a jump is one window read around the id, never a read of
+ * the whole transcript. The reader extends the window from there by scrolling,
+ * which is what the id-anchored `loadBefore`/`loadAfter` reads are for.
+ */
+const JUMP_WINDOW_BEFORE = 40;
+const JUMP_WINDOW_AFTER = 40;
 
 /**
  * How far above the bottom the viewport may sit and still count as being at the
@@ -100,54 +110,87 @@ type TranscriptGeometry = {
 };
 
 /**
- * Finds the rendered row for a resolved search target.
+ * Finds the rendered row addressed by `anchorId`.
  *
- * Only an exact timestamp match counts while retries remain: the widened window
- * may not be committed yet, and accepting the nearest row then would scroll to
- * an arbitrary message and flash the highlight on it — the silent wrong answer
- * this rewrite exists to remove. `allowNearest` is used on the final attempt
- * because a hit on the second or later call of a collapsed tool group has no row
- * of its own; groupConsecutiveTools stamps the group with the run's FIRST
- * timestamp, so the group row is the nearest, not an exact, match.
+ * The id is read off the persistent row wrapper (`data-message-anchor-id`), so
+ * a row whose content is not currently mounted is still found — which is what
+ * lets a jump land on a turn the viewport has never reached. A timestamp lookup
+ * cannot do this: the two turns a session may stamp with one millisecond are
+ * two rows, and only the id tells them apart.
  */
-function findRenderedMessageElement(
+function findRenderedMessageElementById(
   container: HTMLElement,
-  timestamp: unknown,
-  allowNearest: boolean,
+  anchorId: string,
 ): HTMLElement | null {
-  const targetTimestamp = String(timestamp);
-  const targetTime = new Date(targetTimestamp).getTime();
-  const candidates = container.querySelectorAll<HTMLElement>('[data-message-timestamp]');
-
-  let nearest: HTMLElement | null = null;
-  let nearestDistance = Infinity;
-
+  const candidates = container.querySelectorAll<HTMLElement>('[data-message-anchor-id]');
   for (const candidate of candidates) {
-    const candidateTimestamp = candidate.getAttribute('data-message-timestamp');
-    if (!candidateTimestamp) {
-      continue;
-    }
-    if (candidateTimestamp === targetTimestamp) {
+    if (candidate.getAttribute('data-message-anchor-id') === anchorId) {
       return candidate;
     }
+  }
+  return null;
+}
 
-    if (!allowNearest) {
-      continue;
-    }
+/**
+ * The identity a transcript row is addressed by: its provider anchor, or the
+ * store id when the provider has none. This is the same key the server resolves
+ * an `around` read against, so a row found in the DOM by this value is the row
+ * that read fetched — two turns sharing a millisecond are still two keys.
+ */
+function anchorIdOf(message: ChatMessage): string | null {
+  return message.transcriptAnchorId ?? message.id ?? null;
+}
 
-    const candidateTime = new Date(candidateTimestamp).getTime();
-    if (!Number.isFinite(candidateTime) || !Number.isFinite(targetTime)) {
-      continue;
-    }
+/**
+ * Resolves a sidebar search hit to the transcript anchor id it should jump to.
+ *
+ * A hit carries a snippet and a timestamp but no id, so the id is derived from
+ * what the client already holds: the loaded transcript first (an exact message
+ * match), then the session's user-turn outline (the nearest turn by timestamp,
+ * so an assistant or tool hit lands on the turn that produced it, or a turn
+ * whose preview carries the snippet). Both reads are local — the whole
+ * transcript is never pulled just to resolve one hit.
+ */
+function resolveSearchTargetAnchorId(
+  target: SearchTarget,
+  loadedMessages: ChatMessage[],
+  outline: SessionTurnOutline | null,
+): string | null {
+  const loadedIndex = findSearchTargetIndex(loadedMessages, target);
+  if (loadedIndex >= 0) {
+    const anchorId = anchorIdOf(loadedMessages[loadedIndex]);
+    if (anchorId) return anchorId;
+  }
 
-    const distance = Math.abs(candidateTime - targetTime);
-    if (distance < nearestDistance) {
-      nearestDistance = distance;
-      nearest = candidate;
+  if (!outline) return null;
+
+  if (target.timestamp) {
+    const targetTime = new Date(target.timestamp).getTime();
+    if (Number.isFinite(targetTime)) {
+      let nearestId: string | null = null;
+      let nearestDistance = Infinity;
+      for (const turn of outline.turns) {
+        const turnTime = new Date(turn.timestamp).getTime();
+        if (!Number.isFinite(turnTime)) continue;
+        const distance = Math.abs(turnTime - targetTime);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestId = turn.id;
+        }
+      }
+      if (nearestId) return nearestId;
     }
   }
 
-  return nearest;
+  if (target.snippet) {
+    const phrase = target.snippet.replace(/^\.{3}/, '').replace(/\.{3}$/, '').trim().toLowerCase();
+    if (phrase.length >= 10) {
+      const turn = outline.turns.find((entry) => entry.preview.toLowerCase().includes(phrase));
+      if (turn) return turn.id;
+    }
+  }
+
+  return null;
 }
 /** Stable empty list so `chatMessages` keeps its identity while no session is selected. */
 const NO_MESSAGES: NormalizedMessage[] = [];
@@ -304,10 +347,10 @@ export function useChatSessionState({
   /** The frame the observer-driven follow writes its scroll offset in, so a burst of growths coalesces. */
   const followFrameRef = useRef<number | null>(null);
   const wasNearTopRef = useRef(false);
-  // The sidebar-search hit this transcript still owes the user a scroll to.
-  // State rather than a ref because resolving it widens the render window,
-  // and it is cleared once the row is on screen or the retries run out.
-  const [searchTarget, setSearchTarget] = useState<SearchTarget | null>(null);
+  // The jump owns the viewport until it has placed it. Ref rather than state
+  // because the follow and the initial scroll read it synchronously inside
+  // effects and layout effects, where a state update from this same commit
+  // would not yet be visible.
   const searchScrollActiveRef = useRef(false);
   /**
    * The pending step of the search-jump retry chain, so a session change can
@@ -393,6 +436,8 @@ export function useChatSessionState({
     lastPlacedTopRef.current = container.scrollTop;
   }, []);
   const isLoadingMoreRef = useRef(false);
+  /** Guards the detached-window's own newer-page read, the mirror of `isLoadingMoreRef`. */
+  const isLoadingNewerRef = useRef(false);
   const allMessagesLoadedRef = useRef(false);
   /**
    * The scroll position an older-page fetch was armed at, or null when none is in flight or
@@ -457,7 +502,6 @@ export function useChatSessionState({
     setIsLoadingAllMessages(false);
     setLoadAllJustFinished(false);
     setShowLoadAllOverlay(false);
-    setSearchTarget(null);
     wasNearTopRef.current = false;
     searchScrollActiveRef.current = false;
     topLoadLockRef.current = null;
@@ -882,13 +926,27 @@ export function useChatSessionState({
     // Unguarded, unlike the deferred placement above: this is the control the
     // user pressed, and a control that says "to the bottom" is the user asking
     // to be there from wherever they are — the very state the guards refuse.
-    placeTranscriptAtBottom();
+    //
+    // When the reader jumped into the middle of the transcript the window no
+    // longer holds the tail at all, so placing the viewport on the current
+    // content's bottom would land on the *window's* bottom, not the
+    // conversation's. The held window is dropped for the newest page first;
+    // once it is re-attached the deferred placement settles on the real tail.
+    const sessionId = activeSessionIdRef.current;
+    const heldSlot = sessionId ? sessionStore.getSessionSlot(sessionId) : undefined;
+    if (sessionId && heldSlot && heldSlot.attached === false) {
+      void sessionStore.jumpToLatest(sessionId).then(() => {
+        if (activeSessionIdRef.current === sessionId) placeTranscriptAtBottom();
+      });
+    } else {
+      placeTranscriptAtBottom();
+    }
     if (allMessagesLoaded) {
       setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
       setAllMessagesLoaded(false);
       allMessagesLoadedRef.current = false;
     }
-  }, [allMessagesLoaded, placeTranscriptAtBottom]);
+  }, [allMessagesLoaded, placeTranscriptAtBottom, sessionStore]);
 
   const isNearBottom = useCallback(() => {
     const container = scrollContainerRef.current;
@@ -1081,8 +1139,39 @@ export function useChatSessionState({
     async (container: HTMLDivElement) => {
       if (!isActive) return false;
       if (!container || isLoadingMoreRef.current || isLoadingMoreMessages) return false;
+      if (!selectedSession || !selectedProject) return false;
+
+      // Detached from the tail — the reader jumped into the middle of the
+      // transcript — "older" means extending the held window toward its front,
+      // not a tail-relative page. The window no longer starts at offset 0, so a
+      // `fetchMore` page would be stitched into the middle of the conversation;
+      // the id-anchored `loadBefore` re-reads around the window's first row and
+      // keeps it flush however much `total` moved underneath.
+      const heldSlot = sessionStore.getSessionSlot(selectedSession.id);
+      if (heldSlot && heldSlot.attached === false) {
+        if (heldSlot.startIndex === 0) return false;
+        isLoadingMoreRef.current = true;
+        setIsLoadingMoreMessages(true);
+        const windowRestore = captureScrollRestoreState(container);
+        try {
+          await sessionStore.loadBefore(selectedSession.id, { limit: OLDER_MESSAGES_PAGE_SIZE });
+          const after = sessionStore.getSessionSlot(selectedSession.id);
+          if (after) {
+            setHasMoreMessages(after.hasMore);
+            setTotalMessages(after.total);
+            messagesOffsetRef.current = after.offset;
+          }
+          pendingScrollRestoreRef.current = windowRestore;
+          setVisibleMessageCount((prev) => prev + OLDER_MESSAGES_PAGE_SIZE);
+          return true;
+        } finally {
+          isLoadingMoreRef.current = false;
+          setIsLoadingMoreMessages(false);
+        }
+      }
+
       if (allMessagesLoadedRef.current) return false;
-      if (!hasMoreMessages || !selectedSession || !selectedProject) return false;
+      if (!hasMoreMessages) return false;
 
       isLoadingMoreRef.current = true;
       setIsLoadingMoreMessages(true);
@@ -1137,6 +1226,42 @@ export function useChatSessionState({
     [hasMoreMessages, isActive, isLoadingMoreMessages, selectedProject, selectedSession, sessionStore],
   );
 
+  /**
+   * Extends the held window toward its tail while the reader is detached and
+   * reaches its bottom.
+   *
+   * Nothing to do once attached: the tail is already there. When this read
+   * reaches the newest row the slot re-attaches on its own and the rows that
+   * arrived behind the reader fold back into the transcript.
+   */
+  const loadNewerMessages = useCallback(
+    async () => {
+      if (!isActive || !selectedSession) return false;
+      const slot = sessionStore.getSessionSlot(selectedSession.id);
+      if (!slot || slot.attached !== false) return false;
+      if (slot.endIndex >= slot.total) return false;
+      if (isLoadingNewerRef.current) return false;
+
+      isLoadingNewerRef.current = true;
+      try {
+        await sessionStore.loadAfter(selectedSession.id, { limit: OLDER_MESSAGES_PAGE_SIZE });
+        const after = sessionStore.getSessionSlot(selectedSession.id);
+        if (after) {
+          setHasMoreMessages(after.hasMore);
+          setTotalMessages(after.total);
+          messagesOffsetRef.current = after.offset;
+        }
+        // Widening the render window is what shows the rows the read appended:
+        // `visibleMessages` is a tail slice and the window just grew under it.
+        setVisibleMessageCount((prev) => prev + OLDER_MESSAGES_PAGE_SIZE);
+        return true;
+      } finally {
+        isLoadingNewerRef.current = false;
+      }
+    },
+    [isActive, selectedSession, sessionStore],
+  );
+
   const handleScroll = useCallback(async () => {
     if (!isActive) return;
     const container = scrollContainerRef.current;
@@ -1176,6 +1301,20 @@ export function useChatSessionState({
       wasNearTopRef.current = false;
     }
 
+    // Detached from the tail, reaching the window's own bottom offers the newer
+    // page — the mirror of the older-page prefetch below. The id-anchored read
+    // extends the window flush, and when it reaches the newest row the slot
+    // re-attaches, folding the rows that arrived behind the reader back in.
+    const heldSlot = activeSessionIdRef.current
+      ? sessionStore.getSessionSlot(activeSessionIdRef.current)
+      : undefined;
+    if (heldSlot && heldSlot.attached === false) {
+      const gapToWindowBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+      if (gapToWindowBottom < 200) {
+        await loadNewerMessages();
+      }
+    }
+
     if (!allMessagesLoadedRef.current) {
       // The prefetch arms a couple of screens above the top edge, so a steady scroll up has
       // the next page in hand before the viewport reaches the loaded rows — the absolute
@@ -1195,7 +1334,7 @@ export function useChatSessionState({
       const didLoad = await loadOlderMessages(container);
       if (didLoad) topLoadLockRef.current = container.scrollTop;
     }
-  }, [hasMoreMessages, isActive, isNearBottom, loadOlderMessages]);
+  }, [hasMoreMessages, isActive, isNearBottom, loadNewerMessages, loadOlderMessages, sessionStore]);
 
   const wasChatActiveRef = useRef(isActive);
   useLayoutEffect(() => {
@@ -1248,7 +1387,6 @@ export function useChatSessionState({
       searchScrollTimerRef.current = null;
     }
     searchScrollActiveRef.current = false;
-    setSearchTarget(null);
 
     pendingInitialScrollRef.current = true;
     setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
@@ -1489,110 +1627,90 @@ export function useChatSessionState({
     isProcessing,
   ]);
 
-  // Search navigation target
-  useEffect(() => {
-    const session = selectedSession as Record<string, unknown> | null;
-    const targetSnippet = session?.__searchTargetSnippet;
-    const targetTimestamp = session?.__searchTargetTimestamp;
-    if (typeof targetSnippet === 'string' && targetSnippet) {
-      searchScrollActiveRef.current = true;
-      setSearchTarget({
-        snippet: targetSnippet,
-        timestamp: typeof targetTimestamp === 'string' ? targetTimestamp : undefined,
-      });
+  /**
+   * Places one transcript row in the viewport, on the user's behalf.
+   *
+   * The id — the row's transcript anchor — is the whole of the target: a turn is
+   * addressed the way the server addresses it, so two turns that share a
+   * millisecond are still two distinct destinations. The window is read around
+   * that id rather than by pulling the whole transcript, so jumping into a long
+   * conversation costs one bounded read and leaves the slot detached from the
+   * tail, where rows arriving behind the reader buffer instead of dragging the
+   * viewport back down.
+   *
+   * This is the one jump the sidebar search and the navigation rail share; there
+   * is no second copy of "load around, widen, wait for the commit, scroll,
+   * detach, highlight".
+   */
+  const jumpToMessage = useCallback(async (anchorId: string) => {
+    const sessionId = activeSessionIdRef.current;
+    if (!sessionId || !anchorId) return;
+
+    searchScrollActiveRef.current = true;
+    if (searchScrollTimerRef.current) {
+      clearTimeout(searchScrollTimerRef.current);
+      searchScrollTimerRef.current = null;
     }
-  }, [selectedSession]);
+    const stillHere = () => isActiveRef.current && activeSessionIdRef.current === sessionId;
+    const release = () => {
+      searchScrollTimerRef.current = null;
+      searchScrollActiveRef.current = false;
+    };
 
-  // Scroll to search target
-  useEffect(() => {
-    if (!isActive || !searchTarget || chatMessages.length === 0 || isLoadingSessionMessages) return;
+    try {
+      const slot = await sessionStore.loadWindowAround(sessionId, anchorId, {
+        before: JUMP_WINDOW_BEFORE,
+        after: JUMP_WINDOW_AFTER,
+      });
+      if (!stillHere()) return release();
 
-    const target = searchTarget;
-    setSearchTarget(null);
+      setHasMoreMessages(slot.hasMore);
+      setTotalMessages(slot.total);
+      messagesOffsetRef.current = slot.offset;
 
-    const scrollToTarget = async () => {
-      if (!allMessagesLoadedRef.current && selectedSession && selectedProject) {
-          try {
-            // Load all messages into the store for search navigation
-            const slot = await sessionStore.fetchFromServer(selectedSession.id, {
-              limit: null,
-              offset: 0,
-              canRequest: () => (
-                isActiveRef.current
-                && activeSessionIdRef.current === selectedSession.id
-              ),
-            });
-            if (slot) {
-              // Fetch the whole transcript so an old hit can be found, but do
-              // not render all of it — the window below is widened to exactly
-              // what the resolved target needs.
-              setHasMoreMessages(false);
-              setTotalMessages(slot.total);
-              messagesOffsetRef.current = slot.offset;
-              setAllMessagesLoaded(true);
-              allMessagesLoadedRef.current = true;
-            } else if (!isActiveRef.current) {
-              setSearchTarget(target);
-              return;
-            }
-          } catch {
-            // Fall through and scroll in current messages
-          }
-      }
-      // Resolve the target against the loaded transcript rather than the DOM.
-      // The store is the freshest source here: the `fetchFromServer` above has
-      // landed but `chatMessages` is from the render that scheduled this effect.
-      // The same fold is composed here so an index into this list is an index
-      // into the rendered rows.
-      const messagesForSearch = activeSessionIdRef.current
-        ? collapseMonitorEventRows(normalizedToChatMessages(sessionStore.getMessages(activeSessionIdRef.current)))
-        : chatMessages;
-      const targetIndex = findSearchTargetIndex(messagesForSearch, target);
-      if (targetIndex < 0) {
-        // The target is not in the transcript at all. Scrolling somewhere
-        // plausible would claim a hit that does not exist.
-        searchScrollActiveRef.current = false;
-        return;
-      }
-
-      // Widen the window so the target is rendered. `visibleMessages` is a tail
-      // slice, so covering index N means rendering everything after it.
-      const requiredVisibleCount = resolveSearchWindowSize(
-        messagesForSearch.length,
-        targetIndex,
-        SEARCH_TARGET_CONTEXT_MESSAGES,
+      // The store now holds the window the id was fetched into; resolving the
+      // target's index there is what sizes the render window. `visibleMessages`
+      // is a tail slice, so covering index N means rendering everything after it.
+      const projected = collapseMonitorEventRows(
+        normalizedToChatMessages(sessionStore.getMessages(sessionId)),
       );
-      setVisibleMessageCount((previous) => Math.max(previous, requiredVisibleCount));
+      const targetIndex = projected.findIndex((message) => anchorIdOf(message) === anchorId);
+      if (targetIndex < 0) return release();
 
-      const targetTimestamp = messagesForSearch[targetIndex].timestamp;
+      setVisibleMessageCount((previous) => Math.max(
+        previous,
+        resolveSearchWindowSize(projected.length, targetIndex, SEARCH_TARGET_CONTEXT_MESSAGES),
+      ));
 
       const scrollToRenderedTarget = (retriesLeft: number) => {
+        if (!stillHere()) return release();
         const container = scrollContainerRef.current;
-        if (!container) return;
+        if (!container) return release();
 
         // The target is inside the window by construction, so this only waits
-        // for React to commit the widened list. A target collapsed inside a
-        // tool group resolves to that group, which carries the same timestamp.
-        const targetElement = findRenderedMessageElement(
-          container,
-          targetTimestamp,
-          retriesLeft === 0,
-        );
-
+        // for React to commit the widened list.
+        const targetElement = findRenderedMessageElementById(container, anchorId);
         if (targetElement) {
-          targetElement.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          // Placed through the same channel every other scroll write uses, so
+          // the move this raises is not read back as a user gesture — and
+          // computed rather than handed to `scrollIntoView`, whose smooth
+          // animation is a second mover that can still be travelling when the
+          // criterion reads the pane, and which a window that ends at the tail
+          // cannot honour anyway.
+          const paneTop = container.getBoundingClientRect().top;
+          const targetTop = container.scrollTop + (targetElement.getBoundingClientRect().top - paneTop);
+          const centered = targetTop - (container.clientHeight - targetElement.offsetHeight) / 2;
+          const maxTop = Math.max(container.scrollHeight - container.clientHeight, 0);
+          writeScrollTop(container, Math.max(0, Math.min(centered, maxTop)));
           // The jump deliberately places the viewport somewhere that is not the
-          // bottom, on the user's behalf, so it settles the intent itself: the
-          // smooth scroll it starts reports itself over the next few hundred
-          // milliseconds with no gesture behind it, and left to the input-source
-          // listener those reports would count as nobody's — leaving the next
-          // arriving row free to pull the user off the hit they jumped to.
+          // bottom, on the user's behalf, so it settles the intent itself:
+          // without this the next arriving row would be free to pull the reader
+          // off the turn they jumped to.
           setIsUserScrolledUp(true);
+          isUserScrolledUpRef.current = true;
           targetElement.classList.add('search-highlight-flash');
           setTimeout(() => targetElement.classList.remove('search-highlight-flash'), 4000);
-          searchScrollTimerRef.current = null;
-          searchScrollActiveRef.current = false;
-          return;
+          return release();
         }
 
         if (retriesLeft > 0) {
@@ -1602,20 +1720,62 @@ export function useChatSessionState({
           );
           return;
         }
-
-        searchScrollTimerRef.current = null;
-        searchScrollActiveRef.current = false;
+        return release();
       };
 
       searchScrollTimerRef.current = setTimeout(
         () => scrollToRenderedTarget(SEARCH_SCROLL_RETRIES),
         150,
       );
+    } catch (error) {
+      console.error('Error jumping to a message:', error);
+      release();
+    }
+  }, [sessionStore, writeScrollTop]);
+
+  // Search navigation target: the sidebar hands a hit over as a snippet and a
+  // timestamp on the session object. It is resolved to an anchor id against
+  // what the client already holds — the loaded transcript and the session's
+  // outline — and then placed by the same jump the rail calls. The full
+  // transcript is never read just to resolve one hit.
+  useEffect(() => {
+    const session = selectedSession as Record<string, unknown> | null;
+    const targetSnippet = session?.__searchTargetSnippet;
+    if (typeof targetSnippet !== 'string' || !targetSnippet) return;
+    const sessionId = activeSessionIdRef.current;
+    if (!sessionId || !isActive) return;
+
+    const targetTimestamp = session?.__searchTargetTimestamp;
+    const target: SearchTarget = {
+      snippet: targetSnippet,
+      timestamp: typeof targetTimestamp === 'string' ? targetTimestamp : undefined,
     };
 
-    scrollToTarget();
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const loaded = collapseMonitorEventRows(
+          normalizedToChatMessages(sessionStore.getMessages(sessionId)),
+        );
+        let anchorId = resolveSearchTargetAnchorId(target, loaded, sessionStore.getOutline(sessionId));
+        if (!anchorId) {
+          const outline = await sessionStore.fetchOutline(sessionId);
+          if (cancelled) return;
+          anchorId = resolveSearchTargetAnchorId(target, loaded, outline);
+        }
+        if (!anchorId || cancelled) return;
+        void jumpToMessage(anchorId);
+      } catch {
+        // An unreachable outline leaves the hit unresolved rather than
+        // scrolling somewhere plausible, which would claim a hit that is not.
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatMessages.length, isActive, isLoadingSessionMessages, searchTarget]);
+  }, [selectedSession, isActive]);
 
   // Initial token usage fetch for providers with file-backed usage data.
   useEffect(() => {
@@ -1799,5 +1959,6 @@ export function useChatSessionState({
     scrollToBottomAndReset,
     handleScroll,
     requestLatestMessages,
+    jumpToMessage,
   };
 }
