@@ -356,5 +356,10 @@
       "lastNotification": "Ultima notifica {{elapsed}} fa",
       "count": "{{n}} attività"
     }
+  },
+  "turnRail": {
+    "label": "Turni della conversazione",
+    "jumpToTurn": "Vai al turno {{n}}",
+    "turn": "Turno {{n}}"
   }
 }

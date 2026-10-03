@@ -392,5 +392,10 @@
       "lastNotification": "最近一次通知 {{elapsed}} 前",
       "count": "{{n}} 個任務"
     }
+  },
+  "turnRail": {
+    "label": "對話輪次",
+    "jumpToTurn": "跳轉到第 {{n}} 輪",
+    "turn": "第 {{n}} 輪"
   }
 }

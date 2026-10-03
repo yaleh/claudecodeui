@@ -10,7 +10,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 
 import { api } from '@/shared/api';
-import type { LLMProvider, NormalizedMessage, SessionMessagesQuery } from '@/shared/types';
+import type { LLMProvider, NormalizedMessage, SessionMessagesQuery, SessionTurnOutline } from '@/shared/types';
 import { createLiveRowId, isLiveRowId } from '@/modules/chat/utils/liveRowIdentity';
 import { removeOptimisticUserEchoes } from '@/modules/chat/utils/sessionMessageReconciliation';
 import {
@@ -79,6 +79,12 @@ export type SessionSlot = {
    */
   anchorIndex: number;
   tokenUsage: unknown;
+  /**
+   * The session's user-turn outline, once read. `null` means "not read yet" —
+   * distinct from an outline that legitimately has no turns — so the rail can
+   * tell a session it has not indexed from one with an empty conversation.
+   */
+  outline: SessionTurnOutline | null;
 };
 
 const EMPTY: NormalizedMessage[] = [];
@@ -108,6 +114,7 @@ function createEmptySlot(): SessionSlot {
     // history refresh overwrote the value fetched from the token-usage
     // endpoint with it.
     tokenUsage: undefined,
+    outline: null,
     _historyMutationQueue: Promise.resolve(),
   };
 }
@@ -188,6 +195,27 @@ async function requestSessionWindow(
     total: typeof data.total === 'number' ? data.total : messages.length,
     hasMoreBefore: Boolean(data.hasMoreBefore),
     hasMoreAfter: Boolean(data.hasMoreAfter),
+  };
+}
+
+/**
+ * Reads a session's user-turn outline — every user prompt in transcript order,
+ * including the parts no client has loaded. Read-only and cached on the slot,
+ * so the rail's index survives the pane unmounting and coming back.
+ */
+async function requestSessionOutline(sessionId: string): Promise<SessionTurnOutline> {
+  const response = await api.providers.sessionOutline(sessionId, {
+    signal: AbortSignal.timeout(SESSION_HISTORY_REQUEST_TIMEOUT_MS),
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+  const body = await response.json();
+  const data = body?.data ?? body;
+  const turns = Array.isArray(data?.turns) ? data.turns : [];
+
+  return {
+    total: typeof data?.total === 'number' ? data.total : turns.length,
+    turns,
   };
 }
 
@@ -1556,6 +1584,29 @@ export function useSessionStore() {
     return storeRef.current.get(sessionId);
   }, []);
 
+  /**
+   * Reads and caches a session's user-turn outline. Idempotent per session: a
+   * call after a successful read is a no-op, so the rail can ask on every mount
+   * without hitting the server again. Failures are swallowed to `null` rather
+   * than thrown — a missing index hides the rail, it does not break the pane.
+   */
+  const fetchOutline = useCallback(async (sessionId: string): Promise<SessionTurnOutline | null> => {
+    const slot = getSlot(sessionId);
+    if (slot.outline) return slot.outline;
+    try {
+      slot.outline = await requestSessionOutline(sessionId);
+      notify(sessionId);
+    } catch (error) {
+      console.error(`[SessionStore] outline read failed for ${sessionId}:`, error);
+    }
+    return slot.outline;
+  }, [getSlot, notify]);
+
+  /** The session's cached user-turn outline, or `null` while it has not been read. */
+  const getOutline = useCallback((sessionId: string): SessionTurnOutline | null => {
+    return storeRef.current.get(sessionId)?.outline ?? null;
+  }, []);
+
   return useMemo(() => ({
     fetchFromServer,
     fetchMore,
@@ -1575,12 +1626,14 @@ export function useSessionStore() {
     getBufferedRealtimeCount,
     getMessages,
     getSessionSlot,
+    fetchOutline,
+    getOutline,
   }), [
     fetchFromServer, fetchMore, appendRealtime, truncateAt, refreshLatestFromServer,
     setActiveSession, isStale, updateStreaming, finalizeStreaming,
     addResidentPending, applyCommandLifecycle,
     loadWindowAround, loadBefore, loadAfter, jumpToLatest, getBufferedRealtimeCount,
-    getMessages, getSessionSlot,
+    getMessages, getSessionSlot, fetchOutline, getOutline,
   ]);
 }
 

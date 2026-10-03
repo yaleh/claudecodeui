@@ -478,6 +478,17 @@ export const api = {
       read: SessionMessagesQuery = {},
       options: ApiRequestOptions = {},
     ) => get(sessionMessagesUrl(sessionId, read), options),
+    /**
+     * Every user turn of a session, in transcript order — the navigation rail's
+     * index of the conversation, including turns this client has never loaded.
+     *
+     * The response's `total` is the same count the paginated messages route
+     * reports, and each turn's `index` is its absolute position in that full
+     * history, so a rail tick can say where in the whole transcript it sits
+     * rather than where in the loaded window.
+     */
+    sessionOutline: (sessionId: string, options: ApiRequestOptions = {}) =>
+      get(`/api/providers/sessions/${encodeURIComponent(sessionId)}/outline`, options),
     sessionTokenUsage: (sessionId: string) =>
       get(`/api/providers/sessions/${encodeURIComponent(sessionId)}/token-usage`),
     sessionActiveModel: (provider: string, sessionId: string) =>

@@ -29,6 +29,16 @@ type LazyMessageRowProps = {
   /** Mirrors the row's own `data-message-timestamp`, present even while unmounted. */
   timestamp: ChatMessage['timestamp'] | undefined;
   /**
+   * The row's transcript anchor id, when it has one, published as
+   * `data-message-anchor-id` on the persistent wrapper.
+   *
+   * This is what a jump addresses: the wrapper exists whether or not the row's
+   * content is currently mounted, so an id lookup finds a target that no
+   * timestamp can disambiguate (two turns sharing one millisecond) and that a
+   * content-only attribute would miss until the row were already on screen.
+   */
+  anchorId?: string | null;
+  /**
    * Rows near the tail render their content on first commit so the initial
    * scroll-to-bottom measures real heights; everything older starts as a
    * placeholder and mounts when scrolled toward.
@@ -40,6 +50,7 @@ type LazyMessageRowProps = {
 export default function LazyMessageRow({
   lazyRows,
   timestamp,
+  anchorId,
   initiallyNearViewport,
   children,
 }: LazyMessageRowProps) {
@@ -71,6 +82,7 @@ export default function LazyMessageRow({
     <div
       ref={elementRef}
       data-message-timestamp={timestamp || undefined}
+      data-message-anchor-id={anchorId || undefined}
       style={isMounted ? undefined : { height: measuredHeight ?? ESTIMATED_ROW_HEIGHT_PX }}
     >
       {isMounted ? children : null}

@@ -371,5 +371,10 @@
       "lastNotification": "마지막 알림 {{elapsed}} 전",
       "count": "작업 {{n}}개"
     }
+  },
+  "turnRail": {
+    "label": "대화 턴",
+    "jumpToTurn": "{{n}}번째 턴으로 이동",
+    "turn": "턴 {{n}}"
   }
 }

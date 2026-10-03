@@ -358,5 +358,10 @@
       "lastNotification": "Dernière notification il y a {{elapsed}}",
       "count": "{{n}} tâches"
     }
+  },
+  "turnRail": {
+    "label": "Tours de conversation",
+    "jumpToTurn": "Aller au tour {{n}}",
+    "turn": "Tour {{n}}"
   }
 }

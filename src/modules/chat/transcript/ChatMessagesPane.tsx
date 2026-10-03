@@ -16,6 +16,8 @@ import { findSearchTargetIndex } from '@/modules/chat/utils/searchTargetLocator'
 import { useLazyRowObserver } from '@/modules/chat/hooks/useLazyRowObserver';
 import LazyMessageRow from '@/modules/chat/transcript/LazyMessageRow';
 import MessageComponent from '@/modules/chat/transcript/MessageComponent';
+import TranscriptTurnRail from '@/modules/chat/transcript/TranscriptTurnRail';
+import type { TurnRailTick } from '@/modules/chat/hooks/useTurnNavigation';
 import BackgroundTaskStrip from '@/modules/chat/transcript/BackgroundTaskStrip';
 import PendingResidentMessage from '@/modules/chat/transcript/PendingResidentMessage';
 import ProviderSelectionEmptyState from '@/modules/chat/transcript/ProviderSelectionEmptyState';
@@ -126,6 +128,12 @@ type ChatMessagesPaneProps = {
   onForkFromMessage?: (message: ChatMessage) => void;
   /** Fetches the whole transcript for an export, which otherwise only sees the loaded page. */
   onLoadFullTranscript?: () => Promise<ChatMessage[]>;
+  /** Every user turn the rail offers, oldest first; absent or short hides the rail. */
+  turnRailTurns?: TurnRailTick[];
+  /** The turn the viewport currently sits on, for the rail's current-tick emphasis. */
+  turnRailCurrentId?: string | null;
+  /** Places a turn's message in the viewport through chat's shared jump. */
+  onJumpToTurn?: (anchorId: string) => void;
 };
 
 /**
@@ -184,6 +192,9 @@ function ChatMessagesPane({
   showRawParameters,
   showThinking,
   selectedProject,
+  turnRailTurns,
+  turnRailCurrentId = null,
+  onJumpToTurn,
 }: ChatMessagesPaneProps) {
   const { t } = useTranslation('chat');
   const activeSessionId = currentSessionId ?? selectedSession?.id ?? null;
@@ -331,7 +342,7 @@ function ChatMessagesPane({
     // expanded panel now — the dock is this pane's own status surface below `md`,
     // so the facts are one tap from the row that says what the session is doing —
     // and the row they used to occupy is gone with the bar.
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="relative flex min-h-0 flex-1 flex-col">
       <div
         ref={scrollContainerRef}
         // Focusable so the pane itself can be scrolled from the keyboard. A wheel
@@ -463,6 +474,7 @@ function ChatMessagesPane({
                     key={segmentKey}
                     lazyRows={lazyRows}
                     timestamp={anchorTimestamp}
+                    anchorId={item.messages[0]?.transcriptAnchorId}
                     initiallyNearViewport={initiallyNearViewport}
                   >
                     <div data-work-segment-key={segmentKey}>
@@ -517,6 +529,7 @@ function ChatMessagesPane({
                   key={getMessageKey(item)}
                   lazyRows={lazyRows}
                   timestamp={item.timestamp}
+                  anchorId={item.transcriptAnchorId}
                   initiallyNearViewport={initiallyNearViewport}
                 >
                   <MessageComponent
@@ -573,6 +586,20 @@ function ChatMessagesPane({
         />
         </div>
       </div>
+
+      {/*
+        The turn navigation rail, a sibling of the scroll container rather than
+        a child of it: its ticks position against the pane's box and must not
+        scroll away with the transcript. It reads its own geometry from the
+        container's ref through the hook that owns the current-turn reading.
+      */}
+      {turnRailTurns && onJumpToTurn && (
+        <TranscriptTurnRail
+          turns={turnRailTurns}
+          currentTurnId={turnRailCurrentId}
+          onJumpToTurn={onJumpToTurn}
+        />
+      )}
     </div>
   );
 }
