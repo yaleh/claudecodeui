@@ -181,6 +181,21 @@ export type ProviderRuntimeGateway = {
 type ChatWebSocketDependencies = {
   /** Central dispatcher for every provider SDK/CLI runtime. */
   runtime: ProviderRuntimeGateway;
+  /**
+   * The single access entry every control verb shares (AC-196's
+   * `chat.stop-task`, AC-197's `chat.background-task`, and AC-198's reworked
+   * `chat.cancel-queued`).
+   *
+   * Defaults to this module's own {@link assertSessionAccess}. The seam exists
+   * so a criterion can hand over a counting spy and observe that all three
+   * verbs go through the *same* entry, rather than each handler carrying a check
+   * of its own — the asymmetry that let `chat.cancel-queued` ship with no
+   * ownership check while its siblings had one.
+   */
+  assertSessionAccess?: (
+    userId: string | number | null,
+    session: ReturnType<typeof sessionsDb.getSessionById>,
+  ) => boolean;
   /** Test seam: replaces the default that discards a client-supplied `options.env`. */
   dropClientEnv?: (options: AnyRecord) => AnyRecord;
   /**
@@ -287,6 +302,21 @@ export function assertSessionAccess(
   _session: ReturnType<typeof sessionsDb.getSessionById>,
 ): boolean {
   return userId !== null && userId !== undefined && `${userId}`.trim().length > 0;
+}
+
+/**
+ * The access entry a control handler must call: the injected seam when one was
+ * provided, the process default otherwise.
+ *
+ * Every control verb resolves it here rather than reaching for the module
+ * function directly, so an injected entry sees all of them. That is the seam
+ * AC-198's criterion reads to prove the three verbs share one entry rather than
+ * each carrying an inline check.
+ */
+function accessEntry(
+  dependencies: ChatWebSocketDependencies,
+): (userId: string | number | null, session: ReturnType<typeof sessionsDb.getSessionById>) => boolean {
+  return dependencies.assertSessionAccess ?? assertSessionAccess;
 }
 
 /** The wire protocol carries the model selection; a client-supplied `options.env` is discarded. */
@@ -698,9 +728,20 @@ async function handleChatAbort(
  * honest answer. `unknown` means the seam could not carry the question at all
  * (no live resident host, or a gateway with no withdrawal verb), which is
  * deliberately not the same answer as "it was already running".
+ *
+ * The shape matches its two control siblings (`chat.stop-task`,
+ * `chat.background-task`): the three fields are required, the session must
+ * exist, the request must belong to it through the shared {@link accessEntry},
+ * and only then is the driver reached. A forbidden request answers with the
+ * same receipt kind (the frontend drops this kind as a control frame; changing
+ * it would make the client append it as an ordinary message) carrying
+ * `result: 'forbidden'` and places no withdrawal. `requestId` was added here so
+ * a caller can correlate the receipt with the request it sent, which is what
+ * lets the ownership refusal be told apart from an unrelated frame.
  */
 async function handleChatCancelQueued(
   ws: WebSocket,
+  userId: string | number | null,
   data: AnyRecord,
   dependencies: ChatWebSocketDependencies
 ): Promise<void> {
@@ -721,13 +762,40 @@ async function handleChatCancelQueued(
     return;
   }
 
-  // The session row is read for its provider only. No run is consulted: the
-  // message being withdrawn is by definition not the session's current run, and
-  // a withdrawal that arrived just as the run turned over is answered by the
-  // provider's queue, which is the only thing that knows what it still holds.
+  const requestId = typeof data.requestId === 'string' ? data.requestId.trim() : '';
+  if (!requestId) {
+    sendProtocolError(ws, 'REQUEST_ID_REQUIRED', 'chat.cancel-queued requires a requestId.', sessionId);
+    return;
+  }
+
+  // The session row is read for its provider and for the access check. No run
+  // is consulted: the message being withdrawn is by definition not the session's
+  // current run, and a withdrawal that arrived just as the run turned over is
+  // answered by the provider's queue, which is the only thing that knows what it
+  // still holds.
   const session = sessionsDb.getSessionById(sessionId);
   if (!session) {
     sendProtocolError(ws, 'SESSION_NOT_FOUND', `Session "${sessionId}" was not found.`, sessionId);
+    return;
+  }
+
+  const reply = (result: HostQueuedInputCancelResult | 'forbidden'): void => {
+    sendJson(ws, {
+      kind: 'queued_input_cancel_result',
+      sessionId,
+      messageUuid,
+      requestId,
+      result,
+      timestamp: new Date().toISOString(),
+    });
+  };
+
+  // Ownership is checked through the same entry the stop-task and
+  // background-task verbs use, and before any driver call, so a forbidden
+  // request can neither withdraw a queued message nor reach the provider's
+  // queue at all.
+  if (!accessEntry(dependencies)(userId, session)) {
+    reply('forbidden');
     return;
   }
 
@@ -738,13 +806,7 @@ async function handleChatCancelQueued(
       messageUuid
     )) ?? 'unknown';
 
-  sendJson(ws, {
-    kind: 'queued_input_cancel_result',
-    sessionId,
-    messageUuid,
-    result,
-    timestamp: new Date().toISOString(),
-  });
+  reply(result);
 }
 
 /** Waits `ms`, never longer than the caller still has left. */
@@ -855,7 +917,9 @@ async function handleChatStopTask(
 
   // Ownership is checked before the task table and long before any driver call,
   // so a forbidden request can neither learn what tasks exist nor place a stop.
-  if (!assertSessionAccess(userId, session)) {
+  // Resolved through the shared entry (and therefore through the injected seam)
+  // so all three control verbs are observed on the one check.
+  if (!accessEntry(dependencies)(userId, session)) {
     reply('forbidden');
     return;
   }
@@ -1051,8 +1115,9 @@ async function handleChatBackgroundTask(
 
   // Ownership is checked before the tracker and long before any driver call, so
   // a forbidden request can neither learn what foreground tools exist nor place a
-  // background request.
-  if (!assertSessionAccess(userId, session)) {
+  // background request. Resolved through the shared entry (and therefore through
+  // the injected seam) so all three control verbs are observed on the one check.
+  if (!accessEntry(dependencies)(userId, session)) {
     reply('forbidden');
     return;
   }
@@ -1199,7 +1264,7 @@ function handlePermissionResponse(data: AnyRecord, dependencies: ChatWebSocketDe
  * Inbound protocol (client to server):
  * - `chat.send`                { sessionId, content, options? }
  * - `chat.abort`               { sessionId }
- * - `chat.cancel-queued`       { sessionId, messageUuid }
+ * - `chat.cancel-queued`       { sessionId, messageUuid, requestId }
  * - `chat.stop-task`           { sessionId, taskId, requestId }
  * - `chat.background-task`     { sessionId, toolUseId, requestId }
  * - `chat.subscribe`           { sessions: [{ sessionId, lastSeq? }] }
@@ -1307,7 +1372,7 @@ export function handleChatConnection(
           await handleChatAbort(ws, data, dependencies);
           return;
         case 'chat.cancel-queued':
-          await handleChatCancelQueued(ws, data, dependencies);
+          await handleChatCancelQueued(ws, userId, data, dependencies);
           return;
         case 'chat.stop-task':
           await handleChatStopTask(ws, userId, data, dependencies);
