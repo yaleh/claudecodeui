@@ -3,7 +3,7 @@ id: gap-ac172-criterion-reload-unbounded-net-churn
 title: AC-172 判据的两处故意 `page.reload()` 重连无守卫：宿主网络抖动（reload 瞬间
   83×net::ERR_NETWORK_CHANGED 突发、无 504）掐断在途模块加载，`.chat-messages-pane` 30s
   超时记红——上一个有界启动守卫（done）明确只覆盖首次导航
-status: ready
+status: done
 labels:
   - gap
   - defect
