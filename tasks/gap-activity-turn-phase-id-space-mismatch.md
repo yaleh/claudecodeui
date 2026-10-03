@@ -85,3 +85,21 @@ extra:
 **Touches（AC6）。** `git diff --stat` 五个文件全部落在 `## Touches` 内，无越界文件。
 
 **待部署复验（AC3 页面半边 / AC4）。** 本 worker 不触碰 develop、不重启 `localhost:3001`（该端口由会话宿主）。`[data-activity-dock]` 的 `data-activity-phase` / `data-activity-elapsed-ms` 逐秒读数、文案（相位词 vs `Working…`）与计时起跳，需要含本修复的包部署到 `:3001` 后由复验者按 AC3/AC4 原文逐字取数（与姊妹任务 `gap-activity-dock-heartbeat-never-clears-turn-anchor` 的 AC5 同形）。相位**数据源**本身已在真服务进程上证明不再恒为 idle（上段红→绿），客户端对相位的渲染映射本条未改动、且由既有 AC-187 判据覆盖。
+
+
+**页面半边独立复验（2026-10-03 23:10–23:22 CST；部署重建/重启后由非执行者复跑）**
+
+部署核验：构建产物 `dist` 23:09:56、`dist-server` 23:10:02；服务 23:10:17 重启，`/api/auth/status` 200；页面实际加载入口 chunk `/assets/index-338ZyTTn.js`；服务端构建产物含本修复（`dist-server/server/modules/providers/list/claude/claude-runtime.provider.js` 的 `trackedSessionId = turnSessionId ?? sessionId`）。
+
+会话 `9d869e6e-5d7d-48f3-b380-976a6ffd781b`，用一条**真正阻塞**的回合取数（`until [ -f /tmp/activity-dock-phase-probe-N ]; do sleep 1; done`，探针文件由复验者控制释放），页面内逐秒采样：
+
+- `15:21:59–15:22:10`（12 拍）：`data-activity-state="in-turn"`、`data-activity-phase="tool"`、`data-activity-elapsed-ms` 从 `20002` 走到 `35002`、可见文案 `Running AskUserQuestion…`、同拍 `GET /api/providers/sessions/running` **含该会话**（`true`）。
+- 同一回合更早：`phase="thinking"`、文案 `Thinking…`、`elapsed=5000`（工具调用之前）。
+- 释放探针后坞退场：`15:20:55` 起 `[data-activity-dock]` 已不在 DOM，此后 15 拍保持 ABSENT。
+
+⇒ **AC3**（同拍：running 为真 + phase 非 idle + elapsed 非 null）与 **AC4**（文案是相位词而非 `Working…`、计时在走）在真部署上成立。
+
+**两个给后续复验者的坑：**
+
+1. `running` 列表与坞**并非任何时刻都同拍为真** —— 同一回合在 `15:19:25–15:19:49` 那 25 拍里，坞已经是 `in-turn` / `phase=tool` / `elapsed` 递增，而 `running` 仍为 `false`，直到该 run 的宿主登记为 `busy`（`host-374c853b`，`leases: 1`）之后才转真。判「两条读数同拍」必须**等 `running` 转真再取**，否则会把登记延迟误判成矛盾。
+2. **造长回合不能用前台 `sleep`** —— 本仓的 Bash 守卫会挡掉「standalone sleep」（返回 `tool_use_error`），模型只能把它丢到后台，回合因此**几秒就结束**（本轮前两次取数都栽在这里）。要用守卫自己建议的 until-loop 做前台阻塞，并把释放权握在复验者手里。
