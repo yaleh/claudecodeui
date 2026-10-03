@@ -1,7 +1,7 @@
 ---
 id: session-history-incremental-cache
 title: AC-211 服务端历史缓存增量化：转录追加只解析新增尾部，结果与全量解析相等
-status: ready
+status: done
 labels:
   - gap
 parent: null
