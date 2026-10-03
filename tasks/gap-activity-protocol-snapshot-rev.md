@@ -2,7 +2,7 @@
 id: gap-activity-protocol-snapshot-rev
 title: AC-193 活动协议：REST 快照 + WS 整条 upsert（带 rev），晚加入者先快照后增量，rev
   不连续即重拉；同会话多连接各自游标；会话结束按保留策略淘汰
-status: todo
+status: ready
 labels:
   - gap
 parent: null
