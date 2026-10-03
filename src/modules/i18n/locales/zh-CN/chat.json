@@ -255,7 +255,9 @@
     "stop": "停止",
     "controls": {
       "stopGeneration": "Stop Generation",
-      "pressEscToStop": "Press Esc anytime to stop"
+      "pressEscToStop": "Press Esc anytime to stop",
+      "stopTask": "停止任务",
+      "backgroundTool": "转到后台"
     },
     "providers": {
       "assistant": "Assistant"

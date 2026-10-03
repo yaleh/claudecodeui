@@ -413,3 +413,308 @@ test.describe('activity dock background', () => {
     expect(elapsedMs, 'the criterion must complete within 40s').toBeLessThanOrEqual(40_000);
   });
 });
+
+// =============================================================================================
+// AC-199 — the dock's controls, on the same real browser against the same real server.
+// =============================================================================================
+
+const CONTROL_TITLE = 'Activity dock controls — stop and background';
+const CONTROL_SEED = 'seeded user turn for the activity-dock controls criterion';
+
+const STOP_TARGET = 'task-stop-target';
+const TERMINAL_TASK = 'task-terminal';
+const NEVER_TASK = 'task-never';
+const BG_TASK = 'task-bg';
+
+/**
+ * When the walk emits the stop target's terminal event, in ms from the walk's
+ * start. The click has to land before this, which is what makes "the click did
+ * not change the row; the event did" a reading rather than a race.
+ */
+const STOP_EVENT_AT = 12_000;
+const BG_STARTED_AT = 12_300;
+const BG_UPDATED_AT = 12_600;
+
+const FOREGROUND_ROW = '[data-foreground-tool-row]';
+const TASK_STOP = '[data-task-stop]';
+const BACKGROUND_TOOL = '[data-background-tool]';
+const DISABLED_REASON = '[data-control-disabled-reason]';
+
+/**
+ * The control walk.
+ *
+ * Three tasks are held before the click window opens: `STOP_TARGET` and
+ * `NEVER_TASK` run (so a stop control exists at every reading), and
+ * `TERMINAL_TASK` is settled to `completed` (so a terminal row exists). A
+ * `Bash` call with no paired result is left pending — the running foreground
+ * tool the background control addresses. Both control *events* are far down the
+ * clock (12s), so the whole click-and-read window happens before either, and the
+ * settle is attributable to the event and not to the click. The walk writes
+ * twelve rows.
+ */
+const CONTROL_SCENARIO = {
+  version: 1,
+  dialect: 'claude',
+  home: 'gate',
+  transcript: { mode: 'per-row-jsonl' },
+  seed: { title: CONTROL_TITLE, userText: CONTROL_SEED, lifecycleMode: 'per-run' },
+  steps: [
+    { at: 0, op: 'tool-call', name: 'Task' },
+    { at: 200, op: 'task-started', taskId: STOP_TARGET, taskType: 'local_agent', description: 'Agent still running' },
+    { at: 400, op: 'task-started', taskId: TERMINAL_TASK, taskType: 'local_bash', description: 'Finished build' },
+    { at: 600, op: 'task-notification', taskId: TERMINAL_TASK, status: 'completed', summary: 'build done' },
+    { at: 700, op: 'task-started', taskId: NEVER_TASK, taskType: 'local_bash', description: 'Watcher stays up' },
+    { at: 900, op: 'tool-result', text: 'agent finished' },
+    { at: 1_100, op: 'row', role: 'assistant', text: 'Started the agent.' },
+    { at: 1_300, op: 'tool-call', name: 'Bash' },
+    { at: 1_500, op: 'row', role: 'assistant', text: 'And a long build in the foreground.' },
+    { at: STOP_EVENT_AT, op: 'task-notification', taskId: STOP_TARGET, status: 'stopped', summary: 'stopped from the dock' },
+    { at: BG_STARTED_AT, op: 'task-started', taskId: BG_TASK, taskType: 'local_bash', description: 'Backgrounded build' },
+    { at: BG_UPDATED_AT, op: 'task-updated', taskId: BG_TASK, status: 'running', isBackgrounded: true },
+    { at: BG_UPDATED_AT + 300, op: 'wait' },
+  ],
+  expect: { rows: { delta: 12 }, content: { mustContain: [CONTROL_SEED] } },
+};
+
+/** The app's own chat socket, wherever it is proxied to. */
+const WS_PATTERN = /\/ws(\?.*)?$/;
+
+type Partition = {
+  /** `pass` forwards both directions; `reject` refuses every connection outright. */
+  mode: 'pass' | 'reject';
+  closeLive: () => void;
+};
+
+/**
+ * Puts the app's own socket behind a partition, so this file can take the
+ * unreachable reading without killing the server (killing it trips the 40s boot
+ * guard and poisons the other cases in this invocation). The mechanism is the
+ * one `e2e/activity-dock-truthful.spec.ts` established: `page.routeWebSocket`
+ * intercepts `/ws`, `connectToServer()` reaches the real server, and the mode
+ * decides whether frames flow. `reject` closes each connection outright, which
+ * is "no server" to the page: the socket drops and every reconnect is refused.
+ */
+async function installPartition(page: Page, partition: Partition): Promise<void> {
+  await page.routeWebSocket(WS_PATTERN, (ws) => {
+    if (partition.mode === 'reject') {
+      void ws.close({ code: 1006 });
+      return;
+    }
+    const server = ws.connectToServer();
+    partition.closeLive = () => {
+      void ws.close({ code: 1006 });
+    };
+    ws.onMessage((message) => server.send(message));
+    server.onMessage((message) => ws.send(message));
+  });
+}
+
+/** One task row by id. */
+const taskRowOf = (page: Page, taskId: string): Locator =>
+  page.locator(`[data-activity-task-row][data-task-id="${taskId}"]`);
+
+/** The task ids the panel is listing right now. */
+async function readTaskIds(page: Page): Promise<string[]> {
+  return page
+    .locator(TASK_ROW)
+    .evaluateAll((rows) => rows.map((row) => row.getAttribute('data-task-id') ?? '').filter((id) => id.length > 0));
+}
+
+/**
+ * The AC3 reading function, reused by the false-form arm below.
+ *
+ * "The click did not change the row" is `before === after` with both readings a
+ * real non-terminal state. The main arm passes the row's state read just before
+ * and just after the click; the false-form arm passes `running` then `stopped`
+ * (what an optimistic click would produce) and must come back red.
+ */
+function clickInstantVerdict(before: string | null, after: string | null): { green: boolean; reading: string } {
+  return {
+    green: before !== null && after !== null && before === after,
+    reading: `click-instant: before=${before} after=${after}`,
+  };
+}
+
+test.describe('activity dock controls', () => {
+  let page: Page;
+  let api: APIRequestContext;
+  let workspace = '';
+  let sessionId = '';
+  let partition: Partition = { mode: 'pass', closeLive: () => undefined };
+
+  test.beforeAll(async ({ browser }) => {
+    const clientUrl = test.info().project.use.baseURL;
+    if (!clientUrl) throw new Error('playwright.config.ts must give this project a baseURL');
+    const fixtureHome = process.env.QUAY_E2E_DEBUG_AGENT_HOME;
+    if (!fixtureHome) throw new Error('playwright.config.ts must publish QUAY_E2E_DEBUG_AGENT_HOME');
+    if (!process.env.QUAY_E2E_RUN_STARTED_AT) throw new Error('playwright.config.ts must publish QUAY_E2E_RUN_STARTED_AT');
+
+    workspace = path.join(fixtureHome, 'activity-dock-controls-workspace');
+    const workspaceName = path.basename(workspace);
+
+    // The account this file already registered for AC-194; `createAccount` falls
+    // through to a sign-in when the registration is already taken.
+    const bootstrap = await request.newContext({ baseURL: clientUrl });
+    const token = await createAccount(bootstrap);
+    await bootstrap.dispose();
+    api = await request.newContext({ baseURL: clientUrl, extraHTTPHeaders: { Authorization: `Bearer ${token}` } });
+
+    sessionId = await armScenario(api, workspace, CONTROL_SCENARIO);
+
+    const context = await browser.newContext({ baseURL: clientUrl });
+    await context.addInitScript(
+      ({ key, value }: { key: string; value: string }) => {
+        window.localStorage.setItem(key, value);
+        window.localStorage.setItem('userLanguage', 'en');
+      },
+      { key: 'auth-token', value: token },
+    );
+    page = await context.newPage();
+    // Installed before the app ever opens its socket: the first connection must
+    // already travel through the fixture for the unreachable reading to hold.
+    await installPartition(page, partition);
+    page.on('pageerror', (error) => console.log(`[e2e] pageerror: ${error.message}`));
+
+    await page.goto('/');
+    if (!(await projectRow(page, workspaceName).waitFor({ state: 'visible', timeout: 25_000 }).then(() => true, () => false))) {
+      await page.reload();
+    }
+    await revealSession(page, workspaceName, sessionId);
+  });
+
+  test.afterAll(async () => {
+    await page?.close();
+    await api?.dispose();
+  });
+
+  test('AC-199 the dock stops a task and backgrounds a foreground tool, only on the server’s events', async () => {
+    const runStartedAt = Number(process.env.QUAY_E2E_RUN_STARTED_AT);
+
+    // Fire the walk without awaiting it: the click window opens while it is in
+    // flight, and the controls' events are far down its clock.
+    const clock = api
+      .post('/api/debug-agent/clock', { data: { sessionId } })
+      .then(async (response) => {
+        const body = (await response.json().catch(() => null)) as { success?: boolean } | null;
+        console.log(`clock.status=${response.status()} clock.body=${JSON.stringify(body).slice(0, 300)}`);
+        return { ok: response.ok(), body };
+      })
+      .catch((error: unknown) => ({ ok: false, body: { failed: String(error) } }));
+
+    // Open the session while the walk is in flight, so the subscribe attaches and the
+    // transcript (the foreground tool's source) is loaded before the click window closes.
+    await page.waitForTimeout(600);
+    await sessionRow(page, sessionId).click();
+    await expect(page.locator(PANE)).toBeVisible({ timeout: 30_000 });
+
+    await expect(page.locator(DOCK_TOGGLE)).toBeVisible({ timeout: 20_000 });
+    await page.locator(DOCK_TOGGLE).click();
+    await expect(page.locator(PANEL)).toBeVisible({ timeout: 15_000 });
+
+    // --- AC2: the three states are on screen --------------------------------------------------
+    await expect(taskRowOf(page, STOP_TARGET)).toBeVisible({ timeout: 20_000 });
+    await expect(taskRowOf(page, TERMINAL_TASK)).toBeVisible({ timeout: 20_000 });
+    await expect(taskRowOf(page, NEVER_TASK)).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator(FOREGROUND_ROW)).toBeVisible({ timeout: 20_000 });
+
+    const { status: snapStatus, snapshot } = await readActivitySnapshot(api, sessionId);
+    const snapshotTasks = snapshot?.tasks ?? [];
+    const domTaskIds = (await readTaskIds(page)).sort();
+    console.log(`ac2.snapshot.status=${snapStatus} snapshot.tasks=${JSON.stringify(snapshotTasks.map((t) => `${t.taskId}:${t.state}`))} dom.tasks=${JSON.stringify(domTaskIds)} foreground=${await page.locator(FOREGROUND_ROW).getAttribute('data-tool-use-id')}`);
+    expect(snapStatus).toBe(200);
+    expect(snapshotTasks.find((t) => t.taskId === STOP_TARGET)?.state).toBe('running');
+    expect(snapshotTasks.find((t) => t.taskId === TERMINAL_TASK)?.state).toBe('completed');
+    expect(snapshotTasks.some((t) => t.taskId === BG_TASK), 'the background task must not exist before its event').toBe(false);
+
+    const stopRunning = await taskRowOf(page, STOP_TARGET).getAttribute('data-task-state');
+    console.log(`ac2.stopTarget.state=${stopRunning}`);
+    expect(stopRunning, 'the stop target must still be running when the click window opens').toBe('running');
+
+    // The foreground tool is deliberately NOT a snapshot task: it has no row until the
+    // CLI backgrounds it, which is the whole difference the background control acts on.
+    const foregroundToolUseId = await page.locator(FOREGROUND_ROW).getAttribute('data-tool-use-id');
+    expect(typeof foregroundToolUseId === 'string' && foregroundToolUseId.length > 0).toBe(true);
+    expect(snapshotTasks.some((task) => (task as { toolUseId?: string }).toolUseId === foregroundToolUseId)).toBe(false);
+
+    // --- AC5: a terminal row renders no stop control -------------------------------------------
+    const terminalStopCount = await taskRowOf(page, TERMINAL_TASK).locator(TASK_STOP).count();
+    console.log(`ac5.terminalStopButtons=${terminalStopCount}`);
+    expect(terminalStopCount, 'a terminal task row must render no stop control').toBe(0);
+
+    // --- AC3: stop is not optimistic -----------------------------------------------------------
+    const beforeClick = await taskRowOf(page, STOP_TARGET).getAttribute('data-task-state');
+    await taskRowOf(page, STOP_TARGET).locator(TASK_STOP).click();
+    const afterClick = await taskRowOf(page, STOP_TARGET).getAttribute('data-task-state');
+    const mainVerdict = clickInstantVerdict(beforeClick, afterClick);
+    console.log(`ac3.main ${mainVerdict.reading} green=${mainVerdict.green}`);
+    expect(mainVerdict.green, `the click must not change the row; ${mainVerdict.reading}`).toBe(true);
+    expect(afterClick, 'the row must still read its pre-click state').toBe('running');
+
+    // --- AC4: backgrounding is not optimistic --------------------------------------------------
+    // The background click happens in the same early window, before the event that creates the
+    // task. The click's task must not be in the panel until the server's own frames arrive.
+    const idsBeforeBackground = await readTaskIds(page);
+    console.log(`ac4.idsBeforeBackground=${JSON.stringify(idsBeforeBackground)}`);
+    expect(idsBeforeBackground.includes(BG_TASK), 'the background task must not be drawn before its event').toBe(false);
+
+    await page.locator(BACKGROUND_TOOL).click();
+    const idsAfterClick = await readTaskIds(page);
+    expect(idsAfterClick.includes(BG_TASK), 'a background click must not fabricate a task row').toBe(false);
+
+    // --- The two events, far down the clock, are what move the state --------------------------
+    // The stop event (12s) settles the task; the background frames (12.3/12.6s) create the task.
+    await expect(taskRowOf(page, STOP_TARGET)).toHaveAttribute('data-task-state', 'stopped', { timeout: 20_000 });
+    await expect(taskRowOf(page, STOP_TARGET).locator(TASK_STOP)).toHaveCount(0, { timeout: 5_000 });
+    console.log('ac3.settled: the stop event moved the row to stopped');
+
+    await expect(taskRowOf(page, BG_TASK)).toBeVisible({ timeout: 20_000 });
+    // The task the event created names the very foreground tool the control addressed: its
+    // `toolUseId` is the pending tool's id, which is what makes "this task is that tool".
+    const bgSnapshot = await readActivitySnapshot(api, sessionId);
+    const bgTask = bgSnapshot.snapshot?.tasks?.find((t) => t.taskId === BG_TASK) as
+      | { state?: string; toolUseId?: string }
+      | undefined;
+    console.log(`ac4.backgrounded: bgTask=${BG_TASK} state=${bgTask?.state} toolUseId=${bgTask?.toolUseId ?? '<none>'} foreground=${foregroundToolUseId}`);
+    expect(bgTask?.state).toBe('running');
+    expect(bgTask?.toolUseId, 'the backgrounded task must join the foreground tool the control addressed').toBe(foregroundToolUseId);
+
+    // --- AC7: the false form is red under the same reading function ---------------------------
+    const falseFormVerdict = clickInstantVerdict('running', 'stopped');
+    console.log(`ac7.falseForm ${falseFormVerdict.reading} green=${falseFormVerdict.green}`);
+    expect(
+      falseFormVerdict.green,
+      'an optimistic click (running -> stopped with no event) must read red under the AC3 reading',
+    ).toBe(false);
+    expect(mainVerdict.reading).not.toBe(falseFormVerdict.reading);
+
+    // --- AC6: a partition disables both controls, with a reason -------------------------------
+    // The dock's state attribute is not read here: with no turn in flight and tasks held,
+    // the dock draws `background` rather than `unreachable` — the *liveness* is what the
+    // controls go by, and it is what this reading takes. What the AC requires is the DOM's
+    // own `disabled` plus a reason, so that is what is asserted.
+    partition.mode = 'reject';
+    partition.closeLive();
+
+    const stopButton = taskRowOf(page, NEVER_TASK).locator(TASK_STOP);
+    const backgroundButton = page.locator(BACKGROUND_TOOL);
+    await expect(stopButton).toBeDisabled({ timeout: 15_000 });
+    await expect(backgroundButton).toBeDisabled({ timeout: 15_000 });
+    const dockState = await page.locator('[data-activity-dock]').getAttribute('data-activity-state');
+    const reasonTexts = await page.locator(DISABLED_REASON).evaluateAll((nodes) =>
+      nodes.map((node) => (node.textContent ?? '').trim()),
+    );
+    console.log(`ac6.partition: dockState=${dockState} stopDisabled=${await stopButton.isDisabled()} bgDisabled=${await backgroundButton.isDisabled()} reasons=${JSON.stringify(reasonTexts)}`);
+    expect(reasonTexts.length, 'each disabled control must draw a reason').toBeGreaterThanOrEqual(2);
+    expect(reasonTexts.every((text) => text.length > 0), 'a disabled reason must not be blank').toBe(true);
+
+    // --- The walk itself completed -------------------------------------------------------------
+    const clockBody = await clock;
+    expect(clockBody.ok, `the walk must complete: ${JSON.stringify(clockBody)}`).toBe(true);
+    expect(clockBody.body?.success, `the walk must report success: ${JSON.stringify(clockBody.body)}`).toBe(true);
+
+    // --- AC1: the wall clock ------------------------------------------------------------------
+    const elapsedMs = Date.now() - runStartedAt;
+    console.log(`AC-199 wall clock: ${elapsedMs}ms`);
+    expect(elapsedMs, 'the criterion must complete within 40s').toBeLessThanOrEqual(40_000);
+  });
+});

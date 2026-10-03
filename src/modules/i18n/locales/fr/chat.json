@@ -242,7 +242,9 @@
     },
     "controls": {
       "stopGeneration": "Arrêter la génération",
-      "pressEscToStop": "Appuyez sur Échap à tout moment pour arrêter"
+      "pressEscToStop": "Appuyez sur Échap à tout moment pour arrêter",
+      "stopTask": "Arrêter la tâche",
+      "backgroundTool": "Passer en arrière-plan"
     },
     "providers": {
       "assistant": "Assistant"

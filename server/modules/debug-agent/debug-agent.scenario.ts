@@ -230,7 +230,25 @@ export type DebugAgentScenarioStep = { at: number } & (
   | { op: 'tool-result'; text: string }
   | { op: 'task-started'; taskId: string; taskType: string; description: string }
   | { op: 'task-progress'; taskId: string; description: string }
-  | { op: 'task-updated'; taskId: string; status: string }
+  | {
+      op: 'task-updated';
+      taskId: string;
+      status: string;
+      /**
+       * Whether this patch is the one that says the task moved to the
+       * background.
+       *
+       * The two-frame shape the CLI emits when a foreground tool is
+       * backgrounded is a `task_started` (joining the task to the tool_use that
+       * launched it) followed by a `task_updated` whose patch carries
+       * `is_backgrounded: true`. This flag is the second half of that pair: the
+       * Task Reducer reads it as "this task is a background task now", which is
+       * the whole difference between a foreground tool and a background one.
+       * Optional, and absent means a patch that says nothing about backgrounding
+       * — the shape this step had before it could carry the flag.
+       */
+      isBackgrounded?: boolean;
+    }
   | { op: 'task-notification'; taskId: string; status: string; summary: string }
   | { op: 'schedule-plan'; expression: string; human: string; prompt: string }
   | { op: 'turn-end' }
@@ -455,13 +473,23 @@ function readStep(input: unknown, index: number): DebugAgentScenarioStep {
         taskId: readText(step.taskId, `${where}.taskId`),
         description: readText(step.description, `${where}.description`),
       };
-    case 'task-updated':
+    case 'task-updated': {
+      // A present-but-non-boolean flag is refused rather than coerced: the flag
+      // is what says a task is a background one, and a document whose
+      // `isBackgrounded: "true"` silently dropped would produce a task the
+      // criterion reads as foreground — a reading nobody could attribute to a
+      // cause.
+      if (step.isBackgrounded !== undefined && typeof step.isBackgrounded !== 'boolean') {
+        return refuse(`${where}.isBackgrounded must be a boolean when present`);
+      }
       return {
         at,
         op,
         taskId: readText(step.taskId, `${where}.taskId`),
         status: readText(step.status, `${where}.status`),
+        ...(step.isBackgrounded === true ? { isBackgrounded: true } : {}),
       };
+    }
     case 'task-notification':
       return {
         at,

@@ -237,6 +237,23 @@ function acceptPushedCommand(input: {
 }
 
 /**
+ * The debug agent's runtime face, widened with the two control verbs the
+ * substitute process accepts.
+ *
+ * `stopTask` / `backgroundTask` are not part of `IProviderRuntime` — that
+ * contract is what every provider shares, and these belong to one provider's
+ * control plane. The gateway reads them structurally (`PerRunStopTaskRuntime` /
+ * `PerRunBackgroundTaskRuntime` in `provider-runtime.service.ts`) on the route a
+ * `per-run` debug session takes, so the object only has to carry them; they
+ * delegate to the host driver so the accept logic has one implementation,
+ * reachable from either the per-run route or a resident one.
+ */
+type DebugAgentRuntime = IProviderRuntime & {
+  stopTask(sessionId: string, taskId: string): Promise<boolean>;
+  backgroundTask(sessionId: string, toolUseId: string): Promise<boolean>;
+};
+
+/**
  * The runtime face: it walks the scenario armed for the session the run is for,
  * and reports the artifact's own readings back to its caller.
  *
@@ -248,7 +265,7 @@ function acceptPushedCommand(input: {
 function createDebugAgentRuntime(
   forwardFrames: DebugAgentFrameForwarder,
   hostDriver: DebugAgentHostDriver,
-): IProviderRuntime {
+): DebugAgentRuntime {
   return {
     async run(command, options, writer, context) {
       const sessionId = typeof options.sessionId === 'string' ? options.sessionId : '';
@@ -387,6 +404,19 @@ function createDebugAgentRuntime(
       // down, so there is nothing to abort — reported as "nothing was aborted"
       // rather than as a success a caller could mistake for a stopped run.
       return false;
+    },
+
+    // The per-run face of the substitute's control verbs. A `per-run` debug
+    // session reaches these through the gateway's per-run route (its stored mode
+    // makes `resolveResidentEntry` answer null), and they delegate to the host
+    // driver so the accept behaviour lives in one place. They write nothing: the
+    // task's terminal event and a backgrounding's two frames are the scenario's
+    // own steps on the clock.
+    stopTask(sessionId: string, taskId: string): Promise<boolean> {
+      return hostDriver.stopTask(sessionId, taskId);
+    },
+    backgroundTask(sessionId: string, toolUseId: string): Promise<boolean> {
+      return hostDriver.background(sessionId, toolUseId);
     },
   };
 }

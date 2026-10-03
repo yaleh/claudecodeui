@@ -283,7 +283,9 @@
     "stop": "Stop",
     "controls": {
       "stopGeneration": "Stop Generation",
-      "pressEscToStop": "Press Esc anytime to stop"
+      "pressEscToStop": "Press Esc anytime to stop",
+      "stopTask": "Stop task",
+      "backgroundTool": "Move to background"
     },
     "providers": {
       "assistant": "Assistant"

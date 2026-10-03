@@ -4,9 +4,9 @@ import type { WebSocket } from 'ws';
 
 import { sessionsDb } from '@/modules/database/index.js';
 import {
-  createClaudeTaskReducer,
   providerModelsService,
   readSessionForegroundToolUseId,
+  readSessionTasks,
   sessionsService,
 } from '@/modules/providers/index.js';
 import type {
@@ -223,27 +223,6 @@ type ChatWebSocketDependencies = {
   stopTaskConfirmPollMs?: number;
 };
 
-/**
- * The process-wide task table the stop-task verb reads.
- *
- * It is the reducer AC-191 built — the same `getTasks(sessionId)` shape the
- * activity aggregator will read — and it is instantiated here rather than
- * re-implemented, so there is exactly one task-registration mechanism. It is
- * empty until the frame forwarder feeds it (`observe`), which is the activity
- * protocol's job; the control verb's contract is to read whatever the one table
- * holds, never to invent a second one.
- */
-let claudeTaskTable: ReturnType<typeof createClaudeTaskReducer> | null = null;
-function taskTable(): ReturnType<typeof createClaudeTaskReducer> {
-  // Built on first read rather than at module load: the factory is reached
-  // through the providers barrel, and instantiating it while this module's own
-  // import graph is still evaluating can run the reducer before its module's
-  // helpers are installed. A lazy singleton has the same lifetime and none of
-  // that ordering hazard.
-  claudeTaskTable ??= createClaudeTaskReducer();
-  return claudeTaskTable;
-}
-
 const DEFAULT_STOP_TASK_CONFIRM_TIMEOUT_MS = 5_000;
 const DEFAULT_STOP_TASK_CONFIRM_POLL_MS = 25;
 
@@ -259,9 +238,20 @@ const TERMINAL_TASK_STATES: ReadonlySet<ActivityTask['state']> = new Set<Activit
   'ended',
 ]);
 
-/** The default task-table reader: one row out of the process-wide reducer table. */
+/**
+ * The default task-table reader: one row out of the providers module's own
+ * reducer table.
+ *
+ * It reads `readSessionTasks` — the process-wide singleton the frame forwarder
+ * feeds (`forwardNormalizedFrames` → `taskReducer.observe`) — and deliberately
+ * does not build a second reducer here. A private instance would be empty for
+ * the whole life of the process, so the stop-task verb would answer
+ * `unknown-task` for every request against a session whose tasks the dock is
+ * already drawing from that same reduction — the control plane and the surface
+ * must read one table, or the verb's verdict is about the wrong one.
+ */
 function defaultGetTask(sessionId: string, taskId: string): { state: ActivityTask['state'] } | null {
-  const task = taskTable().getTasks(sessionId).find((candidate) => candidate.taskId === taskId);
+  const task = readSessionTasks(sessionId).find((candidate) => candidate.taskId === taskId);
   return task ? { state: task.state } : null;
 }
 

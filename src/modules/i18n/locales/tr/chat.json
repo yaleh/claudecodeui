@@ -240,7 +240,9 @@
     },
     "controls": {
       "stopGeneration": "Üretmeyi Durdur",
-      "pressEscToStop": "Durdurmak için istediğin zaman Esc'ye bas"
+      "pressEscToStop": "Durdurmak için istediğin zaman Esc'ye bas",
+      "stopTask": "Görevi durdur",
+      "backgroundTool": "Arka plana taşı"
     },
     "providers": {
       "assistant": "Asistan"

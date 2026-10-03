@@ -5,6 +5,7 @@ import { useActivityFreshness } from '@/modules/chat/hooks/useActivityFreshness'
 import { useSessionActivity } from '@/modules/chat/hooks/useSessionActivity';
 import { deriveActivityDockView } from '@/modules/chat/utils/activityDockView';
 import ActivityDockPanel from '@/modules/chat/transcript/ActivityDockPanel';
+import type { ForegroundTool } from '@/modules/chat/hooks/useActivityControls';
 import { Shimmer } from '@/shared/ui';
 import type { ActivityConnection, SessionActivity } from '@/shared/types';
 
@@ -22,6 +23,12 @@ type ActivityIndicatorProps = {
    * instead of drawing nothing — the state that replaced the old silent drop.
    */
   sendFailed?: boolean;
+  /**
+   * The running foreground tool, read off the loaded transcript by the caller
+   * (the pane already holds the messages). Absent draws no foreground row in the
+   * expanded panel, which is what a session with no pending `tool_use` has.
+   */
+  foregroundTool?: ForegroundTool | null;
 };
 
 /**
@@ -86,6 +93,7 @@ export default function ActivityIndicator({
   sessionId,
   connection,
   sendFailed = false,
+  foregroundTool = null,
 }: ActivityIndicatorProps) {
   const { t } = useTranslation('chat');
   const freshness = useActivityFreshness(sessionId, connection);
@@ -223,7 +231,14 @@ export default function ActivityIndicator({
             activity snapshot — see `ActivityDockPanel`. */}
         {panelOpen && (
           <div className="absolute bottom-full left-0 z-20 mb-1">
-            <ActivityDockPanel sessionId={sessionId} />
+            {/* The panel's controls go by the same liveness reading this dock
+                renders from — one machine, so the buttons can never disagree
+                with the state the row is drawn under. */}
+            <ActivityDockPanel
+              sessionId={sessionId}
+              liveness={freshness.liveness}
+              foregroundTool={foregroundTool}
+            />
           </div>
         )}
         {/*

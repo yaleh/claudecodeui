@@ -240,7 +240,9 @@
     },
     "controls": {
       "stopGeneration": "Остановить генерацию",
-      "pressEscToStop": "Нажмите Esc в любое время для остановки"
+      "pressEscToStop": "Нажмите Esc в любое время для остановки",
+      "stopTask": "Остановить задачу",
+      "backgroundTool": "В фоновый режим"
     },
     "providers": {
       "assistant": "Ассистент"

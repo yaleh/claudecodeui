@@ -324,6 +324,16 @@ export function buildTaskUpdatedRow(input: {
   parentUuid: string | null;
   taskId: string;
   status: string;
+  /**
+   * True when this patch is the one that says the task is a background task.
+   *
+   * Written into the patch as `is_backgrounded` — the dialect's own field name
+   * for it. It is what the Task Reducer reads as "this task moved to the
+   * background", and it is deliberately part of the patch rather than a
+   * top-level field, matching the real SDK frame the reducer was written
+   * against.
+   */
+  isBackgrounded?: boolean;
   /** The frame-supplied end instant (epoch ms), when the patch settled the task. */
   endedAt?: number;
 }): AnyRecord {
@@ -336,7 +346,11 @@ export function buildTaskUpdatedRow(input: {
     cwd: input.cwd,
     timestamp: input.timestamp,
     task_id: input.taskId,
-    patch: { status: input.status, ...(input.endedAt !== undefined ? { ended_at: input.endedAt } : {}) },
+    patch: {
+      status: input.status,
+      ...(input.isBackgrounded === true ? { is_backgrounded: true } : {}),
+      ...(input.endedAt !== undefined ? { ended_at: input.endedAt } : {}),
+    },
   };
 }
 

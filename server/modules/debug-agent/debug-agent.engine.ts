@@ -207,6 +207,18 @@ export type DebugAgentRunReading = {
 };
 
 /**
+ * The `task_updated.status` words that settle a task.
+ *
+ * The words are the dialect's own (`killed` is the one the CLI emits after a
+ * stop; the reducer maps it to `stopped`). A patch with any of these has ended
+ * the task and is stamped with an end instant; a patch with any other word
+ * (`running`, `paused`) is a live update and carries none. Kept as a set rather
+ * than restating the reducer's terminal-state mapping, because this list is
+ * about the FRAME's vocabulary (`status`), not the table's (`state`).
+ */
+const TERMINAL_TASK_STATUSES: ReadonlySet<string> = new Set(['completed', 'failed', 'killed', 'stopped']);
+
+/**
  * Runs one armed scenario.
  *
  * The clock is absolute: `steps[].at` is milliseconds from the start of the run,
@@ -493,10 +505,16 @@ export async function runDebugAgentScenario(input: DebugAgentRunInput): Promise<
       }
 
       case 'task-updated': {
+        // A patch that marks a task backgrounded states no end instant: the task
+        // is still running, and stamping `ended_at` would make the dock compute
+        // its elapsed from a finish that has not happened. Only a patch whose
+        // status is terminal settles the task, so only that one carries an end.
         const timestamp = new Date().toISOString();
         appendDialectRow((parentUuid) => buildTaskUpdatedRow({
           sessionId, cwd, timestamp, uuid: crypto.randomUUID(), parentUuid,
-          taskId: step.taskId, status: step.status, endedAt: Date.now(),
+          taskId: step.taskId, status: step.status,
+          ...(step.isBackgrounded === true ? { isBackgrounded: true } : {}),
+          ...(TERMINAL_TASK_STATUSES.has(step.status) ? { endedAt: Date.now() } : {}),
         }));
         break;
       }

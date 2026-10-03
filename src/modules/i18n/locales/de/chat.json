@@ -240,7 +240,9 @@
     },
     "controls": {
       "stopGeneration": "Generierung stoppen",
-      "pressEscToStop": "Jederzeit Esc drücken, um zu stoppen"
+      "pressEscToStop": "Jederzeit Esc drücken, um zu stoppen",
+      "stopTask": "Aufgabe stoppen",
+      "backgroundTool": "In den Hintergrund"
     },
     "providers": {
       "assistant": "Assistent"
