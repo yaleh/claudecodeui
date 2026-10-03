@@ -1,7 +1,7 @@
 ---
 id: AC-201
 title: 人工关卡：在真实 resident 会话里启动后台子代理与 Monitor，从坞里看到并停止，读到 stopped
-status: draft
+status: active
 kind: criterion
 goal: GOAL-015
 criterion: test "$(grep -c '^- 人工验收 GOAL-015：accepted'
@@ -17,4 +17,15 @@ origin: docs/proposals/claude-session-activity-dock.md（§0.1 人的裁定、§
   docs/proposals/claude-background-work-observability.md。人 yale 2026-10-01
   裁定：新增控制动词与 cancel-queued 做归属校验；取消计划任务不做控件，由用户用文本请模型调 CronDelete，坞对计划只读；Monitor
   事件在投影层折叠成一行；历史里的 isMeta 行显示与对等方目录本期不纳入。 经验：人工关卡必须是一条带可运行判据的 AC。
+activatedAt: 2026-10-03T15:51:47.280Z
+statusLog:
+  - at: 2026-10-03T15:51:47.280Z
+    from: draft
+    to: active
+    actor: goal-cli
+    reason: ""
+fidelity:
+  verdict: not-evaluated
+  reason: no judge configured
+  at: 2026-10-03T15:51:47.280Z
 ---
