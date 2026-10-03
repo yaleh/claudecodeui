@@ -936,8 +936,16 @@ const RESIDENT_ACTIVITY_MARKERS = [
   '[data-lease-count]',
 ] as const;
 
-const DOCK_TOGGLE = '[data-activity-dock-toggle]';
-const DOCK_PANEL = '[data-activity-dock-panel]';
+/**
+ * The resident pill in the workspace header, and the panel it opens.
+ *
+ * These replace the dock's arrow and the panel it expanded in the message flow. The dock no longer
+ * carries any resident fact: between turns it is not drawn at all, resident or not, and the process's
+ * address, pid and controls are one press away on the pill, in a portal that overlays the page instead
+ * of growing the transcript.
+ */
+const BADGE = '[data-resident-badge]';
+const BADGE_PANEL = '[data-resident-badge-panel]';
 const RUNNING_GROUP = '[data-running-group="running"]';
 
 /** One sample of the three surfaces, taken as close to simultaneously as a page allows. */
@@ -1021,7 +1029,12 @@ async function sample(page: Page, sessionId: string, sendLabel: string): Promise
   const submit = page.locator(`${FORM} button[aria-label="${escaped}"]`);
   const send = (await submit.count()) > 0 ? 'send' : 'stop';
   return {
-    dock: (await page.locator(DOCK).first().getAttribute('data-activity-state')) ?? '',
+    // `absent`, not an empty string and not a wait: a dock that is not drawn is an *answer* (there is no
+    // turn to report), and `getAttribute` on a locator with no match would sit out the whole action
+    // timeout before throwing — which is how an honest "nothing to say" would read as a hang.
+    dock: (await page.locator(DOCK).count()) > 0
+      ? ((await page.locator(DOCK).first().getAttribute('data-activity-state')) ?? '')
+      : 'absent',
     sidebar,
     send,
   };
@@ -1112,27 +1125,28 @@ test.describe('activity dock consolidation', () => {
     const startedAt = Date.now();
     const mark = (what: string) => console.log(`ac188.step ${what} @${Date.now() - startedAt}ms`);
 
-    // Phase one, before any process exists: the session is stored resident, so the dock
-    // is already on screen in its idle reading with its panel holding the resident
-    // facts — including the [start] control, which only exists while nothing is running.
+    // Phase one, before any process exists: the session is stored resident, so the header pill is
+    // already on screen and its panel holds the resident facts — including the [start] control,
+    // which only exists while nothing is running. The dock is *not* drawn: there is no turn, and a
+    // resident session's dock no longer stays up between turns to carry an arrow.
     await revealSession(page, workspaceName, sessionId);
     await sessionRow(page, sessionId).click();
     await expect(page.locator(PANE)).toBeVisible({ timeout: 30_000 });
-    await expect(page.locator(DOCK)).toHaveAttribute('data-activity-state', 'idle', { timeout: 20_000 });
-    mark('dock-idle');
+    await expect(page.locator(BADGE)).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator(DOCK), 'with no turn there is no dock, resident or not').toHaveCount(0);
+    mark('badge-idle');
 
-    await expect(page.locator(DOCK_TOGGLE)).toBeVisible({ timeout: 10_000 });
-    await page.locator(DOCK_TOGGLE).click();
-    await expect(page.locator(DOCK_PANEL)).toBeVisible({ timeout: 10_000 });
-    const startControl = await page.locator(`${DOCK_PANEL} [data-resident-start]`).count();
-    const closeControl = await page.locator(`${DOCK_PANEL} [data-resident-close]`).count();
-    const copyControl = await page.locator(`${DOCK_PANEL} [data-resident-copy]`).count();
-    const addressNode = await page.locator(`${DOCK_PANEL} [data-resident-address]`).count();
-    const pidNode = await page.locator(`${DOCK_PANEL} [data-resident-pid-text]`).count();
+    await page.locator(BADGE).click();
+    await expect(page.locator(BADGE_PANEL)).toBeVisible({ timeout: 10_000 });
+    const startControl = await page.locator(`${BADGE_PANEL} [data-resident-start]`).count();
+    const closeControl = await page.locator(`${BADGE_PANEL} [data-resident-close]`).count();
+    const copyControl = await page.locator(`${BADGE_PANEL} [data-resident-copy]`).count();
+    const addressNode = await page.locator(`${BADGE_PANEL} [data-resident-address]`).count();
+    const pidNode = await page.locator(`${BADGE_PANEL} [data-resident-pid-text]`).count();
     const panel = { start: startControl, close: closeControl, copy: copyControl, address: addressNode, pid: pidNode };
     console.log(`resident.panel.controls=${JSON.stringify(panel)}`);
-    await page.locator(DOCK_TOGGLE).click();
-    await expect(page.locator(DOCK_PANEL)).toHaveCount(0);
+    await page.locator(BADGE).click();
+    await expect(page.locator(BADGE_PANEL)).toHaveCount(0);
     mark('panel-read');
 
     // The process comes up through the same verb the panel's own control calls, and the
@@ -1288,7 +1302,11 @@ test.describe('activity dock consolidation', () => {
       await expect(target.locator(PANE)).toBeVisible({ timeout: 30_000 });
       await ensureRunningView(target, runningTooltip);
     }));
-    await expect(page.locator(DOCK)).toHaveAttribute('data-activity-state', 'idle', { timeout: 20_000 });
+    // The dock settles on *absent*: the turn is over, and a resident session's dock no longer lingers in an
+    // idle reading. Every sample in the window below reads `absent` through `sample()`, which is not a
+    // running state — so the agreement it checks (no sample may show the dock at rest while the sidebar
+    // or the send button still says busy) is unchanged, and now also catches a dock that outstays its turn.
+    await expect(page.locator(DOCK)).toHaveCount(0, { timeout: 20_000 });
     const endedAt = Date.now();
     mark('turn-closed');
 
@@ -1348,7 +1366,7 @@ test.describe('activity dock consolidation', () => {
       ).toEqual([]);
 
       const settled = reading.afterTurn[reading.afterTurn.length - 1];
-      expect(inTurn(settled.dock), `${tier}: the dock settles on its idle reading`).toBe(false);
+      expect(settled.dock, `${tier}: the dock settles on absent — nothing is running, so nothing is drawn`).toBe('absent');
       expect(settled.sidebar, `${tier}: and the sidebar stops counting the session`).toBe(false);
       expect(settled.send, `${tier}: and the submit is the send entry again`).toBe('send');
     }
@@ -1555,14 +1573,10 @@ test.describe('activity dock phase truthfulness', () => {
     }, 'first-load');
     await expect(page.locator(PANE)).toBeVisible({ timeout: 30_000 });
 
-    await expect(page.locator(DOCK)).toHaveAttribute('data-activity-state', 'idle', { timeout: 20_000 });
-    const afterTurn = await readPhaseDock(page);
-    console.log(`dock.afterTurn=${JSON.stringify(afterTurn)}`);
-    expect(
-      IN_TURN_STATES.has(afterTurn.state),
-      `after the turn the dock must not read a running state (got ${afterTurn.state})`,
-    ).toBe(false);
-    expect(afterTurn.phase, 'the phase the dock reports after the turn is idle').toBe('idle');
+    // After the turn the dock is not drawn at all. That is a stronger statement than the old "reads idle":
+    // an idle reading could be a dock stuck on its last frame, and an absent one cannot be.
+    await expect(page.locator(DOCK)).toHaveCount(0, { timeout: 20_000 });
+    console.log('dock.afterTurn=absent');
 
     const wall = Date.now() - startedAt;
     console.log(`dock.wall=${wall}ms`);

@@ -304,6 +304,16 @@
       "copyCommand": "コマンドをコピー",
       "copied": "コピーしました"
     },
+    "badge": {
+      "label": "常駐",
+      "aria": "常駐セッション（{{state}}）：詳細を表示",
+      "state": {
+        "running": "プロセス実行中",
+        "stopped": "プロセス停止中",
+        "exited": "プロセス終了",
+        "unknown": "状態不明"
+      }
+    },
     "statusBar": {
       "unstarted": "常駐 · 未起動（{{reason}}）",
       "idle": "常駐 · 待機中",

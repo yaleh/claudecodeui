@@ -332,6 +332,16 @@
       "copyCommand": "명령어 복사",
       "copied": "복사됨"
     },
+    "badge": {
+      "label": "상주",
+      "aria": "상주 세션({{state}}): 세부 정보 보기",
+      "state": {
+        "running": "프로세스 실행 중",
+        "stopped": "프로세스 실행 안 됨",
+        "exited": "프로세스 종료됨",
+        "unknown": "상태 알 수 없음"
+      }
+    },
     "statusBar": {
       "unstarted": "상주 · 실행되지 않음 ({{reason}})",
       "idle": "상주 · 유휴",

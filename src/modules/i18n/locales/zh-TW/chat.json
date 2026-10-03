@@ -353,6 +353,16 @@
       "copyCommand": "複製指令",
       "copied": "已複製"
     },
+    "badge": {
+      "label": "常駐",
+      "aria": "常駐會話（{{state}}）：檢視詳情",
+      "state": {
+        "running": "程序運行中",
+        "stopped": "程序未運行",
+        "exited": "程序已結束",
+        "unknown": "狀態未知"
+      }
+    },
     "statusBar": {
       "unstarted": "常駐 · 未執行（{{reason}}）",
       "idle": "常駐 · 閒置",

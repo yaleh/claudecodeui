@@ -317,6 +317,16 @@
       "copyCommand": "Befehl kopieren",
       "copied": "Kopiert"
     },
+    "badge": {
+      "label": "Resident",
+      "aria": "Resident-Sitzung ({{state}}): Details anzeigen",
+      "state": {
+        "running": "Prozess läuft",
+        "stopped": "Prozess läuft nicht",
+        "exited": "Prozess beendet",
+        "unknown": "Status unbekannt"
+      }
+    },
     "statusBar": {
       "unstarted": "Resident · Läuft nicht ({{reason}})",
       "idle": "Resident · Leerlauf",

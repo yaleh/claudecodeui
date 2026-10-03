@@ -15,7 +15,6 @@ import { groupWorkSegments, isWorkSegment } from '@/modules/chat/utils/workSegme
 import { findSearchTargetIndex } from '@/modules/chat/utils/searchTargetLocator';
 import { useLazyRowObserver } from '@/modules/chat/hooks/useLazyRowObserver';
 import { useDeviceSettings } from '@/shared/hooks/useDeviceSettings';
-import { findSessionHostState, useSessionHosts } from '@/shared/hooks/useSessionHosts';
 import LazyMessageRow from '@/modules/chat/transcript/LazyMessageRow';
 import MessageComponent from '@/modules/chat/transcript/MessageComponent';
 import PendingResidentMessage from '@/modules/chat/transcript/PendingResidentMessage';
@@ -194,16 +193,7 @@ function ChatMessagesPane({
   const { isMobile, isShortTouchViewport } = useDeviceSettings();
   /** Whether this pane is the surface that carries the turn, rather than the composer's floating tab. */
   const isInlineDock = isMobile || isShortTouchViewport;
-  // Whether this session is held by a resident process, read from the same shared
-  // snapshot the dock's panel reads. It decides one thing here: whether the
-  // transcript's dock keeps its collapsed entry point between turns (see
-  // `ActivityIndicator`'s `persistWhenIdle`) — the facts themselves are the
-  // panel's, not this component's.
-  const { snapshot: sessionHostsSnapshot } = useSessionHosts();
   const activeSessionId = currentSessionId ?? selectedSession?.id ?? null;
-  const isResidentSession = activeSessionId
-    ? findSessionHostState(sessionHostsSnapshot, activeSessionId)?.lifecycleMode === 'resident'
-    : false;
   const lazyRows = useLazyRowObserver(scrollContainerRef);
   const groupedVisibleMessages = useMemo(
     () => groupWorkSegments(visibleMessages),
@@ -585,7 +575,6 @@ function ChatMessagesPane({
             activity={hasActivityIndicator ? activity : null}
             sessionId={activeSessionId}
             sendFailed={sendFailed}
-            persistWhenIdle={isResidentSession}
           />
         )}
         </div>

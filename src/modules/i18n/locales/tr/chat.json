@@ -317,6 +317,16 @@
       "copyCommand": "Komutu kopyala",
       "copied": "Kopyalandı"
     },
+    "badge": {
+      "label": "Kalıcı",
+      "aria": "Kalıcı oturum ({{state}}): ayrıntıları göster",
+      "state": {
+        "running": "işlem çalışıyor",
+        "stopped": "işlem çalışmıyor",
+        "exited": "işlem sonlandı",
+        "unknown": "durum bilinmiyor"
+      }
+    },
     "statusBar": {
       "unstarted": "Kalıcı · Çalışmıyor ({{reason}})",
       "idle": "Kalıcı · Boşta",

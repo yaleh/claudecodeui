@@ -30,13 +30,16 @@ const PANE = '.chat-messages-pane';
  * The resident status surface this file reads, and never writes.
  *
  * It used to be the status bar's own root (AC-172's DOM contract). `ad1bb63a` consolidated the resident
- * status bar into the activity dock and retired that root, so the reading addresses the dock — the same
- * surface AC-177 and AC-178 re-anchored to. The dock is drawn for exactly the sessions the bar was drawn
- * for (`persistWhenIdle`, the resident-only gate the bar had), so the two legs below still separate by
- * the one fact they always did. See `readGeometry` for what is asked of this box now that the dock hangs
- * over the transcript's bottom edge by design.
+ * status bar into the activity dock, whose arrow opened the process's facts; that arrow lived in the
+ * message flow and, opened, grew the transcript instead of floating over it (measured at 390x844: its
+ * lower ~140px landed past the bottom of the scroll area). The facts are now the panel of the resident
+ * pill in the workspace header, so the reading addresses the pill. The pill is drawn for exactly the
+ * sessions the bar was drawn for (a session whose own host snapshot reads `resident`), so the two legs
+ * below still separate by the one fact they always did. See `readGeometry` for what is asked of this box:
+ * the pill is outside the transcript's scroll box altogether, so "does not cover a row" is now true by
+ * construction, and the legs are what keeps it from being true by the pill not rendering.
  */
-const BAR = '[data-activity-dock]';
+const BAR = '[data-resident-badge]';
 /** One message row. The criterion reads the outermost ones only; see `readGeometry`. */
 const ROW = '[data-message-timestamp]';
 
@@ -550,10 +553,18 @@ const openPage = async (
   browser: Browser,
   baseURL: string,
   token: string,
+  form: { viewport?: { width: number; height: number }; touch?: boolean } = {},
 ): Promise<{ context: BrowserContext; page: Page }> => {
   // Before this run's first page: this run's optimize/re-optimize is over before the guard's navigation.
   await warmClientStartupOnce(baseURL);
-  const context = await browser.newContext({ baseURL, viewport: VIEWPORT });
+  const context = await browser.newContext({
+    baseURL,
+    viewport: form.viewport ?? VIEWPORT,
+    // `isMobile` as well as `hasTouch`: the pointer media query the app's device rules read only reports a
+    // coarse, hover-less primary pointer for an emulated phone, not for a mouse context that merely taps.
+    hasTouch: form.touch ?? false,
+    isMobile: form.touch ?? false,
+  });
   await context.addInitScript(
     ({ authKey, authToken, language }: { authKey: string; authToken: string; language: string }) => {
       window.localStorage.setItem(authKey, authToken);
@@ -573,8 +584,12 @@ const openPage = async (
  * below; a page that never reached the session would otherwise fail on a message-row timeout and report
  * the fixture rather than the layout.
  */
-const openSession = async (page: Page, sessionId: string): Promise<void> => {
-  await page.setViewportSize(VIEWPORT);
+const openSession = async (
+  page: Page,
+  sessionId: string,
+  viewport: { width: number; height: number } = VIEWPORT,
+): Promise<void> => {
+  await page.setViewportSize(viewport);
   await navigateBounded(
     page,
     `/session/${sessionId}`,
@@ -588,7 +603,7 @@ const openSession = async (page: Page, sessionId: string): Promise<void> => {
 /**
  * AC-179: the resident status bar must not be drawn over the conversation it describes.
  *
- * The surface read below is the activity dock (`[data-activity-dock]`) — the root `BAR` addresses and the
+ * The surface read below is the resident pill (`[data-resident-badge]`) — the root `BAR` addresses and the
  * one `ad1bb63a` consolidated the bar into. It is drawn for exactly the sessions the bar was drawn for,
  * so the pair of legs still separates by the one fact it always did.
  *
@@ -739,6 +754,191 @@ test('status bar does not cover the transcript', async ({ browser }) => {
   expect(elapsed, 'the criterion has to end inside the single-file ceiling').toBeLessThan(55_000);
 });
 
+/**
+ * The resident pill: where it sits, what it costs, and that opening it moves nothing.
+ *
+ * The arrow on the activity dock opened the process's facts inside the message flow. On a phone that grew
+ * the transcript instead of floating over it (measured at 390x844: the panel's lower ~140px landed past the
+ * bottom of the scroll area, only an edge showing) and it kept a dock on screen between turns for no reason
+ * but to carry the arrow. The pill is in the header, outside the transcript, and its panel is a portal.
+ *
+ * Read at three form factors because the three are three different layouts of the same header — a phone held
+ * upright, a phone held sideways (the 330px-tall viewport the whole height tier exists for, where a header
+ * that grew by one line would cost the transcript a twentieth of the screen), and a desktop — and a pill that
+ * fits one can break another. Each reading is a pair against the per-run session at the same viewport, so
+ * "the header did not grow" is a comparison with the same header lacking only the pill, and "the pill is
+ * absent" is read on a session that must not have one.
+ */
+const BADGE_FORM_FACTORS = [
+  { name: 'phone portrait', viewport: { width: 390, height: 844 }, touch: true },
+  { name: 'phone landscape', viewport: { width: 844, height: 330 }, touch: true },
+  { name: 'desktop', viewport: { width: 1440, height: 900 }, touch: false },
+] as const;
+
+const BADGE = '[data-resident-badge]';
+const BADGE_PANEL = '[data-resident-badge-panel]';
+
+/** What the pill case reads off a page in one evaluate, so the numbers describe one instant. */
+const readBadgePage = (page: Page) =>
+  page.evaluate(
+    (selectors: { pane: string; row: string; badge: string; panel: string; header: string }) => {
+      const box = (el: Element | null) => {
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { x: r.x, y: r.y, w: r.width, h: r.height, x2: r.right, y2: r.bottom };
+      };
+      const pane = document.querySelector(selectors.pane) as HTMLElement | null;
+      const rows = pane
+        ? Array.from(pane.querySelectorAll(selectors.row)).filter((row) => !row.parentElement?.closest(selectors.row))
+        : [];
+      const lastRow = rows.length ? rows[rows.length - 1] : null;
+      const badge = document.querySelector(selectors.badge) as HTMLElement | null;
+      const panel = document.querySelector(selectors.panel) as HTMLElement | null;
+      const header = document.querySelector(selectors.header);
+      const close = panel?.querySelector('[data-resident-close]') ?? null;
+      const closeBox = box(close);
+      const hit = closeBox
+        ? document.elementFromPoint(closeBox.x + closeBox.w / 2, closeBox.y + closeBox.h / 2)
+        : null;
+      const badgeBox = box(badge);
+      // The invisible hit area extends up and to the left of the painted pill (see the component). A point
+      // inside that extension, outside the painted box, must still land on the button.
+      const extensionHit = badgeBox
+        ? document.elementFromPoint(badgeBox.x + 4, badgeBox.y - 7.5)
+        : null;
+      const nameLine = badge?.previousElementSibling ?? null;
+      return {
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        header: box(header),
+        badge: badgeBox,
+        badgeFont: badge ? getComputedStyle(badge).fontSize : null,
+        nameFont: nameLine ? getComputedStyle(nameLine).fontSize : null,
+        extensionHitsBadge: Boolean(extensionHit && badge && badge.contains(extensionHit)),
+        dockCount: document.querySelectorAll('[data-activity-dock]').length,
+        paneScrollTop: pane ? pane.scrollTop : null,
+        lastRowTop: lastRow ? lastRow.getBoundingClientRect().top : null,
+        composerTop: box(document.querySelector('form[data-slot="prompt-input"]'))?.y ?? null,
+        panel: box(panel),
+        closeIsHit: Boolean(close && hit && close.contains(hit)),
+        // A scrollable overflow of the title block would be the pill's pseudo-element leaking past it.
+        titleScrollable: (() => {
+          const block = badge?.closest('.overflow-x-auto') as HTMLElement | null;
+          return block ? block.scrollHeight > block.clientHeight + 1 || block.scrollWidth > block.clientWidth + 1 : null;
+        })(),
+      };
+    },
+    { pane: PANE, row: ROW, badge: BADGE, panel: BADGE_PANEL, header: 'header' },
+  );
+
+test('the resident pill sits in the header, costs it no height, and its panel floats over the page', async ({ browser }) => {
+  test.setTimeout(150_000);
+  const fixtureHome = process.env.QUAY_E2E_DEBUG_AGENT_HOME;
+  if (!fixtureHome) {
+    throw new Error('playwright.config.ts must publish QUAY_E2E_DEBUG_AGENT_HOME for this selection');
+  }
+  const baseURL = test.info().project.use.baseURL;
+  if (!baseURL) {
+    throw new Error('playwright.config.ts must give this project a baseURL');
+  }
+
+  const workspace = path.join(fixtureHome, WORKSPACE_DIR);
+  const bootstrap = await request.newContext({ baseURL });
+  const token = await createAccount(bootstrap);
+  await bootstrap.dispose();
+  const api = await request.newContext({
+    baseURL,
+    extraHTTPHeaders: { Authorization: `Bearer ${token}` },
+  });
+
+  const residentId = await armScenario(api, workspace, scenarioFor(`${TITLE_RESIDENT} (pill)`, 'resident'));
+  const perRunId = await armScenario(api, workspace, scenarioFor(`${TITLE_PER_RUN} (pill)`, 'per-run'));
+  await walkClock(api, residentId);
+  await walkClock(api, perRunId);
+  expect(await readLifecycleMode(api, residentId), 'the pill arm has to be stored resident').toBe('resident');
+  expect(await readLifecycleMode(api, perRunId), 'the control arm has to be stored per-run').toBe('per-run');
+
+  try {
+    for (const form of BADGE_FORM_FACTORS) {
+      const { context, page } = await openPage(browser, baseURL, token, { viewport: form.viewport, touch: form.touch });
+      try {
+        const label = `${form.name} ${form.viewport.width}x${form.viewport.height}`;
+
+        // The control first: the same header, the same viewport, a session that must have no pill.
+        await openSession(page, perRunId, form.viewport);
+        await page.waitForTimeout(CONTROL_SETTLE_MS);
+        const control = await readBadgePage(page);
+        console.log(`pill.${form.name}.control header.h=${control.header?.h} badges=${await page.locator(BADGE).count()}`);
+        expect(await page.locator(BADGE).count(), `${label}: a per-run session must draw no pill`).toBe(0);
+
+        // The resident session: the pill is drawn, and no dock is (no turn is running).
+        await openSession(page, residentId, form.viewport);
+        await expect(page.locator(BADGE), `${label}: a resident session must draw the pill`).toBeVisible({ timeout: 30_000 });
+        const closed = await readBadgePage(page);
+        console.log(
+          `pill.${form.name}.closed header.h=${closed.header?.h} badge=${JSON.stringify(closed.badge)} `
+          + `font=${closed.badgeFont}/${closed.nameFont} docks=${closed.dockCount}`,
+        );
+
+        expect(closed.dockCount, `${label}: with no turn there is no dock, resident or not`).toBe(0);
+        expect(
+          closed.header?.h,
+          `${label}: the pill must cost the header no height — resident ${closed.header?.h}px vs control ${control.header?.h}px`,
+        ).toBeCloseTo(control.header?.h ?? -1, 0);
+        expect(closed.badgeFont, `${label}: the pill is the same font size as the project name beside it`).toBe(closed.nameFont);
+        expect(
+          Boolean(closed.badge && closed.header && closed.badge.y2 <= closed.header.y2 + 0.5),
+          `${label}: the pill lies inside the header`,
+        ).toBe(true);
+        expect(closed.extensionHitsBadge, `${label}: the invisible hit area must extend above the painted pill (WCAG 2.5.8)`).toBe(true);
+        expect(closed.titleScrollable, `${label}: the pill must not make the title block scrollable`).toBe(false);
+
+        // Open it. Nothing the page showed may move: not the transcript's scroll offset, not its last row,
+        // not the composer. This is the reading the dock's arrow failed.
+        await page.locator(BADGE).click();
+        await expect(page.locator(BADGE_PANEL), `${label}: the pill must open its panel`).toBeVisible({ timeout: 10_000 });
+        const open = await readBadgePage(page);
+        console.log(
+          `pill.${form.name}.open panel=${JSON.stringify(open.panel)} scrollTop ${closed.paneScrollTop}->${open.paneScrollTop} `
+          + `lastRow ${closed.lastRowTop}->${open.lastRowTop} composer ${closed.composerTop}->${open.composerTop}`,
+        );
+
+        expect(open.paneScrollTop, `${label}: opening the panel must not scroll the transcript`).toBe(closed.paneScrollTop);
+        expect(open.lastRowTop, `${label}: opening the panel must not move the transcript's last row`).toBe(closed.lastRowTop);
+        expect(open.composerTop, `${label}: opening the panel must not move the composer`).toBe(closed.composerTop);
+        expect(open.header?.h, `${label}: opening the panel must not change the header`).toBe(closed.header?.h);
+
+        const panelBox = open.panel;
+        expect(panelBox, `${label}: the panel must have a box`).not.toBeNull();
+        if (panelBox && open.badge) {
+          expect(panelBox.y, `${label}: the panel is anchored under the pill`).toBeGreaterThanOrEqual(open.badge.y2);
+          expect(panelBox.x, `${label}: the panel stays inside the left edge`).toBeGreaterThanOrEqual(0);
+          expect(panelBox.x2, `${label}: the panel stays inside the right edge`).toBeLessThanOrEqual(form.viewport.width);
+          expect(panelBox.y2, `${label}: the panel is entirely above the bottom of the viewport`).toBeLessThanOrEqual(form.viewport.height);
+        }
+        expect(open.closeIsHit, `${label}: the Close control must be what a pointer at its centre lands on`).toBe(true);
+
+        // It dismisses the ways a popover must, and focus goes back to where it came from.
+        await page.keyboard.press('Escape');
+        await expect(page.locator(BADGE_PANEL), `${label}: Escape closes the panel`).toHaveCount(0);
+        await expect(page.locator(BADGE), `${label}: focus returns to the pill`).toBeFocused();
+
+        await page.locator(BADGE).click();
+        await expect(page.locator(BADGE_PANEL)).toBeVisible({ timeout: 10_000 });
+        // The point is the bottom edge of the viewport, not its centre: at 844x330 the panel is 288px wide
+        // and reaches below the middle of the screen, so a click at the centre lands *inside* it and
+        // correctly leaves it open — the first draft of this reading failed there for that reason.
+        await page.mouse.click(form.viewport.width / 2, form.viewport.height - 3);
+        await expect(page.locator(BADGE_PANEL), `${label}: a press elsewhere closes the panel`).toHaveCount(0);
+      } finally {
+        await context.close();
+      }
+    }
+  } finally {
+    await api.dispose();
+  }
+});
+
+
 /* ═══════════════════════════════════════════════════════════════════════════════════════════════
  * AC-177 — the resident status bar's popover must be reachable on a narrow viewport.
  *
@@ -804,16 +1004,15 @@ test('status bar does not cover the transcript', async ({ browser }) => {
 /**
  * The control that opens the resident panel, and the surface that panel is drawn in.
  *
- * `ad1bb63a` merged the resident status bar into the activity dock: the bar's own trigger attribute
- * and its dialog root are gone, and the dock publishes the
- * equivalent pair — `[data-activity-dock-toggle="true"]` for the control (rendered only while
- * `persistWhenIdle` is true, which is exactly the resident-only gate the old bar had) and
- * `[data-activity-dock-panel="true"]` wrapping `ResidentPanel`, whose own root is
- * `[data-resident-panel="true"]`. This is a re-anchoring of the reading, not a product change: the
- * Start / Address / Close controls the criterion clicks are the same ones, published by the same
- * component, now inside the dock's expanded panel.
+ * `ad1bb63a` merged the resident status bar into the activity dock, and the dock's arrow then opened the
+ * panel inside the message flow. The arrow is gone: the control is the resident pill in the workspace
+ * header, `[data-resident-badge]` (rendered only for a session whose own host snapshot reads `resident`,
+ * which is exactly the resident-only gate the old bar had), and the panel is a portal to `body` anchored
+ * under it, whose own root is still `ResidentPanel`'s `[data-resident-panel="true"]`. This is a
+ * re-anchoring of the reading, not a change to what it measures: the Start / Address / Close controls
+ * the criterion clicks are the same ones, published by the same component.
  */
-const TRIGGER = '[data-activity-dock-toggle="true"]';
+const TRIGGER = '[data-resident-badge]';
 const PANEL = '[data-resident-panel="true"]';
 const START = '[data-resident-start]';
 const ADDRESS = '[data-resident-address]';
@@ -959,8 +1158,8 @@ function measure(page: Page): Promise<Reading> {
     };
 
     const close = document.querySelector('[data-resident-close]');
-    // The panel's root is `[data-resident-panel="true"]` since the dock consolidation: the popover is
-    // no longer an ARIA dialog, it is this panel rendered inside the dock's expanded body.
+    // The panel's root is `[data-resident-panel="true"]`. It is rendered inside the pill's portal
+    // (`[data-resident-badge-panel]`, a `role="dialog"` wrapper on `body`), so it is found by its own root.
     const popover = close?.closest('[data-resident-panel="true"]') ?? null;
     const pane = document.querySelector('.chat-messages-pane');
     // The composer's own input form, not the whole `.chat-composer-shell`.
@@ -1092,10 +1291,9 @@ test.describe('resident ui layout', () => {
 
   test('the popover close is reachable at a narrow viewport and closes the process', async () => {
     // The resident surface this criterion reads. The status bar that used to draw it was merged into
-    // the activity dock (`ad1bb63a`), so the dock's own root is what has to be on screen before
-    // anything below is measured. This deliberately shadows the module-level `BAR`: the AC-179 arm
-    // still addresses the shared constant, and only this criterion's reading is re-anchored.
-    const BAR = '[data-activity-dock]';
+    // the activity dock (`ad1bb63a`) and its facts then moved to the resident pill in the header, so the
+    // pill is what has to be on screen before anything below is measured.
+    const BAR = '[data-resident-badge]';
 
     // The failing viewport, set before the session is opened so the transcript, the composer and
     // the dock are all laid out at it — the state the report was taken in.
@@ -1112,10 +1310,9 @@ test.describe('resident ui layout', () => {
     // button. The control after the narrow reading (an element injected over the popover) is what
     // proves the reading can still say no.
 
-    // The panel first, the controls inside it second. The consolidation moved the resident controls
-    // into the dock's expanded body (`persistWhenIdle && panelOpen`), so there is no Start to click
-    // until the panel is open. `panelOpen` is component state, not a derived value, so clicking Start
-    // and walking the clock below do not close it again.
+    // The panel first, the controls inside it second. The resident controls are the pill's panel, so
+    // there is no Start to click until it is open. Its open state is component state, not a derived
+    // value, so clicking Start and walking the clock below do not close it again.
     await page.locator(TRIGGER).click();
     await expect(page.locator(PANEL)).toBeVisible({ timeout: 10_000 });
 
@@ -1331,13 +1528,13 @@ test('resident session hides enable affordance', async ({ browser }) => {
   }
 
   // The positive signal this criterion waits on. The status bar that used to draw it was merged into
-  // the activity dock, and the dock's own toggle is the equivalent resident-only surface: it renders
-  // only while `persistWhenIdle` is true, and `persistWhenIdle` is `isResidentSession`, read from the
-  // same host snapshot the composer's render gate reads. The next line deliberately shadows the
-  // module-level `BAR`: the assertion text at the "mode arrived" wait below, and the AC-177 / AC-179
+  // the activity dock and its facts then moved to the resident pill in the header, which is the
+  // equivalent resident-only surface: it renders only for a session whose host snapshot reads
+  // `resident`, the same snapshot the composer's render gate reads. The next line deliberately shadows
+  // the module-level `BAR`: the assertion text at the "mode arrived" wait below, and the AC-177 / AC-179
   // arms that still address the shared constant, stay byte-for-byte as they were, while only this
-  // arm's positive signal is re-anchored onto the merged dock.
-  const BAR = '[data-activity-dock-toggle="true"]';
+  // arm's positive signal is anchored on the pill.
+  const BAR = '[data-resident-badge]';
 
   // The workspace sits inside the fixture home: the control plane writes only under `DEBUG_AGENT_HOME`
   // and refuses a `projectPath` outside it, and the transcripts it arms land under that home's own

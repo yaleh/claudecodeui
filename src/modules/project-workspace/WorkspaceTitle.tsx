@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next';
 
 import { LLMProviderLogo } from '@/shared/ui';
 import type { AppTab, Project, ProjectSession } from '@/shared/types';
+import { ResidentSessionBadge } from '@/modules/chat';
 import { usePlugins } from '@/modules/plugins';
 import { getSessionTitle } from '@/shared/utils';
 
@@ -80,7 +81,14 @@ export default function WorkspaceTitle({
             <h2 title={getSessionTitle(selectedSession)} className="truncate text-sm font-semibold leading-tight text-foreground">
               {getSessionTitle(selectedSession)}
             </h2>
-            <div className="truncate text-[11px] leading-tight text-muted-foreground">{selectedProject.displayName}</div>
+            {/* The project name and, beside it, the resident pill. Both are 11px so the line is one
+                line tall whether or not the pill is there; the name gives way first when the row is
+                narrow, because the pill is the part that is a control. Keyed by session so a switch
+                to another session closes the pill's panel rather than carrying it over. */}
+            <div className="flex min-w-0 items-center gap-1.5">
+              <div className="min-w-0 truncate text-[11px] leading-tight text-muted-foreground">{selectedProject.displayName}</div>
+              <ResidentSessionBadge key={selectedSession.id} sessionId={selectedSession.id} />
+            </div>
           </div>
         ) : showChatNewSession ? (
           <div className="min-w-0">

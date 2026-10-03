@@ -153,7 +153,6 @@ describe('one dock, and one classification of the session', () => {
         sessionId: SESSION_ID,
         connection,
         onAbort: () => undefined,
-        persistWhenIdle: true,
       }),
     );
     push(subscribedFrame(true));
@@ -181,22 +180,24 @@ describe('one dock, and one classification of the session', () => {
     view.unmount();
   });
 
-  test('with the turn over: the dock is still there and reads idle, and so does the sidebar', () => {
-    // The positive control, and the arm the old page failed. The dock is *drawn* —
-    // it is not passing by having rendered nothing — and it reads idle from the same
-    // activity table the classification reads, at the same instant. A page whose
-    // sidebar still consulted the one-second host poll would, here, classify the
-    // session as running off the poll's lease while the dock had already seen the
-    // turn end: `sidebar.running` would be `["session-consolidation"]` against
-    // `dock.state=idle`. That is the window `e2e/activity-dock-truthful.spec.ts`
-    // opens on a real server; this is the same disagreement in the small.
+  test('with the turn over: a resident session\'s dock is gone like any other, and the sidebar still holds its process', () => {
+    // The arm the old page failed, and the one that changed. The dock used to stay on screen between
+    // turns for a resident session, reading `idle`, because it carried the arrow that opened the
+    // process's facts. Those facts are the header pill's now (see `ResidentSessionBadge`), so the
+    // dock has nothing to report once the turn ends and draws nothing — for this session exactly as
+    // for one that is not resident. What must stay true is the *agreement*: the dock has seen the
+    // turn end, and the sidebar classifies the same session from the same activity table at the same
+    // instant. A page whose sidebar still consulted the one-second host poll would classify it as
+    // running off the poll's lease while the dock had already gone: `sidebar.running` would be
+    // `["session-consolidation"]` against no dock at all. That is the window
+    // `e2e/activity-dock-truthful.spec.ts` opens on a real server; this is the same disagreement in
+    // the small. The resident process itself is still reported — by the sidebar's other group.
     const { connection, push } = makeConnection();
     const view = render(
       React.createElement(ActivityIndicator, {
         activity: null,
         sessionId: SESSION_ID,
         connection,
-        persistWhenIdle: true,
       }),
     );
     // A resident session with nothing in flight: the hello itself says so.
@@ -206,40 +207,18 @@ describe('one dock, and one classification of the session', () => {
     });
 
     const docks = view.container.querySelectorAll(DOCK);
-    const state = dockState(view.container);
     const legacy = legacyHits(view.container);
     const { running, residentIdle } = classifyRunningSessions(new Set<string>(), HOST_LISTING);
     console.log(
-      `idle: docks=${docks.length} legacy=${JSON.stringify(legacy)} dock.state=${state} `
+      `idle: docks=${docks.length} legacy=${JSON.stringify(legacy)} `
       + `sidebar.running=${JSON.stringify(running)} sidebar.residentIdle=${JSON.stringify(residentIdle)}`,
     );
 
-    assert.equal(docks.length, 1, 'a resident session keeps its dock between turns — the facts are reachable');
-    assert.deepEqual(legacy, [], 'and still nothing publishes the old markers');
-    assert.equal(
-      state,
-      'idle',
-      'the dock says idle, and says it as a *reading* — an absent dock would be indistinguishable from a broken one',
-    );
+    assert.equal(docks.length, 0, 'with no turn there is nothing to report: no dock, resident or not');
+    assert.deepEqual(legacy, [], 'and nothing publishes the old markers in its place');
     assert.deepEqual(running, [], 'the sidebar counts no turn in flight, from the same activity table');
     assert.deepEqual(residentIdle, [SESSION_ID], 'and places the held-open process in the other group');
 
-    view.unmount();
-  });
-
-  test('a non-resident session that is idle draws no dock at all', () => {
-    // The flag's own control: without it the same props draw nothing, which is what
-    // makes the two docks above readings of the resident case rather than of a
-    // component that always renders something.
-    const view = render(
-      React.createElement(ActivityIndicator, { activity: null, sessionId: SESSION_ID, persistWhenIdle: false }),
-    );
-    console.log(`idle.nonResident: docks=${view.container.querySelectorAll(DOCK).length}`);
-    assert.equal(
-      view.container.querySelectorAll(DOCK).length,
-      0,
-      'an idle session with no resident facts to hold open has nothing to draw',
-    );
     view.unmount();
   });
 });

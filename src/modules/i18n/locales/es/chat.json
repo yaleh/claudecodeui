@@ -338,6 +338,16 @@
       "copyCommand": "Copiar comando",
       "copied": "Copiado"
     },
+    "badge": {
+      "label": "Residente",
+      "aria": "Sesión residente ({{state}}): ver detalles",
+      "state": {
+        "running": "proceso en ejecución",
+        "stopped": "proceso detenido",
+        "exited": "proceso finalizado",
+        "unknown": "estado desconocido"
+      }
+    },
     "statusBar": {
       "unstarted": "Residente · No en ejecución ({{reason}})",
       "idle": "Residente · Inactivo",

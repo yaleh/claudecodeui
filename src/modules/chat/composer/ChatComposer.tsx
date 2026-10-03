@@ -575,7 +575,6 @@ export default function ChatComposer({
             onAbort={onAbortSession}
             isInputFocused={isInputFocused}
             sendFailed={sendFailed}
-            persistWhenIdle={isResidentSession}
           />
         </div>
       )}

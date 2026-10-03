@@ -409,6 +409,16 @@
       "copyCommand": "Salin perintah",
       "copied": "Disalin"
     },
+    "badge": {
+      "label": "Resident",
+      "aria": "Sesi resident ({{state}}): tampilkan detail",
+      "state": {
+        "running": "proses berjalan",
+        "stopped": "proses tidak berjalan",
+        "exited": "proses berakhir",
+        "unknown": "status tidak diketahui"
+      }
+    },
     "statusBar": {
       "unstarted": "Residen · Tidak berjalan ({{reason}})",
       "idle": "Residen · Idle",

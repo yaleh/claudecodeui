@@ -319,6 +319,16 @@
       "copyCommand": "Copier la commande",
       "copied": "Copié"
     },
+    "badge": {
+      "label": "Résident",
+      "aria": "Session résidente ({{state}}) : afficher les détails",
+      "state": {
+        "running": "processus en cours",
+        "stopped": "processus arrêté",
+        "exited": "processus terminé",
+        "unknown": "état inconnu"
+      }
+    },
     "statusBar": {
       "unstarted": "Résident · Non démarré ({{reason}})",
       "idle": "Résident · Au repos",

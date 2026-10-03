@@ -417,6 +417,16 @@
       "copyCommand": "Copy command",
       "copied": "Copied"
     },
+    "badge": {
+      "label": "Resident",
+      "aria": "Resident session ({{state}}): show details",
+      "state": {
+        "running": "process running",
+        "stopped": "process not running",
+        "exited": "process exited",
+        "unknown": "state unknown"
+      }
+    },
     "statusBar": {
       "unstarted": "Resident · Not running ({{reason}})",
       "idle": "Resident · Idle",

@@ -6,7 +6,7 @@ import React from 'react';
 import { initReactI18next } from 'react-i18next';
 import { afterEach, beforeEach, test, vi } from 'vitest';
 
-import ActivityIndicator from '@/modules/chat/composer/ActivityIndicator';
+import ResidentSessionBadge from '@/modules/chat/transcript/ResidentSessionBadge';
 import ChatMessagesPane from '@/modules/chat/transcript/ChatMessagesPane';
 import { UiPreferencesProvider } from '@/shared/context/UiPreferencesContext';
 import enChat from '@/modules/i18n/locales/en/chat.json';
@@ -25,25 +25,26 @@ import type {
  * container: the transcript reserved space for it, and whether it was inside or
  * outside the `overflow-y-auto` box was a real question with a real symptom — a
  * bar inside the box scrolled with the messages and came to rest over the row
- * below it. The bar is gone; the resident facts are the activity dock's expanded
- * panel, and the dock has its own mount sites. So the reading this file holds is
- * the structural half of that move, stated on a resident session:
+ * below it. The bar is gone, and so is the dock's arrow that replaced it: the
+ * resident facts are the panel of the pill in the workspace header, which is
+ * outside the transcript altogether. So the reading this file holds is the
+ * structural half of that move, stated on a resident session:
  *
  *   - the **transcript** carries no resident surface at all — no bar, no address,
  *     no pid, no busy/idle word — so there is no row above the messages for one,
  *     and nothing inside the pane for the scroll to carry over a row;
- *   - and the very same selectors **do** match the panel the dock draws, which is
+ *   - and the very same selectors **do** match the panel the pill draws, which is
  *     what keeps the first reading from passing against a page that simply
  *     dropped the resident surface.
  *
  * Both arms are read on real rendered trees — the pane with its own props, and
- * the dock with the flag a resident session sets — and neither is asserted
- * against a value this file also wrote.
+ * the pill on a resident session — and neither is asserted against a value this
+ * file also wrote.
  *
  * jsdom parses no Tailwind and lays nothing out, so whether the panel is really
  * reachable by a pointer at 780x493 is the browser probe's job
- * (`e2e/activity-dock-truthful.spec.ts -g "AC-188"` opens it on a real page);
- * this case is the structure that makes it so.
+ * (`e2e/resident-ui-layout.spec.ts -g "resident pill"` opens it on a real page); this case is the
+ * structure that makes it so.
  */
 
 const RESIDENT_SESSION_ID = 'session-resident';
@@ -53,8 +54,8 @@ const PANE_SELECTOR = '.chat-messages-pane';
 
 /**
  * Every marker the resident surface used to put on the page, and the identity and
- * lifecycle markers the dock's panel still carries. The first list must not match
- * inside the transcript; the second must match inside the dock.
+ * lifecycle markers the pill's panel still carries. The first list must not match
+ * inside the transcript; the second must match inside the pill's panel.
  */
 const ACTIVITY_MARKERS = [
   '[data-resident-status-bar]',
@@ -215,22 +216,22 @@ const renderPane = () => {
   return { view, pane };
 };
 
-/** The dock as a resident session draws it, with its panel opened. */
-const renderOpenDock = () => {
-  const view = render(
-    React.createElement(ActivityIndicator, {
-      activity: null,
-      sessionId: RESIDENT_SESSION_ID,
-      persistWhenIdle: true,
-    }),
-  );
-  const toggle = view.container.querySelector<HTMLElement>('[data-activity-dock-toggle]');
-  assert.ok(toggle, 'premise: the resident dock must offer the disclosure that opens its panel');
+/**
+ * The pill as a resident session draws it, with its panel opened.
+ *
+ * The panel is a portal to `body`, so it is read from `document` and not from the render container:
+ * that it is *not* inside the container is the point of it, and the first arm above reads the pane
+ * for exactly that reason.
+ */
+const renderOpenBadge = () => {
+  const view = render(React.createElement(ResidentSessionBadge, { sessionId: RESIDENT_SESSION_ID }));
+  const badge = view.container.querySelector<HTMLElement>('[data-resident-badge]');
+  assert.ok(badge, 'premise: a resident session must draw the pill that opens its panel');
   act(() => {
-    fireEvent.click(toggle);
+    fireEvent.click(badge);
   });
-  const panel = view.container.querySelector<HTMLElement>('[data-activity-dock-panel]');
-  assert.ok(panel, 'premise: the disclosure must open the panel');
+  const panel = document.querySelector<HTMLElement>('[data-resident-badge-panel]');
+  assert.ok(panel, 'premise: the pill must open the panel');
   return { view, panel };
 };
 
@@ -262,7 +263,7 @@ test('(a) a resident transcript carries no resident surface of its own', () => {
     found,
     [],
     'the transcript must carry no resident surface — not a bar, not a busy/idle word, not a lease count; '
-      + `the dock is where those live, and the pane found ${JSON.stringify(found)}`,
+      + `the header pill is where those live, and the pane found ${JSON.stringify(found)}`,
   );
 
   // And nothing outside the pane either: the row the bar used to occupy is not merely
@@ -275,15 +276,15 @@ test('(a) a resident transcript carries no resident surface of its own', () => {
   view.unmount();
 });
 
-test('(b) the same markers do match the dock\'s panel, so (a) is not a reading of a dropped surface', () => {
-  const { view, panel } = renderOpenDock();
+test('(b) the same markers do match the pill\'s panel, so (a) is not a reading of a dropped surface', () => {
+  const { view, panel } = renderOpenBadge();
 
   const missing = PANEL_MARKERS.filter((marker) => panel.querySelector(marker) === null);
-  console.log(`dock.panelMarkers.missing=${JSON.stringify(missing)}`);
+  console.log(`badge.panelMarkers.missing=${JSON.stringify(missing)}`);
   assert.deepEqual(
     missing,
     [],
-    'the identity and lifecycle controls must exist somewhere — the dock\'s panel — or the absence in (a) '
+    'the identity and lifecycle controls must exist somewhere — the pill\'s panel — or the absence in (a) '
       + `would be satisfied by deleting the resident surface rather than merging it; missing ${JSON.stringify(missing)}`,
   );
   assert.equal(

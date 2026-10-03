@@ -1,8 +1,6 @@
 import { useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown } from 'lucide-react';
 
-import ResidentPanel from '@/modules/chat/transcript/ResidentStatusBar';
 import { useActivityFreshness } from '@/modules/chat/hooks/useActivityFreshness';
 import { deriveActivityDockView } from '@/modules/chat/utils/activityDockView';
 import { Shimmer } from '@/shared/ui';
@@ -25,15 +23,6 @@ type ActivityIndicatorProps = {
    * instead of drawing nothing — the state that replaced the old silent drop.
    */
   sendFailed?: boolean;
-  /**
-   * True for a session whose stored lifecycle mode is `resident`. Such a session
-   * has facts to show between turns — the address of the process holding it, its
-   * pid, and the controls that start, restart and close it — so the dock stays on
-   * screen in an `idle` reading instead of disappearing with the turn. The
-   * resident facts themselves live in the dock's expanded panel; this flag only
-   * decides whether the collapsed entry point is drawn.
-   */
-  persistWhenIdle?: boolean;
 };
 
 /**
@@ -73,12 +62,14 @@ const EXIT_ANIMATION_MS = 220;
  * visible reason instead of being silently dropped. The six rotating action
  * words never appear in that state, in any locale.
  *
- * The dock is also where the resident session's own facts live now. They used to
- * be a status bar of their own above the transcript, with a second busy/idle
- * word and its own lease counts — a second answer to a question the dock already
- * answers. That bar is gone; what it said about *the process* (its address, its
- * pid, and the controls that start, restart and close it) is the dock's expanded
- * panel, and what it said about *activity* is this dock's one reading.
+ * The dock answers one question — what is this session doing — and nothing else.
+ * A resident session's own facts (the address of the process, its pid, and the
+ * controls that start, restart and close it) used to live in an expanded panel
+ * here, behind an arrow, which meant the dock had to stay on screen between turns
+ * to carry the arrow, and that a panel opened in the message flow pushed the
+ * transcript instead of floating over it. They are the resident pill's now, in
+ * the header (`ResidentSessionBadge`); the dock is absent between turns for every
+ * session, resident or not.
  *
  * Records `data-activity-dock` / `data-activity-state` / `data-activity-phase`
  * (and the server-derived `data-activity-elapsed-ms`) for the browser criterion.
@@ -93,15 +84,12 @@ export default function ActivityIndicator({
   onAbort,
   isInputFocused = false,
   sendFailed = false,
-  persistWhenIdle = false,
 }: ActivityIndicatorProps) {
   const { t } = useTranslation('chat');
   const freshness = useActivityFreshness(sessionId, connection);
   const [renderedActivity, setRenderedActivity] = useState<SessionActivity | null>(activity);
   const [isExiting, setIsExiting] = useState(false);
-  const [panelOpen, setPanelOpen] = useState(false);
   const stopReasonId = useId();
-  const panelId = useId();
 
   useEffect(() => {
     if (activity) {
@@ -138,12 +126,12 @@ export default function ActivityIndicator({
     toolName: freshness.toolName,
   });
 
-  // `hidden` — nothing to say and nothing to hold open — is the only state that
-  // draws nothing at all. A resident session has facts to keep reachable between
-  // turns, so its collapsed dock stays and reports `idle`: an absence and a
-  // reading of "nothing is running" are different answers, and the criteria that
-  // compare this dock against the sidebar and the send button need the second one.
-  const state = dock.state === 'hidden' ? (persistWhenIdle ? 'idle' : 'hidden') : dock.state;
+  // `hidden` — nothing to say — draws nothing at all, for every session. A resident
+  // session used to keep a collapsed `idle` dock between turns, and the only reason
+  // was that the dock carried the arrow that opened the process's facts. Those facts
+  // are the resident pill's now, in the header, so between turns this dock has
+  // nothing to report and is absent like any other session's.
+  const state = dock.state;
 
   if (state === 'hidden') return null;
 
@@ -167,7 +155,6 @@ export default function ActivityIndicator({
 
   const isUnreachable = state === 'unreachable';
   const isSendFailed = state === 'send-failed';
-  const isIdle = state === 'idle';
   // The running label comes from the *phase the server reported*, not from
   // elapsed time: a turn on an unknown phase falls back to a fixed word (or the
   // provider's own status line), and the same phase always says the same thing
@@ -182,11 +169,9 @@ export default function ActivityIndicator({
     ? t('claudeStatus.sendFailed.title', { defaultValue: 'Send failed · server not responding' })
     : isUnreachable
       ? t('claudeStatus.unreachable.title', { defaultValue: 'Connection lost · reconnecting…' })
-      : isIdle
-        ? t('claudeStatus.dock.idleLabel', { defaultValue: 'Idle' })
-        : (phaseLabel
-          ?? renderedActivity?.statusText
-          ?? t(WORKING_FALLBACK_KEY, { defaultValue: WORKING_FALLBACK_WORD })).replace(/\.+$/, '');
+      : (phaseLabel
+        ?? renderedActivity?.statusText
+        ?? t(WORKING_FALLBACK_KEY, { defaultValue: WORKING_FALLBACK_WORD })).replace(/\.+$/, '');
   const sendFailedReason = t('claudeStatus.sendFailed.reason', {
     defaultValue: 'The message was not sent. Your draft is still in the box — try again.',
   });
@@ -208,7 +193,7 @@ export default function ActivityIndicator({
           {label}
           <span className="text-muted-foreground/70"> · {sendFailedReason}</span>
         </span>
-      ) : isUnreachable || isIdle ? (
+      ) : isUnreachable ? (
         <span className="font-medium">{label}</span>
       ) : (
         <Shimmer className="font-medium">{`${label}…`}</Shimmer>
@@ -271,36 +256,9 @@ export default function ActivityIndicator({
             </button>
           )}
 
-          {persistWhenIdle && (
-            <button
-              type="button"
-              data-activity-dock-toggle="true"
-              aria-expanded={panelOpen}
-              aria-controls={panelId}
-              aria-label={t('claudeStatus.dock.toggle', { defaultValue: 'Resident process details' })}
-              title={t('claudeStatus.dock.toggle', { defaultValue: 'Resident process details' })}
-              onClick={() => setPanelOpen((open) => !open)}
-              className={`${surfaceClassName} gap-1 text-muted-foreground`}
-            >
-              <ChevronDown
-                className={`h-3 w-3 transition-transform ${panelOpen ? 'rotate-180' : ''}`}
-                aria-hidden
-              />
-            </button>
-          )}
         </div>
       </div>
 
-      {/*
-        The expanded panel: the resident process's own facts, and nothing about
-        activity — the row above already answers that question, and a second
-        answer here is exactly the disagreement this consolidation removed.
-      */}
-      {persistWhenIdle && panelOpen && (
-        <div id={panelId} data-activity-dock-panel="true" className="pointer-events-auto mt-1">
-          <ResidentPanel sessionId={sessionId ?? null} t={t} />
-        </div>
-      )}
     </div>
   );
 }

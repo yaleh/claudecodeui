@@ -60,16 +60,17 @@ const ALL_LOCALES = fs.readdirSync(LOCALES_ROOT, { withFileTypes: true })
 /** The chat pane, the same anchor transcript-follow uses to know the session actually opened. */
 const PANE = '.chat-messages-pane';
 /**
- * The merged activity dock, and the toggle that expands its resident process panel.
+ * The resident pill in the workspace header, which opens the process panel.
  *
- * The status bar this file used to address was folded into the dock: the dock's root is the surface a
- * reader now sees, and its toggle is the only way the panel's own facts — the address, the pid and
- * the two verbs — become reachable. The dock also publishes `data-activity-state`, an *activity* word
- * (`idle` / `working`, from the server's own frames) that is deliberately not read here: what this
- * criterion measures the process by is the four-state mark in the sidebar, not the dock's activity.
+ * The status bar this file used to address was folded into the dock, and the dock's arrow was then
+ * moved out of the message flow into this pill: it is the only way the panel's own facts — the
+ * address, the pid and the two verbs — become reachable, and it is drawn for a session whose own host
+ * snapshot reads `resident`. The panel is a portal, so it is found by its own root rather than as a
+ * descendant of anything. What this criterion measures the process by is still the four-state mark in
+ * the sidebar, not the pill's dot (which folds idle and busy into one) and not the dock's activity.
  */
-const BAR = '[data-activity-dock]';
-const TRIGGER = '[data-activity-dock-toggle="true"]';
+const BAR = '[data-resident-badge]';
+const TRIGGER = '[data-resident-badge]';
 const PANEL = '[data-resident-panel]';
 const PID_TEXT = '[data-resident-pid-text]';
 const START = '[data-resident-start]';
@@ -290,9 +291,9 @@ const chatLocale = (locale: string) => readLocaleFile(locale, 'chat.json');
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Opens the dock's resident panel if it is shut, and leaves it open.
+ * Opens the resident panel from the header pill if it is shut, and leaves it open.
  *
- * The panel is mounted only while the dock's toggle says so, so every reading of the process's own
+ * The panel is mounted only while the pill says so, so every reading of the process's own
  * facts — the address, the pid — begins here. Idempotent by design: a caller that opened the panel
  * itself (arm A) must see its own click open one, not have this helper toggle it shut.
  */
@@ -309,7 +310,7 @@ async function openPanel(page: Page): Promise<void> {
 /**
  * The pid line, as the panel prints it.
  *
- * The only process fact this file still reads off the dock: what the process *is* — the four states —
+ * The only process fact this file still reads off the panel: what the process *is* — the four states —
  * is the sidebar mark's, and the dock's own `data-activity-state` answers a different question.
  */
 async function readPanel(page: Page): Promise<{ pid: string }> {
@@ -777,8 +778,8 @@ test.describe('resident status bar', () => {
     await revealSession(page, workspaceName, armA);
     await sessionRow(page, armA).click();
     await expect(page.locator(PANE)).toBeVisible({ timeout: 30_000 });
-    // The dock's collapsed row is the resident-only positive signal: it draws for a session its own
-    // host snapshot reads `resident`, the same gate the panel body uses.
+    // The pill is the resident-only positive signal: it draws for a session its own host snapshot
+    // reads `resident`, the same gate the panel body uses.
     await expect(page.locator(BAR)).toBeVisible({ timeout: 30_000 });
     await openPanel(page);
 

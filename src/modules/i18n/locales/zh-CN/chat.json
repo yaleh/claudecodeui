@@ -338,6 +338,16 @@
       "copyCommand": "复制命令",
       "copied": "已复制"
     },
+    "badge": {
+      "label": "常驻",
+      "aria": "常驻会话（{{state}}）：查看详情",
+      "state": {
+        "running": "进程运行中",
+        "stopped": "进程未运行",
+        "exited": "进程已退出",
+        "unknown": "状态未知"
+      }
+    },
     "statusBar": {
       "unstarted": "常驻 · 未运行（{{reason}}）",
       "idle": "常驻 · 空闲",
