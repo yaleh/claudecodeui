@@ -285,6 +285,15 @@ export type ClaudeResidentQuery = AsyncIterable<AnyRecord> & {
   setModel?(model?: string): Promise<void>;
   /** Live permission-mode switch, SDK permitting. */
   setPermissionMode?(mode: string): Promise<void>;
+  /**
+   * Stops one named background task, leaving the turn in flight and the process
+   * up (the SDK's own `Query.stopTask`).
+   *
+   * Optional like the other live verbs so a criterion can hand in a scripted
+   * stream: a stream that exposes no verb makes the driver's `stopTask` answer
+   * "not placed" rather than throwing.
+   */
+  stopTask?(taskId: string): Promise<void>;
 };
 
 /**
@@ -2281,6 +2290,30 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
     round.interrupted = true;
     await stopResidentTurn(state.process.query);
     state.sink.leaseRemoved(appSessionId, 'turn');
+    return true;
+  }
+
+  /**
+   * Stops one named background task the resident process is running.
+   *
+   * This is the SDK's own `Query.stopTask`, not an interrupt: the turn in flight
+   * keeps running, the process keeps running, and only the named task is asked to
+   * end. The confirmation is not here — the SDK answers a stop of an id it does
+   * not hold silently, so "the task really stopped" is a fact the task table
+   * learns from the `task_notification(stopped)` frame, never from this call's
+   * return.
+   *
+   * Returns `true` when the live process was really asked, and `false` when this
+   * session has no live resident process or its query exposes no stop verb. A
+   * `false` is "cannot place the request", never "the task stopped".
+   */
+  async stopTask(appSessionId: string, taskId: string): Promise<boolean> {
+    const state = this.liveStateFor(appSessionId);
+    const stop = state?.process.query.stopTask;
+    if (!state || typeof stop !== 'function') {
+      return false;
+    }
+    await stop.call(state.process.query, taskId);
     return true;
   }
 

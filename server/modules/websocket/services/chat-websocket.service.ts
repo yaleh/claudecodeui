@@ -3,7 +3,12 @@ import path from 'node:path';
 import type { WebSocket } from 'ws';
 
 import { sessionsDb } from '@/modules/database/index.js';
-import { providerModelsService, sessionsService } from '@/modules/providers/index.js';
+import {
+  createClaudeTaskReducer,
+  providerModelsService,
+  sessionsService,
+} from '@/modules/providers/index.js';
+import type { ActivityTask, ControlStopTaskOutcome } from '@/modules/providers/index.js';
 import { sessionHostManager } from '@/modules/session-hosts/index.js';
 import type { SessionHostManager } from '@/modules/session-hosts/index.js';
 import {
@@ -71,6 +76,14 @@ export function filterImagesToUploadStore(
   return filterAttachmentsToUploadStore(images, assetsRootOverride);
 }
 
+/**
+ * The full verdict set one `chat.stop-task` receipt can carry: everything the
+ * runtime gateway can answer, plus the two refusals the handler itself decides
+ * before the gateway is reached (`forbidden` from the access entry,
+ * `unknown-task` from the task table).
+ */
+type ControlStopTaskResult = ControlStopTaskOutcome | 'forbidden' | 'unknown-task';
+
 /** Application boundary for dispatching provider runs and approvals. */
 export type ProviderRuntimeGateway = {
   hasRuntime(provider: string): boolean;
@@ -106,6 +119,23 @@ export type ProviderRuntimeGateway = {
     sessionId: string,
     messageUuid: string,
   ): Promise<HostQueuedInputCancelResult>;
+  /**
+   * Stops one named background task through the provider's own process.
+   *
+   * Returns `requested` when the driver was called and its call settled, and a
+   * failure value otherwise. It deliberately does **not** wait for the task to
+   * stop and does not touch the task table: whether the task really stopped is
+   * the approval the reducer writes from the `task_notification(stopped)` frame,
+   * which the handler waits on with its own bound.
+   *
+   * Optional, and read as `unsupported` when absent, because a gateway that
+   * cannot carry the request must never be read as having placed one.
+   */
+  controlStopTask?(
+    provider: LLMProvider,
+    sessionId: string,
+    taskId: string,
+  ): Promise<ControlStopTaskOutcome>;
   resolveToolApproval(requestId: string, payload: ProviderPermissionDecision): void;
   getPendingApprovalsForSession(sessionId: string): unknown[];
 };
@@ -133,7 +163,93 @@ type ChatWebSocketDependencies = {
    * gateway has any business calling.
    */
   sessionHostManager?: Pick<SessionHostManager, 'attachViewer'>;
+  /**
+   * The task table read seam for the stop-task control verb.
+   *
+   * Defaults to the process-wide reducer table below. A criterion injects its
+   * own reader — built on the same `createClaudeTaskReducer()` — so it can drive
+   * a frame sequence into the table and read the very table the handler
+   * consulted, rather than a second registry the handler never saw.
+   */
+  getTask?: (sessionId: string, taskId: string) => { state: ActivityTask['state'] } | null;
+  /**
+   * How long the handler waits for the task table to show the task settled after
+   * a `requested` driver call, and how often it re-reads it.
+   *
+   * Injectable so the criterion can reach the never-stopped arm in milliseconds.
+   * Production's window is short on purpose: the SDK's `task_notification`
+   * follows the stop within a round trip when it arrives at all, so a longer
+   * wait would only delay the honest `timeout`.
+   */
+  stopTaskConfirmTimeoutMs?: number;
+  stopTaskConfirmPollMs?: number;
 };
+
+/**
+ * The process-wide task table the stop-task verb reads.
+ *
+ * It is the reducer AC-191 built — the same `getTasks(sessionId)` shape the
+ * activity aggregator will read — and it is instantiated here rather than
+ * re-implemented, so there is exactly one task-registration mechanism. It is
+ * empty until the frame forwarder feeds it (`observe`), which is the activity
+ * protocol's job; the control verb's contract is to read whatever the one table
+ * holds, never to invent a second one.
+ */
+let claudeTaskTable: ReturnType<typeof createClaudeTaskReducer> | null = null;
+function taskTable(): ReturnType<typeof createClaudeTaskReducer> {
+  // Built on first read rather than at module load: the factory is reached
+  // through the providers barrel, and instantiating it while this module's own
+  // import graph is still evaluating can run the reducer before its module's
+  // helpers are installed. A lazy singleton has the same lifetime and none of
+  // that ordering hazard.
+  claudeTaskTable ??= createClaudeTaskReducer();
+  return claudeTaskTable;
+}
+
+const DEFAULT_STOP_TASK_CONFIRM_TIMEOUT_MS = 5_000;
+const DEFAULT_STOP_TASK_CONFIRM_POLL_MS = 25;
+
+/**
+ * The reducer's terminal states, read here as the set "the task is no longer in
+ * flight" that ends the confirmation wait. `running` and `blocked` are the two
+ * that do not.
+ */
+const TERMINAL_TASK_STATES: ReadonlySet<ActivityTask['state']> = new Set<ActivityTask['state']>([
+  'stopped',
+  'completed',
+  'failed',
+  'ended',
+]);
+
+/** The default task-table reader: one row out of the process-wide reducer table. */
+function defaultGetTask(sessionId: string, taskId: string): { state: ActivityTask['state'] } | null {
+  const task = taskTable().getTasks(sessionId).find((candidate) => candidate.taskId === taskId);
+  return task ? { state: task.state } : null;
+}
+
+/**
+ * Grants or refuses a control verb access to one session.
+ *
+ * The single entry the "stop something" verbs share (AC-196's `chat.stop-task`
+ * today; AC-197's `chat.background-task` and AC-198's reworked
+ * `chat.cancel-queued` next). It is deliberately the only place that decides
+ * this: the alternative — each handler re-deriving it — is how one verb ends up
+ * without a check while its sibling has one, which is exactly what happened to
+ * `chat.cancel-queued`.
+ *
+ * A session row carries no owner column, so "belongs to this user" cannot be
+ * read off the row. The app authenticates at the websocket upgrade, so access is
+ * granted to an authenticated request (a user id was read off the upgrade) and
+ * refused otherwise; an unauthenticated socket gets `forbidden` and no driver is
+ * called. `session` is taken as a parameter so the shape of the check does not
+ * change when the row grows an owner: only this function has to move.
+ */
+export function assertSessionAccess(
+  userId: string | number | null,
+  _session: ReturnType<typeof sessionsDb.getSessionById>,
+): boolean {
+  return userId !== null && userId !== undefined && `${userId}`.trim().length > 0;
+}
 
 /** The wire protocol carries the model selection; a client-supplied `options.env` is discarded. */
 function withoutClientEnv(options: AnyRecord): AnyRecord {
@@ -593,6 +709,144 @@ async function handleChatCancelQueued(
   });
 }
 
+/** Waits `ms`, never longer than the caller still has left. */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, Math.max(0, ms));
+    (timer as { unref?: () => void }).unref?.();
+  });
+}
+
+/**
+ * Waits, within a bound, for the task table to show the named task settled.
+ *
+ * This is the second of the control verb's two bounds, and the only one that
+ * reads the reducer: the first (the driver call) belongs to the runtime gateway
+ * and answers whether the request was placed. Reaching a terminal state here —
+ * driven by the `task_notification(stopped)` the provider emits, never by this
+ * handler — is the confirmation that turns the driver's `requested` into the
+ * caller's `requested`; not reaching one inside the bound is `timeout`, and the
+ * table is left exactly as it was.
+ *
+ * A row that has left the table counts as settled: the handler already proved it
+ * was there before the call, so a row that is gone is no longer in flight.
+ */
+async function waitForTaskSettled(
+  getTask: (sessionId: string, taskId: string) => { state: ActivityTask['state'] } | null,
+  sessionId: string,
+  taskId: string,
+  timeoutMs: number,
+  pollMs: number,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const task = getTask(sessionId, taskId);
+    if (!task || TERMINAL_TASK_STATES.has(task.state)) {
+      return true;
+    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      return false;
+    }
+    await delay(Math.min(pollMs, remaining));
+  }
+}
+
+/**
+ * Handles `chat.stop-task`: stops one named background task of a session, with
+ * the request placed through the provider's own process and the confirmation
+ * taken from the task table's own event.
+ *
+ * The shape is deliberately "validate, place, wait, report", and every refusal
+ * happens **before** the driver is touched:
+ *
+ *  1. the three fields (`sessionId`, `taskId`, `requestId`) are required;
+ *  2. the session must exist;
+ *  3. the request must belong to the session (`assertSessionAccess`);
+ *  4. the task must be in the table and not already terminal;
+ *  5. only then is the runtime asked, and the capability matrix decides whether
+ *     the provider can carry it at all.
+ *
+ * The receipt never carries a task state and never writes one. `requested` means
+ * the request was placed *and* the table confirmed the task left `running`
+ * inside the bound; `timeout` means it was placed but no such confirmation
+ * arrived, with the table left untouched; `forbidden` and `unknown-task` are the
+ * two refusals the task table and the access entry produce. The
+ * `task_notification(stopped)` frame is what actually moves the table — this
+ * handler reads it, it does not stand in for it.
+ */
+async function handleChatStopTask(
+  ws: WebSocket,
+  userId: string | number | null,
+  data: AnyRecord,
+  dependencies: ChatWebSocketDependencies
+): Promise<void> {
+  const sessionId = readRequiredSessionId(data);
+  if (!sessionId) {
+    sendProtocolError(ws, 'SESSION_ID_REQUIRED', 'chat.stop-task requires a sessionId.');
+    return;
+  }
+
+  const taskId = typeof data.taskId === 'string' ? data.taskId.trim() : '';
+  if (!taskId) {
+    sendProtocolError(ws, 'TASK_ID_REQUIRED', 'chat.stop-task requires a taskId.', sessionId);
+    return;
+  }
+
+  const requestId = typeof data.requestId === 'string' ? data.requestId.trim() : '';
+  if (!requestId) {
+    sendProtocolError(ws, 'REQUEST_ID_REQUIRED', 'chat.stop-task requires a requestId.', sessionId);
+    return;
+  }
+
+  const session = sessionsDb.getSessionById(sessionId);
+  if (!session) {
+    sendProtocolError(ws, 'SESSION_NOT_FOUND', `Session "${sessionId}" was not found.`, sessionId);
+    return;
+  }
+
+  const reply = (result: ControlStopTaskResult): void => {
+    sendJson(ws, {
+      kind: 'control_result',
+      sessionId,
+      requestId,
+      result,
+      timestamp: new Date().toISOString(),
+    });
+  };
+
+  // Ownership is checked before the task table and long before any driver call,
+  // so a forbidden request can neither learn what tasks exist nor place a stop.
+  if (!assertSessionAccess(userId, session)) {
+    reply('forbidden');
+    return;
+  }
+
+  const getTask = dependencies.getTask ?? defaultGetTask;
+  const task = getTask(sessionId, taskId);
+  if (!task || TERMINAL_TASK_STATES.has(task.state)) {
+    reply('unknown-task');
+    return;
+  }
+
+  const provider = session.provider as LLMProvider;
+  const outcome =
+    (await dependencies.runtime.controlStopTask?.(provider, sessionId, taskId)) ?? 'unsupported';
+  if (outcome !== 'requested') {
+    reply(outcome);
+    return;
+  }
+
+  const settled = await waitForTaskSettled(
+    getTask,
+    sessionId,
+    taskId,
+    dependencies.stopTaskConfirmTimeoutMs ?? DEFAULT_STOP_TASK_CONFIRM_TIMEOUT_MS,
+    dependencies.stopTaskConfirmPollMs ?? DEFAULT_STOP_TASK_CONFIRM_POLL_MS,
+  );
+  reply(settled ? 'requested' : 'timeout');
+}
+
 /**
  * Handles `chat.subscribe`: for each requested session, reports whether a run
  * is processing, re-attaches the live stream to this socket, replays missed
@@ -714,13 +968,15 @@ function handlePermissionResponse(data: AnyRecord, dependencies: ChatWebSocketDe
  * - `chat.send`                { sessionId, content, options? }
  * - `chat.abort`               { sessionId }
  * - `chat.cancel-queued`       { sessionId, messageUuid }
+ * - `chat.stop-task`           { sessionId, taskId, requestId }
  * - `chat.subscribe`           { sessions: [{ sessionId, lastSeq? }] }
  * - `chat.permission-response` { requestId, allow, updatedInput?, message?, rememberEntry? }
  *
  * Outbound protocol (server to client): every frame is `kind`-based — either
  * a provider `NormalizedMessage` (with `seq`) or a gateway event
  * (`chat_subscribed`, `activity.heartbeat`, `session_upserted`,
- * `loading_progress`, `queued_input_cancel_result`, `protocol_error`).
+ * `loading_progress`, `queued_input_cancel_result`, `control_result`,
+ * `protocol_error`).
  */
 /**
  * Runs a turn for a session with no client attached.
@@ -819,6 +1075,9 @@ export function handleChatConnection(
           return;
         case 'chat.cancel-queued':
           await handleChatCancelQueued(ws, data, dependencies);
+          return;
+        case 'chat.stop-task':
+          await handleChatStopTask(ws, userId, data, dependencies);
           return;
         case 'chat.subscribe':
           handleChatSubscribe(ws, data, dependencies);

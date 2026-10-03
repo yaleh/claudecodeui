@@ -796,7 +796,7 @@ test('the five fake forms each red the reading they are aimed at', async () => {
   });
 });
 
-test('claude declares the eight resident features, and the runtime mirror carries them', async () => {
+test('claude declares the nine resident features, and the runtime mirror carries them', async () => {
   const claude = providerCapabilitiesService.getProviderCapabilities('claude');
   const features = claude.residentFeatures;
   assert.ok(features, 'a provider declaring resident must describe what its resident process can do');
@@ -811,12 +811,13 @@ test('claude declares the eight resident features, and the runtime mirror carrie
       'interruptKeepsProcess',
       'liveReconfigure',
       'remoteControl',
+      'stopTask',
       'unattendedTurns',
     ],
-    'every one of the eight fields must be stated',
+    'every one of the nine fields must be stated',
   );
 
-  // The five the phase-0 experiments measured, and the three they did not: the
+  // The five the phase-0 experiments measured, and the four they did not: the
   // unmeasured ones state the conservative value, and `liveReconfigure` is an
   // empty list because "no setting was shown to apply live" is not the same
   // claim as "no setting applies live" — E1–E8 did not cover it.
@@ -827,6 +828,7 @@ test('claude declares the eight resident features, and the runtime mirror carrie
   assert.deepEqual(features.liveReconfigure, []);
   assert.equal(features.cancelQueuedInput, false);
   assert.equal(features.authoritativeLeases, false);
+  assert.equal(features.stopTask, false);
   assert.equal(features.remoteControl, false);
 
   // The runtime mirror takes the same field, and takes it by value: the

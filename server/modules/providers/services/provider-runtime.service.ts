@@ -48,6 +48,32 @@ type RemoteControlRefusalReading = {
   at: number;
 };
 
+/**
+ * The answer the stop-task control plane's driver call gives.
+ *
+ * `requested` means the provider driver was called and its call settled — the
+ * request was placed, and nothing about the task's state is claimed.
+ * `unsupported` means no driver could carry it (the capability is off, the
+ * session is not resident and has no per-run runtime, or the live process
+ * exposes no stop verb). `timeout` means the driver call did not settle inside
+ * its bound, and `error` means it threw. The three failure values are
+ * deliberately distinct: a caller that conflated "cannot" with "did not finish"
+ * would report a process-less session as a slow one.
+ */
+export type ControlStopTaskOutcome = 'requested' | 'unsupported' | 'timeout' | 'error';
+
+/**
+ * The per-run runtime's own stop verb, read structurally.
+ *
+ * `IProviderRuntime` in `@/shared/interfaces.js` is the contract every provider
+ * shares and is deliberately not widened for the control plane of one. A runtime
+ * that implements it carries `stopTask` beside `abort`; a runtime that does not
+ * is read as having no stop verb, which is the `unsupported` answer.
+ */
+type PerRunStopTaskRuntime = {
+  stopTask?(sessionId: string, taskId: string): Promise<boolean>;
+};
+
 type ProviderRuntimeServiceDependencies = {
   listProviders(): IProvider[];
   resolveProvider(provider: string): IProvider;
@@ -99,7 +125,35 @@ type ProviderRuntimeServiceDependencies = {
    * against its own manager must not need a database to answer it.
    */
   resolveResidentLaunchOptions(provider: LLMProvider, sessionId: string): Promise<AnyRecord>;
+  /**
+   * Whether one provider's resident process can stop a named background task.
+   *
+   * Read from the capability matrix by default
+   * (`residentFeatures.stopTask`); a dependency so a criterion can drive the
+   * gate with the verb on, which the shipped matrix states as `false` until it
+   * is measured. A provider that never declared the field — one outside the
+   * union, or one whose declaration predates it — is read as `false`, the
+   * conservative answer, never as a claim the verb exists.
+   */
+  residentStopTaskSupported(provider: string): boolean;
+  /**
+   * How long a driver's stop-task call is given before the gateway answers
+   * `timeout`.
+   *
+   * A dependency rather than a constant so the criterion can drive the
+   * never-resolving arm in milliseconds instead of seconds. Production's bound
+   * is the same class of ceiling the control plane's own event wait uses, and it
+   * exists because the SDK's answer is not guaranteed to arrive: a stop of an id
+   * the process does not hold resolves, but a wedged transport can leave the
+   * promise pending forever, and the control handler must not be the thing that
+   * hangs on it.
+   */
+  stopTaskCallTimeoutMs: number;
 };
+
+/** How long a driver's stop-task call is given by default. */
+const DEFAULT_STOP_TASK_CALL_TIMEOUT_MS = 5_000;
+const STOP_TASK_CALL_TIMEOUT_ENV = 'CLAUDE_STOP_TASK_CALL_TIMEOUT_MS';
 
 const defaultDependencies: ProviderRuntimeServiceDependencies = {
   listProviders: () => providerRegistry.listProviders(),
@@ -111,7 +165,32 @@ const defaultDependencies: ProviderRuntimeServiceDependencies = {
   resolveSessionLifecycleMode: (sessionId) => sessionsDb.getSessionLifecycleMode(sessionId),
   sessionHostManager: processWideSessionHostManager,
   resolveResidentLaunchOptions: (provider, sessionId) => defaultResidentLaunchOptions(provider, sessionId),
+  residentStopTaskSupported: (provider) => defaultResidentStopTaskSupported(provider),
+  stopTaskCallTimeoutMs: readStopTaskCallTimeoutMs(),
 };
+
+/** Reads the stop-task call bound, overridable for operators and criteria. */
+function readStopTaskCallTimeoutMs(): number {
+  const raw = Number.parseInt(process.env[STOP_TASK_CALL_TIMEOUT_ENV] ?? '', 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_STOP_TASK_CALL_TIMEOUT_MS;
+}
+
+/**
+ * Reads the stop-task capability off the union provider's capability row.
+ *
+ * Only the union table is read: `residentFeatures` is stated there through the
+ * widened matrix the capability service owns, and a provider outside the union
+ * has made no stop-task declaration at all — which reads as `false`, the
+ * conservative answer this verb answers `unsupported` for. The read never
+ * throws for an unknown id: a record lookup that misses is `undefined`, and the
+ * `?.` chain turns it into `false` rather than an error.
+ */
+function defaultResidentStopTaskSupported(provider: string): boolean {
+  const features = providerCapabilitiesService
+    .getProviderCapabilities(provider as LLMProvider)
+    ?.residentFeatures;
+  return features?.stopTask === true;
+}
 
 /**
  * The options a resident session's next turn would launch under, with no turn.
@@ -196,6 +275,16 @@ type ResidentTurnEntry = {
     messageUuid: string,
   ): Promise<HostQueuedInputCancelResult>;
   /**
+   * Stops one named background task the resident process is running, leaving
+   * the turn and the process alone.
+   *
+   * Resolves `true` when a live process was really asked and `false` when there
+   * was none to ask. Optional for the same reason the rest of the entry is: a
+   * driver whose resident process exposes no stop verb has nothing to place, and
+   * a caller must read the absence as "cannot", never as "did".
+   */
+  stopTask?(appSessionId: string, taskId: string): Promise<boolean>;
+  /**
    * The Remote Control refusal this driver last made for a session, or null.
    *
    * Necessary without a host, which is why it is a reading of its own rather
@@ -224,6 +313,43 @@ type ResidentTurnEntry = {
 function resolveAppSessionId(options: AnyRecord): string | null {
   const sessionId = options?.sessionId;
   return typeof sessionId === 'string' && sessionId ? sessionId : null;
+}
+
+/**
+ * Runs one stop-task driver call under a bound, mapping its settlement to the
+ * control plane's answer.
+ *
+ * The call is wrapped before it is raced so a late rejection cannot escape as an
+ * unhandled rejection once `timeout` has already won: the promise's own handler
+ * turns a throw into `error`, and the race only decides between that settled
+ * value and the timer. A driver that resolves `false` placed nothing — the same
+ * answer as a driver with no verb — so `false` maps to `unsupported`, never to a
+ * claim that the task stopped.
+ */
+async function boundStopTaskCall(
+  call: () => Promise<boolean>,
+  timeoutMs: number,
+): Promise<ControlStopTaskOutcome> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const settled = Promise.resolve()
+    .then(call)
+    .then(
+      (placed): ControlStopTaskOutcome => (placed === false ? 'unsupported' : 'requested'),
+      (): ControlStopTaskOutcome => 'error',
+    );
+  const expired = new Promise<ControlStopTaskOutcome>((resolve) => {
+    timer = setTimeout(() => resolve('timeout'), timeoutMs);
+    // Never let the bound hold the server's event loop open on its own.
+    (timer as { unref?: () => void }).unref?.();
+  });
+
+  try {
+    return await Promise.race([settled, expired]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
 }
 
 /**
@@ -460,6 +586,58 @@ export function createProviderRuntimeService(
       } catch {
         return 'unknown';
       }
+    },
+
+    /**
+     * Stops one named background task, through whichever route serves the
+     * session, under a bound on the driver call.
+     *
+     * The two routes are the same split every lifecycle verb in this file makes:
+     * a resident session is asked through the driver that owns its held process,
+     * and everything else through the per-run runtime the turn itself ran on.
+     * The resident route is gated on the capability matrix first — the SDK verb
+     * exists but has not been measured against a live resident process, so an
+     * unmeasured `false` answers `unsupported` before any driver is touched.
+     *
+     * Nothing here waits for the task to stop or reads the task table; that is
+     * the control handler's half, and keeping it out is what lets this verb
+     * answer "the request landed" without owning "the task stopped".
+     */
+    async controlStopTask(
+      providerName: LLMProvider,
+      sessionId: string,
+      taskId: string,
+    ): Promise<ControlStopTaskOutcome> {
+      let provider: IProvider;
+      try {
+        provider = dependencies.resolveProvider(providerName);
+      } catch {
+        return 'unsupported';
+      }
+
+      const resident = resolveResidentEntry(provider, sessionId);
+      if (resident) {
+        if (!dependencies.residentStopTaskSupported(provider.id)) {
+          return 'unsupported';
+        }
+        const stop = resident.stopTask;
+        if (typeof stop !== 'function') {
+          return 'unsupported';
+        }
+        return boundStopTaskCall(
+          () => stop.call(resident, sessionId, taskId),
+          dependencies.stopTaskCallTimeoutMs,
+        );
+      }
+
+      const runtime = provider.runtime as unknown as PerRunStopTaskRuntime;
+      if (typeof runtime.stopTask !== 'function') {
+        return 'unsupported';
+      }
+      return boundStopTaskCall(
+        () => runtime.stopTask!(sessionId, taskId),
+        dependencies.stopTaskCallTimeoutMs,
+      );
     },
 
     /**
