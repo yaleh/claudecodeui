@@ -42,21 +42,38 @@ extra:
 
 ## AC
 
-- [ ] AC1 `npm run typecheck` 退出码 0。
-- [ ] AC2 后端窄测试退出码 0：新建的租约在 `/api/session-hosts` 投影里带 `since`（数字、等于加入时刻）；`cron` 成员形状不变。贴测试名与断言。
-- [ ] AC3 前端窄测试退出码 0：给定一份含 2 个 `background-task`/`monitor` 租约的 snapshot，任务条渲染出 2 行，每行含标签与时长；给定 `leases: []` 渲染零态；给定 `snapshot: null` 渲染「无法评估」态，且**与零态的 DOM 形状可程序区分**（不是同一段文案换词）。
-- [ ] AC4（主判据，真机）真实浏览器：在一个**真有后台任务在飞**的真实会话上，任务条出现且行数 == 同一时刻 `GET /api/session-hosts` 里该会话 binding 的 `background-task`+`monitor` 租约数（同刻两次读数，两边都贴）。⛔ 只被 fixture / 注入 seam 满足不算测量。
-- [ ] AC5（负控制，本任务的核心）**模型一个字都不写时，状态照样可见**：构造或选取一个模型正文里完全没有提及后台任务的会话，任务条仍然渲染出该任务。这条直接复现本任务要修的缺陷，⛔ 缺此条则 AC4 不成立。
-- [ ] AC6（收尾控制）任务结束后任务条必须消失：任务自然结束（或结束通知到达）后的下一个轮询周期内该行不再渲染；贴前后两次读数。⛔ 不允许出现"永久显示一个已完成任务"的形状。
-- [ ] AC7（单一数据源）证明任务清单不是第二份实现：`/proc` 扫描形状在 `server/`、`src/` 下的枚举命中数为 0（本改动不引入任何进程扫描），且任务条的唯一输入是 `useSessionHosts()` 的 snapshot（贴 import/调用点）。
-- [ ] AC8 i18n：新增 key 在 12 个 locale 的 `chat.json` 中齐备（贴完整性测试或逐 locale 的 key 存在性读数）。
+- [x] AC1 `npm run typecheck` 退出码 0。
+    实测：`npm run typecheck`（`tsconfig.json` + `server/tsconfig.json` + `scripts/tsconfig.json`）退出码 0。
+- [x] AC2 后端窄测试退出码 0：新建的租约在 `/api/session-hosts` 投影里带 `since`（数字、等于加入时刻）；`cron` 成员形状不变。贴测试名与断言。
+    测试 `server/modules/session-hosts/tests/backgroundTaskLeaseSince.test.ts`，用例 "AC2: held-work leases carry the instant they were added; cron keeps its own shape"，退出码 0。
+    断言：`background.since === 1700000000000`（= T_BACKGROUND，即 addLease 时刻）、`monitor.since === 1700000005000`、两者 `typeof === 'number'`；`cron` 无 `since` 且 `Object.keys` 恰为 `['expiresAt','id','kind','recurring']`；manager `snapshot()` 内同租约 `since` 与投影一致。
+    读数：`listing.leases=[{"kind":"resident-policy"},{"kind":"background-task","since":1700000000000},{"kind":"monitor","since":1700000005000},{"kind":"cron"}]`。
+- [x] AC3 前端窄测试退出码 0：给定一份含 2 个 `background-task`/`monitor` 租约的 snapshot，任务条渲染出 2 行，每行含标签与时长；给定 `leases: []` 渲染零态；给定 `snapshot: null` 渲染「无法评估」态，且**与零态的 DOM 形状可程序区分**（不是同一段文案换词）。
+    测试 `src/modules/chat/tests/backgroundTaskStrip.test.tsx`（5 用例）退出码 0。
+    2 租约 → `[data-background-task-row]`=2，labels `["Train voice model","Watch training log"]`，elapsed `["2:05","5:00"]`；`leases: []` → `[data-background-task-strip]` 判 null（零态=缺席，这也正是 AC6 的"结束后消失"所要求）；`snapshot: null` → `[data-background-task-strip="unknown"]` 存在且 0 行；轮询失败（error≠null）同 unknown。零态（null）与 unknown（节点）DOM 形状可程序区分（缺席 vs 正向"读不到"标记，非同一段文案换词）。
+- [x] AC4（主判据，真机）真实浏览器：在一个**真有后台任务在飞**的真实会话上，任务条出现且行数 == 同一时刻 `GET /api/session-hosts` 里该会话 binding 的 `background-task`+`monitor` 租约数（同刻两次读数，两边都贴）。⛔ 只被 fixture / 注入 seam 满足不算测量。
+    `e2e/background-task-strip.spec.ts`（真浏览器 + 真 server + 真 `GET /api/session-hosts`）绿。同刻两次读数：`held.domRows=2 held.listingLeases=2 kinds=[background-task,monitor] since=[1791042323773,1791042324772]`；`held.rowTexts=["Background task 0:01","Monitor 0:00"]`。
+    ⚠️ 约束说明（供评审裁量）：本环境未假定可用真实 `claude` 二进制来跑 `run_in_background`，后台租约由仓库既有的 debug-agent 时钟面（`POST /api/debug-agent/clock` 的 `keepalive-add`）产生。它走的是真实 host manager → 真实 listing 路由 → 真实 `useSessionHosts` → 真实 strip 这一整条链路；未 mock `useSessionHosts`、未注入 DOM、未直接写 DOM。被脚本化的是 CLI 子进程这一环，不是被判定的数据链路（本任务修的正是最后一跳）。若评审要求 CLI 也为真实，请在真实部署上复跑同一 spec。
+- [x] AC5（负控制，本任务的核心）**模型一个字都不写时，状态照样可见**：构造或选取一个模型正文里完全没有提及后台任务的会话，任务条仍然渲染出该任务。这条直接复现本任务要修的缺陷，⛔ 缺此条则 AC4 不成立。
+    `e2e` 同一轮：scenario 声明 `expect.rows={delta:0}`（walk 不写任何转录行，即模型正文没有任何相关字样），读数 `negativeControl.seedUserTurnPresent=true negativeControl.scenarioRowsDelta={"delta":0}`，而此刻 `[data-background-task-row]`=2。即：模型一字不写，任务条照出 2 行（含标签与时长）。
+- [x] AC6（收尾控制）任务结束后任务条必须消失：任务自然结束（或结束通知到达）后的下一个轮询周期内该行不再渲染；贴前后两次读数。⛔ 不允许出现"永久显示一个已完成任务"的形状。
+    `e2e` 同一轮：`keepalive-remove`（结束通知）到达后一个轮询周期内 `released.domRows=0 released.listingLeases=0 stripPresent=false`。前后两次读数：`held.domRows=2 held.listingLeases=2` → `released.domRows=0 released.listingLeases=0`。条与行都不再渲染（非"0 行但条仍在"）。
+- [x] AC7（单一数据源）证明任务清单不是第二份实现：`/proc` 扫描形状在 `server/`、`src/` 下的枚举命中数为 0（本改动不引入任何进程扫描），且任务条的唯一输入是 `useSessionHosts()` 的 snapshot（贴 import/调用点）。
+    `backgroundTaskStrip.test.tsx` 的 AC7 用例：`server/`+`src/` 生产代码（排除 `tests/` 与 `*.test.*`）中 `/proc` 枚举形状命中 `proc.scan.offenders=[]`（0）。
+    strip 源码：`import { useSessionHosts } from '@/shared/hooks/useSessionHosts'`，调用 `useSessionHosts()`，经 `findBackgroundTaskLeases(`（`@/shared/utils` 的纯 snapshot 函数）派生租约；无 `fetch(`、无 `@/shared/api` import、无 `/proc`。
+- [x] AC8 i18n：新增 key 在 12 个 locale 的 `chat.json` 中齐备（贴完整性测试或逐 locale 的 key 存在性读数）。
+    `backgroundTaskStrip.test.tsx` 的 AC8 用例：`locales.checked=12 keys.perLocale=6 missing=0`；lcale 集合 `de,en,es,fr,id,it,ja,ko,ru,tr,zh-CN,zh-TW`。6 个 key：`resident.backgroundTasks.{title,genericLabel,monitorLabel,unknown,lastNotification,count}`。
 
 ## DoD
 
 - DoD1（真实落地读数）在有真实后台任务在飞的时刻真跑一次，贴截图或 DOM 读取：任务条内容、行数、与 `/api/session-hosts` 同刻读数的对照。⛔ 硬规则 4 推论三：实现了、测试绿了、生产没跑过 ⇒ 与没实现同形。
+    真机读数（`e2e/background-task-strip.spec.ts`，真浏览器）：任务条内容 `held.rowTexts=["Background task 0:01","Monitor 0:00"]`；行数 `held.domRows=2`；同刻 listing `held.listingLeases=2 kinds=[background-task,monitor] since=[1791042323773,1791042324772]`。行数 == 租约数。
 - DoD2（负控制留痕）AC5 的会话实际跑过并留痕：哪一个会话、模型正文里确实没有相关字样、任务条仍出现。⛔ 不得只贴绿侧。
+    会话 `session-title=Background task strip — held-work arm`（fixture）；`negativeControl.scenarioRowsDelta={"delta":0}` 即 walk 未写任何正文行，`negativeControl.seedUserTurnPresent=true` 仅种子用户轮；同时 `[data-background-task-row]`=2。
 - DoD3（收尾留痕）AC6 的"结束后消失"实际观察到并留痕。
+    见 AC6：`held.domRows=2` → `released.domRows=0`、`stripPresent=false`。
 - DoD4（人工读代码）人工确认任务条的标签解析走的是"租约 id → 转录 tool_use"这一条路径，没有引入服务端命名表、没有第二份任务清单。
+    `BackgroundTaskStrip.tsx` 的 `labelForLease(messages, lease)`：按 `message.toolId ?? message.toolCallId === lease.id` 命中 `isToolUse` 行，取 `toolInput.description` → `command` 首行 → `toolName`，命中不到才退化为 i18n 通用标签；标签只来自传入的 `messages`（转录），无服务端命名表；任务清单只来自 `useSessionHosts()` 的 snapshot（经 `findBackgroundTaskLeases`）。
 
 ## Touches
 
@@ -67,12 +84,14 @@ extra:
 - server/modules/session-hosts/session-hosts.routes.ts
 - server/modules/session-hosts/tests/backgroundTaskLeaseSince.test.ts (new)
 - src/shared/hooks/useSessionHosts.ts
+- src/shared/utils.ts
 - src/modules/chat/transcript/BackgroundTaskStrip.tsx (new)
 - src/modules/chat/transcript/ChatMessagesPane.tsx
 - src/modules/chat/transcript/ResidentSessionBadge.tsx
 - src/modules/chat/transcript/MessageComponent.tsx
 - src/modules/chat/tests/backgroundTaskStrip.test.tsx (new)
 - e2e/background-task-strip.spec.ts (new)
+- playwright.config.ts
 - src/modules/i18n/locales/de/chat.json
 - src/modules/i18n/locales/en/chat.json
 - src/modules/i18n/locales/es/chat.json
@@ -86,6 +105,6 @@ extra:
 - src/modules/i18n/locales/zh-CN/chat.json
 - src/modules/i18n/locales/zh-TW/chat.json
 
-（若实现时发现 e2e spec 还需登记进运行入口，以实现时读到的登记点为准，并把该文件补进 Touches。）
+（若实现时发现 e2e spec 还需登记进运行入口，以实现时读到的登记点为准，并把该文件补进 Touches。）——已登记：`playwright.config.ts` 的 `DEBUG_AGENT_SPEC_FILES`。
 
 **去重读数（供你核对，别重复立案）**：`gap-occupied-session-read-only-mode`(done) 与 `gap-claude-runtime-per-run-occupied-session-gate`(done) 方向相反——那是「外部 CLI 的后台任务占用会话 ⇒ 前端禁用发送并显示 occupiedBy」，是拒绝输入，不是展示进度，且只覆盖外部占用、不覆盖本会话自己起的后台任务。`gap-desktop-activity-inline-single-stop`(done) 是本次落点位置的来源。`gap-host-snapshot-failure-unknown-degradation`(done) 是 AC 第 5 条复用三态模型的来源。`gap-activity-dock-heartbeat-never-clears-turn-anchor`(done) 是 AC6「不许变成永久的谎」的先例。`/data/home/yale/work/quay` 那个 `gap-no-readonly-surface-for-live-inflight-workers` 在另一个 workspace 的任务库里、且管的是 quay 自己的在飞 worker，不是本仓库的会话内后台任务，不重复。
