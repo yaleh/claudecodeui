@@ -1518,6 +1518,9 @@ const DEBUG_AGENT_SPEC_FILES: readonly string[] = [
   // thinking/tool rows a work segment is made of. So neither of that spec's readings is evidence about this
   // gate — the entry only pins that fact alongside the gate it is deliberately not using.
   'transcript-work-segments.spec.ts',
+  // The global-stylesheet criterion: it renders a Markdown corpus (fenced code, a table, a tool result)
+  // through the same seam and reads what the authored rules in src/index.css do to it.
+  'css-global-rules.spec.ts',
 ];
 const debugAgentFixtureHome = selectedSpecFiles().some((file) => DEBUG_AGENT_SPEC_FILES.includes(file))
   ? path.join(dataDir, 'debug-agent-home')

@@ -16,6 +16,7 @@ function ProjectWorkspaceShell({
 }: ProjectWorkspaceShellProps) {
   return (
     <div
+      data-app-shell
       className="fixed inset-0 flex bg-background"
       style={{ bottom: 'var(--keyboard-height, 0px)' }}
     >
