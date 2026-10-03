@@ -3,7 +3,7 @@ id: gap-chat-background-task-foreground-tooluse
 title: AC-197 前台工具转后台：WS 处理函数 chat.background-task 按 toolUseId 寻址 Turn Tracker
   里未配对 tool_result 的前台 tool_use，无匹配回 no-foreground-match，成功后任务经 task_started +
   task_updated(is_backgrounded) 入表（resident 与 per-run 双驱动）
-status: ready
+status: done
 labels:
   - gap
 parent: null
