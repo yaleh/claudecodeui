@@ -1,7 +1,7 @@
 ---
 id: AC-197
 title: 前台工具转后台：寻址运行中的前台 tool_use，无匹配时明确回执，成功后任务出现
-status: draft
+status: active
 kind: criterion
 goal: GOAL-015
 criterion: npx tsx --tsconfig server/tsconfig.json --test
@@ -17,4 +17,15 @@ origin: docs/proposals/claude-session-activity-dock.md（§0.1 人的裁定、§
   事件在投影层折叠成一行；历史里的 isMeta 行显示与对等方目录本期不纳入。 实测 2026-10-01：前台 Bash 在被转后台之前没有
   task_started；q.backgroundTasks(toolUseId) 返回 true 的同时才出现 task_started 与
   is_backgrounded，对没有匹配前台工具的 id 返回 false。
+activatedAt: 2026-10-03T15:51:36.359Z
+statusLog:
+  - at: 2026-10-03T15:51:36.359Z
+    from: draft
+    to: active
+    actor: goal-cli
+    reason: ""
+fidelity:
+  verdict: not-evaluated
+  reason: no judge configured
+  at: 2026-10-03T15:51:36.359Z
 ---

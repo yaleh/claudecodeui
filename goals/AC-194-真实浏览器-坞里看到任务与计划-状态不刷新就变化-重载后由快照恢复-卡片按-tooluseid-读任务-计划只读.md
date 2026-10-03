@@ -1,7 +1,7 @@
 ---
 id: AC-194
 title: 真实浏览器：坞里看到任务与计划，状态不刷新就变化，重载后由快照恢复，卡片按 toolUseId 读任务，计划只读
-status: draft
+status: active
 kind: criterion
 goal: GOAL-015
 criterion: npx playwright test e2e/activity-dock-background.spec.ts -g "AC-194"
@@ -16,4 +16,15 @@ origin: docs/proposals/claude-session-activity-dock.md（§0.1 人的裁定、§
   裁定：新增控制动词与 cancel-queued 做归属校验；取消计划任务不做控件，由用户用文本请模型调 CronDelete，坞对计划只读；Monitor
   事件在投影层折叠成一行；历史里的 isMeta 行显示与对等方目录本期不纳入。 调查
   2026-10-01：现状客户端没有任务实体、列表、进度；弹层只数每种租约的个数；cron 与唤醒没有任何展示。
+activatedAt: 2026-10-03T15:51:32.423Z
+statusLog:
+  - at: 2026-10-03T15:51:32.423Z
+    from: draft
+    to: active
+    actor: goal-cli
+    reason: ""
+fidelity:
+  verdict: not-evaluated
+  reason: no judge configured
+  at: 2026-10-03T15:51:32.423Z
 ---

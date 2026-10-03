@@ -1,13 +1,20 @@
 ---
 id: GOAL-015
 title: Claude 后台工作与计划可观测可控：任务、计划与控制在同一个活动坞里，状态以 SDK 事件为准
-status: draft
+status: active
 kind: goal
 origin: docs/proposals/claude-session-activity-dock.md 与
   docs/proposals/claude-background-work-observability.md。人 yale 2026-10-01
   裁定：新增控制动词与 cancel-queued 做归属校验；取消计划任务不做控件；Monitor 事件在投影层折叠；isMeta
   行显示与对等方目录本期不纳入；并同意拆成 GOAL-014 与 GOAL-015。本 goal 依赖 GOAL-014
   的活动坞，暂不激活，等人确认后再激活。
+activatedAt: 2026-10-03T15:50:16.636Z
+statusLog:
+  - at: 2026-10-03T15:50:16.636Z
+    from: draft
+    to: active
+    actor: goal-cli
+    reason: ""
 ---
 ## 背景
 
