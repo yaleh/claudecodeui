@@ -1,7 +1,7 @@
 ---
 id: gap-background-task-surface-absent-in-session-view
 title: 会话视图没有任何「本会话正在跑的后台任务」展示面：唯一承载它的常驻状态条计数随坞合并退役，剩下三个面数的是会话/进程；后台任务只剩模型自述散文
-status: todo
+status: ready
 labels:
   - gap
 parent: null
