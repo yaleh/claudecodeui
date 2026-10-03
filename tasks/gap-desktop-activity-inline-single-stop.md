@@ -29,15 +29,15 @@ extra:
 
 ## AC
 
-- [ ] `npx vitest run src/modules/chat/tests/activityIndicatorResponsive.test.tsx` 退出码 0，用例各自独立、失败信息打印实际读数：(a) 流内状态行渲染活动文本与 elapsed，其子树内无可访问名含 Stop 的元素；(b) 桌面档（`isMobile=false` 且非短触屏）的 `ChatMessagesPane` 在最后一条消息之后、滚动容器内部渲染状态行，类名不含 `absolute` 与 `fixed`；(c) 桌面档 `ChatComposer` 子树内不存在 `[data-activity-dock]`；(d) `activity` 由非空变 `null` 时按现有退出动画收起，移动档与桌面档行为一致；(e) 断言「桌面有 tab」的旧用例已被删除或改写，文件内不再出现 `tab variant` 的正向读数。
-- [ ] `npx vitest run src/modules/chat/tests/chatComposerResponsive.test.tsx` 退出码 0：把 composer 与 pane 一并渲染，桌面档与移动档的可访问性视图里可访问名含 Stop 的按钮恰好 1 个且为 `PromptInputSubmit`；存在 pending 权限请求时两档均不渲染普通活动状态；主停止按钮 `title` 含 `Esc`、`aria-label` 与改动前一致；`unreachable` 状态下主按钮禁用且原因可见（断言实际读数）。
-- [ ] 底部留白：桌面档 `hasActivityIndicator=true` 时 pane 内容底部间距不含 `pb-12`/`md:pb-14`；`grep -nE 'pb-12|md:pb-14' src/modules/chat/transcript/ChatMessagesPane.tsx` 无命中（退出码 1）。
-- [ ] 悬浮 tab 彻底退役：`grep -nE 'isInlineDock|chat-activity-tab|rounded-t-none' src/modules/chat/composer/ChatComposer.tsx src/modules/chat/transcript/ChatMessagesPane.tsx src/modules/chat/composer/ActivityIndicator.tsx` 无命中（退出码 1）；`grep -n 'onAbort' src/modules/chat/composer/ActivityIndicator.tsx` 无命中（退出码 1）。
-- [ ] Esc 中止与 tab 无关：新增或保留一个用例，桌面档渲染 `ChatInterface`（此时页面上没有悬浮 tab），`canAbortSession` 为真时按一次 Esc，`handleAbortSession` 恰被调用 1 次；`canAbortSession` 为假时按 Esc 调用 0 次。该用例钉住 `ChatInterface.tsx:345` 现有监听的行为，不改变它（对照：`git diff develop -- src/modules/chat/ChatInterface.tsx` 不含对该 `useEffect` 的改动行）。
-- [ ] 跟随不回归：`npx vitest run src/modules/chat/tests/transcriptScrollOwnership.test.tsx src/modules/chat/tests/messageStreamEnd.test.tsx` 退出码 0；并在 `activityIndicatorResponsive.test.tsx` 新增桌面档用例——状态行挂载与 elapsed 更新时，用户在底部则继续贴底，用户已上滚离底则零次程序化写 `scrollTop`。
-- [ ] 同类测试同步：`npx vitest run src/modules/chat/tests/activityDockConsolidation.test.tsx src/modules/chat/tests/activityDockUnreachable.test.tsx src/modules/chat/tests/activityDockPhaseTruthful.test.tsx` 退出码 0（凡点击 dock 内 Stop 的断言已改为点击主按钮，读数含义不变）。
-- [ ] `npx vitest run src/modules/chat` 退出码 0；`npm run typecheck` 与 `npm run lint` 退出码均为 0。
-- [ ] 底部提示行未被触碰：`git diff develop -- src/modules/chat/composer/ChatComposer.tsx` 中不含对 `submitHint`、`input.hintText` 与提示行 `className`（含 `touchOnly ? 'hidden' : 'hidden lg:block'`）的任何改动行（逐行核对 diff）。
+- [x] `npx vitest run src/modules/chat/tests/activityIndicatorResponsive.test.tsx` 退出码 0，用例各自独立、失败信息打印实际读数：(a) 流内状态行渲染活动文本与 elapsed，其子树内无可访问名含 Stop 的元素；(b) 桌面档（`isMobile=false` 且非短触屏）的 `ChatMessagesPane` 在最后一条消息之后、滚动容器内部渲染状态行，类名不含 `absolute` 与 `fixed`；(c) 桌面档 `ChatComposer` 子树内不存在 `[data-activity-dock]`；(d) `activity` 由非空变 `null` 时按现有退出动画收起，移动档与桌面档行为一致；(e) 断言「桌面有 tab」的旧用例已被删除或改写，文件内不再出现 `tab variant` 的正向读数。
+- [x] `npx vitest run src/modules/chat/tests/chatComposerResponsive.test.tsx` 退出码 0：把 composer 与 pane 一并渲染，桌面档与移动档的可访问性视图里可访问名含 Stop 的按钮恰好 1 个且为 `PromptInputSubmit`；存在 pending 权限请求时两档均不渲染普通活动状态；主停止按钮 `title` 含 `Esc`、`aria-label` 与改动前一致；`unreachable` 状态下主按钮禁用且原因可见（断言实际读数）。
+- [x] 底部留白：桌面档 `hasActivityIndicator=true` 时 pane 内容底部间距不含 `pb-12`/`md:pb-14`；`grep -nE 'pb-12|md:pb-14' src/modules/chat/transcript/ChatMessagesPane.tsx` 无命中（退出码 1）。
+- [x] 悬浮 tab 彻底退役：`grep -nE 'isInlineDock|chat-activity-tab|rounded-t-none' src/modules/chat/composer/ChatComposer.tsx src/modules/chat/transcript/ChatMessagesPane.tsx src/modules/chat/composer/ActivityIndicator.tsx` 无命中（退出码 1）；`grep -n 'onAbort' src/modules/chat/composer/ActivityIndicator.tsx` 无命中（退出码 1）。
+- [x] Esc 中止与 tab 无关：新增或保留一个用例，桌面档渲染 `ChatInterface`（此时页面上没有悬浮 tab），`canAbortSession` 为真时按一次 Esc，`handleAbortSession` 恰被调用 1 次；`canAbortSession` 为假时按 Esc 调用 0 次。该用例钉住 `ChatInterface.tsx:345` 现有监听的行为，不改变它（对照：`git diff develop -- src/modules/chat/ChatInterface.tsx` 不含对该 `useEffect` 的改动行）。
+- [x] 跟随不回归：`npx vitest run src/modules/chat/tests/transcriptScrollOwnership.test.tsx src/modules/chat/tests/messageStreamEnd.test.tsx` 退出码 0；并在 `activityIndicatorResponsive.test.tsx` 新增桌面档用例——状态行挂载与 elapsed 更新时，用户在底部则继续贴底，用户已上滚离底则零次程序化写 `scrollTop`。
+- [x] 同类测试同步：`npx vitest run src/modules/chat/tests/activityDockConsolidation.test.tsx src/modules/chat/tests/activityDockUnreachable.test.tsx src/modules/chat/tests/activityDockPhaseTruthful.test.tsx` 退出码 0（凡点击 dock 内 Stop 的断言已改为点击主按钮，读数含义不变）。
+- [x] `npx vitest run src/modules/chat` 退出码 0；`npm run typecheck` 与 `npm run lint` 退出码均为 0。
+- [x] 底部提示行未被触碰：`git diff develop -- src/modules/chat/composer/ChatComposer.tsx` 中不含对 `submitHint`、`input.hintText` 与提示行 `className`（含 `touchOnly ? 'hidden' : 'hidden lg:block'`）的任何改动行（逐行核对 diff）。
 
 ## DoD
 
@@ -72,3 +72,6 @@ L_D 该轴仍暗，理由：本任务改的是活动状态的呈现位置并删�
 - e2e/resident-busy-send.spec.ts
 - e2e/mobile-workspace-composer-layout.spec.ts
 - tasks/gap-desktop-activity-inline-single-stop.md
+- src/modules/chat/ChatInterface.tsx （`isInputFocused` prop 随其唯一派生站删除；AC5 的对照只禁止改 Esc useEffect，本处不改）
+- src/modules/chat/tests/occupiedSessionReadOnly.test.tsx （被删 prop 的调用点同步清理）
+- src/modules/chat/tests/chatInterfaceEscapeAbort.test.tsx （AC5：桌面档渲染 ChatInterface，Esc 中止恰 1 次、canAbortSession 假时 0 次）
