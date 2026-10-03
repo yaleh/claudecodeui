@@ -1,7 +1,7 @@
 ---
 id: AC-212
 title: store 窗口：脱离尾部时实时消息不渲染也不丢，回到尾部后全部出现
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-017
 criterion: for f in src/modules/chat/tests/sessionStoreWindow.test.ts; do [ -f
@@ -25,6 +25,11 @@ statusLog:
     to: active
     actor: yale-session
     reason: GOAL-017 激活：判据已观测为红（缺判据文件）
+  - at: 2026-10-03T17:50:15.945Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
