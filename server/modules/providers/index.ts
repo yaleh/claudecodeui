@@ -116,6 +116,17 @@ export type {
 // forwarder feeds the tracker under the same id (`turnSessionId`) so a running
 // turn is not reported as `idle`.
 export { readSessionTurn } from './list/claude/claude-runtime.provider.js';
+// The Task and Schedule read models, as the run loop holds them (AC-194's
+// wiring leg). `readSessionTasks` / `readSessionSchedules` are what the activity
+// protocol's snapshot carries, `reconcileSessionHeldWork` is what the Stop hook
+// feeds, and `setActivityChangeNotifier` is the tick the composition root
+// installs so a task or schedule change pushes an `activity.upsert` frame.
+export {
+  readSessionSchedules,
+  readSessionTasks,
+  reconcileSessionHeldWork,
+  setActivityChangeNotifier,
+} from './list/claude/claude-runtime.provider.js';
 export { providerRegistry } from './provider.registry.js';
 // providerRoutes: the module's HTTP face. Mounted by `server/index.ts`, and by
 // the lifecycle-mode criterion, which has to drive the real

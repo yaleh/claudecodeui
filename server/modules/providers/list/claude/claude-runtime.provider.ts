@@ -41,6 +41,16 @@ import { resolveContextWindow } from '@/modules/providers/services/launch-spec.s
 import { createClaudeSessionScopeSpawn } from '@/modules/providers/services/claude-session-scope.service.js';
 import { createClaudeTurnTracker } from '@/modules/providers/services/claude-turn-phase.service.js';
 import {
+  createClaudeTaskReducer,
+  type ActivityTask,
+  type BackgroundTaskSummary,
+} from '@/modules/providers/services/claude-activity-task-reducer.service.js';
+import {
+  createClaudeScheduleTracker,
+  type ActivitySchedule,
+  type SessionCronEntry,
+} from '@/modules/providers/services/claude-activity-schedules.service.js';
+import {
   ClaudeSessionOccupiedError,
   applyLaunchSpecEnv,
   createCompleteMessage,
@@ -860,6 +870,79 @@ export function countOpenStreamBlocks(writer: ProviderRuntimeWriter): number {
 const turnTracker = createClaudeTurnTracker();
 
 /**
+ * The two per-session read models the activity dock's background half is built
+ * from: the Task table (AC-191) and the Schedule table (AC-192).
+ *
+ * Module-level and singleton for the same reason `turnTracker` is: they are the
+ * *server's* account of what a session is holding, and the frames that read them
+ * back (the activity protocol's snapshot and upserts) outlive any single run.
+ * Both are fed at the one seam every run — real and debug — already crosses
+ * (`forwardNormalizedFrames` below), so a scenario's rows and a real SDK frame
+ * take the identical path into them. State is keyed per session inside each
+ * reducer, so two sessions cannot read each other's tables.
+ */
+const taskReducer = createClaudeTaskReducer();
+const scheduleTracker = createClaudeScheduleTracker();
+
+/**
+ * The revision tick the activity protocol is told about when a task or a
+ * schedule actually changes.
+ *
+ * Injected rather than imported because the protocol's store lives in the
+ * websocket module, which imports this one (its heartbeat reads `readSessionTurn`)
+ * — importing it back would close a cycle. `server/index.ts`, which holds both,
+ * installs the tick at boot: `(sessionId) => activityStore.recordChange(sessionId)`.
+ * Until something is installed a change is simply not announced, which is what a
+ * headless criterion that drives the forwarder directly wants.
+ */
+let activityChangeNotifier: ((sessionId: string) => void) | null = null;
+
+/** Installs the process-wide activity-change tick, or clears it with `null`. */
+export function setActivityChangeNotifier(notifier: ((sessionId: string) => void) | null): void {
+  activityChangeNotifier = notifier;
+}
+
+/** The Task table for one session, as the Task Reducer holds it. */
+export function readSessionTasks(sessionId: string): ActivityTask[] {
+  return taskReducer.getTasks(sessionId);
+}
+
+/** The Schedule table for one session, as the Schedule Tracker holds it. */
+export function readSessionSchedules(sessionId: string): ActivitySchedule[] {
+  return scheduleTracker.getSchedules(sessionId);
+}
+
+/**
+ * Reconciles both tables against a `Stop` hook firing's snapshot.
+ *
+ * The hook's two lists are each authoritative only when present: an absent key is
+ * the CLI saying nothing about that kind, not saying it holds none (the same rule
+ * the host driver's `reconcileHeldWork` applies to its lease ledger). A caller
+ * passes the raw hook input and this decides; `undefined` is a no-op for that
+ * kind.
+ */
+export function reconcileSessionHeldWork(
+  sessionId: string,
+  input: { backgroundTasks?: unknown; sessionCrons?: unknown },
+): void {
+  if (!sessionId) {
+    return;
+  }
+  if (Array.isArray(input.backgroundTasks)) {
+    taskReducer.reconcileStopHook(sessionId, input.backgroundTasks as BackgroundTaskSummary[]);
+  }
+  if (Array.isArray(input.sessionCrons)) {
+    scheduleTracker.reconcileStopHook(sessionId, input.sessionCrons as SessionCronEntry[]);
+  }
+  activityChangeNotifier?.(sessionId);
+}
+
+/** A stable signature of a table, for "did this frame change anything" without a clock. */
+function activitySignature(tasks: ActivityTask[], schedules: ActivitySchedule[]): string {
+  return JSON.stringify([tasks, schedules]);
+}
+
+/**
  * The phase a session's turn is in, as the last frame through the forwarder left it.
  *
  * A session the forwarder has never seen reads `idle`, which is the honest answer:
@@ -928,6 +1011,26 @@ export function forwardNormalizedFrames({ transformedMessage, sessionId, turnSes
   const trackedSessionId = turnSessionId ?? sessionId;
   if (trackedSessionId) {
     turnTracker.observe(trackedSessionId, transformedMessage);
+
+    // The two background read models are fed here too, at the same seam, under
+    // the same id. They are deliberately not folded into the turn tracker: a
+    // task outlives the turn that started it, and the dock reads it between
+    // turns. A frame that actually moved either table ticks the activity
+    // protocol, which is what pushes a whole-snapshot upsert to the browser
+    // without a reload.
+    const before = activitySignature(
+      taskReducer.getTasks(trackedSessionId),
+      scheduleTracker.getSchedules(trackedSessionId),
+    );
+    taskReducer.observe(trackedSessionId, transformedMessage);
+    scheduleTracker.observe(trackedSessionId, transformedMessage);
+    const after = activitySignature(
+      taskReducer.getTasks(trackedSessionId),
+      scheduleTracker.getSchedules(trackedSessionId),
+    );
+    if (before !== after) {
+      activityChangeNotifier?.(trackedSessionId);
+    }
   }
 
   const blockKey = trackStreamBlock({

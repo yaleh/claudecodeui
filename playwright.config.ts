@@ -1636,6 +1636,11 @@ const DEBUG_AGENT_SPEC_FILES: readonly string[] = [
   // transcript strip against the listing at the same instant, so it needs the same provider, control
   // plane and fixture home as the resident specs above.
   'background-task-strip.spec.ts',
+  // The activity-dock background criterion (AC-194): it arms a scenario whose clock writes
+  // task-lifecycle rows and a cron plan, then reads the dock's task/schedule panel, the transcript cards
+  // and the activity snapshot on a real page — so it needs the same provider, control plane and fixture
+  // home as the specs above, and the activity protocol's frames to reach the browser.
+  'activity-dock-background.spec.ts',
 ];
 const debugAgentFixtureHome = selectedSpecFiles().some((file) => DEBUG_AGENT_SPEC_FILES.includes(file))
   ? path.join(dataDir, 'debug-agent-home')

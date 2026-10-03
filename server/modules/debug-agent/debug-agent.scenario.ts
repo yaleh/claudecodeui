@@ -110,6 +110,17 @@ export const DEBUG_AGENT_OPS = [
   'turn-result',
   'unattended-turn',
   'wait',
+  // The background-work steps (AC-194). Each writes the one claude dialect row
+  // that carries a task-lifecycle signal the product's Task Reducer reads — a
+  // task starting, its progress advancing, a status patch, its terminal
+  // notification — or the `CronCreate` call/result pair the Schedule Tracker
+  // reduces into a plan. They name the SIGNAL, never a frame: what a client sees
+  // is what the normalizer makes of the row, exactly as for every step above.
+  'schedule-plan',
+  'task-notification',
+  'task-progress',
+  'task-started',
+  'task-updated',
 ] as const;
 export type DebugAgentScenarioOp = (typeof DEBUG_AGENT_OPS)[number];
 
@@ -215,8 +226,13 @@ export type DebugAgentScenarioStep = { at: number } & (
   | { op: 'scroll' }
   | { op: 'text-delta'; text: string }
   | { op: 'thinking-tokens' }
-  | { op: 'tool-call'; name: string }
+  | { op: 'tool-call'; name: string; /** Optional tool input, for the schedule tools whose expression rides on it. */ input?: Record<string, unknown> }
   | { op: 'tool-result'; text: string }
+  | { op: 'task-started'; taskId: string; taskType: string; description: string }
+  | { op: 'task-progress'; taskId: string; description: string }
+  | { op: 'task-updated'; taskId: string; status: string }
+  | { op: 'task-notification'; taskId: string; status: string; summary: string }
+  | { op: 'schedule-plan'; expression: string; human: string; prompt: string }
   | { op: 'turn-end' }
   | { op: 'turn-result' }
   | {
@@ -413,8 +429,55 @@ function readStep(input: unknown, index: number): DebugAgentScenarioStep {
     case 'text-delta':
     case 'tool-result':
       return { at, op, text: readText(step.text, `${where}.text`) };
-    case 'tool-call':
-      return { at, op, name: readText(step.name, `${where}.name`) };
+    case 'tool-call': {
+      // The input is optional, and a non-object input is refused rather than
+      // dropped: a schedule step's `CronCreate` expression rides on it, and a
+      // document whose expression silently vanished would produce a plan the
+      // criterion could not read a countdown for.
+      const input = step.input === undefined || step.input === null ? undefined : readObjectRecord(step.input);
+      if (step.input !== undefined && step.input !== null && !input) {
+        return refuse(`${where}.input must be an object when present`);
+      }
+      return { at, op, name: readText(step.name, `${where}.name`), ...(input ? { input } : {}) };
+    }
+    case 'task-started':
+      return {
+        at,
+        op,
+        taskId: readText(step.taskId, `${where}.taskId`),
+        taskType: readText(step.taskType, `${where}.taskType`),
+        description: readText(step.description, `${where}.description`),
+      };
+    case 'task-progress':
+      return {
+        at,
+        op,
+        taskId: readText(step.taskId, `${where}.taskId`),
+        description: readText(step.description, `${where}.description`),
+      };
+    case 'task-updated':
+      return {
+        at,
+        op,
+        taskId: readText(step.taskId, `${where}.taskId`),
+        status: readText(step.status, `${where}.status`),
+      };
+    case 'task-notification':
+      return {
+        at,
+        op,
+        taskId: readText(step.taskId, `${where}.taskId`),
+        status: readText(step.status, `${where}.status`),
+        summary: readText(step.summary, `${where}.summary`),
+      };
+    case 'schedule-plan':
+      return {
+        at,
+        op,
+        expression: readText(step.expression, `${where}.expression`),
+        human: readText(step.human, `${where}.human`),
+        prompt: readText(step.prompt, `${where}.prompt`),
+      };
     // `thinking-tokens` and `turn-result` carry nothing: their whole content IS
     // their position on the clock, the same shape as `wait` and `turn-end` below.
     case 'unattended-turn': {

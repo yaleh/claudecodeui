@@ -99,6 +99,7 @@ import {
   extractTokenBudget,
   forwardNormalizedFrames,
   mapCliOptionsToSDK,
+  reconcileSessionHeldWork,
   requestClientToolDecision,
   resolveClaudeSessionTitle,
 } from '@/modules/providers/list/claude/claude-runtime.provider.js';
@@ -2729,6 +2730,16 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
       state.tasksAuthoritative = true;
       this.settleBackgroundTasks(state, tasksFromStopList(tasks));
     }
+
+    // The same firing feeds the activity dock's two read models (AC-194's wiring
+    // leg), under the app session id the forwarder keys them by. Each list is
+    // authoritative only when present, which the callee re-checks (`undefined`
+    // is a no-op per kind) — the lease ledger and the read models must never
+    // disagree about a list the CLI did not name.
+    reconcileSessionHeldWork(state.appSessionId, {
+      backgroundTasks: tasks,
+      sessionCrons: crons,
+    });
   }
 
   /**

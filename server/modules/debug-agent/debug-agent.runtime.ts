@@ -4,6 +4,10 @@ import path from 'node:path';
 
 import type { AnyRecord, CommandLifecycleState, MessageOrigin } from '@/shared/types.js';
 import {
+  CLAUDE_TASK_NOTIFICATION_SUBTYPE,
+  CLAUDE_TASK_PROGRESS_SUBTYPE,
+  CLAUDE_TASK_STARTED_SUBTYPE,
+  CLAUDE_TASK_UPDATED_SUBTYPE,
   CLAUDE_TOOL_RESULT_BLOCK_TYPE,
   CLAUDE_TOOL_USE_BLOCK_TYPE,
   COMMAND_LIFECYCLE_ROW_TYPE,
@@ -130,6 +134,12 @@ export function buildToolUseRow(input: {
   parentUuid: string | null;
   toolUseId: string;
   name: string;
+  /**
+   * The tool's input, when the step states one. A `CronCreate` plan's expression
+   * and prompt ride here; every other call this module writes carries `{}`, the
+   * shape a call with no stated input has always had.
+   */
+  toolInput?: Record<string, unknown>;
 }): AnyRecord {
   return {
     type: 'assistant',
@@ -145,7 +155,7 @@ export function buildToolUseRow(input: {
           type: CLAUDE_TOOL_USE_BLOCK_TYPE,
           id: input.toolUseId,
           name: input.name,
-          input: {},
+          input: input.toolInput ?? {},
         },
       ],
     },
@@ -238,6 +248,123 @@ export function buildTurnResultRow(input: {
     sessionId: input.sessionId,
     cwd: input.cwd,
     timestamp: input.timestamp,
+  };
+}
+
+/**
+ * Builds the row that starts a background task.
+ *
+ * On the wire this is the `system`/`task_started` signal the CLI emits when a
+ * tool call is backgrounded (or a workflow run begins); the product's Task
+ * Reducer reads `task_id`, `task_type`, `description` and the `tool_use_id` that
+ * joins the task to the transcript card that launched it. The subtype is taken
+ * from the shared vocabulary rather than spelled here — this module may not name
+ * a wire kind or event (ADR-003 decision 7, enforced by
+ * `tests/debug-agent-vocabulary-guard.test.ts`).
+ */
+export function buildTaskStartedRow(input: {
+  sessionId: string;
+  cwd: string;
+  timestamp: string;
+  uuid: string;
+  parentUuid: string | null;
+  taskId: string;
+  taskType: string;
+  description: string;
+  /** The `tool_use` the card was drawn from; `null` for a task with no card. */
+  toolUseId: string | null;
+  /** The frame-supplied start instant (epoch ms), so a reader can compute elapsed. */
+  startedAt: number;
+}): AnyRecord {
+  return {
+    type: 'system',
+    subtype: CLAUDE_TASK_STARTED_SUBTYPE,
+    uuid: input.uuid,
+    parentUuid: input.parentUuid,
+    sessionId: input.sessionId,
+    cwd: input.cwd,
+    timestamp: input.timestamp,
+    task_id: input.taskId,
+    task_type: input.taskType,
+    description: input.description,
+    started_at: input.startedAt,
+    ...(input.toolUseId ? { tool_use_id: input.toolUseId } : {}),
+  };
+}
+
+/** Builds the row that advances a task's latest-progress description. */
+export function buildTaskProgressRow(input: {
+  sessionId: string;
+  cwd: string;
+  timestamp: string;
+  uuid: string;
+  parentUuid: string | null;
+  taskId: string;
+  description: string;
+}): AnyRecord {
+  return {
+    type: 'system',
+    subtype: CLAUDE_TASK_PROGRESS_SUBTYPE,
+    uuid: input.uuid,
+    parentUuid: input.parentUuid,
+    sessionId: input.sessionId,
+    cwd: input.cwd,
+    timestamp: input.timestamp,
+    task_id: input.taskId,
+    description: input.description,
+  };
+}
+
+/** Builds the row that patches a task's lifecycle status. */
+export function buildTaskUpdatedRow(input: {
+  sessionId: string;
+  cwd: string;
+  timestamp: string;
+  uuid: string;
+  parentUuid: string | null;
+  taskId: string;
+  status: string;
+  /** The frame-supplied end instant (epoch ms), when the patch settled the task. */
+  endedAt?: number;
+}): AnyRecord {
+  return {
+    type: 'system',
+    subtype: CLAUDE_TASK_UPDATED_SUBTYPE,
+    uuid: input.uuid,
+    parentUuid: input.parentUuid,
+    sessionId: input.sessionId,
+    cwd: input.cwd,
+    timestamp: input.timestamp,
+    task_id: input.taskId,
+    patch: { status: input.status, ...(input.endedAt !== undefined ? { ended_at: input.endedAt } : {}) },
+  };
+}
+
+/** Builds the row that carries a task's terminal status and one-line summary. */
+export function buildTaskNotificationRow(input: {
+  sessionId: string;
+  cwd: string;
+  timestamp: string;
+  uuid: string;
+  parentUuid: string | null;
+  taskId: string;
+  status: string;
+  summary: string;
+  /** The frame-supplied end instant (epoch ms), so a reader can compute duration. */
+  endedAt?: number;
+}): AnyRecord {
+  return {
+    type: 'system',
+    subtype: CLAUDE_TASK_NOTIFICATION_SUBTYPE,
+    uuid: input.uuid,
+    parentUuid: input.parentUuid,
+    sessionId: input.sessionId,
+    cwd: input.cwd,
+    timestamp: input.timestamp,
+    task_id: input.taskId,
+    status: input.status,
+    summary: input.summary,
+    ...(input.endedAt !== undefined ? { end_time: input.endedAt } : {}),
   };
 }
 

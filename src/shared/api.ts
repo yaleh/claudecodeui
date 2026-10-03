@@ -4,6 +4,7 @@ import {
   storeAuthToken,
 } from '@/shared/authToken';
 import type { SessionMessagesQuery } from '@/shared/types';
+import type { ActivitySnapshotFrame } from '@/shared/types';
 import { IS_PLATFORM } from '@/shared/utils';
 import type { VoiceConfig } from '@/shared/voiceConfig';
 import { readVoiceConfig, voiceConfigHeaders, whenVoiceConfigReady } from '@/shared/voiceConfig';
@@ -131,6 +132,28 @@ export async function readApiJson<T>(response: Response): Promise<T> {
   return data as T;
 }
 const get = (url: string, options: ApiRequestOptions = {}) => authenticatedFetch(url, options);
+
+/**
+ * Reads a session's activity snapshot over REST (`GET /:sessionId/activity`).
+ *
+ * This is the join path for a client that arrives after a change: the socket
+ * hands a whole snapshot on `activity.snapshot` when it subscribes, and this
+ * route answers the same object shape for a reader that wants it before the
+ * socket is up (or wants to prove the snapshot exists). The response body IS the
+ * snapshot — not an envelope — so it is returned as-is; a 404 (no snapshot for
+ * the session) reads as `null` rather than throwing, because "this session has no
+ * activity yet" is a normal state, not a failure.
+ */
+export async function fetchSessionActivity(
+  sessionId: string,
+): Promise<ActivitySnapshotFrame | null> {
+  const response = await authenticatedFetch(`/api/sessions/${encodeURIComponent(sessionId)}/activity`);
+  if (!response.ok) {
+    return null;
+  }
+  const body = (await response.json().catch(() => null)) as unknown;
+  return body && typeof body === 'object' ? (body as ActivitySnapshotFrame) : null;
+}
 
 const withBody =
   (method: string) =>

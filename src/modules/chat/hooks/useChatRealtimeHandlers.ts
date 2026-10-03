@@ -4,6 +4,7 @@ import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import type { ServerEvent,ChatReplayCursorMap,MarkSessionIdle,MarkSessionProcessing,PendingPermissionRequest,ProjectSession,LLMProvider,NormalizedMessage,CommandLifecycleState } from '@/shared/types';
 import { reconcileReplayCursorOnAck, recordReplayCursor } from '@/modules/chat/utils/replayCursor';
 import { showCompletionTitleIndicator } from '@/modules/chat/utils/pageTitleNotification';
+import { applyActivityFrame } from '@/modules/chat/hooks/useSessionActivity';
 import { playChatCompletionSound, playNotificationSound } from '@/shared/utils';
 import type { SessionStore } from '@/modules/chat/hooks/useSessionStore';
 
@@ -391,6 +392,27 @@ export function useChatRealtimeHandlers({
         // session (the `startsWith` crash this guard exists to prevent).
         case 'activity.heartbeat':
           return;
+
+        // The activity protocol's whole-snapshot frames: the joiner's
+        // `activity.snapshot` and every later `activity.upsert`. They are control
+        // frames, not messages — like the heartbeat they carry no `id` and must
+        // never reach the message store. Their one reader is the background-work
+        // store (`useSessionActivity`), which the dock and the transcript cards
+        // read. A missing `sessionId` is dropped rather than attributed to the
+        // active view: a snapshot belongs to the session it names and no other.
+        case 'activity.snapshot':
+        case 'activity.upsert': {
+          const snapshotSessionId = typeof msg.sessionId === 'string' ? msg.sessionId : '';
+          if (snapshotSessionId) {
+            applyActivityFrame({
+              sessionId: snapshotSessionId,
+              rev: msg.rev,
+              tasks: msg.tasks,
+              schedules: msg.schedules,
+            });
+          }
+          return;
+        }
 
         case 'protocol_error': {
           console.error('[Chat] Protocol error:', msg.code, msg.error);

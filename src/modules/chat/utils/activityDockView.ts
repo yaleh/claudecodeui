@@ -67,6 +67,14 @@ export type ActivityDockInput = {
   phase?: ActivityPhase | null;
   /** The pending tool's name while `phase` is `tool`; null otherwise. */
   toolName?: string | null;
+  /**
+   * How many background tasks the session is holding, from the activity
+   * snapshot. Drives the dock's task count and — with no turn to speak about —
+   * whether the dock draws at all.
+   */
+  taskCount?: number;
+  /** How many cron/wakeup plans the session is holding, from the activity snapshot. */
+  scheduleCount?: number;
 };
 
 /** The dock's decision: which state to publish and what the controls may do. */
@@ -88,6 +96,10 @@ export type ActivityDockView = {
    * function of the phase alone — never of elapsed time.
    */
   phaseLabelKey: string | null;
+  /** Background tasks the session holds, as the snapshot last reported. */
+  taskCount: number;
+  /** Cron/wakeup plans the session holds, as the snapshot last reported. */
+  scheduleCount: number;
 };
 
 /**
@@ -124,6 +136,8 @@ const HIDDEN: ActivityDockView = {
   phase: 'idle',
   toolName: null,
   phaseLabelKey: null,
+  taskCount: 0,
+  scheduleCount: 0,
 };
 
 /** The failed-send reading: a state of its own, and deliberately no turn. */
@@ -135,6 +149,8 @@ const SEND_FAILED: ActivityDockView = {
   phase: 'idle',
   toolName: null,
   phaseLabelKey: null,
+  taskCount: 0,
+  scheduleCount: 0,
 };
 
 /** The elapsed fields both visible states share. */
@@ -160,8 +176,17 @@ export const deriveActivityDockView = (input: ActivityDockInput): ActivityDockVi
     sendFailed = false,
     phase = 'idle',
     toolName = null,
+    taskCount = 0,
+    scheduleCount = 0,
   } = input;
   const elapsed = elapsedFields(elapsedMs);
+  // The background readings are carried onto every view so the dock and its
+  // panel read the counts from one place. Clamped at zero: a negative count is
+  // not a reading this surface can draw, and a snapshot never produces one.
+  const counts = {
+    taskCount: Math.max(0, Math.trunc(taskCount)),
+    scheduleCount: Math.max(0, Math.trunc(scheduleCount)),
+  };
   // The phase the server reported, carried onto every view so the dock can
   // publish it verbatim — the label and the `data-activity-phase` attribute then
   // come from one source instead of two.
@@ -174,9 +199,23 @@ export const deriveActivityDockView = (input: ActivityDockInput): ActivityDockVi
   // Nothing to speak about: no local turn and no anchor the server ever confirmed.
   // A send that was never taken is the one thing there is to say in that void —
   // reporting the failure is the honest reading, not staying silent as the old
-  // indicator did while the message was already gone.
+  // indicator did while the message was already gone. Background work is the
+  // second thing to say: a held task or plan is worth a surface between turns,
+  // which is what the `background` state is for.
   if (activity === null && !hasTurnAnchor) {
-    return sendFailed ? SEND_FAILED : HIDDEN;
+    if (sendFailed) {
+      return { ...SEND_FAILED, ...counts };
+    }
+    if (counts.taskCount > 0 || counts.scheduleCount > 0) {
+      return {
+        state: 'background',
+        ...elapsed,
+        stopReasonKey: null,
+        ...phaseFields,
+        ...counts,
+      };
+    }
+    return HIDDEN;
   }
 
   // A wired dock with no fresh evidence reports the connection, not the turn. The
@@ -188,6 +227,7 @@ export const deriveActivityDockView = (input: ActivityDockInput): ActivityDockVi
       ...elapsed,
       stopReasonKey: hasAbort ? UNREACHABLE_STOP_REASON_KEY : null,
       ...phaseFields,
+      ...counts,
     };
   }
 
@@ -197,5 +237,6 @@ export const deriveActivityDockView = (input: ActivityDockInput): ActivityDockVi
     ...elapsed,
     stopReasonKey: null,
     ...phaseFields,
+    ...counts,
   };
 };

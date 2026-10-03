@@ -15,6 +15,7 @@ import {
   activityAnnouncement,
   attachActivityHeartbeat,
 } from '@/modules/websocket/services/activity-heartbeat.service.js';
+import { activityStore } from '@/modules/websocket/services/activity-protocol.service.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 import {
@@ -848,6 +849,63 @@ async function handleChatStopTask(
 }
 
 /**
+ * The per-socket activity-protocol subscriptions, so a socket that subscribes to
+ * the same session twice is left with one feed and a dead socket leaves none.
+ *
+ * Mirrors the heartbeat's own bookkeeping: the subscription is keyed by the
+ * session on the socket that opened it, and its unsubscribe is dropped on the
+ * socket's close/error.
+ */
+const activityFeedsBySocket = new WeakMap<WebSocket, Map<string, () => void>>();
+
+/**
+ * Subscribes one socket to the activity protocol's frames for one session.
+ *
+ * The store hands the joiner its current snapshot the instant it subscribes
+ * (`activity.snapshot`, whole — every field, tasks and schedules included) and
+ * a whole-snapshot `activity.upsert` on every `recordChange` after that. That is
+ * what lets the client draw the background panel from a snapshot on first load
+ * and then watch it change without a reload or a poll — the two readings AC-194
+ * turns on. A session already fed on this socket is left alone so a re-sent
+ * `chat.subscribe` does not double the frame rate.
+ */
+function attachActivityFeed(ws: WebSocket, sessionId: string): void {
+  const bySession = activityFeedsBySocket.get(ws) ?? new Map<string, () => void>();
+  activityFeedsBySocket.set(ws, bySession);
+  if (bySession.has(sessionId)) {
+    return;
+  }
+
+  const sendFrame = (frame: unknown): void => {
+    if (ws.readyState !== WS_OPEN_STATE) {
+      return;
+    }
+    try {
+      sendJson(ws, frame);
+    } catch {
+      // A socket that throws on send is one the close/error path would have
+      // handled anyway; the feed is dropped with it.
+    }
+  };
+
+  const unsubscribe = activityStore.subscribe(sessionId, sendFrame);
+
+  const stopFeed = (): void => {
+    unsubscribe();
+    bySession.delete(sessionId);
+    if (bySession.size === 0) {
+      activityFeedsBySocket.delete(ws);
+    }
+    ws.off('close', stopFeed);
+    ws.off('error', stopFeed);
+  };
+
+  ws.on('close', stopFeed);
+  ws.on('error', stopFeed);
+  bySession.set(sessionId, stopFeed);
+}
+
+/**
  * Handles `chat.subscribe`: for each requested session, reports whether a run
  * is processing, re-attaches the live stream to this socket, replays missed
  * events (seq > lastSeq), and includes pending permission requests.
@@ -930,6 +988,11 @@ function handleChatSubscribe(
     // A browser is now watching this session, so the server starts proving it
     // is still alive on the beat it just announced.
     attachActivityHeartbeat(ws, sessionId);
+
+    // ...and starts feeding it the session's activity snapshot and any change to
+    // it: the task/schedule panel is drawn from these whole-snapshot frames, not
+    // from the session-hosts poll.
+    attachActivityFeed(ws, sessionId);
 
     // Replay only for RUNNING runs, strictly after the ack. Completed runs
     // are fully persisted to the provider transcript and served over REST —
