@@ -1,7 +1,7 @@
 ---
 id: AC-194
 title: 真实浏览器：坞里看到任务与计划，状态不刷新就变化，重载后由快照恢复，卡片按 toolUseId 读任务，计划只读
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-015
 criterion: npx playwright test e2e/activity-dock-background.spec.ts -g "AC-194"
@@ -23,6 +23,11 @@ statusLog:
     to: active
     actor: goal-cli
     reason: ""
+  - at: 2026-10-03T19:43:52.757Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: not-evaluated
   reason: no judge configured
