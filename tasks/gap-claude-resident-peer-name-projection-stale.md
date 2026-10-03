@@ -2,7 +2,7 @@
 id: gap-claude-resident-peer-name-projection-stale
 title: 常驻宿主的 peerName 投影是启动时的一次性快照：进程改名后 GET /api/session-hosts（状态条 popover 的「复制
   SendMessage 地址」）仍长期发布 derived 机器名 —— 改名路径要触发重读
-status: todo
+status: ready
 labels:
   - gap
   - defect
