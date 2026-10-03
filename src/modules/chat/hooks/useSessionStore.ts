@@ -10,13 +10,14 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 
 import { api } from '@/shared/api';
-import type { LLMProvider, NormalizedMessage } from '@/shared/types';
+import type { LLMProvider, NormalizedMessage, SessionMessagesQuery } from '@/shared/types';
 import { createLiveRowId, isLiveRowId } from '@/modules/chat/utils/liveRowIdentity';
 import { removeOptimisticUserEchoes } from '@/modules/chat/utils/sessionMessageReconciliation';
 import {
   hasReachedCachedTailTimeBoundary,
   mergeLatestServerPage,
   mergeOlderServerPage,
+  messagesRepresentSamePersistedRow,
   planLatestPageBridge,
   resolveLatestPagePagination,
   SESSION_MESSAGES_PAGE_SIZE,
@@ -57,6 +58,26 @@ export type SessionSlot = {
   total: number;
   hasMore: boolean;
   offset: number;
+  /**
+   * Absolute 0-based subscript of `serverMessages[0]` in the full normalized
+   * history — the same array the tail page and the around read slice. It does
+   * not move when a turn is appended, unlike the tail-relative `offset`.
+   */
+  startIndex: number;
+  /** Absolute exclusive end: the subscript just past `serverMessages`'s last row. */
+  endIndex: number;
+  /**
+   * True while the window is pinned to the newest row (`endIndex === total`).
+   * Attached, `realtimeMessages` render with the window and every existing
+   * action keeps its pre-window behavior. Detached, realtime rows buffer in
+   * `realtimeMessages` and `getMessages` returns the window alone.
+   */
+  attached: boolean;
+  /**
+   * Absolute index of the message the window is centered on. The cap trims the
+   * end farther from it, so the focus the reader jumped to stays loaded.
+   */
+  anchorIndex: number;
   tokenUsage: unknown;
 };
 
@@ -75,6 +96,10 @@ function createEmptySlot(): SessionSlot {
     total: 0,
     hasMore: false,
     offset: 0,
+    startIndex: 0,
+    endIndex: 0,
+    attached: true,
+    anchorIndex: 0,
     blockKeyByRowId: new Map(),
     // `undefined` means "no page has reported usage for this session yet", and
     // every consumer distinguishes that from a reported `null`. Initialising it
@@ -129,6 +154,130 @@ async function requestSessionHistoryPage(
         : {}
     ),
   };
+}
+
+type SessionWindowPage = {
+  messages: NormalizedMessage[];
+  startIndex: number;
+  total: number;
+  hasMoreBefore: boolean;
+  hasMoreAfter: boolean;
+};
+
+/**
+ * Reads the id-anchored window around one message id. Unlike the tail page this
+ * response carries an absolute `startIndex`, so the caller positions its window
+ * by id rather than by arithmetic on a total that may have moved underneath it.
+ */
+async function requestSessionWindow(
+  sessionId: string,
+  query: SessionMessagesQuery & { around: string },
+): Promise<SessionWindowPage> {
+  const response = await api.providers.sessionMessages(sessionId, query, {
+    signal: AbortSignal.timeout(SESSION_HISTORY_REQUEST_TIMEOUT_MS),
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+  const body = await response.json();
+  const data = body?.data ?? body;
+  const messages: NormalizedMessage[] = Array.isArray(data.messages) ? data.messages : [];
+
+  return {
+    messages,
+    startIndex: typeof data.startIndex === 'number' ? data.startIndex : 0,
+    total: typeof data.total === 'number' ? data.total : messages.length,
+    hasMoreBefore: Boolean(data.hasMoreBefore),
+    hasMoreAfter: Boolean(data.hasMoreAfter),
+  };
+}
+
+/** The identity the server resolves an `around` id against: anchor when present, else id. */
+function windowIdOf(message: NormalizedMessage): string {
+  return message.transcriptAnchorId ?? message.id;
+}
+
+/** Clamps an absolute subscript into the half-open window `[startIndex, endIndex)`. */
+function clampIndex(index: number, startIndex: number, endIndex: number): number {
+  const last = Math.max(startIndex, endIndex - 1);
+  return Math.min(Math.max(index, startIndex), last);
+}
+
+/**
+ * Applies an id-anchored window page to the slot. `offset` is recomputed from
+ * the absolute indices so the older-page action (which counts back from the
+ * tail) still points at the row just before the window.
+ */
+function applyWindowPage(slot: SessionSlot, page: SessionWindowPage, anchorIndex: number): void {
+  slot.serverMessages = page.messages;
+  slot.total = page.total;
+  slot.startIndex = page.startIndex;
+  slot.endIndex = page.startIndex + page.messages.length;
+  slot.hasMore = page.hasMoreBefore;
+  slot.offset = Math.max(0, page.total - page.startIndex);
+  slot.attached = slot.endIndex >= page.total;
+  slot.anchorIndex = clampIndex(anchorIndex, slot.startIndex, slot.endIndex);
+}
+
+/**
+ * Keeps the window under {@link MAX_WINDOW_MESSAGES} by dropping the end farther
+ * from the focus. Both absolute edges move by exactly what was dropped, so
+ * `startIndex`/`endIndex` keep describing the retained rows.
+ */
+function trimWindowToCap(slot: SessionSlot): void {
+  const length = slot.serverMessages.length;
+  if (length <= MAX_WINDOW_MESSAGES) return;
+
+  const anchor = clampIndex(slot.anchorIndex, slot.startIndex, slot.endIndex);
+  const olderCount = anchor - slot.startIndex;
+  const newerCount = slot.endIndex - 1 - anchor;
+  const excess = length - MAX_WINDOW_MESSAGES;
+
+  if (newerCount >= olderCount) {
+    // The newer end is farther: drop from it, topping up from the older end only
+    // if that alone could not bring the window under the cap.
+    const dropNewer = Math.min(excess, newerCount);
+    const dropOlder = excess - dropNewer;
+    slot.serverMessages = slot.serverMessages.slice(dropOlder, length - dropNewer);
+    slot.endIndex -= dropNewer;
+    slot.startIndex += dropOlder;
+  } else {
+    const dropOlder = Math.min(excess, olderCount);
+    const dropNewer = excess - dropOlder;
+    slot.serverMessages = slot.serverMessages.slice(dropOlder, length - dropNewer);
+    slot.startIndex += dropOlder;
+    slot.endIndex -= dropNewer;
+  }
+
+  slot.offset = Math.max(0, slot.total - slot.startIndex);
+}
+
+/**
+ * Stitches a page that ends on the cached window's first row in front of it. The
+ * boundary row is shared (the page was read `around` it), so the overlap is
+ * removed and the rows stay contiguous.
+ */
+function unionWindowFront(
+  cached: NormalizedMessage[],
+  pageMessages: NormalizedMessage[],
+): NormalizedMessage[] {
+  const pageLast = pageMessages[pageMessages.length - 1];
+  const cachedFirst = cached[0];
+  const overlap = pageLast && cachedFirst && messagesRepresentSamePersistedRow(pageLast, cachedFirst) ? 1 : 0;
+  return [...pageMessages.slice(0, pageMessages.length - overlap), ...cached];
+}
+
+/**
+ * Stitches a page that starts on the cached window's last row after it, dropping
+ * the shared boundary row so the result has no duplicate.
+ */
+function unionWindowBack(
+  cached: NormalizedMessage[],
+  pageMessages: NormalizedMessage[],
+): NormalizedMessage[] {
+  const pageFirst = pageMessages[0];
+  const cachedLast = cached[cached.length - 1];
+  const overlap = pageFirst && cachedLast && messagesRepresentSamePersistedRow(pageFirst, cachedLast) ? 1 : 0;
+  return [...cached, ...pageMessages.slice(overlap)];
 }
 
 /**
@@ -525,14 +674,18 @@ function computeMerged(serverSource: NormalizedMessage[], realtimeSource: Normal
 /**
  * Recompute slot.merged only when the input arrays have actually changed
  * (by reference). Returns true if merged was recomputed.
+ *
+ * Detached from the tail, the realtime rows are buffer, not content: they are
+ * excluded from the rendered list and only their own arrival bumps the store.
  */
 function recomputeMergedIfNeeded(slot: SessionSlot): boolean {
-  if (slot.serverMessages === slot._lastServerRef && slot.realtimeMessages === slot._lastRealtimeRef) {
+  const realtimeSource = slot.attached ? slot.realtimeMessages : EMPTY;
+  if (slot.serverMessages === slot._lastServerRef && realtimeSource === slot._lastRealtimeRef) {
     return false;
   }
   slot._lastServerRef = slot.serverMessages;
-  slot._lastRealtimeRef = slot.realtimeMessages;
-  slot.merged = computeMerged(slot.serverMessages, slot.realtimeMessages);
+  slot._lastRealtimeRef = realtimeSource;
+  slot.merged = computeMerged(slot.serverMessages, realtimeSource);
   return true;
 }
 
@@ -576,6 +729,12 @@ async function refreshLatestSlotFromServer(
 ): Promise<LatestHistoryRefreshResult> {
   if (!canRequest()) {
     return { applied: false, changed: false, deferred: true };
+  }
+
+  // A detached window is history the reader is holding still; refreshing the
+  // persisted tail would replace it and yank the view out from under them.
+  if (!slot.attached) {
+    return { applied: false, changed: false, deferred: false };
   }
 
   const previousServerMessages = slot.serverMessages;
@@ -679,6 +838,10 @@ async function refreshLatestSlotFromServer(
   slot.total = latestPage.total;
   slot.offset = nextServerMessages.length;
   slot.hasMore = nextHasMore;
+  slot.startIndex = Math.max(0, slot.total - nextServerMessages.length);
+  slot.endIndex = slot.total;
+  slot.attached = true;
+  slot.anchorIndex = Math.max(slot.startIndex, slot.endIndex - 1);
   slot.fetchedAt = Date.now();
   ({
     serverMessages: slot.serverMessages,
@@ -698,6 +861,13 @@ async function refreshLatestSlotFromServer(
 const STALE_THRESHOLD_MS = 30_000;
 
 const MAX_REALTIME_MESSAGES = 500;
+
+/**
+ * In-memory cap for a detached window. Past it the end farther from the focus
+ * is dropped, so a session with thousands of rows never holds more than this
+ * many normalized messages at once.
+ */
+const MAX_WINDOW_MESSAGES = 500;
 
 // ─── Hook ────────────────────────────────────────────────────────────────────
 
@@ -759,6 +929,12 @@ export function useSessionStore() {
         slot.total = data.total;
         slot.hasMore = data.hasMore;
         slot.offset = (requestOptions.offset ?? 0) + data.messages.length;
+        // The tail page is counted back from the newest row, so its absolute start
+        // is `total - offset`, not `total - length` (those agree only at offset 0).
+        slot.startIndex = Math.max(0, slot.total - slot.offset);
+        slot.endIndex = slot.total;
+        slot.attached = true;
+        slot.anchorIndex = Math.max(slot.startIndex, slot.endIndex - 1);
         slot.fetchedAt = Date.now();
         slot.status = 'idle';
         ({
@@ -838,7 +1014,10 @@ export function useSessionStore() {
           slot.serverMessages = olderMerge.messages;
           slot.hasMore = data.hasMore;
           slot.total = data.total;
-          slot.offset = slot.serverMessages.length;
+          slot.startIndex = Math.max(0, slot.startIndex - olderMerge.prependedCount);
+          slot.endIndex = slot.startIndex + slot.serverMessages.length;
+          slot.offset = Math.max(0, slot.total - slot.startIndex);
+          slot.anchorIndex = clampIndex(slot.anchorIndex, slot.startIndex, slot.endIndex);
           prependedCount = olderMerge.prependedCount;
           if (data.tokenUsage !== undefined) {
             slot.tokenUsage = data.tokenUsage;
@@ -899,8 +1078,12 @@ export function useSessionStore() {
       : EMPTY;
     // `total` counts what the server would serve; it is about to be re-fetched
     // anyway, but leaving it high makes the pager offer pages that do not exist.
-    slot.total = slot.serverMessages.length;
+    // The window now ends at the cut, so its absolute end moves with it.
+    slot.endIndex = slot.startIndex + slot.serverMessages.length;
+    slot.total = slot.endIndex;
     slot.offset = slot.serverMessages.length;
+    slot.attached = true;
+    slot.anchorIndex = clampIndex(slot.anchorIndex, slot.startIndex, slot.endIndex);
     recomputeMergedIfNeeded(slot);
     notify(sessionId);
   }, [notify]);
@@ -1187,6 +1370,179 @@ export function useSessionStore() {
   }, [notify]);
 
   /**
+   * Loads the id-anchored window around one message id and detaches the slot
+   * from the tail.
+   *
+   * Any realtime rows already held stay in the buffer — neither dropped nor
+   * rendered — until a later window read reaches the newest row again, which
+   * re-attaches the slot (see {@link loadAfter}). This is what lets a reader
+   * jump into the middle of a running session without losing the turns arriving
+   * behind them.
+   */
+  const loadWindowAround = useCallback(async (
+    sessionId: string,
+    id: string,
+    opts: { before?: number; after?: number } = {},
+  ) => {
+    const slot = getSlot(sessionId);
+    return enqueueHistoryMutation(slot, async () => {
+      slot.status = 'loading';
+      notify(sessionId);
+      try {
+        const page = await requestSessionWindow(sessionId, {
+          around: id,
+          before: opts.before,
+          after: opts.after,
+        });
+        const located = page.messages.findIndex((message) => windowIdOf(message) === id);
+        applyWindowPage(slot, page, page.startIndex + Math.max(0, located));
+        trimWindowToCap(slot);
+        slot.fetchedAt = Date.now();
+        slot.status = 'idle';
+        recomputeMergedIfNeeded(slot);
+        notify(sessionId);
+        return slot;
+      } catch (error) {
+        console.error(`[SessionStore] window read failed for ${sessionId}:`, error);
+        slot.status = 'error';
+        notify(sessionId);
+        return slot;
+      }
+    });
+  }, [getSlot, notify]);
+
+  /**
+   * Extends the window toward the front by re-reading around its first row with
+   * `after: 0`. The anchor id — not an offset — is what keeps the extension
+   * flush with the existing window when `total` moved underneath it.
+   */
+  const loadBefore = useCallback(async (
+    sessionId: string,
+    opts: { limit?: number } = {},
+  ) => {
+    const slot = getSlot(sessionId);
+    return enqueueHistoryMutation(slot, async () => {
+      const first = slot.serverMessages[0];
+      if (!first || slot.startIndex === 0) return slot;
+      try {
+        const page = await requestSessionWindow(sessionId, {
+          around: windowIdOf(first),
+          before: opts.limit ?? SESSION_MESSAGES_PAGE_SIZE,
+          after: 0,
+        });
+        slot.serverMessages = unionWindowFront(slot.serverMessages, page.messages);
+        slot.startIndex = page.startIndex;
+        slot.endIndex = slot.startIndex + slot.serverMessages.length;
+        slot.total = page.total;
+        slot.hasMore = page.hasMoreBefore;
+        slot.offset = Math.max(0, slot.total - slot.startIndex);
+        slot.attached = slot.endIndex >= slot.total;
+        slot.anchorIndex = clampIndex(slot.anchorIndex, slot.startIndex, slot.endIndex);
+        trimWindowToCap(slot);
+        slot.fetchedAt = Date.now();
+        recomputeMergedIfNeeded(slot);
+        notify(sessionId);
+        return slot;
+      } catch (error) {
+        console.error(`[SessionStore] older window read failed for ${sessionId}:`, error);
+        return slot;
+      }
+    });
+  }, [getSlot, notify]);
+
+  /**
+   * Extends the window toward the newer rows by re-reading around its last row
+   * with `before: 0`. When the extension reaches the newest row the slot
+   * re-attaches and the buffered realtime rows fold back into the rendered list,
+   * deduped against the window by id.
+   */
+  const loadAfter = useCallback(async (
+    sessionId: string,
+    opts: { limit?: number } = {},
+  ) => {
+    const slot = getSlot(sessionId);
+    return enqueueHistoryMutation(slot, async () => {
+      const last = slot.serverMessages[slot.serverMessages.length - 1];
+      if (!last || slot.endIndex >= slot.total) return slot;
+      try {
+        const page = await requestSessionWindow(sessionId, {
+          around: windowIdOf(last),
+          before: 0,
+          after: opts.limit ?? SESSION_MESSAGES_PAGE_SIZE,
+        });
+        slot.serverMessages = unionWindowBack(slot.serverMessages, page.messages);
+        slot.total = page.total;
+        slot.endIndex = slot.startIndex + slot.serverMessages.length;
+        slot.hasMore = slot.hasMore || page.hasMoreBefore;
+        slot.offset = Math.max(0, slot.total - slot.startIndex);
+        slot.attached = slot.endIndex >= slot.total;
+        slot.anchorIndex = clampIndex(slot.anchorIndex, slot.startIndex, slot.endIndex);
+        trimWindowToCap(slot);
+        slot.fetchedAt = Date.now();
+        recomputeMergedIfNeeded(slot);
+        notify(sessionId);
+        return slot;
+      } catch (error) {
+        console.error(`[SessionStore] newer window read failed for ${sessionId}:`, error);
+        return slot;
+      }
+    });
+  }, [getSlot, notify]);
+
+  /**
+   * Drops the held window and re-pins to the newest page, folding the realtime
+   * buffer back into the rendered list. The explicit "take me to the end" move,
+   * as opposed to {@link loadAfter}, which walks there one page at a time.
+   */
+  const jumpToLatest = useCallback(async (sessionId: string) => {
+    const slot = getSlot(sessionId);
+    return enqueueHistoryMutation(slot, async () => {
+      try {
+        const data = await requestSessionHistoryPage(sessionId, {
+          limit: SESSION_MESSAGES_PAGE_SIZE,
+          offset: 0,
+        });
+        slot.serverMessages = data.messages;
+        slot.total = data.total;
+        slot.hasMore = data.hasMore;
+        slot.offset = data.messages.length;
+        slot.startIndex = Math.max(0, data.total - data.messages.length);
+        slot.endIndex = data.total;
+        slot.attached = true;
+        slot.anchorIndex = Math.max(slot.startIndex, slot.endIndex - 1);
+        slot.fetchedAt = Date.now();
+        if (data.tokenUsage !== undefined) {
+          slot.tokenUsage = data.tokenUsage;
+        }
+        ({
+          serverMessages: slot.serverMessages,
+          realtimeMessages: slot.realtimeMessages,
+        } = pruneRealtimeSupersededByServer(
+          slot.serverMessages,
+          slot.realtimeMessages,
+          slot.blockKeyByRowId,
+        ));
+        recomputeMergedIfNeeded(slot);
+        notify(sessionId);
+        return slot;
+      } catch (error) {
+        console.error(`[SessionStore] jump to latest failed for ${sessionId}:`, error);
+        return slot;
+      }
+    });
+  }, [getSlot, notify]);
+
+  /**
+   * How many realtime updates arrived while the session was detached from the
+   * tail and are held, unrendered, in the buffer. Always zero when attached.
+   */
+  const getBufferedRealtimeCount = useCallback((sessionId: string): number => {
+    const slot = storeRef.current.get(sessionId);
+    if (!slot || slot.attached) return 0;
+    return slot.realtimeMessages.length;
+  }, []);
+
+  /**
    * Get merged messages for a session (for rendering).
    */
   const getMessages = useCallback((sessionId: string): NormalizedMessage[] => {
@@ -1212,12 +1568,18 @@ export function useSessionStore() {
     finalizeStreaming,
     addResidentPending,
     applyCommandLifecycle,
+    loadWindowAround,
+    loadBefore,
+    loadAfter,
+    jumpToLatest,
+    getBufferedRealtimeCount,
     getMessages,
     getSessionSlot,
   }), [
     fetchFromServer, fetchMore, appendRealtime, truncateAt, refreshLatestFromServer,
     setActiveSession, isStale, updateStreaming, finalizeStreaming,
     addResidentPending, applyCommandLifecycle,
+    loadWindowAround, loadBefore, loadAfter, jumpToLatest, getBufferedRealtimeCount,
     getMessages, getSessionSlot,
   ]);
 }

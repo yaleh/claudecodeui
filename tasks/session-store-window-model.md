@@ -1,7 +1,7 @@
 ---
 id: session-store-window-model
 title: AC-212 session store 用绝对序号窗口取代后缀模型：贴尾/脱离、实时消息缓冲、窗口内存上限
-status: todo
+status: done
 labels:
   - gap
 parent: null
@@ -28,10 +28,13 @@ goal_ac: AC-212
 
 ## AC
 
-- [ ] AC1 判据绿：`npx vitest run src/modules/chat/tests/sessionStoreWindow.test.ts` 退出 0。红态基线：测试文件不存在。
-- [ ] AC2 取假形态必须红（先提交再变异，逐条记录 diff、逐字失败行与恢复命令）：(a) 脱离后仍把实时消息并入渲染列表 ⇒ (b) 断言红；(b) 丢弃一端后不更新 startIndex ⇒ (d) 断言红；(c) 回到贴尾时重复展示缓冲消息 ⇒ (c) 断言红。
-- [ ] AC3 既有 store 行为不变：`npx vitest run src/modules/chat/tests` 中与 session store、useChatSessionState、lazyMessageRow 相关的既有用例保持绿，写下运行的文件清单。
-- [ ] AC4 `npm run typecheck` 与 `npm run lint` 退出 0；`git diff --stat` 与 `## Touches` 逐条对齐。
+- [x] AC1 判据绿：`npx vitest run src/modules/chat/tests/sessionStoreWindow.test.ts` 退出 0（9 passed）。红态基线：测试文件不存在；先写判据先红（9 failed），再实现转绿。
+- [x] AC2 取假形态必须红（先提交再变异，逐条记录 diff、逐字失败行与恢复命令；三条恢复命令共用 `git checkout -- src/modules/chat/hooks/useSessionStore.ts`，逐条执行后均已验绿）：
+  - (a) 脱离后仍把实时消息并入渲染列表：把 `recomputeMergedIfNeeded` 的 `const realtimeSource = slot.attached ? slot.realtimeMessages : EMPTY;` 改成 `const realtimeSource = slot.realtimeMessages;` ⇒ (b) 红，失败行 `sessionStoreWindow.test.ts:182` `assert.deepEqual(renderedIds(view), rangeIds(50, 70))`，缓冲的 live1/live2 混进列表。
+  - (b) 丢弃一端后不更新 startIndex：删去 `trimWindowToCap` 旧端分支里的 `slot.startIndex += dropOlder;` ⇒ (d) 红，失败行 `sessionStoreWindow.test.ts:236` `assert.equal(slot.startIndex, 1500)`，逐字读数 `1400 !== 1500`。
+  - (c) 回到贴尾时重复展示缓冲消息：把 `loadAfter` 成功路径的 `recomputeMergedIfNeeded(slot);` 换成 `slot.merged = [...slot.serverMessages, ...slot.realtimeMessages];` ⇒ (c) 红，失败行 `sessionStoreWindow.test.ts:212` `assert.equal(new Set(contents).size, contents.length)`，逐字读数 `151 !== 152`（已持久化的缓冲行 m150 画了两遍）。
+- [x] AC3 既有 store 行为不变：`npx vitest run src/modules/chat/tests` 全绿（76 files / 500 tests）。运行文件清单即该目录全部 76 个测试文件；与 store / useChatSessionState / lazyMessageRow 直接相关的有 sessionStoreTruncate、sessionStoreWindow、sessionMessagePagination、sessionMessageReconciliation、useChatMessages、lazyMessageRow、liveRowIdentity、adjacentEchoCollapse、echoSeparatedByToolRow、transcriptScrollOwnership、tokenUsageFreshness、tokenBudgetSessionScope、unviewedSessionStreamAccumulation、compactionRows、replayCursorAcrossRuns、permissionPromptReplay、chatRealtimeIgnoresActivityHeartbeat、chatInterfaceEscapeAbort、activityIndicatorResponsive 等。
+- [x] AC4 `npm run typecheck` 退出 0；`npm run lint` 退出 0（lint exit=0，改动文件无新增告警）；`git diff --stat` 与 `## Touches` 逐条对齐：useSessionStore.ts、shared/types.ts、shared/api.ts、tests/sessionStoreWindow.test.ts (new)、tasks/session-store-window-model.md。
 
 ## DoD
 
@@ -44,5 +47,6 @@ goal_ac: AC-212
 
 - src/modules/chat/hooks/useSessionStore.ts
 - src/shared/types.ts
+- src/shared/api.ts (2026-10-04 追加：窗口读必须把 ?around/before/after 接到 AC-210 已建的路由；原 Touches 缺此写点，只改 sessionMessagesUrl 与 providers.sessionMessages 签名)
 - src/modules/chat/tests/sessionStoreWindow.test.ts (new)
 - tasks/session-store-window-model.md

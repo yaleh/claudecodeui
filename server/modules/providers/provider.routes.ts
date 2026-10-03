@@ -948,10 +948,37 @@ router.put(
   }),
 );
 
+/**
+ * Default and maximum half-widths of an `around` message window, in messages.
+ *
+ * The default is the neighborhood the transcript draws around a jump target; the
+ * cap keeps one caller from asking the server to serialize an entire
+ * thousand-message session in a single response. Both edges are independent, so
+ * `before=0` is a legal "this message and what follows it" read.
+ */
+const WINDOW_DEFAULT_BEFORE = 20;
+const WINDOW_DEFAULT_AFTER = 20;
+const WINDOW_MAX_SIDE = 200;
+
 router.get(
   '/sessions/:sessionId/messages',
   asyncHandler(async (req: Request, res: Response) => {
     const sessionId = parseSessionId(req.params.sessionId);
+    const aroundId = readOptionalQueryString(req.query.around);
+
+    // `around` selects the neighborhood read (a window centered on one message
+    // id); everything else is the unchanged tail page. When `around` is present
+    // `limit`/`offset` are ignored on purpose — the window's shape is
+    // `before`/`after`, and honoring both would make the two reads fight over the
+    // same slice.
+    if (aroundId !== undefined) {
+      const before = parseBoundedIntegerQuery(req.query.before, 'before', WINDOW_DEFAULT_BEFORE, 0, WINDOW_MAX_SIDE);
+      const after = parseBoundedIntegerQuery(req.query.after, 'after', WINDOW_DEFAULT_AFTER, 0, WINDOW_MAX_SIDE);
+      const result = await sessionsService.fetchWindowAround(sessionId, { aroundId, before, after });
+      res.json(createApiSuccessResponse(result));
+      return;
+    }
+
     const limit = parseBoundedIntegerQuery(req.query.limit, 'limit', null, 0);
     const offset = parseBoundedIntegerQuery(req.query.offset, 'offset', 0, 0);
 

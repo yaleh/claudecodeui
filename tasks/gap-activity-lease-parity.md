@@ -2,7 +2,7 @@
 id: gap-activity-lease-parity
 title: AC-195 租约推导并行对照：由 Task 表与 Schedule 表推出的租约与
   observeHeldWorkEvent+reconcileHeldWork 逐帧相等，行为不变
-status: todo
+status: ready
 labels:
   - gap
 parent: null
@@ -62,16 +62,16 @@ goal_ac: AC-195
 
 ## AC
 
-- [ ] AC1 判据绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-activity-lease-parity.test.ts server/modules/providers/tests/claude-resident-idle.test.ts server/modules/providers/tests/claude-background-work.test.ts` 退出 **0**，stdout `fail 0`。
-- [ ] AC2 逐帧相等：在覆盖嵌套 / Monitor 停止 / cron 与唤醒 / Stop hook 清单变化的事件序列上，**每一个**事件序号之后，`deriveHeldWorkLeases(...)` 的租约集合与 `driver.lifecycleReading(sessionId)` 的 `{crons, backgroundTasks}` 集合（规范化 key `kind|id|recurring|expiresAt|inferred`）相等；测试打印逐帧读数。
-- [ ] AC3 首处不一致可报：一个刻意发散的帧（或假形态臂）使 harness 打印 `PARITY-MISMATCH at event #<i>` 与两条路径的集合并断言红——证明比较逐帧而非只比末态。
-- [ ] AC4 cron 与唤醒：Stop hook `session_crons` 含 `recurring:true` 与 `recurring:false` 两项时，两路径都得到 `kind:'cron'`、`id` 等于清单 id、`recurring` 逐项相等、`expiresAt` 相等；`source:'tool-call'` 的推断项 `inferred === true`。
-- [ ] AC5 Monitor 停止：`task_updated{status:'killed'}` + `task_notification{status:'stopped'}` 之后的那一帧，两路径的 monitor（投影为 `background-task`）租约都消失，且该帧序号被覆盖。
-- [ ] AC6 嵌套任务：父与子任务同时 running 时两路径都持有两个租约；子任务终结只删除子，父仍在。
-- [ ] AC7 Stop hook 清单变化：一轮 Stop hook 的 `background_tasks` / `session_crons` 不再命名某 id 时，该帧两路径都删除其租约（「清单不再命名 = 终态」这一类）；含 `ended` 校准路径。
-- [ ] AC8 假形态有分辨力：≥2 条推导变体（(i) 漏 `task_notification` 终态；(ii) 漏 Stop hook 清单覆盖）各在对应帧使 parity 红；打印绿/红读数证明主断言非恒真。
-- [ ] AC9 既有行为不变：`claude-resident-idle.test.ts` 与 `claude-background-work.test.ts` 仍退出 0（已在 AC1 命令内）；`git diff --stat` 显示 `claude-host-driver.provider.ts` **零改动**；静默关闭上限（`RESIDENT_IDLE_TIMEOUT`）与 cron 延期读数由 idle 文件自身断言保持绿。
-- [ ] AC10 契约面：`npm run typecheck`、`npm run lint`、`npm run build` 各退出 0；改动只落在 Touches 列出的文件上（`git diff --stat develop...HEAD` 逐条对齐）。
+- [x] AC1 判据绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-activity-lease-parity.test.ts server/modules/providers/tests/claude-resident-idle.test.ts server/modules/providers/tests/claude-background-work.test.ts` 退出 **0**，stdout `fail 0`。
+- [x] AC2 逐帧相等：在覆盖嵌套 / Monitor 停止 / cron 与唤醒 / Stop hook 清单变化的事件序列上，**每一个**事件序号之后，`deriveHeldWorkLeases(...)` 的租约集合与 `driver.lifecycleReading(sessionId)` 的 `{crons, backgroundTasks}` 集合（规范化 key `kind|id|recurring|expiresAt|inferred`）相等；测试打印逐帧读数。
+- [x] AC3 首处不一致可报：一个刻意发散的帧（或假形态臂）使 harness 打印 `PARITY-MISMATCH at event #<i>` 与两条路径的集合并断言红——证明比较逐帧而非只比末态。
+- [x] AC4 cron 与唤醒：Stop hook `session_crons` 含 `recurring:true` 与 `recurring:false` 两项时，两路径都得到 `kind:'cron'`、`id` 等于清单 id、`recurring` 逐项相等、`expiresAt` 相等；`source:'tool-call'` 的推断项 `inferred === true`。
+- [x] AC5 Monitor 停止：`task_updated{status:'killed'}` + `task_notification{status:'stopped'}` 之后的那一帧，两路径的 monitor（投影为 `background-task`）租约都消失，且该帧序号被覆盖。
+- [x] AC6 嵌套任务：父与子任务同时 running 时两路径都持有两个租约；子任务终结只删除子，父仍在。
+- [x] AC7 Stop hook 清单变化：一轮 Stop hook 的 `background_tasks` / `session_crons` 不再命名某 id 时，该帧两路径都删除其租约（「清单不再命名 = 终态」这一类）；含 `ended` 校准路径。
+- [x] AC8 假形态有分辨力：≥2 条推导变体（(i) 漏 `task_notification` 终态；(ii) 漏 Stop hook 清单覆盖）各在对应帧使 parity 红；打印绿/红读数证明主断言非恒真。
+- [x] AC9 既有行为不变：`claude-resident-idle.test.ts` 与 `claude-background-work.test.ts` 仍退出 0（已在 AC1 命令内）；`git diff --stat` 显示 `claude-host-driver.provider.ts` **零改动**；静默关闭上限（`RESIDENT_IDLE_TIMEOUT`）与 cron 延期读数由 idle 文件自身断言保持绿。
+- [x] AC10 契约面：`npm run typecheck`、`npm run lint`、`npm run build` 各退出 0；改动只落在 Touches 列出的文件上（`git diff --stat develop...HEAD` 逐条对齐）。
 
 ## DoD
 

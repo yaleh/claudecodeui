@@ -19,7 +19,7 @@ import type {
   NormalizedMessage,
   ProcessHost,
 } from '@/shared/types.js';
-import { AppError, sliceTailPage } from '@/shared/utils.js';
+import { AppError, sliceAroundIndex, sliceTailPage } from '@/shared/utils.js';
 
 type CreateAppSessionResult = {
   sessionId: string;
@@ -98,6 +98,30 @@ type SessionTurnOutlineTurn = {
 type SessionTurnOutline = {
   total: number;
   turns: SessionTurnOutlineTurn[];
+};
+
+/**
+ * A window of messages taken around one located message, as the read surface
+ * returns it. Frontend mirror of the same declaration in `src/shared/types.ts`
+ * (`SessionMessageWindow`), kept here so the server build never reaches into the
+ * browser's type tree.
+ *
+ * `startIndex` and `total` are absolute subscripts in the full normalized
+ * history — the same array the paginated messages route slices — so a window
+ * read before an append still names the same positions after it, unlike a tail
+ * offset. The two `hasMore*` flags say whether the window is cut off at that
+ * edge.
+ */
+type SessionMessageWindow = {
+  messages: NormalizedMessage[];
+  /** Absolute 0-based subscript of `messages[0]` in the full normalized history. */
+  startIndex: number;
+  /** The full history's length, identical to the paginated route's `total`. */
+  total: number;
+  /** Whether a message older than `messages[0]` exists before the window. */
+  hasMoreBefore: boolean;
+  /** Whether a message newer than the last window message exists after it. */
+  hasMoreAfter: boolean;
 };
 
 /**
@@ -657,6 +681,89 @@ export const sessionsService = {
         ...message,
         sessionId,
       })),
+    };
+  },
+
+  /**
+   * Returns a window of messages centered on one message id.
+   *
+   * The id is resolved against the *same* full normalized history `fetchHistory`
+   * pages over (claude/codex through the stat-validated transcript cache; Cursor
+   * and OpenCode through their own full read) and by the same identity rule the
+   * outline uses: the provider's own `transcriptAnchorId` when present, else the
+   * synthesized message id. That makes both an outline turn id and the id of a
+   * non-user message addressable, which is what lets a client load the
+   * neighborhood of a turn it has never fetched.
+   *
+   * Unlike the `offset` page, `startIndex`/`total` are absolute subscripts, so
+   * the window does not move when newer messages are appended. An id that is not
+   * present is an explicit `MESSAGE_NOT_FOUND` refusal — never a fall back to the
+   * newest page, which would silently answer a different question.
+   */
+  async fetchWindowAround(
+    sessionId: string,
+    options: { aroundId: string; before: number; after: number },
+  ): Promise<SessionMessageWindow> {
+    const session = sessionsDb.getSessionById(sessionId);
+    if (!session) {
+      throw new AppError(`Session "${sessionId}" was not found.`, {
+        code: 'SESSION_NOT_FOUND',
+        statusCode: 404,
+      });
+    }
+
+    // A session with no provider transcript cannot contain the id; say so rather
+    // than answer with an empty — or, worse, the newest — page.
+    if (!session.provider_session_id) {
+      throw new AppError(
+        `No message with id "${options.aroundId}" was found in session "${sessionId}".`,
+        { code: 'MESSAGE_NOT_FOUND', statusCode: 404 },
+      );
+    }
+
+    const provider = session.provider as LLMProvider;
+    const providerSessions = providerRegistry.resolveProvider(provider).sessions;
+    const providerSessionId = session.provider_session_id;
+    const projectPath = session.project_path ?? '';
+
+    // Same cache split as `fetchHistory`: only the providers whose history reader
+    // parses `jsonl_path` itself may use the stat-validated cache.
+    const transcriptPath = provider === 'claude' || provider === 'codex'
+      ? session.jsonl_path
+      : null;
+    const loadFull = () => providerSessions.fetchHistory(sessionId, {
+      limit: null,
+      offset: 0,
+      projectPath,
+      providerSessionId,
+    });
+    const fullHistory = await sessionHistoryCache.getFullHistory({
+      sessionId,
+      transcriptPath,
+      loadFull,
+    });
+    const full = fullHistory ?? await loadFull();
+
+    const located = sliceAroundIndex(
+      full.messages,
+      (message) => (message.transcriptAnchorId ?? message.id) === options.aroundId,
+      options.before,
+      options.after,
+    );
+
+    if (!located) {
+      throw new AppError(
+        `No message with id "${options.aroundId}" was found in session "${sessionId}".`,
+        { code: 'MESSAGE_NOT_FOUND', statusCode: 404 },
+      );
+    }
+
+    return {
+      messages: located.page.map((message) => ({ ...message, sessionId })),
+      startIndex: located.startIndex,
+      total: located.total,
+      hasMoreBefore: located.hasMoreBefore,
+      hasMoreAfter: located.hasMoreAfter,
     };
   },
 

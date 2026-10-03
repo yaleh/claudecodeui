@@ -1,7 +1,7 @@
 ---
 id: AC-210
 title: 按 id 取窗口的结果与 total 一致且在追加消息后稳定
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-017
 criterion: for f in
@@ -26,6 +26,11 @@ statusLog:
     to: active
     actor: yale-session
     reason: GOAL-017 激活：判据已观测为红（缺判据文件）
+  - at: 2026-10-03T17:29:24.569Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
