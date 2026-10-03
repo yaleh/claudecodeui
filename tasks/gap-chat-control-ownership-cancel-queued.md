@@ -1,7 +1,7 @@
 ---
 id: gap-chat-control-ownership-cancel-queued
 title: AC-198 归属校验单入口抽取与 cancel-queued 规整：回执带 requestId、归属不符 ⇒ forbidden 不调驱动，既有用例全绿
-status: ready
+status: done
 labels:
   - gap
 parent: null
