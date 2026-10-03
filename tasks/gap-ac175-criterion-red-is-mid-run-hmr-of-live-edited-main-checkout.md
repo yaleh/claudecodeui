@@ -235,9 +235,9 @@ IN-FLIGHT AC-175 claimant: ready  gap-ac175-criterion-red-is-mid-run-hmr-of-live
 
 ### 5. AC5 承重面未被本条触碰
 
-主检出 `git status --porcelain` 与本条开工快照对照：**只多一行新未跟踪文件** `?? experiments/voice-draft/s2/asr.jsonl`（不在 composer WIP 路径、非本条所写 —— 本条对主检出只做 `find`/`stat`/`git log`/`git status` 只读；它在会话运行中出现，属其它动作）。其余 2 个 `M` + 9 个 `??` 与开工快照逐字一致。⛔ 本条**未** `stash`、**未** `git checkout --`、**未**编辑任何 `src/**`、`e2e/**`、`server/**`、`playwright.config.ts`；两次跑动均从**隔离 worktree** 发起，数据写 `~/.cache/quay-e2e-tmp/**`。
+主检出 `git status --porcelain` 与本条开工快照对照（观测 `2026-10-03T09:53:55Z`）：**只多 4 个新未跟踪文件** —— `?? experiments/voice-draft/s1/audit-dump.mts`、`?? experiments/voice-draft/s1/semantic.mts`、`?? experiments/voice-draft/s2/asr.jsonl`、`?? experiments/voice-draft/s2/drafts.jsonl`（全在 `experiments/voice-draft/`，**非本条所写**；本条对主检出一律只读）。**无任何条目消失**；2 个 `M`（`experiments/voice-draft/s1/results.jsonl`、`experiments/voice-draft/s2/manifest.json`）与原 9 个 `??` 逐字不变；`src/**`、`e2e/**`、`server/**`、`playwright.config.ts` 的跟踪状态一字未动。⛔ 本条**未** `stash`、**未** `git checkout --`、**未**编辑上述任何路径；两次跑动均从**隔离 worktree** 发起，数据写 `~/.cache/quay-e2e-tmp/**`。
 
-worktree 侧：`git diff --name-only develop..HEAD` 的终态读数见 §7（本条交付提交经 provider 的 branch-aware 落库后补齐）。
+worktree 侧：交付提交经 provider 的 branch-aware 落库（`author` 上提交后 ff 到 `develop`）；worktree fast-forward 到它后 `git diff --name-only develop..HEAD` = **空**（task 分支相对 develop 零额外 delta，交付面全在该 task 文件的提交里）。逐字见 §7。
 
 ### 6. AC6 如实登记与判法
 
@@ -253,4 +253,25 @@ worktree 侧：`git diff --name-only develop..HEAD` 的终态读数见 §7（本
 
 ### 7. 终态
 
-（本条交付提交落库后按实际读数补齐。）
+`task_write`（Provider ABI）把交付提交落库。首笔（**观测 `2026-10-03T09:54Z`，即完成记录定稿这笔 task_write 之前**）：
+
+```
+$ git -C /data/home/yale/work/claudecodeui show --stat --format='%h %s' 743c6d57
+743c6d57 tasks: gap-ac175-criterion-red-is-mid-run-hmr-of-live-edited-main-checkout task_write by cli:1251972
+
+ ...-is-mid-run-hmr-of-live-edited-main-checkout.md | 190 ++++++++++++++++++++-
+ 1 file changed, 183 insertions(+), 7 deletions(-)
+```
+
+该提交在 `author` 上落，随后 provider 的 branch-aware ff（`git push . author:develop`）把 `develop` 一并推进 ⇒ `author` == `develop` == `743c6d5725f863981711bad3eb5174bcba5370f3`。worktree step 2b(i) `git -C <worktree> merge --no-edit develop` 逐字 `Updating a00ac423..743c6d57 / Fast-forward`；随后：
+
+```
+$ git -C <worktree> rev-parse HEAD ; git -C <worktree> rev-parse develop
+743c6d5725f863981711bad3eb5174bcba5370f3
+743c6d5725f863981711bad3eb5174bcba5370f3
+
+$ git -C <worktree> diff --name-only develop..HEAD
+（空）
+```
+
+⇒ **AC5 承重面读出**：交付提交只含 `tasks/<id>.md`（1 file changed）；task 分支相对 develop 零额外 delta；主检出 tracked 面与开工快照逐字一致（§5）。完成记录定稿这笔 task_write 同形（provider 对 body 变更加 `## 完成记录` 判为 must-propagate，照旧 `author`→ff `develop`；worktree 再 ff 一次）。
