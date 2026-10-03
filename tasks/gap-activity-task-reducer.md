@@ -59,17 +59,17 @@ goal_ac: AC-191
 
 ## AC
 
-- [ ] AC1 判据绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-activity-task-reducer.test.ts` 退出 **0**，stdout `fail 0`。
-- [ ] AC2 (a) 嵌套：后台子代理的内部 Bash 任务的 `parentTaskId` 由其 `parent_tool_use_id` 命中父任务的 `toolUseId` 还原；断言子任务 `parentTaskId === 父任务 taskId`。
-- [ ] AC3 (b) Monitor 超时：`task_updated{killed}` + `task_notification{stopped}` ⇒ Monitor 任务 `state === 'stopped'`（断言不等于 `'failed'`）。
-- [ ] AC4 (c) Workflow：`kind === 'workflow'`、`workflowName === 'simple-workflow-ok'`、`stepLabel` 等于最近一条 `task_progress.description`（给出两条 progress，断言取后一条）。
-- [ ] AC5 (d) 前台 Bash 在转后台前不是任务：喂入前台 Bash 的 `assistant.tool_use` 后 `getTasks` 里**没有**该任务；喂入同刻的 `task_started` + `task_updated{patch:{is_backgrounded:true}}` 后才有，且 `isBackgrounded === true`。
-- [ ] AC6 (e) 只有 `task_updated{completed}`（无 `task_notification`）的后台 Bash ⇒ `state === 'completed'`。
-- [ ] AC7 (f) Stop hook 校准：表里未终结但快照缺失的任务 ⇒ `state === 'ended'` 且 `endReason === 'unknown'`；快照里有而事件没见过的任务 ⇒ 被补建且 `origin === 'stop-hook-snapshot'`。
-- [ ] AC8 (g) 重放幂等：同一帧序喂两遍（同一实例重放 + 两个新实例各一遍），`getTasks` 结果 `assert.deepEqual` 相等。
-- [ ] AC9 (h) 跨会话隔离：两个会话的帧交错喂入，`getTasks(A)` 不含 B 的任务、`getTasks(B)` 不含 A 的任务。
-- [ ] AC10 假形态有分辨力：(b) 的变体（`killed → failed`）与 (d) 的变体（`tool_use` 即建任务）各复用主用例的读数函数直跑，读数必须红；测试打印两臂的绿/红读数，证明主断言不是恒真。
-- [ ] AC11 契约面：`npm run typecheck` 退出 0、`npm run lint` 退出 0、`npm run build` 退出 0；改动只落在 Touches 列出的文件上（`git diff --stat develop...HEAD` 逐条对齐）。
+- [x] AC1 判据绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-activity-task-reducer.test.ts` 退出 **0**，stdout `fail 0`。
+- [x] AC2 (a) 嵌套：后台子代理的内部 Bash 任务的 `parentTaskId` 由其 `parent_tool_use_id` 命中父任务的 `toolUseId` 还原；断言子任务 `parentTaskId === 父任务 taskId`。
+- [x] AC3 (b) Monitor 超时：`task_updated{killed}` + `task_notification{stopped}` ⇒ Monitor 任务 `state === 'stopped'`（断言不等于 `'failed'`）。
+- [x] AC4 (c) Workflow：`kind === 'workflow'`、`workflowName === 'simple-workflow-ok'`、`stepLabel` 等于最近一条 `task_progress.description`（给出两条 progress，断言取后一条）。
+- [x] AC5 (d) 前台 Bash 在转后台前不是任务：喂入前台 Bash 的 `assistant.tool_use` 后 `getTasks` 里**没有**该任务；喂入同刻的 `task_started` + `task_updated{patch:{is_backgrounded:true}}` 后才有，且 `isBackgrounded === true`。
+- [x] AC6 (e) 只有 `task_updated{completed}`（无 `task_notification`）的后台 Bash ⇒ `state === 'completed'`。
+- [x] AC7 (f) Stop hook 校准：表里未终结但快照缺失的任务 ⇒ `state === 'ended'` 且 `endReason === 'unknown'`；快照里有而事件没见过的任务 ⇒ 被补建且 `origin === 'stop-hook-snapshot'`。
+- [x] AC8 (g) 重放幂等：同一帧序喂两遍（同一实例重放 + 两个新实例各一遍），`getTasks` 结果 `assert.deepEqual` 相等。
+- [x] AC9 (h) 跨会话隔离：两个会话的帧交错喂入，`getTasks(A)` 不含 B 的任务、`getTasks(B)` 不含 A 的任务。
+- [x] AC10 假形态有分辨力：(b) 的变体（`killed → failed`）与 (d) 的变体（`tool_use` 即建任务）各复用主用例的读数函数直跑，读数必须红；测试打印两臂的绿/红读数，证明主断言不是恒真。
+- [x] AC11 契约面：`npm run typecheck` 退出 0、`npm run lint` 退出 0、`npm run build` 退出 0；改动只落在 Touches 列出的文件上（`git diff --stat develop...HEAD` 逐条对齐）。
 
 ## DoD
 
