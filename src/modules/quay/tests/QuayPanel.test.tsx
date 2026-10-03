@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import { render } from '@testing-library/react';
 import React from 'react';
@@ -118,4 +120,38 @@ test('QuayPanel renders an empty state for each detail list when the recents are
   assert.match(getByTestId('quay-panel-recent-adrs-empty').textContent ?? '', /No ADRs reported/);
   assert.equal(container.querySelector('[data-testid="quay-panel-recent-tasks-row"]'), null);
   assert.equal(container.querySelector('[data-testid="quay-panel-recent-adrs-row"]'), null);
+});
+
+/**
+ * Every `md:grid-cols-2` grid on the panel must also declare a base column count.
+ *
+ * Without `grid-cols-1` Tailwind emits no `grid-template-columns` below `md`, and an
+ * implicit grid track has no `minmax(0, 1fr)` floor: its min width falls back to the
+ * content's min-content width. A row title is `truncate`d (`white-space: nowrap`), so
+ * its min-content width is the whole unbroken line — and on a 390px phone the track is
+ * stretched to that width, the grid overflows its `overflow-hidden` ancestor, and the
+ * text is clipped instead of ellipsised.
+ *
+ * This is a source-level assertion because jsdom does not compute real CSS grid track
+ * sizes, so a rendered reading here cannot see the defect at all. The real-browser
+ * reading lives in `e2e/zz-quay-panel-mobile-grid.spec.ts`; this one exists so that a
+ * future edit cannot silently drop the base column count again.
+ */
+test('QuayPanel’s responsive grids declare a base column count so they cannot blow out below `md`', () => {
+  const source = fs.readFileSync(path.resolve(process.cwd(), 'src/modules/quay/QuayPanel.tsx'), 'utf8');
+  const gridClassNames = source.match(/className="[^"]*\bgrid\b[^"]*"/g) ?? [];
+  const responsive = gridClassNames.filter((className) => className.includes('md:grid-cols-2'));
+
+  assert.equal(
+    responsive.length,
+    2,
+    `expected both of the panel's \`md:grid-cols-2\` grids; found ${JSON.stringify(gridClassNames)}`,
+  );
+  for (const className of responsive) {
+    const tokens = className.split(/[\s"]+/);
+    assert.ok(
+      tokens.includes('grid-cols-1'),
+      `a \`md:grid-cols-2\` grid is missing its base column count (grid-cols-1): ${className}`,
+    );
+  }
 });

@@ -211,7 +211,7 @@ function LoadedQuayPanel({
         <SummaryCard label="ADRs" value={String(snapshot.adrs?.total ?? 0)} />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <section>
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tasks by status</h3>
           {taskStatuses.length === 0 ? (
@@ -249,7 +249,7 @@ function LoadedQuayPanel({
         </section>
       </div>
 
-      <div className="mt-4 grid gap-4 md:grid-cols-2">
+      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
         <DetailList
           title="Recent tasks"
           items={recentTasks}

@@ -1,7 +1,7 @@
 ---
 id: gap-quay-panel-mobile-grid-blowout
 title: Quay 面板移动端 Recent tasks/Tasks by status 网格溢出,文字被裁而不能横滑
-status: ready
+status: done
 labels:
   - gap
   - defect
