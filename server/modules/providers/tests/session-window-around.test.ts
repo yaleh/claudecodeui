@@ -24,6 +24,24 @@
  *     asserts `fetchWindowAround` rejects with `MESSAGE_NOT_FOUND` (and the route
  *     answers 404); any resolved value — newest page included — fails.
  *
+ * ## Recorded mutation probes (AC2)
+ *
+ * Both false forms were applied to the committed green tree, run, and reverted.
+ *
+ * (a) `sliceAroundIndex` sliced the newest stretch instead of the located index
+ *     (`start = total - (before + after + 1)`, `startIndex = start`) and did not
+ *     recompute an absolute position. `--test-name-pattern="stable across an
+ *     append"` failed on the assertion at line 347
+ *     (`assert.equal(readAfter.startIndex, readBefore.startIndex)`) with
+ *     `actual: 1309, expected: 1229` — the 80 appended messages moved the
+ *     tail-relative index. Restore: `git checkout -- server/shared/utils.ts`.
+ *
+ * (b) `fetchWindowAround` returned the newest `before + after + 1` messages in
+ *     place of throwing. `--test-name-pattern="unknown id is an explicit"` failed
+ *     with `AssertionError [ERR_ASSERTION]: Missing expected rejection.` at the
+ *     `assert.rejects` call (line 365). Restore:
+ *     `git checkout -- server/modules/providers/services/sessions.service.ts`.
+ *
  * ## How the untouched-path claim is compared (AC3)
  *
  * The pre-change tail contract is `sliceTailPage`, and this task does not touch
