@@ -949,6 +949,15 @@ export function useChatComposerState({
       // leave nothing behind for the next, unrelated send to pick up.
       const residentIntent = consumePendingResidentIntent();
 
+      // The draft scope this message was typed in. Captured before the first await, and in
+      // particular before the session is allocated and established: a brand-new chat is navigated
+      // to its session *during* the send, and every await after that point (the resident
+      // lifecycle-mode write) lets the composer re-render onto the new scope. Read any
+      // later, this is the new session's empty scope, the typed-in `project:` draft is never retired
+      // and the next New Session opens on the message that was already sent. The clear belongs to
+      // the scope the text was typed in.
+      const sentDraftScope = draftScopeRef.current;
+
       // The conversation always has a stable backend-allocated session id
       // BEFORE the first websocket send: brand-new chats allocate one here
       // via the session gateway. There is no client-visible session-id
@@ -1082,14 +1091,6 @@ export function useChatComposerState({
 
       setIsUserScrolledUp(false);
       setTimeout(() => scrollToBottom(), 100);
-
-      // The draft scope this message was typed in. Captured here, at send time,
-      // rather than read when the send settles: a brand-new chat is navigated
-      // to its session *during* the send, so by the time an answer arrives the
-      // composer may already be bound to a different scope. The clear belongs to
-      // the scope the text was typed in, or it leaves that scope holding the
-      // message and wipes the new session's fresh box instead.
-      const sentDraftScope = draftScopeRef.current;
 
       /**
        * The composer state a *delivered* message leaves behind: recorded in the
