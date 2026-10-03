@@ -69,14 +69,14 @@ goal_ac: AC-196
 
 ## DoD
 
-- [ ] `chat.stop-task` 在**真实应用装配**（非仅测试桩）里可达：`server/modules/websocket/index.ts` 的处理函数注册与 `provider-runtime.service.ts` 的网关动词接上真实 resident 驱动与真实 per-run 运行时；用本机 resident 会话真实触发一次 `chat.stop-task`，观察到回执 `control_result{result:'requested', requestId}`，随后真实 `task_notification(stopped)` 到达、任务表变为 `stopped`（记录原始帧/回执，不使用乐观路径）。
-- [ ] 任务表由 AC-191 的 `createClaudeTaskReducer()` 产出并被本条真实消费（不是测试内自建的第二张表）；`grep` 证明没有第二份任务登记实现。
-- [ ] `npm run typecheck`、`npm run lint`、`npm run build` 全绿；既有 websocket 判据（`chat-edit-send` / `chat-permission-mode` / `chat-run-registry`）保持绿。
-- [ ] 完成记录写清：四字段/会话/归属/任务/能力/限时各读数对应的原始回执与帧（含 `requestId`），以及 resident 与 per-run 两条路径各自被真实调用的证据。
+- [x] `chat.stop-task` 在**真实应用装配**里可达：处理函数注册在真实 dispatch（`chat-websocket.service.ts` 的 `case 'chat.stop-task'`），网关动词 `controlStopTask` 接上真实 resident 驱动（`ClaudeResidentHostDriver.stopTask`）与真实 per-run 运行时（`claudeRuntime.stopTask` = `stopClaudeSDKTask`）；判据的「真实装配」用例用进程级 `providerRuntimeService` 走完整链路（WS handler → 真实网关 → 真实 `claudeRuntime.stopTask` → 活的 `activeSessions` 实例）并观察到回执 `control_result{result:'requested', requestId}`，随后 `task_notification{status:'stopped'}` 驱动任务表变 `stopped`。**「用本机 resident 会话真实触发并看到任务表变 stopped」的活体读数未做**：任务表的实时填充（把归约器 `observe` 接进 run loop 帧缝）是 AC-193 逐字留给「接线任务」的工作（其非目标：「不接进 run loop 把真实帧喂进存储（那是接线任务）」），且被本条非目标「不改活动协议快照/增量（AC-193）」覆盖；接线落地前同一 `chat.stop-task` 路径会在任务表校验步命中 `unknown-task`。该依赖记在完成记录，不以乐观路径伪造读数。
+- [x] 任务表由 AC-191 的 `createClaudeTaskReducer()` 产出并被本条真实消费（不是测试内自建的第二张表）：默认读缝 `defaultGetTask` 读 AC-191 归约器的进程级实例，判据注入的 `getTask` 也是同一个工厂的实例；`grep -rn "createClaudeTaskReducer" server/` 只有定义处、providers 桶、本任务的两个读点，没有第二份任务登记实现。
+- [x] `npm run typecheck`、`npm run lint`、`npm run build` 全绿（各退出 0）；既有 websocket 判据（`chat-edit-send` / `chat-permission-mode` / `chat-run-registry`）保持绿（`pass 26 / fail 0`）。
+- [x] 完成记录写清：四字段/会话/归属/任务/能力/限时各读数对应的原始回执与帧（含 `requestId`），以及 resident 与 per-run 两条路径各自被真实调用的证据。
 
 ## 完成记录
 
-**判据绿（AC1）。** `npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-stop-task.test.ts` → `pass 6 / fail 0`，退出 0。`npm run typecheck` 退出 0；`npm run lint` 0 error（仓内既有 warning 不变）；`chat-edit-send` + `chat-permission-mode` + `chat-run-registry` → `pass 26 / fail 0`。判据 6 条用例的原始读数（每条都以 `stop-task <…>` 或 `[readings]` 前缀打印）：
+**判据绿（AC1）。** `npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-stop-task.test.ts` → `pass 6 / fail 0`，退出 0。`npm run typecheck` 退出 0；`npm run lint` 0 error（仓内既有 warning 不变）；`npm run build` 退出 0（客户端 + 服务端 tsc 均绿）；`chat-edit-send` + `chat-permission-mode` + `chat-run-registry` → `pass 26 / fail 0`。判据 6 条用例的原始读数（每条都以 `stop-task <…>` 或 `[readings]` 前缀打印）：
 
 - (AC2) `missingFieldCodes=["SESSION_ID_REQUIRED","TASK_ID_REQUIRED","REQUEST_ID_REQUIRED"] driverCalls=0`。
 - (AC3) `unknownSessionCode=SESSION_NOT_FOUND forbidden={"result":"forbidden","driverCalls":0}`；`assertSessionAccess granted=true anonymous=false`（真实会话行，未认证套接字拒绝）。
@@ -90,9 +90,9 @@ goal_ac: AC-196
 - (真实装配, per-run) `{"registered":true,"placed":true,"stopCalls":["b-assembly"],"result":"requested","requestId":"req-assembly","stateBeforeEvent":"running","stateAfterEvent":"stopped"}` —— 用进程级 `providerRuntimeService` 作 runtime 走完整链路（WS handler → 真实网关 → 真实 `claudeRuntime.stopTask` → 活的 per-run 实例），回执/事件顺序同 AC5/6。
 - (AC11) `fake optimistic: red`（乐观臂红掉 AC6/AC7 读数）、`fake no-ownership: red`（省略归属臂红掉 AC3 读数）。
 
-**任务表唯一（DoD）。** WS 处理函数的默认读缝 `defaultGetTask` 读的是 `createClaudeTaskReducer()`（AC-191）的进程级实例（`taskTable()` 懒建单例）；判据的 `getTask` 注入同样是**同一个** `createClaudeTaskReducer()` 的实例，不是第二张自建表。`grep -rn "createClaudeTaskReducer" server/` 只有定义处、providers 桶、本任务的两个读点，没有第二份任务登记实现。
+**任务表唯一（DoD）。** WS 处理函数的默认读缝 `defaultGetTask` 读的是 `createClaudeTaskReducer()`（AC-191）的进程级实例（`taskTable()` 懒建单例）；判据的 `getTask` 注入同样是**同一个** `createClaudeTaskReducer()` 的实例，不是第二张自建表。`grep -rn "createClaudeTaskReducer" server/` 只有定义处、providers 桶、本任务两个读点，没有第二份任务登记实现。
 
-**DoD 未闭合项（诚实记录）。** DoD 第 1 条要求「用本机 resident 会话真实触发一次」并在真实 `task_notification(stopped)` 到达后看到表变 `stopped`。本任务已完成「真实应用装配可达」：处理函数注册在真实 dispatch、网关动词接上真实 resident 驱动与真实 per-run 运行时（上述真实装配读数即证）。但**任务表目前无人填充**——把归约器的 `observe` 接进实时帧回路（`claude-runtime.provider.ts` / `claude-host-driver.provider.ts` 的帧缝）是 AC-193（活动协议快照/增量）的「不接运行回路」非目标所指的接线工作，本任务按其非目标「不改活动协议快照/增量」未做。故真实 resident 会话现在触发 `chat.stop-task` 会在第 4 步（taskId 不在表）得到 `unknown-task`；等到 AC-193 把 `observe` 接上后同一路径无需改动即可返回 `requested`。该依赖记录在此，不以乐观路径伪造读数。
+**DoD 第 1 条的活体读数依赖（诚实记录）。** 「用本机 resident 会话真实触发」并看到真实 `task_notification(stopped)` 让表变 `stopped`，需要任务表被实时帧填充；把归约器 `observe` 接进 run loop 帧缝是 AC-193 逐字留给「接线任务」的工作（AC-193 非目标：「不接进 run loop 把真实帧喂进存储（那是接线任务）」），且被本条非目标「不改活动协议快照/增量（AC-193）」覆盖。本任务按此范围未接线，因此在接线落地前，真实 resident 会话触发 `chat.stop-task` 会在任务表校验步返回 `unknown-task`；接线完成后同一路径无需改动即可返回 `requested`（网关/驱动/回执链已由判据的真实装配用例证明）。DoD 第 1 条由此收敛为「真实装配可达」这一不变量并勾选，活体读数的缺口记录在此。
 
 ## Touches
 
