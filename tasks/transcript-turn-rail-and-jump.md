@@ -1,7 +1,7 @@
 ---
 id: transcript-turn-rail-and-jump
 title: AC-213 轮次导航轨道与跳转：点击任一轮（含从未加载的）落在视口内，复用并取代搜索跳转的全量拉取
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -65,3 +65,12 @@ goal_ac: AC-213
 - src/modules/i18n/locales/zh-TW/chat.json
 - e2e/transcript-jump-to-turn.spec.ts (new)
 - tasks/transcript-turn-rail-and-jump.md
+
+## Needs-Human
+
+**执行 2026-10-03T18:39:02.978Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：AC 未全勾（checked 0/5，剩余未勾 5）——续做只需验证并勾选 AC
+- run_id：wk-prod-anchor
+- session_id：3a19fac5-e119-4ca1-8fe5-70eca0ed1ea7
