@@ -50,17 +50,17 @@ goal_ac: AC-193
 
 ## AC
 
-- [ ] AC1 判据绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/activity-protocol.test.ts` 退出 **0**，stdout `fail 0`。
-- [ ] AC2 REST 快照：`GET` 某会话返回 200 与 `{sessionId, bootId, rev, asOf, turn, tasks, schedules}`；`turn` 等于注入读数器的结果，`tasks`/`schedules` 逐字段等于注入的假表；不存在的会话返回 404。
-- [ ] AC3 整条 upsert + rev 单调：注入的任务或计划变化后调用 `recordChange(sessionId)`，订阅者收到 `kind:'activity.upsert'`，**帧体等于此刻 `snapshot(sessionId)` 的整条内容**（非差量），其 `rev` 严格大于上一帧；连续两次变更得到 `rev+1`、`rev+2`。
-- [ ] AC4 晚加入者先快照后增量：一个在若干次变更**之后**才订阅的连接，**第一条**收到的是 `kind:'activity.snapshot'`（不是 upsert），其 `rev` 等于当前 rev；其后的变更才以 upsert 到达。
-- [ ] AC5 只接受快照 rev 之后的增量：测试用客户端锚定快照后，`rev === lastRev+1` 的 upsert 被应用；`rev <= lastRev` 的陈旧/重复帧被忽略，客户端状态不变。
-- [ ] AC6 rev 不连续即重拉：注入一次「跳过 rev」的推送（模拟丢帧）后，测试用客户端**对该会话重发 GET**（断言 GET 次数增加）并以新快照为准；断言它**没有**把不连续增量自行拼接（客户端状态等于权威快照，不等于拼接结果）。
-- [ ] AC7 同会话多连接各自游标：同一会话两个测试用客户端；一个发生跳号重拉后，另一个的 `lastRev` 与状态不受影响（各自独立）。
-- [ ] AC8 会话级淘汰无泄漏：`retireSession(sessionId)` 后 `sessionIds()` 不含该会话、`snapshot()` 返回 `null`、GET 返回 404，且该会话的订阅不再收到任何后续帧（`recordChange` 后零投递）。
-- [ ] AC9 快照与增量同源：同一次变更下，upsert 帧体与紧接着的 GET 快照（同 rev）逐字段相等（deepEqual）——证明两条路径读的是同一个源。
-- [ ] AC10 假形态有分辨力：(1) 不带 `rev` 的 upsert 变体 ⇒ AC6 读数红；(2) 快照与增量不同源的变体 ⇒ AC9 读数红。两臂各复用主用例读数函数，打印绿/红读数证明主断言不是恒真。
-- [ ] AC11 契约面：`npm run typecheck`、`npm run lint`、`npm run build` 各退出 0；`npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/activity-heartbeat.process.test.ts` 仍退出 0（不破 AC-182）；改动只落在 Touches 列出的文件上（`git diff --stat develop...HEAD` 逐条对齐）。
+- [x] AC1 判据绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/activity-protocol.test.ts` 退出 **0**，stdout `fail 0`。
+- [x] AC2 REST 快照：`GET` 某会话返回 200 与 `{sessionId, bootId, rev, asOf, turn, tasks, schedules}`；`turn` 等于注入读数器的结果，`tasks`/`schedules` 逐字段等于注入的假表；不存在的会话返回 404。
+- [x] AC3 整条 upsert + rev 单调：注入的任务或计划变化后调用 `recordChange(sessionId)`，订阅者收到 `kind:'activity.upsert'`，**帧体等于此刻 `snapshot(sessionId)` 的整条内容**（非差量），其 `rev` 严格大于上一帧；连续两次变更得到 `rev+1`、`rev+2`。
+- [x] AC4 晚加入者先快照后增量：一个在若干次变更**之后**才订阅的连接，**第一条**收到的是 `kind:'activity.snapshot'`（不是 upsert），其 `rev` 等于当前 rev；其后的变更才以 upsert 到达。
+- [x] AC5 只接受快照 rev 之后的增量：测试用客户端锚定快照后，`rev === lastRev+1` 的 upsert 被应用；`rev <= lastRev` 的陈旧/重复帧被忽略，客户端状态不变。
+- [x] AC6 rev 不连续即重拉：注入一次「跳过 rev」的推送（模拟丢帧）后，测试用客户端**对该会话重发 GET**（断言 GET 次数增加）并以新快照为准；断言它**没有**把不连续增量自行拼接（客户端状态等于权威快照，不等于拼接结果）。
+- [x] AC7 同会话多连接各自游标：同一会话两个测试用客户端；一个发生跳号重拉后，另一个的 `lastRev` 与状态不受影响（各自独立）。
+- [x] AC8 会话级淘汰无泄漏：`retireSession(sessionId)` 后 `sessionIds()` 不含该会话、`snapshot()` 返回 `null`、GET 返回 404，且该会话的订阅不再收到任何后续帧（`recordChange` 后零投递）。
+- [x] AC9 快照与增量同源：同一次变更下，upsert 帧体与紧接着的 GET 快照（同 rev）逐字段相等（deepEqual）——证明两条路径读的是同一个源。
+- [x] AC10 假形态有分辨力：(1) 不带 `rev` 的 upsert 变体 ⇒ AC6 读数红；(2) 快照与增量不同源的变体 ⇒ AC9 读数红。两臂各复用主用例读数函数，打印绿/红读数证明主断言不是恒真。
+- [x] AC11 契约面：`npm run typecheck`、`npm run lint`、`npm run build` 各退出 0；`npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/activity-heartbeat.process.test.ts` 仍退出 0（不破 AC-182）；改动只落在 Touches 列出的文件上（`git diff --stat develop...HEAD` 逐条对齐）。
 
 ## DoD
 
