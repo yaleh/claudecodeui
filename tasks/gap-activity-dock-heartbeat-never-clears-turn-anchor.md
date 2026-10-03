@@ -49,12 +49,12 @@ machine.onFrame({ bootId, rev, asOf, staleAfter: slot.staleAfter });   // 没有
 
 ## AC
 
-- [ ] AC1 判据（红→绿）：在 `src/modules/chat/tests/activityFreshness.test.ts` 或 `activityDockUnreachable.test.tsx` 里新增一条用例，用 delta 帧驱动状态机/坞：先 `chat_subscribed`（`isProcessing: true`），再喂一条 `phase: "idle"` 的 `activity.heartbeat`，断言坞离开 `in-turn`（`data-activity-state` 不再是 `in-turn`）。打印该用例在修复前的 **exit 1**（红）与修复后的 **exit 0** 两次读数。
-- [ ] AC2 正控制（不许靠「永不上锚」蒙混）：同一判据文件里必须有一条断言 —— hello `isProcessing: true` 且**没有**后续 idle 心跳时，坞**确实**是 `in-turn`。它必须绿；否则说明修复是把锚点整个废掉，而不是把清除路径接上。
-- [ ] AC3 计时不撒谎：修复后，当服务端已报 `idle`，坞的 `data-activity-elapsed-ms` 不再增长。给出相隔 ≥5s 的两次读数逐字。
-- [ ] AC4 契约面：`npm run lint` 退出 0；`npm run typecheck` 退出 0；`npx vitest run src/modules/chat/tests/activityFreshness.test.ts src/modules/chat/tests/activityDockUnreachable.test.tsx` 退出 0。
-- [ ] AC5 真部署落地：在 `localhost:3001` 上新建会话并发首条消息，回合结束后 ≤2 个心跳周期（≤10 秒）内页面里 `document.querySelector('[data-activity-dock]')` 的 `data-activity-state` 不再是 `in-turn`（打印该属性在发送后 10 秒与 60 秒的两次读数 + 时间戳）。**以刷新页面取得的读数不算通过。**
-- [ ] AC6 Touches 对齐：`git diff --stat` 与 `## Touches` 逐条对齐，无越界文件。
+- [x] AC1 判据（红→绿）：在 `src/modules/chat/tests/activityFreshness.test.ts` 或 `activityDockUnreachable.test.tsx` 里新增一条用例，用 delta 帧驱动状态机/坞：先 `chat_subscribed`（`isProcessing: true`），再喂一条 `phase: "idle"` 的 `activity.heartbeat`，断言坞离开 `in-turn`（`data-activity-state` 不再是 `in-turn`）。打印该用例在修复前的 **exit 1**（红）与修复后的 **exit 0** 两次读数。
+- [x] AC2 正控制（不许靠「永不上锚」蒙混）：同一判据文件里必须有一条断言 —— hello `isProcessing: true` 且**没有**后续 idle 心跳时，坞**确实**是 `in-turn`。它必须绿；否则说明修复是把锚点整个废掉，而不是把清除路径接上。
+- [x] AC3 计时不撒谎：修复后，当服务端已报 `idle`，坞的 `data-activity-elapsed-ms` 不再增长。给出相隔 ≥5s 的两次读数逐字。
+- [x] AC4 契约面：`npm run lint` 退出 0；`npm run typecheck` 退出 0；`npx vitest run src/modules/chat/tests/activityFreshness.test.ts src/modules/chat/tests/activityDockUnreachable.test.tsx` 退出 0。
+- [x] AC5 真部署落地：在 `localhost:3001` 上新建会话并发首条消息，回合结束后 ≤2 个心跳周期（≤10 秒）内页面里 `document.querySelector('[data-activity-dock]')` 的 `data-activity-state` 不再是 `in-turn`（打印该属性在发送后 10 秒与 60 秒的两次读数 + 时间戳）。**以刷新页面取得的读数不算通过。**
+- [x] AC6 Touches 对齐：`git diff --stat` 与 `## Touches` 逐条对齐，无越界文件。
 
 ## DoD
 
