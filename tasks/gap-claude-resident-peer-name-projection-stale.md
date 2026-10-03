@@ -50,15 +50,15 @@ extra:
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-peer-name-refresh.test.ts` 退出 0
-- [ ] **承重读数（先于实现，红态实测）**：修前树上该命令退出非 0，且红在「投影 `peerName` 逐字等于注册表 `name`」那条断言上；判据打印 `projection.peerName=<v> registry.name=<v> equal=false` 与 `registry.nameSource=<v>`。
-- [ ] **冷启动完整链**：冷启动宿主（无标题 ⇒ `launchedTitle=null`）⇒ 投影曾为 derived（打印 `t0.peerName=<v>` 与 `t0.registry.nameSource=derived`）⇒ 转录出现定稿 ai-title ⇒ 注册表 `name` 逐字等于该 ai-title 且 `nameSource != 'derived'` ⇒ **投影随后逐字等于它**（打印 `after.peerName=<v> after.registry.name=<v> equal=true` 与墙钟）。
-- [ ] **正控制（防恒真）**：同一次运行里，一个启动时就有标题的宿主（`launchedTitle` 非 null）投影从一开始就等于标题 —— 打印两行并断言相等。
-- [ ] **只读不造**：投影的值逐字来自 `~/.claude/sessions/<pid>.json`（判据自己再读一次该文件并打印 pid / name / nameSource，断言三者与投影一致）；不得来自前端或 App 缓存列。
-- [ ] **假形态必红**：把重读路径摘掉（恢复成一次性读回）⇒ 本判据红在承重断言上；登记变异 diff 或等价的可复现说明。
-- [ ] **既有判据不退**：`claude-resident-addressable.test.ts`、`claude-resident-name-live-mirror.test.ts`、`claude-resident-name-mirror-latency.test.ts`、`claude-session-name-authority.test.ts` 逐个独立进程退 0，逐条打印命令与退出码。
-- [ ] `npm run typecheck` 三条链退出 0；`npm run lint` 退出 0（仅既有 warning）。
-- [ ] `git diff --stat develop...HEAD` 只出现在 `## Touches` 列出的文件里。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-peer-name-refresh.test.ts` 退出 0
+- [x] **承重读数（先于实现，红态实测）**：修前树上该命令退出非 0，且红在「投影 `peerName` 逐字等于注册表 `name`」那条断言上；判据打印 `projection.peerName=<v> registry.name=<v> equal=false` 与 `registry.nameSource=<v>`。
+- [x] **冷启动完整链**：冷启动宿主（无标题 ⇒ `launchedTitle=null`）⇒ 投影曾为 derived（打印 `t0.peerName=<v>` 与 `t0.registry.nameSource=derived`）⇒ 转录出现定稿 ai-title ⇒ 注册表 `name` 逐字等于该 ai-title 且 `nameSource != 'derived'` ⇒ **投影随后逐字等于它**（打印 `after.peerName=<v> after.registry.name=<v> equal=true` 与墙钟）。
+- [x] **正控制（防恒真）**：同一次运行里，一个启动时就有标题的宿主（`launchedTitle` 非 null）投影从一开始就等于标题 —— 打印两行并断言相等。
+- [x] **只读不造**：投影的值逐字来自 `~/.claude/sessions/<pid>.json`（判据自己再读一次该文件并打印 pid / name / nameSource，断言三者与投影一致）；不得来自前端或 App 缓存列。
+- [x] **假形态必红**：把重读路径摘掉（恢复成一次性读回）⇒ 本判据红在承重断言上；登记变异 diff 或等价的可复现说明。
+- [x] **既有判据不退**：`claude-resident-addressable.test.ts`、`claude-resident-name-live-mirror.test.ts`、`claude-resident-name-mirror-latency.test.ts`、`claude-session-name-authority.test.ts` 逐个独立进程退 0，逐条打印命令与退出码。
+- [x] `npm run typecheck` 三条链退出 0；`npm run lint` 退出 0（仅既有 warning）。
+- [x] `git diff --stat develop...HEAD` 只出现在 `## Touches` 列出的文件里。
 
 ## DoD
 
