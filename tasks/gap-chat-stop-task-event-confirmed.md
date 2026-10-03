@@ -2,7 +2,7 @@
 id: gap-chat-stop-task-event-confirmed
 title: AC-196 停止任务：WS 处理函数 chat.stop-task 校验会话/归属/任务表，限时，以
   task_notification(stopped) 为确认（resident 与 per-run 双驱动）
-status: todo
+status: ready
 labels:
   - gap
 parent: null

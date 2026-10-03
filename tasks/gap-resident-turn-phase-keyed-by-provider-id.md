@@ -2,7 +2,7 @@
 id: gap-resident-turn-phase-keyed-by-provider-id
 title: 常驻路径回合相位仍按 provider session id 写入、心跳按 app session id 读取：常驻会话回合中气泡恒为
   Working…（gap-activity-turn-phase-id-space-mismatch 只修了每轮运行路径）
-status: ready
+status: done
 labels:
   - gap
   - defect
