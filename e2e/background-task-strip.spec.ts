@@ -256,12 +256,14 @@ test.describe('background task strip', () => {
     await expect(page.locator(ROW)).toHaveCount(2, { timeout: 20_000 });
     const snapshotHeld = await readHosts(api);
     const domRowCount = await page.locator(ROW).count();
+    const rowTexts = (await page.locator(ROW).allInnerTexts()).map((text) => text.replace(/\s+/g, ' ').trim());
     const listingLeases = heldWorkLeases(snapshotHeld, sessionId);
     console.log(
       `held.domRows=${domRowCount} held.listingLeases=${listingLeases.length} `
         + `kinds=[${listingLeases.map((lease) => lease.kind).join(',')}] `
         + `since=[${listingLeases.map((lease) => String(lease.since ?? '(none)')).join(',')}]`,
     );
+    console.log(`held.rowTexts=${JSON.stringify(rowTexts)}`);
     expect(domRowCount, 'the strip must draw one row per held-work lease').toBe(2);
     expect(
       domRowCount,
@@ -281,8 +283,8 @@ test.describe('background task strip', () => {
     const paneText = (await page.locator(PANE).innerText()).replace(/\s+/g, ' ');
     const paneHasSeed = paneText.includes(SEED_USER_TEXT);
     console.log(
-      `negativeControl.seedUserTurnPresent=${paneHasSeed} negativeControl.modelMentionsTask=`
-        + `${/(background task|monitor notification)/i.test(paneText)}`,
+      `negativeControl.seedUserTurnPresent=${paneHasSeed} `
+        + `negativeControl.scenarioRowsDelta=${JSON.stringify(SCENARIO.expect.rows)}`,
     );
     expect(paneHasSeed, 'the seeded user turn must be rendered, or the transcript never loaded').toBe(true);
 
