@@ -19,6 +19,8 @@ extra:
 
 已验证可用的后端机制:`quay server status --json`(对本仓库实测过)在 `services` 数组里给出 `name: "web"` 条目的 `host`/`port`(本机实测 `172.28.0.1:3651`)以及 `liveness.alive` 布尔值——这就是计算 `dashboardUrl` 需要的信息源,且是只读命令,可以直接加进 `server/modules/quay/quay.service.ts` 现有的 `QUAY_READ_ONLY_COMMANDS` 白名单。
 
+已知的局限(不在本任务修复范围):`quay adr list --json` 在本仓库上对真实存在的 ADR 文件返回空数组,这是 quay 自身 native provider 的既有缺陷(已经和另一个 quay 会话核实根因并反馈给其维护方),不是本任务引入的问题。本任务的 ADR 明细区块按 `adr list --json` 的真实返回值渲染即可——即便那条命令当前对本仓库返回空数组,渲染空态文案也是正确行为,不需要在这条任务里绕过或修补 quay 自身的缺陷。
+
 ## Plan
 
 1. 后端 `server/modules/quay/quay.service.ts`:
@@ -36,11 +38,11 @@ extra:
 - [ ] `npm run typecheck` 退出码 0。
 - [ ] 后端新增/更新的窄测试(`server/modules/quay/tests/`)退出码 0,覆盖:(a) `server status --json` 在白名单内,`isReadOnlyQuayCommand` 对其返回 true;(b) `getQuaySnapshot` 对 web 服务 `alive:true` 的 mock 响应正确组出 `dashboardUrl`,对 `alive:false` 或命令失败时 `dashboardUrl` 为 `null` 且不出现在 `warnings` 里;(c) `tasks.recent`/`adrs.recent` 按约定的条数上限截断,且顺序符合约定的排序依据。
 - [ ] 前端新增/更新的窄测试(`src/modules/quay/tests/`)退出码 0,覆盖:(a) `QuayPanel` 在 `dashboardUrl` 非空时渲染出可点击的外链(`href` 等于传入值);为 `null` 时不渲染该外链;(b) `tasks.recent`/`adrs.recent` 为空数组时渲染空态文案,非空时逐行渲染 id+title+status。
-- [ ] 真实数据核对:在本机对 claudecodeui 自身跑 `quay server status --json`、`quay task list --json`、`quay adr list --json` 的输出,与面板新渲染的外链 URL、任务/ADR 明细行手工核对至少 5 条一致(字段级核对,记录在 DoD,不是只断言测试绿)。
+- [ ] 真实数据核对:在本机对 claudecodeui 自身跑 `quay server status --json`、`quay task list --json`、`quay adr list --json` 的输出,与面板新渲染的外链 URL、任务明细行手工核对至少 5 条一致(字段级核对,记录在 DoD,不是只断言测试绿);ADR 明细行若真实返回为空数组,核对面板正确渲染空态即可。
 
 ## DoD
 
-- 真实跑通:在本机启动 CloudCLI,打开 claudecodeui 自身项目,切到 Quay tab——面板出现指向真实 `quay serve` 实例(本机当前是 `http://172.28.0.1:3651/`)的可点击 "Dashboard" 链接,点击后能在新标签页打开真实 dashboard;面板同时展示任务/ADR 的明细行,行数与内容与同一时刻 `quay task list --json`/`quay adr list --json` 的真实输出吻合(排除已知的 quay 自身 `adr list` 缺陷导致的空结果——那条由 `gap-...`[追踪 ADR 列表问题的任务,若尚未存在需另外确认]解释,不在本任务修复范围)。
+- 真实跑通:在本机启动 CloudCLI,打开 claudecodeui 自身项目,切到 Quay tab——面板出现指向真实 `quay serve` 实例(本机当前是 `http://172.28.0.1:3651/`)的可点击 "Dashboard" 链接,点击后能在新标签页打开真实 dashboard;面板同时展示任务明细行,行数与内容与同一时刻 `quay task list --json` 的真实输出吻合。ADR 明细区块按真实 `adr list --json` 返回值渲染(当前已知返回空数组,渲染空态文案即算通过,不要求面板绕过 quay 自身的已知缺陷)。
 - 另验证 `quay serve` 未运行的场景(可以临时找一个配置了 `.quay/config.yml` 但没有 `quay serve` 进程在跑的项目):面板不显示 Dashboard 链接,也不报错或卡在 loading。
 
 ## Touches

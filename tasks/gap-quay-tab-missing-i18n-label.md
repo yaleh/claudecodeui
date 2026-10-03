@@ -21,10 +21,10 @@ extra:
 
 ## AC
 
-- [ ] `npm run typecheck` 退出码 0。
-- [ ] 新增一条前端窄测试,遍历 `src/modules/i18n/locales/*/common.json`(glob 覆盖全部 12 个语言目录),断言每个文件解析后的 `tabs.quay` 字段存在且是非空字符串——退出码 0。缺任何一个语言文件的键都要让这条测试失败,不能只检查 `en`。
-- [ ] `src/modules/project-workspace/WorkspaceTitle.tsx` 的 `getTabTitle` 对 `activeTab === 'quay' && shouldShowQuayTab` 分支改为返回 `t('tabs.quay')` 的结果,新增的窄测试断言:渲染 `WorkspaceTitle`(`activeTab='quay'`, `shouldShowQuayTab=true`)时,标题文本严格不等于裸字符串 `'quay'`,且等于 `i18n` 翻译表里 `tabs.quay` 对应的值——退出码 0。
-- [ ] 新增的窄测试断言:渲染 `WorkspaceTabs`(`shouldShowQuayTab=true`)时,Quay tab 的可见文本/`aria-label` 严格不等于裸字符串 `'tabs.quay'`——退出码 0。
+- [x] `npm run typecheck` 退出码 0。
+- [x] 新增一条前端窄测试,遍历 `src/modules/i18n/locales/*/common.json`(glob 覆盖全部 12 个语言目录),断言每个文件解析后的 `tabs.quay` 字段存在且是非空字符串——退出码 0。缺任何一个语言文件的键都要让这条测试失败,不能只检查 `en`。
+- [x] `src/modules/project-workspace/WorkspaceTitle.tsx` 的 `getTabTitle` 对 `activeTab === 'quay' && shouldShowQuayTab` 分支改为返回 `t('tabs.quay')` 的结果,新增的窄测试断言:渲染 `WorkspaceTitle`(`activeTab='quay'`, `shouldShowQuayTab=true`)时,标题文本严格不等于裸字符串 `'quay'`,且等于 `i18n` 翻译表里 `tabs.quay` 对应的值——退出码 0。
+- [x] 新增的窄测试断言:渲染 `WorkspaceTabs`(`shouldShowQuayTab=true`)时,Quay tab 的可见文本/`aria-label` 严格不等于裸字符串 `'tabs.quay'`——退出码 0。
 
 ## DoD
 
