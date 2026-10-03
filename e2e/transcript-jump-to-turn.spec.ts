@@ -457,6 +457,17 @@ test.describe('turn rail jump in a real browser', () => {
       `no frame during the jump may show a blank viewport; fewest rows seen was ${Math.min(...blankSamples)} of ${blankSamples.length} frames`,
     ).toBeGreaterThanOrEqual(1);
 
+    // ── the jump detached from the follow: the pane now knows it sits away
+    // from the tail, which is what stops the next arriving row from dragging
+    // the reader back down. The visible consequence is the way back — the
+    // back-to-latest control — being offered. A jump that leaves the follow
+    // engaged still centres the target, so "the target is in view" alone would
+    // not catch it; this reading does.
+    await expect(
+      page.locator(SCROLL_BUTTON).first(),
+      'after jumping away from the tail the pane must offer the way back to it (the jump must detach the follow)',
+    ).toBeVisible({ timeout: 5_000 });
+
     // ── (d) the window continues front and back without gaps or duplicates ──
     for (let screen = 0; screen < 3; screen += 1) {
       await page.mouse.wheel(0, -WHEEL_STEP_PX);
@@ -539,6 +550,21 @@ test.describe('turn rail jump in a real browser', () => {
       tieReading!.turnNumber,
       `clicking turn ${TIE_TURN + 1}'s tick must land on turn ${TIE_TURN + 1}, not the tied ${TIE_TURN}`,
     ).toBe(TIE_TURN + 1);
+    // "Turn 601's row is visible" is not by itself a discriminator: a timestamp
+    // lookup finds the *first* row that shares the instant (turn 600) and
+    // centres/highlights that one, and the clicked turn 601 is drawn right
+    // beside it, still inside the viewport. What tells the two apart is *which
+    // row the jump acted on* — the clicked turn's row must carry the highlight,
+    // and its same-millisecond twin must not. A jump addressed by timestamp
+    // fails exactly here.
+    expect(
+      tieReading!.highlighted,
+      `the jump must highlight turn ${TIE_TURN + 1}'s own row, not the same-millisecond turn ${TIE_TURN}'s (${JSON.stringify(tieDiagnostic)})`,
+    ).toBe(true);
+    expect(
+      (await readTarget(page, tiedFirst.id)).highlighted,
+      `the tied turn ${TIE_TURN} must not be the row the jump actually addressed`,
+    ).toBe(false);
 
     // ── Control: the first and the last turn are clicks too ─────────────────
     const firstTurn = turnFor(turns, 1);
