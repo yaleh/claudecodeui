@@ -1,7 +1,7 @@
 ---
 id: AC-212
 title: store 窗口：脱离尾部时实时消息不渲染也不丢，回到尾部后全部出现
-status: draft
+status: active
 kind: criterion
 goal: GOAL-017
 criterion: for f in src/modules/chat/tests/sessionStoreWindow.test.ts; do [ -f
@@ -18,4 +18,15 @@ origin: 设计讨论 2026-10-03/04（人 yale
   裁定：滚动条走自绘、按消息序号计位置；隐藏窗口内原生滚动条；服务端缓存增量化纳入本期）。现状实证：历史读取是尾部 offset 分页，客户端 store
   假定已加载内容为后缀（fetchMore 的 offset=serverMessages.length），每页 20 条且 scrollTop<100
   才触发加载；服务端缓存每次追加整体失效。
+activatedAt: 2026-10-03T16:08:24.661Z
+statusLog:
+  - at: 2026-10-03T16:08:24.661Z
+    from: draft
+    to: active
+    actor: yale-session
+    reason: GOAL-017 激活：判据已观测为红（缺判据文件）
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-03T16:08:24.661Z
 ---
