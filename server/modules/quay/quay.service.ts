@@ -35,12 +35,28 @@ export type QuayDriverSummary = {
   lastRecordAt: string | null;
 };
 
+/**
+ * One row of a per-entity detail list (tasks or ADRs). Only the three fields the
+ * panel renders are kept; the source command returns whole documents (body,
+ * children, extra, …) which would bloat every snapshot response.
+ */
+export type QuayListItem = {
+  id: string;
+  title: string;
+  status: string;
+};
+
+/** How many `recent` rows each detail list keeps; the cap the panel copy promises. */
+export const QUAY_RECENT_LIST_LIMIT = 10;
+
 export type QuayTaskCounts = {
   total: number;
   byStatus: Record<string, number>;
   ready: number;
   needsHuman: number;
   done: number;
+  /** Up to `QUAY_RECENT_LIST_LIMIT` tasks, most recently updated first. */
+  recent: QuayListItem[];
 };
 
 export type QuayGoalCounts = {
@@ -50,6 +66,8 @@ export type QuayGoalCounts = {
 
 export type QuayAdrCounts = {
   total: number;
+  /** Up to `QUAY_RECENT_LIST_LIMIT` ADRs, most recently updated first. */
+  recent: QuayListItem[];
 };
 
 export type QuayConfigIssueCounts = {
@@ -73,6 +91,12 @@ export type QuaySnapshot = {
   goals: QuayGoalCounts | null;
   adrs: QuayAdrCounts | null;
   configIssues: QuayConfigIssueCounts | null;
+  /**
+   * Link to quay's own `quay serve` dashboard, when a live web service is
+   * reported for this project. `null` when no dashboard is running — an absent
+   * dashboard is a normal state, never a warning.
+   */
+  dashboardUrl: string | null;
   warnings: string[];
 };
 
@@ -96,6 +120,7 @@ const QUAY_DRIVER_KINDS = ['promotion', 'worker', 'outer', 'quality', 'meta', 'g
  */
 export const QUAY_READ_ONLY_COMMANDS: readonly (readonly string[])[] = [
   ['config', 'validate', '--json'],
+  ['server', 'status', '--json'],
   ['task', 'list', '--json'],
   ['goal', 'list', '--json'],
   ['adr', 'list', '--json'],
@@ -155,6 +180,33 @@ function readCount(value: unknown): number {
   return Number.isFinite(numeric) ? numeric : 0;
 }
 
+/**
+ * Projects a `task list --json` / `adr list --json` array into the panel's
+ * detail rows: at most `QUAY_RECENT_LIST_LIMIT` entries, most recently updated
+ * first (`updatedAt` descending, ties broken by id ascending so the order is
+ * deterministic even when timestamps collide). Records without a string id are
+ * skipped rather than rendered as blank rows.
+ */
+function summarizeRecentItems(value: unknown): QuayListItem[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => asRecord(item))
+    .filter((record): record is Record<string, unknown> => record !== null && typeof record.id === 'string')
+    .sort((a, b) => {
+      const byRecency = readCount(b.updatedAt) - readCount(a.updatedAt);
+      return byRecency !== 0 ? byRecency : String(a.id).localeCompare(String(b.id));
+    })
+    .slice(0, QUAY_RECENT_LIST_LIMIT)
+    .map((record) => ({
+      id: String(record.id),
+      title: typeof record.title === 'string' ? record.title : '',
+      status: typeof record.status === 'string' ? record.status : 'unknown',
+    }));
+}
+
 function summarizeTasks(value: unknown): QuayTaskCounts | null {
   if (!Array.isArray(value)) {
     return null;
@@ -172,6 +224,7 @@ function summarizeTasks(value: unknown): QuayTaskCounts | null {
     ready: byStatus.ready ?? 0,
     needsHuman: byStatus['needs-human'] ?? 0,
     done: byStatus.done ?? 0,
+    recent: summarizeRecentItems(value),
   };
 }
 
@@ -185,7 +238,32 @@ function summarizeGoals(value: unknown): QuayGoalCounts | null {
 }
 
 function summarizeAdrs(value: unknown): QuayAdrCounts | null {
-  return Array.isArray(value) ? { total: value.length } : null;
+  return Array.isArray(value) ? { total: value.length, recent: summarizeRecentItems(value) } : null;
+}
+
+/**
+ * Reads the `quay serve` web endpoint out of a `server status --json` body.
+ * Returns `http://<host>:<port>/` only when the `web` service is present and its
+ * liveness probe says it is alive; any other shape — no services array, no web
+ * entry, a dead probe, a missing host/port — is `null`. A dashboard that simply
+ * is not running is not an error, so the caller reads this without a warning.
+ */
+function summarizeDashboardUrl(value: unknown): string | null {
+  const web = asArray(asRecord(value)?.services)
+    .map((service) => asRecord(service))
+    .find((service) => service?.name === 'web');
+  if (!web) {
+    return null;
+  }
+
+  const alive = Boolean(readCount(asRecord(web.liveness)?.alive));
+  const host = typeof web.host === 'string' && web.host ? web.host : null;
+  const port = readCount(web.port);
+  if (!alive || !host || port <= 0) {
+    return null;
+  }
+
+  return `http://${host}:${port}/`;
 }
 
 function summarizeConfigIssues(value: unknown): QuayConfigIssueCounts | null {
@@ -288,11 +366,30 @@ export function createQuayService(dependencies: QuayServiceDependencies) {
       return null;
     };
 
+    /**
+     * Same read as `readJson`, but never records a warning. The dashboard URL is
+     * an optional extra: a machine without `quay serve` running has no web
+     * service to report, and that absence must not paint the panel's
+     * "some commands did not answer" banner.
+     */
+    const readJsonQuietly = async (args: readonly string[]): Promise<unknown> => {
+      const result = await runQuayCommand(projectPath, args);
+      if (!result.stdout.trim()) {
+        return null;
+      }
+      try {
+        return parseJson(result.stdout);
+      } catch {
+        return null;
+      }
+    };
+
     const tasks = summarizeTasks(await readJson(['task', 'list', '--json']));
     const goals = summarizeGoals(await readJson(['goal', 'list', '--json']));
     const adrs = summarizeAdrs(await readJson(['adr', 'list', '--json']));
     const driver = summarizeDriver(await readJson(['driver', 'status', '--kind', 'worker', '--json']));
     const configIssues = summarizeConfigIssues(await readJson(['config', 'validate', '--json']));
+    const dashboardUrl = summarizeDashboardUrl(await readJsonQuietly(['server', 'status', '--json']));
 
     return {
       projectId,
@@ -304,6 +401,7 @@ export function createQuayService(dependencies: QuayServiceDependencies) {
       goals,
       adrs,
       configIssues,
+      dashboardUrl,
       warnings,
     };
   };

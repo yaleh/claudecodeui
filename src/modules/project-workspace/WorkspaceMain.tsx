@@ -323,7 +323,15 @@ function WorkspaceMain({
 
           {shouldShowQuayTab && activeTab === 'quay' && (
             <div className="h-full overflow-hidden" data-workspace-view="quay">
-              <QuayPanel projectId={selectedProject.projectId} view={quayView} onRefresh={refreshQuay} />
+              <QuayPanel
+                projectId={selectedProject.projectId}
+                view={quayView}
+                onRefresh={refreshQuay}
+                // The dashboard link comes from the snapshot itself: the backend
+                // discovers the live `quay serve` web endpoint. Until a snapshot
+                // is loaded there is nothing to link to, so pass null.
+                dashboardUrl={quayView.status === 'loaded' ? quayView.snapshot.dashboardUrl : null}
+              />
             </div>
           )}
 
