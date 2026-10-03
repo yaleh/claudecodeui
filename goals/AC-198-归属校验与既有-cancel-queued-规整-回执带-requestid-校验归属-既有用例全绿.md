@@ -4,10 +4,17 @@ title: 归属校验与既有 cancel-queued 规整：回执带 requestId，校验
 status: active
 kind: criterion
 goal: GOAL-015
-criterion: npx tsx --tsconfig server/tsconfig.json --test
+criterion: '[ -f server/modules/websocket/tests/chat-control-ownership.test.ts ]
+  || { echo
+  "缺判据文件：server/modules/websocket/tests/chat-control-ownership.test.ts" >&2;
+  exit 1; }; [ -f server/modules/websocket/tests/chat-edit-send.test.ts ] || {
+  echo "缺判据文件：server/modules/websocket/tests/chat-edit-send.test.ts" >&2; exit
+  1; }; [ -f server/modules/websocket/tests/chat-permission-mode.test.ts ] || {
+  echo "缺判据文件：server/modules/websocket/tests/chat-permission-mode.test.ts" >&2;
+  exit 1; }; npx tsx --tsconfig server/tsconfig.json --test
   server/modules/websocket/tests/chat-control-ownership.test.ts
   server/modules/websocket/tests/chat-edit-send.test.ts
-  server/modules/websocket/tests/chat-permission-mode.test.ts
+  server/modules/websocket/tests/chat-permission-mode.test.ts'
 expect: 读数：chat.cancel-queued 的回执带 requestId；归属不符 ⇒ forbidden 且不调用驱动；归属校验用同一个函数被
   chat.stop-task、chat.background-task、chat.cancel-queued 复用（用例直接断言三者走同一入口）；既有
   chat-edit-send、chat-permission-mode 全部保持绿；若既有用例因多了 requestId

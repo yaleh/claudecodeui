@@ -11,6 +11,7 @@ import {
   useSessionHosts,
 } from '@/shared/hooks/useSessionHosts';
 import type { ResidentProcessState } from '@/shared/types';
+import { findBackgroundTaskLeases } from '@/shared/utils';
 
 /** The panel's width in CSS pixels: `w-72`, which `ResidentPanel` sets on its own root. */
 const PANEL_WIDTH_PX = 288;
@@ -168,6 +169,11 @@ export default function ResidentSessionBadge({ sessionId }: { sessionId: string 
 
   const processState = readResidentProcessState(findSessionHost(snapshot, sessionId), error !== null);
   const badgeState = BADGE_STATE_BY_PROCESS_STATE[processState];
+  // How many background tasks the process is being held for. The pill answers
+  // "how many are still running" so the transcript's strip can answer "which
+  // ones" — both read the same leases, so a count and a list cannot disagree.
+  // Zero draws no chip: the pill's job here is the count that is not nothing.
+  const heldTaskCount = error === null ? findBackgroundTaskLeases(snapshot, sessionId).length : 0;
   const label = t('resident.badge.label', { defaultValue: 'Resident' });
   const stateWord = t(`resident.badge.state.${badgeState}`, {
     defaultValue:
@@ -210,6 +216,14 @@ export default function ResidentSessionBadge({ sessionId }: { sessionId: string 
       >
         <BadgeDot state={badgeState} />
         <span>{label}</span>
+        {heldTaskCount > 0 && (
+          <span
+            data-resident-badge-task-count={heldTaskCount}
+            className="rounded-full bg-muted px-1 tabular-nums"
+          >
+            {t('resident.backgroundTasks.count', { n: heldTaskCount, defaultValue: '{{n}} tasks' })}
+          </span>
+        )}
         <ChevronDown className={`h-2.5 w-2.5 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
       </button>
 

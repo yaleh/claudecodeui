@@ -360,14 +360,7 @@
       "copyAddress": "Copiar dirección",
       "copied": "Copiado",
       "address": "Dirección",
-      "activeCount": "{{count}} activos",
-      "counts": {
-        "turn": "Respuesta en curso",
-        "background-task": "Tareas en segundo plano",
-        "monitor": "Monitores",
-        "cron": "Tareas programadas",
-        "resident-policy": "Sesión residente"
-      }
+      "activeCount": "{{count}} activos"
     },
     "divider": {
       "cron": "⏰ Tarea programada · {{time}}",
@@ -375,6 +368,14 @@
       "backgroundTask": "📡 Notificación de monitor · {{time}}",
       "unknown": "No iniciado por el usuario"
     },
-    "stopResident": "Detener esta respuesta (el proceso y las tareas programadas continúan)"
+    "stopResident": "Detener esta respuesta (el proceso y las tareas programadas continúan)",
+    "backgroundTasks": {
+      "title": "Tareas en segundo plano",
+      "genericLabel": "Tarea en segundo plano",
+      "monitorLabel": "Monitor",
+      "unknown": "Estado de la tarea en segundo plano desconocido",
+      "lastNotification": "Última notificación hace {{elapsed}}",
+      "count": "{{n}} tareas"
+    }
   }
 }

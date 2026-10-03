@@ -4,10 +4,19 @@ title: 租约由任务与计划推出且行为不变：与现有路径逐帧对�
 status: active
 kind: criterion
 goal: GOAL-015
-criterion: npx tsx --tsconfig server/tsconfig.json --test
+criterion: '[ -f
+  server/modules/providers/tests/claude-activity-lease-parity.test.ts ] || {
+  echo
+  "缺判据文件：server/modules/providers/tests/claude-activity-lease-parity.test.ts"
+  >&2; exit 1; }; [ -f
+  server/modules/providers/tests/claude-resident-idle.test.ts ] || { echo
+  "缺判据文件：server/modules/providers/tests/claude-resident-idle.test.ts" >&2; exit
+  1; }; [ -f server/modules/providers/tests/claude-background-work.test.ts ] ||
+  { echo "缺判据文件：server/modules/providers/tests/claude-background-work.test.ts"
+  >&2; exit 1; }; npx tsx --tsconfig server/tsconfig.json --test
   server/modules/providers/tests/claude-activity-lease-parity.test.ts
   server/modules/providers/tests/claude-resident-idle.test.ts
-  server/modules/providers/tests/claude-background-work.test.ts
+  server/modules/providers/tests/claude-background-work.test.ts'
 expect: 对同一批真实帧序（任务嵌套、Monitor 停止、cron 与唤醒、Stop hook 清单变化），由 Task 表与计划表推出的租约集合与现有
   observeHeldWorkEvent 加 reconcileHeldWork
   路径得到的租约集合逐帧相等；两条路径并存期间不一致即红并打印第一处不一致的帧序号。既有的 claude-resident-idle 与

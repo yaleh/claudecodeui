@@ -339,14 +339,7 @@
       "copyAddress": "Adresi kopyala",
       "copied": "Kopyalandı",
       "address": "Adres",
-      "activeCount": "{{count}} etkin",
-      "counts": {
-        "turn": "Çalışan tur",
-        "background-task": "Arka plan görevleri",
-        "monitor": "İzleyiciler",
-        "cron": "Zamanlanmış görevler",
-        "resident-policy": "Kalıcı oturum"
-      }
+      "activeCount": "{{count}} etkin"
     },
     "divider": {
       "cron": "⏰ Zamanlanmış görev · {{time}}",
@@ -354,6 +347,14 @@
       "backgroundTask": "📡 İzleyici bildirimi · {{time}}",
       "unknown": "Kullanıcı başlatmadı"
     },
-    "stopResident": "Bu yanıtı durdur (süreç ve zamanlanmış görevler devam eder)"
+    "stopResident": "Bu yanıtı durdur (süreç ve zamanlanmış görevler devam eder)",
+    "backgroundTasks": {
+      "title": "Arka plan görevleri",
+      "genericLabel": "Arka plan görevi",
+      "monitorLabel": "İzleyici",
+      "unknown": "Arka plan görev durumu bilinmiyor",
+      "lastNotification": "Son bildirim {{elapsed}} önce",
+      "count": "{{n}} görev"
+    }
   }
 }

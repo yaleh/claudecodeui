@@ -341,14 +341,7 @@
       "copyAddress": "Copier l’adresse",
       "copied": "Copié",
       "address": "Adresse",
-      "activeCount": "{{count}} actifs",
-      "counts": {
-        "turn": "Réponse en cours",
-        "background-task": "Tâches en arrière-plan",
-        "monitor": "Surveillances",
-        "cron": "Tâches planifiées",
-        "resident-policy": "Session résidente"
-      }
+      "activeCount": "{{count}} actifs"
     },
     "divider": {
       "cron": "⏰ Tâche planifiée · {{time}}",
@@ -356,6 +349,14 @@
       "backgroundTask": "📡 Notification de surveillance · {{time}}",
       "unknown": "Non déclenché par l’utilisateur"
     },
-    "stopResident": "Arrêter cette réponse (le processus et les tâches planifiées continuent)"
+    "stopResident": "Arrêter cette réponse (le processus et les tâches planifiées continuent)",
+    "backgroundTasks": {
+      "title": "Tâches en arrière-plan",
+      "genericLabel": "Tâche en arrière-plan",
+      "monitorLabel": "Moniteur",
+      "unknown": "État de la tâche en arrière-plan inconnu",
+      "lastNotification": "Dernière notification il y a {{elapsed}}",
+      "count": "{{n}} tâches"
+    }
   }
 }
