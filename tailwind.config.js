@@ -1,5 +1,7 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  // hover: utilities only where the device can hover; a tap on touch must not leave a sticky hover style.
+  future: { hoverOnlyWhenSupported: true },
   darkMode: ["class"],
   content: [
     "./index.html",

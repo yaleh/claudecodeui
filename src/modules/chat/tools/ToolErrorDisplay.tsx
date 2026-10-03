@@ -70,8 +70,8 @@ export const ToolErrorDisplay: React.FC<ToolErrorDisplayProps> = ({ content, lab
         </svg>
         <span className="flex-shrink-0 text-xs font-medium text-red-700 dark:text-red-300">{label}</span>
         {!open && hasContent && (
-          /* Not a <code>/<pre> tag: the global `.chat-message code` rule forces
-             `white-space: pre-wrap !important`, which would defeat `truncate`. */
+          /* Not a <code> tag: the global inline-code rule sets `white-space: pre-wrap`,
+             which would defeat `truncate`. */
           <span className="min-w-0 flex-1 truncate text-xs text-red-900/70 dark:text-red-100/70">
             {trimmedContent}
           </span>
