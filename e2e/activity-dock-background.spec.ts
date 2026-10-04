@@ -755,3 +755,202 @@ test.describe('activity dock controls', () => {
     expect(elapsedMs, 'the criterion must complete within 40s').toBeLessThanOrEqual(40_000);
   });
 });
+
+// =============================================================================================
+// The capability gate, on a real browser against a real server.
+//
+// AC-199 pins what the control *does* when a session is placeable; this block pins
+// the case AC-199's substitute could never reach: a **resident** session whose
+// provider declares no stop verb. The matrix is the same one the server refuses
+// on, read here from `GET /api/providers/capabilities` through the page's own
+// server; the provider is the debug agent, which declares `resident` as a
+// lifecycle mode but no `residentFeatures` at all — so it is exactly the
+// "unmeasured ⇒ unsupported" shape the shipped claude row used to have, and the
+// one a reader must not be told is placeable.
+//
+// The reading is the DOM's own `disabled` plus the reason drawn beside it. Before
+// this change the control was enabled here and a click reached the server to be
+// refused, with nothing on screen saying so — "clickable but silently inert",
+// which is the shape this arm exists to keep out.
+// =============================================================================================
+
+const GATE_TITLE = 'Activity dock controls — capability gate';
+const GATE_SEED = 'seeded user turn for the activity-dock capability-gate criterion';
+const GATE_TASK = 'task-capability-gate';
+
+/**
+ * One live task on a resident session, and nothing else. The walk writes three
+ * rows; the task never settles, so the panel holds one live row for the whole
+ * reading.
+ */
+const GATE_SCENARIO = {
+  version: 1,
+  dialect: 'claude',
+  home: 'gate',
+  transcript: { mode: 'per-row-jsonl' },
+  seed: { title: GATE_TITLE, userText: GATE_SEED, lifecycleMode: 'resident' },
+  steps: [
+    { at: 0, op: 'tool-call', name: 'Bash' },
+    { at: 200, op: 'task-started', taskId: GATE_TASK, taskType: 'local_bash', description: 'Watcher stays up' },
+    { at: 400, op: 'row', role: 'assistant', text: 'The watcher is running.' },
+    { at: 1_200, op: 'wait' },
+  ],
+  expect: { rows: { delta: 3 }, content: { mustContain: [GATE_SEED] } },
+};
+
+/** One session's row on `GET /api/session-hosts`, as this arm reads it. */
+type HostStateRow = { appSessionId: string; provider: string; lifecycleMode: string; running: boolean };
+
+async function readHostState(api: APIRequestContext, sessionId: string): Promise<HostStateRow | null> {
+  const response = await api.get('/api/session-hosts');
+  const body = await response.json().catch(() => null);
+  const rows = (body?.data?.sessions ?? []) as HostStateRow[];
+  return rows.find((row) => row.appSessionId === sessionId) ?? null;
+}
+
+/** One provider's capability row, as `GET /api/providers/capabilities` states it. */
+type CapabilityRow = { provider: string; residentFeatures?: { stopTask?: boolean } | null };
+
+async function readCapabilityRow(api: APIRequestContext, provider: string): Promise<CapabilityRow | null> {
+  const response = await api.get('/api/providers/capabilities');
+  const body = await response.json().catch(() => null);
+  const rows = (body?.data?.providers ?? []) as CapabilityRow[];
+  return rows.find((row) => row.provider === provider) ?? null;
+}
+
+/**
+ * The gate's rule, written once so the arm and its false form drive the same
+ * function: a control must be disabled by capability exactly when the session is
+ * resident and the matrix does not declare the verb, and the DOM must agree.
+ *
+ * Agreement — not "the DOM is disabled" — is what is asserted, because a build
+ * that disabled the control for some unrelated reason would satisfy the weaker
+ * reading. The false form passes the reading a gate-free build produces
+ * (undeclared resident provider, control still enabled) and must come back red.
+ */
+function capabilityGateAgreement(input: {
+  lifecycleMode: string;
+  declared: boolean | undefined;
+  domDisabled: boolean;
+}): { green: boolean; reading: string } {
+  const shouldBeDisabled = input.lifecycleMode === 'resident' && input.declared !== true;
+  return {
+    green: shouldBeDisabled === input.domDisabled,
+    reading:
+      `capability-gate: lifecycleMode=${input.lifecycleMode} declared=${String(input.declared)} ` +
+      `shouldBeDisabled=${String(shouldBeDisabled)} domDisabled=${String(input.domDisabled)}`,
+  };
+}
+
+test.describe('activity dock capability gate', () => {
+  let page: Page;
+  let api: APIRequestContext;
+  let workspace = '';
+  let sessionId = '';
+
+  test.beforeAll(async ({ browser }) => {
+    const clientUrl = test.info().project.use.baseURL;
+    if (!clientUrl) throw new Error('playwright.config.ts must give this project a baseURL');
+    const fixtureHome = process.env.QUAY_E2E_DEBUG_AGENT_HOME;
+    if (!fixtureHome) throw new Error('playwright.config.ts must publish QUAY_E2E_DEBUG_AGENT_HOME');
+
+    workspace = path.join(fixtureHome, 'activity-dock-capability-workspace');
+    const workspaceName = path.basename(workspace);
+
+    const bootstrap = await request.newContext({ baseURL: clientUrl });
+    const token = await createAccount(bootstrap);
+    await bootstrap.dispose();
+    api = await request.newContext({ baseURL: clientUrl, extraHTTPHeaders: { Authorization: `Bearer ${token}` } });
+
+    sessionId = await armScenario(api, workspace, GATE_SCENARIO);
+
+    const context = await browser.newContext({ baseURL: clientUrl });
+    await context.addInitScript(
+      ({ key, value }: { key: string; value: string }) => {
+        window.localStorage.setItem(key, value);
+        window.localStorage.setItem('userLanguage', 'en');
+      },
+      { key: 'auth-token', value: token },
+    );
+    page = await context.newPage();
+    page.on('pageerror', (error) => console.log(`[e2e] pageerror: ${error.message}`));
+
+    await page.goto('/');
+    if (!(await projectRow(page, workspaceName).waitFor({ state: 'visible', timeout: 25_000 }).then(() => true, () => false))) {
+      await page.reload();
+    }
+    await revealSession(page, workspaceName, sessionId);
+  });
+
+  test.afterAll(async () => {
+    await page?.close();
+    await api?.dispose();
+  });
+
+  test('a resident session whose provider declares no stop verb draws a disabled stop with a reason', async () => {
+    // The walk starts the session's task; the reading is taken with the panel open.
+    const clock = api
+      .post('/api/debug-agent/clock', { data: { sessionId } })
+      .then(async (response) => ({ ok: response.ok(), body: await response.json().catch(() => null) }))
+      .catch((error: unknown) => ({ ok: false, body: { failed: String(error) } }));
+
+    await page.waitForTimeout(600);
+    await sessionRow(page, sessionId).click();
+    await expect(page.locator(PANE)).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(DOCK_TOGGLE)).toBeVisible({ timeout: 20_000 });
+    await page.locator(DOCK_TOGGLE).click();
+    await expect(page.locator(PANEL)).toBeVisible({ timeout: 15_000 });
+    await expect(taskRowOf(page, GATE_TASK)).toBeVisible({ timeout: 20_000 });
+
+    // The two facts the gate is a function of, read off the wire rather than
+    // assumed: the session really is resident, and the matrix really declares no
+    // resident stop verb for its provider.
+    const hostState = await readHostState(api, sessionId);
+    const capabilityRow = await readCapabilityRow(api, hostState?.provider ?? '');
+    console.log(
+      `capabilityGate.host=${JSON.stringify(hostState)} capabilityRow=${JSON.stringify(capabilityRow)}`,
+    );
+    expect(hostState?.lifecycleMode, 'this arm needs a resident session, or it reads the wrong gate').toBe('resident');
+    expect(
+      capabilityRow?.residentFeatures?.stopTask,
+      'this arm needs a provider the matrix does not declare a resident stop for',
+    ).not.toBe(true);
+
+    const stopButton = taskRowOf(page, GATE_TASK).locator(TASK_STOP);
+    const domDisabled = await stopButton.isDisabled();
+    const reasonTexts = await taskRowOf(page, GATE_TASK)
+      .locator(DISABLED_REASON)
+      .evaluateAll((nodes) => nodes.map((node) => (node.textContent ?? '').trim()));
+
+    const mainVerdict = capabilityGateAgreement({
+      lifecycleMode: hostState?.lifecycleMode ?? '',
+      declared: capabilityRow?.residentFeatures?.stopTask,
+      domDisabled,
+    });
+    console.log(
+      `capabilityGate.main ${mainVerdict.reading} green=${String(mainVerdict.green)} reasons=${JSON.stringify(reasonTexts)}`,
+    );
+
+    expect(mainVerdict.green, `the DOM must agree with the capability face; ${mainVerdict.reading}`).toBe(true);
+    expect(domDisabled, 'the control must not be placeable when the provider declares no verb').toBe(true);
+    expect(reasonTexts.length, 'a disabled control must draw its reason').toBeGreaterThanOrEqual(1);
+    expect(reasonTexts.every((text) => text.length > 0), 'a disabled reason must not be blank').toBe(true);
+
+    // --- the false form, under the same reading function --------------------------------------
+    // What a build that never reads the matrix draws: the same resident provider,
+    // the same missing declaration, and a control that still looks placeable. The
+    // reading must come back red, which is what makes the green above evidence
+    // about the gate rather than about the fixture.
+    const falseFormVerdict = capabilityGateAgreement({
+      lifecycleMode: 'resident',
+      declared: capabilityRow?.residentFeatures?.stopTask,
+      domDisabled: false,
+    });
+    console.log(`capabilityGate.falseForm ${falseFormVerdict.reading} green=${String(falseFormVerdict.green)}`);
+    expect(falseFormVerdict.green, 'an enabled control on an undeclared resident provider must read red').toBe(false);
+    expect(mainVerdict.reading).not.toBe(falseFormVerdict.reading);
+
+    const clockBody = await clock;
+    expect(clockBody.ok, `the walk must complete: ${JSON.stringify(clockBody)}`).toBe(true);
+  });
+});

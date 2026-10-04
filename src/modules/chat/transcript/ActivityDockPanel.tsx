@@ -22,8 +22,12 @@
  * `[data-background-tool]` button. A click sends exactly one frame
  * (`useActivityControls`) and changes nothing locally — the row's state, and a
  * backgrounded task's arrival, come back only through the server's own activity
- * frames. Both are disabled when the dock's liveness reading is `unreachable`,
- * each beside its own `[data-control-disabled-reason]` text.
+ * frames. Each control is disabled by two readings, and each draws the reason
+ * that applies to *it*: an `unreachable` dock (no request can be placed at all)
+ * and a provider that declares no such verb for the session's lifecycle route
+ * (the request would be refused, so the control must not look placeable). The
+ * per-control reasons are what keep a capability refusal from being drawn as a
+ * connectivity problem, and vice versa.
  *
  * A plan has **no control at all**, by structure rather than by hiding one: this
  * file renders no button, no cancel affordance and no `[data-schedule-cancel]`
@@ -105,8 +109,8 @@ function StopTaskControl({ task, controls }: { task: ActivityTaskView; controls:
       type="button"
       data-task-stop="true"
       data-task-id={task.taskId}
-      disabled={controls.disabled}
-      title={controls.disabled ? controls.disabledReason : label}
+      disabled={controls.stopDisabled}
+      title={controls.stopDisabled ? controls.stopDisabledReason : label}
       onClick={() => controls.stopTask(task.taskId)}
       className="flex-shrink-0 rounded border border-border/60 px-1.5 text-[10px] text-muted-foreground/80 transition-colors hover:bg-foreground/5 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
     >
@@ -150,9 +154,9 @@ function TaskRow({
         <span data-task-elapsed="true">{elapsed === null ? '—' : `${elapsed}s`}</span>
         <span data-task-last-action="true" className="min-w-0 flex-1 truncate">{lastAction}</span>
       </div>
-      {controls.disabled && (
+      {controls.stopDisabled && (
         <div data-control-disabled-reason="true" className="pl-1 text-[10px] text-muted-foreground/60">
-          {controls.disabledReason}
+          {controls.stopDisabledReason}
         </div>
       )}
     </li>
@@ -192,17 +196,17 @@ function ForegroundToolRow({
           type="button"
           data-background-tool="true"
           data-tool-use-id={tool.toolUseId}
-          disabled={controls.disabled}
-          title={controls.disabled ? controls.disabledReason : label}
+          disabled={controls.backgroundDisabled}
+          title={controls.backgroundDisabled ? controls.backgroundDisabledReason : label}
           onClick={() => controls.backgroundTool(tool.toolUseId)}
           className="flex-shrink-0 rounded border border-border/60 px-1.5 text-[10px] text-muted-foreground/80 transition-colors hover:bg-foreground/5 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
         >
           {label}
         </button>
       </div>
-      {controls.disabled && (
+      {controls.backgroundDisabled && (
         <div data-control-disabled-reason="true" className="pl-1 text-[10px] text-muted-foreground/60">
-          {controls.disabledReason}
+          {controls.backgroundDisabledReason}
         </div>
       )}
     </li>
