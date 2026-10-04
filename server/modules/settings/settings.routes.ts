@@ -22,12 +22,6 @@ export function createSettingsRouter(
       try { res.json(await operation(req)); } catch (error) { next(error); }
     };
 
-  router.get('/api-keys', respond((req) => service.listApiKeys(userId(req))));
-  router.post('/api-keys', respond((req) => service.createApiKey(userId(req), req.body?.keyName)));
-  router.delete('/api-keys/:keyId', respond((req) => service.deleteApiKey(userId(req), Number(req.params.keyId))));
-  router.patch('/api-keys/:keyId/toggle', respond((req) => service.toggleApiKey(
-    userId(req), Number(req.params.keyId), req.body?.isActive,
-  )));
   router.get('/credentials', respond((req) => service.listCredentials(
     userId(req), queryString(req.query.type),
   )));

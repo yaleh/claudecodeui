@@ -40,7 +40,6 @@ import { quayRoutes } from './modules/quay/index.js';
 import { commandsRoutes } from './modules/commands/index.js';
 import { settingsRoutes } from './modules/settings/index.js';
 import { createSystemModule } from './modules/system/index.js';
-import { createAgentModule } from './modules/agent/index.js';
 import projectModuleRoutes from './modules/projects/projects.routes.js';
 import notificationRoutes from './modules/notifications/notifications.routes.js';
 import { userRoutes } from './modules/user/index.js';
@@ -104,17 +103,9 @@ const app = express();
 const server = http.createServer(app);
 const queryClaude = providerRuntimeService.getRunner('claude');
 const queryCursor = providerRuntimeService.getRunner('cursor');
-const queryCodex = providerRuntimeService.getRunner('codex');
-const queryOpenCode = providerRuntimeService.getRunner('opencode');
 const gitRoutes = createGitModule({
     queryClaude,
     queryCursor,
-});
-const agentRoutes = createAgentModule({
-    queryClaude,
-    queryCursor,
-    queryCodex,
-    queryOpenCode,
 });
 
 // Single WebSocket server that handles chat, shell, and plugin proxy paths.
@@ -321,9 +312,6 @@ app.use('/api/session-hosts', authenticateToken, createSessionHostsRouter({
 // frames; the snapshot shares its boot id and revision with the heartbeat frames
 // on the same session, because both read the one process-wide `activityStore`.
 app.use('/api/sessions', authenticateToken, createActivityRouter({ activityStore }));
-
-// Agent API Routes (uses API key authentication)
-app.use('/api/agent', agentRoutes);
 
 app.use('/api/voice', authenticateToken, voiceRoutes);
 
