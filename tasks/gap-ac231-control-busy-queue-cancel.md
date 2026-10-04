@@ -46,15 +46,15 @@ AC-231（GOAL-019 退出条件 2；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3�
 
 ## AC
 
-- [ ] AC1 判据绿：`for f in server/modules/websocket/tests/chat-control-busy.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-control-busy.test.ts` 退出 0。红态基线逐字记录（改动前该文件不存在、存在性闸退出码 1 输出 `缺判据文件：server/modules/websocket/tests/chat-control-busy.test.ts`）。
-- [ ] AC2 (a) 常驻忙时排队并产生第二个可查运行：`acceptsBusyInput` 为真、第一个运行仍 running 时再 `send`，返回 `ok:true`、`queued:true`、`queuedMessageUuid` 为非空字符串；第二个 `runId` 与第一次不同；`chatRunRegistry.getRunById(runId1)` 与 `getRunById(runId2)` 均命中（写下两个返回与两条 getRunById 读数）。
-- [ ] AC3 (b) 撤回用的就是返回的那个 uuid：用 AC2 的 uuid 调 `cancelQueued` 得到 `'cancelled'`，且假运行时的假队列里该 uuid 确实被移除（写下返回值与移除前后的队列读数）。
-- [ ] AC4 (c) 按次进程忙时被拒：`acceptsBusyInput` 为假、第一个运行仍 running 时再 `send`，返回 `ok:false`、`code:'RUN_IN_PROGRESS'`；假运行时 `run` 调用计数不增；`getRunById` 里不存在第二个运行（写下三项读数）。
-- [ ] AC5 (d) 未知 uuid 得 unknown：用一个从未返回过的 uuid 调 `cancelQueued` 得到 `'unknown'` 而不是 `'cancelled'`（写下返回值与假队列未变读数）。
-- [ ] AC6 无 WebSocket 参与：写下用于核对的 grep 命令与空输出——判据文件不 import `ws`、不 `new WebSocket(`、不构造 socket；AC2–AC5 全部读数在该文件内无 socket 完成。
-- [ ] AC7 取假形态四条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 忙时一律拒绝 ⇒ AC2 红；(ii) 忙时一律排队 ⇒ AC4 红；(iii) `send` 返回自造 uuid ⇒ AC3 红；(iv) `cancelQueued` 对任何 uuid 都回 `cancelled` ⇒ AC5 红。每条记录恢复命令与恢复后重跑绿。
-- [ ] AC8 不回归与仓库门：既有 WebSocket 判据保持逐字通过——至少 `chat-control-ownership.test.ts`、`chat-control-send.test.ts`、`chat-edit-send.test.ts`、`chat-run-registry.test.ts`、`chat-background-task.test.ts`（写明命令与结果）；`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（只看 error 级，写明计数）；控制服务跨模块只经 barrel 导入、无深导入。
-- [ ] AC9 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写。列出实际改动文件清单。
+- [x] AC1 判据绿：`for f in server/modules/websocket/tests/chat-control-busy.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-control-busy.test.ts` 退出 0。红态基线逐字记录（改动前该文件不存在、存在性闸退出码 1 输出 `缺判据文件：server/modules/websocket/tests/chat-control-busy.test.ts`）。
+- [x] AC2 (a) 常驻忙时排队并产生第二个可查运行：`acceptsBusyInput` 为真、第一个运行仍 running 时再 `send`，返回 `ok:true`、`queued:true`、`queuedMessageUuid` 为非空字符串；第二个 `runId` 与第一次不同；`chatRunRegistry.getRunById(runId1)` 与 `getRunById(runId2)` 均命中（写下两个返回与两条 getRunById 读数）。
+- [x] AC3 (b) 撤回用的就是返回的那个 uuid：用 AC2 的 uuid 调 `cancelQueued` 得到 `'cancelled'`，且假运行时的假队列里该 uuid 确实被移除（写下返回值与移除前后的队列读数）。
+- [x] AC4 (c) 按次进程忙时被拒：`acceptsBusyInput` 为假、第一个运行仍 running 时再 `send`，返回 `ok:false`、`code:'RUN_IN_PROGRESS'`；假运行时 `run` 调用计数不增；`getRunById` 里不存在第二个运行（写下三项读数）。
+- [x] AC5 (d) 未知 uuid 得 unknown：用一个从未返回过的 uuid 调 `cancelQueued` 得到 `'unknown'` 而不是 `'cancelled'`（写下返回值与假队列未变读数）。
+- [x] AC6 无 WebSocket 参与：写下用于核对的 grep 命令与空输出——判据文件不 import `ws`、不 `new WebSocket(`、不构造 socket；AC2–AC5 全部读数在该文件内无 socket 完成。
+- [x] AC7 取假形态四条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 忙时一律拒绝 ⇒ AC2 红；(ii) 忙时一律排队 ⇒ AC4 红；(iii) `send` 返回自造 uuid ⇒ AC3 红；(iv) `cancelQueued` 对任何 uuid 都回 `cancelled` ⇒ AC5 红。每条记录恢复命令与恢复后重跑绿。
+- [x] AC8 不回归与仓库门：既有 WebSocket 判据保持逐字通过——至少 `chat-control-ownership.test.ts`、`chat-control-send.test.ts`、`chat-edit-send.test.ts`、`chat-run-registry.test.ts`、`chat-background-task.test.ts`（写明命令与结果）；`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（只看 error 级，写明计数）；控制服务跨模块只经 barrel 导入、无深导入。
+- [x] AC9 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写。列出实际改动文件清单。
 
 ## DoD
 
@@ -70,3 +70,40 @@ AC-231（GOAL-019 退出条件 2；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3�
 - server/modules/websocket/services/chat-run-registry.service.ts
 - server/modules/websocket/tests/chat-control-busy.test.ts (new)
 - tasks/gap-ac231-control-busy-queue-cancel.md
+
+## Evidence
+
+AC1 红态基线：判据文件不存在时，存在性闸逐字输出 `缺判据文件：server/modules/websocket/tests/chat-control-busy.test.ts`、退出码 1。实现提交 `2db6ce93`（后经两次 develop 合并）。绿态：`npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-control-busy.test.ts` 退出 0（`ℹ tests 5 / pass 5 / fail 0`）。
+
+AC2 读数：`(a) firstSend={"ok":true,"runId":"fd688552-...","queued":false,"queuedMessageUuid":null} secondSend={"ok":true,"runId":"5e3411ab-...","queued":true,"queuedMessageUuid":"0fde30ac-..."} queue=["4bd9a8e3-...","0fde30ac-..."]`；`(a) getRunById(runId1)={"runId":"fd688552-...","status":"running"} getRunById(runId2)={"runId":"5e3411ab-...","status":"running"}`。第二次运行 id 与第一次不同，两条 getRunById 均命中。
+
+AC3 读数：`(b) uuid=ad9f3795-... verdict=cancelled before=["4ac43a5a-...","ad9f3795-..."] after=["4ac43a5a-..."]`——撤回用的正是 (a) 交出的 uuid，且假队列里该条被移除。
+
+AC4 读数：`(c) secondSend={"ok":false,"code":"RUN_IN_PROGRESS","message":"Session \"control-busy-session\" already has a run in progress."} runCallsBefore=1 runCallsAfter=1 currentRunId=9ff76deb-... runningForSession=1 getRunById(runId1)=9ff76deb-...`——驱动 run 计数不增、无第二个运行。
+
+AC5 读数：`(d) neverUuid=35fce5be-... verdict=unknown before=["416a783a-...","af97887a-..."] after=["416a783a-...","af97887a-..."]`——未知 uuid 得 unknown，队列未变。
+
+AC6 读数：`grep -nE "from ['\"]ws['\"]|new WebSocket\(|new EventEmitter\(|require\(['\"]ws['\"]\)" server/modules/websocket/tests/chat-control-busy.test.ts` 无输出（退出 1，即无匹配）；判据内静态守卫实测 `(e) socketReferences=[]`。
+
+AC7 取假形态（先提交实现 `2db6ce93`；逐条变异 → 必红 → `git checkout --` 恢复 → 重跑绿）：
+- (i) 变异：`chat-websocket.service.ts` 的 `if (!run && dependencies.runtime.acceptsBusyInput?.(provider, sessionId)) {` → `if (!run && false) {`。逐字失败行：`✖ (a) a resident busy session queues the second send and mints a second queryable run (286.149697ms)` + `  AssertionError [ERR_ASSERTION]: the busy send must be queued, not refused (got {"ok":false,"code":"RUN_IN_PROGRESS","message":"Session \"control-busy-session\" already has a run in progress."})`。恢复：`git checkout -- server/modules/websocket/services/chat-websocket.service.ts`；恢复后 5 pass。
+- (ii) 变异：同处 → `if (!run) {`。逐字失败行：`✖ (c) a per-run busy session is refused without touching the provider (259.68038ms)` + `  AssertionError [ERR_ASSERTION]: a per-run busy session refuses the second send`。恢复同上；恢复后 5 pass。
+- (iii) 变异：`chat-control.service.ts` 的 `const queuedMessageUuid = await readQueuedMessageUuid(deps.runtime, provider, input.sessionId);` → `const queuedMessageUuid = randomUUID();`（并加 `import { randomUUID } from 'node:crypto';`）。逐字失败行：`✖ (b) cancelQueued withdraws exactly the uuid the provider handed over (404.907709ms)` + `  AssertionError [ERR_ASSERTION]: the queued message must be withdrawable by the returned uuid`。恢复：`git checkout -- server/modules/websocket/services/chat-control.service.ts`；恢复后 5 pass。
+- (iv) 变异：`chat-control.service.ts` 的 `cancelQueued` 驱动判决透传 → `return 'cancelled';`。逐字失败行：`✖ (d) an unknown uuid answers unknown, not cancelled (424.192841ms)` + `  AssertionError [ERR_ASSERTION]: an id the provider never queued cannot be withdrawn`。恢复同上；恢复后 5 pass。
+
+AC8 不回归与仓库门：
+- 既有 WebSocket 判据（各自 `npx tsx --tsconfig server/tsconfig.json --test <file>`）：`chat-control-ownership.test.ts` 4/4、`chat-control-send.test.ts` 4/4、`chat-edit-send.test.ts` 8/8、`chat-run-registry.test.ts` 12/12、`chat-background-task.test.ts` 6/6，fail 全 0。
+- `npm run typecheck` 退出 0。
+- `npm run lint` 退出 0；`: error ` 计数 0。
+- 控制服务跨模块导入仅经 barrel：`@/modules/database/index.js`、`@/shared/types.js`；websocket 模块内符号经同模块 `services/` 路径，非跨模块深导入。
+
+AC9 对齐：`git diff --stat develop...HEAD` ⇒
+`server/modules/websocket/services/chat-control.service.ts | 132 ++++++-`、
+`server/modules/websocket/services/chat-run-registry.service.ts | 34 +++`、
+`server/modules/websocket/services/chat-websocket.service.ts | 37 ++-`、
+`server/modules/websocket/tests/chat-control-busy.test.ts | 337 ++++ (new)`。
+与 `## Touches` 逐条一致（task 文件本身由 task_write 提交）。
+
+scoped 门（driver fan-in 同款）：`bash scripts/test.sh --for-task gap-ac231-control-busy-queue-cancel --allow-thin` 退出 0（1 file / 1 pass / 0 fail）；scoped-gate 缓存以 develop `26903a7f` 记录。
+
+边界遵守：未实现其余控制动词；未改 `server/index.ts` 装配、`chat.send`/`chat.cancel-queued` 处理器走向、barrel 导出、`ChatRunSource`、运行保留期/摘要、真实网关/驱动的排队 uuid 交接、WebSocket 协议与 `chat.subscribe` 帧序列。
