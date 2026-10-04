@@ -11,6 +11,11 @@
  *
  * Used by `src/modules/chat/hooks/useVoiceInput.ts` to run the detector beside a recording; the
  * recording's upload path is unchanged, and a browser without `AudioWorklet` simply skips it.
+ *
+ * That hook loads THIS file through `voiceFrameProcessorUrl` in the sibling
+ * `voiceFrameProcessorUrl.ts` — the URL has to come from the bundler's own build of this entry, not
+ * from `import.meta.url` over the source path, and the import that asks for it cannot sit here
+ * without this file's own build containing its trigger.
  */
 
 import { StreamingVad, type StreamingVadOptions, type VadEvent, type VoiceSegment } from '@/shared/voiceEndpoint';
@@ -121,19 +126,4 @@ const registerProcessorFn = (globalThis as { registerProcessor?: (name: string, 
   .registerProcessor;
 if (typeof registerProcessorFn === 'function') {
   registerProcessorFn(VOICE_FRAME_PROCESSOR_NAME, VoiceFrameProcessor);
-}
-
-/**
- * The worklet module's own URL, for `AudioWorklet.addModule`.
- *
- * Vite resolves `new URL(..., import.meta.url)` to the served module, so the caller does not have
- * to know where the file lives. Returns null where the URL cannot be formed, which the caller
- * treats the same as a browser without `AudioWorklet`.
- */
-export function voiceFrameProcessorUrl(): string | null {
-  try {
-    return new URL('./voiceFrameProcessor.ts', import.meta.url).href;
-  } catch {
-    return null;
-  }
 }
