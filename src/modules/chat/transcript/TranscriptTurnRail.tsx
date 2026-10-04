@@ -110,23 +110,25 @@ function useTranscriptContent(
   turns: TurnRailTick[],
   totalMessages: number,
   frozenRef: { current: boolean },
-): TranscriptContent {
+): { content: TranscriptContent; refresh: () => TranscriptContent | null } {
   const [content, setContent] = useState<TranscriptContent>(EMPTY_CONTENT);
   /** The estimate the drawn geometry was last built from, for the update gate. */
   const builtStateRef = useRef<EstimateState | null>(null);
   /** The running px-per-message average, carried across rebuilds. */
   const pxPerMessageRef = useRef(0);
+  /** The column's inter-row pitch, measured once and reused. */
+  const rowGapRef = useRef<number | null>(null);
   /** Turn id to absolute message subscript, so the loaded window's opening ordinal is known. */
   const ordinalById = useMemo(
     () => new Map(turns.map((turn) => [turn.id, turn.index])),
     [turns],
   );
 
-  const rebuild = useCallback(() => {
+  const rebuild = useCallback((): TranscriptContent | null => {
     const container = scrollContainerRef.current;
-    if (!container) return;
+    if (!container) return null;
     const contentEl = container.querySelector<HTMLElement>('[data-transcript-content]');
-    if (!contentEl) return;
+    if (!contentEl) return null;
 
     const rows = (Array.from(contentEl.children) as HTMLElement[]).filter((row) =>
       row.hasAttribute('data-message-timestamp'),
@@ -146,16 +148,24 @@ function useTranscriptContent(
     // row's slot is its height plus the gap beneath it; the running
     // px-per-message is then a slot per message, which is what the drawn length
     // and the exposed `data-px-per-message` both mean.
-    let gapTotal = 0;
-    let gapCount = 0;
-    for (let index = 1; index < rows.length; index += 1) {
-      const gap = rows[index].getBoundingClientRect().top - rows[index - 1].getBoundingClientRect().bottom;
-      if (gap >= 0 && gap < 200) {
-        gapTotal += gap;
-        gapCount += 1;
+    //
+    // Measured once and reused: the pitch is a property of the column's styles,
+    // not of the window, and re-reading every adjacent pair on every rebuild
+    // (which a drag's window swaps make frequent) would put an O(rows) rect walk
+    // in the frame path.
+    if (rowGapRef.current === null && rows.length > 1) {
+      let gapTotal = 0;
+      let gapCount = 0;
+      for (let index = 1; index < rows.length; index += 1) {
+        const gap = rows[index].getBoundingClientRect().top - rows[index - 1].getBoundingClientRect().bottom;
+        if (gap >= 0 && gap < 200) {
+          gapTotal += gap;
+          gapCount += 1;
+        }
       }
+      if (gapCount > 0) rowGapRef.current = gapTotal / gapCount;
     }
-    const rowGapPx = gapCount > 0 ? gapTotal / gapCount : 0;
+    const rowGapPx = rowGapRef.current ?? 0;
     const slotInputs: ContentRowInput[] = inputs.map((row) =>
       row.measured ? { ...row, height: row.height + rowGapPx } : row,
     );
@@ -206,10 +216,7 @@ function useTranscriptContent(
         ? ''
         : `${rows.length}:${rows[0].getAttribute('data-message-anchor-id') ?? rows[0].getAttribute('data-message-timestamp') ?? ''}|${rows[rows.length - 1].getAttribute('data-message-anchor-id') ?? rows[rows.length - 1].getAttribute('data-message-timestamp') ?? ''}`,
     };
-    if (!shouldUpdateEstimate(builtStateRef.current, next, frozenRef.current === true)) return;
-    builtStateRef.current = next;
-    pxPerMessageRef.current = pxPerMessage;
-    setContent({
+    const built: TranscriptContent = {
       rows,
       rowHeights: estimate.rowHeights,
       prefix: estimate.prefix,
@@ -218,7 +225,16 @@ function useTranscriptContent(
       pxPerMessage,
       windowAboveOffset: messagesBeforeWindow * pxPerMessage,
       viewportHeight,
-    });
+    };
+    if (shouldUpdateEstimate(builtStateRef.current, next, frozenRef.current === true)) {
+      builtStateRef.current = next;
+      pxPerMessageRef.current = pxPerMessage;
+      setContent(built);
+    }
+    // Returned as well as stored: a caller that is placing content right after a
+    // window read needs the live rows synchronously, before React's state update
+    // has committed them.
+    return built;
   }, [frozenRef, ordinalById, scrollContainerRef, totalMessages]);
 
   // Mount and every totalMessages change: measure at once, then once more on the
@@ -262,7 +278,7 @@ function useTranscriptContent(
     };
   }, [rebuild, scrollContainerRef]);
 
-  return content;
+  return { content, refresh: rebuild };
 }
 
 /** Where the rail's two columns go, and the band the neighbouring handle is allowed to occupy. */
@@ -410,7 +426,7 @@ export default function TranscriptTurnRail({
   // Held true while a gesture owns the thumb, so the estimate is not rebuilt
   // under the pointer (TranscriptScrollbar sets it from its drag/keyboard paths).
   const freezeRef = useRef(false);
-  const content = useTranscriptContent(scrollContainerRef, turns, totalMessages, freezeRef);
+  const { content, refresh } = useTranscriptContent(scrollContainerRef, turns, totalMessages, freezeRef);
   // Nothing is drawn until the estimate exists, and then only when the
   // conversation is taller than the viewport.
   const drawsRail = content.viewportHeight > 0
@@ -435,6 +451,7 @@ export default function TranscriptTurnRail({
             scrollContainerRef={scrollContainerRef}
             totalMessages={totalMessages}
             content={content}
+            refreshContent={refresh}
             freezeRef={freezeRef}
           />
         </>

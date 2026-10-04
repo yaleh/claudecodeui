@@ -399,6 +399,43 @@ test.describe('the drawn scrollbar follows the browser rules against an estimate
     } finally {
       await context.close();
     }
+
+    // The freeze has to hold when the drag actually swaps the window — which only
+    // happens on the long conversation. Its length is read at a viewport tall
+    // enough that the browser formula is well above the 28px floor, so a window
+    // swap that leaked into the length would show as a real change (a floored
+    // length could hide it).
+    const long = await openAt(TALL_VIEWPORT, LONG_SESSION_ID);
+    try {
+      await settleTranscript(long.page);
+      const before = await readRail(long.page);
+      expect(
+        before.thumbHeight,
+        `the long conversation must draw a length above the floor at this height: ${shown(before)}`,
+      ).toBeGreaterThan(MIN_THUMB_PX);
+
+      const box = await long.page.locator('[data-scrollbar-thumb]').boundingBox();
+      if (!box) throw new Error('the thumb has no box to drag');
+      const x = box.x + box.width / 2;
+      const y = box.y + box.height / 2;
+      await long.page.mouse.move(x, y);
+      await long.page.mouse.down();
+      const dragHeights: number[] = [];
+      for (let step = 1; step <= 10; step += 1) {
+        await long.page.mouse.move(x, y + step * 240);
+        await long.page.waitForTimeout(60);
+        dragHeights.push((await readRail(long.page)).thumbHeight);
+      }
+      await long.page.mouse.up();
+      const dragMin = Math.min(...dragHeights);
+      const dragMax = Math.max(...dragHeights);
+      expect(
+        dragMax - dragMin,
+        `the length must stay frozen across a window-swapping drag (0px): ${JSON.stringify({ before: before.thumbHeight, dragHeights })}`,
+      ).toBe(0);
+    } finally {
+      await long.context.close();
+    }
   });
 
   test('AC-219 (e) the position is the share of the conversation already scrolled past', async () => {
