@@ -1,7 +1,7 @@
 ---
 id: gap-task-terminal-transition-transcript-row
 title: 后台任务由非终态转终态时，服务端 reducer 发一条转写事件：任务停了，会话记录里一定留一行（带稳定 id，重放不重复）
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -73,3 +73,13 @@ extra:
 **契约面（AC7）。** `npm run lint`、`npm run typecheck` 退出 0；`git diff --stat develop...HEAD` 恰为 Touches 内的 5 个代码文件（+ 本任务文件）。客户端未改（Touches 不含客户端文件），`useChatMessages.ts` 现有 `case 'task_notification'` 分支按 `status` 渲染，ended/failed/stopped 落入琥珀色点、completed 落绿色点，无需改动。
 
 **未落地/边界。** Stop hook 的 `ended` 转换在 reducer 层已产生并判据覆盖，但 resident 路径的 Stop hook 对账（`reconcileSessionHeldWork`）发生在 host driver 内、该处没有 writer 且 `claude-host-driver.provider.ts` 不在本任务 Touches，故本任务未把 `ended` 帧接到 resident 的 writer 上；DoD 列举的三例（后台 Bash 结束、子代理结束、坞停 Monitor）均由 `forwardNormalizedFrames` 帧路径覆盖。
+## Needs-Human
+
+**执行 2026-10-04T03:49:32.103Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: not ok - suite-watchdog: ABORT guard=silence reason=hung threshold_ms=240000 elapsed_ms=431808 silent_ms=240935
+- run_id：wk-prod-anchor
+- session_id：3ce7a71f-dfc3-4aa1-8bef-3e0d0690e1cf
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-task-terminal-transition-transcript-row~wk-prod-anchor~1791085288513-2f17a2.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-task-terminal-transition-transcript-row-wk-prod-anchor.log
