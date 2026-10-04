@@ -367,10 +367,18 @@ test('resolveGate：默认 goal014，未知返回 null', () => {
   assert.equal(resolveGate('nope'), null);
 });
 
-test('GOAL-015 真实提案文件是 AC2 的判据：--gate goal015 exit 0 且人证行 absent', () => {
+test('GOAL-015 真实提案文件是 AC2 的判据：--gate goal015 exit 0 且判词与文件真实人证行状态一致', () => {
+  // 与 line 184 的 goal014 孪生用例同形：人证行的有无是**人**的动作 —— 交付时 absent，人验收后 present。
+  // 所以这里断言「判词与文件真实内容一致」，**不是**把交付那一刻的 absent 钉成不变量：后者会让人一
+  // 写下验收行、护栏自己就翻红（2026-10-04 实况：AC-201 验收落笔后本用例曾恒红）。
+  // 分辨力不靠这一条：absent / present / 模板泄漏三态由上面的样本用例逐个构造。
+  const expected = scanHumanLine(fs.readFileSync(REAL_RECORD, 'utf8'), GATE_015.humanLinePrefix).state;
   const result = runCli(['--gate', 'goal015', '--check-record', REAL_RECORD]);
   assert.equal(result.status, 0, `真实提案应 exit 0，stderr=${result.stderr}`);
-  assert.ok(result.stdout.includes('人证行：absent'), `交付时人证行应为 absent，实际：${result.stdout}`);
+  assert.ok(
+    result.stdout.includes(`人证行：${expected}`),
+    `判词应与文件真实状态一致（期望 人证行：${expected}），实际：${result.stdout}`,
+  );
 });
 
 test('GOAL-015 纯函数：小节抽取按整行相等，不会误配别的小节', () => {
