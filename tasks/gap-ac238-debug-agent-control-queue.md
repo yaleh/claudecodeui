@@ -10,6 +10,9 @@ children: []
 extra:
   schema: execution
 goal_ac: AC-238
+depends_on:
+  - gap-ac230-control-send-immediate-runid
+  - gap-ac231-control-busy-queue-cancel
 ---
 ## Proposal
 
