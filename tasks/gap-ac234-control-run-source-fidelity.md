@@ -4,7 +4,7 @@ title: AC-234 运行来源如实记录：ChatRunSource 新增 mcp，控制服务
   显式映射来源（websocket→user、scheduled→scheduled、mcp→mcp），无人轮仍 unattended，旧默认（有连接
   user/无连接 scheduled）不变；判据
   server/modules/websocket/tests/chat-control-source.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
