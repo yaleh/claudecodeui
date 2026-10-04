@@ -76,8 +76,42 @@ const HOST_SENTINEL = 'sk-host-sentinel-must-not-leak';
 
 /** How long the server is given to answer `/health` after being spawned. */
 const BOOT_TIMEOUT_MS = 25_000;
-/** How long one `chat.send` is given to reach its terminal frame. */
-const ROUND_TIMEOUT_MS = 30_000;
+/**
+ * How long one `chat.send` is given to reach its terminal frame — and, at the
+ * three `waitForResidentPid` call sites, how long a real resident `claude` host
+ * is given to (re)spawn and register.
+ *
+ * ## Why it carries load headroom
+ *
+ * That wait shelters a real Claude process launching under whatever load the
+ * host is carrying, and that load is not this repo's to control. It is not
+ * hypothetical either: on 2026-10-04 the same criterion, in the same worktree,
+ * with other real-server criteria running concurrently, took 38_900ms for a
+ * single re-spawn against 8_700ms standalone — a 4.5x oversubscription
+ * inflation, one re-spawn alone past the old 30_000ms wait, and the red landed
+ * at `waitForResidentPid` ("Timed out after 30000ms…") on leg 5's third spawn.
+ *
+ * The response is headroom, not a bet that the load will not recur: the wait
+ * must exceed `MEASURED_LANE_ROUND_MS x ROUND_LOAD_MARGIN`, and that relation is
+ * asserted (AC1b) rather than commented, so shrinking it back reds a named case.
+ */
+const ROUND_TIMEOUT_MS = 60_000;
+/**
+ * The worst wall time one resident-host (re)spawn wait was measured at on this
+ * host under concurrent lane load, in ms (2026-10-04: in-lane 38_900 vs
+ * standalone 8_700. Re-measured 2026-10-05 against the same three heavy
+ * siblings — standalone 10_262ms, concurrent 10_106ms — i.e. the inflation is
+ * transient and not reproducible to order, which is exactly why the fix is
+ * headroom rather than a change to the trigger source.)
+ */
+const MEASURED_LANE_ROUND_MS = 38_900;
+/**
+ * The load margin a single per-round wait must carry over `MEASURED_LANE_ROUND_MS`.
+ * The trigger (a real `claude` re-spawn delayed by lane load) is outside this
+ * repo's control, so the load-invariant response is headroom over the measured
+ * worst case; AC1b asserts it.
+ */
+const ROUND_LOAD_MARGIN = 1.5;
 /** How long a process is given to leave after a signal. */
 const GONE_TIMEOUT_MS = 20_000;
 /** How many times the kill-then-reboot legs may be repeated when a foreign boot reaped the orphan. */
@@ -91,9 +125,9 @@ const SCOPE_TIMEOUT_MS = 15_000;
  *
  * Its value is the arithmetic the AC1 test asserts: the three `boot()` calls at
  * their `BOOT_TIMEOUT_MS` deadline (3 x 25_000 = 75_000), plus one round
- * (30_000), one gone-wait (20_000) and one scope-wait (15_000) — a floor of
- * 140_000ms — plus headroom for module load, the mock endpoint, HTTP round trips
- * and the sweep retries.
+ * (60_000 — the load-headroom value AC1b pins), one gone-wait (20_000) and one
+ * scope-wait (15_000) — a floor of 170_000ms — plus headroom for module load,
+ * the mock endpoint, HTTP round trips and the sweep retries.
  *
  * It used to be a bare 60_000, which the three boots alone (75_000) already
  * exceeded: on 2026-10-02 a run whose servers had each reached
@@ -141,7 +175,7 @@ budgetTimer.unref();
  *
  * The three `boot()` calls below each wait up to `BOOT_TIMEOUT_MS`; on top of
  * those run one round, one gone-wait and one scope-wait, each at its own
- * deadline. Summed, that is 140_000ms. A `BUDGET_MS` below that kills a run whose
+ * deadline. Summed, that is 170_000ms. A `BUDGET_MS` below that kills a run whose
  * legs merely approached (but did not exceed) their per-step deadlines — a
  * slowdown mis-read as a hang, with `process.exit(3)` naming no case.
  *
@@ -155,6 +189,33 @@ test('AC1: the process budget is not smaller than the sum of its step deadlines'
     `BUDGET_MS (${BUDGET_MS}ms) is below the sum of its step deadlines (${floorMs}ms): a ` +
       'load-slowed-but-successful boot sequence would be killed by the process guard (exit 3) ' +
       'instead of running to completion, and node:test would name no failing case',
+  );
+});
+
+/**
+ * AC1b — the per-leg load margin: the wait that shelters one resident (re)spawn
+ * must clear the worst figure measured under lane load *with margin*, not sit at
+ * or under it.
+ *
+ * AC1 bounds the *sum* of the step deadlines under the process budget; it says
+ * nothing about whether any single deadline is large enough to survive the load
+ * the host is under. That is the gap the 2026-10-04 red fell through: the floor
+ * was satisfied, yet one re-spawn past 30_000ms red at `waitForResidentPid`
+ * (`:776`), because `ROUND_TIMEOUT_MS` — the tightest leg, shared by all three
+ * boots — carried no margin over the lane-load figure at all.
+ *
+ * Hardcoding `ROUND_TIMEOUT_MS` back to a value below
+ * `MEASURED_LANE_ROUND_MS x ROUND_LOAD_MARGIN` reds this named case: the margin
+ * is a reading, not a comment.
+ */
+test('AC1b: the per-round wait carries the measured lane-load margin', () => {
+  const requiredMs = MEASURED_LANE_ROUND_MS * ROUND_LOAD_MARGIN;
+  assert.ok(
+    ROUND_TIMEOUT_MS >= requiredMs,
+    `ROUND_TIMEOUT_MS (${ROUND_TIMEOUT_MS}ms) is below the measured lane-load requirement ` +
+      `(${MEASURED_LANE_ROUND_MS}ms x ${ROUND_LOAD_MARGIN} = ${requiredMs}ms): a resident ` +
+      '(re)spawn slowed by concurrent lane load would time out at `waitForResidentPid` even ' +
+      'though it was still going to succeed — the load red this margin exists to absorb.',
   );
 });
 
