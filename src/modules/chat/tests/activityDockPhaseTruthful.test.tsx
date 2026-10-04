@@ -224,3 +224,25 @@ describe('the activity dock speaks the server phase', () => {
     );
   });
 });
+
+describe('a dock with no session ignores another session\'s frames', () => {
+  test('a running session\'s hello and beat do not raise the dock on a fresh New Session draft', () => {
+    const { connection, push } = makeConnection();
+    const view = render(
+      React.createElement(ActivityIndicator, {
+        activity: null,
+        sessionId: null,
+        connection,
+      }),
+    );
+
+    push(subscribedFrame('thinking'));
+    push(heartbeatFrame(START + STEP_MS, 'thinking'));
+
+    assert.equal(
+      view.container.querySelector(DOCK),
+      null,
+      'frames for another session must not anchor a turn on a dock that has no session',
+    );
+  });
+});
