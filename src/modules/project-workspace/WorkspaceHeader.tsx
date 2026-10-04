@@ -114,6 +114,7 @@ export default function WorkspaceHeader({
 
   return (
     <header
+      data-app-header
       className={cn(
         'pwa-header-safe flex flex-shrink-0 items-center gap-2 border-b border-border/60 bg-background/95 backdrop-blur-sm',
         // The short tier is a touch-only device with the width of a desktop and the height of a

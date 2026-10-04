@@ -649,10 +649,10 @@ function ChatInterface({
           />
         </MarkdownWorkspaceContext.Provider>
 
-        {/* Desktop only, like the retired quick-settings drawer it is modelled on. */}
-        {isActive && !isMobile && <InputOutlineDrawer entries={inputOutline} onJump={jumpToMessage} />}
+        {isActive && <InputOutlineDrawer entries={inputOutline} isMobile={isMobile} onJump={jumpToMessage} />}
 
-        <div className="relative flex-shrink-0">
+        {/* data-chat-composer lets the outline handle measure where the input starts. */}
+        <div className="relative flex-shrink-0" data-chat-composer>
           {isUserScrolledUp && chatMessages.length > 0 && (
             <div className="pointer-events-none absolute -top-11 left-0 right-0 z-20 flex justify-center">
               <button
