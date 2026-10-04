@@ -41,15 +41,15 @@ AC-230（GOAL-019 退出条件 1；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3�
 
 ## AC
 
-- [ ] AC1 判据绿：`for f in server/modules/websocket/tests/chat-control-send.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-control-send.test.ts` 退出 0。红态基线逐字记录（改动前该文件不存在、存在性闸退出码 1 输出 `缺判据文件：server/modules/websocket/tests/chat-control-send.test.ts`）。
-- [ ] AC2 (a) 立即返回、顺序断言：`await send(...)` 返回 `{ ok: true, runId }` 时延迟对象仍被卡住（写下 `released` 读数与断言先后顺序）；随后确认假运行已被调用（有界轮询，非超时断言）。
-- [ ] AC3 (b) runId 即注册表那次运行：返回的 `runId` === `chatRunRegistry.getRun(<sessionId>).runId`；该运行 `status === 'running'`（写下两个读数）。
-- [ ] AC4 (c) 放行后完成且无泄漏拒绝：放行延迟对象后运行正常结束，`chatRunRegistry.getRun(sessionId).status === 'completed'`；测试期间 `unhandledRejection` 计数为 0（写下计数）。
-- [ ] AC5 (d) 两种错误码且都不登记运行：会话不存在 ⇒ `code === 'SESSION_NOT_FOUND'`、`getRun` 为 undefined；`hasRuntime === false` ⇒ `code === 'UNSUPPORTED_PROVIDER'`、`getRun` 为 undefined（写下两条返回与两条 `getRun` 读数）。
-- [ ] AC6 (e) 无 WebSocket 参与：写下用于核对的 grep 命令与空输出——判据文件不 import `ws`、不 `new WebSocket(`、不构造 socket；且 (a)–(d) 全部读数在该文件内无 socket 完成。
-- [ ] AC7 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) `send` await 运行结束 ⇒ AC2 红；(ii) 返回自造 id ⇒ AC3 红；(iii) 会话不存在仍登记运行 ⇒ AC5 红。每条记录恢复命令与恢复后重跑绿。
-- [ ] AC8 不回归与仓库门：改动后既有 WebSocket 判据保持逐字通过——至少 `chat-control-ownership.test.ts`、`chat-edit-send.test.ts`、`chat-run-registry.test.ts`、`chat-stop-task.test.ts`、`chat-background-task.test.ts`（写明命令与结果）；`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（只看 error 级，写明计数）；判据跨模块只经 barrel 导入、无深导入。
-- [ ] AC9 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写。列出实际改动文件清单。
+- [x] AC1 判据绿：`for f in server/modules/websocket/tests/chat-control-send.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-control-send.test.ts` 退出 0。红态基线逐字记录（改动前该文件不存在、存在性闸退出码 1 输出 `缺判据文件：server/modules/websocket/tests/chat-control-send.test.ts`）。
+- [x] AC2 (a) 立即返回、顺序断言：`await send(...)` 返回 `{ ok: true, runId }` 时延迟对象仍被卡住（写下 `released` 读数与断言先后顺序）；随后确认假运行已被调用（有界轮询，非超时断言）。
+- [x] AC3 (b) runId 即注册表那次运行：返回的 `runId` === `chatRunRegistry.getRun(<sessionId>).runId`；该运行 `status === 'running'`（写下两个读数）。
+- [x] AC4 (c) 放行后完成且无泄漏拒绝：放行延迟对象后运行正常结束，`chatRunRegistry.getRun(sessionId).status === 'completed'`；测试期间 `unhandledRejection` 计数为 0（写下计数）。
+- [x] AC5 (d) 两种错误码且都不登记运行：会话不存在 ⇒ `code === 'SESSION_NOT_FOUND'`、`getRun` 为 undefined；`hasRuntime === false` ⇒ `code === 'UNSUPPORTED_PROVIDER'`、`getRun` 为 undefined（写下两条返回与两条 `getRun` 读数）。
+- [x] AC6 (e) 无 WebSocket 参与：写下用于核对的 grep 命令与空输出——判据文件不 import `ws`、不 `new WebSocket(`、不构造 socket；且 (a)–(d) 全部读数在该文件内无 socket 完成。
+- [x] AC7 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) `send` await 运行结束 ⇒ AC2 红；(ii) 返回自造 id ⇒ AC3 红；(iii) 会话不存在仍登记运行 ⇒ AC5 红。每条记录恢复命令与恢复后重跑绿。
+- [x] AC8 不回归与仓库门：改动后既有 WebSocket 判据保持逐字通过——至少 `chat-control-ownership.test.ts`、`chat-edit-send.test.ts`、`chat-run-registry.test.ts`、`chat-stop-task.test.ts`、`chat-background-task.test.ts`（写明命令与结果）；`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（只看 error 级，写明计数）；判据跨模块只经 barrel 导入、无深导入。
+- [x] AC9 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写。列出实际改动文件清单。
 
 ## DoD
 
@@ -64,3 +64,45 @@ AC-230（GOAL-019 退出条件 1；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3�
 - server/modules/websocket/tests/chat-control-send.test.ts (new)
 - server/modules/websocket/services/chat-websocket.service.ts
 - tasks/gap-ac230-control-send-immediate-runid.md
+
+## Evidence
+
+（AC-230 执行记录，2026-10-05，worker worktree 分支 `task/gap-ac230-control-send-immediate-runid`，实现提交 `84e90ca8`。）
+
+红态基线（AC1）：改动前 `server/modules/websocket/tests/chat-control-send.test.ts` 与 `server/modules/websocket/services/chat-control.service.ts` 在 develop 上均不存在（`git show develop:<path>` 失败）；存在性闸在 develop 上退出 1 并输出 `缺判据文件：server/modules/websocket/tests/chat-control-send.test.ts`。
+
+AC1 绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-control-send.test.ts` 退出 0，`tests 4 / pass 4 / fail 0`。
+
+AC2/AC3 读数（判据实测）：
+- `(a) releasedAtReturn=false runCalledAtReturn=true result={"ok":true,"runId":"290b189a-4e47-4427-a864-20f163c912e6"}`
+- `(b) returnedRunId=290b189a-4e47-4427-a864-20f163c912e6 registryRunId=290b189a-4e47-4427-a864-20f163c912e6 status=running`
+
+说明：`await send(...)` 返回时 `runtime.released === false`（顺序断言，非「N 毫秒内返回」超时断言）；随后有界轮询确认假运行确已被调用且仍被卡住。
+
+AC4 读数：`(c) statusAfterRelease=completed unhandledRejections=0`。
+
+AC5 读数：
+- `(d) missingSession={"ok":false,"code":"SESSION_NOT_FOUND"} missingGetRun=undefined`
+- `(d) unsupportedProvider={"ok":false,"code":"UNSUPPORTED_PROVIDER"} unsupportedGetRun=undefined runCalled=false`
+
+AC6 读数：`grep -nE "from ['\"]ws['\"]|new WebSocket\(|new EventEmitter\(" server/modules/websocket/tests/chat-control-send.test.ts` 无输出（退出 1，即无匹配）；判据内静态守卫同时实测 `(e) socketReferences=[]`。
+
+AC7 取假形态（先提交实现 `84e90ca8`；逐条变异 → 必红 → 恢复 → 重跑绿）：
+- (i) 变异：在 `if (!outcome.registered)` 之后插入 `// MUTATION (i): wait for the whole run to settle before returning.` 与 `await dispatchPromise;`。逐字失败行：`✖ send returns the registered runId while the run is still in flight (2225.15731ms)` + `  Error: timed out: send to return without the run ending`（整文件退出 1、2 fail、6.4s 内终止无挂起）。恢复：`git checkout -- server/modules/websocket/services/chat-control.service.ts`；恢复后 4 pass。
+- (ii) 变异：`beforeRun` 钩子 `resolveRunId(run.runId)` → `resolveRunId('mutation-self-minted-run-id')`。逐字失败行：`✖ send returns the registered runId while the run is still in flight (269.215988ms)` + `  AssertionError [ERR_ASSERTION]: the returned runId is the registered run`（actual=注册表 id，expected='mutation-self-minted-run-id'）。恢复同上；恢复后 4 pass。
+- (iii) 变异：会话不存在分支在返回 `SESSION_NOT_FOUND` 前 `chatRunRegistry.startRun({...})`。逐字失败行：`✖ an unknown session and a runtime-less provider are refused without registering a run (215.836039ms)` + `  AssertionError [ERR_ASSERTION]: an unknown session must register no run`（actual=[Object]，expected=undefined）。恢复同上；恢复后 4 pass。
+
+AC8 不回归与仓库门：
+- 既有 WebSocket 判据：`npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-control-ownership.test.ts server/modules/websocket/tests/chat-edit-send.test.ts server/modules/websocket/tests/chat-run-registry.test.ts server/modules/websocket/tests/chat-stop-task.test.ts server/modules/websocket/tests/chat-background-task.test.ts` ⇒ `tests 36 / pass 36 / fail 0`。
+- `npm run typecheck` 退出 0。
+- `npm run lint` 退出 0；`: error ` 计数 0（仅 warning 级，且无一条落在本次新增/改动文件）。
+- 新增判据跨模块导入仅经 barrel（`@/modules/database/index.js`、`@/shared/types.js`）；websocket 模块内符号经同模块 `services/` 路径导入，非跨模块深导入。
+
+AC9 对齐：`git diff --stat develop...HEAD` ⇒
+`server/modules/websocket/services/chat-control.service.ts | 205 ++++ (new)`、
+`server/modules/websocket/services/chat-websocket.service.ts | 8 +-`、
+`server/modules/websocket/tests/chat-control-send.test.ts | 303 ++++ (new)`、
+`tasks/gap-ac230-control-send-immediate-runid.md`（由 task_write 提交）。
+与 `## Touches` 逐条一致，无 Touches 外文件。
+
+边界遵守：未实现其余控制动词（AC-231/232）；未改 `server/index.ts` / `chat.send` 处理器 / barrel 导出 / `ChatRunSource` / `chatRunRegistry` 按 id 索引 / 真实驱动 / WebSocket 协议。
