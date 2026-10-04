@@ -330,6 +330,33 @@ CREATE TABLE IF NOT EXISTS superseded_provider_sessions (
 );
 `;
 
+/**
+ * Personal access tokens (PAT) issued by the OAuth module.
+ *
+ * Only the SHA-256 hash of a token is ever stored; `token_prefix` keeps the
+ * first eight characters (`ccp_` + five hex digits) so a listing can show which
+ * token a row is without the hash being reversible. `scopes` is a JSON array of
+ * granted scope strings, and every timestamp column is written from the service's
+ * injected clock rather than `CURRENT_TIMESTAMP` so expiry is testable.
+ *
+ * Stage 0 of `mcp-gateway-SPEC` builds only this table: the OAuth client/grant
+ * tables arrive in stage 5 and the `api_keys` retirement is AC-225.
+ */
+export const ACCESS_TOKENS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS access_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    token_prefix TEXT NOT NULL,
+    name TEXT,
+    scopes TEXT NOT NULL,
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME,
+    last_used DATETIME,
+    revoked_at DATETIME
+);
+`;
+
 export const INIT_SCHEMA_SQL = `
 -- Initialize authentication database
 PRAGMA foreign_keys = ON;
