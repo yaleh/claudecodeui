@@ -36,16 +36,16 @@ depends_on:
 
 ## AC
 
-- [ ] `npm run test:client -- src/modules/chat/utils/tests/voiceLiveReading.test.ts` 退出码 0：用手工构造的度量，读数各字段与手算值一致（`savedRatio`、`estAudioTokens = sentSec × 7`、`baseline.requests = 1`）
-- [ ] `npx playwright test e2e/voice-live-vad-ab.spec.ts` 退出码 0（假 provider，零费用），包含下列各项
-- [ ] 关闭开关时没有读数：未设 `voiceDebug`，一次完整输入后 `window.__voiceLive` 为 `undefined`，控制台无 `[voice:live]`；设 `voiceDebug` 后恰好一条
-- [ ] 同一份样本（`corpus/long/L3-sparse`，经文件上传入口喂入）开 VAD 与 `voiceVad=off` 各跑一次：开时 `sentSec` 小于 `recordedSec` 且 `savedRatio ≥ 0.5`、`requests ≥ 2`；关时 `sentSec == recordedSec`、`requests == 1`、`segments == 1`
-- [ ] 两次的差值被写进断言：`recordedSec` 两次相等（± 1 帧），开时 `estAudioTokens` 比关时少的比例等于 `savedRatio`（± 0.01）
-- [ ] 无真停顿样本（`L4-nonstop`）：开时 `forcedCuts ≥ 1` 且 `longestSegmentSec ≤ 60`
-- [ ] 短样本：累计语音 < 30 s 时 `requests == 1` 且 `forcedCuts == 0`
-- [ ] 用户界面不变：开启 `voiceDebug` 与否，composer 内的控件集合（按钮数量与 `data-testid` 列表）相同，除了 `voiceDebug` 已有的上传入口
-- [ ] 取假形态（各自必须变红）：把 `savedRatio` 算成实发/录音（取反）→ 数值用例红；`voiceVad=off` 仍切段 → 「关时 requests == 1」红
-- [ ] `npm run lint` 与 `npm run typecheck` 退出码 0
+- [x] `npm run test:client -- src/modules/chat/utils/tests/voiceLiveReading.test.ts` 退出码 0：用手工构造的度量，读数各字段与手算值一致（`savedRatio`、`estAudioTokens = sentSec × 7`、`baseline.requests = 1`）
+- [x] `npx playwright test e2e/voice-live-vad-ab.spec.ts` 退出码 0（假 provider，零费用），包含下列各项
+- [x] 关闭开关时没有读数：未设 `voiceDebug`，一次完整输入后 `window.__voiceLive` 为 `undefined`，控制台无 `[voice:live]`；设 `voiceDebug` 后恰好一条
+- [x] 同一份样本（`corpus/long/L3-sparse`，经文件上传入口喂入）开 VAD 与 `voiceVad=off` 各跑一次：开时 `sentSec` 小于 `recordedSec` 且 `savedRatio ≥ 0.5`、`requests ≥ 2`；关时 `sentSec == recordedSec`、`requests == 1`、`segments == 1`
+- [x] 两次的差值被写进断言：`recordedSec` 两次相等（± 1 帧），开时 `estAudioTokens` 比关时少的比例等于 `savedRatio`（± 0.01）
+- [x] 无真停顿样本（`L4-nonstop`）：开时 `forcedCuts ≥ 1` 且 `longestSegmentSec ≤ 60`
+- [x] 短样本：累计语音 < 30 s 时 `requests == 1` 且 `forcedCuts == 0`
+- [x] 用户界面不变：开启 `voiceDebug` 与否，composer 内的控件集合（按钮数量与 `data-testid` 列表）相同，除了 `voiceDebug` 已有的上传入口
+- [x] 取假形态（各自必须变红）：把 `savedRatio` 算成实发/录音（取反）→ 数值用例红；`voiceVad=off` 仍切段 → 「关时 requests == 1」红
+- [x] `npm run lint` 与 `npm run typecheck` 退出码 0
 
 ## DoD
 
@@ -55,6 +55,22 @@ L_D 该轴有读数：连续输入路径上 VAD 前后的时长、段数、强�
 
 L_G 该轴仍暗，理由：本任务不产出生成质量轴读数。
 
+### 验收记录（`npx playwright test e2e/voice-live-vad-ab.spec.ts`，2026-10-04，5 passed / 26.2s）
+
+真实页面，假 provider（零费用）；同一份真人语音样本经**文件上传入口**喂入，`voiceVad` 开关两次。下表每个数字都读自页面上的 `window.__voiceLive`（spec 打印的 `[voice-live-ab]` 行），不是离线重算：
+
+| 样本 | 臂 | recordedSec | sentSec | segments | requests | forcedCuts | firstTextLatencyMs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| L3-sparse（274 s，稀疏） | vad-on | 274.103 | 61.480 | 2 | 2 | 0 | 65 |
+| L3-sparse（274 s，稀疏） | vad-off | 274.103 | 274.103 | 1 | 1 | 0 | 269 |
+| L4-nonstop（141 s，无停顿） | vad-on | 140.822 | 135.740 | 3 | 3 | 2 | 106 |
+
+- L3 `savedRatio = 1 − 61.480/274.103 = 0.776`；`estAudioTokens` 从 1918.7 降到 430.4，减少比例 0.776 = `savedRatio`（±0.01）。
+- L4 被天花板强制切 2 次，最长段 59.44 s ≤ 60 s。
+- 短样本（假麦克风 3 s 连续语音）：`requests == 1`、`forcedCuts == 0`。
+- 假形态各自读红：取反的 `savedRatio` 不满足 VAD-on 判定；仍在切段的 `voiceVad=off` 不满足 VAD-off 判定。
+- 延迟读数在假 provider 下只反映流水线本身；**不含**任何服务端延迟或识别质量结论。
+
 ## Touches
 
 - src/modules/chat/utils/voiceLiveReading.ts (new)
@@ -62,4 +78,5 @@ L_G 该轴仍暗，理由：本任务不产出生成质量轴读数。
 - src/modules/chat/hooks/useVoiceInput.ts
 - src/shared/voiceDebug.ts
 - e2e/voice-live-vad-ab.spec.ts (new)
+- playwright.config.ts
 - tasks/gap-voice-live-vad-readings.md

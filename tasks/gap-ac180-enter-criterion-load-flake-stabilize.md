@@ -41,12 +41,12 @@ goal_ac: AC-180
 
 ## AC
 
-- [ ] AC1 判据绿且稳定：连续 3 次 `npx playwright test e2e/resident-enter-send.spec.ts` 均 exit 0，逐次登记 `duration` 与读数。红态基线：立案时该判据在本轮 driver 直接重跑 exit 非 0（`.quay/gate-events.jsonl` `2026-10-04T14:27:08.499Z` `verdict: fail`）。
-- [ ] AC2 红已定位到 (b) 腿的启动/选项目前置，而非载重断言：在 `## Evidence` 里逐字登记失败运行自己的工件（`test-results/*/error-context.md` + `test.trace`），证明红是 `Channel closed` / `Target page, context or browser has been closed` 与 `projectRow` 的 `Timeout 5000ms exceeded`，不是 (a) 的 resident 读数。
-- [ ] AC3 前置预算与负载解耦（承重）：`grep -nE "projectRow\(page\)\.click\(\{ timeout: 5_?000" e2e/resident-enter-send.spec.ts` 命中 **0**；`grep -nE "test\.describe\.configure\(\{ timeout:" e2e/resident-enter-send.spec.ts` 命中 **≥1**（两用例获得显式每用例预算，仍低于 60s 门限）。
-- [ ] AC4 正控制不弱化（承重）：`grep -cE "toBe\('resident'\)|toBe\('per-run'\)" e2e/resident-enter-send.spec.ts` ≥ **2**（(a) 的 resident 与 (b) 的 per-run 正控制逐字仍在），且 `grep -nE "waitForHost|heldByResidentHost" e2e/resident-enter-send.spec.ts` 命中 **≥1**（服务端真宿主持有读数仍在）。
-- [ ] AC5 假形态必须红（承重）：Enter 分支直接调 `handleSubmit` ⇒ (a) 腿非 **0**，红落在 resident 读数上；登记变异 diff、失败断言逐字、退出码；恢复后复绿。
-- [ ] AC6 契约面：`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**；`git diff --name-only $(git merge-base develop HEAD) HEAD` 全部落在 `## Touches` 内。
+- [x] AC1 判据绿且稳定：连续 3 次 `npx playwright test e2e/resident-enter-send.spec.ts` 均 exit 0，逐次登记 `duration` 与读数。红态基线：立案时该判据在本轮 driver 直接重跑 exit 非 0（`.quay/gate-events.jsonl` `2026-10-04T14:27:08.499Z` `verdict: fail`）。
+- [x] AC2 红已定位到 (b) 腿的启动/选项目前置，而非载重断言：在 `## Evidence` 里逐字登记失败运行自己的工件（`test-results/*/error-context.md` + `test.trace`），证明红是 `Channel closed` / `Target page, context or browser has been closed` 与 `projectRow` 的 `Timeout 5000ms exceeded`，不是 (a) 的 resident 读数。
+- [x] AC3 前置预算与负载解耦（承重）：`grep -nE "projectRow\(page\)\.click\(\{ timeout: 5_?000" e2e/resident-enter-send.spec.ts` 命中 **0**；`grep -nE "test\.describe\.configure\(\{ timeout:" e2e/resident-enter-send.spec.ts` 命中 **≥1**（两用例获得显式每用例预算，仍低于 60s 门限）。
+- [x] AC4 正控制不弱化（承重）：`grep -cE "toBe\('resident'\)|toBe\('per-run'\)" e2e/resident-enter-send.spec.ts` ≥ **2**（(a) 的 resident 与 (b) 的 per-run 正控制逐字仍在），且 `grep -nE "waitForHost|heldByResidentHost" e2e/resident-enter-send.spec.ts` 命中 **≥1**（服务端真宿主持有读数仍在）。
+- [x] AC5 假形态必须红（承重）：Enter 分支直接调 `handleSubmit` ⇒ (a) 腿非 **0**，红落在 resident 读数上；登记变异 diff、失败断言逐字、退出码；恢复后复绿。
+- [x] AC6 契约面：`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**；`git diff --name-only $(git merge-base develop HEAD) HEAD` 全部落在 `## Touches` 内。
 
 ## DoD
 
@@ -54,6 +54,47 @@ goal_ac: AC-180
 - 载重读数（(a) 的 resident + 真宿主；(b) 的 per-run 正控制）与今天逐字相同——加固的是前置预算与就绪等待，不是断言。
 - 假形态真的跑过、真的红，红落在 (a) 的 resident 读数上。
 - 只动 `## Touches` 列出的文件；若触及 `src/`（预计不触及）则遵守对应模块标准。
+
+## Evidence
+
+**红态基线（立案读数）。** `.quay/gate-events.jsonl`：`2026-10-04T14:27:08.499Z actor goal-cli verdict fail`（同日更早 `2026-10-04T14:17:33.650Z actor goal-sweep verdict fail`）；`anchor.json` 的 `bundle.at=2026-10-04T14:27:08.744Z`。同一 HEAD 上 14:17:55–14:24:32 连续 5 次 pass（`goal-round.jsonl` round 608–612，`frozenRecheck verdict=pass outcome=cleared cause=now-true durationMs≈22.5s`）。⇒ 一个红点夹在一串绿之间，是负载假红。
+
+**红落点（读失败运行自己的工件，不读台账 reason）。** 失败数据目录 `~/.cache/quay-e2e-tmp/quay-e2e-kAI2VK/`，`test-results/resident-enter-send-AC-180-2aeeb-ill-sends-and-lands-per-run/error-context.md` 逐字：
+
+    - Name: resident-enter-send.spec.ts >> AC-180 (b) control: Enter with the resident switch off still sends, and lands per-run
+    - Location: e2e/resident-enter-send.spec.ts:349:1
+    Error: Channel closed
+    Error: page.waitForTimeout: Target page, context or browser has been closed
+
+同目录 `trace.zip` → `test.trace` 的 action/error 序列逐字：
+
+    TimeoutError: locator.click: Timeout 5000ms exceeded     (×4, waiting for getByRole('heading', { name: ... }) 即 projectRow)
+    Error: locator.click: Test ended.                        (同一个 getByRole('heading', ...))
+    Error: page.waitForTimeout: Target page, context or browser has been closed
+
+同 trace `2-trace.network` 逐字：整个用例窗口内只到根文档与少数 Vite 模块请求且状态未落（`http://127.0.0.1:2497/`、`/src/modules/i18n/index.ts`、`/src/modules/auth/index.ts`、`/src/modules/task-master/index.ts`、`/src/modules/plugins/index.ts`、`/src/modules/project-workspace/index.ts` …，status 均 `None`）——侧栏尚未渲染。⇒ 红落在 (b) 腿的 `openComposer` 启动/选项目前置（`projectRow.click({ timeout: 5_000 })`），(a) 的 resident 载重读数在同一运行里通过。
+
+**修复（`e2e/resident-enter-send.spec.ts`）。** `openComposer` 先 `await expect(projectRow(page)).toBeVisible({ timeout: PROJECT_ROW_READY_MS /* 20_000 */ })`，再 `await row.click()`（无固定子时限，由每用例预算兜底），删除固定 5s 的 `click({ timeout: 5_000 })`。新增 `test.describe.configure({ timeout: 45_000 })`：两个用例获得显式每用例预算，高于两个 20s 的 `waitFor*` 预算、低于 60s 门限与 55s watchdog。载重断言 (a) `toBe('resident')` + `waitForHost`、(b) `toBe('per-run')` 逐字未动。
+
+**AC1 三次连续绿（逐次 wall 与读数）。**
+1. `rc=0 wall=16735ms`；`session.lifecycle_mode=resident`、`host.resident.bindsSession=true`、`control.lifecycle_mode=per-run`；(a) 2.8s / (b) 2.9s / `2 passed (15.9s)`。
+2. `rc=0 wall=16205ms`；(a) 2.9s / (b) 2.8s / `2 passed (15.5s)`。
+3. `rc=0 wall=16528ms`；(a) 2.8s / (b) 2.8s / `2 passed (15.7s)`。
+余量：wall ≈16.2–16.7s，相对 60s 门限 ≈43s。
+合并 develop（voice 线与 `playwright.config.ts` 变更）后于 worktree 复跑一次：`rc=0`；`session.lifecycle_mode=resident`、`host.resident.bindsSession=true`、`control.lifecycle_mode=per-run`；(a) 2.9s / (b) 2.7s / `2 passed (15.4s)`。
+
+**AC3 读数。** `grep -cE "projectRow\(page\)\.click\(\{ timeout: 5_?000" e2e/resident-enter-send.spec.ts` → `0`；`grep -nE "test\.describe\.configure\(\{ timeout:" e2e/resident-enter-send.spec.ts` → `330:test.describe.configure({ timeout: 45_000 });`（≥1）。
+
+**AC4 读数。** `grep -cE "toBe\('resident'\)|toBe\('per-run'\)" e2e/resident-enter-send.spec.ts` → `2`；`grep -nE "waitForHost|heldByResidentHost" e2e/resident-enter-send.spec.ts` 命中（`waitForHost` 定义 :221；`heldByResidentHost` :360/362/365）。
+
+**AC5 假形态（先提交再变异，跑完恢复）。** 变异 diff（`src/modules/chat/hooks/useChatComposerState.ts` 两处 Enter 分支，绕过 `handleComposerSubmit` 的 `setPendingResidentIntent`）：
+
+    -          event.currentTarget.form?.requestSubmit();
+    +          void handleSubmit(createFakeSubmitEvent());
+
+失败断言逐字：`expect(received).toBe(expected) // Object.is equality` / `Expected: "resident"` / `Received: "per-run"` at `e2e/resident-enter-send.spec.ts:358:5`；读数 `session.lifecycle_mode=per-run`；(b) `1 did not run`（serial）。(a) 腿退出码 `PLAYWRIGHT_EXIT=1`。`git checkout -- src/modules/chat/hooks/useChatComposerState.ts` 恢复后复跑 `PLAYWRIGHT_EXIT=0`、`2 passed`、`session.lifecycle_mode=resident`、`host.resident.bindsSession=true`。
+
+**AC6 契约面（合并 develop 后在 worktree 上复读）。** `npm run lint` → `LINT_RC=0`（仅既有 warning）；`npm run typecheck` → `TYPECHECK_RC=0`；`git diff --name-only $(git merge-base develop HEAD) HEAD` → `e2e/resident-enter-send.spec.ts`（合并后唯一的 delta；任务文件与 develop 逐字相同，故不出现在该 delta 里），落在 `## Touches` 内。
 
 ## Touches
 
