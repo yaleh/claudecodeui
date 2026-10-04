@@ -1,7 +1,7 @@
 ---
 id: gap-ac207-expand-all-first-segment-recollapse
 title: AC-207 真实浏览器判据间歇红——全展开正控制读成 20 行、首段塌回折叠
-status: done
+status: ready
 labels:
   - gap
   - defect
