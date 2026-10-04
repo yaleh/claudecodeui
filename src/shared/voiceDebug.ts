@@ -34,6 +34,9 @@ const KNOWN_FLAGS = [
   'voiceMinSegmentSec',
   'voiceIdleSec',
   'voiceOriginalCapSec',
+  // The continuous path's A/B: `voiceVad=off` makes it send the whole input as one request — the
+  // "before" half of the reading in `voiceLiveReading.ts`. It is a debug switch, not a user mode.
+  'voiceVad',
 ] as const;
 
 type VoiceFlagName = (typeof KNOWN_FLAGS)[number];
@@ -169,4 +172,19 @@ export function voiceDebugIdleSec(): number | undefined {
 /** The raw-audio replay cap in seconds, or undefined for the shipped default. */
 export function voiceDebugOriginalCapSec(): number | undefined {
   return readNumberFlag('voiceOriginalCapSec');
+}
+
+/**
+ * Whether the continuous path segments its input at all.
+ *
+ * ON unless something turned it off, like the trim's default and for the same reason: segmentation
+ * IS the shipped behaviour, and this switch has to be set for the A/B arm, not the normal path.
+ *
+ * `off` sends the whole input as a single request — no cut, no gap filter — which is exactly the
+ * "before" the reading's `baseline` describes. Turning it on and off over one sample is what makes
+ * "what the VAD did" a measured difference rather than an assertion.
+ */
+export function isVoiceVadEnabled(): boolean {
+  const value = readFlag('voiceVad');
+  return value === undefined || !OFF_VALUES.includes(value.trim().toLowerCase());
 }

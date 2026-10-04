@@ -323,6 +323,13 @@ const SPEC_BUDGET_MS: Record<string, number> = {
   // ~1-2 minutes — past the 55s single-file default, and declared here rather
   // than left to be killed by the watchdog mid-case.
   'transcript-jump-landing.spec.ts': 240_000,
+  // The live VAD reading takes an A/B over real corpus samples: it decodes and
+  // segments L3-sparse (274 s) and L4-nonstop (141 s) in the page, uploads the
+  // pieces to a stand-in recogniser, and runs two fake-microphone legs — several
+  // multi-megabyte page loads past the 55s single-file default. Declared here,
+  // for the same reason as the entry above: a watchdog kill mid-case says
+  // nothing about what it was measuring.
+  'voice-live-vad-ab.spec.ts': 240_000,
 };
 
 /**
@@ -1737,6 +1744,52 @@ const seedVoiceContinuousWorkspace = () => {
   );
 };
 
+/**
+ * Workspace `e2e/voice-live-vad-ab.spec.ts` opens its composer in; its own directory so no other spec picks this
+ * session up — the same reason every other voice spec has one.
+ *
+ * The spec feeds its audio through the upload entry and, for the switch-off leg, the fake microphone, so no
+ * audio file is seeded here: the fixture is the session, and the utterances are the spec's own bytes/corpus.
+ * The transcript still has to be written before the servers boot, because the backend scans `~/.claude/projects`
+ * once at startup and never adopts a transcript written later.
+ */
+const VOICE_LIVE_VAD_WORKSPACE = path.join(dataDir, 'voice-live-vad-workspace');
+const VOICE_LIVE_VAD_SESSION_ID = 'e2e-voice-live-vad';
+const VOICE_LIVE_VAD_SESSION_NAME = 'voice-live-vad';
+const seedVoiceLiveVadWorkspace = () => {
+  fs.mkdirSync(VOICE_LIVE_VAD_WORKSPACE, { recursive: true });
+  fs.writeFileSync(
+    path.join(VOICE_LIVE_VAD_WORKSPACE, 'reading.notes.md'),
+    'Notes kept in the workspace the live VAD reading spec records in.\n',
+    'utf8',
+  );
+
+  const transcriptDir = path.join(dataDir, '.claude', 'projects', 'voice-live-vad-workspace');
+  fs.mkdirSync(transcriptDir, { recursive: true });
+  const timestamp = new Date().toISOString();
+  const records = [
+    {
+      type: 'user',
+      sessionId: VOICE_LIVE_VAD_SESSION_ID,
+      cwd: VOICE_LIVE_VAD_WORKSPACE,
+      timestamp,
+      message: { role: 'user', content: [{ type: 'text', text: 'open the composer for the live VAD reading check' }] },
+    },
+    {
+      type: 'custom-title',
+      sessionId: VOICE_LIVE_VAD_SESSION_ID,
+      cwd: VOICE_LIVE_VAD_WORKSPACE,
+      timestamp,
+      customTitle: VOICE_LIVE_VAD_SESSION_NAME,
+    },
+  ];
+  fs.writeFileSync(
+    path.join(transcriptDir, `${VOICE_LIVE_VAD_SESSION_ID}.jsonl`),
+    `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
+    'utf8',
+  );
+};
+
 if (isDataDirOwner) {
   seedViteCache(viteCacheDir);
   seedSessionFilterTranscripts();
@@ -1745,6 +1798,7 @@ if (isDataDirOwner) {
   seedTranscriptJumpTallTranscript();
   seedVoiceIdentifierWorkspace();
   seedVoiceContinuousWorkspace();
+  seedVoiceLiveVadWorkspace();
   seedVoiceTrimWorkspace();
   seedVoiceDashscopeWorkspace();
   seedVoiceErrorMessageWorkspace();

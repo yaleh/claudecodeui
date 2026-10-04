@@ -14,6 +14,11 @@ import {
   type SegmentJob,
   type SegmentOutcome,
 } from '@/modules/chat/utils/voiceSegments';
+import {
+  buildVoiceLiveReading,
+  type VoiceSegmentMetric,
+  type VoiceUsage,
+} from '@/modules/chat/utils/voiceLiveReading';
 import { voicePlayer } from '@/modules/chat/utils/voicePlayer';
 import {
   VOICE_FRAME_PROCESSOR_NAME,
@@ -35,6 +40,7 @@ import type {
 } from '@/shared/types';
 import {
   isVoiceDebugEnabled,
+  isVoiceVadEnabled,
   voiceDebugIdleSec,
   voiceDebugMinSegmentSec,
   voiceDebugOriginalCapSec,
@@ -210,6 +216,42 @@ async function refusalDetail(response: Response): Promise<VoiceTranscriptionFail
 /** Which entry the audio came in through. */
 export type VoiceSource = 'mic' | 'file';
 
+/**
+ * The token usage out of a recogniser answer, when the provider returned any.
+ *
+ * A `clone()` is taken because the answer's body is consumed by the transcript parse; the clone is
+ * only taken under the debug switch, so a normal dictation pays no second read. A provider that
+ * returns no usage — every stand-in the e2e specs use — yields null rather than zeros, so "unknown"
+ * and "zero tokens" stay distinguishable in the reading.
+ */
+async function readUsage(response: Response): Promise<VoiceUsage | null> {
+  try {
+    const body = (await response.clone().json()) as { usage?: Record<string, unknown> } | null;
+    const usage = body?.usage;
+    if (!usage || typeof usage !== 'object') return null;
+    const read = (key: string): number | undefined => (typeof usage[key] === 'number' ? (usage[key] as number) : undefined);
+    return {
+      promptTokens: read('prompt_tokens') ?? read('promptTokens'),
+      completionTokens: read('completion_tokens') ?? read('completionTokens'),
+      totalTokens: read('total_tokens') ?? read('totalTokens'),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Adds one segment's usage onto the input's running total, field by field. */
+function accumulateUsage(total: VoiceUsage | null, next: VoiceUsage | null): VoiceUsage | null {
+  if (!next) return total;
+  const add = (a?: number, b?: number): number | undefined =>
+    a === undefined && b === undefined ? undefined : (a ?? 0) + (b ?? 0);
+  return {
+    promptTokens: add(total?.promptTokens, next.promptTokens),
+    completionTokens: add(total?.completionTokens, next.completionTokens),
+    totalTokens: add(total?.totalTokens, next.totalTokens),
+  };
+}
+
 /** Builds a canonical 16-bit mono PCM WAV from little-endian PCM bytes already in hand. */
 function wavFromPcm16(data: Uint8Array, sampleRate: number): Blob {
   const bytes = new Uint8Array(WAV_HEADER_BYTES + data.length);
@@ -262,6 +304,76 @@ function concatInt16(chunks: Int16Array[]): Uint8Array {
     }
   }
   return bytes;
+}
+
+/** Concatenates float sample views into one buffer, for the whole-buffer (no-VAD) segment. */
+function concatFloat(chunks: Float32Array[]): Float32Array {
+  let total = 0;
+  for (const chunk of chunks) total += chunk.length;
+  const out = new Float32Array(total);
+  let at = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, at);
+    at += chunk.length;
+  }
+  return out;
+}
+
+/**
+ * Encodes mono float samples as a canonical 16-bit PCM WAV at `sampleRate`.
+ *
+ * The same layout `audioDecode.ts` and the segmenter's encoder write (RIFF/WAVE, a 16-byte `fmt `
+ * chunk, mono, 16-bit), so a reader cannot tell which of the three produced it. It is here rather
+ * than imported because the segmenter's encoder is private and hands back `Uint8Array` only for
+ * segments it built itself; this is the one caller that has samples the segmenter never saw.
+ */
+function encodePcm16Wav(samples: Float32Array, sampleRate: number): Uint8Array {
+  const dataBytes = samples.length * 2;
+  const bytes = new Uint8Array(WAV_HEADER_BYTES + dataBytes);
+  const view = new DataView(bytes.buffer);
+  const ascii = (at: number, text: string): void => {
+    for (let i = 0; i < text.length; i += 1) view.setUint8(at + i, text.charCodeAt(i));
+  };
+  ascii(0, 'RIFF');
+  view.setUint32(4, 36 + dataBytes, true);
+  ascii(8, 'WAVE');
+  ascii(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  ascii(36, 'data');
+  view.setUint32(40, dataBytes, true);
+  for (let i = 0; i < samples.length; i += 1) {
+    const clamped = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(WAV_HEADER_BYTES + i * 2, Math.round(clamped * 32_767), true);
+  }
+  return bytes;
+}
+
+/**
+ * The one segment a no-VAD path sends: the whole input, resampled to the upload rate and encoded.
+ *
+ * This is the `voiceVad=off` shape — no cut, no gap filter, nothing dropped — so the reading's
+ * `sentSec` comes out equal to its `recordedSec` and the A/B really is "before" against "after"
+ * rather than two different cuts.
+ */
+function wholeBufferSegment(samples: Float32Array, sampleRate: number): LiveSegment {
+  const down = downsampleVoice(samples, sampleRate, UPLOAD_SAMPLE_RATE);
+  return {
+    wav: encodePcm16Wav(down.samples, UPLOAD_SAMPLE_RATE),
+    startSec: 0,
+    endSec: samples.length / sampleRate,
+    forced: false,
+  };
+}
+
+/** The duration of a segment's own uploaded audio, in seconds, read off the WAV it built. */
+function segmentWavSec(wav: Uint8Array): number {
+  return (wav.length - WAV_HEADER_BYTES) / 2 / UPLOAD_SAMPLE_RATE;
 }
 
 /** Concatenates PCM payloads into one buffer. */
@@ -319,6 +431,24 @@ type CaptureSession = {
   /** Filtered 16 kHz PCM (the segments' own audio) for the trimmed replay track. */
   filteredChunks: Uint8Array[];
   filteredSamples: number;
+  /** True when this session sends the whole input as one segment (`voiceVad=off`). */
+  wholeBuffer: boolean;
+  /** The raw PCM this session accumulated for the whole-buffer case, copied as it arrived. */
+  wholeChunks: Float32Array[];
+  /** Total input samples: pushed (mic) or decoded (file), before any cut. */
+  inputSamples: number;
+  /** The rate those samples are at — the engine's for a mic, the decoder's for a file. */
+  inputRate: number;
+  /** Wall clock the capture began, so a segment's buffered wait is measurable on the mic path. */
+  captureStartedAt: number;
+  /** One measurement per submitted segment, indexed by its ordinal. */
+  readings: VoiceSegmentMetric[];
+  /** When the first segment was cut, or null before any was — the first-text latency's origin. */
+  firstCutAt: number | null;
+  /** From that cut to the first text in the composer, or null while no text has arrived. */
+  firstTextLatencyMs: number | null;
+  /** Cumulative usage the recogniser returned, when it returned any. */
+  usage: VoiceUsage | null;
 };
 
 type UseVoiceInputOptions = {
@@ -487,6 +617,12 @@ export function useVoiceInput(
     const full = session.parts.length > 0 ? reassembleText(session.parts) : '';
     if (full !== session.committed) {
       session.committed = full;
+      // The first text to reach the composer, timed from the first cut. It is read here, where the
+      // text is committed, rather than at the answer: an out-of-order later segment can land before
+      // the first, and the reading is about when the box first changed, not when a socket answered.
+      if (full && session.firstTextLatencyMs === null && session.firstCutAt !== null) {
+        session.firstTextLatencyMs = Date.now() - session.firstCutAt;
+      }
       if (!cancelledRef.current) onTranscriptRef.current(full, false);
     }
   };
@@ -504,6 +640,18 @@ export function useVoiceInput(
     if (session.source === 'mic') {
       const slot = buildClipSlot(session);
       if (slot) adoptClip(slot);
+    }
+    // The one reading this input produces. Only under the debug switch: nothing here is shown to a
+    // user who did not ask, and a reading on every dictation would be a reading nobody reads.
+    if (isVoiceDebugEnabled()) {
+      const reading = buildVoiceLiveReading({
+        recordedSec: session.inputRate > 0 ? session.inputSamples / session.inputRate : 0,
+        segments: session.readings,
+        firstTextLatencyMs: session.firstTextLatencyMs,
+        usage: session.usage,
+      });
+      console.debug('[voice:live]', reading);
+      (window as unknown as { __voiceLive?: unknown }).__voiceLive = reading;
     }
     if (!cancelledRef.current) {
       setState('idle');
@@ -542,7 +690,11 @@ export function useVoiceInput(
         session.refusals.set(job.index, refusal);
         throw refusal;
       }
+      // Taken before the body is read for the transcript, and only when a reading will be produced:
+      // a normal dictation neither clones the answer nor looks for usage in it.
+      const usageProbe = isVoiceDebugEnabled() ? readUsage(response) : null;
       const raw = await parseTranscriptionResponse(response, 'strict');
+      if (usageProbe) session.usage = accumulateUsage(session.usage, await usageProbe);
       const text = raw.trim();
       if (!text) {
         // A well-formed answer with no words in it is the server's own `NO_SPEECH_DETECTED`, named
@@ -567,6 +719,14 @@ export function useVoiceInput(
   const settleSegment = (session: CaptureSession, outcome: SegmentOutcome) => {
     session.pending -= 1;
     session.settled.set(outcome.index, outcome);
+    // The one place the request count and latency are known. A failed segment still cost its
+    // attempts, so the floor is 1 rather than 0 — "it was sent once and came back unusable" is not
+    // the same reading as "it was never sent".
+    const reading = session.readings[outcome.index];
+    if (reading) {
+      reading.requests = Math.max(1, outcome.attempts);
+      reading.latencyMs = outcome.latencyMs;
+    }
     drainCommitted(session);
     if (!outcome.ok) reportLostSegment(outcome, session.refusals.get(outcome.index));
     if (session.stopRequested) {
@@ -583,7 +743,23 @@ export function useVoiceInput(
     const pcm = wavPcm16(segment.wav);
     session.filteredChunks.push(pcm);
     session.filteredSamples += pcm.length / 2;
-    session.lastActivityAt = Date.now();
+    const sentAt = Date.now();
+    session.lastActivityAt = sentAt;
+    // The reading is recorded here, when the segment is cut and sent, because two of its fields are
+    // only knowable now: how long the speech waited in the buffer (a wall clock against the capture's
+    // own start, real-time on the mic and zero for a file, whose spans are not wall time) and that
+    // this was the first cut. The request count and latency are filled in when it settles.
+    session.readings[index] = {
+      sentSec: segmentWavSec(segment.wav),
+      requests: 1,
+      latencyMs: 0,
+      waitSec:
+        session.source === 'mic'
+          ? Math.max(0, (sentAt - session.captureStartedAt) / 1000 - segment.startSec)
+          : 0,
+      forced: segment.forced,
+    };
+    if (session.firstCutAt === null) session.firstCutAt = sentAt;
     const job: SegmentJob = {
       index,
       startSec: segment.startSec,
@@ -643,6 +819,11 @@ export function useVoiceInput(
     session.sendRequested = send;
     const trailing = session.segmenter?.flush() ?? [];
     for (const segment of trailing) enqueueSegment(session, segment);
+    // The no-VAD case: no segmenter ran, so the whole buffered input is the one segment. It is sent
+    // on the stop rather than as it arrives because "the whole recording" only exists once it ends.
+    if (session.wholeBuffer && session.wholeChunks.length > 0) {
+      enqueueSegment(session, wholeBufferSegment(concatFloat(session.wholeChunks), session.inputRate));
+    }
     teardownCapture(session);
     if (session.pending === 0) {
       finalizeSession(session);
@@ -666,6 +847,8 @@ export function useVoiceInput(
       }
       const engine = captureEngineRef.current ?? workletCaptureEngine();
       let sampleRate = STORE_SAMPLE_RATE;
+      // Read once, when the listen starts: the A/B arm a page began is the arm this capture keeps.
+      const vadEnabled = isVoiceVadEnabled();
       const session: CaptureSession = {
         source: 'mic',
         engine,
@@ -686,6 +869,15 @@ export function useVoiceInput(
         originalCapped: false,
         filteredChunks: [],
         filteredSamples: 0,
+        wholeBuffer: !vadEnabled,
+        wholeChunks: [],
+        inputSamples: 0,
+        inputRate: STORE_SAMPLE_RATE,
+        captureStartedAt: Date.now(),
+        readings: [],
+        firstCutAt: null,
+        firstTextLatencyMs: null,
+        usage: null,
       };
       sessionRef.current = session;
       // Resolve the capture engine, then build the segmenter against the rate it reports. The sink
@@ -694,6 +886,14 @@ export function useVoiceInput(
       sampleRate = await engine.start(stream, {
         onFrame: (samples, atSample, events) => {
           appendOriginal(session, samples, sampleRate);
+          session.inputSamples += samples.length;
+          session.inputRate = sampleRate;
+          if (session.wholeBuffer) {
+            // No VAD: nothing is cut as it arrives, so the audio is buffered whole and sent as one
+            // segment at the stop. The copy is deliberate — the engine reuses its frame buffer.
+            session.wholeChunks.push(samples.slice());
+            return;
+          }
           const closed = session.segmenter?.push(samples, atSample, events) ?? [];
           for (const segment of closed) enqueueSegment(session, segment);
         },
@@ -707,10 +907,13 @@ export function useVoiceInput(
         sessionRef.current = null;
         return;
       }
-      session.segmenter = new LiveSegmenter({
-        sampleRate,
-        minSegmentSec: voiceDebugMinSegmentSec() ?? DEFAULT_MIN_SEGMENT_SEC,
-      });
+      session.inputRate = sampleRate;
+      session.segmenter = vadEnabled
+        ? new LiveSegmenter({
+            sampleRate,
+            minSegmentSec: voiceDebugMinSegmentSec() ?? DEFAULT_MIN_SEGMENT_SEC,
+          })
+        : null;
       // The idle guard: no speech event and no committed segment for `voiceIdleSec`, and the mic is
       // closed. A stop with nothing buffered sends no request and reports no error.
       session.idleTimer = window.setInterval(() => {
@@ -749,6 +952,9 @@ export function useVoiceInput(
    * The other entry into the same pipeline: the file is decoded to PCM, run through the shared VAD
    * to produce its boundaries, and segmented with the same segmenter a live stream uses. There is no
    * second batch path — this is the same cutter, given the whole buffer at once.
+   *
+   * With `voiceVad=off` the VAD is skipped entirely and the whole buffer is the one segment: the
+   * "before" arm of the A/B, over the very same bytes the "after" arm ran on.
    */
   const transcribeFile = useCallback((file: File) => {
     void (async () => {
@@ -760,11 +966,15 @@ export function useVoiceInput(
         onErrorRef.current?.('Audio file too small');
         return;
       }
-      const vad = new StreamingVad({ sampleRate: decoded.sampleRate });
-      const events = vad.push(decoded.samples);
-      const segments = segmentLive(decoded.samples, decoded.sampleRate, events, {
-        minSegmentSec: voiceDebugMinSegmentSec() ?? DEFAULT_MIN_SEGMENT_SEC,
-      });
+      const vadEnabled = isVoiceVadEnabled();
+      const segments = vadEnabled
+        ? segmentLive(
+            decoded.samples,
+            decoded.sampleRate,
+            new StreamingVad({ sampleRate: decoded.sampleRate }).push(decoded.samples),
+            { minSegmentSec: voiceDebugMinSegmentSec() ?? DEFAULT_MIN_SEGMENT_SEC },
+          )
+        : [wholeBufferSegment(decoded.samples, decoded.sampleRate)];
       if (segments.length === 0) {
         onErrorRef.current?.('Audio file too small');
         return;
@@ -789,6 +999,15 @@ export function useVoiceInput(
         originalCapped: false,
         filteredChunks: [],
         filteredSamples: 0,
+        wholeBuffer: !vadEnabled,
+        wholeChunks: [],
+        inputSamples: decoded.samples.length,
+        inputRate: decoded.sampleRate,
+        captureStartedAt: Date.now(),
+        readings: [],
+        firstCutAt: null,
+        firstTextLatencyMs: null,
+        usage: null,
       };
       sessionRef.current = session;
       setState('transcribing');
