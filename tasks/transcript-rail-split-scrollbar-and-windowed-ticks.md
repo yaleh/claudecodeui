@@ -1,7 +1,7 @@
 ---
 id: transcript-rail-split-scrollbar-and-windowed-ticks
 title: AC-217 刻度与滚动条拆成两个部件：固定尺寸窗口化刻度列 + 独立的浅灰滚动条，快速设置把手左移上移让开
-status: todo
+status: ready
 labels:
   - gap
 parent: null
