@@ -1,7 +1,7 @@
 ---
 id: AC-228
 title: 真实浏览器里设置页能创建个人访问令牌：明文只显示一次，刷新后只剩前缀，吊销后消失，旧的 API Key 创建入口不再存在
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-018
 criterion: for f in e2e/access-tokens-settings.spec.ts; do [ -f "$f" ] || { echo
@@ -21,6 +21,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-04T19:21:47.790Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
