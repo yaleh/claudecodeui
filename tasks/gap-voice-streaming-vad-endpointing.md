@@ -19,7 +19,7 @@ VAD（`src/shared/voiceTrim.ts`）是录完后整段解码再裁的批处理：�
 
 ### 方案
 
-1. 把帧判定与状态机从 `voiceTrim.ts` 抽成与来源无关的纯函数：输入一帧能量与当前状态，输出新状态与事件（语音开始 / 语音结束）。阈值常量（进入 3.0、退出 1.8、起 3 帧、止 15 帧、前留 120 ms、后留 180 ms）**只定义一份**，批处理与流式共用，批处理输出须与现行逐样本一致。
+1. 把帧判定与状态机从 `voiceTrim.ts` 抽成与来源无关的纯函数：输入一帧能量与当前状态，输出新状态与事件（语音开始 / 语音结束）。阈值常量（`ENTER_FACTOR` 3.0、`EXIT_FACTOR` 1.8、`SPEECH_FRAMES_TO_START` 3、`SILENCE_FRAMES_TO_END` 15、`PRE_ROLL_MS` 120、`POST_ROLL_MS` 180）**只定义一份**，批处理与流式共用，批处理输出须与现行逐样本一致。这些常量今天在 `voiceTrim.ts` 里是未导出的模块私有 `const`，抽取后改为从 `voiceEndpoint.ts` 导出、`voiceTrim.ts` 引用。
 2. 噪声基线改为滑动估计（最近若干秒内的低百分位），流式路径用它；批处理路径仍用整段第 15 百分位，行为不变。
 3. 端点：连续静音 ≥ `endpointMs` 判定一句结束并产出段边界；`maxSegmentSec` 到期仍无停顿则强制切，切点选该段末尾窗口内能量最低的帧；段间保留 0.3–0.5 s 重叠。`endpointMs` 与 `maxSegmentSec` 是配置项，**初值不在本任务定**，由 `gap-voice-long-form-eval-prereg` 的读数给出，本任务只保证可配置并给出临时默认值（0.8 s / 30 s）。
 4. 采集：新增 `AudioWorklet` 处理器逐 20 ms 帧送入判定；单次按键的 `MediaRecorder` 路径保留，行为不变。
@@ -32,10 +32,11 @@ VAD（`src/shared/voiceTrim.ts`）是录完后整段解码再裁的批处理：�
 
 - [ ] `npm run test:client -- src/shared/tests/voiceEndpoint.test.ts src/shared/tests/voiceTrim.test.ts` 退出码 0
 - [ ] 回归：`voiceTrim.test.ts` 与 `voiceTrimShippedRecogniser.test.ts` 不改一行断言即通过；`trimVoiceAudio` 对 `corpus/long/L1`–`L4` 的输出采样数与抽取前逐样本一致
-- [ ] 阈值常量在仓库内只有一处定义：`grep -rnE "ENTER_FACTOR|EXIT_FACTOR" src/ | grep -c "export const"` 的结果为各常量各 1
+- [ ] 阈值常量在仓库内只有一处定义：`grep -rnE "^(export )?const (ENTER_FACTOR|EXIT_FACTOR|SPEECH_FRAMES_TO_START|SILENCE_FRAMES_TO_END|PRE_ROLL_MS|POST_ROLL_MS) =" src/ | wc -l` 的结果为 6（每个常量恰好一处定义，不是两份）
 - [ ] 流式状态机喂 `L2-mixed` 的 `manifest.json` 所标 10 句：每个真值句起点至少有一个流式「语音开始」事件落在其 [起点−0.3 s, 起点+0.3 s] 内（容差在测试里写死并在 PREREG 登记）
 - [ ] 喂 `L3-sparse`（底噪 −50 dBFS）：事件数不超过真值句数的 4 倍，静音区间（真值句之外超过 10 s 的间隔）内「语音开始」事件数为 0
 - [ ] 喂 `L4-nonstop`：产出的每一段时长 ≤ `maxSegmentSec`，且强制切点处的帧能量不高于该窗口内最大帧能量的 50%
+- [ ] `npx playwright test e2e/voice-streaming-vad.spec.ts` 退出码 0：真实 `AudioWorklet` 下注入 `L2-mixed.wav`，读到的段边界与纯函数在同一段样本上的输出一致
 - [ ] `npm run lint` 与 `npm run typecheck` 退出码 0
 
 ## DoD
@@ -54,4 +55,5 @@ L_G 该轴仍暗，理由：没有新的生成质量轴读数。
 - src/modules/chat/hooks/useVoiceInput.ts
 - src/shared/tests/voiceEndpoint.test.ts (new)
 - src/shared/tests/voiceTrim.test.ts
+- e2e/voice-streaming-vad.spec.ts (new)
 - tasks/gap-voice-streaming-vad-endpointing.md
