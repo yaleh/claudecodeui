@@ -259,6 +259,27 @@ function ChatInterface({
     onNavigateToSession?.(sessionId);
   }, [setCurrentSessionId, onSessionEstablished, onNavigateToSession]);
 
+  /*
+   * The resident switch, held here because its one home — the new-session empty state's model card —
+   * is rendered below this component through `ChatMessagesPane`, while the send that has to act on it
+   * lives in `useChatComposerState`. Lifting the value to the one ancestor both surfaces share keeps a
+   * single intent: the empty state flips it, and the send path reads it to write the new session's
+   * lifecycle mode.
+   *
+   * It is the intent of the *next brand-new session only*. Declared before the composer hook so the
+   * send path can take it as an argument, and cleared by that path once a new session has been made
+   * resident — a send into an existing session never consults it, so a stale position cannot silently
+   * convert a session the user only navigated to.
+   */
+  const [residentEnabled, setResidentEnabled] = useState(false);
+  const clearResidentIntent = useCallback(() => {
+    setResidentEnabled(false);
+  }, []);
+  /** Flips the switch. The position is the whole of the intent — there is no acknowledgement to record or withdraw. */
+  const toggleResident = useCallback(() => {
+    setResidentEnabled((enabled) => !enabled);
+  }, []);
+
   const {
     input,
     setInput,
@@ -352,6 +373,12 @@ function ChatInterface({
     // row those events update — one object per held command, not two halves
     // that a refresh could separate.
     addResidentPending: sessionStore.addResidentPending,
+    // The switch's position for the next brand-new session, and the way the send path clears it once
+    // that session has been made resident. Handed in rather than read from a module-level one-shot so
+    // the intent travels with the component tree the switch is drawn in, and a send into an existing
+    // session has nothing to consult.
+    residentEnabled,
+    clearResidentIntent,
     setIsUserScrolledUp,
     setPendingPermissionRequests,
     resolvePermissionModeForProvider,
@@ -526,38 +553,14 @@ function ChatInterface({
   const hasActivityIndicator = Boolean(sessionActivity && pendingPermissionRequests.length === 0);
 
   /*
-   * The resident switch, held here because it now has two homes.
+   * Whether the selected provider can hold a resident session.
    *
-   * Before a session has a transcript the switch sits under the new-session empty state's model
-   * card; once there is one it sits above the composer's input. Both flip the same intent, so the
-   * value is lifted to this component — the one ancestor both surfaces share — rather than kept
-   * inside either of them, where one could be toggled and the other would not know.
-   *
-   * `canRunResident` is read here too rather than passed down as a resolved boolean, because the
-   * empty state needs it as well as the composer does. Same matrix, same reading.
+   * Read here rather than passed down as a resolved boolean because the empty state needs it: the
+   * switch under the model card is drawn only for a provider the capability matrix lists `resident`
+   * for. Same matrix, same reading, one answer.
    */
   const residentProviders = useResidentProviders();
   const canRunResident = residentProviders.has(readSelectedProvider());
-  // Whether the next send is meant to be resident. Not cleared when the session becomes resident:
-  // the intent it records is what made it resident, and a resident session's later sends are
-  // resident too, so the switch staying on is the honest reading rather than a stale one.
-  const [residentEnabled, setResidentEnabled] = useState(false);
-  /** Flips the switch. The position is the whole of the intent — there is no acknowledgement to record or withdraw. */
-  const toggleResident = useCallback(() => {
-    setResidentEnabled((enabled) => !enabled);
-  }, []);
-
-  // Whether the model card that owns the switch for a transcript-less session is the thing on screen.
-  // Mirrors the branch ChatMessagesPane takes to render it — no session open, nothing being sent, and
-  // no messages yet — so that the composer can stand its own switch down rather than draw a second
-  // one beside it. Derived rather than stored: two copies of this answer could disagree, and the
-  // symptom would be two switches or none.
-  const showNewSessionEmptyState =
-    chatMessages.length === 0
-    && !isLoadingSessionMessages
-    && !isProcessing
-    && !selectedSession
-    && !currentSessionId;
 
   const selectedProviderLabel =
     provider === 'cursor'
@@ -742,11 +745,6 @@ function ChatInterface({
           placeholder={t('input.placeholder', { provider: selectedProviderLabel })}
           isTextareaExpanded={isTextareaExpanded}
           sendByCtrlEnter={sendByCtrlEnter}
-          residentEnabled={residentEnabled}
-          onToggleResident={toggleResident}
-          // The composer's switch yields to the empty state's while that surface is up. Both read the
-          // same lifted `residentEnabled`, so this only decides which of the two draws it.
-          showResidentSwitch={!showNewSessionEmptyState}
         />
         </div>
       </div>

@@ -131,8 +131,8 @@ function useTranscriptPxPerMessage(scrollContainerRef: RefObject<HTMLDivElement>
 /**
  * The default for `onToggleResident`, for a render that supplies no toggler.
  *
- * Stable rather than inline, so a render that omits the prop does not hand the switch a new
- * function on every commit. The empty state's switch draws either way — this only makes it inert.
+ * Stable rather than inline, so a render that omits the prop does not hand the empty state's switch a
+ * new function on every commit. The switch draws either way — this only makes it inert.
  */
 const noopResidentToggle = () => {};
 
@@ -189,9 +189,9 @@ type ChatMessagesPaneProps = {
    * default exists for a standalone render, the way `sessionId`'s does on the composer.
    */
   canRunResident?: boolean;
-  /** Whether the next send is meant to be resident, lifted to ChatInterface so both switch homes share one value. */
+  /** Whether the next brand-new session is meant to be resident; owned by ChatInterface and read here for the empty state's switch. */
   residentEnabled?: boolean;
-  /** Flips `residentEnabled`; the composer's own switch is the other caller. */
+  /** Flips `residentEnabled`. */
   onToggleResident?: () => void;
   isLoadingMoreMessages: boolean;
   hasMoreMessages: boolean;

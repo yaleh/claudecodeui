@@ -7,10 +7,9 @@ import { cn } from '@/shared/utils';
 /**
  * The resident-mode disclosure, rendered as a read-only hint beside its affordance.
  *
- * Used by chat's `ChatComposer` and `ProviderSelectionEmptyState` (each renders it inside
- * `ResidentToggle`, the switch row) and by the sidebar's `SessionOptions` (in the menu header, next to
- * the conversion item). All three places read the same `chat` i18n keys, so the two chat entry points
- * and the menu cannot drift into three different explanations.
+ * Used by `ProviderSelectionEmptyState` (inside `ResidentToggle`, the switch row) and by the sidebar's
+ * `SessionOptions` (in the menu header, next to the conversion item). Both places read the same `chat`
+ * i18n keys, so the new-session entry point and the menu cannot drift into two different explanations.
  *
  * It explains; it does not gate. Nothing about it sits between the user and the switch or the
  * conversion — the switch being on is the whole of the intent, and the conversion runs the moment its
@@ -66,10 +65,10 @@ export default function ResidentConsentNotice({
 /**
  * The resident switch and its hint as one row.
  *
- * Used by chat's `ChatComposer` (for a session that already has a transcript) and by
- * `ProviderSelectionEmptyState` (for a session that has none, where it sits under the model card).
- * One component for both, so the affordance a user meets before their first turn is the same one they
- * meet after it — the two homes may not drift apart one fix at a time.
+ * Used by `ProviderSelectionEmptyState` (for a session that has none, where it sits under the model
+ * card). It is the only home now: the composer's own copy was removed, and a session that already
+ * exists is converted from the session menu instead, so the switch belongs to the moment before the
+ * first turn and nowhere else.
  */
 type ResidentToggleProps = {
   /** Whether the switch is on for the next send. */
@@ -118,27 +117,4 @@ export function ResidentToggle({ enabled, onToggle, className }: ResidentToggleP
       <ResidentConsentNotice />
     </div>
   );
-}
-
-/**
- * The resident intent of the next send, held at module scope.
- *
- * The control that produces the intent lives in `ChatInterface`'s lifted state and is rendered by
- * `ChatComposer` or `ProviderSelectionEmptyState`; the send that has to act on it — a lifecycle-mode
- * write between the session row being allocated and the first `chat.send` — lives in
- * `useChatComposerState`. The two meet through this one-shot: the composer records the switch's state
- * on submit and the send path consumes it, clearing it as it reads. An intent no send ever consumes
- * (a draft queued behind a running turn) is dropped by the next send rather than applied to a later,
- * unrelated one.
- */
-let pendingResidentIntent = false;
-
-export function setPendingResidentIntent(enabled: boolean): void {
-  pendingResidentIntent = enabled;
-}
-
-export function consumePendingResidentIntent(): boolean {
-  const intent = pendingResidentIntent;
-  pendingResidentIntent = false;
-  return intent;
 }

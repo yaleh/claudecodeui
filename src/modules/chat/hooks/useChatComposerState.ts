@@ -36,7 +36,6 @@ import { useFileMentions } from '@/modules/chat/hooks/useFileMentions';
 import { useInputHistory } from '@/modules/chat/hooks/useInputHistory';
 import { useSendOnEnter } from '@/modules/chat/hooks/useSendOnEnter';
 import { useSlashCommands } from '@/modules/chat/hooks/useSlashCommands';
-import { consumePendingResidentIntent } from '@/modules/chat/composer/ResidentConsentNotice';
 import { findSessionHostState, findSessionOccupancy, useSessionHosts } from '@/shared/hooks/useSessionHosts';
 
 type UseChatComposerStateArgs = {
@@ -118,6 +117,19 @@ type UseChatComposerStateArgs = {
    * what a client with no transcript would show anyway.
    */
   addResidentPending?: (sessionId: string, text: string) => void;
+  /**
+   * Whether the next brand-new session should be created resident.
+   *
+   * The switch that sets it has one home — the new-session empty state's model card — and this hook's
+   * send path is where the value has to act: the session row is allocated here, and the lifecycle-mode
+   * write that keeps it running lands between that allocation and the first `chat.send`. Read only
+   * when the send has no session to address (a brand-new conversation), never for one that already
+   * exists: the composer no longer offers a switch on an open session, so a send addressed to one must
+   * not convert it.
+   */
+  residentEnabled?: boolean;
+  /** Clears the switch's position once the new session it applied to has been made resident. */
+  clearResidentIntent?: () => void;
   setIsUserScrolledUp: (isScrolledUp: boolean) => void;
   setPendingPermissionRequests: Dispatch<SetStateAction<PendingPermissionRequest[]>>;
 };
@@ -247,6 +259,8 @@ export function useChatComposerState({
   markUserTurnUndelivered,
   restoreUserTurn,
   addResidentPending,
+  residentEnabled = false,
+  clearResidentIntent,
   setIsUserScrolledUp,
   setPendingPermissionRequests,
 }: UseChatComposerStateArgs) {
@@ -957,10 +971,6 @@ export function useChatComposerState({
 
       const resolvedProjectPath = selectedProject.fullPath || selectedProject.path || '';
       const sessionSummary = getNotificationSessionSummary(selectedSession, currentInput);
-      // Read once, at the top: the composer records whether the send it just handed over was made
-      // with the resident switch on and its disclosure ticked, and every early return below must
-      // leave nothing behind for the next, unrelated send to pick up.
-      const residentIntent = consumePendingResidentIntent();
 
       // The draft scope this message was typed in. Captured before the first await, and in
       // particular before the session is allocated and established: a brand-new chat is navigated
@@ -1022,24 +1032,31 @@ export function useChatComposerState({
           project: selectedProject,
           summary: createdSessionName,
         });
-      }
 
-      // The composer's resident switch is a statement about the session this send is addressed to,
-      // and it is written here — after the row exists, before the turn starts. Both halves of that
-      // window matter: there is nothing to write a preference against earlier, and the server
-      // refuses a mode change while a host is mid-turn, so a write that travelled with the send
-      // would race the process the send itself opens.
-      if (residentIntent && targetSessionId) {
-        try {
-          await api.providers.setSessionLifecycleMode(provider, targetSessionId, 'resident');
-        } catch (error) {
-          const message = error instanceof Error ? error.message : 'Unknown error';
-          console.error('Resident mode request failed:', error);
-          addMessage({
-            type: 'error',
-            content: `Failed to keep this session running: ${message}`,
-            timestamp: new Date(),
-          });
+        // The resident intent belongs to this brand-new session and nowhere else: the session row
+        // now exists and the mode is written before the turn starts. Both halves of that window
+        // matter — there is nothing to write a preference against earlier, and the server refuses a
+        // mode change while a host is mid-turn, so a write that travelled with the send would race
+        // the process the send itself opens. It is read here, inside the new-session branch, and
+        // never for a send addressed to a session that already exists: the switch was removed from
+        // the composer, so an open session must not be converted by a position the user set while
+        // starting a different one.
+        if (residentEnabled) {
+          try {
+            await api.providers.setSessionLifecycleMode(provider, targetSessionId, 'resident');
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            console.error('Resident mode request failed:', error);
+            addMessage({
+              type: 'error',
+              content: `Failed to keep this session running: ${message}`,
+              timestamp: new Date(),
+            });
+          }
+          // The intent has been spent on the session it was set for. Clearing it here is what keeps a
+          // later send into an old per-run session from being converted silently: even though that
+          // send never reads the switch, a stale "on" would still be drawn on the next New Session.
+          clearResidentIntent?.();
         }
       }
 
@@ -1217,6 +1234,8 @@ export function useChatComposerState({
       addMessage,
       markUserTurnUndelivered,
       restoreUserTurn,
+      residentEnabled,
+      clearResidentIntent,
       setIsUserScrolledUp,
       slashCommands,
     ],
@@ -1458,11 +1477,10 @@ export function useChatComposerState({
         }
 
         // Both Enter bindings submit the composer form rather than calling this hook's `handleSubmit`
-        // directly. The form's own submit handler is the composer's `handleComposerSubmit`, the single
-        // entry that records the resident intent — the switch position is the whole of it, and nothing
-        // stands in front of the send. Reaching `handleSubmit` from here would skip that recording,
-        // which is the defect this closes. The form is the one entry every path shares, so the key
-        // press is routed to it instead of being given a send of its own.
+        // directly. The form's own submit handler is the composer's `handleComposerSubmit`, and the
+        // send path it reaches is the one entry every path shares; the key press is routed to the
+        // form instead of being given a send of its own so a click, Ctrl+Enter and a bare Enter all
+        // end at the same `handleSubmit`.
         if ((event.ctrlKey || event.metaKey) && !event.shiftKey) {
           event.preventDefault();
           event.currentTarget.form?.requestSubmit();

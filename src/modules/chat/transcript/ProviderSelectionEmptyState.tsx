@@ -69,9 +69,14 @@ type ProviderSelectionEmptyStateProps = {
    * drawn only when it can — the capability matrix's answer, not this file's.
    */
   canRunResident: boolean;
-  /** Whether the next send is meant to be resident, lifted to ChatInterface so both switch homes share it. */
+  /**
+   * Whether the next brand-new session is meant to be resident.
+   *
+   * Owned by `ChatInterface` and handed down, because the send path that applies it lives in
+   * `useChatComposerState` while the switch that sets it is rendered here.
+   */
   residentEnabled: boolean;
-  /** Flips `residentEnabled`; the composer's own switch above the input is the other caller. */
+  /** Flips `residentEnabled`. This empty state is the switch's only home now. */
   onToggleResident: () => void;
 };
 
@@ -229,10 +234,12 @@ export default function ProviderSelectionEmptyState({
             {/*
               The resident switch, directly under the card that picks the model.
 
-              Its home before the first turn: the composer's own copy of this switch sits above the
-              input of a session that already has a transcript, and there is no such session yet. It
-              is deliberately outside `DialogTrigger` — the card opens the model picker on any click
-              inside it, and a switch nested there would open a dialog instead of flipping.
+              It is the switch's only home: the composer's own copy was removed, and a session that
+              already exists is converted from the session menu. So the affordance belongs exactly
+              here — before the first turn, when the mode has to be chosen at the moment the session
+              is created. It is deliberately outside `DialogTrigger` — the card opens the model picker
+              on any click inside it, and a switch nested there would open a dialog instead of
+              flipping.
 
               The hint beside it explains what the mode does; it asks for nothing. Turning the switch
               on is the whole of the intent, and the send that follows is resident.

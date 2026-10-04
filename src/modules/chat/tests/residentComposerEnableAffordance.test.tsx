@@ -1,40 +1,42 @@
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import path from 'node:path';
 
 import { render } from '@testing-library/react';
 import React from 'react';
 import { afterEach, test, vi } from 'vitest';
 
 import ChatComposer from '@/modules/chat/composer/ChatComposer';
-import type { LLMProvider, SessionHostsSnapshot } from '@/shared/types';
+import { ResidentToggle } from '@/modules/chat/composer/ResidentConsentNotice';
+import type { SessionHostsSnapshot } from '@/shared/types';
 
 /**
- * The composer's resident switch — and the disclosure under it — is rendered only while the session
- * it writes into is *not* already resident.
+ * The composer no longer carries a resident switch — the affordance lives only on the new-session
+ * empty state's model card.
  *
  * jsdom parses no Tailwind and renders no real host listing, but the decision this criterion is about
- * is a structural one: given a session's stored `lifecycleMode`, does the switch's `<button>` exist in
- * the tree at all? That is exactly what the component computes from `findSessionHostState(...)`, so a
- * component that read the mode some other way fails these cases rather than passing against a second
- * copy of the rule. What the real `GET /api/session-hosts` answers, and what a real browser lays out,
- * is the e2e probe's job (`e2e/resident-ui-layout.spec.ts`), not a unit test's.
+ * is a structural one: does the switch's `<button>` exist inside the composer at all, for either a
+ * session stored `resident` or one stored `per-run`? It must not, in either case — the composer is not
+ * a place a session is converted any more. What a real browser lays out on the two existing sessions
+ * plus the empty state is the e2e probe's job (`e2e/resident-ui-layout.spec.ts`), not a unit test's.
  *
- * The two cases are each other's control. The resident case asserts an *absence*, and an absence is
- * only evidence when the same reading finds the thing present somewhere: the per-run case is that leg.
- * Reverting the render gate to its old `canRunResident` (mode ignored) reds the resident case;
- * dropping the switch entirely reds the per-run case. Either way the file is not a constant.
+ * The reading is an absence, and an absence is only evidence when the same selector finds the thing
+ * somewhere. So the two composer cases are paired with a direct render of `ResidentToggle` — the very
+ * component the empty state mounts — which must publish `[data-resident-enable="true"]`. That is the
+ * positive control: the marker is live, and the composer lacks it by removal rather than by the
+ * selector never matching.
  *
- * The reading is deliberately structural — `[data-resident-enable="true"]` and the disclosure's own
- * `[data-slot="resident-consent-notice"]` — and never the `resident.toggle` / `resident.notice.*` i18n
- * keys: a duplicate top-level `resident` key in the shipped locale files shadows those to `undefined`
- * today, so a reader keyed on the copy would be reading a variable that is presently empty.
+ * The last case is the ledger's own reading of the removal: the module-level one-shot (the
+ * `set…ResidentIntent` / `consume…ResidentIntent` pair) that used to carry the intent from the
+ * composer to the send path must be gone from every source file under `src/`. The pair's own names
+ * are assembled from fragments below so this test does not reintroduce the very strings it searches
+ * for.
  */
 
 const SESSION_ID = 'session-under-test';
 
-/** The marker the composer publishes on the switch, and the slot the disclosure declares. */
+/** The marker `ResidentToggle` publishes, and the one the composer must not. */
 const ENABLE = '[data-resident-enable="true"]';
-const NOTICE = '[data-slot="resident-consent-notice"]';
-const CHECKBOX = '.chat-composer-shell input[type="checkbox"]';
 
 /**
  * The host snapshot the composer reads, held mutable so each case can state the session's stored mode.
@@ -61,18 +63,6 @@ vi.mock('@/shared/hooks/useSessionHosts', async (importOriginal) => {
       close: async () => undefined,
     }),
   };
-});
-
-// `claude` is the shipping resident-capable provider, so `canRunResident` is true and the only thing
-// that can keep the switch off the screen is the session's own stored mode.
-vi.mock('@/shared/hooks/useProviderCapabilities', async (importOriginal) => {
-  const actual = (await importOriginal()) as Record<string, unknown>;
-  return { ...actual, useResidentProviders: () => new Set<LLMProvider>(['claude']) };
-});
-
-vi.mock('@/shared/selectedProvider', async (importOriginal) => {
-  const actual = (await importOriginal()) as Record<string, unknown>;
-  return { ...actual, readSelectedProvider: () => 'claude' as const };
 });
 
 // The voice chain is not what this criterion is about; a plain install keeps the mic button the
@@ -193,7 +183,7 @@ const baseProps = () => ({
   isTextareaExpanded: false,
 });
 
-/** Renders the real composer against the fixture snapshot and reports the three markers it publishes. */
+/** Renders the real composer against the fixture snapshot and reports the switch marker it publishes. */
 const renderComposer = () => {
   installMatchMedia();
   const view = render(
@@ -205,36 +195,70 @@ const renderComposer = () => {
   );
   return {
     switches: view.container.querySelectorAll(ENABLE).length,
-    notices: view.container.querySelectorAll(NOTICE).length,
-    checkboxes: view.container.querySelectorAll(CHECKBOX).length,
   };
 };
+
+/** Every source file under `src/`, so the ledger reading below scans the whole tree. */
+const sourceFiles = (dir: string): string[] => readdirSync(dir).flatMap((entry) => {
+  const full = path.join(dir, entry);
+  if (statSync(full).isDirectory()) return sourceFiles(full);
+  return /\.(ts|tsx)$/.test(entry) ? [full] : [];
+});
 
 afterEach(() => {
   hostFixture.snapshot = null;
   document.body.innerHTML = '';
 });
 
-test('a session already stored resident renders no switch and no disclosure', () => {
+test('a per-run session already has no switch in the composer — the affordance is the empty state\'s', () => {
+  hostFixture.snapshot = snapshotWith(SESSION_ID, 'per-run');
+  const reading = renderComposer();
+  assert.equal(
+    reading.switches,
+    0,
+    'the composer is no longer a place a session becomes resident: the switch belongs to the '
+      + 'new-session empty state, and a per-run session with a transcript must not draw one',
+  );
+});
+
+test('a resident session has no switch in the composer either', () => {
   hostFixture.snapshot = snapshotWith(SESSION_ID, 'resident');
   const reading = renderComposer();
   assert.equal(
     reading.switches,
     0,
-    'the switch is how a session becomes resident; on a resident session there is nothing to turn on, '
-      + 'so it — and the disclosure inside it — must be absent from the input area',
+    'and a resident session draws none for the same reason — the composer draws no switch in either mode',
   );
-  assert.equal(reading.notices, 0, 'the disclosure lives inside the switch and goes with it');
-  assert.equal(reading.checkboxes, 0, 'and its tick box with it');
 });
 
-test('a per-run session renders the switch — the control that makes the absence above a reading', () => {
-  hostFixture.snapshot = snapshotWith(SESSION_ID, 'per-run');
-  const reading = renderComposer();
+test('the switch marker is live — the empty state\'s ResidentToggle still publishes it', () => {
+  const view = render(
+    React.createElement(ResidentToggle, { enabled: false, onToggle: () => undefined }),
+  );
   assert.equal(
-    reading.switches,
+    view.container.querySelectorAll(ENABLE).length,
     1,
-    'a per-run session on a resident-capable provider is exactly the session the switch is for; if this '
-      + 'leg went to 0 the case above would be proving only that the composer never draws it',
+    'the absence above is only evidence while the same selector finds the switch where it does live; '
+      + 'if this leg went to 0 the composer cases would be reading a dead selector',
+  );
+  document.body.innerHTML = '';
+});
+
+test('the module-level resident one-shot is gone from every source file', () => {
+  // Assembled from fragments so this file does not itself contain the identifiers it scans for.
+  const retiredNames = [
+    ['setPending', 'ResidentIntent'].join(''),
+    ['consumePending', 'ResidentIntent'].join(''),
+  ];
+  const retired = new RegExp(retiredNames.join('|'));
+  const stale = sourceFiles(path.resolve(process.cwd(), 'src')).flatMap((file) => {
+    const source = readFileSync(file, 'utf8');
+    return retired.test(source) ? [path.relative(process.cwd(), file)] : [];
+  });
+  assert.deepEqual(
+    stale,
+    [],
+    'the intent travels as an argument from ChatInterface into useChatComposerState; a module-level '
+      + 'one-shot would let a send into an existing session read a position the user set elsewhere',
   );
 });

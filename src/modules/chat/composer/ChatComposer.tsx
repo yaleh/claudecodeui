@@ -19,8 +19,6 @@ import { useSendOnEnter } from '@/modules/chat/hooks/useSendOnEnter';
 import { useComposerCompactTier } from '@/modules/chat/hooks/useComposerCompactTier';
 import { useDeviceSettings } from '@/shared/hooks/useDeviceSettings';
 import { findSessionHostState, findSessionOccupancy, useSessionHosts } from '@/shared/hooks/useSessionHosts';
-import { useResidentProviders } from '@/shared/hooks/useProviderCapabilities';
-import { readSelectedProvider } from '@/shared/selectedProvider';
 import { loadProjectIdentifiers } from '@/shared/projectIdentifiers';
 import { isVoiceDebugEnabled } from '@/shared/voiceDebug';
 import type { QueuedDraft, ScheduledMessage, SlashCommand,SessionActivity,PendingPermissionRequest,PermissionMode,ProviderModelOption,VoiceFailureReport } from '@/shared/types';
@@ -48,7 +46,6 @@ import { ScheduledMessageList } from '@/modules/chat/composer/ScheduledMessageLi
 import ComposerModelMenu from '@/modules/chat/composer/ComposerModelMenu';
 import ComposerPermissionMenu from '@/modules/chat/composer/ComposerPermissionMenu';
 import ComposerMobileMoreMenu from '@/modules/chat/composer/ComposerMobileMoreMenu';
-import { ResidentToggle, setPendingResidentIntent } from '@/modules/chat/composer/ResidentConsentNotice';
 
 /** How long the occupied notice's copy control says "copied" before returning to its label. */
 const RELEASE_COPIED_NOTICE_MS = 1500;
@@ -182,25 +179,6 @@ type ChatComposerProps = {
   placeholder: string;
   isTextareaExpanded: boolean;
   sendByCtrlEnter?: boolean;
-  /**
-   * Whether the next send is meant to be resident.
-   *
-   * Lifted to ChatInterface because the switch now has two homes — this composer (for a session that
-   * already has a transcript) and the new-session empty state's model card — and both flip the same
-   * intent that the submit below records through `setPendingResidentIntent`. Optional, and absent
-   * means "off": a caller that does not own the switch cannot claim a resident send.
-   */
-  residentEnabled?: boolean;
-  /** Flips `residentEnabled`; owned by ChatInterface, so both switch homes share one value. */
-  onToggleResident?: () => void;
-  /**
-   * Whether this composer is the place for the switch.
-   *
-   * False while the new-session empty state is on screen, because that surface draws the switch
-   * itself under the model card — the two must never both draw one. Defaults true so a standalone
-   * render (the composer-affordance and layout criteria among them) keeps its switch.
-   */
-  showResidentSwitch?: boolean;
 };
 
 /**
@@ -280,9 +258,6 @@ export default function ChatComposer({
   placeholder,
   isTextareaExpanded,
   sendByCtrlEnter,
-  residentEnabled = false,
-  onToggleResident,
-  showResidentSwitch = true,
 }: ChatComposerProps) {
   const { t } = useTranslation('chat');
   /*
@@ -349,15 +324,6 @@ export default function ChatComposer({
   // composer hung the tab; the pane's in-flow line is the only surface now, so the
   // width half has no reader here.
   const { isShortTouchViewport } = useDeviceSettings();
-  // Whether the composer offers the resident switch at all. Read from the backend capability matrix
-  // rather than from a provider id — the same rule the sidebar's conversion item follows — so a
-  // provider that gains the mode gets the switch without a UI change. The composer is not handed the
-  // provider id, only its label, so the id comes from the same stored selection `useChatProviderState`
-  // keeps in step with the open chat. The switch's own on/off state is ChatInterface's, not this
-  // component's: the new-session empty state draws the same switch under the model card, and one
-  // intent read from two places cannot be two states.
-  const residentProviders = useResidentProviders();
-  const canRunResident = residentProviders.has(readSelectedProvider());
   // Drives the footer's layout branch below, and the replay row with it. Narrower than the desktop
   // arrangement needs is what it means, and the box can be that narrow inside a window that is not:
   // `md` (768px) is a rule of its own — the `sm` (640px) boundary this group used to switch on gave
@@ -507,20 +473,15 @@ export default function ChatComposer({
   // is still being written — so the button is the same one that sends, and the words around it have
   // to say "send" rather than "queue" or they would be describing a wait that is not happening.
   const busySendGoesToProcess = canQueueDraft && isResidentSession;
-  // A standalone render (the affordance criterion's, and every other test's) passes no toggle; the
-  // switch still has to draw, so it gets a stable no-op rather than a fresh closure each commit.
-  const noopResidentToggle = useCallback(() => {}, []);
   // The one entry into the composer's submit. The send button is a `type="submit"` control, so a click
   // and an Enter key press both arrive here as the form's own `submit` event; the key path is routed to
-  // the form rather than given a send of its own (see `useChatComposerState`'s keydown). Because every
-  // path shares this handler, it is also where the resident intent is recorded: the send path learns
-  // whether this send is a resident one from `setPendingResidentIntent`, and the switch position is
-  // the whole of the answer — nothing stands between the switch and the send.
+  // the form rather than given a send of its own (see `useChatComposerState`'s keydown). The resident
+  // switch is not read here: it now lives only on the new-session empty state, and `ChatInterface`
+  // passes its position to the send path directly, so the composer neither records nor forwards it.
   const handleComposerSubmit = useCallback((event: Parameters<typeof onSubmit>[0]) => {
     event.preventDefault();
-    setPendingResidentIntent(residentEnabled);
     onSubmit(event);
-  }, [onSubmit, residentEnabled]);
+  }, [onSubmit]);
   // Every sentence this hint can print names a keyboard key — Enter, Shift+Enter, Ctrl+Enter — and a
   // soft keyboard has none of them, so there is no wording that would be true on a touch-only device.
   // Such a device is given no hint at all rather than the wrong one: the button is the only way out
@@ -745,16 +706,16 @@ export default function ChatComposer({
             // taking the slack and the controls' sized by their own content, with `items-end` on
             // the input's last line — where a send button is looked for.
             //
-            // A grid rather than a row, because not every child of this form is a column of it. A
-            // session that is not already resident draws the switch's row above the input, and in a
-            // flex row that row is simply the first column: it took the width the input was meant
-            // to have (the input measured 0px) and the controls sat where the input should have
-            // been. Wrapping was tried and is not enough — a wrapping row decides its lines from
-            // the items' *content* sizes before it shrinks anything, so a wide enough control
-            // cluster moved the input onto a line of its own and the arrangement silently became
-            // the stacked one while still reporting `display: flex`. A grid has no such arithmetic:
-            // the header spans both tracks (see below) and the second row is the input and the
-            // controls whatever either of them measures.
+            // A grid rather than a row, because not every child of this form is a column of it. The
+            // attachment strip is a header that spans both tracks, and in a flex row it is simply the
+            // first column: it took the width the input was meant to have (the input measured 0px)
+            // and the controls sat where the input should have been. Wrapping was tried and is not
+            // enough — a wrapping row decides its lines from the items' *content* sizes before it
+            // shrinks anything, so a wide enough control cluster moved the input onto a line of its
+            // own and the arrangement silently became the stacked one while still reporting
+            // `display: flex`. A grid has no such arithmetic: the header spans both tracks (see
+            // below) and the second row is the input and the controls whatever either of them
+            // measures.
             areToolsInline ? 'grid grid-cols-[minmax(0,1fr)_auto] items-end' : '',
           ].filter(Boolean).join(' ')}
           {...dropzoneFormProps}
@@ -794,37 +755,6 @@ export default function ChatComposer({
           )}
 
           <input {...getInputProps()} />
-
-          {/*
-            The resident switch, with the disclosure as a hint beside it rather than a gate under it.
-            Above the box rather than in the footer because the footer is exactly the controls that
-            send a message and may not wrap; and rendered only for a provider the capability matrix
-            lists `resident` for, so the affordance is the matrix's answer and not this file's.
-
-            And rendered only while this session is not *already* resident. The switch is the way a
-            session becomes resident-or-kept-alive; on a session the server already stores `resident`
-            it has nothing left to turn on, and the row would sit over part of the input for no action
-            it could take. The one exit from the mode is deliberate and lives elsewhere — the status
-            bar's popover and the session menu (§15.4); this file adds no second one.
-            `isResidentSession` is the same reading the submit label's resident branch already uses,
-            so the two agree by construction.
-
-            `showResidentSwitch` is false while the new-session empty state is on screen: that surface
-            draws the same switch under the model card, before there is a session to open, and the two
-            must never be on screen together. This is the negative half of that rule — the empty state
-            owns the switch for a session with no transcript, this composer for one that has it.
-          */}
-          {canRunResident && showResidentSwitch && !isResidentSession && (
-            // `col-span-full` gives this row a line of its own above the input's, and `pt-1`
-            // rather than the primitive's `pt-3` trims what that line costs: on a 330px screen the
-            // 8px between it and the input is 2.4% of the transcript.
-            <PromptInputHeader className={areToolsInline ? 'col-span-full pt-1' : undefined}>
-              <ResidentToggle
-                enabled={residentEnabled}
-                onToggle={onToggleResident ?? noopResidentToggle}
-              />
-            </PromptInputHeader>
-          )}
 
           {/*
             `min-w-0` is the load-bearing half: the track is already allowed to shrink

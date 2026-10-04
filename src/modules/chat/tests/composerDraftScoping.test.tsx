@@ -180,9 +180,6 @@ test('clearing the composer clears that session\'s stored draft', async () => {
  * one it was typed in, whichever awaits the send path has in between.
  */
 test('a first send with the resident switch on retires the project draft it was typed in', async () => {
-  const { setPendingResidentIntent } = await import(
-    '@/modules/chat/composer/ResidentConsentNotice'
-  );
   const projectScope = `project:${PROJECT.projectId}`;
   let listener: ((event: { kind: string; sessionId: string }) => void) | null = null;
 
@@ -201,6 +198,10 @@ test('a first send with the resident switch on retires the project draft it was 
       isLoading: false,
       canAbortSession: false,
       tokenBudget: null,
+      // The switch is set for this brand-new session; the send path reads it directly rather than a
+      // module-level one-shot, so the test drives it the way `ChatInterface` does.
+      residentEnabled: true,
+      clearResidentIntent: () => undefined,
       sendMessage: () => {
         // The server's first frame for the session is the delivery's answer.
         setTimeout(() => listener?.({ kind: 'status', sessionId: 'created-session' }), 0);
@@ -224,7 +225,6 @@ test('a first send with the resident switch on retires the project draft it was 
   });
   assert.equal(readDraftText(projectScope), 'typed in a new chat');
 
-  setPendingResidentIntent(true);
   // Not wrapped in act on purpose: act holds every state update until its scope exits, so the
   // navigation to the new session would never re-render the composer while the send is suspended
   // on the lifecycle-mode write — which is exactly what a browser does and what this pins.
