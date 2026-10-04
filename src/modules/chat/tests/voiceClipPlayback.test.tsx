@@ -9,12 +9,14 @@ import { afterEach, beforeEach, test, vi } from 'vitest';
 import type { PauseCuesDeclaration } from '@shared/asr/asrRegistry';
 
 import ChatComposer from '@/modules/chat/composer/ChatComposer';
+import VoiceClipButton from '@/modules/chat/composer/VoiceClipButton';
 import { useVoiceInput } from '@/modules/chat/hooks/useVoiceInput';
 import type * as AudioDecode from '@/modules/chat/utils/audioDecode';
 import { voicePlayer } from '@/modules/chat/utils/voicePlayer';
 import enChat from '@/modules/i18n/locales/en/chat.json';
 // Type-only, so it is erased before vi.mock's hoisted factory runs.
 import type * as SharedApi from '@/shared/api';
+import type { VoiceClipPlayState, VoiceClipSlot } from '@/shared/types';
 import type * as VoiceTrim from '@/shared/voiceTrim';
 
 /**
@@ -317,7 +319,7 @@ test('a finished recording lands in the clip slot', async () => {
   await record(view, 2000, 1000);
 
   const slot = view.result.current.clipSlot;
-  assert.ok(slot, 'a recording the mic accepted has to be replayable');
+  assert.ok(slot?.original, 'a recording the mic accepted has to be replayable');
   assert.equal(slot.original.meta.bytes, 2000);
   assert.equal(slot.original.url, 'blob:clip-1');
   assert.equal(slot.trimmed, null, 'the trim is off here, so the recording is all there is to replay');
@@ -352,7 +354,7 @@ test('a second recording evicts the first and revokes its object URL', async () 
   await record(view, 2000, 1000);
   await record(view, 3000, 1000);
 
-  assert.equal(view.result.current.clipSlot?.original.url, 'blob:clip-2');
+  assert.equal(view.result.current.clipSlot?.original?.url, 'blob:clip-2');
   assert.deepEqual(
     revokeObjectURL.mock.calls,
     [['blob:clip-1']],
@@ -451,6 +453,7 @@ test('the trimmed upload lands beside the recording, as its own track', async ()
 
   const slot = view.result.current.clipSlot;
   assert.ok(slot?.trimmed, 'a capture that was trimmed has two things to replay, not one');
+  assert.ok(slot.original, 'the trimmed capture still carries the recording it was cut from');
   assert.notEqual(slot.trimmed.url, slot.original.url, 'the two controls must not point at the same audio');
   assert.equal(slot.trimmed.meta.mimeType, 'audio/wav', 'the upload is the re-encode, not the recording');
   assert.equal(slot.trimmed.meta.bytes, 32_000, 'its size is the encoded body the chain built');
@@ -474,7 +477,7 @@ test('a recogniser that asks for nothing keeps the recording: the switch alone a
   await record(view, 2000, 3000);
 
   const slot = view.result.current.clipSlot;
-  assert.ok(slot, 'the recording is still replayable');
+  assert.ok(slot?.original, 'the recording is still replayable');
   assert.equal(
     slot.trimmed,
     null,
@@ -609,7 +612,7 @@ test('the clip reports the wall-clock time the mic was held', async () => {
   const readings: Array<{ held: number; measured: number }> = [];
   for (const held of [3000, 7000]) {
     await record(view, 2000, held);
-    const measured = view.result.current.clipSlot?.original.meta.durationMs ?? -1;
+    const measured = view.result.current.clipSlot?.original?.meta.durationMs ?? -1;
     readings.push({ held, measured });
     assert.ok(
       Math.abs(measured - held) <= held * 0.2,
@@ -841,6 +844,18 @@ test('(b) desktop: the pair stays in the left tool group inside the footer, righ
     mic.compareDocumentPosition(replayOriginal) & Node.DOCUMENT_POSITION_FOLLOWING,
     'the pair sits right of the microphone it was recorded from',
   );
+
+  // And what the pair reads, on the real composer the capture chain filled: a duration each, nothing
+  // else. The direct-render cases above pin the exact strings; this one is the same fact read off the
+  // path a user's recording actually takes into the composer.
+  for (const [track, control] of [['original', replayOriginal], ['trimmed', replayTrimmed]] as const) {
+    const text = control.textContent?.trim() ?? '';
+    assert.match(
+      text,
+      /^\d+:\d{2}(?::\d{2})?$/,
+      `the ${track} control must read its duration and no byte count; it read "${text}"`,
+    );
+  }
 });
 
 test('(b) the pair\'s home at the narrowest desktop width: still the tool group, and that group may wrap it', async () => {
@@ -947,5 +962,84 @@ test('a capture that was uploaded as recorded gets one control, not two over the
     queryByRole('button', { name: 'Replay trimmed' }),
     null,
     'nothing was trimmed, so a trimmed control would be pointing at the recording and claiming otherwise',
+  );
+});
+
+/* ─── What the pill reads: the duration, and which tracks exist ────── */
+
+const SILENT: VoiceClipPlayState = { original: 'idle', trimmed: 'idle' };
+
+/** Renders the replay control directly with a slot fixture — these cases are about what a control says, not the capture chain. */
+const renderClipButton = (clips: VoiceClipSlot) =>
+  render(React.createElement(VoiceClipButton, { clips, state: SILENT, onToggle: () => undefined }));
+
+/** A clip of the given length; the bytes are deliberately large so a byte count would be unmistakable. */
+const clipOf = (url: string, durationMs: number): VoiceClipSlot['original'] => ({
+  url,
+  meta: { bytes: 2_097_152, mimeType: 'audio/webm', durationMs },
+});
+
+test('the replay pill reads the duration alone: the byte count that made a good trim look heavy is gone', () => {
+  const { container } = renderClipButton({ original: clipOf('blob:two-megabyte-take', 47_000), trimmed: null });
+
+  const text = container.textContent ?? '';
+  for (const unit of ['MB', 'KB', ' B']) {
+    assert.equal(text.includes(unit), false, `the pill must not carry a byte count; it read "${text}"`);
+  }
+  assert.equal(text.trim(), '0:47', `the pill's whole text is the duration; it read "${text}"`);
+});
+
+test('the pill formats M:SS below an hour and H:MM:SS from an hour', () => {
+  const cases: Array<{ ms: number; label: string }> = [
+    { ms: 3_000, label: '0:03' },
+    { ms: 59_000, label: '0:59' },
+    { ms: 61_000, label: '1:01' },
+    { ms: 3_599_000, label: '59:59' },
+    { ms: 3_600_000, label: '1:00:00' },
+    { ms: 3_723_000, label: '1:02:03' },
+    { ms: 0, label: '0:00' },
+  ];
+  for (const { ms, label } of cases) {
+    const { container, unmount } = renderClipButton({ original: clipOf(`blob:duration-${ms}`, ms), trimmed: null });
+    const text = container.textContent?.trim() ?? '';
+    assert.equal(text, label, `a ${ms}ms clip has to read "${label}"; it read "${text}"`);
+    unmount();
+  }
+});
+
+test('with no raw recording the trimmed track still offers its control, and nothing is disabled', () => {
+  const { container, queryByRole } = renderClipButton({
+    original: null,
+    trimmed: { url: 'blob:trimmed-only', meta: { bytes: 32_000, mimeType: 'audio/wav', durationMs: 19_000 } },
+  });
+
+  const buttons = Array.from(container.querySelectorAll('button'));
+  assert.equal(buttons.length, 1, 'a slot with no raw recording offers one control, not two');
+  assert.equal(buttons[0]?.getAttribute('data-clip-url'), 'blob:trimmed-only', 'the surviving control is the trimmed one');
+  assert.equal(buttons[0]?.disabled, false, 'the trimmed control is live');
+  assert.equal(
+    queryByRole('button', { name: 'Replay original' }),
+    null,
+    'the absent raw recording is not offered as a disabled control either',
+  );
+  assert.equal(container.textContent?.trim(), '0:19');
+});
+
+test('when both tracks are present the pair reads original then trimmed', () => {
+  const { container } = renderClipButton({
+    original: clipOf('blob:pair-original', 47_000),
+    trimmed: { url: 'blob:pair-trimmed', meta: { bytes: 32_000, mimeType: 'audio/wav', durationMs: 19_000 } },
+  });
+
+  const buttons = Array.from(container.querySelectorAll('button'));
+  assert.deepEqual(
+    buttons.map((button) => button.getAttribute('data-clip-url')),
+    ['blob:pair-original', 'blob:pair-trimmed'],
+    'the pair is ordered original, trimmed',
+  );
+  assert.deepEqual(
+    buttons.map((button) => button.textContent?.trim()),
+    ['0:47', '0:19'],
+    'and each control shows its own track',
   );
 });

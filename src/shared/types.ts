@@ -1429,12 +1429,18 @@ export type VoiceClipTrack = 'original' | 'trimmed';
  * something it should have kept — and the same audio heard twice cannot be told apart from a trim
  * that did nothing.
  *
+ * At least one track is non-null; a slot with both null is not a slot the composer ever holds.
+ *
+ * `original` is null when the raw recording exceeded the capture limit and was never kept; the
+ * composer then renders the trimmed control alone rather than a disabled one, because a disabled
+ * control over audio nobody can play claims a recording that is not there.
+ *
  * `trimmed` is null exactly when the chain uploaded the recording untouched (the trim's own
  * `fallback`). The composer then renders one control: a second one over the same bytes would be a
  * claim about a trim the run never made.
  */
 export type VoiceClipSlot = {
-  original: VoiceClip;
+  original: VoiceClip | null;
   trimmed: VoiceClip | null;
 };
 
