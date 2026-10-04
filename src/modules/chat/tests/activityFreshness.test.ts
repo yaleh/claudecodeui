@@ -106,6 +106,31 @@ describe('activityFreshness', () => {
     machine.dispose();
   });
 
+  // AC8: the two turn-snapshot migrations the dock's idle-beat handling rides on. A frame
+  // that asserts the turn keeps the anchor and the elapsed is re-derived from the server's
+  // own `asOf`; a frame that asserts no turn clears the anchor outright. The hook decides
+  // *which* snapshot a heartbeat asserts (from the run registry's in-flight bit); this pins
+  // that the machine honours both without inventing a clock of its own.
+  test('AC8 a turn-asserting frame keeps the anchor and a turn-clearing frame drops it', () => {
+    const machine = createActivityFreshness();
+
+    machine.onFrame(makeFrame({ asOf: 10_000, turn: { startedAt: 4_000 } }));
+    assert.equal(machine.getElapsedMs(), 6_000);
+
+    // A later frame that still asserts the turn: the anchor is carried, and the elapsed
+    // advances because the server's `asOf` moved — never because a local clock ran.
+    machine.onFrame(makeFrame({ rev: 2, asOf: 20_000, turn: { startedAt: 4_000 } }));
+    assert.equal(machine.getSnapshot().turnStartedAt, 4_000);
+    assert.equal(machine.getElapsedMs(), 16_000);
+
+    // A frame asserting no turn clears the anchor and the elapsed reading with it.
+    machine.onFrame(makeFrame({ rev: 3, asOf: 30_000, turn: { startedAt: null } }));
+    assert.equal(machine.getSnapshot().turnStartedAt, null);
+    assert.equal(machine.getElapsedMs(), null);
+
+    machine.dispose();
+  });
+
   // AC7: while unreachable the elapsed reading comes from the frame's asOf and turn.startedAt
   // and does not advance with the local clock.
   test('AC7 elapsed stays frozen while unreachable and equals asOf - turn.startedAt', () => {

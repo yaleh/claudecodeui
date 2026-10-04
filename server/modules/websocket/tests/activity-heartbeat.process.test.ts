@@ -405,6 +405,16 @@ test('a subscribed session is beaten with activity.heartbeat, and a killed serve
       beats.length >= BEAT_FLOOR,
       `read ${beats.length} activity.heartbeat frame(s) over ${BEATS} beat periods; expected at least ${BEAT_FLOOR}`,
     );
+    // The run registry's own in-flight bit, carried on the beat and read from
+    // the registry at beat time. It is the authority a client uses to tell a
+    // finished turn from a running turn whose phase tracker has no phase, and it
+    // must agree with the same session's hello (both read one registry).
+    const helloIsProcessing = hello.isProcessing;
+    assert.equal(
+      typeof helloIsProcessing,
+      'boolean',
+      `the hello carried no boolean isProcessing: ${JSON.stringify(hello)}`,
+    );
     for (const frame of beats) {
       assert.equal(frame.sessionId, sessionId, `a heartbeat was addressed to the wrong session: ${JSON.stringify(frame)}`);
       assert.ok(
@@ -414,6 +424,16 @@ test('a subscribed session is beaten with activity.heartbeat, and a killed serve
       assert.ok(
         typeof frame.rev === 'number' && Number.isFinite(frame.rev),
         `a heartbeat carried no rev: ${JSON.stringify(frame)}`,
+      );
+      assert.equal(
+        typeof frame.isProcessing,
+        'boolean',
+        `a heartbeat carried no boolean isProcessing (the run-in-flight authority): ${JSON.stringify(frame)}`,
+      );
+      assert.equal(
+        frame.isProcessing,
+        helloIsProcessing,
+        `the heartbeat's isProcessing disagrees with the same session's hello: ${JSON.stringify(frame)} vs ${JSON.stringify(helloIsProcessing)}`,
       );
     }
 
