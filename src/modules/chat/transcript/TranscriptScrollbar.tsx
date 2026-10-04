@@ -8,6 +8,12 @@ import type {
 import { useTranslation } from 'react-i18next';
 
 import type { TurnRailTick } from '@/modules/chat/hooks/useTurnNavigation';
+import { useTranscriptScrub } from '@/modules/chat/context/TranscriptScrubContext';
+import {
+  closestScrollTopForFraction,
+  fractionAtViewportCenter,
+} from '@/modules/chat/utils/scrollOrdinalMap';
+import type { ScrollOrdinalRow } from '@/modules/chat/utils/scrollOrdinalMap';
 import {
   TRANSCRIPT_SCROLLBAR_INSET_PX,
   TRANSCRIPT_SCROLLBAR_MAX_THUMB_RATIO,
@@ -16,34 +22,35 @@ import {
 } from '@/shared/transcriptEdgeLayout';
 
 /**
- * How long a drag must rest before its final position is fetched.
+ * How long a keyboard step rests before its jump is issued.
  *
- * A drag is a continuous gesture — the reader scans the whole conversation while
- * holding the thumb — so reading a page for every pointer position would fetch
- * tens of windows no one asked to see. The pause is what makes the gesture cost
- * one read: released and left alone, the last position is fetched once.
+ * A keyboard move is discrete — one press, one turn — so a rapid burst of key
+ * repeats is coalesced into the last position pressed. This is only the keyboard
+ * path: a pointer drag commits the instant it is released, because the content
+ * is already being scrolled to follow it and there is nothing to wait for.
  */
-const DRAG_COMMIT_PAUSE_MS = 220;
+const KEYBOARD_COMMIT_PAUSE_MS = 120;
 /**
  * How long a committed position may stay drawn before the thumb tracks the
  * transcript again.
  *
- * The read is in flight while the thumb is already at its destination, so
- * dropping the committed position at release would snap the thumb back to the
- * old window and forward again when the new one lands — a jump the reader sees
- * and that a per-frame reading would record as the thumb moving the wrong way.
- * The bound is long enough for a window read to land and move the current turn
- * (at which point the arrival check below drops the position immediately), and
- * short enough that a read which never lands cannot strand the thumb.
+ * A drag or a jump leaves the window read in flight while the thumb is already
+ * at its destination; dropping the committed position at release would snap the
+ * thumb back to the old window and forward again when the new one lands. The
+ * bound is long enough for a window read to land (at which point the arrival
+ * check drops the position immediately) and short enough that a read which never
+ * lands cannot strand the thumb.
  */
 const PENDING_POSITION_SETTLE_MS = 4_000;
 /** A PageUp/PageDown keyboard step, as a fraction of the conversation. */
 const KEYBOARD_PAGE_STEP = 0.1;
+/** How close the transcript must come to a committed fraction for the commit to be considered landed. */
+const COMMIT_ARRIVAL_TOLERANCE = 0.02;
 
 type TranscriptScrollbarProps = {
   /** Every user turn in the conversation, oldest first — the positions the thumb can name. */
   turns: TurnRailTick[];
-  /** The turn the viewport currently sits on. */
+  /** The turn the viewport currently sits on, used only until the window's rows are measurable. */
   currentTurnId: string | null;
   /** Places the turn's message in the viewport through chat's shared jump. */
   onJumpToTurn: (anchorId: string) => void;
@@ -52,22 +59,6 @@ type TranscriptScrollbarProps = {
   /** The session's own message count, the denominator the drawn length is a share of. */
   totalMessages: number;
 };
-
-/**
- * The fraction of the conversation a turn sits at, by ordinal.
- *
- * The denominator is the last turn's own absolute message subscript, not the
- * session's total row count: the track's far end is the last turn the reader can
- * jump to, so the fraction reaches 1 exactly there, and every value in between is
- * a ratio of two absolute subscripts — never a ratio of pixels. That is the whole
- * point of the drawn track: a window prepended above the viewport moves neither
- * subscript, so the thumb neither moves nor jitters when rows are inserted or
- * measured.
- */
-function progressOfTurnAt(turn: TurnRailTick | undefined, lastTurnIndex: number): number | null {
-  if (!turn || lastTurnIndex <= 0) return null;
-  return Math.min(1, Math.max(0, turn.index / lastTurnIndex));
-}
 
 /**
  * How many messages the rows currently intersecting the viewport stand for.
@@ -80,18 +71,37 @@ function progressOfTurnAt(turn: TurnRailTick | undefined, lastTurnIndex: number)
  * that carry a timestamp, since the column also holds the loading overlays and
  * the running turn's status line — because a mounted row's own content carries
  * the same timestamp attribute and would otherwise be counted twice.
+ *
+ * The first row at or below the pane's top edge is found by binary search and the
+ * count walks forward from there until the first row past its bottom, so a read
+ * costs the visible rows plus a logarithm, not every row the window holds — this
+ * runs on every turn change, which a fast drag makes every frame.
  */
 function countViewportMessages(container: HTMLDivElement | null): number {
   if (!container) return 0;
   const paneRect = container.getBoundingClientRect();
   const content = container.querySelector<HTMLElement>('[data-transcript-content]');
   if (!content) return 0;
+  const children = Array.from(content.children) as HTMLElement[];
+  let lo = 0;
+  let hi = children.length;
+  let start = children.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (children[mid].getBoundingClientRect().bottom > paneRect.top) {
+      start = mid;
+      hi = mid;
+    } else {
+      lo = mid + 1;
+    }
+  }
   let count = 0;
-  for (const row of Array.from(content.children)) {
+  for (let index = start; index < children.length; index += 1) {
+    const row = children[index];
     if (!row.hasAttribute('data-message-timestamp')) continue;
     const rect = row.getBoundingClientRect();
     if (rect.height <= 0) continue;
-    if (rect.bottom <= paneRect.top || rect.top >= paneRect.bottom) continue;
+    if (rect.top >= paneRect.bottom) break;
     const declared = Number.parseInt(
       row.querySelector<HTMLElement>('[data-transcript-row-messages]')?.dataset.transcriptRowMessages ?? '1',
       10,
@@ -105,13 +115,19 @@ function countViewportMessages(container: HTMLDivElement | null): number {
  * Rendered by TranscriptTurnRail as the transcript's drawn scrollbar — the
  * transcript's position, in a column of its own at the pane's right edge.
  *
- * Its thumb sits at the current turn's absolute-message-subscript fraction of
- * the whole conversation — never at the loaded window's pixel ratio — so a window
- * prepended above the viewport, or a row whose height is measured late, cannot
- * move it. It is a real `role="scrollbar"` control: draggable by pointer
- * (including touch), clickable, Home/End/PageUp/PageDown/arrow operable, and it
- * reads its value aloud. Dragging shows a preview of the turn under the thumb and
- * fetches nothing until the gesture rests.
+ * Its thumb sits at the viewport centre's continuous position on the
+ * conversation's ordinal scale — interpolated between the loaded window's turn
+ * rows, so it moves with the transcript frame by frame rather than in stairs —
+ * and never at the loaded window's pixel ratio, so a window prepended above the
+ * viewport, or a row measured late, cannot jump it. It is a real
+ * `role="scrollbar"` control: draggable by pointer (including touch), clickable,
+ * Home/End/PageUp/PageDown/arrow operable, and it reads its value aloud.
+ *
+ * A drag scrolls the transcript to follow the pointer: inside the loaded window
+ * the offset is written directly, and outside it a window is read for the
+ * position under the pointer (at most one read in flight, newest position wins)
+ * and the content is moved there as soon as it lands. The release commits
+ * immediately — there is no rest pause to wait through.
  *
  * Its drawn length is the share of the conversation the viewport is showing —
  * clamped so it is always legible and never more than a quarter of the track —
@@ -126,42 +142,134 @@ export default function TranscriptScrollbar({
   totalMessages,
 }: TranscriptScrollbarProps) {
   const { t } = useTranslation('chat');
+  const scrub = useTranscriptScrub();
   const trackRef = useRef<HTMLDivElement | null>(null);
+  const thumbRef = useRef<HTMLDivElement | null>(null);
+  /** The thumb's travel (track less its own length), mirrored for the scroll-time write. */
+  const travelRef = useRef(0);
   // The track's own drawn height, measured rather than assumed: the thumb's
   // length and its travel are both shares of it.
   const [trackHeight, setTrackHeight] = useState(0);
   // The live drag position, non-null only while a pointer holds the thumb. It is
   // what the thumb is drawn from during the gesture — the position the reader is
-  // choosing, which is deliberately ahead of where the window actually is.
+  // choosing, which the content is moved to follow.
   const [dragFraction, setDragFraction] = useState<number | null>(null);
-  // The position a released drag (or a keyboard move) committed to, kept until
-  // the window it asked for lands. Null whenever the thumb should track the real
+  // The position a released drag or a keyboard move committed to, kept until the
+  // transcript has arrived there. Null whenever the thumb should track the real
   // scroll position again.
   const [committedFraction, setCommittedFraction] = useState<number | null>(null);
   // The turn the drag/keyboard preview floats for, or null when none is shown.
   const [previewTurnId, setPreviewTurnId] = useState<string | null>(null);
   // How many messages the viewport currently holds, read off the rendered rows.
   const [viewportMessages, setViewportMessages] = useState(0);
+  // Where the viewport centre currently sits on the conversation's ordinal
+  // scale, recomputed once a frame while the transcript moves. Null until the
+  // window's rows can be measured.
+  const [scrollFraction, setScrollFraction] = useState<number | null>(null);
+
   const dragActiveRef = useRef(false);
+  // Mirrors `dragActiveRef` for the drawn track's own `data-scrub-dragging`, so a
+  // test (or a debugger) can see whether a gesture is still holding the thumb.
+  const [dragging, setDragging] = useState(false);
+  // True from a release/keyboard commit until the transcript arrives there, so a
+  // window read that lands afterwards still places the released position.
+  const settlingRef = useRef(false);
+  // The fraction the drag or release most recently asked for, so a window read
+  // places the newest position rather than the one that triggered the read.
+  const targetFractionRef = useRef(0);
+  const scrubStartedRef = useRef(false);
   const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const placeTargetRef = useRef<() => void>(() => {});
 
   /** Each turn's absolute message subscript is ordered, so the last one is the track's far end. */
   const lastTurnIndex = turns.length > 0 ? turns[turns.length - 1].index : 0;
+  /** Turn id to absolute subscript, so a DOM row can be placed on the scale. */
+  const ordinalById = useMemo(
+    () => new Map(turns.map((turn) => [turn.id, turn.index])),
+    [turns],
+  );
 
-  /** Where the thumb belongs when no gesture is overriding it: the current turn's ordinal position. */
-  const scrollFraction = useMemo(() => {
-    const at = turns.findIndex((turn) => turn.id === currentTurnId);
-    const fromTurn = progressOfTurnAt(at >= 0 ? turns[at] : undefined, lastTurnIndex);
-    if (fromTurn !== null) return fromTurn;
-    // No turn sits above the viewport top: an empty transcript, or one whose
-    // first rows are unanchored — the top of the track is the honest answer. A
-    // current turn the outline does not name yet (a just-sent prompt awaiting
-    // reindex) is by definition the newest, so its place is the far end.
-    return currentTurnId === null ? 0 : 1;
-  }, [turns, currentTurnId, lastTurnIndex]);
+  /**
+   * The loaded window's user-turn rows, on the ordinal scale and in content
+   * coordinates — the input the continuous position map interpolates.
+   */
+  const readRows = useCallback((): ScrollOrdinalRow[] => {
+    const container = scrollContainerRef.current;
+    if (!container) return [];
+    const paneTop = container.getBoundingClientRect().top;
+    const base = container.scrollTop;
+    const rows: ScrollOrdinalRow[] = [];
+    for (const element of container.querySelectorAll<HTMLElement>('[data-message-anchor-id]')) {
+      const id = element.getAttribute('data-message-anchor-id');
+      const ordinal = id === null ? undefined : ordinalById.get(id);
+      if (ordinal === undefined) continue;
+      rows.push({ ordinal, top: base + (element.getBoundingClientRect().top - paneTop) });
+    }
+    return rows;
+  }, [ordinalById, scrollContainerRef]);
 
-  const shownFraction = dragFraction ?? committedFraction ?? scrollFraction;
+  /** Re-reads the transcript's position on the conversation scale. */
+  const recompute = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    // While a drag holds the thumb the resting position is not drawn from at
+    // all — the pointer is — so reading every row's rect each frame would only
+    // force a layout for a value nobody is looking at.
+    if (dragActiveRef.current) return;
+    const next = fractionAtViewportCenter(
+      readRows(), container.scrollTop, container.clientHeight, lastTurnIndex,
+    );
+    setScrollFraction(next);
+    // The drawn position is written to the element here as well as declared in
+    // the render: the state update commits on React's schedule, a frame or two
+    // after the scroll it answers, while the position the reader is looking at
+    // has to move with the transcript in the same frame.
+    const thumb = thumbRef.current;
+    if (thumb && next !== null) {
+      thumb.style.transform = `translateY(${next * travelRef.current}px)`;
+      thumb.setAttribute('data-scroll-progress', String(next));
+      thumb.setAttribute('aria-valuenow', String(Math.round(next * 100)));
+    }
+  }, [lastTurnIndex, readRows, scrollContainerRef]);
+  /** The always-current recompute, so the scroll listener never holds a stale one. */
+  const recomputeRef = useRef(recompute);
+
+  useEffect(() => {
+    recomputeRef.current = recompute;
+  }, [recompute]);
+
+  /**
+   * Re-reads the drawn position for a scroll report.
+   *
+   * Synchronous with the report rather than deferred to a frame: the transcript's
+   * own `scroll` handling is read in the same frame by anything measuring the
+   * drawn position, and a frame of lag there reads as the thumb standing still
+   * while the content moves.
+   */
+  const scheduleRecompute = useCallback(() => {
+    recomputeRef.current();
+  }, []);
+
+  // The drawn position tracks every scroll report. Attached once: the handler
+  // reads the current recompute through the ref, so a re-render cannot leave the
+  // transcript with a listener that has been detached and not put back.
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return undefined;
+    const onScroll = () => scheduleRecompute();
+    onScroll();
+    container.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    return () => {
+      container.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, [scrollContainerRef, scheduleRecompute]);
+
+  const shownFraction = dragFraction ?? committedFraction ?? scrollFraction ?? (
+    currentTurnId === null ? 0 : 1
+  );
 
   // The track's height, kept current through a resize of the pane it is drawn in.
   useEffect(() => {
@@ -179,17 +287,57 @@ export default function TranscriptScrollbar({
   // current turn changes on every scroll frame, which is exactly when the visible
   // rows change.
   useEffect(() => {
+    // The drawn length is not read while a drag holds the thumb — the thumb is
+    // under the pointer — so re-counting the viewport's messages on every turn
+    // change during the gesture would force a layout for a value nobody sees.
+    if (dragActiveRef.current) return;
     setViewportMessages(countViewportMessages(scrollContainerRef.current));
   }, [scrollContainerRef, currentTurnId, totalMessages, turns]);
 
-  // Drop a committed position once the real scroll position has arrived there:
-  // from then on the two agree, and the thumb follows the transcript again. The
-  // settle timer is the fallback for a jump whose window never moves the current
-  // turn (a position already at the edge), so the pending value cannot stick.
+  // The drawn position tracks every scroll report, and every commit (a window
+  // read replaces the rows without necessarily raising a `scroll` this component
+  // observes). Re-asserted after every render rather than attached once: the
+  // container ref can be null on the first commit, and a listener that was never
+  // attached leaves the drawn position frozen on everything but a turn change.
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    const onScroll = () => scheduleRecompute();
+    scheduleRecompute();
+    if (!container) return undefined;
+    container.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    return () => {
+      container.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+    };
+  });
+
+  const finishScrub = useCallback(() => {
+    settlingRef.current = false;
+    if (settleTimerRef.current) {
+      clearTimeout(settleTimerRef.current);
+      settleTimerRef.current = null;
+    }
+    if (scrubStartedRef.current) {
+      scrubStartedRef.current = false;
+      scrub?.end();
+    }
+    setCommittedFraction(null);
+  }, [scrub]);
+
+  // Drop a committed position once the real position has arrived there: from
+  // then on the two agree, and the thumb follows the transcript again. The
+  // settle timer is the fallback for a jump whose window never moves the
+  // position (a target already at the edge), so the pending value cannot stick.
   useEffect(() => {
     if (committedFraction === null) return;
-    if (Math.abs(scrollFraction - committedFraction) < 0.02) setCommittedFraction(null);
-  }, [scrollFraction, committedFraction]);
+    // A drag is still choosing: the arrival of a position the pointer has already
+    // left is not the release settling.
+    if (dragActiveRef.current) return;
+    if (scrollFraction !== null && Math.abs(scrollFraction - committedFraction) < COMMIT_ARRIVAL_TOLERANCE) {
+      finishScrub();
+    }
+  }, [scrollFraction, committedFraction, finishScrub]);
 
   useEffect(() => () => {
     if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
@@ -213,29 +361,33 @@ export default function TranscriptScrollbar({
     );
   }, [trackHeight, totalMessages, viewportMessages]);
 
+  // The scroll-time write needs the travel without waiting for a render.
+  useEffect(() => {
+    travelRef.current = Math.max(0, trackHeight - thumbHeight);
+  });
+
   /**
    * The turn whose absolute subscript is nearest a fraction of the conversation.
    *
    * Resolved against the ticks' *subscripts* rather than their positions in the
    * array: a turn that drew many rows occupies more of the conversation than a
    * short one, and the thumb the reader aimed is a position in the conversation,
-   * not a slot in the list. On a uniform transcript the two agree; on a real one
-   * they do not, and this is the one the criterion reads.
+   * not a slot in the list. The ticks are ordered by subscript, so the nearest is
+   * found by binary search — a pointer frame must not scan every turn.
    */
   const turnAtFraction = useCallback((fraction: number): TurnRailTick | null => {
     if (turns.length === 0) return null;
-    const clamped = Math.min(1, Math.max(0, fraction));
-    const target = clamped * lastTurnIndex;
-    let nearest = turns[0];
-    let nearestDistance = Math.abs(nearest.index - target);
-    for (const turn of turns) {
-      const distance = Math.abs(turn.index - target);
-      if (distance < nearestDistance) {
-        nearest = turn;
-        nearestDistance = distance;
-      }
+    const target = Math.min(1, Math.max(0, fraction)) * lastTurnIndex;
+    let lo = 0;
+    let hi = turns.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (turns[mid].index < target) lo = mid + 1;
+      else hi = mid;
     }
-    return nearest;
+    const above = turns[lo];
+    const below = lo > 0 ? turns[lo - 1] : above;
+    return Math.abs(above.index - target) <= Math.abs(below.index - target) ? above : below;
   }, [turns, lastTurnIndex]);
 
   /**
@@ -252,31 +404,88 @@ export default function TranscriptScrollbar({
     return Math.min(1, Math.max(0, (clientY - rect.top - thumbHeight / 2) / travel));
   }, [thumbHeight]);
 
-  /** Places a gesture's chosen turn and keeps the thumb there until the window it asked for lands. */
-  const commitTurn = useCallback((turn: TurnRailTick, fraction: number) => {
+  /** Keeps the thumb at a chosen position until the transcript has arrived there. */
+  const commitPosition = useCallback((fraction: number) => {
+    settlingRef.current = true;
     setCommittedFraction(Math.min(1, Math.max(0, fraction)));
-    onJumpToTurn(turn.id);
     if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
     settleTimerRef.current = setTimeout(() => {
       settleTimerRef.current = null;
-      setCommittedFraction(null);
+      finishScrub();
     }, PENDING_POSITION_SETTLE_MS);
-  }, [onJumpToTurn]);
+  }, [finishScrub]);
 
   /**
-   * Arms the one read a drag or a keyboard step is allowed, cancelled by the
-   * next gesture. The turn is resolved at fire time so a gesture still in
-   * progress is never turned into a read.
+   * Moves the transcript toward the dragged position.
+   *
+   * Inside the loaded window this is one scroll write. Outside it, the nearest
+   * offset the window does hold is written first — so the content keeps moving
+   * with the pointer instead of stalling — and a window is read for the turn
+   * under the pointer; the newest requested position is placed as soon as the
+   * read lands, so the pointer keeps its authority over the thumb and the
+   * content follows it, never the other way round.
+   */
+  const placeTarget = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const fraction = targetFractionRef.current;
+    const nearest = closestScrollTopForFraction(readRows(), fraction, lastTurnIndex, container.clientHeight);
+    if (nearest) {
+      const maxTop = Math.max(container.scrollHeight - container.clientHeight, 0);
+      const top = Math.max(0, Math.min(nearest.top, maxTop));
+      // Only a real move is written: a write that changes nothing would still
+      // owe the pane an echo it never reports, and a drag clamped at a window
+      // edge repeats the same offset frame after frame.
+      if (Math.abs(top - container.scrollTop) >= 0.5) scrub?.scrollTo(top);
+      if (nearest.covered) {
+        // A release whose position is now placed has settled: the committed
+        // fraction has done its job and the thumb may track the transcript
+        // again. Left to the arrival check alone it could stick if the reading
+        // it compares against is unavailable.
+        if (!dragActiveRef.current && settlingRef.current) finishScrub();
+        return;
+      }
+    }
+    const turn = turnAtFraction(fraction);
+    if (!turn || !scrub) return;
+    void scrub.loadWindow(turn.id, fraction * lastTurnIndex).then(() => {
+      if (!dragActiveRef.current && !settlingRef.current) return;
+      // The read's window has to be committed by React before its rows exist to
+      // place against, and a cache hit resolves without any commit at all — so
+      // the retry waits a frame instead of re-reading the rows the read is about
+      // to replace.
+      requestAnimationFrame(() => {
+        if (!dragActiveRef.current && !settlingRef.current) return;
+        placeTargetRef.current();
+      });
+    });
+  }, [finishScrub, lastTurnIndex, readRows, scrub, scrollContainerRef, turnAtFraction]);
+
+  useEffect(() => {
+    placeTargetRef.current = placeTarget;
+  }, [placeTarget]);
+
+  /**
+   * Arms a keyboard step's jump, coalescing a burst of key repeats into the last
+   * position pressed. The thumb takes the pressed position at once, so the key
+   * reads as moving the control even before its window lands.
    */
   const scheduleCommit = useCallback((fraction: number) => {
-    setCommittedFraction(fraction);
+    const clamped = Math.min(1, Math.max(0, fraction));
+    settlingRef.current = true;
+    setCommittedFraction(clamped);
     if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
     commitTimerRef.current = setTimeout(() => {
       commitTimerRef.current = null;
-      const turn = turnAtFraction(fraction);
-      if (turn) commitTurn(turn, fraction);
-    }, DRAG_COMMIT_PAUSE_MS);
-  }, [commitTurn, turnAtFraction]);
+      const turn = turnAtFraction(clamped);
+      if (turn) onJumpToTurn(turn.id);
+      if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
+      settleTimerRef.current = setTimeout(() => {
+        settleTimerRef.current = null;
+        finishScrub();
+      }, PENDING_POSITION_SETTLE_MS);
+    }, KEYBOARD_COMMIT_PAUSE_MS);
+  }, [finishScrub, onJumpToTurn, turnAtFraction]);
 
   const handleThumbPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -285,10 +494,26 @@ export default function TranscriptScrollbar({
       clearTimeout(commitTimerRef.current);
       commitTimerRef.current = null;
     }
+    // A new gesture supersedes whatever the last one had committed to.
+    if (settleTimerRef.current) {
+      clearTimeout(settleTimerRef.current);
+      settleTimerRef.current = null;
+    }
+    settlingRef.current = false;
+    setCommittedFraction(null);
     dragActiveRef.current = true;
+    setDragging(true);
     event.currentTarget.setPointerCapture(event.pointerId);
-    setDragFraction(shownFraction);
-    setPreviewTurnId(turnAtFraction(shownFraction)?.id ?? null);
+    const fraction = shownFraction;
+    setDragFraction(fraction);
+    setPreviewTurnId(turnAtFraction(fraction)?.id ?? null);
+    targetFractionRef.current = fraction;
+    if (scrub) {
+      // Idempotent: a new gesture re-asserts the pointer's ownership even if a
+      // previous one had not yet released it.
+      scrubStartedRef.current = true;
+      scrub.start();
+    }
   };
 
   const handleThumbPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -296,19 +521,60 @@ export default function TranscriptScrollbar({
     const fraction = fractionFromClientY(event.clientY);
     setDragFraction(fraction);
     setPreviewTurnId(turnAtFraction(fraction)?.id ?? null);
+    targetFractionRef.current = fraction;
+    if (scrub) placeTarget();
   };
 
   const endThumbDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!dragActiveRef.current) return;
-    dragActiveRef.current = false;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-    const fraction = fractionFromClientY(event.clientY);
+    finishDrag();
+  };
+
+  /**
+   * Ends a drag wherever the pointer let go.
+   *
+   * The thumb's own `pointerup` is the normal route, but a gesture can end
+   * off the captured node (a node replaced mid-drag, a capture the browser
+   * drops), and a drag that never ends leaves the thumb pinned to the pointer
+   * and the transcript's own follow suppressed for the rest of the session.
+   * The window-level report is the guarantee that cannot be missed.
+   */
+  const finishDrag = () => {
+    if (!dragActiveRef.current) return;
+    dragActiveRef.current = false;
+    setDragging(false);
+    const fraction = targetFractionRef.current;
     setDragFraction(null);
     setPreviewTurnId(null);
-    scheduleCommit(fraction);
+    if (scrub) {
+      // No rest pause: the content has already been following the pointer, so the
+      // release only has to settle the last position.
+      commitPosition(fraction);
+      placeTarget();
+      // The resting position is re-read at once — the drag suppressed its own
+      // recomputes, and the arrival check needs the value this release left.
+      recompute();
+    } else {
+      // A render with no scrub control keeps the previous debounced commit.
+      scheduleCommit(fraction);
+    }
   };
+
+  useEffect(() => {
+    const onWindowPointerUp = () => {
+      if (!dragActiveRef.current) return;
+      finishDrag();
+    };
+    window.addEventListener('pointerup', onWindowPointerUp);
+    window.addEventListener('pointercancel', onWindowPointerUp);
+    return () => {
+      window.removeEventListener('pointerup', onWindowPointerUp);
+      window.removeEventListener('pointercancel', onWindowPointerUp);
+    };
+  });
 
   const handleThumbKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const arrowStep = turns.length > 1 ? 1 / (turns.length - 1) : KEYBOARD_PAGE_STEP;
@@ -362,15 +628,22 @@ export default function TranscriptScrollbar({
     : -1;
   const previewTurn = previewTurnOrdinal >= 0 ? turns[previewTurnOrdinal] : null;
 
+  // The thumb's travel is the track less its own length, and it is positioned by
+  // transform alone so a moving thumb never re-runs layout for the track.
+  const thumbTravel = Math.max(0, trackHeight - thumbHeight);
+  const thumbTop = shownFraction * thumbTravel;
+
   return (
     <div
       ref={trackRef}
       data-scrollbar-track
+      data-scrub-dragging={dragging ? 'true' : 'false'}
       onClick={handleTrackClick}
       className="pointer-events-auto absolute bottom-0 top-0 z-30 cursor-pointer"
       style={{ right: TRANSCRIPT_SCROLLBAR_INSET_PX, width: TRANSCRIPT_SCROLLBAR_WIDTH_PX + 4 }}
     >
       <div
+        ref={thumbRef}
         role="scrollbar"
         tabIndex={0}
         aria-orientation="vertical"
@@ -385,12 +658,11 @@ export default function TranscriptScrollbar({
         onPointerUp={endThumbDrag}
         onPointerCancel={endThumbDrag}
         onKeyDown={handleThumbKeyDown}
-        className="absolute right-0 rounded-full bg-foreground/45 transition-colors hover:bg-foreground/70 focus:bg-primary focus:outline-none"
+        className="absolute right-0 top-0 rounded-full bg-foreground/45 transition-colors hover:bg-foreground/70 focus:bg-primary focus:outline-none"
         style={{
           width: TRANSCRIPT_SCROLLBAR_WIDTH_PX,
           height: thumbHeight,
-          top: `${shownFraction * 100}%`,
-          transform: `translateY(-${shownFraction * 100}%)`,
+          transform: `translateY(${thumbTop}px)`,
           // A drag on the thumb must move the thumb, not scroll the pane under it.
           touchAction: 'none',
         }}
@@ -398,13 +670,13 @@ export default function TranscriptScrollbar({
       {/*
         The turn the reader is choosing while dragging or stepping. It carries the
         turn's summary and time so the position is identifiable before the window
-        is fetched; the jump itself happens only once the gesture rests.
+        is fetched.
       */}
       {previewTurn && (
         <span
           data-scrollbar-preview
           className="pointer-events-none absolute right-full mr-2 flex -translate-y-1/2 flex-col rounded-md border border-border/60 bg-card px-2 py-1 text-xs text-foreground shadow-sm"
-          style={{ top: `${shownFraction * 100}%` }}
+          style={{ top: thumbTop + thumbHeight / 2 }}
         >
           <span className="font-medium">
             {t('turnRail.turn', { n: previewTurnOrdinal + 1 })}

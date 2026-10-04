@@ -6,6 +6,7 @@ import { useTasksSettings } from '@/modules/task-master';
 import { useWebSocket } from '@/shared/context/WebSocketContext';
 import PermissionContext from '@/modules/chat/context/PermissionContext';
 import { MarkdownWorkspaceContext } from '@/modules/chat/context/MarkdownWorkspaceContext';
+import { TranscriptScrubContext } from '@/modules/chat/context/TranscriptScrubContext';
 import { api } from '@/shared/api';
 import type {
   ChatMessage,
@@ -189,6 +190,7 @@ function ChatInterface({
     handleScroll,
     requestLatestMessages,
     jumpToMessage,
+    scrubApi,
   } = useChatSessionState({
     isActive,
     selectedProject,
@@ -553,6 +555,7 @@ function ChatInterface({
     <PermissionContext.Provider value={permissionContextValue}>
       <div className="flex h-full min-h-0 flex-col">
         <MarkdownWorkspaceContext.Provider value={markdownWorkspaceValue}>
+          <TranscriptScrubContext.Provider value={scrubApi}>
           <ChatMessagesPane
             scrollContainerRef={scrollContainerRef}
             scrollContentRef={scrollContentRef}
@@ -616,6 +619,7 @@ function ChatInterface({
             turnRailCurrentId={currentTurnId}
             onJumpToTurn={jumpToTurn}
           />
+          </TranscriptScrubContext.Provider>
         </MarkdownWorkspaceContext.Provider>
 
         <div className="relative flex-shrink-0">

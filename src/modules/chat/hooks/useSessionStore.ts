@@ -172,6 +172,25 @@ type SessionWindowPage = {
 };
 
 /**
+ * One id-anchored window the scrub has read, kept whole so a back-and-forth drag
+ * can put it back on screen without reading the server again.
+ *
+ * `startIndex`/`endIndex` are the raw response's absolute subscripts — the scale
+ * a scrub request's ordinal is compared against to decide whether a window the
+ * client already holds covers the position being dragged to.
+ */
+export type ScrubWindowPage = {
+  /** The anchor id the window was read around. */
+  id: string;
+  messages: NormalizedMessage[];
+  startIndex: number;
+  endIndex: number;
+  total: number;
+  hasMoreBefore: boolean;
+  hasMoreAfter: boolean;
+};
+
+/**
  * Reads the id-anchored window around one message id. Unlike the tail page this
  * response carries an absolute `startIndex`, so the caller positions its window
  * by id rather than by arithmetic on a total that may have moved underneath it.
@@ -1440,6 +1459,69 @@ export function useSessionStore() {
   }, [getSlot, notify]);
 
   /**
+   * Reads an id-anchored window for the drawn scrollbar's drag and applies it,
+   * returning the whole page so the scrub's loader can keep it for a later
+   * back-and-forth drag. The navigation jump keeps using {@link loadWindowAround};
+   * this exists only so a drag's window can be cached and re-applied.
+   */
+  const fetchScrubWindow = useCallback(async (
+    sessionId: string,
+    id: string,
+    opts: { before?: number; after?: number } = {},
+  ): Promise<ScrubWindowPage | null> => {
+    const slot = getSlot(sessionId);
+    return enqueueHistoryMutation(slot, async () => {
+      slot.status = 'loading';
+      notify(sessionId);
+      try {
+        const page = await requestSessionWindow(sessionId, {
+          around: id,
+          before: opts.before,
+          after: opts.after,
+        });
+        const located = page.messages.findIndex((message) => windowIdOf(message) === id);
+        applyWindowPage(slot, page, page.startIndex + Math.max(0, located));
+        trimWindowToCap(slot);
+        slot.fetchedAt = Date.now();
+        slot.status = 'idle';
+        recomputeMergedIfNeeded(slot);
+        notify(sessionId);
+        return {
+          id,
+          messages: page.messages,
+          startIndex: page.startIndex,
+          endIndex: page.startIndex + page.messages.length,
+          total: page.total,
+          hasMoreBefore: page.hasMoreBefore,
+          hasMoreAfter: page.hasMoreAfter,
+        };
+      } catch (error) {
+        console.error(`[SessionStore] scrub window read failed for ${sessionId}:`, error);
+        slot.status = 'error';
+        notify(sessionId);
+        return null;
+      }
+    });
+  }, [getSlot, notify]);
+
+  /**
+   * Puts a window the scrub already read back on screen without a network read —
+   * the cache hit a drag back into a previously visited stretch of the
+   * conversation resolves to.
+   */
+  const applyScrubWindow = useCallback((sessionId: string, cached: ScrubWindowPage): void => {
+    const slot = getSlot(sessionId);
+    void enqueueHistoryMutation(slot, async () => {
+      const anchor = cached.messages.findIndex((message) => windowIdOf(message) === cached.id);
+      applyWindowPage(slot, cached, cached.startIndex + Math.max(0, anchor));
+      trimWindowToCap(slot);
+      slot.fetchedAt = Date.now();
+      recomputeMergedIfNeeded(slot);
+      notify(sessionId);
+    });
+  }, [getSlot, notify]);
+
+  /**
    * Extends the window toward the front by re-reading around its first row with
    * `after: 0`. The anchor id — not an offset — is what keeps the extension
    * flush with the existing window when `total` moved underneath it.
@@ -1620,6 +1702,8 @@ export function useSessionStore() {
     addResidentPending,
     applyCommandLifecycle,
     loadWindowAround,
+    fetchScrubWindow,
+    applyScrubWindow,
     loadBefore,
     loadAfter,
     jumpToLatest,
@@ -1632,8 +1716,8 @@ export function useSessionStore() {
     fetchFromServer, fetchMore, appendRealtime, truncateAt, refreshLatestFromServer,
     setActiveSession, isStale, updateStreaming, finalizeStreaming,
     addResidentPending, applyCommandLifecycle,
-    loadWindowAround, loadBefore, loadAfter, jumpToLatest, getBufferedRealtimeCount,
-    getMessages, getSessionSlot, fetchOutline, getOutline,
+    loadWindowAround, fetchScrubWindow, applyScrubWindow, loadBefore, loadAfter, jumpToLatest,
+    getBufferedRealtimeCount, getMessages, getSessionSlot, fetchOutline, getOutline,
   ]);
 }
 

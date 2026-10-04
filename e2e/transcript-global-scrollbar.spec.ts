@@ -1,16 +1,21 @@
 import { expect, test } from '@playwright/test';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 
-// AC-214 v2: the transcript's drawn scrollbar, now a part of its own beside the
+// AC-214 v3: the transcript's drawn scrollbar, now a part of its own beside the
 // turn-tick column rather than the rail that holds them both. Its thumb sits at
-// the current turn's absolute-message-subscript fraction of the whole
-// conversation — never at the loaded window's pixel ratio — so a window
-// prepended above the viewport, or a row whose height is measured late, cannot
-// move it. It is a real `role="scrollbar"` control: draggable, clickable and
-// keyboard-operable, and a drag fetches nothing until it comes to rest, then
-// exactly one page for the position it rested at. Its drawn length is the share
-// of the conversation the viewport is showing, clamped, rather than a fixed 40
-// pixels; and it is a neutral grey at rest, never the theme's own colour.
+// the viewport centre's position on the conversation's ordinal scale — never at
+// the loaded window's pixel ratio — so a window prepended above the viewport, or
+// a row whose height is measured late, cannot move it. It is a real
+// `role="scrollbar"` control: draggable, clickable and keyboard-operable. A drag
+// may read as it moves (the content follows the pointer), but at most one read is
+// ever in flight and the released position is the one that settles — an older
+// read never overwrites a newer window. Its drawn length is the share of the
+// conversation the viewport is showing, clamped, rather than a fixed 40 pixels;
+// and it is a neutral grey at rest, never the theme's own colour.
+//
+// v3 because AC-218 changed what a drag is allowed to do: v2 asserted a drag
+// fetched nothing until it rested, and the criterion now allows reads while the
+// pointer moves as long as they are serialised and the latest position wins.
 //
 // v2 because AC-217 split the two controls apart: the ticks became a window of
 // fixed-size marks, and the thumb moved into a column of its own. The route to a
@@ -48,8 +53,6 @@ const VIEWPORT = { width: 1280, height: 1200 };
  * fleet load the placement can take longer than the jump's own budget.
  */
 const TARGET_VISIBLE_MS = 15_000;
-/** A gap at or below this is "at the bottom", in CSS pixels. */
-const AT_BOTTOM_PX = 2;
 /** One wheel tick for the monotonic-scroll gesture, in CSS pixels. */
 const WHEEL_STEP_PX = 700;
 /** A reading must not move the thumb backwards by more than this share of the track, per frame. */
@@ -145,9 +148,6 @@ const turnFor = (turns: OutlineTurn[], displayTurn: number): OutlineTurn => {
   if (!turn) throw new Error(`no outline turn for turn ${displayTurn}`);
   return turn;
 };
-
-/** The sidebar row for the seeded session. */
-const sessionLink = (page: Page) => page.locator('a[href^="/session/"]').filter({ hasText: SESSION_NAME });
 
 /**
  * Opens a seeded session through the sidebar's own link.
@@ -263,23 +263,47 @@ const windowFirstRowFraction = async (
   return turn ? turn.index / totalMessages : null;
 };
 
-/** Records every `/messages` request the app makes, with the page-time it was issued at. */
+/** Records every `/messages` request the app makes, with the page times it started and ended at. */
 const installFetchLog = () => {
-  const w = window as unknown as { __messageFetches: { url: string; t: number }[] };
+  const w = window as unknown as { __messageFetches: { url: string; start: number; end: number }[] };
   w.__messageFetches = [];
   const original = window.fetch.bind(window);
   window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-    if (url.includes('/messages')) w.__messageFetches.push({ url, t: performance.now() });
-    return original(input, init);
+    if (!url.includes('/messages')) return original(input, init);
+    const record = { url, start: performance.now(), end: -1 };
+    w.__messageFetches.push(record);
+    const pending = original(input, init);
+    const finish = () => {
+      if (record.end < 0) record.end = performance.now();
+    };
+    pending.then(finish, finish);
+    return pending;
   }) as typeof window.fetch;
 };
 
 const readFetches = (page: Page) =>
-  page.evaluate(() => (window as unknown as { __messageFetches: { url: string; t: number }[] }).__messageFetches);
+  page.evaluate(() => (window as unknown as { __messageFetches: { url: string; start: number; end: number }[] }).__messageFetches);
 
 /** The `around` id of a messages request, or null for a tail page. */
 const aroundOf = (url: string): string | null => new URL(url, 'http://localhost').searchParams.get('around');
+
+/**
+ * The first request whose interval overlaps an earlier one's, or null when the
+ * reads were serialised. An interval still open is treated as extending forever,
+ * so a read that has not answered yet cannot hide an overlap behind it.
+ */
+const overlappingRequest = (
+  fetches: { url: string; start: number; end: number }[],
+): { url: string; start: number; end: number } | null => {
+  const spanning = fetches
+    .map((fetch) => ({ ...fetch, end: fetch.end < 0 ? Number.POSITIVE_INFINITY : fetch.end }))
+    .sort((a, b) => a.start - b.start);
+  for (let index = 1; index < spanning.length; index += 1) {
+    if (spanning[index].start < spanning[index - 1].end) return spanning[index];
+  }
+  return null;
+};
 
 /** Samples the thumb's fraction once a frame until told to stop. */
 const startProgressSampler = (page: Page) =>
@@ -754,7 +778,7 @@ test.describe('drawn global scrollbar in a real browser', () => {
     await page.close().catch(() => undefined);
   });
 
-  test('AC-214 v2 the drawn scrollbar is a part of its own: ordinal position, proportional length, neutral at rest', async () => {
+  test('AC-214 v3 the drawn scrollbar is a part of its own: ordinal position, proportional length, neutral at rest', async () => {
     const track = page.locator('[data-scrollbar-track]');
     const thumb = page.locator('[data-scrollbar-thumb]');
     await expect(track, 'the transcript must draw its own scrollbar track').toBeVisible({ timeout: 20_000 });
@@ -813,12 +837,13 @@ test.describe('drawn global scrollbar in a real browser', () => {
       `the thumb must be a neutral grey at rest, not the theme colour: ${restColour}`,
     ).toBe(false);
 
-    // ── (d) + DoD: a drag draws the chosen position and previews it, fetches
-    // nothing for the intermediate positions, and reads exactly one page for
-    // where it rests. While the thumb is dragged the loaded window is still the
-    // tail — so a thumb at ~10% with the tail still loaded is the reading that
-    // proves the position is the conversation's ordinal, not the window's pixels.
-    const fetchesBeforeDrag = (await readFetches(page)).length;
+    // ── (d) v3: a drag may read while it moves, but at most one read is in
+    // flight, the newest position wins, and the released position is the one
+    // that settles. The gesture drags the thumb towards ~10% and then to the
+    // middle with the real mouse; the fetch log's start/end stamps make "one in
+    // flight" an interval test, and the settled window is checked against the
+    // released position so an older read cannot have overwritten it.
+    const dragStartAt = await page.evaluate(() => performance.now());
     const trackBox = await track.boundingBox();
     const thumbBox = await thumb.boundingBox();
     if (!trackBox || !thumbBox) throw new Error('the scrollbar has no box to drag');
@@ -827,19 +852,13 @@ test.describe('drawn global scrollbar in a real browser', () => {
 
     await page.mouse.move(dragX, thumbBox.y + thumbBox.height / 2);
     await page.mouse.down();
-    await page.mouse.move(dragX, yAt(0.1), { steps: 8 });
-    await page.waitForTimeout(60);
+    await page.mouse.move(dragX, yAt(0.1), { steps: 10 });
+    await page.waitForTimeout(120);
 
     const midDrag = await readThumb(page);
     const midPreview = await page.locator('[data-scrollbar-preview]').textContent();
-    expect(
-      (await readFetches(page)).length - fetchesBeforeDrag,
-      'a drag must not fetch a page for an intermediate position',
-    ).toBe(0);
-    expect(
-      Math.abs(midDrag.gap),
-      `the loaded window must still be pinned at the tail while the thumb is dragged: ${JSON.stringify(midDrag)}`,
-    ).toBeLessThanOrEqual(AT_BOTTOM_PX);
+    // The thumb is the pointer's position throughout the gesture; the content
+    // follows it rather than the other way round.
     expect(midDrag.progress, `dragging towards 10% must put the thumb near 0.10: ${JSON.stringify(midDrag)}`)
       .toBeGreaterThanOrEqual(0.07);
     expect(midDrag.progress, `dragging towards 10% must put the thumb near 0.10: ${JSON.stringify(midDrag)}`)
@@ -855,56 +874,55 @@ test.describe('drawn global scrollbar in a real browser', () => {
     expect(previewedTurn!.index / totalMessages).toBeGreaterThanOrEqual(0.04);
     expect(previewedTurn!.index / totalMessages).toBeLessThanOrEqual(0.18);
 
-    // Release at the middle of the track: the one read a drag is allowed.
-    await page.mouse.move(dragX, yAt(0.5), { steps: 8 });
+    // Release at the middle of the track: the position that must survive.
+    await page.mouse.move(dragX, yAt(0.5), { steps: 10 });
     const releasedAt = await page.evaluate(() => performance.now());
     await page.mouse.up();
 
-    await expect
-      .poll(async () => (await readFetches(page)).filter((entry) => entry.t >= releasedAt).length, {
-        timeout: 15_000,
-        message: 'releasing the thumb must issue the one read for its final position',
-      })
-      .toBeGreaterThanOrEqual(1);
-    const afterRelease = (await readFetches(page)).filter((entry) => entry.t >= releasedAt);
-    const targetAround = aroundOf(afterRelease[0].url);
-    expect(targetAround, 'the release must read a window around a turn').toBeTruthy();
+    await waitForSettledPane(page);
+    const duringDrag = (await readFetches(page)).filter((entry) => entry.start >= dragStartAt);
+    const overlap = overlappingRequest(duringDrag);
     expect(
-      afterRelease.filter((entry) => aroundOf(entry.url) === targetAround).length,
-      `the released position must be read exactly once: ${JSON.stringify(afterRelease.map((entry) => aroundOf(entry.url)))}`,
-    ).toBe(1);
-    const finalFraction = (() => {
-      const turn = turns.find((entry) => entry.id === targetAround);
+      overlap,
+      `a drag may read, but never two at once: ${JSON.stringify(duringDrag.map((entry) => ({ around: aroundOf(entry.url), start: Math.round(entry.start), end: Math.round(entry.end) })))}`,
+    ).toBeNull();
+
+    // The release's own read (if it needed one) is for the released position, and
+    // it is the last word: a stale window read for an earlier pointer position
+    // must not have landed after it.
+    const afterRelease = duringDrag.filter((entry) => entry.start >= releasedAt);
+    expect(
+      afterRelease.length,
+      `the release may issue at most one read for its final position: ${JSON.stringify(afterRelease.map((entry) => entry.url))}`,
+    ).toBeLessThanOrEqual(1);
+    const lastAround = aroundOf(duringDrag[duringDrag.length - 1].url);
+    const lastTurnFraction = (() => {
+      const turn = turns.find((entry) => entry.id === lastAround);
       return turn ? turn.index / totalMessages : -1;
     })();
-    expect(finalFraction, `the release must read the position it rested at: ${targetAround}`)
+    expect(lastTurnFraction, `the last read must be the position the drag settled on: ${lastAround}`)
       .toBeGreaterThanOrEqual(0.44);
-    expect(finalFraction, `the release must read the position it rested at: ${targetAround}`)
+    expect(lastTurnFraction, `the last read must be the position the drag settled on: ${lastAround}`)
       .toBeLessThanOrEqual(0.56);
-    expect(
-      afterRelease.some((entry) => {
-        const turn = turns.find((candidate) => candidate.id === aroundOf(entry.url));
-        return turn ? turn.index / totalMessages >= 0.04 && turn.index / totalMessages <= 0.18 : false;
-      }),
-      'the drag must not have read the intermediate position it passed through',
-    ).toBe(false);
 
-    await waitForSettledPane(page);
     const afterDrag = await readThumb(page);
     expect(afterDrag.progress, `after resting at 50% the thumb must sit near 0.50: ${JSON.stringify(afterDrag)}`)
       .toBeGreaterThanOrEqual(0.47);
     expect(afterDrag.progress, `after resting at 50% the thumb must sit near 0.50: ${JSON.stringify(afterDrag)}`)
       .toBeLessThanOrEqual(0.53);
+    // (d) no stale window applied: the settled window is the one the last read
+    // asked for, so its first row sits within one window behind that position. A
+    // stale window from an earlier pointer position would be far away.
     const draggedFirstRow = await windowFirstRowFraction(page, turns, totalMessages);
     expect(draggedFirstRow, 'the loaded window must expose its first row').not.toBeNull();
     expect(
-      draggedFirstRow!,
-      'the window content after resting at 50% must start near 50% of the conversation',
-    ).toBeGreaterThanOrEqual(0.47);
+      draggedFirstRow! - lastTurnFraction,
+      `the settled window must belong to the last read, not an earlier one: ${JSON.stringify({ draggedFirstRow, lastTurnFraction, midDrag: midDrag.progress })}`,
+    ).toBeGreaterThanOrEqual(-0.10);
     expect(
-      draggedFirstRow!,
-      'the window content after resting at 50% must start near 50% of the conversation',
-    ).toBeLessThanOrEqual(0.53);
+      draggedFirstRow! - lastTurnFraction,
+      'the settled window must belong to the last read, not an earlier one',
+    ).toBeLessThanOrEqual(0.02);
 
     // ── (b) jump to ~10% of the conversation through the tick column: the thumb
     // reports the ordinal position, which is not the loaded window's pixel ratio.
@@ -1079,7 +1097,7 @@ test.describe('drawn global scrollbar in a real browser', () => {
       .toBeGreaterThanOrEqual(0.97);
   });
 
-  test('AC-214 v2 (f) a short conversation draws the cap, and the drawn length tracks the visible share', async () => {
+  test('AC-214 v3 (f) a short conversation draws the cap, and the drawn length tracks the visible share', async () => {
     // A transcript of a few dozen messages, in a viewport tall enough that most
     // of it is on screen at once: the visible share is then large enough for the
     // thumb to reach its upper bound, which a long conversation never can. Its

@@ -3,7 +3,9 @@ import type { MutableRefObject } from 'react';
 
 import { api } from '@/shared/api';
 import type { MarkSessionIdle, SessionActivityMap,Project,ProjectSession,LLMProvider,NormalizedMessage,ChatMessage,DiffCalculator,ChatReplayCursorMap,SessionTurnOutline } from '@/shared/types';
-import type { SessionStore } from '@/modules/chat/hooks/useSessionStore';
+import type { SessionStore, ScrubWindowPage } from '@/modules/chat/hooks/useSessionStore';
+import { createScrubWindowLoader } from '@/modules/chat/utils/scrubWindowLoader';
+import type { ScrubWindowLoader } from '@/modules/chat/utils/scrubWindowLoader';
 import { subscribeTargetFor } from '@/modules/chat/utils/replayCursor';
 import {
   OLDER_MESSAGES_PAGE_SIZE,
@@ -23,12 +25,15 @@ const INITIAL_VISIBLE_MESSAGES = 100;
 const SEARCH_TARGET_CONTEXT_MESSAGES = 20;
 
 /**
+ * How long the jump waits for the widened window to commit before it gives up.
+ *
  * Widening the window can commit thousands of rows on an old hit, each running
  * the markdown pipeline, so the scroll waits about three seconds for that render
- * — the same budget the previous DOM scan used.
+ * — the same budget the previous DOM scan used. The wait is spent on animation
+ * frames rather than a fixed 150ms step, so a fast commit is placed on the next
+ * frame instead of paying the step's whole latency for nothing.
  */
-const SEARCH_SCROLL_RETRIES = 20;
-const SEARCH_SCROLL_RETRY_DELAY_MS = 150;
+const SEARCH_SCROLL_BUDGET_MS = 3_000;
 
 /**
  * How many messages are loaded on each side of a jump target.
@@ -39,6 +44,18 @@ const SEARCH_SCROLL_RETRY_DELAY_MS = 150;
  */
 const JUMP_WINDOW_BEFORE = 40;
 const JUMP_WINDOW_AFTER = 40;
+
+/**
+ * How many messages are loaded on each side of a dragged position.
+ *
+ * Wide on purpose. A drag sweeps across the conversation far faster than a jump
+ * lands on one turn, and every window it does read costs a full commit of the
+ * rows it brings in — so the window is sized to hold several frames' worth of
+ * positions, letting one read serve many pointer movements instead of one read
+ * per frame.
+ */
+const SCRUB_WINDOW_BEFORE = 185;
+const SCRUB_WINDOW_AFTER = 185;
 
 /**
  * How far above the bottom the viewport may sit and still count as being at the
@@ -358,6 +375,13 @@ export function useChatSessionState({
    */
   const searchScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /**
+   * The animation frame the jump's placement retry chain is waiting on. A frame
+   * rather than a timeout: the wait is for React to commit the widened window,
+   * which happens on a frame, so the placement lands the moment it can without
+   * a fixed step's dead time in front of it.
+   */
+  const searchScrollFrameRef = useRef<number | null>(null);
+  /**
    * `isUserScrolledUp` readable from a timer callback. Both deferred
    * scroll-to-bottom calls are armed while the user is at the bottom and fire
    * tens to hundreds of milliseconds later; without re-reading this at fire
@@ -574,9 +598,13 @@ export function useChatSessionState({
     );
   }
 
-  const requestLatestMessages = useCallback((sessionId: string, allowNetwork = isActiveRef.current) => (
-    refreshCoordinatorRef.current?.request(sessionId, allowNetwork) ?? Promise.resolve()
-  ), []);
+  const requestLatestMessages = useCallback((sessionId: string, allowNetwork = isActiveRef.current) => {
+    // A drag or a jump owns the viewport: refreshing the tail would replace the
+    // very window the gesture is scrolling, and its read would race the window
+    // read the gesture is waiting on.
+    if (searchScrollActiveRef.current) return Promise.resolve();
+    return refreshCoordinatorRef.current?.request(sessionId, allowNetwork) ?? Promise.resolve();
+  }, []);
 
   /* ---------------------------------------------------------------- */
   /*  Derive chatMessages from the store                              */
@@ -1138,6 +1166,10 @@ export function useChatSessionState({
   const loadOlderMessages = useCallback(
     async (container: HTMLDivElement) => {
       if (!isActive) return false;
+      // A drag owns the viewport: the reader is moving through the conversation,
+      // and a page read armed by where its clamp landed would restore the offset
+      // against the pointer's position.
+      if (searchScrollActiveRef.current) return false;
       if (!container || isLoadingMoreRef.current || isLoadingMoreMessages) return false;
       if (!selectedSession || !selectedProject) return false;
 
@@ -1237,6 +1269,8 @@ export function useChatSessionState({
   const loadNewerMessages = useCallback(
     async () => {
       if (!isActive || !selectedSession) return false;
+      // A drag owns the viewport (see loadOlderMessages).
+      if (searchScrollActiveRef.current) return false;
       const slot = sessionStore.getSessionSlot(selectedSession.id);
       if (!slot || slot.attached !== false) return false;
       if (slot.endIndex >= slot.total) return false;
@@ -1385,6 +1419,10 @@ export function useChatSessionState({
     if (searchScrollTimerRef.current) {
       clearTimeout(searchScrollTimerRef.current);
       searchScrollTimerRef.current = null;
+    }
+    if (searchScrollFrameRef.current !== null) {
+      cancelAnimationFrame(searchScrollFrameRef.current);
+      searchScrollFrameRef.current = null;
     }
     searchScrollActiveRef.current = false;
 
@@ -1628,6 +1666,75 @@ export function useChatSessionState({
   ]);
 
   /**
+   * The scrub's window reader and the drag's own scroll channel.
+   *
+   * A drag asks for a window whenever the pointer leaves the loaded stretch, so
+   * the reader is a latest-wins loader: one read in flight, the newest requested
+   * position served next, and the few windows a back-and-forth drag returns to
+   * answered from the loader's cache. Placing the content lives here rather than
+   * in the scrollbar because this is where the transcript's scroll channel and
+   * render window are.
+   */
+  const scrubLoaderRef = useRef<ScrubWindowLoader<ScrubWindowPage> | null>(null);
+  const getScrubLoader = useCallback((): ScrubWindowLoader<ScrubWindowPage> => {
+    if (!scrubLoaderRef.current) {
+      scrubLoaderRef.current = createScrubWindowLoader<ScrubWindowPage>(
+        async (id) => {
+          const sessionId = activeSessionIdRef.current;
+          if (!sessionId) return null;
+          const page = await sessionStore.fetchScrubWindow(sessionId, id, {
+            before: SCRUB_WINDOW_BEFORE,
+            after: SCRUB_WINDOW_AFTER,
+          });
+          // Render the whole window the read brought in: `visibleMessages` is a
+          // tail slice, so without this the rows a drag is scrolling through stay
+          // unmounted and there is nothing under the pointer to follow.
+          if (page) setVisibleMessageCount((previous) => Math.max(previous, page.messages.length));
+          return page;
+        },
+        {
+          restore: (page) => {
+            const sessionId = activeSessionIdRef.current;
+            if (!sessionId) return;
+            sessionStore.applyScrubWindow(sessionId, page);
+            setVisibleMessageCount((previous) => Math.max(previous, page.messages.length));
+          },
+        },
+      );
+    }
+    return scrubLoaderRef.current;
+  }, [sessionStore]);
+
+  /** The scroll channel and window reader the drawn scrollbar drives during a drag. */
+  const scrubApi = useMemo(() => ({
+    start: () => {
+      // The pointer has taken the viewport: the bottom follow and the initial
+      // settle stand down for the gesture, and the transcript counts as taken
+      // over so a row arriving behind the reader does not pull them back down.
+      searchScrollActiveRef.current = true;
+      setIsUserScrolledUp(true);
+      isUserScrolledUpRef.current = true;
+    },
+    end: () => {
+      searchScrollActiveRef.current = false;
+    },
+    scrollTo: (next: number) => {
+      const container = scrollContainerRef.current;
+      if (container) writeScrollTop(container, next);
+    },
+    loadWindow: async (id: string, ordinal: number) => {
+      const page = await getScrubLoader().request(id, ordinal);
+      return page ? { startIndex: page.startIndex, endIndex: page.endIndex } : null;
+    },
+  }), [getScrubLoader, writeScrollTop]);
+
+  // A scrub's cached windows belong to the transcript that read them; a session
+  // change must not answer a drag from the previous session's pages.
+  useEffect(() => {
+    scrubLoaderRef.current?.reset();
+  }, [activeSessionId]);
+
+  /**
    * Places one transcript row in the viewport, on the user's behalf.
    *
    * The id — the row's transcript anchor — is the whole of the target: a turn is
@@ -1651,9 +1758,17 @@ export function useChatSessionState({
       clearTimeout(searchScrollTimerRef.current);
       searchScrollTimerRef.current = null;
     }
+    if (searchScrollFrameRef.current !== null) {
+      cancelAnimationFrame(searchScrollFrameRef.current);
+      searchScrollFrameRef.current = null;
+    }
     const stillHere = () => isActiveRef.current && activeSessionIdRef.current === sessionId;
     const release = () => {
       searchScrollTimerRef.current = null;
+      if (searchScrollFrameRef.current !== null) {
+        cancelAnimationFrame(searchScrollFrameRef.current);
+        searchScrollFrameRef.current = null;
+      }
       searchScrollActiveRef.current = false;
     };
 
@@ -1682,13 +1797,16 @@ export function useChatSessionState({
         resolveSearchWindowSize(projected.length, targetIndex, SEARCH_TARGET_CONTEXT_MESSAGES),
       ));
 
-      const scrollToRenderedTarget = (retriesLeft: number) => {
+      // The target is inside the window by construction, so the wait is only for
+      // React to commit the widened list — retried on animation frames, so the
+      // placement lands on the first frame the row exists rather than after a
+      // fixed step's dead time.
+      const placementDeadline = performance.now() + SEARCH_SCROLL_BUDGET_MS;
+      const scrollToRenderedTarget = () => {
         if (!stillHere()) return release();
         const container = scrollContainerRef.current;
         if (!container) return release();
 
-        // The target is inside the window by construction, so this only waits
-        // for React to commit the widened list.
         const targetElement = findRenderedMessageElementById(container, anchorId);
         if (targetElement) {
           // Placed through the same channel every other scroll write uses, so
@@ -1713,20 +1831,14 @@ export function useChatSessionState({
           return release();
         }
 
-        if (retriesLeft > 0) {
-          searchScrollTimerRef.current = setTimeout(
-            () => scrollToRenderedTarget(retriesLeft - 1),
-            SEARCH_SCROLL_RETRY_DELAY_MS,
-          );
+        if (performance.now() < placementDeadline) {
+          searchScrollFrameRef.current = requestAnimationFrame(scrollToRenderedTarget);
           return;
         }
         return release();
       };
 
-      searchScrollTimerRef.current = setTimeout(
-        () => scrollToRenderedTarget(SEARCH_SCROLL_RETRIES),
-        150,
-      );
+      searchScrollFrameRef.current = requestAnimationFrame(scrollToRenderedTarget);
     } catch (error) {
       console.error('Error jumping to a message:', error);
       release();
@@ -1960,5 +2072,6 @@ export function useChatSessionState({
     handleScroll,
     requestLatestMessages,
     jumpToMessage,
+    scrubApi,
   };
 }

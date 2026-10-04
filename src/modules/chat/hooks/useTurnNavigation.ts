@@ -117,17 +117,23 @@ export function useTurnNavigation({
     const compute = () => {
       frame = null;
       const paneTop = container.getBoundingClientRect().top;
-      let current: string | null = null;
-      const rows = container.querySelectorAll<HTMLElement>('[data-message-anchor-id]');
-      for (const row of rows) {
-        if (row.getBoundingClientRect().top <= paneTop + 1) {
-          current = row.getAttribute('data-message-anchor-id');
+      const rows = Array.from(container.querySelectorAll<HTMLElement>('[data-message-anchor-id]'));
+      // The rows are in transcript order and their tops increase together, so the
+      // last row above the pane's top edge is found by binary search — the cost of
+      // a scroll frame must not grow with the rows the loaded window holds.
+      let lo = 0;
+      let hi = rows.length - 1;
+      let found = -1;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (rows[mid].getBoundingClientRect().top <= paneTop + 1) {
+          found = mid;
+          lo = mid + 1;
         } else {
-          // Rows are in transcript order, so the first one below the top edge
-          // ends the search — everything after it is lower still.
-          break;
+          hi = mid - 1;
         }
       }
+      const current = found >= 0 ? rows[found].getAttribute('data-message-anchor-id') : null;
       setCurrentTurnId((previous) => (previous === current ? previous : current));
     };
     const schedule = () => {
