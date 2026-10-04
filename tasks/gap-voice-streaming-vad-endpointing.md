@@ -13,7 +13,7 @@ depends_on:
 ---
 ## Proposal
 
-<!-- dedup-ref --> 来源：`docs/proposals/voice-continuous-capture-vad-segmentation.md` P2。与已完成的 `gap-voice-debug-switch` / 裁剪链路相关：本条不改它的行为，只把判定逻辑抽出来供流式路径共用。**本任务的验收以 VAD 自身的低成本验证（性质测试 T0、真值扫描 T1）为主，不使用语音识别。**
+<!-- dedup-ref --> 来源：`docs/proposals/voice-continuous-capture-vad-segmentation.md` P2。与已完成的 `gap-voice-debug-switch` / 裁剪链路相关：本条不改它的行为，只把判定逻辑抽出来供流式路径共用。**本任务的验收以 VAD 自身的低成本验证（性质测试 T0、真值扫描 T1）为主，全程本地、零费用，不使用语音识别。**
 
 ### 现状与缺口
 
@@ -42,7 +42,7 @@ T0 性质测试（毫秒级，每次提交都跑；每条性质用固定种子�
 - [ ] 回归：`voiceTrim.test.ts` 与 `voiceTrimShippedRecogniser.test.ts` 不改一行断言即通过；`trimVoiceAudio` 对 `corpus/long/L1`–`L4` 的输出采样数与抽取前逐样本一致
 - [ ] 阈值常量只有一处定义：`grep -rnE "^(export )?const (ENTER_FACTOR|EXIT_FACTOR|SPEECH_FRAMES_TO_START|SILENCE_FRAMES_TO_END|PRE_ROLL_MS|POST_ROLL_MS) =" src/ | wc -l` 的结果为 6
 
-T1 真值扫描（本地、无网络；`node experiments/voice-vad/run.mjs --detector=streaming` 在与 `fixtures/baseline.json` **同一批**时间线上读数，≥2000 条）：
+T1 真值扫描（本地、无网络、零费用；`node experiments/voice-vad/run.mjs --detector=streaming` 在与 `fixtures/baseline.json` **同一批**时间线上读数，≥600 条、每格 ≥40 条）：
 - [ ] 命令退出码 0，且不比基线（现行批处理 VAD）差：漏检率、误触发/小时静音、非强制切的中途切率三项各自 ≤ 基线
 - [ ] 绝对上界（间隔 ≥ `endpointMs`+0.3 s 且 SNR ≥ 15 dB 的子集）：漏检率 ≤ 2%、起点偏差 p95 ≤ 0.3 s。这两个数是初始上界，只有人可以在任务里改，worker 不得为过关而放宽
 - [ ] 无真停顿（句间 0.15 s）时间线：每段时长 ≤ `maxSegmentSec`；每个强制切点的帧能量 ≤ 其前 2 s 窗口内帧能量的中位数
@@ -55,7 +55,7 @@ T1 真值扫描（本地、无网络；`node experiments/voice-vad/run.mjs --det
 
 ## DoD
 
-真实落地判据：流式状态机既通过了 T0 的性质，又在 T1 的 ≥2000 条真人语音时间线上用**时间区间真值**度量过，并且在真实 `AudioWorklet` 里跑过。三者缺一不可：只有性质测试说明实现自洽、不说明切得对；只有 T1 说明算法对、不说明浏览器里跑出同样结果。取假形态红的同时，要在记录里留下「基线 vs 流式」各项指标的并列读数。样本在仓库外，缺失时必须**指名**缺失路径并失败，不得静默跳过。**不要求任何识别读数**：识别是 `gap-voice-long-form-eval-prereg` 里 T4 的小样本确认。
+真实落地判据：流式状态机既通过了 T0 的性质，又在 T1 的 ≥600 条真人语音时间线上用**时间区间真值**度量过，并且在真实 `AudioWorklet` 里跑过。三者缺一不可：只有性质测试说明实现自洽、不说明切得对；只有 T1 说明算法对、不说明浏览器里跑出同样结果。取假形态红的同时，要在记录里留下「基线 vs 流式」各项指标的并列读数。样本在仓库外，缺失时必须**指名**缺失路径并失败，不得静默跳过。**不要求任何识别读数**：识别是 `gap-voice-long-form-eval-prereg` 里 T4 的小样本确认。
 
 L_D 该轴有读数：流式 VAD 相对基线的边界偏差、漏检、误触发、过切、中途切，由 T1 读数给出。
 

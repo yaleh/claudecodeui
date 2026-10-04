@@ -6,6 +6,7 @@ import { beforeEach, test, vi } from 'vitest';
 import type { PauseCuesDeclaration } from '@shared/asr/asrRegistry';
 
 import { useVoiceInput } from '@/modules/chat/hooks/useVoiceInput';
+import type * as AudioDecode from '@/modules/chat/utils/audioDecode';
 import type * as SharedApi from '@/shared/api';
 
 /**
@@ -80,9 +81,12 @@ const decodableSamples = () => {
 
 /**
  * The decoder and the encoder, doubled because jsdom has neither; the trim between them is the
- * shipping module.
+ * shipping module, and so is the downsampler the hook calls before encoding (`downsampleVoice`
+ * arrives through the `importOriginal` spread — it is a pure DSP function, not a browser seam,
+ * and this file has no reading that depends on its behaviour).
  */
-vi.mock('@/modules/chat/utils/audioDecode', () => ({
+vi.mock('@/modules/chat/utils/audioDecode', async (importOriginal) => ({
+  ...(await importOriginal<typeof AudioDecode>()),
   decodeVoiceBlob: async () => ({ samples: decodableSamples(), sampleRate: 16_000 }),
   encodeWavBlob: () => new Blob([new Uint8Array(2048)], { type: 'audio/wav' }),
 }));

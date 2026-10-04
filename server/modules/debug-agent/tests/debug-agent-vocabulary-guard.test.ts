@@ -19,8 +19,10 @@ import { fileURLToPath } from 'node:url';
  *
  *  1. NO frame field name and NO event name appears in the module's source. The
  *     dialect's own field names (`type`, `message`, `content`, ...) are not in
- *     the vocabulary; the vocabulary is the WIRE's. The one `kind:` the module
- *     may write is a host LEASE's — see {@link HOST_LEASE_KIND_LITERALS}.
+ *     the vocabulary; the vocabulary is the WIRE's. The `kind:` fields the
+ *     module may write are ROW discriminators, never the wire's: a host LEASE's
+ *     — see {@link HOST_LEASE_KIND_LITERALS} — and the claude dialect's own
+ *     `origin.kind` on a peer row — see {@link DIALECT_ROW_KIND_LITERALS}.
  *  2. The module really does import the product's normalization entry. Half 1 on
  *     its own is passed by a module that produces nothing at all, so half 2 is
  *     its complement: it says the row → frame edge exists and is the product's.
@@ -109,17 +111,40 @@ const HOST_LEASE_KIND_LITERALS = [
 const HOST_LEASE_KINDS = new Set<string>(HOST_LEASE_KIND_LITERALS);
 
 /**
- * A `kind:` given a literal value — ANY value outside {@link HOST_LEASE_KINDS},
- * not only the names listed above.
+ * The claude dialect's own `origin.kind` value this module must reproduce: a
+ * message another session sent.
+ *
+ * `origin` is a ROW field — the CLI writes it on a transcript line, beside
+ * `isMeta` and `message` — and its `kind` says what the message *is* (a peer
+ * delivery), not how a client should frame it. The module writes it because the
+ * debug agent's job is to describe what the CLI writes, and a scenario that used
+ * the shared `{trigger, sender}` vocabulary here instead would produce a row the
+ * CLI never produces — blind to the very gate that drops the real one
+ * (gap-cross-session-message-dropped-by-ismeta-gate). Like a host lease's
+ * `kind:`, this value is a row discriminator rather than the wire's, which is
+ * why {@link KIND_VALUE} must not read it as a frame written by hand.
+ *
+ * Written out rather than derived, for the same reason as the lease list: the
+ * dialect's raw shape has no runtime closed set to read. A `kind:` at ANY other
+ * value still reds — see the near-miss control in the not-inert test — so a new
+ * dialect discriminator fails this guard until it is listed here, visibly.
+ */
+const DIALECT_ROW_KIND_LITERALS = ['peer'] as const;
+
+const DIALECT_ROW_KINDS = new Set<string>(DIALECT_ROW_KIND_LITERALS);
+
+/**
+ * A `kind:` given a literal value — ANY value outside {@link HOST_LEASE_KINDS}
+ * and {@link DIALECT_ROW_KINDS}, not only the names listed above.
  *
  * This is the other half of the literal vocabulary, and the one that catches the
  * frames-only shape: ADR-003's verification record measured a fake implementation
- * being caught by `kind: 'text'` while the real path hit nothing. A dialect row
- * has no `kind` field at all, so a `kind:` in this module can only be a frame
- * discriminator written by hand — or a host lease's, which is the one exclusion
- * {@link HOST_LEASE_KINDS} carries. Matching the FIELD rather than a list of
- * values is what keeps this from going stale the next time a kind is added
- * upstream.
+ * being caught by `kind: 'text'` while the real path hit nothing. A turn row's
+ * own discriminator is its `type`, so a `kind:` in this module can only be a
+ * frame discriminator written by hand — a host lease's, or the claude dialect's
+ * `origin.kind` on a peer row, the two row-layer exclusions the sets above
+ * carry. Matching the FIELD rather than a list of values is what keeps this from
+ * going stale the next time a kind is added upstream.
  */
 const KIND_VALUE =
   /\bkind\s*:\s*(?<quote>['"`])(?<value>(?:\\.|(?!\k<quote>)[^\\\n])*)\k<quote>/g;
@@ -311,7 +336,7 @@ function scanLiterals(file: string, source: string): LiteralHit[] {
 
   for (const match of code.matchAll(KIND_VALUE)) {
     const value = match.groups?.value ?? '';
-    if (HOST_LEASE_KINDS.has(value)) {
+    if (HOST_LEASE_KINDS.has(value) || DIALECT_ROW_KINDS.has(value)) {
       continue;
     }
 
@@ -515,7 +540,7 @@ test('the scan set is the module sources, and the guard is not one of them', () 
     console.log(`  - ${rel(file)}`);
   }
   console.log(
-    `[vocabulary-guard] vocabulary: ${VOCABULARY.size} frame/event literal(s), plus every \`kind:\` literal value outside the ${HOST_LEASE_KINDS.size} host-lease kind(s)`,
+    `[vocabulary-guard] vocabulary: ${VOCABULARY.size} frame/event literal(s), plus every \`kind:\` literal value outside the ${HOST_LEASE_KINDS.size} host-lease kind(s) and ${DIALECT_ROW_KINDS.size} dialect row kind(s)`,
   );
 
   assert.ok(
@@ -585,11 +610,25 @@ test('the literal half is not inert — a planted frame is caught, a dialect row
     'the lease kinds `HostLease` declares must not be read as frame discriminators — the host driver reports leases, and the wire never carries one',
   );
 
+  const peerOrigin = "const row = { origin: { kind: 'peer', name, msg_id } };\n";
+  assert.deepEqual(
+    scanLiterals('(peer origin)', peerOrigin),
+    [],
+    "the claude dialect's own `origin.kind` on a peer row is a row discriminator, not a frame the module built: it must scan clean, or the guard would force the fixture to write a shape the CLI never produces",
+  );
+
   const nearMissLease = "const lease = { kind: 'delta', id };\n";
   assert.deepEqual(
     scanLiterals('(near-miss lease)', nearMissLease).map((hit) => hit.line),
     [1],
     "`kind: 'delta'` is not a `HostLease` kind, so the field rule must still catch it: an exclusion that swallowed every `kind:` would be a guard that stopped guarding",
+  );
+
+  const nearMissOrigin = "const row = { origin: { kind: 'oracle', name } };\n";
+  assert.deepEqual(
+    scanLiterals('(near-miss origin)', nearMissOrigin).map((hit) => hit.line),
+    [1],
+    "the peer exclusion must not widen to every `origin.kind`: any value the dialect does not declare still reds, so a new discriminator cannot slip in unlisted",
   );
 });
 
