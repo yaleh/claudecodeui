@@ -1,7 +1,7 @@
 ---
 id: gap-activity-dock-human-gate
 title: AC-190 人工关卡：真实部署上停掉/杀掉服务端，由人确认坞显示连接中断、不再显示 Thinking、计时冻结、重启后恢复；验收行写进提案，只由人写
-status: todo
+status: ready
 labels:
   - gap
 parent: null
