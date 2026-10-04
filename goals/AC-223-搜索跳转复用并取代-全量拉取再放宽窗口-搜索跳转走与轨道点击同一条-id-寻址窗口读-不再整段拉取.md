@@ -1,7 +1,7 @@
 ---
 id: AC-223
 title: 搜索跳转复用并取代「全量拉取再放宽窗口」：搜索跳转走与轨道点击同一条 id 寻址窗口读，不再整段拉取
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-017
 criterion: for f in e2e/transcript-jump-to-turn.spec.ts; do [ -f "$f" ] || {
@@ -23,4 +23,10 @@ origin: 人 yale 2026-10-04 裁定（对 gap-goal-017-exit-clause-nonregression-
   "AC-223" → 0（用例不存在，本条当前为红，符合红先行惯例）；useChatSessionState.ts:1752 已有共用的
   jumpToMessage 与「不存在第二份 load around/widen/commit/scroll」的注释，但没有任何判据断言搜索跳转确实走了它。
 activatedAt: 2026-10-04T07:49:13.209Z
+statusLog:
+  - at: 2026-10-04T08:57:46.316Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 ---
