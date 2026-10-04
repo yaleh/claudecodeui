@@ -453,6 +453,7 @@
   },
   "turnRail": {
     "label": "Giliran percakapan",
+    "scrollbar": "Bilah gulir percakapan",
     "jumpToTurn": "Lompat ke giliran {{n}}",
     "turn": "Giliran {{n}}"
   }

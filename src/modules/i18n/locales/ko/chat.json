@@ -376,6 +376,7 @@
   },
   "turnRail": {
     "label": "대화 턴",
+    "scrollbar": "대화 스크롤 막대",
     "jumpToTurn": "{{n}}번째 턴으로 이동",
     "turn": "턴 {{n}}"
   }

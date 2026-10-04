@@ -361,6 +361,7 @@
   },
   "turnRail": {
     "label": "Turni della conversazione",
+    "scrollbar": "Barra di scorrimento della conversazione",
     "jumpToTurn": "Vai al turno {{n}}",
     "turn": "Turno {{n}}"
   }

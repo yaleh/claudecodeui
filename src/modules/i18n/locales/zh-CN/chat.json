@@ -382,6 +382,7 @@
   },
   "turnRail": {
     "label": "对话轮次",
+    "scrollbar": "对话滚动条",
     "jumpToTurn": "跳转到第 {{n}} 轮",
     "turn": "第 {{n}} 轮"
   }
