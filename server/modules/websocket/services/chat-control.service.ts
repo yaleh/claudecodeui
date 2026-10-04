@@ -1,4 +1,8 @@
 import { sessionsDb } from '@/modules/database/index.js';
+import type {
+  ControlBackgroundTaskOutcome,
+  ControlStopTaskOutcome,
+} from '@/modules/providers/index.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import {
   assertSessionAccess,
@@ -10,6 +14,12 @@ import type { AnyRecord, HostQueuedInputCancelResult, LLMProvider } from '@/shar
 /**
  * Who asked for a control action, and through which front end.
  *
+ * `userId` is `null` for a caller that was never authenticated — an upgrade with
+ * no user attached — and that is exactly the value the shared access entry
+ * refuses. It is carried here rather than asserted away at the boundary, so the
+ * refusal stays the one entry's decision instead of this service inventing a
+ * second check.
+ *
  * `via` names the adapter that made the call — the WebSocket gateway, the
  * scheduled-message dispatcher, or the MCP gateway. It is carried so the run
  * this service registers can state its origin (`websocket` → `user`,
@@ -18,7 +28,7 @@ import type { AnyRecord, HostQueuedInputCancelResult, LLMProvider } from '@/shar
  * knowingly came in over a socket.
  */
 type ControlCaller = {
-  userId: string | number;
+  userId: string | number | null;
   via: 'websocket' | 'mcp' | 'scheduled';
 };
 
@@ -59,6 +69,43 @@ type SendResult =
       code: 'SESSION_NOT_FOUND' | 'UNSUPPORTED_PROVIDER' | 'RUN_IN_PROGRESS' | 'FORBIDDEN';
       message: string;
     };
+
+/**
+ * What `abort` returns.
+ *
+ * Success carries the provider's own answer for the aborted turn — `aborted:
+ * true` when a live process was really stopped, `false` when there was nothing
+ * to stop — so the verdict is never fabricated here. A refusal is a value with a
+ * stable `code` in the same vocabulary `send` uses, so each adapter translates
+ * it without parsing an exception; `aborted: false` is stated on every refusal
+ * so a caller that only reads that field is told the truth rather than left
+ * undefined.
+ */
+type AbortResult =
+  | { ok: true; aborted: boolean }
+  | {
+      ok: false;
+      aborted: false;
+      code: 'SESSION_NOT_FOUND' | 'UNSUPPORTED_PROVIDER' | 'FORBIDDEN';
+      message: string;
+    };
+
+/**
+ * The verdicts a transport-free control verb states before it reaches a driver.
+ *
+ * `forbidden` is the shared access entry's own word, kept in the lowercase the
+ * gateway's control verbs already answer in; the two upper-case codes are the
+ * ones `send`/`abort` state for a session that does not exist and a provider
+ * with no runtime assembled. Keeping one vocabulary across the string-returning
+ * verbs lets an adapter translate any of the five without a per-verb table.
+ */
+type ControlVerbRefusal = 'forbidden' | 'SESSION_NOT_FOUND' | 'UNSUPPORTED_PROVIDER';
+
+/** What `stopTask` returns: the driver's outcome vocabulary, or a stable refusal. */
+type StopTaskResult = ControlStopTaskOutcome | ControlVerbRefusal;
+
+/** What `backgroundTask` returns: the driver's outcome vocabulary, or a refusal. */
+type BackgroundTaskResult = ControlBackgroundTaskOutcome | ControlVerbRefusal;
 
 /**
  * Upper bound on how long `send` waits for the provider to hand over a queued
@@ -121,11 +168,37 @@ async function readQueuedMessageUuid(
  */
 type ChatControlDependencies = {
   runtime: ProviderRuntimeGateway;
+  /**
+   * The single access entry every control verb shares (`send`, `abort`,
+   * `cancelQueued`, `stopTask`, `backgroundTask`).
+   *
+   * Defaults to this module's own {@link assertSessionAccess}. The seam exists
+   * so a criterion can hand over a counting spy and observe that all five verbs
+   * go through the *same* entry — delegating to the production one, so the
+   * verdict is the real ownership answer rather than a stub — instead of each
+   * carrying a check of its own.
+   */
   assertSessionAccess?: (
     userId: string | number | null,
     session: ReturnType<typeof sessionsDb.getSessionById>,
   ) => boolean;
 };
+
+/**
+ * The access entry a control verb must call: the injected seam when one was
+ * provided, the process default otherwise.
+ *
+ * Every control verb resolves it here rather than reaching for the module
+ * function directly, so an injected entry sees all five. That is the seam the
+ * criterion (`server/modules/websocket/tests/chat-control-access.test.ts`) reads
+ * to prove the five verbs share one entry rather than each carrying an inline
+ * check. It mirrors the gateway's own helper of the same name.
+ */
+function accessEntry(
+  dependencies: ChatControlDependencies,
+): (userId: string | number | null, session: ReturnType<typeof sessionsDb.getSessionById>) => boolean {
+  return dependencies.assertSessionAccess ?? assertSessionAccess;
+}
 
 /**
  * Builds the transport-agnostic control plane for chat sessions.
@@ -139,26 +212,27 @@ type ChatControlDependencies = {
  * The service is deliberately transport-free: it accepts no socket, constructs
  * no frames and reports nothing by emitting. It ships `send` — including the
  * resident-session busy branch that queues into a running process and hands the
- * queued message's uuid back — and `cancelQueued`, which withdraws a message by
- * that uuid through the same access entry. The remaining verbs (`editSend`/
- * `abort`/`stopTask`/`backgroundTask`/`answerApproval`/`pendingApprovals`)
- * arrive with AC-232.
+ * queued message's uuid back — `cancelQueued`, which withdraws a message by that
+ * uuid, and `abort`/`stopTask`/`backgroundTask`, which reach the provider's own
+ * control verbs. All five take the one shared access entry before any driver
+ * call. The remaining verbs (`editSend`/`answerApproval`/`pendingApprovals`)
+ * arrive with a later AC.
  *
- * Consumed by this module's criterion
- * (`server/modules/websocket/tests/chat-control-send.test.ts`); the composition
+ * Consumed by this module's criteria
+ * (`server/modules/websocket/tests/chat-control-send.test.ts`,
+ * `chat-control-busy.test.ts`, `chat-control-access.test.ts`); the composition
  * root (`server/index.ts`) wires the single instance in AC-233.
  */
 export function createChatControlService(deps: ChatControlDependencies) {
-  const accessEntry = deps.assertSessionAccess ?? assertSessionAccess;
-
   /**
    * Registers a run for one session and returns its id immediately.
    *
-   * Everything that can refuse happens before a run exists: the session must
-   * exist (`SESSION_NOT_FOUND`), its provider must have a runtime
-   * (`UNSUPPORTED_PROVIDER`), and the caller must own it (`FORBIDDEN`). Only
-   * then is the turn handed to `dispatchRun`, which registers the run and starts
-   * the provider in the background.
+   * The shared access entry is consulted first — before the session-not-found
+   * verdict and long before any driver call — so an unauthenticated caller
+   * (`FORBIDDEN`) can neither register a run nor reach the provider. Only then
+   * must the session exist (`SESSION_NOT_FOUND`) and its provider have a runtime
+   * (`UNSUPPORTED_PROVIDER`); the turn is handed to `dispatchRun`, which
+   * registers the run and starts the provider in the background.
    *
    * The return is *immediate* — the run keeps going after this resolves. That is
    * achieved without a timeout by racing two facts `dispatchRun` produces in a
@@ -170,6 +244,18 @@ export function createChatControlService(deps: ChatControlDependencies) {
    */
   async function send(caller: ControlCaller, input: SendInput): Promise<SendResult> {
     const session = sessionsDb.getSessionById(input.sessionId);
+
+    // The shared access entry runs before the session-not-found verdict, so an
+    // unauthenticated caller gets one answer for every session — it cannot tell
+    // a session it may not touch from one that does not exist.
+    if (!accessEntry(deps)(caller.userId, session)) {
+      return {
+        ok: false,
+        code: 'FORBIDDEN',
+        message: `Caller is not allowed to send to session "${input.sessionId}".`,
+      };
+    }
+
     if (!session) {
       return {
         ok: false,
@@ -184,16 +270,6 @@ export function createChatControlService(deps: ChatControlDependencies) {
         ok: false,
         code: 'UNSUPPORTED_PROVIDER',
         message: `Provider "${provider}" is not available.`,
-      };
-    }
-
-    // Ownership is checked through the shared entry, before any driver call, so
-    // a forbidden caller can neither register a run nor reach the provider.
-    if (!accessEntry(caller.userId, session)) {
-      return {
-        ok: false,
-        code: 'FORBIDDEN',
-        message: `Caller is not allowed to send to session "${input.sessionId}".`,
       };
     }
 
@@ -284,13 +360,13 @@ export function createChatControlService(deps: ChatControlDependencies) {
    * started running it.
    *
    * The refusal is the same shared access entry every other control verb uses
-   * (`send`, and later `abort`/`stopTask`/`backgroundTask`), and it is taken
-   * before the driver is reached, so a caller with no access can neither
-   * withdraw a queued message nor learn whether a uuid is live. The verdict
-   * itself is the provider's own: this function does not decide whether the
-   * message was still queued, it reports what the queue said, and reads a
-   * gateway with no withdrawal seam as `unknown` — the one answer that must not
-   * be confused with a successful withdrawal.
+   * (`send`, `abort`, `stopTask`, `backgroundTask`), and it is taken before the
+   * driver is reached, so a caller with no access can neither withdraw a queued
+   * message nor learn whether a uuid is live. The verdict itself is the
+   * provider's own: this function does not decide whether the message was still
+   * queued, it reports what the queue said, and reads a gateway with no
+   * withdrawal seam as `unknown` — the one answer that must not be confused with
+   * a successful withdrawal.
    */
   async function cancelQueued(
     caller: ControlCaller,
@@ -298,7 +374,7 @@ export function createChatControlService(deps: ChatControlDependencies) {
   ): Promise<HostQueuedInputCancelResult | 'forbidden'> {
     const session = sessionsDb.getSessionById(input.sessionId);
 
-    if (!accessEntry(caller.userId, session)) {
+    if (!accessEntry(deps)(caller.userId, session)) {
       return 'forbidden';
     }
 
@@ -313,5 +389,121 @@ export function createChatControlService(deps: ChatControlDependencies) {
     );
   }
 
-  return { send, cancelQueued };
+  /**
+   * Stops the run a session currently has, through the provider's own process.
+   *
+   * The same shape as `send`: the shared access entry runs first, so an
+   * unauthenticated caller is refused without the provider being told anything;
+   * the session must then exist and its provider must have a runtime before the
+   * driver is reached. The verdict is the provider's own `abort` answer, so a
+   * process that had already ended reports `aborted: false` rather than a
+   * fabricated success.
+   *
+   * This service does not touch `chatRunRegistry`: emitting the terminal
+   * `complete` for the aborted run is the adapter's job (AC-233). A service that
+   * wrote it here would end a run on behalf of a caller whose request had not
+   * yet been through the gateway's own handler.
+   */
+  async function abort(caller: ControlCaller, input: { sessionId: string }): Promise<AbortResult> {
+    const session = sessionsDb.getSessionById(input.sessionId);
+
+    if (!accessEntry(deps)(caller.userId, session)) {
+      return {
+        ok: false,
+        aborted: false,
+        code: 'FORBIDDEN',
+        message: `Caller is not allowed to abort session "${input.sessionId}".`,
+      };
+    }
+
+    if (!session) {
+      return {
+        ok: false,
+        aborted: false,
+        code: 'SESSION_NOT_FOUND',
+        message: `Session "${input.sessionId}" was not found.`,
+      };
+    }
+
+    const provider = session.provider as LLMProvider;
+    if (!deps.runtime.hasRuntime(provider)) {
+      return {
+        ok: false,
+        aborted: false,
+        code: 'UNSUPPORTED_PROVIDER',
+        message: `Provider "${provider}" is not available.`,
+      };
+    }
+
+    return { ok: true, aborted: await deps.runtime.abort(provider, input.sessionId) };
+  }
+
+  /**
+   * Stops one named background task of a session through the provider's process.
+   *
+   * Transport-free and, for now, deliberately thin: it takes the shared access
+   * entry first, then requires the session and a runtime, and hands the request
+   * to the runtime's `controlStopTask`. The gateway handler's full "validate,
+   * place, wait for the task table to settle" sequence is AC-233's to build on
+   * top of this seam — a service that repeated it here would run the
+   * confirmation wait for a caller that had not yet been authenticated through
+   * the handler.
+   */
+  async function stopTask(
+    caller: ControlCaller,
+    input: { sessionId: string; taskId: string },
+  ): Promise<StopTaskResult> {
+    const session = sessionsDb.getSessionById(input.sessionId);
+
+    if (!accessEntry(deps)(caller.userId, session)) {
+      return 'forbidden';
+    }
+
+    if (!session) {
+      return 'SESSION_NOT_FOUND';
+    }
+
+    const provider = session.provider as LLMProvider;
+    if (!deps.runtime.hasRuntime(provider)) {
+      return 'UNSUPPORTED_PROVIDER';
+    }
+
+    return (await deps.runtime.controlStopTask?.(provider, input.sessionId, input.taskId)) ?? 'unsupported';
+  }
+
+  /**
+   * Promotes one named foreground tool to a background task through the
+   * provider's process.
+   *
+   * The stop-task sibling's shape, with the runtime's `controlBackgroundTask` as
+   * its driver. The Turn Tracker match the gateway handler performs is AC-233's
+   * to add; here the request only has to pass the one access entry first and
+   * then reach the driver.
+   */
+  async function backgroundTask(
+    caller: ControlCaller,
+    input: { sessionId: string; toolUseId: string },
+  ): Promise<BackgroundTaskResult> {
+    const session = sessionsDb.getSessionById(input.sessionId);
+
+    if (!accessEntry(deps)(caller.userId, session)) {
+      return 'forbidden';
+    }
+
+    if (!session) {
+      return 'SESSION_NOT_FOUND';
+    }
+
+    const provider = session.provider as LLMProvider;
+    if (!deps.runtime.hasRuntime(provider)) {
+      return 'UNSUPPORTED_PROVIDER';
+    }
+
+    return (
+      (await deps.runtime.controlBackgroundTask?.(provider, input.sessionId, input.toolUseId)) ??
+      'unsupported'
+    );
+  }
+
+  return { send, abort, cancelQueued, stopTask, backgroundTask };
 }

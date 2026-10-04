@@ -47,15 +47,15 @@ AC-238（GOAL-019 退出条件 9；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3�
 
 ## AC
 
-- [ ] AC1 判据绿：`for f in server/modules/debug-agent/tests/debug-agent-control-queue.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/debug-agent/tests/debug-agent-control-queue.test.ts` 退出 0。红态基线逐字记录（改动前该文件不存在、存在性闸退出码 1 输出 `缺判据文件：server/modules/debug-agent/tests/debug-agent-control-queue.test.ts`）。
-- [ ] AC2 (a) 忙时排队并交出驱动 uuid：第一轮 running 时再 `send` 返回 `queued:true`、`queuedMessageUuid` 非空，且等于 `readCommandQueue(sessionId).queued` 末条；写出两次返回与队列读数。
-- [ ] AC3 (b) 不撤回成为独立下一轮：第一轮结束后排队命令被取出并成为一个 runId 与第一轮不同的运行，两轮各有一个终止帧；写出两个 runId 与两帧读数。
-- [ ] AC4 (c) 撤回：用 (a) 的 uuid 调 `cancelQueued` 得 `'cancelled'`，推进后不再出现第二条消息对应的轮次，宿主 pid 不变；写出返回值、轮次读数、两次 pid。
-- [ ] AC5 (d) 已取出后撤回得 unknown：命令已 `dequeue`（开始执行）后用同一 uuid 调 `cancelQueued` 得 `'unknown'` 而非 `'cancelled'`；写出返回值与队列读数。
-- [ ] AC6 无 WebSocket/真 CLI：写下用于核对的 grep 命令与空输出——判据文件不 `import` ws、不 `new WebSocket(`、不 spawn 真实 claude 二进制；AC2–AC5 全部读数在无 socket、无生产端口下完成。
-- [ ] AC7 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 驱动不交出 uuid ⇒ AC2 红；(ii) 撤回不移出队列 ⇒ AC4 的「不再成轮」红；(iii) 已开始的消息仍回 cancelled ⇒ AC5 红。每条记录恢复命令与恢复后重跑绿。
-- [ ] AC8 不回归与仓库门：既有调试判据（至少 `debug-agent-host-driver.test.ts`、`debug-agent-control-plane.test.ts`、`debug-agent-gate.test.ts`、`debug-agent-frames.test.ts`）与 AC-230/AC-231 判据逐字通过（写明命令与结果）；`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（写明计数）；跨模块只经 barrel。
-- [ ] AC9 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写。列出实际改动文件清单。
+- [x] AC1 判据绿：`for f in server/modules/debug-agent/tests/debug-agent-control-queue.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/debug-agent/tests/debug-agent-control-queue.test.ts` 退出 0。红态基线逐字记录（改动前该文件不存在、存在性闸退出码 1 输出 `缺判据文件：server/modules/debug-agent/tests/debug-agent-control-queue.test.ts`）。
+- [x] AC2 (a) 忙时排队并交出驱动 uuid：第一轮 running 时再 `send` 返回 `queued:true`、`queuedMessageUuid` 非空，且等于 `readCommandQueue(sessionId).queued` 末条；写出两次返回与队列读数。
+- [x] AC3 (b) 不撤回成为独立下一轮：第一轮结束后排队命令被取出并成为一个 runId 与第一轮不同的运行，两轮各有一个终止帧；写出两个 runId 与两帧读数。
+- [x] AC4 (c) 撤回：用 (a) 的 uuid 调 `cancelQueued` 得 `'cancelled'`，推进后不再出现第二条消息对应的轮次，宿主 pid 不变；写出返回值、轮次读数、两次 pid。
+- [x] AC5 (d) 已取出后撤回得 unknown：命令已 `dequeue`（开始执行）后用同一 uuid 调 `cancelQueued` 得 `'unknown'` 而非 `'cancelled'`；写出返回值与队列读数。
+- [x] AC6 无 WebSocket/真 CLI：写下用于核对的 grep 命令与空输出——判据文件不 `import` ws、不 `new WebSocket(`、不 spawn 真实 claude 二进制；AC2–AC5 全部读数在无 socket、无生产端口下完成。
+- [x] AC7 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 驱动不交出 uuid ⇒ AC2 红；(ii) 撤回不移出队列 ⇒ AC4 的「不再成轮」红；(iii) 已开始的消息仍回 cancelled ⇒ AC5 红。每条记录恢复命令与恢复后重跑绿。
+- [x] AC8 不回归与仓库门：既有调试判据（至少 `debug-agent-host-driver.test.ts`、`debug-agent-control-plane.test.ts`、`debug-agent-gate.test.ts`、`debug-agent-frames.test.ts`）与 AC-230/AC-231 判据逐字通过（写明命令与结果）；`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（写明计数）；跨模块只经 barrel。
+- [x] AC9 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写。列出实际改动文件清单。
 
 ## DoD
 
@@ -71,6 +71,48 @@ AC-238（GOAL-019 退出条件 9；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3�
 - server/modules/debug-agent/debug-agent.engine.ts
 - server/modules/debug-agent/debug-agent.provider.ts
 - server/modules/providers/services/provider-runtime.service.ts
+- server/modules/websocket/index.ts
 - server/modules/debug-agent/tests/debug-agent-control-queue.test.ts (new)
 - server/modules/debug-agent/tests/debug-agent-host-driver.test.ts
 - tasks/gap-ac238-debug-agent-control-queue.md
+
+## Notes
+
+完成记录（2026-10-05）。分支 `task/gap-ac238-debug-agent-control-queue`。
+
+**词表映射（AC4 的 `cancelled`）**：任务正文用 `cancelled` 命名的「撤回成功」判决，在共享类型 `HostQueuedInputCancelResult`（`server/shared/types.ts:2511`）里叫 `withdrawn`——真实 Claude 常驻驱动 `claude-host-driver.provider.ts:2658` 也返回 `withdrawn`。判据读驱动自己的、类型正确的值并在读数行原样打印（`verdict=withdrawn`）；«cancelled» 是该任务把驱动判决与调试 agent 的行状态 `command_lifecycle: 'cancelled'` 混称。已开始的消息撤回得 `unknown`（队列状态实测），与 AC5 逐字一致。
+
+**AC1 红态基线**：`for f in server/modules/debug-agent/tests/debug-agent-control-queue.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done` → 退出码 1，stderr 逐字 `缺判据文件：server/modules/debug-agent/tests/debug-agent-control-queue.test.ts`（runs 前该文件在仓库中不存在）。绿：同一命令退出码 0，5 tests / 5 pass / 0 fail。
+
+**AC2 (a) 读数**：`first={"ok":true,"runId":"71c173ae-bcef-4b6c-a431-4dbfb28bfbe1","queued":false,"queuedMessageUuid":null}`；`second={"ok":true,"runId":"19455621-d461-44db-b079-99b266bcb82d","queued":true,"queuedMessageUuid":"218e62a7-d7a3-436c-8e4d-1c3d77e92334"}`；`readCommandQueue(sessionId).queued=["218e62a7-d7a3-436c-8e4d-1c3d77e92334"]` → 返回的 uuid 严格等于队列末条（驱动交出，非控制服务自造）。
+
+**AC3 (b) 读数**：`round1RunId=0c2de1f8-e5bf-460a-8abe-8b8c721f6719 round1Complete=true`；`round2RunId=d3510bda-a0bc-427a-ab21-67639b4596ef round2Source=unattended round2Text="second" round2Complete=true openedRounds=1` → 两个 runId 不同、两轮各有终止帧。round2 的文本是第二条消息原文（`queuedTextByCommand` 保住），pid 未变（宿主复用，`processStarts` 不增）。
+
+**AC4 (c) 读数**：`verdict=withdrawn uuid=df6fc5dd-fe4f-4be6-b575-6304071028c1 queueAfterCancel=[] queueHeld=false openedRounds=0 round1Complete=true pidBefore=null pidAfter=null` → 撤回真的把消息移出队列、推进后没有出现第二条轮次、宿主 pid 两次相同。
+
+**AC5 (d) 读数**：`uuid=ed75f414-4662-417d-952b-e8e1dde92caa queueAfterDequeue=[] queueHeld=false verdict=unknown openedRounds=1` → 已取出（已开始）后撤回得 `unknown`，队列实测已无该 uuid。
+
+**AC6 grep 证据**：`grep -nE "from ['\"]ws['\"]|require\(['\"]ws['\"]\)|new WebSocket\(|@anthropic-ai|claude-code|spawn\(['\"]claude" server/modules/debug-agent/tests/debug-agent-control-queue.test.ts` → 无匹配、退出码 1（空输出）。文件里唯一的进程派生是 `execFileSync(process.execPath, [TSX_CLI, …])`——tsx 跑同一判据文件的子进程，不连生产 3001、不跑真 CLI；判据自身还带 (e) 无 socket 引用自检。
+
+**AC7 取假形态（先提交实现 `51760ea2`，逐条变异—实测红—恢复）**：
+(i) 驱动不交出 uuid：`queuedInputUuid` 改为 `void appSessionId; return null;`。变异红：`AssertionError [ERR_ASSERTION]: queuedMessageUuid must be a non-empty string (got null)`（(a) 退出 1）。恢复：`git checkout -- server/modules/debug-agent/debug-agent.host-driver.ts`；重跑 (a) 绿（pass 1 / fail 0）。
+(ii) 撤回只改返回值不移出队列：删 `queue.splice(at, 1);`。变异红：`AssertionError [ERR_ASSERTION]: a withdrawn message must never become a round — actual: 1, expected: 0`（(c) 退出 1；为此把 (c) 的 openedRounds 断言排在 queueHeld 之前，正是 AC7(ii) 要求的那条读数）。恢复同 (i)；重跑 (c) 绿。
+(iii) 已开始的消息仍回成功：`if (at < 0) return 'unknown'` 改为 `if (at >= 0) queue.splice(at,1)`，恒 `return 'withdrawn'`。变异红：`AssertionError [ERR_ASSERTION]: a message already started cannot be withdrawn — actual: 'withdrawn', expected: 'unknown'`（(d) 退出 1）。恢复同 (i)；重跑 (d) 绿。
+三条变异 diff 分别存 `/tmp/mut-i.diff`、`/tmp/mut-ii.diff`、`/tmp/mut-iii.diff`（本次会话）。
+
+**AC8 不回归与仓库门**：
+- `npx tsx --tsconfig server/tsconfig.json --test server/modules/debug-agent/tests/debug-agent-host-driver.test.ts` → 5 pass / 0 fail（退出 0）；`…/debug-agent-control-plane.test.ts` → 4 pass / 0 fail；`…/debug-agent-gate.test.ts` + `…/debug-agent-frames.test.ts` 合并 → 9 pass / 0 fail。
+- `npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-control-busy.test.ts server/modules/websocket/tests/chat-control-send.test.ts`（AC-231/AC-230）→ 9 pass / 0 fail。
+- `npm run typecheck` → 退出 0（tsconfig.json + server/tsconfig.json + scripts/tsconfig.json）。
+- `npm run lint` → 退出 0；`grep -c ": error "` = 0；本次改动的文件无任何 lint 输出。
+- 跨模块只经 barrel：判据从 `@/modules/websocket/index.js`、`@/modules/providers/index.js`、`@/modules/session-hosts/index.js`、`@/modules/database/index.js` 导入；为此把 `createChatControlService` 补进 websocket barrel（其消费方：本次判据与 AC-233 的 `server/index.ts` 单实例装配），这是 Touches 之外唯一被迫新增的文件，已先加入 Touches。
+
+**AC9 文件清单（`git diff --name-status develop...HEAD`，7 项，与 Touches 逐条对齐）**：
+- M `server/modules/debug-agent/debug-agent.engine.ts`（`DebugAgentRunInput.onQueuedCommandStarted` + `dequeue` 步上报）
+- M `server/modules/debug-agent/debug-agent.host-driver.ts`（新增 `queuedInputUuid`；`cancelQueuedInput` 真移出队列并回 `withdrawn`/`unknown`）
+- M `server/modules/debug-agent/debug-agent.provider.ts`（记下排队文本；首轮结束后为每条已 dequeue 的命令经 `openUnattendedTurn` 开独立一轮并写终止帧）
+- M `server/modules/providers/services/provider-runtime.service.ts`（网关实现 `queuedInputUuid`，保守读 `null`）
+- M `server/modules/websocket/index.ts`（导出 `createChatControlService`）
+- A `server/modules/debug-agent/tests/debug-agent-control-queue.test.ts` (new)
+- M `server/modules/debug-agent/tests/debug-agent-host-driver.test.ts`（stand-in 转发新动词）
+- `tasks/gap-ac238-debug-agent-control-queue.md`（本文件，task_write 自身提交）
