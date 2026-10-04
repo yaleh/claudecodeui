@@ -73,11 +73,27 @@ const MAX_BUFFERED_EVENTS_PER_RUN = 5000;
  */
 const runs = new Map<string, ChatRun>();
 
+/**
+ * Every tracked run keyed by its own run id, alongside the session-keyed map
+ * above rather than instead of it.
+ *
+ * The two answer different questions and diverge the moment a resident
+ * session's busy send supersedes a running turn: `runs` follows the session and
+ * holds whichever run is *current*, while this index keeps the run that was
+ * superseded reachable by the id it was already handed out under. Minimal on
+ * purpose — it is written when a run starts and cleared with the rest — because
+ * run retention, summaries and `expired` results are a later task's; what this
+ * has to support is a caller holding two run ids (the original and the queued
+ * turn) looking each one up.
+ */
+const runsById = new Map<string, ChatRun>();
+
 function evictRunLater(appSessionId: string): void {
   const timer = setTimeout(() => {
     const run = runs.get(appSessionId);
     if (run && run.status === 'completed') {
       runs.delete(appSessionId);
+      runsById.delete(run.runId);
     }
   }, COMPLETED_RUN_RETENTION_MS);
 
@@ -258,6 +274,7 @@ export const chatRunRegistry = {
     });
 
     runs.set(input.appSessionId, run);
+    runsById.set(run.runId, run);
     return run;
   },
 
@@ -305,6 +322,22 @@ export const chatRunRegistry = {
 
   getRun(appSessionId: string): ChatRun | undefined {
     return runs.get(appSessionId);
+  },
+  /**
+   * Looks a run up by its own id, whoever currently holds its session's slot.
+   *
+   * `getRun(appSessionId)` answers "what is this session's current run"; this
+   * answers "what is this specific run". They diverge the moment a resident
+   * session's busy send supersedes a running turn — the newer run takes the
+   * session slot while the older one is still running its own turn — and a
+   * caller that was handed both ids (the original send and the queued one) has
+   * no other way to reach the older run. Consumed by this module's criterion
+   * (`server/modules/websocket/tests/chat-control-busy.test.ts`) and, later, by
+   * the MCP gateway's run-addressing verbs; retention and `expired` results are
+   * a later task's and are deliberately not decided here.
+   */
+  getRunById(runId: string): ChatRun | undefined {
+    return runsById.get(runId);
   },
   isProcessing(appSessionId: string): boolean {
     return runs.get(appSessionId)?.status === 'running';
@@ -407,5 +440,6 @@ export const chatRunRegistry = {
    */
   clearAll(): void {
     runs.clear();
+    runsById.clear();
   },
 };

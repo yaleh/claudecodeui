@@ -5,7 +5,7 @@ import {
   dispatchRun,
 } from '@/modules/websocket/services/chat-websocket.service.js';
 import type { ProviderRuntimeGateway } from '@/modules/websocket/services/chat-websocket.service.js';
-import type { AnyRecord, LLMProvider } from '@/shared/types.js';
+import type { AnyRecord, HostQueuedInputCancelResult, LLMProvider } from '@/shared/types.js';
 
 /**
  * Who asked for a control action, and through which front end.
@@ -37,17 +37,78 @@ type SendInput = {
 /**
  * The value `send` returns. Success is the registered run's id — the id the run
  * registry minted, handed back the moment the run exists, *not* after the turn
- * ends. Failure is a value with a stable code, so each adapter can translate it
+ * ends — together with whether the turn was written into a provider process that
+ * was already running.
+ *
+ * `queued` is `false` and `queuedMessageUuid` is `null` for the ordinary send;
+ * for a resident session's busy send `queued` is `true` and
+ * `queuedMessageUuid` is the uuid the provider stamped the message with, which
+ * is the id `cancelQueued` withdraws it by. It can still be `null` on a
+ * `queued: true` result when the gateway has no seam to name the queued message
+ * — the message is queued all the same, but no later withdrawal can address it,
+ * so a null is the honest report rather than a fabricated id.
+ *
+ * Failure is a value with a stable code, so each adapter can translate it
  * without parsing an exception (the WebSocket handler into a `protocol_error`
  * frame, the MCP gateway into an `isError` tool result).
  */
 type SendResult =
-  | { ok: true; runId: string }
+  | { ok: true; runId: string; queued: boolean; queuedMessageUuid: string | null }
   | {
       ok: false;
       code: 'SESSION_NOT_FOUND' | 'UNSUPPORTED_PROVIDER' | 'RUN_IN_PROGRESS' | 'FORBIDDEN';
       message: string;
     };
+
+/**
+ * Upper bound on how long `send` waits for the provider to hand over a queued
+ * message's uuid before degrading to `queuedMessageUuid: null`.
+ *
+ * The gateway contract is "resolve once the message has been written into the
+ * queue", a synchronous act in the resident drivers, so a healthy driver never
+ * reaches this bound; it exists so a gateway whose promise never settles cannot
+ * hold a `send` — and the caller that is awaiting it — open forever. Degrading
+ * to `null` is the conservative direction: the caller learns the message was
+ * queued, but learns honestly that it holds no id to withdraw it by.
+ */
+const QUEUED_UUID_HANDOVER_TIMEOUT_MS = 2_000;
+
+/**
+ * Reads the uuid the provider stamped a just-queued message with, bounded.
+ *
+ * `null` covers every way the uuid can be unavailable — no seam on the gateway,
+ * a seam that answers `null`, a seam that rejects, or one that never settles
+ * inside the bound. All of them mean the same thing to the caller: the message
+ * is queued, but it cannot be named for withdrawal. A missing seam is never
+ * read as an empty-string uuid, because an id no withdrawal can match is worse
+ * than a stated absence.
+ */
+async function readQueuedMessageUuid(
+  runtime: ProviderRuntimeGateway,
+  provider: LLMProvider,
+  sessionId: string,
+): Promise<string | null> {
+  const read = runtime.queuedInputUuid;
+  if (typeof read !== 'function') {
+    return null;
+  }
+
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    const bound = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), QUEUED_UUID_HANDOVER_TIMEOUT_MS);
+      timer.unref?.();
+    });
+    const uuid = await Promise.race([read.call(runtime, provider, sessionId), bound]);
+    return typeof uuid === 'string' && uuid.length > 0 ? uuid : null;
+  } catch {
+    return null;
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
 
 /**
  * The seams the control service is assembled from.
@@ -76,9 +137,12 @@ type ChatControlDependencies = {
  * can watch, subscribe to and abort.
  *
  * The service is deliberately transport-free: it accepts no socket, constructs
- * no frames and reports nothing by emitting. It only ships `send` today; the
- * remaining verbs (`editSend`/`abort`/`cancelQueued`/`stopTask`/
- * `backgroundTask`/`answerApproval`/`pendingApprovals`) arrive with AC-231/232.
+ * no frames and reports nothing by emitting. It ships `send` — including the
+ * resident-session busy branch that queues into a running process and hands the
+ * queued message's uuid back — and `cancelQueued`, which withdraws a message by
+ * that uuid through the same access entry. The remaining verbs (`editSend`/
+ * `abort`/`stopTask`/`backgroundTask`/`answerApproval`/`pendingApprovals`)
+ * arrive with AC-232.
  *
  * Consumed by this module's criterion
  * (`server/modules/websocket/tests/chat-control-send.test.ts`); the composition
@@ -149,11 +213,16 @@ export function createChatControlService(deps: ChatControlDependencies) {
     }
 
     // The "this run was registered" signal. Resolved by the `beforeRun` hook,
-    // which `dispatchRun` reaches only once `startRun` has returned a run.
+    // which `dispatchRun` reaches only once `startRun` has returned a run. The
+    // same hook reports whether that run took the resident-session busy path, so
+    // the two facts `send` needs — the id and whether the turn was queued into a
+    // running process — arrive together, and neither is re-derived by probing
+    // the registry.
     let resolveRunId!: (runId: string) => void;
     const runIdPromise = new Promise<string>((resolve) => {
       resolveRunId = resolve;
     });
+    let busyAccepted = false;
 
     const data: AnyRecord = {
       sessionId: input.sessionId,
@@ -173,7 +242,8 @@ export function createChatControlService(deps: ChatControlDependencies) {
       data,
       deps,
       {},
-      (run) => {
+      (run, info) => {
+        busyAccepted = info.busyAccepted;
         resolveRunId(run.runId);
       },
     ).catch((error: unknown) => {
@@ -198,8 +268,50 @@ export function createChatControlService(deps: ChatControlDependencies) {
       };
     }
 
-    return { ok: true, runId: outcome.runId };
+    if (busyAccepted) {
+      // The message is in the provider's own queue now. The uuid it was stamped
+      // with comes from the provider, never minted here, because only that uuid
+      // can be withdrawn later; a gateway with no such seam degrades to `null`.
+      const queuedMessageUuid = await readQueuedMessageUuid(deps.runtime, provider, input.sessionId);
+      return { ok: true, runId: outcome.runId, queued: true, queuedMessageUuid };
+    }
+
+    return { ok: true, runId: outcome.runId, queued: false, queuedMessageUuid: null };
   }
 
-  return { send };
+  /**
+   * Withdraws a message a busy send queued, before the provider's process has
+   * started running it.
+   *
+   * The refusal is the same shared access entry every other control verb uses
+   * (`send`, and later `abort`/`stopTask`/`backgroundTask`), and it is taken
+   * before the driver is reached, so a caller with no access can neither
+   * withdraw a queued message nor learn whether a uuid is live. The verdict
+   * itself is the provider's own: this function does not decide whether the
+   * message was still queued, it reports what the queue said, and reads a
+   * gateway with no withdrawal seam as `unknown` — the one answer that must not
+   * be confused with a successful withdrawal.
+   */
+  async function cancelQueued(
+    caller: ControlCaller,
+    input: { sessionId: string; messageUuid: string },
+  ): Promise<HostQueuedInputCancelResult | 'forbidden'> {
+    const session = sessionsDb.getSessionById(input.sessionId);
+
+    if (!accessEntry(caller.userId, session)) {
+      return 'forbidden';
+    }
+
+    if (!session) {
+      return 'unknown';
+    }
+
+    const provider = session.provider as LLMProvider;
+    return (
+      (await deps.runtime.cancelQueuedInput?.(provider, input.sessionId, input.messageUuid)) ??
+      'unknown'
+    );
+  }
+
+  return { send, cancelQueued };
 }
