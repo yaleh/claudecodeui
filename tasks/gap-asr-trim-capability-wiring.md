@@ -219,3 +219,6 @@ L_G 该轴仍暗，理由：同上 —— 目标层判据（换识别服务不�
 - scripts/asr-trim-capability-check.test.mjs (new)
 - src/modules/chat/tests/voiceClipPlayback.test.tsx
 - tasks/gap-asr-trim-capability-wiring.md
+
+
+判据退役登记（2026-10-04，人 yale 授权，见 tasks/gap-voice-single-continuous-input-path.md 的 Resolution）：本任务 AC2 的判据（既有「裁剪开/关配对下上传体时长下降」端到端判据，即 `npx playwright test e2e/voice-trim.spec.ts -g "AC-119"`）随 AC-119 一同退役 —— 该腿的被测对象（MediaRecorder 原始流与批处理裁剪 on/off 配对）已由 gap-voice-single-continuous-input-path 按 Proposal 移除，判据命令在出货树上必然 No tests found，不得再把它的红读成本任务的回归。替代读数：本任务守护的不变量（默认行为不变）改由 e2e/voice-continuous.spec.ts 承担 —— 短输入（voiceMinSegmentSec=30）恰好 1 个请求、输入框等于该请求返回（该 spec 的 a short dictation is exactly one request and fills the box with its answer 腿）。AC1 与 AC3..AC7 的判据与结论不受影响。
