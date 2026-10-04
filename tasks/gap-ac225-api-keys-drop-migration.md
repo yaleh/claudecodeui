@@ -3,7 +3,7 @@ id: gap-ac225-api-keys-drop-migration
 title: AC-225 迁移删除旧明文 api_keys 表与 idx_api_keys_* 三索引并报告删除行数：access_tokens
   就位、用户数据不动、重复运行与全新库都不出错，判据
   server/modules/database/tests/api-keys-drop-migration.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
