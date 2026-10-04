@@ -83,3 +83,6 @@ L_G 该轴仍暗，理由：同上；本任务的读数是两条回放的存在�
 - src/modules/i18n/locales/zh-CN/chat.json
 - e2e/voice-trim.spec.ts
 - tasks/gap-voice-clip-dual-playback.md
+
+
+判据退役登记（2026-10-04，人 yale 授权，见 tasks/gap-voice-single-continuous-input-path.md 的 Resolution）：本任务全部判据（`npx playwright test e2e/voice-trim.spec.ts -g "AC-122"`，以及双回放控件、两条不同音频源、时长严格更短、任一时刻最多一条在播）随 AC-122 一同退役 —— 原始那条回放取自 MediaRecorder 的流，该流已由 gap-voice-single-continuous-input-path 按 Proposal 移除，判据命令必然 No tests found，不得再把它的红读成本任务的回归。替代读数：回放槽改由 e2e/voice-continuous.spec.ts 的 after a stop the replay slot offers the filtered audio, and drops the raw track past the cap 腿覆盖（过滤后的音频总是提供；原始 PCM 总长超过 ORIGINAL_CAP_SEC 时 original 为 null）。
