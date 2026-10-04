@@ -4,6 +4,7 @@ import type { CSSProperties, MouseEvent as ReactMouseEvent, TouchEvent as ReactT
 
 type InputOutlineHandleProps = {
   isOpen: boolean;
+  isMobile: boolean;
   isDragging: boolean;
   style: CSSProperties;
   onClick: (event: ReactMouseEvent<HTMLButtonElement>) => void;
@@ -14,6 +15,7 @@ type InputOutlineHandleProps = {
 /** Rendered by InputOutlineDrawer as the draggable edge handle that opens and closes it. */
 export default function InputOutlineHandle({
   isOpen,
+  isMobile,
   isDragging,
   style,
   onClick,
@@ -24,8 +26,10 @@ export default function InputOutlineHandle({
 
   // Closed, the handle stands one native scrollbar's width (~15px) in from the
   // edge so it does not cover the transcript's scrollbar; open, it rides the
-  // panel's left edge.
-  const placementClass = isOpen ? 'right-64' : 'right-[15px]';
+  // panel's left edge. On a narrow screen the panel is capped at 85vw, so the open handle
+  // follows that edge; touch scrollbars overlay, so the closed handle sits flush instead.
+  const openPlacement = isMobile ? 'right-[min(16rem,85vw)]' : 'right-64';
+  const placementClass = isOpen ? openPlacement : isMobile ? 'right-0' : 'right-[15px]';
   const borderClass = isDragging
     ? 'border-blue-500 dark:border-blue-400'
     : 'border-gray-200 dark:border-gray-700';
