@@ -1,7 +1,7 @@
 ---
 id: GOAL-015
 title: Claude 后台工作与计划可观测可控：任务、计划与控制在同一个活动坞里，状态以 SDK 事件为准
-status: active
+status: achieved
 kind: goal
 origin: docs/proposals/claude-session-activity-dock.md 与
   docs/proposals/claude-background-work-observability.md。人 yale 2026-10-01
@@ -15,6 +15,11 @@ statusLog:
     to: active
     actor: goal-cli
     reason: ""
+  - at: 2026-10-04T14:17:34.777Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: all ACs achieved + sufficiency covered"
 ---
 ## 背景
 
