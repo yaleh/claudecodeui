@@ -522,17 +522,27 @@ test.describe('drawn global scrollbar in a real browser', () => {
       `the thumb must be the conversation's ordinal, not the loaded window's pixels: ${jumpDiagnostic}`,
     ).toBeGreaterThan(0.2);
 
-    // ── (c) wheeling up inside the window, including across a prepend, never
-    // moves the thumb backwards by more than a fraction of the track ───────────
+    // ── (c) wheeling up inside the window, across a prepend, never moves the
+    // thumb backwards by more than a fraction of the track ────────────────────
     // The pointer is put over the transcript, where a wheel is the transcript's.
     await pointAtPane(page);
+    const windowStartBefore = await windowFirstRowFraction(page, turns, totalMessages);
     await startProgressSampler(page);
-    for (let step = 0; step < 5; step += 1) {
+    for (let step = 0; step < 14; step += 1) {
       await page.mouse.wheel(0, -WHEEL_STEP_PX);
-      await page.waitForTimeout(150);
+      await page.waitForTimeout(120);
     }
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(400);
     const samples = await stopProgressSampler(page);
+    const windowStartAfter = await windowFirstRowFraction(page, turns, totalMessages);
+    // The gesture has to have crossed a prepend for this section to mean what it
+    // says: the loaded window's own first turn must have moved towards the start.
+    expect(windowStartBefore, 'the loaded window must expose its first row before the wheel').not.toBeNull();
+    expect(windowStartAfter, 'the loaded window must expose its first row after the wheel').not.toBeNull();
+    expect(
+      windowStartAfter!,
+      `the wheel gesture must have forced a window prepend: before=${windowStartBefore} after=${windowStartAfter}`,
+    ).toBeLessThan(windowStartBefore!);
     expect(samples.length, 'the monotonic sampler must have watched the wheel gesture').toBeGreaterThan(10);
     for (let index = 1; index < samples.length; index += 1) {
       expect(
