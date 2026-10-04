@@ -53,7 +53,7 @@ export type QuayDriverSummary = {
 };
 
 /**
- * One row of a per-entity detail list (tasks or ADRs). Only the three fields the
+ * One row of a per-entity detail list (tasks, goals or ADRs). Only the fields the
  * panel renders are kept; the source command returns whole documents (body,
  * children, extra, …) which would bloat every snapshot response.
  */
@@ -61,6 +61,15 @@ export type QuayListItem = {
   id: string;
   title: string;
   status: string;
+  /**
+   * The row's last-updated instant as ISO-8601, converted from the epoch
+   * **milliseconds** the CLI prints (`1786439928515.85`), or `null` when the
+   * record carried no usable timestamp. This is the value the list is ranked by,
+   * so the panel can show the ordering key instead of an invisible one. It is
+   * never epoch 0 (`1970-01-01T00:00:00.000Z`) for a missing reading, and never
+   * an `Invalid Date` string.
+   */
+  updatedAt: string | null;
 };
 
 /** How many `recent` rows each detail list keeps; the cap the panel copy promises. */
@@ -270,11 +279,15 @@ function readCount(value: unknown): number {
 }
 
 /**
- * Projects a `task list --json` / `adr list --json` array into the panel's
- * detail rows: at most `QUAY_RECENT_LIST_LIMIT` entries, most recently updated
- * first (`updatedAt` descending, ties broken by id ascending so the order is
- * deterministic even when timestamps collide). Records without a string id are
- * skipped rather than rendered as blank rows.
+ * Projects a `task list --json` / `goal list --json` / `adr list --json` array
+ * into the panel's detail rows: at most `QUAY_RECENT_LIST_LIMIT` entries, most
+ * recently updated first (`updatedAt` descending, ties broken by id ascending so
+ * the order is deterministic even when timestamps collide — and a row with no
+ * timestamp is the *least* recent, so it sorts last rather than first).
+ *
+ * Each row keeps the ISO-8601 form of the very epoch it was ranked by, so the
+ * order the reader sees is the order they can check. Records without a string id
+ * are skipped rather than rendered as blank rows.
  */
 function summarizeRecentItems(value: unknown): QuayListItem[] {
   if (!Array.isArray(value)) {
@@ -284,15 +297,29 @@ function summarizeRecentItems(value: unknown): QuayListItem[] {
   return value
     .map((item) => asRecord(item))
     .filter((record): record is Record<string, unknown> => record !== null && typeof record.id === 'string')
+    .map((record) => ({
+      record,
+      epochMs: readUpdatedAtEpochMs(record.updatedAt),
+    }))
     .sort((a, b) => {
-      const byRecency = readCount(b.updatedAt) - readCount(a.updatedAt);
-      return byRecency !== 0 ? byRecency : String(a.id).localeCompare(String(b.id));
+      // Descending by epoch; a missing timestamp has no instant to place, so it
+      // goes after every dated row. `null`-vs-`null` falls through to the id
+      // tie-break rather than comparing two absent numbers.
+      if (a.epochMs !== b.epochMs) {
+        if (a.epochMs === null) return 1;
+        if (b.epochMs === null) return -1;
+        return b.epochMs - a.epochMs;
+      }
+      return String(a.record.id).localeCompare(String(b.record.id));
     })
     .slice(0, QUAY_RECENT_LIST_LIMIT)
-    .map((record) => ({
+    .map(({ record, epochMs }) => ({
       id: String(record.id),
       title: typeof record.title === 'string' ? record.title : '',
       status: typeof record.status === 'string' ? record.status : 'unknown',
+      // `readUpdatedAtEpochMs` has already refused anything a `Date` cannot hold,
+      // so this conversion cannot throw.
+      updatedAt: epochMs === null ? null : new Date(epochMs).toISOString(),
     }));
 }
 
@@ -354,6 +381,26 @@ function readNullableNumber(value: unknown): number | null {
     return Number.isFinite(numeric) ? numeric : null;
   }
   return null;
+}
+
+/**
+ * A detail row's `updatedAt` as epoch milliseconds, or `null` when the record
+ * carries no usable timestamp.
+ *
+ * `null` covers every shape that is not a real instant: an absent field, an
+ * explicit `null`, a non-numeric string, `NaN`/`Infinity` — and a finite number
+ * outside the range a `Date` can represent (`1e20`), which would otherwise throw
+ * on `toISOString()` and take the whole snapshot down with it. Reading the sort
+ * key and the displayed value from this one function is what keeps the list's
+ * order and the time printed beside each row the same reading.
+ */
+function readUpdatedAtEpochMs(value: unknown): number | null {
+  const epochMs = readNullableNumber(value);
+  if (epochMs === null) {
+    return null;
+  }
+
+  return Number.isNaN(new Date(epochMs).getTime()) ? null : epochMs;
 }
 
 /** Carrier files read under the project's `.quay/` directory by the Tests and Fan-in cards. */

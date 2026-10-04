@@ -170,11 +170,12 @@ test('getQuaySnapshot deduplicates concurrent calls and reuses a fresh snapshot'
     ready: 1,
     needsHuman: 1,
     done: 1,
-    // Most recently updated first: a(300) → c(200) → b(100).
+    // Most recently updated first: a(300) → c(200) → b(100), each row carrying
+    // the ISO form of the epoch it was ranked by.
     recent: [
-      { id: 'a', title: 'Task A', status: 'ready' },
-      { id: 'c', title: 'Task C', status: 'needs-human' },
-      { id: 'b', title: 'Task B', status: 'done' },
+      { id: 'a', title: 'Task A', status: 'ready', updatedAt: new Date(300).toISOString() },
+      { id: 'c', title: 'Task C', status: 'needs-human', updatedAt: new Date(200).toISOString() },
+      { id: 'b', title: 'Task B', status: 'done', updatedAt: new Date(100).toISOString() },
     ],
   });
   assert.deepEqual(first.goals, {
@@ -182,10 +183,10 @@ test('getQuaySnapshot deduplicates concurrent calls and reuses a fresh snapshot'
     achieved: 1,
     breakdown: {
       byStatus: { achieved: 1, pending: 1 },
-      // Both goals share updatedAt 0, so the tie breaks by id ascending.
+      // Neither goal carries an updatedAt, so both read `null` and the tie breaks by id ascending.
       recent: [
-        { id: 'GOAL-1', title: '', status: 'achieved' },
-        { id: 'GOAL-2', title: '', status: 'pending' },
+        { id: 'GOAL-1', title: '', status: 'achieved', updatedAt: null },
+        { id: 'GOAL-2', title: '', status: 'pending', updatedAt: null },
       ],
     },
   });
@@ -342,6 +343,78 @@ test('getQuaySnapshot breaks a recency tie by id so the recent order is determin
 
   const snapshot = await service.getQuaySnapshot('project-1');
   assert.deepEqual(snapshot?.tasks?.recent.map((item) => item.id), ['aaa', 'zzz']);
+});
+
+/**
+ * The reading this test is the permanent record of (2026-10-04, project `quay`): both detail
+ * lists are ranked by `updatedAt` descending — `quay task list --json` prints it as epoch
+ * milliseconds, a float such as `1786439928515.85` — but the projection kept only
+ * `{id, title, status}`, so the panel showed a list ordered by the one field it never showed.
+ * The projection now carries the ISO-8601 form of that same epoch, which is what makes the
+ * ranking key and the displayed value one reading instead of two.
+ */
+test('recent rows carry updatedAt as an ISO-8601 string, and the ranking is that same value', async () => {
+  const tasks = [
+    // The finite block's ids run the OPPOSITE way to its recency, so a sort by id — or the
+    // source array order — produces a visibly different list from a sort by updatedAt.
+    { id: 'a-epoch-zero', title: 'Epoch zero', status: 'done', updatedAt: 0 },
+    { id: 'b-old', title: 'Oldest', status: 'done', updatedAt: 1_786_439_928_515.85 },
+    { id: 'c-mid', title: 'Middle', status: 'needs-human', updatedAt: 1_788_773_746_346.9514 },
+    { id: 'd-new', title: 'Newest', status: 'ready', updatedAt: 1_791_085_796_647.5442 },
+    // No timestamp at all, and a value that is not numeric: both must read `null`, never 0.
+    { id: 'e-missing', title: 'No stamp', status: 'todo' },
+    { id: 'f-unreadable', title: 'Bad stamp', status: 'todo', updatedAt: 'not-a-number' },
+  ];
+  const goals = [
+    { id: 'GOAL-A', title: 'Alpha', status: 'achieved', updatedAt: 1_700_000_000_000 },
+    { id: 'GOAL-B', title: 'Beta', status: 'active', updatedAt: null },
+    { id: 'GOAL-C', title: 'Gamma', status: 'draft', updatedAt: 1_800_000_000_000 },
+  ];
+
+  const service = createQuayService(createDependencies({
+    runCommand: async (_cwd: string, args: readonly string[]): Promise<QuayCommandResult> => {
+      const key = args.join(' ');
+      if (key === 'task list --json') return { ok: true, code: 0, stdout: JSON.stringify(tasks), stderr: '' };
+      if (key === 'goal list --json') return { ok: true, code: 0, stdout: JSON.stringify(goals), stderr: '' };
+      return { ok: true, code: 0, stdout: '[]', stderr: '' };
+    },
+  }));
+
+  const snapshot = await service.getQuaySnapshot('project-1');
+  assert.ok(snapshot);
+
+  const recentTasks = snapshot.tasks?.recent ?? [];
+  // Most recently updated first, ties by id ascending: the finite block comes out in the
+  // reverse of its id order, and both untimestamped rows land at the end.
+  assert.deepEqual(
+    recentTasks.map((item) => item.id),
+    ['d-new', 'c-mid', 'b-old', 'a-epoch-zero', 'e-missing', 'f-unreadable'],
+  );
+  // Each row carries the ISO-8601 form of exactly the epoch it was ranked by.
+  assert.deepEqual(recentTasks.map((item) => item.updatedAt), [
+    new Date(1_791_085_796_647.5442).toISOString(),
+    new Date(1_788_773_746_346.9514).toISOString(),
+    new Date(1_786_439_928_515.85).toISOString(),
+    new Date(0).toISOString(),
+    null,
+    null,
+  ]);
+  // An epoch of 0 is a real reading (1970-01-01) and a missing one is not it: the missing and
+  // unreadable rows are `null`, not 0, not an empty string and not an `Invalid Date` string.
+  assert.equal(recentTasks[3].updatedAt, '1970-01-01T00:00:00.000Z');
+  for (const item of recentTasks) {
+    if (item.updatedAt !== null) {
+      assert.match(item.updatedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    }
+  }
+
+  const recentGoals = snapshot.goals?.breakdown.recent ?? [];
+  assert.deepEqual(recentGoals.map((goal) => goal.id), ['GOAL-C', 'GOAL-A', 'GOAL-B']);
+  assert.deepEqual(recentGoals.map((goal) => goal.updatedAt), [
+    new Date(1_800_000_000_000).toISOString(),
+    new Date(1_700_000_000_000).toISOString(),
+    null,
+  ]);
 });
 
 test('readCarrierFileTail keeps only the last N records and reads a bounded tail window, not the whole file', async () => {
