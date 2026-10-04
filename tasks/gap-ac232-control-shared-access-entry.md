@@ -3,7 +3,7 @@ id: gap-ac232-control-shared-access-entry
 title: AC-232
   控制服务五个动作（send/abort/cancelQueued/stopTask/backgroundTask）共用同一个可注入访问入口：未认证一律
   FORBIDDEN 且驱动零调用，判据 server/modules/websocket/tests/chat-control-access.test.ts
-status: todo
+status: ready
 labels:
   - gap
 parent: null
