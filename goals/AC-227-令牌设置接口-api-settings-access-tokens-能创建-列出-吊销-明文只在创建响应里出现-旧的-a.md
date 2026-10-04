@@ -1,7 +1,7 @@
 ---
 id: AC-227
 title: 令牌设置接口 /api/settings/access-tokens 能创建、列出、吊销，明文只在创建响应里出现，旧的 api-keys 接口不再存在
-status: draft
+status: active
 kind: criterion
 goal: GOAL-018
 criterion: for f in server/modules/oauth/tests/access-tokens.routes.test.ts; do
@@ -17,4 +17,15 @@ expect: 用生产的设置路由工厂加注入的认证中间件（设置 `req.
   列表直接返回整行（含哈希）⇒ (b) 必须红；(ii) 创建接受任意天数 ⇒ (c) 必须红；(iii) 吊销不校验归属 ⇒ (e) 必须红；(iv)
   旧路由仍挂着 ⇒ (f) 必须红。（红先行）当前必红：判据文件不存在，存在性闸以退出码 1 输出缺失的文件名。
 origin: docs/proposals/mcp-gateway-SPEC.md（v3）。人 yale 2026-10-05 指令：创建并激活本 goal 及其 AC。
+activatedAt: 2026-10-04T17:19:57.311Z
+statusLog:
+  - at: 2026-10-04T17:19:57.311Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-04T17:19:57.311Z
 ---
