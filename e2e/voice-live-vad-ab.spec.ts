@@ -371,11 +371,11 @@ test.describe('the live VAD reading end to end', () => {
   test('the reading exists only while the debug switch is on', async () => {
     test.setTimeout(45_000);
 
-    // Switch off: a complete input still travels the whole chain (the request is made), but it
-    // publishes no reading and prints no line. The switch is set explicitly rather than left out,
-    // because it is remembered in storage and a prior leg may have turned it on.
+    // Switch NOT SET: the URL names neither switch, so `voiceDebug` is off by its own default — this
+    // file's first leg, and nothing has remembered it on. A complete input still travels the whole
+    // chain (the request is made), but it publishes no reading and prints no line.
     const beforeOff = liveLines.length;
-    await openComposer('/?voiceDebug=off&voiceVad=1');
+    await openComposer('/');
     await micInput(3);
     expect(liveLines.length, 'the chain printed a reading line while the switch was off').toBe(beforeOff);
     expect(await readLive(), 'a reading was published while the switch was off').toBeNull();
