@@ -67,7 +67,7 @@ AC-230（GOAL-019 退出条件 1；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3�
 
 ## Evidence
 
-（AC-230 执行记录，2026-10-05，worker worktree 分支 `task/gap-ac230-control-send-immediate-runid`，实现提交 `84e90ca8`。）
+（AC-230 执行记录，2026-10-05，worker worktree 分支 `task/gap-ac230-control-send-immediate-runid`，实现提交 `4187dc27`。）
 
 红态基线（AC1）：改动前 `server/modules/websocket/tests/chat-control-send.test.ts` 与 `server/modules/websocket/services/chat-control.service.ts` 在 develop 上均不存在（`git show develop:<path>` 失败）；存在性闸在 develop 上退出 1 并输出 `缺判据文件：server/modules/websocket/tests/chat-control-send.test.ts`。
 
@@ -87,7 +87,7 @@ AC5 读数：
 
 AC6 读数：`grep -nE "from ['\"]ws['\"]|new WebSocket\(|new EventEmitter\(" server/modules/websocket/tests/chat-control-send.test.ts` 无输出（退出 1，即无匹配）；判据内静态守卫同时实测 `(e) socketReferences=[]`。
 
-AC7 取假形态（先提交实现 `84e90ca8`；逐条变异 → 必红 → 恢复 → 重跑绿）：
+AC7 取假形态（先提交实现 `4187dc27`；逐条变异 → 必红 → 恢复 → 重跑绿）：
 - (i) 变异：在 `if (!outcome.registered)` 之后插入 `// MUTATION (i): wait for the whole run to settle before returning.` 与 `await dispatchPromise;`。逐字失败行：`✖ send returns the registered runId while the run is still in flight (2225.15731ms)` + `  Error: timed out: send to return without the run ending`（整文件退出 1、2 fail、6.4s 内终止无挂起）。恢复：`git checkout -- server/modules/websocket/services/chat-control.service.ts`；恢复后 4 pass。
 - (ii) 变异：`beforeRun` 钩子 `resolveRunId(run.runId)` → `resolveRunId('mutation-self-minted-run-id')`。逐字失败行：`✖ send returns the registered runId while the run is still in flight (269.215988ms)` + `  AssertionError [ERR_ASSERTION]: the returned runId is the registered run`（actual=注册表 id，expected='mutation-self-minted-run-id'）。恢复同上；恢复后 4 pass。
 - (iii) 变异：会话不存在分支在返回 `SESSION_NOT_FOUND` 前 `chatRunRegistry.startRun({...})`。逐字失败行：`✖ an unknown session and a runtime-less provider are refused without registering a run (215.836039ms)` + `  AssertionError [ERR_ASSERTION]: an unknown session must register no run`（actual=[Object]，expected=undefined）。恢复同上；恢复后 4 pass。
