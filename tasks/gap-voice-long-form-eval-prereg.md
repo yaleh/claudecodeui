@@ -41,16 +41,16 @@ depends_on:
 
 ## AC
 
-- [ ] `test -f experiments/voice-vad/PREREG.md` 成立，且 PREREG 的首次提交时间早于 `experiments/voice-vad/fixtures/sweep.json` 的首次提交时间（`git log --diff-filter=A --format=%ct -- <文件>` 比较两个时间戳）
-- [ ] `node experiments/voice-vad/run.mjs --sweep --offline` 从冻结快照重算全部读数，退出码 0，不联网、不用凭据
-- [ ] 快照覆盖 ≥ 600 条时间线，扫描网格每格 ≥ 40 条、缺格数为 0；每格的样本数与置信区间写在快照里
-- [ ] 负对照：`node experiments/voice-vad/run.mjs --sweep --offline --variant=cut-mid-sentence` 的中途切率方向与 PREREG 登记一致（变红），退出码 0，输出含「负对照红」字样
-- [ ] T2：快照里有 CORAAL 段的读数（≥ 200 段），与 T1 同指标；与 T1 的差异超出 PREREG 容差的格全部列入结果记录的「未解释项」
-- [ ] 预算闸（不联网即可验证）：`node experiments/voice-vad/run.mjs --recognition --dry-run` 在 ①缺 `pricing.json` ②单价为占位值 ③预估花费 > `budgetCny`（默认 2.0）三种情形下均以非 0 退出并指名原因；在合法单价与 ≤ 12 次调用下，打印「预估最坏花费」且退出码 0
-- [ ] 预算闸（累计）：用假 provider 让每次调用返回超大 usage，累计估算超过 `budgetCny` 的那一次之后**不再发起任何新调用**（假 provider 记录调用数，断言），已有读数仍写入快照
-- [ ] T4：快照里有 `recognition` 组，调用数 ≤ 12、样本数 n ≤ 5；若 n < 5，`grep -c "仅方向" docs/experiments/2026-10-04-voice-vad-sweep.md` ≥ 1；快照记录累计 token 与按单价折算的实际花费，且实际花费 ≤ `budgetCny`
-- [ ] 结果记录给出 `endpointMs` 与 `maxSegmentSec` 的推荐值，并且 `src/shared/voiceEndpoint.ts` 里的默认值与之一致（`grep` 两处数值相同）
-- [ ] `npm run lint` 与 `npm run typecheck` 退出码 0
+- [x] `test -f experiments/voice-vad/PREREG.md` 成立，且 PREREG 的首次提交时间早于 `experiments/voice-vad/fixtures/sweep.json` 的首次提交时间（`git log --diff-filter=A --format=%ct -- <文件>` 比较两个时间戳）
+- [x] `node experiments/voice-vad/run.mjs --sweep --offline` 从冻结快照重算全部读数，退出码 0，不联网、不用凭据
+- [x] 快照覆盖 ≥ 600 条时间线，扫描网格每格 ≥ 40 条、缺格数为 0；每格的样本数与置信区间写在快照里
+- [x] 负对照：`node experiments/voice-vad/run.mjs --sweep --offline --variant=cut-mid-sentence` 的中途切率方向与 PREREG 登记一致（变红），退出码 0，输出含「负对照红」字样
+- [x] T2：快照里有 CORAAL 段的读数（≥ 200 段），与 T1 同指标；与 T1 的差异超出 PREREG 容差的格全部列入结果记录的「未解释项」
+- [x] 预算闸（不联网即可验证）：`node experiments/voice-vad/run.mjs --recognition --dry-run` 在 ①缺 `pricing.json` ②单价为占位值 ③预估花费 > `budgetCny`（默认 2.0）三种情形下均以非 0 退出并指名原因；在合法单价与 ≤ 12 次调用下，打印「预估最坏花费」且退出码 0
+- [x] 预算闸（累计）：用假 provider 让每次调用返回超大 usage，累计估算超过 `budgetCny` 的那一次之后**不再发起任何新调用**（假 provider 记录调用数，断言），已有读数仍写入快照
+- [x] T4：快照里有 `recognition` 组，调用数 ≤ 12、样本数 n ≤ 5；若 n < 5，`grep -c "仅方向" docs/experiments/2026-10-04-voice-vad-sweep.md` ≥ 1；快照记录累计 token 与按单价折算的实际花费，且实际花费 ≤ `budgetCny`
+- [x] 结果记录给出 `endpointMs` 与 `maxSegmentSec` 的推荐值，并且 `src/shared/voiceEndpoint.ts` 里的默认值与之一致（`grep` 两处数值相同）
+- [x] `npm run lint` 与 `npm run typecheck` 退出码 0
 
 ## DoD
 
@@ -64,7 +64,9 @@ L_G 该轴有读数（仅确认性质）：T4 里切段识别与整段识别的�
 
 - experiments/voice-vad/PREREG.md (new)
 - experiments/voice-vad/run.mjs
+- experiments/voice-vad/timeline.mjs
 - experiments/voice-vad/pricing.json (new)
+- experiments/voice-vad/fixtures/pricing.test.json (new)
 - experiments/voice-vad/fixtures/sweep.json (new)
 - src/shared/voiceEndpoint.ts
 - docs/experiments/2026-10-04-voice-vad-sweep.md (new)
