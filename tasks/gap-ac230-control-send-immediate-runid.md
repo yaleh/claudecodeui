@@ -2,7 +2,7 @@
 id: gap-ac230-control-send-immediate-runid
 title: AC-230 控制服务 send 在运行登记后立即返回 runId：ChatControlService.send（无 socket、共用
   dispatchRun），判据 server/modules/websocket/tests/chat-control-send.test.ts
-status: todo
+status: ready
 labels:
   - gap
 parent: null
