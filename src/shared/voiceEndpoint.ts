@@ -98,11 +98,29 @@ const NOISE_WINDOW_LOG_MAX = 1;
  */
 export const MIN_FRAME_ENERGY = 1e-6;
 
-/** Provisional endpoint from the proposal: a sentence ends after this much silence. */
-const DEFAULT_ENDPOINT_MS = 800;
+/**
+ * A sentence ends after this much silence.
+ *
+ * 400 ms is not a guess: it is the value the T1 parameter sweep selected
+ * (`experiments/voice-vad/fixtures/sweep.json`, rule `prereg.endpointSelection`,
+ * recorded in `docs/experiments/2026-10-04-voice-vad-sweep.md`). Over 675 synthesised
+ * timelines the 400 ms level was the smallest endpoint whose pooled over-segmentation rate
+ * (0.044) stayed under the pre-registered 0.05 bound while miss rate stayed at 0 and
+ * start-deviation p95 at 0.14 s; the longer levels merge sentences separated by an
+ * ordinary pause and blow start-deviation p95 up to 3.7 s (800 ms) and 14.3 s (1600 ms).
+ */
+const DEFAULT_ENDPOINT_MS = 400;
 
-/** Provisional ceiling from the proposal: a run with no pause is cut at this length. */
-const DEFAULT_MAX_SEGMENT_SEC = 30;
+/**
+ * A run with no pause is force-cut at this length.
+ *
+ * 60 s is the sweep's selected value (`prereg.maxSegmentSelection`): the largest level with
+ * zero `maxSegmentSec` violations, and therefore the fewest forced cuts (0 across the
+ * no-real-pause cells, against 199 at 10 s). A 60 s 16 kHz mono WAV is about 1.9 MB, far
+ * under the inline-body limit the ceiling exists for. The sweep's top level is 60 s, so the
+ * optimum could lie beyond it — recorded as a limitation of the sweep, not of this value.
+ */
+const DEFAULT_MAX_SEGMENT_SEC = 60;
 
 /** How much consecutive segments overlap, so a word on a cut appears in both. */
 const DEFAULT_OVERLAP_SEC = 0.3;

@@ -1152,13 +1152,18 @@ function runSweepOffline(opts) {
   }
 
   if (opts.variant === 'cut-mid-sentence') {
+    // The control is read on the cells the endpoint rule is registered on — the clean,
+    // long-gap endpointMs axis — not on the noisy cells, whose false alarms are a different
+    // reading. Both the real and the variant readings come from the SAME subset, so the
+    // comparison is paired.
+    const subset = (list) => list.filter((c) => c.axis === 'endpointMs');
     const floor = snap.prereg?.negativeControlOversegFloor ?? PREREG.negativeControlOversegFloor;
     const bound = snap.prereg?.oversegRateMax ?? PREREG.oversegRateMax;
-    const realOver = aggregateMetrics(snap.cells.map(metricsFor)).oversegRatePooled;
-    const variantOver = aggregateMetrics(cells.map(metricsFor)).oversegRatePooled;
+    const realOver = aggregateMetrics(subset(snap.cells).map(metricsFor)).oversegRatePooled;
+    const variantOver = aggregateMetrics(subset(cells).map(metricsFor)).oversegRatePooled;
     console.log(
-      `negative-control: real overseg=${realOver.toFixed(4)} variant overseg=${variantOver.toFixed(4)} ` +
-        `(real bound=${bound}, red floor=${floor})`,
+      `negative-control (endpointMs axis, clean/mixed): real overseg=${realOver.toFixed(4)} ` +
+        `variant overseg=${variantOver.toFixed(4)} (real bound=${bound}, red floor=${floor})`,
     );
     const moved = realOver <= bound && variantOver >= floor && variantOver > realOver;
     if (!moved) {
@@ -1363,10 +1368,11 @@ function computeRecognitionGroup({ pricing, providerName, longDir }) {
     { inputTokens: 0, outputTokens: 0 },
   );
   usage.totalTokens = usage.inputTokens + usage.outputTokens;
-  const byArm = (arm) => calls.filter((c) => c.arm === arm);
+  const at16 = (arm) => calls.filter((c) => c.arm === arm && c.sampleRate === 16000);
+  const at48 = (arm) => calls.filter((c) => c.arm === arm && c.sampleRate === 48000);
   return {
     provider: provider.name,
-    plan: { samples: T4_SAMPLE_IDS, arms: ['whole', 'segmented', 'whole@48k'], plannedCalls: plan.length },
+    plan: { samples: T4_SAMPLE_IDS, arms: ['whole@16k', 'segmented@16k', 'whole@48k'], plannedCalls: plan.length },
     callCount: calls.length,
     sampleCount: T4_SAMPLE_IDS.length,
     stoppedOnBudget,
@@ -1376,10 +1382,12 @@ function computeRecognitionGroup({ pricing, providerName, longDir }) {
     usage,
     costCny: Number(cumulative.toFixed(6)),
     readings: {
-      wholeIdentifierSurvival: survivalFor(byArm('whole'), samplesById),
-      segmentedIdentifierSurvival: survivalFor(byArm('segmented'), samplesById),
-      wholePunctuationMarkers: punctuationFor(byArm('whole')),
-      segmentedPunctuationMarkers: punctuationFor(byArm('segmented')),
+      wholeIdentifierSurvival: survivalFor(at16('whole'), samplesById),
+      segmentedIdentifierSurvival: survivalFor(at16('segmented'), samplesById),
+      whole48kIdentifierSurvival: survivalFor(at48('whole'), samplesById),
+      wholePunctuationMarkers: punctuationFor(at16('whole')),
+      segmentedPunctuationMarkers: punctuationFor(at16('segmented')),
+      whole48kPunctuationMarkers: punctuationFor(at48('whole')),
     },
     calls,
     note:

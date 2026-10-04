@@ -62,6 +62,8 @@
 ## 4. 负对照（取数之前登记；不红则整份作废）
 
 - 变体：`--variant=cut-mid-sentence` —— 在每条真值句的**中点**强制插入一个切点（其余一切照旧）。
+- 读数子集：**endpointMs 轴**（干净、mixed 间隔族）上的 pooled 过切率；真实与变体读同一子集（配对）。
+  噪声轴与 maxSegmentSec 轴的过切率是另一回事，不参与这条对照。
 - 预测方向：`oversegRate` **上升**。判红下限 `negativeControlOversegFloor = 0.5`：变体的 pooled 过切率
   必须 ≥ 0.5，且严格高于真实读数，且真实读数仍 ≤ `oversegRateMax`。
 - 若变体**没有**按此方向变红，则量具对「切在句中」不敏感，**整份记录作废重做**（run.mjs 打印
