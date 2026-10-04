@@ -523,8 +523,14 @@ function resolveSendTarget(
  *
  * `extraRuntimeOptions` is how an edited message asks the provider to resume
  * partway instead of continuing from the tip; a normal send passes nothing.
+ *
+ * Exported for this module's transport-agnostic control service
+ * (`chat-control.service.ts`): its `send` calls this with `ws = null` and a
+ * `beforeRun` hook, so a run opened by MCP or a timer is registered and
+ * dispatched through the exact same path `chat.send` uses rather than a second
+ * copy of the registry logic.
  */
-async function dispatchRun(
+export async function dispatchRun(
   ws: WebSocket | null,
   userId: string | number | null,
   sessionId: string,
