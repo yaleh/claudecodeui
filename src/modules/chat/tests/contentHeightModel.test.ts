@@ -15,8 +15,21 @@ import {
 import type { ContentRowInput, EstimateState } from '@/modules/chat/utils/contentHeightModel';
 import { TRANSCRIPT_SCROLLBAR_MIN_THUMB_PX } from '@/shared/transcriptEdgeLayout';
 
-/** A row that has never been measured — it must estimate by `messages * p`, never by its placeholder. */
-const unmeasured = (messages = 1): ContentRowInput => ({ messages, measured: false, height: 0 });
+/**
+ * A row that has never been measured.
+ *
+ * Its element still occupies the real 100px placeholder (`LazyMessageRow`'s
+ * `ESTIMATED_ROW_HEIGHT_PX`, which `TranscriptTurnRail` reads back as the row's
+ * `offsetHeight`), so its `height` is that placeholder — not zero. It must
+ * estimate by `messages * p` all the same: the `measured` flag, not `height > 0`,
+ * is what separates a measurement from a placeholder. Modelling it with
+ * `height: 0` would make the two indistinguishable and leave the guard untested.
+ */
+const unmeasured = (messages = 1): ContentRowInput => ({
+  messages,
+  measured: false,
+  height: DEFAULT_ROW_HEIGHT_PX,
+});
 
 /** A row whose real height is known. */
 const measured = (height: number, messages = 1): ContentRowInput => ({ messages, measured: true, height });
