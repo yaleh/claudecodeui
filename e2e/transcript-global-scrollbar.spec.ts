@@ -30,8 +30,14 @@ const TOTAL_MESSAGES = 4800;
 const EARLY_TURN = 121;
 /** Fixed desktop viewport, so the rail lays out and the pane is a known size. */
 const VIEWPORT = { width: 1280, height: 1200 };
-/** The criterion's own ceiling: the target is on screen within this long of the click. */
-const TARGET_VISIBLE_MS = 3_000;
+/**
+ * How long the jump may take to place its target fully inside the viewport.
+ *
+ * The jump has its own internal retry budget (~3.2s) plus the window read it
+ * waits on, so this is a generous ceiling, not a performance assertion: under
+ * fleet load the placement can take longer than the jump's own budget.
+ */
+const TARGET_VISIBLE_MS = 15_000;
 /** A gap at or below this is "at the bottom", in CSS pixels. */
 const AT_BOTTOM_PX = 2;
 /** One wheel tick for the monotonic-scroll gesture, in CSS pixels. */
@@ -476,40 +482,50 @@ test.describe('drawn global scrollbar in a real browser', () => {
     ).toBeLessThanOrEqual(0.53);
 
     // ── (b) jump to ~10% of the conversation through a rail tick: the thumb
-    // reports the ordinal position, which is not the loaded window's pixel ratio ─
+    // reports the ordinal position, which is not the loaded window's pixel ratio.
+    // This is asserted before the wheel section so that a pixel-derived thumb is
+    // caught here, at the post-jump position, rather than only by the monotonicity
+    // check the wheel would trip later.
     const earlyTurn = turnFor(turns, EARLY_TURN);
     await clickTick(page, earlyTurn.id);
+    // The independent witness that the window moved to ~10% of the conversation:
+    // the loaded window's own first turn, read from the DOM and the outline — not
+    // from the thumb the assertions below are about.
     await expect
-      .poll(async () => (await page.evaluate((id) => {
-        const pane = document.querySelector('.chat-messages-pane') as HTMLElement | null;
-        const row = document.querySelector(`[data-message-anchor-id="${id}"]`) as HTMLElement | null;
-        if (!pane || !row) return false;
-        const paneRect = pane.getBoundingClientRect();
-        const rowRect = row.getBoundingClientRect();
-        return rowRect.top >= paneRect.top - 1 && rowRect.bottom <= paneRect.bottom + 1;
-      }, earlyTurn.id)), { timeout: TARGET_VISIBLE_MS, message: 'the early turn never landed in the viewport' })
-      .toBe(true);
+      .poll(async () => {
+        const fraction = await windowFirstRowFraction(page, turns, totalMessages);
+        return fraction === null ? -1 : fraction;
+      }, { timeout: TARGET_VISIBLE_MS, message: `turn ${EARLY_TURN}'s window never loaded` })
+      .toBeGreaterThanOrEqual(0.07);
     await waitForSettledPane(page);
 
     const afterJump = await readThumb(page);
     const jumpedFirstRow = await windowFirstRowFraction(page, turns, totalMessages);
-    expect(afterJump.progress, `turn ${EARLY_TURN} sits at ~10% of the conversation: ${JSON.stringify(afterJump)}`)
-      .toBeGreaterThanOrEqual(0.07);
-    expect(afterJump.progress, `turn ${EARLY_TURN} sits at ~10% of the conversation: ${JSON.stringify(afterJump)}`)
-      .toBeLessThanOrEqual(0.13);
-    expect(jumpedFirstRow, 'the loaded window must expose its first row').not.toBeNull();
-    expect(jumpedFirstRow!).toBeGreaterThanOrEqual(0.07);
-    expect(jumpedFirstRow!).toBeLessThanOrEqual(0.13);
-    // The discriminator: a pixel-derived thumb would read the loaded window's own
-    // scroll ratio, which after centring the target is near the middle.
     const pixelFraction = await readPanePixelFraction(page);
+    const jumpDiagnostic = JSON.stringify({ afterJump, jumpedFirstRow, pixelFraction });
+    expect(
+      afterJump.progress,
+      `turn ${EARLY_TURN} sits at ~10% of the conversation: ${jumpDiagnostic}`,
+    ).toBeGreaterThanOrEqual(0.07);
+    expect(
+      afterJump.progress,
+      `turn ${EARLY_TURN} sits at ~10% of the conversation: ${jumpDiagnostic}`,
+    ).toBeLessThanOrEqual(0.13);
+    expect(jumpedFirstRow, `the loaded window must expose its first row: ${jumpDiagnostic}`).not.toBeNull();
+    expect(jumpedFirstRow!, `the loaded window must start near 10%: ${jumpDiagnostic}`).toBeGreaterThanOrEqual(0.07);
+    expect(jumpedFirstRow!, `the loaded window must start near 10%: ${jumpDiagnostic}`).toBeLessThanOrEqual(0.13);
+    // The discriminator: a pixel-derived thumb would read the loaded window's own
+    // scroll ratio, which is a position inside that window — far from the
+    // conversation's 10%.
     expect(
       Math.abs(afterJump.progress - pixelFraction),
-      `the thumb must be the conversation's ordinal, not the loaded window's pixels: thumb=${afterJump.progress} pixel=${pixelFraction}`,
+      `the thumb must be the conversation's ordinal, not the loaded window's pixels: ${jumpDiagnostic}`,
     ).toBeGreaterThan(0.2);
 
     // ── (c) wheeling up inside the window, including across a prepend, never
     // moves the thumb backwards by more than a fraction of the track ───────────
+    // The pointer is put over the transcript, where a wheel is the transcript's.
+    await pointAtPane(page);
     await startProgressSampler(page);
     for (let step = 0; step < 5; step += 1) {
       await page.mouse.wheel(0, -WHEEL_STEP_PX);

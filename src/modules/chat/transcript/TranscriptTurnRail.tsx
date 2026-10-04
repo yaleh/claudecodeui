@@ -229,13 +229,7 @@ export default function TranscriptTurnRail({
     return turns[found] ?? null;
   }, [turns]);
 
-  /** The fraction a named turn sits at, so a jump lands the thumb on the turn it addressed. */
-  const fractionOfTurn = useCallback(
-    (turn: TurnRailTick) => (lastTurnIndex > 0 ? Math.min(1, Math.max(0, turn.index / lastTurnIndex)) : 0),
-    [lastTurnIndex],
-  );
-
-  /** Places a named turn and keeps the thumb there until the window it asked for lands. */
+  /** Places a gesture's chosen turn and keeps the thumb there until the window it asked for lands. */
   const commitTurn = useCallback((turn: TurnRailTick, fraction: number) => {
     setCommittedFraction(Math.min(1, Math.max(0, fraction)));
     onJumpToTurn(turn.id);
@@ -339,7 +333,11 @@ export default function TranscriptTurnRail({
     const turn = turnAt(event.clientY) ?? turnAtFraction(fraction);
     if (!turn) return;
     setPreviewTurnId(null);
-    commitTurn(turn, fractionOfTurn(turn));
+    // A click — and a tick activated by the keyboard — asserts no position of its
+    // own: it is one immediate jump, and the thumb belongs wherever the window it
+    // asked for actually lands. Only a gesture (a drag, an arrow/page key) holds a
+    // chosen position, because there is no content behind it until it rests.
+    onJumpToTurn(turn.id);
   };
 
   const handleMouseMove = (event: ReactMouseEvent<HTMLElement>) => {
@@ -374,6 +372,7 @@ export default function TranscriptTurnRail({
       >
         {turns.map((turn, ordinal) => {
           const isCurrent = turn.id === currentTurnId;
+          const isHovered = turn.id === hoveredId;
           return (
             <button
               key={turn.id}
@@ -386,7 +385,7 @@ export default function TranscriptTurnRail({
               // 1, 4, 7 rather than 1, 2, 3.
               aria-label={t('turnRail.jumpToTurn', { n: ordinal + 1 })}
               aria-current={isCurrent ? 'true' : undefined}
-              onClick={() => commitTurn(turn, fractionOfTurn(turn))}
+              onClick={() => onJumpToTurn(turn.id)}
               onFocus={() => setHoveredId(turn.id)}
               onBlur={() => setHoveredId((previous) => (previous === turn.id ? null : previous))}
               className="pointer-events-none relative flex w-4 shrink-0 items-stretch justify-end p-0 focus:outline-none"
@@ -399,27 +398,19 @@ export default function TranscriptTurnRail({
                     : 'w-1.5 bg-muted-foreground/40'
                 }`}
               />
+              {/* The hover/focus summary rides its own tick, so it reads beside the
+                  turn the pointer is actually on. Suppressed while a drag preview
+                  is up, which is the same reading at a chosen position. */}
+              {isHovered && !previewTurnId && (
+                <span className="pointer-events-none absolute right-full top-1/2 mr-2 -translate-y-1/2 whitespace-nowrap rounded-md border border-border/60 bg-card px-2 py-1 text-xs text-foreground shadow-sm">
+                  <span className="font-medium">{t('turnRail.turn', { n: ordinal + 1 })}</span>
+                  {turn.preview && <span className="ml-2 text-muted-foreground">{turn.preview}</span>}
+                </span>
+              )}
             </button>
           );
         })}
       </div>
-
-      {/*
-        The hover/focus summary for a single turn. A sibling of the thumb rather
-        than a child of its tick, so the tick keeps filling the column and the
-        bubble can sit beside whichever turn the pointer is on.
-      */}
-      {!previewTurn && hoveredId && (() => {
-        const ordinal = turns.findIndex((entry) => entry.id === hoveredId);
-        if (ordinal < 0) return null;
-        const turn = turns[ordinal];
-        return (
-          <span className="pointer-events-none absolute right-full top-1/2 mr-2 -translate-y-1/2 whitespace-nowrap rounded-md border border-border/60 bg-card px-2 py-1 text-xs text-foreground shadow-sm">
-            <span className="font-medium">{t('turnRail.turn', { n: ordinal + 1 })}</span>
-            {turn.preview && <span className="ml-2 text-muted-foreground">{turn.preview}</span>}
-          </span>
-        );
-      })()}
 
       {/*
         The scrollbar thumb. A real focusable `role="scrollbar"`, positioned by
@@ -461,7 +452,8 @@ export default function TranscriptTurnRail({
       {previewTurn && (
         <span
           data-scrollbar-preview
-          className="pointer-events-none absolute right-full top-1/2 mr-2 flex -translate-y-1/2 flex-col rounded-md border border-border/60 bg-card px-2 py-1 text-xs text-foreground shadow-sm"
+          className="pointer-events-none absolute right-full mr-2 flex -translate-y-1/2 flex-col rounded-md border border-border/60 bg-card px-2 py-1 text-xs text-foreground shadow-sm"
+          style={{ top: `${shownFraction * 100}%` }}
         >
           <span className="font-medium">
             {t('turnRail.turn', { n: previewTurnOrdinal + 1 })}
