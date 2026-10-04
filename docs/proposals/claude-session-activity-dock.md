@@ -792,6 +792,10 @@ session_crons: [
 - 因此本节现在**不含**这一行（当前读数见 §11.1 的红态基线）。前面 AC 全绿而 AC-190 未通过时，本任务的正确终态是 **needs-human**，不是 `done`。
 - 机械核对：`node scripts/activity-dock-human-gate.mjs --check-record docs/proposals/claude-session-activity-dock.md` 逐项校验本节（四步、三件事、人证行格式说明、「只由人写」声明），并在人证行缺失时打印 `人证行：absent`。
 
+**验收记录（2026-10-04，人 yale 授权写入）**：在隔离部署（独立 HOME / DATABASE_PATH / WORKSPACES_ROOT，非共享 3001）上走完 §11.2 的四步、读到 §11.3 的三件事 —— 坞显示「Connection lost · reconnecting…」、不再显示 Thinking、`data-activity-elapsed-ms` 停在 `15002` 且跨 12 秒等待不变；三张截图见 `ac190-01-processing.png` / `ac190-02-unreachable.png` / `ac190-03-recovered.png`。
+
+- 人工验收 GOAL-014：accepted yale 2026-10-04
+
 ---
 
 ## 12. 人工验收记录（GOAL-015 / AC-201）
