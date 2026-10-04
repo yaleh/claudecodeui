@@ -2,7 +2,7 @@
 id: gap-ac223-search-jump-reuses-id-window
 title: AC-223 搜索跳转复用并取代「全量拉取再放宽窗口」：走与轨道点击同一条 id 寻址窗口读（?around=），判据落
   e2e/transcript-jump-to-turn.spec.ts -g "AC-223"
-status: ready
+status: done
 labels:
   - gap
 parent: null
