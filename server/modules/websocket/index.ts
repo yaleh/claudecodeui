@@ -29,6 +29,13 @@ export {
 } from './services/activity-protocol.service.js';
 export { createActivityRouter } from './services/activity.routes.js';
 export { chatRunRegistry } from './services/chat-run-registry.service.js';
+// createChatControlService: the transport-agnostic control plane. Consumed by
+// `server/index.ts` to build the single process-wide instance the WebSocket
+// gateway, the scheduled-message dispatcher and (later) the MCP gateway share,
+// and by the debug agent's control-queue criterion
+// (`server/modules/debug-agent/tests/debug-agent-control-queue.test.ts`), which
+// drives a resident busy send and its withdrawal through it with no socket.
+export { createChatControlService } from './services/chat-control.service.js';
 // Consumed by the providers module's sessions watcher, which announces the
 // sessions it (re)indexed from disk through the same builder the chat gateway
 // uses, so both paths put the identical delta on the wire.

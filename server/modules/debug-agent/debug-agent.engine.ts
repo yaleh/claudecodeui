@@ -182,6 +182,20 @@ export type DebugAgentRunInput = {
    * it saw a turn that never finished.
    */
   onDelivery?: (writer: ProviderRuntimeWriter) => void;
+  /**
+   * Called with the uuid of every queued command a `dequeue` step took and
+   * started during this walk.
+   *
+   * The engine states the fact — "the process started this command" — and stops
+   * there: it does not open the run, because a run opened while this walk's own
+   * run is still in flight would be refused (one run per session) and would
+   * deliver its terminal frame to the wrong run. The caller, which owns the host
+   * layer and the dispatch that will settle after this walk, is the only party
+   * that can open the command's round once this one has ended. A command removed
+   * by a withdrawal never reaches the queue's head and so is never reported,
+   * which is exactly "a withdrawn message becomes no round".
+   */
+  onQueuedCommandStarted?: (commandUuid: string) => void;
 };
 
 /**
@@ -441,12 +455,18 @@ export async function runDebugAgentScenario(input: DebugAgentRunInput): Promise<
 
       case 'dequeue': {
         // The process took the command it had been holding and started it. What
-        // it writes is the queue's account of that and nothing else: the
-        // substitute never runs a pushed command's turn, so writing the turn's
-        // own row would be claiming output that does not exist.
+        // it writes is the queue's account of that and nothing else: the command
+        // does not walk this scenario, so writing the turn's own row here would
+        // be claiming output that does not exist. The command's round — a run of
+        // its own with its own terminal frame — is opened by the caller after
+        // this walk ends, because a run opened now would be refused while this
+        // walk's run is still in flight.
         const dequeued = requireHostOps(hostOps).readOldestQueuedCommand({ appSessionId });
         if (dequeued) {
           appendCommandLifecycle(dequeued, 'started');
+          // Reported, not run here: this walk's own run is still in flight, and
+          // the round this command becomes is opened by the caller after it ends.
+          input.onQueuedCommandStarted?.(dequeued);
         }
         break;
       }

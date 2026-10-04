@@ -411,6 +411,7 @@ function countingDriver(openRun: DebugAgentOpenRun): {
     reportExit: (input) => inner.reportExit(input),
     registerPushedCommand: (input) => inner.registerPushedCommand(input),
     cancelQueuedInput: (appSessionId, messageUuid) => inner.cancelQueuedInput(appSessionId, messageUuid),
+    queuedInputUuid: (appSessionId) => inner.queuedInputUuid(appSessionId),
     readOldestQueuedCommand: (input) => inner.readOldestQueuedCommand(input),
     acknowledgeCancel: (input) => inner.acknowledgeCancel(input),
     readCommandQueue: (appSessionId) => inner.readCommandQueue(appSessionId),
