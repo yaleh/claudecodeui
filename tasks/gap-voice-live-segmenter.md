@@ -1,7 +1,7 @@
 ---
 id: gap-voice-live-segmenter
 title: 连续语音切段器：worklet 转发 PCM + 缓冲 + 按停顿切段（最小段长 30 s、过滤长静音），纯函数、可用真值度量
-status: ready
+status: done
 labels:
   - gap
 parent: null
