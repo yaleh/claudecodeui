@@ -31,6 +31,11 @@ import type { VoiceLiveReading } from '../src/modules/chat/utils/voiceLiveReadin
  * the end of an input under the debug switch — never from a re-computation in this file. The A/B is
  * the same bytes over the same entry with the VAD on and with `voiceVad=off`, so the difference the
  * reading reports is a real difference between two runs, not an assertion about one.
+ *
+ * EVERY LEG NAMES BOTH SWITCHES. `voiceVad` — like `voiceDebug` and the numeric switches — is
+ * REMEMBERED in `localStorage`, so a leg that named only `voiceDebug=1` would inherit whatever arm
+ * the previous leg left behind and read the wrong thing. Naming `voiceVad=1` explicitly is what
+ * makes "the VAD-on leg" mean the VAD really ran.
  */
 
 const DATA_DIR = process.env.QUAY_E2E_DATA_DIR!;
@@ -370,14 +375,14 @@ test.describe('the live VAD reading end to end', () => {
     // publishes no reading and prints no line. The switch is set explicitly rather than left out,
     // because it is remembered in storage and a prior leg may have turned it on.
     const beforeOff = liveLines.length;
-    await openComposer('/?voiceDebug=off');
+    await openComposer('/?voiceDebug=off&voiceVad=1');
     await micInput(3);
     expect(liveLines.length, 'the chain printed a reading line while the switch was off').toBe(beforeOff);
     expect(await readLive(), 'a reading was published while the switch was off').toBeNull();
 
     // Switch on: the same input, and exactly one line — one input, one reading.
     const beforeOn = liveLines.length;
-    await openComposer('/?voiceDebug=1');
+    await openComposer('/?voiceDebug=1&voiceVad=1');
     await micInput(3);
     const reading = await waitReading();
     expect(liveLines.length - beforeOn, 'a single input printed something other than one reading').toBe(1);
@@ -389,7 +394,7 @@ test.describe('the live VAD reading end to end', () => {
     const sparse = requireSample(SPARSE);
 
     // Leg ON: the shipping path. The sample is cut at its pauses, so less audio goes out than came in.
-    await openComposer('/?voiceDebug=1');
+    await openComposer('/?voiceDebug=1&voiceVad=1');
     const on = await uploadSample(sparse);
     expect(vadOnVerdict(on), `the VAD-on reading does not show a saving: ${JSON.stringify(on)}`).toBe(true);
 
@@ -445,8 +450,14 @@ test.describe('the live VAD reading end to end', () => {
     test.setTimeout(90_000);
     const nonstop = requireSample(NONSTOP);
 
-    await openComposer('/?voiceDebug=1');
+    await openComposer('/?voiceDebug=1&voiceVad=1');
     const reading = await uploadSample(nonstop);
+    console.log(
+      `[voice-live-ab] ${NONSTOP} arm=vad-on recordedSec=${reading.recordedSec.toFixed(3)}`
+        + ` sentSec=${reading.sentSec.toFixed(3)} segments=${reading.segments} requests=${reading.requests}`
+        + ` forcedCuts=${reading.forcedCuts} longestSegmentSec=${reading.longestSegmentSec.toFixed(2)}`
+        + ` firstTextLatencyMs=${String(reading.firstTextLatencyMs)}`,
+    );
     expect(
       reading.forcedCuts,
       `continuous speech produced no forced cut: ${JSON.stringify(reading)}`,
@@ -462,7 +473,7 @@ test.describe('the live VAD reading end to end', () => {
 
     // Three seconds of continuous speech, well under the segmenter's 30 s floor: no pause can end it
     // and no ceiling can reach it, so the stop flushes it as the single trailing segment.
-    await openComposer('/?voiceDebug=1');
+    await openComposer('/?voiceDebug=1&voiceVad=1');
     await micInput(3);
     const reading = await waitReading();
     expect(reading.requests, `a short input cost more than one request: ${JSON.stringify(reading)}`).toBe(1);
@@ -473,10 +484,10 @@ test.describe('the live VAD reading end to end', () => {
   test('the composer controls change only by the upload entry', async () => {
     test.setTimeout(45_000);
 
-    await openComposer('/?voiceDebug=off');
+    await openComposer('/?voiceDebug=off&voiceVad=1');
     const off = await composerControls();
 
-    await openComposer('/?voiceDebug=1');
+    await openComposer('/?voiceDebug=1&voiceVad=1');
     const on = await composerControls();
 
     // The premise: the composer really painted, so an equal pair is a reading and not two blanks.
