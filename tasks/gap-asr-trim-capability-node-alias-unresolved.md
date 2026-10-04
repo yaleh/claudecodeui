@@ -42,12 +42,12 @@ $ echo $?
 
 ## AC
 
-- [ ] AC1 判据转绿（纯 node，无加载器）：`node scripts/asr-trim-capability-check.mjs` 退出码 **0**，stdout 含六行 `check declaration: ok` / `check read-point: ok` / `check single-source: ok` / `check decision: ok` / `check default: ok` / `check discipline: ok`；stdout 不含 `check probe: FAIL`，且对 `Cannot find package '@/shared'` grep 无命中（grep exit 1）。
-- [ ] AC2 取假控制全绿：`node --test scripts/asr-trim-capability-check.test.mjs` 退出码 **0**，全部用例 `pass`、`fail 0`，其中 `green fixture` 与 `the shipped tree decides 裁不裁 ...` 均通过——夹具能解析 `voiceTrim.ts` 的新传递导入 `voiceEndpoint.ts`。
-- [ ] AC3 夹具增补承重（负控制）：删除夹具里的 `src/shared/voiceEndpoint.ts` 后，探针在 `check probe` 处以 `ENOENT` 红（退出 1），而不是红在别的检查——证明 `SHIPPING_FILES` 的增补是承重的、非装饰。（新增为 `scripts/asr-trim-capability-check.test.mjs` 内一条独立可红用例：先证带该文件的夹具为绿、再证删掉为红。）
-- [ ] AC4 两条 AC-135 取假形态未被改窄：(a) 把出货默认改成「不裁」⇒ `check default: FAIL`（既有用例 `changing the declared default to "do not trim" reds default` 与 `reordering the registry ... reds default` 仍通过）；(b) 消费方自行判断而不读能力 ⇒ `check single-source: FAIL`（既有用例 `a consumer that keeps deciding 裁不裁 for itself ...` 与 `... answers 裁不裁 by hand beside the read point ...` 仍通过）。以 `git diff` 证明这些既有检查的断言面一字未动。
-- [ ] AC5 出货模块与判据命令不变：本任务分支的 `git diff --name-only <merge-base>...HEAD` 只含 `scripts/asr-trim-capability-check.mjs`、`scripts/asr-trim-capability-check.test.mjs`（及本任务文件）；不含 `src/shared/voiceTrim.ts`、`src/shared/voiceEndpoint.ts`；读 `goals/AC-135-*.md` 确认 `criterion:` 行仍是 `node scripts/asr-trim-capability-check.mjs`。
-- [ ] AC6 相邻判据未被牵连：`node scripts/asr-pause-cues-source-check.mjs` 退出 0，且 `node --test scripts/asr-pause-cues-source-check.test.mjs` 退出 0（7/7），证明修法未改变它们的读数。
+- [x] AC1 判据转绿（纯 node，无加载器）：`node scripts/asr-trim-capability-check.mjs` 退出码 **0**，stdout 含六行 `check declaration: ok` / `check read-point: ok` / `check single-source: ok` / `check decision: ok` / `check default: ok` / `check discipline: ok`；stdout 不含 `check probe: FAIL`，且对 `Cannot find package '@/shared'` grep 无命中（grep exit 1）。
+- [x] AC2 取假控制全绿：`node --test scripts/asr-trim-capability-check.test.mjs` 退出码 **0**，全部用例 `pass`、`fail 0`，其中 `green fixture` 与 `the shipped tree decides 裁不裁 ...` 均通过——夹具能解析 `voiceTrim.ts` 的新传递导入 `voiceEndpoint.ts`。
+- [x] AC3 夹具增补承重（负控制）：删除夹具里的 `src/shared/voiceEndpoint.ts` 后，探针在 `check probe` 处以 `ENOENT` 红（退出 1），而不是红在别的检查——证明 `SHIPPING_FILES` 的增补是承重的、非装饰。（新增为 `scripts/asr-trim-capability-check.test.mjs` 内一条独立可红用例：先证带该文件的夹具为绿、再证删掉为红。）
+- [x] AC4 两条 AC-135 取假形态未被改窄：(a) 把出货默认改成「不裁」⇒ `check default: FAIL`（既有用例 `changing the declared default to "do not trim" reds default` 与 `reordering the registry ... reds default` 仍通过）；(b) 消费方自行判断而不读能力 ⇒ `check single-source: FAIL`（既有用例 `a consumer that keeps deciding 裁不裁 for itself ...` 与 `... answers 裁不裁 by hand beside the read point ...` 仍通过）。以 `git diff` 证明这些既有检查的断言面一字未动。
+- [x] AC5 出货模块与判据命令不变：本任务分支的 `git diff --name-only <merge-base>...HEAD` 只含 `scripts/asr-trim-capability-check.mjs`、`scripts/asr-trim-capability-check.test.mjs`（及本任务文件）；不含 `src/shared/voiceTrim.ts`、`src/shared/voiceEndpoint.ts`；读 `goals/AC-135-*.md` 确认 `criterion:` 行仍是 `node scripts/asr-trim-capability-check.mjs`。
+- [x] AC6 相邻判据未被牵连：`node scripts/asr-pause-cues-source-check.mjs` 退出 0，且 `node --test scripts/asr-pause-cues-source-check.test.mjs` 退出 0（7/7），证明修法未改变它们的读数。
 
 ## DoD
 
