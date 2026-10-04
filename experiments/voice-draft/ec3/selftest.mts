@@ -24,3 +24,28 @@ assert.equal(r.anchors.ok.length, 1, '只接受带指代标志、行号合法且
 assert.ok(r.prompt.includes('> 引用：| 方案 | 代价 |'), '引用逐字');
 const r0 = run(raw, T as any, '', false); assert.equal(r0.replacements.accepted.length, 0); assert.equal(r0.anchors.ok.length, 0);
 console.log('SELFTEST-OK'); console.log(r.prompt);
+
+// ── v2：问 + 答
+import { runV2 } from './pipeline.mts';
+const T2 = { 1: '密钥要不要留在 config_json 里？要留，可用性比保护更重要。', 2: '日志要不要按天切分？按天切，保留七天。', 3: '我可以接受手机上不显示这段文字。', 4: '如果删掉，怎么恢复到以前没有这一行的状态？我可以接受手机上不显示这段文字。', 5: '重试次数呢？三次。' };
+const raw2 = { items: [
+  { id: 1, unit: 1, type: '问题', span: '密钥要不要留在 config_json 里？', answers: null }, { id: 2, unit: 1, type: '决定', span: '要留，可用性比保护更重要。', answers: null },
+  { id: 3, unit: 2, type: '问题', span: '日志要不要按天切分？', answers: null }, { id: 4, unit: 2, type: '决定', span: '按天切，保留七天。', answers: null },
+  { id: 5, unit: 4, type: '问题', span: '如果删掉，怎么恢复到以前没有这一行的状态？', answers: null }, { id: 6, unit: 4, type: '决定', span: '我可以接受手机上不显示这段文字。', answers: null },
+  { id: 7, unit: 5, type: '问题', span: '重试次数呢？', answers: null }, { id: 8, unit: 5, type: '决定', span: '三次。', answers: null }], replacements: [], anchors: [] };
+const r2 = runV2(raw2, T2 as any, '', false);
+assert.ok(r2.promptV2.includes('已决定：（问）密钥要不要留在 config_json 里？（答）要留，可用性比保护更重要'), '省略式回答带着问句');
+assert.ok(r2.promptV2.includes('（问）日志要不要按天切分？（答）按天切，保留七天'), '以应答词开头的回答也配对');
+assert.ok(r2.promptV2.includes('（问）重试次数呢？（答）三次'), '很短的回答配对');
+assert.ok(!r2.promptV2.includes('（问）如果删掉，怎么恢复'), '并不回答该问句的决定不配对');
+assert.ok(r2.promptV2.includes('请检查/查明：如果删掉，怎么恢复到以前没有这一行的状态'), '未被回答的问句仍是请求');
+console.log('SELFTEST-V2-OK'); console.log(r2.promptV2);
+
+// ── v2 护栏：模型给出的配对不过关时不采用
+const T3 = { 1: '那本项目存在一个打包的生产形态吗？', 2: '白屏的问题也一起查。', 3: '如果生产形态确实存在，那我想知道怎么运行。', 4: '难道这个会话每次都换进程？', 5: '也就是说，进程形态是完全不一样的？' };
+const raw3 = { items: [
+  { id: 1, unit: 1, type: '问题', span: '那本项目存在一个打包的生产形态吗？', answers: null }, { id: 2, unit: 3, type: '问题', span: '如果生产形态确实存在，那我想知道怎么运行。', answers: 1 },
+  { id: 3, unit: 4, type: '假设', span: '难道这个会话每次都换进程？', answers: null }, { id: 4, unit: 5, type: '假设', span: '也就是说，进程形态是完全不一样的？', answers: 3 }], replacements: [], anchors: [] };
+const r3 = runV2(raw3, T3 as any, '', false);
+assert.equal(r3.pairs.size, 0, '隔了两段、或回答本身是问句的配对不采用');
+console.log('SELFTEST-V2-GUARDS-OK');

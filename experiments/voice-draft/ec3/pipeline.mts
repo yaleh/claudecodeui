@@ -62,3 +62,32 @@ export function run(raw: Raw, transcripts: Record<number, string>, ctx: string, 
   const rep = useCtx ? guardReplacements(c.items, raw.replacements ?? [], ctx) : { accepted: [], rejected: [] as any[] }; const anc = useCtx ? acceptAnchors(raw.anchors ?? [], transcripts, ctxLines) : { ok: [], rej: [] as string[] };
   const r = render(c.items, anc.ok); return { items: c.items, dropped: c.dropped, overridden: c.overridden, replacements: rep, anchors: anc, prompt: r.prompt };
 }
+
+// ───────────────────────── v2：保留「问 + 答」（E-C4）。v1 的行为不变，便于复现 E-C3。
+const FILLER = /^[嗯呃啊哦那就也还有，,、\s]+/;
+const ANS_START = /^(要|不要|不用|不会|不能|不|是的?|对|行|好|可以|没问题|应该|先不|暂不|留着?|带|改|记|沿用|保持|照旧|按|都|有|没有|右边|左边|都要)/;
+const isQuestion = (s: string) => /[？?]\s*$/.test(s) || (/(要不要|是不是|能不能|行不行|对不对|会不会|还是|吗)/.test(s) && /[？?]/.test(s));
+/** 把「问句 + 紧随其后的省略式回答」配成一对：模型给的 answers，加上规则（同一段内、问句后紧跟的决定/事实/约束/假设，且以应答词开头或很短）。返回 问句 id → 回答 id。 */
+export function pairAnswers(items: Item[]): Map<number, number> {
+  const pairs = new Map<number, number>();
+  // 模型给出的配对要过护栏（E-C3 重放里看到的误配）：问题必须是问句形态；回答必须是决定/约束/事实/假设且本身不是问句；至多隔一段。
+  for (const b of items) if (b.answers !== null) { const a = items.find((x) => x.id === b.answers); if (a && (a.type === '问题' || a.type === '探路' || a.type === '假设') && isQuestion(a.span) && ['决定', '约束', '事实', '假设'].includes(b.type) && !isQuestion(b.span) && b.unit - a.unit >= 0 && b.unit - a.unit <= 1 && !pairs.has(a.id) && (a.unit < b.unit || (a.unit === b.unit && a.id < b.id))) pairs.set(a.id, b.id); }
+  for (let i = 0; i + 1 < items.length; i++) { const a = items[i], b = items[i + 1]; if (pairs.has(a.id) || [...pairs.values()].includes(b.id)) continue;
+    if (a.unit !== b.unit || !['问题', '探路', '假设'].includes(a.type) || !isQuestion(a.span) || !['决定', '事实', '约束', '假设'].includes(b.type)) continue;
+    const body = b.span.replace(FILLER, ''); const n = squash(body).out.length; if (ANS_START.test(body) || n <= 8) pairs.set(a.id, b.id); }
+  return pairs;
+}
+export function renderV2(items: Item[], anchors: { unit: number; text: string }[], pairs: Map<number, number>) {
+  const answerIds = new Set(pairs.values()); const lines: string[] = []; const live = items.filter((i) => !answerIds.has(i.id));
+  for (let k = 0; k < live.length; k++) { const it = live[k]; const ans = pairs.has(it.id) ? items.find((x) => x.id === pairs.get(it.id)) : undefined;
+    if (ans) { const q = it.span.trim(), a = ans.span.trim().replace(FILLER, '');
+      lines.push(ans.type === '决定' ? `已决定：（问）${q}（答）${a}` : ans.type === '假设' ? `我的判断（假设）：（问）${q}（答）${strip(a)}，请检验` : ans.type === '约束' ? `约束：（问）${q}（答）${a}` : `已知：（问）${q}（答）${a}`); continue; }
+    if (it.type === '探路') { const grp = [it]; while (k + 1 < live.length && live[k + 1].type === '探路' && !pairs.has(live[k + 1].id)) grp.push(live[++k]); lines.push(`请检查/查明：${grp.map((g) => strip(g.span)).join('；')}`); continue; }
+    const t = strip(it.span);
+    lines.push(it.type === '事实' ? `已知：${t}` : it.type === '问题' ? `请检查/查明：${t}` : it.type === '假设' ? `我的判断（假设）：${t}，请检验` : it.type === '决定' ? `已决定：${t}` : `约束：${t}`);
+    for (const a of anchors.filter((x) => x.unit === it.unit && !lines.includes(`> 引用：${x.text}`))) lines.push(`> 引用：${a.text.replace(/\n/g, '\n> ')}`); }
+  return lines.join('\n');
+}
+export function runV2(raw: Raw, transcripts: Record<number, string>, ctx: string, useCtx: boolean) {
+  const base = run(raw, transcripts, ctx, useCtx); const pairs = pairAnswers(base.items); return { ...base, pairs, promptV2: renderV2(base.items, base.anchors.ok, pairs) };
+}
