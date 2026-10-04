@@ -3,7 +3,7 @@ id: gap-resident-server-restart-criterion-wait-headroom-under-lane-load
 title: AC-166 判据在 lane/舰队并发下红：resident 宿主 (重)spawn 的 30s ROUND_TIMEOUT_MS
   等待装不下并发下的真实重拉（记忆实测 in-lane 38.9s vs standalone 8.7s），负载下「慢但正确」的重拉撞
   waitForResidentPid:776 超时——上一次修的是 BUDGET 不是 wait
-status: ready
+status: done
 labels:
   - gap
   - defect
