@@ -1,7 +1,7 @@
 ---
 id: gap-resident-composer-switch-removed-intent-new-session-only
 title: 去掉输入框上方的『Keep this session running (resident)』开关；resident 意图只在新建会话那一次发送里生效并消费清零
-status: ready
+status: done
 labels:
   - gap
 parent: null
