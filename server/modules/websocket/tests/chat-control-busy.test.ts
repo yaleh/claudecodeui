@@ -60,6 +60,22 @@ function assertNonEmptyString(value: unknown, label: string): asserts value is s
 }
 
 /**
+ * Reads the identity/lifecycle fields off a `getRunById` result for logging and
+ * assertions. That result is either a run summary (carrying `runId` and
+ * `status`) or a typed miss (carrying only `status: 'unknown'`), so the summary
+ * fields are read only behind the `'runId' in result` narrowing guard.
+ */
+function lookupFields(result: ReturnType<typeof chatRunRegistry.getRunById>): {
+  runId: string | undefined;
+  status: string | undefined;
+} {
+  if (result && 'runId' in result) {
+    return { runId: result.runId, status: result.status };
+  }
+  return { runId: undefined, status: result?.status };
+}
+
+/**
  * A runtime gateway whose `run` parks until the test releases it, whose
  * `acceptsBusyInput` is switchable, and whose provider queue is observable.
  *
@@ -225,14 +241,14 @@ test('(a) a resident busy session queues the second send and mints a second quer
     const runId2 = second.runId;
     assert.notEqual(runId2, runId1, 'the queued turn is a run of its own, not the first run');
 
-    const byId1 = chatRunRegistry.getRunById(runId1);
-    const byId2 = chatRunRegistry.getRunById(runId2);
+    const byId1 = lookupFields(chatRunRegistry.getRunById(runId1));
+    const byId2 = lookupFields(chatRunRegistry.getRunById(runId2));
     say(
-      `(a) getRunById(runId1)=${JSON.stringify({ runId: byId1?.runId, status: byId1?.status })} ` +
-        `getRunById(runId2)=${JSON.stringify({ runId: byId2?.runId, status: byId2?.status })}`,
+      `(a) getRunById(runId1)=${JSON.stringify(byId1)} ` +
+        `getRunById(runId2)=${JSON.stringify(byId2)}`,
     );
-    assert.equal(byId1?.runId, runId1, 'the superseded run is still reachable by its id');
-    assert.equal(byId2?.runId, runId2, 'the queued run is reachable by its id');
+    assert.equal(byId1.runId, runId1, 'the superseded run is still reachable by its id');
+    assert.equal(byId2.runId, runId2, 'the queued run is reachable by its id');
   });
 });
 
@@ -274,11 +290,11 @@ test('(c) a per-run busy session is refused without touching the provider', asyn
     const runningForSession = chatRunRegistry
       .listRunningRuns()
       .filter((entry) => entry.sessionId === SESSION_ID);
-    const byId1 = chatRunRegistry.getRunById(runId1);
+    const byId1 = lookupFields(chatRunRegistry.getRunById(runId1));
     say(
       `(c) secondSend=${JSON.stringify(second)} runCallsBefore=${callsBefore} ` +
         `runCallsAfter=${runtime.runCalls} currentRunId=${current?.runId} ` +
-        `runningForSession=${runningForSession.length} getRunById(runId1)=${byId1?.runId}`,
+        `runningForSession=${runningForSession.length} getRunById(runId1)=${byId1.runId}`,
     );
 
     assert.equal(second.ok, false, 'a per-run busy session refuses the second send');
@@ -288,7 +304,7 @@ test('(c) a per-run busy session is refused without touching the provider', asyn
     assert.equal(runtime.runCalls, callsBefore, 'the provider is not entered for a refused busy send');
     assert.equal(current?.runId, runId1, 'no second run replaced the first as the session current run');
     assert.equal(runningForSession.length, 1, 'exactly one run is registered for the session');
-    assert.equal(byId1?.runId, runId1, 'the only run reachable by id is still the first');
+    assert.equal(byId1.runId, runId1, 'the only run reachable by id is still the first');
   });
 });
 

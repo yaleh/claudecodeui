@@ -293,13 +293,20 @@ async function sendTwice(harness: ArmHarness): Promise<BusyReading> {
   return { first, second, queueAfterSend: queue.list, queueTail: queue.tail };
 }
 
-/** The terminal-frame reading for one run, from the registry's own event log. */
+/**
+ * The terminal-frame reading for one run, from the registry's own summary.
+ *
+ * The registry marks a run `completed` in the same step it records the terminal
+ * `complete` frame, so that status is the frame's registry-side fact. The run's
+ * event buffer is no longer exposed on a by-id lookup (the lookup returns a
+ * fixed read-only summary), and it is not needed here: this arm only asks
+ * whether the round reached its terminal frame.
+ */
 function completeOf(runId: string | null): boolean {
   if (!runId) {
     return false;
   }
-  const run = chatRunRegistry.getRunById(runId);
-  return Boolean(run?.events.some((event) => event.kind === 'complete'));
+  return chatRunRegistry.getRunById(runId)?.status === 'completed';
 }
 
 // --------------------------- arms ---------------------------
