@@ -1,7 +1,7 @@
 ---
 id: AC-225
 title: 迁移删除旧的明文 api_keys 表并报告行数，新表就位，用户数据不动，重复运行与全新库都不出错
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-018
 criterion: for f in
@@ -24,6 +24,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-04T18:25:38.444Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
