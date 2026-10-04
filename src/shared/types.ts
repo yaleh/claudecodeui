@@ -146,8 +146,13 @@ type ProjectTaskmasterInfo = {
 
 //----------------- QUAY STATUS ------------
 
-/** Four-state quay driver reading; `not-configured` means the project has no `.quay/config.yml`. */
-export type QuayDriverState = 'running' | 'idle' | 'stale' | 'not-configured';
+/**
+ * Quay driver reading. `not-configured` means the project has no `.quay/config.yml`
+ * at all; `unavailable` means it has one but its driver command did not answer, so
+ * the state is *unknown* rather than absent — rendering the two the same would
+ * claim a configured project is unconfigured.
+ */
+export type QuayDriverState = 'running' | 'idle' | 'stale' | 'not-configured' | 'unavailable';
 
 /** Driver summary attached to a Tier-2 quay snapshot and rendered by the panel header. */
 export type QuayDriverSummary = {

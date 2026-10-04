@@ -1,4 +1,5 @@
 import { Activity, AlertTriangle, ExternalLink, Info, Loader2, RefreshCw } from 'lucide-react';
+import type { ReactNode } from 'react';
 
 import type { QuayDriverState, QuayListItem, QuaySnapshot } from '@/shared/types';
 import { cn } from '@/shared/utils';
@@ -23,6 +24,7 @@ const DRIVER_LABELS: Record<QuayDriverState, string> = {
   idle: 'Driver idle',
   stale: 'Driver stale',
   'not-configured': 'Not configured',
+  unavailable: 'Driver status unavailable',
 };
 
 const DRIVER_CLASSES: Record<QuayDriverState, string> = {
@@ -30,6 +32,10 @@ const DRIVER_CLASSES: Record<QuayDriverState, string> = {
   idle: 'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
   stale: 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
   'not-configured': 'bg-gray-100 text-gray-600 dark:bg-gray-900 dark:text-gray-400',
+  // Grey, like `not-configured`: both are "no reading", as opposed to `stale`,
+  // which is a reading that says something is wrong. The badge text tells them
+  // apart, and the alarm for a failed read is the warnings banner below.
+  unavailable: 'bg-gray-100 text-gray-600 dark:bg-gray-900 dark:text-gray-400',
 };
 
 /** Colour dot per suite/fan-in state, matching the timeline palette in `TimelineBar`. */
@@ -89,6 +95,23 @@ function toEpochMs(value: string | null): number | null {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
+/**
+ * The reading for a section whose backing quay command did not answer. Such a
+ * section is *unknown*, and an unknown count must never be rendered as `0`: the
+ * panel used to show "0 tasks · 0 ready · 0 needs human · 0 done" for a failed
+ * `task list --json` (the payload had outgrown the adapter's output cap), which
+ * reads exactly like a genuinely empty board. Used by the Task ledger, Stage
+ * goals and ADRs cards; the warning banner at the foot of the panel names the
+ * command that failed.
+ */
+function UnavailableReading({ label, testId }: { label: string; testId: string }) {
+  return (
+    <p className="text-xs text-amber-700 dark:text-amber-300" data-testid={testId}>
+      {label} unavailable — quay did not answer. See the warnings below.
+    </p>
+  );
+}
+
 /** One read-only detail list (tasks or ADRs): a header, then either rows of
  * id/title/status or an explicit empty-state line. Rows are display-only — quay
  * has no per-entity page to link to, so there is nothing to click.
@@ -100,34 +123,44 @@ function DetailList({
   testId,
 }: {
   title: string;
-  items: QuayListItem[];
+  /** `null` when the command behind the list did not answer; `[]` when it answered with nothing. */
+  items: QuayListItem[] | null;
   emptyText: string;
   testId: string;
 }) {
+  let body: ReactNode;
+  if (items === null) {
+    body = <UnavailableReading label={title} testId={`${testId}-unavailable`} />;
+  } else if (items.length === 0) {
+    body = (
+      <p className="text-xs text-muted-foreground" data-testid={`${testId}-empty`}>
+        {emptyText}
+      </p>
+    );
+  } else {
+    body = (
+      <ul className="space-y-1" data-testid={testId}>
+        {items.map((item) => (
+          <li
+            key={item.id}
+            className="flex items-center gap-2 rounded border border-border/40 px-2 py-1 text-xs"
+            data-testid={`${testId}-row`}
+          >
+            <span className="shrink-0 font-mono text-[11px] text-foreground">{item.id}</span>
+            <span className="min-w-0 flex-1 truncate text-muted-foreground" title={item.title}>
+              {item.title}
+            </span>
+            <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">{item.status}</span>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
   return (
     <section>
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
-      {items.length === 0 ? (
-        <p className="text-xs text-muted-foreground" data-testid={`${testId}-empty`}>
-          {emptyText}
-        </p>
-      ) : (
-        <ul className="space-y-1" data-testid={testId}>
-          {items.map((item) => (
-            <li
-              key={item.id}
-              className="flex items-center gap-2 rounded border border-border/40 px-2 py-1 text-xs"
-              data-testid={`${testId}-row`}
-            >
-              <span className="shrink-0 font-mono text-[11px] text-foreground">{item.id}</span>
-              <span className="min-w-0 flex-1 truncate text-muted-foreground" title={item.title}>
-                {item.title}
-              </span>
-              <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">{item.status}</span>
-            </li>
-          ))}
-        </ul>
-      )}
+      {body}
     </section>
   );
 }
@@ -140,25 +173,31 @@ function TaskLedger({ tasks }: { tasks: QuaySnapshot['tasks'] }) {
   return (
     <section data-testid="quay-panel-task-ledger">
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Task ledger</h3>
-      <p className="mb-2 text-[11px] text-muted-foreground" data-testid="quay-panel-task-ledger-counts">
-        {tasks?.total ?? 0} tasks · {tasks?.ready ?? 0} ready · {tasks?.needsHuman ?? 0} needs human ·{' '}
-        {tasks?.done ?? 0} done
-      </p>
-      {statuses.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No tasks reported.</p>
+      {tasks === null ? (
+        // No counts at all: every one of them would be a fabricated zero.
+        <UnavailableReading label="Task ledger" testId="quay-panel-task-ledger-unavailable" />
       ) : (
-        <ul className="space-y-1" data-testid="quay-panel-tasks-by-status">
-          {statuses.map(([status, count]) => (
-            <li key={status} className="flex items-center justify-between rounded border border-border/40 px-2 py-1 text-xs">
-              <span className="text-foreground">{status}</span>
-              <span className="font-medium text-muted-foreground">{count}</span>
-            </li>
-          ))}
-        </ul>
+        <>
+          <p className="mb-2 text-[11px] text-muted-foreground" data-testid="quay-panel-task-ledger-counts">
+            {tasks.total} tasks · {tasks.ready} ready · {tasks.needsHuman} needs human · {tasks.done} done
+          </p>
+          {statuses.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No tasks reported.</p>
+          ) : (
+            <ul className="space-y-1" data-testid="quay-panel-tasks-by-status">
+              {statuses.map(([status, count]) => (
+                <li key={status} className="flex items-center justify-between rounded border border-border/40 px-2 py-1 text-xs">
+                  <span className="text-foreground">{status}</span>
+                  <span className="font-medium text-muted-foreground">{count}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="mt-3">
+            <DetailList title="Recent tasks" items={recent} emptyText="No tasks reported." testId="quay-panel-recent-tasks" />
+          </div>
+        </>
       )}
-      <div className="mt-3">
-        <DetailList title="Recent tasks" items={recent} emptyText="No tasks reported." testId="quay-panel-recent-tasks" />
-      </div>
     </section>
   );
 }
@@ -171,36 +210,42 @@ function StageGoals({ goals }: { goals: QuaySnapshot['goals'] }) {
   return (
     <section data-testid="quay-panel-stage-goals">
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Stage goals</h3>
-      {statuses.length > 0 && (
-        <p className="mb-2 text-[11px] text-muted-foreground" data-testid="quay-panel-stage-goals-counts">
-          {statuses.map(([status, count]) => `${count} ${status}`).join(' · ')}
-        </p>
-      )}
-      {recent.length === 0 ? (
-        <p className="text-xs text-muted-foreground" data-testid="quay-panel-stage-goals-empty">
-          No goals reported.
-        </p>
+      {goals === null ? (
+        <UnavailableReading label="Stage goals" testId="quay-panel-stage-goals-unavailable" />
       ) : (
-        <ul className="space-y-2" data-testid="quay-panel-stage-goals-list">
-          {recent.map((goal) => (
-            <li
-              key={goal.id}
-              className="rounded border border-border/40 px-2 py-1.5"
-              data-testid="quay-panel-stage-goals-row"
-            >
-              <div className="flex items-center justify-between gap-2 text-xs">
-                <span className="shrink-0 font-mono text-[11px] text-foreground">{goal.id}</span>
-                <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">{goal.status}</span>
-              </div>
-              <div className="mt-0.5 truncate text-[11px] text-muted-foreground" title={goal.title}>
-                {goal.title}
-              </div>
-              <div className="mt-1 h-1.5 w-full overflow-hidden rounded bg-muted" data-testid="quay-panel-stage-goals-bar">
-                <div className="h-full rounded bg-primary" style={{ width: `${GOAL_STATUS_PERCENT[goal.status] ?? 0}%` }} />
-              </div>
-            </li>
-          ))}
-        </ul>
+        <>
+          {statuses.length > 0 && (
+            <p className="mb-2 text-[11px] text-muted-foreground" data-testid="quay-panel-stage-goals-counts">
+              {statuses.map(([status, count]) => `${count} ${status}`).join(' · ')}
+            </p>
+          )}
+          {recent.length === 0 ? (
+            <p className="text-xs text-muted-foreground" data-testid="quay-panel-stage-goals-empty">
+              No goals reported.
+            </p>
+          ) : (
+            <ul className="space-y-2" data-testid="quay-panel-stage-goals-list">
+              {recent.map((goal) => (
+                <li
+                  key={goal.id}
+                  className="rounded border border-border/40 px-2 py-1.5"
+                  data-testid="quay-panel-stage-goals-row"
+                >
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <span className="shrink-0 font-mono text-[11px] text-foreground">{goal.id}</span>
+                    <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">{goal.status}</span>
+                  </div>
+                  <div className="mt-0.5 truncate text-[11px] text-muted-foreground" title={goal.title}>
+                    {goal.title}
+                  </div>
+                  <div className="mt-1 h-1.5 w-full overflow-hidden rounded bg-muted" data-testid="quay-panel-stage-goals-bar">
+                    <div className="h-full rounded bg-primary" style={{ width: `${GOAL_STATUS_PERCENT[goal.status] ?? 0}%` }} />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
       )}
     </section>
   );
@@ -371,8 +416,10 @@ function LoadedQuayPanel({
   onRefresh: () => void;
   dashboardUrl: string | null;
 }) {
-  const driverState: QuayDriverState = snapshot.driver?.state ?? 'not-configured';
-  const recentAdrs = snapshot.adrs?.recent ?? [];
+  // This panel only renders for a project that has a `.quay/config.yml`, so a null
+  // driver means `driver status --json` did not answer — never "not configured",
+  // which would contradict the very tab the badge sits in.
+  const driverState: QuayDriverState = snapshot.driver === null ? 'unavailable' : snapshot.driver.state;
 
   return (
     <div className="flex h-full flex-col overflow-y-auto p-4" data-testid="quay-panel-loaded">
@@ -430,19 +477,23 @@ function LoadedQuayPanel({
             <div className="flex justify-between rounded border border-border/40 px-2 py-1">
               <dt className="text-muted-foreground">Last record</dt>
               <dd className="text-foreground" data-testid="quay-panel-driver-last-record">
-                {formatTimestamp(snapshot.driver?.lastRecordAt ?? null)}
+                {/* `never` is a real reading (the driver has no record yet); a failed
+                    read is not, and saying `never` for it invents one. */}
+                {snapshot.driver === null ? 'unavailable' : formatTimestamp(snapshot.driver.lastRecordAt)}
               </dd>
             </div>
             <div className="flex justify-between rounded border border-border/40 px-2 py-1">
               <dt className="text-muted-foreground">Config issues</dt>
-              <dd className="text-foreground">{snapshot.configIssues?.total ?? 0}</dd>
+              <dd className="text-foreground" data-testid="quay-panel-config-issues">
+                {snapshot.configIssues === null ? 'unavailable' : snapshot.configIssues.total}
+              </dd>
             </div>
           </dl>
         </section>
 
         <DetailList
-          title={`ADRs (${snapshot.adrs?.total ?? 0})`}
-          items={recentAdrs}
+          title={snapshot.adrs === null ? 'ADRs' : `ADRs (${snapshot.adrs.total})`}
+          items={snapshot.adrs === null ? null : snapshot.adrs.recent}
           emptyText="No ADRs reported."
           testId="quay-panel-recent-adrs"
         />

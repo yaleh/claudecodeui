@@ -25,24 +25,21 @@
  * result; this module only sees a `Float32Array`.
  */
 
-/**
- * Frame length for the energy detector. 20 ms is the shortest span that still
- * contains a pitch period for a low voice (~50 Hz), so a frame's RMS tracks
- * loudness rather than the waveform's instantaneous phase.
- */
-const FRAME_MS = 20;
+import {
+  FRAME_MS,
+  MIN_FRAME_ENERGY,
+  NOISE_PERCENTILE,
+  POST_ROLL_MS,
+  PRE_ROLL_MS,
+  frameFlags,
+} from '@/shared/voiceEndpoint';
 
 /**
- * Padding kept around each detected speech region, before and after.
- *
- * This is the whole reason the output is not just "the frames flagged as
- * speech": the first phoneme of a word and the final consonant are quieter than
- * the threshold, so cutting exactly at the detected boundary reliably clips
- * them. Pre-roll is shorter than post-roll because a stop consonant at the end
- * of a word is the quieter of the two.
+ * The frame length, the pre/post roll, the noise percentile and the frame decision itself
+ * live in `@/shared/voiceEndpoint`, so the batch path here and the streaming path share one
+ * definition of each. This module keeps only what is specific to trimming a finished buffer:
+ * whole-clip noise estimation, region merging, the pause table and the splice.
  */
-const PRE_ROLL_MS = 120;
-const POST_ROLL_MS = 180;
 
 /**
  * Silence deliberately left at the head and tail of the output.
@@ -78,23 +75,12 @@ const MAX_SAMPLE_RATE = 192000;
  */
 const MIN_FRAMES = 5;
 
-/**
- * VAD thresholds, relative to the measured noise floor.
- *
- * `ENTER` is above `EXIT`; that gap is the hysteresis that stops the decision
- * flapping on frames which sit near the boundary. `SPEECH_FRAMES_TO_START`
- * (60 ms of speech before committing) rejects clicks, key taps and breaths;
- * `SILENCE_FRAMES_TO_END` (300 ms before committing to an end) is longer than a
- * stop closure inside a word, so a plosive does not split one utterance into
- * two regions.
+/*
+ * The VAD thresholds — `ENTER_FACTOR`, `EXIT_FACTOR`, `SPEECH_FRAMES_TO_START` and
+ * `SILENCE_FRAMES_TO_END` — are no longer declared here. They are exported by
+ * `@/shared/voiceEndpoint` and imported above, which is what keeps the batch decision made
+ * below and the streaming decision made frame by frame from drifting apart.
  */
-const ENTER_FACTOR = 3.0;
-const EXIT_FACTOR = 1.8;
-const SPEECH_FRAMES_TO_START = 3;
-const SILENCE_FRAMES_TO_END = 15;
-
-/** The percentile of frame energies taken as the noise floor. */
-const NOISE_PERCENTILE = 0.15;
 
 /**
  * The pause-cap table, frozen by hand on 2026-09-21.
@@ -196,42 +182,6 @@ function frameEnergies(samples: Float32Array, frame: number): Float64Array {
 function percentile(sorted: Float64Array, p: number): number {
   if (!sorted.length) return 0;
   return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))];
-}
-
-/**
- * Frame-level speech/silence decisions, with hysteresis.
- *
- * The transition is *backdated* by the number of frames the decision needed:
- * the state only becomes trustworthy after `need` agreeing frames, but the
- * boundary belongs where the evidence started, not where the counter ran out.
- * Without that, every region would begin `need` frames late and the run-up to
- * each word would be trimmed away.
- */
-function frameFlags(energies: Float64Array, noise: number): Uint8Array {
-  const enter = noise * ENTER_FACTOR;
-  const exit = Math.max(noise * EXIT_FACTOR, enter * 0.6);
-
-  const flags = new Uint8Array(energies.length);
-  let state = 0;
-  let run = 0;
-
-  for (let i = 0; i < energies.length; i++) {
-    const above = energies[i] >= (state ? exit : enter);
-    if (above !== Boolean(state)) {
-      run++;
-      const need = state ? SILENCE_FRAMES_TO_END : SPEECH_FRAMES_TO_START;
-      if (run >= need) {
-        state = state ? 0 : 1;
-        run = 0;
-        for (let k = Math.max(0, i - need + 1); k <= i; k++) flags[k] = state;
-      }
-    } else {
-      run = 0;
-    }
-    flags[i] = state;
-  }
-
-  return flags;
 }
 
 /**
@@ -402,7 +352,7 @@ export function trimVoiceAudio(samples: Float32Array, sampleRate: number, opts: 
 
   const energies = frameEnergies(samples, frame);
   const sorted = Float64Array.from(energies).sort();
-  const noiseFloor = Math.max(1e-6, percentile(sorted, NOISE_PERCENTILE));
+  const noiseFloor = Math.max(MIN_FRAME_ENERGY, percentile(sorted, NOISE_PERCENTILE));
   const flags = frameFlags(energies, noiseFloor);
 
   const preFrames = Math.round(preRollMs / FRAME_MS);

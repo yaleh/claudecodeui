@@ -198,6 +198,10 @@ export const getTaskIndicatorStatus = (
  * reading is only known for a project whose snapshot has been fetched, so an
  * absent snapshot leaves a configured project at `idle` rather than inventing a
  * running/stale state the sidebar never observed.
+ *
+ * `unavailable` is the one driver state that passes through as-is: it is an
+ * *observed* failed read (the snapshot exists and its driver command did not
+ * answer), which is neither an absent snapshot nor a driver claim.
  */
 export const getQuayIndicatorStatus = (
   project: Project,
@@ -208,7 +212,12 @@ export const getQuayIndicatorStatus = (
   }
 
   const driverState = quayStatus?.driver?.state;
-  if (driverState === 'running' || driverState === 'stale' || driverState === 'idle') {
+  if (
+    driverState === 'running'
+    || driverState === 'stale'
+    || driverState === 'idle'
+    || driverState === 'unavailable'
+  ) {
     return driverState;
   }
 
