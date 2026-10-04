@@ -942,6 +942,8 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
         meta?: {
           promptVersion?: string;
           writtenFallback?: number;
+          /** The service's own usage counts for this attempt, when it states any. Printed on the line. */
+          usage?: Record<string, number>;
           /** The adapter's code for this failure, read for the row's branch. Never on the line. */
           code?: string;
           /** The text this attempt returned to its caller, read for the row. Never on the line. */
@@ -952,7 +954,12 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
           `voice.transcribe providerId=${providerId} outcome=${outcome} status=${status} ` +
           `latencyMs=${Date.now() - startedAt}` +
           (meta?.promptVersion === undefined ? '' : ` promptVersion=${meta.promptVersion}`) +
-          (meta?.writtenFallback === undefined ? '' : ` writtenFallback=${meta.writtenFallback}`);
+          (meta?.writtenFallback === undefined ? '' : ` writtenFallback=${meta.writtenFallback}`) +
+          // Counts only (`usage=prompt_tokens:120,total_tokens:150`), absent when the service stated
+          // none, so a provider that reports no usage keeps the line it always had.
+          (meta?.usage === undefined
+            ? ''
+            : ` usage=${Object.entries(meta.usage).map(([key, value]) => `${key}:${value}`).join(',')}`);
 
         if (recording === null) {
           log.info(line);
@@ -1216,6 +1223,7 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
         logAttempt('ok', 200, {
           promptVersion: result.meta?.promptVersion,
           writtenFallback: result.meta?.writtenFallback,
+          usage: result.meta?.usage,
           text: result.text,
         });
 
