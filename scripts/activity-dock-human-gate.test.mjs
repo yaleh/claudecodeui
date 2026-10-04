@@ -231,7 +231,6 @@ function sampleRecord015({ omit = [], humanLine = '' } = {}) {
   const monitor = has('Monitor') ? 'Monitor' : '监控';
   const fg = has('前台长命令') ? '前台长命令' : '长命令';
   const bg = has('转后台') ? '转后台' : '放后台';
-  const backTask = has('后台任务') ? '后台任务' : '任务';
   const dis = has('不可点') ? '不可点' : '可点击';
   const rsn = has('原因') ? '原因' : '说明';
   const notif = has('由 SDK 的通知') ? '由 SDK 的通知' : '来自事件';
