@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { ClaudeSessionsProvider, forwardNormalizedFrames, readSessionTurn } from '@/modules/providers/index.js';
-import { activityAnnouncement } from '@/modules/websocket/index.js';
+import { activityAnnouncement, chatRunRegistry } from '@/modules/websocket/index.js';
 
 // The run loop's SDK message handler used to inline the whole "normalize this
 // SDK event, carry the wrapper's parentToolUseId, drop the subagent prompt echo,
@@ -28,6 +28,11 @@ function recordingWriter(): { frames: Array<Frame>; send: (message: Frame) => vo
 }
 
 const SESSION_ID = 'claude-frame-forwarding-1';
+
+/** Prints a reading, so the green main case is visible next to its expectation. */
+function say(message: string): void {
+  process.stdout.write(`[frame-forwarding] ${message}\n`);
+}
 
 test('every normalized frame is handed to the writer, in order', () => {
   const writer = recordingWriter();
@@ -217,4 +222,141 @@ test('the phase falls back to idle when the turn’s result arrives (AC2)', () =
     'the result frame did not return the same query to idle — the tracker reports a turn that has ended',
   );
   assert.equal(readSessionTurn(APP_SESSION_ID).phase, 'idle');
+});
+
+// ---------------------------------------------------------------------------
+// gap-task-terminal-transition-transcript-row (AC3/AC4)
+//
+// A task crossing into a terminal state must leave one transcript line, produced
+// by the server's reduction and carried on the same sequenced, replayable stream
+// as every other frame — not only pushed once. These cases drive the real
+// forwarder with the real gateway writer (`chatRunRegistry`), so the assertions
+// are about what a reconnecting client would actually replay, and about the
+// de-duplication against the CLI's own `<task-notification>` row.
+// ---------------------------------------------------------------------------
+
+/** A `system/task_started` frame, as the run loop hands it to the forwarder. */
+function taskStartedFrame(sessionId: string, taskId: string, taskType: string): Frame {
+  return {
+    type: 'system',
+    subtype: 'task_started',
+    task_id: taskId,
+    task_type: taskType,
+    description: `task ${taskId}`,
+    uuid: `u-start-${taskId}`,
+    session_id: sessionId,
+  };
+}
+
+/** A `system/task_updated` status patch — where a background shell terminates. */
+function taskUpdatedFrame(sessionId: string, taskId: string, status: string): Frame {
+  return {
+    type: 'system',
+    subtype: 'task_updated',
+    task_id: taskId,
+    patch: { status },
+    uuid: `u-updated-${taskId}`,
+    session_id: sessionId,
+  };
+}
+
+test('AC3 a terminal transition is forwarded as one replayable task_notification frame', () => {
+  const appSessionId = 'claude-frame-forwarding-terminal-ac3';
+  chatRunRegistry.clearAll();
+  const run = chatRunRegistry.startRun({
+    appSessionId,
+    provider: 'claude',
+    providerSessionId: null,
+    connection: null,
+    userId: null,
+  });
+  assert.ok(run, 'the run starts, so its writer sequences and buffers the frames');
+  const writer = run.writer;
+  const feed = (frame: Frame) =>
+    forwardNormalizedFrames({
+      transformedMessage: frame,
+      sessionId: appSessionId,
+      turnSessionId: appSessionId,
+      normalizeMessage: () => [],
+      writer,
+    });
+
+  // A background shell: terminal only through `task_updated{completed}`, with no
+  // `task_notification` frame and no CLI row of its own.
+  const taskId = 'ac3-bg-bash';
+  feed(taskStartedFrame(appSessionId, taskId, 'local_bash'));
+  feed(taskUpdatedFrame(appSessionId, taskId, 'completed'));
+
+  const replayed = chatRunRegistry.replayEvents(appSessionId, 0);
+  const terminal = replayed.filter((message) => message.kind === 'task_notification');
+  say(`AC3 replayed task_notification frames: ${terminal.length} (expect 1)`);
+  assert.equal(terminal.length, 1, 'exactly one terminal frame is in the replay buffer');
+  assert.equal(terminal[0].status, 'completed', 'the frame carries the terminal status');
+  assert.equal(terminal[0].taskId, taskId, 'the frame is joinable to the task table by task id');
+  assert.equal(
+    terminal[0].id,
+    `task-terminal:${taskId}:completed`,
+    'the frame id is stable: task id plus terminal state',
+  );
+  assert.equal(typeof terminal[0].seq, 'number', 'the gateway writer sequenced the frame for replay');
+
+  // A re-subscribe replays the same buffered sequence; the frame is still there,
+  // and still only one — the reducer reports a crossing exactly once.
+  const replayedAgain = chatRunRegistry
+    .replayEvents(appSessionId, 0)
+    .filter((message) => message.kind === 'task_notification');
+  assert.equal(replayedAgain.length, 1, 'the replay carries the same single frame, not a second one');
+  assert.equal(replayedAgain[0].id, terminal[0].id, 'the replayed frame is the identical event');
+
+  chatRunRegistry.clearAll();
+});
+
+test('AC4 a subagent terminal adds no second row beside the CLI notification', () => {
+  const appSessionId = 'claude-frame-forwarding-dedup-ac4';
+  chatRunRegistry.clearAll();
+  const run = chatRunRegistry.startRun({
+    appSessionId,
+    provider: 'claude',
+    providerSessionId: null,
+    connection: null,
+    userId: null,
+  });
+  assert.ok(run, 'the run starts');
+  const writer = run.writer;
+  const feed = (frame: Frame) =>
+    forwardNormalizedFrames({
+      transformedMessage: frame,
+      sessionId: appSessionId,
+      turnSessionId: appSessionId,
+      normalizeMessage: () => [],
+      writer,
+    });
+
+  // A background agent: the CLI enqueues a `<task-notification>` user row for it,
+  // so it already has a terminal line — the server must add none.
+  feed(taskStartedFrame(appSessionId, 'ac4-subagent', 'local_agent'));
+  feed(taskUpdatedFrame(appSessionId, 'ac4-subagent', 'completed'));
+
+  // A background shell: the CLI writes nothing, so the server frame is the line.
+  feed(taskStartedFrame(appSessionId, 'ac4-shell', 'local_bash'));
+  feed(taskUpdatedFrame(appSessionId, 'ac4-shell', 'completed'));
+
+  const frames = chatRunRegistry.replayEvents(appSessionId, 0);
+  const serverRows = (taskId: string) =>
+    frames.filter((message) => message.kind === 'task_notification' && message.taskId === taskId).length;
+  // The transcript projection for one task's terminal: the CLI's own notification
+  // row (1 for the agent — the CLI mirrors it; 0 for the shell) plus every
+  // server-emitted terminal frame for that task.
+  const projectedRows = (taskId: string, cliRows: number) => cliRows + serverRows(taskId);
+
+  say(
+    `AC4 subagent rows: ${projectedRows('ac4-subagent', 1)} (cli 1 + server ${serverRows('ac4-subagent')}); ` +
+      `shell rows: ${projectedRows('ac4-shell', 0)} (cli 0 + server ${serverRows('ac4-shell')})`,
+  );
+  assert.equal(serverRows('ac4-subagent'), 0, 'the subagent gets no server frame beside the CLI row');
+  assert.equal(projectedRows('ac4-subagent', 1), 1, 'the subagent transcript shows exactly one terminal line');
+  assert.equal(serverRows('ac4-shell'), 1, 'the shell gets exactly one server frame');
+  assert.equal(projectedRows('ac4-shell', 0), 1, 'the shell transcript shows exactly one terminal line');
+
+  chatRunRegistry.clearAll();
 });

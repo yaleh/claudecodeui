@@ -462,6 +462,17 @@ export type NormalizedMessage = {
   newSessionId?: string;
   status?: string;
   summary?: string;
+  /**
+   * The background task a `kind: 'task_notification'` frame is about — the SDK's
+   * own `task_id`.
+   *
+   * Set on the frames the server emits for a task's terminal transition, where it
+   * is the row's stable identity: it joins the transcript line to the task table
+   * (the dock's `ActivityTask.taskId`) and lets a replay be recognized as the
+   * same event rather than a new one. Absent on the CLI's own notification rows,
+   * which carry it inside their `<task-id>` element instead.
+   */
+  taskId?: string;
   tokenBudget?: unknown;
   /**
    * Timeline of everything a subagent did, attached to the `tool_use` that
