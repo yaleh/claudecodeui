@@ -128,3 +128,6 @@ goal_ac: AC-121
 - playwright.config.ts
 - e2e/voice-trim.spec.ts
 - tasks/gap-e2e-shared-vite-dep-cache-invalidates-inflight-page.md
+
+
+判据退役登记（2026-10-04，人 yale 授权，见 tasks/gap-voice-single-continuous-input-path.md 的 Resolution）：本任务 AC1 与 AC6 的判据都点名 `e2e/voice-trim.spec.ts -g "AC-121"`（AC6 为整文件全腿），该腿随 AC-121 一同退役，判据命令必然 No tests found，不得再把它的红读成本任务的回归。同因：AC5 里对该 spec 的两处字符串读数（grep 计数「the switch was off and the chain printed a trim reading anyway」等）随被删的腿一起归零。本任务修的缺陷（所有 checkout 共用 node_modules/.vite 依赖缓存，被并发运行的重预构建作废）不受影响：AC3 的机械读数（VITE_CACHE_DIR 隔离、_metadata.json 的 mtime 不变）与 AC4 的干涉正控仍然可测，e2e 侧的隔离改由 e2e/voice-continuous.spec.ts 承担（同样经 playwright.config.ts 起隔离 cacheDir）。
