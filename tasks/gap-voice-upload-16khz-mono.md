@@ -29,12 +29,12 @@ extra:
 
 ## AC
 
-- [ ] `npm run test:client -- src/shared/tests/voiceUpload16k.test.ts` 退出码 0
-- [ ] 测试断言：同一段输入，降采样输出的采样率为 16000、时长与输入相差不超过 1 个采样点对应的时间，且 WAV 头的采样率字段为 16000
-- [ ] 测试断言：一段 1 kHz 正弦在 48 kHz 输入下降采样后主频仍为 1 kHz；一段 20 kHz 正弦（高于 16 kHz 奈奎斯特频率）降采样后能量低于输入的 1%（抗混叠有效，不是隔点取样）
-- [ ] 测试断言：`prepare` 在 guard 触发（回退路径）时仍返回原始 webm，不是降采样后的 WAV
-- [ ] 对 `corpus/long/L4-nonstop.wav` 的样本规模，上传 WAV 字节数 ≤ 现行 48 kHz 格式的 36%（约 1/3），测试里用同一段样本两种格式的字节数比较
-- [ ] `npm run lint` 与 `npm run typecheck` 退出码 0
+- [x] `npm run test:client -- src/shared/tests/voiceUpload16k.test.ts` 退出码 0
+- [x] 测试断言：同一段输入，降采样输出的采样率为 16000、时长与输入相差不超过 1 个采样点对应的时间，且 WAV 头的采样率字段为 16000
+- [x] 测试断言：一段 1 kHz 正弦在 48 kHz 输入下降采样后主频仍为 1 kHz；一段 20 kHz 正弦（高于 16 kHz 奈奎斯特频率）降采样后能量低于输入的 1%（抗混叠有效，不是隔点取样）
+- [x] 测试断言：`prepare` 在 guard 触发（回退路径）时仍返回原始 webm，不是降采样后的 WAV
+- [x] 对 `corpus/long/L4-nonstop.wav` 的样本规模，上传 WAV 字节数 ≤ 现行 48 kHz 格式的 36%（约 1/3），测试里用同一段样本两种格式的字节数比较
+- [x] `npm run lint` 与 `npm run typecheck` 退出码 0
 
 ## DoD
 
@@ -49,4 +49,6 @@ L_G 该轴仍暗，理由：同上，没有新的生成质量轴读数。
 - src/modules/chat/utils/audioDecode.ts
 - src/modules/chat/hooks/useVoiceInput.ts
 - src/shared/tests/voiceUpload16k.test.ts (new)
+- src/modules/chat/tests/voiceTrimCapabilityWiring.test.tsx
+- src/modules/chat/tests/voiceClipPlayback.test.tsx
 - tasks/gap-voice-upload-16khz-mono.md
