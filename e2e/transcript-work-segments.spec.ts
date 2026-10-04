@@ -274,21 +274,57 @@ test.describe('work segment density and search expand', () => {
       'the action is derived per run, not one constant across every header',
     ).toBeGreaterThan(1);
 
-    // (i)'s positive control: open every segment, so the member rows merging withheld are all on screen. A
-    // member draws the same height open as it would unmerged, so this is the unmerged density — and it is what
-    // proves the two thresholds separate collapsed from unmerged rather than holding for any input.
-    const toggleAll = async (expected: 'true' | 'false') => {
-      for (let index = 0; index < headerCount; index += 1) {
-        const button = headers.nth(index);
-        await button.scrollIntoViewIfNeeded();
-        await button.click();
-        await expect(button, `header ${index} of ${headerCount}`).toHaveAttribute('aria-expanded', expected);
-        await page.waitForTimeout(120);
+    // Open (or close) every segment and read the density while it holds, tolerating the client replacing the
+    // document underneath the reading.
+    //
+    // This run's client is Vite, and Vite can replace the document whole mid-run: a re-optimization committed
+    // after the server began serving — the `504 Outdated Optimize Dep` this run's shared dependency cache can
+    // still hand back, the failure the sibling criteria settle with their own bounded reloads — is answered by
+    // pushing `full-reload` to every connected client. A reload between the clicks remounts the pane, and
+    // AC-204's contract starts a fresh pane collapsed, so the segments opened before the reload are shut again
+    // while the ones after it stay open: the transcript reads half-open (20 rows, under the baseline) though the
+    // app did nothing wrong. The control's claim is about the app's density with every segment open, so that
+    // precondition is established on the document the density is actually read from — and re-established,
+    // bounded, if a reload tore that document down — rather than assumed to have survived a restart. Only the
+    // state the assertions read is held; the thresholds and the comparisons are untouched.
+    const settledDensityWithEverySegment = async (open: boolean): Promise<Density> => {
+      const target = String(open);
+      const readHeaderStates = () =>
+        headers.evaluateAll((els) => els.map((el) => el.getAttribute('aria-expanded')));
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        for (let index = 0; index < headerCount; index += 1) {
+          const button = headers.nth(index);
+          await button.scrollIntoViewIfNeeded();
+          if ((await button.getAttribute('aria-expanded')) !== target) {
+            await button.click();
+          }
+          await expect(button, `header ${index} of ${headerCount}`).toHaveAttribute('aria-expanded', target);
+        }
+        const states = await readHeaderStates();
+        if (!(states.length === headerCount && states.every((state) => state === target))) {
+          // A restart replaced the document mid-pass; let the fresh one settle and re-apply there.
+          await page.locator(`${PANE} ${ROW}`).first().waitFor({ state: 'visible', timeout: 30_000 });
+          continue;
+        }
+        const density = await settledDensity(page);
+        // Re-read the states beside the density: a restart landing between the pass and the reading would
+        // otherwise let a half-open transcript stand in for the all-open control.
+        const settledStates = await readHeaderStates();
+        if (settledStates.length === headerCount && settledStates.every((state) => state === target)) {
+          return density;
+        }
+        await page.locator(`${PANE} ${ROW}`).first().waitFor({ state: 'visible', timeout: 30_000 });
       }
+      throw new Error(
+        `the transcript never held every segment ${open ? 'open' : 'collapsed'} through a density reading; `
+        + 'the client kept restarting the document',
+      );
     };
 
-    await toggleAll('true');
-    const expanded = await settledDensity(page);
+    // (i)'s positive control: every segment open, so the member rows merging withheld are all on screen. A
+    // member draws the same height open as it would unmerged, so this is the unmerged density — and it is what
+    // proves the two thresholds separate collapsed from unmerged rather than holding for any input.
+    const expanded = await settledDensityWithEverySegment(true);
     console.log('[AC-207] collapsed', JSON.stringify(collapsed), 'expanded-positive-control', JSON.stringify(expanded));
     expect(
       expanded.rows,
@@ -301,8 +337,7 @@ test.describe('work segment density and search expand', () => {
     expect(expanded.rows, 'the control really is the denser state').toBeGreaterThan(collapsed.rows);
 
     // Back to the default a user arrives at, so reading (ii) starts from the collapsed transcript.
-    await toggleAll('false');
-    const recollapsed = await settledDensity(page);
+    const recollapsed = await settledDensityWithEverySegment(false);
     expect(recollapsed.rows, 'collapsing restores the default density').toBe(collapsed.rows);
     expect((await readSegments(page)).every((segment) => segment.members.length === 0), 'all segments start collapsed').toBe(true);
 
