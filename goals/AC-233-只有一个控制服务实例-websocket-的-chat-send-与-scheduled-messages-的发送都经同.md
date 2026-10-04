@@ -2,7 +2,7 @@
 id: AC-233
 title: 只有一个控制服务实例：WebSocket 的 chat.send 与 scheduled-messages
   的发送都经同一个实例，WebSocket 处理器只剩解析与翻译
-status: draft
+status: active
 kind: criterion
 goal: GOAL-019
 criterion: for f in server/modules/websocket/tests/chat-control-wiring.test.ts;
@@ -22,4 +22,15 @@ expect: 读数：(a) 向 `createWebSocketServer` 或 `handleChatConnection`
   scheduled-messages 自己 new 一个控制服务 ⇒ (b) 必须红；(iii) WebSocket 与
   scheduled-messages 各持一个实例 ⇒ (b) 必须红。（红先行）当前必红：判据文件不存在，存在性闸以退出码 1 输出缺失的文件名。
 origin: docs/proposals/mcp-gateway-SPEC.md（v3）。人 yale 2026-10-05 指令：创建并激活本 goal 及其 AC。
+activatedAt: 2026-10-04T17:23:20.252Z
+statusLog:
+  - at: 2026-10-04T17:23:20.252Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-04T17:23:20.252Z
 ---
