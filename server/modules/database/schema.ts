@@ -366,10 +366,11 @@ ${USER_TABLE_SCHEMA_SQL}
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_users_active ON users(is_active);
 
-${API_KEYS_TABLE_SCHEMA_SQL}
-CREATE INDEX IF NOT EXISTS idx_api_keys_key ON api_keys(api_key);
-CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
-CREATE INDEX IF NOT EXISTS idx_api_keys_active ON api_keys(is_active);
+-- The legacy plaintext api_keys table and its idx_api_keys_* indexes are
+-- deliberately NOT declared here: the feature was retired in favour of hashed
+-- access_tokens, and a fresh database must not carry the dead structure. A
+-- database that still has them is cleaned up by dropLegacyApiKeysStructures
+-- in migrations.ts.
 
 ${USER_CREDENTIALS_TABLE_SCHEMA_SQL}
 CREATE INDEX IF NOT EXISTS idx_user_credentials_user_id ON user_credentials(user_id);
