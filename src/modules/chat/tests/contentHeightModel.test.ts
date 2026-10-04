@@ -174,6 +174,7 @@ describe('shouldUpdateEstimate', () => {
     pxPerMessage: SHORT_PX_PER_MESSAGE,
     totalMessages: 24,
     viewportHeight: 3_900,
+    rowSetKey: '24:first|last',
   };
 
   it('always accepts the first estimate', () => {
@@ -183,6 +184,14 @@ describe('shouldUpdateEstimate', () => {
   it('freezes while a gesture holds the thumb, however far the estimate has moved', () => {
     const next: EstimateState = { ...base, estimatedTotal: 9_999, pxPerMessage: 400 };
     expect(shouldUpdateEstimate(base, next, true)).toBe(false);
+  });
+
+  it('accepts a new row set even when every number is unchanged — a window swap replaces the elements', () => {
+    expect(shouldUpdateEstimate(base, { ...base, rowSetKey: '40:another|tipped' }, false)).toBe(true);
+  });
+
+  it('lets a window swap rebuild even while a gesture holds the thumb — the drawn length is snapshotted separately', () => {
+    expect(shouldUpdateEstimate(base, { ...base, rowSetKey: '40:another|tipped' }, true)).toBe(true);
   });
 
   it('ignores a change under the deadzone and accepts one over it', () => {

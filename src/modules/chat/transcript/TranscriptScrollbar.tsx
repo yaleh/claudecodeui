@@ -145,6 +145,11 @@ export default function TranscriptScrollbar({
   const [committedFraction, setCommittedFraction] = useState<number | null>(null);
   // The turn the drag/keyboard preview floats for, or null when none is shown.
   const [previewTurnId, setPreviewTurnId] = useState<string | null>(null);
+  // The thumb length a gesture holds, snapshotted when it begins and cleared when
+  // it settles. A window swap underneath a drag rebuilds the estimate (the rows
+  // the position reads are replaced), so the *length* cannot be read live under
+  // the pointer — it is frozen on this value instead.
+  const [frozenLength, setFrozenLength] = useState<number | null>(null);
   // Where the viewport top currently sits on the conversation's estimated pixel
   // scale, recomputed once a frame while the transcript moves. Null until the
   // window's rows can be measured.
@@ -261,6 +266,7 @@ export default function TranscriptScrollbar({
   const finishScrub = useCallback(() => {
     freezeRef.current = false;
     settlingRef.current = false;
+    setFrozenLength(null);
     if (settleTimerRef.current) {
       clearTimeout(settleTimerRef.current);
       settleTimerRef.current = null;
@@ -294,14 +300,17 @@ export default function TranscriptScrollbar({
   /**
    * The thumb's drawn length, by the browser's own rule against the estimated
    * conversation height: floored so a very long session still draws a grabbable
-   * lozenge, and with no ceiling below the track.
+   * lozenge, and with no ceiling below the track. A gesture that holds the thumb
+   * draws the length it captured when it began, so a window swap underneath it
+   * cannot move the length.
    */
-  const thumbHeight = thumbHeightPx(
+  const liveThumbHeight = thumbHeightPx(
     content.estimatedTotal,
     content.viewportHeight,
     trackHeight,
     TRANSCRIPT_SCROLLBAR_MIN_THUMB_PX,
   );
+  const thumbHeight = frozenLength ?? liveThumbHeight;
 
   // The scroll-time write needs the travel without waiting for a render.
   useEffect(() => {
@@ -326,13 +335,14 @@ export default function TranscriptScrollbar({
   const commitPosition = useCallback((fraction: number) => {
     freezeRef.current = true;
     settlingRef.current = true;
+    setFrozenLength(thumbHeight);
     setCommittedFraction(Math.min(1, Math.max(0, fraction)));
     if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
     settleTimerRef.current = setTimeout(() => {
       settleTimerRef.current = null;
       finishScrub();
     }, PENDING_POSITION_SETTLE_MS);
-  }, [finishScrub, freezeRef]);
+  }, [finishScrub, freezeRef, thumbHeight]);
 
   /**
    * Moves the transcript toward the dragged position.
@@ -407,6 +417,7 @@ export default function TranscriptScrollbar({
     const clamped = Math.min(1, Math.max(0, fraction));
     freezeRef.current = true;
     settlingRef.current = true;
+    setFrozenLength(thumbHeight);
     setCommittedFraction(clamped);
     if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
     commitTimerRef.current = setTimeout(() => {
@@ -419,7 +430,7 @@ export default function TranscriptScrollbar({
         finishScrub();
       }, PENDING_POSITION_SETTLE_MS);
     }, KEYBOARD_COMMIT_PAUSE_MS);
-  }, [finishScrub, freezeRef, onJumpToTurn, totalMessages, turnAtMessageOrdinal]);
+  }, [finishScrub, freezeRef, onJumpToTurn, thumbHeight, totalMessages, turnAtMessageOrdinal]);
 
   const handleThumbPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -437,6 +448,7 @@ export default function TranscriptScrollbar({
     setCommittedFraction(null);
     dragActiveRef.current = true;
     freezeRef.current = true;
+    setFrozenLength(thumbHeight);
     setDragging(true);
     event.currentTarget.setPointerCapture(event.pointerId);
     const fraction = shownFraction;

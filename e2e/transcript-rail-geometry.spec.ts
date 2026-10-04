@@ -39,6 +39,10 @@ const TINY_PROJECT_NAME = 'session-filter-workspace';
 const DESKTOP = { name: 'desktop 1440x900', size: { width: 1440, height: 900 } } as const;
 const SHORT_VIEWPORT = { name: 'short 1024x700', size: { width: 1024, height: 700 } } as const;
 const NARROW = { name: 'narrow 390x844', size: { width: 390, height: 844 } } as const;
+/** A viewport tall enough to hold the 24-message short fixture whole — nothing to scroll. */
+const FITS_VIEWPORT = { name: 'tall 1280x8000', size: { width: 1280, height: 8000 } } as const;
+/** A viewport the short fixture does not fit: the chrome has to be drawn. */
+const DOES_NOT_FIT_VIEWPORT = { name: 'tall 1280x4000', size: { width: 1280, height: 4000 } } as const;
 
 // ── The geometry the criterion fixes, restated on the reading side ───────────
 /** A normal tick, and the current turn's, in CSS pixels (each ±1). */
@@ -329,7 +333,7 @@ test.describe('the transcript rail is three columns and a handle that keeps out 
     await link.click({ timeout: 15_000 });
   };
 
-  test('AC-217 (a)(b)(c)(d)(e) the ticks are a fixed-size window and the scrollbar a column of its own', async () => {
+  test('AC-217 (a)(b)(c)(d)(e) v2 the ticks are a fixed-size window and the scrollbar a column of its own', async () => {
     for (const viewport of [DESKTOP, SHORT_VIEWPORT]) {
       const { context, page } = await openAt(viewport);
       try {
@@ -423,7 +427,7 @@ test.describe('the transcript rail is three columns and a handle that keeps out 
     }
   });
 
-  test('AC-217 (a)(e)(g) the narrow viewport drops the tick column, keeps the scrollbar, and clears the handle', async () => {
+  test('AC-217 (a)(e)(g) v2 the narrow viewport drops the tick column, keeps the scrollbar, and clears the handle', async () => {
     const { context, page } = await openAt(NARROW);
     try {
       await page.goto(`${origin}/session/${LONG_SESSION_ID}`);
@@ -461,7 +465,7 @@ test.describe('the transcript rail is three columns and a handle that keeps out 
     }
   });
 
-  test('AC-217 (f)(g) the handle is clamped into its band, however it was placed', async () => {
+  test('AC-217 (f)(g) v2 the handle is clamped into its band, however it was placed', async () => {
     const { context, page } = await openAt(DESKTOP);
     try {
       await page.goto(`${origin}/session/${LONG_SESSION_ID}`);
@@ -550,7 +554,7 @@ test.describe('the transcript rail is three columns and a handle that keeps out 
     }
   });
 
-  test('AC-217 (a)(h) a short conversation draws every turn it can hold, and under three turns nothing is drawn', async () => {
+  test('AC-217 (a)(h) v2 the chrome stands down when the content fits and appears when it does not', async () => {
     const { context, page } = await openAt(DESKTOP);
     try {
       await page.goto(`${origin}/`);
@@ -571,26 +575,67 @@ test.describe('the transcript rail is three columns and a handle that keeps out 
         reading.tickButtonCount,
         `a ${turns.length}-turn conversation must draw min(${turns.length}, ${TICK_CAPACITY}) ticks at ${where}`,
       ).toBe(Math.min(turns.length, TICK_CAPACITY));
-
-      // ── (h) under three turns both columns stand down, and the handle does not care ──
-      await page.goto(`${origin}/`);
-      await openViaSidebar(page, TINY_PROJECT_NAME, TINY_SESSION_NAME);
-      await settleTranscript(page);
-      const tiny = await readRail(page);
-      expect(tiny.tickButtonCount, `a one-turn transcript must draw no ticks: ${shown(tiny)}`).toBe(0);
-      expect(tiny.thumb, `a one-turn transcript must draw no scrollbar: ${shown(tiny)}`).toBeNull();
-      expect(tiny.track, `a one-turn transcript must draw no scrollbar track: ${shown(tiny)}`).toBeNull();
-      expect(tiny.handle, `the handle must still be drawn on a one-turn transcript: ${shown(tiny)}`).not.toBeNull();
-      expect(
-        tiny.handle!.bottom,
-        `the handle must stay on screen without the rail: ${shown(tiny)}`,
-      ).toBeLessThanOrEqual(tiny.pane.bottom);
-      expect(
-        tiny.handle!.top,
-        `the handle must stay clear of the export control without the rail: ${shown(tiny)}`,
-      ).toBeGreaterThanOrEqual((tiny.exportAnchor?.bottom ?? tiny.pane.top) + HANDLE_BAND_MARGIN - 1);
     } finally {
       await context.close();
+    }
+
+    // ── (h) the rule is the content, not the turn count ─────────────────────
+    // A twelve-turn conversation a tall viewport holds whole: both columns stand
+    // down even though there are far more turns than the old three-turn gate.
+    const fits = await openAt(FITS_VIEWPORT);
+    try {
+      await fits.page.goto(`${origin}/session/${SHORT_SESSION_ID}`);
+      await settleTranscript(fits.page);
+      const whole = await readRail(fits.page);
+      expect(whole.track, `a conversation the viewport holds must draw no scrollbar: ${shown(whole)}`).toBeNull();
+      expect(whole.thumb, `a conversation the viewport holds must draw no thumb: ${shown(whole)}`).toBeNull();
+      expect(whole.tickButtonCount, `no ticks may be drawn when the content fits: ${shown(whole)}`).toBe(0);
+
+      // Shrinking the viewport below the content brings both columns back.
+      await fits.page.setViewportSize(DOES_NOT_FIT_VIEWPORT.size);
+      await expect
+        .poll(async () => (await readRail(fits.page)).track !== null, {
+          timeout: 10_000,
+          message: 'shrinking the viewport below the content must bring the chrome back',
+        })
+        .toBe(true);
+      const shrunk = await readRail(fits.page);
+      expect(shrunk.thumb, `the scrollbar must be drawn once the content does not fit: ${shown(shrunk)}`).not.toBeNull();
+      expect(shrunk.tickButtonCount, `the ticks must be drawn once the content does not fit: ${shown(shrunk)}`).toBeGreaterThan(0);
+
+      // Growing it back past the content stands them down again.
+      await fits.page.setViewportSize(FITS_VIEWPORT.size);
+      await expect
+        .poll(async () => (await readRail(fits.page)).track, {
+          timeout: 10_000,
+          message: 'growing the viewport back past the content must stand the chrome down',
+        })
+        .toBeNull();
+    } finally {
+      await fits.context.close();
+    }
+
+    // ── (h) a one-turn conversation fits a normal viewport, and the handle does not care ──
+    const tiny = await openAt(DESKTOP);
+    try {
+      await tiny.page.goto(`${origin}/`);
+      await openViaSidebar(tiny.page, TINY_PROJECT_NAME, TINY_SESSION_NAME);
+      await settleTranscript(tiny.page);
+      const reading = await readRail(tiny.page);
+      expect(reading.tickButtonCount, `a one-turn transcript must draw no ticks: ${shown(reading)}`).toBe(0);
+      expect(reading.thumb, `a one-turn transcript must draw no scrollbar: ${shown(reading)}`).toBeNull();
+      expect(reading.track, `a one-turn transcript must draw no scrollbar track: ${shown(reading)}`).toBeNull();
+      expect(reading.handle, `the handle must still be drawn on a one-turn transcript: ${shown(reading)}`).not.toBeNull();
+      expect(
+        reading.handle!.bottom,
+        `the handle must stay on screen without the rail: ${shown(reading)}`,
+      ).toBeLessThanOrEqual(reading.pane.bottom);
+      expect(
+        reading.handle!.top,
+        `the handle must stay clear of the export control without the rail: ${shown(reading)}`,
+      ).toBeGreaterThanOrEqual((reading.exportAnchor?.bottom ?? reading.pane.top) + HANDLE_BAND_MARGIN - 1);
+    } finally {
+      await tiny.context.close();
     }
   });
 });

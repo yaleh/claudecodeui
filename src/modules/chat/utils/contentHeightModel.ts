@@ -222,16 +222,29 @@ export type EstimateState = {
   totalMessages: number;
   /** The scroll container's drawn height. */
   viewportHeight: number;
+  /**
+   * A cheap identity of the loaded row set — its length and its two ends. A
+   * window swap can leave every number above unchanged (a uniform fixture's
+   * estimate is the same for any window) while every row element is replaced, and
+   * the drawn geometry holds references to those elements; the row set itself
+   * therefore has to be part of what triggers a rebuild.
+   */
+  rowSetKey: string;
 };
 
 /**
  * Whether a freshly computed estimate should replace the drawn one.
  *
  * The estimate is rebuilt only when something it is built from has moved: the
- * conversation's message count, the viewport height, the running px-per-message,
- * or the estimate itself by more than `deadzonePx`. A gesture that holds the
- * thumb (`frozen`) suppresses every rebuild, so the length cannot breathe under
- * the pointer; the rebuild resumes on release.
+ * loaded row set, the conversation's message count, the viewport height, the
+ * running px-per-message, or the estimate itself by more than `deadzonePx`.
+ *
+ * A gesture that holds the thumb (`frozen`) suppresses a rebuild so the numbers
+ * cannot move under the pointer — but a *new row set* still wins: a jump or a
+ * drag reads a new window, and the drawn geometry holds references to the old
+ * window's elements, so refusing that rebuild would leave the position reading
+ * detached nodes. The drawn *length* is held separately (a snapshot taken when
+ * the gesture began), so a window swap underneath a drag cannot change it.
  */
 export function shouldUpdateEstimate(
   previous: EstimateState | null,
@@ -240,6 +253,7 @@ export function shouldUpdateEstimate(
   deadzonePx: number = ESTIMATE_DEADZONE_PX,
 ): boolean {
   if (!previous) return true;
+  if (previous.rowSetKey !== next.rowSetKey) return true;
   if (frozen) return false;
   if (previous.totalMessages !== next.totalMessages) return true;
   if (Math.abs(previous.viewportHeight - next.viewportHeight) > 0.5) return true;

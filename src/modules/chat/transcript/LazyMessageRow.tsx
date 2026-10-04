@@ -60,11 +60,18 @@ export default function LazyMessageRow({
 
   const handleNearViewportChange = useCallback((nextIsNearViewport: boolean) => {
     if (!nextIsNearViewport) {
-      // Measured now, while the content is still in the DOM, so the
-      // placeholder that replaces it occupies exactly the same space.
-      const height = elementRef.current?.offsetHeight ?? 0;
-      if (height > 0) {
-        setMeasuredHeight(height);
+      // Measured now, while the content is still in the DOM, so the placeholder
+      // that replaces it occupies exactly the same space. A row that was never
+      // mounted has no content in the DOM — its element is already the 100px
+      // placeholder, and capturing that would record a placeholder as this row's
+      // real height (which the scrollbar's pixel estimate must never take for a
+      // measurement).
+      const element = elementRef.current;
+      if (element && element.firstElementChild) {
+        const height = element.offsetHeight;
+        if (height > 0) {
+          setMeasuredHeight(height);
+        }
       }
     }
     setIsNearViewport(nextIsNearViewport);

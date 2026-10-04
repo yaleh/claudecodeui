@@ -140,12 +140,32 @@ function useTranscriptContent(
       };
     });
 
+    // The vertical space between adjacent rows — the content column's own
+    // `space-y` — is part of the conversation's real height but not of any row's
+    // own `offsetHeight`, so fold it into each row's slot before estimating. A
+    // row's slot is its height plus the gap beneath it; the running
+    // px-per-message is then a slot per message, which is what the drawn length
+    // and the exposed `data-px-per-message` both mean.
+    let gapTotal = 0;
+    let gapCount = 0;
+    for (let index = 1; index < rows.length; index += 1) {
+      const gap = rows[index].getBoundingClientRect().top - rows[index - 1].getBoundingClientRect().bottom;
+      if (gap >= 0 && gap < 200) {
+        gapTotal += gap;
+        gapCount += 1;
+      }
+    }
+    const rowGapPx = gapCount > 0 ? gapTotal / gapCount : 0;
+    const slotInputs: ContentRowInput[] = inputs.map((row) =>
+      row.measured ? { ...row, height: row.height + rowGapPx } : row,
+    );
+
     // A session switch changes the conversation's message count; the previous
     // session's px-per-message would otherwise slowly drag the new estimate.
     if (builtStateRef.current && builtStateRef.current.totalMessages !== totalMessages) {
       pxPerMessageRef.current = 0;
     }
-    const pxPerMessage = nextPxPerMessage(pxPerMessageRef.current, inputs);
+    const pxPerMessage = nextPxPerMessage(pxPerMessageRef.current, slotInputs);
 
     // The loaded window's opening ordinal — how many messages the conversation
     // holds above it. A work-segment row counts its members, so the rows before
@@ -167,7 +187,7 @@ function useTranscriptContent(
     const windowMessages = inputs.reduce((sum, row) => sum + row.messages, 0);
     const messagesAfterWindow = Math.max(0, totalMessages - messagesBeforeWindow - windowMessages);
     const estimate = estimateContent({
-      rows: inputs,
+      rows: slotInputs,
       messagesBeforeWindow,
       messagesAfterWindow,
       pxPerMessage,
@@ -179,6 +199,12 @@ function useTranscriptContent(
       pxPerMessage,
       totalMessages,
       viewportHeight,
+      // The row set's cheap identity: a window swap can leave the estimate's
+      // numbers unchanged while every row element is replaced, and the drawn
+      // geometry holds those elements.
+      rowSetKey: rows.length === 0
+        ? ''
+        : `${rows.length}:${rows[0].getAttribute('data-message-anchor-id') ?? rows[0].getAttribute('data-message-timestamp') ?? ''}|${rows[rows.length - 1].getAttribute('data-message-anchor-id') ?? rows[rows.length - 1].getAttribute('data-message-timestamp') ?? ''}`,
     };
     if (!shouldUpdateEstimate(builtStateRef.current, next, frozenRef.current === true)) return;
     builtStateRef.current = next;

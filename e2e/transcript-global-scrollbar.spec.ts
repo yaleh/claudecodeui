@@ -9,9 +9,10 @@ import type { Browser, BrowserContext, Page } from '@playwright/test';
 // `role="scrollbar"` control: draggable, clickable and keyboard-operable. A drag
 // may read as it moves (the content follows the pointer), but at most one read is
 // ever in flight and the released position is the one that settles — an older
-// read never overwrites a newer window. Its drawn length is the share of the
-// conversation the viewport is showing, clamped, rather than a fixed 40 pixels;
-// and it is a neutral grey at rest, never the theme's own colour.
+// read never overwrites a newer window. Its drawn length and position are AC-219's
+// now — the browser formula against an estimated content height — so this file only
+// reads that a thumb is drawn; and it is a neutral grey at rest, never the theme's
+// own colour.
 //
 // v3 because AC-218 changed what a drag is allowed to do: v2 asserted a drag
 // fetched nothing until it rested, and the criterion now allows reads while the
@@ -41,8 +42,6 @@ const TOTAL_TURNS = 1200;
 const TOTAL_MESSAGES = 4800;
 /** The turn "near the earliest" the criterion jumps to: ~10% of the conversation. */
 const EARLY_TURN = 121;
-/** The short fixture: 24 messages, 12 user turns — a conversation a tall viewport can hold. */
-const SHORT_SESSION_ID = 'e2e-transcript-follow';
 /** Fixed desktop viewport, so the rail lays out and the pane is a known size. */
 const VIEWPORT = { width: 1280, height: 1200 };
 /**
@@ -778,7 +777,7 @@ test.describe('drawn global scrollbar in a real browser', () => {
     await page.close().catch(() => undefined);
   });
 
-  test('AC-214 v3 the drawn scrollbar is a part of its own: ordinal position, proportional length, neutral at rest', async () => {
+  test('AC-214 v3 the drawn scrollbar is a part of its own: ordinal position, neutral at rest', async () => {
     const track = page.locator('[data-scrollbar-track]');
     const thumb = page.locator('[data-scrollbar-thumb]');
     await expect(track, 'the transcript must draw its own scrollbar track').toBeVisible({ timeout: 20_000 });
@@ -808,24 +807,14 @@ test.describe('drawn global scrollbar in a real browser', () => {
       `first screen at the tail must put the thumb at the far end: ${JSON.stringify(atTail)}`,
     ).toBeGreaterThanOrEqual(0.97);
 
-    // ── (f) the drawn length is the visible share of the conversation, clamped ──
+    // ── (f) the drawn length is no longer this criterion's: it is AC-219's, and it
+    // is the browser formula against an estimated content height rather than the
+    // visible share. Only the fact that a thumb is drawn is read here. ─────────
     const length = await readThumbLength(page, turns, totalMessages);
-    const expectedLength = Math.min(
-      Math.max((length.visibleMessages / length.totalMessages) * length.trackHeight, 28),
-      length.trackHeight * 0.25,
-    );
-    expect(
-      Math.abs(length.thumbHeight - expectedLength),
-      `the thumb's length must be clamp(visible/total x track, 28px, 25% track): ${JSON.stringify({ ...length, expectedLength })}`,
-    ).toBeLessThanOrEqual(2);
     expect(
       length.thumbHeight,
-      `the thumb must not be drawn at a fixed size: ${JSON.stringify(length)}`,
+      `a thumb must be drawn: ${JSON.stringify(length)}`,
     ).toBeGreaterThanOrEqual(28);
-    expect(
-      length.thumbHeight,
-      `the thumb may never fill more than a quarter of its track: ${JSON.stringify(length)}`,
-    ).toBeLessThanOrEqual(length.trackHeight * 0.25 + 2);
 
     // ── (g) at rest the thumb is neutral, never the theme's own colour ────────
     const primary = themeColorToRgb(await page.evaluate(() =>
@@ -971,13 +960,10 @@ test.describe('drawn global scrollbar in a real browser', () => {
     // The pointer is put over the transcript, where a wheel is the transcript's.
     await pointAtPane(page);
     const windowStartBefore = await windowFirstRowFraction(page, turns, totalMessages);
-    const lengthBefore = await readThumbLength(page, turns, totalMessages);
     await startProgressSampler(page);
-    const lengthsDuring: number[] = [];
     for (let step = 0; step < 14; step += 1) {
       await page.mouse.wheel(0, -WHEEL_STEP_PX);
       await page.waitForTimeout(120);
-      lengthsDuring.push((await readThumbLength(page, turns, totalMessages)).thumbHeight);
     }
     await page.waitForTimeout(400);
     const samples = await stopProgressSampler(page);
@@ -1001,13 +987,6 @@ test.describe('drawn global scrollbar in a real browser', () => {
       samples[samples.length - 1],
       `wheeling up must have moved the thumb towards the start: ${JSON.stringify(samples)}`,
     ).toBeLessThan(samples[0]);
-    // (f) ...and the drawn length does not shrink as the window grows around it.
-    for (const measured of lengthsDuring) {
-      expect(
-        measured,
-        `the thumb's drawn length must not shrink as the loaded window grows: ${JSON.stringify({ lengthBefore, lengthsDuring })}`,
-      ).toBeGreaterThanOrEqual(lengthBefore.thumbHeight - 2);
-    }
 
     // ── (e) a click on the blank track and the keyboard both move the thumb, and
     // a click on the tick column is neither ───────────────────────────────────
@@ -1095,53 +1074,6 @@ test.describe('drawn global scrollbar in a real browser', () => {
         message: 'clicking a tick must move the thumb to that turn\'s ordinal, not the click\'s place on the track',
       })
       .toBeGreaterThanOrEqual(0.97);
-  });
-
-  test('AC-214 v3 (f) a short conversation draws the cap, and the drawn length tracks the visible share', async () => {
-    // A transcript of a few dozen messages, in a viewport tall enough that most
-    // of it is on screen at once: the visible share is then large enough for the
-    // thumb to reach its upper bound, which a long conversation never can. Its
-    // own context, opened by id — the sidebar is not what this reading is about,
-    // and a second navigation inside the shared page would be one more thing
-    // that could be wrong.
-    const context = await browserRef.newContext({ viewport: { width: 1440, height: 2400 } });
-    await context.addInitScript((token) => {
-      window.localStorage.setItem('auth-token', token);
-    }, authToken);
-    const shortPage = await context.newPage();
-    try {
-      await shortPage.goto(`${origin}/session/${SHORT_SESSION_ID}`);
-      await expect(shortPage.locator(`${PANE} .chat-message`).first()).toBeVisible({ timeout: 30_000 });
-      await shortPage.waitForTimeout(1_500);
-
-      const outline = await readOutline(shortPage, SHORT_SESSION_ID);
-      expect(outline.status, `GET /outline did not answer: ${outline.body.slice(0, 400)}`).toBe(200);
-      const outlineData = (JSON.parse(outline.body) as { data?: { turns?: OutlineTurn[]; total?: number } }).data;
-      const shortTurns = outlineData?.turns ?? [];
-      const shortTotal = outlineData?.total ?? 0;
-      expect(shortTotal, 'the short fixture must carry its own messages').toBeGreaterThan(10);
-      expect(shortTurns.length, 'the short fixture must carry its user turns').toBeGreaterThan(2);
-
-      const length = await readThumbLength(shortPage, shortTurns, shortTotal);
-      expect(
-        length.thumbHeight,
-        `a transcript of a few dozen messages must draw the thumb at its ceiling: ${JSON.stringify(length)}`,
-      ).toBeGreaterThanOrEqual(length.trackHeight * 0.25 - 2);
-
-      // The long conversation's own reading, at the same viewport: the same
-      // formula, far smaller, because far less of it is on screen at once.
-      await shortPage.setViewportSize({ width: 1440, height: 900 });
-      await shortPage.goto(`${origin}/session/${SESSION_ID}`);
-      await expect(shortPage.locator(`${PANE} .chat-message`).first()).toBeVisible({ timeout: 30_000 });
-      await shortPage.waitForTimeout(1_500);
-      const longLength = await readThumbLength(shortPage, turns, totalMessages);
-      expect(
-        longLength.thumbHeight,
-        `a long conversation's thumb must be shorter than a short one's: ${JSON.stringify({ longLength, shortThumb: length.thumbHeight })}`,
-      ).toBeLessThan(length.thumbHeight);
-    } finally {
-      await context.close();
-    }
   });
 
   test('AC-215 the native scrollbar is hidden and the drawn rail is the only scrollbar, at two viewports', async () => {
