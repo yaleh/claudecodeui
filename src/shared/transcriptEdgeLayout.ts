@@ -36,9 +36,6 @@ export const TRANSCRIPT_TICK_COLUMN_MAX_HEIGHT_PX = 300;
 /** The narrowest the drawn scrollbar thumb may be drawn, in CSS pixels. */
 export const TRANSCRIPT_SCROLLBAR_MIN_THUMB_PX = 28;
 
-/** The largest share of its track's height the drawn thumb may occupy. */
-export const TRANSCRIPT_SCROLLBAR_MAX_THUMB_RATIO = 0.25;
-
 /** Clearance the quick-settings handle keeps from the band's two edges, in CSS pixels. */
 export const TRANSCRIPT_HANDLE_BAND_MARGIN_PX = 8;
 

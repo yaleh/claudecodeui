@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
@@ -8,15 +8,17 @@ import type {
 import { useTranslation } from 'react-i18next';
 
 import type { TurnRailTick } from '@/modules/chat/hooks/useTurnNavigation';
+import type { TranscriptContent } from '@/modules/chat/transcript/TranscriptTurnRail';
 import { useTranscriptScrub } from '@/modules/chat/context/TranscriptScrubContext';
 import {
-  closestScrollTopForFraction,
-  fractionAtViewportCenter,
-} from '@/modules/chat/utils/scrollOrdinalMap';
-import type { ScrollOrdinalRow } from '@/modules/chat/utils/scrollOrdinalMap';
+  aboveForFraction,
+  estimateAbove,
+  fractionAtAbove,
+  rowAtAbove,
+  thumbHeightPx,
+} from '@/modules/chat/utils/contentHeightModel';
 import {
   TRANSCRIPT_SCROLLBAR_INSET_PX,
-  TRANSCRIPT_SCROLLBAR_MAX_THUMB_RATIO,
   TRANSCRIPT_SCROLLBAR_MIN_THUMB_PX,
   TRANSCRIPT_SCROLLBAR_WIDTH_PX,
 } from '@/shared/transcriptEdgeLayout';
@@ -56,83 +58,64 @@ type TranscriptScrollbarProps = {
   onJumpToTurn: (anchorId: string) => void;
   /** The transcript's scroll container, read for the rows the viewport holds. */
   scrollContainerRef: RefObject<HTMLDivElement>;
-  /** The session's own message count, the denominator the drawn length is a share of. */
+  /** The conversation's own message count — the denominator the drawn length is a share of. */
   totalMessages: number;
+  /** The estimated pixel geometry of the conversation and the loaded window. */
+  content: TranscriptContent;
+  /** Held true while a gesture owns the thumb, so the estimate does not breathe under the pointer. */
+  freezeRef: { current: boolean };
 };
 
 /**
- * How many messages the rows currently intersecting the viewport stand for.
+ * The loaded window's row the pane's top edge sits in, and how far into that
+ * row — the O(log n) rect read the per-frame position is taken from.
  *
- * A row is one message, except a work segment, which folds its members behind a
- * single row and publishes how many it stands for; that count is read from the
- * row's own `data-transcript-row-messages` rather than assumed, so a collapsed
- * run of tool calls counts as the many messages it is. Rows are addressed
- * through the content column's direct children — the lazy-row wrappers, the ones
- * that carry a timestamp, since the column also holds the loading overlays and
- * the running turn's status line — because a mounted row's own content carries
- * the same timestamp attribute and would otherwise be counted twice.
- *
- * The first row at or below the pane's top edge is found by binary search and the
- * count walks forward from there until the first row past its bottom, so a read
- * costs the visible rows plus a logarithm, not every row the window holds — this
- * runs on every turn change, which a fast drag makes every frame.
+ * Rows are in content order with increasing tops, so the first row whose bottom
+ * is below the pane's top edge is found by binary search. An index equal to the
+ * row count means every loaded row sits above the pane's top.
  */
-function countViewportMessages(container: HTMLDivElement | null): number {
-  if (!container) return 0;
-  const paneRect = container.getBoundingClientRect();
-  const content = container.querySelector<HTMLElement>('[data-transcript-content]');
-  if (!content) return 0;
-  const children = Array.from(content.children) as HTMLElement[];
+function viewportTopPosition(
+  rows: readonly HTMLElement[],
+  rowHeights: readonly number[],
+  paneTop: number,
+): { index: number; ratio: number } {
+  const count = rows.length;
+  if (count === 0) return { index: 0, ratio: 0 };
   let lo = 0;
-  let hi = children.length;
-  let start = children.length;
+  let hi = count;
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
-    if (children[mid].getBoundingClientRect().bottom > paneRect.top) {
-      start = mid;
-      hi = mid;
-    } else {
-      lo = mid + 1;
-    }
+    if (rows[mid].getBoundingClientRect().bottom > paneTop) hi = mid;
+    else lo = mid + 1;
   }
-  let count = 0;
-  for (let index = start; index < children.length; index += 1) {
-    const row = children[index];
-    if (!row.hasAttribute('data-message-timestamp')) continue;
-    const rect = row.getBoundingClientRect();
-    if (rect.height <= 0) continue;
-    if (rect.top >= paneRect.bottom) break;
-    const declared = Number.parseInt(
-      row.querySelector<HTMLElement>('[data-transcript-row-messages]')?.dataset.transcriptRowMessages ?? '1',
-      10,
-    );
-    count += Number.isFinite(declared) && declared > 0 ? declared : 1;
-  }
-  return count;
+  if (lo >= count) return { index: count, ratio: 0 };
+  const rect = rows[lo].getBoundingClientRect();
+  const height = rect.height > 0 ? rect.height : rowHeights[lo] || 1;
+  const ratio = Math.min(1, Math.max(0, (paneTop - rect.top) / height));
+  return { index: lo, ratio };
 }
 
 /**
  * Rendered by TranscriptTurnRail as the transcript's drawn scrollbar — the
  * transcript's position, in a column of its own at the pane's right edge.
  *
- * Its thumb sits at the viewport centre's continuous position on the
- * conversation's ordinal scale — interpolated between the loaded window's turn
- * rows, so it moves with the transcript frame by frame rather than in stairs —
- * and never at the loaded window's pixel ratio, so a window prepended above the
- * viewport, or a row measured late, cannot jump it. It is a real
- * `role="scrollbar"` control: draggable by pointer (including touch), clickable,
- * Home/End/PageUp/PageDown/arrow operable, and it reads its value aloud.
+ * Its drawn length is the browser's own rule — `trackHeight * viewportHeight /
+ * estimatedTotal`, floored at the grabbable minimum and with no ceiling below the
+ * track — and its position is the share of the conversation's estimated pixels
+ * already scrolled past, `above / (estimatedTotal - viewportHeight)`. Both come
+ * from the same pixel estimate, so they cannot disagree, and neither depends on
+ * how many rows happen to be on screen this frame.
  *
- * A drag scrolls the transcript to follow the pointer: inside the loaded window
- * the offset is written directly, and outside it a window is read for the
- * position under the pointer (at most one read in flight, newest position wins)
- * and the content is moved there as soon as it lands. The release commits
+ * It is a real `role="scrollbar"` control: draggable by pointer (including
+ * touch), clickable, Home/End/PageUp/PageDown/arrow operable, and it reads its
+ * value aloud. A drag scrolls the transcript to follow the pointer: inside the
+ * loaded window the offset is written directly, and outside it a window is read
+ * for the position under the pointer (at most one read in flight, newest position
+ * wins) and the content is moved there as soon as it lands. The release commits
  * immediately — there is no rest pause to wait through.
  *
- * Its drawn length is the share of the conversation the viewport is showing —
- * clamped so it is always legible and never more than a quarter of the track —
- * rather than a fixed size, so a short session's thumb is long and a long one's
- * is a short lozenge.
+ * While a gesture holds the thumb the estimate is frozen (through `freezeRef`),
+ * so the drawn length cannot breathe under the pointer.
  */
 export default function TranscriptScrollbar({
   turns,
@@ -140,6 +123,8 @@ export default function TranscriptScrollbar({
   onJumpToTurn,
   scrollContainerRef,
   totalMessages,
+  content,
+  freezeRef,
 }: TranscriptScrollbarProps) {
   const { t } = useTranslation('chat');
   const scrub = useTranscriptScrub();
@@ -160,9 +145,7 @@ export default function TranscriptScrollbar({
   const [committedFraction, setCommittedFraction] = useState<number | null>(null);
   // The turn the drag/keyboard preview floats for, or null when none is shown.
   const [previewTurnId, setPreviewTurnId] = useState<string | null>(null);
-  // How many messages the viewport currently holds, read off the rendered rows.
-  const [viewportMessages, setViewportMessages] = useState(0);
-  // Where the viewport centre currently sits on the conversation's ordinal
+  // Where the viewport top currently sits on the conversation's estimated pixel
   // scale, recomputed once a frame while the transcript moves. Null until the
   // window's rows can be measured.
   const [scrollFraction, setScrollFraction] = useState<number | null>(null);
@@ -182,34 +165,23 @@ export default function TranscriptScrollbar({
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const placeTargetRef = useRef<() => void>(() => {});
 
-  /** Each turn's absolute message subscript is ordered, so the last one is the track's far end. */
-  const lastTurnIndex = turns.length > 0 ? turns[turns.length - 1].index : 0;
-  /** Turn id to absolute subscript, so a DOM row can be placed on the scale. */
-  const ordinalById = useMemo(
-    () => new Map(turns.map((turn) => [turn.id, turn.index])),
-    [turns],
-  );
-
-  /**
-   * The loaded window's user-turn rows, on the ordinal scale and in content
-   * coordinates — the input the continuous position map interpolates.
-   */
-  const readRows = useCallback((): ScrollOrdinalRow[] => {
-    const container = scrollContainerRef.current;
-    if (!container) return [];
-    const paneTop = container.getBoundingClientRect().top;
-    const base = container.scrollTop;
-    const rows: ScrollOrdinalRow[] = [];
-    for (const element of container.querySelectorAll<HTMLElement>('[data-message-anchor-id]')) {
-      const id = element.getAttribute('data-message-anchor-id');
-      const ordinal = id === null ? undefined : ordinalById.get(id);
-      if (ordinal === undefined) continue;
-      rows.push({ ordinal, top: base + (element.getBoundingClientRect().top - paneTop) });
+  /** The turn whose absolute message subscript is nearest an ordinal on the conversation scale. */
+  const turnAtMessageOrdinal = useCallback((ordinal: number): TurnRailTick | null => {
+    if (turns.length === 0) return null;
+    const target = Math.min(totalMessages, Math.max(0, ordinal));
+    let lo = 0;
+    let hi = turns.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (turns[mid].index < target) lo = mid + 1;
+      else hi = mid;
     }
-    return rows;
-  }, [ordinalById, scrollContainerRef]);
+    const above = turns[lo];
+    const below = lo > 0 ? turns[lo - 1] : above;
+    return Math.abs(above.index - target) <= Math.abs(below.index - target) ? above : below;
+  }, [turns, totalMessages]);
 
-  /** Re-reads the transcript's position on the conversation scale. */
+  /** Re-reads the transcript's position on the estimated pixel scale. */
   const recompute = useCallback(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
@@ -217,21 +189,22 @@ export default function TranscriptScrollbar({
     // all — the pointer is — so reading every row's rect each frame would only
     // force a layout for a value nobody is looking at.
     if (dragActiveRef.current) return;
-    const next = fractionAtViewportCenter(
-      readRows(), container.scrollTop, container.clientHeight, lastTurnIndex,
-    );
+    const paneTop = container.getBoundingClientRect().top;
+    const { index, ratio } = viewportTopPosition(content.rows, content.rowHeights, paneTop);
+    const above = content.windowAboveOffset + estimateAbove(content, index, ratio);
+    const next = fractionAtAbove(above, content.estimatedTotal, container.clientHeight);
     setScrollFraction(next);
     // The drawn position is written to the element here as well as declared in
     // the render: the state update commits on React's schedule, a frame or two
     // after the scroll it answers, while the position the reader is looking at
     // has to move with the transcript in the same frame.
     const thumb = thumbRef.current;
-    if (thumb && next !== null) {
+    if (thumb) {
       thumb.style.transform = `translateY(${next * travelRef.current}px)`;
       thumb.setAttribute('data-scroll-progress', String(next));
       thumb.setAttribute('aria-valuenow', String(Math.round(next * 100)));
     }
-  }, [lastTurnIndex, readRows, scrollContainerRef]);
+  }, [content, scrollContainerRef]);
   /** The always-current recompute, so the scroll listener never holds a stale one. */
   const recomputeRef = useRef(recompute);
 
@@ -251,49 +224,6 @@ export default function TranscriptScrollbar({
     recomputeRef.current();
   }, []);
 
-  // The drawn position tracks every scroll report. Attached once: the handler
-  // reads the current recompute through the ref, so a re-render cannot leave the
-  // transcript with a listener that has been detached and not put back.
-  useEffect(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return undefined;
-    const onScroll = () => scheduleRecompute();
-    onScroll();
-    container.addEventListener('scroll', onScroll, { passive: true });
-    window.addEventListener('resize', onScroll);
-    return () => {
-      container.removeEventListener('scroll', onScroll);
-      window.removeEventListener('resize', onScroll);
-    };
-  }, [scrollContainerRef, scheduleRecompute]);
-
-  const shownFraction = dragFraction ?? committedFraction ?? scrollFraction ?? (
-    currentTurnId === null ? 0 : 1
-  );
-
-  // The track's height, kept current through a resize of the pane it is drawn in.
-  useEffect(() => {
-    const track = trackRef.current;
-    if (!track) return undefined;
-    const measure = () => setTrackHeight(track.getBoundingClientRect().height);
-    measure();
-    // jsdom ships no ResizeObserver; there the track keeps the height measured above.
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
-    observer?.observe(track);
-    return () => observer?.disconnect();
-  }, []);
-
-  // What the viewport is showing, re-read whenever the transcript moves: the
-  // current turn changes on every scroll frame, which is exactly when the visible
-  // rows change.
-  useEffect(() => {
-    // The drawn length is not read while a drag holds the thumb — the thumb is
-    // under the pointer — so re-counting the viewport's messages on every turn
-    // change during the gesture would force a layout for a value nobody sees.
-    if (dragActiveRef.current) return;
-    setViewportMessages(countViewportMessages(scrollContainerRef.current));
-  }, [scrollContainerRef, currentTurnId, totalMessages, turns]);
-
   // The drawn position tracks every scroll report, and every commit (a window
   // read replaces the rows without necessarily raising a `scroll` this component
   // observes). Re-asserted after every render rather than attached once: the
@@ -312,7 +242,24 @@ export default function TranscriptScrollbar({
     };
   });
 
+  const shownFraction = dragFraction ?? committedFraction ?? scrollFraction ?? (
+    currentTurnId === null ? 0 : 1
+  );
+
+  // The track's height, kept current through a resize of the pane it is drawn in.
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track) return undefined;
+    const measure = () => setTrackHeight(track.getBoundingClientRect().height);
+    measure();
+    // jsdom ships no ResizeObserver; there the track keeps the height measured above.
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(track);
+    return () => observer?.disconnect();
+  }, []);
+
   const finishScrub = useCallback(() => {
+    freezeRef.current = false;
     settlingRef.current = false;
     if (settleTimerRef.current) {
       clearTimeout(settleTimerRef.current);
@@ -323,7 +270,7 @@ export default function TranscriptScrollbar({
       scrub?.end();
     }
     setCommittedFraction(null);
-  }, [scrub]);
+  }, [freezeRef, scrub]);
 
   // Drop a committed position once the real position has arrived there: from
   // then on the two agree, and the thumb follows the transcript again. The
@@ -345,50 +292,21 @@ export default function TranscriptScrollbar({
   }, []);
 
   /**
-   * The thumb's drawn length: the share of the conversation the viewport holds,
-   * floored so a very long session still draws a grabbable lozenge and capped so
-   * a very short one cannot fill the track.
+   * The thumb's drawn length, by the browser's own rule against the estimated
+   * conversation height: floored so a very long session still draws a grabbable
+   * lozenge, and with no ceiling below the track.
    */
-  const thumbHeight = useMemo(() => {
-    if (trackHeight <= 0) return TRANSCRIPT_SCROLLBAR_MIN_THUMB_PX;
-    const share = totalMessages > 0 ? viewportMessages / totalMessages : 1;
-    const raw = share * trackHeight;
-    return Math.round(
-      Math.min(
-        Math.max(raw, TRANSCRIPT_SCROLLBAR_MIN_THUMB_PX),
-        trackHeight * TRANSCRIPT_SCROLLBAR_MAX_THUMB_RATIO,
-      ),
-    );
-  }, [trackHeight, totalMessages, viewportMessages]);
+  const thumbHeight = thumbHeightPx(
+    content.estimatedTotal,
+    content.viewportHeight,
+    trackHeight,
+    TRANSCRIPT_SCROLLBAR_MIN_THUMB_PX,
+  );
 
   // The scroll-time write needs the travel without waiting for a render.
   useEffect(() => {
     travelRef.current = Math.max(0, trackHeight - thumbHeight);
   });
-
-  /**
-   * The turn whose absolute subscript is nearest a fraction of the conversation.
-   *
-   * Resolved against the ticks' *subscripts* rather than their positions in the
-   * array: a turn that drew many rows occupies more of the conversation than a
-   * short one, and the thumb the reader aimed is a position in the conversation,
-   * not a slot in the list. The ticks are ordered by subscript, so the nearest is
-   * found by binary search — a pointer frame must not scan every turn.
-   */
-  const turnAtFraction = useCallback((fraction: number): TurnRailTick | null => {
-    if (turns.length === 0) return null;
-    const target = Math.min(1, Math.max(0, fraction)) * lastTurnIndex;
-    let lo = 0;
-    let hi = turns.length - 1;
-    while (lo < hi) {
-      const mid = (lo + hi) >> 1;
-      if (turns[mid].index < target) lo = mid + 1;
-      else hi = mid;
-    }
-    const above = turns[lo];
-    const below = lo > 0 ? turns[lo - 1] : above;
-    return Math.abs(above.index - target) <= Math.abs(below.index - target) ? above : below;
-  }, [turns, lastTurnIndex]);
 
   /**
    * The fraction of the track a pointer height names, inverted through the
@@ -406,6 +324,7 @@ export default function TranscriptScrollbar({
 
   /** Keeps the thumb at a chosen position until the transcript has arrived there. */
   const commitPosition = useCallback((fraction: number) => {
+    freezeRef.current = true;
     settlingRef.current = true;
     setCommittedFraction(Math.min(1, Math.max(0, fraction)));
     if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
@@ -413,31 +332,45 @@ export default function TranscriptScrollbar({
       settleTimerRef.current = null;
       finishScrub();
     }, PENDING_POSITION_SETTLE_MS);
-  }, [finishScrub]);
+  }, [finishScrub, freezeRef]);
 
   /**
    * Moves the transcript toward the dragged position.
    *
-   * Inside the loaded window this is one scroll write. Outside it, the nearest
-   * offset the window does hold is written first — so the content keeps moving
-   * with the pointer instead of stalling — and a window is read for the turn
-   * under the pointer; the newest requested position is placed as soon as the
-   * read lands, so the pointer keeps its authority over the thumb and the
-   * content follows it, never the other way round.
+   * The requested fraction names an estimated pixel offset in the whole
+   * conversation; the loaded window's own stretch is `[windowAboveOffset,
+   * windowAboveOffset + windowHeight]`. Inside it the position is mapped to the
+   * owning row's real DOM top and written directly, so the content keeps moving
+   * with the pointer. Outside it the nearest offset the window does hold is
+   * written first and a window is read for the turn under the pointer; the newest
+   * requested position is placed as soon as the read lands, so the pointer keeps
+   * its authority over the thumb and the content follows it, never the other way
+   * round.
    */
   const placeTarget = useCallback(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
     const fraction = targetFractionRef.current;
-    const nearest = closestScrollTopForFraction(readRows(), fraction, lastTurnIndex, container.clientHeight);
-    if (nearest) {
-      const maxTop = Math.max(container.scrollHeight - container.clientHeight, 0);
-      const top = Math.max(0, Math.min(nearest.top, maxTop));
-      // Only a real move is written: a write that changes nothing would still
-      // owe the pane an echo it never reports, and a drag clamped at a window
-      // edge repeats the same offset frame after frame.
-      if (Math.abs(top - container.scrollTop) >= 0.5) scrub?.scrollTo(top);
-      if (nearest.covered) {
+    const targetAbove = aboveForFraction(fraction, content.estimatedTotal, container.clientHeight);
+    const relative = targetAbove - content.windowAboveOffset;
+    const covered = content.rows.length > 0 && relative >= 0 && relative <= content.windowHeight;
+    if (content.rows.length > 0) {
+      const clamped = Math.min(Math.max(relative, 0), content.windowHeight);
+      const { rowIndex, ratio } = rowAtAbove(content, clamped);
+      const row = content.rows[rowIndex];
+      if (row) {
+        const paneTop = container.getBoundingClientRect().top;
+        const rowRect = row.getBoundingClientRect();
+        const rowTop = container.scrollTop + (rowRect.top - paneTop);
+        const realHeight = rowRect.height > 0 ? rowRect.height : content.rowHeights[rowIndex] || 1;
+        const maxTop = Math.max(container.scrollHeight - container.clientHeight, 0);
+        const top = Math.max(0, Math.min(rowTop + ratio * realHeight, maxTop));
+        // Only a real move is written: a write that changes nothing would still
+        // owe the pane an echo it never reports, and a drag clamped at a window
+        // edge repeats the same offset frame after frame.
+        if (Math.abs(top - container.scrollTop) >= 0.5) scrub?.scrollTo(top);
+      }
+      if (covered) {
         // A release whose position is now placed has settled: the committed
         // fraction has done its job and the thumb may track the transcript
         // again. Left to the arrival check alone it could stick if the reading
@@ -446,9 +379,9 @@ export default function TranscriptScrollbar({
         return;
       }
     }
-    const turn = turnAtFraction(fraction);
+    const turn = turnAtMessageOrdinal(fraction * totalMessages);
     if (!turn || !scrub) return;
-    void scrub.loadWindow(turn.id, fraction * lastTurnIndex).then(() => {
+    void scrub.loadWindow(turn.id, fraction * totalMessages).then(() => {
       if (!dragActiveRef.current && !settlingRef.current) return;
       // The read's window has to be committed by React before its rows exist to
       // place against, and a cache hit resolves without any commit at all — so
@@ -459,7 +392,7 @@ export default function TranscriptScrollbar({
         placeTargetRef.current();
       });
     });
-  }, [finishScrub, lastTurnIndex, readRows, scrub, scrollContainerRef, turnAtFraction]);
+  }, [content, finishScrub, scrub, scrollContainerRef, totalMessages, turnAtMessageOrdinal]);
 
   useEffect(() => {
     placeTargetRef.current = placeTarget;
@@ -472,12 +405,13 @@ export default function TranscriptScrollbar({
    */
   const scheduleCommit = useCallback((fraction: number) => {
     const clamped = Math.min(1, Math.max(0, fraction));
+    freezeRef.current = true;
     settlingRef.current = true;
     setCommittedFraction(clamped);
     if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
     commitTimerRef.current = setTimeout(() => {
       commitTimerRef.current = null;
-      const turn = turnAtFraction(clamped);
+      const turn = turnAtMessageOrdinal(clamped * totalMessages);
       if (turn) onJumpToTurn(turn.id);
       if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
       settleTimerRef.current = setTimeout(() => {
@@ -485,7 +419,7 @@ export default function TranscriptScrollbar({
         finishScrub();
       }, PENDING_POSITION_SETTLE_MS);
     }, KEYBOARD_COMMIT_PAUSE_MS);
-  }, [finishScrub, onJumpToTurn, turnAtFraction]);
+  }, [finishScrub, freezeRef, onJumpToTurn, totalMessages, turnAtMessageOrdinal]);
 
   const handleThumbPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -502,11 +436,12 @@ export default function TranscriptScrollbar({
     settlingRef.current = false;
     setCommittedFraction(null);
     dragActiveRef.current = true;
+    freezeRef.current = true;
     setDragging(true);
     event.currentTarget.setPointerCapture(event.pointerId);
     const fraction = shownFraction;
     setDragFraction(fraction);
-    setPreviewTurnId(turnAtFraction(fraction)?.id ?? null);
+    setPreviewTurnId(turnAtMessageOrdinal(fraction * totalMessages)?.id ?? null);
     targetFractionRef.current = fraction;
     if (scrub) {
       // Idempotent: a new gesture re-asserts the pointer's ownership even if a
@@ -520,7 +455,7 @@ export default function TranscriptScrollbar({
     if (!dragActiveRef.current) return;
     const fraction = fractionFromClientY(event.clientY);
     setDragFraction(fraction);
-    setPreviewTurnId(turnAtFraction(fraction)?.id ?? null);
+    setPreviewTurnId(turnAtMessageOrdinal(fraction * totalMessages)?.id ?? null);
     targetFractionRef.current = fraction;
     if (scrub) placeTarget();
   };
@@ -555,7 +490,10 @@ export default function TranscriptScrollbar({
       commitPosition(fraction);
       placeTarget();
       // The resting position is re-read at once — the drag suppressed its own
-      // recomputes, and the arrival check needs the value this release left.
+      // recomputes and released the freeze, so the arrival check needs the value
+      // this release left. The freeze is dropped before the read so the estimate
+      // may catch up again.
+      freezeRef.current = false;
       recompute();
     } else {
       // A render with no scrub control keeps the previous debounced commit.
@@ -605,7 +543,7 @@ export default function TranscriptScrollbar({
     }
     event.preventDefault();
     const clamped = Math.min(1, Math.max(0, next));
-    setPreviewTurnId(turnAtFraction(clamped)?.id ?? null);
+    setPreviewTurnId(turnAtMessageOrdinal(clamped * totalMessages)?.id ?? null);
     scheduleCommit(clamped);
   };
 
@@ -613,7 +551,7 @@ export default function TranscriptScrollbar({
     // Only a click on the track's own blank space is a position request; a click
     // on the thumb is a drag and is stopped at the thumb's own handler.
     if (event.target !== event.currentTarget) return;
-    const turn = turnAtFraction(fractionFromClientY(event.clientY));
+    const turn = turnAtMessageOrdinal(fractionFromClientY(event.clientY) * totalMessages);
     if (!turn) return;
     setPreviewTurnId(null);
     // A click asserts no position of its own: it is one immediate jump, and the
@@ -638,6 +576,10 @@ export default function TranscriptScrollbar({
       ref={trackRef}
       data-scrollbar-track
       data-scrub-dragging={dragging ? 'true' : 'false'}
+      // The estimate the drawn length and position are both taken from, in pixels,
+      // together with the average px per message — read by AC-219's evidence.
+      data-content-estimate-px={String(Math.round(content.estimatedTotal))}
+      data-px-per-message={content.pxPerMessage > 0 ? content.pxPerMessage.toFixed(2) : '0'}
       onClick={handleTrackClick}
       className="pointer-events-auto absolute bottom-0 top-0 z-30 cursor-pointer"
       style={{ right: TRANSCRIPT_SCROLLBAR_INSET_PX, width: TRANSCRIPT_SCROLLBAR_WIDTH_PX + 4 }}

@@ -78,11 +78,19 @@ export default function LazyMessageRow({
 
   const isMounted = lazyRows === null || isNearViewport;
 
+  // A mounted row has its real height in the DOM; an unmounted one whose height
+  // was captured before it left keeps a placeholder of exactly that height. Either
+  // way the row's height is knowable, which is what the scrollbar's pixel model
+  // reads to tell a measured row from a never-measured one (whose placeholder is
+  // not a measurement and must not estimate the conversation).
+  const heightIsKnown = isMounted || measuredHeight !== null;
+
   return (
     <div
       ref={elementRef}
       data-message-timestamp={timestamp || undefined}
       data-message-anchor-id={anchorId || undefined}
+      data-row-measured={heightIsKnown ? 'true' : undefined}
       style={isMounted ? undefined : { height: measuredHeight ?? ESTIMATED_ROW_HEIGHT_PX }}
     >
       {isMounted ? children : null}
