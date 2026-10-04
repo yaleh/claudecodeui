@@ -1,7 +1,7 @@
 ---
 id: gap-voice-trim-quality-node-alias-unresolved
 title: 恢复 AC-118 质量判据：纯 node 下解析不到 voiceTrim 的 @/shared 别名
-status: todo
+status: ready
 labels:
   - gap
   - defect
