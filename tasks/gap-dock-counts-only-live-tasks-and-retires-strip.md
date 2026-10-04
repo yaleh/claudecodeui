@@ -1,7 +1,7 @@
 ---
 id: gap-dock-counts-only-live-tasks-and-retires-strip
 title: 活动坞只表示当前活动：计数与面板只含非终态任务，终态不再撑住 background 状态；取消与坞重复的 BackgroundTaskStrip 框
-status: ready
+status: done
 labels:
   - gap
   - defect
