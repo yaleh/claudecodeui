@@ -558,6 +558,13 @@ async function handleChatSend(
     return;
   }
 
+  // `onRefuse` is called on this very tick — every `send` refusal is decided
+  // before `control.send` yields — so a refusal lands on the socket the instant
+  // the frame was handled, exactly as the old inline handler's synchronous
+  // `dispatchRun` did. A transport that reads the refusal synchronously (the
+  // resident busy-input criterion) depends on that tick. `refusedSync` stops the
+  // async tail below from writing the same frame a second time.
+  let refusedSync = false;
   const result = await dependencies.control.send(
     { userId, via: 'websocket' },
     {
@@ -565,11 +572,17 @@ async function handleChatSend(
       content: typeof data.content === 'string' ? data.content : '',
       options: (data.options ?? {}) as AnyRecord,
       connection: ws,
+      onRefuse: (refusal) => {
+        refusedSync = true;
+        sendProtocolError(ws, refusal.code, refusal.message, sessionId);
+      },
     },
   );
 
   if (!result.ok) {
-    sendProtocolError(ws, result.code, result.message, sessionId);
+    if (!refusedSync) {
+      sendProtocolError(ws, result.code, result.message, sessionId);
+    }
     return;
   }
 
@@ -666,6 +679,18 @@ export async function dispatchRun(
     info: { busyAccepted: boolean },
   ) => void | Promise<void>,
   connectionOverride?: RealtimeClientConnection | null,
+  /**
+   * A synchronous notification that this dispatch was refused because the
+   * session already has a run in progress.
+   *
+   * The refusal is decided before this function's first `await` (`startRun`
+   * returning null and the provider not accepting busy input are both
+   * synchronous), so a caller that never passes a socket — the shared control
+   * service passes `ws = null` and translates the verdict itself — can still
+   * report the refusal on the same tick `chat.send` arrived. Passed by the
+   * control service alone; every other caller leaves it undefined.
+   */
+  onRefuse?: (refusal: { code: string; message: string }) => void,
 ): Promise<{ started: boolean; error: string | null }> {
   const provider = session.provider as LLMProvider;
 
@@ -695,14 +720,15 @@ export async function dispatchRun(
   }
 
   if (!run) {
+    const message = `Session "${sessionId}" already has a run in progress.`;
     if (ws) {
-      sendProtocolError(
-        ws,
-        'RUN_IN_PROGRESS',
-        `Session "${sessionId}" already has a run in progress.`,
-        sessionId
-      );
+      sendProtocolError(ws, 'RUN_IN_PROGRESS', message, sessionId);
     }
+    // Reported synchronously, before this function's first `await` below, so a
+    // socket front end that translated the verdict itself (the control
+    // service's `chat.send` adapter) lands the frame on the same tick the old
+    // inline handler did.
+    onRefuse?.({ code: 'RUN_IN_PROGRESS', message });
     return { started: false, error: 'A run is already in progress for this session.' };
   }
 

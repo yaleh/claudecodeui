@@ -60,6 +60,26 @@ type SendInput = {
    * simply has no live audience until someone subscribes.
    */
   connection?: RealtimeClientConnection | null;
+  /**
+   * A synchronous notification of the verdict when `send` refuses *before* it
+   * can yield — the shared access entry's `FORBIDDEN`, a session that does not
+   * exist, a provider with no runtime, or a run already in progress.
+   *
+   * Every one of those refusals is decided, and every one of them was emitted
+   * on the requesting socket, before the adapter existed: the old inline
+   * `chat.send` ran `dispatchRun` synchronously up to the refusal, so the
+   * `protocol_error` frame was on the wire the instant the frame was handled.
+   * Routing the verb through this service moved the decision behind an `await`,
+   * and a caller that reports the refusal on that same tick (the WebSocket
+   * adapter) needs the verdict back in that same tick or the frame slips a
+   * microtask late — which is exactly the reading
+   * `server/modules/providers/tests/claude-resident-busy-input.test.ts` takes.
+   *
+   * This is a *notification*, not a frame: the service still constructs nothing
+   * and emits nothing — the caller decides what to do with the verdict, so the
+   * seam stays transport-free.
+   */
+  onRefuse?: (refusal: { code: string; message: string }) => void;
 };
 
 /**
@@ -283,28 +303,34 @@ export function createChatControlService(deps: ChatControlDependencies) {
     // unauthenticated caller gets one answer for every session — it cannot tell
     // a session it may not touch from one that does not exist.
     if (!accessEntry(deps)(caller.userId, session)) {
-      return {
-        ok: false,
-        code: 'FORBIDDEN',
+      const refusal = {
+        ok: false as const,
+        code: 'FORBIDDEN' as const,
         message: `Caller is not allowed to send to session "${input.sessionId}".`,
       };
+      input.onRefuse?.(refusal);
+      return refusal;
     }
 
     if (!session) {
-      return {
-        ok: false,
-        code: 'SESSION_NOT_FOUND',
+      const refusal = {
+        ok: false as const,
+        code: 'SESSION_NOT_FOUND' as const,
         message: `Session "${input.sessionId}" was not found.`,
       };
+      input.onRefuse?.(refusal);
+      return refusal;
     }
 
     const provider = session.provider as LLMProvider;
     if (!deps.runtime.hasRuntime(provider)) {
-      return {
-        ok: false,
-        code: 'UNSUPPORTED_PROVIDER',
+      const refusal = {
+        ok: false as const,
+        code: 'UNSUPPORTED_PROVIDER' as const,
         message: `Provider "${provider}" is not available.`,
       };
+      input.onRefuse?.(refusal);
+      return refusal;
     }
 
     // A scheduled send outranks whatever is running: mirroring
@@ -362,6 +388,10 @@ export function createChatControlService(deps: ChatControlDependencies) {
         resolveRunId(run.runId);
       },
       input.connection ?? null,
+      // A run in progress is `dispatchRun`'s own refusal and it is decided
+      // before its first `await`, so the verdict can be handed back on this
+      // tick. `ws` is null above, so this is the only channel that reports it.
+      input.onRefuse,
     ).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       console.error(
