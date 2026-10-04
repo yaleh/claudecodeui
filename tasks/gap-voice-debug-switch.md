@@ -54,3 +54,6 @@ L_G 该轴仍暗，理由：同上；读数里的 identifiers.* 是既有指标�
 - src/modules/chat/hooks/useVoiceInput.ts
 - e2e/voice-trim.spec.ts
 - tasks/gap-voice-debug-switch.md
+
+
+判据退役登记（2026-10-04，人 yale 授权，见 tasks/gap-voice-single-continuous-input-path.md 的 Resolution）：本任务全部判据（`npx playwright test e2e/voice-trim.spec.ts -g "AC-121"`，以及「关=0 条 [voice:trim] / 开=字段齐备」的逐项读数）随 AC-121 一同退役 —— [voice:trim] 读数已由 gap-voice-single-continuous-input-path 连同批处理裁剪路径一并移除（`grep -rn "voice:trim" src/` 计数 0），判据命令必然 No tests found，不得再把它的红读成本任务的回归。明示不再覆盖：连续路径不再打印逐段裁剪读数，观测改由 e2e/voice-continuous.spec.ts 的请求数与时长读数承担；链路的无条件读数仍由 [voice] identifier fidelity 提供，并被 e2e/voice-trim.spec.ts 的 AC-120 腿用作「文件走同一条转写链」的证据。
