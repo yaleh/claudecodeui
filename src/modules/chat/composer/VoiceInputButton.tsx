@@ -126,6 +126,17 @@ export function VoiceFailureNotice({ failure, onDismiss }: {
         <span data-testid="voice-error-message" className="min-w-0 break-words">
           {message}
         </span>
+        {/*
+          The span a continuous listen's failed segment occupied. A long dictation is many uploads,
+          and a failure is about one of them rather than the whole recording, so the sentence alone
+          would not say WHICH words are missing. Absent on the single-request path, where the failure
+          is the whole recording and the sentence already says so.
+        */}
+        {typeof failure !== 'string' && failure.startSec !== undefined && failure.endSec !== undefined && (
+          <span data-testid="voice-error-segment" className="shrink-0 tabular-nums text-red-100">
+            {`${failure.startSec.toFixed(2)}–${failure.endSec.toFixed(2)}s`}
+          </span>
+        )}
         <button
           type="button"
           data-testid="voice-error-close"

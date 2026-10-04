@@ -1,7 +1,7 @@
 ---
 id: gap-voice-single-continuous-input-path
 title: 语音输入只保留连续路径：边说边按序提交文字、被跟踪的插入区间、停止/发送语义、空闲 2 分钟自动停止
-status: ready
+status: done
 labels:
   - gap
 parent: null

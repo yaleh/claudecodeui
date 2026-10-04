@@ -22,8 +22,19 @@ const STORAGE_KEY = 'voiceDebugFlags';
 /**
  * The switches this module knows how to read. A key outside this set — in the URL or in storage —
  * is ignored rather than remembered, so a typo cannot quietly become a setting.
+ *
+ * The three numeric switches below are the continuous-capture path's. They exist because the
+ * behaviour they tune is measured in tens of seconds (`voiceMinSegmentSec`'s 30 s, `voiceIdleSec`'s
+ * 120 s, `voiceOriginalCapSec`'s 600 s) and an end-to-end run cannot record a ten-minute dictation to
+ * reach them; a short sample with these turned down exercises the same code on the real page.
  */
-const KNOWN_FLAGS = ['voiceDebug', 'voiceTrim'] as const;
+const KNOWN_FLAGS = [
+  'voiceDebug',
+  'voiceTrim',
+  'voiceMinSegmentSec',
+  'voiceIdleSec',
+  'voiceOriginalCapSec',
+] as const;
 
 type VoiceFlagName = (typeof KNOWN_FLAGS)[number];
 
@@ -123,4 +134,39 @@ export function isVoiceTrimEnabled(): boolean {
 export function isVoiceDebugEnabled(): boolean {
   const value = readFlag('voiceDebug');
   return value !== undefined && !OFF_VALUES.includes(value.trim().toLowerCase());
+}
+
+/**
+ * A numeric switch, or undefined when nothing set it or the value is not a finite number.
+ *
+ * The number is parsed here rather than at the call site so a bad value (`?voiceIdleSec=soon`)
+ * degrades to "unset" once, at the one place that reads the flag, instead of at every caller. A
+ * negative value is treated as unset too: every switch here is a duration or a length, and the
+ * hook's own default is the only sane answer for a negative one.
+ */
+function readNumberFlag(name: VoiceFlagName): number | undefined {
+  const raw = readFlag(name);
+  if (raw === undefined) return undefined;
+  const value = Number(raw.trim());
+  return Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+/**
+ * The continuous-capture minimum segment length in seconds, or undefined for the shipped default.
+ *
+ * Read when a listen starts, so a value named in the URL reaches the run that page began rather than
+ * a later one.
+ */
+export function voiceDebugMinSegmentSec(): number | undefined {
+  return readNumberFlag('voiceMinSegmentSec');
+}
+
+/** The idle auto-stop in seconds, or undefined for the shipped default. */
+export function voiceDebugIdleSec(): number | undefined {
+  return readNumberFlag('voiceIdleSec');
+}
+
+/** The raw-audio replay cap in seconds, or undefined for the shipped default. */
+export function voiceDebugOriginalCapSec(): number | undefined {
+  return readNumberFlag('voiceOriginalCapSec');
 }

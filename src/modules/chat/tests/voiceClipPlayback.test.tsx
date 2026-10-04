@@ -6,46 +6,33 @@ import React from 'react';
 import { initReactI18next } from 'react-i18next';
 import { afterEach, beforeEach, test, vi } from 'vitest';
 
-import type { PauseCuesDeclaration } from '@shared/asr/asrRegistry';
-
 import ChatComposer from '@/modules/chat/composer/ChatComposer';
 import VoiceClipButton from '@/modules/chat/composer/VoiceClipButton';
 import { useVoiceInput } from '@/modules/chat/hooks/useVoiceInput';
-import type * as AudioDecode from '@/modules/chat/utils/audioDecode';
+import { createFakeVoiceCapture } from '@/modules/chat/tests/voiceCaptureTestHarness';
 import { voicePlayer } from '@/modules/chat/utils/voicePlayer';
 import enChat from '@/modules/i18n/locales/en/chat.json';
 // Type-only, so it is erased before vi.mock's hoisted factory runs.
 import type * as SharedApi from '@/shared/api';
 import type { VoiceClipPlayState, VoiceClipSlot } from '@/shared/types';
-import type * as VoiceTrim from '@/shared/voiceTrim';
 
 /**
- * The composer keeps the last recording as a single slot so it can be replayed — and, once the
- * trim has run, keeps the upload made of it beside it so the two can be compared.
+ * The composer keeps the last listen as a single slot so it can be replayed as a pair.
  *
- * Everything the recording path touches is faked below — `MediaRecorder`,
- * `getUserMedia`, the clip's `Audio` elements, the two `URL` object-URL calls, the
- * switches, and the decode/trim/encode half — because jsdom has none of them and
- * because the point is the *policy*: when a clip is captured, when it is dropped, what
- * the controls over it say, and which of the two is sounding.
+ * Since continuous capture there are two tracks and they mean different things than they used to:
+ * `trimmed` is the filtered audio the segments were cut from (always present once anything was
+ * said), and `original` is the raw PCM the microphone produced (present unless the stream passed
+ * the cap). What this file owns is the *policy* around them — when a clip is captured, when it is
+ * dropped, what the controls over it say, and which of the two is sounding — while the capture
+ * itself and the clip's `Audio` elements are faked, because jsdom has neither a microphone nor an
+ * audio thread.
  *
- * The lifecycle half is the part a unit test can actually own. The composer is never
- * unmounted on a session switch (WorkspaceMain passes the session as a prop with no
- * `key`), so nothing here is exercised by a remount: the hook has to drop the clip
- * from the scope signal alone, and only stop — not drop — it when it goes off screen.
+ * The lifecycle half is the part a unit test can actually own. The composer is never unmounted on a
+ * session switch, so nothing here is exercised by a remount: the hook has to drop the clip from the
+ * scope signal alone, and only stop — not drop — it when it goes off screen.
  */
 
 const { transcribeVoice } = vi.hoisted(() => ({ transcribeVoice: vi.fn() }));
-
-/**
- * The declaration a case records under, when it records under one at all. `null` is "nothing
- * authorises a trim" — the shipping answer for a recording whose voice profile has not been
- * published — and it is what every case here records in unless it turns the trim on and says whose
- * recogniser is asking for it.
- */
-const { voiceProfile } = vi.hoisted(() => ({
-  voiceProfile: { declaration: null as null | PauseCuesDeclaration },
-}));
 
 vi.mock('@/shared/api', async (importOriginal) => {
   const actual = await importOriginal<typeof SharedApi>();
@@ -53,99 +40,22 @@ vi.mock('@/shared/api', async (importOriginal) => {
     transcribeVoice,
     synthesizeVoice: vi.fn(),
     voiceConfigSignature: () => 'test-signature',
-    // The hook reads the recogniser's answer through this named export. It does no I/O, so it is
-    // driven for real rather than doubled — the double exists to cut the speech endpoint, and a
-    // second copy of the parse here would be a second copy of the thing under test.
+    // The recogniser's answer is read through the shipping parse; only the endpoint is cut.
     parseTranscriptionResponse: actual.parseTranscriptionResponse,
-    // The other thing the capture path asks the shared module for: the declaration that authorises
-    // the trim, read by the id the upload routes on. Taken from the real accessor for the same
-    // reason as the parse above, so a case that leaves it alone reads the shipping decision rather
-    // than a second copy of it kept here; a case that wants the pair of tracks names its recogniser.
-    effectivePauseCuesDeclaration: () =>
-      voiceProfile.declaration ?? actual.effectivePauseCuesDeclaration(),
   };
 });
 
-// The real hook asks the backend whether a voice provider is configured; the clip
-// pill is not gated on that, but the mic button is, and the composer test drives one.
+// The mic button is gated on the backend saying a voice provider is configured.
 vi.mock('@/modules/chat/hooks/useVoiceAvailable', () => ({ useVoiceAvailable: () => true }));
 
-/**
- * The voice path's switches, as this file wants them: unnamed, so `useVoiceDebugEnabled` is off —
- * which is what a plain install is — and the trim off unless a test turns it on. The trim's real
- * default belongs to the browser-level e2e, where a real recorder, a real decoder and the shipping
- * trim are in play; a second copy of that here would be asserting against a stub of itself.
- */
-const { voiceFlags } = vi.hoisted(() => ({ voiceFlags: { trim: false } }));
-
+// A plain install: no upload entry, the shipped segment minimum, no idle override.
 vi.mock('@/shared/voiceDebug', () => ({
   isVoiceDebugEnabled: () => false,
-  isVoiceTrimEnabled: () => voiceFlags.trim,
+  isVoiceTrimEnabled: () => false,
+  voiceDebugMinSegmentSec: () => undefined,
+  voiceDebugIdleSec: () => undefined,
+  voiceDebugOriginalCapSec: () => undefined,
 }));
-
-/** What the next trim will report: how long its output is, and whether a guard refused to trim. */
-const { stubbedTrim } = vi.hoisted(() => ({
-  stubbedTrim: { outputSec: 1, fallback: false, decodable: true },
-}));
-
-/**
- * The decode/trim/encode half of the chain, stubbed.
- *
- * What the slot needs from it is exactly two things — bytes that are not the recording, and a
- * reading that says how long they are — and neither is what the real half is for: the trim's own
- * behaviour is covered where it lives (`src/shared/tests/voiceTrim.test.ts`), and the browser's
- * decoder cannot be driven from jsdom at all.
- */
-vi.mock('@/modules/chat/utils/audioDecode', async (importOriginal) => ({
-  ...(await importOriginal<typeof AudioDecode>()),
-  decodeVoiceBlob: async () =>
-    (stubbedTrim.decodable ? { samples: new Float32Array(16_000), sampleRate: 16_000 } : null),
-  encodeWavBlob: (samples: Float32Array) =>
-    new Blob([new Uint8Array(samples.length * 2)], { type: 'audio/wav' }),
-}));
-
-/**
- * The trim itself is stubbed, but the rest of the module is not: `trimDecisionFor` — the mapping
- * from a declared capability to 裁不裁 — is the shipping one, so a case that names a declaration
- * still exercises the real decision. What is stubbed is the DSP, which jsdom cannot drive at all.
- *
- * WHOSE CAPABILITY IS DECIDED ELSEWHERE, and deliberately: the value arrives through the accessor
- * doubled in the `@/shared/api` mock above, and what this file records in by default is the
- * shipping answer — no declaration to read, so the recording travels exactly as it was recorded.
- * The one adapter this build registers declares its pauses worth keeping, which is the same
- * upload, and `voiceTrimCapabilityWiring.test.tsx` owns that reading. A case here that wants the
- * pair of tracks therefore has to name a recogniser that asks for the trim: the pair cannot exist
- * without one, and inventing an answer inside this file would hide who decides it.
- */
-vi.mock('@/shared/voiceTrim', async (importOriginal) => ({
-  ...(await importOriginal<typeof VoiceTrim>()),
-  trimVoiceAudio: (samples: Float32Array) => ({
-    samples,
-    stats: {
-      inputSec: samples.length / 16_000,
-      outputSec: stubbedTrim.outputSec,
-      savedRatio: 1 - stubbedTrim.outputSec / (samples.length / 16_000),
-      vadSegments: [{ startSec: 0, endSec: stubbedTrim.outputSec }],
-      speechKeptRatio: 1,
-      fallback: stubbedTrim.fallback,
-      fallbackReason: stubbedTrim.fallback ? 'noSpeech' : null,
-      frames: 50,
-      noiseFloor: 0,
-    },
-  }),
-}));
-
-/**
- * A recogniser that asks for its pauses to be trimmed: the declaration a case turns on when it
- * wants the pair of tracks. `destructive` because nothing else can put a second track in the slot —
- * and named as a fixture rather than as any real service, because the only adapter this build
- * registers declares the opposite. That is the point: the pair is reachable by declaration alone,
- * so "who decides" is what these cases can vary.
- */
-const TRIMS_PAUSES: PauseCuesDeclaration = {
-  provider: 'fixture-recogniser',
-  capability: 'destructive',
-};
 
 await i18next.use(initReactI18next).init({
   lng: 'en',
@@ -159,38 +69,8 @@ await i18next.use(initReactI18next).init({
 
 /* ─── Fakes ────────────────────────────────────────────────────────── */
 
-type MediaRecorderOptions = { mimeType?: string };
-
-/** Chunks the next `start()` will emit through `ondataavailable`. */
-let recorderChunks: Blob[] = [];
-
 /** What the clip element's next `play()` resolves to. */
 let nextPlayResult: Promise<void> = Promise.resolve();
-
-class FakeMediaRecorder {
-  static isTypeSupported = () => true;
-
-  state: 'inactive' | 'recording' = 'inactive';
-  mimeType: string;
-  ondataavailable: ((event: { data: Blob }) => void) | null = null;
-  onstop: (() => void) | null = null;
-  private chunks: Blob[] = [];
-
-  constructor(_stream: unknown, options?: MediaRecorderOptions) {
-    this.mimeType = options?.mimeType ?? 'audio/webm';
-  }
-
-  start() {
-    this.state = 'recording';
-    this.chunks = recorderChunks;
-  }
-
-  stop() {
-    this.state = 'inactive';
-    for (const chunk of this.chunks) this.ondataavailable?.({ data: chunk });
-    this.onstop?.();
-  }
-}
 
 class FakeAudio {
   static instances: FakeAudio[] = [];
@@ -234,10 +114,13 @@ const revokeObjectURL = vi.fn();
 
 const fakeStream = { getTracks: () => [{ stop: () => undefined }] };
 
+/** The capture engine every render is handed; recreated per case so no frame leaks. */
+let capture = createFakeVoiceCapture();
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
-  vi.stubGlobal('MediaRecorder', FakeMediaRecorder);
+  capture = createFakeVoiceCapture();
   vi.stubGlobal('Audio', FakeAudio);
   Object.defineProperty(navigator, 'mediaDevices', {
     configurable: true,
@@ -252,24 +135,15 @@ beforeEach(() => {
   transcribeVoice.mockReset();
   transcribeVoice.mockResolvedValue({ ok: true, json: async () => ({ text: 'hello' }) });
   FakeAudio.instances = [];
-  recorderChunks = [];
   nextPlayResult = Promise.resolve();
-  voiceFlags.trim = false;
-  voiceProfile.declaration = null;
-  stubbedTrim.outputSec = 1;
-  stubbedTrim.fallback = false;
-  stubbedTrim.decodable = true;
 });
 
-// The two object-URL stubs stay installed between tests on purpose: jsdom does not
-// implement them at all, and testing-library's auto-cleanup unmounts the hook *after*
-// this file's hooks run — restoring them here would make the unmount cleanup throw.
+// The object-URL stubs stay installed between tests on purpose: jsdom does not implement them at
+// all, and testing-library's auto-cleanup unmounts the hook *after* this file's hooks run.
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   vi.useRealTimers();
-  // The tier is global window state, so a case that pinned it must not leave it pinned for the
-  // next one: jsdom's own default (1024, the wide layout) is what a case that says nothing gets.
   Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 1024 });
 });
 
@@ -281,29 +155,30 @@ const renderVoice = () => {
   const onTranscript = vi.fn();
   const onError = vi.fn();
   const view = renderHook(
-    ({ scope, isActive }: HookProps) => useVoiceInput(onTranscript, onError, { scope, isActive }),
+    ({ scope, isActive }: HookProps) =>
+      useVoiceInput(onTranscript, onError, { scope, isActive, captureEngine: capture.engine }),
     { initialProps: { scope: 'session-a', isActive: true } as HookProps },
   );
   return { view, onTranscript, onError };
 };
 
-/** Drives one full mic press: start, hold for `heldMs` of wall clock, stop. */
+/** Drives one full mic press: start, speak for `heldMs`, stop, and drain the upload tail. */
 const record = async (
   view: { result: { current: ReturnType<typeof useVoiceInput> } },
-  bytes: number,
   heldMs: number,
+  { speak = true }: { speak?: boolean } = {},
 ) => {
-  recorderChunks = [new Blob([new Uint8Array(bytes)])];
   await act(async () => {
     view.result.current.toggle();
   });
-  act(() => {
-    vi.advanceTimersByTime(heldMs);
-  });
+  if (speak) {
+    await act(async () => {
+      capture.speak(heldMs / 1000);
+    });
+  }
   await act(async () => {
     view.result.current.stop();
   });
-  // `onstop` uploads before it settles; drain that tail so the state is observable.
   await act(async () => {});
 };
 
@@ -311,35 +186,43 @@ const lastAudio = () => FakeAudio.instances[FakeAudio.instances.length - 1];
 
 /* ─── Capture ──────────────────────────────────────────────────────── */
 
-test('a finished recording lands in the clip slot', async () => {
+test('a finished listen lands in the clip slot as a pair of tracks', async () => {
   const { view, onTranscript } = renderVoice();
-  const beforeRecording = view.result.current.clipSlot;
-  assert.equal(beforeRecording, null, 'nothing to replay before a recording');
+  const before = view.result.current.clipSlot;
+  assert.equal(before, null, 'nothing to replay before a listen');
 
-  await record(view, 2000, 1000);
+  await record(view, 2000);
 
   const slot = view.result.current.clipSlot;
-  assert.ok(slot?.original, 'a recording the mic accepted has to be replayable');
-  assert.equal(slot.original.meta.bytes, 2000);
-  assert.equal(slot.original.url, 'blob:clip-1');
-  assert.equal(slot.trimmed, null, 'the trim is off here, so the recording is all there is to replay');
+  assert.ok(slot, 'a listen that said something has to leave a slot');
+  assert.ok(slot.original, 'the raw stream has to be replayable');
+  assert.ok(slot.trimmed, 'the filtered audio the segments were cut from has to be replayable');
+  assert.notEqual(slot.trimmed.url, slot.original.url, 'the two controls must not point at the same audio');
+  assert.equal(slot.original.meta.mimeType, 'audio/wav');
+  assert.equal(slot.trimmed.meta.mimeType, 'audio/wav');
   assert.equal(onTranscript.mock.calls.length, 1, 'the transcript still reaches the composer');
 });
 
-test('a recording below the size floor produces no clip', async () => {
-  const { view, onError } = renderVoice();
+test('a silent press leaves no filtered track: there was nothing to cut', async () => {
+  const { view, onTranscript, onError } = renderVoice();
 
-  await record(view, 100, 1000);
+  await record(view, 2000, { speak: false });
 
-  assert.equal(view.result.current.clipSlot, null, 'a too-short press must not leave a pill behind');
-  assert.deepEqual(onError.mock.calls, [['Recording too short']]);
+  const slot = view.result.current.clipSlot;
+  assert.equal(slot?.trimmed ?? null, null, 'nothing was said, so there is no filtered audio');
+  assert.equal(onTranscript.mock.calls.length, 0, 'silence spends no request');
+  assert.deepEqual(onError.mock.calls, [], 'silence is not a failure');
 });
 
 test('a failed transcription still leaves the clip replayable', async () => {
   const { view, onError } = renderVoice();
   transcribeVoice.mockResolvedValue({ ok: false, status: 500 });
 
-  await record(view, 2000, 1000);
+  await record(view, 2000);
+  // Cover the pipeline's retry backoff (250 ms + 500 ms) before the failure is reported.
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1_000);
+  });
 
   assert.ok(
     view.result.current.clipSlot,
@@ -348,32 +231,38 @@ test('a failed transcription still leaves the clip replayable', async () => {
   assert.equal(onError.mock.calls.length, 1, 'the failure is still reported');
 });
 
-test('a second recording evicts the first and revokes its object URL', async () => {
+test('a second listen evicts the first and revokes its object URLs', async () => {
   const { view } = renderVoice();
 
-  await record(view, 2000, 1000);
-  await record(view, 3000, 1000);
+  await record(view, 1000);
+  const first = view.result.current.clipSlot;
+  assert.ok(first?.original && first.trimmed, 'the first listen has a pair');
+  await record(view, 1000);
 
-  assert.equal(view.result.current.clipSlot?.original?.url, 'blob:clip-2');
-  assert.deepEqual(
-    revokeObjectURL.mock.calls,
-    [['blob:clip-1']],
-    'the evicted clip leaks its blob unless its URL is revoked',
+  assert.notEqual(view.result.current.clipSlot?.original?.url, first.original.url);
+  const revoked = revokeObjectURL.mock.calls.map((call) => call[0]);
+  assert.ok(
+    revoked.includes(first.original.url) && revoked.includes(first.trimmed.url),
+    'the evicted clip leaks its blobs unless both URLs are revoked',
   );
 });
 
-test('unmounting revokes the clip object URL', async () => {
+test('unmounting revokes the clip object URLs', async () => {
   const { view } = renderVoice();
 
-  await record(view, 2000, 1000);
+  await record(view, 1000);
+  const slot = view.result.current.clipSlot;
   view.unmount();
 
-  assert.deepEqual(revokeObjectURL.mock.calls, [['blob:clip-1']]);
+  const revoked = revokeObjectURL.mock.calls.map((call) => call[0]);
+  assert.ok(
+    slot?.original && slot.trimmed && revoked.includes(slot.original.url) && revoked.includes(slot.trimmed.url),
+  );
 });
 
-test('starting a new recording stops a clip that is still playing', async () => {
+test('starting a new listen stops a clip that is still playing', async () => {
   const { view } = renderVoice();
-  await record(view, 2000, 1000);
+  await record(view, 1000);
 
   await act(async () => {
     view.result.current.toggleClipPlayback('original');
@@ -381,12 +270,11 @@ test('starting a new recording stops a clip that is still playing', async () => 
   const audio = lastAudio();
   assert.equal(view.result.current.clipPlayState.original, 'playing');
 
-  recorderChunks = [new Blob([new Uint8Array(2000)])];
   await act(async () => {
     view.result.current.toggle();
   });
 
-  assert.ok(audio.pauseCalls > 0, 'the previous clip must not keep sounding under the new recording');
+  assert.ok(audio.pauseCalls > 0, 'the previous clip must not keep sounding under the new listen');
   assert.equal(view.result.current.clipPlayState.original, 'idle');
 });
 
@@ -394,24 +282,22 @@ test('starting a new recording stops a clip that is still playing', async () => 
 
 test('a scope change drops the clip', async () => {
   const { view } = renderVoice();
-  await record(view, 2000, 1000);
-  assert.ok(view.result.current.clipSlot);
+  await record(view, 1000);
+  const slot = view.result.current.clipSlot;
+  assert.ok(slot);
 
   await act(async () => {
     view.rerender({ scope: 'session-b', isActive: true });
   });
 
-  assert.equal(
-    view.result.current.clipSlot,
-    null,
-    'the clip describes a chat that is no longer open',
-  );
-  assert.deepEqual(revokeObjectURL.mock.calls, [['blob:clip-1']]);
+  assert.equal(view.result.current.clipSlot, null, 'the clip describes a chat that is no longer open');
+  const revoked = revokeObjectURL.mock.calls.map((call) => call[0]);
+  assert.ok(slot.original && slot.trimmed && revoked.includes(slot.original.url) && revoked.includes(slot.trimmed.url));
 });
 
 test('going inactive stops the sound but keeps the clip', async () => {
   const { view } = renderVoice();
-  await record(view, 2000, 1000);
+  await record(view, 1000);
   await act(async () => {
     view.result.current.toggleClipPlayback('original');
   });
@@ -439,77 +325,11 @@ test('going inactive stops the sound but keeps the clip', async () => {
   );
 });
 
-/* ─── The uploaded copy, as a second track ─────────────────────────── */
-
-test('the trimmed upload lands beside the recording, as its own track', async () => {
-  voiceFlags.trim = true;
-  // Both have to say yes: the user's switch above, and the recogniser's own declaration here.
-  voiceProfile.declaration = TRIMS_PAUSES;
-  const { view } = renderVoice();
-
-  // A press longer than the trimmed audio the stub reports, so "the shorter one" is a comparison
-  // this run can actually make rather than two numbers that happen to agree.
-  await record(view, 2000, 3000);
-
-  const slot = view.result.current.clipSlot;
-  assert.ok(slot?.trimmed, 'a capture that was trimmed has two things to replay, not one');
-  assert.ok(slot.original, 'the trimmed capture still carries the recording it was cut from');
-  assert.notEqual(slot.trimmed.url, slot.original.url, 'the two controls must not point at the same audio');
-  assert.equal(slot.trimmed.meta.mimeType, 'audio/wav', 'the upload is the re-encode, not the recording');
-  assert.equal(slot.trimmed.meta.bytes, 32_000, 'its size is the encoded body the chain built');
-  // The trimmed length is the trim's own reading of what it produced — not the press's wall clock,
-  // which measures the recording and is the only duration the original track has.
-  assert.equal(slot.trimmed.meta.durationMs, 1000);
-  assert.ok(
-    slot.trimmed.meta.durationMs < slot.original.meta.durationMs,
-    `the trimmed track has to be the shorter one (trimmed ${slot.trimmed.meta.durationMs}ms, original ${slot.original.meta.durationMs}ms)`,
-  );
-});
-
-test('a recogniser that asks for nothing keeps the recording: the switch alone authorises nothing', async () => {
-  // Everything the trim needs is in place — the switch is on and the decoder works — except a
-  // recogniser saying its pauses are worth removing, which is the state the shipping build records
-  // in: nothing has published a voice profile, and the one adapter it registers keeps its pauses.
-  // Both halves are required, so the switch being on has to be readable as *not* enough.
-  voiceFlags.trim = true;
-  const { view } = renderVoice();
-
-  await record(view, 2000, 3000);
-
-  const slot = view.result.current.clipSlot;
-  assert.ok(slot?.original, 'the recording is still replayable');
-  assert.equal(
-    slot.trimmed,
-    null,
-    'the trim ran with no recogniser asking for it, so the switch was read as the decision',
-  );
-  assert.equal(slot.original.meta.bytes, 2000, 'and what is replayable is the recording itself');
-});
-
-test('a capture that was uploaded untrimmed gets one track, not a second copy of the first', async () => {
-  voiceFlags.trim = true;
-  // Both have to say yes: the user's switch above, and the recogniser's own declaration here.
-  voiceProfile.declaration = TRIMS_PAUSES;
-  stubbedTrim.fallback = true;
-  const { view } = renderVoice();
-
-  await record(view, 2000, 1000);
-
-  const slot = view.result.current.clipSlot;
-  assert.ok(slot, 'the recording is still replayable');
-  assert.equal(
-    slot.trimmed,
-    null,
-    'a trim that refused to cut anything leaves no trimmed audio, and inventing one would claim a trim that never happened',
-  );
-});
+/* ─── One track at a time ──────────────────────────────────────────── */
 
 test('the two tracks never sound at once', async () => {
-  voiceFlags.trim = true;
-  // Both have to say yes: the user's switch above, and the recogniser's own declaration here.
-  voiceProfile.declaration = TRIMS_PAUSES;
   const { view } = renderVoice();
-  await record(view, 2000, 1000);
+  await record(view, 1000);
   assert.ok(view.result.current.clipSlot?.trimmed, 'this test is about the pair');
 
   await act(async () => {
@@ -525,11 +345,7 @@ test('the two tracks never sound at once', async () => {
   });
 
   const trimmedAudio = lastAudio();
-  assert.notEqual(
-    trimmedAudio,
-    originalAudio,
-    'the trimmed track sounds through an element of its own, not the recording’s',
-  );
+  assert.notEqual(trimmedAudio, originalAudio, 'the filtered track sounds through an element of its own');
   assert.equal(view.result.current.clipPlayState.trimmed, 'playing', 'the second track starts');
   assert.equal(
     view.result.current.clipPlayState.original,
@@ -544,7 +360,7 @@ test('the two tracks never sound at once', async () => {
 
 test('playing a clip stops read-aloud first', async () => {
   const { view } = renderVoice();
-  await record(view, 2000, 1000);
+  await record(view, 1000);
   const stopReadAloud = vi.spyOn(voicePlayer, 'stop');
 
   await act(async () => {
@@ -556,13 +372,12 @@ test('playing a clip stops read-aloud first', async () => {
 
 test('read-aloud taking over pauses the clip', async () => {
   const { view } = renderVoice();
-  await record(view, 2000, 1000);
+  await record(view, 1000);
   await act(async () => {
     view.result.current.toggleClipPlayback('original');
   });
   const audio = lastAudio();
   const pausesBefore = audio.pauseCalls;
-  // `stop()` is the observable way to make the singleton announce its state.
   vi.spyOn(voicePlayer, 'isBusy').mockReturnValue(true);
 
   await act(async () => {
@@ -577,7 +392,7 @@ test('read-aloud taking over pauses the clip', async () => {
 
 test('a rejected play() returns the pill to idle and reports the error once', async () => {
   const { view, onError } = renderVoice();
-  await record(view, 2000, 1000);
+  await record(view, 1000);
   // Deferred, so the loading state is observable before the rejection lands.
   let rejectPlay: (reason: unknown) => void = () => undefined;
   nextPlayResult = new Promise<void>((_resolve, reject) => {
@@ -602,56 +417,25 @@ test('a rejected play() returns the pill to idle and reports the error once', as
   assert.match(String(onError.mock.calls[0]?.[0]), /Playback blocked/);
 });
 
-/* ─── Duration reading ─────────────────────────────────────────────── */
-
-test('the clip reports the wall-clock time the mic was held', async () => {
-  const { view } = renderVoice();
-
-  // Two holds of different lengths, so a constant (or a container duration read once)
-  // cannot satisfy both readings.
-  const readings: Array<{ held: number; measured: number }> = [];
-  for (const held of [3000, 7000]) {
-    await record(view, 2000, held);
-    const measured = view.result.current.clipSlot?.original?.meta.durationMs ?? -1;
-    readings.push({ held, measured });
-    assert.ok(
-      Math.abs(measured - held) <= held * 0.2,
-      `expected ~${held}ms of wall clock, measured ${measured}ms (readings: ${JSON.stringify(readings)})`,
-    );
-  }
-});
-
 /* ─── Render face ──────────────────────────────────────────────────── */
 
 /**
  * The tier the composer reads, as it reads it: `window.innerWidth` against `md` (768), taken by
- * `useDeviceSettings` in a state initialiser. A component that switched on some other signal would
- * render the other tier here and these cases would fail rather than pass against a second copy of
- * the rule. Set before the render, for the same reason the hook takes it before the render.
+ * `useDeviceSettings` in a state initialiser.
  */
 const setViewportWidth = (width: number) => {
   Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: width });
 };
 
-/** The narrow tier (any width below `md`), and the wide one the composer has always had. */
 const MOBILE_WIDTH = 390;
 const DESKTOP_WIDTH = 1280;
-/**
- * The narrowest width that still takes the wide tier — one pixel over `md`.
- *
- * It is the width the pair's home is read at below, because it is the only one where the
- * group holding the pair has to fit a second line: the box is at its narrowest here, and
- * the pair is the widest thing the group carries.
- */
 const NARROW_DESKTOP_WIDTH = 768;
 
-/** The composer's own slots, so a case reads the structure the CSS then lays out. */
 const CLIP_ROW_SELECTOR = '[data-slot="prompt-input-clip-row"]';
 const FOOTER_SELECTOR = '[data-slot="prompt-input-footer"]';
 const TOOLS_SELECTOR = '[data-slot="prompt-input-tools"]';
 const TEXTAREA_SELECTOR = '[data-slot="prompt-input-textarea"]';
 
-/** Where the replay controls really are, for a failure message that can be acted on. */
 const describePlacement = (root: HTMLElement, control: HTMLElement | null) => {
   if (!control) return 'no replay control rendered';
   const slots: string[] = [];
@@ -662,9 +446,11 @@ const describePlacement = (root: HTMLElement, control: HTMLElement | null) => {
   return slots.length > 0 ? slots.join(' < ') : 'in no labelled slot';
 };
 
+/** Renders the composer with a capture engine this file can speak into. */
 const renderComposer = (onVoiceTranscript: (text: string, send?: boolean) => void) =>
   render(
     React.createElement(ChatComposer, {
+      voiceCaptureEngine: capture.engine,
       pendingPermissionRequests: [],
       handlePermissionDecision: () => undefined,
       handleGrantToolPermission: () => ({ success: true }),
@@ -734,9 +520,11 @@ const renderComposer = (onVoiceTranscript: (text: string, send?: boolean) => voi
 
 /** Records one press through the composer's own buttons — the path a user takes, not the hook's API. */
 const recordThroughComposer = async (view: ReturnType<typeof render>) => {
-  recorderChunks = [new Blob([new Uint8Array(2000)])];
   await act(async () => {
     view.getByRole('button', { name: 'Voice input' }).click();
+  });
+  await act(async () => {
+    capture.speak(1);
   });
   await act(async () => {
     view.getByRole('button', { name: 'Stop recording' }).click();
@@ -744,22 +532,7 @@ const recordThroughComposer = async (view: ReturnType<typeof render>) => {
   await act(async () => {});
 };
 
-/** Turns the trim on for the pair of tracks: the switch above, and the recogniser's own declaration. */
-const withTrimmedPair = () => {
-  voiceFlags.trim = true;
-  voiceProfile.declaration = TRIMS_PAUSES;
-};
-
-/*
- * The replay pair's two homes. Below `md` it has a row of its own between the box and the footer —
- * the narrow footer is exactly the six controls that send a message and may not wrap, so the pair
- * cannot live there; from `md` up it stays in the left tool group where it has always been. The
- * cases below read each tier's placement out of the DOM the composer built, including the order the
- * slots appear in, because that order is the whole of "the row is between the box and the footer".
- */
-
 test('(a) mobile: the pair lands in its own row between the box and the footer, one control per track', async () => {
-  withTrimmedPair();
   setViewportWidth(MOBILE_WIDTH);
   const view = renderComposer(() => undefined);
   const { container, getByRole } = view;
@@ -769,7 +542,7 @@ test('(a) mobile: the pair lands in its own row between the box and the footer, 
   const row = container.querySelector<HTMLElement>(CLIP_ROW_SELECTOR);
   assert.ok(
     row,
-    `a recording at ${MOBILE_WIDTH}px must give the replay pair a row of its own; the controls read: ${describePlacement(container, container.querySelector('button[aria-label="Replay original"]'))}`,
+    `a listen at ${MOBILE_WIDTH}px must give the replay pair a row of its own; the controls read: ${describePlacement(container, container.querySelector('button[aria-label="Replay original"]'))}`,
   );
   const textarea = container.querySelector<HTMLElement>(TEXTAREA_SELECTOR);
   const footer = container.querySelector<HTMLElement>(FOOTER_SELECTOR);
@@ -782,11 +555,7 @@ test('(a) mobile: the pair lands in its own row between the box and the footer, 
     row.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING,
     'the clip row has to come before the footer',
   );
-  assert.equal(
-    footer.contains(row),
-    false,
-    'the clip row is the footer\'s replacement for a wrapped row, not a row inside it',
-  );
+  assert.equal(footer.contains(row), false, 'the clip row is not a row inside the footer');
 
   const replayOriginal = getByRole('button', { name: 'Replay original' });
   const replayTrimmed = getByRole('button', { name: 'Replay trimmed' });
@@ -800,7 +569,6 @@ test('(a) mobile: the pair lands in its own row between the box and the footer, 
     'the two controls have to be over two different audio sources',
   );
 
-  // Clickable, and the whole point of the pair: pressing one offers to stop *that* audio.
   await act(async () => {
     replayOriginal.click();
   });
@@ -811,7 +579,6 @@ test('(a) mobile: the pair lands in its own row between the box and the footer, 
 });
 
 test('(b) desktop: the pair stays in the left tool group inside the footer, right of the mic', async () => {
-  withTrimmedPair();
   setViewportWidth(DESKTOP_WIDTH);
   const view = renderComposer(() => undefined);
   const { container, getByRole } = view;
@@ -830,14 +597,8 @@ test('(b) desktop: the pair stays in the left tool group inside the footer, righ
 
   const replayOriginal = getByRole('button', { name: 'Replay original' });
   const replayTrimmed = getByRole('button', { name: 'Replay trimmed' });
-  assert.ok(
-    footer.contains(replayOriginal) && footer.contains(replayTrimmed),
-    `the wide layout keeps the pair in the footer; they read: ${describePlacement(container, replayOriginal)}`,
-  );
-  assert.ok(
-    tools.contains(replayOriginal) && tools.contains(replayTrimmed),
-    `and in the left tool group, not the right-hand cluster; they read: ${describePlacement(container, replayOriginal)}`,
-  );
+  assert.ok(footer.contains(replayOriginal) && footer.contains(replayTrimmed));
+  assert.ok(tools.contains(replayOriginal) && tools.contains(replayTrimmed));
 
   const mic = getByRole('button', { name: 'Voice input' });
   assert.ok(
@@ -845,79 +606,45 @@ test('(b) desktop: the pair stays in the left tool group inside the footer, righ
     'the pair sits right of the microphone it was recorded from',
   );
 
-  // And what the pair reads, on the real composer the capture chain filled: a duration each, nothing
-  // else. The direct-render cases above pin the exact strings; this one is the same fact read off the
-  // path a user's recording actually takes into the composer.
   for (const [track, control] of [['original', replayOriginal], ['trimmed', replayTrimmed]] as const) {
     const text = control.textContent?.trim() ?? '';
-    assert.match(
-      text,
-      /^\d+:\d{2}(?::\d{2})?$/,
-      `the ${track} control must read its duration and no byte count; it read "${text}"`,
-    );
+    assert.match(text, /^\d+:\d{2}(?::\d{2})?$/, `the ${track} control must read its duration; it read "${text}"`);
   }
 });
 
 test('(b) the pair\'s home at the narrowest desktop width: still the tool group, and that group may wrap it', async () => {
-  // The same placement as (b), read one pixel over the breakpoint rather than far from it. The
-  // pair is the widest thing the tool group carries and it declares `shrink-0`, so at this width
-  // there is nowhere for it to go inside a single line: without a wrap permission on the group,
-  // the group's content is what the box pushes past its own edge. jsdom lays nothing out, so what
-  // this case reads is the permission the component declares — the layout consequence is the
-  // browser probe's (768 with a pair: `scrollWidth 470 / clientWidth 445` before, `445 / 445`
-  // after) — and the placement beside it, which must not have moved into the mobile clip row.
-  withTrimmedPair();
   setViewportWidth(NARROW_DESKTOP_WIDTH);
   const view = renderComposer(() => undefined);
   const { container, getByRole } = view;
 
   await recordThroughComposer(view);
 
-  assert.equal(
-    container.querySelector(CLIP_ROW_SELECTOR),
-    null,
-    'the clip row is the narrow layout\'s replacement for a wrapped row; this width is not that layout',
-  );
+  assert.equal(container.querySelector(CLIP_ROW_SELECTOR), null, 'this width is not the mobile layout');
 
   const tools = container.querySelector<HTMLElement>(TOOLS_SELECTOR);
   assert.ok(tools, 'the composer must render its tool group');
   const replayOriginal = getByRole('button', { name: 'Replay original' });
   const replayTrimmed = getByRole('button', { name: 'Replay trimmed' });
-  assert.ok(
-    tools.contains(replayOriginal) && tools.contains(replayTrimmed),
-    `the pair keeps its tool group here too; they read: ${describePlacement(container, replayOriginal)}`,
-  );
+  assert.ok(tools.contains(replayOriginal) && tools.contains(replayTrimmed));
   assert.equal(
     Array.from(tools.classList).includes('flex-wrap'),
     true,
-    `the group holding the pair has to be allowed to take a second line, or the pair widens the box instead; class="${tools.className}"`,
+    `the group holding the pair has to be allowed to take a second line; class="${tools.className}"`,
   );
 });
 
 test('(c) mobile: with nothing recorded the clip row does not exist at all, not empty', () => {
-  withTrimmedPair();
   setViewportWidth(MOBILE_WIDTH);
   const view = renderComposer(() => undefined);
   const { container, queryByRole } = view;
 
-  assert.equal(
-    queryByRole('button', { name: 'Replay original' }),
-    null,
-    'a composer with nothing recorded must not show a replay control',
-  );
-  assert.equal(
-    container.querySelector(CLIP_ROW_SELECTOR),
-    null,
-    'the row is conditional on the clip, so its container must be absent rather than rendered empty',
-  );
-  // The positive control: the box and footer are really there, so the two absences above are the
-  // clip's doing rather than a composer that never painted.
+  assert.equal(queryByRole('button', { name: 'Replay original' }), null, 'nothing recorded means no control');
+  assert.equal(container.querySelector(CLIP_ROW_SELECTOR), null, 'the row is conditional on the clip');
   assert.ok(container.querySelector(TEXTAREA_SELECTOR), 'the composer must have rendered its box');
   assert.ok(container.querySelector(FOOTER_SELECTOR), 'the composer must have rendered its footer');
 });
 
-test('(d) one track at a time: starting the trimmed replay stops the original, and the names follow', async () => {
-  withTrimmedPair();
+test('(d) one track at a time: starting the filtered replay stops the original, and the names follow', async () => {
   setViewportWidth(MOBILE_WIDTH);
   const view = renderComposer(() => undefined);
   const { queryByRole, getByRole } = view;
@@ -927,49 +654,21 @@ test('(d) one track at a time: starting the trimmed replay stops the original, a
   await act(async () => {
     getByRole('button', { name: 'Replay original' }).click();
   });
-  assert.equal(
-    queryByRole('button', { name: 'Replay original' }),
-    null,
-    'the two states must be distinguishable by name alone',
-  );
-  assert.ok(
-    getByRole('button', { name: 'Replay trimmed' }),
-    'and the other track is untouched: it never sounded, so it still offers to',
-  );
+  assert.equal(queryByRole('button', { name: 'Replay original' }), null, 'the states are told apart by name');
+  assert.ok(getByRole('button', { name: 'Replay trimmed' }), 'the other track never sounded, so it still offers to');
 
   await act(async () => {
     getByRole('button', { name: 'Replay trimmed' }).click();
   });
 
   assert.ok(getByRole('button', { name: 'Stop trimmed playback' }), 'the second track takes the speakers');
-  assert.ok(
-    getByRole('button', { name: 'Replay original' }),
-    'and the first one is back to offering to play: one track at a time',
-  );
+  assert.ok(getByRole('button', { name: 'Replay original' }), 'and the first one is back to offering to play');
 });
 
-test('a capture that was uploaded as recorded gets one control, not two over the same audio', async () => {
-  withTrimmedPair();
-  stubbedTrim.decodable = false;
-  setViewportWidth(MOBILE_WIDTH);
-  const view = renderComposer(() => undefined);
-  const { queryByRole, getByRole } = view;
-
-  await recordThroughComposer(view);
-
-  assert.ok(getByRole('button', { name: 'Replay original' }), 'the recording is still replayable');
-  assert.equal(
-    queryByRole('button', { name: 'Replay trimmed' }),
-    null,
-    'nothing was trimmed, so a trimmed control would be pointing at the recording and claiming otherwise',
-  );
-});
-
-/* ─── What the pill reads: the duration, and which tracks exist ────── */
+/* ─── What the pill reads: the duration ────────────────────────────── */
 
 const SILENT: VoiceClipPlayState = { original: 'idle', trimmed: 'idle' };
 
-/** Renders the replay control directly with a slot fixture — these cases are about what a control says, not the capture chain. */
 const renderClipButton = (clips: VoiceClipSlot) =>
   render(React.createElement(VoiceClipButton, { clips, state: SILENT, onToggle: () => undefined }));
 
@@ -1007,25 +706,26 @@ test('the pill formats M:SS below an hour and H:MM:SS from an hour', () => {
   }
 });
 
-test('with no raw recording the trimmed track still offers its control, and nothing is disabled', () => {
+test('with no raw stream kept the filtered track still offers its control, and nothing is disabled', () => {
+  // The shape a stream past `ORIGINAL_CAP_SEC` leaves: the raw track is gone, the filtered one is not.
   const { container, queryByRole } = renderClipButton({
     original: null,
     trimmed: { url: 'blob:trimmed-only', meta: { bytes: 32_000, mimeType: 'audio/wav', durationMs: 19_000 } },
   });
 
   const buttons = Array.from(container.querySelectorAll('button'));
-  assert.equal(buttons.length, 1, 'a slot with no raw recording offers one control, not two');
-  assert.equal(buttons[0]?.getAttribute('data-clip-url'), 'blob:trimmed-only', 'the surviving control is the trimmed one');
-  assert.equal(buttons[0]?.disabled, false, 'the trimmed control is live');
+  assert.equal(buttons.length, 1, 'a slot with no raw stream offers one control, not two');
+  assert.equal(buttons[0]?.getAttribute('data-clip-url'), 'blob:trimmed-only', 'the surviving control is the filtered one');
+  assert.equal(buttons[0]?.disabled, false, 'the filtered control is live');
   assert.equal(
     queryByRole('button', { name: 'Replay original' }),
     null,
-    'the absent raw recording is not offered as a disabled control either',
+    'the absent raw stream is not offered as a disabled control either',
   );
   assert.equal(container.textContent?.trim(), '0:19');
 });
 
-test('when both tracks are present the pair reads original then trimmed', () => {
+test('when both tracks are present the pair reads original then filtered', () => {
   const { container } = renderClipButton({
     original: clipOf('blob:pair-original', 47_000),
     trimmed: { url: 'blob:pair-trimmed', meta: { bytes: 32_000, mimeType: 'audio/wav', durationMs: 19_000 } },
@@ -1035,7 +735,7 @@ test('when both tracks are present the pair reads original then trimmed', () => 
   assert.deepEqual(
     buttons.map((button) => button.getAttribute('data-clip-url')),
     ['blob:pair-original', 'blob:pair-trimmed'],
-    'the pair is ordered original, trimmed',
+    'the pair is ordered original, filtered',
   );
   assert.deepEqual(
     buttons.map((button) => button.textContent?.trim()),

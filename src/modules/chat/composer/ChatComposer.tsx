@@ -13,7 +13,7 @@ import type {
 import { PaperclipIcon, MessageSquareIcon, XIcon, Loader2, ArrowUpIcon, PencilIcon, Lock, Copy, Check } from 'lucide-react';
 
 import { useActivityFreshness } from '@/modules/chat/hooks/useActivityFreshness';
-import { useVoiceInput } from '@/modules/chat/hooks/useVoiceInput';
+import { useVoiceInput, type VoiceCaptureEngine } from '@/modules/chat/hooks/useVoiceInput';
 import { useVoiceAvailable } from '@/modules/chat/hooks/useVoiceAvailable';
 import { useSendOnEnter } from '@/modules/chat/hooks/useSendOnEnter';
 import { useComposerCompactTier } from '@/modules/chat/hooks/useComposerCompactTier';
@@ -137,6 +137,19 @@ type ChatComposerProps = {
   textareaRef: RefObject<HTMLTextAreaElement>;
   input: string;
   onVoiceTranscript?: (text: string, send?: boolean) => void;
+  /**
+   * Called with the caret when a listen starts, so the state layer opens the tracked insertion range
+   * where the dictation will be committed. Optional: a caller that does not own the draft (a
+   * standalone render) leaves it out and the transcript is appended to the end instead.
+   */
+  onVoiceListeningStart?: (cursor: number) => void;
+  /**
+   * Overrides where a listen's audio comes from.
+   *
+   * Absent in the app, which uses the shipping `AudioWorklet` engine. A test supplies one so it can
+   * push 20 ms PCM frames without a browser audio thread or a microphone — jsdom has neither.
+   */
+  voiceCaptureEngine?: VoiceCaptureEngine;
   /** Draft scope of the open chat; a change drops the recorded clip, which belongs to the chat it was recorded in. */
   scope: string | null;
   /**
@@ -251,6 +264,8 @@ export default function ChatComposer({
   textareaRef,
   input,
   onVoiceTranscript,
+  onVoiceListeningStart,
+  voiceCaptureEngine,
   scope,
   projectId,
   isActive,
@@ -447,7 +462,7 @@ export default function ChatComposer({
   } = useVoiceInput(
     onVoiceTranscript ?? noopTranscript,
     handleVoiceError,
-    { scope, isActive: isActive && !hasQuestionPanel, candidates: identifierCandidates },
+    { scope, isActive: isActive && !hasQuestionPanel, candidates: identifierCandidates, captureEngine: voiceCaptureEngine },
   );
   const isRecording = voiceState === 'recording';
   const isTranscribing = voiceState === 'transcribing';
@@ -456,8 +471,14 @@ export default function ChatComposer({
   // composer's state: the button renders what it is handed and owns no memory of the last failure.
   const handleVoiceToggle = useCallback(() => {
     setVoiceFailure(null);
+    // A press that starts a listen fixes where the dictation will be committed: the caret as it is
+    // now. Signalled before the hook switches to recording, so the range is open before the first
+    // segment can land. A press that stops needs no signal — the range is already open.
+    if (voiceState === 'idle') {
+      onVoiceListeningStart?.(textareaRef.current?.selectionStart ?? input.length);
+    }
     voiceToggle();
-  }, [voiceToggle]);
+  }, [voiceToggle, voiceState, onVoiceListeningStart, textareaRef, input]);
 
   // The composer's stop entry reads the same liveness the dock does: a greyed
   // submit and a greyed dock control are one story about one unreachable server,

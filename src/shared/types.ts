@@ -1474,6 +1474,15 @@ export type VoiceTranscriptionFailure = {
   code?: string;
   status?: number;
   upstreamCode?: string;
+  /**
+   * The spoken span this refusal is about, in seconds from the start of the listen.
+   *
+   * Present only on the continuous path, where one listen is many uploads and a failure is about one
+   * segment rather than the whole recording. The notice renders it beside the sentence so the user
+   * can tell which part of a long dictation is missing; the single-request path leaves it unset.
+   */
+  startSec?: number;
+  endSec?: number;
 };
 
 /**
