@@ -55,15 +55,15 @@ AC-236（GOAL-019 退出条件 7；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3�
 
 ## AC
 
-- [ ] AC1 判据绿：`for f in server/modules/session-hosts/tests/resident-host-service.test.ts server/modules/session-hosts/tests/session-hosts-routes.test.ts server/modules/session-hosts/tests/resident-ondemand-start-route.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/resident-host-service.test.ts server/modules/session-hosts/tests/session-hosts-routes.test.ts server/modules/session-hosts/tests/resident-ondemand-start-route.test.ts` 退出 0。红态基线逐字记录（改动前该文件不存在、存在性闸退出码 1 输出 `缺判据文件：server/modules/session-hosts/tests/resident-host-service.test.ts`）。
-- [ ] AC2 (a) 服务存在且路由薄：`startResidentHost` / `closeResidentHost` 均为函数；路由源里 `readSession?.(`、`resolveHostDriver?.(`、`startResidentSession(`、`.bindSession(`、`.closeHost(` 计数全为 0，且 `startResidentHost(` / `closeResidentHost(` 各 ≥1；服务源里对应五类各 ≥1（正例对照）。写下五组（两组）计数。
-- [ ] AC3 (b) 四种拒绝逐字：会话不存在 / 已按其他模式运行 / provider 无宿主驱动 / 存储非常驻，各自 `{ ok:false, status, code, message }` 与第 2 点文案 `assert.equal` 全等（写下四条返回值）。
-- [ ] AC4 (c) 幂等：两次 `startResidentHost` 同一会话，第二次 `pid` 与第一次相同且 `ok:true`；驱动 `launches.length === 1`、`spawns() === 1`（写下两次 pid 与两项计数）。
-- [ ] AC5 (d) 关闭回原因/宿主/lease：`closeResidentHost` 返回 `closeReason === 'user'`、`hostId` 与启动一致、`leases` 含 `{ kind: 'resident-policy' }`；关闭的四种拒绝（宿主非常驻 / 会话不存在 / 存储非常驻 / 常驻无活宿主）`status/code/message` 全等（写下返回值）。
-- [ ] AC6 (e) 无 socket/HTTP：写下 grep 命令与空输出——判据文件不 import `express`、不 `listen(`、不 `new WebSocket(`、不 `new WebSocketServer(`；且 `session-hosts-routes.test.ts` 与 `resident-ondemand-start-route.test.ts` 在本任务 delta 内无改动（`git diff --stat develop...HEAD -- <两文件>` 为空）并逐字通过。
-- [ ] AC7 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 路由留内联逻辑 ⇒ AC2 禁用计数非 0 而红；(ii) 服务把已运行会话当新启动 ⇒ AC4 红；(iii) 改动任一既有拒绝文案 ⇒ AC3/AC5 的逐字断言红。每条记录恢复命令与恢复后重跑绿。
-- [ ] AC8 不回归与仓库门：`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（只看 error 级，写明计数）；跨模块只经 barrel、无深导入；服务文件不新增无消费者的 barrel 导出。
-- [ ] AC9 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写；列出实际改动文件清单。
+- [x] AC1 判据绿：`for f in server/modules/session-hosts/tests/resident-host-service.test.ts server/modules/session-hosts/tests/session-hosts-routes.test.ts server/modules/session-hosts/tests/resident-ondemand-start-route.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/resident-host-service.test.ts server/modules/session-hosts/tests/session-hosts-routes.test.ts server/modules/session-hosts/tests/resident-ondemand-start-route.test.ts` 退出 0。红态基线逐字记录（改动前该文件不存在、存在性闸退出码 1 输出 `缺判据文件：server/modules/session-hosts/tests/resident-host-service.test.ts`）。
+- [x] AC2 (a) 服务存在且路由薄：`startResidentHost` / `closeResidentHost` 均为函数；路由源里 `readSession?.(`、`resolveHostDriver?.(`、`startResidentSession(`、`.bindSession(`、`.closeHost(` 计数全为 0，且 `startResidentHost(` / `closeResidentHost(` 各 ≥1；服务源里对应五类各 ≥1（正例对照）。写下五组（两组）计数。
+- [x] AC3 (b) 四种拒绝逐字：会话不存在 / 已按其他模式运行 / provider 无宿主驱动 / 存储非常驻，各自 `{ ok:false, status, code, message }` 与第 2 点文案 `assert.equal` 全等（写下四条返回值）。
+- [x] AC4 (c) 幂等：两次 `startResidentHost` 同一会话，第二次 `pid` 与第一次相同且 `ok:true`；驱动 `launches.length === 1`、`spawns() === 1`（写下两次 pid 与两项计数）。
+- [x] AC5 (d) 关闭回原因/宿主/lease：`closeResidentHost` 返回 `closeReason === 'user'`、`hostId` 与启动一致、`leases` 含 `{ kind: 'resident-policy' }`；关闭的四种拒绝（宿主非常驻 / 会话不存在 / 存储非常驻 / 常驻无活宿主）`status/code/message` 全等（写下返回值）。
+- [x] AC6 (e) 无 socket/HTTP：写下 grep 命令与空输出——判据文件不 import `express`、不 `listen(`、不 `new WebSocket(`、不 `new WebSocketServer(`；且 `session-hosts-routes.test.ts` 与 `resident-ondemand-start-route.test.ts` 在本任务 delta 内无改动（`git diff --stat develop...HEAD -- <两文件>` 为空）并逐字通过。
+- [x] AC7 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 路由留内联逻辑 ⇒ AC2 禁用计数非 0 而红；(ii) 服务把已运行会话当新启动 ⇒ AC4 红；(iii) 改动任一既有拒绝文案 ⇒ AC3/AC5 的逐字断言红。每条记录恢复命令与恢复后重跑绿。
+- [x] AC8 不回归与仓库门：`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（只看 error 级，写明计数）；跨模块只经 barrel、无深导入；服务文件不新增无消费者的 barrel 导出。
+- [x] AC9 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写；列出实际改动文件清单。
 
 ## DoD
 
@@ -80,3 +80,175 @@ AC-236（GOAL-019 退出条件 7；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3�
 - server/modules/session-hosts/session-hosts.routes.ts
 - server/modules/session-hosts/tests/resident-host-service.test.ts (new)
 - tasks/gap-ac236-resident-host-service.md
+
+## Evidence
+
+### 冻结修订
+
+- 分支 `task/gap-ac236-resident-host-service`；实现提交 `b2cdbf64`（`resident-host.service.ts` 新增、`session-hosts.routes.ts` 改薄、判据 `(new)`）。随后 `git merge --no-edit develop` 得干净合并（develop = `c8994d18`，分支点/merge-base = `5249b55b`）。
+- 两个新增文件在 delta 里是 `(new)`（`git diff --stat --diff-filter=A develop...HEAD` 列出 `resident-host.service.ts` 与 `tests/resident-host-service.test.ts`）。
+- 全部读数在同一份修订上取得；三条取假形态各自先红后 `git checkout --` 恢复并重跑绿。
+
+### AC1 判据绿（含红态基线）
+
+红态基线：判据文件在分支点不存在。
+
+```
+$ git cat-file -e 5249b55b:server/modules/session-hosts/tests/resident-host-service.test.ts; echo "exit=$?"
+fatal: path 'server/modules/session-hosts/tests/resident-host-service.test.ts' exists on disk, but not in '5249b55b'
+exit=128
+```
+
+存在性闸 `[ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }` 在同一分支点即输出
+`缺判据文件：server/modules/session-hosts/tests/resident-host-service.test.ts` 并以退出码 1 结束。
+
+绿灯命令（逐字）：
+
+```
+for f in server/modules/session-hosts/tests/resident-host-service.test.ts \
+         server/modules/session-hosts/tests/session-hosts-routes.test.ts \
+         server/modules/session-hosts/tests/resident-ondemand-start-route.test.ts; do
+  [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }
+done
+npx tsx --tsconfig server/tsconfig.json --test \
+  server/modules/session-hosts/tests/resident-host-service.test.ts \
+  server/modules/session-hosts/tests/session-hosts-routes.test.ts \
+  server/modules/session-hosts/tests/resident-ondemand-start-route.test.ts
+```
+
+读数：`AC1_EXIT=0`，`ℹ tests 14 / ℹ pass 14 / ℹ fail 0`（新判据 5 例 + `session-hosts-routes.test.ts` 7 例 + `resident-ondemand-start-route.test.ts` 2 例）。
+
+### AC2 (a) 服务存在 + 路由薄（正例对照）
+
+判据（`AC2 (a)` 用例）逐字读数：
+
+```
+route inline counts readSession?.(=0 resolveHostDriver?.(=0 startResidentSession(=0 .bindSession(=0 .closeHost(=0
+route service calls startResidentHost=1 closeResidentHost=1
+service counts readSession=3 resolveHostDriver=2 startResidentSession(=1 .bindSession(=1 .closeHost(=1
+```
+
+`typeof startResidentHost === 'function'` 且 `typeof closeResidentHost === 'function'`。五类内联调用在路由源上全 0；服务源上对应五类各 ≥1 —— 即 0 是抽离的结果，不是扫描器失灵。
+
+### AC3 (b) 四种 start 拒绝逐字
+
+判据（`AC3 (b)` 用例）整条返回值（`assert.deepEqual` 全等）：
+
+```
+[{"ok":false,"status":404,"code":"SESSION_NOT_FOUND","message":"Session \"missing-session\" was not found."},
+ {"ok":false,"status":409,"code":"LIFECYCLE_MODE_NOT_RESIDENT","message":"Session \"runs-per-run\" already runs in \"per-run\" mode; only a resident host can be started on demand."},
+ {"ok":false,"status":409,"code":"LIFECYCLE_MODE_HOST_UNAVAILABLE","message":"Provider \"codex\" mounts no host driver, so session \"resident-no-driver\" cannot be started."},
+ {"ok":false,"status":409,"code":"LIFECYCLE_MODE_NOT_RESIDENT","message":"Session \"stored-per-run\" is stored as \"per-run\"; only a resident session can be started on demand."}]
+```
+
+第二条的 per-run 活宿主由真管理器 `openHost({mode:'per-run', ...})` 打开后再调用。
+
+### AC4 (c) 幂等
+
+判据（`AC4 (c)` 用例）：
+
+```
+idempotent first.pid=4242 second.pid=4242 launches=1 spawns=1 sameHost=true
+```
+
+两次 `startResidentHost` 同一会话：`pid` 均 4242（FAKE_PID）；驱动 `launches.length === 1`、`spawns() === 1` —— 第二次没有再次调用启动缝、没有第二个进程。
+
+### AC5 (d) 关闭回原因/宿主/lease + 四种 close 拒绝
+
+判据（`AC5 (d)` 用例）整条返回值：
+
+```
+{"ok":true,"hostId":"host-00967f91-51a1-4f59-ba1f-0fb48d6bab46","sessionId":"close-me","mode":"resident","closeReason":"user","leases":[{"kind":"resident-policy"}]}
+```
+
+`closeReason === 'user'`、`hostId` 与启动返回一致、`leases` 深等于 `[{kind:'resident-policy'}]`（从真管理器绑定 `host.bindings.get(sessionId)?.leases` 关闭前读回；常量来自既有 `createBinding` 的 `resident-policy`，非新造字段）。四种 close 拒绝逐字：
+
+```
+[{"ok":false,"status":409,"code":"LIFECYCLE_MODE_NOT_RESIDENT","message":"Session \"close-per-run\" runs in \"per-run\" mode; only a resident host can be closed on demand."},
+ {"ok":false,"status":404,"code":"SESSION_NOT_FOUND","message":"Session \"missing-session\" was not found."},
+ {"ok":false,"status":409,"code":"LIFECYCLE_MODE_NOT_RESIDENT","message":"Session \"close-stored-per-run\" is stored as \"per-run\"; only a resident session can be closed on demand."},
+ {"ok":false,"status":404,"code":"SESSION_HOST_NOT_FOUND","message":"Session \"close-resident-hostless\" is resident but no live host is serving it."}]
+```
+
+### AC6 (e) 无 socket/HTTP
+
+判据（`AC6 (e)` 用例）自扫本文件，needle 由片段拼接以免自匹配：
+
+```
+$ grep -nE "from 'express'|\.listen\(|new WebSocket\(|new WebSocketServer\(" \
+    server/modules/session-hosts/tests/resident-host-service.test.ts
+(no output)
+```
+
+判据输出：`self-scan import express<from 'express'>=0 listen(<.listen(>=0 WebSocket constructor<new WebSocket(>=0 WebSocketServer constructor<new WebSocketServer(>=0`。判据文件不 import `express`、不调用 `listen(`、不构造 `new WebSocket(` / `new WebSocketServer(`；(a)-(d) 全部直接对 `resident-host.service.ts` 完成。
+
+两个既有判据文件在本任务 delta 内零改动、逐字通过：
+
+```
+$ git diff --stat develop...HEAD -- \
+    server/modules/session-hosts/tests/session-hosts-routes.test.ts \
+    server/modules/session-hosts/tests/resident-ondemand-start-route.test.ts
+(no output)
+```
+
+### AC7 取假形态三条（先提交实现再变异）
+
+先提交实现 `b2cdbf64`，再逐个变异、记录、`git checkout --` 恢复并重跑绿。
+
+**(i) 路由留内联逻辑** —— 在 start 处理器里加回 `const legacyInline = readSession?.(sessionId) ?? null; void legacyInline;`：
+
+```diff
+       const sessionId = routeParameter(request.params.sessionId);
++      const legacyInline = readSession?.(sessionId) ?? null;
++      void legacyInline;
+       const result = await startResidentHost(sessionId, {
+```
+
+`✖ AC2 (a): the service exists and the route makes none of the inline calls`；逐字失败行 `AssertionError [ERR_ASSERTION]: the route must not call readSession?.( — the decision lives in the service`；读数 `readSession?.(=1`，`tests 5 / pass 4 / fail 1`，EXIT=1。
+恢复：`git checkout -- server/modules/session-hosts/session-hosts.routes.ts` → 重跑 `tests 5 / pass 5 / fail 0`，EXIT=0。
+
+**(ii) 服务把已运行会话当新启动** —— 删除 `startResidentHost` 的活宿主提前返回分支：
+
+```diff
+-  const running = liveHostForSession(deps.sessionHostManager, sessionId);
+-  if (running) {
+-    if (running.mode !== 'resident') {
+-      return refuse(409, 'LIFECYCLE_MODE_NOT_RESIDENT', `Session "${sessionId}" already runs in "${running.mode}" mode; ...`);
+-    }
+-    return { ok: true, hostId: running.hostId, sessionId, mode: 'resident', pid: running.pid };
+-  }
+-
+   if (session.mode !== 'resident') {
+```
+
+`✖ AC4 (c): a second start returns the same host and starts nothing`；逐字失败行 `AssertionError [ERR_ASSERTION]: and the same host`；读数 `idempotent ... launches=2 spawns=2 sameHost=false`，`tests 5 / pass 3 / fail 2`，EXIT=1。（`AC3 (b)` 同轮亦红，因为「已按其他模式运行」分支同被删除。）
+恢复：`git checkout -- server/modules/session-hosts/resident-host.service.ts` → 重跑 `tests 5 / pass 5 / fail 0`，EXIT=0。
+
+**(iii) 改动既有拒绝文案** —— 把两处 `was not found.` 改成 `does not exist.`：
+
+```diff
+-    return refuse(404, 'SESSION_NOT_FOUND', `Session "${sessionId}" was not found.`);
++    return refuse(404, 'SESSION_NOT_FOUND', `Session "${sessionId}" does not exist.`);
+```
+
+`✖ AC3 (b)` 与 `✖ AC5 (d)` 同时红；逐字失败行（两处）：
+`+   message: 'Session "missing-session" does not exist.'` / `-   message: 'Session "missing-session" was not found.'`；`tests 5 / pass 3 / fail 2`，EXIT=1。既有两文件只断言 status/code，其保护不变。
+恢复：`git checkout -- server/modules/session-hosts/resident-host.service.ts` → 重跑 `tests 5 / pass 5 / fail 0`，EXIT=0。恢复后 `git status --porcelain` 为空。
+
+### AC8 不回归与仓库门
+
+```
+$ npm run typecheck        → TYPECHECK_EXIT=0
+$ npm run lint             → LINT_EXIT=0；`: error ` 行计数 0（只有既有 warning）
+```
+
+跨模块只经 barrel：本任务新增的导入全部是 `@/shared/types.js`（shared 模块）与同模块内相对导入；无深导入他模块。`resident-host.service.ts` 只导出两个服务函数、`ResidentHostServiceDeps` 与两个结果类型，均被本模块路由与判据消费；未新增无消费者的 barrel 导出（`index.ts` 未改）。
+
+### AC9 delta 与 Touches 对齐
+
+实际改动文件（`git diff --stat develop...HEAD`，任务文件由 `task_write` 自身提交）：
+
+- `server/modules/session-hosts/resident-host.service.ts` (new)
+- `server/modules/session-hosts/session-hosts.routes.ts`
+- `server/modules/session-hosts/tests/resident-host-service.test.ts` (new)
+- `tasks/gap-ac236-resident-host-service.md`
