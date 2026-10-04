@@ -1092,9 +1092,9 @@ export type CommandLifecycleState = 'queued' | 'started' | 'cancelled' | 'comple
  * describe work outliving a turn; the third is a message another session sent,
  * which is why it — and only it — carries a sender. A third held-work lease
  * kind, `monitor`, is not a turn origin and so is not here: it names held work
- * on the host, and the background-task strip is the surface that reports held
- * work rather than a turn's cause. The resident status bar that used to echo
- * this set is retired with its counts.
+ * on the host, and it is the resident pill that reports held work rather than a
+ * turn's cause. The resident status bar that used to echo this set is retired
+ * with its counts.
  */
 export type MessageOriginTrigger = 'background-task' | 'cron' | 'cross-session';
 
@@ -1121,10 +1121,10 @@ export type MessageOrigin = {
  *
  * `since` is on the two held-work kinds and is required here because the
  * server's listing projection always fills it: it is the epoch-ms instant the
- * manager began holding the lease, and it is the only input the background-task
- * strip's elapsed reading has — the work's own internal progress is not
- * observable and is deliberately not reported. `cron` has its own `expiresAt`
- * instead; `turn` and `resident-policy` carry no clock.
+ * manager began holding the lease, and it is the manager's own record of the
+ * hold — the work's internal progress is not observable from the listing and is
+ * deliberately not claimed. `cron` has its own `expiresAt` instead; `turn` and
+ * `resident-policy` carry no clock.
  */
 export type SessionHostLease =
   | { kind: 'turn'; runId: string }

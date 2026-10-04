@@ -169,10 +169,12 @@ export default function ResidentSessionBadge({ sessionId }: { sessionId: string 
 
   const processState = readResidentProcessState(findSessionHost(snapshot, sessionId), error !== null);
   const badgeState = BADGE_STATE_BY_PROCESS_STATE[processState];
-  // How many background tasks the process is being held for. The pill answers
-  // "how many are still running" so the transcript's strip can answer "which
-  // ones" — both read the same leases, so a count and a list cannot disagree.
-  // Zero draws no chip: the pill's job here is the count that is not nothing.
+  // How many background tasks the process is being held for — the host's own
+  // held-work leases, which is a fact about the process rather than about the
+  // session's task table. The activity dock answers "what is running now" from
+  // that table; this pill answers "is this process being kept alive for work",
+  // so the two readings are deliberately independent. Zero draws no chip: the
+  // pill's job here is the count that is not nothing.
   const heldTaskCount = error === null ? findBackgroundTaskLeases(snapshot, sessionId).length : 0;
   const label = t('resident.badge.label', { defaultValue: 'Resident' });
   const stateWord = t(`resident.badge.state.${badgeState}`, {

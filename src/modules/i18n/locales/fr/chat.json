@@ -353,11 +353,6 @@
     },
     "stopResident": "Arrêter cette réponse (le processus et les tâches planifiées continuent)",
     "backgroundTasks": {
-      "title": "Tâches en arrière-plan",
-      "genericLabel": "Tâche en arrière-plan",
-      "monitorLabel": "Moniteur",
-      "unknown": "État de la tâche en arrière-plan inconnu",
-      "lastNotification": "Dernière notification il y a {{elapsed}}",
       "count": "{{n}} tâches"
     }
   },

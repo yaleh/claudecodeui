@@ -19,7 +19,6 @@ import LazyMessageRow from '@/modules/chat/transcript/LazyMessageRow';
 import MessageComponent from '@/modules/chat/transcript/MessageComponent';
 import TranscriptTurnRail from '@/modules/chat/transcript/TranscriptTurnRail';
 import type { TurnRailTick } from '@/modules/chat/hooks/useTurnNavigation';
-import BackgroundTaskStrip from '@/modules/chat/transcript/BackgroundTaskStrip';
 import PendingResidentMessage from '@/modules/chat/transcript/PendingResidentMessage';
 import ProviderSelectionEmptyState from '@/modules/chat/transcript/ProviderSelectionEmptyState';
 import WorkSegmentRecord from '@/modules/chat/transcript/WorkSegmentRecord';
@@ -561,16 +560,6 @@ function ChatMessagesPane({
             })}
           </>
         )}
-
-        {/*
-          The session's own background tasks, at the end of the flow and before
-          the running turn's status. Same placement rule as the activity line
-          below: the held work scrolls with the transcript rather than floating,
-          so it can never cover a message, and it reads as the last thing the
-          process is still doing. It renders nothing when nothing is held, which
-          is what makes a finished task's row leave rather than linger.
-        */}
-        <BackgroundTaskStrip sessionId={activeSessionId} messages={chatMessages} />
 
         {/*
           The running turn's status, in the message flow and after the last row, so

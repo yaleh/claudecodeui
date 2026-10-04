@@ -1632,10 +1632,6 @@ const DEBUG_AGENT_SPEC_FILES: readonly string[] = [
   // The global-stylesheet criterion: it renders a Markdown corpus (fenced code, a table, a tool result)
   // through the same seam and reads what the authored rules in src/index.css do to it.
   'css-global-rules.spec.ts',
-  // The background-task strip criterion: it opens held-work leases on the debug clock and reads the
-  // transcript strip against the listing at the same instant, so it needs the same provider, control
-  // plane and fixture home as the resident specs above.
-  'background-task-strip.spec.ts',
   // The activity-dock background criterion (AC-194): it arms a scenario whose clock writes
   // task-lifecycle rows and a cron plan, then reads the dock's task/schedule panel, the transcript cards
   // and the activity snapshot on a real page — so it needs the same provider, control plane and fixture

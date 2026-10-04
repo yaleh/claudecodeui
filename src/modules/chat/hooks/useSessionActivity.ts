@@ -27,7 +27,7 @@ import { useContext, useEffect, useSyncExternalStore } from 'react';
 
 import WebSocketContext from '@/shared/context/WebSocketContext';
 import { fetchSessionActivity } from '@/shared/api';
-import type { ActivityScheduleView, ActivityTaskView } from '@/shared/types';
+import type { ActivityScheduleView, ActivityTaskState, ActivityTaskView } from '@/shared/types';
 
 /** One session's background-work view, as the last snapshot/upsert frame left it. */
 export type SessionActivityView = {
@@ -35,6 +35,37 @@ export type SessionActivityView = {
   tasks: ActivityTaskView[];
   schedules: ActivityScheduleView[];
 };
+
+/**
+ * The states from which a task cannot move again.
+ *
+ * The task table keeps a terminal row on purpose — a transcript card joins its
+ * task by `toolUseId` to draw the state of a call that has already finished — so
+ * this set is a *reading* filter, never a deletion. The dock speaks only about
+ * work that is still live; the store keeps every row.
+ */
+export const TERMINAL_TASK_STATES: ReadonlySet<ActivityTaskState> = new Set<ActivityTaskState>([
+  'completed',
+  'failed',
+  'stopped',
+  'ended',
+]);
+
+/** True while a task can still move — `running` or `blocked`. */
+export function isActiveTask(task: ActivityTaskView): boolean {
+  return !TERMINAL_TASK_STATES.has(task.state);
+}
+
+/**
+ * The tasks the activity dock speaks about: the ones that are not terminal.
+ *
+ * The single filter behind the dock's count, its `background` decision and the
+ * panel's list — so those three can never disagree about which rows are live,
+ * and a finished task leaves the dock instead of holding it open forever.
+ */
+export function selectActiveTasks(tasks: readonly ActivityTaskView[]): ActivityTaskView[] {
+  return tasks.filter(isActiveTask);
+}
 
 /** The view a session with no frame yet reads: present, empty, stable by reference. */
 const EMPTY_VIEW: SessionActivityView = { rev: 0, tasks: [], schedules: [] };

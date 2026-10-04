@@ -455,11 +455,6 @@
     },
     "stopResident": "Stop this answer (process and scheduled tasks stay)",
     "backgroundTasks": {
-      "title": "Background tasks",
-      "genericLabel": "Background task",
-      "monitorLabel": "Monitor",
-      "unknown": "Background task state unknown",
-      "lastNotification": "Last notification {{elapsed}} ago",
       "count": "{{n}} tasks"
     }
   },

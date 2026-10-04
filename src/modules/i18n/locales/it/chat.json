@@ -351,11 +351,6 @@
     },
     "stopResident": "Ferma questa risposta (il processo e le attività pianificate restano)",
     "backgroundTasks": {
-      "title": "Attività in background",
-      "genericLabel": "Attività in background",
-      "monitorLabel": "Monitor",
-      "unknown": "Stato dell'attività in background sconosciuto",
-      "lastNotification": "Ultima notifica {{elapsed}} fa",
       "count": "{{n}} attività"
     }
   },

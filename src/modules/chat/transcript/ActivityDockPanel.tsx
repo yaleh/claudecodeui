@@ -12,9 +12,14 @@
  * transcript ({@link findPendingForegroundTool}) — the same id the server's
  * Turn Tracker holds as pending.
  *
- * Two controls live here, and neither is optimistic. A task row that is not in a
- * terminal state carries a `[data-task-stop]` button; a running foreground tool
- * carries a `[data-background-tool]` button. A click sends exactly one frame
+ * The task section is a *current-activity* reading: `selectActiveTasks` drops the
+ * terminal rows before any is drawn, so a finished task is absent from the list
+ * and from the count rather than lingering as an inert row. Its state is not lost
+ * — the transcript card still joins the task by `toolUseId` and shows it.
+ *
+ * Two controls live here, and neither is optimistic. Every task row is live and
+ * so carries a `[data-task-stop]` button; a running foreground tool carries a
+ * `[data-background-tool]` button. A click sends exactly one frame
  * (`useActivityControls`) and changes nothing locally — the row's state, and a
  * backgrounded task's arrival, come back only through the server's own activity
  * frames. Both are disabled when the dock's liveness reading is `unreachable`,
@@ -30,22 +35,14 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { ActivityScheduleView, ActivityTaskState, ActivityTaskView } from '@/shared/types';
+import type { ActivityScheduleView, ActivityTaskView } from '@/shared/types';
 import type { ActivityLiveness } from '@/modules/chat/utils/activityFreshness';
-import { useSessionActivity } from '@/modules/chat/hooks/useSessionActivity';
+import { selectActiveTasks, useSessionActivity } from '@/modules/chat/hooks/useSessionActivity';
 import {
   useActivityControls,
   type ActivityControls,
   type ForegroundTool,
 } from '@/modules/chat/hooks/useActivityControls';
-
-/** The states from which a task cannot move again — a terminal row offers no stop. */
-const TERMINAL_TASK_STATES: ReadonlySet<ActivityTaskState> = new Set<ActivityTaskState>([
-  'completed',
-  'failed',
-  'stopped',
-  'ended',
-]);
 
 type ActivityDockPanelProps = {
   sessionId?: string | null;
@@ -91,13 +88,14 @@ function taskElapsedSeconds(task: ActivityTaskView, now: number): number | null 
 }
 
 /**
- * The stop control for one task, or nothing at all.
+ * The stop control for one task.
  *
- * Rendered only while the task is non-terminal — a terminal row carries no
- * `[data-task-stop]` node, by structure rather than by hiding or disabling it,
- * so a reader that counts the selector over a finished task's row finds zero.
- * A click places a `chat.stop-task` request and nothing else; the row moves only
- * when the server's own frame says the task stopped.
+ * Every row this panel draws is a live task — `selectActiveTasks` filters the
+ * terminal ones out before any row is built — so every row carries a stop. A
+ * finished task has no row at all, which is what makes a reader that counts
+ * `[data-task-stop]` over the panel count exactly the live tasks. A click places
+ * a `chat.stop-task` request and nothing else; the row moves only when the
+ * server's own frame says the task stopped.
  */
 function StopTaskControl({ task, controls }: { task: ActivityTaskView; controls: ActivityControls }) {
   const { t } = useTranslation('chat');
@@ -117,7 +115,7 @@ function StopTaskControl({ task, controls }: { task: ActivityTaskView; controls:
   );
 }
 
-/** One task row: description, state, elapsed, last action, and its stop control. */
+/** One live task row: description, state, elapsed, last action, and its stop control. */
 function TaskRow({
   task,
   now,
@@ -129,7 +127,6 @@ function TaskRow({
 }) {
   const elapsed = taskElapsedSeconds(task, now);
   const lastAction = task.stepLabel ?? task.summary ?? task.description;
-  const canStop = !TERMINAL_TASK_STATES.has(task.state);
   return (
     <li
       data-activity-task-row="true"
@@ -147,13 +144,13 @@ function TaskRow({
         <span data-task-state-text="true" data-task-state={task.state} className="flex-shrink-0 tabular-nums">
           {task.state}
         </span>
-        {canStop && <StopTaskControl task={task} controls={controls} />}
+        <StopTaskControl task={task} controls={controls} />
       </div>
       <div className="flex items-center gap-3 pl-1 text-[11px] text-muted-foreground/70">
         <span data-task-elapsed="true">{elapsed === null ? '—' : `${elapsed}s`}</span>
         <span data-task-last-action="true" className="min-w-0 flex-1 truncate">{lastAction}</span>
       </div>
-      {canStop && controls.disabled && (
+      {controls.disabled && (
         <div data-control-disabled-reason="true" className="pl-1 text-[10px] text-muted-foreground/60">
           {controls.disabledReason}
         </div>
@@ -255,6 +252,12 @@ export default function ActivityDockPanel({
   foregroundTool = null,
 }: ActivityDockPanelProps) {
   const { tasks, schedules } = useSessionActivity(sessionId);
+  // The panel lists current activity, exactly as the dock's count reads it: the
+  // same `selectActiveTasks` filter, so the heading's number, the rows and the
+  // summary's `data-activity-task-count` are one reading. A terminal task keeps
+  // its place in the store (the transcript card joins it by `toolUseId`), and
+  // loses its place here.
+  const activeTasks = selectActiveTasks(tasks);
   const [now, setNow] = useState(() => Date.now());
   // One controls reading for the whole panel, so every button shares the same
   // enabled/disabled verdict and the same reason sentence.
@@ -268,24 +271,24 @@ export default function ActivityDockPanel({
     return () => clearInterval(timer);
   }, [schedules.length]);
 
-  if (tasks.length === 0 && schedules.length === 0 && !foregroundTool) {
+  if (activeTasks.length === 0 && schedules.length === 0 && !foregroundTool) {
     return null;
   }
 
   return (
     <div
       data-activity-dock-panel="true"
-      data-task-count={tasks.length}
+      data-task-count={activeTasks.length}
       data-schedule-count={schedules.length}
       className="pointer-events-auto w-[min(28rem,80vw)] rounded-lg border border-border/60 bg-card p-2 text-xs shadow-lg"
     >
-      {tasks.length > 0 && (
+      {activeTasks.length > 0 && (
         <section data-activity-task-section="true">
           <div className="px-1 pb-0.5 text-[10px] uppercase tracking-wide text-muted-foreground/60">
-            Tasks {tasks.length}
+            Tasks {activeTasks.length}
           </div>
           <ul className="divide-y divide-border/40">
-            {tasks.map((task) => (
+            {activeTasks.map((task) => (
               <TaskRow key={task.taskId} task={task} now={now} controls={controls} />
             ))}
           </ul>
