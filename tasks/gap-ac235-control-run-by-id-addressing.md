@@ -55,16 +55,16 @@ AC-235（GOAL-019 退出条件 6；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3�
 
 ## AC
 
-- [ ] AC1 判据绿：`for f in server/modules/websocket/tests/chat-run-by-id.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-run-by-id.test.ts` 退出 0。红态基线逐字记录（改动前该文件不存在、存在性闸退出码 1 输出 `缺判据文件：server/modules/websocket/tests/chat-run-by-id.test.ts`）。
-- [ ] AC2 (a) 被取代与当前运行都按 id 可查：同一会话先后两次 `startRun`（第二次 `supersedeRunning: true`），`getRunById(runId1)` 与 `getRunById(runId2)` 均命中、`runId` 各自正确、状态独立正确（旧 running/completed、新 running），写下两条摘要。
-- [ ] AC3 (b) 摘要字段与 aborted：被中止运行 `getRunById(runId).status === 'aborted'`（不是 completed），摘要含 `runId`/`sessionId`/`source`/`status`/`startedAt`/`completedAt`/`lastSeq` 七字段且值正确，写下整条摘要。
-- [ ] AC4 (c) 保留期与 expired/unknown：注入保留期与假时钟，保留期内 `completed` 可查；拨过保留期返回 `{status:'unknown', reason:'expired'}`；从未出现的随机 id 返回 `{status:'unknown', reason:'unknown'}`，写下三个返回值。
-- [ ] AC5 (d) 每会话一当前运行不变：supersede 后 `getRun(sessionId)?.runId === runId2`，写下读数。
-- [ ] AC6 (e) 重放不变：同一运行的 `replayEvents(sessionId, 0, runId)` 与 `replayEvents(sessionId, k, runId)` 逐帧 `deepEqual` 固定期望数组；并跑既有 `server/modules/websocket/tests/chat-run-registry.test.ts` 逐字通过（写明命令与结果）。
-- [ ] AC7 注入式配置与时钟承重：保留期来自 `createChatRunRegistry({ retentionMs })` 或环境变量 `CHAT_RUN_RETENTION_MS`（默认 5 分钟），时钟来自注入的 `now()`；判据用假时钟推进读数而不真实等待（写下注入参数与推进前后时钟读数）。
-- [ ] AC8 取假形态四条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 索引只记当前运行 ⇒ AC2 红；(ii) 过期永不生效 ⇒ AC4 的 expired 红；(iii) 中止记成 completed ⇒ AC3 红；(iv) `getRun` 返回旧运行 ⇒ AC5 红。每条记录恢复命令与恢复后重跑绿。
-- [ ] AC9 不回归与仓库门：既有 WebSocket 判据逐字通过——至少 `server/modules/websocket/tests/chat-run-registry.test.ts`、`server/modules/websocket/tests/chat-control-busy.test.ts`（若其对 `getRunById` 的断言读取非摘要字段则同步更新为摘要形态）（写明命令与结果）；`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（只看 error 级，写明计数）；跨模块只经 barrel、无深导入。
-- [ ] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写。列出实际改动文件清单。
+- [x] AC1 判据绿：`for f in server/modules/websocket/tests/chat-run-by-id.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-run-by-id.test.ts` 退出 0。红态基线逐字记录（改动前该文件不存在、存在性闸退出码 1 输出 `缺判据文件：server/modules/websocket/tests/chat-run-by-id.test.ts`）。
+- [x] AC2 (a) 被取代与当前运行都按 id 可查：同一会话先后两次 `startRun`（第二次 `supersedeRunning: true`），`getRunById(runId1)` 与 `getRunById(runId2)` 均命中、`runId` 各自正确、状态独立正确（旧 running/completed、新 running），写下两条摘要。
+- [x] AC3 (b) 摘要字段与 aborted：被中止运行 `getRunById(runId).status === 'aborted'`（不是 completed），摘要含 `runId`/`sessionId`/`source`/`status`/`startedAt`/`completedAt`/`lastSeq` 七字段且值正确，写下整条摘要。
+- [x] AC4 (c) 保留期与 expired/unknown：注入保留期与假时钟，保留期内 `completed` 可查；拨过保留期返回 `{status:'unknown', reason:'expired'}`；从未出现的随机 id 返回 `{status:'unknown', reason:'unknown'}`，写下三个返回值。
+- [x] AC5 (d) 每会话一当前运行不变：supersede 后 `getRun(sessionId)?.runId === runId2`，写下读数。
+- [x] AC6 (e) 重放不变：同一运行的 `replayEvents(sessionId, 0, runId)` 与 `replayEvents(sessionId, k, runId)` 逐帧 `deepEqual` 固定期望数组；并跑既有 `server/modules/websocket/tests/chat-run-registry.test.ts` 逐字通过（写明命令与结果）。
+- [x] AC7 注入式配置与时钟承重：保留期来自 `createChatRunRegistry({ retentionMs })` 或环境变量 `CHAT_RUN_RETENTION_MS`（默认 5 分钟），时钟来自注入的 `now()`；判据用假时钟推进读数而不真实等待（写下注入参数与推进前后时钟读数）。
+- [x] AC8 取假形态四条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 索引只记当前运行 ⇒ AC2 红；(ii) 过期永不生效 ⇒ AC4 的 expired 红；(iii) 中止记成 completed ⇒ AC3 红；(iv) `getRun` 返回旧运行 ⇒ AC5 红。每条记录恢复命令与恢复后重跑绿。
+- [x] AC9 不回归与仓库门：既有 WebSocket 判据逐字通过——至少 `server/modules/websocket/tests/chat-run-registry.test.ts`、`server/modules/websocket/tests/chat-control-busy.test.ts`（若其对 `getRunById` 的断言读取非摘要字段则同步更新为摘要形态）（写明命令与结果）；`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（只看 error 级，写明计数）；跨模块只经 barrel、无深导入。
+- [x] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写。列出实际改动文件清单。
 
 ## DoD
 
@@ -80,4 +80,75 @@ AC-235（GOAL-019 退出条件 6；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3�
 - server/modules/websocket/services/chat-run-registry.service.ts
 - server/modules/websocket/tests/chat-run-by-id.test.ts (new)
 - server/modules/websocket/tests/chat-control-busy.test.ts
+- server/modules/debug-agent/tests/debug-agent-control-queue.test.ts
 - tasks/gap-ac235-control-run-by-id-addressing.md
+## 完成记录
+
+### AC1 判据绿（含红态基线）
+红态基线：改动前 `server/modules/websocket/tests/chat-run-by-id.test.ts` 不存在。对 develop 树运行存在性闸，逐字输出 `缺判据文件：server/modules/websocket/tests/chat-run-by-id.test.ts`，退出码 1。
+命令：`npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-run-by-id.test.ts`
+结果：`ℹ tests 6 / pass 6 / fail 0`，EXIT=0。
+
+### AC2 (a) 两条摘要
+`getRunById(runId1)={"runId":"1ba666e7-…","sessionId":"run-by-id-session","source":"user","status":"running","startedAt":1000000,"completedAt":null,"lastSeq":0}`
+`getRunById(runId2)={"runId":"728a02af-…","sessionId":"run-by-id-session","source":"user","status":"running","startedAt":1000000,"completedAt":null,"lastSeq":0}`
+（被取代的运行未被置终态，两者状态独立。）
+
+### AC3 (b) aborted + 七字段
+`completeRun(SESSION_ID, { exitCode: 1, aborted: true })` 后：
+`summary={"runId":"c432b72d-…","sessionId":"run-by-id-session","source":"user","status":"aborted","startedAt":5000,"completedAt":5500,"lastSeq":1}`
+`Object.keys(summary).sort()` = `["completedAt","lastSeq","runId","sessionId","source","startedAt","status"]`（恰七字段，`completedAt` 为数字）。
+
+### AC4 (c) 保留期与 expired/unknown
+注入 `createChatRunRegistry({ retentionMs: 1000, now: () => clock })`：
+`clockWithin=101000 within={"runId":"5ab5fd68-…","status":"completed","completedAt":100000,…}`（摘要）
+`clockPast=101001 expired={"status":"unknown","reason":"expired"}`
+`never=d0421fcb-… unknown={"status":"unknown","reason":"unknown"}`
+
+### AC5 (d) 每会话一当前运行
+`currentRunId=49baf2ed-… run1=20d19119-… run2=49baf2ed-…` ⇒ `getRun(sessionId)?.runId === run2.runId`。
+
+### AC6 (e) 重放不变
+`replayEvents(SESSION_ID, 0, runId)` 三帧、逐帧 `deepEqual` 固定期望数组：
+`[{"id":"m1","kind":"stream_delta","sessionId":"run-by-id-session","content":"e1","seq":1,"runId":"…"},{"id":"m2","kind":"text","content":"e2","seq":2,…},{"id":"m3","kind":"stream_delta","content":"e3","seq":3,…}]`
+`replayEvents(SESSION_ID, 1, runId)` = 后两帧。
+既有判据：`npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-run-registry.test.ts server/modules/websocket/tests/chat-control-busy.test.ts` → `ℹ tests 18 / pass 18 / fail 0`，EXIT=0。
+
+### AC7 注入式配置与时钟
+- 显式 option：`createChatRunRegistry({ retentionMs: 1000, now: () => clock })`，读数见 (c)。
+- 环境变量：`CHAT_RUN_RETENTION_MS=1000` + 注入 `now` ⇒ `clock=11001 expired={"status":"unknown","reason":"expired"}`。
+- 默认：不注入 option/env、仅注入 `now` ⇒ `clockWithin=80000 within={…status:"completed"…}`、`clockPast=320001 expired={"status":"unknown","reason":"expired"}`（即 5 分钟默认）。
+- `now` 缺省 `() => Date.now()`；生产单例 `chatRunRegistry = createChatRunRegistry()`。
+
+### AC8 取假形态四条（先提交实现再变异；恢复命令 `git checkout -- server/modules/websocket/services/chat-run-registry.service.ts`）
+(i) 索引只记当前运行 ⇒ (a) 红。
+变异 diff：
+```
++    if (existing && input.supersedeRunning) {
++      runsById.delete(existing.runId);
++    }
+     runs.set(input.appSessionId, run);
+```
+逐字失败行：`AssertionError [ERR_ASSERTION]: runId1 must still be addressable (got {"status":"unknown","reason":"unknown"})`。恢复后 6/6 绿。
+(ii) 过期永不生效（`now() - run.completedAt > retentionMs` → `> Number.POSITIVE_INFINITY`）⇒ (c) 红。
+逐字失败行：`AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:` / `actual: { runId: '6a49acfc-…', sessionId: 'run-by-id-session', source: 'user', status: 'completed', startedAt: 100000, completedAt: 100000, lastSeq: 1 },` / `expected: { status: 'unknown', reason: 'expired' },`。恢复后 6/6 绿。
+(iii) aborted 记成 completed（`message.aborted === true ? 'aborted' : 'completed'` → `'completed'`）⇒ (b) 红。
+逐字失败行：`AssertionError [ERR_ASSERTION]: a cancelled run must not be flattened to completed`。恢复后 6/6 绿。
+(iv) `getRun` 返回旧运行（`runs.get(appSessionId)` → `Array.from(runsById.values()).find((run) => run.appSessionId === appSessionId)`）⇒ (d) 红。
+逐字失败行：`AssertionError [ERR_ASSERTION]: the session slot follows the newest run`。恢复后 6/6 绿。
+
+### AC9 不回归与仓库门
+- 既有 WebSocket 判据 18/18（见 AC6）。
+- `npm run typecheck` → EXIT=0。
+- `npm run lint` → `: error ` 计数 0（仅 warning）。
+- 跨模块只经 barrel：`debug-agent-control-queue.test.ts` 经 `@/modules/websocket/index.js`；新判据经同模块 service 深导入（同模块内，沿用 `chat-run-registry.test.ts` 既有形态）。
+
+### AC10 改动清单与 Touches 对齐
+`git diff --stat develop...HEAD` 的实际文件：
+- `server/modules/websocket/services/chat-run-registry.service.ts`
+- `server/modules/websocket/tests/chat-run-by-id.test.ts` (new)
+- `server/modules/websocket/tests/chat-control-busy.test.ts`
+- `server/modules/debug-agent/tests/debug-agent-control-queue.test.ts`
+（`tasks/gap-ac235-control-run-by-id-addressing.md` 随 develop 的 task_write 提交/merge 落位，落在 `develop...HEAD` 之外——声明在 Touches 内且不在 diff 上是允许的。）
+四个实际文件都在 `## Touches` 内。`debug-agent-control-queue.test.ts` 是必要的连带改动：`getRunById` 改为返回摘要后其 `completeOf` 原读 `.events` 不再成立，故在写入前先经 `task_write` 把该文件加入 `## Touches`，再改为读 `status === 'completed'`（注册表在同一 `decorateAndRecordEvent` 步内既记终态帧又置 completed，语义等价）。
+

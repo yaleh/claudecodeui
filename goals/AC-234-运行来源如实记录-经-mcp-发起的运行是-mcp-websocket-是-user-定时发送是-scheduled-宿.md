@@ -1,7 +1,7 @@
 ---
 id: AC-234
 title: 运行来源如实记录：经 MCP 发起的运行是 mcp，WebSocket 是 user，定时发送是 scheduled，宿主层的无人轮仍是 unattended
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-019
 criterion: for f in server/modules/websocket/tests/chat-control-source.test.ts;
@@ -25,6 +25,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-04T20:15:09.686Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
