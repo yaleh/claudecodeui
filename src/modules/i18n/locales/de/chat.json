@@ -354,12 +354,6 @@
       "count": "{{n}} Aufgaben"
     }
   },
-  "turnRail": {
-    "label": "Gesprächsrunden",
-    "scrollbar": "Gesprächs-Bildlaufleiste",
-    "jumpToTurn": "Zu Runde {{n}} springen",
-    "turn": "Runde {{n}}"
-  },
   "workspaceMenu": {
     "trigger": "Weitere Aktionen"
   }

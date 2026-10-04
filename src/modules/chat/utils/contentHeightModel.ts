@@ -14,11 +14,9 @@
  *
  * Every function here is pure; the DOM readings that feed them (which rows are
  * measured, the window's opening ordinal, the track's height) are the caller's.
- * Used by `TranscriptTurnRail` (the content-fits hiding rule) and
- * `TranscriptScrollbar` (the drawn length and position), and — through
- * `nextPxPerMessage` — by `ChatMessagesPane`, which sizes a never-measured
- * row's placeholder with the same running average the drawn geometry uses so a
- * jump is not centred against a flat constant. Unit-tested directly.
+ * Its live consumer is `ChatMessagesPane`, which through `nextPxPerMessage`
+ * sizes a never-measured row's placeholder with the transcript's running
+ * average so a jump is not centred against a flat constant. Unit-tested directly.
  */
 
 /** Placeholder px per message before any row has been measured — bootstrap only. */

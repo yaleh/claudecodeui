@@ -3,9 +3,7 @@ import type { MutableRefObject } from 'react';
 
 import { api } from '@/shared/api';
 import type { MarkSessionIdle, SessionActivityMap,Project,ProjectSession,LLMProvider,NormalizedMessage,ChatMessage,DiffCalculator,ChatReplayCursorMap,SessionTurnOutline } from '@/shared/types';
-import type { SessionStore, ScrubWindowPage } from '@/modules/chat/hooks/useSessionStore';
-import { createScrubWindowLoader } from '@/modules/chat/utils/scrubWindowLoader';
-import type { ScrubWindowLoader } from '@/modules/chat/utils/scrubWindowLoader';
+import type { SessionStore } from '@/modules/chat/hooks/useSessionStore';
 import { subscribeTargetFor } from '@/modules/chat/utils/replayCursor';
 import {
   OLDER_MESSAGES_PAGE_SIZE,
@@ -46,18 +44,6 @@ const SEARCH_SCROLL_BUDGET_MS = 3_000;
  */
 const JUMP_WINDOW_BEFORE = 40;
 const JUMP_WINDOW_AFTER = 40;
-
-/**
- * How many messages are loaded on each side of a dragged position.
- *
- * Wide on purpose. A drag sweeps across the conversation far faster than a jump
- * lands on one turn, and every window it does read costs a full commit of the
- * rows it brings in — so the window is sized to hold several frames' worth of
- * positions, letting one read serve many pointer movements instead of one read
- * per frame.
- */
-const SCRUB_WINDOW_BEFORE = 185;
-const SCRUB_WINDOW_AFTER = 185;
 
 /**
  * How far above the bottom the viewport may sit and still count as being at the
@@ -1734,75 +1720,6 @@ export function useChatSessionState({
   ]);
 
   /**
-   * The scrub's window reader and the drag's own scroll channel.
-   *
-   * A drag asks for a window whenever the pointer leaves the loaded stretch, so
-   * the reader is a latest-wins loader: one read in flight, the newest requested
-   * position served next, and the few windows a back-and-forth drag returns to
-   * answered from the loader's cache. Placing the content lives here rather than
-   * in the scrollbar because this is where the transcript's scroll channel and
-   * render window are.
-   */
-  const scrubLoaderRef = useRef<ScrubWindowLoader<ScrubWindowPage> | null>(null);
-  const getScrubLoader = useCallback((): ScrubWindowLoader<ScrubWindowPage> => {
-    if (!scrubLoaderRef.current) {
-      scrubLoaderRef.current = createScrubWindowLoader<ScrubWindowPage>(
-        async (id) => {
-          const sessionId = activeSessionIdRef.current;
-          if (!sessionId) return null;
-          const page = await sessionStore.fetchScrubWindow(sessionId, id, {
-            before: SCRUB_WINDOW_BEFORE,
-            after: SCRUB_WINDOW_AFTER,
-          });
-          // Render the whole window the read brought in: `visibleMessages` is a
-          // tail slice, so without this the rows a drag is scrolling through stay
-          // unmounted and there is nothing under the pointer to follow.
-          if (page) setVisibleMessageCount((previous) => Math.max(previous, page.messages.length));
-          return page;
-        },
-        {
-          restore: (page) => {
-            const sessionId = activeSessionIdRef.current;
-            if (!sessionId) return;
-            sessionStore.applyScrubWindow(sessionId, page);
-            setVisibleMessageCount((previous) => Math.max(previous, page.messages.length));
-          },
-        },
-      );
-    }
-    return scrubLoaderRef.current;
-  }, [sessionStore]);
-
-  /** The scroll channel and window reader the drawn scrollbar drives during a drag. */
-  const scrubApi = useMemo(() => ({
-    start: () => {
-      // The pointer has taken the viewport: the bottom follow and the initial
-      // settle stand down for the gesture, and the transcript counts as taken
-      // over so a row arriving behind the reader does not pull them back down.
-      searchScrollActiveRef.current = true;
-      setIsUserScrolledUp(true);
-      isUserScrolledUpRef.current = true;
-    },
-    end: () => {
-      searchScrollActiveRef.current = false;
-    },
-    scrollTo: (next: number) => {
-      const container = scrollContainerRef.current;
-      if (container) writeScrollTop(container, next);
-    },
-    loadWindow: async (id: string, ordinal: number) => {
-      const page = await getScrubLoader().request(id, ordinal);
-      return page ? { startIndex: page.startIndex, endIndex: page.endIndex } : null;
-    },
-  }), [getScrubLoader, writeScrollTop]);
-
-  // A scrub's cached windows belong to the transcript that read them; a session
-  // change must not answer a drag from the previous session's pages.
-  useEffect(() => {
-    scrubLoaderRef.current?.reset();
-  }, [activeSessionId]);
-
-  /**
    * Places one transcript row in the viewport, on the user's behalf.
    *
    * The id — the row's transcript anchor — is the whole of the target: a turn is
@@ -2143,6 +2060,5 @@ export function useChatSessionState({
     handleScroll,
     requestLatestMessages,
     jumpToMessage,
-    scrubApi,
   };
 }

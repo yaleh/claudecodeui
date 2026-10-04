@@ -458,13 +458,15 @@
       "count": "{{n}} tasks"
     }
   },
-  "turnRail": {
-    "label": "Conversation turns",
-    "scrollbar": "Conversation scrollbar",
-    "jumpToTurn": "Jump to turn {{n}}",
-    "turn": "Turn {{n}}"
-  },
   "workspaceMenu": {
     "trigger": "More actions"
+  },
+  "inputOutline": {
+    "title": "Your inputs",
+    "open": "Open input outline",
+    "close": "Close input outline",
+    "handleTitle": "Click to toggle, drag to move",
+    "empty": "No inputs yet",
+    "untitled": "(no text)"
   }
 }

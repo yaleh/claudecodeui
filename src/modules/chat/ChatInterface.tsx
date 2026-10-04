@@ -6,7 +6,6 @@ import { useTasksSettings } from '@/modules/task-master';
 import { useWebSocket } from '@/shared/context/WebSocketContext';
 import PermissionContext from '@/modules/chat/context/PermissionContext';
 import { MarkdownWorkspaceContext } from '@/modules/chat/context/MarkdownWorkspaceContext';
-import { TranscriptScrubContext } from '@/modules/chat/context/TranscriptScrubContext';
 import { api } from '@/shared/api';
 import type {
   ChatMessage,
@@ -20,7 +19,8 @@ import type {
 import { useChatProviderState } from '@/modules/chat/hooks/useChatProviderState';
 import { useScheduledMessages } from '@/modules/chat/composer/useScheduledMessages';
 import { useChatSessionState } from '@/modules/chat/hooks/useChatSessionState';
-import { useTurnNavigation } from '@/modules/chat/hooks/useTurnNavigation';
+import { useInputOutline } from '@/modules/chat/outline/useInputOutline';
+import InputOutlineDrawer from '@/modules/chat/outline/InputOutlineDrawer';
 import { useChatRealtimeHandlers } from '@/modules/chat/hooks/useChatRealtimeHandlers';
 import { useChatComposerState } from '@/modules/chat/hooks/useChatComposerState';
 import { useSessionStore } from '@/modules/chat/hooks/useSessionStore';
@@ -30,6 +30,7 @@ import {
   useSessionProtectionActions,
 } from '@/shared/context/SessionProtectionContext';
 import { useResidentProviders } from '@/shared/hooks/useProviderCapabilities';
+import { useDeviceSettings } from '@/shared/hooks/useDeviceSettings';
 import { readSelectedProvider } from '@/shared/selectedProvider';
 import ChatMessagesPane from '@/modules/chat/transcript/ChatMessagesPane';
 import ChatComposer from '@/modules/chat/composer/ChatComposer';
@@ -193,7 +194,6 @@ function ChatInterface({
     handleScroll,
     requestLatestMessages,
     jumpToMessage,
-    scrubApi,
   } = useChatSessionState({
     isActive,
     selectedProject,
@@ -210,16 +210,15 @@ function ChatInterface({
     sessionStore,
   });
 
-  // The turn navigation rail's index, its current-turn reading, and the jump it
-  // shares with the sidebar search — all addressed by transcript anchor id.
-  const { turns: turnRailTurns, currentTurnId, jumpToTurn } = useTurnNavigation({
+  // The input outline drawer's entries: the session's user inputs, each a jump
+  // destination for the shared `jumpToMessage`.
+  const inputOutline = useInputOutline({
     isActive,
     sessionId: currentSessionId ?? selectedSession?.id ?? null,
     sessionStore,
     chatMessages,
-    scrollContainerRef,
-    jumpToMessage,
   });
+  const { isMobile } = useDeviceSettings({ trackPWA: false });
 
   // Publish this conversation's export into the shared seam the workspace
   // header's overflow menu reads, so the menu can offer Export without either
@@ -588,7 +587,6 @@ function ChatInterface({
     <PermissionContext.Provider value={permissionContextValue}>
       <div className="flex h-full min-h-0 flex-col">
         <MarkdownWorkspaceContext.Provider value={markdownWorkspaceValue}>
-          <TranscriptScrubContext.Provider value={scrubApi}>
           <ChatMessagesPane
             scrollContainerRef={scrollContainerRef}
             scrollContentRef={scrollContentRef}
@@ -647,12 +645,11 @@ function ChatInterface({
             onWithdrawResidentCommand={handleWithdrawResidentCommand}
             onEditMessage={supportsMessageEditing && !isProcessing ? beginEditMessage : undefined}
             onForkFromMessage={supportsSessionForking ? handleForkFromMessage : undefined}
-            turnRailTurns={turnRailTurns}
-            turnRailCurrentId={currentTurnId}
-            onJumpToTurn={jumpToTurn}
           />
-          </TranscriptScrubContext.Provider>
         </MarkdownWorkspaceContext.Provider>
+
+        {/* Desktop only, like the retired quick-settings drawer it is modelled on. */}
+        {isActive && !isMobile && <InputOutlineDrawer entries={inputOutline} onJump={jumpToMessage} />}
 
         <div className="relative flex-shrink-0">
           {isUserScrolledUp && chatMessages.length > 0 && (

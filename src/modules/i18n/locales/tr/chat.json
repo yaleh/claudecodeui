@@ -354,12 +354,6 @@
       "count": "{{n}} görev"
     }
   },
-  "turnRail": {
-    "label": "Konuşma turları",
-    "scrollbar": "Konuşma kaydırma çubuğu",
-    "jumpToTurn": "{{n}}. tura git",
-    "turn": "Tur {{n}}"
-  },
   "workspaceMenu": {
     "trigger": "Diğer işlemler"
   }

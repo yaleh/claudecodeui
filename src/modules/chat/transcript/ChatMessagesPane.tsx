@@ -15,13 +15,10 @@ import { groupWorkSegments, isWorkSegment } from '@/modules/chat/utils/workSegme
 import { findSearchTargetIndex } from '@/modules/chat/utils/searchTargetLocator';
 import { nextPxPerMessage } from '@/modules/chat/utils/contentHeightModel';
 import type { ContentRowInput } from '@/modules/chat/utils/contentHeightModel';
-import { transcriptGutterPx } from '@/shared/transcriptEdgeLayout';
 import { useLazyRowObserver } from '@/modules/chat/hooks/useLazyRowObserver';
 import { findPendingForegroundTool } from '@/modules/chat/hooks/useActivityControls';
 import LazyMessageRow from '@/modules/chat/transcript/LazyMessageRow';
 import MessageComponent from '@/modules/chat/transcript/MessageComponent';
-import TranscriptTurnRail from '@/modules/chat/transcript/TranscriptTurnRail';
-import type { TurnRailTick } from '@/modules/chat/hooks/useTurnNavigation';
 import PendingResidentMessage from '@/modules/chat/transcript/PendingResidentMessage';
 import ProviderSelectionEmptyState from '@/modules/chat/transcript/ProviderSelectionEmptyState';
 import WorkSegmentRecord from '@/modules/chat/transcript/WorkSegmentRecord';
@@ -132,54 +129,6 @@ function useTranscriptPxPerMessage(scrollContainerRef: RefObject<HTMLDivElement>
 }
 
 /**
- * The pane's right gutter, sized to what is actually drawn at its right edge.
- *
- * The pane's own width is measured (a sidebar toggle, a viewport change and a
- * session switch all move it), and the tick column's presence is read off the same
- * `md` breakpoint the column itself hides behind, so the two never disagree about
- * whether there is a column to make room for. The number comes from the shared
- * pure function and is written as the inline `paddingRight`; the CSS no longer
- * carries one, which is what lets the mobile / tablet / wide readings be tested
- * without a browser.
- */
-function useTranscriptGutter(scrollContainerRef: RefObject<HTMLDivElement>): number {
-  // The pane's full width (padding included), so adding the gutter never feeds
-  // back into its own measurement.
-  const [paneWidth, setPaneWidth] = useState(0);
-  // Whether the turn-tick column is drawn — the `md` breakpoint the column's own
-  // `hidden md:flex` uses.
-  const [hasTickColumn, setHasTickColumn] = useState(false);
-
-  useEffect(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return undefined;
-    const measure = () => setPaneWidth(container.clientWidth);
-    measure();
-    const frame = requestAnimationFrame(measure);
-    // jsdom ships no ResizeObserver; there the first measure above is the reading.
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
-    observer?.observe(container);
-    window.addEventListener('resize', measure);
-    return () => {
-      cancelAnimationFrame(frame);
-      observer?.disconnect();
-      window.removeEventListener('resize', measure);
-    };
-  }, [scrollContainerRef]);
-
-  useEffect(() => {
-    if (typeof window.matchMedia !== 'function') return undefined;
-    const query = window.matchMedia('(min-width: 768px)');
-    const update = () => setHasTickColumn(query.matches);
-    update();
-    query.addEventListener('change', update);
-    return () => query.removeEventListener('change', update);
-  }, []);
-
-  return transcriptGutterPx(paneWidth, hasTickColumn);
-}
-
-/**
  * The default for `onToggleResident`, for a render that supplies no toggler.
  *
  * Stable rather than inline, so a render that omits the prop does not hand the switch a new
@@ -272,12 +221,6 @@ type ChatMessagesPaneProps = {
   onEditMessage?: (message: ChatMessage) => void;
   /** Branches the conversation into a new session ending at a message. */
   onForkFromMessage?: (message: ChatMessage) => void;
-  /** Every user turn the rail offers, oldest first; absent or short hides the rail. */
-  turnRailTurns?: TurnRailTick[];
-  /** The turn the viewport currently sits on, for the rail's current-tick emphasis. */
-  turnRailCurrentId?: string | null;
-  /** Places a turn's message in the viewport through chat's shared jump. */
-  onJumpToTurn?: (anchorId: string) => void;
 };
 
 /**
@@ -335,9 +278,6 @@ function ChatMessagesPane({
   showRawParameters,
   showThinking,
   selectedProject,
-  turnRailTurns,
-  turnRailCurrentId = null,
-  onJumpToTurn,
 }: ChatMessagesPaneProps) {
   const { t } = useTranslation('chat');
   const activeSessionId = currentSessionId ?? selectedSession?.id ?? null;
@@ -348,7 +288,6 @@ function ChatMessagesPane({
   // The right gutter, from what is drawn at the pane's edge: the scrollbar's own
   // column on mobile, the fixed tick band where the column needs room, nothing on
   // a wide viewport whose outer margin already clears the chrome.
-  const gutterPx = useTranscriptGutter(scrollContainerRef);
   const groupedVisibleMessages = useMemo(
     () => groupWorkSegments(visibleMessages),
     [visibleMessages],
@@ -517,7 +456,6 @@ function ChatMessagesPane({
         className="chat-messages-pane relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-3 pt-3 sm:pb-4 sm:pt-4"
         // The gutter the drawn chrome needs, measured rather than fixed — see the
         // CSS block for why the number moved out of `index.css`.
-        style={{ paddingRight: gutterPx }}
       >
         {/* Always rendered, so the follow's observer is attached for the empty and
             loading states too and never has to be re-attached mid-session. */}
@@ -734,21 +672,6 @@ function ChatMessagesPane({
         </div>
       </div>
 
-      {/*
-        The turn navigation rail, a sibling of the scroll container rather than
-        a child of it: its ticks position against the pane's box and must not
-        scroll away with the transcript. It reads its own geometry from the
-        container's ref through the hook that owns the current-turn reading.
-      */}
-      {turnRailTurns && onJumpToTurn && (
-        <TranscriptTurnRail
-          turns={turnRailTurns}
-          currentTurnId={turnRailCurrentId}
-          onJumpToTurn={onJumpToTurn}
-          scrollContainerRef={scrollContainerRef}
-          totalMessages={totalMessages}
-        />
-      )}
     </div>
   );
 }
