@@ -161,9 +161,10 @@ export function useQuickSettingsDrag({ isMobile }: UseQuickSettingsDragProps) {
       setViewportHeight(window.innerHeight);
     };
     measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
+    // jsdom ships no ResizeObserver; there the handle keeps the height measured above.
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(element);
+    return () => observer?.disconnect();
   }, []);
 
   const endDrag = useCallback(() => {

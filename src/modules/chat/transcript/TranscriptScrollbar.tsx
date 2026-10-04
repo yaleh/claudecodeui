@@ -169,9 +169,10 @@ export default function TranscriptScrollbar({
     if (!track) return undefined;
     const measure = () => setTrackHeight(track.getBoundingClientRect().height);
     measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(track);
-    return () => observer.disconnect();
+    // jsdom ships no ResizeObserver; there the track keeps the height measured above.
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(track);
+    return () => observer?.disconnect();
   }, []);
 
   // What the viewport is showing, re-read whenever the transcript moves: the

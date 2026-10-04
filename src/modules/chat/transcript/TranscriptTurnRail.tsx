@@ -127,12 +127,14 @@ function useRailLayout(
     measure();
     const frame = requestAnimationFrame(measure);
     window.addEventListener('resize', measure);
-    const observer = new ResizeObserver(measure);
-    observer.observe(rail);
+    // jsdom ships no ResizeObserver; there the first measure above and the resize
+    // listener are the only remeasurement, and the column keeps that reading.
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(rail);
     return () => {
       cancelAnimationFrame(frame);
       window.removeEventListener('resize', measure);
-      observer.disconnect();
+      observer?.disconnect();
       publishTranscriptEdgeBand(null);
     };
   }, [hasRail, railRef, turns]);
