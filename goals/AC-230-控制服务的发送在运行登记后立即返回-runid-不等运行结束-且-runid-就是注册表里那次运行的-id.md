@@ -1,7 +1,7 @@
 ---
 id: AC-230
 title: 控制服务的发送在运行登记后立即返回 runId，不等运行结束，且 runId 就是注册表里那次运行的 id
-status: draft
+status: active
 kind: criterion
 goal: GOAL-019
 criterion: for f in server/modules/websocket/tests/chat-control-send.test.ts; do
@@ -18,4 +18,15 @@ expect: "用 chat-control-ownership.test.ts 那样的注入式假运行时，让
   diff、逐字失败行与恢复命令）：(i) 让 `send` 等运行结束才返回 ⇒ (a) 必须红；(ii) 返回自造的 id 而不是注册表的 ⇒ (b)
   必须红；(iii) 会话不存在时仍登记运行 ⇒ (d) 必须红。（红先行）当前必红：判据文件不存在，存在性闸以退出码 1 输出缺失的文件名。"
 origin: docs/proposals/mcp-gateway-SPEC.md（v3）。人 yale 2026-10-05 指令：创建并激活本 goal 及其 AC。
+activatedAt: 2026-10-04T17:21:46.953Z
+statusLog:
+  - at: 2026-10-04T17:21:46.953Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-04T17:21:46.952Z
 ---
