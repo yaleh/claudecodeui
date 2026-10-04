@@ -422,7 +422,7 @@ test.describe('the drawn scrollbar follows the browser rules against an estimate
       await long.page.mouse.down();
       const dragHeights: number[] = [];
       for (let step = 1; step <= 10; step += 1) {
-        await long.page.mouse.move(x, y + step * 240);
+        await long.page.mouse.move(x, y - step * 240);
         await long.page.waitForTimeout(60);
         dragHeights.push((await readRail(long.page)).thumbHeight);
       }
@@ -514,7 +514,7 @@ test.describe('the drawn scrollbar follows the browser rules against an estimate
       expect(
         Math.abs(reading.thumbProgress - witness!),
         `the thumb must agree with the window's first-row ordinal on a near-uniform fixture: ${where} (witness ${witness!.toFixed(3)})`,
-      ).toBeLessThanOrEqual(0.08);
+      ).toBeLessThanOrEqual(0.03);
     } finally {
       await context.close();
     }
