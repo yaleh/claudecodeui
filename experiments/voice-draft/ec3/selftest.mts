@@ -49,3 +49,17 @@ const raw3 = { items: [
 const r3 = runV2(raw3, T3 as any, '', false);
 assert.equal(r3.pairs.size, 0, '隔了两段、或回答本身是问句的配对不采用');
 console.log('SELFTEST-V2-GUARDS-OK');
+
+// ── v3：单字回答 + 无问号的疑问
+import { runV3 } from './pipeline.mts';
+const T4 = { 1: '超时时间要不要改成60秒？改。', 2: '要不要先改成按需加载，应该要，但先确认是不是这个包。', 3: '他说行，但我不确定。' };
+const raw4 = { items: [
+  { id: 1, unit: 1, type: '问题', span: '超时时间要不要改成60秒？', answers: null }, { id: 2, unit: 1, type: '决定', span: '改。', answers: 1 },
+  { id: 3, unit: 2, type: '问题', span: '要不要先改成按需加载，', answers: null }, { id: 4, unit: 2, type: '决定', span: '应该要，', answers: null },
+  { id: 5, unit: 3, type: '事实', span: '行', answers: null }], replacements: [], anchors: [] };
+const v2x = runV2(raw4, T4 as any, '', false), v3x = runV3(raw4, T4 as any, '', false);
+assert.equal(v2x.items.length < v3x.items.length, true, 'v3 保留单字整句「改。」');
+assert.ok(v3x.promptV3.includes('（问）超时时间要不要改成60秒？（答）改。'), '单字回答配对');
+assert.ok(v3x.promptV3.includes('（问）要不要先改成按需加载，（答）应该要'), '无问号的强疑问形态也配对');
+assert.ok(!v3x.items.some((i) => i.id === 5), '单字「行」不是整句时不接受（「他说行，但……」里的「行」是句中字）');
+console.log('SELFTEST-V3-OK'); console.log(v3x.promptV3);

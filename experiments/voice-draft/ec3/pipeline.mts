@@ -6,17 +6,20 @@ export const TYPES = ['事实', '问题', '探路', '假设', '决定', '约束'
 const keep = (ch: string) => /[\p{L}\p{N}]/u.test(ch);
 export function squash(s: string) { let out = ''; const idx: number[] = []; for (let i = 0; i < s.length; i++) if (keep(s[i])) { out += s[i].toLowerCase(); idx.push(i); } return { out, idx }; }
 /** span 是否是 transcript 的（忽略空白与标点的）子串；是则返回 transcript 里的原文片段。 */
-export function verbatim(transcript: string, span: string): string | null {
-  const T = squash(transcript), S = squash(span).out; if (S.length < 2) return null; const at = T.out.indexOf(S); if (at < 0) return null;
+export function verbatim(transcript: string, span: string, allowShort = false): string | null {
+  const T = squash(transcript), S = squash(span).out; if (S.length < 1 || (S.length < 2 && !allowShort)) return null; let at = T.out.indexOf(S);
+  if (S.length < 2) { // v3：单字回答（「改。」「写。」「行，……」）只在它是整句/整个分句时才算
+    at = -1; for (let i = 0; i < T.out.length; i++) { if (T.out[i] !== S) continue; const before = i === 0 ? -1 : T.idx[i - 1], here = T.idx[i], after = i + 1 < T.out.length ? T.idx[i + 1] : transcript.length; if (here - before > 1 && after - here > 1 || (i === 0 && after - here > 1) || (i + 1 === T.out.length && here - before > 1)) { at = i; break; } } }
+  if (at < 0) return null;
   let end = T.idx[at + S.length - 1] + 1; let k = 0; while (end < transcript.length && !keep(transcript[end]) && !/\s/.test(transcript[end]) && k < 3) { end++; k++; } // 带上紧随其后的标点（如问号）
   return transcript.slice(T.idx[at], end);
 }
 const QEND = /[？?]\s*$|[吗吧呢]\s*$/;
-export function cleanItems(raw: Raw, transcripts: Record<number, string>) {
+export function cleanItems(raw: Raw, transcripts: Record<number, string>, allowShort = false) {
   const out: Item[] = []; let dropped = 0, overridden = 0;
   for (const r of raw.items ?? []) {
     const unit = Number(r?.unit), id = Number(r?.id); if (!Number.isInteger(unit) || !Number.isInteger(id) || !transcripts[unit] || !TYPES.includes(String(r?.type)) || typeof r?.span !== 'string') { dropped++; continue; }
-    const v = verbatim(transcripts[unit], r.span); if (!v) { dropped++; continue; }
+    const v = verbatim(transcripts[unit], r.span, allowShort); if (!v) { dropped++; continue; }
     const it: Item = { id, unit, type: String(r.type), span: v, answers: Number.isInteger(Number(r.answers)) && r.answers !== null ? Number(r.answers) : null };
     if ((it.type === '事实' || it.type === '决定') && QEND.test(it.span)) { it.type = '假设'; it.overridden = true; overridden++; }
     out.push(it);
@@ -57,8 +60,8 @@ export function render(items: Item[], anchors: { unit: number; text: string }[])
     for (const a of anchors.filter((x) => x.unit === it.unit && !lines.includes(`> 引用：${x.text}`))) lines.push(`> 引用：${a.text.replace(/\n/g, '\n> ')}`); }
   return { prompt: lines.join('\n'), prov };
 }
-export function run(raw: Raw, transcripts: Record<number, string>, ctx: string, useCtx: boolean) {
-  const c = cleanItems(raw, transcripts); const ctxLines = ctx.split('\n').filter((l) => l.trim());
+export function run(raw: Raw, transcripts: Record<number, string>, ctx: string, useCtx: boolean, allowShort = false) {
+  const c = cleanItems(raw, transcripts, allowShort); const ctxLines = ctx.split('\n').filter((l) => l.trim());
   const rep = useCtx ? guardReplacements(c.items, raw.replacements ?? [], ctx) : { accepted: [], rejected: [] as any[] }; const anc = useCtx ? acceptAnchors(raw.anchors ?? [], transcripts, ctxLines) : { ok: [], rej: [] as string[] };
   const r = render(c.items, anc.ok); return { items: c.items, dropped: c.dropped, overridden: c.overridden, replacements: rep, anchors: anc, prompt: r.prompt };
 }
@@ -66,14 +69,14 @@ export function run(raw: Raw, transcripts: Record<number, string>, ctx: string, 
 // ───────────────────────── v2：保留「问 + 答」（E-C4）。v1 的行为不变，便于复现 E-C3。
 const FILLER = /^[嗯呃啊哦那就也还有，,、\s]+/;
 const ANS_START = /^(要|不要|不用|不会|不能|不|是的?|对|行|好|可以|没问题|应该|先不|暂不|留着?|带|改|记|沿用|保持|照旧|按|都|有|没有|右边|左边|都要)/;
-const isQuestion = (s: string) => /[？?]\s*$/.test(s) || (/(要不要|是不是|能不能|行不行|对不对|会不会|还是|吗)/.test(s) && /[？?]/.test(s));
+const isQuestion = (s: string, loose = false) => /[？?]\s*$/.test(s) || (/(要不要|是不是|能不能|行不行|对不对|会不会|还是|吗)/.test(s) && /[？?]/.test(s)) || (loose && (/(要不要|是不是|能不能|行不行|对不对|会不会|有没有)/.test(s) || /吗[，,。\s]*$/.test(s)));
 /** 把「问句 + 紧随其后的省略式回答」配成一对：模型给的 answers，加上规则（同一段内、问句后紧跟的决定/事实/约束/假设，且以应答词开头或很短）。返回 问句 id → 回答 id。 */
-export function pairAnswers(items: Item[]): Map<number, number> {
+export function pairAnswers(items: Item[], loose = false): Map<number, number> {
   const pairs = new Map<number, number>();
   // 模型给出的配对要过护栏（E-C3 重放里看到的误配）：问题必须是问句形态；回答必须是决定/约束/事实/假设且本身不是问句；至多隔一段。
-  for (const b of items) if (b.answers !== null) { const a = items.find((x) => x.id === b.answers); if (a && (a.type === '问题' || a.type === '探路' || a.type === '假设') && isQuestion(a.span) && ['决定', '约束', '事实', '假设'].includes(b.type) && !isQuestion(b.span) && b.unit - a.unit >= 0 && b.unit - a.unit <= 1 && !pairs.has(a.id) && (a.unit < b.unit || (a.unit === b.unit && a.id < b.id))) pairs.set(a.id, b.id); }
+  for (const b of items) if (b.answers !== null) { const a = items.find((x) => x.id === b.answers); if (a && (a.type === '问题' || a.type === '探路' || a.type === '假设') && isQuestion(a.span, loose) && ['决定', '约束', '事实', '假设'].includes(b.type) && !isQuestion(b.span, loose) && b.unit - a.unit >= 0 && b.unit - a.unit <= 1 && !pairs.has(a.id) && (a.unit < b.unit || (a.unit === b.unit && a.id < b.id))) pairs.set(a.id, b.id); }
   for (let i = 0; i + 1 < items.length; i++) { const a = items[i], b = items[i + 1]; if (pairs.has(a.id) || [...pairs.values()].includes(b.id)) continue;
-    if (a.unit !== b.unit || !['问题', '探路', '假设'].includes(a.type) || !isQuestion(a.span) || !['决定', '事实', '约束', '假设'].includes(b.type)) continue;
+    if (a.unit !== b.unit || !['问题', '探路', '假设'].includes(a.type) || !isQuestion(a.span, loose) || !['决定', '事实', '约束', '假设'].includes(b.type)) continue;
     const body = b.span.replace(FILLER, ''); const n = squash(body).out.length; if (ANS_START.test(body) || n <= 8) pairs.set(a.id, b.id); }
   return pairs;
 }
@@ -90,4 +93,9 @@ export function renderV2(items: Item[], anchors: { unit: number; text: string }[
 }
 export function runV2(raw: Raw, transcripts: Record<number, string>, ctx: string, useCtx: boolean) {
   const base = run(raw, transcripts, ctx, useCtx); const pairs = pairAnswers(base.items); return { ...base, pairs, promptV2: renderV2(base.items, base.anchors.ok, pairs) };
+}
+
+// v3：v2 + 单字整句跨度 + 无问号的强疑问形态（转写里的停顿常把问号标成逗号）。
+export function runV3(raw: Raw, transcripts: Record<number, string>, ctx: string, useCtx: boolean) {
+  const base = run(raw, transcripts, ctx, useCtx, true); const pairs = pairAnswers(base.items, true); return { ...base, pairs, promptV3: renderV2(base.items, base.anchors.ok, pairs) };
 }
