@@ -1,7 +1,7 @@
 ---
 id: AC-237
 title: 搬动控制逻辑不改任何既有行为：WebSocket 帧序列、按次进程的逐帧一致性、定时发送、常驻宿主的既有判据全部原样通过
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-019
 criterion: for f in
@@ -57,6 +57,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-04T17:28:46.148Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
