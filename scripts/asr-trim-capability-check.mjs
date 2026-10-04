@@ -57,6 +57,7 @@
  */
 
 import { existsSync, globSync, readFileSync } from 'node:fs';
+import { registerHooks } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -162,6 +163,35 @@ function productionSources(root) {
     }
   }
   return [...found].sort();
+}
+
+/**
+ * The frontend source-root alias (`@/X` -> `<root>/src/X.ts`), resolved for this plain `node`
+ * process.
+ *
+ * The shipped declaring module reaches a sibling shared module through `@/`, the alias the browser
+ * build, the type-checker, the lint pass and the unit transform all resolve. A bare `node` process
+ * resolves none of those, so this is the same mapping for the one runtime that does not carry it —
+ * the reading `experiments/voice-vad/run.mjs` and `scripts/voice-vad-harness.test.mjs` already make
+ * for their own plain-node loads. A relative import in the shipping module would be the inverse of
+ * the repository's convention and is deliberately not the fix: the check adapts to how the tree
+ * ships, not the other way round.
+ *
+ * The root is the one `run()` resolved from `--root`, NOT this script's repository: the probe is
+ * designed to read a fixture tree that is not this one (see the file header), so the alias has to
+ * point at whichever tree is under test.
+ * @param {string} root the tree under test
+ */
+function registerSourceRootAlias(root) {
+  const srcRoot = path.join(root, 'src');
+  registerHooks({
+    resolve(specifier, context, nextResolve) {
+      if (specifier.startsWith('@/')) {
+        return { url: pathToFileURL(path.join(srcRoot, specifier.slice(2)) + '.ts').href, shortCircuit: true };
+      }
+      return nextResolve(specifier, context);
+    },
+  });
 }
 
 /**
@@ -285,6 +315,13 @@ async function readTrimSwitchDefault(root, sources) {
  * @returns {Promise<{ checks: Check[], lines: string[] }>}
  */
 async function run(root, explainScan) {
+  // ESM resolves a module's whole static specifier graph before that module's body executes, so
+  // the `@/` alias has to be installed before the first `importModule()` below — a hook registered
+  // after the import has already resolved is a hook that never ran. Registered here rather than at
+  // module load because it is bound to the `--root` under test, which is a fixture tree for the
+  // falsification cases and this repository only for the shipping run.
+  registerSourceRootAlias(root);
+
   /** @type {Check[]} */
   const checks = [];
   /** @type {string[]} */

@@ -232,11 +232,13 @@ export const getPageTitle = (
  * The held-work leases on one session's live host, in listing order.
  *
  * "Held work" is the two lease kinds that outlive the turn that started them —
- * a background task and a monitor — and is the whole set the background-task
- * strip draws and the resident pill counts. Derived from the `snapshot` argument
- * rather than a hook so both readers share one implementation and neither adds
- * an export to the hook module (a second export there would red every test that
- * mocks the hook wholesale). Read off the *listing*, not the transcript: the
+ * a background task and a monitor — and is the whole set the resident pill
+ * counts. It used to be what the transcript's background-task strip drew, but
+ * that surface is retired: the activity dock's panel reads the session's own
+ * task table, which is a different source, so the pill is the one reader left.
+ * Derived from the `snapshot` argument rather than a hook so the reader does not
+ * add an export to the hook module (a second export there would red every test
+ * that mocks the hook wholesale). Read off the *listing*, not the transcript: the
  * work is a fact about the process the host layer holds, and the transcript only
  * knows it if a model happened to write it down.
  *

@@ -372,11 +372,6 @@
     },
     "stopResident": "停止本次回答（进程与定时任务继续）",
     "backgroundTasks": {
-      "title": "后台任务",
-      "genericLabel": "后台任务",
-      "monitorLabel": "监视器",
-      "unknown": "后台任务状态未知",
-      "lastNotification": "最近一次通知 {{elapsed}} 前",
       "count": "{{n}} 个任务"
     }
   },

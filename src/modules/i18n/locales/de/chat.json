@@ -351,11 +351,6 @@
     },
     "stopResident": "Diese Antwort stoppen (Prozess und geplante Aufgaben bleiben erhalten)",
     "backgroundTasks": {
-      "title": "Hintergrundaufgaben",
-      "genericLabel": "Hintergrundaufgabe",
-      "monitorLabel": "Monitor",
-      "unknown": "Status der Hintergrundaufgabe unbekannt",
-      "lastNotification": "Letzte Benachrichtigung vor {{elapsed}}",
       "count": "{{n}} Aufgaben"
     }
   },

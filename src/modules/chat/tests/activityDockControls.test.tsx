@@ -23,8 +23,9 @@ import type { ActivityTaskView, ChatMessage } from '@/shared/types';
  * the authority on "a real click on a real page places a real frame". This file
  * pins the properties that make that criterion meaningful, without the boot:
  *
- *   - only a **non-terminal** task row carries a stop control; a terminal row
- *     carries none, by construction (count zero, not hidden);
+ *   - the panel lists **live** tasks only: a settled task has no row at all, so
+ *     every listed row carries a stop control — the selector's count is the row
+ *     count, by construction rather than by hiding or disabling a control;
  *   - a running foreground tool carries a background control, addressed by its
  *     own `tool_use` id;
  *   - a click **sends exactly one frame** and writes no local state — the row's
@@ -117,20 +118,24 @@ beforeEach(() => {
 });
 
 describe('activity dock controls', () => {
-  test('only a non-terminal task carries a stop control, and it is addressed by that task', () => {
+  test('the live task carries the stop control, and a settled task leaves the panel', () => {
     applyActivityFrame({ sessionId: SESSION_ID, rev: 1, tasks: [RUNNING_TASK, TERMINAL_TASK], schedules: [] });
     const { sent, value } = makeSocket();
     const { container } = renderPanel({ socket: value });
 
     const stopButtons = container.querySelectorAll('[data-task-stop]');
     console.log(`controls.stopButtons=${stopButtons.length}`);
-    assert.equal(stopButtons.length, 1, 'exactly the running task may carry a stop control');
+    assert.equal(stopButtons.length, 1, 'exactly the live task may carry a stop control');
     assert.equal(stopButtons[0].getAttribute('data-task-id'), 'task-running');
 
-    // The terminal row carries none — by construction, not by hiding or disabling.
-    const terminalRow = container.querySelector('[data-activity-task-row][data-task-id="task-done"]');
-    assert.ok(terminalRow, 'the terminal task must have a row');
-    assert.equal(terminalRow!.querySelectorAll('[data-task-stop]').length, 0, 'a terminal row renders no stop control');
+    // The settled task is in the frame but not in the panel: it has no row, which is the stronger
+    // form of "a terminal row renders no stop control" — there is no row to carry one.
+    // Boolean, not `assert.equal(node, null)`: the latter hangs the reporter by serializing a live
+    // DOM element whenever it goes red.
+    assert.ok(
+      container.querySelector('[data-activity-task-row][data-task-id="task-done"]') === null,
+      'a terminal task must not be listed',
+    );
 
     fireEvent.click(stopButtons[0]);
     const stopFrames = framesOfType(sent, 'chat.stop-task');
@@ -157,9 +162,19 @@ describe('activity dock controls', () => {
         schedules: [],
       });
     });
-    const stoppedRow = container.querySelector('[data-activity-task-row][data-task-id="task-running"]');
-    assert.equal(stoppedRow!.getAttribute('data-task-state'), 'stopped', 'only the frame may settle the task');
-    assert.equal(stoppedRow!.querySelectorAll('[data-task-stop]').length, 0, 'a settled task loses its stop control');
+    // Only the frame may settle the task — and a settled task is no longer listed, so its row is
+    // gone rather than drawn without a control. Both tasks are terminal now, so the task section
+    // (and with no plan and no foreground tool, the whole panel) has nothing left to draw.
+    assert.ok(
+      container.querySelector('[data-activity-task-row][data-task-id="task-running"]') === null,
+      'only the frame may settle the task, and a settled task leaves the panel',
+    );
+    assert.equal(
+      container.querySelectorAll('[data-activity-task-row]').length,
+      0,
+      'no live task is left to list',
+    );
+    assert.ok(container.querySelector('[data-activity-dock-panel]') === null, 'an empty panel is not drawn');
   });
 
   test('a running foreground tool carries a background control addressed by its tool_use id', () => {

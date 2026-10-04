@@ -140,11 +140,18 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
       inputWhileBusy: true, // E2
       cancelQueuedInput: false, // not covered by E1–E8
       authoritativeLeases: false, // not covered by E1–E8
-      // The SDK's `Query.stopTask` exists (it is in the measured method list in
-      // `claude-host-driver.provider.ts`), but E1–E8 never exercised it against a
-      // live resident process, so it stays off until it is measured — the same
-      // conservative default `cancelQueuedInput` and `authoritativeLeases` take.
-      stopTask: false, // not covered by E1–E8
+      // Measured 2026-10-04, which is what moves this off the "unmeasured ⇒
+      // false" default the two verbs above still take. A real `query()` against
+      // a real CLI (2.1.289, gateway-backed), driven with the resident
+      // never-ending stream input, was asked for a background Bash task and then
+      // had `Query.stopTask(taskId)` called on it. The CLI answered
+      // `task_updated{patch:{status:'killed'}}` + `task_notification{status:'stopped'}`
+      // ~1.0s after the call, and the task's own process — alive immediately
+      // before the call — was gone immediately after it. Both readings are the
+      // ones the dock's stop contract needs (AC-196's event-driven confirmation
+      // and AC-199's "the event, not the click, settles the row"), so the verb is
+      // a measured capability rather than an inferred one.
+      stopTask: true, // measured 2026-10-04: real resident query, stopped in ~1.0s
       // The SDK's `Query.backgroundTasks` verb, which the 2026-10-01 foreground-
       // Bash capture observed answering both `true` (a matching foreground tool)
       // and `false` (not) — but the *resident* control channel's wiring of that

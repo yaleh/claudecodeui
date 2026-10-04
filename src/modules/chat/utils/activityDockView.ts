@@ -68,9 +68,11 @@ export type ActivityDockInput = {
   /** The pending tool's name while `phase` is `tool`; null otherwise. */
   toolName?: string | null;
   /**
-   * How many background tasks the session is holding, from the activity
-   * snapshot. Drives the dock's task count and — with no turn to speak about —
-   * whether the dock draws at all.
+   * How many *live* background tasks the session is holding, from the activity
+   * snapshot. The caller filters terminal rows out before passing it (see
+   * `selectActiveTasks`), because the dock speaks about current activity only:
+   * a finished task must not hold the dock open. Drives the dock's task count
+   * and — with no turn to speak about — whether the dock draws at all.
    */
   taskCount?: number;
   /** How many cron/wakeup plans the session is holding, from the activity snapshot. */
@@ -96,7 +98,7 @@ export type ActivityDockView = {
    * function of the phase alone — never of elapsed time.
    */
   phaseLabelKey: string | null;
-  /** Background tasks the session holds, as the snapshot last reported. */
+  /** Live (non-terminal) background tasks the session holds, as last reported. */
   taskCount: number;
   /** Cron/wakeup plans the session holds, as the snapshot last reported. */
   scheduleCount: number;
@@ -200,8 +202,10 @@ export const deriveActivityDockView = (input: ActivityDockInput): ActivityDockVi
   // A send that was never taken is the one thing there is to say in that void —
   // reporting the failure is the honest reading, not staying silent as the old
   // indicator did while the message was already gone. Background work is the
-  // second thing to say: a held task or plan is worth a surface between turns,
-  // which is what the `background` state is for.
+  // second thing to say: a *live* task or plan is worth a surface between turns,
+  // which is what the `background` state is for. `taskCount` is the caller's
+  // `selectActiveTasks` reading, so a session whose tasks have all finished
+  // falls through to `hidden` and the dock retires itself.
   if (activity === null && !hasTurnAnchor) {
     if (sendFailed) {
       return { ...SEND_FAILED, ...counts };

@@ -4,6 +4,7 @@ import type { WebSocket } from 'ws';
 
 import { sessionsDb } from '@/modules/database/index.js';
 import {
+  providerCapabilitiesService,
   providerModelsService,
   readSessionForegroundToolUseId,
   readSessionTasks,
@@ -196,6 +197,22 @@ type ChatWebSocketDependencies = {
     userId: string | number | null,
     session: ReturnType<typeof sessionsDb.getSessionById>,
   ) => boolean;
+  /**
+   * The capability seam the two resident control verbs share.
+   *
+   * Defaults to this module's own {@link defaultResidentControlVerbSupported},
+   * which reads the shipped matrix plus the session's stored lifecycle mode. The
+   * seam exists so a criterion can drive the *unsupported* arm of the control
+   * plane directly — the shipped matrix declares `stopTask` true, so without an
+   * injectable reader a criterion could not reach the gate at all — and so it
+   * can observe that `chat.stop-task` and `chat.background-task` ask the same
+   * question rather than each carrying a check of its own.
+   */
+  residentControlVerbSupported?: (
+    provider: LLMProvider,
+    sessionId: string,
+    verb: 'stopTask' | 'backgroundTasks',
+  ) => boolean;
   /** Test seam: replaces the default that discards a client-supplied `options.env`. */
   dropClientEnv?: (options: AnyRecord) => AnyRecord;
   /**
@@ -308,6 +325,75 @@ function accessEntry(
 ): (userId: string | number | null, session: ReturnType<typeof sessionsDb.getSessionById>) => boolean {
   return dependencies.assertSessionAccess ?? assertSessionAccess;
 }
+
+/**
+ * One resident control verb, named as the capability matrix states it.
+ *
+ * The two members are the matrix's own `residentFeatures` keys, not a second
+ * vocabulary: a caller asks for the verb it is about to place, and the answer
+ * comes from the field whose name matches — so a verb that gains a capability
+ * field is wired by naming it here, not by re-deriving what "supported" means.
+ */
+type ResidentControlVerb = 'stopTask' | 'backgroundTasks';
+
+/**
+ * Whether one session's provider declares the resident control verb, read from
+ * the shipped capability matrix.
+ *
+ * This is the control plane stating the *verb-level* verdict itself, before it
+ * addresses any particular task. Two properties make that worth doing here
+ * rather than only inside the runtime gateway:
+ *
+ *  - the refusal stops depending on the addressing store. A provider that cannot
+ *    stop a background task cannot stop *any* task, so with the gate off the
+ *    honest answer is `unsupported` whatever id was named — not `unknown-task`,
+ *    which is what the table check would otherwise produce first;
+ *  - the verdict becomes the same rule the dock's disabled state mirrors. The
+ *    dock disables a control from `GET /api/providers/capabilities` plus the
+ *    session's lifecycle mode; this reads those two facts the same way, so the
+ *    control that will not be clicked and the request that will be refused
+ *    cannot disagree.
+ *
+ * A `resident` session is the only one this applies to. The per-run route is a
+ * different placement — the runtime's own `stopTask` / `backgroundTask` on the
+ * process the turn ran on — and the matrix's `residentFeatures` says nothing
+ * about it, so a per-run session answers `supported` and keeps its route
+ * unchanged. A declaration is read as absent-is-false, the matrix's own
+ * "unmeasured is not a promise" discipline; a lookup that throws (no database,
+ * no such session) fails open to `true`, because a probe that could not be taken
+ * must not become a new reason to refuse.
+ */
+function defaultResidentControlVerbSupported(
+  provider: LLMProvider,
+  sessionId: string,
+  verb: ResidentControlVerb,
+): boolean {
+  try {
+    if (sessionsDb.getSessionLifecycleMode(sessionId) !== 'resident') {
+      return true;
+    }
+    const features = providerCapabilitiesService.getProviderCapabilities(provider)?.residentFeatures;
+    return verb === 'stopTask' ? features?.stopTask === true : features?.backgroundTasks === true;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * The capability entry a control handler must consult: the injected seam when
+ * one was provided, the process default otherwise.
+ *
+ * Resolved through one function for the same reason {@link accessEntry} is: a
+ * criterion hands over its own reader and observes that the verbs ask the *same*
+ * question, and the two handlers cannot drift into disagreeing about what the
+ * matrix said.
+ */
+function residentControlVerbEntry(
+  dependencies: ChatWebSocketDependencies,
+): (provider: LLMProvider, sessionId: string, verb: ResidentControlVerb) => boolean {
+  return dependencies.residentControlVerbSupported ?? defaultResidentControlVerbSupported;
+}
+
 
 /** The wire protocol carries the model selection; a client-supplied `options.env` is discarded. */
 function withoutClientEnv(options: AnyRecord): AnyRecord {
@@ -853,16 +939,22 @@ async function waitForTaskSettled(
  *  1. the three fields (`sessionId`, `taskId`, `requestId`) are required;
  *  2. the session must exist;
  *  3. the request must belong to the session (`assertSessionAccess`);
- *  4. the task must be in the table and not already terminal;
- *  5. only then is the runtime asked, and the capability matrix decides whether
+ *  4. the session's provider must declare the verb at all — a resident session
+ *     whose matrix says `stopTask: false` is `unsupported` here, before the task
+ *     is even looked up, because that provider cannot stop *any* task;
+ *  5. the task must be in the table and not already terminal;
+ *  6. only then is the runtime asked, and the capability matrix decides whether
  *     the provider can carry it at all.
  *
  * The receipt never carries a task state and never writes one. `requested` means
  * the request was placed *and* the table confirmed the task left `running`
  * inside the bound; `timeout` means it was placed but no such confirmation
  * arrived, with the table left untouched; `forbidden` and `unknown-task` are the
- * two refusals the task table and the access entry produce. The
- * `task_notification(stopped)` frame is what actually moves the table — this
+ * two refusals the task table and the access entry produce, and `unsupported`
+ * covers both "this provider declares no such verb" (step 4) and "the driver
+ * would not place it" (step 6) — the caller can tell them apart by the
+ * capability it read, which is the same read the dock's disabled state goes by.
+ * The `task_notification(stopped)` frame is what actually moves the table — this
  * handler reads it, it does not stand in for it.
  */
 async function handleChatStopTask(
@@ -914,6 +1006,15 @@ async function handleChatStopTask(
     return;
   }
 
+  // The verb-level verdict, taken before the task is addressed: a provider that
+  // declares no resident stop cannot stop a task it holds either, so the refusal
+  // is `unsupported` for any id rather than `unknown-task` for this one.
+  const provider = session.provider as LLMProvider;
+  if (!residentControlVerbEntry(dependencies)(provider, sessionId, 'stopTask')) {
+    reply('unsupported');
+    return;
+  }
+
   const getTask = dependencies.getTask ?? defaultGetTask;
   const task = getTask(sessionId, taskId);
   if (!task || TERMINAL_TASK_STATES.has(task.state)) {
@@ -921,7 +1022,6 @@ async function handleChatStopTask(
     return;
   }
 
-  const provider = session.provider as LLMProvider;
   const outcome =
     (await dependencies.runtime.controlStopTask?.(provider, sessionId, taskId)) ?? 'unsupported';
   if (outcome !== 'requested') {
@@ -1047,10 +1147,13 @@ function handleActivitySubscribe(ws: WebSocket, data: AnyRecord): void {
  *     only ever reached with a string id;
  *  2. the session must exist;
  *  3. the request must belong to the session (`assertSessionAccess`);
- *  4. the requested `toolUseId` must equal the Turn Tracker's pending foreground
+ *  4. the session's provider must declare the verb at all — a resident session
+ *     whose matrix says `backgroundTasks: false` is `unsupported` here, before
+ *     the tracker is consulted, for the same reason its stop sibling is;
+ *  5. the requested `toolUseId` must equal the Turn Tracker's pending foreground
  *     tool (`readSessionForegroundToolUseId`) — anything else is
  *     `no-foreground-match`, with the driver un-called and no state moved;
- *  5. only then is the runtime asked, and the capability matrix decides whether
+ *  6. only then is the runtime asked, and the capability matrix decides whether
  *     the provider can carry it at all.
  *
  * The receipt never carries or writes a task state. `requested` means the request
@@ -1115,13 +1218,18 @@ async function handleChatBackgroundTask(
   // The addressing store is the Turn Tracker, never the task table: a foreground
   // tool has no task row yet, and a request that does not name the tracker's
   // pending tool is refused with no driver call and no state moved.
+  const provider = session.provider as LLMProvider;
+  if (!residentControlVerbEntry(dependencies)(provider, sessionId, 'backgroundTasks')) {
+    reply('unsupported');
+    return;
+  }
+
   const pendingToolUseId = readSessionForegroundToolUseId(sessionId);
   if (pendingToolUseId !== toolUseId) {
     reply('no-foreground-match');
     return;
   }
 
-  const provider = session.provider as LLMProvider;
   const outcome =
     (await dependencies.runtime.controlBackgroundTask?.(provider, sessionId, toolUseId)) ?? 'unsupported';
   reply(outcome);

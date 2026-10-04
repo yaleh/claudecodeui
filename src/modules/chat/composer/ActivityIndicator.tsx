@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useActivityFreshness } from '@/modules/chat/hooks/useActivityFreshness';
-import { useSessionActivity } from '@/modules/chat/hooks/useSessionActivity';
+import { selectActiveTasks, useSessionActivity } from '@/modules/chat/hooks/useSessionActivity';
 import { deriveActivityDockView } from '@/modules/chat/utils/activityDockView';
 import ActivityDockPanel from '@/modules/chat/transcript/ActivityDockPanel';
 import type { ForegroundTool } from '@/modules/chat/hooks/useActivityControls';
@@ -98,6 +98,11 @@ export default function ActivityIndicator({
   const { t } = useTranslation('chat');
   const freshness = useActivityFreshness(sessionId, connection);
   const { tasks, schedules } = useSessionActivity(sessionId);
+  // The dock reports *current* activity: a finished task is not part of what the
+  // session is doing now, so it leaves the count (and, with the last one gone,
+  // the dock itself) even though the task table keeps its row for the transcript
+  // card that joins it. One filter, shared with the panel's list.
+  const activeTaskCount = selectActiveTasks(tasks).length;
   const [renderedActivity, setRenderedActivity] = useState<SessionActivity | null>(activity);
   const [isExiting, setIsExiting] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -138,7 +143,7 @@ export default function ActivityIndicator({
     sendFailed,
     phase: freshness.phase,
     toolName: freshness.toolName,
-    taskCount: tasks.length,
+    taskCount: activeTaskCount,
     scheduleCount: schedules.length,
   });
 
@@ -253,10 +258,11 @@ export default function ActivityIndicator({
             <span className="tabular-nums text-muted-foreground/60">{elapsedLabel}</span>
           )}
           {/*
-            The background counts, read straight off the snapshot: how many tasks
-            and how many plans the session holds. The whole summary is the toggle
-            that opens the panel that lists them; nothing here is a control over
-            the work itself.
+            The background counts, read straight off the snapshot: how many live
+            tasks and how many plans the session holds. A finished task is not in
+            this count — the dock answers "what is running now", not "what has
+            ever run". The whole summary is the toggle that opens the panel that
+            lists them; nothing here is a control over the work itself.
           */}
           {showCounts && (
             <button

@@ -25,8 +25,8 @@ const SNAPSHOT: QuaySnapshot = {
     needsHuman: 1,
     done: 1,
     recent: [
-      { id: 'gap-task-a', title: 'Task A', status: 'ready' },
-      { id: 'gap-task-b', title: 'Task B', status: 'done' },
+      { id: 'gap-task-a', title: 'Task A', status: 'ready', updatedAt: '2026-10-01T12:00:00.000Z' },
+      { id: 'gap-task-b', title: 'Task B', status: 'done', updatedAt: '2026-09-30T08:30:00.000Z' },
     ],
   },
   goals: {
@@ -35,12 +35,12 @@ const SNAPSHOT: QuaySnapshot = {
     breakdown: {
       byStatus: { achieved: 1, active: 2 },
       recent: [
-        { id: 'GOAL-3', title: 'Third goal', status: 'active' },
-        { id: 'GOAL-1', title: 'First goal', status: 'achieved' },
+        { id: 'GOAL-3', title: 'Third goal', status: 'active', updatedAt: '2026-09-29T10:00:00.000Z' },
+        { id: 'GOAL-1', title: 'First goal', status: 'achieved', updatedAt: '2026-09-28T09:00:00.000Z' },
       ],
     },
   },
-  adrs: { total: 3, recent: [{ id: 'ADR-001', title: 'First decision', status: 'accepted' }] },
+  adrs: { total: 3, recent: [{ id: 'ADR-001', title: 'First decision', status: 'accepted', updatedAt: '2026-09-27T07:00:00.000Z' }] },
   configIssues: { total: 0, errors: 0 },
   tests: {
     current: {
@@ -140,6 +140,78 @@ test('QuayPanel renders each recent task and ADR row with id, title and status',
   assert.match(adrRows[0]?.textContent ?? '', /ADR-001/);
   assert.match(adrRows[0]?.textContent ?? '', /First decision/);
   assert.match(adrRows[0]?.textContent ?? '', /accepted/);
+});
+
+/**
+ * The reading this test is the permanent record of (2026-10-04): "Recent tasks" and "Stage
+ * goals" are both ranked by `updatedAt` descending, and neither row showed it, so the list was
+ * ordered by a field the reader could not see. Each row now carries its own reading twice: as
+ * visible text in the reader's locale, and verbatim in `data-updated-at`, so a criterion can
+ * compare it against the store without knowing the locale or timezone of the render.
+ *
+ * A `null` reading is the projection's answer for "the CLI reported no usable timestamp". It
+ * renders the em-dash placeholder `formatDuration` already uses — not blank, not `never` (a
+ * real "nothing recorded yet" reading) and not `Invalid Date`.
+ */
+test('QuayPanel stamps every Recent tasks and Stage goals row with its own last-updated reading', () => {
+  const updatedAt = { task: '2026-10-01T12:34:56.000Z', goal: '2026-09-30T01:02:03.000Z' };
+  const stamped: QuaySnapshot = {
+    ...SNAPSHOT,
+    tasks: {
+      total: 2,
+      byStatus: { ready: 1, todo: 1 },
+      ready: 1,
+      needsHuman: 0,
+      done: 0,
+      recent: [
+        { id: 'gap-task-stamped', title: 'Stamped task', status: 'ready', updatedAt: updatedAt.task },
+        { id: 'gap-task-unstamped', title: 'Unstamped task', status: 'todo', updatedAt: null },
+      ],
+    },
+    goals: {
+      total: 2,
+      achieved: 1,
+      breakdown: {
+        byStatus: { achieved: 1, draft: 1 },
+        recent: [
+          { id: 'GOAL-STAMPED', title: 'Stamped goal', status: 'achieved', updatedAt: updatedAt.goal },
+          { id: 'GOAL-UNSTAMPED', title: 'Unstamped goal', status: 'draft', updatedAt: null },
+        ],
+      },
+    },
+  };
+
+  const { getByTestId } = renderView({ status: 'loaded', snapshot: stamped }, null);
+  const rowsOf = (testId: string) => getByTestId(testId).querySelectorAll(`[data-testid="${testId}-row"]`);
+
+  const taskRows = rowsOf('quay-panel-recent-tasks');
+  assert.equal(taskRows.length, 2);
+  // The attribute is the snapshot's ISO value verbatim, so a criterion can compare it with the
+  // store's own reading without knowing how the row rendered it.
+  assert.equal(taskRows[0].getAttribute('data-updated-at'), updatedAt.task);
+  // The visible text is that same value formatted for the reader.
+  assert.ok(
+    (taskRows[0].textContent ?? '').includes(new Date(updatedAt.task).toLocaleString()),
+    `the task row must render the formatted time; it read ${JSON.stringify(taskRows[0].textContent)}`,
+  );
+  // A null reading carries no attribute — there is no ISO value to state — and shows the
+  // placeholder rather than a blank, `never` or `Invalid Date`.
+  assert.equal(taskRows[1].getAttribute('data-updated-at'), null);
+  assert.match(taskRows[1].textContent ?? '', /—/);
+  assert.equal((taskRows[1].textContent ?? '').includes('never'), false);
+  assert.equal((taskRows[1].textContent ?? '').includes('Invalid Date'), false);
+
+  const goalRows = rowsOf('quay-panel-stage-goals');
+  assert.equal(goalRows.length, 2);
+  assert.equal(goalRows[0].getAttribute('data-updated-at'), updatedAt.goal);
+  assert.ok(
+    (goalRows[0].textContent ?? '').includes(new Date(updatedAt.goal).toLocaleString()),
+    `the goal row must render the formatted time; it read ${JSON.stringify(goalRows[0].textContent)}`,
+  );
+  assert.equal(goalRows[1].getAttribute('data-updated-at'), null);
+  assert.match(goalRows[1].textContent ?? '', /—/);
+  assert.equal((goalRows[1].textContent ?? '').includes('never'), false);
+  assert.equal((goalRows[1].textContent ?? '').includes('Invalid Date'), false);
 });
 
 test('QuayPanel renders an empty state for each detail list when the recents are empty', () => {

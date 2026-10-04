@@ -4,9 +4,12 @@ title: AC-217 刻度与滚动条拆成两个部件：固定尺寸窗口化刻度
 status: ready
 labels:
   - gap
+  - priority:p1
+  - delivery-critical
 parent: null
 children: []
-extra: {}
+extra:
+  deliveryCriticalSource: adhoc
 depends_on: []
 goal_ac: AC-217
 ---
@@ -43,13 +46,13 @@ goal_ac: AC-217
 
 ## AC
 
-- [ ] AC1 判据绿：`npx playwright test e2e/transcript-rail-geometry.spec.ts -g "AC-217"` 退出 0。红态基线：spec 文件不存在，playwright 报 No tests found。
-- [ ] AC2 改写后的 AC-213 判据绿：`npx playwright test e2e/transcript-jump-to-turn.spec.ts -g "AC-213 v2"` 退出 0。红态基线：现有用例标题不含 `v2`，No tests found。
-- [ ] AC3 改写后的 AC-214 判据绿：`npx playwright test e2e/transcript-global-scrollbar.spec.ts -g "AC-214 v2"` 退出 0。红态基线：同上。
-- [ ] AC4 既有守卫不回退，逐字写下各自读数：`npx playwright test e2e/transcript-global-scrollbar.spec.ts -g "AC-215"`、`npx playwright test e2e/transcript-prefetch.spec.ts -g "AC-216"`、`npx playwright test e2e/transcript-follow.spec.ts`（AC-106 至 AC-111）均退出 0。
-- [ ] AC5 取假形态必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行与恢复命令）：(a) 刻度恢复 `flex:1 1 0` 铺满整条 ⇒ AC-217 (a)(b)(c) 红；(b) 全部轮次都渲染成按钮 ⇒ AC-217 (a) 与 AC-213 v2 (a) 红；(c) 把手恢复 `right-0` 与 50% ⇒ AC-217 (e)(f) 红；(d) 当前刻度与滑块都用主题色 ⇒ AC-217 (d) 红；(e) 把手只改默认值、不夹取已保存位置 ⇒ AC-217 (g) 红；(f) 滑块长度写死 40px ⇒ AC-214 v2 (f) 红；(g) 滚轮停在刻度列上却滚动了转录 ⇒ AC-213 v2 (b) 红。
-- [ ] AC6 单测绿：`npx vitest run src/modules/chat/tests/turnTickWindow.test.ts src/modules/quick-settings-panel/tests/quickSettingsHandleBand.test.ts src/modules/chat/tests/chatTurnRailCompleteness.test.ts` 退出 0；`visibleTickWindow` 覆盖：总轮次 < 容量、当前轮在两端、滚动偏移越界被夹取、轮次追加时窗口稳定。
-- [ ] AC7 `npm run typecheck` 与 `npm run lint` 退出 0；`git diff --stat` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）。
+- [x] AC1 判据绿：`npx playwright test e2e/transcript-rail-geometry.spec.ts -g "AC-217"` 退出 0。红态基线：spec 文件不存在，playwright 报 No tests found。
+- [x] AC2 改写后的 AC-213 判据绿：`npx playwright test e2e/transcript-jump-to-turn.spec.ts -g "AC-213 v2"` 退出 0。红态基线：现有用例标题不含 `v2`，No tests found。
+- [x] AC3 改写后的 AC-214 判据绿：`npx playwright test e2e/transcript-global-scrollbar.spec.ts -g "AC-214 v2"` 退出 0。红态基线：同上。
+- [x] AC4 既有守卫不回退，逐字写下各自读数：`npx playwright test e2e/transcript-global-scrollbar.spec.ts -g "AC-215"`、`npx playwright test e2e/transcript-prefetch.spec.ts -g "AC-216"`、`npx playwright test e2e/transcript-follow.spec.ts`（AC-106 至 AC-111）均退出 0。
+- [x] AC5 取假形态必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行与恢复命令）：(a) 刻度恢复 `flex:1 1 0` 铺满整条 ⇒ AC-217 (a)(b)(c) 红；(b) 全部轮次都渲染成按钮 ⇒ AC-217 (a) 与 AC-213 v2 (a) 红；(c) 把手恢复 `right-0` 与 50% ⇒ AC-217 (e)(f) 红；(d) 当前刻度与滑块都用主题色 ⇒ AC-217 (d) 红；(e) 把手只改默认值、不夹取已保存位置 ⇒ AC-217 (g) 红；(f) 滑块长度写死 40px ⇒ AC-214 v2 (f) 红；(g) 滚轮停在刻度列上却滚动了转录 ⇒ AC-213 v2 (b) 红。
+- [x] AC6 单测绿：`npx vitest run src/modules/chat/tests/turnTickWindow.test.ts src/modules/quick-settings-panel/tests/quickSettingsHandleBand.test.ts src/modules/chat/tests/chatTurnRailCompleteness.test.ts` 退出 0；`visibleTickWindow` 覆盖：总轮次 < 容量、当前轮在两端、滚动偏移越界被夹取、轮次追加时窗口稳定。
+- [x] AC7 `npm run typecheck` 与 `npm run lint` 退出 0；`git diff --stat` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）。
 
 ## DoD
 
@@ -68,7 +71,6 @@ goal_ac: AC-217
 - src/modules/chat/transcript/TranscriptTurnTicks.tsx (new)
 - src/modules/chat/transcript/TranscriptScrollbar.tsx (new)
 - src/modules/chat/utils/turnTickWindow.ts (new)
-- src/modules/chat/hooks/useTurnNavigation.ts
 - src/modules/chat/transcript/ChatMessagesPane.tsx
 - src/modules/quick-settings-panel/QuickSettingsHandle.tsx
 - src/modules/quick-settings-panel/hooks/useQuickSettingsDrag.ts
@@ -79,4 +81,6 @@ goal_ac: AC-217
 - e2e/transcript-rail-geometry.spec.ts (new)
 - e2e/transcript-jump-to-turn.spec.ts
 - e2e/transcript-global-scrollbar.spec.ts
+- src/index.css
+- .oxlintrc.json
 - tasks/transcript-rail-split-scrollbar-and-windowed-ticks.md

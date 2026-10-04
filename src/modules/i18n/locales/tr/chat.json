@@ -351,11 +351,6 @@
     },
     "stopResident": "Bu yanıtı durdur (süreç ve zamanlanmış görevler devam eder)",
     "backgroundTasks": {
-      "title": "Arka plan görevleri",
-      "genericLabel": "Arka plan görevi",
-      "monitorLabel": "İzleyici",
-      "unknown": "Arka plan görev durumu bilinmiyor",
-      "lastNotification": "Son bildirim {{elapsed}} önce",
       "count": "{{n}} görev"
     }
   },

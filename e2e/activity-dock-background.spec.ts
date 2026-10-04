@@ -7,13 +7,17 @@
  * browser. This file reads the four surfaces that fact lands on, each as a *reading that could have
  * gone the other way*:
  *
- *   - the dock's summary counters (task count, plan count) equal the snapshot's;
- *   - the expanded panel lists every task (description, state, elapsed, last action) and every plan
- *     (expression, countdown, prompt);
- *   - a task's state changes **without a navigation** when the clock settles it, and *survives a
- *     reload* restored from the server's snapshot;
+ *   - the dock's summary counters (task count, plan count) equal the snapshot's *while the tasks are
+ *     live*;
+ *   - the expanded panel lists every **live** task (description, state, elapsed, last action) and
+ *     every plan (expression, countdown, prompt), and a task that settles **leaves the panel** — the
+ *     dock reports current activity, so a finished task does not linger as an inert row;
+ *   - the live reading changes **without a navigation** when the clock settles a task, and *survives
+ *     a reload* restored from the server's snapshot;
  *   - the transcript's Agent and Bash card headers read the Task entity by `tool_use` id, so their
- *     state moves when the task does — not from whether a result row happens to be folded in;
+ *     state moves when the task does — not from whether a result row happens to be folded in. This is
+ *     also the control for the row above: the task table keeps the terminal row (the cards read
+ *     `completed`), so the panel's empty task section is a *filter*, not a lost task;
  *   - a plan row renders no cancel control (selector count zero, by construction).
  *
  * Why the session is opened after the clock. The control plane's clock opens a *per-run* run whose writer
@@ -352,12 +356,20 @@ test.describe('activity dock background', () => {
     // --- AC6: the state changes without a reload -----------------------------------------------
     // The measured window opens here: no navigation may happen between now and the terminal reading.
     navigations = 0;
-    await expect(page.locator(`${TASK_ROW}[data-task-state="completed"]`)).toHaveCount(2, { timeout: 20_000 });
+    // The clock settles both tasks (7s / 7.5s), and the dock reports *current* activity: the live
+    // task rows are what disappear, which is the transition this wait is for. The panel itself
+    // stays (the plan is still held), so a count of zero here is the task section leaving, not a
+    // panel that failed to draw.
+    await expect(page.locator(TASK_ROW)).toHaveCount(0, { timeout: 20_000 });
+    await expect(page.locator(SCHEDULE_ROW)).toHaveCount(1, { timeout: 8_000 });
     const settled = await readPanel(page);
     await expect(page.locator(CARD_TASK_STATE)).toHaveCount(2, { timeout: 8_000 });
     const settledCards = await readCardTaskStates(page);
-    console.log(`settled.tasks=${JSON.stringify(settled.tasks.map((task) => task.state))} settled.cards=${JSON.stringify(settledCards)}`);
-    expect(settled.tasks.map((task) => task.state).sort()).toEqual(['completed', 'completed']);
+    console.log(`settled.tasks=${JSON.stringify(settled.tasks.map((task) => task.state))} settled.plans=${settled.plans.length} settled.cards=${JSON.stringify(settledCards)}`);
+    expect(
+      settled.tasks,
+      'a settled task leaves the panel; the dock is a current-activity reading, not a history',
+    ).toEqual([]);
     expect(navigations, 'the state must change without a navigation').toBe(0);
 
     // --- AC8: the card header reads the Task entity, and moves with it ---------------------------
@@ -378,7 +390,9 @@ test.describe('activity dock background', () => {
     await expect(page.locator(DOCK_TOGGLE)).toBeVisible({ timeout: 25_000 });
     await page.locator(DOCK_TOGGLE).click();
     await expect(page.locator(PANEL)).toBeVisible({ timeout: 15_000 });
-    await expect(page.locator(TASK_ROW)).toHaveCount(2, { timeout: 20_000 });
+    // The restore is from the snapshot, and the snapshot still carries both (terminal) tasks — but
+    // the panel lists live work only, so the restored panel has no task row and keeps the plan.
+    await expect(page.locator(TASK_ROW)).toHaveCount(0, { timeout: 20_000 });
     await expect(page.locator(SCHEDULE_ROW)).toHaveCount(1, { timeout: 15_000 });
     const restored = await readPanel(page);
     console.log(`restored.tasks=${JSON.stringify(restored.tasks.map((task) => task.id))} restored.plans=${JSON.stringify(restored.plans.map((plan) => plan.id))}`);
@@ -399,7 +413,11 @@ test.describe('activity dock background', () => {
       .filter((binding) => binding.appSessionId === sessionId)
       .flatMap((binding) => binding.leases ?? []);
     console.log(`falseForm2.sessionHostsLeases=${listingLeases.length} falseForm2.panelRows=${restored.tasks.length + restored.plans.length}`);
-    expect(restored.tasks.length + restored.plans.length, 'the panel is drawn from the snapshot and carries rows').toBe(3);
+    // The restored panel carries the one live row the snapshot holds (the plan). The two tasks are
+    // in the snapshot too, but terminal, so they are not rows — and the count above (`TASK_ROW`
+    // == 0) is what makes that a filter rather than a snapshot that lost its tasks.
+    expect(restored.tasks.length + restored.plans.length, 'the panel is drawn from the snapshot and carries its live rows').toBe(1);
+    expect(afterReloadSnapshot.snapshot?.tasks?.length, 'the snapshot itself still holds both terminal tasks').toBe(2);
     expect(listingLeases.length, 'the session-hosts poll carries no task/schedule rows').toBe(0);
 
     // --- The walk itself completed --------------------------------------------------------------
@@ -443,9 +461,10 @@ const DISABLED_REASON = '[data-control-disabled-reason]';
 /**
  * The control walk.
  *
- * Three tasks are held before the click window opens: `STOP_TARGET` and
- * `NEVER_TASK` run (so a stop control exists at every reading), and
- * `TERMINAL_TASK` is settled to `completed` (so a terminal row exists). A
+ * Three tasks are in the table before the click window opens: `STOP_TARGET` and
+ * `NEVER_TASK` run (so the panel lists two live rows, each with a stop control),
+ * and `TERMINAL_TASK` is settled to `completed` (so the table holds a terminal
+ * task the panel never lists — the reading that the list is the live set). A
  * `Bash` call with no paired result is left pending — the running foreground
  * tool the background control addresses. Both control *events* are far down the
  * clock (12s), so the whole click-and-read window happens before either, and the
@@ -611,11 +630,14 @@ test.describe('activity dock controls', () => {
     await page.locator(DOCK_TOGGLE).click();
     await expect(page.locator(PANEL)).toBeVisible({ timeout: 15_000 });
 
-    // --- AC2: the three states are on screen --------------------------------------------------
+    // --- AC2: the *live* states are on screen, and the terminal one is not ---------------------
     await expect(taskRowOf(page, STOP_TARGET)).toBeVisible({ timeout: 20_000 });
-    await expect(taskRowOf(page, TERMINAL_TASK)).toBeVisible({ timeout: 20_000 });
     await expect(taskRowOf(page, NEVER_TASK)).toBeVisible({ timeout: 20_000 });
     await expect(page.locator(FOREGROUND_ROW)).toBeVisible({ timeout: 20_000 });
+    // `TERMINAL_TASK` is a row in the snapshot (asserted below) but never a row in the panel: the
+    // dock lists current activity, so a task that had already settled before the page opened is
+    // absent from it — the same reading the live task gets when its own event settles it.
+    await expect(taskRowOf(page, TERMINAL_TASK)).toHaveCount(0);
 
     const { status: snapStatus, snapshot } = await readActivitySnapshot(api, sessionId);
     const snapshotTasks = snapshot?.tasks ?? [];
@@ -636,10 +658,16 @@ test.describe('activity dock controls', () => {
     expect(typeof foregroundToolUseId === 'string' && foregroundToolUseId.length > 0).toBe(true);
     expect(snapshotTasks.some((task) => (task as { toolUseId?: string }).toolUseId === foregroundToolUseId)).toBe(false);
 
-    // --- AC5: a terminal row renders no stop control -------------------------------------------
-    const terminalStopCount = await taskRowOf(page, TERMINAL_TASK).locator(TASK_STOP).count();
-    console.log(`ac5.terminalStopButtons=${terminalStopCount}`);
-    expect(terminalStopCount, 'a terminal task row must render no stop control').toBe(0);
+    // --- AC5: the stop control belongs to the live rows, and only to them ----------------------
+    // A terminal task has no row at all (the stronger form of "a terminal row renders no stop"):
+    // the panel's list *is* the live set, so the selector's count is the live-task count.
+    const terminalRowCount = await taskRowOf(page, TERMINAL_TASK).count();
+    const liveRows = await page.locator(TASK_ROW).count();
+    const liveStops = await page.locator(TASK_ROW).locator(TASK_STOP).count();
+    console.log(`ac5.terminalRows=${terminalRowCount} liveRows=${liveRows} liveStops=${liveStops}`);
+    expect(terminalRowCount, 'a settled task must not be listed by the panel').toBe(0);
+    expect(liveRows, 'the panel lists exactly the two live tasks').toBe(2);
+    expect(liveStops, 'every listed row is live, so every listed row carries a stop').toBe(liveRows);
 
     // --- AC3: stop is not optimistic -----------------------------------------------------------
     const beforeClick = await taskRowOf(page, STOP_TARGET).getAttribute('data-task-state');
@@ -663,9 +691,18 @@ test.describe('activity dock controls', () => {
 
     // --- The two events, far down the clock, are what move the state --------------------------
     // The stop event (12s) settles the task; the background frames (12.3/12.6s) create the task.
-    await expect(taskRowOf(page, STOP_TARGET)).toHaveAttribute('data-task-state', 'stopped', { timeout: 20_000 });
-    await expect(taskRowOf(page, STOP_TARGET).locator(TASK_STOP)).toHaveCount(0, { timeout: 5_000 });
-    console.log('ac3.settled: the stop event moved the row to stopped');
+    // The click was not optimistic (asserted above: the row read `running` on both sides of it), so
+    // the row can only leave the panel because the server's own frame made the task terminal. The
+    // snapshot is read back for the state the panel no longer draws.
+    await expect(taskRowOf(page, STOP_TARGET)).toHaveCount(0, { timeout: 20_000 });
+    await expect
+      .poll(
+        async () =>
+          (await readActivitySnapshot(api, sessionId)).snapshot?.tasks?.find((t) => t.taskId === STOP_TARGET)?.state,
+        { timeout: 20_000 },
+      )
+      .toBe('stopped');
+    console.log('ac3.settled: the stop event settled the task, and the panel dropped its row');
 
     await expect(taskRowOf(page, BG_TASK)).toBeVisible({ timeout: 20_000 });
     // The task the event created names the very foreground tool the control addressed: its
@@ -716,5 +753,204 @@ test.describe('activity dock controls', () => {
     const elapsedMs = Date.now() - runStartedAt;
     console.log(`AC-199 wall clock: ${elapsedMs}ms`);
     expect(elapsedMs, 'the criterion must complete within 40s').toBeLessThanOrEqual(40_000);
+  });
+});
+
+// =============================================================================================
+// The capability gate, on a real browser against a real server.
+//
+// AC-199 pins what the control *does* when a session is placeable; this block pins
+// the case AC-199's substitute could never reach: a **resident** session whose
+// provider declares no stop verb. The matrix is the same one the server refuses
+// on, read here from `GET /api/providers/capabilities` through the page's own
+// server; the provider is the debug agent, which declares `resident` as a
+// lifecycle mode but no `residentFeatures` at all — so it is exactly the
+// "unmeasured ⇒ unsupported" shape the shipped claude row used to have, and the
+// one a reader must not be told is placeable.
+//
+// The reading is the DOM's own `disabled` plus the reason drawn beside it. Before
+// this change the control was enabled here and a click reached the server to be
+// refused, with nothing on screen saying so — "clickable but silently inert",
+// which is the shape this arm exists to keep out.
+// =============================================================================================
+
+const GATE_TITLE = 'Activity dock controls — capability gate';
+const GATE_SEED = 'seeded user turn for the activity-dock capability-gate criterion';
+const GATE_TASK = 'task-capability-gate';
+
+/**
+ * One live task on a resident session, and nothing else. The walk writes three
+ * rows; the task never settles, so the panel holds one live row for the whole
+ * reading.
+ */
+const GATE_SCENARIO = {
+  version: 1,
+  dialect: 'claude',
+  home: 'gate',
+  transcript: { mode: 'per-row-jsonl' },
+  seed: { title: GATE_TITLE, userText: GATE_SEED, lifecycleMode: 'resident' },
+  steps: [
+    { at: 0, op: 'tool-call', name: 'Bash' },
+    { at: 200, op: 'task-started', taskId: GATE_TASK, taskType: 'local_bash', description: 'Watcher stays up' },
+    { at: 400, op: 'row', role: 'assistant', text: 'The watcher is running.' },
+    { at: 1_200, op: 'wait' },
+  ],
+  expect: { rows: { delta: 3 }, content: { mustContain: [GATE_SEED] } },
+};
+
+/** One session's row on `GET /api/session-hosts`, as this arm reads it. */
+type HostStateRow = { appSessionId: string; provider: string; lifecycleMode: string; running: boolean };
+
+async function readHostState(api: APIRequestContext, sessionId: string): Promise<HostStateRow | null> {
+  const response = await api.get('/api/session-hosts');
+  const body = await response.json().catch(() => null);
+  const rows = (body?.data?.sessions ?? []) as HostStateRow[];
+  return rows.find((row) => row.appSessionId === sessionId) ?? null;
+}
+
+/** One provider's capability row, as `GET /api/providers/capabilities` states it. */
+type CapabilityRow = { provider: string; residentFeatures?: { stopTask?: boolean } | null };
+
+async function readCapabilityRow(api: APIRequestContext, provider: string): Promise<CapabilityRow | null> {
+  const response = await api.get('/api/providers/capabilities');
+  const body = await response.json().catch(() => null);
+  const rows = (body?.data?.providers ?? []) as CapabilityRow[];
+  return rows.find((row) => row.provider === provider) ?? null;
+}
+
+/**
+ * The gate's rule, written once so the arm and its false form drive the same
+ * function: a control must be disabled by capability exactly when the session is
+ * resident and the matrix does not declare the verb, and the DOM must agree.
+ *
+ * Agreement — not "the DOM is disabled" — is what is asserted, because a build
+ * that disabled the control for some unrelated reason would satisfy the weaker
+ * reading. The false form passes the reading a gate-free build produces
+ * (undeclared resident provider, control still enabled) and must come back red.
+ */
+function capabilityGateAgreement(input: {
+  lifecycleMode: string;
+  declared: boolean | undefined;
+  domDisabled: boolean;
+}): { green: boolean; reading: string } {
+  const shouldBeDisabled = input.lifecycleMode === 'resident' && input.declared !== true;
+  return {
+    green: shouldBeDisabled === input.domDisabled,
+    reading:
+      `capability-gate: lifecycleMode=${input.lifecycleMode} declared=${String(input.declared)} ` +
+      `shouldBeDisabled=${String(shouldBeDisabled)} domDisabled=${String(input.domDisabled)}`,
+  };
+}
+
+test.describe('activity dock capability gate', () => {
+  let page: Page;
+  let api: APIRequestContext;
+  let workspace = '';
+  let sessionId = '';
+
+  test.beforeAll(async ({ browser }) => {
+    const clientUrl = test.info().project.use.baseURL;
+    if (!clientUrl) throw new Error('playwright.config.ts must give this project a baseURL');
+    const fixtureHome = process.env.QUAY_E2E_DEBUG_AGENT_HOME;
+    if (!fixtureHome) throw new Error('playwright.config.ts must publish QUAY_E2E_DEBUG_AGENT_HOME');
+
+    workspace = path.join(fixtureHome, 'activity-dock-capability-workspace');
+    const workspaceName = path.basename(workspace);
+
+    const bootstrap = await request.newContext({ baseURL: clientUrl });
+    const token = await createAccount(bootstrap);
+    await bootstrap.dispose();
+    api = await request.newContext({ baseURL: clientUrl, extraHTTPHeaders: { Authorization: `Bearer ${token}` } });
+
+    sessionId = await armScenario(api, workspace, GATE_SCENARIO);
+
+    const context = await browser.newContext({ baseURL: clientUrl });
+    await context.addInitScript(
+      ({ key, value }: { key: string; value: string }) => {
+        window.localStorage.setItem(key, value);
+        window.localStorage.setItem('userLanguage', 'en');
+      },
+      { key: 'auth-token', value: token },
+    );
+    page = await context.newPage();
+    page.on('pageerror', (error) => console.log(`[e2e] pageerror: ${error.message}`));
+
+    await page.goto('/');
+    if (!(await projectRow(page, workspaceName).waitFor({ state: 'visible', timeout: 25_000 }).then(() => true, () => false))) {
+      await page.reload();
+    }
+    await revealSession(page, workspaceName, sessionId);
+  });
+
+  test.afterAll(async () => {
+    await page?.close();
+    await api?.dispose();
+  });
+
+  test('a resident session whose provider declares no stop verb draws a disabled stop with a reason', async () => {
+    // The walk starts the session's task; the reading is taken with the panel open.
+    const clock = api
+      .post('/api/debug-agent/clock', { data: { sessionId } })
+      .then(async (response) => ({ ok: response.ok(), body: await response.json().catch(() => null) }))
+      .catch((error: unknown) => ({ ok: false, body: { failed: String(error) } }));
+
+    await page.waitForTimeout(600);
+    await sessionRow(page, sessionId).click();
+    await expect(page.locator(PANE)).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(DOCK_TOGGLE)).toBeVisible({ timeout: 20_000 });
+    await page.locator(DOCK_TOGGLE).click();
+    await expect(page.locator(PANEL)).toBeVisible({ timeout: 15_000 });
+    await expect(taskRowOf(page, GATE_TASK)).toBeVisible({ timeout: 20_000 });
+
+    // The two facts the gate is a function of, read off the wire rather than
+    // assumed: the session really is resident, and the matrix really declares no
+    // resident stop verb for its provider.
+    const hostState = await readHostState(api, sessionId);
+    const capabilityRow = await readCapabilityRow(api, hostState?.provider ?? '');
+    console.log(
+      `capabilityGate.host=${JSON.stringify(hostState)} capabilityRow=${JSON.stringify(capabilityRow)}`,
+    );
+    expect(hostState?.lifecycleMode, 'this arm needs a resident session, or it reads the wrong gate').toBe('resident');
+    expect(
+      capabilityRow?.residentFeatures?.stopTask,
+      'this arm needs a provider the matrix does not declare a resident stop for',
+    ).not.toBe(true);
+
+    const stopButton = taskRowOf(page, GATE_TASK).locator(TASK_STOP);
+    const domDisabled = await stopButton.isDisabled();
+    const reasonTexts = await taskRowOf(page, GATE_TASK)
+      .locator(DISABLED_REASON)
+      .evaluateAll((nodes) => nodes.map((node) => (node.textContent ?? '').trim()));
+
+    const mainVerdict = capabilityGateAgreement({
+      lifecycleMode: hostState?.lifecycleMode ?? '',
+      declared: capabilityRow?.residentFeatures?.stopTask,
+      domDisabled,
+    });
+    console.log(
+      `capabilityGate.main ${mainVerdict.reading} green=${String(mainVerdict.green)} reasons=${JSON.stringify(reasonTexts)}`,
+    );
+
+    expect(mainVerdict.green, `the DOM must agree with the capability face; ${mainVerdict.reading}`).toBe(true);
+    expect(domDisabled, 'the control must not be placeable when the provider declares no verb').toBe(true);
+    expect(reasonTexts.length, 'a disabled control must draw its reason').toBeGreaterThanOrEqual(1);
+    expect(reasonTexts.every((text) => text.length > 0), 'a disabled reason must not be blank').toBe(true);
+
+    // --- the false form, under the same reading function --------------------------------------
+    // What a build that never reads the matrix draws: the same resident provider,
+    // the same missing declaration, and a control that still looks placeable. The
+    // reading must come back red, which is what makes the green above evidence
+    // about the gate rather than about the fixture.
+    const falseFormVerdict = capabilityGateAgreement({
+      lifecycleMode: 'resident',
+      declared: capabilityRow?.residentFeatures?.stopTask,
+      domDisabled: false,
+    });
+    console.log(`capabilityGate.falseForm ${falseFormVerdict.reading} green=${String(falseFormVerdict.green)}`);
+    expect(falseFormVerdict.green, 'an enabled control on an undeclared resident provider must read red').toBe(false);
+    expect(mainVerdict.reading).not.toBe(falseFormVerdict.reading);
+
+    const clockBody = await clock;
+    expect(clockBody.ok, `the walk must complete: ${JSON.stringify(clockBody)}`).toBe(true);
   });
 });

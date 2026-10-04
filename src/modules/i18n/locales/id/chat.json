@@ -443,11 +443,6 @@
     },
     "stopResident": "Hentikan balasan ini (proses dan tugas terjadwal tetap berjalan)",
     "backgroundTasks": {
-      "title": "Tugas latar belakang",
-      "genericLabel": "Tugas latar belakang",
-      "monitorLabel": "Monitor",
-      "unknown": "Status tugas latar belakang tidak diketahui",
-      "lastNotification": "Notifikasi terakhir {{elapsed}} lalu",
       "count": "{{n}} tugas"
     }
   },

@@ -338,11 +338,6 @@
     },
     "stopResident": "この回答を停止（プロセスとスケジュールタスクは継続）",
     "backgroundTasks": {
-      "title": "バックグラウンドタスク",
-      "genericLabel": "バックグラウンドタスク",
-      "monitorLabel": "モニター",
-      "unknown": "バックグラウンドタスクの状態は不明です",
-      "lastNotification": "最後の通知は {{elapsed}} 前",
       "count": "{{n}} 件のタスク"
     }
   },
