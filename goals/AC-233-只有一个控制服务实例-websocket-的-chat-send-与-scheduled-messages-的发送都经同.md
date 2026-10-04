@@ -2,7 +2,7 @@
 id: AC-233
 title: 只有一个控制服务实例：WebSocket 的 chat.send 与 scheduled-messages
   的发送都经同一个实例，WebSocket 处理器只剩解析与翻译
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-019
 criterion: for f in server/modules/websocket/tests/chat-control-wiring.test.ts;
@@ -29,6 +29,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-04T20:04:37.078Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"

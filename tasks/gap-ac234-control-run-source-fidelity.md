@@ -56,15 +56,15 @@ AC-234（GOAL-019；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3 决策 D9 与�
 
 ## AC
 
-- [ ] AC1 判据绿：`for f in server/modules/websocket/tests/chat-control-source.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-control-source.test.ts` 退出 0。红态基线逐字记录（改动前该文件不存在、存在性闸退出码 1 输出 `缺判据文件：server/modules/websocket/tests/chat-control-source.test.ts`）。
-- [ ] AC2 (a) mcp 正例：经控制服务 `send({ userId, via: 'mcp' }, …)` 发起的运行，`chatRunRegistry.getRun(sessionId)?.source === 'mcp'`（写下返回与读数）。
-- [ ] AC3 (b) user/scheduled 正例：`via: 'websocket'` ⇒ `source === 'user'`；`via: 'scheduled'` ⇒ `source === 'scheduled'`（各在独立会话，写下两条读数）。
-- [ ] AC4 (c) 无人轮不变：`openUnattendedRun(…)` 开的运行 `source === 'unattended'`（写下读数）。
-- [ ] AC5 (d) 旧默认两臂：直接 `startRun` 不传 `source`，有连接 ⇒ `'user'`，无连接 ⇒ `'scheduled'`（写下两条读数）。
-- [ ] AC6 (e) 类型含 mcp + 穷举夹具：`ChatRunSource` 含 `'mcp'`；`chat-run-registry.test.ts` 的 `Record<ChatRunSource, true>` 夹具覆盖四种取值、四取值循环断言 `run.source === value` 通过；判据内同形穷举常量使 `npm run typecheck` 退出 0。写明命令与结果。
-- [ ] AC7 取假形态四条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) `send` 不传来源 ⇒ AC2 红；(ii) `mcp` 映射成 `scheduled` ⇒ AC2 红；(iii) 改写无人轮来源 ⇒ AC4 红；(iv) 改掉旧默认 ⇒ AC5 红。每条记录恢复命令与恢复后重跑绿。
-- [ ] AC8 不回归与仓库门：既有 WebSocket 判据逐字通过——至少 `server/modules/websocket/tests/chat-run-registry.test.ts`、`server/modules/websocket/tests/chat-control-ownership.test.ts`、`server/modules/websocket/tests/chat-control-send.test.ts`、`server/modules/providers/tests/claude-resident-unattended-turn.test.ts`（写明命令与结果）；`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（只看 error 级，写明计数）；跨模块只经 barrel、无深导入。
-- [ ] AC9 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写。列出实际改动文件清单。
+- [x] AC1 判据绿：`for f in server/modules/websocket/tests/chat-control-source.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-control-source.test.ts` 退出 0。红态基线逐字记录（改动前该文件不存在、存在性闸退出码 1 输出 `缺判据文件：server/modules/websocket/tests/chat-control-source.test.ts`）。
+- [x] AC2 (a) mcp 正例：经控制服务 `send({ userId, via: 'mcp' }, …)` 发起的运行，`chatRunRegistry.getRun(sessionId)?.source === 'mcp'`（写下返回与读数）。
+- [x] AC3 (b) user/scheduled 正例：`via: 'websocket'` ⇒ `source === 'user'`；`via: 'scheduled'` ⇒ `source === 'scheduled'`（各在独立会话，写下两条读数）。
+- [x] AC4 (c) 无人轮不变：`openUnattendedRun(…)` 开的运行 `source === 'unattended'`（写下读数）。
+- [x] AC5 (d) 旧默认两臂：直接 `startRun` 不传 `source`，有连接 ⇒ `'user'`，无连接 ⇒ `'scheduled'`（写下两条读数）。
+- [x] AC6 (e) 类型含 mcp + 穷举夹具：`ChatRunSource` 含 `'mcp'`；`chat-run-registry.test.ts` 的 `Record<ChatRunSource, true>` 夹具覆盖四种取值、四取值循环断言 `run.source === value` 通过；判据内同形穷举常量使 `npm run typecheck` 退出 0。写明命令与结果。
+- [x] AC7 取假形态四条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) `send` 不传来源 ⇒ AC2 红；(ii) `mcp` 映射成 `scheduled` ⇒ AC2 红；(iii) 改写无人轮来源 ⇒ AC4 红；(iv) 改掉旧默认 ⇒ AC5 红。每条记录恢复命令与恢复后重跑绿。
+- [x] AC8 不回归与仓库门：既有 WebSocket 判据逐字通过——至少 `server/modules/websocket/tests/chat-run-registry.test.ts`、`server/modules/websocket/tests/chat-control-ownership.test.ts`、`server/modules/websocket/tests/chat-control-send.test.ts`、`server/modules/providers/tests/claude-resident-unattended-turn.test.ts`（写明命令与结果）；`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（只看 error 级，写明计数）；跨模块只经 barrel、无深导入。
+- [x] AC9 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写。列出实际改动文件清单。
 
 ## DoD
 
@@ -82,3 +82,35 @@ AC-234（GOAL-019；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3 决策 D9 与�
 - server/modules/websocket/tests/chat-run-registry.test.ts
 - server/modules/websocket/tests/chat-control-source.test.ts (new)
 - tasks/gap-ac234-control-run-source-fidelity.md
+
+## 完成记录
+
+实现（commit `6588622c`）：
+
+- `ChatRunSource` 增 `'mcp'`（`server/shared/types.ts`）。
+- `dispatchRun` 增可选尾参 `source?: ChatRunSource`，并入 `startInput`，两次 `startRun` 都带；既有调用方不传 ⇒ 旧默认逐字不变。
+- `chat-control.service.ts` 增穷举 `SOURCE_BY_VIA: Record<ControlCaller['via'], ChatRunSource>`，`send` 显式传入（`websocket`→`user`、`scheduled`→`scheduled`、`mcp`→`mcp`）。
+- `openUnattendedRun` 逐字不改。
+- `chat-run-registry.test.ts` 增 `ALL_CHAT_RUN_SOURCES` 夹具与四值循环用例。
+- 判据 `server/modules/websocket/tests/chat-control-source.test.ts`（新）。
+
+读数（判据 stdout，`npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-control-source.test.ts`，4 passed / exit 0）：
+
+- (a) `control-source (a) mcp: result={"ok":true} source=mcp`
+- (b) `control-source (b) websocket=user scheduled=scheduled`
+- (c) `control-source (c) unattended: opened=true source=unattended`
+- (d) `control-source (d) defaultWithConnection=user defaultNoConnection=scheduled`
+- (e) `control-source (e) exhaustiveMembers=["mcp","scheduled","unattended","user"]`；`npm run typecheck`（三条 tsc 环）退出 0。
+
+取假形态（先提交实现 `6588622c` 再变异，每条先红后恢复）：
+
+(i) `chat-control.service.ts`：`SOURCE_BY_VIA[caller.via]` → `undefined`。红：`AssertionError [ERR_ASSERTION]: an MCP-dispatched run must be recorded as mcp`（(a) `source=scheduled`，exit 1）。恢复：`git checkout -- server/modules/websocket/services/chat-control.service.ts`，复跑 4/4 绿。
+(ii) 同文件：`mcp: 'mcp'` → `mcp: 'scheduled'`。红：同上失败行（(a) `source=scheduled`，exit 1）。恢复同上，4/4 绿。
+(iii) `chat-run-registry.service.ts`：`openUnattendedRun` 的 `source: 'unattended'` → `'scheduled'`。红：`AssertionError [ERR_ASSERTION]: a host-opened run must stay unattended`（(c) `source=scheduled`，exit 1）。恢复：`git checkout -- server/modules/websocket/services/chat-run-registry.service.ts`，4/4 绿。
+(iv) 同文件：`input.source ?? (input.connection ? 'user' : 'scheduled')` → `input.source ?? 'scheduled'`。红：`AssertionError [ERR_ASSERTION]: the old default records a connected run as user`（(d) `defaultWithConnection=scheduled`，exit 1）。恢复同上，4/4 绿。
+
+回归与仓库门：
+
+- `npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-run-registry.test.ts server/modules/websocket/tests/chat-control-ownership.test.ts server/modules/websocket/tests/chat-control-send.test.ts server/modules/providers/tests/claude-resident-unattended-turn.test.ts` → 22/22 pass。
+- `chat-control-wiring.test.ts` / `chat-control-busy.test.ts` / `chat-edit-send.test.ts` / `chat-control-access.test.ts` → 20/20 pass。
+- `npm run typecheck` 退出 0；`npm run lint` 0 个 `: error `。
