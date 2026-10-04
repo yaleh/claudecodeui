@@ -71,5 +71,6 @@ AC-233（GOAL-019 退出条件 4；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3�
 - server/modules/websocket/services/chat-websocket.service.ts
 - server/modules/scheduled-messages/services/scheduled-message-dispatcher.service.ts
 - server/modules/scheduled-messages/tests/scheduled-messages.test.ts
+- server/modules/scheduled-messages/index.ts
 - server/modules/websocket/tests/chat-control-wiring.test.ts (new)
 - tasks/gap-ac233-control-single-instance-wiring.md
