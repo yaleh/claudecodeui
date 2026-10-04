@@ -1,7 +1,7 @@
 ---
 id: AC-227
 title: 令牌设置接口 /api/settings/access-tokens 能创建、列出、吊销，明文只在创建响应里出现，旧的 api-keys 接口不再存在
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-018
 criterion: for f in server/modules/oauth/tests/access-tokens.routes.test.ts; do
@@ -24,6 +24,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-04T18:55:45.557Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
