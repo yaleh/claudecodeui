@@ -2,7 +2,7 @@
 id: transcript-scrub-live-follow-and-continuous-thumb
 title: AC-218 拖动滚动条时页面逐帧跟随、松手即落定、滑块连续移动：去掉 220ms 静止等待与 150ms
   固定定时器，窗口内直接滚动，窗口外按最新位置优先取页
-status: todo
+status: ready
 labels:
   - gap
 parent: null
