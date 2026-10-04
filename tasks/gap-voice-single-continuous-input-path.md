@@ -1,7 +1,7 @@
 ---
 id: gap-voice-single-continuous-input-path
 title: 语音输入只保留连续路径：边说边按序提交文字、被跟踪的插入区间、停止/发送语义、空闲 2 分钟自动停止
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -102,3 +102,12 @@ L_G 该轴仍暗，理由：质量读数归评估任务，本任务只做链路�
 - e2e/voice-error-messages.spec.ts
 - playwright.config.ts
 - tasks/gap-voice-single-continuous-input-path.md
+
+## Needs-Human
+
+**执行 2026-10-04T13:41:28.268Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：AC 未全勾（checked 12/14，剩余未勾 2）——续做只需验证并勾选 AC
+- run_id：wk-prod-anchor
+- session_id：1e64b39b-1eef-4ba3-9c5b-bef92b83c855
