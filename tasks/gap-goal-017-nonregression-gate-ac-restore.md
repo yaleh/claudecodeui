@@ -2,7 +2,7 @@
 id: gap-goal-017-nonregression-gate-ac-restore
 title: GOAL-017 退出条件末条（AC-106..111 与 GOAL-016 折叠不变量保持为绿）的在域 AC 因 AC-218
   被改用为拖动滚动条判据而丢失：提议新建 AC-220 恢复该回归门，交人裁定
-status: todo
+status: needs-human
 labels:
   - gap
 parent: null
