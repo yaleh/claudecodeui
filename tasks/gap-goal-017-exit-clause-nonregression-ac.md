@@ -2,7 +2,7 @@
 id: gap-goal-017-exit-clause-nonregression-ac
 title: GOAL-017 退出条件第 9 条（AC-106..111 与 GOAL-016 折叠不变量保持为绿）无在域 AC
   覆盖：提议新增一条把该回归门机械化的 AC，并登记两处范围欠账，交人裁定
-status: todo
+status: ready
 labels:
   - gap
 parent: null
