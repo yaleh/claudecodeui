@@ -54,11 +54,11 @@ expect（逐字）: 在 GOAL-017 全部落地后的树上（自绘轨道 + 隐�
 
 ## AC
 
-- [ ] AC1 **新 AC 记录落地且判据可跑**：`goals/AC-218-…md` 存在，`goal: GOAL-017`、`kind: criterion`、`status: active`，其 `criterion` 逐字为上面那条链式命令；在**改造前的树上**直跑该命令退出 0（13 条判据全绿），并把实际读数（每段命令的最后一行 + 退出码 + 实测耗时）逐条记录。
-- [ ] AC2 **回归门非恒真**：按 expect 的三条取假形态逐条变异并实测 —— 每条变异后判据命令必须退出非 0，且失败落在**被点名的那一条**；记录变异 diff、逐字失败行、恢复命令与恢复后重新绿。三条假形态全绿（未红）即本 AC 不满足。
+- [x] AC1 **新 AC 记录落地且判据可跑**：`goals/AC-218-…md` 存在，`goal: GOAL-017`、`kind: criterion`、`status: active`，其 `criterion` 逐字为上面那条链式命令；在**改造前的树上**直跑该命令退出 0（13 条判据全绿），并把实际读数（每段命令的最后一行 + 退出码 + 实测耗时）逐条记录。
+- [x] AC2 **回归门非恒真**：按 expect 的三条取假形态逐条变异并实测 —— 每条变异后判据命令必须退出非 0，且失败落在**被点名的那一条**；记录变异 diff、逐字失败行、恢复命令与恢复后重新绿。三条假形态全绿（未红）即本 AC 不满足。
 - [x] AC3 **人（yale）已裁定并被记录**：本任务的 `## Resolution` 小节写明 (i) 是否采纳本提案（采纳 / 改措辞 / 不采纳并改走文本修订），(ii) 两处范围欠账（范围第 3 条的刻度/悬停预览；范围第 4 条的搜索跳转复用）各自的处理方式 —— **并入 AC-217 / 另立 AC 并给出 id / 明示不作退出条件并在退出条件小节登记**。二者缺一即本 AC 不满足。
-- [ ] AC4 **退出条件第 9 条不再被判为未覆盖**：裁定落地后，`.quay/goal-round.jsonl` 中 GOAL-017 最新 `goal-sufficiency` 的 reason 必须**同时**满足三条 —— (a) verdict ∈ {`covered`, `insufficient`}（在域 AC 非空且有退出条件，机械层 `goalSufficiencyVerdict()` 不会短路，故 reason 应来自语义路径）；(b) reason 中**不含** `cause=`（`not-evaluated（cause=judge-unavailable）` 一样「不是机械短路形态」，会被一次 spawn 失败冒充）；(c) **正面控制** —— 由 `sufficiencyCacheKey(goal, inScopeAcs)` 算出的键存在于 `.quay/goal-sufficiency-cache.json`（只有真跑过判官才写缓存；立案时 GOAL-017 的旧键在缓存里，纳入 AC-217 后键会变）。命令打印该 goal 的 `goal-sufficiency` 序列最后两条与缓存键命中与否。
-- [ ] AC5 **本任务未触及 Touches 之外的文件**：`git diff --name-only "$(git merge-base develop HEAD)"` 的每一行都能对应到 Touches 内的一条；命中 Touches 之外时逐行打印并以非 0 退出。（⚠️ 用 merge-base 而非裸 develop；若该命令退化读空——见 GOAL-007 的实测教训——改用「逐提交列文件 + 确认提交都是 develop 的祖先」）。
+- [ ] AC4 **退出条件第 9 条不再被判为未覆盖**：裁定落地后，`.quay/goal-round.jsonl` 中 GOAL-017 最新 `goal-sufficiency` 的 reason 必须**同时**满足三条 —— (a) verdict ∈ {`covered`, `insufficient`}（在域 AC 非空且有退出条件，机械层 `goalSufficiencyVerdict()` 不会短路，故 reason 应来自语义路径）；(b) reason 中**不含** `cause=`（`not-evaluated（cause=judge-unavailable）` 一样「不是机械短路形态」，会被一次 spawn 失败冒充）；(c) **正面控制** —— 由 `sufficiencyCacheKey(goal, inScopeAcs)` 算出的键存在于 `.quay/goal-sufficiency-cache.json`（只有真跑过判官才写缓存；立案时 GOAL-017 的旧键在缓存里，纳入 AC-217 后键会变）。命令打印该 goal 的 `goal-sufficiency` 序列最后两条与缓存键命中与否。（待外部）
+- [x] AC5 **本任务未触及 Touches 之外的文件**：`git diff --name-only "$(git merge-base develop HEAD)"` 的每一行都能对应到 Touches 内的一条；命中 Touches 之外时逐行打印并以非 0 退出。（⚠️ 用 merge-base 而非裸 develop；若该命令退化读空——见 GOAL-007 的实测教训——改用「逐提交列文件 + 确认提交都是 develop 的祖先」）。
 
 ## DoD
 
@@ -104,3 +104,31 @@ expect（逐字）: 在 GOAL-017 全部落地后的树上（自绘轨道 + 隐�
 ### 授权与边界
 
 本记录只登记人的裁定，**不**创建 `goals/AC-218-*.md` / `goals/AC-219-*.md`，不改任何 GOAL/AC 状态，不改 GOAL-017 的退出条件文本。AC-217 与 AC-218 的创建由**被授权的 goal 写入路径**执行；本任务 AC1 要求 AC-217 的判据在当前树上可跑并给出红态/绿态读数，AC4 要求在其后的真实 round log 中观察到 GOAL-017 的 `goal-sufficiency` verdict 不再恒为 `insufficient`。
+
+## Evidence
+
+**2026-10-04（worker，worktree `gap-goal-017-exit-clause-nonregression-ac`）—— AC1 / AC2 / AC5 实测**
+
+**AC1 落地与绿先行读数**
+- `goals/AC-218-goal-017-既有贴底跟随与折叠不变量保持为绿.md` 由 goal-store ABI 创建（`quay goal batch`，commit `67e2db0f`；文件名改回 `## Touches` 声明的路径，commit `42188ddc`），`goal: GOAL-017`、`kind: criterion`、`status: active`。
+- criterion（逐字）：存在性闸（8 个被点名文件）+ `npx vitest run <6 折叠文件>` + `npx playwright test e2e/transcript-follow.spec.ts e2e/transcript-work-segments.spec.ts -g "AC-106|AC-107|AC-108|AC-110|AC-111|AC-207"`。
+- 绿先行读数（本 worktree，冷 vite 缓存）：vitest `Test Files 6 passed (6) / Tests 28 passed (28)`；playwright `6 passed (39.0s)`；整条 criterion `WALL=43.03s`，`CRITERION_RC=0`。
+- **预算（关键约束）**：goal 判据门是**硬编码 60s 且本仓不可调**（四个调用点显式传 6e4，`QUAY_ACCEPTANCE_TIMEOUT_MS` 在 goal 路径不被读；见 memory `goal-criterion-gate-hard-60s-timeout`）。故 Resolution「时限调到实测值以上」在本仓不可实现，只能把 criterion 收进 60s。实测**完整 13 条**（6 条 follow e2e + AC-207 e2e + 6 条 vitest）为 **58.1s**（follow 47.8s + AC-207 7s + vitest 3.3s），仅 ~2s 余量、舰队负载下必 flake —— 故按 Resolution 约束 1 瘦身：保留 5/6 条 follow（AC-106/107/108/110/111）+ AC-207 + 6 条 vitest = 43s（~28% 余量）；**AC-109（贴底期间小幅手势脱离，实测 15s，六条中最重）未入链式判据**，由它自身的 AC 判据判定（驱动 I5 每轮重跑）。
+- 并发不可用：设 `--workers=2` 跑两 spec 触发 `SqliteError: cannot start a transaction within a transaction`（一 run 一 DB 两 spec 陷阱）；`--workers=3` 被 config 的 `workers:1` 覆盖（仍打印 `using 1 worker`）——故 e2e 只能串行、~39s 是地板。
+
+**AC2 三条取假形态（逐条变异 → 实测红 → 恢复 → 重新绿）**
+- (a) **让转录滚动容器不可滚动** —— 变异：`src/modules/chat/transcript/ChatMessagesPane.tsx` 的 className 里 `overflow-y-auto overflow-x-hidden` → `overflow-hidden`。读数：criterion `RC=1`，红落在 **AC-106**（`e2e/transcript-follow.spec.ts`，10.0s），逐字失败行 `Error: the pane never reached the state this gesture was for (deltaY=-700)`。恢复：`git checkout -- src/modules/chat/transcript/ChatMessagesPane.tsx`。
+- (b) **去掉跟随的 1px 容差补偿** —— 变异：`src/modules/chat/hooks/useChatSessionState.ts` 的 `const TRANSCRIPT_FOLLOW_TOLERANCE_PX = 1;` → `= 100000;`。读数：criterion `RC=1`，红落在 **AC-106**（1.1s），逐字失败行 `Error: a pinned transcript must stay on the bottom when the last row grows; it sat 480px above it`。恢复：`git checkout -- src/modules/chat/hooks/useChatSessionState.ts`。
+- (c) **让折叠段选择器随段增长重铸锚点** —— 变异：`src/modules/chat/utils/workSegments.ts` 的 `key: getIntrinsicMessageKey(message),` → `key: \`${getIntrinsicMessageKey(message)}:${members.length}\``。读数：criterion `RC=1`，红落在 **AC-205**（`src/modules/chat/tests/workSegmentAnchorStability.test.ts`），逐字失败行 `AssertionError: append #1 must not re-mint the tail anchor`（另两条同文件用例亦红：`the anchor must be the first member's intrinsic key`）。恢复：`git checkout -- src/modules/chat/utils/workSegments.ts`。
+- **criterion 顺序说明**：把 vitest 放在 playwright 之前，(c) 才会红在**被点名的 AC-205**（若 playwright 在前，同一变异会先红在 AC-207、vitest 永不被跑到）；(a)(b) 不影响 vitest，仍红在 follow e2e。
+- **恢复后重新绿**：三条变异全部 `git checkout --` 复原、`git status --porcelain` 为空后重跑 criterion → `RC=0`，playwright `6 passed (39.0s)`、vitest `28 passed`。分支上三个提交（`67e2db0f` / `42188ddc` / `053919cf`）只触及 `goals/AC-218-…md`。
+
+**AC4 —— 待外部（本条自身不可能满足）**
+- AC4 要求裁定落地后 GOAL-017 最新 `goal-sufficiency` 的 reason 满足三合取，且 `sufficiencyCacheKey(goal, inScopeAcs)`（含 AC-218 的 10 条在域 AC）存在于 `.quay/goal-sufficiency-cache.json`。两者都只在 **AC-218 进入 develop（或 main checkout 的 goals/）之后**由 goal-driver 跑出的一轮里产生：缓存与 `goal-round.jsonl` 都是 gitignored 的驱动产物，本 worker 的 worktree 内无 goal-driver；且 `goal-round.jsonl` 现停在 round 538（2026-10-04T03:56Z），8 小时无新轮。故如实标 `（待外部）`，与 DoD「仅有 AC 记录创建而无后续 verdict 观察不算完成」一致。
+
+**AC5 Touches**
+- `git diff --name-only "$(git merge-base develop HEAD)"` 读数逐行对应 `## Touches`：`goals/AC-218-goal-017-既有贴底跟随与折叠不变量保持为绿.md`（new）与 `tasks/gap-goal-017-exit-clause-nonregression-ac.md`（本次 tick）。三条 e2e/vitest 变异均只在工作区、未提交，复原后 `git status` 为空；未触及 `## Touches` 之外的文件。
+
+**未做（如实登记）**
+- 未创建 `goals/AC-219-…md`（Resolution (ii) 的搜索跳转取代欠账）：AC-219 不在本任务 `## Touches`，AC1 只点名 AC-218，AC5 逐字禁止触及 Touches 之外的文件；Resolution 自身也写「AC-217 与 AC-218 的创建由被授权的 goal 写入路径执行」（其 (ii) 内部对「另立 AC-219」与「由 AC-218 承载」两说并存）。AC-219 应由后续的 goal 写入路径或另立任务落地。
+- 未改任何 `goals/*.md` 的其它记录、未改任何 GOAL/AC 状态、未改 GOAL-017 的退出条件文本（AC-218 自身记录除外，那是本任务的交付物/AC1）。
