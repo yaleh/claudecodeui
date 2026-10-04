@@ -58,6 +58,15 @@ const FLUSH_WINDOW_SEC = 5;
  */
 const FLUSH_SEC = 0.5;
 
+/**
+ * The shipped idle auto-stop, in seconds, named by every flush leg so it is never inherited.
+ *
+ * The flags are remembered in `localStorage`, so the silent-listen leg's `voiceIdleSec=2` would
+ * otherwise still be in force here — and a window measured in seconds of held request would close
+ * the microphone out from under the leg. Every leg below that keeps the listen open names this.
+ */
+const IDLE_WINDOW_SEC = 120;
+
 type Recorded = { url: string; answer: string; index: number };
 
 test.describe.configure({ mode: 'serial' });
@@ -302,12 +311,20 @@ test.describe('the continuous voice path end to end', () => {
     }
     await page.locator('#username').fill('e2euser');
     await page.locator('input[type=password]').nth(0).fill('e2epassword');
-    await page.locator('input[type=password]').nth(1).fill('e2epassword');
-    await page.getByRole('button', { name: 'Create Account' }).click();
-    await page.getByPlaceholder('John Doe').fill('E2E User');
-    await page.getByPlaceholder('john@example.com').fill('e2e@example.com');
-    await page.getByRole('button', { name: 'Next' }).click();
-    await page.getByRole('button', { name: 'Complete Setup' }).click();
+    // Create the single account on a fresh database, or sign in on one an earlier spec in the same
+    // run already created: the voice specs are run in one invocation, and they share the run's
+    // `auth.db`. The confirm field is what tells the forms apart — the setup form is the only one
+    // with it, and it is always rendered, so its absence means the account already exists.
+    if (await page.locator('#confirmPassword').isVisible().catch(() => false)) {
+      await page.locator('#confirmPassword').fill('e2epassword');
+      await page.getByRole('button', { name: 'Create Account' }).click();
+      await page.getByPlaceholder('John Doe').fill('E2E User');
+      await page.getByPlaceholder('john@example.com').fill('e2e@example.com');
+      await page.getByRole('button', { name: 'Next' }).click();
+      await page.getByRole('button', { name: 'Complete Setup' }).click();
+    } else {
+      await page.getByRole('button', { name: 'Sign In' }).click();
+    }
     await expect(projectRow()).toBeVisible({ timeout: 12_000 });
   });
 
@@ -455,7 +472,7 @@ test.describe('the continuous voice path end to end', () => {
     test.setTimeout(60_000);
     // The shipped window, named explicitly: the switch is remembered, so the default is asserted
     // by naming it rather than by leaving it to whatever the previous leg set.
-    await startListening(`/?voiceDebug=1&voiceMinSegmentSec=30&voiceFlushSilenceSec=${FLUSH_WINDOW_SEC}`);
+    await startListening(`/?voiceDebug=1&voiceMinSegmentSec=30&voiceFlushSilenceSec=${FLUSH_WINDOW_SEC}&voiceIdleSec=${IDLE_WINDOW_SEC}`);
 
     const speechEndedAt = Date.now();
     await page.evaluate(() => {
@@ -495,7 +512,7 @@ test.describe('the continuous voice path end to end', () => {
 
   test('a pause shorter than the flush window does not spend a request', async () => {
     test.setTimeout(40_000);
-    await startListening(`/?voiceDebug=1&voiceFlushSilenceSec=1`);
+    await startListening(`/?voiceDebug=1&voiceMinSegmentSec=30&voiceFlushSilenceSec=1&voiceIdleSec=${IDLE_WINDOW_SEC}`);
 
     // One utterance with a 0.6 s break inside it: under the 1 s window, so nothing goes out.
     await page.evaluate(() => {
@@ -517,7 +534,7 @@ test.describe('the continuous voice path end to end', () => {
     test.setTimeout(60_000);
     // Both requests are held, so "the dot is up" and "the dot is down" are readings this run takes.
     delayMs = { 0: 4_000, 1: 4_000 };
-    await startListening(`/?voiceDebug=1&voiceFlushSilenceSec=${FLUSH_SEC}`);
+    await startListening(`/?voiceDebug=1&voiceMinSegmentSec=30&voiceFlushSilenceSec=${FLUSH_SEC}&voiceIdleSec=${IDLE_WINDOW_SEC}`);
 
     // Nothing in flight yet: no dot anywhere in the composer.
     await expect(page.getByTestId('voice-inflight-dot')).toHaveCount(0);
@@ -544,7 +561,7 @@ test.describe('the continuous voice path end to end', () => {
 
   test('the in-flight dot adds no control to the composer', async () => {
     test.setTimeout(45_000);
-    await startListening(`/?voiceDebug=1&voiceVad=1&voiceFlushSilenceSec=${FLUSH_SEC}`);
+    await startListening(`/?voiceDebug=1&voiceMinSegmentSec=30&voiceVad=1&voiceFlushSilenceSec=${FLUSH_SEC}&voiceIdleSec=${IDLE_WINDOW_SEC}`);
 
     // The same live listen, before and during a held request. Comparing a recording composer with
     // itself keeps the mic button's own name (Stop recording) out of the difference.
