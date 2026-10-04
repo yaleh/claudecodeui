@@ -1,7 +1,7 @@
 ---
 id: gap-quay-panel-row-last-updated-at
 title: Quay 面板的 Recent tasks 与 Stage goals 每行不显示最后更新时间：两个列表本就按 updatedAt 降序，排序依据却看不见
-status: todo
+status: ready
 labels:
   - gap
 parent: null
