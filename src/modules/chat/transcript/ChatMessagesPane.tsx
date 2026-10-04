@@ -23,7 +23,6 @@ import PendingResidentMessage from '@/modules/chat/transcript/PendingResidentMes
 import ProviderSelectionEmptyState from '@/modules/chat/transcript/ProviderSelectionEmptyState';
 import WorkSegmentRecord from '@/modules/chat/transcript/WorkSegmentRecord';
 import LoadAllMessagesOverlay from '@/modules/chat/transcript/LoadAllMessagesOverlay';
-import ChatExportMenu from '@/modules/chat/transcript/ChatExportMenu';
 import ActivityIndicator from '@/modules/chat/composer/ActivityIndicator';
 
 /**
@@ -126,8 +125,6 @@ type ChatMessagesPaneProps = {
   onEditMessage?: (message: ChatMessage) => void;
   /** Branches the conversation into a new session ending at a message. */
   onForkFromMessage?: (message: ChatMessage) => void;
-  /** Fetches the whole transcript for an export, which otherwise only sees the loaded page. */
-  onLoadFullTranscript?: () => Promise<ChatMessage[]>;
   /** Every user turn the rail offers, oldest first; absent or short hides the rail. */
   turnRailTurns?: TurnRailTick[];
   /** The turn the viewport currently sits on, for the rail's current-tick emphasis. */
@@ -185,7 +182,6 @@ function ChatMessagesPane({
   onWithdrawResidentCommand,
   onEditMessage,
   onForkFromMessage,
-  onLoadFullTranscript,
   onFileOpen,
   onShowSettings,
   onGrantToolPermission,
@@ -366,26 +362,6 @@ function ChatMessagesPane({
         onTouchMove={onTouchMove}
         className="chat-messages-pane relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-3 pt-3 sm:pb-4 sm:pt-4"
       >
-        {chatMessages.length > 0 && (
-          // The anchor the transcript's right-edge chrome measures its top bound
-          // from: the quick-settings handle is kept at least a margin below this
-          // box's bottom edge, so it can never cover the export control.
-          <div
-            data-transcript-export-anchor
-            className="pointer-events-none sticky right-4 top-3 z-10 mb-2 flex justify-end sm:px-4"
-          >
-            <div className="pointer-events-auto">
-              <ChatExportMenu
-                messages={chatMessages}
-                sessionTitle={selectedSession?.summary || selectedSession?.title}
-                provider={provider}
-                selectedProject={selectedProject}
-                createDiff={createDiff}
-                onLoadFullTranscript={onLoadFullTranscript}
-              />
-            </div>
-          </div>
-        )}
         {/* Always rendered, so the follow's observer is attached for the empty and
             loading states too and never has to be re-attached mid-session. */}
         <div

@@ -346,5 +346,8 @@
     "scrollbar": "会話のスクロールバー",
     "jumpToTurn": "ターン {{n}} へ移動",
     "turn": "ターン {{n}}"
+  },
+  "workspaceMenu": {
+    "trigger": "その他の操作"
   }
 }

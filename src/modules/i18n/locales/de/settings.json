@@ -61,14 +61,7 @@
     "showRawParameters": "Rohe Parameter anzeigen",
     "showThinking": "Denken anzeigen",
     "sendByCtrlEnter": "Mit Strg+Enter senden",
-    "sendByCtrlEnterDescription": "Wenn aktiviert, sendet Strg+Enter die Nachricht anstelle von Enter. Dies ist nützlich für IME-Benutzer:innen, um versehentliches Senden zu vermeiden. Gilt nur auf Geräten mit Tastatur — auf reinen Touch-Geräten fügt Return immer eine neue Zeile ein, und gesendet wird über die Schaltfläche.",
-    "dragHandle": {
-      "dragging": "Handle wird gezogen",
-      "closePanel": "Einstellungspanel schließen",
-      "openPanel": "Einstellungspanel öffnen",
-      "draggingStatus": "Wird gezogen...",
-      "toggleAndMove": "Klicken zum Umschalten, ziehen zum Verschieben"
-    }
+    "sendByCtrlEnterDescription": "Wenn aktiviert, sendet Strg+Enter die Nachricht anstelle von Enter. Dies ist nützlich für IME-Benutzer:innen, um versehentliches Senden zu vermeiden. Gilt nur auf Geräten mit Tastatur — auf reinen Touch-Geräten fügt Return immer eine neue Zeile ein, und gesendet wird über die Schaltfläche."
   },
   "terminalShortcuts": {
     "title": "Terminal-Tastenkürzel",

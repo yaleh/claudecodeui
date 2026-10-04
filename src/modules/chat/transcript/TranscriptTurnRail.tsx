@@ -11,18 +11,9 @@ import {
 } from '@/modules/chat/utils/contentHeightModel';
 import type { ContentRowInput, EstimateState } from '@/modules/chat/utils/contentHeightModel';
 import {
-  TRANSCRIPT_HANDLE_BAND_MARGIN_PX,
-  TRANSCRIPT_HANDLE_RESERVED_HEIGHT_PX,
-  TRANSCRIPT_SCROLLBAR_INSET_PX,
-  TRANSCRIPT_SCROLLBAR_WIDTH_PX,
   TRANSCRIPT_TICK_COLUMN_MAX_HEIGHT_PX,
   TRANSCRIPT_TICK_SPACING_PX,
-  publishTranscriptEdgeBand,
 } from '@/shared/transcriptEdgeLayout';
-import type { TranscriptEdgeBand } from '@/shared/transcriptEdgeLayout';
-
-/** The breakpoint the tick column is drawn above, matching its `md:` utility. */
-const TICK_COLUMN_MEDIA_QUERY = '(min-width: 768px)';
 
 /** How many ticks the column may draw at once, before the viewport has anything to say. */
 const MAX_TICK_CAPACITY = Math.floor(
@@ -281,26 +272,17 @@ function useTranscriptContent(
   return { content, refresh: rebuild };
 }
 
-/** Where the rail's two columns go, and the band the neighbouring handle is allowed to occupy. */
+/** Where the rail's tick column goes: how many ticks it may draw and the top it is centred at. */
 type RailLayout = {
   /** How many ticks the column may draw at this viewport height. */
   capacity: number;
   /** The tick column's top, in pixels from the rail's own top. */
   tickTop: number;
-  /** What the quick-settings handle may occupy, or null before the first measurement. */
-  band: TranscriptEdgeBand | null;
 };
 
 /**
- * Measures the rail's two columns and the band the quick-settings handle is
- * allowed to occupy, and publishes the band for that other module to read.
- *
- * One measurement site rather than one per column, because the two are coupled
- * by this one number: the band's bottom is the tick column's top, and the tick
- * column's top is whichever of "centred on the transcript" and "low enough to
- * leave the handle its band" is lower. The column therefore also decides its own
- * capacity here — a short viewport draws fewer ticks rather than a column that
- * would push the handle off the export button.
+ * Measures the rail's tick column: how many ticks fit at this viewport height,
+ * and the top that centres them on the transcript.
  *
  * Re-measured whenever the rail resolves to a new size, which covers a sidebar
  * toggle, a viewport change and a session switch. A scroll re-renders the rail
@@ -314,7 +296,6 @@ function useRailLayout(
   const [layout, setLayout] = useState<RailLayout>({
     capacity: MAX_TICK_CAPACITY,
     tickTop: 0,
-    band: null,
   });
 
   useEffect(() => {
@@ -322,48 +303,16 @@ function useRailLayout(
     if (!rail) return undefined;
 
     const measure = () => {
-      const pane = document.querySelector<HTMLElement>('.chat-messages-pane');
-      if (!pane) return;
       const railRect = rail.getBoundingClientRect();
-      const paneRect = pane.getBoundingClientRect();
-      const anchor = document.querySelector<HTMLElement>('[data-transcript-export-anchor]');
-      const thumb = rail.querySelector<HTMLElement>('[data-scrollbar-thumb]');
-
-      // The band's top: clear of the export control, which is pinned to the
-      // pane's top and so does not move as the transcript scrolls.
-      const bandTop = (anchor?.getBoundingClientRect().bottom ?? paneRect.top)
-        + TRANSCRIPT_HANDLE_BAND_MARGIN_PX;
-      const minTickTop = bandTop + TRANSCRIPT_HANDLE_RESERVED_HEIGHT_PX
-        + TRANSCRIPT_HANDLE_BAND_MARGIN_PX - railRect.top;
-
-      // The column may use whatever the handle's band does not need, and never
-      // more than its own ceiling; its length is that many ticks at one pitch.
-      const available = railRect.height - minTickTop - TRANSCRIPT_HANDLE_BAND_MARGIN_PX;
+      // The column may use whatever the rail's height affords, and never more
+      // than its own ceiling; its length is that many ticks at one pitch.
       const capacity = Math.max(
         1,
-        Math.min(MAX_TICK_CAPACITY, Math.floor(available / TRANSCRIPT_TICK_SPACING_PX)),
+        Math.min(MAX_TICK_CAPACITY, Math.floor(railRect.height / TRANSCRIPT_TICK_SPACING_PX)),
       );
       const columnHeight = capacity * TRANSCRIPT_TICK_SPACING_PX;
       const centredTop = (railRect.height - columnHeight) / 2;
-      const tickTop = Math.max(centredTop, minTickTop);
-
-      // The column is only drawn — and so only bounds the band — above the
-      // breakpoint and for a conversation long enough to navigate. Below either,
-      // the pane's own bottom is the honest bound.
-      const columnDrawn = drawsRail && window.matchMedia(TICK_COLUMN_MEDIA_QUERY).matches;
-      const bandBottom = columnDrawn
-        ? railRect.top + tickTop - TRANSCRIPT_HANDLE_BAND_MARGIN_PX
-        : paneRect.bottom - TRANSCRIPT_HANDLE_BAND_MARGIN_PX;
-      const thumbLeft = thumb?.getBoundingClientRect().left
-        ?? paneRect.right - TRANSCRIPT_SCROLLBAR_INSET_PX - TRANSCRIPT_SCROLLBAR_WIDTH_PX;
-      const band: TranscriptEdgeBand = {
-        top: bandTop,
-        bottom: Math.max(bandBottom, bandTop),
-        thumbLeft,
-      };
-
-      publishTranscriptEdgeBand(band);
-      setLayout({ capacity, tickTop, band });
+      setLayout({ capacity, tickTop: Math.max(centredTop, 0) });
     };
 
     measure();
@@ -377,7 +326,6 @@ function useRailLayout(
       cancelAnimationFrame(frame);
       window.removeEventListener('resize', measure);
       observer?.disconnect();
-      publishTranscriptEdgeBand(null);
     };
   }, [drawsRail, railRef, turns]);
 
@@ -405,9 +353,8 @@ type TranscriptTurnRailProps = {
  * The two are separate controls with separate jobs — the ticks say *where in the
  * conversation* the reader can go and are drawn at a fixed size, the thumb says
  * *how far through* it they are and is the only thing that moves on a drag — so
- * this container does no more than lay them out, decide when they are worth
- * drawing, and keep the handle of the neighbouring quick-settings module informed
- * of the band it may occupy.
+ * this container does no more than lay them out and decide when they are worth
+ * drawing.
  *
  * The decision is the content, not a turn count: when the conversation's
  * estimated pixel height fits the viewport (+1px) there is nothing to scroll and

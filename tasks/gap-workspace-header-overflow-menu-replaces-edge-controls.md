@@ -1,7 +1,7 @@
 ---
 id: gap-workspace-header-overflow-menu-replaces-edge-controls
 title: 会话页右上角加 ⋯ 溢出菜单，收编 Export 与快速设置；去掉可拖动的快速设置抽屉把手和悬浮导出按钮，右边缘只留给滚动条和刻度
-status: ready
+status: done
 labels:
   - gap
 parent: null

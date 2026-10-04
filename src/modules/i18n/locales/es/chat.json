@@ -380,5 +380,8 @@
     "scrollbar": "Barra de desplazamiento de la conversación",
     "jumpToTurn": "Ir al turno {{n}}",
     "turn": "Turno {{n}}"
+  },
+  "workspaceMenu": {
+    "trigger": "Más acciones"
   }
 }
