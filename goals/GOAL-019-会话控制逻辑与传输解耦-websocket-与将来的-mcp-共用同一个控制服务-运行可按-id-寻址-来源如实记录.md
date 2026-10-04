@@ -1,11 +1,17 @@
 ---
 id: GOAL-019
 title: 会话控制逻辑与传输解耦：WebSocket 与将来的 MCP 共用同一个控制服务，运行可按 id 寻址，来源如实记录
-status: active
+status: achieved
 kind: goal
 origin: docs/proposals/mcp-gateway-SPEC.md（v3）。人 yale 2026-10-05 指令：创建并激活本 goal
   及其 AC（决策 D1 至 D10 见该文档）。
 activatedAt: 2026-10-04T17:16:37.946Z
+statusLog:
+  - at: 2026-10-04T20:31:10.141Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: all ACs achieved + sufficiency covered"
 ---
 
 ## 背景
