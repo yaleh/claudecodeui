@@ -81,6 +81,7 @@ goal_ac: AC-180
 2. `rc=0 wall=16205ms`；(a) 2.9s / (b) 2.8s / `2 passed (15.5s)`。
 3. `rc=0 wall=16528ms`；(a) 2.8s / (b) 2.8s / `2 passed (15.7s)`。
 余量：wall ≈16.2–16.7s，相对 60s 门限 ≈43s。
+合并 develop（voice 线与 `playwright.config.ts` 变更）后于 worktree 复跑一次：`rc=0`；`session.lifecycle_mode=resident`、`host.resident.bindsSession=true`、`control.lifecycle_mode=per-run`；(a) 2.9s / (b) 2.7s / `2 passed (15.4s)`。
 
 **AC3 读数。** `grep -cE "projectRow\(page\)\.click\(\{ timeout: 5_?000" e2e/resident-enter-send.spec.ts` → `0`；`grep -nE "test\.describe\.configure\(\{ timeout:" e2e/resident-enter-send.spec.ts` → `330:test.describe.configure({ timeout: 45_000 });`（≥1）。
 
@@ -93,7 +94,7 @@ goal_ac: AC-180
 
 失败断言逐字：`expect(received).toBe(expected) // Object.is equality` / `Expected: "resident"` / `Received: "per-run"` at `e2e/resident-enter-send.spec.ts:358:5`；读数 `session.lifecycle_mode=per-run`；(b) `1 did not run`（serial）。(a) 腿退出码 `PLAYWRIGHT_EXIT=1`。`git checkout -- src/modules/chat/hooks/useChatComposerState.ts` 恢复后复跑 `PLAYWRIGHT_EXIT=0`、`2 passed`、`session.lifecycle_mode=resident`、`host.resident.bindsSession=true`。
 
-**AC6 契约面。** `npm run lint` → `LINT_RC=0`（仅既有 warning）；`npm run typecheck` → `TYPECHECK_RC=0`；`git diff --name-only $(git merge-base develop HEAD) HEAD` = `e2e/resident-enter-send.spec.ts` + 本任务文件，均落在 Touches 内。
+**AC6 契约面（合并 develop 后在 worktree 上复读）。** `npm run lint` → `LINT_RC=0`（仅既有 warning）；`npm run typecheck` → `TYPECHECK_RC=0`；`git diff --name-only $(git merge-base develop HEAD) HEAD` → `e2e/resident-enter-send.spec.ts`（合并后唯一的 delta；任务文件与 develop 逐字相同，故不出现在该 delta 里），落在 `## Touches` 内。
 
 ## Touches
 
