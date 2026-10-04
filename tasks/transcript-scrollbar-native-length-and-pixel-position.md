@@ -2,7 +2,7 @@
 id: transcript-scrollbar-native-length-and-pixel-position
 title: AC-219 滚动条长度与位置照浏览器规则按估算像素给出：长度 = 视口 ÷ 估算会话总高（≥28px
   无上限），内容装得下时滚动条与刻度列不显示，滚动与拖动中长度不起伏
-status: needs-human
+status: ready
 labels:
   - gap
   - priority:p1
