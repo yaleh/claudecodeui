@@ -39,6 +39,7 @@ import { taskmasterRoutes } from './modules/taskmaster/index.js';
 import { quayRoutes } from './modules/quay/index.js';
 import { commandsRoutes } from './modules/commands/index.js';
 import { settingsRoutes } from './modules/settings/index.js';
+import { createAccessTokensService, createTokenInfoRouter } from './modules/oauth/index.js';
 import { createSystemModule } from './modules/system/index.js';
 import projectModuleRoutes from './modules/projects/projects.routes.js';
 import notificationRoutes from './modules/notifications/notifications.routes.js';
@@ -239,6 +240,13 @@ app.use('/api/commands', authenticateToken, commandsRoutes);
 
 // Settings API Routes (protected)
 app.use('/api/settings', authenticateToken, settingsRoutes);
+
+// Personal-access-token self-check. The token itself is the credential — a
+// `ccp_` value presented as `Authorization: Bearer <token>` and verified per
+// request by the OAuth token service, so revocation and expiry take effect with
+// no cache. Mounted on its own router, which handles exactly one path, so no
+// other `/api` route gains a token-authenticated surface.
+app.use('/api/oauth', createTokenInfoRouter(createAccessTokensService({ now: () => new Date() })));
 
 app.use('/api/system', authenticateToken, systemRoutes);
 

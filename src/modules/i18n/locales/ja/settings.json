@@ -520,5 +520,34 @@
       "unsavedRow": "保存されません — 値が空です。",
       "unsavedSummary": "値が空のため、これらの行は保存されません:"
     }
+  },
+  "accessTokens": {
+    "title": "個人アクセストークン",
+    "description": "MCP クライアントやその他のアプリケーションを CloudCLI API に対して認証するための個人アクセストークンを作成します。",
+    "newButton": "新しいトークン",
+    "form": {
+      "namePlaceholder": "トークン名（例：自分の MCP クライアント）",
+      "expiryLabel": "有効期限",
+      "expiryOption": "{{days}} 日",
+      "createButton": "トークンを作成",
+      "cancelButton": "キャンセル"
+    },
+    "newToken": {
+      "alertTitle": "⚠️ アクセストークンを保存してください",
+      "alertMessage": "このトークンが表示されるのは今回だけです。安全に保管してください。",
+      "copy": "コピー",
+      "iveSavedIt": "保存しました"
+    },
+    "list": {
+      "empty": "アクセストークンはまだ作成されていません。",
+      "unnamed": "無名のトークン",
+      "expires": "有効期限:",
+      "lastUsed": "最終使用:",
+      "never": "なし",
+      "active": "有効",
+      "revoked": "失効",
+      "revokeButton": "失効させる",
+      "revokeConfirm": "このトークンを失効させますか？この操作は元に戻せません。"
+    }
   }
 }

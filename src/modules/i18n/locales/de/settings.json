@@ -520,5 +520,34 @@
       "unsavedRow": "Wird nicht gespeichert — der Wert ist leer.",
       "unsavedSummary": "Diese Zeilen werden nicht gespeichert, weil ihr Wert leer ist:"
     }
+  },
+  "accessTokens": {
+    "title": "Persönliche Zugriffstoken",
+    "description": "Erstellen Sie persönliche Zugriffstoken, um MCP-Clients und andere Anwendungen gegenüber der CloudCLI-API zu authentifizieren.",
+    "newButton": "Neuer Token",
+    "form": {
+      "namePlaceholder": "Token-Name (z. B. Mein MCP-Client)",
+      "expiryLabel": "Läuft ab in",
+      "expiryOption": "{{days}} Tage",
+      "createButton": "Token erstellen",
+      "cancelButton": "Abbrechen"
+    },
+    "newToken": {
+      "alertTitle": "⚠️ Speichern Sie Ihren Zugriffstoken",
+      "alertMessage": "Dies ist das einzige Mal, dass Sie diesen Token sehen. Bewahren Sie ihn sicher auf.",
+      "copy": "Kopieren",
+      "iveSavedIt": "Ich habe ihn gespeichert"
+    },
+    "list": {
+      "empty": "Noch keine Zugriffstoken erstellt.",
+      "unnamed": "Unbenannter Token",
+      "expires": "Läuft ab:",
+      "lastUsed": "Zuletzt verwendet:",
+      "never": "Nie",
+      "active": "Aktiv",
+      "revoked": "Widerrufen",
+      "revokeButton": "Widerrufen",
+      "revokeConfirm": "Möchten Sie diesen Token wirklich widerrufen? Dies kann nicht rückgängig gemacht werden."
+    }
   }
 }

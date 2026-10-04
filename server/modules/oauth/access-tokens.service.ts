@@ -58,12 +58,16 @@ export type IssueAccessTokenResult =
   | { ok: false; reason: 'invalid_expiry' };
 
 /**
- * Result of verifying. On success the owner id and the token's scopes are
- * returned; on failure exactly one of the {@link AccessTokenRejectionReason}
- * values is returned.
+ * Result of verifying. On success the owner id, the token's scopes and its
+ * expiry are returned; on failure exactly one of the
+ * {@link AccessTokenRejectionReason} values is returned.
+ *
+ * `expiresAt` is the stored ISO instant, carried out of the same row the check
+ * already read so a verifier can report the token's lifetime without a second
+ * lookup — the token-info route is its consumer.
  */
 export type VerifyAccessTokenResult =
-  | { ok: true; userId: number; scopes: string[] }
+  | { ok: true; userId: number; scopes: string[]; expiresAt: string }
   | { ok: false; reason: AccessTokenRejectionReason };
 
 /** Caller-supplied fields for {@link AccessTokensService.issueToken}. */
@@ -158,7 +162,7 @@ export function createAccessTokensService({ now }: AccessTokensServiceOptions): 
       }
 
       accessTokensDb.updateLastUsed(row.id, now().toISOString());
-      return { ok: true, userId: row.user_id, scopes };
+      return { ok: true, userId: row.user_id, scopes, expiresAt: row.expires_at };
     },
 
     revokeToken(id: number): boolean {

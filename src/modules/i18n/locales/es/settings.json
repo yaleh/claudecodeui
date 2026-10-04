@@ -615,5 +615,34 @@
       "unsavedRow": "No se guardará: el valor está vacío.",
       "unsavedSummary": "Estas filas no se guardarán porque su valor está vacío:"
     }
+  },
+  "accessTokens": {
+    "title": "Tokens de acceso personal",
+    "description": "Crea tokens de acceso personal para autenticar clientes MCP y otras aplicaciones con la API de CloudCLI.",
+    "newButton": "Nuevo token",
+    "form": {
+      "namePlaceholder": "Nombre del token (p. ej., Mi cliente MCP)",
+      "expiryLabel": "Caduca en",
+      "expiryOption": "{{days}} días",
+      "createButton": "Crear token",
+      "cancelButton": "Cancelar"
+    },
+    "newToken": {
+      "alertTitle": "⚠️ Guarda tu token de acceso",
+      "alertMessage": "Esta es la única vez que verás este token. Guárdalo de forma segura.",
+      "copy": "Copiar",
+      "iveSavedIt": "Lo he guardado"
+    },
+    "list": {
+      "empty": "Aún no se han creado tokens de acceso.",
+      "unnamed": "Token sin nombre",
+      "expires": "Caduca:",
+      "lastUsed": "Último uso:",
+      "never": "Nunca",
+      "active": "Activo",
+      "revoked": "Revocado",
+      "revokeButton": "Revocar",
+      "revokeConfirm": "¿Seguro que quieres revocar este token? Esta acción no se puede deshacer."
+    }
   }
 }

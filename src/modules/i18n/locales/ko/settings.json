@@ -609,5 +609,34 @@
       "unsavedRow": "저장되지 않습니다 — 값이 비어 있습니다.",
       "unsavedSummary": "값이 비어 있어 다음 행은 저장되지 않습니다:"
     }
+  },
+  "accessTokens": {
+    "title": "개인 액세스 토큰",
+    "description": "MCP 클라이언트와 기타 애플리케이션을 CloudCLI API에 인증하기 위한 개인 액세스 토큰을 만듭니다.",
+    "newButton": "새 토큰",
+    "form": {
+      "namePlaceholder": "토큰 이름 (예: 내 MCP 클라이언트)",
+      "expiryLabel": "만료 기간",
+      "expiryOption": "{{days}}일",
+      "createButton": "토큰 만들기",
+      "cancelButton": "취소"
+    },
+    "newToken": {
+      "alertTitle": "⚠️ 액세스 토큰을 저장하세요",
+      "alertMessage": "이 토큰은 지금만 표시됩니다. 안전하게 보관하세요.",
+      "copy": "복사",
+      "iveSavedIt": "저장했습니다"
+    },
+    "list": {
+      "empty": "아직 생성된 액세스 토큰이 없습니다.",
+      "unnamed": "이름 없는 토큰",
+      "expires": "만료:",
+      "lastUsed": "마지막 사용:",
+      "never": "없음",
+      "active": "활성",
+      "revoked": "폐기됨",
+      "revokeButton": "폐기",
+      "revokeConfirm": "이 토큰을 폐기하시겠습니까? 이 작업은 되돌릴 수 없습니다."
+    }
   }
 }
