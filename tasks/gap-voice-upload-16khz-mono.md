@@ -1,7 +1,7 @@
 ---
 id: gap-voice-upload-16khz-mono
 title: 语音上传改 16 kHz 单声道（请求体约 1/3，长音频的单请求上限随之放大）
-status: ready
+status: done
 labels:
   - gap
 parent: null
