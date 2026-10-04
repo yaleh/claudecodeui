@@ -18,8 +18,11 @@ import {
   thumbHeightPx,
 } from '@/modules/chat/utils/contentHeightModel';
 import {
+  TRANSCRIPT_SCROLLBAR_GRAB_MIN_HEIGHT_PX,
+  TRANSCRIPT_SCROLLBAR_GRAB_WIDTH_PX,
   TRANSCRIPT_SCROLLBAR_INSET_PX,
   TRANSCRIPT_SCROLLBAR_MIN_THUMB_PX,
+  TRANSCRIPT_SCROLLBAR_TRACK_WIDTH_PX,
   TRANSCRIPT_SCROLLBAR_WIDTH_PX,
 } from '@/shared/transcriptEdgeLayout';
 
@@ -118,6 +121,12 @@ function viewportTopPosition(
  *
  * While a gesture holds the thumb the estimate is frozen (through `freezeRef`),
  * so the drawn length cannot breathe under the pointer.
+ *
+ * On a coarse pointer the drawn 8px thumb is too small to grab and sits in the
+ * screen-edge gesture zone, so a wider invisible hit layer (32px wide by at least
+ * 44px tall, extending toward the content) is laid over it and owns the drag; the
+ * drawn thumb and every reading of its geometry are unchanged, and a mouse keeps
+ * the thumb itself as the hit area.
  */
 export default function TranscriptScrollbar({
   turns,
@@ -138,6 +147,11 @@ export default function TranscriptScrollbar({
   // The track's own drawn height, measured rather than assumed: the thumb's
   // length and its travel are both shares of it.
   const [trackHeight, setTrackHeight] = useState(0);
+  // Whether the primary pointer is coarse (a finger). On a touch device the drawn
+  // 8px thumb is too small to grab and sits in the system gesture zone at the
+  // screen edge, so a wider hit layer is laid over it; with a mouse the thumb is
+  // its own hit area and nothing changes.
+  const [coarsePointer, setCoarsePointer] = useState(false);
   // The live drag position, non-null only while a pointer holds the thumb. It is
   // what the thumb is drawn from during the gesture — the position the reader is
   // choosing, which the content is moved to follow.
@@ -272,6 +286,19 @@ export default function TranscriptScrollbar({
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
     observer?.observe(track);
     return () => observer?.disconnect();
+  }, []);
+
+  // The pointer's kind selects the thumb's hit area. `matchMedia` is read live
+  // rather than once, so a hybrid device that switches between a finger and a
+  // mouse picks up the change; jsdom ships no `matchMedia`, and there the drawn
+  // 8px thumb is the hit area as it is with a mouse.
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
+    const query = window.matchMedia('(pointer: coarse)');
+    const update = () => setCoarsePointer(query.matches);
+    update();
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
   }, []);
 
   const finishScrub = useCallback(() => {
@@ -632,6 +659,11 @@ export default function TranscriptScrollbar({
   // transform alone so a moving thumb never re-runs layout for the track.
   const thumbTravel = Math.max(0, trackHeight - thumbHeight);
   const thumbTop = shownFraction * thumbTravel;
+  // A coarse pointer's hit layer is taller than the drawn thumb whenever the thumb
+  // is shorter than a finger needs; it is centred on the thumb so the drawn
+  // position and the grabbable one read as the same place.
+  const grabHeight = Math.max(thumbHeight, TRANSCRIPT_SCROLLBAR_GRAB_MIN_HEIGHT_PX);
+  const grabTop = thumbTop - Math.max(0, (grabHeight - thumbHeight) / 2);
 
   return (
     <div
@@ -644,7 +676,7 @@ export default function TranscriptScrollbar({
       data-px-per-message={content.pxPerMessage > 0 ? content.pxPerMessage.toFixed(2) : '0'}
       onClick={handleTrackClick}
       className="pointer-events-auto absolute bottom-0 top-0 z-30 cursor-pointer"
-      style={{ right: TRANSCRIPT_SCROLLBAR_INSET_PX, width: TRANSCRIPT_SCROLLBAR_WIDTH_PX + 4 }}
+      style={{ right: TRANSCRIPT_SCROLLBAR_INSET_PX, width: TRANSCRIPT_SCROLLBAR_TRACK_WIDTH_PX }}
     >
       <div
         ref={thumbRef}
@@ -671,6 +703,33 @@ export default function TranscriptScrollbar({
           touchAction: 'none',
         }}
       />
+      {/*
+        The finger's hit layer. The drawn thumb is 8px and sits 4px from the screen
+        edge — too small to grab, and inside the zone a system back gesture claims —
+        so on a coarse pointer this invisible layer covers a 32px-wide, 44px-tall
+        area that extends toward the content (its right edge stays where the thumb
+        is), and it is the layer a drag lands on. The drawn thumb is untouched, on
+        top for the eye but under this for the pointer, and a device with a mouse
+        draws no layer at all.
+      */}
+      {coarsePointer && (
+        <div
+          data-scrollbar-thumb-hit
+          aria-hidden="true"
+          onPointerDown={handleThumbPointerDown}
+          onPointerMove={handleThumbPointerMove}
+          onPointerUp={endThumbDrag}
+          onPointerCancel={endThumbDrag}
+          className="absolute right-0 z-10"
+          style={{
+            width: TRANSCRIPT_SCROLLBAR_GRAB_WIDTH_PX,
+            height: grabHeight,
+            top: grabTop,
+            // A drag on the hit layer must move the thumb, not scroll the pane.
+            touchAction: 'none',
+          }}
+        />
+      )}
       {/*
         The turn the reader is choosing while dragging or stepping. It carries the
         turn's summary and time so the position is identifiable before the window

@@ -15,6 +15,7 @@ import { groupWorkSegments, isWorkSegment } from '@/modules/chat/utils/workSegme
 import { findSearchTargetIndex } from '@/modules/chat/utils/searchTargetLocator';
 import { nextPxPerMessage } from '@/modules/chat/utils/contentHeightModel';
 import type { ContentRowInput } from '@/modules/chat/utils/contentHeightModel';
+import { transcriptGutterPx } from '@/shared/transcriptEdgeLayout';
 import { useLazyRowObserver } from '@/modules/chat/hooks/useLazyRowObserver';
 import { findPendingForegroundTool } from '@/modules/chat/hooks/useActivityControls';
 import LazyMessageRow from '@/modules/chat/transcript/LazyMessageRow';
@@ -128,6 +129,54 @@ function useTranscriptPxPerMessage(scrollContainerRef: RefObject<HTMLDivElement>
   }, [scrollContainerRef]);
 
   return pxPerMessage;
+}
+
+/**
+ * The pane's right gutter, sized to what is actually drawn at its right edge.
+ *
+ * The pane's own width is measured (a sidebar toggle, a viewport change and a
+ * session switch all move it), and the tick column's presence is read off the same
+ * `md` breakpoint the column itself hides behind, so the two never disagree about
+ * whether there is a column to make room for. The number comes from the shared
+ * pure function and is written as the inline `paddingRight`; the CSS no longer
+ * carries one, which is what lets the mobile / tablet / wide readings be tested
+ * without a browser.
+ */
+function useTranscriptGutter(scrollContainerRef: RefObject<HTMLDivElement>): number {
+  // The pane's full width (padding included), so adding the gutter never feeds
+  // back into its own measurement.
+  const [paneWidth, setPaneWidth] = useState(0);
+  // Whether the turn-tick column is drawn — the `md` breakpoint the column's own
+  // `hidden md:flex` uses.
+  const [hasTickColumn, setHasTickColumn] = useState(false);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return undefined;
+    const measure = () => setPaneWidth(container.clientWidth);
+    measure();
+    const frame = requestAnimationFrame(measure);
+    // jsdom ships no ResizeObserver; there the first measure above is the reading.
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(container);
+    window.addEventListener('resize', measure);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer?.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [scrollContainerRef]);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return undefined;
+    const query = window.matchMedia('(min-width: 768px)');
+    const update = () => setHasTickColumn(query.matches);
+    update();
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
+  }, []);
+
+  return transcriptGutterPx(paneWidth, hasTickColumn);
 }
 
 /**
@@ -296,6 +345,10 @@ function ChatMessagesPane({
   // The placeholder estimate for never-measured rows: without it a jump centres
   // the target against 100px stand-ins in a conversation whose rows are 250px.
   const pxPerMessage = useTranscriptPxPerMessage(scrollContainerRef);
+  // The right gutter, from what is drawn at the pane's edge: the scrollbar's own
+  // column on mobile, the fixed tick band where the column needs room, nothing on
+  // a wide viewport whose outer margin already clears the chrome.
+  const gutterPx = useTranscriptGutter(scrollContainerRef);
   const groupedVisibleMessages = useMemo(
     () => groupWorkSegments(visibleMessages),
     [visibleMessages],
@@ -462,6 +515,9 @@ function ChatMessagesPane({
         onWheel={onWheel}
         onTouchMove={onTouchMove}
         className="chat-messages-pane relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-3 pt-3 sm:pb-4 sm:pt-4"
+        // The gutter the drawn chrome needs, measured rather than fixed — see the
+        // CSS block for why the number moved out of `index.css`.
+        style={{ paddingRight: gutterPx }}
       >
         {/* Always rendered, so the follow's observer is attached for the empty and
             loading states too and never has to be re-attached mid-session. */}

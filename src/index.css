@@ -573,15 +573,16 @@
        overflow. `scrollbar-width` covers the standard path, the webkit pseudo-element
        the Chromium one.
 
-       AC-217: the right padding reserves the whole three-column band at the pane's
-       right edge — the text column, then the turn-tick column, then the drawn
-       scrollbar — with the clearances `src/shared/transcriptEdgeLayout.ts` holds
-       (72px: a 16px text gap, the 16px tick column, a 20px gap, and the scrollbar's
-       12px track inset 4px from the edge). Hiding the native bar is what gave the
-       text column the width to spend on them. */
+       AC-217 / AC-220: the pane's right padding reserves the drawn chrome's column —
+       no longer a fixed 4.5rem. The padding is set inline by ChatMessagesPane from
+       `transcriptGutterPx(paneWidth, hasTickColumn)` (`src/shared/transcriptEdgeLayout.ts`):
+       the scrollbar's own column alone when no tick column is drawn (mobile, so the
+       text sits flush against the bar like a native scrollbar), and the fixed
+       three-column band otherwise, shrinking to nothing once the content column's
+       own outer margin already clears it (wide screens). Keeping the number out of
+       this file is what lets the three viewport readings be unit-tested. */
     scrollbar-width: none;
     -ms-overflow-style: none;
-    padding-right: 4.5rem;
   }
 
   .chat-messages-pane::-webkit-scrollbar {
