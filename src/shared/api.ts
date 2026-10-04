@@ -605,13 +605,12 @@ export const api = {
     deleteDraft: (scope: string) => del('/api/user/drafts', { scope }),
   },
 
-  // Server-side settings: API keys, stored credentials, notifications, web push
+  // Server-side settings: personal access tokens, stored credentials, notifications, web push
   settings: {
-    apiKeys: () => get('/api/settings/api-keys'),
-    createApiKey: (keyName: string) => post('/api/settings/api-keys', { keyName }),
-    deleteApiKey: (keyId: string) => del(`/api/settings/api-keys/${keyId}`),
-    toggleApiKey: (keyId: string, isActive: boolean) =>
-      patch(`/api/settings/api-keys/${keyId}/toggle`, { isActive }),
+    accessTokens: () => get('/api/settings/access-tokens'),
+    createAccessToken: (payload: { name: string; expiresInDays: number }) =>
+      post('/api/settings/access-tokens', payload),
+    revokeAccessToken: (tokenId: number) => del(`/api/settings/access-tokens/${tokenId}`),
 
     credentials: (type: string) => get(`/api/settings/credentials${query({ type })}`),
     createCredential: (payload: {

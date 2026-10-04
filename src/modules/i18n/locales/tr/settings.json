@@ -527,5 +527,34 @@
       "unsavedRow": "Kaydedilmez — değer boş.",
       "unsavedSummary": "Değerleri boş olduğu için bu satırlar kaydedilmez:"
     }
+  },
+  "accessTokens": {
+    "title": "Kişisel Erişim Jetonları",
+    "description": "MCP istemcilerini ve diğer uygulamaları CloudCLI API'sine karşı kimlik doğrulamak için kişisel erişim jetonları oluşturun.",
+    "newButton": "Yeni Jeton",
+    "form": {
+      "namePlaceholder": "Jeton adı (örn. MCP istemcim)",
+      "expiryLabel": "Süresi doluyor",
+      "expiryOption": "{{days}} gün",
+      "createButton": "Jeton oluştur",
+      "cancelButton": "İptal"
+    },
+    "newToken": {
+      "alertTitle": "⚠️ Erişim Jetonunuzu Kaydedin",
+      "alertMessage": "Bu jetonu yalnızca bir kez göreceksiniz. Güvenli bir yerde saklayın.",
+      "copy": "Kopyala",
+      "iveSavedIt": "Kaydettim"
+    },
+    "list": {
+      "empty": "Henüz erişim jetonu oluşturulmadı.",
+      "unnamed": "Adsız jeton",
+      "expires": "Süresi doluyor:",
+      "lastUsed": "Son kullanım:",
+      "never": "Hiç",
+      "active": "Etkin",
+      "revoked": "İptal edildi",
+      "revokeButton": "İptal et",
+      "revokeConfirm": "Bu jetonu iptal etmek istediğinizden emin misiniz? Bu işlem geri alınamaz."
+    }
   }
 }

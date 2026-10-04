@@ -2122,22 +2122,28 @@ export type CodeEditorSettingsState = {
 
 //----------------- SETTINGS CREDENTIALS ------------
 
-/** One stored CloudCLI API key as the server returns it, in snake_case, including its masked key, creation and last-used timestamps and active flag; render it, do not rebuild it. */
-export type ApiKeyItem = {
-  id: string;
-  key_name: string;
-  api_key: string;
-  created_at: string;
-  last_used?: string | null;
-  is_active: boolean;
+/** One stored personal access token as the server returns it, carrying its display prefix, name, scopes and timestamps — never the plaintext or the stored hash; render it, do not rebuild it. */
+export type AccessTokenItem = {
+  id: number;
+  tokenPrefix: string;
+  name: string | null;
+  scopes: string[];
+  expiresAt: string;
+  lastUsed: string | null;
+  createdAt: string | null;
+  revokedAt: string | null;
 };
 
-/** A freshly issued API key in camelCase, the only time the full secret is available; show it once and then fall back to the stored ApiKeyItem. */
-export type CreatedApiKey = {
-  id: string;
-  keyName: string;
-  apiKey: string;
-  createdAt?: string;
+/** A freshly issued personal access token: the only time `plaintext` is available. Show it once and never persist it; every other field matches the stored AccessTokenItem. */
+export type CreatedAccessToken = {
+  id: number;
+  name: string;
+  tokenPrefix: string;
+  scopes: string[];
+  expiresAt: string;
+  lastUsed: string | null;
+  createdAt: string | null;
+  plaintext: string;
 };
 
 /** One stored GitHub credential as the server returns it, in snake_case, carrying its name, optional description, creation timestamp and active flag - never the token itself. */

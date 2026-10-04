@@ -1,21 +1,27 @@
 import { useTranslation } from 'react-i18next';
 
 import { useCredentialsSettings } from '@/modules/settings/hooks/useCredentialsSettings';
-import ApiKeysSection from '@/modules/settings/tabs/api-settings/sections/ApiKeysSection';
+import AccessTokensSection from '@/modules/settings/tabs/api-settings/sections/AccessTokensSection';
 import GithubCredentialsSection from '@/modules/settings/tabs/api-settings/sections/GithubCredentialsSection';
-import NewApiKeyAlert from '@/modules/settings/tabs/api-settings/sections/NewApiKeyAlert';
+import NewAccessTokenAlert from '@/modules/settings/tabs/api-settings/sections/NewAccessTokenAlert';
 
-/** Rendered by Settings for the "api" tab, managing CloudCLI API keys and GitHub credentials. */
+/** Rendered by Settings for the "api" tab, managing CloudCLI personal access tokens and GitHub credentials. */
 export default function CredentialsSettingsTab() {
   const { t } = useTranslation('settings');
   const {
-    apiKeys,
+    accessTokens,
     githubCredentials,
     loading,
-    showNewKeyForm,
-    setShowNewKeyForm,
-    newKeyName,
-    setNewKeyName,
+    showNewTokenForm,
+    setShowNewTokenForm,
+    newTokenName,
+    setNewTokenName,
+    newTokenExpiryDays,
+    setNewTokenExpiryDays,
+    newlyCreatedToken,
+    copiedToken,
+    createAccessToken,
+    revokeAccessToken,
     showNewGithubForm,
     setShowNewGithubForm,
     newGithubName,
@@ -25,21 +31,16 @@ export default function CredentialsSettingsTab() {
     newGithubDescription,
     setNewGithubDescription,
     showToken,
-    copiedKey,
-    newlyCreatedKey,
-    createApiKey,
-    deleteApiKey,
-    toggleApiKey,
     createGithubCredential,
     deleteGithubCredential,
     toggleGithubCredential,
-    copyToClipboard,
-    dismissNewlyCreatedKey,
-    cancelNewApiKeyForm,
+    copyTokenToClipboard,
+    dismissNewlyCreatedToken,
+    cancelNewAccessTokenForm,
     cancelNewGithubForm,
     toggleNewGithubTokenVisibility,
   } = useCredentialsSettings({
-    confirmDeleteApiKeyText: t('apiKeys.confirmDelete'),
+    confirmRevokeAccessTokenText: t('accessTokens.list.revokeConfirm'),
     confirmDeleteGithubCredentialText: t('apiKeys.github.confirmDelete'),
   });
 
@@ -49,25 +50,26 @@ export default function CredentialsSettingsTab() {
 
   return (
     <div className="space-y-8">
-      {newlyCreatedKey && (
-        <NewApiKeyAlert
-          apiKey={newlyCreatedKey}
-          copiedKey={copiedKey}
-          onCopy={copyToClipboard}
-          onDismiss={dismissNewlyCreatedKey}
+      {newlyCreatedToken && (
+        <NewAccessTokenAlert
+          token={newlyCreatedToken}
+          copied={copiedToken}
+          onCopy={copyTokenToClipboard}
+          onDismiss={dismissNewlyCreatedToken}
         />
       )}
 
-      <ApiKeysSection
-        apiKeys={apiKeys}
-        showNewKeyForm={showNewKeyForm}
-        newKeyName={newKeyName}
-        onShowNewKeyFormChange={setShowNewKeyForm}
-        onNewKeyNameChange={setNewKeyName}
-        onCreateApiKey={createApiKey}
-        onCancelCreateApiKey={cancelNewApiKeyForm}
-        onToggleApiKey={toggleApiKey}
-        onDeleteApiKey={deleteApiKey}
+      <AccessTokensSection
+        accessTokens={accessTokens}
+        showNewTokenForm={showNewTokenForm}
+        newTokenName={newTokenName}
+        newTokenExpiryDays={newTokenExpiryDays}
+        onShowNewTokenFormChange={setShowNewTokenForm}
+        onNewTokenNameChange={setNewTokenName}
+        onNewTokenExpiryChange={setNewTokenExpiryDays}
+        onCreateAccessToken={createAccessToken}
+        onCancelCreateAccessToken={cancelNewAccessTokenForm}
+        onRevokeAccessToken={revokeAccessToken}
       />
 
       <GithubCredentialsSection
