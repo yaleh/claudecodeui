@@ -14,8 +14,8 @@ import type { Browser, BrowserContext, Page } from '@playwright/test';
 
 /** ChatMessagesPane's scroll container. */
 const PANE = '.chat-messages-pane';
-/** The seeded long fixture and the sidebar names it is reached by. */
-const SESSION_NAME = 'transcript-jump';
+/** The seeded long fixture and the sidebar name its project is reached by. */
+const SESSION_ID = 'e2e-transcript-jump';
 const PROJECT_NAME = 'transcript-jump-workspace';
 
 const TRIGGER = '[data-workspace-menu-trigger]';
@@ -236,23 +236,11 @@ test.describe('the workspace header carries one overflow menu and the transcript
     return { context, page };
   };
 
-  /** Opens a seeded session through the sidebar's own link, the way a reader would. */
-  const openViaSidebar = async (page: Page, projectName: string, sessionName: string) => {
-    const projectRow = () => page.getByRole('button', { name: new RegExp(`^${projectName}`) }).first();
-    await expect(projectRow(), `indexing ${projectName} must register its project`).toBeVisible({ timeout: 30_000 });
-    const link = page.locator('a[href^="/session/"]').filter({ hasText: sessionName });
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      if (await link.isVisible().catch(() => false)) break;
-      await projectRow().click();
-      try {
-        await expect(link).toBeVisible({ timeout: 10_000 });
-        break;
-      } catch {
-        // Collapsed again (or the click missed); the loop clicks once more.
-      }
-    }
-    await expect(link).toBeVisible({ timeout: 30_000 });
-    await link.click({ timeout: 15_000 });
+  /** Opens the seeded long session directly, the way the transcript specs reach it. */
+  const openLongSession = async (page: Page) => {
+    await page.goto(`${origin}/session/${SESSION_ID}`);
+    await settleServiceWorker(page);
+    await settleTranscript(page);
   };
 
   const openMenu = async (page: Page) => {
@@ -264,10 +252,7 @@ test.describe('the workspace header carries one overflow menu and the transcript
     for (const viewport of [MOBILE, DESKTOP]) {
       const { context, page } = await openAt(viewport);
       try {
-        await page.goto(`${origin}/`);
-        await settleServiceWorker(page);
-        await openViaSidebar(page, PROJECT_NAME, SESSION_NAME);
-        await settleTranscript(page);
+        await openLongSession(page);
 
         await expect(page.locator(TRIGGER), `the ⋯ trigger must be visible at ${viewport.name}`).toBeVisible();
         await openMenu(page);
@@ -330,10 +315,7 @@ test.describe('the workspace header carries one overflow menu and the transcript
   test('AC-222 (b) each export item downloads its own format and closes the menu', async () => {
     const { context, page } = await openAt(DESKTOP);
     try {
-      await page.goto(`${origin}/`);
-      await settleServiceWorker(page);
-      await openViaSidebar(page, PROJECT_NAME, SESSION_NAME);
-      await settleTranscript(page);
+      await openLongSession(page);
 
       const formats: Array<[string, string]> = [
         ['export-html', '.html'],
