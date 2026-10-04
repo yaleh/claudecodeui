@@ -2266,10 +2266,15 @@ export type HostReconfigurePatch = {
  * scheduled run — and a run opened by a host driver must be distinguishable
  * from both.
  *
+ * `mcp` is one the MCP gateway opened on a tool call. It too has no socket
+ * behind it, so it shares the no-connection shape with `scheduled` and
+ * `unattended`: which of the three a run is has to come from this recorded
+ * value, never from whether a connection happens to be attached.
+ *
  * Read by `chatRunRegistry` (which stamps it at `startRun` and exposes it on
  * the run record) and by the debug agent's host-driver criterion.
  */
-export type ChatRunSource = 'user' | 'scheduled' | 'unattended';
+export type ChatRunSource = 'user' | 'scheduled' | 'unattended' | 'mcp';
 
 /**
  * What made a provider CLI open a turn nobody pushed.

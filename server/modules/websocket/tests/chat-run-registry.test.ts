@@ -9,6 +9,22 @@ import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/datab
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { handleChatConnection } from '@/modules/websocket/services/chat-websocket.service.js';
 import { connectedClients } from '@/modules/websocket/services/websocket-state.service.js';
+import type { ChatRunSource } from '@/shared/types.js';
+
+/**
+ * Exhaustive fixture over `ChatRunSource`.
+ *
+ * A `Record<ChatRunSource, true>` is deliberately used instead of an array so
+ * that adding a value to the union without updating this fixture is a `tsc`
+ * error — the coverage of the test below is guaranteed by the compiler rather
+ * than by whoever remembers to extend the list.
+ */
+const ALL_CHAT_RUN_SOURCES: Record<ChatRunSource, true> = {
+  user: true,
+  scheduled: true,
+  unattended: true,
+  mcp: true,
+};
 
 /**
  * Minimal stand-in for a websocket connection: collects every JSON frame the
@@ -81,6 +97,33 @@ test('live events are remapped to the app session id and sequenced', async () =>
     assert.equal(connection.frames[0]?.seq, 1);
     assert.equal(connection.frames[1]?.sessionId, 'app-run-1');
     assert.equal(connection.frames[1]?.seq, 2);
+  });
+});
+
+test('every ChatRunSource value round-trips through startRun', async () => {
+  await withIsolatedDatabase(() => {
+    const values = Object.keys(ALL_CHAT_RUN_SOURCES) as ChatRunSource[];
+    // Guard the loop against silently covering nothing: the fixture is the
+    // compiler-checked set, and this asserts its shape at runtime too.
+    assert.deepEqual([...values].sort(), ['mcp', 'scheduled', 'unattended', 'user']);
+
+    for (const value of values) {
+      const appSessionId = `app-source-${value}`;
+      sessionsDb.createAppSession(appSessionId, 'claude', '/workspace/demo');
+      const run = chatRunRegistry.startRun({
+        appSessionId,
+        provider: 'claude',
+        providerSessionId: null,
+        connection: new FakeConnection(),
+        userId: null,
+        source: value,
+      });
+      assert.ok(run, `startRun must register ${value}`);
+      // Each value is read back as itself — a run that ignored the explicit
+      // source and fell back to the connection default would red here for every
+      // value except `user`.
+      assert.equal(run.source, value);
+    }
   });
 });
 

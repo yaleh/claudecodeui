@@ -35,6 +35,7 @@ import { CHAT_TURN_OPTION } from '@/shared/types.js';
 import type {
   AnyRecord,
   AuthenticatedWebSocketRequest,
+  ChatRunSource,
   HostQueuedInputCancelResult,
   LLMProvider,
   ProviderPermissionDecision,
@@ -665,6 +666,15 @@ function resolveSendTarget(
  * the run's connection, so a `chat.send` driven through the control service
  * reaches the same audience as before. Left `undefined` by callers that only
  * ever have one socket, in which case `ws` is used.
+ *
+ * `source` is the run's recorded origin, when the caller knows one the
+ * connection cannot state. The control service passes it explicitly because it
+ * always dispatches with `ws = null` (and, for a WebSocket send, with a
+ * connection override that is also null): without it, `startRun`'s
+ * connection-derived default would file every run the service opens as
+ * `scheduled`, including a `chat.send` that arrived over a socket and an MCP
+ * tool call. Left `undefined` by callers that want `startRun`'s existing
+ * default (a run with a connection is `user`, one without is `scheduled`).
  */
 export async function dispatchRun(
   ws: WebSocket | null,
@@ -691,6 +701,7 @@ export async function dispatchRun(
    * control service alone; every other caller leaves it undefined.
    */
   onRefuse?: (refusal: { code: string; message: string }) => void,
+  source?: ChatRunSource,
 ): Promise<{ started: boolean; error: string | null }> {
   const provider = session.provider as LLMProvider;
 
@@ -700,6 +711,7 @@ export async function dispatchRun(
     providerSessionId: session.provider_session_id,
     connection: connectionOverride ?? ws,
     userId,
+    source,
   };
 
   let run = chatRunRegistry.startRun(startInput);

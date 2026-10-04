@@ -11,6 +11,7 @@ import {
 import type { ProviderRuntimeGateway } from '@/modules/websocket/services/chat-websocket.service.js';
 import type {
   AnyRecord,
+  ChatRunSource,
   HostQueuedInputCancelResult,
   LLMProvider,
   RealtimeClientConnection,
@@ -28,13 +29,30 @@ import type {
  * `via` names the adapter that made the call — the WebSocket gateway, the
  * scheduled-message dispatcher, or the MCP gateway. It is carried so the run
  * this service registers can state its origin (`websocket` → `user`,
- * `scheduled` → `scheduled`); the adapter does not get to omit it, because a
- * caller that forgot would otherwise be indistinguishable from one that
- * knowingly came in over a socket.
+ * `scheduled` → `scheduled`, `mcp` → `mcp`); the adapter does not get to omit
+ * it, because a caller that forgot would otherwise be indistinguishable from
+ * one that knowingly came in over a socket.
  */
 type ControlCaller = {
   userId: string | number | null;
   via: 'websocket' | 'mcp' | 'scheduled';
+};
+
+/**
+ * The run source each control front end's own `via` names.
+ *
+ * This mapping is load-bearing, not a convenience: `send` always dispatches
+ * with `ws = null` and a null connection override, so `startRun`'s
+ * connection-derived default would file every run this service opens as
+ * `scheduled` — a `chat.send` that arrived over a socket and an MCP tool call
+ * alike. It is written as an exhaustive `Record` rather than a chain of
+ * ternaries so a future `via` value is a `tsc` error here, not a call
+ * silently recorded under another front end's source.
+ */
+const SOURCE_BY_VIA: Record<ControlCaller['via'], ChatRunSource> = {
+  websocket: 'user',
+  scheduled: 'scheduled',
+  mcp: 'mcp',
 };
 
 /**
@@ -392,6 +410,11 @@ export function createChatControlService(deps: ChatControlDependencies) {
       // before its first `await`, so the verdict can be handed back on this
       // tick. `ws` is null above, so this is the only channel that reports it.
       input.onRefuse,
+      // The run's recorded origin. Derived from `caller.via` and passed
+      // explicitly because `ws`/connection are both null here: the
+      // connection-derived default cannot tell a WebSocket send from an MCP or
+      // scheduled one, and would record all three as `scheduled`.
+      SOURCE_BY_VIA[caller.via],
     ).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       console.error(
