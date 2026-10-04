@@ -2,7 +2,7 @@
 id: transcript-jump-lands-on-target-with-tall-rows
 title: AC-221 点击刻度或轨道后目标整行落在视口内并保持（含行高大的会话），点击到落定
   ≤200ms：未测量行占位按平均行高估算，跳转后有位置修正窗口，任何用户输入立即解除
-status: todo
+status: ready
 labels:
   - gap
   - priority:p1
