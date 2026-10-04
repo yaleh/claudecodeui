@@ -3,7 +3,7 @@ id: gap-ac235-control-run-by-id-addressing
 title: AC-235 运行按 runId 寻址：chatRunRegistry 增 runsById 索引与 getRunById 摘要（含
   aborted 状态），保留期/时钟可注入，过期返回 expired、未知返回 unknown，「每会话一当前运行」与 chat.subscribe
   重放不变；判据 server/modules/websocket/tests/chat-run-by-id.test.ts
-status: todo
+status: ready
 labels:
   - gap
 parent: null
