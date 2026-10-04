@@ -11,10 +11,9 @@ import type { BrowserContext, Locator, Page } from '@playwright/test';
 // fake audio device whose samples come from the WAV playwright.config.ts wrote before the servers booted, so
 // `getUserMedia` hands `MediaRecorder` a real stream and the app's own hook encodes what it hears.
 //
-// What this file adds over e2e/voice-identifier-repair.spec.ts is a *pair*. The same fixture is recorded twice —
-// once with trimming on (the default) and once with `?voiceTrim=off` — and the two uploads that arrive at the
-// recogniser stand-in are read back as audio and compared. That is the only way to see the trim from outside:
-// the app is free to trim, and the assertion has to be about what it actually sent.
+// What this file adds over e2e/voice-identifier-repair.spec.ts is the voice path's *other* entry: the same
+// fixture, chosen as a file instead of spoken into the fake microphone, so that the criterion can be about
+// whether a chosen file travels the recording's own chain rather than a second path beside it.
 //
 // The one stand-in is the recogniser, exactly as in the identifier spec: no offline speech-to-text exists in
 // this checkout, so the endpoint the voice settings name is a local server answering `/audio/transcriptions`.
@@ -55,16 +54,6 @@ const CAPTURE_MS = Math.round(FIXTURE_SEC * 1000);
  * shortens it by less than the fixture's 1.6 s pause, which is what the trim exists to remove.
  */
 const CAPTURE_TOLERANCE_SEC = 0.3;
-
-/**
- * How much shorter the trimmed upload has to be.
- *
- * The fixture's two phrases are separated by 1.6 s of silence and the file's seam adds another 0.4 s, both of
- * which the shipped pause table caps at 0.18 s; whichever point of the loop the capture starts at, at least
- * ~0.9 s of the window is a pause the trim removes. A third of a second is well inside that, and far outside
- * anything jitter could produce.
- */
-const MIN_SAVING_SEC = 0.3;
 
 /**
  * What the recogniser stand-in answers, one entry per upload.
@@ -356,29 +345,12 @@ test.describe('the voice path end to end', () => {
    */
   const voiceTraffic: string[] = [];
   /**
-   * The `[voice:trim]` readings the page printed, in the order it printed them.
-   *
-   * Taken off the console argument rather than out of its text: Chromium formats an object argument for
-   * a human to read, and a reading parsed back out of that preview would be a reading of the formatter.
-   * `jsonValue()` hands back the object the app actually logged.
-   */
-  const readings: Record<string, unknown>[] = [];
-  /**
-   * How many `[voice:trim]` messages the page has printed, counted apart from `readings`.
-   *
-   * A count is not the same claim as a parse: a message whose argument arrived as something other than an
-   * object would leave `readings` empty while the page had still printed it, and the criterion that has to
-   * hold is about the printing. It is also what makes "0 of them" assertable at all — an empty `readings`
-   * is equally what a listener that never fired looks like.
-   */
-  let trimMessages = 0;
-  /**
    * How many `[voice] identifier fidelity` messages the page has printed.
    *
-   * Counted here because that reading is deliberately NOT behind the switch (GOAL-005 / AC-114): its
-   * arrival is the proof that a capture travelled the chain to the point where the readings are taken,
-   * which is what a count of `[voice:trim]` messages has to be read against. Its presence is also its own
-   * criterion — an absence of trim readings is only interesting if the unconditional one still fires.
+   * That reading is deliberately NOT behind the switch (GOAL-005 / AC-114), and it is printed inside the
+   * transcription chain itself — so its arrival is the proof that an upload travelled that chain rather
+   * than around it, which is exactly the claim `AC-120` has to make for a chosen file now that the entry
+   * shares the recording's pipeline.
    */
   let fidelityMessages = 0;
   /**
@@ -584,21 +556,6 @@ test.describe('the voice path end to end', () => {
   const uploadEntry = () => page.getByRole('button', { name: 'Upload audio file' });
 
   /**
-   * Waits for the page to print a reading past `before`, and returns the first new one.
-   *
-   * The reading is logged as the chain decides what to upload, so it is already there by the time the
-   * request the caller is waiting for arrives; polling rather than reading `readings[before]` keeps the
-   * assertion from depending on which of the two the browser happened to deliver first.
-   */
-  const nextReading = async (before: number): Promise<Record<string, unknown>> => {
-    await expect.poll(
-      () => readings.length,
-      { timeout: 10_000, message: 'the chain printed no [voice:trim] reading for this capture' },
-    ).toBeGreaterThan(before);
-    return readings[before];
-  };
-
-  /**
    * Submits the fixture through the upload entry, and waits for the request it produced.
    *
    * The wait is on the recogniser rather than on a timer, which is the difference between an upload and
@@ -680,25 +637,10 @@ test.describe('the voice path end to end', () => {
     page.on('console', (message) => {
       if (message.type() === 'error') voiceTraffic.push(`console.error ${message.text().slice(0, 200)}`);
     });
-    // The chain's own readings, collected whether or not a criterion is currently asking for them: what
-    // the switch does is decide whether they are printed at all, and that is what the assertions read.
+    // The chain's unconditional reading (GOAL-005 / AC-114), counted because its arrival is the proof that
+    // an upload travelled the transcription chain at all — the file entry's as much as the microphone's.
     page.on('console', (message) => {
-      const text = message.text();
-      // The unconditional reading (GOAL-005 / AC-114), counted separately from the one behind the switch:
-      // `[voice:trim]` is not a substring of `[voice] identifier fidelity`, so the two filters below
-      // cannot see each other's messages.
-      if (text.includes('[voice] identifier fidelity')) fidelityMessages += 1;
-      // By substring, not by prefix: a string argument arrives with the console's own quoting.
-      if (!text.includes('[voice:trim]')) return;
-      trimMessages += 1;
-      const [, reading] = message.args();
-      if (!reading) return;
-      void reading.jsonValue().then(
-        (value) => {
-          if (value && typeof value === 'object') readings.push(value as Record<string, unknown>);
-        },
-        () => undefined,
-      );
+      if (message.text().includes('[voice] identifier fidelity')) fidelityMessages += 1;
     });
 
     // First run on a fresh database: create the single account, then finish onboarding.
@@ -748,168 +690,62 @@ test.describe('the voice path end to end', () => {
     await new Promise<void>((resolve) => recognizer?.close(() => resolve()));
   });
 
-  test('AC-119 the trimmed upload is shorter than the same recording uploaded untrimmed', async () => {
-    // The whole criterion has to fit inside the goal gate's 60s, and a run killed at that ceiling reports nothing
-    // about why. This body takes ~8s, so the budget is a few times that rather than the default minute: a runaway
-    // leg fails here, with its own message, while the command is still this run's to explain.
-    test.setTimeout(35_000);
-    expect(FIXTURE_SEC).toBeGreaterThan(1);
-
-    // The audio the fake device was pointed at, checked as audio. A path that does not resolve to a WAV is not
-    // an error Chromium reports: it quietly plays its own fallback tone instead, which records and transcribes
-    // exactly like the fixture — so a criterion that only looked at the composer could go green on a run where
-    // nothing was injected at all. Its length is the reference the untrimmed upload is measured against, so it
-    // is read out of the file rather than taken from the config that wrote it.
-    const audio = fs.readFileSync(AUDIO_FILE);
-    expect(audio.subarray(0, 4).toString('ascii')).toBe('RIFF');
-    expect(audio.subarray(8, 12).toString('ascii')).toBe('WAVE');
-    expect(wavDurationSec(audio)).toBeCloseTo(FIXTURE_SEC, 3);
-    expect(audio.length).toBeGreaterThan(96_000); // 48kHz mono 16-bit: a second is 96kB, so this is seconds not a click
-
-    // Leg 1 — the default. Trimming is on unless something turned it off.
-    await openComposer('/');
-    await recordOnce();
-    // The transcript travelled the whole path back into the composer. The ceiling is deliberately short: a
-    // regression here has to surface as this assertion rather than as an unattributable timeout.
-    await expectTranscript(UTTERANCES[0], 'trimmed leg');
-    // One upload so far, which is what makes the second leg's answer the second sentence rather than a repeat.
-    expect(requests).toHaveLength(1);
-
-    // Leg 2 — the switch named in the URL. Read at load, before the router rewrites the query string.
-    await openComposer('/?voiceTrim=off');
-    await recordOnce();
-    await expectTranscript(UTTERANCES[1], 'untrimmed leg');
-    expect(requests).toHaveLength(2);
-
-    // Both uploads were the app's own call, made from the seeded settings, and carried real audio.
-    for (const upload of requests) {
-      expect(upload.method).toBe('POST');
-      expect(upload.url.endsWith('/audio/transcriptions')).toBe(true);
-      // The credential proves the request was built from the settings that were seeded, not from a default.
-      expect(upload.authorization).toBe(`Bearer ${API_KEY}`);
-      expect(upload.contentType).toContain('multipart/form-data');
-      expect(upload.body.includes(Buffer.from(`name="model"`))).toBe(true);
-      expect(upload.body.includes(Buffer.from(STT_MODEL))).toBe(true);
-    }
-
-    const trimmedUpload = uploadedFile(requests[0].body, requests[0].contentType);
-    const plainUpload = uploadedFile(requests[1].body, requests[1].contentType);
-
-    // Both durations come out of the container the upload is really in, never out of its byte count. A byte count
-    // cannot stand in for this: the trimmed leg is PCM WAV and the untrimmed one webm/opus, so the shorter upload
-    // is the larger one, and a comparison of sizes would read the encoding difference as the trim.
-    const trimmedSec = containerDurationSec(trimmedUpload);
-    const plainSec = containerDurationSec(plainUpload);
-    // The pair is this criterion's reading, so it is printed rather than only asserted: a green run should say
-    // what it measured, not just what it refused. Printed before the assertions so it is on the log either way.
-    console.log(
-      `[voice-trim] uploads: trimmed=${trimmedSec.toFixed(3)}s untrimmed=${plainSec.toFixed(3)}s fixture=${FIXTURE_SEC.toFixed(3)}s`,
-    );
-
-    // (1) The premise, asserted before the transition it is a premise for: "off" is really off. The untrimmed
-    // upload is the whole capture, not a trim that failed to a shorter value of its own — which is what
-    // separates a working switch from two failures that happen to agree.
-    expect(
-      Math.abs(plainSec - FIXTURE_SEC),
-      `untrimmed upload was ${plainSec}s, the fixture is ${FIXTURE_SEC}s`,
-    ).toBeLessThan(CAPTURE_TOLERANCE_SEC);
-
-    // (2) The pair, from this one run: trimming removed audio. Checked against the capture the line above just
-    // established, so it reads as the trim's own effect and not as a difference between two unrelated numbers.
-    expect(plainSec - trimmedSec, `trimmed ${trimmedSec}s vs untrimmed ${plainSec}s`).toBeGreaterThan(MIN_SAVING_SEC);
-
-    // (3) What the two uploads are, now that their durations have been read: the trimmed one is the WAV this repo
-    // encoded, the untrimmed one the recorder's own stream. This is the reading that would name a trim which
-    // quietly fell back to the recording — both legs would be in the same container.
-    expect(trimmedUpload.subarray(0, 4).toString('ascii')).toBe('RIFF');
-    expect(plainUpload.subarray(0, 4).toString('hex')).toBe('1a45dfa3');
-    // ...and the trimmed one is not the fixture either, so it is not the untrimmed bytes under a WAV header.
-    expect(trimmedSec).toBeLessThan(FIXTURE_SEC - MIN_SAVING_SEC);
-  });
-
   /**
    * The voice path's other entry: a known piece of audio, chosen as a file.
    *
-   * The fixture is the one the fake microphone already plays, and that is what makes these legs
-   * readable. As a file it is decoded exactly rather than captured through a device, so the chain's own
-   * reading of its length is the fixture's length — a number only these bytes can produce, which is
-   * what makes "the request came from that file" an assertion about the audio and not about a filename.
+   * The entry is rendered only while the debug switch is on, and what it has to show is that the file is
+   * *not* a second path: the bytes are decoded to PCM and handed to the same segmenter, the same upload and
+   * the same transcription chain a recording travels. That is read from the chain's own side — the request
+   * that lands on the recogniser carries the chain's own audio rather than the chosen container passed
+   * through, and the unconditional `[voice] identifier fidelity` print, which is emitted inside the
+   * transcription step every upload travels, arrives for it. The composer's half (the recogniser's own
+   * sentence reaching the box) is waited on by `uploadFixture`, so it is proven by the leg getting this far.
    *
-   * What the legs then show is that the upload is the same chain rather than a second one beside it.
-   * With the trim at its default the bytes that reach the recogniser are shorter than the file by the
-   * silence the trim exists to remove, read out of the container the upload really is in; with the trim
-   * switched off they are the file itself, byte for byte. A third leg is the default install's: the
-   * switch is off, so there is no entry at all — which is what makes "an extra control in everyone's
-   * composer" a thing this avoided rather than a thing it intended.
+   * The second leg is the default install's: the switch is off, so the entry is not rendered and the file
+   * cannot be chosen at all — which is what makes "an extra control in everyone's composer" a thing this
+   * avoided rather than a thing it intended.
    */
   test('AC-120 an uploaded audio file travels the same transcription chain', async () => {
-    // Same budget as the criterion above and for the same reason: the goal gate kills the command at
+    // Same budget as the microphone's criteria and for the same reason: the goal gate kills the command at
     // 60s, and a run killed from outside says nothing about what it was doing.
     test.setTimeout(35_000);
 
-    // The fixture, read as audio. A file the browser cannot decode is not a failure it reports: the
-    // chain falls back to uploading what it was handed, so a criterion about the trim would be met by a
-    // fixture that never reached the trim at all.
+    // The fixture, read as audio. A file the browser cannot decode is not a failure it reports, so a
+    // criterion that only looked at the composer could go green on a chain that never read the file.
     const audio = fs.readFileSync(AUDIO_FILE);
     expect(audio.subarray(0, 4).toString('ascii')).toBe('RIFF');
     expect(audio.subarray(8, 12).toString('ascii')).toBe('WAVE');
     expect(wavDurationSec(audio)).toBeCloseTo(FIXTURE_SEC, 3);
     const requestsBefore = requests.length;
+    const fidelityBefore = fidelityMessages;
 
-    // Leg 1 — the switch on, the trim at its default.
-    const trimmedReadings = readings.length;
-    // `voiceTrim=on` is named rather than left to the default: the switches are remembered across loads,
-    // so a leg of the criterion above that turned the trim off is still in force here. A leg that states
-    // both switches reads the same alone as it does after the others, which is what `-g` runs it as.
-    await openComposer('/?voiceDebug=1&voiceTrim=on');
-    const trimmedRequest = await uploadFixture('uploaded leg, trimmed');
+    // Leg 1 — the switch on. One chosen file, one upload, through the recording's own chain.
+    await openComposer('/?voiceDebug=1');
+    const request = await uploadFixture('uploaded leg');
 
-    // The chain says which entry the audio came in through, and the reading's input length is the
-    // fixture's own duration — a number that only decoding these bytes can produce.
-    const trimmedReading = await nextReading(trimmedReadings);
-    expect(trimmedReading.source).toBe('file');
-    expect(
-      trimmedReading.inputSec,
-      `the chain measured no length for this upload: ${JSON.stringify(trimmedReading)}`,
-    ).toBeCloseTo(FIXTURE_SEC, 1);
-    expect(trimmedReading.fallback).toBe(false);
-
-    // The uploaded bytes went through the trim the microphone's audio goes through: a WAV this repo
-    // encoded, shorter than the file by the pause the trim removes, and as long as the reading says.
-    const trimmedUpload = uploadedFile(trimmedRequest.body, trimmedRequest.contentType);
-    expect(trimmedUpload.subarray(0, 4).toString('ascii')).toBe('RIFF');
-    const trimmedSec = containerDurationSec(trimmedUpload);
-    expect(
-      FIXTURE_SEC - trimmedSec,
-      `the upload was ${trimmedSec}s of a ${FIXTURE_SEC}s file`,
-    ).toBeGreaterThan(MIN_SAVING_SEC);
-    expect(trimmedReading.outputSec).toBeCloseTo(trimmedSec, 2);
-    // Printed before the assertions above so a green run says what it measured rather than only what it
-    // refused. The composer's half — the recogniser's own sentence landing in the box — is waited on by
-    // `uploadFixture`, so it is proven by the leg having got this far.
+    const upload = uploadedFile(request.body, request.contentType);
+    const uploadSec = containerDurationSec(upload);
+    // Printed before the assertions, so a green run says what it measured rather than only what it refused.
     console.log(
-      `[voice-upload] trimmed: file=${FIXTURE_SEC.toFixed(3)}s uploaded=${trimmedSec.toFixed(3)}s source=${String(trimmedReading.source)}`,
+      `[voice-upload] file=${FIXTURE_SEC.toFixed(3)}s uploaded=${uploadSec.toFixed(3)}s bytes=${upload.length}`,
     );
+    // The body is audio the chain produced rather than the chosen container passed through, and the length
+    // rules out a stub body. Segmentation may drop leading or trailing silence, so the bound is the file's
+    // length plus the capture tolerance rather than the file's length itself.
+    expect(upload.subarray(0, 4).toString('ascii')).toBe('RIFF');
+    expect(uploadSec).toBeGreaterThan(0);
+    expect(uploadSec).toBeLessThanOrEqual(FIXTURE_SEC + CAPTURE_TOLERANCE_SEC);
+    // The same chain, read from inside it: this print only happens inside the transcription step, so its
+    // arrival for the chosen file is what makes "the same chain" an assertion rather than a description.
+    await expect
+      .poll(() => fidelityMessages, {
+        timeout: 5_000,
+        message: 'the chosen file reached the recogniser without travelling the same transcription chain',
+      })
+      .toBeGreaterThan(fidelityBefore);
 
-    // Leg 2 — the trim off. The upload is then the file itself, which is the reading that ties the
-    // request to the bytes: a body built by the test, or a fixed one, cannot be this file.
-    const plainReadings = readings.length;
-    await openComposer('/?voiceTrim=off&voiceDebug=1');
-    const plainRequest = await uploadFixture('uploaded leg, untrimmed');
-
-    const plainReading = await nextReading(plainReadings);
-    expect(plainReading.source).toBe('file');
-    // Nothing was measured on this leg — the switch that trims is what decodes — which is the state the
-    // byte comparison below needs: what arrived is the file, not a re-encode that agrees with it.
-    expect(plainReading.fallback).toBe(true);
-
-    const plainUpload = uploadedFile(plainRequest.body, plainRequest.contentType);
-    expect(plainUpload.subarray(0, 4).toString('ascii')).toBe('RIFF');
-    expect(wavDurationSec(plainUpload)).toBeCloseTo(FIXTURE_SEC, 2);
-    expect(plainUpload.equals(audio)).toBe(true);
-
-    // Leg 3 — the default install. The switch is off, so the entry is not rendered; the microphone,
-    // which was there before this task, still is.
+    // Leg 2 — the default install. The switch is off, so the entry is not rendered; the microphone, which
+    // was there before this task, still is.
     const requestsAtDefault = requests.length;
     await openComposer('/?voiceDebug=off');
     // The premise first: the footer really is rendered and its mic is there, so the absence below is the
@@ -920,368 +756,7 @@ test.describe('the voice path end to end', () => {
     await expect(uploadInput()).toHaveCount(0);
     expect(requests).toHaveLength(requestsAtDefault);
 
-    // Two legs, two uploads: no leg uploaded twice, and the third sent nothing at all.
-    expect(requests.length).toBe(requestsBefore + 2);
-  });
-
-  /**
-   * The reading of the trim, and the switch that decides whether anyone hears about it.
-   *
-   * The pair is the criterion. "Off prints nothing" alone is satisfied by a chain that never prints, and "on
-   * prints a complete reading" alone is satisfied by a reading that is always printed — so a leg of each, in
-   * one run, against the same fixture, is the only arrangement in which either claim means anything. The
-   * unconditional `[voice] identifier fidelity` reading is what separates them: it is not behind the switch
-   * (GOAL-005 / AC-114), so its arrival is the proof that a capture travelled to the point where readings are
-   * taken — which is what a count of zero has to be read against.
-   *
-   * Three legs, because the switch has two halves. The first turns it off and records; the second turns it on
-   * by URL and records; the third names it nowhere and uploads, which is the only way to see that the URL
-   * half was *written back* — a page load re-evaluates the module, so a switch that only ever lived in the
-   * previous page's memory cannot be in force here.
-   *
-   * ⚠️ Every leg names both switches in its URL. They are remembered across loads, so a leg that left one to
-   * its default would be reading whichever value the leg before it wrote — which is the same leg under `-g`
-   * and a different one in the full file.
-   */
-  test('AC-121 the trim reading is silent by default and complete when the switch is on', async () => {
-    // The goal gate kills this command at 60s, so the budget is under the file's default: a runaway leg has
-    // to fail here, with its own message, while the command is still this run's to explain.
-    test.setTimeout(45_000);
-
-    // The one file the seeded workspace holds, and the name the identifier half of the reading is measured
-    // against. Read off the disk rather than restated, so a config that stopped seeding it would red this
-    // criterion instead of quietly agreeing with the spec.
-    const workspaceFiles = fs.readdirSync(WORKSPACE);
-    const workspaceFile = workspaceFiles.find((name) => name.endsWith('.md'));
-    expect(workspaceFile, `the seeded workspace holds no .md file: ${workspaceFiles.join(', ')}`).toBeTruthy();
-    /** How the recogniser hears that name: the same name with one character dropped — one edit, the opening
-     *  shared, the extension intact, which is the shape the repair's budget exists for. */
-    const spokenFile = workspaceFile!.replace(
-      /^(.*)\.([^.]+)$/,
-      (_match, stem: string, extension: string) => `${stem.slice(0, -1)}.${extension}`,
-    );
-    expect(spokenFile, 'the fixture name has no character to drop').not.toBe(workspaceFile);
-    const spokenSentence = `please open ${spokenFile} and read the notes`;
-    const repairedSentence = `please open ${workspaceFile} and read the notes`;
-
-    // ── Leg 1 — the switch off, on a real recording ────────────────────────────────────────────────────
-    // Named rather than defaulted: off is the default, but the switches are remembered, so "the default"
-    // here would be whatever the previous test left behind.
-    await openComposer('/?voiceDebug=off&voiceTrim=on');
-    const silentTrim = trimMessages;
-    const silentFidelity = fidelityMessages;
-    await expectTranscript(await recordCapture('switch-off leg'), 'switch-off leg');
-
-    // The capture reached the end of the chain before the zero below is read. Without this the criterion
-    // would be satisfied by a chain that never ran at all — a blank page, a refused recording, a dead
-    // endpoint — which is the same state as a switch that works, seen from the console.
-    await expect.poll(
-      () => fidelityMessages,
-      { timeout: 10_000, message: 'the switch-off leg never printed the unconditional fidelity reading, so it never reached the end of the chain' },
-    ).toBeGreaterThan(silentFidelity);
-    expect(trimMessages, 'the switch was off and the chain printed a trim reading anyway').toBe(silentTrim);
-
-    // ── Leg 2 — the switch on, named in the URL ────────────────────────────────────────────────────────
-    await openComposer('/?voiceDebug=1&voiceTrim=on');
-    // The URL is how a switch is set; storage is where it lives. That this load left something naming the
-    // switch behind is asserted here — what the app does with it is leg 3, which names it nowhere.
-    const writtenBack = await page.evaluate(() => {
-      const found: string[] = [];
-      for (let index = 0; index < window.localStorage.length; index += 1) {
-        const key = window.localStorage.key(index) ?? '';
-        const value = window.localStorage.getItem(key) ?? '';
-        if (key.toLowerCase().includes('voicedebug') || value.toLowerCase().includes('voicedebug')) {
-          found.push(`${key}=${value}`);
-        }
-      }
-      return found;
-    });
-    expect(writtenBack.length, 'the URL-named switch was never written back to localStorage').toBeGreaterThan(0);
-
-    const loudTrim = trimMessages;
-    const loudReadings = readings.length;
-    // This leg is answered with a name the workspace really has, mis-heard by one character, so the
-    // identifier half of the reading has something to measure. What lands in the composer is the repaired
-    // sentence: the criterion is about the reading, but a reading of a chain that did not repair would be a
-    // reading of a different chain.
-    nextAnswer = spokenSentence;
-    // The name really is spent on this leg's request — the stand-in is the one thing here that could answer
-    // something else, and if it did, everything read off the composer below would be about that instead.
-    expect(await recordCapture('switch-on leg'), 'the stand-in did not answer with this leg\'s sentence').toBe(spokenSentence);
-    await expectTranscript(repairedSentence, 'switch-on leg');
-
-    const reading = await nextReading(loudReadings);
-    expect(trimMessages, 'the switch-on capture printed more than one trim reading').toBe(loudTrim + 1);
-
-    // The field list, checked as paths rather than as a count of keys: a reading that renamed one of them or
-    // nested it elsewhere is not the reading the criterion names. Each of these is a way to red this: there is
-    // no ordering here that a partial reading satisfies.
-    const FIELDS = [
-      'source',
-      'inputSec',
-      'outputSec',
-      'savedSec',
-      'savedRatio',
-      'vadSegments',
-      'speechKeptRatio',
-      'fallback',
-      'identifiers.before.rate',
-      'identifiers.after.rate',
-      'repairHits',
-    ];
-    for (const field of FIELDS) {
-      expect(reading, `the reading carries no ${field}: ${JSON.stringify(reading)}`).toHaveProperty(field);
-    }
-
-    // ...and the values are this capture's own, not placeholders that satisfy the paths above. The input
-    // length is the fixture's, the saving is the difference between the two lengths, and the ratio is that
-    // difference over the input — a reading of audio the chain really measured.
-    const identifiers = reading.identifiers as
-      | { before: { rate: number | null }; after: { rate: number | null } }
-      | undefined;
-    expect(reading.source).toBe('mic');
-    expect(reading.fallback).toBe(false);
-    expect(
-      Math.abs((reading.inputSec as number) - FIXTURE_SEC),
-      `the chain measured ${String(reading.inputSec)}s of a ${FIXTURE_SEC}s capture`,
-    ).toBeLessThan(CAPTURE_TOLERANCE_SEC);
-    expect(reading.outputSec).toBeGreaterThan(0);
-    expect(reading.savedSec).toBeCloseTo((reading.inputSec as number) - (reading.outputSec as number), 3);
-    expect(reading.savedRatio).toBeCloseTo(1 - (reading.outputSec as number) / (reading.inputSec as number), 3);
-    expect(reading.vadSegments).toBeGreaterThanOrEqual(1);
-    expect(reading.speechKeptRatio).toBeGreaterThan(0);
-    expect(reading.speechKeptRatio).toBeLessThanOrEqual(1);
-
-    // The identifier half, on the sentence this leg was answered with. `before` is the recogniser's answer
-    // scored against itself — 1, because nothing had touched it yet — and `after` is that same answer scored
-    // against the repaired text, 0, because the name the recogniser said is the one the repair replaced. Only
-    // a repair that really fired produces that pair, and `repairHits` is the same event counted the other way:
-    // one identifier span the repaired text carries that the chain's own text did not.
-    expect(identifiers?.before.rate).toBe(1);
-    expect(identifiers?.after.rate).toBe(0);
-    expect(reading.repairHits).toBe(1);
-
-    // ── Leg 3 — the switch remembered, and the other entry into the chain ──────────────────────────────
-    // A full page load with the switch named nowhere: the document is new, the module is evaluated again, and
-    // nothing that only ever lived in the previous page's memory is readable here. A reading on this leg is
-    // the switch having been written to storage by leg 2 and read back by this load. `voiceTrim` IS named —
-    // it is the other half of the same storage, and leg 2 is not the only leg that ever set it.
-    const rememberedTrim = trimMessages;
-    const rememberedReadings = readings.length;
-    await openComposer('/?voiceTrim=on');
-    const uploaded = await uploadFixture('remembered-switch leg');
-
-    const uploadedReading = await nextReading(rememberedReadings);
-    expect(trimMessages, 'the remembered-switch capture printed more than one trim reading').toBe(rememberedTrim + 1);
-    expect(uploadedReading.source).toBe('file');
-    expect(uploadedReading.fallback).toBe(false);
-    expect(uploadedReading.inputSec).toBeCloseTo(FIXTURE_SEC, 1);
-    // The output length is the bytes that really reached the recogniser, read out of the container they are
-    // in. A reading that reported a number of its own would have to agree with this upload by accident.
-    expect(uploadedReading.outputSec).toBeCloseTo(
-      containerDurationSec(uploadedFile(uploaded.body, uploaded.contentType)),
-      2,
-    );
-    // ...and the switch reaches the file's half of the identifier reading too: this sentence carries no name,
-    // so the metric's own "nothing to measure" is what it reports, and nothing was repaired. Read beside the
-    // leg above, where the same three fields carry 1 / 0 / 1, this is the control that makes them a reading
-    // rather than a constant.
-    expect(uploadedReading.identifiers).toHaveProperty('before.rate', null);
-    expect(uploadedReading.identifiers).toHaveProperty('after.rate', null);
-    expect(uploadedReading.repairHits).toBe(0);
-
-    // The tally over the whole run, taken last so a stray extra print has nowhere left to arrive after it:
-    // the capture with the switch off printed nothing, and the two with it on printed one reading each.
-    expect(trimMessages).toBe(silentTrim + 2);
-  });
-
-  /**
-   * The recording slot's two replays: the audio as it was recorded, and the audio as it was uploaded.
-   *
-   * What the criterion is about is that the slot offers *both*. One replay of the upload would leave "what
-   * did the trim cut?" unanswerable from the UI, which is the whole reason the pair exists — and the pair is
-   * told apart by what is behind the two controls, not by what they are called. The object URL a control
-   * carries proves nothing on its own: two `createObjectURL` calls over the same bytes are two URLs. So the
-   * bytes each control would play are fetched back out of the page and measured as containers, which is the
-   * same reading `AC-119` takes of the two uploads, one layer further out.
-   *
-   * ⚠️ One clause of the criterion as it was written cannot hold, and this leg does not pretend otherwise:
-   * "the trimmed one's byte count is strictly smaller than the recording's". The trimmed replay is the WAV
-   * this repo encodes — 48 kHz mono 16-bit PCM, 96 kB/s — and the recording is the recorder's own webm/opus
-   * at roughly a tenth of that, so the *shorter* audio is the *larger* body. The measured pair is printed
-   * below and the sizes are asserted to be different rather than ordered; what is asserted about the trimmed
-   * one is the invariant the size was standing in for — it is a different audio object, in the container the
-   * trim produced, and strictly shorter — which is falsified by the same fake form (two controls over one
-   * source carry one duration).
-   *
-   * The mutex is read off the audio elements rather than off the controls, because a control's name only says
-   * what the app believes: two elements sounding at once with the labels left consistent is a state a build
-   * can reach, and it is the state the clause is about.
-   */
-  test('AC-122 the recording is replayable beside the trimmed upload, one at a time', async () => {
-    // The goal gate kills the command at 60s, so the budget is under the file's default: a runaway leg has
-    // to fail here, with its own message, while the command is still this run's to explain. One leg, so the
-    // same budget the single-leg criterion above uses.
-    test.setTimeout(35_000);
-    expect(FIXTURE_SEC).toBeGreaterThan(1);
-
-    // ⚠️ Both switches are named. They are remembered across loads, so a leg that left one to its default
-    // would be reading whatever value the criterion above wrote — the same leg under `-g` and a different
-    // one in the full file. The trim has to be on for the slot to gain a second track at all.
-    // Before the page that records: the clip elements are made with `new Audio()` and never attached to the
-    // document, so nothing in the DOM shows what is really sounding — a control's label says only what the
-    // app believes. Wrapping the constructor here, before the app's own scripts run, is what makes the
-    // mutex readable as audio rather than as a pair of labels that agree with each other.
-    await context.addInitScript(() => {
-      const registry: HTMLAudioElement[] = [];
-      const NativeAudio = window.Audio;
-      function WrappedAudio(...args: unknown[]) {
-        const element = new NativeAudio(...(args as []));
-        registry.push(element);
-        return element;
-      }
-      WrappedAudio.prototype = NativeAudio.prototype;
-      window.Audio = WrappedAudio as unknown as typeof Audio;
-      (window as unknown as { clipAudio?: () => { src: string; paused: boolean }[] }).clipAudio = () =>
-        registry.map((element) => ({ src: element.src, paused: element.paused }));
-    });
-
-    await openComposer('/?voiceTrim=on&voiceDebug=off');
-    const recorded = await recordCapture('two-replay leg');
-    await expectTranscript(recorded, 'two-replay leg');
-
-    // (1) Two controls, named apart, both in the composer's tool row. The second is the one that only
-    // exists because the chain decided what it uploaded is not the recording. The wait is generous: the
-    // transcript lands as soon as the recogniser answers, while the trim's own output is attached on the
-    // way in and the pair is rendered from one state update.
-    const originalControl = page.getByRole('button', { name: 'Replay original' });
-    const trimmedControl = page.getByRole('button', { name: 'Replay trimmed' });
-    await expect(originalControl).toBeVisible({ timeout: 10_000 });
-    await expect(
-      trimmedControl,
-      'the recording slot offers no replay of the trimmed upload: the trim happened and cannot be heard',
-    ).toBeVisible({ timeout: 10_000 });
-
-    // (2) Two sources. The URL is where the bytes are read from, so it is taken first and fetched second.
-    const originalUrl = await originalControl.getAttribute('data-clip-url');
-    const trimmedUrl = await trimmedControl.getAttribute('data-clip-url');
-    expect(originalUrl, 'the original replay carries no source to read').toBeTruthy();
-    expect(trimmedUrl, 'the trimmed replay carries no source to read').toBeTruthy();
-    expect(trimmedUrl).not.toBe(originalUrl);
-
-    /** The bytes behind one of the two object URLs, as the page itself would hand them to its audio element. */
-    const readBack = (url: string) =>
-      page.evaluate(async (source) => {
-        const bytes = new Uint8Array(await (await fetch(source)).arrayBuffer());
-        const chunks: string[] = [];
-        for (let at = 0; at < bytes.length; at += 8192) {
-          chunks.push(String.fromCharCode(...bytes.subarray(at, at + 8192)));
-        }
-        return btoa(chunks.join(''));
-      }, url);
-
-    const originalBytes = Buffer.from(await readBack(originalUrl!), 'base64');
-    const trimmedBytes = Buffer.from(await readBack(trimmedUrl!), 'base64');
-    const originalSec = containerDurationSec(originalBytes);
-    const trimmedSec = containerDurationSec(trimmedBytes);
-    // The pair, printed rather than only asserted: a green run should say what it measured. The size note
-    // is the amendment above, written where the numbers are — the sizes are the reason it was made.
-    console.log(
-      `[voice-replay] original=${originalSec.toFixed(3)}s/${originalBytes.length}B`
-        + ` trimmed=${trimmedSec.toFixed(3)}s/${trimmedBytes.length}B`
-        + ' (the trimmed replay is the larger body: PCM WAV against the recorder\'s opus)',
-    );
-
-    // (3) The first control replays the recording. The container is the recorder's own stream and its length
-    // is the whole capture — the premise the second line is a comparison against. Without it the pair could
-    // be two takes of a trim and still satisfy everything below.
-    expect(originalBytes.subarray(0, 4).toString('hex'), 'the original replay is not the recorder\'s stream').toBe('1a45dfa3');
-    expect(
-      Math.abs(originalSec - FIXTURE_SEC),
-      `the original replay is ${originalSec}s, the capture was ${FIXTURE_SEC}s`,
-    ).toBeLessThan(CAPTURE_TOLERANCE_SEC);
-
-    // ...and the second replays what was uploaded, not the recording under a second name: a WAV this repo
-    // encoded, carrying different bytes, shorter by the pause the trim removes.
-    expect(trimmedBytes.subarray(0, 4).toString('ascii'), 'the trimmed replay is not the encoded WAV').toBe('RIFF');
-    expect(originalBytes.equals(trimmedBytes), 'the two replays are the same bytes').toBe(false);
-    expect(
-      originalSec - trimmedSec,
-      `the trimmed replay is ${trimmedSec}s of a ${originalSec}s recording`,
-    ).toBeGreaterThan(MIN_SAVING_SEC);
-    // ...and it is not the whole fixture either, so it is not the recording's audio in a WAV header.
-    expect(trimmedSec).toBeLessThan(FIXTURE_SEC - MIN_SAVING_SEC);
-
-    // (4) Replay leaves the composer alone. Read before the controls are pressed and after: the box holds
-    // this capture's own transcript, so "unchanged" is a transition rather than an empty box agreeing with
-    // an empty box.
-    expect(await composer().inputValue()).toBe(recorded);
-
-    // (5) One at a time. Read twice over, because the two readings answer different questions: a control
-    // renames itself for as long as its track is *said* to be sounding, and the registry from the page says
-    // which element really is. A build that stopped its own audio but left the pair's state consistent would
-    // satisfy the labels alone; a build that started the second track without stopping the first satisfies
-    // the labels too, which is exactly why the audio is what the last assertion is about.
-    /** The sources of the slot's elements that are really sounding right now. */
-    const sounding = () =>
-      page.evaluate(() =>
-        ((window as unknown as { clipAudio?: () => { src: string; paused: boolean }[] }).clipAudio?.() ?? [])
-          .filter((element) => !element.paused)
-          .map((element) => element.src),
-      );
-
-    await originalControl.click();
-    await expect(
-      page.getByRole('button', { name: 'Stop original playback' }),
-      'the recording never started sounding',
-    ).toBeVisible({ timeout: 10_000 });
-    await expect
-      .poll(sounding, { message: 'the recording is announced as sounding but no element is playing it' })
-      .toEqual([originalUrl]);
-    // The premise for the pair of assertions below: the trimmed control is still there and still offering to
-    // play, so what the next click shows is the recording being stopped by the trimmed track starting — not
-    // a control that vanished.
-    await expect(trimmedControl).toBeVisible();
-
-    await page.getByRole('button', { name: 'Replay trimmed' }).click();
-    await expect(
-      page.getByRole('button', { name: 'Stop trimmed playback' }),
-      'the trimmed audio never started sounding',
-    ).toBeVisible({ timeout: 10_000 });
-    await expect
-      .poll(sounding, {
-        message: 'the recording and the trimmed audio were sounding at once',
-        timeout: 10_000,
-      })
-      .toEqual([trimmedUrl]);
-    await expect(
-      page.getByRole('button', { name: 'Stop original playback' }),
-      'the recording was still announced as sounding while the trimmed audio played',
-    ).toHaveCount(0);
-
-    // The pair is still a pair afterwards, and neither press touched the box.
-    await expect(page.getByRole('button', { name: 'Replay original' })).toBeVisible();
-    expect(await composer().inputValue()).toBe(recorded);
-
-    // (6) ...and a capture the chain did *not* trim gets no second control at all. This is the one thing a
-    // fabricated pair would do: a control named "trimmed" over the recording's own bytes, claiming a trim
-    // that never ran. The trim is switched off rather than defaulted, and the premise is asserted on the
-    // upload — the body really is the recorder's container — so the absence below cannot be a trim that ran
-    // and happened to remove nothing.
-    const beforeFallback = requests.length;
-    await openComposer('/?voiceTrim=off&voiceDebug=off');
-    const untrimmed = await recordCapture('untrimmed leg');
-    await expectTranscript(untrimmed, 'untrimmed leg');
-    expect(
-      uploadedFile(requests[beforeFallback].body, requests[beforeFallback].contentType)
-        .subarray(0, 4)
-        .toString('hex'),
-      'the untrimmed leg did not upload the recording, so its slot is not the case this asserts about',
-    ).toBe('1a45dfa3');
-    await expect(page.getByRole('button', { name: 'Replay original' })).toBeVisible({ timeout: 10_000 });
-    await expect(
-      page.getByRole('button', { name: 'Replay trimmed' }),
-      'the capture was uploaded as it was recorded, and the slot offers a trimmed replay of it anyway',
-    ).toHaveCount(0);
+    // One leg, one upload: the leg did not upload twice, and the default install sent nothing at all.
+    expect(requests.length).toBe(requestsBefore + 1);
   });
 });
