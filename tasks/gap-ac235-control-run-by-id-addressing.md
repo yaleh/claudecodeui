@@ -80,4 +80,5 @@ AC-235（GOAL-019 退出条件 6；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3�
 - server/modules/websocket/services/chat-run-registry.service.ts
 - server/modules/websocket/tests/chat-run-by-id.test.ts (new)
 - server/modules/websocket/tests/chat-control-busy.test.ts
+- server/modules/debug-agent/tests/debug-agent-control-queue.test.ts
 - tasks/gap-ac235-control-run-by-id-addressing.md
