@@ -4,7 +4,7 @@ title: AC-229 令牌设置页文案在全部 12 种语言里齐全：判据
   src/modules/settings/tests/i18nAccessTokensCompleteness.test.ts 遍历
   locales/*/settings.json 的 glob，accessTokens 必需键 + 与 en 键集合完全一致 +
   正例对照，取假形态两条（删键/值=键名）必须红
-status: todo
+status: ready
 labels:
   - gap
 parent: null
