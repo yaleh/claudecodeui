@@ -21,11 +21,8 @@ import {
   type VoiceUsage,
 } from '@/modules/chat/utils/voiceLiveReading';
 import { voicePlayer } from '@/modules/chat/utils/voicePlayer';
-import {
-  VOICE_FRAME_PROCESSOR_NAME,
-  voiceFrameProcessorUrl,
-  type VoiceFrameMessage,
-} from '@/modules/chat/audio/voiceFrameProcessor';
+import { VOICE_FRAME_PROCESSOR_NAME, type VoiceFrameMessage } from '@/modules/chat/audio/voiceFrameProcessor';
+import { voiceFrameProcessorUrl } from '@/modules/chat/audio/voiceFrameProcessorUrl';
 import { effectivePauseCuesDeclaration, transcribeVoice } from '@/shared/api';
 import { identifierFidelity } from '@/shared/identifierFidelity';
 import { repairIdentifiers } from '@/shared/identifierRepair';
