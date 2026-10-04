@@ -248,6 +248,17 @@ const projectRow = (page: Page) =>
     .first();
 
 /**
+ * How long the sidebar is given to draw the seeded project before the composer is opened.
+ *
+ * The row appears only once the client has booted and answered its own project listing, and a loaded host
+ * pushes that past the fixed five seconds the click here used to carry: the click then timed out, the
+ * failure was swallowed, and the retry loop behind it spent what was left of the case on a row that was
+ * never on screen. This budget is chosen under the criterion's own ceilings — the gate kills the run at
+ * 60s and the config's watchdog at 55s — so a slow sidebar is waited out rather than given up on.
+ */
+const PROJECT_ROW_READY_MS = 20_000;
+
+/**
  * Opens a composer bound to the seeded project, through the app's own "New Session" entry point.
  *
  * The composer only renders once a project is selected, and this run seeds more than one project, so the
@@ -256,6 +267,13 @@ const projectRow = (page: Page) =>
  */
 const openComposer = async (page: Page) => {
   const textarea = composer(page);
+  const row = projectRow(page);
+  const newSession = page.getByRole('button', { name: 'New Session' }).first();
+
+  // Wait for the row to be on screen, then click it with no fixed sub-deadline of its own: the case's own
+  // budget is the bound, so a row that is merely late is waited for instead of being abandoned after 5s.
+  await expect(row).toBeVisible({ timeout: PROJECT_ROW_READY_MS }).catch(() => undefined);
+
   for (let attempt = 0; attempt < 5; attempt += 1) {
     if (await textarea.isVisible().catch(() => false)) return;
 
@@ -267,9 +285,8 @@ const openComposer = async (page: Page) => {
       }
     }
 
-    const newSession = page.getByRole('button', { name: 'New Session' }).first();
     if (!(await newSession.isVisible().catch(() => false))) {
-      await projectRow(page).click({ timeout: 5_000 }).catch(() => undefined);
+      await row.click().catch(() => undefined);
       await page.waitForTimeout(500);
     }
     if (await newSession.isVisible().catch(() => false)) {
@@ -306,6 +323,11 @@ const openResidentComposer = async (page: Page, { switchOn }: { switchOn: boolea
 };
 
 test.describe.configure({ mode: 'serial' });
+// Each of the two cases gets an explicit budget of its own. It sits above the two `waitFor*` budgets (20s each)
+// so it never pre-empts a legitimate wait, and below both the criterion's 60s gate and the config's 55s run
+// watchdog so a case that outruns either fails while naming itself rather than being killed from outside — the
+// default per-case budget is the 60s the gate also uses, which no case can ever reach before being killed.
+test.describe.configure({ timeout: 45_000 });
 
 test.beforeAll(async ({ browser }) => {
   // Onboarding is the expensive part of a fresh database and only happens once for the file.
