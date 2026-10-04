@@ -55,6 +55,7 @@ type SessionUpsertedEvent = ServerEvent & {
   sessionId?: string;
   provider?: LLMProvider;
   session?: ProjectSession;
+  project?: { projectId: string; displayName: string } | null;
 };
 
 type UseSidebarControllerArgs = {
@@ -370,16 +371,69 @@ export function useSidebarController({
       const index = previous.findIndex(
         (conversation) => conversation.sessionId === upsert.sessionId,
       );
-      // A session the Conversations list is not showing leaves it untouched
-      // (the event never inserts a row), and an unchanged title must keep the
-      // previous array so an unrelated background upsert does not re-render.
-      if (index < 0 || previous[index].sessionTitle === title) {
+      const byRecency = (a: RecentConversationListItem, b: RecentConversationListItem) => {
+        const left = Date.parse(a.lastActivity ?? '');
+        const right = Date.parse(b.lastActivity ?? '');
+        return (Number.isFinite(right) ? right : 0) - (Number.isFinite(left) ? left : 0);
+      };
+
+      if (index < 0) {
+        // A session created while this list was already loaded (New Session →
+        // first message) is in no page the list holds. The delta carries the
+        // project, so insert the row and let recency place it. Without a project
+        // identity the row cannot be opened, so it is left for the next reload.
+        if (!upsert.project || !upsert.provider) {
+          return previous;
+        }
+
+        const inserted = [
+          ...previous,
+          {
+            sessionId: upsert.sessionId as string,
+            provider: upsert.provider,
+            projectId: upsert.project.projectId,
+            projectDisplayName: upsert.project.displayName,
+            sessionTitle: title,
+            lastActivity: upsert.session?.lastActivity ?? new Date().toISOString(),
+            forkedFromSessionId: null,
+          } satisfies RecentConversationListItem,
+        ].sort(byRecency);
+
+        // A full page whose newest-sorted slot is the tail means the row belongs
+        // to a page not loaded yet; load-more will bring it in.
+        if (previous.length >= 40 && inserted[inserted.length - 1].sessionId === upsert.sessionId) {
+          return previous;
+        }
+        return inserted;
+      }
+
+      // Input/output in a session bumps its `lastActivity` on the server; take
+      // it only when it moves forward so a stale delta never rewinds a row.
+      const incomingActivity = upsert.session?.lastActivity;
+      const incomingTime = incomingActivity ? Date.parse(String(incomingActivity)) : Number.NaN;
+      const currentTimeValue = Date.parse(previous[index].lastActivity ?? '');
+      const activityAdvanced = Number.isFinite(incomingTime)
+        && (!Number.isFinite(currentTimeValue) || incomingTime > currentTimeValue);
+
+      // An unchanged title and activity must keep the previous array so an unrelated upsert does not re-render.
+      if (previous[index].sessionTitle === title && !activityAdvanced) {
         return previous;
       }
 
       const next = [...previous];
-      next[index] = { ...next[index], sessionTitle: title };
-      return next;
+      next[index] = {
+        ...next[index],
+        sessionTitle: title,
+        ...(activityAdvanced ? { lastActivity: String(incomingActivity) } : {}),
+      };
+
+      if (!activityAdvanced) {
+        return next;
+      }
+
+      // The list is ordered by recency, so a row that just moved forward goes
+      // to its sorted place. Stable sort keeps rows with equal times in order.
+      return next.sort(byRecency);
     });
   }), [subscribe]);
 
@@ -1160,7 +1214,8 @@ export function useSidebarController({
     archivedSessionsCount: archivedProjects.length + archivedSessions.length,
     isArchivedSessionsLoading,
     recentConversations,
-    recentConversationsTotal,
+    // A row inserted from a live event is not in the server total yet, so never read lower than the rows shown.
+    recentConversationsTotal: Math.max(recentConversationsTotal, recentConversations.length),
     recentConversationsHasMore,
     isRecentConversationsLoading,
     isLoadingMoreRecentConversations,

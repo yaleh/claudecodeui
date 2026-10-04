@@ -31,13 +31,13 @@ extra:
 
 ## AC
 
-- [ ] AC1 终态转换恰好一次：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-activity-task-reducer.test.ts` 退出 0；新增例子给定 `task_started` 后依次喂 `task_updated{completed}`、同一 `task_notification{completed}`、再重放整段序列，终态转换回调**只触发 1 次**。
-- [ ] AC2 四类终态来源都有一行：新增例子分别驱动 `task_notification(completed|failed|stopped)`、`task_updated{status:'completed'}`（无通知行）、`task_updated{status:'killed'}`、Stop hook 快照使 running 任务变 `ended`，每一类各产生 1 条转换，且 `to` 分别为 `completed | failed | stopped | stopped | ended`。
-- [ ] AC3 帧真的下发且可回放：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-runtime-frame-forwarding.test.ts` 退出 0；新增例子里任务进入终态后 writer 收到一条 `kind:'task_notification'` 帧，带稳定 id 与 `status`；同一 session 重新订阅按 seq 回放时该帧仍在且只有一条。
-- [ ] AC4 不与 CLI 通知行重复：新增例子对一个后台子代理（CLI 会写 `<task-notification>` 用户行）与一个后台 Bash（不会写）各走一遍，转写投影后前者终态只有 1 行、后者终态也只有 1 行；选定的去重方式写进完成记录。
-- [ ] AC5 不破坏兄弟：`npx vitest run src/modules/chat/tests/useChatMessages.test.ts` 与 AC-200 的折叠相关测试保持绿；`server/modules/providers/tests/claude-activity-lease-parity.test.ts` 保持绿（租约推导不受影响）。
-- [ ] AC6 负控制有分辨力：把「只在非终态→终态时触发」临时改成「每次终态帧都触发」，AC1 的重放例子必须红；打印改前绿、改后红两次读数。
-- [ ] AC7 契约面：`npm run lint` 与 `npm run typecheck` 退出 0；`git diff --stat develop...HEAD` 与 Touches 逐条对齐。
+- [x] AC1 终态转换恰好一次：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-activity-task-reducer.test.ts` 退出 0；新增例子给定 `task_started` 后依次喂 `task_updated{completed}`、同一 `task_notification{completed}`、再重放整段序列，终态转换回调**只触发 1 次**。
+- [x] AC2 四类终态来源都有一行：新增例子分别驱动 `task_notification(completed|failed|stopped)`、`task_updated{status:'completed'}`（无通知行）、`task_updated{status:'killed'}`、Stop hook 快照使 running 任务变 `ended`，每一类各产生 1 条转换，且 `to` 分别为 `completed | failed | stopped | stopped | ended`。
+- [x] AC3 帧真的下发且可回放：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-runtime-frame-forwarding.test.ts` 退出 0；新增例子里任务进入终态后 writer 收到一条 `kind:'task_notification'` 帧，带稳定 id 与 `status`；同一 session 重新订阅按 seq 回放时该帧仍在且只有一条。
+- [x] AC4 不与 CLI 通知行重复：新增例子对一个后台子代理（CLI 会写 `<task-notification>` 用户行）与一个后台 Bash（不会写）各走一遍，转写投影后前者终态只有 1 行、后者终态也只有 1 行；选定的去重方式写进完成记录。
+- [x] AC5 不破坏兄弟：`npx vitest run src/modules/chat/tests/useChatMessages.test.ts` 与 AC-200 的折叠相关测试保持绿；`server/modules/providers/tests/claude-activity-lease-parity.test.ts` 保持绿（租约推导不受影响）。
+- [x] AC6 负控制有分辨力：把「只在非终态→终态时触发」临时改成「每次终态帧都触发」，AC1 的重放例子必须红；打印改前绿、改后红两次读数。
+- [x] AC7 契约面：`npm run lint` 与 `npm run typecheck` 退出 0；`git diff --stat develop...HEAD` 与 Touches 逐条对齐。
 
 ## DoD
 
@@ -54,3 +54,22 @@ extra:
 - server/modules/providers/tests/claude-activity-task-reducer.test.ts
 - server/modules/providers/tests/claude-runtime-frame-forwarding.test.ts
 - tasks/gap-task-terminal-transition-transcript-row.md
+
+## 完成记录
+
+**取证（Plan 步骤 1 的四类终态来源读数，由判据打印）。** 每类来源驱动一个各自的 task，读数取自 AC2 例子的 `[task-reducer] AC2 …` 行：
+- `task_notification{completed}` → 1 条转换，`to=completed`；`{failed}` → `failed`；`{stopped}` → `stopped`。
+- `task_updated{status:'completed'}`（后台 Bash 的结束形态，**无**通知帧、CLI 也不写用户行）→ 1 条转换，`to=completed`。这正是本任务要补的那一行。
+- `task_updated{status:'killed'}` → 1 条转换，`to=stopped`。
+- Stop hook 快照令 running 任务消失 → 1 条转换，`to=ended`；快照**直接补录**的终态任务不报（0 条，见 AC2 例子里 `ac2-backfilled` 读数）。
+- 重放整段序列（含 task_started 重放、两次终态帧）后 `onTaskTerminal` 仍只触发 1 次（AC1 打印 `fired 1 time(s)`）。
+
+**去重策略（难点 ② 的选定：按 kind 不发）。** 实测/案卷结论：CLI 会为 **子代理、workflow、Monitor** 各排队写一条 `<task-notification>` 用户行（客户端 `parseTaskNotification` 已把它画成通知行），而后台 shell（`local_bash`）不写。因此服务端只为「CLI 不会替它写行」的 kind 发帧，`subagent` / `workflow` / `monitor` 一律不发。实现即 `claude-runtime.provider.ts` 的 `CLI_NOTIFIED_TASK_KINDS`。AC4 读数：子代理投影后 **1 行**（CLI 1 + 服务端 0），后台 Bash 投影后 **1 行**（CLI 0 + 服务端 1）。Monitor 在帧路径上 SDK 报 `local_bash`（kind 归 `shell`，与后台 Bash 同形），其事件行的去重依赖 CLI 行本身 + AC-200 的折叠；本任务未触及 Monitor 的 kind 判定（不在 Touches），完成记录在此如实标注该边界。
+
+**下发与回放（难点 ③）。** 帧经 `forwardNormalizedFrames` 的同一个 writer 下发（在归一化帧之后），因此带上网关的 `seq` 并进入 `chatRunRegistry` 的 replay buffer；id 稳定为 `task-terminal:<taskId>:<to>`，并盖 `taskId` 供转写行与任务表按 id 对齐。AC3 读数：replay 里 `task_notification` 帧 **1 条**，重新订阅后仍为同一条、同 id。
+
+**负控制（AC6，两次读数）。** 改前（主）：`onTaskTerminal` 触发 **1** 次（绿）；改后（`terminalOnEveryFrame`，每次终态帧都触发）：触发 **5** 次，套用 AC1 的「等于 1」断言即红。两次读数都由测试打印。
+
+**契约面（AC7）。** `npm run lint`、`npm run typecheck` 退出 0；`git diff --stat develop...HEAD` 恰为 Touches 内的 5 个代码文件（+ 本任务文件）。客户端未改（Touches 不含客户端文件），`useChatMessages.ts` 现有 `case 'task_notification'` 分支按 `status` 渲染，ended/failed/stopped 落入琥珀色点、completed 落绿色点，无需改动。
+
+**未落地/边界。** Stop hook 的 `ended` 转换在 reducer 层已产生并判据覆盖，但 resident 路径的 Stop hook 对账（`reconcileSessionHeldWork`）发生在 host driver 内、该处没有 writer 且 `claude-host-driver.provider.ts` 不在本任务 Touches，故本任务未把 `ended` 帧接到 resident 的 writer 上；DoD 列举的三例（后台 Bash 结束、子代理结束、坞停 Monitor）均由 `forwardNormalizedFrames` 帧路径覆盖。

@@ -290,8 +290,8 @@ test('an upsert for a session neither surface lists changes nothing', async () =
     session: { id: 's-not-listed', summary: 'Some other session' },
   } as ServerEvent);
 
-  // The event never inserts a row, so both stores keep their identity and the
-  // names on screen are untouched.
+  // The event names no project, so there is nothing to build a row from: both
+  // stores keep their identity and the names on screen are untouched.
   assert.equal(store().recentConversations, recentBefore);
   assert.equal(store().archivedSessions, archivedBefore);
   assert.equal(store().recentConversations[0].sessionTitle, 'Old recent name');
@@ -314,4 +314,61 @@ test('an upsert for a listed session renames its Conversations row without re-li
   assert.equal(store().recentConversations[0].sessionTitle, 'Renamed elsewhere');
   assert.match(getByTestId('recent-conversation-row').textContent ?? '', /Renamed elsewhere/);
   assert.equal(apiMock.recentConversations.mock.calls.length, fetchesBefore);
+});
+
+test('an upsert with newer activity updates the row time and moves it to the top', async () => {
+  await mountSidebar();
+
+  const olderRow: RecentConversationListItem = {
+    ...RECENT_ROW,
+    sessionId: 's-older',
+    sessionTitle: 'Older',
+    lastActivity: '2026-08-21T09:00:00.000Z',
+  };
+  apiMock.recentConversations.mockResolvedValue(
+    json({ data: { conversations: [olderRow, RECENT_ROW], total: 2, hasMore: false } }),
+  );
+  await act(async () => {
+    store().reloadRecentConversations();
+  });
+  await waitFor(() => assert.equal(store().recentConversations.length, 2));
+  assert.equal(store().recentConversations[0].sessionId, 's-older');
+
+  emit({
+    kind: 'session_upserted',
+    sessionId: 's-recent',
+    provider: 'claude',
+    session: { id: 's-recent', summary: 'Old recent name', lastActivity: '2026-08-21T09:59:00.000Z' },
+  } as ServerEvent);
+
+  assert.equal(store().recentConversations[0].sessionId, 's-recent');
+  assert.equal(store().recentConversations[0].lastActivity, '2026-08-21T09:59:00.000Z');
+
+  // A stale delta must not rewind the row.
+  const before = store().recentConversations;
+  emit({
+    kind: 'session_upserted',
+    sessionId: 's-recent',
+    provider: 'claude',
+    session: { id: 's-recent', summary: 'Old recent name', lastActivity: '2026-08-21T08:00:00.000Z' },
+  } as ServerEvent);
+  assert.equal(store().recentConversations, before);
+});
+
+test('an upsert for a session created after the list loaded inserts its row at the top', async () => {
+  const { getByTestId } = await mountSidebar();
+
+  emit({
+    kind: 'session_upserted',
+    sessionId: 's-new',
+    provider: 'claude',
+    session: { id: 's-new', summary: 'Brand new', lastActivity: '2026-08-21T09:59:30.000Z' },
+    project: { projectId: 'project-1', displayName: 'project one' },
+  } as ServerEvent);
+
+  assert.equal(store().recentConversations.length, 2);
+  assert.equal(store().recentConversations[0].sessionId, 's-new');
+  assert.equal(store().recentConversations[0].projectId, 'project-1');
+  assert.equal(store().recentConversationsTotal, 2);
+  assert.match(getByTestId('recent-conversations-list').textContent ?? '', /Brand new/);
 });
