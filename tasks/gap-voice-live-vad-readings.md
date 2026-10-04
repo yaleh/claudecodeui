@@ -1,7 +1,7 @@
 ---
 id: gap-voice-live-vad-readings
 title: 连续语音输入的开发者读数：每次输入的前后对照（录音/实发时长、段数、强制切、首字延迟）与 voiceVad=off 的 A/B
-status: ready
+status: done
 labels:
   - gap
 parent: null
