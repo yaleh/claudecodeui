@@ -88,3 +88,27 @@ goal_ac: AC-201
 - scripts/activity-dock-human-gate.mjs
 - scripts/activity-dock-human-gate.test.mjs
 - tasks/gap-activity-dock-background-human-gate.md
+
+## 完成记录（续，2026-10-04）
+
+**人证已落笔 —— 本轮不是代写，也不是执行者判定通过。**
+
+AC-201 的验收行已由人 yale 写下：`docs/proposals/claude-session-activity-dock.md` §12 末行为 `- 人工验收 GOAL-015：accepted yale 2026-10-04`（行首即判据所数的那一行），经本会话人授权、落于 commit `351066f6`（`docs(activity-dock): record the GOAL-015 human acceptance (AC-201)`），已在 author 与 develop 上。执行者只是复验这条记录，没有写它 —— AC6 的机械读数仍在：`scripts/activity-dock-human-gate.mjs` 里 `writeFile|appendFile|createWriteStream|writeSync` 命中 **0**。
+
+同一 commit 把护栏判据里 GOAL-015 的同形用例从「钉死 `人证行：absent`」改为「读文件真实内容、要求判词与之一致」—— 它钉死的那一态只在关卡未验收时为真，人一落笔即恒红；分辨力不变（absent / present / 模板泄漏三态由样本用例逐个构造，AC4 的正控制照旧）。§12.4 另有一段执行记录如实分列四步各自的依据：第 1–2 步在真实 resident 会话的隔离部署上实读；第 3 步（停止 Monitor）本轮实测发现当时该路径是**惰性的**，据此立案并已修复（`stopTask` 现记 `true`，实测约 1.0s 由 SDK 通知变为 `stopped`）；第 4 步已按人裁定**改写为「读能力处置」**（`backgroundTasks` 仍为 `false` ⇒ 控件应不可点并给出原因），不再是「真的转后台」。
+
+**AC1 为什么仍然勾着、终态为什么是 done 而不是 needs-human**
+
+AC1 断的是**交付时**的读数（取数树 `ca7f50e7`：`grep -c` = 0、判据 exit 1），DoD 原文也逐字写着「人未验收时判据为红，这是**正确的当前态**」。DoD 的终态条款本身是**有条件的**：「**AC1 保持红**、AC2–AC7 绿时，本任务的正确终态是 needs-human，不是 done」。人验收之后这个条件不再成立 —— 判据自然翻绿（`grep -c` = **1**、判据 exit **0**），正确终态随之由 needs-human 变为 **done**。同族先例 `tasks/gap-activity-dock-human-gate.md`（AC-190）与本条同形：人证落笔后同样保持 AC1 勾选、并追加一段「完成记录（续）」说明后转 done。
+
+**本轮逐条读数（直跑，非推断）**
+
+- AC1：`grep -c '^- 人工验收 GOAL-015：accepted' docs/proposals/claude-session-activity-dock.md` → **1**（人写的），判据 exit **0**。交付时该读数为 0、exit 1（§12.1 的红态基线）。
+- AC2：`node scripts/activity-dock-human-gate.mjs --gate goal015 --check-record docs/proposals/claude-session-activity-dock.md` → exit **0**，逐字 `记录合格：docs/proposals/claude-session-activity-dock.md 人工验收小节齐全且无模板泄漏；人证行：present`。
+- AC3：`node --test scripts/activity-dock-human-gate.test.mjs` → exit **0**，`tests 24 / pass 24 / fail 0`（GOAL-014 组非回归 + GOAL-015 组：缺文件 / 缺小节 / 缺任一项 / 正控制 / absent / present / 行首模板泄漏 / 关卡隔离 / 未知 gate）。
+- AC4：正控制两次读数由测试本体打印 —— 删 §12 样本里「最近动作」一句前 `exit=0`、删后 `exit=1` 并点名该缺项。
+- AC5：提案 §12.1 逐字五行 —— 取数时本树 sha `ca7f50e7`；四条 sibling（`tasks/gap-activity-dock-background-browser.md` / `tasks/gap-chat-stop-task-event-confirmed.md` / `tasks/gap-chat-background-task-foreground-tooluse.md` / `tasks/gap-ac199-dock-stop-background-controls-browser.md`）均记 `status: done`。
+- AC6：`grep -nE 'writeFile|appendFile|createWriteStream|writeSync' scripts/activity-dock-human-gate.mjs` → **0 命中**（脚本只有 `fs.existsSync` / `fs.readFileSync`，无任何写文件的代码路径）。
+- AC7：`npm run lint` → exit **0**；`npm run typecheck` → exit **0**（含 `scripts/tsconfig.json` 覆盖 `**/*.mjs`）；本轮 `git diff --stat develop...HEAD` 为空 —— 交付物（§12 记录小节、`--gate goal014|goal015` 只读校验器、护栏判据去钉死）均已由 `4deb6f5a`、`351066f6` 落在 develop 上，本分支不再引入新改动，故无越界文件。
+
+**本轮无产品性改动**：交付物已全部在 develop 上（§12 记录小节、一般化的只读校验器 `--gate goal014|goal015`、护栏判据）。本轮只复验并追加本记录，AC-201 的判据因人的验收动作翻绿后，本任务由 mechanically flip 至 done。
