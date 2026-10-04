@@ -567,6 +567,21 @@
 @layer components {
   .chat-messages-pane {
     contain: layout style paint;
+    /* AC-215: the transcript's only scrollbar is the drawn rail (TranscriptTurnRail).
+       Hide the native one WITHOUT disabling scrolling: `overflow: hidden` would drop
+       the wheel, touch and keyboard, so the bar is hidden by width instead of
+       overflow. `scrollbar-width` covers the standard path, the webkit pseudo-element
+       the Chromium one. The right padding reserves the rail's own column (the rail is
+       `right-1 w-4`, i.e. the 20px band at the pane's right edge) so the drawn track
+       never overlaps the last column of text now that hiding the bar has given that
+       column the width the native bar used to take. */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    padding-right: 1.25rem;
+  }
+
+  .chat-messages-pane::-webkit-scrollbar {
+    display: none;
   }
 
   .chat-composer-shell {

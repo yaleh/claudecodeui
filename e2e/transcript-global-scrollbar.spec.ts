@@ -329,6 +329,163 @@ const pointAtPane = async (page: Page) => {
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
 };
 
+// ── AC-215: hiding the native scrollbar ──────────────────────────────────────
+//
+// The pane's native scrollbar is hidden by width (`scrollbar-width: none` plus the
+// webkit pseudo-element) rather than by `overflow: hidden`, so the wheel, touch and
+// keyboard still scroll it. These helpers read the two things the criterion is
+// about: that hiding the bar left no layout behind (so exactly one scrollbar-like
+// control — the drawn rail — remains), and that the drawn track still clears the
+// last column of text now that the column has the width the native bar used to take.
+
+/** The two viewports AC-215 must hold at: a wide desktop and a phone. */
+const AC215_VIEWPORTS = [
+  { name: 'desktop 1440×900', size: { width: 1440, height: 900 } },
+  { name: 'mobile 390×844', size: { width: 390, height: 844 } },
+] as const;
+
+/** Everything one AC-215 reading compares: native bar, drawn track, text column, ARIA. */
+type Clearance = {
+  /** `offsetWidth − clientWidth` on the scroll container — the native bar's layout cost. */
+  nativeLayoutPx: number;
+  /** Computed `scrollbar-width` on the container. */
+  scrollbarWidth: string;
+  /** How many drawn tracks exist in the document. */
+  trackCount: number;
+  /** Left edge of the drawn track's box. */
+  trackLeft: number;
+  /** Left edge of the drawn thumb's box. */
+  thumbLeft: number;
+  /** Right edge of the content column's *content* box — the furthest right any text can reach. */
+  textRight: number;
+  role: string | null;
+  valueNow: number | null;
+  valueMin: number | null;
+  valueMax: number | null;
+  scrollTop: number;
+  gap: number;
+};
+
+const readClearance = (page: Page): Promise<Clearance> =>
+  page.evaluate(() => {
+    const pane = document.querySelector('.chat-messages-pane') as HTMLElement;
+    const track = document.querySelector('[data-scrollbar-track]') as HTMLElement | null;
+    const thumb = document.querySelector('[data-scrollbar-thumb]') as HTMLElement | null;
+    // The content column is the pane's last child; text lives inside its content
+    // box, so its right edge minus its own padding is the last place text can reach.
+    const content = pane.lastElementChild as HTMLElement | null;
+    const contentBox = content?.getBoundingClientRect();
+    const contentPadRight = content ? Number.parseFloat(getComputedStyle(content).paddingRight) || 0 : 0;
+    const trackBox = track?.getBoundingClientRect();
+    const thumbBox = thumb?.getBoundingClientRect();
+    const num = (el: HTMLElement | null, attr: string): number | null => {
+      const raw = el?.getAttribute(attr);
+      return raw == null ? null : Number(raw);
+    };
+    return {
+      nativeLayoutPx: pane.offsetWidth - pane.clientWidth,
+      scrollbarWidth: getComputedStyle(pane).scrollbarWidth,
+      trackCount: document.querySelectorAll('[data-scrollbar-track]').length,
+      trackLeft: trackBox ? trackBox.left : Number.NaN,
+      thumbLeft: thumbBox ? thumbBox.left : Number.NaN,
+      textRight: contentBox ? contentBox.right - contentPadRight : Number.NaN,
+      role: thumb?.getAttribute('role') ?? null,
+      valueNow: num(thumb, 'aria-valuenow'),
+      valueMin: num(thumb, 'aria-valuemin'),
+      valueMax: num(thumb, 'aria-valuemax'),
+      scrollTop: pane.scrollTop,
+      gap: pane.scrollHeight - pane.scrollTop - pane.clientHeight,
+    };
+  });
+
+/** Pins the transcript to the bottom of whatever window is loaded, and waits for it to settle. */
+const pinToBottom = async (page: Page) => {
+  await page.evaluate(() => {
+    const pane = document.querySelector('.chat-messages-pane') as HTMLElement;
+    pane.scrollTop = pane.scrollHeight;
+  });
+  return waitForSettledPane(page);
+};
+
+/** The pane's current offset, read on its own so a before/after comparison needs no geometry. */
+const readScrollTop = (page: Page): Promise<number> =>
+  page.evaluate(() => (document.querySelector('.chat-messages-pane') as HTMLElement).scrollTop);
+
+/**
+ * Grows the transcript's last in-flow row in place by `delta` px — the criterion's
+ * "就地长高" injection — and reports the content column's height on both sides.
+ * The tail of the column is where the newest row sits, so this is growth at the
+ * bottom of the transcript, which is exactly what the follow must answer for.
+ */
+const growTranscriptTail = (page: Page, delta: number): Promise<{ before: number; after: number }> =>
+  page.evaluate((d) => {
+    const pane = document.querySelector('.chat-messages-pane') as HTMLElement;
+    const content = pane.lastElementChild as HTMLElement;
+    const row = (content.lastElementChild as HTMLElement | null) ?? content;
+    const before = content.getBoundingClientRect().height;
+    row.style.minHeight = `${row.getBoundingClientRect().height + d}px`;
+    return { before, after: content.getBoundingClientRect().height };
+  }, delta);
+
+/** A CDP session for the page, for the real touch gestures below. */
+const openCdp = (page: Page) => page.context().newCDPSession(page);
+
+/**
+ * A real touch scroll over the transcript: a finger press, a drag down the pane,
+ * and a release, dispatched through Chromium's own input pipeline. Dragging the
+ * finger down moves the content down, which is the gesture that reveals older
+ * turns — i.e. it must lower `scrollTop`.
+ */
+const touchScrollPane = async (page: Page, yDelta: number) => {
+  const box = await page.locator(PANE).boundingBox();
+  if (!box) throw new Error('the transcript pane has no box for a touch gesture');
+  const cdp = await openCdp(page);
+  const x = Math.round(box.x + box.width / 2);
+  const yStart = Math.round(box.y + box.height * 0.3);
+  const steps = 10;
+  try {
+    await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y: yStart }] });
+    for (let step = 1; step <= steps; step += 1) {
+      await cdp.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [{ x, y: yStart + Math.round((yDelta * step) / steps) }],
+      });
+      await page.waitForTimeout(16);
+    }
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  } finally {
+    await cdp.detach();
+  }
+};
+
+/**
+ * A real touch drag on the drawn thumb: touchStart on it, move by `yDelta`, release.
+ * The thumb carries `touch-action: none`, so this is a drag of the control, not a
+ * scroll of the pane under it.
+ */
+const touchDragThumb = async (page: Page, yDelta: number) => {
+  const box = await page.locator('[data-scrollbar-thumb]').boundingBox();
+  if (!box) throw new Error('the drawn thumb has no box to touch-drag');
+  const cdp = await openCdp(page);
+  const x = Math.round(box.x + box.width / 2);
+  const yStart = Math.round(box.y + box.height / 2);
+  try {
+    await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y: yStart }] });
+    for (let step = 1; step <= 8; step += 1) {
+      await cdp.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [{ x, y: yStart + Math.round((yDelta * step) / 8) }],
+      });
+      await page.waitForTimeout(20);
+    }
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  } finally {
+    await cdp.detach();
+  }
+};
+
 test.describe.configure({ mode: 'serial', timeout: 240_000 });
 
 test.describe('drawn global scrollbar in a real browser', () => {
@@ -596,5 +753,114 @@ test.describe('drawn global scrollbar in a real browser', () => {
     await expect
       .poll(async () => (await readThumb(page)).progress, { timeout: 10_000, message: 'ArrowUp must move the thumb' })
       .toBeLessThan(pageDown.progress);
+  });
+
+  test('AC-215 the native scrollbar is hidden and the drawn rail is the only scrollbar, at two viewports', async () => {
+    for (const viewport of AC215_VIEWPORTS) {
+      await page.setViewportSize(viewport.size);
+      await pinToBottom(page);
+
+      // ── (a) the native bar leaves no layout, and the drawn rail is the one scrollbar ──
+      const clearance = await readClearance(page);
+      const reading = JSON.stringify(clearance);
+      expect(
+        clearance.nativeLayoutPx,
+        `the native scrollbar must not take layout at ${viewport.name}: ${reading}`,
+      ).toBe(0);
+      expect(
+        clearance.scrollbarWidth,
+        `the container must carry scrollbar-width: none at ${viewport.name}: ${reading}`,
+      ).toBe('none');
+      expect(clearance.trackCount, `exactly one drawn track is the only scrollbar-like control: ${reading}`).toBe(1);
+
+      // ── (d) the drawn track must not cover the last column of text ──
+      expect(
+        clearance.trackLeft,
+        `the drawn track must clear the text column at ${viewport.name}: ${reading}`,
+      ).toBeGreaterThanOrEqual(clearance.textRight);
+      expect(
+        clearance.thumbLeft,
+        `the drawn thumb must clear the text column at ${viewport.name}: ${reading}`,
+      ).toBeGreaterThanOrEqual(clearance.textRight);
+
+      // ── (d) the thumb is a scrollbar to assistive tech, with a full ARIA range ──
+      expect(clearance.role, `the thumb must be a scrollbar: ${reading}`).toBe('scrollbar');
+      expect(clearance.valueMin, `aria-valuemin: ${reading}`).toBe(0);
+      expect(clearance.valueMax, `aria-valuemax: ${reading}`).toBe(100);
+      expect(clearance.valueNow, `aria-valuenow must read a position: ${reading}`).not.toBeNull();
+
+      // ── (b) a wheel still scrolls the pane ──
+      await pointAtPane(page);
+      const beforeWheel = await readScrollTop(page);
+      await page.mouse.wheel(0, -400);
+      await expect
+        .poll(() => readScrollTop(page), { timeout: 5_000, message: `a wheel must still scroll the pane at ${viewport.name}` })
+        .toBeLessThan(beforeWheel);
+
+      // ── (b) the keyboard still scrolls the pane ──
+      await page.locator(PANE).focus();
+      const beforeKey = await readScrollTop(page);
+      await page.keyboard.press('PageUp');
+      await expect
+        .poll(() => readScrollTop(page), { timeout: 5_000, message: `PageUp must still scroll the pane at ${viewport.name}` })
+        .toBeLessThan(beforeKey);
+
+      // ── (c) at the tail, growing the last row ~400px keeps the bottom pinned ──
+      await pinToBottom(page);
+      const tailGrowth = await growTranscriptTail(page, 400);
+      expect(
+        tailGrowth.after - tailGrowth.before,
+        `the injected growth must be at least 400px at ${viewport.name}: ${JSON.stringify(tailGrowth)}`,
+      ).toBeGreaterThanOrEqual(400);
+      await expect
+        .poll(async () => (await readClearance(page)).gap, {
+          timeout: 5_000,
+          message: `the tail must stay pinned after the last row grows at ${viewport.name}`,
+        })
+        .toBeLessThanOrEqual(1);
+
+      // ── (c) leaving the bottom: the same growth must not move scrollTop ──
+      await pointAtPane(page);
+      await page.mouse.wheel(0, -300);
+      await expect
+        .poll(async () => (await readClearance(page)).gap, {
+          timeout: 5_000,
+          message: `a wheel up must leave the bottom at ${viewport.name}`,
+        })
+        .toBeGreaterThan(1);
+      const leftAt = await readScrollTop(page);
+      const awayGrowth = await growTranscriptTail(page, 400);
+      expect(
+        awayGrowth.after - awayGrowth.before,
+        `the second injected growth must be at least 400px at ${viewport.name}: ${JSON.stringify(awayGrowth)}`,
+      ).toBeGreaterThanOrEqual(400);
+      await page.waitForTimeout(400);
+      const stayedAt = await readScrollTop(page);
+      expect(
+        Math.abs(stayedAt - leftAt),
+        `growth below a viewport that left the bottom must not move scrollTop at ${viewport.name}: left=${leftAt} stayed=${stayedAt}`,
+      ).toBeLessThanOrEqual(1);
+
+      if (viewport.name.startsWith('mobile')) {
+        // ── (b) a real touch swipe still scrolls the pane ──
+        await pinToBottom(page);
+        const beforeTouch = await readScrollTop(page);
+        await touchScrollPane(page, 300);
+        await expect
+          .poll(() => readScrollTop(page), { timeout: 5_000, message: 'a touch swipe must still scroll the pane' })
+          .toBeLessThan(beforeTouch);
+
+        // ── (d) narrow, no hover: the drawn thumb is still touch-draggable ──
+        await pinToBottom(page);
+        const beforeDrag = await readClearance(page);
+        await touchDragThumb(page, -160);
+        await expect
+          .poll(async () => (await readClearance(page)).valueNow, {
+            timeout: 5_000,
+            message: 'a touch drag must move the drawn thumb',
+          })
+          .toBeLessThan(beforeDrag.valueNow!);
+      }
+    }
   });
 });
