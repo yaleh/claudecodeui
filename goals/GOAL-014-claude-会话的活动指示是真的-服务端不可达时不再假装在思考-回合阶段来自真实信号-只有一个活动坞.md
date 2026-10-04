@@ -1,7 +1,7 @@
 ---
 id: GOAL-014
 title: Claude 会话的活动指示是真的：服务端不可达时不再假装在思考，回合阶段来自真实信号，只有一个活动坞
-status: active
+status: achieved
 kind: goal
 origin: docs/proposals/claude-session-activity-dock.md（0c4ee14a）。人 yale
   2026-10-01 裁定：心跳 5 秒且 15 秒判定不可达；新增控制动词与 cancel-queued 做归属校验；取消计划任务不做控件；历史里的
@@ -14,6 +14,11 @@ statusLog:
     to: active
     actor: human:yale
     reason: 人 yale 指令：激活 GOAL-014
+  - at: 2026-10-04T03:35:51.890Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: all ACs achieved + sufficiency covered"
 ---
 ## 背景
 
