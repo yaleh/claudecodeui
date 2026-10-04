@@ -167,6 +167,13 @@ export type QuayListItem = {
   id: string;
   title: string;
   status: string;
+  /**
+   * The row's last-updated instant as ISO-8601, or `null` when quay reported no
+   * usable timestamp for it. Every one of these lists is ranked by this value, so
+   * the rows render it — the ordering key would otherwise be invisible. `null`
+   * renders as the em-dash placeholder, never as `never`.
+   */
+  updatedAt: string | null;
 };
 
 /** Task counts read from `quay task list --json`; the panel shows the status breakdown. */
