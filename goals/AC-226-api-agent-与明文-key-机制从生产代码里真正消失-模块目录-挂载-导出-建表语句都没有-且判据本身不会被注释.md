@@ -1,7 +1,7 @@
 ---
 id: AC-226
 title: /api/agent 与明文 key 机制从生产代码里真正消失：模块目录、挂载、导出、建表语句都没有，且判据本身不会被注释或说明文字骗过
-status: draft
+status: active
 kind: criterion
 goal: GOAL-018
 criterion: for f in server/modules/oauth/tests/agent-retirement.test.ts; do [ -f
@@ -20,4 +20,15 @@ expect: 读语法树而不是 grep 文本，以免命中注释与退役说明里
   `apiKeysDb` 的导出 ⇒ (c) 必须红；(iii) 保留带 `/api/agent` 的 `api-docs.html` ⇒ (e)
   必须红。（红先行）当前必红：判据文件不存在，存在性闸以退出码 1 输出缺失的文件名。
 origin: docs/proposals/mcp-gateway-SPEC.md（v3）。人 yale 2026-10-05 指令：创建并激活本 goal 及其 AC。
+activatedAt: 2026-10-04T17:19:27.081Z
+statusLog:
+  - at: 2026-10-04T17:19:27.081Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-04T17:19:27.081Z
 ---
