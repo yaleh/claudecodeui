@@ -4,7 +4,7 @@ title: AC-184 判据 2026-10-04T15:27:13.669Z 那拍的红由主检出未提交 
   把这次保存当 HMR 推给正在跑的页面把 ProjectWorkspaceRouteContent 的 React 树打崩（坞的活动订阅随之死掉，分区后
   10s 内读不到 unreachable，红在 :680）——verification-only 归因入档：工作树直跑 14/14 exit
   0；remedy 归该 WIP 作者（勿在判据运行期保存主检出）
-status: ready
+status: done
 labels:
   - gap
   - defect
