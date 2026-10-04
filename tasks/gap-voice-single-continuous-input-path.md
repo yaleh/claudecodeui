@@ -50,9 +50,9 @@ depends_on:
 - [x] 空闲自动停止：`voiceIdleSec` 调到 2，静音下约 2 s 后自行停止，请求数为 0
 - [x] 发送：监听中点发送，等全部段完成后 `onTranscript(text, true)` 恰好被调用一次，文字为全部段按序拼接
 - [x] 回放槽：停止后过滤后的按钮存在；总长超过上限时只有过滤后的按钮（用调小的 `ORIGINAL_CAP_SEC` 覆盖验证）
-- [ ] 已有的语音 e2e（`voice-trim.spec.ts`、`voice-identifier-repair.spec.ts`、`voice-error-messages.spec.ts`、`voice-dashscope-written.spec.ts`）按新路径更新后全部通过，不得以删除断言的方式过关 — **3/4 个 spec 通过**（identifier-repair、error-messages、dashscope-written 已在真实浏览器上单独跑绿；error-messages 的两处改动是「等响应到达再断言状态」与「空回答按 NO_SPEECH_DETECTED 报告」）。**`voice-trim.spec.ts` 在本分支（head `d0c2d49a`）上现测三条腿全红，且不能在不改变其判据含义的前提下通过**：AC-119 exit 1（`untrimmed upload was 1.72s, the fixture is 2.6s` —— 新路径两腿都过滤，裁/不裁的时长差消失）；AC-121 exit 1（`the switch-off leg never printed the unconditional fidelity reading`，`[voice:trim]`/fidelity 读数不再出现）；AC-122 exit 1（`the original replay is not the recorder's stream` —— 原始回放魔数 `52494646`（RIFF/WAV）而非 `1a45dfa3`（WebM），即原始轨不再是 MediaRecorder 流）；AC-120 未跑（serial 模式在 AC-119 失败后跳过）。这三条腿的被测对象（批处理裁剪、`[voice:trim]` 读数、MediaRecorder 原始流）正是本任务按 Proposal 移除的。它们的**标题/断言文本被 5 个已 done 任务的判据钉住**：`gap-asr-trim-capability-wiring` AC2（要求「裁剪开/关配对时长下降」端到端判据保持绿，记录 `4 passed`）、`gap-voice-debug-switch`（`npx playwright test e2e/voice-trim.spec.ts -g "AC-121"` 退出 0）、`gap-e2e-shared-vite-dep-cache-invalidates-inflight-page` AC1（`-g "AC-121"` 退出 0）与 AC6（整文件退出 0）、`gap-voice-clip-dual-playback`（`-g "AC-122"` 退出 0）、`gap-ac122-shared-assembly-starves-leg-budget` AC1（`-g "AC-122"` 退出 0）。落地本任务会让这五条判据静默变红。**这一条需要人工裁定「退役 voice-trim.spec.ts 的哪几条判据、以及如何处置上述五个已 done 任务的判据」，不由 worker 单方面抹掉或改写该 spec。**
+- [ ] **退役并处置（人 yale 2026-10-04 授权）**：按本任务的 Proposal 移除批处理裁剪路径 ⇒ `e2e/voice-trim.spec.ts` 的 **AC-119 / AC-121 / AC-122 三条腿授权退役**（它们测的正是被移除的对象：批处理裁剪、`[voice:trim]` 读数、MediaRecorder 原始流；逐字失败行见 完成记录，三条都不可能在不改判据含义的前提下通过）。退役的同时**必须逐条处置**被它们钉住的五个已 done 任务的判据 —— `gap-asr-trim-capability-wiring` AC2、`gap-voice-debug-switch`（`-g "AC-121"`）、`gap-e2e-shared-vite-dep-cache-invalidates-inflight-page` AC1+AC6、`gap-voice-clip-dual-playback`（`-g "AC-122"`）、`gap-ac122-shared-assembly-starves-leg-budget` AC1 —— 每一条都要在**它自己的记录里**登记「其判据随 AC-119/121/122 一同退役」，给出替代读数或明示不再覆盖；**不得让它们静默变红**。其余 3/4 个既有语音 e2e（`voice-identifier-repair` / `voice-error-messages` / `voice-dashscope-written`）继续绿的要求不变。
 - [x] `grep -n "MediaRecorder\|trimVoiceAudio\|isVoiceTrimEnabled\|prepareUpload" src/modules/chat/hooks/useVoiceInput.ts | wc -l` 的结果为 0
-- [ ] 取假形态（各自必须变红）：按完成顺序而非序号提交文字 → 「第 2 段不早于第 1 段出现」红；把最小段长删掉 → 「短输入请求数恰好 1」红；失败段在输入框里放占位 → 「输入框不含标记」红 — **本轮三个变异已执行**（改被测源码 → 跑目标 e2e → `git checkout` 还原，脚本以 `trap` 兜底）。①「按完成顺序排空 `settled`」→ 红 ✓：`a later segment was committed before the earlier one`，输入框出现 `charlie delta`。③「失败段推入占位」→ 红 ✓：输入框 `alpha bravo [segment 1 failed] echo foxtrot`（断言先落在第 354 行的整值断言，第 357 行「不含标记」随之亦不成立）。②「把最小段长删掉」（hook `minSegmentSec: 0`）→ **绿（`1 passed`），未红**：短输入腿仍通过。成因：短输入夹具（`e2e/voice-continuous.spec.ts` 第 296 行 `__voiceFake.speak(3)`）是一次连续语音、没有任何 ≥ `cutPauseSec`（2.0 s）的停顿，段数由「是否成段」而非最小段长决定 —— 最小段长只在「有停顿可切」时起作用，故该变异在出货夹具上是空操作。**本条不能按字面全绿；需要人工裁定：把②换成一条真正负载的变异（能置「短输入请求数恰好 1」为红），或收窄本条。**
+- [ ] 取假形态（各自必须变红）—— **收窄到实际负载的两个变异**（人 yale 2026-10-04 裁定；原第②条「把最小段长删掉」在出货夹具上是**空操作**：夹具是一次连续语音、无 ≥ `cutPauseSec`(2.0s) 的停顿，段数由「是否成段」决定而非最小段长，故按 `false-form-mutation-must-exercise-the-parameter` **本条不再要求它**）：① 按完成顺序而非序号提交文字 → 「第 2 段不早于第 1 段出现」必须红；③ 失败段在输入框里推占位 → 「输入框不含标记」必须红。两条的变异 diff、逐字失败行与恢复命令逐条记录（上一轮两条均已实测为红，读数见 完成记录）。
 - [x] `npm run lint` 与 `npm run typecheck` 退出码 0
 
 ## Evidence
@@ -102,6 +102,24 @@ L_G 该轴仍暗，理由：质量读数归评估任务，本任务只做链路�
 - e2e/voice-error-messages.spec.ts
 - playwright.config.ts
 - tasks/gap-voice-single-continuous-input-path.md
+
+
+## Resolution
+
+**人 yale 裁定（2026-10-04，经管理者会话下达）—— 本条的两处欠账各按下列方式处置：**
+
+### (A) 退役 `voice-trim.spec.ts` 的 AC-119 / AC-121 / AC-122：**授权退役**，并**同时处置**被它们钉住的五条已 done 判据
+
+- **授权范围**：AC-119 / AC-121 / AC-122 三条腿退役。它们的被测对象正是本任务按 Proposal 移除的批处理裁剪路径、`[voice:trim]` 读数与 MediaRecorder 原始流，因此不可能在不改判据含义的前提下通过（逐字失败行见本条 AC 行与 完成记录）。
+- **同时必须处置**（核心要求：**不得让它们静默变红**）：`gap-asr-trim-capability-wiring` AC2、`gap-voice-debug-switch`、`gap-e2e-shared-vite-dep-cache-invalidates-inflight-page` AC1 与 AC6、`gap-voice-clip-dual-playback`、`gap-ac122-shared-assembly-starves-leg-budget` AC1 —— 每一条都要在**它自己的记录里**登记「其判据随 AC-119/121/122 一同退役」，并给出替代读数或明示不再覆盖。
+- 其余 3/4 既有语音 e2e（`voice-identifier-repair` / `voice-error-messages` / `voice-dashscope-written`）继续绿的要求不变。
+
+### (B) 假形态：**收窄到实际负载的两个变异**
+
+- ① 「按完成顺序而非序号提交文字」与 ③ 「失败段在输入框里推占位」**保留**（上一轮实测两条都红，逐字失败行见 完成记录）。
+- ② 「把最小段长删掉」**从本条移除**：它在出货夹具上是空操作（`e2e/voice-continuous.spec.ts:296` 的 `__voiceFake.speak(3)` 是一次连续语音、无 ≥ `cutPauseSec`=2.0s 的停顿，段数由「是否成段」决定），按 `false-form-mutation-must-exercise-the-parameter` 不作为本条的取假形态。
+
+**边界**：本记录只落人的裁定 —— 不改任何 GOAL/AC 状态；退役与五条判据的处置由本任务重新派工后的 worker 执行，本任务的 AC 行已按此收窄。
 
 ## Needs-Human
 
