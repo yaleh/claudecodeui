@@ -220,17 +220,36 @@ export type DebugAgentHostDriver = IProviderHostDriver & {
   /**
    * Withdraws a queued message from the process.
    *
-   * The payload is recorded and nothing else happens: a substitute has no real
-   * process to answer, and its "answer" is the `cancel-ack` step on the
-   * scenario's clock — so this returns `unknown` rather than `withdrawn`, which
-   * is the honest reading of a request that has been written and not yet acted
-   * on. The one thing it must never do is produce a `control_response`, because
-   * there is none to produce: the CLI answers this frame with no response at any
-   * timing (`docs/proposals/claude-resident-sessions-experiments.md` §9.2), and
-   * a substitute that invented one would make the criterion it exists to serve
+   * The verdict is this process's own queue state: a uuid it still holds is
+   * removed and answered `withdrawn`, and one it no longer holds — already taken
+   * by `readOldestQueuedCommand`, i.e. already started — is answered `unknown`.
+   * The request is recorded either way. The one thing it must never do is
+   * produce a `control_response`, because there is none to produce: the CLI
+   * answers this frame with no response at any timing
+   * (`docs/proposals/claude-resident-sessions-experiments.md` §9.2), and a
+   * substitute that invented one would make the criterion it exists to serve
    * measure its own fabrication.
    */
   cancelQueuedInput(appSessionId: string, messageUuid: string): Promise<HostQueuedInputCancelResult>;
+  /**
+   * The uuid of the newest command this process holds and has not started, or
+   * null when its queue is empty.
+   *
+   * The handover a caller needs to address the message it just queued: a busy
+   * send is written into the running process, and the process — not the caller —
+   * mints the uuid the command is keyed by, so the only way that id can reach a
+   * withdrawal button is if the process gives it back. It answers with the tail
+   * of {@link readCommandQueue}'s `queued` list and nothing else, so the value a
+   * caller is handed is provably the one `cancelQueuedInput` names and
+   * `readOldestQueuedCommand` will take. `null` — never an empty string — when
+   * the process is holding nothing, because an id no withdrawal can match is
+   * worse than a stated absence.
+   *
+   * Consumed by the real runtime gateway's `queuedInputUuid`
+   * (`provider-runtime.service.ts`), which is how the websocket control
+   * service's busy-send branch learns the queued message's id.
+   */
+  queuedInputUuid(appSessionId: string): string | null;
   /**
    * Takes the oldest command out of the queue, or null when it holds none.
    *
@@ -579,19 +598,52 @@ export function createDebugAgentHostDriver(
     listFor(queueByAppSession, input.appSessionId).push(input.commandUuid);
   }
 
+  /**
+   * Withdraws a queued message from the process by removing it from the queue.
+   *
+   * The verdict is the driver's own queue state, not a promise about the future:
+   * a uuid the queue still holds is dropped here and answered `withdrawn` (the
+   * value the shared union uses for a message that left the process's hands),
+   * while a uuid the queue no longer holds — already taken by
+   * `readOldestQueuedCommand` and therefore already started — is answered
+   * `unknown`. The request is recorded in `withdrawRequested` either way, so the
+   * criterion can read back that the click reached the host even when the queue
+   * had already moved on.
+   *
+   * Removing the message here, rather than leaving it for the scenario's
+   * `cancel-ack` step, is what makes "a withdrawn message never becomes a round"
+   * true: the engine's `dequeue` step reads the queue and would otherwise start a
+   * command the user took back. No `control_response` is written here or
+   * anywhere else: the CLI sends none at any timing, so there is none to record.
+   * The `cancel-ack` step stays available and still writes the one `cancelled`
+   * row that states the withdrawal on the clock.
+   */
   async function cancelQueuedInput(
     appSessionId: string,
     messageUuid: string,
   ): Promise<HostQueuedInputCancelResult> {
-    // Recorded, and nothing else. The payload is what the criterion reads back
-    // ("the click really reached the host"), and the verdict is `unknown` because
-    // that is the honest reading of a request the process has not acted on yet:
-    // the act is the scenario's `cancel-ack` step, and it is the `cancelled` row
-    // that step writes — never this call's return value — that says the command
-    // was withdrawn. No `control_response` is written here or anywhere else: the
-    // CLI sends none at any timing, so there is none to record.
     listFor(withdrawRequestedByAppSession, appSessionId).push(messageUuid);
-    return 'unknown';
+
+    const queue = listFor(queueByAppSession, appSessionId);
+    const at = queue.indexOf(messageUuid);
+    if (at < 0) {
+      return 'unknown';
+    }
+
+    queue.splice(at, 1);
+    return 'withdrawn';
+  }
+
+  /**
+   * The tail of a session's process queue, or null when it holds nothing.
+   *
+   * See {@link DebugAgentHostDriver.queuedInputUuid}: it is the same value
+   * `cancelQueuedInput` names and `readOldestQueuedCommand` takes, read off the
+   * one list all three share so they cannot drift.
+   */
+  function queuedInputUuid(appSessionId: string): string | null {
+    const queue = listFor(queueByAppSession, appSessionId);
+    return queue.length > 0 ? queue[queue.length - 1] : null;
   }
 
   function readOldestQueuedCommand(input: { appSessionId: string }): string | null {
@@ -807,6 +859,7 @@ export function createDebugAgentHostDriver(
     // readings that say what became of what was written.
     registerPushedCommand,
     cancelQueuedInput,
+    queuedInputUuid,
     readOldestQueuedCommand,
     acknowledgeCancel,
     readCommandQueue,

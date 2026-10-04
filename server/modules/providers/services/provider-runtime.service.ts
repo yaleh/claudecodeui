@@ -360,6 +360,18 @@ type ResidentTurnEntry = {
     messageUuid: string,
   ): Promise<HostQueuedInputCancelResult>;
   /**
+   * The uuid of a busy send's message, read off the resident process's own
+   * queue — the id `cancelQueuedInput` withdraws it by.
+   *
+   * Optional for the same reason the whole entry is absent for most providers:
+   * a driver that never writes into a busy process has no queue to name a
+   * message in, and a caller reaching this one must read the absence as
+   * "cannot", never as "no message is queued". Synchronous because the queue is
+   * the driver's own memory: the message was written before the dispatch that
+   * queued it resolved, so there is no I/O to await.
+   */
+  queuedInputUuid?(appSessionId: string): string | null;
+  /**
    * Stops one named background task the resident process is running, leaving
    * the turn and the process alone.
    *
@@ -720,6 +732,34 @@ export function createProviderRuntimeService(
         return await cancel.call(resolved.entry, sessionId, messageUuid);
       } catch {
         return 'unknown';
+      }
+    },
+
+    /**
+     * The uuid the resident process stamped a just-queued message with.
+     *
+     * Resolved through the same `resolveResidentDriver` every resident control
+     * verb uses — the session's stored mode, the provider's declaration, the
+     * driver's shape and a live host all have to agree — and read off the
+     * driver's own queue. `null` is the answer to everything this service cannot
+     * answer: an unknown provider, a session that is not resident, a driver
+     * without the verb, an empty queue, or any throw. The conservative direction
+     * matters because the caller writes the returned id into a message it will
+     * later offer to withdraw: a fabricated id would be unwithdrawable, and a
+     * "queued with an empty uuid" would be a lie. Consumed by the websocket
+     * control service's busy-send branch (`chat-control.service.ts`).
+     */
+    async queuedInputUuid(providerName: LLMProvider, sessionId: string): Promise<string | null> {
+      try {
+        const resolved = resolveResidentDriver(dependencies.resolveProvider(providerName), sessionId);
+        const read = resolved?.entry.queuedInputUuid;
+        if (!resolved || typeof read !== 'function') {
+          return null;
+        }
+        const uuid = read.call(resolved.entry, sessionId);
+        return typeof uuid === 'string' && uuid.length > 0 ? uuid : null;
+      } catch {
+        return null;
       }
     },
 

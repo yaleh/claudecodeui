@@ -2,7 +2,7 @@
 id: gap-ac238-debug-agent-control-queue
 title: AC-238 调试 agent 常驻驱动经控制服务走通忙时排队与撤回：驱动交出排队 uuid、撤回后那条消息永远不成为一轮；判据
   server/modules/debug-agent/tests/debug-agent-control-queue.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
