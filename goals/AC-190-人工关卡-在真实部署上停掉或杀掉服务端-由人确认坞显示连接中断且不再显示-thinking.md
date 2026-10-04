@@ -1,7 +1,7 @@
 ---
 id: AC-190
 title: 人工关卡：在真实部署上停掉或杀掉服务端，由人确认坞显示连接中断且不再显示 Thinking
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-014
 criterion: test "$(grep -c '^- 人工验收 GOAL-014：accepted'
@@ -23,6 +23,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-04T03:31:17.033Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
