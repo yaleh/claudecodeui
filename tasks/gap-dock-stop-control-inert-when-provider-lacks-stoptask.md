@@ -2,7 +2,7 @@
 id: gap-dock-stop-control-inert-when-provider-lacks-stoptask
 title: 坞里的 Stop task 在真实 Claude 常驻会话上是惰性的：provider 声明 stopTask:false 而控件的
   disabled 从不读能力矩阵，AC-196/AC-199 却绿在替身路径上
-status: todo
+status: ready
 labels:
   - gap
 parent: null
