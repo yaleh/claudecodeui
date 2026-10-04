@@ -212,7 +212,7 @@ src/shared/voiceDebug.ts
 
 ### 承重面未被本条触碰（AC5）
 
-- 本条 worktree 的 delta：`git diff --name-only develop..HEAD` → 仅 `tasks/gap-ac184-criterion-red-is-mid-run-hmr-of-live-edited-main-checkout.md`。
+- 本条 worktree 的 delta：step 2b(i) 在 worktree 里 `git merge --no-edit develop` 后，HEAD 即 develop 同一提交 `bf9baf98`，故 `git diff --name-only develop..HEAD` → **空**（本条 worktree 分支 `task/gap-ac184-criterion-red-is-mid-run-hmr-of-live-edited-main-checkout` 自身不含额外提交；`task_write` 的 tick 落在 develop 上，由这次 merge 带进 worktree）。本条唯一的 `task_write` 提交是 `bf9baf98 tasks: gap-ac184-criterion-red-is-mid-run-hmr-of-live-edited-main-checkout task_write by cli:3770207`，其 `git show --stat` 逐字只含 `tasks/gap-ac184-criterion-red-is-mid-run-hmr-of-live-edited-main-checkout.md`（`1 file changed, 137 insertions(+), 7 deletions(-)`）。⇒ 本条对代码零改动，`tasks/<本条 id>.md` 是唯一交付物。
 - 主检出 `git status --porcelain` 对比开工快照：**发生外部变化，非本条所为**。开工快照（21 行）含未跟踪 `src/modules/chat/audio/voiceFrameProcessorUrl.ts` 与两处 ` M`；现状（18 行）三者消失——并发的 voice-WIP 作者在 `author` 分支提交了 `a4747974 fix(voice): load the AudioWorklet from the bundler's build, not the raw .ts source`（`git reflog` HEAD@{0} 即该 commit；`git ls-files src/modules/chat/audio/voiceFrameProcessorUrl.ts` 现已 tracked；其 mtime 推进到 `23:43:52`）。本条 ⛔ 未 `stash`、⛔ 未 `git checkout --`、⛔ 未编辑任何 `src/**`、`e2e/**`、`server/**`、`playwright.config.ts`——本条对主检出的全部动作只有 `git status`/`git log`/`git reflog`/`stat`/`find` 等只读。
 
 ### 判法（AC6 + DoD）
