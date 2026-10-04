@@ -3,7 +3,7 @@ id: gap-ac231-control-busy-queue-cancel
 title: AC-231 控制服务忙会话语义：常驻会话忙时排队并返回驱动交出的可撤回 queuedMessageUuid，按次进程忙时
   RUN_IN_PROGRESS，cancelQueued 用同一 uuid 撤回、未知 uuid 得 unknown；判据
   server/modules/websocket/tests/chat-control-busy.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
