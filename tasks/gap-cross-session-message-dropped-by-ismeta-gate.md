@@ -1,7 +1,7 @@
 ---
 id: gap-cross-session-message-dropped-by-ismeta-gate
 title: 跨会话消息被 isMeta 闸门从历史投影丢掉：接收方 web 页面看不到这条消息与其触发类型分隔标签（AC-172 已 achieved，却是空头承诺）
-status: done
+status: ready
 labels:
   - gap
 parent: null
