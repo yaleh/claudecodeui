@@ -1,7 +1,7 @@
 ---
 id: AC-201
 title: 人工关卡：在真实 resident 会话里启动后台子代理与 Monitor，从坞里看到并停止，读到 stopped
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-015
 criterion: test "$(grep -c '^- 人工验收 GOAL-015：accepted'
@@ -24,6 +24,11 @@ statusLog:
     to: active
     actor: goal-cli
     reason: ""
+  - at: 2026-10-04T14:16:08.474Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: not-evaluated
   reason: no judge configured
