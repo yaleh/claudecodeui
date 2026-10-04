@@ -3,7 +3,7 @@ id: gap-ac135-criterion-ledger-red-is-merge-race
 title: AC-135 判据台账尾部红是 merge race：修复 9f83a332 最初只提交在 task 分支，fan-in 0653ac8b 于
   15:41:40Z 才把它带进 develop/主检出，而红拍（15:38:05Z/15:40:34Z）发生在落地之前 ——
   verification-only 归因入档（净树直跑 exit 0 ×2），不重新实现既有修复
-status: ready
+status: done
 labels:
   - gap
 parent: null
