@@ -5,9 +5,11 @@ status: ready
 labels:
   - gap
   - priority:p1
+  - delivery-critical
 parent: null
 children: []
-extra: {}
+extra:
+  deliveryCriticalSource: adhoc
 depends_on: []
 goal_ac: AC-217
 ---
