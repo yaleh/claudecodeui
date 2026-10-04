@@ -66,8 +66,7 @@ AC-224（GOAL-018 退出条件 1；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3�
 - server/modules/database/index.ts
 - tasks/gap-ac224-access-token-service.md
 
-## Evidence
-
+## 完成记录
 ### AC1 判据绿 / 红态基线
 - 红态基线（改动前该判据文件不存在；`git ls-tree -r develop -- server/modules/oauth/` 为空）：把实现整体暂存后工作树回到 develop 态，运行
   `npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/access-tokens.service.test.ts`
