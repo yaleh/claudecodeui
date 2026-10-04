@@ -74,6 +74,41 @@ test('the timestamp is only a fallback when the snippet misses', () => {
   assert.equal(index, 2);
 });
 
+test('a partial window may forbid the timestamp fallback, so an old hit is a miss rather than the nearest loaded row', () => {
+  // The tail window only holds the last two messages. The hit is far above it:
+  // its snippet matches nothing loaded, and the row nearest its instant inside
+  // the window is the window's oldest row — a plausible-looking id that is not
+  // the hit. With the fallback forbidden the caller gets -1 and resolves the id
+  // elsewhere (the outline) instead of jumping to the wrong row.
+  const tailWindow = transcript.slice(1);
+  assert.equal(
+    findSearchTargetIndex(tailWindow, {
+      snippet: 'database indexing',
+      timestamp: '2024-01-01T10:00:00.000Z',
+    }),
+    0,
+    'by default the nearest-instant fallback still answers within whatever list it is given',
+  );
+  assert.equal(
+    findSearchTargetIndex(
+      tailWindow,
+      { snippet: 'database indexing', timestamp: '2024-01-01T10:00:00.000Z' },
+      { allowTimestampFallback: false },
+    ),
+    -1,
+    'forbidding the fallback turns an unresolvable snippet in a partial window into an honest miss',
+  );
+  assert.equal(
+    findSearchTargetIndex(
+      tailWindow,
+      { snippet: 'caching strategies', timestamp: '2024-01-01T10:00:00.000Z' },
+      { allowTimestampFallback: false },
+    ),
+    0,
+    'a snippet that really is loaded still resolves without the timestamp fallback',
+  );
+});
+
 test('an empty transcript reports a miss', () => {
   assert.equal(findSearchTargetIndex([], { snippet: 'anything at all here' }), -1);
 });

@@ -11,8 +11,8 @@ import type { ChatMessage } from '@/shared/types';
  * knowable instead of being papered over by the nearest-timestamp fallback.
  */
 
-/** Shorter fragments match too many messages to identify one. */
-const MIN_SNIPPET_LENGTH = 10;
+/** Shorter fragments match too many messages to identify one. Exported so the outline applies the same floor. */
+export const MIN_SNIPPET_LENGTH = 10;
 
 /** The sidebar sends an elided fragment; only the leading part is reliable. */
 const MAX_SNIPPET_LENGTH = 80;
@@ -20,6 +20,17 @@ const MAX_SNIPPET_LENGTH = 80;
 export type SearchTarget = {
   snippet?: string;
   timestamp?: string;
+};
+
+export type SearchTargetIndexOptions = {
+  /**
+   * Whether the nearest-timestamp fallback may be used when the snippet does
+   * not match. The search jump passes `false` for the *loaded* transcript: that
+   * window is a slice of the history, so the row nearest an old hit's instant
+   * inside it is the window's own oldest row — not the hit. The id has to come
+   * from a real snippet match, or the resolution has to move on to the outline.
+   */
+  allowTimestampFallback?: boolean;
 };
 
 /** Every field of a message that ends up as rendered text. */
@@ -37,7 +48,16 @@ function getSearchableText(message: ChatMessage): string {
   return parts.filter(Boolean).join('\n').toLowerCase();
 }
 
-function normalizeSearchSnippet(snippet: string): string {
+/**
+ * Reduces a sidebar snippet to the fragment matching is done on: the wrapper's
+ * ellipses dropped, whitespace trimmed, and the tail cut at the length cap the
+ * sidebar elides at.
+ *
+ * Exported because the outline rebuilds the same fragment before comparing it
+ * against a turn's preview, and the preview is capped at the same length — a
+ * phrase left longer than the cap could never be carried by a preview.
+ */
+export function normalizeSearchSnippet(snippet: string): string {
   return snippet
     .replace(/^\.{3}/, '')
     .replace(/\.{3}$/, '')
@@ -50,11 +70,14 @@ function normalizeSearchSnippet(snippet: string): string {
 /**
  * Returns the index of the best match, or -1 when the target is not in the
  * loaded transcript. The snippet is authoritative; the timestamp only breaks a
- * tie when no snippet matched, mirroring what the previous DOM scan did.
+ * tie when no snippet matched, mirroring what the previous DOM scan did —
+ * unless the caller forbids the timestamp fallback because the list it holds is
+ * a partial window rather than the transcript.
  */
 export function findSearchTargetIndex(
   messages: ChatMessage[],
   target: SearchTarget,
+  options: SearchTargetIndexOptions = {},
 ): number {
   if (target.snippet) {
     const phrase = normalizeSearchSnippet(target.snippet);
@@ -66,6 +89,10 @@ export function findSearchTargetIndex(
         return matchIndex;
       }
     }
+  }
+
+  if (options.allowTimestampFallback === false) {
+    return -1;
   }
 
   if (target.timestamp) {
