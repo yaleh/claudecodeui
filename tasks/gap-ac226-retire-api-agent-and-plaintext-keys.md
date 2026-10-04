@@ -3,7 +3,7 @@ id: gap-ac226-retire-api-agent-and-plaintext-keys
 title: AC-226 /api/agent 与明文 key 机制从生产代码真正消失：删模块目录/挂载/apiKeysDb
   导出/API_KEYS_TABLE_SCHEMA_SQL 建表常量并改写 api-docs，判据
   server/modules/oauth/tests/agent-retirement.test.ts（语法树 + 正例对照）
-status: ready
+status: done
 labels:
   - gap
 parent: null
