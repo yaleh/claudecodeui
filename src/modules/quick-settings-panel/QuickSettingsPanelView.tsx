@@ -20,6 +20,7 @@ function QuickSettingsPanelView() {
   const {
     isDragging,
     handleStyle,
+    handleRef,
     startDrag,
     consumeSuppressedClick,
   } = useQuickSettingsDrag({ isMobile });
@@ -62,6 +63,7 @@ function QuickSettingsPanelView() {
         isOpen={isOpen}
         isDragging={isDragging}
         style={handleStyle}
+        handleRef={handleRef}
         onClick={handleToggleFromHandle}
         onMouseDown={startDrag}
         onTouchStart={startDrag}

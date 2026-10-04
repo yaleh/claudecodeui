@@ -367,7 +367,13 @@ function ChatMessagesPane({
         className="chat-messages-pane relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-3 pt-3 sm:pb-4 sm:pt-4"
       >
         {chatMessages.length > 0 && (
-          <div className="pointer-events-none sticky right-4 top-3 z-10 mb-2 flex justify-end sm:px-4">
+          // The anchor the transcript's right-edge chrome measures its top bound
+          // from: the quick-settings handle is kept at least a margin below this
+          // box's bottom edge, so it can never cover the export control.
+          <div
+            data-transcript-export-anchor
+            className="pointer-events-none sticky right-4 top-3 z-10 mb-2 flex justify-end sm:px-4"
+          >
             <div className="pointer-events-auto">
               <ChatExportMenu
                 messages={chatMessages}
@@ -384,6 +390,7 @@ function ChatMessagesPane({
             loading states too and never has to be re-attached mid-session. */}
         <div
           ref={scrollContentRef}
+          data-transcript-content
           className="mx-auto w-full max-w-[54.25rem] space-y-3 px-4 sm:space-y-4"
         >
         {(isLoadingSessionMessages || isProcessing) && chatMessages.length === 0 ? (
@@ -486,7 +493,11 @@ function ChatMessagesPane({
                     anchorId={item.messages[0]?.transcriptAnchorId}
                     initiallyNearViewport={initiallyNearViewport}
                   >
-                    <div data-work-segment-key={segmentKey}>
+                    {/* The scrollbar's drawn length is a share of how much of the
+                        conversation the viewport shows, and a collapsed segment
+                        stands for all of its members — so the count travels with
+                        the row instead of being guessed from the row count. */}
+                    <div data-work-segment-key={segmentKey} data-transcript-row-messages={item.messages.length}>
                       <WorkSegmentRecord
                         segment={item}
                         expanded={expandedSegmentKeys.has(segmentKey)}
@@ -598,6 +609,8 @@ function ChatMessagesPane({
           turns={turnRailTurns}
           currentTurnId={turnRailCurrentId}
           onJumpToTurn={onJumpToTurn}
+          scrollContainerRef={scrollContainerRef}
+          totalMessages={totalMessages}
         />
       )}
     </div>

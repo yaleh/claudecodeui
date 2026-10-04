@@ -1,13 +1,22 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-// AC-213: the turn navigation rail — clicking any user turn (including one the
-// client has never loaded) places that turn's message fully inside the scroll
-// container's viewport and highlights it, without a blank viewport in between;
-// the window then continues front and back without gaps or duplicates; and
-// "back to latest" returns to the tail, where a newly arrived realtime row
-// re-pins. The rail and the sidebar search share one id-addressed jump, so the
-// jump resolves a same-millisecond tie by id, not by timestamp.
+// AC-213 v2: the turn navigation rail — clicking a turn's tick places that
+// turn's message fully inside the scroll container's viewport and highlights it,
+// without a blank viewport in between; a wheel stopped on the tick column moves
+// the ticks and nothing else; the window then continues front and back without
+// gaps or duplicates; and "back to latest" returns to the tail, where a newly
+// arrived realtime row re-pins. The rail and the sidebar search share one
+// id-addressed jump, so the jump resolves a same-millisecond tie by id, not by
+// timestamp.
+//
+// v2 because the ticks are no longer one-per-turn: AC-217 replaced the
+// proportional whole-rail tick list with a fixed-size window of at most ten
+// ticks around the turn the reader is on, so a tick for a turn far from the
+// current one does not exist in the DOM until the window is brought to it. The
+// window is moved by the scrollbar it now shares the rail with (a track click or
+// the thumb's own keys), or by wheeling the column itself. Everything else this
+// criterion measured is unchanged, and is measured the same way.
 //
 // Real Chromium against the real backend + Vite client started by
 // playwright.config.ts (isolated data dir). The session is the shared long
@@ -28,7 +37,11 @@ const PROJECT_NAME = 'transcript-jump-workspace';
 const TOTAL_TURNS = 1200;
 /** The first of the two turns that share one millisecond (the 601st reuses it). */
 const TIE_TURN = 600;
-/** The turn "near the earliest" the criterion clicks: ~10% of the conversation. */
+/**
+ * The turn the criterion's jump targets: about a tenth of the way into the
+ * conversation, outside both the tail page the pane loads first and the tick
+ * column's own window.
+ */
 const EARLY_TURN = 121;
 /** Fixed desktop viewport, so the rail lays out and the pane is a known size. */
 const VIEWPORT = { width: 1280, height: 1200 };
@@ -36,6 +49,11 @@ const VIEWPORT = { width: 1280, height: 1200 };
 const TARGET_VISIBLE_MS = 3_000;
 /** A gap at or below this is "at the bottom", in CSS pixels. */
 const AT_BOTTOM_PX = 2;
+/**
+ * The most ticks the column's window may draw (AC-217's ceiling, restated here
+ * so this criterion fails if the rail ever goes back to one tick per turn).
+ */
+const MAX_TICKS_IN_WINDOW = 11;
 /** One wheel tick for the continuation gestures, in CSS pixels. */
 const WHEEL_STEP_PX = 700;
 /** The scroll-to-bottom control, located the way the app labels it. */
@@ -173,6 +191,101 @@ const clickTick = async (page: Page, turnId: string) => {
 /** The transcript row for a turn, addressed by the id the outline reported. */
 const rowFor = (page: Page, turnId: string) => page.locator(`[data-message-anchor-id="${turnId}"]`);
 
+/**
+ * Records every `/messages` request the app makes.
+ *
+ * The wheel case reads it to say the tick column's gesture fetched nothing, and
+ * the jump cases read it to say a jump read the window it needed.
+ */
+const installFetchLog = () => {
+  const w = window as unknown as { __messageFetches: { url: string; t: number }[] };
+  w.__messageFetches = [];
+  const original = window.fetch.bind(window);
+  window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (url.includes('/messages')) w.__messageFetches.push({ url, t: performance.now() });
+    return original(input, init);
+  }) as typeof window.fetch;
+};
+
+const readFetches = (page: Page) =>
+  page.evaluate(() => (window as unknown as { __messageFetches: { url: string; t: number }[] }).__messageFetches);
+
+/** What the tick column is drawing right now. */
+type TickColumnReading = {
+  /** Every drawn tick's `data-turn-id`, in column order. */
+  ids: string[];
+  /** The transcript's own scroll offset. */
+  scrollTop: number;
+  /** How many `/messages` reads the page has made. */
+  fetches: number;
+};
+
+const readTickColumn = (page: Page): Promise<TickColumnReading> =>
+  page.evaluate(() => ({
+    ids: Array.from(document.querySelectorAll('[data-turn-tick]'))
+      .map((tick) => tick.getAttribute('data-turn-id') ?? '')
+      .filter((id) => id.length > 0),
+    scrollTop: Math.round((document.querySelector('.chat-messages-pane') as HTMLElement).scrollTop),
+    fetches: (window as unknown as { __messageFetches: { url: string }[] }).__messageFetches.length,
+  }));
+
+/** Where the pointer must sit for a wheel to be the tick column's. */
+const pointAtTickColumn = async (page: Page) => {
+  const box = await page.locator('[data-turn-ticks]').boundingBox();
+  if (!box) throw new Error('the tick column is not laid out to wheel');
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+};
+
+/** One wheel gesture of `px` CSS pixels over the tick column. */
+const wheelTickColumn = async (page: Page, px: number) => {
+  await pointAtTickColumn(page);
+  await page.mouse.wheel(0, px);
+  await page.waitForTimeout(60);
+};
+
+/** The outline ordinal (1-indexed displayed turn number) a tick id names. */
+const ordinalOf = (turns: OutlineTurn[], turnId: string): number => turns.findIndex((turn) => turn.id === turnId) + 1;
+
+/**
+ * Scrolls the tick column until it draws the wanted turn's tick.
+ *
+ * The column draws at most ten ticks around the turn the viewport is on, so a
+ * turn far from it has no tick until the column is scrolled there. This walks
+ * the window in `px`-pixel gestures, and refuses to loop forever: a window that
+ * never arrives is a failure here rather than a timeout later.
+ */
+const scrollTickColumnTo = async (
+  page: Page,
+  turns: OutlineTurn[],
+  turnId: string,
+  direction: -1 | 1,
+  maxGestures = 90,
+  pxPerGesture = 3_000,
+) => {
+  const wanted = ordinalOf(turns, turnId);
+  for (let gesture = 0; gesture < maxGestures; gesture += 1) {
+    const reading = await readTickColumn(page);
+    if (reading.ids.includes(turnId)) return reading;
+    const first = ordinalOf(turns, reading.ids[0]);
+    // Overshot — the window has gone past the turn and has to come back.
+    if (direction < 0 ? first <= wanted : first >= wanted) {
+      await wheelTickColumn(page, -direction * pxPerGesture / 4);
+      continue;
+    }
+    await wheelTickColumn(page, direction * pxPerGesture);
+  }
+  throw new Error(`the tick column never drew the tick for ${turnId}`);
+};
+
+/** The turn the rail currently draws as the viewport's own. */
+const currentTickTurnId = (page: Page): Promise<string | null> =>
+  page.evaluate(() => {
+    const tick = document.querySelector('[data-turn-tick][aria-current="true"]');
+    return tick ? tick.getAttribute('data-turn-id') : null;
+  });
+
+/** Frames the reader's window between the blank sampler's samples. */
 type TargetReading = {
   present: boolean;
   fully: boolean;
@@ -363,20 +476,21 @@ const injectRealtimeDelta = (page: Page, sessionId: string, content: string) =>
     { sessionId, content },
   );
 
-test.describe.configure({ mode: 'serial', timeout: 240_000 });
+test.describe.configure({ mode: 'serial', timeout: 300_000 });
 
 test.describe('turn rail jump in a real browser', () => {
   let page: Page;
   let turns: OutlineTurn[] = [];
 
   test.beforeAll(async ({ browser }) => {
-    test.setTimeout(240_000);
+    test.setTimeout(300_000);
     const clientUrl = test.info().project.use.baseURL;
     if (!clientUrl) throw new Error('playwright.config.ts must give this project a baseURL for the startup warm-up');
     await warmClientStartup(clientUrl);
 
     page = await browser.newPage();
     await page.addInitScript(installWireDouble);
+    await page.addInitScript(installFetchLog);
     await page.bringToFront();
     await page.setViewportSize(VIEWPORT);
 
@@ -396,21 +510,66 @@ test.describe('turn rail jump in a real browser', () => {
     await page.close();
   });
 
-  test('AC-213 a rail tick jumps any turn into the viewport, the window continues, and "back to latest" re-pins', async () => {
-    // ── The rail exists and offers the whole conversation ──────────────────
-    await expect(tickFor(page, turnFor(turns, 1).id), 'the rail must offer the first turn').toBeAttached({ timeout: 15_000 });
-    const earlyTurn = turnFor(turns, EARLY_TURN);
-    const earlyTick = tickFor(page, earlyTurn.id);
-    await expect(earlyTick, 'the rail must offer a turn near the earliest').toBeAttached();
+  test('AC-213 v2 a windowed tick, reached by wheeling the column, jumps its turn into the viewport', async () => {
+    // ── (a) the column is a window, and the target's tick is not in it ───────
+    const initial = await readTickColumn(page);
+    expect(initial.ids.length, 'the column must draw a window of ticks').toBeGreaterThan(0);
+    expect(
+      initial.ids.length,
+      `the column must draw at most ${MAX_TICKS_IN_WINDOW} ticks, and must not grow with the conversation: ${JSON.stringify(initial.ids)}`,
+    ).toBeLessThanOrEqual(MAX_TICKS_IN_WINDOW);
 
-    // ── (b) the target is not in the DOM before the click ───────────────────
+    const earlyTurn = turnFor(turns, EARLY_TURN);
+    expect(earlyTurn, `the fixture must carry a turn near ${EARLY_TURN}`).toBeTruthy();
+    expect(
+      initial.ids.includes(earlyTurn.id),
+      `turn ${EARLY_TURN}'s tick must not be drawn while the viewport sits at the tail`,
+    ).toBe(false);
     expect(
       await rowFor(page, earlyTurn.id).count(),
       `turn ${EARLY_TURN} must not be in the DOM before its tick is clicked`,
     ).toBe(0);
 
-    // ── (a) + (c): click, then read the viewport every frame until the row is
-    // fully inside it, highlighted, with no blank frame in between ──────────
+    // ── (b) wheeling the column walks the window back, and nothing else ──────
+    const fetchesBefore = (await readFetches(page)).length;
+    const scrollTopBefore = (await readGeometry(page)).scrollTop;
+    const seenFirstOrdinals: number[] = [];
+    let reached: TickColumnReading | null = null;
+    for (let gesture = 0; gesture < 80 && reached === null; gesture += 1) {
+      const reading = await readTickColumn(page);
+      seenFirstOrdinals.push(ordinalOf(turns, reading.ids[0]));
+      if (reading.ids.includes(earlyTurn.id)) {
+        reached = reading;
+        break;
+      }
+      expect(
+        ordinalOf(turns, reading.ids[0]),
+        `each wheel must walk the window towards earlier turns: ${JSON.stringify(seenFirstOrdinals)}`,
+      ).toBeLessThanOrEqual(seenFirstOrdinals[Math.max(0, seenFirstOrdinals.length - 2)]);
+      await wheelTickColumn(page, -3_000);
+    }
+    expect(
+      reached,
+      `wheeling the column up never drew turn ${EARLY_TURN}'s tick: earliest ordinals seen ${JSON.stringify(seenFirstOrdinals)}`,
+    ).not.toBeNull();
+    expect(
+      seenFirstOrdinals.length,
+      'the wheel must have taken several gestures to cross the conversation',
+    ).toBeGreaterThan(1);
+    expect(
+      seenFirstOrdinals[seenFirstOrdinals.length - 1],
+      `the window must have got monotonically earlier: ${JSON.stringify(seenFirstOrdinals)}`,
+    ).toBeLessThan(seenFirstOrdinals[0]);
+    expect(
+      Math.abs((await readGeometry(page)).scrollTop - scrollTopBefore),
+      'wheeling on the tick column must not scroll the transcript',
+    ).toBeLessThanOrEqual(1);
+    expect(
+      (await readFetches(page)).length - fetchesBefore,
+      'wheeling on the tick column must not read a message page',
+    ).toBe(0);
+
+    // ── (c) the click places the turn, highlights it, and shows no blank frame ──
     await startBlankSampler(page);
     const clickedAt = await page.evaluate(() => performance.now());
     await clickTick(page, earlyTurn.id);
@@ -419,7 +578,10 @@ test.describe('turn rail jump in a real browser', () => {
     const deadline = Date.now() + TARGET_VISIBLE_MS;
     while (Date.now() < deadline) {
       const current = await readTarget(page, earlyTurn.id);
-      if (current.fully) {
+      // The row has to have drawn its content too: a lazy wrapper that is in the
+      // viewport but not mounted yet reads no turn number at all, and the number
+      // is what tells a clicked turn from its same-millisecond twin.
+      if (current.fully && current.turnNumber !== null) {
         reading = current;
         break;
       }
@@ -457,18 +619,16 @@ test.describe('turn rail jump in a real browser', () => {
       `no frame during the jump may show a blank viewport; fewest rows seen was ${Math.min(...blankSamples)} of ${blankSamples.length} frames`,
     ).toBeGreaterThanOrEqual(1);
 
-    // ── the jump detached from the follow: the pane now knows it sits away
-    // from the tail, which is what stops the next arriving row from dragging
-    // the reader back down. The visible consequence is the way back — the
-    // back-to-latest control — being offered. A jump that leaves the follow
-    // engaged still centres the target, so "the target is in view" alone would
-    // not catch it; this reading does.
+    // The jump detached from the follow: the pane now knows it sits away from
+    // the tail, which is what stops the next arriving row from dragging the
+    // reader back down. The visible consequence is the way back being offered.
     await expect(
       page.locator(SCROLL_BUTTON).first(),
       'after jumping away from the tail the pane must offer the way back to it (the jump must detach the follow)',
     ).toBeVisible({ timeout: 5_000 });
 
     // ── (d) the window continues front and back without gaps or duplicates ──
+    await pointAtPane(page);
     for (let screen = 0; screen < 3; screen += 1) {
       await page.mouse.wheel(0, -WHEEL_STEP_PX);
       await waitForSettledPane(page);
@@ -488,7 +648,7 @@ test.describe('turn rail jump in a real browser', () => {
       ).toBe(1);
     }
 
-    // ── (e) "back to latest" returns to the tail ────────────────────────────
+    // ...and "back to latest" returns to the tail, where a realtime row re-pins.
     await page.locator(SCROLL_BUTTON).first().click({ timeout: 15_000 });
     const lastTurn = turnFor(turns, TOTAL_TURNS);
     await expect(rowFor(page, lastTurn.id), 'the tail must be back after "back to latest"').toBeAttached({ timeout: 15_000 });
@@ -498,8 +658,6 @@ test.describe('turn rail jump in a real browser', () => {
         message: '"back to latest" never settled the pane on the bottom',
       })
       .toBeLessThanOrEqual(AT_BOTTOM_PX);
-
-    // ...and a realtime row arriving afterwards re-pins the pane.
     const delivered = await injectRealtimeDelta(page, SESSION_ID, 'AC213 realtime row after returning to the tail.');
     expect(delivered, 'the realtime frame was never delivered to a chat socket').toBeGreaterThan(0);
     await expect
@@ -513,18 +671,45 @@ test.describe('turn rail jump in a real browser', () => {
       'a realtime row arriving after "back to latest" must keep the pane pinned to the bottom',
     ).toBeLessThanOrEqual(AT_BOTTOM_PX);
 
-    // ── The tie: the 601st turn shares the 600th's millisecond, and its tick
-    // must land on the 601st — the discriminator a timestamp lookup fails ───
+    // ── (e) control: the last turn, the first turn, and the same-millisecond tie ──
+    // The last turn, through the column.
+    await scrollTickColumnTo(page, turns, lastTurn.id, 1);
+    await clickTick(page, lastTurn.id);
+    await expect
+      .poll(async () => (await readTarget(page, lastTurn.id)).fully, {
+        timeout: TARGET_VISIBLE_MS,
+        message: 'the last turn never landed in the viewport',
+      })
+      .toBe(true);
+    expect((await readTarget(page, lastTurn.id)).turnNumber).toBe(TOTAL_TURNS);
+
+    // The first turn, through the column — wheeled all the way back.
+    const firstTurn = turnFor(turns, 1);
+    await scrollTickColumnTo(page, turns, firstTurn.id, -1);
+    expect(await rowFor(page, firstTurn.id).count(), 'turn 1 must not be in the DOM before its tick is clicked').toBe(0);
+    await clickTick(page, firstTurn.id);
+    await expect
+      .poll(async () => (await readTarget(page, firstTurn.id)).fully, {
+        timeout: TARGET_VISIBLE_MS,
+        message: 'the first turn never landed in the viewport',
+      })
+      .toBe(true);
+    expect((await readTarget(page, firstTurn.id)).turnNumber).toBe(1);
+
+    // The tie: the 601st turn shares the 600th's millisecond, and its tick must
+    // land on the 601st — the discriminator a timestamp lookup fails.
     const tiedFirst = turnFor(turns, TIE_TURN);
     const tiedSecond = turnFor(turns, TIE_TURN + 1);
     expect(tiedFirst.timestamp, 'the fixture must give the tie pair one millisecond').toBe(tiedSecond.timestamp);
     expect(tiedFirst.id, 'the tied turns must still be two ids').not.toBe(tiedSecond.id);
+
+    await scrollTickColumnTo(page, turns, tiedSecond.id, 1);
     await clickTick(page, tiedSecond.id);
     let tieReading: TargetReading | null = null;
     const tieDeadline = Date.now() + TARGET_VISIBLE_MS;
     while (Date.now() < tieDeadline) {
       const current = await readTarget(page, tiedSecond.id);
-      if (current.fully) {
+      if (current.fully && current.turnNumber !== null) {
         tieReading = current;
         break;
       }
@@ -555,8 +740,7 @@ test.describe('turn rail jump in a real browser', () => {
     // centres/highlights that one, and the clicked turn 601 is drawn right
     // beside it, still inside the viewport. What tells the two apart is *which
     // row the jump acted on* — the clicked turn's row must carry the highlight,
-    // and its same-millisecond twin must not. A jump addressed by timestamp
-    // fails exactly here.
+    // and its same-millisecond twin must not.
     expect(
       tieReading!.highlighted,
       `the jump must highlight turn ${TIE_TURN + 1}'s own row, not the same-millisecond turn ${TIE_TURN}'s (${JSON.stringify(tieDiagnostic)})`,
@@ -565,44 +749,5 @@ test.describe('turn rail jump in a real browser', () => {
       (await readTarget(page, tiedFirst.id)).highlighted,
       `the tied turn ${TIE_TURN} must not be the row the jump actually addressed`,
     ).toBe(false);
-
-    // ── Control: the first and the last turn are clicks too ─────────────────
-    const firstTurn = turnFor(turns, 1);
-    expect(await rowFor(page, firstTurn.id).count(), 'turn 1 must not be in the DOM before its tick is clicked').toBe(0);
-    await clickTick(page, firstTurn.id);
-    await expect
-      .poll(async () => (await readTarget(page, firstTurn.id)).fully, {
-        timeout: TARGET_VISIBLE_MS,
-        message: 'the first turn never landed in the viewport',
-      })
-      .toBe(true);
-
-    await clickTick(page, lastTurn.id);
-    let lastReading: TargetReading | null = null;
-    const lastDeadline = Date.now() + TARGET_VISIBLE_MS;
-    while (Date.now() < lastDeadline) {
-      const current = await readTarget(page, lastTurn.id);
-      if (current.fully) {
-        lastReading = current;
-        break;
-      }
-      await page.waitForTimeout(50);
-    }
-    const lastDiagnostic = await page.evaluate((targetId) => {
-      const pane = document.querySelector('.chat-messages-pane') as HTMLElement | null;
-      const row = document.querySelector(`[data-message-anchor-id="${targetId}"]`) as HTMLElement | null;
-      const paneRect = pane?.getBoundingClientRect();
-      const rowRect = row?.getBoundingClientRect();
-      return {
-        targetPresent: Boolean(row),
-        row: rowRect ? { top: Math.round(rowRect.top), bottom: Math.round(rowRect.bottom) } : null,
-        pane: paneRect ? { top: Math.round(paneRect.top), bottom: Math.round(paneRect.bottom) } : null,
-      };
-    }, lastTurn.id);
-    expect(
-      lastReading,
-      `the last turn never landed in the viewport (${JSON.stringify(lastDiagnostic)})`,
-    ).not.toBeNull();
-    expect(lastReading!.turnNumber).toBe(TOTAL_TURNS);
   });
 });

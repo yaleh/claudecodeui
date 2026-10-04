@@ -1,12 +1,20 @@
 import { expect, test } from '@playwright/test';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 
-// AC-214: the transcript's drawn global scrollbar. Its thumb sits at the current
-// turn's absolute-message-subscript fraction of the whole conversation — never at
-// the loaded window's pixel ratio — so a window prepended above the viewport, or a
-// row whose height is measured late, cannot move it. It is a real `role="scrollbar"`
-// control: draggable, clickable and keyboard-operable, and a drag fetches nothing
-// until it comes to rest, then exactly one page for the position it rested at.
+// AC-214 v2: the transcript's drawn scrollbar, now a part of its own beside the
+// turn-tick column rather than the rail that holds them both. Its thumb sits at
+// the current turn's absolute-message-subscript fraction of the whole
+// conversation — never at the loaded window's pixel ratio — so a window
+// prepended above the viewport, or a row whose height is measured late, cannot
+// move it. It is a real `role="scrollbar"` control: draggable, clickable and
+// keyboard-operable, and a drag fetches nothing until it comes to rest, then
+// exactly one page for the position it rested at. Its drawn length is the share
+// of the conversation the viewport is showing, clamped, rather than a fixed 40
+// pixels; and it is a neutral grey at rest, never the theme's own colour.
+//
+// v2 because AC-217 split the two controls apart: the ticks became a window of
+// fixed-size marks, and the thumb moved into a column of its own. The route to a
+// distant turn is therefore the tick column's own scroll, as in AC-213 v2.
 //
 // Real Chromium against the real backend + Vite client started by
 // playwright.config.ts (isolated data dir). The session is the shared long fixture
@@ -28,6 +36,8 @@ const TOTAL_TURNS = 1200;
 const TOTAL_MESSAGES = 4800;
 /** The turn "near the earliest" the criterion jumps to: ~10% of the conversation. */
 const EARLY_TURN = 121;
+/** The short fixture: 24 messages, 12 user turns — a conversation a tall viewport can hold. */
+const SHORT_SESSION_ID = 'e2e-transcript-follow';
 /** Fixed desktop viewport, so the rail lays out and the pane is a known size. */
 const VIEWPORT = { width: 1280, height: 1200 };
 /**
@@ -139,25 +149,41 @@ const turnFor = (turns: OutlineTurn[], displayTurn: number): OutlineTurn => {
 /** The sidebar row for the seeded session. */
 const sessionLink = (page: Page) => page.locator('a[href^="/session/"]').filter({ hasText: SESSION_NAME });
 
-/** Opens the seeded session through the sidebar's own link. */
-const openSeededSession = async (page: Page) => {
-  const projectRow = () => page.getByRole('button', { name: new RegExp(`^${PROJECT_NAME}`) }).first();
+/**
+ * Opens a seeded session through the sidebar's own link.
+ *
+ * Parameterised because this file reads two fixtures: the long conversation the
+ * position and length cases are about, and the short one the length ceiling is
+ * read on.
+ */
+const openSeededSessionAs = async (
+  page: Page,
+  projectName: string,
+  sessionName: string,
+  sessionId: string,
+) => {
+  const link = page.locator('a[href^="/session/"]').filter({ hasText: sessionName });
+  const projectRow = () => page.getByRole('button', { name: new RegExp(`^${projectName}`) }).first();
   await expect(projectRow(), 'indexing the seeded transcript must register its project').toBeVisible({ timeout: 30_000 });
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    if (await sessionLink(page).isVisible().catch(() => false)) break;
+    if (await link.isVisible().catch(() => false)) break;
     await projectRow().click();
     try {
-      await expect(sessionLink(page)).toBeVisible({ timeout: 10_000 });
+      await expect(link).toBeVisible({ timeout: 10_000 });
       break;
     } catch {
       // Collapsed again (or the click missed); the loop clicks once more.
     }
   }
-  await expect(sessionLink(page)).toBeVisible({ timeout: 30_000 });
-  await sessionLink(page).click({ timeout: 15_000 });
-  await expect(page).toHaveURL(new RegExp(`/session/${SESSION_ID}$`));
+  await expect(link).toBeVisible({ timeout: 30_000 });
+  await link.click({ timeout: 15_000 });
+  await expect(page).toHaveURL(new RegExp(`/session/${sessionId}$`));
   await expect(page.locator(`${PANE} .chat-message`).first()).toBeVisible({ timeout: 30_000 });
 };
+
+/** Opens the long fixture this file's position and length cases read. */
+const openSeededSession = (page: Page) =>
+  openSeededSessionAs(page, PROJECT_NAME, SESSION_NAME, SESSION_ID);
 
 /** The rail tick for a turn, addressed by the id the outline reported. */
 const tickFor = (page: Page, turnId: string) => page.locator(`[data-turn-id="${turnId}"]`);
@@ -526,15 +552,173 @@ const touchDragThumb = async (page: Page, yDelta: number) => {
   }
 };
 
+/** The drawn scrollbar's thumb, reached the way the criterion names it. */
+type ThumbLength = {
+  /** The thumb's own drawn height, in CSS pixels. */
+  thumbHeight: number;
+  /** The track's drawn height, in CSS pixels. */
+  trackHeight: number;
+  /** How many messages the rows intersecting the viewport stand for. */
+  visibleMessages: number;
+  /** The conversation's own message count — what the share is taken of. */
+  totalMessages: number;
+};
+
+/**
+ * Reads the thumb's drawn length together with the two numbers the criterion
+ * defines it from.
+ *
+ * "Visible messages" is read the way the drawing code defines it: the rows of
+ * the content column that intersect the pane's own box, each counting as one
+ * message except a collapsed work segment, which publishes how many members it
+ * stands for. Reading it here rather than assuming it keeps the assertion a
+ * comparison of the drawn length against the criterion's formula, not against a
+ * copy of the implementation's intermediate value.
+ */
+const readThumbLength = (
+  page: Page,
+  _turns: OutlineTurn[],
+  totalMessages: number,
+): Promise<ThumbLength> =>
+  page.evaluate((total) => {
+    const thumbEl = document.querySelector('[data-scrollbar-thumb]') as HTMLElement | null;
+    const trackEl = document.querySelector('[data-scrollbar-track]') as HTMLElement | null;
+    const pane = document.querySelector('.chat-messages-pane') as HTMLElement | null;
+    const content = document.querySelector('[data-transcript-content]') as HTMLElement | null;
+    if (!thumbEl || !trackEl || !pane || !content) {
+      return { thumbHeight: Number.NaN, trackHeight: Number.NaN, visibleMessages: 0, totalMessages: total };
+    }
+    const paneRect = pane.getBoundingClientRect();
+    let visible = 0;
+    for (const row of Array.from(content.children)) {
+      // Only the lazy-row wrappers are messages; the column also holds the
+      // loading overlays and the running turn's status line.
+      if (!row.hasAttribute('data-message-timestamp')) continue;
+      const rect = row.getBoundingClientRect();
+      if (rect.height <= 0) continue;
+      if (rect.bottom <= paneRect.top || rect.top >= paneRect.bottom) continue;
+      const declared = Number.parseInt(
+        row.querySelector('[data-transcript-row-messages]')?.getAttribute('data-transcript-row-messages') ?? '1',
+        10,
+      );
+      visible += Number.isFinite(declared) && declared > 0 ? declared : 1;
+    }
+    return {
+      thumbHeight: Math.round(thumbEl.getBoundingClientRect().height),
+      trackHeight: Math.round(trackEl.getBoundingClientRect().height),
+      visibleMessages: visible,
+      totalMessages: total,
+    };
+  }, totalMessages);
+
+/** `hsl(<h> <s>% <l>%)` — the form this app's theme colours are authored in — as an rgb triple. */
+const themeColorToRgb = (declared: string): { r: number; g: number; b: number } => {
+  const match = /^([\d.]+)\s+([\d.]+)%\s+([\d.]+)%$/.exec(declared);
+  if (!match) throw new Error(`--primary is not an hsl triple: ${JSON.stringify(declared)}`);
+  const h = Number(match[1]) / 360;
+  const s = Number(match[2]) / 100;
+  const l = Number(match[3]) / 100;
+  if (s === 0) {
+    const value = Math.round(l * 255);
+    return { r: value, g: value, b: value };
+  }
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const channel = (t: number) => {
+    let shifted = t;
+    if (shifted < 0) shifted += 1;
+    if (shifted > 1) shifted -= 1;
+    if (shifted < 1 / 6) return p + (q - p) * 6 * shifted;
+    if (shifted < 1 / 2) return q;
+    if (shifted < 2 / 3) return p + (q - p) * (2 / 3 - shifted) * 6;
+    return p;
+  };
+  return {
+    r: Math.round(channel(h + 1 / 3) * 255),
+    g: Math.round(channel(h) * 255),
+    b: Math.round(channel(h - 1 / 3) * 255),
+  };
+};
+
+/** Whether a computed `rgb(...)` colour is the theme's primary one, at full opacity. */
+const isThemeColor = (computed: string | null, primary: { r: number; g: number; b: number }): boolean => {
+  if (!computed) return false;
+  const match = /^rgba?\(([^)]+)\)$/.exec(computed.trim());
+  if (!match) return false;
+  const parts = match[1].split(',').map((part) => Number.parseFloat(part));
+  const alpha = parts.length > 3 ? parts[3] : 1;
+  if (alpha < 0.95) return false;
+  return Math.abs(parts[0] - primary.r) <= 2
+    && Math.abs(parts[1] - primary.g) <= 2
+    && Math.abs(parts[2] - primary.b) <= 2;
+};
+
+/** The outline ordinal (1-indexed displayed turn number) a tick id names. */
+const ordinalOf = (allTurns: OutlineTurn[], turnId: string): number =>
+  allTurns.findIndex((turn) => turn.id === turnId) + 1;
+
+/** Where the pointer must sit for a wheel to be the tick column's. */
+const pointAtTickColumn = async (page: Page) => {
+  const box = await page.locator('[data-turn-ticks]').boundingBox();
+  if (!box) throw new Error('the tick column is not laid out to wheel');
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+};
+
+/** The ids the tick column is drawing right now, in column order. */
+const drawnTickIds = (page: Page): Promise<string[]> =>
+  page.evaluate(() =>
+    Array.from(document.querySelectorAll('[data-turn-tick]'))
+      .map((tick) => tick.getAttribute('data-turn-id') ?? '')
+      .filter((id) => id.length > 0));
+
+/**
+ * Scrolls the tick column until it draws the wanted turn's tick.
+ *
+ * The column draws at most ten ticks around the turn the viewport is on, so a
+ * turn far from it has no tick until the column is scrolled there — which is the
+ * route AC-217 gave the rail in place of a tick per turn. A bounded number of
+ * gestures keeps a window that never arrives a failure here rather than a
+ * timeout later.
+ */
+const scrollTickColumnTo = async (
+  page: Page,
+  allTurns: OutlineTurn[],
+  turnId: string,
+  direction: -1 | 1,
+  maxGestures = 90,
+  pxPerGesture = 3_000,
+) => {
+  const wanted = ordinalOf(allTurns, turnId);
+  for (let gesture = 0; gesture < maxGestures; gesture += 1) {
+    const ids = await drawnTickIds(page);
+    if (ids.includes(turnId)) return;
+    // Overshot — the window has gone past the turn and has to come back.
+    if (direction < 0 ? ordinalOf(allTurns, ids[0]) <= wanted : ordinalOf(allTurns, ids[0]) >= wanted) {
+      await pointAtTickColumn(page);
+      await page.mouse.wheel(0, (-direction * pxPerGesture) / 4);
+      await page.waitForTimeout(60);
+      continue;
+    }
+    await pointAtTickColumn(page);
+    await page.mouse.wheel(0, direction * pxPerGesture);
+    await page.waitForTimeout(60);
+  }
+  throw new Error(`the tick column never drew the tick for ${turnId}`);
+};
+
 test.describe.configure({ mode: 'serial', timeout: 240_000 });
 
 test.describe('drawn global scrollbar in a real browser', () => {
   let page: Page;
   let turns: OutlineTurn[] = [];
   let totalMessages = TOTAL_MESSAGES;
+  let browserRef: Browser;
+  let origin = '';
+  let authToken = '';
 
   test.beforeAll(async ({ browser }) => {
     test.setTimeout(240_000);
+    browserRef = browser;
     const clientUrl = test.info().project.use.baseURL;
     if (!clientUrl) throw new Error('playwright.config.ts must give this project a baseURL for the startup warm-up');
     await warmClientStartup(clientUrl);
@@ -560,17 +744,32 @@ test.describe('drawn global scrollbar in a real browser', () => {
     // The scale the rail measures on: a turn's `index` is its absolute message
     // subscript, so the fixture's turns sit four rows apart.
     expect(turns[1].index, 'outline indices must be absolute message subscripts').toBe(4);
+
+    origin = new URL(page.url()).origin;
+    authToken = await page.evaluate(() => window.localStorage.getItem('auth-token') ?? '');
+    if (!authToken) throw new Error('no auth token to seed the short fixture context with');
   });
 
   test.afterAll(async () => {
     await page.close().catch(() => undefined);
   });
 
-  test('AC-214 the drawn scrollbar thumb is ordinal, draggable, clickable and keyboard-operable', async () => {
+  test('AC-214 v2 the drawn scrollbar is a part of its own: ordinal position, proportional length, neutral at rest', async () => {
     const track = page.locator('[data-scrollbar-track]');
     const thumb = page.locator('[data-scrollbar-thumb]');
     await expect(track, 'the transcript must draw its own scrollbar track').toBeVisible({ timeout: 20_000 });
     await expect(thumb, 'the track must carry a thumb').toBeVisible();
+
+    // ── The two parts are separate: neither contains the other ───────────────
+    const nesting = await page.evaluate(() => {
+      const trackEl = document.querySelector('[data-scrollbar-track]');
+      const column = document.querySelector('[data-turn-ticks]');
+      if (!trackEl || !column) return 'one-absent';
+      if (trackEl.contains(column)) return 'track-contains-ticks';
+      if (column.contains(trackEl)) return 'ticks-contain-track';
+      return 'siblings';
+    });
+    expect(nesting, 'the scrollbar and the tick column must be two separate parts').toBe('siblings');
 
     // ── (a) first screen pinned at the tail: the thumb sits at the far end, and
     // it is a real scrollbar to assistive tech ────────────────────────────────
@@ -584,6 +783,35 @@ test.describe('drawn global scrollbar in a real browser', () => {
       atTail.progress,
       `first screen at the tail must put the thumb at the far end: ${JSON.stringify(atTail)}`,
     ).toBeGreaterThanOrEqual(0.97);
+
+    // ── (f) the drawn length is the visible share of the conversation, clamped ──
+    const length = await readThumbLength(page, turns, totalMessages);
+    const expectedLength = Math.min(
+      Math.max((length.visibleMessages / length.totalMessages) * length.trackHeight, 28),
+      length.trackHeight * 0.25,
+    );
+    expect(
+      Math.abs(length.thumbHeight - expectedLength),
+      `the thumb's length must be clamp(visible/total x track, 28px, 25% track): ${JSON.stringify({ ...length, expectedLength })}`,
+    ).toBeLessThanOrEqual(2);
+    expect(
+      length.thumbHeight,
+      `the thumb must not be drawn at a fixed size: ${JSON.stringify(length)}`,
+    ).toBeGreaterThanOrEqual(28);
+    expect(
+      length.thumbHeight,
+      `the thumb may never fill more than a quarter of its track: ${JSON.stringify(length)}`,
+    ).toBeLessThanOrEqual(length.trackHeight * 0.25 + 2);
+
+    // ── (g) at rest the thumb is neutral, never the theme's own colour ────────
+    const primary = themeColorToRgb(await page.evaluate(() =>
+      getComputedStyle(document.documentElement).getPropertyValue('--primary').trim()));
+    const restColour = await page.evaluate(() =>
+      getComputedStyle(document.querySelector('[data-scrollbar-thumb]') as HTMLElement).backgroundColor);
+    expect(
+      isThemeColor(restColour, primary),
+      `the thumb must be a neutral grey at rest, not the theme colour: ${restColour}`,
+    ).toBe(false);
 
     // ── (d) + DoD: a drag draws the chosen position and previews it, fetches
     // nothing for the intermediate positions, and reads exactly one page for
@@ -678,12 +906,13 @@ test.describe('drawn global scrollbar in a real browser', () => {
       'the window content after resting at 50% must start near 50% of the conversation',
     ).toBeLessThanOrEqual(0.53);
 
-    // ── (b) jump to ~10% of the conversation through a rail tick: the thumb
+    // ── (b) jump to ~10% of the conversation through the tick column: the thumb
     // reports the ordinal position, which is not the loaded window's pixel ratio.
-    // This is asserted before the wheel section so that a pixel-derived thumb is
-    // caught here, at the post-jump position, rather than only by the monotonicity
-    // check the wheel would trip later.
+    // The column draws a window of ticks around the turn the viewport is on, so
+    // the target's tick is reached by wheeling the column to it — the same route
+    // AC-213 v2 takes.
     const earlyTurn = turnFor(turns, EARLY_TURN);
+    await scrollTickColumnTo(page, turns, earlyTurn.id, -1);
     await clickTick(page, earlyTurn.id);
     // The independent witness that the window moved to ~10% of the conversation:
     // the loaded window's own first turn, read from the DOM and the outline — not
@@ -719,15 +948,18 @@ test.describe('drawn global scrollbar in a real browser', () => {
       `the thumb must be the conversation's ordinal, not the loaded window's pixels: ${jumpDiagnostic}`,
     ).toBeGreaterThan(0.2);
 
-    // ── (c) wheeling up inside the window, across a prepend, never moves the
-    // thumb backwards by more than a fraction of the track ────────────────────
+    // ── (c) wheeling up inside the window never moves the thumb backwards by
+    // more than a fraction of the track, and never shrinks its drawn length ────
     // The pointer is put over the transcript, where a wheel is the transcript's.
     await pointAtPane(page);
     const windowStartBefore = await windowFirstRowFraction(page, turns, totalMessages);
+    const lengthBefore = await readThumbLength(page, turns, totalMessages);
     await startProgressSampler(page);
+    const lengthsDuring: number[] = [];
     for (let step = 0; step < 14; step += 1) {
       await page.mouse.wheel(0, -WHEEL_STEP_PX);
       await page.waitForTimeout(120);
+      lengthsDuring.push((await readThumbLength(page, turns, totalMessages)).thumbHeight);
     }
     await page.waitForTimeout(400);
     const samples = await stopProgressSampler(page);
@@ -751,14 +983,34 @@ test.describe('drawn global scrollbar in a real browser', () => {
       samples[samples.length - 1],
       `wheeling up must have moved the thumb towards the start: ${JSON.stringify(samples)}`,
     ).toBeLessThan(samples[0]);
+    // (f) ...and the drawn length does not shrink as the window grows around it.
+    for (const measured of lengthsDuring) {
+      expect(
+        measured,
+        `the thumb's drawn length must not shrink as the loaded window grows: ${JSON.stringify({ lengthBefore, lengthsDuring })}`,
+      ).toBeGreaterThanOrEqual(lengthBefore.thumbHeight - 2);
+    }
 
-    // ── (e) a click on the blank track and the keyboard both move the thumb ────
+    // ── (e) a click on the blank track and the keyboard both move the thumb, and
+    // a click on the tick column is neither ───────────────────────────────────
     const clickTrack = await track.boundingBox();
     if (!clickTrack) throw new Error('the scrollbar track has no box to click');
     await page.mouse.click(clickTrack.x + clickTrack.width / 2, clickTrack.y + 0.75 * clickTrack.height);
     await expect
       .poll(async () => (await readThumb(page)).progress, { timeout: 10_000, message: 'clicking the track must move the thumb' })
       .toBeGreaterThan(0.6);
+
+    /**
+     * A gesture's thumb move is debounced, so the window it asks for lands a
+     * moment later. Reading the thumb alone would let the case pass while the
+     * pane never moved — and would leave a pending jump behind to fire in the
+     * middle of the next leg. Each step therefore waits past the pause and for
+     * the pane to stop, and the cases below read the window as well as the thumb.
+     */
+    const settleAfterGesture = async () => {
+      await page.waitForTimeout(900);
+      await waitForSettledPane(page);
+    };
 
     await thumb.focus();
     await page.keyboard.press('End');
@@ -767,6 +1019,7 @@ test.describe('drawn global scrollbar in a real browser', () => {
       .toBeGreaterThanOrEqual(0.9);
     // The far end of the track is the newest turn's row, which the jump loaded.
     const lastTurn = turnFor(turns, TOTAL_TURNS);
+    await settleAfterGesture();
     await expect(rowFor(page, lastTurn.id), 'the newest turn must be reachable through the drawn scrollbar')
       .toBeAttached({ timeout: 15_000 });
 
@@ -776,11 +1029,19 @@ test.describe('drawn global scrollbar in a real browser', () => {
       .toBeLessThanOrEqual(0.92);
     const pageUp = await readThumb(page);
     expect(pageUp.progress, 'PageUp must land a page before the far end').toBeGreaterThanOrEqual(0.85);
+    await settleAfterGesture();
 
     await page.keyboard.press('Home');
     await expect
       .poll(async () => (await readThumb(page)).progress, { timeout: 10_000, message: 'Home must move the thumb to the start' })
       .toBeLessThanOrEqual(0.1);
+    await settleAfterGesture();
+    await expect
+      .poll(async () => windowFirstRowFraction(page, turns, totalMessages), {
+        timeout: TARGET_VISIBLE_MS,
+        message: 'Home must take the loaded window to the head of the conversation',
+      })
+      .toBeLessThanOrEqual(0.05);
 
     await page.keyboard.press('PageDown');
     await expect
@@ -788,11 +1049,81 @@ test.describe('drawn global scrollbar in a real browser', () => {
       .toBeGreaterThanOrEqual(0.08);
     const pageDown = await readThumb(page);
     expect(pageDown.progress, 'PageDown must land a page after the start').toBeLessThanOrEqual(0.12);
+    await settleAfterGesture();
 
     await page.keyboard.press('ArrowUp');
     await expect
       .poll(async () => (await readThumb(page)).progress, { timeout: 10_000, message: 'ArrowUp must move the thumb' })
       .toBeLessThan(pageDown.progress);
+    await settleAfterGesture();
+
+    // The tick column is not a scrollbar: clicking a tick is a jump, not a
+    // position on the track. The discriminator is a tick whose turn is at the far
+    // end of the conversation while its own row sits near the top of the pane —
+    // read as a track position, that click would put the thumb in the middle.
+    const lastTurnTickId = lastTurn.id;
+    await scrollTickColumnTo(page, turns, lastTurnTickId, 1);
+    const tickBox = await tickFor(page, lastTurnTickId).boundingBox();
+    if (!tickBox) throw new Error('the column never drew the last turn\'s tick to click');
+    const tickFractionIfTrackClick = (tickBox.y + tickBox.height / 2 - clickTrack.y) / clickTrack.height;
+    expect(
+      tickFractionIfTrackClick,
+      `the tick must sit where a track click would read a different position: ${tickFractionIfTrackClick}`,
+    ).toBeLessThan(0.9);
+    await clickTick(page, lastTurnTickId);
+    await expect
+      .poll(async () => (await readThumb(page)).progress, {
+        timeout: TARGET_VISIBLE_MS,
+        message: 'clicking a tick must move the thumb to that turn\'s ordinal, not the click\'s place on the track',
+      })
+      .toBeGreaterThanOrEqual(0.97);
+  });
+
+  test('AC-214 v2 (f) a short conversation draws the cap, and the drawn length tracks the visible share', async () => {
+    // A transcript of a few dozen messages, in a viewport tall enough that most
+    // of it is on screen at once: the visible share is then large enough for the
+    // thumb to reach its upper bound, which a long conversation never can. Its
+    // own context, opened by id — the sidebar is not what this reading is about,
+    // and a second navigation inside the shared page would be one more thing
+    // that could be wrong.
+    const context = await browserRef.newContext({ viewport: { width: 1440, height: 2400 } });
+    await context.addInitScript((token) => {
+      window.localStorage.setItem('auth-token', token);
+    }, authToken);
+    const shortPage = await context.newPage();
+    try {
+      await shortPage.goto(`${origin}/session/${SHORT_SESSION_ID}`);
+      await expect(shortPage.locator(`${PANE} .chat-message`).first()).toBeVisible({ timeout: 30_000 });
+      await shortPage.waitForTimeout(1_500);
+
+      const outline = await readOutline(shortPage, SHORT_SESSION_ID);
+      expect(outline.status, `GET /outline did not answer: ${outline.body.slice(0, 400)}`).toBe(200);
+      const outlineData = (JSON.parse(outline.body) as { data?: { turns?: OutlineTurn[]; total?: number } }).data;
+      const shortTurns = outlineData?.turns ?? [];
+      const shortTotal = outlineData?.total ?? 0;
+      expect(shortTotal, 'the short fixture must carry its own messages').toBeGreaterThan(10);
+      expect(shortTurns.length, 'the short fixture must carry its user turns').toBeGreaterThan(2);
+
+      const length = await readThumbLength(shortPage, shortTurns, shortTotal);
+      expect(
+        length.thumbHeight,
+        `a transcript of a few dozen messages must draw the thumb at its ceiling: ${JSON.stringify(length)}`,
+      ).toBeGreaterThanOrEqual(length.trackHeight * 0.25 - 2);
+
+      // The long conversation's own reading, at the same viewport: the same
+      // formula, far smaller, because far less of it is on screen at once.
+      await shortPage.setViewportSize({ width: 1440, height: 900 });
+      await shortPage.goto(`${origin}/session/${SESSION_ID}`);
+      await expect(shortPage.locator(`${PANE} .chat-message`).first()).toBeVisible({ timeout: 30_000 });
+      await shortPage.waitForTimeout(1_500);
+      const longLength = await readThumbLength(shortPage, turns, totalMessages);
+      expect(
+        longLength.thumbHeight,
+        `a long conversation's thumb must be shorter than a short one's: ${JSON.stringify({ longLength, shortThumb: length.thumbHeight })}`,
+      ).toBeLessThan(length.thumbHeight);
+    } finally {
+      await context.close();
+    }
   });
 
   test('AC-215 the native scrollbar is hidden and the drawn rail is the only scrollbar, at two viewports', async () => {

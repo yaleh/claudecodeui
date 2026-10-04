@@ -125,7 +125,10 @@
           "src/shared/chatDrafts.ts",
           "src/shared/syntaxHighlighter.ts",
           "src/shared/voiceDebug.ts",
-          "src/shared/voiceTrim.ts"
+          "src/shared/voiceTrim.ts",
+          // The transcript's right-edge geometry, shared by the chat and
+          // quick-settings modules, which may not import each other.
+          "src/shared/transcriptEdgeLayout.ts"
         ],
         "mode": "file"
       },
