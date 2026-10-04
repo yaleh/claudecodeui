@@ -8,19 +8,21 @@ import type { InputOutlineEntry } from '@/modules/chat/outline/useInputOutline';
 
 type InputOutlineDrawerProps = {
   entries: InputOutlineEntry[];
+  /** Mobile anchors the handle from the bottom edge and keeps the panel inside a narrow screen. */
+  isMobile: boolean;
   /** The shared jump from `useChatSessionState`, addressed by transcript anchor id. */
   onJump: (anchorId: string) => void;
 };
 
 /**
- * Rendered by ChatInterface (desktop only) as a right-edge drawer listing the
+ * Rendered by ChatInterface (desktop and mobile) as a right-edge drawer listing the
  * session's user inputs; picking one jumps the transcript to it. The handle,
  * panel and backdrop follow the retired quick-settings drawer.
  */
-export default function InputOutlineDrawer({ entries, onJump }: InputOutlineDrawerProps) {
+export default function InputOutlineDrawer({ entries, isMobile, onJump }: InputOutlineDrawerProps) {
   const { t } = useTranslation('chat');
   const [isOpen, setIsOpen] = useState(false);
-  const { isDragging, handleStyle, startDrag, consumeSuppressedClick } = useOutlineHandleDrag({ isMobile: false });
+  const { isDragging, handleStyle, startDrag, consumeSuppressedClick } = useOutlineHandleDrag({ isMobile });
 
   const handleToggleFromHandle = useCallback(() => {
     // A drag that ends over the handle still fires a click; it must not toggle.
@@ -37,6 +39,7 @@ export default function InputOutlineDrawer({ entries, onJump }: InputOutlineDraw
     <>
       <InputOutlineHandle
         isOpen={isOpen}
+        isMobile={isMobile}
         isDragging={isDragging}
         style={handleStyle}
         onClick={handleToggleFromHandle}
@@ -45,7 +48,7 @@ export default function InputOutlineDrawer({ entries, onJump }: InputOutlineDraw
       />
 
       <div
-        className={`fixed right-0 top-0 z-[9999] h-full w-64 transform border-l border-border bg-background shadow-xl transition-transform duration-150 ease-out ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
+        className={`fixed right-0 top-0 z-[9999] h-full w-64 max-w-[85vw] transform border-l border-border bg-background shadow-xl transition-transform duration-150 ease-out ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
         aria-hidden={!isOpen}
         data-input-outline-panel
       >
