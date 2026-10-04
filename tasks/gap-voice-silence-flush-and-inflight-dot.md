@@ -1,7 +1,7 @@
 ---
 id: gap-voice-silence-flush-and-inflight-dot
 title: 连续语音：语音结束后静音 5 秒即发出（不论多短）、最小段长降到 20 秒、请求在途时麦克风红方块上加脉动点
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -127,3 +127,14 @@ L_G 该轴仍暗，理由：同上。
 ### 门
 
 - 合并 `develop` 后 `bash scripts/test.sh --for-task gap-voice-silence-flush-and-inflight-dot --allow-thin` → **exit 0**（`voiceInputButton.test.tsx`、`voiceLiveSegmenter.test.ts` 均 passed）。
+
+## Needs-Human
+
+**执行 2026-10-04T16:36:12.519Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=1448 server/modules/commands/tests/commands.test.ts passed=false end_ms=1791131559245
+- run_id：wk-prod-anchor
+- session_id：ee4deabb-1e81-40ed-b24c-a39ef5b5e634
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-silence-flush-and-inflight-dot~wk-prod-anchor~1791131532528-72224d.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-silence-flush-and-inflight-dot-wk-prod-anchor.log
