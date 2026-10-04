@@ -15,7 +15,7 @@ import {
 import { createMessageHistoryRefreshCoordinator } from '@/modules/chat/utils/messageHistoryRefreshCoordinator';
 import { createCachedDiffCalculator } from '@/modules/chat/utils/messageTransforms';
 import { collapseMonitorEventRows, normalizedToChatMessages } from '@/modules/chat/hooks/useChatMessages';
-import { findSearchTargetIndex, resolveSearchWindowSize } from '@/modules/chat/utils/searchTargetLocator';
+import { MIN_SNIPPET_LENGTH, findSearchTargetIndex, normalizeSearchSnippet, resolveSearchWindowSize } from '@/modules/chat/utils/searchTargetLocator';
 import { readSelectedProvider } from '@/shared/selectedProvider';
 import type { SearchTarget } from '@/modules/chat/utils/searchTargetLocator';
 
@@ -163,23 +163,40 @@ function anchorIdOf(message: ChatMessage): string | null {
  *
  * A hit carries a snippet and a timestamp but no id, so the id is derived from
  * what the client already holds: the loaded transcript first (an exact message
- * match), then the session's user-turn outline (the nearest turn by timestamp,
- * so an assistant or tool hit lands on the turn that produced it, or a turn
- * whose preview carries the snippet). Both reads are local — the whole
- * transcript is never pulled just to resolve one hit.
+ * match), then the session's user-turn outline (a turn whose preview carries
+ * the snippet, else the nearest turn by timestamp). Both reads are local — the
+ * whole transcript is never pulled just to resolve one hit.
+ *
+ * The snippet is checked before the timestamp at both steps, because only a
+ * snippet names one row: the loaded window is a slice, so the row nearest an
+ * old hit's instant inside it is the window's oldest row; and two turns of a
+ * session may share a millisecond, so within the outline the nearest instant is
+ * the *first* of the pair while the addressed turn is the one whose preview
+ * carries the hit's snippet. The timestamp is the fallback for a hit with no
+ * snippet, or one whose snippet no preview carries.
  */
 function resolveSearchTargetAnchorId(
   target: SearchTarget,
   loadedMessages: ChatMessage[],
   outline: SessionTurnOutline | null,
 ): string | null {
-  const loadedIndex = findSearchTargetIndex(loadedMessages, target);
+  const loadedIndex = findSearchTargetIndex(loadedMessages, target, { allowTimestampFallback: false });
   if (loadedIndex >= 0) {
     const anchorId = anchorIdOf(loadedMessages[loadedIndex]);
     if (anchorId) return anchorId;
   }
 
   if (!outline) return null;
+
+  if (target.snippet) {
+    // The same fragment the loaded-transcript match uses: the outline's preview
+    // is capped at that same length, so the phrase has to be cut to it too.
+    const phrase = normalizeSearchSnippet(target.snippet);
+    if (phrase.length >= MIN_SNIPPET_LENGTH) {
+      const turn = outline.turns.find((entry) => entry.preview.toLowerCase().includes(phrase));
+      if (turn) return turn.id;
+    }
+  }
 
   if (target.timestamp) {
     const targetTime = new Date(target.timestamp).getTime();
@@ -196,14 +213,6 @@ function resolveSearchTargetAnchorId(
         }
       }
       if (nearestId) return nearestId;
-    }
-  }
-
-  if (target.snippet) {
-    const phrase = target.snippet.replace(/^\.{3}/, '').replace(/\.{3}$/, '').trim().toLowerCase();
-    if (phrase.length >= 10) {
-      const turn = outline.turns.find((entry) => entry.preview.toLowerCase().includes(phrase));
-      if (turn) return turn.id;
     }
   }
 
