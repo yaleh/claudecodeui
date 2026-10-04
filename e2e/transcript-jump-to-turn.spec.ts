@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import fs from 'node:fs';
+import path from 'node:path';
 
 // AC-213 v2: the turn navigation rail — clicking a turn's tick places that
 // turn's message fully inside the scroll container's viewport and highlights it,
@@ -24,6 +26,14 @@ import type { Page } from '@playwright/test';
 // 1200 user turns, 4800 drawn rows, the 600th and 601st sharing one millisecond
 // — opened through the sidebar's own link. Nothing is stubbed: the outline the
 // rail indexes comes from `GET /api/providers/sessions/:id/outline`.
+//
+// AC-223 (the second case below) closes GOAL-017's fourth clause: the sidebar
+// search jump reuses and replaces the old "pull the whole transcript, then widen
+// a window" path. It drives the search through the sidebar's real conversation
+// search (the SSE-backed one — the only source of `__searchTargetSnippet`),
+// reads the page's own fetch log to say the jump read one `?around=<id>` window
+// and never a bare `/messages`, and pins that the resolved row is the addressed
+// turn of the same-millisecond pair rather than its twin.
 
 /** ChatMessagesPane's scroll container. */
 const PANE = '.chat-messages-pane';
@@ -49,6 +59,16 @@ const VIEWPORT = { width: 1280, height: 1200 };
 const TARGET_VISIBLE_MS = 3_000;
 /** A gap at or below this is "at the bottom", in CSS pixels. */
 const AT_BOTTOM_PX = 2;
+/**
+ * The query AC-223 types into the real sidebar conversation search.
+ *
+ * It opens turn 601's prompt ("Turn 601. The transcript keeps…") and nothing
+ * else: the reply says "Reply 601.", the thinking row "turn 601 before", and the
+ * tool rows "turn-601" — none carries the phrase "Turn 601." with its period.
+ * The hit therefore names exactly the addressed turn of the same-millisecond
+ * pair the rail case also uses.
+ */
+const SEARCH_PHRASE = 'Turn 601. The transcript';
 /**
  * The most ticks the column's window may draw (AC-217's ceiling, restated here
  * so this criterion fails if the rail ever goes back to one tick per turn).
@@ -748,6 +768,150 @@ test.describe('turn rail jump in a real browser', () => {
     expect(
       (await readTarget(page, tiedFirst.id)).highlighted,
       `the tied turn ${TIE_TURN} must not be the row the jump actually addressed`,
+    ).toBe(false);
+  });
+
+  // AC-223: the sidebar search jump is the rail's own id-addressed read, not a
+  // second implementation. It is driven here through the real search UI, with
+  // the tie pair deliberately OUT of the loaded window so the hit's turn has to
+  // be named from the outline — the path a timestamp lookup gets wrong.
+  test('AC-223 a sidebar search jump reads one around window and lands on the addressed turn', async () => {
+    test.setTimeout(300_000);
+
+    // ── Park the loaded window back at the tail ─────────────────────────────
+    // When this case runs after the rail case, that case left the window around
+    // the tie and the pane detached; "back to latest" drops it and re-reads the
+    // newest page. Run alone (the criterion's `-g "AC-223"` invocation) the pane
+    // is already on the tail, so there is nothing to take back. Either way the
+    // tie pair ends up unloaded and the search has to name turn 601 from the
+    // outline, not from a loaded row.
+    const scrollButton = page.locator(SCROLL_BUTTON).first();
+    if (await scrollButton.isVisible().catch(() => false)) {
+      await scrollButton.click({ timeout: 15_000 });
+    }
+    const lastTurn = turnFor(turns, TOTAL_TURNS);
+    await expect(rowFor(page, lastTurn.id), 'the tail must be attached before the search').toBeAttached({ timeout: 15_000 });
+    await expect
+      .poll(async () => Math.abs((await readGeometry(page)).gap), {
+        timeout: 10_000,
+        message: 'the pane never settled on the bottom before the search',
+      })
+      .toBeLessThanOrEqual(AT_BOTTOM_PX);
+
+    const tiedFirst = turnFor(turns, TIE_TURN);
+    const tiedSecond = turnFor(turns, TIE_TURN + 1);
+    expect(tiedFirst.timestamp, 'the fixture must give the tie pair one millisecond').toBe(tiedSecond.timestamp);
+    expect(tiedFirst.id, 'the tied turns must still be two ids').not.toBe(tiedSecond.id);
+    await expect
+      .poll(async () => rowFor(page, tiedSecond.id).count(), {
+        timeout: 10_000,
+        message: 'the tie turn must leave the loaded window before the search resolves',
+      })
+      .toBe(0);
+
+    // ── A real sidebar search whose only hit is turn 601's own prompt ───────
+    await page.locator('button:visible', { hasText: 'Conversations' }).first().click();
+    const searchInput = page.locator('input.nav-search-input:visible').first();
+    await searchInput.fill(SEARCH_PHRASE);
+    const result = page.getByRole('button').filter({ hasText: SESSION_NAME }).first();
+    await result.waitFor({ state: 'visible', timeout: 30_000 });
+    await expect(result, "the search result must carry the hit's snippet").toContainText(SEARCH_PHRASE);
+
+    const fetchesBefore = (await readFetches(page)).length;
+    await result.click();
+
+    let searchReading: TargetReading | null = null;
+    const deadline = Date.now() + TARGET_VISIBLE_MS;
+    while (Date.now() < deadline) {
+      const current = await readTarget(page, tiedSecond.id);
+      if (current.fully && current.turnNumber !== null) {
+        searchReading = current;
+        break;
+      }
+      await page.waitForTimeout(50);
+    }
+    const searchFetches = (await readFetches(page)).slice(fetchesBefore);
+    const searchUrls = searchFetches.map((entry) => entry.url);
+    console.log('[AC-223] the search jump made these /messages reads:', JSON.stringify(searchUrls));
+
+    // (a) The jump is a window read, never a full pull. A bare `/messages`
+    // request (no limit, no around) is exactly the old "read the whole
+    // transcript" shape; every read the jump made has to carry `around=`.
+    const bareReads = searchFetches.filter((entry) => /\/messages(\?|$)/.test(entry.url) && !entry.url.includes('around='));
+    expect(
+      bareReads,
+      `the search jump must not read /messages without an around id; it made ${JSON.stringify(bareReads.map((entry) => entry.url))}`,
+    ).toEqual([]);
+    const aroundReads = searchFetches.filter((entry) => entry.url.includes('around='));
+    expect(aroundReads.length, `the search jump must read an around window: ${JSON.stringify(searchUrls)}`).toBeGreaterThan(0);
+
+    // (b) It lands on the addressed turn, not the same-millisecond twin.
+    const searchDiagnostic = await page.evaluate((target) => {
+      const flash = document.querySelector('.search-highlight-flash') as HTMLElement | null;
+      return {
+        targetPresent: Boolean(document.querySelector(`[data-message-anchor-id="${target}"]`)),
+        flashTurn: /Turn (\d+)\./.exec(flash?.textContent ?? '')?.[1] ?? null,
+      };
+    }, tiedSecond.id);
+    expect(
+      searchReading,
+      `the search hit for turn ${TIE_TURN + 1} never placed its row in the viewport (${JSON.stringify(searchDiagnostic)})`,
+    ).not.toBeNull();
+    expect(
+      searchReading!.turnNumber,
+      `the search jump must land on the addressed turn ${TIE_TURN + 1}, not the tied ${TIE_TURN}`,
+    ).toBe(TIE_TURN + 1);
+    expect(
+      searchReading!.highlighted,
+      `the search jump must highlight turn ${TIE_TURN + 1}'s own row (${JSON.stringify(searchDiagnostic)})`,
+    ).toBe(true);
+    expect(
+      (await readTarget(page, tiedFirst.id)).highlighted,
+      `the same-millisecond turn ${TIE_TURN} must not be the row the search actually addressed`,
+    ).toBe(false);
+
+    // (c) The same read the rail makes. A rail tick jump is taken and the two
+    // window reads are compared: same endpoint, same around/before/after shape.
+    const railBefore = (await readFetches(page)).length;
+    await scrollTickColumnTo(page, turns, tiedSecond.id, 1);
+    await clickTick(page, tiedSecond.id);
+    await expect
+      .poll(async () => (await readTarget(page, tiedSecond.id)).fully, {
+        timeout: TARGET_VISIBLE_MS,
+        message: 'the rail jump after the search never re-placed its turn',
+      })
+      .toBe(true);
+    const railUrls = (await readFetches(page)).slice(railBefore).map((entry) => entry.url);
+    const railAround = railUrls.find((url) => url.includes('around='));
+    console.log('[AC-223] the rail jump made these /messages reads:', JSON.stringify(railUrls));
+    expect(railAround, `the rail jump must be an around-window read: ${JSON.stringify(railUrls)}`).toBeTruthy();
+    const shapeOf = (url: string) => {
+      const parsed = new URL(url, 'http://localhost');
+      return {
+        path: parsed.pathname,
+        hasAround: parsed.searchParams.has('around'),
+        before: parsed.searchParams.get('before'),
+        after: parsed.searchParams.get('after'),
+      };
+    };
+    expect(
+      shapeOf(aroundReads[0].url),
+      `the sidebar search and the rail must enter the same ?around window read; search ${aroundReads[0].url} vs rail ${railAround}`,
+    ).toEqual(shapeOf(railAround!));
+
+    // (c, structural) ...and there is no second copy of the jump in the source:
+    // the search effect routes through `jumpToMessage`, the rail routes through
+    // it too, the one jump reads an id-addressed window, and it never scrolls a
+    // fully pulled transcript with `scrollIntoView`.
+    const repoRoot = process.cwd();
+    const chatHook = fs.readFileSync(path.join(repoRoot, 'src/modules/chat/hooks/useChatSessionState.ts'), 'utf8');
+    const railHook = fs.readFileSync(path.join(repoRoot, 'src/modules/chat/hooks/useTurnNavigation.ts'), 'utf8');
+    expect(chatHook, 'the search effect must route through the shared jumpToMessage entry').toContain('jumpToMessage(anchorId)');
+    expect(railHook, 'the rail must route through the same jumpToMessage entry').toContain('jumpToMessage(');
+    expect(chatHook, 'the shared jump must read an id-addressed window').toContain('loadWindowAround(sessionId, anchorId');
+    expect(
+      /\bscrollIntoView\s*\(/.test(chatHook),
+      'the jump must not fall back to scrolling a fully pulled transcript with scrollIntoView',
     ).toBe(false);
   });
 });
