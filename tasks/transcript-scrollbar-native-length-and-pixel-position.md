@@ -2,7 +2,7 @@
 id: transcript-scrollbar-native-length-and-pixel-position
 title: AC-219 滚动条长度与位置照浏览器规则按估算像素给出：长度 = 视口 ÷ 估算会话总高（≥28px
   无上限），内容装得下时滚动条与刻度列不显示，滚动与拖动中长度不起伏
-status: ready
+status: needs-human
 labels:
   - gap
   - priority:p1
@@ -86,3 +86,13 @@ goal_ac: AC-219
 - e2e/transcript-global-scrollbar.spec.ts
 - e2e/transcript-rail-geometry.spec.ts
 - tasks/transcript-scrollbar-native-length-and-pixel-position.md
+## Needs-Human
+
+**执行 2026-10-04T08:17:45.799Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
+- 失败步/判词：step=suite: not ok - server/modules/voice/tests/voice-capture-audio.false-forms.test.ts:   AssertionError [ERR_ASSERTION]: a surface this task must not have moved is red
+- run_id：wk-prod-anchor
+- session_id：c91db93e-f260-4fc1-a1ea-69654fbab955
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-transcript-scrollbar-native-length-and-pixel-position~wk-prod-anchor~1791101631331-2f2381.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-transcript-scrollbar-native-length-and-pixel-position-wk-prod-anchor.log
