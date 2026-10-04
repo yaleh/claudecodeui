@@ -40,20 +40,20 @@ depends_on:
 
 ## AC
 
-- [ ] `npm run test:client -- src/modules/chat/utils/tests/voiceInsertion.test.ts` 退出码 0：固定种子的 ≥200 个随机编辑序列下，已提交文字始终连续、按序，用户在区间外的编辑被完整保留
-- [ ] `npx playwright test e2e/voice-continuous.spec.ts` 退出码 0，且包含下列各项（假 provider 拦截 `/api/voice/transcribe`，零费用）
-- [ ] 短输入：累计语音 < 30 s 的样本，请求数恰好 1，停止后输入框文字等于该请求的返回
-- [ ] 长输入（`voiceMinSegmentSec` 调小）：请求数 ≥ 2；让第 1 段的返回晚于第 2 段，输入框里第 2 段的文字在第 1 段完成之前**不出现**，之后顺序正确
-- [ ] 边说边出现：仍在监听时（尚未点停止），至少有一段的文字已经在输入框里
-- [ ] 失败：让第 2 段始终失败，其余段的文字完整在输入框里；`voice-error-notice` 恰好出现一次；输入框文本不含任何占位或标记
-- [ ] 无语音：整段静音的输入，请求数为 0，状态回到待机，没有错误提示
-- [ ] 空闲自动停止：`voiceIdleSec` 调到 2，静音下约 2 s 后自行停止，请求数为 0
-- [ ] 发送：监听中点发送，等全部段完成后 `onTranscript(text, true)` 恰好被调用一次，文字为全部段按序拼接
-- [ ] 回放槽：停止后过滤后的按钮存在；总长超过上限时只有过滤后的按钮（用调小的 `ORIGINAL_CAP_SEC` 覆盖验证）
-- [ ] 已有的语音 e2e（`voice-trim.spec.ts`、`voice-identifier-repair.spec.ts`、`voice-error-messages.spec.ts`、`voice-dashscope-written.spec.ts`）按新路径更新后全部通过，不得以删除断言的方式过关
-- [ ] `grep -n "MediaRecorder\|trimVoiceAudio\|isVoiceTrimEnabled\|prepareUpload" src/modules/chat/hooks/useVoiceInput.ts | wc -l` 的结果为 0
-- [ ] 取假形态（各自必须变红）：按完成顺序而非序号提交文字 → 「第 2 段不早于第 1 段出现」红；把最小段长删掉 → 「短输入请求数恰好 1」红；失败段在输入框里放占位 → 「输入框不含标记」红
-- [ ] `npm run lint` 与 `npm run typecheck` 退出码 0
+- [x] `npm run test:client -- src/modules/chat/utils/tests/voiceInsertion.test.ts` 退出码 0：固定种子的 ≥200 个随机编辑序列下，已提交文字始终连续、按序，用户在区间外的编辑被完整保留
+- [x] `npx playwright test e2e/voice-continuous.spec.ts` 退出码 0，且包含下列各项（假 provider 拦截 `/api/voice/transcribe`，零费用）
+- [x] 短输入：累计语音 < 30 s 的样本，请求数恰好 1，停止后输入框文字等于该请求的返回
+- [x] 长输入（`voiceMinSegmentSec` 调小）：请求数 ≥ 2；让第 1 段的返回晚于第 2 段，输入框里第 2 段的文字在第 1 段完成之前**不出现**，之后顺序正确
+- [x] 边说边出现：仍在监听时（尚未点停止），至少有一段的文字已经在输入框里
+- [x] 失败：让第 2 段始终失败，其余段的文字完整在输入框里；`voice-error-notice` 恰好出现一次；输入框文本不含任何占位或标记
+- [x] 无语音：整段静音的输入，请求数为 0，状态回到待机，没有错误提示
+- [x] 空闲自动停止：`voiceIdleSec` 调到 2，静音下约 2 s 后自行停止，请求数为 0
+- [x] 发送：监听中点发送，等全部段完成后 `onTranscript(text, true)` 恰好被调用一次，文字为全部段按序拼接
+- [x] 回放槽：停止后过滤后的按钮存在；总长超过上限时只有过滤后的按钮（用调小的 `ORIGINAL_CAP_SEC` 覆盖验证）
+- [ ] 已有的语音 e2e（`voice-trim.spec.ts`、`voice-identifier-repair.spec.ts`、`voice-error-messages.spec.ts`、`voice-dashscope-written.spec.ts`）按新路径更新后全部通过，不得以删除断言的方式过关 — **3/4 通过**（identifier-repair、error-messages、dashscope-written 已在真实浏览器上单独跑绿；error-messages 的两处改动是「等响应到达再断言状态」与「空回答按 NO_SPEECH_DETECTED 报告」）。**`voice-trim.spec.ts` 未通过且不能在不改变其判据含义的前提下通过**：它的四个判据全部以批处理裁剪为被测对象（AC-119 比较裁/不裁两次上传的时长，AC-121 读 `[voice:trim]` 开关读数），而裁剪链路正是本任务按 Proposal 移除的；AC-119 的标题/含义与另几个已 done 任务的判据串（`gap-ac122-shared-assembly-starves-leg-budget`、`gap-e2e-shared-vite-dep-cache-invalidates-inflight-page`、`gap-asr-trim-capability-wiring`）绑定，改写会让那些判据静默变红。这一条需要人工裁定「退役 voice-trim 的哪些判据」，不由 worker 单方面抹掉。
+- [x] `grep -n "MediaRecorder\|trimVoiceAudio\|isVoiceTrimEnabled\|prepareUpload" src/modules/chat/hooks/useVoiceInput.ts | wc -l` 的结果为 0
+- [ ] 取假形态（各自必须变红）：按完成顺序而非序号提交文字 → 「第 2 段不早于第 1 段出现」红；把最小段长删掉 → 「短输入请求数恰好 1」红；失败段在输入框里放占位 → 「输入框不含标记」红 — 未执行（三个假形态都要求改写被测源码后再跑 e2e，本轮未做）
+- [x] `npm run lint` 与 `npm run typecheck` 退出码 0
 
 ## DoD
 
@@ -66,13 +66,23 @@ L_G 该轴仍暗，理由：质量读数归评估任务，本任务只做链路�
 ## Touches
 
 - src/modules/chat/hooks/useVoiceInput.ts
+- src/modules/chat/hooks/useChatComposerState.ts
 - src/modules/chat/composer/ChatComposer.tsx
+- src/modules/chat/composer/VoiceInputButton.tsx
+- src/modules/chat/ChatInterface.tsx
 - src/modules/chat/utils/voiceInsertion.ts (new)
 - src/modules/chat/utils/tests/voiceInsertion.test.ts (new)
+- src/modules/chat/utils/tests/voiceSegments.test.ts
+- src/modules/chat/tests/voiceCaptureTestHarness.ts (new)
+- src/modules/chat/tests/voiceClipPlayback.test.tsx
+- src/modules/chat/tests/voiceErrorMessages.test.tsx
+- src/modules/chat/tests/voiceErrorNoticePersistence.test.tsx
+- src/modules/chat/tests/voiceTranscriptRepair.test.tsx
+- src/modules/chat/tests/voiceTrimCapabilityWiring.test.tsx
+- src/shared/tests/voiceUpload16k.test.ts
 - src/shared/voiceDebug.ts
+- src/shared/types.ts
 - e2e/voice-continuous.spec.ts (new)
-- e2e/voice-trim.spec.ts
-- e2e/voice-identifier-repair.spec.ts
 - e2e/voice-error-messages.spec.ts
-- e2e/voice-dashscope-written.spec.ts
+- playwright.config.ts
 - tasks/gap-voice-single-continuous-input-path.md
