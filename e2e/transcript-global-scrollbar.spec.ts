@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
+import type { Browser, BrowserContext, Page } from '@playwright/test';
 
 // AC-214: the transcript's drawn global scrollbar. Its thumb sits at the current
 // turn's absolute-message-subscript fraction of the whole conversation — never at
@@ -398,13 +398,53 @@ const readClearance = (page: Page): Promise<Clearance> =>
     };
   });
 
-/** Pins the transcript to the bottom of whatever window is loaded, and waits for it to settle. */
-const pinToBottom = async (page: Page) => {
-  await page.evaluate(() => {
-    const pane = document.querySelector('.chat-messages-pane') as HTMLElement;
-    pane.scrollTop = pane.scrollHeight;
-  });
-  return waitForSettledPane(page);
+/**
+ * Opens the seeded session in a fresh context at the viewport the case declares,
+ * pinned at the tail and following, and returns the context and page.
+ *
+ * A fresh context rather than a resize of the shared page: the criterion needs
+ * the transcript at the tail, and a fresh open lands there by construction,
+ * whereas reflowing an already-open pane across a width change is a different
+ * behaviour — a width reflow is not what the follow observes, and it can leave
+ * the pane short of the bottom. The auth token is seeded into `localStorage`
+ * before the first navigation, so `/session/<id>` opens the session directly.
+ * `hasTouch` makes the narrow viewport the no-hover touch screen the criterion's
+ * drag leg is about.
+ */
+const openSeededAtViewport = async (
+  browser: Browser,
+  origin: string,
+  authToken: string,
+  viewport: { readonly name: string; readonly size: { width: number; height: number } },
+): Promise<{ context: BrowserContext; page: Page }> => {
+  const isMobile = viewport.name.startsWith('mobile');
+  const context = await browser.newContext({ viewport: viewport.size, hasTouch: isMobile, isMobile });
+  await context.addInitScript((token) => {
+    window.localStorage.setItem('auth-token', token);
+  }, authToken);
+  const scoped = await context.newPage();
+  await scoped.goto(`${origin}/session/${SESSION_ID}`);
+  await settleServiceWorker(scoped);
+  await expect(scoped.locator(`${PANE} .chat-message`).first()).toBeVisible({ timeout: 30_000 });
+  await waitForSettledPane(scoped);
+  return { context, page: scoped };
+};
+
+/**
+ * Scrolls back down until the pane is at the bottom again, and the app has read
+ * that arrival as the user returning (so the follow is re-attached). A wheel
+ * towards the bottom is the gesture the app re-attaches on, which is what makes
+ * this the honest way to put the pane back at the tail between legs.
+ */
+const returnToBottom = async (page: Page) => {
+  await pointAtPane(page);
+  await page.mouse.wheel(0, 2_000);
+  await expect
+    .poll(async () => (await readClearance(page)).gap, {
+      timeout: 5_000,
+      message: 'a wheel back down must return the pane to the bottom',
+    })
+    .toBeLessThanOrEqual(1);
 };
 
 /** The pane's current offset, read on its own so a before/after comparison needs no geometry. */
@@ -756,10 +796,18 @@ test.describe('drawn global scrollbar in a real browser', () => {
   });
 
   test('AC-215 the native scrollbar is hidden and the drawn rail is the only scrollbar, at two viewports', async () => {
-    for (const viewport of AC215_VIEWPORTS) {
-      await page.setViewportSize(viewport.size);
-      await pinToBottom(page);
+    const browser = page.context().browser();
+    if (!browser) throw new Error('the AC-215 case opens its own contexts and needs the browser');
+    const origin = new URL(page.url()).origin;
+    const authToken = await page.evaluate(() => window.localStorage.getItem('auth-token') ?? '');
+    if (!authToken) throw new Error('no auth token to seed a fresh context with');
 
+    for (const viewport of AC215_VIEWPORTS) {
+      // A fresh context at this viewport: the transcript opens pinned at the tail
+      // (the state the criterion's (c) leg names), and the narrow one is a real
+      // no-hover touch screen for the drag leg. `page` shadows the shared page.
+      const { context, page } = await openSeededAtViewport(browser, origin, authToken, viewport);
+      try {
       // ── (a) the native bar leaves no layout, and the drawn rail is the one scrollbar ──
       const clearance = await readClearance(page);
       const reading = JSON.stringify(clearance);
@@ -796,6 +844,7 @@ test.describe('drawn global scrollbar in a real browser', () => {
       await expect
         .poll(() => readScrollTop(page), { timeout: 5_000, message: `a wheel must still scroll the pane at ${viewport.name}` })
         .toBeLessThan(beforeWheel);
+      await returnToBottom(page);
 
       // ── (b) the keyboard still scrolls the pane ──
       await page.locator(PANE).focus();
@@ -804,9 +853,9 @@ test.describe('drawn global scrollbar in a real browser', () => {
       await expect
         .poll(() => readScrollTop(page), { timeout: 5_000, message: `PageUp must still scroll the pane at ${viewport.name}` })
         .toBeLessThan(beforeKey);
+      await returnToBottom(page);
 
       // ── (c) at the tail, growing the last row ~400px keeps the bottom pinned ──
-      await pinToBottom(page);
       const tailGrowth = await growTranscriptTail(page, 400);
       expect(
         tailGrowth.after - tailGrowth.before,
@@ -821,29 +870,29 @@ test.describe('drawn global scrollbar in a real browser', () => {
 
       // ── (c) leaving the bottom: the same growth must not move scrollTop ──
       await pointAtPane(page);
-      await page.mouse.wheel(0, -300);
-      await expect
-        .poll(async () => (await readClearance(page)).gap, {
-          timeout: 5_000,
-          message: `a wheel up must leave the bottom at ${viewport.name}`,
-        })
-        .toBeGreaterThan(1);
-      const leftAt = await readScrollTop(page);
+      await page.mouse.wheel(0, -600);
+      await waitForSettledPane(page);
+      const leftReading = await readClearance(page);
+      expect(
+        leftReading.gap,
+        `a wheel up must leave the bottom at ${viewport.name}: ${JSON.stringify(leftReading)}`,
+      ).toBeGreaterThan(1);
+      const leftAt = leftReading.scrollTop;
       const awayGrowth = await growTranscriptTail(page, 400);
       expect(
         awayGrowth.after - awayGrowth.before,
         `the second injected growth must be at least 400px at ${viewport.name}: ${JSON.stringify(awayGrowth)}`,
       ).toBeGreaterThanOrEqual(400);
-      await page.waitForTimeout(400);
-      const stayedAt = await readScrollTop(page);
+      await waitForSettledPane(page);
+      await page.waitForTimeout(300);
+      const stayedReading = await readClearance(page);
       expect(
-        Math.abs(stayedAt - leftAt),
-        `growth below a viewport that left the bottom must not move scrollTop at ${viewport.name}: left=${leftAt} stayed=${stayedAt}`,
+        Math.abs(stayedReading.scrollTop - leftAt),
+        `growth below a viewport that left the bottom must not move scrollTop at ${viewport.name}: left=${JSON.stringify(leftReading)} stayed=${JSON.stringify(stayedReading)}`,
       ).toBeLessThanOrEqual(1);
 
       if (viewport.name.startsWith('mobile')) {
         // ── (b) a real touch swipe still scrolls the pane ──
-        await pinToBottom(page);
         const beforeTouch = await readScrollTop(page);
         await touchScrollPane(page, 300);
         await expect
@@ -851,7 +900,6 @@ test.describe('drawn global scrollbar in a real browser', () => {
           .toBeLessThan(beforeTouch);
 
         // ── (d) narrow, no hover: the drawn thumb is still touch-draggable ──
-        await pinToBottom(page);
         const beforeDrag = await readClearance(page);
         await touchDragThumb(page, -160);
         await expect
@@ -860,6 +908,9 @@ test.describe('drawn global scrollbar in a real browser', () => {
             message: 'a touch drag must move the drawn thumb',
           })
           .toBeLessThan(beforeDrag.valueNow!);
+      }
+      } finally {
+        await context.close();
       }
     }
   });
