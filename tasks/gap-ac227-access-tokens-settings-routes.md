@@ -60,16 +60,16 @@ AC-227（GOAL-018 退出条件 4；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3�
 
 ## AC
 
-- [ ] AC1 判据文件存在且绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/access-tokens.routes.test.ts` 退出 0，用例涵盖 (a)–(f)。逐字记录红态基线（改动前 `[ -f ... ]` 存在性闸退出码 1 并打印缺失文件名）。
-- [ ] AC2 (a) 创建 201 且含明文：对 `expiresInDays` = 7/30/90 各 POST（带 `name`）返回 201；响应 JSON 里各恰有 1 个匹配 `^ccp_[0-9a-f]{64}$` 的字符串。写下三条明文与各自 id。
-- [ ] AC3 (b) 列表无明文无哈希：GET 整个响应体 `JSON.stringify` 不含任一条明文，也不含对应 `token_hash`；每项含 `tokenPrefix`/`name`/`scopes`/`expiresAt`/`lastUsed`，无 `token_hash`/`plaintext` 键。写下响应体键集与两个「找不到」的计数。
-- [ ] AC4 (c) 非法有效期 400 不落库：`expiresInDays` ∈ {0,1,6,10,365,−1} 各 POST 返回 400，且每次 `SELECT COUNT(*) FROM access_tokens` 前后相等。写下每条返回与前后计数。
-- [ ] AC5 (d) 吊销：DELETE 某令牌 ⇒ 200；同一令牌服务实例对其实明文 `validate` ⇒ 被拒（吊销 reason）；再次 DELETE 同一 id ⇒ 404。写下两状态与 validate 结果。
-- [ ] AC6 (e) 归属：用户 2 DELETE 用户 1 的令牌 id ⇒ 404 且该令牌仍 validate 通过（未被误吊销）；用户 2 的列表 id 集合不含用户 1 的令牌。写下两用户列表 id 集合。
-- [ ] AC7 (f) 旧接口不再被处理：GET 与 POST `/api/settings/api-keys` 均 404，响应体不含 `apiKeys` 键。写下两状态与响应体。
-- [ ] AC8 取假形态四条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 列表返回整行含哈希 ⇒ AC3 红；(ii) 创建接受任意天数 ⇒ AC4 红；(iii) 吊销不校验归属 ⇒ AC6 红；(iv) 重挂 `/api-keys` GET 或 POST ⇒ AC7 红。每条记录恢复命令与恢复后重跑绿。
-- [ ] AC9 仓库门与该模块窄测：`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（只看 error 级）；`npx tsx --tsconfig server/tsconfig.json --test server/modules/settings/tests/settings.service.test.ts` 退出 0（依赖工厂补 `accessTokens` 桩后不残留失败用例）；判据跨模块只经 barrel（`@/modules/settings/index.js`、`@/modules/oauth/index.js`、`@/modules/database/index.js`），无深导入。写明各命令退出码与 lint error 计数。
-- [ ] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写。列出实际改动文件清单。
+- [x] AC1 判据文件存在且绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/access-tokens.routes.test.ts` 退出 0，用例涵盖 (a)–(f)。逐字记录红态基线（改动前 `[ -f ... ]` 存在性闸退出码 1 并打印缺失文件名）。
+- [x] AC2 (a) 创建 201 且含明文：对 `expiresInDays` = 7/30/90 各 POST（带 `name`）返回 201；响应 JSON 里各恰有 1 个匹配 `^ccp_[0-9a-f]{64}$` 的字符串。写下三条明文与各自 id。
+- [x] AC3 (b) 列表无明文无哈希：GET 整个响应体 `JSON.stringify` 不含任一条明文，也不含对应 `token_hash`；每项含 `tokenPrefix`/`name`/`scopes`/`expiresAt`/`lastUsed`，无 `token_hash`/`plaintext` 键。写下响应体键集与两个「找不到」的计数。
+- [x] AC4 (c) 非法有效期 400 不落库：`expiresInDays` ∈ {0,1,6,10,365,−1} 各 POST 返回 400，且每次 `SELECT COUNT(*) FROM access_tokens` 前后相等。写下每条返回与前后计数。
+- [x] AC5 (d) 吊销：DELETE 某令牌 ⇒ 200；同一令牌服务实例对其实明文 `validate` ⇒ 被拒（吊销 reason）；再次 DELETE 同一 id ⇒ 404。写下两状态与 validate 结果。
+- [x] AC6 (e) 归属：用户 2 DELETE 用户 1 的令牌 id ⇒ 404 且该令牌仍 validate 通过（未被误吊销）；用户 2 的列表 id 集合不含用户 1 的令牌。写下两用户列表 id 集合。
+- [x] AC7 (f) 旧接口不再被处理：GET 与 POST `/api/settings/api-keys` 均 404，响应体不含 `apiKeys` 键。写下两状态与响应体。
+- [x] AC8 取假形态四条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 列表返回整行含哈希 ⇒ AC3 红；(ii) 创建接受任意天数 ⇒ AC4 红；(iii) 吊销不校验归属 ⇒ AC6 红；(iv) 重挂 `/api-keys` GET 或 POST ⇒ AC7 红。每条记录恢复命令与恢复后重跑绿。
+- [x] AC9 仓库门与该模块窄测：`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（只看 error 级）；`npx tsx --tsconfig server/tsconfig.json --test server/modules/settings/tests/settings.service.test.ts` 退出 0（依赖工厂补 `accessTokens` 桩后不残留失败用例）；判据跨模块只经 barrel（`@/modules/settings/index.js`、`@/modules/oauth/index.js`、`@/modules/database/index.js`），无深导入。写明各命令退出码与 lint error 计数。
+- [x] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写。列出实际改动文件清单。
 
 ## DoD
 
@@ -88,4 +88,78 @@ AC-227（GOAL-018 退出条件 4；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3�
 - server/modules/settings/index.ts
 - server/modules/settings/tests/settings.service.test.ts
 - server/modules/oauth/tests/access-tokens.routes.test.ts (new)
+- server/modules/database/repositories/access-tokens.ts
 - tasks/gap-ac227-access-tokens-settings-routes.md
+## 完成记录
+
+### AC1 判据绿 / 红态基线
+- 红态基线（commit 5924ea03，先只提交判据文件，settings 侧未加 `/access-tokens` 导出）：运行
+  `npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/access-tokens.routes.test.ts`
+  → `SyntaxError: The requested module '@/modules/settings/index.js' does not provide an export named 'createSettingsRouter'`，退出码 1（tests 1 / pass 0 / fail 1）。
+- 绿（commit 7eb8bfc9 落实现后）：同命令 tests 7 / pass 7 / fail 0，退出码 0；(a)–(f) 各一用例，另加 (f-control) 防「未知路径也 404」的空读数。
+
+### AC2 (a) 创建 201 且含明文
+- `expiresInDays=7` → 201 id=1 plaintext=`ccp_d12ebd2e1196c0b1d900f195265fffc42212a84ad37cb6e4c21bac09035786ec`
+- `expiresInDays=30` → 201 id=2 plaintext=`ccp_41e76b7bd1f1b7bf40a3c3a98d3ceb9d0e28a7c95ccef80b993650fa11b89efd`
+- `expiresInDays=90` → 201 id=3 plaintext=`ccp_d82cc42cc853579250c9c1f162e2d295cc209afa07a01d4766205aff7ddaf6a0`
+- 每个响应 JSON 内匹配 `^ccp_[0-9a-f]{64}$` 的字符串恰 1 条。
+
+### AC3 (b) 列表无明文无哈希
+- 响应体每项键集：`createdAt, expiresAt, id, lastUsed, name, revokedAt, scopes, tokenPrefix`。
+- 整份 `JSON.stringify` 中：(a) 三条明文命中 0；对应三条 `token_hash`（逐条与库中该行比对）命中 0。
+- 每项 `tokenPrefix` = 明文前 8 字符，含 `tokenPrefix/name/scopes/expiresAt/lastUsed`，无 `token_hash`/`plaintext` 键。
+
+### AC4 (c) 非法有效期 400 不落库
+- `expiresInDays ∈ {0,1,6,10,365,-1}` 各 400，body = `{"success":false,"error":{"code":"INVALID_EXPIRES_IN","message":"expiresInDays must be one of 7, 30, 90"}}`。
+- 每次前后 `SELECT COUNT(*) FROM access_tokens` 均为 `0 -> 0`（不创建任何记录）。
+
+### AC5 (d) 吊销
+- `DELETE /api/settings/access-tokens/1` → 200；同一令牌服务实例 `validate`（`verifyToken`）该令牌明文 → `{"ok":false,"reason":"revoked"}`；再次 DELETE 同一 id → 404。
+
+### AC6 (e) 归属
+- 用户 2 `DELETE` 用户 1 的令牌 id → 404；用户 1 令牌 `verifyToken` 仍 `ok:true`（未被误吊销）。
+- 用户 2 的列表 id 集合 `[2]`（不含用户 1 的 1）；用户 1 的列表 id 集合 `[1]`。
+
+### AC7 (f) 旧接口
+- `GET /api/settings/api-keys` → 404（express 默认 404 HTML），`POST` → 404；两响应体均不含 `apiKeys`。
+- (f-control) 未知设置路径同样 404，证明 (f) 的 404 不是「任何东西都 404」的空读数。
+
+### AC8 取假形态（先提交实现 7eb8bfc9，再变异；恢复命令 `git -C <worktree> checkout -- <file>`）
+- **(i) 列表返回整行（含哈希）**：`server/modules/settings/settings.service.ts`
+  ```diff
+  -      return { tokens: dependencies.accessTokens.list(userId).map(projectAccessToken) };
+  +      return { tokens: dependencies.accessTokens.list(userId).map((row) => ({ ...row })) };
+  ```
+  (b) 红，逐字失败行 `server/modules/oauth/tests/access-tokens.routes.test.ts:215:12`：`AssertionError [ERR_ASSERTION]: 3 !== 0`（`assert.equal(hashHits, 0)`，实际 3）。恢复后 7/7 绿。
+- **(ii) 创建接受任意天数（删 7/30/90 白名单）**：`settings.service.ts` 删除 `if (typeof requestedDays !== 'number' || !ALLOWED_TOKEN_EXPIRY_DAYS.includes(requestedDays)) { throw new AppError(...) }` 块，代以注释 `// FALSIFY(ii): 7/30/90 whitelist removed`。
+  (c) 红，失败行 `access-tokens.routes.test.ts:247:14`：`actual: 500 / expected: 400`（非法值落到令牌服务拒绝，翻译成 500）。恢复后 7/7 绿。
+- **(iii) 吊销不校验归属**：`settings.service.ts`
+  ```diff
+  -      assertFound(Boolean(token) && token?.user_id === userId, 'Access token', 'ACCESS_TOKEN_NOT_FOUND');
+  +      // FALSIFY(iii): ownership check removed (userId not compared)
+  +      assertFound(Boolean(token), 'Access token', 'ACCESS_TOKEN_NOT_FOUND');
+  ```
+  (e) 红，失败行 `access-tokens.routes.test.ts:281:12`：`actual: 200 / expected: 404`（跨用户删除被放行）。恢复后 7/7 绿。
+- **(iv) 在设置路由重挂 `/api-keys` GET**：`server/modules/settings/settings.routes.ts`
+  ```diff
+  +  // FALSIFY(iv): the retired /api-keys endpoint re-mounted on the settings router
+  +  router.get('/api-keys', respond(() => ({ apiKeys: [] })));
+  ```
+  (f) 红，失败行 `access-tokens.routes.test.ts:310:12`：`actual: 200 / expected: 404`。恢复后 7/7 绿。
+
+### AC9 仓库门与该模块窄测
+- `npm run typecheck` 退出码 0。
+- `npm run lint` 退出码 0，`: error ` 计数 = 0（仅既有 warning）。
+- `npx tsx --tsconfig server/tsconfig.json --test server/modules/settings/tests/settings.service.test.ts` 退出码 0（tests 3 / pass 3；依赖工厂已补 `accessTokens` 桩）。
+- 判据跨模块只经 barrel：`@/modules/database/index.js`、`@/modules/oauth/index.js`、`@/modules/settings/index.js`、`@/shared/utils.js`；无深导入。
+
+### AC10 改动清单与 Touches 对齐
+- `git diff --name-status develop...HEAD`（实现提交 7eb8bfc9，base develop 26903a7f）：
+  - `M server/modules/database/repositories/access-tokens.ts`
+  - `M server/modules/settings/index.ts`
+  - `M server/modules/settings/settings.module.ts`
+  - `M server/modules/settings/settings.routes.ts`
+  - `M server/modules/settings/settings.service.ts`
+  - `M server/modules/settings/tests/settings.service.test.ts`
+  - `A server/modules/oauth/tests/access-tokens.routes.test.ts` (new)
+- 与 `## Touches` 逐条对齐；被迫扩展 `server/modules/database/repositories/access-tokens.ts`（新增只读 `listByUser`/`findById`，供设置列表与吊销归属判定），已先加入 Touches。
