@@ -1,7 +1,7 @@
 ---
 id: gap-voice-long-form-eval-prereg
 title: VAD 评估与参数选定：T1 合成真值扫描 + T2 真人标注，识别仅作 T4 小样本确认
-status: ready
+status: done
 labels:
   - gap
 parent: null
