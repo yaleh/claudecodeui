@@ -42,11 +42,11 @@ Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@/shared' imported from
 
 ## AC
 
-- [ ] 在 develop 上 `node experiments/voice-trim/run-savings.mjs` 退出码 0（不设 VOICE_TRIM_CORPUS，只压入库 fixture 的阈值）
-- [ ] 同命令 stderr 不含 `ERR_MODULE_NOT_FOUND` 与 `Cannot find package '@/shared'`（对 stderr grep 该串得 exit 1）
-- [ ] 该 runner stdout 仍打印每 clip 的 baselineSec/trimmedSec/savedRatio、aggregate savedRatio、speechKeptRatio、fallbacks，以及恒等实现正对照行（savedRatio = 0）
-- [ ] run-savings.mjs 末尾 uniqueness 段零违规且三条 canary 全部触发（exit 0 本身即要求 canary 触发；stdout 出现 `[uniqueness] ... file(s)` 统计行）
-- [ ] 回归守卫：`node --test scripts/voice-trim-harness.test.mjs` 退出码 0，该测试以子进程 `node experiments/voice-trim/run-savings.mjs` 断言 exit 0；移除 `@/` hook 后该守卫转红（负控制）
+- [x] 在 develop 上 `node experiments/voice-trim/run-savings.mjs` 退出码 0（不设 VOICE_TRIM_CORPUS，只压入库 fixture 的阈值）
+- [x] 同命令 stderr 不含 `ERR_MODULE_NOT_FOUND` 与 `Cannot find package '@/shared'`（对 stderr grep 该串得 exit 1）
+- [x] 该 runner stdout 仍打印每 clip 的 baselineSec/trimmedSec/savedRatio、aggregate savedRatio、speechKeptRatio、fallbacks，以及恒等实现正对照行（savedRatio = 0）
+- [x] run-savings.mjs 末尾 uniqueness 段零违规且三条 canary 全部触发（exit 0 本身即要求 canary 触发；stdout 出现 `[uniqueness] ... file(s)` 统计行）
+- [x] 回归守卫：`node --test scripts/voice-trim-harness.test.mjs` 退出码 0，该测试以子进程 `node experiments/voice-trim/run-savings.mjs` 断言 exit 0；移除 `@/` hook 后该守卫转红（负控制）
 
 ## DoD
 
