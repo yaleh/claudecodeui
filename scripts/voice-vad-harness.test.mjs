@@ -25,8 +25,9 @@ import test from 'node:test';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { join } from 'node:path';
+import { registerHooks } from 'node:module';
 import http from 'node:http';
 import https from 'node:https';
 
@@ -35,6 +36,20 @@ import { computeMetrics } from '../experiments/voice-vad/metrics.mjs';
 
 const RUN = fileURLToPath(new URL('../experiments/voice-vad/run.mjs', import.meta.url));
 const HARNESS_DIR = fileURLToPath(new URL('../experiments/voice-vad/', import.meta.url));
+
+// The frontend's `@/` source-root alias, resolved for this plain-node process. The shipping
+// detector reaches its shared endpoint module through the alias the browser build, the
+// type-checker and the unit transform all resolve — this hook is the same mapping for the one
+// place those toolchains do not reach. It must be registered before the dynamic import below.
+const SRC_ROOT = fileURLToPath(new URL('../src/', import.meta.url));
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (specifier.startsWith('@/')) {
+      return { url: pathToFileURL(join(SRC_ROOT, specifier.slice(2)) + '.ts').href, shortCircuit: true };
+    }
+    return nextResolve(specifier, context);
+  },
+});
 
 // The shipping detector, imported by a runtime-resolved URL so this file stays type-checkable
 // as a plain-mjs `scripts/` test (an explicit `.ts` specifier is not one the tsconfig allows).

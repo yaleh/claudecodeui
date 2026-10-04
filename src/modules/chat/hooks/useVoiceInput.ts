@@ -2,6 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { decodeVoiceBlob, downsampleVoice, encodeWavBlob } from '@/modules/chat/utils/audioDecode';
 import { voicePlayer } from '@/modules/chat/utils/voicePlayer';
+import {
+  VOICE_FRAME_PROCESSOR_NAME,
+  voiceFrameProcessorUrl,
+  type VoiceFrameMessage,
+} from '@/modules/chat/audio/voiceFrameProcessor';
 import { effectivePauseCuesDeclaration, transcribeVoice } from '@/shared/api';
 import { identifierFidelity } from '@/shared/identifierFidelity';
 import { repairIdentifiers } from '@/shared/identifierRepair';
@@ -361,6 +366,9 @@ export function useVoiceInput(
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  // The live streaming VAD running beside the recording. The upload path below is untouched;
+  // this is the frame-by-frame detector a later segment pipeline reads its boundaries from.
+  const vadNodeRef = useRef<{ context: AudioContext; node: AudioWorkletNode } | null>(null);
   const cancelledRef = useRef(false);
   const startingRef = useRef(false);
   // Whether the in-progress stop should auto-send the transcript (vs just fill the box).
@@ -386,6 +394,59 @@ export function useVoiceInput(
   const stopTracks = () => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
+    stopStreamingVad();
+  };
+
+  // Tear the streaming VAD down and free its AudioContext. Safe to call when none is running.
+  const stopStreamingVad = () => {
+    const held = vadNodeRef.current;
+    vadNodeRef.current = null;
+    if (!held) return;
+    try {
+      held.node.port.onmessage = null;
+      void held.context.close();
+    } catch {
+      /* a context already closed, or one this browser never opened */
+    }
+  };
+
+  /**
+   * Starts the streaming VAD on the recording's own stream.
+   *
+   * Every failure here is swallowed: a browser without `AudioWorklet`, a module the dev server
+   * has not compiled yet, or a context limit reached. The streaming path is an addition to the
+   * recording, so it may not become a way for the recording to fail — the `MediaRecorder` above
+   * owns the upload and is unaffected either way. The node feeds a zero-gain output so the graph
+   * is pulled without the microphone ever reaching the speakers.
+   */
+  const startStreamingVad = async (stream: MediaStream) => {
+    try {
+      const url = voiceFrameProcessorUrl();
+      if (!url) return;
+      const context = new AudioContext();
+      await context.audioWorklet.addModule(url);
+      if (cancelledRef.current || streamRef.current !== stream) {
+        void context.close();
+        return;
+      }
+      const node = new AudioWorkletNode(context, VOICE_FRAME_PROCESSOR_NAME, {
+        processorOptions: { sampleRate: context.sampleRate },
+      });
+      const silent = context.createGain();
+      silent.gain.value = 0;
+      context.createMediaStreamSource(stream).connect(node);
+      node.connect(silent);
+      silent.connect(context.destination);
+      node.port.onmessage = (message: MessageEvent<VoiceFrameMessage>) => {
+        // The events are a debug reading for now; the segment pipeline consumes them later.
+        if (isVoiceDebugEnabled() && message.data?.type === 'event') {
+          console.debug('[voice:vad]', message.data.event);
+        }
+      };
+      vadNodeRef.current = { context, node };
+    } catch {
+      /* the streaming path is optional; the recording is not */
+    }
   };
 
   const ensureClipAudio = (track: VoiceClipTrack) => {
@@ -484,6 +545,7 @@ export function useVoiceInput(
     return () => {
       cancelledRef.current = true;
       startingRef.current = false;
+      stopStreamingVad();
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
       recorderRef.current = null;
@@ -643,6 +705,7 @@ export function useVoiceInput(
         return;
       }
       streamRef.current = stream;
+      void startStreamingVad(stream);
       const mimeType = pickMime();
       const rec = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       recorderRef.current = rec;

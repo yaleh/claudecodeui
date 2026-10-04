@@ -375,6 +375,19 @@ export class StreamingVad {
   }
 
   /**
+   * Feeds one already-measured frame energy.
+   *
+   * The AudioWorklet path frames the audio on the audio thread and can hand the decision the
+   * frame it already computed; feeding the energy rather than the samples is what lets a real
+   * worklet run and a caller replay its exact frames through the same state machine.
+   */
+  pushFrameEnergy(energy: number): VadEvent[] {
+    const events: VadEvent[] = [];
+    this.processFrame(energy, events);
+    return events;
+  }
+
+  /**
    * The detector's speech *firing*, one region per hysteresis speech run, pre/post roll
    * applied and touching regions merged — the same geometry the batch detector's
    * `vadSegments` has.
