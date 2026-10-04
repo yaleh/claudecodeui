@@ -1,7 +1,7 @@
 ---
 id: AC-237
 title: 搬动控制逻辑不改任何既有行为：WebSocket 帧序列、按次进程的逐帧一致性、定时发送、常驻宿主的既有判据全部原样通过
-status: draft
+status: active
 kind: criterion
 goal: GOAL-019
 criterion: for f in
@@ -50,4 +50,15 @@ expect: 这是回归守卫，不是新行为：列出的 17 个既有测试文�
   改变按次进程的帧序 ⇒ per-run parity 必须红。这一条在写下时就是绿的（既有测试全部存在且通过），其价值在重构之后仍绿；它不适用红先行。真实
   Claude 二进制的常驻判据（AC-161 一族）不放进本判据（负载下易假红），由 fan-in 的全量 suite 守护。
 origin: docs/proposals/mcp-gateway-SPEC.md（v3）。人 yale 2026-10-05 指令：创建并激活本 goal 及其 AC。
+activatedAt: 2026-10-04T17:25:55.553Z
+statusLog:
+  - at: 2026-10-04T17:25:55.553Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-04T17:25:55.553Z
 ---
