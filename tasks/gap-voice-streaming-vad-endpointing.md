@@ -1,7 +1,7 @@
 ---
 id: gap-voice-streaming-vad-endpointing
 title: 流式 VAD：AudioWorklet 逐帧判定 + 端点（停顿切段）+ 最长段长，判定逻辑与批处理共用
-status: ready
+status: done
 labels:
   - gap
 parent: null
