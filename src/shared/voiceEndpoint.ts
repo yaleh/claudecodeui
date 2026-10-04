@@ -66,6 +66,32 @@ export const POST_ROLL_MS = 180;
 export const NOISE_PERCENTILE = 0.15;
 
 /**
+ * The percentile of *recent* frame energies the sliding floor is read at.
+ *
+ * Lower than the batch path's, and it has to be: a four-second window in the middle of a
+ * sentence is mostly speech, so the 15th percentile of it is a speech level. The floor needs a
+ * percentile low enough that the window's own quiet tail — the pause inside the sentence, the
+ * gap before it — is what it reads, which is exactly what the whole-clip 15th percentile gets
+ * for free and a sliding window does not.
+ */
+export const NOISE_WINDOW_PERCENTILE = 0.15;
+
+/**
+ * The sliding floor is a percentile of the recent frame energies, kept as a log-spaced histogram
+ * so a window of many seconds costs no sort per frame.
+ *
+ * The window is deliberately long and fed *every* frame, not just frames some earlier guess
+ * called quiet. A percentile is a property of a population: the whole-clip 15th percentile the
+ * batch path takes sits in the gaps only because speech frames dilute the population, so a short
+ * window — or one that already excludes the loud frames — reads a *lower* quantile of the noise
+ * and turns every gap into a false trigger. A long window over all frames reproduces the batch
+ * population locally, which is what makes the two agree.
+ */
+const NOISE_WINDOW_BUCKETS = 160;
+const NOISE_WINDOW_LOG_MIN = -6;
+const NOISE_WINDOW_LOG_MAX = 1;
+
+/**
  * The floor the noise estimate is never allowed below. A frame of digital silence measures
  * exactly 0, and a threshold of `0 * ENTER_FACTOR` would call every non-zero frame speech;
  * this keeps the ratio meaningful. It is far below any real noise floor.
@@ -79,10 +105,10 @@ const DEFAULT_ENDPOINT_MS = 800;
 const DEFAULT_MAX_SEGMENT_SEC = 30;
 
 /** How much consecutive segments overlap, so a word on a cut appears in both. */
-const DEFAULT_OVERLAP_SEC = 0.4;
+const DEFAULT_OVERLAP_SEC = 0.3;
 
-/** How much recent candidate-silence the sliding noise floor is read over. */
-const DEFAULT_NOISE_WINDOW_SEC = 2;
+/** How much recent audio the sliding noise floor is read over. */
+const DEFAULT_NOISE_WINDOW_SEC = 30;
 
 /**
  * Frames pushed into the noise window before the detector commits to any decision.
@@ -237,10 +263,19 @@ export function frameRms(samples: Float32Array, from: number, frame: number): nu
   return Math.sqrt(acc / frame);
 }
 
-/** The value at `p` of an ascending-sorted array, by nearest-rank. */
-function sortedPercentile(sorted: readonly number[], p: number): number {
-  if (!sorted.length) return 0;
-  return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))];
+/** The log-spaced histogram bucket an energy falls in. */
+function bucketFor(energy: number): number {
+  const span = NOISE_WINDOW_LOG_MAX - NOISE_WINDOW_LOG_MIN;
+  const t = (Math.log10(Math.max(energy, 1e-9)) - NOISE_WINDOW_LOG_MIN) / span;
+  const bucket = Math.round(t * (NOISE_WINDOW_BUCKETS - 1));
+  return Math.max(0, Math.min(NOISE_WINDOW_BUCKETS - 1, bucket));
+}
+
+/** The energy a bucket stands for, at its centre — a hair above the true value, which errs toward silence. */
+function bucketValue(bucket: number): number {
+  const span = NOISE_WINDOW_LOG_MAX - NOISE_WINDOW_LOG_MIN;
+  const t = (bucket + 0.5) / (NOISE_WINDOW_BUCKETS - 1);
+  return 10 ** (NOISE_WINDOW_LOG_MIN + t * span);
 }
 
 /**
@@ -271,8 +306,11 @@ export class StreamingVad {
   private pending: Float32Array;
   private pendingCount = 0;
 
-  /** The sliding floor's candidates, kept ascending so its percentile is one index read. */
-  private readonly noiseWindow: number[] = [];
+  /** The sliding floor's histogram and its ring of bucket indices, one entry per frame. */
+  private readonly noiseCounts: Int32Array;
+  private readonly noiseRing: Int32Array;
+  private noiseRingPos = 0;
+  private noiseRingSize = 0;
   private noise: number;
 
   private state: VadState = 0;
@@ -282,6 +320,8 @@ export class StreamingVad {
   /** One entry per processed frame. Kept for the whole stream: 1 byte + 8 bytes per 20 ms. */
   private readonly energies: number[] = [];
   private readonly flags: number[] = [];
+  /** Per frame: `energy < enter`. The endpoint's definition of silence — see `buildSegments`. */
+  private readonly quiet: boolean[] = [];
 
   constructor(options: StreamingVadOptions) {
     const sampleRate = options.sampleRate;
@@ -305,6 +345,8 @@ export class StreamingVad {
     this.noiseFloorMode = options.noiseFloorMode ?? 'sliding';
     this.fixedNoiseFloor = options.fixedNoiseFloor ?? MIN_FRAME_ENERGY;
     this.noise = this.noiseFloorMode === 'fixed' ? this.fixedNoiseFloor : MIN_FRAME_ENERGY;
+    this.noiseCounts = new Int32Array(NOISE_WINDOW_BUCKETS);
+    this.noiseRing = new Int32Array(this.noiseWindowFrames);
     this.pending = new Float32Array(frame);
   }
 
@@ -332,6 +374,41 @@ export class StreamingVad {
     return this.buildSegments();
   }
 
+  /**
+   * The detector's speech *firing*, one region per hysteresis speech run, pre/post roll
+   * applied and touching regions merged — the same geometry the batch detector's
+   * `vadSegments` has.
+   *
+   * This is what the T1 false-alarm reading must be taken on. `flush()`'s segments are upload
+   * chunks: they deliberately carry a sub-endpoint pause inside them, because that is what
+   * "one sentence" means to an endpointing segmenter. Counting that carried silence as a
+   * false trigger would be measuring the endpoint rule, not the detector.
+   */
+  regions(): VoiceSegment[] {
+    const total = this.flags.length;
+    const raw: [number, number][] = [];
+    let start = -1;
+    for (let i = 0; i <= total; i++) {
+      const on = i < total && this.flags[i] === 1;
+      if (on && start < 0) start = i;
+      else if (!on && start >= 0) {
+        raw.push([Math.max(0, start - this.preFrames), Math.min(total, i + this.postFrames)]);
+        start = -1;
+      }
+    }
+    const merged: [number, number][] = [];
+    for (const [a, b] of raw) {
+      const last = merged[merged.length - 1];
+      if (last && a <= last[1]) last[1] = Math.max(last[1], b);
+      else merged.push([a, b]);
+    }
+    return merged.map(([a, b]) => ({
+      startSec: (a * this.frame) / this.sampleRate,
+      endSec: (b * this.frame) / this.sampleRate,
+      forced: false,
+    }));
+  }
+
   /** The noise floor the detector currently holds. Read by the T1 criterion's readings. */
   get noiseFloor(): number {
     return this.noise;
@@ -347,8 +424,7 @@ export class StreamingVad {
    * initial constant.
    */
   private processFrame(energy: number, events: VadEvent[]): void {
-    const { exit } = thresholdsFor(this.noise);
-    const bootstrapping = this.noiseWindow.length < BOOTSTRAP_FRAMES;
+    const bootstrapping = this.frameIndex < BOOTSTRAP_FRAMES;
 
     if (!bootstrapping) {
       const step = stepFrame(energy, this.state, this.run, this.noise);
@@ -372,25 +448,41 @@ export class StreamingVad {
     this.flags.push(this.state);
     this.frameIndex++;
 
-    if (this.noiseFloorMode === 'fixed') return;
-    const isCandidateSilence = bootstrapping || energy <= exit;
-    if (!isCandidateSilence) return;
-    this.insertNoiseSample(energy);
+    // Every frame feeds the floor. See NOISE_WINDOW_PERCENTILE: a percentile is a property of a
+    // population, and a window that already excludes the loud frames reads a lower quantile of
+    // the noise than the batch path does.
+    if (this.noiseFloorMode !== 'fixed') this.updateNoiseFloor(energy);
+    this.quiet.push(energy < thresholdsFor(this.noise).enter);
   }
 
-  /** Inserts `energy` into the ascending window, keeping it at most `noiseWindowFrames` long. */
-  private insertNoiseSample(energy: number): void {
-    const window = this.noiseWindow;
-    let lo = 0;
-    let hi = window.length;
-    while (lo < hi) {
-      const mid = (lo + hi) >> 1;
-      if (window[mid] <= energy) lo = mid + 1;
-      else hi = mid;
+  /** Adds one frame to the sliding histogram (evicting the oldest) and re-reads the floor. */
+  private updateNoiseFloor(energy: number): void {
+    const ring = this.noiseRing;
+    if (this.noiseRingSize === this.noiseWindowFrames) {
+      this.noiseCounts[ring[this.noiseRingPos]]--;
+    } else {
+      this.noiseRingSize++;
     }
-    window.splice(lo, 0, energy);
-    if (window.length > this.noiseWindowFrames) window.shift();
-    this.noise = Math.max(MIN_FRAME_ENERGY, sortedPercentile(window, NOISE_PERCENTILE));
+    const bucket = bucketFor(energy);
+    ring[this.noiseRingPos] = bucket;
+    this.noiseCounts[bucket]++;
+    this.noiseRingPos = (this.noiseRingPos + 1) % this.noiseWindowFrames;
+    this.noise = Math.max(
+      MIN_FRAME_ENERGY,
+      this.floorPercentile(this.noiseCounts, this.noiseRingSize, NOISE_WINDOW_PERCENTILE),
+    );
+  }
+
+  /** The energy at the requested percentile of the histogram, as the bucket's centre. */
+  private floorPercentile(counts: Int32Array, size: number, p: number): number {
+    if (size <= 0) return MIN_FRAME_ENERGY;
+    const target = Math.max(1, Math.ceil(p * size));
+    let acc = 0;
+    for (let b = 0; b < NOISE_WINDOW_BUCKETS; b++) {
+      acc += counts[b];
+      if (acc >= target) return bucketValue(b);
+    }
+    return bucketValue(NOISE_WINDOW_BUCKETS - 1);
   }
 
   /**
@@ -418,10 +510,28 @@ export class StreamingVad {
       }
     }
 
+    // Quiet prefix sums, so "is there an endpoint-length stretch of below-enter frames between
+    // these two speech runs" is answerable in one subtraction per start.
+    const quietPrefix = new Int32Array(total + 1);
+    for (let i = 0; i < total; i++) quietPrefix[i + 1] = quietPrefix[i] + (this.quiet[i] ? 1 : 0);
+    const hasEndSizedQuiet = (from: number, to: number): boolean => {
+      if (to - from < this.endpointFrames) return false;
+      for (let b = from; b + this.endpointFrames <= to; b++) {
+        if (quietPrefix[b + this.endpointFrames] - quietPrefix[b] === this.endpointFrames) return true;
+      }
+      return false;
+    };
+
+    // Two speech runs are one sentence unless `endpointMs` of true silence separates them. The
+    // silence is measured against the *enter* threshold — the same evidence that starts speech —
+    // and not against the hysteresis state: in a noisy gap the state can stay on through spikes
+    // for far longer than the endpoint, and measuring against it would fuse two sentences into
+    // one upload, exactly the failure the endpoint exists to prevent.
     const utterances: [number, number][] = [];
     for (const [a, b] of runs) {
       const last = utterances[utterances.length - 1];
       if (last && a - last[1] < this.endpointFrames) last[1] = b;
+      else if (last && !hasEndSizedQuiet(last[1], a)) last[1] = b;
       else utterances.push([a, b]);
     }
 
@@ -450,9 +560,13 @@ export class StreamingVad {
     for (let i = 0; i < pieces.length; i++) {
       let startFrame = pieces[i].start;
       let endFrame = pieces[i].end;
-      if (i === 0) startFrame -= this.preFrames;
-      else startFrame -= this.overlapFrames;
-      if (i === pieces.length - 1) endFrame += this.postFrames;
+      startFrame -= this.preFrames;
+      // The overlap exists so a word sitting on a forced cut appears in both halves. An
+      // endpoint boundary falls in silence — no word is on it — so the next segment is NOT
+      // pulled back across it; doing so would move every start away from the sentence it
+      // names and show up as start deviation for no gain.
+      if (i > 0 && pieces[i - 1].forced) startFrame -= this.overlapFrames;
+      if (!pieces[i].forced) endFrame += this.postFrames;
       startFrame = Math.max(0, Math.min(total, startFrame));
       endFrame = Math.max(0, Math.min(total, endFrame));
       if (endFrame <= startFrame) continue;
@@ -461,7 +575,11 @@ export class StreamingVad {
       const endSec = (endFrame * frame) / this.sampleRate;
       // The ceiling is the criterion; the rolls and the overlap are not allowed to break it,
       // so the last word is the start being pulled forward rather than the end falling back.
-      if (endSec - startSec > this.maxSegmentSec) startSec = endSec - this.maxSegmentSec;
+      // With the ceiling disabled (a falsification control) nothing is clamped either, or the
+      // control could not produce the overlong segment it exists to produce.
+      if (this.maxSegmentEnabled && endSec - startSec > this.maxSegmentSec) {
+        startSec = endSec - this.maxSegmentSec;
+      }
       segments.push({ startSec, endSec, forced: pieces[i].forced });
     }
 
