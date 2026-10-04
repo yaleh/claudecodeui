@@ -1,7 +1,7 @@
 ---
 id: AC-212
 title: store 窗口：脱离尾部时实时消息不渲染也不丢，回到尾部后全部出现
-status: achieved
+status: superseded
 kind: criterion
 goal: GOAL-017
 criterion: for f in src/modules/chat/tests/sessionStoreWindow.test.ts; do [ -f
@@ -30,6 +30,11 @@ statusLog:
     to: achieved
     actor: goal-driver
     reason: "I2: criterion pass"
+  - at: 2026-10-04T14:07:25.652Z
+    from: achieved
+    to: superseded
+    actor: yale-session
+    reason: 人 yale 2026-10-04 裁定取消 GOAL-017：滚动条恢复原生，刻度条与自绘滚动条移除、改为用户输入目录抽屉（bd393444）
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
