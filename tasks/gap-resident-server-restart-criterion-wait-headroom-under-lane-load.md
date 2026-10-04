@@ -50,11 +50,11 @@ goal_ac: AC-166
 
 ## AC
 
-- [ ] AC1 承重（逐腿等待余量被**断言**，不是注释）：判据文件里出现一个会红的「单腿等待的负载余量」不变式（并入现有 AC1/AC2 用例或新增具名用例），并据此抬高 `ROUND_TIMEOUT_MS`；红态基线：把 `ROUND_TIMEOUT_MS` 改回不满足余量的值 ⇒ 该断言**逐字红**；恢复后绿。验证：`npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/resident-server-restart.test.ts` 两次运行的 `echo $?` + 逐字失败行；`npm run typecheck` 退出 0。
-- [ ] AC2 判据命令与断言面不变：运行命令与 AC 记录 `criterion:` 逐字一致；`git diff develop -- server/modules/session-hosts/tests/resident-server-restart.test.ts | grep -cE "^-.*(server-shutdown|lifecycle_mode|running, false|RESIDENT_NOT_RUNNING_REASON|distinct|survivor)"` 为 **0**（未被删除/放宽的语义断言）；`grep -cE "\.skip\(|retries" <file>` 不增。验证：上述 grep/diff 的逐字输出。
-- [ ] AC3 负载下连续绿：该命令连续 ≥5 次 `exit 0`、每次打印 `elapsed-ms` 且 `elapsed-ms` 远小于 `BUDGET_MS`，其中至少一次与 ≥3 份重负载兄弟判据**并发**（如 `process-containment.test.ts` + 两份 `resident-*.test.ts` / `claude-resident-*.test.ts`）——并发那次的 wall/exit 逐字记录；同跑兄弟若自己红，**点名归因**（记忆 `resident-criterion-transiently-caps-a-shared-production-slice`）。验证：逐次 `echo $?` + wall/elapsed。
-- [ ] AC4 假形态仍红（承重，判据文件一字不动）：把 (a) `server/index.ts:571` 的 `sweepOrphanClaudeSessionScopes()` 调用点短路 **且** (b) `claude-host-driver.provider.ts:2480` 的 `state.queue.end()` 去掉（CLI 不因 EOF 退出）⇒ 判据退出**非 0**，红落在「下次启动仍有残留进程」那条读数上（`sigkill-residue … alive-at-next-boot=true` / `/proc/<b>` 仍在）。登记变异 diff + 逐字失败行；`git checkout --` 还原后回绿（正控制）。验证：两次运行的 `echo $?` + 失败断言逐字。
-- [ ] AC5 静态门与边界：`npm run typecheck`、`npm run lint` 退出 0；`git diff --stat` 只列 `## Touches` 的文件（AC4 的临时变异写点已还原，不进最终 diff）。验证：命令输出 + `git status --porcelain`。
+- [x] AC1 承重（逐腿等待余量被**断言**，不是注释）：判据文件里出现一个会红的「单腿等待的负载余量」不变式（并入现有 AC1/AC2 用例或新增具名用例），并据此抬高 `ROUND_TIMEOUT_MS`；红态基线：把 `ROUND_TIMEOUT_MS` 改回不满足余量的值 ⇒ 该断言**逐字红**；恢复后绿。验证：`npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/resident-server-restart.test.ts` 两次运行的 `echo $?` + 逐字失败行；`npm run typecheck` 退出 0。
+- [x] AC2 判据命令与断言面不变：运行命令与 AC 记录 `criterion:` 逐字一致；`git diff develop -- server/modules/session-hosts/tests/resident-server-restart.test.ts | grep -cE "^-.*(server-shutdown|lifecycle_mode|running, false|RESIDENT_NOT_RUNNING_REASON|distinct|survivor)"` 为 **0**（未被删除/放宽的语义断言）；`grep -cE "\.skip\(|retries" <file>` 不增。验证：上述 grep/diff 的逐字输出。
+- [x] AC3 负载下连续绿：该命令连续 ≥5 次 `exit 0`、每次打印 `elapsed-ms` 且 `elapsed-ms` 远小于 `BUDGET_MS`，其中至少一次与 ≥3 份重负载兄弟判据**并发**（如 `process-containment.test.ts` + 两份 `resident-*.test.ts` / `claude-resident-*.test.ts`）——并发那次的 wall/exit 逐字记录；同跑兄弟若自己红，**点名归因**（记忆 `resident-criterion-transiently-caps-a-shared-production-slice`）。验证：逐次 `echo $?` + wall/elapsed。
+- [x] AC4 假形态仍红（承重，判据文件一字不动）：把 (a) `server/index.ts:571` 的 `sweepOrphanClaudeSessionScopes()` 调用点短路 **且** (b) `claude-host-driver.provider.ts:2480` 的 `state.queue.end()` 去掉（CLI 不因 EOF 退出）⇒ 判据退出**非 0**，红落在「下次启动仍有残留进程」那条读数上（`sigkill-residue … alive-at-next-boot=true` / `/proc/<b>` 仍在）。登记变异 diff + 逐字失败行；`git checkout --` 还原后回绿（正控制）。验证：两次运行的 `echo $?` + 失败断言逐字。
+- [x] AC5 静态门与边界：`npm run typecheck`、`npm run lint` 退出 0；`git diff --stat` 只列 `## Touches` 的文件（AC4 的临时变异写点已还原，不进最终 diff）。验证：命令输出 + `git status --porcelain`。
 
 ## DoD
 
