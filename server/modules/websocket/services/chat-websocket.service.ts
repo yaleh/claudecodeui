@@ -1316,8 +1316,11 @@ function handleChatSubscribe(
     sendJson(ws, ack);
 
     // A browser is now watching this session, so the server starts proving it
-    // is still alive on the beat it just announced.
-    attachActivityHeartbeat(ws, sessionId);
+    // is still alive on the beat it just announced. Each beat carries the run
+    // registry's own in-flight bit (the same one the hello above reports), so a
+    // running turn whose provider sends no phase-carrying frames cannot be read
+    // as ended just because the phase tracker has no phase for it.
+    attachActivityHeartbeat(ws, sessionId, () => chatRunRegistry.isProcessing(sessionId));
 
     // The activity feed is deliberately NOT attached here: a `chat.subscribe`
     // reply is the run's frame sequence, and attaching the feed would inject an

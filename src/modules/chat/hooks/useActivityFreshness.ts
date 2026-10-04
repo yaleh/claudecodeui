@@ -12,11 +12,14 @@
  * because a replayed message's `timestamp` is when it was produced, not when
  * the server last spoke, and folding it in would move the elapsed anchor
  * backwards. Both gateway frames carry a turn reading, and both are folded in:
- * the hello states `isProcessing`, and a beat states the reduced `phase`, whose
- * `idle` is the absence of a turn. A beat is therefore the frame that ends one —
- * a hello that opened a turn is not left pinned by every beat that follows it.
- * A beat that omits the phase is the exception: it says nothing about the turn
- * and only advances the clock, which is what servers predating the field send.
+ * the hello states `isProcessing`, and a beat states the run registry's own
+ * in-flight bit *and* the reduced `phase`. The in-flight bit is the authority —
+ * it is what distinguishes a turn that ended from a turn the phase tracker has
+ * simply never seen a frame for (its `idle` covers both) — and a beat that
+ * reports it false is the frame that ends a turn a hello pinned. A beat that
+ * omits the bit (a server predating the field) falls back to the phase, whose
+ * `idle` was the only ending signal before the authority existed, and a beat
+ * that carries neither says nothing about the turn and only advances the clock.
  * The silence threshold is the one the server announced
  * (`unreachableAfterMs`) — never a client constant.
  *
@@ -204,28 +207,51 @@ export const useActivityFreshness = (
         // frame stream and stamps the result onto every beat, so a browser reads
         // what the turn is really doing without a clock of its own.
         const reportedPhase = readPhase(event.phase);
+        // The run registry's own "is a run in flight for this session" bit, which
+        // the server reads at beat time and folds onto every heartbeat. It is the
+        // authority for whether the turn is over: the phase tracker reports `idle`
+        // both when a turn *ended* and when it has simply never seen a
+        // phase-carrying frame for a turn that is running, so the phase alone
+        // cannot tell the two apart. Absent on a server built before the field,
+        // where the phase is the only turn evidence there is.
+        const reportedInFlight = typeof event.isProcessing === 'boolean' ? event.isProcessing : null;
         const snapshot = machine.getSnapshot();
 
-        // The beat is also the frame that can *end* a turn, and this is the mapping
-        // that makes it: the server's `idle` is the absence of a turn, so a beat
-        // carrying it must clear the anchor a `chat_subscribed` hello pinned.
-        // Without a turn snapshot on the beat the anchor outlives the turn — only a
-        // boot-identity change or the next hello could ever drop it — and the dock
-        // counts a finished turn up forever after a turn the client watched begin.
-        // A running phase is the same evidence the other way: it confirms the turn
-        // and carries its anchor forward, so the clock continues rather than
-        // restarting at the beat that happened to deliver it. A beat that reports no
-        // known phase asserts no turn state at all (a server that predates the field),
-        // which is what leaves a bare heartbeat's elapsed reading untouched.
-        const turn = reportedPhase === null
-          ? undefined
-          : reportedPhase === 'idle'
-            ? { startedAt: null }
-            : {
-                // Carry the anchor across a beat only while the same server process
-                // is in force; a new boot identity voids the turn that process began.
-                startedAt: snapshot.bootId === bootId ? (snapshot.turnStartedAt ?? asOf) : asOf,
-              };
+        // The beat is also the frame that can *end* a turn. Which evidence decides
+        // it, in order of authority:
+        let turn: { startedAt: number | null } | undefined;
+        if (reportedInFlight === null) {
+          // Fallback (a server predating the field): the phase alone. `idle` is the
+          // absence of a turn, so it clears the anchor a hello pinned; a running
+          // phase confirms the turn and carries its anchor forward, so the clock
+          // continues rather than restarting at the beat that delivered it; and no
+          // known phase asserts nothing at all, leaving a bare beat's elapsed
+          // reading untouched.
+          turn = reportedPhase === null
+            ? undefined
+            : reportedPhase === 'idle'
+              ? { startedAt: null }
+              : {
+                  // Carry the anchor across a beat only while the same server process
+                  // is in force; a new boot identity voids the turn that process began.
+                  startedAt: snapshot.bootId === bootId ? (snapshot.turnStartedAt ?? asOf) : asOf,
+                };
+        } else if (!reportedInFlight) {
+          // The registry says no run is in flight: the turn really ended (or never
+          // began), so the anchor is cleared. This is the guarantee the idle-beat
+          // clearing was introduced for — a finished turn must not count up forever.
+          turn = { startedAt: null };
+        } else {
+          // A run *is* in flight. The tracker may still report `idle` because it has
+          // seen no phase-carrying frame, and that must not be read as an ended turn:
+          // the anchor is kept (or re-anchored) so the server-derived elapsed keeps
+          // advancing, which is what the dock's recovered reading depends on.
+          turn = {
+            // Carry the anchor across a beat only while the same server process is in
+            // force; a new boot identity voids the turn that process began.
+            startedAt: snapshot.bootId === bootId ? (snapshot.turnStartedAt ?? asOf) : asOf,
+          };
+        }
 
         machine.onFrame({
           bootId,
