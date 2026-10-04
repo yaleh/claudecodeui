@@ -4,7 +4,7 @@ title: AC-178 判据台账尾部红是 merge race：goal 记录 criterion 于 15
   has no resident switch"，而引入该 test 标题的修复 876147f4 直到 fan-in
   55feb8c4（16:06:08Z）才进 develop/主检出，三次红都测到「标题还不存在的树」（No tests found）——
   verification-only 归因入档（净树直跑 exit 0 ×3 含并发），不重新实现既有修复
-status: ready
+status: done
 labels:
   - gap
 parent: null
