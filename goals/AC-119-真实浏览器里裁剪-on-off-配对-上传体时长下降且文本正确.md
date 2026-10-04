@@ -1,7 +1,7 @@
 ---
 id: AC-119
 title: 真实浏览器里裁剪 on/off 配对：上传体时长下降且文本正确
-status: achieved
+status: superseded
 kind: criterion
 goal: GOAL-006
 criterion: npx playwright test e2e/voice-trim.spec.ts -g "AC-119"
@@ -23,4 +23,13 @@ statusLog:
     to: achieved
     actor: goal-driver
     reason: "I2: criterion pass"
+  - at: 2026-10-04T14:28:15.571Z
+    from: achieved
+    to: superseded
+    actor: worker-gap-voice-single-continuous-input-path
+    reason: 人 yale 2026-10-04 授权退役（Resolution 段，见
+      tasks/gap-voice-single-continuous-input-path.md）：本任务按 Proposal
+      移除批处理裁剪路径，该腿的被测对象（MediaRecorder 原始流 + 裁剪 on/off 配对）已不在出货树，-g "AC-119" 必然
+      No tests found。判据随之退役；同类保证由 e2e/voice-continuous.spec.ts 的连续路径判据承担（短输入恰好 1
+      个请求、请求体为链路自己的音频）。
 ---
