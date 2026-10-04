@@ -74,6 +74,16 @@ L_G 该轴仍暗，理由：同上。
 - experiments/voice-vad/run.mjs
 - experiments/voice-vad/fixtures/live-segmenter.json
 - tasks/gap-voice-silence-flush-and-inflight-dot.md
+- src/modules/chat/tests/activityIndicatorResponsive.test.tsx
+- src/modules/chat/tests/chatComposerResponsive.test.tsx
+- src/modules/chat/tests/chatInterfaceEscapeAbort.test.tsx
+- src/modules/chat/tests/composerCompactTier.test.tsx
+- src/modules/chat/tests/occupiedSessionReadOnly.test.tsx
+- src/modules/chat/tests/residentComposerEnableAffordance.test.tsx
+- src/modules/chat/tests/voiceClipPlayback.test.tsx
+- src/modules/chat/tests/voiceErrorMessages.test.tsx
+- src/modules/chat/tests/voiceErrorNoticePersistence.test.tsx
+- src/shared/tests/voiceUpload16k.test.ts
 
 ## Evidence
 
