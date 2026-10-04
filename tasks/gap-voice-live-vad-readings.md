@@ -80,3 +80,18 @@ L_G 该轴仍暗，理由：本任务不产出生成质量轴读数。
 - e2e/voice-live-vad-ab.spec.ts (new)
 - playwright.config.ts
 - tasks/gap-voice-live-vad-readings.md
+- src/modules/chat/tests/voiceClipPlayback.test.tsx （voiceDebug 整模块 vi.mock 补上新导出 isVoiceVadEnabled）
+- src/modules/chat/tests/voiceErrorMessages.test.tsx （同上）
+- src/modules/chat/tests/voiceErrorNoticePersistence.test.tsx （同上）
+- src/shared/tests/voiceUpload16k.test.ts （同上）
+- src/modules/chat/tests/occupiedSessionReadOnly.test.tsx （同上）
+- src/modules/chat/tests/composerCompactTier.test.tsx （同上）
+- src/modules/chat/tests/activityIndicatorResponsive.test.tsx （同上）
+- src/modules/chat/tests/chatComposerResponsive.test.tsx （同上）
+- src/modules/chat/tests/residentComposerEnableAffordance.test.tsx （同上）
+- src/modules/chat/tests/chatInterfaceEscapeAbort.test.tsx （同上）
+
+## 完成记录
+
+2026-10-04 fan-in suite red（`voiceUpload16k` / `voiceClipPlayback` / `voiceErrorMessages` / `voiceErrorNoticePersistence`）根因：本任务给 `@/shared/voiceDebug` 新增了 `isVoiceVadEnabled` 导出，而 10 处 `vi.mock('@/shared/voiceDebug')` 是整模块替换、缺该键，调用即抛 `No "isVoiceVadEnabled" export is defined on the mock`，语音链路在假采集器 start 之前就断了（`nothing reached the recogniser` / `the fake capture was asked to speak before it was started`）。修复：10 处 mock 工厂补 `isVoiceVadEnabled: () => true`（出货默认 = 开，正是这些用例所走的切段路径），10 文件并入 `## Touches`。`npm run typecheck` 与 `npm run lint` 退出码 0。
+
