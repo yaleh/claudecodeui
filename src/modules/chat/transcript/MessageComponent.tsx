@@ -49,6 +49,65 @@ type MessageComponentProps = {
 const COPY_HIDDEN_TOOL_NAMES = new Set(['Bash', 'Edit', 'Write', 'ApplyPatch']);
 
 /**
+ * The four terminal states a task-notification row can carry, as the words the
+ * row shows.
+ *
+ * Held as literals rather than read from the locale: these are the SDK's own
+ * status values (`completed`/`failed`/`stopped`/`ended`), the same tokens the
+ * server frame's `status` and the CLI's `<status>` tag carry. A translated word
+ * here would stop a reader from matching a row to the task state it names, and
+ * would make the row's text depend on the UI language while its meaning does not.
+ */
+const TASK_STATUS_LABELS: Record<string, string> = {
+  completed: 'completed',
+  failed: 'failed',
+  stopped: 'stopped',
+  ended: 'ended',
+};
+
+/** A status word already present in a summary, so it is not added twice. */
+const TASK_STATUS_WORD = /\b(?:completed|failed|stopped|ended)\b/i;
+
+/**
+ * The text a task-notification row shows for one summary and status.
+ *
+ * A summary that already names its status — the server's own
+ * `Background task completed: …` fallback, or a CLI notification that says
+ * `stopped` — is shown as it is. A summary that is only the task's description or
+ * command (which is what the SDK sends when nothing else is available) is
+ * prefixed with the status word, so the row always says *what happened* and not
+ * only *what ran*.
+ *
+ * Done here, at the row, rather than in the server's frame builder: the identical
+ * branch renders the CLI's own `<task-notification>` rows too
+ * (`useChatMessages.ts` → `parseTaskNotification`), and those never pass through
+ * the server frame builder. One rule at the row covers both; a server-side rule
+ * would leave the CLI-sourced half of the transcript with bare commands again.
+ */
+function taskNotificationText(summary: string, status: string): string {
+  const label = TASK_STATUS_LABELS[status] ?? status;
+  const text = summary.trim();
+  if (!text) {
+    return label;
+  }
+  if (TASK_STATUS_WORD.test(text)) {
+    return text;
+  }
+  return `${label}: ${text}`;
+}
+
+/**
+ * Collapses a row's text to one line.
+ *
+ * The summary can be a whole command (measured: up to 4040 characters over 72
+ * lines), and the row is one line tall — so every run of whitespace, newlines
+ * included, becomes a single space before the row is drawn.
+ */
+function collapseToSingleLine(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+/**
  * The sentence a divider shows for the trigger behind a turn.
  *
  * Read from the locale at render time rather than kept as prose here: which words
@@ -351,11 +410,24 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
           </details>
         </div>
       ) : message.isTaskNotification ? (
-        /* Compact task notification on the left */
-        <div className="w-full">
-          <div className="flex items-center gap-2 py-0.5">
+        /*
+         * A background task's terminal line: one row, one line tall, saying
+         * *which task and what state* rather than only *what ran*. The status is
+         * part of the text (the SDK's own word), the whole summary is collapsed
+         * onto that one line and truncated, and the untruncated text stays in
+         * `title` so nothing is lost — a reader can still hover the row to read
+         * the full command. The dot keeps its colour as a second, redundant cue.
+         */
+        <div className="w-full min-w-0">
+          <div className="flex min-w-0 items-center gap-2 py-0.5">
             <span className={`inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full ${message.taskStatus === 'completed' ? 'bg-green-400 dark:bg-green-500' : 'bg-amber-400 dark:bg-amber-500'}`} />
-            <span className="text-xs text-gray-500 dark:text-gray-400">{message.content}</span>
+            <span
+              className="min-w-0 flex-1 truncate whitespace-nowrap font-mono text-xs text-gray-500 dark:text-gray-400"
+              data-task-notification-text
+              title={taskNotificationText(String(message.content ?? ''), String(message.taskStatus ?? 'completed'))}
+            >
+              {collapseToSingleLine(taskNotificationText(String(message.content ?? ''), String(message.taskStatus ?? 'completed')))}
+            </span>
           </div>
         </div>
       ) : (

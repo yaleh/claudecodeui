@@ -236,14 +236,41 @@ test('the phase falls back to idle when the turn’s result arrives (AC2)', () =
 // ---------------------------------------------------------------------------
 
 /** A `system/task_started` frame, as the run loop hands it to the forwarder. */
-function taskStartedFrame(sessionId: string, taskId: string, taskType: string): Frame {
+function taskStartedFrame(sessionId: string, taskId: string, taskType: string, toolUseId?: string): Frame {
   return {
     type: 'system',
     subtype: 'task_started',
     task_id: taskId,
+    ...(toolUseId ? { tool_use_id: toolUseId } : {}),
     task_type: taskType,
     description: `task ${taskId}`,
     uuid: `u-start-${taskId}`,
+    session_id: sessionId,
+  };
+}
+
+/**
+ * The `assistant` frame carrying the `tool_use` that launches a task — the only
+ * frame that sees the call's own `input`, and the one the reducer reads the
+ * background/foreground answer off (`run_in_background`).
+ */
+function toolUseLaunchFrame(sessionId: string, toolUseId: string, name: string, background: boolean): Frame {
+  return {
+    type: 'assistant',
+    message: {
+      role: 'assistant',
+      content: [
+        {
+          type: 'tool_use',
+          id: toolUseId,
+          name,
+          input: name === 'Bash'
+            ? { command: background ? 'sleep 25' : 'echo fg-short-ok', ...(background ? { run_in_background: true } : {}) }
+            : { description: 'run in background', run_in_background: background },
+        },
+      ],
+    },
+    uuid: `u-tool-${toolUseId}`,
     session_id: sessionId,
   };
 }
@@ -281,10 +308,12 @@ test('AC3 a terminal transition is forwarded as one replayable task_notification
       writer,
     });
 
-  // A background shell: terminal only through `task_updated{completed}`, with no
+  // A background shell: its launching `tool_use` carries `run_in_background:true`,
+  // and it terminates only through `task_updated{completed}` — no
   // `task_notification` frame and no CLI row of its own.
   const taskId = 'ac3-bg-bash';
-  feed(taskStartedFrame(appSessionId, taskId, 'local_bash'));
+  feed(toolUseLaunchFrame(appSessionId, 'toolu_ac3_bg', 'Bash', true));
+  feed(taskStartedFrame(appSessionId, taskId, 'local_bash', 'toolu_ac3_bg'));
   feed(taskUpdatedFrame(appSessionId, taskId, 'completed'));
 
   const replayed = chatRunRegistry.replayEvents(appSessionId, 0);
@@ -334,11 +363,13 @@ test('AC4 a subagent terminal adds no second row beside the CLI notification', (
 
   // A background agent: the CLI enqueues a `<task-notification>` user row for it,
   // so it already has a terminal line — the server must add none.
-  feed(taskStartedFrame(appSessionId, 'ac4-subagent', 'local_agent'));
+  feed(toolUseLaunchFrame(appSessionId, 'toolu_ac4_agent', 'Agent', true));
+  feed(taskStartedFrame(appSessionId, 'ac4-subagent', 'local_agent', 'toolu_ac4_agent'));
   feed(taskUpdatedFrame(appSessionId, 'ac4-subagent', 'completed'));
 
   // A background shell: the CLI writes nothing, so the server frame is the line.
-  feed(taskStartedFrame(appSessionId, 'ac4-shell', 'local_bash'));
+  feed(toolUseLaunchFrame(appSessionId, 'toolu_ac4_shell', 'Bash', true));
+  feed(taskStartedFrame(appSessionId, 'ac4-shell', 'local_bash', 'toolu_ac4_shell'));
   feed(taskUpdatedFrame(appSessionId, 'ac4-shell', 'completed'));
 
   const frames = chatRunRegistry.replayEvents(appSessionId, 0);
@@ -359,4 +390,148 @@ test('AC4 a subagent terminal adds no second row beside the CLI notification', (
   assert.equal(projectedRows('ac4-shell', 0), 1, 'the shell transcript shows exactly one terminal line');
 
   chatRunRegistry.clearAll();
+});
+
+// ---------------------------------------------------------------------------
+// gap-shell-terminal-row-only-true-background (AC1/AC6)
+//
+// The previous task made a terminal transition leave a transcript line. It
+// decided which transitions those were by *kind* alone, and a foreground Bash is
+// the same kind as a background one — so every command that finished also left a
+// row whose text was the command itself (measured on a real session: 26 such rows
+// over 4680px, a `white-space: normal` span up to 72 lines tall). Those rows were
+// a duplicate receipt — the tool card already shows the result — and because the
+// line is not a tool row it cut every work segment it landed in.
+//
+// The criterion now reads the call's own `input` (`run_in_background`), which the
+// `assistant` frame carries before the `task_started` names the task. These cases
+// drive the real forwarder through a real run writer and read the frames a
+// reconnecting client would replay, so "no row" and "one row" are facts about the
+// shipped path.
+// ---------------------------------------------------------------------------
+
+/** Feeds one frame through the real forwarder, with the criterion optionally replaced. */
+function feedThrough(
+  appSessionId: string,
+  writer: Parameters<typeof forwardNormalizedFrames>[0]['writer'],
+  frame: Frame,
+  runsTaskTerminalRow?: (transition: Parameters<NonNullable<Parameters<typeof forwardNormalizedFrames>[0]['runsTaskTerminalRow']>>[0]) => boolean,
+): void {
+  forwardNormalizedFrames({
+    transformedMessage: frame,
+    sessionId: appSessionId,
+    turnSessionId: appSessionId,
+    normalizeMessage: () => [],
+    writer,
+    ...(runsTaskTerminalRow ? { runsTaskTerminalRow } : {}),
+  });
+}
+
+/**
+ * Drives one command's whole terminal lifecycle and returns how many
+ * `task_notification` frames the run's replay buffer holds for its task.
+ *
+ * `background` is the launching call's own flag; `terminal` is the frame kind the
+ * SDK really ends each case with (a foreground command arrives as an announced
+ * `task_notification` carrying its description; a background one as a silent
+ * `task_updated{completed}`).
+ */
+function readTerminalRowCount(
+  appSessionId: string,
+  taskId: string,
+  toolUseId: string,
+  background: boolean,
+  terminal: 'notification' | 'updated',
+  runsTaskTerminalRow?: Parameters<typeof feedThrough>[3],
+): number {
+  chatRunRegistry.clearAll();
+  const run = chatRunRegistry.startRun({
+    appSessionId,
+    provider: 'claude',
+    providerSessionId: null,
+    connection: null,
+    userId: null,
+  });
+  assert.ok(run, 'the run starts, so its writer sequences and buffers the frames');
+  const feed = (frame: Frame) => feedThrough(appSessionId, run.writer, frame, runsTaskTerminalRow);
+
+  feed(toolUseLaunchFrame(appSessionId, toolUseId, 'Bash', background));
+  feed(taskStartedFrame(appSessionId, taskId, 'local_bash', toolUseId));
+  if (terminal === 'notification') {
+    feed({
+      type: 'system',
+      subtype: 'task_notification',
+      task_id: taskId,
+      status: 'completed',
+      // The SDK's foreground summariser sends the call's description as the
+      // summary; with none, the command itself. Either way: no status word.
+      summary: background ? 'task ' + taskId : 'echo fg-short-ok',
+      uuid: `u-notification-${taskId}`,
+      session_id: appSessionId,
+    });
+  } else {
+    feed(taskUpdatedFrame(appSessionId, taskId, 'completed'));
+  }
+
+  const rows = chatRunRegistry
+    .replayEvents(appSessionId, 0)
+    .filter((message) => message.kind === 'task_notification' && message.taskId === taskId);
+  const count = rows.length;
+  chatRunRegistry.clearAll();
+  return count;
+}
+
+test('AC1 a foreground command leaves no row; a background command leaves exactly one', () => {
+  const foreground = readTerminalRowCount(
+    'claude-frame-forwarding-fg-ac1',
+    'ac1-fg-bash',
+    'toolu_ac1_fg',
+    false,
+    'notification',
+  );
+  const background = readTerminalRowCount(
+    'claude-frame-forwarding-bg-ac1',
+    'ac1-bg-bash',
+    'toolu_ac1_bg',
+    true,
+    'updated',
+  );
+
+  say(`AC1 foreground Bash task_notification frames: ${foreground} (expect 0)`);
+  say(`AC1 background Bash task_notification frames: ${background} (expect 1)`);
+  assert.equal(foreground, 0, 'a foreground command must not add a terminal row beside its own tool card');
+  assert.equal(background, 1, 'a background command must still leave exactly one terminal row');
+});
+
+test('AC6 a criterion that is always true reds the AC1 foreground reading', () => {
+  // Distinct session and task ids per arm: the Task Reducer is a module-level
+  // singleton keyed by session id and reports a task's crossing only once, so a
+  // second run of the same id would read 0 for a reason that has nothing to do
+  // with the criterion under test.
+  const green = readTerminalRowCount(
+    'claude-frame-forwarding-main-ac6',
+    'ac6-fg-bash-main',
+    'toolu_ac6_fg_main',
+    false,
+    'notification',
+  );
+  say(`AC6 main reading: foreground task_notification frames: ${green} (expect 0)`);
+  assert.equal(green, 0);
+
+  const mutated = readTerminalRowCount(
+    'claude-frame-forwarding-falseform-ac6',
+    'ac6-fg-bash-mutated',
+    'toolu_ac6_fg_mutated',
+    false,
+    'notification',
+    () => true,
+  );
+  say(`AC6 false form reading: foreground task_notification frames: ${mutated} (expect > 0)`);
+  assert.throws(
+    () => {
+      assert.equal(mutated, 0);
+    },
+    'a criterion that is always true must red the foreground reading',
+  );
+  assert.equal(mutated, 1, 'the mutation really emits the row, it does not merely stay the same');
 });

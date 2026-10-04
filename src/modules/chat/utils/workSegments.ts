@@ -5,13 +5,26 @@ import { getIntrinsicMessageKey } from '@/modules/chat/utils/messageKeys';
  * Whether a row belongs to a work run.
  *
  * Membership is decided by the row's TYPE fields alone — `isThinking`,
- * `isToolUse`, `isSubagentContainer`. A row's text is deliberately not consulted:
- * a tool row whose prose has not arrived yet is already a member, and an
- * assistant body row is already a boundary, so a run's edges are the same
- * before and after the tail streams in.
+ * `isToolUse`, `isSubagentContainer`, `isTaskNotification`. A row's text is
+ * deliberately not consulted: a tool row whose prose has not arrived yet is
+ * already a member, and an assistant body row is already a boundary, so a run's
+ * edges are the same before and after the tail streams in.
+ *
+ * A task-notification row is a member for the same reason the others are: it is
+ * a row *about* the work around it, not a thing said. A background shell's
+ * terminal line lands directly behind the tool card that launched it, and while
+ * it was a boundary it cut that run into two one-member fragments — the reader
+ * saw the card's own header float free of its command. Absorbing it keeps the
+ * run whole and still draws the line, because a run of one member is emitted as
+ * that member itself.
  */
 function isWorkSegmentMember(message: ChatMessage): boolean {
-  return Boolean(message.isThinking || message.isToolUse || message.isSubagentContainer);
+  return Boolean(
+    message.isThinking
+      || message.isToolUse
+      || message.isSubagentContainer
+      || message.isTaskNotification,
+  );
 }
 
 /** Narrows a selected transcript entry to the {@link WorkSegment} standing in for a run of work rows. */
