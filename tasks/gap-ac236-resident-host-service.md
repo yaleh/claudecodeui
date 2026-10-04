@@ -3,7 +3,7 @@ id: gap-ac236-resident-host-service
 title: AC-236 会话宿主启停抽成可复用服务
   startResidentHost/closeResidentHost：路由只剩解析→调用→翻译，四种拒绝与既有文案逐字不变、已运行幂等、关闭回
   lease，判据 server/modules/session-hosts/tests/resident-host-service.test.ts
-status: todo
+status: ready
 labels:
   - gap
 parent: null
