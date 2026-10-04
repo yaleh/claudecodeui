@@ -17,9 +17,9 @@ export function createSettingsRouter(
   service: ReturnType<typeof createSettingsService>,
 ): express.Router {
   const router = express.Router();
-  const respond = (operation: (req: express.Request) => unknown | Promise<unknown>) =>
+  const respond = (operation: (req: express.Request) => unknown | Promise<unknown>, status = 200) =>
     async (req: express.Request, res: express.Response, next: express.NextFunction) => {
-      try { res.json(await operation(req)); } catch (error) { next(error); }
+      try { res.status(status).json(await operation(req)); } catch (error) { next(error); }
     };
 
   router.get('/credentials', respond((req) => service.listCredentials(
@@ -40,6 +40,14 @@ export function createSettingsRouter(
   router.post('/push/subscribe', respond((req) => service.subscribeToPush(userId(req), req.body ?? {})));
   router.post('/push/unsubscribe', respond((req) => service.unsubscribeFromPush(
     userId(req), req.body?.endpoint,
+  )));
+  router.get('/access-tokens', respond((req) => service.listAccessTokens(userId(req))));
+  router.post('/access-tokens', respond(
+    (req) => service.createAccessToken(userId(req), req.body ?? {}),
+    201,
+  ));
+  router.delete('/access-tokens/:tokenId', respond((req) => service.revokeAccessToken(
+    userId(req), Number(req.params.tokenId),
   )));
   return router;
 }

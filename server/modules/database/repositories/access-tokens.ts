@@ -7,8 +7,9 @@
  * from `CURRENT_TIMESTAMP`, because the service injects a clock so expiry and
  * revocation are deterministic under test.
  *
- * Consumers: server/modules/oauth (access-tokens.service.ts), through the
- * database module barrel.
+ * Consumers: server/modules/oauth (access-tokens.service.ts) and
+ * server/modules/settings (settings.module.ts, for the /access-tokens
+ * routes), both through the database module barrel.
  */
 
 import { getConnection } from '@/modules/database/connection.js';
@@ -58,6 +59,35 @@ export const accessTokensDb = {
         input.createdAt
       );
     return Number(result.lastInsertRowid);
+  },
+
+  /**
+   * Lists every token row owned by `userId`, newest first. Used by the settings
+   * module's `/access-tokens` list; the caller projects away `token_hash`, which
+   * this read deliberately includes so the projection is the caller's explicit
+   * allowlist rather than an accidental omission.
+   */
+  listByUser(userId: number): AccessTokenRow[] {
+    const db = getConnection();
+    return db
+      .prepare(
+        `SELECT id, user_id, token_hash, token_prefix, name, scopes,
+                expires_at, created_at, last_used, revoked_at
+         FROM access_tokens WHERE user_id = ? ORDER BY id DESC`
+      )
+      .all(userId) as AccessTokenRow[];
+  },
+
+  /** Finds a token by its row id; undefined when no row matches. Used to check ownership before revocation. */
+  findById(id: number): AccessTokenRow | undefined {
+    const db = getConnection();
+    return db
+      .prepare(
+        `SELECT id, user_id, token_hash, token_prefix, name, scopes,
+                expires_at, created_at, last_used, revoked_at
+         FROM access_tokens WHERE id = ?`
+      )
+      .get(id) as AccessTokenRow | undefined;
   },
 
   /** Finds a token by its SHA-256 hash; undefined when no row matches. */

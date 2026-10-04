@@ -1,4 +1,5 @@
 import {
+  accessTokensDb,
   credentialsDb,
   notificationPreferencesDb,
   pushSubscriptionsDb,
@@ -8,9 +9,12 @@ import {
   getPublicKey,
   notifyUserIfEnabled,
 } from '@/modules/notifications/index.js';
+import { createAccessTokensService } from '@/modules/oauth/index.js';
 
 import { createSettingsRouter } from './settings.routes.js';
 import { createSettingsService } from './settings.service.js';
+
+const accessTokensService = createAccessTokensService({ now: () => new Date() });
 
 const settingsService = createSettingsService({
   credentials: {
@@ -37,6 +41,12 @@ const settingsService = createSettingsService({
     remove: (endpoint) => pushSubscriptionsDb.removeSubscription(endpoint),
   },
   getVapidPublicKey: getPublicKey,
+  accessTokens: {
+    list: (userId) => accessTokensDb.listByUser(userId),
+    findById: (tokenId) => accessTokensDb.findById(tokenId),
+    issue: (input) => accessTokensService.issueToken(input),
+    revoke: (tokenId) => accessTokensService.revokeToken(tokenId),
+  },
 });
 
 /** Settings router assembled for the authenticated server mount. */
