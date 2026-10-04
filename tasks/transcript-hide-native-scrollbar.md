@@ -25,10 +25,10 @@ goal_ac: AC-215
 
 ## AC
 
-- [ ] AC1 判据绿：`npx playwright test e2e/transcript-global-scrollbar.spec.ts -g "AC-215"` 退出 0。红态基线：该用例不存在（文件由前置任务创建，用例由本任务追加）。
-- [ ] AC2 取假形态必须红（先提交再变异，逐条记录 diff、逐字失败行与恢复命令）：(a) 用 overflow:hidden 隐藏 ⇒ 滚轮可滚断言红；(b) 轨道盖住文字 ⇒ 包围盒断言红；(c) 不隐藏 ⇒ 两条滚动条并存断言红。
-- [ ] AC3 既有跟随不回退：`npx playwright test e2e/transcript-follow.spec.ts` 保持绿（AC-106 至 AC-111），逐字写下读数；`e2e/transcript-jump-to-turn.spec.ts` 与 AC-214 用例保持绿。
-- [ ] AC4 `npm run typecheck` 与 `npm run lint` 退出 0；`git diff --stat` 与 `## Touches` 逐条对齐。
+- [x] AC1 判据绿：`npx playwright test e2e/transcript-global-scrollbar.spec.ts -g "AC-215"` 退出 0。红态基线：该用例不存在（文件由前置任务创建，用例由本任务追加）。
+- [x] AC2 取假形态必须红（先提交再变异，逐条记录 diff、逐字失败行与恢复命令）：(a) 用 overflow:hidden 隐藏 ⇒ 滚轮可滚断言红；(b) 轨道盖住文字 ⇒ 包围盒断言红；(c) 不隐藏 ⇒ 两条滚动条并存断言红。
+- [x] AC3 既有跟随不回退：`npx playwright test e2e/transcript-follow.spec.ts` 保持绿（AC-106 至 AC-111），逐字写下读数；`e2e/transcript-jump-to-turn.spec.ts` 与 AC-214 用例保持绿。
+- [x] AC4 `npm run typecheck` 与 `npm run lint` 退出 0；`git diff --stat` 与 `## Touches` 逐条对齐。
 
 ## DoD
 
