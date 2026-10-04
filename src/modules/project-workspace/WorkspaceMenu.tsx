@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Braces,
@@ -54,78 +55,36 @@ const ITEM_CLASS =
 const SECTION_TITLE_CLASS =
   'px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground';
 
+/** Where the dropdown is pinned, in viewport pixels, measured from the trigger when it opened. */
+type MenuPosition = { top: number; left: number };
+
+type WorkspaceMenuPanelProps = {
+  position: MenuPosition;
+  /** The dropdown's own node, read by the trigger's outside-click dismissal. */
+  menuRef: RefObject<HTMLDivElement>;
+  /** Clears the trigger's open state; every terminating action (an export, Escape, an outside click) closes through it. */
+  onClose: () => void;
+};
+
 /**
- * Rendered by WorkspaceHeader at the far right of the top bar, outside the tab
- * strip, on both mobile and desktop.
+ * The dropdown's contents, mounted only while the menu is open.
  *
- * A single dropdown holds what used to be two edge controls that no longer
- * exist: the transcript export (only when the open conversation has messages,
- * read from the shared transcript-export seam) and the quick settings, whose
- * content moved here from the retired drawer. Switches apply immediately and
- * keep the menu open; the export items run a download and close it.
+ * Keeping this a separate component is what keeps the *closed* header free of
+ * the preferences store: the trigger is drawn on every session page, but these
+ * rows need a `UiPreferencesProvider` that a header rendered on its own — a
+ * layout test, an isolated shell — does not carry.
  */
-export default function WorkspaceMenu() {
+function WorkspaceMenuPanel({ position, menuRef, onClose }: WorkspaceMenuPanelProps) {
   const { t } = useTranslation(['common', 'chat', 'settings']);
   const preferences = useUiPreferences();
   const setPreference = useSetUiPreference();
   const { available, getAction } = useTranscriptExport();
-
-  // Whether the dropdown is open; the trigger flips it and every dismissal path clears it.
-  const [isOpen, setIsOpen] = useState(false);
   // Which export is building, so its row can show a spinner.
   const [busyFormat, setBusyFormat] = useState<ExportFormatId | null>(null);
-  // Where the portalled menu is pinned, in viewport pixels, measured from the trigger on open.
-  const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
-
-  const rootRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  const openMenu = useCallback(() => {
-    const trigger = triggerRef.current;
-    if (!trigger) return;
-    const rect = trigger.getBoundingClientRect();
-    const width = Math.min(MENU_WIDTH_PX, window.innerWidth - 16);
-    const estimatedHeight = Math.min(window.innerHeight - 16, MENU_ESTIMATED_HEIGHT_PX);
-    setPosition({
-      top: rect.bottom + 6 + estimatedHeight <= window.innerHeight - 8
-        ? rect.bottom + 6
-        : Math.max(8, rect.top - estimatedHeight - 6),
-      // Right-aligned to the trigger, then nudged back inside the viewport so the
-      // menu never runs off the left edge on a narrow phone.
-      left: Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8)),
-    });
-    setIsOpen(true);
-  }, []);
-
-  useEffect(() => {
-    if (!isOpen) return undefined;
-
-    const closeOnOutsideClick = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (rootRef.current?.contains(target) || menuRef.current?.contains(target)) return;
-      setIsOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      setIsOpen(false);
-      triggerRef.current?.focus();
-    };
-    const closeOnResize = () => setIsOpen(false);
-
-    document.addEventListener('mousedown', closeOnOutsideClick);
-    document.addEventListener('keydown', closeOnEscape);
-    window.addEventListener('resize', closeOnResize);
-    return () => {
-      document.removeEventListener('mousedown', closeOnOutsideClick);
-      document.removeEventListener('keydown', closeOnEscape);
-      window.removeEventListener('resize', closeOnResize);
-    };
-  }, [isOpen]);
 
   const runExport = useCallback(async (format: ExportFormatId) => {
     // Close first: selecting an export is a terminating action, as the old menu did.
-    setIsOpen(false);
+    onClose();
     const action = getAction();
     if (!action) return;
     setBusyFormat(format);
@@ -136,7 +95,7 @@ export default function WorkspaceMenu() {
     } finally {
       setBusyFormat(null);
     }
-  }, [getAction]);
+  }, [getAction, onClose]);
 
   const togglePreference = useCallback((key: UiPreferenceKey) => {
     setPreference(key, !preferences[key]);
@@ -168,7 +127,7 @@ export default function WorkspaceMenu() {
     </button>
   );
 
-  const menu = (
+  return (
     <div
       ref={menuRef}
       role="menu"
@@ -226,6 +185,71 @@ export default function WorkspaceMenu() {
       </div>
     </div>
   );
+}
+
+/**
+ * Rendered by WorkspaceHeader at the far right of the top bar, outside the tab
+ * strip, on both mobile and desktop.
+ *
+ * A single dropdown holds what used to be two edge controls that no longer
+ * exist: the transcript export (only when the open conversation has messages,
+ * read from the shared transcript-export seam) and the quick settings, whose
+ * content moved here from the retired drawer. Switches apply immediately and
+ * keep the menu open; the export items run a download and close it.
+ */
+export default function WorkspaceMenu() {
+  const { t } = useTranslation(['common', 'chat', 'settings']);
+  // Whether the dropdown is open; the trigger flips it and every dismissal path clears it.
+  const [isOpen, setIsOpen] = useState(false);
+  // Where the portalled menu is pinned, in viewport pixels, measured from the trigger on open.
+  const [position, setPosition] = useState<MenuPosition | null>(null);
+
+  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const closeMenu = useCallback(() => setIsOpen(false), []);
+
+  const openMenu = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const width = Math.min(MENU_WIDTH_PX, window.innerWidth - 16);
+    const estimatedHeight = Math.min(window.innerHeight - 16, MENU_ESTIMATED_HEIGHT_PX);
+    setPosition({
+      top: rect.bottom + 6 + estimatedHeight <= window.innerHeight - 8
+        ? rect.bottom + 6
+        : Math.max(8, rect.top - estimatedHeight - 6),
+      // Right-aligned to the trigger, then nudged back inside the viewport so the
+      // menu never runs off the left edge on a narrow phone.
+      left: Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8)),
+    });
+    setIsOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (rootRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      closeMenu();
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      closeMenu();
+      triggerRef.current?.focus();
+    };
+
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    window.addEventListener('resize', closeMenu);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+      window.removeEventListener('resize', closeMenu);
+    };
+  }, [isOpen, closeMenu]);
 
   return (
     <div ref={rootRef} className="relative inline-flex flex-shrink-0">
@@ -236,13 +260,18 @@ export default function WorkspaceMenu() {
         aria-label={t('workspaceMenu.trigger', { ns: 'chat' })}
         aria-haspopup="menu"
         aria-expanded={isOpen}
-        onClick={() => (isOpen ? setIsOpen(false) : openMenu())}
+        onClick={() => (isOpen ? closeMenu() : openMenu())}
         className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-border/50 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
       >
         <MoreHorizontal className="h-5 w-5" />
       </button>
 
-      {isOpen && position && typeof document !== 'undefined' ? createPortal(menu, document.body) : null}
+      {isOpen && position && typeof document !== 'undefined'
+        ? createPortal(
+            <WorkspaceMenuPanel position={position} menuRef={menuRef} onClose={closeMenu} />,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
