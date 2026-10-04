@@ -1,7 +1,7 @@
 ---
 id: AC-226
 title: /api/agent 与明文 key 机制从生产代码里真正消失：模块目录、挂载、导出、建表语句都没有，且判据本身不会被注释或说明文字骗过
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-018
 criterion: for f in server/modules/oauth/tests/agent-retirement.test.ts; do [ -f
@@ -27,6 +27,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-04T18:41:07.901Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
