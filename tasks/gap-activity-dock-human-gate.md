@@ -85,3 +85,30 @@ goal_ac: AC-190
 - `scripts/activity-dock-human-gate.mjs` (new)
 - `scripts/activity-dock-human-gate.test.mjs` (new)
 - `tasks/gap-activity-dock-human-gate.md`
+
+
+## 完成记录（续，2026-10-04）
+
+**人证已落笔 —— 本轮不是代写，也不是执行者判定通过。**
+
+AC-190 的验收行已由人 yale 写下。落地路径：commit `36cb2ec1`（`docs(activity-dock): record the GOAL-014 human acceptance (AC-190)`）在提案 §11.4 增加了一行内联引用的 `- 人工验收 GOAL-014：accepted yale 2026-10-04`（引用时行首是反引号、不是 `- `，判据数的是行首，故引用不会把它点绿）。其提交说明逐字：「authorised by yale after the four steps were walked on an isolated deployment (own HOME/DATABASE_PATH/WORKSPACES_ROOT, not the shared :3001) and the three readings were taken; three screenshots attached.」三张截图即 `ac190-01-processing.png` / `ac190-02-unreachable.png` / `ac190-03-recovered.png`。执行者只是复验这条记录，没有写它 —— AC6 的机械读数仍在：`scripts/activity-dock-human-gate.mjs` 里 `writeFile|appendFile|createWriteStream|writeSync` 命中 **0**。
+
+**AC1 为什么仍然勾着、终态为什么是 done 而不是 needs-human**
+
+AC1 断的是**交付时**的读数（2026-10-02：`grep -c` = 0、判据 exit 1），DoD 原文也逐字写着「人未验收时判据为红，这是**正确的当前态**」。DoD 的终态条款本身是**有条件的**：「**AC1 保持红**、AC2–AC7 绿时，本任务的正确终态是 needs-human，不是 done」。人验收之后这个条件不再成立 —— 判据自然翻绿（`grep -c` = **1**、判据 exit **0**），正确终态随之由 needs-human 变为 **done**。同族先例 `tasks/gap-claude-resident-api-smoke-human-gate.md` 一致：yale 写下「冒烟验收：通过」后同样勾掉人证 AC 并转 done（其 完成记录续二逐字：「人证落笔后：AC7 的判据自然翻绿，勾 AC7 并置 done 即可」）。
+
+**本轮修掉的一个真缺陷：护栏判据被人证翻红（且已落在 develop 上）**
+
+`scripts/activity-dock-human-gate.test.mjs` 的「真实提案文件是 AC2 的判据」一条把**交付那一刻的** absent 钉成了不变量（断 `人证行：absent`）。人一写下验收行，这条就恒红 —— 而写那一行正是本关卡存在的意义。修法（commit `71645e03`）：读文件真实内容、要求判词与之一致，不再钉死某一态。分辨力不变：absent / present / 模板泄漏三态由样本用例逐个构造（line 145 / 156 / 167），AC4 的正控制照旧。GOAL-015 的同形用例（line 361）**未动** —— 它属 `tasks/gap-activity-dock-background-human-gate.md` 的交付物，且该关卡尚未验收、其 absent 读数当前为真。
+
+**本轮逐条读数（直跑，非推断）**
+
+- AC1：`grep -c '^- 人工验收 GOAL-014：accepted' docs/proposals/claude-session-activity-dock.md` → **1**（人写的），判据 exit **0**。交付时该读数为 0、exit 1（§11.1 的红态基线）。
+- AC2：`node scripts/activity-dock-human-gate.mjs --check-record docs/proposals/claude-session-activity-dock.md` → exit **0**，逐字 `记录合格：… 人工验收小节齐全且无模板泄漏；人证行：present`。
+- AC3：`node --test scripts/activity-dock-human-gate.test.mjs` → exit **0**，`tests 24 / pass 24 / fail 0`（含 GOAL-015 组的非回归扩展）。
+- AC4：正控制两次读数由测试本体打印 —— 删前 `exit=0`，删后 `exit=1` 且 stderr `缺项：人要读到的第三件事「计时不再前进」 —— 小节里找不到 「计时不再前进」`。
+- AC5：提案 §11.1 逐字三行 —— 取数时本树 sha `01efe5f0`；`tasks/gap-activity-dock-unreachable-degradation.md`（AC-184）与 `tasks/gap-activity-dock-single-dock-global-consistency.md` 记为 `status: done`（AC-184 / AC-188 两条 sibling 读数）。
+- AC6：`grep -nE 'writeFile|appendFile|createWriteStream|writeSync' scripts/activity-dock-human-gate.mjs` → **0 命中**（脚本只读不写）。
+- AC7：`npm run lint` → exit **0**；`npm run typecheck` → exit **0**（含 `scripts/tsconfig.json`）；本轮 `git diff --stat develop...HEAD` 只列 Touches 内的 `scripts/activity-dock-human-gate.test.mjs` 一条。
+
+**本轮唯一的产品性改动**：上述护栏判据的去钉死（`scripts/activity-dock-human-gate.test.mjs`，commit `71645e03`）。提案 §11 的人工验收记录、四步步骤、三件读数与人证行格式一字未动。
