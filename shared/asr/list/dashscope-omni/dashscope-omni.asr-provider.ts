@@ -519,6 +519,38 @@ export function readAnswerContent(responseText: string): string | null {
 }
 
 /**
+ * The service's own usage reading out of a chat envelope, flattened to numbers, or `undefined` when
+ * the body carries none.
+ *
+ * Counts only, and flattened one level (`prompt_tokens_details.audio_tokens`): the contract's
+ * `meta.usage` is `Record<string, number>`, and a field that is not a finite number is the service's
+ * business rather than a reading. No price is computed here — a unit price is a deployment fact that
+ * changes, and a count is what the service actually states.
+ */
+// Consumed by this adapter's `transcribe` and by the voice module's adapter tests.
+export function readUsage(responseText: string): Record<string, number> | undefined {
+  let parsed: { usage?: unknown };
+  try {
+    parsed = JSON.parse(responseText) as { usage?: unknown };
+  } catch {
+    return undefined;
+  }
+  const usage = parsed?.usage;
+  if (typeof usage !== 'object' || usage === null) return undefined;
+  const flat: Record<string, number> = {};
+  for (const [key, value] of Object.entries(usage)) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      flat[key] = value;
+    } else if (typeof value === 'object' && value !== null) {
+      for (const [inner, innerValue] of Object.entries(value)) {
+        if (typeof innerValue === 'number' && Number.isFinite(innerValue)) flat[`${key}.${inner}`] = innerValue;
+      }
+    }
+  }
+  return Object.keys(flat).length === 0 ? undefined : flat;
+}
+
+/**
  * The JSON object inside an answer, or `null` when there is none.
  *
  * §2 allows the object to arrive wrapped — in a Markdown fence, in explanatory prose — so the slice
@@ -682,6 +714,7 @@ export async function transcribe(request: AsrRequest, invocation: AsrInvocation)
   }
 
   const content = readAnswerContent(responseText);
+  const usage = readUsage(responseText);
   if (content === null) {
     return {
       ok: false,
@@ -705,7 +738,7 @@ export async function transcribe(request: AsrRequest, invocation: AsrInvocation)
       style: 'written',
       transformations: [...WRITTEN_TRANSFORMATIONS],
       providerId: id,
-      meta: { model: invocation.model, promptVersion: PROMPT_VERSION },
+      meta: { model: invocation.model, promptVersion: PROMPT_VERSION, ...(usage ? { usage } : {}) },
     };
   }
 
@@ -719,7 +752,12 @@ export async function transcribe(request: AsrRequest, invocation: AsrInvocation)
       // happen. `meta.writtenFallback` is what carries the degradation.
       transformations: [],
       providerId: id,
-      meta: { model: invocation.model, writtenFallback: 1, promptVersion: PROMPT_VERSION },
+      meta: {
+        model: invocation.model,
+        writtenFallback: 1,
+        promptVersion: PROMPT_VERSION,
+        ...(usage ? { usage } : {}),
+      },
     };
   }
 

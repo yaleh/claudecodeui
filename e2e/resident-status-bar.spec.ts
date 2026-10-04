@@ -1121,6 +1121,16 @@ test.describe('resident status bar', () => {
     for (const row of unattendedRows) {
       expect(row.style, 'a turn nobody typed must not wear the user\'s own bubble style').not.toBe('user');
     }
+    // Each row must carry the words the scenario sent, not the transport
+    // envelope the CLI wraps a peer message in. This is the DOM-level half of
+    // the body-vs-envelope distinction the provider criterion reads off the
+    // projection: a fixture that wrote the envelope (or a product that rendered
+    // it) would put `Another Claude session sent a message:` on the page, and
+    // the count and style lines above would still pass.
+    expect(
+      unattendedRows.map((row) => row.text).sort(),
+      'each unattended row shows the turn\'s own words, not the envelope around them',
+    ).toEqual([CRON_TURN_TEXT, CROSS_SESSION_TURN_TEXT].sort());
     console.log(
       `userRow.isUserStyle=${String((await userRow.getAttribute('data-message-style')) === 'user')} `
       + `userRow.text=${JSON.stringify((await userRow.innerText()).trim())}`,

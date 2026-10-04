@@ -17,6 +17,10 @@
 //   5. 小节齐全且人证行带载荷 → exit 0 且 stdout 含 `人证行：present`；
 //   6. 行首模板泄漏 → exit 1 并点名；
 //   7. 真实提案文件 → exit 0（这是 AC2 的判据本身）。
+//
+// 以上是 GOAL-014/AC-190 的一组（全部保持非回归）。下面另有一组 `--gate goal015`（GOAL-015/AC-201）：
+// 缺文件 / 缺小节 / 缺任一条读数三种红态、正控制（删「最近动作」即红）、absent / present / 模板泄漏三态、
+// 两关前缀互不点亮、未知关卡用法错与真实提案 §12 的 AC2 判据。
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -26,11 +30,13 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import {
+  GATE_SPECS,
   HUMAN_LINE_PREFIX,
   RECORD_SECTION_TITLE,
   REQUIRED_ITEMS,
   checkRecordText,
   extractSection,
+  resolveGate,
   scanHumanLine,
 } from './activity-dock-human-gate.mjs';
 
@@ -190,5 +196,182 @@ test('REQUIRED_ITEMS 覆盖四步 + 三件事 + 格式 + 声明', () => {
   const names = REQUIRED_ITEMS.map((item) => item.name).join('\n');
   for (const needle of ['处理中', '停掉或杀掉服务端', '约 15 秒内', '重启', '恢复', ...READINGS, '格式', '只由人写']) {
     assert.ok(names.includes(needle), `REQUIRED_ITEMS 应覆盖「${needle}」`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GOAL-015 / AC-201：同一份校验器按 `--gate goal015` 走 §12 规格。
+// GOAL-014 的既有用例必须保持全绿（上面全部通过），这一组是新增的非回归扩展。
+// ---------------------------------------------------------------------------
+
+/** GOAL-015 的三条读数（AC-201 expect 逐字）；列表化是为了「缺任一项」能逐个删。 */
+const READINGS_015 = ['描述', '状态', '最近动作'];
+
+/** GOAL-015 关卡规格（下面用它的 sectionTitle / humanLinePrefix 造样本）。 */
+const GATE_015 = GATE_SPECS.goal015;
+
+/**
+ * 一份 GOAL-015 小节齐全的最小记录。`omit` 里的短语会被替换成不含该针的写法（造缺项红态），
+ * `humanLine` 非空时追加一行**行首**人证行（造 present/leak 两态）。
+ * @param {{ omit?: string[], humanLine?: string }} [opts]
+ */
+function sampleRecord015({ omit = [], humanLine = '' } = {}) {
+  /** @param {string} phrase */
+  const has = (phrase) => !omit.includes(phrase);
+  const readings = READINGS_015.filter(has).join('/');
+  const daemon = has('后台子代理') ? '后台子代理' : '子代理';
+  const monitor = has('Monitor') ? 'Monitor' : '监控';
+  const fg = has('前台长命令') ? '前台长命令' : '长命令';
+  const bg = has('转后台') ? '转后台' : '放后台';
+  const backTask = has('后台任务') ? '后台任务' : '任务';
+  const notif = has('由 SDK 的通知') ? '由 SDK 的通知' : '来自事件';
+  const tail = humanLine === '' ? '' : `${humanLine}\n`;
+  return [
+    '# 样本记录',
+    '',
+    `## ${GATE_015.sectionTitle}`,
+    '',
+    `1. 启动${daemon}与一个 ${monitor}。`,
+    `2. 读坞里的${readings}。`,
+    `3. 从坞里停止 ${monitor}。`,
+    `4. 对${fg}用坞里的控件${bg}。`,
+    '',
+    `- 读数一：坞里列出${readings}。`,
+    `- 读数二：停止后${notif}变为 stopped，不是点击就乐观改。`,
+    `- 读数三：${fg}${bg}成功之后成为坞里的${backTask}。`,
+    '- 人证行格式（只由人写）：`- 人工验收 GOAL-015：accepted <人> <日期>`。',
+    '- 执行者不得代写。',
+    '',
+    tail,
+  ].join('\n');
+}
+
+test('GOAL-015 缺文件：exit 1 并点名文件不存在', () => {
+  const missing = path.join(os.tmpdir(), 'activity-dock-human-gate-015-absent-record.md');
+  assert.equal(fs.existsSync(missing), false);
+  const result = runCli(['--gate', 'goal015', '--check-record', missing]);
+  assert.equal(result.status, 1);
+  assert.ok(result.stderr.includes('记录文件不存在'), `stderr 应点名文件不存在，实际：${result.stderr}`);
+});
+
+test('GOAL-015 缺小节：exit 1 并点名该小节', () => {
+  const { file, cleanup } = tempRecord('# 样本记录\n\n## 别的小节\n\n无关内容。\n');
+  try {
+    const result = runCli(['--gate', 'goal015', '--check-record', file]);
+    assert.equal(result.status, 1);
+    assert.ok(result.stderr.includes(GATE_015.sectionTitle), `stderr 应点名 §12，实际：${result.stderr}`);
+  } finally {
+    cleanup();
+  }
+});
+
+test('GOAL-015 缺任一项：三条读数各删一次都 exit 1 并点名', () => {
+  for (const reading of READINGS_015) {
+    const { file, cleanup } = tempRecord(sampleRecord015({ omit: [reading] }));
+    try {
+      const result = runCli(['--gate', 'goal015', '--check-record', file]);
+      assert.equal(result.status, 1, `删去「${reading}」后应 exit 1，实际 stdout=${result.stdout}`);
+      assert.ok(result.stderr.includes(reading), `stderr 应点名「${reading}」，实际：${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  }
+});
+
+test('AC4 正控制（GOAL-015）：删去「最近动作」前 exit 0、删后 exit 1（打印两次读数）', () => {
+  const before = tempRecord(sampleRecord015());
+  const after = tempRecord(sampleRecord015({ omit: ['最近动作'] }));
+  try {
+    const beforeResult = runCli(['--gate', 'goal015', '--check-record', before.file]);
+    const afterResult = runCli(['--gate', 'goal015', '--check-record', after.file]);
+    console.log(`[GOAL-015 正控制] 删前 exit=${beforeResult.status} stdout=${beforeResult.stdout.trim()}`);
+    console.log(`[GOAL-015 正控制] 删后 exit=${afterResult.status} stderr=${afterResult.stderr.trim()}`);
+    assert.equal(beforeResult.status, 0, '删前应 exit 0（样本本身合格）');
+    assert.equal(afterResult.status, 1, '删后应 exit 1（正控制必须红）');
+    assert.ok(
+      afterResult.stderr.includes('最近动作'),
+      `删后应点名「最近动作」，实际：${afterResult.stderr}`,
+    );
+  } finally {
+    before.cleanup();
+    after.cleanup();
+  }
+});
+
+test('GOAL-015 小节齐全且人证行缺失：exit 0 且打印 人证行：absent', () => {
+  const { file, cleanup } = tempRecord(sampleRecord015());
+  try {
+    const result = runCli(['--gate', 'goal015', '--check-record', file]);
+    assert.equal(result.status, 0, `应 exit 0，stderr=${result.stderr}`);
+    assert.ok(result.stdout.includes('人证行：absent'), `stdout 应含 人证行：absent，实际：${result.stdout}`);
+  } finally {
+    cleanup();
+  }
+});
+
+test('GOAL-015 小节齐全且人证行带载荷：exit 0 且打印 人证行：present', () => {
+  const { file, cleanup } = tempRecord(sampleRecord015({ humanLine: `${GATE_015.humanLinePrefix} yale 2026-10-04` }));
+  try {
+    const result = runCli(['--gate', 'goal015', '--check-record', file]);
+    assert.equal(result.status, 0, `应 exit 0，stderr=${result.stderr}`);
+    assert.ok(result.stdout.includes('人证行：present'), `stdout 应含 人证行：present，实际：${result.stdout}`);
+  } finally {
+    cleanup();
+  }
+});
+
+test('GOAL-015 行首模板泄漏：exit 1 并点名', () => {
+  const { file, cleanup } = tempRecord(sampleRecord015({ humanLine: `${GATE_015.humanLinePrefix} <人> <日期>` }));
+  try {
+    const result = runCli(['--gate', 'goal015', '--check-record', file]);
+    assert.equal(result.status, 1, '模板泄漏应 exit 1');
+    assert.ok(result.stderr.includes('模板泄漏'), `stderr 应点名模板泄漏，实际：${result.stderr}`);
+  } finally {
+    cleanup();
+  }
+});
+
+test('关卡规格互相隔离：goal014 前缀不点亮 goal015 样本，反之亦然', () => {
+  // 样本 §12 只含 GOAL-015 前缀；用 goal014 规格扫它必须判 present 而不是被误伤。
+  const { file, cleanup } = tempRecord(sampleRecord015({ humanLine: `${GATE_015.humanLinePrefix} yale 2026-10-04` }));
+  try {
+    const asGoal014 = runCli(['--gate', 'goal014', '--check-record', file]);
+    // 用 GOAL-014 规格扫 §12 样本：缺 §11 小节 → exit 1，且**不**把人证行判成 present。
+    assert.equal(asGoal014.status, 1, 'goal014 规格扫 §12 样本应因缺小节 exit 1');
+    assert.ok(asGoal014.stderr.includes(RECORD_SECTION_TITLE), `stderr 应点名 §11，实际：${asGoal014.stderr}`);
+    assert.equal(scanHumanLine(fs.readFileSync(file, 'utf8'), GATE_015.humanLinePrefix).state, 'present');
+    assert.equal(scanHumanLine(fs.readFileSync(file, 'utf8')).state, 'absent', 'GOAL-014 前缀不应匹配 GOAL-015 的人证行');
+  } finally {
+    cleanup();
+  }
+});
+
+test('未知 --gate 是用法错：exit 2 并列出可用关卡', () => {
+  const result = runCli(['--gate', 'goal999', '--check-record', 'whatever.md']);
+  assert.equal(result.status, 2, `未知关卡应 exit 2，实际 ${result.status}`);
+  assert.ok(result.stderr.includes('goal014') && result.stderr.includes('goal015'), `stderr 应列出可用关卡，实际：${result.stderr}`);
+});
+
+test('resolveGate：默认 goal014，未知返回 null', () => {
+  assert.equal(resolveGate()?.id, 'goal014');
+  assert.equal(resolveGate('goal015')?.id, 'goal015');
+  assert.equal(resolveGate('nope'), null);
+});
+
+test('GOAL-015 真实提案文件是 AC2 的判据：--gate goal015 exit 0 且人证行 absent', () => {
+  const result = runCli(['--gate', 'goal015', '--check-record', REAL_RECORD]);
+  assert.equal(result.status, 0, `真实提案应 exit 0，stderr=${result.stderr}`);
+  assert.ok(result.stdout.includes('人证行：absent'), `交付时人证行应为 absent，实际：${result.stdout}`);
+});
+
+test('GOAL-015 纯函数：小节抽取按整行相等，不会误配别的小节', () => {
+  assert.equal(extractSection(sampleRecord015(), GATE_015.sectionTitle)?.includes('从坞里停止'), true);
+  assert.equal(extractSection(`## ${GATE_015.sectionTitle} 别的东西\n`, GATE_015.sectionTitle), null);
+});
+
+test('GOAL-015 REQUIRED_ITEMS 覆盖四步 + 三条读数 + 格式 + 声明', () => {
+  const names = GATE_015.requiredItems.map((item) => item.name).join('\n');
+  for (const needle of ['后台子代理', 'Monitor', '从坞里停止', '前台长命令', '转后台', ...READINGS_015, 'stopped', '后台任务', '格式', '只由人写']) {
+    assert.ok(names.includes(needle), `GOAL-015 REQUIRED_ITEMS 应覆盖「${needle}」`);
   }
 });

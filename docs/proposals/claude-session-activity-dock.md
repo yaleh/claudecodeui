@@ -791,3 +791,39 @@ session_crons: [
 - 只有人在真实部署上走完 §11.2 的四步、读到 §11.3 的三件事之后，才写这一行；**执行者不得代写**。代写会让判据翻绿，但它不是人的产物，人工关卡随即失去作为人证的意义。
 - 因此本节现在**不含**这一行（当前读数见 §11.1 的红态基线）。前面 AC 全绿而 AC-190 未通过时，本任务的正确终态是 **needs-human**，不是 `done`。
 - 机械核对：`node scripts/activity-dock-human-gate.mjs --check-record docs/proposals/claude-session-activity-dock.md` 逐项校验本节（四步、三件事、人证行格式说明、「只由人写」声明），并在人证行缺失时打印 `人证行：absent`。
+
+---
+
+## 12. 人工验收记录（GOAL-015 / AC-201）
+
+本节是 GOAL-015 的 **L4 人工关卡**（GOAL-015 退出条件末行逐字：「AC-201 人工关卡：人在真实 resident 会话里确认后台子代理与 Monitor 可见、可停止」）。后台工作的可见与可控已由 AC-191…AC-200 落地并由四条 sibling 提供读数面：坞按 Task/Schedule 实体列出任务与计划、卡片按 toolUseId 读任务（AC-194），停止任务处理函数以 task_notification 为确认（AC-196），前台工具按 toolUseId 转后台（AC-197），坞的停止与转后台控件以事件为准（AC-199）。**唯一没有被自动化覆盖的，是人在真实 resident 会话里肉眼读到的那个坞** —— 所以这一格只能由人走完四步、读到三条读数之后写下验收行，机器只把前置读数与格式钉在这里（经验：人工关卡必须是一条带可运行判据的 AC，写成 DoD 散文会被机械 fan-in 绕过）。
+
+### 12.1 前置读数（机器侧，取数时实测）
+
+- 取数时本树 sha（`git rev-parse --short HEAD`）：`ca7f50e7`。
+- `tasks/gap-activity-dock-background-browser.md`（AC-194：真实浏览器里坞按 Task/Schedule 实体列出任务与计划，状态不刷新就变化，卡片按 toolUseId 读任务）→ `status: done`。
+- `tasks/gap-chat-stop-task-event-confirmed.md`（AC-196：停止任务处理函数校验会话/归属/任务，以 task_notification 为确认）→ `status: done`。
+- `tasks/gap-chat-background-task-foreground-tooluse.md`（AC-197：前台工具按 toolUseId 转后台，无匹配时明确回执）→ `status: done`。
+- `tasks/gap-ac199-dock-stop-background-controls-browser.md`（AC-199：真实浏览器里从坞里停止与转后台，点击不乐观改状态，事件到达才变）→ `status: done`。
+- 判据红态基线（交付时）：`grep -c '^- 人工验收 GOAL-015：accepted' docs/proposals/claude-session-activity-dock.md` → `0`。人未验收时判据为红，这是**正确的当前态**，不是缺陷。
+
+### 12.2 人工步骤（四步，在真实 resident 会话里走）
+
+1. **启动后台子代理与 Monitor**：在真实 resident 会话里让 Claude 启动一个后台子代理，并启动一个 Monitor。
+2. **读坞里的描述/状态/最近动作**：坞里应当列出这两者的**描述**、**状态**与**最近动作**。
+3. **从坞里停止 Monitor**：用坞里的停止控件停掉那个 Monitor。
+4. **前台长命令转后台**：对一条正在运行的前台长命令，用坞里的控件把它转后台。
+
+### 12.3 每一步要读到的三条读数
+
+- **坞列出描述/状态/最近动作**：后台子代理与 Monitor 在坞里各有可读的**描述**、**状态**与**最近动作**。
+- **由 SDK 的通知变为 stopped**：从坞里停止 Monitor 之后，它的状态**由 SDK 的通知变为 `stopped`** —— 是事件到达才变，不是点击就乐观改状态。
+- **前台长命令转后台成为后台任务**：前台长命令**转后台**成功之后，它成为坞里的一个后台任务，描述、状态与最近动作都可读。
+
+### 12.4 验收行（只由人写，执行者不得代写）
+
+- 人证行格式（只由人写）：单独一行，行首逐字为 `- 人工验收 GOAL-015：accepted <人> <日期>`，其中 `<人>` 与 `<日期>` 必须是**真载荷**（照抄占位符不算验收）。上面这一句是**内联**给出的，本行的行首是「人证行格式」四个字、不是那段前缀 —— 否则本节会被自己的格式模板点亮，这是本条唯一的机械陷阱；`scripts/activity-dock-human-gate.mjs` 的 `scanHumanLine` 把「行首出现却不带两段载荷」的模板判红。
+- 判据逐字：`grep -c '^- 人工验收 GOAL-015：accepted' docs/proposals/claude-session-activity-dock.md` 必须 `>= 1`。
+- 只有人在真实 resident 会话里走完 §12.2 的四步、读到 §12.3 的三条读数之后，才写这一行；**执行者不得代写**。代写会让判据翻绿，但它不是人的产物，人工关卡随即失去作为人证的意义。
+- 因此本节现在**不含**这一行（当前读数见 §12.1 的红态基线）。前面 AC 全绿而 AC-201 未通过时，本任务的正确终态是 **needs-human**，不是 `done`。
+- 机械核对：`node scripts/activity-dock-human-gate.mjs --gate goal015 --check-record docs/proposals/claude-session-activity-dock.md` 逐项校验本节（四步、三条读数、人证行格式说明、「只由人写」声明），并在人证行缺失时打印 `人证行：absent`。
