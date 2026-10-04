@@ -160,11 +160,31 @@ test('structural rows terminate the segment: a compaction row', () => {
   );
 });
 
-test('structural rows terminate the segment: a task notification row', () => {
-  assertStructuralRowTerminates(
-    row('notification', { isTaskNotification: true, content: 'task finished' }),
-    'a task notification row',
-  );
+test('a task notification row is a member, not a boundary', () => {
+  // A background shell's terminal line lands behind the card that launched it.
+  // While it was a boundary it cut that run in two — the reader saw the card's
+  // header float free of its command — so it is absorbed like the work rows it
+  // sits between, and the run stays whole.
+  const before = tool('a', 'Bash');
+  const notification = row('notification', { isTaskNotification: true, content: 'completed: sleep 25' });
+  const after = tool('c', 'Bash');
+
+  const items = groupWorkSegments([before, notification, after]);
+
+  assert.deepEqual(memberIdRuns(items), [['a', 'notification', 'c']], 'the run is one three-member segment');
+  assert.equal(items.length, 1, 'the notification must not split the run');
+  assert.equal(items.filter(isWorkSegment)[0]?.messages.length, 3, 'the segment holds all three rows');
+});
+
+test('a task notification row on its own is still emitted as itself', () => {
+  // Membership must not invent a segment around a lone notification: a run of
+  // one member is emitted as that member, exactly as a lone tool row is.
+  const notification = row('notification', { isTaskNotification: true, content: 'completed: sleep 25' });
+  const items = groupWorkSegments([row('body', { content: 'before' }), notification, row('after', { content: 'after' })]);
+
+  assert.equal(items.length, 3);
+  assert.equal(items[1], notification, 'a lone notification must be emitted as itself');
+  assert.equal(items.filter(isWorkSegment).length, 0);
 });
 
 test('structural rows terminate the segment: a resident pending row', () => {

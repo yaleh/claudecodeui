@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createClaudeTaskReducer, mapUpdatedStatus } from '@/modules/providers/index.js';
+import { createClaudeTaskReducer, earnsTaskTerminalRow, mapUpdatedStatus } from '@/modules/providers/index.js';
 import type {
   ActivityTask,
   BackgroundTaskSummary,
@@ -312,6 +312,32 @@ function notifiedTask(taskId: string, status: string, summary: string): Frame {
     summary,
     uuid: `u-notification-${taskId}`,
     session_id: SESSION,
+  };
+}
+
+/**
+ * The `assistant` frame carrying a task's launching `tool_use`.
+ *
+ * Built to the shape measured on a real SDK run (0.3.165, 2026-10-04): a
+ * foreground Bash's call had `input:{command}` with no `run_in_background`, a
+ * background Bash's had `run_in_background:true`, and an `Agent`'s backgrounded
+ * unless it opted out. It is fed *before* the `task_started` naming the task, in
+ * the order the stream really delivers them.
+ */
+function toolUseLaunch(toolUseId: string, name: string, input: Record<string, unknown>): Frame {
+  return {
+    type: 'assistant',
+    message: { role: 'assistant', content: [{ type: 'tool_use', id: toolUseId, name, input }] },
+    uuid: `u-tool-${toolUseId}`,
+    session_id: SESSION,
+  };
+}
+
+/** A `task_started` naming the `tool_use` that launched it. */
+function startedTaskFor(taskId: string, toolUseId: string, taskType = 'local_bash', description = taskId): Frame {
+  return {
+    ...startedTask(taskId, taskType, description),
+    tool_use_id: toolUseId,
   };
 }
 
@@ -770,4 +796,127 @@ test('AC6 false form (g): reporting on every terminal frame reds the exactly-onc
     'reporting on every terminal frame must red the exactly-once reading',
   );
   assert.ok(mutated > 1, 'the mutation really re-reports, it does not merely stay the same');
+});
+
+// ------------------------------- the terminal-row criterion (gap-shell-…) -----
+//
+// The transition alone is not yet a transcript row: the forwarder asks
+// `earnsTaskTerminalRow` whether this crossing is one the transcript needs. The
+// three classes below are the whole discrimination the criterion has to make —
+// a foreground command (already on its tool card: no row), a real background
+// task (nothing else says it ended: one row), and a task the CLI notifies about
+// itself (its own row exists: no second one).
+
+/** One class of command, driven from its launch frame to its terminal frame. */
+type CriterionArm = {
+  label: string;
+  /** The expected verdict: does this crossing earn a server-emitted row? */
+  earns: boolean;
+  frames: Frame[];
+};
+
+/**
+ * Drives one arm and reports both readings: whether the crossing earns a row,
+ * and how many times the transition fired across a replayed sequence (which must
+ * stay exactly one — a re-report would emit the row twice).
+ */
+function readCriterionArm(arm: CriterionArm): { earns: boolean; fired: number } {
+  const reported: Transition[] = [];
+  const reducer = createClaudeTaskReducer({ onTaskTerminal: (transition) => reported.push(transition) });
+  for (const frame of arm.frames) {
+    reducer.observe(SESSION, frame);
+  }
+  for (const frame of arm.frames) {
+    reducer.observe(SESSION, frame);
+  }
+  const first = reported[0];
+  assert.ok(first, `${arm.label}: the arm must produce a terminal transition at all`);
+  return { earns: earnsTaskTerminalRow(first), fired: reported.length };
+}
+
+test('AC2 the criterion tells foreground, background and CLI-notified tasks apart', () => {
+  const arms: CriterionArm[] = [
+    {
+      // A foreground Bash: no `run_in_background` on its call, and the SDK ends it
+      // with an announced notification whose summary is the description/command.
+      label: 'foreground Bash (task_notification)',
+      earns: false,
+      frames: [
+        toolUseLaunch('toolu_crit_fg', 'Bash', { command: 'echo fg-short-ok' }),
+        startedTaskFor('crit-fg', 'toolu_crit_fg', 'local_bash', 'echo fg-short-ok'),
+        notifiedTask('crit-fg', 'completed', 'echo fg-short-ok'),
+      ],
+    },
+    {
+      // A real background Bash: `run_in_background:true` on its call, ended by the
+      // silent `task_updated{completed}` that no other row expresses.
+      label: 'background Bash (task_updated)',
+      earns: true,
+      frames: [
+        toolUseLaunch('toolu_crit_bg', 'Bash', { command: 'sleep 25', run_in_background: true }),
+        startedTaskFor('crit-bg', 'toolu_crit_bg', 'local_bash', 'sleep 25'),
+        updatedTask('crit-bg', 'completed'),
+      ],
+    },
+    {
+      // A subagent: genuinely background work, but the CLI mirrors its end into a
+      // `<task-notification>` row of its own, so a server row would be a second one.
+      label: 'CLI-notified subagent',
+      earns: false,
+      frames: [
+        toolUseLaunch('toolu_crit_agent', 'Agent', { description: 'run in background' }),
+        startedTaskFor('crit-agent', 'toolu_crit_agent', 'local_agent', 'run in background'),
+        updatedTask('crit-agent', 'completed'),
+      ],
+    },
+  ];
+
+  const readings = arms.map((arm) => ({ label: arm.label, expected: arm.earns, ...readCriterionArm(arm) }));
+  for (const reading of readings) {
+    say(
+      `AC2 ${reading.label}: earns row=${String(reading.earns)} (expect ${String(reading.expected)}), ` +
+        `transitions across replay=${reading.fired}`,
+    );
+  }
+
+  assert.deepEqual(
+    readings.map((reading) => reading.earns),
+    [false, true, false],
+    'the criterion must give 不报 / 报 / 不报 for foreground / background / CLI-notified',
+  );
+  for (const reading of readings) {
+    assert.equal(reading.fired, 1, `${reading.label}: the crossing is reported exactly once across a replay`);
+  }
+});
+
+test('AC2 a foreground tool that is later backgrounded flips to earning a row', () => {
+  // The second signal the criterion reads: `backgroundTasks(toolUseId)` moves a
+  // running foreground command to the background, which the stream shows as a
+  // `task_updated{is_backgrounded:true}`. From that instant its end is a real
+  // background task's end and earns the row — while the plain foreground arm
+  // above, which never got the flip, does not.
+  const reducer = createClaudeTaskReducer();
+  reducer.observe(SESSION, frontBashToolUse());
+  // The launch alone crosses nothing, so there is no transition to judge yet.
+  assert.equal(reducer.observe(SESSION, frontBashStarted()).length, 0);
+
+  // The backgrounding pair the dock proposal §9.3 records: `task_started` came in
+  // with the plain foreground call, then `is_backgrounded` flips on the same
+  // instant `backgroundTasks(toolUseId)` returns true.
+  reducer.observe(SESSION, frontBashBackgrounded());
+
+  const foregroundBeforeFlip = createClaudeTaskReducer();
+  foregroundBeforeFlip.observe(SESSION, frontBashToolUse());
+  foregroundBeforeFlip.observe(SESSION, frontBashStarted());
+  const notFlipped = foregroundBeforeFlip.observe(SESSION, updatedTask(FRONT_BASH_ID, 'completed'));
+  assert.equal(earnsTaskTerminalRow(notFlipped[0]), false, 'without the flip the end earns no row');
+
+  const flipped = reducer.observe(SESSION, updatedTask(FRONT_BASH_ID, 'completed'));
+  say(
+    `AC2 backgrounded-foreground: transitions=${flipped.length}, ` +
+      `earns row=${String(earnsTaskTerminalRow(flipped[0]))} (expect true); ` +
+      `unflipped earns row=${String(earnsTaskTerminalRow(notFlipped[0]))} (expect false)`,
+  );
+  assert.equal(flipped.length, 1, 'the flip does not itself report a crossing');
+  assert.equal(earnsTaskTerminalRow(flipped[0]), true, 'after the flip the end earns a row');
 });

@@ -42,10 +42,10 @@ import { createClaudeSessionScopeSpawn } from '@/modules/providers/services/clau
 import { createClaudeTurnTracker } from '@/modules/providers/services/claude-turn-phase.service.js';
 import {
   createClaudeTaskReducer,
+  earnsTaskTerminalRow,
   type ActivityTask,
   type BackgroundTaskSummary,
   type ClaudeTaskTransition,
-  type TaskKind,
 } from '@/modules/providers/services/claude-activity-task-reducer.service.js';
 import {
   createClaudeScheduleTracker,
@@ -971,30 +971,19 @@ export function readSessionForegroundToolUseId(sessionId: string): string | null
 }
 
 /**
- * The task kinds whose end the CLI already writes into the transcript itself.
+ * The one-line result a terminal transition shows when no frame supplied a summary.
  *
- * A background agent, a workflow run and a Monitor each make the CLI enqueue a
- * `<task-notification>` user row into the session's JSONL, which the client has
- * always rendered as a task-notification line (`useChatMessages.ts` →
- * `parseTaskNotification`). A background **shell** makes no such row: its end
- * reaches the server only as a silent `task_updated{completed}` with no
- * `task_notification` frame at all (measured — see the task's completion record),
- * which is precisely the gap the server-emitted frame closes. So a terminal
- * transition becomes a transcript frame for every kind EXCEPT these, which is the
- * de-duplication strategy the task records.
+ * Each label carries the terminal state's own word, so a row built from this
+ * fallback says what happened without the client having to add it — and the
+ * client's own "does this summary already name a status" rule
+ * (`MessageComponent.tsx`) therefore leaves it alone rather than prefixing it a
+ * second time.
  */
-const CLI_NOTIFIED_TASK_KINDS: ReadonlySet<TaskKind> = new Set<TaskKind>([
-  'subagent',
-  'workflow',
-  'monitor',
-]);
-
-/** The one-line result a terminal transition shows when no frame supplied a summary. */
 function defaultTerminalSummary(transition: ClaudeTaskTransition): string {
   const label = transition.description.trim() || transition.taskId;
   switch (transition.to) {
     case 'completed':
-      return `Background task finished: ${label}`;
+      return `Background task completed: ${label}`;
     case 'failed':
       return `Background task failed: ${label}`;
     case 'stopped':
@@ -1076,8 +1065,9 @@ function buildTaskTerminalFrame(transition: ClaudeTaskTransition, sessionId: str
  * reports. It travels this same writer, so it is sequenced and buffered for
  * `chat.subscribe` replay like any other frame and a reconnecting client sees the
  * line — which is the point of emitting it here rather than from a client-side
- * "the task table changed" guess. The kinds the CLI already mirrors into its own
- * `<task-notification>` row are skipped; see {@link CLI_NOTIFIED_TASK_KINDS}.
+ * "the task table changed" guess. Only a **background** task's crossing earns the
+ * line, and only for a kind the CLI does not already mirror into its own
+ * `<task-notification>` row; see {@link earnsTaskTerminalRow}.
  *
  * @param {Object} params
  * @param {Object} params.transformedMessage - SDK message, after transformMessage
@@ -1086,12 +1076,20 @@ function buildTaskTerminalFrame(transition: ClaudeTaskTransition, sessionId: str
  * @param {Function} params.normalizeMessage - Provider normalizer, `(raw, sessionId) => NormalizedMessage[]`
  * @param {Object} params.writer - Run writer (the socket connection); only its `send(message)` is used
  */
-export function forwardNormalizedFrames({ transformedMessage, sessionId, turnSessionId, normalizeMessage, writer }: {
+export function forwardNormalizedFrames({ transformedMessage, sessionId, turnSessionId, normalizeMessage, writer, runsTaskTerminalRow = earnsTaskTerminalRow }: {
   transformedMessage: AnyRecord;
   sessionId: string | null;
   turnSessionId?: string | null;
   normalizeMessage: (raw: unknown, sessionId: string | null) => AnyRecord[];
   writer: ProviderRuntimeWriter;
+  /**
+   * The criterion deciding whether a terminal transition is worth a transcript
+   * line; defaults to the shipped one ({@link earnsTaskTerminalRow}). Injected for
+   * the same reason `normalizeMessage` and `writer` are: the criterion's false
+   * form replaces it with a constant, and the case that must red is then a
+   * reading of the real forwarding loop rather than of a re-implementation.
+   */
+  runsTaskTerminalRow?: (transition: ClaudeTaskTransition) => boolean;
 }): void {
   // Fold the raw frame into the session's turn phase before it is normalized.
   // This is the one seam both the real run loop and the debug agent's rows pass
@@ -1150,14 +1148,17 @@ export function forwardNormalizedFrames({ transformedMessage, sessionId, turnSes
     writer.send(msg);
   }
 
-  // A task that just crossed into a terminal state leaves one transcript line,
-  // produced here from the reducer's own transition rather than by any client-side
-  // "the task table changed" guess — so it lands in the same `chat.subscribe` seq
-  // stream as every other frame and survives a reload/reconnect replay. Kinds the
-  // CLI already notifies about are skipped, so a subagent or Monitor never gets a
-  // second line beside the CLI's own row.
+  // A **background** task that just crossed into a terminal state leaves one
+  // transcript line, produced here from the reducer's own transition rather than
+  // by any client-side "the task table changed" guess — so it lands in the same
+  // `chat.subscribe` seq stream as every other frame and survives a
+  // reload/reconnect replay. A foreground command's end earns no line: its result
+  // is already on its own tool card, and the extra row would both duplicate it and
+  // cut the surrounding work segment in half. Kinds the CLI already notifies about
+  // are skipped too, so a subagent or Monitor never gets a second line beside the
+  // CLI's own row. The decision is {@link earnsTaskTerminalRow}'s.
   for (const transition of taskTransitions) {
-    if (CLI_NOTIFIED_TASK_KINDS.has(transition.kind)) {
+    if (!runsTaskTerminalRow(transition)) {
       continue;
     }
     writer.send(buildTaskTerminalFrame(transition, sessionId));

@@ -70,11 +70,23 @@ export type { TurnPhase, TurnState } from './services/claude-turn-phase.service.
 // a shape this module never produces. `mapUpdatedStatus` is exported so the
 // criterion's false-form arm can build a `killed → failed` variant that delegates
 // every other status to the real table rather than restating it.
-export { createClaudeTaskReducer, mapUpdatedStatus } from './services/claude-activity-task-reducer.service.js';
+// `earnsTaskTerminalRow` is the criterion that decides whether a terminal
+// transition becomes a server-emitted transcript row (a real background task
+// whose end nothing else expresses) or not (a foreground command, already on its
+// own tool card; a kind the CLI notifies about itself). Exported so the
+// task-reducer criterion reads the same function the forwarder calls instead of
+// restating it. `CLI_NOTIFIED_TASK_KINDS` names the kinds it excludes.
+export {
+  CLI_NOTIFIED_TASK_KINDS,
+  createClaudeTaskReducer,
+  earnsTaskTerminalRow,
+  mapUpdatedStatus,
+} from './services/claude-activity-task-reducer.service.js';
 export type {
   ActivityTask,
   BackgroundTaskSummary,
   ClaudeTaskReducer,
+  ClaudeTaskTransition,
   TaskKind,
   TaskOrigin,
   TaskState,

@@ -1,7 +1,7 @@
 ---
 id: gap-shell-terminal-row-only-true-background
 title: 后台终态通知行只给真正的后台任务发（前台 Bash 不出行），单行截断带状态词，不再切断工作 segment
-status: ready
+status: done
 labels:
   - gap
   - defect

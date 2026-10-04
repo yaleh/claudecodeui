@@ -1767,6 +1767,13 @@ const DEBUG_AGENT_SPEC_FILES: readonly string[] = [
   // and the activity snapshot on a real page — so it needs the same provider, control plane and fixture
   // home as the specs above, and the activity protocol's frames to reach the browser.
   'activity-dock-background.spec.ts',
+  // The task-terminal-row criterion (gap-shell-terminal-row-only-true-background): it arms a scenario
+  // whose clock writes four Bash calls — three foreground ones whose `tool_use` carries no
+  // `run_in_background` and whose end is an announced `task-notification`, one background one that ends
+  // silently on a `task-updated` — and reads the transcript rows and the work segment they land in. That
+  // needs the same seam the entry above needs: the fixture-writing provider, its control plane, and the
+  // run loop's frames reaching a real page.
+  'transcript-task-terminal-row.spec.ts',
 ];
 const debugAgentFixtureHome = selectedSpecFiles().some((file) => DEBUG_AGENT_SPEC_FILES.includes(file))
   ? path.join(dataDir, 'debug-agent-home')

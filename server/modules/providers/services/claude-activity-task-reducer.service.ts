@@ -172,6 +172,22 @@ export type ClaudeTaskTransition = {
   summary?: string;
   /** Frame-supplied end time, absent unless the terminal frame carried one. */
   endedAt?: number;
+  /**
+   * Whether the task is a **real background task**: its launching `tool_use`
+   * carried `run_in_background:true` (or was an Agent that did not opt out), or a
+   * `task_updated{is_backgrounded:true}` moved it to the background.
+   *
+   * This is the criterion that separates a background task's end — which nothing
+   * else in the transcript expresses, so the server has to leave a line — from a
+   * foreground command's end, whose result the same tool card's `tool_result`
+   * already carries (see {@link earnsTaskTerminalRow}). Measured on a real SDK run
+   * (0.3.165, 2026-10-04): a foreground Bash's launching `tool_use` has no
+   * `run_in_background` and its end arrives as an announced
+   * `task_notification{summary:<description>}`, while a `run_in_background:true`
+   * Bash's `tool_use` carries the flag and its end arrives as a silent
+   * `task_updated{completed}` (or a `task_notification{stopped}` when killed).
+   */
+  background: boolean;
 };
 
 /**
@@ -342,6 +358,7 @@ function settleTerminalTransitions(
       from: task.terminalFrom,
       to: task.state,
       description: task.description,
+      background: task.background,
     };
     if (task.toolUseId !== undefined) {
       transition.toolUseId = task.toolUseId;
@@ -436,6 +453,66 @@ function kindFromSnapshotType(type: unknown): TaskKind {
   }
 }
 
+/**
+ * The task kinds whose end the CLI already mirrors into the transcript.
+ *
+ * A background agent, a workflow run and a Monitor each make the CLI enqueue a
+ * `<task-notification>` user row (`useChatMessages.ts` → `parseTaskNotification`),
+ * so they already have a line and a server-emitted one would sit beside it as a
+ * second copy. A background **shell** makes no such row, which is the gap
+ * {@link buildTaskTerminalFrame}'s caller closes.
+ */
+export const CLI_NOTIFIED_TASK_KINDS: ReadonlySet<TaskKind> = new Set<TaskKind>([
+  'subagent',
+  'workflow',
+  'monitor',
+]);
+
+/**
+ * Whether a terminal transition earns a **server-emitted** transcript row.
+ *
+ * Two conditions, both necessary:
+ *
+ *  - the CLI does not already notify about this kind ({@link CLI_NOTIFIED_TASK_KINDS});
+ *  - the task is a real background task (`transition.background`) rather than a
+ *    foreground command the SDK happens to report as a task. A foreground
+ *    command's end is already expressed by its own `tool_use` card — the
+ *    `tool_result` and, on the dock, the task state — so emitting a line for it
+ *    is a duplicate receipt, and one that fragments the work segment it lands in.
+ *
+ * This is the single decision point the forwarder reads, so the criterion's
+ * per-class readings (foreground: no row; background: one row; CLI-notified
+ * subagent: no row) are readings of this function and not of a render path.
+ */
+export function earnsTaskTerminalRow(transition: ClaudeTaskTransition): boolean {
+  return transition.background && !CLI_NOTIFIED_TASK_KINDS.has(transition.kind);
+}
+
+/**
+ * Whether a `tool_use` block launches work that outlives the foreground.
+ *
+ * The reducer's own reader rather than the provider's `startsBackgroundWork`:
+ * that one lives in the provider, which imports this module, and answers "does
+ * this SDK message hold the process open" (it counts Monitor/Workflow-style
+ * deferred tools that never take a `run_in_background` input). Here the question
+ * is narrower — was *this* call a background one — and only the tools whose input
+ * actually carries the flag can answer it: `Bash` opts in with `=== true`, an
+ * `Agent` backgrounds unless it explicitly opts out.
+ */
+function blockLaunchesBackgroundTask(block: Record<string, unknown> | null): boolean {
+  if (!block || typeof block.name !== 'string') {
+    return false;
+  }
+  const input = readRecord(block.input);
+  if (block.name === 'Bash') {
+    return input?.run_in_background === true;
+  }
+  if (block.name === 'Agent' || block.name === 'Task') {
+    return input?.run_in_background !== false;
+  }
+  return false;
+}
+
 /** A backfilled snapshot task's status, defaulting to `running` for an unknown word. */
 function snapshotStatusToState(status: unknown): TaskState {
   if (typeof status === 'string') {
@@ -454,6 +531,16 @@ type SessionTasks = {
   tasks: Map<string, SessionTask>;
   /** `tool_use_id` → the task that tool call launched, for parent recovery. */
   toolUseToTaskId: Map<string, string>;
+  /**
+   * `tool_use_id` → whether that tool call launched its work in the background.
+   *
+   * Recorded when the `assistant` frame carrying the `tool_use` is observed —
+   * the only frame that sees the call's `input`, and one that arrives before the
+   * `task_started` naming the task. It is an auxiliary index, not a task table:
+   * observing a `tool_use` still creates no row (the (d) invariant), it only
+   * records what the call said about itself so `task_started` can read it back.
+   */
+  backgroundToolUse: Map<string, boolean>;
 };
 
 /** The mutable per-session row; `materialize` turns it into the public shape. */
@@ -464,6 +551,12 @@ type SessionTask = {
   toolUseId?: string;
   parentTaskId?: string;
   isBackgrounded: boolean;
+  /**
+   * Whether this is a real background task — see {@link ClaudeTaskTransition.background}.
+   * Latched true by either signal (the launching `tool_use`'s `run_in_background`,
+   * or a `task_updated{is_backgrounded:true}`) and never cleared.
+   */
+  background: boolean;
   workflowName?: string;
   stepLabel?: string;
   description: string;
@@ -496,6 +589,7 @@ function ensureTask(state: SessionTasks, taskId: string): SessionTask {
       kind: 'other',
       state: 'running',
       isBackgrounded: false,
+      background: false,
       description: '',
       origin: 'sdk-event',
     };
@@ -564,6 +658,12 @@ function applyTaskStarted(state: SessionTasks, frame: Record<string, unknown>): 
   if (toolUseId !== null) {
     task.toolUseId = toolUseId;
     state.toolUseToTaskId.set(toolUseId, taskId);
+    // The launch's own signal, read back from the `assistant` frame the same
+    // stream carried before this `task_started`. Absent (never observed) leaves
+    // the task foreground, which is also what a plain `tool_use` means.
+    if (state.backgroundToolUse.get(toolUseId) === true) {
+      task.background = true;
+    }
   }
   // A nested task's `parent_tool_use_id` names the `tool_use` that launched its
   // parent's agent, so the parent task is whichever task owns that tool_use.
@@ -582,6 +682,7 @@ function applyTaskStarted(state: SessionTasks, frame: Record<string, unknown>): 
   }
   if (frame.is_backgrounded === true) {
     task.isBackgrounded = true;
+    task.background = true;
   }
 
   const startedAt = numericField(frame, ['started_at', 'start_time', 'startedAt']);
@@ -613,6 +714,10 @@ function applyTaskUpdated(
   }
   if (patch.is_backgrounded === true || frame.is_backgrounded === true) {
     task.isBackgrounded = true;
+    // `backgroundTasks(toolUseId)` moves a running foreground command to the
+    // background; from that instant it is a real background task and its end
+    // earns the line a background task's end earns.
+    task.background = true;
   }
 
   const description = stringField(patch, 'description');
@@ -699,7 +804,7 @@ export function createClaudeTaskReducer(mutations: ClaudeTaskReducerMutations = 
   const stateFor = (sessionId: string): SessionTasks => {
     let state = sessions.get(sessionId);
     if (!state) {
-      state = { tasks: new Map(), toolUseToTaskId: new Map() };
+      state = { tasks: new Map(), toolUseToTaskId: new Map(), backgroundToolUse: new Map() };
       sessions.set(sessionId, state);
     }
     return state;
@@ -717,11 +822,35 @@ export function createClaudeTaskReducer(mutations: ClaudeTaskReducerMutations = 
     // emits when the tool is backgrounded. The `taskOnToolUse` mutation inverts
     // exactly this rule so the criterion can prove the main reading notices.
     if (record.type === 'assistant') {
+      // The `assistant` frame is the only one that sees a call's `input`, and it
+      // arrives before the `task_started` naming the task that call launches — so
+      // this is where a call's own background/foreground answer is recorded. It
+      // creates no task row: the table is still built only on `task_started`.
+      const state = stateFor(sessionId);
+      const message = readRecord(record.message);
+      const content = message?.content;
+      if (Array.isArray(content)) {
+        for (const entry of content) {
+          const block = readRecord(entry);
+          if (block?.type !== 'tool_use' || typeof block.id !== 'string') {
+            continue;
+          }
+          state.backgroundToolUse.set(block.id, blockLaunchesBackgroundTask(block));
+          // A task that was already named for this call (a frame ordering the SDK
+          // has not been seen to produce, but which costs nothing to survive)
+          // picks the flag up retroactively.
+          const taskId = state.toolUseToTaskId.get(block.id);
+          const task = taskId ? state.tasks.get(taskId) : undefined;
+          if (task && state.backgroundToolUse.get(block.id) === true) {
+            task.background = true;
+          }
+        }
+      }
       if (mutations.taskOnToolUse) {
         const block = firstToolUseBlock(record);
         const toolUseId = typeof block?.id === 'string' ? block.id : '';
         if (toolUseId) {
-          const task = ensureTask(stateFor(sessionId), toolUseId);
+          const task = ensureTask(state, toolUseId);
           task.toolUseId = toolUseId;
         }
       }
@@ -796,6 +925,9 @@ export function createClaudeTaskReducer(mutations: ClaudeTaskReducerMutations = 
         state: snapshotStatusToState(entry.status),
         description: typeof entry.description === 'string' ? entry.description : '',
         isBackgrounded: true,
+        // The snapshot only ever names background work — that is what the Stop
+        // hook reports — so a backfilled task is a background task by definition.
+        background: true,
         origin: 'stop-hook-snapshot',
       };
       if (typeof entry.name === 'string' && entry.name) {
