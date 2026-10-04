@@ -1,7 +1,7 @@
 ---
 id: AC-234
 title: 运行来源如实记录：经 MCP 发起的运行是 mcp，WebSocket 是 user，定时发送是 scheduled，宿主层的无人轮仍是 unattended
-status: draft
+status: active
 kind: criterion
 goal: GOAL-019
 criterion: for f in server/modules/websocket/tests/chat-control-source.test.ts;
@@ -18,4 +18,15 @@ expect: 读数：(a) 以调用方标记 mcp 经控制服务 `send` 发起的运�
   (a) 必须红；(iii) 改写无人轮的来源 ⇒ (c) 必须红；(iv) 改掉旧默认 ⇒ (d)
   必须红。（红先行）当前必红：判据文件不存在，存在性闸以退出码 1 输出缺失的文件名。
 origin: docs/proposals/mcp-gateway-SPEC.md（v3）。人 yale 2026-10-05 指令：创建并激活本 goal 及其 AC。
+activatedAt: 2026-10-04T17:24:32.836Z
+statusLog:
+  - at: 2026-10-04T17:24:32.836Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-04T17:24:32.836Z
 ---
