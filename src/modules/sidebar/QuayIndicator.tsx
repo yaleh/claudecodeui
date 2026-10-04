@@ -1,4 +1,4 @@
-import { Activity, AlertTriangle, CircleSlash, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, CircleSlash, HelpCircle, Zap } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 import type { QuayDriverState } from '@/shared/types';
@@ -66,6 +66,18 @@ const getIndicatorConfig = (status: QuayDriverState): QuayIndicatorConfig => {
       backgroundClassName: 'bg-blue-50 dark:bg-blue-950',
       label: 'quay idle',
       title: 'quay configured, driver idle',
+    };
+  }
+
+  // A failed read is "no reading" (grey, question mark), not a reading that says
+  // something is wrong (amber, `stale`) and not a project without quay at all.
+  if (status === 'unavailable') {
+    return {
+      icon: HelpCircle,
+      colorClassName: 'text-gray-400 dark:text-gray-500',
+      backgroundClassName: 'bg-gray-50 dark:bg-gray-900',
+      label: 'quay unknown',
+      title: 'quay configured, driver status unavailable',
     };
   }
 
