@@ -73,6 +73,8 @@ extra:
 - src/modules/i18n/LanguageSelector.tsx
 - src/modules/i18n/locales/en/settings.json
 - src/modules/i18n/locales/en/chat.json
+- src/modules/i18n/locales/*/settings.json
+- src/modules/i18n/locales/*/chat.json
 - src/modules/quick-settings-panel/index.ts
 - src/modules/quick-settings-panel/QuickSettingsContent.tsx
 - src/modules/quick-settings-panel/QuickSettingsHandle.tsx
