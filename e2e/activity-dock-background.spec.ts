@@ -7,13 +7,17 @@
  * browser. This file reads the four surfaces that fact lands on, each as a *reading that could have
  * gone the other way*:
  *
- *   - the dock's summary counters (task count, plan count) equal the snapshot's;
- *   - the expanded panel lists every task (description, state, elapsed, last action) and every plan
- *     (expression, countdown, prompt);
- *   - a task's state changes **without a navigation** when the clock settles it, and *survives a
- *     reload* restored from the server's snapshot;
+ *   - the dock's summary counters (task count, plan count) equal the snapshot's *while the tasks are
+ *     live*;
+ *   - the expanded panel lists every **live** task (description, state, elapsed, last action) and
+ *     every plan (expression, countdown, prompt), and a task that settles **leaves the panel** — the
+ *     dock reports current activity, so a finished task does not linger as an inert row;
+ *   - the live reading changes **without a navigation** when the clock settles a task, and *survives
+ *     a reload* restored from the server's snapshot;
  *   - the transcript's Agent and Bash card headers read the Task entity by `tool_use` id, so their
- *     state moves when the task does — not from whether a result row happens to be folded in;
+ *     state moves when the task does — not from whether a result row happens to be folded in. This is
+ *     also the control for the row above: the task table keeps the terminal row (the cards read
+ *     `completed`), so the panel's empty task section is a *filter*, not a lost task;
  *   - a plan row renders no cancel control (selector count zero, by construction).
  *
  * Why the session is opened after the clock. The control plane's clock opens a *per-run* run whose writer
@@ -352,12 +356,20 @@ test.describe('activity dock background', () => {
     // --- AC6: the state changes without a reload -----------------------------------------------
     // The measured window opens here: no navigation may happen between now and the terminal reading.
     navigations = 0;
-    await expect(page.locator(`${TASK_ROW}[data-task-state="completed"]`)).toHaveCount(2, { timeout: 20_000 });
+    // The clock settles both tasks (7s / 7.5s), and the dock reports *current* activity: the live
+    // task rows are what disappear, which is the transition this wait is for. The panel itself
+    // stays (the plan is still held), so a count of zero here is the task section leaving, not a
+    // panel that failed to draw.
+    await expect(page.locator(TASK_ROW)).toHaveCount(0, { timeout: 20_000 });
+    await expect(page.locator(SCHEDULE_ROW)).toHaveCount(1, { timeout: 8_000 });
     const settled = await readPanel(page);
     await expect(page.locator(CARD_TASK_STATE)).toHaveCount(2, { timeout: 8_000 });
     const settledCards = await readCardTaskStates(page);
-    console.log(`settled.tasks=${JSON.stringify(settled.tasks.map((task) => task.state))} settled.cards=${JSON.stringify(settledCards)}`);
-    expect(settled.tasks.map((task) => task.state).sort()).toEqual(['completed', 'completed']);
+    console.log(`settled.tasks=${JSON.stringify(settled.tasks.map((task) => task.state))} settled.plans=${settled.plans.length} settled.cards=${JSON.stringify(settledCards)}`);
+    expect(
+      settled.tasks,
+      'a settled task leaves the panel; the dock is a current-activity reading, not a history',
+    ).toEqual([]);
     expect(navigations, 'the state must change without a navigation').toBe(0);
 
     // --- AC8: the card header reads the Task entity, and moves with it ---------------------------
@@ -378,7 +390,9 @@ test.describe('activity dock background', () => {
     await expect(page.locator(DOCK_TOGGLE)).toBeVisible({ timeout: 25_000 });
     await page.locator(DOCK_TOGGLE).click();
     await expect(page.locator(PANEL)).toBeVisible({ timeout: 15_000 });
-    await expect(page.locator(TASK_ROW)).toHaveCount(2, { timeout: 20_000 });
+    // The restore is from the snapshot, and the snapshot still carries both (terminal) tasks — but
+    // the panel lists live work only, so the restored panel has no task row and keeps the plan.
+    await expect(page.locator(TASK_ROW)).toHaveCount(0, { timeout: 20_000 });
     await expect(page.locator(SCHEDULE_ROW)).toHaveCount(1, { timeout: 15_000 });
     const restored = await readPanel(page);
     console.log(`restored.tasks=${JSON.stringify(restored.tasks.map((task) => task.id))} restored.plans=${JSON.stringify(restored.plans.map((plan) => plan.id))}`);
@@ -399,7 +413,11 @@ test.describe('activity dock background', () => {
       .filter((binding) => binding.appSessionId === sessionId)
       .flatMap((binding) => binding.leases ?? []);
     console.log(`falseForm2.sessionHostsLeases=${listingLeases.length} falseForm2.panelRows=${restored.tasks.length + restored.plans.length}`);
-    expect(restored.tasks.length + restored.plans.length, 'the panel is drawn from the snapshot and carries rows').toBe(3);
+    // The restored panel carries the one live row the snapshot holds (the plan). The two tasks are
+    // in the snapshot too, but terminal, so they are not rows — and the count above (`TASK_ROW`
+    // == 0) is what makes that a filter rather than a snapshot that lost its tasks.
+    expect(restored.tasks.length + restored.plans.length, 'the panel is drawn from the snapshot and carries its live rows').toBe(1);
+    expect(afterReloadSnapshot.snapshot?.tasks?.length, 'the snapshot itself still holds both terminal tasks').toBe(2);
     expect(listingLeases.length, 'the session-hosts poll carries no task/schedule rows').toBe(0);
 
     // --- The walk itself completed --------------------------------------------------------------
@@ -443,9 +461,10 @@ const DISABLED_REASON = '[data-control-disabled-reason]';
 /**
  * The control walk.
  *
- * Three tasks are held before the click window opens: `STOP_TARGET` and
- * `NEVER_TASK` run (so a stop control exists at every reading), and
- * `TERMINAL_TASK` is settled to `completed` (so a terminal row exists). A
+ * Three tasks are in the table before the click window opens: `STOP_TARGET` and
+ * `NEVER_TASK` run (so the panel lists two live rows, each with a stop control),
+ * and `TERMINAL_TASK` is settled to `completed` (so the table holds a terminal
+ * task the panel never lists — the reading that the list is the live set). A
  * `Bash` call with no paired result is left pending — the running foreground
  * tool the background control addresses. Both control *events* are far down the
  * clock (12s), so the whole click-and-read window happens before either, and the
@@ -611,11 +630,14 @@ test.describe('activity dock controls', () => {
     await page.locator(DOCK_TOGGLE).click();
     await expect(page.locator(PANEL)).toBeVisible({ timeout: 15_000 });
 
-    // --- AC2: the three states are on screen --------------------------------------------------
+    // --- AC2: the *live* states are on screen, and the terminal one is not ---------------------
     await expect(taskRowOf(page, STOP_TARGET)).toBeVisible({ timeout: 20_000 });
-    await expect(taskRowOf(page, TERMINAL_TASK)).toBeVisible({ timeout: 20_000 });
     await expect(taskRowOf(page, NEVER_TASK)).toBeVisible({ timeout: 20_000 });
     await expect(page.locator(FOREGROUND_ROW)).toBeVisible({ timeout: 20_000 });
+    // `TERMINAL_TASK` is a row in the snapshot (asserted below) but never a row in the panel: the
+    // dock lists current activity, so a task that had already settled before the page opened is
+    // absent from it — the same reading the live task gets when its own event settles it.
+    await expect(taskRowOf(page, TERMINAL_TASK)).toHaveCount(0);
 
     const { status: snapStatus, snapshot } = await readActivitySnapshot(api, sessionId);
     const snapshotTasks = snapshot?.tasks ?? [];
@@ -636,10 +658,16 @@ test.describe('activity dock controls', () => {
     expect(typeof foregroundToolUseId === 'string' && foregroundToolUseId.length > 0).toBe(true);
     expect(snapshotTasks.some((task) => (task as { toolUseId?: string }).toolUseId === foregroundToolUseId)).toBe(false);
 
-    // --- AC5: a terminal row renders no stop control -------------------------------------------
-    const terminalStopCount = await taskRowOf(page, TERMINAL_TASK).locator(TASK_STOP).count();
-    console.log(`ac5.terminalStopButtons=${terminalStopCount}`);
-    expect(terminalStopCount, 'a terminal task row must render no stop control').toBe(0);
+    // --- AC5: the stop control belongs to the live rows, and only to them ----------------------
+    // A terminal task has no row at all (the stronger form of "a terminal row renders no stop"):
+    // the panel's list *is* the live set, so the selector's count is the live-task count.
+    const terminalRowCount = await taskRowOf(page, TERMINAL_TASK).count();
+    const liveRows = await page.locator(TASK_ROW).count();
+    const liveStops = await page.locator(TASK_ROW).locator(TASK_STOP).count();
+    console.log(`ac5.terminalRows=${terminalRowCount} liveRows=${liveRows} liveStops=${liveStops}`);
+    expect(terminalRowCount, 'a settled task must not be listed by the panel').toBe(0);
+    expect(liveRows, 'the panel lists exactly the two live tasks').toBe(2);
+    expect(liveStops, 'every listed row is live, so every listed row carries a stop').toBe(liveRows);
 
     // --- AC3: stop is not optimistic -----------------------------------------------------------
     const beforeClick = await taskRowOf(page, STOP_TARGET).getAttribute('data-task-state');
@@ -663,9 +691,18 @@ test.describe('activity dock controls', () => {
 
     // --- The two events, far down the clock, are what move the state --------------------------
     // The stop event (12s) settles the task; the background frames (12.3/12.6s) create the task.
-    await expect(taskRowOf(page, STOP_TARGET)).toHaveAttribute('data-task-state', 'stopped', { timeout: 20_000 });
-    await expect(taskRowOf(page, STOP_TARGET).locator(TASK_STOP)).toHaveCount(0, { timeout: 5_000 });
-    console.log('ac3.settled: the stop event moved the row to stopped');
+    // The click was not optimistic (asserted above: the row read `running` on both sides of it), so
+    // the row can only leave the panel because the server's own frame made the task terminal. The
+    // snapshot is read back for the state the panel no longer draws.
+    await expect(taskRowOf(page, STOP_TARGET)).toHaveCount(0, { timeout: 20_000 });
+    await expect
+      .poll(
+        async () =>
+          (await readActivitySnapshot(api, sessionId)).snapshot?.tasks?.find((t) => t.taskId === STOP_TARGET)?.state,
+        { timeout: 20_000 },
+      )
+      .toBe('stopped');
+    console.log('ac3.settled: the stop event settled the task, and the panel dropped its row');
 
     await expect(taskRowOf(page, BG_TASK)).toBeVisible({ timeout: 20_000 });
     // The task the event created names the very foreground tool the control addressed: its

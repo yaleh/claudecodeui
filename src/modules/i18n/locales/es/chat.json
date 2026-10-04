@@ -372,11 +372,6 @@
     },
     "stopResident": "Detener esta respuesta (el proceso y las tareas programadas continúan)",
     "backgroundTasks": {
-      "title": "Tareas en segundo plano",
-      "genericLabel": "Tarea en segundo plano",
-      "monitorLabel": "Monitor",
-      "unknown": "Estado de la tarea en segundo plano desconocido",
-      "lastNotification": "Última notificación hace {{elapsed}}",
       "count": "{{n}} tareas"
     }
   },

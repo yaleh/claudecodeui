@@ -366,11 +366,6 @@
     },
     "stopResident": "이 답변 중지 (프로세스와 예약된 작업은 계속됨)",
     "backgroundTasks": {
-      "title": "백그라운드 작업",
-      "genericLabel": "백그라운드 작업",
-      "monitorLabel": "모니터",
-      "unknown": "백그라운드 작업 상태를 알 수 없음",
-      "lastNotification": "마지막 알림 {{elapsed}} 전",
       "count": "작업 {{n}}개"
     }
   },

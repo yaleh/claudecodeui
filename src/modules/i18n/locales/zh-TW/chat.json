@@ -387,11 +387,6 @@
     },
     "stopResident": "停止本次回覆（行程與排程工作繼續）",
     "backgroundTasks": {
-      "title": "背景任務",
-      "genericLabel": "背景任務",
-      "monitorLabel": "監視器",
-      "unknown": "背景任務狀態未知",
-      "lastNotification": "最近一次通知 {{elapsed}} 前",
       "count": "{{n}} 個任務"
     }
   },
