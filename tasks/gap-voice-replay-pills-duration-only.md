@@ -1,7 +1,7 @@
 ---
 id: gap-voice-replay-pills-duration-only
 title: 回放按钮只标时长：去掉字节数、超过一小时用 H:MM:SS、原始录音可缺席（超过 10 分钟不提供）
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -30,14 +30,14 @@ extra:
 
 ## AC
 
-- [ ] `npm run test:client -- src/modules/chat/tests/voiceClipPlayback.test.tsx` 退出码 0
-- [ ] 按钮文本不含字节数：渲染一个 `bytes` 为 2 MB 的 clip，按钮的 `textContent` 不含 `MB`、`KB`、` B`
-- [ ] 时长格式：`3 s → 0:03`、`59 s → 0:59`、`61 s → 1:01`、`3599 s → 59:59`、`3600 s → 1:00:00`、`3723 s → 1:02:03`、`0 → 0:00`
-- [ ] `original` 为 `null` 时只渲染过滤后的一个按钮（`data-clip-url` 属于 trimmed），且没有被禁用的原始按钮；两者皆非空时两个按钮顺序为原始、过滤后
-- [ ] 既有的播放互斥与停止行为断言不改一行即通过
-- [ ] `grep -rn "formatBytes" src/modules/chat/composer/VoiceClipButton.tsx | wc -l` 的结果为 0
-- [ ] 依赖 `VoiceClipSlot` 的既有测试（`composerCompactTier`、`chatComposerResponsive`、`residentComposerEnableAffordance`、`occupiedSessionReadOnly`）仍通过
-- [ ] `npm run lint` 与 `npm run typecheck` 退出码 0
+- [x] `npm run test:client -- src/modules/chat/tests/voiceClipPlayback.test.tsx` 退出码 0
+- [x] 按钮文本不含字节数：渲染一个 `bytes` 为 2 MB 的 clip，按钮的 `textContent` 不含 `MB`、`KB`、` B`
+- [x] 时长格式：`3 s → 0:03`、`59 s → 0:59`、`61 s → 1:01`、`3599 s → 59:59`、`3600 s → 1:00:00`、`3723 s → 1:02:03`、`0 → 0:00`
+- [x] `original` 为 `null` 时只渲染过滤后的一个按钮（`data-clip-url` 属于 trimmed），且没有被禁用的原始按钮；两者皆非空时两个按钮顺序为原始、过滤后
+- [x] 既有的播放互斥与停止行为断言不改一行即通过
+- [x] `grep -rn "formatBytes" src/modules/chat/composer/VoiceClipButton.tsx | wc -l` 的结果为 0
+- [x] 依赖 `VoiceClipSlot` 的既有测试（`composerCompactTier`、`chatComposerResponsive`、`residentComposerEnableAffordance`、`occupiedSessionReadOnly`）仍通过
+- [x] `npm run lint` 与 `npm run typecheck` 退出码 0
 
 ## DoD
 

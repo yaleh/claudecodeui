@@ -467,9 +467,9 @@ export function useVoiceInput(
     setClipPlayState(NOTHING_PLAYING);
   };
 
-  /** Frees every object URL a slot holds — one per track, and the second only when there is one. */
+  /** Frees every object URL a slot holds — each track only when it is present. */
   const revokeSlot = (slot: VoiceClipSlot) => {
-    URL.revokeObjectURL(slot.original.url);
+    if (slot.original) URL.revokeObjectURL(slot.original.url);
     if (slot.trimmed) URL.revokeObjectURL(slot.trimmed.url);
   };
 
