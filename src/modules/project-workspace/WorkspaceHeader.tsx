@@ -7,6 +7,7 @@ import type { AppTab, Project, ProjectSession } from '@/shared/types';
 import { cn } from '@/shared/utils';
 import MobileMenuButton from '@/modules/project-workspace/MobileMenuButton';
 import WorkspaceTabs, { CollapsedWorkspaceSelector } from '@/modules/project-workspace/WorkspaceTabs';
+import WorkspaceMenu from '@/modules/project-workspace/WorkspaceMenu';
 import WorkspaceTitle from '@/modules/project-workspace/WorkspaceTitle';
 
 type WorkspaceHeaderProps = {
@@ -134,15 +135,19 @@ export default function WorkspaceHeader({
       </div>
 
       {isMobile ? (
-        <CollapsedWorkspaceSelector
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          shouldShowTasksTab={shouldShowTasksTab}
-          shouldShowQuayTab={shouldShowQuayTab}
-          shouldShowBrowserTab={shouldShowBrowserTab}
-          isResidentSession={isResidentSession}
-        />
+        <div className="flex flex-shrink-0 items-center gap-1">
+          <CollapsedWorkspaceSelector
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            shouldShowTasksTab={shouldShowTasksTab}
+            shouldShowQuayTab={shouldShowQuayTab}
+            shouldShowBrowserTab={shouldShowBrowserTab}
+            isResidentSession={isResidentSession}
+          />
+          <WorkspaceMenu />
+        </div>
       ) : (
+        <>
         <div className="min-w-0 flex-1">
           <div className="relative ml-auto w-fit max-w-full">
             {canScrollLeft && (
@@ -191,6 +196,8 @@ export default function WorkspaceHeader({
             )}
           </div>
         </div>
+        <WorkspaceMenu />
+        </>
       )}
     </header>
   );

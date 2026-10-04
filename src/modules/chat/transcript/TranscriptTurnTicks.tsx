@@ -112,9 +112,7 @@ export default function TranscriptTurnTicks({
       style={{
         right: TRANSCRIPT_TICK_COLUMN_INSET_PX,
         width: TRANSCRIPT_TICK_COLUMN_WIDTH_PX,
-        // The rail's measurement says where the column goes: centred on the
-        // transcript, or slid down far enough to leave the quick-settings handle
-        // its band on a short viewport.
+        // The rail's measurement says where the column goes: centred on the transcript.
         top,
       }}
     >

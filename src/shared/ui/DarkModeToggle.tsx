@@ -9,7 +9,7 @@ type DarkModeToggleProps = {
   ariaLabel?: string;
 };
 
-/** Used by the settings and quick-settings-panel modules to switch the shared theme. */
+/** Used by the settings and project-workspace modules to switch the shared theme. */
 export function DarkModeToggle({
   checked,
   onToggle,

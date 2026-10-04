@@ -15,6 +15,7 @@ import type {
   ProjectSession,
   SessionEstablishedContext,
   SessionNavigationOptions,
+  TranscriptExportAction,
 } from '@/shared/types';
 import { useChatProviderState } from '@/modules/chat/hooks/useChatProviderState';
 import { useScheduledMessages } from '@/modules/chat/composer/useScheduledMessages';
@@ -33,6 +34,8 @@ import { readSelectedProvider } from '@/shared/selectedProvider';
 import ChatMessagesPane from '@/modules/chat/transcript/ChatMessagesPane';
 import ChatComposer from '@/modules/chat/composer/ChatComposer';
 import CommandResultModal from '@/modules/chat/modals/CommandResultModal';
+import { downloadTranscriptExport } from '@/modules/chat/utils/chatExport';
+import { useRegisterTranscriptExport } from '@/shared/context/TranscriptExportContext';
 
 /**
  * A request id for a control frame.
@@ -217,6 +220,36 @@ function ChatInterface({
     scrollContainerRef,
     jumpToMessage,
   });
+
+  // Publish this conversation's export into the shared seam the workspace
+  // header's overflow menu reads, so the menu can offer Export without either
+  // module importing the other. Null while there is nothing to export, and the
+  // menu then hides its export group entirely.
+  const transcriptExport = useMemo<TranscriptExportAction | null>(() => {
+    if (chatMessages.length === 0) return null;
+    const sessionTitle = selectedSession?.summary || selectedSession?.title;
+    return {
+      messages: chatMessages,
+      sessionTitle,
+      provider,
+      selectedProject,
+      createDiff,
+      onLoadFullTranscript: loadFullTranscript,
+      runExport: async (format) => {
+        // The transcript is paged; without this the export would silently be the
+        // last page rather than the conversation.
+        const fullMessages = (await loadFullTranscript?.()) ?? chatMessages;
+        await downloadTranscriptExport(format, {
+          messages: fullMessages.length > 0 ? fullMessages : chatMessages,
+          sessionTitle: sessionTitle?.trim() || t('export.untitled'),
+          provider,
+          selectedProject,
+          createDiff,
+        });
+      },
+    };
+  }, [chatMessages, createDiff, loadFullTranscript, provider, selectedProject, selectedSession, t]);
+  useRegisterTranscriptExport(transcriptExport);
 
   // Brand-new conversation: the composer allocated a stable session id via
   // the session gateway before the first send. Record it locally and put it
@@ -614,7 +647,6 @@ function ChatInterface({
             onWithdrawResidentCommand={handleWithdrawResidentCommand}
             onEditMessage={supportsMessageEditing && !isProcessing ? beginEditMessage : undefined}
             onForkFromMessage={supportsSessionForking ? handleForkFromMessage : undefined}
-            onLoadFullTranscript={loadFullTranscript}
             turnRailTurns={turnRailTurns}
             turnRailCurrentId={currentTurnId}
             onJumpToTurn={jumpToTurn}

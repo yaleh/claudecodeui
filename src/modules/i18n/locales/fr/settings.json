@@ -61,14 +61,7 @@
     "showRawParameters": "Afficher les paramètres bruts",
     "showThinking": "Afficher la réflexion",
     "sendByCtrlEnter": "Envoyer avec Ctrl+Entrée",
-    "sendByCtrlEnterDescription": "Lorsqu'activé, appuyer sur Ctrl+Entrée envoie le message au lieu de simplement Entrée. Utile pour les utilisateurs IME pour éviter les envois accidentels. Ne s’applique qu’aux appareils dotés d’un clavier — sur un appareil tactile, Retour ajoute toujours une ligne et l’envoi se fait par le bouton.",
-    "dragHandle": {
-      "dragging": "Glissement en cours",
-      "closePanel": "Fermer le panneau de paramètres",
-      "openPanel": "Ouvrir le panneau de paramètres",
-      "draggingStatus": "Glissement...",
-      "toggleAndMove": "Cliquer pour basculer, glisser pour déplacer"
-    }
+    "sendByCtrlEnterDescription": "Lorsqu'activé, appuyer sur Ctrl+Entrée envoie le message au lieu de simplement Entrée. Utile pour les utilisateurs IME pour éviter les envois accidentels. Ne s’applique qu’aux appareils dotés d’un clavier — sur un appareil tactile, Retour ajoute toujours une ligne et l’envoi se fait par le bouton."
   },
   "terminalShortcuts": {
     "title": "Raccourcis terminal",

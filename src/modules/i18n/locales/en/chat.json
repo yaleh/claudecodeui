@@ -463,5 +463,8 @@
     "scrollbar": "Conversation scrollbar",
     "jumpToTurn": "Jump to turn {{n}}",
     "turn": "Turn {{n}}"
+  },
+  "workspaceMenu": {
+    "trigger": "More actions"
   }
 }

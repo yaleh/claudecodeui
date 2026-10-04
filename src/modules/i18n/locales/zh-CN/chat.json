@@ -380,5 +380,8 @@
     "scrollbar": "对话滚动条",
     "jumpToTurn": "跳转到第 {{n}} 轮",
     "turn": "第 {{n}} 轮"
+  },
+  "workspaceMenu": {
+    "trigger": "更多操作"
   }
 }

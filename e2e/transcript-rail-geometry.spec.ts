@@ -1,9 +1,10 @@
 import { expect, test } from '@playwright/test';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 
-// AC-217: the transcript's right-edge chrome is three columns that never cover
-// each other — the text, a window of fixed-size turn ticks, and a drawn
-// scrollbar — and the quick-settings handle keeps out of all of them.
+// AC-217: the transcript's right-edge chrome is two columns that never cover
+// each other — the text and a window of fixed-size turn ticks with a drawn
+// scrollbar beside them. The quick-settings handle these readings once kept out
+// of the columns was retired with the edge controls it belonged to.
 //
 // Real Chromium against the real backend + Vite client started by
 // playwright.config.ts (isolated data dir), on fixtures that file seeds: the
@@ -63,9 +64,6 @@ const TICK_CAPACITY = Math.floor(MAX_COLUMN_HEIGHT / TICK_PITCH);
 const COLUMN_GAP = 16;
 /** How far the column's centre may sit from the transcript's own centre. */
 const CENTER_OFFSET_SHARE = 0.1;
-/** The handle's clearances: from the export control above it, the ticks below it, and the scrollbar beside it. */
-const HANDLE_BAND_MARGIN = 8;
-const HANDLE_SCROLLBAR_GAP = 4;
 
 /** Signs in, creating the account on the first run of the fixture database. */
 const ensureSignedIn = async (page: Page) => {
@@ -157,8 +155,6 @@ type RailReading = {
   column: Box | null;
   track: Box | null;
   thumb: Box | null;
-  exportAnchor: Box | null;
-  handle: Box | null;
   /** Every drawn tick's mark: its box, its computed colour, and whether it is the current turn's. */
   tickMarks: { box: Box; color: string; current: boolean }[];
   /** The thumb's computed background colour. */
@@ -198,8 +194,6 @@ const readRail = (page: Page): Promise<RailReading> =>
       column: columnBox && columnBox.height > 0 ? columnBox : null,
       track: boxOf(document.querySelector('[data-scrollbar-track]')),
       thumb: boxOf(thumb),
-      exportAnchor: boxOf(document.querySelector('[data-transcript-export-anchor]')),
-      handle: boxOf(document.querySelector('[data-quick-settings-handle]')),
       tickMarks: marks,
       thumbColor: thumb ? getComputedStyle(thumb).backgroundColor : null,
       tickButtonCount: buttons.length,
@@ -210,12 +204,6 @@ const readRail = (page: Page): Promise<RailReading> =>
 /** The same reading with the numbers rounded, for failure messages. */
 const shown = (reading: RailReading): string =>
   JSON.stringify(reading, (_key, value) => (typeof value === 'number' ? Math.round(value) : value));
-
-/** Two boxes share any area at all. */
-const overlaps = (a: Box | null, b: Box | null): boolean => {
-  if (!a || !b) return false;
-  return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
-};
 
 /** `hsl(<h> <s>% <l>%)` — the form this app's theme colours are authored in — as an rgb triple. */
 const themeColorToRgb = (declared: string): { r: number; g: number; b: number } => {
@@ -259,12 +247,6 @@ const isThemeColor = (computed: string | null, primary: { r: number; g: number; 
     && Math.abs(parts[2] - primary.b) <= 2;
 };
 
-/** Plants a handle position in storage, the way a reader who had moved it once left one behind. */
-const writeHandlePosition = (page: Page, y: number) =>
-  page.evaluate((share) => {
-    window.localStorage.setItem('quickSettingsHandlePosition', JSON.stringify({ y: share }));
-  }, y);
-
 /** Waits for a freshly loaded transcript to be drawn and measured. */
 const settleTranscript = async (page: Page) => {
   await expect(page.locator(`${PANE} .chat-message`).first()).toBeVisible({ timeout: 30_000 });
@@ -273,7 +255,7 @@ const settleTranscript = async (page: Page) => {
 
 test.describe.configure({ mode: 'serial', timeout: 300_000 });
 
-test.describe('the transcript rail is three columns and a handle that keeps out of them', () => {
+test.describe('the transcript rail is two columns that keep out of each other', () => {
   let browser: Browser;
   let origin: string;
   let authToken: string;
@@ -399,7 +381,7 @@ test.describe('the transcript rail is three columns and a handle that keeps out 
           `the tick marked as the current turn must be the theme-coloured one at ${where}`,
         ).toBe(true);
 
-        // ── (e) the three columns never cover each other ──────────────────────
+        // ── (e) the two columns never cover each other ────────────────────────
         expect(reading.thumb, `the drawn scrollbar must exist at ${where}`).not.toBeNull();
         expect(
           reading.content.right + COLUMN_GAP,
@@ -409,21 +391,13 @@ test.describe('the transcript rail is three columns and a handle that keeps out 
           reading.column!.right + COLUMN_GAP,
           `the tick column must clear the scrollbar by ${COLUMN_GAP}px at ${where}`,
         ).toBeLessThanOrEqual(reading.thumb!.left);
-        // The export control is a sticky overlay pinned to the pane's top; what it
-        // must not do is reach the right-edge chrome, which is what this compares.
-        expect(overlaps(reading.exportAnchor, reading.column), `the export control must not cover the ticks at ${where}`).toBe(false);
-        expect(overlaps(reading.exportAnchor, reading.thumb), `the export control must not cover the scrollbar at ${where}`).toBe(false);
-        expect(overlaps(reading.handle, reading.column), `the handle must not cover the ticks at ${where}`).toBe(false);
-        expect(overlaps(reading.handle, reading.thumb), `the handle must not cover the scrollbar at ${where}`).toBe(false);
-        expect(overlaps(reading.handle, reading.content), `the handle must not cover the text at ${where}`).toBe(false);
-        expect(overlaps(reading.handle, reading.exportAnchor), `the handle must not cover the export control at ${where}`).toBe(false);
       } finally {
         await context.close();
       }
     }
   });
 
-  test('AC-217 (a)(e)(g) the narrow viewport drops the tick column, keeps the scrollbar, and clears the handle', async () => {
+  test('AC-217 (a)(e) the narrow viewport drops the tick column and keeps the scrollbar', async () => {
     const { context, page } = await openAt(NARROW);
     try {
       await page.goto(`${origin}/session/${LONG_SESSION_ID}`);
@@ -442,109 +416,6 @@ test.describe('the transcript rail is three columns and a handle that keeps out 
       // ── (e) the two columns left at this width still clear each other ─────
       expect(reading.content.right, `the text must clear the scrollbar at ${where}`)
         .toBeLessThan(reading.thumb!.left);
-      expect(overlaps(reading.handle, reading.thumb), `the handle must not cover the scrollbar at ${where}`).toBe(false);
-      expect(overlaps(reading.handle, reading.exportAnchor), `the handle must not cover the export control at ${where}`).toBe(false);
-
-      // ── (g) the handle, placed from the bottom at this width, is inside its band ──
-      expect(reading.handle, `the handle must be drawn at ${where}`).not.toBeNull();
-      expect(reading.exportAnchor, `the export control must be drawn at ${where}`).not.toBeNull();
-      expect(
-        reading.handle!.top,
-        `the handle must sit at least ${HANDLE_BAND_MARGIN}px below the export control at ${where}`,
-      ).toBeGreaterThanOrEqual(reading.exportAnchor!.bottom + HANDLE_BAND_MARGIN - 1);
-      expect(
-        reading.handle!.right,
-        `the handle must clear the scrollbar by ${HANDLE_SCROLLBAR_GAP}px at ${where}`,
-      ).toBeLessThanOrEqual(reading.thumb!.left - HANDLE_SCROLLBAR_GAP + 1);
-    } finally {
-      await context.close();
-    }
-  });
-
-  test('AC-217 (f)(g) the handle is clamped into its band, however it was placed', async () => {
-    const { context, page } = await openAt(DESKTOP);
-    try {
-      await page.goto(`${origin}/session/${LONG_SESSION_ID}`);
-      await settleServiceWorker(page);
-
-      /** Asserts the handle's box against the three bounds the criterion names. */
-      const expectInBand = (reading: RailReading, label: string) => {
-        expect(reading.handle, `the handle must be drawn ${label}`).not.toBeNull();
-        expect(reading.column, `the tick column must be drawn ${label}: ${shown(reading)}`).not.toBeNull();
-        expect(reading.exportAnchor, `the export control must be drawn ${label}`).not.toBeNull();
-        expect(reading.thumb, `the scrollbar must be drawn ${label}`).not.toBeNull();
-        expect(
-          reading.handle!.top,
-          `the handle must sit at least ${HANDLE_BAND_MARGIN}px below the export control ${label}: ${shown(reading)}`,
-        ).toBeGreaterThanOrEqual(reading.exportAnchor!.bottom + HANDLE_BAND_MARGIN - 1);
-        expect(
-          reading.handle!.bottom,
-          `the handle must end at least ${HANDLE_BAND_MARGIN}px above the tick column ${label}: ${shown(reading)}`,
-        ).toBeLessThanOrEqual(reading.column!.top - HANDLE_BAND_MARGIN + 1);
-        expect(
-          reading.handle!.right,
-          `the handle must clear the scrollbar by ${HANDLE_SCROLLBAR_GAP}px ${label}: ${shown(reading)}`,
-        ).toBeLessThanOrEqual(reading.thumb!.left - HANDLE_SCROLLBAR_GAP + 1);
-      };
-
-      // ── (f) a reader who has never moved the handle: it goes to the band's top ──
-      await page.evaluate(() => window.localStorage.removeItem('quickSettingsHandlePosition'));
-      await page.reload();
-      await settleTranscript(page);
-      const byDefault = await readRail(page);
-      expectInBand(byDefault, 'when nothing was saved');
-
-      // ── (g) a position saved before the band existed is pulled back into it ──
-      for (const saved of [60, 90]) {
-        await writeHandlePosition(page, saved);
-        await page.reload();
-        await settleTranscript(page);
-        expectInBand(await readRail(page), `after a saved y=${saved} was loaded`);
-        const stored = await page.evaluate(() =>
-          window.localStorage.getItem('quickSettingsHandlePosition'));
-        expect(stored, `the clamped position must be written back after a saved y=${saved}`).toBeTruthy();
-        const parsed = JSON.parse(stored!) as { y: number };
-        expect(
-          parsed.y,
-          `the stored position must have been rewritten into the band after a saved y=${saved}, but still reads ${parsed.y}`,
-        ).not.toBe(saved);
-      }
-
-      // ── (g) dragged out of the band with a real pointer, it is clamped back ──
-      const grab = async () => {
-        const reading = await readRail(page);
-        const box = reading.handle!;
-        await page.mouse.move(box.left + box.width / 2, box.top + box.height / 2);
-        await page.mouse.down();
-        return { x: box.left + box.width / 2, reading };
-      };
-
-      const downLeg = await grab();
-      await page.mouse.move(downLeg.x, downLeg.reading.column!.bottom + 60, { steps: 12 });
-      await page.mouse.up();
-      await page.waitForTimeout(400);
-      expectInBand(await readRail(page), 'after being dragged down past the tick column');
-
-      const upLeg = await grab();
-      await page.mouse.move(upLeg.x, upLeg.reading.pane.top + 4, { steps: 12 });
-      await page.mouse.up();
-      await page.waitForTimeout(400);
-      expectInBand(await readRail(page), 'after being dragged up past the export control');
-
-      // ── (g) the open drawer keeps its own berth, unchanged ─────────────────
-      await page.reload();
-      await settleTranscript(page);
-      const beforeOpen = await readRail(page);
-      await page.mouse.click(
-        beforeOpen.handle!.left + beforeOpen.handle!.width / 2,
-        beforeOpen.handle!.top + beforeOpen.handle!.height / 2,
-      );
-      await expect
-        .poll(async () => (await readRail(page)).handle!.right, {
-          timeout: 5_000,
-          message: 'opening the drawer must move the handle off the transcript edge',
-        })
-        .toBeLessThanOrEqual(beforeOpen.handle!.right - 100);
     } finally {
       await context.close();
     }
@@ -572,7 +443,7 @@ test.describe('the transcript rail is three columns and a handle that keeps out 
         `a ${turns.length}-turn conversation must draw min(${turns.length}, ${TICK_CAPACITY}) ticks at ${where}`,
       ).toBe(Math.min(turns.length, TICK_CAPACITY));
 
-      // ── (h) under three turns both columns stand down, and the handle does not care ──
+      // ── (h) under three turns both columns stand down ─────────────────────
       await page.goto(`${origin}/`);
       await openViaSidebar(page, TINY_PROJECT_NAME, TINY_SESSION_NAME);
       await settleTranscript(page);
@@ -580,15 +451,6 @@ test.describe('the transcript rail is three columns and a handle that keeps out 
       expect(tiny.tickButtonCount, `a one-turn transcript must draw no ticks: ${shown(tiny)}`).toBe(0);
       expect(tiny.thumb, `a one-turn transcript must draw no scrollbar: ${shown(tiny)}`).toBeNull();
       expect(tiny.track, `a one-turn transcript must draw no scrollbar track: ${shown(tiny)}`).toBeNull();
-      expect(tiny.handle, `the handle must still be drawn on a one-turn transcript: ${shown(tiny)}`).not.toBeNull();
-      expect(
-        tiny.handle!.bottom,
-        `the handle must stay on screen without the rail: ${shown(tiny)}`,
-      ).toBeLessThanOrEqual(tiny.pane.bottom);
-      expect(
-        tiny.handle!.top,
-        `the handle must stay clear of the export control without the rail: ${shown(tiny)}`,
-      ).toBeGreaterThanOrEqual((tiny.exportAnchor?.bottom ?? tiny.pane.top) + HANDLE_BAND_MARGIN - 1);
     } finally {
       await context.close();
     }

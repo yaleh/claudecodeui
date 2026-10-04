@@ -1,6 +1,5 @@
 import type { TFunction } from 'i18next';
 import type {
-  CSSProperties,
   KeyboardEvent as ReactKeyboardEvent,
   PointerEvent as ReactPointerEvent,
 } from 'react';
@@ -1996,21 +1995,43 @@ export type ProviderAuthStatusMap = Record<LLMProvider, ProviderAuthStatus>;
 
 // ---------------------------
 
-//----------------- QUICK SETTINGS PANEL ------------
+//----------------- TRANSCRIPT EXPORT SEAM ------------
 
-/** Identifier of a boolean user preference exposed in the quick settings panel; use it as the key when reading or writing one preference. */
-export type PreferenceToggleKey =
-  | 'showRawParameters'
-  | 'showThinking'
-  | 'sendByCtrlEnter'
-  | 'voiceEnabled';
+/**
+ * The chat module's export, published into the shared seam so the workspace
+ * header's overflow menu can run one without either module importing the other.
+ *
+ * The action carries both the data the export needs and the download itself, so
+ * the menu never touches chat's exporter — it only knows that a conversation is
+ * registered and calls `runExport` with a format.
+ */
+export type TranscriptExportAction = {
+  /** The conversation as chat holds it — the tail, when the transcript is paged. */
+  messages: ChatMessage[];
+  /** The title the file is named and headed with; absent falls back to a generic one at run time. */
+  sessionTitle?: string;
+  /** The provider the transcript belongs to, recorded in the export. */
+  provider: LLMProvider | string;
+  /** The project the session belongs to, used by the HTML export's context header. */
+  selectedProject?: Project | null;
+  /** Builds the diff lines the Markdown and HTML exports embed. */
+  createDiff: (oldStr: string, newStr: string) => DiffLine[];
+  /** Loads the rest of a paged transcript before export; omitted when the whole conversation is already held. */
+  onLoadFullTranscript?: () => Promise<ChatMessage[]>;
+  /** Runs one export end to end — loading the full transcript, building it and downloading it. */
+  runExport: (format: 'html' | 'markdown' | 'json') => Promise<void>;
+};
 
-/** The full set of quick settings booleans keyed by PreferenceToggleKey, held together so the panel can read every toggle from one object. */
-export type QuickSettingsPreferences = Record<PreferenceToggleKey, boolean>;
-
-
-/** Inline style for the quick settings drag handle, produced by the drag hook from the stored handle position and applied by the handle component. */
-export type QuickSettingsHandleStyle = CSSProperties;
+/**
+ * What the header menu reads from the seam: whether chat has registered an
+ * export for the open conversation, and how to reach the latest one.
+ */
+export type TranscriptExportRegistration = {
+  /** True once a conversation with messages is registered; the menu hides its export group until then. */
+  available: boolean;
+  /** Reads the latest registered export at the moment the menu runs one. */
+  getAction: () => TranscriptExportAction | null;
+};
 
 // ---------------------------
 
