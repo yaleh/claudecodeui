@@ -56,8 +56,8 @@ extra:
 - src/modules/chat/transcript/ResidentSessionBadge.tsx
 - src/modules/chat/hooks/useSessionActivity.ts
 - src/shared/types.ts
-- src/shared/utils.ts (delete)
-- playwright.config.ts (delete)
+- src/shared/utils.ts （退役后 findBackgroundTaskLeases 的读者注释要改）
+- playwright.config.ts （把退役判据从 DEBUG_AGENT_SPEC_FILES 里去掉）
 - src/modules/i18n/locales/en/chat.json
 - src/modules/i18n/locales/zh-CN/chat.json
 - src/modules/i18n/locales/zh-TW/chat.json
@@ -72,9 +72,9 @@ extra:
 - src/modules/i18n/locales/tr/chat.json
 - src/modules/chat/tests/activityDockTaskSchedule.test.tsx
 - src/modules/chat/tests/backgroundTaskStrip.test.tsx(delete)
-- src/modules/chat/tests/activityDockControls.test.tsx (delete)
+- src/modules/chat/tests/activityDockControls.test.tsx （面板改列活动任务后它会红）
 - e2e/background-task-strip.spec.ts (delete)
-- e2e/activity-dock-background.spec.ts (delete)
+- e2e/activity-dock-background.spec.ts （该判据读面板的终态行）
 - e2e/resident-status-bar.spec.ts
 - tasks/gap-dock-counts-only-live-tasks-and-retires-strip.md
 
