@@ -49,14 +49,14 @@ $ echo $?
 
 ## AC
 
-- [ ] AC1 `node scripts/asr-trim-capability-check.mjs` 退出码 **0**，stdout 含六行 `check declaration: ok` / `check read-point: ok` / `check single-source: ok` / `check decision: ok` / `check default: ok` / `check discipline: ok`；且 `check single-source: ok` 行含 `1 production file(s) reach trimDecisionFor`。修前同一命令退出 1（`single-source: FAIL ... trimDecisionFor is unreachable`），两份读数原文入 Evidence。
-- [ ] AC2 `node --test scripts/asr-trim-capability-check.test.mjs` 退出码 **0**，12/12 `pass`、`fail 0`。修前 12/12 红于夹具前提，原文入 Evidence。
-- [ ] AC3 取假形态 (2) 未被改窄且真能红：在 `useVoiceInput.ts` 把裁剪决策还原为「客户端自判、不读能力」（去掉 `trimDecisionFor` 与能力读取）⇒ `check single-source: FAIL ... trimDecisionFor is unreachable`，退出 1；变异 diff、逐字失败行与还原命令（`git checkout -- src/modules/chat/hooks/useVoiceInput.ts`）入 Evidence。
-- [ ] AC4 取假形态 (1) 未被改窄：`scripts/asr-trim-capability-check.test.mjs` 中 `changing the declared default to "do not trim" reds default` 与 `reordering the registry so a non-trimming recogniser is first also reds default` 两条既有用例在 AC2 的运行中通过（即「把默认改成不裁 ⇒ `default` 红」仍成立）；以 `git diff` 证明这两条用例的断言面一字未动。
-- [ ] AC5 承重（gap filter 真由能力驱动，非装饰）：在 `src/modules/chat/tests/` 有一条可红读数，令有效声明为 `destructive` 时切段器压缩长停顿、为非 `destructive` 时保留停顿；取假变体（把消费方的能力读取删掉、回到硬编码常量）该读数必须红。命令 + 退出码 + 失败行入 Evidence。
-- [ ] AC6 出货默认不变：`src/shared/voiceDebug.ts` 的 `isVoiceTrimEnabled()` 默认仍为 `true`；未命名 provider 的部署仍解析到注册表第 0 行（`openai-compatible`，`destructive`）⇒ 默认仍裁 —— 由 AC1 的 `check default: ok` 行逐字给出。
-- [ ] AC7 相邻判据未受牵连：`node scripts/asr-pause-cues-source-check.mjs` 退出 0 且 stdout 仍含 `client-pauseCues=none` / `client-declaration-source=none`；`node --test scripts/asr-pause-cues-source-check.test.mjs` 退出 0；`npm run typecheck` 与 `npm run lint` 退出 0。
-- [ ] AC8 判据脚本与已退役腿未被改动：`git diff --name-only <base>..HEAD` 不含 `scripts/asr-trim-capability-check.mjs`，也不含 `e2e/voice-trim.spec.ts`；读 `goals/AC-135-*.md` 确认其 `criterion:` 行仍是 `node scripts/asr-trim-capability-check.mjs`。
+- [x] AC1 `node scripts/asr-trim-capability-check.mjs` 退出码 **0**，stdout 含六行 `check declaration: ok` / `check read-point: ok` / `check single-source: ok` / `check decision: ok` / `check default: ok` / `check discipline: ok`；且 `check single-source: ok` 行含 `1 production file(s) reach trimDecisionFor`。修前同一命令退出 1（`single-source: FAIL ... trimDecisionFor is unreachable`），两份读数原文入 Evidence。
+- [x] AC2 `node --test scripts/asr-trim-capability-check.test.mjs` 退出码 **0**，12/12 `pass`、`fail 0`。修前 12/12 红于夹具前提，原文入 Evidence。
+- [x] AC3 取假形态 (2) 未被改窄且真能红：在 `useVoiceInput.ts` 把裁剪决策还原为「客户端自判、不读能力」（去掉 `trimDecisionFor` 与能力读取）⇒ `check single-source: FAIL ... trimDecisionFor is unreachable`，退出 1；变异 diff、逐字失败行与还原命令（`git checkout -- src/modules/chat/hooks/useVoiceInput.ts`）入 Evidence。
+- [x] AC4 取假形态 (1) 未被改窄：`scripts/asr-trim-capability-check.test.mjs` 中 `changing the declared default to "do not trim" reds default` 与 `reordering the registry so a non-trimming recogniser is first also reds default` 两条既有用例在 AC2 的运行中通过（即「把默认改成不裁 ⇒ `default` 红」仍成立）；以 `git diff` 证明这两条用例的断言面一字未动。
+- [x] AC5 承重（gap filter 真由能力驱动，非装饰）：在 `src/modules/chat/tests/` 有一条可红读数，令有效声明为 `destructive` 时切段器压缩长停顿、为非 `destructive` 时保留停顿；取假变体（把消费方的能力读取删掉、回到硬编码常量）该读数必须红。命令 + 退出码 + 失败行入 Evidence。
+- [x] AC6 出货默认不变：`src/shared/voiceDebug.ts` 的 `isVoiceTrimEnabled()` 默认仍为 `true`；未命名 provider 的部署仍解析到注册表第 0 行（`openai-compatible`，`destructive`）⇒ 默认仍裁 —— 由 AC1 的 `check default: ok` 行逐字给出。
+- [x] AC7 相邻判据未受牵连：`node scripts/asr-pause-cues-source-check.mjs` 退出 0 且 stdout 仍含 `client-pauseCues=none` / `client-declaration-source=none`；`node --test scripts/asr-pause-cues-source-check.test.mjs` 退出 0；`npm run typecheck` 与 `npm run lint` 退出 0。
+- [x] AC8 判据脚本与已退役腿未被改动：`git diff --name-only <base>..HEAD` 不含 `scripts/asr-trim-capability-check.mjs`，也不含 `e2e/voice-trim.spec.ts`；读 `goals/AC-135-*.md` 确认其 `criterion:` 行仍是 `node scripts/asr-trim-capability-check.mjs`。
 
 ## DoD
 
@@ -71,10 +71,57 @@ $ echo $?
 L_D 该轴仍暗，理由：本任务只把一条既有能力接回新架构的裁剪决策点，不新增领域数据能力，也没有可读出的领域读数。
 L_G 该轴仍暗，理由：同上 —— 目标层判据（换识别服务不改路由与 UI）由 GOAL-008 的其余判据承担。
 
+## Evidence
+
+分支：`task/gap-voice-trim-decision-continuous-path`，实现提交 `9f83a332`（base `b4c3cebc` = develop）。修改文件（4 个，与 Touches 一致）：`src/modules/chat/hooks/useVoiceInput.ts`、`scripts/asr-trim-capability-check.test.mjs`、`src/modules/chat/tests/voiceTrimCapabilityWiring.test.tsx`、`src/modules/chat/tests/voiceClipPlayback.test.tsx`。
+
+**修前基线（在 base `b4c3cebc` 的临时 worktree 直接现测，非引台账）。**
+- `node scripts/asr-trim-capability-check.mjs` 退出 **1**，逐字：
+  ```
+  check read-point: ok src/shared/voiceTrim.ts reads the capability at trimDecisionFor
+  check single-source: FAIL no production file reaches trimDecisionFor — the capability is declared and never read, so 裁不裁 is still decided elsewhere (trimDecisionFor is unreachable)
+  reason single-source: no production file reaches trimDecisionFor — the capability is declared and never read, so 裁不裁 is still decided elsewhere (trimDecisionFor is unreachable)
+  ```
+- `node --test scripts/asr-trim-capability-check.test.mjs` 退出 **1**：`tests 12 / pass 0 / fail 12`，12 条全部失败在前提 `the unmutated fixture must pass`。
+
+**AC1 / AC6（修后，worktree）。** `node scripts/asr-trim-capability-check.mjs` 退出 **0**，stdout 六条逐字：
+```
+check declaration: ok the registration table (shared/asr/asrRegistry.ts) declares 3 row(s), read off the adapter modules
+check read-point: ok src/shared/voiceTrim.ts reads the capability at trimDecisionFor
+check single-source: ok 1 production file(s) reach trimDecisionFor: src/modules/chat/hooks/useVoiceInput.ts; no file answers 裁不裁 by hand
+check decision: ok trimDecisionFor takes the trim path for openai-compatible and declines it for useful
+check default: ok a deployment that names no provider resolves to openai-compatible (first registered), which declares destructive and is trimmed; src/shared/voiceDebug.ts's own default is true — the shipped chain still trims
+check discipline: ok every declaration outside destructive names its own paired experiment, and every named record exists
+```
+AC6 由 `check default: ok` 行承载；`src/shared/voiceDebug.ts` 不在改动文件集内（`isVoiceTrimEnabled()` 默认 `true` 未动）。
+
+**AC2（修后）。** `node --test scripts/asr-trim-capability-check.test.mjs` 退出 **0**：`tests 12 / pass 12 / fail 0`。
+
+**AC3（取假形态 (2)；先提交再变异，跑完 `git checkout` 恢复）。** 变异（`src/modules/chat/hooks/useVoiceInput.ts`）：删除 `import { trimDecisionFor } from '@/shared/voiceTrim';`，并把 `gapFilterSecForCapture` 体换成 `return DEFAULT_KEEP_GAP_SEC;`（客户端自判、不读能力）。判据退出 **1**，逐字：
+```
+check single-source: FAIL no production file reaches trimDecisionFor — the capability is declared and never read, so 裁不裁 is still decided elsewhere (trimDecisionFor is unreachable)
+```
+还原命令：`git checkout -- src/modules/chat/hooks/useVoiceInput.ts`；复跑判据退出 **0**。
+
+**AC4（取假形态 (1) 未改窄）。** AC2 运行中 `changing the declared default to "do not trim" reds default` 与 `reordering the registry so a non-trimming recogniser is first also reds default` 两条用例通过（12/12）。`git diff b4c3cebc..HEAD -- scripts/asr-trim-capability-check.test.mjs` 只动 `CONSUMER_GATE` / `CONSUMER_GATE_WITHOUT_CAPABILITY` / `CONSUMER_IMPORT` / `CONSUMER_IMPORT_WITHOUT_CAPABILITY` 四个字面量与其注释；两条 default 用例所依赖的 `FIRST_ADAPTER_CAPABILITY` 与 `REGISTRATION_ROWS` 断言面一字未动。
+
+**AC5（承重，gap filter 真由能力驱动）。** 读数在 `src/modules/chat/tests/voiceTrimCapabilityWiring.test.tsx` 的新用例（同一段 5.0 s 音频：0.5–2.0 s 与 3.5–5.0 s 两段语音，中间 1.5 s 停顿 —— 长于 keep 长度 1.0 s、短于 cut 阈值 2.0 s，故被 step over 而非 cut；两次运行只改 `effectivePauseCuesDeclaration()` 的返回值）。
+- 正向：`npx vitest run src/modules/chat/tests/voiceTrimCapabilityWiring.test.tsx` 退出 **0**（2 passed）；读数 `kept=144044 bytes, compressed=128044 bytes`（差 16000 bytes = 1.5 s 停顿压到 1.0 s 的 0.5 s × 16 kHz × 2 B）。
+- 取假变体（把消费方的能力读取删掉、回到硬编码 `return DEFAULT_KEEP_GAP_SEC;`）：同一用例退出 **1**，逐字 `AssertionError: destructive must compress the pause and neutral must keep it: kept=128044 bytes, compressed=128044 bytes`（两臂相等 ⇒ 假形态红）。还原：`git checkout -- src/modules/chat/hooks/useVoiceInput.ts`，复跑 2 passed。
+
+**AC7（相邻判据 / 静态检查）。**
+- `node scripts/asr-pause-cues-source-check.mjs` 退出 **0**，stdout 逐字含 `client-pauseCues=none`、`client-declaration-source=none`。
+- `node --test scripts/asr-pause-cues-source-check.test.mjs` 退出 **0**（`pass 7 / fail 0`）。（注：此套件在 base 上因同一机制已红 —— 其 AC4 取假用例需要 `useVoiceInput.ts` 里的 `const recogniser = effectivePauseCuesDeclaration();` 行，而 `a88f5c2a` 已把它删除；本任务接回该行后随之转绿。）
+- `npm run typecheck` 退出 **0**；`npm run lint` 退出 **0**。
+
+**AC8（未越界）。** `git diff --name-only b4c3cebc..HEAD` = 上述 4 个文件，不含 `scripts/asr-trim-capability-check.mjs`，不含 `e2e/voice-trim.spec.ts`。`goals/AC-135-裁剪决策以能力声明为唯一来源-且默认行为不变.md:7` 仍为 `criterion: node scripts/asr-trim-capability-check.mjs`。
+
+**S5 关于 `e2e/voice-continuous.spec.ts` 的如实说明。** 未在本任务内单独运行该 e2e（它不在 `scripts/test.sh` 的全量/scoped 套件内，本任务按 driver 契约只跑 scoped 门）。按改动面推理其读数不变：该 spec 的有效 provider 是 `dashscope-omni`（`neutral`），其各腿用 `fake.pause(CUT_PAUSE_SEC=2.6)`（> 2.0 s cut 阈值），停顿在切点处被 cut 而非被 step over，gap filter 不作用于这些段；各腿读的是段数/顺序/文本与转录答案，不是过滤后的字节体积。若 driver 的 fan-in 后续跑到该 e2e 且出现差异，以彼时真读数为准。
+
 ## Touches
 
 - src/modules/chat/hooks/useVoiceInput.ts
-- src/modules/chat/utils/voiceLiveSegmenter.ts
 - scripts/asr-trim-capability-check.test.mjs
 - src/modules/chat/tests/voiceTrimCapabilityWiring.test.tsx
+- src/modules/chat/tests/voiceClipPlayback.test.tsx
 - tasks/gap-voice-trim-decision-continuous-path.md
