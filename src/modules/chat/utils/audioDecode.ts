@@ -26,6 +26,27 @@ export type DecodedVoice = {
  */
 const DECODE_SAMPLE_RATE = 48_000;
 
+/**
+ * The rate the upload is written at.
+ *
+ * The recognisers work at 16 kHz, so resampling to it before encoding spends nothing on
+ * recognition and cuts the 16-bit PCM bytes to a third of the decoded 48 kHz copy — which is what
+ * lets one inline request carry a longer clip. `downsampleVoice` targets it by default, and it is
+ * the rate the WAV header then carries, so the duration a reader derives stays exact.
+ */
+export const UPLOAD_SAMPLE_RATE = 16_000;
+
+/**
+ * Half the taps of the anti-aliasing filter: 2 * 32 + 1 = 65 coefficients.
+ *
+ * Sized so the stopband is deep where it has to be — everything above the output's 8 kHz Nyquist
+ * folds back into the passband, and at 20 kHz the Hamming-windowed sinc is already several
+ * transition widths past the cutoff. A shorter filter leaves part of that folded energy audible
+ * (it is the difference between a downsample and a decimation); a longer one spends multiply-adds
+ * on attenuation nothing downstream can hear.
+ */
+const ANTIALIAS_HALF_TAPS = 32;
+
 /** Bytes of a canonical 44-byte PCM WAV header: RIFF/WAVE/fmt/data, no extra chunks. */
 const WAV_HEADER_BYTES = 44;
 
@@ -94,6 +115,84 @@ export async function decodeVoiceBlob(blob: Blob): Promise<DecodedVoice | null> 
     // Not awaited: the samples are already out, and a context left open holds an audio device.
     void context.close();
   }
+}
+
+/**
+ * A Hamming-windowed sinc low-pass kernel, normalised so a constant signal keeps unity gain.
+ *
+ * `cutoffHz` is the -6 dB point and must sit at or below the output's Nyquist frequency. The
+ * window is what keeps the truncated sinc from ringing: an unwindowed 65-tap sinc leaks enough
+ * near the cutoff to colour the audio it just passed through.
+ */
+function lowPassKernel(cutoffHz: number, rate: number, halfTaps: number): Float32Array {
+  const cutoff = cutoffHz / rate; // cycles per sample, in 0..0.5
+  const taps = halfTaps * 2 + 1;
+  const kernel = new Float32Array(taps);
+  let sum = 0;
+  for (let i = 0; i < taps; i += 1) {
+    const n = i - halfTaps;
+    const sinc = n === 0 ? 2 * cutoff : Math.sin(2 * Math.PI * cutoff * n) / (Math.PI * n);
+    const window = 0.54 - 0.46 * Math.cos((2 * Math.PI * i) / (taps - 1));
+    kernel[i] = sinc * window;
+    sum += kernel[i];
+  }
+  for (let i = 0; i < taps; i += 1) kernel[i] /= sum;
+  return kernel;
+}
+
+/**
+ * The filter's response at input index `center`, treating the signal as zero outside its bounds.
+ *
+ * Zero-padding at the ends is the honest reading for a recording: the capture starts and stops at
+ * silence, so the few samples the kernel reaches past the edges carry no signal either way.
+ */
+function filterAt(
+  samples: Float32Array,
+  kernel: Float32Array,
+  halfTaps: number,
+  center: number,
+): number {
+  let acc = 0;
+  for (let k = -halfTaps; k <= halfTaps; k += 1) {
+    const index = center + k;
+    if (index >= 0 && index < samples.length) acc += samples[index] * kernel[k + halfTaps];
+  }
+  return acc;
+}
+
+/**
+ * Resamples `samples` down to `outputRate`, band-limiting to the output's Nyquist frequency first.
+ *
+ * This is a filter-then-resample, NOT a decimation. Dropping every third sample of a 48 kHz signal
+ * folds everything above 8 kHz back into the passband — a 20 kHz component arrives as a 4 kHz tone
+ * at full strength — so the low-pass runs at the INPUT rate, where its coefficients' cutoff is
+ * exact, and each output sample is read off the filtered signal at its own output-rate position.
+ *
+ * A rate at or below the target comes back untouched: this is a downsampler, and resampling upward
+ * would claim a rate the samples were never captured at.
+ */
+export function downsampleVoice(
+  samples: Float32Array,
+  inputRate: number,
+  outputRate: number = UPLOAD_SAMPLE_RATE,
+): DecodedVoice {
+  if (!(inputRate > 0) || !(outputRate > 0) || inputRate <= outputRate || samples.length === 0) {
+    return { samples, sampleRate: inputRate };
+  }
+
+  const kernel = lowPassKernel(outputRate / 2, inputRate, ANTIALIAS_HALF_TAPS);
+  const ratio = inputRate / outputRate;
+  const outputLength = Math.round(samples.length / ratio);
+  const out = new Float32Array(outputLength);
+  for (let n = 0; n < outputLength; n += 1) {
+    const position = n * ratio;
+    const at = Math.floor(position);
+    const fraction = position - at;
+    const left = filterAt(samples, kernel, ANTIALIAS_HALF_TAPS, at);
+    const right = fraction === 0 ? left : filterAt(samples, kernel, ANTIALIAS_HALF_TAPS, at + 1);
+    out[n] = left + (right - left) * fraction;
+  }
+  return { samples: out, sampleRate: outputRate };
 }
 
 /**

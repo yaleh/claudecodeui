@@ -10,6 +10,7 @@ import type { PauseCuesDeclaration } from '@shared/asr/asrRegistry';
 
 import ChatComposer from '@/modules/chat/composer/ChatComposer';
 import { useVoiceInput } from '@/modules/chat/hooks/useVoiceInput';
+import type * as AudioDecode from '@/modules/chat/utils/audioDecode';
 import { voicePlayer } from '@/modules/chat/utils/voicePlayer';
 import enChat from '@/modules/i18n/locales/en/chat.json';
 // Type-only, so it is erased before vi.mock's hoisted factory runs.
@@ -93,7 +94,8 @@ const { stubbedTrim } = vi.hoisted(() => ({
  * behaviour is covered where it lives (`src/shared/tests/voiceTrim.test.ts`), and the browser's
  * decoder cannot be driven from jsdom at all.
  */
-vi.mock('@/modules/chat/utils/audioDecode', () => ({
+vi.mock('@/modules/chat/utils/audioDecode', async (importOriginal) => ({
+  ...(await importOriginal<typeof AudioDecode>()),
   decodeVoiceBlob: async () =>
     (stubbedTrim.decodable ? { samples: new Float32Array(16_000), sampleRate: 16_000 } : null),
   encodeWavBlob: (samples: Float32Array) =>

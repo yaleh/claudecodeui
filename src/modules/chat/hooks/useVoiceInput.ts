@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { decodeVoiceBlob, encodeWavBlob } from '@/modules/chat/utils/audioDecode';
+import { decodeVoiceBlob, downsampleVoice, encodeWavBlob } from '@/modules/chat/utils/audioDecode';
 import { voicePlayer } from '@/modules/chat/utils/voicePlayer';
 import { effectivePauseCuesDeclaration, transcribeVoice } from '@/shared/api';
 import { identifierFidelity } from '@/shared/identifierFidelity';
@@ -261,7 +261,11 @@ async function prepareUpload(
   // about the capture is what tells a trim that found nothing to do from one that never ran.
   if (stats.fallback) return { ...asRecorded, body: blob, reading, trimmed: null };
 
-  const trimmedBody = encodeWavBlob(samples, decoded.sampleRate);
+  // Downsampled AFTER the trim, so the VAD ran on the decoded 48 kHz samples and the reading above
+  // is the same measurement it has always been; only the bytes that go on the wire change. The WAV
+  // header carries whatever rate this hands back, so a 16 kHz upload declares 16 kHz.
+  const uploadAudio = downsampleVoice(samples, decoded.sampleRate);
+  const trimmedBody = encodeWavBlob(uploadAudio.samples, uploadAudio.sampleRate);
   return {
     body: trimmedBody,
     filename: `${baseName}.wav`,
