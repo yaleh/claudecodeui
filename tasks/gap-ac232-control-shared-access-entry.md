@@ -3,7 +3,7 @@ id: gap-ac232-control-shared-access-entry
 title: AC-232
   控制服务五个动作（send/abort/cancelQueued/stopTask/backgroundTask）共用同一个可注入访问入口：未认证一律
   FORBIDDEN 且驱动零调用，判据 server/modules/websocket/tests/chat-control-access.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -52,14 +52,14 @@ AC-232（GOAL-019 退出条件 3；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3�
 
 ## AC
 
-- [ ] AC1 判据绿：`for f in server/modules/websocket/tests/chat-control-access.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-control-access.test.ts` 退出 0。红态基线逐字记录（改动前该文件不存在、存在性闸退出码 1 输出 `缺判据文件：server/modules/websocket/tests/chat-control-access.test.ts`）。
-- [ ] AC2 (a) 五个动作共用一个入口：注入计数间谍（委托生产入口），已认证调用方对 `send`/`abort`/`cancelQueued`/`stopTask`/`backgroundTask` 各调用一次；间谍总调用恰好 5 次，逐动作增量各 1（写下五次增量与总数）；且同一次已认证调用的 `abort`/`controlStopTask`/`controlBackgroundTask` 驱动计数各 ≥1（正例对照，证明不是入口后一律拒绝）。
-- [ ] AC3 (b) 未认证一律 FORBIDDEN 且驱动零调用：`userId` 为 `null` 与空串 `''` 两种调用方下，五个动作全部读作 FORBIDDEN；假 runtime 的 `run`/`abort`/`cancelQueuedInput`/`controlStopTask`/`controlBackgroundTask` 五项计数全为 0（写下两种调用方各自的判决与五项计数）。
-- [ ] AC4 (c) 生产默认入口同样拒绝：不注入任何间谍（走 `assertSessionAccess` 默认），五个未认证调用全部读作 FORBIDDEN，假 runtime 五项计数全为 0（写下判决与计数）。
-- [ ] AC5 无 WebSocket 参与：写下用于核对的 grep 命令与空输出——判据文件不 import `ws`、不 `new WebSocket(`、不构造 socket；AC2–AC4 全部读数在该文件内直接对 `createChatControlService` 完成。
-- [ ] AC6 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 某动作内联检查绕过入口 ⇒ AC2 该动作增量 0 而红；(ii) 去掉某动作入口检查 ⇒ AC3 驱动计数非 0 而红；(iii) 默认入口恒放行 ⇒ AC4 红。每条记录恢复命令与恢复后重跑绿。
-- [ ] AC7 不回归与仓库门：既有 WebSocket 判据保持逐字通过——至少 `chat-control-ownership.test.ts`、`chat-control-send.test.ts`、`chat-control-busy.test.ts`、`chat-edit-send.test.ts`、`chat-stop-task.test.ts`、`chat-background-task.test.ts`（写明命令与结果）；`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（只看 error 级，写明计数）；控制服务跨模块只经 barrel 导入、无深导入。
-- [ ] AC8 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写。列出实际改动文件清单。
+- [x] AC1 判据绿：`for f in server/modules/websocket/tests/chat-control-access.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-control-access.test.ts` 退出 0。红态基线逐字记录（改动前该文件不存在、存在性闸退出码 1 输出 `缺判据文件：server/modules/websocket/tests/chat-control-access.test.ts`）。
+- [x] AC2 (a) 五个动作共用一个入口：注入计数间谍（委托生产入口），已认证调用方对 `send`/`abort`/`cancelQueued`/`stopTask`/`backgroundTask` 各调用一次；间谍总调用恰好 5 次，逐动作增量各 1（写下五次增量与总数）；且同一次已认证调用的 `abort`/`controlStopTask`/`controlBackgroundTask` 驱动计数各 ≥1（正例对照，证明不是入口后一律拒绝）。
+- [x] AC3 (b) 未认证一律 FORBIDDEN 且驱动零调用：`userId` 为 `null` 与空串 `''` 两种调用方下，五个动作全部读作 FORBIDDEN；假 runtime 的 `run`/`abort`/`cancelQueuedInput`/`controlStopTask`/`controlBackgroundTask` 五项计数全为 0（写下两种调用方各自的判决与五项计数）。
+- [x] AC4 (c) 生产默认入口同样拒绝：不注入任何间谍（走 `assertSessionAccess` 默认），五个未认证调用全部读作 FORBIDDEN，假 runtime 五项计数全为 0（写下判决与计数）。
+- [x] AC5 无 WebSocket 参与：写下用于核对的 grep 命令与空输出——判据文件不 import `ws`、不 `new WebSocket(`、不构造 socket；AC2–AC4 全部读数在该文件内直接对 `createChatControlService` 完成。
+- [x] AC6 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 某动作内联检查绕过入口 ⇒ AC2 该动作增量 0 而红；(ii) 去掉某动作入口检查 ⇒ AC3 驱动计数非 0 而红；(iii) 默认入口恒放行 ⇒ AC4 红。每条记录恢复命令与恢复后重跑绿。
+- [x] AC7 不回归与仓库门：既有 WebSocket 判据保持逐字通过——至少 `chat-control-ownership.test.ts`、`chat-control-send.test.ts`、`chat-control-busy.test.ts`、`chat-edit-send.test.ts`、`chat-stop-task.test.ts`、`chat-background-task.test.ts`（写明命令与结果）；`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（只看 error 级，写明计数）；控制服务跨模块只经 barrel 导入、无深导入。
+- [x] AC8 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写。列出实际改动文件清单。
 
 ## DoD
 
@@ -74,3 +74,23 @@ AC-232（GOAL-019 退出条件 3；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3�
 - server/modules/websocket/services/chat-control.service.ts
 - server/modules/websocket/tests/chat-control-access.test.ts (new)
 - tasks/gap-ac232-control-shared-access-entry.md
+
+## Evidence (AC-232)
+
+判据命令（AC1）：`npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-control-access.test.ts` → 4 tests / 4 pass / 0 fail（exit 0）。
+
+红态基线（AC1，改动前判据文件不存在）。存在性闸逐字输出：`缺判据文件：server/modules/websocket/tests/chat-control-access.test.ts`，exit 1。
+
+(a) 已认证（AC2）：increments `{send:1,abort:1,cancelQueued:1,stopTask:1,backgroundTask:1,total:5}`；drivers `{run:1,abort:1,cancelQueuedInput:1,controlStopTask:1,controlBackgroundTask:1}`。
+(b) 未认证（AC3）：caller=null 与 caller=empty-string 两臂均 verdicts 五项 `FORBIDDEN`、drivers 五项 `0`；entryCalls=10。
+(c) 生产默认入口（AC4）：verdicts 五项 `FORBIDDEN`、drivers 五项 `0`（未注入任何间谍）。
+(AC5) grep：`grep -nE "from ['\"]ws['\"]|new WebSocket\(|new EventEmitter\(" server/modules/websocket/tests/chat-control-access.test.ts` → 空输出（exit 1）；判据内自检读数 `socketReferences=[]`。
+
+AC6 取假形态（先提交实现 7d921771 再变异；每条恢复命令 `git checkout -- server/modules/websocket/services/chat-control.service.ts`，恢复后重跑 4/4 绿）：
+(i) `stopTask` 内联检查绕过入口，diff：`-    if (!accessEntry(deps)(caller.userId, session)) {` → `+    if (caller.userId === null || \`${caller.userId}\`.trim().length === 0) {`。逐字失败行：(a) `actual: { send: 1, abort: 1, cancelQueued: 1, stopTask: 0, backgroundTask: 1, total: 4 }` vs `expected: { ... stopTask: 1, ... total: 5 }`。
+(ii) 去掉 `abort` 的入口检查（直接走 `runtime.abort`），diff 删除 abort 的 `accessEntry` 块。逐字失败行：(b) `caller null must be refused on all five`，`actual: { send: 'FORBIDDEN', abort: 'OK', ... }`，`drivers={"run":0,"abort":1,...}`（abort 驱动计数 1）。
+(iii) 默认入口恒放行，diff：`-  return dependencies.assertSessionAccess ?? assertSessionAccess;` → `+  return dependencies.assertSessionAccess ?? (() => true);`。逐字失败行：(c) `the production entry must refuse all five`，`actual: { send: 'OK', abort: 'OK', cancelQueued: 'WITHDRAWN', stopTask: 'REQUESTED', backgroundTask: 'REQUESTED' }`。
+
+AC7 不回归：`chat-control-ownership` 4/4、`chat-control-send` 4/4、`chat-control-busy` 5/5、`chat-edit-send` 8/8、`chat-stop-task` 6/6、`chat-background-task` 6/6（均 exit 0）；`npm run typecheck` exit 0；`npm run lint` 的 `: error ` 计数 0（仅 warning）；`chat-control.service.ts` 跨模块 import 仅 `@/modules/database/index.js`、`@/modules/providers/index.js`、`@/shared/types.js` 的 barrel 与同模块 websocket service（无跨模块深导入）。
+
+AC8 `git diff --stat develop...HEAD`：`server/modules/websocket/services/chat-control.service.ts | 258 +++--`、`server/modules/websocket/tests/chat-control-access.test.ts | 375 +++`（2 files changed, 600 insertions, 33 deletions），与 `## Touches` 逐条对齐（task 文件经 task_write 提交）。

@@ -50,16 +50,16 @@ AC-228（GOAL-018 退出条件 5 的前半；SPEC `docs/proposals/mcp-gateway-SP
 
 ## AC
 
-- [ ] AC1 判据文件存在且绿：`npx playwright test e2e/access-tokens-settings.spec.ts` 退出 0；逐字记录红态基线（改动前存在性闸退出码 1 并打印缺失文件名）。
-- [ ] AC2 (a) 创建后一次性明文：经设置页 UI 创建（名称 + 30 天）返回 201；一次性提示里出现匹配 `^ccp_[0-9a-f]{64}$` 的明文（写下明文与 token id，以及创建响应状态）。
-- [ ] AC3 (b) 刷新后明文消失、只剩前缀与名称：`page.reload()` 后 `page.content()` 与 `body.innerText` 都不含该明文；列表行含其 8 位前缀与名称。写下扫描范围与「找不到」的计数。
-- [ ] AC4 (c) 有效期选项恰为 7/30/90：下拉 option 值集合 == `{"7","30","90"}`，默认 30。写下集合与默认值。
-- [ ] AC5 (d) 吊销并即时失效：吊销前 `GET /api/oauth/token-info` 带 `Authorization: Bearer <明文>` ⇒ 200；经 UI 吊销后该行消失或标为已吊销、刷新后仍如此；同一请求再发 ⇒ 401。写下两次状态码与刷新后列表读数。
-- [ ] AC6 (e) 旧入口消失：页面文本不含旧按钮文案，且不含 `/api-docs.html`（并断言无指向该路径的 `<a>`）。写下两个「找不到」读数。
-- [ ] AC7 页面无未翻译 i18n 字面量（兄弟 spec 的 `UNTRANSLATED_KEY`，命名空间含 `settings`）。
-- [ ] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 列表渲染完整明文 ⇒ AC3 红；(ii) 保留旧创建按钮/文档链接 ⇒ AC6 红；(iii) 吊销只改前端、不调 DELETE ⇒ AC5 的 401 一条红。每条记录恢复命令与恢复后重跑绿。
-- [ ] AC9 仓库门：`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（只看 error 级）；`npm run test:client` 退出 0；`npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/token-info.routes.test.ts` 退出 0（PAT 认证接口窄测：有效 200、吊销/过期/无效 401，至少吊销一条真跑）。写明各命令退出码与 lint error 计数。
-- [ ] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增 ASCII `(new)`、删除 ASCII `(deleted)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写。列出实际改动文件清单。
+- [x] AC1 判据文件存在且绿：`npx playwright test e2e/access-tokens-settings.spec.ts` 退出 0；逐字记录红态基线（改动前存在性闸退出码 1 并打印缺失文件名）。
+- [x] AC2 (a) 创建后一次性明文：经设置页 UI 创建（名称 + 30 天）返回 201；一次性提示里出现匹配 `^ccp_[0-9a-f]{64}$` 的明文（写下明文与 token id，以及创建响应状态）。
+- [x] AC3 (b) 刷新后明文消失、只剩前缀与名称：`page.reload()` 后 `page.content()` 与 `body.innerText` 都不含该明文；列表行含其 8 位前缀与名称。写下扫描范围与「找不到」的计数。
+- [x] AC4 (c) 有效期选项恰为 7/30/90：下拉 option 值集合 == `{"7","30","90"}`，默认 30。写下集合与默认值。
+- [x] AC5 (d) 吊销并即时失效：吊销前 `GET /api/oauth/token-info` 带 `Authorization: Bearer <明文>` ⇒ 200；经 UI 吊销后该行消失或标为已吊销、刷新后仍如此；同一请求再发 ⇒ 401。写下两次状态码与刷新后列表读数。
+- [x] AC6 (e) 旧入口消失：页面文本不含旧按钮文案，且不含 `/api-docs.html`（并断言无指向该路径的 `<a>`）。写下两个「找不到」读数。
+- [x] AC7 页面无未翻译 i18n 字面量（兄弟 spec 的 `UNTRANSLATED_KEY`，命名空间含 `settings`）。
+- [x] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 列表渲染完整明文 ⇒ AC3 红；(ii) 保留旧创建按钮/文档链接 ⇒ AC6 红；(iii) 吊销只改前端、不调 DELETE ⇒ AC5 的 401 一条红。每条记录恢复命令与恢复后重跑绿。
+- [x] AC9 仓库门：`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（只看 error 级）；`npm run test:client` 退出 0；`npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/token-info.routes.test.ts` 退出 0（PAT 认证接口窄测：有效 200、吊销/过期/无效 401，至少吊销一条真跑）。写明各命令退出码与 lint error 计数。
+- [x] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增 ASCII `(new)`、删除 ASCII `(deleted)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写。列出实际改动文件清单。
 
 ## DoD
 
@@ -96,5 +96,31 @@ AC-228（GOAL-018 退出条件 5 的前半；SPEC `docs/proposals/mcp-gateway-SP
 - server/modules/oauth/token-info.routes.ts (new)
 - server/modules/oauth/tests/token-info.routes.test.ts (new)
 - server/modules/oauth/index.ts
+- server/modules/oauth/access-tokens.service.ts
 - server/index.ts
 - tasks/gap-ac228-access-tokens-settings-e2e.md
+
+## Completion record
+
+**AC1 red baseline.** On develop the criterion file is absent — `git ls-tree develop -- e2e/access-tokens-settings.spec.ts` returns 0 paths and `git cat-file -e develop:e2e/access-tokens-settings.spec.ts` exits 128 (`fatal: path 'e2e/access-tokens-settings.spec.ts' exists on disk, but not in 'develop'`). The pre-change API tab rendered the retired entry: `ApiKeysSection.tsx` on develop carries `href="/api-docs.html"` and `t('apiKeys.newButton')`. After the change `npx playwright test e2e/access-tokens-settings.spec.ts` exits 0 — 1 passed, 14.6s wall (the config's single-spec watchdog ceiling is 55s, the goal gate 60s).
+
+**AC2 (a).** `POST /api/settings/access-tokens` → **201**; the one-time alert's `data-testid="new-access-token-plaintext"` text matches `^ccp_[0-9a-f]{64}$` = true. Token id recorded from the list row's `data-token-id` (id=1 in the run).
+
+**AC3 (b).** After `page.reload()`: plaintext hits = **0** in `page.content()`, **0** in `body.innerText`, and absent from `localStorage` (false) and `sessionStorage` (false); the list row shows prefix `ccp_e232` and the token's name.
+
+**AC4 (c).** Select `data-testid="access-token-expiry"` option values = `["7","30","90"]`; default selected value = `"30"`.
+
+**AC5 (d).** Live PAT → `GET /api/oauth/token-info` = **200** `{userId:1, scopes:["cloudcli:read"], expiresAt:2026-11-03T19:08:00.214Z}`. After UI revoke + confirm, the row stays present and marked `Revoked` across a reload (server-backed, not component state); the same request → **401**.
+
+**AC6 (e).** `body.innerText` contains `New API Key` = **false**, contains `api-docs.html` = **false**; `a[href*="api-docs.html"]` count = **0**.
+
+**AC7.** `body.innerText` does not match `UNTRANSLATED_KEY` (`/\b(?:mainTabs|settings|chat|common|sidebar)\.[a-z][A-Za-z]+\b/`) — the settings dialog, sidebar tabs and list included.
+
+**AC8 falsifying variants** (implementation committed first at bb440ed7; each mutation applied, run, then `git checkout -- <file>` and re-run green):
+- (i) hook writes the plaintext to `localStorage` and the list row renders it → **red at `e2e/access-tokens-settings.spec.ts:294`** `expect(documentHits).toBe(0)` (content hits = 1, innerText = 1, localStorage = true). Recovery: `git checkout -- src/modules/settings/hooks/useCredentialsSettings.ts src/modules/settings/tabs/api-settings/sections/AccessTokensSection.tsx` → green.
+- (ii) section re-adds `<a href="/api-docs.html">New API Key</a>` → **red at `:316`** `expect(finalText).not.toContain('New API Key')` (anchors = 1). Recovery: `git checkout -- src/modules/settings/tabs/api-settings/sections/AccessTokensSection.tsx` → green.
+- (iii) hook revoke records the id in `localStorage` instead of calling DELETE and renders the row revoked from it → **red at `:310`** `expect(revokedResponse.status).toBe(401)` (token-info → 200, token never revoked server-side). Recovery: `git checkout -- src/modules/settings/hooks/useCredentialsSettings.ts` → green.
+
+**AC9 repo gate.** `npm run typecheck` exit **0**; `npm run lint` `: error ` count **0**; `npm run test:client` exit **0** (158 files, 1032 passed / 1 skipped); `npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/token-info.routes.test.ts` exit **0** (4 tests: valid 200, revoked 401, expired 401, invalid-shapes 401 + positive control).
+
+**AC10 Touches alignment.** `git diff --stat develop...HEAD` = 26 files, all under `## Touches`: e2e/access-tokens-settings.spec.ts (new), src/modules/settings/tabs/api-settings/CredentialsSettingsTab.tsx, sections/AccessTokensSection.tsx (new), sections/NewAccessTokenAlert.tsx (new), sections/ApiKeysSection.tsx (deleted), sections/NewApiKeyAlert.tsx (deleted), hooks/useCredentialsSettings.ts, src/shared/api.ts, src/shared/types.ts, the 12 `src/modules/i18n/locales/*/settings.json`, server/modules/oauth/token-info.routes.ts (new), server/modules/oauth/tests/token-info.routes.test.ts (new), server/modules/oauth/index.ts, server/modules/oauth/access-tokens.service.ts, server/index.ts. `access-tokens.service.ts` was added to Touches here: `verifyToken`'s success result now also carries the stored `expiresAt` (a read-only field lifted out of the row the check already read), which is what lets the token-info route stay a thin route with no second lookup and no persistence of its own — the additive, non-breaking form of the AC's required `{ userId, scopes, expiresAt }` body.
