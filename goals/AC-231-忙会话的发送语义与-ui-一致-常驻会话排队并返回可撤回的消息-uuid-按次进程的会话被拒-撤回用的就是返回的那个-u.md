@@ -1,7 +1,7 @@
 ---
 id: AC-231
 title: 忙会话的发送语义与 UI 一致：常驻会话排队并返回可撤回的消息 uuid，按次进程的会话被拒，撤回用的就是返回的那个 uuid
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-019
 criterion: for f in server/modules/websocket/tests/chat-control-busy.test.ts; do
@@ -25,6 +25,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-04T18:50:24.896Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
