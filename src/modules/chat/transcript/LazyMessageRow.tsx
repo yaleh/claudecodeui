@@ -16,12 +16,18 @@ import type { LazyRowObserver } from '@/modules/chat/hooks/useLazyRowObserver';
  * exists only inside a band around the viewport.
  *
  * The placeholder reuses the row's last measured height, so scrolling back
- * through previously seen content changes no scroll geometry at all; rows
- * never yet measured use an estimate and rely on browser scroll anchoring
- * while they settle.
+ * through previously seen content changes no scroll geometry at all. A row
+ * never yet measured has no such height, and a flat 100px stands in for it —
+ * which is 2.5× short for a tall conversation's paragraphs, so a jump that
+ * centres the target against those placeholders lands hundreds of pixels off.
+ * The estimate therefore comes from the transcript's own content model: the
+ * running average pixels a single message occupies, times how many messages the
+ * row stands for. `ESTIMATED_ROW_HEIGHT_PX` is only the fallback for a render
+ * that has no estimate yet (nothing measurable in the window, or a standalone
+ * render outside the pane).
  */
 
-/** Placeholder height for rows that have never been measured. */
+/** Placeholder height for rows that have never been measured and have no estimate to use. */
 const ESTIMATED_ROW_HEIGHT_PX = 100;
 
 type LazyMessageRowProps = {
@@ -44,6 +50,17 @@ type LazyMessageRowProps = {
    * placeholder and mounts when scrolled toward.
    */
   initiallyNearViewport: boolean;
+  /**
+   * The transcript's running average pixels per message, or 0 when nothing is
+   * measurable yet. A never-measured row's placeholder is `messageCount × this`,
+   * so an unmounted row stands in for roughly its real height.
+   */
+  estimatedHeightPerMessage?: number;
+  /**
+   * How many messages this row stands for — 1 for an ordinary row, the member
+   * count for a collapsed work segment (which is what the content model counts).
+   */
+  messageCount?: number;
   children: ReactNode;
 };
 
@@ -52,6 +69,8 @@ export default function LazyMessageRow({
   timestamp,
   anchorId,
   initiallyNearViewport,
+  estimatedHeightPerMessage = 0,
+  messageCount = 1,
   children,
 }: LazyMessageRowProps) {
   const [isNearViewport, setIsNearViewport] = useState(initiallyNearViewport);
@@ -92,13 +111,20 @@ export default function LazyMessageRow({
   // not a measurement and must not estimate the conversation).
   const heightIsKnown = isMounted || measuredHeight !== null;
 
+  // The placeholder for a row that has never been measured: the transcript's own
+  // average pixels per message, times the messages this row stands for. The flat
+  // constant is the fallback for a render with no estimate yet.
+  const placeholderHeight = estimatedHeightPerMessage > 0 && messageCount > 0
+    ? estimatedHeightPerMessage * messageCount
+    : ESTIMATED_ROW_HEIGHT_PX;
+
   return (
     <div
       ref={elementRef}
       data-message-timestamp={timestamp || undefined}
       data-message-anchor-id={anchorId || undefined}
       data-row-measured={heightIsKnown ? 'true' : undefined}
-      style={isMounted ? undefined : { height: measuredHeight ?? ESTIMATED_ROW_HEIGHT_PX }}
+      style={isMounted ? undefined : { height: measuredHeight ?? placeholderHeight }}
     >
       {isMounted ? children : null}
     </div>

@@ -16,6 +16,8 @@ import { createMessageHistoryRefreshCoordinator } from '@/modules/chat/utils/mes
 import { createCachedDiffCalculator } from '@/modules/chat/utils/messageTransforms';
 import { collapseMonitorEventRows, normalizedToChatMessages } from '@/modules/chat/hooks/useChatMessages';
 import { MIN_SNIPPET_LENGTH, findSearchTargetIndex, normalizeSearchSnippet, resolveSearchWindowSize } from '@/modules/chat/utils/searchTargetLocator';
+import { createJumpAnchorLock } from '@/modules/chat/utils/jumpAnchorLock';
+import type { JumpAnchorLock } from '@/modules/chat/utils/jumpAnchorLock';
 import { readSelectedProvider } from '@/shared/selectedProvider';
 import type { SearchTarget } from '@/modules/chat/utils/searchTargetLocator';
 
@@ -391,6 +393,17 @@ export function useChatSessionState({
    */
   const searchScrollFrameRef = useRef<number | null>(null);
   /**
+   * The correction window the jump opens once it has placed its target.
+   *
+   * The first write centres the target against the window's placeholders; the
+   * frames that follow replace those placeholders with real content and move the
+   * row, so the jump keeps correcting it until the window settles. Built once and
+   * reused — one lock serves one jump at a time. Its end releases the jump's claim
+   * on the viewport, whether the window timed out, the row left the DOM, or the
+   * user took the pane back.
+   */
+  const jumpLockRef = useRef<JumpAnchorLock | null>(null);
+  /**
    * `isUserScrolledUp` readable from a timer callback. Both deferred
    * scroll-to-bottom calls are armed while the user is at the bottom and fire
    * tens to hundreds of milliseconds later; without re-reading this at fire
@@ -468,6 +481,41 @@ export function useChatSessionState({
     container.scrollTop = next;
     lastPlacedTopRef.current = container.scrollTop;
   }, []);
+
+  /**
+   * Ends the jump's ownership of the viewport.
+   *
+   * Called when the jump cannot place its target at all, and — through the
+   * correction window's own end — when the window times out, the row leaves the
+   * DOM, or the user takes the pane back. The claim is what keeps the follow and
+   * the window readers off the scrollTop the jump is driving, so releasing it is
+   * the single point at which normal scrolling resumes.
+   */
+  const releaseJump = useCallback(() => {
+    searchScrollActiveRef.current = false;
+    if (searchScrollTimerRef.current) {
+      clearTimeout(searchScrollTimerRef.current);
+      searchScrollTimerRef.current = null;
+    }
+    if (searchScrollFrameRef.current !== null) {
+      cancelAnimationFrame(searchScrollFrameRef.current);
+      searchScrollFrameRef.current = null;
+    }
+    // Idempotent: a window that already ended is left alone, so this never fires
+    // the window's own end callback a second time.
+    jumpLockRef.current?.release();
+  }, []);
+
+  if (jumpLockRef.current === null) {
+    jumpLockRef.current = createJumpAnchorLock({
+      writeScrollTop,
+      onEnd: () => {
+        searchScrollActiveRef.current = false;
+        searchScrollTimerRef.current = null;
+        searchScrollFrameRef.current = null;
+      },
+    });
+  }
   const isLoadingMoreRef = useRef(false);
   /** Guards the detached-window's own newer-page read, the mirror of `isLoadingMoreRef`. */
   const isLoadingNewerRef = useRef(false);
@@ -1079,9 +1127,16 @@ export function useChatSessionState({
      * Real input: whatever the app wrote before this is no longer the newest
      * thing to have happened to the viewport, so the reports it owed stop being
      * owed. The wheel is the one handler that also carries a direction.
+     *
+     * A jump's correction window is ended here too, at the input: the window
+     * exists to hold the viewport still while the jumped-to window settles, and a
+     * gesture is the user saying they would rather it did not. Ending it at the
+     * input rather than at the next frame is what keeps the correction from
+     * pulling the pane back on top of the move the user just made.
      */
     const noteInput = () => {
       programmaticScrollEchoesRef.current = 0;
+      jumpLockRef.current?.release();
       noteUserScrollInput();
     };
     const onWheel = (event: WheelEvent) => {
@@ -1433,6 +1488,10 @@ export function useChatSessionState({
       cancelAnimationFrame(searchScrollFrameRef.current);
       searchScrollFrameRef.current = null;
     }
+    // A correction window belongs to the transcript it was opened on; the row it
+    // holds is about to leave the DOM, and its own `isConnected` check would only
+    // notice on the next frame.
+    jumpLockRef.current?.release();
     searchScrollActiveRef.current = false;
 
     pendingInitialScrollRef.current = true;
@@ -1762,6 +1821,10 @@ export function useChatSessionState({
     const sessionId = activeSessionIdRef.current;
     if (!sessionId || !anchorId) return;
 
+    // A superseding jump takes the viewport from the previous one: the old
+    // correction window is abandoned before the new claim is laid down, so its
+    // end callback cannot clear the claim this jump is about to make.
+    jumpLockRef.current?.release();
     searchScrollActiveRef.current = true;
     if (searchScrollTimerRef.current) {
       clearTimeout(searchScrollTimerRef.current);
@@ -1772,21 +1835,13 @@ export function useChatSessionState({
       searchScrollFrameRef.current = null;
     }
     const stillHere = () => isActiveRef.current && activeSessionIdRef.current === sessionId;
-    const release = () => {
-      searchScrollTimerRef.current = null;
-      if (searchScrollFrameRef.current !== null) {
-        cancelAnimationFrame(searchScrollFrameRef.current);
-        searchScrollFrameRef.current = null;
-      }
-      searchScrollActiveRef.current = false;
-    };
 
     try {
       const slot = await sessionStore.loadWindowAround(sessionId, anchorId, {
         before: JUMP_WINDOW_BEFORE,
         after: JUMP_WINDOW_AFTER,
       });
-      if (!stillHere()) return release();
+      if (!stillHere()) return releaseJump();
 
       setHasMoreMessages(slot.hasMore);
       setTotalMessages(slot.total);
@@ -1799,7 +1854,7 @@ export function useChatSessionState({
         normalizedToChatMessages(sessionStore.getMessages(sessionId)),
       );
       const targetIndex = projected.findIndex((message) => anchorIdOf(message) === anchorId);
-      if (targetIndex < 0) return release();
+      if (targetIndex < 0) return releaseJump();
 
       setVisibleMessageCount((previous) => Math.max(
         previous,
@@ -1812,9 +1867,10 @@ export function useChatSessionState({
       // fixed step's dead time.
       const placementDeadline = performance.now() + SEARCH_SCROLL_BUDGET_MS;
       const scrollToRenderedTarget = () => {
-        if (!stillHere()) return release();
+        searchScrollFrameRef.current = null;
+        if (!stillHere()) return releaseJump();
         const container = scrollContainerRef.current;
-        if (!container) return release();
+        if (!container) return releaseJump();
 
         const targetElement = findRenderedMessageElementById(container, anchorId);
         if (targetElement) {
@@ -1837,22 +1893,28 @@ export function useChatSessionState({
           isUserScrolledUpRef.current = true;
           targetElement.classList.add('search-highlight-flash');
           setTimeout(() => targetElement.classList.remove('search-highlight-flash'), 4000);
-          return release();
+          // The write above measured the target against the window's placeholders;
+          // the frames that follow replace them with real content and move it. The
+          // window keeps correcting until it settles, or until the user takes the
+          // pane back — and it is the window's own end that releases the jump's
+          // claim, so the follow resumes only once the target is really placed.
+          jumpLockRef.current?.start(container, targetElement);
+          return;
         }
 
         if (performance.now() < placementDeadline) {
           searchScrollFrameRef.current = requestAnimationFrame(scrollToRenderedTarget);
           return;
         }
-        return release();
+        return releaseJump();
       };
 
       searchScrollFrameRef.current = requestAnimationFrame(scrollToRenderedTarget);
     } catch (error) {
       console.error('Error jumping to a message:', error);
-      release();
+      releaseJump();
     }
-  }, [sessionStore, writeScrollTop]);
+  }, [releaseJump, sessionStore, writeScrollTop]);
 
   // Search navigation target: the sidebar hands a hit over as a snippet and a
   // timestamp on the session object. It is resolved to an anchor id against

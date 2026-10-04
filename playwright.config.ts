@@ -318,6 +318,11 @@ const SINGLE_SPEC_CEILING_MS = 55_000;
 /** Per-spec budgets that differ from `SINGLE_SPEC_CEILING_MS`. Keyed by basename so the rule holds from any cwd. */
 const SPEC_BUDGET_MS: Record<string, number> = {
   'mobile-workspace-composer-layout.spec.ts': 240_000,
+  // The landing criterion takes 24 real-mouse jumps (eight per viewport) and
+  // holds each one still for 1.5s before moving on, so its measured run is
+  // ~1-2 minutes — past the 55s single-file default, and declared here rather
+  // than left to be killed by the watchdog mid-case.
+  'transcript-jump-landing.spec.ts': 240_000,
 };
 
 /**
@@ -825,6 +830,130 @@ const seedTranscriptJumpTranscript = () => {
 
   fs.writeFileSync(
     path.join(transcriptDir, `${TRANSCRIPT_JUMP_SESSION_ID}.jsonl`),
+    `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
+    'utf8',
+  );
+};
+
+/** Workspace the tall-row seed owns; its own directory so no other spec's project list picks this session up. */
+const TRANSCRIPT_JUMP_TALL_WORKSPACE = path.join(dataDir, 'transcript-jump-tall-workspace');
+/** Session id the tall-row criterion addresses, and the display name it looks its sidebar row up by. */
+const TRANSCRIPT_JUMP_TALL_SESSION_ID = 'e2e-transcript-jump-tall';
+const TRANSCRIPT_JUMP_TALL_SESSION_NAME = 'transcript-jump-tall';
+/**
+ * User turns the tall fixture carries.
+ *
+ * Short of the shared long fixture's 1200 on purpose: this criterion clicks a
+ * real mouse at eight positions per viewport, and every jump is one `?around=`
+ * read plus a commit — 1200 turns would buy nothing the estimate cares about and
+ * only widen the window the tick column has to be walked across.
+ */
+const TRANSCRIPT_JUMP_TALL_TURNS = 300;
+/**
+ * The displayed number of the first of the two adjacent user turns that share
+ * one millisecond — the same tie the shared fixture carries, so the criterion's
+ * id-addressed landing is measured on a long-row session too.
+ */
+const TRANSCRIPT_JUMP_TALL_TIE_TURN = 150;
+
+/**
+ * Seeds the tall-row transcript e2e/transcript-jump-landing.spec.ts measures.
+ *
+ * The rows have to be tall and their placeholders short for the jump's own
+ * landing to be the thing under test. Every turn draws exactly two rows — the
+ * prompt and one assistant text — and the assistant text carries six markdown
+ * paragraphs, so at a tablet width it lays out around 250px against the 100px
+ * flat placeholder the pane used to stand in for it. A jump that centres on the
+ * tall row against those short stand-ins therefore has to be corrected by
+ * hundreds of pixels, which is the premise of the criterion.
+ *
+ * Every fifth turn adds a tool call (and its folded result, which the history
+ * reader attaches to the call rather than drawing again), so a drawn window is
+ * not uniformly text. The texts are plain paragraphs — no code blocks, tables or
+ * images — so nothing reflows after first paint and a measured height stays put.
+ * Nothing is stubbed: the file is a real Claude JSONL indexed by the backend's
+ * own synchronizer at boot, exactly like the shared long fixture beside it.
+ */
+const seedTranscriptJumpTallTranscript = () => {
+  fs.mkdirSync(TRANSCRIPT_JUMP_TALL_WORKSPACE, { recursive: true });
+  const transcriptDir = path.join(dataDir, '.claude', 'projects', 'transcript-jump-tall-workspace');
+  fs.mkdirSync(transcriptDir, { recursive: true });
+
+  const startedAt = Date.now();
+  // Long enough to wrap to a second line in the transcript's ~836px text column,
+  // so six of them read as the ~250px row the criterion needs; varied so a
+  // paragraph is not mistaken for its neighbour.
+  const paragraphs = [
+    'The transcript keeps a full paragraph of ordinary prose here, long enough that it wraps to a second line in the message column and contributes real height to the row that carries it. ',
+    'A second paragraph continues the thought without adding anything the layout has to reflow around, so the measured height of this row is stable from the first frame it is drawn in. ',
+    'Words accumulate one after another in the way prose does, and none of them is a code fence, a table, an image or a heading, so nothing about this row can change its shape after it has been measured. ',
+    'The third paragraph exists so the assistant turn is unmistakably taller than a single line of text and stands well clear of the flat placeholder that used to stand in for it before the row was measured. ',
+    'A fourth paragraph keeps the row tall while staying entirely plain: no emphasis that changes metrics, no links that reflow, no inline code whose font could shift the line box by a pixel or two. ',
+    'The fifth and sixth paragraphs close the turn, so every assistant row in this fixture is a multi-paragraph block and the running average the pane estimates from is dominated by tall rows rather than by prompts. ',
+  ];
+  const records: Record<string, unknown>[] = [];
+  let parentUuid: string | null = null;
+  let tick = 0;
+
+  /** One JSONL record. `timestampOverride` is how the tie pair shares a millisecond without sharing an id. */
+  const append = (
+    role: 'user' | 'assistant',
+    content: Record<string, unknown>[],
+    timestampOverride?: string,
+  ) => {
+    const uuid = `e2e-transcript-jump-tall-${tick}`;
+    const timestamp = timestampOverride ?? new Date(startedAt + tick * 1_000).toISOString();
+    records.push({
+      type: role,
+      uuid,
+      parentUuid,
+      sessionId: TRANSCRIPT_JUMP_TALL_SESSION_ID,
+      cwd: TRANSCRIPT_JUMP_TALL_WORKSPACE,
+      timestamp,
+      message: { role, content },
+    });
+    parentUuid = uuid;
+    tick += 1;
+    return timestamp;
+  };
+
+  let tieTimestamp: string | null = null;
+  for (let turn = 0; turn < TRANSCRIPT_JUMP_TALL_TURNS; turn += 1) {
+    const display = turn + 1;
+    // The tie: the 151st turn's prompt reuses the 150th's millisecond, with a uuid of its own.
+    const userTimestamp = display === TRANSCRIPT_JUMP_TALL_TIE_TURN + 1 && tieTimestamp !== null
+      ? tieTimestamp
+      : new Date(startedAt + tick * 1_000).toISOString();
+    append('user', [{ type: 'text', text: `Turn ${display}. ${paragraphs[0]}` }], userTimestamp);
+    if (display === TRANSCRIPT_JUMP_TALL_TIE_TURN) {
+      tieTimestamp = userTimestamp;
+    }
+
+    // ONE text block with interior blank lines: the history reader draws one row
+    // per block, and the row's markdown is what lays the paragraphs out.
+    append('assistant', [
+      { type: 'text', text: paragraphs.map((paragraph) => `${paragraph}(Turn ${display}.)`).join('\n\n') },
+    ]);
+
+    if (display % 5 === 0) {
+      const toolId = `e2e-transcript-jump-tall-tool-${display}`;
+      append('assistant', [
+        { type: 'tool_use', id: toolId, name: 'Bash', input: { command: `echo tall-${display}` } },
+      ]);
+      append('user', [{ type: 'tool_result', tool_use_id: toolId, content: `tall-${display} output` }]);
+    }
+  }
+
+  records.push({
+    type: 'custom-title',
+    sessionId: TRANSCRIPT_JUMP_TALL_SESSION_ID,
+    cwd: TRANSCRIPT_JUMP_TALL_WORKSPACE,
+    timestamp: new Date(startedAt + tick * 1_000).toISOString(),
+    customTitle: TRANSCRIPT_JUMP_TALL_SESSION_NAME,
+  });
+
+  fs.writeFileSync(
+    path.join(transcriptDir, `${TRANSCRIPT_JUMP_TALL_SESSION_ID}.jsonl`),
     `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
     'utf8',
   );
@@ -1567,6 +1696,7 @@ if (isDataDirOwner) {
   seedSessionFilterTranscripts();
   seedTranscriptFollowTranscript();
   seedTranscriptJumpTranscript();
+  seedTranscriptJumpTallTranscript();
   seedVoiceIdentifierWorkspace();
   seedVoiceTrimWorkspace();
   seedVoiceDashscopeWorkspace();

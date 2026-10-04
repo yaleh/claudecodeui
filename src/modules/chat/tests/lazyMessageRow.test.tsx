@@ -48,7 +48,15 @@ function fireIntersection(
   });
 }
 
-function Harness({ initiallyNearViewport }: { initiallyNearViewport: boolean }) {
+function Harness({
+  initiallyNearViewport,
+  estimatedHeightPerMessage,
+  messageCount,
+}: {
+  initiallyNearViewport: boolean;
+  estimatedHeightPerMessage?: number;
+  messageCount?: number;
+}) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const lazyRows = useLazyRowObserver(scrollContainerRef);
   return (
@@ -57,6 +65,8 @@ function Harness({ initiallyNearViewport }: { initiallyNearViewport: boolean }) 
         lazyRows={lazyRows}
         timestamp="2026-01-01T00:00:00.000Z"
         initiallyNearViewport={initiallyNearViewport}
+        estimatedHeightPerMessage={estimatedHeightPerMessage}
+        messageCount={messageCount}
       >
         <span data-testid="row-content">expensive content</span>
       </LazyMessageRow>
@@ -78,7 +88,61 @@ describe('LazyMessageRow', () => {
     expect(queryByTestId('row-content')).toBeNull();
     const wrapper = container.querySelector('[data-message-timestamp="2026-01-01T00:00:00.000Z"]');
     expect(wrapper).not.toBeNull();
-    expect((wrapper as HTMLElement).style.height).not.toBe('');
+    // With no estimate in hand the placeholder falls back to the flat constant.
+    expect((wrapper as HTMLElement).style.height).toBe('100px');
+  });
+
+  it('sizes a never-measured placeholder by the transcript estimate instead of the flat constant', () => {
+    vi.stubGlobal('IntersectionObserver', StubIntersectionObserver);
+
+    const { container } = render(
+      <Harness initiallyNearViewport={false} estimatedHeightPerMessage={250} messageCount={1} />,
+    );
+
+    const wrapper = container.querySelector('[data-message-timestamp="2026-01-01T00:00:00.000Z"]') as HTMLElement;
+    // One 250px message stands in at 250px, not the flat 100px that made a tall
+    // conversation's first centring land 150px short of the row's real height.
+    expect(wrapper.style.height).toBe('250px');
+  });
+
+  it('scales the estimate by the messages a collapsed row stands for', () => {
+    vi.stubGlobal('IntersectionObserver', StubIntersectionObserver);
+
+    const { container } = render(
+      <Harness initiallyNearViewport={false} estimatedHeightPerMessage={120} messageCount={4} />,
+    );
+
+    const wrapper = container.querySelector('[data-message-timestamp="2026-01-01T00:00:00.000Z"]') as HTMLElement;
+    expect(wrapper.style.height).toBe('480px');
+  });
+
+  it('prefers a measured height over the estimate once the row has been measured', () => {
+    vi.stubGlobal('IntersectionObserver', StubIntersectionObserver);
+
+    const { queryByTestId, container } = render(
+      <Harness initiallyNearViewport estimatedHeightPerMessage={250} />,
+    );
+    expect(queryByTestId('row-content')).not.toBeNull();
+
+    const observer = StubIntersectionObserver.instances[0];
+    const wrapper = observer.observed[0] as HTMLElement;
+    Object.defineProperty(wrapper, 'offsetHeight', { value: 412, configurable: true });
+
+    fireIntersection(observer, wrapper, false);
+
+    expect(queryByTestId('row-content')).toBeNull();
+    expect((container.querySelector('[data-message-timestamp]') as HTMLElement).style.height).toBe('412px');
+  });
+
+  it('falls back to the flat constant when the estimate is not usable', () => {
+    vi.stubGlobal('IntersectionObserver', StubIntersectionObserver);
+
+    const { container } = render(
+      <Harness initiallyNearViewport={false} estimatedHeightPerMessage={0} messageCount={3} />,
+    );
+
+    const wrapper = container.querySelector('[data-message-timestamp="2026-01-01T00:00:00.000Z"]') as HTMLElement;
+    expect(wrapper.style.height).toBe('100px');
   });
 
   it('unmounts to a placeholder of the measured height and remounts when near again', () => {

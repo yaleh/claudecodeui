@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, Ref, RefObject, SetStateAction } from 'react';
 
 import type { ChatMessage,
@@ -13,6 +13,8 @@ import { RESIDENT_PENDING_MESSAGE_TYPE } from '@/modules/chat/hooks/useChatMessa
 import { getIntrinsicMessageKey } from '@/modules/chat/utils/messageKeys';
 import { groupWorkSegments, isWorkSegment } from '@/modules/chat/utils/workSegments';
 import { findSearchTargetIndex } from '@/modules/chat/utils/searchTargetLocator';
+import { nextPxPerMessage } from '@/modules/chat/utils/contentHeightModel';
+import type { ContentRowInput } from '@/modules/chat/utils/contentHeightModel';
 import { useLazyRowObserver } from '@/modules/chat/hooks/useLazyRowObserver';
 import { findPendingForegroundTool } from '@/modules/chat/hooks/useActivityControls';
 import LazyMessageRow from '@/modules/chat/transcript/LazyMessageRow';
@@ -31,6 +33,102 @@ import ActivityIndicator from '@/modules/chat/composer/ActivityIndicator';
  * near the viewport. Covers a bit more than one screen of typical rows.
  */
 const INITIAL_MOUNTED_TAIL_ROWS = 30;
+
+/**
+ * How long a burst of row measurements is folded into the placeholder estimate.
+ *
+ * Rows mount and unmount on nearly every scroll frame, and each one changes the
+ * transcript's running average. Rebuilding on every frame would put a full-window
+ * height read in the frame path; the debounce lets one rebuild answer a burst —
+ * the same shape, and the same value, as the rail's own content rebuild.
+ */
+const PLACEHOLDER_ESTIMATE_DEBOUNCE_MS = 120;
+
+/** How many messages a transcript row stands for, from its own `data-transcript-row-messages`. */
+function rowMessageCount(row: HTMLElement): number {
+  const declared = Number.parseInt(
+    row.querySelector<HTMLElement>('[data-transcript-row-messages]')?.dataset.transcriptRowMessages ?? '1',
+    10,
+  );
+  return Number.isFinite(declared) && declared > 0 ? declared : 1;
+}
+
+/**
+ * The transcript's running average pixels per message, for sizing the
+ * placeholders of rows that have never been measured.
+ *
+ * Read off the loaded rows the pane has actually measured, through the same
+ * `nextPxPerMessage` model the rail and the drawn scrollbar use — so the height
+ * a placeholder occupies and the height the scrollbar draws it at are one
+ * estimate, not two. Rows are re-read when the content column mutates (a row
+ * mounting, unmounting or recording its measured height) and when the pane
+ * resizes, debounced so a burst of mounts costs one read.
+ *
+ * `0` means nothing is measurable yet; the caller falls back to the row's own
+ * constant. Once a single row has been measured this bootstraps to the model's
+ * own default and never returns to `0`, which is what keeps a placeholder from
+ * flickering between two sizes.
+ */
+function useTranscriptPxPerMessage(scrollContainerRef: RefObject<HTMLDivElement>): number {
+  const [pxPerMessage, setPxPerMessage] = useState(0);
+  const runningRef = useRef(0);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return undefined;
+
+    const measure = () => {
+      const contentEl = container.querySelector<HTMLElement>('[data-transcript-content]');
+      if (!contentEl) return;
+      const rows = (Array.from(contentEl.children) as HTMLElement[]).filter((row) =>
+        row.hasAttribute('data-message-timestamp'),
+      );
+      const inputs: ContentRowInput[] = rows.map((row) => {
+        const height = row.offsetHeight;
+        return {
+          messages: rowMessageCount(row),
+          measured: row.hasAttribute('data-row-measured') && height > 0,
+          height,
+        };
+      });
+      const next = nextPxPerMessage(runningRef.current, inputs);
+      runningRef.current = next;
+      setPxPerMessage((previous) => (Math.abs(previous - next) > 0.5 ? next : previous));
+    };
+
+    measure();
+    const frame = requestAnimationFrame(measure);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const schedule = () => {
+      if (timer !== null) return;
+      timer = setTimeout(() => {
+        timer = null;
+        measure();
+      }, PLACEHOLDER_ESTIMATE_DEBOUNCE_MS);
+    };
+    // jsdom ships no MutationObserver in some environments; there the mount
+    // measurement and the resize listener below are the only remeasurement.
+    const observer = typeof MutationObserver === 'undefined' ? null : new MutationObserver(schedule);
+    observer?.observe(container, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['style', 'data-row-measured'],
+    });
+    const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule);
+    resizeObserver?.observe(container);
+    window.addEventListener('resize', schedule);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer?.disconnect();
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', schedule);
+      if (timer !== null) clearTimeout(timer);
+    };
+  }, [scrollContainerRef]);
+
+  return pxPerMessage;
+}
 
 /**
  * The default for `onToggleResident`, for a render that supplies no toggler.
@@ -195,6 +293,9 @@ function ChatMessagesPane({
   const { t } = useTranslation('chat');
   const activeSessionId = currentSessionId ?? selectedSession?.id ?? null;
   const lazyRows = useLazyRowObserver(scrollContainerRef);
+  // The placeholder estimate for never-measured rows: without it a jump centres
+  // the target against 100px stand-ins in a conversation whose rows are 250px.
+  const pxPerMessage = useTranscriptPxPerMessage(scrollContainerRef);
   const groupedVisibleMessages = useMemo(
     () => groupWorkSegments(visibleMessages),
     [visibleMessages],
@@ -468,6 +569,8 @@ function ChatMessagesPane({
                     timestamp={anchorTimestamp}
                     anchorId={item.messages[0]?.transcriptAnchorId}
                     initiallyNearViewport={initiallyNearViewport}
+                    estimatedHeightPerMessage={pxPerMessage}
+                    messageCount={item.messages.length}
                   >
                     {/* The scrollbar's drawn length is a share of how much of the
                         conversation the viewport shows, and a collapsed segment
@@ -527,6 +630,7 @@ function ChatMessagesPane({
                   timestamp={item.timestamp}
                   anchorId={item.transcriptAnchorId}
                   initiallyNearViewport={initiallyNearViewport}
+                  estimatedHeightPerMessage={pxPerMessage}
                 >
                   <MessageComponent
                     message={item}
