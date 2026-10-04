@@ -198,3 +198,17 @@ $ grep -n "createChatControlService(" server/index.ts
 - `abort` 在控制服务内、紧随 provider 应答发射终止 `complete`（与旧内联 handler 同一回合），以保持 codex 等 in-process 生成器释放时的「恰好一个 complete / aborted 语义」与基线一致；「无活动运行」的判定仍在 WS handler 侧先行（其对 registry 的读与旧实现同位置，避免与控制服务异步边界竞态）。
 - 边界差异：`chat.cancel-queued` 对**会话不存在**的输入，现返回 `queued_input_cancel_result{result:'unknown'}`（AC-232 固定的 `HostQueuedInputCancelResult | 'forbidden'` 契约不含 `SESSION_NOT_FOUND`），旧为 `protocol_error{SESSION_NOT_FOUND}`；无既有判据依赖该帧，其余字段/文案不变。
 - 未实现 AC-234/235/236；未改协议与 `chat.subscribe` 帧序。
+
+### 本轮（suite-red 修复）：`chat.send` 拒绝帧恢复同 tick 发射
+本轮 fan-in 全量 suite 唯一红：`server/modules/providers/tests/claude-resident-busy-input.test.ts`，`AssertionError [ERR_ASSERTION]: the positive control: a per-run session must still refuse a busy send (got null)`，期望 `'RUN_IN_PROGRESS'`（读数行 `withdrawnSendRefusal=null perRunBusyCode=null`）。
+
+根因：旧 `handleChatSend` 走 `await dispatchRun(ws, …)`，而 `dispatchRun` 的 `RUN_IN_PROGRESS` 拒绝分支在**其首个 `await` 之前**同步写帧，所以该帧在 `socket.emit('message')` 返回时已落在 socket 上（该判据 `send()` 帮手同步读取拒绝码）。改经 `control.send` 后，拒绝决定被推过至少一个微任务，帧晚到，同步读得 `null`；该判据其余读数（accepted 分支的 `roundOneRefusal`/`busySends`/`withdrawnSendRefusal` 为 null）与全量 suite 的其余 355 项均不受影响。
+
+修法（行为保全；控制服务仍 transport-free——它只做通知、不构造帧、不发帧）：`SendInput` 增可选 `onRefuse?: (refusal: { code; message }) => void`；`send` 在三处同步早退（`FORBIDDEN` / `SESSION_NOT_FOUND` / `UNSUPPORTED_PROVIDER`）与 `dispatchRun` 的 `RUN_IN_PROGRESS` 分支（给 `dispatchRun` 增可选 `onRefuse` 形参）调用它；`handleChatSend` 传入回调并以 `refusedSync` 去重，使拒绝帧恢复同一 tick 发射（与 develop 旧内联处理器同刻）。每个拒绝都在首个 `await` 之前同步判定，故通知确为真同步。三个处理器函数体仍无 `dispatchRun`/`.abort(`/`.cancelQueuedInput(`，假 runtime 仍零直触（判据 (a)/(c) 逐字不变）。
+
+验证：
+- `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-busy-input.test.ts` → `pass 1 / fail 0`，`[readings] perRunBusyCode=RUN_IN_PROGRESS`（修复前同一命令 `fail 1`，`perRunBusyCode=null`）。
+- `server/modules/websocket/tests/*.test.ts` + `server/modules/scheduled-messages/tests/*.test.ts` → `101 / pass 101 / fail 0`；`claude-resident-*.test.ts` → `27 / pass 27 / fail 0`；`chat-control-*` / `chat-stop-task` / `chat-background-task` / `chat-control-ownership` / `scheduled-messages` 合跑 `45 / pass 45 / fail 0`。
+- scoped 门 `bash scripts/test.sh --for-task gap-ac233-control-single-instance-wiring --allow-thin` → `2 / pass 2 / fail 0`；scoped-gate 缓存已写（developSha `54ba0f80…`）。
+- `npx tsc -p server/tsconfig.json --noEmit` → exit 0；`npm run lint` → `: error ` 计数 0。
+- 只改 `## Touches` 内两文件（`chat-control.service.ts`、`chat-websocket.service.ts`），无新增文件；提交 `5cc59b4a`。
