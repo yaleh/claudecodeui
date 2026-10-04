@@ -5,6 +5,10 @@ export { initializeDatabase } from '@/modules/database/init-db.js';
 export { runMigrations } from '@/modules/database/migrations.js';
 export { closeConnection, getConnection, getDatabasePath } from '@/modules/database/connection.js';
 export { apiKeysDb } from '@/modules/database/repositories/api-keys.js';
+// accessTokensDb: used by the OAuth module to persist personal access tokens
+// (hash + prefix only) and their expiry/revocation state.
+export { accessTokensDb } from '@/modules/database/repositories/access-tokens.js';
+export type { AccessTokenRow, InsertAccessTokenInput } from '@/modules/database/repositories/access-tokens.js';
 export { appConfigDb } from '@/modules/database/repositories/app-config.js';
 export { credentialsDb } from '@/modules/database/repositories/credentials.js';
 export { githubTokensDb } from '@/modules/database/repositories/github-tokens.js';

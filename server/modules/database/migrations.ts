@@ -4,6 +4,7 @@ import { Database } from 'better-sqlite3';
 
 import { isSelfAssignedSessionName, stripSelfAssignedSuffix } from '@/modules/database/repositories/sessions.db.js';
 import {
+  ACCESS_TOKENS_TABLE_SCHEMA_SQL,
   APP_CONFIG_TABLE_SCHEMA_SQL,
   LAST_SCANNED_AT_SQL,
   NOTIFICATION_CHANNEL_ENDPOINTS_TABLE_SCHEMA_SQL,
@@ -890,6 +891,9 @@ export const runMigrations = (db: Database) => {
     addSessionLifecycleModeColumn(db);
     ensureProjectsForSessionPaths(db);
     db.exec(SCHEDULED_MESSAGES_TABLE_SCHEMA_SQL);
+    // PAT storage for the OAuth module (mcp-gateway-SPEC stage 0). Only the
+    // table: its repository and service live in database/repositories and oauth.
+    db.exec(ACCESS_TOKENS_TABLE_SCHEMA_SQL);
 
     db.exec('CREATE INDEX IF NOT EXISTS idx_session_ids_lookup ON sessions(session_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_provider_session_id ON sessions(provider_session_id)');

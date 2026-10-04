@@ -2,7 +2,7 @@
 id: gap-ac224-access-token-service
 title: AC-224 访问令牌只存哈希：令牌服务（签发/校验/吊销/过期/scope）落地，判据
   server/modules/oauth/tests/access-tokens.service.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
