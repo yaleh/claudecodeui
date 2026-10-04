@@ -23,7 +23,7 @@ import {
     stopClaudeSessionScopes,
     sweepOrphanClaudeSessionScopes,
 } from '@/modules/providers/index.js';
-import { activityStore, chatRunRegistry, createActivityRouter, createWebSocketServer } from '@/modules/websocket/index.js';
+import { activityStore, chatRunRegistry, createActivityRouter, createChatControlService, createWebSocketServer } from '@/modules/websocket/index.js';
 import { createSessionHostsRouter, sessionHostManager } from '@/modules/session-hosts/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
@@ -109,6 +109,13 @@ const gitRoutes = createGitModule({
     queryCursor,
 });
 
+// The single chat control service every front end shares. Built here — the one
+// composition root — before the WebSocket server exists, so the *same* instance
+// is handed to the gateway's chat verbs and to the scheduled-message timer.
+// Neither consumer constructs one of its own; a second instance would give each
+// a separate control plane behind one protocol.
+const chatControl = createChatControlService({ runtime: providerRuntimeService });
+
 // Single WebSocket server that handles chat, shell, and plugin proxy paths.
 createWebSocketServer(server, {
     verifyClient: {
@@ -117,6 +124,7 @@ createWebSocketServer(server, {
     },
     chat: {
         runtime: providerRuntimeService,
+        control: chatControl,
     },
     shell: {
         resolveProviderSessionId: (sessionId, provider) => {
@@ -585,8 +593,9 @@ async function startServer() {
             // Start watching the projects folder for changes
             await initializeSessionsWatcher();
             // Sends anything that came due while the server was not running,
-            // then keeps polling.
-            initializeScheduledMessageDispatcher(providerRuntimeService);
+            // then keeps polling. Handed the same control service the WebSocket
+            // gateway uses, so a scheduled turn is a run the UI can watch.
+            initializeScheduledMessageDispatcher(chatControl);
 
             // Start server-side plugin processes for enabled plugins
             startEnabledPluginServers().catch(err => {

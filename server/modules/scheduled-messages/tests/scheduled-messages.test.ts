@@ -7,7 +7,7 @@ import test from 'node:test';
 import { closeConnection, initializeDatabase, scheduledMessagesDb, sessionDraftsDb, sessionsDb, userDb } from '@/modules/database/index.js';
 import { dispatchDueScheduledMessages, dispatchQueuedMessages } from '@/modules/scheduled-messages/services/scheduled-message-dispatcher.service.js';
 import { scheduledMessagesService } from '@/modules/scheduled-messages/services/scheduled-messages.service.js';
-import { chatRunRegistry } from '@/modules/websocket/index.js';
+import { chatRunRegistry, createChatControlService } from '@/modules/websocket/index.js';
 
 const SESSION_ID = 'scheduled-session';
 
@@ -37,20 +37,36 @@ async function withIsolatedDatabase(runTest: (userId: number) => void | Promise<
 
 type RunCall = { provider: string; command: string; options: Record<string, unknown> };
 
-function createRuntime(runs: RunCall[], behaviour: 'ok' | 'throw' = 'ok', aborts: string[] = []) {
-  return {
-    hasRuntime: () => true,
-    run: async (provider: string, command: string, options: Record<string, unknown>) => {
-      if (behaviour === 'throw') {
-        throw new Error('provider exploded');
-      }
-      runs.push({ provider, command, options });
-    },
-    abort: async (_provider: string, sessionId: string) => {
-      aborts.push(sessionId);
-      return true;
-    },
-  } as never;
+/**
+ * The shared control service the dispatcher now drives, built over a fake
+ * runtime so the assertions can still read the provider calls it makes.
+ *
+ * Migration (AC-233): the dispatcher no longer takes a runtime gateway — it
+ * takes the chat control service both the WebSocket gateway and the timer share
+ * — so this helper assembles a *real* control service over the fake runtime.
+ * The old seam (`createRuntime` returning a runtime gateway) becomes the new one
+ * (`createControl` returning `createChatControlService({ runtime })`). Every
+ * assertion below still reads the same facts, through the same production
+ * dispatch path: `runs` / `aborts` / draft and status bookkeeping are captured
+ * exactly as before, and the added `completion` await only reflects the barrier
+ * the old `runDetachedChatTurn` already held. Assertion strength is unchanged.
+ */
+function createControl(runs: RunCall[], behaviour: 'ok' | 'throw' = 'ok', aborts: string[] = []) {
+  return createChatControlService({
+    runtime: {
+      hasRuntime: () => true,
+      run: async (provider: string, command: string, options: Record<string, unknown>) => {
+        if (behaviour === 'throw') {
+          throw new Error('provider exploded');
+        }
+        runs.push({ provider, command, options });
+      },
+      abort: async (_provider: string, sessionId: string) => {
+        aborts.push(sessionId);
+        return true;
+      },
+    } as never,
+  });
 }
 
 test('a message due in the past is sent on the next pass, not skipped', async () => {
@@ -64,7 +80,7 @@ test('a message due in the past is sent on the next pass, not skipped', async ()
     });
 
     const runs: RunCall[] = [];
-    const sent = await dispatchDueScheduledMessages(createRuntime(runs));
+    const sent = await dispatchDueScheduledMessages(createControl(runs));
 
     assert.equal(sent, 1);
     assert.equal(runs.length, 1);
@@ -85,7 +101,7 @@ test('a queued message is sent by the server without a browser connection', asyn
     });
 
     const runs: RunCall[] = [];
-    assert.equal(await dispatchQueuedMessages(createRuntime(runs)), 1);
+    assert.equal(await dispatchQueuedMessages(createControl(runs)), 1);
     assert.equal(runs.length, 1);
     assert.equal(runs[0].command, 'continue on the VPS');
     assert.equal(runs[0].options.model, 'claude-opus-5');
@@ -109,7 +125,7 @@ test('a queued message stays pending while its session is busy', async () => {
     });
 
     const runs: RunCall[] = [];
-    assert.equal(await dispatchQueuedMessages(createRuntime(runs)), 0);
+    assert.equal(await dispatchQueuedMessages(createControl(runs)), 0);
     assert.equal(runs.length, 0);
     assert.deepEqual(sessionDraftsDb.getDrafts(userId)[0]?.queuedMessage, {
       content: 'send after this run',
@@ -135,7 +151,7 @@ test('a due message interrupts a run in progress instead of failing', async () =
 
     const runs: RunCall[] = [];
     const aborts: string[] = [];
-    assert.equal(await dispatchDueScheduledMessages(createRuntime(runs, 'ok', aborts)), 1);
+    assert.equal(await dispatchDueScheduledMessages(createControl(runs, 'ok', aborts)), 1);
 
     assert.deepEqual(aborts, [SESSION_ID]);
     assert.equal(runs.length, 1);
@@ -154,7 +170,7 @@ test('a message that is not due yet is left alone', async () => {
     });
 
     const runs: RunCall[] = [];
-    assert.equal(await dispatchDueScheduledMessages(createRuntime(runs)), 0);
+    assert.equal(await dispatchDueScheduledMessages(createControl(runs)), 0);
     assert.equal(runs.length, 0);
     assert.equal(scheduledMessagesDb.listForSession(userId, SESSION_ID)[0].status, 'pending');
   });
@@ -170,7 +186,7 @@ test('a due message is claimed once, so overlapping passes cannot double-send it
     });
 
     const runs: RunCall[] = [];
-    const runtime = createRuntime(runs);
+    const runtime = createControl(runs);
     await Promise.all([
       dispatchDueScheduledMessages(runtime),
       dispatchDueScheduledMessages(runtime),
@@ -191,7 +207,7 @@ test('the composer settings it was scheduled with travel with it', async () => {
     });
 
     const runs: RunCall[] = [];
-    await dispatchDueScheduledMessages(createRuntime(runs));
+    await dispatchDueScheduledMessages(createControl(runs));
 
     assert.equal(runs[0].options.model, 'claude-opus-5');
     assert.equal(runs[0].options.permissionMode, 'plan');
@@ -207,7 +223,7 @@ test('a provider failure is recorded on the message instead of vanishing', async
       scheduledFor: new Date(Date.now() - 1_000).toISOString(),
     });
 
-    await dispatchDueScheduledMessages(createRuntime([], 'throw'));
+    await dispatchDueScheduledMessages(createControl([], 'throw'));
 
     const row = scheduledMessagesDb.listForSession(userId, SESSION_ID)[0];
     assert.equal(row.status, 'failed');
@@ -226,7 +242,7 @@ test('a cancelled message never fires', async () => {
     scheduledMessagesService.cancel(userId, scheduled.id);
 
     const runs: RunCall[] = [];
-    assert.equal(await dispatchDueScheduledMessages(createRuntime(runs)), 0);
+    assert.equal(await dispatchDueScheduledMessages(createControl(runs)), 0);
     assert.equal(runs.length, 0);
   });
 });
@@ -239,7 +255,7 @@ test('a failed message can be dismissed, and stays dismissed', async () => {
       content: 'will fail',
       scheduledFor: new Date(Date.now() - 1_000).toISOString(),
     });
-    await dispatchDueScheduledMessages(createRuntime([], 'throw'));
+    await dispatchDueScheduledMessages(createControl([], 'throw'));
     assert.equal(scheduledMessagesDb.listForSession(userId, SESSION_ID)[0].status, 'failed');
 
     scheduledMessagesService.cancel(userId, scheduled.id);
@@ -256,7 +272,7 @@ test('cancelling something that already fired is refused', async () => {
       content: 'gone',
       scheduledFor: new Date(Date.now() - 1_000).toISOString(),
     });
-    await dispatchDueScheduledMessages(createRuntime([]));
+    await dispatchDueScheduledMessages(createControl([]));
 
     assert.throws(
       () => scheduledMessagesService.cancel(userId, scheduled.id),

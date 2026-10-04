@@ -1,7 +1,19 @@
 import { scheduledMessagesDb, sessionDraftsDb } from '@/modules/database/index.js';
 import type { QueuedSessionMessageRecord, ScheduledMessageRow } from '@/modules/database/index.js';
-import { chatRunRegistry, runDetachedChatTurn } from '@/modules/websocket/index.js';
-import type { ProviderRuntimeGateway } from '@/modules/websocket/index.js';
+import { chatRunRegistry } from '@/modules/websocket/index.js';
+import type { createChatControlService } from '@/modules/websocket/index.js';
+
+/**
+ * The slice of the process-wide chat control service the dispatcher drives.
+ *
+ * A scheduled turn and an interactive `chat.send` must be the *same* run — same
+ * registry, same busy semantics, same abort path — so the timer does not get a
+ * dispatch path of its own; it takes the shared control service the composition
+ * root builds (`server/index.ts`) and calls its `send`, exactly as the WebSocket
+ * gateway does. Only `send` is named here: a timer sends, it does not abort or
+ * withdraw, and narrowing the seam keeps the wiring criterion's spy honest.
+ */
+type ScheduledMessageControl = Pick<ReturnType<typeof createChatControlService>, 'send'>;
 
 /**
  * How often due messages are looked for.
@@ -54,7 +66,7 @@ function readQueuedMessage(value: unknown): StoredQueuedMessage | null {
 
 async function sendClaimedQueuedMessage(
   candidate: QueuedSessionMessageRecord,
-  runtime: ProviderRuntimeGateway,
+  control: ScheduledMessageControl,
 ): Promise<void> {
   const message = readQueuedMessage(candidate.queuedMessage);
   if (!message) {
@@ -62,27 +74,37 @@ async function sendClaimedQueuedMessage(
     return;
   }
 
-  const result = await runDetachedChatTurn(
+  const result = await control.send(
+    { userId: candidate.userId, via: 'scheduled' },
     {
       sessionId: candidate.sessionId,
-      userId: candidate.userId,
       content: message.content,
       options: { ...message.options, attachments: message.attachments },
     },
-    { runtime },
   );
 
   // The registry check and run reservation are separate operations. If a run
   // wins that tiny race, put the turn back so the next poll tries again.
-  if (!result.started && result.error === 'A run was already in progress for this session.') {
-    sessionDraftsDb.restoreQueuedMessage(candidate);
+  if (!result.ok) {
+    if (result.code === 'RUN_IN_PROGRESS') {
+      sessionDraftsDb.restoreQueuedMessage(candidate);
+      return;
+    }
+    sessionDraftsDb.deleteEmptyDraft(candidate.userId, candidate.sessionId);
     return;
   }
+
+  // Wait for the turn to settle — the same barrier the old detached-turn helper
+  // gave — so a queued message is not retired from the drafts table while its
+  // run is still being admitted. The failure itself is not recorded here: a
+  // queue entry that the provider drops is re-tried by a later draft save, not
+  // surfaced as a failed schedule.
+  await result.completion;
   sessionDraftsDb.deleteEmptyDraft(candidate.userId, candidate.sessionId);
 }
 
 /** Sends every persisted queued turn whose session is currently idle. */
-export async function dispatchQueuedMessages(runtime: ProviderRuntimeGateway): Promise<number> {
+export async function dispatchQueuedMessages(control: ScheduledMessageControl): Promise<number> {
   const candidates = sessionDraftsDb.listQueuedMessages();
   let claimed = 0;
 
@@ -94,7 +116,7 @@ export async function dispatchQueuedMessages(runtime: ProviderRuntimeGateway): P
       return;
     }
     claimed += 1;
-    await sendClaimedQueuedMessage(candidate, runtime);
+    await sendClaimedQueuedMessage(candidate, control);
   }));
 
   return claimed;
@@ -102,13 +124,13 @@ export async function dispatchQueuedMessages(runtime: ProviderRuntimeGateway): P
 
 async function sendClaimedMessage(
   row: ScheduledMessageRow,
-  runtime: ProviderRuntimeGateway,
+  control: ScheduledMessageControl,
 ): Promise<void> {
   try {
-    const result = await runDetachedChatTurn(
+    const result = await control.send(
+      { userId: row.user_id, via: 'scheduled' },
       {
         sessionId: row.session_id,
-        userId: row.user_id,
         content: row.content,
         options: readOptions(row.options),
         // The user picked this time on purpose; a run that happens to be going
@@ -116,15 +138,23 @@ async function sendClaimedMessage(
         // of being recorded as "not sent — session was busy".
         interruptActiveRun: true,
       },
-      { runtime },
     );
 
-    // Recorded rather than retried, and recorded whether the run never started
-    // (deleted session, unavailable provider) or started and then failed.
-    // Silently dropping a message the user scheduled is worse than telling
-    // them it did not go.
-    if (!result.started || result.error) {
-      scheduledMessagesDb.markFailed(row.id, result.error ?? 'The session was unavailable when this was due.');
+    if (!result.ok) {
+      // Refused before any run was registered: a deleted session, an
+      // unavailable provider, a run the provider would not supersede. The
+      // refusal's own message is what the user is told.
+      scheduledMessagesDb.markFailed(row.id, result.message);
+      return;
+    }
+
+    // Registered; wait for the provider turn to settle so a failure *after*
+    // registration is recorded on the row rather than vanishing. Silently
+    // dropping a message the user scheduled is worse than telling them it did
+    // not go.
+    const outcome = await result.completion;
+    if (!outcome.started || outcome.error) {
+      scheduledMessagesDb.markFailed(row.id, outcome.error ?? 'The session was unavailable when this was due.');
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -138,7 +168,7 @@ async function sendClaimedMessage(
  * Exported so a test can drive one pass without waiting on the timer.
  */
 export async function dispatchDueScheduledMessages(
-  runtime: ProviderRuntimeGateway,
+  control: ScheduledMessageControl,
   now: Date = new Date(),
 ): Promise<number> {
   // Claimed before any of them runs, so a long turn cannot let the next poll
@@ -151,7 +181,7 @@ export async function dispatchDueScheduledMessages(
   // Sequentially: a session can only have one run at a time, and two due
   // messages for the same session must not race each other into it.
   for (const row of due) {
-    await sendClaimedMessage(row, runtime);
+    await sendClaimedMessage(row, control);
   }
 
   return due.length;
@@ -164,7 +194,7 @@ export async function dispatchDueScheduledMessages(
  * restart and one that came due while the server was down is sent on the first
  * poll after it comes back, rather than being skipped.
  */
-export function initializeScheduledMessageDispatcher(runtime: ProviderRuntimeGateway): void {
+export function initializeScheduledMessageDispatcher(control: ScheduledMessageControl): void {
   if (pollTimer) {
     return;
   }
@@ -176,8 +206,8 @@ export function initializeScheduledMessageDispatcher(runtime: ProviderRuntimeGat
       return;
     }
     dispatchInFlight = true;
-    void dispatchDueScheduledMessages(runtime)
-      .then(() => dispatchQueuedMessages(runtime))
+    void dispatchDueScheduledMessages(control)
+      .then(() => dispatchQueuedMessages(control))
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
         console.error('[ScheduledMessages] Dispatch pass failed', { error: message });

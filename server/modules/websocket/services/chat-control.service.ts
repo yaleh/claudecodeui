@@ -9,7 +9,12 @@ import {
   dispatchRun,
 } from '@/modules/websocket/services/chat-websocket.service.js';
 import type { ProviderRuntimeGateway } from '@/modules/websocket/services/chat-websocket.service.js';
-import type { AnyRecord, HostQueuedInputCancelResult, LLMProvider } from '@/shared/types.js';
+import type {
+  AnyRecord,
+  HostQueuedInputCancelResult,
+  LLMProvider,
+  RealtimeClientConnection,
+} from '@/shared/types.js';
 
 /**
  * Who asked for a control action, and through which front end.
@@ -42,6 +47,19 @@ type SendInput = {
   content: string;
   options?: AnyRecord;
   interruptActiveRun?: boolean;
+  /**
+   * The transport handle a socket front end wants this run's frames streamed
+   * to, or `null`/absent for a caller with no live client (scheduled, and the
+   * MCP gateway's tools).
+   *
+   * The control service is transport-free and never sends a frame itself, but a
+   * run is only readable live by the socket that asked for it (`chat.send` binds
+   * the requesting socket as the run's connection). The WebSocket adapter
+   * therefore passes its socket here so the run it dispatches reaches the same
+   * audience the old inline `chat.send` did; a timer passes nothing, and the run
+   * simply has no live audience until someone subscribes.
+   */
+  connection?: RealtimeClientConnection | null;
 };
 
 /**
@@ -63,7 +81,23 @@ type SendInput = {
  * frame, the MCP gateway into an `isError` tool result).
  */
 type SendResult =
-  | { ok: true; runId: string; queued: boolean; queuedMessageUuid: string | null }
+  | {
+      ok: true;
+      runId: string;
+      queued: boolean;
+      queuedMessageUuid: string | null;
+      /**
+       * A promise for the run's own outcome, resolving when the provider turn
+       * settles. It is *not* awaited by `send` — the run is already admitted and
+       * keeps going — but it is handed back so a caller that must report a
+       * failure has somewhere to read it from: the scheduled dispatcher records
+       * a failed delivery on the message row, and a crash after registration
+       * would otherwise be invisible to it (`send` resolves before the provider
+       * has run). `error` is the provider runtime's own failure text, or `null`
+       * when the turn completed.
+       */
+      completion: Promise<{ started: boolean; error: string | null }>;
+    }
   | {
       ok: false;
       code: 'SESSION_NOT_FOUND' | 'UNSUPPORTED_PROVIDER' | 'RUN_IN_PROGRESS' | 'FORBIDDEN';
@@ -311,6 +345,11 @@ export function createChatControlService(deps: ChatControlDependencies) {
     // and settled rather than propagated, because a failure *after* the run was
     // admitted is the run's business, not this call's result.
     const dispatchPromise = dispatchRun(
+      // `ws` is deliberately `null`: the run's refusal is reported as this
+      // call's result (translated by the adapter), never as a frame written
+      // inside `dispatchRun`, so passing the socket here would double-send a
+      // `RUN_IN_PROGRESS` frame. The socket still binds to the run — as the
+      // connection override below — so its frames stream to the requesting client.
       null,
       caller.userId,
       input.sessionId,
@@ -322,6 +361,7 @@ export function createChatControlService(deps: ChatControlDependencies) {
         busyAccepted = info.busyAccepted;
         resolveRunId(run.runId);
       },
+      input.connection ?? null,
     ).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       console.error(
@@ -349,10 +389,10 @@ export function createChatControlService(deps: ChatControlDependencies) {
       // with comes from the provider, never minted here, because only that uuid
       // can be withdrawn later; a gateway with no such seam degrades to `null`.
       const queuedMessageUuid = await readQueuedMessageUuid(deps.runtime, provider, input.sessionId);
-      return { ok: true, runId: outcome.runId, queued: true, queuedMessageUuid };
+      return { ok: true, runId: outcome.runId, queued: true, queuedMessageUuid, completion: dispatchPromise };
     }
 
-    return { ok: true, runId: outcome.runId, queued: false, queuedMessageUuid: null };
+    return { ok: true, runId: outcome.runId, queued: false, queuedMessageUuid: null, completion: dispatchPromise };
   }
 
   /**
@@ -399,10 +439,22 @@ export function createChatControlService(deps: ChatControlDependencies) {
    * process that had already ended reports `aborted: false` rather than a
    * fabricated success.
    *
-   * This service does not touch `chatRunRegistry`: emitting the terminal
-   * `complete` for the aborted run is the adapter's job (AC-233). A service that
-   * wrote it here would end a run on behalf of a caller whose request had not
-   * yet been through the gateway's own handler.
+   * "Is there a run to abort" is deliberately **not** decided here. The registry
+   * is the adapter's state and reading it around this call races the run's own
+   * terminal event — an abort that kills a process can let that process's exit
+   * path complete the run first, and a registry check made here would then turn a
+   * real stop into a false `NO_ACTIVE_RUN`. The WebSocket handler checks the
+   * registry *before* delegating (as it always has).
+   *
+   * The terminal `complete` for the aborted run is emitted here, immediately
+   * after the provider answers, for the same timing reason: a stop that releases
+   * an in-process generator (codex's forged stream, and its real SDK's abort)
+   * can otherwise let that generator settle — and the run's own dispatch finish —
+   * before an adapter several microtasks away got to write the client's frame,
+   * which would surface the run as a plain failure instead of an abort. Emitting
+   * it here keeps the exactly-one-complete contract identical to the old inline
+   * handler. Every front end that aborts (the WebSocket gateway now, the MCP
+   * gateway later) gets the same ending.
    */
   async function abort(caller: ControlCaller, input: { sessionId: string }): Promise<AbortResult> {
     const session = sessionsDb.getSessionById(input.sessionId);
@@ -435,7 +487,17 @@ export function createChatControlService(deps: ChatControlDependencies) {
       };
     }
 
-    return { ok: true, aborted: await deps.runtime.abort(provider, input.sessionId) };
+    const aborted = await deps.runtime.abort(provider, input.sessionId);
+
+    // Runtimes skip their own terminal event for an aborted turn, and the
+    // registry drops a duplicate if one still arrives; this is the client's
+    // `complete`. A no-op when no run is live.
+    chatRunRegistry.completeRun(input.sessionId, {
+      exitCode: aborted ? 0 : 1,
+      aborted: true,
+    });
+
+    return { ok: true, aborted };
   }
 
   /**

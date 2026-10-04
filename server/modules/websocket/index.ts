@@ -31,7 +31,8 @@ export { createActivityRouter } from './services/activity.routes.js';
 export { chatRunRegistry } from './services/chat-run-registry.service.js';
 // createChatControlService: the transport-agnostic control plane. Consumed by
 // `server/index.ts` to build the single process-wide instance the WebSocket
-// gateway, the scheduled-message dispatcher and (later) the MCP gateway share,
+// gateway, the scheduled-message dispatcher and (later) the MCP gateway share;
+// by this module's own websocket service (which resolves the seam);
 // and by the debug agent's control-queue criterion
 // (`server/modules/debug-agent/tests/debug-agent-control-queue.test.ts`), which
 // drives a resident busy send and its withdrawal through it with no socket.
@@ -40,9 +41,9 @@ export { createChatControlService } from './services/chat-control.service.js';
 // sessions it (re)indexed from disk through the same builder the chat gateway
 // uses, so both paths put the identical delta on the wire.
 export { broadcastSessionUpserted, broadcastSessionUpsertedBatch } from './services/session-upsert-broadcast.service.js';
-// runDetachedChatTurn: used by the scheduled-messages module to run a turn
-// from a timer, with no socket to stream to or report errors on.
-export { runDetachedChatTurn, handleChatConnection } from './services/chat-websocket.service.js';
+// handleChatConnection: the chat websocket surface, mounted by
+// `createWebSocketServer` and driven directly by the gateway criteria.
+export { handleChatConnection } from './services/chat-websocket.service.js';
 export type { ProviderRuntimeGateway } from './services/chat-websocket.service.js';
 // handleShellConnection: driven by the passthrough-parity test to prove the pty
 // env stays byte-identical when no configured model is selected.
