@@ -3,7 +3,7 @@ id: gap-ac233-control-single-instance-wiring
 title: AC-233 单实例控制服务：WebSocket 的 chat.send/abort/cancel-queued 与
   scheduled-messages 触达同一个 ChatControlService 实例（WS 处理器只剩解析与翻译），判据
   server/modules/websocket/tests/chat-control-wiring.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
