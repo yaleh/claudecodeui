@@ -1,7 +1,7 @@
 ---
 id: AC-235
 title: 运行可以按 runId 寻址：被新运行取代的和已完成的运行在保留期内都能查到，过期或未知的 id 明确说明原因
-status: draft
+status: active
 kind: criterion
 goal: GOAL-019
 criterion: for f in server/modules/websocket/tests/chat-run-by-id.test.ts; do [
@@ -20,4 +20,15 @@ expect: 保留期与时钟可注入（环境变量 `CHAT_RUN_RETENTION_MS` 或�
   必须红；(iii) 中止的运行记成 completed ⇒ (b) 必须红；(iv) 让 `getRun` 返回旧运行 ⇒ (d)
   必须红。（红先行）当前必红：判据文件不存在，存在性闸以退出码 1 输出缺失的文件名。
 origin: docs/proposals/mcp-gateway-SPEC.md（v3）。人 yale 2026-10-05 指令：创建并激活本 goal 及其 AC。
+activatedAt: 2026-10-04T17:24:52.933Z
+statusLog:
+  - at: 2026-10-04T17:24:52.933Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-04T17:24:52.932Z
 ---
