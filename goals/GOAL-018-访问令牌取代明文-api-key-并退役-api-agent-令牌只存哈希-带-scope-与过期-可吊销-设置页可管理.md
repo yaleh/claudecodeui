@@ -1,11 +1,17 @@
 ---
 id: GOAL-018
 title: 访问令牌取代明文 API Key，并退役 /api/agent：令牌只存哈希、带 scope 与过期、可吊销，设置页可管理
-status: active
+status: achieved
 kind: goal
 origin: docs/proposals/mcp-gateway-SPEC.md（v3）。人 yale 2026-10-05 指令：创建并激活本 goal
   及其 AC（决策 D1 至 D10 见该文档）。
 activatedAt: 2026-10-04T17:16:37.358Z
+statusLog:
+  - at: 2026-10-04T19:33:13.022Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: all ACs achieved + sufficiency covered"
 ---
 
 ## 背景
