@@ -1,7 +1,7 @@
 ---
 id: gap-voice-trim-decision-continuous-path
 title: AC-135 回归：连续路径的裁剪(gap filter)决策不读 pauseCues，read point trimDecisionFor 不可达
-status: todo
+status: ready
 labels:
   - gap
   - defect
