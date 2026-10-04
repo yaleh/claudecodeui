@@ -2,7 +2,7 @@
 id: transcript-edge-gutter-handle-and-touch-target
 title: AC-220
   右侧留白按显示的东西来留（手机像原生滚动条占一列、平板不收窄、宽屏用外侧边距），把手在任何视口固定在导出按钮下方且位置不被改写，滚动条触摸热区够大
-status: ready
+status: done
 labels:
   - gap
   - priority:p1
