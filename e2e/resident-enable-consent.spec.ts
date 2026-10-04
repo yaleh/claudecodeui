@@ -37,12 +37,13 @@ const enSidebar = JSON.parse(
 //
 // Two things this file is deliberately about, because they are what the redesign turns on:
 //
-//   * the switch is on the screen *before* the first turn (under the new-session model card) and still above
-//     the input once the session has a transcript — the same affordance on both sides of that boundary;
-//   * the disclosure is a read-only hint. Nothing about it may sit between the user and the switch or the
-//     conversion: flipping the switch is the whole of the intent, and the send that follows is resident.
-//     That is what the falsifying variant recorded in the task attacks, and the `aria-checked` readings below
-//     are the assertions it reds on.
+//   * the switch is on the screen *before* the first turn (under the new-session model card) and
+//     nowhere else — a session that already has a transcript draws no switch in its composer, and is
+//     converted from the session menu instead;
+//   * the disclosure is a read-only hint. Nothing about it may sit between the user and the switch or
+//     the conversion: flipping the switch is the whole of the intent, and the send that follows is
+//     resident. That is what the falsifying variant recorded in the task attacks, and the `aria-checked`
+//     readings below are the assertions it reds on.
 //
 // There is no seam in this file: the capability matrix, the mode before and after a conversion, and the mode of
 // a session nobody asked to keep running all come from the real server, and the two reads that could not be
@@ -62,7 +63,7 @@ const HINT = '[data-slot="resident-consent-notice"]';
  * asserted rather than assumed.
  */
 const HINT_CONTENT = '[data-slot="resident-hint-content"]';
-/** The resident switch itself, on whichever of its two homes is on screen. */
+/** The resident switch itself — the new-session empty state's, its only home. */
 const SWITCH = '[data-resident-enable="true"]';
 /** Every message row the transcript has mounted. */
 const MESSAGE = '[data-message-style]';
@@ -455,7 +456,7 @@ test('the new-session screen carries the switch under the model card, and sendin
   await expect(
     onScreen,
     `${RESIDENT_PROVIDER} lists resident in its capability matrix, so the new-session screen must offer the switch — `
-      + 'and exactly one of it: the composer stands its own copy down while this screen is up',
+      + 'and exactly one of it: the composer no longer draws a copy of its own',
   ).toHaveCount(1, { timeout: 15_000 });
   const toggle = onScreen.first();
   expect(
@@ -482,7 +483,7 @@ test('the new-session screen carries the switch under the model card, and sendin
   // ── the disclosure is a hint, and it says the two things it has to say ───────────────────────────────
   expect(
     await page.locator(HINT).count(),
-    'this screen must carry one switch and one hint; a second pair would be the composer\'s copy that was supposed to stand down',
+    'this screen must carry one switch and one hint; the composer draws neither any more',
   ).toBe(1);
   emptyStateHintCopy = await openHint(page);
 
@@ -556,17 +557,83 @@ test('the new-session screen carries the switch under the model card, and sendin
   ).toBe('per-run');
 });
 
-test('a session with messages keeps the composer\'s own switch and the same hint, and one menu click converts it', async ({ page, request }) => {
+/**
+ * The silent-conversion regression: the switch's intent is a statement about the *new-session card*
+ * only, and must never reach a send addressed to a session that already exists.
+ *
+ * The window this reads is the one the switch's never-reset position used to open. The empty-state
+ * switch is turned on and a first message is sent, creating a brand-new session A that must land
+ * resident. Then, *in the same app instance* — the sidebar navigates in-app, so `ChatInterface` is
+ * not remounted and its `residentEnabled` state would still be `true` under the old code — an
+ * existing per-run session B is opened and a message is sent into it. B must read back per-run.
+ *
+ * Under the retired shape (`if (residentIntent && targetSessionId)`, intent never cleared, and every
+ * composer submit re-recording the switch position) this same send converts B, and the `per-run`
+ * assertion below is where the red lands. Both readings come from `GET /api/session-hosts`.
+ */
+test('a switch-on send to a new session does not convert an existing per-run session on the next send', async ({ page, request }) => {
+  await setSelectedProvider(request, RESIDENT_PROVIDER);
+  await restoreSession(page, RESIDENT_PROVIDER);
+  await page.goto('/');
+  await openNewSession(page);
+
+  // ── A: the empty-state switch on, then send — the new session lands resident ─────────────────────────
+  const toggle = switches(page).first();
+  await expect(toggle, 'the new-session card must carry the switch').toBeVisible({ timeout: 15_000 });
+  await toggle.click();
+  expect(await toggle.getAttribute('aria-checked'), 'the switch must be on before the send').toBe('true');
+
+  await composer(page).fill('resident first turn');
+  await page.locator(SEND_BUTTON).click();
+  await expect.poll(() => new URL(page.url()).pathname).toMatch(/^\/session\/[^/]+$/);
+  const sessionA = new URL(page.url()).pathname.split('/').pop() as string;
+  console.log(`new.sessionId=${sessionA}`);
+
+  const modeA = await waitForMode(request, sessionA, 'resident');
+  console.log(`new.session.lifecycle_mode=${modeA}`);
+  expect(
+    modeA,
+    'a switch-on send to a brand-new session must read back resident — the load-bearing half of this leg',
+  ).toBe('resident');
+
+  // ── B: an existing per-run session, opened in-app — a send into it must not convert it ───────────────
+  const modeBBefore = await modeOf(request, SEEDED_SESSION_ID);
+  console.log(`B.lifecycle_mode.before=${modeBBefore}`);
+  expect(
+    modeBBefore,
+    `the control session must start per-run; the server read ${modeBBefore}`,
+  ).toBe('per-run');
+
+  await openWorkspace(page);
+  await sessionLink(page, SEEDED_SESSION_NAME).first().click();
+  await expect(composer(page)).toBeVisible({ timeout: 15_000 });
+  await expect.poll(() => page.locator(MESSAGE).count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(1);
+
+  await composer(page).fill('a message into the old per-run session');
+  await page.locator(SEND_BUTTON).click();
+  // Let the send path run past the point at which the retired shape issued the conversion, then read B.
+  await page.waitForTimeout(2_000);
+
+  const modeBAfter = await modeOf(request, SEEDED_SESSION_ID);
+  console.log(`B.lifecycle_mode=${modeBAfter}`);
+  expect(
+    modeBAfter,
+    'a message sent into an existing per-run session must leave it per-run — the switch is a statement '
+      + 'about the new-session card, and a send that already has a session to address must not read it',
+  ).toBe('per-run');
+});
+
+test('a session with messages draws no switch in its composer, and one menu click converts it', async ({ page, request }) => {
   await setSelectedProvider(request, RESIDENT_PROVIDER);
 
   await restoreSession(page, RESIDENT_PROVIDER);
   await page.goto('/');
   await openSeededSession(page);
 
-  // ── AC3: the switch does not depend on the message count ─────────────────────────────────────────────
+  // ── the composer is not a place a session is converted ───────────────────────────────────────────────
   //
-  // The reading below only means anything on a session that really has a transcript: an empty one takes the
-  // new-session branch, and a green here would then be the previous case's reading taken twice.
+  // Read on a session that really has a transcript: an empty one takes the new-session branch, where the
+  // switch legitimately lives, and a reading there would not be about the composer at all.
   await expect
     .poll(() => page.locator(MESSAGE).count(), { timeout: 15_000 })
     .toBeGreaterThanOrEqual(1);
@@ -578,31 +645,16 @@ test('a session with messages keeps the composer\'s own switch and the same hint
   ).toBeGreaterThanOrEqual(1);
 
   const inComposer = switches(page, '.chat-composer-shell');
-  await expect(
-    inComposer,
-    'a per-run session with history must still show the switch above its input — the relocation moved one home, not this one',
-  ).toHaveCount(1, { timeout: 15_000 });
-  expect(await inComposer.first().getAttribute('aria-checked'), 'the switch starts off').toBe('false');
-  console.log('composer.toggle.present=true');
+  console.log(`composer.switch.count=${await inComposer.count()}`);
+  expect(
+    await inComposer.count(),
+    'a session that already has a transcript draws no switch in its composer: the switch belongs to the '
+      + 'new-session card, and this session is converted from the menu below',
+  ).toBe(0);
 
   const onSurfaces = await page.locator(RESIDENT_SURFACES).count();
   console.log(`checkbox.resident-surface.count=${onSurfaces}`);
   expect(onSurfaces, 'the composer side must draw no checkbox either').toBe(0);
-
-  // ── AC2's other half: the same disclosure, word for word, on this side ───────────────────────────────
-  const composerCopy = await openHint(page, '.chat-composer-shell');
-  expect(
-    composerCopy,
-    'the two homes of the switch must disclose the same sentences — a shared hint is the whole reason the copy lives in chat\'s keys',
-  ).toBe(emptyStateHintCopy);
-
-  // And the second carrier for AC5: the press lands here as well, on the surface that was not relocated.
-  const toggle = inComposer.first();
-  await toggle.click();
-  expect(
-    await toggle.getAttribute('aria-checked'),
-    'pressing this switch must turn it on too — the hint sits beside it on both sides',
-  ).toBe('true');
 
   // ── AC4: the menu converts on one click, after the hint has been read ────────────────────────────────
   const modeBefore = await modeOf(request, SEEDED_SESSION_ID);
@@ -688,14 +740,13 @@ test('the switch is the capability matrix\'s answer rather than a provider id', 
   await openNewSession(page);
   expect((await capabilitiesAnswered).ok(), 'the capability request the composer makes must have succeeded').toBe(true);
 
-  // Read on the new-session screen, so both homes are in question at once: neither the card's switch nor the
-  // composer's may appear for a provider the matrix does not list.
+  // Read on the new-session screen — the switch's only home — for a provider the matrix does not list.
   const present = await switches(page).count();
   console.log(`toggle.present=${present > 0}`);
   expect(
     present,
     `${other} does not list resident in lifecycleModes (${JSON.stringify(
       rows.find((row) => row.provider === other)?.lifecycleModes,
-    )}), so neither home of the switch may be drawn`,
+    )}), so the switch may not be drawn`,
   ).toBe(0);
 });

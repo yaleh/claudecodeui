@@ -297,15 +297,17 @@ const openComposer = async (page: Page) => {
   await expect(textarea).toBeVisible({ timeout: 15_000 });
 };
 
-/** The switch, once the composer has drawn the capability matrix's answer for the selected provider. */
+/** The switch, on the new-session empty state — its only home — once the capability matrix has answered. */
 const residentToggle = (page: Page) => page.getByRole('switch', { name: enChat.resident.toggle });
 
 /**
- * Opens the composer and, when asked, flips the resident switch on.
+ * Opens a new-session composer and, when asked, flips the resident switch on.
  *
  * The two legs differ only in this prefix, so it lives in one place: the switch OFF is the positive
- * control's state, the switch ON is the one whose Enter send must land resident. Nothing is ticked
- * afterwards — the switch position is the whole of the intent, so there is no separate tick to set.
+ * control's state, the switch ON is the one whose Enter send must land resident. The switch lives on
+ * the new-session empty state's model card (the composer no longer draws one), and `openComposer`
+ * lands on that screen, so the page-wide locator finds it there. Nothing is ticked afterwards — the
+ * switch position is the whole of the intent, so there is no separate tick to set.
  */
 const openResidentComposer = async (page: Page, { switchOn }: { switchOn: boolean }) => {
   await page.goto('/');
@@ -316,7 +318,7 @@ const openResidentComposer = async (page: Page, { switchOn }: { switchOn: boolea
   const toggle = residentToggle(page);
   await expect(
     toggle,
-    `${RESIDENT_PROVIDER} lists resident in its capability matrix, so the composer must offer the switch`,
+    `${RESIDENT_PROVIDER} lists resident in its capability matrix, so the new-session screen must offer the switch`,
   ).toBeVisible({ timeout: 15_000 });
   await toggle.click();
   await expect(page.locator(NOTICE), 'opening the switch must disclose the mode in place').toBeVisible();

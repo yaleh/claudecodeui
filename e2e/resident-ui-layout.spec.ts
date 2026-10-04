@@ -1446,47 +1446,40 @@ test.describe('resident ui layout', () => {
     expect(elapsed, 'the whole invocation, measured from the config\'s own start').toBeLessThan(55_000);
   });
 });
-/* ── AC-178: the composer's own resident affordances ─────────────────────────────────────────── */
+/* ── the composer no longer carries a resident affordance ─────────────────────────────────────── */
 
 /**
- * The reading AC-178 is named for: the resident switch — and the disclosure under it — is offered
- * only while the session it writes into is *not* already resident.
+ * The reading this criterion is named for: the composer draws no resident switch, for either mode.
  *
- * The reading is an absence, and an absence is only evidence when the same selector, in the same run,
- * finds the thing on a session where it belongs. So this leg arms two sessions off the same fixture
- * and reads the same composer-internal marker on both: the stored `resident` one must carry neither
- * the switch nor its disclosure nor its tick box, and the `per-run` one must carry exactly one switch.
+ * The affordance moved off the composer entirely — it lives only on the new-session empty state's
+ * model card — so a session that already exists (stored `resident` or `per-run`) must draw no switch
+ * inside `.chat-composer-shell`. The reading is an absence, and an absence is only evidence when the
+ * same selector, in the same run, finds the switch where it does live: the empty state's model card.
+ * So this leg arms both existing sessions and, in the same run, opens the new-session screen and reads
+ * the same selector there.
  *
  * Why the marker rather than the accessible name. The switch's `aria-label` is the `resident.toggle`
  * i18n key, which a duplicate top-level `resident` key in the shipped locale files currently shadows
  * to `undefined` (the subject of a separate task). A locator keyed on the *name* would then match on
  * no name at all and collide with the page's dark-mode switch. So every reading here is structural —
- * `[data-resident-enable="true"]` for the switch and `[data-slot="resident-consent-notice"]` for the
- * disclosure its module already declares — and each count is scoped to the composer's own root, so the
- * page's other switch cannot contribute to any of them.
+ * `[data-resident-enable="true"]`, the marker `ResidentToggle` publishes.
  *
- * Why the status bar is awaited before the resident counts. `isResidentSession` is false until the host
- * snapshot has loaded, so a count taken on arrival could read "no switch" for the wrong reason — a page
- * that simply had not fetched yet. `ResidentStatusBar` renders only for a session whose snapshot reads
+ * Why the resident pill is awaited before the resident count. `isResidentSession` is false until the
+ * host snapshot has loaded, so a count taken on arrival could read "no switch" for the wrong reason —
+ * a page that simply had not fetched yet. The pill renders only for a session whose snapshot reads
  * `lifecycleMode === 'resident'` through the very same `findSessionHostState`, so waiting for it is the
- * positive signal that the page knows what this session is. The per-run arm needs the mirror image: it
- * waits for the switch itself, which only appears once the capability matrix has answered, and that is
- * the positive control that the selector is not merely always empty.
+ * positive signal that the page knows what this session is. The control that the selector is not
+ * merely always empty is the empty-state arm below, which is the only place the switch is drawn now.
  *
  * The scenario is stored and never clocked: this criterion reads the affordance the *stored mode*
- * decides, not a running process, so no host is started and no step is ever reached. The step exists
- * because the loader refuses an empty `steps` array, and `at: 0` is the earliest a document may place
- * one.
+ * decides, not a running process. The step exists because the loader refuses an empty `steps` array,
+ * and `at: 0` is the earliest a document may place one.
  */
 
-/** The composer's own root class, which scopes every count below to the input area. */
+/** The composer's own root class, which scopes the existing-session counts to the input area. */
 const COMPOSER_SHELL = '.chat-composer-shell';
-/** The switch's structural marker, added by `ChatComposer` for exactly this reading. */
+/** The switch's structural marker, published by `ResidentToggle`. */
 const COMPOSER_ENABLE = '[data-resident-enable="true"]';
-/** The disclosure component's own slot — the marker its module (`ResidentConsentNotice`) declares. */
-const COMPOSER_NOTICE = '[data-slot="resident-consent-notice"]';
-/** The disclosure's own tick box. Addressed by element rather than by its (shadowed) label. */
-const COMPOSER_CHECKBOX = 'input[type="checkbox"]';
 
 const COMPOSER_TITLE_RESIDENT = 'Resident ui layout — the already-resident session';
 const COMPOSER_TITLE_PER_RUN = 'Resident ui layout — the per-run control';
@@ -1502,22 +1495,7 @@ const composerScenarioFor = (title: string, lifecycleMode: 'resident' | 'per-run
   expect: { rows: { delta: 0 }, content: { mustContain: [SEED_USER_TEXT] } },
 });
 
-/**
- * Everything this criterion reads inside the input area, taken in one moment.
- *
- * All four counts are scoped to the composer's root so the page's other switch — the dark-mode toggle,
- * which is not inside the composer — cannot contribute to any of them.
- */
-async function readComposer(page: Page) {
-  return {
-    composerVisible: await page.locator(COMPOSER_SHELL).isVisible(),
-    switchCount: await page.locator(`${COMPOSER_SHELL} ${COMPOSER_ENABLE}`).count(),
-    noticeCount: await page.locator(`${COMPOSER_SHELL} ${COMPOSER_NOTICE}`).count(),
-    checkboxCount: await page.locator(`${COMPOSER_SHELL} ${COMPOSER_CHECKBOX}`).count(),
-  };
-}
-
-test('resident session hides enable affordance', async ({ browser }) => {
+test('composer has no resident switch', async ({ browser }) => {
   const fixtureHome = process.env.QUAY_E2E_DEBUG_AGENT_HOME;
   if (!fixtureHome) {
     throw new Error('playwright.config.ts must publish QUAY_E2E_DEBUG_AGENT_HOME for this selection');
@@ -1526,15 +1504,6 @@ test('resident session hides enable affordance', async ({ browser }) => {
   if (!baseURL) {
     throw new Error('playwright.config.ts must give this project a baseURL');
   }
-
-  // The positive signal this criterion waits on. The status bar that used to draw it was merged into
-  // the activity dock and its facts then moved to the resident pill in the header, which is the
-  // equivalent resident-only surface: it renders only for a session whose host snapshot reads
-  // `resident`, the same snapshot the composer's render gate reads. The next line deliberately shadows
-  // the module-level `BAR`: the assertion text at the "mode arrived" wait below, and the AC-177 / AC-179
-  // arms that still address the shared constant, stay byte-for-byte as they were, while only this
-  // arm's positive signal is anchored on the pill.
-  const BAR = '[data-resident-badge]';
 
   // The workspace sits inside the fixture home: the control plane writes only under `DEBUG_AGENT_HOME`
   // and refuses a `projectPath` outside it, and the transcripts it arms land under that home's own
@@ -1555,7 +1524,7 @@ test('resident session hides enable affordance', async ({ browser }) => {
   const { context, page } = await openPage(browser, baseURL, token);
 
   try {
-    // ── AC2: the resident arm — no switch, no disclosure, no tick box ─────────────────────────
+    // ── the resident existing session — no switch in the composer ──────────────────────────────────
     const residentMode = await readLifecycleMode(api, residentId);
     console.log(`resident.session=${residentId}`);
     console.log(`session.lifecycle_mode=${residentMode}`);
@@ -1571,38 +1540,26 @@ test('resident session hides enable affordance', async ({ browser }) => {
       'first-load',
     );
     await expect(page.locator(PANE), 'the pane must open for the resident arm').toBeVisible({ timeout: 30_000 });
-    // The positive signal that the page has this session's mode: the dock's toggle draws only for a
-    // session its own host snapshot reads `resident` — the same `findSessionHostState` the composer's
-    // render gate reads.
-    await expect(page.locator(BAR), 'a resident session must draw the bar that proves the mode arrived')
+    // The positive signal that the page has this session's mode: the resident pill renders only for a
+    // session whose host snapshot reads `resident`.
+    await expect(page.locator(BAR), 'a resident session must draw the pill that proves the mode arrived')
       .toBeVisible({ timeout: 30_000 });
 
-    const paneVisible = await page.locator(PANE).isVisible();
-    const resident = await readComposer(page);
-    const residentDockToggleCount = await page.locator(BAR).count();
-    console.log(`composer.visible=${resident.composerVisible}`);
-    console.log(`pane.visible=${paneVisible}`);
-    console.log(`composer.switch.count=${resident.switchCount}`);
-    console.log(`composer.notice.count=${resident.noticeCount}`);
-    console.log(`composer.checkbox.count=${resident.checkboxCount}`);
-    console.log(`dockToggle.count=${residentDockToggleCount}`);
-    expect(resident.composerVisible, 'the zero counts below must be a rendered composer, not a blank page').toBe(true);
-    expect(paneVisible, 'and a rendered transcript pane beside it').toBe(true);
+    const residentScoped = await page.locator(`${COMPOSER_SHELL} ${COMPOSER_ENABLE}`).count();
+    const residentPageWide = await page.locator(COMPOSER_ENABLE).count();
+    console.log(`resident.composer.switch.count=${residentScoped}`);
+    console.log(`resident.page.switch.count=${residentPageWide}`);
     expect(
-      resident.switchCount,
-      'a session already stored resident has nothing left for the switch to turn on, so it must not render',
+      await page.locator(COMPOSER_SHELL).isVisible(),
+      'the zero below must be a rendered composer, not a blank page',
+    ).toBe(true);
+    expect(
+      residentScoped,
+      'a session that already exists draws no resident switch in its composer — the affordance lives '
+        + 'only on the new-session empty state now',
     ).toBe(0);
-    expect(
-      resident.noticeCount,
-      'the disclosure lives inside the switch, so it goes with it rather than sitting over the input',
-    ).toBe(0);
-    expect(resident.checkboxCount, 'and its tick box with it').toBe(0);
-    expect(
-      residentDockToggleCount,
-      'the arm must actually draw the dock toggle the positive signal waited on, or that wait proved nothing',
-    ).toBe(1);
 
-    // ── AC3: the per-run control — the same selector, the same run, finds the switch ───────────
+    // ── the per-run existing session — the same reading, the same run ──────────────────────────────
     const perRunMode = await readLifecycleMode(api, perRunId);
     console.log(`per-run.session=${perRunId}`);
     console.log(`session.lifecycle_mode=${perRunMode}`);
@@ -1618,31 +1575,28 @@ test('resident session hides enable affordance', async ({ browser }) => {
       'first-load',
     );
     await expect(page.locator(PANE), 'the pane must open for the control arm').toBeVisible({ timeout: 30_000 });
-    // The switch's presence is itself the wait: it appears only once the capability matrix has answered,
-    // and that is when the reading below is about the gate rather than about a slow fetch.
-    await expect(page.locator(`${COMPOSER_SHELL} ${COMPOSER_ENABLE}`)).toHaveCount(1, { timeout: 30_000 });
 
-    const control = await readComposer(page);
-    const controlDockToggleCount = await page.locator(BAR).count();
-    const marker = await page.locator(`${COMPOSER_SHELL} ${COMPOSER_ENABLE}`).first().getAttribute('data-resident-enable');
-    console.log(`per-run.composer.visible=${control.composerVisible}`);
-    console.log(`composer.switch.count=${control.switchCount}`);
-    console.log(`composer.notice.count=${control.noticeCount}`);
-    console.log(`composer.checkbox.count=${control.checkboxCount}`);
-    console.log(`dockToggle.count=${controlDockToggleCount}`);
-    console.log(`per-run.switch.marker=${JSON.stringify(marker)}`);
+    const perRunScoped = await page.locator(`${COMPOSER_SHELL} ${COMPOSER_ENABLE}`).count();
+    const perRunPageWide = await page.locator(COMPOSER_ENABLE).count();
+    console.log(`per-run.composer.switch.count=${perRunScoped}`);
+    console.log(`per-run.page.switch.count=${perRunPageWide}`);
     expect(
-      control.switchCount,
-      'a per-run session on a resident-capable provider is exactly the session the switch is for',
-    ).toBe(1);
-    expect(
-      marker,
-      'and the element found is the composer\'s own switch, carrying the marker it publishes',
-    ).toBe('true');
-    expect(
-      controlDockToggleCount,
-      'the per-run arm must not draw the resident-only dock toggle, so the re-anchored signal discriminates',
+      perRunScoped,
+      'a per-run session with a transcript draws no switch either — the composer is no longer a place a '
+        + 'session is converted',
     ).toBe(0);
+
+    // ── the positive control: the same selector, the same run, finds the switch where it lives ──────
+    // The project is already selected (the sessions above belong to it), so the sidebar's New Session
+    // clears the open session and lands on the empty state, under whose model card the switch now sits.
+    // The switch itself is what is awaited: it appears once the capability matrix has answered, and the
+    // `1` here is what proves every `0` above is a reading rather than a dead selector.
+    await page.getByRole('button', { name: 'New Session' }).first().click();
+    await expect(
+      page.locator(COMPOSER_ENABLE),
+      'the new-session empty state must carry the switch — the control that makes the zeroes above a reading',
+    ).toHaveCount(1, { timeout: 30_000 });
+    console.log(`empty.page.switch.count=${await page.locator(COMPOSER_ENABLE).count()}`);
   } finally {
     await context.close();
     await api.dispose();
