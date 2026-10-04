@@ -76,8 +76,8 @@ test('the AudioWorklet streams the same frame decisions as the pure function', a
   await page.goto('/');
   const wavBase64 = fs.readFileSync(wavPath).toString('base64');
 
-  const workletFrames = await page.evaluate(
-    async ({ bytesBase64, clientUrl }): Promise<FrameMessage[]> => {
+  const worklet = await page.evaluate(
+    async ({ bytesBase64, clientUrl }): Promise<{ frames: FrameMessage[]; pcmSamples: number; pcmCount: number }> => {
       const binary = atob(bytesBase64);
       const buf = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) buf[i] = binary.charCodeAt(i);
@@ -116,8 +116,16 @@ test('the AudioWorklet streams the same frame decisions as the pure function', a
       });
 
       const received: FrameMessage[] = [];
+      // The raw PCM the worklet forwards, as sample counts: the segmenter's input, whose total
+      // duration must be the injected audio's.
+      let pcmSamples = 0;
+      let pcmCount = 0;
       node.port.onmessage = (message: MessageEvent) => {
         if (message.data?.type === 'frame') received.push(message.data as FrameMessage);
+        else if (message.data?.type === 'pcm') {
+          pcmSamples += (message.data.samples as Float32Array).length;
+          pcmCount += 1;
+        }
       };
 
       const buffer = context.createBuffer(1, mono.length, 16000);
@@ -140,10 +148,24 @@ test('the AudioWorklet streams the same frame decisions as the pure function', a
           if (settled >= 500) break;
         } else settled = 0;
       }
-      return received;
+      return { frames: received, pcmSamples, pcmCount };
     },
     { bytesBase64: wavBase64, clientUrl: CLIENT_URL },
   );
+
+  // The worklet forwards the audio itself, not only its energy: the PCM frames the segmenter
+  // buffers must cover the injected samples to within a frame. A worklet that dropped the PCM —
+  // or forwarded the wrong buffer — leaves the segmenter with nothing to upload.
+  const workletPcm = worklet.pcmSamples;
+  const injectedSec = samples.length / SAMPLE_RATE;
+  const forwardedSec = workletPcm / SAMPLE_RATE;
+  expect(worklet.pcmCount, 'the worklet forwarded no PCM frames').toBeGreaterThan(0);
+  expect(
+    Math.abs(injectedSec - forwardedSec),
+    `the worklet forwarded ${forwardedSec.toFixed(3)}s of PCM for ${injectedSec.toFixed(3)}s injected`,
+  ).toBeLessThanOrEqual(0.05);
+
+  const workletFrames = worklet.frames;
 
   // The worklet frames the audio at its own boundary; the render pads the tail to a whole quantum,
   // so only the frames the pure function would also form are compared.

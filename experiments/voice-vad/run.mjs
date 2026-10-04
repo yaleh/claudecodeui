@@ -21,6 +21,11 @@
  *     long-gap high-SNR subset, that no segment exceeds `maxSegmentSec` and every forced cut
  *     lands below its trailing-window median, and that the room-tone false-alarm reading does
  *     not regress. A failure exits non-zero.
+ *   · `--detector=live-segmenter` — the same grid and corpus, run through the continuous-capture
+ *     segmenter (`segmentLive`) driven by the shipping VAD's own events, written to
+ *     `fixtures/live-segmenter.json`. It prints its own readings — segment count, forced-cut
+ *     count, non-forced mid-cut rate and over-segmentation rate — beside the streaming snapshot's,
+ *     which is the T1 record the segmenter's rules were chosen against.
  *   · `--offline` — load a frozen snapshot and recompute every reading from it. No corpus,
  *     no decoder, no network. This is the mode the suite and any later reader use.
  *
@@ -88,7 +93,7 @@ import {
  * for the one place those toolchains do not reach. It is registered before any dynamic import
  * (the batch module is loaded lazily, so `--detector=streaming` and `--offline` never need it).
  */
-const SRC_ROOT = fileURLToPath(new URL('../src/', import.meta.url));
+const SRC_ROOT = fileURLToPath(new URL('../../src/', import.meta.url));
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if (specifier.startsWith('@/')) {
@@ -101,6 +106,7 @@ registerHooks({
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SNAPSHOT_BASELINE = join(HERE, 'fixtures', 'baseline.json');
 const SNAPSHOT_STREAMING = join(HERE, 'fixtures', 'streaming.json');
+const SNAPSHOT_LIVE = join(HERE, 'fixtures', 'live-segmenter.json');
 const DEFAULT_CORPUS = '/data/home/yale/work/tc-verify/corpus/public/LibriSpeech/dev-clean';
 const DEFAULT_CORAAL = '/data/home/yale/work/tc-verify/corpus/spontaneous/DCA_se1_ag3_f_01_1_segments';
 const DEFAULT_LONG = '/data/home/yale/work/tc-verify/corpus/long';
@@ -299,8 +305,8 @@ function parseArgs(argv) {
     else if (a.startsWith('--budget=')) opts.budget = Number(a.slice('--budget='.length));
     else throw new Error(`unknown argument: ${a}`);
   }
-  if (opts.detector !== 'trim' && opts.detector !== 'streaming') {
-    throw new Error(`unknown detector: ${opts.detector} (expected "trim" or "streaming")`);
+  if (opts.detector !== 'trim' && opts.detector !== 'streaming' && opts.detector !== 'live-segmenter') {
+    throw new Error(`unknown detector: ${opts.detector} (expected "trim", "streaming" or "live-segmenter")`);
   }
   if (!Number.isInteger(opts.replicas) || opts.replicas < 1) {
     throw new Error(`--replicas must be a positive integer, got ${opts.replicas}`);
@@ -324,6 +330,19 @@ async function loadTrim() {
     trimVoiceAudio = (await import('../../src/shared/voiceTrim.ts')).trimVoiceAudio;
   }
   return trimVoiceAudio;
+}
+
+/**
+ * The live segmenter, loaded lazily for the same reason `voiceTrim` is: it is frontend code whose
+ * own imports go through the `@/` alias, and a static import would resolve before this file's
+ * alias hook is installed (static imports are hoisted above the `registerHooks` call).
+ */
+let liveSegment = null;
+async function loadLiveSegmenter() {
+  if (!liveSegment) {
+    liveSegment = (await import('../../src/modules/chat/utils/voiceLiveSegmenter.ts')).segmentLive;
+  }
+  return liveSegment;
 }
 
 /** The batch detector's segment list and its own reported upload length. */
@@ -375,6 +394,54 @@ function makeStreamingDetector(extra = {}, params = {}) {
       forced: segments.map((s) => s.forced),
       regions: regions.map((s) => [s.startSec, s.endSec]),
       outputSec: Number(segments.reduce((a, s) => a + (s.endSec - s.startSec), 0).toFixed(6)),
+      forcedCutChecks,
+    };
+  };
+}
+
+/**
+ * The continuous-capture segmenter, as `(samples, sampleRate) => segments`.
+ *
+ * It is the shipping `segmentLive` driven by the shipping VAD's own events, so the reading is of
+ * the module a browser runs, not of a batch approximation. `segments` are upload chunks; its
+ * speech firing (`regions`) is the VAD's, and is what the false-alarm reading is taken on.
+ * `forcedCutChecks` carries the ceiling criterion: for every forced cut, whether the cut frame's
+ * energy is at or below the median of its trailing two seconds.
+ */
+function makeLiveSegmenterDetector() {
+  return (samples, sampleRate) => {
+    const vad = new StreamingVad({
+      sampleRate,
+      endpointMs: STREAMING_ENDPOINT_MS,
+      maxSegmentSec: STREAMING_MAX_SEGMENT_SEC,
+    });
+    const events = [];
+    const step = 4_800;
+    for (let off = 0; off < samples.length; off += step) {
+      for (const event of vad.push(samples.subarray(off, off + step))) events.push(event);
+    }
+    const segments = liveSegment(samples, sampleRate, events);
+    const regions = vad.regions();
+
+    const frame = Math.max(1, Math.round(0.02 * sampleRate));
+    const frameCount = Math.floor(samples.length / frame);
+    const energies = new Float64Array(frameCount);
+    for (let i = 0; i < frameCount; i++) energies[i] = frameRms(samples, i * frame, frame);
+
+    const forcedCutChecks = [];
+    for (const seg of segments) {
+      if (!seg.forced) continue;
+      const cut = Math.max(0, Math.min(frameCount - 1, Math.round((seg.endSec * sampleRate) / frame) - 1));
+      const from = Math.max(0, cut - 100);
+      const window = Array.from(energies.subarray(from, cut + 1)).sort((a, b) => a - b);
+      const median = window.length ? window[Math.floor(window.length / 2)] : 0;
+      forcedCutChecks.push({ cutSec: seg.endSec, energy: energies[cut], median, ok: energies[cut] <= median });
+    }
+    return {
+      segments: segments.map((s) => [s.startSec, s.endSec]),
+      forced: segments.map((s) => s.forced),
+      regions: regions.map((s) => [s.startSec, s.endSec]),
+      outputSec: Number(segments.reduce((a, s) => a + (s.wav.length - 44) / 2 / sampleRate, 0).toFixed(6)),
       forcedCutChecks,
     };
   };
@@ -472,11 +539,54 @@ function readSnapshot(outPath) {
   return JSON.parse(readFileSync(outPath, 'utf8'));
 }
 
+/** The live segmenter's DoD readings off the frozen cells: cut rate, over-cut rate, counts. */
+function liveReadings(cells) {
+  const agg = aggregateMetrics(cells.map(metricsFor));
+  const mid = nonForcedMidCut(cells);
+  return {
+    timelines: cells.length,
+    sentences: agg.pooledTruth,
+    segments: cells.reduce((a, c) => a + c.segments.length, 0),
+    forcedCuts: cells.reduce((a, c) => a + (c.forcedCutChecks ?? []).length, 0),
+    midCutRate: mid.rate,
+    midCutCI: wilsonInterval(mid.mid, mid.truth),
+    oversegRate: agg.oversegRatePooled,
+    missRate: agg.missRatePooled,
+  };
+}
+
+/** Prints the live segmenter's readings, beside the streaming snapshot's own. */
+function printLiveReadings(snap, cells) {
+  const readings = liveReadings(cells);
+  console.log(
+    `  live-segmenter readings: segments=${readings.segments} forcedCuts=${readings.forcedCuts} ` +
+      `midCutRate=${readings.midCutRate.toFixed(4)}${JSON.stringify(readings.midCutCI)} ` +
+      `oversegRate=${readings.oversegRate.toFixed(4)} missRate=${readings.missRate.toFixed(4)} ` +
+      `timelines=${readings.timelines} sentences=${readings.sentences}`,
+  );
+  if (snap.streaming) {
+    const s = snap.streaming.readings;
+    console.log(
+      `  streaming VAD snapshot, side by side: detector=${snap.streaming.detector} ` +
+        `segments=${s.segments} forcedCuts=${s.forcedCuts} midCutRate=${s.midCutRate.toFixed(4)} ` +
+        `oversegRate=${s.oversegRate.toFixed(4)} missRate=${s.missRate.toFixed(4)}`,
+    );
+  }
+  return readings;
+}
+
 function runOffline(opts) {
-  const outPath = opts.out ?? (opts.detector === 'streaming' ? SNAPSHOT_STREAMING : SNAPSHOT_BASELINE);
+  const outPath =
+    opts.out ??
+    (opts.detector === 'live-segmenter'
+      ? SNAPSHOT_LIVE
+      : opts.detector === 'streaming'
+        ? SNAPSHOT_STREAMING
+        : SNAPSHOT_BASELINE);
   const snap = readSnapshot(outPath);
   const missing = coverageGap(snap.cells, snap.grid);
   report(snap.cells, snap.grid, `voice-vad --offline (detector=${snap.detector}, snapshot=${outPath})`, snap.maxSegmentSec);
+  if (snap.detector?.startsWith('segmentLive')) printLiveReadings(snap, snap.cells);
   if (snap.t2) console.log(`  ${formatAggregate('t2=coraal', aggregateMetrics([metricsFor(snap.t2)]))}`);
   for (const row of snap.t3 ?? []) {
     console.log(`  ${formatAggregate(`t3=${row.id}`, aggregateMetrics([metricsFor(row)]))}`);
@@ -694,10 +804,13 @@ async function runGenerate(opts) {
   }
   console.log(`corpus: ${corpus.root} (files=${corpus.totalFiles}, decoded pool=${corpus.pool})`);
 
+  if (opts.detector === 'live-segmenter') await loadLiveSegmenter();
   const detector =
     opts.detector === 'streaming'
       ? makeStreamingDetector()
-      : trimDetector;
+      : opts.detector === 'live-segmenter'
+        ? makeLiveSegmenterDetector()
+        : trimDetector;
   if (opts.detector === 'trim') await loadTrim();
 
   const grid = { axes: AXES, default: DEFAULT_CONFIG, replicas: opts.replicas };
@@ -723,24 +836,49 @@ async function runGenerate(opts) {
   }
 
   const isStreaming = opts.detector === 'streaming';
+  const isLive = opts.detector === 'live-segmenter';
   const snapshot = {
     schema: 1,
-    detector: isStreaming ? 'detectVoiceSegments@src/shared/voiceEndpoint.ts' : 'trimVoiceAudio@src/shared/voiceTrim.ts',
+    detector: isLive
+      ? 'segmentLive@src/modules/chat/utils/voiceLiveSegmenter.ts'
+      : isStreaming
+        ? 'detectVoiceSegments@src/shared/voiceEndpoint.ts'
+        : 'trimVoiceAudio@src/shared/voiceTrim.ts',
     sampleRate: DEFAULT_RATE,
     maxSegmentSec: isStreaming ? STREAMING_MAX_SEGMENT_SEC : DEFAULT_MAX_SEGMENT_SEC,
     ...(isStreaming ? { endpointMs: STREAMING_ENDPOINT_MS } : {}),
     grid,
     corpus: { root: corpus.root, totalFiles: corpus.totalFiles, pool: corpus.pool },
-    limitations: LIMITATIONS,
+    limitations: isLive
+      ? [
+          ...LIMITATIONS,
+          'the live segmenter carries the streaming VAD\'s own speech firing, so it inherits its false alarms and its over-segmentation-in-a-sentence counting',
+          'gaps the min-length rule steps over are compressed to 1.0 s in the emitted audio, so outputSec is shorter than the summed input spans',
+        ]
+      : LIMITATIONS,
     cells,
     t2,
     t3,
   };
-  const outPath = opts.out ?? (isStreaming ? SNAPSHOT_STREAMING : SNAPSHOT_BASELINE);
+  if (isLive) {
+    // The readings this task exists to read, and the streaming snapshot's own beside them.
+    snapshot.readings = liveReadings(cells);
+    if (existsSync(SNAPSHOT_STREAMING)) {
+      const streamSnap = JSON.parse(readFileSync(SNAPSHOT_STREAMING, 'utf8'));
+      snapshot.streaming = {
+        detector: streamSnap.detector,
+        endpointMs: streamSnap.endpointMs,
+        maxSegmentSec: streamSnap.maxSegmentSec,
+        readings: liveReadings(streamSnap.cells),
+      };
+    }
+  }
+  const outPath = opts.out ?? (isLive ? SNAPSHOT_LIVE : isStreaming ? SNAPSHOT_STREAMING : SNAPSHOT_BASELINE);
   mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, `${JSON.stringify(snapshot)}\n`);
 
   report(cells, grid, `voice-vad ${opts.detector} (detector=${snapshot.detector})`, snapshot.maxSegmentSec);
+  if (isLive) printLiveReadings(snapshot, cells);
   if (t2) console.log(`  ${formatAggregate('t2=coraal', aggregateMetrics([metricsFor(t2)]))}`);
   for (const row of t3) {
     console.log(`  ${formatAggregate(`t3=${row.id}`, aggregateMetrics([metricsFor(row)]))}`);

@@ -38,6 +38,7 @@ export const VOICE_FRAME_PROCESSOR_NAME = 'voice-frame-processor';
 /** Messages the processor posts to the main thread. */
 export type VoiceFrameMessage =
   | { type: 'frame'; rms: number; atSample: number }
+  | { type: 'pcm'; samples: Float32Array; atSample: number }
   | { type: 'event'; event: VadEvent }
   | { type: 'segments'; segments: VoiceSegment[] };
 
@@ -83,9 +84,20 @@ class VoiceFrameProcessor extends ProcessorBase {
       this.pendingCount = 0;
       // A copy, because `pending` is reused for the next frame and `push` keeps nothing.
       const frame = this.pending.slice();
-      this.port.postMessage({ type: 'frame', rms: rms(frame), atSample: this.framesAt } satisfies VoiceFrameMessage);
+      const energy = rms(frame);
+      // The detector reads the frame BEFORE it is transferred away below: `vad.push` copies what
+      // it needs into its own pending buffer, so handing the main thread `frame.buffer` afterwards
+      // detaches nothing the detector still holds.
+      const events = this.vad.push(frame);
+      this.port.postMessage({ type: 'frame', rms: energy, atSample: this.framesAt } satisfies VoiceFrameMessage);
+      // The frame's own samples, forwarded so the segmenter can buffer and upload real audio
+      // rather than only its energy. TRANSFERRED, not copied: this is the processor's own copy
+      // and nothing here reads it again, so the main thread takes the buffer with no further
+      // allocation on the audio thread. Posted before the events, so a consumer that buffers the
+      // PCM has the samples in hand when the boundary events arrive.
+      this.port.postMessage({ type: 'pcm', samples: frame, atSample: this.framesAt }, [frame.buffer]);
       this.framesAt += this.frameSize;
-      for (const event of this.vad.push(frame)) {
+      for (const event of events) {
         this.port.postMessage({ type: 'event', event } satisfies VoiceFrameMessage);
       }
     }
