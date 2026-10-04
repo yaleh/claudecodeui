@@ -1,7 +1,7 @@
 ---
 id: gap-task-terminal-transition-transcript-row
 title: 后台任务由非终态转终态时，服务端 reducer 发一条转写事件：任务停了，会话记录里一定留一行（带稳定 id，重放不重复）
-status: ready
+status: done
 labels:
   - gap
 parent: null
