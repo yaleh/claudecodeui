@@ -232,6 +232,8 @@ function sampleRecord015({ omit = [], humanLine = '' } = {}) {
   const fg = has('前台长命令') ? '前台长命令' : '长命令';
   const bg = has('转后台') ? '转后台' : '放后台';
   const backTask = has('后台任务') ? '后台任务' : '任务';
+  const dis = has('不可点') ? '不可点' : '可点击';
+  const rsn = has('原因') ? '原因' : '说明';
   const notif = has('由 SDK 的通知') ? '由 SDK 的通知' : '来自事件';
   const tail = humanLine === '' ? '' : `${humanLine}\n`;
   return [
@@ -242,11 +244,11 @@ function sampleRecord015({ omit = [], humanLine = '' } = {}) {
     `1. 启动${daemon}与一个 ${monitor}。`,
     `2. 读坞里的${readings}。`,
     `3. 从坞里停止 ${monitor}。`,
-    `4. 对${fg}用坞里的控件${bg}。`,
+    `4. 对${fg}读坞里为${bg}提供的控件：应当${dis}并给出${rsn}。`,
     '',
     `- 读数一：坞里列出${readings}。`,
     `- 读数二：停止后${notif}变为 stopped，不是点击就乐观改。`,
-    `- 读数三：${fg}${bg}成功之后成为坞里的${backTask}。`,
+    `- 读数三：${bg}那一格是${dis}的控件与${rsn}文案，不是可点却静默无效。`,
     '- 人证行格式（只由人写）：`- 人工验收 GOAL-015：accepted <人> <日期>`。',
     '- 执行者不得代写。',
     '',
@@ -379,7 +381,9 @@ test('GOAL-015 纯函数：小节抽取按整行相等，不会误配别的小�
 
 test('GOAL-015 REQUIRED_ITEMS 覆盖四步 + 三条读数 + 格式 + 声明', () => {
   const names = GATE_015.requiredItems.map((item) => item.name).join('\n');
-  for (const needle of ['后台子代理', 'Monitor', '从坞里停止', '前台长命令', '转后台', ...READINGS_015, 'stopped', '后台任务', '格式', '只由人写']) {
+  // 步骤四/读数三的语义在 2026-10-04 改为「读能力处置」（`backgroundTasks: false` ⇒ 控件不可点并给出原因），
+  // 所以这里的不变量跟着换针：'后台任务' 不再是必需项，'不可点' 是。
+  for (const needle of ['后台子代理', 'Monitor', '从坞里停止', '前台长命令', '转后台', ...READINGS_015, 'stopped', '不可点', '格式', '只由人写']) {
     assert.ok(names.includes(needle), `GOAL-015 REQUIRED_ITEMS 应覆盖「${needle}」`);
   }
 });
