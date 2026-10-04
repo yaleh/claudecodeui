@@ -1,17 +1,10 @@
 import { AppError } from '@/shared/utils.js';
 
-type ApiKeyRow = Record<string, unknown> & { api_key: string };
 type NotificationPreferences = Record<string, unknown> & {
   channels?: Record<string, unknown> & { webPush?: boolean };
 };
 
 type SettingsDependencies = {
-  apiKeys: {
-    list(userId: number): ApiKeyRow[];
-    create(userId: number, keyName: string): unknown;
-    remove(userId: number, keyId: number): boolean;
-    toggle(userId: number, keyId: number, isActive: boolean): boolean;
-  };
   credentials: {
     list(userId: number, credentialType: string | null): unknown[];
     create(
@@ -54,35 +47,6 @@ function assertFound(found: boolean, resourceName: string, code: string): void {
 /** Creates settings workflows with repositories and notification effects injected. */
 export function createSettingsService(dependencies: SettingsDependencies) {
   return {
-    listApiKeys(userId: number) {
-      const apiKeys = dependencies.apiKeys.list(userId).map((key) => ({
-        ...key,
-        api_key: `${key.api_key.substring(0, 10)}...`,
-      }));
-      return { apiKeys };
-    },
-    createApiKey(userId: number, keyNameInput: unknown) {
-      const keyName = requiredString(keyNameInput, 'Key name', 'API_KEY_NAME_REQUIRED');
-      return { success: true, apiKey: dependencies.apiKeys.create(userId, keyName) };
-    },
-    deleteApiKey(userId: number, keyId: number) {
-      assertFound(dependencies.apiKeys.remove(userId, keyId), 'API key', 'API_KEY_NOT_FOUND');
-      return { success: true };
-    },
-    toggleApiKey(userId: number, keyId: number, isActive: unknown) {
-      if (typeof isActive !== 'boolean') {
-        throw new AppError('isActive must be a boolean', {
-          code: 'INVALID_ACTIVE_STATE',
-          statusCode: 400,
-        });
-      }
-      assertFound(
-        dependencies.apiKeys.toggle(userId, keyId, isActive),
-        'API key',
-        'API_KEY_NOT_FOUND',
-      );
-      return { success: true };
-    },
     listCredentials(userId: number, credentialType: string | null) {
       return { credentials: dependencies.credentials.list(userId, credentialType) };
     },

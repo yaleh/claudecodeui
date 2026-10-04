@@ -4,7 +4,6 @@ export { initializeDatabase } from '@/modules/database/init-db.js';
 // module boundary rule is why it is here rather than imported by file path.
 export { runMigrations } from '@/modules/database/migrations.js';
 export { closeConnection, getConnection, getDatabasePath } from '@/modules/database/connection.js';
-export { apiKeysDb } from '@/modules/database/repositories/api-keys.js';
 // accessTokensDb: used by the OAuth module to persist personal access tokens
 // (hash + prefix only) and their expiry/revocation state.
 export { accessTokensDb } from '@/modules/database/repositories/access-tokens.js';
