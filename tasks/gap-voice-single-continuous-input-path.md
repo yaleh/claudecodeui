@@ -50,9 +50,9 @@ depends_on:
 - [x] 空闲自动停止：`voiceIdleSec` 调到 2，静音下约 2 s 后自行停止，请求数为 0
 - [x] 发送：监听中点发送，等全部段完成后 `onTranscript(text, true)` 恰好被调用一次，文字为全部段按序拼接
 - [x] 回放槽：停止后过滤后的按钮存在；总长超过上限时只有过滤后的按钮（用调小的 `ORIGINAL_CAP_SEC` 覆盖验证）
-- [ ] **退役并处置（人 yale 2026-10-04 授权）**：按本任务的 Proposal 移除批处理裁剪路径 ⇒ `e2e/voice-trim.spec.ts` 的 **AC-119 / AC-121 / AC-122 三条腿授权退役**（它们测的正是被移除的对象：批处理裁剪、`[voice:trim]` 读数、MediaRecorder 原始流；逐字失败行见 完成记录，三条都不可能在不改判据含义的前提下通过）。退役的同时**必须逐条处置**被它们钉住的五个已 done 任务的判据 —— `gap-asr-trim-capability-wiring` AC2、`gap-voice-debug-switch`（`-g "AC-121"`）、`gap-e2e-shared-vite-dep-cache-invalidates-inflight-page` AC1+AC6、`gap-voice-clip-dual-playback`（`-g "AC-122"`）、`gap-ac122-shared-assembly-starves-leg-budget` AC1 —— 每一条都要在**它自己的记录里**登记「其判据随 AC-119/121/122 一同退役」，给出替代读数或明示不再覆盖；**不得让它们静默变红**。其余 3/4 个既有语音 e2e（`voice-identifier-repair` / `voice-error-messages` / `voice-dashscope-written`）继续绿的要求不变。
+- [x] **退役并处置（人 yale 2026-10-04 授权）**：按本任务的 Proposal 移除批处理裁剪路径 ⇒ `e2e/voice-trim.spec.ts` 的 **AC-119 / AC-121 / AC-122 三条腿授权退役**（它们测的正是被移除的对象：批处理裁剪、`[voice:trim]` 读数、MediaRecorder 原始流；逐字失败行见 完成记录，三条都不可能在不改判据含义的前提下通过）。退役的同时**必须逐条处置**被它们钉住的五个已 done 任务的判据 —— `gap-asr-trim-capability-wiring` AC2、`gap-voice-debug-switch`（`-g "AC-121"`）、`gap-e2e-shared-vite-dep-cache-invalidates-inflight-page` AC1+AC6、`gap-voice-clip-dual-playback`（`-g "AC-122"`）、`gap-ac122-shared-assembly-starves-leg-budget` AC1 —— 每一条都要在**它自己的记录里**登记「其判据随 AC-119/121/122 一同退役」，给出替代读数或明示不再覆盖；**不得让它们静默变红**。其余 3/4 个既有语音 e2e（`voice-identifier-repair` / `voice-error-messages` / `voice-dashscope-written`）继续绿的要求不变。
 - [x] `grep -n "MediaRecorder\|trimVoiceAudio\|isVoiceTrimEnabled\|prepareUpload" src/modules/chat/hooks/useVoiceInput.ts | wc -l` 的结果为 0
-- [ ] 取假形态（各自必须变红）—— **收窄到实际负载的两个变异**（人 yale 2026-10-04 裁定；原第②条「把最小段长删掉」在出货夹具上是**空操作**：夹具是一次连续语音、无 ≥ `cutPauseSec`(2.0s) 的停顿，段数由「是否成段」决定而非最小段长，故按 `false-form-mutation-must-exercise-the-parameter` **本条不再要求它**）：① 按完成顺序而非序号提交文字 → 「第 2 段不早于第 1 段出现」必须红；③ 失败段在输入框里推占位 → 「输入框不含标记」必须红。两条的变异 diff、逐字失败行与恢复命令逐条记录（上一轮两条均已实测为红，读数见 完成记录）。
+- [x] 取假形态（各自必须变红）—— **收窄到实际负载的两个变异**（人 yale 2026-10-04 裁定；原第②条「把最小段长删掉」在出货夹具上是**空操作**：夹具是一次连续语音、无 ≥ `cutPauseSec`(2.0s) 的停顿，段数由「是否成段」决定而非最小段长，故按 `false-form-mutation-must-exercise-the-parameter` **本条不再要求它**）：① 按完成顺序而非序号提交文字 → 「第 2 段不早于第 1 段出现」必须红；③ 失败段在输入框里推占位 → 「输入框不含标记」必须红。两条的变异 diff、逐字失败行与恢复命令逐条记录（上一轮两条均已实测为红，读数见 完成记录）。
 - [x] `npm run lint` 与 `npm run typecheck` 退出码 0
 
 ## Evidence
@@ -70,6 +70,63 @@ depends_on:
 - 「给失败段推入占位 part」→ 目标「输入框不含标记」→ **红**（输入框 `alpha bravo [segment 1 failed] echo foxtrot`）。
 
 结论：AC 共 14 条，本轮后仍 12 条已勾、2 条未勾（上列两条 `- [ ]`）。**本任务在 worker 侧不能到达全绿**：一条卡在人工裁定（voice-trim 退役 + 5 个已 done 任务判据的处置），一条卡在假形态②在出货夹具上不可红。worktree 保留，供人工/后续处置。
+
+**2026-10-04 退役实施轮**（复用既有 worktree；分支 head `31b36b8f`；本轮除判据文件 `e2e/voice-trim.spec.ts` 外未改任何出货行为，两次取假形态的变异全部还原，`git status` 只剩该 spec 的改动）。
+
+**退役与处置（人 yale 2026-10-04 授权，见本任务 Resolution）。**
+
+- `e2e/voice-trim.spec.ts` 删除 AC-119 / AC-121 / AC-122 三条腿，连同只被它们读取的 `readings` / `trimMessages` / `nextReading` / `MIN_SAVING_SEC`。删除后 `env -u TMPDIR npx playwright test e2e/voice-trim.spec.ts --list` → `Total: 1 test in 1 file`（只剩 AC-120）。
+- 三条腿的 goal 判据逐条落 `superseded`（`quay goal write <AC> --status superseded --actor worker-gap-voice-single-continuous-input-path --reason <逐条写明> --root /data/home/yale/work/claudecodeui`）：AC-119 / AC-121 / AC-122 现均为 `status: superseded`，每条都带书面理由，并给出替代读数或明示不再覆盖。store 同时记下一条 `goal-staleness` 信号（GOAL-006 自身状态未被改动，是否重开是人的决定）。
+- 五个被钉住的已 done 任务**逐条在它自己的记录里**登记退役（`quay task edit <id> --append-notes`，五条的 `status` 都仍为 `done`）：`gap-asr-trim-capability-wiring` / `gap-voice-debug-switch` / `gap-e2e-shared-vite-dep-cache-invalidates-inflight-page` / `gap-voice-clip-dual-playback` / `gap-ac122-shared-assembly-starves-leg-budget`。每条都写明其判据随 AC-119/121/122 一同退役、其红不得读成本任务的回归，并给出替代读数或明示不再覆盖（含两处 grep 计数类读数随被删的腿归零）。
+
+**AC-120 是重锚定，不是退役。** 它的被测对象（文件上传入口）按 Proposal 第 9 条保留在同一条管线上；被移除的是它原来的证据通道（`[voice:trim]` 读数的 `source` 字段）。本分支实测该腿因读数归零而红：`the chain printed no [voice:trim] reading for this capture`，`Received: 0`。重锚定后断言改为链路自己的两侧证据 —— 落到识别器上的请求体是链路的音频（RIFF WAV，时长 ≤ fixture + `CAPTURE_TOLERANCE_SEC`），且链内无条件打印的 `[voice] identifier fidelity` 读数确实到达（该打印只在转录步骤内发生，即「文件走的是与录音同一条转写链」）。重跑 `env -u TMPDIR npx playwright test e2e/voice-trim.spec.ts -g "AC-120"` → `1 passed (13.5s)`，读数 `[voice-upload] file=2.600s uploaded=1.500s bytes=48044`（2.6 s 的 fixture 经切段后 1.5 s，落在容差上界内）。⚠️ AC-120 的 goal 记录仍是 `achieved`，其 `expect` 第 (3) 条描述的是已被移除的 `[voice:trim]` 读数，属需要人复核的文字陈旧项 —— 本轮未改它的 `status` 与 `criterion`，只在此记明。
+
+**取假形态（本轮现测，各自必须变红）。** 变异临时改 `src/modules/chat/hooks/useVoiceInput.ts` 的 `drainCommitted`，跑完立即 `git checkout -- src/modules/chat/hooks/useVoiceInput.ts` 还原；两次之后 `git status --porcelain` 都只剩本任务的 spec 改动。
+
+① 按完成顺序而非序号提交 —— 把「只排空从第一段起连续完成的那个前缀」换成按 `settled` 的插入（即完成）顺序全量排空。变异 diff（`git diff -- src/modules/chat/hooks/useVoiceInput.ts`）：
+```
+@@ -474,10 +474,9 @@ export function useVoiceInput(
+    */
+   const drainCommitted = (session: CaptureSession) => {
+     let advanced = false;
+-    while (session.settled.has(session.nextCommit)) {
+-      const outcome = session.settled.get(session.nextCommit)!;
+-      session.settled.delete(session.nextCommit);
+-      session.nextCommit += 1;
++    for (const [settledIndex, outcome] of [...session.settled]) {
++      session.settled.delete(settledIndex);
++      session.nextCommit = Math.max(session.nextCommit, settledIndex + 1);
+       advanced = true;
+       if (outcome.ok && outcome.text.trim()) {
+         session.parts.push({ index: outcome.index, text: outcome.text, failed: false });
+```
+逐字失败行（`env -u TMPDIR npx playwright test e2e/voice-continuous.spec.ts -g "commits in spoken order"` → **exit 1**，`1 failed`）：
+```
+Error: a later segment was committed before the earlier one
+Expected substring: not "charlie delta"
+Received string:        "charlie delta"
+> 322 |     expect(await composer().inputValue(), 'a later segment was committed before the earlier one').not.toContain(ANSWERS[1]);
+```
+恢复命令：`git checkout -- src/modules/chat/hooks/useVoiceInput.ts`（已执行）。
+
+③ 失败段在输入框里推占位 —— 在 `drainCommitted` 的成功分支后追加一个带标记的 part。变异 diff：
+```
+@@ -481,6 +481,8 @@ export function useVoiceInput(
+       advanced = true;
+       if (outcome.ok && outcome.text.trim()) {
+         session.parts.push({ index: outcome.index, text: outcome.text, failed: false });
++      } else if (!outcome.ok) {
++        session.parts.push({ index: outcome.index, text: `[segment ${outcome.index} failed]`, failed: false });
+       }
+     }
+```
+逐字失败行（`env -u TMPDIR npx playwright test e2e/voice-continuous.spec.ts -g "leaves no marker"` → **exit 1**，`1 failed`）：
+```
+Error: expect(locator).toHaveValue(expected) failed
+Received: "alpha bravo [segment 1 failed] echo foxtrot"
+> 354 |     await expect(composer()).toHaveValue(`${ANSWERS[0]} ${ANSWERS[2]}`, { timeout: 20_000 });
+```
+（红落在「失败段不贡献文字」那条精确取值等待上：占位一进输入框，该值就不可能成立，紧随其后的 `not.toMatch(/\[|\]|failed|segment \d/i)` 也就没有机会执行 —— 目标不变量「输入框不含标记」同样被证伪。）恢复命令：`git checkout -- src/modules/chat/hooks/useVoiceInput.ts`（已执行）。
 
 ## DoD
 
@@ -99,6 +156,7 @@ L_G 该轴仍暗，理由：质量读数归评估任务，本任务只做链路�
 - src/shared/voiceDebug.ts
 - src/shared/types.ts
 - e2e/voice-continuous.spec.ts (new)
+- e2e/voice-trim.spec.ts (AC-119/121/122 三条腿退役，AC-120 腿重锚定)
 - e2e/voice-error-messages.spec.ts
 - playwright.config.ts
 - tasks/gap-voice-single-continuous-input-path.md
