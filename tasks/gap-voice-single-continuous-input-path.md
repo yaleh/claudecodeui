@@ -50,10 +50,26 @@ depends_on:
 - [x] 空闲自动停止：`voiceIdleSec` 调到 2，静音下约 2 s 后自行停止，请求数为 0
 - [x] 发送：监听中点发送，等全部段完成后 `onTranscript(text, true)` 恰好被调用一次，文字为全部段按序拼接
 - [x] 回放槽：停止后过滤后的按钮存在；总长超过上限时只有过滤后的按钮（用调小的 `ORIGINAL_CAP_SEC` 覆盖验证）
-- [ ] 已有的语音 e2e（`voice-trim.spec.ts`、`voice-identifier-repair.spec.ts`、`voice-error-messages.spec.ts`、`voice-dashscope-written.spec.ts`）按新路径更新后全部通过，不得以删除断言的方式过关 — **3/4 通过**（identifier-repair、error-messages、dashscope-written 已在真实浏览器上单独跑绿；error-messages 的两处改动是「等响应到达再断言状态」与「空回答按 NO_SPEECH_DETECTED 报告」）。**`voice-trim.spec.ts` 未通过且不能在不改变其判据含义的前提下通过**：它的四个判据全部以批处理裁剪为被测对象（AC-119 比较裁/不裁两次上传的时长，AC-121 读 `[voice:trim]` 开关读数），而裁剪链路正是本任务按 Proposal 移除的；AC-119 的标题/含义与另几个已 done 任务的判据串（`gap-ac122-shared-assembly-starves-leg-budget`、`gap-e2e-shared-vite-dep-cache-invalidates-inflight-page`、`gap-asr-trim-capability-wiring`）绑定，改写会让那些判据静默变红。这一条需要人工裁定「退役 voice-trim 的哪些判据」，不由 worker 单方面抹掉。
+- [ ] 已有的语音 e2e（`voice-trim.spec.ts`、`voice-identifier-repair.spec.ts`、`voice-error-messages.spec.ts`、`voice-dashscope-written.spec.ts`）按新路径更新后全部通过，不得以删除断言的方式过关 — **3/4 个 spec 通过**（identifier-repair、error-messages、dashscope-written 已在真实浏览器上单独跑绿；error-messages 的两处改动是「等响应到达再断言状态」与「空回答按 NO_SPEECH_DETECTED 报告」）。**`voice-trim.spec.ts` 在本分支（head `d0c2d49a`）上现测三条腿全红，且不能在不改变其判据含义的前提下通过**：AC-119 exit 1（`untrimmed upload was 1.72s, the fixture is 2.6s` —— 新路径两腿都过滤，裁/不裁的时长差消失）；AC-121 exit 1（`the switch-off leg never printed the unconditional fidelity reading`，`[voice:trim]`/fidelity 读数不再出现）；AC-122 exit 1（`the original replay is not the recorder's stream` —— 原始回放魔数 `52494646`（RIFF/WAV）而非 `1a45dfa3`（WebM），即原始轨不再是 MediaRecorder 流）；AC-120 未跑（serial 模式在 AC-119 失败后跳过）。这三条腿的被测对象（批处理裁剪、`[voice:trim]` 读数、MediaRecorder 原始流）正是本任务按 Proposal 移除的。它们的**标题/断言文本被 5 个已 done 任务的判据钉住**：`gap-asr-trim-capability-wiring` AC2（要求「裁剪开/关配对时长下降」端到端判据保持绿，记录 `4 passed`）、`gap-voice-debug-switch`（`npx playwright test e2e/voice-trim.spec.ts -g "AC-121"` 退出 0）、`gap-e2e-shared-vite-dep-cache-invalidates-inflight-page` AC1（`-g "AC-121"` 退出 0）与 AC6（整文件退出 0）、`gap-voice-clip-dual-playback`（`-g "AC-122"` 退出 0）、`gap-ac122-shared-assembly-starves-leg-budget` AC1（`-g "AC-122"` 退出 0）。落地本任务会让这五条判据静默变红。**这一条需要人工裁定「退役 voice-trim.spec.ts 的哪几条判据、以及如何处置上述五个已 done 任务的判据」，不由 worker 单方面抹掉或改写该 spec。**
 - [x] `grep -n "MediaRecorder\|trimVoiceAudio\|isVoiceTrimEnabled\|prepareUpload" src/modules/chat/hooks/useVoiceInput.ts | wc -l` 的结果为 0
-- [ ] 取假形态（各自必须变红）：按完成顺序而非序号提交文字 → 「第 2 段不早于第 1 段出现」红；把最小段长删掉 → 「短输入请求数恰好 1」红；失败段在输入框里放占位 → 「输入框不含标记」红 — 未执行（三个假形态都要求改写被测源码后再跑 e2e，本轮未做）
+- [ ] 取假形态（各自必须变红）：按完成顺序而非序号提交文字 → 「第 2 段不早于第 1 段出现」红；把最小段长删掉 → 「短输入请求数恰好 1」红；失败段在输入框里放占位 → 「输入框不含标记」红 — **本轮三个变异已执行**（改被测源码 → 跑目标 e2e → `git checkout` 还原，脚本以 `trap` 兜底）。①「按完成顺序排空 `settled`」→ 红 ✓：`a later segment was committed before the earlier one`，输入框出现 `charlie delta`。③「失败段推入占位」→ 红 ✓：输入框 `alpha bravo [segment 1 failed] echo foxtrot`（断言先落在第 354 行的整值断言，第 357 行「不含标记」随之亦不成立）。②「把最小段长删掉」（hook `minSegmentSec: 0`）→ **绿（`1 passed`），未红**：短输入腿仍通过。成因：短输入夹具（`e2e/voice-continuous.spec.ts` 第 296 行 `__voiceFake.speak(3)`）是一次连续语音、没有任何 ≥ `cutPauseSec`（2.0 s）的停顿，段数由「是否成段」而非最小段长决定 —— 最小段长只在「有停顿可切」时起作用，故该变异在出货夹具上是空操作。**本条不能按字面全绿；需要人工裁定：把②换成一条真正负载的变异（能置「短输入请求数恰好 1」为红），或收窄本条。**
 - [x] `npm run lint` 与 `npm run typecheck` 退出码 0
+
+## Evidence
+
+本轮（续做轮，复用既有 worktree，分支 head `d0c2d49a`；**本轮未改任何出货源码** —— 三个取假形态的变异全部还原，`git status` 干净）在真实 Chromium + 真后端/Vite 上现测，假 provider 拦截 `/api/voice/transcribe`，零费用：
+
+- `env -u TMPDIR npx playwright test e2e/voice-trim.spec.ts`：`1 failed`（AC-119）+ `3 did not run`（serial 在首腿失败后跳过）。AC-119 读数：`[voice-trim] uploads: trimmed=1.700s untrimmed=1.720s fixture=2.600s` → `untrimmed upload was 1.72s, the fixture is 2.6s`（差 0.88 s > 0.3 s 容差）。
+- `-g "AC-121"`：`1 failed`，`the switch-off leg never printed the unconditional fidelity reading, so it never reached the end of the chain`（`fidelityMessages` 为 0）。
+- `-g "AC-122"`：`1 failed`，`the original replay is not the recorder's stream`（`Expected "1a45dfa3"` / `Received "52494646"`）。
+
+三个取假形态（探针脚本 `/tmp/ff-voice-mutations.sh`，每则变异后 `git checkout -- src/modules/chat/hooks/useVoiceInput.ts` 还原）：
+
+- 「按完成顺序排空 `settled`」→ 目标「第 2 段不早于第 1 段出现」→ **红**（`not.toContain("charlie delta")` 失败）。
+- 「hook `minSegmentSec: 0`」→ 目标「短输入请求数恰好 1」→ **绿，未红**。
+- 「给失败段推入占位 part」→ 目标「输入框不含标记」→ **红**（输入框 `alpha bravo [segment 1 failed] echo foxtrot`）。
+
+结论：AC 共 14 条，本轮后仍 12 条已勾、2 条未勾（上列两条 `- [ ]`）。**本任务在 worker 侧不能到达全绿**：一条卡在人工裁定（voice-trim 退役 + 5 个已 done 任务判据的处置），一条卡在假形态②在出货夹具上不可红。worktree 保留，供人工/后续处置。
 
 ## DoD
 
