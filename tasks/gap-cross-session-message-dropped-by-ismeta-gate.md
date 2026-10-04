@@ -47,6 +47,19 @@ extra:
 
 - server/modules/providers/list/claude/claude-sessions.provider.ts
 - server/modules/debug-agent/debug-agent.engine.ts
+- server/modules/debug-agent/tests/debug-agent-vocabulary-guard.test.ts
 - server/modules/providers/tests/claude-cross-session-message.test.ts (new)
 - e2e/resident-status-bar.spec.ts
 - tasks/gap-cross-session-message-dropped-by-ismeta-gate.md
+
+## Evidence
+
+完成记录（本轮续做，2026-10-04）。前一轮在 `step=suite` 因**兄弟守卫** `server/modules/debug-agent/tests/debug-agent-vocabulary-guard.test.ts` 红而退出：`kind: 'peer' — a kind: written by hand is a frame discriminator`。该守卫不在本任务 Touches 内、scoped 门不跑它，只有全量 suite 才红（`scoped-gate-file-set-is-touches-test-bullets-only`）。根因：把调试夹具写成**真实 CLI 形状**（`origin: { kind: 'peer', … }`）后，模块里出现了一个 `kind:` 字面量；守卫的 `kind:` 规则本意是抓「在模块内手写 **frame** 判别子」，而 `origin.kind` 是**行**字段（与已豁免的 host lease `kind:` 同类），属一次误报。把守卫放宽到「任何 kind 都不抓」会毁掉它的另一半（`kind: 'delta'` 负控制），故做的是**同级行层豁免**而非删除规则。
+
+- **守卫修复（本任务新增的唯一改动面，已补入 Touches）**：新增 `DIALECT_ROW_KIND_LITERALS = ['peer']`，与 `HOST_LEASE_KIND_LITERALS` 同级的行层豁免；字段规则保持严格——新加两条对照：`origin:{kind:'peer'}` 扫描干净，`origin:{kind:'oracle'}`（未声明的判别子）仍红。读数：修改前 `node --experimental-strip-types --test …/debug-agent-vocabulary-guard.test.ts` → `fail 1`，唯一点名 `debug-agent.engine.ts:247: kind: 'peer'`；修改后 `pass 5 / fail 0`。
+- **AC1 / AC2 判据读数**（`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-cross-session-message.test.ts`，exit 0，本轮实测）：`✔ history surfaces a real cross-session row with its origin and the sender's body`（真实形状行经历史投影后，产出里恰好一条带 `origin`、正文为发送方消息体而非传输信封）；`✔ history still hides an isMeta row that states no peer origin`（负控制：无 `origin` 的 `isMeta` 行仍被隐藏）。`# tests 2 / # pass 2 / # fail 0`。
+- **AC3 红 / 绿两次读数**（本轮在本 worktree 实跑 `npx playwright test e2e/resident-status-bar.spec.ts -g "the walk drives all four states"`）：
+  - **未修复 ⇒ 红**：临时撤掉 provider 的 `|| rowOrigin !== null` 豁免（跑毕即 `git checkout` 还原，文件确认干净），运行红于 `Error: each unattended turn is introduced by its own divider`，`Expected: 2 / Received: 1`（cross-session 行被 `isMeta` 闸门整行丢掉，只剩 cron），`1 failed`，exit 1。
+  - **已修复 ⇒ 绿**：`1 passed (26.1s)`，DOM 逐字读到 `divider="✉ Cross-session message from peer-resident-status-bar · 08:34 AM" trigger=cross-session sender="peer-resident-status-bar"`、`row.text="unattended turn opened by another conversation" row.class=unattended isUserStyle=false`——即带发送方名与触发类型的分隔标签 + 发送方的消息体（不是 `Another Claude session sent a message:` 传输信封），且不以用户样式显示。
+- **AC4**：`npm run typecheck` 退出 0；`npm run lint` 退出 0；`git diff --stat` 与 `## Touches` 对齐。
+- DoD 里「真实部署冷加载」的承重读数是 AC3 的 e2e 红/绿对（走真实链路：调试 agent → 产品归一化 → 历史投影 → DOM）；不再重复一条线上 `SendMessage` 实测。
