@@ -31,10 +31,10 @@ extra:
 
 ## AC
 
-- [ ] AC1 **真实形状的行不再被丢，且带得出 `origin`**：新增判据 `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-cross-session-message.test.ts` 退出 0。判据把一条**真实 CLI 形状**的转录行（`type:'user'`、`isMeta:true`、`origin:{kind:'peer',name,msg_id}`、content 为 `Another Claude session sent a message:\n<cross-session-message …>` 信封）经 provider 的历史读取跑一遍，断言产出里**恰好一条**消息带 `origin`（trigger 为 cross-session、sender 为发送方名），且其正文是发送方的消息体而不是传输信封。**红态基线（必测）**：在未修复的树上同一条判据必须红并点名（产出里带 `origin` 的消息数 = 0），读数写进完成记录。
-- [ ] AC2 **负控制：闸门对真正的内部行仍然关闭**：同一条判据里第二条用例 —— 一条 `isMeta:true` 且**没有** `origin` 的行（模拟 skill 正文 / caveat）必须**仍然**不出现在产出里。把豁免放宽成「无条件放行一切 `isMeta`」⇒ 该用例必须红。两条用例的读数逐字打印。
-- [ ] AC3 **判据洞被堵上（AC-172 的 spec 对真实形状有分辨力）**：使 `npx playwright test e2e/resident-status-bar.spec.ts` 在**未修复**的树上红、修复后绿。可行的落地方式之一是让调试 agent 的 `unattended-turn` 步写入与真实 CLI **同形状**的行（至少含 `isMeta:true` 与信封）；若实现者另有等效手段，须在完成记录里给出「未修复 ⇒ 红 / 已修复 ⇒ 绿」两次读数作为证据。⚠️ 这正是 AC-172 今天成为「绿的空头承诺」的原因，不得以「spec 已绿」为由跳过。
-- [ ] AC4 **契约面**：`npm run typecheck` 与 `npm run lint` 退出 0；`git diff --stat` 与 `## Touches` 逐条对齐（含任务文件自身）。
+- [x] AC1 **真实形状的行不再被丢，且带得出 `origin`**：新增判据 `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-cross-session-message.test.ts` 退出 0。判据把一条**真实 CLI 形状**的转录行（`type:'user'`、`isMeta:true`、`origin:{kind:'peer',name,msg_id}`、content 为 `Another Claude session sent a message:\n<cross-session-message …>` 信封）经 provider 的历史读取跑一遍，断言产出里**恰好一条**消息带 `origin`（trigger 为 cross-session、sender 为发送方名），且其正文是发送方的消息体而不是传输信封。**红态基线（必测）**：在未修复的树上同一条判据必须红并点名（产出里带 `origin` 的消息数 = 0），读数写进完成记录。
+- [x] AC2 **负控制：闸门对真正的内部行仍然关闭**：同一条判据里第二条用例 —— 一条 `isMeta:true` 且**没有** `origin` 的行（模拟 skill 正文 / caveat）必须**仍然**不出现在产出里。把豁免放宽成「无条件放行一切 `isMeta`」⇒ 该用例必须红。两条用例的读数逐字打印。
+- [x] AC3 **判据洞被堵上（AC-172 的 spec 对真实形状有分辨力）**：使 `npx playwright test e2e/resident-status-bar.spec.ts` 在**未修复**的树上红、修复后绿。可行的落地方式之一是让调试 agent 的 `unattended-turn` 步写入与真实 CLI **同形状**的行（至少含 `isMeta:true` 与信封）；若实现者另有等效手段，须在完成记录里给出「未修复 ⇒ 红 / 已修复 ⇒ 绿」两次读数作为证据。⚠️ 这正是 AC-172 今天成为「绿的空头承诺」的原因，不得以「spec 已绿」为由跳过。
+- [x] AC4 **契约面**：`npm run typecheck` 与 `npm run lint` 退出 0；`git diff --stat` 与 `## Touches` 逐条对齐（含任务文件自身）。
 
 ## DoD
 
