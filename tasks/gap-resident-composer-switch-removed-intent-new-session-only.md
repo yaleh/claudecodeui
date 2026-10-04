@@ -33,11 +33,11 @@ extra:
 
 ## AC
 
-- [ ] AC1 已有会话无开关：`npx playwright test e2e/resident-ui-layout.spec.ts -g "composer has no resident switch"` 退出 **0**，并打印对 per-run 与 resident 两种已有会话各自 `.chat-composer-shell` 内 `[data-resident-enable="true"]` 的 `count=0`；同次运行打印空状态下同一选择器 `count=1` 作正控制（同一选择器同一次运行）。
-- [ ] AC2 静默转换回归（承重）：判据先在空状态打开开关并发送，创建会话 A 后读回 `GET /api/session-hosts` 得 `lifecycleMode=resident`；再切到一个 per-run 会话 B 发送一条消息，读回 B 的 `lifecycleMode` 仍为 `per-run`，并打印 `B.lifecycle_mode=per-run`。退出 **0**。
-- [ ] AC3 假形态必须红：把发送路径还原为 `if (residentIntent && targetSessionId)` 且不清零意图 ⇒ AC2 的判据退出非 0，红在 B 的 `lifecycleMode` 读数上；登记变异 diff、逐字失败行、退出码，恢复后复绿。
-- [ ] AC4 新建流程不回归：空状态开关打开并发送后，新会话 `lifecycleMode=resident`（读自 `/api/session-hosts`）；`npx vitest run src/modules/chat/tests/residentComposerEnableAffordance.test.tsx` 与 `src/modules/chat/tests/composerDraftScoping.test.tsx` 退出 **0**，其中新增一条断言 `pendingResidentIntent` 的模块级导出已不存在（`grep -rn "setPendingResidentIntent\|consumePendingResidentIntent" src` 无输出）。
-- [ ] AC5 台账同步：AC-171 与 AC-178 的 `expect`/判据与新行为一致，`e2e/resident-enable-consent.spec.ts` 与 `e2e/resident-enter-send.spec.ts` 退出 **0**；`npm run lint` 与 `npm run typecheck` 退出 **0**。
+- [x] AC1 已有会话无开关：`npx playwright test e2e/resident-ui-layout.spec.ts -g "composer has no resident switch"` 退出 **0**，并打印对 per-run 与 resident 两种已有会话各自 `.chat-composer-shell` 内 `[data-resident-enable="true"]` 的 `count=0`；同次运行打印空状态下同一选择器 `count=1` 作正控制（同一选择器同一次运行）。
+- [x] AC2 静默转换回归（承重）：判据先在空状态打开开关并发送，创建会话 A 后读回 `GET /api/session-hosts` 得 `lifecycleMode=resident`；再切到一个 per-run 会话 B 发送一条消息，读回 B 的 `lifecycleMode` 仍为 `per-run`，并打印 `B.lifecycle_mode=per-run`。退出 **0**。
+- [x] AC3 假形态必须红：把发送路径还原为 `if (residentIntent && targetSessionId)` 且不清零意图 ⇒ AC2 的判据退出非 0，红在 B 的 `lifecycleMode` 读数上；登记变异 diff、逐字失败行、退出码，恢复后复绿。
+- [x] AC4 新建流程不回归：空状态开关打开并发送后，新会话 `lifecycleMode=resident`（读自 `/api/session-hosts`）；`npx vitest run src/modules/chat/tests/residentComposerEnableAffordance.test.tsx` 与 `src/modules/chat/tests/composerDraftScoping.test.tsx` 退出 **0**，其中新增一条断言 `pendingResidentIntent` 的模块级导出已不存在（`grep -rn "setPendingResidentIntent\|consumePendingResidentIntent" src` 无输出）。
+- [x] AC5 台账同步：AC-171 与 AC-178 的 `expect`/判据与新行为一致，`e2e/resident-enable-consent.spec.ts` 与 `e2e/resident-enter-send.spec.ts` 退出 **0**；`npm run lint` 与 `npm run typecheck` 退出 **0**。
 
 ## DoD
 
