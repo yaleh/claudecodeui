@@ -1,0 +1,7 @@
+{
+  "currency": "CNY",
+  "budgetCny": 2.0,
+  "inputPerMillionCny": null,
+  "outputPerMillionCny": null,
+  "note": "T4 budget. Fill inputPerMillionCny and outputPerMillionCny from the provider console before running `--recognition`; a null, non-numeric or <= 0 price is a placeholder and aborts the run on purpose (the worker must not guess a price). The worst-case estimate is 12 calls x 3000 output tokens; at an output price of 55 CNY / million tokens that is 1.98 CNY, just under the 2.00 budget."
+}

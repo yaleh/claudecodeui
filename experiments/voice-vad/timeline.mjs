@@ -328,7 +328,11 @@ export function buildTimeline({ sources, seed, family, noise, sampleRate = DEFAU
   if (!sources.length) throw new Error('buildTimeline needs at least one source');
   const spec = GAP_FAMILIES[family];
   if (!spec) throw new Error(`unknown gap family: ${family}`);
-  if (!NOISE_MODES.includes(noise)) throw new Error(`unknown noise mode: ${noise}`);
+  // Any `snrNN` is a level: `NOISE_MODES` names the default axis, but a caller (the parameter
+  // sweep) may ask for a level between the default ones, and the overlay arithmetic is the same.
+  if (noise !== 'clean' && noise !== 'floor' && !/^snr\d+$/.test(noise)) {
+    throw new Error(`unknown noise mode: ${noise}`);
+  }
 
   const rng = mulberry32(seed >>> 0);
   const wanted = Math.round(pickRange(rng, spec.sentences[0], spec.sentences[1]));
