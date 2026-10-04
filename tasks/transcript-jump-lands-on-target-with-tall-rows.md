@@ -54,12 +54,12 @@ goal_ac: AC-221
 
 ## AC
 
-- [ ] AC1 判据绿：`npx playwright test e2e/transcript-jump-landing.spec.ts -g "AC-221"` 退出 0。红态基线：spec 文件不存在，playwright 报 No tests found。
-- [ ] AC2 既有守卫不回退，逐字写下各自读数：AC-213 v2、AC-214 v3、AC-215、AC-216、AC-217 v2、AC-218、AC-219、`e2e/transcript-follow.spec.ts` 均退出 0。
-- [ ] AC3 取假形态必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行与恢复命令）：(a) 跳转只写一次 `scrollTop`、不做修正 ⇒ AC-221 (a)(c) 在 tall 夹具上红；(b) 未测量行恢复固定 100px 占位 ⇒ AC-221 (e) 红；(c) 修正不被用户输入解除 ⇒ AC-221 (c) 的输入条款红；(d) 修正窗口无限期不结束 ⇒ AC-221 (c) 红；(e) 保留 150ms 固定定时器 ⇒ AC-221 (d) 红。
-- [ ] AC4 单测绿：`npx vitest run src/modules/chat/tests/jumpAnchorLock.test.ts src/modules/chat/tests/lazyMessageRow.test.tsx` 退出 0，并含 Plan 第 3 步列的全部用例；其余 chat 客户端测试保持绿（写下运行的文件清单）。
-- [ ] AC5 新种子对冷启动的增量写进证据：配置求值加种子阶段的耗时前后读数，增量 ≤2s。
-- [ ] AC6 `npm run typecheck` 与 `npm run lint` 退出 0；`git diff --stat` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）。
+- [x] AC1 判据绿：`npx playwright test e2e/transcript-jump-landing.spec.ts -g "AC-221"` 退出 0。红态基线：spec 文件不存在，playwright 报 No tests found。
+- [x] AC2 既有守卫不回退，逐字写下各自读数：AC-213 v2、AC-214 v3、AC-215、AC-216、AC-217 v2、AC-218、AC-219、`e2e/transcript-follow.spec.ts` 均退出 0。
+- [x] AC3 取假形态必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行与恢复命令）：(a) 跳转只写一次 `scrollTop`、不做修正 ⇒ AC-221 (a)(c) 在 tall 夹具上红；(b) 未测量行恢复固定 100px 占位 ⇒ AC-221 (e) 红；(c) 修正不被用户输入解除 ⇒ AC-221 (c) 的输入条款红；(d) 修正窗口无限期不结束 ⇒ AC-221 (c) 红；(e) 保留 150ms 固定定时器 ⇒ AC-221 (d) 红。
+- [x] AC4 单测绿：`npx vitest run src/modules/chat/tests/jumpAnchorLock.test.ts src/modules/chat/tests/lazyMessageRow.test.tsx` 退出 0，并含 Plan 第 3 步列的全部用例；其余 chat 客户端测试保持绿（写下运行的文件清单）。
+- [x] AC5 新种子对冷启动的增量写进证据：配置求值加种子阶段的耗时前后读数，增量 ≤2s。
+- [x] AC6 `npm run typecheck` 与 `npm run lint` 退出 0；`git diff --stat` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）。
 
 ## DoD
 
