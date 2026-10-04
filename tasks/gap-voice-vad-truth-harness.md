@@ -1,7 +1,7 @@
 ---
 id: gap-voice-vad-truth-harness
 title: VAD 真值度量 harness：真人单句合成时间线 + 精确真值 + 边界/漏检/过切/中途切指标（本地、无网络、可大批量）
-status: ready
+status: done
 labels:
   - gap
 parent: null
