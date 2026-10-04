@@ -74,6 +74,8 @@ vi.mock('@/shared/voiceDebug', () => ({
   isVoiceTrimEnabled: () => false,
   // VAD on, the shipped default: keeps this whole-module replacement complete.
   isVoiceVadEnabled: () => true,
+  // The silence flush's window switch: absent means the shipped 5 s default, which these cases run under.
+  voiceDebugFlushSilenceSec: () => undefined,
 }));
 vi.mock('@/modules/chat/hooks/useVoiceInput', () => ({
   useVoiceInput: () => ({

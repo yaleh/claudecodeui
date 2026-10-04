@@ -9,6 +9,13 @@ import type { VoiceFailureReport, VoiceInputState } from '@/shared/types';
 type Props = {
   state: VoiceInputState;
   onToggle: () => void;
+  /**
+   * Whether a transcription request is outstanding for the listen that is still recording.
+   *
+   * Draws a small pulsing dot beside the red square. Optional, and absent means "nothing in
+   * flight", so every existing caller (and every standalone render) is unchanged.
+   */
+  inFlight?: boolean;
 };
 
 /**
@@ -31,7 +38,7 @@ const DETAILS_LABEL = 'Technical details';
 //
 // It renders the button and NOTHING ELSE. The failure notice that belongs beside it is a
 // sibling of the composer's form rather than a child of this button — see `VoiceFailureNotice`.
-export default function VoiceInputButton({ state, onToggle }: Props) {
+export default function VoiceInputButton({ state, onToggle, inFlight = false }: Props) {
   const { t } = useTranslation('chat');
 
   const icon =
@@ -50,6 +57,8 @@ export default function VoiceInputButton({ state, onToggle }: Props) {
 
   return (
     <PromptInputButton
+      // The in-flight dot is positioned against this button, so it has to be the containing block.
+      className="relative"
       tooltip={{ content: label }}
       aria-label={label}
       onClick={(e: { preventDefault: () => void }) => {
@@ -58,6 +67,21 @@ export default function VoiceInputButton({ state, onToggle }: Props) {
       }}
     >
       {icon}
+      {/*
+        The one piece of feedback that a request is out: a small pulsing dot beside the red square.
+
+        It is a span inside the button rather than a control of its own — no new button, no copy,
+        no locale key — so the composer's control set is unchanged. `motion-safe:` gates the pulse
+        so a reader with reduced-motion on gets a still dot rather than an animation. `aria-hidden`
+        because it carries no text and the button's own name already says what pressing it does.
+      */}
+      {inFlight && (
+        <span
+          data-testid="voice-inflight-dot"
+          aria-hidden="true"
+          className="pointer-events-none absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-red-500 motion-safe:animate-pulse"
+        />
+      )}
     </PromptInputButton>
   );
 }
