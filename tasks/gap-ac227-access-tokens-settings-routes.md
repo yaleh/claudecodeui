@@ -3,7 +3,7 @@ id: gap-ac227-access-tokens-settings-routes
 title: AC-227 令牌设置接口 /api/settings/access-tokens
   创建/列表/吊销：明文只在创建响应、列表无明文无哈希、非法有效期 400 不落库、归属 404、旧 api-keys 不再被处理，判据
   server/modules/oauth/tests/access-tokens.routes.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
