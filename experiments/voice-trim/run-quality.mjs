@@ -77,16 +77,52 @@
 
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
+import { registerHooks } from 'node:module';
+import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-
-import { identifierFidelity } from '../../src/shared/identifierFidelity.ts';
-import { trimVoiceAudio } from '../../src/shared/voiceTrim.ts';
 
 const HERE = new URL('./', import.meta.url);
 const FIXTURE_DIR = new URL('fixtures/', HERE);
 const TRANSCRIPTS_URL = new URL('fixtures/transcripts.json', HERE);
 const MODULE_URL = new URL('../../src/shared/voiceTrim.ts', HERE);
 const FIDELITY_URL = new URL('../../src/shared/identifierFidelity.ts', HERE);
+
+/**
+ * The frontend's `@/` source-root alias, resolved for a plain `node` process.
+ *
+ * `src/shared/voiceTrim.ts` reaches its shared endpoint module through the alias the
+ * browser build, the type-checker and the unit transform all resolve — this hook is the
+ * same mapping for the one place those toolchains do not reach, and it is the reason this
+ * runner can still be the literal command the criterion pins (`node run-quality.mjs`)
+ * instead of a wrapped one. The handler is shaped like the copy in
+ * `experiments/voice-vad/run.mjs`: the alias prefix is stripped and the remainder is
+ * joined onto the source root with a `.ts` extension.
+ *
+ * The depth is two levels (`../../src/`) because this file sits in
+ * `experiments/voice-trim/`. `experiments/voice-vad/run.mjs` writes a single `../src/`,
+ * which resolves to the nonexistent `experiments/src/` — a latent bug there (its own
+ * criterion never loads the batch module), so it is not copied here.
+ */
+const SRC_ROOT = fileURLToPath(new URL('../../src/', HERE));
+const aliasHook = {
+  resolve(specifier, context, nextResolve) {
+    if (specifier.startsWith('@/')) {
+      return { url: pathToFileURL(join(SRC_ROOT, specifier.slice(2)) + '.ts').href, shortCircuit: true };
+    }
+    return nextResolve(specifier, context);
+  },
+};
+registerHooks(aliasHook);
+
+// ESM resolves a module's *static* specifiers before its own body runs, so a hook
+// registered here can only cover `voiceTrim.ts` if that module is imported *after* the
+// registration — which static imports cannot express. The two shipping imports are
+// therefore dynamic, awaited at the top level (legal in an `.mjs` module) and placed
+// strictly below `registerHooks`. Without the hook these same imports throw
+// `ERR_MODULE_NOT_FOUND: Cannot find package '@/shared'`, which is exactly the failure
+// this runner was restored to avoid.
+const { identifierFidelity } = await import('../../src/shared/identifierFidelity.ts');
+const { trimVoiceAudio } = await import('../../src/shared/voiceTrim.ts');
 
 /**
  * ΔCER ceiling, as a fraction of 1 — the reference readings are zh +1.101% and
