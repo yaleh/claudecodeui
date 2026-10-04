@@ -1,7 +1,7 @@
 ---
 id: gap-voice-segment-pipeline
 title: 语音分段流水线：段序号 + 重叠去重 + 单段重试 + 按序拼回
-status: ready
+status: done
 labels:
   - gap
 parent: null
