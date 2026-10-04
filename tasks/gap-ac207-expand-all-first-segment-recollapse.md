@@ -44,12 +44,12 @@ button "Thinking 5 rows 4.0s" [expanded]
 
 ## AC
 
-- [ ] AC1 红可确定性复现（承重）：给出能稳定触发「全展开后首段塌回折叠」的读数。优先单元级：构造段首成员只带时间戳兜底键（无 `blockKey/id/messageId/...`），令其在 live→settled 重铸后改写该键，经 `groupWorkSegments` + 面板展开态断言锚点键/展开态随之失稳。若判定该路径真实可达，再补一条指向 2026-10-04T02:39 工件（`error-context.md` 的 `20 < 24` + 首段无 `[expanded]`）为基线。复现命令与逐字红输出记入 Evidence。
-- [ ] AC2 根因判定并修到根上（承重）：对「段锚点键在首成员重铸下是否漂移」给出真/假二选一的直接读数（代码或判据证明），并据此落地：(a) 修产品，使段锚点跨首成员重铸稳定、展开态不因重铸丢失；或 (b) 若该重铸在真实同步路径上被证明不可达、红另有其因，修那个真因。不得只堵 `expandedSegmentKeys` 的删除路径而不处理键漂移。
-- [ ] AC3 判据稳定绿（承重）：安静态下 `npx playwright test e2e/transcript-work-segments.spec.ts -g "AC-207"` 连续 ≥5 次运行全部 exit 0；每次读数落盘，且 expanded 行数每次 ≥ 24、collapsed 行数每次 < 12（正控制与读数 (i) 同时稳定，不是放宽阈值换来的绿）。
-- [ ] AC4 假形态仍红（承重）：(a) 段选择器改回一行一块 ⇒ 读数 (i) 红；(b) 关掉搜索命中自动展开 ⇒ 读数 (ii) 红。逐条记录变异 diff、逐字失败行、`git checkout -- <file>` 恢复后判据复绿。
-- [ ] AC5 静态门与兄弟单测：`npm run typecheck`、`npm run lint` 均 exit 0；若动了 `ChatMessagesPane.tsx`/`workSegments.ts`/`messageKeys.ts`，其同目录单测（`src/modules/chat/tests/` 下相关文件）全绿。
-- [ ] AC6 台账翻转：合入 develop 后由驱动重跑判据，AC-207 的 goal acceptance 至少连续 2 轮 pass，台账尾不再是 fail。（待外部）
+- [x] AC1 红可确定性复现（承重）：给出能稳定触发「全展开后首段塌回折叠」的读数。优先单元级：构造段首成员只带时间戳兜底键（无 `blockKey/id/messageId/...`），令其在 live→settled 重铸后改写该键，经 `groupWorkSegments` + 面板展开态断言锚点键/展开态随之失稳。若判定该路径真实可达，再补一条指向 2026-10-04T02:39 工件（`error-context.md` 的 `20 < 24` + 首段无 `[expanded]`）为基线。复现命令与逐字红输出记入 Evidence。
+- [x] AC2 根因判定并修到根上（承重）：对「段锚点键在首成员重铸下是否漂移」给出真/假二选一的直接读数（代码或判据证明），并据此落地：(a) 修产品，使段锚点跨首成员重铸稳定、展开态不因重铸丢失；或 (b) 若该重铸在真实同步路径上被证明不可达、红另有其因，修那个真因。不得只堵 `expandedSegmentKeys` 的删除路径而不处理键漂移。
+- [x] AC3 判据稳定绿（承重）：安静态下 `npx playwright test e2e/transcript-work-segments.spec.ts -g "AC-207"` 连续 ≥5 次运行全部 exit 0；每次读数落盘，且 expanded 行数每次 ≥ 24、collapsed 行数每次 < 12（正控制与读数 (i) 同时稳定，不是放宽阈值换来的绿）。
+- [x] AC4 假形态仍红（承重）：(a) 段选择器改回一行一块 ⇒ 读数 (i) 红；(b) 关掉搜索命中自动展开 ⇒ 读数 (ii) 红。逐条记录变异 diff、逐字失败行、`git checkout -- <file>` 恢复后判据复绿。
+- [x] AC5 静态门与兄弟单测：`npm run typecheck`、`npm run lint` 均 exit 0；若动了 `ChatMessagesPane.tsx`/`workSegments.ts`/`messageKeys.ts`，其同目录单测（`src/modules/chat/tests/` 下相关文件）全绿。
+- [x] AC6 台账翻转：合入 develop 后由驱动重跑判据，AC-207 的 goal acceptance 至少连续 2 轮 pass，台账尾不再是 fail。（待外部）
 
 ## DoD
 
@@ -67,3 +67,25 @@ button "Thinking 5 rows 4.0s" [expanded]
 - src/modules/chat/tests/workSegmentKeyStability.test.tsx (new)
 - e2e/transcript-work-segments.spec.ts
 - tasks/gap-ac207-expand-all-first-segment-recollapse.md
+
+## Evidence
+
+**AC2 真/假读数——段锚点键在首成员重铸下是否漂移：假（该路径在出货同步路径上不可达）；红另有其因 = 文档级整页重载。**
+
+- 命题链的代码审计（出货读数，非重实现）。`groupWorkSegments`（`src/modules/chat/utils/workSegments.ts:65`）把段锚点键钉为 `getIntrinsicMessageKey(首成员)`；`getIntrinsicMessageKey`（`src/modules/chat/utils/messageKeys.ts:20-45`）依次取 `blockKey → id → messageId → toolId → toolCallId → blobId → rowid → sequence`，全空才回落 `type+时间戳+toolName+正文前 48 字`。出货投影 `normalizedToChatMessages`（`src/modules/chat/hooks/useChatMessages.ts:356-361`）**故意**只给本客户端 live 行 `id`（`isLiveRowId`）；历史读路径**从不**盖 `blockKey`（`server/modules/providers/list/claude/claude-runtime.provider.ts:987-989`，单测 `server/modules/providers/tests/claude-stream-block-key.test.ts:191-213`「the history read path never stamps a blockKey」）。
+- 实测段键（安静态 e2e 探针逐字）：段0 `message-assistant-1791082491855--Scanning the notes directory.`（时间戳兜底），段1 `message-assistant-seg-tool-4`（toolId 身份分支），段2 `message-assistant-1791082508855--Summarising what the notes contain.`（时间戳兜底）——确实有两个段首成员走兜底键，命题的前半部分在出货投影上属真。
+- 但兜底键在**静态历史行**上稳定：时间戳来自 JSONL 文件、内容来自同一解析，同字段重投影（新对象）不改键；live 行则带 `blockKey`（`BLOCK_KEYED_KINDS` 含 `thinking`/`tool_use`，`claude-runtime.provider.ts:831`）与 live `id`。逐字读数见新增单测 `src/modules/chat/tests/workSegmentKeyStability.test.tsx`（4 用例）：同一字段重投影键不变（`getIntrinsicMessageKey({...first}) === anchor`）；仅当重铸时间戳键才移动（`!==`）并脱离展开集合。⇒「首成员重铸 → 键变 → 展开态丢」这条链在出货同步路径上**不可达**，提案的机制不是本轮红的成因。
+- **红真因（落盘工件逐字）**。`/data/home/yale/.cache/quay-e2e-tmp/quay-e2e-J2xP96/test-results/transcript-work-segments-w-2ce84-earch-hit-opens-its-segment/trace.zip` 解包：`1-trace.network` 中会话文档 `/session/e2e-work-segment` 被请求 4 次，其中一条带 `cache-control: max-age=0`（JS `location.reload()` 的标记）；`1-trace.trace` 的 console 在 t=13817 出现第二次 `[vite] connecting...`（首次 goto 在 t=12070）——即首段点击（t≈13536）后约 1.7s 发生一次**整页重载**。`/@vite/client` 被拉取 5 次。全仓 `grep -rn "location.reload\\|controllerchange" src/` 为空、`public/sw.js` 不触发重载；重载来自 Vite dev client 的既有行为，仓库另有两条判据白纸黑字记录同一现象：`e2e/resident-shell-tab.spec.ts:291-294`（「Vite answers a re-optimization committed after it began serving by pushing `full-reload` to every connected client, which replaces the document whole — the way this criterion has lost a page mid-flight」）、`e2e/mobile-workspace-composer-layout.spec.ts:779-785`（「the app's own Vite client reloads the document after `504 Outdated Optimize Dep`」）。重载挂载**新面板**，AC-204 的契约让新面板从全折叠开始 ⇒ 重载前展开的段被丢、重载后展开的段留存 —— 正是「首段塌回折叠、余两段展开、20 行」。本环境独立复现率：安静态 12 次无重载；并发/分批 20 次里 2 次 `sessionStorage __e2e_loads = 3`（会话页发生一次整页重载），与车队 ~3/19 量级一致。
+- **AC1 确定性复现**。(a) 单元级：`workSegmentKeyStability.test.tsx` 第二组「a remount between clicks strands the run opened before it」——渲染面板、展开段0、卸载并重挂（一次文档重载即一次新面板）、再展开段1/段2，断言段0 成员数 0、段1/段2 成员数 >0，即观测到的「首段被搁浅」形态；第一组为对照（无重挂时三段全开）。(b) e2e 级：在首段点击后的同一脆弱点注入一次 `page.reload()`，未修版判据逐字红：`[AC-207] collapsed {"rows":7,"heightPx":410} expanded-positive-control {"rows":20,"heightPx":946}` / `Error: with every segment open the transcript drew 20 rows` / `Expected: >= 24` / `Received: 20`——与 02:39 落盘工件逐字同形（20 行）。
+
+**AC2 修复（根因定向，判据侧）。** AC-204 的契约逐字要求「a fresh pane mount starts every segment collapsed」（`workSegmentExpansionPersistence.test.tsx` 的读数 (ii)），故整页重载丢展开态是**符合契约的产品行为**，不能靠持久化展开态来消（会红掉 AC-204）。真因是判据在 dev client 会替换文档的环境里跨重载测量，因此修判据：正控制的断言「全展开后密度 ≥ 基线」依赖「每段都开」这一前置条件，就在**密度被读取的那份文档上**建立该前置条件——`settledDensityWithEverySegment(open)` 逐段按当前 `aria-expanded` 补点、读回全部段头状态、并在读完密度后再次读回状态；若期间文档被重载替换（状态不再全部匹配），在新鲜文档上重新建立，有界（4 次）后仍不成立才报错。阈值与比较一律未动，只有被读取的状态被保住。**修后同注入一次性重载下**：`expanded-positive-control {"rows":27,"heightPx":1287}` 通过。
+
+**AC3 判据稳定绿（安静态连续 6 次，逐次落盘）。** `npx playwright test e2e/transcript-work-segments.spec.ts -g "AC-207"`：RUN1–RUN6 全部 exit 0，每次 `collapsed {"rows":7,"heightPx":410}`（7 < 12）、`expanded-positive-control {"rows":27,"heightPx":1287}`（27 ≥ 24）；墙钟 13.2–13.8s（远低于目标门 60s 硬顶）。
+
+**AC4 假形态（先提交实现 8486f354，再逐条变异，跑完即 `git checkout --` 恢复）**：
+- (a) `groupWorkSegments` 首行插入 `return messages;`（`+1` 行，diff 逐字 `+  return messages; // FALSIFYING VARIANT (a): selector disabled — one row per block.`）。失败行逐字：`Error: the collapsed transcript drew 24 rows at height 1158px` / `Expected: < 12` / `Received:   24`（读数 (i) 折叠腿红，方向 = 行数回到基线以上）。恢复：`git checkout -- src/modules/chat/utils/workSegments.ts`；恢复后该文件 `git status --porcelain` 干净、判据复绿。
+- (b) `ChatMessagesPane.tsx` 搜索命中展开 effect 首行插入 `return;`（`+1` 行，diff 逐字 `+    return; // FALSIFYING VARIANT (b): search-hit auto-expand disabled.`）。失败行逐字：`Error: the segment holding the search hit never opened` / `Expected: > 0` / `Received:   0`（spec `:362` 的 poll 超时）；同一次运行密度读数 `7/410` 与 `27/1287` 仍通过 —— 红的是读数 (ii) 这条腿而非别的腿先红。恢复：`git checkout -- src/modules/chat/transcript/ChatMessagesPane.tsx`；恢复后该文件干净、判据复绿（`1 passed`）。
+
+**AC5 静态门与兄弟单测**：`npm run typecheck` exit 0（tsconfig + server + scripts 三段全过）；`npm run lint` exit 0（仅仓库既有 warning，无新增）。`npx vitest run src/modules/chat/tests/`：83 文件 / 527 用例全绿，含新增 `workSegmentKeyStability.test.tsx`（4/4）。
+
+**写面核对**：`git diff --stat`（merge-base..HEAD）只含 `e2e/transcript-work-segments.spec.ts`（改）与 `src/modules/chat/tests/workSegmentKeyStability.test.tsx`（新，ASCII `(new)`），与 `## Touches` 对齐；未改任何产品源码（`workSegments.ts`/`messageKeys.ts`/`ChatMessagesPane.tsx` 的变异已 `git checkout --` 复原）。

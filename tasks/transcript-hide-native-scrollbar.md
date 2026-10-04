@@ -1,7 +1,7 @@
 ---
 id: transcript-hide-native-scrollbar
 title: AC-215 隐藏转录区原生滚动条：只剩自绘轨道一条滚动条，滚轮/触摸/键盘滚动与贴底行为不变
-status: ready
+status: done
 labels:
   - gap
 parent: null
