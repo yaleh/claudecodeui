@@ -1,7 +1,7 @@
 ---
 id: AC-231
 title: 忙会话的发送语义与 UI 一致：常驻会话排队并返回可撤回的消息 uuid，按次进程的会话被拒，撤回用的就是返回的那个 uuid
-status: draft
+status: active
 kind: criterion
 goal: GOAL-019
 criterion: for f in server/modules/websocket/tests/chat-control-busy.test.ts; do
@@ -18,4 +18,15 @@ expect: "同样用注入式假运行时，其 `acceptsBusyInput` 与 `cancelQueu
   忙时一律排队 ⇒ (c) 必须红；(iii) 返回的 uuid 是自造的、与驱动无关 ⇒ (b) 必须红；(iv) `cancelQueued` 对任何
   uuid 都回 `cancelled` ⇒ (d) 必须红。（红先行）当前必红：判据文件不存在，存在性闸以退出码 1 输出缺失的文件名。"
 origin: docs/proposals/mcp-gateway-SPEC.md（v3）。人 yale 2026-10-05 指令：创建并激活本 goal 及其 AC。
+activatedAt: 2026-10-04T17:22:03.830Z
+statusLog:
+  - at: 2026-10-04T17:22:03.830Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-04T17:22:03.830Z
 ---
