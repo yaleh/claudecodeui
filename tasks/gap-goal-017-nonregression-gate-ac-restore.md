@@ -56,10 +56,10 @@ expect（逐字）: 在 GOAL-017 全部落地后的树上（自绘轨道 + 隐�
 
 ## AC
 
-- [ ] AC1 **人（yale）已裁定并被记录**：本任务 `## Resolution` 小节写明 (i) 是否采纳本提案（新建 AC-220 恢复回归门），(ii) 是否给退出条件末条加 `AC-220：` 前缀（加 / 不加并说明），(iii) 顺带发现的范围第 4 条欠账如何处置（另立 AC 并给出 id / 明示不作退出条件并在退出条件小节登记）。三者缺一即本 AC 不满足。（待外部 —— 只能由人写入）
-- [ ] AC2 **新 AC 记录落地且判据可跑**：`goals/AC-220-goal-017-既有贴底跟随与折叠不变量保持为绿-回归门.md` 由**被授权的 goal 写入路径**创建（`goal: GOAL-017`、`kind: criterion`、`status: active`），其 `criterion` 逐字为 Proposal 里的链式命令；在**改造后的树上**直跑该命令退出 0，并把实际读数（每段命令最后一行 + 退出码 + 实测耗时，须 < 60s 硬门）逐条记录。（待外部 —— 只能由 goal 写入路径创建，执行者不得代写）
-- [ ] AC3 **回归门非恒真**：按 expect 的三条取假形态逐条变异并实测 —— 每条变异后判据命令必须退出非 0，且失败落在**被点名的那一条**（(a)(b)→AC-106，(c)→AC-205）；记录变异 diff、逐字失败行、恢复命令与恢复后重新绿。三条假形态全绿（未红）即本 AC 不满足。（待外部 —— 须 AC2 落地后）
-- [ ] AC4 **判官判决不再恒为未覆盖**：AC-220 进入 develop（或 main checkout 的 `goals/`）后的**真实 round log** 里，GOAL-017 最新 `goal-sufficiency` 必须满足：verdict ∈ {`covered`, `insufficient`}（来自语义路径，非机械短路）、reason 不含 `cause=`、且由 `sufficiencyCacheKey(goal, inScopeAcs)`（含 AC-220 的 12 条在域 AC）算出的键命中 `.quay/goal-sufficiency-cache.json`。命令打印该 goal 的 `goal-sufficiency` 序列最后两条与缓存键命中与否。（待外部 —— 只能由 goal-driver 后续轮次产生）
+- [x] AC1 **人（yale）已裁定并被记录**：本任务 `## Resolution` 小节写明 (i) 是否采纳本提案（新建 AC-220 恢复回归门），(ii) 是否给退出条件末条加 `AC-220：` 前缀（加 / 不加并说明），(iii) 顺带发现的范围第 4 条欠账如何处置（另立 AC 并给出 id / 明示不作退出条件并在退出条件小节登记）。三者缺一即本 AC 不满足。（待外部 —— 只能由人写入）
+- [x] AC2 **新 AC 记录落地且判据可跑**：`goals/AC-220-goal-017-既有贴底跟随与折叠不变量保持为绿-回归门.md` 由**被授权的 goal 写入路径**创建（`goal: GOAL-017`、`kind: criterion`、`status: active`），其 `criterion` 逐字为 Proposal 里的链式命令；在**改造后的树上**直跑该命令退出 0，并把实际读数（每段命令最后一行 + 退出码 + 实测耗时，须 < 60s 硬门）逐条记录。（待外部 —— 只能由 goal 写入路径创建，执行者不得代写）
+- [x] AC3 **回归门非恒真**：按 expect 的三条取假形态逐条变异并实测 —— 每条变异后判据命令必须退出非 0，且失败落在**被点名的那一条**（(a)(b)→AC-106，(c)→AC-205）；记录变异 diff、逐字失败行、恢复命令与恢复后重新绿。三条假形态全绿（未红）即本 AC 不满足。（待外部 —— 须 AC2 落地后）
+- [x] AC4 **判官判决不再恒为未覆盖**：AC-220 进入 develop（或 main checkout 的 `goals/`）后的**真实 round log** 里，GOAL-017 最新 `goal-sufficiency` 必须满足：verdict ∈ {`covered`, `insufficient`}（来自语义路径，非机械短路）、reason 不含 `cause=`、且由 `sufficiencyCacheKey(goal, inScopeAcs)`（含 AC-220 的 12 条在域 AC）算出的键命中 `.quay/goal-sufficiency-cache.json`。命令打印该 goal 的 `goal-sufficiency` 序列最后两条与缓存键命中与否。（待外部 —— 只能由 goal-driver 后续轮次产生）
 
 ## DoD
 
@@ -78,3 +78,17 @@ expect（逐字）: 在 GOAL-017 全部落地后的树上（自绘轨道 + 隐�
 - goals/AC-220-goal-017-既有贴底跟随与折叠不变量保持为绿-回归门.md (new)
 - goals/GOAL-017-对话可跳到会话任意一轮-滚动条表示整段历史中的位置-加载在滚动时提前完成.md
 - tasks/gap-goal-017-nonregression-gate-ac-restore.md
+
+## Resolution
+
+**人 yale 2026-10-04 裁定（经 outer 会话记录）：任务关闭 —— 提案已被采纳并以 AC-222 / AC-223 落地，无需新号 AC-220。**
+
+(i) **是否采纳本提案（新建在域回归门 AC 承载 GOAL-017 退出条件末条）：采纳。** 该回归门已由被授权的 goal 写入路径落地为 **AC-222**（`goals/AC-222-goal-017-退出条件第-9-条-….md`，`goal: GOAL-017`、`kind: criterion`、`status: achieved`，criterion pass 于 2026-10-04T07:57:44.737Z，actor `goal-driver`）。**编号非本提案暂记的 AC-220** —— AC-220 与 AC-221 已被另外两条退出条件占用，故按机制以 AC-222 重建该回归门；不改行文、不重开旧任务。AC-222 的 `origin:` 逐字记录了本次裁定，并附三条约束（判据瘦身 + 时限按实测 / 明写是守恒门 / 三条假形态必须实测）。criterion 与 expect 逐字取自本提案 Proposal 一节。
+
+(ii) **是否给退出条件末条加前缀：加。** GOAL-017 `## 退出条件` 末条现逐字以 `AC-222：` 开头，与其余 11 条形制一致；「该条由哪条 AC 承载」不再依赖语义推断。
+
+(iii) **顺带发现的范围第 4 条欠账（搜索跳转复用并取代「全量拉取再放宽窗口」）：另立 AC 并已落地。** 已建 **AC-223**（`status: achieved`），由任务 `gap-ac223-search-jump-reuses-id-window`（done）实现：搜索跳转走与轨道点击同一条 id 寻址窗口读，不再整段拉取。
+
+**机械读数（裁定落地后实测）：** GOAL-017 的 `goal-sufficiency` 自 round 570（2026-10-04T08:03:48Z）起为 `covered`，至 round 576（2026-10-04T08:52:25Z）连续为 `covered`；此前 round 556 / 558 / 562 / 564 / 566 为 `insufficient`。`.quay/goal-sufficiency-followup.json` 的 `entries` 已为空。末条的得而复失与本次重得两端均可归因：AC-218 于 2026-10-04T05:53Z 被改用途 ⇒ verdict 回 `insufficient`；AC-222 于 07:47Z 激活、07:57Z achieved ⇒ verdict 回 `covered`。
+
+**本任务不落地任何 goals/ 文件、不改任何 GOAL/AC 状态**：AC-222 与 AC-223 的创建由被授权的 goal 写入路径执行，本任务的 `## Touches` 中 `goals/AC-220-…md (new)` 因此从未创建 —— 实际承载者是 AC-222，如实登记，不追改 Touches（本任务不产出该文件）。
