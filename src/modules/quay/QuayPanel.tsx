@@ -68,6 +68,22 @@ function formatTimestamp(value: string | null): string {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
+/**
+ * Formats a detail row's last-updated reading for display. `null` — the
+ * projection's value when quay reported no usable timestamp for the row — renders
+ * the same em-dash placeholder as `formatDuration`; it must not read as `never`
+ * (a real "nothing recorded yet" reading) or as `Invalid Date`. The machine-
+ * readable copy of the same value lives in the row's `data-updated-at` attribute.
+ */
+function formatUpdatedAt(value: string | null): string {
+  if (!value) {
+    return '—';
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
 /** Formats a millisecond duration for the Tests card, tolerating a missing value. */
 function formatDuration(durationMs: number | null): string {
   if (durationMs === null) {
@@ -112,9 +128,11 @@ function UnavailableReading({ label, testId }: { label: string; testId: string }
   );
 }
 
-/** One read-only detail list (tasks or ADRs): a header, then either rows of
- * id/title/status or an explicit empty-state line. Rows are display-only — quay
- * has no per-entity page to link to, so there is nothing to click.
+/** One read-only detail list (tasks, goals or ADRs): a header, then either rows of
+ * id/title/last-updated/status or an explicit empty-state line. Rows are
+ * display-only — quay has no per-entity page to link to, so there is nothing to
+ * click. Each row states the last-updated value the list is ranked by, both as
+ * visible text and verbatim in `data-updated-at`.
  */
 function DetailList({
   title,
@@ -145,10 +163,19 @@ function DetailList({
             key={item.id}
             className="flex items-center gap-2 rounded border border-border/40 px-2 py-1 text-xs"
             data-testid={`${testId}-row`}
+            // The row's own ISO reading, verbatim. Absent — not empty — when the
+            // projection has no timestamp, so a reader can tell "no value" from a value.
+            data-updated-at={item.updatedAt ?? undefined}
           >
             <span className="shrink-0 font-mono text-[11px] text-foreground">{item.id}</span>
             <span className="min-w-0 flex-1 truncate text-muted-foreground" title={item.title}>
               {item.title}
+            </span>
+            <span
+              className="shrink-0 text-[10px] text-muted-foreground"
+              data-testid={`${testId}-updated-at`}
+            >
+              {formatUpdatedAt(item.updatedAt)}
             </span>
             <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">{item.status}</span>
           </li>
@@ -230,10 +257,18 @@ function StageGoals({ goals }: { goals: QuaySnapshot['goals'] }) {
                   key={goal.id}
                   className="rounded border border-border/40 px-2 py-1.5"
                   data-testid="quay-panel-stage-goals-row"
+                  // Same machine-readable reading as the detail-list rows: this list
+                  // is ranked by the goal's `updatedAt` too.
+                  data-updated-at={goal.updatedAt ?? undefined}
                 >
                   <div className="flex items-center justify-between gap-2 text-xs">
                     <span className="shrink-0 font-mono text-[11px] text-foreground">{goal.id}</span>
-                    <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">{goal.status}</span>
+                    <span className="flex shrink-0 items-center gap-2">
+                      <span className="text-[10px] text-muted-foreground" data-testid="quay-panel-stage-goals-updated-at">
+                        {formatUpdatedAt(goal.updatedAt)}
+                      </span>
+                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{goal.status}</span>
+                    </span>
                   </div>
                   <div className="mt-0.5 truncate text-[11px] text-muted-foreground" title={goal.title}>
                     {goal.title}
