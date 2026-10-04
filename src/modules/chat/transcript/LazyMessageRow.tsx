@@ -76,6 +76,8 @@ export default function LazyMessageRow({
   const [isNearViewport, setIsNearViewport] = useState(initiallyNearViewport);
   const [measuredHeight, setMeasuredHeight] = useState<number | null>(null);
   const elementRef = useRef<HTMLDivElement | null>(null);
+  /** This row's placeholder height, latched once an estimate is available. */
+  const placeholderHeightRef = useRef<number | null>(null);
 
   const handleNearViewportChange = useCallback((nextIsNearViewport: boolean) => {
     if (!nextIsNearViewport) {
@@ -113,10 +115,19 @@ export default function LazyMessageRow({
 
   // The placeholder for a row that has never been measured: the transcript's own
   // average pixels per message, times the messages this row stands for. The flat
-  // constant is the fallback for a render with no estimate yet.
-  const placeholderHeight = estimatedHeightPerMessage > 0 && messageCount > 0
-    ? estimatedHeightPerMessage * messageCount
-    : ESTIMATED_ROW_HEIGHT_PX;
+  // constant is the fallback until an estimate exists.
+  //
+  // Latched at the first render that has an estimate, and never moved after. The
+  // estimate is a running average, so it keeps moving as rows mount and measure —
+  // and a placeholder that resized every time it moved would change the height of
+  // content *above* a viewport the reader had left, which browser scroll anchoring
+  // then converts into a scrollTop the reader did not ask for. A row's stand-in is
+  // therefore fixed once it is known, the way its measured height is; the newest
+  // rows rendered by a jump or a page read are the ones that take the fresh value.
+  if (placeholderHeightRef.current === null && estimatedHeightPerMessage > 0 && messageCount > 0) {
+    placeholderHeightRef.current = estimatedHeightPerMessage * messageCount;
+  }
+  const placeholderHeight = placeholderHeightRef.current ?? ESTIMATED_ROW_HEIGHT_PX;
 
   return (
     <div

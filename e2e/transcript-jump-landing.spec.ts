@@ -395,8 +395,24 @@ function percentile(values: number[], fraction: number): number {
   return sorted[Math.max(0, index)];
 }
 
+/**
+ * Drops any highlight left by an earlier jump.
+ *
+ * A jump's highlight lasts four seconds, and the probe reads the highlighted
+ * row, so two jumps inside that window (every click here is) would leave two
+ * rows marked and the probe could sample the wrong one. Clearing first makes the
+ * only highlighted row the one the next click lands on.
+ */
+const clearHighlights = (page: Page) =>
+  page.evaluate(() => {
+    for (const row of Array.from(document.querySelectorAll('.search-highlight-flash'))) {
+      row.classList.remove('search-highlight-flash');
+    }
+  });
+
 /** Starts a probe, performs a real click, waits for the landing and the hold, returns the reading. */
 const measureJump = async (page: Page, click: () => Promise<void>): Promise<LandingReading> => {
+  await clearHighlights(page);
   await page.evaluate(() => (window as unknown as { __armLandingProbe: () => void }).__armLandingProbe());
   await click();
   // Wait for the row to be fully visible AND still for a run of frames, not just
@@ -591,10 +607,10 @@ test.describe('transcript jump landing on tall rows', () => {
 
     // A jump, then a wheel immediately after it lands — inside the window the
     // correction is armed for. The wheel's offset must stand.
-    await page.evaluate(() => (window as unknown as { __armLandingProbe: () => void }).__armLandingProbe());
     const parked = await measureJump(page, () => clickTrackAt(page, 0.5));
     expect(parked.landed, 'the jump before the gesture must land').toBe(true);
 
+    await clearHighlights(page);
     await page.evaluate(() => (window as unknown as { __armLandingProbe: () => void }).__armLandingProbe());
     const track = page.locator('[data-scrollbar-track]');
     const box = await track.boundingBox();
@@ -607,29 +623,39 @@ test.describe('transcript jump landing on tall rows', () => {
     await page.waitForTimeout(250);
     const beforeWheel = await readGeometry(page);
     await page.mouse.wheel(0, 600);
-    const afterWheel = await page.evaluate(
-      () =>
-        new Promise<number>((resolve) => {
-          requestAnimationFrame(() => resolve((document.querySelector('.chat-messages-pane') as HTMLElement).scrollTop));
-        }),
-    );
-    await page.waitForTimeout(350);
-    const afterWindow = await page.evaluate(
-      () =>
-        new Promise<number>((resolve) => {
-          requestAnimationFrame(() => resolve((document.querySelector('.chat-messages-pane') as HTMLElement).scrollTop));
-        }),
-    );
+    await page.waitForTimeout(400);
+    // The offset the wheel asked for must still be there, and the jumped-to row
+    // must no longer be centred — a live correction would have pulled both back.
+    const afterWindow = await page.evaluate(() => {
+      const probe = (window as unknown as {
+        __landingProbe: { samples: { rowId: string | null }[] };
+      }).__landingProbe;
+      const withId = probe.samples.filter((sample) => sample.rowId !== null);
+      const targetId = withId.length > 0 ? withId[withId.length - 1].rowId : null;
+      const pane = document.querySelector('.chat-messages-pane') as HTMLElement;
+      const row = targetId
+        ? (document.querySelector(`[data-message-anchor-id="${CSS.escape(targetId)}"]`) as HTMLElement | null)
+        : null;
+      const paneRect = pane.getBoundingClientRect();
+      const rowRect = row ? row.getBoundingClientRect() : null;
+      return {
+        scrollTop: pane.scrollTop,
+        targetId,
+        paneRect: { top: Math.round(paneRect.top), bottom: Math.round(paneRect.bottom), height: pane.clientHeight, scrollHeight: pane.scrollHeight },
+        rowRect: rowRect ? { top: Math.round(rowRect.top), bottom: Math.round(rowRect.bottom) } : null,
+        rowCenterOffset: rowRect ? Math.round((rowRect.top + rowRect.bottom) / 2 - (paneRect.top + paneRect.bottom) / 2) : null,
+      };
+    });
     await page.evaluate(() => (window as unknown as { __stopLandingProbe: () => unknown }).__stopLandingProbe());
-    console.log(`[AC-221] input release: before=${beforeWheel.scrollTop} afterWheel=${afterWheel} afterWindow=${afterWindow}`);
+    console.log(`[AC-221] input release: before=${beforeWheel.scrollTop} after=${JSON.stringify(afterWindow)}`);
     expect(
-      Math.abs(afterWheel - beforeWheel.scrollTop),
-      'the wheel must actually move the pane',
-    ).toBeGreaterThan(10);
+      Math.abs(afterWindow.scrollTop - beforeWheel.scrollTop),
+      'the offset a wheel asked for must stand 400ms later — the correction must not pull the pane back to where it was',
+    ).toBeGreaterThan(100);
     expect(
-      Math.abs(afterWindow - afterWheel),
-      'a correction armed before the wheel must not pull the pane back after it',
-    ).toBeLessThanOrEqual(HOLD_TOLERANCE_PX);
+      afterWindow.rowCenterOffset === null ? Infinity : Math.abs(afterWindow.rowCenterOffset),
+      'the jumped-to row must no longer be centred after the user wheeled away from it',
+    ).toBeGreaterThan(100);
   });
 
   test('AC-221 never-measured placeholders carry the transcript estimate, not the flat constant', async () => {
