@@ -43,6 +43,14 @@ const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
 const PROBE = path.join(SCRIPT_DIR, 'asr-trim-capability-check.mjs');
 
 const DECLARING_MODULE = 'src/shared/voiceTrim.ts';
+/**
+ * The declaring module's own dependency, reached through the frontend `@/` alias. `voiceTrim.ts`
+ * imports its frame decision from here, so a fixture that carries the declaring module but not this
+ * one cannot be loaded at all — the probe's alias hook resolves `@/shared/voiceEndpoint` to a file
+ * that is not there and the run dies in `check probe` with ENOENT. It is therefore part of the
+ * fixture's shipping set, and the last case below is what proves that membership is load-bearing.
+ */
+const ALIASED_DEPENDENCY = 'src/shared/voiceEndpoint.ts';
 const CONSUMER = 'src/modules/chat/hooks/useVoiceInput.ts';
 const SWITCH = 'src/shared/voiceDebug.ts';
 const EVIDENCE = 'docs/experiments/2026-09-22-voice-provider-paired-quality.md';
@@ -67,8 +75,9 @@ const FIRST_ADAPTER = 'shared/asr/list/openai-compatible/openai-compatible.asr-p
 const REGISTRY = 'shared/asr/asrRegistry.ts';
 
 /**
- * The shipping files a fixture needs: the declaring module (the vocabulary and the read point),
- * the file that reaches the read point, the module the shipped switch's default is read from, the
+ * The shipping files a fixture needs: the declaring module (the vocabulary and the read point) and
+ * the aliased sibling it imports its frame decision from, the file that reaches the read point, the
+ * module the shipped switch's default is read from, the
  * experiment record every declaration points at — each of which has to exist, or the discipline
  * check reds before the case under test runs — and the registry side the declarations are read
  * through, including the adapter module of EVERY registered provider, because the check reads the
@@ -76,6 +85,7 @@ const REGISTRY = 'shared/asr/asrRegistry.ts';
  */
 const SHIPPING_FILES = [
   DECLARING_MODULE,
+  ALIASED_DEPENDENCY,
   CONSUMER,
   SWITCH,
   EVIDENCE,
@@ -357,4 +367,28 @@ test('deleting the third provider\'s record reds discipline (AC7: the evidence i
     /the declared experiment record does not exist: dashscope-omni->docs\/experiments\/2026-09-24-omni-written\.md/,
     stdout,
   );
+});
+
+/**
+ * AC3's negative control for the fixture's own completeness — the arm the `@/` alias fix adds.
+ *
+ * The declaring module now reaches a sibling shared module through `@/`, so a fixture that carries
+ * the declaring module but not that sibling does not red a NAMED check: it cannot be loaded at all,
+ * and the probe dies in the top-level `check probe` catch. This case proves the `SHIPPING_FILES`
+ * addition is load-bearing rather than decorative, in the two halves every case here uses: the
+ * unmutated fixture — the one with `voiceEndpoint.ts` — is green (`greenFixture` asserts exactly
+ * that), and with that one file removed the probe reds at `check probe` with ENOENT naming the
+ * absent file. Without the file the alias hook has nothing to resolve to; if the fixture passed
+ * with it gone, the hook was never in play and the shipping run would not be proving anything.
+ *
+ * The red is asserted to be `check probe` and not one of the six named checks, because that is the
+ * shape a module-resolution failure takes and a named-check red here would misattribute the cause.
+ */
+test('removing the declaring module\'s aliased dependency reds check probe with ENOENT (AC3: the fixture addition is load-bearing)', (t) => {
+  const root = greenFixture(t);
+  rmSync(path.join(root, ALIASED_DEPENDENCY));
+  const result = runProbe(root);
+  assert.equal(result.status, 1, `the probe must red a fixture missing the aliased dependency:\n${result.stdout}`);
+  assert.match(result.stdout, /^check probe: FAIL .*ENOENT/m, result.stdout);
+  assert.match(result.stdout, /voiceEndpoint\.ts/, result.stdout);
 });
