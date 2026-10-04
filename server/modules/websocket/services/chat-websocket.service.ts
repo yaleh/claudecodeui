@@ -140,6 +140,25 @@ export type ProviderRuntimeGateway = {
     messageUuid: string,
   ): Promise<HostQueuedInputCancelResult>;
   /**
+   * The uuid of the message the session's provider most recently took into its
+   * own queue — the same uuid `cancelQueuedInput` would withdraw.
+   *
+   * This is how the uuid the provider stamped a queued turn with reaches the
+   * caller that asked for it. The provider's queue is the only thing that knows
+   * the uuid (a busy send is written into the running process; the process
+   * names the message), so a control caller cannot mint one and expect a later
+   * withdrawal to match. The promise resolves once the message has been written
+   * — never with a placeholder — and resolves `null` when the gateway has no
+   * live process to read a queue from.
+   *
+   * Optional, and read as `null` when absent, because the conservative
+   * degradation is "queued, but no uuid to withdraw". A missing seam must never
+   * be read as a queued message with an empty uuid: the caller would then hold
+   * an id that no withdrawal can match. Only the resident drivers can answer
+   * this — a process-per-turn provider has no queue to name a message in.
+   */
+  queuedInputUuid?(provider: LLMProvider, sessionId: string): Promise<string | null>;
+  /**
    * Stops one named background task through the provider's own process.
    *
    * Returns `requested` when the driver was called and its call settled, and a
@@ -529,6 +548,15 @@ function resolveSendTarget(
  * `beforeRun` hook, so a run opened by MCP or a timer is registered and
  * dispatched through the exact same path `chat.send` uses rather than a second
  * copy of the registry logic.
+ *
+ * `beforeRun`'s second argument states whether this dispatch took the
+ * resident-session busy path — the registry refused the first `startRun`,
+ * `acceptsBusyInput` answered yes, and the turn was admitted as a superseding
+ * run. It is reported here, through the same hook that reports the run, because
+ * the fact belongs to this function's own control flow: a caller that wants to
+ * know "was this turn queued into a running process" must not re-derive it by
+ * probing the registry, and existing callers (a plain `chat.send`, an edit)
+ * simply ignore the extra argument.
  */
 export async function dispatchRun(
   ws: WebSocket | null,
@@ -538,7 +566,10 @@ export async function dispatchRun(
   data: AnyRecord,
   dependencies: ChatWebSocketDependencies,
   extraRuntimeOptions: AnyRecord = {},
-  beforeRun?: (run: NonNullable<ReturnType<typeof chatRunRegistry.startRun>>) => void | Promise<void>,
+  beforeRun?: (
+    run: NonNullable<ReturnType<typeof chatRunRegistry.startRun>>,
+    info: { busyAccepted: boolean },
+  ) => void | Promise<void>,
 ): Promise<{ started: boolean; error: string | null }> {
   const provider = session.provider as LLMProvider;
 
@@ -561,8 +592,10 @@ export async function dispatchRun(
   // the newer turn becomes the session's current one instead of being refused.
   // Note that the first call is a pure probe: it returns null precisely when it
   // has changed nothing, which is what makes the retry safe.
+  let busyAccepted = false;
   if (!run && dependencies.runtime.acceptsBusyInput?.(provider, sessionId)) {
     run = chatRunRegistry.startRun({ ...startInput, supersedeRunning: true });
+    busyAccepted = run !== null;
   }
 
   if (!run) {
@@ -642,7 +675,7 @@ export async function dispatchRun(
     // conversation here and a rewind for a run that was never admitted cannot
     // be taken back. Inside the try so a rewind that throws still releases the
     // run instead of leaving the session processing forever.
-    await beforeRun?.(run);
+    await beforeRun?.(run, { busyAccepted });
     await dependencies.runtime.run(provider, command, runtimeOptions, run.writer);
   } catch (error) {
     failure = error instanceof Error ? error.message : String(error);
