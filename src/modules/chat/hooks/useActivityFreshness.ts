@@ -153,9 +153,12 @@ export const useActivityFreshness = (
 
     const listener = (event: ServerEvent) => {
       const { machine } = slot;
+      // A dock with no session (a fresh New Session draft) has no turn to report. Frames
+      // are matched strictly, so a still-running previous session's hello/beat cannot
+      // anchor a turn here and keep the dock popping up in the new session.
 
       if (event.kind === 'chat_subscribed') {
-        if (sessionId && event.sessionId !== sessionId) return;
+        if (event.sessionId !== sessionId) return;
 
         const asOf = parseServerTime(event.timestamp);
         if (asOf === null) return;
@@ -189,7 +192,7 @@ export const useActivityFreshness = (
       }
 
       if (event.kind === 'activity.heartbeat') {
-        if (sessionId && event.sessionId !== sessionId) return;
+        if (event.sessionId !== sessionId) return;
         // A heartbeat before any hello has no threshold to judge against.
         if (slot.staleAfter === null) return;
 
