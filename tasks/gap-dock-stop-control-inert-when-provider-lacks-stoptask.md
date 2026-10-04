@@ -53,12 +53,13 @@ extra:
 - src/modules/chat/hooks/useActivityControls.ts
 - src/modules/chat/transcript/ActivityDockPanel.tsx
 - server/modules/websocket/tests/claude-stop-task-capability.test.ts (new)
+- server/modules/session-hosts/tests/lifecycle-mode.test.ts
 - e2e/activity-dock-background.spec.ts
 - tasks/gap-dock-stop-control-inert-when-provider-lacks-stoptask.md
 
 ## Completion
 
-**产出**：commit `34abbb3b`（`chat(dock): gate the stop control on the provider capability matrix`）+ 之后的 `Merge branch 'develop' into task/...`。改动文件与 `## Touches` 逐条一致（5 改 + 1 新 + 本任务文件）。
+**产出**：commit `34abbb3b`（`chat(dock): gate the stop control on the provider capability matrix`）+ 之后的 `Merge branch 'develop' into task/...`。改动文件与 `## Touches` 逐条一致（5 改 + 1 新 + 本任务文件）；补正轮再新增 1 个姊妹守卫文件（见 AC4 小节末）。
 
 **结论（决定「改产品还是改关卡文本」的那组读数）**：`stopTask` **不是**「产品不支持」，而是**从没测过**。实测它可用 ⇒ 已把能力闸打开并让坞的控件读能力矩阵。⇒ 需要改的是**产品**（已改），AC-201 §12.2 第 3 步的文字**不必**改写。
 
@@ -138,6 +139,7 @@ capabilityGate.falseForm capability-gate: lifecycleMode=resident declared=undefi
 - `npm run typecheck` → 退出 0（合并 develop 后在 worktree 上重跑）。
 - `npm run lint` → 退出 0（仅既有 warning）。
 - `git diff --stat`（相对 develop）：`e2e/activity-dock-background.spec.ts`、`server/modules/providers/services/provider-capabilities.service.ts`、`server/modules/websocket/services/chat-websocket.service.ts`、`server/modules/websocket/tests/claude-stop-task-capability.test.ts`（新）、`src/modules/chat/hooks/useActivityControls.ts`、`src/modules/chat/transcript/ActivityDockPanel.tsx` —— 与 `## Touches` 逐条一致，无第七个代码文件。
+- 补正轮（2026-10-04，fan-in 全量 suite 红于 `server/modules/session-hosts/tests/lifecycle-mode.test.ts` 的 `residentFeatures` 穷举守卫）新增第 7 个文件 `server/modules/session-hosts/tests/lifecycle-mode.test.ts`：该守卫把 `stopTask` 钉在「未实测 ⇒ false」组，而本轮已把能力矩阵改为实测 `true`，故把该断言移入「已实测 ⇒ true」组并同步注释；文件已声明进 `## Touches`。
 - scoped 门：`bash scripts/test.sh --for-task gap-dock-stop-control-inert-when-provider-lacks-stoptask --allow-thin` → `# pass 1 / # fail 0`。
 - 前端回归：`npx vitest run src/modules/chat/tests src/shared/tests` → `Test Files 109 passed / Tests 722 passed`。
 
