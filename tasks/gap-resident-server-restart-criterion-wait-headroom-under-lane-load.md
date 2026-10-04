@@ -66,3 +66,39 @@ goal_ac: AC-166
 - `server/index.ts`（仅 AC4 假形态变异的临时写点，跑完 `git checkout --` 还原，不进最终 diff）
 - `server/modules/providers/list/claude/claude-host-driver.provider.ts`（同上，仅 AC4 临时变异写点，跑完还原）
 - `tasks/gap-resident-server-restart-criterion-wait-headroom-under-lane-load.md`（自触）
+
+## Evidence
+
+（2026-10-05 worker 实施轮；读数取自本机真实运行，worktree `task/gap-resident-server-restart-criterion-wait-headroom-under-lane-load`；判据运行一律 `env -u HOST -u DATABASE_PATH -u SERVER_PORT`）
+
+**实现**：`ROUND_TIMEOUT_MS` 30_000 → 60_000（= `MEASURED_LANE_ROUND_MS` 38_900 × `ROUND_LOAD_MARGIN` 1.5）；新增具名断言用例 `AC1b: the per-round wait carries the measured lane-load margin`；`BUDGET_MS` 保持独立 240_000，AC1 floor 140_000 → 170_000（仍远低于预算）。判据命令、每一条语义断言、`skip`/`retries` 一字未动。
+
+**AC1 红态基线**（`ROUND_TIMEOUT_MS` 改回 30_000，`npx tsx … --test --test-name-pattern=AC1b <file>`）：`echo $?` = 1；逐字失败行：
+`AssertionError [ERR_ASSERTION]: ROUND_TIMEOUT_MS (30000ms) is below the measured lane-load requirement (38900ms x 1.5 = 58350ms): a resident (re)spawn slowed by concurrent lane load would time out at waitForResidentPid even though it was still going to succeed — the load red this margin exists to absorb.`
+恢复 60_000 后 `--test-name-pattern=AC1b` `echo $?` = 0。
+**AC1 反向**（`ROUND_TIMEOUT_MS` 改大到 200_000 ⇒ floor=310_000 越过预算，`--test-name-pattern=AC1:`）：`echo $?` = 1；逐字：
+`AssertionError [ERR_ASSERTION]: BUDGET_MS (240000ms) is below the sum of its step deadlines (310000ms): a load-slowed-but-successful boot sequence would be killed by the process guard (exit 3) instead of running to completion, and node:test would name no failing case`。
+
+**AC2**：`git diff develop -- server/modules/session-hosts/tests/resident-server-restart.test.ts | grep -cE "^-.*(server-shutdown|lifecycle_mode|running, false|RESIDENT_NOT_RUNNING_REASON|distinct|survivor)"` = **0**；`grep -cE "\.skip\(|retries"`：develop=1 / now=1（未增）。
+
+**AC3 连续绿**（修复后，standalone，逐次）：
+```
+run1 EXIT=0 wall_ms=12219 elapsed-ms=9801
+run2 EXIT=0 wall_ms=12606 elapsed-ms=10277
+run3 EXIT=0 wall_ms=12277 elapsed-ms=9940
+run4 EXIT=0 wall_ms=12264 elapsed-ms=10013
+run5 EXIT=0 wall_ms=12389 elapsed-ms=10018
+```
+**AC3 并发**（本判据 + 3 份重负载兄弟同时起）：判据 `EXIT=0 wall_ms=12555 elapsed-ms=10133`；兄弟 `process-containment.test.ts EXIT=0 wall=2190ms`、`claude-resident-process.test.ts EXIT=0 wall=14738ms`、`claude-resident-idle.test.ts EXIT=0 wall=2359ms` —— 无兄弟红，无需点名归因。（本机本轮为安静态，in-lane 膨胀未复现：standalone 10_262ms / concurrent 10_106ms；历史 in-lane 38.9s vs standalone 8.7s 见记忆 `resident-server-restart-sweep-zero-is-a-scope-collection-race`，正因不可按需复现才用余量而非改触发源。）
+
+**AC4 假形态**（承重，判据文件一字不动）：变异 diff —
+```
+server/index.ts:            - ? sweepOrphanClaudeSessionScopes()   / + ? [] // AC4 fake form
+claude-host-driver.provider.ts: - state.queue.end();              / + // AC4 fake form: removed
+```
+判据 `echo $?` = **1**；读数逐字：`sigkill-residue pid=2734613 alive-at-next-boot=false swept=0` → `sigkill-attempt 1/3 read swept=0; repeating with the fresh boot` → `sigkill-residue pid=2735911 alive-at-next-boot=true swept=0` → `sigkill-attempt 2/3` → `sigkill-residue pid=2744158 alive-at-next-boot=true swept=0`；逐字失败行：
+`AssertionError [ERR_ASSERTION]: the next boot swept nothing in 3 attempt(s) (swept=0); the orphan was not there to reap`（`resident-server-restart.test.ts:1177`）。`git checkout --` 还原两文件后 `git status --porcelain` 空，判据回绿（上面 AC3 的 5 连绿即还原后读数）。
+
+**AC5 静态门**：`npm run typecheck` exit 0；`npm run lint` exit 0（仅既有 warning）；`git diff --stat develop` 仅 `server/modules/session-hosts/tests/resident-server-restart.test.ts`（+67/-6），与 `## Touches` 对齐；`git status --porcelain` 空。
+
+**归因说明**：本仓修的是**响应方式**（单腿等待加实测负载余量，`ROUND_TIMEOUT_MS` 30s→60s，并把它写成会红的断言 AC1b），触发源（lane 并发的真实 `claude` 重拉延迟）不在本仓可控范围，故稳定性**依赖余量而非触发源消失**。若红仍复发，按宿主负载归因（记忆 `resident-server-restart-sweep-zero-is-a-scope-collection-race` / `resident-server-restart-boot-health-timeout-is-load-flake`），不得栽到本任务头上。
