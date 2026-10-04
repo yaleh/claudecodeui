@@ -9,22 +9,23 @@
  *
  * Two modes, and the difference matters:
  *
- *   · default   — read the corpus, synthesise the seed × noise × gap-family grid, run the
- *                 detector on every timeline, measure, and write `fixtures/baseline.json`.
- *                 This costs CPU and needs the corpus; it is the mode that *produces* truth.
+ *   · default   — read the corpus, synthesise the single-factor scan (the noise axis and the gap
+ *                 family axis, each level replicated over many seeds), run the detector on every
+ *                 timeline, measure, and write `fixtures/baseline.json`. This costs CPU and needs
+ *                 the corpus; it is the mode that *produces* truth.
  *   · --offline — load the frozen snapshot and recompute every reading from the truth and the
  *                 detector output stored in it. No corpus, no decoder, no network. This is the
  *                 mode the suite and any later reader use, so a reading is always reproducible
  *                 from a file that is in the repo.
  *
- * The coverage assertion lives in both modes: the grid must be complete (seeds × noise ×
- * families, no missing cell) and at least 2000 timelines. A snapshot with a hole in it is a
- * reading from a sample nobody can describe, so it fails rather than reports.
+ * The coverage assertion lives in both modes: every (axis, level, replica) cell of the scan must
+ * be present and the snapshot must cover at least 600 timelines. A snapshot with a hole in it is
+ * a reading from a sample nobody can describe, so it fails rather than reports.
  *
  * Env: VAD_CORPUS  corpus root (default the LibriSpeech dev-clean tree named in the proposal)
  *      VAD_CORAAL  CORAAL `*_segments/` dir (default the interview segments); unset/absent => T2 skipped
  *      VAD_LONG    T3 fixed samples dir (default corpus/long, with its manifest.json); absent => T3 skipped
- *      VAD_SEEDS   number of seeds (default 100)
+ *      VAD_REPLICAS  timelines per (axis, level) cell (default 70)
  *      NO_NETWORK  install a guard that throws on any fetch/http(s) call
  */
 
@@ -51,7 +52,21 @@ const SNAPSHOT_PATH = join(HERE, 'fixtures', 'baseline.json');
 const DEFAULT_CORPUS = '/data/home/yale/work/tc-verify/corpus/public/LibriSpeech/dev-clean';
 const DEFAULT_CORAAL = '/data/home/yale/work/tc-verify/corpus/spontaneous/DCA_se1_ag3_f_01_1_segments';
 const DEFAULT_LONG = '/data/home/yale/work/tc-verify/corpus/long';
-const MIN_TIMELINES = 2000;
+const MIN_TIMELINES = 600;
+
+/**
+ * A single-factor scan, NOT a full combination. The default configuration is the shared anchor;
+ * each axis varies exactly one factor away from it while the rest stay at the default. A full
+ * grid would multiply the two axes' levels and make every reading a function of the other axis —
+ * precisely the confound a single-factor scan exists to avoid.
+ */
+const DEFAULT_CONFIG = { family: 'mixed', noise: 'clean' };
+const AXES = [
+  { name: 'noise', levels: NOISE_MODES },
+  { name: 'family', levels: GAP_FAMILY_NAMES },
+];
+/** Timelines per (axis, level) cell. The task's floor is 40; 70 also clears 600 over the grid. */
+const DEFAULT_REPLICAS = 70;
 
 const LIMITATIONS = [
   'noise is laid only in the gaps, so a sentence\'s samples are byte-exact: this reads false alarms on noise-only time, not detector behaviour on noisy speech',
@@ -74,15 +89,17 @@ function installNoNetworkGuard() {
 }
 
 function parseArgs(argv) {
-  const opts = { offline: false, seeds: Number(process.env.VAD_SEEDS ?? 100), out: SNAPSHOT_PATH };
+  const opts = { offline: false, replicas: Number(process.env.VAD_REPLICAS ?? DEFAULT_REPLICAS), out: SNAPSHOT_PATH };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--offline') opts.offline = true;
-    else if (a === '--seeds') opts.seeds = Number(argv[++i]);
+    else if (a === '--replicas') opts.replicas = Number(argv[++i]);
     else if (a === '--out') opts.out = argv[++i];
     else throw new Error(`unknown argument: ${a}`);
   }
-  if (!Number.isInteger(opts.seeds) || opts.seeds < 1) throw new Error(`--seeds must be a positive integer, got ${opts.seeds}`);
+  if (!Number.isInteger(opts.replicas) || opts.replicas < 1) {
+    throw new Error(`--replicas must be a positive integer, got ${opts.replicas}`);
+  }
   return opts;
 }
 
@@ -127,50 +144,41 @@ function cellFromTimeline(tl, extra = {}) {
   };
 }
 
-/** Every seed × noise × family key, so a missing cell can be named rather than counted. */
-function expectedKeys(seeds) {
+/** Every `(axis, level, replica)` key, so a missing cell can be named rather than counted. */
+function expectedKeys(grid) {
   const keys = [];
-  for (const seed of seeds) for (const noise of NOISE_MODES) for (const family of GAP_FAMILY_NAMES) keys.push(`${seed}|${noise}|${family}`);
+  for (const axis of grid.axes) {
+    for (const level of axis.levels) {
+      for (let seed = 0; seed < grid.replicas; seed++) keys.push(`${axis.name}|${level}|${seed}`);
+    }
+  }
   return keys;
 }
 
 /** Assert the grid is whole. Returns the missing keys so the caller can print them. */
-function coverageGap(cells, seeds) {
-  const present = new Set(cells.map((c) => `${c.seed}|${c.noise}|${c.family}`));
-  return expectedKeys(seeds).filter((k) => !present.has(k));
+function coverageGap(cells, grid) {
+  const present = new Set(cells.map((c) => `${c.axis}|${c.level}|${c.seed}`));
+  return expectedKeys(grid).filter((k) => !present.has(k));
 }
 
-function report(cells, seeds, label) {
-  const byFamily = new Map();
-  const byNoise = new Map();
-  for (const cell of cells) {
-    for (const [map, key] of [
-      [byFamily, cell.family],
-      [byNoise, cell.noise],
-    ]) {
-      if (!map.has(key)) map.set(key, []);
-      map.get(key).push({ ...cell, metrics: metricsFor(cell) });
-    }
-  }
+function report(cells, grid, label) {
   const all = cells.map((c) => ({ ...c, metrics: metricsFor(c) }));
   console.log(`${label} — ${formatAggregate('all', aggregateMetrics(all.map((c) => c.metrics)))}`);
-  for (const family of GAP_FAMILY_NAMES) {
-    const rows = byFamily.get(family) ?? [];
-    console.log(`  ${formatAggregate(`family=${family}`, aggregateMetrics(rows.map((c) => c.metrics)))}`);
-  }
-  for (const noise of NOISE_MODES) {
-    const rows = byNoise.get(noise) ?? [];
-    console.log(`  ${formatAggregate(`noise=${noise}`, aggregateMetrics(rows.map((c) => c.metrics)))}`);
+  for (const axis of grid.axes) {
+    for (const level of axis.levels) {
+      const rows = all.filter((c) => c.axis === axis.name && c.level === level);
+      console.log(`  ${formatAggregate(`${axis.name}=${level}`, aggregateMetrics(rows.map((c) => c.metrics)))}`);
+    }
   }
   const overlong = all.filter((c) => c.metrics.outputOverlong === true);
   if (overlong.length) {
     const worst = overlong.reduce((a, b) => (a.metrics.outputSec >= b.metrics.outputSec ? a : b));
     console.log(
       `  output > maxSegmentSec=${DEFAULT_MAX_SEGMENT_SEC}s (one overlong request): ${overlong.length} timeline(s); ` +
-        `worst family=${worst.family} noise=${worst.noise} seed=${worst.seed} outputSec=${worst.metrics.outputSec.toFixed(1)}`,
+        `worst axis=${worst.axis} level=${worst.level} seed=${worst.seed} outputSec=${worst.metrics.outputSec.toFixed(1)}`,
     );
   }
-  console.log(`  coverage: cells=${cells.length}/${seeds.length * NOISE_MODES.length * GAP_FAMILY_NAMES.length}`);
+  console.log(`  coverage: cells=${cells.length}/${expectedKeys(grid).length}`);
 }
 
 /** Recompute and print every reading from a frozen snapshot. No corpus or decoder is consulted. */
@@ -180,9 +188,8 @@ function runOffline(outPath) {
     process.exit(1);
   }
   const snap = JSON.parse(readFileSync(outPath, 'utf8'));
-  const seeds = snap.grid.seeds;
-  const missing = coverageGap(snap.cells, seeds);
-  report(snap.cells, seeds, `voice-vad --offline (detector=${snap.detector}, snapshot=${outPath})`);
+  const missing = coverageGap(snap.cells, snap.grid);
+  report(snap.cells, snap.grid, `voice-vad --offline (detector=${snap.detector}, snapshot=${outPath})`);
   if (snap.t2) console.log(`  ${formatAggregate('t2=coraal', aggregateMetrics([metricsFor(snap.t2)]))}`);
   for (const row of snap.t3 ?? []) {
     console.log(`  ${formatAggregate(`t3=${row.id}`, aggregateMetrics([metricsFor(row)]))}`);
@@ -210,13 +217,20 @@ function runGenerate(opts) {
   }
   console.log(`corpus: ${corpus.root} (files=${corpus.totalFiles}, decoded pool=${corpus.pool})`);
 
-  const seeds = Array.from({ length: opts.seeds }, (_, i) => i);
+  const grid = { axes: AXES, default: DEFAULT_CONFIG, replicas: opts.replicas };
   const cells = [];
-  for (const seed of seeds) {
-    for (const noise of NOISE_MODES) {
-      for (const family of GAP_FAMILY_NAMES) {
-        const tl = buildTimeline({ sources: corpus.sources, seed, family, noise, sampleRate: DEFAULT_RATE });
-        cells.push(cellFromTimeline(tl, { seed, noise, family }));
+  for (const axis of grid.axes) {
+    for (const level of axis.levels) {
+      const config = { ...DEFAULT_CONFIG, [axis.name]: level };
+      for (let seed = 0; seed < grid.replicas; seed++) {
+        const tl = buildTimeline({
+          sources: corpus.sources,
+          seed,
+          family: config.family,
+          noise: config.noise,
+          sampleRate: DEFAULT_RATE,
+        });
+        cells.push(cellFromTimeline(tl, { axis: axis.name, level, seed }));
       }
     }
   }
@@ -245,7 +259,7 @@ function runGenerate(opts) {
     detector: 'trimVoiceAudio@src/shared/voiceTrim.ts',
     sampleRate: DEFAULT_RATE,
     maxSegmentSec: DEFAULT_MAX_SEGMENT_SEC,
-    grid: { seeds, noise: NOISE_MODES, families: GAP_FAMILY_NAMES },
+    grid,
     corpus: { root: corpus.root, totalFiles: corpus.totalFiles, pool: corpus.pool },
     limitations: LIMITATIONS,
     cells,
@@ -255,14 +269,14 @@ function runGenerate(opts) {
   mkdirSync(dirname(opts.out), { recursive: true });
   writeFileSync(opts.out, `${JSON.stringify(snapshot)}\n`);
 
-  report(cells, seeds, `voice-vad baseline (detector=${snapshot.detector})`);
+  report(cells, grid, `voice-vad baseline (detector=${snapshot.detector})`);
   if (t2) console.log(`  ${formatAggregate('t2=coraal', aggregateMetrics([metricsFor(t2)]))}`);
   for (const row of t3) {
     console.log(`  ${formatAggregate(`t3=${row.id}`, aggregateMetrics([metricsFor(row)]))}`);
   }
   console.log(`snapshot written: ${opts.out} (${cells.length} cells)`);
 
-  const missing = coverageGap(cells, seeds);
+  const missing = coverageGap(cells, grid);
   if (missing.length) {
     console.error(`voice-vad-harness: ${missing.length} missing grid cell(s), first: ${missing[0]}`);
     process.exit(1);

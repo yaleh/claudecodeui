@@ -54,6 +54,24 @@ function overlapSec(a0, a1, b0, b1) {
 }
 
 /**
+ * Wilson score interval for a binomial proportion, at 95%. Returns `[lo, hi]` clamped to [0,1],
+ * or `[0, 1]` for an empty denominator. A rate with no interval is a rate whose precision is
+ * unknown; the point estimate alone cannot say whether a difference is real.
+ * @param {number} successes
+ * @param {number} trials
+ * @returns {[number, number]}
+ */
+export function wilsonInterval(successes, trials) {
+  if (!trials) return [0, 1];
+  const z = 1.959963984540054;
+  const phat = successes / trials;
+  const denom = 1 + (z * z) / trials;
+  const centre = phat + (z * z) / (2 * trials);
+  const margin = z * Math.sqrt((phat * (1 - phat)) / trials + (z * z) / (4 * trials * trials));
+  return [Math.max(0, (centre - margin) / denom), Math.min(1, (centre + margin) / denom)];
+}
+
+/**
  * Nearest-rank percentile, or `null` for an empty set — never a fabricated 0.
  * @param {number[]} values
  * @param {number} p
@@ -160,9 +178,15 @@ export function computeMetrics({
   return {
     truthCount: nTruth,
     segmentCount: segments.length,
+    missCount: miss,
+    oversegCount: over,
+    midCutCount: mid,
     missRate: nTruth ? miss / nTruth : 0,
     oversegRate: nTruth ? over / nTruth : 0,
     midCutRate: nTruth ? mid / nTruth : 0,
+    missRateCI: wilsonInterval(miss, nTruth),
+    oversegRateCI: wilsonInterval(over, nTruth),
+    midCutRateCI: wilsonInterval(mid, nTruth),
     startDeviationP50: percentile(startMag, 0.5),
     startDeviationP95: percentile(startMag, 0.95),
     startDeviationSignedP50: percentile(startSigned, 0.5),
@@ -216,8 +240,22 @@ function meanOf(values) {
  */
 export function aggregateMetrics(metricsList) {
   if (!metricsList.length) return null;
+  const pooledTruth = metricsList.reduce((a, m) => a + m.truthCount, 0);
+  /** @param {(m: ReturnType<typeof computeMetrics>) => number} pick @returns {number} */
+  const sum = (pick) => metricsList.reduce((a, m) => a + pick(m), 0);
+  /** @param {(m: ReturnType<typeof computeMetrics>) => number} pick @returns {number} */
+  const pooledRate = (pick) => (pooledTruth ? sum(pick) / pooledTruth : 0);
   return {
     timelines: metricsList.length,
+    pooledTruth,
+    // The point estimate pooled over sentences, matching the Wilson denominator (per-timeline
+    // means are kept below but would not sit inside a pooled interval).
+    missRatePooled: pooledRate((m) => m.missCount),
+    oversegRatePooled: pooledRate((m) => m.oversegCount),
+    midCutRatePooled: pooledRate((m) => m.midCutCount),
+    missRateCI: wilsonInterval(sum((m) => m.missCount), pooledTruth),
+    oversegRateCI: wilsonInterval(sum((m) => m.oversegCount), pooledTruth),
+    midCutRateCI: wilsonInterval(sum((m) => m.midCutCount), pooledTruth),
     missRateMean: meanOf(metricsList.map((m) => m.missRate)),
     oversegRateMean: meanOf(metricsList.map((m) => m.oversegRate)),
     midCutRateMean: meanOf(metricsList.map((m) => m.midCutRate)),
@@ -243,9 +281,13 @@ export function formatAggregate(label, agg) {
   if (!agg) return `${label}: (no timelines)`;
   /** @param {number | null} v @param {number} n @returns {string} */
   const f = (v, n) => (v === null || !Number.isFinite(v) ? '-' : v.toFixed(n));
+  /** @param {[number, number] | undefined} pair @returns {string} */
+  const ci = (pair) => (pair ? `[${f(pair[0], 4)},${f(pair[1], 4)}]` : '[-]');
   return (
-    `${label}: n=${agg.timelines} ` +
-    `miss=${f(agg.missRateMean, 4)} over=${f(agg.oversegRateMean, 4)} midCut=${f(agg.midCutRateMean, 4)} ` +
+    `${label}: n=${agg.timelines} truth=${agg.pooledTruth} ` +
+    `miss=${f(agg.missRatePooled, 4)}${ci(agg.missRateCI)} ` +
+    `over=${f(agg.oversegRatePooled, 4)}${ci(agg.oversegRateCI)} ` +
+    `midCut=${f(agg.midCutRatePooled, 4)}${ci(agg.midCutRateCI)} ` +
     `startDev p50/p95=${f(agg.startDeviationP50Median, 4)}/${f(agg.startDeviationP95Median, 4)} ` +
     `endDev p50/p95=${f(agg.endDeviationP50Median, 4)}/${f(agg.endDeviationP95Median, 4)} ` +
     `falseAlarm/hr=${f(agg.falseAlarmSecPerHourMean, 2)} ` +

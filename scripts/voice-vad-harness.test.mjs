@@ -259,8 +259,8 @@ test('--offline recomputes every reading from the frozen snapshot, corpus-free a
   const coverage = /coverage: cells=(\d+)\/(\d+)/.exec(out);
   assert.ok(coverage, `no coverage line in --offline output:\n${out}`);
   const covered = Number(coverage[1]);
-  assert.ok(covered >= 2000, `snapshot covers ${covered} timelines < 2000`);
-  assert.equal(covered, Number(coverage[2]), 'the grid has a missing cell');
+  assert.ok(covered >= 600, `snapshot covers ${covered} timelines < 600`);
+  assert.equal(covered, Number(coverage[2]), 'the single-factor scan has a missing cell');
   assert.match(out, /t3=L4-nonstop.*overlong=1/, 'the snapshot must record the L4 single-request weakness');
 });
 
