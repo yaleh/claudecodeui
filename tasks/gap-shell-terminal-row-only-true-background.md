@@ -34,14 +34,14 @@ extra:
 
 ## AC
 
-- [ ] AC1 前台命令不出行：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-runtime-frame-forwarding.test.ts` 退出 0；新增例子分别驱动前台 Bash（无 `run_in_background`，终态为 `task_notification{summary:<命令>}`）与 `run_in_background:true` 的 Bash（终态为 `task_updated{completed}`），writer 收到的 `task_notification` 帧数分别为 **0** 与 **1**，打印这两个读数；原任务 AC3/AC4 的例子保持绿。
-- [ ] AC2 判据可分辨：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-activity-task-reducer.test.ts` 退出 0；新增例子证明所选判据对前台、后台、已有 CLI 通知行的子代理三类任务各给出「不报 / 报 / 不报」，且终态转换仍只触发一次（重放不重复）。
-- [ ] AC3 单行截断：`npx vitest run src/modules/chat/tests/taskNotificationRow.test.tsx` 退出 0；例子喂入一条 4000 字符 72 行的 `summary`，渲染后的文本节点不含换行、带截断样式、完整文本出现在 `title` 属性中，并断言行里出现状态词（completed/failed/stopped/ended 之一）。
-- [ ] AC4 无前缀的 summary 补状态：同一测试文件的例子，`summary` 等于命令本身时，行文本以状态措辞开头；`summary` 已有状态词时不重复添加。
-- [ ] AC5 不再切断 segment：`npx vitest run src/modules/chat/tests/workSegmentGrouping.test.ts` 退出 0；新增例子给定 `[tool, 通知, tool]` 的行序，得到 **1** 个成员数为 3 的 segment；`workSegmentLossless.test.tsx` 与 `workSegmentKeyStability.test.tsx` 保持绿。
-- [ ] AC6 负控制有分辨力：把 AC1 的判据临时改成「恒为真」，前台例子必须红；打印改前绿、改后红两次读数。
-- [ ] AC7 不破坏 Monitor 与既有投影：`npx vitest run src/modules/chat/tests/useChatMessages.test.ts` 保持绿，AC-200 的折叠相关测试保持绿。
-- [ ] AC8 契约面：`npm run lint` 与 `npm run typecheck` 退出 0；`git diff --stat develop...HEAD` 与 Touches 逐条对齐。
+- [x] AC1 前台命令不出行：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-runtime-frame-forwarding.test.ts` 退出 0；新增例子分别驱动前台 Bash（无 `run_in_background`，终态为 `task_notification{summary:<命令>}`）与 `run_in_background:true` 的 Bash（终态为 `task_updated{completed}`），writer 收到的 `task_notification` 帧数分别为 **0** 与 **1**，打印这两个读数；原任务 AC3/AC4 的例子保持绿。
+- [x] AC2 判据可分辨：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-activity-task-reducer.test.ts` 退出 0；新增例子证明所选判据对前台、后台、已有 CLI 通知行的子代理三类任务各给出「不报 / 报 / 不报」，且终态转换仍只触发一次（重放不重复）。
+- [x] AC3 单行截断：`npx vitest run src/modules/chat/tests/taskNotificationRow.test.tsx` 退出 0；例子喂入一条 4000 字符 72 行的 `summary`，渲染后的文本节点不含换行、带截断样式、完整文本出现在 `title` 属性中，并断言行里出现状态词（completed/failed/stopped/ended 之一）。
+- [x] AC4 无前缀的 summary 补状态：同一测试文件的例子，`summary` 等于命令本身时，行文本以状态措辞开头；`summary` 已有状态词时不重复添加。
+- [x] AC5 不再切断 segment：`npx vitest run src/modules/chat/tests/workSegmentGrouping.test.ts` 退出 0；新增例子给定 `[tool, 通知, tool]` 的行序，得到 **1** 个成员数为 3 的 segment；`workSegmentLossless.test.tsx` 与 `workSegmentKeyStability.test.tsx` 保持绿。
+- [x] AC6 负控制有分辨力：把 AC1 的判据临时改成「恒为真」，前台例子必须红；打印改前绿、改后红两次读数。
+- [x] AC7 不破坏 Monitor 与既有投影：`npx vitest run src/modules/chat/tests/useChatMessages.test.ts` 保持绿，AC-200 的折叠相关测试保持绿。
+- [x] AC8 契约面：`npm run lint` 与 `npm run typecheck` 退出 0；`git diff --stat develop...HEAD` 与 Touches 逐条对齐。
 
 ## DoD
 
@@ -60,4 +60,42 @@ extra:
 - src/modules/chat/utils/workSegments.ts
 - src/modules/chat/tests/workSegmentGrouping.test.ts
 - src/modules/chat/tests/taskNotificationRow.test.tsx
+- server/modules/providers/index.ts（AC2：判据 `earnsTaskTerminalRow` 必须经 providers facade 出口，判据测试才读得到它；被 AC2 强制）
+- playwright.config.ts（DoD：调试 agent 闸门的 spec 白名单，spec 不在其中服务器就不带夹具 provider 与控制面，scenario 无法 arm；被 DoD 强制）
+- e2e/transcript-task-terminal-row.spec.ts（新：DoD 的真实浏览器读数；被 DoD 强制）
 - tasks/gap-shell-terminal-row-only-true-background.md
+
+## 完成记录
+
+### 判据的选定与依据
+
+判据定为 **`earnsTaskTerminalRow(transition) = transition.background && !CLI_NOTIFIED_TASK_KINDS.has(kind)`**，其中 `background` 由 reducer 在观察 `assistant` 帧时记下、在 `task_started` 时读回：**启动该任务的 `tool_use` 的 `input.run_in_background === true`（Agent/Task 则 `!== false`），或某帧带 `task_updated{patch:{is_backgrounded:true}}` 把它移到后台**。即 Plan 的候选 **(a)**，加上手动转后台这一路。
+
+依据是 2026-10-04 用 `@anthropic-ai/claude-agent-sdk` 0.3.165 的一次真实抓帧（一次 turn 内 3 条前台 + 1 条后台）：
+
+- 三条前台调用（`echo fg-one` / `echo fg-two` / `sleep 6`）的 tool_use `input` 都**没有** `run_in_background`；`sleep 6` 的终态是 `system/task_started` + `task_notification{status:"completed", summary:"foreground three"}` —— summary 就是 description，**没有状态词**。
+- 后台那条 tool_use `input` 带 `run_in_background:true`；终态是 `task_updated{patch:{status:"killed"}}`（进程收尾时被杀），随后才有一条 `task_notification{status:"stopped", summary:"background four"}`。
+- 即：**终态帧的种类不是可靠判据**（后台任务被杀时同样发 `task_notification`），而调用自身的 `run_in_background` 是调用方声明的、不受终态路径影响的事实。选 (a)。
+- 候选 (b)「终态到达时 tool_result 早已下发」被这次抓帧**证伪**：前台 `sleep 6` 的三个帧在同一时刻到达，顺序是 `task_started` → `task_notification` → `tool_result`，结果 **晚于**终态；后台那条的 `tool_result`（"Command running in background with ID: …"）才早于终态。按 (b) 会把前台判成后台。
+
+### 前台任务产生任务的时长阈值读数
+
+**未测得阈值，且本次抓帧没有出现「前台长命令被自动转后台」这一形态。** 真实读数：`sleep 6` 前台跑满 6 秒后在**结束时**才出现 `task_started`（4.4s 调用 → 12.4s `task_started`），终态是 `task_notification`；`sleep 8` 的两次抓帧同样如此。因此本任务不需要阈值，也不依赖阈值。真正的时间形态差别是**发射时刻**：前台的 `task_started` 在命令结束时才到，后台的在调用瞬间就到（13.6s 调用与 `task_started` 同刻），但那不是帧字段，判据用不到。
+
+### summary 兜底放在哪一侧
+
+放在**客户端渲染**（`MessageComponent.tsx` 的通知分支），不放服务端 `buildTaskTerminalFrame`。理由：**同一个分支也渲染 CLI 自己写进 JSONL 的 `<task-notification>` 行**（`useChatMessages.ts` → `parseTaskNotification`），那些行不经过服务端帧构造。规则放在行上，一处覆盖两路；放服务端则 CLI 来源的那一半仍会显示裸命令。服务端只把 `defaultTerminalSummary` 的措辞改成规范状态词（`Background task completed:` 等），使兜底文案本身已含状态词、客户端不再重复加前缀；帧 id `task-terminal:<taskId>:<to>` 未动，幂等/回放结论不变。
+
+### DoD 读数
+
+- **真实 SDK 全链路（真帧 → 出厂 `forwardNormalizedFrames` → 运行 writer）**：3 条前台 + 1 条后台，emitted `task_notification` 帧 **1** 条，且是后台那条（`task-terminal:bli4ndwk8:stopped`，summary `Background task stopped: background four`）。
+- **真实浏览器（`e2e/transcript-task-terminal-row.spec.ts`，调试 agent 夹具，`playwright test` 1 passed / 21.6s）**：4 条 Bash 调用（3 前台 + 1 `run_in_background:true`）后 —— `.work-segment` **1** 个、成员数 **5**（4 张卡片 + 1 条终态行，未修时同一条 walk 会是 8 个成员且被切成 4 段）；`[data-task-notification-text]` **1** 条；文本 `Background task completed: background four`，`title` 同文，class 含 `truncate` + `whitespace-nowrap`，无换行，含状态词 `completed`；同行 4 张卡片都在。对照立案基线 cd8600e3 的 26 条 / 4680px：同样 4 条命令下，通知行由「每条命令一行」降为 **1** 行。
+- **刷新**：行仍在（Dom 计数 ≥1，文本与 class 不变）。**同时记录一个不属于本任务结论的现象**：刷新后同一行被画了 **2** 次（打印读数 `reload.one: members=6 cards=4 notifRows=2`）—— 该帧 live 只投递 1 次，刷新后由「会话已存消息」与「run 回放缓冲」各来一次。这是投递层的重复，与本任务的判据正交（它只是把已存在的行数翻倍；未修时会把 4 条翻成 8 条），本任务不改动它，只如实记录。
+
+### 契约面
+
+- AC1：前台 **0** / 后台 **1**（打印读数）；原任务 AC3/AC4 例子仍绿（AC3 只补了它本来就该有的启动 `tool_use` 帧）。
+- AC2：三类判据读数 `false / true / false`，跨重放各只触发 1 次；另加「前台被手动转后台后翻成 true」一条。
+- AC6：注入 `() => true` 后前台例子由 0 变 1 而红（改前绿 / 改后红两次读数都打印）。
+- AC7：`useChatMessages.test.ts`、`monitorEventCollapse*.test.*` 全绿。
+- AC8：`npm run lint` / `npm run typecheck` 退出 0；diff 与 Touches 逐条对齐（新增 3 条已按强制来源补入 Touches）。
