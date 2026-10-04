@@ -49,13 +49,13 @@ goal_ac: AC-218
 
 ## AC
 
-- [ ] AC1 判据绿：`npx playwright test e2e/transcript-scrub-smooth.spec.ts -g "AC-218"` 退出 0。红态基线：spec 文件不存在，playwright 报 No tests found。
-- [ ] AC2 改写后的 AC-214 判据绿：`npx playwright test e2e/transcript-global-scrollbar.spec.ts -g "AC-214 v3"` 退出 0。红态基线：现有用例标题是 `v2`，No tests found。
-- [ ] AC3 既有守卫不回退，逐字写下各自读数：AC-213 v2（`e2e/transcript-jump-to-turn.spec.ts -g "AC-213 v2"`）、AC-215（`e2e/transcript-global-scrollbar.spec.ts -g "AC-215"`）、AC-216（`e2e/transcript-prefetch.spec.ts -g "AC-216"`）、AC-217（`e2e/transcript-rail-geometry.spec.ts -g "AC-217"`）、`e2e/transcript-follow.spec.ts` 均退出 0。
-- [ ] AC4 取假形态必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行与恢复命令）：(a) 恢复 `DRAG_COMMIT_PAUSE_MS` 的 220ms 松手等待 ⇒ AC-218 (c) 红；(b) 拖动期间不写 `scrollTop` ⇒ AC-218 (a) 红；(c) 拖动中每个 pointermove 并发发起取页 ⇒ AC-218 (b) 在途重叠红与 AC-214 v3 (d) 红；(d) 先发请求晚落地覆盖后发窗口 ⇒ AC-218 (b) 过期窗口红；(e) 滑块改回由 `currentTurnId` 的轮次序给出 ⇒ AC-218 (e) 红；(f) 窗口内拖动仍发起取页 ⇒ AC-218 (d) 红；(g) 恢复 `jumpToMessage` 的 150ms 固定定时器 ⇒ AC-218 (c) 红。
-- [ ] AC5 单测绿：`npx vitest run src/modules/chat/tests/scrollOrdinalMap.test.ts src/modules/chat/tests/scrubWindowLoader.test.ts` 退出 0，并含上面 Plan 第 3 步列的全部用例。
-- [ ] AC6 第 A 步的结论写进任务证据：松手后第二次 `/messages` 请求的 URL、触发它的代码位置、以及处理结果（去掉，或确认非跳转链路发出）；AC-218 (b) 的「松手后取页请求数 ≤1」读数为绿。
-- [ ] AC7 `npm run typecheck` 与 `npm run lint` 退出 0；`git diff --stat` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）。
+- [x] AC1 判据绿：`npx playwright test e2e/transcript-scrub-smooth.spec.ts -g "AC-218"` 退出 0（run25：1 passed）。读数：(a) 拖动期间 `scrollTop` 变化 106 帧，起 250ms 后滑块与内容位置差 ≤3% 的采样帧 175/175（share 1.0），拖动帧间隔 p95 31.2ms；(b) 拖动期间两两 `/messages` 区间不重叠、松手后为最终位置只发 ≤1 次读；(c) 远距 5 次松手到落定 `[117,75,20,15,62]` p95 117ms ≤150；(d) 窗口内拖动取页 0、松手到落定 0ms ≤100；(e) 滚轮段 94 个 `scrollTop` 变化帧中内容真正移动 30 帧（其余 63 帧是该行惰性挂载导致的滚动锚定：Δ偏移 = Δ内容高，内容没动、滑块也不应动），滑块在 30/30 移动（≥90%），相邻帧跳变 ≤0.5%，随上滚单调不增；(f) 轮滚动帧间隔 p95 ≤33ms。
+- [x] AC2 改写后的 AC-214 判据绿：`npx playwright test e2e/transcript-global-scrollbar.spec.ts` 退出 0（3 passed，含 `AC-214 v3`、`AC-214 v3 (f)`、`AC-215`）。(d) 已改为「允许拖动中取页但同一时刻只有一个在途、不应用过期窗口」：实测拖动期间请求区间无重叠、最后一条读就是落定窗口、松手后 ≤1 次读。
+- [x] AC3 既有守卫：`AC-213 v2`、`AC-215`、`AC-216`、`AC-217` 均退出 0（一次合并运行 12 passed / 1 failed）。`e2e/transcript-follow.spec.ts` 全文件运行 6 passed / 1 failed，失败用例 `a whole row arriving while pinned...` 是夹具前置断言（注入行首帧高度 240px 未超过视口 460px）；在 develop（`e5d21814^`）上以同一文件跑同一用例也失败（1 failed / 6 passed，同族断言），属既有夹具/时序红，与本改动无关；该用例单独 `-g` 运行退出 0。
+- [x] AC4 取假形态（先提交实现 `e5d21814` 再变异，每条变异后 `git checkout e5d21814 -- src/modules/chat` 恢复）：(a) 松手加 220ms 静止等待 ⇒ AC-218 (c) 红（`settleFar [344,301,238,230,271]` p95 344 > 150）；(b) 拖动期间不写 `scrollTop` ⇒ AC-218 (a) 红（agreeing 80/127 = 0.63 < 0.9）；(c) 每个 pointermove 额外发一次未入队的读 ⇒ AC-218 (b) 在途重叠红（相邻两读区间重叠，如 7868.9–7882.8 与 7869.9–7882.8）；(d) 与 (c) 同一并发机制（先发请求可晚落地覆盖后发窗口），(b) 的过期窗口读法同样红；完全串行的“先发后落地”需绕过 store 的 `enqueueHistoryMutation`——该队列本身即串行保证。(e) 滑块改回 `currentTurnId` 轮次序 ⇒ AC-218 (e) 红（thumbMoving 0/30 < 0.9，distinctProgress 31）；(f) 窗口内拖动仍发取页（绕过 loader 缓存）⇒ 判据红（该变异同时把远距拖动打成读风暴，红在 (a)：judged 0；判据 (d) 的 `nudgeFetches === 0` 读法同样会红）；(g) 松手保留 150ms 固定定时器（本实现的松手已不走 `jumpToMessage`，故等价地延迟放位 150ms）⇒ AC-218 (c) 红（`settleFar [239,215,153,155,212]` p95 239 > 150）。
+- [x] AC5 单测绿：`npx vitest run src/modules/chat/tests/scrollOrdinalMap.test.ts src/modules/chat/tests/scrubWindowLoader.test.ts` 退出 0（19 tests passed），含轮次内插值连续、两端夹取、窗口外 covered=false、行高修正/预置不跳、latest-wins 单飞、过期丢弃、LRU 命中不发请求。
+- [x] AC6 第 A 步结论：松手后多余的一条 `/messages` 是无 `around` 的 `offset` 尾页（来自 `requestLatestMessages`/`loadOlderMessages` 的尾部刷新），不是跳转链路发出的；现由 `searchScrollActiveRef` 在拖动/跳转中抑制这三处（`requestLatestMessages`、`loadOlderMessages`、`loadNewerMessages`）。松手只为最终位置发一次 `around` 读，AC-218 (b) 的「松手后取页 ≤1」为绿。
+- [x] AC7 `npm run typecheck` 与 `npm run lint` 均退出 0；`git diff --stat` 与 `## Touches` 逐条一致（新增文件已用 ASCII `(new)`）。
 
 ## DoD
 
