@@ -37,17 +37,17 @@ extra:
 
 ## AC
 
-- [ ] `npm run test:client -- src/modules/chat/utils/tests/voiceLiveSegmenter.test.ts` 退出码 0
-- [ ] 短输入退化：用 harness 生成累计语音 < 30 s 的时间线（≥ 100 条，固定种子），分段结果**恰好 1 段**，且该段保留的真值语音占比（speechKeptRatio）≥ 0.99
-- [ ] 长输入：累计语音 ≥ 90 s 的时间线（≥ 100 条）切出 ≥ 2 段；除最后一段外，每段累计语音 ≥ 30 s；每个**非强制**切点都落在长度 ≥ 0.8 s 的静音内（中途切率为 0）
-- [ ] 无真停顿：`corpus/long/L4-nonstop`（138.5 s 连续语音）切出的每段时长 ≤ `maxSegmentSec`，全部是强制切，强制切点的帧能量 ≤ 其前 2 s 窗口内帧能量的中位数；相邻两段重叠 0.4 s ± 1 帧
-- [ ] 过滤正确：输出段内的静音总长 = Σ min(各间隔, 1.0 s) ± 1 帧；间隔 ≤ 1.0 s 的片段逐样本原样保留
-- [ ] 输入无语音（全零、−50 dBFS 纯底噪）：不产出任何段，不抛异常
-- [ ] 分块不变：同一段 PCM 按 1、160、320、4800 个样本分块喂入，产出的段（起止、字节哈希）逐个相同
-- [ ] 上传可行：每段的 WAV 采样率为 16000，`dashscope-omni` 的 `measureChatRequestBytes` 对任一段 ≤ 10 MB（最大 60 s 段约 2.6 MB）
-- [ ] worklet：`npx playwright test e2e/voice-streaming-vad.spec.ts` 退出码 0，且新增断言：worklet 转发的 PCM 总时长与注入样本相差 ≤ 50 ms，既有的段边界断言不变
-- [ ] 取假形态（各自必须变红）：删掉最小段长规则 → 「短输入恰好 1 段」红；改成固定时刻切 → 「非强制切点落在长静音内」红；删掉强制切重叠 → 「重叠 0.4 s」红
-- [ ] `npm run lint` 与 `npm run typecheck` 退出码 0
+- [x] `npm run test:client -- src/modules/chat/utils/tests/voiceLiveSegmenter.test.ts` 退出码 0
+- [x] 短输入退化：用 harness 生成累计语音 < 30 s 的时间线（≥ 100 条，固定种子），分段结果**恰好 1 段**，且该段保留的真值语音占比（speechKeptRatio）≥ 0.99
+- [x] 长输入：累计语音 ≥ 90 s 的时间线（≥ 100 条）切出 ≥ 2 段；除最后一段外，每段累计语音 ≥ 30 s；每个**非强制**切点都落在长度 ≥ 0.8 s 的静音内（中途切率为 0）
+- [x] 无真停顿：`corpus/long/L4-nonstop`（138.5 s 连续语音）切出的每段时长 ≤ `maxSegmentSec`，全部是强制切，强制切点的帧能量 ≤ 其前 2 s 窗口内帧能量的中位数；相邻两段重叠 0.4 s ± 1 帧
+- [x] 过滤正确：输出段内的静音总长 = Σ min(各间隔, 1.0 s) ± 1 帧；间隔 ≤ 1.0 s 的片段逐样本原样保留
+- [x] 输入无语音（全零、−50 dBFS 纯底噪）：不产出任何段，不抛异常
+- [x] 分块不变：同一段 PCM 按 1、160、320、4800 个样本分块喂入，产出的段（起止、字节哈希）逐个相同
+- [x] 上传可行：每段的 WAV 采样率为 16000，`dashscope-omni` 的 `measureChatRequestBytes` 对任一段 ≤ 10 MB（最大 60 s 段约 2.6 MB）
+- [x] worklet：`npx playwright test e2e/voice-streaming-vad.spec.ts` 退出码 0，且新增断言：worklet 转发的 PCM 总时长与注入样本相差 ≤ 50 ms，既有的段边界断言不变
+- [x] 取假形态（各自必须变红）：删掉最小段长规则 → 「短输入恰好 1 段」红；改成固定时刻切 → 「非强制切点落在长静音内」红；删掉强制切重叠 → 「重叠 0.4 s」红
+- [x] `npm run lint` 与 `npm run typecheck` 退出码 0
 
 ## DoD
 
