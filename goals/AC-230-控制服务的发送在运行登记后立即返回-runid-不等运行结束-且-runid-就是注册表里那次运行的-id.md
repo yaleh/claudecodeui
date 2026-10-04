@@ -1,7 +1,7 @@
 ---
 id: AC-230
 title: 控制服务的发送在运行登记后立即返回 runId，不等运行结束，且 runId 就是注册表里那次运行的 id
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-019
 criterion: for f in server/modules/websocket/tests/chat-control-send.test.ts; do
@@ -25,6 +25,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-04T18:35:13.030Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"

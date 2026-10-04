@@ -59,15 +59,15 @@ AC-226（GOAL-018 退出条件 3、范围「退役」）要求 `/api/agent` 与�
 
 ## AC
 
-- [ ] AC1 判据文件存在且绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/agent-retirement.test.ts` 退出 0，用例涵盖 (a)–(e)。逐字记录红态基线（改动前 `[ -f ... ]` 存在性闸退出码 1 并打印缺失文件名）。
-- [ ] AC2 (a) `server/modules/agent` 不存在：`test -d server/modules/agent` 非零；写下命令与读数。
-- [ ] AC3 (b) `server/index.ts` 语法树无含 `modules/agent` 的 import 说明符、无首参 `/api/agent` 的 `app.use`：写下说明符集合与 `app.use` 首参集合两个读数，并逐字记录旧位置（`:43`/`:113-118`/`:326`）。
-- [ ] AC4 (c) 标识符零命中：对 `server/**`+`src/**` 非测试 `.ts`/`.tsx` 扫 `apiKeysDb`/`createAgentModule`/`API_KEYS_TABLE_SCHEMA_SQL`，各 0；写下扫描文件数与三个计数，并逐条列出被删除/改写的旧命中位置。
-- [ ] AC5 (d) 正例对照到位：(d1) 合成源码上三标识符各恰 1 次、注释与字符串 0 次；(d2) `database/index.ts` 上 `userDb` ≥1；(d3) 合成 index.ts 上 import 与 `app.use` 探测器各 1、被注释与普通字符串不命中，且 `"/api-docs.html"` 字符串字面量探测器命中。写下全部读数。
-- [ ] AC6 (e) `public/api-docs.html` 改写后既无 `/api/agent` 也无 `ck_`（写下 `grep -c` 两个值均为 0）；并证明判据同时实现了「文件不存在时扫 `src/**` 字符串字面量」分支（以 (d3) 的字符串字面量探测器用例为机械证据）。
-- [ ] AC7 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 重引 `createAgentModule` import ⇒ (b) 红；(ii) 恢复 `apiKeysDb` 导出 ⇒ (c) 红；(iii) 恢复含 `/api/agent` 的 api-docs.html ⇒ (e) 红。每条记录恢复命令与恢复后重跑绿。
-- [ ] AC8 仓库门与该模块窄测：`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（只看 error 级）；`npx tsx --tsconfig server/tsconfig.json --test server/modules/settings/tests/settings.service.test.ts` 退出 0（删除 apiKeys 桩后不残留失败用例）；判据只经本模块 `tests/` 组织、跨模块经 barrel，无深导入。写明各命令退出码与 lint error 计数。
-- [ ] AC9 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（删除文件用 `(delete)`、新增文件用 ASCII `(new)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写。列出实际改动文件清单。
+- [x] AC1 判据文件存在且绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/agent-retirement.test.ts` 退出 0，用例涵盖 (a)–(e)。逐字记录红态基线（改动前 `[ -f ... ]` 存在性闸退出码 1 并打印缺失文件名）。
+- [x] AC2 (a) `server/modules/agent` 不存在：`test -d server/modules/agent` 非零；写下命令与读数。
+- [x] AC3 (b) `server/index.ts` 语法树无含 `modules/agent` 的 import 说明符、无首参 `/api/agent` 的 `app.use`：写下说明符集合与 `app.use` 首参集合两个读数，并逐字记录旧位置（`:43`/`:113-118`/`:326`）。
+- [x] AC4 (c) 标识符零命中：对 `server/**`+`src/**` 非测试 `.ts`/`.tsx` 扫 `apiKeysDb`/`createAgentModule`/`API_KEYS_TABLE_SCHEMA_SQL`，各 0；写下扫描文件数与三个计数，并逐条列出被删除/改写的旧命中位置。
+- [x] AC5 (d) 正例对照到位：(d1) 合成源码上三标识符各恰 1 次、注释与字符串 0 次；(d2) `database/index.ts` 上 `userDb` ≥1；(d3) 合成 index.ts 上 import 与 `app.use` 探测器各 1、被注释与普通字符串不命中，且 `"/api-docs.html"` 字符串字面量探测器命中。写下全部读数。
+- [x] AC6 (e) `public/api-docs.html` 改写后既无 `/api/agent` 也无 `ck_`（写下 `grep -c` 两个值均为 0）；并证明判据同时实现了「文件不存在时扫 `src/**` 字符串字面量」分支（以 (d3) 的字符串字面量探测器用例为机械证据）。
+- [x] AC7 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 重引 `createAgentModule` import ⇒ (b) 红；(ii) 恢复 `apiKeysDb` 导出 ⇒ (c) 红；(iii) 恢复含 `/api/agent` 的 api-docs.html ⇒ (e) 红。每条记录恢复命令与恢复后重跑绿。
+- [x] AC8 仓库门与该模块窄测：`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（只看 error 级）；`npx tsx --tsconfig server/tsconfig.json --test server/modules/settings/tests/settings.service.test.ts` 退出 0（删除 apiKeys 桩后不残留失败用例）；判据只经本模块 `tests/` 组织、跨模块经 barrel，无深导入。写明各命令退出码与 lint error 计数。
+- [x] AC9 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（删除文件用 `(delete)`、新增文件用 ASCII `(new)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写。列出实际改动文件清单。
 
 ## DoD
 
