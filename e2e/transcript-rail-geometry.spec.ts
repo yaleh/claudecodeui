@@ -333,7 +333,7 @@ test.describe('the transcript rail is three columns and a handle that keeps out 
     await link.click({ timeout: 15_000 });
   };
 
-  test('AC-217 (a)(b)(c)(d)(e) v2 the ticks are a fixed-size window and the scrollbar a column of its own', async () => {
+  test('AC-217 v2 (a)(b)(c)(d)(e) the ticks are a fixed-size window and the scrollbar a column of its own', async () => {
     for (const viewport of [DESKTOP, SHORT_VIEWPORT]) {
       const { context, page } = await openAt(viewport);
       try {
@@ -427,7 +427,7 @@ test.describe('the transcript rail is three columns and a handle that keeps out 
     }
   });
 
-  test('AC-217 (a)(e)(g) v2 the narrow viewport drops the tick column, keeps the scrollbar, and clears the handle', async () => {
+  test('AC-217 v2 (a)(e)(g) the narrow viewport drops the tick column, keeps the scrollbar, and clears the handle', async () => {
     const { context, page } = await openAt(NARROW);
     try {
       await page.goto(`${origin}/session/${LONG_SESSION_ID}`);
@@ -465,7 +465,7 @@ test.describe('the transcript rail is three columns and a handle that keeps out 
     }
   });
 
-  test('AC-217 (f)(g) v2 the handle is clamped into its band, however it was placed', async () => {
+  test('AC-217 v2 (f)(g) the handle is clamped into its band, however it was placed', async () => {
     const { context, page } = await openAt(DESKTOP);
     try {
       await page.goto(`${origin}/session/${LONG_SESSION_ID}`);
@@ -554,7 +554,7 @@ test.describe('the transcript rail is three columns and a handle that keeps out 
     }
   });
 
-  test('AC-217 (a)(h) v2 the chrome stands down when the content fits and appears when it does not', async () => {
+  test('AC-217 v2 (a)(h) the chrome stands down when the content fits and appears when it does not', async () => {
     const { context, page } = await openAt(DESKTOP);
     try {
       await page.goto(`${origin}/`);
