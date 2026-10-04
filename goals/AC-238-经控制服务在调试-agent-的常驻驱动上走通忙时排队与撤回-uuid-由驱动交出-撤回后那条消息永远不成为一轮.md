@@ -1,7 +1,7 @@
 ---
 id: AC-238
 title: 经控制服务在调试 agent 的常驻驱动上走通忙时排队与撤回：uuid 由驱动交出，撤回后那条消息永远不成为一轮
-status: draft
+status: active
 kind: criterion
 goal: GOAL-019
 criterion: for f in
@@ -19,4 +19,15 @@ expect: "用调试 agent 的常驻宿主驱动（不跑真 CLI），经控制服
   必须红。说明：真实 Claude 驱动的 `cancel_async_message` 不由本判据覆盖，只由既有真实 CLI 测试与后续 goal
   的人工门覆盖。（红先行）当前必红：判据文件不存在，存在性闸以退出码 1 输出缺失的文件名。"
 origin: docs/proposals/mcp-gateway-SPEC.md（v3）。人 yale 2026-10-05 指令：创建并激活本 goal 及其 AC。
+activatedAt: 2026-10-04T17:26:38.499Z
+statusLog:
+  - at: 2026-10-04T17:26:38.499Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-04T17:26:38.499Z
 ---
