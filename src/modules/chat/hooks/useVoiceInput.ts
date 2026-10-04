@@ -1,16 +1,31 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { decodeVoiceBlob, downsampleVoice, encodeWavBlob } from '@/modules/chat/utils/audioDecode';
+import { decodeVoiceBlob, downsampleVoice, UPLOAD_SAMPLE_RATE } from '@/modules/chat/utils/audioDecode';
+import {
+  DEFAULT_MIN_SEGMENT_SEC,
+  LiveSegmenter,
+  segmentLive,
+  type LiveSegment,
+} from '@/modules/chat/utils/voiceLiveSegmenter';
+import {
+  reassembleText,
+  runSegmentPipeline,
+  type ReassemblyPart,
+  type SegmentJob,
+  type SegmentOutcome,
+} from '@/modules/chat/utils/voiceSegments';
 import { voicePlayer } from '@/modules/chat/utils/voicePlayer';
 import {
   VOICE_FRAME_PROCESSOR_NAME,
   voiceFrameProcessorUrl,
   type VoiceFrameMessage,
 } from '@/modules/chat/audio/voiceFrameProcessor';
-import { effectivePauseCuesDeclaration, transcribeVoice } from '@/shared/api';
+import { transcribeVoice } from '@/shared/api';
 import { identifierFidelity } from '@/shared/identifierFidelity';
 import { repairIdentifiers } from '@/shared/identifierRepair';
+import { StreamingVad, type VadEvent } from '@/shared/voiceEndpoint';
 import type {
+  VoiceClip,
   VoiceClipPlayState,
   VoiceClipSlot,
   VoiceClipTrack,
@@ -18,41 +33,156 @@ import type {
   VoiceInputState,
   VoiceTranscriptionFailure,
 } from '@/shared/types';
-import { isVoiceDebugEnabled, isVoiceTrimEnabled } from '@/shared/voiceDebug';
-import { trimDecisionFor, trimVoiceAudio } from '@/shared/voiceTrim';
+import {
+  isVoiceDebugEnabled,
+  voiceDebugIdleSec,
+  voiceDebugMinSegmentSec,
+  voiceDebugOriginalCapSec,
+} from '@/shared/voiceDebug';
 // The recogniser's answer is read by the same module that built the request — the
 // repository-root shared tree the server and the CLI compile.
 import { parseTranscriptionResponse } from '@shared/asr/transcriptionWire';
 
-// Mobile-safe recording: iOS Safari 18.4+ supports webm/opus; older iOS needs mp4.
-const MIME_CANDIDATES = [
-  'audio/webm;codecs=opus',
-  'audio/webm',
-  'audio/mp4',
-  'audio/ogg;codecs=opus',
-  'audio/ogg',
-];
+/**
+ * Continuous voice capture: one press, one stream, and as many uploads as the speech needs.
+ *
+ * THERE IS ONLY ONE PATH. A short dictation and a long one are the same code: the microphone's PCM
+ * is segmented as it arrives, every segment is transcribed on its own, and the answers are committed
+ * in the order they were spoken. A press that produces less than one segment ends with a single
+ * request — the shape the old press-to-talk path always had — because the segmenter holds everything
+ * under its minimum in one trailing segment until the stop flushes it.
+ *
+ * WHAT THE USER SEES WHILE TALKING. Text appears as each segment settles, but only the *contiguous
+ * prefix*: if the second segment's answer arrives before the first's, nothing is committed until the
+ * first lands, and then both do, in order. A segment whose retries are exhausted contributes no text
+ * at all — the failure is reported in the composer's own red notice, and the segments after it are
+ * still committed, so one lost segment costs a phrase rather than the rest of the dictation.
+ *
+ * WHERE THE TEXT GOES. The hook hands the composer the committed text *so far* on every commit
+ * (`onTranscript(full, false)`) and, when the stop was a send, once more with the whole text and
+ * `send=true`. The composer owns where that text sits: it tracks the insertion range that opened at
+ * the caret when listening began (see `voiceInsertion.ts`), so edits the user makes elsewhere while
+ * talking are preserved and the committed words stay contiguous.
+ *
+ * The clip slot it fills on stop is the replay pair: the filtered audio the segments were cut from,
+ * and — when the stream was short enough to keep — the raw PCM the microphone produced.
+ */
 
-/** Below this, the bytes are a container with nothing in it. */
-const MIN_CAPTURE_BYTES = 800;
+/** How many retries follow a segment's first attempt before it is reported as lost. */
+const SEGMENT_MAX_RETRIES = 2;
 
-function pickMime(): string {
-  for (const t of MIME_CANDIDATES) {
-    try {
-      if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(t)) return t;
-    } catch {
-      /* isTypeSupported can throw on some iOS versions */
-    }
-  }
-  return '';
-}
+/**
+ * The longest a stream may run without any speech before the microphone is closed on its own.
+ *
+ * A press that is never released — the phone put in a pocket, a tab left open — keeps the mic open
+ * and, with it, the browser's recording indicator, for as long as the page lives. This closes it
+ * after two minutes of silence without spending a request: silence produces no segments, so the
+ * flush at this stop is empty.
+ */
+const DEFAULT_IDLE_AUTOSTOP_SEC = 120;
 
-/** The extension the recogniser is told the audio has, derived from the container it really has. */
-function extensionFor(mimeType: string): string {
-  if (mimeType.includes('wav')) return 'wav';
-  if (mimeType.includes('mp4')) return 'm4a';
-  if (mimeType.includes('ogg')) return 'ogg';
-  return 'webm';
+/**
+ * The longest raw stream kept for the replay slot, in seconds.
+ *
+ * The original track is 16 kHz mono PCM (32 KB/s), so ten minutes is about 19 MB held in page
+ * memory for the length of one dictation. Past it the slot keeps only the filtered audio rather
+ * than a truncated original: a replay that silently stops halfway would misrepresent the recording.
+ */
+const ORIGINAL_CAP_SEC = 600;
+
+/** How often the idle guard looks at the clock. Well under a second, cheap enough to run while idle. */
+const IDLE_POLL_MS = 250;
+
+/** The name the segments' uploads carry, so a log line names which piece of a sentence it was. */
+const SEGMENT_BASE_NAME = 'segment';
+
+/** A 16-bit mono PCM WAV's header, matching `audioDecode`'s and the segmenter's encoders. */
+const WAV_HEADER_BYTES = 44;
+
+/** The rate the original replay track is stored at: the same 16 kHz the uploads use. */
+const STORE_SAMPLE_RATE = UPLOAD_SAMPLE_RATE;
+
+/**
+ * A segmenter's frame sink: the PCM the audio graph produced, and the VAD events that preceded it.
+ *
+ * This is the seam between "where the audio comes from" and "what is done with it". The shipping
+ * engine runs an `AudioWorklet` on the microphone; a test supplies PCM directly, because jsdom has
+ * neither an audio thread nor a microphone.
+ */
+export type VoiceCaptureSink = {
+  /** One 20 ms frame of PCM plus the VAD events that arrived before it. */
+  onFrame: (samples: Float32Array, atSample: number, events: readonly VadEvent[]) => void;
+  /** A speech transition, used only by the idle guard. */
+  onActivity: () => void;
+};
+
+/**
+ * Where a listen's PCM and VAD events come from.
+ *
+ * `start` resolves with the sample rate the frames are at, which is what the segmenter is built
+ * against — the audio graph's own rate, not a constant, because a browser capture may be 44.1 or
+ * 48 kHz and the frame grid has to match it exactly.
+ */
+export type VoiceCaptureEngine = {
+  start: (stream: MediaStream, sink: VoiceCaptureSink) => Promise<number>;
+  stop: () => void;
+};
+
+/**
+ * The shipping engine: the microphone's PCM framed by `voiceFrameProcessor` on the audio thread.
+ *
+ * The worklet forwards each 20 ms frame's samples and the VAD events it produced; the events are
+ * buffered here until the next frame, because a VAD event is backdated and the segmenter needs the
+ * audio it names in the same push.
+ */
+function workletCaptureEngine(): VoiceCaptureEngine {
+  let context: AudioContext | null = null;
+  let node: AudioWorkletNode | null = null;
+  return {
+    async start(stream, sink) {
+      const url = voiceFrameProcessorUrl();
+      if (!url) throw new Error('AudioWorklet is unavailable');
+      const created = new AudioContext();
+      context = created;
+      await created.audioWorklet.addModule(url);
+      const createdNode = new AudioWorkletNode(created, VOICE_FRAME_PROCESSOR_NAME, {
+        processorOptions: { sampleRate: created.sampleRate },
+      });
+      node = createdNode;
+      const events: VadEvent[] = [];
+      createdNode.port.onmessage = (message: MessageEvent<VoiceFrameMessage>) => {
+        const data = message.data;
+        if (!data) return;
+        if (data.type === 'pcm') {
+          const pending = events.splice(0);
+          sink.onFrame(data.samples, data.atSample, pending);
+        } else if (data.type === 'event') {
+          events.push(data.event);
+          sink.onActivity();
+        }
+      };
+      // A zero-gain sink pulls the graph without the microphone reaching the speakers.
+      const silent = created.createGain();
+      silent.gain.value = 0;
+      created.createMediaStreamSource(stream).connect(createdNode);
+      createdNode.connect(silent);
+      silent.connect(created.destination);
+      return created.sampleRate;
+    },
+    stop() {
+      if (node) node.port.onmessage = null;
+      node = null;
+      const closing = context;
+      context = null;
+      if (closing) {
+        try {
+          void closing.close();
+        } catch {
+          /* a context already closed */
+        }
+      }
+    },
+  };
 }
 
 /**
@@ -62,16 +192,7 @@ function extensionFor(mimeType: string): string {
  * cannot say which of the two refusals this was. `415` and `413` are the two the seam publishes —
  * a container the provider does not read, and an upload past its budget — and both arrive on the
  * direct path and on the proxy path alike, carrying `UNSUPPORTED_MIME` or `OVERSIZE` beside the
- * message. Deriving a code from the number here would be a second opinion about a classification
- * the two paths already agree on, and it would be wrong for every other 4xx the backend can send.
- *
- * BOTH CODES ARE READ, AND THEY ARE NOT THE SAME THING. `code` is the semantic member the vocabulary
- * names; `upstreamCode` is the recogniser's own string, passed through by the backend when it had
- * one. Neither is invented here: a body that is not JSON, or one carrying neither field, leaves the
- * status alone to report — which is all there is.
- *
- * The body is read from a clone, so the original answer is not left spent for the caller that
- * still wants it.
+ * message.
  */
 async function refusalDetail(response: Response): Promise<VoiceTranscriptionFailure> {
   try {
@@ -89,221 +210,116 @@ async function refusalDetail(response: Response): Promise<VoiceTranscriptionFail
 /** Which entry the audio came in through. */
 export type VoiceSource = 'mic' | 'file';
 
-/**
- * The half of a capture's reading that is about the audio, taken where the audio is still in hand.
- *
- * The two entries share one chain, so the only thing that tells their readings apart is `source`;
- * everything else here is a measurement of the bytes the chain was handed.
- *
- * `fallback` is the one field that is not a measurement: true means the bytes uploaded were the input
- * untouched — the trim is off, the browser could not decode the container, or one of the trim's own
- * guards fired. A duration the chain never measured is `null` rather than 0, so "nothing was measured"
- * cannot be read as "nothing was there".
- */
-type AudioReading = {
-  source: VoiceSource;
-  inputSec: number | null;
-  outputSec: number | null;
-  savedSec: number | null;
-  savedRatio: number | null;
-  vadSegments: number | null;
-  speechKeptRatio: number | null;
-  fallback: boolean;
-};
-
-/**
- * The half of a capture's reading that is about the text, measured on the three texts the chain holds:
- * `raw` is what the recogniser answered, `text` what the chain kept of that answer, and `repaired` what
- * the deterministic repair made of it.
- *
- * The two rates are the identifier metric's own reading (`src/shared/identifierFidelity.ts`) on each
- * side of the repair, which is what makes them a pair rather than two measurements: `before` is what
- * the chain alone kept, `after` is what it keeps once the repair has run, and the gap between them is
- * the repair's own effect. `null` is the metric's reading for "this text carried no identifier at all",
- * so it is also what a capture that produced no text reports.
- *
- * `repairHits` counts the identifier spans `repaired` carries that `text` did not — what the repair put
- * back, read through the same metric rather than through a counter the repair would have to maintain.
- * Zero and "no text at all" agree here on purpose: neither is a repair.
- */
-type IdentifierReading = {
-  identifiers: {
-    before: { rate: number | null };
-    after: { rate: number | null };
+/** Builds a canonical 16-bit mono PCM WAV from little-endian PCM bytes already in hand. */
+function wavFromPcm16(data: Uint8Array, sampleRate: number): Blob {
+  const bytes = new Uint8Array(WAV_HEADER_BYTES + data.length);
+  const view = new DataView(bytes.buffer);
+  const ascii = (at: number, text: string): void => {
+    for (let i = 0; i < text.length; i += 1) view.setUint8(at + i, text.charCodeAt(i));
   };
-  repairHits: number;
-};
-
-/**
- * What the chain did with one capture, as a reading: one object, so a caller reads the audio's half and
- * the text's half together and cannot be handed one without the other.
- */
-export type VoiceCaptureReading = AudioReading & IdentifierReading;
-
-/** The reading for a capture whose audio was never measured: the input was uploaded as it arrived. */
-const unmeasured = (source: VoiceSource): AudioReading => ({
-  source,
-  inputSec: null,
-  outputSec: null,
-  savedSec: null,
-  savedRatio: null,
-  vadSegments: null,
-  speechKeptRatio: null,
-  fallback: true,
-});
-
-/**
- * The identifier half of a reading, from the recogniser's answer and the repair's output.
- *
- * `text` is derived here rather than passed in because it is the chain's own only transformation of
- * `raw` — `raw.trim()`, one line below in `submitCapture` — and a second caller computing it
- * separately is a second chance to disagree about what the chain kept.
- *
- * Both empty strings is the capture that never got an answer. It is asked of the metric rather than
- * special-cased beside it: `identifierFidelity` reports a `null` rate for a reference that carried no
- * identifier, so "nothing was said" reads the same way here as it does anywhere else.
- */
-const readIdentifiers = (raw: string, repaired: string): IdentifierReading => {
-  const text = raw.trim();
-  const before = identifierFidelity(raw, text);
-  const after = identifierFidelity(raw, repaired);
-  return {
-    identifiers: { before: { rate: before.rate }, after: { rate: after.rate } },
-    repairHits: identifierFidelity(repaired, text).missing.length,
-  };
-};
-
-/**
- * Prints one capture's reading, under its own prefix.
- *
- * `[voice:trim]` and not `[voice]`: the identifier-fidelity reading below is deliberately
- * unconditional — it is the evidence chain of GOAL-005 / AC-114, and a reading that only exists on a
- * debug branch is not a reading the real path can be judged by — so the two must be separable by
- * prefix. Everything about this one is behind the switch.
- *
- * The switch is read here, at the moment of printing, rather than by the caller: the whole reading is
- * one object assembled at one site, and a call site that decided for itself whether to build it is a
- * second place for the field list to drift.
- */
-function reportCapture(measured: AudioReading, raw: string, repaired: string): void {
-  if (!isVoiceDebugEnabled()) return;
-  const reading: VoiceCaptureReading = { ...measured, ...readIdentifiers(raw, repaired) };
-  console.debug('[voice:trim]', reading);
+  ascii(0, 'RIFF');
+  view.setUint32(4, 36 + data.length, true);
+  ascii(8, 'WAVE');
+  ascii(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  ascii(36, 'data');
+  view.setUint32(40, data.length, true);
+  bytes.set(data, WAV_HEADER_BYTES);
+  return new Blob([bytes], { type: 'audio/wav' });
 }
 
-/**
- * What the chain will upload for one capture, and the second replay track that comes with it.
- *
- * `trimmed` is non-null exactly when the body is not the recording: it carries the re-encoded bytes
- * and the length they measured at, which is what the control beside the recording's own shows. Null
- * on every fallback, so the caller has one thing to test rather than the reading's several fields.
- */
-type PreparedUpload = {
-  body: Blob;
-  filename: string;
-  reading: AudioReading;
-  trimmed: { blob: Blob; durationSec: number } | null;
-};
+/** The PCM payload of a canonical WAV this module or the segmenter built (44-byte header). */
+function wavPcm16(wav: Uint8Array): Uint8Array {
+  return wav.subarray(WAV_HEADER_BYTES);
+}
 
-/**
- * The bytes to upload for a capture, which is the capture itself unless the trim applies.
- *
- * A dictation clip is mostly silence — the wait for the mic, the breaths between sentences, the
- * pause before the button is released — and all of it is paid for twice, in upload bytes and in
- * recognition latency. So the audio is decoded, its silence removed, and the result re-encoded.
- *
- * Every path that does not trim returns the audio untouched: the recogniser's own declaration says
- * its pauses are worth keeping, the switch is off, the browser cannot decode the container, or
- * `trimVoiceAudio` reported one of its guards. Re-encoding a clip that did not get shorter would
- * spend a generation of quality on nothing, which is why the fallback is the original bytes rather
- * than a round-tripped copy of them.
- *
- * The reading is returned rather than printed: this function is where the audio is measured, and the
- * caller is where the decision to print belongs. What it returns is the audio's half of the reading —
- * the text's half is not knowable until the recogniser has answered.
- */
-async function prepareUpload(
-  blob: Blob,
-  source: VoiceSource,
-  baseName: string,
-): Promise<PreparedUpload> {
-  const asRecorded = { filename: `${baseName}.${extensionFor(blob.type)}` };
-  const recorded = { ...asRecorded, body: blob, reading: unmeasured(source), trimmed: null };
-  // Whether this recogniser's silence is worth removing is the recogniser's own declaration
-  // (ADR-004 decision 1), read at its one read point; the switch is the user's and only ever turns
-  // a trim off. Both have to say yes.
-  //
-  // The declaration is asked for BY THE ID THE REQUEST WILL BE SENT UNDER — the health reading's
-  // effective provider, the same one `transcribeVoice` routes on — rather than by an id written
-  // here. This hook used to name `openai-compatible` itself, an id nothing is registered under,
-  // and got an answer out of a table of its own; the recogniser the recording actually reaches is
-  // a different one and had declared the opposite. Asking the registry by the effective id is what
-  // makes 裁不裁 a property of the service rather than of this hook.
-  //
-  // No declaration to read — the health reading has not landed yet, or names an id no adapter
-  // claims — is not a reason to trim: the trim changes the audio, so an unknown recogniser gets
-  // the recording as it arrived.
-  const recogniser = effectivePauseCuesDeclaration();
-  if (!isVoiceTrimEnabled() || recogniser === null || !trimDecisionFor(recogniser.capability).trim) {
-    return recorded;
+/** A recorded track's clip: its object URL plus the meta the replay control renders. */
+function clipFromPcm16(data: Uint8Array, sampleRate: number): VoiceClip {
+  const blob = wavFromPcm16(data, sampleRate);
+  return {
+    url: URL.createObjectURL(blob),
+    meta: { bytes: blob.size, mimeType: blob.type, durationMs: Math.round((data.length / 2 / sampleRate) * 1000) },
+  };
+}
+
+/** Concatenates Int16 chunks into one little-endian buffer. */
+function concatInt16(chunks: Int16Array[]): Uint8Array {
+  let total = 0;
+  for (const chunk of chunks) total += chunk.length;
+  const bytes = new Uint8Array(total * 2);
+  const view = new DataView(bytes.buffer);
+  let at = 0;
+  for (const chunk of chunks) {
+    for (let i = 0; i < chunk.length; i += 1) {
+      view.setInt16(at, chunk[i], true);
+      at += 2;
+    }
   }
-
-  const decoded = await decodeVoiceBlob(blob);
-  if (!decoded) return recorded;
-
-  const { samples, stats } = trimVoiceAudio(decoded.samples, decoded.sampleRate);
-  const reading: AudioReading = {
-    source,
-    inputSec: stats.inputSec,
-    outputSec: stats.outputSec,
-    savedSec: stats.inputSec - stats.outputSec,
-    savedRatio: stats.savedRatio,
-    vadSegments: stats.vadSegments.length,
-    speechKeptRatio: stats.speechKeptRatio,
-    fallback: stats.fallback,
-  };
-  // A guard that fired still leaves a reading worth having: the audio was measured, and what it says
-  // about the capture is what tells a trim that found nothing to do from one that never ran.
-  if (stats.fallback) return { ...asRecorded, body: blob, reading, trimmed: null };
-
-  // Downsampled AFTER the trim, so the VAD ran on the decoded 48 kHz samples and the reading above
-  // is the same measurement it has always been; only the bytes that go on the wire change. The WAV
-  // header carries whatever rate this hands back, so a 16 kHz upload declares 16 kHz.
-  const uploadAudio = downsampleVoice(samples, decoded.sampleRate);
-  const trimmedBody = encodeWavBlob(uploadAudio.samples, uploadAudio.sampleRate);
-  return {
-    body: trimmedBody,
-    filename: `${baseName}.wav`,
-    reading,
-    trimmed: { blob: trimmedBody, durationSec: stats.outputSec },
-  };
+  return bytes;
 }
 
-/** A file's name without its extension: the upload derives one from the container it really sends. */
-function withoutExtension(name: string): string {
-  const dot = name.lastIndexOf('.');
-  return dot > 0 ? name.slice(0, dot) : name;
+/** Concatenates PCM payloads into one buffer. */
+function concatBytes(chunks: Uint8Array[]): Uint8Array {
+  let total = 0;
+  for (const chunk of chunks) total += chunk.length;
+  const bytes = new Uint8Array(total);
+  let at = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, at);
+    at += chunk.length;
+  }
+  return bytes;
 }
-
-/** How the mic's uploads are named; a file's uploads keep the name the file arrived with. */
-const RECORDING_BASE_NAME = 'recording';
-
-/** The slot's two replays, in the order the composer renders them. */
-const CLIP_TRACKS: readonly VoiceClipTrack[] = ['original', 'trimmed'];
-
-/** Both tracks silent. Written once, so "nothing is playing" has a single value to compare against. */
-const NOTHING_PLAYING: VoiceClipPlayState = { original: 'idle', trimmed: 'idle' };
 
 /**
- * The state that starts `track`: that one loads, and the other is stopped by the same write.
+ * One listen's live state, from the first frame to the last committed segment.
  *
- * Every start goes through here, which is what makes "at most one track sounds" a property of the
- * shape rather than of the caller remembering to clear the other entry.
+ * It is a plain object held in a ref rather than React state because the audio callbacks and the
+ * in-flight transcriptions all read and write it outside a render, and every one of them has to see
+ * the same values: a state update would hand a callback a snapshot from a previous commit.
  */
-const startingPlay = (track: VoiceClipTrack): VoiceClipPlayState => ({
-  original: track === 'original' ? 'loading' : 'idle',
-  trimmed: track === 'trimmed' ? 'loading' : 'idle',
-});
+type CaptureSession = {
+  /** Where the audio comes from; a file is a finite stream whose "stop" is its whole length. */
+  source: VoiceSource;
+  /** The engine that produced this session's frames, so it can be stopped with it. */
+  engine: VoiceCaptureEngine;
+  /** The segmenter turning PCM and VAD events into upload-sized segments; null until start resolves. */
+  segmenter: LiveSegmenter | null;
+  /** Next segment ordinal to commit. Segments settle out of order; this is the ordering cursor. */
+  nextCommit: number;
+  /** Settled outcomes not yet committable because an earlier ordinal is still in flight. */
+  settled: Map<number, SegmentOutcome>;
+  /** The successfully transcribed parts, for the seam-deduplicating reassembly. */
+  parts: ReassemblyPart[];
+  /** The full committed text last handed to the composer. */
+  committed: string;
+  /** Segments submitted but not yet settled (retries included). */
+  pending: number;
+  /** The next ordinal a newly closed segment takes. */
+  nextIndex: number;
+  /** Wall clock of the last speech event or committed segment; the idle guard reads it. */
+  lastActivityAt: number;
+  idleTimer: number | null;
+  /** True once the stop has begun; a second stop is a no-op. */
+  stopRequested: boolean;
+  /** Whether the stop should send the composer once every segment has settled. */
+  sendRequested: boolean;
+  /** The last refusal seen for an ordinal, so a failed segment can report its code. */
+  refusals: Map<number, VoiceTranscriptionFailure>;
+  /** Raw 16 kHz PCM chunks for the original replay track, until the cap is passed. */
+  originalChunks: Int16Array[];
+  originalSamples: number;
+  originalCapped: boolean;
+  /** Filtered 16 kHz PCM (the segments' own audio) for the trimmed replay track. */
+  filteredChunks: Uint8Array[];
+  filteredSamples: number;
+};
 
 type UseVoiceInputOptions = {
   /**
@@ -320,134 +336,84 @@ type UseVoiceInputOptions = {
   isActive?: boolean;
   /**
    * Names the open project really has, for the deterministic repair of the transcript
-   * (see `src/shared/projectIdentifiers.ts`). Passed in rather than resolved here: the
-   * hook does not know which project it is in, and a candidate list it fetched itself
-   * could not be driven by a test.
-   *
-   * An empty list is the "nothing to repair with" case and the hook keeps its previous
-   * behaviour exactly — `repairIdentifiers` returns its input untouched for it.
+   * (see `src/shared/projectIdentifiers.ts`). Passed in rather than resolved here.
    */
   candidates?: readonly string[];
+  /**
+   * Where the audio comes from. Absent means the shipping `AudioWorklet` engine; a test
+   * supplies one so it can push PCM without a browser audio thread or a microphone.
+   */
+  captureEngine?: VoiceCaptureEngine;
 };
 
 /** Stable identity for the absent-candidate case, so the default does not re-create the callback each render. */
 const NO_CANDIDATES: readonly string[] = [];
 
+/** The slot's two replays, in the order the composer renders them. */
+const CLIP_TRACKS: readonly VoiceClipTrack[] = ['original', 'trimmed'];
+
+/** Both tracks silent. Written once, so "nothing is playing" has a single value to compare against. */
+const NOTHING_PLAYING: VoiceClipPlayState = { original: 'idle', trimmed: 'idle' };
 
 /**
- * Push-to-talk dictation. Records the mic, uploads to /api/voice/transcribe
- * (an OpenAI-compatible speech-to-text backend via the Express proxy), and
- * returns the transcript through onTranscript.
+ * The state that starts `track`: that one loads, and the other is stopped by the same write.
+ */
+const startingPlay = (track: VoiceClipTrack): VoiceClipPlayState => ({
+  original: track === 'original' ? 'loading' : 'idle',
+  trimmed: track === 'trimmed' ? 'loading' : 'idle',
+});
+
+/**
+ * Continuous capture dictation. Records the microphone as 20 ms PCM frames, cuts the stream at
+ * pauses into upload-sized segments, transcribes each through `/api/voice/transcribe`, and commits
+ * the answers in spoken order through `onTranscript`.
  *
- * It also keeps the last recording as a single slot (`clipSlot`) so the composer can
- * replay what was just said — and, once the trim has run, replay what was actually sent
- * beside it. The recording is taken before the upload, so a failed or timed-out
- * transcription still leaves something to listen back to.
+ * It also keeps the last listen as a single slot (`clipSlot`) so the composer can replay what was
+ * said — the filtered audio the segments were cut from, and, when the stream stayed under the cap,
+ * the raw PCM beside it.
  *
  * `onError` carries two kinds of failure (see `VoiceFailureReport`): a recogniser refusal as the
  * `{ code, status, upstreamCode }` the answer carried, and the chain's own local failures as the
- * sentence they have always been. The split is not cosmetic — a refusal's sentence depends on the
- * code and on the user's language, neither of which this hook knows, so writing one here would be
- * a sentence in the wrong language that no consumer could re-translate.
+ * sentence they have always been. A segment that lost its retries is reported with the span it
+ * occupied, so the notice can name which part of the dictation is missing.
  */
 export function useVoiceInput(
   onTranscript: (text: string, send?: boolean) => void,
   onError?: (failure: VoiceFailureReport) => void,
   options: UseVoiceInputOptions = {},
 ) {
-  const { scope = null, isActive = true, candidates = NO_CANDIDATES } = options;
+  const { scope = null, isActive = true, candidates = NO_CANDIDATES, captureEngine } = options;
   const [state, setState] = useState<VoiceInputState>('idle');
-  // The last recording, and the upload derived from it. State rather than a ref because the
+  // The last listen, and the replay pair derived from it. State rather than a ref because the
   // controls render only while a clip exists, and a ref would not re-render on the write.
   const [clipSlot, setClipSlot] = useState<VoiceClipSlot | null>(null);
-  // Which of the slot's two tracks is sounding. One object rather than two pieces of state, so
-  // "the other one stops" is decided and written in the same update as "this one starts".
+  // Which of the slot's two tracks is sounding.
   const [clipPlayState, setClipPlayState] = useState<VoiceClipPlayState>(NOTHING_PLAYING);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const streamRef = useRef<MediaStream | null>(null);
-  // The live streaming VAD running beside the recording. The upload path below is untouched;
-  // this is the frame-by-frame detector a later segment pipeline reads its boundaries from.
-  const vadNodeRef = useRef<{ context: AudioContext; node: AudioWorkletNode } | null>(null);
+
+  const sessionRef = useRef<CaptureSession | null>(null);
   const cancelledRef = useRef(false);
   const startingRef = useRef(false);
-  // Whether the in-progress stop should auto-send the transcript (vs just fill the box).
-  const sendRef = useRef(false);
-  // Mirrors the clip slot for callbacks that must not be re-created on every clip
-  // change, and owns the object URLs that still have to be revoked.
+  // Mirrors the clip slot for callbacks that must not be re-created on every clip change,
+  // and owns the object URLs that still have to be revoked.
   const clipSlotRef = useRef<VoiceClipSlot | null>(null);
-  // The clip's own elements, one per track. Deliberately not `voicePlayer`'s: that one is a TTS
-  // player whose cache key is a synthesis content key, which a recording has no analogue of.
+  // The clip's own elements, one per track.
   const clipAudioRef = useRef<Record<VoiceClipTrack, HTMLAudioElement | null>>({
     original: null,
     trimmed: null,
   });
-  // Which track's `play()` has not settled yet. A start the user has since replaced — by pressing
-  // the other control — leaves a promise that rejects with the pause that stopped it, and that
-  // rejection is this hook's own doing rather than a playback failure to report.
+  // Which track's `play()` has not settled yet.
   const clipStartingRef = useRef<VoiceClipTrack | null>(null);
-  // Wall clock at `rec.start()`. The recorder's container usually does carry a finite
-  // duration, but reading it means waiting for the element to load metadata, and the
-  // pill only shows M:SS — under a second of difference is invisible either way.
-  const clipStartedAtRef = useRef(0);
-
-  const stopTracks = () => {
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-    stopStreamingVad();
-  };
-
-  // Tear the streaming VAD down and free its AudioContext. Safe to call when none is running.
-  const stopStreamingVad = () => {
-    const held = vadNodeRef.current;
-    vadNodeRef.current = null;
-    if (!held) return;
-    try {
-      held.node.port.onmessage = null;
-      void held.context.close();
-    } catch {
-      /* a context already closed, or one this browser never opened */
-    }
-  };
-
-  /**
-   * Starts the streaming VAD on the recording's own stream.
-   *
-   * Every failure here is swallowed: a browser without `AudioWorklet`, a module the dev server
-   * has not compiled yet, or a context limit reached. The streaming path is an addition to the
-   * recording, so it may not become a way for the recording to fail — the `MediaRecorder` above
-   * owns the upload and is unaffected either way. The node feeds a zero-gain output so the graph
-   * is pulled without the microphone ever reaching the speakers.
-   */
-  const startStreamingVad = async (stream: MediaStream) => {
-    try {
-      const url = voiceFrameProcessorUrl();
-      if (!url) return;
-      const context = new AudioContext();
-      await context.audioWorklet.addModule(url);
-      if (cancelledRef.current || streamRef.current !== stream) {
-        void context.close();
-        return;
-      }
-      const node = new AudioWorkletNode(context, VOICE_FRAME_PROCESSOR_NAME, {
-        processorOptions: { sampleRate: context.sampleRate },
-      });
-      const silent = context.createGain();
-      silent.gain.value = 0;
-      context.createMediaStreamSource(stream).connect(node);
-      node.connect(silent);
-      silent.connect(context.destination);
-      node.port.onmessage = (message: MessageEvent<VoiceFrameMessage>) => {
-        // The events are a debug reading for now; the segment pipeline consumes them later.
-        if (isVoiceDebugEnabled() && message.data?.type === 'event') {
-          console.debug('[voice:vad]', message.data.event);
-        }
-      };
-      vadNodeRef.current = { context, node };
-    } catch {
-      /* the streaming path is optional; the recording is not */
-    }
-  };
+  // The latest callbacks and options, read by the audio/transcription callbacks that outlive a render.
+  const onTranscriptRef = useRef(onTranscript);
+  const onErrorRef = useRef(onError);
+  const candidatesRef = useRef(candidates);
+  const captureEngineRef = useRef(captureEngine);
+  useEffect(() => {
+    onTranscriptRef.current = onTranscript;
+    onErrorRef.current = onError;
+    candidatesRef.current = candidates;
+    captureEngineRef.current = captureEngine;
+  }, [onTranscript, onError, candidates, captureEngine]);
 
   const ensureClipAudio = (track: VoiceClipTrack) => {
     const existing = clipAudioRef.current[track];
@@ -473,9 +439,6 @@ export function useVoiceInput(
     if (slot.trimmed) URL.revokeObjectURL(slot.trimmed.url);
   };
 
-  // Drop the clip entirely. The revoke lives here rather than inside the setState
-  // updater because updaters have to stay pure — StrictMode calls them twice, and the
-  // second call would revoke a URL the first had already handed to the audio element.
   const discardClip = () => {
     pauseClip();
     const previous = clipSlotRef.current;
@@ -484,71 +447,381 @@ export function useVoiceInput(
     if (previous) revokeSlot(previous);
   };
 
-  // Single slot: adopting a new recording evicts the previous one, URLs and all. The slot is
-  // returned because the capture that just opened it is the only caller that may add to it.
-  const adoptClip = (slot: VoiceClipSlot): VoiceClipSlot => {
+  // Single slot: adopting a new listen evicts the previous one, URLs and all.
+  const adoptClip = (slot: VoiceClipSlot) => {
     const previous = clipSlotRef.current;
     clipSlotRef.current = slot;
     setClipSlot(slot);
     if (previous) revokeSlot(previous);
-    return slot;
+  };
+
+  /** Stops the audio engine and the idle guard, keeping the session's buffered audio intact. */
+  const teardownCapture = (session: CaptureSession) => {
+    if (session.idleTimer !== null) {
+      window.clearInterval(session.idleTimer);
+      session.idleTimer = null;
+    }
+    session.engine.stop();
   };
 
   /**
-   * Hangs the upload's own bytes on the slot the capture opened, as the second track.
+   * Turns one settled outcome into committed text.
    *
-   * A new slot object rather than a mutation in place: `clipSlotRef` is what every async callback
-   * compares against, and an object edited under it would leave "the slot this capture opened" and
-   * "the slot that is current" indistinguishable to a caller holding only the first.
+   * The reassembly sorts by ordinal and dedupes the overlap at each seam, which is the same code
+   * the pipeline's own batch reassembly uses — so a live commit of a two-segment sentence reads
+   * exactly like the same sentence reassembled at the end. Only the contiguous prefix is drained:
+   * an out-of-order answer stays in `settled` until the ordinal before it has landed.
    */
-  const adoptTrimmedClip = (slot: VoiceClipSlot, trimmed: { blob: Blob; durationSec: number }) => {
-    const next: VoiceClipSlot = {
-      ...slot,
-      trimmed: {
-        url: URL.createObjectURL(trimmed.blob),
-        meta: {
-          bytes: trimmed.blob.size,
-          mimeType: trimmed.blob.type,
-          // The trimmed audio's own length, which the trim measured — the wall clock of the press
-          // is the recording's duration, and after a trim the two are no longer the same clip.
-          durationMs: Math.round(trimmed.durationSec * 1000),
-        },
-      },
-    };
-    clipSlotRef.current = next;
-    setClipSlot(next);
+  const drainCommitted = (session: CaptureSession) => {
+    let advanced = false;
+    while (session.settled.has(session.nextCommit)) {
+      const outcome = session.settled.get(session.nextCommit)!;
+      session.settled.delete(session.nextCommit);
+      session.nextCommit += 1;
+      advanced = true;
+      if (outcome.ok && outcome.text.trim()) {
+        session.parts.push({ index: outcome.index, text: outcome.text, failed: false });
+      }
+    }
+    if (!advanced) return;
+    const full = session.parts.length > 0 ? reassembleText(session.parts) : '';
+    if (full !== session.committed) {
+      session.committed = full;
+      if (!cancelledRef.current) onTranscriptRef.current(full, false);
+    }
   };
 
+  /**
+   * Closes out a listen: builds the replay slot, returns to idle, and sends when the stop asked it to.
+   *
+   * Called once, when the stop has been requested and every submitted segment has settled. The send
+   * is delivered as one call carrying the whole committed text, so the composer submits the complete
+   * dictation exactly once rather than once per segment.
+   */
+  const finalizeSession = (session: CaptureSession) => {
+    if (sessionRef.current !== session) return;
+    sessionRef.current = null;
+    if (session.source === 'mic') {
+      const slot = buildClipSlot(session);
+      if (slot) adoptClip(slot);
+    }
+    if (!cancelledRef.current) {
+      setState('idle');
+      if (session.sendRequested) onTranscriptRef.current(session.committed, true);
+    }
+  };
+
+  /** Reports a segment that lost its retries, with the span it covered. */
+  const reportLostSegment = (outcome: SegmentOutcome, refusal: VoiceTranscriptionFailure | undefined) => {
+    if (refusal && (refusal.code !== undefined || refusal.status !== undefined)) {
+      onErrorRef.current?.({ ...refusal, startSec: outcome.startSec, endSec: outcome.endSec });
+      return;
+    }
+    const span = `${outcome.startSec.toFixed(2)}-${outcome.endSec.toFixed(2)}s`;
+    onErrorRef.current?.(`Voice segment ${outcome.index + 1} (${span}) failed`);
+  };
+
+  /**
+   * One segment's journey: upload, parse, repair.
+   *
+   * Throwing is how the pipeline is told to retry, and `refusals` is where the structured reason is
+   * left so a segment that runs out of retries can still report the code the recogniser sent.
+   */
+  const transcribeSegment = (session: CaptureSession, job: SegmentJob): Promise<string> =>
+    (async () => {
+      // A refusal the recogniser already gave is definitive, and the pipeline's retries are for
+      // transient failures. Re-asking a provider that has answered would spend a second request (and
+      // for a metered provider, a second charge) on a question whose answer is not going to change, so
+      // the remembered refusal is re-thrown without a call: the segment still exhausts its retries and
+      // is still reported once, but only one upload is ever made.
+      const remembered = session.refusals.get(job.index);
+      if (remembered) throw remembered;
+      const response = await transcribeVoice(job.blob, `${SEGMENT_BASE_NAME}-${job.index + 1}.wav`);
+      if (!response.ok) {
+        const refusal = await refusalDetail(response);
+        session.refusals.set(job.index, refusal);
+        throw refusal;
+      }
+      const raw = await parseTranscriptionResponse(response, 'strict');
+      const text = raw.trim();
+      if (!text) {
+        // A well-formed answer with no words in it is the server's own `NO_SPEECH_DETECTED`, named
+        // where the emptiness is FOUND. It is handed back as a refusal rather than as an empty success
+        // so the composer shows the sentence the code selects — and, like a refusal, it is remembered:
+        // a recogniser that answered "nothing to say" will answer the same way again.
+        const failure: VoiceTranscriptionFailure = { status: response.status, code: 'NO_SPEECH_DETECTED' };
+        session.refusals.set(job.index, failure);
+        throw failure;
+      }
+      const repaired = repairIdentifiers(text, candidatesRef.current);
+      if (isVoiceDebugEnabled()) {
+        console.debug('[voice] identifier fidelity', {
+          before: identifierFidelity(raw, text),
+          after: identifierFidelity(raw, repaired),
+        });
+      }
+      return repaired;
+    })();
+
+  /** Settles one outcome: record it, commit what is now contiguous, and close out if the stop waits. */
+  const settleSegment = (session: CaptureSession, outcome: SegmentOutcome) => {
+    session.pending -= 1;
+    session.settled.set(outcome.index, outcome);
+    drainCommitted(session);
+    if (!outcome.ok) reportLostSegment(outcome, session.refusals.get(outcome.index));
+    if (session.stopRequested) {
+      if (session.pending === 0) finalizeSession(session);
+      else setState('transcribing');
+    }
+  };
+
+  /** Submits one closed segment and lets it settle in the background. */
+  const enqueueSegment = (session: CaptureSession, segment: LiveSegment) => {
+    const index = session.nextIndex;
+    session.nextIndex += 1;
+    // The filtered replay track is every segment's own audio, in order.
+    const pcm = wavPcm16(segment.wav);
+    session.filteredChunks.push(pcm);
+    session.filteredSamples += pcm.length / 2;
+    session.lastActivityAt = Date.now();
+    const job: SegmentJob = {
+      index,
+      startSec: segment.startSec,
+      endSec: segment.endSec,
+      // Copied into a fresh buffer: a `Blob` part must be backed by a plain `ArrayBuffer`, and the
+      // segmenter's `Uint8Array` is not typed to promise that.
+      blob: new Blob([new Uint8Array(segment.wav)], { type: 'audio/wav' }),
+    };
+    session.pending += 1;
+    void runSegmentPipeline([job], (submitted) => transcribeSegment(session, submitted), {
+      maxRetries: SEGMENT_MAX_RETRIES,
+    }).then(({ segments }) => {
+      if (cancelledRef.current) return;
+      settleSegment(session, segments[0]);
+    }).catch(() => {
+      if (cancelledRef.current) return;
+      settleSegment(session, {
+        index,
+        startSec: segment.startSec,
+        endSec: segment.endSec,
+        durationSec: segment.endSec - segment.startSec,
+        bytes: job.blob.size,
+        latencyMs: 0,
+        attempts: 0,
+        ok: false,
+      });
+    });
+  };
+
+  /** Buffers the raw stream, downsampled to the replay track's rate, until the cap is passed. */
+  const appendOriginal = (session: CaptureSession, samples: Float32Array, rate: number) => {
+    if (session.originalCapped) return;
+    const capSamples = (voiceDebugOriginalCapSec() ?? ORIGINAL_CAP_SEC) * STORE_SAMPLE_RATE;
+    const down = downsampleVoice(samples, rate, STORE_SAMPLE_RATE);
+    const next = session.originalSamples + down.samples.length;
+    if (next > capSamples) {
+      // Over the cap: the original is dropped whole rather than truncated, so the slot keeps only
+      // the filtered track.
+      session.originalCapped = true;
+      session.originalChunks = [];
+      session.originalSamples = 0;
+      return;
+    }
+    const chunk = new Int16Array(down.samples.length);
+    for (let i = 0; i < down.samples.length; i += 1) {
+      const clamped = Math.max(-1, Math.min(1, down.samples[i]));
+      chunk[i] = Math.round(clamped * 32_767);
+    }
+    session.originalChunks.push(chunk);
+    session.originalSamples = next;
+  };
+
+  /** Ends the capture: flush the trailing segment, tear the engine down, and finalize. */
+  const stopCapture = (session: CaptureSession, send: boolean) => {
+    if (session.stopRequested) return;
+    session.stopRequested = true;
+    session.sendRequested = send;
+    const trailing = session.segmenter?.flush() ?? [];
+    for (const segment of trailing) enqueueSegment(session, segment);
+    teardownCapture(session);
+    if (session.pending === 0) {
+      finalizeSession(session);
+    } else {
+      setState('transcribing');
+    }
+  };
+
+  const start = useCallback(async () => {
+    if (startingRef.current || sessionRef.current) return;
+    // A new listen is about to replace the slot; stop the old one from sounding.
+    pauseClip();
+    startingRef.current = true;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true },
+      });
+      if (cancelledRef.current) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      const engine = captureEngineRef.current ?? workletCaptureEngine();
+      let sampleRate = STORE_SAMPLE_RATE;
+      const session: CaptureSession = {
+        source: 'mic',
+        engine,
+        segmenter: null,
+        nextCommit: 0,
+        settled: new Map(),
+        parts: [],
+        committed: '',
+        pending: 0,
+        nextIndex: 0,
+        lastActivityAt: Date.now(),
+        idleTimer: null,
+        stopRequested: false,
+        sendRequested: false,
+        refusals: new Map(),
+        originalChunks: [],
+        originalSamples: 0,
+        originalCapped: false,
+        filteredChunks: [],
+        filteredSamples: 0,
+      };
+      sessionRef.current = session;
+      // Resolve the capture engine, then build the segmenter against the rate it reports. The sink
+      // guards on the segmenter being present: the engine may not be handed a frame until its
+      // `start` has resolved, which is what makes the assignment below run first.
+      sampleRate = await engine.start(stream, {
+        onFrame: (samples, atSample, events) => {
+          appendOriginal(session, samples, sampleRate);
+          const closed = session.segmenter?.push(samples, atSample, events) ?? [];
+          for (const segment of closed) enqueueSegment(session, segment);
+        },
+        onActivity: () => {
+          session.lastActivityAt = Date.now();
+        },
+      });
+      if (cancelledRef.current) {
+        engine.stop();
+        stream.getTracks().forEach((t) => t.stop());
+        sessionRef.current = null;
+        return;
+      }
+      session.segmenter = new LiveSegmenter({
+        sampleRate,
+        minSegmentSec: voiceDebugMinSegmentSec() ?? DEFAULT_MIN_SEGMENT_SEC,
+      });
+      // The idle guard: no speech event and no committed segment for `voiceIdleSec`, and the mic is
+      // closed. A stop with nothing buffered sends no request and reports no error.
+      session.idleTimer = window.setInterval(() => {
+        const idleMs = (voiceDebugIdleSec() ?? DEFAULT_IDLE_AUTOSTOP_SEC) * 1000;
+        if (Date.now() - session.lastActivityAt >= idleMs) stopCapture(session, false);
+      }, IDLE_POLL_MS);
+      setState('recording');
+    } catch (e) {
+      sessionRef.current = null;
+      if (cancelledRef.current) return;
+      const err = e as { name?: string; message?: string };
+      let msg = `Mic error: ${err?.message || e}`;
+      if (err?.name === 'NotAllowedError') msg = 'Microphone access denied.';
+      else if (err?.name === 'NotFoundError') msg = 'No microphone found.';
+      onErrorRef.current?.(msg);
+      setState('idle');
+    } finally {
+      startingRef.current = false;
+    }
+  }, []);
+
+  // Stop listening. `{ send: true }` sends the composer once every segment has settled.
+  const stop = useCallback((opts?: { send?: boolean }) => {
+    const session = sessionRef.current;
+    if (session) stopCapture(session, opts?.send ?? false);
+  }, []);
+
+  const toggle = useCallback(() => {
+    if (state === 'recording') stop();
+    else if (state === 'idle') void start();
+  }, [state, start, stop]);
+
+  /**
+   * Feeds a chosen audio file through the chain a recording travels.
+   *
+   * The other entry into the same pipeline: the file is decoded to PCM, run through the shared VAD
+   * to produce its boundaries, and segmented with the same segmenter a live stream uses. There is no
+   * second batch path — this is the same cutter, given the whole buffer at once.
+   */
+  const transcribeFile = useCallback((file: File) => {
+    void (async () => {
+      if (sessionRef.current) return;
+      pauseClip();
+      const decoded = await decodeVoiceBlob(file);
+      if (cancelledRef.current) return;
+      if (!decoded || decoded.samples.length === 0) {
+        onErrorRef.current?.('Audio file too small');
+        return;
+      }
+      const vad = new StreamingVad({ sampleRate: decoded.sampleRate });
+      const events = vad.push(decoded.samples);
+      const segments = segmentLive(decoded.samples, decoded.sampleRate, events, {
+        minSegmentSec: voiceDebugMinSegmentSec() ?? DEFAULT_MIN_SEGMENT_SEC,
+      });
+      if (segments.length === 0) {
+        onErrorRef.current?.('Audio file too small');
+        return;
+      }
+      const session: CaptureSession = {
+        source: 'file',
+        engine: { start: async () => decoded.sampleRate, stop: () => undefined },
+        segmenter: null,
+        nextCommit: 0,
+        settled: new Map(),
+        parts: [],
+        committed: '',
+        pending: 0,
+        nextIndex: 0,
+        lastActivityAt: Date.now(),
+        idleTimer: null,
+        stopRequested: true,
+        sendRequested: false,
+        refusals: new Map(),
+        originalChunks: [],
+        originalSamples: 0,
+        originalCapped: false,
+        filteredChunks: [],
+        filteredSamples: 0,
+      };
+      sessionRef.current = session;
+      setState('transcribing');
+      for (const segment of segments) enqueueSegment(session, segment);
+    })();
+  }, []);
+
   // A different scope is a different chat. The composer is never unmounted on a session
-  // switch (WorkspaceMain passes the session as a prop, with no `key`), so nothing else
-  // would keep one session's recording out of another's composer.
+  // switch, so nothing else would keep one session's recording out of another's composer.
   useEffect(() => {
     discardClip();
   }, [scope]);
 
   // Off screen — another workspace tab, or the question panel covering the footer —
-  // nothing visible can stop the audio, so stop it. The clip is kept: the user is
-  // coming back to this same chat and should still be able to replay it.
+  // nothing visible can stop the audio, so stop it. The clip is kept.
   useEffect(() => {
     if (!isActive) pauseClip();
   }, [isActive]);
 
-  // Read-aloud and a clip must not sound at once. Read-aloud wins because it was asked
-  // for from a message, but the clip is only paused, so the pill survives the collision.
+  // Read-aloud and a clip must not sound at once.
   useEffect(() => voicePlayer.subscribe(() => {
     if (voicePlayer.isBusy()) pauseClip();
   }), []);
 
-  // Stop the mic if the component unmounts mid-recording.
+  // Stop the microphone if the component unmounts mid-recording.
   useEffect(() => {
     cancelledRef.current = false;
     return () => {
       cancelledRef.current = true;
       startingRef.current = false;
-      stopStreamingVad();
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-      recorderRef.current = null;
+      const session = sessionRef.current;
+      sessionRef.current = null;
+      if (session) teardownCapture(session);
       for (const track of CLIP_TRACKS) {
         clipAudioRef.current[track]?.pause();
         clipAudioRef.current[track] = null;
@@ -560,227 +833,7 @@ export function useVoiceInput(
   }, []);
 
   /**
-   * One capture's whole journey: bytes, decoded and trimmed, uploaded to the recogniser, repaired
-   * against the open project's names, and handed to the composer.
-   *
-   * Both entries into the voice path meet here — the microphone and the upload button — and that is
-   * deliberate rather than convenient. Everything that can be got wrong about this chain (the trim,
-   * the container, the endpoint, the repair) is only true of the path a recording takes if the path an
-   * uploaded file takes is the same one; a second chain beside it would be free to drift, and the
-   * readings taken on one would stop meaning anything about the other.
-   *
-   * The clip slot is the one place the two are told apart. It exists so the user can hear back the
-   * thing they just said, and a file they chose is already theirs to play; capturing it there would
-   * also put an upload in the way of the recording the slot is holding.
-   *
-   * The recording's own bytes open the slot before the upload, because the slot's first track is
-   * what survives a transcription that never answers. The second track is added later, and only by
-   * the capture that opened the slot: the identity check below is what keeps a slow trim from
-   * hanging this chat's audio on the control of whichever chat is open when it finishes.
-   */
-  const submitCapture = useCallback(async (
-    blob: Blob,
-    source: VoiceSource,
-    { send, baseName }: { send: boolean; baseName: string },
-  ) => {
-    if (blob.size < MIN_CAPTURE_BYTES) {
-      setState('idle');
-      onError?.(source === 'mic' ? 'Recording too short' : 'Audio file too small');
-      return;
-    }
-    // Before the upload, not after: a transcription that fails or times out is
-    // exactly when the user most needs to hear what they actually said.
-    const adopted = source === 'mic'
-      ? adoptClip({
-        original: {
-          url: URL.createObjectURL(blob),
-          meta: { bytes: blob.size, mimeType: blob.type, durationMs: Date.now() - clipStartedAtRef.current },
-        },
-        trimmed: null,
-      })
-      : null;
-    setState('transcribing');
-    // The audio's half of this capture's reading, filled in as soon as the chain has measured it and
-    // null while it has not. Held out here so the one reading below can be printed on every way out
-    // of this block — including the ways that never get an answer, which is exactly when a reading of
-    // what was sent is worth having.
-    let measured: AudioReading | null = null;
-    // The recogniser's answer and what the repair made of it. Empty when there was neither, which is
-    // the reading's own way of saying so rather than a case handled beside it.
-    let raw = '';
-    let repaired = '';
-    try {
-      const prepared = await prepareUpload(blob, source, baseName);
-      measured = prepared.reading;
-      // The slot gains its second track here, where the chain has just decided that what it uploads
-      // is not the recording. Held off the reading rather than off `source === 'mic'` so the one
-      // thing that says a trim happened is the trim's own output: a `fallback` leaves `trimmed`
-      // null and the composer renders a single control, which is the honest face of a capture that
-      // was uploaded as it was recorded.
-      if (adopted && prepared.trimmed && clipSlotRef.current === adopted) {
-        adoptTrimmedClip(adopted, prepared.trimmed);
-      }
-      const res = await transcribeVoice(prepared.body, prepared.filename);
-      if (!res.ok) {
-        // The refusal is handed over STRUCTURED, not as a sentence the transport spelled: the code
-        // selects which sentence the composer shows, and the status and upstream code are what a
-        // technical line is built from. Flattening them into text here — `transcribe 502
-        // (UNSUPPORTED_MIME)` — spent all three at once, and left the composer unable to tell a
-        // refusal the vocabulary names from one it does not.
-        const refusal = await refusalDetail(res);
-        if (!cancelledRef.current) onError?.(refusal);
-        // The `finally` below still runs: the capture is over, the reading is reported and the
-        // state returns to idle on this exit exactly as it does on a thrown one.
-        return;
-      }
-      // Parsed before the cancellation check, exactly as the inline `res.json()` was: a body that
-      // is not JSON still has to reach the catch below even when this capture was cancelled.
-      // `strict` is this path's own tolerance, named at the call site rather than implied by
-      // living in this file — the proxy path reads the same answer leniently.
-      raw = await parseTranscriptionResponse(res, 'strict');
-      if (cancelledRef.current) return;
-      const text = raw.trim();
-      if (text) {
-        // The one point between the recogniser and the composer where the transcript is
-        // still ours to change: `raw -> text` is the trim, `text -> repaired` is the
-        // deterministic repair against the project's own names. Nothing else in the
-        // chain touches the text, so this is where both readings belong.
-        repaired = repairIdentifiers(text, candidates);
-        // The voice link's own telemetry (GOAL-005 / AC-114): how much of what the
-        // recogniser returned survives — punctuation and case intact — into the text
-        // handed back to the composer, read on both sides of the repair. The pair is
-        // what makes it the repair's reading rather than a bystander's: `before` is
-        // what the chain alone kept, `after` is what it keeps once the repair has run,
-        // and the names the second one reports missing are exactly the names the repair
-        // rewrote. A repair that fires on a name the transcript never carried therefore
-        // shows up here as a drop, which is the failure AC-113 measures as misRepairs.
-        // Console-only by design: it changes no interaction and no request flow, and a
-        // reading that only exists on a debug branch is not a reading the real path can
-        // be judged by.
-        console.debug('[voice] identifier fidelity', {
-          before: identifierFidelity(raw, text),
-          after: identifierFidelity(raw, repaired),
-        });
-        onTranscript(repaired, send);
-      } else {
-        // A well-formed answer with no words in it is the same condition as the server's own
-        // `NO_SPEECH_DETECTED`: a recording that reached the recogniser and produced nothing to
-        // write down. It is named as a vocabulary member here, where the emptiness is FOUND, and
-        // not at the surface that shows it — a sentence written at that surface would be English
-        // in every language, and the code is what lets the composer pick the user's own sentence.
-        // The status is the answer's own, so a caller reading the technical line sees the same
-        // number for an empty 200 whether the emptiness was found here or classified upstream.
-        onError?.({ status: res.status, code: 'NO_SPEECH_DETECTED' });
-      }
-    } catch (e) {
-      if (!cancelledRef.current) {
-        onError?.(`Transcription failed: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    } finally {
-      // One reading per capture that reached the chain, from one site, so it cannot be printed twice
-      // or forgotten on any of the exits above. The half that needs the recogniser is filled in only
-      // if there was one; a capture that failed still gets the half that was measured.
-      //
-      // Printed after `onTranscript`, which hands the composer its text through a React update: that
-      // update is committed in a later task than this call, so by the time a caller can see the
-      // transcript this reading is already on the console. That ordering is what lets "the switch is
-      // off" be asserted as an absence — a leg waits for the text and then counts readings, and a
-      // reading printed any later would arrive after the count.
-      if (measured !== null && !cancelledRef.current) reportCapture(measured, raw, repaired);
-      if (!cancelledRef.current) setState('idle');
-    }
-  }, [onTranscript, onError, candidates]);
-
-  const start = useCallback(async () => {
-    if (startingRef.current || (recorderRef.current && recorderRef.current.state !== 'inactive')) return;
-    // A new recording is about to replace the slot; stop the old one from sounding.
-    pauseClip();
-    startingRef.current = true;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true },
-      });
-      if (cancelledRef.current) {
-        stream.getTracks().forEach((t) => t.stop());
-        return;
-      }
-      streamRef.current = stream;
-      void startStreamingVad(stream);
-      const mimeType = pickMime();
-      const rec = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-      recorderRef.current = rec;
-      chunksRef.current = [];
-
-      rec.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-
-      rec.onstop = async () => {
-        stopTracks();
-        if (cancelledRef.current) return;
-        // Capture and clear the send intent for this stop before any async work.
-        const shouldSend = sendRef.current;
-        sendRef.current = false;
-        const type = rec.mimeType || 'audio/webm';
-        await submitCapture(
-          new Blob(chunksRef.current, { type }),
-          'mic',
-          { send: shouldSend, baseName: RECORDING_BASE_NAME },
-        );
-      };
-
-      clipStartedAtRef.current = Date.now();
-      rec.start();
-      setState('recording');
-    } catch (e) {
-      recorderRef.current = null;
-      stopTracks();
-      if (cancelledRef.current) return;
-      const err = e as { name?: string; message?: string };
-      let msg = `Mic error: ${err?.message || e}`;
-      if (err?.name === 'NotAllowedError') msg = 'Microphone access denied.';
-      else if (err?.name === 'NotFoundError') msg = 'No microphone found.';
-      onError?.(msg);
-      setState('idle');
-    } finally {
-      startingRef.current = false;
-    }
-  }, [submitCapture, onError]);
-
-  /**
-   * Feeds a chosen audio file through the chain a recording travels.
-   *
-   * The other half of `submitCapture`, and deliberately nothing more than a call into it: an uploaded
-   * file is not a second kind of audio, it is the same audio arriving by a different door. What it is
-   * not is a send — a file is chosen to see the chain work, and a turn nobody asked to spend is not
-   * what choosing one means.
-   */
-  const transcribeFile = useCallback((file: File) => {
-    void submitCapture(file, 'file', { send: false, baseName: withoutExtension(file.name) });
-  }, [submitCapture]);
-
-  // Stop recording. Pass { send: true } to auto-send the transcript once it's ready.
-  // Guard on the recorder's own state (not React state) so a double tap, or the mic
-  // and Send buttons both firing, can't call stop() on an already-inactive recorder.
-  const stop = useCallback((opts?: { send?: boolean }) => {
-    const rec = recorderRef.current;
-    if (rec && rec.state !== 'inactive') {
-      sendRef.current = opts?.send ?? false;
-      rec.stop();
-    }
-  }, []);
-
-  const toggle = useCallback(() => {
-    if (state === 'recording') stop();
-    else if (state === 'idle') start();
-  }, [state, start, stop]);
-
-  /**
    * Plays one of the slot's tracks, or stops it when it is the one already sounding.
-   *
-   * Starting a track stops the other: the two are the same speaker said twice, and hearing them
-   * together is the one thing the pair cannot be compared by. The stop is written with the start
-   * (see `startingPlay`) rather than after it, so there is no window in which both read as playing.
    */
   const toggleClipPlayback = useCallback((track: VoiceClipTrack) => {
     const clip = clipSlotRef.current?.[track];
@@ -795,14 +848,10 @@ export function useVoiceInput(
     for (const other of CLIP_TRACKS) {
       if (other !== track) clipAudioRef.current[other]?.pause();
     }
-    // Yield the speakers to the clip; `voicePlayer` would keep synthesizing otherwise.
     voicePlayer.stop();
     audio.src = clip.url;
     clipStartingRef.current = track;
     setClipPlayState(startingPlay(track));
-    // Not awaited: iOS only grants playback to a `play()` issued inside the gesture's
-    // stack, and awaiting would move it out of that stack. Handling the rejection
-    // instead is what keeps the control from sitting in `loading` forever.
     const started: Promise<void> | undefined = audio.play();
     if (started && typeof started.then === 'function') {
       started.then(
@@ -813,21 +862,35 @@ export function useVoiceInput(
           setClipPlayState((previous) => ({ ...previous, [track]: 'playing' }));
         },
         (e: unknown) => {
-          // The other track's control took the speakers, so this `play()` was stopped by this hook
-          // and not by anything the user needs to hear about.
           if (clipStartingRef.current !== track) return;
           clipStartingRef.current = null;
           if (clipSlotRef.current?.[track] !== clip) return;
           setClipPlayState((previous) => ({ ...previous, [track]: 'idle' }));
-          // A DOMException is not an `Error`; the template has to cover both shapes.
-          onError?.(`Playback failed: ${e instanceof Error ? e.message : String(e)}`);
+          onErrorRef.current?.(`Playback failed: ${e instanceof Error ? e.message : String(e)}`);
         },
       );
     } else {
       clipStartingRef.current = null;
       setClipPlayState((previous) => ({ ...previous, [track]: 'playing' }));
     }
-  }, [clipPlayState, onError]);
+  }, [clipPlayState]);
 
   return { state, toggle, stop, transcribeFile, clipSlot, clipPlayState, toggleClipPlayback };
+}
+
+/**
+ * The replay slot a finished listen leaves: the filtered audio the segments carried, and — when the
+ * stream stayed under the cap — the raw PCM beside it.
+ *
+ * Both tracks are 16 kHz mono PCM, because both are heard through the same control.
+ */
+function buildClipSlot(session: CaptureSession): VoiceClipSlot | null {
+  const filtered = session.filteredSamples > 0
+    ? clipFromPcm16(concatBytes(session.filteredChunks), STORE_SAMPLE_RATE)
+    : null;
+  const original = !session.originalCapped && session.originalSamples > 0
+    ? clipFromPcm16(concatInt16(session.originalChunks), STORE_SAMPLE_RATE)
+    : null;
+  if (!filtered && !original) return null;
+  return { original, trimmed: filtered };
 }

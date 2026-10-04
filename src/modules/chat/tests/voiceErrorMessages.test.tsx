@@ -54,6 +54,7 @@ import { afterEach, beforeEach, test, vi } from 'vitest';
 
 import ChatComposer from '@/modules/chat/composer/ChatComposer';
 import { useVoiceInput } from '@/modules/chat/hooks/useVoiceInput';
+import { createFakeVoiceCapture } from '@/modules/chat/tests/voiceCaptureTestHarness';
 import {
   voiceErrorKey,
   voiceErrorMessage,
@@ -292,37 +293,16 @@ vi.mock('@/shared/api', async (importOriginal) => {
 // that, and both the composer and the hook harness below drive the mic.
 vi.mock('@/modules/chat/hooks/useVoiceAvailable', () => ({ useVoiceAvailable: () => true }));
 
-// The voice path's two switches, both off: a plain install, and a recording that travels as it was
-// recorded. Read here rather than through the environment so a developer's own flags cannot change
-// what this file measures.
+// The voice path's switches, all off/unset: a plain install, with the shipped segment minimum and
+// idle auto-stop. Read here rather than through the environment so a developer's own flags cannot
+// change what this file measures.
 vi.mock('@/shared/voiceDebug', () => ({
   isVoiceDebugEnabled: () => false,
   isVoiceTrimEnabled: () => false,
+  voiceDebugMinSegmentSec: () => undefined,
+  voiceDebugIdleSec: () => undefined,
+  voiceDebugOriginalCapSec: () => undefined,
 }));
-
-/** Chunks the next `start()` will emit through `ondataavailable`; above the hook's 800-byte floor. */
-let recorderChunks: Blob[] = [];
-
-class FakeMediaRecorder {
-  static isTypeSupported = () => true;
-
-  state: 'inactive' | 'recording' = 'inactive';
-  mimeType = 'audio/webm';
-  ondataavailable: ((event: { data: Blob }) => void) | null = null;
-  onstop: (() => void) | null = null;
-  private chunks: Blob[] = [];
-
-  start() {
-    this.state = 'recording';
-    this.chunks = recorderChunks;
-  }
-
-  stop() {
-    this.state = 'inactive';
-    for (const chunk of this.chunks) this.ondataavailable?.({ data: chunk });
-    this.onstop?.();
-  }
-}
 
 const createObjectURL = vi.fn();
 const revokeObjectURL = vi.fn();
@@ -333,7 +313,6 @@ const fakeStream = { getTracks: () => [{ stop: () => undefined }] };
 const TREE: unknown[] = [];
 
 beforeEach(() => {
-  vi.stubGlobal('MediaRecorder', FakeMediaRecorder);
   Object.defineProperty(navigator, 'mediaDevices', {
     configurable: true,
     value: { getUserMedia: async () => fakeStream },
@@ -349,7 +328,6 @@ beforeEach(() => {
   getFiles.mockResolvedValue({ ok: true, status: 200, json: async () => TREE });
   transcribeVoice.mockReset();
   transcribeVoice.mockResolvedValue(noCodeRefusal());
-  recorderChunks = [new Blob([new Uint8Array(2000)])];
 });
 
 // The object-URL stubs stay installed between tests on purpose: jsdom does not implement them at
@@ -364,8 +342,13 @@ afterEach(() => {
 
 /** The props `voiceTranscriptRepair.test.tsx` drives the real composer with; only `projectId` and
  * the transcript callback differ per case. */
-const composerProps = (projectId: string, onVoiceTranscript: () => void) =>
+const composerProps = (
+  projectId: string,
+  onVoiceTranscript: () => void,
+  voiceCaptureEngine: ReturnType<typeof createFakeVoiceCapture>['engine'],
+) =>
   ({
+    voiceCaptureEngine,
     pendingPermissionRequests: [],
     handlePermissionDecision: () => undefined,
     handleGrantToolPermission: () => ({ success: true }),
@@ -444,19 +427,28 @@ const speakInto = async (lang: string, projectId: string) => {
     await i18next.changeLanguage(lang);
   });
   const t = translate(lang);
+  const capture = createFakeVoiceCapture();
   const view = render(
-    React.createElement(ChatComposer, composerProps(projectId, () => undefined)),
+    React.createElement(ChatComposer, composerProps(projectId, () => undefined, capture.engine)),
   );
   // Drain the candidate fetch so the press is not judged against a half-mounted composer.
   await act(async () => {});
   await act(async () => {
     view.getByRole('button', { name: t('voice.input') }).click();
   });
+  // Three seconds of speech: below the segment minimum, so the stop flushes one trailing segment.
+  await act(async () => {
+    capture.speak(3);
+  });
   await act(async () => {
     view.getByRole('button', { name: t('voice.stopRecording') }).click();
   });
-  // `onstop` uploads before it settles; drain that tail so the bubble is observable.
-  await act(async () => {});
+  // The flush enqueues the trailing segment; drain its upload tail so the bubble is observable. A
+  // refused segment is retried before it is reported, so the wait covers the pipeline's own
+  // backoff (250 ms + 500 ms), not just the microtask tail.
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 900));
+  });
   return { view, t };
 };
 
@@ -486,7 +478,12 @@ const speakInto = async (lang: string, projectId: string) => {
  */
 const noticeSentence = (view: ReturnType<typeof render>): string | null => {
   const layer = view.queryByTestId('voice-error-notice');
-  return layer === null ? null : layer.textContent;
+  if (layer === null) return null;
+  // The SENTENCE element, not the whole layer. The layer now also carries the spoken span a
+  // continuous listen's failed segment occupied (`voice-error-segment`), which is a second fact the
+  // notice shows beside the sentence; reading the sentence's own element keeps this an equality on
+  // the copy rather than an `includes` that would pass on the right copy with anything glued to it.
+  return layer.querySelector('[data-testid="voice-error-message"]')?.textContent ?? null;
 };
 
 /**
@@ -498,19 +495,27 @@ const noticeSentence = (view: ReturnType<typeof render>): string | null => {
  */
 const captureFailure = async (): Promise<VoiceFailureReport> => {
   const captured: VoiceFailureReport[] = [];
+  const capture = createFakeVoiceCapture();
   const view = renderHook(() =>
     useVoiceInput(() => undefined, (failure) => captured.push(failure), {
       scope: 'session-a',
       isActive: true,
+      captureEngine: capture.engine,
     }),
   );
   await act(async () => {
     view.result.current.toggle();
   });
   await act(async () => {
+    capture.speak(3);
+  });
+  await act(async () => {
     view.result.current.stop();
   });
-  await act(async () => {});
+  // Cover the pipeline's retry backoff (250 ms + 500 ms) before a refused segment is reported.
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 900));
+  });
   const failure = captured.at(0);
   assert.equal(captured.length, 1, 'one refused capture has to report exactly one failure');
   assert.ok(failure !== undefined, 'the hook reported no failure for a refused transcription');
@@ -627,6 +632,8 @@ test('AC4a no shipped locale sentence is the transport verb plus a status number
 
 /* ─── AC4: not the transport's sentence, on the shipped composer ─────── */
 
+// Its own budget: twelve languages, each paying the segment pipeline's retry backoff before the
+// refusal is reported, is well past vitest's 5s default.
 test('AC4b the shipped composer shows the fallback copy, in every language, for a code-less refusal', async () => {
   let allEqual = true;
   let lastText: string | null = null;
@@ -653,7 +660,7 @@ test('AC4b the shipped composer shows the fallback copy, in every language, for 
     true,
     'the composer did not show the language\'s own fallback sentence for a refusal that carries no code',
   );
-});
+}, 40_000);
 
 test('AC4c the refusal keeps its status, and the technical detail still carries the number', async () => {
   const failure = await captureFailure();

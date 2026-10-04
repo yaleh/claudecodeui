@@ -9,6 +9,7 @@ import { initReactI18next } from 'react-i18next';
 import { afterAll, afterEach, beforeEach, test, vi } from 'vitest';
 
 import ChatComposer from '@/modules/chat/composer/ChatComposer';
+import { createFakeVoiceCapture } from '@/modules/chat/tests/voiceCaptureTestHarness';
 import enChat from '@/modules/i18n/locales/en/chat.json';
 // Type-only, so it is erased before vi.mock's hoisted factory runs.
 import type * as SharedApi from '@/shared/api';
@@ -63,10 +64,13 @@ vi.mock('@/shared/api', async (importOriginal) => {
 // The mic only renders when the backend says a voice provider is configured.
 vi.mock('@/modules/chat/hooks/useVoiceAvailable', () => ({ useVoiceAvailable: () => true }));
 
-// A plain install: no upload entry, and the trim off, so a recording travels exactly as recorded.
+// A plain install: no upload entry, the shipped segment minimum, and no idle override.
 vi.mock('@/shared/voiceDebug', () => ({
   isVoiceDebugEnabled: () => false,
   isVoiceTrimEnabled: () => false,
+  voiceDebugMinSegmentSec: () => undefined,
+  voiceDebugIdleSec: () => undefined,
+  voiceDebugOriginalCapSec: () => undefined,
 }));
 
 await i18next.use(initReactI18next).init({
@@ -83,45 +87,18 @@ await i18next.use(initReactI18next).init({
 const EXPECTED_CODE = 'MODEL_NOT_FOUND';
 const EXPECTED_SENTENCE = (enChat as { voice: { errors: Record<string, string> } }).voice.errors[EXPECTED_CODE];
 
-/* ─── The recorder, faked ──────────────────────────────────────────── */
-
-type MediaRecorderOptions = { mimeType?: string };
-
-/** Chunks the next `start()` will emit through `ondataavailable`. */
-let recorderChunks: Blob[] = [];
-
-class FakeMediaRecorder {
-  static isTypeSupported = () => true;
-
-  state: 'inactive' | 'recording' = 'inactive';
-  mimeType: string;
-  ondataavailable: ((event: { data: Blob }) => void) | null = null;
-  onstop: (() => void) | null = null;
-  private chunks: Blob[] = [];
-
-  constructor(_stream: unknown, options?: MediaRecorderOptions) {
-    this.mimeType = options?.mimeType ?? 'audio/webm';
-  }
-
-  start() {
-    this.state = 'recording';
-    this.chunks = recorderChunks;
-  }
-
-  stop() {
-    this.state = 'inactive';
-    for (const chunk of this.chunks) this.ondataavailable?.({ data: chunk });
-    this.onstop?.();
-  }
-}
+/* ─── The capture, faked ───────────────────────────────────────────── */
 
 const fakeStream = { getTracks: () => [{ stop: () => undefined }] };
 let objectUrlCount = 0;
 
+/** The capture engine every render in this file is handed; recreated per case so no frame leaks. */
+let capture = createFakeVoiceCapture();
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
-  vi.stubGlobal('MediaRecorder', FakeMediaRecorder);
+  capture = createFakeVoiceCapture();
   Object.defineProperty(navigator, 'mediaDevices', {
     configurable: true,
     value: { getUserMedia: async () => fakeStream },
@@ -129,7 +106,6 @@ beforeEach(() => {
   objectUrlCount = 0;
   URL.createObjectURL = (() => `blob:mutation-${++objectUrlCount}`) as unknown as typeof URL.createObjectURL;
   URL.revokeObjectURL = (() => undefined) as unknown as typeof URL.revokeObjectURL;
-  recorderChunks = [];
   transcribeVoice.mockReset();
   // A recogniser refusal, in the shape the browser criterion's stand-in answers with: a non-2xx
   // status and an envelope carrying the semantic code and the recogniser's own string.
@@ -240,6 +216,7 @@ const ComposerHarness = ({ Composer, onVoiceTranscript }: {
   const [input, setInput] = React.useState('');
   return React.createElement(Composer, {
     ...composerProps,
+    voiceCaptureEngine: capture.engine,
     input,
     onInputChange: (event: { target: { value: string } }) => setInput(event.target.value),
     onVoiceTranscript,
@@ -278,14 +255,22 @@ const readSentence = (root: HTMLElement): string | null => {
  * chunk, which is what makes the upload exist; the stand-in answers it with the refusal above.
  */
 const recordOnce = async (view: ReturnType<typeof render>) => {
-  recorderChunks = [new Blob([new Uint8Array(2000)])];
   await act(async () => {
     view.getByRole('button', { name: 'Voice input' }).click();
+  });
+  // Three seconds of speech: below the segment minimum, so the stop flushes one trailing segment.
+  await act(async () => {
+    capture.speak(3);
   });
   await act(async () => {
     view.getByRole('button', { name: 'Stop recording' }).click();
   });
-  await act(async () => {});
+  // The refusal is retried before it is reported (250 ms + 500 ms of pipeline backoff), and this
+  // file runs on fake timers, so the clock has to be advanced past that backoff for the notice to
+  // appear at all.
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1_000);
+  });
 };
 
 /**

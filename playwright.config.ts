@@ -1691,6 +1691,52 @@ const seedViteCache = (destination: string): void => {
   }
 };
 
+/**
+ * Workspace `e2e/voice-continuous.spec.ts` records into.
+ *
+ * The spec synthesises the microphone in-page (a fake `AudioContext`/`AudioWorkletNode` graph, so it can
+ * speak an exact timeline of speech and pauses), which is why this seed writes no audio file: the fixture
+ * is the *session*, and the utterance is the spec's own PCM. The transcript still has to be written here,
+ * before the servers boot, because the backend scans `~/.claude/projects` once at startup and never adopts
+ * a transcript written later.
+ */
+const VOICE_CONTINUOUS_WORKSPACE = path.join(dataDir, 'voice-continuous-workspace');
+const VOICE_CONTINUOUS_SESSION_ID = 'e2e-voice-continuous';
+const VOICE_CONTINUOUS_SESSION_NAME = 'voice-continuous';
+const seedVoiceContinuousWorkspace = () => {
+  fs.mkdirSync(VOICE_CONTINUOUS_WORKSPACE, { recursive: true });
+  fs.writeFileSync(
+    path.join(VOICE_CONTINUOUS_WORKSPACE, 'capture.notes.md'),
+    'Notes kept in the workspace the continuous voice spec records in.\n',
+    'utf8',
+  );
+
+  const transcriptDir = path.join(dataDir, '.claude', 'projects', 'voice-continuous-workspace');
+  fs.mkdirSync(transcriptDir, { recursive: true });
+  const timestamp = new Date().toISOString();
+  const records = [
+    {
+      type: 'user',
+      sessionId: VOICE_CONTINUOUS_SESSION_ID,
+      cwd: VOICE_CONTINUOUS_WORKSPACE,
+      timestamp,
+      message: { role: 'user', content: [{ type: 'text', text: 'open the composer for the continuous capture check' }] },
+    },
+    {
+      type: 'custom-title',
+      sessionId: VOICE_CONTINUOUS_SESSION_ID,
+      cwd: VOICE_CONTINUOUS_WORKSPACE,
+      timestamp,
+      customTitle: VOICE_CONTINUOUS_SESSION_NAME,
+    },
+  ];
+  fs.writeFileSync(
+    path.join(transcriptDir, `${VOICE_CONTINUOUS_SESSION_ID}.jsonl`),
+    `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
+    'utf8',
+  );
+};
+
 if (isDataDirOwner) {
   seedViteCache(viteCacheDir);
   seedSessionFilterTranscripts();
@@ -1698,6 +1744,7 @@ if (isDataDirOwner) {
   seedTranscriptJumpTranscript();
   seedTranscriptJumpTallTranscript();
   seedVoiceIdentifierWorkspace();
+  seedVoiceContinuousWorkspace();
   seedVoiceTrimWorkspace();
   seedVoiceDashscopeWorkspace();
   seedVoiceErrorMessageWorkspace();

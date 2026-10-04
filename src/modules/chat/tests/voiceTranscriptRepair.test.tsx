@@ -7,6 +7,7 @@ import { initReactI18next } from 'react-i18next';
 import { afterEach, beforeEach, test, vi } from 'vitest';
 
 import ChatComposer from '@/modules/chat/composer/ChatComposer';
+import { createFakeVoiceCapture } from '@/modules/chat/tests/voiceCaptureTestHarness';
 import enChat from '@/modules/i18n/locales/en/chat.json';
 // Type-only, so it is erased before vi.mock's hoisted factory runs.
 import type * as SharedApi from '@/shared/api';
@@ -91,36 +92,11 @@ const TREE = [
   },
 ];
 
-/** Chunks the next `start()` will emit through `ondataavailable`; above the hook's 800-byte floor. */
-let recorderChunks: Blob[] = [];
-
-class FakeMediaRecorder {
-  static isTypeSupported = () => true;
-
-  state: 'inactive' | 'recording' = 'inactive';
-  mimeType = 'audio/webm';
-  ondataavailable: ((event: { data: Blob }) => void) | null = null;
-  onstop: (() => void) | null = null;
-  private chunks: Blob[] = [];
-
-  start() {
-    this.state = 'recording';
-    this.chunks = recorderChunks;
-  }
-
-  stop() {
-    this.state = 'inactive';
-    for (const chunk of this.chunks) this.ondataavailable?.({ data: chunk });
-    this.onstop?.();
-  }
-}
-
 const createObjectURL = vi.fn();
 const revokeObjectURL = vi.fn();
 const fakeStream = { getTracks: () => [{ stop: () => undefined }] };
 
 beforeEach(() => {
-  vi.stubGlobal('MediaRecorder', FakeMediaRecorder);
   Object.defineProperty(navigator, 'mediaDevices', {
     configurable: true,
     value: { getUserMedia: async () => fakeStream },
@@ -135,7 +111,6 @@ beforeEach(() => {
   getFiles.mockReset();
   getFiles.mockResolvedValue({ ok: true, status: 200, json: async () => TREE });
   transcribeVoice.mockReset();
-  recorderChunks = [new Blob([new Uint8Array(2000)])];
 });
 
 // The object-URL stubs stay installed between tests on purpose: jsdom does not implement
@@ -167,8 +142,10 @@ const speakInto = async (
   onVoiceTranscript: (text: string, send?: boolean) => void,
 ) => {
   const fetchesBefore = getFiles.mock.calls.length;
+  const capture = createFakeVoiceCapture();
   const view = render(
     React.createElement(ChatComposer, {
+      voiceCaptureEngine: capture.engine,
       pendingPermissionRequests: [],
       handlePermissionDecision: () => undefined,
       handleGrantToolPermission: () => ({ success: true }),
@@ -254,10 +231,16 @@ const speakInto = async (
     'the recorder has to really be running, or the stop below uploads nothing',
   );
 
+  // Three seconds of speech: below the segmenter's minimum, so the stop flushes it as the single
+  // trailing segment — the shape a press-and-release dictation has always had.
+  await act(async () => {
+    capture.speak(3);
+  });
+
   await act(async () => {
     view.getByRole('button', { name: 'Stop recording' }).click();
   });
-  // `onstop` uploads before it settles; drain that tail so the transcript is observable.
+  // The flush enqueues the trailing segment and its upload settles a microtask or two later.
   await act(async () => {});
 
   return view;

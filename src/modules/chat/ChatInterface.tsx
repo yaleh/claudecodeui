@@ -292,6 +292,7 @@ function ChatInterface({
     editQueuedDraft,
     deleteQueuedDraft,
     handleVoiceTranscript,
+    handleVoiceListeningStart,
     handleInputChange,
     handleKeyDown,
     handlePaste,
@@ -729,6 +730,7 @@ function ChatInterface({
           textareaRef={textareaRef}
           input={input}
           onVoiceTranscript={handleVoiceTranscript}
+          onVoiceListeningStart={handleVoiceListeningStart}
           scope={draftScope}
           sessionId={currentSessionId || selectedSession?.id || null}
           projectId={selectedProject?.projectId ?? null}

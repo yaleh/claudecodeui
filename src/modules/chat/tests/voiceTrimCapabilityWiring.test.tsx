@@ -3,175 +3,79 @@ import assert from 'node:assert/strict';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, test, vi } from 'vitest';
 
-import type { PauseCuesDeclaration } from '@shared/asr/asrRegistry';
-
 import { useVoiceInput } from '@/modules/chat/hooks/useVoiceInput';
 import type * as AudioDecode from '@/modules/chat/utils/audioDecode';
 import type * as SharedApi from '@/shared/api';
 
 /**
- * Whether a recording is trimmed is the *recogniser's* declaration, not this hook's opinion.
+ * The audio-file entry travels the ONE capture path, and what it uploads is a WAV segment.
  *
- * The unit of this file is the last thing the chain does before it uploads: which bytes reach
- * `transcribeVoice`. Everything the trim needs to run is doubled below — the decoder, the encoder,
- * the switch, the endpoint — because jsdom has no audio stack and because the question here is not
- * what the DSP does (`src/shared/tests/voiceTrim.test.ts` owns that) but **who decides whether it
- * runs**. So the readings are the two containers the chain can upload: the recording as it arrived,
- * or the re-encoded WAV the trim produced.
+ * WHAT THIS FILE USED TO MEASURE, AND WHY IT NO LONGER CAN. It pinned the batch trim's wiring:
+ * whether the recogniser's `pauseCues` declaration decided that a chosen file was trimmed and
+ * re-encoded before upload. That whole decision is gone — the continuous-capture path cuts the
+ * audio with the shared VAD and uploads each segment as 16 kHz PCM WAV, with no trim and no second
+ * container — so the capability has no say in the container any more. What survives as a reading is
+ * the positive half: the file entry is not a second batch path, it is the same cutter and the same
+ * uploader, and it emits `audio/wav` segments named by their ordinal.
  *
- * THE DECLARATION IS DRIVEN WHERE THE HOOK ASKS FOR IT: `effectivePauseCuesDeclaration()` in the
- * shared API module, which is the same accessor the shipping hook calls and which reads the
- * provider id off the health reading's published profile. Nothing here re-declares a capability or
- * re-implements the mapping — the real `trimDecisionFor` runs in every case below, and the third
- * case is the positive control for it: with the switch on, the decoder working and the trim ready
- * to run, a recogniser whose pauses are worth keeping still gets its recording uploaded untouched.
+ * Everything the chain needs is doubled below (the decoder; the recogniser) because jsdom has no
+ * audio stack and no offline recogniser. The segmenter and the VAD between them are the shipping
+ * modules — this file does not re-implement the cut, it observes the container that leaves it.
  */
 
 const { transcribeVoice } = vi.hoisted(() => ({ transcribeVoice: vi.fn() }));
-
-/**
- * The recogniser's declaration, as the cases drive it: `null` is the "no declaration to read"
- * state — the health reading has not landed, or names an id the registry does not claim — which
- * must leave the recording alone rather than fall back to a shipped row.
- */
-const { voiceProfile } = vi.hoisted(() => ({
-  voiceProfile: { declaration: null as null | PauseCuesDeclaration },
-}));
 
 vi.mock('@/shared/api', async (importOriginal) => {
   const actual = await importOriginal<typeof SharedApi>();
   return {
     transcribeVoice,
     voiceConfigSignature: () => 'test-signature',
-    // No I/O, and it is the same parse the shipping hook performs — a second copy here would be a
-    // second copy of the thing under test.
+    // The same parse the shipping hook performs.
     parseTranscriptionResponse: actual.parseTranscriptionResponse,
-    // The one seam the capability arrives through, and the shipping accessor is what answers when
-    // a case leaves it alone.
-    effectivePauseCuesDeclaration: () => voiceProfile.declaration,
   };
 });
 
 /**
- * The switch, as this file wants it: named per case, because "the user turned the trim off" and
- * "the recogniser says the pauses are worth keeping" are two different reasons for the same upload
- * and a case that cannot tell them apart measures neither.
- */
-const { voiceFlags } = vi.hoisted(() => ({ voiceFlags: { trim: true } }));
-
-vi.mock('@/shared/voiceDebug', () => ({
-  isVoiceDebugEnabled: () => false,
-  isVoiceTrimEnabled: () => voiceFlags.trim,
-}));
-
-/**
- * A second of 16 kHz audio with one burst of speech in the middle: what the trim needs in order to
- * have anything to do, and the smallest buffer that gives it.
+ * One second of 16 kHz audio with a burst of speech in the middle.
  *
- * Not silence, and not a stub of the trim's output: the real `trimVoiceAudio` runs in every case
- * below (it is these cases' subject only in that it must *not* run), and a buffer it detected no
- * speech in would come back as a fallback — the recording, uploaded as it arrived — which is the
- * same observation as "the capability declined the trim" made for the wrong reason.
+ * Not silence: the VAD only starts a segment on speech, so a buffer it found no speech in would
+ * produce no upload at all — the absence this file asserts against would hold for the wrong reason.
  */
-const decodableSamples = () => {
+const speechSamples = (): Float32Array => {
   const samples = new Float32Array(16_000);
-  for (let i = 6_000; i < 10_000; i++) samples[i] = 0.5 * Math.sin((i / 16_000) * 2 * Math.PI * 220);
+  for (let i = 3_000; i < 9_000; i++) samples[i] = 0.5 * Math.sin((i / 16_000) * 2 * Math.PI * 220);
   return samples;
 };
 
-/**
- * The decoder and the encoder, doubled because jsdom has neither; the trim between them is the
- * shipping module, and so is the downsampler the hook calls before encoding (`downsampleVoice`
- * arrives through the `importOriginal` spread — it is a pure DSP function, not a browser seam,
- * and this file has no reading that depends on its behaviour).
- */
+/** The decoder, doubled because jsdom has none; the segmenter above it is the shipping module. */
 vi.mock('@/modules/chat/utils/audioDecode', async (importOriginal) => ({
   ...(await importOriginal<typeof AudioDecode>()),
-  decodeVoiceBlob: async () => ({ samples: decodableSamples(), sampleRate: 16_000 }),
-  encodeWavBlob: () => new Blob([new Uint8Array(2048)], { type: 'audio/wav' }),
+  decodeVoiceBlob: async () => ({ samples: speechSamples(), sampleRate: 16_000 }),
 }));
 
-/** The recording as the chain receives it: a real container, and well over the 800-byte floor. */
-const RECORDING_BYTES = 4000;
+const recording = () => new File([new Uint8Array(4000)], 'take.webm', { type: 'audio/webm' });
 
-const recording = () =>
-  new File([new Uint8Array(RECORDING_BYTES)], 'take.webm', { type: 'audio/webm' });
-
-/** What the chain uploaded, in the shape the recogniser sees it. */
 const uploaded = () => {
   const call = transcribeVoice.mock.calls[0];
   assert.ok(call, 'nothing reached the recogniser');
   return { body: call[0] as Blob, filename: call[1] as string };
 };
 
-/** One capture: a file through the chain a recording travels, drained to the end of the upload. */
-const uploadAFile = async () => {
+beforeEach(() => {
+  transcribeVoice.mockReset();
+  transcribeVoice.mockResolvedValue({ ok: true, json: async () => ({ text: 'hello' }) });
+});
+
+test('a chosen audio file is cut and uploaded as a WAV segment, not as the file it arrived as', async () => {
   const view = renderHook(() => useVoiceInput(vi.fn(), vi.fn()));
   await act(async () => {
     view.result.current.transcribeFile(recording());
   });
   // `transcribeFile` returns before the upload settles; drain that tail so the call is observable.
   await act(async () => {});
-  return view;
-};
-
-/** A declaration, built where the vocabulary lives — this file never spells the capability's key. */
-const declaring = (capability: PauseCuesDeclaration['capability']): PauseCuesDeclaration => ({
-  provider: 'fixture-recogniser',
-  capability,
-});
-
-beforeEach(() => {
-  transcribeVoice.mockReset();
-  transcribeVoice.mockResolvedValue({ ok: true, json: async () => ({ text: 'hello' }) });
-  voiceProfile.declaration = declaring('destructive');
-  voiceFlags.trim = true;
-});
-
-test('the declared recogniser trims: the upload is the clip the trim produced, not the recording', async () => {
-  await uploadAFile();
 
   const { body, filename } = uploaded();
-  assert.equal(body.type, 'audio/wav', 'the recording was uploaded instead of the trimmed clip');
-  assert.equal(filename, 'take.wav');
-  assert.notEqual(body.size, RECORDING_BYTES);
-});
-
-test('the switch alone still decides: off, the recording goes as it arrived', async () => {
-  voiceFlags.trim = false;
-
-  await uploadAFile();
-
-  const { body, filename } = uploaded();
-  assert.equal(body.type, 'audio/webm', 'the trim ran with the switch off');
-  assert.equal(filename, 'take.webm');
-  assert.equal(body.size, RECORDING_BYTES);
-});
-
-test('the capability alone decides: a recogniser whose pauses are worth keeping is not trimmed', async () => {
-  // The capability's own other value, and nothing else changed — the switch is on, the decoder
-  // works, the trim would run. This is the positive control for the two cases above: if it were
-  // the switch or the decoder deciding, this upload would still be a WAV.
-  voiceProfile.declaration = declaring('useful');
-
-  await uploadAFile();
-
-  const { body, filename } = uploaded();
-  assert.equal(body.type, 'audio/webm', 'the trim ran against the recogniser\'s own declaration');
-  assert.equal(filename, 'take.webm');
-  assert.equal(body.size, RECORDING_BYTES);
-});
-
-test('a recogniser with no readable declaration is not trimmed: an unknown service gets the audio as recorded', async () => {
-  // The fail-closed arm. The trim changes the audio, so a provider this build cannot name — an
-  // unregistered id, or a health reading that never landed — must not authorise it, and must not
-  // be answered from a shipped row kept here for the purpose.
-  voiceProfile.declaration = null;
-
-  await uploadAFile();
-
-  const { body, filename } = uploaded();
-  assert.equal(body.type, 'audio/webm', 'an unnameable recogniser was trimmed anyway');
-  assert.equal(filename, 'take.webm');
-  assert.equal(body.size, RECORDING_BYTES);
+  assert.equal(body.type, 'audio/wav', 'the file entry uploaded its input instead of a segment');
+  assert.equal(filename, 'segment-1.wav');
+  assert.equal(view.result.current.state, 'idle', 'the file run must return to idle when it settles');
 });

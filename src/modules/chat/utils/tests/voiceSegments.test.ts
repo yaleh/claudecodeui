@@ -3,17 +3,16 @@
  * taken against a transport this file owns, so a case can put a segment out of order, make one
  * segment refuse, or overlap two segments' texts — and then assert what the pipeline made of it.
  *
- * TWO KINDS OF CASE LIVE HERE.
+ * ONE KIND OF CASE LIVES HERE: the pipeline's own properties. A fixed seed drives ≥200 randomized
+ * inputs per property, because the failure this module exists to prevent — a wrong order, a
+ * swallowed segment, a deduplicated word that was never duplicated — is exactly the kind that a
+ * hand-written two-segment example can miss. The seed is fixed and the generator is re-derivable:
+ * a red says which iteration and which input produced it.
  *
- *   · The pipeline's own properties (the bulk): a fixed seed drives ≥200 randomized inputs per
- *     property, because the failure this module exists to prevent — a wrong order, a swallowed
- *     segment, a deduplicated word that was never duplicated — is exactly the kind that a
- *     hand-written two-segment example can miss. The seed is fixed and the generator is
- *     re-derivable: a red says which iteration and which input produced it.
- *
- *   · The single-keypress regression (the last case): the path this task must NOT have moved.
- *     It is driven through the real `useVoiceInput` with only the browser seams doubled, and it
- *     asserts the recording still leaves as one request carrying the recording's own bytes.
+ * The single-keypress regression this file used to carry is gone with the path it pinned: there is
+ * no batch upload beside the pipeline any more (see `useVoiceInput`), and the file entry now runs
+ * through this same pipeline. `voiceTrimCapabilityWiring.test.tsx` owns the reading that a chosen
+ * file leaves as WAV segments.
  *
  * WHY THE PREFIX-OVERLAP CASES USE SPACE-SEPARATED TOKENS. The audio overlap the segmenter
  * leaves is a few words; the text dedup is word-aligned, so the constructed texts are built
@@ -25,10 +24,8 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { act, renderHook } from '@testing-library/react';
-import { beforeEach, test, vi } from 'vitest';
+import { test } from 'vitest';
 
-import { useVoiceInput } from '@/modules/chat/hooks/useVoiceInput';
 import {
   PIPELINE_DEFAULTS,
   planSegments,
@@ -39,25 +36,6 @@ import {
   type SegmentTranscribe,
 } from '@/modules/chat/utils/voiceSegments';
 import { StreamingVad, type VoiceSegment } from '@/shared/voiceEndpoint';
-
-// ── The recogniser seam, for the single-keypress regression only ────────────────────────────
-//
-// `transcribeVoice` is the one call the single-keypress capture makes, so it is the one thing
-// this file doubles to count requests. The declaration accessor answers `null` — "no readable
-// declaration" — which is the arm where the capture uploads the recording untouched, and is
-// therefore the bytes the regression compares against. Nothing else in this file touches it.
-
-const { transcribeVoice } = vi.hoisted(() => ({ transcribeVoice: vi.fn() }));
-
-vi.mock('@/shared/api', () => ({
-  transcribeVoice,
-  effectivePauseCuesDeclaration: () => null,
-}));
-
-vi.mock('@/shared/voiceDebug', () => ({
-  isVoiceDebugEnabled: () => false,
-  isVoiceTrimEnabled: () => true,
-}));
 
 // ── Shared generators ───────────────────────────────────────────────────────────────────────
 
@@ -381,44 +359,6 @@ test('a short segment with no neighbour to merge into is left alone', () => {
   assert.deepEqual(plans, [{ index: 0, startSec: 0, endSec: 0.4 }]);
 });
 
-// ── Regression: the single-keypress capture is not on the pipeline ────────────────────────────
-
-/** A recording well over the 800-byte floor, in a real container. */
-const recordingFile = (): File =>
-  new File([new Uint8Array(4000)], 'take.webm', { type: 'audio/webm' });
-
-/** The bytes behind a Blob: jsdom's Blob predates `arrayBuffer()`, so FileReader is the path. */
-async function blobBytes(blob: Blob): Promise<Uint8Array> {
-  if (typeof blob.arrayBuffer === 'function') return new Uint8Array(await blob.arrayBuffer());
-  const buffer = await new Promise<ArrayBuffer>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as ArrayBuffer);
-    reader.onerror = () => reject(reader.error ?? new Error('could not read the blob'));
-    reader.readAsArrayBuffer(blob);
-  });
-  return new Uint8Array(buffer);
-}
-
-test('single-keypress capture is still one request with the recording uploaded byte-for-byte', async () => {
-  transcribeVoice.mockClear();
-  transcribeVoice.mockResolvedValue({ ok: true, json: async () => ({ text: 'hi' }) });
-
-  const file = recordingFile();
-  const original = await blobBytes(file);
-
-  const view = renderHook(() => useVoiceInput(vi.fn(), vi.fn()));
-  await act(async () => {
-    view.result.current.transcribeFile(file);
-  });
-  // `transcribeFile` returns before the upload settles; drain that tail so the call is observable.
-  await act(async () => {});
-
-  assert.equal(transcribeVoice.mock.calls.length, 1, 'the single-keypress path made more than one request');
-  const [body, filename] = transcribeVoice.mock.calls[0] as [Blob, string];
-  assert.equal(filename, 'take.webm');
-  assert.deepEqual(await blobBytes(body), original, 'the uploaded bytes changed');
-});
-
 // ── DoD smoke: one real dashscope-omni call over the long corpus sample ───────────────────────
 //
 // OPT-IN, AND ON PURPOSE: this is the DoD's real-provider smoke, not one of the mechanical ACs.
@@ -595,7 +535,3 @@ smokeTest('smoke: real dashscope-omni over L2-mixed.wav — segments, order, tel
   );
 });
 
-// Reset the shared recogniser spy between cases; the seam is only used by the regression above.
-beforeEach(() => {
-  transcribeVoice.mockReset();
-});

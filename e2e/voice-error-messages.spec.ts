@@ -858,11 +858,17 @@ test('AC-153 four upstream conditions each show their own Chinese sentence, and 
       : undefined);
 
     mark(`${spec.name}-recorded`);
-    await expect.poll(
-      () => proxyPosts.length,
-      { timeout: 15_000, message: `${spec.name}: the recording never reached the proxy stand-in` },
-    ).toBe(index + 1);
-    const receivedStatus = receivedStatuses[receivedStatuses.length - 1];
+    // Both the request AND its response are waited for: the route handler records the post when it
+    // runs, while the page's `response` listener records the status a moment later, so waiting only
+    // for the post can read the previous leg's status. One post and one status per leg is itself part
+    // of the reading — a continuation path that made a second upload would never settle here.
+    await expect
+      .poll(
+        () => ({ posts: proxyPosts.length, statuses: receivedStatuses.length }),
+        { timeout: 15_000, message: `${spec.name}: the recording never reached the proxy stand-in` },
+      )
+      .toEqual({ posts: index + 1, statuses: index + 1 });
+    const receivedStatus = receivedStatuses[index];
     expect(receivedStatus, `${spec.name}: the page received a status the stand-in did not answer with`).toBe(spec.status);
 
     // (AC5, positive control + after) The notice really appeared, and the draft is still there afterwards.

@@ -176,10 +176,12 @@ test('the 16 kHz upload is at most 36% of the 48 kHz bytes for the long-form sam
 /*
  * The hook's half: what actually reaches the recogniser.
  *
- * `transcribeFile` is the same chain a recording travels (`submitCapture`), so the upload read here
- * is the one a dictation would make. Only the browser seams are doubled: `decodeVoiceBlob` returns
- * a fixture instead of driving an `AudioContext` jsdom does not have, and `transcribeVoice` records
- * the body. Everything between them — the real trim, the real downsample, the real encoder — runs.
+ * `transcribeFile` is the same chain a listen travels, so the upload read here is the one a
+ * dictation would make: the file is decoded, cut into segments by the shared VAD and segmenter, and
+ * each segment uploaded as 16 kHz WAV. Only the browser seams are doubled: `decodeVoiceBlob`
+ * returns a fixture instead of driving an `AudioContext` jsdom does not have, and `transcribeVoice`
+ * records the body. Everything between them — the real VAD, the real segmenter, the real
+ * downsample — runs.
  */
 
 const { transcribeVoice } = vi.hoisted(() => ({ transcribeVoice: vi.fn() }));
@@ -222,6 +224,9 @@ vi.mock('@/shared/api', async (importOriginal) => {
 vi.mock('@/shared/voiceDebug', () => ({
   isVoiceDebugEnabled: () => false,
   isVoiceTrimEnabled: () => true,
+  voiceDebugMinSegmentSec: () => undefined,
+  voiceDebugIdleSec: () => undefined,
+  voiceDebugOriginalCapSec: () => undefined,
 }));
 
 /** The recording as the chain receives it: a real container, over the 800-byte floor. */
@@ -252,26 +257,21 @@ beforeEach(() => {
   voiceProfile.declaration = { provider: 'fixture-recogniser', capability: 'destructive' };
 });
 
-test('the prepared upload is a 16 kHz WAV, not the recording', async () => {
+test('a chosen file is uploaded as a 16 kHz WAV segment, not as the file it arrived as', async () => {
   await uploadAFile();
 
   const { body, filename } = uploaded();
-  assert.equal(filename, 'take.wav', 'the upload was not the trimmed clip');
-  assert.equal(body.type, 'audio/wav', 'the upload is not the re-encoded WAV');
-  assert.notEqual(body.size, RECORDING_BYTES, 'the recording was uploaded unchanged');
+  assert.equal(filename, 'segment-1.wav', 'the upload was not a segment of the decoded file');
+  assert.equal(body.type, 'audio/wav', 'the upload is not a WAV segment');
+  assert.notEqual(body.size, RECORDING_BYTES, 'the source file was uploaded unchanged');
   assert.equal(await wavSampleRate(body), 16_000, 'the uploaded WAV does not declare 16 kHz');
 });
 
-test('a trim guard still uploads the recording untouched — the fallback is not downsampled', async () => {
-  // Digital silence makes the real trim report its `noSpeech` guard, so `prepareUpload` returns the
-  // recording as it arrived. If the downsample had been placed before that check, the upload would
-  // be a 16 kHz WAV and this would read the wrong rate.
+test('a file with no speech spends no request: there is no segment to upload', async () => {
+  // Digital silence drives the shared VAD to no speech run at all, so the segmenter emits nothing.
   decoderFixture.speech = false;
 
   await uploadAFile();
 
-  const { body, filename } = uploaded();
-  assert.equal(body.type, 'audio/webm', 'the fallback upload was re-encoded');
-  assert.equal(filename, 'take.webm');
-  assert.equal(body.size, RECORDING_BYTES, 'the fallback upload is not the recording');
+  assert.equal(transcribeVoice.mock.calls.length, 0, 'silence produced an upload');
 });
