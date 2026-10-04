@@ -4,9 +4,12 @@ title: AC-217 刻度与滚动条拆成两个部件：固定尺寸窗口化刻度
 status: ready
 labels:
   - gap
+  - priority:p1
+  - delivery-critical
 parent: null
 children: []
-extra: {}
+extra:
+  deliveryCriticalSource: adhoc
 depends_on: []
 goal_ac: AC-217
 ---

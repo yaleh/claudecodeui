@@ -818,18 +818,21 @@ test('claude declares the ten resident features, and the runtime mirror carries 
     'every one of the ten fields must be stated',
   );
 
-  // The five the phase-0 experiments measured, and the five they did not: the
-  // unmeasured ones state the conservative value, and `liveReconfigure` is an
-  // empty list because "no setting was shown to apply live" is not the same
-  // claim as "no setting applies live" — E1–E8 did not cover it.
+  // E1–E8 measured five of these; `stopTask` was measured later (2026-10-04,
+  // against a real resident `query()` backed by a real CLI: the CLI answered
+  // `task_notification{status:'stopped'}` ~1.0s after the call and the task's
+  // own process was gone), so it states `true` too. The four with no
+  // measurement keep the conservative value. `liveReconfigure` is an empty list
+  // because "no setting was shown to apply live" is not the same claim as "no
+  // setting applies live" — E1–E8 did not cover it.
   assert.equal(features.interruptKeepsProcess, true);
   assert.equal(features.unattendedTurns, true);
   assert.equal(features.addressable, true);
   assert.equal(features.inputWhileBusy, true);
+  assert.equal(features.stopTask, true);
   assert.deepEqual(features.liveReconfigure, []);
   assert.equal(features.cancelQueuedInput, false);
   assert.equal(features.authoritativeLeases, false);
-  assert.equal(features.stopTask, false);
   assert.equal(features.backgroundTasks, false);
   assert.equal(features.remoteControl, false);
 

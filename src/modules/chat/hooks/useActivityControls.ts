@@ -15,11 +15,26 @@
  * optimistic" a reading a criterion can take: this module imports no store
  * writer, so there is no local path by which a click could move a row.
  *
- * Whether the controls can be used is the *liveness* reading the caller already
- * has (`useActivityFreshness`): when the dock has gone `unreachable`, both are
- * disabled and carry a reason. The reason reuses the composer stop's own
- * `claudeStatus.unreachable.stopReason`, so the dock and the composer say the
- * same thing about the same outage rather than inventing a second sentence.
+ * Whether a control can be used has **two** readings, and both are needed:
+ *
+ *  - *liveness* (`useActivityFreshness`): when the dock has gone `unreachable`,
+ *    no request can be placed at all, and both controls are disabled with the
+ *    composer stop's own `claudeStatus.unreachable.stopReason`;
+ *  - *capability*: the provider's own statement about the verb, read from
+ *    `GET /api/providers/capabilities` for the session's provider. A resident
+ *    session whose provider declares no such verb gets a control that is
+ *    disabled **and says why**, rather than one that looks live, takes the
+ *    click, and quietly does nothing — the shape this gate exists to remove.
+ *
+ * The capability applies to a *resident* session only, and that is the matrix's
+ * own rule rather than a client-side one: `residentFeatures` describes what a
+ * held process can do. A per-run turn is placed through the runtime's own
+ * verb, which is a different route the matrix says nothing about, so a per-run
+ * session keeps its control enabled however the resident declaration reads.
+ * {@link readSessionHostState} is where the session's provider and lifecycle
+ * mode come from — the two facts the server's own gate reads — so the control
+ * that will not be clicked and the request that would be refused cannot
+ * disagree.
  *
  * The pending foreground tool is read off the loaded transcript, never derived
  * here: the server's Turn Tracker is authoritative for "which tool_use is
@@ -28,10 +43,13 @@
  * panel and any other reader agree.
  */
 
-import { useCallback, useContext } from 'react';
+import { useCallback, useContext, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { api } from '@/shared/api';
 import WebSocketContext from '@/shared/context/WebSocketContext';
+import { findSessionHostState, useSessionHosts } from '@/shared/hooks/useSessionHosts';
+import type { SessionHostsSnapshot, SessionHostStateView } from '@/shared/types';
 import type { ChatMessage } from '@/shared/types';
 import type { ActivityLiveness } from '@/modules/chat/utils/activityFreshness';
 
@@ -43,19 +61,124 @@ export type ForegroundTool = {
   toolName: string;
 };
 
-/** What the dock's controls need: the two senders plus the disabled reading. */
+/** What the dock's controls need: the two senders plus the two disabled readings. */
 export type ActivityControls = {
   /** The liveness the buttons go by; an unreachable dock disables both. */
   liveness: ActivityLiveness;
-  /** True when no request can be placed — unreachable, or no socket to send on. */
-  disabled: boolean;
-  /** Why the controls are disabled, for the `[data-control-disabled-reason]` text. */
-  disabledReason: string;
+  /** True when no stop can be placed — unreachable, or the provider declares no verb. */
+  stopDisabled: boolean;
+  /** Why the stop is disabled, for its `[data-control-disabled-reason]` text. */
+  stopDisabledReason: string;
+  /** True when no background request can be placed — same two readings. */
+  backgroundDisabled: boolean;
+  /** Why the background control is disabled, for its own reason text. */
+  backgroundDisabledReason: string;
   /** Places a stop request for one task. Changes nothing locally. */
   stopTask: (taskId: string) => void;
   /** Places a background request for one foreground tool. Changes nothing locally. */
   backgroundTool: (toolUseId: string) => void;
 };
+
+/**
+ * One provider's resident control declarations, as the matrix states them.
+ *
+ * Both fields read `false` when absent: the matrix's own "a capability nobody
+ * measured is not a capability this matrix may promise" rule, which the client
+ * must not soften into "unknown means yes".
+ */
+type ResidentControlCapability = {
+  stopTask: boolean;
+  backgroundTasks: boolean;
+};
+
+/**
+ * The capability rows one page needs, keyed by provider id.
+ *
+ * Cached at module scope for the life of the document because the matrix is a
+ * static statement about the build: two docks, or a remount, must not each
+ * re-fetch it. `null` means "not answered yet" and is deliberately distinct
+ * from an empty map — an empty map is the server saying it declares no provider
+ * at all, which is a real answer the gate may act on, while `null` is no answer
+ * yet, which it may not.
+ */
+let cachedResidentControls: Map<string, ResidentControlCapability> | null = null;
+let inFlightResidentControls: Promise<Map<string, ResidentControlCapability> | null> | null = null;
+
+/**
+ * Reads the resident control declarations off the capability matrix.
+ *
+ * A failed read answers `null` and is *not* cached: a transient failure must not
+ * disable the dock's controls for the rest of the page's life, so the next mount
+ * tries again, and until then the caller reads `null` (no answer) and applies no
+ * capability gate. The server remains the authority either way — it refuses a
+ * placed request it cannot carry — so the worst a failed read costs is a control
+ * that is offered and then refused out loud, never one that is offered and
+ * silently inert.
+ *
+ * The shared `useProviderCapabilities` hook is not reused here: it declares only
+ * the fields its own consumers read (`lifecycleModes`, `supportsSessionForking`)
+ * and this module needs `residentFeatures`, which that hook's row type does not
+ * carry. Widening it would be a change to a module this one does not own for a
+ * consumer it does not have.
+ */
+async function loadResidentControls(): Promise<Map<string, ResidentControlCapability> | null> {
+  if (cachedResidentControls) {
+    return cachedResidentControls;
+  }
+  if (inFlightResidentControls) {
+    return inFlightResidentControls;
+  }
+
+  inFlightResidentControls = (async () => {
+    try {
+      const response = await api.providers.capabilities();
+      const body = (await response.json()) as {
+        success?: boolean;
+        data?: { providers?: Array<{ provider?: string; residentFeatures?: Record<string, unknown> }> };
+      };
+      const rows = body.success && Array.isArray(body.data?.providers) ? body.data.providers : [];
+      const byProvider = new Map<string, ResidentControlCapability>();
+      for (const row of rows) {
+        if (typeof row?.provider !== 'string') {
+          continue;
+        }
+        byProvider.set(row.provider, {
+          stopTask: row.residentFeatures?.stopTask === true,
+          backgroundTasks: row.residentFeatures?.backgroundTasks === true,
+        });
+      }
+      cachedResidentControls = byProvider;
+      return byProvider;
+    } catch (error) {
+      console.error('Error loading provider capabilities:', error);
+      return null;
+    } finally {
+      inFlightResidentControls = null;
+    }
+  })();
+
+  return inFlightResidentControls;
+}
+
+/**
+ * The session's own provider and lifecycle mode, or null when the listing does
+ * not carry it (yet).
+ *
+ * Null is "no answer", not "no capability": the caller treats it as "apply no
+ * capability gate", which is the direction that cannot invent a refusal. It is
+ * also the reading a session with no row at all produces — a brand-new session
+ * before its first poll — and the one a hand-built snapshot in a unit test
+ * produces, so neither has to know this gate exists.
+ */
+function readSessionHostState(
+  snapshot: SessionHostsSnapshot | null,
+  sessionId: string | null | undefined,
+): SessionHostStateView | null {
+  if (!sessionId) {
+    return null;
+  }
+  return findSessionHostState(snapshot, sessionId);
+}
 
 /**
  * A request id for one control frame.
@@ -117,10 +240,46 @@ export function useActivityControls(
   const connection = useContext(WebSocketContext);
   const sendMessage = connection?.sendMessage;
   const isConnected = connection?.isConnected ?? false;
+  const { snapshot: hostsSnapshot } = useSessionHosts();
+  const [residentControls, setResidentControls] = useState<Map<string, ResidentControlCapability> | null>(
+    cachedResidentControls,
+  );
 
-  const disabled = liveness === 'unreachable' || !isConnected || !sendMessage;
-  const disabledReason = t('claudeStatus.unreachable.stopReason', {
+  // Read once per mount and share the module cache across mounts; the matrix
+  // does not move while the server is up, so there is nothing to poll for.
+  useEffect(() => {
+    let cancelled = false;
+    void loadResidentControls().then((controls) => {
+      if (!cancelled) {
+        setResidentControls(controls);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const hostState = readSessionHostState(hostsSnapshot, sessionId);
+  // The capability half: only a resident session's provider states these verbs,
+  // and only once the matrix has actually answered (`residentControls !== null`).
+  const residentSession = hostState?.lifecycleMode === 'resident';
+  const declared =
+    residentSession && residentControls !== null && hostState
+      ? residentControls.get(hostState.provider) ?? null
+      : null;
+  const stopUnsupported = residentSession && residentControls !== null && declared?.stopTask !== true;
+  const backgroundUnsupported =
+    residentSession && residentControls !== null && declared?.backgroundTasks !== true;
+
+  const unreachable = liveness === 'unreachable' || !isConnected || !sendMessage;
+  const unreachableReason = t('claudeStatus.unreachable.stopReason', {
     defaultValue: 'Stop is unavailable while the server is unreachable',
+  });
+  const stopUnsupportedReason = t('claudeStatus.controls.stopTaskUnsupported', {
+    defaultValue: 'This provider cannot stop a background task, so there is nothing to place',
+  });
+  const backgroundUnsupportedReason = t('claudeStatus.controls.backgroundToolUnsupported', {
+    defaultValue: 'This provider cannot move a running tool to the background',
   });
 
   const stopTask = useCallback(
@@ -143,5 +302,13 @@ export function useActivityControls(
     [sendMessage, sessionId],
   );
 
-  return { liveness, disabled, disabledReason, stopTask, backgroundTool };
+  return {
+    liveness,
+    stopDisabled: unreachable || stopUnsupported,
+    stopDisabledReason: unreachable ? unreachableReason : stopUnsupportedReason,
+    backgroundDisabled: unreachable || backgroundUnsupported,
+    backgroundDisabledReason: unreachable ? unreachableReason : backgroundUnsupportedReason,
+    stopTask,
+    backgroundTool,
+  };
 }
