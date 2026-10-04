@@ -41,13 +41,13 @@ goal_ac: AC-184
 
 ## AC
 
-- [ ] AC1 判据确定性绿：`npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-184"` **连跑 ≥5 次全部退出 0**。红态基线：本轮 4 次 3 红，逐字失败行 `e2e/activity-dock-truthful.spec.ts:734`，读数 `dock.recovered.elapsed=NaNms`。打印 5 次的 `dock.recovered.elapsed` 与 `dock.wall`。
-- [ ] AC2 读数 (v) 有服务端推算的计时：恢复后 `dock.recovered.elapsed` 为有限值且 ≥ `dock.recovered.gap`（是续、不是重启），打印这两个读数。
-- [ ] AC3 根因消除（机械）：心跳帧携带 run 在位权威位，且 `isProcessing=true` 的 run 上一条 `phase=idle` 的心跳不再清锚点。机械读数：`grep -n "isProcessing" server/modules/websocket/services/activity-heartbeat.service.ts`（或等价权威位字段）命中；第 4 步单元判据中 hello(`isProcessing:true`)+idle 心跳后 `elapsedMs` 有限。
-- [ ] AC4 `873f91d2` 的保证不回归：回合真的结束（权威位假 / `turn-end`）⇒ 锚点清、坞收起；第 4 步正控制单元用例通过。
-- [ ] AC5 兄弟判据不回归：`npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-187"` 退出 0；`npx vitest run src/modules/chat/tests/activityDockUnreachable.test.tsx` 退出 0。
-- [ ] AC6 假形态必须红（承重）：(a) 客户端改回 `phase==='idle'` 无条件清锚点 ⇒ AC-184 e2e 红在 734；(b) 权威位恒真 ⇒ AC4 的正控制用例红。逐条记录变异 diff、逐字失败行与恢复命令。
-- [ ] AC7 静态门与墙钟：`npm run typecheck`、`npm run lint` 退出 0；`dock.wall` ≤20000ms 且整次调用在 55s/60s 闸内。
+- [x] AC1 判据确定性绿：`npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-184"` **连跑 ≥5 次全部退出 0**。红态基线：本轮 4 次 3 红，逐字失败行 `e2e/activity-dock-truthful.spec.ts:734`，读数 `dock.recovered.elapsed=NaNms`。打印 5 次的 `dock.recovered.elapsed` 与 `dock.wall`。
+- [x] AC2 读数 (v) 有服务端推算的计时：恢复后 `dock.recovered.elapsed` 为有限值且 ≥ `dock.recovered.gap`（是续、不是重启），打印这两个读数。
+- [x] AC3 根因消除（机械）：心跳帧携带 run 在位权威位，且 `isProcessing=true` 的 run 上一条 `phase=idle` 的心跳不再清锚点。机械读数：`grep -n "isProcessing" server/modules/websocket/services/activity-heartbeat.service.ts`（或等价权威位字段）命中；第 4 步单元判据中 hello(`isProcessing:true`)+idle 心跳后 `elapsedMs` 有限。
+- [x] AC4 `873f91d2` 的保证不回归：回合真的结束（权威位假 / `turn-end`）⇒ 锚点清、坞收起；第 4 步正控制单元用例通过。
+- [x] AC5 兄弟判据不回归：`npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-187"` 退出 0；`npx vitest run src/modules/chat/tests/activityDockUnreachable.test.tsx` 退出 0。
+- [x] AC6 假形态必须红（承重）：(a) 客户端改回 `phase==='idle'` 无条件清锚点 ⇒ AC-184 e2e 红在 734；(b) 权威位恒真 ⇒ AC4 的正控制用例红。逐条记录变异 diff、逐字失败行与恢复命令。
+- [x] AC7 静态门与墙钟：`npm run typecheck`、`npm run lint` 退出 0；`dock.wall` ≤20000ms 且整次调用在 55s/60s 闸内。
 
 ## DoD
 
@@ -67,3 +67,37 @@ goal_ac: AC-184
 - `src/modules/chat/tests/activityFreshness.test.ts`
 - `server/modules/websocket/tests/activity-heartbeat.process.test.ts`
 - `tasks/gap-activity-idle-beat-clears-open-turn-anchor.md`（自触）
+
+## 完成记录
+
+<!-- AC-184 gap-activity-idle-beat-clears-open-turn-anchor：idle 心跳不再清掉在飞回合的锚点 -->
+
+### 根因与修复（承重）
+
+服务端 `activity.heartbeat` 的 `phase` 来自 `readSessionTurn()`（forwarder 未喂过该会话即读 `idle`），而 run registry 一直 `isProcessing=true`。commit `873f91d2` 把心跳 `phase==='idle'` 映射成结束回合，于是「run 在飞但 tracker 无 phase」也被判成回合结束，清掉 hello 锚定的 `startedAt` → 恢复后 `elapsed` 变 NaN（AC-184 的 ≈50% 抖动）。
+
+修复：心跳携带 run registry 的权威在位位 `isProcessing`（每拍读一次），客户端以该位定回合有无——
+- `isProcessing === false` ⇒ 清锚点（保住 `873f91d2`：回合真结束不得无限计时）；
+- `isProcessing === true` ⇒ 保留/锚定（保住 AC-184：run 在飞即使 `phase=idle` 也保留锚点，elapsed 由服务端快照续算）；
+- 字段缺失（旧服务器）⇒ 回退到原 `phase` 映射。
+
+改动文件：`server/modules/websocket/services/activity-heartbeat.service.ts`（`buildActivityHeartbeat(sessionId, isProcessing)`、`attachActivityHeartbeat(ws, sessionId, readTurnInFlight)`）、`server/modules/websocket/services/chat-websocket.service.ts`（注入 `() => chatRunRegistry.isProcessing(sessionId)`）、`src/modules/chat/hooks/useActivityFreshness.ts`（心跳分支按权威位）。
+
+### AC 验证读数
+
+- AC1 判据确定性绿：`npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-184"` 连跑 5 次全部 exit 0。
+  - run1: exit=0 dock.recovered.elapsed=6573ms dock.recovered.gap=3108ms dock.wall=14511ms
+  - run2: exit=0 dock.recovered.elapsed=6530ms dock.recovered.gap=3095ms dock.wall=14512ms
+  - run3: exit=0 dock.recovered.elapsed=6280ms dock.recovered.gap=3118ms dock.wall=14512ms
+  - run4: exit=0 dock.recovered.elapsed=6548ms dock.recovered.gap=3111ms dock.wall=14512ms
+  - run5: exit=0 dock.recovered.elapsed=6571ms dock.recovered.gap=3108ms dock.wall=14512ms
+  - 红态基线（本轮立案）：4 次 3 红，红在 `e2e/activity-dock-truthful.spec.ts:734`，`dock.recovered.elapsed=NaNms`。
+- AC2 读数 (v) 有服务端推算的计时：5 次 `elapsed` 均有限且 ≥ `gap`（6573≥3108 / 6530≥3095 / 6280≥3118 / 6548≥3111 / 6571≥3108）——是续、不是重启。
+- AC3 根因消除（机械）：`grep -n "isProcessing" server/modules/websocket/services/activity-heartbeat.service.ts` 命中 133/141/148/161/181 行；单元判据 `activityDockUnreachable.test.tsx > "AC3 an idle phase on a run still in flight keeps the anchor"` 通过（hello(isProcessing:true) + heartbeat(phase=idle, isProcessing:true) ⇒ state=in-turn, data-activity-elapsed-ms=5000）。
+- AC4 `873f91d2` 保证不回归：单元判据 `"AC4 the registry ending the run clears the anchor, whatever the phase still says"` 通过（heartbeat(phase=thinking, isProcessing:false) ⇒ dock absent, elapsed null）。
+- AC5 兄弟判据不回归：`npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-187"` exit 0（dock.afterTurn=absent, dock.wall=15641ms）；`npx vitest run src/modules/chat/tests/activityDockUnreachable.test.tsx` exit 0（8/8）。
+- AC6 假形态必须红（承重）：
+  - (a) 客户端改回「`phase==='idle'` 无条件清锚点」（变异 diff：`useActivityFreshness.ts` 权威为真分支改为 `reportedPhase === 'idle' ? { startedAt: null } : {...}`）⇒ AC-184 e2e **红在 734**，逐字 `dock.recovered.elapsed=NaNms` / `Error: the recovered dock reports a server-derived elapsed` / `Expected: true` `Received: false`；单元判据亦红（`state=absent elapsed=null`）。恢复命令：`git -C <worktree> checkout -- src/modules/chat/hooks/useActivityFreshness.ts`。
+  - (b) 权威位恒真（变异 diff：`const reportedInFlight = true;`）⇒ AC4 正控制单元判据红（`an ended run must clear the anchor even while the phase still says thinking; readings: after ended run: state=in-turn elapsed=5000`）。恢复命令同上。
+- AC7 静态门与墙钟：`npm run typecheck` exit 0；`npm run lint` exit 0；5 次 e2e `dock.wall`=14511/14512ms ≤20000ms；单次调用 ~23.7s，在 55s/60s 闸内。
+- 兄弟 AC-182 服务端判据：`server/modules/websocket/tests/activity-heartbeat.process.test.ts` 通过（新增断言：每拍 `isProcessing` 为 boolean 且与同会话 hello 一致），scoped 门 3/3 绿。
