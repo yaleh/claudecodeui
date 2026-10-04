@@ -2,7 +2,7 @@
 id: gap-ac228-access-tokens-settings-e2e
 title: AC-228 真实浏览器设置页个人访问令牌：一次性明文、刷新只剩前缀、有效期恰 7/30/90、吊销即失效、旧 API Key 入口消失，判据
   e2e/access-tokens-settings.spec.ts
-status: todo
+status: ready
 labels:
   - gap
 parent: null
