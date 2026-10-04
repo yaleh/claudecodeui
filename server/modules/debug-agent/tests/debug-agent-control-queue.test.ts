@@ -542,8 +542,8 @@ function registerCriteria(): void {
       'withdrawn',
       'a queued message must be withdrawable by the returned uuid (the union member AC-238 calls "cancelled")',
     );
-    assert.equal(reading.queueHeld, false, 'the withdrawn message must really leave the driver queue');
     assert.equal(reading.openedRounds, 0, 'a withdrawn message must never become a round');
+    assert.equal(reading.queueHeld, false, 'the withdrawn message must really leave the driver queue');
     assert.equal(reading.round1Complete, true, 'the first round still completes normally');
     assert.equal(reading.pidAfter, reading.pidBefore, 'the withdrawal must not replace the held process');
   });
