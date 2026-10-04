@@ -73,6 +73,9 @@ goal_ac: AC-218
 - src/modules/chat/hooks/useChatSessionState.ts
 - src/modules/chat/hooks/useSessionStore.ts
 - src/modules/chat/utils/scrollOrdinalMap.ts (new)
+- src/modules/chat/utils/scrubWindowLoader.ts (new)
+- src/modules/chat/context/TranscriptScrubContext.ts (new)
+- src/modules/chat/ChatInterface.tsx
 - src/modules/chat/tests/scrollOrdinalMap.test.ts (new)
 - src/modules/chat/tests/scrubWindowLoader.test.ts (new)
 - e2e/transcript-scrub-smooth.spec.ts (new)
