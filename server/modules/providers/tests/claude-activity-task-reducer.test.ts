@@ -42,6 +42,13 @@ import type {
 /** One raw frame, as the run loop hands it to the normalizer. */
 type Frame = Record<string, unknown>;
 
+/**
+ * The terminal-transition shape the reducer reports, read off the facade's own
+ * return type so the criterion types its collector without a second export merely
+ * to name it. A transition the facade can never produce cannot be asserted here.
+ */
+type Transition = ReturnType<ClaudeTaskReducer['observe']>[number];
+
 const SESSION = 'claude-activity-task-reducer-1';
 
 const SUBAGENT_ID = 'a69e-subagent';
@@ -264,6 +271,46 @@ function frontBashBackgrounded(): Frame {
     task_id: FRONT_BASH_ID,
     patch: { is_backgrounded: true },
     uuid: 'u-updated-front-bash',
+    session_id: SESSION,
+  };
+}
+
+// ------------------------------------------- terminal-transition frame builders --
+
+/** A generic `task_started` for the AC1/AC2/AC6 arms, keyed by an explicit task id. */
+function startedTask(taskId: string, taskType = 'local_bash', description = taskId): Frame {
+  return {
+    type: 'system',
+    subtype: 'task_started',
+    task_id: taskId,
+    task_type: taskType,
+    description,
+    uuid: `u-start-${taskId}`,
+    session_id: SESSION,
+  };
+}
+
+/** A generic `task_updated` status patch. */
+function updatedTask(taskId: string, status: string): Frame {
+  return {
+    type: 'system',
+    subtype: 'task_updated',
+    task_id: taskId,
+    patch: { status },
+    uuid: `u-updated-${taskId}`,
+    session_id: SESSION,
+  };
+}
+
+/** A generic terminal `task_notification`. */
+function notifiedTask(taskId: string, status: string, summary: string): Frame {
+  return {
+    type: 'system',
+    subtype: 'task_notification',
+    task_id: taskId,
+    status,
+    summary,
+    uuid: `u-notification-${taskId}`,
     session_id: SESSION,
   };
 }
@@ -579,4 +626,148 @@ test('the captured sequence reduces to one table with the expected terminal stat
   assert.equal(byId.get(WORKFLOW_ID)?.stepLabel, 'Say OK: done');
   assert.equal(byId.get(FRONT_BASH_ID)?.state, 'running');
   assert.equal(byId.get(FRONT_BASH_ID)?.isBackgrounded, true);
+});
+
+// --------------------------------- terminal transitions (gap-task-terminal-…) --
+//
+// The user-facing requirement this pins: when a background task crosses into a
+// terminal state, the reduction reports the crossing exactly once, from any of the
+// four sources the SDK and the Stop hook can end a task through — so the
+// `forwardNormalizedFrames` seam can turn it into one durable transcript line
+// without a de-duplication clock of its own.
+
+test('AC1 a terminal transition is reported exactly once across a replayed sequence', () => {
+  const reported: Transition[] = [];
+  const reducer = createClaudeTaskReducer({ onTaskTerminal: (transition) => reported.push(transition) });
+
+  // A start, then the two terminal frames a task can carry (the `task_updated`
+  // patch and the `task_notification` that sometimes accompanies it) — then the
+  // whole sequence again, which is what a snapshot/reconnect replay does.
+  const sequence = [
+    backgroundBashStarted(),
+    backgroundBashCompleted(),
+    notifiedTask(BG_BASH_ID, 'completed', 'background bash done'),
+  ];
+  for (const frame of sequence) {
+    reducer.observe(SESSION, frame);
+  }
+  for (const frame of sequence) {
+    reducer.observe(SESSION, frame);
+  }
+
+  say(`AC1 onTaskTerminal fired ${reported.length} time(s) across a replayed sequence (expect 1)`);
+  assert.equal(reported.length, 1, 'the crossing is reported once, not once per terminal frame or replay');
+  assert.equal(reported[0].taskId, BG_BASH_ID);
+  assert.equal(reported[0].from, 'running', 'the transition names the non-terminal state it left');
+  assert.equal(reported[0].to, 'completed');
+  assert.equal(reported[0].kind, 'shell');
+});
+
+test('AC2 every terminal source yields exactly one transition with its own terminal state', () => {
+  // Each source drives a task of its own, so "exactly one transition" is a
+  // statement about that source and not about a task another source also ended.
+  const cases: Array<{ label: string; taskId: string; to: TaskState; started: Frame; terminal: Frame }> = [
+    {
+      label: 'task_notification(completed)',
+      taskId: 'ac2-note-completed',
+      to: 'completed',
+      started: startedTask('ac2-note-completed'),
+      terminal: notifiedTask('ac2-note-completed', 'completed', 'done'),
+    },
+    {
+      label: 'task_notification(failed)',
+      taskId: 'ac2-note-failed',
+      to: 'failed',
+      started: startedTask('ac2-note-failed'),
+      terminal: notifiedTask('ac2-note-failed', 'failed', 'boom'),
+    },
+    {
+      label: 'task_notification(stopped)',
+      taskId: 'ac2-note-stopped',
+      to: 'stopped',
+      started: startedTask('ac2-note-stopped'),
+      terminal: notifiedTask('ac2-note-stopped', 'stopped', 'stopped'),
+    },
+    {
+      label: 'task_updated{completed} (no notification)',
+      taskId: 'ac2-upd-completed',
+      to: 'completed',
+      started: startedTask('ac2-upd-completed'),
+      terminal: updatedTask('ac2-upd-completed', 'completed'),
+    },
+    {
+      label: 'task_updated{killed}',
+      taskId: 'ac2-upd-killed',
+      to: 'stopped',
+      started: startedTask('ac2-upd-killed'),
+      terminal: updatedTask('ac2-upd-killed', 'killed'),
+    },
+  ];
+
+  for (const arm of cases) {
+    const reducer = createClaudeTaskReducer();
+    reducer.observe(SESSION, arm.started);
+    const transitions = reducer.observe(SESSION, arm.terminal);
+    say(`AC2 ${arm.label}: ${transitions.length} transition(s) -> ${String(transitions[0]?.to)}`);
+    assert.equal(transitions.length, 1, `${arm.label} must report exactly one transition`);
+    assert.equal(transitions[0].taskId, arm.taskId);
+    assert.equal(transitions[0].from, 'running');
+    assert.equal(transitions[0].to, arm.to);
+  }
+
+  // The fourth source is the Stop hook: a still-running task the snapshot no
+  // longer names is over for a cause the stream never stated.
+  const reducer = createClaudeTaskReducer();
+  reducer.observe(SESSION, startedTask('ac2-stop-ended'));
+  const transitions = reducer.reconcileStopHook(SESSION, []);
+  say(`AC2 Stop hook snapshot: ${transitions.length} transition(s) -> ${String(transitions[0]?.to)}`);
+  assert.equal(transitions.length, 1, 'the Stop hook snapshot reports exactly one transition');
+  assert.equal(transitions[0].taskId, 'ac2-stop-ended');
+  assert.equal(transitions[0].from, 'running');
+  assert.equal(transitions[0].to, 'ended');
+
+  // A task the snapshot backfills straight into a terminal state never crossed
+  // anything, so it is not a transition — the snapshot is not the task ending.
+  const backfill = createClaudeTaskReducer();
+  const backfilled = backfill.reconcileStopHook(SESSION, [
+    { id: 'ac2-backfilled', type: 'shell', status: 'completed', description: 'already over' },
+  ]);
+  say(`AC2 backfilled-terminal: ${backfilled.length} transition(s) (expect 0)`);
+  assert.equal(backfilled.length, 0, 'a task born terminal has no crossing to report');
+});
+
+test('AC6 false form (g): reporting on every terminal frame reds the exactly-once reading', () => {
+  const countFor = (mutations: Parameters<typeof createClaudeTaskReducer>[0] = {}): number => {
+    const reported: Transition[] = [];
+    const reducer = createClaudeTaskReducer({
+      ...mutations,
+      onTaskTerminal: (transition) => reported.push(transition),
+    });
+    const sequence = [
+      backgroundBashStarted(),
+      backgroundBashCompleted(),
+      notifiedTask(BG_BASH_ID, 'completed', 'background bash done'),
+    ];
+    for (const frame of sequence) {
+      reducer.observe(SESSION, frame);
+    }
+    for (const frame of sequence) {
+      reducer.observe(SESSION, frame);
+    }
+    return reported.length;
+  };
+
+  const green = countFor();
+  say(`AC6 main reading: onTaskTerminal fired ${green} time(s) (expect 1)`);
+  assert.equal(green, 1);
+
+  const mutated = countFor({ terminalOnEveryFrame: true });
+  say(`AC6 false form reading: onTaskTerminal fired ${mutated} time(s) (expect > 1)`);
+  assert.throws(
+    () => {
+      assert.equal(mutated, 1);
+    },
+    'reporting on every terminal frame must red the exactly-once reading',
+  );
+  assert.ok(mutated > 1, 'the mutation really re-reports, it does not merely stay the same');
 });

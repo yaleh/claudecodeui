@@ -32,6 +32,14 @@
  *    sequence — on one instance or on two fresh ones — reduces to the same table
  *    field-for-field, because every task is keyed by its SDK `task_id` and each
  *    frame overwrites that key rather than appending.
+ *  - **A terminal transition is reported exactly once.** When a task crosses from
+ *    `running`/`blocked` into a terminal state, `observe` / `reconcileStopHook`
+ *    return a {@link ClaudeTaskTransition} describing it (and, when constructed
+ *    with `onTaskTerminal`, hand it to that sink). The crossing is what is
+ *    reported, not the terminal state: a replayed sequence, a repeated Stop-hook
+ *    snapshot, or a second terminal frame for a task already settled reports
+ *    nothing. That exactly-once rule is what lets a consumer turn the transition
+ *    into one durable transcript line without a de-duplication clock of its own.
  *
  * State is per reducer instance and keyed by session id, so two sessions fed
  * interleaved frames cannot read each other's tasks. A module-level singleton
@@ -132,13 +140,55 @@ export type BackgroundTaskSummary = {
 };
 
 /**
+ * One **terminal transition** of a task — the moment a task leaves a non-terminal
+ * state (`running`/`blocked`) and settles into a terminal one (`completed`,
+ * `failed`, `stopped`, `ended`).
+ *
+ * This is the reduction's *event*, as opposed to `getTasks`'s *state*. It exists
+ * because the user-facing requirement is "when a background task stops, leave one
+ * line in the transcript" and that line has to be produced by the same
+ * signal-driven reduction the task table is: the seam that owns the transition
+ * owns the emission. All four terminal sources funnel through it — the SDK's
+ * `task_updated` / `task_notification` frames and the Stop hook's snapshot — so a
+ * consumer never has to re-derive "did this really just end, and if so why".
+ *
+ * Reported exactly once per task: the crossing is observed on the first terminal
+ * frame, and replaying the same sequence (or a Stop hook reconciliation running
+ * twice) never reports it again.
+ */
+export type ClaudeTaskTransition = {
+  /** The session whose table the transition happened in. */
+  sessionId: string;
+  taskId: string;
+  kind: TaskKind;
+  /** The non-terminal state the task left (`running` or `blocked`). */
+  from: TaskState;
+  /** The terminal state it settled into. */
+  to: TaskState;
+  /** The `tool_use` block that launched the task, when a frame named one. */
+  toolUseId?: string;
+  description: string;
+  /** `task_notification.summary`, when the terminal frame carried one. */
+  summary?: string;
+  /** Frame-supplied end time, absent unless the terminal frame carried one. */
+  endedAt?: number;
+};
+
+/**
  * The reducer instance: one per consumer, holding its own per-session tables.
  * `getTasks` hands back fresh objects, so a caller cannot corrupt the reduction
  * by mutating what it read.
+ *
+ * `observe` and `reconcileStopHook` **return the terminal transitions that call
+ * produced** (usually an empty array) — the emission face of the same reduction.
+ * They return rather than push because the module-level instance is shared by
+ * every run, while the writer a frame must be sent through belongs to one run and
+ * one frame; the forwarder that owns the writer reads the return value. A caller
+ * that wants push semantics instead can pass `onTaskTerminal` when constructing.
  */
 export type ClaudeTaskReducer = {
-  observe(sessionId: string, frame: unknown): void;
-  reconcileStopHook(sessionId: string, backgroundTasks: BackgroundTaskSummary[]): void;
+  observe(sessionId: string, frame: unknown): ClaudeTaskTransition[];
+  reconcileStopHook(sessionId: string, backgroundTasks: BackgroundTaskSummary[]): ClaudeTaskTransition[];
   getTasks(sessionId: string): ActivityTask[];
 };
 
@@ -158,6 +208,20 @@ export type ClaudeTaskReducerMutations = {
   mapUpdatedStatus?: (status: string) => TaskState | null;
   /** Build a task on every `assistant` `tool_use` (the (d) rule, inverted). */
   taskOnToolUse?: boolean;
+  /**
+   * Push sink for terminal transitions, for a consumer that wants them as they
+   * happen rather than as the return value of `observe` / `reconcileStopHook`.
+   * Production leaves it unset (the forwarder reads the return value); the
+   * criterion uses it so "the callback fired exactly once" is the assertion.
+   */
+  onTaskTerminal?: (transition: ClaudeTaskTransition) => void;
+  /**
+   * Report a transition on **every** terminal frame instead of only on the
+   * crossing into a terminal state (the (g) rule, inverted). This is the false
+   * form the exactly-once criterion reds: with it on, replaying a sequence whose
+   * task is already terminal emits the transition again.
+   */
+  terminalOnEveryFrame?: boolean;
 };
 
 // ------------------------------------------------------------ frame reading --
@@ -223,6 +287,76 @@ const TERMINAL_STATES: ReadonlySet<TaskState> = new Set<TaskState>([
 
 function isTerminal(state: TaskState): boolean {
   return TERMINAL_STATES.has(state);
+}
+
+/**
+ * Moves a task's state, remembering the non-terminal state it came from the one
+ * time it crosses into a terminal state.
+ *
+ * Every place a frame assigns `task.state` goes through here, so "the task just
+ * ended" is decided in one spot rather than re-derived by each apply function.
+ * A later terminal frame for a task already terminal changes nothing, which is
+ * what makes `terminalFrom` a record of the *first* crossing and nothing else.
+ */
+function setTaskState(task: SessionTask, next: TaskState): void {
+  if (!isTerminal(task.state) && isTerminal(next)) {
+    task.terminalFrom = task.state;
+  }
+  task.state = next;
+}
+
+/**
+ * Reports every terminal transition this call to the reduction produced.
+ *
+ * Called once at the end of `observe` / `reconcileStopHook`, after the whole
+ * frame has been applied, so the transition carries the fields the same frame
+ * wrote (`summary`, `endedAt`) rather than a half-applied row. Returns the
+ * transitions and, when `emit` is given, hands each to it too — the two faces of
+ * one emission. A task is reported at most once: `terminalReported` latches on
+ * the first terminal frame, so a replayed sequence (or a Stop hook reconciling
+ * twice) cannot produce a second line. `everyFrame` is the criterion's false
+ * form: with it on, the latch is ignored and every terminal frame re-reports.
+ */
+function settleTerminalTransitions(
+  state: SessionTasks,
+  sessionId: string,
+  emit: ((transition: ClaudeTaskTransition) => void) | undefined,
+  everyFrame: boolean,
+): ClaudeTaskTransition[] {
+  const transitions: ClaudeTaskTransition[] = [];
+  for (const task of state.tasks.values()) {
+    // Only a crossing counts: a task still running, or one the Stop hook
+    // backfilled directly into a terminal state, never had a transition.
+    if (task.terminalFrom === undefined || !isTerminal(task.state)) {
+      continue;
+    }
+    if (task.terminalReported && !everyFrame) {
+      continue;
+    }
+    task.terminalReported = true;
+
+    const transition: ClaudeTaskTransition = {
+      sessionId,
+      taskId: task.taskId,
+      kind: task.kind,
+      from: task.terminalFrom,
+      to: task.state,
+      description: task.description,
+    };
+    if (task.toolUseId !== undefined) {
+      transition.toolUseId = task.toolUseId;
+    }
+    if (task.summary !== undefined) {
+      transition.summary = task.summary;
+    }
+    if (task.endedAt !== undefined) {
+      transition.endedAt = task.endedAt;
+    }
+
+    transitions.push(transition);
+    emit?.(transition);
+  }
+  return transitions;
 }
 
 /**
@@ -338,6 +472,19 @@ type SessionTask = {
   origin: TaskOrigin;
   startedAt?: number;
   endedAt?: number;
+  /**
+   * The non-terminal state this task left the one time it crossed into a terminal
+   * state. Absent for a task that was born terminal (a Stop-hook backfill whose
+   * snapshot status was already terminal), which is exactly the case that must
+   * NOT be reported as a transition.
+   */
+  terminalFrom?: TaskState;
+  /**
+   * True once this task's terminal transition has been reported. Internal state
+   * only — never materialized — so a replay of the same sequence reports nothing
+   * a second time while `getTasks` stays field-for-field identical.
+   */
+  terminalReported?: boolean;
 };
 
 /** Creates the row for `taskId` if it does not exist; an existing row is returned as-is. */
@@ -461,7 +608,7 @@ function applyTaskUpdated(
   if (status !== null) {
     const next = mapStatus(status);
     if (next !== null) {
-      task.state = next;
+      setTaskState(task, next);
     }
   }
   if (patch.is_backgrounded === true || frame.is_backgrounded === true) {
@@ -523,7 +670,7 @@ function applyTaskNotification(
   if (status !== null) {
     const next = mapStatus(status);
     if (next !== null) {
-      task.state = next;
+      setTaskState(task, next);
     }
   }
   const summary = stringField(frame, 'summary');
@@ -558,10 +705,10 @@ export function createClaudeTaskReducer(mutations: ClaudeTaskReducerMutations = 
     return state;
   };
 
-  const observe = (sessionId: string, frame: unknown): void => {
+  const observe = (sessionId: string, frame: unknown): ClaudeTaskTransition[] => {
     const record = readRecord(frame);
     if (!record) {
-      return;
+      return [];
     }
 
     // (d): the table is built only where the SDK says a task started. An
@@ -578,29 +725,39 @@ export function createClaudeTaskReducer(mutations: ClaudeTaskReducerMutations = 
           task.toolUseId = toolUseId;
         }
       }
-      return;
+      return [];
     }
 
     if (record.type !== 'system') {
-      return;
+      return [];
     }
 
     switch (record.subtype) {
       case 'task_started':
         applyTaskStarted(stateFor(sessionId), record);
-        return;
+        break;
       case 'task_updated':
         applyTaskUpdated(stateFor(sessionId), record, mapStatus);
-        return;
+        break;
       case 'task_progress':
         applyTaskProgress(stateFor(sessionId), record);
-        return;
+        break;
       case 'task_notification':
         applyTaskNotification(stateFor(sessionId), record, mapStatus);
-        return;
+        break;
       default:
-        return;
+        return [];
     }
+
+    // Settle after the whole frame is applied, so a transition this frame caused
+    // carries the fields the same frame wrote (`summary`, `endedAt`) and not a
+    // half-applied row.
+    return settleTerminalTransitions(
+      stateFor(sessionId),
+      sessionId,
+      mutations.onTaskTerminal,
+      mutations.terminalOnEveryFrame === true,
+    );
   };
 
   /**
@@ -610,7 +767,7 @@ export function createClaudeTaskReducer(mutations: ClaudeTaskReducerMutations = 
    * backfilled as `stop-hook-snapshot`. Running it twice on the same snapshot is
    * a no-op the second time — the reduction overwrites keys, it never appends.
    */
-  const reconcileStopHook = (sessionId: string, backgroundTasks: BackgroundTaskSummary[]): void => {
+  const reconcileStopHook = (sessionId: string, backgroundTasks: BackgroundTaskSummary[]): ClaudeTaskTransition[] => {
     const state = stateFor(sessionId);
     const snapshotIds = new Set<string>();
     for (const entry of backgroundTasks) {
@@ -621,7 +778,7 @@ export function createClaudeTaskReducer(mutations: ClaudeTaskReducerMutations = 
 
     for (const task of state.tasks.values()) {
       if (!isTerminal(task.state) && !snapshotIds.has(task.taskId)) {
-        task.state = 'ended';
+        setTaskState(task, 'ended');
         task.endReason = 'unknown';
       }
     }
@@ -646,6 +803,15 @@ export function createClaudeTaskReducer(mutations: ClaudeTaskReducerMutations = 
       }
       state.tasks.set(entry.id, task);
     }
+
+    // Only the `ended` crossings above are transitions; a task backfilled straight
+    // into a terminal status never crossed anything and is not reported.
+    return settleTerminalTransitions(
+      state,
+      sessionId,
+      mutations.onTaskTerminal,
+      mutations.terminalOnEveryFrame === true,
+    );
   };
 
   const getTasks = (sessionId: string): ActivityTask[] => {
