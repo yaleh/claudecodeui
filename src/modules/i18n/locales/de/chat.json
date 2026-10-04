@@ -361,6 +361,7 @@
   },
   "turnRail": {
     "label": "Gesprächsrunden",
+    "scrollbar": "Gesprächs-Bildlaufleiste",
     "jumpToTurn": "Zu Runde {{n}} springen",
     "turn": "Runde {{n}}"
   }

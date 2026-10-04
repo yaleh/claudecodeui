@@ -156,6 +156,51 @@ test('QuayPanel renders an empty state for each detail list when the recents are
   assert.equal(container.querySelector('[data-testid="quay-panel-recent-adrs-row"]'), null);
 });
 
+/**
+ * The reading that produced this test (2026-10-04, project `quay`): `quay task list
+ * --json` printed ~26 MB — every task's whole body — which overflowed the backend's
+ * 8 MiB output cap. `execFile` killed the CLI mid-string, `JSON.parse` failed on the
+ * torn tail, the service degraded the section to `null`, and the panel rendered the
+ * failure as "0 tasks · 0 ready · 0 needs human · 0 done" plus "No tasks reported."
+ * — a reading indistinguishable from a genuinely empty board.
+ */
+test('QuayPanel renders a section whose command did not answer as unavailable, never as zero', () => {
+  const degradedSnapshot: QuaySnapshot = {
+    ...SNAPSHOT,
+    driver: null,
+    tasks: null,
+    goals: null,
+    adrs: null,
+    configIssues: null,
+    warnings: ['task list --json: stdout maxBuffer length exceeded'],
+  };
+  const { getByTestId, container } = renderView({ status: 'loaded', snapshot: degradedSnapshot }, null);
+  const text = container.textContent ?? '';
+
+  // The Task ledger says it does not know, instead of claiming an empty board.
+  assert.match(getByTestId('quay-panel-task-ledger-unavailable').textContent ?? '', /unavailable/i);
+  assert.equal(container.querySelector('[data-testid="quay-panel-task-ledger-counts"]'), null);
+  assert.equal(text.includes('0 tasks'), false);
+  assert.equal(text.includes('0 ready'), false);
+  assert.equal(container.querySelector('[data-testid="quay-panel-recent-tasks-empty"]'), null);
+
+  assert.match(getByTestId('quay-panel-stage-goals-unavailable').textContent ?? '', /unavailable/i);
+  assert.equal(container.querySelector('[data-testid="quay-panel-stage-goals-empty"]'), null);
+  assert.match(getByTestId('quay-panel-recent-adrs-unavailable').textContent ?? '', /unavailable/i);
+  assert.equal(container.querySelector('[data-testid="quay-panel-recent-adrs-empty"]'), null);
+  assert.equal(getByTestId('quay-panel-config-issues').textContent, 'unavailable');
+
+  // The driver reading: the panel only exists for a project that HAS a
+  // `.quay/config.yml`, so a failed `driver status` read must not be reported as
+  // that project being unconfigured.
+  assert.match(getByTestId('quay-panel-loaded').textContent ?? '', /Driver status unavailable/i);
+  assert.equal(text.includes('Not configured'), false);
+  assert.equal(getByTestId('quay-panel-driver-last-record').textContent, 'unavailable');
+
+  // The warning banner still names the command that failed.
+  assert.match(getByTestId('quay-panel-warnings').textContent ?? '', /maxBuffer/);
+});
+
 test('QuayPanel renders the Stage goals, Tests and Fan-in cards with the snapshot data', () => {
   const { getByTestId, container } = renderView({ status: 'loaded', snapshot: SNAPSHOT }, null);
 

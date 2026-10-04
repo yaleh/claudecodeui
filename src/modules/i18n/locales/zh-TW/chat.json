@@ -397,6 +397,7 @@
   },
   "turnRail": {
     "label": "對話輪次",
+    "scrollbar": "對話滾動條",
     "jumpToTurn": "跳轉到第 {{n}} 輪",
     "turn": "第 {{n}} 輪"
   }

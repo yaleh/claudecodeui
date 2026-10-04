@@ -465,6 +465,7 @@
   },
   "turnRail": {
     "label": "Conversation turns",
+    "scrollbar": "Conversation scrollbar",
     "jumpToTurn": "Jump to turn {{n}}",
     "turn": "Turn {{n}}"
   }

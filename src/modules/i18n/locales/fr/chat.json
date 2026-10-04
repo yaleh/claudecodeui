@@ -363,6 +363,7 @@
   },
   "turnRail": {
     "label": "Tours de conversation",
+    "scrollbar": "Barre de défilement de la conversation",
     "jumpToTurn": "Aller au tour {{n}}",
     "turn": "Tour {{n}}"
   }

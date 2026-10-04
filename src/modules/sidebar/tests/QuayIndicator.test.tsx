@@ -23,7 +23,7 @@ test('QuayIndicator renders nothing when the project has no quay config', () => 
 });
 
 test('QuayIndicator renders a distinct variant for each driver state', () => {
-  const states = ['running', 'idle', 'stale'] as const;
+  const states = ['running', 'idle', 'stale', 'unavailable'] as const;
   const rendered = states.map((status) => {
     const { container } = render(<QuayIndicator hasQuayConfig status={status} />);
     const marker = container.querySelector('[data-quay-indicator]');
@@ -52,4 +52,7 @@ test('getQuayIndicatorStatus gates on hasQuayConfig and passes a known driver st
   // Configured but no snapshot fetched yet: idle is the honest default, never a
   // running/stale claim the sidebar never observed.
   assert.equal(getQuayIndicatorStatus(project(true), null), 'idle');
+  // An observed failed read is not an absent snapshot: it passes through instead
+  // of decaying to `idle`, so the badge cannot claim a reading nobody got.
+  assert.equal(getQuayIndicatorStatus(project(true), { driver: { state: 'unavailable' } }), 'unavailable');
 });
