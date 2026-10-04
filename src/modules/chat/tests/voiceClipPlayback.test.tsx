@@ -42,6 +42,11 @@ vi.mock('@/shared/api', async (importOriginal) => {
     voiceConfigSignature: () => 'test-signature',
     // The recogniser's answer is read through the shipping parse; only the endpoint is cut.
     parseTranscriptionResponse: actual.parseTranscriptionResponse,
+    // The capture path reads the effective recogniser's `pauseCues` at the trim's one read point
+    // when a listen starts. This file stubs the trim off, so the value does not change what is cut
+    // here; the accessor is taken from the real module so the double stays complete — nothing has
+    // published a voice profile, so it answers "nothing to read".
+    effectivePauseCuesDeclaration: actual.effectivePauseCuesDeclaration,
   };
 });
 

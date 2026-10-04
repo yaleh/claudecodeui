@@ -100,20 +100,36 @@ const SHIPPING_FILES = [
 /** The read point's own body in the declaring module; the mutations below rewrite it. */
 const READ_POINT_BODY = "  return { capability, trim: capability === 'destructive' };";
 
-/** The gate the consumer opens the trim with, and the import that gate needs. */
+/**
+ * The gate the consumer opens the trim with, and the import that gate needs.
+ *
+ * THE SHAPE MOVED WITH THE INPUT PATH, the criterion did not. `a88f5c2a` removed the batch
+ * `prepareUpload` this used to name and made segment-then-commit the only path; the capability was
+ * left unread. The consumer is now `gapFilterSecForCapture`, which reads the same recogniser at the
+ * same read point and turns the answer into the segmenter's gap filter — a `destructive`
+ * recogniser compresses long stepped-over pauses (`DEFAULT_KEEP_GAP_SEC`), any other keeps them
+ * whole (`Number.POSITIVE_INFINITY`). The mutation below still means what it always meant: decide
+ * 裁不裁 in the client without reading the capability, and this file's `single-source` check sees no
+ * production file reach the read point.
+ */
 const CONSUMER_GATE = [
   '  const recogniser = effectivePauseCuesDeclaration();',
   '  if (!isVoiceTrimEnabled() || recogniser === null || !trimDecisionFor(recogniser.capability).trim) {',
-  '    return recorded;',
+  '    return Number.POSITIVE_INFINITY;',
   '  }',
+  '  return DEFAULT_KEEP_GAP_SEC;',
 ].join('\n');
 const CONSUMER_GATE_WITHOUT_CAPABILITY = [
   '  if (!isVoiceTrimEnabled()) {',
-  '    return recorded;',
+  '    return Number.POSITIVE_INFINITY;',
   '  }',
+  '  return DEFAULT_KEEP_GAP_SEC;',
 ].join('\n');
-const CONSUMER_IMPORT = "import { trimDecisionFor, trimVoiceAudio } from '@/shared/voiceTrim';";
-const CONSUMER_IMPORT_WITHOUT_CAPABILITY = "import { trimVoiceAudio } from '@/shared/voiceTrim';";
+const CONSUMER_IMPORT = "import { trimDecisionFor } from '@/shared/voiceTrim';";
+// Removing the capability from the decision means removing the read point with it — a file that
+// still imported the symbol without calling it would still read as a consumer to the scan, and the
+// point of this mutation is that nothing reaches the read point any more.
+const CONSUMER_IMPORT_WITHOUT_CAPABILITY = '';
 
 /**
  * The first registered recogniser's own declaration, as its adapter module writes it. This is what

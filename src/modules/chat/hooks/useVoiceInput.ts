@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { decodeVoiceBlob, downsampleVoice, UPLOAD_SAMPLE_RATE } from '@/modules/chat/utils/audioDecode';
 import {
+  DEFAULT_KEEP_GAP_SEC,
   DEFAULT_MIN_SEGMENT_SEC,
   LiveSegmenter,
   segmentLive,
@@ -25,7 +26,7 @@ import {
   voiceFrameProcessorUrl,
   type VoiceFrameMessage,
 } from '@/modules/chat/audio/voiceFrameProcessor';
-import { transcribeVoice } from '@/shared/api';
+import { effectivePauseCuesDeclaration, transcribeVoice } from '@/shared/api';
 import { identifierFidelity } from '@/shared/identifierFidelity';
 import { repairIdentifiers } from '@/shared/identifierRepair';
 import { StreamingVad, type VadEvent } from '@/shared/voiceEndpoint';
@@ -40,11 +41,16 @@ import type {
 } from '@/shared/types';
 import {
   isVoiceDebugEnabled,
+  isVoiceTrimEnabled,
   isVoiceVadEnabled,
   voiceDebugIdleSec,
   voiceDebugMinSegmentSec,
   voiceDebugOriginalCapSec,
 } from '@/shared/voiceDebug';
+// The read point that turns a recogniser's declared `pauseCues` into the one answer to 裁不裁.
+// The capability itself arrives through the health reading's accessor (see `gapFilterSecForCapture`),
+// so this hook holds no table of its own — it asks the recogniser that will transcribe the audio.
+import { trimDecisionFor } from '@/shared/voiceTrim';
 // The recogniser's answer is read by the same module that built the request — the
 // repository-root shared tree the server and the CLI compile.
 import { parseTranscriptionResponse } from '@shared/asr/transcriptionWire';
@@ -374,6 +380,32 @@ function wholeBufferSegment(samples: Float32Array, sampleRate: number): LiveSegm
 /** The duration of a segment's own uploaded audio, in seconds, read off the WAV it built. */
 function segmentWavSec(wav: Uint8Array): number {
   return (wav.length - WAV_HEADER_BYTES) / 2 / UPLOAD_SAMPLE_RATE;
+}
+
+/**
+ * How long a stepped-over silence gap is kept, for the recogniser that will transcribe this input.
+ *
+ * THE GAP FILTER IS THIS PATH'S 裁不裁, and 裁不裁 is the recogniser's own declaration (ADR-004
+ * decision 1), read at the capability's one read point in `@/shared/voiceTrim` — the pure mapping
+ * from a declared capability to "run the trim". A recogniser whose pauses are worth nothing to it
+ * (`destructive`) gets long stepped-over gaps compressed to `DEFAULT_KEEP_GAP_SEC` — the shipped
+ * behaviour. One whose declaration says its pauses may carry the punctuation (`neutral` / `useful`)
+ * keeps them whole, which the segmenter expresses by asking it to keep gaps of unbounded length;
+ * no capability knowledge is added to that module, it is only handed a length.
+ *
+ * The declaration is asked for BY THE ID THE REQUEST WILL BE SENT UNDER — the accessor above reads
+ * back the health reading's effective provider, the same id `transcribeVoice` routes on — rather
+ * than by an id written here. No declaration to read (the health reading has not landed, or names
+ * an id no adapter claims) is not a licence to trim: the filter changes the audio, so an unknown
+ * recogniser gets its pauses kept. The switch is the user's and only ever turns a trim off, so it
+ * is ANDed with the declaration.
+ */
+function gapFilterSecForCapture(): number {
+  const recogniser = effectivePauseCuesDeclaration();
+  if (!isVoiceTrimEnabled() || recogniser === null || !trimDecisionFor(recogniser.capability).trim) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return DEFAULT_KEEP_GAP_SEC;
 }
 
 /** Concatenates PCM payloads into one buffer. */
@@ -912,6 +944,8 @@ export function useVoiceInput(
         ? new LiveSegmenter({
             sampleRate,
             minSegmentSec: voiceDebugMinSegmentSec() ?? DEFAULT_MIN_SEGMENT_SEC,
+            // 裁不裁, decided by the recogniser's own declaration — see `gapFilterSecForCapture`.
+            keepGapSec: gapFilterSecForCapture(),
           })
         : null;
       // The idle guard: no speech event and no committed segment for `voiceIdleSec`, and the mic is
@@ -972,7 +1006,12 @@ export function useVoiceInput(
             decoded.samples,
             decoded.sampleRate,
             new StreamingVad({ sampleRate: decoded.sampleRate }).push(decoded.samples),
-            { minSegmentSec: voiceDebugMinSegmentSec() ?? DEFAULT_MIN_SEGMENT_SEC },
+            {
+              minSegmentSec: voiceDebugMinSegmentSec() ?? DEFAULT_MIN_SEGMENT_SEC,
+              // The file entry travels the same chain, so 裁不裁 is read the same way it is for a
+              // live stream — one read point, one recogniser, not a second answer for this path.
+              keepGapSec: gapFilterSecForCapture(),
+            },
           )
         : [wholeBufferSegment(decoded.samples, decoded.sampleRate)];
       if (segments.length === 0) {
