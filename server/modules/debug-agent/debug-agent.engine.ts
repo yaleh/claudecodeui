@@ -219,6 +219,44 @@ export type DebugAgentRunReading = {
 const TERMINAL_TASK_STATUSES: ReadonlySet<string> = new Set(['completed', 'failed', 'killed', 'stopped']);
 
 /**
+ * The line the CLI puts before a peer message's envelope.
+ *
+ * Part of the persisted shape, and discarded on read: it is transport, not the
+ * sender's words, so the reader unwraps past it to the body inside.
+ */
+const PEER_MESSAGE_PREAMBLE = 'Another Claude session sent a message:';
+
+/**
+ * The transcript row the CLI writes for a message another session sent.
+ *
+ * Two of the CLI's own facts, both load-bearing, and neither expressible through
+ * the shared `{trigger, sender}` vocabulary {@link buildMessageRow} writes for a
+ * turn the host layer opened. The row is `isMeta: true` — the marker the
+ * product's history projection hides injected skill bodies and caveats under,
+ * which is exactly why a real message wearing it goes missing unless the
+ * projection is told how to tell the two apart. And its cause is a first-class
+ * peer `origin` (`kind: 'peer'`), which is what the product's own row reader
+ * lifts back into a `MessageOrigin`. The sender's words ride inside the
+ * `cross-session-message` transport envelope the CLI wraps them in.
+ */
+function asPeerMessageRow(row: AnyRecord, text: string, origin: MessageOrigin): AnyRecord {
+  return {
+    ...row,
+    isMeta: true,
+    origin: {
+      kind: 'peer',
+      name: origin.sender,
+      msg_id: crypto.randomUUID(),
+      body: text,
+    },
+    message: {
+      role: 'user',
+      content: `${PEER_MESSAGE_PREAMBLE}\n<cross-session-message from-name="${origin.sender ?? ''}">\n${text}\n</cross-session-message>`,
+    },
+  };
+}
+
+/**
  * Runs one armed scenario.
  *
  * The clock is absolute: `steps[].at` is milliseconds from the start of the run,
@@ -278,8 +316,15 @@ export async function runDebugAgentScenario(input: DebugAgentRunInput): Promise<
       ...(origin ? { origin } : {}),
     });
 
-    appendTranscriptRow(transcriptPath, row);
-    forward(row);
+    // A message another session sent is the one turn the CLI writes in a shape
+    // of its own — see `asPeerMessageRow`. Writing the shared `{trigger,
+    // sender}` vocabulary here instead would produce a row the CLI never
+    // produces, and the criterion would be blind to the gate that drops the
+    // real one (gap-cross-session-message-dropped-by-ismeta-gate).
+    const persisted = origin?.trigger === 'cross-session' ? asPeerMessageRow(row, text, origin) : row;
+
+    appendTranscriptRow(transcriptPath, persisted);
+    forward(persisted);
   };
 
   /**

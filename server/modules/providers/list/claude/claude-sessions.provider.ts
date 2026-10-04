@@ -11,6 +11,7 @@ import type {
   CompactionInfo,
   FetchHistoryOptions,
   FetchHistoryResult,
+  MessageOrigin,
   NormalizedMessage,
   SubagentActivity,
   SubagentInfo,
@@ -871,6 +872,57 @@ function extractTaggedContent(content: string, tagName: string): string | null {
   return match ? match[1] : null;
 }
 
+/**
+ * The tag the CLI wraps a message another session sent in.
+ *
+ * A message delivered by a peer arrives on disk as a `user` row whose content is
+ * `Another Claude session sent a message:` followed by this envelope; the
+ * sender's actual words are what sits inside it.
+ */
+const CROSS_SESSION_ENVELOPE_TAG = 'cross-session-message';
+
+/**
+ * The sender's own message body, out of the transport envelope the CLI carried
+ * it in, or the content unchanged when it names no envelope.
+ *
+ * A dedicated reader rather than {@link extractTaggedContent} because the
+ * envelope tag carries attributes (`from-name`, `from-mode`) that that helper's
+ * attribute-less pattern would not match — and unwrapping is what keeps the
+ * transport's own `Another Claude session sent a message:` preamble out of the
+ * transcript the reader sees.
+ */
+function unwrapCrossSessionMessage(content: string): string {
+  const match = new RegExp(`<${CROSS_SESSION_ENVELOPE_TAG}\\b[^>]*>([\\s\\S]*?)<\\/${CROSS_SESSION_ENVELOPE_TAG}>`).exec(content);
+  return match ? match[1].trim() : content;
+}
+
+/**
+ * The peer `origin` the CLI writes on a row another session sent, read into the
+ * shared vocabulary — or `null` for a row that carries none.
+ *
+ * This is the field that tells a real cross-session turn apart from the injected
+ * internal turns {@link isInternalContent} hides. The CLI marks BOTH with
+ * `isMeta: true`, and only the real one carries a first-class `origin` with
+ * `kind: 'peer'`; the live path states the same fact on the turn's `result`
+ * (`claude-host-driver.provider.ts`'s `finishUnattendedTurn`), but history is
+ * where it was never read — so the row was dropped whole and the message never
+ * reached a transcript. A `kind` this build does not know reads as no origin,
+ * exactly as an unknown trigger does elsewhere: absent and unreadable both mean
+ * "not a cause this build can name".
+ */
+function readClaudeRowOrigin(raw: AnyRecord): MessageOrigin | null {
+  const origin = readObjectRecord(raw.origin);
+  if (origin?.kind !== 'peer') {
+    return null;
+  }
+
+  const name = origin.name;
+  return {
+    trigger: 'cross-session',
+    sender: typeof name === 'string' && name.trim() ? name : null,
+  };
+}
+
 type ClaudeLocalCommandPayload = {
   commandName: string;
   commandMessage: string;
@@ -1065,7 +1117,43 @@ export class ClaudeSessionsProvider implements IProviderSessions {
       return [];
     }
 
-    if (raw.message?.role === 'user' && raw.message?.content && raw.isMeta !== true) {
+    // A message another session sent is persisted as a `user` row that is BOTH
+    // `isMeta: true` — the marker the check below hides injected skill bodies
+    // and caveats under — AND carries a first-class peer `origin`. The `isMeta`
+    // test alone drops it whole, which is why the origin is read here and
+    // exempted: the cause the CLI stated is what tells a real turn another
+    // session wrote apart from the injected content the gate exists to hide.
+    const rowOrigin = readClaudeRowOrigin(raw);
+    if (
+      raw.message?.role === 'user'
+      && raw.message?.content
+      && (raw.isMeta !== true || rowOrigin !== null)
+    ) {
+      // The one `isMeta` row that is real content: post the sender's body, not
+      // the transport envelope, and carry the cause the transcript draws its
+      // own row style and divider from. Handled before the internal-prefix and
+      // local-command paths because it is neither — the envelope only looks
+      // command-shaped, and it is the reason the message arrived, not a command.
+      if (rowOrigin) {
+        const text = typeof raw.message.content === 'string'
+          ? raw.message.content
+          : (raw.message.content as AnyRecord[])
+              .filter((part) => part?.type === 'text' && typeof part.text === 'string')
+              .map((part) => part.text as string)
+              .join('\n');
+        messages.push(createNormalizedMessage({
+          id: baseId,
+          sessionId,
+          timestamp: ts,
+          provider: PROVIDER,
+          kind: 'text',
+          role: 'user',
+          content: unwrapCrossSessionMessage(text),
+          origin: rowOrigin,
+        }));
+        return messages;
+      }
+
       if (Array.isArray(raw.message.content)) {
         // Image attachments sent through the SDK are persisted as base64
         // `image` blocks next to the prompt text. Collect them so the UI can
