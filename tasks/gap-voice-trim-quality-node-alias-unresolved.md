@@ -44,12 +44,12 @@ Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@/shared' imported from
 
 ## AC
 
-- [ ] 在仓库上 `node experiments/voice-trim/run-quality.mjs` 退出码 0
-- [ ] 同命令 stderr 不含 `ERR_MODULE_NOT_FOUND` 与 `Cannot find package '@/shared'`（对 stderr grep 该串得 exit 1）
-- [ ] stdout 仍打印 `idBaseline/idTrimmed/cerBaseline/cerTrimmed/cerDelta/boundaries/savedRatio` 与最终 OK 行；`savedRatio > 0` 断言仍在（恒等实现正对照仍红于 [savedRatioPositive]）
-- [ ] 控制列 canary 全部触发：aggressive 红于 [identifierSurvival, cerDelta]、runOn 红于 [identifierSurvival, boundaryRetention]；correspondence 与 blindness canary 仍生效（exit 0 本身即要求 canary 触发）
-- [ ] 回归守卫：`node --test scripts/voice-trim-quality-harness.test.mjs` 退出码 0，该测试以子进程 `node experiments/voice-trim/run-quality.mjs` 断言 exit 0；同一测试的负控制（把 run-quality.mjs 同目录副本里的 registerHooks 块剥掉后运行）断言 exit ≠0 且 stderr 含 `@/shared`（负控制必须真的红，否则守卫是哑的）
-- [ ] `npm run lint` 与 `npm run typecheck` 退出码 0
+- [x] 在仓库上 `node experiments/voice-trim/run-quality.mjs` 退出码 0
+- [x] 同命令 stderr 不含 `ERR_MODULE_NOT_FOUND` 与 `Cannot find package '@/shared'`（对 stderr grep 该串得 exit 1）
+- [x] stdout 仍打印 `idBaseline/idTrimmed/cerBaseline/cerTrimmed/cerDelta/boundaries/savedRatio` 与最终 OK 行；`savedRatio > 0` 断言仍在（恒等实现正对照仍红于 [savedRatioPositive]）
+- [x] 控制列 canary 全部触发：aggressive 红于 [identifierSurvival, cerDelta]、runOn 红于 [identifierSurvival, boundaryRetention]；correspondence 与 blindness canary 仍生效（exit 0 本身即要求 canary 触发）
+- [x] 回归守卫：`node --test scripts/voice-trim-quality-harness.test.mjs` 退出码 0，该测试以子进程 `node experiments/voice-trim/run-quality.mjs` 断言 exit 0；同一测试的负控制（把 run-quality.mjs 同目录副本里的 registerHooks 块剥掉后运行）断言 exit ≠0 且 stderr 含 `@/shared`（负控制必须真的红，否则守卫是哑的）
+- [x] `npm run lint` 与 `npm run typecheck` 退出码 0
 
 ## DoD
 
