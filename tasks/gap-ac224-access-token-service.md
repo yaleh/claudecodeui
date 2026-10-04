@@ -38,15 +38,15 @@ AC-224（GOAL-018 退出条件 1；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3�
 
 ## AC
 
-- [ ] AC1 判据绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/access-tokens.service.test.ts` 退出 0；用例/子测试涵盖 (a)–(e)。红态基线逐字记录（改动前该文件不存在、存在性闸退出码 1 输出文件名）。
-- [ ] AC2 (a) 明文只出现一次、库中 0 次：签发返回的明文匹配 `^ccp_[0-9a-f]{64}$`；`access_tokens` 行的 `token_hash` 是 64 位 hex 的 SHA-256、`token_prefix` 是明文前 8 字符；对该表每一列（`SELECT *` 全部值转字符串）与数据库文件字节（含 WAL/SHM 若存在）扫描明文，出现 0 次。写下所用扫描范围（列清单/文件清单）与计数。
-- [ ] AC3 (b) 正例：有效令牌校验通过，返回所属 `userId` 与 scope 集合，且该令牌行 `last_used` 从 NULL 变为注入时钟的当前时间（写明前后读数）。
-- [ ] AC4 (c) 五种反例各自被拒且理由互异：过期（时钟拨到 `expires_at` 之后）、已吊销、改写明文末位一个字符、前缀不以 `ccp_` 开头、请求 scope 不在令牌 scope 内——五者返回的 `reason` 两两不相同（写下五个取值）。
-- [ ] AC5 (d) 有效期白名单：7、30、90 接受；不传或缺省为 30；永久/无限期、0、负数、365 天一律被拒且不写库（写下每条的返回与表行数未增）。
-- [ ] AC6 (e) 吊销即时生效：同一令牌吊销前校验通过，`revoke` 后不重启、下一次校验即被拒（reason 为吊销）；写明两次校验在同一进程内完成。
-- [ ] AC7 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 明文写进表 ⇒ AC2 红；(ii) 跳过过期检查 ⇒ AC4 的过期一条红；(iii) 校验恒有效 ⇒ AC4 全部红。每条记录恢复命令与恢复后重跑绿。
-- [ ] AC8 仓库门与该服务不越界：`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（只看 error 级）；判据跨模块只经 barrel 导入（`@/modules/database/index.js`），同模块经 `@/modules/oauth/index.js`，无深导入（`boundaries/dependencies` 不报错）。写明两条命令退出码与 lint error 计数。
-- [ ] AC9 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写。列出实际改动文件清单。
+- [x] AC1 判据绿：`npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/access-tokens.service.test.ts` 退出 0；用例/子测试涵盖 (a)–(e)。红态基线逐字记录（改动前该文件不存在、存在性闸退出码 1 输出文件名）。
+- [x] AC2 (a) 明文只出现一次、库中 0 次：签发返回的明文匹配 `^ccp_[0-9a-f]{64}$`；`access_tokens` 行的 `token_hash` 是 64 位 hex 的 SHA-256、`token_prefix` 是明文前 8 字符；对该表每一列（`SELECT *` 全部值转字符串）与数据库文件字节（含 WAL/SHM 若存在）扫描明文，出现 0 次。写下所用扫描范围（列清单/文件清单）与计数。
+- [x] AC3 (b) 正例：有效令牌校验通过，返回所属 `userId` 与 scope 集合，且该令牌行 `last_used` 从 NULL 变为注入时钟的当前时间（写明前后读数）。
+- [x] AC4 (c) 五种反例各自被拒且理由互异：过期（时钟拨到 `expires_at` 之后）、已吊销、改写明文末位一个字符、前缀不以 `ccp_` 开头、请求 scope 不在令牌 scope 内——五者返回的 `reason` 两两不相同（写下五个取值）。
+- [x] AC5 (d) 有效期白名单：7、30、90 接受；不传或缺省为 30；永久/无限期、0、负数、365 天一律被拒且不写库（写下每条的返回与表行数未增）。
+- [x] AC6 (e) 吊销即时生效：同一令牌吊销前校验通过，`revoke` 后不重启、下一次校验即被拒（reason 为吊销）；写明两次校验在同一进程内完成。
+- [x] AC7 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 明文写进表 ⇒ AC2 红；(ii) 跳过过期检查 ⇒ AC4 的过期一条红；(iii) 校验恒有效 ⇒ AC4 全部红。每条记录恢复命令与恢复后重跑绿。
+- [x] AC8 仓库门与该服务不越界：`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（只看 error 级）；判据跨模块只经 barrel 导入（`@/modules/database/index.js`），同模块经 `@/modules/oauth/index.js`，无深导入（`boundaries/dependencies` 不报错）。写明两条命令退出码与 lint error 计数。
+- [x] AC9 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写。列出实际改动文件清单。
 
 ## DoD
 
@@ -65,3 +65,76 @@ AC-224（GOAL-018 退出条件 1；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3�
 - server/modules/database/migrations.ts
 - server/modules/database/index.ts
 - tasks/gap-ac224-access-token-service.md
+
+## 完成记录
+### AC1 判据绿 / 红态基线
+- 红态基线（改动前该判据文件不存在；`git ls-tree -r develop -- server/modules/oauth/` 为空）：把实现整体暂存后工作树回到 develop 态，运行
+  `npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/access-tokens.service.test.ts`
+  → `Could not find 'server/modules/oauth/tests/access-tokens.service.test.ts'`，退出码 1。
+- 绿：同命令 `tests 10 / pass 10 / fail 0`，退出码 0；(a)–(e) 均有用例，(c) 的五个反例各为独立子测试。
+
+### AC2 (a) 明文只出现一次、库中 0 次
+- 明文匹配 `^ccp_[0-9a-f]{64}$`；`token_hash` = 明文 SHA-256（64 位 hex），`token_prefix` = 明文前 8 字符。
+- 列扫描：`SELECT *` 1 行，逐列（`id, user_id, token_hash, token_prefix, name, scopes, expires_at, created_at, last_used, revoked_at`）转字符串后扫描明文，命中 0 次。
+- 文件扫描：`<db>`、`<db>-wal`、`<db>-shm`（存在者）逐字节扫描明文，命中 0 次。
+
+### AC3 (b) 正例
+- 有效令牌校验返回 `{ ok: true, userId: 1, scopes: ['cloudcli:read','cloudcli:session:send'] }`。
+- `last_used`：校验前 = `null`，校验后 = 注入时钟当前时间的 ISO 串。
+
+### AC4 (c) 五反例理由互异
+- 五个取值：`expired`、`revoked`、`not_found`（改写明文末位一字符）、`invalid_prefix`、`insufficient_scope`；Set 大小 5。
+
+### AC5 (d) 有效期白名单
+- 7 / 30 / 90 接受（`expiresAt` = 起点 + N 天）；缺省 = 30。
+- `null`（永久）、`Infinity`（无限期）、`0`、`-1`、`365` 均返回 `{ ok: false, reason: 'invalid_expiry' }`，且表行数不变（写前写后均 4）。
+
+### AC6 (e) 吊销即时生效
+- 同一进程内：verify 通过 → `revokeToken(id)` → 下一次 verify 即返回 `{ ok: false, reason: 'revoked' }`，不重启。
+
+### AC7 取假形态（先提交实现 `ccb96e74`，再变异；恢复命令 `git -C <worktree> checkout -- server/modules/oauth/access-tokens.service.ts`）
+- **(i) 明文写进表**：`tokenHash: hashToken(token)` → `tokenHash: token`
+
+  ```diff
+  -        tokenHash: hashToken(token),
+  +        tokenHash: token, // FALSIFY(i): plaintext written to the store
+  ```
+
+  AC2 (a) 红，逐字失败行 `access-tokens.service.test.ts:114:12`：
+  `AssertionError [ERR_ASSERTION]: Expected values to be strictly equal: actual: 'ccp_<64hex>' expected: '<sha256-hex>'`。恢复后重跑绿。
+- **(ii) 跳过过期检查**：删掉 `if (now().getTime() >= new Date(row.expires_at).getTime()) return { ok:false, reason:'expired' }`
+
+  ```diff
+  -      if (now().getTime() >= new Date(row.expires_at).getTime()) {
+  -        return { ok: false, reason: 'expired' };
+  -      }
+  -
+  +      // FALSIFY(ii): expiry check removed
+  ```
+
+  仅 (c) 的 `expired` 子测试红，逐字失败行 `access-tokens.service.test.ts:187:14`：
+  `actual: { ok: true, userId: 1, scopes: [ 'cloudcli:read' ] } / expected: { ok: false, reason: 'expired' }`；其余四条子测试绿。恢复后重跑绿。
+- **(iii) 校验恒有效**：`verifyToken` 首行插入常量成功返回
+
+  ```diff
+  +      // FALSIFY(iii): verification always succeeds
+  +      return { ok: true, userId: 1, scopes: ['cloudcli:read'] };
+  ```
+
+  (c) 五条子测试全部红：`expired`、`revoked`、`rewritten plaintext is not found`、`foreign prefix`、`insufficient scope`（`pass 2 / fail 8`）。恢复后重跑绿（10/10）。
+
+### AC8 仓库门与该服务不越界
+- `npm run typecheck` 退出码 0。
+- `npm run lint` 退出码 0，`: error ` 计数 = 0（仅 warning）。
+- 跨模块只经 barrel：判据导入 `@/modules/database/index.js` 与 `@/modules/oauth/index.js`；服务导入 `@/modules/database/index.js`；`boundaries/dependencies` 无报错（改动文件无 lint 输出）。
+
+### AC9 改动清单与 Touches 对齐
+- `git diff --name-status develop...HEAD`：
+  - `M server/modules/database/index.ts`
+  - `M server/modules/database/migrations.ts`
+  - `M server/modules/database/schema.ts`
+  - `A server/modules/database/repositories/access-tokens.ts`
+  - `A server/modules/oauth/index.ts`
+  - `A server/modules/oauth/access-tokens.service.ts`
+  - `A server/modules/oauth/tests/access-tokens.service.test.ts`
+- 与 `## Touches` 逐条对齐，无 Touches 之外写入（`tasks/gap-ac224-access-token-service.md` 由本次 ABI 写入）。
