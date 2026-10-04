@@ -86,7 +86,11 @@ const subscribedFrame = (overrides: Partial<ServerEvent> = {}): ServerEvent => (
   ...overrides,
 });
 
-const heartbeatFrame = (timestamp: number, phase?: string): ServerEvent => ({
+const heartbeatFrame = (
+  timestamp: number,
+  phase?: string,
+  isProcessing?: boolean,
+): ServerEvent => ({
   kind: 'activity.heartbeat',
   sessionId: SESSION_ID,
   bootId: 'boot-1',
@@ -94,6 +98,9 @@ const heartbeatFrame = (timestamp: number, phase?: string): ServerEvent => ({
   // A beat carries the server's reduced phase; a beat without one is a bare
   // liveness ping that says nothing about the turn (a server that predates it).
   ...(phase === undefined ? {} : { phase }),
+  // The run registry's own in-flight bit, the authority over "is the turn over".
+  // Absent from a server that predates the field, where the phase alone decides.
+  ...(isProcessing === undefined ? {} : { isProcessing }),
   timestamp: new Date(timestamp).toISOString(),
 });
 
@@ -451,6 +458,96 @@ describe('the activity dock when the server ends the turn', () => {
       second,
       null,
       `an ended turn owes no elapsed reading at all; readings: ${readings.join(' | ')}`,
+    );
+  });
+});
+
+/*
+ * The turn that is still running while the phase tracker has no phase.
+ *
+ * The phase tracker reads `idle` for any session it never saw a phase-carrying
+ * frame for, so its `idle` covers both "the turn ended" and "the turn is
+ * running but silent". Only the run registry can tell the two apart, and the
+ * server folds its own in-flight bit onto every heartbeat. These cases pin that
+ * the bit — not the phase — decides, while the fallback (a server without the
+ * bit) still ends the turn on `idle` exactly as before.
+ */
+describe('the activity dock when the run is in flight but the phase is idle', () => {
+  // AC3/AC4: a running run whose tracker reports `idle` must keep the anchor the
+  // hello pinned, so the server-derived elapsed stays finite and the dock stays a turn.
+  test('AC3 an idle phase on a run still in flight keeps the anchor and the server-derived clock', () => {
+    const readings: string[] = [];
+    const { connection, push } = makeConnection();
+    const view = render(
+      React.createElement(ActivityIndicator, {
+        activity: null,
+        sessionId: SESSION_ID,
+        connection,
+      }),
+    );
+
+    push(subscribedFrame());
+    readings.push(`after hello: state=${dockStateOf(view)} elapsed=${dockElapsedOf(view)}`);
+    assert.equal(
+      dockStateOf(view),
+      'in-turn',
+      `the hello's isProcessing must pin a running turn; readings: ${readings.join(' | ')}`,
+    );
+
+    // The frame the defect misread: the tracker says `idle`, the registry says in-flight.
+    push(heartbeatFrame(START + 5_000, 'idle', true));
+    const state = dockStateOf(view);
+    const elapsed = Number(dockElapsedOf(view));
+    readings.push(`after idle beat on a live run: state=${state} elapsed=${dockElapsedOf(view)}`);
+    assert.equal(
+      state,
+      'in-turn',
+      `an idle phase on a run the registry says is in flight must not end the turn; readings: ${readings.join(' | ')}`,
+    );
+    assert.equal(
+      dockElapsedOf(view),
+      String(5_000),
+      `the recovered dock must report the server-derived elapsed, not a cleared anchor; readings: ${readings.join(' | ')}`,
+    );
+    assert.ok(
+      Number.isFinite(elapsed),
+      `the elapsed must be a finite server-derived number, not NaN; readings: ${readings.join(' | ')}`,
+    );
+  });
+
+  // AC4: the positive control `873f91d2` added — a run the registry reports ended
+  // clears the anchor, so a finished turn does not count up forever.
+  test('AC4 the registry ending the run clears the anchor, whatever the phase still says', () => {
+    const readings: string[] = [];
+    const { connection, push } = makeConnection();
+    const view = render(
+      React.createElement(ActivityIndicator, {
+        activity: null,
+        sessionId: SESSION_ID,
+        connection,
+      }),
+    );
+
+    push(subscribedFrame());
+    assert.equal(
+      dockStateOf(view),
+      'in-turn',
+      `premise: the hello pins a running turn; readings: ${readings.join(' | ')}`,
+    );
+
+    // The run ended, but the tracker still holds its last phase — the exact lag
+    // the authority exists to cover. The registry's bit is what ends the turn.
+    push(heartbeatFrame(START + 5_000, 'thinking', false));
+    readings.push(`after ended run: state=${dockStateOf(view)} elapsed=${dockElapsedOf(view)}`);
+    assert.equal(
+      dockStateOf(view),
+      'absent',
+      `an ended run must clear the anchor even while the phase still says thinking; readings: ${readings.join(' | ')}`,
+    );
+    assert.equal(
+      dockElapsedOf(view),
+      null,
+      `an ended turn owes no elapsed reading; readings: ${readings.join(' | ')}`,
     );
   });
 });

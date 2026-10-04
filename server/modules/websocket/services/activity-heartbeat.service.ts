@@ -127,14 +127,25 @@ export function activityAnnouncement(sessionId: string): {
   };
 }
 
-/** The `activity.heartbeat` frame for one session, built from the current state. */
-function buildActivityHeartbeat(sessionId: string): {
+/**
+ * The `activity.heartbeat` frame for one session, built from the current state.
+ *
+ * `isProcessing` is the run registry's own answer to "is a run in flight for
+ * this session", read at beat time. It is the authority the client needs to
+ * tell a *finished* turn from a turn the phase tracker merely has no phase for:
+ * `phase` comes from the frame forwarder's reduction (which reads `idle` for
+ * any session it never saw a frame for), so a running turn whose provider sends
+ * no phase-carrying frames would otherwise look ended. The hello carries the
+ * same bit, read from the same registry, so the two frames can never disagree.
+ */
+function buildActivityHeartbeat(sessionId: string, isProcessing: boolean): {
   kind: 'activity.heartbeat';
   sessionId: string;
   bootId: string;
   rev: number;
   phase: TurnPhase;
   toolName: string | null;
+  isProcessing: boolean;
   timestamp: string;
 } {
   const { bootId, rev, phase, toolName } = activityAnnouncement(sessionId);
@@ -145,6 +156,9 @@ function buildActivityHeartbeat(sessionId: string): {
     rev,
     phase,
     toolName,
+    // Authoritative run-in-flight bit from the run registry, NOT a re-derivation
+    // of `phase`. See the module's chat gateway, which injects the reader.
+    isProcessing,
     timestamp: new Date().toISOString(),
   };
 }
@@ -163,8 +177,19 @@ const heartbeatsBySocket = new WeakMap<WebSocket, Map<string, () => void>>();
  * and re-sends `chat.subscribe` does not double its own frame rate. The beat
  * also stops on the socket's own `close`/`error`, so a dead client leaves no
  * timer behind.
+ *
+ * `readTurnInFlight` is the run registry's own `isProcessing` for this session,
+ * read on every beat so a run that ends between two beats is reported ended by
+ * the next one. It is injected rather than imported: the registry must stay the
+ * single owner of "is a run in flight", and this module must not take a
+ * dependency on it just to transport the answer. The caller (the chat gateway)
+ * already holds the registry and computes the same bit for the hello.
  */
-export function attachActivityHeartbeat(ws: WebSocket, sessionId: string): () => void {
+export function attachActivityHeartbeat(
+  ws: WebSocket,
+  sessionId: string,
+  readTurnInFlight: () => boolean,
+): () => void {
   const bySession = heartbeatsBySocket.get(ws) ?? new Map<string, () => void>();
   heartbeatsBySocket.set(ws, bySession);
 
@@ -179,7 +204,7 @@ export function attachActivityHeartbeat(ws: WebSocket, sessionId: string): () =>
       return;
     }
     try {
-      ws.send(JSON.stringify(buildActivityHeartbeat(sessionId)));
+      ws.send(JSON.stringify(buildActivityHeartbeat(sessionId, readTurnInFlight())));
     } catch {
       // A socket that throws on send is one the close/error path would have
       // handled anyway; stop here so the timer cannot outlive it.

@@ -2,7 +2,7 @@
 id: gap-activity-idle-beat-clears-open-turn-anchor
 title: AC-184 判据抖动红：run 仍开着时一条 phase=idle 的 activity.heartbeat 清掉回合锚点，恢复后
   elapsed 变 NaN（873f91d2 引入；须区分「回合结束」与「tracker 无 phase」）
-status: ready
+status: done
 labels:
   - gap
   - defect
