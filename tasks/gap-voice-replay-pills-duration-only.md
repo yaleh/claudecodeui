@@ -1,7 +1,7 @@
 ---
 id: gap-voice-replay-pills-duration-only
 title: 回放按钮只标时长：去掉字节数、超过一小时用 H:MM:SS、原始录音可缺席（超过 10 分钟不提供）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
