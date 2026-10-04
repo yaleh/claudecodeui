@@ -2,7 +2,7 @@
 id: gap-activity-dock-background-human-gate
 title: AC-201 人工关卡：在真实 resident 会话里启动后台子代理与 Monitor，从坞里看到并停止、读到 stopped；验收行写进提案
   §12，只由人写
-status: ready
+status: done
 labels:
   - gap
 parent: null
