@@ -1,7 +1,7 @@
 ---
 id: AC-228
 title: 真实浏览器里设置页能创建个人访问令牌：明文只显示一次，刷新后只剩前缀，吊销后消失，旧的 API Key 创建入口不再存在
-status: draft
+status: active
 kind: criterion
 goal: GOAL-018
 criterion: for f in e2e/access-tokens-settings.spec.ts; do [ -f "$f" ] || { echo
@@ -14,4 +14,15 @@ expect: 真实浏览器、真实后端、临时数据目录。读数：(a) 在�
   必须红；(ii) 保留旧的创建按钮 ⇒ (e) 必须红；(iii) 吊销只改前端状态、不调接口 ⇒ (d)
   的拒绝一条必须红。（红先行）当前必红：判据文件不存在，存在性闸以退出码 1 输出缺失的文件名。
 origin: docs/proposals/mcp-gateway-SPEC.md（v3）。人 yale 2026-10-05 指令：创建并激活本 goal 及其 AC。
+activatedAt: 2026-10-04T17:20:27.211Z
+statusLog:
+  - at: 2026-10-04T17:20:27.211Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-04T17:20:27.211Z
 ---
