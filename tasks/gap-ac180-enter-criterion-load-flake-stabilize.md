@@ -2,7 +2,7 @@
 id: gap-ac180-enter-criterion-load-flake-stabilize
 title: AC-180 的 Enter 判据在负载下假红：让 e2e/resident-enter-send.spec.ts 在 60s
   门限内稳定跑绿（(b) 正控制腿的选项目 5s 预算不够、浏览器/上下文被关），载重读数一条不动
-status: todo
+status: ready
 labels:
   - gap
   - defect
