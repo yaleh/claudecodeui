@@ -13,13 +13,14 @@ import {
   thumbHeightPx,
 } from '@/modules/chat/utils/contentHeightModel';
 import type { ContentRowInput, EstimateState } from '@/modules/chat/utils/contentHeightModel';
-import { TRANSCRIPT_SCROLLBAR_MIN_THUMB_PX } from '@/shared/transcriptEdgeLayout';
+/** The minimum drawn thumb length these cases were written against. */
+const TRANSCRIPT_SCROLLBAR_MIN_THUMB_PX = 28;
 
 /**
  * A row that has never been measured.
  *
  * Its element still occupies the real 100px placeholder (`LazyMessageRow`'s
- * `ESTIMATED_ROW_HEIGHT_PX`, which `TranscriptTurnRail` reads back as the row's
+ * `ESTIMATED_ROW_HEIGHT_PX`, which the transcript reads back as the row's
  * `offsetHeight`), so its `height` is that placeholder — not zero. It must
  * estimate by `messages * p` all the same: the `measured` flag, not `height > 0`,
  * is what separates a measurement from a placeholder. Modelling it with

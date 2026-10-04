@@ -375,13 +375,15 @@
       "count": "{{n}} 个任务"
     }
   },
-  "turnRail": {
-    "label": "对话轮次",
-    "scrollbar": "对话滚动条",
-    "jumpToTurn": "跳转到第 {{n}} 轮",
-    "turn": "第 {{n}} 轮"
-  },
   "workspaceMenu": {
     "trigger": "更多操作"
+  },
+  "inputOutline": {
+    "title": "用户输入",
+    "open": "打开输入目录",
+    "close": "关闭输入目录",
+    "handleTitle": "点击开关，拖动移动",
+    "empty": "暂无输入",
+    "untitled": "（无文本）"
   }
 }

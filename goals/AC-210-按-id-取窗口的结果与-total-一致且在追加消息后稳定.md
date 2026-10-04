@@ -1,7 +1,7 @@
 ---
 id: AC-210
 title: 按 id 取窗口的结果与 total 一致且在追加消息后稳定
-status: achieved
+status: superseded
 kind: criterion
 goal: GOAL-017
 criterion: for f in
@@ -31,6 +31,11 @@ statusLog:
     to: achieved
     actor: goal-driver
     reason: "I2: criterion pass"
+  - at: 2026-10-04T14:07:24.922Z
+    from: achieved
+    to: superseded
+    actor: yale-session
+    reason: 人 yale 2026-10-04 裁定取消 GOAL-017：滚动条恢复原生，刻度条与自绘滚动条移除、改为用户输入目录抽屉（bd393444）
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"

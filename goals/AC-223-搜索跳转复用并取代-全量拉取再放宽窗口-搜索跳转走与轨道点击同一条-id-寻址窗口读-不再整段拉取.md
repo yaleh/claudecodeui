@@ -1,7 +1,7 @@
 ---
 id: AC-223
 title: 搜索跳转复用并取代「全量拉取再放宽窗口」：搜索跳转走与轨道点击同一条 id 寻址窗口读，不再整段拉取
-status: achieved
+status: superseded
 kind: criterion
 goal: GOAL-017
 criterion: for f in e2e/transcript-jump-to-turn.spec.ts; do [ -f "$f" ] || {
@@ -29,4 +29,9 @@ statusLog:
     to: achieved
     actor: goal-driver
     reason: "I2: criterion pass"
+  - at: 2026-10-04T14:07:29.659Z
+    from: achieved
+    to: superseded
+    actor: yale-session
+    reason: 人 yale 2026-10-04 裁定取消 GOAL-017：滚动条恢复原生，刻度条与自绘滚动条移除、改为用户输入目录抽屉（bd393444）
 ---

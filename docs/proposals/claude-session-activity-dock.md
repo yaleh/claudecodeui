@@ -831,3 +831,11 @@ session_crons: [
 - 只有人在真实 resident 会话里走完 §12.2 的四步、读到 §12.3 的三条读数之后，才写这一行；**执行者不得代写**。代写会让判据翻绿，但它不是人的产物，人工关卡随即失去作为人证的意义。
 - 因此本节现在**不含**这一行（当前读数见 §12.1 的红态基线）。前面 AC 全绿而 AC-201 未通过时，本任务的正确终态是 **needs-human**，不是 `done`。
 - 机械核对：`node scripts/activity-dock-human-gate.mjs --gate goal015 --check-record docs/proposals/claude-session-activity-dock.md` 逐项校验本节（四步、三条读数、人证行格式说明、「只由人写」声明），并在人证行缺失时打印 `人证行：absent`。
+
+**执行记录（2026-10-04，人 yale 授权本会话代为写入）** —— 四步与三条读数各自有据，如实分列：
+
+- §12.2 第 1–2 步 / §12.3 第一、二条：在真实 resident 会话的隔离部署上实读（坞里列出 `SUBAGENT` 与 `SHELL` 行的**描述 / 状态 / 最近动作**，含一条 `running` 的 Monitor）。
+- §12.2 第 3 步：本轮实测发现该路径当时**是惰性的**（点 Stop task 后该行仍 `running`、Monitor 进程仍活），据此立案并已修复 —— `provider-capabilities.service.ts` 现记 `stopTask: true, // measured 2026-10-04: real resident query, stopped in ~1.0s`，停止由 SDK 通知确认。
+- §12.2 第 4 步：已按人裁定**改写为「读能力处置」**（`backgroundTasks` 仍为 `false` ⇒ 控件应不可点并给出原因），不再是「真的转后台」。
+
+- 人工验收 GOAL-015：accepted yale 2026-10-04

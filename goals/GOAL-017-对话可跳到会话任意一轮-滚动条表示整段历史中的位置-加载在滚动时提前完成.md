@@ -1,7 +1,7 @@
 ---
 id: GOAL-017
 title: 对话可跳到会话任意一轮，滚动条表示整段历史中的位置，加载在滚动时提前完成
-status: active
+status: retired
 kind: goal
 origin: 设计讨论 2026-10-03/04（人 yale
   逐条裁定：滚动条走自绘、按消息序号计位置；隐藏窗口内原生滚动条；服务端缓存增量化纳入本期）。参照 DeepSeek 对话导航条的实测分析与本仓现状调查（尾部
@@ -13,6 +13,12 @@ statusLog:
     to: active
     actor: yale-session
     reason: 人 yale 2026-10-04 授权创建并激活；8 条 AC 红先行已观测，9 个任务已建
+  - at: 2026-10-04T14:07:46.823Z
+    from: active
+    to: retired
+    actor: yale-session
+    reason: 人 yale 2026-10-04 裁定取消：滚动条恢复到 GOAL-017
+      之前的原生滚动条，刻度条与自绘滚动条移除，改为桌面端右侧用户输入目录抽屉（bd393444）；名下 15 条 AC 同批 superseded
 ---
 把对话流从「只能看到已加载的尾部」改成「可以跳到整段会话历史的任意一轮，滚动条表示的是整段历史中的位置，加载在滚动时提前完成」。
 

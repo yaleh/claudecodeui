@@ -567,26 +567,6 @@
 @layer components {
   .chat-messages-pane {
     contain: layout style paint;
-    /* AC-215: the transcript's only scrollbar is the drawn one (TranscriptScrollbar).
-       Hide the native one WITHOUT disabling scrolling: `overflow: hidden` would drop
-       the wheel, touch and keyboard, so the bar is hidden by width instead of
-       overflow. `scrollbar-width` covers the standard path, the webkit pseudo-element
-       the Chromium one.
-
-       AC-217 / AC-220: the pane's right padding reserves the drawn chrome's column —
-       no longer a fixed 4.5rem. The padding is set inline by ChatMessagesPane from
-       `transcriptGutterPx(paneWidth, hasTickColumn)` (`src/shared/transcriptEdgeLayout.ts`):
-       the scrollbar's own column alone when no tick column is drawn (mobile, so the
-       text sits flush against the bar like a native scrollbar), and the fixed
-       three-column band otherwise, shrinking to nothing once the content column's
-       own outer margin already clears it (wide screens). Keeping the number out of
-       this file is what lets the three viewport readings be unit-tested. */
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-  }
-
-  .chat-messages-pane::-webkit-scrollbar {
-    display: none;
   }
 
   .chat-composer-shell {
