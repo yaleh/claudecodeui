@@ -3,7 +3,6 @@ import type { Request, Response } from 'express';
 
 import type { IProviderHostDriver } from '@/shared/interfaces.js';
 import type {
-  HostCloseReason,
   HostLease,
   HostMode,
   HostResidentStartResult,
@@ -14,6 +13,7 @@ import type {
 } from '@/shared/types.js';
 import { asyncHandler, createApiSuccessResponse } from '@/shared/utils.js';
 
+import { closeResidentHost, startResidentHost } from './resident-host.service.js';
 import type { SessionHostManager } from './session-host-manager.service.js';
 
 /**
@@ -286,26 +286,23 @@ export const RESIDENT_NOT_RUNNING_REASON =
  * after a restart both look like an empty host table.
  *
  * The close route is the same principle from the other side: it addresses a host
- * by the *session* it serves (which is what a client knows), finds it in the
- * snapshot, and relays a decision the manager records. It does not terminate
- * anything itself — ending the process is the driver's answer to being closed,
- * and for a resident host that answer is stdin EOF. It is also the only route
- * here that is mode-restricted, and deliberately so: a `per-run` host's life is
- * its turn's, and a caller closing one would be reaching past the run that owns
- * it.
+ * by the *session* it serves (which is what a client knows), and relays a
+ * decision the manager records. It does not terminate anything itself — ending
+ * the process is the driver's answer to being closed, and for a resident host
+ * that answer is stdin EOF. It is also the only route here that is mode-restricted,
+ * and deliberately so: a `per-run` host's life is its turn's, and a caller closing
+ * one would be reaching past the run that owns it.
  *
  * `/start` is that restriction's mirror image. A resident session's process is
- * opened lazily — on the first turn, or when the user asks for it here — so the
- * route resolves the driver and asks it for the session's *own* process, through
- * the injected {@link ResidentSessionStarter} that assembles the launch's options
- * (see `IProviderHostDriver.startResidentSession`). A driver that cannot be asked
- * for one — it never implemented the verb, or the composition root wired no
- * starter — falls back to `bindSession`, the manager's "put this session on a
- * process" entry point, which is the right answer for a multiplexing provider
- * whose live process really can adopt the session. Both mode-restricted verbs
- * answer with a named `LifecycleModeErrorCode` in the body, so a client tells
- * "this session is not resident" from "there is no such session" from "nothing
- * is running for it" without reading prose.
+ * opened lazily — on the first turn, or when the user asks for it here — and the
+ * decision that reaches it (the four refusals, the idempotent already-running
+ * branch, the launch-versus-bind choice) lives in
+ * {@link startResidentHost}, this module's own service. `/close` relays
+ * {@link closeResidentHost} the same way. Both service functions answer with a
+ * named `LifecycleModeErrorCode` in a transport-agnostic result, so a client
+ * tells "this session is not resident" from "there is no such session" from
+ * "nothing is running for it" without reading prose, and a second transport (the
+ * MCP gateway) can reuse the decision rather than restate it here.
  */
 export function createSessionHostsRouter({
   sessionHostManager,
@@ -383,153 +380,38 @@ export function createSessionHostsRouter({
   });
 
   /**
-   * Starts the resident host for one session, or refuses and says why.
+   * Starts the resident host for one session, or relays the service's refusal.
    *
-   * The refusals are ordered by how much they say about the request, cheapest
-   * first: a session that does not exist, a host already serving it in the wrong
-   * mode, a session whose stored preference is not residential, and finally a
-   * resident session whose provider mounts no driver. Only the last one is about
-   * the provider rather than the session, which is why `LIFECYCLE_MODE_HOST_UNAVAILABLE`
-   * is the one refusal a provider can make true on its own.
-   *
-   * A session that already has a live resident host is a success, not a
-   * `session-already-bound` refusal: "start" is a request for a state, and the
-   * state is already the one asked for. The manager would refuse the second bind
-   * (the binding index is single-writer), which is the right answer to a second
-   * *bind* and the wrong answer to a second *start*. The driver's own on-demand
-   * verb holds the same rule on the other side of the seam, so a session that
-   * acquired a host between this check and the launch is answered with that host
-   * rather than getting a second process.
+   * The route does three things and nothing else: it parses the path parameter,
+   * calls `startResidentHost` (which owns the whole decision — the four
+   * refusals, the idempotent already-running branch, the launch/bind choice),
+   * and translates the transport-agnostic result into the existing HTTP
+   * envelope. A refusal keeps its code and sentence verbatim via `sendRefusal`,
+   * so the wire contract is unchanged; the success body is still
+   * `{ hostId, sessionId, mode, pid }`.
    */
   router.post(
     '/:sessionId/start',
     asyncHandler(async (request: Request, response: Response) => {
       const sessionId = routeParameter(request.params.sessionId);
-      const session = readSession?.(sessionId) ?? null;
-
-      if (!session) {
-        sendRefusal(response, 404, 'SESSION_NOT_FOUND', `Session "${sessionId}" was not found.`);
-        return;
-      }
-
-      const running = liveHostForSession(sessionHostManager, sessionId);
-      if (running) {
-        if (running.mode !== 'resident') {
-          sendRefusal(
-            response,
-            409,
-            'LIFECYCLE_MODE_NOT_RESIDENT',
-            `Session "${sessionId}" already runs in "${running.mode}" mode; only a resident host can be started on demand.`,
-          );
-          return;
-        }
-
-        response.json(
-          createApiSuccessResponse({
-            hostId: running.hostId,
-            sessionId,
-            mode: running.mode,
-            pid: running.pid,
-          }),
-        );
-        return;
-      }
-
-      if (session.mode !== 'resident') {
-        sendRefusal(
-          response,
-          409,
-          'LIFECYCLE_MODE_NOT_RESIDENT',
-          `Session "${sessionId}" is stored as "${session.mode}"; only a resident session can be started on demand.`,
-        );
-        return;
-      }
-
-      const driver = resolveHostDriver?.(session.provider) ?? null;
-      if (!driver) {
-        sendRefusal(
-          response,
-          409,
-          'LIFECYCLE_MODE_HOST_UNAVAILABLE',
-          `Provider "${session.provider}" mounts no host driver, so session "${sessionId}" cannot be started.`,
-        );
-        return;
-      }
-
-      // A resident start opens the session's *own* process, which is the
-      // question `bindSession` cannot answer: that verb asks which live process
-      // can take the conversation, and its answer for a driver that declares
-      // `multiplexedHost === false` is a refusal as soon as any other host of the
-      // provider is alive — while with none alive it falls through to
-      // `openHost`, where the same driver throws because a resident host is
-      // brought up by a launch and not by a record. So the entry is the driver's
-      // own on-demand verb, reached through the injected seam that assembles its
-      // launch options.
-      //
-      // Both halves are required: a driver that never implemented the verb
-      // cannot be asked, and the seam that would assemble its options has
-      // nothing to hand it. That combination keeps the binding path below live
-      // for every provider whose process really can adopt a session — a
-      // multiplexing driver, and the fake drivers criteria mount here.
-      if (startResidentSession && typeof driver.startResidentSession === 'function') {
-        let started: HostResidentStartResult;
-        try {
-          started = await startResidentSession(session.provider, sessionId);
-        } catch (error) {
-          // Nothing was started, and the reason is the useful part: a launch the
-          // driver's own gate refused, or a process that could not be adopted.
-          // The code stays the lifecycle one a client branches on (the same
-          // trade the binding path below makes), and the driver's sentence
-          // travels verbatim in the message rather than being replaced by
-          // "failed".
-          sendRefusal(
-            response,
-            409,
-            'LIFECYCLE_MODE_HOST_UNAVAILABLE',
-            `Session "${sessionId}" could not be started (${errorMessage(error)}).`,
-          );
-          return;
-        }
-
-        response.json(
-          createApiSuccessResponse({
-            hostId: started.hostId,
-            sessionId,
-            mode: 'resident' satisfies HostMode,
-            pid: started.pid,
-          }),
-        );
-        return;
-      }
-
-      const bound = await sessionHostManager.bindSession({
-        provider: session.provider,
-        appSessionId: sessionId,
-        driver,
+      const result = await startResidentHost(sessionId, {
+        sessionHostManager,
+        readSession,
+        resolveHostDriver,
+        startResidentSession,
       });
 
-      if (!bound.ok) {
-        // The manager refused to place the session on a process. The code it
-        // answered with is a bind-refusal vocabulary (`session-already-bound` /
-        // `host-not-multiplexed`), not a lifecycle one, so it travels in the
-        // message and the response keeps the code a lifecycle client branches
-        // on: nothing was started, which is what `HOST_UNAVAILABLE` says.
-        sendRefusal(
-          response,
-          409,
-          'LIFECYCLE_MODE_HOST_UNAVAILABLE',
-          `Session "${sessionId}" could not be bound to a host (${bound.code}).`,
-        );
+      if (!result.ok) {
+        sendRefusal(response, result.status, result.code, result.message);
         return;
       }
 
-      const host = liveHostForSession(sessionHostManager, sessionId);
       response.json(
         createApiSuccessResponse({
-          hostId: bound.hostId,
-          sessionId,
-          mode: 'resident' satisfies HostMode,
-          pid: host?.pid ?? null,
+          hostId: result.hostId,
+          sessionId: result.sessionId,
+          mode: result.mode,
+          pid: result.pid,
         }),
       );
     }),
@@ -537,66 +419,25 @@ export function createSessionHostsRouter({
 
   router.post('/:sessionId/close', (request: Request, response: Response) => {
     const sessionId = routeParameter(request.params.sessionId);
-    const host = liveHostForSession(sessionHostManager, sessionId);
+    const result = closeResidentHost(sessionId, {
+      sessionHostManager,
+      readSession,
+      resolveHostDriver,
+      startResidentSession,
+    });
 
-    if (host) {
-      if (host.mode !== 'resident') {
-        sendRefusal(
-          response,
-          409,
-          'LIFECYCLE_MODE_NOT_RESIDENT',
-          `Session "${sessionId}" runs in "${host.mode}" mode; only a resident host can be closed on demand.`,
-        );
-        return;
-      }
-
-      // The reason is the one the vocabulary already has for this: the user closed
-      // the host (`HostCloseReason.user`). The manager records the close, detaches
-      // the binding, and relays it to the driver — for a resident host the driver
-      // answers by ending its input queue, which is the CLI's stdin EOF. The
-      // response therefore reports the decision rather than the process's death:
-      // the death is the process's to produce, and a client that needs it reads
-      // `/proc/<pid>` or the listing's `closeReason`, both of which the manager has
-      // already made true.
-      sessionHostManager.closeHost(host.hostId, 'user');
-
-      response.json(
-        createApiSuccessResponse({
-          hostId: host.hostId,
-          sessionId,
-          mode: host.mode,
-          closeReason: 'user' satisfies HostCloseReason,
-        }),
-      );
+    if (!result.ok) {
+      sendRefusal(response, result.status, result.code, result.message);
       return;
     }
 
-    // Nothing is serving the session, so there is nothing to close. Which
-    // *kind* of nothing decides the answer, and only the session row can tell
-    // them apart: a per-run session is refused (the verb is resident-only, and
-    // a client asking about one has misread the mode), a resident one is told
-    // there is no host, and an unknown id is told there is no session.
-    const session = readSession?.(sessionId) ?? null;
-    if (!session) {
-      sendRefusal(response, 404, 'SESSION_NOT_FOUND', `Session "${sessionId}" was not found.`);
-      return;
-    }
-
-    if (session.mode !== 'resident') {
-      sendRefusal(
-        response,
-        409,
-        'LIFECYCLE_MODE_NOT_RESIDENT',
-        `Session "${sessionId}" is stored as "${session.mode}"; only a resident session can be closed on demand.`,
-      );
-      return;
-    }
-
-    sendRefusal(
-      response,
-      404,
-      'SESSION_HOST_NOT_FOUND',
-      `Session "${sessionId}" is resident but no live host is serving it.`,
+    response.json(
+      createApiSuccessResponse({
+        hostId: result.hostId,
+        sessionId: result.sessionId,
+        mode: result.mode,
+        closeReason: result.closeReason,
+      }),
     );
   });
 
@@ -634,39 +475,6 @@ function sendRefusal(
  */
 function routeParameter(value: string | string[]): string {
   return Array.isArray(value) ? (value[0] ?? '') : value;
-}
-
-/**
- * The sentence from a rejected start, whatever was thrown.
- *
- * A refusal's message is the only part of it a user can act on, so a non-`Error`
- * rejection is stringified rather than dropped: the alternative — a generic
- * "could not be started" — would leave the caller knowing nothing it did not
- * already know from the status code.
- */
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-/**
- * The live host serving one application session, as the manager reports it.
- *
- * Read through `snapshot()` for the same reason the listing is: that is the
- * manager's read port, and a route that reached into the internal index would be
- * reading state the manager has already decided not to publish (a closed host
- * past its retention window, a record mid-transition). `closed` hosts are
- * skipped rather than found, so closing twice answers "not served by a live
- * host" rather than re-recording a close that already happened.
- */
-function liveHostForSession(
-  sessionHostManager: SessionHostManager,
-  appSessionId: string,
-): ProcessHost | null {
-  return (
-    sessionHostManager
-      .snapshot()
-      .find((host) => host.state !== 'closed' && host.bindings.has(appSessionId)) ?? null
-  );
 }
 
 /** Projects one manager record into the wire shape above. */
