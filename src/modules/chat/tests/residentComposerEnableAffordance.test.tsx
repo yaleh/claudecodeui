@@ -82,6 +82,8 @@ vi.mock('@/modules/chat/hooks/useVoiceAvailable', () => ({ useVoiceAvailable: ()
 vi.mock('@/shared/voiceDebug', () => ({
   isVoiceDebugEnabled: () => false,
   isVoiceTrimEnabled: () => false,
+  // VAD on, the shipped default: keeps this whole-module replacement complete.
+  isVoiceVadEnabled: () => true,
 }));
 vi.mock('@/modules/chat/hooks/useVoiceInput', () => ({
   useVoiceInput: () => ({

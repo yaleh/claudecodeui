@@ -52,6 +52,8 @@ vi.mock('@/modules/chat/hooks/useVoiceAvailable', () => ({ useVoiceAvailable: ()
 vi.mock('@/shared/voiceDebug', () => ({
   isVoiceDebugEnabled: () => false,
   isVoiceTrimEnabled: () => false,
+  // VAD on, the shipped default, so these cases still run the segmenting path.
+  isVoiceVadEnabled: () => true,
   voiceDebugMinSegmentSec: () => undefined,
   voiceDebugIdleSec: () => undefined,
   voiceDebugOriginalCapSec: () => undefined,

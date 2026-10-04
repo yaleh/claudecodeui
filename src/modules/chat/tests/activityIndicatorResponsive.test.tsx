@@ -343,6 +343,8 @@ vi.mock('@/modules/chat/hooks/useVoiceAvailable', () => ({ useVoiceAvailable: ()
 vi.mock('@/shared/voiceDebug', () => ({
   isVoiceDebugEnabled: () => false,
   isVoiceTrimEnabled: () => false,
+  // VAD on, the shipped default: keeps this whole-module replacement complete.
+  isVoiceVadEnabled: () => true,
 }));
 
 await i18next.use(initReactI18next).init({

@@ -224,6 +224,8 @@ vi.mock('@/shared/api', async (importOriginal) => {
 vi.mock('@/shared/voiceDebug', () => ({
   isVoiceDebugEnabled: () => false,
   isVoiceTrimEnabled: () => true,
+  // VAD on, the shipped default, so these cases still run the segmenting path.
+  isVoiceVadEnabled: () => true,
   voiceDebugMinSegmentSec: () => undefined,
   voiceDebugIdleSec: () => undefined,
   voiceDebugOriginalCapSec: () => undefined,
