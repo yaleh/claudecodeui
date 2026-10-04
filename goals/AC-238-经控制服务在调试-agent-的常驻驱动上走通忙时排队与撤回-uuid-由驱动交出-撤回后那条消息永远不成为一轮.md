@@ -1,7 +1,7 @@
 ---
 id: AC-238
 title: 经控制服务在调试 agent 的常驻驱动上走通忙时排队与撤回：uuid 由驱动交出，撤回后那条消息永远不成为一轮
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-019
 criterion: for f in
@@ -26,6 +26,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-04T19:25:29.596Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
