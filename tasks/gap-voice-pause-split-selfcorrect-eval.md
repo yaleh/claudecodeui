@@ -49,15 +49,15 @@ depends_on:
 
 ## AC
 
-- [ ] `test -f experiments/voice-vad/PREREG-pause-split.md` 成立，且其首次提交时间早于 `experiments/voice-vad/fixtures/pause-split.json` 的首次提交时间（`git log --diff-filter=A --format=%ct -- <文件>` 比较两个时间戳）
-- [ ] `node experiments/voice-vad/pause-split.mjs --offline` 从冻结快照重算全部读数，退出码 0，不联网、不用凭据
-- [ ] 快照网格 4 × 3 × 2 全部有格，每格 n = 20（4 脚本 × 5 重复），缺格数为 0；每格的 `resolved` 率与 Wilson 95% 置信区间写在快照里
-- [ ] 负对照：`node experiments/voice-vad/pause-split.mjs --offline --variant=swap-order` 的 `resolved` 率相对真实读数下降，方向与 PREREG 一致，退出码 0，输出含「负对照红」字样
-- [ ] 预算闸（不联网即可验证）：`node experiments/voice-vad/pause-split.mjs --dry-run` 在 ①缺 `pricing.json` ②单价为占位值 ③预估花费超过 `budgetCny` 三种情形下均以非 0 退出并指名原因；合法单价下打印「预估最坏花费」且退出码 0
-- [ ] 预算闸（累计）：用假 provider 让每次调用返回超大 usage，累计估算超过 `budgetCny` 的那一次之后不再发起任何新调用（假 provider 记录调用数，断言），已有读数仍写入快照
-- [ ] 快照记录累计 token 与按 `pricing.json` 折算的实际花费，且实际花费 ≤ `budgetCny`（1.0）
-- [ ] `docs/experiments/2026-10-04-voice-pause-split.md` 首句含「仅方向」，给出推荐 `flushSilenceSec` 与依据格，并且 `src/modules/chat/utils/voiceLiveSegmenter.ts` 里的 `DEFAULT_FLUSH_SILENCE_SEC` 与之一致（`grep` 两处数值相同）
-- [ ] `npm run lint` 与 `npm run typecheck` 退出码 0
+- [x] `test -f experiments/voice-vad/PREREG-pause-split.md` 成立，且其首次提交时间早于 `experiments/voice-vad/fixtures/pause-split.json` 的首次提交时间（`git log --diff-filter=A --format=%ct -- <文件>` 比较两个时间戳）
+- [x] `node experiments/voice-vad/pause-split.mjs --offline` 从冻结快照重算全部读数，退出码 0，不联网、不用凭据
+- [x] 快照网格 4 × 3 × 2 全部有格，每格 n = 20（4 脚本 × 5 重复），缺格数为 0；每格的 `resolved` 率与 Wilson 95% 置信区间写在快照里
+- [x] 负对照：`node experiments/voice-vad/pause-split.mjs --offline --variant=swap-order` 的 `resolved` 率相对真实读数下降，方向与 PREREG 一致，退出码 0，输出含「负对照红」字样
+- [x] 预算闸（不联网即可验证）：`node experiments/voice-vad/pause-split.mjs --dry-run` 在 ①缺 `pricing.json` ②单价为占位值 ③预估花费超过 `budgetCny` 三种情形下均以非 0 退出并指名原因；合法单价下打印「预估最坏花费」且退出码 0
+- [x] 预算闸（累计）：用假 provider 让每次调用返回超大 usage，累计估算超过 `budgetCny` 的那一次之后不再发起任何新调用（假 provider 记录调用数，断言），已有读数仍写入快照
+- [x] 快照记录累计 token 与按 `pricing.json` 折算的实际花费，且实际花费 ≤ `budgetCny`（1.0）
+- [x] `docs/experiments/2026-10-04-voice-pause-split.md` 首句含「仅方向」，给出推荐 `flushSilenceSec` 与依据格，并且 `src/modules/chat/utils/voiceLiveSegmenter.ts` 里的 `DEFAULT_FLUSH_SILENCE_SEC` 与之一致（`grep` 两处数值相同）
+- [x] `npm run lint` 与 `npm run typecheck` 退出码 0
 
 ## DoD
 
