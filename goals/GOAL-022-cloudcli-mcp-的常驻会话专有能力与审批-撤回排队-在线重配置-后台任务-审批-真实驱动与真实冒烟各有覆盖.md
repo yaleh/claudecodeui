@@ -1,7 +1,7 @@
 ---
 id: GOAL-022
 title: CloudCLI MCP 的常驻会话专有能力与审批：撤回排队、在线重配置、后台任务、审批，真实驱动与真实冒烟各有覆盖
-status: active
+status: achieved
 kind: goal
 origin: 人 yale 2026-10-05 指令：创建并激活 GOAL-020 至 GOAL-022 及其 AC；同日 02:10 退回
   draft，理由逐字「等 GOAL-020 达成后再激活」。2026-10-06T23:22:46Z GOAL-020 已 achieved（AC-257
@@ -19,6 +19,11 @@ statusLog:
     to: active
     actor: goal-cli
     reason: ""
+  - at: 2026-10-05T23:29:18.535Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: all ACs achieved + sufficiency covered"
 ---
 
 ## 背景
