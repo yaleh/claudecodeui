@@ -1,8 +1,10 @@
 import type { InputHTMLAttributes } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import SettingsSection from '@/modules/settings/SettingsSection';
 import SettingsToggle from '@/modules/settings/SettingsToggle';
+import { api } from '@/shared/api';
 import { useUiPreferences, useSetUiPreference } from '@/shared/context/UiPreferencesContext';
 import { useVoiceConfig } from '@/modules/settings/hooks/useVoiceConfig';
 import { useVoiceProviderOptions } from '@/modules/settings/hooks/useVoiceProviderOptions';
@@ -10,6 +12,14 @@ import { isVoiceConfigField, readVoiceConfigField } from '@/shared/voiceConfig';
 
 const inputClass =
   'w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring';
+
+/** The size floor the capacity box refuses to commit, mirroring the server's own bound. */
+const MIN_VOICE_DATA_MAX_BYTES = 1024;
+
+const clearButtonClass =
+  'rounded-md border border-destructive/50 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50';
+const subtleButtonClass =
+  'rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted';
 
 function Field({ label, ...props }: { label: string } & InputHTMLAttributes<HTMLInputElement>) {
   return (
@@ -56,6 +66,45 @@ export default function VoiceSettingsTab() {
   const { config, update } = useVoiceConfig();
   const { providers } = useVoiceProviderOptions();
   const voiceEnabled = preferences.voiceEnabled;
+
+  // THE CAPACITY BOX'S DRAFT. `voiceDataMaxBytes` is a bounded whole number the store enforces, but
+  // the box the user types in is text: binding it straight to the committed number would rewrite the
+  // field under the cursor on every keystroke and push half-typed values through the server's
+  // validation. So the text lives here until it parses to a whole number at or above the floor, and
+  // the effect below re-seeds it whenever the committed figure changes from elsewhere — a hydration
+  // landing after mount, or an edit made in another tab.
+  const [capacityDraft, setCapacityDraft] = useState(() => String(config.voiceDataMaxBytes));
+  useEffect(() => {
+    setCapacityDraft(String(config.voiceDataMaxBytes));
+  }, [config.voiceDataMaxBytes]);
+
+  // WHETHER THE CLEAR BUTTON IS ASKING TO CONFIRM. Deleting every recording is irreversible here, so
+  // the first click only arms the button and the second — after the user has read what it does —
+  // sends it. `clearing` disables both during the round trip so a double click cannot send twice.
+  const [confirmingClear, setConfirmingClear] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  // The count the server answered the last clear with, or `null` before the first one (and after one
+  // that failed, where leaving the button armed is the retry).
+  const [clearedCount, setClearedCount] = useState<number | null>(null);
+
+  const runClear = async (): Promise<void> => {
+    setClearing(true);
+    try {
+      const response = await api.voice.clearData();
+      const body: unknown = response.ok ? await response.json().catch(() => null) : null;
+      const deleted = body && typeof body === 'object' && typeof (body as { deleted?: unknown }).deleted === 'number'
+        ? (body as { deleted: number }).deleted
+        : 0;
+      setClearedCount(deleted);
+    } catch {
+      // The store is the server's to reach; a request that never landed changed nothing, so no count
+      // is shown and the confirm button stays for a retry.
+      setClearedCount(null);
+    } finally {
+      setClearing(false);
+      setConfirmingClear(false);
+    }
+  };
 
   // WHICH PROVIDER THE FORM IS ABOUT: the user's stored choice, or — before they have made one —
   // the first row the server would fall back to. The stored value is never second-guessed: an id
@@ -196,6 +245,74 @@ export default function VoiceSettingsTab() {
               </div>
             </div>
             <p className="text-xs text-muted-foreground">{t('voiceSettings.note')}</p>
+          </div>
+        </SettingsSection>
+      )}
+
+      {voiceEnabled && (
+        // D1: THE USER'S OWN KEPT RECORDINGS. On by default, stored on the machine that runs the
+        // server, and clearable in one confirmed action — the promise this section puts on screen.
+        // It is its own section rather than a field among the backend's, because nothing here
+        // configures a recogniser: the switch decides whether a transcription is kept at all.
+        <SettingsSection title={t('voiceSettings.dataTitle')} description={t('voiceSettings.dataDescription')}>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between rounded-lg border border-border p-3">
+              <div className="pr-3">
+                <div className="text-sm font-medium text-foreground">{t('voiceSettings.dataRecording')}</div>
+                <div className="text-xs text-muted-foreground">{t('voiceSettings.dataRecordingDescription')}</div>
+              </div>
+              <SettingsToggle
+                checked={config.voiceDataRecording}
+                onChange={(v) => update({ voiceDataRecording: v })}
+                ariaLabel={t('voiceSettings.dataRecording')}
+              />
+            </div>
+
+            <label className="block space-y-1">
+              <span className="text-sm font-medium text-foreground">{t('voiceSettings.dataCapacity')}</span>
+              <input
+                name="voiceDataMaxBytes"
+                type="number"
+                min={MIN_VOICE_DATA_MAX_BYTES}
+                className={inputClass}
+                value={capacityDraft}
+                onChange={(e) => {
+                  const text = e.target.value;
+                  setCapacityDraft(text);
+                  const parsed = Number(text);
+                  // Committed only once it is a whole number of bytes at or above the floor, so a
+                  // half-typed figure stays a draft rather than a request the server would refuse.
+                  if (Number.isInteger(parsed) && parsed >= MIN_VOICE_DATA_MAX_BYTES) {
+                    update({ voiceDataMaxBytes: parsed });
+                  }
+                }}
+              />
+              <span className="block text-xs text-muted-foreground">{t('voiceSettings.dataCapacityDescription')}</span>
+            </label>
+
+            <div className="space-y-2 rounded-lg border border-border p-3">
+              <div className="text-sm font-medium text-foreground">{t('voiceSettings.dataClearTitle')}</div>
+              <p className="text-xs text-muted-foreground">{t('voiceSettings.dataClearDescription')}</p>
+              {confirmingClear ? (
+                // THE SECOND STEP. The button above only armed this row; the destructive request is
+                // sent by the confirm button the user reaches after reading what it removes.
+                <div className="flex gap-2">
+                  <button type="button" className={clearButtonClass} onClick={() => void runClear()} disabled={clearing}>
+                    {t('voiceSettings.dataClearConfirm')}
+                  </button>
+                  <button type="button" className={subtleButtonClass} onClick={() => setConfirmingClear(false)} disabled={clearing}>
+                    {t('voiceSettings.dataClearCancel')}
+                  </button>
+                </div>
+              ) : (
+                <button type="button" className={clearButtonClass} onClick={() => setConfirmingClear(true)}>
+                  {t('voiceSettings.dataClear')}
+                </button>
+              )}
+              {clearedCount !== null && (
+                <p className="text-xs text-muted-foreground">{t('voiceSettings.dataCleared', { count: clearedCount })}</p>
+              )}
+            </div>
           </div>
         </SettingsSection>
       )}

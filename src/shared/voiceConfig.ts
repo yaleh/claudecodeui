@@ -48,6 +48,24 @@ export type VoiceConfig = {
   dashscopeEndpoint: string;
   dashscopeApiKey: string;
   dashscopeModel: string;
+  /**
+   * Whether this user's recordings are KEPT on the machine that runs the server (D1).
+   *
+   * THE USER-DATA SWITCH, and the other half of the promise the settings page shows: default ON,
+   * stored with the rest of this one document, and turned off by the user alone. It is a BOOLEAN
+   * rather than a header like the fields above because nothing about it configures a backend — it
+   * decides whether the server writes a record for a transcription at all.
+   */
+  voiceDataRecording: boolean;
+  /**
+   * How many bytes of recordings are kept before the store evicts the oldest.
+   *
+   * A NUMBER the form edits and the store enforces. The default is the store's own shipped ceiling
+   * (2 GiB), so a user who never touched it reads the same figure the server would apply by
+   * default. It is not a `VOICE_CONFIG_FIELDS` member: that list is the string fields whose blank
+   * value means "unset", while this one is always a number.
+   */
+  voiceDataMaxBytes: number;
 };
 
 /** The localStorage key the six fields lived under before they moved server-side. */
@@ -67,9 +85,22 @@ export const VOICE_CONFIG_DEFAULTS: VoiceConfig = {
   dashscopeEndpoint: '',
   dashscopeApiKey: '',
   dashscopeModel: '',
+  // D1: recording on, at the store's own 2 GiB ceiling. The two figures live beside the store's
+  // defaults rather than being invented here — a fresh user and a fresh deployment agree.
+  voiceDataRecording: true,
+  voiceDataMaxBytes: 2147483648,
 };
 
-const VOICE_CONFIG_FIELDS: readonly (keyof VoiceConfig)[] = [
+/**
+ * The STRING fields of the document, the ones a blank value means "unset" for.
+ *
+ * THE TWO USER-DATA FIELDS ARE DELIBERATELY ABSENT, and the `satisfies` below is what keeps that
+ * honest: this list drives `isEmptyConfig` and `readVoiceConfigField`, both of which call `.trim()`
+ * on the values they read, so a boolean in it would not compile. The union derived from it is the
+ * set of fields `coerceConfig` and `updateVoiceConfig` treat as strings; the typed fields are read
+ * and written beside that loop.
+ */
+const VOICE_CONFIG_FIELDS = [
   'baseUrl',
   'apiKey',
   'sttModel',
@@ -80,7 +111,7 @@ const VOICE_CONFIG_FIELDS: readonly (keyof VoiceConfig)[] = [
   'dashscopeEndpoint',
   'dashscopeApiKey',
   'dashscopeModel',
-];
+] as const satisfies readonly (keyof VoiceConfig)[];
 
 /**
  * Long enough to collapse typing in the settings fields into one request,
@@ -126,6 +157,16 @@ function coerceConfig(value: unknown): VoiceConfig {
     if (typeof value[field] === 'string') {
       next[field] = value[field];
     }
+  }
+  // The typed fields, read beside the string loop rather than inside it: a server that omitted the
+  // recording switch — an older deployment, or a document saved before it existed — leaves the
+  // default ON, which is the same reading the store itself gives an absent key. A value of the
+  // wrong type is discarded rather than coerced, exactly as a non-string field is above.
+  if (typeof value.voiceDataRecording === 'boolean') {
+    next.voiceDataRecording = value.voiceDataRecording;
+  }
+  if (typeof value.voiceDataMaxBytes === 'number' && Number.isFinite(value.voiceDataMaxBytes)) {
+    next.voiceDataMaxBytes = value.voiceDataMaxBytes;
   }
   return next;
 }
@@ -252,6 +293,20 @@ export function updateVoiceConfig(patch: Partial<VoiceConfig>): void {
     if (typeof value === 'string') {
       next[field] = value;
     }
+  }
+  // The recording switch and the capacity, applied only when the patch carries the right type: a
+  // stray `undefined` from a partially built patch must not blank a field the user did not touch,
+  // which is the same rule the string loop above follows. The capacity is required to be a positive
+  // finite number here so a form mid-edit cannot store a zero the store would then re-normalise.
+  if (typeof patch.voiceDataRecording === 'boolean') {
+    next.voiceDataRecording = patch.voiceDataRecording;
+  }
+  if (
+    typeof patch.voiceDataMaxBytes === 'number' &&
+    Number.isFinite(patch.voiceDataMaxBytes) &&
+    patch.voiceDataMaxBytes > 0
+  ) {
+    next.voiceDataMaxBytes = patch.voiceDataMaxBytes;
   }
   writeAndPersist(next);
 }

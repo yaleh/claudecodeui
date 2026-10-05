@@ -1,7 +1,7 @@
 ---
 id: gap-voice-send-diff-weak-labels
 title: 发送时的手改变成弱标注：把语音来源文字与最终发送文字做 token 对齐，生成「听到 → 想说」标签并回写语音数据记录（纯函数加发送钩子，不弹任何界面）
-status: todo
+status: ready
 labels:
   - gap
 parent: null

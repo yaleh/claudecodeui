@@ -17,6 +17,11 @@ import {
   voiceCaptureDirStartupLine,
 } from './voice-capture.js';
 import { createVoiceRouter } from './voice.routes.js';
+import {
+  createVoiceDataStore,
+  resolveVoiceDataDir,
+  voiceDataDirStartupLine,
+} from './voice-data.js';
 import { voiceLexicon } from './voice-lexicon.js';
 import { createVoiceService, createVoiceSettingsService } from './voice.service.js';
 
@@ -86,6 +91,24 @@ const voiceCaptureDirectory = resolveVoiceCaptureDir(
 voiceLog.info(voiceCaptureDirStartupLine(voiceCaptureDirectory));
 
 /**
+ * THE ONE READ of `VOICE_DATA_DIR` in this process, and the directory the user's own dictation goes
+ * into.
+ *
+ * THE SIBLING OF `VOICE_CAPTURE_DIR`, resolved the same way and from the same two inputs, but it
+ * names the USER-DATA store rather than the diagnostic capture: default BESIDE THE DATABASE
+ * (`~/.cloudcli/voice-data`), so a deployment that moved its state moved its recordings with it.
+ * Resolving creates nothing — the directory appears on the first record a user's settings let
+ * through — which is what keeps a user who turned recording off from leaving an empty directory
+ * behind.
+ *
+ * IT IS ANNOUNCED, like the capture directory and for the same reason: an operator has to be able to
+ * see where a user's own audio and text landed. Unlike the capture directory, this store DOES rotate
+ * itself (see its capacity ceiling), so the line is the map rather than a growth warning.
+ */
+const voiceDataDirectory = resolveVoiceDataDir(process.env.VOICE_DATA_DIR, process.env.DATABASE_PATH);
+voiceLog.info(voiceDataDirStartupLine(voiceDataDirectory));
+
+/**
  * The instant this process came up, for the one figure the attempt ids rest on.
  *
  * `Date.now()` AT MODULE EVALUATION is the closest this side has to "when did this instance start":
@@ -143,6 +166,12 @@ const voiceService = createVoiceService({
     // decides only whether the pre-VAD bytes are kept, never where the trimmed rows go.
     raw: voiceCaptureRaw.enabled,
   }),
+  // THE USER-DATA STORE, a separate seam from `capture` above. It is ALWAYS wired — the D1 promise is
+  // default-on, so the shipping deployment must hold a store — and its own gate (the user's
+  // `voiceDataRecording` setting, read off the document the request passes it) decides per user
+  // whether a record is written. Wiring it here rather than in the service is what keeps the store's
+  // directory the composition root's one answer, exactly as the capture directory is.
+  voiceData: createVoiceDataStore({ directory: voiceDataDirectory }),
   logger: voiceLog,
   fetchBackend: async (url, options) => {
     const abortController = new AbortController();
