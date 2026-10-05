@@ -72,17 +72,17 @@ AC-250（GOAL-020 退出条件 8 的第二条；SPEC `docs/proposals/mcp-gateway
 
 ## AC
 
-- [ ] AC1 判据红态基线逐字记录：改动前运行 AC-250 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-session-lifecycle.test.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-session-lifecycle.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-session-lifecycle.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 (a) 带 message 时返回 `sessionId` 与非空 `runId`，`runId` 与注册表当前运行逐字相等、`getRunById(runId).source === 'mcp'`、`listRunningRuns()` 含该会话；不带 message 时结果无 `runId` 字段、注册表无该运行、`listRunningRuns()` 不含它、`send` 计数为 0；逐字写出两侧 sessionId/runId/计数（正例对照：带 message 侧全成立）。
-- [ ] AC4 (b) 项目名唯一命中 ⇒ 创建成功且新行 `project_path` 等于该项目路径；多义 ⇒ `isError`、`code === 'TARGET_AMBIGUOUS'` 且候选逐条列出、会话行数前后相等（零副作用）、`create` 计数 0；逐字写出候选、路径与两侧行数。
-- [ ] AC5 (c) 仅 `cloudcli:session:send` 的令牌调 `session_create` 被拒（isError）、`mcp_audit_log` 新增恰好一行 `tool='session_create'`/`outcome='denied'`、`create` 计数为 0；带 `cloudcli:session:create` 的令牌成功；逐字写出该行与前后计数。
-- [ ] AC6 (d) 对正在运行的常驻会话 `session_interrupt` 返回 `aborted === true`；`getRunById(runId).status === 'aborted'`；宿主快照里该会话的 `pid` 前后逐字相等且宿主仍在；逐字写出 abort 前后 pid 与 status。
-- [ ] AC7 (e) 对空闲会话 `session_interrupt` 返回 `aborted === false` 且 `message` 逐字包含「没有可中止的运行」（不虚报已中止）；正例对照 (d) 为 `true`；逐字写出两侧返回值。
-- [ ] AC8 (f) 仅非 `cloudcli:session:control` 的令牌调 `session_interrupt` 被拒（isError）、审计恰一行 `tool='session_interrupt'`/`outcome='denied'`、`abort` 计数为 0；带 `cloudcli:session:control` 的令牌成功；逐字写出该行与前后计数。
-- [ ] AC9 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 中止后把常驻进程也关了 ⇒ AC6 的 pid 不变红；(ii) 空闲也回 `aborted: true` ⇒ AC7 红；(iii) 不带 message 也启动运行 ⇒ AC3 红。每条恢复命令 + 恢复后重跑绿。
-- [ ] AC10 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；AC-249 判据 `mcp-session-send.test.ts`、AC-245 判据 `mcp-read-tools.test.ts`、AC-246 判据 `mcp-resolve-target.test.ts` 与控制服务既有判据 `server/modules/websocket/tests/chat-control-*.test.ts` 不改一字仍逐字通过（本任务只替换两个 handler 的主体，不改工具集合、不改控制服务）。
-- [ ] AC11 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
+- [x] AC1 判据红态基线逐字记录：改动前运行 AC-250 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-session-lifecycle.test.ts`（写下完整命令与完整输出）。
+- [x] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-session-lifecycle.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-session-lifecycle.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
+- [x] AC3 (a) 带 message 时返回 `sessionId` 与非空 `runId`，`runId` 与注册表当前运行逐字相等、`getRunById(runId).source === 'mcp'`、`listRunningRuns()` 含该会话；不带 message 时结果无 `runId` 字段、注册表无该运行、`listRunningRuns()` 不含它、`send` 计数为 0；逐字写出两侧 sessionId/runId/计数（正例对照：带 message 侧全成立）。
+- [x] AC4 (b) 项目名唯一命中 ⇒ 创建成功且新行 `project_path` 等于该项目路径；多义 ⇒ `isError`、`code === 'TARGET_AMBIGUOUS'` 且候选逐条列出、会话行数前后相等（零副作用）、`create` 计数 0；逐字写出候选、路径与两侧行数。
+- [x] AC5 (c) 仅 `cloudcli:session:send` 的令牌调 `session_create` 被拒（isError）、`mcp_audit_log` 新增恰好一行 `tool='session_create'`/`outcome='denied'`、`create` 计数为 0；带 `cloudcli:session:create` 的令牌成功；逐字写出该行与前后计数。
+- [x] AC6 (d) 对正在运行的常驻会话 `session_interrupt` 返回 `aborted === true`；`getRunById(runId).status === 'aborted'`；宿主快照里该会话的 `pid` 前后逐字相等且宿主仍在；逐字写出 abort 前后 pid 与 status。
+- [x] AC7 (e) 对空闲会话 `session_interrupt` 返回 `aborted === false` 且 `message` 逐字包含「没有可中止的运行」（不虚报已中止）；正例对照 (d) 为 `true`；逐字写出两侧返回值。
+- [x] AC8 (f) 仅非 `cloudcli:session:control` 的令牌调 `session_interrupt` 被拒（isError）、审计恰一行 `tool='session_interrupt'`/`outcome='denied'`、`abort` 计数为 0；带 `cloudcli:session:control` 的令牌成功；逐字写出该行与前后计数。
+- [x] AC9 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 中止后把常驻进程也关了 ⇒ AC6 的 pid 不变红；(ii) 空闲也回 `aborted: true` ⇒ AC7 红；(iii) 不带 message 也启动运行 ⇒ AC3 红。每条恢复命令 + 恢复后重跑绿。
+- [x] AC10 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；AC-249 判据 `mcp-session-send.test.ts`、AC-245 判据 `mcp-read-tools.test.ts`、AC-246 判据 `mcp-resolve-target.test.ts` 与控制服务既有判据 `server/modules/websocket/tests/chat-control-*.test.ts` 不改一字仍逐字通过（本任务只替换两个 handler 的主体，不改工具集合、不改控制服务）。
+- [x] AC11 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
 
 ## DoD
 
@@ -110,3 +110,69 @@ AC-250（GOAL-020 退出条件 8 的第二条；SPEC `docs/proposals/mcp-gateway
 - 判据的 SDK 客户端用 `StreamableHTTPClientTransport` 并传基于 `node:http` 的 `fetch`：`listen(0)` 在本机会抽到 undici 拒绝的端口（内存 `undici-bad-port-lottery-in-listen0-route-tests`；AC-240–AC-249 同款说明）。
 - 边界 lint 会拦新增测试文件（内存 `quay-boundaries-lint-blocks-new-test-files`）；本判据文件已列入 `## Touches`。给 mcp-gateway barrel 加导出后，若某兄弟测试对该 barrel 整体 `vi.mock`，需把新导出补进那个 mock 工厂（内存 `adding-an-export-reds-sibling-wholesale-vimocks`）。
 - 写工具集合 `MCP_STAGE4_WRITE_TOOLS` 是写工具名与 scope 的唯一事实来源（AC-252 的自指保护读它取网关写工具名）；本任务只替换 `session_create`/`session_interrupt` 的 handler，不改集合、不改 scope 字面量。
+
+## Change Notes (worker, 2026-10-05)
+
+实现提交：`061da3d2 feat(mcp-gateway): implement session_create and session_interrupt (AC-250)`（含判据）。以下为逐条 AC 证据；判据读数前缀统一为 `session-lifecycle `。
+
+### AC1 红态基线（判据文件尚不存在时）
+命令：`for f in server/modules/mcp-gateway/tests/mcp-session-lifecycle.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-session-lifecycle.test.ts`
+输出（stderr）：`缺判据文件：server/modules/mcp-gateway/tests/mcp-session-lifecycle.test.ts`；退出码 1。
+
+### AC2 绿
+`# tests 7` / `# pass 7` / `# fail 0`（退出 0）。
+
+### AC3 (a) 带 message 有运行 / 不带零运行（逐字）
+带 message：`(a) with-message payload={"sessionId":"764d0658-f27a-4705-bf86-f89d5bae7cd6","runId":"e304a6d1-6ced-44d4-bda2-0d56393edeab"}`
+`(a) registry.current={"runId":"e304a6d1-6ced-44d4-bda2-0d56393edeab","source":"mcp","status":"running"}`
+`(a) registry.byId={"runId":"e304a6d1-...","sessionId":"764d0658-...","source":"mcp","status":"running",...}`
+`(a) listRunningRuns(for session)=[{"sessionId":"764d0658-...","provider":"debug",...}]`；send 计数 1；`runId` 与注册表当前运行逐字相等；`byId.source` = `mcp`。
+不带 message：`(a) no-message payload={"sessionId":"3042cedd-2f2c-4bdb-96d4-a1eb25d927af"}`（无 `runId` 字段）；`(a) no-message registry.getRun=null sendCount=0`；`listRunningRuns` 不含它。
+
+### AC4 (b) 多义零副作用 / 唯一命中落行（逐字）
+多义：`(b) ambiguous isError=true body={"ok":false,"code":"TARGET_AMBIGUOUS","query":"Alpha","kind":"project","candidates":[{"id":"p-alpha-1","title":"Alpha Workspace"},{"id":"p-alpha-2","title":"Alpha Sandbox"}],"message":"多个项目的标题包含 \"Alpha\"（共 2 个），请指定其中一个；不要替用户挑一个。"}`
+`(b) rowsBefore=1 rowsAfterAmbiguous=1 createBefore=0 createAfter=0`（行数相等、创建零副作用）。
+唯一：`(b) unique isError=false sessionId="5b88d0b1-a42c-4fb8-ba61-c5a37f77395b" createdRow={"session_id":"f302ebf7-d676-46ad-9f7f-e36141bb63f5","project_path":"/tmp/mcp-session-lifecycle-04xau7/beta-lab"} rowsAfterUnique=2`（新行 `project_path` === 项目路径，行数 +1）。
+
+### AC5 (c) scope `cloudcli:session:create` 不足（逐字）
+`(c) isError=true text="Insufficient scope for this tool." createBefore=0 createAfter=0`
+`(c) newAuditRows=[{"id":1,"token_id":2,"client_id":null,"tool":"session_create","args_digest":"{\"project\":\"p-beta\",\"provider\":{\"length\":5,\"preview\":\"debug\"}}","outcome":"denied","duration_ms":0}]`（恰好一行 `tool=session_create`/`outcome=denied`）。
+正例：`(c) allowed isError=false sessionId="9fd900c8-cbd5-4257-8b5c-3f3363a43e94" createCount=1`。
+
+### AC6 (d) 中止常驻运行、宿主 pid 不变（逐字）
+`(d) pidBefore=4242 hostBefore=true statusBefore=running runId=eb93bfaa-1e45-4c6a-91ba-4e9aa1f905d0`
+`(d) interrupt={"aborted":true} isError=false pidAfter=4242 hostAfter=true statusAfter=aborted abortCount=1`（pid 逐字相等、宿主仍在、注册表终止态 `aborted`）。
+
+### AC7 (e) 空闲如实（逐字）
+`(e) idle={"aborted":false,"message":"该会话当前没有正在运行的运行，没有可中止的运行。"} isError=false`（`message` 含「没有可中止的运行」）。
+正例对照：`(e) busy={"aborted":true} statusAfter=aborted`。
+
+### AC8 (f) scope `cloudcli:session:control` 不足（逐字）
+`(f) isError=true text="Insufficient scope for this tool." abortBefore=0 abortAfter=0`
+`(f) newAuditRows=[{"id":1,"token_id":3,"client_id":null,"tool":"session_interrupt","args_digest":"{\"session\":\"05afb732-e075-4b94-9088-7ae6012403b7\"}","outcome":"denied","duration_ms":0}]`（恰好一行 `tool=session_interrupt`/`outcome=denied`；abort 计数 0）。
+正例：`(f) allowed={"aborted":true} abortCount=1 status=aborted`。
+
+### AC9 取假形态（先提交实现 061da3d2，再逐条变异；恢复命令 `git checkout -- <file>`；恢复后整判据重跑 `# tests 7 / # pass 7 / # fail 0`）
+(i) 「中断后顺手关常驻进程」：适配层只持有 `control.abort` 一个缝、没有宿主管理器句柄，故变异落在判据注入的 `sessionInterruptDeps.control.abort`（abort 成功后 `manager.closeHost(host, 'user')`）——这正是「适配层只调 abort、不碰宿主」这一性质唯一能被注入的方位；变异 diff 见提交记录附注。逐字失败行：
+`AssertionError [ERR_ASSERTION]: the resident host must still be present after an interrupt` / `actual: null,` / `expected: true,`（读数 `pidAfter=null hostAfter=false`）。恢复：`git checkout -- server/modules/mcp-gateway/tests/mcp-session-lifecycle.test.ts`。
+(ii) `mcp-session-lifecycle.ts`：空闲分支改回 `return { aborted: true }` ⇒ (e) 红，逐字失败行：
+`AssertionError [ERR_ASSERTION]: an idle session must report aborted: false` / `actual: true,` / `expected: false,`（读数 `(e) idle={"aborted":true}`）。恢复：`git checkout -- server/modules/mcp-gateway/mcp-session-lifecycle.ts`。
+(iii) `mcp-session-lifecycle.ts`：删掉「空 message 提前返回」分支、恒调 `deps.control.send` ⇒ (a) 红，逐字失败行：
+`AssertionError [ERR_ASSERTION]: the result must carry NO runId field` / `actual: true,` / `expected: false,`（读数 `(a) no-message payload={"sessionId":"a314a58e-...","runId":"c3d24f3f-..."}`、`sendCount=1`）。恢复：`git checkout -- server/modules/mcp-gateway/mcp-session-lifecycle.ts`。
+
+### AC10 不回归与仓库门
+- `npm run typecheck`：退出 0（三个 tsconfig 全过）。
+- `npm run lint`：`: error ` 计数 = 0（退出 0）。
+- 未改一字、逐字仍绿的既有判据：`mcp-session-send` + `mcp-read-tools` + `mcp-resolve-target` 合并跑 `# tests 20 / # pass 20 / # fail 0`；`chat-control-access/busy/send/source/wiring` 合并跑 `# tests 20 / # pass 20 / # fail 0`。
+
+### AC11 diff 与 Touches 对齐
+`git diff --stat develop...HEAD`（5 文件；任务文件由本次 ABI 写入）：
+- `server/modules/mcp-gateway/index.ts`（改动）
+- `server/modules/mcp-gateway/mcp-gateway.transport.ts`（改动）
+- `server/modules/mcp-gateway/mcp-gateway.write-tools.ts`（改动）
+- `server/modules/mcp-gateway/mcp-session-lifecycle.ts (new)`
+- `server/modules/mcp-gateway/tests/mcp-session-lifecycle.test.ts (new)（判据）`
+与 `## Touches` 逐条对齐。
+
+### 夹具缝说明（判据的 `sessions.create` 返回 armed 会话）
+判据的 `sessions.create` 真的调用 `sessionsService.createAppSession`（AC4 的新行由它写入真库），但返回的 sessionId 是调试 agent 已武装场景的 id：调试 provider 只能驱动 `readArmedDebugAgentScenario(id)` 命中的会话，而武装步骤铸造的 id 不可能等于 `createAppSession` 为新行铸造的 id。`switchLifecycle` 经 `sessionsDb.setSessionLifecycleMode` 写存储模式（调试 provider 是 runtime provider，`sessionsService.switchSessionLifecycleMode` 只读静态 union 能力表）。判据文件头部有同款说明。
