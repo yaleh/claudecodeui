@@ -79,8 +79,6 @@ const REAL_TURN_MIN_BYTES = 10 * 1024;
  * the loss was reported — a red nobody can attribute.
  */
 const WAIT_MS = 15_000;
-/** How long the withdrawal is given to reach its verdict (the driver's own bound is shorter). */
-const CANCEL_WAIT_MS = 10_000;
 /** How long the mock is watched after the first round ends, to see whether the withdrawn message runs. */
 const NEGATIVE_WINDOW_MS = 4_000;
 
@@ -521,13 +519,6 @@ test('control service queues and withdraws a real resident process message; pid 
     console.log(`[readings] (b) cancelVerdict=${JSON.stringify(verdict)} (AC wording 'cancelled' == driver word 'withdrawn')`);
     assert.strictEqual(verdict, 'withdrawn', `the withdrawal must succeed (got ${JSON.stringify(verdict)})`);
 
-    const lifecycleCancelled = await waitFor(
-      () => (busyReading()?.lifecycle ?? []).some((event) => event.commandUuid === queuedMessageUuid && event.state === 'cancelled'),
-      CANCEL_WAIT_MS,
-      "the CLI's `command_lifecycle state=cancelled` for the withdrawn uuid",
-    );
-    assert.strictEqual(lifecycleCancelled, true, 'the CLI must report the uuid cancelled');
-
     const readingAfterCancel = liveResidentReading();
 
     // Release the first round and let it really end. Awaiting the run's own promise is the
@@ -542,12 +533,18 @@ test('control service queues and withdraws a real resident process message; pid 
     assert.strictEqual(roundOneEnded, true, 'round one must end after its held reply is released');
 
     // The window the withdrawn message would have started its own turn in, had the withdrawal not
-    // really removed it from the process's queue.
+    // really removed it from the process's queue. Both readings are taken here — after the first
+    // round has ended and the CLI has had its chance to start the queued message — because that is
+    // the only moment "it never ran" is a fact about the run rather than about the ordering.
     await settle(NEGATIVE_WINDOW_MS);
     const readingAfterFirstEnd = liveResidentReading();
     const withdrawnRealTurns = realTurnsCarrying(mock.received, WITHDRAWN_TEXT);
+    const lifecycleCancelled = (busyReading()?.lifecycle ?? []).some(
+      (event) => event.commandUuid === queuedMessageUuid && event.state === 'cancelled',
+    );
     console.log(
       `[readings] (b) withdrawnRealTurns=${withdrawnRealTurns} withdrawnAnyRequest=${requestCountCarrying(mock.received, WITHDRAWN_TEXT)} ` +
+        `lifecycleCancelled=${String(lifecycleCancelled)} ` +
         `realTurnBodies=${JSON.stringify(mock.received.filter(isRealTurn).map((request) => request.body.length))} ` +
         `allMessagesBodies=${JSON.stringify(messagesRequests(mock.received).map((request) => request.body.length))}`,
     );
@@ -556,6 +553,10 @@ test('control service queues and withdraws a real resident process message; pid 
       0,
       `a withdrawn message must never become a turn (real-turn requests carrying it: ${withdrawnRealTurns})`,
     );
+    // The CLI's own account of the withdrawal, read after the fact. Kept in the criterion because
+    // the driver's `withdrawn` verdict is derived from exactly this event (see `cancelQueuedInput`):
+    // a withdrawal that never cancelled would be a verdict without the CLI having agreed to it.
+    assert.strictEqual(lifecycleCancelled, true, 'the CLI must report the uuid cancelled');
 
     // -------------------------------------------------------------------
     // (c) — the host process never changed.
