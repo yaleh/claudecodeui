@@ -4,7 +4,7 @@ title: AC-268 端到端 OAuth 流程在真实 HTTP 上走通：临时实例（MC
   开、MCP_DCR=open）一次运行里完成发现/注册/授权换码/换令牌/调用 /mcp/刷新/吊销后被拒，且错误密码、错误
   verifier、授权码重放三条反例同在；判据
   server/modules/mcp-gateway/tests/oauth-flow.e2e.test.ts
-status: todo
+status: ready
 labels:
   - gap
 parent: null

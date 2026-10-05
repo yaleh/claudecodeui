@@ -192,3 +192,33 @@ AC-249（GOAL-020 退出条件 8 的第一条；SPEC `docs/proposals/mcp-gateway
 - 判据用**真实调试 agent 且不分子进程**：文件顶部在**任何 aliased import 之前**写 `process.env.DEBUG_AGENT='on'` / `DEBUG_AGENT_HOME`（并把 `HOME` 重定向到 scratch），因此 `provider.registry` 在 gate 打开后才构建。AC-245 判据注释里「gate 已在 import 时关闭」的前提只在先有静态 application import 时成立；本文件无静态 application import，故 gate 可开，常驻/按次进程两种会话都是调试 agent 真会话。
 - `writeTools` 未接线时传输行为与 AC-240/244/245 完全一致（不注册任何写工具），因此只读集合判据不受影响。
 - 判据的 REST 运行中列表在同一 app 上挂 `GET /api/providers/sessions/running`，处理函数**请求时**读 `chatRunRegistry.listRunningRuns()`（与生产该路由同一数据源），不是夹具事先拍下的快照。
+
+## Change Notes (worker, 2026-10-05, round 2)
+
+上一轮 exited-not-landed 的真因（suite 日志的诊断行文本误导）——**不是** face 1 registry，而是 `server/modules/debug-agent/tests/debug-agent-gate.test.ts` 的
+`the gate has exactly one read point under server/`：
+
+```
+✖ the gate has exactly one read point under server/
+  AssertionError [ERR_ASSERTION]: a consumer that parsed the gate variable itself would be a second, independently-wrong decision
+  actual: [
+    "server/modules/mcp-gateway/tests/mcp-session-send.test.ts:72: process.env.DEBUG_AGENT = 'on';",
+    "server/modules/mcp-gateway/tests/mcp-session-send.test.ts:73: process.env.DEBUG_AGENT_HOME = path.join(SCRATCH, 'fixture');",
+    'server/modules/mcp-gateway/tests/mcp-session-send.test.ts:77: mkdirSync(process.env.DEBUG_AGENT_HOME, { recursive: true });'
+  ]
+  expected: []
+```
+
+真因：本任务判据必须在首个 aliased import 之前设置 gate 变量（这是让 `provider.registry` 构建真调试 provider 的唯一办法，见上节），但**字面写法**使它成为 gate 变量的第二个读取点，触发 debug agent 自身判据的「唯一读取点」不变量。机械 delta 判定把它读成 UNRELATED——因为失败文件不在本任务 diff 里；真实关系是「本任务**新增的判据文件**把那个文件判红」。
+
+修复（提交 `1c4a85e2 fix(mcp-gateway): spell the debug-agent gate vars through constants (AC-249)`）：按 debug agent 自身判据（`debug-agent-control-queue/external-write/fixture-isolation/control-plane.test.ts`）的既有惯例，把两个变量名经常量拼写——`const GATE_VAR = 'DEBUG_AGENT'` / `const GATE_HOME_VAR = 'DEBUG_AGENT_HOME'`，只用 `process.env[GATE_VAR]` 写夹具。gate 模块仍是唯一**解析**点，本文件只**设置**夹具；断言与实现一字未动。顺带用中间量 `SCRATCH_HOME`/`FIXTURE_HOME` 消掉两处 `process.env.*` 读取。
+
+本轮读数：
+- `server/modules/debug-agent/tests/debug-agent-gate.test.ts`：`# tests 6 / # pass 6 / # fail 0`（修复前 `# pass 5 / # fail 1`）。
+- `server/modules/mcp-gateway/tests/mcp-session-send.test.ts`：`# tests 7 / # pass 7 / # fail 0`（gate 仍打开，常驻/按次进程两种真调试 agent 会话照常）。
+- `npm run typecheck` 退出 0；`npm run lint` `: error ` 计数 0。
+
+AC10 判别力复核（改动后抽查取假形态 (ii)，证断言未被夹具改动削弱）：`mcp-session-send.ts:208` `via: 'mcp'` → `via: 'scheduled'`，逐字失败行
+`AssertionError [ERR_ASSERTION]: the run source must read mcp` / `actual: 'scheduled',` / `expected: 'mcp',`；本轮另读到 (g) 也红：`actual: [ 'websocket', 'scheduled' ], expected: [ 'websocket', 'mcp' ]`。恢复命令 `git checkout -- server/modules/mcp-gateway/mcp-session-send.ts`，恢复后 7/7 回绿。
+
+`## Touches` 不变：本轮只改 `server/modules/mcp-gateway/tests/mcp-session-send.test.ts`（已在 Touches 中），无新增文件。

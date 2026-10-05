@@ -101,3 +101,18 @@ export type {
 // server entrypoint (mounts both) and this module's oauth-dcr criterion.
 export { createOAuthClientsRouter, mountOAuthRegister } from '@/modules/oauth/oauth-clients.routes.js';
 export type { MountOAuthRegisterDeps, OAuthRegisterMountReading } from '@/modules/oauth/oauth-clients.routes.js';
+// createOAuthSettingsService: the settings-page read/revoke/disable surface over
+// the OAuth store (AC-265) — the caller's own grants, a 404 for a foreign grant,
+// and the client list/disable. Consumers: the server entrypoint (which builds one
+// instance for the router) and this module's oauth-settings criterion.
+export { createOAuthSettingsService } from '@/modules/oauth/oauth-settings.service.js';
+export type {
+  OAuthClientSummary,
+  OAuthGrantSummary,
+  OAuthSettingsService,
+} from '@/modules/oauth/oauth-settings.service.js';
+// createOAuthSettingsRouter: the thin router factory mounting
+// /api/settings/oauth-grants and /api/settings/oauth-clients (AC-265). Consumers:
+// the server entrypoint (mounts it behind authenticateToken) and this module's
+// oauth-settings criterion.
+export { createOAuthSettingsRouter } from '@/modules/oauth/oauth-settings.routes.js';

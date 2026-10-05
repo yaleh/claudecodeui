@@ -43,6 +43,8 @@ import {
     createAccessTokensService,
     createOAuthClientsRouter,
     createOAuthProvider,
+    createOAuthSettingsRouter,
+    createOAuthSettingsService,
     createOAuthStore,
     createTokenInfoRouter,
     mountOAuthRegister,
@@ -97,7 +99,7 @@ import {
     startMcpAuditRetention,
 } from './modules/mcp-gateway/index.js';
 import { browserUseService } from './modules/browser-use/browser-use.service.js';
-import { initializeDatabase, sessionsDb } from './modules/database/index.js';
+import { initializeDatabase, oauthClientsDb, oauthGrantsDb, sessionsDb } from './modules/database/index.js';
 import { configureWebPush } from './modules/notifications/index.js';
 
 const __dirname = getModuleDirectory(import.meta.url);
@@ -297,6 +299,24 @@ const oauthStore = createOAuthStore();
 // settings route: only a logged-in human may mint a client, and the response is
 // the plaintext secret's one and only appearance.
 app.use('/api/oauth/clients', authenticateToken, createOAuthClientsRouter({ store: oauthStore }));
+
+// The OAuth settings surface (AC-265): the caller's own consent grants (list /
+// revoke) and the client list (list / disable) that the settings page drives.
+// Mounted under `/api/settings` alongside the PAT routes and behind the same
+// `authenticateToken`. It shares the ONE `oauthStore` above, so a revocation here
+// stamps the same row the `/mcp` auth path reads on the next request — no second
+// store, no cache.
+app.use(
+    '/api/settings',
+    authenticateToken,
+    createOAuthSettingsRouter(
+        createOAuthSettingsService({
+            store: oauthStore,
+            grantsDb: oauthGrantsDb,
+            clientsDb: oauthClientsDb,
+        })
+    )
+);
 
 app.use('/api/system', authenticateToken, systemRoutes);
 
