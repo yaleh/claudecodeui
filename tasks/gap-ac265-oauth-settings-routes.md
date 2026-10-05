@@ -4,7 +4,7 @@ title: AC-265 已连接的应用与 OAuth
   客户端设置接口：列出当前用户授权（名称/回调主机/scope/授权时间/最近使用，无密钥）、吊销授权（越权 404）、禁用客户端，吊销/禁用后其令牌下一次
   /mcp 返回 401，客户端列表区分 DCR 与手工；判据
   server/modules/oauth/tests/oauth-settings.routes.test.ts
-status: todo
+status: ready
 labels:
   - gap
 parent: null
