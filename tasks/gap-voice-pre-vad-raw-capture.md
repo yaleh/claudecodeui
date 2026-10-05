@@ -1,7 +1,7 @@
 ---
 id: gap-voice-pre-vad-raw-capture
 title: 采集 VAD 之前的原始音频（被动语料）：新增 raw 采集端点 + 独立 VOICE_CAPTURE_RAW 开关 + listenId 配对
-status: todo
+status: ready
 labels:
   - gap
 parent: null
