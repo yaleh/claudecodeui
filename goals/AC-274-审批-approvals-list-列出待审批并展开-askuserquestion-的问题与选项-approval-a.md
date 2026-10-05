@@ -2,7 +2,7 @@
 id: AC-274
 title: 审批：approvals_list 列出待审批并展开 AskUserQuestion 的问题与选项，approval_answer
   解除审批，过期或不存在的请求有明确说法
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-022
 criterion: for f in server/modules/mcp-gateway/tests/mcp-approvals.test.ts; do [
@@ -29,6 +29,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T23:28:12.071Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
