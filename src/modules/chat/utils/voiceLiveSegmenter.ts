@@ -5,14 +5,25 @@
  * `voiceEndpoint.ts`'s `StreamingVad` answers "was this 20 ms frame speech?" and, from that,
  * where a sentence ends. `voiceSegments.ts`'s pipeline answers "what happens to a segment once it
  * is a job?" — ordinals, retries, reassembly. What neither owns is the step between them: turning
- * a live PCM stream into the *segments themselves*. That is this module, and it owns exactly four
- * rules, each of which is a cost decision rather than a detection one:
+ * a live PCM stream into the *segments themselves*. That is this module, and it owns exactly five
+ * rules, each of which is a decision rather than a detection one:
  *
- *   · MIN LENGTH (`DEFAULT_MIN_SEGMENT_SEC`, 30 s). A segment is not worth cutting until enough
- *     of it is speech. On `dashscope-omni` every request carries a fixed ~407-token prompt and
- *     audio costs ~7 tokens/s, so a request's fixed overhead is worth about 58 s of audio — the
- *     way to lose money is to cut finely. While the buffered *speech* is under the floor, a pause
- *     does not end the segment: it is stepped over and kept (compressed, below).
+ *   · FLUSH ON SILENCE (`DEFAULT_FLUSH_SILENCE_SEC`, 5 s). Once the buffered speech has been
+ *     followed by this much continuous silence, it is emitted *however short it is*. This is the
+ *     latency rule: without it a lone short utterance waits inside the buffer until the user
+ *     presses stop, because the min-length floor below would otherwise step over every pause.
+ *     The emitted segment does not carry the wait — it ends at the last speech frame, with only
+ *     the usual trailing keep-gap. The wait after a segment is a property from a *real unit price*
+ *     re-read (input ¥0.8 / output ¥2.7 per million tokens): a 15 s request costs ¥0.001–0.006, so
+ *     a minute of speech cut into many requests is a fraction of a yuan a day. The recogniser's
+ *     own latency (15–22 s on `dashscope-omni`) dwarfs the extra 5 s, so cost is not the reason to
+ *     wait and latency is the reason not to.
+ *
+ *   · MIN LENGTH (`DEFAULT_MIN_SEGMENT_SEC`, 20 s). A segment is not worth cutting at a *pause*
+ *     until enough of it is speech. The original 30 s came from the same fixed-overhead cost model;
+ *     the re-read above is why it drops to 20. While the buffered *speech* is under the floor, a
+ *     pause does not end the segment: it is stepped over and kept (compressed, below). The silence
+ *     flush above is the release valve for everything the floor would otherwise hold.
  *
  *   · CUT ON A PAUSE (`DEFAULT_CUT_PAUSE_SEC`, 2.0 s). Once the floor is reached, the segment ends
  *     at the first pause at least this long. A pause is the safest place a cut can land — no word
@@ -46,12 +57,25 @@ import { downsampleVoice, UPLOAD_SAMPLE_RATE } from '@/modules/chat/utils/audioD
 import { frameRms, type VadEvent } from '@/shared/voiceEndpoint';
 
 /**
- * The shortest speech a segment may carry. Below this a pause does not end the segment: the
- * measured cost model (a fixed ~407-token prompt per request vs ~7 tokens/s of audio) makes a
- * request's fixed overhead worth about 58 s of audio, so cutting finer than this is spending a
- * whole prompt to save a handful of audio tokens.
+ * The shortest speech a segment may carry *before a pause ends it*. Below this the pause is
+ * stepped over rather than cut on, so a short burst stays in the buffer waiting for either more
+ * speech or the silence flush. It is a cost floor, not a latency one: the fixed ~407-token prompt
+ * per request is why a segment is not cut at every breath. The original 30 s came from that model;
+ * a re-read against the real unit price (input ¥0.8 / output ¥2.7 per million tokens) shows the
+ * overhead is worth far less than that, so the floor drops to 20 s and `DEFAULT_FLUSH_SILENCE_SEC`
+ * releases anything that never reaches it.
  */
-export const DEFAULT_MIN_SEGMENT_SEC = 30;
+export const DEFAULT_MIN_SEGMENT_SEC = 20;
+
+/**
+ * The continuous silence, after buffered speech, that emits the buffer regardless of how short it
+ * is. This is the sentence's own end: a user who says one short phrase and then says nothing should
+ * see text while still recording, not after a stop. It is measured in VAD frame counts rather than
+ * against a wall clock, so a throttled (background) tab — where timers fire late and audio frames do
+ * not — still flushes at the same point in the audio. The emitted segment ends at the last speech
+ * frame; the wait itself is not carried into the upload.
+ */
+export const DEFAULT_FLUSH_SILENCE_SEC = 5;
 
 /**
  * The longest a segment may grow without a long pause. 60 s of 16 kHz mono PCM is about 1.9 MB,
@@ -98,6 +122,7 @@ export type LiveSegmenterOptions = {
   minSegmentSec?: number;
   maxSegmentSec?: number;
   cutPauseSec?: number;
+  flushSilenceSec?: number;
   keepGapSec?: number;
   overlapSec?: number;
 };
@@ -190,6 +215,7 @@ export class LiveSegmenter {
   private readonly minFrames: number;
   private readonly maxFrames: number;
   private readonly cutPauseFrames: number;
+  private readonly flushFrames: number;
   private readonly keepGapFrames: number;
   private readonly overlapFrames: number;
   private readonly forceCutSearchFrames: number;
@@ -212,6 +238,7 @@ export class LiveSegmenter {
     this.minFrames = Math.max(1, Math.round((options.minSegmentSec ?? DEFAULT_MIN_SEGMENT_SEC) * this.framesPerSec));
     this.maxFrames = Math.max(1, Math.round((options.maxSegmentSec ?? DEFAULT_MAX_SEGMENT_SEC) * this.framesPerSec));
     this.cutPauseFrames = Math.max(1, Math.round((options.cutPauseSec ?? DEFAULT_CUT_PAUSE_SEC) * this.framesPerSec));
+    this.flushFrames = Math.max(1, Math.round((options.flushSilenceSec ?? DEFAULT_FLUSH_SILENCE_SEC) * this.framesPerSec));
     this.keepGapFrames = Math.max(0, Math.round((options.keepGapSec ?? DEFAULT_KEEP_GAP_SEC) * this.framesPerSec));
     this.overlapFrames = Math.max(0, Math.round((options.overlapSec ?? OVERLAP_SEC) * this.framesPerSec));
     this.forceCutSearchFrames = Math.max(1, Math.round(FORCE_CUT_SEARCH_SEC * this.framesPerSec));
@@ -272,7 +299,7 @@ export class LiveSegmenter {
 
   /**
    * The whole-buffer pass: derive the frame flags from the events, then walk the frames applying
-   * the four rules. Recomputed from scratch each `push` rather than carried incrementally, because
+   * the five rules. Recomputed from scratch each `push` rather than carried incrementally, because
    * a VAD event is *backdated* — it names a boundary earlier than the frame it arrived on — and a
    * running counter would have to un-count frames it had already counted. The pass is O(frames)
    * of cheap work with the energies cached, and the emitted segments are stable: a cut needs the
@@ -307,9 +334,16 @@ export class LiveSegmenter {
         const gap = i - lastSpeechFrame;
         if (gap <= this.keepGapFrames) outputFrames += 1;
 
-        // A pause cut lands at the pause's start — the frame after the last speech frame — so
-        // the reported boundary is the silence's own beginning.
-        if (speechFrames >= this.minFrames && gap >= this.cutPauseFrames) {
+        // Both rules emit the same boundary — the frame after the last speech frame, so the
+        // reported end is the silence's own beginning — and differ only in what they gate on.
+        // The pause cut needs the floor; the silence flush does not, which is what lets a lone
+        // short utterance go out. A run long enough for the floor is already cut at the shorter
+        // pause threshold (2 s < 5 s), so the flush only ever fires for a buffered segment under
+        // the floor. After either, the buffer is empty and continued silence produces nothing
+        // until new speech opens the next segment.
+        const pauseCut = speechFrames >= this.minFrames && gap >= this.cutPauseFrames;
+        const silenceFlush = gap >= this.flushFrames;
+        if (pauseCut || silenceFlush) {
           segments.push({ startFrame: pendingStart, endFrame: lastSpeechFrame + 1, forced: false, closed: true });
           pendingStart = -1;
           speechFrames = 0;

@@ -45,3 +45,23 @@ export type {
   RevokeGrantResult,
   VerifyOAuthTokenResult,
 } from '@/modules/oauth/oauth-store.service.js';
+// createOAuthProvider: the OAuth authorization-server SEMANTICS (PKCE S256,
+// single-use 60-second codes with replay revocation, refresh rotation/reuse
+// revocation, audience binding, exact redirect-uri matching, confidential-client
+// secrets, configurable lifetimes). Consumers: this module's
+// oauth-provider criterion, and the later endpoint tasks (AC-262+) that expose
+// the authorization-server HTTP surface on top of it.
+export { createOAuthProvider } from '@/modules/oauth/oauth-provider.service.js';
+export type {
+  AuthorizeInput,
+  AuthorizeResult,
+  ExchangeAuthorizationCodeInput,
+  ExchangeRefreshTokenInput,
+  ExchangeResult,
+  OAuthErrorCode,
+  OAuthProvider,
+  OAuthProviderOptions,
+  OAuthTokenPair,
+  VerifyAccessTokenReason,
+  VerifyOAuthAccessTokenResult,
+} from '@/modules/oauth/oauth-provider.service.js';

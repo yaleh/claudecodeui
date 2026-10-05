@@ -419,6 +419,7 @@ export default function ChatComposer({
   // rather than adding a second effect for the same rule.
   const {
     state: voiceState,
+    inFlight: voiceInFlight,
     toggle: voiceToggle,
     stop: voiceStop,
     transcribeFile,
@@ -869,6 +870,7 @@ export default function ChatComposer({
             {onVoiceTranscript && voiceAvailable && (
               <VoiceInputButton
                 state={voiceState}
+                inFlight={voiceInFlight}
                 onToggle={handleVoiceToggle}
               />
             )}

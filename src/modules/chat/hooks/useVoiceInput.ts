@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { decodeVoiceBlob, downsampleVoice, UPLOAD_SAMPLE_RATE } from '@/modules/chat/utils/audioDecode';
 import {
+  DEFAULT_FLUSH_SILENCE_SEC,
   DEFAULT_KEEP_GAP_SEC,
   DEFAULT_MIN_SEGMENT_SEC,
   LiveSegmenter,
@@ -41,6 +42,7 @@ import {
   isVoiceDebugEnabled,
   isVoiceTrimEnabled,
   isVoiceVadEnabled,
+  voiceDebugFlushSilenceSec,
   voiceDebugIdleSec,
   voiceDebugMinSegmentSec,
   voiceDebugOriginalCapSec,
@@ -58,9 +60,11 @@ import { parseTranscriptionResponse } from '@shared/asr/transcriptionWire';
  *
  * THERE IS ONLY ONE PATH. A short dictation and a long one are the same code: the microphone's PCM
  * is segmented as it arrives, every segment is transcribed on its own, and the answers are committed
- * in the order they were spoken. A press that produces less than one segment ends with a single
- * request — the shape the old press-to-talk path always had — because the segmenter holds everything
- * under its minimum in one trailing segment until the stop flushes it.
+ * in the order they were spoken. A press whose speech is followed by five seconds of silence reaches
+ * the recogniser on that silence — the segmenter's flush — so the box fills while the microphone is
+ * still open; anything still buffered when the press ends is flushed by the stop, which is the shape
+ * the old press-to-talk path always had. While a request from a still-recording listen is outstanding
+ * the hook reports `inFlight`, which the composer paints as the mic button's pulsing dot.
  *
  * WHAT THE USER SEES WHILE TALKING. Text appears as each segment settles, but only the *contiguous
  * prefix*: if the second segment's answer arrives before the first's, nothing is committed until the
@@ -577,6 +581,11 @@ export function useVoiceInput(
 ) {
   const { scope = null, isActive = true, candidates = NO_CANDIDATES, captureEngine } = options;
   const [state, setState] = useState<VoiceInputState>('idle');
+  // How many segments are uploaded but not yet settled. A counter rather than the session's own
+  // `pending` (a ref) because the composer's in-flight indicator is painted from it, and a ref
+  // write would not re-render. It is read together with `state`: the indicator only shows while
+  // *recording*, so the transcribing tail (stop pressed, answers still landing) shows nothing.
+  const [pendingRequests, setPendingRequests] = useState(0);
   // The last listen, and the replay pair derived from it. State rather than a ref because the
   // controls render only while a clip exists, and a ref would not re-render on the write.
   const [clipSlot, setClipSlot] = useState<VoiceClipSlot | null>(null);
@@ -798,6 +807,7 @@ export function useVoiceInput(
   /** Settles one outcome: record it, commit what is now contiguous, and close out if the stop waits. */
   const settleSegment = (session: CaptureSession, outcome: SegmentOutcome) => {
     session.pending -= 1;
+    setPendingRequests((n) => Math.max(0, n - 1));
     session.settled.set(outcome.index, outcome);
     // The one place the request count and latency are known. A failed segment still cost its
     // attempts, so the floor is 1 rather than 0 — "it was sent once and came back unusable" is not
@@ -849,6 +859,7 @@ export function useVoiceInput(
       blob: new Blob([new Uint8Array(segment.wav)], { type: 'audio/wav' }),
     };
     session.pending += 1;
+    setPendingRequests((n) => n + 1);
     void runSegmentPipeline([job], (submitted) => transcribeSegment(session, submitted), {
       maxRetries: SEGMENT_MAX_RETRIES,
     }).then(({ segments }) => {
@@ -914,6 +925,9 @@ export function useVoiceInput(
 
   const start = useCallback(async () => {
     if (startingRef.current || sessionRef.current) return;
+    // A new listen starts with nothing in flight: the previous session's counter has no meaning
+    // for this one, and the indicator must not open lit.
+    setPendingRequests(0);
     // A new listen is about to replace the slot; stop the old one from sounding.
     pauseClip();
     startingRef.current = true;
@@ -998,6 +1012,9 @@ export function useVoiceInput(
         ? new LiveSegmenter({
             sampleRate,
             minSegmentSec: voiceDebugMinSegmentSec() ?? DEFAULT_MIN_SEGMENT_SEC,
+            // The latency release valve: a short utterance goes out on its own after this much
+            // silence rather than waiting for the stop. See `DEFAULT_FLUSH_SILENCE_SEC`.
+            flushSilenceSec: voiceDebugFlushSilenceSec() ?? DEFAULT_FLUSH_SILENCE_SEC,
             // 裁不裁, decided by the recogniser's own declaration — see `gapFilterSecForCapture`.
             keepGapSec: gapFilterSecForCapture(),
           })
@@ -1062,6 +1079,9 @@ export function useVoiceInput(
             new StreamingVad({ sampleRate: decoded.sampleRate }).push(decoded.samples),
             {
               minSegmentSec: voiceDebugMinSegmentSec() ?? DEFAULT_MIN_SEGMENT_SEC,
+              // The same flush a live stream uses: a file is a finite stream whose "stop" is its
+              // whole length, so a sparse file is cut at each sentence even though nothing stops.
+              flushSilenceSec: voiceDebugFlushSilenceSec() ?? DEFAULT_FLUSH_SILENCE_SEC,
               // The file entry travels the same chain, so 裁不裁 is read the same way it is for a
               // live stream — one read point, one recogniser, not a second answer for this path.
               keepGapSec: gapFilterSecForCapture(),
@@ -1188,7 +1208,11 @@ export function useVoiceInput(
     }
   }, [clipPlayState]);
 
-  return { state, toggle, stop, transcribeFile, clipSlot, clipPlayState, toggleClipPlayback };
+  // The in-flight indicator's one bit: a request was submitted for the listen that is *still
+  // recording*. Deliberately false once the stop has been pressed — the transcribing tail is the
+  // recorder draining, not a live request the user is being kept waiting on — and false at idle.
+  const inFlight = state === 'recording' && pendingRequests > 0;
+  return { state, inFlight, toggle, stop, transcribeFile, clipSlot, clipPlayState, toggleClipPlayback };
 }
 
 /**

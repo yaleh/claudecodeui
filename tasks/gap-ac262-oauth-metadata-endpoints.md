@@ -3,7 +3,7 @@ id: gap-ac262-oauth-metadata-endpoints
 title: AC-262 元数据端点返回 JSON 而不是 SPA 页面：开启时发布正确的 issuer/受众与 PKCE
   能力，关闭时不发布，PUBLIC_BASE_URL 必须为 https（localhost 例外），且挂在静态路由之前；判据
   server/modules/mcp-gateway/tests/oauth-metadata-mount.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -66,16 +66,16 @@ AC-262（GOAL-021 退出条件 4「元数据与挂载」；SPEC `docs/proposals/
 
 ## AC
 
-- [ ] AC1 判据红态基线逐字记录：改动前运行 AC-262 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/oauth-metadata-mount.test.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/oauth-metadata-mount.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/oauth-metadata-mount.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 (a) 开+https 基址：AS 元数据 200/`application/json`、`issuer` 等于基址、`code_challenge_methods_supported` 深等于 `['S256']`；PRM 200/`application/json`、`resource` 等于基址 + `/mcp`；逐字写出字段读数。
-- [ ] AC4 (b) 挂载顺序：真实 app 上元数据在 SPA 兜底之前 ⇒ JSON 不是 `text/html`（并读取一条 SPA 吞掉的对照路径）；`server/index.ts` 源码扫描证明 `mountOAuthMetadata` 在 `createStaticAssetsMiddleware` 之前，反转合成源被判红；逐字写出。
-- [ ] AC5 (c) `registration_endpoint` 只在 `MCP_DCR` 不为 `off` 时出现：off 无该键（`in` 为 false 正例对照），allowlist/open 有且等于 `${baseUrl}/oauth/register`；逐字写出三态。
-- [ ] AC6 (d) 开关关闭时两端点 404 且响应不含 `issuer`；开关开为 200（正例对照）；逐字写出两态。
-- [ ] AC7 (e) 缺失/非 localhost http 的 `PUBLIC_BASE_URL` ⇒ gate 抛错且 message 逐字含 `PUBLIC_BASE_URL`；`http://localhost`、`http://127.0.0.1` 放行；`server/index.ts` 真的调用 `mountOAuthMetadata`；逐字写出五种输入与两条错误消息。
-- [ ] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 挂载挪到静态之后 ⇒ AC4 红；(ii) 缺 `PUBLIC_BASE_URL` 仍启动 ⇒ AC7 红；(iii) 声明支持 `plain` ⇒ AC3 红。每条恢复命令 + 恢复后重跑绿。
-- [ ] AC9 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；`server/modules/mcp-gateway/tests/mcp-transport.test.ts` 不改一字仍逐字通过；生产代码中 `MCP_OAUTH_ENABLED` 字面量计数=1（正例对照含 tests ≥2）。
-- [ ] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
+- [x] AC1 判据红态基线逐字记录：改动前运行 AC-262 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/oauth-metadata-mount.test.ts`（写下完整命令与完整输出）。
+- [x] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/oauth-metadata-mount.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/oauth-metadata-mount.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
+- [x] AC3 (a) 开+https 基址：AS 元数据 200/`application/json`、`issuer` 等于基址、`code_challenge_methods_supported` 深等于 `['S256']`；PRM 200/`application/json`、`resource` 等于基址 + `/mcp`；逐字写出字段读数。
+- [x] AC4 (b) 挂载顺序：真实 app 上元数据在 SPA 兜底之前 ⇒ JSON 不是 `text/html`（并读取一条 SPA 吞掉的对照路径）；`server/index.ts` 源码扫描证明 `mountOAuthMetadata` 在 `createStaticAssetsMiddleware` 之前，反转合成源被判红；逐字写出。
+- [x] AC5 (c) `registration_endpoint` 只在 `MCP_DCR` 不为 `off` 时出现：off 无该键（`in` 为 false 正例对照），allowlist/open 有且等于 `${baseUrl}/oauth/register`；逐字写出三态。
+- [x] AC6 (d) 开关关闭时两端点 404 且响应不含 `issuer`；开关开为 200（正例对照）；逐字写出两态。
+- [x] AC7 (e) 缺失/非 localhost http 的 `PUBLIC_BASE_URL` ⇒ gate 抛错且 message 逐字含 `PUBLIC_BASE_URL`；`http://localhost`、`http://127.0.0.1` 放行；`server/index.ts` 真的调用 `mountOAuthMetadata`；逐字写出五种输入与两条错误消息。
+- [x] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 挂载挪到静态之后 ⇒ AC4 红；(ii) 缺 `PUBLIC_BASE_URL` 仍启动 ⇒ AC7 红；(iii) 声明支持 `plain` ⇒ AC3 红。每条恢复命令 + 恢复后重跑绿。
+- [x] AC9 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；`server/modules/mcp-gateway/tests/mcp-transport.test.ts` 不改一字仍逐字通过；生产代码中 `MCP_OAUTH_ENABLED` 字面量计数=1（正例对照含 tests ≥2）。
+- [x] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
 
 ## DoD
 
