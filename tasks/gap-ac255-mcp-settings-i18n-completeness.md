@@ -39,15 +39,15 @@ AC-255（GOAL-020 退出条件；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3.1�
 
 ## AC
 
-- [ ] AC1 红态基线逐字记录：改动前运行 AC-255 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：src/modules/settings/tests/i18nMcpSettingsCompleteness.test.ts`（写下完整命令与完整输出）；实现后同命令退出 0。
-- [ ] AC2 (a) 12 语言必需键齐全：每种语言的 `REQUIRED_MCP_KEYS` 每个键存在、值为非空字符串、且不等于键名本身（叶名或全路径）；写下每种语言的扁平键数与 offenders 计数（=0）。
-- [ ] AC3 (b) 键集合与 en 完全一致：每种语言展平点分键集合与 `en` 相等（差集两侧皆空）；写下 en 键集合与每语言的差集读数。
-- [ ] AC4 (c) 正例对照同一次运行：`mcpProblems({})` 报出全部必需键缺失；只缺一个键的合成 bundle 只报这一条；完整合成 bundle 返回 `[]`。写下三条读数。
-- [ ] AC5 遍历是 glob 且两枚举一致：`readdirSync` 目录名与 `globSync('*/settings.json')` 逐一相等，目录数 ≥ 12；写下两个枚举。不得出现硬编码语言清单。
-- [ ] AC6 12 语言该命名空间就位：核验 AC-254 已交付全部必需键；若缺键，先用 task_write 扩展 `## Touches` 再补齐；写下实际写入的 locale 文件清单（可能为空）。
-- [ ] AC7 取假形态两条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 删一种语言的一个键 ⇒ 含 (a) 与 (b) 的用例红；(ii) 某语言的值写成键名本身 ⇒ (a) 红。每条记录恢复命令与恢复后重跑绿。
-- [ ] AC8 仓库门：`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（只看 error 级）；判据在 `src/modules/settings/tests/`、用 `@/` 导入（不 import app 模块则无跨模块导入）；写明各命令退出码与 lint error 计数。
-- [ ] AC9 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)`）；若被迫写 Touches 之外的文件（仅可能是 locale），先用 task_write 加进 Touches 再写。列出实际改动文件清单。
+- [x] AC1 红态基线逐字记录：改动前运行 AC-255 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：src/modules/settings/tests/i18nMcpSettingsCompleteness.test.ts`（写下完整命令与完整输出）；实现后同命令退出 0。
+- [x] AC2 (a) 12 语言必需键齐全：每种语言的 `REQUIRED_MCP_KEYS` 每个键存在、值为非空字符串、且不等于键名本身（叶名或全路径）；写下每种语言的扁平键数与 offenders 计数（=0）。
+- [x] AC3 (b) 键集合与 en 完全一致：每种语言展平点分键集合与 `en` 相等（差集两侧皆空）；写下 en 键集合与每语言的差集读数。
+- [x] AC4 (c) 正例对照同一次运行：`mcpProblems({})` 报出全部必需键缺失；只缺一个键的合成 bundle 只报这一条；完整合成 bundle 返回 `[]`。写下三条读数。
+- [x] AC5 遍历是 glob 且两枚举一致：`readdirSync` 目录名与 `globSync('*/settings.json')` 逐一相等，目录数 ≥ 12；写下两个枚举。不得出现硬编码语言清单。
+- [x] AC6 12 语言该命名空间就位：核验 AC-254 已交付全部必需键；若缺键，先用 task_write 扩展 `## Touches` 再补齐；写下实际写入的 locale 文件清单（可能为空）。
+- [x] AC7 取假形态两条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 删一种语言的一个键 ⇒ 含 (a) 与 (b) 的用例红；(ii) 某语言的值写成键名本身 ⇒ (a) 红。每条记录恢复命令与恢复后重跑绿。
+- [x] AC8 仓库门：`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（只看 error 级）；判据在 `src/modules/settings/tests/`、用 `@/` 导入（不 import app 模块则无跨模块导入）；写明各命令退出码与 lint error 计数。
+- [x] AC9 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)`）；若被迫写 Touches 之外的文件（仅可能是 locale），先用 task_write 加进 Touches 再写。列出实际改动文件清单。
 
 ## DoD
 
@@ -73,3 +73,99 @@ AC-255（GOAL-020 退出条件；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3.1�
 
 <!-- dedup-ref -->
 关联（非重复）：`gap-ac254-mcp-settings-block-scope-checkboxes`（goal_ac: AC-254）交付 CloudCLI MCP 区块 UI、五个 scope 勾选框与 12 语言键；其任务体明说「不越界实现 AC-255 的 i18n 完整性判据」。本任务只拥有**完整性判据**，顶层 `depends_on` 随 AC-254 之后串行，正常路径下不重写 locale。`gap-ac243-token-scope-vocabulary-validation`（签发期 scope 词汇校验，ready）与 `gap-ac229-access-tokens-i18n-completeness`（旧 accessTokens 键完整性，done）是不同机制。
+
+## 完成记录
+
+实现提交：`b4702005`（判据文件）＋ 本次 `task_write`（勾选 AC）。
+
+### 命名空间对账（AC-254 落地契约 vs AC 文案）
+
+- AC 文案把必需键钉在 `mcp` 命名空间。**AC-254 实际落地为独立命名空间 `mcpGateway`**（8 键），未并入 `mcp`（后者仍是 MCP Servers 管理 UI 的旧命名空间，本例不触碰）。criterion 以落地命名空间 `mcpGateway` 为准；AC 文案的 `mcp` 即指 CloudCLI MCP 区块（`McpGatewaySection.tsx`，`t('mcpGateway.*')`）。
+- scope 名称与说明：AC 文案归入 `mcp`；**AC-254 实际落地在 `accessTokens.scopes.*`**（`AccessTokensSection.tsx` 的 `` t(`accessTokens.scopes.${option.labelKey}`) ``，5 个 labelKey = read/sessionSend/sessionCreate/sessionControl/approve，来源 `src/shared/constants.ts:239`）。criterion 覆盖落地位置。五个 scope 的「说明」内嵌在各 label 值里（如 `Read (cloudcli:read)`），未另立 description 键——以落地契约为准，未凭空造键。
+- 写入风险提示落地为 `accessTokens.form.writeScopeRisk`；勾选框组标题落地为 `accessTokens.form.scopesLabel`。
+
+### REQUIRED_MCP_KEYS（独立字面量，15 键；读 (a) 用）
+
+```
+mcpGateway.title, mcpGateway.description, mcpGateway.status.enabled, mcpGateway.status.disabled,
+mcpGateway.connectLabel, mcpGateway.enableHint, mcpGateway.copy, mcpGateway.copied,
+accessTokens.form.scopesLabel, accessTokens.scopes.read, accessTokens.scopes.sessionSend,
+accessTokens.scopes.sessionCreate, accessTokens.scopes.sessionControl, accessTokens.scopes.approve,
+accessTokens.form.writeScopeRisk
+```
+
+### AC1 红态基线
+
+命令：
+```
+for f in src/modules/settings/tests/i18nMcpSettingsCompleteness.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx vitest run src/modules/settings/tests/i18nMcpSettingsCompleteness.test.ts
+```
+改动前输出（逐字）：`缺判据文件：src/modules/settings/tests/i18nMcpSettingsCompleteness.test.ts`，退出码 1。
+实现后同一判据命令退出 0：`Test Files 1 passed (1)` / `Tests 4 passed (4)`。
+
+### AC2 (a) 12 语言必需键齐全
+
+每语言受管子树（`mcpGateway` ＋ `accessTokens.scopes`）扁平键数：de/en/es/fr/id/it/ja/ko/ru/tr/zh-CN/zh-TW 均 = 13。
+offenders 计数 = 0（`[AC2] offenders (0): []`）。
+
+### AC3 (b) 键集合与 en 完全一致
+
+en 键集合（13）：`accessTokens.scopes.approve, accessTokens.scopes.read, accessTokens.scopes.sessionControl, accessTokens.scopes.sessionCreate, accessTokens.scopes.sessionSend, mcpGateway.connectLabel, mcpGateway.copied, mcpGateway.copy, mcpGateway.description, mcpGateway.enableHint, mcpGateway.status.disabled, mcpGateway.status.enabled, mcpGateway.title`。
+每语言差集：全部 `{missing:[], extra:[]}`（12/12），`[AC3] per-locale key-set diffs vs en` 逐条为空。
+
+### AC4 (c) 正例对照（同一次运行、同一检查器）
+
+- `mcpProblems({})` = 15 条 `${key} is missing`（按声明顺序）。
+- 只缺 `mcpGateway.connectLabel` 的合成 bundle = `['mcpGateway.connectLabel is missing']`（仅 1 条）。
+- 完整合成 bundle = `[]`。
+（另含 blank / 叶名 / 全路径三条臂的对照，均通过。）
+
+### AC5 两枚举一致
+
+readdir 目录（12）：`["de","en","es","fr","id","it","ja","ko","ru","tr","zh-CN","zh-TW"]`。
+glob `*/settings.json`（12）：`["de/settings.json","en/settings.json","es/settings.json","fr/settings.json","id/settings.json","it/settings.json","ja/settings.json","ko/settings.json","ru/settings.json","tr/settings.json","zh-CN/settings.json","zh-TW/settings.json"]`。
+逐一相等，目录数 12 ≥ 12。无硬编码语言清单（`readdirSync` ＋ `globSync` 双枚举）。
+
+### AC6 12 语言该命名空间就位
+
+AC-254 已交付全部 15 个必需键（见 AC2/AC3 读数）。**实际写入的 locale 文件清单：空**（未重写任何 locale，无需扩展 Touches）。
+
+### AC7 取假形态（先提交实现 b4702005 再变异）
+
+(i) 删键：`de/settings.json` 删 `mcpGateway.connectLabel`。
+变异 diff：`-    "connectLabel": "Verbindungsbefehl",`
+逐字失败行：
+```
+[AC2] offenders (1): ["de/settings.json: mcpGateway.connectLabel is missing"]
+AssertionError: de/settings.json key set vs en: expected { …(2) } to deeply equal { missing: [], extra: [] }
++     "mcpGateway.connectLabel",
+FAIL src/modules/settings/tests/i18nMcpSettingsCompleteness.test.ts > ... > gives every locale every required MCP / scope key, non-empty and not the key name
+FAIL src/modules/settings/tests/i18nMcpSettingsCompleteness.test.ts > ... > gives every locale exactly the same MCP / scope key set as en
+Tests  2 failed | 2 passed (4)
+```
+(a) 与 (b) 皆红。
+恢复命令：`git checkout -- src/modules/i18n/locales/de/settings.json`；恢复后重跑绿：`[AC2] offenders (0): []` / `Tests 4 passed (4)`。
+
+(ii) 值=键名：`fr/settings.json` 的 `accessTokens.scopes.approve` 写成 `"approve"`。
+变异 diff：`-      "approve": "Approuver (cloudcli:approve)"` / `+      "approve": "approve"`
+逐字失败行：
+```
+[AC2] offenders (1): ["fr/settings.json: accessTokens.scopes.approve is the raw key name, not a label"]
+AssertionError: expected [ Array(1) ] to deeply equal []
++     "fr/settings.json: accessTokens.scopes.approve is the raw key name, not a label",
+FAIL src/modules/settings/tests/i18nMcpSettingsCompleteness.test.ts > ... > gives every locale every required MCP / scope key, non-empty and not the key name
+Tests  1 failed | 3 passed (4)
+```
+(a) 红。
+恢复命令：`git checkout -- src/modules/i18n/locales/fr/settings.json`；恢复后重跑绿：`[AC2] offenders (0): []` / `Tests 4 passed (4)`。
+
+### AC8 仓库门
+
+- `npm run typecheck` → 退出码 0。
+- `npm run lint` → 退出码 0，`: error ` 计数 = 0（仅 warning）。
+- 判据在 `src/modules/settings/tests/`；仅 import `node:fs` / `node:path` / `vitest`（无 app 模块导入，故无跨模块导入，不需要 `@/`）。
+
+### AC9 改动清单
+
+`git diff --stat develop...HEAD`：仅 `src/modules/settings/tests/i18nMcpSettingsCompleteness.test.ts (new) | 243 +++++++++`（1 file changed, 243 insertions）。
+与 `## Touches` 对齐：判据文件 (new) ✓；`tasks/gap-ac255-mcp-settings-i18n-completeness.md` 由本次 `task_write` 提交（勾选 AC）。无 Touches 之外的文件（未改写任何 locale）。
