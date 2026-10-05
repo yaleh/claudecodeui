@@ -8,7 +8,7 @@
  * a live PCM stream into the *segments themselves*. That is this module, and it owns exactly five
  * rules, each of which is a decision rather than a detection one:
  *
- *   · FLUSH ON SILENCE (`DEFAULT_FLUSH_SILENCE_SEC`, 5 s). Once the buffered speech has been
+ *   · FLUSH ON SILENCE (`DEFAULT_FLUSH_SILENCE_SEC`, 10 s). Once the buffered speech has been
  *     followed by this much continuous silence, it is emitted *however short it is*. This is the
  *     latency rule: without it a lone short utterance waits inside the buffer until the user
  *     presses stop, because the min-length floor below would otherwise step over every pause.
@@ -16,8 +16,9 @@
  *     the usual trailing keep-gap. The wait after a segment is a property from a *real unit price*
  *     re-read (input ¥0.8 / output ¥2.7 per million tokens): a 15 s request costs ¥0.001–0.006, so
  *     a minute of speech cut into many requests is a fraction of a yuan a day. The recogniser's
- *     own latency (15–22 s on `dashscope-omni`) dwarfs the extra 5 s, so cost is not the reason to
- *     wait and latency is the reason not to.
+ *     own latency (15–22 s on `dashscope-omni`) dwarfs the extra wait, so cost is not the reason
+ *     to wait — but a cut is: a self-correction split across a pause is never resolved (see the
+ *     constant below), so the flush errs late rather than early.
  *
  *   · MIN LENGTH (`DEFAULT_MIN_SEGMENT_SEC`, 20 s). A segment is not worth cutting at a *pause*
  *     until enough of it is speech. The original 30 s came from the same fixed-overhead cost model;
@@ -74,8 +75,18 @@ export const DEFAULT_MIN_SEGMENT_SEC = 20;
  * against a wall clock, so a throttled (background) tab — where timers fire late and audio frames do
  * not — still flushes at the same point in the audio. The emitted segment ends at the last speech
  * frame; the wait itself is not carried into the upload.
+ *
+ * WHY 10 s, MEASURED. `docs/experiments/2026-10-04-voice-pause-split.md` drove the shipping
+ * `dashscope-omni` adapter over a spoken self-correction (`改一下 A，嗯不对，应该是 B`) two ways,
+ * paired on the same audio: sent whole, the correction resolves 60/60; cut at the pause (the cut
+ * the segmenter makes when the pause exceeds this constant), it resolves 0/60 — the first half is
+ * a standalone "change A" instruction and `dashscope-omni` carries no context across requests, so
+ * nothing later can retract it. The loss is total at every tested pause (2, 5 and 10 s), so the
+ * experiment's registered tie-break (no pause inside tolerance ⇒ least gap ⇒ tie broken to the
+ * LARGER pause, because a later flush cuts fewer corrections and latency is the secondary term)
+ * selects the largest tested value. The evidence is directional only (n=20 per cell).
  */
-export const DEFAULT_FLUSH_SILENCE_SEC = 5;
+export const DEFAULT_FLUSH_SILENCE_SEC = 10;
 
 /**
  * The longest a segment may grow without a long pause. 60 s of 16 kHz mono PCM is about 1.9 MB,

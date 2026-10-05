@@ -308,8 +308,28 @@ const sessionLink = (page: Page, name: string) =>
  * retry loop as `e2e/mobile-composer-send-key.spec.ts`, for the same reason: the project row is a toggle, and
  * a click landing mid-render leaves it collapsed.
  */
+/**
+ * How long the sidebar is given to draw the seeded project before anything is clicked.
+ *
+ * The row appears only once the client has booted and answered its own project listing, and a loaded host
+ * pushes that past the fixed five seconds the clicks below used to carry: the click then timed out, the
+ * failure was swallowed, and the retry loop spent what was left of the case on a row that was never on
+ * screen — the "element not found" red the driver recorded names nothing the reader can act on. This budget
+ * is chosen under the criterion's own ceilings — the gate kills the run at 60s and the config's watchdog at
+ * 55s — so a slow sidebar is waited out rather than given up on. Same value and reason as
+ * `e2e/resident-enter-send.spec.ts`.
+ */
+const PROJECT_ROW_READY_MS = 20_000;
+
 const openComposer = async (page: Page) => {
   const textarea = composer(page);
+  const row = projectRow(page);
+  const newSession = page.getByRole('button', { name: 'New Session' }).first();
+
+  // Wait for the row to be on screen, then click it with no fixed sub-deadline of its own: the case's own
+  // budget is the bound, so a row that is merely late is waited for instead of being abandoned after five.
+  await expect(row).toBeVisible({ timeout: PROJECT_ROW_READY_MS }).catch(() => undefined);
+
   for (let attempt = 0; attempt < 5; attempt += 1) {
     if (await textarea.isVisible().catch(() => false)) return;
 
@@ -321,9 +341,8 @@ const openComposer = async (page: Page) => {
       }
     }
 
-    const newSession = page.getByRole('button', { name: 'New Session' }).first();
     if (!(await newSession.isVisible().catch(() => false))) {
-      await projectRow(page).click({ timeout: 5_000 }).catch(() => undefined);
+      await row.click().catch(() => undefined);
       await page.waitForTimeout(500);
     }
     if (await newSession.isVisible().catch(() => false)) {
@@ -352,12 +371,54 @@ const openNewSession = async (page: Page) => {
   ).toBeVisible({ timeout: 15_000 });
 };
 
+/**
+ * Re-confirms the resident switch is still on, and turns it back on if a mid-run remount has reset it.
+ *
+ * The switch's position is React state on the `ChatInterface` ancestor (`residentEnabled`), and an HMR update
+ * that remounts `App.tsx` — a live edit anywhere on the module graph does this — clears that state to `false`
+ * while the click that set it has already happened. A send taken in that window consults the reset intent and
+ * lands per-run, which is indistinguishable from a real regression in the reading the send is checked against
+ * (the driver's `quay-e2e-VTYHJM` trace carried six `[vite] hot updated: /src/App.tsx` and no `lifecycle-mode`
+ * request for exactly this reason). So the last state read before the send is re-taken here: if a remount
+ * cleared the intent, the switch is set again, bounded, so the send that follows is addressed to the session
+ * the user actually asked to keep running rather than to the one a re-render left behind.
+ *
+ * Read on the switch's own home — the new-session empty state — and only for a provider the matrix lists
+ * resident, which is where every caller below stands. The bounded poll is both the read and the retry: each
+ * pass that finds the switch off presses it again, so no single remount can leave the send per-run.
+ */
+const armResidentSwitch = async (page: Page, timeoutMs = PROJECT_ROW_READY_MS) => {
+  const toggle = switches(page).first();
+  await expect(
+    toggle,
+    'the new-session screen must still carry the switch when the send is about to be taken',
+  ).toBeVisible({ timeout: timeoutMs });
+  await expect
+    .poll(
+      async () => {
+        if ((await toggle.getAttribute('aria-checked')) === 'true') return 'true';
+        // A remount cleared the intent; press the switch again and let the next pass read the result.
+        await toggle.click({ timeout: timeoutMs }).catch(() => undefined);
+        return toggle.getAttribute('aria-checked');
+      },
+      {
+        timeout: timeoutMs,
+        message: 'a mid-run HMR remount must not leave the switch off between the click and the send',
+      },
+    )
+    .toBe('true');
+  console.log('resident.armed.aria-checked=true');
+};
+
 /** Expands the seeded project's session list, retrying the toggle the way the sidebar's own spec does. */
 const openWorkspace = async (page: Page) => {
   const first = sessionLink(page, SEEDED_SESSION_NAME);
+  const row = projectRow(page);
+  // Same readiness wait as `openComposer`: a collapsed-list click must not be taken before the row is drawn.
+  await expect(row).toBeVisible({ timeout: PROJECT_ROW_READY_MS }).catch(() => undefined);
   for (let attempt = 0; attempt < 5; attempt += 1) {
     if (await first.isVisible().catch(() => false)) return;
-    await projectRow(page).click({ timeout: 5_000 }).catch(() => undefined);
+    await row.click().catch(() => undefined);
     try {
       await expect(first).toBeVisible({ timeout: 8_000 });
       return;
@@ -430,6 +491,13 @@ const inViewport = (
   && box.y + box.height <= viewport.height;
 
 test.describe.configure({ mode: 'serial' });
+// Each of the four cases gets an explicit budget of its own. It sits above the 20s `waitForMode` budget and the
+// 15s readiness waits so it never pre-empts a legitimate wait, and below both the criterion's 60s gate and the
+// config's 55s run watchdog so a case that outruns either fails while naming itself rather than being killed
+// from outside — the default per-case budget is the 60s the gate also uses, which no case can reach before the
+// watchdog fires. The onboarding hook below keeps its own, larger budget: it is not a case. Same shape as
+// `e2e/resident-enter-send.spec.ts`.
+test.describe.configure({ timeout: 45_000 });
 
 test.beforeAll(async ({ browser }) => {
   // Onboarding is the expensive part of a fresh database and only happens once for the file.
@@ -529,6 +597,10 @@ test('the new-session screen carries the switch under the model card, and sendin
     'with the switch on, the composer must be immediately sendable: there is no acknowledgement step left to take',
   ).toBe(false);
 
+  // The send is taken only after the switch has been re-confirmed as still on: a remount between the press
+  // above and this click would otherwise reset the intent and land the session per-run through no fault of
+  // the app under test. This is the last state read before the send, so it is the one the send acts on.
+  await armResidentSwitch(page);
   await page.locator(SEND_BUTTON).click();
   await expect.poll(() => new URL(page.url()).pathname).toMatch(/^\/session\/[^/]+$/);
   const createdSessionId = new URL(page.url()).pathname.split('/').pop() as string;
@@ -584,6 +656,9 @@ test('a switch-on send to a new session does not convert an existing per-run ses
   expect(await toggle.getAttribute('aria-checked'), 'the switch must be on before the send').toBe('true');
 
   await composer(page).fill('resident first turn');
+  // Re-confirm the switch immediately before the send, so a remount between the press and here cannot make
+  // session A land per-run and turn this leg's `resident` reading into a false red.
+  await armResidentSwitch(page);
   await page.locator(SEND_BUTTON).click();
   await expect.poll(() => new URL(page.url()).pathname).toMatch(/^\/session\/[^/]+$/);
   const sessionA = new URL(page.url()).pathname.split('/').pop() as string;
