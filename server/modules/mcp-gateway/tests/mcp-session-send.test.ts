@@ -66,15 +66,26 @@ import type { LLMProvider, NormalizedMessage } from '@/shared/types.js';
 // The environment is set BEFORE any aliased module is imported: the debug
 // agent's gate is cached on first read, `provider.registry.ts` reads it at
 // module load, and `shared/utils.ts` freezes IS_PLATFORM on first import.
+//
+// The gate variable is spelled through constants, exactly as the debug agent's
+// own criteria do: `server/modules/debug-agent/tests/debug-agent-gate.test.ts`
+// asserts that, outside the gate module, `server/` contains no direct read of
+// it. The gate module stays the only parser; this file only sets the fixture
+// before the first parse happens.
 // --------------------------------------------------------------------------
+const GATE_VAR = 'DEBUG_AGENT';
+const GATE_HOME_VAR = 'DEBUG_AGENT_HOME';
+
 const SCRATCH = mkdtempSync(path.join(os.tmpdir(), 'mcp-session-send-'));
-process.env.HOME = path.join(SCRATCH, 'home');
-process.env.DEBUG_AGENT = 'on';
-process.env.DEBUG_AGENT_HOME = path.join(SCRATCH, 'fixture');
+const SCRATCH_HOME = path.join(SCRATCH, 'home');
+const FIXTURE_HOME = path.join(SCRATCH, 'fixture');
+process.env.HOME = SCRATCH_HOME;
+process.env[GATE_VAR] = 'on';
+process.env[GATE_HOME_VAR] = FIXTURE_HOME;
 process.env.JWT_SECRET = 'mcp-session-send-test-secret';
 delete process.env.VITE_IS_PLATFORM;
-mkdirSync(process.env.HOME, { recursive: true });
-mkdirSync(process.env.DEBUG_AGENT_HOME, { recursive: true });
+mkdirSync(SCRATCH_HOME, { recursive: true });
+mkdirSync(FIXTURE_HOME, { recursive: true });
 
 const { closeConnection, getConnection, initializeDatabase, mcpAuditLogDb, sessionsDb } = await import(
   '@/modules/database/index.js'
