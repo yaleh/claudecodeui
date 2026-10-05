@@ -3,7 +3,7 @@ id: gap-ac250-session-create-interrupt-lifecycle
 title: AC-250 session_create 与 session_interrupt：创建会话（可带首条消息）随即返回 sessionId 与
   runId、不带消息零运行、项目名模糊匹配多义不创建、中止常驻运行但宿主 pid 不变、对空闲会话如实 aborted:false；判据
   server/modules/mcp-gateway/tests/mcp-session-lifecycle.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
