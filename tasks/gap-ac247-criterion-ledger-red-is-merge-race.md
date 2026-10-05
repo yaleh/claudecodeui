@@ -4,7 +4,7 @@ title: AC-247 判据台账尾部红是 merge race：overview 实现 1220097a（1
   分支，fan-in 23ff75a0（15:48:53 +0800 / 07:48:53Z）才带进 develop/主检出；末拍 goal 红
   07:47:58.629Z@tree 1cdd54fd8c64（mcp-overview.test.ts ABSENT）早于落地约 54s ——
   verification-only 归因入档（当前检出直跑 exit 0，5/5/0），不重新实现
-status: todo
+status: ready
 labels:
   - gap
 parent: null
