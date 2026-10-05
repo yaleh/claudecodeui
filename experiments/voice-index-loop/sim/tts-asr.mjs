@@ -7,7 +7,8 @@ const { speak } = await import(TC + 'tts.mjs');
 const { writeWav } = await import(TC + 'wav.mjs');
 mkdirSync(ROOT + 'wav', { recursive: true });
 const RES = ROOT + 'asr-v3.jsonl';
-const stream = JSON.parse(readFileSync(ROOT + 'stream.json', 'utf8')).filter((s) => s.selected);
+const [SH, SN] = (process.env.SHARD ?? '0/1').split('/').map(Number);   // operational only: run several processes
+const stream = JSON.parse(readFileSync(ROOT + 'stream.json', 'utf8')).filter((s) => s.selected && s.id % SN === SH);
 const done = new Set(existsSync(RES) ? readFileSync(RES, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((r) => r.asr != null).map((r) => r.id) : []);
 const voiceFor = (s) => (/[一-鿿]/.test(s.text) ? (s.id % 2 ? 'zh-CN-YunxiNeural' : 'zh-CN-XiaoxiaoNeural') : 'en-US-AriaNeural');
 const pending = [];
