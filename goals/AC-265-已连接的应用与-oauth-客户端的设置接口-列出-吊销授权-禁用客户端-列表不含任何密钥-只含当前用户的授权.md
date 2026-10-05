@@ -1,7 +1,7 @@
 ---
 id: AC-265
 title: 已连接的应用与 OAuth 客户端的设置接口：列出、吊销授权、禁用客户端，列表不含任何密钥，只含当前用户的授权
-status: draft
+status: active
 kind: criterion
 goal: GOAL-021
 criterion: for f in server/modules/oauth/tests/oauth-settings.routes.test.ts; do
@@ -15,4 +15,15 @@ expect: 用生产的设置路由工厂加注入的认证，经真实 HTTP。读�
   吊销不校验归属 ⇒ (d) 必须红。（红先行）当前必红：判据文件不存在，存在性闸以退出码 1 输出缺失的文件名。
 origin: docs/proposals/mcp-gateway-SPEC.md（v3.1）。人 yale 2026-10-05 指令：创建并激活
   GOAL-020 至 GOAL-022 及其 AC。
+activatedAt: 2026-10-05T02:22:03.088Z
+statusLog:
+  - at: 2026-10-05T02:22:03.088Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-05T02:22:03.088Z
 ---

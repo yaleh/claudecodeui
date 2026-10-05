@@ -1,7 +1,7 @@
 ---
 id: AC-270
 title: 人工关卡：外部客户端经 OAuth 绑定并调用成功由人确认，之后 GOAL-021 才算达成
-status: draft
+status: active
 kind: criterion
 goal: GOAL-021
 criterion: grep -q '^外部客户端验收：通过' docs/proposals/cloudcli-mcp-external-client.md
@@ -14,4 +14,15 @@ expect: 记录文件里存在一行以「外部客户端验收：通过」开头
   非零并输出缺失原因。
 origin: docs/proposals/mcp-gateway-SPEC.md（v3.1）。人 yale 2026-10-05 指令：创建并激活
   GOAL-020 至 GOAL-022 及其 AC。
+activatedAt: 2026-10-05T02:24:05.496Z
+statusLog:
+  - at: 2026-10-05T02:24:05.496Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-05T02:24:05.496Z
 ---

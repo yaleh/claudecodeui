@@ -1,7 +1,7 @@
 ---
 id: AC-268
 title: 端到端授权流程在真实 HTTP 上走通：发现、注册、授权、换令牌、调用 /mcp、刷新、吊销后被拒，正反例在同一次运行里
-status: draft
+status: active
 kind: criterion
 goal: GOAL-021
 criterion: for f in server/modules/mcp-gateway/tests/oauth-flow.e2e.test.ts; do
@@ -18,4 +18,15 @@ expect: 临时实例，`MCP_OAUTH_ENABLED` 开，`MCP_DCR=open`，不经浏览�
   输出缺失的文件名。
 origin: docs/proposals/mcp-gateway-SPEC.md（v3.1）。人 yale 2026-10-05 指令：创建并激活
   GOAL-020 至 GOAL-022 及其 AC。
+activatedAt: 2026-10-05T02:23:16.533Z
+statusLog:
+  - at: 2026-10-05T02:23:16.533Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-05T02:23:16.532Z
 ---

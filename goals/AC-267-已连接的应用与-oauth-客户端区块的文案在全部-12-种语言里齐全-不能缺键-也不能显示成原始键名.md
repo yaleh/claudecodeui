@@ -1,7 +1,7 @@
 ---
 id: AC-267
 title: 已连接的应用与 OAuth 客户端区块的文案在全部 12 种语言里齐全，不能缺键，也不能显示成原始键名
-status: draft
+status: active
 kind: criterion
 goal: GOAL-021
 criterion: for f in
@@ -14,4 +14,15 @@ expect: 做法照 AC-229。读数：(a) 每种语言都含必需键常量声明�
   输出缺失的文件名。
 origin: docs/proposals/mcp-gateway-SPEC.md（v3.1）。人 yale 2026-10-05 指令：创建并激活
   GOAL-020 至 GOAL-022 及其 AC。
+activatedAt: 2026-10-05T02:22:52.168Z
+statusLog:
+  - at: 2026-10-05T02:22:52.168Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-05T02:22:52.168Z
 ---
