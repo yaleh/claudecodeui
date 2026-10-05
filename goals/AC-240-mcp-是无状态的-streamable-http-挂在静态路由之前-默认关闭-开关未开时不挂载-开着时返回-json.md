@@ -1,7 +1,7 @@
 ---
 id: AC-240
 title: /mcp 是无状态的 Streamable HTTP，挂在静态路由之前，默认关闭：开关未开时不挂载，开着时返回 JSON-RPC 而不是 SPA 页面
-status: draft
+status: active
 kind: criterion
 goal: GOAL-020
 criterion: for f in server/modules/mcp-gateway/tests/mcp-transport.test.ts; do [
@@ -19,4 +19,15 @@ expect: 真实 express 4 应用加真实 HTTP。读数：(a) 无状态——同�
   开关未开仍挂载 ⇒ (c) 必须红。（红先行）当前必红：判据文件不存在，存在性闸以退出码 1 输出缺失的文件名。
 origin: docs/proposals/mcp-gateway-SPEC.md（v3.1）。人 yale 2026-10-05 指令：创建并激活
   GOAL-020 至 GOAL-022 及其 AC。
+activatedAt: 2026-10-05T02:06:53.230Z
+statusLog:
+  - at: 2026-10-05T02:06:53.230Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-05T02:06:53.230Z
 ---
