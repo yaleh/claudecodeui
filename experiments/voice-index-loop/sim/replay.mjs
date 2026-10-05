@@ -47,7 +47,7 @@ export function replay(cfg, { limit = Infinity } = {}) {
       } else {
         const ents = idx.entities(m.proj, conv, now, SRC);
         const { spans, maxScored: ms } = analyseEnts(asr, buildLookup(ents), { maxWin: V.has('longWindow') ? 9 : 4 });
-        if (cfg.onEnts) cfg.onEnts({ m, asr, ents, now, conv }); maxScored = Math.max(maxScored, ms); spansAll = spans;
+        if (cfg.onEnts) cfg.onEnts({ m, asr, ents, now, conv, idx }); maxScored = Math.max(maxScored, ms); spansAll = spans;
         // L1 learned aliases first
         const l1 = [];
         if (cfg.learn) {

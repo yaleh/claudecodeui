@@ -1,8 +1,8 @@
 // E7: convergence counted in HARMFUL errors (judge = wrong) and in M-class errors (not rule-tolerable), with L2a + templates in the base.
 import { readFileSync } from 'node:fs';
 import { replay, ROOT } from './replay.mjs';
-const items = JSON.parse(readFileSync(ROOT + 'e4-items.json', 'utf8'));
-const verdict = new Map(readFileSync(ROOT + 'e4-judge.jsonl', 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((r) => r.verdict).map((r) => [r.k, r.verdict]));
+const items = JSON.parse(readFileSync(ROOT + `e4-items${process.env.TAG ? '-' + process.env.TAG : ''}.json`, 'utf8'));
+const verdict = new Map(readFileSync(ROOT + `e4-judge${process.env.TAG ? '-' + process.env.TAG : ''}.jsonl`, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((r) => r.verdict).map((r) => [r.k, r.verdict]));
 const harmful = new Set(items.filter((i) => verdict.get(i.k) === 'wrong').map((i) => `${i.id}|${i.tok}`));
 const mclass = new Set(items.filter((i) => i.cls === 'M' && !i.ruleTolerable).map((i) => `${i.id}|${i.tok}`));
 const S = (s) => new Set(s.split(''));

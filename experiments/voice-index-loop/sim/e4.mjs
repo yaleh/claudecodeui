@@ -5,8 +5,9 @@ import { readFileSync, writeFileSync, existsSync, appendFileSync } from 'node:fs
 import { replay, ROOT } from './replay.mjs';
 const stream = JSON.parse(readFileSync(ROOT + 'stream.json', 'utf8'));
 const byId = new Map(stream.map((m) => [m.id, m]));
-const asr = new Map(readFileSync(ROOT + 'asr-v3.jsonl', 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((r) => r.asr != null).map((r) => [r.id, r.asr]));
-const OUT = ROOT + 'e4-items.json', RES = ROOT + 'e4-judge.jsonl';
+const asr = new Map(readFileSync(ROOT + (process.env.ASR_FILE ?? 'asr-v3.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((r) => r.asr != null).map((r) => [r.id, r.asr]));
+const TAG = process.env.TAG ? '-' + process.env.TAG : '';
+const OUT = ROOT + `e4-items${TAG}.json`, RES = ROOT + `e4-judge${TAG}.jsonl`;
 const mode = process.argv[2];
 export const MODEL = 'qwen/qwen3.8-27b';
 function ctxTokens(m) { return Object.entries(m.conv).filter(([t]) => /[a-z][A-Z]|[_\-]|\d|^[A-Z]{2,}$/.test(t)).sort((a, b) => a[1] - b[1]).slice(0, 60).map(([t]) => t); }
