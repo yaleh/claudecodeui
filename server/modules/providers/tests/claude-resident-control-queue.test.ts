@@ -519,7 +519,18 @@ test('control service queues and withdraws a real resident process message; pid 
     console.log(`[readings] (b) cancelVerdict=${JSON.stringify(verdict)} (AC wording 'cancelled' == driver word 'withdrawn')`);
     assert.strictEqual(verdict, 'withdrawn', `the withdrawal must succeed (got ${JSON.stringify(verdict)})`);
 
+    // The process the withdrawal acted on is the same one, still alive: a withdrawal is a queue
+    // operation on the running process, never a reason to end it. Read on its own here — one round
+    // has not ended yet, so a later reading could not tell "the withdrawal killed it" from "the
+    // turn ended it".
+    await settle(500);
     const readingAfterCancel = liveResidentReading();
+    console.log(`[readings] (c) afterCancel=${JSON.stringify(readingAfterCancel)}`);
+    assert.strictEqual(
+      readingAfterCancel.alive,
+      true,
+      `the withdrawal must leave the process alive (pid ${String(readingAfterCancel.pid)})`,
+    );
 
     // Release the first round and let it really end. Awaiting the run's own promise is the
     // "one round ended" signal: the run settles only when its round does.
