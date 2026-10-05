@@ -66,7 +66,7 @@ for f in scripts/mcp-smoke.mjs scripts/mcp-smoke.test.mjs docs/proposals/cloudcl
 - [x] AC8 嵌套冒烟**真跑过**、八段读数是原始读数：真服务实例（临时 `DATABASE_PATH` 经 `/proc/<pid>/environ` 命中行证明、`HOST=127.0.0.1`、端口 `listen(0)` 探得且 ≠ 3001、`detached` 整组杀）+ 真 `claude` CLI（`claude mcp add --transport http` 命令逐字 + 自然语言驱动）+ 临时项目。逐段打印证据行：握手与工具列表（工具名逐字）；列出会话；发消息后该 run 出现在 `GET /api/providers/sessions/running` 且来源逐字 `mcp`；`run_get` 按 runId 查到该 run；`session_interrupt` 后常驻进程 pid **不变**（前后各一个 pid 读数）。**正控制**：来源字段在同一次运行里对一个非 MCP 发起的 run 不为 `mcp`（证明该字段有分辨力、不是恒真）。
 - [x] AC9 收尾残留读数为 0 且不碰生产：跑完打印临时根上 `pgrep -af` / `/proc` environ / `systemctl --user list-units --type=scope` 三条命中数均为 **0**；`:3001` 的监听 pid 与 systemd MainPID 的**终点读数与起点读数逐字相同**（打印两行）；全程未连接 / 未启用 / 未重启 3001。
 - [x] AC10 不点亮 AC-257：`grep -c '^嵌套冒烟验收：通过' docs/proposals/cloudcli-mcp-smoke.md` → **0**；`grep -c '嵌套冒烟验收：通过' scripts/mcp-smoke.mjs` → **0**（记录模板与脚本输出都不得出现以该字样开头的行）。
-- [ ] AC11 契约面与边界：`npx oxlint scripts/mcp-smoke.mjs scripts/mcp-smoke.test.mjs` 退出 **0**；**`npx tsc --noEmit -p scripts/tsconfig.json` 退出 0**（它是 `npm run typecheck` 的第三段，也是 voice false-forms 测试断言的冻结面；2026-10-06 实测 develop 上为 0，本条上次尝试的 `scripts/mcp-smoke.mjs` 让它退出 2）；`git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；证明产品代码一行未改（网关 / 工具 / 设置页均不在本 diff）。
+- [x] AC11 契约面与边界：`npx oxlint scripts/mcp-smoke.mjs scripts/mcp-smoke.test.mjs` 退出 **0**；**`npx tsc --noEmit -p scripts/tsconfig.json` 退出 0**（它是 `npm run typecheck` 的第三段，也是 voice false-forms 测试断言的冻结面；2026-10-06 实测 develop 上为 0，本条上次尝试的 `scripts/mcp-smoke.mjs` 让它退出 2）；`git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；证明产品代码一行未改（网关 / 工具 / 设置页均不在本 diff）。
 
 ## DoD
 
@@ -150,6 +150,16 @@ for f in scripts/mcp-smoke.mjs scripts/mcp-smoke.test.mjs docs/proposals/cloudcl
 逐字失败行：``缺节：发消息 —— `读数：` 为空（冒号后去掉空白后没有内容）`` + `记录不合格（…）：缺 1 处，…`，exit **1**。恢复后重跑回绿（exit 0）。
 
 （口径注记：清空必须清掉冒号后的**整段**读数；只删引导语、行内仍剩内容时判据正确地保持绿——这正是「读数非空」这条检查想要的判别力。）
+
+## worker 续做记录（2026-10-06，第二轮）
+
+**本轮修 AC11 的 typecheck 面，11/11 AC 全绿。** 上一轮 exited-not-landed 的真因不是环境、也不是别的任务：`scripts/mcp-smoke.mjs` 的 47 处隐式 any（TS7006）与 3 处 `cause`/`message`（TS2339）使 `npx tsc --noEmit -p scripts/tsconfig.json` 退出 **2**；它经 `npm run typecheck`（root + server + scripts 三段串联）传到把 typecheck 当**不可移动冻结面**断言的 `server/modules/voice/tests/*.false-forms.test.ts`（voice-capture-audio / -isolation / -off / -secrets / -text、voice-error-classification / -contract），一次红 8 条，整个 suite 落不了地。delta-relatedness 标为 UNRELATED 的正是这些断言冻结面的 voice 测试——这也解释了那 8 条红：红因是本条自己的 `.mjs`，那些测试只是把上游的 typecheck 面照实报红。
+
+- **修法**：给 `scripts/mcp-smoke.mjs` 补 JSDoc（`@param` / `@returns` / `@typedef` + 少量内联 `@type` 收窄），并把 `api()` 的 catch-cause 折成 `errorText(unknown)` 助手；**不用** ts-ignore、**不**排除 `scripts/`、**不**放宽 `scripts/tsconfig.json`。无产品逻辑改动（`git diff` 仅注解 + 该等价重构 + 构造器补 `mcpRunId=''` 初值）。
+- **AC11 逐条回绿**：`npx tsc --noEmit -p scripts/tsconfig.json` exit **0**；`npm run typecheck`（root + server + scripts 三段）exit **0**；`npx oxlint scripts/mcp-smoke.mjs scripts/mcp-smoke.test.mjs` exit **0**；`git diff --stat develop...HEAD` 仅 `docs/proposals/cloudcli-mcp-smoke.md` / `scripts/mcp-smoke.mjs` / `scripts/mcp-smoke.test.mjs`（均 new），与 `## Touches` 对齐；产品代码一行未改。
+- **未回归上一轮读数**：判据命令 exit 0（`node --test` = tests 25 / pass 25 / fail 0；`--check-record` 逐字 `记录合格：docs/proposals/cloudcli-mcp-smoke.md 八节齐全、每节 读数：/结论： 非空、端口不是 3001`）；AC10 两条 grep 均 0；并把上一轮红的三条 voice false-forms（audio / off / secrets）本地点验 **17/17 绿**，其内部 `npm run typecheck` 与 `npm run lint` 两臂均 exit 0，确认级联已随根因消失。
+- **终态**：11/11 AC 绿；GOAL-020 的验收结论仍由人 yale 在 AC-257 给出。
+
 ## Needs-Human
 
 **执行 2026-10-05T17:11:48.613Z — 连续修满重试上限仍不合格（标 needs-human）**
