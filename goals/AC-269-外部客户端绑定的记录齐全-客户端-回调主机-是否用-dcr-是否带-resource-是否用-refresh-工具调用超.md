@@ -1,7 +1,7 @@
 ---
 id: AC-269
 title: 外部客户端绑定的记录齐全：客户端、回调主机、是否用 DCR、是否带 resource、是否用 refresh、工具调用超时实测、overview 结果
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-021
 criterion: for f in scripts/mcp-smoke.mjs
@@ -25,6 +25,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T23:36:48.311Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
