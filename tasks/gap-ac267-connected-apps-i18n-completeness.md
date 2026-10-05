@@ -4,7 +4,7 @@ title: AC-267 已连接的应用与 OAuth 客户端区块文案在全部 12 种�
   src/modules/settings/tests/i18nConnectedAppsCompleteness.test.ts 遍历
   locales/*/settings.json 的 glob，connectedApps + oauthClients 必需键 + 与 en 键集合完全一致
   + 正例对照，取假形态两条（删键/值=键名）必须红
-status: todo
+status: ready
 labels:
   - gap
 parent: null

@@ -665,5 +665,47 @@
     "copied": "Copiado",
     "connectLabel": "Comando de conexión",
     "enableHint": "La puerta de enlace MCP no está activada. Define MCP_ENABLED=true en el entorno del servidor y reinicia CloudCLI para activarla."
+  },
+  "connectedApps": {
+    "title": "Aplicaciones conectadas",
+    "description": "Aplicaciones que has autorizado a actuar en tu nombre a través de la pasarela MCP de CloudCLI. Revocar una autorización rechaza de inmediato todos los tokens emitidos bajo ella.",
+    "list": {
+      "empty": "Aún no hay aplicaciones conectadas.",
+      "redirectHost": "Host de callback:",
+      "scopes": "Ámbitos:",
+      "createdAt": "Autorizada:",
+      "lastUsed": "Último uso:",
+      "never": "Nunca",
+      "revokeButton": "Revocar",
+      "revokeConfirm": "¿Seguro que quieres revocar esta autorización? Sus tokens dejan de funcionar de inmediato. Esta acción no se puede deshacer."
+    }
+  },
+  "oauthClients": {
+    "title": "Clientes OAuth (avanzado)",
+    "description": "Aplicaciones registradas para obtener tokens de este servidor CloudCLI. Un cliente deshabilitado aquí hace que todas sus autorizaciones y tokens sean rechazados de inmediato.",
+    "newButton": "Nuevo cliente",
+    "form": {
+      "namePlaceholder": "Nombre del cliente (p. ej., Mi integración)",
+      "redirectUrisPlaceholder": "URI de redirección (p. ej., http://127.0.0.1:5173/callback)",
+      "createButton": "Crear cliente",
+      "cancelButton": "Cancelar"
+    },
+    "newClient": {
+      "alertTitle": "⚠️ Guarda el secreto del cliente",
+      "alertMessage": "Esta es la única vez que verás este secreto. Guárdalo de forma segura.",
+      "copy": "Copiar",
+      "iveSavedIt": "Lo he guardado"
+    },
+    "list": {
+      "empty": "Aún no hay clientes OAuth registrados.",
+      "redirectHost": "Host de callback:",
+      "createdVia": "Registrado mediante:",
+      "dcr": "Registro dinámico",
+      "manual": "Manual",
+      "active": "Activo",
+      "disabled": "Deshabilitado",
+      "disableButton": "Deshabilitar",
+      "disableConfirm": "¿Seguro que quieres deshabilitar este cliente? Todas sus autorizaciones y tokens se rechazan de inmediato. Esta acción no se puede deshacer."
+    }
   }
 }

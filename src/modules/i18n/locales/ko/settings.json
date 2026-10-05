@@ -659,5 +659,47 @@
     "copied": "복사됨",
     "connectLabel": "연결 명령",
     "enableHint": "MCP 게이트웨이가 활성화되어 있지 않습니다. 서버 환경에서 MCP_ENABLED=true를 설정하고 CloudCLI를 다시 시작하세요."
+  },
+  "connectedApps": {
+    "title": "연결된 앱",
+    "description": "CloudCLI MCP 게이트웨이를 통해 회원님을 대신해 동작하도록 승인한 애플리케이션입니다. 승인을 취소하면 그 아래 발급된 모든 토큰이 즉시 거부됩니다.",
+    "list": {
+      "empty": "아직 연결된 앱이 없습니다.",
+      "redirectHost": "콜백 호스트:",
+      "scopes": "범위:",
+      "createdAt": "승인 시각:",
+      "lastUsed": "마지막 사용:",
+      "never": "없음",
+      "revokeButton": "취소",
+      "revokeConfirm": "이 승인을 취소하시겠습니까? 해당 토큰은 즉시 작동을 멈춥니다. 되돌릴 수 없습니다."
+    }
+  },
+  "oauthClients": {
+    "title": "OAuth 클라이언트 (고급)",
+    "description": "이 CloudCLI 서버에서 토큰을 받기 위해 등록된 애플리케이션입니다. 여기서 비활성화한 클라이언트는 그 아래의 모든 승인과 토큰이 즉시 거부됩니다.",
+    "newButton": "새 클라이언트",
+    "form": {
+      "namePlaceholder": "클라이언트 이름 (예: 내 연동)",
+      "redirectUrisPlaceholder": "리디렉션 URI (예: http://127.0.0.1:5173/callback)",
+      "createButton": "클라이언트 만들기",
+      "cancelButton": "취소"
+    },
+    "newClient": {
+      "alertTitle": "⚠️ 클라이언트 시크릿을 저장하세요",
+      "alertMessage": "이 시크릿은 지금 한 번만 표시됩니다. 안전하게 보관하세요.",
+      "copy": "복사",
+      "iveSavedIt": "저장했습니다"
+    },
+    "list": {
+      "empty": "아직 등록된 OAuth 클라이언트가 없습니다.",
+      "redirectHost": "콜백 호스트:",
+      "createdVia": "등록 방식:",
+      "dcr": "동적 등록",
+      "manual": "수동",
+      "active": "활성",
+      "disabled": "비활성",
+      "disableButton": "비활성화",
+      "disableConfirm": "이 클라이언트를 비활성화하시겠습니까? 그 아래의 모든 승인과 토큰이 즉시 거부됩니다. 되돌릴 수 없습니다."
+    }
   }
 }

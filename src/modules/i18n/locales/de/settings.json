@@ -570,5 +570,47 @@
     "copied": "Kopiert",
     "connectLabel": "Verbindungsbefehl",
     "enableHint": "Das MCP-Gateway ist nicht aktiviert. Setze MCP_ENABLED=true in der Serverumgebung und starte CloudCLI neu, um es zu aktivieren."
+  },
+  "connectedApps": {
+    "title": "Verbundene Apps",
+    "description": "Anwendungen, die du autorisiert hast, über das CloudCLI-MCP-Gateway in deinem Namen zu handeln. Beim Widerrufen einer Autorisierung werden alle darunter ausgegebenen Token sofort abgelehnt.",
+    "list": {
+      "empty": "Noch keine verbundenen Apps.",
+      "redirectHost": "Callback-Host:",
+      "scopes": "Scopes:",
+      "createdAt": "Autorisiert:",
+      "lastUsed": "Zuletzt verwendet:",
+      "never": "Nie",
+      "revokeButton": "Widerrufen",
+      "revokeConfirm": "Möchtest du diese Autorisierung wirklich widerrufen? Ihre Token funktionieren sofort nicht mehr. Das kann nicht rückgängig gemacht werden."
+    }
+  },
+  "oauthClients": {
+    "title": "OAuth-Clients (Erweitert)",
+    "description": "Anwendungen, die registriert sind, um Token von diesem CloudCLI-Server zu erhalten. Ein hier deaktivierter Client hat sofort alle zugehörigen Autorisierungen und Token abgelehnt.",
+    "newButton": "Neuer Client",
+    "form": {
+      "namePlaceholder": "Client-Name (z. B. Meine Integration)",
+      "redirectUrisPlaceholder": "Redirect-URI (z. B. http://127.0.0.1:5173/callback)",
+      "createButton": "Client erstellen",
+      "cancelButton": "Abbrechen"
+    },
+    "newClient": {
+      "alertTitle": "⚠️ Speichere dein Client-Secret",
+      "alertMessage": "Dies ist das einzige Mal, dass du dieses Secret siehst. Bewahre es sicher auf.",
+      "copy": "Kopieren",
+      "iveSavedIt": "Ich habe es gespeichert"
+    },
+    "list": {
+      "empty": "Noch keine OAuth-Clients registriert.",
+      "redirectHost": "Callback-Host:",
+      "createdVia": "Registriert über:",
+      "dcr": "Dynamische Registrierung",
+      "manual": "Manuell",
+      "active": "Aktiv",
+      "disabled": "Deaktiviert",
+      "disableButton": "Deaktivieren",
+      "disableConfirm": "Möchtest du diesen Client wirklich deaktivieren? Jede Autorisierung und jeder Token darunter wird sofort abgelehnt. Das kann nicht rückgängig gemacht werden."
+    }
   }
 }

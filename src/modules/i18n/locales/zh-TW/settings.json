@@ -571,5 +571,47 @@
     "copied": "已複製",
     "connectLabel": "連線命令",
     "enableHint": "MCP 閘道未啟用。請在伺服器環境設定 MCP_ENABLED=true 並重新啟動 CloudCLI 以啟用。"
+  },
+  "connectedApps": {
+    "title": "已連接的應用程式",
+    "description": "你已授權透過這些 CloudCLI MCP 閘道代表你行事。撤銷某個授權後，其下簽發的所有權杖會立即被拒絕。",
+    "list": {
+      "empty": "尚無已連接的應用程式。",
+      "redirectHost": "回呼主機：",
+      "scopes": "權限範圍：",
+      "createdAt": "授權時間：",
+      "lastUsed": "最近使用：",
+      "never": "從未",
+      "revokeButton": "撤銷",
+      "revokeConfirm": "確定要撤銷此授權嗎？其權杖會立即失效，且無法復原。"
+    }
+  },
+  "oauthClients": {
+    "title": "OAuth 用戶端（進階）",
+    "description": "已註冊、可從此 CloudCLI 伺服器取得權杖的應用程式。在此停用的用戶端，其名下所有授權與權杖會立即被拒絕。",
+    "newButton": "新增用戶端",
+    "form": {
+      "namePlaceholder": "用戶端名稱（例如：我的整合）",
+      "redirectUrisPlaceholder": "重新導向 URI（例如：http://127.0.0.1:5173/callback）",
+      "createButton": "建立用戶端",
+      "cancelButton": "取消"
+    },
+    "newClient": {
+      "alertTitle": "⚠️ 請儲存用戶端密鑰",
+      "alertMessage": "這是你唯一一次看到此密鑰，請妥善保存。",
+      "copy": "複製",
+      "iveSavedIt": "我已儲存"
+    },
+    "list": {
+      "empty": "尚無已註冊的 OAuth 用戶端。",
+      "redirectHost": "回呼主機：",
+      "createdVia": "註冊方式：",
+      "dcr": "動態註冊",
+      "manual": "手動",
+      "active": "已啟用",
+      "disabled": "已停用",
+      "disableButton": "停用",
+      "disableConfirm": "確定要停用此用戶端嗎？其名下所有授權與權杖會立即被拒絕，且無法復原。"
+    }
   }
 }
