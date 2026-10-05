@@ -1,7 +1,7 @@
 ---
 id: AC-267
 title: 已连接的应用与 OAuth 客户端区块的文案在全部 12 种语言里齐全，不能缺键，也不能显示成原始键名
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-021
 criterion: for f in
@@ -21,6 +21,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T23:25:57.317Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
