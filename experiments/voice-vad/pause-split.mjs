@@ -361,7 +361,37 @@ function computeCells(calls) {
       wilson95: [Number(lo.toFixed(4)), Number(hi.toFixed(4))],
     };
   }
-  return { cells, pooled };
+  // One cell per (condition, pause): the reading the selection rule compares, with n = 4 scripts × 5
+  // reps = 20. The `cells` above are the per-script breakdown (n=5); this is the pooled grid the
+  // pre-registration calls a 格.
+  const byPause = {};
+  for (const condition of conditions) {
+    byPause[condition] = {};
+    for (const pause of PREREG.pauses) {
+      const repTexts = [];
+      for (const s of SCRIPTS) {
+        for (let rep = 0; rep < PREREG.reps; rep++) {
+          const forRep = calls.filter(
+            (c) => c.condition === condition && c.scriptId === s.id && c.pause === pause && c.rep === rep,
+          );
+          if (!forRep.length) continue;
+          repTexts.push(resolvedFor(reassemble(forRep, condition), s));
+        }
+      }
+      const n = repTexts.length;
+      const resolved = repTexts.filter(Boolean).length;
+      const [lo, hi] = wilsonInterval(resolved, n);
+      byPause[condition][pause] = {
+        condition,
+        pause,
+        n,
+        resolved,
+        resolvedRate: n ? resolved / n : null,
+        wilson95: [Number(lo.toFixed(4)), Number(hi.toFixed(4))],
+      };
+    }
+  }
+  return { cells, pooled, byPause };
 }
 
 /** Count how many of the 24 (script × pause × condition) real cells are present. */
@@ -436,10 +466,18 @@ function loadSnapshot(path) {
 
 function runOffline(opts) {
   const snap = loadSnapshot(opts.out ?? SNAPSHOT);
-  const { cells, pooled } = computeCells(snap.calls);
+  const { cells, pooled, byPause } = computeCells(snap.calls);
   const missing = missingCells(cells);
   console.log(`pause-split --offline (snapshot=${opts.out ?? SNAPSHOT}, variant=${opts.variant ?? 'none'})`);
   printCells(cells, pooled);
+  console.log('  每格 (做法 × 停顿) n=20（4 脚本 × 5 重复）的 resolved 率与 Wilson 95%:');
+  for (const condition of ['whole', 'split']) {
+    const row = PREREG.pauses.map((p) => {
+      const c = byPause[condition]?.[p];
+      return c ? `${p}s:${c.resolved}/${c.n} [${c.wilson95.join(', ')}]` : `${p}s:--`;
+    });
+    console.log(`    ${condition}  ${row.join('  ')}`);
+  }
   console.log(`  缺格数=${missing}（4×3×2=24 格，每格 n=${PREREG.reps}×4=${PREREG.reps * 4}）`);
 
   const sel = selectP(cells);
@@ -448,6 +486,17 @@ function runOffline(opts) {
     console.log(`    P=${r.pause}s  whole=${r.whole.toFixed(3)}  split=${r.split.toFixed(3)}  GAP=${r.gap.toFixed(3)}`);
   }
   console.log(`  推荐 flushSilenceSec = ${sel.pause}（${sel.reason}${sel.fallback ? '；无 P 落在容差内' : ''}）`);
+
+  // `--write` persists the derived readings (recomputed from the frozen `calls`, no network, no
+  // new calls) back into the snapshot, so the per-格 n=20 cells live in the frozen artifact.
+  if (opts.write) {
+    const target = opts.out ?? SNAPSHOT;
+    writeFileSync(
+      target,
+      `${JSON.stringify({ ...snap, cells, pooled, byPause, missingCells: missing })}\n`,
+    );
+    console.log(`  已按冻结 calls 重算派生读数并回写 ${target}（未联网、未发起调用）`);
+  }
 
   if (opts.variant === 'swap-order') {
     const whole = pooled.whole.resolvedRate ?? 0;
@@ -632,7 +681,7 @@ async function runGenerate(opts) {
       console.error(`  ...${calls.length}/${plan.length} calls, cumulative ¥${cumulative.toFixed(4)}`);
     }
   }
-  const { cells, pooled } = computeCells(calls);
+  const { cells, pooled, byPause } = computeCells(calls);
   const missing = missingCells(cells);
   const usage = calls.reduce(
     (a, c) => ({ inputTokens: a.inputTokens + c.usage.inputTokens, outputTokens: a.outputTokens + c.usage.outputTokens }),
@@ -664,6 +713,7 @@ async function runGenerate(opts) {
     costCny: Number(cumulative.toFixed(6)),
     missingCells: missing,
     cells,
+    byPause,
     pooled,
     calls,
   };
@@ -678,10 +728,11 @@ async function runGenerate(opts) {
 
 // ── CLI ──────────────────────────────────────────────────────────────────────────────────────
 function parseArgs(argv) {
-  const opts = { offline: false, variant: null, dryRun: false, provider: 'real', pricing: null, out: null };
+  const opts = { offline: false, variant: null, dryRun: false, provider: 'real', pricing: null, out: null, write: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--offline') opts.offline = true;
+    else if (a === '--write') opts.write = true;
     else if (a === '--dry-run') opts.dryRun = true;
     else if (a === '--variant') opts.variant = argv[++i];
     else if (a.startsWith('--variant=')) opts.variant = a.slice('--variant='.length);

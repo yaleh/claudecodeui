@@ -32,21 +32,33 @@
 
 ## 2. 网格与读数
 
-每条脚本是一次自我更正（`改一下 A，嗯不对，应该是 B`）。每格 n = 4 脚本 × 5 重复 = **20**；
-每格 5 次重复，4 条脚本并成 pooled（n=60）。`resolved = 提到 B（更正后目标）且不把 A（更正前目标）
-当作指令对象`（归一化后按完整标识符匹配，见 PREREG §2）。
+每条脚本是一次自我更正（`改一下 A，嗯不对，应该是 B`），重复 5 次；4 条脚本、3 个停顿、2 种做法。
+`resolved = 提到 B（更正后目标）且不把 A（更正前目标）当作指令对象`（归一化后按完整标识符匹配，见 PREREG §2）。
+快照里有两层读数：
+
+- **格 = (做法 × 停顿)**，n = 4 脚本 × 5 重复 = **20**，存在快照的 `byPause[condition][pause]`；
+  这是选参用的格。
+- **按脚本细分**，n = 5，存在快照的 `cells[condition]['<script>|<pause>']`（4 × 3 × 2 = 24 个子格全在）；
+  再往上 `pooled[condition]`（n=60）。
+
+| 做法 | 每格（做法 × 停顿）resolved，n=20 | Wilson 95% |
+|---|---|---|
+| `whole` @ 2s / 5s / 10s | 20/20 = 1.000（三档相同） | [0.8389, 1.0000] |
+| `split` @ 2s / 5s / 10s | 0/20 = 0.000（三档相同） | [0.0000, 0.1611] |
+
+- `whole` pooled：**60/60 = 1.000**，Wilson 95% **[0.9398, 1.0000]**。
+- `split` pooled：**0/60 = 0.000**，Wilson 95% **[0.0000, 0.0602]**。
+- 按脚本细分的子格（n=5，`cells[condition]['<script>|<pause>']`）：`whole` 每格 5/5 → [0.5656, 1.0000]，
+  `split` 每格 0/5 → [0.0000, 0.4345]。
+
+按脚本细分（每格 5 次重复）：
 
 | 做法 | d02 2s | d02 5s | d02 10s | d08 2s | d08 5s | d08 10s | e02 2s | e02 5s | e02 10s | e08 2s | e08 5s | e08 10s |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | `whole` | 5/5 | 5/5 | 5/5 | 5/5 | 5/5 | 5/5 | 5/5 | 5/5 | 5/5 | 5/5 | 5/5 | 5/5 |
 | `split` | 0/5 | 0/5 | 0/5 | 0/5 | 0/5 | 0/5 | 0/5 | 0/5 | 0/5 | 0/5 | 0/5 | 0/5 |
 
-- `whole` pooled：**60/60 = 1.000**，Wilson 95% **[0.9398, 1.0000]**。
-- `split` pooled：**0/60 = 0.000**，Wilson 95% **[0.0000, 0.0602]**。
-
-每个格子的 `resolved` 率与 Wilson 95% 区间都写进快照的 `cells[condition]['<script>|<pause>']`
-（每格 n=20 时 5/5 → [0.5656, 1.0000]，0/5 → [0.0000, 0.4345]）。12 个 `split` 格、12 个 `whole` 格
-全在，缺格数 **0**。
+12 个 `split` 子格、12 个 `whole` 子格全在，缺格数 **0**。
 
 读数的样子（P=5，d02，rep 0 的真实转写）：
 
@@ -60,7 +72,7 @@
 - 容差 `tolerance = 0.15`（绝对）。选参规则：在满足 `splitRate(P) ≥ wholeRate(P) − tolerance` 的 P 中取**最小**者。
 - P 对照：
 
-  | P | whole pooled | split pooled | GAP = whole − split | split ≥ whole − 0.15 ? |
+  | P | whole（格 n=20） | split（格 n=20） | GAP = whole − split | split ≥ whole − 0.15 ? |
   |---|---|---|---|---|
   | 2 s | 1.000 | 0.000 | 1.000 | 否（0 < 0.85） |
   | 5 s | 1.000 | 0.000 | 1.000 | 否 |
@@ -101,6 +113,7 @@ node experiments/voice-vad/pause-split.mjs --offline                      # 从�
 node experiments/voice-vad/pause-split.mjs --offline --variant=swap-order  # 负对照，退出码 0，含「负对照红」
 node experiments/voice-vad/pause-split.mjs --dry-run                       # 预算闸：打印「预估最坏花费」，退出码 0
 node experiments/voice-vad/pause-split.mjs --provider=fake-huge            # 累计闸：超大 usage 越线后停发
+node experiments/voice-vad/pause-split.mjs --offline --write              # 按冻结 calls 重算派生读数并回写快照
 ```
 
 离线路径不联网、不用凭据（脚本内 `NO_NETWORK` 守卫把 `fetch` 换成抛错）。生成路径缺凭据时**指名**
