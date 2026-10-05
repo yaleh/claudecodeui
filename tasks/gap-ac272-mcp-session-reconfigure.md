@@ -3,7 +3,7 @@ id: gap-ac272-mcp-session-reconfigure
 title: AC-272
   session_reconfigure：模型、思考强度、权限模式在下一轮生效，不支持的值明确拒绝并列出可选项，常驻会话走驱动的在线重配置；判据
   server/modules/mcp-gateway/tests/mcp-session-reconfigure.test.ts
-status: todo
+status: ready
 labels:
   - gap
 parent: null
