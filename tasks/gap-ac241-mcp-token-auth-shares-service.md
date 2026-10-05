@@ -49,16 +49,16 @@ AC-241（GOAL-020 退出条件 3；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3.
 
 ## AC
 
-- [ ] AC1 判据红态基线逐字记录：改动前运行 AC-241 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-auth.test.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-auth.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-auth.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 (a) 七种无效形态（无头 / 非 Bearer / 空令牌 / 未知 / 过期 / 已吊销 / 前缀不对）全部 401，七个响应体字节逐一相同且等于 token-info 的 401 体；逐字列出七条原始体。
-- [ ] AC4 (b) 有效令牌 `POST /mcp`（`tools/list`）得 200 且 JSON-RPC 有 `result`，content-type 为 JSON 或 SSE；写下状态码与 content-type（正例对照）。
-- [ ] AC5 (c) 同一运行中服务器：revoke 后**下一次**请求即 401（不重启、无缓存）；写下 revoke 前后两次状态码与 `revokeToken` 返回。
-- [ ] AC6 (d) 计数间谍证明 token-info 与 `/mcp` 收到同一 service 对象且两次 `verifyToken` 计数递增；stub 两向对照（网关听注入裁决、无旁路放行）；源码级 grep 网关 auth 文件无 `sha256|createHash|findByHash|accessTokensDb` 而 oauth service 有（正例对照）；逐字写下计数、对象身份、两向状态码与两组 grep 读数。
-- [ ] AC7 (e) 成功请求后该行 `last_used` 非 null 且 ≥ 签发时刻；上下文 `readMcpPrincipal`（探针路由读回）`userId === owner` 且非 null、scopes 正确；逐字写下前后 `last_used` 与读回主体。
-- [ ] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 网关缓存 ⇒ AC5 红；(ii) 按 reason 不同 401 体 ⇒ AC3 红；(iii) 网关自带校验 ⇒ AC6 红。每条恢复命令 + 恢复后重跑绿。
-- [ ] AC9 不回归与仓库门：`server/modules/oauth/tests/token-info.routes.test.ts` 不改一字仍逐字通过；`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；跨模块只经 barrel，≥2 处使用的 `bearerToken` 已进 `server/shared/utils.ts`。
-- [ ] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
+- [x] AC1 判据红态基线逐字记录：改动前运行 AC-241 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-auth.test.ts`（写下完整命令与完整输出）。
+- [x] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-auth.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-auth.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
+- [x] AC3 (a) 七种无效形态（无头 / 非 Bearer / 空令牌 / 未知 / 过期 / 已吊销 / 前缀不对）全部 401，七个响应体字节逐一相同且等于 token-info 的 401 体；逐字列出七条原始体。
+- [x] AC4 (b) 有效令牌 `POST /mcp`（`tools/list`）得 200 且 JSON-RPC 有 `result`，content-type 为 JSON 或 SSE；写下状态码与 content-type（正例对照）。
+- [x] AC5 (c) 同一运行中服务器：revoke 后**下一次**请求即 401（不重启、无缓存）；写下 revoke 前后两次状态码与 `revokeToken` 返回。
+- [x] AC6 (d) 计数间谍证明 token-info 与 `/mcp` 收到同一 service 对象且两次 `verifyToken` 计数递增；stub 两向对照（网关听注入裁决、无旁路放行）；源码级 grep 网关 auth 文件无 `sha256|createHash|findByHash|accessTokensDb` 而 oauth service 有（正例对照）；逐字写下计数、对象身份、两向状态码与两组 grep 读数。
+- [x] AC7 (e) 成功请求后该行 `last_used` 非 null 且 ≥ 签发时刻；上下文 `readMcpPrincipal`（探针路由读回）`userId === owner` 且非 null、scopes 正确；逐字写下前后 `last_used` 与读回主体。
+- [x] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 网关缓存 ⇒ AC5 红；(ii) 按 reason 不同 401 体 ⇒ AC3 红；(iii) 网关自带校验 ⇒ AC6 红。每条恢复命令 + 恢复后重跑绿。
+- [x] AC9 不回归与仓库门：`server/modules/oauth/tests/token-info.routes.test.ts` 不改一字仍逐字通过；`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；跨模块只经 barrel，≥2 处使用的 `bearerToken` 已进 `server/shared/utils.ts`。
+- [x] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
 
 ## DoD
 
