@@ -103,9 +103,50 @@ for f in scripts/mcp-smoke.mjs scripts/mcp-smoke.test.mjs docs/proposals/cloudcl
 - **三件判据物**：`scripts/mcp-smoke.mjs`（八段真跑 + `--check-record`）、`scripts/mcp-smoke.test.mjs`（25 例）、`docs/proposals/cloudcli-mcp-smoke.md`（8 节原始读数，每节非空 `读数：`/`结论：`）。
 - **判据绿（逐字）**：`for f in ...; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; node --test scripts/mcp-smoke.test.mjs && node scripts/mcp-smoke.mjs --check-record docs/proposals/cloudcli-mcp-smoke.md` → exit 0；`node --test` = tests 25 / pass 25 / fail 0；`--check-record` stdout 逐字 `记录合格：docs/proposals/cloudcli-mcp-smoke.md 八节齐全、每节 读数：/结论： 非空、端口不是 3001`。
 - **红态基线（AC1）**：在 `git archive HEAD`（= 改动前 `fccf5534`）解出的 `/tmp/ac256-base` 上跑判据，逐字 `缺判据文件：scripts/mcp-smoke.mjs`，exit 1。
-- **三条取假形态（AC4/5/6，先提交实现再变异）**：均先红后恢复、恢复后重跑回绿。变异 diff、逐字失败行、恢复命令见各 AC 行。
+- **三条取假形态（AC4/5/6，先提交实现再变异）**：均先红后恢复、恢复后重跑回绿。变异 diff、逐字失败行、恢复命令见下节「假形态登记」。
 - **真跑读数（AC8/AC9）**：真服务进程（`/proc/1171171/environ` 命中 `DATABASE_PATH=/tmp/ac256-run4/auth.db | HOST=127.0.0.1 | MCP_ENABLED=1`）、端口 `listen(0)` 探得 `port=5683` ≠ 3001、`detached:true` 负 pid 杀整组；真 `claude` CLI 经 `claude mcp add --transport http cloudcli http://127.0.0.1:5683/mcp --header "Authorization: Bearer <PAT>" --scope project` 接入；发消息 `session_send` 返回 `source="mcp"` 且出现在 `GET /api/providers/sessions/running`；**正控制**：同一 `run_get` 对一个 WS `chat.send` 发起的 run 读到 `source="user"`（≠ mcp，字段有分辨力）；收尾残留 pgrep/environ/scope 三条均 0；`:3001` 起点/终点监听 pid 与 systemd MainPID 逐字相同（`listener-pid=537272 systemd-main-pid=537272`），全程未碰 3001。
 - **AC10**：`grep -c '^嵌套冒烟验收：通过'` 记录文件 = 0；`grep -c '嵌套冒烟验收：通过'` 脚本 = 0；人证行未点亮。
 - **AC11**：`npx oxlint scripts/mcp-smoke.mjs scripts/mcp-smoke.test.mjs` exit 0；`git diff --stat develop...HEAD` 仅 `docs/proposals/cloudcli-mcp-smoke.md` / `scripts/mcp-smoke.mjs` / `scripts/mcp-smoke.test.mjs`（均 new）对齐 `## Touches`；产品代码一行未改。
 
 **终态：本条 11 项 AC 全绿、`done`；GOAL-020 的验收结论由人 yale 在 AC-257 给出。**
+
+## 假形态登记（AC4/5/6，先提交实现再变异）
+
+备份：`cp docs/proposals/cloudcli-mcp-smoke.md /tmp/ac256-record.bak`（每条变异前记录文件与 `/tmp/ac256-record.bak` 逐字相同）。三条统一恢复命令：`cp /tmp/ac256-record.bak docs/proposals/cloudcli-mcp-smoke.md`。
+
+### (i) 删掉一整节 ⇒ 红并点名该节（AC4）
+
+变异 diff（删掉 `## 查进度` 整节）：
+
+```
+-## 查进度
+-
+-读数：run_get(runId=ce4eff52-...) 返回逐字 {...}
+-结论：终端 Claude Code 自然语言驱动 run_get，按 runId 查到了同一个 run（source="mcp"，status="running"）。
+```
+
+逐字失败行：`缺节：查进度 —— 缺整个小节` + `记录不合格（docs/proposals/cloudcli-mcp-smoke.md）：缺 1 处，八节要求见 AC-256/AC3。`，exit **1**。恢复后重跑：`记录合格：… 八节齐全、每节 读数：/结论： 非空、端口不是 3001`，exit 0。
+
+### (ii) 端口记成 3001 ⇒ 红（AC5）
+
+变异 diff（`## 起独立实例` 一节 `port=5683` → `port=3001`）：
+
+```
+-读数：port=5683；proc-environ[1171171] DATABASE_PATH=/tmp/ac256-run4/auth.db | HOST=127.0.0.1 | MCP_ENABLED=1；…
++读数：port=3001；proc-environ[1171171] DATABASE_PATH=/tmp/ac256-run4/auth.db | HOST=127.0.0.1 | MCP_ENABLED=1；…
+```
+
+逐字失败行：`缺节：起独立实例 —— port=3001 是本机常驻服务端口（受保护，冒烟一律避开）` + `记录不合格（…）：缺 1 处，…`，exit **1**。恢复后重跑回绿（exit 0）。
+
+### (iii) 某节读数留空 ⇒ 红并点名该节（AC6）
+
+变异 diff（`## 发消息` 一节整条 `读数：` 冒号后内容清空）：
+
+```
+-读数：session_send 返回逐字 {"runId":"ce4eff52-…","queued":false,"queuedMessageUuid":null,"source":"mcp"}；…
++读数：
+```
+
+逐字失败行：``缺节：发消息 —— `读数：` 为空（冒号后去掉空白后没有内容）`` + `记录不合格（…）：缺 1 处，…`，exit **1**。恢复后重跑回绿（exit 0）。
+
+（口径注记：清空必须清掉冒号后的**整段**读数；只删引导语、行内仍剩内容时判据正确地保持绿——这正是「读数非空」这条检查想要的判别力。）
