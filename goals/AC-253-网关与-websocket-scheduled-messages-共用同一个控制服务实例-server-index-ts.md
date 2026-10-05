@@ -1,7 +1,7 @@
 ---
 id: AC-253
 title: 网关与 WebSocket、scheduled-messages 共用同一个控制服务实例：server/index.ts 里只构造一个，网关拿到的是它
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-020
 criterion: for f in server/modules/mcp-gateway/tests/mcp-gateway-wiring.test.ts;
@@ -26,6 +26,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T14:03:05.211Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
