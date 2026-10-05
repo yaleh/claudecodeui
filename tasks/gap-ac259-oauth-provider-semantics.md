@@ -3,7 +3,7 @@ id: gap-ac259-oauth-provider-semantics
 title: AC-259 OAuth 授权服务器语义：PKCE 强制 S256、授权码一次性且 60 秒过期、refresh
   轮换与复用吊销整条授权、受众匹配、redirect_uri 精确匹配与机密客户端密钥、有效期可配置；判据
   server/modules/oauth/tests/oauth-provider.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
