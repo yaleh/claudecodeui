@@ -355,12 +355,20 @@ test.describe('the live VAD reading end to end', () => {
     }
     await page.locator('#username').fill('e2euser');
     await page.locator('input[type=password]').nth(0).fill('e2epassword');
-    await page.locator('input[type=password]').nth(1).fill('e2epassword');
-    await page.getByRole('button', { name: 'Create Account' }).click();
-    await page.getByPlaceholder('John Doe').fill('E2E User');
-    await page.getByPlaceholder('john@example.com').fill('e2e@example.com');
-    await page.getByRole('button', { name: 'Next' }).click();
-    await page.getByRole('button', { name: 'Complete Setup' }).click();
+    // Create the single account on a fresh database, or sign in on one an earlier spec in the same
+    // run already created: the voice specs are run in one invocation, and they share the run's
+    // `auth.db`. The confirm field is what tells the forms apart — the setup form is the only one
+    // with it, and it is always rendered, so its absence means the account already exists.
+    if (await page.locator('#confirmPassword').isVisible().catch(() => false)) {
+      await page.locator('#confirmPassword').fill('e2epassword');
+      await page.getByRole('button', { name: 'Create Account' }).click();
+      await page.getByPlaceholder('John Doe').fill('E2E User');
+      await page.getByPlaceholder('john@example.com').fill('e2e@example.com');
+      await page.getByRole('button', { name: 'Next' }).click();
+      await page.getByRole('button', { name: 'Complete Setup' }).click();
+    } else {
+      await page.getByRole('button', { name: 'Sign In' }).click();
+    }
     await expect(projectRow()).toBeVisible({ timeout: 12_000 });
   });
 

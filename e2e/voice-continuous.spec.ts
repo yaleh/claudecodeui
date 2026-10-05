@@ -47,6 +47,26 @@ const SPEECH_SEC = 1;
 /** The segment minimum every leg but the short-input one names, so a pause really ends a segment. */
 const SMALL_MIN_SEC = 0.3;
 
+/** The shipped silence-flush window, in seconds. A leg that means the default names this. */
+const FLUSH_WINDOW_SEC = 5;
+
+/**
+ * A debug-shortened flush window: a leg can reach a flush without five real seconds of silence.
+ *
+ * Every leg that measures a flush NAMES this switch, because the flags are remembered in
+ * `localStorage` — a leg that left it to the default would inherit whatever the previous leg set.
+ */
+const FLUSH_SEC = 0.5;
+
+/**
+ * The shipped idle auto-stop, in seconds, named by every flush leg so it is never inherited.
+ *
+ * The flags are remembered in `localStorage`, so the silent-listen leg's `voiceIdleSec=2` would
+ * otherwise still be in force here — and a window measured in seconds of held request would close
+ * the microphone out from under the leg. Every leg below that keeps the listen open names this.
+ */
+const IDLE_WINDOW_SEC = 120;
+
 type Recorded = { url: string; answer: string; index: number };
 
 test.describe.configure({ mode: 'serial' });
@@ -119,6 +139,29 @@ test.describe('the continuous voice path end to end', () => {
       fake.pause(pause);
     }, [seconds, CUT_PAUSE_SEC]);
   };
+
+  /** Feeds `seconds` of speech followed by silence longer than the (debug) flush window. */
+  const speakThenFlush = async (seconds = SPEECH_SEC) => {
+    await page.evaluate(([s, pause]) => {
+      const fake = (window as unknown as { __voiceFake: { speak: (n: number) => void; pause: (n: number) => void } }).__voiceFake;
+      fake.speak(s);
+      fake.pause(pause);
+    }, [seconds, FLUSH_SEC + 0.3]);
+  };
+
+  /** The controls inside the composer, as names and testids rather than positions. */
+  const composerControls = (): Promise<{ buttons: string[]; testIds: string[] }> =>
+    page.evaluate(() => {
+      const root = document.querySelector('[data-slot="prompt-input"]');
+      if (!root) return { buttons: [], testIds: [] };
+      const buttons = Array.from(root.querySelectorAll('button')).map((button) =>
+        (button.getAttribute('aria-label') || button.textContent || '').trim(),
+      );
+      const testIds = Array.from(root.querySelectorAll('[data-testid]')).map((element) =>
+        element.getAttribute('data-testid') ?? '',
+      );
+      return { buttons, testIds };
+    });
 
   test.beforeAll(async ({ browser }) => {
     test.setTimeout(60_000);
@@ -268,12 +311,20 @@ test.describe('the continuous voice path end to end', () => {
     }
     await page.locator('#username').fill('e2euser');
     await page.locator('input[type=password]').nth(0).fill('e2epassword');
-    await page.locator('input[type=password]').nth(1).fill('e2epassword');
-    await page.getByRole('button', { name: 'Create Account' }).click();
-    await page.getByPlaceholder('John Doe').fill('E2E User');
-    await page.getByPlaceholder('john@example.com').fill('e2e@example.com');
-    await page.getByRole('button', { name: 'Next' }).click();
-    await page.getByRole('button', { name: 'Complete Setup' }).click();
+    // Create the single account on a fresh database, or sign in on one an earlier spec in the same
+    // run already created: the voice specs are run in one invocation, and they share the run's
+    // `auth.db`. The confirm field is what tells the forms apart — the setup form is the only one
+    // with it, and it is always rendered, so its absence means the account already exists.
+    if (await page.locator('#confirmPassword').isVisible().catch(() => false)) {
+      await page.locator('#confirmPassword').fill('e2epassword');
+      await page.getByRole('button', { name: 'Create Account' }).click();
+      await page.getByPlaceholder('John Doe').fill('E2E User');
+      await page.getByPlaceholder('john@example.com').fill('e2e@example.com');
+      await page.getByRole('button', { name: 'Next' }).click();
+      await page.getByRole('button', { name: 'Complete Setup' }).click();
+    } else {
+      await page.getByRole('button', { name: 'Sign In' }).click();
+    }
     await expect(projectRow()).toBeVisible({ timeout: 12_000 });
   });
 
@@ -415,5 +466,118 @@ test.describe('the continuous voice path end to end', () => {
     await stopButton().click();
     await expect(page.getByRole('button', { name: 'Replay trimmed' })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('button', { name: 'Replay original' })).toHaveCount(0);
+  });
+
+  test('a silence flush fills the box without a stop, about five seconds after the speech ends', async () => {
+    test.setTimeout(60_000);
+    // The shipped window, named explicitly: the switch is remembered, so the default is asserted
+    // by naming it rather than by leaving it to whatever the previous leg set.
+    await startListening(`/?voiceDebug=1&voiceMinSegmentSec=30&voiceFlushSilenceSec=${FLUSH_WINDOW_SEC}&voiceIdleSec=${IDLE_WINDOW_SEC}`);
+
+    const speechEndedAt = Date.now();
+    await page.evaluate(() => {
+      const fake = (window as unknown as { __voiceFake: { speak: (n: number) => void; pause: (n: number) => void } }).__voiceFake;
+      fake.speak(2);
+      fake.pause(0.25);
+    });
+
+    // Push the silence in real time, a quarter second at a time, until the flush fires. The flush is
+    // driven by the audio's own frame count, not a timer; pacing it in real time is what makes the
+    // wait the user feels the number this leg records.
+    let fired = false;
+    for (let step = 0; step < 48 && !fired; step += 1) {
+      await page.waitForTimeout(250);
+      await page.evaluate(() => {
+        (window as unknown as { __voiceFake: { pause: (n: number) => void } }).__voiceFake.pause(0.25);
+      });
+      fired = uploads.length > 0;
+    }
+    const intervalSec = (Date.now() - speechEndedAt) / 1000;
+    console.log(
+      `[voice-flush] speech-end -> request interval ≈ ${intervalSec.toFixed(2)}s (window ${FLUSH_WINDOW_SEC}s)`,
+    );
+
+    expect(fired, 'the silence never reached the flush window').toBe(true);
+    expect(intervalSec, 'the flush fired before the window had elapsed').toBeGreaterThan(3.5);
+    expect(intervalSec, 'the flush took far longer than the window').toBeLessThan(15);
+
+    // No stop was pressed: the microphone is still open and the text is already in the box.
+    await expect(composer()).toHaveValue(ANSWERS[0], { timeout: 10_000 });
+    await expect(stopButton()).toBeVisible();
+
+    // The stop finds nothing buffered, so it spends no second request.
+    await stopButton().click();
+    await expect.poll(() => uploads.length, { timeout: 15_000 }).toBe(1);
+  });
+
+  test('a pause shorter than the flush window does not spend a request', async () => {
+    test.setTimeout(40_000);
+    await startListening(`/?voiceDebug=1&voiceMinSegmentSec=30&voiceFlushSilenceSec=1&voiceIdleSec=${IDLE_WINDOW_SEC}`);
+
+    // One utterance with a 0.6 s break inside it: under the 1 s window, so nothing goes out.
+    await page.evaluate(() => {
+      const fake = (window as unknown as { __voiceFake: { speak: (n: number) => void; pause: (n: number) => void } }).__voiceFake;
+      fake.speak(1);
+      fake.pause(0.6);
+      fake.speak(1);
+    });
+    await page.waitForTimeout(500);
+    expect(uploads.length, 'a pause under the flush window spent a request').toBe(0);
+
+    // The stop is what releases the one buffered segment.
+    await stopButton().click();
+    await expect.poll(() => uploads.length, { timeout: 15_000 }).toBe(1);
+    await expect(composer()).toHaveValue(ANSWERS[0], { timeout: 10_000 });
+  });
+
+  test('the in-flight dot tracks requests on a still-recording listen', async () => {
+    test.setTimeout(60_000);
+    // Both requests are held, so "the dot is up" and "the dot is down" are readings this run takes.
+    delayMs = { 0: 4_000, 1: 4_000 };
+    await startListening(`/?voiceDebug=1&voiceMinSegmentSec=30&voiceFlushSilenceSec=${FLUSH_SEC}&voiceIdleSec=${IDLE_WINDOW_SEC}`);
+
+    // Nothing in flight yet: no dot anywhere in the composer.
+    await expect(page.getByTestId('voice-inflight-dot')).toHaveCount(0);
+
+    // A request is out and held: the dot is inside the still-recording (stop) button.
+    await speakThenFlush();
+    await expect.poll(() => uploads.length, { timeout: 15_000 }).toBe(1);
+    await expect(page.getByTestId('voice-inflight-dot')).toHaveCount(1);
+    await expect(stopButton().getByTestId('voice-inflight-dot')).toBeVisible();
+
+    // The held answer lands, and the dot goes with the pending request.
+    await expect(page.getByTestId('voice-inflight-dot')).toHaveCount(0, { timeout: 15_000 });
+    await expect(composer()).toHaveValue(ANSWERS[0], { timeout: 15_000 });
+
+    // A second request, stopped while still in flight: the transcribing tail — answers landing after
+    // the stop — is not a live request the user is waiting on, so it shows no dot either.
+    await speakThenFlush();
+    await expect.poll(() => uploads.length, { timeout: 15_000 }).toBe(2);
+    await expect(page.getByTestId('voice-inflight-dot')).toHaveCount(1);
+    await stopButton().click();
+    await expect(page.getByTestId('voice-inflight-dot')).toHaveCount(0);
+    await expect(composer()).toHaveValue(FULL_TWO, { timeout: 20_000 });
+  });
+
+  test('the in-flight dot adds no control to the composer', async () => {
+    test.setTimeout(45_000);
+    await startListening(`/?voiceDebug=1&voiceMinSegmentSec=30&voiceVad=1&voiceFlushSilenceSec=${FLUSH_SEC}&voiceIdleSec=${IDLE_WINDOW_SEC}`);
+
+    // The same live listen, before and during a held request. Comparing a recording composer with
+    // itself keeps the mic button's own name (Stop recording) out of the difference.
+    const before = await composerControls();
+    delayMs = { 0: 4_000 };
+    await speakThenFlush();
+    await expect.poll(() => uploads.length, { timeout: 15_000 }).toBe(1);
+    await expect(page.getByTestId('voice-inflight-dot')).toHaveCount(1);
+    const during = await composerControls();
+
+    // The premise: the composer really painted, so an equal pair is a reading and not two blanks.
+    expect(before.buttons.length, 'the composer painted no controls, so the comparison would be vacuous').toBeGreaterThan(0);
+    // The dot is not a control: no button appears with it, and the only testid it adds is its own.
+    expect([...during.buttons].sort()).toEqual([...before.buttons].sort());
+    const added = during.testIds.filter((id) => !before.testIds.includes(id));
+    expect([...added].sort()).toEqual(['voice-inflight-dot']);
+    expect(before.testIds.every((id) => during.testIds.includes(id))).toBe(true);
   });
 });
