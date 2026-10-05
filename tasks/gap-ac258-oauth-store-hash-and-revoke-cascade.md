@@ -4,7 +4,7 @@ title: AC-258 OAuth 表与仓储：oauth_clients / oauth_grants /
   oauth_authorization_codes 三表 + access_tokens 的 OAuth kind 与 grant_id 外键可用 +
   客户端密钥/授权码/OAuth 令牌只存 SHA-256（整库字节无明文）+ 吊销授权/禁用客户端级联其全部令牌 + 迁移幂等；判据
   server/modules/oauth/tests/oauth-store.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
