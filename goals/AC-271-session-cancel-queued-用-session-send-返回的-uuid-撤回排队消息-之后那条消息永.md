@@ -2,7 +2,7 @@
 id: AC-271
 title: session_cancel_queued：用 session_send 返回的 uuid
   撤回排队消息，之后那条消息永远不成为一轮，撤回已开始的消息如实说已不在队列
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-022
 criterion: for f in server/modules/mcp-gateway/tests/mcp-cancel-queued.test.ts;
@@ -25,6 +25,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T23:27:55.838Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
