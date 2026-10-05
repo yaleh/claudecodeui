@@ -2,7 +2,7 @@
 id: gap-voice-data-local-store-default-on
 title: 语音数据本机存储（D1）：默认开启、只存本机、设置里一键清空——记录每次语音输入的切段音频、识别文本与 token 置信度（独立于诊断用的
   VOICE_CAPTURE，不改其 fail-closed 语义）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
