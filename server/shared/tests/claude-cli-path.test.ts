@@ -1,10 +1,27 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { after, before } from 'node:test';
 
 import {
   resolveClaudeCodeExecutablePath,
   type ResolveClaudeCodeExecutablePathDependencies,
 } from '@/shared/claude-cli-path.js';
+
+// `resolveClaudeCodeExecutablePath`'s `configuredPath` default reads
+// `process.env.CLAUDE_CLI_PATH`, so the cases below that pass `undefined` mean
+// "nothing configured" only while that variable is unset. Some hosts export it
+// in the systemd user environment; without this isolation those assertions
+// would read the ambient value instead of the bare-default behavior under test.
+const ambientClaudeCliPath = process.env.CLAUDE_CLI_PATH;
+before(() => {
+  delete process.env.CLAUDE_CLI_PATH;
+});
+after(() => {
+  if (ambientClaudeCliPath === undefined) {
+    delete process.env.CLAUDE_CLI_PATH;
+  } else {
+    process.env.CLAUDE_CLI_PATH = ambientClaudeCliPath;
+  }
+});
 
 test('resolveClaudeCodeExecutablePath resolves the npm Claude wrapper to its native exe on Windows', () => {
   const wrapperDir = 'C:\\nvm4w\\nodejs';
