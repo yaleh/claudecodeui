@@ -2,7 +2,7 @@
 id: gap-ac277-mcp-resident-human-gate
 title: AC-277 人工关卡：常驻专有能力真实冒烟记录送人 yale 验收——复核 AC-276 八节齐全与撤回节 pid 不变、反自点亮；worker
   只写读数，停在 needs-human 等人写入「常驻专有能力验收：通过」
-status: todo
+status: ready
 labels:
   - gap
 parent: null
