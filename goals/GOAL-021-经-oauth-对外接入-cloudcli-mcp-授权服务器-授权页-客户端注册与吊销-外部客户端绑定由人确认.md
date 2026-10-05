@@ -1,11 +1,18 @@
 ---
 id: GOAL-021
 title: 经 OAuth 对外接入 CloudCLI MCP：授权服务器、授权页、客户端注册与吊销，外部客户端绑定由人确认
-status: active
+status: draft
 kind: goal
 origin: docs/proposals/mcp-gateway-SPEC.md（v3.1）。人 yale 2026-10-05 指令：创建并激活
   GOAL-020 至 GOAL-022 及其 AC。
 activatedAt: 2026-10-05T02:03:54.776Z
+statusLog:
+  - at: 2026-10-05T02:10:00.493Z
+    from: active
+    to: draft
+    actor: human:yale
+    reason: 人 yale 指令：退回 draft，等 GOAL-020 达成后再激活（021、022 的 AC 依赖 020 才能满足，同时激活会让任务因
+      mcp-gateway 尚不存在而反复失败并被机械翻成 needs-human）
 ---
 
 ## 背景
