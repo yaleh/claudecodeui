@@ -5,7 +5,7 @@ title: >-
   startResidentHost/closeResidentHost：已运行幂等同
     pid、cron/background-task lease 无 force 被拒并点名种类与数量、既有拒绝码原样、scope
     cloudcli:session:control；判据 server/modules/mcp-gateway/tests/mcp-session-host-control.test.ts
-status: todo
+status: ready
 labels:
   - gap
 parent: null
