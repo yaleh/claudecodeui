@@ -2,7 +2,7 @@
 id: gap-ac277-mcp-resident-human-gate
 title: AC-277 人工关卡：常驻专有能力真实冒烟记录送人 yale 验收——复核 AC-276 八节齐全与撤回节 pid 不变、反自点亮；worker
   只写读数，停在 needs-human 等人写入「常驻专有能力验收：通过」
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -96,3 +96,12 @@ goal_ac: AC-277
 - **`:3001` 起终点监听 pid 相同（§收尾残留与生产监听 pid）。** 起点读数 `listener-pid=2286735 systemd-main-pid=2286735`；终点读数 `listener-pid=2286735 systemd-main-pid=2286735`（逐字相同即监听 pid 与 systemd MainPID 都没被动过）；全程未连接 / 未启用 / 未重启 3001。
 
 **请求人 yale 做的唯一动作。** 在记录文件 `docs/proposals/cloudcli-mcp-resident-smoke.md`（主检出 `/data/home/yale/work/claudecodeui/docs/proposals/cloudcli-mcp-resident-smoke.md`）写入一行、以「常驻专有能力验收：通过」开头（行首起、无前导空白）。写入后重跑 AC6 判据 `grep -q '^常驻专有能力验收：通过' docs/proposals/cloudcli-mcp-resident-smoke.md` 即退出 **0**，届时勾选 AC6、任务方可推进，GOAL-022 方可判 achieved。
+
+## Needs-Human
+
+**执行 2026-10-05T23:07:40.815Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：worker-driver 连续 3 次 exited-not-landed 未落地（重试上限）
+- 失败步/判词：AC 未全勾（checked 6/7，剩余未勾 1）——续做只需验证并勾选 AC
+- run_id：wk-prod-anchor
+- session_id：6ddec578-dc61-4a2e-9db9-3208b66c2689
