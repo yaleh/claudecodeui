@@ -57,17 +57,174 @@ AC-245（GOAL-020 退出条件 7 的第一条；SPEC `docs/proposals/mcp-gateway
 
 ## AC
 
-- [ ] AC1 判据红态基线逐字记录：改动前运行 AC-245 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-read-tools.test.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-read-tools.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-read-tools.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 (a) `listTools()` 工具名集合与 `MCP_STAGE3_READ_TOOLS` 的 7 个名集合相等、无任何写工具名、每个声明 scope `cloudcli:read`；逐字写出两组名字与每个工具名+scope（正例对照：含四个被测只读工具）。
-- [ ] AC4 (b) `projects_list` 与 `sessions_list` 返回全部夹具项目/会话；`state` 三值各只返回对应会话（按谓词定义与夹具预期集合相等）；空过滤返回空列表且非 isError；逐字写出各个 id 列表与前后计数。
-- [ ] AC5 (c) 常驻会话 `session_get` 带 `host`（state、pid、非空 leases 且逐条列出、peerName 与驱动注册名相等）；冷会话明确说明没有宿主且不抛错；逐字写出两侧原始读数。
-- [ ] AC6 (d) `session_read` 的 `latest` 工具调用折叠成一行、`outline` 返回全部用户轮次、`around` 返回含目标的窗口；逐字写出折叠行文本、轮次列表、窗口消息 id。
-- [ ] AC7 (e) 超 4000 字符文本首段 ≤4000 且带 cursor，顺 cursor 取完拼接逐字等于原文；≤4000 字符文本不返回 cursor；逐字写出原文/各段长度/拼接读数与 cursor。
-- [ ] AC8 (f) 时间字段同时含相对时间与 ISO 时间戳（注入时钟下可预期）；逐字写出原始两值。
-- [ ] AC9 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) `state` 过滤被忽略 ⇒ AC4 红；(ii) 截断不给 cursor / cursor 取不全 ⇒ AC7 红；(iii) `session_get` 丢掉 leases ⇒ AC5 红。每条恢复命令 + 恢复后重跑绿。
-- [ ] AC10 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；既有 `server/modules/providers/tests/*.test.ts`（`fetchHistory`/`fetchOutline`/`fetchWindowAround`）、`server/modules/session-hosts/tests/*.test.ts`（`snapshot`）、`server/modules/projects` 的既有判据不改一字仍逐字通过（本任务只新增只读工具与注册，不改被读服务）。
-- [ ] AC11 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
+- [x] AC1 判据红态基线逐字记录：改动前运行 AC-245 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-read-tools.test.ts`（写下完整命令与完整输出）。
+- [x] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-read-tools.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-read-tools.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
+- [x] AC3 (a) `listTools()` 工具名集合与 `MCP_STAGE3_READ_TOOLS` 的 7 个名集合相等、无任何写工具名、每个声明 scope `cloudcli:read`；逐字写出两组名字与每个工具名+scope（正例对照：含四个被测只读工具）。
+- [x] AC4 (b) `projects_list` 与 `sessions_list` 返回全部夹具项目/会话；`state` 三值各只返回对应会话（按谓词定义与夹具预期集合相等）；空过滤返回空列表且非 isError；逐字写出各个 id 列表与前后计数。
+- [x] AC5 (c) 常驻会话 `session_get` 带 `host`（state、pid、非空 leases 且逐条列出、peerName 与驱动注册名相等）；冷会话明确说明没有宿主且不抛错；逐字写出两侧原始读数。
+- [x] AC6 (d) `session_read` 的 `latest` 工具调用折叠成一行、`outline` 返回全部用户轮次、`around` 返回含目标的窗口；逐字写出折叠行文本、轮次列表、窗口消息 id。
+- [x] AC7 (e) 超 4000 字符文本首段 ≤4000 且带 cursor，顺 cursor 取完拼接逐字等于原文；≤4000 字符文本不返回 cursor；逐字写出原文/各段长度/拼接读数与 cursor。
+- [x] AC8 (f) 时间字段同时含相对时间与 ISO 时间戳（注入时钟下可预期）；逐字写出原始两值。
+- [x] AC9 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) `state` 过滤被忽略 ⇒ AC4 红；(ii) 截断不给 cursor / cursor 取不全 ⇒ AC7 红；(iii) `session_get` 丢掉 leases ⇒ AC5 红。每条恢复命令 + 恢复后重跑绿。
+- [x] AC10 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；既有 `server/modules/providers/tests/*.test.ts`（`fetchHistory`/`fetchOutline`/`fetchWindowAround`）、`server/modules/session-hosts/tests/*.test.ts`（`snapshot`）、`server/modules/projects` 的既有判据不改一字仍逐字通过（本任务只新增只读工具与注册，不改被读服务）。
+- [x] AC11 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
+
+## Evidence
+
+判据命令（AC1，判据文件缺席时的红态基线）：
+
+```
+$ for f in server/modules/mcp-gateway/tests/mcp-read-tools.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-read-tools.test.ts
+缺判据文件：server/modules/mcp-gateway/tests/mcp-read-tools.test.ts
+exit=1
+```
+
+AC2（绿）：
+
+```
+ℹ tests 6
+ℹ pass 6
+ℹ fail 0
+ℹ duration_ms 4604.521966   (exit 0)
+```
+
+AC3 (a)：
+
+```
+[a] tools/list names           = ["overview","projects_list","quay_snapshot","run_get","session_get","session_read","sessions_list"]
+[a] MCP_STAGE3_READ_TOOLS names = ["overview","projects_list","quay_snapshot","run_get","session_get","session_read","sessions_list"]
+[a] declared overview|projects_list|sessions_list|session_get|session_read|run_get|quay_snapshot requiredScope=cloudcli:read  (7/7)
+[a] write tools absent = ["session_send","session_create","session_interrupt","session_start","session_close"]
+[a] projects_list with a token lacking cloudcli:read -> isError=true text="Insufficient scope for this tool."
+[a] overview -> isError=true text="{\"code\":\"MCP_TOOL_NOT_IMPLEMENTED\",\"tool\":\"overview\",\"owner\":\"AC-247\",...}"
+[a] run_get  -> isError=true text="{\"code\":\"MCP_TOOL_NOT_IMPLEMENTED\",\"tool\":\"run_get\",\"owner\":\"AC-248\",...}"
+[a] quay_snapshot -> isError=true text="{\"code\":\"MCP_TOOL_NOT_IMPLEMENTED\",\"tool\":\"quay_snapshot\",\"owner\":\"AC-247\",...}"
+```
+
+AC4 (b)：
+
+```
+[b] projects_list = [{"id":"…","name":"alpha-workspace","path":"<tmp>/alpha-workspace","sessionCount":2,"lastActivity":{"relative":"55 分钟前","iso":"2026-09-01T11:05:00.000Z"},"isArchived":false},
+                     {"id":"…","name":"beta-workspace","path":"<tmp>/beta-workspace","sessionCount":2,"lastActivity":{"relative":"56 分钟前","iso":"2026-09-01T11:04:00.000Z"},"isArchived":false}]
+[b] sessions_list(all) = 4 rows:
+      read-fixture-busy     "Busy session"     claude per-run   hostState=null        running=true
+      read-fixture-quiet    "Quiet session"    claude per-run   hostState=null        running=false
+      read-fixture-resident "Resident session" claude resident  hostState="lingering" running=false
+      read-fixture-big      "Big session"      claude per-run   hostState=null        running=false
+[b] state=running  -> ["read-fixture-busy"]
+[b] state=resident -> ["read-fixture-resident"]
+[b] state=idle     -> ["read-fixture-big","read-fixture-quiet"]
+[b] project=beta state=running -> {"sessions":[],"total":0} isError=false
+```
+
+AC5 (c)：
+
+```
+[c] session_get(read-fixture-resident).host = {"hostId":"host-…","mode":"resident","state":"lingering","pid":531013,
+      "startedAt":{"relative":"刚刚","iso":"2026-09-01T12:00:00.000Z"},"idleForMs":0,"peerName":"read-fixture-peer",
+      "leases":[{"kind":"resident-policy"},
+                {"kind":"cron","id":"read-fixture-cron","recurring":true,"expiresAt":1788267600000},
+                {"kind":"background-task","id":"read-fixture-bg","since":1788264000000}]}
+[c] host.state="lingering"  host.pid=531013 (positive integer)  host.peerName="read-fixture-peer"
+[c] session_get(read-fixture-quiet) host=null hostNote="没有宿主：该会话当前没有宿主进程（按次进程模式且未运行）。"  isError=false
+```
+
+AC6 (d)：
+
+```
+[d] latest lines (5) = ["[2026-09-01T11:00:00.000Z] user: First question: what does the read tool return?",
+                        "[2026-09-01T11:00:01.000Z] assistant: It reads the normalized history.",
+                        "[2026-09-01T11:00:02.000Z] tool Bash({\"command\":\"echo read-fixture-hello\"}) -> read-fixture-hello",
+                        "[2026-09-01T11:00:04.000Z] user: Second question: does the tool call fold onto one line?",
+                        "[2026-09-01T11:00:05.000Z] assistant: Yes, one line."]
+[d] folded tool lines = 1  (the two raw JSONL rows a-read-tool / u-read-tool-result draw as ONE line; no line begins with a bare tool_result)
+[d] outline lines = ["[2026-09-01T11:00:00.000Z] #0 u-read-1: First question: …", "[2026-09-01T11:00:04.000Z] #3 u-read-2: Second question: …"]
+[d] around(a-read-tool_0) lines = 3, middle line is the folded Bash call
+```
+
+AC7 (e)：
+
+```
+[e] paginateMcpText: original=5041 chunks=[4000,1041] reassembled=5041 equal=true
+[e] session_read(big) first chunk length=4000 cursor="NDAwMA=="
+[e] session_read(big) chunk lengths=[4000,1055] reassembled=5055 containsFixtureText=true
+[e] short session_read payload keys = ["session","mode","content"]   (no cursor key at all)
+```
+
+AC8 (f)：`NOW = 2026-09-01T12:00:00.000Z`（注入时钟）；四个会话 lastActivity = `{"relative":"55 分钟前","iso":"2026-09-01T11:05:00.000Z"}` / `56 分钟前` / `57 分钟前` / `58 分钟前`；`projects_list` 与 `session_get` 同形。
+
+AC9 取假形态（先提交实现 `85db9402` 再变异；每条记录 diff、失败行、恢复命令）：
+
+(i) `sessions_list` 忽略 `state` —— 变异 diff 删去三行谓词、改为 `void state; return true;`：
+```
+-          if (state === 'running') return session.running;
+-          if (state === 'resident') return isResident(session);
+-          if (state === 'idle') return !session.running && !isResident(session);
++          // FALSE FORM (i): `state` is read above and then ignored here.
++          void state;
+           return true;
+```
+失败行（(b) 红，5 pass / 1 fail）：
+```
+AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+actual:   [ 'read-fixture-big', 'read-fixture-busy', 'read-fixture-quiet', 'read-fixture-resident' ],
+expected: [ 'read-fixture-busy' ],
+```
+恢复命令：`git checkout -- server/modules/mcp-gateway/mcp-gateway.read-tools.ts` → 重跑 `ℹ pass 6 ℹ fail 0`。
+
+(ii) 截断不给 cursor —— 变异 diff：
+```
+-  return next < text.length ? { content, cursor: encodeMcpCursor(next) } : { content };
++  return { content: text.slice(offset, offset + MCP_TEXT_CHUNK_CHARS) };
+```
+失败行（(e) 红，5 pass / 1 fail）：
+```
+AssertionError [ERR_ASSERTION]: the over-long original must need more than one chunk
+```
+恢复命令：`git checkout -- server/modules/mcp-gateway/mcp-gateway.read-tools.ts` → 重跑 `ℹ pass 6 ℹ fail 0`。
+
+(iii) `session_get` 丢掉 `leases` —— 变异 diff：
+```
+-              leases: binding.leases.map((lease) => ({ ...lease })),
++              // FALSE FORM (iii): the binding's leases are dropped.
++              leases: [],
+```
+失败行（(c) 红，5 pass / 1 fail）：
+```
+AssertionError [ERR_ASSERTION]: the resident binding must carry leases
+```
+恢复命令：`git checkout -- server/modules/mcp-gateway/mcp-gateway.read-tools.ts` → 重跑 `ℹ pass 6 ℹ fail 0`。
+
+AC10：
+
+```
+$ npm run typecheck    → exit 0 (tsconfig.json + server/tsconfig.json + scripts/tsconfig.json)
+$ npm run lint         → exit 0；`: error ` 计数 = 0（213 warnings，全部为本任务之前既有；本任务改动的 7 个文件零 warning）
+$ npx tsx --tsconfig server/tsconfig.json --test <each existing file>:
+   mcp-gateway/tests: dependency-declaration 4/0, mcp-audit 5/0, mcp-auth 5/0, mcp-loopback-guard 5/0, mcp-transport 4/0, oauth-metadata-mount 6/0
+   session-hosts/tests: backgroundTaskLeaseSince 1/0, lifecycle-mode 9/0, process-containment 1/0, resident-host-service 5/0,
+     resident-idle-timeout-config 4/0, resident-ondemand-start-route 2/0, resident-server-restart 4/0, session-host-bindings 6/0,
+     session-host-default-wrap 6/0, session-host-lifecycle 6/0, session-host-per-run-parity 5/0, session-hosts-routes 7/0
+   providers/tests: session-turn-outline 3/0, session-window-around 7/0（fetchHistory / fetchOutline / fetchWindowAround）
+   projects/tests: 7 files, 30/0
+```
+
+AC11：`git diff --stat develop...HEAD`
+
+```
+ server/index.ts                                          |  25 +-
+ server/modules/mcp-gateway/index.ts                      |  23 +
+ server/modules/mcp-gateway/mcp-gateway.audit.ts          |  56 +-
+ server/modules/mcp-gateway/mcp-gateway.read-tools.ts     | 732 ++++++ (new)
+ server/modules/mcp-gateway/mcp-gateway.transport.ts      |  60 +-
+ server/modules/mcp-gateway/tests/mcp-read-tools.test.ts  | 788 ++++++ (new)
+ server/modules/projects/index.ts                         |   9 +
+ 7 files changed, 1674 insertions(+), 19 deletions(-)
+```
+
+两点实现说明（不改变读数）：
+1. **常驻夹具的宿主驱动用了脚本书写驱动而非调试 agent 驱动**。调试 agent 的闸是「进程内首次读取即缓存」，而 `provider.registry.ts` 在模块加载时就调 `createDebugAgentProvider`，即本判据自身的（传递）静态导入会在任何环境变量可设之前就把闸读成 closed，`createDebugAgentHostDriver` 因此恒返回 null。管理器、绑定、lease 账本与 identity sink 两种写法完全相同；脚本驱动经文档化的 sink 上报 peerName 与 lease，不手写 host 对象（任务 Notes 的退路，逐字照办）。
+2. `McpReadToolDeps` 只声明本任务真的读取的成员（`runs: { listRunningRuns }`）；`getRunById` 与 `activity` 属 AC-247/AC-248 的读数，落地时由该任务扩展 deps，本任务不预留无消费者的探测面。
 
 ## DoD
 
@@ -84,8 +241,10 @@ AC-245（GOAL-020 退出条件 7 的第一条；SPEC `docs/proposals/mcp-gateway
 
 - server/modules/mcp-gateway/mcp-gateway.read-tools.ts (new)
 - server/modules/mcp-gateway/mcp-gateway.transport.ts
+- server/modules/mcp-gateway/mcp-gateway.audit.ts
 - server/modules/mcp-gateway/index.ts
 - server/index.ts
+- server/modules/projects/index.ts
 - server/modules/mcp-gateway/tests/mcp-read-tools.test.ts (new)（判据）
 - tasks/gap-ac245-mcp-read-tools-fixture-readings.md
 
@@ -95,6 +254,6 @@ AC-245（GOAL-020 退出条件 7 的第一条；SPEC `docs/proposals/mcp-gateway
 - 常驻夹具用调试 agent 宿主驱动，形制照 `server/modules/debug-agent/tests/debug-agent-host-driver.test.ts`（`createSessionHostManager` + `createDebugAgentHostDriver` + `armDebugAgentScenario`；`DEBUG_AGENT_PROVIDER_ID`）：把目标会话 `lifecycle_mode='resident'` 绑定到宿主，并加 `turn`/`cron`/`background-task` lease 使 `leases` 非空、`peerName` 非 null。若该驱动难以在单测内起，退路是直接 `createSessionHostManager` 并 `bindSession`，再经管理器 API 加 lease——仍从 `snapshot()`/`liveHostForSession()` 读回，不手写 host 对象。
 - scope 字面量 `cloudcli:read` 取自 SPEC §326；若 AC-243 已落地 `ACCESS_TOKEN_SCOPES`，从 `@/modules/oauth/index.js` 导入该常量而不是重写；未落地时用字面量（AC-243 不列为硬前置，因为签发路径在缺省/任意非空子串下都能签出该 scope）。
 - `MCP_STAGE3_READ_TOOLS` 是 (a)「恰好」的唯一事实来源；AC-247/248 引入工具行为时**不得**新增/改名工具，只在既有名字上填 handler（否则本判据红，属预期——集合是契约）。
-- 截断的 4000 是**字符**（`String.length` 计码元，中文一字一码元）而非字节；cursor 不透明，编码下一段**字符**偏移（如 `base64(String(offset))`），不依赖任何内部状态（无状态传输）。
+- 截断的 4000 是**字符**（`String.length` 计码元，中文一字一码元）而非字节；cursor 不透明，编码下一段**字符**偏移（如 base64(String(offset))），不依赖任何内部状态（无状态传输）。
 - 时间的相对形态不引入新依赖（不用 dayjs/date-fns），自写小函数；相对时间在注入 `now` 下必须可精确预期（写出用例）。
 - 名称模糊匹配（AC-246）不在本任务：本任务 `session_get`/`session_read` 的 `session` 参数先按**精确 id** 取（夹具用 id）；AC-246 落地后在解析前加子串解析。本任务不实现多义/无命中的候选列表——那属 AC-246。
