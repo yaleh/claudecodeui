@@ -26,10 +26,13 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import {
+  EXTERNAL_SECTION_TITLES,
   GuardRefusal,
   SECTION_TITLES,
   assertIsolatedDatabasePath,
   assertSafePort,
+  checkExternalRecordFile,
+  checkExternalRecordText,
   checkRecordFile,
   checkRecordText,
   extractSection,
@@ -348,5 +351,151 @@ test('AC10：冒烟脚本里不得出现禁用的人证行字样（正控制证�
   const hits = source.split('\n').filter((line) => line.includes(needle)).length;
   assert.strictEqual(hits, 0, `脚本不得承载人证行字样，命中 ${hits} 行 —— AC-257 会被本任务的模板点亮`);
   // 正控制：同一条 grep 在一个确实含该字样的串上必须非零，否则这条断言没有分辨力。
+  assert.strictEqual([`${needle}（人 yale 于某日）`].filter((line) => line.includes(needle)).length, 1);
+});
+
+// ---------------------------------------------------------------------------
+// AC-269 外部客户端绑定记录：`--check-external-record` 的五件机械检查
+//   (a) 缺一节就红并点名；      (b) 缺 `读数：`/`结论：` 行点名该节缺哪行；
+//   (c) 读数或结论为空点红；    (d) 公网基址含 `ccp_`/`cca_` 令牌红并点名；
+//   (e) 九节齐全 exit 0。
+// ---------------------------------------------------------------------------
+
+/** 九节齐全的一份最小外部记录：每节 `读数：raw` + `结论：ok`。 */
+function completeExternalRecord() {
+  return EXTERNAL_SECTION_TITLES
+    .map((title) => `## ${title}\n\n读数：raw\n结论：ok\n`)
+    .join('\n');
+}
+
+/**
+ * 把某节换成给定正文，其余节保持齐全。
+ * @param {string} target @param {string} sectionBody
+ */
+function externalRecordWith(target, sectionBody) {
+  return EXTERNAL_SECTION_TITLES
+    .map((title) => (title === target ? `## ${title}\n\n${sectionBody}` : `## ${title}\n\n读数：raw\n结论：ok\n`))
+    .join('\n');
+}
+
+/**
+ * 在临时目录里放一份外部记录，跑 `--check-external-record`。
+ * @param {string} text @param {string} prefix
+ */
+function checkExternalCli(text, prefix) {
+  const { dir, cleanup } = tempDir(prefix);
+  const file = path.join(dir, 'record.md');
+  fs.writeFileSync(file, text);
+  const result = runCli(['--check-external-record', file]);
+  cleanup();
+  return result;
+}
+
+// — (a) 缺整节点名该节（承重腿） —
+test('外部记录（a）：缺一节就红，并逐字点名缺的是哪节', () => {
+  const missingTitle = 'overview 返回';
+  const text = EXTERNAL_SECTION_TITLES
+    .filter((title) => title !== missingTitle)
+    .map((title) => `## ${title}\n\n读数：raw\n结论：ok\n`)
+    .join('\n');
+  const result = checkExternalCli(text, 'mcp-smoke-ext-missing-');
+  assert.strictEqual(result.status, 1, `期望 exit 1，实际 ${result.status}`);
+  assert.match(result.stderr, /缺节：overview 返回 —— 缺整个小节/);
+  assert.doesNotMatch(result.stderr, /缺节：客户端与版本/, '齐了的节不该被点名');
+});
+
+test('外部记录（a 纯函数）：checkExternalRecordText 对只有一节的记录点名其余八节全缺', () => {
+  const missing = checkExternalRecordText('## 客户端与版本\n\n读数：raw\n结论：ok\n');
+  assert.deepStrictEqual(missing.map((entry) => entry.title), EXTERNAL_SECTION_TITLES.slice(1));
+  assert.ok(missing.every((entry) => entry.reason === '缺整个小节'));
+});
+
+test('外部记录（a 纯函数）：checkExternalRecordFile 对不存在的文件把九节点名全缺', () => {
+  const missing = checkExternalRecordFile('/tmp/definitely-not-here-mcp-external.md');
+  assert.deepStrictEqual(missing.map((entry) => entry.title), EXTERNAL_SECTION_TITLES);
+});
+
+// — (b) 缺 `读数：` / `结论：` 行点名该节缺哪行 —
+test('外部记录（b-1）：缺 `结论：` 行的节点名该节缺哪行，不报整节', () => {
+  const result = checkExternalCli(externalRecordWith('是否使用 DCR', '读数：raw\n'), 'mcp-smoke-ext-noconcl-');
+  assert.strictEqual(result.status, 1, `期望 exit 1，实际 ${result.status}`);
+  assert.match(result.stderr, /缺节：是否使用 DCR —— 缺 `结论：` 行/);
+  assert.doesNotMatch(result.stderr, /缺整个小节/, '只有一节缺一行，不该报整节缺失');
+});
+
+test('外部记录（b-2）：缺 `读数：` 行的节点名该节缺哪行', () => {
+  const result = checkExternalCli(externalRecordWith('回调主机', '结论：ok\n'), 'mcp-smoke-ext-noread-');
+  assert.strictEqual(result.status, 1, `期望 exit 1，实际 ${result.status}`);
+  assert.match(result.stderr, /缺节：回调主机 —— 缺 `读数：` 行/);
+});
+
+// — (c) 读数或结论为空点红 —
+test('外部记录（c-1）：`读数：` 冒号后为空时点红并点名该节', () => {
+  const result = checkExternalCli(externalRecordWith('工具调用超时', '读数：\n结论：ok\n'), 'mcp-smoke-ext-blank-');
+  assert.strictEqual(result.status, 1, `期望 exit 1，实际 ${result.status}`);
+  assert.match(result.stderr, /缺节：工具调用超时 —— `读数：` 为空/);
+});
+
+test('外部记录（c-2）：`结论：` 冒号后只有空白也算空', () => {
+  const missing = checkExternalRecordText(externalRecordWith('allowlist 重绑', '读数：raw\n结论：   \n'));
+  assert.deepStrictEqual(missing, [{
+    title: 'allowlist 重绑',
+    reason: '`结论：` 为空（冒号后去掉空白后没有内容）',
+  }]);
+});
+
+// — (d) 公网基址含令牌红并点名 —
+test('外部记录（d-1）：公网基址含 `ccp_` 令牌必红并点名该节', () => {
+  const result = checkExternalCli(
+    externalRecordWith('公网基址', '读数：https://x.trycloudflare.com/mcp?token=ccp_deadbeef\n结论：ok\n'),
+    'mcp-smoke-ext-token-ccp-',
+  );
+  assert.strictEqual(result.status, 1, `期望 exit 1，实际 ${result.status}`);
+  assert.match(result.stderr, /缺节：公网基址 —— 正文含令牌串/);
+});
+
+test('外部记录（d-2）：公网基址含 `cca_` 令牌必红并点名该节', () => {
+  const result = checkExternalCli(
+    externalRecordWith('公网基址', '读数：https://x.trycloudflare.com/?a=cca_0123456789abcdef\n结论：ok\n'),
+    'mcp-smoke-ext-token-cca-',
+  );
+  assert.strictEqual(result.status, 1, `期望 exit 1，实际 ${result.status}`);
+  assert.match(result.stderr, /缺节：公网基址 —— 正文含令牌串/);
+  // 令牌串只出现在别的节时不该误伤公网基址。
+  const benign = checkExternalRecordText(externalRecordWith('客户端与版本', '读数：PAT 前缀 ccp_ 已据实记别处\n结论：ok\n'));
+  assert.deepStrictEqual(benign, [], '令牌串写在别的节里不该让公网基址判红');
+});
+
+// — (e) 九节齐全 exit 0 —
+test('外部记录（e）：九节齐全 exit 0', () => {
+  const result = checkExternalCli(completeExternalRecord(), 'mcp-smoke-ext-ok-');
+  assert.strictEqual(result.status, 0, `期望 exit 0，实际 ${result.status}；stderr=${result.stderr}`);
+  assert.match(result.stdout, /记录合格/);
+});
+
+test('外部记录（e 纯函数）：九节齐全判绿', () => {
+  assert.deepStrictEqual(checkExternalRecordText(completeExternalRecord()), []);
+});
+
+test('外部记录：文件不存在时 exit 1 并把九节点名全缺', () => {
+  const result = runCli(['--check-external-record', '/tmp/definitely-not-here-mcp-external.md']);
+  assert.strictEqual(result.status, 1, `期望 exit 1，实际 ${result.status}`);
+  for (const title of EXTERNAL_SECTION_TITLES) {
+    assert.match(result.stderr, new RegExp(`缺节：${title}`), `stderr 应点名 ${title}`);
+  }
+});
+
+test('外部记录：`--check-external-record` 缺文件参数时给用法并 exit 1', () => {
+  const result = runCli(['--check-external-record']);
+  assert.strictEqual(result.status, 1, `期望 exit 1，实际 ${result.status}`);
+  assert.match(result.stderr, /用法：node scripts\/mcp-smoke\.mjs --check-external-record <记录文件>/);
+});
+
+// — AC8：记录与脚本都不得点亮 AC-270 的人证行（负控制 + 正控制） —
+test('AC8：外部记录检查器不写、不承载 AC-270 的人证行字样（正控制证明 grep 有分辨力）', () => {
+  const needle = ['外部客户端验收', '：', '通过'].join('');
+  const source = fs.readFileSync(SCRIPT, 'utf8');
+  assert.strictEqual(source.split('\n').filter((line) => line.includes(needle)).length, 0);
+  // 正控制：同一条子串匹配在一个确实含该字样的串上必须非零。
   assert.strictEqual([`${needle}（人 yale 于某日）`].filter((line) => line.includes(needle)).length, 1);
 });
