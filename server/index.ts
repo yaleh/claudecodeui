@@ -486,7 +486,7 @@ if (mountDebugAgentControlPlane(app, authenticateToken)) {
 // AC-241/AC-263 replace the fail-closed default `authorize` with real token auth:
 // the mount builds the middleware over the SAME `accessTokensService` the
 // token-info route uses, so `/mcp` admits valid `ccp_` tokens and invalid ones
-// share the token-info 401 body. Once `MCP_OAUTH_ENABLED` is on, the same
+// share the token-info 401 body. Once the OAuth switch is on, the same
 // middleware also admits valid `cca_` OAuth access tokens whose audience is this
 // gateway and answers a discovery challenge otherwise.
 //
