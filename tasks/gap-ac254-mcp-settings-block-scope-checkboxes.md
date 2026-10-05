@@ -36,18 +36,18 @@ AC-254（GOAL-020 设置页；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3.1「�
 
 ## AC
 
-- [ ] AC1 红态基线逐字记录：改动前运行 AC-254 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：e2e/mcp-settings.spec.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：`for f in e2e/mcp-settings.spec.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx playwright test e2e/mcp-settings.spec.ts` 退出 0；写下 tests/passed/failed 读数与所用两态 env。
-- [ ] AC3 (a) 开启态：DOM 读出端点 URL 形如 `<base>/mcp`、存在复制按钮、状态为「已启用」；逐字写出该节点 textContent/attribute 与复制按钮的读数。
-- [ ] AC4 (b) 关闭态：DOM 读出「未启用」与启用方法，且页面**不含**可用的接入命令（断言命令节点不存在或为空）；逐字写出读数。
-- [ ] AC5 (c) 命令安全：接入命令字符串含端点 URL 与 `Authorization: Bearer` 占位符；对整页所有文本节点扫描，断言**不含**本用例真实创建的令牌明文；逐字写出命令串与扫描结果。
-- [ ] AC6 (d) 五个 checkbox 初始状态：`cloudcli:read` 勾选、其余四个不勾；勾选任一写 scope 后风险提示从无到有；逐字写出五个 checkbox 的初始 checked 与提示的 before/after 读数。
-- [ ] AC7 (e) scope 一致：用勾选集合创建令牌，携带其明文请求 `GET /api/oauth/token-info`，返回的 `scopes` 与勾选集合完全一致（含一个多 scope 正例）；逐字写出请求与响应。
-- [ ] AC8 取假形态 (i) 写 scope 默认勾选 ⇒ (d) 红；记录变异 diff、逐字失败行、恢复命令，恢复后重跑回绿。
-- [ ] AC9 取假形态 (ii) 关闭态仍显示接入命令 ⇒ (b) 红；记录变异 diff、逐字失败行、恢复命令，恢复后重跑回绿。
-- [ ] AC10 取假形态 (iii) 命令内嵌真实令牌 ⇒ (c) 红；记录变异 diff、逐字失败行、恢复命令，恢复后重跑回绿。
-- [ ] AC11 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；`e2e/access-tokens-settings.spec.ts`（AC-228）与既有 settings 后端判据（`settings.service.test.ts`、`token-info.routes.test.ts`、`access-tokens.routes.test.ts`）不改一字仍通过。
-- [ ] AC12 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
+- [x] AC1 红态基线逐字记录：改动前运行 AC-254 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：e2e/mcp-settings.spec.ts`（写下完整命令与完整输出）。
+- [x] AC2 判据绿：`for f in e2e/mcp-settings.spec.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx playwright test e2e/mcp-settings.spec.ts` 退出 0；写下 tests/passed/failed 读数与所用两态 env。
+- [x] AC3 (a) 开启态：DOM 读出端点 URL 形如 `<base>/mcp`、存在复制按钮、状态为「已启用」；逐字写出该节点 textContent/attribute 与复制按钮的读数。
+- [x] AC4 (b) 关闭态：DOM 读出「未启用」与启用方法，且页面**不含**可用的接入命令（断言命令节点不存在或为空）；逐字写出读数。
+- [x] AC5 (c) 命令安全：接入命令字符串含端点 URL 与 `Authorization: Bearer` 占位符；对整页所有文本节点扫描，断言**不含**本用例真实创建的令牌明文；逐字写出命令串与扫描结果。
+- [x] AC6 (d) 五个 checkbox 初始状态：`cloudcli:read` 勾选、其余四个不勾；勾选任一写 scope 后风险提示从无到有；逐字写出五个 checkbox 的初始 checked 与提示的 before/after 读数。
+- [x] AC7 (e) scope 一致：用勾选集合创建令牌，携带其明文请求 `GET /api/oauth/token-info`，返回的 `scopes` 与勾选集合完全一致（含一个多 scope 正例）；逐字写出请求与响应。
+- [x] AC8 取假形态 (i) 写 scope 默认勾选 ⇒ (d) 红；记录变异 diff、逐字失败行、恢复命令，恢复后重跑回绿。
+- [x] AC9 取假形态 (ii) 关闭态仍显示接入命令 ⇒ (b) 红；记录变异 diff、逐字失败行、恢复命令，恢复后重跑回绿。
+- [x] AC10 取假形态 (iii) 命令内嵌真实令牌 ⇒ (c) 红；记录变异 diff、逐字失败行、恢复命令，恢复后重跑回绿。
+- [x] AC11 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；`e2e/access-tokens-settings.spec.ts`（AC-228）与既有 settings 后端判据（`settings.service.test.ts`、`token-info.routes.test.ts`、`access-tokens.routes.test.ts`）不改一字仍通过。
+- [x] AC12 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
 
 ## DoD
 
@@ -90,6 +90,133 @@ AC-254（GOAL-020 设置页；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3.1「�
 - 后端改 settings routes 后，若某兄弟测试对该模块整体 `vi.mock`，需同步补上新增导出（内存 `adding-an-export-reds-sibling-wholesale-vimocks`）。
 - `MCP_ENABLED` 只由 `readMcpGatewayGate` 解析（`server/modules/mcp-gateway/index.ts:14` 已 barrel 导出）；settings 侧不得二次解析。
 - 端点基址优先 `PUBLIC_BASE_URL`，未设时用请求 origin；`path` 恒为 `MCP_GATEWAY_PATH`。
+
+## Evidence
+
+实现提交：worktree 分支 `task/gap-ac254-mcp-settings-block-scope-checkboxes` 上 `a77afff4`（基于 develop `85b6c4b7`）。两态进程都由 `e2e/mcp-settings.spec.ts` 自己用真实入口起：每态一个 `node node_modules/tsx/dist/cli.mjs --tsconfig server/tsconfig.json server/index.ts`（`MCP_ENABLED` 按态设置、`DATABASE_PATH`/`HOME`/`CLAUDE_CONFIG_DIR` 指向本态临时目录、核分配端口）＋一个 `node node_modules/vite/bin/vite.js --host 127.0.0.1 --strictPort`（`SERVER_PORT` 指向本态后端、核分配端口、`VITE_CACHE_DIR` 本态私有），浏览器直连 Vite origin；无 page.route 桩接。
+
+### AC1 红态基线（改动前，base checkout `/data/home/yale/work/claudecodeui` @ 1573aefa）
+```
+$ for f in e2e/mcp-settings.spec.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx playwright test e2e/mcp-settings.spec.ts
+缺判据文件：e2e/mcp-settings.spec.ts
+EXIT=1
+```
+
+### AC2 判据绿
+`npx playwright test e2e/mcp-settings.spec.ts` → 退出 0，`2 passed (22.0s)`（tests=2, passed=2, failed=0）。两态 env：关闭态 `MCP_ENABLED` 缺省（absent）；开启态 `MCP_ENABLED="true"`。
+
+### AC3 (a) 开启态
+```
+(a) server env MCP_ENABLED="true"; status node="Enabled" (data-enabled=true); endpoint="http://localhost:4367/mcp"; copy button visible=true
+```
+端点节点 `data-testid="mcp-gateway-endpoint"` textContent 形如 `http://localhost:<本态后端端口>/mcp`（`^https?://[^/]+/mcp$`，且端口 == 本态后端端口）；复制按钮 `data-testid="mcp-gateway-copy"` 可见；状态节点 `data-testid="mcp-gateway-status"` `data-enabled="true"`。
+
+### AC4 (b) 关闭态
+```
+(b) MCP_ENABLED=null; status node="Not enabled" (data-enabled=false); enable hint="The MCP gateway is not enabled. Set MCP_ENABLED=true in the server environment and restart CloudCLI to turn it on."; connect-command nodes=0; "Bearer" anywhere on page=false
+```
+状态节点 `data-enabled="false"`、文案「未启用」；启用方法节点 `data-testid="mcp-gateway-enable-hint"` 可见；`data-testid="mcp-gateway-command"` 节点数 0，整页文本不含 `Bearer`。
+
+### AC5 (c) 命令安全
+```
+(c) connect command = "claude mcp add --transport http cloudcli http://localhost:4367/mcp --header \"Authorization: Bearer <token>\""
+(c) dismissed the one-time card; real token hits across ALL page text nodes = 0 (token prefix ccp_440e)
+```
+命令串含端点 URL 与 `Authorization: Bearer <token>` 占位符（`/Authorization:\s*Bearer\s*<token>/`）；关闭一次性明文卡片后，对整页所有文本节点（TreeWalker SHOW_TEXT）扫描真实令牌明文命中 0。
+
+### AC6 (d) 五个 checkbox
+```
+(d) initial checked={"cloudcli:read":true,"cloudcli:session:send":false,"cloudcli:session:create":false,"cloudcli:session:control":false,"cloudcli:approve":false}; risk note before=0 after checking cloudcli:session:send=1; risk text="This token can send, create and control sessions. Keep it secret."
+```
+`cloudcli:read` 勾选（且 disabled 必选），其余四个默认不勾；勾选 `cloudcli:session:send` 后风险提示节点 `data-testid="access-token-scope-risk"` 从 0 → 1。
+
+### AC7 (e) scope 一致
+请求：`GET http://127.0.0.1:<本态后端端口>/api/oauth/token-info`，header `Authorization: Bearer <明文>`（明文取自表单创建后的一次性卡片）。
+```
+(e) checked scopes=["cloudcli:read","cloudcli:session:send","cloudcli:session:create"]; GET /api/oauth/token-info -> 200 scopes=["cloudcli:read","cloudcli:session:send","cloudcli:session:create"] userId=1 expiresAt=2026-11-04T04:06:52.754Z
+```
+多 scope 正例，返回 scopes 与勾选集合完全一致。
+
+### AC8 取假形态 (i)：写 scope 默认勾选 ⇒ (d) 红
+变异 diff：
+```
+-  ACCESS_TOKEN_SCOPE_OPTIONS.filter((option) => !option.writable).map((option) => option.scope);
++  ACCESS_TOKEN_SCOPE_OPTIONS.map((option) => option.scope);
+```
+逐字失败行：
+```
+(d) initial checked={"cloudcli:read":true,"cloudcli:session:send":true,"cloudcli:session:create":true,"cloudcli:session:control":true,"cloudcli:approve":true}; risk note before=1 ...
+> 373 |         expect(initialChecked[scope]).toBe(false);
+Error: expect(received).toBe(expected) // Object.is equality
+Expected: false
+Received: true
+```
+恢复命令：`git -C <worktree> checkout -- src/modules/settings/hooks/useCredentialsSettings.ts`；恢复后重跑 → `2 passed (22.0s)`。
+
+### AC9 取假形态 (ii)：关闭态仍渲染接入命令 ⇒ (b) 红
+变异 diff（McpGatewaySection.tsx 关闭分支追加命令块）：
+```
+       ) : (
+-        <p data-testid="mcp-gateway-enable-hint" ...>{t('mcpGateway.enableHint')}</p>
++        <>
++          <p data-testid="mcp-gateway-enable-hint" ...>{t('mcpGateway.enableHint')}</p>
++          <pre data-testid="mcp-gateway-command" ...>{connectCommand}</pre>
++        </>
+       )}
+```
+逐字失败行：
+```
+(b) ... connect-command nodes=1; "Bearer" anywhere on page=true
+> 306 |       expect(commandCount).toBe(0);
+Error: expect(received).toBe(expected) // Object.is equality
+Expected: 0
+Received: 1
+```
+恢复命令：`git -C <worktree> checkout -- src/modules/settings/tabs/api-settings/sections/McpGatewaySection.tsx`；恢复后重跑 → `2 passed (22.4s)`。
+
+### AC10 取假形态 (iii)：命令内嵌真实令牌 ⇒ (c) 红
+变异 diff（McpGatewaySection 增加 `token` prop 并用 useEffect 闩存到 `lastToken`，命令用 `lastToken ?? '<token>'`；CredentialsSettingsTab 传入 `newlyCreatedToken?.plaintext`）：
+```
+-    + '--header "Authorization: Bearer <token>"';
++    + `--header "Authorization: Bearer ${lastToken ?? '<token>'}"`;
+  (McpGatewaySection 增加: const [lastToken,setLastToken]=useState<string|null>(null);
+   useEffect(()=>{ if(token) setLastToken(token); },[token]); )
+  (CredentialsSettingsTab: <McpGatewaySection status={mcpGatewayStatus} token={newlyCreatedToken?.plaintext ?? null} />)
+```
+逐字失败行：
+```
+(c) connect command = "... --header \"Authorization: Bearer <token>\""   (创建令牌之前)
+(c) dismissed the one-time card; real token hits across ALL page text nodes = 1 (token prefix ccp_d598)
+> 403 |       expect(leakedHits).toBe(0);
+Error: expect(received).toBe(expected) // Object.is equality
+Expected: 0
+Received: 1
+```
+恢复命令：`git -C <worktree> checkout -- src/modules/settings/tabs/api-settings/sections/McpGatewaySection.tsx src/modules/settings/tabs/api-settings/CredentialsSettingsTab.tsx`；恢复后重跑 → `2 passed (22.0s)`。
+
+### AC11 不回归与仓库门
+- `npm run typecheck` → 退出 0。
+- `npm run lint` → `grep -c ": error "` = **0**（仅有既有 warning）。
+- 既有后端判据不改一字：`settings.service.test.ts` + `token-info.routes.test.ts` + `access-tokens.routes.test.ts` → `tests 14 / pass 14 / fail 0`。
+- `e2e/access-tokens-settings.spec.ts`（AC-228）→ `1 passed (12.5s)`。
+- 附加：`i18nAccessTokensCompleteness.test.ts`（AC-229）→ `4 passed`，12 locale 的 accessTokens 键集与 en 完全一致。
+
+### AC12 git diff --stat develop...HEAD 对齐
+```
+e2e/mcp-settings.spec.ts                           (new)
+src/modules/settings/tabs/api-settings/sections/McpGatewaySection.tsx (new)
+server/modules/settings/settings.module.ts
+server/modules/settings/settings.routes.ts
+server/modules/settings/settings.service.ts
+src/modules/i18n/locales/{en,zh-CN,zh-TW,de,es,fr,id,it,ja,ko,ru,tr}/settings.json
+src/modules/settings/hooks/useCredentialsSettings.ts
+src/modules/settings/tabs/api-settings/CredentialsSettingsTab.tsx
+src/modules/settings/tabs/api-settings/sections/AccessTokensSection.tsx
+src/shared/api.ts
+src/shared/constants.ts
+src/shared/types.ts
+```
+新增：`e2e/mcp-settings.spec.ts (new)`、`src/modules/settings/tabs/api-settings/sections/McpGatewaySection.tsx (new)`。改动：settings 后端三件、settings hooks/组件两件、`src/shared/{api,constants,types}.ts`、12 个 locale `settings.json`。`tasks/gap-ac254-mcp-settings-block-scope-checkboxes.md` 为任务记录本身（经 ABI 写入）。23 files changed, 968 insertions(+), 17 deletions(-)。
 
 <!-- dedup-ref -->
 边界：机制上去重已核对——`grep -rl "goal_ac: AC-254" tasks/` 为空，本仓库无任何任务带 `goal_ac: AC-254`；`grep -rln "AC-254" tasks/` 只命中 AC-240/242/243/244/245/247/248/249/250/251/253 的边界段（各自声明「设置页（AC-254/255）不在本任务」）。AC-228（令牌设置页 e2e，done）与 AC-229（accessTokens i18n 完整性，done）交付的是无 scope 勾选的令牌列表/创建与旧键完整性；本任务是**不同读数与不同判据文件**（`e2e/mcp-settings.spec.ts`）：新增 CloudCLI MCP 区块与五个 scope 勾选框（(d) 默认只读 + 写 scope 风险提示），并读 `GET /api/oauth/token-info` 的 scope 一致性。AC-243（签发期 scope 词汇校验）、AC-255（MCP 文案 12 语言完备性）、AC-256/257（冒烟）是不同机制，各自覆盖。
