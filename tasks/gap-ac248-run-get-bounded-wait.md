@@ -2,7 +2,7 @@
 id: gap-ac248-run-get-bounded-wait
 title: AC-248 run_get 按 runId 取运行摘要并可有界等待：结束、进入待审批、超时各自返回，等待上限 25
   秒，过期与未知与重启各有说法；判据 server/modules/mcp-gateway/tests/mcp-run-get.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -65,18 +65,18 @@ AC-248（GOAL-020 退出条件 7 的 run_get 条；SPEC `docs/proposals/mcp-gate
 
 ## AC
 
-- [ ] AC1 判据红态基线逐字记录：改动前运行 AC-248 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-run-get.test.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-run-get.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-run-get.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 (a) 摘要逐字含 `runId`/`sessionId`/`source`/`status`/`phase`/`toolName`/`elapsedMs`/`bootId`，`phase`/`toolName` 与注入活动存储逐字一致、`elapsedMs` 与假时钟一致；正例对照字段非空。
-- [ ] AC4 (b) `waitSeconds` 缺省与 0 都立即返回当前状态，`sleep` 调用计数为 0（逐字写计数与 elapsed）。
-- [ ] AC5 (c) `waitSeconds: 40` 而运行第 3 秒结束 ⇒ `elapsedMs < 40000`、终态、附最后一条助手消息且逐字相等（逐字写 elapsed 与两侧文本）。
-- [ ] AC6 (d) 第 2 秒进入 `awaitingPermission` ⇒ 提前返回、`elapsedMs < 40000`、带 `phase: 'awaitingPermission'`；正例对照另一运行不给出该 outcome。
-- [ ] AC7 (e) `waitSeconds: 60` 且运行不结束 ⇒ `elapsedMs <= 25000`、超时 outcome、返回当前摘要（逐字写真实 elapsed）。
-- [ ] AC8 (f) 过期与未知的 `reason` 与说明文案逐字不同，两者都带 `fallback` 且回退消息与夹具逐字相等；正例对照过期回退非空。
-- [ ] AC9 (g) boot 翻转后第二次调用的说明明确指出「服务已重启」且与第一次不同，`fallback` 带回该会话最近消息（逐字写两次 bootId 与说明差异）。
-- [ ] AC10 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 总是等满 ⇒ AC5 红；(ii) 不封顶 ⇒ AC7 红；(iii) 过期与未知同一句 ⇒ AC8 红。每条恢复命令 + 恢复后重跑绿。
-- [ ] AC11 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；既有 `server/modules/websocket/tests/chat-run-by-id.test.ts`（`expired`/`unknown` 判据与保留期）与 AC-245 判据 `server/modules/mcp-gateway/tests/mcp-read-tools.test.ts` 不改一字仍逐字通过（本任务只替换 `run_get` 一个 handler，不改工具集合）。
-- [ ] AC12 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
+- [x] AC1 判据红态基线逐字记录：改动前运行 AC-248 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-run-get.test.ts`（写下完整命令与完整输出）。
+- [x] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-run-get.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-run-get.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
+- [x] AC3 (a) 摘要逐字含 `runId`/`sessionId`/`source`/`status`/`phase`/`toolName`/`elapsedMs`/`bootId`，`phase`/`toolName` 与注入活动存储逐字一致、`elapsedMs` 与假时钟一致；正例对照字段非空。
+- [x] AC4 (b) `waitSeconds` 缺省与 0 都立即返回当前状态，`sleep` 调用计数为 0（逐字写计数与 elapsed）。
+- [x] AC5 (c) `waitSeconds: 40` 而运行第 3 秒结束 ⇒ `elapsedMs < 40000`、终态、附最后一条助手消息且逐字相等（逐字写 elapsed 与两侧文本）。
+- [x] AC6 (d) 第 2 秒进入 `awaitingPermission` ⇒ 提前返回、`elapsedMs < 40000`、带 `phase: 'awaitingPermission'`；正例对照另一运行不给出该 outcome。
+- [x] AC7 (e) `waitSeconds: 60` 且运行不结束 ⇒ `elapsedMs <= 25000`、超时 outcome、返回当前摘要（逐字写真实 elapsed）。
+- [x] AC8 (f) 过期与未知的 `reason` 与说明文案逐字不同，两者都带 `fallback` 且回退消息与夹具逐字相等；正例对照过期回退非空。
+- [x] AC9 (g) boot 翻转后第二次调用的说明明确指出「服务已重启」且与第一次不同，`fallback` 带回该会话最近消息（逐字写两次 bootId 与说明差异）。
+- [x] AC10 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 总是等满 ⇒ AC5 红；(ii) 不封顶 ⇒ AC7 红；(iii) 过期与未知同一句 ⇒ AC8 红。每条恢复命令 + 恢复后重跑绿。
+- [x] AC11 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；既有 `server/modules/websocket/tests/chat-run-by-id.test.ts`（`expired`/`unknown` 判据与保留期）与 AC-245 判据 `server/modules/mcp-gateway/tests/mcp-read-tools.test.ts` 不改一字仍逐字通过（本任务只替换 `run_get` 一个 handler，不改工具集合）。
+- [x] AC12 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
 
 ## DoD
 

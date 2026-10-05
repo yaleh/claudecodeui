@@ -23,7 +23,7 @@ import {
     stopClaudeSessionScopes,
     sweepOrphanClaudeSessionScopes,
 } from '@/modules/providers/index.js';
-import { activityStore, chatRunRegistry, createActivityRouter, createChatControlService, createWebSocketServer } from '@/modules/websocket/index.js';
+import { activityStore, BOOT_ID, chatRunRegistry, createActivityRouter, createChatControlService, createWebSocketServer } from '@/modules/websocket/index.js';
 import { createSessionHostsRouter, sessionHostManager } from '@/modules/session-hosts/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
@@ -36,7 +36,7 @@ import {
     validateApiKey,
 } from './modules/auth/index.js';
 import { taskmasterRoutes } from './modules/taskmaster/index.js';
-import { quayRoutes } from './modules/quay/index.js';
+import { quayRoutes, quayService } from './modules/quay/index.js';
 import { commandsRoutes } from './modules/commands/index.js';
 import { settingsRoutes } from './modules/settings/index.js';
 import {
@@ -501,6 +501,21 @@ if (mountDebugAgentControlPlane(app, authenticateToken)) {
 // registry) plus the wall clock. They are injected rather than imported so the
 // gateway module owns no database handle and a criterion can drive the same
 // tools over its own fixture.
+//
+// AC-247 adds `activity` (the process activity store, the one source of a
+// session's turn phase) and `quay`: an `McpQuayRunner` adapter over the quay
+// service. `readCached` binds to `quayService.getCachedSnapshot` (cache-only, no
+// subprocess) and `hasQuayConfig` to its Tier-1 path check, so `overview` over N
+// projects spawns zero quay CLI processes; `refresh` — the one load-on-demand
+// verb, reachable only from `quay_snapshot({ refresh: true })` — binds to
+// `getQuaySnapshot(projectId, { forceRefresh: true })`.
+//
+// AC-248 adds `runGet`: the services `run_get` answers from — the same run
+// registry and activity store, the providers' sessions history reader, and the
+// wall clock plus a real sleeper for the bounded wait. `bootId` binds to the
+// process `BOOT_ID`, the same identity the activity snapshots and every run this
+// registry opens carry, so `run_get` can report "服务已重启" when a run belongs to
+// a previous process boot.
 const oauthMetadataGate = readOAuthMetadataGate();
 const mcpOauth = oauthMetadataGate.enabled
     ? (() => {
@@ -521,6 +536,20 @@ const mcpGateway = mountMcpGateway(app, {
         sessions: sessionsService,
         hosts: sessionHostManager,
         runs: chatRunRegistry,
+        activity: activityStore,
+        quay: {
+            hasQuayConfig: (projectId: string) => quayService.getQuayStatus(projectId)?.hasQuayConfig ?? false,
+            readCached: (projectId: string) => quayService.getCachedSnapshot(projectId),
+            refresh: (projectId: string) => quayService.getQuaySnapshot(projectId, { forceRefresh: true }),
+        },
+        runGet: {
+            runs: chatRunRegistry,
+            activity: activityStore,
+            sessions: sessionsService,
+            now: () => Date.now(),
+            sleep: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+            bootId: () => BOOT_ID,
+        },
         now: () => Date.now(),
     },
 });

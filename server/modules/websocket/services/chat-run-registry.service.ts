@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { sessionsDb } from '@/modules/database/index.js';
+import { BOOT_ID } from '@/modules/websocket/services/activity-heartbeat.service.js';
 import { ChatSessionWriter } from '@/modules/websocket/services/chat-session-writer.service.js';
 import { broadcastSessionUpserted } from '@/modules/websocket/services/session-upsert-broadcast.service.js';
 import type {
@@ -44,6 +45,12 @@ type ChatRunStatus = 'running' | 'completed' | 'aborted';
  *   because it describes an origin that existed before the run did; it is what
  *   lets a run opened by the host layer (`unattended`) be told apart from one
  *   a timer fired (`scheduled`) even though neither has a socket attached.
+ * - `bootId`: the identity of the process the run was created under, read once
+ *   in `startRun` from the registry's injected boot reader (the activity
+ *   protocol's `BOOT_ID` by default). A run record can outlive the process that
+ *   made it only in the sense that a *later* boot can no longer tell whether an
+ *   id it is handed belongs to it — this field is how the MCP gateway's
+ *   `run_get` (AC-248) reports "服务已重启" instead of inventing a run.
  */
 type ChatRun = {
   appSessionId: string;
@@ -57,6 +64,7 @@ type ChatRun = {
   writer: ChatSessionWriter;
   startedAt: number;
   completedAt: number | null;
+  bootId: string;
 };
 
 /**
@@ -66,9 +74,9 @@ type ChatRun = {
  * needs its identity and lifecycle and nothing else, and handing out the
  * internal record would leak the live `writer` and the event buffer it could
  * still mutate. Consumed by this module's criterion
- * (`server/modules/websocket/tests/chat-run-by-id.test.ts`); exported from this
- * service module rather than the module barrel because its only consumer today
- * is that same-module criterion.
+ * (`server/modules/websocket/tests/chat-run-by-id.test.ts`) and, through the
+ * module barrel, by the MCP gateway's `overview` tool (AC-247), which types the
+ * aborted-run reading of `listRecentRuns` against it.
  */
 export type ChatRunSummary = {
   runId: string;
@@ -149,9 +157,19 @@ function resolveRetentionMs(explicit: number | undefined): number {
 export function createChatRunRegistry(options?: {
   retentionMs?: number;
   now?: () => number;
+  /**
+   * The process identity stamped onto every run this registry opens. Defaults to
+   * the activity heartbeat's process `BOOT_ID`, which is the same value the
+   * activity protocol's snapshots carry — so a run's boot and the boot a reader
+   * compares it against come from one source. A criterion flips this reader's
+   * return between two `run_get` calls to exercise the "服务已重启" reading
+   * (AC-248) inside one process.
+   */
+  bootId?: () => string;
 }) {
   const retentionMs = resolveRetentionMs(options?.retentionMs);
   const now = options?.now ?? (() => Date.now());
+  const bootId = options?.bootId ?? (() => BOOT_ID);
 
   /**
    * Active and recently-completed runs keyed by app session id.
@@ -365,6 +383,7 @@ export function createChatRunRegistry(options?: {
       writer: null as unknown as ChatSessionWriter,
       startedAt: now(),
       completedAt: null,
+      bootId: bootId(),
     };
 
     run.writer = new ChatSessionWriter({
@@ -466,6 +485,25 @@ export function createChatRunRegistry(options?: {
 
     getRunById,
 
+    /**
+     * The process identity the run was created under, or `null` when the
+     * registry no longer holds it.
+     *
+     * Deliberately NOT a field on {@link ChatRunSummary}: that projection is
+     * pinned to its exact seven-field set by this module's own criterion
+     * (`chat-run-by-id.test.ts`), and the one consumer of a run's boot — the MCP
+     * gateway's `run_get` (AC-248) — only needs it on the run it is already
+     * addressing by id, to tell a run of the current boot from one a previous
+     * boot left behind (`bootId !== deps.bootId()` reads as "服务已重启").
+     *
+     * A run past its retention window is still held (lazily evicted), so this
+     * answers for it too; `getRunById` is the reader that reports the expiry,
+     * and callers check that first.
+     */
+    getRunBootId(runId: string): string | null {
+      return runsById.get(runId)?.bootId ?? null;
+    },
+
     isProcessing(appSessionId: string): boolean {
       return runs.get(appSessionId)?.status === 'running';
     },
@@ -484,6 +522,34 @@ export function createChatRunRegistry(options?: {
           startedAt: run.startedAt,
           lastSeq: run.lastSeq,
         }));
+    },
+
+    /**
+     * Every run the registry still holds, as read-only summaries: the running
+     * ones plus the terminal ones (completed or aborted) still inside the
+     * retention window. Expiry is judged lazily against the injected clock by the
+     * SAME rule `getRunById` uses (`now() - completedAt <= retentionMs`), so a run
+     * the by-id lookup would call `expired` never appears here either — the two
+     * readings cannot disagree about which runs are still addressable.
+     *
+     * Iterates the by-id index rather than the session-keyed map so a run a newer
+     * turn superseded — still running, or aborted inside the window — is reported
+     * too: `overview` must see a cancelled run even when its session's current
+     * slot now holds a different run.
+     *
+     * Consumers: the MCP gateway's `overview` tool (AC-247), which reads the
+     * `aborted` subset to report runs cancelled inside the retention period.
+     */
+    listRecentRuns(): ChatRunSummary[] {
+      const at = now();
+      return Array.from(runsById.values())
+        .filter(
+          (run) =>
+            run.status === 'running'
+            || run.completedAt === null
+            || at - run.completedAt <= retentionMs,
+        )
+        .map(summarize);
     },
 
     /**

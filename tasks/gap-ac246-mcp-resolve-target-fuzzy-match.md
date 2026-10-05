@@ -2,7 +2,7 @@
 id: gap-ac246-mcp-resolve-target-fuzzy-match
 title: AC-246 项目与会话按名称模糊匹配：id 优先、大小写不敏感子串唯一命中、多义/无命中列候选报错、归档不参与，且目标不明时写操作零副作用；判据
   server/modules/mcp-gateway/tests/mcp-resolve-target.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -54,17 +54,17 @@ AC-246（GOAL-020 退出条件 7 的名称解析条；SPEC `docs/proposals/mcp-g
 
 ## AC
 
-- [ ] AC1 判据红态基线逐字记录：改动前运行 AC-246 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-resolve-target.test.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-resolve-target.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-resolve-target.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 (a) 大小写不敏感情形：标题子串唯一命中时 `resolveMcpTarget` 返回 `ok:true` 与正确 id；逐字写出查询、子串与解析结果（正例对照：换大小写仍命中同一 id）。
-- [ ] AC4 (b) 精确 id 优先于其它条目的标题子串命中；逐字写出 id、相撞标题与解析结果。
-- [ ] AC5 (c) 多处命中返回 `code:'TARGET_AMBIGUOUS'`，`candidates` 逐条含每个候选的 `id` 与 `title`（集合等于夹具），且结果不含被替用户选中的 id；逐字写出原始 `message` 与候选列表。
-- [ ] AC6 (d) 无命中返回 `code:'TARGET_NOT_FOUND'`、`candidates:[]`，`message` 说明所查的 `query` 与 `kind`；逐字写出原始文案。
-- [ ] AC7 (e) 已归档项目与会话不参与匹配（既不唯一命中也不出现在候选里），活跃同名条目仍可解析；逐字写出两侧读数。
-- [ ] AC8 (f) 写工具 `session_send`/`session_interrupt`/`session_close` 在 (c)、(d) 下注入的控制服务与宿主服务调用计数均为 0 且返回 `isError`；唯一命中正例下计数为 1；逐字写出四组计数。
-- [ ] AC9 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 多义取第一个 ⇒ AC5/AC8 红；(ii) 子串优先于 id ⇒ AC4 红；(iii) 归档参与 ⇒ AC7 红。每条恢复命令 + 恢复后重跑绿。
-- [ ] AC10 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；AC-245 判据 `server/modules/mcp-gateway/tests/mcp-read-tools.test.ts` 不改一字仍逐字通过；既有 websocket 判据（`resolveSendTarget` 相关 `server/modules/websocket/tests/*`）不改一字仍逐字通过（本任务只新增解析器与解析门，不改 websocket 模块）。
-- [ ] AC11 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
+- [x] AC1 判据红态基线逐字记录：改动前运行 AC-246 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-resolve-target.test.ts`（写下完整命令与完整输出）。
+- [x] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-resolve-target.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-resolve-target.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
+- [x] AC3 (a) 大小写不敏感情形：标题子串唯一命中时 `resolveMcpTarget` 返回 `ok:true` 与正确 id；逐字写出查询、子串与解析结果（正例对照：换大小写仍命中同一 id）。
+- [x] AC4 (b) 精确 id 优先于其它条目的标题子串命中；逐字写出 id、相撞标题与解析结果。
+- [x] AC5 (c) 多处命中返回 `code:'TARGET_AMBIGUOUS'`，`candidates` 逐条含每个候选的 `id` 与 `title`（集合等于夹具），且结果不含被替用户选中的 id；逐字写出原始 `message` 与候选列表。
+- [x] AC6 (d) 无命中返回 `code:'TARGET_NOT_FOUND'`、`candidates:[]`，`message` 说明所查的 `query` 与 `kind`；逐字写出原始文案。
+- [x] AC7 (e) 已归档项目与会话不参与匹配（既不唯一命中也不出现在候选里），活跃同名条目仍可解析；逐字写出两侧读数。
+- [x] AC8 (f) 写工具 `session_send`/`session_interrupt`/`session_close` 在 (c)、(d) 下注入的控制服务与宿主服务调用计数均为 0 且返回 `isError`；唯一命中正例下计数为 1；逐字写出四组计数。
+- [x] AC9 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 多义取第一个 ⇒ AC5/AC8 红；(ii) 子串优先于 id ⇒ AC4 红；(iii) 归档参与 ⇒ AC7 红。每条恢复命令 + 恢复后重跑绿。
+- [x] AC10 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；AC-245 判据 `server/modules/mcp-gateway/tests/mcp-read-tools.test.ts` 不改一字仍逐字通过；既有 websocket 判据（`resolveSendTarget` 相关 `server/modules/websocket/tests/*`）不改一字仍逐字通过（本任务只新增解析器与解析门，不改 websocket 模块）。
+- [x] AC11 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
 
 ## DoD
 
@@ -81,3 +81,114 @@ AC-246（GOAL-020 退出条件 7 的名称解析条；SPEC `docs/proposals/mcp-g
 - server/modules/mcp-gateway/index.ts
 - server/modules/mcp-gateway/tests/mcp-resolve-target.test.ts (new)（判据）
 - tasks/gap-ac246-mcp-resolve-target-fuzzy-match.md
+
+## Notes
+
+实现即决策：`resolveMcpTarget` 为纯函数（精确 id 逐字优先 → 去空白大小写不敏感标题子串唯一命中 → 多义列候选且结果无 `id` 字段 → 无命中说明 query/kind，空/纯空白 ref 走无命中）；`resolveInputTargets(handler, deps)` 是解析门，在 handler 之前把 `project`/`session` 字符串字段改写成解析出的 id，失败则抛出 JSON 体错误（`withMcpAudit` 与 SDK 两条注册路径都把它变成 `isError` 工具结果，审计记为 `error`，且 handler 主体绝不进入）。接线落在 `mcp-gateway.transport.ts`：`McpGatewayDeps.resolveDeps` 存在时，读工具注册缝用 `resolveInputTargets` 包一层；为保持 AC-240/244/245 判据逐字不变，未传 `resolveDeps` 的挂载行为完全不变。
+
+### AC1 红态基线（逐字）
+
+命令：`for f in server/modules/mcp-gateway/tests/mcp-resolve-target.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-resolve-target.test.ts`
+
+输出（stderr）与退出码：
+
+```
+缺判据文件：server/modules/mcp-gateway/tests/mcp-resolve-target.test.ts
+EXIT=1
+```
+
+### AC2 判据绿（逐字）
+
+同一命令退出 0，读数：`ℹ tests 7` / `ℹ pass 7` / `ℹ fail 0` / `ℹ cancelled 0` / `ℹ skipped 0` / `ℹ duration_ms ~4875`。
+
+### AC3 (a) 大小写不敏感唯一命中
+
+夹具会话标题 `Foo Bar Session`（id `resolve-foo-bar`）；项目显示名 `Active Project Marker`。
+
+```
+[a] query="foo bar" result={"ok":true,"id":"resolve-foo-bar"}
+[a] query="FOO BAR" result={"ok":true,"id":"resolve-foo-bar"}
+[a] query="active project" result={"ok":true,"id":"<activeProjectId>"}
+```
+
+### AC4 (b) 精确 id 优先
+
+会话 X id = `resolve-exact-target`（标题 `Exact Pointer Session`，标题不含自身 id）；会话 Y 标题 = `prefix resolve-exact-target suffix`（id `resolve-exact-other`）——X 的 id 是 Y 标题的子串。
+
+```
+[b] query="resolve-exact-target" colliding title="resolve-exact-other" title="prefix resolve-exact-target suffix" result={"ok":true,"id":"resolve-exact-target"}
+```
+
+### AC5 (c) 多义列候选
+
+夹具活跃会话 `Dup Marker Alpha`（`resolve-dup-alpha`）与 `Dup Marker Beta`（`resolve-dup-beta`）；归档会话标题 `Dup Marker Gamma`（`resolve-dup-archived`）不参与。
+
+```
+[c] query="Dup Marker" message="多个会话的标题包含 \"Dup Marker\"（共 2 个），请指定其中一个；不要替用户挑一个。"
+[c] candidates=[{"id":"resolve-dup-beta","title":"Dup Marker Beta"},{"id":"resolve-dup-alpha","title":"Dup Marker Alpha"}]
+```
+
+断言候选集合等于夹具两个、结果对象上 `hasOwnProperty('id') === false`、`message` 含「请指定其中一个」「不要替用户挑一个」。
+
+### AC6 (d) 无命中说明所查
+
+```
+[d] query="no-such-session-xyz" message="没有标题包含 \"no-such-session-xyz\" 的会话。"
+[d] query="" message="没有标题包含 \"\" 的会话。"
+[d] query="   " message="没有标题包含 \"\" 的会话。"
+[d] project query="nothing-like-this" message="没有标题包含 \"nothing-like-this\" 的项目。"
+```
+
+`code:'TARGET_NOT_FOUND'`、`candidates:[]`、`kind` 分别为 `session` / `project`。
+
+### AC7 (e) 归档不参与
+
+夹具先自证归档写入真的落地：`[e] archived project names=["Archived Project Marker"]` 对 `[e] active project names=["Active Project Marker"]`；`[e] archived session titles=["Dup Marker Gamma","Solo Archived Session"]` 对 `[e] recent session titles=["prefix resolve-exact-target suffix","Exact Pointer Session","Dup Marker Beta","Dup Marker Alpha","Solo Active Session","Foo Bar Session"]`。两侧读数：
+
+```
+[e] archived project query result={"ok":false,"code":"TARGET_NOT_FOUND","query":"Archived Project Marker","kind":"project","candidates":[],"message":"没有标题包含 \"Archived Project Marker\" 的项目。"}
+[e] active project query result={"ok":true,"id":"<activeProjectId>"}
+[e] archived session query result={"ok":false,"code":"TARGET_NOT_FOUND","query":"Solo Archived","kind":"session","candidates":[],"message":"没有标题包含 \"Solo Archived\" 的会话。"}
+[e] active session query result={"ok":true,"id":"resolve-solo-active"}
+[e] ambiguous candidates=["resolve-dup-beta","resolve-dup-alpha"]   # 归档会话不在候选里
+```
+
+### AC8 (f) 目标不明时写操作零副作用
+
+三个写工具经同一审计注册缝（`withMcpAudit` + `resolveInputTargets`）注册到生产 `/mcp` 挂载，用真实 MCP SDK `Client` 调用；handler 被调用时递增控制服务与宿主服务计数。
+
+```
+[f] after ambiguous: control={"session_send":0,"session_interrupt":0,"session_close":0} host={"session_send":0,"session_interrupt":0,"session_close":0}
+[f] after unknown:   control={"session_send":0,"session_interrupt":0,"session_close":0} host={"session_send":0,"session_interrupt":0,"session_close":0}
+[f] session_send session="Solo Active" isError=false body={"tool":"session_send","session":"resolve-solo-active"} control=1 host=1
+```
+
+每个 (c)/(d) 调用逐字返回 `isError=true` 且错误体为 `{"ok":false,"code":"TARGET_AMBIGUOUS"|"TARGET_NOT_FOUND","query":...,"kind":"session","candidates":[...],"message":...}`（写在第 3 组读数之外，逐条 `[f] <tool> session="..." isError=true body=...`）。正例下 `session_send` 计数变为 1，另两个工具计数仍为 0。
+
+补充读数（(g) 接线腿，生产接线本身的读数）：`[g] sessions_list project="Active Project" isError=false body={"sessions":[],"total":0} projectIds=["<activeProjectId>"]` —— 读工具收到的是解析后的 id；`[g] sessions_list project="Archived Project" isError=true body={"ok":false,"code":"TARGET_NOT_FOUND",...}` 且 `projectIds` 未变，服务一次都没被调用。
+
+### AC9 取假形态三条（先提交实现 b85df7e1，再变异）
+
+(i) 多义取第一个：`mcp-resolve-target.ts` 的 `TARGET_AMBIGUOUS` 返回块替换为 `return { ok: true, id: matches[0].id };`（`git diff`：1 file changed, 1 insertion(+), 8 deletions(-)）。逐字失败行：`✖ (c) ... AssertionError [ERR_ASSERTION]: the reference must not resolve`、`✖ (f) ... AssertionError [ERR_ASSERTION]: session_send must refuse an ambiguous target`（另附带红 (e)：`the reference must not resolve`）。恢复命令：`git checkout -- server/modules/mcp-gateway/mcp-resolve-target.ts`；恢复后 `ℹ tests 7 / ℹ pass 7 / ℹ fail 0`。
+
+(ii) 子串优先于 id：把精确 id 查表移到子串规则之后（仅在无标题命中时才查 id）。逐字失败行：`[b] ... result={"ok":true,"id":"resolve-exact-other"}` 与 `✖ (b) ... AssertionError [ERR_ASSERTION]: the id that matches verbatim must win over the title that merely contains it`（`ℹ pass 6 / ℹ fail 1`）。恢复命令：`git checkout -- server/modules/mcp-gateway/mcp-resolve-target.ts`；恢复后回绿。
+
+(iii) 归档参与匹配（deps 改喂归档列表）：判据夹具的 `listProjects`/`listSessions` 改为拼接 `getArchivedProjectsWithSessions` / `listArchivedSessions()`。逐字失败行：`[e] archived project query result={"ok":true,"id":"16c60ae3-..."}`（本应为 `TARGET_NOT_FOUND`）与 `✖ (e) ... AssertionError [ERR_ASSERTION]: the reference must not resolve`（另附带红 (c) `the candidate set must be exactly the matching entries` 与 (g) `an unresolved project must refuse the call`）。恢复命令：`git checkout -- server/modules/mcp-gateway/tests/mcp-resolve-target.test.ts`；恢复后 `ℹ tests 7 / ℹ pass 7 / ℹ fail 0`。
+
+### AC10 不回归与仓库门
+
+- `npm run typecheck` 退出 0（三段 tsconfig 全过）。
+- `npm run lint` 退出 0，`: error ` 计数 0（warning 208 条，全部为既存代码的 warning，本任务新增文件不产生 error）。
+- AC-245 判据 `server/modules/mcp-gateway/tests/mcp-read-tools.test.ts` 本分支改动 0 文件，重跑 `ℹ tests 6 / ℹ pass 6 / ℹ fail 0`。
+- websocket 模块本分支改动 0 文件；`chat-control-send` / `chat-control-wiring` / `chat-control-access` 重跑 `ℹ tests 11 / ℹ pass 11 / ℹ fail 0`。
+
+### AC11 改动清单（`git diff --name-status develop...HEAD`）
+
+```
+M	server/modules/mcp-gateway/index.ts
+M	server/modules/mcp-gateway/mcp-gateway.transport.ts
+A	server/modules/mcp-gateway/mcp-resolve-target.ts            (new)
+A	server/modules/mcp-gateway/tests/mcp-resolve-target.test.ts (new)（判据）
+```
+
+`git diff --stat develop...HEAD`：4 files changed, 882 insertions(+), 6 deletions(-)。与 `## Touches` 逐条对齐（`tasks/gap-ac246-mcp-resolve-target-fuzzy-match.md` 由 task_write 自行提交，故不在代码 diff 内）。

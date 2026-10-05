@@ -1,0 +1,646 @@
+/**
+ * AC-247 criterion: `overview` answers the whole workspace from the quay CACHE
+ * (zero quay CLI calls on a cold cache, however many projects), and the only way
+ * to load a snapshot is `quay_snapshot`, one project at a time.
+ *
+ * Everything driving the reading is real except the two seams the task names:
+ * a real express 4 application carries the production `/mcp` mount behind the
+ * production token middleware; the client is the MCP SDK's own `Client` over
+ * `StreamableHTTPClientTransport`; the database is a real better-sqlite3 file in
+ * a temp directory; the projects and sessions are real rows; the resident session
+ * is bound to a real `SessionHostManager` through the real `IProviderHostDriver`
+ * contract; the running/aborted/completed runs live in the real process
+ * `chatRunRegistry`. The two INJECTED fakes are the activity store (which forces
+ * one session to `awaitingPermission`) and the quay runner (which counts every
+ * `refresh` call — the "runner call count" this criterion asserts).
+ *
+ * The transport is handed a `node:http`-based `fetch`. `listen(0)` on this host
+ * lands on a port undici refuses often enough to red a suite run at random
+ * (AC-240's criterion documents the same hazard), and the SDK's
+ * `StreamableHTTPClientTransportOptions.fetch` is the seam that avoids it.
+ *
+ * Readings, one leg each:
+ *   (a) `overview` carries the running session (project/title/phase/elapsedMs),
+ *       the `awaitingPermission` session, the aborted run inside retention (and
+ *       NOT the completed one), and the resident host (state + lease kinds);
+ *   (b) a cache-hit project carries task counts / driver / suite state; a
+ *       miss reads `unknown`; a cold cache costs ZERO runner calls;
+ *   (c) `quay_snapshot` reads the cache by default (no runner call), refreshes
+ *       exactly once for exactly the named project when asked, and refuses an
+ *       array `project`;
+ *   (d) a project without `.quay/config.yml` is explained in words, not thrown;
+ *   (e) twenty projects still cost zero runner calls.
+ */
+
+import assert from 'node:assert/strict';
+import { once } from 'node:events';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+
+import express from 'express';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import type { FetchLike } from '@modelcontextprotocol/sdk/shared/transport.js';
+
+import type { HostLease, LLMProvider, ProcessHost, SessionBinding } from '@/shared/types.js';
+import type { QuaySnapshot } from '@/modules/quay/index.js';
+
+// `auth.middleware.ts` resolves the JWT secret at module-load time and
+// `shared/utils.ts` freezes IS_PLATFORM on first import, so the environment is
+// set before any aliased module is pulled in — and every application module
+// below therefore comes in dynamically (the order the provider criteria
+// established).
+process.env.JWT_SECRET = 'mcp-overview-test-secret';
+delete process.env.VITE_IS_PLATFORM;
+
+const { closeConnection, getConnection, initializeDatabase, sessionsDb } = await import('@/modules/database/index.js');
+const { createAccessTokensService } = await import('@/modules/oauth/index.js');
+const { sessionsService } = await import('@/modules/providers/index.js');
+const { createSessionHostManager } = await import('@/modules/session-hosts/index.js');
+const { chatRunRegistry } = await import('@/modules/websocket/index.js');
+const { getProjectsWithSessions } = await import('@/modules/projects/index.js');
+const { MCP_GATEWAY_PATH, NO_QUAY_NOTE, UNKNOWN_QUAY_NOTE, createMcpAuthMiddleware, mountMcpGateway } = await import(
+  '../index.js'
+);
+
+type AnyRecord = Record<string, unknown>;
+
+// --------------------------- clocks ---------------------------
+
+/** The instant every host/lease reading is measured against. */
+const HOST_NOW_MS = Date.parse('2026-09-01T12:00:00.000Z');
+
+/** How far past the busy run's start the overview's clock is set, so `elapsedMs` is exact. */
+const ELAPSED_MS = 12_345;
+
+// --------------------------- fixture identities ---------------------------
+
+const USER_ONE = 1;
+
+/** The two named project directories; basenames become the project display names. */
+const MAIN_DIR = 'overview-main';
+const OTHER_DIR = 'overview-other';
+
+/** Eighteen further project directories, so the fixture holds twenty projects. */
+const EXTRA_DIRS = Array.from({ length: 18 }, (_, index) => `overview-extra-${String(index).padStart(2, '0')}`);
+const ALL_PROJECT_DIRS = [MAIN_DIR, OTHER_DIR, ...EXTRA_DIRS];
+
+const SESSION_BUSY = 'overview-fixture-busy';
+const SESSION_COMPLETED = 'overview-fixture-completed';
+const SESSION_ABORTED = 'overview-fixture-aborted';
+const SESSION_RESIDENT = 'overview-fixture-resident';
+
+/** The name the scripted host driver reports for the resident binding. */
+const PEER_NAME = 'overview-fixture-peer';
+
+const HOST_PID = process.pid;
+
+const TITLE_BUSY = 'Busy overview session';
+const TITLE_RESIDENT = 'Resident overview session';
+
+const UPDATED_AT = '2026-09-01T11:00:00.000Z';
+
+/** The injected task count / driver / suite a cached project reports. */
+const CACHED_TASKS_TOTAL = 7;
+const CACHED_DRIVER_STATE = 'running';
+const CACHED_SUITE_STATE = 'passed';
+
+// --------------------------- the injected quay fake ---------------------------
+
+/** A complete `QuaySnapshot` for the fake cache, overridable per project. */
+function makeSnapshot(projectId: string, overrides: Partial<QuaySnapshot> = {}): QuaySnapshot {
+  return {
+    projectId,
+    projectPath: `/tmp/${projectId}`,
+    generatedAt: new Date(HOST_NOW_MS).toISOString(),
+    cached: true,
+    driver: { state: CACHED_DRIVER_STATE, alive: true, running: true, lastRecordAt: null },
+    tasks: {
+      total: CACHED_TASKS_TOTAL,
+      byStatus: { ready: CACHED_TASKS_TOTAL },
+      ready: CACHED_TASKS_TOTAL,
+      needsHuman: 0,
+      done: 0,
+      recent: [],
+    },
+    goals: { total: 0, achieved: 0, breakdown: { byStatus: {}, recent: [] } },
+    adrs: { total: 0, recent: [] },
+    configIssues: { total: 0, errors: 0 },
+    tests: {
+      current: {
+        state: CACHED_SUITE_STATE,
+        runner: 'vitest',
+        scope: 'full',
+        startedAt: null,
+        finishedAt: null,
+        durationMs: null,
+        laneCount: null,
+        commit: null,
+        taskId: null,
+        runId: null,
+      },
+      recentRounds: [],
+    },
+    fanIn: { recent: [] },
+    dashboardUrl: null,
+    warnings: [],
+    ...overrides,
+  };
+}
+
+/** The counting quay runner the criterion injects in place of the real service. */
+type QuayFake = {
+  runner: {
+    hasQuayConfig(projectId: string): boolean;
+    readCached(projectId: string): QuaySnapshot | null;
+    refresh(projectId: string): Promise<QuaySnapshot | null>;
+  };
+  /** refresh calls for one project (the "runner call count" of that project). */
+  refreshCount(projectId: string): number;
+  /** refresh calls across every project. */
+  totalRefreshCount(): number;
+  hasQuayConfig(projectId: string): boolean;
+};
+
+// --------------------------- host driver ---------------------------
+
+/**
+ * The scripted resident driver the host manager binds.
+ *
+ * It reports the peer name once through the documented identity sink and leaves
+ * the host fields to the manager — the debug agent's driver cannot be used here
+ * because `provider.registry.ts` reads its gate at import time (see AC-245's
+ * criterion), so this is the same manager/binding/lease objects with a stub.
+ */
+function scriptedResidentDriver(appSessionId: string, peerName: string) {
+  let reported = false;
+  return {
+    async startHost(host: ProcessHost, sink: { identity: (id: string, name: string | null) => void }) {
+      if (!reported) {
+        reported = true;
+        sink.identity(appSessionId, peerName);
+      }
+      return host;
+    },
+    async bind(_host: ProcessHost, _binding: SessionBinding): Promise<void> {},
+    async submit(): Promise<void> {},
+    async interrupt(): Promise<boolean> {
+      return false;
+    },
+    async reconfigure(): Promise<'next-turn'> {
+      return 'next-turn';
+    },
+    async unbind(): Promise<void> {},
+    async closeHost(): Promise<void> {},
+  };
+}
+
+// --------------------------- HTTP: a node:http based fetch ---------------------------
+
+const nodeFetch: FetchLike = (url, init) =>
+  new Promise<Response>((resolve, reject) => {
+    const target = new URL(String(url));
+    const headers: Record<string, string> = {};
+    new Headers(init?.headers ?? {}).forEach((value, key) => {
+      headers[key] = value;
+    });
+    const body = init?.body === undefined || init?.body === null ? null : String(init.body);
+
+    const request = http.request(
+      {
+        hostname: target.hostname,
+        port: target.port,
+        path: `${target.pathname}${target.search}`,
+        method: init?.method ?? 'GET',
+        headers,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => {
+          const responseHeaders = new Headers();
+          for (const [key, value] of Object.entries(res.headers)) {
+            if (typeof value === 'string') {
+              responseHeaders.set(key, value);
+            } else if (Array.isArray(value)) {
+              for (const entry of value) {
+                responseHeaders.append(key, entry);
+              }
+            }
+          }
+          resolve(new Response(Buffer.concat(chunks), { status: res.statusCode ?? 0, headers: responseHeaders }));
+        });
+      },
+    );
+    request.on('error', reject);
+    if (body !== null) {
+      request.write(body);
+    }
+    request.end();
+  });
+
+// --------------------------- harness ---------------------------
+
+type ToolCall = { isError: boolean; text: string; payload: AnyRecord | null };
+
+function parseToolResult(result: unknown): ToolCall {
+  const call = result as { content?: unknown; isError?: boolean };
+  const blocks = Array.isArray(call.content) ? call.content : [];
+  const text = blocks.map((block) => (block as { type?: string; text?: string }).text ?? '').join('');
+  let payload: AnyRecord | null = null;
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    payload = typeof parsed === 'object' && parsed !== null ? (parsed as AnyRecord) : null;
+  } catch {
+    payload = null;
+  }
+  return { isError: call.isError === true, text, payload };
+}
+
+type Harness = {
+  call: (name: string, args?: AnyRecord) => Promise<ToolCall>;
+  quay: QuayFake;
+};
+
+type Fixture = {
+  mainId: string;
+  otherId: string;
+  /** A project the fixture declares to have no `.quay/config.yml`. */
+  noQuayId: string;
+  projectCount: number;
+  /** The aborted run's id, so leg (a) can assert it is present. */
+  abortedRunId: string;
+  /** The completed run's id, so leg (a) can assert it is absent. */
+  completedRunId: string;
+  elapsedMs: number;
+};
+
+/**
+ * Runs `run` against a fresh temp database, twenty real projects, the real
+ * project/session/host services, the real chat run registry, and the production
+ * `/mcp` mount carrying AC-247's real overview handlers over the injected quay
+ * and activity fakes.
+ */
+async function withOverviewHarness(run: (harness: Harness, fixture: Fixture) => Promise<void>): Promise<void> {
+  const previousDatabasePath = process.env.DATABASE_PATH;
+  const tempDirectory = await mkdtemp(path.join(os.tmpdir(), 'mcp-overview-'));
+
+  const dirByProject = new Map<string, string>();
+  for (const name of ALL_PROJECT_DIRS) {
+    const dir = path.join(tempDirectory, name);
+    await mkdir(dir, { recursive: true });
+    dirByProject.set(name, dir);
+  }
+
+  closeConnection();
+  process.env.DATABASE_PATH = path.join(tempDirectory, 'overview.db');
+  await initializeDatabase();
+  getConnection()
+    .prepare('INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)')
+    .run(USER_ONE, 'owner', 'hash');
+
+  // ---- sessions: the named four plus one per extra project (twenty projects) ----
+  const namedSessions: Array<[string, string, string, string]> = [
+    [SESSION_BUSY, MAIN_DIR, TITLE_BUSY, UPDATED_AT],
+    [SESSION_COMPLETED, MAIN_DIR, 'Completed overview session', UPDATED_AT],
+    [SESSION_ABORTED, OTHER_DIR, 'Aborted overview session', UPDATED_AT],
+    [SESSION_RESIDENT, OTHER_DIR, TITLE_RESIDENT, UPDATED_AT],
+  ];
+  for (const [id, projectDir, title, updatedAt] of namedSessions) {
+    sessionsDb.createSession(id, 'claude', dirByProject.get(projectDir) as string, title, updatedAt, updatedAt, null);
+  }
+  EXTRA_DIRS.forEach((projectDir, index) => {
+    sessionsDb.createSession(
+      `overview-extra-session-${String(index).padStart(2, '0')}`,
+      'claude',
+      dirByProject.get(projectDir) as string,
+      `Extra session ${index}`,
+      UPDATED_AT,
+      UPDATED_AT,
+      null,
+    );
+  });
+  sessionsDb.setSessionLifecycleMode(SESSION_RESIDENT, 'resident');
+
+  // ---- the resident host: a real manager, a real binding, real leases ----
+  const hostManager = createSessionHostManager({ now: () => HOST_NOW_MS, scheduler: { schedule: () => () => {} } });
+  const bound = await hostManager.bindSession({
+    provider: 'claude',
+    appSessionId: SESSION_RESIDENT,
+    driver: scriptedResidentDriver(SESSION_RESIDENT, PEER_NAME),
+    mode: 'resident',
+    pid: HOST_PID,
+  });
+  assert.ok(bound.ok, 'the resident fixture must land on a host');
+  const cronLease: HostLease = { kind: 'cron', id: 'overview-fixture-cron', recurring: true, expiresAt: HOST_NOW_MS + 3_600_000 };
+  const backgroundLease: HostLease = { kind: 'background-task', id: 'overview-fixture-bg' };
+  assert.ok(hostManager.addLease(SESSION_RESIDENT, cronLease), 'the cron lease must be recorded');
+  assert.ok(hostManager.addLease(SESSION_RESIDENT, backgroundLease), 'the background-task lease must be recorded');
+
+  // ---- runs: one running, one completed, one aborted (all in the real registry) ----
+  const busy = chatRunRegistry.startRun({
+    appSessionId: SESSION_BUSY,
+    provider: 'claude' as LLMProvider,
+    providerSessionId: null,
+    connection: null,
+    userId: null,
+  });
+  const completed = chatRunRegistry.startRun({
+    appSessionId: SESSION_COMPLETED,
+    provider: 'claude' as LLMProvider,
+    providerSessionId: null,
+    connection: null,
+    userId: null,
+  });
+  const aborted = chatRunRegistry.startRun({
+    appSessionId: SESSION_ABORTED,
+    provider: 'claude' as LLMProvider,
+    providerSessionId: null,
+    connection: null,
+    userId: null,
+  });
+  assert.ok(busy && completed && aborted, 'the fixture must open all three runs');
+  chatRunRegistry.completeRun(SESSION_COMPLETED, { exitCode: 0 });
+  chatRunRegistry.completeRun(SESSION_ABORTED, { exitCode: 1, aborted: true });
+
+  // ---- the injected clock: pinned past the busy run so `elapsedMs` is exact ----
+  let overviewNow = HOST_NOW_MS;
+  const now = (): number => overviewNow;
+  overviewNow = busy.startedAt + ELAPSED_MS;
+
+  // ---- resolve project ids, then wire the quay + activity fakes ----
+  const projects = await getProjectsWithSessions({ skipSynchronization: true, includeHidden: true });
+  const idByDir = new Map(projects.map((project) => [project.path, project.projectId]));
+  const mainId = idByDir.get(dirByProject.get(MAIN_DIR) as string);
+  const otherId = idByDir.get(dirByProject.get(OTHER_DIR) as string);
+  const noQuayDir = dirByProject.get(EXTRA_DIRS[0]) as string;
+  const noQuayId = idByDir.get(noQuayDir);
+  assert.ok(mainId && otherId && noQuayId, 'the fixture projects must be registered');
+
+  // Only the main project's snapshot is cached; every other project (including
+  // the other named one) is a cache MISS, which `overview` must mark `unknown`.
+  const cachedSnapshots = new Map<string, QuaySnapshot>([[mainId, makeSnapshot(mainId)]]);
+  // Every extra project is "has quay config" on ODD indices — index 0 (the
+  // no-quay fixture) is deliberately config-less — and its snapshot is never
+  // cached, so the listing is a mix of unknown and no-quay-config entries.
+  const configProjects = new Set<string>([mainId, otherId]);
+  EXTRA_DIRS.forEach((projectDir, index) => {
+    const id = idByDir.get(dirByProject.get(projectDir) as string);
+    if (id !== undefined && index % 2 === 1) {
+      configProjects.add(id);
+    }
+  });
+  assert.ok(!configProjects.has(noQuayId), 'the no-quay fixture must report no config');
+
+  const refreshByProject = new Map<string, number>();
+  const quay: QuayFake = {
+    runner: {
+      hasQuayConfig: (projectId) => configProjects.has(projectId),
+      readCached: (projectId) => cachedSnapshots.get(projectId) ?? null,
+      refresh: async (projectId) => {
+        refreshByProject.set(projectId, (refreshByProject.get(projectId) ?? 0) + 1);
+        return cachedSnapshots.get(projectId) ?? null;
+      },
+    },
+    refreshCount: (projectId) => refreshByProject.get(projectId) ?? 0,
+    totalRefreshCount: () => [...refreshByProject.values()].reduce((sum, count) => sum + count, 0),
+    hasQuayConfig: (projectId) => configProjects.has(projectId),
+  };
+
+  const activity = {
+    snapshot: (sessionId: string) =>
+      sessionId === SESSION_BUSY ? { turn: { phase: 'awaitingPermission' } } : { turn: { phase: 'idle' } },
+  };
+
+  // ---- the tokens ----
+  const tokens = createAccessTokensService({ now: () => new Date(HOST_NOW_MS) });
+  const readToken = tokens.issueToken({ userId: USER_ONE, name: 'mcp-overview', scopes: ['cloudcli:read'], expiresInDays: 30 });
+  if (!readToken.ok) {
+    throw new Error('the harness must mint a read token');
+  }
+
+  // ---- the app and the real mount ----
+  const app = express();
+  app.use(express.json({ limit: '50mb' }));
+  mountMcpGateway(app, {
+    env: { MCP_ENABLED: 'true' },
+    authorize: createMcpAuthMiddleware(tokens),
+    readTools: {
+      projects: {
+        getProjectsWithSessions,
+        getArchivedProjectsWithSessions: async () => [],
+        getProjectSessionsPage: async (projectId: string) => ({ projectId, sessions: [] }),
+      },
+      sessions: sessionsService,
+      hosts: hostManager,
+      runs: chatRunRegistry,
+      activity,
+      quay: quay.runner,
+      now,
+    },
+  });
+
+  const server = app.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address() as AddressInfo;
+  const endpoint = new URL(`http://127.0.0.1:${address.port}${MCP_GATEWAY_PATH}`);
+
+  const transport = new StreamableHTTPClientTransport(endpoint, {
+    requestInit: { headers: { authorization: `Bearer ${readToken.token.token}` } },
+    fetch: nodeFetch,
+  });
+  const client = new Client({ name: 'ac247-criterion', version: '0.0.0' });
+  await client.connect(transport);
+
+  const call = async (name: string, args: AnyRecord = {}): Promise<ToolCall> =>
+    parseToolResult(await client.callTool({ name, arguments: args } as Parameters<Client['callTool']>[0]));
+
+  try {
+    await run(
+      { call, quay },
+      {
+        mainId,
+        otherId,
+        noQuayId,
+        projectCount: ALL_PROJECT_DIRS.length,
+        abortedRunId: aborted.runId,
+        completedRunId: completed.runId,
+        elapsedMs: ELAPSED_MS,
+      },
+    );
+  } finally {
+    // The run registry is the process singleton; drop this fixture's runs so a
+    // later case (or a sibling criterion in this process) starts clean.
+    chatRunRegistry.clearAll();
+    await transport.close().catch(() => undefined);
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    closeConnection();
+    if (previousDatabasePath === undefined) {
+      delete process.env.DATABASE_PATH;
+    } else {
+      process.env.DATABASE_PATH = previousDatabasePath;
+    }
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+}
+
+// --------------------------- (a) sessions + hosts ---------------------------
+
+test('(a) overview carries the running, awaiting-permission, aborted and resident readings', { concurrency: false }, async () => {
+  await withOverviewHarness(async (harness, fixture) => {
+    const overview = await harness.call('overview');
+    assert.equal(overview.isError, false, 'overview must not error');
+    const payload = overview.payload as AnyRecord;
+
+    const running = payload.running as AnyRecord[];
+    console.log(`[a] running = ${JSON.stringify(running)}`);
+    assert.ok(running.length > 0, 'at least one running session must be reported');
+    const busy = running.find((entry) => entry.sessionId === SESSION_BUSY);
+    assert.ok(busy, 'the busy fixture session must be in the running list');
+    assert.equal(busy.title, TITLE_BUSY, 'the running reading must carry the session title');
+    assert.equal(busy.project, MAIN_DIR, 'the running reading must resolve the project display name');
+    assert.equal(busy.phase, 'awaitingPermission', 'the running reading must carry the injected turn phase');
+    assert.equal(busy.elapsedMs, fixture.elapsedMs, 'elapsedMs must be now() - startedAt');
+
+    const awaiting = payload.awaitingPermission as AnyRecord[];
+    console.log(`[a] awaitingPermission = ${JSON.stringify(awaiting)}`);
+    assert.deepEqual(
+      awaiting.map((entry) => entry.sessionId),
+      [SESSION_BUSY],
+      'the awaitingPermission list must contain exactly the injected session',
+    );
+    assert.equal(awaiting[0].phase, 'awaitingPermission', 'the awaiting reading must state the phase');
+
+    const aborted = payload.aborted as AnyRecord[];
+    console.log(`[a] aborted = ${JSON.stringify(aborted)}`);
+    assert.deepEqual(
+      aborted.map((entry) => entry.runId),
+      [fixture.abortedRunId],
+      'the aborted list must contain exactly the aborted run, not the completed one',
+    );
+    assert.equal(aborted[0].status, 'aborted', 'the aborted reading must state its status');
+    assert.ok(
+      !aborted.some((entry) => entry.runId === fixture.completedRunId),
+      'a completed run must not be reported as aborted',
+    );
+
+    const hosts = payload.hosts as AnyRecord[];
+    console.log(`[a] hosts = ${JSON.stringify(hosts)}`);
+    const resident = hosts.find((entry) => entry.sessionId === SESSION_RESIDENT);
+    assert.ok(resident, 'the resident host binding must be listed');
+    console.log(`[a] resident host state=${JSON.stringify(resident.state)} peerName=${JSON.stringify(resident.peerName)}`);
+    assert.ok(
+      ['starting', 'idle', 'busy', 'lingering', 'closing', 'closed'].includes(String(resident.state)),
+      `the resident host must report a HostState, got ${JSON.stringify(resident.state)}`,
+    );
+    assert.equal(resident.peerName, PEER_NAME, 'the resident host must report its peer name');
+    const leaseKinds = (resident.leases as AnyRecord[]).map((lease) => lease.kind);
+    console.log(`[a] resident lease kinds = ${JSON.stringify(leaseKinds)}`);
+    assert.ok(leaseKinds.includes('cron'), 'the resident host must carry the cron lease verbatim');
+    assert.ok(leaseKinds.includes('background-task'), 'the resident host must carry the background-task lease verbatim');
+  });
+});
+
+// --------------------------- (b) cache hit / miss / cold-cache zero CLI ---------------------------
+
+test('(b) overview reads quay from the cache only, marking misses unknown', { concurrency: false }, async () => {
+  await withOverviewHarness(async (harness, fixture) => {
+    assert.equal(harness.quay.totalRefreshCount(), 0, 'the cache must start cold');
+
+    const overview = await harness.call('overview');
+    assert.equal(overview.isError, false, 'overview must not error');
+    const quay = (overview.payload as AnyRecord).quay as AnyRecord[];
+    console.log(`[b] quay = ${JSON.stringify(quay)}`);
+
+    const hit = quay.find((entry) => entry.projectId === fixture.mainId);
+    assert.ok(hit, 'the cached project must appear');
+    assert.equal(hit.status, 'cached', 'the cached project must be marked cached');
+    assert.equal((hit.tasks as AnyRecord).total, CACHED_TASKS_TOTAL, 'the cached project must carry its task count');
+    assert.equal((hit.driver as AnyRecord).state, CACHED_DRIVER_STATE, 'the cached project must carry its driver state');
+    assert.equal((hit.suite as AnyRecord).state, CACHED_SUITE_STATE, 'the cached project must carry its suite state');
+
+    const miss = quay.find((entry) => entry.projectId === fixture.otherId);
+    assert.ok(miss, 'the uncached project must appear');
+    assert.equal(miss.status, 'unknown', 'the uncached project must be marked unknown');
+    assert.equal(miss.note, UNKNOWN_QUAY_NOTE, 'the uncached project must say it has no cached snapshot');
+
+    console.log(`[b] refreshCount after overview = ${harness.quay.totalRefreshCount()}`);
+    assert.equal(harness.quay.totalRefreshCount(), 0, 'overview must not call the quay runner');
+  });
+});
+
+// --------------------------- (c) quay_snapshot: cache by default, refresh once ---------------------------
+
+test('(c) quay_snapshot reads cache by default and refreshes exactly one project when asked', { concurrency: false }, async () => {
+  await withOverviewHarness(async (harness, fixture) => {
+    const cached = await harness.call('quay_snapshot', { project: fixture.mainId });
+    assert.equal(cached.isError, false, 'quay_snapshot must not error');
+    const cachedPayload = cached.payload as AnyRecord;
+    console.log(`[c] quay_snapshot(cached) = ${JSON.stringify(cachedPayload)}`);
+    assert.equal(cachedPayload.status, 'cached', 'the default read must come from the cache');
+    assert.ok(cachedPayload.snapshot, 'the cached read must carry the snapshot');
+    assert.equal(harness.quay.refreshCount(fixture.mainId), 0, 'the default read must not refresh');
+    assert.equal(harness.quay.totalRefreshCount(), 0, 'the default read must not call the runner');
+
+    const refreshed = await harness.call('quay_snapshot', { project: fixture.mainId, refresh: true });
+    assert.equal(refreshed.isError, false, 'the refreshing read must not error');
+    console.log(`[c] quay_snapshot(refresh) = ${JSON.stringify(refreshed.payload)}`);
+    assert.equal((refreshed.payload as AnyRecord).status, 'refreshed', 'the refresh read must report a refresh');
+    const mainCount = harness.quay.refreshCount(fixture.mainId);
+    const otherCount = harness.quay.refreshCount(fixture.otherId);
+    console.log(`[c] refreshCounts: ${fixture.mainId}=${mainCount} ${fixture.otherId}=${otherCount}`);
+    assert.equal(mainCount, 1, 'refresh: true must call the runner exactly once for the named project');
+    assert.equal(otherCount, 0, 'refresh on one project must not touch another');
+
+    // `project` is a single string: an array is refused by the input schema before the handler runs.
+    const arrayCall = await harness.call('quay_snapshot', { project: [fixture.mainId, fixture.otherId] });
+    console.log(`[c] quay_snapshot(array project) -> isError=${arrayCall.isError} text=${JSON.stringify(arrayCall.text)}`);
+    assert.equal(arrayCall.isError, true, 'an array `project` must be refused by the input schema');
+    assert.equal(
+      harness.quay.refreshCount(fixture.mainId),
+      1,
+      'a refused call must not reach the handler or change the refresh count',
+    );
+  });
+});
+
+// --------------------------- (d) no quay config is a reading, not an error ---------------------------
+
+test('(d) a project without quay config is explained in words, not thrown', { concurrency: false }, async () => {
+  await withOverviewHarness(async (harness, fixture) => {
+    const overview = await harness.call('overview');
+    const quay = (overview.payload as AnyRecord).quay as AnyRecord[];
+    const absent = quay.find((entry) => entry.projectId === fixture.noQuayId);
+    console.log(`[d] overview no-quay entry = ${JSON.stringify(absent)}`);
+    assert.ok(absent, 'the no-quay project must appear');
+    assert.equal(absent.note, NO_QUAY_NOTE, 'overview must explain the missing quay config');
+
+    // Positive control: a project WITH config must not carry that note.
+    const withConfig = quay.find((entry) => entry.projectId === fixture.mainId);
+    assert.notEqual(withConfig?.note, NO_QUAY_NOTE, 'a project with quay config must not say it has none');
+
+    const snapshot = await harness.call('quay_snapshot', { project: fixture.noQuayId });
+    console.log(`[d] quay_snapshot no-quay = ${JSON.stringify({ isError: snapshot.isError, payload: snapshot.payload })}`);
+    assert.equal(snapshot.isError, false, 'a no-quay project must not be an error');
+    assert.equal((snapshot.payload as AnyRecord).note, NO_QUAY_NOTE, 'quay_snapshot must explain the missing quay config');
+    assert.equal((snapshot.payload as AnyRecord).hasQuayConfig, false, 'the reading must state there is no config');
+  });
+});
+
+// --------------------------- (e) twenty projects still zero runner calls ---------------------------
+
+test('(e) twenty projects cost zero runner calls', { concurrency: false }, async () => {
+  await withOverviewHarness(async (harness, fixture) => {
+    const overview = await harness.call('overview');
+    const quay = (overview.payload as AnyRecord).quay as AnyRecord[];
+    const projectCount = fixture.projectCount;
+    const refreshCount = harness.quay.totalRefreshCount();
+    console.log(`[e] projects=${projectCount} entries=${quay.length} refreshCount=${refreshCount}`);
+    assert.equal(quay.length, projectCount, 'every project must be represented');
+    assert.equal(refreshCount, 0, 'no project count may cause a runner call');
+  });
+});

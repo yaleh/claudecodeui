@@ -11,10 +11,13 @@
  *
  * Every tool in this module is READ-ONLY. The four implemented ones answer from
  * the services the composition root injects (projects, providers' sessions,
- * session hosts, the chat run registry) and never write anything; the three
- * owned by AC-247/AC-248 are registered with their real name, scope,
- * description and input schema and a handler that refuses with a named
- * `MCP_TOOL_NOT_IMPLEMENTED` code.
+ * session hosts, the chat run registry) and never write anything. `overview` and
+ * `quay_snapshot` are AC-247's: when the deps carry the quay runner and activity
+ * store, `registerMcpReadTools` routes them to `mcp-overview-tools.js`'s real
+ * handlers; when those are absent, they keep their body-table refusal with a
+ * named `MCP_TOOL_NOT_IMPLEMENTED` code. `run_get` is AC-248's and is routed the
+ * same way to `mcp-run-get.js` when the deps carry its bag; until then it keeps
+ * the same refusal.
  *
  * Two text-shaping helpers are exported because the criterion drives them
  * directly as well as through a tool: {@link paginateMcpText} (the 4000-character
@@ -29,6 +32,11 @@
 import { z } from 'zod';
 
 import type { HostMode, HostState, LLMProvider, NormalizedMessage, ProcessHost } from '@/shared/types.js';
+
+import { isOverviewWired, registerMcpOverviewTools } from './mcp-overview-tools.js';
+import type { McpActivityReader, McpOverviewDeps, McpOverviewRegistration, McpQuayRunner } from './mcp-overview-tools.js';
+import { isRunGetWired, registerMcpRunGetTool } from './mcp-run-get.js';
+import type { McpRunGetDeps, McpRunGetRegistration } from './mcp-run-get.js';
 
 // --------------------------- the stage-3 tool table ---------------------------
 
@@ -147,7 +155,37 @@ export type McpReadToolDeps = {
   };
   runs: {
     listRunningRuns(): McpRunningRun[];
+    /**
+     * Every run the registry still holds (running plus terminal inside the
+     * retention window), as summaries. Consumed by `overview` (AC-247) to read
+     * the aborted runs; structurally satisfied by `chatRunRegistry.listRecentRuns`.
+     * Optional so a mount that never wires the overview tools (AC-240/244/245's
+     * criteria) stays a valid `McpReadToolDeps`; `isOverviewWired` requires it
+     * before the overview handlers are installed.
+     */
+    listRecentRuns?(): McpRunSummary[];
   };
+  /**
+   * The quay command runner (AC-247). Optional so a mount that predates AC-247 —
+   * or a criterion that exercises only the five non-overview read tools — is
+   * still a valid `McpReadToolDeps`. When absent, `overview` and `quay_snapshot`
+   * keep their named `MCP_TOOL_NOT_IMPLEMENTED` refusal; when present they answer
+   * for real. `registerMcpReadTools` branches on this.
+   */
+  quay?: McpQuayRunner;
+  /** The activity store's turn-phase reader (AC-247). Optional; see `quay`. */
+  activity?: McpActivityReader;
+  /**
+   * The services `run_get` answers from (AC-248): the run registry, the activity
+   * store, the sessions history reader, and the clock/sleeper the bounded wait
+   * moves through. Optional so a mount that predates AC-248 — or a criterion
+   * that exercises the other six read tools — is still a valid
+   * `McpReadToolDeps`; when absent `run_get` keeps its named
+   * `MCP_TOOL_NOT_IMPLEMENTED` refusal, when present `registerMcpReadTools`
+   * routes the `run_get` name to {@link registerMcpRunGetTool}. `server/index.ts`
+   * assembles it from the process singletons.
+   */
+  runGet?: McpRunGetDeps;
   /** Clock seam, so every relative time is reproducible in a criterion. */
   now: () => number;
 };
@@ -202,7 +240,16 @@ type McpOutline = { total: number; turns: ReadonlyArray<McpOutlineTurn> };
 type McpMessageWindow = { messages: ReadonlyArray<NormalizedMessage>; startIndex: number; total: number };
 
 /** One live run (structurally satisfied by the chat run registry's reading). */
-type McpRunningRun = { sessionId: string; provider: LLMProvider; startedAt: number; lastSeq: number };
+export type McpRunningRun = { sessionId: string; provider: LLMProvider; startedAt: number; lastSeq: number };
+
+/** One tracked run's read-only summary (structurally satisfied by `ChatRunSummary`). */
+export type McpRunSummary = {
+  runId: string;
+  sessionId: string;
+  status: 'running' | 'completed' | 'aborted';
+  startedAt: number;
+  completedAt: number | null;
+};
 
 // --------------------------- time ---------------------------
 
@@ -493,7 +540,14 @@ const runSchema = z.object({
   lastSeq: z.number(),
 });
 
-/** The refusal the three AC-247/AC-248 tools answer with until their owner lands. */
+/**
+ * The refusal a registered-but-unwired tool answers with: `overview` /
+ * `quay_snapshot` when the deps carry no quay runner (AC-247), and `run_get`
+ * when the deps carry no run-get bag (AC-248). AC-247's real handlers live in
+ * `mcp-overview-tools.js` and AC-248's in `mcp-run-get.js`; this fallback is
+ * what an AC-240/244/245 mount — which wires neither — still reads, so those
+ * criteria keep the exact tool behaviour they had.
+ */
 function notImplemented(name: McpStage3ReadToolName, owner: string): never {
   throw new Error(
     JSON.stringify({
@@ -675,7 +729,19 @@ const TOOL_BODIES = {
     },
   },
   run_get: {
-    inputSchema: { run: z.string(), wait: z.boolean().optional() },
+    inputSchema: {
+      runId: z.string().optional(),
+      waitSeconds: z.number().optional(),
+      session: z.string().optional(),
+      // AC-245's placeholder declared `{ run, wait }`, and its criterion still
+      // calls `run_get` with those keys to read the NAMED
+      // `MCP_TOOL_NOT_IMPLEMENTED` refusal. Keeping them accepted-but-ignored
+      // lets that call reach the handler instead of failing schema validation —
+      // AC-248's real handler reads `runId`/`waitSeconds` and enforces `runId`
+      // itself, so the name set and AC-245's reading are both untouched.
+      run: z.string().optional(),
+      wait: z.boolean().optional(),
+    },
     outputSchema: { run: z.unknown().optional() },
     handle: () => notImplemented('run_get', 'AC-248'),
   },
@@ -716,9 +782,50 @@ export type McpReadToolSeam = (registration: McpReadToolRegistration) => void;
  * place the pair (name, scope) is written down, and the body table is keyed by
  * the same names under a `satisfies`, so a tool added to one and not the other
  * is a type error rather than a silently missing registration.
+ *
+ * `overview` and `quay_snapshot` are AC-247's. When the injected deps are wired
+ * with the quay runner and the activity store, those two names are registered by
+ * {@link registerMcpOverviewTools} — the real handlers, with their metadata
+ * passed down from this same table so the tool set stays one statement. When the
+ * deps are NOT wired (AC-240/244/245's mounts), the two keep their body-table
+ * refusal, so those criteria read exactly what they read before this task.
+ * Either way the registered NAME SET is unchanged — this replaces handlers, it
+ * does not add or rename a tool.
+ *
+ * `run_get` is AC-248's and follows the same routing: when `deps.runGet` is
+ * supplied it is registered by `mcp-run-get.js`'s real handler, otherwise it
+ * keeps the body-table refusal. The name set is untouched either way.
  */
 export function registerMcpReadTools(seam: McpReadToolSeam, deps: McpReadToolDeps): void {
+  const overviewDeps: McpOverviewDeps | null = isOverviewWired(deps) ? deps : null;
+  const runGetDeps: McpRunGetDeps | null = isRunGetWired(deps) ? deps.runGet : null;
+  const table = new Map<string, (typeof MCP_STAGE3_READ_TOOLS)[number]>(
+    MCP_STAGE3_READ_TOOLS.map((tool) => [tool.name, tool]),
+  );
+
+  /** A tool's metadata, read from the one table so a name cannot drift from its scope. */
+  const registration = (name: McpStage3ReadToolName): McpOverviewRegistration => {
+    const tool = table.get(name);
+    const body = TOOL_BODIES[name];
+    if (tool === undefined) {
+      throw new Error(`the stage-3 read table is missing "${name}"`);
+    }
+    return {
+      name: tool.name,
+      description: tool.description,
+      requiredScope: tool.requiredScope,
+      inputSchema: body.inputSchema,
+      outputSchema: body.outputSchema,
+    };
+  };
+
   for (const tool of MCP_STAGE3_READ_TOOLS) {
+    if (overviewDeps !== null && (tool.name === 'overview' || tool.name === 'quay_snapshot')) {
+      continue;
+    }
+    if (runGetDeps !== null && tool.name === 'run_get') {
+      continue;
+    }
     const body = TOOL_BODIES[tool.name];
     seam({
       name: tool.name,
@@ -728,5 +835,17 @@ export function registerMcpReadTools(seam: McpReadToolSeam, deps: McpReadToolDep
       outputSchema: body.outputSchema,
       handler: (args) => body.handle(args, deps),
     });
+  }
+
+  if (overviewDeps !== null) {
+    registerMcpOverviewTools(seam, overviewDeps, {
+      overview: registration('overview'),
+      quaySnapshot: registration('quay_snapshot'),
+    });
+  }
+
+  if (runGetDeps !== null) {
+    const runGet: McpRunGetRegistration = registration('run_get');
+    registerMcpRunGetTool(seam, runGetDeps, runGet);
   }
 }
