@@ -1,7 +1,7 @@
 ---
 id: AC-240
 title: /mcp 是无状态的 Streamable HTTP，挂在静态路由之前，默认关闭：开关未开时不挂载，开着时返回 JSON-RPC 而不是 SPA 页面
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-020
 criterion: for f in server/modules/mcp-gateway/tests/mcp-transport.test.ts; do [
@@ -26,6 +26,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T03:00:20.990Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
