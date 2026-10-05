@@ -3,7 +3,7 @@ id: gap-ac266-connected-apps-settings-browser-ui
 title: AC-266 真实浏览器设置页管理已连接的应用与 OAuth 客户端：列表显示客户端名称/回调主机/scope，吊销后该行消失且其令牌 /mcp
   401，手工创建客户端密钥只显示一次（刷新后页面任何文本节点不含它），禁用客户端后其令牌被拒；判据
   e2e/connected-apps-settings.spec.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
