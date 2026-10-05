@@ -5,6 +5,7 @@ import { getConnection, userDb } from '@/modules/database/index.js';
 import { authenticateToken, generateToken } from './auth.middleware.js';
 import { createAuthRouter } from './auth.routes.js';
 import { createAuthService } from './auth.service.js';
+import { createCredentialVerifier } from './credential-verifier.js';
 
 type BcryptAdapter = {
   hash(password: string, saltRounds: number): Promise<string>;
@@ -36,3 +37,11 @@ const authService = createAuthService({
 
 /** Auth router assembled for the server entrypoint. */
 export const authRoutes = createAuthRouter(authService, authenticateToken);
+
+/**
+ * The non-throwing credential check over THIS module's `authService`. Consumers:
+ * `server/index.ts`, which injects it into the OAuth consent mount (AC-268) so
+ * the consent page's password POST verifies through the same
+ * `authService.login` path every other login uses.
+ */
+export const credentialVerifier = createCredentialVerifier(authService);

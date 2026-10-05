@@ -33,6 +33,7 @@ import {
     authenticateToken,
     authenticateWebSocket,
     authRoutes,
+    credentialVerifier,
     validateApiKey,
 } from './modules/auth/index.js';
 import { taskmasterRoutes } from './modules/taskmaster/index.js';
@@ -48,6 +49,7 @@ import {
     createOAuthStore,
     createTokenInfoRouter,
     mountOAuthRegister,
+    mountOAuthServer,
     readMcpAllowedRedirectHosts,
 } from './modules/oauth/index.js';
 import { createSystemModule } from './modules/system/index.js';
@@ -97,6 +99,8 @@ import {
     readOAuthMetadataGate,
     startMcpAuditRetention,
 } from './modules/mcp-gateway/index.js';
+import type { McpOauthSeam } from './modules/mcp-gateway/index.js';
+import type { OAuthProvider } from './modules/oauth/index.js';
 import { browserUseService } from './modules/browser-use/browser-use.service.js';
 import { initializeDatabase, oauthClientsDb, oauthGrantsDb, sessionsDb } from './modules/database/index.js';
 import { configureWebPush } from './modules/notifications/index.js';
@@ -537,16 +541,20 @@ if (mountDebugAgentControlPlane(app, authenticateToken)) {
 // registry opens carry, so `run_get` can report "服务已重启" when a run belongs to
 // a previous process boot.
 const oauthMetadataGate = readOAuthMetadataGate();
-const mcpOauth = oauthMetadataGate.enabled
-    ? (() => {
-        const provider = createOAuthProvider({ store: oauthStore, publicBaseUrl: oauthMetadataGate.baseUrl });
-        return {
+// ONE provider instance backs BOTH `/mcp`'s token verification (below) and the
+// authorization-server HTTP surface (AC-268, mounted after the metadata). A
+// second provider would be a second, independently-wrong view of the same store.
+const oauthProvider: OAuthProvider | undefined = oauthMetadataGate.enabled
+    ? createOAuthProvider({ store: oauthStore, publicBaseUrl: oauthMetadataGate.baseUrl })
+    : undefined;
+const mcpOauth: McpOauthSeam | undefined =
+    oauthProvider === undefined || !oauthMetadataGate.enabled
+        ? undefined
+        : {
             publicBaseUrl: oauthMetadataGate.baseUrl,
             verifyAccessToken: (token: string, options: { resource: string }) =>
-                provider.verifyAccessToken(token, options),
+                oauthProvider.verifyAccessToken(token, options),
         };
-    })()
-    : undefined;
 
 const mcpGateway = mountMcpGateway(app, {
     tokens: accessTokensService,
@@ -600,6 +608,25 @@ if (oauthMetadata.mounted) {
     });
     console.log(
         `[MCP] oauth register ${oauthRegister.mounted ? 'mounted' : 'not mounted'} at /oauth/register (${oauthRegister.reason})`,
+    );
+}
+
+// The authorization-server HTTP surface (AC-268): `/oauth/authorize` (AC-260's
+// consent page, reused verbatim), `/oauth/token` and `/oauth/revoke`, over the
+// ONE provider that also backs `/mcp`'s verification seam. Gated on OAuth being
+// on — the metadata mount's own reading, not a second read of the switch — and
+// attached BEFORE the static layer for the same reason as the two mounts above:
+// behind the SPA catch-all every one of these paths would answer `200 text/html`
+// and no OAuth client could complete a flow.
+if (oauthMetadata.mounted && oauthProvider !== undefined) {
+    const oauthServer = mountOAuthServer(app, {
+        provider: oauthProvider,
+        store: oauthStore,
+        clients: oauthClientsDb,
+        verifyCredentials: credentialVerifier,
+    });
+    console.log(
+        `[MCP] oauth server ${oauthServer.mounted ? 'mounted' : 'not mounted'} at /oauth/authorize|token|revoke (${oauthServer.reason})`,
     );
 }
 

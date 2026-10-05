@@ -116,3 +116,10 @@ export type {
 // the server entrypoint (mounts it behind authenticateToken) and this module's
 // oauth-settings criterion.
 export { createOAuthSettingsRouter } from '@/modules/oauth/oauth-settings.routes.js';
+// mountOAuthServer: the production mount of the authorization-server HTTP surface
+// (AC-268) — /oauth/authorize (AC-260's consent router, reused verbatim),
+// /oauth/token and /oauth/revoke. Consumers: the server entrypoint (mounts it,
+// before the static layer, sharing the ONE provider that also backs /mcp's
+// verification seam) and this module's end-to-end oauth-flow criterion.
+export { mountOAuthServer } from '@/modules/oauth/oauth-server.mount.js';
+export type { MountOAuthServerDeps, OAuthServerMountReading } from '@/modules/oauth/oauth-server.mount.js';
