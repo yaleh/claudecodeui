@@ -5,7 +5,7 @@ title: AC-249 判据台账尾部红是 merge race：session_send 实现
   才带进 develop、主检出 ff 于 17:54:25，86 拍红（末拍 09:54:01.618Z@tree
   e0fc09d30619=5600d210，判据文件 ABSENT）早于落地 —— verification-only 归因入档（净树直跑 7/7/0
   exit 0 ×3），不重新实现既有修复
-status: ready
+status: done
 labels:
   - gap
 parent: null
