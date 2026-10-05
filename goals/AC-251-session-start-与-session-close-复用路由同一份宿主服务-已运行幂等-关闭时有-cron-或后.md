@@ -2,7 +2,7 @@
 id: AC-251
 title: session_start 与 session_close 复用路由同一份宿主服务：已运行幂等，关闭时有 cron 或后台任务则要
   force，既有拒绝码原样呈现
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-020
 criterion: for f in
@@ -27,6 +27,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T11:11:34.537Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
