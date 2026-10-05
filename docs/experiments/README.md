@@ -39,6 +39,7 @@
 | 2026-09-24 | **DashScope omni**（仓库里唯一 `style: 'written'` 的识别器）配对质量：omni × whisper 基线 × 裁剪（n=8，单一运行，含能红的负对照；`pauseCues: 'neutral'` 的证据记录） | [2026-09-24-omni-written.md](./2026-09-24-omni-written.md) |
 | 2026-10-04 | **VAD 切分参数**（`endpointMs` / `maxSegmentSec`）：T1 合成真值单因素扫描（675 条时间线，15 格 ≥45）+ T2 CORAAL 人工标注 + T4 小样本识别确认（预算闸 ≤ ¥2；本次识别读数来自离线 fixture provider，真实服务待人工填价后执行） | [2026-10-04-voice-vad-sweep.md](./2026-10-04-voice-vad-sweep.md) |
 | 2026-10-04 | **停顿切开对自我更正的影响**：4 脚本 × 3 停顿（2/5/10 s）× 整段/切开配对（每格 n=20，Wilson 95%，含能红的 swap-order 负对照；**真实 dashscope-omni 调用**，预算闸 ≤ ¥1）—— 切开全 0/60、整段全 60/60，选定 `flushSilenceSec = 10` | [2026-10-04-voice-pause-split.md](./2026-10-04-voice-pause-split.md) |
+| 2026-10-06 | **客户端本地识别可行性（D2）**：真实 Chromium 里的 SenseVoice-Small int8（onnxruntime-web 1.30.0 + 自写前端），60 条片段、单线程 vs `--isolated` 4 线程、移动视口 390×844 与 4× CPU 节流；T1 RTF p90 · T2 二次打开 · T3 WASM 堆 · T4 ≥0.85 置信度一致率 四闸全过 = 桌面 **go**；真机**待外部** | [2026-10-06-voice-client-asr-probe.md](./2026-10-06-voice-client-asr-probe.md) |
 
 ## 工装
 
@@ -78,6 +79,7 @@ LANG_TARGET=en LEVELS=all CONDS=raw,trimFrozen,trimMild node tools/test10-punct-
 | `experiments/voice-gemini-paired-quality/run.mjs` | **Gemini** × whisper 基线 × 裁剪 × 上下文 × 模型的配对质量读数：同上协议、同一批片段、七条自检变异、真实服务读数（见 [2026-09-23-gemini.md](./2026-09-23-gemini.md)） | 同上，且更强：协议第 3 条在这里要求被测实现是**出货适配器**本身 —— 每个 Gemini 条件都经 `shared/asr/list/multimodal/multimodal.asr-provider.ts#transcribe`（由 registry 解析）发出，工装不包装 `fetch`、不自己拼请求；该任务由 `## Touches` 指定了这个路径 |
 | `experiments/voice-webm-asr-paired-quality/run.mjs` | **七个候选服务 × webm/opus 上传 × 裁剪 × 上下文 × 数字写法归一**的配对质量读数：同一协议、同一批片段、七条自检变异、单一运行的真实服务读数（见 [2026-09-23-webm-asr-candidates.md](./2026-09-23-webm-asr-candidates.md)） | 同上前一条的理由，另加一条：本记录换的是**上传容器**，而容器转换必须由被测链路之外的工具完成并把字节钉住 —— webm 由主机 `ffmpeg`（`-fflags +bitexact -flags +bitexact`）编出，每条片段 × 每条裁剪列的 sha256 写进冻结快照、离线逐字节比对，缺 `ffmpeg` 就非零退出而**不**静默回退到 wav。OpenRouter/Groq 条件经 registry 解析出的出货 `openai-compatible` 适配器发出；DashScope 没有出货适配器，它的列在快照里如实标为 `runner-local wire (no shipped adapter)`；该任务由 `## Touches` 指定了这个路径 |
 | `experiments/voice-dashscope-omni-paired-quality/run.mjs` | **DashScope omni × whisper 基线 × 裁剪**的配对质量读数：同一协议、同一批片段、七条自检变异、单一运行的真实服务读数（见 [2026-09-24-omni-written.md](./2026-09-24-omni-written.md)） | 同上前两条的理由（被测实现是出货模块、该任务由 `## Touches` 指定了这个路径），另加这一条特有的：它是 ADR-004 决策 1 **纪律那一半**的证据 —— `dashscope-omni` 声明的是非默认的 `pauseCues: 'neutral'`，而 `scripts/asr-trim-capability-check.mjs` 的 `discipline` 检查要的是**这个服务自己**的成对测量，所以记录必须落在这条跑得起来的路径上。omni 条件一律经 registry 解析出的出货适配器 `shared/asr/list/dashscope-omni/dashscope-omni.asr-provider.ts#transcribe` 发出（工装不包装 `fetch`、不自己拼请求），裁剪列的音由出货 `src/shared/voiceTrim.ts#trimVoiceAudio` 产生，语义判定经 `experiments/voice-omni-written/raw/judge.mts#judge` **import**（不抄第二份 rubric）；探针与自检连线在 `<run.mjs> --probe` |
+| `experiments/voice-client-asr-probe/{index.html,probe.mjs,serve.mjs}` | 客户端本地识别（D2）探针：真实浏览器里跑 SenseVoice-Small int8 的读数 + T1–T4 判定（见 [2026-10-06-voice-client-asr-probe.md](./2026-10-06-voice-client-asr-probe.md)） | 协议第 3 条要求被测实现是**出货规格**：前端必须与项目自己的 `experiments/voice-index-loop/sv/svlib.py`（v5/v6 的「自写前端」）逐帧一致（fbank 410 帧逐位相等、LFR+CMVN `max|Δ| = 1.7e-5`），规格抄到仓库外就断了这条对照；且读数必须在**真实浏览器**里经 `window.__probe` 取（jsdom / node 的 wasm 不算），仓库外工装起不了这个被测页。它**没有**任何音频 / 模型权重 / 构建产物入库：`serve.mjs` 从 `VOICE_PROBE_CLIPS_DIR` / `MODEL_DIR` 外挂挂载，下载物与读数 JSON 落在被 git 忽略的 `.cache/` |
 
 ```bash
 # 离线负对照 + 正面控制（无网络，确定性）
@@ -112,6 +114,11 @@ node experiments/voice-dashscope-omni-paired-quality/run.mjs
 
 # 同上，只打印所驱动的出货模块的绝对路径与符号名，并断言 runner 里没有第二份请求构造或 rubric
 node experiments/voice-dashscope-omni-paired-quality/run.mjs --probe
+
+# 客户端本地识别探针（D2）：起静态服务后，用**真实浏览器**打开并调 window.__probe
+node experiments/voice-client-asr-probe/serve.mjs              # 默认（无 COOP/COEP，单线程）
+node experiments/voice-client-asr-probe/serve.mjs --isolated   # COOP/COEP（4 线程）
+# 取数前置：JS 前端必须与 svlib.py 逐帧一致（见实验记录 §3），不一致就不取数
 ```
 
 ### 仓库内**音频**（例外，逐条登记）

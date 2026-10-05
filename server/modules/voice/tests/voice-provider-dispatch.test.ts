@@ -346,6 +346,39 @@ test('AC4 proxy tolerance: the five baseline inputs read as the pre-task baselin
   emit('proxy-tolerance empty-text=ok-empty not-json=verbatim null-body=literal-null');
 });
 
+// ── the response envelope: the token fields are additive, so an answer without them is unchanged ──
+
+/**
+ * The token contract's backward-compatibility reading, taken on the LIVE service rather than on a
+ * re-statement of its shape.
+ *
+ * The `/api/voice/transcribe` body IS this service's `value` (`voice.routes.ts` answers
+ * `response.json(result.value)`), and before this task that value was `{ text }` and nothing else.
+ * The per-token facts and the build identity are ADDITIVE fields, so an answer that carries none —
+ * which is every answer the three shipped recognisers produce, since all three declare `false/false`
+ * and their adapters propagate neither — must publish the historical body EXACTLY: no `tokens: []`,
+ * no `meta: {}`. A client comparing the old response byte-for-byte has to keep matching, and this is
+ * the reading that says so. (The token-BEARING half of the chain is driven in
+ * `src/shared/asr/tests/asrContractInvariants.test.ts`, because no shipped recogniser can produce it
+ * and the task forbids adding one.)
+ */
+test('the response payload keeps its historical shape: a token-less answer publishes `{ text }` alone', async () => {
+  const service = makeService({
+    answer: () => new Response(JSON.stringify({ text: 'k-asr-answer' }), { status: 200 }),
+  });
+  const result = await service.transcribe({ audio: audioUpload(), overrides: {} });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) throw new Error('unreachable: the assertion above pins the success');
+
+  assert.deepEqual(Object.keys(result.value).sort(), ['text'], 'the historical body grew no empty fields');
+  assert.equal((result.value as { tokens?: unknown }).tokens, undefined, 'no invented `tokens`');
+  assert.equal((result.value as { meta?: unknown }).meta, undefined, 'no invented `meta`');
+  emit(
+    `transcribe-envelope text=${JSON.stringify(result.value.text)} keys=${Object.keys(result.value).join(',')}`,
+  );
+});
+
 // ── AC5: the error vocabulary, as a table ─────────────────────────────────────────────────────
 
 type ErrorDrive = {

@@ -2,7 +2,7 @@
 id: gap-voice-sensevoice-server-adapter
 title: 服务端 SenseVoice 适配器：把打补丁的 sherpa-onnx 作为 sensevoice-local 识别器接进 ASR
   缝，输出文本与逐 token 置信度和时间（子进程 worker、构建产物固定、健康检查）
-status: todo
+status: ready
 labels:
   - gap
 parent: null

@@ -101,6 +101,13 @@ export const capabilities: AsrCapabilities = {
   // nothing in that measurement says a browser cannot reach it; a declaration of 'proxy-only' here
   // would be a claim with no reading behind it, and it would move every existing caller's route.
   transport: 'direct',
+  // The inline JSON answer is one transcript for the request, with no per-word confidence or
+  // timing, so both token facts are declared absent. The board holds the declaration and the
+  // result to the same story rather than trusting this comment.
+  tokens: { confidence: false, timestamps: false },
+  // 'remote': the audio is sent to the endpoint. A `'local-*'` engine would keep it on the device
+  // or on this host; this one does not, and the declaration is where a caller learns that.
+  locality: 'remote',
 };
 
 /** The transformations a `style: 'verbatim'` recogniser performs on its way to `AsrResult.text`. */

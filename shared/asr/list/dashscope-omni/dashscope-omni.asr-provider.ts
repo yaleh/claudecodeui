@@ -206,6 +206,12 @@ export const capabilities: AsrCapabilities = {
   // the hostname; `allowedBaseUrl` below is what holds the address the user typed to this service's
   // own.
   transport: 'proxy-only',
+  // The written answer is a paragraph, not a token stream: no per-word confidence and no timing
+  // travel on this wire, so both facts are declared absent and the invariant board enforces it.
+  tokens: { confidence: false, timestamps: false },
+  // 'remote': the audio is proxied to the vendor's service. Nothing about this recogniser runs on
+  // the device or on this host.
+  locality: 'remote',
 };
 
 /**
