@@ -4,7 +4,7 @@ title: AC-245 判据台账尾部红是 merge race：read-tools 实现 85db9402�
   分支，fan-in f466a4b0 于 06:44:56Z 才带进 develop，41 拍红（末拍 06:43:25Z@tree
   8452dcc3/c9ef86a0，判据文件 ABSENT）早于落地约 90s —— verification-only 归因入档（当前检出直跑 exit
   0，6/6/0），不重新实现
-status: ready
+status: done
 labels:
   - gap
 parent: null
