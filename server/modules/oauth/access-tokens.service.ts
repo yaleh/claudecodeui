@@ -29,6 +29,21 @@ const DEFAULT_EXPIRY_DAYS = 30;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /**
+ * The complete vocabulary of scopes a personal access token may be issued with,
+ * per mcp-gateway-SPEC. `cloudcli:admin` is deliberately absent: it is reserved
+ * and cannot be minted. Consumers: {@link normalizeAccessTokenScopes}, this
+ * module's `issueToken`, and the settings module's `createAccessToken` (through
+ * the OAuth barrel) — this is the single definition, never duplicated.
+ */
+export const ACCESS_TOKEN_SCOPES = [
+  'cloudcli:read',
+  'cloudcli:session:send',
+  'cloudcli:session:create',
+  'cloudcli:session:control',
+  'cloudcli:approve',
+] as const;
+
+/**
  * Why a verification failed. The five values are mutually distinct so a caller
  * can tell an expired token from a revoked one, a mistyped one, a foreign
  * prefix, and a scope escalation.
@@ -50,12 +65,13 @@ export type IssuedAccessToken = {
 
 /**
  * Result of issuing. `invalid_expiry` means the requested lifetime was not one
- * of 7/30/90 (or was a non-number such as `null` for a permanent token); no row
- * is written in that case.
+ * of 7/30/90 (or was a non-number such as `null` for a permanent token);
+ * `invalid_scope` means the scope list was not a non-empty subset of
+ * {@link ACCESS_TOKEN_SCOPES}. Neither failure writes a row.
  */
 export type IssueAccessTokenResult =
   | { ok: true; token: IssuedAccessToken }
-  | { ok: false; reason: 'invalid_expiry' };
+  | { ok: false; reason: 'invalid_expiry' | 'invalid_scope' };
 
 /**
  * Result of verifying. On success the owner id, the token's scopes and its
@@ -107,6 +123,36 @@ function isAllowedExpiryDays(days: number | null | undefined): days is number {
 }
 
 /**
+ * Validates a requested scope list against {@link ACCESS_TOKEN_SCOPES} and
+ * removes duplicates, preserving first-occurrence order. This is the single
+ * vocabulary check and deduplication used by both issuance paths, so no caller
+ * can mint an unknown, reserved, empty or duplicated scope. Consumers: this
+ * module's `issueToken` and the settings module's `createAccessToken`.
+ *
+ * Returns `{ ok: false }` for a non-array, an empty array, any non-string
+ * element, or any string outside the vocabulary; otherwise `{ ok: true }` with
+ * the deduplicated list.
+ */
+export function normalizeAccessTokenScopes(
+  scopes: unknown,
+): { ok: true; scopes: string[] } | { ok: false } {
+  if (!Array.isArray(scopes) || scopes.length === 0) {
+    return { ok: false };
+  }
+  const vocabulary: readonly string[] = ACCESS_TOKEN_SCOPES;
+  const normalized: string[] = [];
+  for (const scope of scopes) {
+    if (typeof scope !== 'string' || !vocabulary.includes(scope)) {
+      return { ok: false };
+    }
+    if (!normalized.includes(scope)) {
+      normalized.push(scope);
+    }
+  }
+  return { ok: true, scopes: normalized };
+}
+
+/**
  * Builds the token service. `now` is called for `created_at`, `expires_at`,
  * `last_used` and `revoked_at`, and for the expiry comparison, so a test can
  * advance time by mutating what the clock returns.
@@ -114,6 +160,14 @@ function isAllowedExpiryDays(days: number | null | undefined): days is number {
 export function createAccessTokensService({ now }: AccessTokensServiceOptions): AccessTokensService {
   return {
     issueToken(input: IssueAccessTokenInput): IssueAccessTokenResult {
+      // Vocabulary check first: an out-of-vocabulary scope is rejected at the
+      // service boundary, so calling this directly (bypassing the route) can
+      // never mint an unknown, reserved, empty or duplicated scope.
+      const normalized = normalizeAccessTokenScopes(input.scopes);
+      if (!normalized.ok) {
+        return { ok: false, reason: 'invalid_scope' };
+      }
+
       const days = input.expiresInDays === undefined ? DEFAULT_EXPIRY_DAYS : input.expiresInDays;
       if (!isAllowedExpiryDays(days)) {
         return { ok: false, reason: 'invalid_expiry' };
@@ -129,7 +183,7 @@ export function createAccessTokensService({ now }: AccessTokensServiceOptions): 
         tokenHash: hashToken(token),
         tokenPrefix: token.slice(0, PREFIX_LENGTH),
         name: input.name ?? null,
-        scopes: JSON.stringify(input.scopes),
+        scopes: JSON.stringify(normalized.scopes),
         expiresAt: expiresAt.toISOString(),
         createdAt: issuedAt.toISOString(),
       });
