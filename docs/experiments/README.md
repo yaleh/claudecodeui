@@ -38,6 +38,7 @@
 | 2026-09-23 | **webm/opus 上传**的 ASR 候选：七个服务 × 裁剪 × 上下文 × 数字写法归一（n=8，单一运行，含能红的负对照） | [2026-09-23-webm-asr-candidates.md](./2026-09-23-webm-asr-candidates.md) |
 | 2026-09-24 | **DashScope omni**（仓库里唯一 `style: 'written'` 的识别器）配对质量：omni × whisper 基线 × 裁剪（n=8，单一运行，含能红的负对照；`pauseCues: 'neutral'` 的证据记录） | [2026-09-24-omni-written.md](./2026-09-24-omni-written.md) |
 | 2026-10-04 | **VAD 切分参数**（`endpointMs` / `maxSegmentSec`）：T1 合成真值单因素扫描（675 条时间线，15 格 ≥45）+ T2 CORAAL 人工标注 + T4 小样本识别确认（预算闸 ≤ ¥2；本次识别读数来自离线 fixture provider，真实服务待人工填价后执行） | [2026-10-04-voice-vad-sweep.md](./2026-10-04-voice-vad-sweep.md) |
+| 2026-10-04 | **停顿切开对自我更正的影响**：4 脚本 × 3 停顿（2/5/10 s）× 整段/切开配对（每格 n=20，Wilson 95%，含能红的 swap-order 负对照；**真实 dashscope-omni 调用**，预算闸 ≤ ¥1）—— 切开全 0/60、整段全 60/60，选定 `flushSilenceSec = 10` | [2026-10-04-voice-pause-split.md](./2026-10-04-voice-pause-split.md) |
 
 ## 工装
 
