@@ -57,15 +57,15 @@ AC-253（GOAL-020 的装配与 barrel 核对；SPEC `docs/proposals/mcp-gateway-
 
 ## AC
 
-- [ ] AC1 红态基线逐字记录：改动前运行 AC-253 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-gateway-wiring.test.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-gateway-wiring.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-gateway-wiring.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 (a) 扫描器对真实 `server/index.ts`：`createChatControlService(` 恰好一次，其绑定标识符出现在 `createWebSocketServer`、`initializeScheduledMessageDispatcher`、`createMcpGatewayModule` 三处实参；正例对照两则（第二次构造被判出、标识符被挪走被判出）逐字写出扫描器输出。
-- [ ] AC4 (b) 四条 barrel 导出行逐字写出；网关侧经 barrel 的导入行逐字写出；负例对照（合成无消费者导出）被判出并报出符号名。
-- [ ] AC5 (c) 同一 spy 实例三处各 +1、三处 `caller.via` 分别为 websocket/scheduled/mcp，三处 `runId` 均可从同一注册表读到；逐字写出三组计数与身份判定。
-- [ ] AC6 取假形态 (i) 网关自造控制服务 ⇒ (a)(c) 红；记录变异 diff、逐字失败行、恢复命令，恢复后重跑回绿。
-- [ ] AC7 取假形态 (ii) barrel 无消费者导出 ⇒ (b) 红；记录变异 diff、逐字失败行、恢复命令，恢复后重跑回绿。
-- [ ] AC8 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；AC-240 判据 `mcp-transport.test.ts`、AC-245/248/249/251 判据、既有控制服务判据 `chat-control-*.test.ts` 与 scheduled-messages 判据不改一字仍逐字通过。
-- [ ] AC9 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
+- [x] AC1 红态基线逐字记录：改动前运行 AC-253 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-gateway-wiring.test.ts`（写下完整命令与完整输出）。
+- [x] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-gateway-wiring.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-gateway-wiring.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
+- [x] AC3 (a) 扫描器对真实 `server/index.ts`：`createChatControlService(` 恰好一次，其绑定标识符出现在 `createWebSocketServer`、`initializeScheduledMessageDispatcher`、`createMcpGatewayModule` 三处实参；正例对照两则（第二次构造被判出、标识符被挪走被判出）逐字写出扫描器输出。
+- [x] AC4 (b) 四条 barrel 导出行逐字写出；网关侧经 barrel 的导入行逐字写出；负例对照（合成无消费者导出）被判出并报出符号名。
+- [x] AC5 (c) 同一 spy 实例三处各 +1、三处 `caller.via` 分别为 websocket/scheduled/mcp，三处 `runId` 均可从同一注册表读到；逐字写出三组计数与身份判定。
+- [x] AC6 取假形态 (i) 网关自造控制服务 ⇒ (a)(c) 红；记录变异 diff、逐字失败行、恢复命令，恢复后重跑回绿。
+- [x] AC7 取假形态 (ii) barrel 无消费者导出 ⇒ (b) 红；记录变异 diff、逐字失败行、恢复命令，恢复后重跑回绿。
+- [x] AC8 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；AC-240 判据 `mcp-transport.test.ts`、AC-245/248/249/251 判据、既有控制服务判据 `chat-control-*.test.ts` 与 scheduled-messages 判据不改一字仍逐字通过。
+- [x] AC9 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
 
 ## DoD
 
@@ -94,6 +94,116 @@ AC-253（GOAL-020 的装配与 barrel 核对；SPEC `docs/proposals/mcp-gateway-
 - 边界 lint 会拦新增测试文件（内存 `quay-boundaries-lint-blocks-new-test-files`）；判据文件已列入 `## Touches`。给 websocket/projects barrel 加导出后，若某兄弟测试对该 barrel 整体 `vi.mock`，需把新导出补进那个 mock 工厂（内存 `adding-an-export-reds-sibling-wholesale-vimocks`）。
 - 判据的 SDK 客户端用基于 `node:http` 的 `fetch`（内存 `undici-bad-port-lottery-in-listen0-route-tests`）。
 - (b) 的「无消费者新导出」以**声明的 GOAL-020 新增导出清单**（SPEC §221–§226 四符号 + 运行摘要/查询类型）为准做判定，不把历史存量导出误判为「新导出」；负例对照证明该判定有效。
+
+## 完成记录
+
+实现提交：`dfc32f8e`（分支 `task/gap-ac253-gateway-shares-single-control-service`）。
+
+### 实现形态
+- `server/modules/mcp-gateway/index.ts` 新增导出 `createMcpGatewayModule` / `McpGatewayModuleDeps`（消费方注释点名 `server/index.ts`）。
+- `server/modules/mcp-gateway/mcp-gateway.transport.ts` 新增 `createMcpGatewayModule`：接受 `{ control, readTools?, writeTools, residentTools?, ... }`，把 projects / session-hosts / `chatRunRegistry` 三处 barrel 缝与 `runs` 从本模块派生，返回既有的 `McpGatewayDeps`。它**返回** deps 而**不**自行挂载，以保留 AC-240 冻结判据扫描的 `mountMcpGateway(...)` 调用形态。
+- `server/index.ts` 保留 `mountMcpGateway(app, ...)` 调用，并把 `createMcpGatewayModule({ control: chatControl, ... })` 嵌为其实参：`chatControl` 是 `:143` 唯一构造点绑定的标识符，同名字符串交给 `createWebSocketServer`、`initializeScheduledMessageDispatcher` 与 `createMcpGatewayModule`。顺带删除一条已无用的 projects barrel 顶层导入（`mcpGateway` 装配现经 `createMcpGatewayModule` 取用）。
+- `getRunById` 按 Notes 转义条款以 `chatRunRegistry`（AC-248 已消费的方法形态）落地，**不**新增第二个具名导出；`getProjectSessionsPage`、`startResidentHost`/`closeResidentHost` 的 barrel 导出在 AC-248/AC-251 已落地，无需改动（Touches 声明的三个 barrel 因此是 declared-but-unchanged）。
+
+### AC1 红态基线
+实现前该判据文件不存在。以移开文件复现存在性闸（等价于 `dfc32f8e^` 状态），逐字输出：
+```
+$ for f in server/modules/mcp-gateway/tests/mcp-gateway-wiring.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-gateway-wiring.test.ts
+缺判据文件：server/modules/mcp-gateway/tests/mcp-gateway-wiring.test.ts
+EXIT=1
+```
+
+### AC2 判据绿
+`npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-gateway-wiring.test.ts` 退出 0：
+```
+✔ (a) server/index.ts constructs one control service and hands the same identifier to all three consumers
+✔ (b) the three barrels export the GOAL-020 symbols and the gateway consumes each through a barrel
+✔ (c) the WebSocket, scheduled and MCP front ends reach one control-service instance
+ℹ tests 3
+ℹ pass 3
+ℹ fail 0
+```
+
+### AC3 (a) 扫描器读数
+```
+(a) real.constructCount=1 lines=[143]
+(a) real.identifier="chatControl" consumers={"websocket":true,"scheduled":true,"gateway":true}
+(a) two.constructCount=2 lines=[5,6] bindings=["chatControl","chatControlSecond"]
+(a) moved.consumers={"websocket":true,"scheduled":true,"gateway":false} identifier="chatControl"
+```
+正例对照一：合成源码第二次 `createChatControlService(` ⇒ `constructCount=2 lines=[5,6]`（两构造点逐字报出）。正例对照二：把标识符从 `createMcpGatewayModule` 实参挪走 ⇒ `gateway:false`（websocket/scheduled 仍 true，证明不是恒假）。
+
+### AC4 (b) barrel 审计读数
+四条 barrel 导出行逐字：
+```
+server/modules/projects/index.ts:12   getProjectSessionsPage,
+server/modules/session-hosts/index.ts:21 export { closeResidentHost, startResidentHost } from './resident-host.service.js';
+server/modules/websocket/index.ts:42  export { chatRunRegistry, createChatRunRegistry } from './services/chat-run-registry.service.js';   // getRunById 以 chatRunRegistry 方法形态（转义条款，不重复导出）
+server/modules/websocket/index.ts:51-55 export type { ChatRunLookupMiss, ChatRunLookupResult, ChatRunSummary } from './services/chat-run-registry.service.js';
+```
+网关侧经 barrel 的导入行逐字：
+```
+server/modules/mcp-gateway/mcp-gateway.transport.ts: import { getArchivedProjectsWithSessions, getProjectSessionsPage, getProjectsWithSessions } from '@/modules/projects/index.js';
+server/modules/mcp-gateway/mcp-gateway.transport.ts: import { chatRunRegistry } from '@/modules/websocket/index.js';
+server/modules/mcp-gateway/mcp-run-get.ts: import type { ActivityProtocolSnapshot, ChatRunLookupResult } from '@/modules/websocket/index.js';
+server/modules/mcp-gateway/mcp-session-host-control.ts: import { closeResidentHost, sessionHostManager, startResidentHost } from '@/modules/session-hosts/index.js';
+```
+审计读数与负例对照：
+```
+(b) exports={"sessionHostsStart":true,"sessionHostsClose":true,"projectsSessionsPage":true,"websocketGetRunById":"registry","summaryTypesPresent":true}
+(b) gateway={"projectsBarrelImport":true,"websocketBarrelImport":true,"sessionHostsBarrelImport":true,"getRunByIdCallOnRegistry":true,"deepImports":[]}
+(b) unconsumed=[]
+(b) negative.unconsumed=["ac253UnconsumedProbe"]
+```
+（`ChatRunSummary`/`ChatRunLookupMiss` 是被消费的联合类型 `ChatRunLookupResult` 的成员，审计按「消费联合锚点即消费其成员」处理；负例对照的合成导出 `ac253UnconsumedProbe` 被逐字报出。）
+
+### AC5 (c) 同实例 spy 读数
+```
+(c) reading={"counts":{"send":3},"callers":[{"userId":1,"via":"websocket"},{"userId":1,"via":"scheduled"},{"userId":1,"via":"mcp"}],"runs":{"websocket":{"runId":"1684f832-42d4-43e4-9b00-cc5f1af3b883","source":"user"},"scheduled":{"runId":"95fa9229-3ee1-446b-876d-4cb893c3c3d7","source":"scheduled"},"mcp":{"runId":"1444a2b9-fd80-41ee-b3fb-e8eee0bebd94","source":"mcp"}},"mcpIsError":false}
+```
+同一 spy 的 `counts.send` 恰为 3；三处 `caller.via` 为 websocket/scheduled/mcp，`userId` 均为 owner；三条 `runId` 各不相同、`source` 分别为 user/scheduled/mcp，且都能从同一 `chatRunRegistry.getRunById` 读到（`status !== 'unknown'`）。
+
+### AC6 取假形态 (i)：网关自造控制服务
+变异 diff（`git diff`）：
+```
+server/index.ts:582
+-        control: chatControl,
++        control: createChatControlService({ runtime: providerRuntimeService }),
+server/modules/mcp-gateway/mcp-gateway.transport.ts
+-      control,
++      control: { ...control, send: async () => ({ ok: true, runId: 'gateway-own', queued: false, queuedMessageUuid: null, completion: Promise.resolve({ started: true, error: null }) }) },
+```
+逐字失败行：`gateway-wiring (a) real.constructCount=2 lines=[143,582]`、`✖ (a) … AssertionError [ERR_ASSERTION]: server/index.ts must construct the chat control service exactly once`、`gateway-wiring (c) reading={"counts":{"send":2},"callers":[{"userId":1,"via":"websocket"},{"userId":1,"via":"scheduled"}],"runs":{…,"mcp":null},…}`、`✖ (c) …`，`ℹ pass 1 / ℹ fail 2`。
+恢复命令：`cp /tmp/ac253-index.bak2 server/index.ts && cp /tmp/ac253-transport.bak2 server/modules/mcp-gateway/mcp-gateway.transport.ts`；重跑 `ℹ tests 3 / pass 3 / fail 0`。
+
+### AC7 取假形态 (ii)：barrel 无消费者导出
+变异 diff：`server/modules/projects/index.ts` 追加 `export const ac253UnconsumedProbe = 1;`；判据 `DECLARED_NEW_EXPORTS` 补入 `'ac253UnconsumedProbe'`（因审计只判定声明的 GOAL-020 新导出，新符号须同时声明）。
+逐字失败行：`gateway-wiring (b) unconsumed=["ac253UnconsumedProbe"]`、`✖ (b) … AssertionError [ERR_ASSERTION]: no declared GOAL-020 export may lack a consumer`，`ℹ pass 2 / ℹ fail 1`。
+恢复命令：`cp /tmp/ac253-projects.bak server/modules/projects/index.ts && cp /tmp/ac253-criterion.bak server/modules/mcp-gateway/tests/mcp-gateway-wiring.test.ts`；重跑 `ℹ tests 3 / pass 3 / fail 0`。判据内另有常驻负例对照 `(b) negative.unconsumed=["ac253UnconsumedProbe"]` 逐字复现该判定。
+
+### AC8 仓库门
+```
+$ npm run typecheck   → exit 0
+$ npm run lint | grep -c ': error '   → 0
+$ npx tsx --tsconfig server/tsconfig.json --test \
+    server/modules/mcp-gateway/tests/{mcp-gateway-wiring,mcp-transport,mcp-read-tools,mcp-run-get,mcp-session-send,mcp-session-host-control}.test.ts \
+    server/modules/websocket/tests/chat-control-{access,busy,ownership,send,source,wiring}.test.ts \
+    server/modules/scheduled-messages/tests/scheduled-messages.test.ts
+ℹ tests 70
+ℹ pass 70
+ℹ fail 0
+```
+AC-240 (`mcp-transport.test.ts`)、AC-245 (`mcp-read-tools.test.ts`)、AC-248 (`mcp-run-get.test.ts`)、AC-249 (`mcp-session-send.test.ts`)、AC-251 (`mcp-session-host-control.test.ts`)、既有 `chat-control-*.test.ts` 与 `scheduled-messages.test.ts` 均不改一字仍通过。
+
+### AC9 改动清单
+`git diff --name-status develop...HEAD`：
+```
+M server/index.ts
+M server/modules/mcp-gateway/index.ts
+M server/modules/mcp-gateway/mcp-gateway.transport.ts
+A server/modules/mcp-gateway/tests/mcp-gateway-wiring.test.ts   (new)
+```
+四条全部落在 `## Touches`。Touches 声明的 `server/modules/{websocket,projects,session-hosts}/index.ts` 是 declared-but-unchanged（其导出在 AC-248/AC-251 已落地）；anti-drift 判 `actual ⊆ declared`（单向），故不需也**不**删这些声明（内存 `quay-touches-must-match-actual-write-sites` 例 F）。控制服务本体（`chat-run-registry.service.ts` / `chat-control.service.ts`）未改，遵守转义条款。
 
 <!-- dedup-ref -->
 边界（dedup）：机制上去重已核对——`grep -rl "goal_ac: AC-253" tasks/` 为空，本仓库无任何任务带 `goal_ac: AC-253`；`grep -rln "AC-253" tasks/` 只命中 AC-249/250/251/252 的边界段（各自声明「装配与 barrel 核对（AC-253）是不同机制与不同判据文件，本任务不越界」，并明确 AC-251 只加它自己消费的 `startResidentHost`/`closeResidentHost` 导出、`getRunById`/`getProjectSessionsPage` 等归各自消费者任务、AC-253 负责跨 barrel 核对）。AC-253 的机制是「唯一装配 + 跨 barrel 消费者核对 + 三触达点同实例」，与 AC-249 (g) 的「WS 与 MCP 两处同实例」不同（AC-253 增入 scheduled 一处，且多出 (a) 语法树读数与 (b) barrel 审计两个独立机制）。前述 `depends_on` 声明的机械前置均由字段承载。
