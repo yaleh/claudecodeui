@@ -76,3 +76,20 @@ L_G 该轴有读数：切开 vs 整段识别在自我更正上的 `resolved` 率
 - docs/experiments/README.md
 - src/modules/chat/utils/voiceLiveSegmenter.ts
 - tasks/gap-voice-pause-split-selfcorrect-eval.md
+
+## Evidence
+
+真实 `dashscope-omni` 调用 **240 次**（`whole` 60 + `split` 120 + `swapWhole` 60），`missingCells = 0`；
+累计 191,792 token，**实际花费 ¥0.309323** ≤ `budgetCny` ¥1.0（最坏预估 ¥0.6636 也未越线）。
+冻结快照 `experiments/voice-vad/fixtures/pause-split.json`：每次调用的转写/usage/花费 + `cells`
+（每脚本 n=5，24 子格）+ `byPause`（每格 做法×停顿 n=20）+ `pooled`（n=60）+ `budgetGate`。
+
+- `whole` pooled **60/60 = 1.000** [0.9398, 1.0000]；`split` pooled **0/60 = 0.000** [0.0000, 0.0602]；
+  2/5/10 秒三档 GAP 均为 1.000，**无一落在容差 0.15 内** ⇒ 登记回退取最大 P ⇒ 推荐
+  **`flushSilenceSec = 10`**，已回写 `DEFAULT_FLUSH_SILENCE_SEC`（5 → 10）。
+- 负对照 `swap-order`：whole 1.000 → swap 0.217（Δ=0.783；≤0.25 天花板、whole≥0.5），判红，退出码 0。
+- `--offline` 退出 0；`--dry-run` 三情形非 0 并指名，合法单价打印「预估最坏花费」退出 0；
+  `--provider=fake-huge` 越线后停发（callCount=1），真实 240 条读数不受影响。
+- 结果记录 `docs/experiments/2026-10-04-voice-pause-split.md`（首句「仅方向」，含推荐值与依据格、CI、未解释项）。
+
+Commits：`d1b48597`（取数与选参）、`5aa4753a`（`byPause` 落盘 + `--write`）。
