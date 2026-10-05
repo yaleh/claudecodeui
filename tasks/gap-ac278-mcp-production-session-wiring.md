@@ -61,6 +61,8 @@ goal_ac: AC-278
 - 四个工具的 handler 行为与传输层注册缝一行未改；产品代码改动限于 `server/index.ts`（及判据允许的具名构造器提取）。
 - AC-256 与 AC-276 的冒烟脚本与记录文件不在本 diff；对生产 3001 全程未连接、未启用、未重启。
 
+- 该轴仍暗，理由：本任务只做装配接线与取证，不新增可测量的架构面（无新模块、无新依赖、无跨模块边），故不记 L_D/L_G 读数。
+
 ## Touches
 
 - server/index.ts（在 createMcpGatewayModule 的 writeTools 上补 sessionCreate / sessionInterrupt / sessionHostControl）
