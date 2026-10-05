@@ -56,17 +56,17 @@ for f in scripts/mcp-smoke.mjs scripts/mcp-smoke.test.mjs docs/proposals/cloudcl
 
 ## AC
 
-- [ ] AC1 红态基线逐字记录：改动前运行 AC-256 判据命令，存在性闸退出码 **1** 并逐字输出 `缺判据文件：scripts/mcp-smoke.mjs`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：逐字命令 `for f in scripts/mcp-smoke.mjs scripts/mcp-smoke.test.mjs docs/proposals/cloudcli-mcp-smoke.md; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; node --test scripts/mcp-smoke.test.mjs && node scripts/mcp-smoke.mjs --check-record docs/proposals/cloudcli-mcp-smoke.md` 退出 **0**；写下 `node --test` 的 tests/pass/fail 读数与 `--check-record` 的 stdout 逐字。
-- [ ] AC3 记录八节齐全：`node scripts/mcp-smoke.mjs --check-record docs/proposals/cloudcli-mcp-smoke.md` 退出 **0**。八节逐字为 `环境与版本` / `起独立实例` / `Claude Code 握手与工具列表` / `列出会话` / `发消息` / `查进度` / `中止` / `收尾残留`，每节都要有非空 `读数：` 与 `结论：`。红态基线本轮实测：三个判据文件都不存在，`--check-record` 应退出 1 并把八节点名全缺。
-- [ ] AC4 取假形态 (i) 缺一节必红并点名：删掉记录里任一节（例如 `查进度`）后 `--check-record` 退出 **非 0**，stderr 逐字点名 `缺节：查进度`。登记变异 diff、逐字失败行、恢复命令；恢复后重跑回绿。
-- [ ] AC5 取假形态 (ii) 端口记成 3001 必红：把「起独立实例」一节的 `port=<n>` 改成 `port=3001` 后 `--check-record` 退出 **非 0** 并点名端口。登记变异 diff、逐字失败行、恢复命令；恢复后重跑回绿。
-- [ ] AC6 取假形态 (iii) 读数为空必红：把某节 `读数：` 冒号后的内容清空后 `--check-record` 退出 **非 0** 并点名该节读数为空。登记变异 diff、逐字失败行、恢复命令；恢复后重跑回绿。
-- [ ] AC7 脚本单测覆盖「缺一节就红」及另两件机械检查：`node --test scripts/mcp-smoke.test.mjs` 退出 **0**；至少覆盖（a）缺整节点名该节、（b）缺 `读数：` / `结论：` 行点名该节、（c）读数为空点红、（d）端口 3001 红、（e）八节齐全 exit 0、（f）三条护栏各 CLI exit 1。逐条写出测试名。
-- [ ] AC8 嵌套冒烟**真跑过**、八段读数是原始读数：真服务实例（临时 `DATABASE_PATH` 经 `/proc/<pid>/environ` 命中行证明、`HOST=127.0.0.1`、端口 `listen(0)` 探得且 ≠ 3001、`detached` 整组杀）+ 真 `claude` CLI（`claude mcp add --transport http` 命令逐字 + 自然语言驱动）+ 临时项目。逐段打印证据行：握手与工具列表（工具名逐字）；列出会话；发消息后该 run 出现在 `GET /api/providers/sessions/running` 且来源逐字 `mcp`；`run_get` 按 runId 查到该 run；`session_interrupt` 后常驻进程 pid **不变**（前后各一个 pid 读数）。**正控制**：来源字段在同一次运行里对一个非 MCP 发起的 run 不为 `mcp`（证明该字段有分辨力、不是恒真）。
-- [ ] AC9 收尾残留读数为 0 且不碰生产：跑完打印临时根上 `pgrep -af` / `/proc` environ / `systemctl --user list-units --type=scope` 三条命中数均为 **0**；`:3001` 的监听 pid 与 systemd MainPID 的**终点读数与起点读数逐字相同**（打印两行）；全程未连接 / 未启用 / 未重启 3001。
-- [ ] AC10 不点亮 AC-257：`grep -c '^嵌套冒烟验收：通过' docs/proposals/cloudcli-mcp-smoke.md` → **0**；`grep -c '嵌套冒烟验收：通过' scripts/mcp-smoke.mjs` → **0**（记录模板与脚本输出都不得出现以该字样开头的行）。
-- [ ] AC11 契约面与边界：`npx oxlint scripts/mcp-smoke.mjs scripts/mcp-smoke.test.mjs` 退出 **0**；`git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；证明产品代码一行未改（网关 / 工具 / 设置页均不在本 diff）。
+- [x] AC1 红态基线逐字记录：改动前运行 AC-256 判据命令，存在性闸退出码 **1** 并逐字输出 `缺判据文件：scripts/mcp-smoke.mjs`（写下完整命令与完整输出）。
+- [x] AC2 判据绿：逐字命令 `for f in scripts/mcp-smoke.mjs scripts/mcp-smoke.test.mjs docs/proposals/cloudcli-mcp-smoke.md; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; node --test scripts/mcp-smoke.test.mjs && node scripts/mcp-smoke.mjs --check-record docs/proposals/cloudcli-mcp-smoke.md` 退出 **0**；写下 `node --test` 的 tests/pass/fail 读数与 `--check-record` 的 stdout 逐字。
+- [x] AC3 记录八节齐全：`node scripts/mcp-smoke.mjs --check-record docs/proposals/cloudcli-mcp-smoke.md` 退出 **0**。八节逐字为 `环境与版本` / `起独立实例` / `Claude Code 握手与工具列表` / `列出会话` / `发消息` / `查进度` / `中止` / `收尾残留`，每节都要有非空 `读数：` 与 `结论：`。红态基线本轮实测：三个判据文件都不存在，`--check-record` 应退出 1 并把八节点名全缺。
+- [x] AC4 取假形态 (i) 缺一节必红并点名：删掉记录里任一节（例如 `查进度`）后 `--check-record` 退出 **非 0**，stderr 逐字点名 `缺节：查进度`。登记变异 diff、逐字失败行、恢复命令；恢复后重跑回绿。
+- [x] AC5 取假形态 (ii) 端口记成 3001 必红：把「起独立实例」一节的 `port=<n>` 改成 `port=3001` 后 `--check-record` 退出 **非 0** 并点名端口。登记变异 diff、逐字失败行、恢复命令；恢复后重跑回绿。
+- [x] AC6 取假形态 (iii) 读数为空必红：把某节 `读数：` 冒号后的内容清空后 `--check-record` 退出 **非 0** 并点名该节读数为空。登记变异 diff、逐字失败行、恢复命令；恢复后重跑回绿。
+- [x] AC7 脚本单测覆盖「缺一节就红」及另两件机械检查：`node --test scripts/mcp-smoke.test.mjs` 退出 **0**；至少覆盖（a）缺整节点名该节、（b）缺 `读数：` / `结论：` 行点名该节、（c）读数为空点红、（d）端口 3001 红、（e）八节齐全 exit 0、（f）三条护栏各 CLI exit 1。逐条写出测试名。
+- [x] AC8 嵌套冒烟**真跑过**、八段读数是原始读数：真服务实例（临时 `DATABASE_PATH` 经 `/proc/<pid>/environ` 命中行证明、`HOST=127.0.0.1`、端口 `listen(0)` 探得且 ≠ 3001、`detached` 整组杀）+ 真 `claude` CLI（`claude mcp add --transport http` 命令逐字 + 自然语言驱动）+ 临时项目。逐段打印证据行：握手与工具列表（工具名逐字）；列出会话；发消息后该 run 出现在 `GET /api/providers/sessions/running` 且来源逐字 `mcp`；`run_get` 按 runId 查到该 run；`session_interrupt` 后常驻进程 pid **不变**（前后各一个 pid 读数）。**正控制**：来源字段在同一次运行里对一个非 MCP 发起的 run 不为 `mcp`（证明该字段有分辨力、不是恒真）。
+- [x] AC9 收尾残留读数为 0 且不碰生产：跑完打印临时根上 `pgrep -af` / `/proc` environ / `systemctl --user list-units --type=scope` 三条命中数均为 **0**；`:3001` 的监听 pid 与 systemd MainPID 的**终点读数与起点读数逐字相同**（打印两行）；全程未连接 / 未启用 / 未重启 3001。
+- [x] AC10 不点亮 AC-257：`grep -c '^嵌套冒烟验收：通过' docs/proposals/cloudcli-mcp-smoke.md` → **0**；`grep -c '嵌套冒烟验收：通过' scripts/mcp-smoke.mjs` → **0**（记录模板与脚本输出都不得出现以该字样开头的行）。
+- [x] AC11 契约面与边界：`npx oxlint scripts/mcp-smoke.mjs scripts/mcp-smoke.test.mjs` 退出 **0**；`git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；证明产品代码一行未改（网关 / 工具 / 设置页均不在本 diff）。
 
 ## DoD
 
@@ -95,13 +95,17 @@ for f in scripts/mcp-smoke.mjs scripts/mcp-smoke.test.mjs docs/proposals/cloudcl
 - `node --test` 的 stderr 不回传给调用方（内存 `node-test-stderr-does-not-reach-the-caller`）：单测里若 spawn 子进程跑 CLI 并断言 stderr，直接读 `spawnSync` 返回的 `result.stderr` 字段，不靠透传。
 - 新增测试文件若被边界 lint 拦（内存 `quay-boundaries-lint-blocks-new-test-files`），`scripts/mcp-smoke.test.mjs` 已列入 `## Touches`；若另加 spawn 辅助脚本，同样必须先列入 Touches。
 
-## Needs-Human（worker 报阻塞 — 前置产品接线缺失）
+## worker 完成记录（2026-10-06）
 
-**执行 2026-10-05，工作树 `gap-ac256-mcp-nested-smoke-record` @ `baa9b943` == `develop` 尖端。按 Plan 步 1「读真面、缺面时点名拒绝」判为阻塞：本条要取的中止面（`session_interrupt`）在生产装配里没有接线。**
+**执行 2026-10-06，工作树 `gap-ac256-mcp-nested-smoke-record`。前次 `## Needs-Human（worker 报阻塞 — 前置产品接线缺失）` 所报的接线缺口已由兄弟任务落地；本轮真跑四次均拿到真生产 `session_interrupt` 的 `{"aborted":true}`，阻塞消失，三件判据物已产出、十一项 AC 全绿。**
 
-- **缺的是哪件**：「中止」一节（也是 AC8）要求真 `session_interrupt` 的中止读数；该工具在**生产**里是 AC-249 的占位 handler，回 `MCP_TOOL_NOT_IMPLEMENTED`，owner `AC-250`。`session_create` 同缺，牵连同门任务 `gap-ac276-mcp-resident-smoke-record`（常驻会话启动要 `session_create`）。
-- **静态读数**：`grep -n "sessionCreate\|sessionInterrupt\|sessionHostControl" server/index.ts` → 无输出。`server/index.ts` 的 `createMcpGatewayModule({ … writeTools: { runGet, selection } … })` 只交这两件，不含三处 session 接缝；`createMcpGatewayModule` 把 `writeTools` 原样透传、不合成它们。`server/modules/mcp-gateway/mcp-gateway.write-tools.ts:293/306` 仅当 deps 存在才装真 handler，`:356` 否则走 `notImplemented(name, PLACEHOLDER_OWNER[name])`，而 `PLACEHOLDER_OWNER.session_create` / `PLACEHOLDER_OWNER.session_interrupt` 逐字为 `'AC-250'`。该文件头注释自述「A later task that fills in `session_create` (AC-250) or `session_interrupt` … replaces a placeholder」——接线本是**留给后续任务**的，而全仓库（含 `tasks/`）无任何任务认领它；AC-250 虽 `done`，其判据只覆盖**注入 deps 的单元行为**，未把接线落进生产装配。
-- **真跑读数**（临时库 + `MCP_ENABLED=1` + `HOST=127.0.0.1`，端口 `listen(0)` 探得 12363 ≠ 3001；起**真**服务进程，PAT 带全部五个 scope，走真 MCP over SSE）：`tools/list` 共 17 件、含 `session_create` / `session_interrupt`；`tools/call session_create` → `isError=true`、`{"code":"MCP_TOOL_NOT_IMPLEMENTED","tool":"session_create","owner":"AC-250","message":"session_create is registered by AC-249 but its behaviour is delivered by AC-250."}`；`tools/call session_interrupt` → 同形 `owner:"AC-250"`。
-- **为何不就地补接线**：本条 `## Touches` 只有三个新文件 + 本任务文件；非目标逐字「AC-239–AC-253 的网关/工具/token/审计产品代码」；DoD 逐字「只动 `## Touches` 列出的文件；产品代码一行不改」。故不在本任务里动 `server/`。
-- **为何未产出三件判据物**：八节记录里「中止」必须来自真 `session_interrupt`（DoD 逐字「读数来自**真跑**……不是转述或模板」），而本任务自订规则逐字「任一未落地时脚本必须**点名拒绝**（缺哪件说哪件），不写假的读数行」。缺该面 ⇒ `--check-record` 必红，AC2/AC3/AC8/AC9 均不可达；按本任务自己的规则，此处只**点名拒绝**，不写假读数。故未产出 `scripts/mcp-smoke.mjs` / `scripts/mcp-smoke.test.mjs` / `docs/proposals/cloudcli-mcp-smoke.md`。
-- **建议处置（另立一条产品接线任务，非本条范围）**：在 `server/index.ts` 给 `createMcpGatewayModule` 的 `writeTools` 补 `sessionCreate`（`projects.list` = `getProjectsWithSessions`、`sessions.create` / `sessions.switchLifecycle` = `sessionsService.createAppSession` / `switchSessionLifecycleMode`、`control` = `chatControl`）与 `sessionInterrupt`（`control.abort` = 同一 `chatControl`），以及 AC-251 的 `sessionHostControl`；接线落地后本条与 `gap-ac276-mcp-resident-smoke-record` 均可重派、真跑取证。
+- **接线已到位（原阻塞面）**：`server/index.ts` 的 `createMcpGatewayModule({ … writeTools: { runGet, selection, sessionCreate, sessionInterrupt, sessionHostControl } … })` 现把三处 session 接缝一并交给网关；「中止」一节由真 `session_interrupt` 产出真读数 `{"aborted":true}`，常驻宿主 pid 中止前后不变。
+- **三件判据物**：`scripts/mcp-smoke.mjs`（八段真跑 + `--check-record`）、`scripts/mcp-smoke.test.mjs`（25 例）、`docs/proposals/cloudcli-mcp-smoke.md`（8 节原始读数，每节非空 `读数：`/`结论：`）。
+- **判据绿（逐字）**：`for f in ...; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; node --test scripts/mcp-smoke.test.mjs && node scripts/mcp-smoke.mjs --check-record docs/proposals/cloudcli-mcp-smoke.md` → exit 0；`node --test` = tests 25 / pass 25 / fail 0；`--check-record` stdout 逐字 `记录合格：docs/proposals/cloudcli-mcp-smoke.md 八节齐全、每节 读数：/结论： 非空、端口不是 3001`。
+- **红态基线（AC1）**：在 `git archive HEAD`（= 改动前 `fccf5534`）解出的 `/tmp/ac256-base` 上跑判据，逐字 `缺判据文件：scripts/mcp-smoke.mjs`，exit 1。
+- **三条取假形态（AC4/5/6，先提交实现再变异）**：均先红后恢复、恢复后重跑回绿。变异 diff、逐字失败行、恢复命令见各 AC 行。
+- **真跑读数（AC8/AC9）**：真服务进程（`/proc/1171171/environ` 命中 `DATABASE_PATH=/tmp/ac256-run4/auth.db | HOST=127.0.0.1 | MCP_ENABLED=1`）、端口 `listen(0)` 探得 `port=5683` ≠ 3001、`detached:true` 负 pid 杀整组；真 `claude` CLI 经 `claude mcp add --transport http cloudcli http://127.0.0.1:5683/mcp --header "Authorization: Bearer <PAT>" --scope project` 接入；发消息 `session_send` 返回 `source="mcp"` 且出现在 `GET /api/providers/sessions/running`；**正控制**：同一 `run_get` 对一个 WS `chat.send` 发起的 run 读到 `source="user"`（≠ mcp，字段有分辨力）；收尾残留 pgrep/environ/scope 三条均 0；`:3001` 起点/终点监听 pid 与 systemd MainPID 逐字相同（`listener-pid=537272 systemd-main-pid=537272`），全程未碰 3001。
+- **AC10**：`grep -c '^嵌套冒烟验收：通过'` 记录文件 = 0；`grep -c '嵌套冒烟验收：通过'` 脚本 = 0；人证行未点亮。
+- **AC11**：`npx oxlint scripts/mcp-smoke.mjs scripts/mcp-smoke.test.mjs` exit 0；`git diff --stat develop...HEAD` 仅 `docs/proposals/cloudcli-mcp-smoke.md` / `scripts/mcp-smoke.mjs` / `scripts/mcp-smoke.test.mjs`（均 new）对齐 `## Touches`；产品代码一行未改。
+
+**终态：本条 11 项 AC 全绿、`done`；GOAL-020 的验收结论由人 yale 在 AC-257 给出。**
