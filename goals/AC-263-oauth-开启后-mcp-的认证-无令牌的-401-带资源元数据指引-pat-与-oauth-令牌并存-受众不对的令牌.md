@@ -1,7 +1,7 @@
 ---
 id: AC-263
 title: OAuth 开启后 /mcp 的认证：无令牌的 401 带资源元数据指引，PAT 与 OAuth 令牌并存，受众不对的令牌被拒，回环守卫自动关闭
-status: draft
+status: active
 kind: criterion
 goal: GOAL-021
 criterion: for f in
@@ -18,4 +18,15 @@ expect: 读数：(a) 无令牌访问 `/mcp` 得到 401，`WWW-Authenticate` 为 
   必须红；(iii) OAuth 开启后仍保留回环守卫 ⇒ (d) 必须红。（红先行）当前必红：判据文件不存在，存在性闸以退出码 1 输出缺失的文件名。
 origin: docs/proposals/mcp-gateway-SPEC.md（v3.1）。人 yale 2026-10-05 指令：创建并激活
   GOAL-020 至 GOAL-022 及其 AC。
+activatedAt: 2026-10-05T02:20:54.705Z
+statusLog:
+  - at: 2026-10-05T02:20:54.705Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-05T02:20:54.705Z
 ---
