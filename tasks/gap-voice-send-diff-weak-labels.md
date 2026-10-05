@@ -1,0 +1,64 @@
+---
+id: gap-voice-send-diff-weak-labels
+title: 发送时的手改变成弱标注：把语音来源文字与最终发送文字做 token 对齐，生成「听到 → 想说」标签并回写语音数据记录（纯函数加发送钩子，不弹任何界面）
+status: todo
+labels:
+  - gap
+parent: null
+children: []
+extra:
+  schema: execution
+depends_on:
+  - gap-voice-data-local-store-default-on
+---
+## Proposal
+
+<!-- dedup-ref --> 同机制去重结论（本段只作溯源，不声明任何前置；真正的依赖边在 frontmatter 的 `depends_on`）：`grep -il 'diff\|弱标注\|手改' tasks/*.md | xargs grep -il voice` 无同机制任务；已有的 `gap-voice-identifier-repair-module` 是识别后的标识符修复，不涉及用户最终文本。来源：`docs/proposals/voice-correction-feedback-loop.md` 阶段 0（「事后纠正做弱标注」）、§5.3 第 4 条「发送后学习」。
+
+### 目标
+
+用户把语音识别的文字在输入框里手改再发送，这个动作本身就是一条「听到什么 → 想说什么」的标签，**不需要任何额外操作**。本任务把它采下来：发送时，对每一个语音来源的片段，把它被插入输入框时的文字与最终发送文字做对齐，产出标签，回写到 `gap-voice-data-local-store-default-on` 建的记录里。**不弹任何界面、不改发送行为。**
+
+### 方案
+
+1. **语音来源区间**：`useVoiceInput` 把识别结果通过 `onTranscript(full)` 整体交给输入框（`reassembleText` 已处理片段缝合去重）；本任务在其内部为每个已提交的片段记录 `{ index, text }`，并由发送钩子据此在当前输入框文字里定位该片段（片段文字被改了也要能对上，对齐用字符级而不是按子串查找）。
+2. **纯函数** `src/shared/voiceEditLabels.ts`：`labelsFor(voiceSegments, finalText) → Label[]`，`Label = { segmentIndex, heard, final, op: 'replace' | 'merge' | 'split' | 'delete' | 'rewrite' }`。对齐用字符级动态规划（等价于 `experiments/voice-index-loop/sim/lib.mjs` 的 `alignRegion` / `widenToWords`，把区间扩到完整的拉丁词、去掉两端标点）；标识符形状规则与 `experiments/voice-index-loop/extract.py` 的 `is_id` 逐条一致（驼峰边界、`_`、`-`、含数字、≥ 2 位全大写；不含路径与文件名）。
+3. **纠正与改写的分界**（取数前定死，不调参）：一处改动涉及 ≤ 3 个相邻 token 且字符编辑比 ≤ 0.5 ⇒ 纠正（`replace` / `merge` / `split` / `delete`）；否则 ⇒ `rewrite`，标记但**不作为纠正标签**。
+4. **回写**：`PATCH /api/voice/data/:recordId`，服务端把 `finalText` 与 `labels` 写进记录；记录不存在 ⇒ 404；**发送不等这个请求**，请求失败也不影响消息发出。
+5. **隐私**：`voiceDataRecording` 关闭时不发 PATCH。
+6. 前端遵循 `.agents/skills/frontend-module-standards`（`@/` 导入、模块 barrel），后端遵循 `.agents/skills/backend-module-standards`。
+
+### 边界（不做）
+
+不提示用户「已学到」、不弹确认；不把标签自动写进词典（那是阶段 2 之后）；不改识别、修复与发送的既有行为。
+
+## AC
+
+- [ ] `npx vitest run src/shared/tests/voiceEditLabels.test.ts` 退出码 0，且含已知答案用例：①`key` → `quay`（replace）②`quay fleet` → `quay-fleet`（merge）③`AC 零零二` → `AC-002`（replace）④删掉一个词（delete）⑤在语音片段**前后**打字不产生标签 ⑥整句重写 ⇒ `rewrite` 且不进纠正标签 ⑦两个语音片段各自产生自己的标签 ⑧最终文字与语音文字相同 ⇒ 空数组
+- [ ] 能红的负对照：把「纠正与改写的分界」整个去掉（一律当纠正）的变体，用例⑥必须变红；用例里以 `redWhenOff` 形式或等价的对照写出
+- [ ] 标识符形状规则：用 `experiments/voice-index-loop/extract.py` 里的 `is_id` 已知答案表（至少 12 条，含 `needs-human`、`AC-103`、`CloudCLI` 为真，`server.ts`、`plain`、`a/b` 为假）逐条断言 TS 实现与之一致
+- [ ] 钩子：`npx vitest run src/modules/chat/tests/` 下新增的测试断言 ①发送时调用 `labelsFor` 并 PATCH ②PATCH 失败时消息**仍然发出** ③`voiceDataRecording` 关闭时不发 PATCH
+- [ ] 服务端：`PATCH /api/voice/data/:recordId` 对不存在的 id 返回 404；写入后记录含 `finalText` 与 `labels`，且不含 API key 哨兵（路由与服务测试，`npx vitest run server/modules/voice/tests/voice-data.test.ts` 退出码 0）
+- [ ] MCP 浏览器验证：用 playwright MCP 打开 `http://localhost:3001/`，进入**调试 agent 会话**（ADR-003，不跑真实 CLI），用 `?voiceDebug=1` 的上传入口转写一个含 `key` 的 wav，在输入框把 `key` 改成 `quay` 后发送；读取 `~/.cloudcli/voice-data/` 下对应记录，`labels` 含 `heard: "key"`、`final: "quay"`；把记录里的 `labels` 记入 `## Evidence`
+- [ ] `npm run typecheck`、`npm run lint`、`npm run build` 退出码 0
+
+## DoD
+
+真实落地判据：**真实的语音转写、真实的手改、真实的发送**在 MCP 浏览器里走完，真实落盘的记录里出现正确的标签；失败路径（PATCH 失败、开关关闭）都有断言。标识符形状规则与实验脚本逐条一致，保证后续离线分析与线上采集用的是同一口径。
+
+L_D 该轴有读数：新增的是用户自己的纠正标签，由真实记录给出。
+
+L_G 该轴仍暗，理由：本任务只采集标签，不含评测指标（报告脚本见 `gap-voice-phase0-readout-report`）。
+
+## Touches
+
+- src/shared/voiceEditLabels.ts (new)
+- src/shared/tests/voiceEditLabels.test.ts (new)
+- src/modules/chat/hooks/useVoiceInput.ts
+- src/modules/chat/composer/ChatComposer.tsx
+- src/modules/chat/tests/voiceEditLabelsHook.test.tsx (new)
+- src/shared/api.ts
+- server/modules/voice/voice-data.ts
+- server/modules/voice/voice.routes.ts
+- server/modules/voice/tests/voice-data.test.ts
+- tasks/gap-voice-send-diff-weak-labels.md
