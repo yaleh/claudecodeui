@@ -108,7 +108,18 @@ AC-273（GOAL-022 退出条件 3；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3.
 - server/modules/mcp-gateway/index.ts
 - server/index.ts
 - server/modules/mcp-gateway/tests/mcp-session-background.test.ts (new)（判据）
+- server/shared/tests/claude-cli-path.test.ts（续做轮：隔离 ambient `CLAUDE_CLI_PATH` 以解除与本任务 delta 无关的 fan-in suite 阻断）
 - tasks/gap-ac273-mcp-session-background.md
+
+## Evidence
+
+- 续做轮（2026-10-05）：实现与判据未变（分支既有 3 提交照旧）。上轮 fan-in suite 红于 `server/shared/tests/claude-cli-path.test.ts`，与本任务 delta 无关。
+- 根因：该文件 4 个用例显式传 `undefined` 触发 `resolveClaudeCodeExecutablePath` 的默认参数 `configuredPath = process.env.CLAUDE_CLI_PATH`；本机 systemd user 环境导出 `CLAUDE_CLI_PATH=/data/home/yale/.nvm/versions/node/v24.21.0/bin/claude`，于是断言读到该路径（`+ actual '/data/home/yale/.nvm/versions/node/v24.21.0/bin/claude'` vs `- expected undefined` / `- expected 'claude'` / `- expected <win32 native exe>`）。
+- 复现：ambient 环境下该文件 `tests 8 / pass 4 / fail 4` exit 1；`env -u CLAUDE_CLI_PATH` 下 `tests 8 / pass 8 / fail 0` exit 0。
+- 修复：给该用例文件加文件级 `before`/`after` 钩子，在文件执行期删除并恢复 `process.env.CLAUDE_CLI_PATH`（node:test 逐文件独立进程，隔离不外泄）；不改任何断言、不改实现语义。与仓库既有隔离惯例一致（`model-config-write-path.test.ts` / `model-spawn-env.test.ts` 列举 `CLAUDE_CLI_PATH`）。
+- 复跑（ambient 环境）：该文件 `tests 8 / pass 8 / fail 0` exit 0；`env -u CLAUDE_CLI_PATH` 下同 8/8。
+- 判据与门：`mcp-session-background.test.ts` 6/6 exit 0；非回归集 `mcp-cancel-queued` 6/6、`mcp-session-reconfigure` 5/5、`mcp-session-send` 7/7、`mcp-read-tools` 6/6、`chat-stop-task` 6/6、`claude-resident-permissions` 1/1 全 exit 0；`npm run typecheck` exit 0；`npx oxlint server/shared/tests/claude-cli-path.test.ts` exit 0。
+- 实际改动文件（`git diff --stat develop...HEAD`）：`server/index.ts`、`server/modules/mcp-gateway/index.ts`、`server/modules/mcp-gateway/mcp-gateway.resident-tools.ts`、`server/modules/mcp-gateway/mcp-gateway.transport.ts`、`server/modules/mcp-gateway/mcp-session-background.ts (new)`、`server/modules/mcp-gateway/tests/mcp-session-background.test.ts (new)`、`server/shared/tests/claude-cli-path.test.ts`。
 
 ## Notes
 
