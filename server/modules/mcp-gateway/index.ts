@@ -253,6 +253,17 @@ export type {
   SessionStartPayload,
 } from './mcp-session-host-control.js';
 
+// The production assemblies for the three optional session-write deps (AC-278).
+// `buildSessionCreateDeps` / `buildSessionInterruptDeps` turn the composition
+// root's process singletons (the project repository, `sessionsService`, and the
+// one shared control service) into the bags `session_create` / `session_interrupt`
+// dispatch on; `sessionHostControl`'s assembly is AC-251's `createSessionHostControl`
+// above. `server/index.ts` hands all three to `createMcpGatewayModule`, and the
+// AC-278 criterion drives the SAME builders so it reads the production assembly
+// path rather than a second, test-only one.
+export { buildSessionCreateDeps, buildSessionInterruptDeps } from './mcp-session-write-deps.js';
+export type { McpSessionCreateWiring, McpSessionInterruptWiring } from './mcp-session-write-deps.js';
+
 // The target-resolution surface (AC-246). `resolveMcpTarget` turns a caller's
 // project/session reference into one id (or into an explicit refusal listing the
 // candidates), and `resolveInputTargets` is the gate that applies it to a tool's

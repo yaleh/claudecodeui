@@ -88,7 +88,10 @@ import {
 import {
     MCP_GATEWAY_PATH,
     buildRunGet,
+    buildSessionCreateDeps,
+    buildSessionInterruptDeps,
     createMcpGatewayModule,
+    createSessionHostControl,
     mountMcpGateway,
     mountOAuthMetadata,
     readMcpDcrMode,
@@ -98,7 +101,7 @@ import {
 import type { McpOauthSeam } from './modules/mcp-gateway/index.js';
 import type { OAuthProvider } from './modules/oauth/index.js';
 import { browserUseService } from './modules/browser-use/browser-use.service.js';
-import { initializeDatabase, oauthClientsDb, oauthGrantsDb, sessionsDb } from './modules/database/index.js';
+import { initializeDatabase, oauthClientsDb, oauthGrantsDb, projectsDb, sessionsDb } from './modules/database/index.js';
 import { configureWebPush } from './modules/notifications/index.js';
 
 const __dirname = getModuleDirectory(import.meta.url);
@@ -610,6 +613,31 @@ const mcpGateway = mountMcpGateway(
                     resolveSessionModel: (provider, options) => providerModelsService.resolveSessionModel(provider, options),
                 },
             },
+            // AC-278: the three optional session-write deps AC-249's
+            // `registerMcpWriteTools` refuses to install without, so that
+            // `session_create` / `session_interrupt` / `session_start` /
+            // `session_close` answer their real handlers instead of the AC-249
+            // placeholder. Each is assembled through the SAME exported
+            // constructor the AC-278 criterion drives — `buildSessionCreateDeps`
+            // / `buildSessionInterruptDeps` project the process singletons here
+            // (the active project repository, the real `sessionsService`, the
+            // one shared `chatControl`), and `createSessionHostControl` (AC-251)
+            // is handed the identical four session-hosts seams the router above
+            // is built with, so the MCP tools and the HTTP route cannot drift
+            // onto two different host services.
+            sessionCreate: buildSessionCreateDeps({
+                projects: projectsDb,
+                sessions: sessionsService,
+                control: chatControl,
+            }),
+            sessionInterrupt: buildSessionInterruptDeps({ control: chatControl }),
+            sessionHostControl: createSessionHostControl({
+                sessionHostManager,
+                readSession: (sessionId: string) => sessionsService.readSessionLifecycle(sessionId),
+                resolveHostDriver: (provider) => providerRegistry.resolveProvider(provider).hostDriver ?? null,
+                startResidentSession: (provider, sessionId) =>
+                    providerRuntimeService.startResidentSession(provider, sessionId),
+            }),
         },
         // AC-271's `session_cancel_queued` over the same one control service, plus
         // AC-272's `session_reconfigure`: the provider runtime's `reconfigure`
