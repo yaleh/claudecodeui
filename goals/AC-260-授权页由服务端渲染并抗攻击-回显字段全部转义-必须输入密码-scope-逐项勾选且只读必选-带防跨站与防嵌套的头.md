@@ -1,7 +1,7 @@
 ---
 id: AC-260
 title: 授权页由服务端渲染并抗攻击：回显字段全部转义，必须输入密码，scope 逐项勾选且只读必选，带防跨站与防嵌套的头
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-021
 criterion: for f in server/modules/oauth/tests/oauth-consent-page.test.ts; do [
@@ -27,6 +27,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T23:24:41.883Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
