@@ -1,7 +1,7 @@
 ---
 id: gap-voice-silence-flush-and-inflight-dot
 title: 连续语音：语音结束后静音 5 秒即发出（不论多短）、最小段长降到 20 秒、请求在途时麦克风红方块上加脉动点
-status: needs-human
+status: todo
 labels:
   - gap
 parent: null
