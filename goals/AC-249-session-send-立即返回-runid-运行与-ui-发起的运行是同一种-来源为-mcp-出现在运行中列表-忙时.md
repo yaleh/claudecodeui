@@ -1,7 +1,7 @@
 ---
 id: AC-249
 title: session_send 立即返回 runId，运行与 UI 发起的运行是同一种：来源为 mcp、出现在运行中列表、忙时排队，所需 scope 不够则拒绝
-status: draft
+status: active
 kind: criterion
 goal: GOAL-020
 criterion: for f in server/modules/mcp-gateway/tests/mcp-session-send.test.ts;
@@ -19,4 +19,15 @@ expect: "真实 HTTP，调试 agent 的常驻与按次进程两种会话。读�
   输出缺失的文件名。"
 origin: docs/proposals/mcp-gateway-SPEC.md（v3.1）。人 yale 2026-10-05 指令：创建并激活
   GOAL-020 至 GOAL-022 及其 AC。
+activatedAt: 2026-10-05T02:12:41.490Z
+statusLog:
+  - at: 2026-10-05T02:12:41.490Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-05T02:12:41.489Z
 ---
