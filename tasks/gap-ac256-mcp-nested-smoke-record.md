@@ -93,3 +93,14 @@ for f in scripts/mcp-smoke.mjs scripts/mcp-smoke.test.mjs docs/proposals/cloudcl
 - PAT 播种用仓储函数直接写进临时库（SPEC §452），不经 HTTP 登录拿 JWT；具体接口在 Plan 步 1 读真面确定。
 - `node --test` 的 stderr 不回传给调用方（内存 `node-test-stderr-does-not-reach-the-caller`）：单测里若 spawn 子进程跑 CLI 并断言 stderr，直接读 `spawnSync` 返回的 `result.stderr` 字段，不靠透传。
 - 新增测试文件若被边界 lint 拦（内存 `quay-boundaries-lint-blocks-new-test-files`），`scripts/mcp-smoke.test.mjs` 已列入 `## Touches`；若另加 spawn 辅助脚本，同样必须先列入 Touches。
+
+## Needs-Human（worker 报阻塞 — 前置产品接线缺失）
+
+**执行 2026-10-05，工作树 `gap-ac256-mcp-nested-smoke-record` @ `baa9b943` == `develop` 尖端。按 Plan 步 1「读真面、缺面时点名拒绝」判为阻塞：本条要取的中止面（`session_interrupt`）在生产装配里没有接线。**
+
+- **缺的是哪件**：「中止」一节（也是 AC8）要求真 `session_interrupt` 的中止读数；该工具在**生产**里是 AC-249 的占位 handler，回 `MCP_TOOL_NOT_IMPLEMENTED`，owner `AC-250`。`session_create` 同缺，牵连同门任务 `gap-ac276-mcp-resident-smoke-record`（常驻会话启动要 `session_create`）。
+- **静态读数**：`grep -n "sessionCreate\|sessionInterrupt\|sessionHostControl" server/index.ts` → 无输出。`server/index.ts` 的 `createMcpGatewayModule({ … writeTools: { runGet, selection } … })` 只交这两件，不含三处 session 接缝；`createMcpGatewayModule` 把 `writeTools` 原样透传、不合成它们。`server/modules/mcp-gateway/mcp-gateway.write-tools.ts:293/306` 仅当 deps 存在才装真 handler，`:356` 否则走 `notImplemented(name, PLACEHOLDER_OWNER[name])`，而 `PLACEHOLDER_OWNER.session_create` / `PLACEHOLDER_OWNER.session_interrupt` 逐字为 `'AC-250'`。该文件头注释自述「A later task that fills in `session_create` (AC-250) or `session_interrupt` … replaces a placeholder」——接线本是**留给后续任务**的，而全仓库（含 `tasks/`）无任何任务认领它；AC-250 虽 `done`，其判据只覆盖**注入 deps 的单元行为**，未把接线落进生产装配。
+- **真跑读数**（临时库 + `MCP_ENABLED=1` + `HOST=127.0.0.1`，端口 `listen(0)` 探得 12363 ≠ 3001；起**真**服务进程，PAT 带全部五个 scope，走真 MCP over SSE）：`tools/list` 共 17 件、含 `session_create` / `session_interrupt`；`tools/call session_create` → `isError=true`、`{"code":"MCP_TOOL_NOT_IMPLEMENTED","tool":"session_create","owner":"AC-250","message":"session_create is registered by AC-249 but its behaviour is delivered by AC-250."}`；`tools/call session_interrupt` → 同形 `owner:"AC-250"`。
+- **为何不就地补接线**：本条 `## Touches` 只有三个新文件 + 本任务文件；非目标逐字「AC-239–AC-253 的网关/工具/token/审计产品代码」；DoD 逐字「只动 `## Touches` 列出的文件；产品代码一行不改」。故不在本任务里动 `server/`。
+- **为何未产出三件判据物**：八节记录里「中止」必须来自真 `session_interrupt`（DoD 逐字「读数来自**真跑**……不是转述或模板」），而本任务自订规则逐字「任一未落地时脚本必须**点名拒绝**（缺哪件说哪件），不写假的读数行」。缺该面 ⇒ `--check-record` 必红，AC2/AC3/AC8/AC9 均不可达；按本任务自己的规则，此处只**点名拒绝**，不写假读数。故未产出 `scripts/mcp-smoke.mjs` / `scripts/mcp-smoke.test.mjs` / `docs/proposals/cloudcli-mcp-smoke.md`。
+- **建议处置（另立一条产品接线任务，非本条范围）**：在 `server/index.ts` 给 `createMcpGatewayModule` 的 `writeTools` 补 `sessionCreate`（`projects.list` = `getProjectsWithSessions`、`sessions.create` / `sessions.switchLifecycle` = `sessionsService.createAppSession` / `switchSessionLifecycleMode`、`control` = `chatControl`）与 `sessionInterrupt`（`control.abort` = 同一 `chatControl`），以及 AC-251 的 `sessionHostControl`；接线落地后本条与 `gap-ac276-mcp-resident-smoke-record` 均可重派、真跑取证。
