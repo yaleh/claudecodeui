@@ -2,7 +2,7 @@
 id: gap-voice-client-asr-feasibility-probe
 title: 客户端本地识别可行性探针：在浏览器里用 WASM 跑 SenseVoice-Small，用 MCP
   浏览器读实时因子、内存、首次加载与置信度一致性，给出 go / no-go（D2，不改产品）
-status: ready
+status: done
 labels:
   - gap
 parent: null
