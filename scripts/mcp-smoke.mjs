@@ -54,11 +54,37 @@ export const SECTION_TITLES = [
   '收尾残留',
 ];
 
+/**
+ * AC-276 的记录文件里必须齐全的八节，AC 逐字。`--check-resident-record` 按这个数组逐节检查，缺哪节
+ * 点名哪节。**与 {@link SECTION_TITLES} 是两个不同的节集合**：那条是 GOAL-020（AC-256）的嵌套冒烟，
+ * 本条是 GOAL-022 的常驻专有能力（启动 / 忙发 / 撤回 / 重配置 / 后台 / 审批 / 收尾），记录文件也不同
+ * （`DEFAULT_RESIDENT_RECORD`）。标题即 id：整行相等比对（中文没有词边界）。
+ */
+export const RESIDENT_SECTION_TITLES = [
+  '环境与版本',
+  '常驻会话启动与 pid',
+  '忙时发送',
+  '撤回与 pid 不变',
+  '重配置下一轮生效',
+  '后台任务列出与停止',
+  '审批',
+  '收尾残留与生产监听 pid',
+];
+
+/**
+ * 撤回一节：`--check-resident-record` 的机械检查 (b) 只在这一节里读 `pid-before=<n>` 与
+ * `pid-after=<n>`，两者必须都解析得到且相等（假形态 (ii) 就是把它改成不等）。
+ */
+export const RESIDENT_CANCEL_SECTION = '撤回与 pid 不变';
+
 /** 本机常驻服务端口；冒烟一律避开它，且全程不连接 / 不启用 / 不重启它。 */
 export const PROTECTED_PORT = 3001;
 
 /** 记录文件默认位置。 */
 export const DEFAULT_RECORD = path.join(ROOT, 'docs/proposals/cloudcli-mcp-smoke.md');
+
+/** AC-276 的常驻冒烟记录文件默认位置（与 AC-256 的记录文件不同）。 */
+export const DEFAULT_RESIDENT_RECORD = path.join(ROOT, 'docs/proposals/cloudcli-mcp-resident-smoke.md');
 
 /** MCP 网关的挂载路径（`MCP_GATEWAY_PATH`）；冒烟只打这一条。 */
 export const MCP_PATH = '/mcp';
@@ -227,6 +253,110 @@ export function checkRecordFile(filePath) {
   return checkRecordText(fs.readFileSync(filePath, 'utf8'));
 }
 
+// ---------------------------------------------------------------------------
+// 常驻记录（AC-276）：解析与逐节检查 —— 节集合与 `--check-record` 分开
+// ---------------------------------------------------------------------------
+
+/**
+ * 抽出常驻记录里某个小节的三种读法：整段正文、`读数：` 行、`结论：` 行。
+ *
+ * `读数：`/`结论：` 缺失时对应字段为 null，空串则是「有行但冒号后为空」。三种缺失（缺整节 / 缺行 /
+ * 行为空）分开报，与 `--check-record` 同一套判读方式。
+ * @param {string} text
+ * @param {string} title
+ * @returns {{ text: string, reading: string | null, conclusion: string | null } | null}
+ */
+export function parseResidentSection(text, title) {
+  const section = extractSection(text, title);
+  if (section === null) return null;
+  const reading = /^读数：(.*)$/m.exec(section);
+  const conclusion = /^结论：(.*)$/m.exec(section);
+  return {
+    text: section,
+    reading: reading === null ? null : reading[1],
+    conclusion: conclusion === null ? null : conclusion[1],
+  };
+}
+
+/**
+ * 从「撤回与 pid 不变」一节里解析 `pid-before=<n>` 与 `pid-after=<n>`。
+ *
+ * 逐字匹配 `pid-before=` / `pid-after=`（前面不能是词字符或 `-`，所以 `xpid-before=` 不会误命中）。
+ * 解析不到返回 null —— 这正是「记录里没显式写出这两个字段」的红（假形态 (ii) 的负控制）。
+ * @param {string} sectionText
+ * @returns {{ before: number | null, after: number | null }}
+ */
+export function parseCancelPids(sectionText) {
+  const before = /(?:^|[^A-Za-z0-9_-])pid-before=(\d+)/.exec(sectionText);
+  const after = /(?:^|[^A-Za-z0-9_-])pid-after=(\d+)/.exec(sectionText);
+  return {
+    before: before === null ? null : Number(before[1]),
+    after: after === null ? null : Number(after[1]),
+  };
+}
+
+/**
+ * 常驻记录的三件机械检查（AC-276/AC3 逐字）：
+ *   (a) 八节逐节非空 `读数：` 与 `结论：`，缺整节点名该节、缺行点名该节缺哪行；
+ *   (b) `撤回与 pid 不变` 一节的 `读数：` 行必须含 `pid-before=<n>` 与 `pid-after=<n>` 且二者相等，
+ *       解析不到或不等即红并点名（假形态 (ii)）；
+ *   (c) 文件不存在时把八节点名全缺（由 {@link checkResidentRecordFile} 承担）。
+ * 返回缺什么（空数组 = 齐全）。
+ * @param {string} text
+ * @returns {Array<{ title: string, reason: string }>}
+ */
+export function checkResidentRecordText(text) {
+  /** @type {Array<{ title: string, reason: string }>} */
+  const missing = [];
+  for (const title of RESIDENT_SECTION_TITLES) {
+    const parsed = parseResidentSection(text, title);
+    if (parsed === null) {
+      missing.push({ title, reason: '缺整个小节' });
+      continue;
+    }
+    if (parsed.reading === null) {
+      missing.push({ title, reason: '缺 `读数：` 行' });
+    } else if (parsed.reading.trim() === '') {
+      missing.push({ title, reason: '`读数：` 为空（冒号后去掉空白后没有内容）' });
+    }
+    if (parsed.conclusion === null) {
+      missing.push({ title, reason: '缺 `结论：` 行' });
+    } else if (parsed.conclusion.trim() === '') {
+      missing.push({ title, reason: '`结论：` 为空（冒号后去掉空白后没有内容）' });
+    }
+  }
+
+  // (b) 撤回一节的 pid 前后：只在该节存在时判，否则上面已经点名「缺整个小节」，再报一次是重复。
+  const cancel = parseResidentSection(text, RESIDENT_CANCEL_SECTION);
+  if (cancel !== null) {
+    const { before, after } = parseCancelPids(cancel.text);
+    if (before === null || after === null) {
+      missing.push({
+        title: RESIDENT_CANCEL_SECTION,
+        reason: '解析不到 `pid-before=<n>` 与 `pid-after=<n>` 两个字段（撤回节必须显式写出）',
+      });
+    } else if (before !== after) {
+      missing.push({
+        title: RESIDENT_CANCEL_SECTION,
+        reason: `pid 不等：pid-before=${before} pid-after=${after}（撤回不得换进程）`,
+      });
+    }
+  }
+  return missing;
+}
+
+/**
+ * 读文件后逐节检查。文件不存在时把八节全部点名为缺失（红态基线就是这一条）。
+ * @param {string} filePath
+ * @returns {Array<{ title: string, reason: string }>}
+ */
+export function checkResidentRecordFile(filePath) {
+  if (!fs.existsSync(filePath)) {
+    return RESIDENT_SECTION_TITLES.map((title) => ({ title, reason: `记录文件不存在（${filePath}）` }));
+  }
+  return checkResidentRecordText(fs.readFileSync(filePath, 'utf8'));
+}
+
 /**
  * 幂等写入小节：已存在同名 `## <标题>` 就整段替换，否则追加。重跑不会留两份。
  * @param {string} filePath
@@ -268,6 +398,26 @@ function recordHeader() {
     '否为空、以及「起独立实例」一节记录的端口不是 3001。',
     '',
     '**人证行（AC-257）只能由人 yale 写入，执行者不得代写。** 执行者只写 `读数：` 与 `结论：` 行。',
+    '',
+  ].join('\n');
+}
+
+/**
+ * 常驻记录文件表头（AC-276）。与 AC-256 的表头分离：这里说明八节是常驻专有能力的**故事线**，
+ * 并同样**不写**人证行——那条只由人写（AC-277）。
+ */
+function residentRecordHeader() {
+  return [
+    '# CloudCLI MCP 网关常驻专有能力冒烟记录（AC-276）',
+    '',
+    '本文件由 `scripts/mcp-smoke.mjs --run-resident` 写入：八节各含**原始**读数与一行结论。读数来自一次',
+    '真跑——真服务实例（临时 `DATABASE_PATH`、`HOST=127.0.0.1`、端口 `listen(0)` 探得且 ≠ 3001）+',
+    '一个真 PAT + 终端里的 Claude Code（`claude mcp add --transport http`）+ 临时项目 + 真 `claude` CLI',
+    '自然语言驱动走完常驻会话的八段故事线。',
+    '`node scripts/mcp-smoke.mjs --check-resident-record <本文件>` 逐节检查 `读数：`/`结论：` 是否齐全、',
+    '读数是否为空、以及「撤回与 pid 不变」一节的 `pid-before` 与 `pid-after` 是否相等。',
+    '',
+    '**人证行（AC-277）只能由人写入，执行者不得代写。** 执行者只写 `读数：` 与 `结论：` 行。',
     '',
   ].join('\n');
 }
@@ -1080,11 +1230,57 @@ class Smoke {
     this.toolNames = [];
     /** @type {McpAddReading | null} */
     this.mcpAdd = null;
+    /** `:3001` 在本轮冒烟开始前的读数（`protectedPortReading()` 的逐字行）。 */
+    this.protectedBefore = '（未读）';
+    /** 常驻冒烟：八段读数先收集，最后按 AC 顺序落盘（执行顺序 ≠ 记录顺序）。 */
+    /** @type {Map<string, { reading: string, conclusion: string }>} */
+    this.resident = new Map();
+    /** 第三段：忙时 `session_send` 回的排队消息 uuid（第四段撤回的靶子）。 */
+    this.queuedMessageUuid = '';
+    /** 第二/六段：内层 run 起的后台任务 id（后台租约的 key）。 */
+    /** @type {string | null} */
+    this.backgroundTaskId = null;
+    /** 第四段：撤回前的常驻 pid。 */
+    /** @type {number | null} */
+    this.cancelPidBefore = null;
+    /** 第四段：撤回后的常驻 pid（须与 before 相同）。 */
+    /** @type {number | null} */
+    this.cancelPidAfter = null;
+    /** 第五段：重配置前后逐字读到的 permissionMode。 */
+    this.reconfigureOld = '';
+    this.reconfigureNew = '';
+    /** 第五段：`session_reconfigure` 自报的 `applied`。 */
+    this.reconfigureApplied = '';
+    /** 第五段：重配置后「下一轮」run 的 id。 */
+    this.nextTurnRunId = '';
+    /** 第七段：待审批 requestId（第五段下一轮撞出来的那一个）。 */
+    this.approvalRequestId = '';
+    /** 第七段：待审批的工具名。 */
+    this.approvalToolName = '';
+    /** 第五/七段：下一轮 Write 探针要写的绝对路径（放行后它存在即证明 Write 真的执行了）。 */
+    this.approvalProbeFile = '';
   }
 
   /** @param {string} title @param {string} reading @param {string} conclusion */
   write(title, reading, conclusion) {
     upsertSection(this.record, title, sectionBody(reading, conclusion));
+  }
+
+  /** 常驻段：把一段读数暂存起来（不落盘），最后由 {@link residentFlush} 按 AC 顺序写。 */
+  /** @param {string} title @param {string} reading @param {string} conclusion */
+  residentPut(title, reading, conclusion) {
+    this.resident.set(title, { reading, conclusion });
+  }
+
+  /** 常驻段：按 `RESIDENT_SECTION_TITLES` 的顺序把八节落盘；没收集到的段写成「未取得」。 */
+  residentFlush() {
+    for (const title of RESIDENT_SECTION_TITLES) {
+      const entry = this.resident.get(title) ?? {
+        reading: '（未取得）本段未执行或已拒绝，见 stderr。',
+        conclusion: '本段缺失——缺面不得写成绿。',
+      };
+      upsertSection(this.record, title, sectionBody(entry.reading, entry.conclusion));
+    }
   }
 
   /** @param {string} label */
@@ -1648,6 +1844,580 @@ async function legInterrupt(smoke) {
 }
 
 // ---------------------------------------------------------------------------
+// 常驻专有能力冒烟（AC-276）：八段真跑
+// ---------------------------------------------------------------------------
+//
+// `--run-resident` 复用 AC-256 的一整套「真服务实例 + PAT 播种 + `claude mcp add` +
+// 自然语言驱动 + 临时项目」驱动面，走的是**常驻会话**这一条故事线：起常驻宿主、忙时发送排队、
+// 撤回且 pid 不变、重配置下一轮生效、后台任务列出与停止、非 bypass 下审批被看到并解除。八段读数
+// **先收集后按 AC 顺序落盘**（`upsertSection` 是按调用顺序追加的，执行顺序与记录顺序不同）。
+
+/** 内层「忙锚 + 后台任务源」消息：后台起一个长任务（后台租约），再前台跑一条长命令把 run 钉住。 */
+const RESIDENT_ANCHOR_MESSAGE = '请**真的依次调用两次 Bash 工具**（不要只说明你会怎么做）：'
+  + '第一次把 Bash 工具参数 `run_in_background` 设为 true，command 用 `sleep 240`（后台任务）；'
+  + '第二次前台执行 command `sleep 480`（这条会一直占着，直到被外部打断）。'
+  + '两次都必须真的发出 Bash 工具调用，先发第一次再发第二次。';
+
+/** 忙时发送排进队列的那条消息（随后要用它的 uuid 撤回）。 */
+const RESIDENT_QUEUED_MESSAGE = '这是一条排队消息：请只回复 QUEUED_OK，不要调用任何工具。';
+
+// 重配置后「下一轮」那条撞权限墙的消息**不能**用 Bash：`sleep`/`echo` 一类安全命令会被 CLI 的
+// 安全命令表直接放行，根本不经过 `canUseTool`，于是永远等不到待审批。靶子必须是需权限工具
+// （Write）——它在 default 下才被交到审批面，在 bypass 下静默写盘——文件名在段内按临时项目根拼绝对路径。
+
+/** 终端 Claude Code 驱动一段工具调用时，从 stderr 尾部取多少行做拒绝读数。 */
+const RESIDENT_DRIVE_TAIL = 8;
+
+/**
+ * 该会话在该宿主快照里持有的租约（`session_background` 读的就是这张表）。
+ * @param {{ hosts: any[] }} listing @param {string} sessionId @returns {any[]}
+ */
+export function hostLeasesFor(listing, sessionId) {
+  const host = residentHostOf(listing, sessionId);
+  const binding = host?.bindings?.find((/** @type {{ appSessionId?: string }} */ entry) => entry.appSessionId === sessionId);
+  return Array.isArray(binding?.leases) ? binding.leases : [];
+}
+
+/**
+ * 该会话此刻记录的模型/强度/权限模式（`GET …/active-model`）。重配置一节的「新旧值」逐字读它。
+ * @param {Smoke} smoke @param {string} label
+ */
+async function readActiveSelection(smoke, label) {
+  return dataOf(
+    await api(
+      smoke.server.port,
+      smoke.appToken,
+      'GET',
+      `/api/providers/claude/sessions/${smoke.sessionId}/active-model`,
+    ),
+    label,
+  );
+}
+
+/**
+ * 用自然语言驱动终端 Claude Code 调一个 MCP 工具，取回该工具调用及其结果。
+ * 没调就是缺面：点名拒绝，不写假读数。
+ * @param {Smoke} smoke
+ * @param {{ label: string, prompt: string, toolSuffix: string }} input
+ */
+function driveResidentTool(smoke, { label, prompt, toolSuffix }) {
+  const drive = driveClaude(smoke, { label, prompt });
+  const call = toolCallFor(drive.parsed, toolSuffix);
+  if (call === null) {
+    throw new LegRefusal(
+      `拒绝运行：终端 Claude Code 没有调用 ${toolSuffix}（exit ${drive.status}，stderr 尾部：`
+      + `${drive.stderr.split('\n').slice(-RESIDENT_DRIVE_TAIL).join('\n') || '(空)'}）`
+      + ' —— 自然语言驱动没有走通，缺的是这一次工具调用。',
+    );
+  }
+  return call;
+}
+
+/** 纯机械读一次性待审批集合（`approvals_list` 的 SDK 面，用来在取假前有界地等它出现）。 */
+async function residentPendingApprovals(smoke) {
+  const client = await mcpConnect(smoke.server.port, smoke.pat);
+  try {
+    const answer = await callTool(client, 'approvals_list', { session: smoke.sessionId });
+    return /** @type {any[]} */ (answer.json?.approvals ?? []);
+  } finally {
+    await client.close().catch(() => {});
+  }
+}
+
+/** 一段真跑：拿 `smoke.hostPidBefore/After` 两个读数并断言 pid 未换（撤回节的机械臂）。 */
+async function residentHostPid(smoke) {
+  const host = residentHostOf(await readHosts(smoke.server.port, smoke.appToken), smoke.sessionId);
+  return typeof host?.pid === 'number' ? host.pid : null;
+}
+
+/**
+ * 第一段：环境与版本（+ 终端 Claude Code 握手面）。
+ * 读数是版本、模型、`:3001` 起点读数，以及**临时实例**的 `/proc/<leaderPid>/environ` 命中行。
+ * @param {Smoke} smoke
+ */
+function residentLegEnv(smoke) {
+  const server = smoke.server;
+  const lines = server.environLines(['DATABASE_PATH', 'HOST', MCP_ENABLE_VAR]);
+  const add = addMcpServer(smoke);
+  smoke.mcpAdd = add;
+  if (add.status !== 0) {
+    throw new LegRefusal(
+      `拒绝运行：\`claude mcp add\` 退出 ${add.status}：${add.stderr || add.stdout || '(无输出)'}`
+      + ' —— 终端 Claude Code 接不上网关，后面的自然语言驱动没有可打的入站面。',
+    );
+  }
+  const reading = `claude --version = ${claudeVersion()}；${mcpSdkVersion()}；node ${process.version}；`
+    + `模型 id = ${smoke.modelId}；:3001 起点读数 ${smoke.protectedBefore}；`
+    + `临时实例 port=${server.port}（listen(0) 探得且 ≠ ${PROTECTED_PORT}）；`
+    + `proc-environ[${server.leaderPid}] ${lines.join(' | ')}；`
+    + `DATABASE_PATH 落在临时根 ${smoke.tempRoot} 下；HOST=127.0.0.1；`
+    + `进程以 detached:true 起、收尾按负 pid 杀整组；PAT=${smoke.pat.slice(0, 8)}…（userId=${smoke.patUserId}）；`
+    + `\`claude mcp add\` 逐字命令：${add.command}；写出 ${path.join(smoke.projectDir, '.mcp.json')}。`;
+  smoke.residentPut(
+    '环境与版本',
+    reading,
+    `真服务进程在 127.0.0.1:${server.port} 上应答、库在临时根下、MCP_ENABLED=1 已生效；终端 Claude Code 已把 cloudcli 条目写进临时项目的 .mcp.json；全程不碰 ${PROTECTED_PORT}。`,
+  );
+  say(`[读数] 环境与版本 port=${server.port} claude=${claudeVersion()}`);
+}
+
+/**
+ * 第二段：常驻会话启动与 pid。
+ *
+ * 建会话 + 切 `resident` + 一条 WS 的 run entry 起常驻宿主（常驻进程只能由 run entry 起），读宿主 pid；
+ * 该 run 的内层消息同时后台起一个长任务（后台租约）与前台跑一条长命令（把 run 钉住，供忙时发送）。
+ * @param {Smoke} smoke
+ */
+async function residentLegStart(smoke) {
+  const server = smoke.server;
+  const created = dataOf(
+    await api(server.port, smoke.appToken, 'POST', '/api/providers/sessions', {
+      provider: 'claude',
+      projectPath: smoke.projectDir,
+      initialMessage: '',
+    }),
+    'POST /api/providers/sessions',
+  );
+  if (typeof created.sessionId !== 'string' || !created.sessionId) {
+    throw new LegRefusal('拒绝运行：建会话没有回 sessionId —— 会话面没落地。');
+  }
+  smoke.sessionId = created.sessionId;
+  dataOf(
+    await api(
+      server.port,
+      smoke.appToken,
+      'PUT',
+      `/api/providers/claude/sessions/${smoke.sessionId}/lifecycle-mode`,
+      { mode: 'resident' },
+    ),
+    'PUT lifecycle-mode',
+  );
+
+  // 先把该会话记录的权限模式设成 bypassPermissions（第五段再改成 default）：保证忙锚 run 里的两条
+  // Bash 不因权限停下，也让第五段「旧值 → 新值」是一对**真值**而不是「未记录 → default」。
+  {
+    const setup = await mcpConnect(server.port, smoke.pat);
+    try {
+      await callTool(setup, 'session_reconfigure', { session: smoke.sessionId, permissionMode: 'bypassPermissions' });
+    } finally {
+      await setup.close().catch(() => {});
+    }
+  }
+
+  const chat = await ChatSocket.connect(server.port, smoke.appToken);
+  smoke.chats.push(chat);
+  startTurn(chat, smoke.sessionId, RESIDENT_ANCHOR_MESSAGE, smoke.projectDir, { model: smoke.modelId });
+  await waitFor(
+    async () => (await runningEntry(server, smoke.appToken, smoke.sessionId)) !== null,
+    90_000,
+    'WS 发起的常驻 run 出现在 GET /api/providers/sessions/running',
+  );
+
+  const pid = await waitFor(
+    async () => residentHostOf(await readHosts(server.port, smoke.appToken), smoke.sessionId)?.pid ?? null,
+    30_000,
+    '常驻宿主带着 pid 出现在宿主快照里',
+  );
+  smoke.hostPidBefore = typeof pid === 'number' ? pid : null;
+  if (smoke.hostPidBefore === null) {
+    throw new LegRefusal('拒绝运行：常驻宿主没有 pid —— 常驻进程面没落地。');
+  }
+
+  // 内层模型要真的先发一次后台 Bash；有界地等那条后台租约出现（它同时是第六段的靶子）。
+  const lease = await waitFor(
+    async () => hostLeasesFor(await readHosts(server.port, smoke.appToken), smoke.sessionId)
+      .find((entry) => entry.kind === 'background-task') ?? null,
+    120_000,
+    '内层 run 起了后台任务，宿主快照里出现 background-task 租约',
+  ).catch(() => null);
+  smoke.backgroundTaskId = lease?.id ?? null;
+
+  const client = await mcpConnect(server.port, smoke.pat);
+  try {
+    const listed = await client.listTools();
+    smoke.toolNames = (listed.tools ?? []).map((tool) => tool.name).sort();
+  } finally {
+    await client.close().catch(() => {});
+  }
+  const required = ['session_create', 'session_send', 'session_cancel_queued', 'session_reconfigure', 'session_background', 'approvals_list', 'approval_answer'];
+  const absent = required.filter((name) => !smoke.toolNames.includes(name));
+  if (absent.length > 0) {
+    throw new LegRefusal(`拒绝运行：工具列表缺 ${absent.join(' / ')} —— 常驻专有能力没有装配。`);
+  }
+
+  const reading = `sessionId=${smoke.sessionId} lifecycle_mode=resident；`
+    + `常驻宿主 pid=${smoke.hostPidBefore}（由一条 WS chat.send 的 run entry 起）；`
+    + `内层 run 的后台任务租约 id=${smoke.backgroundTaskId ?? '（未见 background-task 租约）'}；`
+    + `tools/list 共 ${smoke.toolNames.length} 件，逐字：${smoke.toolNames.join(', ')}。`;
+  smoke.residentPut(
+    '常驻会话启动与 pid',
+    reading,
+    `临时会话 ${smoke.sessionId} 以 resident 模式起了真实常驻宿主，pid=${smoke.hostPidBefore} 从宿主快照读到；终端 Claude Code 经 PAT 读到 ${smoke.toolNames.length} 件工具（含常驻专有能力）。`,
+  );
+  say(`[读数] 常驻会话启动 sessionId=${smoke.sessionId} hostPid=${smoke.hostPidBefore} bgTask=${smoke.backgroundTaskId}`);
+}
+
+/**
+ * 第三段：忙时发送。
+ *
+ * run 仍在飞时用自然语言驱动终端 Claude Code 调 `session_send`，读数是返回的 `queued=true` 与
+ * **非空** `queuedMessageUuid`（撤回节按这个 uuid 撤回）。
+ * @param {Smoke} smoke
+ */
+async function residentLegBusySend(smoke) {
+  const call = driveResidentTool(smoke, {
+    label: 'resident-busy-send',
+    toolSuffix: 'session_send',
+    prompt: `请调用 cloudcli MCP 服务器的 session_send 工具（形如 mcp__cloudcli__session_send），`
+      + `session 参数逐字用「${smoke.sessionId}」，message 参数逐字用「${RESIDENT_QUEUED_MESSAGE}」。`
+      + `然后在回答里原样报告返回的 runId、queued、queuedMessageUuid。只调用这一个工具，不要做别的。`,
+  });
+  const payload = JSON.parse(call.result?.text ?? 'null');
+  if (payload?.queued !== true) {
+    throw new LegRefusal(
+      `拒绝运行：忙时 session_send 没有报 queued=true（返回 ${call.result?.text ?? '(无结果)'}）`
+      + ' —— 会话此刻不忙或忙时输入没走通，排队读数无从取起。',
+    );
+  }
+  if (typeof payload.queuedMessageUuid !== 'string' || payload.queuedMessageUuid.length === 0) {
+    throw new LegRefusal(
+      `拒绝运行：session_send 报了 queued=true 但 queuedMessageUuid 非字符串或为空`
+      + `（返回 ${call.result?.text ?? '(无结果)'}） —— 没有可撤回的 uuid。`,
+    );
+  }
+  smoke.queuedMessageUuid = payload.queuedMessageUuid;
+
+  const reading = `忙时 session_send 返回逐字 ${call.result?.text}；`
+    + `queuedMessageUuid=${smoke.queuedMessageUuid}（非空，逐字）；runId=${payload.runId ?? '(无)'}；`
+    + `会话此刻在飞：一条 WS 起的 run 的内层 Bash（sleep 300）尚未结束。`;
+  smoke.residentPut(
+    '忙时发送',
+    reading,
+    `run 在飞时终端 Claude Code 自然语言驱动 session_send，返回 queued=true 且 queuedMessageUuid=${smoke.queuedMessageUuid}（非空）——消息真的进了常驻进程的队列。`,
+  );
+  say(`[读数] 忙时发送 queued=true uuid=${smoke.queuedMessageUuid}`);
+}
+
+/**
+ * 第四段：撤回与 pid 不变。
+ *
+ * 自然语言驱动 `session_cancel_queued`（按第三段拿到的 uuid），读数是 `cancelled`、以及常驻宿主
+ * **撤回前/后各一个 pid 读数**（两者相同才是「撤回不换进程」）。`pid-before=` / `pid-after=` 是
+ * `--check-resident-record` 逐字解析的那两格。
+ * @param {Smoke} smoke
+ */
+async function residentLegCancel(smoke) {
+  if (!smoke.queuedMessageUuid) {
+    throw new LegRefusal('拒绝运行：没有第三段拿到的 queuedMessageUuid，撤回无从发起。');
+  }
+  const pidBefore = await residentHostPid(smoke);
+  const call = driveResidentTool(smoke, {
+    label: 'resident-cancel',
+    toolSuffix: 'session_cancel_queued',
+    prompt: `请调用 cloudcli MCP 服务器的 session_cancel_queued 工具（形如 mcp__cloudcli__session_cancel_queued），`
+      + `session 参数逐字用「${smoke.sessionId}」，messageUuid 参数逐字用「${smoke.queuedMessageUuid}」。`
+      + `然后在回答里原样报告返回的 outcome 与 message。只调用这一个工具，不要做别的。`,
+  });
+  const payload = JSON.parse(call.result?.text ?? 'null');
+  const pidAfter = await residentHostPid(smoke);
+  smoke.cancelPidBefore = pidBefore;
+  smoke.cancelPidAfter = pidAfter;
+
+  if (payload?.outcome !== 'cancelled') {
+    throw new LegRefusal(
+      `拒绝运行：session_cancel_queued 没有报 outcome=cancelled（返回 ${call.result?.text ?? '(无结果)'}）`
+      + ' —— 撤回没有真的成功。',
+    );
+  }
+  if (pidBefore === null || pidAfter === null || pidBefore !== pidAfter) {
+    throw new LegRefusal(
+      `拒绝运行：撤回前后各需要一个相同的常驻 pid，实得 before=${String(pidBefore)} after=${String(pidAfter)}`
+      + ' —— 「撤回不换进程」这条被证否。',
+    );
+  }
+
+  const reading = `session_cancel_queued 返回逐字 ${call.result?.text}；`
+    + `outcome=cancelled；pid-before=${pidBefore} pid-after=${pidAfter}（相同即未换进程）；`
+    + `撤回的 uuid=${smoke.queuedMessageUuid}。`;
+  smoke.residentPut(
+    '撤回与 pid 不变',
+    reading,
+    `终端 Claude Code 自然语言驱动 session_cancel_queued，outcome 逐字 cancelled；常驻进程 pid 撤回前后不变（pid-before=${pidBefore} == pid-after=${pidAfter}）。`,
+  );
+  say(`[读数] 撤回 outcome=cancelled pid-before=${pidBefore} pid-after=${pidAfter}`);
+}
+
+/**
+ * 第六段（执行序先于重配置）：后台任务列出与停止。
+ *
+ * 自然语言驱动 `session_background` 列出当前后台任务（读回 task id），再带 `stopTaskId` 停止并读回结果。
+ * 后台租约由第二段内层 run 的后台 Bash 持有。
+ * @param {Smoke} smoke
+ */
+async function residentLegBackground(smoke) {
+  const listCall = driveResidentTool(smoke, {
+    label: 'resident-bg-list',
+    toolSuffix: 'session_background',
+    prompt: `请调用 cloudcli MCP 服务器的 session_background 工具（形如 mcp__cloudcli__session_background），`
+      + `session 参数逐字用「${smoke.sessionId}」，不要传 stopTaskId。`
+      + `然后在回答里原样报告返回的 host 与 tasks 数组（每一项的 id 与 kind）。只调用这一个工具。`,
+  });
+  const listPayload = JSON.parse(listCall.result?.text ?? 'null');
+  const tasks = Array.isArray(listPayload?.tasks) ? listPayload.tasks : [];
+  const task = tasks.find((/** @type {{ kind?: string }} */ entry) => entry.kind === 'background-task') ?? tasks[0] ?? null;
+  if (task === null || typeof task.id !== 'string' || task.id.length === 0) {
+    throw new LegRefusal(
+      `拒绝运行：session_background 没有列出任何后台任务（返回 ${listCall.result?.text ?? '(无结果)'}）`
+      + ' —— 没有可停止的 taskId。',
+    );
+  }
+  smoke.backgroundTaskId = task.id;
+
+  const stopCall = driveResidentTool(smoke, {
+    label: 'resident-bg-stop',
+    toolSuffix: 'session_background',
+    prompt: `请调用 cloudcli MCP 服务器的 session_background 工具（形如 mcp__cloudcli__session_background），`
+      + `session 参数逐字用「${smoke.sessionId}」，stopTaskId 参数逐字用「${task.id}」。`
+      + `然后在回答里原样报告返回的 stopped、taskId、remaining。只调用这一个工具。`,
+  });
+  const stopPayload = JSON.parse(stopCall.result?.text ?? 'null');
+  if (stopPayload?.stopped !== true || stopPayload?.taskId !== task.id) {
+    throw new LegRefusal(
+      `拒绝运行：session_background 带 stopTaskId=${task.id} 没有报 stopped=true（返回 `
+      + `${stopCall.result?.text ?? '(无结果)'}）—— 停止没有真的被放置。`,
+    );
+  }
+
+  const remaining = Array.isArray(stopPayload.remaining) ? stopPayload.remaining.length : null;
+  const reading = `列出：session_background 返回逐字 ${listCall.result?.text}；`
+    + `停止：session_background(stopTaskId=${task.id}) 返回逐字 ${stopCall.result?.text}；`
+    + `stopped=true、remaining 条数=${remaining}。`;
+  smoke.residentPut(
+    '后台任务列出与停止',
+    reading,
+    `终端 Claude Code 自然语言驱动 session_background 先列出后台任务（id=${task.id}，kind=background-task），再带 stopTaskId 停止并读回 stopped=true。`,
+  );
+  say(`[读数] 后台任务 列出${tasks.length}条 停止 taskId=${task.id} stopped=${stopPayload.stopped}`);
+}
+
+/**
+ * 第五段：重配置下一轮生效。
+ *
+ * 先读旧值（`GET …/active-model`），自然语言驱动 `session_reconfigure` 把权限模式改成非 bypass 的
+ * `default`，再读新值；随后**下一轮** run 用一个需要权限的 Bash 撞上权限墙（挂起等待审批）——证明
+ * 新一轮真的取了新值（bypass 会静默执行），且宿主 pid 未换。该待审批正是第七段的靶子。
+ * @param {Smoke} smoke
+ */
+async function residentLegReconfigure(smoke) {
+  const before = await readActiveSelection(smoke, '重配置前 GET …/active-model');
+  const pidBefore = await residentHostPid(smoke);
+
+  const call = driveResidentTool(smoke, {
+    label: 'resident-reconfigure',
+    toolSuffix: 'session_reconfigure',
+    prompt: `请调用 cloudcli MCP 服务器的 session_reconfigure 工具（形如 mcp__cloudcli__session_reconfigure），`
+      + `session 参数逐字用「${smoke.sessionId}」，permissionMode 参数逐字用「default」。`
+      + `然后在回答里原样报告返回的 stored、applied、liveSupported、message。只调用这一个工具。`,
+  });
+  const payload = JSON.parse(call.result?.text ?? 'null');
+  if (payload?.stored?.permissionMode !== 'default') {
+    throw new LegRefusal(
+      `拒绝运行：session_reconfigure 没有把 permissionMode 记成 default（返回 ${call.result?.text ?? '(无结果)'}）。`,
+    );
+  }
+  const after = await readActiveSelection(smoke, '重配置后 GET …/active-model');
+
+  // 清场：中止第五段之前那条忙锚 run，让「下一轮」真的是一条新 run。
+  const clearClient = await mcpConnect(smoke.server.port, smoke.pat);
+  try {
+    await callTool(clearClient, 'session_interrupt', { session: smoke.sessionId });
+  } finally {
+    await clearClient.close().catch(() => {});
+  }
+  await waitFor(
+    async () => (await runningEntry(smoke.server, smoke.appToken, smoke.sessionId)) === null,
+    60_000,
+    '忙锚 run 在 session_interrupt 后离开运行中列表',
+  ).catch(() => {});
+
+  // 下一轮：内层 run 在 default 模式下撞权限墙（挂起等待审批）。靶子必须是 Write——Bash 的
+  // `sleep`/`echo` 一类安全命令会被 CLI 直接放行、走不到 `canUseTool`；Write 在 default 下才被
+  // 交到审批面（bypass 下静默写盘），所以它是「下一轮真的取了 default」的判别器。
+  smoke.approvalProbeFile = path.join(smoke.projectDir, 'resident-permission-probe.txt');
+  const permissionMessage = '请调用 Write 工具（不是 Bash），把内容 PERMISSION_PROBE 写进文件 '
+    + `${smoke.approvalProbeFile}。只调用这一个工具，写完回复 DONE。`;
+  const nextSend = driveResidentTool(smoke, {
+    label: 'resident-next-turn',
+    toolSuffix: 'session_send',
+    prompt: `请调用 cloudcli MCP 服务器的 session_send 工具（形如 mcp__cloudcli__session_send），`
+      + `session 参数逐字用「${smoke.sessionId}」，message 参数逐字用「${permissionMessage}」。`
+      + `然后在回答里原样报告返回的 runId 与 queued。只调用这一个工具，不要做别的。`,
+  });
+  const nextPayload = JSON.parse(nextSend.result?.text ?? 'null');
+  if (typeof nextPayload?.runId !== 'string' || !nextPayload.runId) {
+    throw new LegRefusal(`拒绝运行：下一轮 session_send 没有回 runId（返回 ${nextSend.result?.text ?? '(无结果)'}）。`);
+  }
+  smoke.nextTurnRunId = nextPayload.runId;
+
+  const pending = await waitFor(
+    async () => (await residentPendingApprovals(smoke))[0] ?? null,
+    120_000,
+    '下一轮 run 在 default 模式下撞权限墙，approvals_list 出现待审批',
+  );
+  smoke.approvalRequestId = pending.requestId;
+  smoke.reconfigureOld = before.permissionMode ?? '（未记录）';
+  smoke.reconfigureNew = after.permissionMode ?? '（未记录）';
+  smoke.reconfigureApplied = payload.applied ?? '';
+
+  const pidAfter = await residentHostPid(smoke);
+  if (pidBefore === null || pidAfter === null || pidBefore !== pidAfter) {
+    throw new LegRefusal(
+      `拒绝运行：重配置前后 pid 应相同，实得 before=${String(pidBefore)} after=${String(pidAfter)}。`,
+    );
+  }
+
+  const reading = `旧值 permissionMode=${JSON.stringify(smoke.reconfigureOld)}（` // eslint-disable-line
+    + `GET …/active-model 重配置前逐字 ${JSON.stringify(before)}）；`
+    + `session_reconfigure 返回逐字 ${call.result?.text}；`
+    + `新值 permissionMode=${JSON.stringify(smoke.reconfigureNew)}（重配置后逐字 ${JSON.stringify(after)}）；`
+    + `下一轮 runId=${smoke.nextTurnRunId} 用 Write（需权限工具）撞权限墙、挂起等待审批 requestId=${smoke.approvalRequestId}`
+    + `（bypass 下 Write 不经过审批直接写盘，故这条挂起证明新一轮真的取了 default）；`
+    + `常驻 pid 重配置前=${pidBefore}、后=${pidAfter}（同一进程）。`;
+  smoke.residentPut(
+    '重配置下一轮生效',
+    reading,
+    `session_reconfigure 把 permissionMode 从 ${JSON.stringify(smoke.reconfigureOld)} 改成 ${JSON.stringify(smoke.reconfigureNew)}（applied=${smoke.reconfigureApplied}）；下一轮 run 真的按新值运行（在需权限的 Write 上停下等待审批），且常驻 pid 前后不变（${pidBefore}）。`,
+  );
+  say(`[读数] 重配置 old=${smoke.reconfigureOld} new=${smoke.reconfigureNew} applied=${smoke.reconfigureApplied} 下一轮 pending=${smoke.approvalRequestId}`);
+}
+
+/**
+ * 第七段：审批。
+ *
+ * 自然语言驱动 `approvals_list` 逐字看到第五段下一轮撞出的待审批，再 `approval_answer`（allow）解除，
+ * 再次列出读回它已消失。
+ * @param {Smoke} smoke
+ */
+async function residentLegApproval(smoke) {
+  const listCall = driveResidentTool(smoke, {
+    label: 'resident-approvals-list',
+    toolSuffix: 'approvals_list',
+    prompt: `请调用 cloudcli MCP 服务器的 approvals_list 工具（形如 mcp__cloudcli__approvals_list），`
+      + `session 参数逐字用「${smoke.sessionId}」。然后在回答里原样报告返回的 approvals 数组里每一项的`
+      + ` requestId、toolName 与 inputSummary。只调用这一个工具。`,
+  });
+  const listPayload = JSON.parse(listCall.result?.text ?? 'null');
+  const approvals = Array.isArray(listPayload?.approvals) ? listPayload.approvals : [];
+  const request = approvals.find((/** @type {{ requestId?: string }} */ entry) => entry.requestId === smoke.approvalRequestId)
+    ?? approvals[0] ?? null;
+  if (request === null || typeof request.requestId !== 'string') {
+    throw new LegRefusal(
+      `拒绝运行：approvals_list 没有看到待审批（返回 ${listCall.result?.text ?? '(无结果)'}）`
+      + ' —— 非 bypass 下的需权限工具没有把审批挂出来。',
+    );
+  }
+  smoke.approvalRequestId = request.requestId;
+  smoke.approvalToolName = request.toolName ?? '';
+
+  const answerCall = driveResidentTool(smoke, {
+    label: 'resident-approval-answer',
+    toolSuffix: 'approval_answer',
+    prompt: `请调用 cloudcli MCP 服务器的 approval_answer 工具（形如 mcp__cloudcli__approval_answer），`
+      + `requestId 参数逐字用「${request.requestId}」，allow 参数用 true。`
+      + `然后在回答里原样报告返回的 ok 与 decision。只调用这一个工具。`,
+  });
+  const answerPayload = JSON.parse(answerCall.result?.text ?? 'null');
+  if (answerPayload?.ok !== true) {
+    throw new LegRefusal(
+      `拒绝运行：approval_answer 没有报 ok=true（返回 ${answerCall.result?.text ?? '(无结果)'}）。`,
+    );
+  }
+
+  // 读回：该 requestId 不再待审批。
+  const after = await waitFor(
+    async () => {
+      const rows = await residentPendingApprovals(smoke);
+      return rows.some((entry) => entry.requestId === request.requestId) ? null : rows.length;
+    },
+    60_000,
+    'approval_answer 之后该 requestId 从待审批集合消失',
+  ).catch(() => null);
+
+  // 读回之二：被放行的 Write 真的执行了——审批是它得以写盘的唯一放行者（default 下不答则一直挂起）。
+  const wrote = await waitFor(
+    async () => (fs.existsSync(smoke.approvalProbeFile ?? '') ? true : null),
+    60_000,
+    'approval_answer 放行后 Write 真的把探针文件写了出来',
+  ).catch(() => null);
+
+  const reading = `approvals_list 返回逐字 ${listCall.result?.text}；`
+    + `待审批 requestId=${request.requestId}、toolName=${JSON.stringify(smoke.approvalToolName)}（非 bypass 模式下由需权限的 Write 触发）；`
+    + `approval_answer 返回逐字 ${answerCall.result?.text}（ok=true）；`
+    + `解除后再列 approvals_list：该 requestId 已不在待审批集合（剩余条数=${after ?? '未读到'}）；`
+    + `被放行的 Write 写出的探针文件 ${smoke.approvalProbeFile} 存在=${wrote === true}。`;
+  smoke.residentPut(
+    '审批',
+    reading,
+    `非 bypass 权限模式下内层 run 的需权限工具 Write 撞出待审批 requestId=${request.requestId}；终端 Claude Code 自然语言驱动 approvals_list 逐字看到它，approval_answer(allow) 解除后它从待审批集合消失、且 Write 真的写盘（存在=${wrote === true}）。`,
+  );
+  say(`[读数] 审批 requestId=${request.requestId} 已解除`);
+}
+
+/**
+ * 第十段之外：常驻冒烟主流程（八段真跑），返回 `{ failure }`。
+ * @param {Smoke} smoke
+ */
+export async function runResidentSmoke(smoke) {
+  smoke.appToken = mintToken(smoke.databasePath, path.join(smoke.tempRoot, 'app-token'));
+  const seeded = seedAccessToken({
+    tempRoot: smoke.tempRoot,
+    databasePath: smoke.databasePath,
+    scopes: ['cloudcli:read', 'cloudcli:session:send', 'cloudcli:session:create', 'cloudcli:session:control', 'cloudcli:approve'],
+    name: 'mcp-smoke-resident',
+  });
+  smoke.pat = seeded.token;
+  smoke.patUserId = seeded.userId;
+  if (!smoke.pat.startsWith('ccp_')) {
+    throw new LegRefusal(`拒绝运行：播种出的 PAT 前缀不是 ccp_：${smoke.pat.slice(0, 12)}…`);
+  }
+  smoke.modelId = process.env.MCP_SMOKE_MODEL
+    ?? process.env.ANTHROPIC_MODEL
+    ?? process.env.ANTHROPIC_DEFAULT_SONNET_MODEL
+    ?? 'v4.1flash';
+  fs.mkdirSync(smoke.projectDir, { recursive: true });
+
+  /** 执行序与记录序不同：记录序见 `residentFlush`（按 RESIDENT_SECTION_TITLES）。 */
+  const legs = [
+    ['环境与版本', residentLegEnv],
+    ['常驻会话启动与 pid', residentLegStart],
+    ['忙时发送', residentLegBusySend],
+    ['撤回与 pid 不变', residentLegCancel],
+    ['后台任务列出与停止', residentLegBackground],
+    ['重配置下一轮生效', residentLegReconfigure],
+    ['审批', residentLegApproval],
+  ];
+
+  let failure = null;
+  for (const [title, leg] of legs) {
+    try {
+      await leg(smoke);
+    } catch (error) {
+      failure = { title, error };
+      const message = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`[拒绝] 常驻第「${title}」段：${message}\n`);
+      // 非点名拒绝（`waitFor` 超时、普通 `Error`）同样按拒绝读数落盘再收束——若在这里 `throw`，
+      // 整个进程会带着尚未 flush 的记录直接退出，连前几段的真读数都留不下。栈仍打到 stderr 供追因。
+      if (!(error instanceof LegRefusal || error instanceof GuardRefusal) && error instanceof Error) {
+        process.stderr.write(`${error.stack ?? error.message}\n`);
+      }
+      smoke.residentPut(title, `（未取得）${message}`, '本段拒绝，读数缺失——见 stderr，禁止把缺面写成绿。');
+      break;
+    }
+  }
+  return { failure };
+}
+
+// ---------------------------------------------------------------------------
 // CLI 参数与 `--check-record`
 // ---------------------------------------------------------------------------
 
@@ -1688,6 +2458,26 @@ export function runCheckRecord(filePath) {
     process.stderr.write(`缺节：${entry.title} —— ${entry.reason}\n`);
   }
   process.stderr.write(`记录不合格（${filePath}）：缺 ${missing.length} 处，八节要求见 AC-256/AC3。\n`);
+  return 1;
+}
+
+/**
+ * `--check-resident-record`：逐节检查常驻记录（八节、非空读数/结论、撤回节 pid 前后相等），缺哪节
+ * 点名哪节；齐全 exit 0。**纯读**，不起实例、不碰网络。
+ * @param {string} filePath
+ */
+export function runCheckResidentRecord(filePath) {
+  const missing = checkResidentRecordFile(filePath);
+  if (missing.length === 0) {
+    process.stdout.write(
+      `记录合格：${filePath} 八节齐全、每节 读数：/结论： 非空、撤回节 pid-before == pid-after\n`,
+    );
+    return 0;
+  }
+  for (const entry of missing) {
+    process.stderr.write(`缺节：${entry.title} —— ${entry.reason}\n`);
+  }
+  process.stderr.write(`记录不合格（${filePath}）：缺 ${missing.length} 处，八节要求见 AC-276/AC3。\n`);
   return 1;
 }
 
@@ -1772,6 +2562,93 @@ export async function waitForNoResidue(tempRoot, budgetMs = 20_000) {
 }
 
 /**
+ * `--run-resident`：常驻专有能力冒烟主流程（八段真跑 → 收尾残留 → 按 AC 顺序落盘 → 校验自身）。
+ * 与 `main()` 的非检查路径同构，只是记录文件与末节标题换成常驻的那一套。
+ * @param {Record<string, string>} flags
+ */
+export async function runResidentMain(flags) {
+  const tempRoot = path.resolve(flags['temp-root'] ?? fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-smoke-resident-')));
+  // 护栏**先**跑，且先于任何**写**盘：拒绝运行时连一个子目录都不该建。
+  const databasePath = assertIsolatedDatabasePath({
+    databasePath: flags['database-path'],
+    ambientDatabasePath: process.env.DATABASE_PATH,
+    tempRoot,
+  });
+  fs.mkdirSync(path.join(tempRoot, 'home'), { recursive: true });
+  fs.mkdirSync(path.join(tempRoot, 'claude-config'), { recursive: true });
+  const record = path.resolve(flags.record ?? DEFAULT_RESIDENT_RECORD);
+
+  const smoke = new Smoke({ tempRoot, databasePath, record });
+  say(`[常驻冒烟] tempRoot=${tempRoot} databasePath=${databasePath} record=${record}`);
+
+  const protectedBefore = protectedPortReading();
+  smoke.protectedBefore = protectedBefore;
+  say(`[读数] :3001 起点读数 ${protectedBefore}`);
+
+  let outcome = null;
+  try {
+    await smoke.boot('resident');
+    outcome = await runResidentSmoke(smoke);
+  } finally {
+    smoke.close();
+    for (const server of smoke.servers) await server.stop('SIGTERM');
+  }
+
+  // —— 到这里临时服务全部停了。残留读数**只能**在这里取：`residualEnviron` 命中的正是那些服务进程
+  //    的 `DATABASE_PATH=<临时根>`，收尾之前取，读到的永远是「还活着」。
+  const residueWait = await waitForNoResidue(tempRoot, 20_000);
+  const residues = residualProcesses(tempRoot);
+  const environHits = residualEnviron(tempRoot);
+  const scopes = residualScopes(tempRoot);
+  const protectedEnd = protectedPortReading();
+  say(
+    `[读数] 残留检查 tempRoot=${tempRoot} pgrep-命中=${residues.length} `
+    + `environ-命中=${environHits.length} scope-命中=${scopes.length}（等待后剩余 ${residueWait}）`,
+  );
+  for (const line of residues) say(`[残留·pgrep] ${line}`);
+  for (const line of environHits) say(`[残留·environ] ${line}`);
+  for (const line of scopes) say(`[残留·scope] ${line}`);
+  say(`[读数] :3001 终点读数 ${protectedEnd}`);
+
+  smoke.residentPut(
+    '收尾残留与生产监听 pid',
+    `临时根 ${tempRoot}：pgrep-命中=${residues.length}、/proc environ-命中=${environHits.length}、`
+    + `systemctl --user scope-命中=${scopes.length}（三条都要求 0；前两条只认本次冒烟子树内的进程）；`
+    + `:3001 起点读数 ${protectedBefore}；:3001 终点读数 ${protectedEnd}`
+    + `（逐字相同即监听 pid 与 systemd MainPID 都没被动过）；全程未连接 / 未启用 / 未重启 ${PROTECTED_PORT}。`,
+    `收尾后三条残留命中均为 0，${PROTECTED_PORT} 的监听 pid 与 systemd MainPID 起点终点逐字相同。`,
+  );
+
+  // 执行序 ≠ 记录序：到这里八段读数才按 RESIDENT_SECTION_TITLES 的顺序落盘。
+  if (!fs.existsSync(record)) {
+    fs.mkdirSync(path.dirname(record), { recursive: true });
+    fs.writeFileSync(record, residentRecordHeader());
+  }
+  smoke.residentFlush();
+
+  if (outcome.failure) {
+    process.stderr.write(
+      `[拒绝] 常驻第「${outcome.failure.title}」段失败，记录已按 AC 顺序落盘（该段为拒绝读数）。\n`,
+    );
+    return 1;
+  }
+  if (residues.length > 0 || environHits.length > 0 || scopes.length > 0) {
+    process.stderr.write(
+      `拒绝报告完成：临时实例留下残留（pgrep=${residues.length} environ=${environHits.length} `
+      + `scope=${scopes.length}）：${[...residues, ...environHits, ...scopes].join(' | ')}\n`,
+    );
+    return 1;
+  }
+  const missing = checkResidentRecordFile(record);
+  if (missing.length > 0) {
+    for (const entry of missing) process.stderr.write(`缺节：${entry.title} —— ${entry.reason}\n`);
+    return 1;
+  }
+  say('[常驻冒烟] 八段读数已落盘；人证行（AC-277）只由人写，本脚本不写。');
+  return 0;
+}
+
+/**
  * 主入口。守护栏先跑：护栏拒绝时**不写任何读数**，只 exit 1。
  * @param {string[]} argv
  */
@@ -1780,6 +2657,14 @@ export async function main(argv) {
 
   if (flags['check-record'] !== undefined) {
     return runCheckRecord(flags['check-record']);
+  }
+
+  if (flags['check-resident-record'] !== undefined) {
+    return runCheckResidentRecord(flags['check-resident-record']);
+  }
+
+  if (flags['run-resident'] !== undefined) {
+    return runResidentMain(flags);
   }
 
   const tempRoot = path.resolve(flags['temp-root'] ?? fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-smoke-')));
