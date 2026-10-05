@@ -1,7 +1,7 @@
 ---
 id: AC-266
 title: 真实浏览器里设置页能管理已连接的应用与 OAuth 客户端：吊销授权后该行消失，手工创建客户端时密钥只显示一次
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-021
 criterion: for f in e2e/connected-apps-settings.spec.ts; do [ -f "$f" ] || {
@@ -21,6 +21,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T23:25:38.456Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
