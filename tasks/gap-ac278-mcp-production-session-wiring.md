@@ -66,6 +66,8 @@ goal_ac: AC-278
 ## Touches
 
 - server/index.ts（在 createMcpGatewayModule 的 writeTools 上补 sessionCreate / sessionInterrupt / sessionHostControl）
+- server/modules/mcp-gateway/mcp-session-write-deps.ts (new)（可导出的具名构造器：session_create / session_interrupt 两个 deps 的生产装配，供 server/index.ts 与判据走同一份构造路径）
+- server/modules/mcp-gateway/index.ts（导出上面两个构造器）
 - server/modules/mcp-gateway/tests/mcp-production-session-wiring.test.ts (new)（判据：静态面 + 运行时面 + 负控制）
 - tasks/gap-ac278-mcp-production-session-wiring.md（自触）
 
