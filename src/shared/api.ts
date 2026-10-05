@@ -697,6 +697,10 @@ export const api = {
     // The deployment's own raw-capture switch, read once per session (see `voiceConfig.ts`). Its own
     // endpoint rather than a field on `health`, which is a per-user provider reading.
     capture: () => get('/api/voice/capture'),
+    // THE USER'S OWN KEPT RECORDINGS: the one action the settings page's clear button sends. Its own
+    // DELETE rather than a settings write, because what it removes is not a setting — it is every
+    // record the store holds — and the response's `deleted` count is how many there were.
+    clearData: () => del('/api/voice/data'),
     tts: (text: string, options: ApiRequestOptions = {}) => post('/api/voice/tts', { text }, options),
     // The user's own backend settings, stored per user so they follow the
     // account rather than the browser profile they were typed in.

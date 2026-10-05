@@ -5,3 +5,15 @@ export { voiceRoutes } from './voice.module.js';
 // auto-record half of the cold-start-plus-live pair — and by the Voice routes.
 export { voiceLexicon } from './voice-lexicon.js';
 export type { VoiceLexiconDependencies } from './voice-lexicon.js';
+// voice-data: the user's own kept recordings (D1). The store itself is built by
+// the composition root, but the directory resolver and the record shape are the
+// module's public surface — the correction-feedback track reads a record by id
+// and a later readout counts what is on disk from the same resolved directory,
+// so neither has to spell the path or the shape a second time.
+export { createVoiceDataStore, resolveVoiceDataDir, voiceDataDirStartupLine } from './voice-data.js';
+export type {
+  VoiceDataRecord,
+  VoiceDataRecordInput,
+  VoiceDataSegment,
+  VoiceDataStore,
+} from './voice-data.js';

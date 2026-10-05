@@ -77,6 +77,21 @@ function decodeSettings(raw: string): VoiceSettings {
     }
   }
 
+  // THE TWO USER-DATA FIELDS ARE NOT IN `VOICE_SETTINGS_FIELDS`, because that list is the STRING
+  // fields and these are a boolean and a number; they are decoded here so a document that carries
+  // them round-trips. THEY ARE NOT IN `EMPTY_VOICE_SETTINGS` EITHER, and that is deliberate: a user
+  // who never saved has no such keys, and the store's own default (recording on, 2 GiB) is what
+  // applies then. Adding them to the empty document would make the never-saved shape carry a
+  // `voiceDataRecording: true` the store already implies, and would break every reader that compares
+  // that document for exactly ten string fields. An absent key here therefore means "unset", which
+  // the store reads as the default rather than as "off".
+  if (typeof source.voiceDataRecording === 'boolean') {
+    settings.voiceDataRecording = source.voiceDataRecording;
+  }
+  if (typeof source.voiceDataMaxBytes === 'number' && Number.isFinite(source.voiceDataMaxBytes)) {
+    settings.voiceDataMaxBytes = source.voiceDataMaxBytes;
+  }
+
   return settings;
 }
 

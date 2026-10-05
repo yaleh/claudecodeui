@@ -65,7 +65,19 @@
     "voice": "语音",
     "profiles": "配置档",
     "format": "音频格式",
-    "note": "自定义基础 URL 由您的浏览器直接调用，必须允许浏览器 CORS 请求。留空以使用服务器配置的后端。"
+    "note": "自定义基础 URL 由您的浏览器直接调用，必须允许浏览器 CORS 请求。留空以使用服务器配置的后端。",
+    "dataTitle": "本机语音数据",
+    "dataDescription": "您的录音及其转写文本，保存在运行此服务器的机器上。",
+    "dataRecording": "保存语音数据（仅存本机）",
+    "dataRecordingDescription": "开启后，每次转写都会保存在本机，方便您稍后查看。不会发送到其他任何地方。",
+    "dataCapacity": "存储上限（字节）",
+    "dataCapacityDescription": "达到上限后，将优先删除最早的录音。",
+    "dataClearTitle": "清空语音数据",
+    "dataClearDescription": "永久删除保存在本机的所有录音和转写文本。",
+    "dataClear": "清空语音数据",
+    "dataClearConfirm": "确认，全部删除",
+    "dataClearCancel": "取消",
+    "dataCleared": "已删除 {{count}} 条语音记录。"
   },
   "quickSettings": {
     "title": "快速设置",

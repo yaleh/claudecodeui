@@ -37,6 +37,12 @@ import type { TranscriptionTolerance } from '../../../shared/asr/transcriptionWi
 // transport can hand over, so the shape it is held in has to be nameable here even though the row
 // that consumes it is built in the capture module.
 import type { VoiceCapturePort, VoiceCaptureRawReturn } from './voice-capture.js';
+// THE USER-DATA STORE IS REACHED AT RUNTIME THROUGH THE INJECTED PORT AND NEVER THROUGH THIS FILE,
+// so this import is a TYPE deliberately — the same discipline the capture port above keeps. A value
+// import would make `voice-data` a runtime edge of the transcription path, and the falsification
+// criterion that rebuilds this path in a temp tree (copying this file and the `shared/asr` tree and
+// nothing else) would then import a module that tree does not carry.
+import type { VoiceDataStore } from './voice-data.js';
 
 /**
  * The ONE line a refused recording is allowed to write, and the whole of it.
@@ -59,6 +65,17 @@ import type { VoiceCapturePort, VoiceCaptureRawReturn } from './voice-capture.js
  * that made the line a disclosure.
  */
 const VOICE_CAPTURE_FAILED_LINE = 'voice.capture failed';
+
+/**
+ * The ONE line a failed voice-data write is allowed to write, and the whole of it.
+ *
+ * The same reasoning as `VOICE_CAPTURE_FAILED_LINE`, for the same reason: the user-data write is an
+ * injected seam on a path whose job is the transcription, so a write that throws must not escape as
+ * a failed request — it is caught and reduced to this one literal. It carries nothing: no error
+ * message, no path, no record id. A quoted cause here would put a filesystem path into this
+ * process's output, and the line exists to say only that the write did not happen.
+ */
+const VOICE_DATA_FAILED_LINE = 'voice.data failed';
 
 type VoiceServiceDependencies = {
   defaults: {
@@ -99,6 +116,22 @@ type VoiceServiceDependencies = {
    * composition root reads the variable once, and everything downstream of it sees a mode.
    */
   capture?: VoiceCapturePort;
+  /**
+   * Where the user's own dictation is kept on this machine, when this deployment keeps it.
+   *
+   * A SECOND SEAM, DISTINCT FROM `capture`, and the distinction is the whole point of the D1 track:
+   * the capture port is the DEPLOYMENT's diagnostic switch (default off, fails closed), while this
+   * one is the USER's data store (default on, turned off by the user's own setting, clearable). It
+   * is optional only because a caller that builds this service directly — a test, a probe, the
+   * invariant board — has no store to hand it; the shipping composition root always wires one, so
+   * the default-on promise holds for the real deployment. Absent means "nothing is kept", which is
+   * exactly the shape every existing criterion's rig keeps.
+   *
+   * IT CARRIES ITS OWN GATE. Whether the user turned recording off is read off the settings the
+   * store is handed, not decided here, so this path does not know the setting's name and the store
+   * is the one place the default-on rule lives.
+   */
+  voiceData?: VoiceDataStore;
 };
 
 // The provider id is not part of the outbound request's configuration: it selects which
@@ -1239,11 +1272,46 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
         // They are omitted rather than sent as `null` for the same reason: an absent field is
         // what an older client already ignores, while `null` is a value those clients could act
         // on. The fields themselves are the adapter's to fill; this module only passes them on.
-        const speech: { text: string; tokens?: AsrSuccess['tokens']; meta?: { buildId?: string } } = {
+        const speech: {
+          text: string;
+          tokens?: AsrSuccess['tokens'];
+          meta?: { buildId?: string };
+          recordId?: string;
+        } = {
           text: result.text,
         };
         if (result.tokens !== undefined) speech.tokens = result.tokens;
         if (result.meta?.buildId !== undefined) speech.meta = { buildId: result.meta.buildId };
+
+        // THE USER-DATA RECORD, WRITTEN AFTER THE ATTEMPT IS ANSWERED AND NEVER INSTEAD OF IT.
+        //
+        // It is a DIFFERENT object from the capture row `logAttempt` writes above: that row is the
+        // deployment's diagnostic trace, gated by `VOICE_CAPTURE`; this is the user's own kept
+        // recording, gated by the user's setting. The two must not be conflated — writing this one
+        // is what D1 asks for, and it must not change what the capture row carries.
+        //
+        // A FAILED WRITE MUST NOT COST THE TRANSCRIPTION. The store is an injected seam on a path
+        // whose job is the text, so a throw here is caught and reduced to one literal: the response
+        // below still carries the text, and `recordId` is simply absent — the same absence-not-
+        // placeholder rule the richer envelope already follows. The gate (is recording on?) and the
+        // capacity trim both live in the store, so this path reads only what comes back.
+        if (dependencies.voiceData !== undefined) {
+          try {
+            const stored = dependencies.voiceData.record({
+              settings,
+              providerId,
+              ...(speech.meta?.buildId === undefined ? {} : { buildId: speech.meta.buildId }),
+              text: speech.text,
+              ...(speech.tokens === undefined ? {} : { tokens: speech.tokens }),
+              audio: input.audio.bytes,
+            });
+            if (stored !== null) {
+              speech.recordId = stored.recordId;
+            }
+          } catch {
+            log.info(VOICE_DATA_FAILED_LINE);
+          }
+        }
 
         return { ok: true, value: speech };
       } catch (error) {
@@ -1281,6 +1349,14 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
 
     captureState() {
       return { raw: dependencies.capture?.raw === true };
+    },
+
+    // THE CLEAR HALF OF THE USER-DATA STORE, and for the same reason `captureState` reads the port
+    // rather than the environment: the store IS the port, so a caller that wired none — a probe, a
+    // test — answers "nothing to clear" rather than failing, which is the same success a user who
+    // never recorded gets. The count is whatever the store removed; this path never invents one.
+    clearVoiceData() {
+      return dependencies.voiceData?.clear() ?? { deleted: 0 };
     },
 
     async synthesizeSpeech(input) {
@@ -1333,7 +1409,7 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
  * could set to a non-string or to megabytes of text, which is exactly what this list exists to
  * prevent.
  */
-const VOICE_SETTINGS_FIELDS: readonly (keyof VoiceSettings)[] = [
+const VOICE_SETTINGS_FIELDS = [
   'baseUrl',
   'apiKey',
   'sttModel',
@@ -1344,7 +1420,18 @@ const VOICE_SETTINGS_FIELDS: readonly (keyof VoiceSettings)[] = [
   'dashscopeEndpoint',
   'dashscopeApiKey',
   'dashscopeModel',
-];
+] as const satisfies readonly (keyof VoiceSettings)[];
+
+/**
+ * The STRING fields of the document, as a union derived from the list above.
+ *
+ * `VoiceSettings` has grown non-string members (`voiceDataRecording`, `voiceDataMaxBytes`), so the
+ * length table below cannot be keyed by `keyof VoiceSettings` any more: an entry for a boolean would
+ * be a character limit that means nothing. Deriving the union from `VOICE_SETTINGS_FIELDS` instead
+ * keeps the table exhaustive over exactly the fields `readSettingsField` reads, and keeps the two
+ * from drifting — a field added to the list is a compile error in the table until it is bounded.
+ */
+type VoiceSettingsStringField = (typeof VOICE_SETTINGS_FIELDS)[number];
 
 /**
  * The longest value each field accepts. Generous for any real endpoint, key or
@@ -1355,7 +1442,7 @@ const VOICE_SETTINGS_FIELDS: readonly (keyof VoiceSettings)[] = [
  * new policy: an endpoint is an endpoint and a key is a key, and a bound that differed by field
  * would be a second, silent rule about which provider's address is the longer one.
  */
-const VOICE_SETTINGS_MAX_LENGTHS: Record<keyof VoiceSettings, number> = {
+const VOICE_SETTINGS_MAX_LENGTHS: Record<VoiceSettingsStringField, number> = {
   baseUrl: 2048,
   apiKey: 4096,
   sttModel: 256,
@@ -1379,7 +1466,7 @@ const VOICE_SETTINGS_MAX_LENGTHS: Record<keyof VoiceSettings, number> = {
  */
 function readSettingsField(
   source: Record<string, unknown>,
-  field: keyof VoiceSettings,
+  field: VoiceSettingsStringField,
 ): VoiceServiceResult<string> {
   const raw = source[field];
   if (raw === undefined || raw === null) {
@@ -1400,6 +1487,64 @@ function readSettingsField(
   }
 
   return { ok: true, value };
+}
+
+/**
+ * The bounds the settings route accepts for `voiceDataMaxBytes`.
+ *
+ * LITERALS RATHER THAN IMPORTS OF `voice-data.ts`'s OWN FLOOR, and the reason is the module graph:
+ * this file reaches the store only through the injected port, and a VALUE import from `voice-data`
+ * would make it a runtime edge of the transcription path — the same reason every other module type
+ * here is imported with `import type`. The values mirror `MIN_VOICE_DATA_MAX_BYTES` and the shipped
+ * default's order of magnitude; the store re-normalises anything below its own floor, so a drift
+ * here can only be stricter or looser at the door, never wrong once written.
+ */
+const VOICE_DATA_MAX_BYTES_FLOOR = 1024; // 1 KiB
+const VOICE_DATA_MAX_BYTES_CEILING = 1024 ** 4; // 1 TiB
+
+/**
+ * Reads the user-data recording switch, when the body carries it.
+ *
+ * ABSENT IS NOT AN ERROR AND NOT "OFF". A client that never opened this part of the form sends no
+ * key, and the default is ON; reading absence as `false` would silently turn every such user's
+ * recording off. So the field is returned as `undefined` (left off the stored document) when the
+ * body omits it, and only a present value of the wrong type is refused.
+ */
+function readVoiceDataRecording(source: Record<string, unknown>): VoiceServiceResult<boolean | undefined> {
+  const raw = source.voiceDataRecording;
+  if (raw === undefined || raw === null) {
+    return { ok: true, value: undefined };
+  }
+  if (typeof raw !== 'boolean') {
+    return { ok: false, status: 400, error: 'voiceDataRecording must be a boolean.' };
+  }
+  return { ok: true, value: raw };
+}
+
+/**
+ * Reads the store's capacity ceiling, when the body carries it.
+ *
+ * A whole, finite number of bytes within the bounds above. Absent is returned as `undefined` so the
+ * stored document omits the key and the store applies its own shipped default, the same
+ * absence-means-default rule `readVoiceDataRecording` follows. A fraction, an infinity or a value
+ * outside the bounds is refused here rather than stored and discovered by the eviction pass.
+ */
+function readVoiceDataMaxBytes(source: Record<string, unknown>): VoiceServiceResult<number | undefined> {
+  const raw = source.voiceDataMaxBytes;
+  if (raw === undefined || raw === null) {
+    return { ok: true, value: undefined };
+  }
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || !Number.isInteger(raw)) {
+    return { ok: false, status: 400, error: 'voiceDataMaxBytes must be an integer number of bytes.' };
+  }
+  if (raw < VOICE_DATA_MAX_BYTES_FLOOR || raw > VOICE_DATA_MAX_BYTES_CEILING) {
+    return {
+      ok: false,
+      status: 400,
+      error: `voiceDataMaxBytes must be between ${VOICE_DATA_MAX_BYTES_FLOOR} and ${VOICE_DATA_MAX_BYTES_CEILING} bytes.`,
+    };
+  }
+  return { ok: true, value: raw };
 }
 
 /**
@@ -1436,6 +1581,27 @@ function parseVoiceSettingsInput(input: unknown): VoiceServiceResult<VoiceSettin
       return read;
     }
     settings[field] = read.value;
+  }
+
+  // The two user-data fields, read AFTER the strings for the same reason the declared endpoints are
+  // read after the six: a document is refused for the first thing wrong with it in a fixed order
+  // rather than in whichever order the object happened to be built. Each is left OFF the document
+  // when the body omitted it, so an absent key stays absent and the store's own default (on, 2 GiB)
+  // applies — see `readVoiceDataRecording`.
+  const recording = readVoiceDataRecording(source);
+  if (!recording.ok) {
+    return recording;
+  }
+  if (recording.value !== undefined) {
+    settings.voiceDataRecording = recording.value;
+  }
+
+  const maxBytes = readVoiceDataMaxBytes(source);
+  if (!maxBytes.ok) {
+    return maxBytes;
+  }
+  if (maxBytes.value !== undefined) {
+    settings.voiceDataMaxBytes = maxBytes.value;
   }
 
   if (settings.baseUrl && !validateBackendBaseUrl(settings.baseUrl)) {

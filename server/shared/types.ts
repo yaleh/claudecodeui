@@ -1464,6 +1464,25 @@ export type VoiceSettings = {
   dashscopeApiKey?: string;
   /** A provider-declared model field: the model the user selected for that recogniser. */
   dashscopeModel?: string;
+  /**
+   * Whether this user's dictation is kept on this machine as a voice record. Default `true`.
+   *
+   * THE USER-DATA SWITCH, AND NOT THE DIAGNOSTIC ONE. `VOICE_CAPTURE` is a deployment property read
+   * once at start-up, defaults off and fails closed; this is a per-user preference that defaults ON,
+   * which is what the D1 promise — recordings stay local, and can be cleared — rests on. Optional
+   * like the provider-owned fields above, and for the same reason: a document written before this
+   * setting existed carries no key, and absent has to read as the default rather than as "off".
+   * Only the literal `false` turns recording off, so a document that never named the key records.
+   */
+  voiceDataRecording?: boolean;
+  /**
+   * The ceiling, in bytes, on the voice-data directory. Absent means the shipped default (2 GiB).
+   *
+   * ONLY A BOUND ON THE STORE. When a write pushes the directory past it, the oldest records are
+   * removed first (see `voice-data.ts`); it never refuses a transcription and is not the per-request
+   * upload limit — that is the provider's own budget. The user may change it from the settings page.
+   */
+  voiceDataMaxBytes?: number;
 };
 
 /**
@@ -1637,7 +1656,7 @@ export type VoiceService = {
      * log row.
      */
     listenId?: string;
-  }): Promise<VoiceServiceResult<{ text: string }>>;
+  }): Promise<VoiceServiceResult<{ text: string; recordId?: string }>>;
   synthesizeSpeech(input: {
     text: string;
     overrides: VoiceRequestOverrides;
@@ -1666,6 +1685,22 @@ export type VoiceService = {
    * client asks once whether uploading raw audio is meaningful at all before it sends any.
    */
   captureState(): { raw: boolean };
+  /**
+   * Deletes every voice record this user's data store holds, for `DELETE /api/voice/data`.
+   *
+   * THE USER-DATA COUNTERPART OF `captureState`, and the other half of the D1 promise: the same
+   * setting that makes recordings default-on makes them clearable in one action. The answer is the
+   * number of RECORDS removed — not files, so it reads as "how many recordings" rather than
+   * double-counting each one's audio — and a deployment or user with no store yet answers `0`
+   * rather than failing, because "there is nothing here to clear" is a clear that succeeded.
+   *
+   * OPTIONAL LIKE THE STORE ITSELF, and for the same reason the deps carry `voiceData?`: the leaf
+   * route tests build small `VoiceService` doubles that never clear anything, and a required member
+   * would make every one of them a compile error for a behaviour they do not exercise. The shipping
+   * service always implements it; a caller that does not reads as a store that held nothing, which
+   * is the same answer the empty case gives.
+   */
+  clearVoiceData?(): { deleted: number };
 };
 
 /**
