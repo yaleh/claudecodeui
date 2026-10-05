@@ -11,6 +11,8 @@ import { MCP_GATEWAY_PATH, readMcpGatewayGate } from './mcp-gateway.gate.js';
 import { createMcpLoopbackGuard } from './mcp-gateway.loopback.js';
 import { registerMcpReadTools } from './mcp-gateway.read-tools.js';
 import type { McpReadToolDeps, McpReadToolSeam } from './mcp-gateway.read-tools.js';
+import { resolveInputTargets } from './mcp-resolve-target.js';
+import type { McpResolveDeps } from './mcp-resolve-target.js';
 
 /**
  * The MCP gateway's production assembly (AC-240). The consumer is
@@ -55,25 +57,38 @@ const SERVER_INFO = { name: 'claudecodeui-mcp-gateway', version: '0.1.0' };
  *
  * The three paths are exclusive: a registered tool installs the SDK's own
  * list/call handlers, which would collide with a second, manual `tools/list`.
+ *
+ * AC-246's target gate sits INSIDE the audited wrapper and OUTSIDE the tool
+ * body (path 2): a `project` / `session` argument is resolved to an id before
+ * the read tool's handler runs, and an unresolvable target refuses the call
+ * there. The gate is applied only when {@link McpGatewayDeps.resolveDeps} was
+ * supplied — an unwired mount keeps AC-240/244/245's exact behaviour, and the
+ * tools AC-249–AC-251 register compose the same `resolveInputTargets` wrapper.
  */
 function createMcpServer(
   registerTools: McpToolRegistrar | undefined,
   principal: McpPrincipal | null,
-  readTools: McpReadToolDeps | undefined
+  readTools: McpReadToolDeps | undefined,
+  resolveDeps: McpResolveDeps | undefined
 ): McpServer {
   const server = new McpServer(SERVER_INFO, { capabilities: { tools: {} } });
   if (registerTools) {
     registerTools(server, principal);
   } else if (readTools) {
-    const register: McpReadToolSeam = (registration) =>
+    const register: McpReadToolSeam = (registration) => {
+      const call = (args: Record<string, unknown>): unknown | Promise<unknown> => registration.handler(args);
+      // Composed once per registration, not per call: the gate closes over the
+      // injected entry lists and the tool body, and nothing else.
+      const guarded = resolveDeps === undefined ? call : resolveInputTargets(call, resolveDeps);
       withMcpAudit({
         name: registration.name,
         description: registration.description,
         inputSchema: registration.inputSchema,
         outputSchema: registration.outputSchema,
         requiredScopes: [registration.requiredScope],
-        handler: (args) => registration.handler(args as Record<string, unknown>),
+        handler: (args) => guarded(args as Record<string, unknown>),
       })(server, principal);
+    };
     registerMcpReadTools(register, readTools);
   } else {
     server.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [] }));
@@ -96,14 +111,15 @@ function attachTransport(
   authorize: RequestHandler,
   env: NodeJS.ProcessEnv | undefined,
   registerTools: McpToolRegistrar | undefined,
-  readTools: McpReadToolDeps | undefined
+  readTools: McpReadToolDeps | undefined,
+  resolveDeps: McpResolveDeps | undefined
 ): void {
   const loopbackGuard = createMcpLoopbackGuard(env);
 
   app.post(MCP_GATEWAY_PATH, loopbackGuard, authorize, async (req, res) => {
     // The principal the auth middleware attached; audited tools are registered
     // per request against it, so the audit row names the invoking token.
-    const server = createMcpServer(registerTools, readMcpPrincipal(res), readTools);
+    const server = createMcpServer(registerTools, readMcpPrincipal(res), readTools, resolveDeps);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on('close', () => {
       transport.close();
@@ -169,6 +185,18 @@ export type McpGatewayDeps = {
    * (AC-240's criterion) answering an empty `tools/list`.
    */
   readTools?: McpReadToolDeps;
+  /**
+   * The active project/session entries AC-246's target gate resolves a
+   * `project` / `session` argument against. Supplying it turns on the gate for
+   * every tool this mount registers: the reference is rewritten to an id before
+   * the tool body runs, and an ambiguous or unknown reference refuses the call
+   * without entering it.
+   *
+   * Absent means "no resolution wired here": the mount behaves exactly as it did
+   * before AC-246, which is what keeps the AC-240/244/245 criteria — none of
+   * which names a target by anything but an id — reading what they always read.
+   */
+  resolveDeps?: McpResolveDeps;
 };
 
 /** Whether the gateway attached anything, and the gate's own reason. */
@@ -191,6 +219,13 @@ export function mountMcpGateway(app: Express, deps: McpGatewayDeps = {}): McpGat
     return { mounted: false, reason: gate.reason };
   }
 
-  attachTransport(app, deps.authorize ?? refuseUnauthorized, deps.env, deps.registerTools, deps.readTools);
+  attachTransport(
+    app,
+    deps.authorize ?? refuseUnauthorized,
+    deps.env,
+    deps.registerTools,
+    deps.readTools,
+    deps.resolveDeps
+  );
   return { mounted: true, reason: gate.reason };
 }
