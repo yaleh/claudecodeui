@@ -2,7 +2,7 @@
 id: gap-ac264-oauth-dcr-policy-and-manual-clients
 title: AC-264 客户端注册策略：MCP_DCR off/allowlist/open 门住 /oauth/register，回调主机与 https
   安全校验，注册与手工创建的密钥只返回一次且只存哈希；判据 server/modules/oauth/tests/oauth-dcr.test.ts
-status: todo
+status: ready
 labels:
   - gap
 parent: null
