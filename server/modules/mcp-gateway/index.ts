@@ -147,6 +147,40 @@ export type {
   RunGetPayload,
 } from './mcp-run-get.js';
 
+// The stage-4 write tools (AC-249). `MCP_STAGE4_WRITE_TOOLS` is the one
+// statement of which write tools exist and the scope each requires — the
+// self-referential guard (AC-252) reads the names from it rather than writing a
+// second copy, and the criterion compares `tools/list` against it.
+// `registerMcpWriteTools` installs the five names through the same audited seam
+// AC-245's read tools use (consumed by `mcp-gateway.transport.ts` when the mount
+// carries a write-tools deps bag). `buildSessionSend` is `session_send`'s
+// adapter — tool input to a `ControlCaller` + `SendInput`, then the control
+// service's result to the JSON-bodied payload the audit wrapper renders; the
+// criterion drives it through the real mount, and `server/index.ts` supplies the
+// deps it reads. `SESSION_SEND_INPUT_SCHEMA` / `readSessionSendInput` are the
+// one argument shape, shared by registration and validation.
+export { MCP_STAGE4_WRITE_TOOLS, registerMcpWriteTools } from './mcp-gateway.write-tools.js';
+export type {
+  McpStage4WriteToolName,
+  McpWriteToolDeps,
+  McpWriteToolRegistration,
+  McpWriteToolSeam,
+} from './mcp-gateway.write-tools.js';
+
+export { buildSessionSend, readSessionSendInput, SESSION_SEND_INPUT_SCHEMA } from './mcp-session-send.js';
+export type {
+  McpControlCaller,
+  McpControlRefusalCode,
+  McpControlSeam,
+  McpControlSendResult,
+  McpRunReader,
+  McpSessionRunGetSeam,
+  McpSessionRunRecord,
+  McpSessionSendDeps,
+  McpSessionSendInput,
+  SessionSendPayload,
+} from './mcp-session-send.js';
+
 // The target-resolution surface (AC-246). `resolveMcpTarget` turns a caller's
 // project/session reference into one id (or into an explicit refusal listing the
 // candidates), and `resolveInputTargets` is the gate that applies it to a tool's

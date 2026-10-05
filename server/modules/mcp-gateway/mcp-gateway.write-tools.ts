@@ -1,0 +1,190 @@
+/**
+ * The MCP gateway's stage-4 write tools (AC-249).
+ *
+ * This module owns the one statement of "which write tools exist at stage 4" and
+ * the scope each requires: {@link MCP_STAGE4_WRITE_TOOLS} names exactly the five
+ * tools the SPEC's stage-4 table lists, and {@link registerMcpWriteTools}
+ * installs exactly those names through the audited registration seam AC-244
+ * landed. A later task that fills in `session_create` (AC-250) or
+ * `session_interrupt` / `session_start` / `session_close` (AC-251) replaces a
+ * handler here; it must NOT add or rename a tool, because the name set is a
+ * contract the self-referential guard (AC-252) reads to know which tools to
+ * protect.
+ *
+ * Only `session_send` is implemented here (its handler is
+ * `mcp-session-send.js`'s `buildSessionSend`). The other four are registered with
+ * a body that throws a NAMED `MCP_TOOL_NOT_IMPLEMENTED` refusal pointing at the
+ * task that delivers them — registering all five keeps the set stable, so
+ * AC-250/AC-251 replace a handler without touching the set.
+ *
+ * The scope literals come from AC-243's single scope vocabulary
+ * (`ACCESS_TOKEN_SCOPES`) rather than being re-typed here; the array's order is
+ * pinned by the OAuth module's own vocabulary criterion, so the positional read
+ * cannot silently select the wrong scope.
+ */
+
+import { z } from 'zod';
+
+import { ACCESS_TOKEN_SCOPES } from '@/modules/oauth/index.js';
+
+import type { McpPrincipal } from './mcp-gateway.auth.js';
+import { MCP_TOOL_NOT_IMPLEMENTED_CODE } from './mcp-gateway.read-tools.js';
+import {
+  buildSessionSend,
+  readSessionSendInput,
+  SESSION_SEND_INPUT_SCHEMA,
+} from './mcp-session-send.js';
+import type { McpControlSeam, McpRunReader, McpSessionRunGetSeam } from './mcp-session-send.js';
+
+// --------------------------- scope vocabulary ---------------------------
+
+// Positions within AC-243's vocabulary, in the order the constant declares and
+// `access-token-scopes.test.ts` pins: read, session:send, session:create,
+// session:control, approve.
+const [, SESSION_SEND_SCOPE, SESSION_CREATE_SCOPE, SESSION_CONTROL_SCOPE] = ACCESS_TOKEN_SCOPES;
+
+// --------------------------- the stage-4 write table ---------------------------
+
+/**
+ * Every write tool this stage ships, with the scope a caller's token must carry.
+ * The single source of truth for (a) "exactly this set": the criterion compares
+ * the SDK's `tools/list` names against this array, the transport reads each
+ * registration's `requiredScope` from here rather than restating the literal,
+ * and AC-252 reads the names from here rather than writing a second copy.
+ */
+export const MCP_STAGE4_WRITE_TOOLS = [
+  {
+    name: 'session_send',
+    requiredScope: SESSION_SEND_SCOPE,
+    description: 'Send a message to a session, returning the run id at once.',
+  },
+  {
+    name: 'session_create',
+    requiredScope: SESSION_CREATE_SCOPE,
+    description: 'Create a session.',
+  },
+  {
+    name: 'session_interrupt',
+    requiredScope: SESSION_CONTROL_SCOPE,
+    description: 'Interrupt the current run of a session.',
+  },
+  {
+    name: 'session_start',
+    requiredScope: SESSION_CONTROL_SCOPE,
+    description: 'Start a session.',
+  },
+  {
+    name: 'session_close',
+    requiredScope: SESSION_CONTROL_SCOPE,
+    description: 'Close a session.',
+  },
+] as const;
+
+/** One stage-4 write tool's name, derived from the table so the two cannot drift. */
+export type McpStage4WriteToolName = (typeof MCP_STAGE4_WRITE_TOOLS)[number]['name'];
+
+// --------------------------- injected services ---------------------------
+
+/**
+ * The services the write tools answer from, all injected.
+ *
+ * Production passes the process singletons (`server/index.ts`): the single chat
+ * control service every front end shares (AC-233), the run registry, and AC-248's
+ * `run_get` builder over its own deps. The criterion passes the same real
+ * objects over its fixture.
+ */
+export type McpWriteToolDeps = {
+  control: McpControlSeam;
+  runs: McpRunReader;
+  runGet: McpSessionRunGetSeam;
+};
+
+// --------------------------- registration ---------------------------
+
+/**
+ * One write tool as it is handed to the registration seam.
+ *
+ * `outputSchema` is optional so the placeholder tools (no result schema) and
+ * `session_send` (which declares one so its payload also reaches the client as
+ * `structuredContent`) share one seam shape.
+ */
+export type McpWriteToolRegistration = {
+  name: string;
+  description: string;
+  requiredScope: string;
+  inputSchema: z.ZodRawShape;
+  outputSchema?: z.ZodRawShape;
+  handler: (args: Record<string, unknown>, ctx: { principal: McpPrincipal }) => unknown | Promise<unknown>;
+};
+
+/**
+ * The seam `registerMcpWriteTools` installs through.
+ *
+ * The transport supplies one backed by AC-244's `withMcpAudit` (and, when wired,
+ * AC-246's target gate), so every write tool inherits the single audit row and
+ * the scope refusal without restating either. The criterion supplies a recording
+ * seam, which is how it reads back the names and required scopes a registration
+ * actually declared.
+ */
+export type McpWriteToolSeam = (registration: McpWriteToolRegistration) => void;
+
+/**
+ * The refusal a registered-but-unowned write tool answers with. AC-250 delivers
+ * `session_create`; AC-251 delivers the three control verbs.
+ */
+function notImplemented(name: McpStage4WriteToolName, owner: string): never {
+  throw new Error(
+    JSON.stringify({
+      code: MCP_TOOL_NOT_IMPLEMENTED_CODE,
+      tool: name,
+      owner,
+      message: `${name} is registered by AC-249 but its behaviour is delivered by ${owner}.`,
+    }),
+  );
+}
+
+/** Which later task owns each placeholder tool's behaviour. */
+const PLACEHOLDER_OWNER: Record<Exclude<McpStage4WriteToolName, 'session_send'>, string> = {
+  session_create: 'AC-250',
+  session_interrupt: 'AC-251',
+  session_start: 'AC-251',
+  session_close: 'AC-251',
+};
+
+/**
+ * Registers every stage-4 write tool exactly once.
+ *
+ * The scope comes from {@link MCP_STAGE4_WRITE_TOOLS} — the table is the one
+ * place the pair (name, scope) is written down. `session_send`'s handler is
+ * `buildSessionSend`; the other four throw a named `MCP_TOOL_NOT_IMPLEMENTED`
+ * refusal owned by AC-250/AC-251, so the registered name set is stable across
+ * those tasks.
+ */
+export function registerMcpWriteTools(seam: McpWriteToolSeam, deps: McpWriteToolDeps): void {
+  for (const tool of MCP_STAGE4_WRITE_TOOLS) {
+    if (tool.name === 'session_send') {
+      seam({
+        name: tool.name,
+        description: tool.description,
+        requiredScope: tool.requiredScope,
+        inputSchema: SESSION_SEND_INPUT_SCHEMA,
+        outputSchema: {
+          runId: z.string(),
+          queued: z.boolean(),
+          queuedMessageUuid: z.string().nullable(),
+          source: z.string(),
+          run: z.unknown().optional(),
+        },
+        handler: (args, ctx) => buildSessionSend(readSessionSendInput(args), ctx, deps),
+      });
+      continue;
+    }
+    seam({
+      name: tool.name,
+      description: tool.description,
+      requiredScope: tool.requiredScope,
+      inputSchema: {},
+      handler: () => notImplemented(tool.name, PLACEHOLDER_OWNER[tool.name]),
+    });
+  }
+}

@@ -2,6 +2,7 @@ import type { Express, RequestHandler } from 'express';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import type { ZodRawShape } from 'zod';
 
 import type { AccessTokensService } from '@/modules/oauth/index.js';
 
@@ -13,6 +14,8 @@ import { MCP_GATEWAY_PATH, readMcpGatewayGate } from './mcp-gateway.gate.js';
 import { createMcpLoopbackGuard } from './mcp-gateway.loopback.js';
 import { registerMcpReadTools } from './mcp-gateway.read-tools.js';
 import type { McpReadToolDeps, McpReadToolSeam } from './mcp-gateway.read-tools.js';
+import { registerMcpWriteTools } from './mcp-gateway.write-tools.js';
+import type { McpWriteToolDeps, McpWriteToolSeam } from './mcp-gateway.write-tools.js';
 import { resolveInputTargets } from './mcp-resolve-target.js';
 import type { McpResolveDeps } from './mcp-resolve-target.js';
 
@@ -66,35 +69,87 @@ const SERVER_INFO = { name: 'claudecodeui-mcp-gateway', version: '0.1.0' };
  * the read tool's handler runs, and an unresolvable target refuses the call
  * there. The gate is applied only when {@link McpGatewayDeps.resolveDeps} was
  * supplied — an unwired mount keeps AC-240/244/245's exact behaviour, and the
- * tools AC-249–AC-251 register compose the same `resolveInputTargets` wrapper.
+ * write tools AC-249 registers compose the same `resolveInputTargets` wrapper.
+ *
+ * Stage-4 write tools (AC-249) register through the same seam when
+ * {@link McpGatewayDeps.writeTools} is present, so their audit row, scope
+ * refusal and target gate are the identical machinery — only the name set and
+ * the handlers differ. An unwired mount registers neither read nor write tools
+ * and keeps answering an empty `tools/list`.
  */
 function createMcpServer(
   registerTools: McpToolRegistrar | undefined,
   principal: McpPrincipal | null,
   readTools: McpReadToolDeps | undefined,
+  writeTools: McpWriteToolDeps | undefined,
   resolveDeps: McpResolveDeps | undefined
 ): McpServer {
   const server = new McpServer(SERVER_INFO, { capabilities: { tools: {} } });
   if (registerTools) {
     registerTools(server, principal);
-  } else if (readTools) {
-    const register: McpReadToolSeam = (registration) => {
-      const call = (args: Record<string, unknown>): unknown | Promise<unknown> => registration.handler(args);
-      // Composed once per registration, not per call: the gate closes over the
-      // injected entry lists and the tool body, and nothing else.
-      const guarded = resolveDeps === undefined ? call : resolveInputTargets(call, resolveDeps);
-      withMcpAudit({
-        name: registration.name,
-        description: registration.description,
-        inputSchema: registration.inputSchema,
-        outputSchema: registration.outputSchema,
-        requiredScopes: [registration.requiredScope],
-        handler: (args) => guarded(args as Record<string, unknown>),
-      })(server, principal);
-    };
-    registerMcpReadTools(register, readTools);
-  } else {
+    return server;
+  }
+  if (!readTools && !writeTools) {
     server.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [] }));
+    return server;
+  }
+
+  /**
+   * Applies AC-246's target gate then AC-244's audit wrapper, in that order, to
+   * one tool body. Composed once per registration, not per call: the gate closes
+   * over the injected entry lists and the tool body, and nothing else.
+   */
+  const audited = (
+    name: string,
+    description: string | undefined,
+    requiredScope: string,
+    inputSchema: ZodRawShape,
+    outputSchema: ZodRawShape | undefined,
+    handle: (args: Record<string, unknown>) => unknown | Promise<unknown>,
+  ): void => {
+    const guarded = resolveDeps === undefined ? handle : resolveInputTargets(handle, resolveDeps);
+    withMcpAudit({
+      name,
+      description,
+      inputSchema,
+      outputSchema,
+      requiredScopes: [requiredScope],
+      handler: (args) => guarded(args as Record<string, unknown>),
+    })(server, principal);
+  };
+
+  if (readTools) {
+    const register: McpReadToolSeam = (registration) =>
+      audited(
+        registration.name,
+        registration.description,
+        registration.requiredScope,
+        registration.inputSchema,
+        registration.outputSchema,
+        (args) => registration.handler(args),
+      );
+    registerMcpReadTools(register, readTools);
+  }
+
+  if (writeTools) {
+    const register: McpWriteToolSeam = (registration) =>
+      audited(
+        registration.name,
+        registration.description,
+        registration.requiredScope,
+        registration.inputSchema,
+        registration.outputSchema,
+        (args) => {
+          if (principal === null) {
+            // Unreachable: `withMcpAudit` denies a null principal before the
+            // handler is reached. Stated rather than asserted so a future
+            // wrapper change fails loudly instead of handing `null` on.
+            throw new Error(`${registration.name} requires an authenticated principal.`);
+          }
+          return registration.handler(args, { principal });
+        },
+      );
+    registerMcpWriteTools(register, writeTools);
   }
 
   return server;
@@ -115,6 +170,7 @@ function attachTransport(
   env: NodeJS.ProcessEnv | undefined,
   registerTools: McpToolRegistrar | undefined,
   readTools: McpReadToolDeps | undefined,
+  writeTools: McpWriteToolDeps | undefined,
   resolveDeps: McpResolveDeps | undefined
 ): void {
   const loopbackGuard = createMcpLoopbackGuard(env);
@@ -122,7 +178,7 @@ function attachTransport(
   app.post(MCP_GATEWAY_PATH, loopbackGuard, authorize, async (req, res) => {
     // The principal the auth middleware attached; audited tools are registered
     // per request against it, so the audit row names the invoking token.
-    const server = createMcpServer(registerTools, readMcpPrincipal(res), readTools, resolveDeps);
+    const server = createMcpServer(registerTools, readMcpPrincipal(res), readTools, writeTools, resolveDeps);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on('close', () => {
       transport.close();
@@ -203,6 +259,17 @@ export type McpGatewayDeps = {
    */
   readTools?: McpReadToolDeps;
   /**
+   * The services AC-249's stage-4 write tools answer from, assembled by the
+   * composition root (`server/index.ts`) over the process singletons: the single
+   * chat control service the WebSocket gateway and the scheduled timer share
+   * (AC-233), the run registry, and AC-248's `run_get` builder over its deps.
+   *
+   * Supplying it registers the five write tools through the SAME audited seam
+   * the read tools use. Absent keeps the read-only mount AC-245's criterion
+   * reads: no write tool appears in `tools/list`.
+   */
+  writeTools?: McpWriteToolDeps;
+  /**
    * The active project/session entries AC-246's target gate resolves a
    * `project` / `session` argument against. Supplying it turns on the gate for
    * every tool this mount registers: the reference is rewritten to an id before
@@ -242,6 +309,7 @@ export function mountMcpGateway(app: Express, deps: McpGatewayDeps = {}): McpGat
     deps.env,
     deps.registerTools,
     deps.readTools,
+    deps.writeTools,
     deps.resolveDeps
   );
   return { mounted: true, reason: gate.reason };

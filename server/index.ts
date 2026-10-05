@@ -89,6 +89,7 @@ import {
 } from './modules/debug-agent/index.js';
 import {
     MCP_GATEWAY_PATH,
+    buildRunGet,
     mountMcpGateway,
     mountOAuthMetadata,
     readMcpDcrMode,
@@ -528,6 +529,20 @@ const mcpOauth = oauthMetadataGate.enabled
     })()
     : undefined;
 
+// The services `run_get` (AC-248) and the bounded-wait half of `session_send`
+// (AC-249) answer from: the same run registry and activity store, the providers'
+// sessions history reader, and the wall clock plus a real sleeper. Bound to one
+// object because both tools read the identical services, and a second copy would
+// be two things to keep in step.
+const mcpRunGetDeps = {
+    runs: chatRunRegistry,
+    activity: activityStore,
+    sessions: sessionsService,
+    now: () => Date.now(),
+    sleep: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+    bootId: () => BOOT_ID,
+};
+
 const mcpGateway = mountMcpGateway(app, {
     tokens: accessTokensService,
     oauth: mcpOauth,
@@ -542,15 +557,18 @@ const mcpGateway = mountMcpGateway(app, {
             readCached: (projectId: string) => quayService.getCachedSnapshot(projectId),
             refresh: (projectId: string) => quayService.getQuaySnapshot(projectId, { forceRefresh: true }),
         },
-        runGet: {
-            runs: chatRunRegistry,
-            activity: activityStore,
-            sessions: sessionsService,
-            now: () => Date.now(),
-            sleep: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
-            bootId: () => BOOT_ID,
-        },
+        runGet: mcpRunGetDeps,
         now: () => Date.now(),
+    },
+    // The stage-4 write tools (AC-249). `control` is the SAME single chat control
+    // service built above (`chatControl`) and handed to the WebSocket gateway and
+    // the scheduled-message timer — the gateway must never construct one of its
+    // own — and `runGet` reuses AC-248's deps so a `waitSeconds` send and a
+    // `run_get` wait through one clock.
+    writeTools: {
+        control: chatControl,
+        runs: { getRun: (sessionId: string) => chatRunRegistry.getRun(sessionId) },
+        runGet: { deps: mcpRunGetDeps, build: buildRunGet },
     },
 });
 console.log(`[MCP] gateway ${mcpGateway.mounted ? 'mounted' : 'not mounted'} at ${MCP_GATEWAY_PATH} (${mcpGateway.reason})`);
