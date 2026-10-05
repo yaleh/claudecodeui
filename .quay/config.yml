@@ -22,6 +22,11 @@ loop:
   # Full contract + a drop-in case block: plugin/skills/init/SKILL.md, section "loop.test_command
   # contract".
   test_command: bash scripts/test.sh
+  # Declared explicitly: plugin >= 0.14.0 runs a bare `test_command` when this key is absent ("delegated"),
+  # without --test-concurrency, so scripts/test.sh falls back to its built-in CONCURRENCY=4. quay-buckets goes
+  # through full-suite-runner.ts, which splices a host-derived --test-concurrency (test.sh clamps it to 16).
+  # Measured 2026-10-05, server phase only, same 229 files: 401.0s at 4 vs 202.7s at 16.
+  suite_runner: quay-buckets
   tmux_session: null
   worktree_root: /data/home/yale/work/claudecodeui/../claudecodeui-worktrees
   # ⚠️ 本 heredoc 是【新装】写者，而版本级默认值的正本是 packages/quay/src/init.ts 的
