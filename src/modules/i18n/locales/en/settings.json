@@ -75,7 +75,19 @@
     "voice": "Voice",
     "profiles": "Profiles",
     "format": "Audio format",
-    "note": "A custom base URL is called directly by your browser and must allow browser CORS requests. Leave it blank to use the server-configured backend."
+    "note": "A custom base URL is called directly by your browser and must allow browser CORS requests. Leave it blank to use the server-configured backend.",
+    "dataTitle": "Local voice data",
+    "dataDescription": "Your recordings and their transcripts, kept on the machine that runs this server.",
+    "dataRecording": "Save voice data (on this machine only)",
+    "dataRecordingDescription": "When on, each transcription is stored locally so you can review it later. Nothing is sent anywhere else.",
+    "dataCapacity": "Storage limit (bytes)",
+    "dataCapacityDescription": "When the limit is reached, the oldest recordings are removed first.",
+    "dataClearTitle": "Clear voice data",
+    "dataClearDescription": "Permanently deletes every recording and transcript stored on this machine.",
+    "dataClear": "Clear voice data",
+    "dataClearConfirm": "Yes, delete everything",
+    "dataClearCancel": "Cancel",
+    "dataCleared": "Deleted {{count}} recording(s)."
   },
   "quickSettings": {
     "title": "Quick Settings",

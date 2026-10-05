@@ -327,6 +327,18 @@ export function createVoiceRouter(dependencies: VoiceRouterDependencies): expres
     response.json(dependencies.voiceService.captureState());
   });
 
+  // THE USER'S OWN KEPT RECORDINGS: the other half of the D1 promise the settings page turns on by
+  // default ("stored on this machine, and clearable in one action"). A `DELETE` of the resource the
+  // store holds, and the same request the settings page's confirm button sends.
+  //
+  // IT ANSWERS WITH A COUNT rather than `204`, unlike the lexicon's `DELETE` above: the settings page
+  // reports how many recordings were removed, and that number is the one thing the caller could not
+  // have computed for itself — the store is the only thing that knows. A deployment or user with no
+  // store yet answers `0` at `200`, which is the "nothing to clear is a clear that succeeded" case.
+  router.delete('/data', (_request, response) => {
+    response.json(dependencies.voiceService.clearVoiceData?.() ?? { deleted: 0 });
+  });
+
   router.post('/tts', asyncHandler(async (request, response) => {
     const text = request.body?.text;
     if (typeof text !== 'string' || !text.trim()) {
