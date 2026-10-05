@@ -42,7 +42,15 @@ import type { VoiceLogPort } from '@/shared/types.js';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const VOICE_DIR = path.resolve(HERE, '..');
 const SHIPPING_CAPTURE_MODULE = path.join(VOICE_DIR, 'voice-capture.ts');
-const TEMP_PREFIX = '__criterion-raw-falsify-';
+// The `__criterion-falsify-` substring is load-bearing, not decoration: the sibling criteria that
+// build copies in this SAME directory (`voice-capture-off`, `-text`, `-secrets`, `-isolation`,
+// `voice-dashscope-settings`) forgive a concurrent process's in-flight copy ONLY when the porcelain
+// line contains that substring (`isTempCopy`). `__criterion-raw-falsify-` does NOT contain it, so an
+// earlier name of this constant made this file's own copies read as *this run's* residue in a
+// sibling's tree reading and red it. Keeping the raw marker AFTER the shared substring means both
+// properties hold at once: siblings forgive these copies, and this file's copies stay distinguishable
+// by name.
+const TEMP_PREFIX = '__criterion-falsify-raw-';
 
 type Edit = { anchor: string; replacement: string };
 type Expectation = { reading: RegExp; token: string; meaning: string };
