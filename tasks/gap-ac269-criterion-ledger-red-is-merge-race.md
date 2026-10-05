@@ -5,7 +5,7 @@ title: AC-269 判据台账尾部红是 merge race：记录文件 + --check-exter
   +0800 / 23:28:12Z）才带进 develop/主检出；末拍 goal 红 23:26:04.572Z@tree 8ba0cbba（记录文件
   ABSENT、scripts/mcp-smoke.mjs PRESENT）早于落地约 128s —— verification-only
   归因入档（当前检出直跑 5 次 exit 0 + 单测 39/39/0），不重新实现既有修复
-status: todo
+status: ready
 labels:
   - gap
 parent: null
