@@ -45,7 +45,11 @@ export { createMcpLoopbackGuard, isLoopbackRemoteAddress, readMcpOauthEnabled } 
 // mounted endpoints directly. `readMcpDcrMode` is also the reader AC-264 will reuse
 // rather than redefining.
 export { readMcpDcrMode, readOAuthMetadataGate } from './oauth-metadata.gate.js';
-export type { OAuthMetadataGateReading } from './oauth-metadata.gate.js';
+// buildAuthorizationServerMetadata: the pure metadata builder. Consumers: this
+// module's `mountOAuthMetadata`, and the AC-264 DCR criterion, which reads the
+// `registration_endpoint` it advertises per DCR mode.
+export { buildAuthorizationServerMetadata } from './oauth-metadata.gate.js';
+export type { AuthorizationServerMetadata, OAuthMetadataGateReading } from './oauth-metadata.gate.js';
 
 export { mountOAuthMetadata } from './oauth-metadata.mount.js';
 export type { OAuthMetadataMountReading } from './oauth-metadata.mount.js';

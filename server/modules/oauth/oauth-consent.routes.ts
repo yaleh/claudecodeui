@@ -21,13 +21,20 @@
  *     the page from being framed, and `Cache-Control: no-store` keeps the form
  *     and its token out of any cache.
  *
+ * The password branch is rate limited per source (AC-261): the allow path is
+ * gated by {@link createConsentPasswordRateLimiter} after CSRF and before the
+ * password check, so a brute-forcing source is answered `429` — never reaching
+ * `verifyCredentials`, never issuing a code. Deny submits no password and is not
+ * limited.
+ *
  * Out of scope for this task: mounting the router or deciding the https base
- * URL (AC-262), rate limiting and origin checks (AC-261), `/mcp` authentication
- * (AC-263), DCR, the settings surface and the SPA.
+ * URL (AC-262), `/mcp` authentication (AC-263), DCR, the settings surface and
+ * the SPA.
  *
  * Consumers: the server entrypoint (mounted by AC-262) and this module's
- * criterion `tests/oauth-consent-page.test.ts`, which mounts this production
- * factory on a real express server with a real provider and client store.
+ * criteria `tests/oauth-consent-page.test.ts` (AC-260) and
+ * `tests/oauth-consent-ratelimit.test.ts` (AC-261), which mount this production
+ * factory on real express servers.
  */
 
 import crypto from 'crypto';
@@ -36,6 +43,8 @@ import express from 'express';
 
 import type { CredentialVerifier } from '@/modules/auth/index.js';
 import type { OAuthClientRow } from '@/modules/database/index.js';
+import { createConsentPasswordRateLimiter } from '@/modules/oauth/oauth-consent-ratelimit.service.js';
+import type { ConsentPasswordRateLimiter } from '@/modules/oauth/oauth-consent-ratelimit.service.js';
 import type { OAuthProvider } from '@/modules/oauth/oauth-provider.service.js';
 
 /** The scope every consent grants, pinned checked and disabled in the form. */
@@ -58,10 +67,14 @@ export type CreateOAuthConsentRouterOptions = {
   clients: { findById(clientId: string): OAuthClientRow | undefined };
   /** The non-throwing credential check (auth module) that gates code issuance. */
   verifyCredentials: CredentialVerifier;
-  /** Clock for the default CSRF store; injectable so its TTL can be exercised. */
+  /** Clock for the default CSRF store and rate limiter; injectable for both. */
   now?: () => Date;
   /** Override the CSRF ledger entirely (tests); defaults to an in-process store over `now`. */
   csrfStore?: CsrfTokenStore;
+  /** Whether a trusted reverse proxy sets `CF-Connecting-IP`; defaults to a set `TRUST_PROXY`. */
+  trustProxy?: boolean;
+  /** Override the password rate limiter entirely (tests); defaults to one over `now`/`trustProxy`. */
+  rateLimiter?: ConsentPasswordRateLimiter;
 };
 
 /** Escapes `& < > " '` so an attacker-controlled value cannot break out of text or an attribute. */
@@ -236,6 +249,9 @@ function renderConsentPage(input: ConsentPageInput): string {
  */
 export function createOAuthConsentRouter(options: CreateOAuthConsentRouterOptions): express.Router {
   const csrfStore = options.csrfStore ?? createCsrfTokenStore({ now: options.now });
+  const rateLimiter =
+    options.rateLimiter
+    ?? createConsentPasswordRateLimiter({ now: options.now, trustProxy: options.trustProxy });
   const router = express.Router();
 
   router.get('/authorize', (req, res) => {
@@ -333,16 +349,31 @@ export function createOAuthConsentRouter(options: CreateOAuthConsentRouterOption
       return;
     }
 
+    // Allow-path rate limiting runs after CSRF (a forged form cannot spend a
+    // source's budget) and before the password check (a blocked source never
+    // reaches `verifyCredentials`, so no code can be issued). Deny submits no
+    // password and is deliberately not limited.
+    const sourceKey = rateLimiter.source(req);
+    if (rateLimiter.isBlocked(sourceKey)) {
+      res.setHeader('Retry-After', String(Math.ceil(rateLimiter.retryAfterMs(sourceKey) / 1000)));
+      sendErrorPage(res, 429, 'Too many failed attempts; try again later');
+      return;
+    }
+
     if (password.length === 0) {
+      rateLimiter.recordFailure(sourceKey);
       sendErrorPage(res, 401, 'Password is required');
       return;
     }
 
     const identity = await options.verifyCredentials(username, password);
     if (!identity.ok) {
+      rateLimiter.recordFailure(sourceKey);
       sendErrorPage(res, 401, 'Invalid username or password');
       return;
     }
+    // A successful login clears only this source's budget.
+    rateLimiter.resetSource(sourceKey);
 
     // Only the checked boxes arrive (the read-only box is disabled and is not
     // submitted), so the granted set is the deduplicated submission with the
