@@ -66,6 +66,15 @@ export const MCP_PATH = '/mcp';
 /** 环境变量名：起真服务时把它置 1，网关才会挂上 `/mcp`。 */
 export const MCP_ENABLE_VAR = 'MCP_ENABLED';
 
+/**
+ * `claude mcp add` 一次的读数：逐字命令 + 退出码 + 两路输出。
+ * @typedef {object} McpAddReading
+ * @property {string} command
+ * @property {number | null} status
+ * @property {string} stdout
+ * @property {string} stderr
+ */
+
 /** 护栏拒绝。带这个名字的错误一律 exit 1，并且不产生任何读数。 */
 export class GuardRefusal extends Error {
   /** @param {string} message */
@@ -263,7 +272,12 @@ function recordHeader() {
   ].join('\n');
 }
 
-/** 记录文件里的段落正文：一行原始读数 + 一行结论。 */
+/**
+ * 记录文件里的段落正文：一行原始读数 + 一行结论。
+ * @param {string} reading
+ * @param {string} conclusion
+ * @returns {string}
+ */
 function sectionBody(reading, conclusion) {
   return `读数：${reading}\n结论：${conclusion}\n`;
 }
@@ -611,7 +625,11 @@ export async function bootServer({ tempRoot, label }) {
   return reading;
 }
 
-/** 打印一条原始读数行，同时返回它，便于段落正文复述。 */
+/**
+ * 打印一条原始读数行，同时返回它，便于段落正文复述。
+ * @param {string} line
+ * @returns {string}
+ */
 function say(line) {
   process.stdout.write(`${line}\n`);
   return line;
@@ -636,6 +654,7 @@ function say(line) {
  * @param {{attempts?: number}} [options]
  */
 export async function api(port, token, method, requestPath, body, { attempts = 4 } = {}) {
+  /** @type {unknown} */
   let lastError = null;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
@@ -660,16 +679,30 @@ export async function api(port, token, method, requestPath, body, { attempts = 4
       if (attempt < attempts) await delay(250 * attempt);
     }
   }
-  const cause = lastError?.cause;
+  throw new Error(`${method} ${requestPath} 连续 ${attempts} 次都没打通：${errorText(lastError)}`);
+}
+
+/**
+ * 把 catch 到的 `unknown` 折成一条可读文本，并把 `Error.cause` 带出来——否则「fetch failed」这三个字
+ * 会把 ECONNRESET 和 bad port 两种完全不同的原因糊成一条。
+ * @param {unknown} error
+ * @returns {string}
+ */
+function errorText(error) {
+  if (!(error instanceof Error)) return String(error);
+  const cause = /** @type {{ code?: string, message?: string } | undefined} */ (error.cause);
   const causeText = cause === undefined
     ? ''
     : `（cause: ${cause?.code ?? cause?.message ?? String(cause)}）`;
-  throw new Error(
-    `${method} ${requestPath} 连续 ${attempts} 次都没打通：${lastError?.message ?? String(lastError)}${causeText}`,
-  );
+  return `${error.message}${causeText}`;
 }
 
-/** 拆 `{ success, data }` 信封，失败时把状态与响应体一并抛出（缺面必须点名而不是静默）。 */
+/**
+ * 拆 `{ success, data }` 信封，失败时把状态与响应体一并抛出（缺面必须点名而不是静默）。
+ * @param {{ status: number, body: any }} answer
+ * @param {string} label
+ * @returns {any}
+ */
 export function dataOf(answer, label) {
   if (!(answer.status >= 200 && answer.status < 300)) {
     throw new Error(`${label} 应答 ${answer.status}：${JSON.stringify(answer.body)}`);
@@ -778,10 +811,17 @@ export async function mcpConnect(port, pat) {
   return client;
 }
 
-/** 调一个 MCP 工具，返回 `{ isError, text, json }`。工具结果文本按 JSON 解析，解析不了就留 null。 */
+/**
+ * 调一个 MCP 工具，返回 `{ isError, text, json }`。工具结果文本按 JSON 解析，解析不了就留 null。
+ * @param {import('@modelcontextprotocol/sdk/client/index.js').Client} client
+ * @param {string} name
+ * @param {Record<string, unknown>} args
+ * @returns {Promise<{ isError: boolean, text: string, json: any }>}
+ */
 export async function callTool(client, name, args) {
   const answer = await client.callTool({ name, arguments: args });
-  const blocks = Array.isArray(answer?.content) ? answer.content : [];
+  // content 是 text/image/… 的联合；本脚本只读 `.text`，按 any[] 处理，联合成员差异不参与判据。
+  const blocks = /** @type {any[]} */ (Array.isArray(answer?.content) ? answer.content : []);
   const text = blocks
     .map((block) => (typeof block?.text === 'string' ? block.text : ''))
     .join('\n')
@@ -841,7 +881,11 @@ export function parseClaudeStream(text) {
   return { events, toolUses, toolResults, result };
 }
 
-/** 一段 tool_result 的 content（字符串或块数组）折成文本。 */
+/**
+ * 一段 tool_result 的 content（字符串或块数组）折成文本。
+ * @param {unknown} content
+ * @returns {string}
+ */
 function contentText(content) {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
@@ -864,7 +908,11 @@ export function toolCallFor(parsed, suffix) {
   return { use, result };
 }
 
-/** 终端 Claude Code 的运行环境：临时 HOME/CLAUDE_CONFIG_DIR + 本机已配好的真模型端点。 */
+/**
+ * 终端 Claude Code 的运行环境：临时 HOME/CLAUDE_CONFIG_DIR + 本机已配好的真模型端点。
+ * @param {Smoke} smoke
+ * @returns {Record<string, string | undefined>}
+ */
 function claudeEnv(smoke) {
   const env = { ...process.env };
   for (const name of ['DATABASE_PATH', 'HOST', 'SERVER_PORT', 'JWT_SECRET', 'NODE_OPTIONS', MCP_ENABLE_VAR]) {
@@ -942,7 +990,13 @@ export function driveClaude(smoke, { prompt, label, timeoutMs = 300_000 }) {
 // 宿主快照（`GET /api/session-hosts`）
 // ---------------------------------------------------------------------------
 
-/** 读宿主快照。缺 `sessions[]` 就是 AC-169 没落地，点名拒绝而不是绕开。 */
+/**
+ * 读宿主快照。缺 `sessions[]` 就是 AC-169 没落地，点名拒绝而不是绕开。
+ * @param {number} port
+ * @param {string} token
+ * @param {string} [label]
+ * @returns {Promise<{ hosts: any[], sessions: any[] }>}
+ */
 export async function readHosts(port, token, label = 'GET /api/session-hosts') {
   const data = dataOf(await api(port, token, 'GET', '/api/session-hosts'), label);
   if (!Array.isArray(data.hosts) || !Array.isArray(data.sessions)) {
@@ -951,19 +1005,29 @@ export async function readHosts(port, token, label = 'GET /api/session-hosts') {
   return { hosts: data.hosts, sessions: data.sessions };
 }
 
-/** 服务某会话的活常驻宿主，或 null。 */
+/**
+ * 服务某会话的活常驻宿主，或 null。
+ * @param {{ hosts: any[] }} listing
+ * @param {string} sessionId
+ * @returns {any | null}
+ */
 export function residentHostOf(listing, sessionId) {
   return (
     listing.hosts.find(
       (host) => host.state !== 'closed'
         && host.mode === 'resident'
         && Array.isArray(host.bindings)
-        && host.bindings.some((binding) => binding.appSessionId === sessionId),
+        && host.bindings.some((/** @type {{ appSessionId?: string }} */ binding) => binding.appSessionId === sessionId),
     ) ?? null
   );
 }
 
-/** 该会话在 `sessions[]` 里的那一行，或 null。 */
+/**
+ * 该会话在 `sessions[]` 里的那一行，或 null。
+ * @param {{ sessions: any[] }} listing
+ * @param {string} sessionId
+ * @returns {any | null}
+ */
 export function sessionStateOf(listing, sessionId) {
   return listing.sessions.find((session) => session.appSessionId === sessionId) ?? null;
 }
@@ -983,6 +1047,7 @@ class LegRefusal extends Error {
 
 /** 冒烟上下文：进程、端口、PAT、JWT、记录文件路径，以及八段之间要被下一段读到的读数。 */
 class Smoke {
+  /** @param {{ tempRoot: string, databasePath: string, record: string }} input */
   constructor(input) {
     this.tempRoot = input.tempRoot;
     this.databasePath = input.databasePath;
@@ -994,19 +1059,26 @@ class Smoke {
     this.startedAt = Date.now();
     this.appToken = '';
     this.pat = '';
+    /** @type {number | null} */
     this.patUserId = null;
     this.modelId = '';
     this.projectDir = path.join(input.tempRoot, 'project');
     this.mcpServerName = 'cloudcli';
     this.sessionId = '';
+    /** 「发消息」一节里 MCP `session_send` 回的那条 run id；「查进度」按它查。 */
+    this.mcpRunId = '';
+    /** @type {number | null} */
     this.hostPidBefore = null;
+    /** @type {number | null} */
     this.hostPidAfter = null;
     /** 正控制读到的、非 MCP run 的 `source`；为 null 表示未取得（不得据此断言字段有分辨力）。 */
+    /** @type {string | null} */
     this.positiveControlSource = null;
     /** 正控制那一段的逐字读数行，供「发消息」一节复述。 */
     this.positiveControlLine = '（正控制未取得）';
     /** @type {string[]} */
     this.toolNames = [];
+    /** @type {McpAddReading | null} */
     this.mcpAdd = null;
   }
 
@@ -1048,10 +1120,16 @@ class Smoke {
  * `supersedeRunning` 分支），那条拒绝在本 provider 上结构性地不可达。
  */
 export class ChatSocket {
+  /** @param {import('ws').WebSocket} socket */
   constructor(socket) {
     this.socket = socket;
   }
 
+  /**
+   * @param {number} port
+   * @param {string} token
+   * @returns {Promise<ChatSocket>}
+   */
   static async connect(port, token) {
     const socket = new WebSocket(`ws://127.0.0.1:${port}/ws?token=${encodeURIComponent(token)}`);
     const chat = new ChatSocket(socket);
@@ -1062,10 +1140,15 @@ export class ChatSocket {
     return chat;
   }
 
+  /** @param {Record<string, unknown>} payload */
   send(payload) {
     this.socket.send(JSON.stringify(payload));
   }
 
+  /**
+   * @param {string} sessionId
+   * @param {number} [lastSeq]
+   */
   subscribe(sessionId, lastSeq = 0) {
     this.send({ type: 'chat.subscribe', sessions: [{ sessionId, lastSeq }] });
   }
@@ -1117,6 +1200,11 @@ export class ChatSocket {
 /**
  * 发一轮用户消息但**不等**它的终止帧：用来把一条 **WS 发起**的 run 钉在运行中（正控制的靶子）。
  * 与 {@link sendTurn} 走同一条 `chat.send`，只是不阻塞。
+ * @param {ChatSocket} chat
+ * @param {string} sessionId
+ * @param {string} content
+ * @param {string} cwd
+ * @param {{ model?: string }} [options]
  */
 function startTurn(chat, sessionId, content, cwd, { model } = {}) {
   chat.send({
@@ -1127,13 +1215,19 @@ function startTurn(chat, sessionId, content, cwd, { model } = {}) {
   });
 }
 
-/** 该会话此刻在 `GET /api/providers/sessions/running` 里的那一行，没有就是 null。 */
+/**
+ * 该会话此刻在 `GET /api/providers/sessions/running` 里的那一行，没有就是 null。
+ * @param {ServerReading} server
+ * @param {string} token
+ * @param {string} sessionId
+ * @returns {Promise<any | null>}
+ */
 async function runningEntry(server, token, sessionId) {
   const running = dataOf(
     await api(server.port, token, 'GET', '/api/providers/sessions/running'),
     'GET /api/providers/sessions/running',
   );
-  return (running.sessions ?? []).find((row) => row.sessionId === sessionId) ?? null;
+  return (running.sessions ?? []).find((/** @type {{ sessionId?: string }} */ row) => row.sessionId === sessionId) ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1152,6 +1246,7 @@ const SESSION_TITLE_FRAGMENT = 'mcp-smoke';
  *
  * 读数是**端口**、`/proc/<leaderPid>/environ` 里的 `DATABASE_PATH`/`HOST`、以及「≠ 3001」。
  * `port=<n>` 是 `--check-record` 的机械检查 (b) 逐字解析的那一格。
+ * @param {Smoke} smoke
  */
 function legInstance(smoke) {
   const server = smoke.server;
@@ -1175,6 +1270,7 @@ function legInstance(smoke) {
  *
  * 两条独立入站面都记：终端 Claude Code 的 `claude mcp add` 逐字命令（AC 要求），以及 MCP SDK 客户端
  * 从 `tools/list` 读到的**逐字工具名**。
+ * @param {Smoke} smoke
  */
 async function legHandshake(smoke) {
   const add = addMcpServer(smoke);
@@ -1230,6 +1326,7 @@ async function legHandshake(smoke) {
  *
  * 两件事：脚本先建临时会话（应用 API）+ 切 `resident`，再用**自然语言提示**驱动终端 Claude Code 调
  * `sessions_list` 把它列出来。读数是 CLI 那次调用返回的原始文本里逐字含该会话 id/title。
+ * @param {Smoke} smoke
  */
 async function legListSessions(smoke) {
   const server = smoke.server;
@@ -1390,6 +1487,7 @@ async function legListSessions(smoke) {
  * 自然语言驱动终端 Claude Code 调 `session_send`（内层一条长命令的 run）。读数是**该 run 出现在
  * `GET /api/providers/sessions/running`**、`session_send` 返回的 `source` 逐字 `mcp`，以及正控制
  * （同一读里一个非 MCP run 的来源 ≠ mcp）。
+ * @param {Smoke} smoke
  */
 async function legSend(smoke) {
   const server = smoke.server;
@@ -1421,7 +1519,7 @@ async function legSend(smoke) {
     await api(server.port, smoke.appToken, 'GET', '/api/providers/sessions/running'),
     'GET /api/providers/sessions/running',
   );
-  const entry = (running.sessions ?? []).find((row) => row.sessionId === smoke.sessionId);
+  const entry = (running.sessions ?? []).find((/** @type {{ sessionId?: string }} */ row) => row.sessionId === smoke.sessionId);
   if (!entry) {
     throw new LegRefusal(
       `拒绝运行：发消息后 sessionId=${smoke.sessionId} 没出现在 GET /api/providers/sessions/running`
@@ -1449,6 +1547,7 @@ async function legSend(smoke) {
  * 第六段：查进度。
  *
  * 自然语言驱动终端 Claude Code 调 `run_get(runId)`。读数是它返回的 `status`/`source`/`phase` 逐字。
+ * @param {Smoke} smoke
  */
 async function legProgress(smoke) {
   const drive = driveClaude(smoke, {
@@ -1483,6 +1582,7 @@ async function legProgress(smoke) {
  *
  * 自然语言驱动终端 Claude Code 调 `session_interrupt`。读数是它返回的 `aborted`，以及**常驻进程 pid
  * 前后各一个读数**（`GET /api/session-hosts`），两者相同才是「中止不杀常驻进程」。
+ * @param {Smoke} smoke
  */
 async function legInterrupt(smoke) {
   const server = smoke.server;
@@ -1511,7 +1611,7 @@ async function legInterrupt(smoke) {
         await api(server.port, smoke.appToken, 'GET', '/api/providers/sessions/running'),
         '中止后 GET /api/providers/sessions/running',
       );
-      return !(running.sessions ?? []).some((row) => row.sessionId === smoke.sessionId);
+      return !(running.sessions ?? []).some((/** @type {{ sessionId?: string }} */ row) => row.sessionId === smoke.sessionId);
     },
     30_000,
     '中止之后该会话不再出现在运行中列表',
@@ -1551,6 +1651,7 @@ async function legInterrupt(smoke) {
 // CLI 参数与 `--check-record`
 // ---------------------------------------------------------------------------
 
+/** @param {string[]} argv @returns {Record<string, string | undefined>} */
 export function parseFlags(argv) {
   /** @type {Record<string, string | undefined>} */
   const flags = {};
