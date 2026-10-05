@@ -71,6 +71,7 @@ import {
     registerDebugAgentControlPlaneRoutes,
     setDebugAgentOpenRun,
 } from './modules/debug-agent/index.js';
+import { MCP_GATEWAY_PATH, mountMcpGateway } from './modules/mcp-gateway/index.js';
 import { browserUseService } from './modules/browser-use/browser-use.service.js';
 import { initializeDatabase, sessionsDb } from './modules/database/index.js';
 import { configureWebPush } from './modules/notifications/index.js';
@@ -435,6 +436,14 @@ if (mountDebugAgentControlPlane(app, authenticateToken)) {
         `[DEBUG-AGENT] control plane mounted at ${DEBUG_AGENT_CONTROL_PLANE_PATH} (${getDebugAgentGateReason()})`,
     );
 }
+
+// The MCP gateway (AC-240): one stateless Streamable HTTP endpoint at `/mcp`,
+// mounted BEFORE the static layer. Order is load-bearing — behind the SPA
+// catch-all below, `/mcp` would answer `200 text/html` and no MCP client would
+// reach the transport. The gate decides at mount time; while `MCP_ENABLED` is
+// off nothing is attached here and the path stays absent.
+const mcpGateway = mountMcpGateway(app);
+console.log(`[MCP] gateway ${mcpGateway.mounted ? 'mounted' : 'not mounted'} at ${MCP_GATEWAY_PATH} (${mcpGateway.reason})`);
 
 // Static assets and the SPA entry, mounted after every API route so response
 // compression only ever applies to the bundle and HTML above (see the module
