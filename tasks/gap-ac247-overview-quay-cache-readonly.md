@@ -53,16 +53,52 @@ AC-247（GOAL-020 退出条件 7 的 overview / quay 缓存条；SPEC `docs/prop
 
 ## AC
 
-- [ ] AC1 判据红态基线逐字记录：改动前运行 AC-247 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-overview.test.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-overview.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-overview.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 (a) overview 含运行中会话（逐条 project/title/phase/elapsedMs）、`awaitingPermission` 会话（经注入 activity 制造，逐字写出其 sessionId 与 phase）、保留期内被中止的运行（含 aborted、不含 completed，逐字写 status/runId）、常驻宿主一览（逐字写 state 与 leases kinds）；正例对照 running 非空。
-- [ ] AC4 (b) quay 缓存命中项目带任务计数与 driver、suite 状态（逐字写 tasks.total/driver.state/suite.state）；未命中标「未知」；冷缓存 `refreshCount === 0`；正例对照命中项目带出计数。
-- [ ] AC5 (c) `quay_snapshot` 默认读缓存（`refreshCount` 不增）、`refresh:true` 使该项目的 `refreshCount` 恰好 +1 且只作用于该项目（逐字写两项目计数）、数组 `project` 被输入 schema 拒绝（逐字写拒绝读数）。
-- [ ] AC6 (d) 无 quay 配置的项目在 overview 与 `quay_snapshot` 里都说明「该项目没有 quay」且不抛错；有配置的项目不出现该说明；逐字写两侧原始文案。
-- [ ] AC7 (e) 20 个项目下一次 `overview` 的 `refreshCount === 0`，不随项目数增长（逐字写项目数与计数）。
-- [ ] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) overview 传 refresh / 对未命中现取 ⇒ AC4/AC7 红；(ii) 漏掉 awaitingPermission ⇒ AC3 红；(iii) quay_snapshot 的 refresh 不触发运行器 ⇒ AC5 红。每条恢复命令 + 恢复后重跑绿。
-- [ ] AC9 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；既有 `server/modules/quay/tests/quay.service.test.ts`（`getQuaySnapshot` 既有语义）与 `server/modules/websocket/tests/chat-run-by-id.test.ts`（保留期）不改一字仍逐字通过；AC-245 判据 `server/modules/mcp-gateway/tests/mcp-read-tools.test.ts` 不改一字仍逐字通过（本任务只替换两个 handler，不改工具集合）。
-- [ ] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
+- [x] AC1 判据红态基线逐字记录：改动前运行 AC-247 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-overview.test.ts`（写下完整命令与完整输出）。
+  - 命令：`for f in server/modules/mcp-gateway/tests/mcp-overview.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-overview.test.ts`
+  - 改动前输出（exit 1，stderr）：`缺判据文件：server/modules/mcp-gateway/tests/mcp-overview.test.ts`
+- [x] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-overview.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-overview.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
+  - 读数：`ℹ tests 5` / `ℹ pass 5` / `ℹ fail 0`；exit 0。五条 ✔：(a) 会话/宿主、(b) 缓存命中/未命中+冷缓存、(c) quay_snapshot 三读数、(d) 无 quay 说明、(e) 20 项目零调用。
+- [x] AC3 (a) overview 含运行中会话（逐条 project/title/phase/elapsedMs）、`awaitingPermission` 会话（经注入 activity 制造，逐字写出其 sessionId 与 phase）、保留期内被中止的运行（含 aborted、不含 completed，逐字写 status/runId）、常驻宿主一览（逐字写 state 与 leases kinds）；正例对照 running 非空。
+  - `running = [{"sessionId":"overview-fixture-busy","projectId":"e5a5e108-…","project":"overview-main","title":"Busy overview session","phase":"awaitingPermission","elapsedMs":12345}]`（正例对照：length 1 > 0）
+  - `awaitingPermission = [{"sessionId":"overview-fixture-busy","project":"overview-main","title":"Busy overview session","phase":"awaitingPermission"}]`
+  - `aborted = [{"runId":"f4416005-af86-43a1-a823-b99a65c54801","sessionId":"overview-fixture-aborted","status":"aborted","startedAt":1791185815526,"completedAt":1791185815526}]`；断言不含 completed runId。
+  - `hosts = [{"hostId":"host-b3a5a773-…","state":"lingering","sessionId":"overview-fixture-resident","peerName":"overview-fixture-peer","leases":[{"kind":"resident-policy"},{"kind":"cron","id":"overview-fixture-cron"},{"kind":"background-task","id":"overview-fixture-bg"}]}]`（lease kinds 逐字）
+- [x] AC4 (b) quay 缓存命中项目带任务计数与 driver、suite 状态（逐字写 tasks.total/driver.state/suite.state）；未命中标「未知」；冷缓存 `refreshCount === 0`；正例对照命中项目带出计数。
+  - 命中：`{"status":"cached","tasks":{"total":7,…},"driver":{"state":"running"},"suite":{"state":"passed"}}`（tasks.total=7 即正例对照）
+  - 未命中：`{"status":"unknown","note":"未知：该项目没有缓存快照（overview 不装载；请用 quay_snapshot 刷新）"}`
+  - `[b] refreshCount after overview = 0`
+- [x] AC5 (c) `quay_snapshot` 默认读缓存（`refreshCount` 不增）、`refresh:true` 使该项目的 `refreshCount` 恰好 +1 且只作用于该项目（逐字写两项目计数）、数组 `project` 被输入 schema 拒绝（逐字写拒绝读数）。
+  - 默认：`{"status":"cached","snapshot":{…}}`，`refreshCount=0`（不增）
+  - `refresh:true`：`{"status":"refreshed",…}`；`[c] refreshCounts: <mainId>=1 <otherId>=0`
+  - 数组：`isError=true text="MCP error -32602: Input validation error: Invalid arguments for tool quay_snapshot: [ { \"expected\": \"string\", \"code\": \"invalid_type\", \"path\": [ \"project\" ], \"message\": \"Invalid input: expected string, received array\" } ]"`
+- [x] AC6 (d) 无 quay 配置的项目在 overview 与 `quay_snapshot` 里都说明「该项目没有 quay」且不抛错；有配置的项目不出现该说明；逐字写两侧原始文案。
+  - overview：`{"projectId":"74b33c29-…","status":"no-quay-config","note":"该项目没有 quay"}`
+  - `quay_snapshot`：`isError=false payload={"project":"74b33c29-…","hasQuayConfig":false,"status":"no-quay-config","note":"该项目没有 quay"}`
+  - 正例对照：有配置项目 overview 条 `note` ≠ `该项目没有 quay`。
+- [x] AC7 (e) 20 个项目下一次 `overview` 的 `refreshCount === 0`，不随项目数增长（逐字写项目数与计数）。
+  - `[e] projects=20 entries=20 refreshCount=0`
+- [x] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) overview 传 refresh / 对未命中现取 ⇒ AC4/AC7 红；(ii) 漏掉 awaitingPermission ⇒ AC3 红；(iii) quay_snapshot 的 refresh 不触发运行器 ⇒ AC5 红。每条恢复命令 + 恢复后重跑绿。
+  - (i) 变异 `mcp-overview-tools.ts`：`buildOverview` 在 quay 段前 `await Promise.all(projects.filter(p=>!deps.quay.readCached(p.projectId)).map(p=>(deps.quay as unknown as McpQuayRunner).refresh(p.projectId)))`。失败行：`(b) AssertionError [ERR_ASSERTION]: overview must not call the quay runner / actual: 19 / expected: 0`；`(e) … no project count may cause a runner call / actual: 19 / expected: 0`（`[b] refreshCount after overview = 19`）。恢复：`git checkout -- server/modules/mcp-gateway/mcp-overview-tools.ts`，重跑 `pass 5 / fail 0`。
+  - (ii) 变异：`awaitingPermission` 过滤比较串改为 `'permission'`。失败行：`(a) AssertionError [ERR_ASSERTION]: the awaitingPermission list must contain exactly the injected session / actual: [] / expected: [ 'overview-fixture-busy' ]`。恢复：同上 `git checkout --`，重跑 `pass 5 / fail 0`。
+  - (iii) 变异：`buildQuaySnapshot` 的 `refresh:true` 分支 `await deps.quay.refresh(project)` → `deps.quay.readCached(project)`。失败行：`(c) AssertionError [ERR_ASSERTION]: refresh: true must call the runner exactly once for the named project / actual: 0 / expected: 1`（`[c] refreshCounts: <mainId>=0 <otherId>=0`）。恢复：同上 `git checkout --`，重跑 `pass 5 / fail 0`。
+  - 三条变异均在实现提交（1220097a）之后施加，恢复后 `git status --short` 干净。
+- [x] AC9 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；既有 `server/modules/quay/tests/quay.service.test.ts`（`getQuaySnapshot` 既有语义）与 `server/modules/websocket/tests/chat-run-by-id.test.ts`（保留期）不改一字仍逐字通过；AC-245 判据 `server/modules/mcp-gateway/tests/mcp-read-tools.test.ts` 不改一字仍逐字通过（本任务只替换两个 handler，不改工具集合）。
+  - `npm run typecheck`：exit 0（三配置 `tsconfig.json` + `server/tsconfig.json` + `scripts/tsconfig.json` 全过）。
+  - `npm run lint`：`: error ` 计数 = 0（仅 warning）。
+  - `quay.service.test.ts`：`tests 14 / pass 14 / fail 0`（未改一字）。
+  - `chat-run-by-id.test.ts`：`tests 6 / pass 6 / fail 0`（未改一字）。
+  - `mcp-read-tools.test.ts`：`tests 6 / pass 6 / fail 0`（未改一字；未接线时 overview/quay_snapshot 仍以 `MCP_TOOL_NOT_IMPLEMENTED` 拒绝）。
+- [x] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
+  - `server/index.ts` | 16 +-
+  - `server/modules/mcp-gateway/index.ts` | 35 ++
+  - `server/modules/mcp-gateway/mcp-gateway.read-tools.ts` | 88 ++-
+  - `server/modules/mcp-gateway/mcp-overview-tools.ts (new)` | 436 ++
+  - `server/modules/mcp-gateway/tests/mcp-overview.test.ts (new)` | 646 ++
+  - `server/modules/quay/index.ts` | 6 +-
+  - `server/modules/quay/quay.service.ts` | 26 +
+  - `server/modules/websocket/index.ts` | 5 +
+  - `server/modules/websocket/services/chat-run-registry.service.ts` | 34 +-
+  - 与 `## Touches` 逐条对齐（唯一未出现在 diff 的 Touches 项是本任务文件 `tasks/gap-ac247-overview-quay-cache-readonly.md`，由 `task_write` 本身提交）。
 
 ## DoD
 
@@ -94,3 +130,4 @@ AC-247（GOAL-020 退出条件 7 的 overview / quay 缓存条；SPEC `docs/prop
 - `aborted` 的运行摘要没有退出码（注册表摘要只有 `status`），不要臆造 exitCode 字段；`completed` 的运行**不**算「被中止」。
 - 常驻夹具形制照 `server/modules/debug-agent/tests/debug-agent-host-driver.test.ts`（`createSessionHostManager` + `createDebugAgentHostDriver` + `armDebugAgentScenario`；`DEBUG_AGENT_PROVIDER_ID`）；退路是直接 `createSessionHostManager` + `bindSession` + 管理器 API 加 lease，仍从 `snapshot()` 读回，不手写 host 对象。
 - AC-248（`run_get` 有界等待）不在本任务：本任务只填 `overview`/`quay_snapshot`，`run_get` 的 handler 仍由 AC-248 落地。
+- 实现说明（worker）：quay 侧 `overview` 的 deps 只暴露 `CachedQuayReader`（`hasQuayConfig`+`readCached`），`refresh` 仅出现在 `buildQuaySnapshot` 的 deps 上——零扇出是类型层面的，不靠约定。`overview` 与 `quay_snapshot` 在 deps 未接线 quay/activity 时仍走 AC-245 的具名拒绝，故 AC-245 判据不改一字仍绿；接线后由 `registerMcpOverviewTools` 经同一注册缝安装真实 handler，工具集合（7 个名字/scope）不变。判据夹具用 20 个真实项目（2 个具名 + 18 个 extra），常驻宿主用直接 `createSessionHostManager`+`bindSession`+`addLease` 的退路（调试 agent 的 gate 在 import 时被 `provider.registry` 封死）。
