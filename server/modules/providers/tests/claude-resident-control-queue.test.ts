@@ -23,6 +23,28 @@
 //
 // 本文件**不** import/调用 `handleChatConnection`、不构造 socket、不连生产 3001 —— 见文末
 // 的自检用例（读自己的源码断言这三条）。
+//
+// --------------------------- 取假形态记录（AC7，先提交实现再变异）---------------------------
+// 三条取假形态各自只改 `claude-host-driver.provider.ts` 一处，跑主用例取其逐字失败行，随后
+// `git checkout -- server/modules/providers/list/claude/claude-host-driver.provider.ts` 恢复并重跑绿。
+//
+// (i) 驱动不交出 uuid —— 在 `queuedInputUuid` 的 live-state guard 之后插入 `return null;`。
+//     红：`AssertionError [ERR_ASSERTION]: the busy send must hand back a non-empty uuid from the
+//     real driver (got null)`；旁证 `send(withdrawn) … queuedMessageUuid=null`。恢复后绿。
+//
+// (ii) 撤回只改返回值、不真正让 CLI 取消 —— 在 `cancelQueuedInput` 的 writeRaw guard 之后插入
+//      `return 'withdrawn';`（不写控制帧、不等 `cancelled`、不 dropWithdrawnRound）。
+//      红：`AssertionError [ERR_ASSERTION]: a withdrawn message must never become a turn
+//      (real-turn requests carrying it: 1)`；旁证 `cancelVerdict="withdrawn"`、
+//      `withdrawnRealTurns=1 realTurnBodies=[81401,81607] lifecycleCancelled=false` —— 那条消息
+//      真的成了独立的下一轮（第二个真实轮请求）。恢复后绿。
+//
+// (iii) 撤回路径顺带杀进程 —— 在 `dropWithdrawnRound` 的 `state.rounds.splice(index, 1)` 之后
+//      对 `state.process.pid` 发 SIGKILL。
+//      红：撤回后、任一轮结束前的 pid 读数 `AssertionError [ERR_ASSERTION]: no live host serves
+//      session "claude-resident-control-queue-session"`（AC4 的存活读数）。恢复后绿。
+//
+// 每条都在本仓当前 checkout 上真跑过一次；判据的预算守卫与真实 CLI 相同，未放宽任何断言。
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
