@@ -5,7 +5,7 @@ title: AC-273 session_background：只读列出该会话持有的 background-tas
   cloudcli:session:control，只读令牌被拒且控制服务调用计数为 0）；停止不存在的 id 明确未找到、不虚报已停止；停止后再次列出该
   lease 消失；冷会话（无宿主）列出为空并说明没有宿主；判据
   server/modules/mcp-gateway/tests/mcp-session-background.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
