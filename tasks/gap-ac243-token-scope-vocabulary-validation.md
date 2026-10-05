@@ -3,7 +3,7 @@ id: gap-ac243-token-scope-vocabulary-validation
 title: AC-243 令牌签发只接受 scope 词汇表里的五个值：拼错的、不带前缀的 read、cloudcli:admin、空列表、非字符串元素一律
   400 同一个 INVALID_SCOPE 且不建记录，缺省仍为 cloudcli:read，服务层直调 issue 同样被拒；判据
   server/modules/oauth/tests/access-token-scopes.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
