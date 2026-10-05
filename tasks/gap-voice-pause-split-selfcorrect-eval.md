@@ -1,7 +1,7 @@
 ---
 id: gap-voice-pause-split-selfcorrect-eval
 title: 停顿切开对自我更正的影响：在更正处注入 2/5/10 秒停顿，比较整段识别与切开识别，选定 flushSilenceSec（预算上限 ¥1）
-status: todo
+status: ready
 labels:
   - gap
 parent: null

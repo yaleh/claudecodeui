@@ -1,0 +1,69 @@
+---
+id: gap-ac277-mcp-resident-human-gate
+title: AC-277 人工关卡：常驻专有能力真实冒烟记录送人 yale 验收——复核 AC-276 八节齐全与撤回节 pid 不变、反自点亮；worker
+  只写读数，停在 needs-human 等人写入「常驻专有能力验收：通过」
+status: todo
+labels:
+  - gap
+parent: null
+children: []
+extra:
+  schema: execution
+depends_on:
+  - gap-ac276-mcp-resident-smoke-record
+goal_ac: AC-277
+---
+## Proposal
+
+**交付物：AC-277（GOAL-022 的人工关卡）的送审与机械前置复核。** 本任务不实现 MCP 常驻专有工具（`session_cancel_queued` / `session_reconfigure` / `session_background` / `approvals_list` / `approval_answer`，由 AC-271–AC-275 落地），不修改记录 `docs/proposals/cloudcli-mcp-resident-smoke.md`，也不写 AC-277 的验收行。它只做三件事：复核 AC-276 的记录已齐全（八节 + 每节非空「读数：」/「结论：」+ 撤回节 pid 不变）；证明 AC-277 判据此刻为红只因缺人证行；把记录送人 yale 裁定。**验收行由人 yale 写入；worker 不代写这一行。**
+
+**为什么需要这条任务（缺口）。** GOAL-022 退出条件 6 由两条 AC 组成：AC-276 证明常驻专有能力冒烟记录八节读数齐全，AC-277 是人工关卡——记录文件里必须出现一行以「常驻专有能力验收：通过」开头、由人 yale 写入的验收行。判据逐字：`grep -q '^常驻专有能力验收：通过' docs/proposals/cloudcli-mcp-resident-smoke.md || { echo '缺人工验收行：…' >&2; exit 1; }`。驱动侧 `grep -rl "goal_ac: AC-277" tasks/` 为空——无任何任务（任何状态）认领 AC-277，故报为真缺口并立案本条。
+
+**红态基线（本轮实测，读数不是推断）。** 记录文件 `docs/proposals/cloudcli-mcp-resident-smoke.md` 尚不存在（`ls` 报 No such file and directory）；运行 AC-277 判据得到退出码 **1**（`grep` 对缺失文件返回 2，`||` 分支执行 `exit 1`），stderr 逐字输出 `缺人工验收行：docs/proposals/cloudcli-mcp-resident-smoke.md 里没有以「常驻专有能力验收：通过」开头的一行（只能由人 yale 写入）`。AC-276 落地后文件存在，判据仍红——因为人证行仍未写入。**这条红不能被执行者的任何动作消掉：它读的是人的写入。**
+
+**这条是什么、不是什么。** 它是 AC-277 的送审任务：worker 复核前置（AC-276 判据绿）、复核记录八节齐全且撤回节 pid 前后相等、做反自点亮负控制与正控制，然后把「人需要做的唯一一个动作」摆到人面前，停在 `needs-human`。它不是实现任务，也不是验收结论本身——GOAL-022 的达成结论只能由人 yale 的写入给出。
+
+<!-- dedup-ref --> 机制上去重已核对：`grep -rl "goal_ac: AC-277" tasks/` 为空——本仓库无任何任务带 `goal_ac: AC-277`；`grep -rln "AC-277" tasks/` 只命中 AC-271/272/273/274/276 的边界段（各自声明「AC-277 是人工关卡」）。前置（以顶层 `depends_on` 声明）：本条要在 AC-276 已落地的记录上取读数。AC-276（`gap-ac276-mcp-resident-smoke-record`）是不同机制：它交付 `scripts/mcp-smoke.mjs` 的 `--check-resident-record` 与八节记录，本条把记录送人裁定；两条缺一不可。先例 `gap-ac270-external-client-human-gate`（GOAL-021 的同类人工关卡）与 `gap-ac257-mcp-nested-smoke-human-gate`（GOAL-020 的同类）是人类关卡在本仓库的既有形态，本条照抄其形状。
+
+**非目标**：AC-271–AC-276 的产品代码与冒烟脚本（网关 / 工具 / 审批 / `--check-resident-record` / 记录本身）；AC-277 的人证行（由人 yale 写入）；把常驻冒烟挂进 CI；对生产 3001 做任何事。
+
+## Plan
+
+1. 等 `gap-ac276-mcp-resident-smoke-record` 到位（顶层 `depends_on` 已声明）。复核 AC-276 判据绿：`for f in scripts/mcp-smoke.mjs docs/proposals/cloudcli-mcp-resident-smoke.md; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; node scripts/mcp-smoke.mjs --check-resident-record docs/proposals/cloudcli-mcp-resident-smoke.md`，写下 stdout 逐字。
+2. 逐节复核记录八节（环境与版本 / 常驻会话启动与 pid / 忙时发送 / 撤回与 pid 不变 / 重配置下一轮生效 / 后台任务列出与停止 / 审批 / 收尾残留与生产监听 pid）：每节都要有非空 `读数：` 与 `结论：`（用 `--check-resident-record` 的机械结论，并逐节打印标题与两行的存在性）；并确认 `撤回与 pid 不变` 一节的 `读数：` 行里 `pid-before=<n>` 与 `pid-after=<n>` 逐字相等。
+3. 反自点亮：负控制——`grep -c '^常驻专有能力验收：通过' docs/proposals/cloudcli-mcp-resident-smoke.md` 为 0 且 `grep -c '常驻专有能力验收：通过' scripts/mcp-smoke.mjs` 为 0；正控制——对一份临时拷贝在行首插入该字样后同一 grep 命中 1（证明负控制的 0 有分辨力、不是恒零）。
+4. 把八节的承重读数（常驻会话 pid；忙时发送返回 `queuedMessageUuid`；撤回答复含 `cancelled` 且 `pid-before == pid-after`；`session_reconfigure` 下一轮生效的新旧值；`session_background` 列出与停止结果；审批在非 bypass 模式下的 `approvals_list` / `approval_answer` 读数；收尾残留三条命中数 0；`:3001` 起终点监听 pid 相同）摘录进本任务 `## Evidence`，并逐字写明请求人 yale 做的唯一动作：在 `docs/proposals/cloudcli-mcp-resident-smoke.md` 写入一行以「常驻专有能力验收：通过」开头的验收行。
+5. 停在 `needs-human`：AC1–AC5 与 AC7 已满足而 AC6 未满足即停；不改 `status:` 字段（由 driver 机械落 needs-human）。人写入后重跑 AC6 判据 → 勾 AC6 → 正常推进，GOAL-022 方可判 achieved。
+
+## AC
+
+- [ ] AC1 前置齐全（AC-276 判据绿）：逐字命令 `for f in scripts/mcp-smoke.mjs docs/proposals/cloudcli-mcp-resident-smoke.md; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; node scripts/mcp-smoke.mjs --check-resident-record docs/proposals/cloudcli-mcp-resident-smoke.md` 退出 **0**；写下 stdout 逐字。
+- [ ] AC2 记录八节齐全且每节读数非空：`node scripts/mcp-smoke.mjs --check-resident-record docs/proposals/cloudcli-mcp-resident-smoke.md` 退出 **0**；打印八节标题（环境与版本 / 常驻会话启动与 pid / 忙时发送 / 撤回与 pid 不变 / 重配置下一轮生效 / 后台任务列出与停止 / 审批 / 收尾残留与生产监听 pid）与每节 `读数：`/`结论：` 两行的存在性。
+- [ ] AC3 撤回节 pid 不变：对 `撤回与 pid 不变` 一节正文运行 `grep -oE 'pid-(before|after)=[0-9]+'`，确认 `pid-before=<n>` 与 `pid-after=<n>` 都存在且 **相等**；逐字打印该节 `读数：` 行。正控制：对一份临时拷贝把 `pid-after=` 改成与 `pid-before=` 不同的值后 `--check-resident-record` 退出 **非 0** 并点名 pid 不等（证明该读数有分辨力）。
+- [ ] AC4 反自点亮负控制 + 正控制：`grep -c '^常驻专有能力验收：通过' docs/proposals/cloudcli-mcp-resident-smoke.md` → **0** 且 `grep -c '常驻专有能力验收：通过' scripts/mcp-smoke.mjs` → **0**；正控制：对一份临时拷贝在行首插入该字样后同一 `grep -c` → **1**（证明负控制的零有分辨力、不是恒零）。
+- [ ] AC5 红态基线逐字记录：运行 AC-277 判据命令（完整判据文本见 goals/AC-277-*.md 的 criterion；本条复述其行为，不转录 echo 里那段括注），退出码 **1**，stderr 逐字含 `缺人工验收行：`。写下完整命令与完整输出。
+- [ ] AC6 人证行已由人 yale 写入：`grep -q '^常驻专有能力验收：通过' docs/proposals/cloudcli-mcp-resident-smoke.md` 退出 **0**。**这条 AC 不得由 worker 自行勾选**；人尚未写入时它保持未勾，本任务停在 `needs-human` 等人裁定，不得置 done。
+- [ ] AC7 只写本任务文件：`git diff --name-only "$(git merge-base develop HEAD)" -- . ':!tasks/gap-ac277-mcp-resident-human-gate.md'` 无输出（产品代码与记录文件一行未改；用 merge-base 而非裸 develop，避免把别人的 fan-in 读成本任务的改动）。
+
+## DoD
+
+**真实落地判据（不是「AC 全勾」）**：人 yale 必须能只读本任务的 `## Evidence` 与记录 `docs/proposals/cloudcli-mcp-resident-smoke.md`，就一次真跑过的常驻专有冒烟作出「通过 / 不通过」的判断，而**不需要重跑冒烟、也不需要回来补读数**。这要求记录八节逐节非空（AC2），撤回节 pid 前后相等（AC3），且承重读数（常驻会话 pid、忙时发送 `queuedMessageUuid`、撤回 `cancelled` 与 pid 不变、重配置下一轮生效、后台任务列出与停止、非 bypass 审批展开与回答、收尾残留为 0、`:3001` 监听 pid 起终点相同）在 `## Evidence` 里逐字可见。
+
+**停在 needs-human 而不是 done**：若 AC1–AC5 与 AC7 已满足而 AC6 未满足，正确终态是 `needs-human`（等人写入验收行），**不是** done。这是 AC-277 的 `expect` 与 GOAL-022 退出条件 6 的逐字要求（「记录齐全而人未确认时终止状态是 needs-human」）。worker 不自行改写 `status:` 字段，收尾由 driver 机械完成。
+
+**不得自点亮**：记录文件与脚本里都没有以「常驻专有能力验收：通过」开头的行（AC4 的负控制）；worker 不代写验收行。判据的红只能由人 yale 的写入消掉。
+
+**只动本任务文件**：产品代码与记录文件一行未改（AC7）。
+
+## Touches
+
+- tasks/gap-ac277-mcp-resident-human-gate.md（自触）
+
+## Notes
+
+- **AC6 不得加 `（待外部）` 注解**：加注解会让 `flipAcGateVerdict` 判为 `pass-external`（`ok:true`），机械 fan-in 会把任务置 done 而 AC-277 仍红——那正是本任务要挡的旁路（内存 `quay-human-gate-must-be-an-ac-not-dod-prose`）。保持未注解，未勾的非外部项会让 fan-in 拒绝、driver 按重试上限落 `needs-human`，这才是设计终态。
+- 也不要把人证门写成 DoD 散文里的一句话——门的机械判据只读 AC 勾选状态，散文会被静默绕过（同上内存）。故人证门必须是 AC6。
+- AC5 是**一次性基线**（AC-276 落地后、人写入前登记），照 `gap-ac270-external-client-human-gate` 的 AC5 与 `gap-ac257-mcp-nested-smoke-human-gate` 的 AC4 先例；人写入后它不再成立，但已勾选状态保留。
+- 记录文件是只读面：worker 不修改它，只读它并在本任务 `## Evidence` 里摘录读数。
+- 绝不碰生产 3001：不连接、不启用 `MCP_ENABLED`、不重启（内存 `never-restart-3001-from-inside-a-session-it-hosts`）。
+- 常驻专有冒烟的真跑成本（真 Claude CLI + 真模型调用 + 审批路径）已由 AC-276 承担一次；本条不重跑冒烟，只重跑机械复核（`--check-resident-record` 是纯读）。

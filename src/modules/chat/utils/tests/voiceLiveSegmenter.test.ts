@@ -29,6 +29,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'vitest';
 
 import {
+  DEFAULT_FLUSH_SILENCE_SEC,
   DEFAULT_KEEP_GAP_SEC,
   DEFAULT_MAX_SEGMENT_SEC,
   DEFAULT_MIN_SEGMENT_SEC,
@@ -446,6 +447,168 @@ test('every emitted segment is a 16 kHz WAV whose request body fits the 10 MB bu
   }
   // The 60 s ceiling is what keeps this comfortable: about 2.6 MB, base64 included.
   assert.ok(largest <= 3 * 1024 * 1024, `the largest request body ${largest} bytes is not the ~2.6 MB a 60 s WAV costs`);
+});
+
+// ── AC: a lone short utterance is released by silence, not by the stop ───────────────────────
+
+/**
+ * Feeds `samples` one frame at a time, collecting each segment the moment it is emitted.
+ *
+ * One frame per `push` is what makes "when was it emitted" measurable to the frame: the returned
+ * `atSample` is the sample the segmenter had accepted when the segment appeared, so the delay from
+ * a sentence's end to its upload is exact rather than a chunk-width approximation.
+ */
+function runStream(samples: Float32Array, events: readonly VadEvent[]): {
+  emissions: { segment: LiveSegment; atSample: number }[];
+  trailing: LiveSegment[];
+} {
+  const segmenter = new LiveSegmenter({ sampleRate: RATE });
+  const emissions: { segment: LiveSegment; atSample: number }[] = [];
+  for (let k = 0; k * FRAME < samples.length; k += 1) {
+    const atFrame = events.filter((e) => Math.round(e.atSample / FRAME) === k);
+    const chunk = samples.subarray(k * FRAME, (k + 1) * FRAME);
+    for (const segment of segmenter.push(chunk, k * FRAME, atFrame)) {
+      emissions.push({ segment, atSample: (k + 1) * FRAME });
+    }
+  }
+  return { emissions, trailing: segmenter.flush() };
+}
+
+/** One tone run of `speechFrames` after `leadFrames`, then `tailFrames` of silence. */
+function buildSpeechThenSilence(leadFrames: number, speechFrames: number, tailFrames: number): Float32Array {
+  const samples = new Float32Array((leadFrames + speechFrames + tailFrames) * FRAME);
+  samples.fill(0.3, leadFrames * FRAME, (leadFrames + speechFrames) * FRAME);
+  return samples;
+}
+
+test('a lone short utterance is flushed exactly at the flush window, and not before it', async () => {
+  const flushFrames = Math.round(DEFAULT_FLUSH_SILENCE_SEC * FRAMES_PER_SEC);
+  // 4.9 s: the negative control the AC names — two frames short of the window.
+  const justUnderFrames = Math.round(4.9 * FRAMES_PER_SEC);
+  let checked = 0;
+  for (let seed = 1; seed <= 120; seed += 1) {
+    const rng = mulberry32(seed);
+    const speechFrames = randInt(rng, 20, 120); // 0.4–2.4 s: every length under the floor
+    const lead = randInt(rng, 10, 60);
+    const truth: [number, number][] = [[lead, lead + speechFrames]];
+    const events = truthEvents(truth);
+    const speechEndSample = (lead + speechFrames) * FRAME;
+
+    // The window is reached: exactly one emission, at end + 5.0 s, and continued silence adds none.
+    const reached = runStream(buildSpeechThenSilence(lead, speechFrames, flushFrames + 40), events);
+    assert.equal(reached.emissions.length, 1, `seed ${seed}: expected one emission, got ${reached.emissions.length}`);
+    assert.equal(reached.trailing.length, 0, `seed ${seed}: a segment was still buffered after the flush`);
+    const { segment, atSample } = reached.emissions[0];
+    assert.ok(
+      Math.abs(atSample - speechEndSample - flushFrames * FRAME) <= FRAME,
+      `seed ${seed}: emitted ${((atSample - speechEndSample) / RATE).toFixed(3)}s after the speech, not ${DEFAULT_FLUSH_SILENCE_SEC}s`,
+    );
+    assert.ok(
+      Math.abs(segment.endSec * RATE - speechEndSample) <= FRAME,
+      `seed ${seed}: the flushed segment does not end at the last speech frame`,
+    );
+
+    // The window is not reached: nothing streams, and only the stop releases the buffer.
+    const short = runStream(buildSpeechThenSilence(lead, speechFrames, justUnderFrames), events);
+    assert.equal(short.emissions.length, 0, `seed ${seed}: emitted with only 4.9s of silence`);
+    assert.equal(short.trailing.length, 1, `seed ${seed}: the stop did not release the held utterance`);
+    assert.ok(
+      Math.abs(short.trailing[0].endSec * RATE - speechEndSample) <= FRAME,
+      `seed ${seed}: the held segment does not end at the last speech frame`,
+    );
+    checked += 1;
+    if (seed % 30 === 0) await breathe();
+  }
+  assert.ok(checked >= 100, 'the flush window was read on fewer than a hundred seeded utterances');
+});
+
+test('silence after a flush produces nothing until new speech opens the next segment', () => {
+  const speech = 80; // 1.6 s
+  const lead = 20;
+  const longGap = Math.round(60 * FRAMES_PER_SEC); // 60 s of continued silence after the first flush
+  const truth: [number, number][] = [
+    [lead, lead + speech],
+    [lead + speech + longGap, lead + speech + longGap + speech],
+  ];
+  // A tail under the window, so the second utterance is still buffered when the stream ends and the
+  // stop — not the flush — releases it. Two segments, each its own sentence, in order.
+  const frames = lead + speech + longGap + speech + 20;
+  const samples = new Float32Array(frames * FRAME);
+  for (const [s, e] of truth) samples.fill(0.3, s * FRAME, e * FRAME);
+
+  const { emissions, trailing } = runStream(samples, truthEvents(truth));
+  assert.equal(emissions.length, 1, 'the 60 s silence after the first sentence must not produce a second segment');
+  assert.equal(trailing.length, 1, 'the second sentence must wait for the stop, not be lost');
+  assert.ok(
+    Math.abs(emissions[0].segment.startSec * RATE - truth[0][0] * FRAME) <= FRAME,
+    'the flushed segment is not the first sentence',
+  );
+  assert.ok(
+    Math.abs(trailing[0].startSec * RATE - truth[1][0] * FRAME) <= FRAME,
+    'the released segment is not the second sentence',
+  );
+  assert.ok(trailing[0].startSec > emissions[0].segment.startSec, 'the second segment did not follow the first');
+});
+
+// ── AC: sparse speech — one segment per sentence, released within the flush window ────────────
+
+const SPARSE_PATH = `${LONG_DIR}/L3-sparse.wav`;
+const LONG_MANIFEST_PATH = `${LONG_DIR}/manifest.json`;
+
+type LongManifestEntry = {
+  id: string;
+  segments: { index: number; startSec: number; endSec: number }[];
+};
+
+test('L3-sparse yields one segment per sentence, each released within the flush window of its end', () => {
+  assert.ok(existsSync(SPARSE_PATH), `the sparse sample is missing at ${SPARSE_PATH} — the criterion cannot run without it`);
+  assert.ok(existsSync(LONG_MANIFEST_PATH), `the long-corpus manifest is missing at ${LONG_MANIFEST_PATH}`);
+  const manifest = JSON.parse(readFileSync(LONG_MANIFEST_PATH, 'utf8')) as LongManifestEntry[];
+  const sparse = manifest.find((entry) => entry.id === 'L3-sparse');
+  assert.ok(sparse, 'the manifest has no L3-sparse entry');
+
+  const samples = decodeWav16(readFileSync(SPARSE_PATH));
+  const { emissions, trailing } = runStream(samples, shipEvents(samples));
+  const released = [...emissions, ...trailing.map((segment) => ({ segment, atSample: samples.length }))];
+  assert.equal(released.length, sparse.segments.length, `L3-sparse should cut ${sparse.segments.length} segments, got ${released.length}`);
+
+  const endSec = samples.length / RATE;
+  sparse.segments.forEach((sentence, i) => {
+    const { segment, atSample } = released[i];
+    const delaySec = Math.min(atSample / RATE, endSec) - sentence.endSec;
+    assert.ok(
+      Math.abs(segment.startSec - sentence.startSec) <= 0.5,
+      `L3 segment ${i} starts at ${segment.startSec.toFixed(3)}s, not at its sentence's ${sentence.startSec}s`,
+    );
+    assert.ok(
+      delaySec <= DEFAULT_FLUSH_SILENCE_SEC + FRAME_SEC,
+      `L3 segment ${i} was released ${delaySec.toFixed(3)}s after its sentence ended`,
+    );
+  });
+});
+
+// ── AC: gaps under the flush window never open a new segment ──────────────────────────────────
+
+test('timelines whose gaps stay under the flush window remain one segment keeping its speech', async () => {
+  // Every gap < 5 s and the summed speech < the 20 s floor: no pause cut and no flush can fire, so
+  // the whole input is the single trailing segment the stop releases.
+  const spec: TimelineSpec = { count: [3, 6], speech: [40, 150], gap: [40, 240], lead: [10, 50], tail: [10, 240] };
+  let checked = 0;
+  for (let seed = 700; seed <= 820; seed += 1) {
+    const timeline = buildTimeline(seed, spec);
+    const speechFrames = timeline.truth.reduce((a, [s, e]) => a + (e - s), 0);
+    const longestGap = timeline.truth.slice(1).reduce((m, [s], i) => Math.max(m, s - timeline.truth[i][1]), 0);
+    assert.ok(speechFrames < DEFAULT_MIN_SEGMENT_SEC * FRAMES_PER_SEC, `seed ${seed}: the case is not under the floor`);
+    assert.ok(longestGap < DEFAULT_FLUSH_SILENCE_SEC * FRAMES_PER_SEC, `seed ${seed}: a gap reached the flush window`);
+
+    const segments = segmentLive(timeline.samples, RATE, truthEvents(timeline.truth));
+    assert.equal(segments.length, 1, `seed ${seed}: expected one segment, got ${segments.length}`);
+    const ratio = speechKeptRatio(timeline.truth, segments[0]);
+    assert.ok(ratio >= 0.99, `seed ${seed}: speechKeptRatio ${ratio.toFixed(4)} < 0.99`);
+    checked += 1;
+    if (seed % 30 === 0) await breathe();
+  }
+  assert.ok(checked >= 100, 'the sub-flush criterion was read on fewer than a hundred timelines');
 });
 
 // ── Falsification: each wrong segmenter moves exactly the reading its mistake should ──────────

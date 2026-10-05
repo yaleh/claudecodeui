@@ -59,6 +59,8 @@ vi.mock('@/shared/voiceDebug', () => ({
   isVoiceDebugEnabled: () => false,
   isVoiceTrimEnabled: () => false,
   isVoiceVadEnabled: () => true,
+  // The silence flush's window switch: absent means the shipped 5 s default, which these cases run under.
+  voiceDebugFlushSilenceSec: () => undefined,
   voiceDebugIdleSec: () => undefined,
   voiceDebugMinSegmentSec: () => undefined,
   voiceDebugOriginalCapSec: () => undefined,

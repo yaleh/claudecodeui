@@ -619,7 +619,9 @@
       "expiryLabel": "有效期",
       "expiryOption": "{{days}} 天",
       "createButton": "创建令牌",
-      "cancelButton": "取消"
+      "cancelButton": "取消",
+      "scopesLabel": "权限范围",
+      "writeScopeRisk": "此令牌可以发送、创建和控制会话，请妥善保管。"
     },
     "newToken": {
       "alertTitle": "⚠️ 请保存您的访问令牌",
@@ -637,6 +639,25 @@
       "revoked": "已吊销",
       "revokeButton": "吊销",
       "revokeConfirm": "确定要吊销此令牌吗？此操作无法撤销。"
+    },
+    "scopes": {
+      "read": "读取（cloudcli:read）",
+      "sessionSend": "向会话发送（cloudcli:session:send）",
+      "sessionCreate": "创建会话（cloudcli:session:create）",
+      "sessionControl": "控制会话（cloudcli:session:control）",
+      "approve": "批准（cloudcli:approve）"
     }
+  },
+  "mcpGateway": {
+    "title": "CloudCLI MCP",
+    "description": "将本地 MCP 客户端连接到这台 CloudCLI 服务器。",
+    "status": {
+      "enabled": "已启用",
+      "disabled": "未启用"
+    },
+    "copy": "复制",
+    "copied": "已复制",
+    "connectLabel": "接入命令",
+    "enableHint": "MCP 网关未启用。请在服务器环境中设置 MCP_ENABLED=true 并重启 CloudCLI 以启用。"
   }
 }

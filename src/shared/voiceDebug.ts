@@ -23,15 +23,17 @@ const STORAGE_KEY = 'voiceDebugFlags';
  * The switches this module knows how to read. A key outside this set — in the URL or in storage —
  * is ignored rather than remembered, so a typo cannot quietly become a setting.
  *
- * The three numeric switches below are the continuous-capture path's. They exist because the
- * behaviour they tune is measured in tens of seconds (`voiceMinSegmentSec`'s 30 s, `voiceIdleSec`'s
- * 120 s, `voiceOriginalCapSec`'s 600 s) and an end-to-end run cannot record a ten-minute dictation to
- * reach them; a short sample with these turned down exercises the same code on the real page.
+ * The four numeric switches below are the continuous-capture path's. They exist because the
+ * behaviour they tune is measured in seconds to minutes (`voiceMinSegmentSec`'s 20 s,
+ * `voiceFlushSilenceSec`'s 5 s, `voiceIdleSec`'s 120 s, `voiceOriginalCapSec`'s 600 s) and an
+ * end-to-end run cannot record a ten-minute dictation to reach them; a short sample with these
+ * turned down exercises the same code on the real page.
  */
 const KNOWN_FLAGS = [
   'voiceDebug',
   'voiceTrim',
   'voiceMinSegmentSec',
+  'voiceFlushSilenceSec',
   'voiceIdleSec',
   'voiceOriginalCapSec',
   // The continuous path's A/B: `voiceVad=off` makes it send the whole input as one request — the
@@ -162,6 +164,17 @@ function readNumberFlag(name: VoiceFlagName): number | undefined {
  */
 export function voiceDebugMinSegmentSec(): number | undefined {
   return readNumberFlag('voiceMinSegmentSec');
+}
+
+/**
+ * The silence the segmenter waits, after speech, before it flushes the buffer, in seconds — or
+ * undefined for the shipped default.
+ *
+ * Read when a listen starts, beside the minimum, so an end-to-end run can turn the five-second
+ * window down and see a flush without recording five real seconds of silence.
+ */
+export function voiceDebugFlushSilenceSec(): number | undefined {
+  return readNumberFlag('voiceFlushSilenceSec');
 }
 
 /** The idle auto-stop in seconds, or undefined for the shipped default. */

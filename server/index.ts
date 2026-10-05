@@ -71,7 +71,12 @@ import {
     registerDebugAgentControlPlaneRoutes,
     setDebugAgentOpenRun,
 } from './modules/debug-agent/index.js';
-import { createMcpAuthMiddleware, MCP_GATEWAY_PATH, mountMcpGateway } from './modules/mcp-gateway/index.js';
+import {
+    createMcpAuthMiddleware,
+    MCP_GATEWAY_PATH,
+    mountMcpGateway,
+    mountOAuthMetadata,
+} from './modules/mcp-gateway/index.js';
 import { browserUseService } from './modules/browser-use/browser-use.service.js';
 import { initializeDatabase, sessionsDb } from './modules/database/index.js';
 import { configureWebPush } from './modules/notifications/index.js';
@@ -455,6 +460,17 @@ if (mountDebugAgentControlPlane(app, authenticateToken)) {
 // token-info 401 body.
 const mcpGateway = mountMcpGateway(app, { authorize: createMcpAuthMiddleware(accessTokensService) });
 console.log(`[MCP] gateway ${mcpGateway.mounted ? 'mounted' : 'not mounted'} at ${MCP_GATEWAY_PATH} (${mcpGateway.reason})`);
+
+// The OAuth discovery documents (AC-262). Mounted HERE — after `/mcp`, and BEFORE
+// the static layer below — because the SPA catch-all answers any unmatched GET
+// with `200 text/html`: behind it, `/.well-known/oauth-authorization-server` and
+// `/.well-known/oauth-protected-resource/mcp` would serve the shell and no MCP
+// client could discover the issuer. The gate decides at mount time; an invalid
+// base URL throws out of `mountOAuthMetadata` and aborts startup on purpose.
+const oauthMetadata = mountOAuthMetadata(app);
+console.log(
+    `[MCP] oauth metadata ${oauthMetadata.mounted ? 'mounted' : 'not mounted'} (${oauthMetadata.reason})`,
+);
 
 // Static assets and the SPA entry, mounted after every API route so response
 // compression only ever applies to the bundle and HTML above (see the module

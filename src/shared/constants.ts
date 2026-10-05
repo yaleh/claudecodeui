@@ -218,3 +218,32 @@ export const PROVIDER_PERMISSION_PREFERENCE_KEYS: Record<LLMProvider, UserPrefer
   codex: 'codexPermissions',
   opencode: 'opencodePermissions',
 };
+
+// ---------------------------
+
+//----------------- PERSONAL ACCESS TOKEN SCOPES ------------
+
+/**
+ * The five scopes a personal access token may carry, in the order the create
+ * form renders them, each paired with whether it grants write access and with
+ * the `settings` i18n leaf that labels it.
+ *
+ * `cloudcli:read` is the required baseline every token carries and is the only
+ * non-writable scope; the four write scopes are opt-in, and checking any of them
+ * is what makes the create form raise its write-access risk note. The vocabulary
+ * mirrors the server's `ACCESS_TOKEN_SCOPES` (`server/modules/oauth`), which
+ * rejects anything outside it. `labelKey` is an alias rather than the raw scope
+ * because i18next treats `:` as its namespace separator, so a scope id cannot be
+ * used as an i18n key directly.
+ */
+export const ACCESS_TOKEN_SCOPE_OPTIONS: readonly {
+  scope: string;
+  writable: boolean;
+  labelKey: string;
+}[] = [
+  { scope: 'cloudcli:read', writable: false, labelKey: 'read' },
+  { scope: 'cloudcli:session:send', writable: true, labelKey: 'sessionSend' },
+  { scope: 'cloudcli:session:create', writable: true, labelKey: 'sessionCreate' },
+  { scope: 'cloudcli:session:control', writable: true, labelKey: 'sessionControl' },
+  { scope: 'cloudcli:approve', writable: true, labelKey: 'approve' },
+];

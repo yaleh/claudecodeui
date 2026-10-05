@@ -530,7 +530,9 @@
       "expiryLabel": "有効期限",
       "expiryOption": "{{days}} 日",
       "createButton": "トークンを作成",
-      "cancelButton": "キャンセル"
+      "cancelButton": "キャンセル",
+      "scopesLabel": "スコープ",
+      "writeScopeRisk": "このトークンはセッションの送信・作成・制御ができます。安全に保管してください。"
     },
     "newToken": {
       "alertTitle": "⚠️ アクセストークンを保存してください",
@@ -548,6 +550,25 @@
       "revoked": "失効",
       "revokeButton": "失効させる",
       "revokeConfirm": "このトークンを失効させますか？この操作は元に戻せません。"
+    },
+    "scopes": {
+      "read": "読み取り（cloudcli:read）",
+      "sessionSend": "セッションへ送信（cloudcli:session:send）",
+      "sessionCreate": "セッションを作成（cloudcli:session:create）",
+      "sessionControl": "セッションを制御（cloudcli:session:control）",
+      "approve": "承認（cloudcli:approve）"
     }
+  },
+  "mcpGateway": {
+    "title": "CloudCLI MCP",
+    "description": "ローカルの MCP クライアントをこの CloudCLI サーバーに接続します。",
+    "status": {
+      "enabled": "有効",
+      "disabled": "無効"
+    },
+    "copy": "コピー",
+    "copied": "コピーしました",
+    "connectLabel": "接続コマンド",
+    "enableHint": "MCP ゲートウェイは有効になっていません。サーバー環境で MCP_ENABLED=true を設定し、CloudCLI を再起動して有効にしてください。"
   }
 }

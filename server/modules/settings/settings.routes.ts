@@ -12,6 +12,16 @@ function queryString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
+/**
+ * The origin this request arrived on, used as the MCP endpoint's base when the
+ * deployment has not declared `PUBLIC_BASE_URL`. Express always populates the
+ * Host header for an HTTP/1.1 request, so the fallback host is the one the
+ * client actually dialed.
+ */
+function requestOrigin(req: express.Request): string {
+  return `${req.protocol}://${req.get('host') ?? ''}`;
+}
+
 /** Creates thin Settings transport handlers around the application service. */
 export function createSettingsRouter(
   service: ReturnType<typeof createSettingsService>,
@@ -41,6 +51,7 @@ export function createSettingsRouter(
   router.post('/push/unsubscribe', respond((req) => service.unsubscribeFromPush(
     userId(req), req.body?.endpoint,
   )));
+  router.get('/mcp-gateway', respond((req) => service.getMcpGatewayStatus(requestOrigin(req))));
   router.get('/access-tokens', respond((req) => service.listAccessTokens(userId(req))));
   router.post('/access-tokens', respond(
     (req) => service.createAccessToken(userId(req), req.body ?? {}),
