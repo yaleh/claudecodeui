@@ -1,7 +1,7 @@
 ---
 id: AC-268
 title: 端到端授权流程在真实 HTTP 上走通：发现、注册、授权、换令牌、调用 /mcp、刷新、吊销后被拒，正反例在同一次运行里
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-021
 criterion: for f in server/modules/mcp-gateway/tests/oauth-flow.e2e.test.ts; do
@@ -25,6 +25,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T23:26:03.688Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
