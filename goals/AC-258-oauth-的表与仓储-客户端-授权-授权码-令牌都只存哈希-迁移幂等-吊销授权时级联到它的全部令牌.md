@@ -1,7 +1,7 @@
 ---
 id: AC-258
 title: OAuth 的表与仓储：客户端、授权、授权码、令牌都只存哈希，迁移幂等，吊销授权时级联到它的全部令牌
-status: draft
+status: active
 kind: criterion
 goal: GOAL-021
 criterion: for f in server/modules/oauth/tests/oauth-store.test.ts; do [ -f "$f"
@@ -17,4 +17,15 @@ expect: 临时 DATABASE_PATH 加 runMigrations。读数：(a)
   必须红。（红先行）当前必红：判据文件不存在，存在性闸以退出码 1 输出缺失的文件名。
 origin: docs/proposals/mcp-gateway-SPEC.md（v3.1）。人 yale 2026-10-05 指令：创建并激活
   GOAL-020 至 GOAL-022 及其 AC。
+activatedAt: 2026-10-05T02:18:21.117Z
+statusLog:
+  - at: 2026-10-05T02:18:21.117Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-05T02:18:21.117Z
 ---
