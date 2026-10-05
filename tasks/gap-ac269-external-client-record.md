@@ -5,7 +5,7 @@ title: AC-269 外部客户端绑定记录齐全：scripts/mcp-smoke.mjs 增
   docs/proposals/cloudcli-mcp-external-client.md
   九节读数（客户端与版本、公网基址不含令牌、回调主机、DCR、resource、refresh、工具调用超时、overview
   返回、MCP_DCR=allowlist 重绑）
-status: ready
+status: done
 labels:
   - gap
 parent: null
