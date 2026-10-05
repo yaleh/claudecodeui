@@ -3,7 +3,7 @@ id: gap-ac244-mcp-audit-log-outcomes-and-retention
 title: AC-244 每次工具调用在 mcp_audit_log 恰好留一行（ok/denied/error）+ 参数只记摘要（id
   原样、自由文本只记长度与前 40 字符）+ 90 天保留期在启动与每日各清理一次；判据
   server/modules/mcp-gateway/tests/mcp-audit.test.ts
-status: todo
+status: ready
 labels:
   - gap
 parent: null
