@@ -1,7 +1,7 @@
 ---
 id: AC-273
 title: session_background：只读列出后台任务与计划（cron），带 stopTaskId 时停止，停止需要 control 权限且结果如实
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-022
 criterion: for f in
@@ -25,6 +25,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T23:28:06.625Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
