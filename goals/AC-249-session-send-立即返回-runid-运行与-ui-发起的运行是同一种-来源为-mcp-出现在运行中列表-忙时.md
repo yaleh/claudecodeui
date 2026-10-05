@@ -1,7 +1,7 @@
 ---
 id: AC-249
 title: session_send 立即返回 runId，运行与 UI 发起的运行是同一种：来源为 mcp、出现在运行中列表、忙时排队，所需 scope 不够则拒绝
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-020
 criterion: for f in server/modules/mcp-gateway/tests/mcp-session-send.test.ts;
@@ -26,6 +26,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T10:04:15.650Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
