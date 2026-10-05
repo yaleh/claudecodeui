@@ -481,12 +481,6 @@ if (mountDebugAgentControlPlane(app, authenticateToken)) {
 const mcpGateway = mountMcpGateway(app, { authorize: createMcpAuthMiddleware(accessTokensService) });
 console.log(`[MCP] gateway ${mcpGateway.mounted ? 'mounted' : 'not mounted'} at ${MCP_GATEWAY_PATH} (${mcpGateway.reason})`);
 
-// AC-244: the audit-log retention sweep, one pass at startup then daily. Started
-// here at the assembly point rather than inside `mountMcpGateway` so mounting the
-// gateway never requires a live database or arms a timer on its own — a
-// criterion mounts it freely and drives retention directly.
-startMcpAuditRetention();
-
 // The OAuth discovery documents (AC-262). Mounted HERE — after `/mcp`, and BEFORE
 // the static layer below — because the SPA catch-all answers any unmatched GET
 // with `200 text/html`: behind it, `/.well-known/oauth-authorization-server` and
@@ -620,6 +614,14 @@ async function startServer() {
     try {
         // Initialize authentication database
         await initializeDatabase();
+
+        // AC-244: the audit-log retention sweep, one pass at startup then daily.
+        // Started HERE — after the database is initialized — because the startup
+        // pass immediately deletes from `mcp_audit_log`, so running before
+        // `initializeDatabase()` would query a table the migration has not yet
+        // created and crash the whole boot. Mounting the gateway (above) still
+        // arms no timer and needs no database; only this startup point does.
+        startMcpAuditRetention();
 
         // Configure Web Push (VAPID keys)
         configureWebPush();
