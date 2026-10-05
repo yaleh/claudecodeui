@@ -59,16 +59,51 @@ for f in scripts/mcp-smoke.mjs docs/proposals/cloudcli-mcp-resident-smoke.md; do
 
 ## AC
 
-- [ ] AC1 红态基线逐字记录：改动前运行 AC-276 判据命令，存在性闸退出码 **1** 并逐字输出 `缺判据文件：scripts/mcp-smoke.mjs`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：逐字命令 `for f in scripts/mcp-smoke.mjs docs/proposals/cloudcli-mcp-resident-smoke.md; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; node scripts/mcp-smoke.mjs --check-resident-record docs/proposals/cloudcli-mcp-resident-smoke.md` 退出 **0**；写下 stdout 逐字。
-- [ ] AC3 记录八节齐全：`node scripts/mcp-smoke.mjs --check-resident-record docs/proposals/cloudcli-mcp-resident-smoke.md` 退出 **0**。八节逐字为 `环境与版本` / `常驻会话启动与 pid` / `忙时发送` / `撤回与 pid 不变` / `重配置下一轮生效` / `后台任务列出与停止` / `审批` / `收尾残留与生产监听 pid`，每节都要有非空 `读数：` 与 `结论：`。红态基线本轮实测：两个判据文件都不存在，判据命令应退出 1 并逐字输出 `缺判据文件：scripts/mcp-smoke.mjs`。
-- [ ] AC4 取假形态 (i) 缺一节必红并点名：删掉记录里任一节（例如 `审批`）后 `--check-resident-record` 退出 **非 0**，stderr 逐字点名该节缺。登记变异 diff、逐字失败行、恢复命令；恢复后重跑回绿。
-- [ ] AC5 取假形态 (ii) 撤回节 pid 前后不同必红：把 `撤回与 pid 不变` 一节的 `pid-after=` 改成与 `pid-before=` 不同的值后 `--check-resident-record` 退出 **非 0** 并点名 pid 不等。登记变异 diff、逐字失败行、恢复命令；恢复后重跑回绿。
-- [ ] AC6 单测覆盖「缺一节就红」与「撤回节 pid 不等就红」：`node --test scripts/mcp-smoke-resident.test.mjs` 退出 **0**；至少覆盖（a）缺整节点名该节、（b）缺 `读数：`/`结论：` 行点名、（c）读数为空点红、（d）撤回节 `pid-after` ≠ `pid-before` 点红、（e）解析不到 pid 点红、（f）八节齐全 exit 0、（g）文件不存在八节全缺。逐条写出测试名。
-- [ ] AC7 常驻冒烟**真跑过**、八段读数是原始读数：真服务实例（临时 `DATABASE_PATH` 经 `/proc/<pid>/environ` 命中行证明、`HOST=127.0.0.1`、端口 `listen(0)` 探得且 ≠ 3001、`detached` 整组杀）+ 真 `claude` CLI（`claude mcp add --transport http` 命令逐字 + 自然语言驱动）+ 临时项目。逐段打印证据行：常驻会话 pid；忙时发送返回 `queuedMessageUuid`（非空、逐字）；撤回答复逐字含 `cancelled` 且 `pid-before == pid-after`；`session_reconfigure` 后**下一轮**运行取到新值（同一 pid，逐字打印新旧值）；`session_background` 列出当前后台任务、带 `stopTaskId` 停止并读回停止结果；审批在**非 bypass** 权限模式下由需权限工具触发，`approvals_list` 逐字看到该待审批、`approval_answer` 解除（读回消失/已答）。
-- [ ] AC8 收尾残留读数为 0 且不碰生产：跑完打印临时根上 `pgrep -af` / `/proc` environ / `systemctl --user list-units --type=scope` 三条命中数均为 **0**；`:3001` 的监听 pid 与 systemd MainPID 的**终点读数与起点读数逐字相同**（打印两行）；全程未连接 / 未启用 / 未重启 3001。
-- [ ] AC9 不点亮 AC-277：`grep -c '^常驻专有能力验收：通过' docs/proposals/cloudcli-mcp-resident-smoke.md` → **0** 且 `grep -c '常驻专有能力验收：通过' scripts/mcp-smoke.mjs` → **0**（记录模板与脚本输出都不得出现以该字样开头的行）。
-- [ ] AC10 契约面与边界：`npx oxlint scripts/mcp-smoke.mjs scripts/mcp-smoke-resident.test.mjs` 退出 **0**；`git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；证明产品代码一行未改（网关 / 工具 / 审批 / AC-256 的 `--check-record` 与它的记录均不在本 diff）。
+- [x] AC1 红态基线逐字记录：改动前运行 AC-276 判据命令，存在性闸退出码 **1** 并逐字输出 `缺判据文件：scripts/mcp-smoke.mjs`（写下完整命令与完整输出）。
+  - 完整命令（在改动前的干净树 `/tmp/ac276-base`＝`git archive develop | tar -x -C /tmp/ac276-base` 里跑，即本变更落地前的真实树）：
+    `for f in scripts/mcp-smoke.mjs docs/proposals/cloudcli-mcp-resident-smoke.md; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; node scripts/mcp-smoke.mjs --check-resident-record docs/proposals/cloudcli-mcp-resident-smoke.md`
+  - 完整输出（stderr 逐字）：`缺判据文件：docs/proposals/cloudcli-mcp-resident-smoke.md`；退出码 **1**。
+  - 与 Proposal 快照的差异（逐字记录，不掩饰）：Proposal 写于 AC-256 尚未落地时，断言「两个文件都不存在、逐字输出 `缺判据文件：scripts/mcp-smoke.mjs`」。AC-256 现已落地 `scripts/mcp-smoke.mjs`（`git cat-file -e develop:scripts/mcp-smoke.mjs` 命中），故存在性闸按 `for` 顺序在**第二个**文件（本任务新建的记录文件）上先停，逐字输出的是 `缺判据文件：docs/proposals/cloudcli-mcp-resident-smoke.md`。判据命令仍退出 **1**、红只因为缺判据文件——AC1 的实质（改动前必红、红因缺判据文件）成立；差异仅是「第一个缺失的是哪个文件」。
+- [x] AC2 判据绿：逐字命令 `for f in scripts/mcp-smoke.mjs docs/proposals/cloudcli-mcp-resident-smoke.md; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; node scripts/mcp-smoke.mjs --check-resident-record docs/proposals/cloudcli-mcp-resident-smoke.md` 退出 **0**；写下 stdout 逐字。
+  - stdout 逐字：`记录合格：docs/proposals/cloudcli-mcp-resident-smoke.md 八节齐全、每节 读数：/结论： 非空、撤回节 pid-before == pid-after`；退出码 **0**。
+- [x] AC3 记录八节齐全：`node scripts/mcp-smoke.mjs --check-resident-record docs/proposals/cloudcli-mcp-resident-smoke.md` 退出 **0**。八节逐字为 `环境与版本` / `常驻会话启动与 pid` / `忙时发送` / `撤回与 pid 不变` / `重配置下一轮生效` / `后台任务列出与停止` / `审批` / `收尾残留与生产监听 pid`，每节都要有非空 `读数：` 与 `结论：`。红态基线本轮实测：两个判据文件都不存在，判据命令应退出 1 并逐字输出 `缺判据文件：scripts/mcp-smoke.mjs`。
+  - 实测：`node scripts/mcp-smoke.mjs --check-resident-record docs/proposals/cloudcli-mcp-resident-smoke.md` 退出 **0**，stdout 同 AC2。记录文件 `## ` 标题逐字：环境与版本 / 常驻会话启动与 pid / 忙时发送 / 撤回与 pid 不变 / 重配置下一轮生效 / 后台任务列出与停止 / 审批 / 收尾残留与生产监听 pid；每节 `读数：`/`结论：` 均非空（见 AC7 逐段读数）。红态基线见 AC1（实际输出点名的是记录文件，因 AC-256 已先行落地脚本）。
+- [x] AC4 取假形态 (i) 缺一节必红并点名：删掉记录里任一节（例如 `审批`）后 `--check-resident-record` 退出 **非 0**，stderr 逐字点名该节缺。登记变异 diff、逐字失败行、恢复命令；恢复后重跑回绿。
+  - 变异：删掉 `## 审批` 整节（`## 审批` 标题 + 空行 + 其 `读数：` 行 + 其 `结论：` 行，共 5 行）。
+  - 变异 diff（`diff -u /tmp/ac276-record-backup2.md docs/proposals/cloudcli-mcp-resident-smoke.md`）逐字：
+    `@@ -39,11 +39,6 @@` … 删去 `-## 审批` / `-` / `-读数：approvals_list …` / `-结论：…` / `-`（5 行删除，retention 见记录）。
+  - 逐字失败行（stderr）：`缺节：审批 —— 缺整个小节`，随后 `记录不合格（docs/proposals/cloudcli-mcp-resident-smoke.md）：缺 1 处，八节要求见 AC-276/AC3`；退出码 **1**。
+  - 恢复命令：`cp /tmp/ac276-record-backup2.md docs/proposals/cloudcli-mcp-resident-smoke.md`；恢复后 `--check-resident-record` 重跑回绿（exit 0，stdout 同 AC2）。
+- [x] AC5 取假形态 (ii) 撤回节 pid 前后不同必红：把 `撤回与 pid 不变` 一节的 `pid-after=` 改成与 `pid-before=` 不同的值后 `--check-resident-record` 退出 **非 0** 并点名 pid 不等。登记变异 diff、逐字失败行、恢复命令；恢复后重跑回绿。
+  - 变异：撤回节读数里 `pid-after=3891032` → `pid-after=9999999`（`pid-before` 保持 3891032）。
+  - 变异 diff（`diff -u /tmp/ac276-record-backup.md docs/proposals/cloudcli-mcp-resident-smoke.md`）逐字：
+    `@@ -26,7 +26,7 @@` 中 `-…pid-before=3891032 pid-after=3891032…` / `+…pid-before=3891032 pid-after=9999999…`（仅该字段）。
+  - 逐字失败行（stderr）：`缺节：撤回与 pid 不变 —— pid 不等：pid-before=3891032 pid-after=9999999（撤回不得换进程）`，随后 `记录不合格（docs/proposals/cloudcli-mcp-resident-smoke.md）：缺 1 处，八节要求见 AC-276/AC3`；退出码 **1**。
+  - 恢复命令：`cp /tmp/ac276-record-backup.md docs/proposals/cloudcli-mcp-resident-smoke.md`；恢复后 `--check-resident-record` 重跑回绿（exit 0，stdout 同 AC2）。
+- [x] AC6 单测覆盖「缺一节就红」与「撤回节 pid 不等就红」：`node --test scripts/mcp-smoke-resident.test.mjs` 退出 **0**；至少覆盖（a）缺整节点名该节、（b）缺 `读数：`/`结论：` 行点名、（c）读数为空点红、（d）撤回节 `pid-after` ≠ `pid-before` 点红、（e）解析不到 pid 点红、（f）八节齐全 exit 0、（g）文件不存在八节全缺。逐条写出测试名。
+  - `node --test scripts/mcp-smoke-resident.test.mjs` → `ℹ tests 14 / ℹ pass 14 / ℹ fail 0`，退出码 **0**。测试名逐条：
+    (a) `(a) 缺整个「审批」节点名该节`、`(a) CLI：缺一节退出非 0，stderr 逐字点名该节`；
+    (b) `(b) 缺 \`读数：\` 行点名该节缺行`、`(b) 缺 \`结论：\` 行点名该节缺行`；
+    (c) `(c) \`读数：\` 冒号后为空点红并点名该节`、`(c) \`结论：\` 冒号后为空点红并点名该节`；
+    (d) `(d) 撤回节 pid-after ≠ pid-before 点红并点名 pid 不等`、`(d) CLI：撤回节 pid 不等退出非 0，stderr 逐字点名 pid 不等`；
+    (e) `(e) 撤回节没有 pid-before/pid-after 两个字段时点红`、`(e) parseCancelPids 只解析 \`<n>\`，\`pid-before=xpid-before=7\` 不误命中`；
+    (f) `(f) 八节齐全（撤回节 pid 相等）exit 0`、`(f) parseResidentSection 三种读法：整段/读数/结论`；
+    (g) `(g) 文件不存在时八节点名全缺`；
+    另：`AC9 脚本源里没有以 \`常驻专有能力验收：通过\` 开头的行`。
+- [x] AC7 常驻冒烟**真跑过**、八段读数是原始读数：真服务实例（临时 `DATABASE_PATH` 经 `/proc/<pid>/environ` 命中行证明、`HOST=127.0.0.1`、端口 `listen(0)` 探得且 ≠ 3001、`detached` 整组杀）+ 真 `claude` CLI（`claude mcp add --transport http` 命令逐字 + 自然语言驱动）+ 临时项目。逐段打印证据行：常驻会话 pid；忙时发送返回 `queuedMessageUuid`（非空、逐字）；撤回答复逐字含 `cancelled` 且 `pid-before == pid-after`；`session_reconfigure` 后**下一轮**运行取到新值（同一 pid，逐字打印新旧值）；`session_background` 列出当前后台任务、带 `stopTaskId` 停止并读回停止结果；审批在**非 bypass** 权限模式下由需权限工具触发，`approvals_list` 逐字看到该待审批、`approval_answer` 解除（读回消失/已答）。
+  - 命令：`node scripts/mcp-smoke.mjs --run-resident --temp-root /tmp/ac276-resident-20261006-063224 --database-path /tmp/ac276-resident-20261006-063224/auth.db --record <worktree>/docs/proposals/cloudcli-mcp-resident-smoke.md`，退出码 **0**。
+  - 八段证据行逐字（记录文件 `读数：`）：环境与版本（`claude --version = 2.1.289 (Claude Code)`；port=18193；`claude mcp add --transport http cloudcli http://127.0.0.1:18193/mcp --header "Authorization: Bearer ccp_…" --scope project`）；常驻会话启动与 pid（`sessionId=6f79fd6a-…`、`pid=3891032`、`bgTask=bhihe608z`）；忙时发送（逐字 `{"runId":"ccfad47a-…","queued":true,"queuedMessageUuid":"435e3bca-3cdb-416e-8985-0201b880806d","source":"mcp"}`）；撤回与 pid 不变（`{"outcome":"cancelled",…}` 且 `pid-before=3891032 pid-after=3891032`）；重配置下一轮生效（旧值 `permissionMode="bypassPermissions"` → `session_reconfigure` 逐字 `{"ok":true,"stored":{"permissionMode":"default"},"applied":"live","liveSupported":true}` → 新值 `permissionMode="default"`；下一轮 `runId=72d1140d-…` 用**需权限的 Write** 撞权限墙挂起；pid 前后同为 3891032）；后台任务列出与停止（列出 2 条 `kind=background-task`，`stopTaskId=bhihe608z` → 逐字 `{"stopped":true,"taskId":"bhihe608z","remaining":[]}`）；审批（`approvals_list` 逐字 `{"approvals":[{"requestId":"7e42df8b-…","toolName":"Write","inputSummary":"…/resident-permission-probe.txt","waitedMs":1449}]}` → `approval_answer` 逐字 `{"ok":true,"requestId":"7e42df8b-…","decision":"allow"}` → 再列该 requestId 已消失、且被放行的 Write 真的写盘 `存在=true`）；收尾残留与生产监听 pid（见 AC8）。
+  - 关键点：审批靶子是 **Write**（需权限工具）。`Bash sleep/echo` 一类安全命令被 CLI 直接放行、根本不经过 `canUseTool`，故不能作靶子；Write 在 `default` 下才被交到审批面（`bypass` 下静默写盘）——正是「下一轮真的取了 default」的判别器。
+- [x] AC8 收尾残留读数为 0 且不碰生产：跑完打印临时根上 `pgrep -af` / `/proc` environ / `systemctl --user list-units --type=scope` 三条命中数均为 **0**；`:3001` 的监听 pid 与 systemd MainPID 的**终点读数与起点读数逐字相同**（打印两行）；全程未连接 / 未启用 / 未重启 3001。
+  - 残留读数逐字：`临时根 /tmp/ac276-resident-20261006-063224：pgrep-命中=0、/proc environ-命中=0、systemctl --user scope-命中=0`（等待后剩余 0）。
+  - `:3001` 起点读数逐字：`listener-pid=2286735 systemd-main-pid=2286735`；终点读数逐字：`listener-pid=2286735 systemd-main-pid=2286735`（起终点逐字相同——监听 pid 与 systemd MainPID 均未被触动）。
+  - 全程未连接 / 未启用 / 未重启 3001（冒烟实例端口 18193，`listen(0)` 探得且 ≠ 3001）。
+- [x] AC9 不点亮 AC-277：`grep -c '^常驻专有能力验收：通过' docs/proposals/cloudcli-mcp-resident-smoke.md` → **0** 且 `grep -c '常驻专有能力验收：通过' scripts/mcp-smoke.mjs` → **0**（记录模板与脚本输出都不得出现以该字样开头的行）。
+  - 实测：记录文件计数 **0**；`scripts/mcp-smoke.mjs` 计数 **0**。人证行（AC-277）未点亮。
+- [x] AC10 契约面与边界：`npx oxlint scripts/mcp-smoke.mjs scripts/mcp-smoke-resident.test.mjs` 退出 **0**；`git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；证明产品代码一行未改（网关 / 工具 / 审批 / AC-256 的 `--check-record` 与它的记录均不在本 diff）。
+  - `npx oxlint scripts/mcp-smoke.mjs scripts/mcp-smoke-resident.test.mjs` → 退出码 **0**（无诊断）。
+  - `git diff --stat develop...HEAD` 逐字（合并 develop 后）：`docs/proposals/cloudcli-mcp-resident-smoke.md | 51 ++`（new，A）、`scripts/mcp-smoke-resident.test.mjs | 232 +++++++`（new，A）、`scripts/mcp-smoke.mjs | 885 +++…`（M）；`git diff --name-status develop...HEAD`：`A docs/proposals/cloudcli-mcp-resident-smoke.md`、`A scripts/mcp-smoke-resident.test.mjs`、`M scripts/mcp-smoke.mjs`——与 `## Touches` 逐条对齐。
+  - 产品代码一行未改：`git diff --name-only develop...HEAD | grep -E '^server/|^src/'` 为空；AC-256 的 `--check-record` 行为与其记录 `docs/proposals/cloudcli-mcp-smoke.md` 均不在本 diff。
 
 ## DoD
 
@@ -96,3 +131,4 @@ for f in scripts/mcp-smoke.mjs docs/proposals/cloudcli-mcp-resident-smoke.md; do
 - 新增 `scripts/*.mjs` 会让 `scripts/tsconfig.json`（`allowJs + checkJs`）多报类型错——这是 develop 侧既有的红（`resident-smoke.mjs` 63 个），本条不修它，也不把 `npm run typecheck` 退出 0 写进 AC；只要求新/改文件的 `oxlint` 绿。
 - `node --test` 的 stderr 不回传给调用方（内存 `node-test-stderr-does-not-reach-the-caller`）：单测里若 spawn 子进程跑 CLI 并断言 stderr，直接读 `spawnSync` 返回的 `result.stderr` 字段，不靠透传。
 - 新增测试文件已在 `## Touches` 列出（内存 `quay-boundaries-lint-blocks-new-test-files`）；`.mjs` 测试可能不被 scoped 门正则覆盖（内存 `scoped-gate-regex-excludes-mjs-tests`），故 AC6 的真跑靠自己 `node --test` 证明，不假设门会跑它。
+- 权限靶子必须是**需权限工具**（Write），不能是 `Bash sleep/echo`：后者命中 CLI 的安全命令表被直接放行、不经 `canUseTool`，等不到待审批。这是本轮取假/取真的关键读数（见 AC7）。
