@@ -4,10 +4,13 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 import type { McpToolRegistrar } from './mcp-gateway.audit.js';
+import { withMcpAudit } from './mcp-gateway.audit.js';
 import { readMcpPrincipal } from './mcp-gateway.auth.js';
 import type { McpPrincipal } from './mcp-gateway.auth.js';
 import { MCP_GATEWAY_PATH, readMcpGatewayGate } from './mcp-gateway.gate.js';
 import { createMcpLoopbackGuard } from './mcp-gateway.loopback.js';
+import { registerMcpReadTools } from './mcp-gateway.read-tools.js';
+import type { McpReadToolDeps, McpReadToolSeam } from './mcp-gateway.read-tools.js';
 
 /**
  * The MCP gateway's production assembly (AC-240). The consumer is
@@ -38,19 +41,40 @@ const SERVER_INFO = { name: 'claudecodeui-mcp-gateway', version: '0.1.0' };
 /**
  * A fresh server per request, the stateless recipe's other half.
  *
- * When the caller supplied a `registerTools` seam it runs here, once per
- * request, with that request's principal — so an audited tool (AC-244) sees the
- * token that is actually invoking it. When no seam was supplied the server
- * still has to answer `tools/list` with a result rather than a "method not
- * found", so an empty list handler is installed explicitly (AC-240's original
- * behaviour, kept for the tools-less mount). The two paths are exclusive: a
- * registered tool installs the SDK's own list/call handlers, which would collide
- * with a second, manual `tools/list` handler.
+ * Which tools it carries is decided here, once per request:
+ *
+ *  1. an explicit `registerTools` seam wins — the criterion-injected path
+ *     AC-244's audit criterion uses to install scripted tools;
+ *  2. otherwise, when production deps were supplied, AC-245's read tools are
+ *     registered through the SAME audited wrapper (a seam closing over this
+ *     request's server and principal), so each read tool inherits its audit row
+ *     and its `cloudcli:read` refusal without restating either;
+ *  3. otherwise an empty list handler is installed, because the server still has
+ *     to answer `tools/list` with a result rather than "method not found"
+ *     (AC-240's tools-less mount).
+ *
+ * The three paths are exclusive: a registered tool installs the SDK's own
+ * list/call handlers, which would collide with a second, manual `tools/list`.
  */
-function createMcpServer(registerTools: McpToolRegistrar | undefined, principal: McpPrincipal | null): McpServer {
+function createMcpServer(
+  registerTools: McpToolRegistrar | undefined,
+  principal: McpPrincipal | null,
+  readTools: McpReadToolDeps | undefined
+): McpServer {
   const server = new McpServer(SERVER_INFO, { capabilities: { tools: {} } });
   if (registerTools) {
     registerTools(server, principal);
+  } else if (readTools) {
+    const register: McpReadToolSeam = (registration) =>
+      withMcpAudit({
+        name: registration.name,
+        description: registration.description,
+        inputSchema: registration.inputSchema,
+        outputSchema: registration.outputSchema,
+        requiredScopes: [registration.requiredScope],
+        handler: (args) => registration.handler(args as Record<string, unknown>),
+      })(server, principal);
+    registerMcpReadTools(register, readTools);
   } else {
     server.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [] }));
   }
@@ -71,14 +95,15 @@ function attachTransport(
   app: Express,
   authorize: RequestHandler,
   env: NodeJS.ProcessEnv | undefined,
-  registerTools: McpToolRegistrar | undefined
+  registerTools: McpToolRegistrar | undefined,
+  readTools: McpReadToolDeps | undefined
 ): void {
   const loopbackGuard = createMcpLoopbackGuard(env);
 
   app.post(MCP_GATEWAY_PATH, loopbackGuard, authorize, async (req, res) => {
     // The principal the auth middleware attached; audited tools are registered
     // per request against it, so the audit row names the invoking token.
-    const server = createMcpServer(registerTools, readMcpPrincipal(res));
+    const server = createMcpServer(registerTools, readMcpPrincipal(res), readTools);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on('close', () => {
       transport.close();
@@ -131,8 +156,19 @@ export type McpGatewayDeps = {
    * The tool-registration seam (AC-244): called once per request with the
    * request's principal, it installs the gateway's tools. Audited tools come from
    * `withMcpAudit`; AC-245+'s real tools register through this same seam.
+   *
+   * When it is absent and {@link McpGatewayDeps.readTools} is present, the
+   * transport registers AC-245's read tools instead. Supplying both is legal and
+   * means "this caller owns the tool set": the explicit seam wins.
    */
   registerTools?: McpToolRegistrar;
+  /**
+   * The services AC-245's read tools answer from, assembled by the composition
+   * root (`server/index.ts`) over the process singletons. Absent on a mount that
+   * registers its own tools, and absent is what keeps a tools-less mount
+   * (AC-240's criterion) answering an empty `tools/list`.
+   */
+  readTools?: McpReadToolDeps;
 };
 
 /** Whether the gateway attached anything, and the gate's own reason. */
@@ -155,6 +191,6 @@ export function mountMcpGateway(app: Express, deps: McpGatewayDeps = {}): McpGat
     return { mounted: false, reason: gate.reason };
   }
 
-  attachTransport(app, deps.authorize ?? refuseUnauthorized, deps.env, deps.registerTools);
+  attachTransport(app, deps.authorize ?? refuseUnauthorized, deps.env, deps.registerTools, deps.readTools);
   return { mounted: true, reason: gate.reason };
 }

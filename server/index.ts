@@ -49,6 +49,14 @@ import {
 } from './modules/oauth/index.js';
 import { createSystemModule } from './modules/system/index.js';
 import projectModuleRoutes from './modules/projects/projects.routes.js';
+// The MCP gateway's read tools (AC-245) answer `projects_list` from these two
+// project readers — the same paginated view the REST surface serves, reached
+// through the projects barrel because a cross-module edge belongs there.
+import {
+    getArchivedProjectsWithSessions,
+    getProjectSessionsPage,
+    getProjectsWithSessions,
+} from './modules/projects/index.js';
 import notificationRoutes from './modules/notifications/notifications.routes.js';
 import { userRoutes } from './modules/user/index.js';
 import {
@@ -478,7 +486,22 @@ if (mountDebugAgentControlPlane(app, authenticateToken)) {
 // middleware verifies through the SAME `accessTokensService` the token-info route
 // uses, so `/mcp` admits only valid `ccp_` tokens and invalid ones share the
 // token-info 401 body.
-const mcpGateway = mountMcpGateway(app, { authorize: createMcpAuthMiddleware(accessTokensService) });
+//
+// AC-245 supplies `readTools`: the process singletons every stage-3 read tool
+// answers from (projects, providers' sessions, session hosts, the chat run
+// registry) plus the wall clock. They are injected rather than imported so the
+// gateway module owns no database handle and a criterion can drive the same
+// tools over its own fixture.
+const mcpGateway = mountMcpGateway(app, {
+    authorize: createMcpAuthMiddleware(accessTokensService),
+    readTools: {
+        projects: { getProjectsWithSessions, getArchivedProjectsWithSessions, getProjectSessionsPage },
+        sessions: sessionsService,
+        hosts: sessionHostManager,
+        runs: chatRunRegistry,
+        now: () => Date.now(),
+    },
+});
 console.log(`[MCP] gateway ${mcpGateway.mounted ? 'mounted' : 'not mounted'} at ${MCP_GATEWAY_PATH} (${mcpGateway.reason})`);
 
 // The OAuth discovery documents (AC-262). Mounted HERE — after `/mcp`, and BEFORE

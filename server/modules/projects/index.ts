@@ -2,6 +2,15 @@ export {
   generateDisplayName,
   getProjectsWithSessions,
 } from './services/projects-with-sessions-fetch.service.js';
+// getProjectSessionsPage / getArchivedProjectsWithSessions: the MCP gateway's
+// read tools answer `projects_list` (with `includeArchived`) and the
+// project-scoped `sessions_list` from these two readers — the same paginated
+// project view the REST surface serves, so an MCP client and the sidebar cannot
+// disagree about which sessions a project has.
+export {
+  getArchivedProjectsWithSessions,
+  getProjectSessionsPage,
+} from './services/projects-with-sessions-fetch.service.js';
 export { updateProjectDisplayName } from './services/project-management.service.js';
 // createProject: used by the worktrees module to register a worktree directory as a switchable project.
 export { createProject } from './services/project-management.service.js';

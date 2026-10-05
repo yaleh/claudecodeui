@@ -53,3 +53,26 @@ export type { AuthorizationServerMetadata, OAuthMetadataGateReading } from './oa
 
 export { mountOAuthMetadata } from './oauth-metadata.mount.js';
 export type { OAuthMetadataMountReading } from './oauth-metadata.mount.js';
+
+// The stage-3 read tools (AC-245). `MCP_STAGE3_READ_TOOLS` is the one statement
+// of which read tools exist and the scope each requires — the transport's
+// registration and the criterion's `tools/list` comparison both read it, so the
+// name set is a contract rather than a coincidence. `registerMcpReadTools`
+// installs them through the audited seam; `paginateMcpText` and
+// `formatMcpTime` are the two text-shaping helpers the criterion drives
+// directly (the 4000-character cursor protocol, and the relative+ISO time
+// pair); `MCP_TEXT_CHUNK_CHARS` and `MCP_TOOL_NOT_IMPLEMENTED_CODE` are the
+// values it asserts against instead of restating.
+export {
+  formatMcpTime,
+  MCP_STAGE3_READ_TOOLS,
+  MCP_TEXT_CHUNK_CHARS,
+  MCP_TOOL_NOT_IMPLEMENTED_CODE,
+  paginateMcpText,
+  registerMcpReadTools,
+} from './mcp-gateway.read-tools.js';
+export type {
+  McpReadToolDeps,
+  McpReadToolSeam,
+  McpTime,
+} from './mcp-gateway.read-tools.js';

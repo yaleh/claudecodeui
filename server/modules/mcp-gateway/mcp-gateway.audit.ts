@@ -153,6 +153,27 @@ export function startMcpAuditRetention(options: McpAuditRetentionOptions = {}): 
 /** A tool's audited definition, as passed to {@link withMcpAudit}. */
 export type McpToolRegistration = {
   name: string;
+  /**
+   * The client-facing description, when the tool has one. Absent keeps the
+   * AC-244 shape: a registration that names only its scope and handler is still
+   * a complete one, and the tools that criterion registers must keep answering
+   * exactly as they did.
+   */
+  description?: string;
+  /**
+   * The tool's argument schema as a Zod raw shape. Defaults to a permissive
+   * record, which is what AC-244's tools rely on: the audit digest must see the
+   * caller's full argument object, so a fixed shape would strip unknown keys
+   * before the handler ever ran. A tool that wants real argument validation
+   * (AC-245's read tools) passes its own shape and accepts that stripping.
+   */
+  inputSchema?: z.ZodRawShape;
+  /**
+   * The tool's result schema. When present the handler's return value is also
+   * emitted as `structuredContent` — the SDK refuses a non-error result from a
+   * tool that declares an output schema without one.
+   */
+  outputSchema?: z.ZodRawShape;
   /** Every scope the caller's token must carry; a missing one denies the call. */
   requiredScopes: readonly string[];
   handler: (args: unknown, ctx: { principal: McpPrincipal }) => unknown;
@@ -179,6 +200,18 @@ function toTextContent(result: unknown): string {
 }
 
 /**
+ * Renders a handler result as `structuredContent`, which the SDK validates
+ * against the declared output schema. A non-object result is wrapped rather
+ * than rejected, so a tool whose handler returns a bare string still produces a
+ * shape an output schema can describe.
+ */
+function toStructuredContent(result: unknown): Record<string, unknown> {
+  return typeof result === 'object' && result !== null && !Array.isArray(result)
+    ? (result as Record<string, unknown>)
+    : { value: result ?? null };
+}
+
+/**
  * Wraps a tool so every call is audited exactly once, then returns the
  * registration function that installs it. The scope check happens BEFORE the
  * handler: a token missing a required scope is recorded as `denied` and the
@@ -187,16 +220,22 @@ function toTextContent(result: unknown): string {
  * normal return is recorded as `ok`. All three paths write through the single
  * {@link recordMcpToolCall}.
  *
- * The input schema accepts arbitrary keys (`z.record`) so the digest sees the
- * caller's full argument object; a fixed shape would strip unknown keys before
- * the handler ever ran.
+ * The input schema accepts arbitrary keys (`z.record`) unless the registration
+ * declares one, so the digest sees the caller's full argument object; a fixed
+ * shape would strip unknown keys before the handler ever ran. A registration
+ * that declares an output schema gets its result emitted as `structuredContent`
+ * alongside the text, because the SDK refuses a non-error result that has none.
  */
 export function withMcpAudit(registration: McpToolRegistration): McpToolHandler {
   return (server, principal) => {
     server.registerTool(
       registration.name,
-      { inputSchema: z.record(z.string(), z.unknown()) },
-      async (args): Promise<CallToolResult> => {
+      {
+        ...(registration.description === undefined ? {} : { description: registration.description }),
+        inputSchema: registration.inputSchema ?? z.record(z.string(), z.unknown()),
+        ...(registration.outputSchema === undefined ? {} : { outputSchema: registration.outputSchema }),
+      },
+      async (args: Record<string, unknown>): Promise<CallToolResult> => {
         const startedAt = Date.now();
         const elapsedMs = (): number => Math.max(0, Date.now() - startedAt);
 
@@ -237,7 +276,12 @@ export function withMcpAudit(registration: McpToolRegistration): McpToolHandler 
             durationMs: elapsedMs(),
             args,
           });
-          return { content: [{ type: 'text', text: toTextContent(result) }] };
+          return registration.outputSchema === undefined
+            ? { content: [{ type: 'text', text: toTextContent(result) }] }
+            : {
+                content: [{ type: 'text', text: toTextContent(result) }],
+                structuredContent: toStructuredContent(result),
+              };
         } catch (error) {
           recordMcpToolCall({
             tokenId: principal.tokenId,
