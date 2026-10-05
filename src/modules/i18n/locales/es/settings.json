@@ -625,7 +625,9 @@
       "expiryLabel": "Caduca en",
       "expiryOption": "{{days}} días",
       "createButton": "Crear token",
-      "cancelButton": "Cancelar"
+      "cancelButton": "Cancelar",
+      "scopesLabel": "Ámbitos",
+      "writeScopeRisk": "Este token puede enviar, crear y controlar sesiones. Mantenlo en secreto."
     },
     "newToken": {
       "alertTitle": "⚠️ Guarda tu token de acceso",
@@ -643,6 +645,25 @@
       "revoked": "Revocado",
       "revokeButton": "Revocar",
       "revokeConfirm": "¿Seguro que quieres revocar este token? Esta acción no se puede deshacer."
+    },
+    "scopes": {
+      "read": "Lectura (cloudcli:read)",
+      "sessionSend": "Enviar a sesiones (cloudcli:session:send)",
+      "sessionCreate": "Crear sesiones (cloudcli:session:create)",
+      "sessionControl": "Controlar sesiones (cloudcli:session:control)",
+      "approve": "Aprobar (cloudcli:approve)"
     }
+  },
+  "mcpGateway": {
+    "title": "CloudCLI MCP",
+    "description": "Conecta un cliente MCP local a este servidor CloudCLI.",
+    "status": {
+      "enabled": "Activado",
+      "disabled": "No activado"
+    },
+    "copy": "Copiar",
+    "copied": "Copiado",
+    "connectLabel": "Comando de conexión",
+    "enableHint": "La puerta de enlace MCP no está activada. Define MCP_ENABLED=true en el entorno del servidor y reinicia CloudCLI para activarla."
   }
 }

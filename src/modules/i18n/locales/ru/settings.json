@@ -530,7 +530,9 @@
       "expiryLabel": "Истекает через",
       "expiryOption": "{{days}} дн.",
       "createButton": "Создать токен",
-      "cancelButton": "Отмена"
+      "cancelButton": "Отмена",
+      "scopesLabel": "Области",
+      "writeScopeRisk": "Этот токен может отправлять, создавать и управлять сессиями. Храните его в секрете."
     },
     "newToken": {
       "alertTitle": "⚠️ Сохраните токен доступа",
@@ -548,6 +550,25 @@
       "revoked": "Отозван",
       "revokeButton": "Отозвать",
       "revokeConfirm": "Вы уверены, что хотите отозвать этот токен? Это действие необратимо."
+    },
+    "scopes": {
+      "read": "Чтение (cloudcli:read)",
+      "sessionSend": "Отправка в сессии (cloudcli:session:send)",
+      "sessionCreate": "Создание сессий (cloudcli:session:create)",
+      "sessionControl": "Управление сессиями (cloudcli:session:control)",
+      "approve": "Подтверждение (cloudcli:approve)"
     }
+  },
+  "mcpGateway": {
+    "title": "CloudCLI MCP",
+    "description": "Подключите локальный MCP-клиент к этому серверу CloudCLI.",
+    "status": {
+      "enabled": "Включено",
+      "disabled": "Не включено"
+    },
+    "copy": "Копировать",
+    "copied": "Скопировано",
+    "connectLabel": "Команда подключения",
+    "enableHint": "Шлюз MCP не включён. Задайте MCP_ENABLED=true в окружении сервера и перезапустите CloudCLI, чтобы включить его."
   }
 }
