@@ -1,7 +1,7 @@
 ---
 id: AC-258
 title: OAuth 的表与仓储：客户端、授权、授权码、令牌都只存哈希，迁移幂等，吊销授权时级联到它的全部令牌
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-021
 criterion: for f in server/modules/oauth/tests/oauth-store.test.ts; do [ -f "$f"
@@ -24,6 +24,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T23:24:30.904Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
