@@ -711,11 +711,21 @@ if [ ${#SERVER_FILES[@]} -gt 0 ]; then
   for f in "${SERVER_FILES[@]}"; do
     (
       s=$(now_ms)
+      # ── undici `bad port` lottery (gap-undici-blocked-ports-held-in-server-test-lane) ──
+      # The 54 `app.listen(0, '127.0.0.1')` sites below fetch back to their own ephemeral port;
+      # undici refuses 18 ports outright (`Error: bad port` before a socket opens), and the kernel
+      # can hand `listen(0)` one of them — a different file reds each run, disjoint from any task
+      # delta. The preload wired into the two calls below makes each per-file process hold those 18
+      # ports for its whole lifetime, so the kernel cannot hand one out. Measured: a 127.0.0.1
+      # holder blocks 127.0.0.1, 0.0.0.0 and :: allocation of that port; see
+      # scripts/undici-blocked-ports-preload.mjs, which swallows every bind failure so this can
+      # never keep the lane from starting. The fan-in lane runs one file per `npx tsx`, i.e. one
+      # holder set per process — exactly what the preload is for.
       if [ -n "$TIMEOUT_BIN" ]; then
         "$TIMEOUT_BIN" --signal=TERM --kill-after=10 "$FILE_TIMEOUT_SECS" \
-          npx tsx --tsconfig server/tsconfig.json --test "$f" >"$TMP/srv-$i.out" 2>&1
+          npx tsx --tsconfig server/tsconfig.json --import ./scripts/undici-blocked-ports-preload.mjs --test "$f" >"$TMP/srv-$i.out" 2>&1
       else
-        npx tsx --tsconfig server/tsconfig.json --test "$f" >"$TMP/srv-$i.out" 2>&1
+        npx tsx --tsconfig server/tsconfig.json --import ./scripts/undici-blocked-ports-preload.mjs --test "$f" >"$TMP/srv-$i.out" 2>&1
       fi
       rc=$?; e=$(now_ms)
       echo "$rc $((e - s)) $e" >"$TMP/srv-$i.res"

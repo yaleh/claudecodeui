@@ -52,7 +52,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p server/tsconfig.json && tsc --noEmit -p scripts/tsconfig.json",
     "test": "npm run test:server && npm run test:scripts",
-    "test:server": "tsx --tsconfig server/tsconfig.json --test \"server/**/*.test.ts\" \"server/**/*.test.js\"",
+    "test:server": "tsx --tsconfig server/tsconfig.json --import ./scripts/undici-blocked-ports-preload.mjs --test \"server/**/*.test.ts\" \"server/**/*.test.js\"",
     "test:scripts": "node scripts/list-script-tests.mjs && node --test \"scripts/**/*.test.mjs\"",
     "test:client": "bash scripts/with-memory-cap.sh vitest run",
     "test:e2e": "playwright test",
