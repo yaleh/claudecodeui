@@ -6,7 +6,7 @@ title: AC-253 装配与 barrel 核对：server/index.ts 只构造一个
   createMcpGatewayModule；getRunById/startResidentHost/closeResidentHost/getProjectSessionsPage
   各经 barrel 导出且有网关消费者；三触达点经间谍证明同一 send；判据
   server/modules/mcp-gateway/tests/mcp-gateway-wiring.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
