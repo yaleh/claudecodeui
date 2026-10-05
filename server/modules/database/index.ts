@@ -20,6 +20,13 @@ export type {
 // oauthClientsDb: used by the OAuth module to persist RFC 7591 client registrations (secret hash only).
 export { oauthClientsDb } from '@/modules/database/repositories/oauth-clients.db.js';
 export type { InsertOAuthClientInput, OAuthClientRow } from '@/modules/database/repositories/oauth-clients.db.js';
+// oauthCodeRedemptionsDb: used by the OAuth module to keep the code→grant mapping
+// that survives a code's deletion, so a replayed code can revoke its authorization.
+export { oauthCodeRedemptionsDb } from '@/modules/database/repositories/oauth-code-redemptions.db.js';
+export type {
+  InsertOAuthCodeRedemptionInput,
+  OAuthCodeRedemptionRow,
+} from '@/modules/database/repositories/oauth-code-redemptions.db.js';
 // oauthGrantsDb: used by the OAuth module to persist user consent grants and their revocation.
 export { oauthGrantsDb } from '@/modules/database/repositories/oauth-grants.db.js';
 export type { InsertOAuthGrantInput, OAuthGrantRow } from '@/modules/database/repositories/oauth-grants.db.js';
