@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
 # serve-scoped.sh start|stop|restart|status — run the :3001 server as its own systemd user service.
 #
+# Two modes, chosen by QUAY_SERVER_CMD:
+#   unset (production)  drive the FIXED unit claudecodeui-server.service that
+#                       scripts/install-server-unit.sh installs from scripts/systemd/. Restart policy,
+#                       heap ceiling and log path live in that unit file, not here. This script no
+#                       longer passes any PATH: node/claude come from the user manager's environment
+#                       (~/.config/environment.d/995-nvm-node.conf). The old `--setenv=PATH="$PATH"`
+#                       copied the starting shell's PATH into the unit and froze old plugin bin dirs.
+#   set (test seam)     start a throwaway TRANSIENT unit running that command line, as before, with the
+#                       properties below — what scripts/serve-scoped-check.sh drives. It passes no
+#                       PATH either; the unit inherits the user manager's.
+#
 # Why: `setsid nohup npm run server &` from a tmux pane leaves the server in that pane's
 # `tmux-spawn-<uuid>.scope` cgroup. Anything else that OOMs in the pane (a runaway vitest) takes
 # the server with it, and server.log just stops with no crash line. A transient service has its
@@ -35,9 +46,10 @@
 # Test seams — the defaults ARE the production behaviour; these exist so the script can be driven
 # without touching :3001 or the real unit (see scripts/serve-scoped-check.sh):
 #   QUAY_SERVER_UNIT      unit name (default claudecodeui-server)
-#   QUAY_SERVER_CMD       managed command LINE (default `npm run server`), word-split
-#   QUAY_SERVER_LOG       log file (default <repo>/server.log)
-#   QUAY_SERVER_HEAP_MB   heap ceiling in MB (default 2048; `off` or `0` omits it)
+#   QUAY_SERVER_CMD       managed command LINE, word-split; setting it selects the transient mode
+#   QUAY_SERVER_LOG       log file (transient mode; the fixed unit's is in its drop-in)
+#   QUAY_SERVER_HEAP_MB   heap ceiling in MB (transient mode; default 2048; `off` or `0` omits it —
+#                         the fixed unit's ceiling is Environment=NODE_OPTIONS in its unit file)
 #
 # Do NOT run `stop`/`restart` from a session the server hosts: sessions are its child processes
 # and the whole cgroup is stopped, so the caller is killed mid-command. Run it from a tmux pane.
@@ -47,7 +59,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UNIT="${QUAY_SERVER_UNIT:-claudecodeui-server}"
 HOST="${HOST:-0.0.0.0}"
 SERVER_PORT="${SERVER_PORT:-3001}"
-SERVER_CMD="${QUAY_SERVER_CMD:-npm run server}"
+SERVER_CMD="${QUAY_SERVER_CMD:-}"   # empty = the fixed unit (production)
 LOG_FILE="${QUAY_SERVER_LOG:-$ROOT_DIR/server.log}"
 HEAP_MB="${QUAY_SERVER_HEAP_MB:-2048}"
 
@@ -70,6 +82,21 @@ no_systemd() {
   exit 3
 }
 
+# Fixed-unit start. `daemon-reload` first: a same-named transient unit (the pre-fixed-unit way of
+# running the server) has precedence over the installed file until it is stopped and collected, and
+# only a reload makes the installed file visible afterwards. Refuses — rather than starting something
+# else — when the installed unit is missing or is still the transient one.
+start_fixed() {
+  systemctl --user daemon-reload
+  local frag
+  frag="$(systemctl --user show "$UNIT.service" --value -p FragmentPath 2>/dev/null)"
+  case "$frag" in
+    ""|/run/*) echo "serve-scoped: $UNIT.service is not installed as a fixed unit (FragmentPath='${frag:-none}'); run scripts/install-server-unit.sh first" >&2; exit 4 ;;
+  esac
+  systemctl --user start "$UNIT.service"
+  echo "started $UNIT.service from $frag"
+}
+
 is_active() { systemctl --user is-active --quiet "$UNIT.service" 2>/dev/null; }
 
 # The NODE_OPTIONS the unit is started with: the caller's own, with the heap ceiling appended. An
@@ -88,12 +115,11 @@ case "${1:-}" in
   start)
     require_systemd
     if is_active; then echo "$UNIT already running" >&2; exit 1; fi
+    if [ -z "$SERVER_CMD" ]; then start_fixed; exit 0; fi
     NODE_OPTS="$(compose_node_options)"
     SETENV=(
       --setenv=HOST="$HOST"
       --setenv=SERVER_PORT="$SERVER_PORT"
-      --setenv=PATH="$PATH"
-      --setenv=HOME="$HOME"
     )
     if [ -n "$NODE_OPTS" ]; then SETENV+=(--setenv=NODE_OPTIONS="$NODE_OPTS"); fi
     # shellcheck disable=SC2086  # SERVER_CMD is a command LINE: `node foo.mjs` is a valid value.

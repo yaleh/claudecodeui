@@ -153,7 +153,7 @@ FAKE
   # 1. default: the restart policy, the burst limit, and the 2048 heap ceiling.
   : >"$argv_file"
   PATH="$bin:$PATH" QUAY_SERVE_CHECK_ARGV="$argv_file" QUAY_SERVER_UNIT="$unit" \
-    bash "$SCRIPT" start >/dev/null 2>&1
+    QUAY_SERVER_CMD="npm run server" bash "$SCRIPT" start >/dev/null 2>&1
   assert_argv "$(last_argv "$argv_file")" "default" \
     "--unit=$unit" "Restart=on-failure" "RestartSec=" "StartLimitBurst=" "StartLimitIntervalSec=" \
     "--setenv=NODE_OPTIONS=--max-old-space-size=$DEFAULT_HEAP_MB" "-- npm run server" || rc=1
@@ -161,14 +161,14 @@ FAKE
   # 2. the ceiling can be turned off, and turning it off removes the flag rather than blanking it.
   : >"$argv_file"
   PATH="$bin:$PATH" QUAY_SERVE_CHECK_ARGV="$argv_file" QUAY_SERVER_UNIT="$unit" \
-    QUAY_SERVER_HEAP_MB=off bash "$SCRIPT" start >/dev/null 2>&1
+    QUAY_SERVER_CMD="npm run server" QUAY_SERVER_HEAP_MB=off bash "$SCRIPT" start >/dev/null 2>&1
   assert_argv_absent "$(last_argv "$argv_file")" "heap-off" "--max-old-space-size" || rc=1
 
   # 3. a caller's own NODE_OPTIONS survives, and the ceiling is APPENDED to it — the composed
   #    element is asserted as one string so "both flags present but one of them clobbered" fails.
   : >"$argv_file"
   PATH="$bin:$PATH" QUAY_SERVE_CHECK_ARGV="$argv_file" QUAY_SERVER_UNIT="$unit" \
-    NODE_OPTIONS=--trace-warnings bash "$SCRIPT" start >/dev/null 2>&1
+    QUAY_SERVER_CMD="npm run server" NODE_OPTIONS=--trace-warnings bash "$SCRIPT" start >/dev/null 2>&1
   assert_argv "$(last_argv "$argv_file")" "caller-node-options" \
     "--setenv=NODE_OPTIONS=--trace-warnings --max-old-space-size=$DEFAULT_HEAP_MB" || rc=1
 
@@ -179,6 +179,58 @@ FAKE
     QUAY_SERVER_CMD="node /tmp/serve-scoped-check-stub.js" bash "$SCRIPT" start >/dev/null 2>&1
   assert_argv "$(last_argv "$argv_file")" "cmd-override" \
     "-- node /tmp/serve-scoped-check-stub.js" "Restart=on-failure" || rc=1
+
+  # 4b. neither transient-mode start may hand the unit a PATH: the unit must inherit the user
+  #     manager's, which is the whole point of dropping `--setenv=PATH="$PATH"`.
+  : >"$argv_file"
+  PATH="$bin:$PATH" QUAY_SERVE_CHECK_ARGV="$argv_file" QUAY_SERVER_UNIT="$unit" \
+    QUAY_SERVER_CMD="npm run server" bash "$SCRIPT" start >/dev/null 2>&1
+  assert_argv_absent "$(last_argv "$argv_file")" "no-path-setenv" "--setenv=PATH" || rc=1
+
+  # 4c. production mode (no QUAY_SERVER_CMD) drives the FIXED unit with systemctl and never calls
+  #     systemd-run. A fake systemctl records its calls and reports an installed fragment.
+  local fixedbin="$TMP/fixedbin"; mkdir -p "$fixedbin"
+  cat >"$fixedbin/systemctl" <<'FAKE'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"${QUAY_SERVE_CHECK_CALLS:?}"
+case "$*" in
+  *is-active*) exit 3 ;;
+  *"show"*FragmentPath*) echo "${QUAY_SERVE_CHECK_FRAGMENT-/home/x/.config/systemd/user/claudecodeui-server.service}" ;;
+esac
+exit 0
+FAKE
+  chmod +x "$fixedbin/systemctl"
+  cp "$bin/systemd-run" "$fixedbin/systemd-run"
+  local calls="$TMP/calls"
+  : >"$calls"; : >"$argv_file"
+  PATH="$fixedbin:$PATH" QUAY_SERVE_CHECK_CALLS="$calls" QUAY_SERVE_CHECK_ARGV="$argv_file" \
+    QUAY_SERVER_UNIT="$unit" bash "$SCRIPT" start >/dev/null 2>&1
+  local calls_line; calls_line="$(tr '\n' '|' <"$calls")"
+  assert_argv "$calls_line" "fixed-unit-start" "--user daemon-reload" "--user start $unit.service" || rc=1
+  if [ -s "$argv_file" ]; then
+    log "FAIL fake/fixed-unit-no-systemd-run: production start called systemd-run: $(last_argv "$argv_file")"; rc=1
+  else
+    log "ok   fake/fixed-unit-no-systemd-run: production start made no systemd-run call"
+  fi
+  # a transient fragment (/run/...) or none at all is a refusal naming the installer
+  local out4
+  out4="$(PATH="$fixedbin:$PATH" QUAY_SERVE_CHECK_CALLS="$calls" QUAY_SERVE_CHECK_FRAGMENT=/run/user/1/systemd/transient/x.service \
+    QUAY_SERVER_UNIT="$unit" bash "$SCRIPT" start 2>&1)"; local rc4=$?
+  if [ "$rc4" = 4 ] && printf '%s' "$out4" | grep -q install-server-unit.sh; then
+    log "ok   fake/fixed-unit-not-installed: a transient fragment is refused (exit 4) naming install-server-unit.sh"
+  else
+    log "FAIL fake/fixed-unit-not-installed: exit=$rc4 output: $out4"; rc=1
+  fi
+
+  # 4d. the shipped unit file: restart policy, heap ceiling, no PATH of any kind.
+  local ufile="$ROOT_DIR/scripts/systemd/claudecodeui-server.service" want_u bad_u=""
+  for want_u in "Restart=on-failure" "RestartSec=5" "StartLimitBurst=5" "StartLimitIntervalSec=60" \
+      "Environment=NODE_OPTIONS=--max-old-space-size=$DEFAULT_HEAP_MB" "ExecStart=/usr/bin/env node dist-server/server/index.js"; do
+    grep -qxF "$want_u" "$ufile" 2>/dev/null || bad_u="$bad_u missing:$want_u"
+  done
+  grep -vE '^\s*#' "$ufile" 2>/dev/null | grep -qE 'PATH=|plugins/(cache|synced)|MemoryMax' && bad_u="$bad_u forbidden-directive"
+  if [ -z "$bad_u" ]; then log "ok   fake/unit-file: restart policy + ${DEFAULT_HEAP_MB}MB ceiling present; no PATH/plugin/MemoryMax directive"
+  else log "FAIL fake/unit-file: $ufile:$bad_u"; rc=1; fi
 
   # 5. no usable user manager: a clear refusal, and an exit code that is neither 0 (silently
   #    unscoped) nor the usage code 2.
