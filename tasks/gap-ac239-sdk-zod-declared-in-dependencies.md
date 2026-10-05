@@ -3,7 +3,7 @@ id: gap-ac239-sdk-zod-declared-in-dependencies
 title: AC-239 SDK 与 zod 声明进 dependencies：SDK 范围锁 1.29 波浪号线、zod 允许已安装 4.x，lock 与
   package.json 一致且未标 dev；判据
   server/modules/mcp-gateway/tests/dependency-declaration.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
