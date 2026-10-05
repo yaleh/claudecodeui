@@ -1,7 +1,7 @@
 ---
 id: AC-242
 title: OAuth 未开启时 /mcp 只接受本机直连：非回环地址拒绝，带任何转发头的请求也拒绝，防止经 cloudflared 或本机反代意外暴露
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-020
 criterion: for f in server/modules/mcp-gateway/tests/mcp-loopback-guard.test.ts;
@@ -26,6 +26,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T04:30:14.822Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"

@@ -3,7 +3,7 @@ id: gap-ac262-oauth-metadata-endpoints
 title: AC-262 元数据端点返回 JSON 而不是 SPA 页面：开启时发布正确的 issuer/受众与 PKCE
   能力，关闭时不发布，PUBLIC_BASE_URL 必须为 https（localhost 例外），且挂在静态路由之前；判据
   server/modules/mcp-gateway/tests/oauth-metadata-mount.test.ts
-status: todo
+status: ready
 labels:
   - gap
 parent: null
