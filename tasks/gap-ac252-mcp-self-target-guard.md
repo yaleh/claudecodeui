@@ -67,16 +67,16 @@ AC-252（GOAL-020 退出条件 9 的第一条；SPEC `docs/proposals/mcp-gateway
 
 ## AC
 
-- [ ] AC1 判据红态基线逐字记录：改动前运行 AC-252 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-self-target.test.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-self-target.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-self-target.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 (a) 三个别名（`mcp__cloudcli__session_send` / `mcp__my-cc-ui__session_interrupt` / `mcp__x__session_close`）× 四个受保护操作（`session_send` / `session_interrupt` / `session_close` / `session_cancel_queued`）全部 `SELF_TARGET`；控制服务 `send`/`abort`/`cancelQueued` 与宿主服务 `start`/`close` 计数全 0；逐字写出工具名、操作与五个计数。
-- [ ] AC4 (b) `Bash` / `mcp__other__list_files` / `mcp__x__session_read` 放行；HTTP `session_send` 成功且控制服务 `send` 计数恰好 +1（正例对照）；逐字写出工具名、判定与前后计数。
-- [ ] AC5 (c) 工具名残留 `mcp__x__session_close` 而 phase ∈ {`thinking`,`writing`,`idle`,`awaitingPermission`,`compacting`} ⇒ 全部放行、`send` 计数 +1；逐字写出每个 phase 与计数。
-- [ ] AC6 (d) 用基础注册表时 `mcp__x__session_reconfigure` 放行、用加入 `session_reconfigure` 的扩展注册表时被拦（守卫自动覆盖新写工具）；逐字写出两个判定与两份注册表名字。
-- [ ] AC7 (e) 目标自身处于自指时读工具仍成功、非 `SELF_TARGET`、控制服务计数不变；逐字写出读工具结果。
-- [ ] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 只按 `mcp__cloudcli` 前缀 ⇒ AC3 红；(ii) 手写第二份名单 ⇒ AC6 红；(iii) 不看 phase ⇒ AC5 红。每条恢复命令 + 恢复后重跑绿。
-- [ ] AC9 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；AC-249 判据 `mcp-session-send.test.ts`、AC-250 判据 `mcp-session-lifecycle.test.ts`、AC-251 判据 `mcp-session-host-control.test.ts`、AC-245 判据 `mcp-read-tools.test.ts` 不改一字仍逐字通过（本任务只在 handler 前加守卫，不改工具实现与 handler 语义）。
-- [ ] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
+- [x] AC1 判据红态基线逐字记录：改动前运行 AC-252 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-self-target.test.ts`（写下完整命令与完整输出）。
+- [x] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-self-target.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-self-target.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
+- [x] AC3 (a) 三个别名（`mcp__cloudcli__session_send` / `mcp__my-cc-ui__session_interrupt` / `mcp__x__session_close`）× 四个受保护操作（`session_send` / `session_interrupt` / `session_close` / `session_cancel_queued`）全部 `SELF_TARGET`；控制服务 `send`/`abort`/`cancelQueued` 与宿主服务 `start`/`close` 计数全 0；逐字写出工具名、操作与五个计数。
+- [x] AC4 (b) `Bash` / `mcp__other__list_files` / `mcp__x__session_read` 放行；HTTP `session_send` 成功且控制服务 `send` 计数恰好 +1（正例对照）；逐字写出工具名、判定与前后计数。
+- [x] AC5 (c) 工具名残留 `mcp__x__session_close` 而 phase ∈ {`thinking`,`writing`,`idle`,`awaitingPermission`,`compacting`} ⇒ 全部放行、`send` 计数 +1；逐字写出每个 phase 与计数。
+- [x] AC6 (d) 用基础注册表时 `mcp__x__session_reconfigure` 放行、用加入 `session_reconfigure` 的扩展注册表时被拦（守卫自动覆盖新写工具）；逐字写出两个判定与两份注册表名字。
+- [x] AC7 (e) 目标自身处于自指时读工具仍成功、非 `SELF_TARGET`、控制服务计数不变；逐字写出读工具结果。
+- [x] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 只按 `mcp__cloudcli` 前缀 ⇒ AC3 红；(ii) 手写第二份名单 ⇒ AC6 红；(iii) 不看 phase ⇒ AC5 红。每条恢复命令 + 恢复后重跑绿。
+- [x] AC9 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；AC-249 判据 `mcp-session-send.test.ts`、AC-250 判据 `mcp-session-lifecycle.test.ts`、AC-251 判据 `mcp-session-host-control.test.ts`、AC-245 判据 `mcp-read-tools.test.ts` 不改一字仍逐字通过（本任务只在 handler 前加守卫，不改工具实现与 handler 语义）。
+- [x] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
 
 ## DoD
 
@@ -103,3 +103,19 @@ AC-252（GOAL-020 退出条件 9 的第一条；SPEC `docs/proposals/mcp-gateway
 - 守卫按**最后一个 `__` 边界**取后缀：`mcp__my-cc-ui__session_interrupt` 的别名本身含 `-`，别名与工具名之间只有一个 `__`；用「名字 ∈ 注册表」判断，而不是对别名做任何假设。
 - `session_cancel_queued` 属于阶段 6（GOAL-022），本任务不注册它；GOAL-022 把它加入注册表后守卫自动覆盖——这正是 (d) 的注册表驱动读数要证明的性质。
 - 边界 lint 会拦新增测试文件（内存 `quay-boundaries-lint-blocks-new-test-files`）；本判据文件已列入 `## Touches`。给 mcp-gateway barrel 加导出后，若某兄弟测试对该 barrel 整体 `vi.mock`，需把新导出补进那个 mock 工厂（内存 `adding-an-export-reds-sibling-wholesale-vimocks`）。
+
+## 完成记录
+
+- AC1 红态基线（改动前）：AC-252 存在性闸命令退出码 1，逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-self-target.test.ts`。
+- AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-self-target.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-self-target.test.ts` 退出 0，读数 `ℹ tests 6 / ℹ pass 6 / ℹ fail 0`（六个 `✔` 全绿）。
+- AC3 (a) 自指一律拒：phase='tool'，三个触发名 `mcp__cloudcli__session_send` / `mcp__my-cc-ui__session_interrupt` / `mcp__x__session_close`（别名任意）× 四个受保护操作 `session_send` / `session_interrupt` / `session_close` / `session_cancel_queued` 共 12 组全部 `SELF_TARGET`；控制服务 spy `send`/`abort`/`cancelQueued` 与宿主服务 spy `start`/`close` 计数全 0（判据逐字输出 `spiesAfter={"send":0,"abort":0,"cancelQueued":0,"start":0,"close":0}`）。
+- AC4 (b) 放行 + 正例对照：触发名 `Bash` / `mcp__other__list_files` / `mcp__x__session_read` 均放行；经真实 HTTP `session_send` 成功且控制服务 `send` 计数恰好 +1（守卫不是「一律拒绝」）。
+- AC5 (c) 残留工具名 + 非 tool 阶段放行：工具名残留 `mcp__x__session_close`，phase ∈ {`thinking`,`writing`,`idle`,`awaitingPermission`,`compacting`} 五者全部 `blocked:false`；HTTP `session_send` 使 `send` 计数 +1。
+- AC6 (d) 写工具名集合取自注册表：基础注册表（`MCP_STAGE4_WRITE_TOOLS`）下 `mcp__x__session_reconfigure` 放行；加入 `session_reconfigure` 的扩展注册表下被拦为 `SELF_TARGET`（新写工具无需改守卫即被覆盖）。
+- AC7 (e) 读工具不受影响：目标自身处于 phase='tool' 且工具名为网关写工具时，`session_read` 经 HTTP 成功、`code=null`、五个 spy 计数不变（判据逐字输出 `readTool=session_read isError=false code=null ... spyBefore == spyAfter`）。
+- AC8 三条取假形态（先提交实现 980fe05c 再变异，逐条记录变异 diff、逐字失败行、恢复命令；恢复后重跑均 6/6 绿，三次变异后 `git status --porcelain` 为空）：
+  - (i) 只按 `^mcp__cloudcli__` 前缀判断：在 `isSelfTargetTurn` 内插入 `if (!toolName.startsWith('mcp__cloudcli__')) return { blocked: false, suffix: null, reason: '不是 cloudcli 前缀，放行。' };` ⇒ 红，读数 `tests 6 / pass 4 / fail 2`，逐字失败行 `AssertionError [ERR_ASSERTION]: session_send against mcp__my-cc-ui__session_interrupt must be refused (text={"runId":"ac252-run","queued":false,"queuedMessageUuid":null,"source":"mcp"})`；恢复命令 `git checkout -- server/modules/mcp-gateway/mcp-self-target.ts`。
+  - (ii) 手写第二份名单：以 `const LOCAL_WRITE_TOOL_NAMES = ['session_send','session_interrupt','session_close'];` 取代注入的 `writeToolNames.includes(split.name)` ⇒ 红，读数 `tests 6 / pass 5 / fail 1`，逐字失败行 `AssertionError [ERR_ASSERTION]: adding session_reconfigure to the registry must widen the guard`；恢复命令同上。
+  - (iii) 不看 phase、只看 `toolName`：删除 `if (turn.phase !== 'tool') { ... }` 放行分支 ⇒ 红，读数 `tests 6 / pass 5 / fail 1`，逐字失败行 `AssertionError [ERR_ASSERTION]: the residual name on phase thinking must not read as a self-target`；恢复命令同上。
+- AC9 不回归与仓库门：`npm run typecheck` 退出 0（`tsconfig.json` / `server/tsconfig.json` / `scripts/tsconfig.json` 三环全过）；`npm run lint` 退出 0 且 `grep -c ": error "` = 0（仅既有无关 warning）。四个兄弟判据不改一字且全绿：`mcp-session-send` 7/7、`mcp-session-lifecycle` 7/7、`mcp-session-host-control` 6/6、`mcp-read-tools` 6/6。
+- AC10 `git diff --stat develop...HEAD`（merge-base = develop `3c76d1c3`）：`5 files changed, 964 insertions(+), 10 deletions(-)`；`--name-status`：`M server/modules/mcp-gateway/index.ts`、`M server/modules/mcp-gateway/mcp-gateway.transport.ts`、`M server/modules/mcp-gateway/mcp-gateway.write-tools.ts`、`A server/modules/mcp-gateway/mcp-self-target.ts (new)`、`A server/modules/mcp-gateway/tests/mcp-self-target.test.ts (new)`；与 `## Touches` 逐条对齐（`tasks/gap-ac252-mcp-self-target-guard.md` 由 task_write 提交、落在 delta 之外，声明在 Touches 中不冲突）。
