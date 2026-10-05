@@ -4,7 +4,7 @@ title: AC-255 MCP 区块与令牌 scope 文案在 12 语言齐全：判据
   src/modules/settings/tests/i18nMcpSettingsCompleteness.test.ts 遍历
   locales/*/settings.json 的 glob，mcp 必需键 + 与 en 键集合完全一致 +
   正例对照，取假形态两条（删键/值=键名）必须红
-status: todo
+status: ready
 labels:
   - gap
 parent: null

@@ -2,7 +2,7 @@
 id: AC-254
 title: 真实浏览器里设置页的 CloudCLI MCP 区块：显示端点与启用状态，给出 Claude Code 的接入命令，令牌的 scope
   勾选默认只读并对写权限给出提示
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-020
 criterion: for f in e2e/mcp-settings.spec.ts; do [ -f "$f" ] || { echo
@@ -23,6 +23,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T05:06:42.808Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
