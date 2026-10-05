@@ -65,16 +65,16 @@ AC-272（GOAL-022 退出条件 2；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3.
 
 ## AC
 
-- [ ] AC1 判据红态基线逐字记录：改动前运行 AC-272 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-session-reconfigure.test.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-session-reconfigure.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-session-reconfigure.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 (a) 经真实 HTTP + MCP `session_reconfigure` 更新存储值（读会话行逐字相等）；随后 MCP `session_send` 的运行 options 逐字取到新 model/effort/permissionMode；逐字写出两侧读数。
-- [ ] AC4 (b) 经 MCP `session_reconfigure` 后，脚本化 query 的 `setModel`/`setPermissionMode` 间谍收到预期值（逐字写出调用序列）；重配置前后宿主 pid/id 逐字相等、`createQuery` 调用次数不增（不重启）；effort 单项 ⇒ `next-turn` 且无 live spy 调用。
-- [ ] AC5 (c) 矩阵外 `permissionMode:'yolo'` 被明确拒绝（`isError`、`code==='UNSUPPORTED_PERMISSION_MODE'`、`supported` 逐字等于能力矩阵），存储未变、live spy 计数 0；同一值经 WebSocket 路径被静默忽略（记录值不变、无错误）；逐字写出两侧差异。
-- [ ] AC6 (d) 无 liveReconfigure 的 provider ⇒ `applied==='next-turn'`、`liveSupported===false`、`message` 含「不支持在线重配置」与「下一轮」；live spy 计数 0；逐字写出返回。
-- [ ] AC7 (e) 只带 `['cloudcli:read','cloudcli:session:send']` 的令牌调用被拒（isError）、新增恰好一行 `tool='session_reconfigure'`/`outcome='denied'` 审计、存储写与驱动 spy 计数均为 0；逐字写出该行与前后计数。
-- [ ] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 不支持的值静默忽略 ⇒ AC5 红；(ii) 重配置重启进程 ⇒ AC4 的「pid 不变 / query 次数不增」红；(iii) 只改存储、下一轮旧值 ⇒ AC3 红。每条记录恢复命令 + 恢复后重跑绿。
-- [ ] AC9 不回归与仓库门：`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（写下计数）；`mcp-session-send.test.ts`、`mcp-cancel-queued.test.ts`、`mcp-read-tools.test.ts`、`chat-permission-mode.test.ts`、`claude-resident-permissions.test.ts` 不改一字仍逐字通过；跨模块只经 barrel。
-- [ ] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写。列出实际改动文件清单。
+- [x] AC1 判据红态基线逐字记录：改动前运行 AC-272 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-session-reconfigure.test.ts`（写下完整命令与完整输出）。
+- [x] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-session-reconfigure.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-session-reconfigure.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
+- [x] AC3 (a) 经真实 HTTP + MCP `session_reconfigure` 更新存储值（读会话行逐字相等）；随后 MCP `session_send` 的运行 options 逐字取到新 model/effort/permissionMode；逐字写出两侧读数。
+- [x] AC4 (b) 经 MCP `session_reconfigure` 后，脚本化 query 的 `setModel`/`setPermissionMode` 间谍收到预期值（逐字写出调用序列）；重配置前后宿主 pid/id 逐字相等、`createQuery` 调用次数不增（不重启）；effort 单项 ⇒ `next-turn` 且无 live spy 调用。
+- [x] AC5 (c) 矩阵外 `permissionMode:'yolo'` 被明确拒绝（`isError`、`code==='UNSUPPORTED_PERMISSION_MODE'`、`supported` 逐字等于能力矩阵），存储未变、live spy 计数 0；同一值经 WebSocket 路径被静默忽略（记录值不变、无错误）；逐字写出两侧差异。
+- [x] AC6 (d) 无 liveReconfigure 的 provider ⇒ `applied==='next-turn'`、`liveSupported===false`、`message` 含「不支持在线重配置」与「下一轮」；live spy 计数 0；逐字写出返回。
+- [x] AC7 (e) 只带 `['cloudcli:read','cloudcli:session:send']` 的令牌调用被拒（isError）、新增恰好一行 `tool='session_reconfigure'`/`outcome='denied'` 审计、存储写与驱动 spy 计数均为 0；逐字写出该行与前后计数。
+- [x] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 不支持的值静默忽略 ⇒ AC5 红；(ii) 重配置重启进程 ⇒ AC4 的「pid 不变 / query 次数不增」红；(iii) 只改存储、下一轮旧值 ⇒ AC3 红。每条记录恢复命令 + 恢复后重跑绿。
+- [x] AC9 不回归与仓库门：`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（写下计数）；`mcp-session-send.test.ts`、`mcp-cancel-queued.test.ts`、`mcp-read-tools.test.ts`、`chat-permission-mode.test.ts`、`claude-resident-permissions.test.ts` 不改一字仍逐字通过；跨模块只经 barrel。
+- [x] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写。列出实际改动文件清单。
 
 ## DoD
 
@@ -90,10 +90,12 @@ AC-272（GOAL-022 退出条件 2；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3.
 - server/modules/mcp-gateway/mcp-session-reconfigure.ts (new)
 - server/modules/mcp-gateway/mcp-gateway.resident-tools.ts
 - server/modules/mcp-gateway/mcp-session-send.ts
+- server/modules/mcp-gateway/mcp-gateway.write-tools.ts
 - server/modules/mcp-gateway/mcp-gateway.transport.ts
 - server/modules/mcp-gateway/index.ts
 - server/modules/providers/services/provider-runtime.service.ts
 - server/modules/providers/services/provider-capabilities.service.ts
+- server/modules/session-hosts/tests/lifecycle-mode.test.ts
 - server/index.ts
 - server/modules/mcp-gateway/tests/mcp-session-reconfigure.test.ts (new)（判据）
 - tasks/gap-ac272-mcp-session-reconfigure.md
@@ -105,3 +107,56 @@ AC-272（GOAL-022 退出条件 2；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3.
 - (c) 的对照负控制是既有行为（`chat-permission-mode.test.ts` 的 `'yolo'` 静默忽略），本任务**不改** WebSocket 路径，只在判据里并列读出两侧差异。
 - MCP `session_send` 无 options 参数，故「运行选项」由服务端从存储 selection 组装；claude 运行时 `resolveResumeModel` 已覆盖 model，本任务补齐 effort/permissionMode 并让三者进入传给运行的 options。
 - 若 AC-246（模糊匹配）已落地，`session` 解析经其解析器；本判据用精确 session id，唯一命中属 happy path。
+
+## 完成记录
+
+### AC1 判据红态基线（改动前，judge 文件尚不存在）
+命令（与 AC2 同）：`for f in server/modules/mcp-gateway/tests/mcp-session-reconfigure.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-session-reconfigure.test.ts`
+输出逐字：`缺判据文件：server/modules/mcp-gateway/tests/mcp-session-reconfigure.test.ts`；退出码 1。
+
+### AC2 判据绿
+命令同 AC2；读数：`# tests 5` / `# pass 5` / `# fail 0`；退出码 0。
+
+### AC3 (a) 存储更新 + 下一轮取值
+返回逐字：`{"ok":true,"session":"<id>","stored":{"model":"opus","effort":"high","permissionMode":"plan"},"applied":"next-turn","liveSupported":true,"message":"该 provider 的在线重配置未生效（没有可用的实时宿主），改动将在下一轮生效。"}`
+会话行逐字：`{"model":"opus","effort":"high","permission_mode":"plan"}`；随后 `session_send` 运行 options 逐字：`{"model":"opus","effort":"high","permissionMode":"plan"}`。
+
+### AC4 (b) 在线重配置不重启
+`session_reconfigure({session,model:'opus',permissionMode:'acceptEdits'})` 返回 `{"ok":true,"stored":{"model":"opus","permissionMode":"acceptEdits"},"applied":"live","liveSupported":true}`；间谍调用序列 `setModels=["opus"] setPermissionModes=["acceptEdits"]`；宿主 `{"hostId":"host-…","pid":4242}->{"hostId":"host-…（同）","pid":4242（同）"}`，`spawns=1->1`（未重启）。effort 单项 ⇒ `{"applied":"next-turn","liveSupported":true}`，live spy 仍为 1/1、spawns 不变。
+
+### AC5 (c) 不支持的值明确拒绝 + WebSocket 对照
+MCP 逐字：`isError=true`，`payload={"code":"UNSUPPORTED_PERMISSION_MODE","supported":["default","auto","acceptEdits","bypassPermissions","plan"],"message":"该 provider 不支持权限模式 \"yolo\"；支持：default, auto, acceptEdits, bypassPermissions, plan。"}`；`row.permission_mode=null`、`writes=0`。
+WebSocket 对照逐字：`result={"ok":true,"runId":"<id>","queued":false,…}`，`before=null after=null`、`errorFrames=0`（静默忽略）。
+
+### AC6 (d) 无 liveReconfigure（注入 spy 使 claude 的 liveReconfigure=[]）
+返回逐字：`{"ok":true,"stored":{"model":"opus"},"applied":"next-turn","liveSupported":false,"message":"该 provider 不支持在线重配置，改动将在下一次启动/下一轮生效。"}`；`reconfigureCalls=0 setModels=0 setPermissionModes=0`。
+
+### AC7 (e) scope
+逐字：`isError=true`，新增审计行 `{"id":1,"tool":"session_reconfigure","outcome":"denied",…}` 恰一行；`modelWrites=0 permissionModeWrites=0 reconfigureCalls=0`。
+
+### AC8 取假形态（实现提交 6f3d6a19；逐条变异 → 红 → 恢复 → 绿）
+(i) 删掉 (c) 的不支持值校验分支（`mcp-session-reconfigure.ts`，diff：`-if (input.permissionMode !== undefined) { … throw refusal({code:'UNSUPPORTED_PERMISSION_MODE',…}) }` 换成两行占位）⇒ (c) 红，失败行逐字 `AssertionError: an unsupported permission mode must be refused`，读数 `payload={"ok":true,…,"stored":{"permissionMode":"yolo"}} writes=1`。恢复命令：`git checkout -- server/modules/mcp-gateway/mcp-session-reconfigure.ts` ⇒ 重跑 5/5 绿。
+(ii) `provider-runtime.service.ts` 的 `reconfigure` 改为「重启进程」：`await driver.closeHost(resolved.host,'mode-change')` + `void resolved.entry.run(sessionId,{command:'restart',options:{}},writer,{…})` + `return 'live'`。⇒ (b) 红，失败行逐字 `AssertionError: no new process was spawned by the reconfigure`，读数 `host=…->… spawns=1->2`。恢复命令：`git checkout -- server/modules/providers/services/provider-runtime.service.ts` ⇒ 重跑 5/5 绿。
+(iii) `mcp-session-send.ts` 的 `const options = await resolveSendOptions(...)` 改为 `const options = undefined`（下一轮仍用旧值）⇒ (a) 红，失败行逐字 `AssertionError: the next run must carry the new model`，读数 `runOptions={}`。恢复命令：`git checkout -- server/modules/mcp-gateway/mcp-session-send.ts` ⇒ 重跑 5/5 绿。
+
+### AC9 不回归与仓库门
+`npm run typecheck` 退出 0（三个 project 全绿）。`npm run lint` 中 `: error ` 计数 = 0（仅既有 warning）。逐字通过：`mcp-session-send.test.ts` 7/7、`mcp-cancel-queued.test.ts` 6/6、`mcp-read-tools.test.ts` 6/6、`chat-permission-mode.test.ts` 6/6、`claude-resident-permissions.test.ts` 1/1（前四者一字未动）。`lifecycle-mode.test.ts` 因任务第 2 条（claude 的 `liveReconfigure` 由 `[]` 改为 `['model','permissionMode']`）被迫同步扩大一处断言，已登记进 Touches。跨模块（mcp-gateway → providers/oauth）只经 barrel。
+
+### AC10 实际改动文件（`git diff --stat develop...HEAD`，11 个文件 + 本任务文件）
+```
+ server/index.ts                                    |  26 +
+ server/modules/mcp-gateway/index.ts                |  32 +-
+ server/modules/mcp-gateway/mcp-gateway.resident-tools.ts    |  59 +-
+ server/modules/mcp-gateway/mcp-gateway.transport.ts         |  17 +-
+ server/modules/mcp-gateway/mcp-gateway.write-tools.ts       |  13 +-
+ server/modules/mcp-gateway/mcp-session-reconfigure.ts (new) | 333 +
+ server/modules/mcp-gateway/mcp-session-send.ts              |  95 +-
+ server/modules/mcp-gateway/tests/mcp-session-reconfigure.test.ts (new) | 758 +
+ server/modules/providers/services/provider-capabilities.service.ts |  17 +-
+ server/modules/providers/services/provider-runtime.service.ts      |  67 ++
+ server/modules/session-hosts/tests/lifecycle-mode.test.ts         |  15 +-
+```
+与 Touches 逐条对齐（`mcp-gateway.write-tools.ts`、`lifecycle-mode.test.ts` 为本轮被迫新增，已先写入 Touches）。
+
+### 与 AC-271 判据的边界说明（如实登记）
+AC-271 判据 `mcp-cancel-queued.test.ts` 把 `MCP_STAGE6_RESIDENT_TOOLS.map(t=>t.name)` **精确**断言为 `['session_cancel_queued']`，而本任务 AC9 要求该文件一字不改仍逐字通过；任务第 4 条又要求向该表追加 `session_reconfigure`。二者不能同时成立。为满足 AC9（绑定的不回归面），本任务**未改变该表的可观察内容**，而是经同一审计缝在 `registerMcpResidentTools` 内、`deps.reconfigure` 存在时注册 `session_reconfigure`（name 的唯一书写处是 `registerMcpSessionReconfigureTool`，scope 取自 `ACCESS_TOKEN_SCOPES`）；AC-271 的 cancel-queued-only 装配因此逐字不变。表的扩大与 AC-271 断言的同步扩大留待同一改动内一并进行的后续任务；原因已写进 `mcp-gateway.resident-tools.ts` 的文件头与 §4 表格注释。
