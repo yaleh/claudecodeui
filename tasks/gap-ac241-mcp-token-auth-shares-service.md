@@ -2,7 +2,7 @@
 id: gap-ac241-mcp-token-auth-shares-service
 title: AC-241 /mcp 令牌认证与 token-info 共用一个令牌服务：无效令牌一律同一个 401、有效放行、吊销即时生效、last_used
   与 userId 进上下文；判据 server/modules/mcp-gateway/tests/mcp-auth.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null

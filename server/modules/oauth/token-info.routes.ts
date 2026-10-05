@@ -17,21 +17,7 @@
 import express from 'express';
 
 import type { AccessTokensService } from '@/modules/oauth/access-tokens.service.js';
-
-/** The only `Authorization` scheme this route accepts. */
-const BEARER_PREFIX = 'Bearer ';
-
-/**
- * Returns the token carried by an `Authorization: Bearer <token>` header, or
- * `null` when the header is absent, uses another scheme, or carries no value.
- */
-function bearerToken(header: string | undefined): string | null {
-  if (typeof header !== 'string' || !header.startsWith(BEARER_PREFIX)) {
-    return null;
-  }
-  const token = header.slice(BEARER_PREFIX.length).trim();
-  return token.length > 0 ? token : null;
-}
+import { bearerToken } from '@/shared/utils.js';
 
 /**
  * Creates the router for the token self-check endpoint. Used by the server

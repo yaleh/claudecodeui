@@ -95,6 +95,27 @@ export function asyncHandler(
 }
 
 // ---------------------------
+//----------------- AUTHORIZATION HEADER UTILITIES ------------
+/** The only `Authorization` scheme the backend's bearer-token endpoints accept. */
+const BEARER_PREFIX = 'Bearer ';
+
+/**
+ * Returns the token carried by an `Authorization: Bearer <token>` header, or
+ * `null` when the header is absent, uses another scheme, or carries no value.
+ *
+ * Consumers: the OAuth module's `/api/oauth/token-info` route and the
+ * mcp-gateway module's `/mcp` authentication middleware. Both parse the header
+ * HERE so a header one endpoint accepts is never refused by the other.
+ */
+export function bearerToken(header: string | undefined): string | null {
+  if (typeof header !== 'string' || !header.startsWith(BEARER_PREFIX)) {
+    return null;
+  }
+  const token = header.slice(BEARER_PREFIX.length).trim();
+  return token.length > 0 ? token : null;
+}
+
+// ---------------------------
 //----------------- SHARED ERROR UTILITIES ------------
 /**
  * Shared application error with HTTP status and machine-readable code metadata.
