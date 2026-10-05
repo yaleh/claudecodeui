@@ -23,13 +23,15 @@ import type {
  * Anchored at the start and matched against the message with its leading
  * whitespace removed, exactly as the reference does: an injected prompt is
  * recognised by how it OPENS (`You are `, `WORKSPACE:`, a continuation banner, a
- * task notification, a command marker, a system reminder). The case-insensitive
- * flag means a sentence that merely starts with `Caveat:` — a person writing one
- * — is excluded too; that over-collection is the reference's, and it is the safe
- * direction, since these are all turns nobody composed to be mined.
+ * task notification, a command marker, a system reminder). The match is
+ * CASE-SENSITIVE, as the reference's is — only `SECRET` below carries `re.I` —
+ * so `caveat:` in lower case is the person's own writing and stays in.
+ * `Caveat:` in its capitalised form is excluded whether or not the driver wrote
+ * it; that over-collection is the reference's, and it is the safe direction,
+ * since these are all turns nobody composed to be mined.
  */
 const INJECTED_PROMPT_PREFIX =
-  /^(You are |WORKSPACE:|This session is being continued|<task-notification|<command-|\[local-command|\[Request interrupted|<system-reminder|Caveat:|<bash-|<user-prompt|Base directory)/i;
+  /^(You are |WORKSPACE:|This session is being continued|<task-notification|<command-|<local-command|\[Request interrupted|<system-reminder|Caveat:|<bash-|<user-prompt|Base directory)/;
 
 /**
  * A message that looks like it carries a credential.
@@ -131,6 +133,29 @@ function isIgnorableMessage(rawText: string): boolean {
 }
 
 /**
+ * Whether a token is an opaque credential blob rather than a word the person
+ * wrote: three dot-separated base64url runs, i.e. a JWT (or a same-shaped
+ * signed token).
+ *
+ * AN ADDITION BEYOND THE REFERENCE, and the reason it exists is the real-data
+ * run: a session whose entire message was a pasted JWT put that string in the
+ * table, because the reference's `SECRET` pattern keys on the WORDS around a
+ * credential (`token`, `Bearer`, `sk-…`) and a bare token has no words. Where
+ * the reference removes a UUID and a hex hash in `clean` — opaque blobs of the
+ * same kind — this removes the third one it did not know about. It is applied to
+ * the tokens of an accepted message rather than inside `clean`, so the exported
+ * `extractIdentifiers` stays the reference's `ids` exactly and only the stored
+ * vocabulary gains the screen.
+ */
+function isOpaqueCredentialBlob(token: string): boolean {
+  const segments = token.split('.');
+  return (
+    segments.length === 3 &&
+    segments.every((segment) => segment.length >= 8 && /^[A-Za-z0-9_-]+$/.test(segment))
+  );
+}
+
+/**
  * The identifier-shaped tokens of one message the user sent, after both
  * exclusions. The single entry point every path — the live send hook and the
  * history import — goes through, so a token a live send would refuse can never
@@ -141,7 +166,7 @@ export function extractSentIdentifiers(rawText: string): string[] {
     return [];
   }
 
-  return extractIdentifiers(rawText);
+  return extractIdentifiers(rawText).filter((token) => !isOpaqueCredentialBlob(token));
 }
 
 /**

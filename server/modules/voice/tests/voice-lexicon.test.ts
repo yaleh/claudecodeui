@@ -37,7 +37,7 @@ const {
   initializeDatabase,
   voiceUserIdentifiersDb,
 } = await import('@/modules/database/index.js');
-const { createVoiceLexiconService, extractIdentifiers } = await import(
+const { createVoiceLexiconService, extractIdentifiers, extractSentIdentifiers } = await import(
   '@/modules/voice/voice-lexicon.js'
 );
 const { createVoiceRouter } = await import('@/modules/voice/voice.routes.js');
@@ -100,6 +100,20 @@ const CREDENTIAL_SENTINEL = 'sk-sentinel-credential-abc';
 const SENTENCE_SENTINEL = 'zebraquokka';
 
 /**
+ * A JWT: the credential the reference's `SECRET` screen provably cannot see,
+ * because it keys on the words AROUND a credential and this message is the
+ * credential alone.
+ *
+ * It was not invented for the test — a real-data import on this machine put two
+ * live JWTs in the table, from sessions whose whole user message was the token.
+ * The token-level blob screen exists because of that finding, so this is its
+ * regression: the string is identifier-shaped (three dot-separated base64url
+ * runs, digits included) and must nevertheless contribute nothing.
+ */
+const JWT_SENTINEL =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEsInVzZXJuYW1lIjoiY3JpdGVyaW9uIiwiaWF0IjoxNzAwMDAwMDAwfQ.abcdefghijklmnopqrstuvwxyz0123456789';
+
+/**
  * The constructed history an import is run against.
  *
  * Deliberately includes one id TWICE with different bodies: a message the
@@ -142,6 +156,9 @@ const HISTORY_FIXTURE: VoiceHumanMessage[] = [
     projectKey: '/proj/a',
     text: 'visit https://example.com/Path-Segment and read 3f2504e0-4f89-11d3-9a0c-0305e82c3301 then deadbeefdeadbeefdeadbeefdeadbeefdeadbeef ok',
   },
+  // A bare JWT: no credential WORD for the reference's screen to key on, so the
+  // token-level blob screen is the only thing that can refuse it.
+  { id: 'm10', projectKey: '/proj/a', text: JWT_SENTINEL },
 ];
 
 /** The store's rows once `HISTORY_FIXTURE` has been imported, most frequent first. */
@@ -222,6 +239,32 @@ test('the shape rule agrees with the Python reference on every known answer', ()
   );
 });
 
+test('a credential blob is refused by token while the words around it survive', () => {
+  // The blob screen is TOKEN-level, not message-level: a message that carries a
+  // JWT alongside ordinary identifiers keeps the identifiers. That distinction
+  // is the whole reason it lives beside `is_id` rather than in `clean` — putting
+  // it in `clean` would strip the token before tokenizing, which is equivalent,
+  // but the reference's `SECRET` refuses a credential by refusing the MESSAGE,
+  // and conflating the two rules would make a long message lose its words.
+  assert.deepEqual(extractSentIdentifiers(JWT_SENTINEL), [], 'a bare JWT is not vocabulary');
+  assert.deepEqual(
+    extractSentIdentifiers(`deploy CloudCLI ${JWT_SENTINEL} now`),
+    ['CloudCLI'],
+    'the words a message does contain are unaffected by the blob it also contains',
+  );
+
+  // The reference pipeline itself is unchanged: `extractIdentifiers` is the
+  // reference's `ids` and still sees the blob, which is what keeps the known-answer
+  // table the reference's behaviour rather than a description of a modified one.
+  assert.deepEqual(
+    extractIdentifiers(JWT_SENTINEL),
+    [JWT_SENTINEL],
+    'the exported reference pipeline must not carry the addition',
+  );
+
+  process.stdout.write('lexicon.blobScreen=token-level\n');
+});
+
 test('an import stores only the human identifiers, counting nothing it should refuse', async () => {
   await withIsolatedDatabase(async () => {
     const service = createService(HISTORY_FIXTURE);
@@ -257,6 +300,10 @@ test('an import stores only the human identifiers, counting nothing it should re
     assert.ok(
       !stored.some((token) => token.includes('gap-123') || token.includes('goal-777')),
       'an injected prompt must contribute nothing',
+    );
+    assert.ok(
+      !stored.some((token) => token.startsWith('eyj')),
+      `a bare JWT must contribute nothing, got ${stored.filter((t) => t.startsWith('eyj')).join(',')}`,
     );
 
     // The sentence sentinel must not survive anywhere in an export of the table:
