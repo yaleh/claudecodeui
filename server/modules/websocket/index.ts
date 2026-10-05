@@ -29,6 +29,11 @@ export {
 } from './services/activity-protocol.service.js';
 export { createActivityRouter } from './services/activity.routes.js';
 export { chatRunRegistry } from './services/chat-run-registry.service.js';
+// ChatRunSummary: the read-only projection of one tracked run, returned by
+// `getRunById` and `listRecentRuns`. Consumers: the MCP gateway's `overview` tool
+// (AC-247) types the aborted-run reading it derives from `listRecentRuns` against
+// it, so the run lifecycle vocabulary is not restated in a second module.
+export type { ChatRunSummary } from './services/chat-run-registry.service.js';
 // createChatControlService: the transport-agnostic control plane. Consumed by
 // `server/index.ts` to build the single process-wide instance the WebSocket
 // gateway, the scheduled-message dispatcher and (later) the MCP gateway share;

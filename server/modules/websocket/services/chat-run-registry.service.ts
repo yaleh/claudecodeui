@@ -66,9 +66,9 @@ type ChatRun = {
  * needs its identity and lifecycle and nothing else, and handing out the
  * internal record would leak the live `writer` and the event buffer it could
  * still mutate. Consumed by this module's criterion
- * (`server/modules/websocket/tests/chat-run-by-id.test.ts`); exported from this
- * service module rather than the module barrel because its only consumer today
- * is that same-module criterion.
+ * (`server/modules/websocket/tests/chat-run-by-id.test.ts`) and, through the
+ * module barrel, by the MCP gateway's `overview` tool (AC-247), which types the
+ * aborted-run reading of `listRecentRuns` against it.
  */
 export type ChatRunSummary = {
   runId: string;
@@ -484,6 +484,34 @@ export function createChatRunRegistry(options?: {
           startedAt: run.startedAt,
           lastSeq: run.lastSeq,
         }));
+    },
+
+    /**
+     * Every run the registry still holds, as read-only summaries: the running
+     * ones plus the terminal ones (completed or aborted) still inside the
+     * retention window. Expiry is judged lazily against the injected clock by the
+     * SAME rule `getRunById` uses (`now() - completedAt <= retentionMs`), so a run
+     * the by-id lookup would call `expired` never appears here either — the two
+     * readings cannot disagree about which runs are still addressable.
+     *
+     * Iterates the by-id index rather than the session-keyed map so a run a newer
+     * turn superseded — still running, or aborted inside the window — is reported
+     * too: `overview` must see a cancelled run even when its session's current
+     * slot now holds a different run.
+     *
+     * Consumers: the MCP gateway's `overview` tool (AC-247), which reads the
+     * `aborted` subset to report runs cancelled inside the retention period.
+     */
+    listRecentRuns(): ChatRunSummary[] {
+      const at = now();
+      return Array.from(runsById.values())
+        .filter(
+          (run) =>
+            run.status === 'running'
+            || run.completedAt === null
+            || at - run.completedAt <= retentionMs,
+        )
+        .map(summarize);
     },
 
     /**

@@ -808,10 +808,36 @@ export function createQuayService(dependencies: QuayServiceDependencies) {
     return loadSnapshot(projectId, projectPath);
   };
 
+  /**
+   * Reads a project's Tier-2 snapshot from the in-memory TTL cache WITHOUT ever
+   * loading it: the two outcomes are the cached snapshot (marked `cached: true`)
+   * or `null` on a miss / an expired entry. It never calls {@link loadSnapshot}
+   * / {@link collectSnapshot} / `runCommand`, so a caller fanning out over N
+   * projects spawns zero quay CLI processes — the property the MCP `overview`
+   * tool (AC-247) rests on, where an unbounded cold-cache fan-out would otherwise
+   * spawn one `quay` invocation per project.
+   *
+   * The freshness test is the SAME predicate `getQuaySnapshot`'s cache branch
+   * uses (`cached.expiresAt > now()`), so the Tier-2 panel and the MCP gateway can
+   * never disagree about whether a reading is fresh.
+   *
+   * Consumer: `server/index.ts` binds the MCP gateway's `McpQuayRunner.readCached`
+   * to this method (AC-247); `getQuaySnapshot` keeps its existing load-on-demand
+   * semantics and is bound to `refresh` instead.
+   */
+  const getCachedSnapshot = (projectId: string): QuaySnapshot | null => {
+    const cached = snapshotCache.get(projectId);
+    if (cached && cached.expiresAt > dependencies.now()) {
+      return { ...cached.snapshot, cached: true };
+    }
+    return null;
+  };
+
   return {
     detectQuayConfig,
     runQuayCommand,
     getQuayStatus,
     getQuaySnapshot,
+    getCachedSnapshot,
   };
 }

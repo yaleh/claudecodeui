@@ -77,6 +77,41 @@ export type {
   McpTime,
 } from './mcp-gateway.read-tools.js';
 
+// The overview tools (AC-247). `buildOverview` answers the whole-workspace
+// reading (running / awaiting-permission / aborted sessions, resident hosts, and
+// per-project quay state read from the snapshot cache ONLY); `buildQuaySnapshot`
+// reads one project, refreshing it exactly once when asked. `McpQuayRunner` is
+// the injected runner seam (`server/index.ts` binds it to `quayService`);
+// `McpOverviewDeps` is the deps bag those two read; `registerMcpOverviewTools`
+// installs the two names through the audited seam (consumed by
+// `registerMcpReadTools` when the deps are wired, and driven directly by this
+// module's criterion). `isOverviewWired` is the branch `registerMcpReadTools`
+// takes between the real handlers and the named refusal.
+export {
+  buildOverview,
+  buildQuaySnapshot,
+  isOverviewWired,
+  NO_QUAY_NOTE,
+  registerMcpOverviewTools,
+  UNKNOWN_QUAY_NOTE,
+} from './mcp-overview-tools.js';
+export type {
+  McpActivityReader,
+  McpOverviewAwaiting,
+  McpOverviewAborted,
+  McpOverviewDeps,
+  McpOverviewHost,
+  McpOverviewQuayEntry,
+  McpOverviewReadDeps,
+  McpOverviewRegistration,
+  McpOverviewRunning,
+  McpQuayRunner,
+  McpQuaySnapshotInput,
+  McpQuaySnapshotPayload,
+  McpQuaySnapshotReading,
+  OverviewPayload,
+} from './mcp-overview-tools.js';
+
 // The target-resolution surface (AC-246). `resolveMcpTarget` turns a caller's
 // project/session reference into one id (or into an explicit refusal listing the
 // candidates), and `resolveInputTargets` is the gate that applies it to a tool's

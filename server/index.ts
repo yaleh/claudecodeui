@@ -36,7 +36,7 @@ import {
     validateApiKey,
 } from './modules/auth/index.js';
 import { taskmasterRoutes } from './modules/taskmaster/index.js';
-import { quayRoutes } from './modules/quay/index.js';
+import { quayRoutes, quayService } from './modules/quay/index.js';
 import { commandsRoutes } from './modules/commands/index.js';
 import { settingsRoutes } from './modules/settings/index.js';
 import {
@@ -492,6 +492,14 @@ if (mountDebugAgentControlPlane(app, authenticateToken)) {
 // registry) plus the wall clock. They are injected rather than imported so the
 // gateway module owns no database handle and a criterion can drive the same
 // tools over its own fixture.
+//
+// AC-247 adds `activity` (the process activity store, the one source of a
+// session's turn phase) and `quay`: an `McpQuayRunner` adapter over the quay
+// service. `readCached` binds to `quayService.getCachedSnapshot` (cache-only, no
+// subprocess) and `hasQuayConfig` to its Tier-1 path check, so `overview` over N
+// projects spawns zero quay CLI processes; `refresh` — the one load-on-demand
+// verb, reachable only from `quay_snapshot({ refresh: true })` — binds to
+// `getQuaySnapshot(projectId, { forceRefresh: true })`.
 const mcpGateway = mountMcpGateway(app, {
     authorize: createMcpAuthMiddleware(accessTokensService),
     readTools: {
@@ -499,6 +507,12 @@ const mcpGateway = mountMcpGateway(app, {
         sessions: sessionsService,
         hosts: sessionHostManager,
         runs: chatRunRegistry,
+        activity: activityStore,
+        quay: {
+            hasQuayConfig: (projectId: string) => quayService.getQuayStatus(projectId)?.hasQuayConfig ?? false,
+            readCached: (projectId: string) => quayService.getCachedSnapshot(projectId),
+            refresh: (projectId: string) => quayService.getQuaySnapshot(projectId, { forceRefresh: true }),
+        },
         now: () => Date.now(),
     },
 });
