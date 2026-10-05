@@ -4,7 +4,7 @@ title: AC-246 判据台账尾部红是 merge race：实现 b85df7e1（15:13:03+0
   author 停在 task_write 勾选 4a654f3a（树 70fae57c，判据文件 ABSENT）直到 fan-in
   c232ba8e（07:26:06Z）才 ff 落地；52 拍红（末拍 07:25:10.935Z）早于落地约 55s ——
   verification-only 归因入档（当前检出直跑 exit 0，7/7/0），不重新实现
-status: todo
+status: ready
 labels:
   - gap
 parent: null
