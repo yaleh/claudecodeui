@@ -1,7 +1,7 @@
 ---
 id: AC-239
 title: SDK 与 zod 声明进 dependencies：生产是 npm install -g，不装 devDependencies，不再依赖传递安装的副本
-status: draft
+status: active
 kind: criterion
 goal: GOAL-020
 criterion: for f in
@@ -18,4 +18,15 @@ expect: 读 package.json 与 package-lock.json 的 JSON，不做文本匹配。�
   未同步 ⇒ (d) 必须红。（红先行）当前必红：判据文件不存在，存在性闸以退出码 1 输出缺失的文件名。
 origin: docs/proposals/mcp-gateway-SPEC.md（v3.1）。人 yale 2026-10-05 指令：创建并激活
   GOAL-020 至 GOAL-022 及其 AC。
+activatedAt: 2026-10-05T02:06:27.983Z
+statusLog:
+  - at: 2026-10-05T02:06:27.983Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-05T02:06:27.983Z
 ---
