@@ -1,7 +1,7 @@
 ---
 id: AC-264
 title: 客户端注册策略：DCR 可关、可限定回调主机、可开放，手工客户端的密钥只显示一次且哈希存储
-status: draft
+status: active
 kind: criterion
 goal: GOAL-021
 criterion: for f in server/modules/oauth/tests/oauth-dcr.test.ts; do [ -f "$f" ]
@@ -17,4 +17,15 @@ expect: 读数：(a) `MCP_DCR=off`（默认）时 `/oauth/register` 不可用，
   必须红。（红先行）当前必红：判据文件不存在，存在性闸以退出码 1 输出缺失的文件名。
 origin: docs/proposals/mcp-gateway-SPEC.md（v3.1）。人 yale 2026-10-05 指令：创建并激活
   GOAL-020 至 GOAL-022 及其 AC。
+activatedAt: 2026-10-05T02:21:29.388Z
+statusLog:
+  - at: 2026-10-05T02:21:29.388Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-05T02:21:29.388Z
 ---
