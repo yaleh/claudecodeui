@@ -4,7 +4,7 @@ title: AC-256 嵌套冒烟记录齐全：独立实例 + 终端 Claude Code（cla
   PAT）以自然语言驱动真实会话；scripts/mcp-smoke.mjs + scripts/mcp-smoke.test.mjs +
   docs/proposals/cloudcli-mcp-smoke.md；--check-record 逐节点名、端口 3001
   红、读数为空红，单测覆盖「缺一节就红」
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
