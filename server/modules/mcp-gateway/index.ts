@@ -213,6 +213,38 @@ export type {
   SessionInterruptPayload,
 } from './mcp-session-lifecycle.js';
 
+// The resident host control write tools (AC-251). `buildSessionStart` starts a
+// session's resident host by delegating to the session-hosts module's
+// `startResidentHost` — so an already-running session answers with the SAME host
+// and pid rather than a second process — and `buildSessionClose` delegates to
+// `closeResidentHost`, refusing first (with `SESSION_HAS_ACTIVE_LEASES`) while
+// the session holds a `cron` / `background-task` lease and no `force: true` was
+// given. `createSessionHostControl` is the production wiring over the
+// session-hosts barrel (consumed by `server/index.ts` via AC-253 and by this
+// module's criterion); `McpSessionHostDeps` is the injected seam those two
+// handlers read; the two input schemas / readers are the one argument shape,
+// shared by registration and validation. `registerMcpWriteTools` installs both
+// handlers when `McpWriteToolDeps.sessionHostControl` is supplied.
+export {
+  buildSessionClose,
+  buildSessionStart,
+  createSessionHostControl,
+  readLiveHost,
+  readSessionCloseInput,
+  readSessionStartInput,
+  SESSION_CLOSE_INPUT_SCHEMA,
+  SESSION_HAS_ACTIVE_LEASES_CODE,
+  SESSION_START_INPUT_SCHEMA,
+} from './mcp-session-host-control.js';
+export type {
+  McpSessionCloseInput,
+  McpSessionHostControl,
+  McpSessionHostDeps,
+  McpSessionStartInput,
+  SessionClosePayload,
+  SessionStartPayload,
+} from './mcp-session-host-control.js';
+
 // The target-resolution surface (AC-246). `resolveMcpTarget` turns a caller's
 // project/session reference into one id (or into an explicit refusal listing the
 // candidates), and `resolveInputTargets` is the gate that applies it to a tool's

@@ -11,6 +11,25 @@ export { sessionHostManager, createSessionHostManager } from './session-host-man
 // /:sessionId/start`, `POST /:sessionId/close`), which is why its two reader
 // seams travel with it.
 export { createSessionHostsRouter } from './session-hosts.routes.js';
+// startResidentHost / closeResidentHost: the resident start/close decision,
+// lifted out of the route so a SECOND transport can reach the same code instead
+// of writing its own. Consumers: the MCP gateway's `session_start` /
+// `session_close` adapter (`server/modules/mcp-gateway/mcp-session-host-control.ts`),
+// which delegates every start and close to these two functions and never
+// re-implements them. Exported here (not re-stated in the gateway) so the
+// gateway's on-demand verb is provably the route's verb.
+export { closeResidentHost, startResidentHost } from './resident-host.service.js';
+// ResidentHostServiceDeps: the four seams the two services read, handed through
+// by the barreled default builder the MCP gateway calls. ResidentHostStartOutcome
+// / ResidentHostCloseOutcome / ResidentHostRefusal: what each service answers —
+// a success carrying the host (and, on close, its leases), or a refusal whose
+// `code`/`message` the MCP adapter forwards verbatim.
+export type {
+  ResidentHostCloseOutcome,
+  ResidentHostRefusal,
+  ResidentHostServiceDeps,
+  ResidentHostStartOutcome,
+} from './resident-host.service.js';
 // SessionLifecycleReading / HostDriverResolver: the two dependency seams the
 // start/close verbs are constructed with. `SessionLifecycleReading` is the shape
 // the providers module's `sessionsService.readSessionLifecycle` returns (the

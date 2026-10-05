@@ -73,15 +73,15 @@ const SERVER_INFO = { name: 'claudecodeui-mcp-gateway', version: '0.1.0' };
  * supplied — an unwired mount keeps AC-240/244/245's exact behaviour, and the
  * write tools AC-249 registers compose the same `resolveInputTargets` wrapper.
  *
- * Stage-4 write tools (AC-249, extended by AC-250) register through the same
- * seam when {@link McpGatewayDeps.writeTools} is present, so their audit row,
- * scope refusal and target gate are the identical machinery — only the name set
- * and the handlers differ. The write-tools bag flows through unchanged, so
- * AC-250's `sessionCreate` / `sessionInterrupt` members reach
- * `registerMcpWriteTools` and swap in the real `session_create` /
- * `session_interrupt` handlers; a bag without them keeps the placeholders. An
- * unwired mount registers neither read nor write tools and keeps answering an
- * empty `tools/list`.
+ * Stage-4 write tools (AC-249, extended by AC-250 and AC-251) register through
+ * the same seam when {@link McpGatewayDeps.writeTools} is present, so their audit
+ * row, scope refusal and target gate are the identical machinery — only the name
+ * set and the handlers differ. The write-tools bag flows through unchanged, so
+ * AC-250's `sessionCreate` / `sessionInterrupt` members and AC-251's
+ * `sessionHostControl` member reach `registerMcpWriteTools` and swap in the real
+ * `session_create` / `session_interrupt` / `session_start` / `session_close`
+ * handlers; a bag without them keeps the placeholders. An unwired mount registers
+ * neither read nor write tools and keeps answering an empty `tools/list`.
  *
  * Stage-6 resident tools (AC-271) register through that same seam when
  * {@link McpGatewayDeps.residentTools} is present. They are a SEPARATE table
@@ -306,14 +306,18 @@ export type McpGatewayDeps = {
    * chat control service the WebSocket gateway and the scheduled timer share
    * (AC-233), the run registry, AC-248's `run_get` builder over its deps, and —
    * AC-250's optional half — the project/session seams `session_create` reads
-   * plus the abort seam `session_interrupt` reads.
+   * plus the abort seam `session_interrupt` reads — and AC-251's optional
+   * `sessionHostControl` (the resident start/close services `session_start` /
+   * `session_close` delegate to; production builds it with
+   * `createSessionHostControl` over the session-hosts barrel, AC-253).
    *
    * Supplying it registers the five write tools through the SAME audited seam
    * the read tools use, and threads the whole bag (including AC-250's
-   * `sessionCreate` / `sessionInterrupt`) to `registerMcpWriteTools`, which
-   * installs the real handlers for exactly the tools whose deps are present.
-   * Absent keeps the read-only mount AC-245's criterion reads, and a bag without
-   * AC-250's optional members keeps AC-249's placeholder registration.
+   * `sessionCreate` / `sessionInterrupt` and AC-251's `sessionHostControl`) to
+   * `registerMcpWriteTools`, which installs the real handlers for exactly the
+   * tools whose deps are present. Absent keeps the read-only mount AC-245's
+   * criterion reads, and a bag without those optional members keeps AC-249's
+   * placeholder registration.
    */
   writeTools?: McpWriteToolDeps;
   /**

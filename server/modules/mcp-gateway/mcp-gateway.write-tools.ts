@@ -11,17 +11,21 @@
  * contract the self-referential guard (AC-252) reads to know which tools to
  * protect.
  *
- * `session_send` (AC-249) and `session_create` / `session_interrupt` (AC-250)
- * are implemented; `session_start` / `session_close` are still registered with a
- * body that throws a NAMED `MCP_TOOL_NOT_IMPLEMENTED` refusal pointing at AC-251.
- * Registering all five keeps the set stable, so a later task replaces a handler
- * without touching the set.
+ * `session_send` (AC-249), `session_create` / `session_interrupt` (AC-250) and
+ * `session_start` / `session_close` (AC-251) are implemented. The stage-4 table
+ * always lists all five names; a tool whose deps are absent still registers with
+ * a body that throws a NAMED `MCP_TOOL_NOT_IMPLEMENTED` refusal pointing at its
+ * owner. Registering every name keeps the set stable, so a later task replaces a
+ * handler without touching the set.
  *
  * The AC-250 handlers are wired through optional deps ({@link McpWriteToolDeps.sessionCreate}
  * / {@link McpWriteToolDeps.sessionInterrupt}): a mount that supplies them gets
  * the real behaviour, while a mount that does not — AC-249's criterion, which
  * exercises only `session_send` — keeps the placeholder and its exact old
- * registration.
+ * registration. AC-251's two handlers ride the same seam through
+ * {@link McpWriteToolDeps.sessionHostControl}; supplying it swaps in
+ * `buildSessionStart` / `buildSessionClose`, which delegate to the session-hosts
+ * module's own resident start/close services.
  *
  * The scope literals come from AC-243's single scope vocabulary
  * (`ACCESS_TOKEN_SCOPES`) rather than being re-typed here; the array's order is
@@ -44,6 +48,15 @@ import {
   SESSION_INTERRUPT_INPUT_SCHEMA,
 } from './mcp-session-lifecycle.js';
 import type { McpSessionCreateDeps, McpSessionInterruptDeps } from './mcp-session-lifecycle.js';
+import {
+  buildSessionClose,
+  buildSessionStart,
+  readSessionCloseInput,
+  readSessionStartInput,
+  SESSION_CLOSE_INPUT_SCHEMA,
+  SESSION_START_INPUT_SCHEMA,
+} from './mcp-session-host-control.js';
+import type { McpSessionHostDeps } from './mcp-session-host-control.js';
 import {
   buildSessionSend,
   readSessionSendInput,
@@ -125,6 +138,17 @@ export type McpWriteToolDeps = {
    * placeholder, present swaps in `buildSessionInterrupt`.
    */
   sessionInterrupt?: McpSessionInterruptDeps;
+  /**
+   * The resident host start/close services `session_start` / `session_close`
+   * answer from (AC-251). Optional for the same reason as the two above: a mount
+   * that does not supply it — AC-240/244/245/249's criteria, none of which drive
+   * these two tools — keeps their `MCP_TOOL_NOT_IMPLEMENTED` placeholder and its
+   * exact old registration. Present swaps in `buildSessionStart` /
+   * `buildSessionClose`, which delegate every start and close to the
+   * session-hosts module's own services (production: `createSessionHostControl`
+   * over the session-hosts barrel).
+   */
+  sessionHostControl?: McpSessionHostDeps;
 };
 
 // --------------------------- registration ---------------------------
@@ -201,6 +225,7 @@ const PLACEHOLDER_OWNER: Record<McpStage4WriteToolName, string> = {
 export function registerMcpWriteTools(seam: McpWriteToolSeam, deps: McpWriteToolDeps): void {
   const sessionCreate = deps.sessionCreate;
   const sessionInterrupt = deps.sessionInterrupt;
+  const sessionHostControl = deps.sessionHostControl;
   for (const tool of MCP_STAGE4_WRITE_TOOLS) {
     if (tool.name === 'session_send') {
       seam({
@@ -238,6 +263,34 @@ export function registerMcpWriteTools(seam: McpWriteToolSeam, deps: McpWriteTool
         inputSchema: SESSION_INTERRUPT_INPUT_SCHEMA,
         outputSchema: { aborted: z.boolean(), message: z.string().optional() },
         handler: (args, ctx) => buildSessionInterrupt(readSessionInterruptInput(args), ctx, sessionInterrupt),
+      });
+      continue;
+    }
+    if (tool.name === 'session_start' && sessionHostControl !== undefined) {
+      seam({
+        name: tool.name,
+        description: tool.description,
+        requiredScope: tool.requiredScope,
+        inputSchema: SESSION_START_INPUT_SCHEMA,
+        outputSchema: { hostId: z.string(), sessionId: z.string(), mode: z.string(), pid: z.number().nullable() },
+        handler: (args, ctx) => buildSessionStart(readSessionStartInput(args), ctx, sessionHostControl),
+      });
+      continue;
+    }
+    if (tool.name === 'session_close' && sessionHostControl !== undefined) {
+      seam({
+        name: tool.name,
+        description: tool.description,
+        requiredScope: tool.requiredScope,
+        inputSchema: SESSION_CLOSE_INPUT_SCHEMA,
+        outputSchema: {
+          hostId: z.string(),
+          sessionId: z.string(),
+          mode: z.string(),
+          closeReason: z.string(),
+          leases: z.array(z.unknown()),
+        },
+        handler: (args, ctx) => buildSessionClose(readSessionCloseInput(args), ctx, sessionHostControl),
       });
       continue;
     }
