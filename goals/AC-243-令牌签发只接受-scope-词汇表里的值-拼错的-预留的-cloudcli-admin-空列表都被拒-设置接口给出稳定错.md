@@ -1,7 +1,7 @@
 ---
 id: AC-243
 title: 令牌签发只接受 scope 词汇表里的值：拼错的、预留的 cloudcli:admin、空列表都被拒，设置接口给出稳定错误码
-status: draft
+status: active
 kind: criterion
 goal: GOAL-020
 criterion: for f in server/modules/oauth/tests/access-token-scopes.test.ts; do [
@@ -18,4 +18,15 @@ expect: 用生产的设置路由工厂加注入的认证中间件，经真实 HT
   必须红。（红先行）当前必红：判据文件不存在，存在性闸以退出码 1 输出缺失的文件名。
 origin: docs/proposals/mcp-gateway-SPEC.md（v3.1）。人 yale 2026-10-05 指令：创建并激活
   GOAL-020 至 GOAL-022 及其 AC。
+activatedAt: 2026-10-05T02:08:40.355Z
+statusLog:
+  - at: 2026-10-05T02:08:40.355Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-05T02:08:40.355Z
 ---
