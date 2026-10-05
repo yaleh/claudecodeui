@@ -3,7 +3,7 @@ id: AC-278
 title: 生产装配把四个会话写工具接到网关：server/index.ts 的 createMcpGatewayModule 交出
   sessionCreate / sessionInterrupt / sessionHostControl，四个工具在真装配下不再回
   MCP_TOOL_NOT_IMPLEMENTED
-status: draft
+status: active
 kind: criterion
 goal: GOAL-020
 criterion: for f in
@@ -32,10 +32,17 @@ expect: 读数：(a) 生产装配静态面——对 `server/index.ts` 解析语�
   PLACEHOLDER_OWNER[name])`，`PLACEHOLDER_OWNER.session_create` 与
   `PLACEHOLDER_OWNER.session_interrupt` 逐字都是 `AC-250`，`session_start` 与
   `session_close` 逐字是 `AC-251`。
-origin: 人 yale 2026-10-05 指令：创建并激活 GOAL-020 至 GOAL-022 及其 AC。本 AC 由 2026-10-05 的
-  manager 检查补立。AC-256 停在 needs-human 的诊断（生产装配未交 session 写工具 deps）经独立复核为真：`git
-  log -S sessionCreate -- server/index.ts` 为空——从未接上，不是回归；AC-250 与 AC-251 的
-  Touches 小节都不含 `server/index.ts`（AC-253 含，但只做「单控制服务实例」那一层）。三条 AC 都 done
-  且判据都只覆盖注入 deps 的单元行为，于是 GOAL-020 退出条件 8 原称的「三条各自直接覆盖」对生产装配不成立：四个会话写工具在生产上回
-  MCP_TOOL_NOT_IMPLEMENTED。
+origin: 人 yale 2026-10-05 指令；本 AC 由 2026-10-05 manager 检查补立，红态已实测（goal gate
+  AC-278 ⇒ fail，cause 逐字为缺判据文件）。
+activatedAt: 2026-10-05T15:48:33.319Z
+statusLog:
+  - at: 2026-10-05T15:48:33.319Z
+    from: draft
+    to: active
+    actor: goal-cli
+    reason: ""
+fidelity:
+  verdict: not-evaluated
+  reason: no judge configured
+  at: 2026-10-05T15:48:33.319Z
 ---
