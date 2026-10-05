@@ -3,7 +3,7 @@ id: gap-ac261-oauth-consent-ratelimit
 title: AC-261 授权页密码提交限速：每来源每 15 分钟 10 次（第 11 次即使密码正确也 429），TRUST_PROXY 下来源取
   CF-Connecting-IP、未配置时伪造头无效；判据
   server/modules/oauth/tests/oauth-consent-ratelimit.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
