@@ -1,15 +1,20 @@
 /**
  * Access-token repository.
  *
- * Persists the rows behind the OAuth module's personal access tokens. The
- * module never stores plaintext: callers pass the SHA-256 hash and the display
- * prefix. Every timestamp is passed in from the caller's clock rather than read
- * from `CURRENT_TIMESTAMP`, because the service injects a clock so expiry and
- * revocation are deterministic under test.
+ * Persists the rows behind the OAuth module's personal access tokens and OAuth
+ * access/refresh tokens. The module never stores plaintext: callers pass the
+ * SHA-256 hash and the display prefix. Every timestamp is passed in from the
+ * caller's clock rather than read from `CURRENT_TIMESTAMP`, because the service
+ * injects a clock so expiry and revocation are deterministic under test.
  *
- * Consumers: server/modules/oauth (access-tokens.service.ts) and
- * server/modules/settings (settings.module.ts, for the /access-tokens
- * routes), both through the database module barrel.
+ * The `kind`, `resource` and `grant_id` columns were added for OAuth tokens
+ * (mcp-gateway-SPEC stage 5, AC-258); a PAT insert that omits them still lands a
+ * `pat` row with an empty resource and a NULL grant, so the pre-existing PAT
+ * callers are unchanged.
+ *
+ * Consumers: server/modules/oauth (access-tokens.service.ts,
+ * oauth-store.service.ts) and server/modules/settings (settings.module.ts, for
+ * the /access-tokens routes), both through the database module barrel.
  */
 
 import { getConnection } from '@/modules/database/connection.js';
@@ -18,17 +23,24 @@ import { getConnection } from '@/modules/database/connection.js';
 export type AccessTokenRow = {
   id: number;
   user_id: number;
+  kind: string;
   token_hash: string;
   token_prefix: string;
   name: string | null;
+  grant_id: number | null;
   scopes: string;
+  resource: string;
   expires_at: string;
   created_at: string | null;
   last_used: string | null;
   revoked_at: string | null;
 };
 
-/** The fields a caller supplies to insert a token row; all timestamps are ISO strings. */
+/**
+ * The fields a caller supplies to insert a token row; all timestamps are ISO
+ * strings. `kind` defaults to `'pat'`, `resource` to `''` and `grantId` to NULL,
+ * so a PAT insert supplies none of them and an OAuth insert supplies all three.
+ */
 export type InsertAccessTokenInput = {
   userId: number;
   tokenHash: string;
@@ -37,7 +49,13 @@ export type InsertAccessTokenInput = {
   scopes: string;
   expiresAt: string;
   createdAt: string;
+  kind?: string;
+  resource?: string;
+  grantId?: number | null;
 };
+
+const TOKEN_COLUMNS =
+  'id, user_id, kind, token_hash, token_prefix, name, grant_id, scopes, resource, expires_at, created_at, last_used, revoked_at';
 
 export const accessTokensDb = {
   /** Inserts a token row and returns its new id. */
@@ -46,8 +64,8 @@ export const accessTokensDb = {
     const result = db
       .prepare(
         `INSERT INTO access_tokens
-           (user_id, token_hash, token_prefix, name, scopes, expires_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+           (user_id, token_hash, token_prefix, name, scopes, expires_at, created_at, kind, resource, grant_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         input.userId,
@@ -56,7 +74,10 @@ export const accessTokensDb = {
         input.name,
         input.scopes,
         input.expiresAt,
-        input.createdAt
+        input.createdAt,
+        input.kind ?? 'pat',
+        input.resource ?? '',
+        input.grantId ?? null
       );
     return Number(result.lastInsertRowid);
   },
@@ -70,11 +91,7 @@ export const accessTokensDb = {
   listByUser(userId: number): AccessTokenRow[] {
     const db = getConnection();
     return db
-      .prepare(
-        `SELECT id, user_id, token_hash, token_prefix, name, scopes,
-                expires_at, created_at, last_used, revoked_at
-         FROM access_tokens WHERE user_id = ? ORDER BY id DESC`
-      )
+      .prepare(`SELECT ${TOKEN_COLUMNS} FROM access_tokens WHERE user_id = ? ORDER BY id DESC`)
       .all(userId) as AccessTokenRow[];
   },
 
@@ -82,11 +99,7 @@ export const accessTokensDb = {
   findById(id: number): AccessTokenRow | undefined {
     const db = getConnection();
     return db
-      .prepare(
-        `SELECT id, user_id, token_hash, token_prefix, name, scopes,
-                expires_at, created_at, last_used, revoked_at
-         FROM access_tokens WHERE id = ?`
-      )
+      .prepare(`SELECT ${TOKEN_COLUMNS} FROM access_tokens WHERE id = ?`)
       .get(id) as AccessTokenRow | undefined;
   },
 
@@ -94,11 +107,7 @@ export const accessTokensDb = {
   findByHash(tokenHash: string): AccessTokenRow | undefined {
     const db = getConnection();
     return db
-      .prepare(
-        `SELECT id, user_id, token_hash, token_prefix, name, scopes,
-                expires_at, created_at, last_used, revoked_at
-         FROM access_tokens WHERE token_hash = ?`
-      )
+      .prepare(`SELECT ${TOKEN_COLUMNS} FROM access_tokens WHERE token_hash = ?`)
       .get(tokenHash) as AccessTokenRow | undefined;
   },
 
@@ -118,5 +127,18 @@ export const accessTokensDb = {
       .prepare('UPDATE access_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL')
       .run(revokedAt, id);
     return result.changes > 0;
+  },
+
+  /**
+   * Revokes every live token under `grantId` — the cascade behind revoking a
+   * grant or disabling the client that owns it. Returns the number of rows
+   * changed, so the caller can report how many tokens the cascade rejected.
+   */
+  revokeByGrantId(grantId: number, revokedAt: string): number {
+    const db = getConnection();
+    const result = db
+      .prepare('UPDATE access_tokens SET revoked_at = ? WHERE grant_id = ? AND revoked_at IS NULL')
+      .run(revokedAt, grantId);
+    return result.changes;
   },
 };

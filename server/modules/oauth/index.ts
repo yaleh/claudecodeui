@@ -23,3 +23,25 @@ export type {
 // GET /api/oauth/token-info, and by this module's criterion to mount the
 // production route factory on a real express server.
 export { createTokenInfoRouter } from '@/modules/oauth/token-info.routes.js';
+// createOAuthStore: the OAuth storage layer (clients, grants, authorization
+// codes, OAuth access/refresh tokens, revocation cascades, hash-only writes).
+// Consumers: this module's oauth-store criterion, and the AC-259+ endpoint
+// tasks that build the authorization-code flow on top of it.
+export { createOAuthStore } from '@/modules/oauth/oauth-store.service.js';
+export type {
+  CreateGrantInput,
+  CreateGrantResult,
+  DisableClientResult,
+  IssueAuthorizationCodeInput,
+  IssueAuthorizationCodeResult,
+  IssueOAuthTokenInput,
+  IssueOAuthTokenResult,
+  OAuthStore,
+  OAuthStoreOptions,
+  OAuthTokenKind,
+  OAuthTokenRejectionReason,
+  RegisterClientInput,
+  RegisterClientResult,
+  RevokeGrantResult,
+  VerifyOAuthTokenResult,
+} from '@/modules/oauth/oauth-store.service.js';
