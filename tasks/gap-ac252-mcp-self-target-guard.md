@@ -4,7 +4,7 @@ title: AC-252 自指保护：目标会话 phase='tool'
   且工具名后缀命中网关写工具名时，session_send/session_interrupt/session_close/session_cancel_queued
   返回 SELF_TARGET、控制与宿主服务计数为 0；别名任意、读工具与 phase≠tool 放行、写工具名集合取自注册表；判据
   server/modules/mcp-gateway/tests/mcp-self-target.test.ts
-status: todo
+status: ready
 labels:
   - gap
 parent: null
