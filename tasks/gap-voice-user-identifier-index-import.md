@@ -1,7 +1,7 @@
 ---
 id: gap-voice-user-identifier-index-import
 title: 用户标识符索引（U 词源）：每条发出的消息自动记入、从历史会话一次性导入冷启动，只存词和次数、不存句子，可一键清空
-status: ready
+status: done
 labels:
   - gap
 parent: null
