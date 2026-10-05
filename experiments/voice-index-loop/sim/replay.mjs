@@ -7,9 +7,9 @@ import { applyTemplates, knownPrefixes } from './templates.mjs';
 import { idsWithPos, alignRegion, widenToWords, has, normKey, isId, heardKey, findHeard } from './lib.mjs';
 import { repairIdentifiers } from '../../../src/shared/identifierRepair.ts';
 export const ROOT = '/data/home/yale/work/tc-verify/corpus/voice-index-loop/';
-const stream = JSON.parse(readFileSync(ROOT + 'stream.json', 'utf8'));
+const stream = JSON.parse(readFileSync(ROOT + (process.env.STREAM_FILE ?? 'stream.json'), 'utf8'));
 const snap = JSON.parse(readFileSync(ROOT + 'snap.json', 'utf8'));
-const asrRows = new Map(readFileSync(ROOT + 'asr-v3.jsonl', 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((r) => r.asr != null).map((r) => [r.id, r.asr]));
+const asrRows = new Map(readFileSync(ROOT + (process.env.ASR_FILE ?? 'asr-v3.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((r) => r.asr != null).map((r) => [r.id, r.asr]));
 export const T0 = Date.parse(stream[0].ts);
 const days = (ts) => (Date.parse(ts) - T0) / 86400000;
 const leftWord = (text, pos) => { const m = text.slice(0, pos).match(/([A-Za-z]+)\W*$/); return m ? m[1].toLowerCase() : ''; };
@@ -46,7 +46,8 @@ export function replay(cfg, { limit = Infinity } = {}) {
         if (post !== asr) changes.push({ by: 'B', start: 0, end: asr.length, from: asr, to: post, whole: true });
       } else {
         const ents = idx.entities(m.proj, conv, now, SRC);
-        const { spans, maxScored: ms } = analyseEnts(asr, buildLookup(ents), { maxWin: V.has('longWindow') ? 9 : 4 }); maxScored = Math.max(maxScored, ms); spansAll = spans;
+        const { spans, maxScored: ms } = analyseEnts(asr, buildLookup(ents), { maxWin: V.has('longWindow') ? 9 : 4 });
+        if (cfg.onEnts) cfg.onEnts({ m, asr, ents, now, conv }); maxScored = Math.max(maxScored, ms); spansAll = spans;
         // L1 learned aliases first
         const l1 = [];
         if (cfg.learn) {
@@ -108,7 +109,7 @@ export function replay(cfg, { limit = Infinity } = {}) {
       const bad = idx.checkInvariants(m.proj, conv, now, SRC); if (bad.length) violations.push({ id: m.id, bad });
       idx.sweep(now);
     }
-    idx.observeSent(m.ids, now);   // every message the user sent becomes history, selected or not
+    if (!V.has('noImport') || m.selected) idx.observeSent(m.ids, now);   // every message the user sent becomes history; `noImport` = only the voice stream's own messages
   }
   return { recs, maxScored, violations, idx };
 }
