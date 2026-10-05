@@ -4,7 +4,7 @@ title: AC-256 嵌套冒烟记录齐全：独立实例 + 终端 Claude Code（cla
   PAT）以自然语言驱动真实会话；scripts/mcp-smoke.mjs + scripts/mcp-smoke.test.mjs +
   docs/proposals/cloudcli-mcp-smoke.md；--check-record 逐节点名、端口 3001
   红、读数为空红，单测覆盖「缺一节就红」
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -150,3 +150,13 @@ for f in scripts/mcp-smoke.mjs scripts/mcp-smoke.test.mjs docs/proposals/cloudcl
 逐字失败行：``缺节：发消息 —— `读数：` 为空（冒号后去掉空白后没有内容）`` + `记录不合格（…）：缺 1 处，…`，exit **1**。恢复后重跑回绿（exit 0）。
 
 （口径注记：清空必须清掉冒号后的**整段**读数；只删引导语、行内仍剩内容时判据正确地保持绿——这正是「读数非空」这条检查想要的判别力。）
+## Needs-Human
+
+**执行 2026-10-05T17:11:48.613Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：worker-driver 连续 3 次 exited-not-landed 未落地（重试上限）
+- 失败步/判词：step=suite: not ok - server/modules/voice/tests/voice-capture-audio.false-forms.test.ts:   AssertionError [ERR_ASSERTION]: a surface this task must not have moved is red
+- run_id：wk-prod-anchor
+- session_id：e6db8590-94aa-4bc4-a618-60a7f2248104
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-ac256-mcp-nested-smoke-record~wk-prod-anchor~1791219795547-52a021.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-ac256-mcp-nested-smoke-record-wk-prod-anchor.log
