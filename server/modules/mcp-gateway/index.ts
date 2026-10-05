@@ -308,3 +308,23 @@ export type {
   SessionReconfigureField,
   SessionReconfigurePayload,
 } from './mcp-session-reconfigure.js';
+
+// The self-referential guard (AC-252). `buildSelfTargetGuard` is the decision the
+// write-tool dispatch point (`registerMcpWriteTools`) applies before each write
+// handler: a target session whose live turn is executing a gateway write tool
+// (`phase === 'tool'` and an `mcp__<any alias>__<write tool name>` `toolName`)
+// is refused with `SELF_TARGET_CODE`, so the control and host services are never
+// reached. `isSelfTargetTurn` is the pure rule over one turn and the injected
+// write-tool name set; `MCP_SELF_TARGET_WRITE_OPS` is the one statement of which
+// operations are protected. `SelfTargetDeps` is the injectable seam (turn
+// reader + write-tool names) the transport threads from
+// `McpGatewayDeps.selfTarget`; `SelfTargetDecision` is the answer shape. This
+// module's criterion drives both functions directly (including the
+// `session_cancel_queued` operation) and through the real `/mcp` mount.
+export {
+  buildSelfTargetGuard,
+  isSelfTargetTurn,
+  MCP_SELF_TARGET_WRITE_OPS,
+  SELF_TARGET_CODE,
+} from './mcp-self-target.js';
+export type { SelfTargetDecision, SelfTargetDeps } from './mcp-self-target.js';

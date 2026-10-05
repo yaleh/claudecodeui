@@ -20,6 +20,7 @@ import { registerMcpWriteTools } from './mcp-gateway.write-tools.js';
 import type { McpWriteToolDeps, McpWriteToolSeam } from './mcp-gateway.write-tools.js';
 import { resolveInputTargets } from './mcp-resolve-target.js';
 import type { McpResolveDeps } from './mcp-resolve-target.js';
+import type { SelfTargetDeps } from './mcp-self-target.js';
 
 /**
  * The MCP gateway's production assembly (AC-240). The consumer is
@@ -95,7 +96,8 @@ function createMcpServer(
   readTools: McpReadToolDeps | undefined,
   writeTools: McpWriteToolDeps | undefined,
   residentTools: McpResidentToolDeps | undefined,
-  resolveDeps: McpResolveDeps | undefined
+  resolveDeps: McpResolveDeps | undefined,
+  selfTarget: SelfTargetDeps | undefined
 ): McpServer {
   const server = new McpServer(SERVER_INFO, { capabilities: { tools: {} } });
   if (registerTools) {
@@ -162,7 +164,10 @@ function createMcpServer(
           return registration.handler(args, { principal });
         },
       );
-    registerMcpWriteTools(register, writeTools);
+    registerMcpWriteTools(
+      register,
+      selfTarget === undefined ? writeTools : { ...writeTools, selfTarget: writeTools.selfTarget ?? selfTarget },
+    );
   }
 
   if (residentTools) {
@@ -206,7 +211,8 @@ function attachTransport(
   readTools: McpReadToolDeps | undefined,
   writeTools: McpWriteToolDeps | undefined,
   residentTools: McpResidentToolDeps | undefined,
-  resolveDeps: McpResolveDeps | undefined
+  resolveDeps: McpResolveDeps | undefined,
+  selfTarget: SelfTargetDeps | undefined
 ): void {
   const loopbackGuard = createMcpLoopbackGuard(env);
 
@@ -220,6 +226,7 @@ function attachTransport(
       writeTools,
       residentTools,
       resolveDeps,
+      selfTarget,
     );
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on('close', () => {
@@ -351,6 +358,18 @@ export type McpGatewayDeps = {
    * which names a target by anything but an id — reading what they always read.
    */
   resolveDeps?: McpResolveDeps;
+  /**
+   * The self-referential guard's two seams (AC-252): the target session's live
+   * turn reader and the gateway write-tool name set. Supplying it overrides both
+   * for every write tool this mount registers — the criterion injects a turn
+   * reader it controls and its own registry, so legs (a)–(d) exercise the rule
+   * with no real Claude run and no registry edit. Absent keeps each write tool's
+   * production default (`readSessionTurn` over `MCP_STAGE4_WRITE_TOOLS`' names),
+   * which is the behaviour every criterion before AC-252 already saw because a
+   * tool-less turn reads as `idle`. Read tools and the unprotected write tools
+   * (`session_start` / `session_create`) are never refused.
+   */
+  selfTarget?: SelfTargetDeps;
 };
 
 /** Whether the gateway attached anything, and the gate's own reason. */
@@ -381,7 +400,8 @@ export function mountMcpGateway(app: Express, deps: McpGatewayDeps = {}): McpGat
     deps.readTools,
     deps.writeTools,
     deps.residentTools,
-    deps.resolveDeps
+    deps.resolveDeps,
+    deps.selfTarget
   );
   return { mounted: true, reason: gate.reason };
 }

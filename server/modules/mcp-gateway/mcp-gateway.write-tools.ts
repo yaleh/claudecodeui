@@ -36,9 +36,12 @@
 import { z } from 'zod';
 
 import { ACCESS_TOKEN_SCOPES } from '@/modules/oauth/index.js';
+import { readSessionTurn } from '@/modules/providers/index.js';
 
 import type { McpPrincipal } from './mcp-gateway.auth.js';
 import { MCP_TOOL_NOT_IMPLEMENTED_CODE } from './mcp-gateway.read-tools.js';
+import { buildSelfTargetGuard } from './mcp-self-target.js';
+import type { SelfTargetDeps } from './mcp-self-target.js';
 import {
   buildSessionCreate,
   buildSessionInterrupt,
@@ -152,6 +155,15 @@ export type McpWriteToolDeps = McpSessionSendDeps & {
    * over the session-hosts barrel).
    */
   sessionHostControl?: McpSessionHostDeps;
+  /**
+   * The self-referential guard's two seams (AC-252): the target session's live
+   * turn reader and the gateway write-tool name set. Optional so a mount that
+   * does not inject them — every criterion before AC-252 — keeps this module's
+   * production default, `readSessionTurn` over `MCP_STAGE4_WRITE_TOOLS`' names.
+   * The criterion injects its own turn reader and its own registry, which is how
+   * leg (d) proves a newly added write tool is covered without a guard edit.
+   */
+  selfTarget?: SelfTargetDeps;
 };
 
 // --------------------------- registration ---------------------------
@@ -229,6 +241,37 @@ export function registerMcpWriteTools(seam: McpWriteToolSeam, deps: McpWriteTool
   const sessionCreate = deps.sessionCreate;
   const sessionInterrupt = deps.sessionInterrupt;
   const sessionHostControl = deps.sessionHostControl;
+
+  // AC-252's guard, built once per registration over the injected seams. The
+  // default reads the live turn through the providers barrel and takes the write
+  // tool names from THIS module's table — the one statement of which write tools
+  // exist — so a new row there widens the guard with no edit to the guard. A
+  // caller that supplies `selfTarget` (the criterion, for legs (a)–(d)) overrides
+  // both seams.
+  const guard = buildSelfTargetGuard(
+    deps.selfTarget ?? {
+      readTurn: readSessionTurn,
+      writeToolNames: MCP_STAGE4_WRITE_TOOLS.map((tool) => tool.name),
+    },
+  );
+  // Wraps one tool body so the guard runs BEFORE it, over the session id AC-246's
+  // target gate has already rewritten the `session` argument to. A refusal is
+  // thrown as a JSON body (the audit wrapper renders it as an `isError` result);
+  // the body is never entered, so the control and host services are never called.
+  const protect = (
+    name: string,
+    handler: McpWriteToolRegistration['handler'],
+  ): McpWriteToolRegistration['handler'] => {
+    return (args, ctx) => {
+      const targetSessionId = typeof args.session === 'string' ? args.session : '';
+      const decision = guard({ op: name, targetSessionId });
+      if (!decision.allowed) {
+        throw new Error(JSON.stringify({ code: decision.code, message: decision.message }));
+      }
+      return handler(args, ctx);
+    };
+  };
+
   for (const tool of MCP_STAGE4_WRITE_TOOLS) {
     if (tool.name === 'session_send') {
       seam({
@@ -243,7 +286,7 @@ export function registerMcpWriteTools(seam: McpWriteToolSeam, deps: McpWriteTool
           source: z.string(),
           run: z.unknown().optional(),
         },
-        handler: (args, ctx) => buildSessionSend(readSessionSendInput(args), ctx, deps),
+        handler: protect(tool.name, (args, ctx) => buildSessionSend(readSessionSendInput(args), ctx, deps)),
       });
       continue;
     }
@@ -254,7 +297,9 @@ export function registerMcpWriteTools(seam: McpWriteToolSeam, deps: McpWriteTool
         requiredScope: tool.requiredScope,
         inputSchema: SESSION_CREATE_INPUT_SCHEMA,
         outputSchema: { sessionId: z.string(), runId: z.string().optional() },
-        handler: (args, ctx) => buildSessionCreate(readSessionCreateInput(args), ctx, sessionCreate),
+        handler: protect(tool.name, (args, ctx) =>
+          buildSessionCreate(readSessionCreateInput(args), ctx, sessionCreate),
+        ),
       });
       continue;
     }
@@ -265,7 +310,9 @@ export function registerMcpWriteTools(seam: McpWriteToolSeam, deps: McpWriteTool
         requiredScope: tool.requiredScope,
         inputSchema: SESSION_INTERRUPT_INPUT_SCHEMA,
         outputSchema: { aborted: z.boolean(), message: z.string().optional() },
-        handler: (args, ctx) => buildSessionInterrupt(readSessionInterruptInput(args), ctx, sessionInterrupt),
+        handler: protect(tool.name, (args, ctx) =>
+          buildSessionInterrupt(readSessionInterruptInput(args), ctx, sessionInterrupt),
+        ),
       });
       continue;
     }
@@ -276,7 +323,9 @@ export function registerMcpWriteTools(seam: McpWriteToolSeam, deps: McpWriteTool
         requiredScope: tool.requiredScope,
         inputSchema: SESSION_START_INPUT_SCHEMA,
         outputSchema: { hostId: z.string(), sessionId: z.string(), mode: z.string(), pid: z.number().nullable() },
-        handler: (args, ctx) => buildSessionStart(readSessionStartInput(args), ctx, sessionHostControl),
+        handler: protect(tool.name, (args, ctx) =>
+          buildSessionStart(readSessionStartInput(args), ctx, sessionHostControl),
+        ),
       });
       continue;
     }
@@ -293,7 +342,9 @@ export function registerMcpWriteTools(seam: McpWriteToolSeam, deps: McpWriteTool
           closeReason: z.string(),
           leases: z.array(z.unknown()),
         },
-        handler: (args, ctx) => buildSessionClose(readSessionCloseInput(args), ctx, sessionHostControl),
+        handler: protect(tool.name, (args, ctx) =>
+          buildSessionClose(readSessionCloseInput(args), ctx, sessionHostControl),
+        ),
       });
       continue;
     }
@@ -302,7 +353,7 @@ export function registerMcpWriteTools(seam: McpWriteToolSeam, deps: McpWriteTool
       description: tool.description,
       requiredScope: tool.requiredScope,
       inputSchema: {},
-      handler: () => notImplemented(tool.name, PLACEHOLDER_OWNER[tool.name]),
+      handler: protect(tool.name, () => notImplemented(tool.name, PLACEHOLDER_OWNER[tool.name])),
     });
   }
 }
