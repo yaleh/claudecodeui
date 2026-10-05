@@ -2,7 +2,7 @@
 id: gap-ac240-mcp-stateless-transport-mount-order
 title: AC-240 /mcp 是无状态的 Streamable HTTP，MCP_ENABLED 默认关闭、挂在静态路由之前，返回 JSON-RPC
   而非 SPA；判据 server/modules/mcp-gateway/tests/mcp-transport.test.ts
-status: todo
+status: ready
 labels:
   - gap
 parent: null
