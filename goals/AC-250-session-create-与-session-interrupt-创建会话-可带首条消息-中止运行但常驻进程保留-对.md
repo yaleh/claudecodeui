@@ -1,7 +1,7 @@
 ---
 id: AC-250
 title: session_create 与 session_interrupt：创建会话（可带首条消息），中止运行但常驻进程保留，对空闲会话如实说没有可中止的
-status: draft
+status: active
 kind: criterion
 goal: GOAL-020
 criterion: for f in
@@ -19,4 +19,15 @@ expect: "读数：(a) `session_create` 在指定项目下创建应用会话；�
   输出缺失的文件名。"
 origin: docs/proposals/mcp-gateway-SPEC.md（v3.1）。人 yale 2026-10-05 指令：创建并激活
   GOAL-020 至 GOAL-022 及其 AC。
+activatedAt: 2026-10-05T02:12:57.797Z
+statusLog:
+  - at: 2026-10-05T02:12:57.797Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-05T02:12:57.796Z
 ---
