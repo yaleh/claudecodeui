@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useCredentialsSettings } from '@/modules/settings/hooks/useCredentialsSettings';
 import AccessTokensSection from '@/modules/settings/tabs/api-settings/sections/AccessTokensSection';
 import GithubCredentialsSection from '@/modules/settings/tabs/api-settings/sections/GithubCredentialsSection';
+import McpGatewaySection from '@/modules/settings/tabs/api-settings/sections/McpGatewaySection';
 import NewAccessTokenAlert from '@/modules/settings/tabs/api-settings/sections/NewAccessTokenAlert';
 
 /** Rendered by Settings for the "api" tab, managing CloudCLI personal access tokens and GitHub credentials. */
@@ -22,6 +23,9 @@ export default function CredentialsSettingsTab() {
     copiedToken,
     createAccessToken,
     revokeAccessToken,
+    mcpGatewayStatus,
+    newTokenScopes,
+    toggleNewTokenScope,
     showNewGithubForm,
     setShowNewGithubForm,
     newGithubName,
@@ -59,14 +63,18 @@ export default function CredentialsSettingsTab() {
         />
       )}
 
+      <McpGatewaySection status={mcpGatewayStatus} />
+
       <AccessTokensSection
         accessTokens={accessTokens}
         showNewTokenForm={showNewTokenForm}
         newTokenName={newTokenName}
         newTokenExpiryDays={newTokenExpiryDays}
+        newTokenScopes={newTokenScopes}
         onShowNewTokenFormChange={setShowNewTokenForm}
         onNewTokenNameChange={setNewTokenName}
         onNewTokenExpiryChange={setNewTokenExpiryDays}
+        onToggleNewTokenScope={toggleNewTokenScope}
         onCreateAccessToken={createAccessToken}
         onCancelCreateAccessToken={cancelNewAccessTokenForm}
         onRevokeAccessToken={revokeAccessToken}

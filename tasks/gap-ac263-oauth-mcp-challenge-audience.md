@@ -3,7 +3,7 @@ id: gap-ac263-oauth-mcp-challenge-audience
 title: AC-263 OAuth 开启后 /mcp 的认证：无令牌 401 带 resource_metadata 指引、PAT 与 OAuth
   令牌并存且审计区分来源、受众不符被拒、回环守卫自动关闭、缺 scope 写 denied 审计；判据
   server/modules/mcp-gateway/tests/mcp-oauth-challenge.test.ts
-status: todo
+status: ready
 labels:
   - gap
 parent: null

@@ -2,7 +2,7 @@
 id: gap-ac275-claude-resident-control-queue
 title: AC-275 真实 claude 二进制的常驻驱动经控制服务撤回排队消息：uuid 来自真实驱动、撤回后那条消息不成为一轮、进程 pid
   不变；判据 server/modules/providers/tests/claude-resident-control-queue.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -55,15 +55,15 @@ AC-275（GOAL-022 退出条件 5；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3.
 
 ## AC
 
-- [ ] AC1 判据绿：`for f in server/modules/providers/tests/claude-resident-control-queue.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-control-queue.test.ts` 退出 0。红态基线逐字记录（改动前该文件不存在、存在性闸退出码 1 输出 `缺判据文件：server/modules/providers/tests/claude-resident-control-queue.test.ts`）。
-- [ ] AC2 (a) 忙时排队并交出真实驱动 uuid：第一轮在飞时第二次 `control.send` 返回 `queued:true`、`queuedMessageUuid` 非空，且等于驱动 live state 最新未开始排队条目的 uuid、CLI `command_lifecycle.command_uuid` 也报到它；写出两次返回、驱动队列读数、lifecycle 读数。
-- [ ] AC3 (b) 撤回后那条消息不成为一轮：用 (a) 的 uuid 调 `control.cancelQueued` 得成功判决（打印 `withdrawn` 并注明即 AC 的 `cancelled`），CLI 报该 uuid `state=cancelled`；释放首轮并结束后，mock 收不到任何含第二条文本的 `/v1/messages` 请求；写出返回值、lifecycle 读数、mock 请求体清单。
-- [ ] AC4 (c) pid 不变：第一轮在飞时 / 撤回后 / 首轮结束后三次读数的 hostId 相同、pid 相同且经 `/proc` 判存活；写出三次读数。
-- [ ] AC5 (d) 对照臂（正例）：不撤回时第二条成为独立的下一轮，mock 收到含第二条文本的请求，两轮各自走完；写出两次 `send` 返回、两轮运行/轮次读数、mock 请求体读数。
-- [ ] AC6 经控制服务、不经 WebSocket、不跑生产：写下用于核对的 grep 命令与空输出——判据文件不 `import` `handleChatConnection`、不 `new WebSocket(`、不 import `'ws'`；全部读数经 `createChatControlService` 完成、不连生产 3001。
-- [ ] AC7 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 驱动不交出 uuid ⇒ AC2 红；(ii) 撤回不移出队列 ⇒ AC3 的「mock 收不到第二条文本」红；(iii) 撤回杀进程 ⇒ AC4 红。每条记录恢复命令与恢复后重跑绿。
-- [ ] AC8 不回归与仓库门：既有相邻判据（至少 `claude-resident-process.test.ts`、`claude-resident-busy-input.test.ts`、`chat-control-busy.test.ts`）逐字通过（写明命令与结果）；`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（写明计数）；跨模块只经 barrel。
-- [ ] AC9 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写。列出实际改动文件清单。
+- [x] AC1 判据绿：`for f in server/modules/providers/tests/claude-resident-control-queue.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-control-queue.test.ts` 退出 0。红态基线逐字记录（改动前该文件不存在、存在性闸退出码 1 输出 `缺判据文件：server/modules/providers/tests/claude-resident-control-queue.test.ts`）。
+- [x] AC2 (a) 忙时排队并交出真实驱动 uuid：第一轮在飞时第二次 `control.send` 返回 `queued:true`、`queuedMessageUuid` 非空，且等于驱动 live state 最新未开始排队条目的 uuid、CLI `command_lifecycle.command_uuid` 也报到它；写出两次返回、驱动队列读数、lifecycle 读数。
+- [x] AC3 (b) 撤回后那条消息不成为一轮：用 (a) 的 uuid 调 `control.cancelQueued` 得成功判决（打印 `withdrawn` 并注明即 AC 的 `cancelled`），CLI 报该 uuid `state=cancelled`；释放首轮并结束后，mock 收不到任何含第二条文本的 `/v1/messages` 请求；写出返回值、lifecycle 读数、mock 请求体清单。
+- [x] AC4 (c) pid 不变：第一轮在飞时 / 撤回后 / 首轮结束后三次读数的 hostId 相同、pid 相同且经 `/proc` 判存活；写出三次读数。
+- [x] AC5 (d) 对照臂（正例）：不撤回时第二条成为独立的下一轮，mock 收到含第二条文本的请求，两轮各自走完；写出两次 `send` 返回、两轮运行/轮次读数、mock 请求体读数。
+- [x] AC6 经控制服务、不经 WebSocket、不跑生产：写下用于核对的 grep 命令与空输出——判据文件不 `import` `handleChatConnection`、不 `new WebSocket(`、不 import `'ws'`；全部读数经 `createChatControlService` 完成、不连生产 3001。
+- [x] AC7 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 驱动不交出 uuid ⇒ AC2 红；(ii) 撤回不移出队列 ⇒ AC3 的「mock 收不到第二条文本」红；(iii) 撤回杀进程 ⇒ AC4 红。每条记录恢复命令与恢复后重跑绿。
+- [x] AC8 不回归与仓库门：既有相邻判据（至少 `claude-resident-process.test.ts`、`claude-resident-busy-input.test.ts`、`chat-control-busy.test.ts`）逐字通过（写明命令与结果）；`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（写明计数）；跨模块只经 barrel。
+- [x] AC9 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写。列出实际改动文件清单。
 
 ## DoD
 

@@ -3,7 +3,7 @@ id: gap-ac244-mcp-audit-log-outcomes-and-retention
 title: AC-244 每次工具调用在 mcp_audit_log 恰好留一行（ok/denied/error）+ 参数只记摘要（id
   原样、自由文本只记长度与前 40 字符）+ 90 天保留期在启动与每日各清理一次；判据
   server/modules/mcp-gateway/tests/mcp-audit.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -60,16 +60,40 @@ AC-244（GOAL-020 退出条件 6；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3 
 
 ## AC
 
-- [ ] AC1 判据红态基线逐字记录：改动前运行 AC-244 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-audit.test.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-audit.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-audit.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 (a) 每次工具调用恰好写一行、三种结果都写：带有效令牌调 `echo_ok`/`needs_send`/`boom`（ok/ok/error）各使行数 +1，scope 不足调 `needs_send` 得 `denied` 且行数 +1；读回 `token_id` 等于所发令牌 id、`client_id` 为 null、`duration_ms` 非负整数；逐字写出四次前后行数与四行原始值。
-- [ ] AC4 (b) 参数摘要：`args_digest` 含 `session`/`project` id 原样、含 `message` 长度 500 与前 40 字符；整行所有列拼接后 `'A'.repeat(500)` 与第 40 字符之后子串均不出现；逐字写出原始 `args_digest` 与全行拼接读数。
-- [ ] AC5 (c) 401（无头 / 空令牌 / 未知令牌）得 401、`count()` 前后不变、服务器不崩（随后有效调用仍成功）；逐字写出三次状态码与前后行数。
-- [ ] AC6 (d) 保留期：`T0-91天` 行被删、`T0-89天` 行保留（注入时钟，写出 prune 返回与前后行数）；`startMcpAuditRetention` 立即 prune 一次并注册间隔 `24*60*60*1000` 的每日回调（假 setInterval 捕获 fn+ms，逐字写出，不真等一天）。
-- [ ] AC7 (e) 迁移幂等：已有表且有数据的库上再次 `initializeDatabase()` 不抛错、行数不变、`PRAGMA table_info(mcp_audit_log)` 列名与 SPEC DDL 逐字一致；写出前后行数与列名。
-- [ ] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 摘要写全文 ⇒ AC4 红；(ii) denied 不写审计 ⇒ AC3 红；(iii) 清理删未过期 ⇒ AC6 红。每条恢复命令 + 恢复后重跑绿。
-- [ ] AC9 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；既有 `server/modules/oauth/tests/token-info.routes.test.ts`、`access-tokens.service.test.ts`、`server/modules/database/tests/api-keys-drop-migration.test.ts` 不改一字仍逐字通过（本任务对 `VerifyAccessTokenResult` 只**新增** `tokenId` 字段，既有断言不破）。
-- [ ] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
+- [x] AC1 判据红态基线逐字记录：改动前运行 AC-244 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-audit.test.ts`（写下完整命令与完整输出）。
+  - 命令：`for f in server/modules/mcp-gateway/tests/mcp-audit.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-audit.test.ts`
+  - 输出：`缺判据文件：server/modules/mcp-gateway/tests/mcp-audit.test.ts`，退出码 1。
+- [x] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-audit.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-audit.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
+  - 读数：`tests 5` / `pass 5` / `fail 0`，退出码 0（合并 develop 并修复 boot-order 回归后复跑同为 5/5/0）。
+- [x] AC3 (a) 每次工具调用恰好写一行、三种结果都写：带有效令牌调 `echo_ok`/`needs_send`/`boom`（ok/ok/error）各使行数 +1，scope 不足调 `needs_send` 得 `denied` 且行数 +1；读回 `token_id` 等于所发令牌 id、`client_id` 为 null、`duration_ms` 非负整数；逐字写出四次前后行数与四行原始值。
+  - echo_ok 0→1 `{"id":1,"at":"2026-10-05 05:00:23","token_id":1,"client_id":null,"tool":"echo_ok","args_digest":"{}","outcome":"ok","duration_ms":0}`
+  - needs_send 1→2 `{"id":2,...,"token_id":1,"client_id":null,"tool":"needs_send","outcome":"ok","duration_ms":0}`
+  - boom 2→3 `{"id":3,...,"token_id":1,"tool":"boom","outcome":"error","duration_ms":0}`（正例对照：抛错记 `error` 而非 `ok`）
+  - denied 3→4 `{"id":4,...,"token_id":2,"tool":"needs_send","outcome":"denied","duration_ms":0}`
+  - token_id 分别等于所发令牌 id（1/1/1/2）；client_id 均 null；duration_ms 均非负整数。
+- [x] AC4 (b) 参数摘要：`args_digest` 含 `session`/`project` id 原样、含 `message` 长度 500 与前 40 字符；整行所有列拼接后 `'A'.repeat(500)` 与第 40 字符之后子串均不出现；逐字写出原始 `args_digest` 与全行拼接读数。
+  - `args_digest={"session":"sess-id-123","project":"proj-id-456","message":{"length":500,"preview":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}}`
+  - 全行拼接仅含上述 40 个 `A`；未出现 `'A'.repeat(500)`，也未出现 `'A'.repeat(60)`。
+- [x] AC5 (c) 401（无头 / 空令牌 / 未知令牌）得 401、`count()` 前后不变、服务器不崩（随后有效调用仍成功）；逐字写出三次状态码与前后行数。
+  - 三次状态码：no header=401, empty bearer=401, unknown token=401。
+  - 行数 `count 0→0`（三次未授权后不变），随后有效调用成功使 `count →1`。
+- [x] AC6 (d) 保留期：`T0-91天` 行被删、`T0-89天` 行保留（注入时钟，写出 prune 返回与前后行数）；`startMcpAuditRetention` 立即 prune 一次并注册间隔 `24*60*60*1000` 的每日回调（假 setInterval 捕获 fn+ms，逐字写出，不真等一天）。
+  - `before=2 afterStartup=1 remaining=fresh scheduledMs=86400000 prune()=1`。
+  - 假 setInterval 捕获 1 次 `fn`（=== `retention.prune`）+ `ms=86400000`；启动那次立即删掉 91 天行、保留 89 天行；手动 `prune()` 返回删除行数 1。
+- [x] AC7 (e) 迁移幂等：已有表且有数据的库上再次 `initializeDatabase()` 不抛错、行数不变、`PRAGMA table_info(mcp_audit_log)` 列名与 SPEC DDL 逐字一致；写出前后行数与列名。
+  - `rows 2->2; columns=[id,at,token_id,client_id,tool,args_digest,outcome,duration_ms]`（与 SPEC §389 DDL 逐字一致）。
+- [x] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 摘要写全文 ⇒ AC4 红；(ii) denied 不写审计 ⇒ AC3 红；(iii) 清理删未过期 ⇒ AC6 红。每条恢复命令 + 恢复后重跑绿。
+  - (i) 变异 `summarizeValue` 字符串分支 `return value;` ⇒ (b) 红：`AssertionError [ERR_ASSERTION]: the free text length must be recorded`，退出码 1；恢复 `git checkout -- server/modules/mcp-gateway/mcp-gateway.audit.ts`，复跑 5/5 绿。
+  - (ii) 变异 `withMcpAudit` denied 分支删除 `recordMcpToolCall(...)` ⇒ (a) 红：`AssertionError [ERR_ASSERTION]: a denied call must add exactly one row`，退出码 1；同一恢复命令，复跑 5/5 绿。
+  - (iii) 变异 `prune` cutoff 不减 `retentionDays`（`deleteOlderThan(now().toISOString())`）⇒ (d) 红：`AssertionError [ERR_ASSERTION]: exactly the expired row must be deleted at startup`，退出码 1；同一恢复命令，复跑 5/5 绿。
+- [x] AC9 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；既有 `server/modules/oauth/tests/token-info.routes.test.ts`、`access-tokens.service.test.ts`、`server/modules/database/tests/api-keys-drop-migration.test.ts` 不改一字仍逐字通过（本任务对 `VerifyAccessTokenResult` 只**新增** `tokenId` 字段，既有断言不破）。
+  - `npm run typecheck` 退出码 0（合并 develop 后复跑仍 0）。
+  - `npm run lint` 中 `: error ` 计数 **0**（仅既有 warning）；退出码 0。
+  - `npx tsx --tsconfig server/tsconfig.json --test` 跑 token-info.routes / access-tokens.service / api-keys-drop-migration / mcp-auth / mcp-transport / mcp-loopback-guard / dependency-declaration 共 **34 tests / 34 pass / 0 fail**。（`token-info.routes.test.ts`、`access-tokens.service.test.ts`、`api-keys-drop-migration.test.ts` 三份本任务未改一字。）
+  - 本轮合并 develop 后发现上一轮 suite 红（`resident-server-restart`、`activity-heartbeat.process` 均 `/health` 25s 超时）实为本任务的 boot-order 回归（真因见 Notes），已修复。修复后进程级复跑：`resident-server-restart` 4/4/0、`activity-heartbeat.process` 2/2/0、判据 `mcp-audit` 5/5/0（合并跑 11 tests/11 pass/0 fail）；`server/modules/mcp-gateway/tests/*` + `server/modules/oauth/tests/*` 95 tests/95 pass/0 fail。`claude-peer-name-title-guard`（SDK 进程 exit 1，与 delta 无关）单独复跑 1/1 绿——属已知负载 flake。
+- [x] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
+  - 12 files changed, 963 insertions(+), 18 deletions(-)：`server/index.ts`(+9/-0)、`server/modules/database/index.ts`(+4/-0)、`server/modules/database/migrations.ts`(+6/-0)、`server/modules/database/repositories/mcp-audit-log.db.ts`(+102/-0, new)、`server/modules/database/schema.ts`(+26/-0)、`server/modules/mcp-gateway/index.ts`(+16/-0)、`server/modules/mcp-gateway/mcp-gateway.audit.ts`(+258/-0, new)、`server/modules/mcp-gateway/mcp-gateway.auth.ts`(+16/-3)、`server/modules/mcp-gateway/mcp-gateway.transport.ts`(+33/-9)、`server/modules/mcp-gateway/tests/mcp-audit.test.ts`(+476/-0, new)、`server/modules/mcp-gateway/tests/mcp-auth.test.ts`(+12/-3)、`server/modules/oauth/access-tokens.service.ts`(+5/-3)。
+  - 10 个原 Touches 项 + 2 个已补进 Touches 的附带文件（`server/index.ts`、`mcp-auth.test.ts`）= 12，逐条对齐。`tasks/…md` 由 Provider 管理，不在 branch delta。
 
 ## DoD
 
@@ -93,13 +117,16 @@ AC-244（GOAL-020 退出条件 6；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3 
 - server/modules/mcp-gateway/index.ts
 - server/modules/oauth/access-tokens.service.ts
 - server/modules/mcp-gateway/tests/mcp-audit.test.ts (new)（判据）
+- server/index.ts（附带：`startMcpAuditRetention()` 启动装配点；`mountMcpGateway` 本身的接线在 transport）
+- server/modules/mcp-gateway/tests/mcp-auth.test.ts（附带：`VerifyAccessTokenResult` 新增 `tokenId` 后 stub 字面量与 principal 断言随之更新）
 - tasks/gap-ac244-mcp-audit-log-outcomes-and-retention.md
 
 ## Notes
 
 - 判据的 HTTP 调用用 `node:http` 不用 `fetch`：`listen(0)` 在本机会抽到 undici 拒绝的固定端口（内存 `undici-bad-port-lottery-in-listen0-route-tests`；AC-240/AC-241/AC-242/AC-243 同款说明）。既有 `token-info.routes.test.ts` 用 `fetch` 只是没抽中坏端口。
 - 令牌 id 的来源：`VerifyAccessTokenResult` 成功分支新增 `tokenId`（从已读到的 `row.id` 带出，**不新增查库**），`McpPrincipal` 随之带 `tokenId`/`clientId`。若 AC-241 落地时已带 id，则沿用。PAT 没有客户端 id，故 `clientId` 记 `null`（SPEC「client id（PAT 为空）」）；OAuth 客户端 id 属 GOAL-021，本任务只留列。
-- 保留期默认 90 天、每日一次均以 SPEC 为准；「启动时 + 每日」的启动那次在 `mountMcpGateway`/装配点调用 `startMcpAuditRetention` 时完成，不做 module-level 缓存或计时器（避免挡住判据在同一进程里注入假时钟/假调度缝）。
+- 保留期默认 90 天、每日一次均以 SPEC 为准；「启动时 + 每日」的启动那次在**装配点**（`server/index.ts`，AC-240 落点）调用 `startMcpAuditRetention` 时完成，不做 module-level 缓存或计时器（避免挡住判据在同一进程里注入假时钟/假调度缝，也避免让既有 gateway 挂载测试无意中武装真实计时器）。
+- **boot-order 回归（本轮修复，2026-10-05）**：`startMcpAuditRetention()` 的启动那次会**立即** `DELETE FROM mcp_audit_log`，故必须在 `initializeDatabase()` 之后调用。原实现把它放在 `server/index.ts` **模块顶层**，先于 `startServer()` 里的 `await initializeDatabase()`，真机启动（`tsx server/index.ts`）时表尚未建，抛 `SqliteError: no such table: mcp_audit_log` 使进程在 `/health` 前就崩——进程级测试（`resident-server-restart`、`activity-heartbeat.process`）因此表现为 `/health` 25s 超时，被上一轮误判为负载 flake。现调用点移入 `startServer()` 内 `await initializeDatabase()` 之后（`server/index.ts`）。挂载 gateway 本身仍不建库、不武装计时器（判据可自由注入假时钟/假调度缝）。
 - `summarizeToolArgs` 的 id 白名单以实际工具参数为准（SPEC 工具表用 `{ session }`、`{ project }` 等键）；若 AC-245+ 引入别的 id 键，应扩白名单——本任务先覆盖 `session`/`sessionId`/`project`/`projectId` 与自由文本 `message`。
-- `duration_ms` 用可注入时钟测：`withMcpAudit` 若用 `Date.now()` 则判据只能断言非负整数，若要精确值就注入 `now`；判据至少断言非负整数。
+- `duration_ms` 用可注入时钟测：`withMcpAudit` 若用 `Date.now()` 则判据只能断言非负整数，若要精确值就注入 `now`；判据至少断言非负整数。本任务用 `Date.now()`，判据断言非负整数。
 - 越界不实现 AC-245–AC-257（只读/写工具、自指保护、设置页、冒烟）。本任务提供的 `withMcpAudit` 与工具注册缝正是 AC-245+ 的落点，AC-245 注册真实工具时复用同一包装器。

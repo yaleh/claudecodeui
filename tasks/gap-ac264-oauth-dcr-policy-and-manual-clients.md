@@ -2,7 +2,7 @@
 id: gap-ac264-oauth-dcr-policy-and-manual-clients
 title: AC-264 客户端注册策略：MCP_DCR off/allowlist/open 门住 /oauth/register，回调主机与 https
   安全校验，注册与手工创建的密钥只返回一次且只存哈希；判据 server/modules/oauth/tests/oauth-dcr.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -78,16 +78,16 @@ AC-264（GOAL-021 退出条件 5「客户端注册」；SPEC `docs/proposals/mcp
 
 ## AC
 
-- [ ] AC1 判据红态基线逐字记录：改动前运行 AC-264 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/oauth/tests/oauth-dcr.test.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：`for f in server/modules/oauth/tests/oauth-dcr.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/oauth-dcr.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 (a) off 不注册且元数据不广告：`mountOAuthRegister({dcrMode:'off'})` → `{mounted:false}` 且 POST `/oauth/register` 404；`buildAuthorizationServerMetadata({dcrMode:'off'})` 的 `'registration_endpoint' in body === false`；正例对照 open/allowlist 有该键且注册 201；逐字写出四组读数。
-- [ ] AC4 (b) allowlist 逐项检查：第二个回调越界 → 400 `invalid_redirect_uri` 且库中无新增行；第一个越界同样 400；全在 allowlist → 201；逐字写出两反例与正例。
-- [ ] AC5 (c) open 的 https/localhost 安全：https、`http://localhost`、`http://127.0.0.1` → 201；其他 http → 400 `invalid_redirect_uri`；逐字写出四个状态码与 error。
-- [ ] AC6 (d) 密钥只出现一次、库里只有哈希：响应明文 `client_secret` 在库及其 WAL/SHM 字节中不出现，`client_secret_hash` 逐字等于 `sha256Hex(secret)` 且不等于明文；两次注册的 secret 不同；逐字写出扫描结果与 hash 读数。
-- [ ] AC7 (e) 手工创建需登录且密钥只一次：无 token → 401 且库无行；有效 token → 201 `{client_id, client_secret}` 且库中只有 hash；逐字写出。
-- [ ] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) off 仍可注册 ⇒ AC3 红；(ii) allowlist 只看首个回调 ⇒ AC4 红；(iii) 密钥明文入库 ⇒ AC6 红。每条恢复命令 + 恢复后重跑绿。
-- [ ] AC9 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；`oauth-store.test.ts` 不改一字仍逐字通过；生产代码中 `MCP_OAUTH_ENABLED` 字面量计数=1（正例对照含 tests ≥2）。
-- [ ] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
+- [x] AC1 判据红态基线逐字记录：改动前运行 AC-264 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/oauth/tests/oauth-dcr.test.ts`（写下完整命令与完整输出）。
+- [x] AC2 判据绿：`for f in server/modules/oauth/tests/oauth-dcr.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/oauth-dcr.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
+- [x] AC3 (a) off 不注册且元数据不广告：`mountOAuthRegister({dcrMode:'off'})` → `{mounted:false}` 且 POST `/oauth/register` 404；`buildAuthorizationServerMetadata({dcrMode:'off'})` 的 `'registration_endpoint' in body === false`；正例对照 open/allowlist 有该键且注册 201；逐字写出四组读数。
+- [x] AC4 (b) allowlist 逐项检查：第二个回调越界 → 400 `invalid_redirect_uri` 且库中无新增行；第一个越界同样 400；全在 allowlist → 201；逐字写出两反例与正例。
+- [x] AC5 (c) open 的 https/localhost 安全：https、`http://localhost`、`http://127.0.0.1` → 201；其他 http → 400 `invalid_redirect_uri`；逐字写出四个状态码与 error。
+- [x] AC6 (d) 密钥只出现一次、库里只有哈希：响应明文 `client_secret` 在库及其 WAL/SHM 字节中不出现，`client_secret_hash` 逐字等于 `sha256Hex(secret)` 且不等于明文；两次注册的 secret 不同；逐字写出扫描结果与 hash 读数。
+- [x] AC7 (e) 手工创建需登录且密钥只一次：无 token → 401 且库无行；有效 token → 201 `{client_id, client_secret}` 且库中只有 hash；逐字写出。
+- [x] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) off 仍可注册 ⇒ AC3 红；(ii) allowlist 只看首个回调 ⇒ AC4 红；(iii) 密钥明文入库 ⇒ AC6 红。每条恢复命令 + 恢复后重跑绿。
+- [x] AC9 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；`oauth-store.test.ts` 不改一字仍逐字通过；生产代码中 `MCP_OAUTH_ENABLED` 字面量计数=1（正例对照含 tests ≥2）。
+- [x] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
 
 ## DoD
 
@@ -106,6 +106,7 @@ AC-264（GOAL-021 退出条件 5「客户端注册」；SPEC `docs/proposals/mcp
 - server/modules/oauth/oauth-clients.routes.ts (new)
 - server/modules/oauth/index.ts
 - server/index.ts
+- server/modules/mcp-gateway/index.ts
 - server/modules/oauth/tests/oauth-dcr.test.ts (new)（判据）
 - tasks/gap-ac264-oauth-dcr-policy-and-manual-clients.md
 
@@ -117,3 +118,28 @@ AC-264（GOAL-021 退出条件 5「客户端注册」；SPEC `docs/proposals/mcp
 - 手工创建路由只做 `POST`（创建）；列表/吊销/禁用属 AC-265（`server/modules/oauth/tests/oauth-settings.routes.test.ts`），浏览器 UI 属 AC-266，文案属 AC-267，端到端属 AC-268。确认路由路径与 AC-265 不冲突（本任务占 `/api/oauth/clients` 的 POST）。
 - 判据是本任务的机械读数，文件即 AC-264 `criterion:` 所点名的那个；不新建第二个判据文件。
 - 若实现中发现 AC-258/AC-262 的落点/导出名与本任务假设不符，按实际写点更新本任务 `## Touches` 与正文。
+
+## 完成记录
+
+实现与判据全部落地，AC1–AC10 逐条达成。
+
+- AC1 红态基线：改动前运行 AC-264 命令，存在性闸退出码 1，逐字输出 `缺判据文件：server/modules/oauth/tests/oauth-dcr.test.ts`。
+- AC2 判据绿：`for f in server/modules/oauth/tests/oauth-dcr.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/oauth-dcr.test.ts` 退出 0；读数 `# tests 7` / `# pass 7` / `# fail 0`。
+- AC3 (a)：`mountOAuthRegister({dcrMode:'off'})` → `{mounted:false, reason:"MCP_DCR is off"}`，`POST /oauth/register` → 404；`buildAuthorizationServerMetadata({baseUrl:'https://mcp.example.test', dcrMode:'off'})` → `'registration_endpoint' in body === false`；allowlist/open 元数据 `registration_endpoint === "https://mcp.example.test/oauth/register"`；正例对照 open `{mounted:true}` 且注册 → 201（`client_id="668abea2c932ce2fff0ac9ffa04d1406"`）。
+- AC4 (b)：`allowedHosts:['app.example']`；`['https://app.example/cb','https://evil.example/cb']` → 400 `error="invalid_redirect_uri"` `description="https://evil.example/cb host evil.example is not in MCP_ALLOWED_REDIRECT_HOSTS"`；`['https://evil.example/cb','https://app.example/cb']` → 400 同码；全在 allowlist → 201；行数 `before=0 afterRejects=0 afterAllowed=1`。
+- AC5 (c)：`https://app.example/cb` → 201；`http://localhost:5173/cb` → 201；`http://127.0.0.1:5173/cb` → 201；`http://evil.example/cb` → 400 `error="invalid_redirect_uri"`。
+- AC6 (d)：open 注册机密客户端，响应 `client_secret` 长 64；`client_secret_hash === sha256Hex(secret) === 9727173a80898d334d6d718d549556b77211e4734aaf3dcfd5530a4ca0e9d430` 且 `!== 明文`；两次注册 `first_secret === second_secret ? false`；`closeConnection()` 后扫描库及其 WAL/SHM 字节 `plaintext_hits={"first":0,"second":0} hash_hits=1`（哈希作为正例对照出现）。
+- AC7 (e)：`app.use('/api/oauth/clients', authenticateToken, createOAuthClientsRouter({store}))`；无 token POST → 401（`body={"error":"Access denied. No token provided.","code":"AUTH_TOKEN_INVALID"}`）且行数 0；有效 token → 201 `{client_id, client_secret}`（secret 长 64），`created_via='manual'`，`client_secret_hash === sha256Hex(secret)` 且明文不出现（`plaintext_hits=0 hash_hits=1`）；非 localhost 的 http → 400 `invalid_redirect_uri`。
+- AC8 取假形态三条先红后恢复（先提交实现 `0157c130` 再变异）：
+  - (i) `off` 仍可注册（注释掉 `mountOAuthRegister` 的 off 短路）⇒ (a) 红：`AssertionError [ERR_ASSERTION]: off must not mount: {"mounted":true,"reason":"MCP_DCR=off"}`；恢复 `git checkout -- server/modules/oauth/oauth-clients.routes.ts`，重跑 7/7 绿。
+  - (ii) allowlist 只看首个回调（`for (const uri of redirectUris.slice(0, 1))`）⇒ (b) 红：`a later out-of-list host must 400, got 201`（(f) 亦红：`the three rejection branches must not accept`）；恢复 `git checkout -- server/modules/oauth/oauth-dcr.policy.ts`，重跑 7/7 绿。
+  - (iii) 密钥明文入库（适配器绕过 `store.registerClient`，`oauthClientsDb.insert({ clientSecretHash: <明文> })`）⇒ (d) 红：`AssertionError [ERR_ASSERTION]: the stored column must be the secret’s SHA-256`；恢复 `git checkout -- server/modules/oauth/oauth-clients.service.ts`，重跑 7/7 绿。
+- AC9 不回归：`npm run typecheck` 退出 0；`npm run lint` 中 `: error ` 计数 0（208 条 warning 为既有）；`server/modules/oauth/tests/oauth-store.test.ts` 不改一字，`# tests 5` / `# pass 5` / `# fail 0`；生产代码（`server/` 去 `/tests/`）`MCP_OAUTH_ENABLED` 字面量计数 1（正例对照含 tests 为 36）。
+- AC10 `git diff --stat develop...HEAD` 实际改动 7 文件，与 `## Touches` 逐条对齐（含本任务新增的 mcp-gateway barrel 导出一行）：`server/index.ts`、`server/modules/mcp-gateway/index.ts`、`server/modules/oauth/index.ts`、`server/modules/oauth/oauth-clients.routes.ts (new)`、`server/modules/oauth/oauth-clients.service.ts (new)`、`server/modules/oauth/oauth-dcr.policy.ts (new)`、`server/modules/oauth/tests/oauth-dcr.test.ts (new)`。
+
+实现期偏离与理由（均按 Notes「按实际写点更新 ## Touches 与正文」处理）：
+
+- AC-262 的 barrel 未导出 `buildAuthorizationServerMetadata`，而 AC3 要求判据经 `@/modules/mcp-gateway/index.js` 读它；故新增该 barrel 导出并把 `server/modules/mcp-gateway/index.ts` 列入 `## Touches`。
+- oauth 模块不 import mcp-gateway（避免与 AC-241 的 mcp-gateway→oauth 形成 barrel 环），故 DCR 档位类型在 `oauth-dcr.policy.ts` 就地声明为 `OAuthDcrMode`，与 mcp-gateway 的 `McpDcrMode` 结构相同，由组合根注入的读值结构匹配。
+- SDK `clientRegistrationHandler` 默认会预生成一个一次性 `client_id`/`client_secret`；适配器把这两个丢弃值从落库 metadata 中剔除，确保库里只有哈希（否则 handler 的明文秘钥会随 metadata 入库，违背「库里只有 SHA-256」的 DoD）。
+- 判据另含 (f)(g) 两条强化读数：直接驱动 `validateRedirectUris`/两个工厂缝，并校验 OAuth 开关生产读取点仍为 1（与 AC-262 (f) 同口径）。
