@@ -31,7 +31,8 @@ export type {
   InsertOAuthCodeRedemptionInput,
   OAuthCodeRedemptionRow,
 } from '@/modules/database/repositories/oauth-code-redemptions.db.js';
-// oauthGrantsDb: used by the OAuth module to persist user consent grants and their revocation.
+// oauthGrantsDb: used by the OAuth module to persist user consent grants, their
+// revocation, and (via `listByUser`) the per-user read behind the settings page.
 export { oauthGrantsDb } from '@/modules/database/repositories/oauth-grants.db.js';
 export type { InsertOAuthGrantInput, OAuthGrantRow } from '@/modules/database/repositories/oauth-grants.db.js';
 export { notificationChannelEndpointsDb } from '@/modules/database/repositories/notification-channel-endpoints.js';

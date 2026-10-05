@@ -6,8 +6,9 @@
  * from the store's injected clock rather than read from `CURRENT_TIMESTAMP`, so
  * revocation is deterministic under test.
  *
- * Consumers: server/modules/oauth/oauth-store.service.ts, through the database
- * module barrel.
+ * Consumers: server/modules/oauth/oauth-store.service.ts (the write/cascade path)
+ * and server/modules/oauth/oauth-settings.service.ts (the per-user read behind the
+ * settings page), both through the database module barrel.
  */
 
 import { getConnection } from '@/modules/database/connection.js';
@@ -63,6 +64,17 @@ export const oauthGrantsDb = {
       .prepare('UPDATE oauth_grants SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL')
       .run(revokedAt, id);
     return result.changes > 0;
+  },
+
+  /**
+   * Every grant owned by `userId`, oldest first. Consumers: the OAuth settings
+   * service's `listGrants`, which projects these rows into the caller's own
+   * "connected apps" view (AC-265). The user filter is the ownership boundary.
+   */
+  listByUser(userId: number): OAuthGrantRow[] {
+    return getConnection()
+      .prepare(`SELECT ${GRANT_COLUMNS} FROM oauth_grants WHERE user_id = ? ORDER BY id`)
+      .all(userId) as OAuthGrantRow[];
   },
 
   /** Every grant id issued to `clientId`, for the client-disable cascade. */
