@@ -2,7 +2,7 @@
 id: gap-ac246-mcp-resolve-target-fuzzy-match
 title: AC-246 项目与会话按名称模糊匹配：id 优先、大小写不敏感子串唯一命中、多义/无命中列候选报错、归档不参与，且目标不明时写操作零副作用；判据
   server/modules/mcp-gateway/tests/mcp-resolve-target.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
