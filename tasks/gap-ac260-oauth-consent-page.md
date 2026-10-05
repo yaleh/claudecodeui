@@ -54,19 +54,19 @@ GOAL-021 退出条件 3（AC-260）要求授权页就位：服务端渲染（不
 
 ## AC
 
-- [ ] AC1 判据红态基线逐字记录：改动前运行 AC-260 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/oauth/tests/oauth-consent-page.test.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：`for f in server/modules/oauth/tests/oauth-consent-page.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/oauth-consent-page.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 (a) GET 返回 HTML 且回显客户端名称、回调主机、请求 scope；恶意客户端名两种载荷均作为文本呈现（body 无 raw 可执行形态、含转义形态）；逐字写出两段判定与布尔读数。
-- [ ] AC4 (b) `cloudcli:read` 的 checkbox 含 `checked` 且含 `disabled`，`cloudcli:session:send` 的 checkbox 存在且不含 `checked`；逐字写出两个标签原文。
-- [ ] AC5 (c) 错密码/空密码：非 302、含错误说明、无授权码（行数不变）；正确密码：302 到 `redirect_uri`、含非空 `code`、`state` 逐字原样、授权码行数 +1；逐字写出。
-- [ ] AC6 (d) 取消：302 到 `redirect_uri`、`error=access_denied`、无 `code`；逐字写出。
-- [ ] AC7 (e) 勾选少于请求时 grant 的 scope 恰为勾选集并始终含 `cloudcli:read`（读回 `oauth_grants.scopes` 原文）；逐字写出。
-- [ ] AC8 (f) 每次渲染令牌唯一（两枚不等）；缺令牌、未知令牌、重放已消费令牌的 POST 均被拒（非 302、无码），带有效令牌则 302；逐字写出五组状态与令牌原文。
-- [ ] AC9 (g) GET 与成功 POST 的响应头含 `X-Frame-Options: DENY`、CSP `frame-ancestors 'none'`、`Cache-Control: no-store`；逐字写出原始头值。
-- [ ] AC10 (h) `createCredentialVerifier` 的 contract：login 成功 → `{ok:true,userId}`、login 抛错 → `{ok:false}`；逐字写出。
-- [ ] AC11 取假形态四条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 不转义 ⇒ AC3 红；(ii) 错密码仍签发 ⇒ AC5 红；(iii) 去 CSRF ⇒ AC8 红；(iv) 去防嵌套头 ⇒ AC9 红。每条恢复命令 + 恢复后重跑绿。
-- [ ] AC12 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；`server/modules/oauth/tests/access-tokens.service.test.ts`、`server/modules/oauth/tests/token-info.routes.test.ts`、`server/modules/oauth/tests/access-token-scopes.test.ts`、`server/modules/oauth/tests/access-tokens.routes.test.ts`、`server/modules/oauth/tests/agent-retirement.test.ts` 不改一字仍逐字通过。
-- [ ] AC13 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
+- [x] AC1 判据红态基线逐字记录：改动前运行 AC-260 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/oauth/tests/oauth-consent-page.test.ts`（写下完整命令与完整输出）。
+- [x] AC2 判据绿：`for f in server/modules/oauth/tests/oauth-consent-page.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/oauth-consent-page.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
+- [x] AC3 (a) GET 返回 HTML 且回显客户端名称、回调主机、请求 scope；恶意客户端名两种载荷均作为文本呈现（body 无 raw 可执行形态、含转义形态）；逐字写出两段判定与布尔读数。
+- [x] AC4 (b) `cloudcli:read` 的 checkbox 含 `checked` 且含 `disabled`，`cloudcli:session:send` 的 checkbox 存在且不含 `checked`；逐字写出两个标签原文。
+- [x] AC5 (c) 错密码/空密码：非 302、含错误说明、无授权码（行数不变）；正确密码：302 到 `redirect_uri`、含非空 `code`、`state` 逐字原样、授权码行数 +1；逐字写出。
+- [x] AC6 (d) 取消：302 到 `redirect_uri`、`error=access_denied`、无 `code`；逐字写出。
+- [x] AC7 (e) 勾选少于请求时 grant 的 scope 恰为勾选集并始终含 `cloudcli:read`（读回 `oauth_grants.scopes` 原文）；逐字写出。
+- [x] AC8 (f) 每次渲染令牌唯一（两枚不等）；缺令牌、未知令牌、重放已消费令牌的 POST 均被拒（非 302、无码），带有效令牌则 302；逐字写出五组状态与令牌原文。
+- [x] AC9 (g) GET 与成功 POST 的响应头含 `X-Frame-Options: DENY`、CSP `frame-ancestors 'none'`、`Cache-Control: no-store`；逐字写出原始头值。
+- [x] AC10 (h) `createCredentialVerifier` 的 contract：login 成功 → `{ok:true,userId}`、login 抛错 → `{ok:false}`；逐字写出。
+- [x] AC11 取假形态四条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 不转义 ⇒ AC3 红；(ii) 错密码仍签发 ⇒ AC5 红；(iii) 去 CSRF ⇒ AC8 红；(iv) 去防嵌套头 ⇒ AC9 红。每条恢复命令 + 恢复后重跑绿。
+- [x] AC12 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；`server/modules/oauth/tests/access-tokens.service.test.ts`、`server/modules/oauth/tests/token-info.routes.test.ts`、`server/modules/oauth/tests/access-token-scopes.test.ts`、`server/modules/oauth/tests/access-tokens.routes.test.ts`、`server/modules/oauth/tests/agent-retirement.test.ts` 不改一字仍逐字通过。
+- [x] AC13 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
 
 ## DoD
 
