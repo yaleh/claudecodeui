@@ -1,7 +1,7 @@
 ---
 id: AC-262
 title: 元数据端点返回 JSON 而不是 SPA 页面：开启时发布正确的 issuer、受众与 PKCE 能力，关闭时不发布，公网基址必须是 https
-status: draft
+status: active
 kind: criterion
 goal: GOAL-021
 criterion: for f in
@@ -22,4 +22,15 @@ expect: 读数：(a) `MCP_OAUTH_ENABLED` 开且 `PUBLIC_BASE_URL` 为 https 时�
   必须红。（红先行）当前必红：判据文件不存在，存在性闸以退出码 1 输出缺失的文件名。
 origin: docs/proposals/mcp-gateway-SPEC.md（v3.1）。人 yale 2026-10-05 指令：创建并激活
   GOAL-020 至 GOAL-022 及其 AC。
+activatedAt: 2026-10-05T02:20:13.622Z
+statusLog:
+  - at: 2026-10-05T02:20:13.622Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-05T02:20:13.622Z
 ---
