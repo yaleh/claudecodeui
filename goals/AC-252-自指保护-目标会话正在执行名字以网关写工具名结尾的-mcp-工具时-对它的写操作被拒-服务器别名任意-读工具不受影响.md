@@ -1,7 +1,7 @@
 ---
 id: AC-252
 title: 自指保护：目标会话正在执行名字以网关写工具名结尾的 MCP 工具时，对它的写操作被拒；服务器别名任意，读工具不受影响
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-020
 criterion: for f in server/modules/mcp-gateway/tests/mcp-self-target.test.ts; do
@@ -27,6 +27,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T13:34:58.734Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
