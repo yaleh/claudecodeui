@@ -39,6 +39,10 @@ vi.mock('@/shared/api', async (importOriginal) => {
   return {
     api: { getFiles },
     transcribeVoice,
+    // The raw-corpus upload the hook fires after a listen. Declared so this whole-module double stays
+    // complete; it is never awaited, so its absence would be a crash only if the switch were on, and
+    // these cases keep it off.
+    captureRawVoice: vi.fn(),
     synthesizeVoice: vi.fn(),
     voiceConfigSignature: () => 'test-signature',
     // The hook reads the recogniser's answer through this named export. It does no I/O, so it is

@@ -14,6 +14,14 @@ type VoiceRouterDependencies = {
   voiceService: VoiceService;
   voiceSettingsService: VoiceSettingsService;
   parseAudioUpload: express.RequestHandler;
+  /**
+   * The multipart parser for the raw-corpus endpoint, with its OWN size ceiling.
+   *
+   * A SEPARATE PARSER rather than reusing `parseAudioUpload`: raw audio is 16 kHz mono PCM (about
+   * 32 KB/s) and can be minutes long, so its ceiling is its own figure rather than the recogniser
+   * upload's provider-derived one. The composition root builds both from the same multer factory.
+   */
+  parseRawAudioUpload: express.RequestHandler;
 };
 
 type AuthenticatedRequest = express.Request & { user?: { id?: number | string } };
@@ -45,6 +53,19 @@ function parseVoiceOverrides(request: express.Request): VoiceRequestOverrides {
     ttsFormat: readHeaderValue(request.headers['x-voice-tts-format']),
     providerId: readHeaderValue(request.headers['x-voice-provider']),
   };
+}
+
+/**
+ * The optional `listenId` text field a paired or raw request carries.
+ *
+ * MULTER HAS ALREADY PARSED IT: a multipart text field arrives in `request.body`, so this reads what
+ * the parser put there rather than re-reading the stream. It answers `undefined` for an absent,
+ * non-string or blank field — a blank id is not an id — which is what lets the raw route refuse an
+ * unpaired upload and lets `/transcribe` leave the key off a row that was never paired.
+ */
+function readListenIdField(request: express.Request): string | undefined {
+  const value = (request.body as Record<string, unknown> | undefined)?.listenId;
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
 }
 
 function sendFailure<TValue>(
@@ -190,6 +211,11 @@ export function createVoiceRouter(dependencies: VoiceRouterDependencies): expres
         // where a server-held credential is supposed to be presented. It is the same read the
         // health route makes, so "which provider is configured" and "which credential an attempt
         // uses" are answered from one document rather than from two that could drift.
+        //
+        // `listenId` rides through only when the request named one, so an unpaired request's capture
+        // row has no `listenId` key at all rather than an empty one — the module's own convention,
+        // applied at the one place the field could enter the row. It does not change this response.
+        const listenId = readListenIdField(request);
         const result = await dependencies.voiceService.transcribe({
           audio: {
             bytes: request.file.buffer,
@@ -198,6 +224,7 @@ export function createVoiceRouter(dependencies: VoiceRouterDependencies): expres
           },
           overrides: parseVoiceOverrides(request),
           settings: dependencies.voiceSettingsService.getSettings(readUserId(request)),
+          ...(listenId === undefined ? {} : { listenId }),
         });
 
         if (sendFailure(response, result)) {
@@ -207,6 +234,66 @@ export function createVoiceRouter(dependencies: VoiceRouterDependencies): expres
         response.json(result.value);
       })().catch(next);
     });
+  });
+
+  // THE RAW-CORPUS ENDPOINT: the audio BEFORE the VAD, uploaded for a passive corpus rather than to
+  // be transcribed. It is separate from `/transcribe` because the bytes are a different object — the
+  // trim's own removal is exactly what makes them unrecoverable from the trimmed upload — and
+  // because a deployment collects them only when its own `VOICE_CAPTURE_RAW` switch says so.
+  //
+  // THE ROUTE ONLY PARSES, CALLS AND RESPONDS. Whether the bytes are written, and the no-op when the
+  // switch is off, is the SERVICE's decision off the capture port; a route that consulted the switch
+  // itself would be a second reader of a value the port already holds.
+  router.post('/capture/raw', (request, response, next) => {
+    dependencies.parseRawAudioUpload(request, response, (uploadError?: unknown) => {
+      if (uploadError) {
+        const message = uploadError instanceof Error ? uploadError.message : String(uploadError);
+        const failure = readUploadFailure(uploadError);
+        response.status(failure.status).json({ error: message, code: failure.code });
+        return;
+      }
+
+      try {
+        const listenId = readListenIdField(request);
+        // A raw row exists to be PAIRED with a listen's trimmed rows and text, so a request that
+        // carries no `listenId` is as unusable as one that carries no audio — refused in the same
+        // words and with the same code `/transcribe` refuses a missing file. See
+        // `MALFORMED_UPLOAD_CODE`.
+        if (!request.file || listenId === undefined) {
+          response.status(400).json({ error: 'No raw audio uploaded', code: MALFORMED_UPLOAD_CODE });
+          return;
+        }
+
+        const result = dependencies.voiceService.captureRaw({
+          listenId,
+          audio: {
+            bytes: request.file.buffer,
+            mimeType: request.file.mimetype || 'application/octet-stream',
+            fileName: request.file.originalname || 'raw.bin',
+          },
+        });
+        if (sendFailure(response, result)) {
+          return;
+        }
+
+        response.json(result.value);
+      } catch (error) {
+        // `captureRaw` answers with a result rather than throwing, so this is the bug path — a
+        // malformed request object, a middleware that already responded — forwarded rather than
+        // swallowed.
+        next(error);
+      }
+    });
+  });
+
+  // The capability reading: whether this deployment collects raw audio at all.
+  //
+  // ITS OWN ROUTE RATHER THAN A FIELD ON `/health`, which is a per-user PROVIDER reading consumed by
+  // `useVoiceAvailable`: a deployment capability folded into it would be read by every client that
+  // only wanted to know whether voice works, and would sit beside fields whose subject is the user's
+  // configured backend, not the process's environment.
+  router.get('/capture', (_request, response) => {
+    response.json(dependencies.voiceService.captureState());
   });
 
   router.post('/tts', asyncHandler(async (request, response) => {
