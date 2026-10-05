@@ -1,7 +1,7 @@
 ---
 id: AC-263
 title: OAuth 开启后 /mcp 的认证：无令牌的 401 带资源元数据指引，PAT 与 OAuth 令牌并存，受众不对的令牌被拒，回环守卫自动关闭
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-021
 criterion: for f in
@@ -25,6 +25,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T23:24:54.481Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"

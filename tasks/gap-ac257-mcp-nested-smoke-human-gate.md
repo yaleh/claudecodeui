@@ -41,7 +41,7 @@ goal_ac: AC-257
 - [x] AC2 记录八节齐全且每节读数非空：`node scripts/mcp-smoke.mjs --check-record docs/proposals/cloudcli-mcp-smoke.md` 退出 **0**；打印八节标题（环境与版本 / 起独立实例 / Claude Code 握手与工具列表 / 列出会话 / 发消息 / 查进度 / 中止 / 收尾残留）与每节 `读数：`/`结论：` 两行的存在性。
 - [x] AC3 反自点亮负控制 + 正控制：`grep -c '^嵌套冒烟验收：通过' docs/proposals/cloudcli-mcp-smoke.md` → **0** 且 `grep -c '嵌套冒烟验收：通过' scripts/mcp-smoke.mjs` → **0**；正控制：对一份临时拷贝在行首插入该字样后同一 `grep -c` → **1**（证明负控制的零有分辨力、不是恒零）。
 - [x] AC4 红态基线逐字记录：运行 `grep -q '^嵌套冒烟验收：通过' docs/proposals/cloudcli-mcp-smoke.md || { echo '缺人工验收行：记录文件里没有以「嵌套冒烟验收：通过」开头的一行' >&2; exit 1; }`，退出码 **1**，stderr 逐字含 `缺人工验收行：`（完整判据文本见 goals/AC-257-*.md；本条复述其行为、不复述 echo 里的括注）。写下完整命令与完整输出。
-- [x] AC5 人证行已由人 yale 写入：`grep -q '^嵌套冒烟验收：通过' docs/proposals/cloudcli-mcp-smoke.md` 退出 **0**。**这条 AC 不得由 worker 自行勾选**；人尚未写入时它保持未勾，本任务停在 `needs-human` 等人裁定，不得置 done。
+- [ ] AC5 人证行已由人 yale 写入：`grep -q '^嵌套冒烟验收：通过' docs/proposals/cloudcli-mcp-smoke.md` 退出 **0**。**这条 AC 不得由 worker 自行勾选**；人尚未写入时它保持未勾，本任务停在 `needs-human` 等人裁定，不得置 done。
 - [x] AC6 只写本任务文件：`git diff --name-only "$(git merge-base develop HEAD)" -- . ':!tasks/gap-ac257-mcp-nested-smoke-human-gate.md'` 无输出（产品代码与记录文件一行未改；用 merge-base 而非裸 develop，避免把别人的 fan-in 读成本任务的改动）。
 
 ## DoD
@@ -85,6 +85,12 @@ goal_ac: AC-257
 
 **请求人 yale 做的唯一动作。** 在 `/data/home/yale/work/claudecodeui/docs/proposals/cloudcli-mcp-smoke.md` 写入一行、以「嵌套冒烟验收：通过」开头（行首起、无前导空白）。写入后重跑 AC5 判据 `grep -q '^嵌套冒烟验收：通过' docs/proposals/cloudcli-mcp-smoke.md` 即退出 0，届时勾选 AC5、任务方可推进，GOAL-020 方可判 achieved。
 
+**本轮续做复核（2026-10-06）。** AC1–AC4 与 AC6 在任务分支上逐条重跑、全部为绿：`node --test scripts/mcp-smoke.test.mjs` → `tests 25 / pass 25 / fail 0 / duration_ms 1647.555113`；`node scripts/mcp-smoke.mjs --check-record docs/proposals/cloudcli-mcp-smoke.md` 退出 0，stdout 逐字 `记录合格：docs/proposals/cloudcli-mcp-smoke.md 八节齐全、每节 读数：/结论： 非空、端口不是 3001`；AC3 负控制 `grep -c '^嵌套冒烟验收：通过' docs/proposals/cloudcli-mcp-smoke.md` → **0**、`grep -c '嵌套冒烟验收：通过' scripts/mcp-smoke.mjs` → **0**，正控制（临时拷贝行首插入后同一 grep）→ **1**；AC4 判据退出码 **1**、stderr 逐字 `缺人工验收行：记录文件里没有以「嵌套冒烟验收：通过」开头的一行`；AC6 `git diff --name-only "$(git merge-base develop HEAD)" -- . ':!tasks/gap-ac257-mcp-nested-smoke-human-gate.md'` 无输出。
+
+**AC5 本轮恢复为未勾——判据为红，而任务文件曾被置勾。** 复核发现 develop 上 `tasks/gap-ac257-mcp-nested-smoke-human-gate.md` 的 AC5 已是 `- [x]`（由提交 `85f084fe`（`task_write by cli:523577`）置入，置入时该任务 status 为 `needs-human`），但 AC5 的判据在 develop 上为**红**：`git show develop:docs/proposals/cloudcli-mcp-smoke.md | grep -c '^嵌套冒烟验收：通过'` → **0**；且 `git log --all -S'嵌套冒烟验收：通过' -- docs/proposals/cloudcli-mcp-smoke.md` 在**任何分支的任何提交**上都没有命中——该验收行从未被任何提交承载过。据此 `task_check` 会在判据为红时报出 `acChecked 6/6 / eligible to move to done`，即本任务 Notes 点名要挡的那条旁路（判据红而机械门放行）。按本任务「不得自点亮」的约束，本轮不勾选 AC5，并将其恢复为 `- [ ]`，使机械门拒绝、任务落 `needs-human` 等 yale 写入。
+
+**旁证（未采纳、未提交、未触碰）。** 主 checkout 的工作区有一处**未提交**改动 `docs/proposals/cloudcli-mcp-smoke.md`（计 5 行新增），其中含一行以「嵌套冒烟验收：通过」开头、自注「本行由受权会话代录」的文字。该行不被任何提交承载；验收行只能由人 yale 写入、worker 不得代写或代提交，故本轮未将其读作通行证、未触碰该文件、未提交它。
+
 ## Needs-Human
 
 **执行 2026-10-05T22:15:55.329Z — 连续修满重试上限仍不合格（标 needs-human）**
@@ -93,3 +99,4 @@ goal_ac: AC-257
 - 失败步/判词：AC 未全勾（checked 5/6，剩余未勾 1）——续做只需验证并勾选 AC
 - run_id：wk-prod-anchor
 - session_id：2601cf76-e260-4e6c-a16a-1091b7990e3b
+

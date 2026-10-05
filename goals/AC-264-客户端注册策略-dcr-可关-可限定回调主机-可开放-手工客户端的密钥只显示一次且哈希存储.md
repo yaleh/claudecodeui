@@ -1,7 +1,7 @@
 ---
 id: AC-264
 title: 客户端注册策略：DCR 可关、可限定回调主机、可开放，手工客户端的密钥只显示一次且哈希存储
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-021
 criterion: for f in server/modules/oauth/tests/oauth-dcr.test.ts; do [ -f "$f" ]
@@ -24,6 +24,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T23:25:13.006Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
