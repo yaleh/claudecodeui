@@ -32,13 +32,13 @@ extra:
 
 ## AC
 
-- [ ] `node --test scripts/undici-blocked-ports-preload.test.mjs` 退出码 0：测试起一个带 `--import ./scripts/undici-blocked-ports-preload.mjs` 的常驻子进程，父进程随后对 18 个端口逐个尝试 `listen`，逐个报 `EADDRINUSE`；父进程启动前已被别的进程占着的端口从判据中剔除并在输出里列出，且被验证的端口至少 12 个
-- [ ] 同一测试的负控制：不带预加载的同样子进程，父进程对同一批端口能成功绑定（得到至少 12 个成功），证明上一条的 `EADDRINUSE` 来自预加载而不是端口本来就被占
-- [ ] 同一测试：事先占住 `6000`，再带预加载启动一个空进程，该进程退出码 0（不因 `EADDRINUSE` 抛错）；且一个什么都不做的带预加载进程在 5 秒内自行退出（`unref` 生效，不挂住）
-- [ ] 接线：`grep -n -- '--import' package.json scripts/test.sh` 显示 `test:server` 与 `scripts/test.sh` 的两处 server 测试调用都带 `undici-blocked-ports-preload.mjs`，其余通道（client、scripts、e2e）不带
-- [ ] 真实通道读数：`npx tsx --tsconfig server/tsconfig.json --import ./scripts/undici-blocked-ports-preload.mjs --test server/modules/commands/tests/commands.test.ts server/modules/websocket/tests/activity-protocol.test.ts` 退出码 0；并在该命令运行期间用 `ss -ltn` 读到这 18 个端口中被验证的那些处于 LISTEN 且归属测试进程树
-- [ ] 零测试文件改动：`git diff --name-only develop...HEAD | grep -E '^server/.*\.test\.'` 无输出（退出码 1）
-- [ ] `npm run lint` 与 `npm run typecheck` 退出码 0
+- [x] `node --test scripts/undici-blocked-ports-preload.test.mjs` 退出码 0：测试起一个带 `--import ./scripts/undici-blocked-ports-preload.mjs` 的常驻子进程，父进程随后对 18 个端口逐个尝试 `listen`，逐个报 `EADDRINUSE`；父进程启动前已被别的进程占着的端口从判据中剔除并在输出里列出，且被验证的端口至少 12 个
+- [x] 同一测试的负控制：不带预加载的同样子进程，父进程对同一批端口能成功绑定（得到至少 12 个成功），证明上一条的 `EADDRINUSE` 来自预加载而不是端口本来就被占
+- [x] 同一测试：事先占住 `6000`，再带预加载启动一个空进程，该进程退出码 0（不因 `EADDRINUSE` 抛错）；且一个什么都不做的带预加载进程在 5 秒内自行退出（`unref` 生效，不挂住）
+- [x] 接线：`grep -n -- '--import' package.json scripts/test.sh` 显示 `test:server` 与 `scripts/test.sh` 的两处 server 测试调用都带 `undici-blocked-ports-preload.mjs`，其余通道（client、scripts、e2e）不带
+- [x] 真实通道读数：`npx tsx --tsconfig server/tsconfig.json --import ./scripts/undici-blocked-ports-preload.mjs --test server/modules/commands/tests/commands.test.ts server/modules/websocket/tests/activity-protocol.test.ts` 退出码 0；并在该命令运行期间用 `ss -ltn` 读到这 18 个端口中被验证的那些处于 LISTEN 且归属测试进程树
+- [x] 零测试文件改动：`git diff --name-only develop...HEAD | grep -E '^server/.*\.test\.'` 无输出（退出码 1）
+- [x] `npm run lint` 与 `npm run typecheck` 退出码 0
 
 ## DoD
 

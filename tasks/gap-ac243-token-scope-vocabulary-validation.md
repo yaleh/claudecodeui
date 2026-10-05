@@ -49,15 +49,15 @@ AC-243（GOAL-020 退出条件 5；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3.
 
 ## AC
 
-- [ ] AC1 判据红态基线逐字记录：改动前运行 AC-243 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/oauth/tests/access-token-scopes.test.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：`for f in server/modules/oauth/tests/access-token-scopes.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/access-token-scopes.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 (a) 词汇表内任意非空子集签发 201，响应 `token.scopes` 与请求集合相等、无重复、长度等于唯一数，且存库 `scopes` 与响应一致；含一个带重复项的请求验证去重；逐字列出请求/响应/存库三元组。
-- [ ] AC4 (b) 五种（拼错 `cloudcli:reed`、不带前缀 `read`、`cloudcli:admin`、空列表、非字符串元素）全部 400 且 `error.code` 全等于 `INVALID_SCOPE`，每次 `access_tokens` 行数前后不变；逐字列出五条 body 与行数。
-- [ ] AC5 (c) 缺省不带 scope ⇒ 201 且 `token.scopes` 深等于 `['cloudcli:read']`（正例对照）；逐字写状态码与 scopes。
-- [ ] AC6 (d) 服务层直调 `issueToken`：非法 scope 返回 `{ ok:false, reason:'invalid_scope' }` 且行数不变；合法 scope 返回 `ok:true` 且行数 +1（正例对照）；逐字列每次返回值与行数。
-- [ ] AC7 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 任意非空字符串 ⇒ AC4 红；(ii) 只在路由校验、服务层不校验 ⇒ AC6 红；(iii) 允许 `cloudcli:admin` ⇒ AC4 红。每条恢复命令 + 恢复后重跑绿。
-- [ ] AC8 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；既有 `server/modules/oauth/tests/access-tokens.service.test.ts`、`access-tokens.routes.test.ts`、`server/modules/settings/tests/settings.service.test.ts` 不改一字仍逐字通过。
-- [ ] AC9 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
+- [x] AC1 判据红态基线逐字记录：改动前运行 AC-243 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/oauth/tests/access-token-scopes.test.ts`（写下完整命令与完整输出）。
+- [x] AC2 判据绿：`for f in server/modules/oauth/tests/access-token-scopes.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/access-token-scopes.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
+- [x] AC3 (a) 词汇表内任意非空子集签发 201，响应 `token.scopes` 与请求集合相等、无重复、长度等于唯一数，且存库 `scopes` 与响应一致；含一个带重复项的请求验证去重；逐字列出请求/响应/存库三元组。
+- [x] AC4 (b) 五种（拼错 `cloudcli:reed`、不带前缀 `read`、`cloudcli:admin`、空列表、非字符串元素）全部 400 且 `error.code` 全等于 `INVALID_SCOPE`，每次 `access_tokens` 行数前后不变；逐字列出五条 body 与行数。
+- [x] AC5 (c) 缺省不带 scope ⇒ 201 且 `token.scopes` 深等于 `['cloudcli:read']`（正例对照）；逐字写状态码与 scopes。
+- [x] AC6 (d) 服务层直调 `issueToken`：非法 scope 返回 `{ ok:false, reason:'invalid_scope' }` 且行数不变；合法 scope 返回 `ok:true` 且行数 +1（正例对照）；逐字列每次返回值与行数。
+- [x] AC7 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 任意非空字符串 ⇒ AC4 红；(ii) 只在路由校验、服务层不校验 ⇒ AC6 红；(iii) 允许 `cloudcli:admin` ⇒ AC4 红。每条恢复命令 + 恢复后重跑绿。
+- [x] AC8 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；既有 `server/modules/oauth/tests/access-tokens.service.test.ts`、`access-tokens.routes.test.ts`、`server/modules/settings/tests/settings.service.test.ts` 不改一字仍逐字通过。
+- [x] AC9 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
 
 ## DoD
 
@@ -84,3 +84,70 @@ AC-243（GOAL-020 退出条件 5；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3.
 - 词汇归属：词汇与规范化器是 OAuth 令牌领域契约，定义在 `access-tokens.service.ts` 并经 OAuth barrel 导出；`settings.service.ts` 与判据都从 `@/modules/oauth/index.js` 导入（跨模块只经 barrel）。若按 `$backend-module-standards`「≥2 处使用 → `server/shared/utils.ts`」判定该落在 shared，**OAuth barrel 必须原样再导出**，使消费者与判据的导入路径不变。
 - `settings.module.ts` 无需改动（它已把 `issue` 接到 oauth service）；本任务只在 service 层收紧，不动装配。
 - 边界：AC-244 审计、AC-245+ 工具、AC-254/255 设置页、AC-256/257 冒烟不属本任务。
+
+## Execution evidence
+
+工作树：`/data/home/yale/work/claudecodeui-worktrees/gap-ac243-token-scope-vocabulary-validation`（分支 `task/gap-ac243-token-scope-vocabulary-validation`，实现提交 `fb85d0b6`，基线 develop=`f409047e`）。
+
+### AC1 红态基线（改动前）
+命令：
+```
+for f in server/modules/oauth/tests/access-token-scopes.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/access-token-scopes.test.ts
+```
+输出（exit 1）：`缺判据文件：server/modules/oauth/tests/access-token-scopes.test.ts`
+
+### AC2 判据绿
+命令同上，退出 0。读数：`# tests 5`、`# pass 5`、`# fail 0`。
+
+### AC3 (a) 词汇表内子集（201，集合相等、去重、存库一致）
+```
+request=["cloudcli:read"]                          status=201 response=["cloudcli:read"]                          stored=["cloudcli:read"]
+request=["cloudcli:session:send"]                  status=201 response=["cloudcli:session:send"]                  stored=["cloudcli:session:send"]
+request=["cloudcli:session:create"]                status=201 response=["cloudcli:session:create"]                stored=["cloudcli:session:create"]
+request=["cloudcli:session:control"]               status=201 response=["cloudcli:session:control"]               stored=["cloudcli:session:control"]
+request=["cloudcli:approve"]                       status=201 response=["cloudcli:approve"]                       stored=["cloudcli:approve"]
+request=["cloudcli:read","cloudcli:approve"]       status=201 response=["cloudcli:read","cloudcli:approve"]       stored=["cloudcli:read","cloudcli:approve"]
+request=[all five]                                 status=201 response=[all five]                                 stored=[all five]
+request=["cloudcli:read","cloudcli:read","cloudcli:approve"] status=201 response=["cloudcli:read","cloudcli:approve"] stored=["cloudcli:read","cloudcli:approve"]  <- 去重
+```
+
+### AC4 (b) 五种非法（全 400 INVALID_SCOPE，行数不变）
+```
+scopes=["cloudcli:reed"]      status=400 code=INVALID_SCOPE rows 0->0 body={"success":false,"error":{"code":"INVALID_SCOPE","message":"scopes must be a non-empty subset of known scopes"}}
+scopes=["read"]               status=400 code=INVALID_SCOPE rows 0->0 body={"success":false,"error":{"code":"INVALID_SCOPE","message":"scopes must be a non-empty subset of known scopes"}}
+scopes=["cloudcli:admin"]     status=400 code=INVALID_SCOPE rows 0->0 body={"success":false,"error":{"code":"INVALID_SCOPE","message":"scopes must be a non-empty subset of known scopes"}}
+scopes=[]                     status=400 code=INVALID_SCOPE rows 0->0 body={"success":false,"error":{"code":"INVALID_SCOPE","message":"scopes must be a non-empty subset of known scopes"}}
+scopes=["cloudcli:read",42]   status=400 code=INVALID_SCOPE rows 0->0 body={"success":false,"error":{"code":"INVALID_SCOPE","message":"scopes must be a non-empty subset of known scopes"}}
+五条 code 集合大小 = 1
+```
+
+### AC5 (c) 缺省
+`status=201 token.scopes=["cloudcli:read"] stored=["cloudcli:read"]`
+
+### AC6 (d) 服务层直调
+```
+issueToken(["cloudcli:reed"])  = {"ok":false,"reason":"invalid_scope"} rows=0
+issueToken(["cloudcli:admin"]) = {"ok":false,"reason":"invalid_scope"} rows=0
+issueToken([])                 = {"ok":false,"reason":"invalid_scope"} rows=0
+issueToken(['cloudcli:read'])  = ok=true id=1 rows 0->1
+```
+
+### AC7 取假形态（先提交 fb85d0b6，再变异；恢复命令均为 `git checkout -- server/modules/oauth/access-tokens.service.ts`，恢复后 `# pass 5 / # fail 0`）
+- (i) 任意非空字符串：`normalizeAccessTokenScopes` 的 `!vocabulary.includes(scope)` → `scope.length === 0`。判据逐字失败行：`✖ (b) ... AssertionError [ERR_ASSERTION]: Expected values to be strictly equal: actual: 201, expected: 400`（(d) 亦红）。⇒ AC4 红。
+- (ii) 只在路由校验、服务层不校验：删去 `issueToken` 里的 `normalizeAccessTokenScopes` 调用（改 `const normalized = { ok: true as const, scopes: input.scopes };`）。判据逐字失败行：`✖ (d) ... actual: { ok: true, token: { id: 1, ... } }, expected: { ok: false, reason: 'invalid_scope' }`。⇒ AC6 红。
+- (iii) 允许 cloudcli:admin：`ACCESS_TOKEN_SCOPES` 追加 `'cloudcli:admin'`。判据逐字失败行：`✖ (b) ... actual: 201, expected: 400`（(vocabulary) 与 (d) 亦红）。⇒ AC4 红。
+
+### AC8 仓库门与不回归
+- `npm run typecheck` 退出 0。
+- `npm run lint` 退出 0；`: error ` 计数 = 0，`: warning ` 计数 = 206。
+- 既有三套件未改一字：`access-tokens.service.test.ts` + `access-tokens.routes.test.ts` + `settings.service.test.ts` ⇒ `# tests 20 / # pass 20 / # fail 0`。
+
+### AC9 改动清单（`git diff --stat develop...HEAD`，develop=`f409047e`）
+```
+ server/modules/oauth/access-tokens.service.ts          |  62 +++-
+ server/modules/oauth/index.ts                          |   7 +
+ server/modules/oauth/tests/access-token-scopes.test.ts | 334 ++++++++++++++++++++++++++++++ (new)
+ server/modules/settings/settings.service.ts            |  22 +-
+ 4 files changed, 416 insertions(+), 9 deletions(-)
+```
+与 `## Touches` 逐条对齐（第 4 项为 ASCII ` (new)`）；`tasks/gap-ac243-token-scope-vocabulary-validation.md` 由 task_write 分支敏感提交。
