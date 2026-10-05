@@ -3,7 +3,7 @@ id: gap-ac271-mcp-session-cancel-queued
 title: AC-271 session_cancel_queued：用 session_send 返回的 uuid 撤回排队消息（撤回得
   cancelled、已取出得非 cancelled、未知与跨会话得 unknown），此后那条消息永不成为一轮且宿主 pid 不变；仅 send
   令牌被拒并写 denied 审计；判据 server/modules/mcp-gateway/tests/mcp-cancel-queued.test.ts
-status: todo
+status: ready
 labels:
   - gap
 parent: null
