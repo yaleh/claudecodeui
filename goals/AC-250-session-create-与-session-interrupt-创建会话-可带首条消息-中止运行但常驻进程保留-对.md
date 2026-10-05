@@ -1,7 +1,7 @@
 ---
 id: AC-250
 title: session_create 与 session_interrupt：创建会话（可带首条消息），中止运行但常驻进程保留，对空闲会话如实说没有可中止的
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-020
 criterion: for f in
@@ -26,6 +26,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T10:28:10.448Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
