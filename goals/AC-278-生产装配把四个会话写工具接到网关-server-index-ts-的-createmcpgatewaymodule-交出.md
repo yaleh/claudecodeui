@@ -3,7 +3,7 @@ id: AC-278
 title: 生产装配把四个会话写工具接到网关：server/index.ts 的 createMcpGatewayModule 交出
   sessionCreate / sessionInterrupt / sessionHostControl，四个工具在真装配下不再回
   MCP_TOOL_NOT_IMPLEMENTED
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-020
 criterion: for f in
@@ -41,6 +41,11 @@ statusLog:
     to: active
     actor: goal-cli
     reason: ""
+  - at: 2026-10-05T16:33:40.817Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: not-evaluated
   reason: no judge configured
