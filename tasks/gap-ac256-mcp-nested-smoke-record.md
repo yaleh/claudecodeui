@@ -18,6 +18,7 @@ depends_on:
   - gap-ac249-session-send-immediate-runid
   - gap-ac250-session-create-interrupt-lifecycle
   - gap-ac253-gateway-shares-single-control-service
+  - gap-ac278-mcp-production-session-wiring
 goal_ac: AC-256
 ---
 ## Proposal
