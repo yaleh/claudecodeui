@@ -5,6 +5,18 @@ import { ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import type { ZodRawShape } from 'zod';
 
 import type { AccessTokensService } from '@/modules/oauth/index.js';
+// The cross-module barrel imports below are what make this file the ONE place
+// the gateway reaches another module for its own wiring (AC-253): the projects
+// readers its read tools answer from, and the process run registry its
+// `run_get` / `session_send` deps read. Every one goes through the owning
+// module's barrel — a deep import would be a boundary violation — and each is
+// consumed by {@link createMcpGatewayModule} below.
+import {
+  getArchivedProjectsWithSessions,
+  getProjectSessionsPage,
+  getProjectsWithSessions,
+} from '@/modules/projects/index.js';
+import { chatRunRegistry } from '@/modules/websocket/index.js';
 
 import type { McpToolRegistrar } from './mcp-gateway.audit.js';
 import { withMcpAudit } from './mcp-gateway.audit.js';
@@ -20,7 +32,9 @@ import { registerMcpWriteTools } from './mcp-gateway.write-tools.js';
 import type { McpWriteToolDeps, McpWriteToolSeam } from './mcp-gateway.write-tools.js';
 import { resolveInputTargets } from './mcp-resolve-target.js';
 import type { McpResolveDeps } from './mcp-resolve-target.js';
+import type { McpRunGetDeps } from './mcp-run-get.js';
 import type { SelfTargetDeps } from './mcp-self-target.js';
+import type { McpSessionRunGetSeam } from './mcp-session-send.js';
 
 /**
  * The MCP gateway's production assembly (AC-240). The consumer is
@@ -412,6 +426,90 @@ export function mountMcpGateway(app: Express, deps: McpGatewayDeps = {}): McpGat
     deps.selfTarget
   );
   return { mounted: true, reason: gate.reason };
+}
+
+/**
+ * The inputs {@link createMcpGatewayModule} accepts from the composition root
+ * (`server/index.ts`). It is {@link McpGatewayDeps} minus the members this
+ * module itself derives from the owning modules' barrels, plus the one control
+ * service the caller MUST hand in (so it can be the same identifier the
+ * WebSocket gateway and the scheduled-message timer share).
+ *
+ * `control` is required, not optional: the whole point of this entry is that
+ * the gateway never constructs its own control plane. A criteria mount that
+ * wants a mount without write tools can still pass deps straight to
+ * {@link mountMcpGateway} — this assembler is for the production composition
+ * root, where every front end must share one instance (AC-253).
+ */
+export type McpGatewayModuleDeps = {
+  env?: McpGatewayDeps['env'];
+  authorize?: McpGatewayDeps['authorize'];
+  tokens?: McpGatewayDeps['tokens'];
+  oauth?: McpGatewayDeps['oauth'];
+  resolveDeps?: McpGatewayDeps['resolveDeps'];
+  selfTarget?: McpGatewayDeps['selfTarget'];
+  residentTools?: McpGatewayDeps['residentTools'];
+  /** The single chat control service every front end shares (AC-233/AC-253). */
+  control: McpWriteToolDeps['control'];
+  /**
+   * AC-245's read-tool services minus what this module supplies: the three
+   * project readers and the run registry come from the barrel imports above.
+   * `runGet` is AC-248's bag minus its `runs` member, which is likewise filled
+   * here from the single process registry.
+   */
+  readTools?: Omit<McpReadToolDeps, 'projects' | 'runs' | 'runGet'> & {
+    runGet?: Omit<McpRunGetDeps, 'runs'>;
+  };
+  /**
+   * AC-249's write-tool services. `control` is supplied as a top-level member,
+   * and `runs` / `runGet.deps.runs` are filled here from the process registry,
+   * so the caller cannot accidentally point the gateway at a second one.
+   */
+  writeTools: Omit<McpWriteToolDeps, 'control' | 'runs' | 'runGet'> & {
+    runGet: Omit<McpSessionRunGetSeam, 'deps'> & { deps: Omit<McpRunGetDeps, 'runs'> };
+  };
+};
+
+/**
+ * The gateway's composition entry (AC-253): it takes the pieces only the
+ * composition root can supply — above all the one {@link McpGatewayModuleDeps.control}
+ * instance — and fills the rest of {@link McpGatewayDeps} from the owning
+ * modules' barrels, so `server/index.ts` reads as "one control service, handed
+ * to every front end" rather than as a bag of imports.
+ *
+ * It RETURNS a deps object rather than mounting, because AC-240's frozen
+ * criterion requires `server/index.ts` to contain the `mountMcpGateway(...)`
+ * call it scans for. The production line is therefore
+ * `mountMcpGateway(app, createMcpGatewayModule({ control: chatControl, ... }))`:
+ * `mountMcpGateway` keeps its name and semantics, and the same `chatControl`
+ * identifier appears in the `createMcpGatewayModule` argument — the reading
+ * AC-253(a) takes.
+ *
+ * Consumers: `server/index.ts`. A criterion that wants the SOURCE-level wiring
+ * reads this function's name off `server/index.ts`; a criterion that wants the
+ * runtime behaviour supplies the same assembled deps to `mountMcpGateway`.
+ */
+export function createMcpGatewayModule(deps: McpGatewayModuleDeps): McpGatewayDeps {
+  const { control, readTools, writeTools, ...rest } = deps;
+  return {
+    ...rest,
+    readTools:
+      readTools === undefined
+        ? undefined
+        : {
+            ...readTools,
+            projects: { getProjectsWithSessions, getArchivedProjectsWithSessions, getProjectSessionsPage },
+            runs: chatRunRegistry,
+            runGet:
+              readTools.runGet === undefined ? undefined : { ...readTools.runGet, runs: chatRunRegistry },
+          },
+    writeTools: {
+      ...writeTools,
+      control,
+      runs: { getRun: (sessionId: string) => chatRunRegistry.getRun(sessionId) },
+      runGet: { ...writeTools.runGet, deps: { ...writeTools.runGet.deps, runs: chatRunRegistry } },
+    },
+  };
 }
 
 /**

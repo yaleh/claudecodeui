@@ -56,14 +56,6 @@ import {
 } from './modules/oauth/index.js';
 import { createSystemModule } from './modules/system/index.js';
 import projectModuleRoutes from './modules/projects/projects.routes.js';
-// The MCP gateway's read tools (AC-245) answer `projects_list` from these two
-// project readers — the same paginated view the REST surface serves, reached
-// through the projects barrel because a cross-module edge belongs there.
-import {
-    getArchivedProjectsWithSessions,
-    getProjectSessionsPage,
-    getProjectsWithSessions,
-} from './modules/projects/index.js';
 import notificationRoutes from './modules/notifications/notifications.routes.js';
 import { userRoutes } from './modules/user/index.js';
 import {
@@ -96,6 +88,7 @@ import {
 import {
     MCP_GATEWAY_PATH,
     buildRunGet,
+    createMcpGatewayModule,
     mountMcpGateway,
     mountOAuthMetadata,
     readMcpDcrMode,
@@ -563,9 +556,10 @@ const mcpOauth: McpOauthSeam | undefined =
 // (AC-249) answer from: the same run registry and activity store, the providers'
 // sessions history reader, and the wall clock plus a real sleeper. Bound to one
 // object because both tools read the identical services, and a second copy would
-// be two things to keep in step.
+// be two things to keep in step. The run REGISTRY is not listed here: AC-253's
+// `createMcpGatewayModule` fills `runs` from the websocket barrel, so the
+// gateway reads the one process registry and index.ts does not restate it.
 const mcpRunGetDeps = {
-    runs: chatRunRegistry,
     activity: activityStore,
     sessions: sessionsService,
     now: () => Date.now(),
@@ -573,72 +567,79 @@ const mcpRunGetDeps = {
     bootId: () => BOOT_ID,
 };
 
-const mcpGateway = mountMcpGateway(app, {
-    tokens: accessTokensService,
-    oauth: mcpOauth,
-    readTools: {
-        projects: { getProjectsWithSessions, getArchivedProjectsWithSessions, getProjectSessionsPage },
-        sessions: sessionsService,
-        hosts: sessionHostManager,
-        runs: chatRunRegistry,
-        activity: activityStore,
-        quay: {
-            hasQuayConfig: (projectId: string) => quayService.getQuayStatus(projectId)?.hasQuayConfig ?? false,
-            readCached: (projectId: string) => quayService.getCachedSnapshot(projectId),
-            refresh: (projectId: string) => quayService.getQuaySnapshot(projectId, { forceRefresh: true }),
-        },
-        runGet: mcpRunGetDeps,
-        now: () => Date.now(),
-    },
-    // The stage-4 write tools (AC-249). `control` is the SAME single chat control
-    // service built above (`chatControl`) and handed to the WebSocket gateway and
-    // the scheduled-message timer — the gateway must never construct one of its
-    // own — and `runGet` reuses AC-248's deps so a `waitSeconds` send and a
-    // `run_get` wait through one clock.
-    writeTools: {
+// The gateway's composition entry (AC-253). `mountMcpGateway` keeps its name and
+// semantics (AC-240's criterion scans for that call), and `createMcpGatewayModule`
+// is the assembly: it takes the ONE `chatControl` instance built above — the same
+// identifier `createWebSocketServer` and `initializeScheduledMessageDispatcher`
+// receive — and fills the projects readers and run registry from the owning
+// modules' barrels, so the composition root cannot hand the gateway a second
+// control plane.
+const mcpGateway = mountMcpGateway(
+    app,
+    createMcpGatewayModule({
+        tokens: accessTokensService,
+        oauth: mcpOauth,
         control: chatControl,
-        runs: { getRun: (sessionId: string) => chatRunRegistry.getRun(sessionId) },
-        runGet: { deps: mcpRunGetDeps, build: buildRunGet },
-        // AC-272: an options-less `session_send` reads the session's recorded
-        // model/effort/permissionMode and puts them on the run, so a
-        // `session_reconfigure` (or an ordinary UI send) is what the next run
-        // actually carries. `sessionsDb` names the session's provider; the
-        // model reader is the same singleton the WebSocket send path records to.
-        selection: {
-            sessions: { getSessionById: (sessionId: string) => sessionsDb.getSessionById(sessionId) },
-            models: {
-                resolveSessionModel: (provider, options) => providerModelsService.resolveSessionModel(provider, options),
-            },
-        },
-    },
-    // AC-271's `session_cancel_queued` over the same one control service, plus
-    // AC-272's `session_reconfigure`: the provider runtime's `reconfigure`
-    // passthrough over the SAME `providerRuntimeService` singleton the WebSocket
-    // dispatch uses, with the session/model/capability readers it needs — and
-    // AC-273's `session_background`: the session reader, the session-hosts
-    // manager's `liveHostForSession` snapshot (the same seam AC-245's
-    // `session_get` reads) and that same one control service, read through its
-    // `stopTask` verb. AC-274's `approvals_list` / `approval_answer` answer from
-    // that same control service's approval verbs over a real clock.
-    residentTools: {
-        control: chatControl,
-        reconfigure: {
-            sessions: { getSessionById: (sessionId: string) => sessionsDb.getSessionById(sessionId) },
-            runtime: providerRuntimeService,
-            models: providerModelsService,
-            capabilities: providerCapabilitiesService,
-        },
-        background: {
-            sessions: { getSessionById: (sessionId: string) => sessionsDb.getSessionById(sessionId) },
+        readTools: {
+            sessions: sessionsService,
             hosts: sessionHostManager,
-            control: chatControl,
-        },
-        approvals: {
-            control: chatControl,
+            activity: activityStore,
+            quay: {
+                hasQuayConfig: (projectId: string) => quayService.getQuayStatus(projectId)?.hasQuayConfig ?? false,
+                readCached: (projectId: string) => quayService.getCachedSnapshot(projectId),
+                refresh: (projectId: string) => quayService.getQuaySnapshot(projectId, { forceRefresh: true }),
+            },
+            runGet: mcpRunGetDeps,
             now: () => Date.now(),
         },
-    },
-});
+        // The stage-4 write tools (AC-249). The control service is handed in at
+        // the top level (`control: chatControl`) so it is visibly the same
+        // instance the WebSocket gateway and the scheduled-message timer share;
+        // `runGet` reuses AC-248's deps so a `waitSeconds` send and a `run_get`
+        // wait move through one clock.
+        writeTools: {
+            runGet: { deps: mcpRunGetDeps, build: buildRunGet },
+            // AC-272: an options-less `session_send` reads the session's recorded
+            // model/effort/permissionMode and puts them on the run, so a
+            // `session_reconfigure` (or an ordinary UI send) is what the next run
+            // actually carries. `sessionsDb` names the session's provider; the
+            // model reader is the same singleton the WebSocket send path records to.
+            selection: {
+                sessions: { getSessionById: (sessionId: string) => sessionsDb.getSessionById(sessionId) },
+                models: {
+                    resolveSessionModel: (provider, options) => providerModelsService.resolveSessionModel(provider, options),
+                },
+            },
+        },
+        // AC-271's `session_cancel_queued` over the same one control service, plus
+        // AC-272's `session_reconfigure`: the provider runtime's `reconfigure`
+        // passthrough over the SAME `providerRuntimeService` singleton the WebSocket
+        // dispatch uses, with the session/model/capability readers it needs — and
+        // AC-273's `session_background`: the session reader, the session-hosts
+        // manager's `liveHostForSession` snapshot (the same seam AC-245's
+        // `session_get` reads) and that same one control service, read through its
+        // `stopTask` verb. AC-274's `approvals_list` / `approval_answer` answer from
+        // that same control service's approval verbs over a real clock.
+        residentTools: {
+            control: chatControl,
+            reconfigure: {
+                sessions: { getSessionById: (sessionId: string) => sessionsDb.getSessionById(sessionId) },
+                runtime: providerRuntimeService,
+                models: providerModelsService,
+                capabilities: providerCapabilitiesService,
+            },
+            background: {
+                sessions: { getSessionById: (sessionId: string) => sessionsDb.getSessionById(sessionId) },
+                hosts: sessionHostManager,
+                control: chatControl,
+            },
+            approvals: {
+                control: chatControl,
+                now: () => Date.now(),
+            },
+        },
+    }),
+);
 console.log(`[MCP] gateway ${mcpGateway.mounted ? 'mounted' : 'not mounted'} at ${MCP_GATEWAY_PATH} (${mcpGateway.reason})`);
 
 // The OAuth discovery documents (AC-262). Mounted HERE — after `/mcp`, and BEFORE

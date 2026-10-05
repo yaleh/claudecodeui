@@ -19,6 +19,14 @@ export type { McpGatewayGateReading } from './mcp-gateway.gate.js';
 
 export { mountMcpGateway } from './mcp-gateway.transport.js';
 export type { McpGatewayDeps, McpGatewayReading } from './mcp-gateway.transport.js';
+// createMcpGatewayModule (AC-253): the gateway's composition entry. Consumed by
+// `server/index.ts`, which hands it the ONE chat control service shared with the
+// WebSocket gateway and the scheduled-message timer and passes the assembled
+// deps to `mountMcpGateway`; the criterion
+// (`server/modules/mcp-gateway/tests/mcp-gateway-wiring.test.ts`) reads this
+// name off `server/index.ts` and drives the assembled deps through a real mount.
+export { createMcpGatewayModule } from './mcp-gateway.transport.js';
+export type { McpGatewayModuleDeps } from './mcp-gateway.transport.js';
 
 export { createMcpAuthMiddleware, readMcpPrincipal } from './mcp-gateway.auth.js';
 export type {
