@@ -10,6 +10,7 @@ import {
   NOTIFICATION_CHANNEL_ENDPOINTS_TABLE_SCHEMA_SQL,
   OAUTH_AUTHORIZATION_CODES_TABLE_SCHEMA_SQL,
   OAUTH_CLIENTS_TABLE_SCHEMA_SQL,
+  OAUTH_CODE_REDEMPTIONS_TABLE_SCHEMA_SQL,
   OAUTH_GRANTS_TABLE_SCHEMA_SQL,
   PROJECTS_TABLE_SCHEMA_SQL,
   PROVIDER_MODELS_TABLE_SCHEMA_SQL,
@@ -971,6 +972,9 @@ export const runMigrations = (db: Database) => {
     db.exec(ACCESS_TOKENS_TABLE_SCHEMA_SQL);
     addAccessTokenOAuthColumns(db);
     db.exec(OAUTH_AUTHORIZATION_CODES_TABLE_SCHEMA_SQL);
+    // The code→grant redemption ledger (AC-259) — after the codes and grants
+    // tables it keys off, so its grant_id foreign key always resolves.
+    db.exec(OAUTH_CODE_REDEMPTIONS_TABLE_SCHEMA_SQL);
     // The revocation cascades scan by grant, so without these the cascade and
     // the per-client listing table-scan access_tokens.
     db.exec('CREATE INDEX IF NOT EXISTS idx_oauth_grants_client ON oauth_grants(client_id)');

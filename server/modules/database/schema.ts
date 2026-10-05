@@ -425,6 +425,29 @@ CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
 );
 `;
 
+/**
+ * The code→grant redemption ledger (mcp-gateway-SPEC stage 5, AC-259).
+ *
+ * `oauth_authorization_codes` is built verbatim from the SPEC DDL, which carries
+ * no `grant_id`, yet AC-259's reuse rule must revoke the whole authorization a
+ * consumed code already issued. This ledger supplies that persistent mapping
+ * without widening the codes table: one row per issued code, written when the
+ * code is issued (`redeemed_at` NULL) and stamped when it is exchanged. The codes
+ * row is deleted on exchange, so a replayed code finds no codes row and is
+ * resolved as reuse through this ledger's surviving `grant_id`.
+ *
+ * Only the code's SHA-256 hash is stored, consistent with every other OAuth
+ * secret. The `grant_id` foreign key cascades, so deleting a grant clears its
+ * ledger rows too.
+ */
+export const OAUTH_CODE_REDEMPTIONS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS oauth_code_redemptions (
+  code_hash TEXT PRIMARY KEY,
+  grant_id INTEGER NOT NULL REFERENCES oauth_grants(id) ON DELETE CASCADE,
+  redeemed_at DATETIME
+);
+`;
+
 export const INIT_SCHEMA_SQL = `
 -- Initialize authentication database
 PRAGMA foreign_keys = ON;
