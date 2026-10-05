@@ -67,16 +67,16 @@ lease 的可读来源与测试制造接口：`sessionHostManager.snapshot(): Pro
 
 ## AC
 
-- [ ] AC1 判据红态基线逐字记录：改动前运行 AC-251 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-session-host-control.test.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-session-host-control.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-session-host-control.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 (a) `session_start` 经 `startResidentHost`（spy 计数 ==1）；已运行的常驻会话再次启动返回**同一个 pid**，第二次仍经服务（spy 计数 2）但驱动只启动一次（`launches.length === 1`）；逐字写出两次 pid 与三个计数。
-- [ ] AC4 (b) `session_close` 经 `closeResidentHost`（spy 计数 ==1），`closeReason === 'user'`、`hostId` 与启动一致，关闭后该会话无活宿主；逐字写出返回值与关闭后宿主状态。
-- [ ] AC5 (c) 持有 `cron` + `background-task` lease 时不带 `force` ⇒ `isError`、`code === 'SESSION_HAS_ACTIVE_LEASES'`、`message` 逐字点名两类 lease 与各自数量、`leases` 列出；spy `close` 计数 0；宿主仍在且 pid 前后逐字相等；带 `force:true` ⇒ 关闭成功、spy `close` 计数 1；正例对照：仅 `resident-policy` 的会话不带 force 也成功；逐字写出两侧返回值、计数与 pid。
-- [ ] AC6 (d) 非常驻会话 ⇒ `LIFECYCLE_MODE_NOT_RESIDENT`；provider 无宿主驱动 ⇒ `LIFECYCLE_MODE_HOST_UNAVAILABLE`；会话不存在 ⇒ `SESSION_NOT_FOUND`；三类 code 与 message 与 `resident-host.service.ts` 逐字相等；逐字写出四组 code/message。
-- [ ] AC7 (e) 仅带 `['cloudcli:read','cloudcli:session:send']` 的令牌调 `session_start` / `session_close` 均被拒（isError）、`mcp_audit_log` 各恰好一行 `tool=` 对应名 / `outcome='denied'`、spy 计数 0；带 `cloudcli:session:control` 的令牌两个工具都成功；逐字写出审计行与前后计数。
-- [ ] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 忽略 lease 直接关闭 ⇒ AC5 红；(ii) 网关自带启停逻辑不走服务 ⇒ AC3 与 AC4 红；(iii) 拒绝码改写成通用错误 ⇒ AC6 红。每条恢复命令 + 恢复后重跑绿。
-- [ ] AC9 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；AC-236 判据 `server/modules/session-hosts/tests/resident-host-service.test.ts` 与路由判据 `session-hosts-routes.test.ts` / `resident-ondemand-start-route.test.ts` 不改一字仍逐字通过；AC-249 判据 `mcp-session-send.test.ts`、AC-245/246/248 判据不改一字仍绿（本任务只替换两个 handler、只给 `session_close` schema 补 `force`，不改控制服务、不改工具集合的名字与 scope）。
-- [ ] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
+- [x] AC1 判据红态基线逐字记录：改动前运行 AC-251 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-session-host-control.test.ts`（写下完整命令与完整输出）。
+- [x] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-session-host-control.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-session-host-control.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
+- [x] AC3 (a) `session_start` 经 `startResidentHost`（spy 计数 ==1）；已运行的常驻会话再次启动返回**同一个 pid**，第二次仍经服务（spy 计数 2）但驱动只启动一次（`launches.length === 1`）；逐字写出两次 pid 与三个计数。
+- [x] AC4 (b) `session_close` 经 `closeResidentHost`（spy 计数 ==1），`closeReason === 'user'`、`hostId` 与启动一致，关闭后该会话无活宿主；逐字写出返回值与关闭后宿主状态。
+- [x] AC5 (c) 持有 `cron` + `background-task` lease 时不带 `force` ⇒ `isError`、`code === 'SESSION_HAS_ACTIVE_LEASES'`、`message` 逐字点名两类 lease 与各自数量、`leases` 列出；spy `close` 计数 0；宿主仍在且 pid 前后逐字相等；带 `force:true` ⇒ 关闭成功、spy `close` 计数 1；正例对照：仅 `resident-policy` 的会话不带 force 也成功；逐字写出两侧返回值、计数与 pid。
+- [x] AC6 (d) 非常驻会话 ⇒ `LIFECYCLE_MODE_NOT_RESIDENT`；provider 无宿主驱动 ⇒ `LIFECYCLE_MODE_HOST_UNAVAILABLE`；会话不存在 ⇒ `SESSION_NOT_FOUND`；三类 code 与 message 与 `resident-host.service.ts` 逐字相等；逐字写出四组 code/message。
+- [x] AC7 (e) 仅带 `['cloudcli:read','cloudcli:session:send']` 的令牌调 `session_start` / `session_close` 均被拒（isError）、`mcp_audit_log` 各恰好一行 `tool=` 对应名 / `outcome='denied'`、spy 计数 0；带 `cloudcli:session:control` 的令牌两个工具都成功；逐字写出审计行与前后计数。
+- [x] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 忽略 lease 直接关闭 ⇒ AC5 红；(ii) 网关自带启停逻辑不走服务 ⇒ AC3 与 AC4 红；(iii) 拒绝码改写成通用错误 ⇒ AC6 红。每条恢复命令 + 恢复后重跑绿。
+- [x] AC9 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；AC-236 判据 `server/modules/session-hosts/tests/resident-host-service.test.ts` 与路由判据 `session-hosts-routes.test.ts` / `resident-ondemand-start-route.test.ts` 不改一字仍逐字通过；AC-249 判据 `mcp-session-send.test.ts`、AC-245/246/248 判据不改一字仍绿（本任务只替换两个 handler、只给 `session_close` schema 补 `force`，不改控制服务、不改工具集合的名字与 scope）。
+- [x] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
 
 ## DoD
 
@@ -106,3 +106,50 @@ lease 的可读来源与测试制造接口：`sessionHostManager.snapshot(): Pro
 - `session_close` 的 `force` 是 MCP 工具入参，不进 `MCP_STAGE4_WRITE_TOOLS` 的名字/scope 表；补充 schema 时只加可选字段。
 - 边界 lint 会拦新增测试文件（内存 `quay-boundaries-lint-blocks-new-test-files`）；本判据文件已列入 `## Touches`。给 mcp-gateway / session-hosts barrel 加导出后，若某兄弟测试对该 barrel 整体 `vi.mock`，需把新导出补进那个 mock 工厂（内存 `adding-an-export-reds-sibling-wholesale-vimocks`）。
 - 判据要求调试 agent 的常驻驱动交出 pid（`snapshot()` 的 `pid`）；`per-run` 会话与「无宿主驱动 provider」用于 (d)，须在夹具里可构造。
+
+## Verification（AC1–AC10 读数）
+
+实际改动文件（`git diff --name-status develop...HEAD`，与 `## Touches` 逐条对齐；两个新增以 `(new)` 计）：
+```
+M  server/modules/mcp-gateway/index.ts
+M  server/modules/mcp-gateway/mcp-gateway.transport.ts
+M  server/modules/mcp-gateway/mcp-gateway.write-tools.ts
+A  server/modules/mcp-gateway/mcp-session-host-control.ts (new)
+A  server/modules/mcp-gateway/tests/mcp-session-host-control.test.ts (new)
+M  server/modules/session-hosts/index.ts
+```
+（第 7 项 `tasks/gap-ac251-mcp-session-host-control.md` 由本 `task_write` 自身提交。）
+
+AC1（红态基线）：改动前运行 AC-251 存在性闸命令，逐字输出：
+```
+$ for f in server/modules/mcp-gateway/tests/mcp-session-host-control.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-session-host-control.test.ts
+缺判据文件：server/modules/mcp-gateway/tests/mcp-session-host-control.test.ts
+EXIT=1
+```
+
+AC2（绿）：同一命令退出 0，读数 `# tests 6 / # pass 6 / # fail 0`（node spec reporter 逐字 `ℹ tests 6` / `ℹ pass 6` / `ℹ fail 0`，duration ≈ 4.3s）。
+
+AC3 (a)：第一次 `session_start` payload `{"hostId":"host-a5349e39-07d0-4add-9882-982597abd5bb","sessionId":"02f94244-…","mode":"resident","pid":4242}`，`snapshotHost={"hostId":"host-a5349e39-…","pid":4242,"state":"idle"} startSpy=1 launches=1 spawns=1`；第二次 payload 同 `hostId`、同 `pid=4242`，`startSpy=2 launches=1 spawns=1`。两次 pid 逐字相等（4242），服务被调两次、驱动只启动一次。
+
+AC4 (b)：payload `{"hostId":"host-0396b739-…","sessionId":"48b1c9e3-…","mode":"resident","closeReason":"user","leases":[{"kind":"resident-policy"}]} closeSpy=1 liveHostAfter=null`。`closeReason==='user'`，`hostId` 与启动一致，关闭后无活宿主。
+
+AC5 (c)：无 force ⇒ `isError=true payload={"code":"SESSION_HAS_ACTIVE_LEASES","message":"该常驻会话持有 cron×1、background-task×1，关闭会终止其后台工作；如需强行关闭请传 force: true。","leases":[{"kind":"cron","id":"cron-1",…},{"kind":"background-task","id":"task-1",…}]} closeSpy=0 pidAfter=4242`（pid 与关闭前 4242 逐字相等，宿主仍在）。带 force ⇒ `isError=false closeReason":"user" closeSpy=1 liveHostAfter=null`。正例对照：`resident-policy` only 的会话 `isError=false`，无 force 也关闭。
+
+AC6 (d)：四组 code/message：
+```
+LIFECYCLE_MODE_NOT_RESIDENT (start): Session "ac251-per-run" is stored as "per-run"; only a resident session can be started on demand.
+LIFECYCLE_MODE_NOT_RESIDENT (close): Session "ac251-per-run" is stored as "per-run"; only a resident session can be closed on demand.
+LIFECYCLE_MODE_HOST_UNAVAILABLE:      Provider "codex" mounts no host driver, so session "ac251-no-driver" cannot be started.
+SESSION_NOT_FOUND (start/close):      Session "ac251-unknown" was not found.
+```
+
+AC7 (e)：不足 scope 令牌 ⇒ 两工具 `isError=true`；审计逐字 `{"id":1,"tool":"session_start","outcome":"denied",…}`、`{"id":2,"tool":"session_close","outcome":"denied",…}`（各恰好一行，tool 对应）；`startSpy=0 closeSpy=0`。带 `cloudcli:session:control` ⇒ `allowedStart isError=false startSpy=1 allowedClose isError=false closeSpy=1`。
+
+AC8（三条取假形态，均先红后恢复；实现已先提交于 `7f73cd53`）：
+- (i) 去掉 force 门（`buildSessionClose` 删去 `live`/`blocking` 门）⇒ (c) 红：`AssertionError: a close with blocking leases and no force must be refused; actual: false, expected: true`（`closeSpy=1 pidAfter=null`）。恢复：`git -C <wt> checkout -- server/modules/mcp-gateway/mcp-session-host-control.ts` → 重跑 6/6 绿。
+- (ii) 适配层内联启停、不调 `deps.hosts.start`/`close` ⇒ (a)、(b) 红：`(a) … startSpy=0 launches=0 spawns=0` + `AssertionError: the payload carries the live host pid; actual: 999, expected: 4242`；`(b) … closeSpy=0` + `AssertionError: the close service was reached exactly once; actual: 0, expected: 1`。恢复同上 → 6/6 绿。
+- (iii) 拒绝码改写为 `code:'MCP_TOOL_ERROR'` ⇒ (d) 红：`AssertionError: actual: 'MCP_TOOL_ERROR', expected: 'LIFECYCLE_MODE_NOT_RESIDENT'`（另四组同样被改写；仅 (d) 红，其余 5 例仍绿）。恢复同上 → 6/6 绿。
+
+AC9：`npm run typecheck` 退出 0；`npm run lint` 退出 0 且无 `: error `（仅既有 warning 计数，本任务文件 0 条）；AC-236/路由/AC-249/AC-250/AC-245/AC-246/AC-248 判据一字未改，同批运行 `ℹ tests 48 / ℹ pass 48 / ℹ fail 0` 退出 0。
+
+AC10：见上方改动文件清单，与 `## Touches` 逐条对齐（`mcp-session-host-control.ts`、`mcp-session-host-control.test.ts` 两个新增）。
