@@ -2,7 +2,7 @@
 id: gap-ac260-oauth-consent-page
 title: AC-260 授权页由服务端渲染并抗攻击：回显字段全部转义、必须输入密码、scope 逐项勾选且只读必选、带防跨站与防嵌套的头；判据
   server/modules/oauth/tests/oauth-consent-page.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
