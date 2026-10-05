@@ -1,7 +1,7 @@
 ---
 id: AC-242
 title: OAuth 未开启时 /mcp 只接受本机直连：非回环地址拒绝，带任何转发头的请求也拒绝，防止经 cloudflared 或本机反代意外暴露
-status: draft
+status: active
 kind: criterion
 goal: GOAL-020
 criterion: for f in server/modules/mcp-gateway/tests/mcp-loopback-guard.test.ts;
@@ -19,4 +19,15 @@ expect: 守卫只在 `MCP_OAUTH_ENABLED` 未开启时生效。读数：(a) 以 s
   必须红。（红先行）当前必红：判据文件不存在，存在性闸以退出码 1 输出缺失的文件名。
 origin: docs/proposals/mcp-gateway-SPEC.md（v3.1）。人 yale 2026-10-05 指令：创建并激活
   GOAL-020 至 GOAL-022 及其 AC。
+activatedAt: 2026-10-05T02:08:00.905Z
+statusLog:
+  - at: 2026-10-05T02:08:00.905Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-05T02:08:00.905Z
 ---
