@@ -71,7 +71,7 @@ import {
     registerDebugAgentControlPlaneRoutes,
     setDebugAgentOpenRun,
 } from './modules/debug-agent/index.js';
-import { MCP_GATEWAY_PATH, mountMcpGateway } from './modules/mcp-gateway/index.js';
+import { createMcpAuthMiddleware, MCP_GATEWAY_PATH, mountMcpGateway } from './modules/mcp-gateway/index.js';
 import { browserUseService } from './modules/browser-use/browser-use.service.js';
 import { initializeDatabase, sessionsDb } from './modules/database/index.js';
 import { configureWebPush } from './modules/notifications/index.js';
@@ -255,7 +255,13 @@ app.use('/api/settings', authenticateToken, settingsRoutes);
 // request by the OAuth token service, so revocation and expiry take effect with
 // no cache. Mounted on its own router, which handles exactly one path, so no
 // other `/api` route gains a token-authenticated surface.
-app.use('/api/oauth', createTokenInfoRouter(createAccessTokensService({ now: () => new Date() })));
+//
+// ONE service instance backs BOTH this route and the `/mcp` gateway's auth
+// middleware below (AC-241): a second `createAccessTokensService` here would be a
+// second, independently-wrong verification path. The const is therefore named and
+// threaded into `mountMcpGateway`'s `authorize` seam.
+const accessTokensService = createAccessTokensService({ now: () => new Date() });
+app.use('/api/oauth', createTokenInfoRouter(accessTokensService));
 
 app.use('/api/system', authenticateToken, systemRoutes);
 
@@ -442,7 +448,12 @@ if (mountDebugAgentControlPlane(app, authenticateToken)) {
 // catch-all below, `/mcp` would answer `200 text/html` and no MCP client would
 // reach the transport. The gate decides at mount time; while `MCP_ENABLED` is
 // off nothing is attached here and the path stays absent.
-const mcpGateway = mountMcpGateway(app);
+//
+// AC-241 replaces the fail-closed default `authorize` with real token auth: the
+// middleware verifies through the SAME `accessTokensService` the token-info route
+// uses, so `/mcp` admits only valid `ccp_` tokens and invalid ones share the
+// token-info 401 body.
+const mcpGateway = mountMcpGateway(app, { authorize: createMcpAuthMiddleware(accessTokensService) });
 console.log(`[MCP] gateway ${mcpGateway.mounted ? 'mounted' : 'not mounted'} at ${MCP_GATEWAY_PATH} (${mcpGateway.reason})`);
 
 // Static assets and the SPA entry, mounted after every API route so response

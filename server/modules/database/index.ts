@@ -11,6 +11,18 @@ export type { AccessTokenRow, InsertAccessTokenInput } from '@/modules/database/
 export { appConfigDb } from '@/modules/database/repositories/app-config.js';
 export { credentialsDb } from '@/modules/database/repositories/credentials.js';
 export { githubTokensDb } from '@/modules/database/repositories/github-tokens.js';
+// oauthAuthorizationCodesDb: used by the OAuth module to persist PKCE authorization codes (hash only).
+export { oauthAuthorizationCodesDb } from '@/modules/database/repositories/oauth-authorization-codes.db.js';
+export type {
+  InsertOAuthAuthorizationCodeInput,
+  OAuthAuthorizationCodeRow,
+} from '@/modules/database/repositories/oauth-authorization-codes.db.js';
+// oauthClientsDb: used by the OAuth module to persist RFC 7591 client registrations (secret hash only).
+export { oauthClientsDb } from '@/modules/database/repositories/oauth-clients.db.js';
+export type { InsertOAuthClientInput, OAuthClientRow } from '@/modules/database/repositories/oauth-clients.db.js';
+// oauthGrantsDb: used by the OAuth module to persist user consent grants and their revocation.
+export { oauthGrantsDb } from '@/modules/database/repositories/oauth-grants.db.js';
+export type { InsertOAuthGrantInput, OAuthGrantRow } from '@/modules/database/repositories/oauth-grants.db.js';
 export { notificationChannelEndpointsDb } from '@/modules/database/repositories/notification-channel-endpoints.js';
 export { notificationPreferencesDb } from '@/modules/database/repositories/notification-preferences.js';
 // providerModelsDb: used by Providers to persist user-managed custom model rows.

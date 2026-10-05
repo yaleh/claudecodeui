@@ -3,7 +3,7 @@ id: gap-ac242-mcp-loopback-guard-before-auth
 title: AC-242 MCP_OAUTH_ENABLED 未开启时 /mcp 只接受本机直连：socket
   非回环地址与任一转发头（X-Forwarded-For / Forwarded / CF-Connecting-IP / X-Real-IP）存在即
   403，且守卫在认证之前；判据 server/modules/mcp-gateway/tests/mcp-loopback-guard.test.ts
-status: todo
+status: ready
 labels:
   - gap
 parent: null
@@ -54,16 +54,16 @@ AC-242（GOAL-020 退出条件 4；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3.
 
 ## AC
 
-- [ ] AC1 判据红态基线逐字记录：改动前运行 AC-242 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-loopback-guard.test.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-loopback-guard.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-loopback-guard.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 (a) socket 地址判定：`127.0.0.1`、`::1`、`::ffff:127.0.0.1` 非 403；`172.17.0.1`、`192.168.1.5`、`10.0.0.2`、地址缺失 ⇒ 403；含一条真实回环 HTTP 读数；七条状态码逐字列出。
-- [ ] AC4 (b) 转发头存在即拒：socket 为回环时 `X-Forwarded-For`、`Forwarded`、`CF-Connecting-IP`、`X-Real-IP` 各 ⇒ 403，不带头 ⇒ 非 403；五条状态码逐字列出。
-- [ ] AC5 (c) `MCP_OAUTH_ENABLED=true` 时守卫关闭：非回环（或带转发头）请求 ⇒ 401 而不是 403；未设时同请求 ⇒ 403；逐字写两条状态码。
-- [ ] AC6 (d) 守卫在认证之前：被拒请求（非回环 / 回环+转发头）⇒ 403 且 `authorize` 间谍计数为 0；放行的回环请求 ⇒ 计数 ≥1；逐字写计数。
-- [ ] AC7 (e) 源码级对照：`grep -nE "req\.ip" server/modules/mcp-gateway/mcp-gateway.loopback.ts` 为空、`grep -nE "socket\?\.remoteAddress" ...` 非空，且含 `req.ip` 的合成字符串用同一模式命中（正例对照）；逐字写两组读数。
-- [ ] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 信任 XFF 回环值 ⇒ AC4 红；(ii) 只看地址不看头 ⇒ AC4 红；(iii) 守卫在认证后 ⇒ AC6 红。每条恢复命令 + 恢复后重跑绿。
-- [ ] AC9 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；生产非测试代码中 `MCP_OAUTH_ENABLED` 只在 `mcp-gateway.loopback.ts` 一处被读取（`grep -rn "MCP_OAUTH_ENABLED" server/ --include=*.ts | grep -v /tests/` 计数=1；正例对照：放宽到含 tests 命中 ≥2，证明扫描器有效）；跨模块只经 barrel。
-- [ ] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
+- [x] AC1 判据红态基线逐字记录：改动前运行 AC-242 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-loopback-guard.test.ts`（写下完整命令与完整输出）。
+- [x] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-loopback-guard.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-loopback-guard.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
+- [x] AC3 (a) socket 地址判定：`127.0.0.1`、`::1`、`::ffff:127.0.0.1` 非 403；`172.17.0.1`、`192.168.1.5`、`10.0.0.2`、地址缺失 ⇒ 403；含一条真实回环 HTTP 读数；七条状态码逐字列出。
+- [x] AC4 (b) 转发头存在即拒：socket 为回环时 `X-Forwarded-For`、`Forwarded`、`CF-Connecting-IP`、`X-Real-IP` 各 ⇒ 403，不带头 ⇒ 非 403；五条状态码逐字列出。
+- [x] AC5 (c) `MCP_OAUTH_ENABLED=true` 时守卫关闭：非回环（或带转发头）请求 ⇒ 401 而不是 403；未设时同请求 ⇒ 403；逐字写两条状态码。
+- [x] AC6 (d) 守卫在认证之前：被拒请求（非回环 / 回环+转发头）⇒ 403 且 `authorize` 间谍计数为 0；放行的回环请求 ⇒ 计数 ≥1；逐字写计数。
+- [x] AC7 (e) 源码级对照：`grep -nE "req\.ip" server/modules/mcp-gateway/mcp-gateway.loopback.ts` 为空、`grep -nE "socket\?\.remoteAddress" ...` 非空，且含 `req.ip` 的合成字符串用同一模式命中（正例对照）；逐字写两组读数。
+- [x] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 信任 XFF 回环值 ⇒ AC4 红；(ii) 只看地址不看头 ⇒ AC4 红；(iii) 守卫在认证后 ⇒ AC6 红。每条恢复命令 + 恢复后重跑绿。
+- [x] AC9 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；生产非测试代码中 `MCP_OAUTH_ENABLED` 只在 `mcp-gateway.loopback.ts` 一处被读取（`grep -rn "MCP_OAUTH_ENABLED" server/ --include=*.ts | grep -v /tests/` 计数=1；正例对照：放宽到含 tests 命中 ≥2，证明扫描器有效）；跨模块只经 barrel。
+- [x] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
 
 ## DoD
 

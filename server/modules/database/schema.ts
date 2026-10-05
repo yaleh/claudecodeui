@@ -318,29 +318,110 @@ CREATE TABLE IF NOT EXISTS superseded_provider_sessions (
 `;
 
 /**
- * Personal access tokens (PAT) issued by the OAuth module.
+ * Access tokens issued by the OAuth module — both personal access tokens (PAT)
+ * and OAuth access/refresh tokens.
  *
  * Only the SHA-256 hash of a token is ever stored; `token_prefix` keeps the
- * first eight characters (`ccp_` + five hex digits) so a listing can show which
- * token a row is without the hash being reversible. `scopes` is a JSON array of
- * granted scope strings, and every timestamp column is written from the service's
- * injected clock rather than `CURRENT_TIMESTAMP` so expiry is testable.
+ * first eight characters (`ccp_`/`cca_`/`ccr_` + five hex digits) so a listing
+ * can show which token a row is without the hash being reversible. `scopes` is a
+ * JSON array of granted scope strings, and every timestamp column is written
+ * from the service's injected clock rather than `CURRENT_TIMESTAMP` so expiry is
+ * testable.
  *
- * Stage 0 of `mcp-gateway-SPEC` builds only this table: the OAuth client/grant
- * tables arrive in stage 5 and the `api_keys` retirement is AC-225.
+ * `kind` tells a `pat` apart from an `oauth_access` / `oauth_refresh` token;
+ * `grant_id` links an OAuth token to the `oauth_grants` row that authorized it
+ * and cascades when that grant is deleted; `resource` is the RFC 8707 audience,
+ * empty for PATs. The `pat`/`''` defaults are load-bearing: they are what let the
+ * pre-existing PAT insert path (access-tokens.service.ts) keep working against
+ * the widened table without writing either column (mcp-gateway-SPEC stage 5,
+ * AC-258).
+ *
+ * A database created before stage 5 already has this table without the three
+ * columns; `addAccessTokenOAuthColumns` in migrations.ts adds them under a
+ * column-existence guard, so re-running migrations is a no-op.
  */
 export const ACCESS_TOKENS_TABLE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS access_tokens (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL DEFAULT 'pat',
     token_hash TEXT NOT NULL UNIQUE,
     token_prefix TEXT NOT NULL,
     name TEXT,
+    grant_id INTEGER REFERENCES oauth_grants(id) ON DELETE CASCADE,
     scopes TEXT NOT NULL,
+    resource TEXT NOT NULL DEFAULT '',
     expires_at DATETIME NOT NULL,
     created_at DATETIME,
     last_used DATETIME,
     revoked_at DATETIME
+);
+`;
+
+/**
+ * Registered OAuth clients (mcp-gateway-SPEC stage 5, AC-258).
+ *
+ * `client_secret_hash` holds only the SHA-256 of a confidential client's secret
+ * and is NULL for a public (PKCE-only) client, so a leaked database cannot be
+ * replayed against the token endpoint. `redirect_uris` is a JSON array matched
+ * exactly; `metadata` is the RFC 7591 registration document verbatim;
+ * `created_via` is `'dcr'` or `'manual'`. `disabled_at` is set when an operator
+ * disables the client, and the store then rejects every token under it.
+ */
+export const OAUTH_CLIENTS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS oauth_clients (
+  client_id TEXT PRIMARY KEY,
+  client_secret_hash TEXT,
+  client_name TEXT,
+  redirect_uris TEXT NOT NULL,
+  metadata TEXT NOT NULL,
+  created_via TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  disabled_at DATETIME
+);
+`;
+
+/**
+ * User consent grants (mcp-gateway-SPEC stage 5, AC-258).
+ *
+ * One row per (user, client, scopes, resource) authorization a user approved.
+ * `scopes` is a JSON array and `resource` the RFC 8707 audience the tokens are
+ * bound to. `revoked_at` is the per-grant kill switch: setting it makes every
+ * access/refresh token under the grant verify as revoked. The client and user
+ * foreign keys cascade, so deleting either removes the grant and (through
+ * `access_tokens.grant_id`) its tokens.
+ */
+export const OAUTH_GRANTS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS oauth_grants (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  client_id TEXT NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
+  scopes TEXT NOT NULL,
+  resource TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  last_used DATETIME,
+  revoked_at DATETIME
+);
+`;
+
+/**
+ * Short-lived authorization codes (mcp-gateway-SPEC stage 5, AC-258).
+ *
+ * `code_hash` is the SHA-256 of the code the client receives, so the plaintext
+ * exists only in the redirect. `code_challenge` is the PKCE S256 challenge the
+ * code was issued against. The single-use / 60-second admission rules over this
+ * row belong to AC-259; this table and its repository are the storage only.
+ */
+export const OAUTH_AUTHORIZATION_CODES_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
+  code_hash TEXT PRIMARY KEY,
+  client_id TEXT NOT NULL,
+  user_id INTEGER NOT NULL,
+  redirect_uri TEXT NOT NULL,
+  code_challenge TEXT NOT NULL,
+  scopes TEXT NOT NULL,
+  resource TEXT NOT NULL,
+  expires_at DATETIME NOT NULL
 );
 `;
 

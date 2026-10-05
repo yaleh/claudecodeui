@@ -4,7 +4,7 @@ title: AC-258 OAuth 表与仓储：oauth_clients / oauth_grants /
   oauth_authorization_codes 三表 + access_tokens 的 OAuth kind 与 grant_id 外键可用 +
   客户端密钥/授权码/OAuth 令牌只存 SHA-256（整库字节无明文）+ 吊销授权/禁用客户端级联其全部令牌 + 迁移幂等；判据
   server/modules/oauth/tests/oauth-store.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -73,16 +73,16 @@ AC-258（GOAL-021 退出条件 1「存储（AC-258）：三张表、哈希存储
 
 ## AC
 
-- [ ] AC1 判据红态基线逐字记录：改动前运行 AC-258 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/oauth/tests/oauth-store.test.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：`for f in server/modules/oauth/tests/oauth-store.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/oauth-store.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 (a) 三表就位、列名逐字等于 SPEC DDL；`access_tokens` 含 `kind`/`grant_id`/`resource`，`PRAGMA foreign_key_list(access_tokens)` 有指向 `oauth_grants(id)` 的 `grant_id`；经 store 建 grant→issue `oauth_access` 令牌读回 `kind`/`grant_id` 正确；逐字写出表名与列名读数。
-- [ ] AC4 (b) 客户端密钥/授权码/access/refresh 四条明文在 `oauth.db`(+`-wal`/`-shm`) 原始字节中均不出现；正例对照四条 SHA-256 十六进制在库中读回且与明文不等；逐字写出扫描结果与哈希读数。
-- [ ] AC5 (c) `revokeGrant(g1)` 返回 `tokensRevoked: 2`，其 access 与 refresh 下一次校验均 `reason:'revoked'`，`g2` 令牌仍 `ok:true`；读回 g1 两行 `revoked_at` 非空、g2 行 NULL；逐字写出。
-- [ ] AC6 (d) `disableClient(c1)` 后 c1 全部授权令牌校验被拒、c2 令牌仍 `ok:true`；逐字写出 `disabled_at` 与两客户端令牌读数。
-- [ ] AC7 (e) 已有表且有数据的库上再次 `runMigrations`/`initializeDatabase` 不抛错、表名与列名逐字不变、行数不变；无表新库 `initializeDatabase` 建表成功；逐字写出。
-- [ ] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 授权码明文 ⇒ AC4 红；(ii) 只标授权不级联 ⇒ AC5 红；(iii) 重跑迁移抛错 ⇒ AC7 红。每条恢复命令 + 恢复后重跑绿。
-- [ ] AC9 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；既有 `server/modules/oauth/tests/access-tokens.service.test.ts`、`server/modules/oauth/tests/token-info.routes.test.ts`、`server/modules/database/tests/api-keys-drop-migration.test.ts` 不改一字仍逐字通过。
-- [ ] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
+- [x] AC1 判据红态基线逐字记录：改动前运行 AC-258 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/oauth/tests/oauth-store.test.ts`（写下完整命令与完整输出）。
+- [x] AC2 判据绿：`for f in server/modules/oauth/tests/oauth-store.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/oauth-store.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
+- [x] AC3 (a) 三表就位、列名逐字等于 SPEC DDL；`access_tokens` 含 `kind`/`grant_id`/`resource`，`PRAGMA foreign_key_list(access_tokens)` 有指向 `oauth_grants(id)` 的 `grant_id`；经 store 建 grant→issue `oauth_access` 令牌读回 `kind`/`grant_id` 正确；逐字写出表名与列名读数。
+- [x] AC4 (b) 客户端密钥/授权码/access/refresh 四条明文在 `oauth.db`(+`-wal`/`-shm`) 原始字节中均不出现；正例对照四条 SHA-256 十六进制在库中读回且与明文不等；逐字写出扫描结果与哈希读数。
+- [x] AC5 (c) `revokeGrant(g1)` 返回 `tokensRevoked: 2`，其 access 与 refresh 下一次校验均 `reason:'revoked'`，`g2` 令牌仍 `ok:true`；读回 g1 两行 `revoked_at` 非空、g2 行 NULL；逐字写出。
+- [x] AC6 (d) `disableClient(c1)` 后 c1 全部授权令牌校验被拒、c2 令牌仍 `ok:true`；逐字写出 `disabled_at` 与两客户端令牌读数。
+- [x] AC7 (e) 已有表且有数据的库上再次 `runMigrations`/`initializeDatabase` 不抛错、表名与列名逐字不变、行数不变；无表新库 `initializeDatabase` 建表成功；逐字写出。
+- [x] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 授权码明文 ⇒ AC4 红；(ii) 只标授权不级联 ⇒ AC5 红；(iii) 重跑迁移抛错 ⇒ AC7 红。每条恢复命令 + 恢复后重跑绿。
+- [x] AC9 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；既有 `server/modules/oauth/tests/access-tokens.service.test.ts`、`server/modules/oauth/tests/token-info.routes.test.ts`、`server/modules/database/tests/api-keys-drop-migration.test.ts` 不改一字仍逐字通过。
+- [x] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
 
 ## DoD
 

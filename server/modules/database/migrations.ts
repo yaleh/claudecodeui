@@ -8,6 +8,9 @@ import {
   APP_CONFIG_TABLE_SCHEMA_SQL,
   LAST_SCANNED_AT_SQL,
   NOTIFICATION_CHANNEL_ENDPOINTS_TABLE_SCHEMA_SQL,
+  OAUTH_AUTHORIZATION_CODES_TABLE_SCHEMA_SQL,
+  OAUTH_CLIENTS_TABLE_SCHEMA_SQL,
+  OAUTH_GRANTS_TABLE_SCHEMA_SQL,
   PROJECTS_TABLE_SCHEMA_SQL,
   PROVIDER_MODELS_TABLE_SCHEMA_SQL,
   PUSH_SUBSCRIPTIONS_TABLE_SCHEMA_SQL,
@@ -55,6 +58,33 @@ const tableExists = (db: Database, tableName: string): boolean =>
 
 const getTableInfo = (db: Database, tableName: string): TableInfoRow[] =>
   db.prepare(`PRAGMA table_info(${tableName})`).all() as TableInfoRow[];
+
+/**
+ * Widens a pre-stage-5 `access_tokens` table with its OAuth columns
+ * (mcp-gateway-SPEC stage 5, AC-258).
+ *
+ * A database created at stage 0 has `access_tokens` without `kind`, `resource`
+ * or `grant_id`; the updated `ACCESS_TOKENS_TABLE_SCHEMA_SQL` only shapes a
+ * fresh table (`IF NOT EXISTS` leaves an existing one alone), so an existing
+ * install needs the columns added. Each addition is guarded by the live
+ * `PRAGMA table_info`, which is what makes a second `runMigrations` a no-op
+ * rather than a duplicate-column error. `kind`/`resource` carry the same
+ * non-null defaults as the fresh schema so existing PAT rows and the untouched
+ * PAT insert path keep their meaning; `grant_id` is nullable and so is
+ * addable with a foreign key (SQLite refuses a non-NULL default here).
+ */
+const addAccessTokenOAuthColumns = (db: Database): void => {
+  const columnNames = getTableInfo(db, 'access_tokens').map((column) => column.name);
+  addColumnToTableIfNotExists(db, 'access_tokens', columnNames, 'kind', "TEXT NOT NULL DEFAULT 'pat'");
+  addColumnToTableIfNotExists(db, 'access_tokens', columnNames, 'resource', "TEXT NOT NULL DEFAULT ''");
+  addColumnToTableIfNotExists(
+    db,
+    'access_tokens',
+    columnNames,
+    'grant_id',
+    'INTEGER REFERENCES oauth_grants(id) ON DELETE CASCADE'
+  );
+};
 
 const migrateLegacySessionNames = (db: Database): void => {
   const hasLegacySessionNamesTable = tableExists(db, 'session_names');
@@ -931,9 +961,21 @@ export const runMigrations = (db: Database) => {
     addSessionLifecycleModeColumn(db);
     ensureProjectsForSessionPaths(db);
     db.exec(SCHEDULED_MESSAGES_TABLE_SCHEMA_SQL);
-    // PAT storage for the OAuth module (mcp-gateway-SPEC stage 0). Only the
-    // table: its repository and service live in database/repositories and oauth.
+    // OAuth storage (mcp-gateway-SPEC stage 5, AC-258). Order matters: the
+    // access_tokens.grant_id foreign key points at oauth_grants, so the grant
+    // (and the client it references) must exist before the token table.
+    db.exec(OAUTH_CLIENTS_TABLE_SCHEMA_SQL);
+    db.exec(OAUTH_GRANTS_TABLE_SCHEMA_SQL);
+    // Access-token storage, PAT + OAuth. Fresh databases get the full column set
+    // from the schema; an older database is widened by addAccessTokenOAuthColumns.
     db.exec(ACCESS_TOKENS_TABLE_SCHEMA_SQL);
+    addAccessTokenOAuthColumns(db);
+    db.exec(OAUTH_AUTHORIZATION_CODES_TABLE_SCHEMA_SQL);
+    // The revocation cascades scan by grant, so without these the cascade and
+    // the per-client listing table-scan access_tokens.
+    db.exec('CREATE INDEX IF NOT EXISTS idx_oauth_grants_client ON oauth_grants(client_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_oauth_grants_user ON oauth_grants(user_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_access_tokens_grant ON access_tokens(grant_id)');
 
     db.exec('CREATE INDEX IF NOT EXISTS idx_session_ids_lookup ON sessions(session_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_provider_session_id ON sessions(provider_session_id)');
