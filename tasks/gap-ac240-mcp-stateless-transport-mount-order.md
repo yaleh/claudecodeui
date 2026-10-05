@@ -2,7 +2,7 @@
 id: gap-ac240-mcp-stateless-transport-mount-order
 title: AC-240 /mcp 是无状态的 Streamable HTTP，MCP_ENABLED 默认关闭、挂在静态路由之前，返回 JSON-RPC
   而非 SPA；判据 server/modules/mcp-gateway/tests/mcp-transport.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -43,16 +43,16 @@ AC-240（GOAL-020 退出条件 2；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3.
 
 ## AC
 
-- [ ] AC1 判据红态基线逐字记录：改动前运行 AC-240 的命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-transport.test.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-transport.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-transport.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 (a) 无状态：同一客户端连续两次 `tools/list` 都不带 `Mcp-Session-Id` 且都成功；写下两次请求头（无 `Mcp-Session-Id`）与两次 200/`result` 读数，并断言响应无 `Mcp-Session-Id`。
-- [ ] AC4 (b) 响应 content-type 是 `application/json` 或 `text/event-stream`（不是 `text/html`）；逐字写下实测 content-type。
-- [ ] AC5 (c) `MCP_ENABLED` 未设为 true 时生产装配函数不挂载任何东西，`POST /mcp` 得 404（不是 401、不是 200）；并留正例对照（`MCP_ENABLED=true` 同一装配函数下 `POST /mcp` 不再 404）。写下两态的状态码。
-- [ ] AC6 (d) 对 `server/index.ts` 解析语法树：挂载 `/mcp` 的调用在 `createStaticAssetsMiddleware` 的 `app.use` 之前；写下扫描器对真实源码的判定与两个调用的源码位置。
-- [ ] AC7 (d) 反例对照：把顺序倒过来的合成源码喂给同一个扫描器函数，必须判出违规（写下合成源码、扫描器返回值与判出结论）。
-- [ ] AC8 (e) SDK 授权路由 + 无状态传输挂在真实 express 4.21 应用上工作的守卫：元数据端点 200（JSON content-type）、`tools/list` 200；逐字写下两个状态码与 express 版本读数。
-- [ ] AC9 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行与恢复命令）：(i) 有状态传输 ⇒ AC3 红；(ii) 挂载移到静态路由之后 ⇒ AC6 与 AC4 红；(iii) 开关未开仍挂载 ⇒ AC5 红。每条记录恢复命令并在恢复后重跑判据回绿。
-- [ ] AC10 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；`git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）。
+- [x] AC1 判据红态基线逐字记录：改动前运行 AC-240 的命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-transport.test.ts`（写下完整命令与完整输出）。
+- [x] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-transport.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-transport.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
+- [x] AC3 (a) 无状态：同一客户端连续两次 `tools/list` 都不带 `Mcp-Session-Id` 且都成功；写下两次请求头（无 `Mcp-Session-Id`）与两次 200/`result` 读数，并断言响应无 `Mcp-Session-Id`。
+- [x] AC4 (b) 响应 content-type 是 `application/json` 或 `text/event-stream`（不是 `text/html`）；逐字写下实测 content-type。
+- [x] AC5 (c) `MCP_ENABLED` 未设为 true 时生产装配函数不挂载任何东西，`POST /mcp` 得 404（不是 401、不是 200）；并留正例对照（`MCP_ENABLED=true` 同一装配函数下 `POST /mcp` 不再 404）。写下两态的状态码。
+- [x] AC6 (d) 对 `server/index.ts` 解析语法树：挂载 `/mcp` 的调用在 `createStaticAssetsMiddleware` 的 `app.use` 之前；写下扫描器对真实源码的判定与两个调用的源码位置。
+- [x] AC7 (d) 反例对照：把顺序倒过来的合成源码喂给同一个扫描器函数，必须判出违规（写下合成源码、扫描器返回值与判出结论）。
+- [x] AC8 (e) SDK 授权路由 + 无状态传输挂在真实 express 4.21 应用上工作的守卫：元数据端点 200（JSON content-type）、`tools/list` 200；逐字写下两个状态码与 express 版本读数。
+- [x] AC9 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行与恢复命令）：(i) 有状态传输 ⇒ AC3 红；(ii) 挂载移到静态路由之后 ⇒ AC6 与 AC4 红；(iii) 开关未开仍挂载 ⇒ AC5 红。每条记录恢复命令并在恢复后重跑判据回绿。
+- [x] AC10 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；`git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）。
 
 ## DoD
 

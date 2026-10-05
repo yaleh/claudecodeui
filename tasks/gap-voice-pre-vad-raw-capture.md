@@ -150,3 +150,13 @@ AC12（配对完整性 / 语料可用）：`voice-capture-raw.test.ts` AC12 —�
 AC13：`npm run lint` 退出码 0；`npm run typecheck` 三个 project（tsconfig.json / server / scripts）全退出码 0。
 
 连带回归：`voice-capture-audio.test.ts` 11/11、`voice-capture-audio.false-forms.test.ts` 9/9（含其内部 7 个 criteria + typecheck + lint）、`voice-capture-off/text/secrets/isolation` 及其 false-forms 全绿；五个客户端 mock 补全后 37/37。
+
+## 完成记录
+
+续做轮（2026-10-05，本轮）：上轮 exited-not-landed 的 suite 红是 `voice-capture-audio.false-forms.test.ts` 的 `AssertionError: the run left temp copies behind: ?? server/modules/voice/__criterion-falsify-env-only-configured-base-<pid>.ts ?? ...-mut-<pid>.ts`。
+
+复核：该文件是朴素形式（任一 `__criterion-falsify-` porcelain 行即判「有残留」），而套件并发运行多个 false-forms 文件、它们把副本写进同一个 `server/modules/voice/` 目录——在飞的兄弟（`voice-dashscope-settings.false-forms` 的 `env-only-configured` 对）会被读成本次的残留；退出后该 residue 已不在，属跨进程伪影而非真实泄漏。五个兄弟判据（isolation / off / text / secrets / dashscope-settings）早已是 pid 分域读数，唯独本文件未跟上。
+
+修复（本分支 commit `e37f9512`）：借用兄弟判据相同的 pid 分域读数——本进程自己的副本无条件红（`own-temp-copies`），仅由他进程 pid 的临时副本构成的差集按跨进程伪影豁免（`concurrent-foreign-only=true`），任何其它增/删/改路径仍红。typecheck / oxlint 绿。
+
+正控：他进程 `env-only-configured` 对贯穿 AC9 时为绿（`temp-copies-any=2 foreign-temp-copies=2 own-temp-copies=none`，退出码 0；旧读数在同一边界红）。负控：留下的非临时游离文件仍红（`changed-worktree-git-status: added=[?? .../__residue-probe-intentional.ts]`，退出码 1）——牙齿保留。判据文件 `voice-capture-audio.false-forms.test.ts` 9/9 仍绿；`voice-capture-raw*.test.ts` / `voice-capture-audio.test.ts` / `voice-config.routes.test.ts` / `voiceTranscribeGaps.test.ts` / `voice.service.test.ts` 合并并发运行 51 pass / 0 fail；六个客户端 voice 测试 40 pass / 0 fail；AC13 两门退出码 0。
