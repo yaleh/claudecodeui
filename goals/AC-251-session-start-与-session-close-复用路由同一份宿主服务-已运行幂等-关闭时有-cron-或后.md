@@ -2,7 +2,7 @@
 id: AC-251
 title: session_start 与 session_close 复用路由同一份宿主服务：已运行幂等，关闭时有 cron 或后台任务则要
   force，既有拒绝码原样呈现
-status: draft
+status: active
 kind: criterion
 goal: GOAL-020
 criterion: for f in
@@ -20,4 +20,15 @@ expect: "读数：(a) `session_start` 经由 session-hosts 的 `startResidentHos
   必须红；(iii) 把拒绝码改写成通用错误 ⇒ (d) 必须红。（红先行）当前必红：判据文件不存在，存在性闸以退出码 1 输出缺失的文件名。"
 origin: docs/proposals/mcp-gateway-SPEC.md（v3.1）。人 yale 2026-10-05 指令：创建并激活
   GOAL-020 至 GOAL-022 及其 AC。
+activatedAt: 2026-10-05T02:13:40.884Z
+statusLog:
+  - at: 2026-10-05T02:13:40.884Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-05T02:13:40.884Z
 ---
