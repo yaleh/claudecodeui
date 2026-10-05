@@ -2,7 +2,7 @@
 id: gap-ac270-external-client-human-gate
 title: AC-270 人工关卡：外部客户端绑定记录送人 yale 验收——复核 AC-269 九节齐全、公网基址无令牌与反自点亮，worker
   只写读数与结论，停在 needs-human 等人写入「外部客户端验收：通过」
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -99,3 +99,12 @@ goal_ac: AC-270
 - **`MCP_DCR=allowlist` 后重绑成功**：启动日志逐字 `[MCP] oauth register mounted at /oauth/register (MCP_DCR=allowlist)`；重注册逐字 `client_id=e7802329ccb9191d78be44f8b72c665d created_via="dcr" redirect_uris=["http://localhost:58214/callback"]`；重绑逐字成功 `Authenticated with "cloudcli". Its tools are now available in Claude Code.`；`claude mcp list` 逐字 `cloudcli: ... (HTTP) - ✔ Connected`。
 
 **请求人 yale 做的唯一动作（一步）。** 在 `docs/proposals/cloudcli-mcp-external-client.md` 写入一行、以「外部客户端验收：通过」开头（行首起、无前导空白），并确认记录「客户端与版本」一节写明的实际所用客户端与版本（终端 Claude Code 2.1.289）可接受。写入后重跑 AC6 判据 `grep -q '^外部客户端验收：通过' docs/proposals/cloudcli-mcp-external-client.md` 即退出 **0**，届时勾选 AC6、本任务方可推进，GOAL-021 方可判 achieved。
+
+## Needs-Human
+
+**执行 2026-10-05T23:39:52.300Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：worker-driver 连续 3 次 exited-not-landed 未落地（重试上限）
+- 失败步/判词：AC 未全勾（checked 6/7，剩余未勾 1）——续做只需验证并勾选 AC
+- run_id：wk-prod-anchor
+- session_id：f42bc02a-3a10-48b3-b7d8-f778e047d83c
