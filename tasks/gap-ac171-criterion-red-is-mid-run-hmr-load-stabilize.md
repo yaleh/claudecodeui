@@ -45,13 +45,13 @@ goal_ac: AC-171
 
 ## AC
 
-- [ ] AC1 判据绿且稳定：连续 3 次 `npx playwright test e2e/resident-enable-consent.spec.ts` 均 exit 0，逐次登记 `duration` 与 `session.lifecycle_mode=resident`、`control.session.lifecycle_mode=per-run`。红态基线：2026-10-05 两处 driver 红（工件 `quay-e2e-FK72jV` mtime `02:50:35Z`、`quay-e2e-VTYHJM` mtime `05:37:51Z`）。
-- [ ] AC2 红已定位到判据自身的启动预算与重挂载，而非担保为假：`## Evidence` 里逐字登记两处工件——FK72jV 的 `prompt-input-textarea` 可见性超时；VTYHJM 的 `Expected "resident" / Received "per-run"`，且其 trace 内**无** `lifecycle-mode` 请求、含 6×`[vite] hot updated: /src/App.tsx`。
-- [ ] AC3 启动预算与负载解耦（承重）：`grep -nE "click\(\{ timeout: *5_?000" e2e/resident-enable-consent.spec.ts` 命中 **0**；`grep -nE "test\.describe\.configure\(\{ *timeout:" e2e/resident-enable-consent.spec.ts` 命中 **≥1**（显式每用例预算）。
-- [ ] AC4 重挂载鲁棒（承重）：spec 在 `SEND_BUTTON.click()` 之前含一次「复认开关 `aria-checked`、必要时重开」的有界读取；`grep -c "aria-checked" e2e/resident-enable-consent.spec.ts` **≥** 现行 5，且新增的那次读数位于发送前。
-- [ ] AC5 载重读数不弱化（承重）：`grep -cE "toBe\('resident'\)|toBe\('per-run'\)" e2e/resident-enable-consent.spec.ts` **≥ 7**（现行值），且 `:574` silent-conversion 腿与 `:721` capability 腿逐字保留。
-- [ ] AC6 假形态必须红（承重）：在 `src/modules/chat/hooks/useChatComposerState.ts` 新会话分支去掉 `if (residentEnabled)` 的 PUT ⇒ `:441` 腿红在 `createdMode === 'resident'`（Received `per-run`）；登记变异 diff、失败断言逐字、退出码；恢复后复绿。
-- [ ] AC7 契约面：`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**；`git diff --name-only $(git merge-base develop HEAD) HEAD` 全部落在 `## Touches` 内。
+- [x] AC1 判据绿且稳定：连续 3 次 `npx playwright test e2e/resident-enable-consent.spec.ts` 均 exit 0，逐次登记 `duration` 与 `session.lifecycle_mode=resident`、`control.session.lifecycle_mode=per-run`。红态基线：2026-10-05 两处 driver 红（工件 `quay-e2e-FK72jV` mtime `02:50:35Z`、`quay-e2e-VTYHJM` mtime `05:37:51Z`）。
+- [x] AC2 红已定位到判据自身的启动预算与重挂载，而非担保为假：`## Evidence` 里逐字登记两处工件——FK72jV 的 `prompt-input-textarea` 可见性超时；VTYHJM 的 `Expected "resident" / Received "per-run"`，且其 trace 内**无** `lifecycle-mode` 请求、含 6×`[vite] hot updated: /src/App.tsx`。
+- [x] AC3 启动预算与负载解耦（承重）：`grep -nE "click\(\{ timeout: *5_?000" e2e/resident-enable-consent.spec.ts` 命中 **0**；`grep -nE "test\.describe\.configure\(\{ *timeout:" e2e/resident-enable-consent.spec.ts` 命中 **≥1**（显式每用例预算）。
+- [x] AC4 重挂载鲁棒（承重）：spec 在 `SEND_BUTTON.click()` 之前含一次「复认开关 `aria-checked`、必要时重开」的有界读取；`grep -c "aria-checked" e2e/resident-enable-consent.spec.ts` **≥** 现行 5，且新增的那次读数位于发送前。
+- [x] AC5 载重读数不弱化（承重）：`grep -cE "toBe\('resident'\)|toBe\('per-run'\)" e2e/resident-enable-consent.spec.ts` **≥ 7**（现行值），且 `:574` silent-conversion 腿与 `:721` capability 腿逐字保留。
+- [x] AC6 假形态必须红（承重）：在 `src/modules/chat/hooks/useChatComposerState.ts` 新会话分支去掉 `if (residentEnabled)` 的 PUT ⇒ `:441` 腿红在 `createdMode === 'resident'`（Received `per-run`）；登记变异 diff、失败断言逐字、退出码；恢复后复绿。
+- [x] AC7 契约面：`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**；`git diff --name-only $(git merge-base develop HEAD) HEAD` 全部落在 `## Touches` 内。
 
 ## DoD
 
@@ -60,7 +60,26 @@ goal_ac: AC-171
 - 载重读数（`:441` resident + per-run 正控制、`:574` silent-conversion、`:721` capability）与今天逐字相同。
 - 假形态真跑、真红，红落在 resident 读数上；只动 `## Touches` 列出的文件。
 
+## Evidence
+
+**AC1 — 判据 3 次连续绿（工作树 `…/gap-ac171-criterion-red-is-mid-run-hmr-load-stabilize` 内直跑，2026-10-05）。** `npx playwright test e2e/resident-enable-consent.spec.ts` 逐次 **exit 0**，duration **25.3s / 24.6s / 41.9s**；每次读数均含 `session.lifecycle_mode=resident`、`control.session.lifecycle_mode=per-run`、`new.session.lifecycle_mode=resident`、`resident.armed.aria-checked=true`。41.9s 那次各用例逐条 duration 与静默态一致（4.0s / 5.2s / 2.8s / 2.9s），多出的 ~17s 全在 run 级装填（config 评估/seeding/server boot/browser launch/onboarding），仍在 55s watchdog 与 60s 门限之内。
+
+**AC2 — 两处 driver 红逐字（任务立案时的工件）。**
+- `~/.cache/quay-e2e-tmp/quay-e2e-FK72jV/`（mtime `2026-10-05T02:50:35Z`）`test-results/resident-enable-consent-th-9e186-g-with-it-on-lands-resident/error-context.md`：`Error: expect(locator).toBeVisible() failed` / `Locator: locator('[data-slot="prompt-input-textarea"]')` / `Expected: visible` / `Timeout: 15000ms` / `Error: element(s) not found`（同批 trace 另有 `Error: Timeout 5000ms exceeded`）⇒ 固定 5s 启动预算在负载下不够。
+- `~/.cache/quay-e2e-tmp/quay-e2e-VTYHJM/`（mtime `2026-10-05T05:37:51Z`）同路径：`Error: the session a switch-on send is addressed to must read back as resident from the server` / `Expected: "resident"` / `Received: "per-run"`；其 `trace.zip` 内 `grep -rl lifecycle-mode` **全空**（无 `PUT …/lifecycle-mode` 请求），含 6×`[vite] hot updated: /src/App.tsx` ⇒ 运行中 HMR 重挂载复位 `residentEnabled`，非 AC-171 担保回归。
+
+**AC3 — 承重（启动预算与负载解耦）：** `grep -cE "click\(\{ timeout: *5_?000" e2e/resident-enable-consent.spec.ts` = **0**；`grep -cE "test\.describe\.configure\(\{ *timeout:" e2e/resident-enable-consent.spec.ts` = **1**（`test.describe.configure({ timeout: 45_000 })`）。`openComposer`/`openWorkspace` 改为先 `expect(projectRow).toBeVisible({ timeout: PROJECT_ROW_READY_MS = 20_000 })` 再 `row.click()`（不再带固定子预算）。
+
+**AC4 — 承重（重挂载鲁棒）：** `grep -c "aria-checked" e2e/resident-enable-consent.spec.ts` = **8**（≥ 现行 5）；新增的复认读数在 `armResidentSwitch()`（调用点 :603、:661）内，两次调用均在对应 `SEND_BUTTON.click()`（:604、:662）之前。
+
+**AC5 — 承重（载重读数不弱化）：** `grep -cE "toBe\('resident'\)|toBe\('per-run'\)" e2e/resident-enable-consent.spec.ts` = **7**（未减少）；silent-conversion 腿（现 :646）与 capability 腿（现 :796）逐字保留。
+
+**AC6 — 假形态真红：** 变异 = 在 `src/modules/chat/hooks/useChatComposerState.ts` 新会话分支删除 `if (residentEnabled) { … }` 整块（其中的 `await api.providers.setSessionLifecycleMode(provider, targetSessionId, 'resident');` 及其 catch / `clearResidentIntent?.()`），改为注释 `// FALSIFYING VARIANT (AC6): the resident lifecycle-mode write removed from the new-session branch.` ⇒ `npx playwright test e2e/resident-enable-consent.spec.ts -g "the new-session screen carries the switch"` **exit 1**，`session.lifecycle_mode=per-run`，失败断言逐字：`Error: the session a switch-on send is addressed to must read back as resident from the server` / `Expected: "resident"` / `Received: "per-run"`（即红在 `createdMode === 'resident'`）。`git checkout -- src/modules/chat/hooks/useChatComposerState.ts` 恢复（`setSessionLifecycleMode` 复现于 :1046），工作树 clean。假形态真红也证明 `armResidentSwitch` 的复认不会掩盖载重读数。
+
+**AC7 — 契约面：** `npm run lint` **exit 0**；`npm run typecheck` **exit 0**；`git diff --name-only $(git merge-base develop HEAD) HEAD` = `e2e/resident-enable-consent.spec.ts`（+ 本次 ABI tick commit 的 `tasks/gap-ac171-criterion-red-is-mid-run-hmr-load-stabilize.md`），全部落在 `## Touches` 内。
+
 ## Touches
 
 - `e2e/resident-enable-consent.spec.ts`
 - `tasks/gap-ac171-criterion-red-is-mid-run-hmr-load-stabilize.md`（自触）
+
