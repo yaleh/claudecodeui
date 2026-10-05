@@ -22,7 +22,7 @@ depends_on:
 ### 方案
 
 1. **语音来源区间**：`useVoiceInput` 把识别结果通过 `onTranscript(full)` 整体交给输入框（`reassembleText` 已处理片段缝合去重）；本任务在其内部为每个已提交的片段记录 `{ index, text }`，并由发送钩子据此在当前输入框文字里定位该片段（片段文字被改了也要能对上，对齐用字符级而不是按子串查找）。
-2. **纯函数** `src/shared/voiceEditLabels.ts`：`labelsFor(voiceSegments, finalText) → Label[]`，`Label = { segmentIndex, heard, final, op: 'replace' | 'merge' | 'split' | 'delete' | 'rewrite' }`。对齐用字符级动态规划（等价于 `experiments/voice-index-loop/sim/lib.mjs` 的 `alignRegion` / `widenToWords`，把区间扩到完整的拉丁词、去掉两端标点）；标识符形状规则与 `experiments/voice-index-loop/extract.py` 的 `is_id` 逐条一致（驼峰边界、`_`、`-`、含数字、≥ 2 位全大写；不含路径与文件名）。
+2. **纯函数** `src/shared/voiceEditLabels.ts`：`labelsFor(voiceSegments, finalText) → Label[]`，`Label = { segmentIndex, heard, final, op: 'replace' | 'merge' | 'split' | 'delete' | 'rewrite' }`。对齐用字符级动态规划（等价于 `experiments/voice-index-loop/sim/lib.mjs` 的 `alignRegion` / `widenToWords`，把区间扩到完整的拉丁词、去掉两端标点）；标识符形状规则与 `experiments/voice-index-loop/sim/extract.py` 的 `is_id` 逐条一致（驼峰边界、`_`、`-`、含数字、≥ 2 位全大写；不含路径与文件名）。
 3. **纠正与改写的分界**（取数前定死，不调参）：一处改动涉及 ≤ 3 个相邻 token 且字符编辑比 ≤ 0.5 ⇒ 纠正（`replace` / `merge` / `split` / `delete`）；否则 ⇒ `rewrite`，标记但**不作为纠正标签**。
 4. **回写**：`PATCH /api/voice/data/:recordId`，服务端把 `finalText` 与 `labels` 写进记录；记录不存在 ⇒ 404；**发送不等这个请求**，请求失败也不影响消息发出。
 5. **隐私**：`voiceDataRecording` 关闭时不发 PATCH。
@@ -36,7 +36,7 @@ depends_on:
 
 - [ ] `npx vitest run src/shared/tests/voiceEditLabels.test.ts` 退出码 0，且含已知答案用例：①`key` → `quay`（replace）②`quay fleet` → `quay-fleet`（merge）③`AC 零零二` → `AC-002`（replace）④删掉一个词（delete）⑤在语音片段**前后**打字不产生标签 ⑥整句重写 ⇒ `rewrite` 且不进纠正标签 ⑦两个语音片段各自产生自己的标签 ⑧最终文字与语音文字相同 ⇒ 空数组
 - [ ] 能红的负对照：把「纠正与改写的分界」整个去掉（一律当纠正）的变体，用例⑥必须变红；用例里以 `redWhenOff` 形式或等价的对照写出
-- [ ] 标识符形状规则：用 `experiments/voice-index-loop/extract.py` 里的 `is_id` 已知答案表（至少 12 条，含 `needs-human`、`AC-103`、`CloudCLI` 为真，`server.ts`、`plain`、`a/b` 为假）逐条断言 TS 实现与之一致
+- [ ] 标识符形状规则：用 `experiments/voice-index-loop/sim/extract.py` 里的 `is_id` 已知答案表（至少 12 条，含 `needs-human`、`AC-103`、`CloudCLI` 为真，`server.ts`、`plain`、`a/b` 为假）逐条断言 TS 实现与之一致
 - [ ] 钩子：`npx vitest run src/modules/chat/tests/` 下新增的测试断言 ①发送时调用 `labelsFor` 并 PATCH ②PATCH 失败时消息**仍然发出** ③`voiceDataRecording` 关闭时不发 PATCH
 - [ ] 服务端：`PATCH /api/voice/data/:recordId` 对不存在的 id 返回 404；写入后记录含 `finalText` 与 `labels`，且不含 API key 哨兵（路由与服务测试，`npx vitest run server/modules/voice/tests/voice-data.test.ts` 退出码 0）
 - [ ] MCP 浏览器验证：用 playwright MCP 打开 `http://localhost:3001/`，进入**调试 agent 会话**（ADR-003，不跑真实 CLI），用 `?voiceDebug=1` 的上传入口转写一个含 `key` 的 wav，在输入框把 `key` 改成 `quay` 后发送；读取 `~/.cloudcli/voice-data/` 下对应记录，`labels` 含 `heard: "key"`、`final: "quay"`；把记录里的 `labels` 记入 `## Evidence`
