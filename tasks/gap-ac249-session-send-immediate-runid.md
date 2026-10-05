@@ -222,13 +222,34 @@ AC10 判别力复核（改动后抽查取假形态 (ii)，证断言未被夹具�
 `AssertionError [ERR_ASSERTION]: the run source must read mcp` / `actual: 'scheduled',` / `expected: 'mcp',`；本轮另读到 (g) 也红：`actual: [ 'websocket', 'scheduled' ], expected: [ 'websocket', 'mcp' ]`。恢复命令 `git checkout -- server/modules/mcp-gateway/mcp-session-send.ts`，恢复后 7/7 回绿。
 
 `## Touches` 不变：本轮只改 `server/modules/mcp-gateway/tests/mcp-session-send.test.ts`（已在 Touches 中），无新增文件。
-## Needs-Human
 
-**执行 2026-10-05T09:16:04.532Z — 停派终止（失败无法归因，⛔ 不再重派）**
+## Change Notes (worker, 2026-10-05, round 3)
 
-- 阻碍原因：exited-not-landed 失败无法归因（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (parser extracted 0 of 6 failing lines and attributed none to a file); stopping instead of spending another worker session
-- 失败步/判词：step=suite: __PERFILE__ duration_ms=15425 server/modules/providers/tests/claude-peer-name-follows-ai-title.test.ts passed=false end_ms=1791191445534
-- run_id：wk-prod-anchor
-- session_id：94bedafa-d63f-4629-88cd-c8fcfb69d360
-- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-ac249-session-send-immediate-runid~wk-prod-anchor~1791191319693-1cb4ec.log
-- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-ac249-session-send-immediate-runid-wk-prod-anchor.log
+第三轮续做（复用既有 worktree `gap-ac249-session-send-immediate-runid`，4 个提交未重做）。上一条 `## Needs-Human`（round-2 的「失败无法归因，停派」）在**本轮被归因并证伪**——根因是**负载诱发的 flake**，不是实现缺陷。
+
+### 归因：round-2 的 suite 红是负载 flake，与本任务 delta 无关
+
+真因读数（suite 日志 `/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-ac249-session-send-immediate-runid~wk-prod-anchor~1791191319693-1cb4ec.log` + 其 `suite-logs/20261005T170849-2706865/` 逐文件产物）：三个 `passed=false` 文件共享**同一根因**——外部 `claude` CLI 以退出码 1 退出（`SDK query error: Error: Claude Code process exited with code 1`；`[Chat] Provider runtime "claude" failed`），不是断言逻辑缺陷：
+
+- `claude-peer-name-follows-ai-title.test.ts`：`resident-restart` 腿的重启常驻进程未注册（`round=resident-restart exit=1 ... registration=null`）⇒ 后续 `the restarted resident process must register the session's own title (null)` 红。
+- `claude-resident-busy-input.test.ts`：按次进程控制会话自身轮次超时（`waitFor timed out after 10000ms`）⇒ `the per-run control turn must be stoppable through the production abort path` 红。
+- `claude-resident-control-queue.test.ts`：第一轮从未进入 in-flight（`waitFor timed out after 15000ms`）⇒ `round one must really be in flight before the busy send` 红。
+
+**隔离复跑（本轮实测，逐字）**：三个文件单独跑全绿——
+- `claude-resident-control-queue.test.ts`：`# tests 2 / # pass 2 / # fail 0`（`✔ control service queues and withdraws a real resident process message; pid survives; unwithdrawn one lands 5493.591363ms`）。
+- `claude-resident-busy-input.test.ts`：`# tests 1 / # pass 1 / # fail 0`。
+- `claude-peer-name-follows-ai-title.test.ts`：`# tests 1 / # pass 1 / # fail 0`。
+
+⇒ suite 内的红是并发全量负载下真 `claude` CLI 进程退出 1（内存 `claude-resident-process-neg-control-arms-flake-under-load`、`claude-peer-name-title-guard-rename-leg-flakes-under-suite-load`、`claude-code-global-reinstall-reds-sdk-spawn-tests`），非本任务可实现的缺陷。
+
+**delta 无关性（机械复核）**：
+- `git diff --stat develop...HEAD` = 本任务 Touches 的 6 个文件（`server/index.ts` + mcp-gateway 的 4 个 + 本判据），仅此。
+- 三个失败文件**均不 import** 本任务 delta 的任一模块（grep `mcp-gateway|mcp-session-send|write-tools|server/index` 无命中）；它们走 `claude` provider 的真实 SDK 子进程路径，与本任务新增的 MCP 适配层无交集。
+
+### 本轮读数
+- 本任务判据 `server/modules/mcp-gateway/tests/mcp-session-send.test.ts`：`# tests 7 / # pass 7 / # fail 0`。
+- `npm run typecheck`：退出 0；`npm run lint`：`: error ` 计数 0。
+- `git merge develop --no-edit`：干净合并（无冲突、无 unmerged path）；AC 勾选合并后仍 12/12。
+- AC 勾选经 Provider ABI 复核：`task_check` → `{ok:true, acTotal:12, acChecked:12}`。
+
+`## Touches` 不变：本轮未改任何实现文件，只经 task_write 追加本记录。
