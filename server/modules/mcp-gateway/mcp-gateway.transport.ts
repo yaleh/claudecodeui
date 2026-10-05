@@ -3,10 +3,12 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
+import type { AccessTokensService } from '@/modules/oauth/index.js';
+
 import type { McpToolRegistrar } from './mcp-gateway.audit.js';
 import { withMcpAudit } from './mcp-gateway.audit.js';
-import { readMcpPrincipal } from './mcp-gateway.auth.js';
-import type { McpPrincipal } from './mcp-gateway.auth.js';
+import { createMcpAuthMiddleware, readMcpPrincipal } from './mcp-gateway.auth.js';
+import type { McpOauthSeam, McpPrincipal } from './mcp-gateway.auth.js';
 import { MCP_GATEWAY_PATH, readMcpGatewayGate } from './mcp-gateway.gate.js';
 import { createMcpLoopbackGuard } from './mcp-gateway.loopback.js';
 import { registerMcpReadTools } from './mcp-gateway.read-tools.js';
@@ -31,8 +33,9 @@ import type { McpReadToolDeps, McpReadToolSeam } from './mcp-gateway.read-tools.
  * The gate decides AT MOUNT TIME. When `MCP_ENABLED` is not truthy nothing is
  * attached — no `app.post`/`app.get`/`app.delete` layer exists at the path — so
  * the path is ABSENT rather than forbidden. `authorize` is a seam: the default
- * refuses every request (fail-closed 401) and AC-241/242 replace it with token
- * and loopback checks in front of the transport.
+ * refuses every request (fail-closed 401), while supplying `tokens` (and, once
+ * OAuth is on, `oauth`) lets this mount build the real AC-241/AC-263 auth
+ * middleware in front of the transport.
  */
 
 /** Advertised to MCP clients in the `initialize` handshake. */
@@ -153,6 +156,20 @@ export type McpGatewayDeps = {
   /** Auth middleware in front of the transport. Defaults to a fail-closed 401. */
   authorize?: RequestHandler;
   /**
+   * The token service the DEFAULT auth middleware verifies `ccp_` tokens through
+   * (AC-241). Supplying it — instead of an explicit `authorize` — lets this mount
+   * build the real middleware and thread {@link McpGatewayDeps.oauth} into it;
+   * `server/index.ts` is the consumer that does so. Absent on a mount that injects
+   * its own `authorize` (AC-240/241/244/245's criteria).
+   */
+  tokens?: AccessTokensService;
+  /**
+   * The OAuth access-token verification seam (AC-263), threaded into the default
+   * auth middleware so `/mcp` accepts `cca_` tokens once OAuth is on. Only read
+   * when `tokens` is supplied and `authorize` is not.
+   */
+  oauth?: McpOauthSeam;
+  /**
    * The tool-registration seam (AC-244): called once per request with the
    * request's principal, it installs the gateway's tools. Audited tools come from
    * `withMcpAudit`; AC-245+'s real tools register through this same seam.
@@ -191,6 +208,20 @@ export function mountMcpGateway(app: Express, deps: McpGatewayDeps = {}): McpGat
     return { mounted: false, reason: gate.reason };
   }
 
-  attachTransport(app, deps.authorize ?? refuseUnauthorized, deps.env, deps.registerTools, deps.readTools);
+  attachTransport(app, deps.authorize ?? buildDefaultAuthorize(deps), deps.env, deps.registerTools, deps.readTools);
   return { mounted: true, reason: gate.reason };
+}
+
+/**
+ * The `authorize` middleware when the caller did not inject one: the real
+ * AC-241/AC-263 middleware over the supplied token service (and OAuth seam), or
+ * the fail-closed default when no token service was supplied. Consumers:
+ * `mountMcpGateway`; `server/index.ts` relies on this path while the criteria
+ * inject their own `authorize`.
+ */
+function buildDefaultAuthorize(deps: McpGatewayDeps): RequestHandler {
+  if (deps.tokens === undefined) {
+    return refuseUnauthorized;
+  }
+  return createMcpAuthMiddleware({ tokens: deps.tokens, oauth: deps.oauth, env: deps.env });
 }

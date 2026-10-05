@@ -6,9 +6,11 @@
 // `boundaries/dependencies`):
 //
 //  - `server/index.ts` — mounts the stateless `/mcp` endpoint before the static
-//    assets middleware, logs the gate's decision, and injects the shared
-//    `createMcpAuthMiddleware` instance that verifies `ccp_` tokens through the
-//    process's single `AccessTokensService`.
+//    assets middleware, logs the gate's decision, and supplies the process's
+//    single `AccessTokensService` plus the OAuth verification seam so the mount
+//    builds the shared `createMcpAuthMiddleware` that verifies `ccp_` tokens
+//    (AC-241) and, once OAuth is on, `cca_` tokens against their audience
+//    (AC-263).
 //
 // The criterion is the module's own test, which reaches the barrel by relative
 // path and the gate through `mountMcpGateway`'s injectable seams.
@@ -19,7 +21,12 @@ export { mountMcpGateway } from './mcp-gateway.transport.js';
 export type { McpGatewayDeps, McpGatewayReading } from './mcp-gateway.transport.js';
 
 export { createMcpAuthMiddleware, readMcpPrincipal } from './mcp-gateway.auth.js';
-export type { McpPrincipal } from './mcp-gateway.auth.js';
+export type {
+  McpAuthMiddlewareOptions,
+  McpOauthSeam,
+  McpOauthVerification,
+  McpPrincipal,
+} from './mcp-gateway.auth.js';
 
 // The audit surface (AC-244): `withMcpAudit` wraps a tool so every call writes
 // exactly one `mcp_audit_log` row; `summarizeToolArgs` reduces arguments to a

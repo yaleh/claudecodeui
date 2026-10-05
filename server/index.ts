@@ -42,6 +42,7 @@ import { settingsRoutes } from './modules/settings/index.js';
 import {
     createAccessTokensService,
     createOAuthClientsRouter,
+    createOAuthProvider,
     createOAuthStore,
     createTokenInfoRouter,
     mountOAuthRegister,
@@ -87,11 +88,11 @@ import {
     setDebugAgentOpenRun,
 } from './modules/debug-agent/index.js';
 import {
-    createMcpAuthMiddleware,
     MCP_GATEWAY_PATH,
     mountMcpGateway,
     mountOAuthMetadata,
     readMcpDcrMode,
+    readOAuthMetadataGate,
     startMcpAuditRetention,
 } from './modules/mcp-gateway/index.js';
 import { browserUseService } from './modules/browser-use/browser-use.service.js';
@@ -482,18 +483,39 @@ if (mountDebugAgentControlPlane(app, authenticateToken)) {
 // reach the transport. The gate decides at mount time; while `MCP_ENABLED` is
 // off nothing is attached here and the path stays absent.
 //
-// AC-241 replaces the fail-closed default `authorize` with real token auth: the
-// middleware verifies through the SAME `accessTokensService` the token-info route
-// uses, so `/mcp` admits only valid `ccp_` tokens and invalid ones share the
-// token-info 401 body.
+// AC-241/AC-263 replace the fail-closed default `authorize` with real token auth:
+// the mount builds the middleware over the SAME `accessTokensService` the
+// token-info route uses, so `/mcp` admits valid `ccp_` tokens and invalid ones
+// share the token-info 401 body. Once `MCP_OAUTH_ENABLED` is on, the same
+// middleware also admits valid `cca_` OAuth access tokens whose audience is this
+// gateway and answers a discovery challenge otherwise.
+//
+// The OAuth verification seam is built ONLY when OAuth is on, from the SAME
+// validated base URL the discovery documents advertise (read through AC-262's
+// gate, so an invalid `PUBLIC_BASE_URL` still aborts startup). While it is off no
+// provider is constructed and `/mcp` stays PAT-only, guarded by the loopback
+// check (AC-242).
 //
 // AC-245 supplies `readTools`: the process singletons every stage-3 read tool
 // answers from (projects, providers' sessions, session hosts, the chat run
 // registry) plus the wall clock. They are injected rather than imported so the
 // gateway module owns no database handle and a criterion can drive the same
 // tools over its own fixture.
+const oauthMetadataGate = readOAuthMetadataGate();
+const mcpOauth = oauthMetadataGate.enabled
+    ? (() => {
+        const provider = createOAuthProvider({ store: oauthStore, publicBaseUrl: oauthMetadataGate.baseUrl });
+        return {
+            publicBaseUrl: oauthMetadataGate.baseUrl,
+            verifyAccessToken: (token: string, options: { resource: string }) =>
+                provider.verifyAccessToken(token, options),
+        };
+    })()
+    : undefined;
+
 const mcpGateway = mountMcpGateway(app, {
-    authorize: createMcpAuthMiddleware(accessTokensService),
+    tokens: accessTokensService,
+    oauth: mcpOauth,
     readTools: {
         projects: { getProjectsWithSessions, getArchivedProjectsWithSessions, getProjectSessionsPage },
         sessions: sessionsService,

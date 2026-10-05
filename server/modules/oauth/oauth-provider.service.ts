@@ -103,9 +103,23 @@ export type OAuthTokenPair = { accessToken: string; refreshToken: string; expire
 /** Outcome of either token exchange. */
 export type ExchangeResult = ({ ok: true } & OAuthTokenPair) | { ok: false; error: OAuthErrorCode };
 
-/** Outcome of {@link OAuthProvider.verifyAccessToken}. */
+/**
+ * Outcome of {@link OAuthProvider.verifyAccessToken}. On success it names the
+ * token ROW (`tokenId`), the OAuth client the authorizing grant belongs to
+ * (`clientId`), the owning user, the granted scopes, the grant id and the stored
+ * expiry — the identity `/mcp`'s middleware folds into `McpPrincipal` so its
+ * audit rows can tell an OAuth call from a personal-access-token one (AC-263).
+ */
 export type VerifyOAuthAccessTokenResult =
-  | { ok: true; userId: number; scopes: string[]; grantId: number | null; expiresAt: string }
+  | {
+      ok: true;
+      userId: number;
+      tokenId: number;
+      clientId: string | null;
+      scopes: string[];
+      grantId: number | null;
+      expiresAt: string;
+    }
   | { ok: false; reason: VerifyAccessTokenReason };
 
 export type OAuthProvider = {
@@ -390,9 +404,17 @@ export function createOAuthProvider(options: OAuthProviderOptions): OAuthProvide
         return { ok: false, reason: 'invalid_target' };
       }
 
+      // The grant names the OAuth client this token was issued to; a token whose
+      // grant row is gone (it cannot be, the FK cascades) reads as null. `/mcp`'s
+      // middleware copies this into the principal so the audit row distinguishes an
+      // OAuth call from a PAT one (AC-263).
+      const grant = row.grant_id === null ? null : oauthGrantsDb.findById(row.grant_id);
+
       return {
         ok: true,
         userId: row.user_id,
+        tokenId: row.id,
+        clientId: grant?.client_id ?? null,
         scopes: verified.scopes,
         grantId: verified.grantId,
         expiresAt: verified.expiresAt,
